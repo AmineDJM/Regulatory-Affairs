@@ -17,6 +17,7 @@ import { validateursDeLaDemande } from "@/lib/queries/promo-circuit";
 import { fdStr, fdNum, type ActionResult } from "@/lib/actions/types";
 import { siegeAuCentreAdPro, REFUS_BC_CENTRE_AD_PRO } from "@/lib/ad-pro/centre";
 import { getAppSettings } from "@/lib/settings";
+import { moneyEntityOf } from "@/lib/company";
 import { validationRequiseBC, motifSousLeSeuil } from "@/lib/bons-de-commande/regle";
 import { etatDeLOrdre, LIBELLE_ETAT_REGLEMENT } from "@/lib/payments/reglement";
 import { blockedReason, type CentralStatus } from "@/lib/payments/authorization";
@@ -141,7 +142,14 @@ export async function createPromoMaterial(_prev: ActionResult | undefined, formD
     const description = fdStr(formData, "description");
     const amount = fdNum(formData, "amount");
     const materialType = fdStr(formData, "materialType");
-    const companyId = fdStr(formData, "companyId");
+    // L'ENTITÉ LAISSÉE VIDE N'EST PAS « AUCUNE ENTITÉ » (§118.153). Sans repli, le dossier naissait
+    // sans entité : la liste unifiée Ad & Pro, qui cloisonne par entité, ne le montrait à PERSONNE,
+    // et la directrice marketing qui venait de le valider ne l'y retrouvait pas — mesuré en
+    // parcours réel, le menu « Entité » étant facultatif. Le repli est celui de l'ARGENT
+    // (`moneyEntityOf`, comme le sponsoring et les événements) : ce dossier émet des bons de
+    // commande au nom d'une société, et c'est la société où le demandeur TRAVAILLE qui engage,
+    // pas celle que sa barre d'affichage montre à cet instant.
+    const companyId = fdStr(formData, "companyId") || (await moneyEntityOf(user.id));
 
     // QUI RETRANSCRIT LES PRIX (§118.152) : une assistante de direction ACTIVE, et jamais le
     // demandeur lui-même. Le menu de l'écran proposait tout compte actif — le demandeur pouvait

@@ -119,7 +119,7 @@ async function main(): Promise<void> {
   const { runAssistantStream } = await import("@/lib/assistant");
   const { withTurn, summarize } = await import("@/lib/models/telemetry");
   const { personalContext } = await import("@/lib/assistant-memory");
-  const { rememberExchange } = await import("@/lib/actions/assistant-actions");
+  const { rememberExchange } = await import("@/lib/memoire-echange");
   const { VERITES } = await import("./seed-adam-bench");
 
   const charger = async (email: string): Promise<CurrentUser> => {

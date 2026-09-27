@@ -1,6 +1,6 @@
 import { requireUser } from "@/lib/session";
 import { featureEnabled, FEATURES } from "@/lib/features";
-import { rememberExchange } from "@/lib/actions/assistant-actions";
+import { rememberExchange } from "@/lib/memoire-echange";
 import { canUseRealtimeVoice } from "@/lib/assistant/voice-realtime";
 
 export const dynamic = "force-dynamic";

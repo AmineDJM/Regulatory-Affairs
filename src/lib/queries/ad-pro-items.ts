@@ -5,6 +5,7 @@ import type { SessionUser } from "@/lib/rbac";
 import type { ItemRow } from "@/components/ad-pro/items-panel";
 import { PARENT_COLONNE, type AdProParent } from "@/lib/ad-pro-items";
 import { NATURES_PIECE_SECRETARIAT, PIECE_SECRETARIAT, type NaturePieceSecretariat } from "@/lib/ad-pro/pieces-secretariat";
+import { statutDuDossier } from "@/lib/promo-material/statut";
 
 /**
  * CHARGEMENT DES POSTES D'UNE OPÉRATION AD & PRO — un seul endroit pour les quatre modules.
@@ -39,7 +40,7 @@ export async function loadAdProItems(parent: AdProParent, parentId: string): Pro
   const itemIds = rawItems.map((i) => i.id);
   const [promoRows, orderRows, demandeRows, docRows] = await Promise.all([
     promoIds.length
-      ? prisma.promoMaterial.findMany({ where: { id: { in: promoIds } }, select: { id: true, reference: true, title: true, status: true } })
+      ? prisma.promoMaterial.findMany({ where: { id: { in: promoIds } }, select: { id: true, reference: true, title: true, status: true, circuitState: true, circuitVersion: true } })
       : Promise.resolve([]),
     orderIds.length
       ? prisma.expenseOrder.findMany({ where: { id: { in: orderIds } }, select: { id: true, reference: true, status: true } })
@@ -75,7 +76,7 @@ export async function loadAdProItems(parent: AdProParent, parentId: string): Pro
     demandesParPoste.set(d.linkedEntityId, liste);
   }
   const docsParPoste = new Map(docRows.map((d) => [d.entityId, d._count._all]));
-  const promoById = new Map(promoRows.map((p) => [p.id, { reference: p.reference, title: p.title, status: String(p.status) }]));
+  const promoById = new Map(promoRows.map((p) => [p.id, { reference: p.reference, title: p.title, status: statutDuDossier(p).libelle }]));
   const orderById = new Map(orderRows.map((o) => [o.id, { reference: o.reference, status: String(o.status) }]));
 
   return rawItems.map((i) => ({

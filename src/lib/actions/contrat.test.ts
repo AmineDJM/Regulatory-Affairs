@@ -66,8 +66,15 @@ import { ACTION_CLASSIFICATION } from "@/lib/assistant/action-registry";
  * DÉCRITES et INAPPELABLES.
  *
  * Il ne se relève JAMAIS sans une justification écrite ici, dans la même revue de code.
+ *
+ * ── 24 → 23 (§118.153) : UNE ACTION DE MOINS, ET CE N'EST PAS UNE LECTURE DE PLUS ──────────
+ *
+ * `rememberExchange` était illisible pour la bonne raison : elle recevait l'identité de son
+ * acteur en argument. Le refus au chemin générique ne fermait pas son point d'entrée public ;
+ * elle a quitté le fichier « use server » pour un module serveur ordinaire. Le plafond suit le
+ * chiffre MESURÉ — laissé à 24, il ne pourrait plus signaler la première illisible neuve.
  */
-const PLAFOND_ILLISIBLES = 24;
+const PLAFOND_ILLISIBLES = 23;
 
 describe("CONTRAT D'ACTION — la dérivation LIT la source, elle ne l'invente pas", () => {
   // Une source ÉCRITE ICI : c'est le seul endroit où je connais la vérité indépendamment du

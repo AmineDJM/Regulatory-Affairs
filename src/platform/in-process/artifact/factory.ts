@@ -663,6 +663,21 @@ function peutEcrire(user: CurrentUser, verbe: "CREATE" | "UPDATE", type: TypeDoc
 export interface OptionsEmission {
   source?: { type: EntityType; id: string } | null;
   delegation?: string | null;
+  /**
+   * QUI A DÉCLENCHÉ L'ÉMISSION (§118.153). `ADAM` : la capacité de conversation. Absent : une
+   * PERSONNE a cliqué sur un écran (Finances, Legal, matériel promotionnel). La pièce et l'audit
+   * écrivaient « émis par Adam » quel que soit le chemin — mesuré en parcours réel, sur un BC que
+   * les Finances venaient de générer d'un clic, dans un ERP où Adam n'est visible que du Super
+   * Admin : la note attribuait l'engagement à un acteur que la personne ne voit pas, et effaçait
+   * celle qui l'avait pris. Le défaut est l'HUMAIN : c'est le seul canal qu'on ne peut pas oublier
+   * de déclarer sans mentir.
+   */
+  canal?: "ADAM" | null;
+}
+
+/** « par Adam » ou « par <la personne> » — la même lecture pour la pièce, l'audit et la révision. */
+function parQui(user: CurrentUser, canal: OptionsEmission["canal"]): string {
+  return canal === "ADAM" ? "par Adam" : `par ${user.name?.trim() || "un utilisateur"}`;
 }
 
 /**
@@ -737,7 +752,7 @@ export async function emettreDocumentDrive(user: CurrentUser, demande: DemandeDo
           reglesAppliquees: profil.reglesAppliquees, porteBC: porteExistante, reserveBonDeCommande: reserveExistante, ms: Date.now() - debut,
         };
       }
-      return terminerEmission(user, existant.id, { ...f, spec: { ...base, numero: f.numero } }, habillage, demande, profil, { repris: true, debut, avertissements: essai.verification.avertissements, delegation: opts.delegation ?? null });
+      return terminerEmission(user, existant.id, { ...f, spec: { ...base, numero: f.numero } }, habillage, demande, profil, { repris: true, debut, avertissements: essai.verification.avertissements, delegation: opts.delegation ?? null, canal: opts.canal ?? null });
     }
   }
 
@@ -766,7 +781,7 @@ export async function emettreDocumentDrive(user: CurrentUser, demande: DemandeDo
         chainFromId: demande.chainFromId ?? null,
         sourceType: opts.source?.type ?? null,
         sourceId: opts.source?.id ?? null,
-        notes: `${LIBELLE_TYPE[type]} émis${type === "FACTURE" ? "e" : ""} par Adam — TTC ${formaterDzd(totaux.totalTtc)}.`,
+        notes: `${LIBELLE_TYPE[type]} émis${type === "FACTURE" ? "e" : ""} ${parQui(user, opts.canal)} — TTC ${formaterDzd(totaux.totalTtc)}.`,
         createdById: user.id, updatedById: user.id,
         custom: { fabrique } as unknown as Prisma.InputJsonValue,
       },
@@ -774,13 +789,13 @@ export async function emettreDocumentDrive(user: CurrentUser, demande: DemandeDo
     });
     return { id: doc.id, fabrique };
   });
-  return terminerEmission(user, cree.id, cree.fabrique, habillage, demande, profil, { repris: false, debut, avertissements: essai.verification.avertissements, delegation: opts.delegation ?? null });
+  return terminerEmission(user, cree.id, cree.fabrique, habillage, demande, profil, { repris: false, debut, avertissements: essai.verification.avertissements, delegation: opts.delegation ?? null, canal: opts.canal ?? null });
 }
 
 /** Compose la pièce numérotée, l'écrit dans le Drive (+ PDF), et clôt l'émission au registre. */
 async function terminerEmission(
   user: CurrentUser, legalDocumentId: string, fabrique: Fabrique, habillage: Habillage, demande: DemandeDocument, profil: ProfilDocumentaire,
-  ctx: { repris: boolean; debut: number; avertissements: string[]; delegation?: string | null },
+  ctx: { repris: boolean; debut: number; avertissements: string[]; delegation?: string | null; canal?: OptionsEmission["canal"] },
 ): Promise<DocumentEmis | EchecFabrique> {
   const spec = fabrique.spec;
   const construit = await construireDocumentCommercial(spec, habillage);
@@ -808,7 +823,7 @@ async function terminerEmission(
   });
   await recordAudit({
     actorId: user.id, action: "CREATE", module: "Legal", entityType: "LEGAL_DOCUMENT", entityId: legalDocumentId,
-    summary: `${LIBELLE_TYPE[spec.type]} ${fabrique.numero} émis${spec.type === "FACTURE" ? "e" : ""} par Adam pour ${spec.tiers.nom} — ${formaterDzd(construit.totaux.totalTtc)}${ctx.repris ? " (émission interrompue terminée)" : ""}${ctx.delegation ? ` — autorisé par : ${ctx.delegation}` : ""}`,
+    summary: `${LIBELLE_TYPE[spec.type]} ${fabrique.numero} émis${spec.type === "FACTURE" ? "e" : ""} ${parQui(user, ctx.canal)} pour ${spec.tiers.nom} — ${formaterDzd(construit.totaux.totalTtc)}${ctx.repris ? " (émission interrompue terminée)" : ""}${ctx.delegation ? ` — autorisé par : ${ctx.delegation}` : ""}`,
   });
   // TOUT BON DE COMMANDE PASSE PAR UN CENTRE DE VALIDATION (§118.148). La porte est posée APRÈS
   // la composition : le centre doit pouvoir OUVRIR la pièce qu'il valide, et elle n'existe
@@ -894,7 +909,7 @@ export type ModificationsDocument = Partial<Pick<DemandeDocument, "tiers" | "lig
  */
 export async function reviserDocumentDrive(
   user: CurrentUser, opts: { legalDocumentId: string; modifications: ModificationsDocument; motif?: string | null },
-  emission: Pick<OptionsEmission, "delegation"> = {},
+  emission: Pick<OptionsEmission, "delegation" | "canal"> = {},
 ): Promise<DocumentEmis | EchecFabrique> {
   const debut = Date.now();
   const doc = await prisma.legalDocument.findUnique({ where: { id: opts.legalDocumentId }, select: { id: true, companyId: true, kind: true, status: true, custom: true, driveNodeId: true } });
@@ -969,7 +984,7 @@ export async function reviserDocumentDrive(
       custom: { fabrique: finale } as unknown as Prisma.InputJsonValue,
     },
   });
-  await recordAudit({ actorId: user.id, action: "UPDATE", module: "Legal", entityType: "LEGAL_DOCUMENT", entityId: doc.id, summary: `${LIBELLE_TYPE[f.type]} ${f.numero} révisé par Adam (${resume}) — ${formaterDzd(construit.totaux.totalTtc)}${emission.delegation ? ` — autorisé par : ${emission.delegation}` : ""}` });
+  await recordAudit({ actorId: user.id, action: "UPDATE", module: "Legal", entityType: "LEGAL_DOCUMENT", entityId: doc.id, summary: `${LIBELLE_TYPE[f.type]} ${f.numero} révisé ${parQui(user, emission.canal)} (${resume}) — ${formaterDzd(construit.totaux.totalTtc)}${emission.delegation ? ` — autorisé par : ${emission.delegation}` : ""}` });
   // UN BC RÉVISÉ SE RÉAIGUILLE (§118.148) : montant RELEVÉ après validation, il retourne au
   // centre ; corrigé à la demande du centre, il y est renvoyé. Le montant d'avant est celui de la
   // version précédente — c'est lui que le centre avait sous les yeux.

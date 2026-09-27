@@ -249,12 +249,32 @@ export interface ValidateursDuDossier {
  * Marketing qui porte le rôle ne tranche pas son devis.
  */
 export function canValidate(user: { id: string; role: string }, state: PromoState, ctx: ValidateursDuDossier): boolean {
+  if (!estUneValidation(state)) return false;
+  if (user.role === "SUPER_ADMIN") return true;
+  return acteurDeLEtape(user, state, ctx);
+}
+
+/** L'étape est-elle une VALIDATION (un acteur la tranche) ? Les devis et l'exécution n'en sont pas. */
+function estUneValidation(state: PromoState): boolean {
   if (state === "REFUSED" || state === "COMPLETED" || state === "IN_EXECUTION") return false;
   if (state === "QUOTE_REQUESTED" || state === "QUOTE_TO_REQUEST") return false; // ce ne sont pas des validations
-  const actor = STEP_ACTOR[state];
-  if (!actor) return false;
+  return STEP_ACTOR[state] !== undefined;
+}
 
-  if (user.role === "SUPER_ADMIN") return true;
+/**
+ * CETTE PERSONNE EST-ELLE L'ACTEUR DÉSIGNÉ de l'étape — hors déblocage du Super Admin.
+ *
+ * `canValidate` répond « peut-elle valider ? », et le Super Admin le peut toujours : c'est ce qui
+ * évite qu'un circuit s'arrête sur une absence. Mais « peut débloquer » n'est pas « c'est son
+ * tour » : lister chez lui chaque dossier de chaque étape noierait sa file sous des suppléances,
+ * exactement le bruit que le centre d'actions refuse ailleurs (une étape qui n'est pas encore à
+ * vous n'est pas du travail à faire). Les deux questions lisent le MÊME aiguillage — une seconde
+ * copie des acteurs finirait par désigner quelqu'un que l'action refuse (§118.5).
+ */
+export function acteurDeLEtape(user: { id: string; role: string }, state: PromoState, ctx: ValidateursDuDossier): boolean {
+  if (!estUneValidation(state)) return false;
+  const actor = STEP_ACTOR[state as PromoStep];
+  if (!actor) return false;
   const porte = (r: string) => user.role === r || ctx.secondaryRole === r;
   switch (actor) {
     case "REQUEST_VALIDATOR":
@@ -271,7 +291,10 @@ export function canValidate(user: { id: string; role: string }, state: PromoStat
       if (ctx.validateursMarketing) return ctx.validateursMarketing.includes(user.id);
       return porte(ROLE_DIRECTION_MARKETING);
     case "GENERAL_MANAGER": return user.role === "GENERAL_MANAGER";
-    case "EXECUTIVE": return user.role === "DIRECTION";
+    // « PDG OU Super Admin » (circuit 1) : le Super Admin est ACTEUR NOMMÉ de cette étape, pas
+    // seulement son débloqueur — son tour se lit donc ici aussi. Pour `canValidate` rien ne
+    // change : il pouvait déjà tout débloquer.
+    case "EXECUTIVE": return user.role === "DIRECTION" || user.role === "SUPER_ADMIN";
     case "MEDICAL_INFO": return user.role === "MEDICAL_INFO_PHARMACIST";
   }
 }
@@ -320,6 +343,58 @@ export function choisitLesLignes(u: Acteur, pm: { requesterId: string | null }):
 /** PILOTER L'EXÉCUTION ET LES CHANTIERS — le demandeur, l'assistante de direction, la Direction. */
 export function piloteLExecution(u: Acteur, pm: { requesterId: string | null }): boolean {
   return u.id === pm.requesterId || tientLeSecretariat(u) || u.vueGlobale;
+}
+
+/**
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ * À QUI EST-CE LE TOUR ? — la question du centre d'actions, posée au circuit (§118.153).
+ *
+ * Le centre d'actions (« Validations à faire » de l'accueil, la boîte de décisions, et ce qu'Adam
+ * répond à « qu'est-ce que j'ai à valider ? ») lisait le STATUT de l'ancien circuit. Un dossier à
+ * circuit ne fait jamais avancer ce statut : il restait « Prospection demandée » pour toujours, si
+ * bien que le dossier figurait chez TOUS les porteurs de la validation du module — le Directeur
+ * Général le voyait encore « à valider » après l'avoir validé, la directrice marketing aussi — et
+ * chez AUCUN de ceux dont c'était réellement le tour : le N+1 et l'assistante de direction n'ont
+ * pas le module, donc la section ne s'ouvrait même pas pour eux. Mesuré en parcours réel.
+ *
+ * La règle vit ICI, à côté des gestes : `acteurDeLEtape` pour les validations (le même aiguillage
+ * que `canValidate`), et les mêmes acteurs que les gestes non validants — deux lectures d'« à qui
+ * revient ce dossier » finiraient par montrer un dossier à quelqu'un que l'action refuse (§118.5).
+ *
+ * Ce qui N'EST PAS un tour, délibérément :
+ *   • la SUPPLÉANCE — la Direction peut demander les devis à la place du demandeur, le Super Admin
+ *     peut débloquer toute étape : c'est un pouvoir, pas une file. Lister chez eux chaque dossier
+ *     de chaque étape noierait ce qui leur revient vraiment ;
+ *   • l'EXÉCUTION — les BC, factures et paiements ont leurs propres files (Finances, centres de
+ *     validation et de paiement) ; un dossier en exécution n'est pas une décision qui attend.
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ */
+export type TourPromo = "VALIDATION" | "GESTE";
+
+export function tourDe(
+  u: Acteur,
+  state: PromoState,
+  pm: { requesterId: string | null; assistantId: string | null },
+  validateurs: ValidateursDuDossier,
+  version: VersionCircuit,
+): TourPromo | null {
+  switch (state) {
+    case "QUOTE_TO_REQUEST":
+      return u.id === pm.requesterId ? "GESTE" : null;
+    case "QUOTE_REQUESTED":
+      // Circuit 2 : la RETRANSCRIPTION — l'assistante nommée, ou le secrétariat quand personne ne
+      // l'est ; jamais le demandeur (il retient ensuite les prix qu'il aurait recopiés).
+      if (version === 2) {
+        if (u.id === pm.requesterId) return null;
+        return (pm.assistantId ? u.id === pm.assistantId : tientLeSecretariat(u)) ? "GESTE" : null;
+      }
+      // Circuit 1 : on attend le devis de l'agence — l'assistante nommée le dépose, à défaut le demandeur.
+      return u.id === (pm.assistantId ?? pm.requesterId) ? "GESTE" : null;
+    default:
+      // `secondaryRole` des validateurs est celui de la personne qui AGIT (convention de
+      // `canValidate`) : c'est donc le sien qu'on passe, jamais celui d'un autre.
+      return acteurDeLEtape(u, state, { ...validateurs, secondaryRole: u.secondaryRole ?? null }) ? "VALIDATION" : null;
+  }
 }
 
 /**

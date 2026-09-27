@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { MailSendPolicy } from "@prisma/client";
 import { requireUser } from "@/lib/session";
-import { hasGlobalView, peutPiloterMissionsAdam } from "@/lib/rbac";
+import { peutPiloterMissionsAdam, peutVoirAdam, REFUS_ADAM } from "@/lib/rbac";
 import { recordAudit } from "@/lib/audit";
 import {
   setMailSendPolicy,
@@ -34,7 +34,9 @@ const AUTO_SEND_CONFIRM = "ENVOI AUTONOME";
 
 async function requireChief() {
   const user = await requireUser();
-  if (!hasGlobalView(user)) return { error: "Réservé au PDG et au Super Admin." as const, user: null };
+  // ADAM EST RÉSERVÉ AU SUPER ADMIN (§118.153) — ses réglages aussi. L'écran qui les porte est
+  // fermé à tout autre compte ; une action serveur, elle, s'appelle sans passer par l'écran.
+  if (!peutVoirAdam(user)) return { error: REFUS_ADAM, user: null };
   return { error: null, user };
 }
 

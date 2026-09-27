@@ -3,7 +3,7 @@ import { prisma } from "@/lib/prisma";
 import {
   createThread, ensurePrimaryThread, messagesApres, personalContext,
 } from "@/lib/assistant-memory";
-import { rememberExchange } from "@/lib/actions/assistant-actions";
+import { rememberExchange } from "@/lib/memoire-echange";
 import { estimerJetons, BUDGET_MEMOIRE_DEFAUT } from "@/lib/missions/memory/budget";
 import { contexteMemoire, noterEpisode, vieillirMemoire } from "@/platform/in-process/missions/memory";
 import { fournisseurConfigure } from "@/platform/in-process/missions/reasoner";

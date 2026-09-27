@@ -2,6 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { ArrowRight, CalendarDays, CheckCheck, Clock, MapPin, Video } from "lucide-react";
 import { requireModule } from "@/lib/session";
+import { peutVoirAdam } from "@/lib/rbac";
 import { featureEnabled, FEATURES } from "@/lib/features";
 import { getToday, type TodayItem } from "@/lib/queries/today";
 import { getDailyBrief } from "@/lib/daily-brief";
@@ -25,7 +26,8 @@ export default async function TodayPage() {
   const today = await getToday(user);
   // Point du matin (nouveauté indépendante) : l'assistant résume la journée en 3-5 phrases.
   const proactive = !user.impersonatedBy && (await featureEnabled(FEATURES.ASSISTANT_PROACTIVE.key, user.id));
-  const brief = proactive ? await getDailyBrief(user).catch(() => null) : null;
+  // LE BRIEF DU MATIN EST ADAM (§118.153) : il n'est composé — donc payé — que pour qui le voit.
+  const brief = proactive && peutVoirAdam(user) ? await getDailyBrief(user).catch(() => null) : null;
   const dayLabel = new Intl.DateTimeFormat("fr-FR", {
     weekday: "long", day: "numeric", month: "long", timeZone: "Africa/Algiers",
   }).format(new Date());

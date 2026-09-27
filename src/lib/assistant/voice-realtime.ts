@@ -1,5 +1,5 @@
 import type { CurrentUser } from "@/lib/session";
-import { accessibleModules } from "@/lib/rbac";
+import { accessibleModules, peutVoirAdam } from "@/lib/rbac";
 import { buildChiefOfStaffContext, assistantIdentityContext, assistantToolsFor } from "@/lib/assistant";
 import { capabilityDoctrine, voiceDirectNames } from "@/lib/assistant/capability-surface";
 import { TRIAGE_RULE } from "@/lib/assistant/triage";
@@ -71,7 +71,8 @@ export function realtimeVoiceConfigured(): boolean {
  */
 export function canUseRealtimeVoice(user: CurrentUser): boolean {
   if (user.impersonatedBy) return false; // « Vue exacte » : l'assistant est désactivé
-  if (user.role !== "SUPER_ADMIN" && user.role !== "DIRECTION") return false;
+  // Adam n'est visible que du Super Admin (§118.153) : la voix EST Adam.
+  if (!peutVoirAdam(user)) return false;
   return accessibleModules(user).includes("CHIEF_OF_STAFF");
 }
 

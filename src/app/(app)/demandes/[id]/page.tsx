@@ -18,7 +18,7 @@ import { DocumentList, type DocItem } from "@/components/documents/document-list
 import { LinkedRecords } from "@/components/shared/linked-records";
 import { AttachmentValidationBlock } from "./attachment-validation";
 import { onlyofficeConfigured } from "@/lib/onlyoffice";
-import { ADMIN_REQUEST_TYPE, ADMIN_REQUEST_STATUS, ADMIN_APPROVAL_STATUS, DRIVER_MISSION_STATUS, PRIORITY, AUDIT_ACTION, PROMO_MATERIAL_STATUS, VALIDATION_STATUS } from "@/lib/labels";
+import { ADMIN_REQUEST_TYPE, ADMIN_REQUEST_STATUS, ADMIN_APPROVAL_STATUS, DRIVER_MISSION_STATUS, PRIORITY, AUDIT_ACTION, VALIDATION_STATUS } from "@/lib/labels";
 import { formatDate, formatDateTime, formatCurrency, toNumber, cn } from "@/lib/utils";
 import { RequestActions } from "./request-actions";
 import { RequesterWindow } from "./requester-window";
@@ -28,6 +28,7 @@ import { ReminderButton } from "@/components/reminders/reminder-button";
 import { PromoActionPanel } from "../../promo-material/[id]/promo-panels";
 import { BackLink } from "@/components/shared/back-link";
 import { siegeAuCentreAdPro } from "@/lib/ad-pro/centre";
+import { statutDuDossier } from "@/lib/promo-material/statut";
 
 const REQ_DOC_CATEGORIES = ["QUOTE", "INVOICE", "REQUEST_LETTER", "CONVENTION", "SUPPORTING_DOC", "PHOTO", "OTHER"];
 
@@ -93,6 +94,12 @@ export default async function RequestDetailPage({ params }: { params: { id: stri
     : [];
   const promoDocItems: DocItem[] = promoDocs.map((d) => ({ id: d.id, name: d.name, category: d.category, version: d.version, sizeBytes: d.sizeBytes, confidentiality: d.confidentiality, uploadedBy: d.uploadedBy?.name ?? null, createdAt: d.createdAt.toISOString(), hasFile: Boolean(d.fileKey) }));
   const promoAmount = promo ? (promo.chosenAmount != null ? toNumber(promo.chosenAmount) : promo.amount != null ? toNumber(promo.amount) : null) : null;
+  // UN DOSSIER À CIRCUIT SE PILOTE SUR SA FICHE (§118.153). Son `status` hérité reste figé à
+  // « Prospection demandée » : ce bloc l'affichait, et proposait à l'assistante les boutons de
+  // l'ANCIEN circuit — que les actions refusent sur un dossier du nouveau. Un bouton qu'une action
+  // refuse n'est pas un bouton ; on montre l'étape réelle et le chemin de la fiche.
+  const promoStatut = promo ? statutDuDossier(promo) : null;
+  const promoACircuit = Boolean(promo?.circuitState);
 
   const labels = fieldLabels(req.type);
   const fields = (req.fields as Record<string, unknown> | null) ?? {};
@@ -217,7 +224,7 @@ export default async function RequestDetailPage({ params }: { params: { id: stri
             <Card className="border-primary/40">
               <CardHeader className="flex-row items-center justify-between">
                 <CardTitle>Matériel promotionnel</CardTitle>
-                <StatusBadge map={PROMO_MATERIAL_STATUS} value={promo.status} dot={false} />
+                {promoStatut && <Badge tone={promoStatut.ton} dot={false}>{promoStatut.libelle}</Badge>}
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="grid grid-cols-2 gap-x-6 gap-y-2 text-sm sm:grid-cols-3">
@@ -225,7 +232,13 @@ export default async function RequestDetailPage({ params }: { params: { id: stri
                   <Info label="Montant" value={promoAmount != null ? formatCurrency(promoAmount) : null} />
                   <Info label="N° bon de commande" value={promo.bcReference} />
                 </div>
-                {isPromoAssistant && (
+                {promoACircuit && (
+                  <p className="text-sm text-muted-foreground">
+                    La retranscription des devis et la suite du circuit se font sur la fiche du dossier —{" "}
+                    <Link href={`/promo-material/${promo.id}`} className="font-medium text-primary hover:underline">ouvrir {promo.reference}</Link>.
+                  </p>
+                )}
+                {isPromoAssistant && !promoACircuit && (
                   <>
                     <div className="space-y-2">
                       <p className="text-xs font-medium text-muted-foreground">Pièces du dossier (devis, bon de commande, facture…)</p>

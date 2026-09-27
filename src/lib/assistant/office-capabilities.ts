@@ -753,7 +753,8 @@ export const OFFICE_TOOLS: PowerTool[] = [
     label: "Fabrique — émettre un devis, un bon de commande, une facture",
     run: async (input, user) => {
       const { emettreDocumentDrive } = await import("@/platform/in-process/artifact/factory");
-      const r = await emettreDocumentDrive(user, input as never);
+      // C'est ADAM qui émet ici : la pièce et l'audit le disent (§118.153).
+      const r = await emettreDocumentDrive(user, input as never, { canal: "ADAM" });
       if (!r.ok) return JSON.stringify({ fait: false, echec: r.echec, message: r.motif, bloquants: r.bloquants, candidats: r.candidats });
       const libelle = r.type === "FACTURE" ? "Facture" : r.type === "DEVIS" ? "Devis" : "Bon de commande";
       return JSON.stringify({

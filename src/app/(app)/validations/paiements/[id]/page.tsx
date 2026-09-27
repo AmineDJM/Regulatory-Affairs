@@ -2,7 +2,7 @@ import { notFound, redirect } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft, ExternalLink } from "lucide-react";
 import { requireUser } from "@/lib/session";
-import { userCan, hasGlobalView } from "@/lib/rbac";
+import { userCan, hasGlobalView, peutVoirAdam } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { toNumber, formatCurrency, formatDate, formatDateTime } from "@/lib/utils";
 import { PageHeader } from "@/components/shared/page-header";
@@ -126,7 +126,7 @@ export default async function PaymentRequestPage({ params }: { params: { id: str
       <PageHeader title={req.title} description={`Réf. ${req.reference} · ${req.payee}`}>
         <StatusBadge map={PAYMENT_REQUEST_STATUS} value={req.status} />
         {isOverdue(req) && <Badge tone="danger" dot={false}>en retard</Badge>}
-        {userCan(user, "CHIEF_OF_STAFF", "VIEW") && (
+        {peutVoirAdam(user) && userCan(user, "CHIEF_OF_STAFF", "VIEW") && (
           <AskChief reference={req.reference} call={realtimeVoiceConfigured() && canUseRealtimeVoice(user)} />
         )}
       </PageHeader>

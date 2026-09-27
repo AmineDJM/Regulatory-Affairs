@@ -25,24 +25,32 @@ async function actorFor(id: string, role: SessionUser["role"]): Promise<CurrentU
 }
 
 suite("Assistant flottant — suggestion proactive (digest non lus + coût maîtrisé)", () => {
-  let aliceId = "", bobId = "", convId = "";
+  // La suggestion proactive EST Adam : depuis §118.153 elle n'est servie qu'au Super Admin. Le
+  // délégué garde des non-lus — c'est ce qui rend son refus MESURABLE : sans eux, « refusé » et
+  // « rien à suggérer » rendraient la même réponse, et le cas ne prouverait rien.
+  let aliceId = "", bobId = "", saId = "", sa2Id = "";
+  const convIds: string[] = [];
 
   beforeAll(async () => {
-    const [a, b] = await Promise.all([
+    const [a, b, sa, sa2] = await Promise.all([
       prisma.user.create({ data: { name: `${TAG}alice`, email: `${TAG}a@t.dz`, role: "MEDICAL_DELEGATE", passwordHash: "x" } }),
       prisma.user.create({ data: { name: `${TAG}bob`, email: `${TAG}b@t.dz`, role: "HEAD_OF_SALES", passwordHash: "x" } }),
+      prisma.user.create({ data: { name: `${TAG}sa`, email: `${TAG}sa@t.dz`, role: "SUPER_ADMIN", passwordHash: "x" } }),
+      prisma.user.create({ data: { name: `${TAG}sa2`, email: `${TAG}sa2@t.dz`, role: "SUPER_ADMIN", passwordHash: "x" } }),
     ]);
-    aliceId = a.id; bobId = b.id;
-    const conv = await prisma.conversation.create({
-      data: { type: "DIRECT", createdById: bobId, members: { create: [{ userId: aliceId }, { userId: bobId }] } },
-      select: { id: true },
-    });
-    convId = conv.id;
-    await prisma.message.create({ data: { conversationId: convId, senderId: bobId, kind: "TEXT", body: `${TAG} Peux-tu préparer le dossier PCH pour demain ?` } });
+    aliceId = a.id; bobId = b.id; saId = sa.id; sa2Id = sa2.id;
+    for (const destinataire of [aliceId, saId]) {
+      const conv = await prisma.conversation.create({
+        data: { type: "DIRECT", createdById: bobId, members: { create: [{ userId: destinataire }, { userId: bobId }] } },
+        select: { id: true },
+      });
+      convIds.push(conv.id);
+      await prisma.message.create({ data: { conversationId: conv.id, senderId: bobId, kind: "TEXT", body: `${TAG} Peux-tu préparer le dossier PCH pour demain ?` } });
+    }
   });
 
   afterAll(async () => {
-    await prisma.conversation.deleteMany({ where: { id: convId } }).catch(() => {});
+    await prisma.conversation.deleteMany({ where: { id: { in: convIds } } }).catch(() => {});
     await prisma.user.deleteMany({ where: { email: { startsWith: TAG } } }).catch(() => {});
   });
 
@@ -56,23 +64,30 @@ suite("Assistant flottant — suggestion proactive (digest non lus + coût maît
   });
 
   it("assistantNudge : signature reflète le nouveau, sans clé IA aucune suggestion (gracieux)", async () => {
-    ACTOR = await actorFor(aliceId, "MEDICAL_DELEGATE");
+    ACTOR = await actorFor(saId, "SUPER_ADMIN");
     const r = await assistantNudge("");
     expect(r.signature).not.toBe("0");
     expect(r.suggestion).toBeNull(); // pas de clé → pas d'appel IA
   });
 
   it("coût maîtrisé : signature inchangée → court-circuit (aucune analyse)", async () => {
-    ACTOR = await actorFor(aliceId, "MEDICAL_DELEGATE");
-    const digest = await getUnreadDigest(aliceId);
+    ACTOR = await actorFor(saId, "SUPER_ADMIN");
+    const digest = await getUnreadDigest(saId);
     const r = await assistantNudge(digest.signature);
     expect(r.suggestion).toBeNull();
     expect(r.signature).toBe(digest.signature);
   });
 
   it("aucun non-lu → rien à suggérer", async () => {
-    ACTOR = await actorFor(bobId, "HEAD_OF_SALES");
+    ACTOR = await actorFor(sa2Id, "SUPER_ADMIN");
     const r = await assistantNudge("");
     expect(r).toEqual({ signature: "0", suggestion: null });
+  });
+
+  it("Adam réservé au Super Admin (§118.153) : le délégué qui A des non-lus n'obtient rien", async () => {
+    // PRÉMISSE : elle a bien de quoi recevoir une suggestion — sinon le refus serait invisible.
+    expect((await getUnreadDigest(aliceId)).count).toBe(1);
+    ACTOR = await actorFor(aliceId, "MEDICAL_DELEGATE");
+    expect(await assistantNudge("")).toEqual({ signature: "0", suggestion: null });
   });
 });

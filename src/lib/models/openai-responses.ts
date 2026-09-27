@@ -207,6 +207,20 @@ export function toResponsesInput(turns: ModelTurn[]): RespInputItem[] {
  * côté serveur. Régler la concision se fait désormais par `text.verbosity`, qui est le réglage
  * prévu pour ça et ne touche ni à la justesse ni au raisonnement.
  */
+/**
+ * LE PLANCHER DU FOURNISSEUR (§118.153). L'API Responses refuse un `max_output_tokens` inférieur à
+ * 16 — « integer below minimum value. Expected a value >= 16 » — et ce refus est un 400 : l'appel
+ * ENTIER échoue, pas seulement sa longueur. Mesuré en parcours réel : le diagnostic IA de
+ * l'administration pingait avec 8 jetons, et l'écran du Super Admin annonçait « IA en panne »
+ * pendant que le produit répondait — le faux négatif que l'en-tête de `aiSelfTest` décrit déjà
+ * pour une autre cause, et qui fait corriger le mauvais problème.
+ *
+ * Il vit ICI, là où passent TOUS les appels vers ce fournisseur, et non chez l'appelant : réparer
+ * le ping seul ne protégerait pas le prochain appel court (§118.58). Élever le plafond ne coûte
+ * rien — c'est une borne, pas une consommation : la réponse ne s'allonge pas pour autant.
+ */
+export const PLANCHER_SORTIE_RESPONSES = 16;
+
 export function buildResponsesBody(
   binding: ModelBinding,
   turns: ModelTurn[],
@@ -237,14 +251,17 @@ export function buildResponsesBody(
   poser(
     "maxOutputTokens",
     "max_output_tokens",
-    opts.maxOutputTokens
-      ?? outputBudget({
-        role: binding.role,
-        effort: reasoning,
-        toolCount: opts.tools?.length ?? 0,
-        requested: null,
-        webSearch: Boolean(opts.webSearch),
-      }).maxOutputTokens,
+    Math.max(
+      PLANCHER_SORTIE_RESPONSES,
+      opts.maxOutputTokens
+        ?? outputBudget({
+          role: binding.role,
+          effort: reasoning,
+          toolCount: opts.tools?.length ?? 0,
+          requested: null,
+          webSearch: Boolean(opts.webSearch),
+        }).maxOutputTokens,
+    ),
   );
   // Voir l'en-tête : on n'entrepose rien chez le fournisseur sans l'avoir demandé.
   poser("store", "store", chainage);

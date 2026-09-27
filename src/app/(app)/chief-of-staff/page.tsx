@@ -1,4 +1,6 @@
+import { notFound } from "next/navigation";
 import { requireModule } from "@/lib/session";
+import { peutVoirAdam } from "@/platform/in-process/visibilite-adam";
 import { hasGlobalView } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { aiConfigured, sttConfigured, cleModeleRequise } from "@/lib/ai";
@@ -50,6 +52,8 @@ export default async function ChiefOfStaffPage({
   searchParams?: { q?: string; ref?: string; call?: string; apercu?: string };
 }) {
   const user = await requireModule("CHIEF_OF_STAFF");
+  // Adam n'est visible que du Super Admin (§118.153) — la Direction garde le module, pas Adam.
+  if (!peutVoirAdam(user)) notFound();
 
   // LA PLANCHE DE RENDU, le temps d'une revue visuelle — et jamais en production.
   //

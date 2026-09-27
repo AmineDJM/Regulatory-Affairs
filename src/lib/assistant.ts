@@ -4952,7 +4952,7 @@ async function runAssistantImpl(
   // l'audit et l'idempotence sont ailleurs et ne bougent pas d'un pouce.
   const turnStartedAt = Date.now();
   const tRoutage = Date.now();
-  const rollout = decideRollout(question, { userId: user.id, ctx: { modality: opts.origin === "voice" ? "voice" : "text" } });
+  const rollout = decideRollout(question, { userId: user.id, ctx: { modality: opts.origin === "voice" ? "voice" : "text" }, outilsPermis: allTools.map((t) => t.name) });
   addPhase("routage", Date.now() - tRoutage);
   // `tools` est MUTABLE : la découverte (`list_more_tools`) peut rouvrir un domaine en cours de
   // boucle, et c'est ce qui rend la liste courte réversible plutôt qu'amputante.
@@ -5565,7 +5565,7 @@ async function runAssistantStreamImpl(
   // (§22 : « Voice est une modalité, pas un deuxième cerveau »).
   const turnStartedAt = Date.now();
   const tRoutage = Date.now();
-  const rollout = decideRollout(question, { userId: user.id, ctx: { modality: opts.origin === "voice" ? "voice" : "text" } });
+  const rollout = decideRollout(question, { userId: user.id, ctx: { modality: opts.origin === "voice" ? "voice" : "text" }, outilsPermis: allTools.map((t) => t.name) });
   addPhase("routage", Date.now() - tRoutage);
   // ── LE RÉSOLVEUR D'OUTILS ────────────────────────────────────────────────────────────────
   // On n'envoie plus « ce qui tient » mais « ce que la demande peut appeler » : niveau A/B/C et

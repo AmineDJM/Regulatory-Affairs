@@ -12,7 +12,7 @@ import { getMyCompanies } from "@/lib/company";
 import { peutOuvrirLeDossierPromo } from "@/lib/queries/promo-circuit";
 import {
   userCan, hasGlobalView, scopeRegulatory, scopeMedicalDoctors, scopeMedicalVisits, scopeSales, scopeBusinessDevelopment, scopeBdProject, scopeSupport, scopeDossiers, type Action, type Module, type SessionUser, canViewBdProjects, canManageBdProjects,
-  annuaireOuvertParConsole,
+  annuaireOuvertParConsole, scopeCongressIntl, scopeCongressNational, scopePromoMaterial,
 } from "@/lib/rbac";
 
 /** Maps a polymorphic entity type to its owning module. */
@@ -174,6 +174,34 @@ async function adProStakeholders(
   }
 }
 
+/**
+ * LA PORTÉE DE LIGNE d'un objet Ad & Pro — la MÊME que sa fiche et que ses listes (§118.153).
+ *
+ * Trois modules Ad & Pro ont une portée « ses lignes » : congrès international, congrès national
+ * et matériel promotionnel (le délégué, et depuis §118.153 le National Sales, n'y voient que LEURS
+ * dossiers). La fiche l'appliquait, les listes aussi ; cette porte-ci — celle des pièces, des
+ * commentaires et du fil — ne l'appliquait pas : le raccourci « UPDATE sur le module » et le
+ * `default` du dernier aiguillage ouvraient n'importe quel dossier à qui avait le module, sur son
+ * seul identifiant. Mesuré par le banc du circuit 2 : ouvrir le matériel promotionnel au National
+ * Sales lui faisait lire le dossier d'un KAM dont il n'est pas le N+1. Sponsoring et événements
+ * n'ont pas de portée de ligne : qui a le module les voit tous, comme dans leur liste.
+ *
+ * Les clauses se COMPOSENT en `AND`, jamais par étalement (§118.133) : `{ id: "__none__" }` et
+ * `{ OR: … }` ne doivent jamais pouvoir écraser l'identifiant visé.
+ */
+async function dansLaPorteeAdPro(user: SessionUser, entityType: EntityType, entityId: string): Promise<boolean> {
+  switch (entityType) {
+    case "CONGRESS_INTERNATIONAL":
+      return (await prisma.congressInternational.count({ where: { AND: [{ id: entityId }, scopeCongressIntl(user)] } })) > 0;
+    case "CONGRESS_NATIONAL":
+      return (await prisma.congressNational.count({ where: { AND: [{ id: entityId }, scopeCongressNational(user)] } })) > 0;
+    case "PROMO_MATERIAL":
+      return (await prisma.promoMaterial.count({ where: { AND: [{ id: entityId }, scopePromoMaterial(user)] } })) > 0;
+    default:
+      return true;
+  }
+}
+
 export async function canAccessEntity(
   user: SessionUser,
   entityType: EntityType,
@@ -314,7 +342,8 @@ export async function canAccessEntity(
   // est la MÊME que celle des écrans (`ad-pro/attachments.ts`, pure et testée) : un bouton visible
   // qui refuse ensuite fait chercher la panne au lieu de faire demander le droit.
   if ((action === "UPLOAD" || action === "VIEW") && AD_PRO_TYPES.includes(entityType)) {
-    if (userCan(user, module, "UPDATE") || userCan(user, module, "VALIDATE")) return true;
+    // Le droit d'ÉCRIRE dans le module ouvre le dossier — DANS SA PORTÉE DE LIGNE (§118.153).
+    if ((userCan(user, module, "UPDATE") || userCan(user, module, "VALIDATE")) && (await dansLaPorteeAdPro(user, entityType, entityId))) return true;
     const parties = await adProStakeholders(entityType, entityId);
     if (parties && isOwnBusiness(user.id, parties)) return true;
   }
@@ -400,7 +429,10 @@ export async function canAccessEntity(
   // visa n'ont pas forcément le module. La fiche leur est ouverte ; sans cette porte, ses pièces
   // (scans des devis, maquettes) et son fil de discussion leur répondaient « accès refusé » sur
   // l'écran même où on leur demande de décider.
-  if (entityType === "PROMO_MATERIAL" && action === "VIEW" && !userCan(user, module, action)) {
+  // Et pour qui A le module en « ses lignes » aussi (§118.153) : le National Sales demande pour
+  // lui-même ET valide la demande de son KAM — le dossier du KAM n'est pas dans sa portée, et c'est
+  // pourtant la fiche où on lui demande de trancher.
+  if (entityType === "PROMO_MATERIAL" && action === "VIEW") {
     const pm = await prisma.promoMaterial.findUnique({
       where: { id: entityId },
       select: { id: true, requesterId: true, assistantId: true, requestValidatorId: true, marketingValidatorId: true },
@@ -530,6 +562,11 @@ export async function canAccessEntity(
       // devinant un identifiant.
       return Boolean(await recruitmentViewer(user, entityId));
     }
+    case "CONGRESS_INTERNATIONAL":
+    case "CONGRESS_NATIONAL":
+    case "PROMO_MATERIAL":
+      // Sans ces trois cas, le `default` ci-dessous ouvrait tout dossier à qui avait le module.
+      return dansLaPorteeAdPro(user, entityType, entityId);
     case "RECRUITMENT_CANDIDATE": {
       // Le CV suit sa DEMANDE : les mêmes personnes, ni plus ni moins.
       const c = await prisma.recruitmentCandidate.findUnique({

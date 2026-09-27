@@ -283,7 +283,10 @@ export default async function PromoMaterialDetailPage({ params }: { params: { id
                   « Exécution », une par fournisseur : les champs uniques de l'ancien parcours
                   n'y ont plus de sens, et les afficher vides ferait croire qu'il manque quelque chose. */}
               <Info label={v2 ? "Fournisseur(s) retenu(s)" : "Agence retenue"} value={pm.chosenAgency} />
-              <Info label={v2 ? "Montant retenu (TTC)" : "Montant"} value={amount != null ? formatCurrency(amount) : null} />
+              {/* « RETENU » N'EST VRAI QU'APRÈS LE CHOIX (§118.153). Avant que des lignes soient
+                  retenues, le montant affiché est l'ESTIMATION de la demande : l'appeler « retenu »
+                  faisait lire à la Direction Marketing un engagement que personne n'avait pris. */}
+              <Info label={v2 ? (pm.chosenAmount != null ? "Montant retenu (TTC)" : "Montant estimé (demande)") : "Montant"} value={amount != null ? formatCurrency(amount) : null} />
               {!v2 && <Info label="N° bon de commande" value={pm.bcReference} />}
               {!v2 && <Info label="Visa publicitaire" value={pm.visaReference} />}
               {!v2 && <Info label="Réf. autorités" value={pm.authorityRef} />}

@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { callModel, streamModel } from "./gateway";
-import { oublierCoupures } from "./openai-responses";
+import { oublierCoupures, PLANCHER_SORTIE_RESPONSES } from "./openai-responses";
 import { bindingFor } from "./registry";
 import { protocolFor, protocolViolation, needsResponses, isReasoningModel } from "./protocol";
 import { supportsWebSearch, validateModelRequest } from "./capabilities";
@@ -570,6 +570,21 @@ describe("la traduction de forme, vérifiée sans réseau", () => {
     expect(body.messages).toBeUndefined();
     expect(body.max_completion_tokens).toBeUndefined();
     expect(body.reasoning_effort).toBeUndefined();
+  });
+
+  it("un plafond sous le plancher du fournisseur est RELEVÉ, jamais envoyé tel quel (§118.153)", async () => {
+    // L'API Responses rend un 400 sur `max_output_tokens` < 16 : l'appel ENTIER échoue. Le
+    // diagnostic IA pingait avec 8 jetons et l'écran d'administration annonçait une panne.
+    const direct = buildResponsesBody(bindingFor("worker"), [{ role: "user", content: "ping" }], { maxOutputTokens: 8 });
+    expect(direct.max_output_tokens).toBe(PLANCHER_SORTIE_RESPONSES);
+    // Au-dessus du plancher, rien ne bouge : c'est une borne, pas un réglage.
+    const large = buildResponsesBody(bindingFor("worker"), [{ role: "user", content: "x" }], { maxOutputTokens: 900 });
+    expect(large.max_output_tokens).toBe(900);
+    // Et par le VRAI chemin — la passerelle calcule son budget, puis l'adaptateur envoie.
+    serveur([reponse({ texte: "pong" })]);
+    const r = await callModel("bulk", [{ role: "user", content: "ping" }], { maxOutputTokens: 8 });
+    expect(textOf(r.blocks)).toBe("pong");
+    expect(Number(captures[0].body.max_output_tokens)).toBeGreaterThanOrEqual(PLANCHER_SORTIE_RESPONSES);
   });
 
   it("rien n'est entreposé chez le fournisseur tant que personne ne l'a demandé", () => {

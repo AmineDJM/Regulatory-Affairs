@@ -77,6 +77,11 @@ export interface RolloutOptions {
   canaryPercent?: number;
   /** Coupe-circuit manuel : tout repart sur l'ancien chemin, immédiatement. */
   disabled?: boolean;
+  /**
+   * Les outils que CETTE personne a le droit d'appeler (`assistantToolsFor`). Absent : aucune
+   * restriction lue ici — les appelants de production le passent toujours (§118.153).
+   */
+  outilsPermis?: readonly string[];
 }
 
 /**
@@ -164,6 +169,17 @@ export function decideRollout(utterance: string, opts: RolloutOptions): RolloutD
 
   // ── 3. LA LECTURE CANONIQUE SÛRE — active dès maintenant ────────────────────────────────
   if (route.route === "FAST_DETERMINISTIC" && route.tool && SAFE_READ_TOOLS.has(route.tool)) {
+    // LE RACCOURCI NE PREND PAS UN OUTIL QUE LA PERSONNE N'A PAS (§118.153). Mesuré en parcours
+    // réel : le pharmacien demandait « où en est Nintedanib ? », le routeur choisissait
+    // `inspect_record` (réservé à la Direction), l'outil répondait « ce module ne vous est pas
+    // ouvert » — et le raccourci, qui n'envoie AUCUN schéma d'outil, faisait reformuler ce refus
+    // comme LA réponse, avec l'étiquette d'un fait vérifié. La boucle complète, elle, n'expose que
+    // les outils permis : elle trouve le chemin qui existe pour cette personne, ou dit
+    // honnêtement qu'il n'y en a pas. Ce n'est PAS un échec du raccourci — rien n'est compté à la
+    // garde, qui mesure la santé du chemin rapide, pas les droits des gens.
+    if (opts.outilsPermis && !opts.outilsPermis.includes(route.tool)) {
+      return { ...base, mode: "LEGACY", reason: `${route.tool} hors des droits de la personne — boucle complète` };
+    }
     if (guardTripped()) {
       return { ...base, mode: "LEGACY", reason: `garde déclenchée : ${guardStatus().reason ?? "seuil dépassé"}` };
     }

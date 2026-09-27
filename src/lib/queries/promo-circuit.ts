@@ -10,7 +10,7 @@ import {
   type Personne, type ValidateurDemande,
 } from "@/lib/promo-material/validateurs";
 import { totauxDeLaSelection, type DevisLu } from "@/lib/promo-material/devis";
-import type { ContexteCircuit, VersionCircuit } from "@/lib/promo-material/circuit";
+import { tourDe, type ContexteCircuit, type PromoState, type TourPromo, type VersionCircuit } from "@/lib/promo-material/circuit";
 
 /**
  * LE CHARGEUR DU CIRCUIT DU MATÉRIEL PROMOTIONNEL (§118.152) — ce que la règle pure ne peut pas lire.
@@ -82,16 +82,120 @@ export async function validateursMarketing(pm: { requesterId: string | null; mar
     const fixe = await prisma.user.findUnique({ where: { id: pm.marketingValidatorId }, select: { isActive: true } });
     if (fixe?.isActive) return [pm.marketingValidatorId];
   }
+  return validateursMarketingDepuis(pm, false, await cheffesMarketingActuelles());
+}
+
+/**
+ * LES CHEFFES DE LA DIRECTION MARKETING, lues maintenant — toutes, sans exclure personne.
+ *
+ * Sortie de `validateursMarketing` pour être lue UNE fois quand on juge plusieurs dossiers (le
+ * centre d'actions) : elle charge l'organigramme pour chaque porteuse du rôle, et la refaire par
+ * dossier multiplierait ce coût par le nombre de dossiers.
+ */
+export async function cheffesMarketingActuelles(): Promise<string[]> {
   const porteuses = await prisma.user.findMany({
     where: { ...anyRoleFilter([ROLE_DIRECTION_MARKETING]), isActive: true },
     select: { id: true },
   });
   const lues = await Promise.all(porteuses.map((p) => personneEtChaine(p.id)));
-  const cheffes = cheffesMarketing(
+  return cheffesMarketing(
     lues.filter((l): l is { personne: Personne; chaine: Personne[] } => l.personne !== null)
       .map((l) => ({ personne: l.personne, chaine: l.chaine })),
-  ).filter((id) => id !== pm.requesterId);
-  return cheffes.length > 0 ? cheffes : null;
+  );
+}
+
+/**
+ * LA RÈGLE, séparée de ses lectures : la validatrice figée si elle est active, sinon les cheffes
+ * moins le demandeur, `null` quand il n'en reste aucune (l'appelant retombe alors sur le rôle).
+ * Une seule écriture, lue par la fiche, les actions et le centre d'actions (§118.5).
+ */
+function validateursMarketingDepuis(
+  pm: { requesterId: string | null; marketingValidatorId: string | null },
+  fixeActif: boolean,
+  cheffes: readonly string[],
+): string[] | null {
+  if (pm.marketingValidatorId && fixeActif) return [pm.marketingValidatorId];
+  const restantes = cheffes.filter((id) => id !== pm.requesterId);
+  return restantes.length > 0 ? restantes : null;
+}
+
+/** Les étapes où un dossier ATTEND quelqu'un — ni l'exécution, ni la fin, ni le refus. */
+const ETATS_EN_ATTENTE = [
+  "REVIEW_REQUEST", "QUOTE_TO_REQUEST", "QUOTE_REQUESTED", "REVIEW_REQUESTER",
+  "REVIEW_MANAGER", "REVIEW_DG", "REVIEW_EXECUTIVE", "REVIEW_MEDICAL_INFO",
+] as const satisfies readonly PromoState[];
+
+/**
+ * Borne de lecture. Elle se DIT au journal quand elle est atteinte : une file tronquée en silence
+ * se lirait comme complète (§118.60). Un volume de dossiers en attente de validation dix fois
+ * supérieur à tout ce que l'entreprise a connu serait déjà un signal en soi.
+ */
+const LIMITE_DOSSIERS_EN_ATTENTE = 500;
+
+export interface DossierPromoAMonTour {
+  id: string;
+  reference: string;
+  title: string;
+  etat: PromoState;
+  version: VersionCircuit;
+  tour: TourPromo;
+}
+
+/**
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ * LES DOSSIERS DONT C'EST MON TOUR — ce que le centre d'actions affiche (§118.153).
+ *
+ * La règle vit dans le module pur (`tourDe`) ; ce chargeur lui porte les faits, avec la MÊME
+ * lecture des validateurs que la fiche et les actions (la personne figée, la directrice ou les
+ * cheffes de la Direction Marketing). Aucun filtre par module : le N+1 et l'assistante de
+ * direction n'ont pas le module Matériel promotionnel et c'est pourtant leur tour — la fiche
+ * s'ouvre à eux comme parties prenantes, la file doit les voir aussi.
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ */
+export async function dossiersPromoAMonTour(user: SessionUser): Promise<DossierPromoAMonTour[]> {
+  const rows = await prisma.promoMaterial.findMany({
+    where: { circuitState: { in: [...ETATS_EN_ATTENTE] } },
+    select: {
+      id: true, reference: true, title: true, circuitState: true, circuitVersion: true,
+      requesterId: true, assistantId: true, managerId: true, requestValidatorId: true, marketingValidatorId: true,
+    },
+    // Le plus ancien d'abord : c'est lui qui bloque quelqu'un depuis le plus longtemps.
+    orderBy: { createdAt: "asc" },
+    take: LIMITE_DOSSIERS_EN_ATTENTE,
+  });
+  if (rows.length >= LIMITE_DOSSIERS_EN_ATTENTE) {
+    console.warn(`[promo] centre d'actions : ${rows.length} dossiers en attente lus, borne atteinte — les plus récents peuvent manquer`);
+  }
+  if (rows.length === 0) return [];
+
+  // LA DIRECTION MARKETING N'EST LUE QUE SI ELLE PEUT RÉPONDRE « OUI » : une personne qui ne porte
+  // pas le rôle ne figure jamais parmi les cheffes, et n'est validatrice que si un dossier la
+  // NOMME (la validatrice figée) — ce qui se lit sans l'organigramme.
+  const aJuger = rows.filter((r) => r.circuitVersion === 2 && r.circuitState === "REVIEW_MANAGER");
+  const fixes = [...new Set(aJuger.map((r) => r.marketingValidatorId).filter((x): x is string => Boolean(x)))];
+  const actifs = fixes.length
+    ? new Set((await prisma.user.findMany({ where: { id: { in: fixes }, isActive: true }, select: { id: true } })).map((u) => u.id))
+    : new Set<string>();
+  const porteRole = user.role === ROLE_DIRECTION_MARKETING || user.secondaryRole === ROLE_DIRECTION_MARKETING;
+  const cheffes = aJuger.length > 0 && porteRole ? await cheffesMarketingActuelles() : [];
+
+  const acteur = { id: user.id, role: user.role, secondaryRole: user.secondaryRole, vueGlobale: hasGlobalView(user.role) };
+  const resultat: DossierPromoAMonTour[] = [];
+  for (const r of rows) {
+    const etat = r.circuitState as PromoState;
+    const version: VersionCircuit = r.circuitVersion === 2 ? 2 : 1;
+    const marketing = version === 2 && etat === "REVIEW_MANAGER"
+      ? validateursMarketingDepuis(r, r.marketingValidatorId ? actifs.has(r.marketingValidatorId) : false, cheffes)
+      : null;
+    const tour = tourDe(
+      acteur, etat,
+      { requesterId: r.requesterId, assistantId: r.assistantId },
+      { requesterId: r.requesterId, managerId: r.managerId, requestValidatorId: r.requestValidatorId, validateursMarketing: marketing },
+      version,
+    );
+    if (tour) resultat.push({ id: r.id, reference: r.reference, title: r.title, etat, version, tour });
+  }
+  return resultat;
 }
 
 /** Les devis d'un dossier, lus pour la règle pure (nombres, pas de Decimal). */

@@ -1161,7 +1161,9 @@ X("geste personnel sur SON PROPRE retour — la pièce jointe d'un feedback appa
   "feedback-actions:removeFeedbackAttachment",
 ]);
 X("plomberie du Chief lui-même (chat, mémoire, fils) — pas une action métier à proposer", [
-  "assistant-actions:rememberExchange", "assistant-actions:assistantChat", "assistant-actions:assistantNudge",
+  // `rememberExchange` n'est plus une action : elle recevait l'identité en argument, et vit
+  // désormais dans un module serveur ordinaire (`lib/memoire-echange.ts`, §118.153).
+  "assistant-actions:assistantChat", "assistant-actions:assistantNudge",
   "assistant-actions:executeAssistantAction", "assistant-actions:cancelAssistantAction",
   // Le LOT est la même porte que `executeAssistantAction`, en une seule fois : il n'exécute rien
   // lui-même, il enchaîne des intents déjà proposés en repassant par le garde d'idempotence et

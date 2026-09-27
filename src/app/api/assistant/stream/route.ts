@@ -1,11 +1,11 @@
 import { requireUser } from "@/lib/session";
-import { userCan } from "@/lib/rbac";
+import { userCan, peutVoirAdam } from "@/lib/rbac";
 import { aiModel } from "@/lib/ai";
 import { aiFeatureEnabled, logAiUsage } from "@/lib/ai-settings";
 import { featureEnabled, FEATURES } from "@/lib/features";
 import { personalContext, contexteReglesSeules } from "@/lib/assistant-memory";
 import { runAssistantStream, type ChatTurn, type AssistantStreamEvent } from "@/lib/assistant";
-import { rememberExchange } from "@/lib/actions/assistant-actions";
+import { rememberExchange } from "@/lib/memoire-echange";
 import { consignerProvenance } from "@/platform/in-process/fabric/provenance";
 
 export const dynamic = "force-dynamic";
@@ -26,7 +26,8 @@ export const maxDuration = 300;
  */
 export async function POST(req: Request) {
   const user = await requireUser();
-  if (!userCan(user, "WORKSPACE", "VIEW")) return new Response("Non autorisé.", { status: 403 });
+  // Adam n'est visible que du Super Admin (§118.153) : l'écran caché, la porte d'API aussi.
+  if (!userCan(user, "WORKSPACE", "VIEW") || !peutVoirAdam(user)) return new Response("Non autorisé.", { status: 403 });
 
   let body: { history?: ChatTurn[]; threadId?: string | null };
   try { body = (await req.json()) as typeof body; } catch { return new Response("Requête invalide.", { status: 400 }); }

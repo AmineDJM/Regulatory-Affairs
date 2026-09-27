@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/session";
-import { userCan } from "@/lib/rbac";
+import { userCan, peutVoirAdam } from "@/lib/rbac";
 import { transcribeAudio } from "@/lib/ai";
 import { aiFeatureEnabled, logAiUsage } from "@/lib/ai-settings";
 import { getAppSettings } from "@/lib/settings";
@@ -14,7 +14,8 @@ export const dynamic = "force-dynamic";
  */
 export async function POST(req: NextRequest) {
   const user = await getCurrentUser();
-  if (!user || !userCan(user, "WORKSPACE", "VIEW")) return NextResponse.json({ error: "Non autorisé." }, { status: 403 });
+  // La dictée de l'assistant est Adam : Super Admin seul (§118.153).
+  if (!user || !userCan(user, "WORKSPACE", "VIEW") || !peutVoirAdam(user)) return NextResponse.json({ error: "Non autorisé." }, { status: 403 });
   // Interrupteur « voix » du Centre de contrôle IA (Super Admin).
   if (!(await aiFeatureEnabled("voice"))) {
     return NextResponse.json({ configured: true, error: "La transcription vocale est désactivée dans le Centre de contrôle IA." });

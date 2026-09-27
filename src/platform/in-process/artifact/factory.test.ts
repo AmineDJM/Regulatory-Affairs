@@ -118,7 +118,15 @@ suite("la fabrique de documents — émission, registre, Drive, reprise, révisi
     expect(m.hasHeader).toBe(false);
     const fiche = await portsArtefact.documents.decrire(user.id, r.pdf!.nodeId);
     expect(fiche?.mime).toBe("application/pdf");
+    // L'AUTEUR EST CELUI QUI A CLIQUÉ (§118.153) : sans `canal`, c'est une personne sur un écran —
+    // la pièce et l'audit la nomment, et ne parlent pas d'Adam.
+    expect(doc!.notes).toContain(`par ${user.name}`);
+    expect(doc!.notes).not.toMatch(/par Adam/);
+    const trace = await prisma.auditLog.findFirst({ where: { entityId: r.legalDocumentId, action: "CREATE" }, orderBy: { createdAt: "desc" } });
+    expect(trace?.summary).toContain(`par ${user.name}`);
+    expect(trace?.summary).not.toMatch(/par Adam/);
   }, 60_000);
+
 
   it("reconnaît une pièce identique : rendue telle quelle, aucun numéro consommé — sauf si on force", async () => {
     const encore = await emettreDocumentDrive(user, demande());
@@ -404,6 +412,16 @@ suite("la fabrique de documents — émission, registre, Drive, reprise, révisi
     await reviserDocumentDrive(user, { legalDocumentId: bc.legalDocumentId, modifications: { livraison: null } });
     expect((await lire()).livraison).toBeNull();
   }, 90_000);
+
+  it("émise PAR ADAM, la pièce le dit — et seulement dans ce cas (§118.153) — en DERNIER : il consomme un numéro, et les cas précédents comptent le compteur", async () => {
+    const r = await emettreDocumentDrive(user, demande({ forcerDoublon: true }), { canal: "ADAM" });
+    expect(r.ok, JSON.stringify(r)).toBe(true);
+    if (!r.ok) return;
+    const doc = await prisma.legalDocument.findUnique({ where: { id: r.legalDocumentId } });
+    expect(doc!.notes).toMatch(/par Adam/);
+    const trace = await prisma.auditLog.findFirst({ where: { entityId: r.legalDocumentId, action: "CREATE" }, orderBy: { createdAt: "desc" } });
+    expect(trace?.summary).toMatch(/par Adam/);
+  }, 60_000);
 });
 
 /**

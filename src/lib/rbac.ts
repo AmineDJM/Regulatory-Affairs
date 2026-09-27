@@ -207,7 +207,13 @@ export const PERMISSIONS: Record<UserRole, RoleMatrix> = {
   },
   // KAM / délégué médical : accède à SON tableau de bord de force de vente (Pilotage — lecture,
   // portée limitée à lui-même par la couche métier ; il édite ses propres affectations via `canEditRep`).
-  MEDICAL_DELEGATE: { WORKSPACE: WORKSPACE_USER, FEEDBACK: FEEDBACK_USER, MESSAGING: MESSAGING_USER, VALIDATIONS: VALIDATION_USER, DRIVE: DRIVE_USER, ADMIN_REQUESTS: REQUEST_USER, MEDICAL: CONTRIBUTE, FIELD_REPORTS: CONTRIBUTE, SALES_PLANNING: READ, EVENTS: CONTRIBUTE, CONGRESS_NATIONAL: CONTRIBUTE, CONGRESS_INTERNATIONAL: CONTRIBUTE, DIRECTIVES: DIRECTIVES_USER, SUPPORT: SUPPORT_USER, DOSSIERS: DOSSIERS_USER, NOTIFICATIONS: ["VIEW"] },
+  // MATÉRIEL PROMOTIONNEL (§118.153) — la Direction l'a nommé demandeur en toutes lettres (« si
+  // c'est un KAM, délégué médical ou quoi ») et §118.152 affirmait que la matrice le lui donnait :
+  // c'était FAUX, mesuré en parcours réel — le KAM n'avait pas le module, et seul un accès
+  // personnalisé posé par le Super Admin lui permettait de créer sa demande. CONTRIBUTE, pas
+  // MANAGE : il demande, il ne tranche rien (le circuit décide qui valide), et la portée est
+  // ASSIGNÉE (carte `assigned` de defaultScope) — il ne voit que SES dossiers.
+  MEDICAL_DELEGATE: { WORKSPACE: WORKSPACE_USER, FEEDBACK: FEEDBACK_USER, MESSAGING: MESSAGING_USER, VALIDATIONS: VALIDATION_USER, DRIVE: DRIVE_USER, ADMIN_REQUESTS: REQUEST_USER, MEDICAL: CONTRIBUTE, FIELD_REPORTS: CONTRIBUTE, SALES_PLANNING: READ, EVENTS: CONTRIBUTE, CONGRESS_NATIONAL: CONTRIBUTE, CONGRESS_INTERNATIONAL: CONTRIBUTE, PROMO_MATERIAL: CONTRIBUTE, DIRECTIVES: DIRECTIVES_USER, SUPPORT: SUPPORT_USER, DOSSIERS: DOSSIERS_USER, NOTIFICATIONS: ["VIEW"] },
   // National Sales : **toutes les capacités du délégué médical** (créer des demandes
   // de sponsoring / congrès / événements, terrain, annuaire) PLUS l'**approbation
   // préliminaire** de ces demandes avec choix du référent Direction Marketing. Volontairement
@@ -219,7 +225,13 @@ export const PERMISSIONS: Record<UserRole, RoleMatrix> = {
   // National Sales = **superviseur national** : pilote la force de vente de ses équipes
   // (Pilotage + affectations de SES KAM via `canEditRep`). SALES_PLANNING en lecture ;
   // l'édition des affectations de son équipe est autorisée par la couche métier.
-  NATIONAL_SALES: { WORKSPACE: WORKSPACE_USER, FEEDBACK: FEEDBACK_USER, MESSAGING: MESSAGING_USER, VALIDATIONS: VALIDATION_USER, DRIVE: DRIVE_USER, ADMIN_REQUESTS: REQUEST_USER, MEDICAL: CONTRIBUTE, FIELD_REPORTS: CONTRIBUTE, SALES_PLANNING: READ, EVENTS: CONTRIBUTE, CONGRESS_NATIONAL: CONTRIBUTE, CONGRESS_INTERNATIONAL: CONTRIBUTE, SPONSORING: CONTRIBUTE, CONSULTING: CONTRIBUTE, AD_PRO_OTHER: CONTRIBUTE, DIRECTIVES: DIRECTIVES_USER, SUPPORT: SUPPORT_USER, DOSSIERS: DOSSIERS_USER, NOTIFICATIONS: ["VIEW"] },
+  // Matériel promotionnel (§118.153) : « toutes les capacités du délégué », donc DEMANDER aussi.
+  // Portée ASSIGNÉE, à la différence de ses autres modules Ad & Pro : il VALIDE les demandes de
+  // ses KAM (le N+1 du circuit), et ce geste lui est ouvert par le dossier lui-même (partie
+  // prenante, `peutOuvrirLeDossierPromo`) — pas par une vue de TOUS les dossiers de la société,
+  // qu'aucune étape ne lui demande de lire. Le geste qui retourne cette décision : le retirer
+  // de la carte `assigned` pour la clé PROMO_MATERIAL.
+  NATIONAL_SALES: { WORKSPACE: WORKSPACE_USER, FEEDBACK: FEEDBACK_USER, MESSAGING: MESSAGING_USER, VALIDATIONS: VALIDATION_USER, DRIVE: DRIVE_USER, ADMIN_REQUESTS: REQUEST_USER, MEDICAL: CONTRIBUTE, FIELD_REPORTS: CONTRIBUTE, SALES_PLANNING: READ, EVENTS: CONTRIBUTE, CONGRESS_NATIONAL: CONTRIBUTE, CONGRESS_INTERNATIONAL: CONTRIBUTE, SPONSORING: CONTRIBUTE, PROMO_MATERIAL: CONTRIBUTE, CONSULTING: CONTRIBUTE, AD_PRO_OTHER: CONTRIBUTE, DIRECTIVES: DIRECTIVES_USER, SUPPORT: SUPPORT_USER, DOSSIERS: DOSSIERS_USER, NOTIFICATIONS: ["VIEW"] },
   // DIRECTION MARKETING. Depuis 09/2026 elle TRANCHE toute demande Ad & Pro (montant accordé +
   // sous-catégorie budgétaire) et valide le matériel promotionnel — §118.138. `SPONSORING` et
   // `PROMO_MATERIAL` sont donc ouverts : sans eux elle ne peut pas même OUVRIR la demande
@@ -353,6 +365,29 @@ export function peutPiloterMissionsAdam(u: UserRole | RoleBearer): boolean {
 
 /** Le refus, écrit UNE fois — écran, action, outil et moteur disent la même phrase. */
 export const REFUS_MISSIONS_ADAM = "Les missions et surveillances d'Adam sont réservées au Super Admin.";
+
+/**
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ * ADAM N'EST VISIBLE QUE DU SUPER ADMIN — décision de la Direction (09/2026, §118.153).
+ *
+ * « Adam ne doit être visible par personne sauf le super admin ; Adam en tant que chief of staff
+ * est en pause de développement. » L'assistant de conversation, le bureau du chief of staff, la
+ * voix, le brief du matin et la question posée depuis la palette sont UN seul produit : le
+ * masquer d'un côté et le laisser de l'autre ferait une porte fermée à côté d'une porte ouverte
+ * (§118.71). Menu, pages, points d'entrée d'API, voix et brief lisent CE prédicat.
+ *
+ * La règle est celle des missions (le rôle PRINCIPAL, jamais une casquette secondaire), et elle
+ * l'ÉLARGIT : les missions sont une partie d'Adam. Ce qui reste ouvert à tous est ce qui n'est PAS
+ * Adam — les écrans de l'ERP, et les fonctions d'IA qu'un écran appelle pour son propre compte
+ * (OCR, transcription d'un rapport terrain, fabrique de documents depuis un bouton).
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ */
+export function peutVoirAdam(u: UserRole | RoleBearer): boolean {
+  return peutPiloterMissionsAdam(u);
+}
+
+/** Le refus, écrit UNE fois — une action serveur d'Adam appelée hors de son écran dit cette phrase. */
+export const REFUS_ADAM = "Adam est réservé au Super Admin.";
 
 /** L'utilisateur porte-t-il ce rôle, en **principal OU en secondaire** ? */
 export function hasRole(u: RoleBearer, role: UserRole): boolean {
@@ -556,6 +591,9 @@ export function defaultScope(role: UserRole, module: Module): AccessScope {
     FIELD_REPORTS: ["MEDICAL_DELEGATE"],
     CONGRESS_INTERNATIONAL: ["MEDICAL_DELEGATE"],
     CONGRESS_NATIONAL: ["MEDICAL_DELEGATE"],
+    // Matériel promotionnel (§118.153) : le délégué et le superviseur national DEMANDENT — ils
+    // voient leurs dossiers, et ceux où le circuit les attend s'ouvrent par la règle du dossier.
+    PROMO_MATERIAL: ["MEDICAL_DELEGATE", "NATIONAL_SALES"],
   };
   return assigned[module]?.includes(role) ? "ASSIGNED" : "ALL";
 }

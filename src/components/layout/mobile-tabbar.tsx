@@ -15,17 +15,28 @@ import { groupIntoPoles, itemsOfGroup, poleOfPath, OPEN_POLES_KEY, FLAT_GROUPS }
  * BARRE D'ONGLETS MOBILE — navigation principale sur téléphone (l'app installée depuis
  * « Ajouter à l'écran d'accueil » doit se comporter comme une vraie application).
  *
- * Cinq cibles au POUCE, toujours accessibles en bas de l'écran : Espace, Messages,
- * Assistant, et un bouton « Tout » qui ouvre la grille COMPLÈTE des modules autorisés.
+ * Des cibles au POUCE, toujours accessibles en bas de l'écran : Espace, Messages,
+ * Assistant (pour qui le menu le propose), et un bouton « Tout » qui ouvre la grille COMPLÈTE des
+ * modules autorisés.
  * Masquée à partir de `lg` (le desktop garde la barre latérale). Respecte la
  * `safe-area` iOS pour ne pas passer sous la barre d'accueil.
  */
 
-/** Cibles fixes de la barre : on privilégie ce qu'on ouvre 20 fois par jour. */
-const PRIMARY: { href: string; label: string; icon: React.ComponentType<{ className?: string }>; match: string[] }[] = [
+/**
+ * Cibles fixes de la barre : on privilégie ce qu'on ouvre 20 fois par jour.
+ *
+ * `suitLeMenu` — UN ONGLET FIXE N'OUVRE PAS CE QUE LE MENU FERME (§118.153). L'onglet
+ * « Assistant » était dessiné pour tout le monde, en dur, alors que le menu le réserve au Super
+ * Admin (`peutVoirAdam`) : la personne touchait l'onglet et tombait sur une page introuvable —
+ * la porte fermée à côté de la porte ouverte (§118.71). L'onglet porte donc sa règle : il
+ * n'apparaît que si le menu de la personne propose sa destination. Déclaré entrée par entrée,
+ * et non « tout onglet suit le menu » : « Messages » n'est pas une entrée de menu (la messagerie
+ * interne est ouverte à tous), et le faire suivre le menu le retirerait à tout le monde.
+ */
+const PRIMARY: { href: string; label: string; icon: React.ComponentType<{ className?: string }>; match: string[]; suitLeMenu?: true }[] = [
   { href: "/mon-espace", label: "Espace", icon: LayoutGrid, match: ["/mon-espace", "/mon-travail", "/mon-dossier", "/missions", "/directives"] },
   { href: "/messages", label: "Messages", icon: MessageSquare, match: ["/messages"] },
-  { href: "/assistant", label: "Assistant", icon: Sparkles, match: ["/assistant"] },
+  { href: "/assistant", label: "Assistant", icon: Sparkles, match: ["/assistant"], suitLeMenu: true },
 ];
 
 const isActive = (pathname: string, targets: string[]) =>
@@ -102,6 +113,9 @@ export function MobileTabBar({
   // pas lui qui défile ici, et la page continuait donc de bouger derrière le tiroir.
   useScrollLock(drawer);
 
+  // Les onglets fixes de CETTE personne : un onglet qui suit le menu n'existe que si le menu
+  // propose sa destination (§118.153).
+  const onglets = PRIMARY.filter((p) => !p.suitLeMenu || items.some((i) => i.href === p.href));
   const visible = items.filter((i) => PRIMARY.every((p) => p.href !== i.href));
   const needle = q.trim().toLowerCase();
   const hit = (i: NavItem) => i.label.toLowerCase().includes(needle);
@@ -245,7 +259,7 @@ export function MobileTabBar({
           visible mais intouchable, caché derrière la barre. */}
       <nav ref={navRef} className="fixed inset-x-0 bottom-0 z-40 border-t border-border bg-card/95 pb-[env(safe-area-inset-bottom)] backdrop-blur lg:hidden">
         <div className="flex items-stretch">
-          {PRIMARY.map((tab) => {
+          {onglets.map((tab) => {
             const active = !drawer && isActive(pathname, tab.match);
             const TabIcon = tab.icon;
             const badge = tab.href === "/messages" ? messagingUnread : 0;

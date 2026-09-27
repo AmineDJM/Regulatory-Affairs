@@ -3,9 +3,10 @@ import { businessUnitDuDemandeur } from "@/lib/ad-pro/business-unit-auto";
 import { AVAILABLE_PRODUCT_STATUSES } from "@/lib/ad-pro/pickers";
 import { platformScope, getMyCompanies, companyOptions } from "@/lib/company";
 import { toNumber } from "@/lib/utils";
-import { userCan, anyRoleFilter, type SessionUser } from "@/lib/rbac";
+import { userCan, anyRoleFilter, scopeCongressIntl, scopeCongressNational, scopePromoMaterial, type SessionUser } from "@/lib/rbac";
 import { adProState, sortAdPro, type AdProKind, type AdProRequest } from "@/lib/ad-pro/unified";
 import { natureDesigneMedecinsEtProduits, type AdProCreateData } from "@/lib/ad-pro/create-fields";
+import { etatAdProDuDossier } from "@/lib/promo-material/statut";
 
 /**
  * LA LISTE UNIFIÉE DES DEMANDES AD & PRO.
@@ -38,13 +39,13 @@ export async function getAdProRequests(user: SessionUser): Promise<AdProRequest[
       : [],
     can("CONGRESS_INTERNATIONAL")
       ? prisma.congressInternational.findMany({
-          where: scope, orderBy: { createdAt: "desc" }, take: LIMIT,
+          where: { AND: [scope, scopeCongressIntl(user)] }, orderBy: { createdAt: "desc" }, take: LIMIT,
           select: { id: true, name: true, status: true, createdAt: true, estimatedBudget: true, requesterId: true },
         }).catch(() => [])
       : [],
     can("CONGRESS_NATIONAL")
       ? prisma.congressNational.findMany({
-          where: scope, orderBy: { createdAt: "desc" }, take: LIMIT,
+          where: { AND: [scope, scopeCongressNational(user)] }, orderBy: { createdAt: "desc" }, take: LIMIT,
           select: { id: true, name: true, status: true, createdAt: true, estimatedBudget: true, requesterId: true },
         }).catch(() => [])
       : [],
@@ -56,8 +57,11 @@ export async function getAdProRequests(user: SessionUser): Promise<AdProRequest[
       : [],
     can("PROMO_MATERIAL")
       ? prisma.promoMaterial.findMany({
-          where: scope, orderBy: { createdAt: "desc" }, take: LIMIT,
-          select: { id: true, reference: true, title: true, status: true, createdAt: true, chosenAmount: true, amount: true, chosenAgency: true },
+          // LA PORTÉE DES LIGNES, pas seulement le module (§118.153) : un délégué qui a le
+          // matériel promotionnel en « lignes assignées » ne voit que SES dossiers dans l'écran du
+          // module — la liste unifiée ne doit pas lui montrer ceux des autres.
+          where: { AND: [scope, scopePromoMaterial(user)] }, orderBy: { createdAt: "desc" }, take: LIMIT,
+          select: { id: true, reference: true, title: true, status: true, circuitState: true, circuitVersion: true, createdAt: true, chosenAmount: true, amount: true, chosenAgency: true, requesterId: true },
         }).catch(() => [])
       : [],
     can("CONSULTING")
@@ -83,6 +87,7 @@ export async function getAdProRequests(user: SessionUser): Promise<AdProRequest[
     ...intl.map((r) => r.requesterId),
     ...national.map((r) => r.requesterId),
     ...events.map((r) => r.requesterId),
+    ...promo.map((r) => r.requesterId),
     ...consulting.map((r) => r.requesterId),
     ...other.map((r) => r.requesterId),
   ].filter((x): x is string => Boolean(x)))];
@@ -123,7 +128,10 @@ export async function getAdProRequests(user: SessionUser): Promise<AdProRequest[
       beneficiary: r.chosenAgency,
       // Le montant RETENU fait foi dès qu'un devis est choisi ; sinon le budget estimé.
       amount: r.chosenAmount !== null ? toNumber(r.chosenAmount) : r.amount === null ? null : toNumber(r.amount),
-      status: r.status, state: adProState(r.status), requester: null,
+      // UN DOSSIER À CIRCUIT SE JUGE SUR SON ÉTAT (§118.153) : son `status` hérité reste figé à
+      // « Prospection demandée » pour toujours, et la liste comptait « en attente de décision »
+      // un dossier terminé ou refusé.
+      status: r.circuitState ?? r.status, state: etatAdProDuDossier(r), requester: nameOf(r.requesterId),
       createdAt: r.createdAt.toISOString(), href: `/promo-material/${r.id}`,
     })),
     ...consulting.map((r) => ({

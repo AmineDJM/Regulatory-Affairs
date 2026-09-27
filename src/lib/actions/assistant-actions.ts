@@ -2,11 +2,11 @@
 
 import { revalidatePath } from "next/cache";
 import { requireUser } from "@/lib/session";
-import { userCan } from "@/lib/rbac";
+import { userCan, peutVoirAdam, REFUS_ADAM } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { getBlob } from "@/lib/drive-storage";
 import { resolveDriveAccess, canViewDrive } from "@/lib/drive";
-import { aiConfigured, aiModel, aiModelCheap, askClaudeCheap } from "@/lib/ai";
+import { aiConfigured, aiModel, aiModelCheap } from "@/lib/ai";
 import { aiFeatureEnabled, logAiUsage } from "@/lib/ai-settings";
 import { getUnreadDigest } from "@/lib/assistant-nudge";
 import { executeIntentGuarded, cancelActionIntent } from "@/lib/assistant/action-intents";
@@ -17,13 +17,14 @@ import {
 import { matchesConfirmText } from "@/lib/assistant/confirm";
 import { featureEnabled, FEATURES } from "@/lib/features";
 import {
-  personalContext, createThread, appendExchange, listThreads, getThreadMessages,
+  personalContext, listThreads, getThreadMessages,
   deleteThread as deleteThreadScoped, forgetEverything,
-  distillationDue, countMessages, recentMessages, getMemory, saveMemory,
   type ThreadSummary, type StoredMessage,
   contexteReglesSeules,
 } from "@/lib/assistant-memory";
 import { getDailyBrief } from "@/lib/daily-brief";
+// L'écriture d'un échange n'est PAS une action serveur : elle reçoit l'identité en argument (§118.153).
+import { rememberExchange } from "@/lib/memoire-echange";
 import { extractAttachmentText, buildAttachmentContext, type AttachmentText } from "@/lib/assistant-files";
 import type { AssistantAttachment, AssistantFileOption } from "@/lib/assistant-attachments";
 import {
@@ -95,121 +96,6 @@ export interface NudgeResult {
   suggestion: { summary: string; proposal?: ProposedAction } | null;
 }
 
-/**
- * DISTILLATION DE LA MÉMOIRE — la « grande mémoire » de l'assistant.
- *
- * Tous les ~12 messages, on relit les échanges RÉCENTS DE CETTE PERSONNE (helpers scopés) et
- * on réécrit une note durable : ses sujets, ses dossiers, ses habitudes, ses préférences de
- * formulation. Cette note est réinjectée au prochain tour via `personalContext`.
- * Appel économique et épisodique ; toute erreur est silencieuse (la mémoire est un confort,
- * jamais un point de rupture du chat).
- */
-async function maybeDistillMemory(userId: string): Promise<void> {
-  try {
-    if (!aiConfigured()) return;
-    if (!(await distillationDue(userId))) return;
-    const [msgs, previous] = await Promise.all([recentMessages(userId, 60), getMemory(userId)]);
-    if (msgs.length === 0) return;
-    const transcript = msgs
-      .map((m) => `${m.role === "user" ? "Personne" : "Assistant"} : ${m.content.slice(0, 800)}`)
-      .join("\n");
-    const res = await askClaudeCheap(
-      `${previous ? `NOTE ACTUELLE (à mettre à jour, pas à jeter) :\n${previous}\n\n` : ""}` +
-      `ÉCHANGES RÉCENTS :\n${transcript}\n\n` +
-      `Rédige la note de mémoire à jour (12 lignes maximum, en français, sans Markdown).`,
-      {
-        system:
-          "Tu tiens la mémoire durable d'un assistant interne, pour UNE seule personne. " +
-          "Retiens ce qui reste vrai dans le temps : son périmètre, ses dossiers et produits suivis, " +
-          "ses interlocuteurs habituels, ses préférences de travail et de formulation, ses échéances récurrentes. " +
-          "Ignore le bavardage et tout ce qui est déjà périmé. Écris des phrases courtes et factuelles.",
-        maxTokens: 500,
-      },
-    );
-    if (!res.ok || !res.text) return;
-    await saveMemory(userId, res.text, await countMessages(userId));
-  } catch (e) {
-    console.error("[assistant] distillation de la mémoire impossible (non bloquant)", e);
-  }
-}
-
-/**
- * DÉCOUPAGE DE LA MÉMOIRE EN ÉPISODES — la seconde moitié de la mémoire, et la plus utile.
- *
- * ── CE QU'ELLE FAIT QUE LA DISTILLATION NE FAIT PAS ──────────────────────────────────────
- *
- * `maybeDistillMemory` tient UNE note par personne : ce qui reste vrai dans le temps. Elle
- * écrase la précédente à chaque passage, donc elle ne sait pas dire « en mars, on avait décidé
- * X, puis en juin on est revenu dessus ». L'épisode, lui, est daté, borné par deux messages, et
- * sa fidélité décroît avec l'âge sans jamais perdre un montant, une référence ni une correction.
- *
- * Les deux coexistent parce qu'elles répondent à deux questions différentes — « qui est cette
- * personne » et « que s'est-il passé, et quand ». Fusionner les deux redonnerait une note qui
- * grossit sans fin, c'est-à-dire le comportement qu'on cherche à éviter.
- *
- * Non bloquant, comme la distillation : la mémoire ne fait jamais échouer un tour réussi.
- */
-async function maybeCutEpisode(userId: string, threadId: string): Promise<void> {
-  try {
-    const { noterEpisode, vieillirMemoire } = await import("@/platform/in-process/missions/memory");
-    const r = await noterEpisode(userId, threadId);
-    if (!r.episodeId) return;
-
-    console.info(
-      `[assistant] épisode ${r.episodeId} — ${r.tours} tours, `
-      + `${r.jetonsAvant} → ${r.jetonsApres} jetons estimés`,
-    );
-
-    // ET, PUISQU'ON EST ICI, ON FAIT VIEILLIR LA MÉMOIRE DE CETTE PERSONNE.
-    //
-    // Le battement le fait aussi, mais par une file BORNÉE à dix comptes par passage, et
-    // seulement tant que quelqu'un sollicite l'application. Or la personne dont la mémoire
-    // grossit le plus vite est précisément celle qui parle le plus — et c'est elle qui paiera
-    // le contexte le plus lourd au prochain tour. La compresser au moment où elle gagne un
-    // souvenir, plutôt qu'en attendant un créneau, est le geste évident.
-    //
-    // Ce n'est PAS un coût par tour : on n'arrive ici qu'une fois par tranche d'épisode, et si
-    // rien n'a vieilli la file est vide et aucun modèle n'est appelé.
-    await vieillirMemoire(new Date(), { userId });
-  } catch (e) {
-    console.error("[assistant] découpage en épisode impossible (non bloquant)", e);
-  }
-}
-
-/**
- * Mémorise un échange dans le fil de CETTE personne et renvoie l'identifiant du fil.
- *
- * Un fil inconnu — ou appartenant à quelqu'un d'autre — n'est jamais écrit : on en ouvre
- * simplement un nouveau. C'est la seule écriture de mémoire de l'assistant, partagée par
- * l'action serveur et la route de flux, pour que la règle de cloisonnement n'existe qu'en
- * un seul endroit.
- */
-export async function rememberExchange(
-  userId: string, threadId: string | null, userMessage: string, reply: string,
-  /**
-   * CE QU'ADAM A CONSTRUIT à ce tour (`WorkspaceComposition[]`). Facultatif : la voix et les
-   * chemins sans espace de travail n'en produisent pas, et un tour sans blocs n'en écrit pas.
-   */
-  workspace?: unknown,
-): Promise<string | null> {
-  try {
-    let tid = threadId;
-    if (tid) {
-      const ok = await appendExchange(userId, tid, userMessage, reply, workspace);
-      if (!ok) tid = null; // fil inconnu ou n'appartenant pas au demandeur → on repart proprement
-    }
-    if (!tid) {
-      tid = await createThread(userId, userMessage);
-      await appendExchange(userId, tid, userMessage, reply, workspace);
-    }
-    await maybeDistillMemory(userId);
-    await maybeCutEpisode(userId, tid);
-    return tid;
-  } catch (e) {
-    console.error("[assistant] mémorisation impossible (non bloquant)", e);
-    return threadId;
-  }
-}
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
@@ -244,7 +130,7 @@ export async function assistantDirectIntent(
   if (!def) return vide;
 
   const user = await requireUser();
-  if (!userCan(user, "WORKSPACE", "VIEW")) return vide;
+  if (!userCan(user, "WORKSPACE", "VIEW") || !peutVoirAdam(user)) return vide;
 
   const clean = intentArgs(def, args);
   if (Object.keys(clean).length === 0) return vide;
@@ -283,6 +169,9 @@ export async function assistantChat(
     if (!userCan(user, "WORKSPACE", "VIEW")) {
       return { configured: true, ok: false, reply: "", trace: [], error: "Non autorisé." };
     }
+    // ADAM N'EST OUVERT QU'AU SUPER ADMIN (§118.153) — la page et la route le refusent déjà ; une
+    // action serveur est un point d'entrée à part entière, appelable sans passer par l'écran.
+    if (!peutVoirAdam(user)) return { configured: true, ok: false, reply: "", trace: [], error: REFUS_ADAM };
     // CLOISONNEMENT : en « Vue exacte » (un admin regarde l'app comme quelqu'un d'autre),
     // l'assistant est DÉSACTIVÉ. Sa mémoire est strictement personnelle : on n'ouvre jamais
     // celle d'un tiers, même à un administrateur.
@@ -348,6 +237,7 @@ export async function assistantChat(
 export async function assistantNudge(prevSignature: string): Promise<NudgeResult> {
   try {
     const user = await requireUser();
+    if (!peutVoirAdam(user)) return { signature: "0", suggestion: null };
     const digest = await getUnreadDigest(user.id);
     if (digest.count === 0) return { signature: "0", suggestion: null };
     // Rien de nouveau depuis la dernière analyse → pas d'appel IA.
@@ -381,6 +271,8 @@ export async function assistantNudge(prevSignature: string): Promise<NudgeResult
 export async function executeAssistantAction(payload: AssistantActionPayload, intentId?: string, confirmTyped?: string): Promise<ExecuteResult> {
   try {
     const user = await requireUser();
+    // Le chemin SANS intent exécute un payload reçu : c'est la porte la plus large d'Adam.
+    if (!peutVoirAdam(user)) return { ok: false, error: REFUS_ADAM };
 
     // CHEMIN CANONIQUE : l'action vit sous son INTENT (machine d'état serveur). Réclamation
     // atomique — un retry / double-clic / reconnexion ne relance JAMAIS l'exécution : une
@@ -455,6 +347,7 @@ export async function executeAssistantBundle(intentIds: string[]): Promise<Bundl
 
   try {
     const user = await requireUser();
+    if (!peutVoirAdam(user)) return empty(REFUS_ADAM);
     const ids = (Array.isArray(intentIds) ? intentIds : []).filter((v): v is string => typeof v === "string" && v.length > 0);
     if (!ids.length) return empty("Rien à exécuter.");
     // Un lot reste un lot : au-delà, c'est une mission de fond, pas une confirmation.
@@ -520,7 +413,7 @@ export async function cancelAssistantAction(intentId: string): Promise<boolean> 
 export async function listAssistantFiles(query?: string): Promise<AssistantFileOption[]> {
   try {
     const user = await requireUser();
-    if (!userCan(user, "DRIVE", "VIEW")) return [];
+    if (!userCan(user, "DRIVE", "VIEW") || !peutVoirAdam(user)) return [];
     const q = (query ?? "").trim();
     const files = await prisma.driveNode.findMany({
       where: { ownerId: user.id, type: "FILE", isTrashed: false, ...(q ? { name: { contains: q, mode: "insensitive" } } : {}) },
@@ -542,7 +435,7 @@ export async function listAssistantFiles(query?: string): Promise<AssistantFileO
 export async function myAssistantThreads(): Promise<ThreadSummary[]> {
   try {
     const user = await requireUser();
-    if (user.impersonatedBy) return [];
+    if (user.impersonatedBy || !peutVoirAdam(user)) return [];
     if (!(await featureEnabled(FEATURES.ASSISTANT_MEMORY.key, user.id))) return [];
     return await listThreads(user.id);
   } catch {
@@ -561,7 +454,7 @@ export async function myAssistantThreads(): Promise<ThreadSummary[]> {
 export async function myAssistantThread(threadId: string): Promise<StoredMessage[] | null> {
   try {
     const user = await requireUser();
-    if (user.impersonatedBy) return null;
+    if (user.impersonatedBy || !peutVoirAdam(user)) return null;
     return await getThreadMessages(user.id, threadId, undefined, { avecWorkspace: true });
   } catch {
     return null;
@@ -587,7 +480,7 @@ export async function deleteMyAssistantThread(threadId: string): Promise<Execute
 export async function refreshMyBrief(): Promise<{ text: string | null }> {
   try {
     const user = await requireUser();
-    if (user.impersonatedBy) return { text: null };
+    if (user.impersonatedBy || !peutVoirAdam(user)) return { text: null };
     if (!(await featureEnabled(FEATURES.ASSISTANT_PROACTIVE.key, user.id))) return { text: null };
     if (!(await aiFeatureEnabled("assistant"))) return { text: null };
     const res = await getDailyBrief(user, true);

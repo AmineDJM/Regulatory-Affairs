@@ -1,4 +1,4 @@
-import { accessibleModules, userCan, seesLockedRegulatory, peutPiloterMissionsAdam, type SessionUser } from "@/lib/rbac";
+import { accessibleModules, userCan, seesLockedRegulatory, peutPiloterMissionsAdam, peutVoirAdam, canViewBdProjects, type SessionUser } from "@/lib/rbac";
 import { estCheminMaintenu } from "@/lib/modules-retired";
 import { NAVIGATION, type NavItem } from "@/lib/labels";
 import { canSeeRegEnrollment } from "@/lib/org-chart-access";
@@ -103,14 +103,26 @@ export async function navigationFor(user: SessionUser): Promise<NavItem[]> {
     // tout le monde ; c'est CE prédicat — le même que l'écran, les actions, les outils et le
     // moteur — qui décide de l'entrée. Une entrée que la page refuserait n'est pas envoyée.
     adamMissions: peutPiloterMissionsAdam(user),
+    // « PROJETS » (BD) survit au retrait de son module : l'affichage passe par le chemin maintenu,
+    // l'ouverture par CE prédicat — le même que l'écran et ses actions (§118.153).
+    bdProjets: canViewBdProjects(user),
+    // ADAM (assistant + chief of staff) : le Super Admin seul (§118.153). La palette suit le menu.
+    adam: peutVoirAdam(user),
   };
 
   // Les SOUS-MODULES suivent la même règle que leur parent : chacun a son module et sa garde, et
   // une entrée interdite n'est jamais envoyée au navigateur. Un parent dont l'utilisateur n'a pas
   // le module disparaît AVEC ses enfants — mais un enfant interdit ne fait pas disparaître le
   // parent.
-  const allowedChildren = (n: NavItem): NavItem[] =>
-    (n.children ?? []).filter((c) => (!c.gate || gateOpen[c.gate]) && moduleOuvert(c));
+  //
+  // UN ENFANT UNIQUE QUI EST LE PARENT LUI-MÊME N'EST PAS UN SOUS-MENU (§118.153). « Mon Équipe »
+  // porte deux enfants — l'équipe et le recrutement ; à qui n'a pas le recrutement, il n'en
+  // restait qu'un, identique au parent : une flèche à déplier pour retrouver le lien qu'on
+  // venait de cliquer. Mesuré en parcours réel, chez chaque encadrant sans recrutement.
+  const allowedChildren = (n: NavItem): NavItem[] => {
+    const kids = (n.children ?? []).filter((c) => (!c.gate || gateOpen[c.gate]) && moduleOuvert(c));
+    return kids.length === 1 && kids[0].href === n.href ? [] : kids;
+  };
 
   /**
    * L'ENTRÉE EST-ELLE OUVERTE ? Le droit de module, OU un sous-module qui survit à un retrait.

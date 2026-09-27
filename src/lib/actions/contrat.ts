@@ -1174,8 +1174,11 @@ const TYPES_SIMPLES: Readonly<Record<string, TypeChamp>> = {
  *
  * La liste est FERMÉE et COURTE, parce qu'une garde large — « tout paramètre finissant par
  * Id » — refuserait `missionId`, `taskId`, `messageId`, c'est-à-dire la quasi-totalité du
- * parc, pour se protéger d'un risque qu'aucune de ces actions ne porte. Une seule action est
- * dans ce cas aujourd'hui (`rememberExchange`), et le refus la NOMME avec sa raison.
+ * parc, pour se protéger d'un risque qu'aucune de ces actions ne porte. Le refus NOMME la raison.
+ *
+ * La seule action qui a été dans ce cas (`rememberExchange`) n'est plus une action : le refus au
+ * chemin générique ne fermait pas son point d'entrée public, et elle vit désormais dans un module
+ * serveur ordinaire (`lib/memoire-echange.ts`, §118.153). La règle reste, pour la prochaine.
  */
 const IDENTITE_ACTEUR = /^(userId|actorId|asUser|onBehalfOf|accountId|sessionUserId|impersonate\w*)$/i;
 

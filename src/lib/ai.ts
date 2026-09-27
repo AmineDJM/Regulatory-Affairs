@@ -210,7 +210,9 @@ export interface AiHealthResult {
  *
  * En passant par la passerelle, le ping interroge le fournisseur qui répondra vraiment, et le
  * message d'erreur remonté est celui de l'API (statut + `error.message`), pas un code nu.
- * Il paie huit jetons sur le rôle `bulk` : un diagnostic ne se fait pas sur le modèle cher.
+ * Il demande huit jetons sur le rôle `bulk` : un diagnostic ne se fait pas sur le modèle cher. Le
+ * plancher du fournisseur (16 chez OpenAI, `PLANCHER_SORTIE_RESPONSES`) s'applique dans
+ * l'adaptateur — c'est lui qui transformait ce ping en 400, donc en fausse panne (§118.153).
  */
 export async function aiSelfTest(): Promise<AiHealthResult> {
   const { model, provider } = bindingFor(ROLE_ECO);

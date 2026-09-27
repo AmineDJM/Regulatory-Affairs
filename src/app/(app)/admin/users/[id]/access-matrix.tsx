@@ -44,6 +44,10 @@ export function AccessMatrix({ userId, rows }: { userId: string; rows: ModuleAcc
   const [state, setState] = React.useState(rows);
   const [saving, setSaving] = React.useState(false);
   const [saved, setSaved] = React.useState(false);
+  // LE REFUS SE DIT (§118.153). Le résultat de l'action était ignoré : un refus (« Réservé au
+  // Super Admin », « Utilisateur manquant ») affichait quand même « Enregistré » avec la coche
+  // verte — le faux succès exact, sur l'écran qui décide de ce qu'une personne peut faire.
+  const [erreur, setErreur] = React.useState<string | null>(null);
 
   function update(module: string, patch: Partial<ModuleAccessRow>) {
     setState((s) => s.map((r) => (r.module === module ? { ...r, ...patch } : r)));
@@ -53,8 +57,10 @@ export function AccessMatrix({ userId, rows }: { userId: string; rows: ModuleAcc
     <form
       action={async (fd) => {
         setSaving(true);
-        await saveAccessMatrix(fd);
+        setErreur(null);
+        const r = await saveAccessMatrix(fd).catch(() => ({ ok: false as const, error: "Enregistrement impossible — réessayez." }));
         setSaving(false);
+        if (!r.ok) { setErreur(r.error ?? "Enregistrement refusé."); return; }
         setSaved(true);
         setTimeout(() => setSaved(false), 1500);
       }}
@@ -170,6 +176,7 @@ export function AccessMatrix({ userId, rows }: { userId: string; rows: ModuleAcc
           <Badge tone="info" dot={false}>Personnalisé</Badge> droits choisis ·
           <Badge tone="danger" dot={false}>Bloqué</Badge> onglet masqué.
         </p>
+        {erreur && <p role="alert" className="text-sm text-destructive">{erreur}</p>}
         <Button type="submit" disabled={saving}>
           {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : saved ? <Check className="h-4 w-4 text-success" /> : null}
           {saved ? "Enregistré" : "Enregistrer les accès"}

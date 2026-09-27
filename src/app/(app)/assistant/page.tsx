@@ -1,4 +1,6 @@
+import { notFound } from "next/navigation";
 import { requireModule } from "@/lib/session";
+import { peutVoirAdam } from "@/platform/in-process/visibilite-adam";
 import { aiConfigured, sttConfigured, cleModeleRequise } from "@/lib/ai";
 import { phraseIaNonConfiguree } from "@/lib/ia/cle-manquante";
 import { featureEnabled, FEATURES } from "@/lib/features";
@@ -10,6 +12,8 @@ export const dynamic = "force-dynamic";
 
 export default async function AssistantPage() {
   const user = await requireModule("WORKSPACE");
+  // Adam n'est visible que du Super Admin (§118.153) — la même page qu'une adresse inconnue.
+  if (!peutVoirAdam(user)) notFound();
   // Mémoire personnelle et point du matin : indisponibles en « Vue exacte » — la mémoire
   // d'une personne ne s'ouvre à personne d'autre, pas même à un administrateur.
   const [memoryEnabled, proactive] = await Promise.all([

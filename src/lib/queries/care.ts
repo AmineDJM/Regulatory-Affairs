@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { toNumber } from "@/lib/utils";
 import { beneficiaryName, beneficiarySubtitle } from "@/lib/care";
 import type { BeneficiaryRow, QuoteRow } from "@/components/care/care-panel";
+import { statutDuDossier } from "@/lib/promo-material/statut";
 
 /**
  * Lecture du dossier de prise en charge — personnes, leurs cases, et les devis.
@@ -42,9 +43,9 @@ export async function getCareDossier(scope: "NATIONAL" | "INTERNATIONAL", reques
   // Le matériel promotionnel rattaché à des cases, en UNE requête.
   const promoIds = rows.flatMap((r) => r.cells.map((c) => c.promoMaterialId)).filter((x): x is string => Boolean(x));
   const promos = promoIds.length
-    ? await prisma.promoMaterial.findMany({ where: { id: { in: [...new Set(promoIds)] } }, select: { id: true, reference: true, title: true, status: true } })
+    ? await prisma.promoMaterial.findMany({ where: { id: { in: [...new Set(promoIds)] } }, select: { id: true, reference: true, title: true, status: true, circuitState: true, circuitVersion: true } })
     : [];
-  const promoById = new Map(promos.map((p) => [p.id, { reference: p.reference, title: p.title, status: String(p.status) }]));
+  const promoById = new Map(promos.map((p) => [p.id, { reference: p.reference, title: p.title, status: statutDuDossier(p).libelle }]));
 
   // Les noms de l'annuaire, en UNE requête.
   const doctorIds = rows.map((r) => r.doctorId).filter((x): x is string => Boolean(x));

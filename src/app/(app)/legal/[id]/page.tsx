@@ -5,7 +5,7 @@ import { ArrowLeft, Paperclip, ExternalLink } from "lucide-react";
 import { requireUser } from "@/lib/session";
 import { listPartyOptions } from "@/lib/queries/company-contacts";
 import { PartyLink } from "@/components/directory/party-link";
-import { userCan } from "@/lib/rbac";
+import { userCan, peutVoirAdam } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { companyScopedWhere } from "@/lib/company";
 import { legalKindVisible, legalViewScope, legalWriteAllowed } from "@/lib/legal/invoices";
@@ -280,7 +280,7 @@ export default async function LegalDocumentPage({ params }: { params: { id: stri
             <span className="text-xs text-muted-foreground">{LEGAL_DOC_KIND[doc.kind] ?? doc.kind}</span>
             {doc.reference && <span className="font-mono text-xs text-muted-foreground">{doc.reference}</span>}
             {doc.company && <span className="text-xs text-muted-foreground">{doc.company.shortName || doc.company.name}</span>}
-            {userCan(user, "CHIEF_OF_STAFF", "VIEW") && (
+            {peutVoirAdam(user) && userCan(user, "CHIEF_OF_STAFF", "VIEW") && (
               <AskChief reference={doc.reference || doc.title} call={realtimeVoiceConfigured() && canUseRealtimeVoice(user)} />
             )}
           </div>

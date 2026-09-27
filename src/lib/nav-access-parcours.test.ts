@@ -1,0 +1,106 @@
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import type { CurrentUser } from "@/lib/session";
+import { prisma } from "@/lib/prisma";
+import { getAccess, userCan, canViewBdProjects, peutVoirAdam, type SessionUser } from "@/lib/rbac";
+import { navigationFor } from "@/lib/nav-access";
+import type { NavItem } from "@/lib/labels";
+
+let dbOk = false;
+try { await prisma.$queryRaw`SELECT 1`; dbOk = true; } catch { dbOk = false; }
+const suite = dbOk ? describe : describe.skip;
+
+const TAG = "__navparcours__";
+
+async function acteur(id: string, role: SessionUser["role"]): Promise<CurrentUser> {
+  const access = await getAccess(id, role);
+  const u = await prisma.user.findUniqueOrThrow({ where: { id } });
+  return { id, name: u.name, email: u.email, role, access, mustChangePassword: false };
+}
+
+const destinations = (items: NavItem[]): string[] => items.flatMap((i) => [i.href, ...destinations(i.children ?? [])]);
+
+/**
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ * LE MENU DANS LA PEAU DES GENS (§118.153).
+ *
+ * Deux défauts trouvés en parcourant le menu rôle par rôle, dans le navigateur, et qu'aucun test
+ * ne tenait parce que tous éprouvaient le menu du Super Admin :
+ *   • « Projets » (BD) était affiché à TOUT LE MONDE — un chemin maintenu s'affiche par son
+ *     adresse — alors que l'écran ne s'ouvre qu'à qui voit Regulatory ;
+ *   • « Mon Équipe » dépliait un sous-menu d'UN seul lien, identique au parent, chez chaque
+ *     encadrant qui n'a pas le recrutement.
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ */
+suite("le menu d'un employé ordinaire ne promet que ce qui s'ouvre", () => {
+  const u: Record<string, string> = {};
+
+  beforeAll(async () => {
+    await nettoyer();
+    const mk = async (k: string, role: SessionUser["role"]) => {
+      u[k] = (await prisma.user.create({ data: { name: `${TAG} ${k}`, email: `${TAG}${k}@t.dz`, role, passwordHash: "x" } })).id;
+    };
+    await mk("ns", "NATIONAL_SALES");
+    await mk("kam", "MEDICAL_DELEGATE");
+    await mk("dir", "DIRECTION");
+    await mk("rep", "SALES_USER");
+    await mk("sa", "SUPER_ADMIN");
+    const ns = await prisma.employee.create({ data: { fullName: `${TAG} ns`, userId: u.ns } });
+    await prisma.employee.create({ data: { fullName: `${TAG} kam`, userId: u.kam, managerId: ns.id } });
+    const dir = await prisma.employee.create({ data: { fullName: `${TAG} dir`, userId: u.dir } });
+    await prisma.employee.create({ data: { fullName: `${TAG} rep`, userId: u.rep, managerId: dir.id } });
+  }, 60_000);
+
+  afterAll(nettoyer);
+
+  async function nettoyer() {
+    await prisma.employee.deleteMany({ where: { fullName: { startsWith: TAG }, managerId: { not: null } } });
+    await prisma.employee.deleteMany({ where: { fullName: { startsWith: TAG } } });
+    await prisma.userAccess.deleteMany({ where: { user: { email: { startsWith: TAG } } } }).catch(() => undefined);
+    await prisma.user.deleteMany({ where: { email: { startsWith: TAG } } });
+  }
+
+  it("« Projets » n'est PAS au menu de qui ne voit pas Regulatory", async () => {
+    const kam = await acteur(u.kam, "MEDICAL_DELEGATE");
+    // PRÉMISSE : sans elle, le cas passerait au vert le jour où le délégué gagnerait Regulatory.
+    expect(canViewBdProjects(kam)).toBe(false);
+    expect(destinations(await navigationFor(kam))).not.toContain("/business-development/projets");
+  });
+
+  it("… et il y est pour qui voit Regulatory — la garde ne ferme que ce qu'elle doit", async () => {
+    const dir = await acteur(u.dir, "DIRECTION");
+    expect(canViewBdProjects(dir)).toBe(true);
+    expect(destinations(await navigationFor(dir))).toContain("/business-development/projets");
+  });
+
+  it("« Mon Équipe » sans recrutement : une entrée, pas un sous-menu qui se répète", async () => {
+    const ns = await acteur(u.ns, "NATIONAL_SALES");
+    // PRÉMISSES : il encadre (sinon l'entrée n'existe pas du tout) et n'a pas le recrutement.
+    expect(userCan(ns, "RECRUITMENT", "VIEW")).toBe(false);
+    const equipe = (await navigationFor(ns)).find((i) => i.href === "/mon-equipe");
+    expect(equipe, "l'encadrant doit voir « Mon Équipe »").toBeDefined();
+    expect(equipe?.children ?? []).toEqual([]);
+  });
+
+  it("Adam (assistant ET chief of staff) n'est PAS au menu de la Direction — qui a pourtant les deux modules", async () => {
+    const dir = await acteur(u.dir, "DIRECTION");
+    // PRÉMISSES : les modules sont là ; sans elles, l'absence viendrait du module, pas de la règle.
+    expect(userCan(dir, "WORKSPACE", "VIEW")).toBe(true);
+    expect(userCan(dir, "CHIEF_OF_STAFF", "VIEW")).toBe(true);
+    expect(peutVoirAdam(dir)).toBe(false);
+    const d = destinations(await navigationFor(dir));
+    expect(d).not.toContain("/assistant");
+    expect(d).not.toContain("/chief-of-staff");
+  });
+
+  it("… et il y est pour le Super Admin — la garde ne ferme que ce qu'elle doit", async () => {
+    const sa = await acteur(u.sa, "SUPER_ADMIN");
+    expect(destinations(await navigationFor(sa))).toEqual(expect.arrayContaining(["/assistant", "/chief-of-staff"]));
+  });
+
+  it("… et avec le recrutement, les deux enfants restent — ce n'est pas « retirer les enfants »", async () => {
+    const dir = await acteur(u.dir, "DIRECTION");
+    expect(userCan(dir, "RECRUITMENT", "VIEW")).toBe(true);
+    const equipe = (await navigationFor(dir)).find((i) => i.href === "/mon-equipe");
+    expect((equipe?.children ?? []).map((c) => c.href)).toEqual(["/mon-equipe", "/recrutement"]);
+  });
+});

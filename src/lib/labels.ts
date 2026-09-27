@@ -1410,7 +1410,7 @@ export interface NavItem {
    * envoyé qu'au Super Admin (`peutPiloterMissionsAdam`, §118.136) — le module WORKSPACE est à
    * tout le monde, la règle n'est pas un module.
    */
-  gate?: "regEnrollment" | "pipeline" | "payroll" | "myTeam" | "adamMissions";
+  gate?: "regEnrollment" | "pipeline" | "payroll" | "myTeam" | "adamMissions" | "bdProjets" | "adam";
   /**
    * Entrée fusionnée : plusieurs sous-modules présentés en onglets sur la page.
    * L'entrée est visible si l'utilisateur a accès à **au moins un** onglet, et son
@@ -1699,7 +1699,8 @@ export const NAVIGATION: NavItem[] = [
   { module: "WORKSPACE", label: "Agenda", href: "/calendar", icon: "CalendarDays", group: "Pilotage", tabs: AGENDA_TABS, match: ["/meetings"] },
   // Assistant IA : MODULE À PART ENTIÈRE (l'ancienne bulle flottante a été retirée) —
   // page plein écran avec dictée vocale et lecture de pièces jointes.
-  { module: "WORKSPACE", label: "Assistant IA", href: "/assistant", icon: "Sparkles", group: "Pilotage" },
+  // ADAM (l'assistant ET le chief of staff) n'est visible que du Super Admin (§118.153, `peutVoirAdam`).
+  { module: "WORKSPACE", label: "Assistant IA", href: "/assistant", icon: "Sparkles", group: "Pilotage", gate: "adam" },
   // LE CENTRE DE MISSIONS — le PARC de ce qu'Adam exécute. Il vit à côté de l'assistant et pas
   // dedans : une mission est un objet de l'ERP (identifiant, propriétaire, étapes, livrables,
   // journal), et la ranger dans la conversation ferait dépendre son écran de l'assistant, ce
@@ -1712,7 +1713,7 @@ export const NAVIGATION: NavItem[] = [
   // Admin (module CHIEF_OF_STAFF). Même moteur que l'assistant, mais les outils d'un chef de
   // cabinet : histoire complète d'un dossier, lecture des documents, bilans, rappels planifiés,
   // décisions du centre de paiement.
-  { module: "CHIEF_OF_STAFF", label: "My Chief of Staff", href: "/chief-of-staff", icon: "Crown", group: "Pilotage" },
+  { module: "CHIEF_OF_STAFF", label: "My Chief of Staff", href: "/chief-of-staff", icon: "Crown", group: "Pilotage", gate: "adam" },
   { module: "DOSSIERS", label: "Projets", href: "/dossiers", icon: "FolderKanban", group: "Pilotage" },
   // Messagerie Microsoft 365 — sous le module MESSAGING (droit déjà existant) ; l'ouverture réelle
   // dépend en plus du drapeau MICROSOFT_MAIL et de la liste pilote, vérifiés dans l'écran.
@@ -1901,7 +1902,12 @@ export const NAVIGATION: NavItem[] = [
   // MARKET INTELLIGENCE est RETIRÉ du service (2026-09) ; « Projets » a été redemandé et lui
   // survit seul (`modules-retired.ts`, SOUS_MODULES_MAINTENUS). L'entrée n'est donc plus un
   // parent avec un enfant — le parent ouvrirait une adresse qui ne s'ouvre plus.
-  { module: "BUSINESS_DEVELOPMENT", label: "Projets", href: "/business-development/projets", icon: "FolderKanban", group: "Pôles", pole: "BUSINESS_DEV" },
+  // LA GARDE `bdProjets` (§118.153) : un chemin maintenu est ouvert à l'AFFICHAGE pour tout le
+  // monde (`estCheminMaintenu`), mais l'écran ne s'ouvre qu'à qui voit Regulatory. Mesuré en
+  // parcours réel : le délégué, les Finances et le pharmacien voyaient « Projets » au menu et
+  // tombaient sur un refus — l'entrée qu'on clique sans comprendre, que les autres gardes existent
+  // pour empêcher.
+  { module: "BUSINESS_DEVELOPMENT", label: "Projets", href: "/business-development/projets", icon: "FolderKanban", group: "Pôles", pole: "BUSINESS_DEV", gate: "bdProjets" },
   // L'EXPLORATEUR PRODUITS — module à part, et non plus une sous-page d'Intelligence marché.
   // On ne l'ouvre pas « en analysant le marché » : on l'ouvre parce qu'on cherche UN produit,
   // UNE molécule, UN laboratoire. C'était le geste le plus fréquent du pôle, et il fallait deux

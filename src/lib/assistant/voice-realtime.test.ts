@@ -12,7 +12,8 @@ import { createThread, appendExchange } from "@/lib/assistant-memory";
 
 /**
  * VOIX TEMPS RÉEL — les invariants côté serveur, testés sans réseau :
- *   • la PORTE : seul le siège exécutif AVEC le module CHIEF_OF_STAFF ouvre une session ;
+ *   • la PORTE : seul le Super Admin (Adam lui est réservé, §118.153) AVEC le module
+ *     CHIEF_OF_STAFF ouvre une session ;
  *   • l'ADAPTATEUR : les MÊMES PowerTools servent la voix (aucun outil dupliqué, aucun nom
  *     fantôme), filtrés par le droit du compte + l'outil de délégation ;
  *   • les INSTRUCTIONS : identité vocale, règles de fond (anti-injection), conversation
@@ -41,7 +42,9 @@ function userWith(perms: Partial<Record<Module, Action[]>>, role: CurrentUser["r
 
 describe("voix temps réel — porte d'accès", () => {
   it("s'ouvre au siège exécutif AVEC le module CHIEF_OF_STAFF — et à personne d'autre", () => {
-    expect(canUseRealtimeVoice(userWith({ CHIEF_OF_STAFF: ["VIEW"] }, "DIRECTION"))).toBe(true);
+    // ADAM N'EST VISIBLE QUE DU SUPER ADMIN (§118.153) : la Direction, siège exécutif AVEC le
+    // module, n'ouvre plus de session vocale — la voix est Adam, pas une fonction à part.
+    expect(canUseRealtimeVoice(userWith({ CHIEF_OF_STAFF: ["VIEW"] }, "DIRECTION"))).toBe(false);
     expect(canUseRealtimeVoice(userWith({ CHIEF_OF_STAFF: ["VIEW"] }, "SUPER_ADMIN"))).toBe(true);
     // Un délégué, même avec le module par erreur : refusé (le rôle est une règle métier).
     expect(canUseRealtimeVoice(userWith({ CHIEF_OF_STAFF: ["VIEW"] }, "DELEGATE" as CurrentUser["role"]))).toBe(false);

@@ -1,6 +1,8 @@
 import { prisma } from "@/lib/prisma";
 import { userCan, hasGlobalView, hasRole, scopeRegulatory, scopeDirectives, type SessionUser } from "@/lib/rbac";
 import { getPendingValidations } from "@/lib/queries/validations";
+import { dossiersPromoAMonTour } from "@/lib/queries/promo-circuit";
+import { libelleEtape } from "@/lib/promo-material/circuit";
 import { toNumber, formatCurrency } from "@/lib/utils";
 import type { PromoMaterialStatus } from "@prisma/client";
 import {
@@ -215,6 +217,11 @@ export async function getActionCenter(user: SessionUser) {
   }
 
   // 6d. Matériel promotionnel — étape en attente de l'acteur courant.
+  //
+  // (a) L'ANCIEN CIRCUIT (seize statuts) : le `status` fait foi, et SEULEMENT pour lui
+  //     (`circuitState: null`). Un dossier à circuit garde son `status` de création figé pour
+  //     toujours : le lire ici l'affichait « Prospection demandée — à valider » chez tous les
+  //     porteurs de la validation du module, y compris après qu'ils l'avaient validé (§118.153).
   if (userCan(user, "PROMO_MATERIAL", "VIEW")) {
     const global = hasGlobalView(user.role);
     const mine = new Set<PromoMaterialStatus>();
@@ -226,7 +233,7 @@ export async function getActionCenter(user: SessionUser) {
     const or: { status: { in: PromoMaterialStatus[] }; requesterId?: string }[] = [];
     if (mine.size) or.push({ status: { in: [...mine] } });
     or.push(global ? { status: { in: marketing } } : { status: { in: marketing }, requesterId: user.id });
-    const promos = await prisma.promoMaterial.findMany({ where: { OR: or }, orderBy: { createdAt: "desc" }, take: 40 });
+    const promos = await prisma.promoMaterial.findMany({ where: { circuitState: null, OR: or }, orderBy: { createdAt: "desc" }, take: 40 });
     for (const p of promos) {
       items.push({
         key: `pm-${p.id}`, title: p.title, subtitle: p.reference,
@@ -234,6 +241,18 @@ export async function getActionCenter(user: SessionUser) {
         deadline: null, owner: "", ...resolve(PROMO_MATERIAL_STATUS, p.status),
       });
     }
+  }
+  // (b) LES DOSSIERS À CIRCUIT : ceux dont c'est MON tour, selon la règle du circuit lui-même —
+  //     et sans filtre par module : le N+1 et l'assistante de direction n'ont pas le module, et
+  //     c'est pourtant à eux que la demande attend. Une validation va dans « Validations à
+  //     faire » ; demander ou retranscrire les devis sont des gestes, qui vont dans « À traiter ».
+  for (const d of await dossiersPromoAMonTour(user)) {
+    items.push({
+      key: `pm-${d.id}`, title: d.title, subtitle: d.reference,
+      module: "Matériel promotionnel", href: `/promo-material/${d.id}`,
+      kind: d.tour === "VALIDATION" ? "validation" : "request", priority: null,
+      deadline: null, owner: "", statusLabel: libelleEtape(d.etat, d.version), statusTone: "warning",
+    });
   }
 
   // 6d. Pièces qui me sont demandées au titre de l'information médicale (tout utilisateur)

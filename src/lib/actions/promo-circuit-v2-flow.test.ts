@@ -163,8 +163,13 @@ suite("Matériel promotionnel — circuit 2 de bout en bout", () => {
     await prisma.company.delete({ where: { id: companyId } }).catch(() => {});
   }, 60_000);
 
-  it("PRÉMISSES : le N+1 d'un délégué n'a PAS le module ; le chef de produit n'a pas Legal ; les Finances n'ont pas Legal", async () => {
-    expect(userCan(await actorFor(u.ns), "PROMO_MATERIAL", "VIEW"), "sans cela, la porte de la fiche ne se mesurerait pas").toBe(false);
+  it("PRÉMISSES : le N+1 d'un délégué n'a le module qu'en « ses lignes » ; le chef de produit n'a pas Legal ; les Finances n'ont pas Legal", async () => {
+    // §118.153 : le National Sales DEMANDE lui aussi du matériel promotionnel — il a le module,
+    // mais en portée « ses lignes ». Le dossier de SON KAM n'y est pas : c'est la porte de la fiche
+    // (le N+1 nommé) qui le lui ouvre, et c'est elle que ce banc mesure.
+    const ns = await actorFor(u.ns);
+    expect(userCan(ns, "PROMO_MATERIAL", "VIEW")).toBe(true);
+    expect(ns.access.modules.get("PROMO_MATERIAL")?.scope, "sans cela, la porte de la fiche ne se mesurerait pas").toBe("ASSIGNED");
     expect(userCan(await actorFor(u.cp), "LEGAL", "VIEW")).toBe(false);
     expect(userCan(await actorFor(u.cp), "PROMO_MATERIAL", "CREATE")).toBe(true);
     expect(userCan(await actorFor(u.fin), "LEGAL", "VIEW")).toBe(false);
@@ -534,7 +539,7 @@ suite("Matériel promotionnel — circuit 2 de bout en bout", () => {
     expect((await etatDe(pmId)).circuitState).toBe("COMPLETED");
   }, 120_000);
 
-  it("LE N+1 D'UN DÉLÉGUÉ : il ouvre la fiche et ses pièces sans le module, et c'est lui seul qui tranche", async () => {
+  it("LE N+1 D'UN DÉLÉGUÉ : il ouvre la fiche et ses pièces hors de sa portée de module, et c'est lui seul qui tranche", async () => {
     const figes = await validateursDeLaDemande(u.kam);
     const pm = await prisma.promoMaterial.create({
       data: {
