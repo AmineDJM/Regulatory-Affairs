@@ -1096,7 +1096,7 @@ la porte commune — il naît en attente du centre de paiement, quel que soit le
 facture qui découle d'un **bon de commande que son centre n'a pas validé** ne part pas (voir
 ci-dessous).
 
-### Bons de commande — tout BC passe par un centre de validation (§118.148)
+### Bons de commande — tout BC passe par un centre de validation (§118.148), au-dessus du seuil des BC depuis §118.149
 
 « Concernant les BC, ils doivent tous passer soit par le centre de validation Ad & Pro si la demande
 est depuis Ad & Pro, soit par le centre de validation normal, si elle provient de quelque part
@@ -1105,8 +1105,9 @@ import) et **l'aiguillage l'applique** (`lib/bons-de-commande/aiguillage.ts`) :
 
 - **QUEL CENTRE ?** On remonte l'ORIGINE du BC (sa fiche source, la pièce dont il découle, jusqu'à
   six maillons, en passant par une demande au secrétariat ou un dossier de paiement) : un seul
-  maillon Ad & Pro suffit pour le **centre de validation Ad & Pro** (un visa `AdProGateVisa` SANS
-  seuil — « tous » veut dire tous) ; sinon le **centre de validations** (une demande de validation
+  maillon Ad & Pro suffit pour le **centre de validation Ad & Pro** (un visa `AdProGateVisa` sans
+  seuil FIGÉ — depuis §118.149, la porte suit le seuil des bons de commande en vigueur, 0 par défaut
+  donc tous) ; sinon le **centre de validations** (une demande de validation
   adressée au Directeur Général, ou au Super Admin à défaut).
 - **UNE SEULE PORTE, JAMAIS DEUX.** Le BC d'un POSTE Ad & Pro a déjà la sienne (`orderStage`, visée au
   centre Ad & Pro par le DG ou le Super Admin — plus par la Direction, ni par les Finances pour le
@@ -1141,6 +1142,46 @@ Un devis à **deux** bons de commande (deux lots) : chaque BC remonte au même d
 toujours **le fil de la pièce qu'on regarde** — jamais un graphe qui mélangerait deux commandes.
 Module pur `lib/legal/chain.ts` (10 tests) ; chargement borné `lib/queries/legal-chain.ts` ;
 carte `app/(app)/legal/[id]/chain-card.tsx`.
+
+### Bons de commande — le seuil, puis la signature des Finances (§118.149)
+
+« Tout BC supérieur à un montant configuré dans les centres de validations Ad&Pro devra passer par la
+validation d'un des centres. » — « Un sous-module Bons de commande sous Finances : les bons de commande à
+signer de leur part. Si un BC se retrouve là-bas, c'est qu'il doit être signé » (Direction, 09/2026).
+
+- **LE SEUIL** (`AppSetting.bcValidationThreshold`, réglé depuis le **centre de validation Ad & Pro** par
+  ses sièges — DG et Super Admin — ou par Adam, `adpro_operation/set_bc_threshold`) : **strictement
+  au-dessus**, le BC passe par un centre (Ad & Pro s'il en vient, le centre de validations sinon), comme
+  au §118.148 ; **en deçà**, aucun centre — il va directement à la signature des Finances. Un montant
+  **inconnu** passe par un centre (on ne franchit pas un contrôle sur un trou). **0 = tout BC passe par un
+  centre** — c'est la valeur par défaut, le comportement d'avant, jusqu'à ce que la Direction fixe le
+  montant. Distinct du seuil des DEMANDES (celui du DG) : l'un dit qui arbitre une opération, l'autre
+  quelle pièce doit être validée avant d'engager la société.
+- **L'ÉTAPE DE BOUT EN BOUT** (`etapeBC`, une seule lecture pour la file, la fiche, l'action et la
+  phrase) : à valider → à revoir / refusé → **à signer** → **signé**. Un BC d'avant le circuit
+  (`bcCircuitAt` nul) n'est présumé ni à valider ni à signer : fixer un seuil ne fait pas tomber
+  l'historique dans la file des Finances ; « Adresser au centre » l'y fait entrer.
+- **FINANCES › BONS DE COMMANDE** (`/finances/bons-de-commande`) ne contient QUE des BC à signer —
+  validés par leur centre, ou sous le seuil — avec la raison de leur présence, la pièce à lire et le
+  bouton **Signer** (droit de modification des Finances). Les BC encore au centre y sont COMPTÉS, pas
+  listés. Les Finances sont prévenues à l'ENTRÉE d'un BC dans leur file (jamais à chaque relecture).
+- **LA SIGNATURE EST UNE ATTESTATION** (`signerBonDeCommande`) : un clic dans une vraie session, jamais
+  Adam ni le chemin générique (`SURFACES_HUMAINES`, parité EXCLUDED). Trois gardes : le droit, la
+  lecture (la portée de l'écran Legal) et l'étape — et le verrou porte sur la DERNIÈRE ÉCRITURE de la
+  pièce : ce qui a été relu est ce qui est signé. **Modifier le montant ou le fournisseur d'un BC signé,
+  ou le réviser par la fabrique, retire la signature** — il retourne à la file. Une date de signature
+  PAPIER (un contrat du PCH re-qualifié en BC) ne vaut pas signature des Finances.
+- **CHANGER LE SEUIL RÉAIGUILLE CE QUI EST EN VOL**, dans les deux sens, en ne lisant que la bande de
+  montants qui change de côté : relevé, la validation en attente quitte le centre et le BC va à la
+  signature ; abaissé, une porte est posée. Une décision déjà prise ou une signature ne se retirent pas.
+- **PARTOUT OÙ UN BC NAÎT** : la fiche Legal, la fabrique (écran des Finances, de Legal et Adam), les
+  demandes de pièce, les rattachements Ad & Pro, les postes (sous le seuil, la demande de BC d'un poste
+  passe aux Finances sans visa — et la fiche dit « BC sous le seuil », jamais « validé par le centre »),
+  l'ancien circuit du matériel promotionnel. Le chantier « Bon de commande » d'un dossier promo ne se
+  clôt qu'une fois ses BC **signés**.
+- **LES BOUTONS** : Legal a son bouton « Composer un bon de commande », et Finances › Bons de commande le
+  sien — le même compositeur (`components/pieces/composer-piece.tsx`), les mêmes droits
+  (`compositionDesPieces`), le même papier en-tête.
 
 ### My Chief of Staff — l'interface exécutive (PDG + Super Admin)
 
@@ -3952,6 +3993,7 @@ entité) sont éligibles. Supprimer une gamme **ne supprime aucun produit** (`SE
 | **Siège nommé au centre de paiement** | `PaymentCentreSeat` (userId unique, `grantedById`, `grantedAt`, `note` obligatoire) ; règle dans `sitsOnPaymentCentre` ; résolution **une fois par requête** dans `getAccess` → `EffectiveAccess.paymentCentreSeat` (la règle est SYNCHRONE et appelée depuis l'écran, l'action, l'assistant et la recherche — elle ne peut pas lire la base), qui ouvre AUSSI le module `PAYMENT_CENTRE` (un droit qu'on n'atteint qu'en connaissant l'URL n'est pas un droit accordé) ; actions `grantPaymentCentreSeat` / `revokePaymentCentreSeat` (`lib/actions/payment-centre-seat-actions.ts`, **Super Admin seul** — siéger ne donne pas le droit d'élargir le cercle) ; écran `app/(app)/admin/access/payment-centre-seats.tsx`, qui montre les deux titres ENSEMBLE (rôle + désignation). **EXCLUDED de la parité Adam** : accorder cette autorisation, c'est donner le pouvoir d'engager l'argent de la société (§118-15). Refusés : compte système, compte désactivé, et ceux qui y siègent déjà par leur rôle. Migration `20261007090000_…`. |
 | **Règlement — trois états** | Module PUR `lib/finance/settlement.ts` (`settlementState` · `checkDeferral` · `deferralNote` · `sortForSettlement`, 22 tests) : **non payé** (défaut) / **reporté à une date** / **payé**. Le report est une **DATE** (`ExpenseOrder.deferredUntil|deferredReason|deferredById|deferredAt`), jamais un statut — il **expire seul**, sans que personne ait à y penser, et l'ordre reste **dans la file**. Actions : `deferExpenseOrder` / `resumeExpenseOrder` (`lib/actions/expense-actions.ts`) ; ops Adam `defer_payment` / `resume_payment`. **SUPPRIMÉS** (écran + action + op) : `cancelExpenseOrder`, `requestBudgetRevision`, `resolveBudgetRevision` — l'ordre arrive autorisé par le centre, le rouvrir à la caisse défait une décision prise ailleurs (§118-7 : pas de porte dérobée). Migration `20261006090000_…` : les ordres `REVISION_REQUESTED` repassent `PENDING`, motif recopié en notes. |
 | **Centre de paiement (guichet unique)** | Module PUR `lib/payments/authorization.ts` (`needsCentralAuthorization` — **toujours vrai**, `initialCentralStatus`, **`canDisburse`** — le verrou réel —, `visibleToFinance`, `isHighValue` + `CENTRAL_AUTH_THRESHOLD_DZD` = 50 000 **en marqueur, plus en filtre**, `sitsOnPaymentCentre` (**`SUPER_ADMIN`, `DIRECTION`, ou un SIÈGE NOMMÉ** — pas le DG par son rôle), `PAYMENT_CENTRE_REFUSAL` (le refus, écrit une seule fois), `applyDecision`, `applyResubmission`, `blockedReason`) + `authorization.test.ts` (18 tests) ; `ExpenseOrder.centralStatus|proposedAmount|decidedById|decidedAt` + `PaymentCentreMessage` ; `createExpenseOrder` calcule le statut d'entrée et notifie `DIRECTION` + `SUPER_ADMIN` (`lib/expense-orders.ts`) ; **la demande de paiement crée son ordre à la SOUMISSION** (`lib/actions/payment-request-actions.ts`) ; garde dans `settleExpenseOrder` (`lib/actions/expense-actions.ts`) ; `lib/actions/payment-centre-actions.ts` ; `app/(app)/centre-de-paiement/`. Migrations `20260824150000_payment_centre` puis `20261002140000_centre_guichet_unique`. **§118.148** : `statutApresNouveauMontant` (une hausse rouvre l'autorisation), `lib/payments/reglement.ts` (`etatDeLOrdre`, `chantierPaiementClos`), registre `PAYMENT_PATHS.centre` + `horsCentre()` (`lib/finances/settlement.ts`), cliquet des écrivains `lib/payments/centre-ecrivains.test.ts`, banc `centre-portes-flow.test.ts`. |
+| **Bons de commande — seuil et signature des Finances (§118.149)** | Règle PURE `regle.ts` (`validationRequiseBC`, `motifSousLeSeuil`, geste `RETIRER`, `etapeBC`, `LIBELLE_ETAPE_BC`, `reserveEtapeBC`, `reserveDeLAiguillage`, `motifNonSignable`, `chantierBCClos` avec l'étape) ; `aiguillage.ts` (`CHEMIN_BC_A_SIGNER`, `notifierFinancesBCASigner`, entrée dans le circuit `bcCircuitAt`, signature retirée sur modification, `reaiguillerSurChangementDeSeuil`) ; `lib/bons-de-commande/etat.ts` (`etatsDesBC`, `etatDuBC`, `signalerSiASigner`) ; `lib/queries/bons-de-commande.ts` (`peutSignerBC`, `bcVisiblesWhere`, `fileBonsDeCommande`) ; `lib/actions/bc-signature-actions.ts` (`signerBonDeCommande` — surface humaine) ; `settings-actions:setBcValidationThreshold` ; ops `adpro_operation/set_bc_threshold` et `set_request_threshold` ; écran `app/(app)/finances/bons-de-commande/` ; seuil au centre Ad & Pro ; `lib/queries/composition-pieces.ts` + `components/pieces/composer-piece.tsx`. Migration `20261127100000_bc_seuil_signature`. Bancs : `regle.test.ts` (50), `seuil-signature-flow.test.ts` (14, vrais points d’entrée). |
 | **Bons de commande — un centre de validation pour chacun (§118.148)** | Règle PURE `lib/bons-de-commande/regle.ts` (socle : `centreDeLOrigine`, `etatDepuisValidation/Visa/Poste`, `gesteAiguillage` POSER/TRANSFERER/ROUVRIR/ACTUALISER/RIEN, `blocageParLeBC`, `reserveBC`, `chantierBCClos`) ; aiguillage `lib/bons-de-commande/aiguillage.ts` (`aiguillerBC` — ne lève jamais, `porteDuBC`, `portesDesBC`, `retirerPortesEnAttente`) appelé par toute création/modification/annulation/suppression d'un BC (Legal, renouvellement, secrétariat, fabrique, rattachement Ad & Pro) ; `adresserBCAuCentre` + op `legal_operation/submit_purchase_order` ; fiche `app/(app)/legal/[id]/bc-gate.tsx` ; lentille du centre Ad & Pro (`BC_POSTE` / `BC_LEGAL` / `BC_PROMO`) ; migrations `20261127090000_bc_par_les_centres`, `20261127091000_rallonge_caisse_ecriture`. Bancs : `regle.test.ts` (27), `aiguillage-flow.test.ts` (13, vrais points d'entrée). |
 | **Centre de validation Ad & Pro** | **Règle du seuil au SOCLE** `lib/seuils/ad-pro.ts` (`porteDgRequise`, `motifPorteDg` — zéro import, parce que `tasks` et `adpro` sont deux domaines qui n'ont pas le droit de se parler : **c'est exactement pourquoi la règle était écrite DEUX fois**, `dgRequis` dans `workflow/parcours.ts` et la même arithmétique recopiée dans `promo-material/circuit.ts`) + `seuils/ad-pro.test.ts` ; module PUR `lib/ad-pro/centre.ts` (`siegeAuCentreAdPro`, `REFUS_CENTRE_AD_PRO`, **`FORME_PORTE: Record<AdProKind, FormePorte>`** — `ETAPE_CIRCUIT` / `ETAPE_PROMO` / `VISA_CENTRE`, exhaustif par le typecheck —, `NATURES_A_VISA` DÉRIVÉ, `visaAutoriseAAvancer`, `motifBlocageVisa`, `trierCentre`, `compteursCentre` avec **`sansMontant`**) + `ad-pro/centre.test.ts` (14 tests) ; **`AdProGateVisa`** (`@@unique([entityType, entityId])`, `threshold` FIGÉ §118.41) ; `lib/ad-pro/visa.ts` (`poserVisaAdPro` idempotente et qui ne RÉOUVRE jamais un visa tranché, `blocageCentreAdPro`) ; lecteur UNIQUE `lib/queries/ad-pro-centre.ts` ; portes posées dans `consulting-actions.ts` (soumission) et `ad-pro-other-actions.ts` (création) ; `lib/actions/ad-pro-centre-actions.ts` ; seuil réglable depuis les DEUX écrans par la MÊME action (`settings-actions.ts:setAdProDgThreshold`) ; `app/(app)/centre-ad-pro/` ; op de conversation `adpro_operation/decide_gate_visa` ; banc de bout en bout `lib/actions/ad-pro-centre-flow.test.ts` (12 tests, vrais points d'entrée). Migration `20261117090000_centre_validation_ad_pro`. |
 | **Matériel promo — circuit court** | Module PUR `lib/promo-material/circuit.ts` (`PROMO_STEPS` (7), `PROMO_TRACKS` (`PURCHASE_ORDER`/`PAYMENT`/`AD_VISA`), `initialStep` — saute la demande de devis si le devis est déjà là —, `canValidate` (N+1 réel : `Employee.managerId`, à défaut `departmentRef.head`), **`seesFullCircuit`** (Super Admin + PDG **uniquement**), `tracksOpen`, `allTracksDone`, `pendingTracks`, `progress`, `waitingOn`) + `circuit.test.ts` (23 tests) ; `lib/actions/promo-circuit-actions.ts`. |
@@ -5876,6 +5918,41 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 ---
 
 ## 🧾 Journal des évolutions récentes
+
+### BONS DE COMMANDE — UN SEUIL RÉGLÉ AU CENTRE, PUIS LA SIGNATURE DES FINANCES ; ET LE BOUTON « BC » DANS LEGAL (2026-09)
+
+Trois phrases de la Direction : « Le bouton pour les BC, c'est dans Legal. » — « Tout BC supérieur à un montant
+configuré dans les centres de validations Ad&Pro devra passer par la validation d'un des centres de validation. » —
+« Un sous-module spécial sous Finances : Bons de commande — les bons de commande à signer de leur part. Si un BC se
+retrouve là-bas, c'est qu'il doit être signé. »
+
+**LE SEUIL.** Un réglage à part, réglé depuis le centre de validation Ad & Pro par ses sièges (et par Adam, par
+l'action de l'écran). Strictement au-dessus : un centre, comme avant ; en deçà : directement à la signature des
+Finances ; montant inconnu : un centre. Il part à **0 — tout BC passe par un centre** : la Direction choisit le
+montant, le code n'en invente pas un. Le changer RÉAIGUILLE les BC en vol qui changent de côté (et le dit) ; une
+validation donnée ou une signature ne se retirent pas.
+
+**LA SIGNATURE.** Finances › Bons de commande ne montre que ce qui est à signer — validé par son centre ou sous le
+seuil — avec la raison, la pièce et le bouton. Signer est une attestation : un clic humain, jamais Adam. Le verrou
+porte sur la dernière écriture de la pièce, deux clics simultanés n'en font qu'un, et un BC modifié après signature
+(montant, fournisseur, révision) la perd. Les BC d'avant le circuit n'apparaissent pas dans la file : fixer un seuil
+ne fait pas tomber l'historique chez les Finances.
+
+**CE QUE LA MESURE A TROUVÉ EN CHEMIN.** (1) `LegalDocument.signedAt` existait déjà — c'est la date de signature
+PAPIER des contrats du PCH ; re-qualifier un contrat signé en BC l'aurait fait passer pour signé par les Finances. Une
+date sans signataire ne vaut plus signature, et la date retirée est consignée au journal. (2) Le seuil du DG était
+déclaré « couvert » pour Adam par `update_platform_setting`, qui ne le connaissait pas : les deux seuils ont
+maintenant leur op, qui appelle l'action de l'écran. (3) La re-lecture des BC après un changement de seuil lisait
+d'abord les N premiers BC de la base puis triait : sur une base chargée, ceux qui changent de côté pouvaient tomber
+après la borne ; la bande de montants est calculée AVANT de lire. (4) `FileSignature` n'est plus dans la table de noms
+de lucide : l'icône aurait disparu sans erreur. Mesuré sur tout le dépôt, SEPT noms passés en chaîne (`AlertTriangle`,
+`CheckCircle2`, `XCircle`…) ne dessinaient déjà rien sur une douzaine d'écrans. Le résolveur unique (`components/ui/icon.tsx`)
+accepte les anciens noms que lucide exporte encore, et `icon-names.test.ts` exige que les 145 noms de la source résolvent
+— par le COMPOSANT, pas seulement par sa fonction.
+
+**Mesure** : 28 sabotages joués, tous tombent, restauration vérifiée octet pour octet ; artefact des contrats
+753 actions / 729 appelables / 24 illisibles ; parité, frontière (428), domaines et bundle client inchangés.
+Détail au §118.149 de `CLAUDE.md`.
 
 ### « TOUS LES PAIEMENTS PAR LE CENTRE, TOUS LES BC PAR UN CENTRE DE VALIDATION » — et les portes qui passaient à côté (2026-09)
 

@@ -59,7 +59,7 @@ import { MIME_XLSX } from "@/lib/artifact/adapters/xlsx/adapter";
 import { MIME_PPTX } from "@/lib/artifact/adapters/pptx/adapter";
 import { standardsDocumentaires } from "@/platform/in-process/teach/store";
 import { aiguillerBC } from "@/lib/bons-de-commande/aiguillage";
-import { reserveBC, reserveSansPorte, type PorteBC } from "@/lib/bons-de-commande/regle";
+import { reserveDeLAiguillage, type PorteBC } from "@/lib/bons-de-commande/regle";
 
 /** Les causes d'échec que le runtime de missions sait classer (`capability-failure.ts`). */
 type Echec = "NOT_FOUND" | "MISSING_PERMISSION" | "MISSING_INPUT" | "CAPABILITY_FAILURE";
@@ -542,9 +542,12 @@ export interface DocumentEmis {
   ms: number;
 }
 
-/** La réserve d'un BC : aucune porte posée (et pourquoi), ou ce que dit sa porte. Rien pour un BC validé. */
-function reserveDuBC(a: { porte: PorteBC | null; sansSiege?: boolean; enEchec?: boolean }): string | null {
-  return reserveSansPorte(a) ?? reserveBC(a.porte);
+/**
+ * La réserve d'un BC : aucune porte posée (et pourquoi), ce que dit sa porte, ou l'attente de la
+ * signature des Finances (§118.149). Rien pour un BC signé.
+ */
+function reserveDuBC(a: Parameters<typeof reserveDeLAiguillage>[0]): string | null {
+  return reserveDeLAiguillage(a);
 }
 
 function fabriqueDe(custom: Prisma.JsonValue | null): Fabrique | null {
@@ -918,7 +921,9 @@ export async function reviserDocumentDrive(
   let porteBC: PorteBC | null = null;
   let reserveBonDeCommande: string | null = null;
   if (f.type === "BON_DE_COMMANDE") {
-    const a = await aiguillerBC(doc.id, { acteurId: user.id, modifie: true, montantAvant: f.totaux?.totalTtc ?? null });
+    // Une RÉVISION est une nouvelle version du fichier : ce n'est plus la pièce que les Finances
+    // ont signée, même à montant égal (§118.149).
+    const a = await aiguillerBC(doc.id, { acteurId: user.id, modifie: true, montantAvant: f.totaux?.totalTtc ?? null, pieceRevisee: true });
     porteBC = a.porte;
     reserveBonDeCommande = reserveDuBC(a);
     if (reserveBonDeCommande) avertissements.push(reserveBonDeCommande);

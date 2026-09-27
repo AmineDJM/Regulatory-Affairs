@@ -6,6 +6,7 @@ import { siegeAuCentreAdPro, REFUS_CENTRE_AD_PRO } from "@/lib/ad-pro/centre";
 import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
 import { DEFAULT_APP_SETTINGS } from "@/lib/settings";
+import { reaiguillerSurChangementDeSeuil, CHEMIN_BC_A_SIGNER } from "@/lib/bons-de-commande/aiguillage";
 import { fdNum, type ActionResult } from "@/lib/actions/types";
 import { normalizeHidden } from "@/lib/modules-visibility";
 import { COLONNES_REGULATORY, COLONNES_INAMOVIBLES, enTeteColonne } from "@/lib/vues/colonnes-regulatory";
@@ -90,6 +91,70 @@ export async function setAdProDgThreshold(formData: FormData): Promise<ActionRes
   revalidatePath("/centre-ad-pro");
   revalidatePath("/ad-pro");
   return { ok: true };
+}
+
+/**
+ * LE SEUIL DES BONS DE COMMANDE (§118.149) — « tout BC supérieur à un montant configuré dans les
+ * centres de validations Ad&Pro devra passer par la validation d'un des centres ».
+ *
+ * Réglé depuis le centre de validation Ad & Pro, par ses SIÈGES — la même porte que le seuil du
+ * DG, parce que c'est la même instance qui en décide. Mais c'est un AUTRE chiffre : le seuil du
+ * DG gouverne les DEMANDES (qui arbitre une opération), celui-ci les PIÈCES qui engagent la
+ * société (qui valide un bon de commande avant que les Finances le signent). Les confondre ferait
+ * régler l'un en croyant régler l'autre.
+ *
+ * `0` est écrivable et signifie « tout BC passe par un centre » — le comportement d'avant la règle.
+ * Et le changement a un EFFET sur ce qui est en vol : les BC qui changent de côté se réaiguillent
+ * (`reaiguillerSurChangementDeSeuil`), et la phrase dit combien.
+ */
+export async function setBcValidationThreshold(formData: FormData): Promise<ActionResult> {
+  const admin = await requireUser();
+  if (!siegeAuCentreAdPro(admin)) return { ok: false, error: REFUS_CENTRE_AD_PRO };
+
+  const brut = fdNum(formData, "bcValidationThreshold");
+  if (brut === null || !Number.isFinite(brut)) {
+    return { ok: false, error: "Indiquez un montant en DZD (0 = tout bon de commande passe par un centre de validation)." };
+  }
+  if (brut < 0) return { ok: false, error: "Un seuil ne peut pas être négatif (0 = tout bon de commande passe par un centre de validation)." };
+  const seuil = Math.round(brut);
+
+  const avant = await prisma.appSetting.findUnique({ where: { id: "global" }, select: { bcValidationThreshold: true } });
+  const ancien = avant ? Number(avant.bcValidationThreshold) : DEFAULT_APP_SETTINGS.bcValidationThreshold;
+
+  await prisma.appSetting.upsert({
+    where: { id: "global" },
+    create: { id: "global", bcValidationThreshold: seuil, updatedById: admin.id },
+    update: { bcValidationThreshold: seuil, updatedById: admin.id },
+  });
+  await recordAudit({
+    actorId: admin.id, action: "UPDATE", module: "Administration",
+    field: "bcValidationThreshold", oldValue: String(ancien), newValue: String(seuil),
+    summary: seuil > 0
+      ? `Seuil de validation des bons de commande : ${seuil.toLocaleString("fr-FR")} DZD (au-dessus : un centre ; en deçà : directement à la signature des Finances)`
+      : "Seuil de validation des bons de commande : aucun — tout bon de commande passe par un centre",
+  });
+
+  const bilan = await reaiguillerSurChangementDeSeuil(ancien, seuil, admin.id);
+
+  revalidatePath("/admin");
+  revalidatePath("/centre-ad-pro");
+  revalidatePath("/centre-de-validations");
+  revalidatePath(CHEMIN_BC_A_SIGNER);
+  revalidatePath("/legal");
+  const effet = bilan.reevalues === 0
+    ? "Aucun bon de commande en cours n'a changé de côté du seuil."
+    : [
+        bilan.versLaSignature > 0 ? `${bilan.versLaSignature} passé${bilan.versLaSignature > 1 ? "s" : ""} directement à la signature des Finances` : null,
+        bilan.versUnCentre > 0 ? `${bilan.versUnCentre} adressé${bilan.versUnCentre > 1 ? "s" : ""} à un centre de validation` : null,
+      ].filter(Boolean).join(", ").replace(/^./, (c) => c.toUpperCase()) + ".";
+  return {
+    ok: true,
+    message: `${seuil > 0 ? `Seuil fixé à ${seuil.toLocaleString("fr-FR")} DZD.` : "Aucun seuil : tout bon de commande passe par un centre."} ${effet}`
+      // Borné, et DIT : la file des Finances et la signature lisent le seuil EN DIRECT, donc un
+      // BC non réaiguillé ne peut pas être signé du mauvais côté — seule sa porte attend d'être
+      // posée ou retirée, ce que sa prochaine modification fera.
+      + (bilan.tronque ? " Seuls les 500 plus anciens bons de commande en cours ont été réaiguillés ; les suivants le seront à leur prochaine modification — la file des Finances applique déjà le nouveau seuil." : ""),
+  };
 }
 
 /** Débloque / masque l'onglet Regulatory « Enregistrement » (analyseur CTD). **Super Admin uniquement.** */

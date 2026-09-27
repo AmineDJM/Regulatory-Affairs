@@ -38,6 +38,13 @@ export interface AppSettings {
    * `0` = aucune porte du DG.
    */
   adProDgThreshold: number;
+  /**
+   * SEUIL DES BONS DE COMMANDE (DZD) — §118.149. Un BC STRICTEMENT au-dessus passe par un centre
+   * de validation (Ad & Pro ou normal, selon son origine) ; en dessous, il va directement à la
+   * signature des Finances. Réglé depuis le centre de validation Ad & Pro. `0` = tout BC passe
+   * par un centre (le comportement d'avant la règle, et le plus sûr tant que rien n'est fixé).
+   */
+  bcValidationThreshold: number;
   /** Capacité globale du Drive (Go) — modifiable par le Super Admin. */
   driveCapacityGb: number;
   /** Quota Drive par utilisateur (Go) — modifiable par le Super Admin. */
@@ -101,6 +108,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   budgetTotalMode: "FLEXIBLE",
   budgetFixedTotal: 0,
   adProDgThreshold: SEUIL_DG_DEFAUT,
+  bcValidationThreshold: 0,
   driveCapacityGb: 100,
   driveUserQuotaGb: 10,
   regEnrollmentEnabled: false,
@@ -138,6 +146,7 @@ export const getAppSettings = perRequest(async (): Promise<AppSettings> => {
       budgetTotalMode: row.budgetTotalMode === "FIXED" ? "FIXED" : "FLEXIBLE",
       budgetFixedTotal: Number(row.budgetFixedTotal),
       adProDgThreshold: Number(row.adProDgThreshold),
+      bcValidationThreshold: Number(row.bcValidationThreshold),
       driveCapacityGb: row.driveCapacityGb,
       driveUserQuotaGb: row.driveUserQuotaGb,
       regEnrollmentEnabled: row.regEnrollmentEnabled,

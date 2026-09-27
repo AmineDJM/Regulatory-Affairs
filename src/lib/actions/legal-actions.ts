@@ -18,8 +18,11 @@ import { legalWriteAllowed } from "@/lib/legal/invoices";
 import { syncInvoiceSettlement } from "@/lib/finance/settle-invoice";
 import { invoiceDirection, canSendToSettlement, canMarkPaidDirectly } from "@/lib/finances/settlement";
 import type { CurrentUser } from "@/lib/session";
-import { aiguillerBC, retirerPortesEnAttente, porteDuBC, type ResultatAiguillage } from "@/lib/bons-de-commande/aiguillage";
-import { reserveBC, reserveSansPorte, LIBELLE_CENTRE_BC, LIBELLE_ETAT_BC, CHEMIN_CENTRE_BC } from "@/lib/bons-de-commande/regle";
+import { aiguillerBC, retirerPortesEnAttente, porteDuBC, CHEMIN_BC_A_SIGNER, type ResultatAiguillage } from "@/lib/bons-de-commande/aiguillage";
+import {
+  reserveBC, reserveSansPorte, reserveEtapeBC, PHRASE_SIGNATURE_RETIREE,
+  LIBELLE_CENTRE_BC, LIBELLE_ETAT_BC, CHEMIN_CENTRE_BC,
+} from "@/lib/bons-de-commande/regle";
 
 /**
  * LES ENGAGEMENTS DE LA SOCIÉTÉ — écriture.
@@ -96,11 +99,22 @@ function readFields(formData: FormData) {
 function phraseAiguillage(r: ResultatAiguillage): string | null {
   const sansPorte = reserveSansPorte(r);
   if (sansPorte) return sansPorte;
-  if (!r.geste || r.geste === "ACTUALISEE") return null;
+  // La pièce n'est plus un BC (re-qualifiée ou annulée) : seule la porte retirée se dit.
   if (r.geste === "RETIREE") return "Sa validation en attente a été retirée du centre.";
-  const centre = r.porte ? LIBELLE_CENTRE_BC[r.porte.centre] : "centre de validation";
-  const verbe = r.geste === "TRANSFEREE" ? "transféré au" : r.geste === "ROUVERTE" ? "renvoyé au" : "adressé au";
-  return `Bon de commande ${verbe} ${centre}. ${reserveBC(r.porte) ?? ""}`.trim();
+
+  let tete: string | null = null;
+  if (r.geste === "POSEE" || r.geste === "TRANSFEREE" || r.geste === "ROUVERTE") {
+    const centre = r.porte ? LIBELLE_CENTRE_BC[r.porte.centre] : "centre de validation";
+    const verbe = r.geste === "TRANSFEREE" ? "transféré au" : r.geste === "ROUVERTE" ? "renvoyé au" : "adressé au";
+    tete = `Bon de commande ${verbe} ${centre}.`;
+  } else if (r.geste === "SOUS_SEUIL") {
+    tete = "Sa validation en attente est retirée du centre.";
+  }
+  // Rien n'a bougé : la phrase se tait (§118.32). Ce qui BOUGE sans geste de porte — l'entrée dans
+  // la file des Finances, une signature retirée — se dit comme un geste.
+  if (!tete && !r.signatureRetiree && !r.versLesFinances) return null;
+  const reserve = r.etape ? reserveEtapeBC(r.etape, r.porte, r.seuil) : reserveBC(r.porte);
+  return [r.signatureRetiree ? PHRASE_SIGNATURE_RETIREE : null, tete, reserve].filter(Boolean).join(" ");
 }
 
 /**
@@ -296,6 +310,8 @@ export async function updateLegalDocument(formData: FormData): Promise<ActionRes
     ? phraseAiguillage(await aiguillerBC(id, {
         acteurId: user.id, modifie: true,
         montantAvant: avant.amount == null ? null : Number(avant.amount),
+        // UN AUTRE FOURNISSEUR n'est plus le BC signé : la signature des Finances tombe (§118.149).
+        pieceRevisee: parties.ids.length > 0 && [...avant.counterpartyIds].sort().join("|") !== [...parties.ids].sort().join("|"),
       }))
     : null;
   revalidatePath("/legal");
@@ -655,8 +671,8 @@ export async function sendLegalInvoiceToSettlement(formData: FormData): Promise<
 /**
  * ADRESSER UN BON DE COMMANDE À SON CENTRE — le rattrapage d'une pièce SANS porte (§118.148).
  *
- * Tout BC passe par un centre de validation : celui d'Ad & Pro s'il vient d'Ad & Pro, le centre
- * de validations sinon. Les écrivains du registre posent la porte d'eux-mêmes ; ce geste existe
+ * Tout BC au-dessus du seuil des bons de commande (§118.149 — 0 par défaut, donc tous) passe par un
+ * centre de validation : celui d'Ad & Pro s'il vient d'Ad & Pro, le centre de validations sinon. Les écrivains du registre posent la porte d'eux-mêmes ; ce geste existe
  * pour les deux cas où elle manque — un BC enregistré AVANT la règle, et un aiguillage qui a
  * échoué (la pièce a été écrite, sa porte non). Sans lui, une pièce sans porte resterait
  * invisible à tout centre, et le chantier « bon de commande » d'un dossier ne pourrait jamais
@@ -684,15 +700,33 @@ export async function adresserBCAuCentre(formData: FormData): Promise<ActionResu
 
   const r = await aiguillerBC(id, { acteurId: user.id });
   if (r.sansSiege) return { ok: false, error: phraseAiguillage(r) ?? "Aucun siège au centre de validations." };
-  if (!r.porte) {
+  if (r.enEchec) {
     return { ok: false, error: "Le bon de commande n'a pas pu être adressé au centre. Réessayez ; si l'échec persiste, signalez-le à un administrateur." };
   }
   revalidatePath(`/legal/${id}`);
+  revalidatePath(CHEMIN_BC_A_SIGNER);
+  // SOUS LE SEUIL (§118.149) : aucun centre n'a à le voir — c'est un SUCCÈS, et la phrase dit où
+  // il est parti. Le refuser ferait croire que la règle bloque un BC qu'elle laisse passer.
+  if (!r.porte) {
+    if (r.etape === "A_SIGNER" || r.etape === "SIGNE") {
+      return {
+        ok: true, id,
+        message: phraseAiguillage(r)
+          ?? (r.etape === "SIGNE"
+            ? "Ce bon de commande est déjà signé par les Finances : il n'a rien à faire valider."
+            : reserveEtapeBC(r.etape, null, r.seuil) ?? undefined),
+      };
+    }
+    return { ok: false, error: "Le bon de commande n'a pas pu être adressé au centre. Réessayez ; si l'échec persiste, signalez-le à un administrateur." };
+  }
   revalidatePath(CHEMIN_CENTRE_BC[r.porte.centre]);
   return {
     ok: true,
     id,
     message: phraseAiguillage(r)
-      ?? `Ce bon de commande est déjà au ${LIBELLE_CENTRE_BC[r.porte.centre]} — ${LIBELLE_ETAT_BC[r.porte.etat].toLowerCase()}. Rien n'a été renvoyé.`,
+      ?? [
+        `Ce bon de commande est déjà au ${LIBELLE_CENTRE_BC[r.porte.centre]} — ${LIBELLE_ETAT_BC[r.porte.etat].toLowerCase()}. Rien n'a été renvoyé.`,
+        r.etape === "A_SIGNER" ? "Il attend la signature des Finances (Finances › Bons de commande)." : null,
+      ].filter(Boolean).join(" "),
   };
 }

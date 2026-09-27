@@ -9,7 +9,7 @@ import { recordAudit } from "@/lib/audit";
 import { fdStr, type ActionResult } from "@/lib/actions/types";
 import { LEGAL_DOC_KIND } from "@/lib/labels";
 import { aiguillerBC } from "@/lib/bons-de-commande/aiguillage";
-import { LIBELLE_CENTRE_BC, reserveSansPorte } from "@/lib/bons-de-commande/regle";
+import { LIBELLE_CENTRE_BC, reserveSansPorte, reserveDeLAiguillage } from "@/lib/bons-de-commande/regle";
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
@@ -113,11 +113,14 @@ export async function rattacherLegalAFiche(
   // pas parce que la pièce a changé de fiche — la règle pure en décide, pas ce geste.
   const bc = doc.kind === "PURCHASE_ORDER" ? await aiguillerBC(legalId, { acteurId: user.id }) : null;
   const sansPorte = bc ? reserveSansPorte(bc) : null;
+  // Sous le seuil (§118.149), aucun centre : la phrase dit qu'il part à la signature des Finances,
+  // et seulement quand il vient d'y entrer — une réserve répétée à chaque geste cesse d'être lue.
+  const versLesFinances = bc?.versLesFinances ? reserveDeLAiguillage(bc) : null;
   const transfert = sansPorte
     ? ` ${sansPorte}`
     : bc?.geste === "TRANSFEREE" || bc?.geste === "POSEE"
       ? ` Le bon de commande attend désormais la validation du ${LIBELLE_CENTRE_BC[bc.porte?.centre ?? "AD_PRO"]}.`
-      : "";
+      : versLesFinances ? ` ${versLesFinances}` : "";
 
   const base = CHEMIN[cible];
   if (base) {

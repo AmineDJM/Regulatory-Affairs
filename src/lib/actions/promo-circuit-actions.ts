@@ -15,7 +15,7 @@ import {
 import { promoManagerOf } from "@/lib/queries/promo-material";
 import { fdStr, type ActionResult } from "@/lib/actions/types";
 import { hasGlobalView } from "@/lib/rbac";
-import { portesDesBC } from "@/lib/bons-de-commande/aiguillage";
+import { etatsDesBC } from "@/lib/bons-de-commande/etat";
 import { chantierBCClos } from "@/lib/bons-de-commande/regle";
 import { chantierPaiementClos, etatDeLOrdre, type PieceDeReglement } from "@/lib/payments/reglement";
 
@@ -349,8 +349,13 @@ export async function completePromoTrack(formData: FormData): Promise<ActionResu
       where: { sourceType: "PROMO_MATERIAL", sourceId: id, kind: "PURCHASE_ORDER", status: { not: "CANCELLED" } },
       select: { id: true, reference: true },
     });
-    const portes = await portesDesBC(bcs.map((b) => b.id));
-    const verdict = chantierBCClos(bcs.map((b) => ({ reference: b.reference, porte: portes.get(b.id) ?? null })));
+    // L'ÉTAPE de chaque BC (§118.149) : validé ne suffit plus, il faut aussi la signature des
+    // Finances — un BC validé mais pas signé ne part pas chez le fournisseur.
+    const etats = await etatsDesBC(bcs.map((b) => b.id));
+    const verdict = chantierBCClos(bcs.map((b) => {
+      const e = etats.get(b.id);
+      return { reference: b.reference, porte: e?.porte ?? null, ...(e ? { etape: e.etape } : {}) };
+    }));
     if (!verdict.ok) return { ok: false, error: verdict.raison };
   }
   // LE CHANTIER « PAIEMENT » EXIGE UN PAIEMENT RÉGLÉ (§118.148). Il se refermait d'un clic, sans

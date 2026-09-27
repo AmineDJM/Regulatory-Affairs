@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   centreDeLOrigine, etatDepuisValidation, etatDepuisVisa, etatDepuisPoste,
   blocageParLeBC, reserveBC, reserveSansPorte, gesteAiguillage, chantierBCClos,
+  validationRequiseBC, etapeBC, reserveEtapeBC, reserveDeLAiguillage, motifNonSignable,
+  PHRASE_SIGNATURE_RETIREE,
   type PorteBC,
 } from "./regle";
 
@@ -167,5 +169,130 @@ describe("chantierBCClos — le chantier « bon de commande » ne se clôt plus 
   });
   it("tous validés → le chantier se clôt", () => {
     expect(chantierBCClos([{ reference: "BC-1", porte: porte({ etat: "VALIDE" }) }]).ok).toBe(true);
+  });
+});
+
+// ───────────────────────── §118.149 — le seuil et la signature ─────────────────────────
+
+describe("validationRequiseBC — au-dessus du seuil, un centre ; en deçà, directement à la signature", () => {
+  it("STRICTEMENT au-dessus : le montant égal au seuil n'y va pas", () => {
+    expect(validationRequiseBC(500_001, 500_000)).toBe(true);
+    expect(validationRequiseBC(500_000, 500_000)).toBe(false);
+    expect(validationRequiseBC(12_000, 500_000)).toBe(false);
+  });
+  it("AUCUN seuil (0, absent, illisible) : tout BC passe par un centre — le comportement d'avant la règle", () => {
+    expect(validationRequiseBC(1, 0)).toBe(true);
+    expect(validationRequiseBC(1, null)).toBe(true);
+    expect(validationRequiseBC(1, undefined)).toBe(true);
+    expect(validationRequiseBC(1, Number.NaN)).toBe(true);
+    expect(validationRequiseBC(1, -5)).toBe(true);
+  });
+  it("un montant INCONNU n'est pas « petit » : il passe par un centre, quel que soit le seuil", () => {
+    expect(validationRequiseBC(null, 500_000)).toBe(true);
+    expect(validationRequiseBC(undefined, 500_000)).toBe(true);
+    expect(validationRequiseBC(0, 500_000)).toBe(true);
+    expect(validationRequiseBC(Number.NaN, 500_000)).toBe(true);
+  });
+});
+
+describe("gesteAiguillage avec le seuil — ce qui attend s'efface, ce qui est décidé reste", () => {
+  it("un BC neuf SOUS le seuil ne reçoit aucune porte ; au-dessus, il en reçoit une", () => {
+    expect(gesteAiguillage({ actuelle: null, centreVoulu: "VALIDATION", montantApres: 1_000, seuil: 5_000 }).geste).toBe("RIEN");
+    expect(gesteAiguillage({ actuelle: null, centreVoulu: "VALIDATION", montantApres: 9_000, seuil: 5_000 }).geste).toBe("POSER");
+  });
+  it("une porte EN ATTENTE dont le BC passe sous le seuil est RETIRÉE — avec le motif qui nomme le seuil", () => {
+    const g = gesteAiguillage({ actuelle: porte({ etat: "EN_ATTENTE" }), centreVoulu: "VALIDATION", montantAvant: 9_000, montantApres: 1_000, modifie: true, seuil: 5_000 });
+    expect(g.geste).toBe("RETIRER");
+    expect(g.geste === "RETIRER" ? g.motif : "").toMatch(/5\s000 DZD/);
+  });
+  it("un REFUS ne se contourne pas en baissant le montant sous le seuil", () => {
+    expect(gesteAiguillage({ actuelle: porte({ etat: "REFUSE" }), centreVoulu: "VALIDATION", montantAvant: 9_000, montantApres: 1_000, modifie: true, seuil: 5_000 }).geste).toBe("RIEN");
+  });
+  it("une validation acquise ne se rouvre que si le montant RELEVÉ dépasse le seuil", () => {
+    expect(gesteAiguillage({ actuelle: porte({ etat: "VALIDE" }), centreVoulu: "VALIDATION", montantAvant: 1_000, montantApres: 4_000, modifie: true, seuil: 5_000 }).geste).toBe("RIEN");
+    expect(gesteAiguillage({ actuelle: porte({ etat: "VALIDE" }), centreVoulu: "VALIDATION", montantAvant: 1_000, montantApres: 9_000, modifie: true, seuil: 5_000 }).geste).toBe("ROUVRIR");
+  });
+  it("à revoir, corrigé SOUS le seuil : la validation n'a plus d'objet — elle est retirée, pas rouverte", () => {
+    expect(gesteAiguillage({ actuelle: porte({ etat: "A_REVOIR" }), centreVoulu: "VALIDATION", montantAvant: 9_000, montantApres: 1_000, modifie: true, seuil: 5_000 }).geste).toBe("RETIRER");
+    expect(gesteAiguillage({ actuelle: porte({ etat: "A_REVOIR" }), centreVoulu: "VALIDATION", montantAvant: 9_000, montantApres: 8_000, modifie: true, seuil: 5_000 }).geste).toBe("ROUVRIR");
+  });
+});
+
+describe("etapeBC — une seule lecture de « où en est ce BC », pour la file, la fiche et la signature", () => {
+  const e = (a: Partial<Parameters<typeof etapeBC>[0]>) => etapeBC({ porte: null, validationRequise: true, signe: false, dansLeCircuit: true, ...a });
+  it("la SIGNATURE l'emporte sur tout", () => {
+    expect(e({ signe: true, porte: porte({ etat: "EN_ATTENTE" }) })).toBe("SIGNE");
+  });
+  it("la porte dit l'étape tant qu'elle n'est pas validée", () => {
+    expect(e({ porte: porte({ etat: "EN_ATTENTE" }) })).toBe("A_VALIDER");
+    expect(e({ porte: porte({ etat: "A_REVOIR" }) })).toBe("A_REVOIR");
+    expect(e({ porte: porte({ etat: "REFUSE" }) })).toBe("REFUSE");
+  });
+  it("validée et dans le circuit → à signer ; validée HORS du circuit (BC ancien) → ni à valider ni à signer", () => {
+    expect(e({ porte: porte({ etat: "VALIDE" }) })).toBe("A_SIGNER");
+    expect(e({ porte: porte({ etat: "VALIDE" }), dansLeCircuit: false })).toBe("HORS_CIRCUIT");
+  });
+  it("sans porte : sous le seuil → à signer ; au-dessus → à adresser ; hors circuit → antérieur", () => {
+    expect(e({ validationRequise: false })).toBe("A_SIGNER");
+    expect(e({ validationRequise: true })).toBe("SANS_PORTE");
+    expect(e({ dansLeCircuit: false, validationRequise: false })).toBe("HORS_CIRCUIT");
+  });
+});
+
+describe("les phrases de l'étape — ce qu'on lit avant d'envoyer, ce qu'on lit avant de signer", () => {
+  it("un BC à signer SANS porte dit pourquoi aucun centre ne l'a vu — avec le seuil", () => {
+    const r = reserveEtapeBC("A_SIGNER", null, 500_000) ?? "";
+    expect(r).toMatch(/Sous le seuil/);
+    expect(r).toMatch(/500\s000 DZD/);
+    expect(r).toMatch(/ne l'envoyez pas au fournisseur avant/);
+  });
+  it("un BC à signer VALIDÉ nomme son centre ; un BC signé ou ancien se tait", () => {
+    expect(reserveEtapeBC("A_SIGNER", porte({ etat: "VALIDE", centre: "AD_PRO" }), 0)).toMatch(/Ad & Pro/);
+    expect(reserveEtapeBC("SIGNE", null, 0)).toBeNull();
+    expect(reserveEtapeBC("HORS_CIRCUIT", null, 0)).toBeNull();
+  });
+  it("la réserve de l'aiguillage : l'absence de siège d'abord, puis la signature retirée, puis l'étape", () => {
+    expect(reserveDeLAiguillage({ porte: null, sansSiege: true, etape: "A_SIGNER" })).toMatch(/Aucun siège/);
+    const r = reserveDeLAiguillage({ porte: null, etape: "A_SIGNER", seuil: 10, signatureRetiree: true }) ?? "";
+    expect(r.startsWith(PHRASE_SIGNATURE_RETIREE)).toBe(true);
+    expect(r).toMatch(/signature des Finances/);
+    // Sans étape (appelant d'avant la règle), la porte seule parle — comme avant.
+    expect(reserveDeLAiguillage({ porte: porte({ etat: "EN_ATTENTE" }) })).toBe(reserveBC(porte({ etat: "EN_ATTENTE" })));
+  });
+  it("motifNonSignable : seul « à signer » se signe, et chaque refus nomme ce qui le lève", () => {
+    expect(motifNonSignable("A_SIGNER", null)).toBeNull();
+    expect(motifNonSignable("A_VALIDER", porte({ etat: "EN_ATTENTE" }))).toMatch(/attend encore la validation/);
+    expect(motifNonSignable("REFUSE", porte({ etat: "REFUSE" }))).toMatch(/ne se signe pas/);
+    expect(motifNonSignable("SANS_PORTE", null)).toMatch(/Adresser au centre/);
+    expect(motifNonSignable("HORS_CIRCUIT", null)).toMatch(/antérieur au circuit/);
+    expect(motifNonSignable("SIGNE", null)).toMatch(/déjà signé/);
+  });
+});
+
+describe("chantierBCClos avec l'étape — validé ne suffit plus, il faut la signature (§118.149)", () => {
+  it("un BC validé mais pas encore signé tient le chantier ouvert — en nommant la file des Finances", () => {
+    const r = chantierBCClos([{ reference: "BC-1", porte: porte({ etat: "VALIDE" }), etape: "A_SIGNER" }]);
+    expect(r.ok).toBe(false);
+    expect(r.ok ? "" : r.raison).toMatch(/pas encore signé/);
+    expect(r.ok ? "" : r.raison).toMatch(/Finances › Bons de commande/);
+  });
+  it("un BC SOUS le seuil n'a pas de porte à attendre : il n'est pas « vu par aucun centre », il est à signer", () => {
+    const r = chantierBCClos([{ reference: "BC-2", porte: null, etape: "A_SIGNER" }]);
+    expect(r.ok ? "" : r.raison).not.toMatch(/aucun centre/);
+    expect(r.ok ? "" : r.raison).toMatch(/pas encore signé/);
+  });
+  it("un BC antérieur au circuit se renvoie au geste qui l'y fait entrer", () => {
+    const r = chantierBCClos([{ reference: "BC-3", porte: null, etape: "HORS_CIRCUIT" }]);
+    expect(r.ok ? "" : r.raison).toMatch(/Adressez-le au centre/);
+  });
+  it("tous SIGNÉS → le chantier se clôt ; un seul non signé suffit à le tenir ouvert", () => {
+    expect(chantierBCClos([{ reference: "BC-4", porte: porte({ etat: "VALIDE" }), etape: "SIGNE" }]).ok).toBe(true);
+    const r = chantierBCClos([
+      { reference: "BC-4", porte: porte({ etat: "VALIDE" }), etape: "SIGNE" },
+      { reference: "BC-5", porte: null, etape: "A_SIGNER" },
+    ]);
+    expect(r.ok).toBe(false);
+    expect(r.ok ? "" : r.raison).toContain("BC-5");
+    expect(r.ok ? "" : r.raison).not.toContain("BC-4");
   });
 });

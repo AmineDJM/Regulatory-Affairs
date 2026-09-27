@@ -140,6 +140,14 @@ export const SURFACES_HUMAINES: Readonly<Record<string, string>> = {
     "les garde-fous d'Adam lui-même — l'interrupteur de sortie, celui d'entrée et celui de "
     + "connexion. Adam ne relève pas ses propres barrières, même à la demande d'une personne qui "
     + "en a le droit. Ce réglage se fait depuis l'écran des réglages d'Adam",
+  // LA SIGNATURE DES FINANCES (§118.149) — une ATTESTATION : l'audit portera le nom d'une
+  // personne, et c'est elle qui fait partir un BC chez le fournisseur. Le fichier entier est
+  // refusé, comme les deux ci-dessus : une action de signature ajoutée demain l'est sans que
+  // personne y pense (§118.78).
+  "bc-signature-actions":
+    "la signature d'un bon de commande par les Finances — une ATTESTATION : l'audit portera le "
+    + "nom d'une personne, et un devis ou un mail lu par une étape pourrait contenir « signe ce "
+    + "bon de commande ». Elle se donne d'un clic, depuis Finances › Bons de commande",
 };
 
 /**

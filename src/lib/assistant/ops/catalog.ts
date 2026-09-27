@@ -3220,7 +3220,7 @@ export const OPS_CATALOG: OpMeta[] = [
     uiLabel: "Demander l'émission du BC",
     aliases: ["demande l'émission du bon de commande du poste"],
     risk: "SENSITIVE",
-    summary: "Demande l'émission du bon de commande d'un poste accordé (première marche : demande → validation au CENTRE DE VALIDATION AD & PRO → émission Finances) — exige montant affecté ET imputation budgétaire.",
+    summary: "Demande l'émission du bon de commande d'un poste accordé (première marche : demande → validation au CENTRE DE VALIDATION AD & PRO si le montant dépasse le seuil des bons de commande → émission Finances ; en deçà, directement aux Finances) — exige montant affecté ET imputation budgétaire.",
     gate: () => true,
     gateNote: "accès à l'opération (revérifié par l'action)",
     covers: ["ad-pro-item-actions:requestAdProItemOrder"],
@@ -3230,7 +3230,7 @@ export const OPS_CATALOG: OpMeta[] = [
     uiLabel: "Valider le BC (centre Ad & Pro)",
     aliases: ["vise le bon de commande du poste", "valide le bon de commande du poste", "refuse l'émission du bc du poste"],
     risk: "CRITICAL",
-    summary: "VALIDATION du bon de commande d'un poste par le CENTRE DE VALIDATION AD & PRO (Direction Générale, Super Admin), ou refus MOTIVÉ — les Finances émettent ensuite. Tout BC né d'Ad & Pro passe par ce centre, quel que soit son montant (décision de la Direction, 09/2026).",
+    summary: "VALIDATION du bon de commande d'un poste par le CENTRE DE VALIDATION AD & PRO (Direction Générale, Super Admin), ou refus MOTIVÉ — les Finances émettent ensuite. Tout BC né d'Ad & Pro au-dessus du seuil des bons de commande passe par ce centre (décision de la Direction, 09/2026).",
     gate: (u) => siegeAuCentreAdPro(u),
     covers: ["ad-pro-item-actions:approveAdProItemOrder"],
   },
@@ -3325,6 +3325,45 @@ export const OPS_CATALOG: OpMeta[] = [
     gate: (u) => siegeAuCentreAdPro(u),
     gateNote: "siège au centre de validation Ad & Pro (Direction Générale ou Super Admin)",
     covers: ["ad-pro-centre-actions:deciderVisaCentreAdPro"],
+  },
+  /**
+   * LES DEUX SEUILS DU CENTRE (§118.149) — réglés depuis le centre de validation Ad & Pro, par
+   * ses SIÈGES. Ils étaient déclarés « couverts » par `update_platform_setting`, qui ne les
+   * connaissait PAS : sa liste de réglages modifiables n'en contenait aucun, donc la carte aurait
+   * répondu « réglage inconnu » — une parité annoncée sans chemin réel (§118.14). Et même
+   * branché, il aurait écrit la colonne à côté de l'action : sans son siège (Super Admin seul)
+   * ni, pour les BC, le réaiguillage de ce qui est en vol. Les ops appellent l'action de l'écran.
+   */
+  {
+    tool: "adpro_operation", op: "set_bc_threshold", module: "Centre de validation Ad & Pro",
+    uiLabel: "Régler le seuil des bons de commande",
+    aliases: [
+      "règle le seuil des bons de commande", "change le seuil de validation des bc",
+      "au-dessus de combien un bc passe par le centre",
+    ],
+    risk: "SENSITIVE",
+    summary: "Règle le SEUIL DES BONS DE COMMANDE (champ « amount », en DZD ; 0 = tout BC passe par un centre). "
+      + "Au-dessus : un centre de validation (Ad & Pro si le BC en vient, le centre de validations sinon), puis "
+      + "la signature des Finances ; en deçà : directement à la signature des Finances. Les BC en cours qui "
+      + "changent de côté sont réaiguillés, et la réponse dit combien.",
+    gate: (u) => siegeAuCentreAdPro(u),
+    gateNote: "siège au centre de validation Ad & Pro (Direction Générale ou Super Admin)",
+    covers: ["settings-actions:setBcValidationThreshold"],
+  },
+  {
+    tool: "adpro_operation", op: "set_request_threshold", module: "Centre de validation Ad & Pro",
+    uiLabel: "Régler le seuil des demandes Ad & Pro",
+    aliases: [
+      "règle le seuil du centre ad pro", "change le seuil de validation du directeur général",
+      "au-dessus de combien une demande ad pro passe par le centre",
+    ],
+    risk: "SENSITIVE",
+    summary: "Règle le SEUIL DES DEMANDES Ad & Pro (champ « amount », en DZD ; 0 = plus aucune validation du "
+      + "Directeur Général) : une demande dont le budget total le dépasse passe par le centre de validation Ad & Pro. "
+      + "Distinct du seuil des bons de commande.",
+    gate: (u) => siegeAuCentreAdPro(u),
+    gateNote: "siège au centre de validation Ad & Pro (Direction Générale ou Super Admin)",
+    covers: ["settings-actions:setAdProDgThreshold"],
   },
   {
     tool: "adpro_operation", op: "close_other_request", module: "Ad & Pro → Autres",
@@ -3599,7 +3638,7 @@ export const OPS_CATALOG: OpMeta[] = [
     uiLabel: "Valider le BC (centre Ad & Pro)",
     aliases: ["valide le bon de commande du matériel promo", "les finances valident le BC du dossier MP"],
     risk: "SENSITIVE",
-    summary: "Le CENTRE DE VALIDATION AD & PRO (Direction Générale, Super Admin) valide le bon de commande — il repart à l'assistante pour envoi à l'agence. Tout BC né d'Ad & Pro passe par ce centre (décision de la Direction, 09/2026).",
+    summary: "Le CENTRE DE VALIDATION AD & PRO (Direction Générale, Super Admin) valide le bon de commande — il repart à l'assistante pour envoi à l'agence. Tout BC né d'Ad & Pro au-dessus du seuil des bons de commande passe par ce centre (décision de la Direction, 09/2026).",
     gate: (u) => siegeAuCentreAdPro(u),
     covers: ["promo-material-actions:validateBc"],
   },

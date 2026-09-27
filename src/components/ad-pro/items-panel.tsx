@@ -11,7 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import {
   breakdown, canEmitOrder, canSubmitItem, canRequestPurchaseOrder, canRemoveItem, budgetKindLocked, plannedGaps,
-  ITEM_KINDS, ITEM_KIND_LABELS, ITEM_STATUS_LABELS, ITEM_BUDGET_KIND_LABELS, ITEM_ORDER_STAGE_LABELS,
+  ITEM_KINDS, ITEM_KIND_LABELS, ITEM_STATUS_LABELS, ITEM_BUDGET_KIND_LABELS, ITEM_ORDER_STAGE_LABELS, LIBELLE_BC_SOUS_LE_SEUIL,
   type AdProParent,
 } from "@/lib/ad-pro-items";
 import {
@@ -51,8 +51,10 @@ export interface ItemRow {
   demandes: { id: string; reference: string; nature: NaturePieceSecretariat; status: string }[];
   /** Combien de pièces jointes le poste porte — le détail se déplie à la demande. */
   documentCount: number;
-  /** Émission du bon de commande : demande → visa Direction → Finances. */
+  /** Émission du bon de commande : demande → visa du centre (au-dessus du seuil) → Finances. */
   orderStage: AdProItemOrderStage;
+  /** Vrai quand le BC est passé aux Finances SOUS le seuil, sans visa d'aucun centre (§118.149). */
+  orderSansCentre?: boolean;
   /** Le message du DEMANDEUR : contenu du bon de commande, références, fournisseur. */
   orderNote: string | null;
   /** La note de la Direction sur son visa ou son refus — elle n'écrase plus la précédente. */
@@ -137,14 +139,16 @@ export function AdProItemsPanel({
   const b = breakdown(items, amountGranted);
   const gaps = plannedGaps(items, plan ?? {});
 
-  const run = async (key: string, fn: () => Promise<{ ok: boolean; error?: string }>, okText: string) => {
+  const run = async (key: string, fn: () => Promise<{ ok: boolean; error?: string; message?: string }>, okText: string) => {
     if (lock.current) return;
     lock.current = true;
     setBusy(key);
     setMsg(null);
     try {
       const r = await fn();
-      setMsg({ ok: r.ok, text: r.ok ? okText : (r.error ?? "Échec.") });
+      // La phrase de l'ACTION l'emporte quand elle en rend une : elle seule sait, par exemple,
+      // qu'un BC sous le seuil est parti aux Finances sans passer par le centre (§118.149).
+      setMsg({ ok: r.ok, text: r.ok ? (r.message ?? okText) : (r.error ?? "Échec.") });
       if (r.ok) router.refresh();
     } finally {
       setBusy(null);
@@ -861,7 +865,7 @@ function ItemLifecycle({ item, canEdit, canAllocate, canViserBC, canIssueOrder, 
       {item.status === "APPROVED" && (
         <div className="flex flex-wrap items-center gap-2">
           <Badge tone={ITEM_ORDER_STAGE_LABELS[item.orderStage].tone} dot={false}>
-            {ITEM_ORDER_STAGE_LABELS[item.orderStage].label}
+            {item.orderSansCentre ? LIBELLE_BC_SOUS_LE_SEUIL : ITEM_ORDER_STAGE_LABELS[item.orderStage].label}
           </Badge>
 
           {canEdit && (item.orderStage === "NONE" || item.orderStage === "REFUSED") && (
@@ -955,7 +959,9 @@ function ItemLifecycle({ item, canEdit, canAllocate, canViserBC, canIssueOrder, 
       )}
       {item.status === "APPROVED" && item.orderDecisionNote && (
         <p className="rounded-lg bg-warning/10 px-2.5 py-1.5 text-xs text-foreground">
-          <strong>Centre de validation ({ITEM_ORDER_STAGE_LABELS[item.orderStage].label}) :</strong> {item.orderDecisionNote}
+          {item.orderSansCentre
+            ? <><strong>Sans centre de validation :</strong> {item.orderDecisionNote}</>
+            : <><strong>Centre de validation ({ITEM_ORDER_STAGE_LABELS[item.orderStage].label}) :</strong> {item.orderDecisionNote}</>}
         </p>
       )}
     </div>

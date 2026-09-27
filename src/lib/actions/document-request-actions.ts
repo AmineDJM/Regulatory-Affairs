@@ -13,7 +13,7 @@ import { nextDocRequestStatus, canSubmit, canDecide, canCancel } from "@/lib/doc
 import { companyIdForNew } from "@/lib/company";
 import { pieceKindOf, legalKindOfPiece, legalTitleFromPiece, PIECE_KIND_LABEL } from "@/lib/legal/from-piece";
 import { aiguillerBC } from "@/lib/bons-de-commande/aiguillage";
-import { reserveBC, reserveSansPorte } from "@/lib/bons-de-commande/regle";
+import { reserveDeLAiguillage } from "@/lib/bons-de-commande/regle";
 
 const PATH = "/pieces";
 
@@ -198,7 +198,7 @@ async function classerDansLegal(
     // La réserve voyage avec le classement : « enregistrée dans Legal » sur un BC que personne n'a
     // validé le ferait envoyer au fournisseur (§118.32) — et un aiguillage raté doit se DIRE.
     const aiguillage = legalKind === "PURCHASE_ORDER" ? await aiguillerBC(doc.id, { acteurId: actorId }) : null;
-    const reserve = aiguillage ? (reserveSansPorte(aiguillage) ?? reserveBC(aiguillage.porte)) : null;
+    const reserve = aiguillage ? reserveDeLAiguillage(aiguillage) : null;
     return { id: doc.id, kindLabel: PIECE_KIND_LABEL[pieceKindOf(req.kind)].toLowerCase(), reserve };
   } catch (e) {
     console.error("[doc-request] classement Legal impossible", e);

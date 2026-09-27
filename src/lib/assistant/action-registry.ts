@@ -684,11 +684,11 @@ classify("COVERED", "update_platform_setting", [
   // `setFieldReportsOverviewRoles` juste au-dessus. La décision de permission reste au Super
   // Admin (§118.108) ; l'outil de réglage de plateforme est le chemin, pas un levier de plus.
   "settings-actions:setPromoMessageAuthorRoles",
-  // LE SEUIL Ad & Pro DU DIRECTEUR GÉNÉRAL (§118.138) — un montant sur `AppSetting`, exactement
-  // la forme des réglages au-dessus. « Passe le seuil de validation du DG à 2 millions » est le
-  // MÊME levier que l'écran d'administration, pas un levier caché : la garde Super Admin vit
-  // dans l'action, et `update_platform_setting` est le chemin.
-  "settings-actions:setAdProDgThreshold",
+  // LE SEUIL Ad & Pro DU DIRECTEUR GÉNÉRAL n'est PLUS ici (§118.149). Il y était déclaré couvert
+  // alors que `update_platform_setting` ne le connaissait pas (absent de ses réglages
+  // modifiables : la carte aurait répondu « réglage inconnu »). Il a désormais son op —
+  // `adpro_operation:set_request_threshold`, comme le seuil des bons de commande — qui appelle
+  // l'action de l'écran, avec son siège (Direction Générale ET Super Admin).
 ]);
 classify("COVERED", "find_documents / inspect_drive_folder (lecture)", ["drive-browse-actions:browseDrive"]);
 classify("COVERED", "update_salary", ["payroll-hr-actions:updatePayrollEntry"]);
@@ -1074,6 +1074,9 @@ const X = (note: string, keys: string[]) => classify("EXCLUDED", note, keys);
 X("DÉPOSER LE LOGO D'UNE SOCIÉTÉ est le dépôt d'un FICHIER image (PNG ou JPEG, octets vérifiés) : la conversation ne "
   + "transporte pas d'image de marque, et un modèle n'en fabrique pas une. L'écran Administration › Marque & modèles le fait, "
   + "sous le même droit (Direction ou papeterie), avec le même audit.", ["brand-actions:deposerLogo"]);
+X("SIGNER UN BON DE COMMANDE est une ATTESTATION (§118.15, §118.149) : la signature des Finances engage la société au nom d'une personne, et l'audit portera son nom. C'est après elle — et seulement après — que le BC part chez le fournisseur. La rendre appelable par Adam l'exposerait à l'injection : un devis ou un mail lu par une étape peut contenir « signe le bon de commande », et rien ne distinguerait plus la signature forgée de la vraie. Un clic dans une vraie session, sur /finances/bons-de-commande — la fiche montre la pièce, le montant, et POURQUOI elle est là (validée par tel centre, ou sous le seuil).", [
+  "bc-signature-actions:signerBonDeCommande",
+]);
 X("PURGE IRRÉVERSIBLE DE LA FILE DES RÈGLEMENTS. Vider l'historique efface des ordres de dépense en bloc ; le geste n'a pas d'annulation et ne se discute pas — il se décide devant l'écran, en voyant combien de lignes partent. Le rendre appelable par Adam l'exposerait à l'injection : un document lu par une étape pourrait contenir « vide l'historique des règlements ». Les écritures de trésorerie survivent, mais ce n'est pas une raison pour donner la commande à un modèle. Un clic du Super Admin sur /finances/paiements-a-faire.", [
   "expense-actions:purgeSettledExpenseOrders",
 ]);

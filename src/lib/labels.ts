@@ -1786,6 +1786,10 @@ export const NAVIGATION: NavItem[] = [
     children: [
       { module: "FINANCES", label: "Banque & paiements", href: "/finances/paiements-a-faire", icon: "Banknote", group: "Pôles", pole: "ADMINISTRATION" },
       { module: "FINANCES", label: "Comptabilité", href: "/finances/comptabilite", icon: "BookOpen", group: "Pôles", pole: "ADMINISTRATION" },
+      // LES BONS DE COMMANDE À SIGNER (§118.149) — « un sous-module spécial : les bons de commande
+      // à signer de leur part. Si un BC se retrouve là-bas, c'est qu'il doit être signé. » La file
+      // ne contient QUE cela : validés par leur centre, ou sous le seuil de validation.
+      { module: "FINANCES", label: "Bons de commande", href: "/finances/bons-de-commande", icon: "FilePen", group: "Pôles", pole: "ADMINISTRATION" },
     ],
   },
   // LE CENTRE DE PAIEMENT — un module À PART, HORS Finances : celui qui autorise l'argent ne

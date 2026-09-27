@@ -15,6 +15,8 @@ import { initialStep } from "@/lib/promo-material/circuit";
 import { promoManagerOf } from "@/lib/queries/promo-material";
 import { fdStr, fdNum, type ActionResult } from "@/lib/actions/types";
 import { siegeAuCentreAdPro, REFUS_BC_CENTRE_AD_PRO } from "@/lib/ad-pro/centre";
+import { getAppSettings } from "@/lib/settings";
+import { validationRequiseBC, motifSousLeSeuil } from "@/lib/bons-de-commande/regle";
 import { etatDeLOrdre, LIBELLE_ETAT_REGLEMENT } from "@/lib/payments/reglement";
 import { blockedReason, type CentralStatus } from "@/lib/payments/authorization";
 
@@ -256,13 +258,27 @@ export async function submitBcForFinance(formData: FormData): Promise<ActionResu
     attached++;
   }
 
+  // LE SEUIL DES BONS DE COMMANDE (§118.149) : au-dessus, le centre de validation Ad & Pro ; en
+  // deçà, aucun centre n'a à le voir. Le montant du BC est celui du devis RETENU ; inconnu, le BC
+  // passe au centre — on ne franchit pas une porte de contrôle sur une absence de donnée.
+  const montantBC = pm.chosenAmount != null ? Number(pm.chosenAmount) : pm.amount != null ? Number(pm.amount) : null;
+  const seuilBC = (await getAppSettings()).bcValidationThreshold;
+  const sousLeSeuil = !validationRequiseBC(montantBC, seuilBC);
   await prisma.promoMaterial.update({
     where: { id },
-    data: { status: "BC_FINANCE_REVIEW", bcReference: fdStr(formData, "bcReference"), financeReminderAt: null, updatedById: user.id },
+    data: sousLeSeuil
+      ? { status: "BC_VALIDATED", bcValidatedAt: new Date(), bcReference: fdStr(formData, "bcReference"), financeReminderAt: null, updatedById: user.id }
+      : { status: "BC_FINANCE_REVIEW", bcReference: fdStr(formData, "bcReference"), financeReminderAt: null, updatedById: user.id },
   });
   const attachNote = attached > 0 ? ` (${attached} fichier${attached > 1 ? "s" : ""})` : "";
-  // TOUT BC NÉ D'AD & PRO PASSE PAR LE CENTRE DE VALIDATION AD & PRO (§118.148) : ce sont ses
-  // sièges qui sont prévenus, et le centre liste le dossier tant qu'il attend.
+  if (sousLeSeuil) {
+    await audit(user, id, "UPDATE", `Bon de commande enregistré${attachNote} — ${motifSousLeSeuil(seuilBC)}`);
+    revalidate(id);
+    return { ok: true, message: motifSousLeSeuil(seuilBC) };
+  }
+  // TOUT BC NÉ D'AD & PRO AU-DESSUS DU SEUIL PASSE PAR LE CENTRE DE VALIDATION AD & PRO
+  // (§118.148) : ce sont ses sièges qui sont prévenus, et le centre liste le dossier tant qu'il
+  // attend.
   await notifyRoles(["GENERAL_MANAGER", "SUPER_ADMIN"], {
     type: "VALIDATION_REQUIRED", title: "Matériel promotionnel — bon de commande à valider",
     body: `${pm.reference} — ${pm.title}`, link: "/centre-ad-pro",

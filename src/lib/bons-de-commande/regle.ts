@@ -38,6 +38,18 @@
  * rétroactivement tout le registre au déploiement — une garde qui refuse ce qu'elle ne sait pas
  * lire est désactivée dans la semaine (§118.16).
  *
+ * ── CE QUE LA DIRECTION A PRÉCISÉ ENSUITE (09/2026, §118.149) ────────────────────────────────
+ *
+ * « Tout BC supérieur à un montant configuré dans les centres de validations Ad&Pro devra passer
+ * par la validation d'un des centres. » Et les BC vont ensuite aux FINANCES, qui les SIGNENT —
+ * « si un BC se retrouve là-bas, c'est qu'il doit être signé ». D'où deux questions de plus :
+ *
+ *   4. FAUT-IL UN CENTRE ? — `validationRequiseBC` : strictement au-dessus du seuil, ou montant
+ *      inconnu (on ne franchit pas une porte de contrôle sur un trou, §118.132).
+ *   5. OÙ EN EST LE BC, DE BOUT EN BOUT ? — `etapeBC` : à valider, à revoir, refusé, à signer,
+ *      signé — une seule fonction pour la file des Finances, l'action de signature, la fiche et
+ *      la phrase d'émission, sinon quatre lectures de « prêt à signer » divergeraient (§118.5).
+ *
  * Module PUR — zéro import, au SOCLE. Quatre couches en ont besoin sans avoir le droit de se
  * parler : les actions de Legal, la fabrique documentaire (le pont), le règlement des factures
  * (domaine `finance`) et le centre Ad & Pro (domaine `adpro`).
@@ -194,12 +206,33 @@ export function reserveSansPorte(a: { sansSiege?: boolean; enEchec?: boolean }):
   return null;
 }
 
+/**
+ * CE BC DOIT-IL PASSER PAR UN CENTRE ? — le seuil réglé depuis le centre de validation Ad & Pro.
+ *
+ * STRICTEMENT au-dessus du seuil → oui. Aucun seuil fixé (0) → oui : c'est le comportement d'avant
+ * la règle, et le seul sûr tant que la Direction n'a pas choisi le montant. Montant inconnu, nul
+ * ou illisible → oui : un BC dont on ignore le montant n'est pas « petit », et franchir une porte
+ * de contrôle sur une absence de donnée serait décider à la place du centre (§118.132).
+ */
+export function validationRequiseBC(montant: number | null | undefined, seuil: number | null | undefined): boolean {
+  if (!(typeof seuil === "number" && Number.isFinite(seuil) && seuil > 0)) return true;
+  if (!(typeof montant === "number" && Number.isFinite(montant) && montant > 0)) return true;
+  return montant > seuil;
+}
+
+/** Le motif écrit quand un BC passe sous le seuil : il dit POURQUOI aucun centre ne le voit. */
+export function motifSousLeSeuil(seuil: number): string {
+  return `Sous le seuil de validation des bons de commande (${seuil.toLocaleString("fr-FR")} DZD) : aucun centre n'a à le valider, il passe directement à la signature des Finances.`;
+}
+
 /** Ce que l'aiguillage doit faire, décidé sans rien lire. */
 export type GesteAiguillage =
   | { geste: "POSER" }
   | { geste: "TRANSFERER" }
   | { geste: "ROUVRIR"; motif: string }
   | { geste: "ACTUALISER" }
+  /** La validation qui attendait n'a plus d'objet : le BC est passé sous le seuil. */
+  | { geste: "RETIRER"; motif: string }
   | { geste: "RIEN" };
 
 /**
@@ -218,6 +251,12 @@ export type GesteAiguillage =
  *   • À REVOIR et modifiée → ROUVRIR : c'est la resoumission que le centre a demandée ;
  *   • REFUSÉE → RIEN : un refus ne se contourne pas en retouchant la pièce, et une décision
  *     déjà prise ne se re-juge pas parce que le BC a changé de fiche.
+ *
+ * ET LE SEUIL (§118.149) : sous le seuil, aucune porte n'est POSÉE, et une porte qui ATTEND
+ * encore est RETIRÉE — elle n'a plus d'objet. Mais ce qu'un centre a DÉCIDÉ ne s'efface pas :
+ * un refus reste un refus même si la pièce passe sous le seuil (sinon baisser le montant serait
+ * la façon de contourner un refus), et une validation reste acquise. Sans `seuil`, tout BC exige
+ * un centre — le comportement de la règle précédente.
  */
 export function gesteAiguillage(input: {
   actuelle: PorteBC | null;
@@ -226,20 +265,28 @@ export function gesteAiguillage(input: {
   montantApres?: number | null;
   /** Le BC a-t-il été modifié par la personne (et non simplement relu) ? */
   modifie?: boolean;
+  /** Le seuil des bons de commande en vigueur — absent : tout BC exige un centre. */
+  seuil?: number | null;
 }): GesteAiguillage {
   const { actuelle, centreVoulu } = input;
-  if (!actuelle) return { geste: "POSER" };
-  if (actuelle.source === "POSTE") return { geste: "RIEN" };
-
   const avant = input.montantAvant ?? null;
   const apres = input.montantApres ?? null;
+  const requise = validationRequiseBC(apres, input.seuil ?? null);
+  const sousLeSeuil = () => motifSousLeSeuil(input.seuil ?? 0);
+
+  if (!actuelle) return requise ? { geste: "POSER" } : { geste: "RIEN" };
+  if (actuelle.source === "POSTE") return { geste: "RIEN" };
+
   const montantChange = avant !== apres;
 
   switch (actuelle.etat) {
     case "EN_ATTENTE":
+      if (!requise) return { geste: "RETIRER", motif: sousLeSeuil() };
       if (actuelle.centre !== centreVoulu) return { geste: "TRANSFERER" };
       return montantChange && input.modifie ? { geste: "ACTUALISER" } : { geste: "RIEN" };
     case "VALIDE":
+      // Relevé mais toujours sous le seuil : aucun centre n'a à le revoir.
+      if (!requise) return { geste: "RIEN" };
       if (avant != null && apres != null && apres > avant) {
         return {
           geste: "ROUVRIR",
@@ -248,9 +295,145 @@ export function gesteAiguillage(input: {
       }
       return { geste: "RIEN" };
     case "A_REVOIR":
-      return input.modifie ? { geste: "ROUVRIR", motif: "Bon de commande corrigé à la demande du centre." } : { geste: "RIEN" };
+      if (!input.modifie) return { geste: "RIEN" };
+      // Corrigé SOUS le seuil : la correction a rendu la validation sans objet.
+      return requise
+        ? { geste: "ROUVRIR", motif: "Bon de commande corrigé à la demande du centre." }
+        : { geste: "RETIRER", motif: sousLeSeuil() };
     case "REFUSE":
       return { geste: "RIEN" };
+  }
+}
+
+// ───────────────────────── L'étape d'un BC, de bout en bout ─────────────────────────
+
+/** Où en est un bon de commande — de l'entrée dans le circuit à la signature des Finances. */
+export type EtapeBC =
+  /** BC d'avant la règle, jamais retouché : on ne le présume ni à valider ni à signer. */
+  | "HORS_CIRCUIT"
+  /** Il dépasse le seuil et n'est passé par aucun centre (aiguillage raté, ou pièce ancienne). */
+  | "SANS_PORTE"
+  | "A_VALIDER"
+  | "A_REVOIR"
+  | "REFUSE"
+  /** Validé par son centre, ou sous le seuil : c'est aux Finances de le signer. */
+  | "A_SIGNER"
+  | "SIGNE";
+
+export const LIBELLE_ETAPE_BC: Record<EtapeBC, string> = {
+  HORS_CIRCUIT: "Antérieur au circuit",
+  SANS_PORTE: "À adresser au centre",
+  A_VALIDER: "En attente de validation",
+  A_REVOIR: "À revoir",
+  REFUSE: "Refusé",
+  A_SIGNER: "À signer par les Finances",
+  SIGNE: "Signé",
+};
+
+/**
+ * L'ÉTAPE D'UN BC — une seule lecture pour la file des Finances, l'action de signature, la fiche
+ * et la phrase d'émission.
+ *
+ * La SIGNATURE l'emporte : un BC signé n'est plus « à valider » pour personne. Une porte en
+ * attente, à revoir ou refusée dit l'étape. Une porte VALIDÉE rend le BC « à signer » s'il est
+ * dans le circuit — un BC ancien validé il y a un an sur un poste n'est pas à signer aujourd'hui.
+ * Sans porte : hors circuit s'il n'y est jamais entré, sinon à signer sous le seuil, et « à
+ * adresser » au-dessus (le centre ne l'a jamais vu).
+ */
+export function etapeBC(a: {
+  porte: PorteBC | null;
+  validationRequise: boolean;
+  signe: boolean;
+  dansLeCircuit: boolean;
+}): EtapeBC {
+  if (a.signe) return "SIGNE";
+  if (a.porte) {
+    switch (a.porte.etat) {
+      case "EN_ATTENTE": return "A_VALIDER";
+      case "A_REVOIR": return "A_REVOIR";
+      case "REFUSE": return "REFUSE";
+      case "VALIDE": return a.dansLeCircuit ? "A_SIGNER" : "HORS_CIRCUIT";
+    }
+  }
+  if (!a.dansLeCircuit) return "HORS_CIRCUIT";
+  return a.validationRequise ? "SANS_PORTE" : "A_SIGNER";
+}
+
+/**
+ * CE QUE LA PHRASE D'UN BC DOIT DIRE, SELON SON ÉTAPE (§118.32). Se tait sur un BC signé, et sur
+ * un BC d'avant le circuit — une réserve permanente cesse d'être lue.
+ *
+ * Un BC « à signer » SANS porte n'a vu aucun centre parce qu'il est sous le seuil : la phrase le
+ * DIT, avec le montant du seuil — sinon la personne se demanderait pourquoi son BC a sauté la
+ * validation qu'elle attendait, et le soupçonnerait d'avoir contourné la règle.
+ */
+export function reserveEtapeBC(etape: EtapeBC, porte: PorteBC | null, seuil?: number | null): string | null {
+  switch (etape) {
+    case "A_VALIDER":
+    case "A_REVOIR":
+    case "REFUSE":
+      return reserveBC(porte);
+    case "SANS_PORTE":
+      return "Ce bon de commande dépasse le seuil de validation et n'est passé par aucun centre : il n'est PAS validé. « Adresser au centre », sur sa fiche Legal.";
+    case "A_SIGNER": {
+      const signature = "Il attend la signature des Finances (Finances › Bons de commande) : ne l'envoyez pas au fournisseur avant.";
+      if (!porte && typeof seuil === "number" && seuil > 0) {
+        return `Sous le seuil de validation des bons de commande (${seuil.toLocaleString("fr-FR")} DZD) : aucun centre n'a à le valider. ${signature}`;
+      }
+      return porte?.etat === "VALIDE"
+        ? `Validé par le ${LIBELLE_CENTRE_BC[porte.centre]}. ${signature}`
+        : `Ce bon de commande attend la signature des Finances (Finances › Bons de commande) : ne l'envoyez pas au fournisseur avant.`;
+    }
+    case "SIGNE":
+    case "HORS_CIRCUIT":
+      return null;
+  }
+}
+
+/** La phrase d'une signature retirée — un seul endroit, lue par toutes les portes d'écriture. */
+export const PHRASE_SIGNATURE_RETIREE =
+  "Le bon de commande a changé après la signature des Finances : la signature est retirée, il retourne à leur signature.";
+
+/**
+ * LA RÉSERVE D'UN BC QU'ON VIENT D'ÉCRIRE — à partir de ce que l'aiguillage a rendu, pour toutes
+ * les portes d'écriture (fabrique, demandes de pièce, rattachements).
+ *
+ * Quatre portes composaient chacune leur réserve (`reserveSansPorte(a) ?? reserveBC(a.porte)`) ;
+ * aucune ne connaissait l'étape « à signer », et un BC sous le seuil — sans porte — serait sorti
+ * SANS réserve, c'est-à-dire avec l'air d'un BC fini qu'on peut envoyer (§118.5, §118.32). Sans
+ * étape (un appelant d'avant la règle), on retombe sur la porte seule.
+ */
+export function reserveDeLAiguillage(a: {
+  porte: PorteBC | null;
+  etape?: EtapeBC | null;
+  seuil?: number | null;
+  sansSiege?: boolean;
+  enEchec?: boolean;
+  signatureRetiree?: boolean;
+}): string | null {
+  const sansPorte = reserveSansPorte(a);
+  if (sansPorte) return sansPorte;
+  const reserve = a.etape ? reserveEtapeBC(a.etape, a.porte, a.seuil) : reserveBC(a.porte);
+  return [a.signatureRetiree ? PHRASE_SIGNATURE_RETIREE : null, reserve].filter(Boolean).join(" ") || null;
+}
+
+/**
+ * POURQUOI CE BC NE SE SIGNE PAS ENCORE — `null` quand il se signe. Le refus nomme l'étape ET
+ * le geste qui la lève (§118.30) : « non autorisé » tout court ferait chercher un droit qui n'est
+ * pas en cause.
+ */
+export function motifNonSignable(etape: EtapeBC, porte: PorteBC | null): string | null {
+  const centre = porte ? LIBELLE_CENTRE_BC[porte.centre] : "centre de validation";
+  switch (etape) {
+    case "A_SIGNER": return null;
+    case "SIGNE": return "Ce bon de commande est déjà signé.";
+    case "A_VALIDER": return `Ce bon de commande attend encore la validation du ${centre} : il se signe une fois validé.`;
+    case "A_REVOIR": return `Le ${centre} a demandé de revoir ce bon de commande : il se signe une fois corrigé et validé.`;
+    case "REFUSE": return `Ce bon de commande a été refusé par le ${centre} : il ne se signe pas.`;
+    case "SANS_PORTE":
+      return "Ce bon de commande dépasse le seuil de validation et n'est passé par aucun centre : « Adresser au centre », sur sa fiche Legal, puis il se signe une fois validé.";
+    case "HORS_CIRCUIT":
+      return "Ce bon de commande est antérieur au circuit de validation et de signature : faites-le entrer dans le circuit depuis sa fiche Legal.";
   }
 }
 
@@ -265,8 +448,18 @@ export function gesteAiguillage(input: {
  *
  * Un BC SANS porte (enregistré avant la règle) ne passe pas non plus : il n'a été vu par aucun
  * centre. Le refus nomme le geste qui le lui soumet — « Adresser au centre », sur sa fiche Legal.
+ *
+ * DEPUIS LE SEUIL ET LA SIGNATURE (§118.149) : quand l'appelant connaît l'ÉTAPE de chaque BC
+ * (`etapeBC`), c'est elle qui décide, et le chantier ne se clôt qu'une fois TOUS les BC SIGNÉS
+ * par les Finances — un BC validé mais pas signé ne part pas chez le fournisseur, donc le chantier
+ * n'est pas fait. Un BC sous le seuil n'a pas de porte à attendre : il attend la signature. Sans
+ * étape (un appelant d'avant la règle), la porte seule décide, comme avant.
  */
-export function chantierBCClos(bcs: readonly { reference: string | null; porte: PorteBC | null }[]):
+export function chantierBCClos(bcs: readonly {
+  reference: string | null;
+  porte: PorteBC | null;
+  etape?: EtapeBC;
+}[]):
   { ok: true } | { ok: false; raison: string } {
   if (bcs.length === 0) {
     return {
@@ -276,18 +469,30 @@ export function chantierBCClos(bcs: readonly { reference: string | null; porte: 
     };
   }
   const nom = (r: string | null) => (r?.trim() ? r.trim() : "sans numéro");
-  const sansPorte = bcs.filter((b) => !b.porte);
-  if (sansPorte.length > 0) {
+  // Hors du circuit : aucune porte et pas d'étape qui dise qu'il n'en faut pas, ou une étape qui
+  // dit qu'il n'y est jamais entré (« à adresser », « antérieur au circuit »).
+  const horsCircuit = bcs.filter((b) => (b.etape ? b.etape === "SANS_PORTE" || b.etape === "HORS_CIRCUIT" : !b.porte));
+  if (horsCircuit.length > 0) {
     return {
       ok: false,
-      raison: `${sansPorte.length === 1 ? "Le bon de commande" : "Les bons de commande"} ${sansPorte.map((b) => nom(b.reference)).join(", ")} `
-        + `n'${sansPorte.length === 1 ? "a" : "ont"} été vu${sansPorte.length === 1 ? "" : "s"} par aucun centre : ouvrez sa fiche Legal et « Adressez-le au centre ».`,
+      raison: `${horsCircuit.length === 1 ? "Le bon de commande" : "Les bons de commande"} ${horsCircuit.map((b) => nom(b.reference)).join(", ")} `
+        + `n'${horsCircuit.length === 1 ? "a" : "ont"} été vu${horsCircuit.length === 1 ? "" : "s"} par aucun centre : ouvrez sa fiche Legal et « Adressez-le au centre ».`,
     };
   }
-  const enAttente = bcs.filter((b) => b.porte!.etat !== "VALIDE");
+  const enAttente = bcs.filter((b) => (b.etape
+    ? b.etape === "A_VALIDER" || b.etape === "A_REVOIR" || b.etape === "REFUSE"
+    : Boolean(b.porte && b.porte.etat !== "VALIDE")));
   if (enAttente.length > 0) {
-    const detail = enAttente.map((b) => `${nom(b.reference)} (${LIBELLE_ETAT_BC[b.porte!.etat].toLowerCase()})`).join(", ");
+    const detail = enAttente.map((b) => `${nom(b.reference)} (${b.porte ? LIBELLE_ETAT_BC[b.porte.etat].toLowerCase() : LIBELLE_ETAPE_BC[b.etape!].toLowerCase()})`).join(", ");
     return { ok: false, raison: `Bon(s) de commande pas encore validé(s) par leur centre : ${detail}. Le chantier se clôt une fois tous validés.` };
+  }
+  const nonSignes = bcs.filter((b) => b.etape === "A_SIGNER");
+  if (nonSignes.length > 0) {
+    return {
+      ok: false,
+      raison: `Bon(s) de commande pas encore signé(s) par les Finances : ${nonSignes.map((b) => nom(b.reference)).join(", ")}. `
+        + "Le chantier se clôt une fois tous signés (Finances › Bons de commande).",
+    };
   }
   return { ok: true };
 }

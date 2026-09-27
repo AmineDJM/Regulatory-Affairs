@@ -244,7 +244,7 @@ describe("aucune route n'a changé — les liens historiques restent valides", (
   });
 });
 
-describe("Finances — deux écrans, et cliquer le module conduit au travail", () => {
+describe("Finances — trois écrans, et cliquer le module conduit au travail", () => {
   const finances = NAVIGATION.find((n) => n.label === "Finances");
 
   it("CLIQUER « FINANCES » MÈNE À « BANQUE & PAIEMENTS »", () => {
@@ -253,10 +253,16 @@ describe("Finances — deux écrans, et cliquer le module conduit au travail", (
     expect(finances?.href).toBe("/finances/paiements-a-faire");
   });
 
-  it("LE « DASHBOARD » N'EST PLUS UN SOUS-MODULE, et les deux qui restent sont nommés", () => {
+  it("LE « DASHBOARD » N'EST PLUS UN SOUS-MODULE, et ceux qui restent sont nommés", () => {
     const enfants = (finances?.children ?? []).map((c) => c.label);
     expect(enfants).not.toContain("Dashboard");
-    expect(enfants).toEqual(["Banque & paiements", "Comptabilité"]);
+    // « Bons de commande » (§118.149) — « un sous-module spécial : les bons de commande à signer
+    // de leur part ». Un écran de TRAVAIL (on y signe), pas un écran d'escale : il ne réintroduit
+    // pas le défaut que le retrait du tableau de bord a fermé.
+    expect(enfants).toEqual(["Banque & paiements", "Comptabilité", "Bons de commande"]);
+    const bc = (finances?.children ?? []).find((c) => c.label === "Bons de commande");
+    expect(bc?.href).toBe("/finances/bons-de-commande");
+    expect(bc?.module, "l'entrée suit le module Finances — la signature, elle, exige d'y écrire").toBe("FINANCES");
   });
 
   it("L'ANCIENNE ADRESSE RESTE DANS LE PÉRIMÈTRE — le menu ne se désélectionne pas", () => {

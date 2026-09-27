@@ -18,6 +18,10 @@ import { buildRef } from "@/lib/refs";
 import { montantDeLaDemande } from "@/lib/ad-pro/montant-demande";
 import { fdStr, fdNum, type ActionResult } from "@/lib/actions/types";
 import { siegeAuCentreAdPro, REFUS_BC_CENTRE_AD_PRO } from "@/lib/ad-pro/centre";
+import { getAppSettings } from "@/lib/settings";
+import { validationRequiseBC, motifSousLeSeuil } from "@/lib/bons-de-commande/regle";
+import { signalerSiASigner } from "@/lib/bons-de-commande/etat";
+import { CHEMIN_BC_A_SIGNER } from "@/lib/bons-de-commande/aiguillage";
 
 /**
  * POSTES D'UNE OPÉRATION AD & PRO — actions serveur, pour les QUATRE opérations du pôle :
@@ -799,20 +803,43 @@ export async function requestAdProItemOrder(_prev: ActionResult | undefined, for
   if (!check.ok) return { ok: false, error: check.reason ?? "Demande impossible." };
 
   const note = fdStr(formData, "note");
+  // LE SEUIL DES BONS DE COMMANDE (§118.149) — « tout BC SUPÉRIEUR à un montant configuré dans
+  // les centres de validations devra passer par la validation d'un des centres ». En deçà, aucun
+  // centre n'a à le viser : la demande passe directement aux Finances. `orderDirectionAt` reste
+  // NUL — c'est ce qui distingue, sur la fiche, « validé par le centre » de « sous le seuil » :
+  // afficher le premier sur un BC qu'aucun centre n'a vu serait une attestation inventée.
+  const montantAccorde = toNumber(item.amountGranted!);
+  const seuilBC = (await getAppSettings()).bcValidationThreshold;
+  const sousLeSeuil = !validationRequiseBC(montantAccorde, seuilBC);
   await prisma.adProItem.update({
     where: { id },
-    data: { orderStage: "REQUESTED", orderRequestedAt: new Date(), orderRequestedById: user.id, orderNote: note, updatedById: user.id },
+    data: sousLeSeuil
+      ? {
+          orderStage: "DIRECTION_OK", orderRequestedAt: new Date(), orderRequestedById: user.id, orderNote: note,
+          orderDecisionNote: motifSousLeSeuil(seuilBC), orderDirectionAt: null, orderDirectionById: null, updatedById: user.id,
+        }
+      : { orderStage: "REQUESTED", orderRequestedAt: new Date(), orderRequestedById: user.id, orderNote: note, updatedById: user.id },
   });
   const info = await PARENTS[owner.parent].load(owner.id);
-  const cible = `${info?.ref ?? ""} — « ${item.label} » (${toNumber(item.amountGranted!).toLocaleString("fr-FR")} DZD)`;
-  // TOUT BC NÉ D'AD & PRO PASSE PAR LE CENTRE DE VALIDATION AD & PRO (décision de la Direction,
-  // §118.148) : ses sièges sont prévenus, et le lien mène au CENTRE, où la ligne attend.
-  await notifyRoles(["GENERAL_MANAGER", "SUPER_ADMIN"], {
-    type: "VALIDATION_REQUIRED",
-    title: "Bon de commande à valider",
-    body: cible,
-    link: "/centre-ad-pro",
-  }).catch(() => undefined);
+  const cible = `${info?.ref ?? ""} — « ${item.label} » (${montantAccorde.toLocaleString("fr-FR")} DZD)`;
+  if (sousLeSeuil) {
+    // Les Finances émettent — exactement ce que le visa du centre aurait déclenché.
+    await notifyRoles(["FINANCE_BUDGET_MANAGER", "SUPER_ADMIN"], {
+      type: "VALIDATION_REQUIRED",
+      title: "Bon de commande sous le seuil — à émettre",
+      body: cible,
+      link: `${PARENTS[owner.parent].path}/${owner.id}`,
+    }).catch(() => undefined);
+  } else {
+    // TOUT BC NÉ D'AD & PRO AU-DESSUS DU SEUIL PASSE PAR LE CENTRE DE VALIDATION AD & PRO
+    // (§118.148) : ses sièges sont prévenus, et le lien mène au CENTRE, où la ligne attend.
+    await notifyRoles(["GENERAL_MANAGER", "SUPER_ADMIN"], {
+      type: "VALIDATION_REQUIRED",
+      title: "Bon de commande à valider",
+      body: cible,
+      link: "/centre-ad-pro",
+    }).catch(() => undefined);
+  }
   // L'ASSISTANTE DE DIRECTION ÉTABLIT LE BON DE COMMANDE — « demander l'établissement d'un BC
   // qui arrivera à l'assistante de direction pour chaque poste ». Elle n'était prévenue de rien :
   // la demande partait au visa, et l'assistante apprenait après coup qu'il fallait rédiger la
@@ -824,9 +851,17 @@ export async function requestAdProItemOrder(_prev: ActionResult | undefined, for
     body: cible,
     link: `${PARENTS[owner.parent].path}/${owner.id}`,
   }).catch(() => undefined);
-  await audit(user, owner.parent, owner.id, "UPDATE", `Émission du bon de commande demandée pour le poste « ${item.label} ».`);
+  await audit(user, owner.parent, owner.id, "UPDATE", sousLeSeuil
+    ? `Émission du bon de commande demandée pour le poste « ${item.label} » — ${motifSousLeSeuil(seuilBC)}`
+    : `Émission du bon de commande demandée pour le poste « ${item.label} ».`);
   revalidate(owner.parent, owner.id);
-  return { ok: true, id };
+  if (!sousLeSeuil) revalidatePath("/centre-ad-pro");
+  return {
+    ok: true, id,
+    message: sousLeSeuil
+      ? `${motifSousLeSeuil(seuilBC)} L'assistante de direction est prévenue pour l'établir.`
+      : "Demande d'émission envoyée au centre de validation Ad & Pro.",
+  };
 }
 
 /**
@@ -898,7 +933,19 @@ export async function approveAdProItemOrder(_prev: ActionResult | undefined, for
     }).catch(() => undefined);
   }
   await audit(user, owner.parent, owner.id, "UPDATE", `Bon de commande validé par le centre de validation Ad & Pro pour « ${item.label} » — transmis aux Finances.`);
+  // LA PIÈCE EXISTE PEUT-ÊTRE DÉJÀ (§118.149) : l'assistante l'a établie pendant que le centre
+  // tranchait. Le visa du poste EST sa porte (`PorteBC.source = "POSTE"`) — elle passe donc
+  // maintenant à la signature des Finances, qui doivent le savoir. Une pièce qui n'existe pas
+  // encore les préviendra elle-même en naissant (l'aiguillage lit alors un poste validé).
+  const piecesDuPoste = await prisma.documentRequest.findMany({
+    where: { entityType: "AD_PRO_ITEM", entityId: id, legalDocumentId: { not: null } },
+    select: { legalDocumentId: true },
+  }).catch(() => []);
+  for (const p of piecesDuPoste) {
+    if (p.legalDocumentId) await signalerSiASigner(p.legalDocumentId).catch(() => false);
+  }
   revalidate(owner.parent, owner.id);
   revalidatePath("/centre-ad-pro");
+  if (piecesDuPoste.length > 0) revalidatePath(CHEMIN_BC_A_SIGNER);
   return { ok: true, id };
 }

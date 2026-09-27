@@ -6,11 +6,16 @@ import { notifyRoles } from "@/lib/notify";
 import { createDirectValidation } from "@/lib/validation";
 import { centreValidatorFrom } from "@/lib/validations/centre";
 import { AD_PRO_ENTITY_TYPE } from "@/lib/ad-pro/unified";
+import { getAppSettings } from "@/lib/settings";
 import {
   centreDeLOrigine, etatDepuisPoste, etatDepuisValidation, etatDepuisVisa, gesteAiguillage,
+  validationRequiseBC, etapeBC,
   LIBELLE_CENTRE_BC, CHEMIN_CENTRE_BC,
-  type CentreBC, type PorteBC,
+  type CentreBC, type EtapeBC, type PorteBC,
 } from "./regle";
+
+/** L'écran des Finances où un BC « à signer » attend — les notifications y mènent. */
+export const CHEMIN_BC_A_SIGNER = "/finances/bons-de-commande";
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
@@ -284,7 +289,9 @@ async function poser(doc: DocBC, centre: CentreBC, acteurId: string, motif: stri
   if (centre === "AD_PRO") {
     await prisma.adProGateVisa.upsert({
       where: { entityType_entityId: { entityType: "LEGAL_DOCUMENT", entityId: doc.id } },
-      // Aucun seuil : un BC d'Ad & Pro passe au centre QUEL QUE SOIT son montant.
+      // AUCUN SEUIL FIGÉ sur la ligne : la porte d'un BC suit le seuil des bons de commande EN
+      // VIGUEUR, relu à chaque aiguillage et réévalué quand il change (§118.149). Une valeur figée
+      // ici se lirait comme la raison du passage alors qu'elle peut ne plus l'être.
       create: { entityType: "LEGAL_DOCUMENT", entityId: doc.id, status: "PENDING", threshold: null, amount: montant, note: motif },
       // ROUVRIR : la décision précédente est effacée de la LIGNE, pas de l'histoire — le journal
       // d'audit garde qui avait validé et quand, et la raison de la réouverture est la note.
@@ -332,8 +339,26 @@ async function poser(doc: DocBC, centre: CentreBC, acteurId: string, motif: stri
 export interface ResultatAiguillage {
   /** La porte après l'aiguillage — `null` si la pièce n'est pas (ou plus) un BC. */
   porte: PorteBC | null;
-  /** Ce qui a été fait, pour la phrase de l'appelant — `null` quand rien n'a bougé. */
-  geste: "POSEE" | "TRANSFEREE" | "ROUVERTE" | "ACTUALISEE" | "RETIREE" | null;
+  /**
+   * Ce qui a été fait, pour la phrase de l'appelant — `null` quand rien n'a bougé. `SOUS_SEUIL` :
+   * la validation qui attendait a été retirée, le BC étant passé sous le seuil (§118.149).
+   */
+  geste: "POSEE" | "TRANSFEREE" | "ROUVERTE" | "ACTUALISEE" | "RETIREE" | "SOUS_SEUIL" | null;
+  /**
+   * L'ÉTAPE du BC après l'aiguillage (§118.149) — `null` quand la pièce n'est pas un BC en vie.
+   * C'est elle que la phrase de l'appelant dit : « attend la signature des Finances » pour un BC
+   * sous le seuil, là où la porte seule (nulle) ne dirait rien.
+   */
+  etape?: EtapeBC | null;
+  /** Vrai quand la signature des Finances vient d'être retirée : le montant a changé après elle. */
+  signatureRetiree?: boolean;
+  /**
+   * Vrai quand le BC vient d'ENTRER dans la file de signature des Finances par cet aiguillage —
+   * c'est le seul cas où la phrase de l'appelant doit l'annoncer, et celui où elles sont prévenues.
+   */
+  versLesFinances?: boolean;
+  /** Le seuil appliqué — pour que la phrase de l'appelant dise POURQUOI aucun centre ne le voit. */
+  seuil?: number;
   /** Vrai quand la porte n'a PAS pu être posée : aucun siège au centre. Se dit, ne se tait pas. */
   sansSiege?: boolean;
   /**
@@ -343,6 +368,22 @@ export interface ResultatAiguillage {
    * derniers sans porte, et la phrase de l'émission muette (§118.148).
    */
   enEchec?: boolean;
+}
+
+/**
+ * PRÉVENIR LES FINANCES QU'UN BC ATTEND LEUR SIGNATURE (§118.149) — « si un BC se retrouve
+ * là-bas, c'est qu'il doit être signé » : encore faut-il qu'elles sachent qu'il y est.
+ *
+ * Appelée sur une TRANSITION vers « à signer » (aiguillage, décision d'un centre), jamais à
+ * chaque relecture : une notification répétée pour la même pièce cesse d'être lue (§118.32).
+ */
+export async function notifierFinancesBCASigner(doc: DocBC): Promise<void> {
+  await notifyRoles(["FINANCE_BUDGET_MANAGER"], {
+    type: "VALIDATION_REQUIRED",
+    title: "Bon de commande à signer",
+    body: `${intitule(doc)} (${montantLisible(montantDe(doc))})`,
+    link: CHEMIN_BC_A_SIGNER,
+  }).catch(() => undefined);
 }
 
 /**
@@ -360,7 +401,26 @@ export interface ResultatAiguillage {
  */
 export async function aiguillerBC(
   docId: string,
-  opts: { acteurId: string; montantAvant?: number | null; modifie?: boolean },
+  opts: {
+    acteurId: string; montantAvant?: number | null; modifie?: boolean;
+    /**
+     * La PIÈCE elle-même a changé au-delà de son montant : un autre fournisseur, ou une nouvelle
+     * version du fichier composé. Ce n'est plus le BC que les Finances ont signé (§118.149).
+     */
+    pieceRevisee?: boolean;
+    /**
+     * Ne pas prévenir les Finances BC par BC : l'appelant traite un LOT (un changement de seuil)
+     * et leur envoie UNE notification qui dit combien. Cinquante notifications identiques pour un
+     * seul geste de la Direction cesseraient d'être lues (§118.32).
+     */
+    silencieux?: boolean;
+    /**
+     * Le seuil à appliquer, quand l'appelant le TIENT déjà : le réglage vient d'être écrit dans la
+     * même requête, et la lecture des réglages est mise en cache par requête — relire rendrait
+     * l'ancienne valeur. Absent : le réglage en vigueur.
+     */
+    seuil?: number;
+  },
 ): Promise<ResultatAiguillage> {
   try {
     const doc = await prisma.legalDocument.findUnique({
@@ -368,6 +428,7 @@ export async function aiguillerBC(
       select: {
         id: true, kind: true, status: true, reference: true, title: true, counterparty: true,
         amount: true, createdById: true, sourceType: true, sourceId: true, chainFromId: true,
+        signedAt: true, signedById: true, bcCircuitAt: true,
       },
     });
     if (!doc) return { porte: null, geste: null };
@@ -386,22 +447,97 @@ export async function aiguillerBC(
       return { porte: null, geste: retires > 0 ? "RETIREE" : null };
     }
 
+    const seuil = opts.seuil ?? (await getAppSettings()).bcValidationThreshold;
+    const montant = montantDe(doc);
+    const requise = validationRequiseBC(montant, seuil);
+
+    // L'ENTRÉE DANS LE CIRCUIT (§118.149) : la première lecture sous cette règle la date. Sans ce
+    // marqueur, fixer un seuil ferait tomber tout l'historique dans la file des Finances.
+    const dejaDansLeCircuit = doc.bcCircuitAt !== null;
+    // UNE DATE DE SIGNATURE SANS SIGNATAIRE N'EST PAS LA SIGNATURE DES FINANCES. Elle ne peut
+    // venir que d'une pièce RE-QUALIFIÉE en BC (un contrat du PCH porte sa date de signature
+    // papier) : aucun écrivain de BC ne pose l'une sans l'autre, et une signature n'est donnée
+    // qu'à un BC déjà dans le circuit. Sans cette ligne, re-qualifier un contrat signé en BC le
+    // ferait passer pour signé par les Finances — le faux succès exact que ce circuit ferme. La
+    // date retirée est consignée au journal : rien ne se perd.
+    let signeALEntree = doc.signedAt;
+    if (!dejaDansLeCircuit) {
+      const dateSansSignataire = doc.signedAt !== null && doc.signedById === null;
+      await prisma.legalDocument.update({
+        where: { id: doc.id },
+        data: { bcCircuitAt: new Date(), ...(dateSansSignataire ? { signedAt: null } : {}) },
+      });
+      if (dateSansSignataire) {
+        await recordAudit({
+          actorId: opts.acteurId, action: "UPDATE", module: "Legal", entityType: "LEGAL_DOCUMENT", entityId: doc.id,
+          field: "signedAt", oldValue: doc.signedAt!.toISOString(), newValue: null,
+          summary: "Bon de commande : la date de signature reprise d'une autre nature de pièce ne vaut pas signature des Finances — retirée.",
+        }).catch(() => undefined);
+        signeALEntree = null;
+      }
+    }
+
+    // UNE SIGNATURE PORTE SUR UNE PIÈCE ET SON MONTANT. Modifié après elle, le BC n'est plus
+    // celui que les Finances ont signé : la signature tombe, et le BC retourne dans leur file.
+    // Sans cette ligne, on signerait 400 000 et on enverrait 2 000 000 « signé » — ou l'on
+    // signerait pour un fournisseur et l'on enverrait à un autre.
+    const montantAvant = opts.montantAvant ?? null;
+    let signe = signeALEntree !== null;
+    let signatureRetiree = false;
+    const montantModifie = Boolean(opts.modifie) && montantAvant !== montant;
+    if (signe && (montantModifie || opts.pieceRevisee)) {
+      await prisma.legalDocument.update({ where: { id: doc.id }, data: { signedAt: null, signedById: null } });
+      await recordAudit({
+        actorId: opts.acteurId, action: "UPDATE", module: "Legal", entityType: "LEGAL_DOCUMENT", entityId: doc.id,
+        summary: montantModifie
+          ? `Signature des Finances retirée : montant modifié après signature (${montantLisible(montantAvant)} → ${montantLisible(montant)}).`
+          : "Signature des Finances retirée : le bon de commande a été révisé après signature (fournisseur ou pièce).",
+      }).catch(() => undefined);
+      signe = false;
+      signatureRetiree = true;
+    }
+
     const origine = await origineDuBC(doc);
     const centreVoulu = centreDeLOrigine(origine.chemin.map((m) => m.type), TYPES_AD_PRO);
     const actuelle = await porteDuBC(doc.id);
+    const etapeAvant = etapeBC({ porte: actuelle, validationRequise: requise, signe: signeALEntree !== null, dansLeCircuit: dejaDansLeCircuit });
     const geste = gesteAiguillage({
       actuelle, centreVoulu,
-      montantAvant: opts.montantAvant ?? null,
-      montantApres: montantDe(doc),
+      montantAvant,
+      montantApres: montant,
       modifie: opts.modifie ?? false,
+      seuil,
     });
+
+    // LA FIN DE L'AIGUILLAGE, POUR TOUS LES GESTES : l'étape obtenue, et les Finances prévenues
+    // si le BC vient d'ENTRER dans leur file (jamais s'il y était déjà).
+    const conclure = async (
+      porte: PorteBC | null, gesteRendu: ResultatAiguillage["geste"],
+    ): Promise<ResultatAiguillage> => {
+      const etape = etapeBC({ porte, validationRequise: requise, signe, dansLeCircuit: true });
+      const versLesFinances = etape === "A_SIGNER" && etapeAvant !== "A_SIGNER";
+      if (versLesFinances && !opts.silencieux) await notifierFinancesBCASigner(doc);
+      return {
+        porte, geste: gesteRendu, etape, seuil,
+        ...(signatureRetiree ? { signatureRetiree } : {}),
+        ...(versLesFinances ? { versLesFinances } : {}),
+      };
+    };
 
     switch (geste.geste) {
       case "RIEN":
-        return { porte: actuelle, geste: null };
+        return conclure(actuelle, null);
+
+      case "RETIRER": {
+        const retires = await retirerEnAttente(doc.id);
+        await recordAudit({
+          actorId: opts.acteurId, action: "UPDATE", module: "Legal", entityType: "LEGAL_DOCUMENT", entityId: doc.id,
+          summary: `Bon de commande — ${geste.motif}${retires > 0 ? " Sa validation en attente est retirée du centre." : ""}`,
+        }).catch(() => undefined);
+        return conclure(null, "SOUS_SEUIL");
+      }
 
       case "ACTUALISER": {
-        const montant = montantDe(doc);
         await Promise.all([
           prisma.adProGateVisa.updateMany({ where: { entityType: "LEGAL_DOCUMENT", entityId: doc.id, status: "PENDING" }, data: { amount: montant } }),
           prisma.validationRequest.updateMany({
@@ -409,7 +545,7 @@ export async function aiguillerBC(
             data: { amount: montant },
           }),
         ]);
-        return { porte: actuelle, geste: "ACTUALISEE" };
+        return conclure(actuelle, "ACTUALISEE");
       }
 
       case "TRANSFERER":
@@ -418,20 +554,95 @@ export async function aiguillerBC(
         if (geste.geste === "TRANSFERER") await retirerEnAttente(doc.id);
         const motif = geste.geste === "ROUVRIR" ? geste.motif : null;
         const ok = await poser(doc, centreVoulu, opts.acteurId, motif);
-        if (!ok) return { porte: null, geste: null, sansSiege: true };
+        if (!ok) return { porte: null, geste: null, sansSiege: true, etape: "SANS_PORTE" };
         const verbe = geste.geste === "TRANSFERER" ? "transféré au" : geste.geste === "ROUVRIR" ? "renvoyé au" : "adressé au";
         await recordAudit({
           actorId: opts.acteurId, action: "UPDATE", module: "Legal", entityType: "LEGAL_DOCUMENT", entityId: doc.id,
           summary: `Bon de commande ${verbe} ${LIBELLE_CENTRE_BC[centreVoulu]}${motif ? ` — ${motif}` : ""}`,
         }).catch(() => undefined);
-        return {
-          porte: { centre: centreVoulu, etat: "EN_ATTENTE", source: "DOCUMENT", note: motif },
-          geste: geste.geste === "TRANSFERER" ? "TRANSFEREE" : geste.geste === "ROUVRIR" ? "ROUVERTE" : "POSEE",
-        };
+        return conclure(
+          { centre: centreVoulu, etat: "EN_ATTENTE", source: "DOCUMENT", note: motif },
+          geste.geste === "TRANSFERER" ? "TRANSFEREE" : geste.geste === "ROUVRIR" ? "ROUVERTE" : "POSEE",
+        );
       }
     }
   } catch (err) {
     console.error("[bons-de-commande] aiguillage impossible", docId, err);
     return { porte: null, geste: null, enEchec: true };
   }
+}
+
+// ───────────────────────── Le seuil qui change ─────────────────────────
+
+export interface BilanSeuil {
+  /** BC du circuit dont le côté du seuil a changé, et qui ont donc été réaiguillés. */
+  reevalues: number;
+  /** Passés sous le seuil : leur validation en attente est retirée, ils vont à la signature. */
+  versLaSignature: number;
+  /** Passés au-dessus : ils attendaient la signature sans centre, ils vont à un centre. */
+  versUnCentre: number;
+  /** Vrai quand le lot a été borné : la phrase le DIT au lieu de se croire exhaustive (§118.60). */
+  tronque: boolean;
+}
+
+/** Au-delà, un seul geste de réglage deviendrait une migration : on borne, et on le dit. */
+const LOT_SEUIL = 500;
+
+/**
+ * LE SEUIL A CHANGÉ — les BC EN VOL qui ont changé de côté se réaiguillent (§118.149).
+ *
+ * Relever le seuil sans rien réaiguiller laisserait au centre des BC qu'aucun centre n'a plus à
+ * voir — ils attendraient une validation dont la règle dit qu'elle n'est plus requise, pendant
+ * que les Finances ne savent même pas qu'ils existent. L'abaisser laisserait dans la file des
+ * Finances des BC que la règle envoie désormais à un centre. Dans les deux cas l'écran dirait
+ * une chose et la règle une autre.
+ *
+ * On ne touche QUE ce qui est en vol : dans le circuit, pas signé, pas annulé, et dont le côté du
+ * seuil a RÉELLEMENT changé — l'ancien et le nouveau seuil se comparent par la même règle pure.
+ * Ce qu'un centre a DÉCIDÉ ne se re-juge pas (la règle pure y veille), et une signature donnée
+ * ne se retire pas parce que le seuil a bougé : le BC est peut-être déjà chez le fournisseur.
+ *
+ * Le nouveau seuil est PASSÉ à chaque aiguillage : la lecture des réglages est mise en cache par
+ * requête, et relire rendrait la valeur d'avant l'écriture.
+ */
+export async function reaiguillerSurChangementDeSeuil(ancien: number, nouveau: number, acteurId: string): Promise<BilanSeuil> {
+  const bilan: BilanSeuil = { reevalues: 0, versLaSignature: 0, versUnCentre: 0, tronque: false };
+  if (ancien === nouveau) return bilan;
+  // LA BANDE DE MONTANTS QUI CHANGE DE CÔTÉ, calculée AVANT de lire : sans elle, on lirait les
+  // premiers BC en vol de toute la base et l'on trierait ensuite — et sur une base chargée, ceux
+  // qui changent réellement de côté pourraient tomber après la borne. Un montant inconnu ne
+  // change jamais de côté (il exige un centre sous tous les seuils). Sans seuil (0), tout montant
+  // positif exige un centre : la bande part donc de 0.
+  const bas = ancien > 0 && nouveau > 0 ? Math.min(ancien, nouveau) : 0;
+  const haut = Math.max(ancien, nouveau);
+  const enVol = await prisma.legalDocument.findMany({
+    where: {
+      kind: "PURCHASE_ORDER", bcCircuitAt: { not: null }, signedAt: null, status: { notIn: ["CANCELLED", "RENEWED"] },
+      amount: { gt: bas, lte: haut },
+    },
+    select: { id: true, amount: true },
+    orderBy: { createdAt: "asc" },
+    take: LOT_SEUIL + 1,
+  });
+  bilan.tronque = enVol.length > LOT_SEUIL;
+  const aTraiter = enVol.slice(0, LOT_SEUIL).filter((d) => {
+    const m = montantDe(d);
+    return validationRequiseBC(m, ancien) !== validationRequiseBC(m, nouveau);
+  });
+  for (const d of aTraiter) {
+    const r = await aiguillerBC(d.id, { acteurId, seuil: nouveau, silencieux: true });
+    bilan.reevalues += 1;
+    if (r.versLesFinances) bilan.versLaSignature += 1;
+    if (r.geste === "POSEE") bilan.versUnCentre += 1;
+  }
+  if (bilan.versLaSignature > 0) {
+    await notifyRoles(["FINANCE_BUDGET_MANAGER"], {
+      type: "VALIDATION_REQUIRED",
+      title: bilan.versLaSignature === 1 ? "Un bon de commande à signer" : `${bilan.versLaSignature} bons de commande à signer`,
+      body: `Le seuil de validation des bons de commande est passé à ${nouveau.toLocaleString("fr-FR")} DZD : `
+        + `${bilan.versLaSignature === 1 ? "un BC qui attendait un centre passe" : `${bilan.versLaSignature} BC qui attendaient un centre passent`} directement à votre signature.`,
+      link: CHEMIN_BC_A_SIGNER,
+    }).catch(() => undefined);
+  }
+  return bilan;
 }

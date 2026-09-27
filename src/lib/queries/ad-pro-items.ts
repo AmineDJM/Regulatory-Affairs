@@ -96,6 +96,9 @@ export async function loadAdProItems(parent: AdProParent, parentId: string): Pro
     demandes: demandesParPoste.get(i.id) ?? [],
     documentCount: docsParPoste.get(i.id) ?? 0,
     orderStage: i.orderStage,
+    // SOUS LE SEUIL (§118.149) : le BC est passé aux Finances sans qu'aucun centre le vise — seul
+    // le visa du centre pose `orderDirectionAt`. La fiche ne doit pas dire « validé par le centre ».
+    orderSansCentre: i.orderStage === "DIRECTION_OK" && i.orderDirectionAt === null,
     orderNote: i.orderNote,
     orderDecisionNote: i.orderDecisionNote,
     decisions: i.decisions.map((d) => ({

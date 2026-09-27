@@ -125,7 +125,8 @@ export type FormePorte = "ETAPE_CIRCUIT" | "ETAPE_PROMO" | "VISA_CENTRE";
  * LES BONS DE COMMANDE AU CENTRE (§118.148) — un axe DISTINCT des portes de demande.
  *
  * `FormePorte` dit par quelle porte une DEMANDE franchit le seuil ; un bon de commande, lui, passe
- * au centre QUEL QUE SOIT son montant (« tous les BC », décision de la Direction). Trois formes,
+ * au centre selon le SEUIL DES BONS DE COMMANDE (§118.149 — 0 par défaut, donc « tous les BC »,
+ * jusqu'à ce que la Direction fixe un montant). Trois formes,
  * parce que le BC d'Ad & Pro existe sous trois formes et qu'on le lit là où il vit :
  *
  *   • `BC_POSTE`  — la demande de BC d'un POSTE (`AdProItem.orderStage = REQUESTED`) : le centre
@@ -223,7 +224,8 @@ export interface LigneCentre {
   montant: number | null;
   /**
    * Le seuil en vigueur pour cette ligne (celui du visa s'il en porte un, sinon le réglage).
-   * `null` sur un bon de commande : il passe au centre quel que soit son montant.
+   * `null` sur un bon de commande : sa porte suit le seuil des BC EN VIGUEUR, relu à chaque
+   * aiguillage (§118.149) — rien n'est figé sur la ligne.
    */
   seuil: number | null;
   forme: FormePorte | FormeBC;

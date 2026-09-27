@@ -4,7 +4,7 @@ import { requireUser } from "@/lib/session";
 import { listPartyOptions } from "@/lib/queries/company-contacts";
 import { userCan } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
-import { companyScopedWhere, getMyCompanies, companyLabel, companyIdForNew } from "@/lib/company";
+import { companyScopedWhere, getMyCompanies, companyLabel } from "@/lib/company";
 import { PageHeader } from "@/components/shared/page-header";
 import { KpiCard } from "@/components/shared/kpi-card";
 import { CreateRecordButton } from "@/components/shared/create-record-button";
@@ -17,10 +17,9 @@ import { LegalFolderBar, type FolderRow } from "./folder-bar";
 import { buildFolderTree, flattenFolders, indentedLabel } from "@/lib/legal/folders";
 import { legalListScope } from "@/lib/legal/list-view";
 import { legalReaderWhere } from "@/lib/lecteurs/legal";
-import { legalViewScope, legalWriteAllowed, natureFromParam, invoiceTally, PURCHASE_CHAIN_KINDS } from "@/lib/legal/invoices";
-import { letterheadContextFor } from "@/lib/queries/letterheads";
-import { canManageLetterheads } from "@/lib/office/letterhead";
-import { ComposerPieceButton, type TypePieceComposable } from "./composer-piece";
+import { legalViewScope, natureFromParam, invoiceTally, PURCHASE_CHAIN_KINDS } from "@/lib/legal/invoices";
+import { ComposerPieceButton, type TypePieceComposable } from "@/components/pieces/composer-piece";
+import { compositionDesPieces } from "@/lib/queries/composition-pieces";
 import { formatCurrency } from "@/lib/utils";
 import { ROLE_LABELS, LEGAL_DOC_KIND } from "@/lib/labels";
 
@@ -70,11 +69,11 @@ export default async function LegalPage({ searchParams }: { searchParams?: { ech
 
   // LE BOUTON « COMPOSER » : les natures que cette personne a le droit d'ÉMETTRE — la même règle
   // que la fabrique et qu'Adam (`legalWriteAllowed`), rejouée par le serveur au moment d'émettre.
-  const droits = { onLegal: userCan(user, "LEGAL", "CREATE"), onFinances: userCan(user, "FINANCES", "CREATE") };
-  const typesComposables: TypePieceComposable[] = ([["INVOICE", "FACTURE"], ["PURCHASE_ORDER", "BON_DE_COMMANDE"], ["QUOTE", "DEVIS"]] as const)
-    .filter(([kind]) => legalWriteAllowed({ ...droits, kind }))
-    .map(([, type]) => type);
+  // Calculée UNE fois pour Legal et pour Finances › Bons de commande (`compositionDesPieces`).
+  const composition = await compositionDesPieces(user);
+  const typesComposables: TypePieceComposable[] = composition?.types ?? [];
   const typeCompose: TypePieceComposable = nature === "PURCHASE_ORDER" ? "BON_DE_COMMANDE" : nature === "QUOTE" ? "DEVIS" : "FACTURE";
+  const typeInitialCompose = typesComposables.includes(typeCompose) ? typeCompose : typesComposables[0];
 
   // LES LECTEURS DÉSIGNÉS, en plus du cloisonnement d'entité. Un document restreint n'apparaît
   // pas dans la liste de ceux qui n'y sont pas nommés — pas même en grisé : une ligne qu'on voit
@@ -188,20 +187,6 @@ export default async function LegalPage({ searchParams }: { searchParams?: { ech
     label: `${LEGAL_DOC_KIND[r.kind] ?? r.kind} — ${r.reference ? `${r.reference} · ` : ""}${r.title}`,
   }));
 
-  // CE QU'IL FAUT POUR COMPOSER : les sociétés qu'on peut engager, la papeterie Word, et le
-  // droit de régler la numérotation (papeterie). Chargé seulement si le bouton s'affiche.
-  const composition = typesComposables.length
-    ? await (async () => {
-      const [ctx, societeParDefaut] = await Promise.all([letterheadContextFor(user.id), companyIdForNew(user.id)]);
-      return {
-        societes: myCompanies.map((c) => ({ id: c.id, label: companyLabel(c) })),
-        societeParDefaut,
-        letterheads: ctx.letterheads.filter((l) => l.kind === "word").map((l) => ({ id: l.id, name: l.name, companyId: l.companyId, companyLabel: l.companyLabel })),
-        peutReglerNumerotation: canManageLetterheads(user),
-      };
-    })()
-    : null;
-
   const watch = rows.filter((r) => r.expiry === "SOON" || r.expiry === "IMMINENT").length;
   const overdue = rows.filter((r) => r.expiry === "OVERDUE").length;
   // CE QUI RESTE À PAYER — le seul chiffre que l'écran dédié apportait vraiment, calculé sur les
@@ -216,9 +201,24 @@ export default async function LegalPage({ searchParams }: { searchParams?: { ech
           ? "Les factures et les bons de commande de la société, dans le registre des engagements : une facture y suit le bon de commande dont elle découle. « Composer » produit la pièce au format de la société, sur son papier en-tête, en Word et en PDF ; renseigner la date de règlement d'une facture suffit à la déclarer réglée."
           : "Les engagements de la société : contrats, devis, bons de commande, factures, conventions, assurances, baux. Le fichier reste dans le Drive — Legal porte les dates, l'échéance et ce qu'il advient du document."}
       >
-        {composition && (
+        {/* LE BOUTON DES BONS DE COMMANDE (§118.149) — « le bouton pour les BC c'est dans Legal ».
+            Le compositeur général s'ouvre sur la nature de la vue (une facture, d'ordinaire) ; le
+            BC a donc son PROPRE bouton, sur son propre papier en-tête, pour qu'on n'ait pas à le
+            chercher dans une liste de natures. Il disparaît quand la vue est déjà celle des BC :
+            deux boutons pour le même geste. */}
+        {composition && typesComposables.includes("BON_DE_COMMANDE") && typeInitialCompose !== "BON_DE_COMMANDE" && (
           <ComposerPieceButton
-            typeInitial={typesComposables.includes(typeCompose) ? typeCompose : typesComposables[0]}
+            typeInitial="BON_DE_COMMANDE"
+            typesAutorises={["BON_DE_COMMANDE"]}
+            societes={composition.societes}
+            societeParDefaut={composition.societeParDefaut}
+            letterheads={composition.letterheads}
+            peutReglerNumerotation={composition.peutReglerNumerotation}
+          />
+        )}
+        {composition && typeInitialCompose && (
+          <ComposerPieceButton
+            typeInitial={typeInitialCompose}
             typesAutorises={typesComposables}
             societes={composition.societes}
             societeParDefaut={composition.societeParDefaut}

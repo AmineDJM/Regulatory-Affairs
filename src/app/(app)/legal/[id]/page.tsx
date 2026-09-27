@@ -39,6 +39,8 @@ import { centreDeLOrigine, blocageParLeBC } from "@/lib/bons-de-commande/regle";
 import { siegeAuCentreAdPro } from "@/lib/ad-pro/centre";
 import { sitsOnValidationCentre } from "@/lib/validations/centre";
 import { BonDeCommandeGate } from "./bc-gate";
+import { etatDuBC } from "@/lib/bons-de-commande/etat";
+import { peutSignerBC } from "@/lib/queries/bons-de-commande";
 
 export const dynamic = "force-dynamic";
 
@@ -215,9 +217,13 @@ export default async function LegalDocumentPage({ params }: { params: { id: stri
   // LA PORTE DU BON DE COMMANDE (§118.148) — lue par le MÊME lecteur que le centre et que le
   // refus d'envoi au règlement : trois lectures de « ce BC est-il validé ? » divergeraient.
   const estBC = doc.kind === "PURCHASE_ORDER";
-  const [porte, origine] = estBC
-    ? await Promise.all([porteDuBC(doc.id), origineDuBC(doc)])
+  // L'ÉTAT DE BOUT EN BOUT (§118.149) — porte, seuil, signature — par le MÊME lecteur que la file
+  // des Finances et que l'action de signature : la fiche ne peut pas dire « à signer » d'un BC que
+  // l'action refuserait.
+  const [etatBC, origine] = estBC
+    ? await Promise.all([etatDuBC(doc.id), origineDuBC(doc)])
     : [null, null];
+  const porte = etatBC?.porte ?? null;
   const centreAttendu = origine ? centreDeLOrigine(origine.chemin.map((m) => m.type), TYPES_AD_PRO) : "VALIDATION";
   const centreDeLaPorte = porte?.centre ?? centreAttendu;
   const siegeAuCentre = centreDeLaPorte === "AD_PRO" ? siegeAuCentreAdPro(user) : sitsOnValidationCentre(user);
@@ -371,6 +377,10 @@ export default async function LegalDocumentPage({ params }: { params: { id: stri
             <BonDeCommandeGate
               documentId={doc.id} porte={porte} centreAttendu={centreAttendu}
               canAddress={canEdit} siegeAuCentre={siegeAuCentre}
+              etape={etatBC?.etape ?? "HORS_CIRCUIT"} seuil={etatBC?.seuil ?? 0}
+              validationRequise={etatBC?.validationRequise ?? true}
+              signeLe={etatBC?.signeLe?.toISOString() ?? null} signePar={etatBC?.signePar?.name ?? null}
+              peutSigner={peutSignerBC(user)}
             />
           )}
 

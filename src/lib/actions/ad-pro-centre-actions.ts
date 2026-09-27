@@ -9,6 +9,8 @@ import { notifyUser } from "@/lib/notify";
 import { siegeAuCentreAdPro, REFUS_CENTRE_AD_PRO } from "@/lib/ad-pro/centre";
 import { AD_PRO_ENTITY_TYPE, AD_PRO_KINDS, type AdProKind } from "@/lib/ad-pro/unified";
 import { fdStr, type ActionResult } from "@/lib/actions/types";
+import { CHEMIN_BC_A_SIGNER } from "@/lib/bons-de-commande/aiguillage";
+import { signalerSiASigner } from "@/lib/bons-de-commande/etat";
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
@@ -94,12 +96,20 @@ export async function deciderVisaCentreAdPro(formData: FormData): Promise<Action
           ? (approuve ? "Centre Ad & Pro : votre bon de commande est validé" : "Centre Ad & Pro : votre bon de commande est refusé")
           : approuve ? "Centre Ad & Pro : votre demande est autorisée" : "Centre Ad & Pro : votre demande est refusée",
         body: estBC
-          ? (approuve ? "Le bon de commande peut partir chez le fournisseur ; la facture qui en découlera pourra partir au règlement." : `Motif : ${note}`)
+          ? (approuve
+            ? "Validé : il passe à la signature des Finances (Finances › Bons de commande). Il pourra partir chez le fournisseur une fois signé."
+            : `Motif : ${note}`)
           : approuve
             ? "Le centre de validation a autorisé le dépassement du seuil. Le circuit reprend son cours."
             : `Motif : ${note}`,
         link: lien,
       });
+    }
+
+    // UN BC VALIDÉ PASSE À LA SIGNATURE DES FINANCES (§118.149) : elles en sont prévenues.
+    if (estBC && approuve) {
+      await signalerSiASigner(entityId).catch(() => undefined);
+      revalidatePath(CHEMIN_BC_A_SIGNER);
     }
 
     revalidatePath("/centre-ad-pro");

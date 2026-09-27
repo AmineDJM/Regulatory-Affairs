@@ -22,7 +22,7 @@ import {
 } from "@/lib/actions/ad-pro-other-actions";
 import { updateAdProRequest } from "@/lib/actions/ad-pro-edit-actions";
 import {
-  demandesAuCentreAdPro, deciderVisaCentreAdPro,
+  demandesAuCentreAdPro, deciderVisaCentreAdPro, setAdProDgThreshold, setBcValidationThreshold, DEFAULT_APP_SETTINGS,
   PIECE_SECRETARIAT, NATURES_PIECE_SECRETARIAT, type NaturePieceSecretariat,
 } from "@/platform/in-process/capacites";
 import {
@@ -31,7 +31,7 @@ import {
 } from "@/lib/actions/consulting-actions";
 import type { OpImpl, OpProposalDraft } from "./types";
 import { opStr } from "./types";
-import { runFd, runFd2, fieldsOf, resolveOne, isoDate, dzd } from "./helpers";
+import { runFd, runFd2, fieldsOf, resolveOne, isoDate, dzd, toFd } from "./helpers";
 import { matchLabel, fold } from "./impl-regulatory";
 import { resolveMissionParent, type MissionParent } from "./impl-wave2b";
 
@@ -1061,7 +1061,96 @@ export const ADPRO5_OPS_IMPL: Record<string, OpImpl> = {
     execute: (args) => runFd(deciderVisaCentreAdPro, args, "La décision du centre a été refusée.", { revalidate: ["/centre-ad-pro"] }),
   },
 
+  /**
+   * LES DEUX SEUILS DU CENTRE (§118.149) — « tout BC supérieur à un montant configuré dans les
+   * centres de validations Ad&Pro devra passer par la validation d'un des centres ».
+   *
+   * La carte montre l'AVANT et l'APRÈS, et l'exécution passe par l'action de l'ÉCRAN : même siège
+   * (`siegeAuCentreAdPro`, revérifié), même borne, et — pour les bons de commande — le même
+   * RÉAIGUILLAGE des BC en vol. La phrase rendue est celle de l'action, qui dit combien de BC ont
+   * changé de chemin : l'annoncer d'ici serait deviner ce que le code a réellement déplacé.
+   */
+  set_bc_threshold: {
+    async propose(input): Promise<OpProposalDraft | { error: string }> {
+      const seuil = montantDeSeuil(opStr(input, "amount") || opStr(input, "value"));
+      if ("error" in seuil) return seuil;
+      const avant = await seuilsEnVigueur();
+      if (avant.bc === seuil.valeur) {
+        return { error: `Le seuil des bons de commande vaut déjà ${seuil.valeur > 0 ? dzd(seuil.valeur) : "0 (aucun seuil)"}.` };
+      }
+      return {
+        title: `Régler le seuil des bons de commande — ${seuil.valeur > 0 ? dzd(seuil.valeur) : "aucun seuil"}`,
+        fields: fieldsOf([
+          ["Seuil des bons de commande", `${avant.bc > 0 ? dzd(avant.bc) : "aucun"} → ${seuil.valeur > 0 ? dzd(seuil.valeur) : "aucun"}`],
+          ["Au-dessus", "un centre de validation (Ad & Pro si le BC en vient, le centre de validations sinon), puis la signature des Finances"],
+          ["En deçà", seuil.valeur > 0 ? "directement à la signature des Finances" : "— (sans seuil, tout BC passe par un centre)"],
+        ]),
+        warnings: [
+          "Le seuil vaut pour TOUS les bons de commande de la société. Les BC en cours qui changent de côté sont réaiguillés aussitôt ; une validation déjà donnée ou une signature ne se retirent pas.",
+        ],
+        args: { bcValidationThreshold: String(seuil.valeur) },
+        successMessage: "Seuil des bons de commande réglé.",
+        link: "/centre-ad-pro",
+        revalidate: ["/centre-ad-pro", "/finances/bons-de-commande"],
+      };
+    },
+    async execute(args) {
+      const r = await setBcValidationThreshold(toFd(args));
+      if (!r.ok) return { ok: false, error: r.error ?? "Le réglage du seuil a été refusé." };
+      return { ok: true, ...(r.message ? { message: r.message } : {}), link: "/centre-ad-pro", revalidate: ["/centre-ad-pro", "/finances/bons-de-commande"] };
+    },
+  },
+
+  set_request_threshold: {
+    async propose(input): Promise<OpProposalDraft | { error: string }> {
+      const seuil = montantDeSeuil(opStr(input, "amount") || opStr(input, "value"));
+      if ("error" in seuil) return seuil;
+      const avant = await seuilsEnVigueur();
+      if (avant.demandes === seuil.valeur) {
+        return { error: `Le seuil des demandes vaut déjà ${seuil.valeur > 0 ? dzd(seuil.valeur) : "0 (aucune validation du Directeur Général)"}.` };
+      }
+      return {
+        title: `Régler le seuil des demandes Ad & Pro — ${seuil.valeur > 0 ? dzd(seuil.valeur) : "aucun seuil"}`,
+        fields: fieldsOf([
+          ["Seuil des demandes", `${avant.demandes > 0 ? dzd(avant.demandes) : "aucun"} → ${seuil.valeur > 0 ? dzd(seuil.valeur) : "aucun"}`],
+          ["Effet", seuil.valeur > 0 ? "une demande Ad & Pro dont le budget total dépasse ce montant passe par le centre de validation Ad & Pro" : "plus aucune validation du Directeur Général sur les demandes"],
+        ]),
+        warnings: ["Ce seuil gouverne les DEMANDES ; celui des bons de commande est un réglage distinct."],
+        args: { adProDgThreshold: String(seuil.valeur) },
+        successMessage: `Seuil des demandes Ad & Pro réglé à ${seuil.valeur > 0 ? dzd(seuil.valeur) : "aucun"}.`,
+        link: "/centre-ad-pro",
+        revalidate: ["/centre-ad-pro", "/ad-pro"],
+      };
+    },
+    execute: (args) => runFd(setAdProDgThreshold, args, "Le réglage du seuil a été refusé.", { link: "/centre-ad-pro", revalidate: ["/centre-ad-pro", "/ad-pro"] }),
+  },
+
 };
+
+/**
+ * UN MONTANT DE SEUIL tel qu'une personne le dit — « 500 000 », « 500000 DZD », « 1,2 million »
+ * n'est PAS lu : on ne devine pas un multiplicateur (§104.5). Un nombre, ou un refus qui dit la
+ * forme attendue.
+ */
+function montantDeSeuil(brut: string): { valeur: number } | { error: string } {
+  const texte = brut.replace(/dzd|da\b/gi, "").replace(/[\s\u00a0\u202f]/g, "").replace(",", ".");
+  if (!texte) return { error: "Précisez le seuil en DZD (champ « amount ») — 0 pour « aucun seuil »." };
+  if (!/^\d+(\.\d+)?$/.test(texte)) {
+    return { error: `« ${brut} » ne se lit pas comme un montant : donnez un nombre en DZD (ex. 500000), 0 pour « aucun seuil ».` };
+  }
+  return { valeur: Math.round(Number(texte)) };
+}
+
+/** Les deux seuils EN VIGUEUR, lus sur la ligne unique des réglages (défauts de la plateforme sinon). */
+async function seuilsEnVigueur(): Promise<{ demandes: number; bc: number }> {
+  const row = await prisma.appSetting.findUnique({
+    where: { id: "global" }, select: { adProDgThreshold: true, bcValidationThreshold: true },
+  }).catch(() => null);
+  return {
+    demandes: row ? Number(row.adProDgThreshold) : DEFAULT_APP_SETTINGS.adProDgThreshold,
+    bc: row ? Number(row.bcValidationThreshold) : DEFAULT_APP_SETTINGS.bcValidationThreshold,
+  };
+}
 
 /** Champs corrigeables (entrée op → champ formulaire → libellé) — liste blanche côté action. */
 const CORRECTABLE_FIELDS: [string, string, string][] = [

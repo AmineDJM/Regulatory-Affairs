@@ -2,6 +2,8 @@
 
 import { randomUUID } from "crypto";
 import { revalidatePath } from "next/cache";
+import { OBJET_BC, CHEMIN_BC_A_SIGNER } from "@/lib/bons-de-commande/aiguillage";
+import { signalerSiASigner } from "@/lib/bons-de-commande/etat";
 import type { Priority, UserRole, ValidationMode, ValidationStatus, ValidationStepState } from "@prisma/client";
 import { requireUser } from "@/lib/session";
 import { userCan, hasGlobalView } from "@/lib/rbac";
@@ -311,6 +313,15 @@ export async function decideValidation(formData: FormData): Promise<ActionResult
   }
   if (finalized && req.entityType === "ADMIN_REQUEST" && req.entityId) {
     revalidatePath(`/demandes/${req.entityId}`);
+  }
+
+  // UN BON DE COMMANDE VALIDÉ PASSE À LA SIGNATURE DES FINANCES (§118.149) — elles en sont
+  // prévenues, sans quoi la file « à signer » se remplirait en silence. Relu, jamais supposé :
+  // un BC annulé ou déjà signé entre-temps ne prévient personne.
+  if (newStatus === "APPROVED" && req.entityType === "LEGAL_DOCUMENT" && req.objectType === OBJET_BC && req.entityId) {
+    await signalerSiASigner(req.entityId).catch(() => undefined);
+    revalidatePath(CHEMIN_BC_A_SIGNER);
+    revalidatePath(`/legal/${req.entityId}`);
   }
 
   revalidatePath("/validations");

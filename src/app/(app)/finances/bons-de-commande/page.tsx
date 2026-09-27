@@ -1,0 +1,90 @@
+import { notFound } from "next/navigation";
+import { requireModule } from "@/lib/session";
+import { PageHeader } from "@/components/shared/page-header";
+import { KpiCard } from "@/components/shared/kpi-card";
+import { ComposerPieceButton } from "@/components/pieces/composer-piece";
+import { fileBonsDeCommande, peutSignerBC, REFUS_SIGNATURE_BC } from "@/lib/queries/bons-de-commande";
+import { compositionDesPieces } from "@/lib/queries/composition-pieces";
+import { FileBonsDeCommande } from "./file-bc";
+
+export const dynamic = "force-dynamic";
+export const metadata = { title: "Bons de commande à signer — AMD Internal OS" };
+
+/**
+ * FINANCES › BONS DE COMMANDE — ce que les Finances doivent SIGNER (§118.149).
+ *
+ * « Mets un espace en dessous de Finances, un sous-module spécial : Bons de commande — les bons de
+ * commande à signer de leur part. Si un BC se retrouve là-bas, c'est qu'il doit être signé. »
+ *
+ * La file ne contient donc QUE des BC « à signer » : validés par leur centre de validation, ou
+ * sous le seuil réglé depuis le centre Ad & Pro. Un BC qui attend encore un centre n'y est pas —
+ * il n'est pas à signer, il est à valider —, mais il est COMPTÉ : les Finances savent ce qui
+ * arrive. L'étape se lit à UN endroit (`etatsDesBC`) : la file, l'action de signature et la fiche
+ * Legal ne peuvent pas diverger sur « prêt à signer ».
+ *
+ * « Même chose pour les financiers dans les finances » : le bouton qui COMPOSE un bon de commande
+ * sur le papier en-tête de la société est aussi ici, avec les mêmes droits que dans Legal
+ * (`compositionDesPieces`) — une pièce composée ici passe par le même circuit qu'ailleurs.
+ */
+export default async function BonsDeCommandePage() {
+  const user = await requireModule("FINANCES");
+  const [file, composition] = await Promise.all([fileBonsDeCommande(user), compositionDesPieces(user)]);
+  if (!file) notFound();
+  const peutSigner = peutSignerBC(user);
+  const montantASigner = file.aSigner.reduce((t, l) => t + (l.montant ?? 0), 0);
+  const sansMontant = file.aSigner.filter((l) => l.montant == null || l.montant <= 0).length;
+
+  return (
+    <div className="space-y-5">
+      <PageHeader
+        title="Bons de commande à signer"
+        description="Les bons de commande qui attendent la signature des Finances : validés par leur centre de validation, ou sous le seuil de validation. Un bon de commande ne part chez le fournisseur qu'une fois signé."
+      >
+        {composition?.types.includes("BON_DE_COMMANDE") && (
+          <ComposerPieceButton
+            typeInitial="BON_DE_COMMANDE"
+            typesAutorises={["BON_DE_COMMANDE"]}
+            societes={composition.societes}
+            societeParDefaut={composition.societeParDefaut}
+            letterheads={composition.letterheads}
+            peutReglerNumerotation={composition.peutReglerNumerotation}
+          />
+        )}
+      </PageHeader>
+
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <KpiCard label="À signer" value={String(file.aSigner.length)} icon="FilePen" tone={file.aSigner.length > 0 ? "warning" : "default"} />
+        <KpiCard
+          label="Montant à signer"
+          value={`${montantASigner.toLocaleString("fr-FR")} DZD`}
+          icon="Coins"
+          /* Le nombre de BC SANS montant voyage avec le total : sans lui, la somme se lirait comme
+             exhaustive alors qu'elle ne porte que les montants connus (§118.60). */
+          hint={sansMontant > 0 ? `${sansMontant} BC sans montant renseigné — non compté(s).` : undefined}
+        />
+        <KpiCard
+          label="Encore au centre de validation"
+          value={String(file.enValidation)}
+          icon="Scale"
+          hint="Ils arriveront ici une fois validés — ils ne sont pas encore à signer."
+        />
+        <KpiCard
+          label="Seuil de validation"
+          value={file.seuil > 0 ? `${file.seuil.toLocaleString("fr-FR")} DZD` : "Aucun"}
+          icon="SlidersHorizontal"
+          hint={file.seuil > 0
+            ? "Au-dessus : un centre valide d'abord. En deçà : directement ici. Réglé depuis le centre de validation Ad & Pro."
+            : "Tout bon de commande passe d'abord par un centre de validation."}
+        />
+      </div>
+
+      <FileBonsDeCommande
+        aSigner={file.aSigner}
+        signes={file.signes}
+        peutSigner={peutSigner}
+        refus={peutSigner ? null : REFUS_SIGNATURE_BC}
+        tronquee={file.tronquee}
+      />
+    </div>
+  );
+}

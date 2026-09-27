@@ -77,6 +77,13 @@ export {
 export { siegeAuCentreAdPro, REFUS_CENTRE_AD_PRO, type LigneCentre, type FormePorte } from "@/lib/ad-pro/centre";
 export { demandesAuCentreAdPro } from "@/lib/queries/ad-pro-centre";
 export { deciderVisaCentreAdPro } from "@/lib/actions/ad-pro-centre-actions";
+// LES DEUX SEUILS DU CENTRE (§118.149) — celui des demandes et celui des bons de commande. Leurs
+// ops appellent l'action de l'ÉCRAN : même siège, même borne, et surtout le même RÉAIGUILLAGE des
+// BC en vol — écrire la colonne à côté en ferait une seconde écriture qui l'oublierait (§118.5).
+export { setAdProDgThreshold, setBcValidationThreshold } from "@/lib/actions/settings-actions";
+// Les valeurs PAR DÉFAUT des réglages : une carte qui montre « avant → après » sur une plateforme
+// neuve (sans ligne de réglages) les lit ici plutôt que de les recopier (§118.5).
+export { DEFAULT_APP_SETTINGS } from "@/lib/settings";
 
 export { colorerCellulesAnnuaire } from "@/lib/actions/annuaire-couleurs-actions";
 export { isAnnuaireField } from "@/lib/medical/directory-grid";

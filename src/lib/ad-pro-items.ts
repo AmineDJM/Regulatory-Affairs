@@ -133,6 +133,12 @@ export const ITEM_ORDER_STAGE_LABELS: Record<AdProItemOrderStage, { label: strin
   REFUSED: { label: "BC refusé par le centre", tone: "danger" },
 };
 
+/**
+ * Un poste passé aux Finances SOUS le seuil des bons de commande (§118.149) porte le même
+ * `DIRECTION_OK` qu'un poste visé — mais aucun centre ne l'a vu, et le badge ne doit pas le dire.
+ */
+export const LIBELLE_BC_SOUS_LE_SEUIL = "BC sous le seuil — en attente des Finances";
+
 export interface ItemAmounts {
   amountEstimated?: number | null;
   amountGranted?: number | null;

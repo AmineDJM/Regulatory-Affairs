@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Input, Label } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { EmptyState } from "@/components/shared/empty-state";
-import { setAdProDgThreshold } from "@/lib/actions/settings-actions";
+import { setAdProDgThreshold, setBcValidationThreshold } from "@/lib/actions/settings-actions";
 import { deciderVisaCentreAdPro } from "@/lib/actions/ad-pro-centre-actions";
 import { approveAdProItemOrder } from "@/lib/actions/ad-pro-item-actions";
 import type { LigneCentre, FormePorte, FormeBC } from "@/lib/ad-pro/centre";
@@ -41,32 +41,38 @@ const estBC = (r: LigneCentre) => r.forme === "BC_POSTE" || r.forme === "BC_LEGA
 /**
  * DEUX LISTES, PARCE QUE CE SONT DEUX QUESTIONS.
  *
- * Une DEMANDE est ici parce que son budget dépasse le seuil ; un BON DE COMMANDE est ici parce que
- * tout BC d'Ad & Pro y passe, quel que soit son montant (décision de la Direction, 09/2026). Les
- * mêler ferait lire « au-dessus du seuil » sur un BC de 40 000 DZD — une raison fausse, affichée à
- * celui qui décide.
+ * Une DEMANDE est ici parce que son budget dépasse le seuil des DEMANDES ; un BON DE COMMANDE est
+ * ici parce que son montant dépasse le seuil des BONS DE COMMANDE (§118.149) — deux chiffres
+ * distincts, réglés chacun sur cet écran. Les mêler ferait lire « au-dessus du seuil » sur un BC
+ * jugé contre l'autre chiffre — une raison fausse, affichée à celui qui décide.
  */
-export function CentreAdProBoard({ rows, seuil }: { rows: LigneCentre[]; seuil: number }) {
+export function CentreAdProBoard({ rows, seuil, seuilBC }: { rows: LigneCentre[]; seuil: number; seuilBC: number }) {
   const demandes = rows.filter((r) => !estBC(r));
   const bcs = rows.filter(estBC);
+  const regleBC = seuilBC > 0
+    ? `au-dessus de ${seuilBC.toLocaleString("fr-FR")} DZD — en deçà, ils passent directement à la signature des Finances`
+    : "tous, quel que soit leur montant (aucun seuil fixé)";
   return (
     <div className="space-y-5">
-      <SeuilForm seuil={seuil} />
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
+        <SeuilForm seuil={seuil} />
+        <SeuilBCForm seuil={seuilBC} />
+      </div>
 
       <Card>
         <CardHeader>
           <CardTitle>Bons de commande à valider</CardTitle>
           <CardDescription>
             {bcs.length === 0
-              ? "Aucun bon de commande n'attend le centre."
-              : `${bcs.length} bon(s) de commande né(s) d'Ad & Pro, le plus ancien en tête — tous passent ici, quel que soit leur montant.`}
+              ? `Aucun bon de commande n'attend le centre. Y passent les BC nés d'Ad & Pro ${regleBC}.`
+              : `${bcs.length} bon(s) de commande né(s) d'Ad & Pro, le plus ancien en tête — y passent ceux ${regleBC}.`}
           </CardDescription>
         </CardHeader>
         <CardContent>
           {bcs.length === 0 ? (
             <EmptyState
               title="Aucun bon de commande en attente"
-              description="La demande de bon de commande d'un poste, et toute pièce BC enregistrée dans Legal depuis une demande Ad & Pro, arrivent ici avant d'engager la société."
+              description="La demande de bon de commande d'un poste, et toute pièce BC enregistrée dans Legal depuis une demande Ad & Pro, arrivent ici avant d'engager la société — une fois validées, elles passent à la signature des Finances (Finances › Bons de commande)."
             />
           ) : (
             <ul className="space-y-3">
@@ -113,7 +119,7 @@ function SeuilForm({ seuil }: { seuil: number }) {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Le seuil</CardTitle>
+        <CardTitle>Le seuil des demandes</CardTitle>
         <CardDescription>
           Au-dessus de ce montant — <strong>strictement</strong> au-dessus —, une demande Ad &amp; Pro passe
           par ce centre. En dessous, sa porte est franchie automatiquement et tracée. Réglable par la
@@ -145,6 +151,61 @@ function SeuilForm({ seuil }: { seuil: number }) {
             {saved ? "Enregistré" : "Enregistrer"}
           </Button>
         </form>
+        {error && <p className="mt-3 rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</p>}
+      </CardContent>
+    </Card>
+  );
+}
+
+/**
+ * LE SEUIL DES BONS DE COMMANDE (§118.149) — « tout BC supérieur à un montant configuré dans les
+ * centres de validations Ad&Pro devra passer par la validation d'un des centres ».
+ *
+ * Il vaut pour TOUS les bons de commande — ceux d'Ad & Pro, qui passent par ce centre, et les
+ * autres, qui passent par le centre de validations : la phrase le dit, sinon on le croirait
+ * limité aux BC de promotion. Et la réponse de l'action DIT ce que le changement a déplacé.
+ */
+function SeuilBCForm({ seuil }: { seuil: number }) {
+  const [saving, setSaving] = React.useState(false);
+  const [message, setMessage] = React.useState<string | null>(null);
+  const [error, setError] = React.useState<string | null>(null);
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Le seuil des bons de commande</CardTitle>
+        <CardDescription>
+          Un bon de commande <strong>strictement</strong> au-dessus de ce montant passe par un centre de
+          validation — celui-ci s&apos;il naît d&apos;Ad &amp; Pro, le centre de validations sinon — avant
+          la signature des Finances. En deçà, il passe directement à leur signature (Finances › Bons de
+          commande). Il vaut pour tous les bons de commande de la société.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <form
+          action={async (fd) => {
+            setSaving(true); setError(null); setMessage(null);
+            const r = await setBcValidationThreshold(fd);
+            setSaving(false);
+            if (r.ok) setMessage(r.message ?? "Enregistré.");
+            else setError(r.error ?? "Échec.");
+          }}
+          className="grid grid-cols-1 gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end"
+        >
+          <div className="space-y-1">
+            <Label htmlFor="bcValidationThreshold">Seuil des bons de commande (DZD)</Label>
+            <Input id="bcValidationThreshold" name="bcValidationThreshold" type="number" min="0" step="1000" defaultValue={seuil} />
+            <p className="text-xs text-muted-foreground">
+              <strong>0</strong> = tout bon de commande passe par un centre. Un BC <em>sans montant
+              renseigné</em> y passe quand même. Les BC en cours qui changent de côté du seuil sont
+              réaiguillés aussitôt ; une validation déjà donnée ou une signature ne se retirent pas.
+            </p>
+          </div>
+          <Button type="submit" disabled={saving}>
+            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+            Enregistrer
+          </Button>
+        </form>
+        {message && <p className="mt-3 rounded-lg bg-success/10 px-3 py-2 text-sm text-foreground">{message}</p>}
         {error && <p className="mt-3 rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</p>}
       </CardContent>
     </Card>
