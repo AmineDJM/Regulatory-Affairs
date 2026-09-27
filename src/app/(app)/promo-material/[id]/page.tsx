@@ -28,6 +28,8 @@ import {
 import { PromoActionPanel } from "./promo-panels";
 import { PromoCircuitCard } from "./circuit-card";
 import { BackLink } from "@/components/shared/back-link";
+import { siegeAuCentreAdPro } from "@/lib/ad-pro/centre";
+import { etatDeLOrdre, LIBELLE_ETAT_REGLEMENT } from "@/lib/payments/reglement";
 
 export const dynamic = "force-dynamic";
 
@@ -56,6 +58,7 @@ export default async function PromoMaterialDetailPage({ params }: { params: { id
     isFinance: user.role === "FINANCE_BUDGET_MANAGER" || isDirection,
     isMedicalInfo: user.role === "MEDICAL_INFO_PHARMACIST" || isDirection,
     isDirection,
+    isCentreAdPro: siegeAuCentreAdPro(user),
   };
   // QUI PEUT DÉCIDER DU DOSSIER PEUT Y JOINDRE SA FACTURE — la MÊME règle sur les cinq écrans
   // Ad&Pro (`ad-pro/attachments.ts`). Ici l'ancienne liste NOMMAIT quatre rôles : elle tenait
@@ -73,6 +76,19 @@ export default async function PromoMaterialDetailPage({ params }: { params: { id
     || flags.isMarketing || flags.isAssistant || flags.isFinance || flags.isMedicalInfo;
   const uploadHint = canUpload ? null : attachHint(attacheur, dossierAdPro);
   const canDelete = userCan(user, "PROMO_MATERIAL", "DELETE") || isDirection;
+
+  // LES ORDRES DE DÉPENSE du bordereau et du règlement final (§118.148) : « Paiement effectué » et
+  // la clôture se constatent sur eux — l'écran dit où ils en sont avant d'offrir le bouton.
+  const idsOrdres = [pm.paymentOrderId, pm.settlementOrderId].filter((x): x is string => Boolean(x));
+  const ordres = new Map(
+    (idsOrdres.length
+      ? await prisma.expenseOrder.findMany({ where: { id: { in: idsOrdres } }, select: { id: true, reference: true, status: true, centralStatus: true } })
+      : []
+    ).map((o) => {
+      const etat = etatDeLOrdre(o);
+      return [o.id, { reference: o.reference, etat: LIBELLE_ETAT_REGLEMENT[etat], regle: etat === "REGLE" }] as const;
+    }),
+  );
 
   const [documents] = await Promise.all([
     prisma.document.findMany({ where: { entityType: "PROMO_MATERIAL", entityId: pm.id }, include: { uploadedBy: { select: { name: true } } }, orderBy: { createdAt: "desc" } }),
@@ -182,6 +198,8 @@ export default async function PromoMaterialDetailPage({ params }: { params: { id
               authorityRef={pm.authorityRef}
               amount={amount}
               reminderCount={pm.financeReminderCount}
+              paymentOrder={ordres.get(pm.paymentOrderId ?? "") ?? null}
+              settlementOrder={ordres.get(pm.settlementOrderId ?? "") ?? null}
             />
           )}
         </div>

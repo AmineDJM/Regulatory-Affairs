@@ -10,7 +10,8 @@ import { Badge } from "@/components/ui/badge";
 import { EmptyState } from "@/components/shared/empty-state";
 import { setAdProDgThreshold } from "@/lib/actions/settings-actions";
 import { deciderVisaCentreAdPro } from "@/lib/actions/ad-pro-centre-actions";
-import type { LigneCentre, FormePorte } from "@/lib/ad-pro/centre";
+import { approveAdProItemOrder } from "@/lib/actions/ad-pro-item-actions";
+import type { LigneCentre, FormePorte, FormeBC } from "@/lib/ad-pro/centre";
 
 /**
  * LE PLAN DE TRAVAIL DU CENTRE.
@@ -18,42 +19,83 @@ import type { LigneCentre, FormePorte } from "@/lib/ad-pro/centre";
  * Deux gestes possibles par ligne, et la distinction n'est pas un confort :
  *
  *   • `VISA_CENTRE` (consulting, autres demandes) — le visa EST la porte, il n'y a pas d'étape de
- *     circuit ailleurs : on tranche ICI.
+ *     circuit ailleurs : on tranche ICI. De même pour les BONS DE COMMANDE d'un poste ou du
+ *     registre Legal (§118.148) : un BC se juge sur sa ligne — prestataire, montant, message.
  *   • `ETAPE_CIRCUIT` / `ETAPE_PROMO` — la décision se prend DEVANT LE DOSSIER, par l'action de
  *     son circuit. Arbitrer 1,2 M DZD depuis une ligne de liste, sans les pièces, sans la
  *     catégorie budgétaire, sans le fil des avis, c'est valider en regardant autre chose
  *     (§104.7). Le centre dit CE QUI attend et POURQUOI, et y mène en un clic.
  */
 
-const LIBELLE_FORME: Record<FormePorte, string> = {
+const LIBELLE_FORME: Record<FormePorte | FormeBC, string> = {
   ETAPE_CIRCUIT: "Étape du circuit",
   ETAPE_PROMO: "Circuit matériel promotionnel",
   VISA_CENTRE: "Visa du centre",
+  BC_POSTE: "Bon de commande d'un poste",
+  BC_LEGAL: "Bon de commande (Legal)",
+  BC_PROMO: "Bon de commande — matériel promotionnel",
 };
 
+const estBC = (r: LigneCentre) => r.forme === "BC_POSTE" || r.forme === "BC_LEGAL" || r.forme === "BC_PROMO";
+
+/**
+ * DEUX LISTES, PARCE QUE CE SONT DEUX QUESTIONS.
+ *
+ * Une DEMANDE est ici parce que son budget dépasse le seuil ; un BON DE COMMANDE est ici parce que
+ * tout BC d'Ad & Pro y passe, quel que soit son montant (décision de la Direction, 09/2026). Les
+ * mêler ferait lire « au-dessus du seuil » sur un BC de 40 000 DZD — une raison fausse, affichée à
+ * celui qui décide.
+ */
 export function CentreAdProBoard({ rows, seuil }: { rows: LigneCentre[]; seuil: number }) {
+  const demandes = rows.filter((r) => !estBC(r));
+  const bcs = rows.filter(estBC);
   return (
     <div className="space-y-5">
       <SeuilForm seuil={seuil} />
 
       <Card>
         <CardHeader>
-          <CardTitle>Demandes au-dessus du seuil</CardTitle>
+          <CardTitle>Bons de commande à valider</CardTitle>
           <CardDescription>
-            {rows.length === 0
-              ? "Rien n'attend le centre."
-              : `${rows.length} demande(s) en attente d'arbitrage, la plus ancienne en tête.`}
+            {bcs.length === 0
+              ? "Aucun bon de commande n'attend le centre."
+              : `${bcs.length} bon(s) de commande né(s) d'Ad & Pro, le plus ancien en tête — tous passent ici, quel que soit leur montant.`}
           </CardDescription>
         </CardHeader>
         <CardContent>
-          {rows.length === 0 ? (
+          {bcs.length === 0 ? (
+            <EmptyState
+              title="Aucun bon de commande en attente"
+              description="La demande de bon de commande d'un poste, et toute pièce BC enregistrée dans Legal depuis une demande Ad & Pro, arrivent ici avant d'engager la société."
+            />
+          ) : (
+            <ul className="space-y-3">
+              {bcs.map((r) => (
+                <LigneCard key={`${r.entityType}:${r.entityId}`} row={r} />
+              ))}
+            </ul>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Demandes au-dessus du seuil</CardTitle>
+          <CardDescription>
+            {demandes.length === 0
+              ? "Rien n'attend le centre."
+              : `${demandes.length} demande(s) en attente d'arbitrage, la plus ancienne en tête.`}
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {demandes.length === 0 ? (
             <EmptyState
               title="Aucune demande en attente"
               description="Les demandes Ad & Pro dont le budget total dépasse le seuil apparaîtront ici dès leur soumission. En dessous du seuil, la porte est franchie automatiquement et tracée."
             />
           ) : (
             <ul className="space-y-3">
-              {rows.map((r) => (
+              {demandes.map((r) => (
                 <LigneCard key={`${r.entityType}:${r.entityId}`} row={r} />
               ))}
             </ul>
@@ -129,13 +171,21 @@ function LigneCard({ row }: { row: LigneCentre }) {
 
       <p className="text-sm">
         {/* Le montant ET le seuil, côte à côte : c'est le RAPPORT des deux qui explique pourquoi
-            cette demande est ici, et un montant seul ne le dit pas. */}
+            cette demande est ici, et un montant seul ne le dit pas. Un BC, lui, n'a pas de seuil :
+            il est ici parce que TOUT bon de commande y passe, et c'est ce qu'on écrit. */}
         {row.montant != null && row.montant > 0
           ? <><strong>{row.montant.toLocaleString("fr-FR")} DZD</strong>{row.seuil ? <> — au-dessus du seuil de {row.seuil.toLocaleString("fr-FR")} DZD</> : null}</>
-          : <span className="text-muted-foreground">Montant non renseigné — la porte s&apos;ouvre par défaut : on ne franchit pas un contrôle sur une absence de donnée.</span>}
+          : estBC(row)
+            ? <span className="text-muted-foreground">Montant non renseigné sur la pièce — ouvrez-la pour le lire avant de décider.</span>
+            : <span className="text-muted-foreground">Montant non renseigné — la porte s&apos;ouvre par défaut : on ne franchit pas un contrôle sur une absence de donnée.</span>}
       </p>
+      {row.detail && (
+        <p className="rounded-lg bg-secondary/40 px-2.5 py-1.5 text-xs text-foreground">
+          <strong>{row.forme === "BC_POSTE" ? "Message du demandeur :" : "Note :"}</strong> {row.detail}
+        </p>
+      )}
 
-      {row.forme === "VISA_CENTRE"
+      {row.forme === "VISA_CENTRE" || row.forme === "BC_LEGAL" || row.forme === "BC_POSTE"
         ? <DecisionVisa row={row} />
         : (
           <div className="flex flex-wrap items-center gap-2">
@@ -162,14 +212,25 @@ function DecisionVisa({ row }: { row: LigneCentre }) {
   const decider = async (approuve: boolean) => {
     setBusy(true); setError(null);
     const fd = new FormData();
-    fd.set("entityType", row.entityType);
-    fd.set("entityId", row.entityId);
-    fd.set("approve", approuve ? "1" : "0");
-    fd.set("note", note);
-    const r = await deciderVisaCentreAdPro(fd);
+    let r: { ok: boolean; error?: string };
+    // LE BC D'UN POSTE se décide par l'action du poste — la MÊME que le bouton de la fiche, avec
+    // la même garde : le centre est une lentille, jamais une seconde autorisation.
+    if (row.forme === "BC_POSTE") {
+      fd.set("id", row.entityId);
+      fd.set("decision", approuve ? "APPROVE" : "REFUSE");
+      fd.set("note", note);
+      r = await approveAdProItemOrder(undefined, fd);
+    } else {
+      fd.set("entityType", row.entityType);
+      fd.set("entityId", row.entityId);
+      fd.set("approve", approuve ? "1" : "0");
+      fd.set("note", note);
+      r = await deciderVisaCentreAdPro(fd);
+    }
     setBusy(false);
     if (!r.ok) setError(r.error ?? "Échec.");
   };
+  const libelleAccord = row.forme === "VISA_CENTRE" ? "Autoriser le dépassement" : "Valider le bon de commande";
 
   return (
     <div className="space-y-2">
@@ -182,7 +243,7 @@ function DecisionVisa({ row }: { row: LigneCentre }) {
       </div>
       <div className="flex flex-wrap items-center gap-2">
         <Button size="sm" disabled={busy} onClick={() => decider(true)}>
-          {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : null} Autoriser le dépassement
+          {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : null} {libelleAccord}
         </Button>
         <Button size="sm" variant="destructive" disabled={busy} onClick={() => decider(false)}>Refuser</Button>
         <Link

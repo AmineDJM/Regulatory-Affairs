@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
-  PAYMENT_PATHS, paymentPath, nonSettlingPaths,
+  PAYMENT_PATHS, paymentPath, nonSettlingPaths, horsCentre,
   invoiceDirection, invoiceSettlementLabel, settlementAction, canSendToSettlement,
 } from "./settlement";
 
@@ -34,6 +34,33 @@ describe("PAYMENT_PATHS — le registre qu'on relit avant d'ajouter un geste d'a
 
   it("une clé inconnue ne rend rien plutôt qu'un chemin par défaut", () => {
     expect(paymentPath("inexistant")).toBeUndefined();
+  });
+
+  // « Concernant les paiements, c'est clair, tous passent par le centre de paiements »
+  // (Direction, 09/2026). Chaque chemin dit s'il y passe — et un chemin qui n'y passe pas dit
+  // POURQUOI, sans quoi l'exception redevient invisible (§118.148).
+  it("chaque chemin dit s'il passe par le CENTRE, et pourquoi quand ce n'est pas le cas", () => {
+    for (const p of PAYMENT_PATHS) {
+      expect(["AUTORISE", "ENREGISTRE", "HORS_CENTRE"], p.key).toContain(p.centre);
+      expect(p.centreWhy.trim().length, p.key).toBeGreaterThan(20);
+    }
+  });
+
+  it("les exceptions à la règle de la Direction sont NOMMÉES — et ce sont exactement celles qu'on a mesurées", () => {
+    // Si ce cas tombe, c'est qu'un chemin a changé de camp : soit la Direction a tranché (et le
+    // registre doit le dire), soit un nouveau décaissement échappe au centre sans décision.
+    expect(horsCentre().map((p) => p.key).sort()).toEqual(["payroll", "petty-cash-allotment", "petty-cash-top-up"]);
+    for (const p of horsCentre()) expect(p.centreWhy, p.key).toMatch(/Direction/);
+  });
+
+  it("les règlements décidés dans l'ERP passent par le centre : ordre, demande, facture", () => {
+    for (const key of ["expense-order", "payment-request", "invoice-settlement"]) {
+      expect(paymentPath(key)?.centre, key).toBe("AUTORISE");
+    }
+  });
+
+  it("la rallonge de caisse s'écrit au livre comme la remise qu'elle complète", () => {
+    expect(paymentPath("petty-cash-top-up")?.settles).toBe(true);
   });
 });
 
@@ -121,5 +148,23 @@ describe("canSendToSettlement — l'autre bout du même verrou", () => {
   it("sans montant, il n'y a rien à faire payer", () => {
     expect(canSendToSettlement({ ...base, amount: null }).ok).toBe(false);
     expect(canSendToSettlement({ ...base, amount: 0 }).ok).toBe(false);
+  });
+
+  // LA FACTURE QUI DÉCOULE D'UN BC (§118.148) : payer l'exécution d'une commande que la société
+  // n'a pas engagée est le contournement exact que la porte du BC existe pour fermer.
+  it("un BC amont EN ATTENTE de son centre bloque l'envoi, en nommant le BC et le centre", () => {
+    const r = canSendToSettlement({ ...base, bc: { reference: "BC-77", porte: { centre: "AD_PRO", etat: "EN_ATTENTE", source: "DOCUMENT" } } });
+    expect(r.ok).toBe(false);
+    expect(r.ok === false && r.error).toContain("BC-77");
+    expect(r.ok === false && r.error).toContain("centre de validation Ad & Pro");
+  });
+  it("un BC amont REFUSÉ bloque aussi — un refus ne se contourne pas par la facture", () => {
+    expect(canSendToSettlement({ ...base, bc: { reference: "BC-78", porte: { centre: "VALIDATION", etat: "REFUSE", source: "DOCUMENT" } } }).ok).toBe(false);
+  });
+  it("un BC amont VALIDÉ laisse partir la facture", () => {
+    expect(canSendToSettlement({ ...base, bc: { reference: "BC-79", porte: { centre: "VALIDATION", etat: "VALIDE", source: "DOCUMENT" } } }).ok).toBe(true);
+  });
+  it("un BC amont SANS porte (antérieur à la règle) ne bloque rien — sinon tout le registre gèlerait", () => {
+    expect(canSendToSettlement({ ...base, bc: { reference: "BC-80", porte: null } }).ok).toBe(true);
   });
 });

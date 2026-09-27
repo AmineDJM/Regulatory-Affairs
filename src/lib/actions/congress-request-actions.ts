@@ -11,6 +11,7 @@ import { recordAudit } from "@/lib/audit";
 import { notifyUser, notifyRoles } from "@/lib/notify";
 import { createMedicalInfoDeclaration } from "@/lib/medical-info";
 import { createExpenseOrder } from "@/lib/expense-orders";
+import { statutApresNouveauMontant, type CentralStatus } from "@/lib/payments/authorization";
 import { involveThirdParty } from "@/lib/third-party";
 import { adProInit, PRODUCT_MANAGER_ROLES } from "@/lib/workflow/origin";
 import { referentAInscrire } from "@/lib/ad-pro/referent-de-la-gamme";
@@ -396,16 +397,47 @@ export async function updateGrantedBudget(formData: FormData): Promise<ActionRes
   // Répercussion sur l'ordre de dépense (s'il existe et n'est pas réglé).
   const orderId = decl?.expenseOrderId ?? c.expenseOrderId;
   if (orderId) {
-    const order = await prisma.expenseOrder.findUnique({ where: { id: orderId }, select: { status: true } });
+    const order = await prisma.expenseOrder.findUnique({
+      where: { id: orderId }, select: { status: true, amount: true, centralStatus: true, reference: true },
+    });
     if (order && order.status !== "PAID") {
-      await prisma.expenseOrder.update({ where: { id: orderId }, data: { amount } });
-      await notifyRoles(["FINANCE_BUDGET_MANAGER", "SUPER_ADMIN"], { type: "GENERIC", title: "Budget d'un événement modifié", body: `${c.name} — nouveau montant ${amount.toLocaleString("fr-FR")} DZD`, link: "/finances/paiements-a-faire" });
+      // LE CENTRE AUTORISE UN MONTANT (§118.148) : relever celui d'un ordre déjà autorisé le lui
+      // renvoie. Sans cette ligne, l'ordre partait payé au nouveau montant sur la foi d'une
+      // autorisation donnée pour l'ancien — le centre n'avait jamais vu la différence.
+      const avant = Number(order.amount);
+      const suivant = statutApresNouveauMontant({ courant: order.centralStatus as CentralStatus, avant, apres: amount });
+      const rouvert = suivant !== order.centralStatus;
+      await prisma.expenseOrder.update({
+        where: { id: orderId },
+        data: { amount, ...(rouvert ? { centralStatus: suivant, centralDecidedById: null, centralDecidedAt: null } : {}) },
+      });
+      const montant = `${amount.toLocaleString("fr-FR")} DZD`;
+      if (rouvert) {
+        // La raison de la réouverture vit dans le FIL du centre — c'est là que le prochain
+        // arbitre la lira, à côté de l'autorisation précédente, qui reste dans l'historique.
+        await prisma.paymentCentreMessage.create({
+          data: {
+            orderId,
+            body: `Montant relevé de ${avant.toLocaleString("fr-FR")} à ${montant} après autorisation (budget accordé modifié) — l'autorisation est à redonner.`,
+            authorId: user.id,
+          },
+        });
+        await notifyRoles(["DIRECTION", "SUPER_ADMIN"], {
+          type: "VALIDATION_REQUIRED",
+          title: "Paiement à ré-autoriser — montant relevé",
+          body: `${order.reference} — ${c.name} : ${avant.toLocaleString("fr-FR")} → ${montant}`,
+          link: "/centre-de-paiement",
+        });
+      } else {
+        await notifyRoles(["FINANCE_BUDGET_MANAGER", "SUPER_ADMIN"], { type: "GENERIC", title: "Budget d'un événement modifié", body: `${c.name} — nouveau montant ${montant}`, link: "/finances/paiements-a-faire" });
+      }
     }
   }
   await recordAudit({ actorId: user.id, action: "UPDATE", module: ML(t), entityType: entityFor(t), entityId: id, field: "finalAmount", newValue: String(amount), summary: `Budget accordé modifié — ${c.name}` });
   revalidatePath(`${pathFor(t)}/${id}`);
   revalidatePath("/information-medicale");
   revalidatePath("/finances/paiements-a-faire");
+  revalidatePath("/centre-de-paiement");
   return { ok: true };
 }
 

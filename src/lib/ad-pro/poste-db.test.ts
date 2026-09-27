@@ -41,13 +41,16 @@ async function actorFor(id: string, role: SessionUser["role"]): Promise<CurrentU
  * ═══════════════════════════════════════════════════════════════════════════════════════════
  */
 suite("Ad & Pro — un poste, ses droits et ses deux paroles", () => {
-  let kamId = "", dirId = "", eventId = "", posteId = "", catId = "";
+  let kamId = "", dirId = "", dgId = "", eventId = "", posteId = "", catId = "";
 
   beforeAll(async () => {
     const mk = (n: string, role: SessionUser["role"]) =>
       prisma.user.create({ data: { name: `${TAG}${n}`, email: `${TAG}${n}@t.dz`, role, passwordHash: "x" } });
     kamId = (await mk("kam", "MEDICAL_DELEGATE")).id;
     dirId = (await mk("dir", "DIRECTION")).id;
+    // LE CENTRE DE VALIDATION AD & PRO (§118.148) : le BC d'un poste s'y valide. Le Directeur
+    // Général y siège ; la Direction des opérations, qui visait jusqu'ici, n'y siège pas.
+    dgId = (await mk("dg", "GENERAL_MANAGER")).id;
     eventId = (await prisma.event.create({
       data: { name: `${TAG}Journée oncologie`, requesterId: kamId, startDate: new Date("2026-11-02") },
       select: { id: true },
@@ -143,7 +146,7 @@ suite("Ad & Pro — un poste, ses droits et ses deux paroles", () => {
     expect(await prisma.administrativeRequest.count({ where: { linkedEntityId: posteId } })).toBe(avant);
   });
 
-  it("le visa de la Direction n'EFFACE plus le message du demandeur", async () => {
+  it("le visa du CENTRE AD & PRO n'EFFACE plus le message du demandeur — et la Direction ne vise plus", async () => {
     // Le décor mène le poste jusqu'à la demande d'émission : accordé, chiffré, imputé.
     await prisma.adProItem.update({
       where: { id: posteId },
@@ -156,11 +159,19 @@ suite("Ad & Pro — un poste, ses droits et ses deux paroles", () => {
     const bc = await requestAdProItemOrder(undefined, fdBc);
     expect(bc.ok, bc.ok === false ? bc.error : "").toBe(true);
 
-    ACTOR = await actorFor(dirId, "DIRECTION");
     const fdVisa = new FormData();
     fdVisa.set("id", posteId);
     fdVisa.set("decision", "APPROVE");
     fdVisa.set("note", `${TAG}Visé, à régler sur l'enveloppe événements.`);
+    // L'ANCIEN VISEUR EST REFUSÉ, et le refus nomme le centre (§118.148) — la vue globale ne
+    // suffit plus : « tout BC né d'Ad & Pro passe par le centre de validation Ad & Pro ».
+    ACTOR = await actorFor(dirId, "DIRECTION");
+    const refus = await approveAdProItemOrder(undefined, fdVisa);
+    expect(refus.ok).toBe(false);
+    expect(refus.ok === false ? refus.error : "").toMatch(/centre de validation Ad & Pro/i);
+    expect((await prisma.adProItem.findUniqueOrThrow({ where: { id: posteId }, select: { orderStage: true } })).orderStage).toBe("REQUESTED");
+
+    ACTOR = await actorFor(dgId, "GENERAL_MANAGER");
     const visa = await approveAdProItemOrder(undefined, fdVisa);
     expect(visa.ok, visa.ok === false ? visa.error : "").toBe(true);
 
@@ -172,7 +183,7 @@ suite("Ad & Pro — un poste, ses droits et ses deux paroles", () => {
     // LE DÉFAUT QU'ON FERME : les deux paroles vivaient dans `orderNote`, donc le visa écrasait
     // le contenu du bon de commande — et l'assistante devait rappeler le demandeur.
     expect(apres.orderNote, "le message du demandeur survit au visa").toContain("80 couverts");
-    expect(apres.orderDecisionNote, "la note de la Direction a son propre champ").toContain("enveloppe événements");
+    expect(apres.orderDecisionNote, "la note du centre a son propre champ").toContain("enveloppe événements");
   });
 
   it("l'ASSISTANTE DE DIRECTION est prévenue de la demande d'émission — c'est elle qui l'établit", async () => {
@@ -210,13 +221,14 @@ suite("Ad & Pro — un poste, ses droits et ses deux paroles", () => {
     });
     expect(pourElle.length, "l'assistante reçoit la demande d'établissement").toBeGreaterThanOrEqual(1);
     expect(pourElle.map((n) => n.title).join(" | ")).toContain("à établir");
-    // Et le VISA de la Direction reste un geste DISTINCT : on ajoute un destinataire, on ne
-    // retire aucune garde. La Direction est prévenue elle aussi.
-    const pourDirection = await prisma.notification.findMany({
-      where: { userId: dirId, title: "Bon de commande à viser" },
-      select: { id: true },
+    // Et le VISA reste un geste DISTINCT, rendu au CENTRE DE VALIDATION AD & PRO (§118.148) : ses
+    // sièges sont prévenus, avec le lien vers le centre — pas la Direction des opérations.
+    const pourLeCentre = await prisma.notification.findMany({
+      where: { userId: dgId, title: "Bon de commande à valider" },
+      select: { link: true },
     });
-    expect(pourDirection.length, "le visa reste demandé à la Direction").toBeGreaterThanOrEqual(1);
+    expect(pourLeCentre.length, "le centre Ad & Pro est prévenu").toBeGreaterThanOrEqual(1);
+    expect(pourLeCentre[0].link).toBe("/centre-ad-pro");
   });
 
   it("une nature INCONNUE est refusée en nommant celles qui existent", async () => {

@@ -37,7 +37,14 @@ command -v graphify >/dev/null 2>&1 || python3 -m pip install --user --quiet gra
 # penser à lire : si un build tourne, on REFUSE de commencer. L'inverse — un build lancé pendant
 # le scan — n'est pas couvert ici, et c'est assumé : il échoue BRUYAMMENT sur un module
 # introuvable, jamais en silence. Le coût est un build perdu, jamais un faux succès.
-if pgrep -f "next build" >/dev/null 2>&1; then
+#
+# LE MOTIF EXIGE UNE FRONTIÈRE DEVANT « next build » (début, espace ou barre oblique) : ce sont
+# les formes d'un vrai build (`sh -c … && next build`, `node …/.bin/next build`). La première
+# version cherchait la chaîne nue, et `pgrep -f` lit la ligne de commande ENTIÈRE de chaque
+# processus : un shell qui se contentait de CITER le motif (`ps aux | grep -E "vitest|next build"`,
+# lancé juste avant le rafraîchissement) faisait refuser le scan alors qu'aucun build ne tournait.
+# Mesuré depuis un script neutre : 0 processus avant, 1 pendant un faux build, 0 après.
+if pgrep -f '(^|[[:space:]/])next build' >/dev/null 2>&1; then
   echo "✗ Un build Next tourne. Le scan écarte temporairement la table d'aiguillage et ce build" >&2
   echo "  échouerait sur « Can't resolve './aiguillage.genere' ». Attendez la fin du build." >&2
   exit 1

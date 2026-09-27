@@ -104,10 +104,46 @@ export function siegeAuCentreAdPro(user: { role: string }): boolean {
  */
 export const REFUS_CENTRE_AD_PRO =
   "Le centre de validation Ad & Pro est réservé à la Direction Générale et au Super Admin : "
-  + "ce sont eux qui arbitrent les demandes au-dessus du seuil, et qui règlent ce seuil.";
+  + "ce sont eux qui arbitrent les demandes au-dessus du seuil et valident tout bon de commande né d'Ad & Pro, "
+  + "et qui règlent ce seuil.";
+
+/**
+ * LE REFUS D'UN VISA DE BON DE COMMANDE — la même garde, dite pour ce geste-là.
+ *
+ * Celui qui cliquait « Viser le BC » depuis la fiche d'un sponsoring le faisait jusqu'ici au titre
+ * de la Direction (vue globale, ou VALIDATE sur le module). Depuis la décision de la Direction
+ * (09/2026, §118.148), le visa appartient au CENTRE : le refus le dit, et nomme qui y siège.
+ */
+export const REFUS_BC_CENTRE_AD_PRO =
+  "Un bon de commande né d'Ad & Pro se valide au centre de validation Ad & Pro : la Direction "
+  + "Générale ou le Super Admin (décision de la Direction, 09/2026).";
 
 /** Par quelle porte une nature Ad & Pro passe-t-elle au-dessus du seuil ? */
 export type FormePorte = "ETAPE_CIRCUIT" | "ETAPE_PROMO" | "VISA_CENTRE";
+
+/**
+ * LES BONS DE COMMANDE AU CENTRE (§118.148) — un axe DISTINCT des portes de demande.
+ *
+ * `FormePorte` dit par quelle porte une DEMANDE franchit le seuil ; un bon de commande, lui, passe
+ * au centre QUEL QUE SOIT son montant (« tous les BC », décision de la Direction). Trois formes,
+ * parce que le BC d'Ad & Pro existe sous trois formes et qu'on le lit là où il vit :
+ *
+ *   • `BC_POSTE`  — la demande de BC d'un POSTE (`AdProItem.orderStage = REQUESTED`) : le centre
+ *     vise la demande (prestataire, montant accordé, imputation) avant que la pièce n'existe ;
+ *   • `BC_LEGAL`  — une pièce BC du registre Legal née d'Ad & Pro (`AdProGateVisa` sur
+ *     `LEGAL_DOCUMENT`) : le centre valide le DOCUMENT ;
+ *   • `BC_PROMO`  — le BC d'un dossier de matériel promotionnel de l'ANCIEN parcours, qui
+ *     attendait la validation des Finances (`status = BC_FINANCE_REVIEW`).
+ *
+ * Les deux premières se décident DANS le centre — un BC se juge sur sa ligne (prestataire,
+ * montant, imputation, message) ; la troisième depuis sa fiche, où vivent ses pièces.
+ */
+export type FormeBC = "BC_POSTE" | "BC_LEGAL" | "BC_PROMO";
+
+/** Cette forme est-elle celle d'un bon de commande ? */
+export function estFormeBC(forme: FormePorte | FormeBC): forme is FormeBC {
+  return forme === "BC_POSTE" || forme === "BC_LEGAL" || forme === "BC_PROMO";
+}
 
 /**
  * LA PORTE DE CHAQUE NATURE — exhaustif par construction.
@@ -172,7 +208,11 @@ export function motifBlocageVisa(visa: EtatVisa | null | undefined): string | nu
 
 /** Une ligne du centre, toutes natures confondues. */
 export interface LigneCentre {
-  kind: AdProKind;
+  /**
+   * La nature Ad & Pro de la demande. `null` pour un bon de commande du registre Legal dont la
+   * fiche d'origine n'est pas une nature (un poste, une demande de pièce) : on ne devine pas.
+   */
+  kind: AdProKind | null;
   /** Type d'entité du registre commun — ce qui permet d'agir sans deviner la table. */
   entityType: string;
   entityId: string;
@@ -181,9 +221,14 @@ export interface LigneCentre {
   demandeur: string | null;
   /** Le budget TOTAL de la demande, celui que le seuil compare. `null` = non renseigné. */
   montant: number | null;
-  /** Le seuil en vigueur pour cette ligne (celui du visa s'il en porte un, sinon le réglage). */
+  /**
+   * Le seuil en vigueur pour cette ligne (celui du visa s'il en porte un, sinon le réglage).
+   * `null` sur un bon de commande : il passe au centre quel que soit son montant.
+   */
   seuil: number | null;
-  forme: FormePorte;
+  forme: FormePorte | FormeBC;
+  /** Ce que la ligne dit en plus, quand il y a quelque chose à dire (le message d'une demande de BC). */
+  detail?: string | null;
   /** Depuis quand elle attend — c'est ce qui trie. */
   depuis: string;
   href: string;
@@ -205,10 +250,16 @@ export interface CompteursCentre {
   enAttente: number;
   /** Qui dort depuis plus de `DORMANTES_JOURS` — le chiffre qu'on regarde en premier. */
   dormantes: number;
-  /** Le total engagé par ce qui attend. Les montants inconnus n'y entrent pas (voir plus bas). */
+  /**
+   * Le total engagé par les DEMANDES qui attendent. Les montants inconnus n'y entrent pas (voir
+   * plus bas), et les bons de commande non plus : le BC d'un poste est une part d'une enveloppe
+   * déjà accordée — l'ajouter au total des demandes compterait deux fois le même argent.
+   */
   montantTotal: number;
   /** Combien de lignes n'ont PAS de montant : sans ce compte, le total se lirait comme exhaustif. */
   sansMontant: number;
+  /** Les bons de commande qui attendent, comptés à part pour la raison ci-dessus. */
+  bonsDeCommande: number;
 }
 
 const DORMANTES_JOURS = 7;
@@ -223,10 +274,12 @@ const DORMANTES_JOURS = 7;
 export function compteursCentre(rows: readonly LigneCentre[], maintenant: Date): CompteursCentre {
   const jours = (iso: string) =>
     Math.floor((maintenant.getTime() - new Date(iso).getTime()) / 86_400_000);
+  const demandes = rows.filter((r) => !estFormeBC(r.forme));
   return {
     enAttente: rows.length,
     dormantes: rows.filter((r) => jours(r.depuis) >= DORMANTES_JOURS).length,
-    montantTotal: rows.reduce((t, r) => t + (r.montant != null && r.montant > 0 ? r.montant : 0), 0),
-    sansMontant: rows.filter((r) => r.montant == null || !(r.montant > 0)).length,
+    montantTotal: demandes.reduce((t, r) => t + (r.montant != null && r.montant > 0 ? r.montant : 0), 0),
+    sansMontant: demandes.filter((r) => r.montant == null || !(r.montant > 0)).length,
+    bonsDeCommande: rows.length - demandes.length,
   };
 }

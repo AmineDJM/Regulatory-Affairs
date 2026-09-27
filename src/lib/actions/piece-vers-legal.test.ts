@@ -45,6 +45,9 @@ suite("Une pièce acceptée rejoint le registre des engagements", () => {
   afterAll(async () => {
     await prisma.document.deleteMany({ where: { name: { startsWith: TAG } } }).catch(() => {});
     await prisma.legalDocumentReader.deleteMany({ where: { documentId: { in: legalIds } } }).catch(() => {});
+    // Les PORTES des BC classés (§118.148) — leur demandeur est un compte du banc.
+    await prisma.validationRequest.deleteMany({ where: { entityType: "LEGAL_DOCUMENT", entityId: { in: legalIds } } }).catch(() => {});
+    await prisma.adProGateVisa.deleteMany({ where: { entityType: "LEGAL_DOCUMENT", entityId: { in: legalIds } } }).catch(() => {});
     await prisma.legalDocument.deleteMany({ where: { id: { in: legalIds } } }).catch(() => {});
     await prisma.documentRequest.deleteMany({ where: { id: { in: requests } } }).catch(() => {});
     await prisma.notification.deleteMany({ where: { user: { email: { startsWith: TAG } } } }).catch(() => {});
@@ -113,7 +116,10 @@ suite("Une pièce acceptée rejoint le registre des engagements", () => {
   });
 
   it("LE FICHIER DÉMÉNAGE — un fichier, un seul domicile", async () => {
-    const { documentId, apres } = await cycle("PURCHASE_ORDER");
+    const { documentId, apres, decision } = await cycle("PURCHASE_ORDER");
+    // Classé comme BON DE COMMANDE, il attend son centre — et la phrase de l'acceptation le DIT :
+    // « enregistrée dans Legal » seul le ferait envoyer au fournisseur (§118.32, §118.148).
+    expect(decision.message).toMatch(/attend la validation du centre de validations/);
     const doc = await prisma.document.findUniqueOrThrow({ where: { id: documentId } });
     expect(doc.entityType).toBe("LEGAL_DOCUMENT");
     expect(doc.entityId).toBe(apres.legalDocumentId);

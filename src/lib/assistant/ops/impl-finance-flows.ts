@@ -715,7 +715,7 @@ export const FINANCE_FLOWS_OPS_IMPL: Record<string, OpImpl> = {
           ["Motif / note", note || null],
         ]),
         warnings: mv.move === "APPROVE"
-          ? ["BON À PAYER : un ordre de règlement est ouvert et passe par le Centre de paiement (autorisation PDG dès 50 000 DZD). Toutes les pièces doivent être acceptées."]
+          ? ["BON À PAYER : le paiement passe par le Centre de paiement, qui l'autorise quel que soit son montant ; les Finances le règlent ensuite. Toutes les pièces doivent être acceptées."]
           : mv.move === "REJECT" ? ["Le dossier est clos sur ce refus ; le demandeur est notifié."] : [],
         args: { id: req.id, move: mv.move, note: note || null },
         successMessage: `${mv.label} — ${req.reference}.`,

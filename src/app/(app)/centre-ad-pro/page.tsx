@@ -21,6 +21,10 @@ export const metadata = { title: "Centre de validation Ad & Pro — AMD Internal
  * Le module s'ouvre par le RBAC, mais le SIÈGE est une règle d'organisation : un administrateur
  * qui s'octroierait le module ne devient pas pour autant l'arbitre des dépenses de promotion.
  * La règle pure a le dernier mot — comme au centre de paiement et au centre de validations.
+ *
+ * Et depuis la décision de la Direction sur les bons de commande (09/2026, §118.148) — « ils
+ * doivent tous passer soit par le centre de validation Ad&Pro si la demande est depuis Ad&Pro,
+ * soit par le centre de validation normal » —, le centre valide aussi TOUT BC né d'Ad & Pro.
  */
 export default async function CentreAdProPage() {
   const user = await requireModule("AD_PRO_CENTRE");
@@ -34,11 +38,14 @@ export default async function CentreAdProPage() {
     <div className="space-y-5">
       <PageHeader
         title="Centre de validation Ad & Pro"
-        description="Toute demande de promotion dont le budget total dépasse le seuil s'arrête ici, quelle que soit sa nature — sponsoring, prises en charge, événements, matériel promotionnel, consulting, autres demandes. La plus ancienne en tête : c'est elle qui bloque quelqu'un. Le seuil se règle sur cet écran."
+        description="Toute demande de promotion dont le budget total dépasse le seuil s'arrête ici, quelle que soit sa nature — sponsoring, prises en charge, événements, matériel promotionnel, consulting, autres demandes. Et TOUT bon de commande né d'Ad & Pro y est validé, quel que soit son montant. La plus ancienne en tête : c'est elle qui bloque quelqu'un. Le seuil se règle sur cet écran."
       />
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <KpiCard label="En attente d'arbitrage" value={String(c.enAttente)} icon="Scale" tone={c.enAttente > 0 ? "warning" : "default"} />
+        <KpiCard
+          label="En attente d'arbitrage" value={String(c.enAttente)} icon="Scale" tone={c.enAttente > 0 ? "warning" : "default"}
+          hint={c.bonsDeCommande > 0 ? `Dont ${c.bonsDeCommande} bon(s) de commande à valider.` : undefined}
+        />
         <KpiCard label="Dormantes (≥ 7 jours)" value={String(c.dormantes)} icon="Clock" tone={c.dormantes > 0 ? "danger" : "default"} hint="Un dossier qui dort bloque quelqu'un." />
         <KpiCard
           label="Engagement en attente"
@@ -46,7 +53,12 @@ export default async function CentreAdProPage() {
           icon="Coins"
           /* Le nombre de lignes SANS montant voyage avec le total : sans lui, la somme se lirait
              comme exhaustive alors qu'elle ne porte que les montants connus (§118.60). */
-          hint={c.sansMontant > 0 ? `${c.sansMontant} demande(s) sans montant renseigné — non comptée(s) dans ce total.` : undefined}
+          hint={[
+            c.sansMontant > 0 ? `${c.sansMontant} demande(s) sans montant renseigné — non comptée(s) dans ce total.` : null,
+            // Les BC n'y entrent pas : celui d'un poste est une part d'une enveloppe déjà accordée,
+            // l'ajouter compterait deux fois le même argent (`compteursCentre`).
+            c.bonsDeCommande > 0 ? "Les bons de commande n'y sont pas comptés." : null,
+          ].filter(Boolean).join(" ") || undefined}
         />
         <KpiCard
           label="Seuil en vigueur"

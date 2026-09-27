@@ -1147,7 +1147,8 @@ export const PROMO_MATERIAL_STATUS: Record<string, Display> = {
   PROSPECTION_REQUESTED: { label: "Prospection demandée", tone: "warning" },
   QUOTES_UPLOADED: { label: "Devis déposés", tone: "info" },
   AGENCY_CHOSEN: { label: "Agence choisie", tone: "info" },
-  BC_FINANCE_REVIEW: { label: "BC — validation finances", tone: "warning" },
+  // Le code garde son nom historique ; c'est le centre de validation Ad & Pro qui valide (§118.148).
+  BC_FINANCE_REVIEW: { label: "BC — au centre de validation Ad & Pro", tone: "warning" },
   BC_VALIDATED: { label: "BC validé", tone: "purple" },
   BC_SENT: { label: "BC transmis à l'agence", tone: "purple" },
   PAYMENT_INITIATED: { label: "Bordereau de paiement", tone: "warning" },

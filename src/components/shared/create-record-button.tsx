@@ -84,7 +84,14 @@ export type FieldDef =
   // perdre le formulaire à moitié rempli.
   | {
       type: "parties"; name: string; label: string;
-      options: PartyOption[];
+      /**
+       * Les contacts, passés par la page serveur qui rend le formulaire. OMIS, le sélecteur les
+       * cherche lui-même (`/api/annuaire/parties`) — c'est le cas des formulaires qui vivent loin
+       * de toute page serveur, comme « Pièces liées » sur une fiche (§118.148). Rendre ce champ
+       * obligatoire poussait ces formulaires à garder une partie en TEXTE LIBRE, que les actions
+       * ne lisent plus : l'engagement créé depuis une fiche était refusé, faute de partie.
+       */
+      options?: PartyOption[];
       defaultValue?: string[];
       /** `1` pour un expéditeur ou un destinataire ; « many » pour les parties d'un contrat. */
       arity?: PartyArity;

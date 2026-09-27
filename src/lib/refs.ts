@@ -41,3 +41,42 @@ export async function createWithRetry<T>(fn: () => Promise<T>, attempts = 6): Pr
   }
   throw lastErr;
 }
+
+/**
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ * UNE SÉRIE, UNE CRÉATION À LA FOIS DANS CE PROCESSUS.
+ *
+ * `createWithRetry` est un verrou OPTIMISTE : chacun lit le maximum, écrit, et réessaie s'il a
+ * perdu. Juste pour deux créations simultanées ; faux pour vingt-cinq. Tous les concurrents lisent
+ * le MÊME maximum au même instant, un seul gagne chaque tour, et ils se relancent ensemble — le
+ * k-ième a besoin de k essais. MESURÉ (§118.148) : dix bons de commande émis en parallèle, chacun
+ * posant sa demande de validation `VAL-AAAA-NNN`, et au-delà du sixième la référence était encore
+ * en collision : la demande n'était pas créée, et le BC sortait SANS PORTE, en silence.
+ *
+ * On ne relève pas le nombre d'essais — la file s'allongerait avec la charge, et le plafond ne
+ * ferait que déplacer la mission qui échoue. On SÉRIALISE : les créations d'une même série
+ * attendent leur tour ICI, avant d'ouvrir la moindre connexion (un verrou de base tiendrait une
+ * connexion du pool pendant qu'il attend, et vingt-cinq attentes affameraient le reste du
+ * processus). L'application tourne dans UN processus (`render.yaml`) ; entre deux processus — un
+ * script lancé à côté, les workers de la suite de tests — `createWithRetry` reste le filet.
+ *
+ * Un échec ne bloque pas la file : le suivant passe quand le précédent a fini, bien ou mal.
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ */
+const files = new Map<string, Promise<void>>();
+
+export async function enSerie<T>(serie: string, fn: () => Promise<T>): Promise<T> {
+  const precedent = files.get(serie) ?? Promise.resolve();
+  let liberer: () => void = () => undefined;
+  const monTour = new Promise<void>((resolve) => { liberer = resolve; });
+  const queue = precedent.then(() => monTour);
+  files.set(serie, queue);
+  await precedent;
+  try {
+    return await fn();
+  } finally {
+    liberer();
+    // Le dernier de la file la retire : une série au repos ne garde rien en mémoire.
+    if (files.get(serie) === queue) files.delete(serie);
+  }
+}

@@ -1,0 +1,14 @@
+-- ═══════════════════════════════════════════════════════════════════════════════════════════
+-- UNE RALLONGE DE CAISSE D'AVANCE ACCORDÉE S'ÉCRIT AU LIVRE (§118.148).
+--
+-- La remise d'une caisse d'avance écrit sa sortie de banque depuis longtemps
+-- (`PettyCashAllotment.transactionId`) ; la RALLONGE, qui sort de l'argent de la même banque vers
+-- la même caisse, n'écrivait rien : elle incrémentait le fond, et le livre ignorait le
+-- décaissement. La colonne porte désormais le lien vers l'écriture.
+--
+-- Aucune rallonge passée n'est réécrite : inventer après coup une écriture datée d'aujourd'hui
+-- pour un mouvement ancien fausserait la trésorerie du mois. Nul = antérieure à la règle.
+--
+-- Idempotente : relancée, elle ne fait rien.
+-- ═══════════════════════════════════════════════════════════════════════════════════════════
+ALTER TABLE "PettyCashTopUpRequest" ADD COLUMN IF NOT EXISTS "transactionId" TEXT;

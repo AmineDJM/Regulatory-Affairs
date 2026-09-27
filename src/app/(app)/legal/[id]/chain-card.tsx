@@ -19,8 +19,19 @@ import { SendToSettlementButton } from "./send-to-settlement";
  * forcément une erreur, mais elle doit se VOIR avant que l'argent parte.
  */
 export function LegalChainCard({
-  links, settlement, canSettle,
-}: { links: ChainLink[]; settlement: ChainSettlement | null; canSettle: boolean }) {
+  links, settlement, canSettle, settleBlocked = null,
+}: {
+  links: ChainLink[]; settlement: ChainSettlement | null; canSettle: boolean;
+  /**
+   * POURQUOI LA FACTURE NE PEUT PAS ENCORE PARTIR — dit AVANT le clic (§118.148).
+   *
+   * Une facture qui découle d'un bon de commande que son centre n'a pas validé ne part pas au
+   * règlement. Offrir le bouton puis refuser après la confirmation ferait découvrir la règle au
+   * pire moment ; la phrase vient du MÊME module que le refus de l'action (`blocageParLeBC`),
+   * donc elle ne peut pas dire autre chose que lui.
+   */
+  settleBlocked?: string | null;
+}) {
   if (links.length <= 1 && !settlement && !links.some((l) => ["QUOTE", "PURCHASE_ORDER", "INVOICE"].includes(l.kind))) {
     return null; // pièce isolée hors chaîne d'achat : la carte n'a rien à dire
   }
@@ -131,7 +142,9 @@ export function LegalChainCard({
 
         {/* La facture part au règlement D'ICI — et passe par le centre de paiement. */}
         {canSettle && current?.kind === "INVOICE" && !settlement && (
-          <SendToSettlementButton id={current.id} amount={current.amount} />
+          settleBlocked
+            ? <p className="rounded-lg bg-warning/10 px-3 py-2 text-xs text-foreground">{settleBlocked}</p>
+            : <SendToSettlementButton id={current.id} amount={current.amount} />
         )}
       </CardContent>
     </Card>

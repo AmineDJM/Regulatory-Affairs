@@ -407,6 +407,40 @@ export async function decidePettyCashTopUp(formData: FormData): Promise<ActionRe
       where: { id: req.allotmentId },
       data: { amount: { increment: granted } },
     });
+
+    // ── ET ELLE S'ÉCRIT AU LIVRE, COMME LA REMISE (§118.148) ──────────────────────────────
+    //
+    // L'argent quitte la banque pour la caisse exactement comme à la remise ; la remise écrivait
+    // sa sortie, la rallonge non — le fond grossissait et le livre ignorait le décaissement.
+    // Même écriture, même best-effort : l'argent prime, et une écriture manquante se voit au
+    // contrôle du livre plutôt que de bloquer une caisse vide.
+    const holderName = req.allotment.holderId
+      ? (await prisma.user.findUnique({ where: { id: req.allotment.holderId }, select: { name: true } }))?.name ?? null
+      : null;
+    const tx = await prisma.financeTransaction
+      .create({
+        data: {
+          reference: await nextFinanceRef(),
+          date: new Date(),
+          direction: "OUT",
+          category: "AUTRE",
+          label: `Rallonge de caisse d'avance — ${req.allotment.department.name} (${periodLabel(req.allotment.period)})`,
+          amount: granted,
+          method: "CASH",
+          account: "Caisse",
+          counterparty: holderName,
+          status: "SETTLED",
+          createdById: user.id,
+        },
+        select: { id: true },
+      })
+      .catch((e) => {
+        console.error("[petty-cash] écriture de la rallonge non passée", e);
+        return null;
+      });
+    if (tx) {
+      await prisma.pettyCashTopUpRequest.update({ where: { id }, data: { transactionId: tx.id } }).catch(() => undefined);
+    }
   }
 
   if (req.requestedById) {

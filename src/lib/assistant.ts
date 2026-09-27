@@ -3724,6 +3724,15 @@ export async function buildProposal(toolName: string, input: Record<string, unkn
     if (amount != null) fields.push({ label: "Montant", value: `${amount.toLocaleString("fr-FR")} DZD` });
     if (startDate || endDate) fields.push({ label: "Dates", value: [startDate, endDate].filter(Boolean).join(" → ") });
     if (chainFromLabel) fields.push({ label: "Chaînée à", value: chainFromLabel });
+    // LA PARTIE VIENT DE L'ANNUAIRE (§118.148) : la carte le DIT avant le clic — introuvable ou
+    // ambiguë, la déclaration est refusée en le disant, jamais écrite en texte libre.
+    if (!asStr(input, "counterparty")) {
+      return { error: "Précisez la partie (fournisseur, client, prestataire) : un document Legal exige une partie de l'annuaire de l'entreprise." };
+    }
+    warnings.push(`La partie « ${asStr(input, "counterparty")} » sera cherchée dans l'annuaire de l'entreprise : absente ou ambiguë, la déclaration sera refusée en le disant.`);
+    if (docKind === "PURCHASE_ORDER") {
+      warnings.push("Tout bon de commande passe par un centre de validation — celui d'Ad & Pro s'il vient d'une demande Ad & Pro, le centre de validations sinon — avant d'engager la société.");
+    }
 
     return {
       kind: "create_legal_document", module: "LEGAL", title: `Déclarer ${KINDS_FR[docKind].toLowerCase()} au Legal`, fields, warnings,
@@ -6967,7 +6976,8 @@ export async function performAction(user: CurrentUser, payload: AssistantActionP
     fd.set("kind", payload.docKind);
     fd.set("title", payload.title);
     if (payload.reference) fd.set("reference", payload.reference);
-    if (payload.counterparty) fd.set("counterparty", payload.counterparty);
+    // Un NOM, résolu par l'action contre l'annuaire — le texte libre n'est plus lu (§118.148).
+    if (payload.counterparty) fd.set("counterpartyName", payload.counterparty);
     if (payload.amount != null) fd.set("amount", String(payload.amount));
     if (payload.startDate) fd.set("startDate", payload.startDate);
     if (payload.endDate) fd.set("endDate", payload.endDate);
@@ -6977,7 +6987,8 @@ export async function performAction(user: CurrentUser, payload: AssistantActionP
     if (!r.ok) return { ok: false, error: r.error ?? "La pièce n'a pas pu être déclarée." };
     return {
       ok: true,
-      message: `Pièce « ${payload.title} » déclarée au Legal${payload.chainFromLabel ? ` (chaînée à ${payload.chainFromLabel})` : ""}.`,
+      // La phrase de l'action PASSE : sur un bon de commande, elle dit à quel centre il attend.
+      message: `Pièce « ${payload.title} » déclarée au Legal${payload.chainFromLabel ? ` (chaînée à ${payload.chainFromLabel})` : ""}.${r.message ? ` ${r.message}` : ""}`,
       link: r.id ? `/legal/${r.id}` : "/legal",
       revalidate: ["/legal"],
     };
@@ -6988,7 +6999,7 @@ export async function performAction(user: CurrentUser, payload: AssistantActionP
     // ce qui a été confirmé — jamais un champ effacé par omission.
     const current = await prisma.legalDocument.findUnique({
       where: { id: payload.documentId },
-      select: { id: true, title: true, reference: true, kind: true, counterparty: true, amount: true, startDate: true, endDate: true, notes: true, folderId: true, chainFromId: true },
+      select: { id: true, title: true, reference: true, kind: true, counterparty: true, counterpartyIds: true, amount: true, startDate: true, endDate: true, notes: true, folderId: true, chainFromId: true },
     });
     if (!current) return { ok: false, error: "Cette pièce Legal n'existe plus." };
     const u = payload.updates;
@@ -6997,7 +7008,12 @@ export async function performAction(user: CurrentUser, payload: AssistantActionP
     fd.set("kind", current.kind);
     fd.set("title", u.title ?? current.title);
     fd.set("reference", u.reference ?? current.reference ?? "");
-    fd.set("counterparty", u.counterparty ?? current.counterparty ?? "");
+    // LES PARTIES DE L'ANNUAIRE SONT REPORTÉES, jamais omises (§118.148) : `updateLegalDocument`
+    // REMPLACE la liste, et n'envoyer que le nom en texte — que l'action ne lit plus — faisait
+    // refuser toute modification d'une pièce déjà rattachée à l'annuaire. Une partie CHANGÉE
+    // passe par son nom, résolu contre l'annuaire par l'action, et remplace les précédentes.
+    if (u.counterparty) fd.set("counterpartyName", u.counterparty);
+    else for (const pid of current.counterpartyIds) fd.append("counterpartyIds", pid);
     fd.set("amount", u.amount != null ? String(u.amount) : current.amount != null ? String(toNumber(current.amount)) : "");
     fd.set("startDate", u.startDate ?? (current.startDate ? current.startDate.toISOString().slice(0, 10) : ""));
     fd.set("endDate", u.endDate ?? (current.endDate ? current.endDate.toISOString().slice(0, 10) : ""));

@@ -37,6 +37,7 @@ import { getAdProCreateData } from "@/lib/queries/ad-pro";
 import { canAttachToAdPro, attachHint } from "@/lib/ad-pro/attachments";
 import type { DocItem } from "@/components/documents/document-list";
 import { AdProDiscussionCard } from "@/components/ad-pro/discussion-card";
+import { siegeAuCentreAdPro } from "@/lib/ad-pro/centre";
 
 export const dynamic = "force-dynamic";
 
@@ -212,6 +213,7 @@ export default async function EventDetailPage({ params }: { params: { id: string
             promoOptions={promoOptions}
             budgetOptions={budgetOptions}
             canIssueOrder={userCan(user, "FINANCES", "UPDATE") || userCan(user, "FINANCES", "VALIDATE")}
+            canViserBC={siegeAuCentreAdPro(user)}
           />
         </CardContent>
       </Card>

@@ -194,7 +194,7 @@ export default async function PaymentRequestsPage() {
             bon de versement, un sponsoring que j'ai lancés sont des paiements que j'attends : les
             retrouver ici est la condition pour pouvoir relancer ou signaler une urgence. */}
         {mine.length === 0
-          ? <EmptyState icon="Banknote" title="Aucune demande" description="Utilisez « Demander un paiement » : le dossier part directement aux Finances." />
+          ? <EmptyState icon="Banknote" title="Aucune demande" description="Utilisez « Demander un paiement » : le dossier passe par le centre de paiement, qui l'autorise, puis les Finances le règlent." />
           : <Rows rows={mine} />}
       </section>
     </div>

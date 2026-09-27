@@ -529,25 +529,25 @@ export const PROMO_OPS_IMPL: Record<string, OpImpl> = {
   },
 
   submit_promo_bc: promoStep({
-    title: (pm) => `Transmettre le BC aux Finances — ${pm.reference}`,
-    warning: "Geste de l'ASSISTANTE, après le choix de l'agence — les Finances valident ensuite le BC.",
+    title: (pm) => `Transmettre le BC au centre de validation Ad & Pro — ${pm.reference}`,
+    warning: "Geste de l'ASSISTANTE, après le choix de l'agence — le centre de validation Ad & Pro valide ensuite le BC.",
     action: submitBcForFinance,
     extraFields: (input) => [["N° du BC", opStr(input, "note") || null]],
     extraArgs: (input) => ({ bcReference: opStr(input, "note") || null }),
-    success: (pm) => `Bon de commande de ${pm.reference} transmis aux Finances.`,
+    success: (pm) => `Bon de commande de ${pm.reference} transmis au centre de validation Ad & Pro.`,
   }),
 
   remind_promo_finance: promoStep({
-    title: (pm) => `Relancer les Finances — ${pm.reference}`,
+    title: (pm) => `Relancer le centre de validation Ad & Pro — ${pm.reference}`,
     action: remindFinance,
-    success: (pm) => `Finances relancées sur ${pm.reference}.`,
+    success: (pm) => `Centre de validation Ad & Pro relancé sur ${pm.reference}.`,
   }),
 
   validate_promo_bc: promoStep({
-    title: (pm) => `Valider le BC (Finances) — ${pm.reference}`,
-    warning: "Geste des FINANCES — le BC validé repart à l'assistante pour envoi à l'agence.",
+    title: (pm) => `Valider le BC (centre Ad & Pro) — ${pm.reference}`,
+    warning: "Geste du CENTRE DE VALIDATION AD & PRO (Direction Générale, Super Admin) — le BC validé repart à l'assistante pour envoi à l'agence.",
     action: validateBc,
-    success: (pm) => `Bon de commande de ${pm.reference} validé (Finances).`,
+    success: (pm) => `Bon de commande de ${pm.reference} validé (centre Ad & Pro).`,
   }),
 
   confirm_promo_bc_sent: promoStep({
@@ -559,14 +559,16 @@ export const PROMO_OPS_IMPL: Record<string, OpImpl> = {
 
   initiate_promo_payment: promoStep({
     title: (pm) => `Initier le bordereau de paiement — ${pm.reference}`,
-    warning: "Geste de l'INFORMATION MÉDICALE — crée l'ordre de dépense (montant retenu du dossier) vers les Finances.",
+    warning: "Geste de l'INFORMATION MÉDICALE — crée l'ordre de dépense (montant du bordereau, sinon montant retenu du dossier) : il part au CENTRE DE PAIEMENT, qui l'autorise avant que les Finances ne le règlent.",
     action: initiatePayment,
-    success: (pm) => `Bordereau de paiement initié sur ${pm.reference}.`,
+    extraFields: (input) => [["Montant du bordereau", opStr(input, "amount") ? dzd(Number(opStr(input, "amount"))) : "montant retenu du dossier"]],
+    extraArgs: (input) => ({ amount: opStr(input, "amount") || null }),
+    success: (pm) => `Bordereau de paiement initié sur ${pm.reference} — l'ordre de dépense attend le centre de paiement.`,
   }),
 
   confirm_promo_payment: promoStep({
     title: (pm) => `Paiement effectué (Finances) — ${pm.reference}`,
-    warning: "Geste des FINANCES — l'information médicale dépose ensuite la quittance.",
+    warning: "Geste des FINANCES, CONSTATÉ sur l'ordre de dépense : refusé tant que l'ordre du bordereau n'est pas réglé (le refus dit où il attend). L'information médicale dépose ensuite la quittance.",
     action: confirmPayment,
     extraFields: (input) => [["Commentaire", opStr(input, "note") || null]],
     extraArgs: (input) => ({ comment: opStr(input, "note") || null }),
@@ -623,18 +625,30 @@ export const PROMO_OPS_IMPL: Record<string, OpImpl> = {
       const pm = await resolvePromo(opStr(input, "reference") || opStr(input, "label"));
       if ("error" in pm) return pm;
       return {
-        title: `RÉGLER et clôturer — ${pm.reference}`,
+        title: `Règlement final — ${pm.reference}`,
         fields: fieldsOf([
           ["Dossier", `${pm.reference} — ${pm.title}`],
           ["Montant du règlement", opStr(input, "amount") ? dzd(Number(opStr(input, "amount"))) : "montant retenu du dossier (défaut)"],
         ]),
-        warnings: ["Geste des FINANCES — crée l'ordre de dépense du règlement final et CLÔT le dossier (la demande administrative liée passe « terminée »)."],
+        warnings: [
+          "Geste des FINANCES, en DEUX temps (§118.148) : sans ordre de règlement, il le CRÉE — l'ordre part au centre de paiement et le dossier reste « facturé » ; une fois cet ordre RÉGLÉ, il CLÔT le dossier (la demande administrative liée passe « terminée »). Clore avant le paiement est refusé.",
+        ],
         args: { id: pm.id, amount: opStr(input, "amount") || null },
-        successMessage: `Dossier ${pm.reference} réglé et clôturé.`,
+        successMessage: `Règlement final de ${pm.reference} traité.`,
         revalidate: ["/promo-material", "/finances/paiements-a-faire"],
       };
     },
-    execute: (args) => runFd(settle, args, "Le règlement a été refusé.", { revalidate: ["/promo-material"] }),
+    // LA PHRASE DE L'ACTION, pas celle de la carte : le même geste crée l'ordre OU clôt le dossier,
+    // et seule l'action sait lequel des deux a eu lieu — annoncer « réglé et clôturé » sur un ordre
+    // qui vient de partir au centre serait le faux succès que ce geste existe pour éviter.
+    async execute(args) {
+      const f = new FormData();
+      f.set("id", args.id ?? "");
+      if (args.amount) f.set("amount", args.amount);
+      const r = await settle(f);
+      if (!r.ok) return { ok: false, error: r.error ?? "Le règlement a été refusé." };
+      return { ok: true, message: r.message ?? "Dossier réglé et clôturé.", revalidate: ["/promo-material", "/finances/paiements-a-faire"] };
+    },
   },
 
   comment_promo: {

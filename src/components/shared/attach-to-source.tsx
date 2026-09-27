@@ -85,7 +85,17 @@ export function AttachToSourceButtons({ entityType, entityId, reference, kinds }
       { type: "text", name: "title", label: "Titre exact du document", required: true, full: true },
       { type: "text", name: "reference", label: "Référence / n°", defaultValue: ref },
       { type: "select", name: "kind", label: "Nature", options: optionsFromMap(LEGAL_DOC_KIND), defaultValue: "PURCHASE_ORDER" },
-      { type: "text", name: "counterparty", label: "Partie (fournisseur, prestataire)", full: true },
+      // LA PARTIE SE CHOISIT DANS L'ANNUAIRE (§118.148). Ce formulaire l'écrivait en texte libre
+      // (`counterparty`), que `createLegalDocument` ne lit plus depuis que la partie vient de
+      // l'annuaire : TOUT engagement créé d'ici était refusé — « choisissez au moins une partie » —
+      // alors que la personne venait de la taper. Et c'est ce bouton-là que le refus du chantier
+      // « bon de commande » nomme comme remède : un remède qui échoue est une impasse (§118.63).
+      {
+        type: "parties", name: "counterpartyIds", label: "Partie (fournisseur, prestataire)",
+        required: true, full: true, arity: "many",
+        placeholder: "Chercher la partie dans l\u2019annuaire — un métier, un nom, un numéro…",
+        hint: "Choisissez-la dans l\u2019annuaire de l\u2019entreprise. Absente ? « Créer un contact » l\u2019y ajoute sans quitter cette saisie.",
+      },
       { type: "date", name: "startDate", label: "Date de début (facultative)" },
       { type: "date", name: "endDate", label: "Date de fin — vide = sans échéance" },
       { type: "number", name: "amount", label: "Montant (DZD)" },
@@ -123,8 +133,11 @@ export function AttachToSourceButtons({ entityType, entityId, reference, kinds }
         defaultValue: "OUTGOING",
       },
       { type: "text", name: "reference", label: "N° de chrono", defaultValue: ref },
-      { type: "text", name: "sender", label: "Expéditeur" },
-      { type: "text", name: "recipient", label: "Destinataire" },
+      // EXPÉDITEUR ET DESTINATAIRE DEPUIS L'ANNUAIRE — `createMailEntry` ne lit plus `sender` ni
+      // `recipient` en texte : ces deux champs étaient saisis puis JETÉS en silence, et le pli
+      // entrait au registre sans correspondant. Un seul chacun, comme sur l'écran des courriers.
+      { type: "parties", name: "senderContactId", label: "Expéditeur", arity: 1, placeholder: "Chercher l\u2019expéditeur dans l\u2019annuaire…" },
+      { type: "parties", name: "recipientContactId", label: "Destinataire", arity: 1, placeholder: "Chercher le destinataire dans l\u2019annuaire…" },
       { type: "datetime-local", name: "sentAt", label: "Départ (date et heure)" },
       { type: "date", name: "receivedAt", label: "Arrivée" },
       { type: "text", name: "carrier", label: "Porteur (poste, coursier, e-mail…)" },

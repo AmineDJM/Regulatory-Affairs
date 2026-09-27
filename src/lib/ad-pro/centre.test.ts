@@ -132,7 +132,26 @@ describe("ce que le centre affiche en tête", () => {
 
   it("aucune ligne : des zéros, jamais un NaN dans une jauge", () => {
     const c = compteursCentre([], new Date("2026-09-21T00:00:00.000Z"));
-    expect(c).toEqual({ enAttente: 0, dormantes: 0, montantTotal: 0, sansMontant: 0 });
+    expect(c).toEqual({ enAttente: 0, dormantes: 0, montantTotal: 0, sansMontant: 0, bonsDeCommande: 0 });
+  });
+
+  /**
+   * LES BONS DE COMMANDE SE COMPTENT À PART (§118.148). Le BC d'un poste est une part d'une
+   * enveloppe DÉJÀ accordée à la demande : l'ajouter au total des demandes compterait deux fois le
+   * même argent, et un BC sans montant gonflerait « sans montant » d'une ligne qui n'en est pas
+   * une. Le cas qui ferait tomber cette assertion est exactement celui-là : quelqu'un retire le
+   * filtre `estFormeBC` et le total passe de 2 000 000 à 2 600 000 sur la même file.
+   */
+  it("un BC attend au centre, compte dans « en attente », jamais dans le total des demandes", () => {
+    const c = compteursCentre([
+      ligne({ entityId: "demande", montant: 2_000_000 }),
+      ligne({ entityId: "bc-poste", forme: "BC_POSTE", montant: 600_000 }),
+      ligne({ entityId: "bc-legal", forme: "BC_LEGAL", montant: null }),
+    ], new Date("2026-09-21T00:00:00.000Z"));
+    expect(c.enAttente).toBe(3);
+    expect(c.bonsDeCommande).toBe(2);
+    expect(c.montantTotal).toBe(2_000_000);
+    expect(c.sansMontant).toBe(0);
   });
 });
 

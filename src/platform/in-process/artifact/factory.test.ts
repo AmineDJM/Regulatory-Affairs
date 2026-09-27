@@ -75,6 +75,11 @@ suite("la fabrique de documents — émission, registre, Drive, reprise, révisi
 
   afterAll(async () => {
     await prisma.mission.deleteMany({ where: { ownerId: user.id } }).catch(() => {});
+    // Les PORTES des BC émis (§118.148) : leur demandeur est le compte du banc — sans ce retrait,
+    // la clé étrangère `requesterId` empêche de le supprimer, et le run suivant tombe sur son adresse.
+    const pieces = (await prisma.legalDocument.findMany({ where: { companyId }, select: { id: true } }).catch(() => [])).map((d) => d.id);
+    await prisma.validationRequest.deleteMany({ where: { entityType: "LEGAL_DOCUMENT", entityId: { in: pieces } } }).catch(() => {});
+    await prisma.adProGateVisa.deleteMany({ where: { entityType: "LEGAL_DOCUMENT", entityId: { in: pieces } } }).catch(() => {});
     await prisma.legalDocument.deleteMany({ where: { companyId } }).catch(() => {});
     await prisma.officeLetterhead.deleteMany({ where: { companyId } }).catch(() => {});
     await prisma.fileVersion.deleteMany({ where: { node: { ownerId: user.id } } }).catch(() => {});
@@ -234,6 +239,19 @@ suite("la fabrique de documents — émission, registre, Drive, reprise, révisi
     const refs = r.map((x) => (x.ok ? x.reference : `ECHEC ${JSON.stringify(x)}`));
     expect(new Set(refs).size).toBe(10);
     expect(refs.sort()).toEqual(Array.from({ length: 10 }, (_, i) => `BC-${ANNEE}-${String(i + 1).padStart(4, "0")}`));
+
+    // CHAQUE BC PORTE SA PORTE (§118.148). Dix numéros justes ne suffisent pas : sans la file
+    // d'attente des références `VAL-…` (`enSerie`), les demandes de validation des derniers BC
+    // entraient en collision au-delà de six essais, et ces BC sortaient SANS porte — émis, numérotés,
+    // et hors de tout centre, en silence. C'est exactement le cas qui fait tomber ces trois lignes.
+    const emis = r.flatMap((x) => (x.ok ? [x] : []));
+    expect(emis.map((x) => x.porteBC?.etat ?? `SANS PORTE — ${x.reserveBonDeCommande ?? "(aucune phrase)"}`))
+      .toEqual(Array.from({ length: 10 }, () => "EN_ATTENTE"));
+    const portes = await prisma.validationRequest.groupBy({
+      by: ["entityId"], _count: { _all: true },
+      where: { entityType: "LEGAL_DOCUMENT", entityId: { in: emis.map((x) => x.legalDocumentId) }, objectType: "BON_DE_COMMANDE", status: "PENDING" },
+    });
+    expect(portes.map((p) => p._count._all)).toEqual(Array.from({ length: 10 }, () => 1));
   }, 120_000);
 
   it("MISSION MASSIVE : 25 bons de commande par le moteur — 25 pièces, 25 numéros consécutifs, contrôle qualité 25/25, aucun doublon à la reprise", async () => {
@@ -293,11 +311,44 @@ suite("la fabrique de documents — émission, registre, Drive, reprise, révisi
     expect(qa.faits).toBe(qa.attendus);
     expect(etat!.steps.filter((s) => s.key.startsWith("bc#") && s.status === "DONE")).toHaveLength(25);
 
-    // 3. LA REPRISE : rejouer un appel à l'identique ne crée rien.
+    // 2 bis. LES 25 PORTES : un BC émis par une mission passe au centre comme un autre (§118.148),
+    // et vingt-cinq émissions d'un coup ne doivent en laisser AUCUNE dehors.
+    const idsBc = (await prisma.legalDocument.findMany({ where: { companyId, kind: "PURCHASE_ORDER", counterparty: { startsWith: "Fournisseur mission" } }, select: { id: true } })).map((d) => d.id);
+    const portesEnAttente = () => prisma.validationRequest.count({ where: { entityType: "LEGAL_DOCUMENT", entityId: { in: idsBc }, objectType: "BON_DE_COMMANDE", status: "PENDING" } });
+    expect(await portesEnAttente()).toBe(25);
+
+    // 3. LA REPRISE : rejouer un appel à l'identique ne crée rien — ni pièce, ni seconde porte.
     const rejoue = await emettreDocumentDrive(user, emissions[7].input as never);
     expect(rejoue.ok && rejoue.dejaEmis).toBe(true);
+    expect(rejoue.ok ? rejoue.porteBC?.etat : null).toBe("EN_ATTENTE");
     expect(await prisma.legalDocument.count({ where: { companyId, kind: "PURCHASE_ORDER" } })).toBe(avantBc + 25);
+    expect(await portesEnAttente()).toBe(25);
   }, 240_000);
+
+  /**
+   * LA RÉÉMISSION RATTRAPE LA PORTE QUI MANQUE (§118.148). Le décor EST l'absence : un BC émis dont
+   * l'aiguillage a échoué (on retire sa demande de validation, ce que l'échec aurait laissé). À la
+   * reprise d'une mission, l'émission identique rend « pièce déjà émise » — et, avant, s'arrêtait
+   * là : le BC restait hors de tout centre pour toujours, la reprise ayant l'air d'avoir réussi.
+   */
+  it("réémettre un BC SANS porte la lui pose — et une seule, même réémis deux fois", async () => {
+    const d = demande({ type: "BON_DE_COMMANDE", echeance: null, tiers: { nom: "Fournisseur à rattraper" }, lignes: [{ designation: "Étuis", quantite: 3, prixUnitaire: 4_000 }], sansPdf: true });
+    const premier = await emettreDocumentDrive(user, d);
+    expect(premier.ok, JSON.stringify(premier)).toBe(true);
+    if (!premier.ok) return;
+    const where = { entityType: "LEGAL_DOCUMENT" as const, entityId: premier.legalDocumentId, objectType: "BON_DE_COMMANDE" };
+    await prisma.validationRequest.deleteMany({ where });
+    expect(await prisma.validationRequest.count({ where })).toBe(0);
+
+    const second = await emettreDocumentDrive(user, d);
+    expect(second.ok && second.dejaEmis).toBe(true);
+    expect(second.ok ? second.porteBC?.etat : null).toBe("EN_ATTENTE");
+    expect(await prisma.validationRequest.count({ where: { ...where, status: "PENDING" } })).toBe(1);
+
+    const troisieme = await emettreDocumentDrive(user, d);
+    expect(troisieme.ok && troisieme.dejaEmis).toBe(true);
+    expect(await prisma.validationRequest.count({ where: { ...where, status: "PENDING" } })).toBe(1);
+  }, 90_000);
 
   it("le dossier à trois formats arrive dans le Drive, aux couleurs et sur le papier de la société", async () => {
     const r = await construireDossierDrive(user, {

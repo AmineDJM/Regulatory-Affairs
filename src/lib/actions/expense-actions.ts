@@ -61,8 +61,8 @@ export async function settleExpenseOrder(formData: FormData): Promise<ActionResu
   // LE VERROU DU CENTRE DE PAIEMENT — la dernière porte avant que l'argent sorte.
   //
   // C'est ici, et pas dans un écran, que la règle tient : quelle que soit la façon dont on arrive
-  // à cet ordre, un décaissement au-dessus du seuil ne s'exécute pas sans l'autorisation du PDG
-  // ou du Super Admin. Le message dit POURQUOI — « non autorisé » seul ferait ouvrir un ticket.
+  // à cet ordre, AUCUN décaissement ne s'exécute sans l'autorisation du centre de paiement — quel
+  // que soit son montant. Le message dit POURQUOI — « non autorisé » seul ferait ouvrir un ticket.
   if (!canDisburse(order.centralStatus as CentralStatus)) {
     return { ok: false, error: blockedReason(order.centralStatus as CentralStatus) ?? "Ce paiement n'est pas autorisé." };
   }

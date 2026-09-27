@@ -35,6 +35,7 @@ import { DocumentUpload } from "@/components/documents/document-upload";
 import { onlyofficeConfigured } from "@/lib/onlyoffice";
 import { AD_PRO_DOC_CATEGORIES } from "@/lib/ad-pro/doc-categories";
 import { canAttachToAdPro } from "@/lib/ad-pro/attachments";
+import { siegeAuCentreAdPro } from "@/lib/ad-pro/centre";
 
 export default async function CongressNatDetailPage({ params }: { params: { id: string } }) {
   const user = await requireModule("CONGRESS_NATIONAL");
@@ -152,6 +153,13 @@ export default async function CongressNatDetailPage({ params }: { params: { id: 
             canAllocate={canAllocate}
             promoOptions={promoOptions}
             plan={{ hasBooth: congress?.hasBooth, hasSymposium: congress?.hasSymposium }}
+            // LE BUDGET ET LES FINANCES MANQUAIENT ICI, et seulement ici : `budgetOptions` était
+            // CHARGÉ plus haut et jamais passé, donc la demande de BC d'un poste restait bloquée
+            // (« choisissez d'abord le budget ») sur la seule fiche où l'on ne pouvait pas le
+            // choisir — et le bouton « Émettre (Finances) » n'y apparaissait jamais (§118.148).
+            budgetOptions={budgetOptions}
+            canIssueOrder={userCan(user, "FINANCES", "UPDATE") || userCan(user, "FINANCES", "VALIDATE")}
+            canViserBC={siegeAuCentreAdPro(user)}
           />
         }
       />

@@ -19,6 +19,11 @@ export interface PromoFlags {
   isFinance: boolean;
   isMedicalInfo: boolean;
   isDirection: boolean;
+  /**
+   * Siège au CENTRE DE VALIDATION AD & PRO — c'est lui, et non plus les Finances, qui valide le BC
+   * (décision de la Direction, 09/2026, §118.148). Calculé au serveur par `siegeAuCentreAdPro`.
+   */
+  isCentreAdPro: boolean;
 }
 interface Props {
   id: string;
@@ -30,6 +35,13 @@ interface Props {
   authorityRef: string | null;
   amount: number | null;
   reminderCount: number;
+  /**
+   * L'ORDRE DE DÉPENSE du bordereau et celui du règlement final, avec où il en est (§118.148).
+   * « Paiement effectué » et la clôture se CONSTATENT sur l'ordre : sans lui à l'écran, le bouton
+   * serait offert puis refusé, et la personne découvrirait la règle après le clic.
+   */
+  paymentOrder?: { reference: string; etat: string; regle: boolean } | null;
+  settlementOrder?: { reference: string; etat: string; regle: boolean } | null;
 }
 
 const Err = ({ msg }: { msg: string | null }) =>
@@ -78,17 +90,17 @@ export function PromoActionPanel(props: Props) {
   }
   if (status === "AGENCY_CHOSEN" && flags.isAssistant) {
     panels.push(
-      <StepForm key="bc" title="Bon de commande" hint="Renseignez le n° et joignez le(s) bon(s) de commande (un ou plusieurs), puis transmettez aux finances pour validation."
-        onSubmit={(form) => { form.set("id", id); run(() => submitBcForFinance(form)); }} saving={saving} err={err} submit="Transmettre aux finances">
+      <StepForm key="bc" title="Bon de commande" hint="Renseignez le n° et joignez le(s) bon(s) de commande (un ou plusieurs), puis transmettez-le au centre de validation Ad & Pro, qui le valide avant tout envoi à l'agence."
+        onSubmit={(form) => { form.set("id", id); run(() => submitBcForFinance(form)); }} saving={saving} err={err} submit="Transmettre au centre de validation">
         <Field name="bcReference" label="N° de bon de commande" />
         <FileField name="bcFiles" label="Bon(s) de commande (fichiers)" />
       </StepForm>,
     );
   }
   if (status === "BC_FINANCE_REVIEW") {
-    if (flags.isFinance) {
+    if (flags.isCentreAdPro) {
       panels.push(
-        <Step key="vbc" title="Validation du bon de commande" hint="Vérifiez le BC déposé, puis validez (signez).">
+        <Step key="vbc" title="Validation du bon de commande (centre Ad & Pro)" hint="Vérifiez le BC déposé, puis validez. Tout bon de commande né d'Ad & Pro passe par le centre de validation Ad & Pro.">
           <Err msg={err} />
           <Button onClick={() => run(() => validateBc(fd()))} disabled={saving}>{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <BadgeCheck className="h-4 w-4" />} Valider le bon de commande</Button>
         </Step>,
@@ -96,9 +108,9 @@ export function PromoActionPanel(props: Props) {
     }
     if (flags.isAssistant || flags.isMarketing) {
       panels.push(
-        <Step key="relance" title="Relancer les finances" hint={`Bon de commande en attente de validation.${props.reminderCount > 0 ? ` ${props.reminderCount} relance(s) envoyée(s).` : ""}`}>
+        <Step key="relance" title="Relancer le centre de validation" hint={`Bon de commande en attente de validation au centre de validation Ad & Pro.${props.reminderCount > 0 ? ` ${props.reminderCount} relance(s) envoyée(s).` : ""}`}>
           <Err msg={err} />
-          <Button variant="outline" onClick={() => run(() => remindFinance(fd()))} disabled={saving}>{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Bell className="h-4 w-4" />} Relancer les finances</Button>
+          <Button variant="outline" onClick={() => run(() => remindFinance(fd()))} disabled={saving}>{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Bell className="h-4 w-4" />} Relancer le centre</Button>
         </Step>,
       );
     }
@@ -113,17 +125,35 @@ export function PromoActionPanel(props: Props) {
   }
   if (status === "BC_SENT" && flags.isMedicalInfo) {
     panels.push(
-      <Step key="pay" title="Bordereau de paiement" hint="Initiez le bordereau de paiement → transmis aux finances.">
-        <Err msg={err} />
-        <Button onClick={() => run(() => initiatePayment(fd()))} disabled={saving}>{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />} Initier le bordereau de paiement</Button>
-      </Step>,
+      <StepForm key="pay" title="Bordereau de paiement" hint="Initiez le bordereau de paiement : un ordre de dépense part au centre de paiement, qui l'autorise avant que les Finances ne le règlent."
+        onSubmit={(form) => run(() => initiatePayment(fd({ amount: String(form.get("amount") || "") })))} saving={saving} err={err} submit="Initier le bordereau de paiement">
+        <Field name="amount" label="Montant du bordereau (DZD)" type="number" required defaultValue={props.amount != null ? String(props.amount) : ""} />
+      </StepForm>,
     );
   }
   if (status === "PAYMENT_INITIATED" && flags.isFinance) {
+    const o = props.paymentOrder ?? null;
     panels.push(
-      <StepForm key="cpay" title="Paiement" hint="Confirmez le paiement effectué (joignez la quittance ci-dessus)."
-        onSubmit={(form) => run(() => confirmPayment(fd({ comment: String(form.get("comment") || "") })))} saving={saving} err={err} submit="Paiement effectué">
-        <Area name="comment" label="Commentaire / quittance" />
+      o?.regle ? (
+        <StepForm key="cpay" title="Paiement" hint={`L'ordre ${o.reference} est réglé. Confirmez le paiement (joignez la quittance ci-dessus).`}
+          onSubmit={(form) => run(() => confirmPayment(fd({ comment: String(form.get("comment") || "") })))} saving={saving} err={err} submit="Paiement effectué">
+          <Area name="comment" label="Commentaire / quittance" />
+        </StepForm>
+      ) : (
+        <Step key="cpay" title="Paiement" hint={o
+          ? `L'ordre ${o.reference} est ${o.etat}. Le paiement se constate ici une fois l'ordre réglé depuis Finances › Paiements à faire.`
+          : "Aucun ordre de dépense n'accompagne ce bordereau : l'information médicale doit le réinitier avec son montant."}>
+          <Err msg={err} />
+        </Step>
+      ),
+    );
+  }
+  if (status === "PAYMENT_INITIATED" && flags.isMedicalInfo && !props.paymentOrder) {
+    // RATTRAPAGE — un bordereau initié sans montant n'avait créé aucun ordre.
+    panels.push(
+      <StepForm key="repay" title="Bordereau sans ordre de dépense" hint="Ce bordereau a été initié sans montant : aucun ordre n'est parti au centre de paiement. Réinitiez-le avec son montant."
+        onSubmit={(form) => run(() => initiatePayment(fd({ amount: String(form.get("amount") || "") })))} saving={saving} err={err} submit="Réinitier le bordereau">
+        <Field name="amount" label="Montant du bordereau (DZD)" type="number" required defaultValue={props.amount != null ? String(props.amount) : ""} />
       </StepForm>,
     );
   }
@@ -177,11 +207,23 @@ export function PromoActionPanel(props: Props) {
     );
   }
   if (status === "INVOICED" && flags.isFinance) {
+    const o = props.settlementOrder ?? null;
     panels.push(
-      <StepForm key="settle" title="Règlement" hint="Réglez la facture de l'agence (ordre de dépense)."
-        onSubmit={(form) => run(() => settle(fd({ amount: String(form.get("amount") || "") })))} saving={saving} err={err} submit="Régler la facture">
-        <Field name="amount" label="Montant à régler (DZD)" type="number" defaultValue={props.amount != null ? String(props.amount) : ""} />
-      </StepForm>,
+      !o ? (
+        <StepForm key="settle" title="Règlement" hint="Envoyez la facture de l'agence au règlement : un ordre de dépense part au centre de paiement. Le dossier se clôturera une fois l'ordre réglé."
+          onSubmit={(form) => run(() => settle(fd({ amount: String(form.get("amount") || "") })))} saving={saving} err={err} submit="Envoyer au règlement">
+          <Field name="amount" label="Montant à régler (DZD)" type="number" required defaultValue={props.amount != null ? String(props.amount) : ""} />
+        </StepForm>
+      ) : o.regle ? (
+        <Step key="settle" title="Règlement" hint={`L'ordre ${o.reference} est réglé : le dossier peut être clôturé.`}>
+          <Err msg={err} />
+          <Button onClick={() => run(() => settle(fd()))} disabled={saving}>{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <BadgeCheck className="h-4 w-4" />} Clôturer le dossier (réglé)</Button>
+        </Step>
+      ) : (
+        <Step key="settle" title="Règlement" hint={`L'ordre ${o.reference} est ${o.etat}. Le dossier se clôturera une fois l'ordre réglé depuis Finances › Paiements à faire.`}>
+          <Err msg={err} />
+        </Step>
+      ),
     );
   }
 

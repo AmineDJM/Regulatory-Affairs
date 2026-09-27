@@ -14,6 +14,10 @@ import {
 } from "@/lib/promo-material/circuit";
 import { promoManagerOf } from "@/lib/queries/promo-material";
 import { fdStr, type ActionResult } from "@/lib/actions/types";
+import { hasGlobalView } from "@/lib/rbac";
+import { portesDesBC } from "@/lib/bons-de-commande/aiguillage";
+import { chantierBCClos } from "@/lib/bons-de-commande/regle";
+import { chantierPaiementClos, etatDeLOrdre, type PieceDeReglement } from "@/lib/payments/reglement";
 
 /**
  * LE CIRCUIT COURT DU MATÉRIEL PROMOTIONNEL.
@@ -29,6 +33,74 @@ import { fdStr, type ActionResult } from "@/lib/actions/types";
 
 const PATH = "/promo-material";
 const path = (id: string) => `${PATH}/${id}`;
+
+/**
+ * LES RÈGLEMENTS RATTACHÉS À UN DOSSIER — tout ce qui peut porter son paiement (§118.148).
+ *
+ * Trois chemins mènent à un ordre de dépense, et un dossier peut les avoir empruntés tous :
+ *   • l'ordre né du dossier lui-même (ancien parcours : bordereau, règlement final) ;
+ *   • la FACTURE enregistrée depuis le dossier — ou qui découle d'un de ses bons de commande —,
+ *     envoyée au règlement : son ordre ; ou, sans ordre, la date qu'elle porte si elle a été
+ *     ENREGISTRÉE comme déjà réglée (le chemin que le registre des paiements nomme, §PAYMENT_PATHS) ;
+ *   • le dossier de paiement ouvert sur le dossier.
+ * Un même ordre peut être atteint par deux chemins (le dossier compagnon d'un ordre) : on compte
+ * par ORDRE, jamais par chemin, sans quoi un paiement réglé compterait double et un paiement en
+ * attente pourrait se cacher derrière son jumeau réglé.
+ */
+async function reglementsDuDossierPromo(id: string): Promise<PieceDeReglement[]> {
+  const [ordresDirects, bcs, demandes] = await Promise.all([
+    prisma.expenseOrder.findMany({
+      where: { sourceType: "PROMO_MATERIAL", sourceId: id },
+      select: { id: true, reference: true, status: true, centralStatus: true },
+    }),
+    prisma.legalDocument.findMany({
+      where: { sourceType: "PROMO_MATERIAL", sourceId: id, kind: "PURCHASE_ORDER" },
+      select: { id: true },
+    }),
+    prisma.paymentRequest.findMany({
+      where: { entityType: "PROMO_MATERIAL", entityId: id, status: { notIn: ["CANCELLED", "REJECTED"] } },
+      select: { reference: true, expenseOrderId: true },
+    }),
+  ]);
+  const factures = await prisma.legalDocument.findMany({
+    where: {
+      kind: "INVOICE", status: { not: "CANCELLED" },
+      OR: [
+        { sourceType: "PROMO_MATERIAL", sourceId: id },
+        ...(bcs.length ? [{ chainFromId: { in: bcs.map((b) => b.id) } }] : []),
+      ],
+    },
+    select: { reference: true, title: true, expenseOrderId: true, paidDate: true },
+  });
+
+  const ordresIds = [
+    ...factures.map((f) => f.expenseOrderId), ...demandes.map((d) => d.expenseOrderId),
+  ].filter((x): x is string => Boolean(x));
+  const ordresLies = ordresIds.length
+    ? await prisma.expenseOrder.findMany({
+        where: { id: { in: ordresIds } },
+        select: { id: true, reference: true, status: true, centralStatus: true },
+      })
+    : [];
+
+  const parOrdre = new Map<string, PieceDeReglement>();
+  for (const o of [...ordresDirects, ...ordresLies]) {
+    parOrdre.set(o.id, { libelle: `ordre ${o.reference}`, etat: etatDeLOrdre(o) });
+  }
+  const sansOrdre: PieceDeReglement[] = [];
+  for (const f of factures) {
+    if (f.expenseOrderId) continue; // compté par son ordre
+    sansOrdre.push({
+      libelle: `facture ${f.reference?.trim() || `« ${f.title} »`}`,
+      etat: f.paidDate ? "REGLE" : "NON_ENVOYE",
+    });
+  }
+  for (const d of demandes) {
+    if (d.expenseOrderId) continue;
+    sansOrdre.push({ libelle: `demande de paiement ${d.reference}`, etat: "NON_ENVOYE" });
+  }
+  return [...parOrdre.values(), ...sansOrdre];
+}
 
 /** Les chantiers clos, lus depuis la colonne (liste séparée par des virgules). */
 function readTracks(raw: string | null): PromoTrack[] {
@@ -256,12 +328,38 @@ export async function completePromoTrack(formData: FormData): Promise<ActionResu
     select: { id: true, title: true, reference: true, circuitState: true, tracksDone: true, requesterId: true },
   });
   if (!item || !item.circuitState) return { ok: false, error: "Le circuit n'est pas lancé sur ce dossier." };
+  // QUI PILOTE LES CHANTIERS — la même règle que l'écran (`canDrive` de la fiche) : le demandeur,
+  // l'assistante de direction, la Direction. Cette action ne vérifiait QUE la session : n'importe
+  // quel compte pouvait clore le chantier « paiement » d'un dossier qui n'était pas le sien, et
+  // l'op d'Adam annonçait « revérifié par l'action » sur une vérification qui n'existait pas.
+  const pilote = item.requesterId === user.id || user.role === "DIRECTION_ASSISTANT" || hasGlobalView(user.role);
+  if (!pilote) return { ok: false, error: "Seuls le demandeur, l'assistante de direction et la Direction pilotent les chantiers de ce dossier." };
   if (!tracksOpen(item.circuitState as PromoState)) {
     return { ok: false, error: "Les chantiers ne s'ouvrent qu'une fois toutes les validations obtenues." };
   }
 
   const done = readTracks(item.tracksDone);
   if (done.includes(track as PromoTrack)) return { ok: true, message: "Ce chantier est déjà clos." };
+
+  // LE CHANTIER « BON DE COMMANDE » EXIGE UN BC VALIDÉ PAR SON CENTRE (§118.148). Il se refermait
+  // d'un clic, sans pièce, sans qu'aucun centre ait rien vu — la règle de la Direction dit que tout
+  // BC né d'Ad & Pro passe par le centre de validation Ad & Pro.
+  if (track === "PURCHASE_ORDER") {
+    const bcs = await prisma.legalDocument.findMany({
+      where: { sourceType: "PROMO_MATERIAL", sourceId: id, kind: "PURCHASE_ORDER", status: { not: "CANCELLED" } },
+      select: { id: true, reference: true },
+    });
+    const portes = await portesDesBC(bcs.map((b) => b.id));
+    const verdict = chantierBCClos(bcs.map((b) => ({ reference: b.reference, porte: portes.get(b.id) ?? null })));
+    if (!verdict.ok) return { ok: false, error: verdict.raison };
+  }
+  // LE CHANTIER « PAIEMENT » EXIGE UN PAIEMENT RÉGLÉ (§118.148). Il se refermait d'un clic, sans
+  // ordre de dépense : le dossier se disait payé alors qu'aucun centre de paiement n'avait rien vu
+  // — et la Direction a dit que TOUS les paiements y passent.
+  if (track === "PAYMENT") {
+    const verdict = chantierPaiementClos(await reglementsDuDossierPromo(id));
+    if (!verdict.ok) return { ok: false, error: verdict.raison };
+  }
   const nextDone = [...done, track as PromoTrack];
   const finished = allTracksDone(nextDone);
 

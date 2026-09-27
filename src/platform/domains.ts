@@ -150,6 +150,16 @@ const SOCLE = [
    * les tâches tireraient alors dans un bundle client.
    */
   "src/lib/notifications/",
+  /**
+   * `bons-de-commande/regle` — la RÈGLE des bons de commande (§118.148), et elle seule : quel
+   * centre (Ad & Pro ou validations), quel état, ce qui bloque la facture, ce que dit la phrase.
+   * Zéro import. QUATRE couches en ont besoin sans avoir le droit de se parler : les actions de
+   * Legal, la fabrique documentaire (le pont), le règlement des factures (domaine `finance`,
+   * `finances/settlement.ts`) et le centre Ad & Pro. L'AIGUILLAGE (`bons-de-commande/aiguillage`),
+   * qui lit la base et pose les portes, n'est PAS au socle : le chemin est EXACT, pour qu'un
+   * fichier serveur ajouté à côté ne se retrouve pas exempté sans décision (§118.128).
+   */
+  "src/lib/bons-de-commande/regle",
 ];
 
 /**

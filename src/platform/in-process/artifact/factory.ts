@@ -58,6 +58,8 @@ import { MIME_DOCX } from "@/lib/artifact/factory/word";
 import { MIME_XLSX } from "@/lib/artifact/adapters/xlsx/adapter";
 import { MIME_PPTX } from "@/lib/artifact/adapters/pptx/adapter";
 import { standardsDocumentaires } from "@/platform/in-process/teach/store";
+import { aiguillerBC } from "@/lib/bons-de-commande/aiguillage";
+import { reserveBC, reserveSansPorte, type PorteBC } from "@/lib/bons-de-commande/regle";
 
 /** Les causes d'échec que le runtime de missions sait classer (`capability-failure.ts`). */
 type Echec = "NOT_FOUND" | "MISSING_PERMISSION" | "MISSING_INPUT" | "CAPABILITY_FAILURE";
@@ -520,7 +522,29 @@ export interface DocumentEmis {
   avertissements: string[];
   /** Les règles Teach Adam qui ont réglé la pièce (préfixe, validité, TVA…), pour le dire. */
   reglesAppliquees: { id: string; cle: string; effet: string }[];
+  /**
+   * LA PORTE D'UN BON DE COMMANDE (§118.148) — `null` pour un devis ou une facture.
+   *
+   * « Émis » veut dire « composé, numéroté, inscrit » ; ce n'est PAS « validé ». Un BC que son
+   * centre n'a pas encore validé n'engage pas la société, et la phrase qui l'annonce doit le dire
+   * (`reserveBC`) — sinon il part chez le fournisseur parce qu'il en a l'air.
+   */
+  porteBC: PorteBC | null;
+  /**
+   * LA PHRASE qui accompagne un BC émis (§118.148), calculée ICI, une fois. Deux écrans
+   * l'affichent — l'action des Finances et l'outil d'Adam — et chacun la recalculait depuis
+   * `porteBC` : deux vérités sur la même réserve (§118.5), et toutes deux oubliaient le cas où
+   * PERSONNE ne siège au centre (la porte est `null`, la réserve aussi, et le BC partait sans un
+   * mot). La rendre d'ici permet aussi à l'outil d'Adam de ne plus importer la règle du socle :
+   * le cliquet de frontière a compté 430 pour 428 quand il le faisait (§118.114).
+   */
+  reserveBonDeCommande: string | null;
   ms: number;
+}
+
+/** La réserve d'un BC : aucune porte posée (et pourquoi), ou ce que dit sa porte. Rien pour un BC validé. */
+function reserveDuBC(a: { porte: PorteBC | null; sansSiege?: boolean; enEchec?: boolean }): string | null {
+  return reserveSansPorte(a) ?? reserveBC(a.porte);
 }
 
 function fabriqueDe(custom: Prisma.JsonValue | null): Fabrique | null {
@@ -648,12 +672,21 @@ export async function emettreDocumentDrive(user: CurrentUser, demande: DemandeDo
     const f = existant ? fabriqueDe(existant.custom) : null;
     if (existant && f) {
       if (f.etat === "EMIS" && f.docx && existant.driveNodeId) {
+        // RÉÉMETTRE UN BC, C'EST AUSSI LE RÉAIGUILLER — idempotent : une porte présente n'est pas
+        // reposée, une porte ABSENTE l'est. C'est ce qui rattrape, à la reprise d'une mission, le
+        // BC dont l'aiguillage avait échoué la première fois : sans cette ligne, la reprise
+        // rendait « pièce identique déjà émise » et le BC restait hors de tout centre (§118.148).
+        const aiguillage = type === "BON_DE_COMMANDE" ? await aiguillerBC(existant.id, { acteurId: user.id }) : null;
+        const porteExistante = aiguillage?.porte ?? null;
+        const reserveExistante = aiguillage ? reserveDuBC(aiguillage) : null;
         return {
           ok: true, dejaEmis: true, repris: false, legalDocumentId: existant.id, reference: f.numero, type, version: f.version,
           societe: { id: profil.societe.id, nom: profil.societe.nom }, tiers: base.tiers.nom,
           docx: { nodeId: f.docx.nodeId, nom: nomFichier(f.numero, base.tiers.nom, "docx"), version: f.docx.version },
           pdf: f.pdf ? { nodeId: f.pdf.nodeId, nom: nomFichier(f.numero, base.tiers.nom, "pdf"), pages: f.pdf.pages, methode: f.pdf.methode ?? "rendu" } : null,
-          totaux: f.totaux, surPapierEnTete: f.surPapierEnTete, avertissements: [`Une pièce identique existait déjà (${f.numero}) : elle est rendue, aucune nouvelle pièce n'a été émise.`], reglesAppliquees: profil.reglesAppliquees, ms: Date.now() - debut,
+          totaux: f.totaux, surPapierEnTete: f.surPapierEnTete,
+          avertissements: [`Une pièce identique existait déjà (${f.numero}) : elle est rendue, aucune nouvelle pièce n'a été émise.`, ...(reserveExistante ? [reserveExistante] : [])],
+          reglesAppliquees: profil.reglesAppliquees, porteBC: porteExistante, reserveBonDeCommande: reserveExistante, ms: Date.now() - debut,
         };
       }
       return terminerEmission(user, existant.id, { ...f, spec: { ...base, numero: f.numero } }, habillage, demande, profil, { repris: true, debut, avertissements: essai.verification.avertissements });
@@ -727,12 +760,23 @@ async function terminerEmission(
     actorId: user.id, action: "CREATE", module: "Legal", entityType: "LEGAL_DOCUMENT", entityId: legalDocumentId,
     summary: `${LIBELLE_TYPE[spec.type]} ${fabrique.numero} émis${spec.type === "FACTURE" ? "e" : ""} par Adam pour ${spec.tiers.nom} — ${formaterDzd(construit.totaux.totalTtc)}${ctx.repris ? " (émission interrompue terminée)" : ""}`,
   });
+  // TOUT BON DE COMMANDE PASSE PAR UN CENTRE DE VALIDATION (§118.148). La porte est posée APRÈS
+  // la composition : le centre doit pouvoir OUVRIR la pièce qu'il valide, et elle n'existe
+  // qu'une fois le fichier écrit. La réserve entre dans les avertissements, que la phrase reprend.
+  let porteBC: PorteBC | null = null;
+  let reserveBonDeCommande: string | null = null;
+  if (spec.type === "BON_DE_COMMANDE") {
+    const a = await aiguillerBC(legalDocumentId, { acteurId: user.id });
+    porteBC = a.porte;
+    reserveBonDeCommande = reserveDuBC(a);
+    if (reserveBonDeCommande) avertissements.push(reserveBonDeCommande);
+  }
   return {
     ok: true, dejaEmis: false, repris: ctx.repris, legalDocumentId, reference: fabrique.numero, type: spec.type, version: finale.version,
     societe: { id: profil.societe.id, nom: profil.societe.nom }, tiers: spec.tiers.nom,
     docx: { nodeId: docx.nodeId, nom: nomDocx, version: docx.version },
     pdf: pdf ? { nodeId: pdf.nodeId, nom: nomFichier(fabrique.numero, spec.tiers.nom, "pdf"), pages: pdf.pages, methode: pdf.methode ?? "rendu" } : null,
-    totaux: finale.totaux, surPapierEnTete: construit.surPapierEnTete, avertissements, reglesAppliquees: profil.reglesAppliquees, ms: Date.now() - ctx.debut,
+    totaux: finale.totaux, surPapierEnTete: construit.surPapierEnTete, avertissements, reglesAppliquees: profil.reglesAppliquees, porteBC, reserveBonDeCommande, ms: Date.now() - ctx.debut,
   };
 }
 
@@ -868,12 +912,23 @@ export async function reviserDocumentDrive(
     },
   });
   await recordAudit({ actorId: user.id, action: "UPDATE", module: "Legal", entityType: "LEGAL_DOCUMENT", entityId: doc.id, summary: `${LIBELLE_TYPE[f.type]} ${f.numero} révisé par Adam (${resume}) — ${formaterDzd(construit.totaux.totalTtc)}` });
+  // UN BC RÉVISÉ SE RÉAIGUILLE (§118.148) : montant RELEVÉ après validation, il retourne au
+  // centre ; corrigé à la demande du centre, il y est renvoyé. Le montant d'avant est celui de la
+  // version précédente — c'est lui que le centre avait sous les yeux.
+  let porteBC: PorteBC | null = null;
+  let reserveBonDeCommande: string | null = null;
+  if (f.type === "BON_DE_COMMANDE") {
+    const a = await aiguillerBC(doc.id, { acteurId: user.id, modifie: true, montantAvant: f.totaux?.totalTtc ?? null });
+    porteBC = a.porte;
+    reserveBonDeCommande = reserveDuBC(a);
+    if (reserveBonDeCommande) avertissements.push(reserveBonDeCommande);
+  }
   return {
     ok: true, dejaEmis: false, repris: false, legalDocumentId: doc.id, reference: f.numero, type: f.type, version,
     societe: { id: p.profil.societe.id, nom: p.profil.societe.nom }, tiers: spec.tiers.nom,
     docx: { nodeId: doc.driveNodeId, nom: nomFichier(f.numero, spec.tiers.nom, "docx"), version: ecrit.version },
     pdf: pdf ? { nodeId: pdf.nodeId, nom: nomFichier(f.numero, spec.tiers.nom, "pdf"), pages: pdf.pages, methode: pdf.methode ?? "rendu" } : null,
-    totaux: finale.totaux, surPapierEnTete: construit.surPapierEnTete, avertissements, reglesAppliquees: p.profil.reglesAppliquees, ms: Date.now() - debut,
+    totaux: finale.totaux, surPapierEnTete: construit.surPapierEnTete, avertissements, reglesAppliquees: p.profil.reglesAppliquees, porteBC, reserveBonDeCommande, ms: Date.now() - debut,
   };
 }
 

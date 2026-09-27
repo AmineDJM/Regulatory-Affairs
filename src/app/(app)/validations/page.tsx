@@ -112,8 +112,8 @@ export default async function ValidationsPage({ searchParams }: { searchParams: 
           fields={requestFields}
         />
         {/* LA DEMANDE DE PAIEMENT SE FAIT D'ICI — c'est sa seule porte d'entrée, le module à
-            part a disparu. Une fois le bon à payer donné, le dossier passe OBLIGATOIREMENT par
-            le centre de paiement (dès 50 000 DZD), puis atterrit dans les Règlements à effectuer. */}
+            part a disparu. Le dossier passe OBLIGATOIREMENT par le centre de paiement — tout
+            paiement, quel que soit son montant —, puis atterrit dans les Règlements à effectuer. */}
         <NewPaymentButton
           companies={mesEntites.map((c) => ({ id: c.id, name: c.shortName || c.name }))}
           defaultCompanyId={monEntite}

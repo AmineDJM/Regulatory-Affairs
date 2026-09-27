@@ -119,6 +119,11 @@ suite("fabrique-actions — le bouton « Composer une pièce » des Finances", (
 
   afterAll(async () => {
     const ids = [finance?.id, employe?.id, assistante?.id].filter(Boolean) as string[];
+    // Les PORTES des BC émis (§118.148) : leur demandeur est un compte du banc, et la clé
+    // étrangère `requesterId` empêcherait de le supprimer.
+    const pieces = (await prisma.legalDocument.findMany({ where: { companyId }, select: { id: true } }).catch(() => [])).map((d) => d.id);
+    await prisma.validationRequest.deleteMany({ where: { entityType: "LEGAL_DOCUMENT", entityId: { in: pieces } } }).catch(() => {});
+    await prisma.adProGateVisa.deleteMany({ where: { entityType: "LEGAL_DOCUMENT", entityId: { in: pieces } } }).catch(() => {});
     await prisma.legalDocument.deleteMany({ where: { companyId } }).catch(() => {});
     await prisma.fileVersion.deleteMany({ where: { node: { ownerId: { in: ids } } } }).catch(() => {});
     await prisma.driveNode.deleteMany({ where: { ownerId: { in: ids }, type: "FILE" } }).catch(() => {});

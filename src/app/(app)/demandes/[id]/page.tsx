@@ -27,6 +27,7 @@ import { SuperAdminDeleteButton } from "@/components/shared/super-admin-delete";
 import { ReminderButton } from "@/components/reminders/reminder-button";
 import { PromoActionPanel } from "../../promo-material/[id]/promo-panels";
 import { BackLink } from "@/components/shared/back-link";
+import { siegeAuCentreAdPro } from "@/lib/ad-pro/centre";
 
 const REQ_DOC_CATEGORIES = ["QUOTE", "INVOICE", "REQUEST_LETTER", "CONVENTION", "SUPPORTING_DOC", "PHOTO", "OTHER"];
 
@@ -233,7 +234,7 @@ export default async function RequestDetailPage({ params }: { params: { id: stri
                     <PromoActionPanel
                       id={promo.id}
                       status={promo.status}
-                      flags={{ isMarketing: false, isAssistant: true, isFinance: false, isMedicalInfo: false, isDirection: hasGlobalView(user.role) }}
+                      flags={{ isMarketing: false, isAssistant: true, isFinance: false, isMedicalInfo: false, isDirection: hasGlobalView(user.role), isCentreAdPro: siegeAuCentreAdPro(user) }}
                       chosenAgency={promo.chosenAgency}
                       bcReference={promo.bcReference}
                       visaReference={promo.visaReference}

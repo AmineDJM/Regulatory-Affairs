@@ -106,7 +106,7 @@ export function CentreBoard({ orders, canDecide }: { orders: CentreOrder[]; canD
       <EmptyState
         icon="ShieldCheck"
         title="Aucun paiement en attente d'autorisation"
-        description="Les paiements au-dessus du seuil arrivent ici avant d'atteindre les Finances. Au-dessous, ils suivent le circuit habituel."
+        description="Tout paiement de la société arrive ici avant d'atteindre les Finances, quel que soit son montant."
       />
     );
   }

@@ -831,9 +831,9 @@ export const ADPRO5_OPS_IMPL: Record<string, OpImpl> = {
       return {
         title: `Demander l'émission du bon de commande — « ${found.label} »`,
         fields: fieldsOf([["Poste", `${found.label} — ${found.parentLabel}`], ["Note", opStr(input, "note") || null]]),
-        warnings: ["Première marche du circuit : demande → VISA Direction → émission par les Finances. Exige un poste accordé, un montant affecté et une imputation budgétaire."],
+        warnings: ["Première marche du circuit : demande → VALIDATION au centre de validation Ad & Pro → émission par les Finances. Exige un poste accordé, un montant affecté et une imputation budgétaire."],
         args: { id: found.id, note: opStr(input, "note") || null },
-        successMessage: `Émission du bon de commande demandée pour « ${found.label} » — au visa de la Direction.`,
+        successMessage: `Émission du bon de commande demandée pour « ${found.label} » — au centre de validation Ad & Pro.`,
         revalidate: ["/sponsoring"],
       };
     },
@@ -846,11 +846,13 @@ export const ADPRO5_OPS_IMPL: Record<string, OpImpl> = {
       if ("error" in found) return found;
       const refuse = decisionOf(opStr(input, "decision")) === "REJECT";
       return {
-        title: `${refuse ? "REFUSER" : "VISER"} le bon de commande — « ${found.label} »`,
+        title: `${refuse ? "REFUSER" : "VALIDER"} le bon de commande — « ${found.label} »`,
         fields: fieldsOf([["Poste", `${found.label} — ${found.parentLabel}`], ["Note", opStr(input, "note") || null]]),
-        warnings: refuse ? [] : ["Visa de la DIRECTION — les Finances émettent ensuite l'ordre de dépense."],
+        warnings: refuse
+          ? ["Un refus se MOTIVE : sans motif, l'action le refuse — le demandeur doit savoir quoi corriger."]
+          : ["Validation du CENTRE DE VALIDATION AD & PRO — les Finances émettent ensuite l'ordre de dépense, qui passera par le centre de paiement."],
         args: { id: found.id, decision: refuse ? "REFUSE" : "APPROVE", note: opStr(input, "note") || null },
-        successMessage: refuse ? `Émission refusée pour « ${found.label} ».` : `Bon de commande visé — transmis aux Finances.`,
+        successMessage: refuse ? `Bon de commande refusé pour « ${found.label} ».` : `Bon de commande validé — transmis aux Finances.`,
         revalidate: ["/sponsoring"],
       };
     },
@@ -864,7 +866,7 @@ export const ADPRO5_OPS_IMPL: Record<string, OpImpl> = {
       return {
         title: `ÉMETTRE l'ordre de dépense du poste « ${found.label} »`,
         fields: [{ label: "Poste", value: `${found.label} — ${found.parentLabel}` }],
-        warnings: ["Geste des FINANCES, après visa Direction — un ordre PAR poste (les bénéficiaires diffèrent réellement)."],
+        warnings: ["Geste des FINANCES — un BC demandé doit avoir été validé au centre Ad & Pro ; un ordre PAR poste (les bénéficiaires diffèrent réellement), qui passera par le centre de paiement."],
         args: { id: found.id },
         successMessage: `Ordre de dépense émis pour « ${found.label} ».`,
         revalidate: ["/sponsoring", "/finances/paiements-a-faire"],

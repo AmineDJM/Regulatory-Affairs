@@ -574,6 +574,15 @@ export async function decidePaymentRequest(formData: FormData): Promise<ActionRe
     const req = await prisma.paymentRequest.findUnique({ where: { id }, include: { pieces: { select: { status: true, kind: true } } } });
     if (!req) return { ok: false, error: "Demande introuvable." };
 
+    // UN DOSSIER COMPAGNON NE SE TRANCHE PAS ICI (§118.148). Il accompagne un ordre de dépense déjà
+    // parti au centre de paiement : son bon à payer, son refus, sa mise en attente se décident au
+    // centre puis aux Finances, sur l'ORDRE. L'écran cachait ces boutons ; l'action, elle, les
+    // acceptait — et la garde qui le disait (`canDecideFromDossier`) était écrite, testée, et
+    // n'avait AUCUN appelant (§118.14). Un « refusé » posé ici laissait l'ordre payable sous un
+    // dossier qui annonçait le contraire : deux vérités sur le même paiement (§118.5, §118.71).
+    const depuisDossier = canDecideFromDossier(req.origin);
+    if (!depuisDossier.ok) return { ok: false, error: depuisDossier.reason ?? "Ce paiement se décide au centre de paiement." };
+
     const next = nextPaymentStatus(req.status, move);
     if (!next) return { ok: false, error: "Ce geste n'a pas de sens à ce stade du dossier." };
 

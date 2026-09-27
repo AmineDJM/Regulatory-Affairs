@@ -18,6 +18,8 @@ import { legalWriteAllowed } from "@/lib/legal/invoices";
 import { syncInvoiceSettlement } from "@/lib/finance/settle-invoice";
 import { invoiceDirection, canSendToSettlement, canMarkPaidDirectly } from "@/lib/finances/settlement";
 import type { CurrentUser } from "@/lib/session";
+import { aiguillerBC, retirerPortesEnAttente, porteDuBC, type ResultatAiguillage } from "@/lib/bons-de-commande/aiguillage";
+import { reserveBC, reserveSansPorte, LIBELLE_CENTRE_BC, LIBELLE_ETAT_BC, CHEMIN_CENTRE_BC } from "@/lib/bons-de-commande/regle";
 
 /**
  * LES ENGAGEMENTS DE LA SOCIÉTÉ — écriture.
@@ -83,6 +85,44 @@ function readFields(formData: FormData) {
   };
 }
 
+/**
+ * CE QUE LA PHRASE DE L'ÉCRAN DIT D'UN BC QU'ON VIENT D'ÉCRIRE (§118.32).
+ *
+ * « Document créé » sur un bon de commande que personne n'a encore validé le ferait partir chez
+ * le fournisseur : il s'ouvre, il porte un numéro. La phrase dit où il attend, et se tait quand
+ * rien n'a bougé. Un aiguillage qui n'a trouvé AUCUN siège se dit aussi — une pièce sans porte ne
+ * doit pas avoir l'air validée.
+ */
+function phraseAiguillage(r: ResultatAiguillage): string | null {
+  const sansPorte = reserveSansPorte(r);
+  if (sansPorte) return sansPorte;
+  if (!r.geste || r.geste === "ACTUALISEE") return null;
+  if (r.geste === "RETIREE") return "Sa validation en attente a été retirée du centre.";
+  const centre = r.porte ? LIBELLE_CENTRE_BC[r.porte.centre] : "centre de validation";
+  const verbe = r.geste === "TRANSFEREE" ? "transféré au" : r.geste === "ROUVERTE" ? "renvoyé au" : "adressé au";
+  return `Bon de commande ${verbe} ${centre}. ${reserveBC(r.porte) ?? ""}`.trim();
+}
+
+/**
+ * UNE PARTIE DONNÉE PAR SON NOM — pour l'appelant qui n'a que cela (Adam), résolue contre
+ * l'annuaire exactement comme `attachDriveNodeToLegal` le fait déjà (§118.148).
+ *
+ * La création et la modification exigent une partie de l'ANNUAIRE ; le chemin conversationnel,
+ * lui, envoyait un nom en texte (`counterparty`) que ces actions ne lisent plus : toute création
+ * d'Adam était refusée APRÈS le clic de confirmation, sur une partie que la personne venait de
+ * nommer. Le nom n'est jamais écrit tel quel : introuvable ou ambigu, le refus le dit. Un modèle
+ * propose un nom ; il n'ouvre pas une porte au texte libre.
+ */
+async function avecPartieNommee(
+  userId: string, formData: FormData, ids: string[],
+): Promise<{ ok: true; ids: string[] } | { ok: false; error: string }> {
+  const nom = fdStr(formData, "counterpartyName");
+  if (!nom) return { ok: true, ids };
+  const trouvee = await findPartyByName(userId, nom);
+  if (!trouvee.ok) return { ok: false, error: trouvee.error };
+  return { ok: true, ids: [...new Set([...ids, trouvee.id])] };
+}
+
 /** Le maillon amont existe-t-il ? Un identifiant de formulaire ne se croit pas sur parole. */
 async function checkChainFrom(chainFromId: string | null, selfId?: string): Promise<string | null> {
   if (!chainFromId) return null;
@@ -110,7 +150,9 @@ export async function createLegalDocument(
   // qu'on ferme ici. Le sélecteur permet de créer le contact sans quitter la saisie — l'exigence
   // n'enferme donc personne.
   const { counterpartyIds, ...reste } = f;
-  const parties = await resolveParties(user.id, counterpartyIds);
+  const demandees = await avecPartieNommee(user.id, formData, counterpartyIds);
+  if (!demandees.ok) return { ok: false, error: demandees.error };
+  const parties = await resolveParties(user.id, demandees.ids);
   if (!parties.ok) return { ok: false, error: parties.error };
   if (parties.ids.length === 0) {
     return { ok: false, error: "Choisissez au moins une partie dans l'annuaire de l'entreprise (« Créer un contact » l'y ajoute si elle en est absente)." };
@@ -168,18 +210,20 @@ export async function createLegalDocument(
   // de la plateforme passe par les Finances, y compris celui qu'on enregistre après coup.
   await syncInvoiceSettlement(created.id, user.id);
 
+  // TOUT BON DE COMMANDE PASSE PAR UN CENTRE DE VALIDATION — Ad & Pro si la fiche d'où il naît
+  // en vient, le centre de validations sinon (§118.148). La porte naît avec la pièce.
+  const aiguillage = f.kind === "PURCHASE_ORDER" ? phraseAiguillage(await aiguillerBC(created.id, { acteurId: user.id })) : null;
+
   // Les pièces jointes du formulaire, rattachées au document qui vient de naître. Un échec de
   // fichier ne défait PAS la création : l'engagement est enregistré, on dit ce qui n'a pas suivi.
   const files = await attachFormFiles(user.id, "LEGAL_DOCUMENT", created.id, formData);
 
   revalidatePath("/legal");
-  return {
-    ok: true,
-    id: created.id,
-    message: files.failed.length
-      ? `Document créé. ${files.attached} pièce(s) jointe(s) ; échec sur : ${files.failed.map((x) => x.name).join(", ")}.`
-      : undefined,
-  };
+  const fichiers = files.failed.length
+    ? `Document créé. ${files.attached} pièce(s) jointe(s) ; échec sur : ${files.failed.map((x) => x.name).join(", ")}.`
+    : null;
+  const message = [fichiers ?? (aiguillage ? "Document créé." : null), aiguillage].filter(Boolean).join(" ");
+  return { ok: true, id: created.id, message: message || undefined };
 }
 
 export async function updateLegalDocument(formData: FormData): Promise<ActionResult> {
@@ -191,7 +235,7 @@ export async function updateLegalDocument(formData: FormData): Promise<ActionRes
   // LA NATURE ACTUELLE COMPTE AUTANT QUE LA DEMANDÉE : sans elle, la comptabilité pourrait
   // rebaptiser un bail en « facture » pour s'ouvrir le droit de le modifier.
   const avant = await prisma.legalDocument.findUnique({
-    where: { id }, select: { kind: true, expenseOrderId: true, counterparty: true, counterpartyIds: true },
+    where: { id }, select: { kind: true, expenseOrderId: true, counterparty: true, counterpartyIds: true, amount: true },
   });
   if (!avant) return { ok: false, error: "Document introuvable." };
   if (!peutEcrire(user, "UPDATE", avant.kind) || !peutEcrire(user, "UPDATE", f.kind)) {
@@ -214,7 +258,9 @@ export async function updateLegalDocument(formData: FormData): Promise<ActionRes
   // prestataire de 2023. Une pièce qui portait déjà un nom en texte garde donc le droit d'être
   // enregistrée telle quelle — et le formulaire, lui, invite à la rattacher.
   const { counterpartyIds, ...reste } = f;
-  const parties = await resolveParties(user.id, counterpartyIds);
+  const demandees = await avecPartieNommee(user.id, formData, counterpartyIds);
+  if (!demandees.ok) return { ok: false, error: demandees.error };
+  const parties = await resolveParties(user.id, demandees.ids);
   if (!parties.ok) return { ok: false, error: parties.error };
   const heritage = avant.counterpartyIds.length === 0 && Boolean(avant.counterparty?.trim());
   if (parties.ids.length === 0 && !heritage) {
@@ -243,9 +289,18 @@ export async function updateLegalDocument(formData: FormData): Promise<ActionRes
   // Une date de règlement posée ou retirée depuis le formulaire ORDINAIRE fait bouger l'argent
   // exactement comme depuis la ligne du tableau : c'est le même document, donc la même règle.
   await syncInvoiceSettlement(id, user.id);
+  // UN BC MODIFIÉ SE RÉAIGUILLE : devenu BC, il reçoit sa porte ; ayant cessé de l'être, il la
+  // perd ; montant RELEVÉ après validation ou correction demandée par le centre, il y retourne.
+  // `montantAvant` est lu AVANT l'écriture — c'est ce qui permet de savoir qu'il a été relevé.
+  const aiguillage = avant.kind === "PURCHASE_ORDER" || f.kind === "PURCHASE_ORDER"
+    ? phraseAiguillage(await aiguillerBC(id, {
+        acteurId: user.id, modifie: true,
+        montantAvant: avant.amount == null ? null : Number(avant.amount),
+      }))
+    : null;
   revalidatePath("/legal");
   revalidatePath(`/legal/${id}`);
-  return { ok: true };
+  return { ok: true, message: aiguillage ?? undefined };
 }
 
 /**
@@ -340,9 +395,13 @@ export async function attachDriveNodeToLegal(input: {
     entityType: "LEGAL_DOCUMENT", entityId: created.id,
     summary: `Document du Drive rattaché à Legal — « ${node.name} » (le fichier reste dans le Drive)`,
   });
+  // Déclarer un BC depuis le Drive est une porte d'entrée comme une autre : il passe au centre.
+  const aiguillage = parseKind(input.kind ?? null) === "PURCHASE_ORDER"
+    ? phraseAiguillage(await aiguillerBC(created.id, { acteurId: user.id }))
+    : null;
   revalidatePath("/legal");
   revalidatePath("/drive");
-  return { ok: true, id: created.id };
+  return { ok: true, id: created.id, message: aiguillage ?? undefined };
 }
 
 /**
@@ -408,9 +467,14 @@ export async function renewLegalDocument(formData: FormData): Promise<ActionResu
     entityType: "LEGAL_DOCUMENT", entityId: created.id,
     summary: `Renouvellement de « ${previous.title} »`,
   });
+  // UN BC RENOUVELÉ EST UN NOUVEL ENGAGEMENT : il repasse au centre. Hériter de la validation de
+  // l'ancien engagerait la société une seconde fois sur une décision prise pour la première.
+  const aiguillage = previous.kind === "PURCHASE_ORDER"
+    ? phraseAiguillage(await aiguillerBC(created.id, { acteurId: user.id }))
+    : null;
   revalidatePath("/legal");
   revalidatePath(`/legal/${id}`);
-  return { ok: true, id: created.id };
+  return { ok: true, id: created.id, message: aiguillage ?? undefined };
 }
 
 /** ANNULER avant terme — le document reste, avec son motif ; il ne rappelle plus. */
@@ -420,7 +484,7 @@ export async function cancelLegalDocument(formData: FormData): Promise<ActionRes
   const id = fdStr(formData, "id");
   if (!id) return { ok: false, error: "Document introuvable." };
 
-  const doc = await prisma.legalDocument.findUnique({ where: { id }, select: { title: true, status: true } });
+  const doc = await prisma.legalDocument.findUnique({ where: { id }, select: { title: true, status: true, kind: true } });
   if (!doc) return { ok: false, error: "Document introuvable." };
   if (!canCancel(doc.status)) return { ok: false, error: "Ce document ne peut plus être annulé." };
 
@@ -439,6 +503,8 @@ export async function cancelLegalDocument(formData: FormData): Promise<ActionRes
     field: "status", oldValue: doc.status, newValue: "CANCELLED",
     summary: `Annulation de « ${doc.title} »`,
   });
+  // Un BC annulé n'a plus rien à faire valider : sa porte en attente quitte le centre.
+  if (doc.kind === "PURCHASE_ORDER") await aiguillerBC(id, { acteurId: user.id });
   revalidatePath("/legal");
   revalidatePath(`/legal/${id}`);
   return { ok: true };
@@ -453,6 +519,9 @@ export async function deleteLegalDocument(formData: FormData): Promise<ActionRes
   if (!doc) return { ok: false, error: "Document introuvable." };
   if (!peutEcrire(user, "DELETE", doc.kind)) return { ok: false, error: "Non autorisé." };
 
+  // AVANT la suppression : une validation qui attend au centre sur une pièce qui n'existe plus
+  // serait un arbitrage à rendre sur rien, et le clic échouerait après coup.
+  if (doc.kind === "PURCHASE_ORDER") await retirerPortesEnAttente(id, user.id);
   await prisma.legalDocument.delete({ where: { id } });
   await recordAudit({
     actorId: user.id, action: "DELETE", module: "Legal",
@@ -524,10 +593,14 @@ export async function setLegalReaders(formData: FormData): Promise<ActionResult>
  * ENVOYER UNE FACTURE AU RÈGLEMENT — le dernier maillon de la chaîne d'achat.
  *
  * La facture de Legal devient un ordre de dépense par la porte commune (`createExpenseOrder`),
- * qui applique la règle du CENTRE DE PAIEMENT : dès 50 000 DZD, autorisation du PDG ou du Super
- * Admin avant que les Finances ne voient l'ordre. La fiche garde le lien (`expenseOrderId`) —
+ * qui applique la règle du CENTRE DE PAIEMENT : TOUT paiement y est autorisé avant que les
+ * Finances ne l'exécutent, quel que soit son montant. La fiche garde le lien (`expenseOrderId`) —
  * c'est lui qui permet d'afficher l'état du règlement au bout de la chaîne, et il empêche
  * d'envoyer deux fois la même facture au paiement.
+ *
+ * Et la facture qui DÉCOULE d'un bon de commande (`chainFromId`) attend que ce BC ait été validé
+ * par son centre (§118.148) : payer l'exécution d'une commande que la société n'a pas engagée est
+ * le contournement exact que la porte du BC existe pour fermer.
  */
 export async function sendLegalInvoiceToSettlement(formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
@@ -542,14 +615,20 @@ export async function sendLegalInvoiceToSettlement(formData: FormData): Promise<
     select: {
       id: true, title: true, reference: true, kind: true, amount: true, counterparty: true,
       endDate: true, expenseOrderId: true, paidDate: true,
+      chainFrom: { select: { id: true, kind: true, reference: true } },
     },
   });
   if (!doc) return { ok: false, error: "Document introuvable." };
   const amount = doc.amount ? Number(doc.amount) : 0;
+  // LE BC AMONT, s'il y en a un : sa porte est lue par le même lecteur que la fiche et le centre.
+  const bcAmont = doc.chainFrom?.kind === "PURCHASE_ORDER"
+    ? { porte: await porteDuBC(doc.chainFrom.id), reference: doc.chainFrom.reference }
+    : null;
   // LE MÊME DINAR NE SORT PAS DEUX FOIS : une facture déjà soldée en direct n'a plus rien à
   // envoyer au centre de paiement. La règle est un module pur, partagé avec l'écriture directe.
   const envoi = canSendToSettlement({
     kind: doc.kind, amount: amount || null, paidDate: doc.paidDate, expenseOrderId: doc.expenseOrderId,
+    bc: bcAmont,
   });
   if (!envoi.ok) return { ok: false, error: envoi.error };
 
@@ -571,4 +650,49 @@ export async function sendLegalInvoiceToSettlement(formData: FormData): Promise<
   });
   revalidatePath(`/legal/${id}`);
   return { ok: true, message: "Facture envoyée au règlement — elle suit désormais le circuit du centre de paiement." };
+}
+
+/**
+ * ADRESSER UN BON DE COMMANDE À SON CENTRE — le rattrapage d'une pièce SANS porte (§118.148).
+ *
+ * Tout BC passe par un centre de validation : celui d'Ad & Pro s'il vient d'Ad & Pro, le centre
+ * de validations sinon. Les écrivains du registre posent la porte d'eux-mêmes ; ce geste existe
+ * pour les deux cas où elle manque — un BC enregistré AVANT la règle, et un aiguillage qui a
+ * échoué (la pièce a été écrite, sa porte non). Sans lui, une pièce sans porte resterait
+ * invisible à tout centre, et le chantier « bon de commande » d'un dossier ne pourrait jamais
+ * se clore (`chantierBCClos` le refuse en NOMMANT ce geste — un refus qui renvoie vers une
+ * action absente serait une impasse déguisée en explication, §118.63).
+ *
+ * Il ne re-juge rien : un BC qui a déjà sa porte, validée ou en attente, n'est pas adressé une
+ * seconde fois — `aiguillerBC` est idempotent, et la phrase le DIT au lieu d'annoncer un envoi
+ * qui n'a pas eu lieu.
+ */
+export async function adresserBCAuCentre(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  const id = fdStr(formData, "id");
+  if (!id) return { ok: false, error: "Bon de commande introuvable." };
+
+  const doc = await prisma.legalDocument.findUnique({ where: { id }, select: { kind: true, status: true } });
+  if (!doc) return { ok: false, error: "Bon de commande introuvable." };
+  if (!peutEcrire(user, "UPDATE", doc.kind)) return { ok: false, error: "Non autorisé." };
+  if (doc.kind !== "PURCHASE_ORDER") {
+    return { ok: false, error: "Seul un bon de commande passe par un centre de validation." };
+  }
+  if (doc.status === "CANCELLED") {
+    return { ok: false, error: "Ce bon de commande est annulé : il n'a plus rien à faire valider." };
+  }
+
+  const r = await aiguillerBC(id, { acteurId: user.id });
+  if (r.sansSiege) return { ok: false, error: phraseAiguillage(r) ?? "Aucun siège au centre de validations." };
+  if (!r.porte) {
+    return { ok: false, error: "Le bon de commande n'a pas pu être adressé au centre. Réessayez ; si l'échec persiste, signalez-le à un administrateur." };
+  }
+  revalidatePath(`/legal/${id}`);
+  revalidatePath(CHEMIN_CENTRE_BC[r.porte.centre]);
+  return {
+    ok: true,
+    id,
+    message: phraseAiguillage(r)
+      ?? `Ce bon de commande est déjà au ${LIBELLE_CENTRE_BC[r.porte.centre]} — ${LIBELLE_ETAT_BC[r.porte.etat].toLowerCase()}. Rien n'a été renvoyé.`,
+  };
 }

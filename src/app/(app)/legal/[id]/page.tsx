@@ -34,6 +34,11 @@ import { MarketContext } from "./market-context";
 import { LegalChainCard } from "./chain-card";
 import { EntityLinks } from "@/components/shared/entity-links";
 import { linksOf, linkedViews } from "@/lib/links/store";
+import { porteDuBC, origineDuBC, TYPES_AD_PRO } from "@/lib/bons-de-commande/aiguillage";
+import { centreDeLOrigine, blocageParLeBC } from "@/lib/bons-de-commande/regle";
+import { siegeAuCentreAdPro } from "@/lib/ad-pro/centre";
+import { sitsOnValidationCentre } from "@/lib/validations/centre";
+import { BonDeCommandeGate } from "./bc-gate";
 
 export const dynamic = "force-dynamic";
 
@@ -207,6 +212,26 @@ export default async function LegalDocumentPage({ params }: { params: { id: stri
     effectiveAt: doc.effectiveAt,
   };
 
+  // LA PORTE DU BON DE COMMANDE (§118.148) — lue par le MÊME lecteur que le centre et que le
+  // refus d'envoi au règlement : trois lectures de « ce BC est-il validé ? » divergeraient.
+  const estBC = doc.kind === "PURCHASE_ORDER";
+  const [porte, origine] = estBC
+    ? await Promise.all([porteDuBC(doc.id), origineDuBC(doc)])
+    : [null, null];
+  const centreAttendu = origine ? centreDeLOrigine(origine.chemin.map((m) => m.type), TYPES_AD_PRO) : "VALIDATION";
+  const centreDeLaPorte = porte?.centre ?? centreAttendu;
+  const siegeAuCentre = centreDeLaPorte === "AD_PRO" ? siegeAuCentreAdPro(user) : sitsOnValidationCentre(user);
+
+  // UNE FACTURE QUI DÉCOULE D'UN BC : pourquoi elle ne peut pas encore partir, dit AVANT le clic.
+  // La phrase vient de `blocageParLeBC`, la même que le refus de l'action — elles ne peuvent pas
+  // se contredire.
+  const bcAmont = doc.kind === "INVOICE" && doc.chainFromId
+    ? await prisma.legalDocument.findUnique({ where: { id: doc.chainFromId }, select: { id: true, kind: true, reference: true } })
+    : null;
+  const settleBlocked = bcAmont?.kind === "PURCHASE_ORDER"
+    ? blocageParLeBC(await porteDuBC(bcAmont.id), bcAmont.reference)
+    : null;
+
   // L'ANNUAIRE — avec les parties DÉJÀ retenues, même retirées de l'annuaire depuis : une partie
   // à un contrat signé ne disparaît pas du contrat parce qu'on ne travaille plus avec elle.
   const partyOptions = await listPartyOptions(user.id, { includeIds: doc.counterpartyIds });
@@ -339,6 +364,16 @@ export default async function LegalDocumentPage({ params }: { params: { id: stri
             </CardContent>
           </Card>
 
+          {/* LA VALIDATION DU BC — quel centre, où il en est, et le geste qui rattrape un BC sans
+              porte. Elle vient juste après l'engagement : c'est la première question qu'on pose
+              sur un bon de commande avant de l'envoyer au fournisseur. */}
+          {estBC && doc.status !== "CANCELLED" && (
+            <BonDeCommandeGate
+              documentId={doc.id} porte={porte} centreAttendu={centreAttendu}
+              canAddress={canEdit} siegeAuCentre={siegeAuCentre}
+            />
+          )}
+
           {/* QUI PEUT L'OUVRIR — dit sur la fiche, avec les noms, ET MODIFIABLE ICI. Une
               restriction invisible est une restriction dont on doute, et qu'on contourne « au cas
               où » en envoyant le fichier par mail — ce qu'elle sert précisément à éviter. Une
@@ -358,7 +393,7 @@ export default async function LegalDocumentPage({ params }: { params: { id: stri
 
           {/* LA CHAÎNE D'ACHAT : devis → BC → facture → règlement, avec les validateurs et les
               délais de chaque maillon. Elle ne s'affiche que si la pièce en fait partie. */}
-          <LegalChainCard links={chain.links} settlement={chain.settlement} canSettle={canEdit} />
+          <LegalChainCard links={chain.links} settlement={chain.settlement} canSettle={canEdit} settleBlocked={settleBlocked} />
 
           {/* LE FIL DE L'AFFAIRE : le marché dont ce contrat est né, les bons qui l'exécutent,
               l'assurance qui le couvre, les plis échangés à son sujet. Une facture, elle, se relie

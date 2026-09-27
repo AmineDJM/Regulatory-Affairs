@@ -35,6 +35,7 @@ import { AdProItemsPanel } from "@/components/ad-pro/items-panel";
 import { loadAdProItems, adProBudgetOptions } from "@/lib/queries/ad-pro-items";
 import { promoMaterialOptions } from "@/lib/actions/ad-pro-item-actions";
 import { toNumber } from "@/lib/utils";
+import { siegeAuCentreAdPro } from "@/lib/ad-pro/centre";
 
 export default async function CongressIntlDetailPage({ params }: { params: { id: string } }) {
   const user = await requireModule("CONGRESS_INTERNATIONAL");
@@ -151,6 +152,7 @@ export default async function CongressIntlDetailPage({ params }: { params: { id:
             promoOptions={promoOptions}
             budgetOptions={budgetOptions}
             canIssueOrder={userCan(user, "FINANCES", "UPDATE") || userCan(user, "FINANCES", "VALIDATE")}
+            canViserBC={siegeAuCentreAdPro(user)}
           />
         </CardContent>
       </Card>

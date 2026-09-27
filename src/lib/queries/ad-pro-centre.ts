@@ -4,6 +4,7 @@ import { toNumber } from "@/lib/utils";
 import { SLUG_DG } from "@/lib/workflow/parcours";
 import { AD_PRO_KINDS, AD_PRO_ENTITY_TYPE, type AdProKind } from "@/lib/ad-pro/unified";
 import { FORME_PORTE, type LigneCentre } from "@/lib/ad-pro/centre";
+import { ITEM_KIND_LABELS } from "@/lib/ad-pro-items";
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
@@ -16,7 +17,11 @@ import { FORME_PORTE, type LigneCentre } from "@/lib/ad-pro/centre";
  *
  *   • `ETAPE_CIRCUIT` → `WorkflowInstance.currentSlug = 'dg'` (les quatre circuits configurables) ;
  *   • `ETAPE_PROMO`   → `PromoMaterial.circuitState = 'REVIEW_DG'` ;
- *   • `VISA_CENTRE`   → `AdProGateVisa.status = 'PENDING'` (consulting, autres demandes).
+ *   • `VISA_CENTRE`   → `AdProGateVisa.status = 'PENDING'` (consulting, autres demandes) ;
+ *   • les BONS DE COMMANDE (§118.148), quel que soit leur montant : la demande de BC d'un poste
+ *     (`AdProItem.orderStage = 'REQUESTED'`), la pièce BC du registre Legal née d'Ad & Pro
+ *     (`AdProGateVisa` sur `LEGAL_DOCUMENT`), et le BC d'un dossier de matériel promotionnel de
+ *     l'ancien parcours (`status = 'BC_FINANCE_REVIEW'`).
  *
  * ── POURQUOI AUCUNE CLAUSE DE PORTÉE, et c'est une décision ─────────────────────────────────
  *
@@ -47,8 +52,16 @@ const intitule = (ref: string | null, nom: string | null, secours: string): stri
   return ref ?? (n || secours);
 };
 
+/** Le parent d'un poste, lu sur ses colonnes — exactement une est renseignée (`trainingId` dort). */
+const PARENT_DU_POSTE = [
+  ["sponsoringId", "SPONSORING"],
+  ["congressNationalId", "CONGRESS_NATIONAL"],
+  ["congressInternationalId", "CONGRESS_INTERNATIONAL"],
+  ["eventId", "EVENT"],
+] as const;
+
 export async function demandesAuCentreAdPro(): Promise<LigneCentre[]> {
-  const [instances, promos, visas] = await Promise.all([
+  const [instances, promos, visas, postes, promosBC] = await Promise.all([
     prisma.workflowInstance.findMany({
       where: { currentSlug: SLUG_DG, status: "IN_PROGRESS" },
       select: { entityType: true, entityId: true, amount: true, createdAt: true, updatedAt: true },
@@ -63,8 +76,26 @@ export async function demandesAuCentreAdPro(): Promise<LigneCentre[]> {
     }).catch(() => []),
     prisma.adProGateVisa.findMany({
       where: { status: "PENDING" },
-      select: { entityType: true, entityId: true, amount: true, threshold: true, createdAt: true },
+      select: { entityType: true, entityId: true, amount: true, threshold: true, createdAt: true, note: true },
       orderBy: { createdAt: "asc" },
+      take: 300,
+    }).catch(() => []),
+    // LES BONS DE COMMANDE (§118.148) — la demande de BC d'un POSTE, visée ici.
+    prisma.adProItem.findMany({
+      where: { orderStage: "REQUESTED" },
+      select: {
+        id: true, kind: true, label: true, supplier: true, amountGranted: true, orderNote: true,
+        orderRequestedAt: true, orderRequestedById: true, updatedAt: true,
+        sponsoringId: true, congressNationalId: true, congressInternationalId: true, eventId: true,
+      },
+      orderBy: { updatedAt: "asc" },
+      take: 300,
+    }).catch(() => []),
+    // Le BC d'un dossier de matériel promotionnel de l'ANCIEN parcours, qui attendait les Finances.
+    prisma.promoMaterial.findMany({
+      where: { status: "BC_FINANCE_REVIEW", circuitState: null },
+      select: { id: true, reference: true, title: true, chosenAmount: true, amount: true, bcReference: true, chosenAgency: true, updatedAt: true, requesterId: true },
+      orderBy: { updatedAt: "asc" },
       take: 300,
     }).catch(() => []),
   ]);
@@ -104,6 +135,43 @@ export async function demandesAuCentreAdPro(): Promise<LigneCentre[]> {
       select: { id: true, name: true, requesterId: true },
     }).catch(() => []),
   ]);
+  // Les opérations des POSTES dont le BC attend : leur référence et leur nom, par type, en lot.
+  const opsDesPostes = new Map<string, string[]>();
+  for (const p of postes) {
+    for (const [col, type] of PARENT_DU_POSTE) {
+      const id = p[col];
+      if (id) opsDesPostes.set(type, [...(opsDesPostes.get(type) ?? []), id]);
+    }
+  }
+  const [sponsPostes, intlPostes, natioPostes, evtsPostes] = await Promise.all([
+    opsDesPostes.get("SPONSORING")?.length
+      ? prisma.sponsoringRequest.findMany({ where: { id: { in: opsDesPostes.get("SPONSORING")! } }, select: { id: true, reference: true, institution: true } }).catch(() => [])
+      : [],
+    opsDesPostes.get("CONGRESS_INTERNATIONAL")?.length
+      ? prisma.congressInternational.findMany({ where: { id: { in: opsDesPostes.get("CONGRESS_INTERNATIONAL")! } }, select: { id: true, name: true } }).catch(() => [])
+      : [],
+    opsDesPostes.get("CONGRESS_NATIONAL")?.length
+      ? prisma.congressNational.findMany({ where: { id: { in: opsDesPostes.get("CONGRESS_NATIONAL")! } }, select: { id: true, name: true } }).catch(() => [])
+      : [],
+    opsDesPostes.get("EVENT")?.length
+      ? prisma.event.findMany({ where: { id: { in: opsDesPostes.get("EVENT")! } }, select: { id: true, name: true } }).catch(() => [])
+      : [],
+  ]);
+  const OPERATION = new Map<string, string>();
+  for (const r of sponsPostes) OPERATION.set(`SPONSORING:${r.id}`, intitule(r.reference, r.institution, "Sponsoring"));
+  for (const r of intlPostes) OPERATION.set(`CONGRESS_INTERNATIONAL:${r.id}`, r.name);
+  for (const r of natioPostes) OPERATION.set(`CONGRESS_NATIONAL:${r.id}`, r.name);
+  for (const r of evtsPostes) OPERATION.set(`EVENT:${r.id}`, r.name);
+
+  // Les BC du registre Legal nés d'Ad & Pro, dont le visa attend.
+  const idsBCLegal = visas.filter((v) => v.entityType === "LEGAL_DOCUMENT").map((v) => v.entityId);
+  const bcLegaux = idsBCLegal.length
+    ? await prisma.legalDocument.findMany({
+        where: { id: { in: idsBCLegal } },
+        select: { id: true, reference: true, title: true, counterparty: true, amount: true, createdById: true, sourceType: true, notes: true },
+      }).catch(() => [])
+    : [];
+
   // ── LES NOMS EN UN SEUL LOT ────────────────────────────────────────────────────────────────
   // Les cinq modèles ne portent pas de relation `requester` — seulement `requesterId`. Six
   // relations séparées feraient six fois le même travail, et l'écran n'a besoin que d'un nom
@@ -125,6 +193,8 @@ export async function demandesAuCentreAdPro(): Promise<LigneCentre[]> {
     ...natio.map((r) => r.requesterId), ...evts.map((r) => r.requesterId),
     ...promos.map((r) => r.requesterId), ...contrats.map((r) => r.requesterId),
     ...autres.map((r) => r.requesterId),
+    ...postes.map((r) => r.orderRequestedById), ...bcLegaux.map((r) => r.createdById),
+    ...promosBC.map((r) => r.requesterId),
   ].filter((x): x is string => Boolean(x)))];
   const personnes = idsPersonnes.length
     ? await prisma.user.findMany({ where: { id: { in: idsPersonnes } }, select: { id: true, name: true } }).catch(() => [])
@@ -202,10 +272,76 @@ export async function demandesAuCentreAdPro(): Promise<LigneCentre[]> {
       intitule: intitule(f.ref, f.nom, FICHE.get(kind)?.label ?? "Demande"),
       demandeur: f.par,
       montant: v.amount == null ? null : toNumber(v.amount),
-      seuil: toNumber(v.threshold),
+      seuil: v.threshold == null ? null : toNumber(v.threshold),
       forme: "VISA_CENTRE",
       depuis: v.createdAt.toISOString(),
       href: lien(kind, v.entityId),
+    });
+  }
+
+  // ── 4. LES BONS DE COMMANDE (§118.148) — tous, quel que soit leur montant ──────────────────
+  //
+  // « Concernant les BC, ils doivent tous passer soit par le centre de validation Ad&Pro si la
+  // demande est depuis Ad&Pro, soit par le centre de validation normal. » Pas de seuil ici : la
+  // colonne `seuil` reste vide, et l'écran le dit.
+  for (const p of postes) {
+    const parent = PARENT_DU_POSTE.find(([col]) => p[col]);
+    if (!parent) continue; // un poste sans opération (formation dormante) n'est pas une ligne d'Ad & Pro
+    const [col, type] = parent;
+    const opId = p[col] as string;
+    const kind = NATURE_PAR_ENTITE.get(type) ?? null;
+    const operation = OPERATION.get(`${type}:${opId}`) ?? (kind ? FICHE.get(kind)?.label : null) ?? "Opération";
+    lignes.push({
+      kind,
+      entityType: "AD_PRO_ITEM",
+      entityId: p.id,
+      reference: null,
+      intitule: `BC — ${ITEM_KIND_LABELS[p.kind]} « ${p.label} »${p.supplier ? ` · ${p.supplier}` : ""} — ${operation}`,
+      demandeur: nomDe(p.orderRequestedById),
+      montant: p.amountGranted == null ? null : toNumber(p.amountGranted),
+      seuil: null,
+      forme: "BC_POSTE",
+      depuis: (p.orderRequestedAt ?? p.updatedAt).toISOString(),
+      href: kind ? lien(kind, opId) : "/ad-pro",
+      detail: p.orderNote,
+    });
+  }
+
+  for (const d of bcLegaux) {
+    const v = visas.find((x) => x.entityType === "LEGAL_DOCUMENT" && x.entityId === d.id);
+    if (!v) continue;
+    const kind = d.sourceType ? NATURE_PAR_ENTITE.get(d.sourceType) ?? null : null;
+    lignes.push({
+      kind,
+      entityType: "LEGAL_DOCUMENT",
+      entityId: d.id,
+      reference: d.reference,
+      intitule: `BC — ${intitule(d.reference, d.counterparty ?? d.title, "Bon de commande")}`,
+      demandeur: nomDe(d.createdById),
+      montant: d.amount == null ? null : toNumber(d.amount),
+      seuil: null,
+      forme: "BC_LEGAL",
+      depuis: v.createdAt.toISOString(),
+      href: `/legal/${d.id}`,
+      // Une réouverture (montant relevé, correction demandée) porte sa raison dans la note du visa.
+      detail: v.note,
+    });
+  }
+
+  for (const p of promosBC) {
+    const m = p.chosenAmount ?? p.amount;
+    lignes.push({
+      kind: "PROMO_MATERIAL",
+      entityType: "PROMO_MATERIAL",
+      entityId: p.id,
+      reference: p.reference,
+      intitule: `BC${p.bcReference ? ` ${p.bcReference}` : ""} — ${intitule(p.reference, p.title, "Matériel promotionnel")}${p.chosenAgency ? ` · ${p.chosenAgency}` : ""}`,
+      demandeur: nomDe(p.requesterId),
+      montant: m == null ? null : toNumber(m),
+      seuil: null,
+      forme: "BC_PROMO",
+      depuis: p.updatedAt.toISOString(),
+      href: lien("PROMO_MATERIAL", p.id),
     });
   }
 

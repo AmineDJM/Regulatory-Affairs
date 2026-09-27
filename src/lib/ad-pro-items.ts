@@ -126,10 +126,11 @@ export const ITEM_BUDGET_KIND_LABELS: Record<AdProItemBudgetKind, string> = {
 
 export const ITEM_ORDER_STAGE_LABELS: Record<AdProItemOrderStage, { label: string; tone: "neutral" | "info" | "warning" | "success" | "danger" }> = {
   NONE: { label: "Aucun bon de commande", tone: "neutral" },
-  REQUESTED: { label: "BC demandé — visa Direction attendu", tone: "info" },
-  DIRECTION_OK: { label: "Visa Direction — en attente des Finances", tone: "warning" },
+  // `DIRECTION_OK` garde son nom de colonne ; depuis §118.148 c'est le CENTRE qui le pose.
+  REQUESTED: { label: "BC demandé — au centre de validation Ad & Pro", tone: "info" },
+  DIRECTION_OK: { label: "BC validé par le centre — en attente des Finances", tone: "warning" },
   ISSUED: { label: "Bon de commande émis", tone: "success" },
-  REFUSED: { label: "Émission refusée", tone: "danger" },
+  REFUSED: { label: "BC refusé par le centre", tone: "danger" },
 };
 
 export interface ItemAmounts {

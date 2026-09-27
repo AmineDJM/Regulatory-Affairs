@@ -3,7 +3,7 @@ import {
   CENTRAL_AUTH_THRESHOLD_DZD, needsCentralAuthorization, initialCentralStatus, canDisburse,
   visibleToFinance, awaitsCentre, awaitsRequester, sitsOnPaymentCentre, applyDecision,
   canResubmit, applyResubmission, blockedReason, type CentralStatus,
-  isHighValue, PAYMENT_CENTRE_REFUSAL,
+  isHighValue, PAYMENT_CENTRE_REFUSAL, statutApresNouveauMontant,
 } from "./authorization";
 
 describe("LE GUICHET UNIQUE — plus rien ne contourne le centre", () => {
@@ -145,5 +145,29 @@ describe("Les allers-retours — un refus sec bloque le travail", () => {
 
   it("on ne décide pas d'un paiement qui n'avait pas à passer par le centre", () => {
     expect(applyDecision("NOT_REQUIRED", "APPROVE")).toBeNull();
+  });
+});
+
+describe("statutApresNouveauMontant — le centre autorise un MONTANT, pas un dossier (§118.148)", () => {
+  it("RELEVER un montant autorisé le renvoie au centre", () => {
+    expect(statutApresNouveauMontant({ courant: "APPROVED", avant: 500_000, apres: 900_000 })).toBe("AWAITING");
+  });
+  it("…et un ordre HISTORIQUE non payé aussi : la hausse est un engagement neuf", () => {
+    expect(statutApresNouveauMontant({ courant: "NOT_REQUIRED", avant: 10_000, apres: 60_000 })).toBe("AWAITING");
+  });
+  it("BAISSER ne rouvre rien — c'est un geste qui réduit", () => {
+    expect(statutApresNouveauMontant({ courant: "APPROVED", avant: 900_000, apres: 500_000 })).toBe("APPROVED");
+    expect(statutApresNouveauMontant({ courant: "APPROVED", avant: 500_000, apres: 500_000 })).toBe("APPROVED");
+  });
+  it("un REFUS reste un refus : relever le montant ne le rend pas acceptable", () => {
+    expect(statutApresNouveauMontant({ courant: "REFUSED", avant: 1, apres: 2 })).toBe("REFUSED");
+  });
+  it("en attente ou chez le demandeur : la balle ne change pas de camp", () => {
+    expect(statutApresNouveauMontant({ courant: "AWAITING", avant: 1, apres: 2 })).toBe("AWAITING");
+    expect(statutApresNouveauMontant({ courant: "CHANGES_REQUESTED", avant: 1, apres: 2 })).toBe("CHANGES_REQUESTED");
+  });
+  it("un montant ILLISIBLE compte comme une hausse — le sens sûr", () => {
+    expect(statutApresNouveauMontant({ courant: "APPROVED", avant: 500_000, apres: Number.NaN })).toBe("AWAITING");
+    expect(statutApresNouveauMontant({ courant: "APPROVED", avant: Number.NaN, apres: 500_000 })).toBe("AWAITING");
   });
 });

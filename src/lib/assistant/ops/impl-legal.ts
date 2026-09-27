@@ -1,7 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { toNumber } from "@/lib/utils";
 import {
-  renewLegalDocument, cancelLegalDocument, setLegalReaders, sendLegalInvoiceToSettlement,
+  renewLegalDocument, cancelLegalDocument, setLegalReaders, sendLegalInvoiceToSettlement, adresserBCAuCentre,
 } from "@/lib/actions/legal-actions";
 // PAR LE PORT, jamais par `@/lib/actions/*` ni `@/lib/cibles/*` : `boundary.test.ts` a
 // compté 430 franchissements pour un plafond de 428 et refusé. Le remède est celui que son
@@ -14,7 +14,7 @@ import type { OpImpl, OpProposalDraft } from "./types";
 import { opStr } from "./types";
 import { fieldsOf } from "./helpers";
 import { resolvePeopleList } from "./impl-drive";
-import { addAdProComment } from "@/platform/in-process/capacites";
+import { addAdProComment, legalReaderWhere } from "@/platform/in-process/capacites";
 
 /**
  * OPS LEGAL — renouveler (chaîne de documents), annuler, régler les LECTEURS (le déposant
@@ -27,13 +27,30 @@ interface LegalHit { id: string; title: string; reference: string | null; kind: 
 const dzd = (n: number): string => `${n.toLocaleString("fr-FR")} DZD`;
 const day = (d: Date | null): string => (d ? d.toISOString().slice(0, 10) : "sans échéance");
 
-async function resolveLegalDoc(raw: string, extra?: { kind?: string }): Promise<LegalHit | { error: string }> {
+/**
+ * RÉSOUDRE UN DOCUMENT LÉGAL PAR SON NOM — dans ce que la personne a le droit de LIRE.
+ *
+ * Le résolveur cherchait dans TOUT le registre. Or un document peut être RESTREINT à des lecteurs
+ * désignés (§ lecteurs), et la carte de confirmation affiche son titre — la liste d'ambiguïté en
+ * affiche même plusieurs. Quiconque tenait l'écriture sur Legal pouvait donc apprendre, par la
+ * conversation, le titre d'un contrat confidentiel qu'il ne peut pas ouvrir à l'écran : une porte
+ * ouverte à côté de la porte gardée (§118.71). L'action, elle, revérifie au clic — mais le titre
+ * a déjà été dit. La restriction se compose donc ICI, par la même règle que la fiche
+ * (`legalReaderWhere`, au socle), et un document hors portée n'apparaît même pas comme candidat.
+ */
+async function resolveLegalDoc(
+  raw: string, user: { id: string; role: string }, extra?: { kind?: string },
+): Promise<LegalHit | { error: string }> {
   const q = raw.trim();
   if (!q) return { error: "Précisez le titre ou la référence du document légal (champ « reference »)." };
+  const lecteurs = legalReaderWhere({ viewerId: user.id, isSuperAdmin: user.role === "SUPER_ADMIN" });
   const rows = await prisma.legalDocument.findMany({
     where: {
       ...(extra?.kind ? { kind: extra.kind as never } : {}),
-      OR: [{ reference: { equals: q, mode: "insensitive" } }, { title: { contains: q, mode: "insensitive" } }],
+      AND: [
+        { OR: [{ reference: { equals: q, mode: "insensitive" } }, { title: { contains: q, mode: "insensitive" } }] },
+        ...(lecteurs ? [lecteurs] : []),
+      ],
     },
     select: { id: true, title: true, reference: true, kind: true, status: true, amount: true, endDate: true },
     orderBy: { createdAt: "desc" },
@@ -147,7 +164,7 @@ async function resolveFicheAdPro(
 export const LEGAL_OPS_IMPL: Record<string, OpImpl> = {
   link_record: {
     async propose(input, user): Promise<OpProposalDraft | { error: string }> {
-      const doc = await resolveLegalDoc(opStr(input, "reference") || opStr(input, "label"));
+      const doc = await resolveLegalDoc(opStr(input, "reference") || opStr(input, "label"), user);
       if ("error" in doc) return doc;
       const fiche = await resolveFicheAdPro(user, opStr(input, "target") || opStr(input, "name"), opStr(input, "nature") || opStr(input, "kind"));
       if ("error" in fiche) return fiche;
@@ -215,8 +232,8 @@ export const LEGAL_OPS_IMPL: Record<string, OpImpl> = {
   },
 
   unlink_record: {
-    async propose(input): Promise<OpProposalDraft | { error: string }> {
-      const doc = await resolveLegalDoc(opStr(input, "reference") || opStr(input, "label"));
+    async propose(input, user): Promise<OpProposalDraft | { error: string }> {
+      const doc = await resolveLegalDoc(opStr(input, "reference") || opStr(input, "label"), user);
       if ("error" in doc) return doc;
       // On LIT le rattachement courant : une carte qui ne dit pas DE QUOI on détache ferait
       // valider à l'aveugle, et l'objet de la confirmation est justement ce lien (§118.83).
@@ -250,8 +267,8 @@ export const LEGAL_OPS_IMPL: Record<string, OpImpl> = {
   },
 
   renew: {
-    async propose(input): Promise<OpProposalDraft | { error: string }> {
-      const doc = await resolveLegalDoc(opStr(input, "reference") || opStr(input, "label"));
+    async propose(input, user): Promise<OpProposalDraft | { error: string }> {
+      const doc = await resolveLegalDoc(opStr(input, "reference") || opStr(input, "label"), user);
       if ("error" in doc) return doc;
       const startDate = iso(opStr(input, "startDate"));
       const endDate = iso(opStr(input, "endDate"));
@@ -282,8 +299,8 @@ export const LEGAL_OPS_IMPL: Record<string, OpImpl> = {
   },
 
   cancel: {
-    async propose(input): Promise<OpProposalDraft | { error: string }> {
-      const doc = await resolveLegalDoc(opStr(input, "reference") || opStr(input, "label"));
+    async propose(input, user): Promise<OpProposalDraft | { error: string }> {
+      const doc = await resolveLegalDoc(opStr(input, "reference") || opStr(input, "label"), user);
       if ("error" in doc) return doc;
       const reason = opStr(input, "note");
       return {
@@ -310,8 +327,8 @@ export const LEGAL_OPS_IMPL: Record<string, OpImpl> = {
   },
 
   set_readers: {
-    async propose(input): Promise<OpProposalDraft | { error: string }> {
-      const doc = await resolveLegalDoc(opStr(input, "reference") || opStr(input, "label"));
+    async propose(input, user): Promise<OpProposalDraft | { error: string }> {
+      const doc = await resolveLegalDoc(opStr(input, "reference") || opStr(input, "label"), user);
       if ("error" in doc) return doc;
       const rawPeople = opStr(input, "people");
       if (!rawPeople) return { error: "Donnez les lecteurs (champ « people », noms séparés par des virgules) — liste vide impossible par ici." };
@@ -344,8 +361,8 @@ export const LEGAL_OPS_IMPL: Record<string, OpImpl> = {
   },
 
   send_invoice_settlement: {
-    async propose(input): Promise<OpProposalDraft | { error: string }> {
-      const doc = await resolveLegalDoc(opStr(input, "reference") || opStr(input, "label"), { kind: "INVOICE" });
+    async propose(input, user): Promise<OpProposalDraft | { error: string }> {
+      const doc = await resolveLegalDoc(opStr(input, "reference") || opStr(input, "label"), user, { kind: "INVOICE" });
       if ("error" in doc) return doc;
       if (doc.amount === null || doc.amount <= 0) {
         return { error: `La facture « ${doc.title} » n'a pas de montant renseigné — le renseigner sur la fiche avant l'envoi au règlement.` };
@@ -369,6 +386,44 @@ export const LEGAL_OPS_IMPL: Record<string, OpImpl> = {
       const r = await sendLegalInvoiceToSettlement(fd);
       if (!r.ok) return { ok: false, error: r.error ?? "L'envoi au règlement a été refusé." };
       return { ok: true, revalidate: [...LEGAL_REVALIDATE, "/finances"] };
+    },
+  },
+
+  /**
+   * ADRESSER UN BC À SON CENTRE (§118.148). La carte ne dit PAS lequel des deux centres : c'est
+   * l'origine du BC qui le décide, lue par l'action au moment du clic. Le deviner ici demanderait
+   * de relire la chaîne d'origine côté Adam — une seconde lecture de la même règle, qui finirait
+   * par désigner un autre centre que l'action (§118.5). La phrase de retour, elle, le nomme.
+   */
+  submit_purchase_order: {
+    async propose(input, user): Promise<OpProposalDraft | { error: string }> {
+      const doc = await resolveLegalDoc(opStr(input, "reference") || opStr(input, "label"), user, { kind: "PURCHASE_ORDER" });
+      if ("error" in doc) return doc;
+      if (doc.status === "CANCELLED") {
+        return { error: `Le bon de commande « ${doc.title} » est annulé : il n'a plus rien à faire valider.` };
+      }
+      return {
+        title: `Adresser le bon de commande « ${doc.title} » à son centre de validation`,
+        fields: [
+          { label: "Bon de commande", value: `${doc.reference ? `${doc.reference} — ` : ""}${doc.title}` },
+          { label: "Montant", value: doc.amount != null && doc.amount > 0 ? dzd(doc.amount) : "non renseigné" },
+        ],
+        warnings: [
+          "Le centre dépend de l'ORIGINE du bon de commande : centre de validation Ad & Pro s'il vient d'une demande Ad & Pro, centre de validations sinon.",
+          "Un bon de commande déjà au centre n'est pas renvoyé — rien n'est validé ici, c'est le centre qui décide.",
+        ],
+        args: { id: doc.id, label: doc.title },
+        successMessage: `Bon de commande « ${doc.title} » adressé à son centre de validation.`,
+        link: `/legal/${doc.id}`,
+        revalidate: LEGAL_REVALIDATE,
+      };
+    },
+    async execute(args) {
+      const fd = new FormData();
+      fd.set("id", args.id ?? "");
+      const r = await adresserBCAuCentre(fd);
+      if (!r.ok) return { ok: false, error: r.error ?? "L'envoi au centre a été refusé." };
+      return { ok: true, message: r.message, link: `/legal/${args.id}`, revalidate: LEGAL_REVALIDATE };
     },
   },
 };

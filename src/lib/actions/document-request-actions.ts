@@ -12,6 +12,8 @@ import { fdStr, type ActionResult } from "@/lib/actions/types";
 import { nextDocRequestStatus, canSubmit, canDecide, canCancel } from "@/lib/doc-request";
 import { companyIdForNew } from "@/lib/company";
 import { pieceKindOf, legalKindOfPiece, legalTitleFromPiece, PIECE_KIND_LABEL } from "@/lib/legal/from-piece";
+import { aiguillerBC } from "@/lib/bons-de-commande/aiguillage";
+import { reserveBC, reserveSansPorte } from "@/lib/bons-de-commande/regle";
 
 const PATH = "/pieces";
 
@@ -151,7 +153,7 @@ export async function submitDocumentRequest(formData: FormData): Promise<ActionR
 async function classerDansLegal(
   req: { id: string; reference: string; label: string; kind: string; legalDocumentId: string | null; askedById: string; askedToId: string },
   actorId: string,
-): Promise<{ id: string; kindLabel: string } | null> {
+): Promise<{ id: string; kindLabel: string; reserve: string | null } | null> {
   const legalKind = legalKindOfPiece(req.kind);
   if (!legalKind) return null;
   // Déjà classée : accepter une seconde fois ne crée pas un second engagement.
@@ -189,7 +191,15 @@ async function classerDansLegal(
       actorId, action: "CREATE", module: "Legal", entityType: "LEGAL_DOCUMENT", entityId: doc.id,
       summary: `Pièce ${req.reference} enregistrée dans Legal (${legalKind}) — ${req.label}`,
     });
-    return { id: doc.id, kindLabel: PIECE_KIND_LABEL[pieceKindOf(req.kind)].toLowerCase() };
+    // UN BON DE COMMANDE CLASSÉ PASSE PAR SON CENTRE (§118.148). Réclamé sur le poste d'une
+    // opération Ad & Pro dont le BC a déjà été VISÉ, il matérialise ce visa et n'en demande pas un
+    // second ; sinon il attend le centre de son origine — que l'aiguillage lit en remontant la
+    // demande de pièce jusqu'à l'objet qu'elle visait.
+    // La réserve voyage avec le classement : « enregistrée dans Legal » sur un BC que personne n'a
+    // validé le ferait envoyer au fournisseur (§118.32) — et un aiguillage raté doit se DIRE.
+    const aiguillage = legalKind === "PURCHASE_ORDER" ? await aiguillerBC(doc.id, { acteurId: actorId }) : null;
+    const reserve = aiguillage ? (reserveSansPorte(aiguillage) ?? reserveBC(aiguillage.porte)) : null;
+    return { id: doc.id, kindLabel: PIECE_KIND_LABEL[pieceKindOf(req.kind)].toLowerCase(), reserve };
   } catch (e) {
     console.error("[doc-request] classement Legal impossible", e);
     return null;
@@ -240,7 +250,9 @@ export async function decideDocumentRequest(formData: FormData): Promise<ActionR
     if (classement) revalidatePath("/legal");
     return {
       ok: true, id,
-      message: classement ? `Pièce acceptée et enregistrée dans Legal (${classement.kindLabel}).` : undefined,
+      message: classement
+        ? `Pièce acceptée et enregistrée dans Legal (${classement.kindLabel}).${classement.reserve ? ` ${classement.reserve}` : ""}`
+        : undefined,
     };
   } catch (err) {
     console.error("[doc-request] decideDocumentRequest failed", err);

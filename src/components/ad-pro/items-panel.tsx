@@ -71,6 +71,12 @@ interface Props {
   canEdit: boolean;
   /** Affecter les montants et engager la dépense : Direction uniquement. */
   canAllocate: boolean;
+  /**
+   * Siège au CENTRE DE VALIDATION AD & PRO — seul à viser un bon de commande (§118.148). Distinct
+   * de `canAllocate` : répartir l'enveloppe entre les postes reste un geste de la Direction ; le
+   * visa d'un BC ne l'est plus. Calculé au serveur, jamais deviné ici.
+   */
+  canViserBC?: boolean;
   promoOptions: { id: string; reference: string; title: string; status: string }[];
   /** Congrès : ce qui est ANNONCÉ (stand, symposium) et qu'il faudrait chiffrer. */
   plan?: { hasBooth?: boolean | null; hasSymposium?: boolean | null };
@@ -115,7 +121,7 @@ const PARENT_PATH: Record<AdProParent, string> = {
 
 export function AdProItemsPanel({
   parent, parentId, items, amountGranted, decided, canEdit, canAllocate, promoOptions, plan,
-  budgetOptions = [], canIssueOrder = false,
+  budgetOptions = [], canIssueOrder = false, canViserBC = false,
 }: Props) {
   const router = useRouter();
   const [busy, setBusy] = React.useState<string | null>(null);
@@ -327,6 +333,7 @@ export function AdProItemsPanel({
                   item={it}
                   canEdit={canEdit}
                   canAllocate={canAllocate}
+                  canViserBC={canViserBC}
                   canIssueOrder={canIssueOrder}
                   budgetOptions={budgetOptions}
                   busy={busy}
@@ -604,10 +611,11 @@ function Figure({ label, value, hint, tone }: { label: string; value: string; hi
  * avant l'accord, ni de demander un bon de commande sans budget. Un écran qui affiche des
  * boutons inertes fait perdre plus de temps qu'il n'en fait gagner.
  */
-function ItemLifecycle({ item, canEdit, canAllocate, canIssueOrder, budgetOptions, busy, run, parentLink }: {
+function ItemLifecycle({ item, canEdit, canAllocate, canViserBC, canIssueOrder, budgetOptions, busy, run, parentLink }: {
   item: ItemRow;
   canEdit: boolean;
   canAllocate: boolean;
+  canViserBC: boolean;
   canIssueOrder: boolean;
   budgetOptions: { id: string; label: string }[];
   busy: string | null;
@@ -616,6 +624,9 @@ function ItemLifecycle({ item, canEdit, canAllocate, canIssueOrder, budgetOption
   parentLink: string;
 }) {
   const [note, setNote] = React.useState("");
+  // Le motif d'une décision sur le BON DE COMMANDE — distinct de celui de la décision sur le poste,
+  // pour qu'un brouillon de l'une ne parte pas avec l'autre.
+  const [noteBC, setNoteBC] = React.useState("");
   const [showHistory, setShowHistory] = React.useState(false);
   const [deciding, setDeciding] = React.useState(false);
   // LE MESSAGE D'UNE DEMANDE DE PIÈCE — « on écrit un message avec les différents contenus, les
@@ -846,7 +857,7 @@ function ItemLifecycle({ item, canEdit, canAllocate, canIssueOrder, budgetOption
         </div>
       )}
 
-      {/* ── Bon de commande : demande → visa Direction → émission par les Finances ── */}
+      {/* ── Bon de commande : demande → centre de validation Ad & Pro → émission par les Finances ── */}
       {item.status === "APPROVED" && (
         <div className="flex flex-wrap items-center gap-2">
           <Badge tone={ITEM_ORDER_STAGE_LABELS[item.orderStage].tone} dot={false}>
@@ -866,21 +877,33 @@ function ItemLifecycle({ item, canEdit, canAllocate, canIssueOrder, budgetOption
             <span className="text-[0.6875rem] text-muted-foreground">{order.reason}</span>
           )}
 
-          {canAllocate && item.orderStage === "REQUESTED" && (
+          {canViserBC && item.orderStage === "REQUESTED" && (
             <>
               <Button
                 size="sm" disabled={busy === `poa:${item.id}`}
-                onClick={() => void run(`poa:${item.id}`, () => approveAdProItemOrder(undefined, fdOf({ decision: "APPROVE" })), "Bon de commande visé — transmis aux Finances.")}
+                onClick={() => void run(`poa:${item.id}`, () => approveAdProItemOrder(undefined, fdOf({ decision: "APPROVE", note: noteBC })), "Bon de commande validé — transmis aux Finances.")}
               >
-                <ThumbsUp className="h-4 w-4" /> Viser le BC
+                <ThumbsUp className="h-4 w-4" /> Valider le BC
               </Button>
               <Button
-                size="sm" variant="outline" className="text-destructive" disabled={busy === `poa:${item.id}`}
-                onClick={() => void run(`poa:${item.id}`, () => approveAdProItemOrder(undefined, fdOf({ decision: "REFUSE" })), "Émission refusée.")}
+                size="sm" variant="outline" className="text-destructive" disabled={busy === `poa:${item.id}` || !noteBC.trim()}
+                title={noteBC.trim() ? undefined : "Indiquez le motif du refus dans le champ ci-dessous."}
+                onClick={() => void run(`poa:${item.id}`, () => approveAdProItemOrder(undefined, fdOf({ decision: "REFUSE", note: noteBC })), "Bon de commande refusé.")}
               >
                 <ThumbsDown className="h-4 w-4" /> Refuser
               </Button>
+              <input
+                value={noteBC} onChange={(e) => setNoteBC(e.target.value)}
+                placeholder="Motif (obligatoire pour refuser)"
+                aria-label="Motif de la décision sur le bon de commande"
+                className="min-w-0 flex-1 rounded-lg border border-border bg-background px-2 py-1 text-xs outline-none focus:border-primary/60"
+              />
             </>
+          )}
+          {!canViserBC && item.orderStage === "REQUESTED" && (
+            <span className="text-[0.6875rem] text-muted-foreground">
+              En attente du centre de validation Ad &amp; Pro (Direction Générale ou Super Admin).
+            </span>
           )}
 
           {canIssueOrder && item.orderStage === "DIRECTION_OK" && !item.expenseOrderId && (
@@ -932,7 +955,7 @@ function ItemLifecycle({ item, canEdit, canAllocate, canIssueOrder, budgetOption
       )}
       {item.status === "APPROVED" && item.orderDecisionNote && (
         <p className="rounded-lg bg-warning/10 px-2.5 py-1.5 text-xs text-foreground">
-          <strong>Direction ({ITEM_ORDER_STAGE_LABELS[item.orderStage].label}) :</strong> {item.orderDecisionNote}
+          <strong>Centre de validation ({ITEM_ORDER_STAGE_LABELS[item.orderStage].label}) :</strong> {item.orderDecisionNote}
         </p>
       )}
     </div>

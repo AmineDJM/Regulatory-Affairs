@@ -8,6 +8,8 @@ import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
 import { fdStr, type ActionResult } from "@/lib/actions/types";
 import { LEGAL_DOC_KIND } from "@/lib/labels";
+import { aiguillerBC } from "@/lib/bons-de-commande/aiguillage";
+import { LIBELLE_CENTRE_BC, reserveSansPorte } from "@/lib/bons-de-commande/regle";
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
@@ -106,13 +108,24 @@ export async function rattacherLegalAFiche(
     summary: `${LEGAL_DOC_KIND[doc.kind] ?? doc.kind} « ${doc.title} » rattaché·e à ${cible} ${cibleId}`,
   });
 
+  // UN BC RATTACHÉ À UNE FICHE AD & PRO VIENT D'AD & PRO (§118.148) : s'il attendait encore au
+  // centre de validations, il passe au centre Ad & Pro. Une décision déjà prise ne se re-juge
+  // pas parce que la pièce a changé de fiche — la règle pure en décide, pas ce geste.
+  const bc = doc.kind === "PURCHASE_ORDER" ? await aiguillerBC(legalId, { acteurId: user.id }) : null;
+  const sansPorte = bc ? reserveSansPorte(bc) : null;
+  const transfert = sansPorte
+    ? ` ${sansPorte}`
+    : bc?.geste === "TRANSFEREE" || bc?.geste === "POSEE"
+      ? ` Le bon de commande attend désormais la validation du ${LIBELLE_CENTRE_BC[bc.porte?.centre ?? "AD_PRO"]}.`
+      : "";
+
   const base = CHEMIN[cible];
   if (base) {
     revalidatePath(base);
     revalidatePath(`${base}/${cibleId}`);
   }
   revalidatePath(`/legal/${legalId}`);
-  return { ok: true, message: `« ${doc.title} » est maintenant rattaché·e à cette fiche.` };
+  return { ok: true, message: `« ${doc.title} » est maintenant rattaché·e à cette fiche.${transfert}` };
 }
 
 /**
@@ -132,7 +145,7 @@ export async function detacherLegalDeFiche(
 
   const doc = await prisma.legalDocument.findUnique({
     where: { id: legalId },
-    select: { id: true, title: true, sourceType: true, sourceId: true },
+    select: { id: true, title: true, kind: true, sourceType: true, sourceId: true },
   });
   if (!doc) return { ok: false, error: "Document introuvable." };
   if (!doc.sourceId || !doc.sourceType) return { ok: true, message: "Ce document n'est rattaché à aucune fiche." };
@@ -155,6 +168,8 @@ export async function detacherLegalDeFiche(
     entityType: "LEGAL_DOCUMENT", entityId: legalId,
     summary: `« ${doc.title} » détaché·e de ${ancienType} ${ancienId}`,
   });
+  // Détaché de sa fiche, un BC qui attendait encore retourne au centre de son origine RESTANTE.
+  if (doc.kind === "PURCHASE_ORDER") await aiguillerBC(legalId, { acteurId: user.id });
   const base = CHEMIN[ancienType];
   if (base) {
     revalidatePath(base);

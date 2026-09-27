@@ -246,4 +246,33 @@ suite("annulation — défaire ce qu'Adam a fait, sans effacer ce qu'un humain a
     const r = await appel(pdg, { question: "voir", entite: "EMPLOYEE", enregistrement: "peu-importe", depuis: avantHier });
     expect(String(r.erreur ?? "")).toMatch(/n'est pas de ceux/i);
   }, 60_000);
+
+  // ── L'AUTORISATION DU CENTRE NE SE « DÉFAIT » PAS (§118.148) ─────────────────────────────
+  // « Tous les paiements passent par le centre de paiements. » Le centre vient de ROUVRIR un
+  // ordre (montant relevé → AWAITING). « Annule ce qu'Adam a modifié sur cet ordre » remettait
+  // `APPROVED` : une autorisation rendue par un outil de rangement, avec pour seule garde le
+  // droit d'écrire sur les Finances. L'acteur est ici Super Admin — il SIÈGE au centre — et le
+  // refus tient quand même : ce n'est pas une question de droit, c'est un geste qui ne se rejoue
+  // pas en dehors du centre, où l'on voit ce qu'on autorise.
+  it("remettre « Autorisé » sur un ordre que le centre a rouvert est REFUSÉ, et l'ordre reste en attente", async () => {
+    const ordre = await prisma.expenseOrder.create({
+      data: { reference: `${TAG}-OD`, label: `${TAG} stand SAHO`, amount: 900_000, centralStatus: "AWAITING", requestedById: pdg.id },
+      select: { id: true },
+    });
+    try {
+      await recordFieldChanges(
+        { actorId: pdg.id, module: "Finances (Adam)", entityType: "EXPENSE_ORDER", entityId: ordre.id, summary: "Adam a relevé le montant — l'ordre retourne au centre" },
+        { centralStatus: "APPROVED" }, { centralStatus: "AWAITING" }, ["centralStatus"],
+      );
+      await prisma.auditLog.updateMany({ where: { entityId: ordre.id }, data: { createdAt: hier } });
+
+      const r = await appel(pdg, { question: "appliquer", entite: "EXPENSE_ORDER", enregistrement: ordre.id, depuis: avantHier });
+      expect(r.defaits ?? 0, JSON.stringify(r)).toBe(0);
+      const apres = await prisma.expenseOrder.findUnique({ where: { id: ordre.id }, select: { centralStatus: true } });
+      expect(apres!.centralStatus, "l'autorisation se donne au centre, jamais par une annulation").toBe("AWAITING");
+    } finally {
+      await prisma.auditLog.deleteMany({ where: { entityId: ordre.id } });
+      await prisma.expenseOrder.delete({ where: { id: ordre.id } }).catch(() => {});
+    }
+  }, 60_000);
 });

@@ -9,8 +9,14 @@ import { formatCurrency } from "@/lib/utils";
 
 /**
  * ENVOYER LA FACTURE AU RÈGLEMENT — un clic, une confirmation, et le circuit fait le reste :
- * centre de paiement dès 50 000 DZD, puis Règlements à effectuer. Le bouton disparaît une fois
- * la facture partie — l'état du règlement prend sa place dans la chaîne.
+ * le centre de paiement autorise TOUT paiement, quel que soit son montant (décision de la
+ * Direction, 09/2026), puis Règlements à effectuer. Le bouton disparaît une fois la facture
+ * partie — l'état du règlement prend sa place dans la chaîne.
+ *
+ * « Dès 50 000 DZD » était écrit ici, et c'était FAUX depuis que le centre voit tout : la phrase
+ * qu'une personne lit AVANT de cliquer promettait qu'une petite facture partirait directement aux
+ * Finances. Elle ne le fait pas, et la personne attendait un règlement qui attendait, lui, le
+ * centre (§118.148).
  */
 export function SendToSettlementButton({ id, amount }: { id: string; amount: number | null }) {
   const router = useRouter();
@@ -41,7 +47,7 @@ export function SendToSettlementButton({ id, amount }: { id: string; amount: num
       ) : (
         <div className="flex flex-wrap items-center gap-2 text-sm">
           <span className="text-muted-foreground">
-            Envoyer {amount != null ? formatCurrency(amount) : "cette facture"} au règlement ? Dès 50 000 DZD, le centre de paiement devra autoriser.
+            Envoyer {amount != null ? formatCurrency(amount) : "cette facture"} au règlement ? Le centre de paiement l&apos;autorisera avant que les Finances ne la règlent.
           </span>
           <Button size="sm" onClick={run} disabled={busy}>
             {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />} Confirmer

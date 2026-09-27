@@ -35,6 +35,7 @@ import { canEditAdProRequest, isAdProDecided } from "@/lib/ad-pro-edit";
 import { adProEditValues } from "@/lib/queries/ad-pro-edit";
 import { BackLink } from "@/components/shared/back-link";
 import { AdProDiscussionCard } from "@/components/ad-pro/discussion-card";
+import { siegeAuCentreAdPro } from "@/lib/ad-pro/centre";
 
 
 export default async function SponsoringDetailPage({ params }: { params: { id: string } }) {
@@ -182,6 +183,7 @@ export default async function SponsoringDetailPage({ params }: { params: { id: s
                 promoOptions={promoOptions}
                 budgetOptions={budgetOptions}
                 canIssueOrder={userCan(user, "FINANCES", "UPDATE") || userCan(user, "FINANCES", "VALIDATE")}
+                canViserBC={siegeAuCentreAdPro(user)}
               />
             </CardContent>
           </Card>

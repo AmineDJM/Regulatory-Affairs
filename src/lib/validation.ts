@@ -1,7 +1,7 @@
 import type { EntityType, Priority, UserRole, ValidationRule } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { notifyUser } from "@/lib/notify";
-import { buildRef, createWithRetry } from "@/lib/refs";
+import { buildRef, createWithRetry, enSerie } from "@/lib/refs";
 
 /**
  * Moteur de validation transversal. Le Super Admin définit des règles
@@ -69,6 +69,13 @@ export interface CreateValidationResult {
   error?: string;
 }
 
+/**
+ * LA SÉRIE DES RÉFÉRENCES `VAL-AAAA-NNN` — une création à la fois dans ce processus (`enSerie`).
+ * Chaque bon de commande pose désormais sa demande de validation (§118.148), et une mission en
+ * émet vingt-cinq d'un coup : la référence dérivée du maximum ne tient pas cette charge sans file.
+ */
+const SERIE_VALIDATION = "ValidationRequest.reference";
+
 async function nextReference(): Promise<string> {
   const year = new Date().getFullYear();
   // Dérivée du maximum réel (robuste aux suppressions) — voir src/lib/refs.ts.
@@ -106,7 +113,7 @@ export async function createValidationFromRules(input: CreateValidationInput): P
   if (validators.length === 0) return { ok: false, matched: true, error: "La règle correspondante n'a aucun validateur configuré." };
 
   // Référence recalculée à chaque tentative (robuste aux collisions concurrentes).
-  const req = await createWithRetry(async () => {
+  const req = await enSerie(SERIE_VALIDATION, () => createWithRetry(async () => {
     const reference = await nextReference();
     return prisma.validationRequest.create({
       data: {
@@ -132,7 +139,7 @@ export async function createValidationFromRules(input: CreateValidationInput): P
       },
       include: { steps: true },
     });
-  });
+  }));
 
   const toNotify = rule.mode === "PARALLEL" ? req.steps : req.steps.filter((s) => s.order === 1);
   for (const s of toNotify) await notifyValidator(s.validatorId, req);
@@ -166,6 +173,15 @@ export async function createDirectValidation(input: {
   /** Catégorie de finance pressentie (FinanceCategory) — reprise par l'ordre de dépense. */
   category?: string | null;
   /**
+   * LA NATURE DE L'OBJET VALIDÉ, quand un lecteur doit reconnaître SES demandes sans deviner.
+   *
+   * La porte d'un bon de commande (`bons-de-commande/aiguillage.ts`) vit dans une demande de
+   * validation sur `LEGAL_DOCUMENT` ; d'autres validations peuvent viser le même document (un
+   * avis sur un contrat). Les distinguer par le TITRE serait une ressemblance de mots, pas un lien
+   * (§118.36) : le type d'objet le dit, et il est déjà une colonne de la table.
+   */
+  objectType?: string | null;
+  /**
    * Autorise le demandeur à être SON PROPRE validateur. Par défaut on l'écarte (un circuit
    * d'approbation classique ne s'auto-valide pas), mais la validation de PIÈCE JOINTE est un
    * avis qu'on peut vouloir se réserver — sans ce drapeau, se choisir soi-même vidait la liste
@@ -176,12 +192,13 @@ export async function createDirectValidation(input: {
   const validators = [...new Set(input.validatorIds.filter(Boolean))].filter((v) => input.allowSelf || v !== input.requesterId);
   if (validators.length === 0) return { ok: false, matched: false, error: "Indiquez au moins un validateur." };
 
-  const req = await createWithRetry(async () => {
+  const req = await enSerie(SERIE_VALIDATION, () => createWithRetry(async () => {
     const reference = await nextReference();
     return prisma.validationRequest.create({
       data: {
         reference,
         module: input.module || "Demandes de validations",
+        objectType: input.objectType ?? null,
         title: input.title,
         description: input.description ?? null,
         link: input.link ?? null,
@@ -201,7 +218,7 @@ export async function createDirectValidation(input: {
       },
       include: { steps: true },
     });
-  });
+  }));
 
   if ((input.mode ?? "SEQUENTIAL") === "PARALLEL") {
     for (const s of req.steps) await notifyValidator(s.validatorId, req);

@@ -9,7 +9,7 @@ import { recordAudit } from "@/lib/audit";
 import { companyIdForNew } from "@/lib/company";
 import { fdStr, fdDate, type ActionResult } from "@/lib/actions/types";
 import { attachFormFiles } from "@/lib/documents";
-import { invoiceDirection } from "@/lib/finances/settlement";
+import { invoiceDirection, canMarkPaidDirectly } from "@/lib/finances/settlement";
 import { legalWriteAllowed } from "@/lib/legal/invoices";
 import { syncInvoiceSettlement } from "@/lib/finance/settle-invoice";
 import type { CurrentUser } from "@/lib/session";
@@ -133,6 +133,13 @@ export async function updateInvoice(formData: FormData): Promise<ActionResult> {
 
   const { title, ...f } = readFields(formData);
   if (!title) return { ok: false, error: "L'objet de la facture est obligatoire." };
+  // LE CIRCUIT POSSÈDE LA DATE DE RÈGLEMENT des factures qu'il porte (§118.148). La ligne du
+  // tableau (`setInvoicePaid`) et la fiche Legal (`updateLegalDocument`) le refusaient déjà ; ce
+  // formulaire-ci l'acceptait, et une date posée ici sur une facture partie au centre de paiement
+  // écrivait une écriture de règlement en plus de celle que l'ordre écrira à son paiement — le
+  // même dinar sorti deux fois, dont une sans que le centre l'ait vu. Une règle, trois portes.
+  const reglement = canMarkPaidDirectly({ paidDate: f.paidDate, expenseOrderId: doc.expenseOrderId });
+  if (!reglement.ok) return { ok: false, error: reglement.error };
 
   await prisma.legalDocument.update({
     where: { id: doc.id },
@@ -200,12 +207,10 @@ export async function setInvoicePaid(input: { id: string; paidDate: string | nul
   // LE CIRCUIT A LA PRIORITÉ. Une facture partie au règlement sera soldée par le paiement de son
   // ordre : la marquer réglée à la main poserait la date d'un virement qui n'a pas encore eu
   // lieu, et l'écran dirait « réglée » sur un dossier que les Finances tiennent encore ouvert.
-  if (paid && doc.expenseOrderId) {
-    return {
-      ok: false,
-      error: "Cette facture est partie au règlement : son paiement la soldera. Suivez-la depuis le centre de paiement.",
-    };
-  }
+  // La règle vit dans `canMarkPaidDirectly` — elle était RECOPIÉE ici, mot pour mot, et c'est la
+  // copie oubliée ailleurs qui a laissé le formulaire d'édition la contourner (§118.5).
+  const reglement = canMarkPaidDirectly({ paidDate: paid, expenseOrderId: doc.expenseOrderId });
+  if (!reglement.ok) return { ok: false, error: reglement.error };
 
   await prisma.legalDocument.update({ where: { id: doc.id }, data: { paidDate: paid, updatedById: user.id } });
   // L'ARGENT PASSE PAR LES FINANCES : marquer réglée y inscrit le mouvement, dé-marquer le retire.

@@ -57,7 +57,13 @@ const RESTAURABLES: Readonly<Record<string, Readonly<Record<string, Conversion>>
   REGULATORY_PRODUCT: { status: "enum", priority: "enum", notes: "texte" },
   TASK: { status: "enum", priority: "enum", dueDate: "date", assignedToId: "reference", title: "texte" },
   LEGAL_DOCUMENT: { status: "enum", notes: "texte", title: "texte" },
-  EXPENSE_ORDER: { notes: "texte", centralStatus: "texte" },
+  // `centralStatus` N'Y EST PLUS (§118.148). Le remettre, c'était rendre OU retirer une
+  // autorisation du centre de paiement — le geste réservé à ceux qui y siègent — avec pour seule
+  // garde le droit d'écrire sur les Finances. « Annule ce qu'Adam a modifié sur cet ordre »
+  // pouvait donc remettre « Autorisé » sur un paiement que le centre venait de rouvrir. C'est
+  // exactement le statut « qui rouvrirait une validation » que la règle ci-dessus exclut : il se
+  // corrige au centre, là où siège celui qui en a le droit.
+  EXPENSE_ORDER: { notes: "texte" },
   PAYMENT_REQUEST: { title: "texte" },
 };
 

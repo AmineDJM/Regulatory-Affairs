@@ -14,6 +14,9 @@ import { buildRef, createWithRetry } from "@/lib/refs";
 import { initialStep } from "@/lib/promo-material/circuit";
 import { promoManagerOf } from "@/lib/queries/promo-material";
 import { fdStr, fdNum, type ActionResult } from "@/lib/actions/types";
+import { siegeAuCentreAdPro, REFUS_BC_CENTRE_AD_PRO } from "@/lib/ad-pro/centre";
+import { etatDeLOrdre, LIBELLE_ETAT_REGLEMENT } from "@/lib/payments/reglement";
+import { blockedReason, type CentralStatus } from "@/lib/payments/authorization";
 
 const PATH = "/promo-material";
 
@@ -78,6 +81,23 @@ async function audit(user: SessionUser, id: string, action: "CREATE" | "UPDATE" 
 
 async function load(id: string) {
   return prisma.promoMaterial.findUnique({ where: { id } });
+}
+
+/**
+ * CET ORDRE EST-IL RÉGLÉ ? — et sinon, la phrase qui dit où il attend (§118.148).
+ *
+ * Un dossier ne se déclare « payé » que sur un ordre PAYÉ : le paiement se décide au centre de
+ * paiement, puis se règle aux Finances depuis « Paiements à faire ». `null` = réglé.
+ */
+async function ordreNonRegle(orderId: string | null): Promise<string | null> {
+  if (!orderId) return "Aucun ordre de dépense n'accompagne ce dossier : un paiement passe par le centre de paiement, et il faut un ordre pour y passer.";
+  const o = await prisma.expenseOrder.findUnique({ where: { id: orderId }, select: { reference: true, status: true, centralStatus: true } });
+  if (!o) return "L'ordre de dépense de ce dossier est introuvable.";
+  const etat = etatDeLOrdre(o);
+  if (etat === "REGLE") return null;
+  const pourquoi = blockedReason(o.centralStatus as CentralStatus)
+    ?? `L'ordre ${o.reference} est ${LIBELLE_ETAT_REGLEMENT[etat]} : il se règle depuis Finances › Paiements à faire.`;
+  return `${pourquoi} Le dossier se déclare payé une fois l'ordre ${o.reference} réglé.`;
 }
 
 // ───────────────────────── 1. Marketing : création (prospection) ─────────────────────────
@@ -241,13 +261,18 @@ export async function submitBcForFinance(formData: FormData): Promise<ActionResu
     data: { status: "BC_FINANCE_REVIEW", bcReference: fdStr(formData, "bcReference"), financeReminderAt: null, updatedById: user.id },
   });
   const attachNote = attached > 0 ? ` (${attached} fichier${attached > 1 ? "s" : ""})` : "";
-  await notifyGroup(["FINANCE_BUDGET_MANAGER", "SUPER_ADMIN"], pm, "Matériel promotionnel — bon de commande à valider");
-  await audit(user, id, "UPDATE", `Bon de commande transmis aux finances${attachNote}`);
+  // TOUT BC NÉ D'AD & PRO PASSE PAR LE CENTRE DE VALIDATION AD & PRO (§118.148) : ce sont ses
+  // sièges qui sont prévenus, et le centre liste le dossier tant qu'il attend.
+  await notifyRoles(["GENERAL_MANAGER", "SUPER_ADMIN"], {
+    type: "VALIDATION_REQUIRED", title: "Matériel promotionnel — bon de commande à valider",
+    body: `${pm.reference} — ${pm.title}`, link: "/centre-ad-pro",
+  });
+  await audit(user, id, "UPDATE", `Bon de commande transmis au centre de validation Ad & Pro${attachNote}`);
   revalidate(id);
   return { ok: true };
 }
 
-/** Relance des finances (système d'alerte). */
+/** Relance du centre de validation Ad & Pro sur un BC en attente (système d'alerte). */
 export async function remindFinance(formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
   const id = fdStr(formData, "id");
@@ -255,16 +280,25 @@ export async function remindFinance(formData: FormData): Promise<ActionResult> {
   const pm = await load(id);
   if (!pm) return { ok: false, error: "Dossier introuvable." };
   if (!(isAssistant(user) || isMarketing(user, pm))) return { ok: false, error: "Non autorisé." };
-  if (pm.status !== "BC_FINANCE_REVIEW") return { ok: false, error: "Aucune validation finances en attente." };
+  if (pm.status !== "BC_FINANCE_REVIEW") return { ok: false, error: "Aucune validation de bon de commande en attente." };
 
   await prisma.promoMaterial.update({ where: { id }, data: { financeReminderAt: new Date(), financeReminderCount: { increment: 1 } } });
-  await notifyGroup(["FINANCE_BUDGET_MANAGER", "SUPER_ADMIN"], pm, "⏰ Relance — bon de commande à valider (matériel promotionnel)");
-  await audit(user, id, "UPDATE", "Relance des finances");
+  await notifyRoles(["GENERAL_MANAGER", "SUPER_ADMIN"], {
+    type: "VALIDATION_REQUIRED", title: "⏰ Relance — bon de commande à valider (matériel promotionnel)",
+    body: `${pm.reference} — ${pm.title}`, link: "/centre-ad-pro",
+  });
+  await audit(user, id, "UPDATE", "Relance du centre de validation Ad & Pro");
   revalidate(id);
   return { ok: true };
 }
 
-// ───────────────────────── 5. Finances : validation du BC ─────────────────────────
+// ───────────────────────── 5. Centre de validation Ad & Pro : validation du BC ─────────────────────────
+//
+// Les FINANCES validaient ce BC. Depuis la décision de la Direction (09/2026, §118.148) — « les BC
+// doivent tous passer par le centre de validation Ad&Pro si la demande est depuis Ad&Pro » —, c'est
+// le CENTRE qui le valide : la Direction Générale ou le Super Admin. Le statut garde son nom
+// historique (`BC_FINANCE_REVIEW`) : le renommer demanderait une migration d'énumération pour un
+// mot que seul le code lit, et l'écran affiche le libellé, qui, lui, dit la vérité.
 
 export async function validateBc(formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
@@ -272,12 +306,13 @@ export async function validateBc(formData: FormData): Promise<ActionResult> {
   if (!id) return { ok: false, error: "Identifiant manquant." };
   const pm = await load(id);
   if (!pm) return { ok: false, error: "Dossier introuvable." };
-  if (!isFinance(user)) return { ok: false, error: "Réservé aux finances." };
+  if (!siegeAuCentreAdPro(user)) return { ok: false, error: REFUS_BC_CENTRE_AD_PRO };
   if (pm.status !== "BC_FINANCE_REVIEW") return { ok: false, error: "Aucun bon de commande à valider." };
 
   await prisma.promoMaterial.update({ where: { id }, data: { status: "BC_VALIDATED", bcValidatedAt: new Date(), updatedById: user.id } });
-  await notifyAssistant(pm, "Matériel promotionnel — bon de commande validé par les finances");
-  await audit(user, id, "VALIDATE", "Bon de commande validé/signé (finances)");
+  await notifyAssistant(pm, "Matériel promotionnel — bon de commande validé par le centre de validation Ad & Pro");
+  await audit(user, id, "VALIDATE", "Bon de commande validé (centre de validation Ad & Pro)");
+  revalidatePath("/centre-ad-pro");
   revalidate(id);
   return { ok: true };
 }
@@ -291,7 +326,7 @@ export async function confirmBcSent(formData: FormData): Promise<ActionResult> {
   const pm = await load(id);
   if (!pm) return { ok: false, error: "Dossier introuvable." };
   if (!isAssistant(user)) return { ok: false, error: "Réservé à l'assistante de direction." };
-  if (pm.status !== "BC_VALIDATED") return { ok: false, error: "Le bon de commande doit d'abord être validé par les finances." };
+  if (pm.status !== "BC_VALIDATED") return { ok: false, error: "Le bon de commande doit d'abord être validé par le centre de validation Ad & Pro." };
 
   await prisma.promoMaterial.update({ where: { id }, data: { status: "BC_SENT", updatedById: user.id } });
   await notifyGroup(["MEDICAL_INFO_PHARMACIST", "SUPER_ADMIN"], pm, "Matériel promotionnel — initier le bordereau de paiement");
@@ -310,22 +345,28 @@ export async function initiatePayment(formData: FormData): Promise<ActionResult>
   const pm = await load(id);
   if (!pm) return { ok: false, error: "Dossier introuvable." };
   if (!isMedicalInfo(user)) return { ok: false, error: "Réservé à l'information médicale." };
-  if (pm.status !== "BC_SENT") return { ok: false, error: "Le bon de commande doit d'abord être transmis à l'agence." };
+  // RATTRAPAGE : un bordereau initié SANS ordre (montant alors inconnu) se réinitie — sans quoi le
+  // dossier resterait bloqué, puisque « Paiement effectué » exige désormais un ordre réglé.
+  const rattrapage = pm.status === "PAYMENT_INITIATED" && !pm.paymentOrderId;
+  if (pm.status !== "BC_SENT" && !rattrapage) return { ok: false, error: "Le bon de commande doit d'abord être transmis à l'agence." };
 
-  const amount = Number(pm.chosenAmount ?? pm.amount ?? 0);
-  const order = amount > 0
-    ? await createExpenseOrder({
-        label: `Matériel promotionnel — ${pm.title}${pm.chosenAgency ? ` (${pm.chosenAgency})` : ""}`,
-        amount, category: "FOURNISSEUR", beneficiary: pm.chosenAgency, sourceType: "PROMO_MATERIAL", sourceId: pm.id, requestedById: user.id,
-      })
-    : null;
+  // UN BORDEREAU SANS MONTANT NE PASSE PAS PAR LE CENTRE (§118.148) : il ne créait aucun ordre, et
+  // le paiement se déclarait ensuite « effectué » sans que le centre de paiement ait rien vu.
+  const amount = fdNum(formData, "amount") ?? Number(pm.chosenAmount ?? pm.amount ?? 0);
+  if (!(amount > 0)) {
+    return { ok: false, error: "Renseignez le montant du bordereau : un paiement passe par le centre de paiement, qui autorise un montant." };
+  }
+  const order = await createExpenseOrder({
+    label: `Matériel promotionnel — ${pm.title}${pm.chosenAgency ? ` (${pm.chosenAgency})` : ""}`,
+    amount, category: "FOURNISSEUR", beneficiary: pm.chosenAgency, sourceType: "PROMO_MATERIAL", sourceId: pm.id, requestedById: user.id,
+  });
 
   await prisma.promoMaterial.update({
     where: { id },
     data: { status: "PAYMENT_INITIATED", paymentInitiatedAt: new Date(), paymentOrderId: order?.id ?? null, updatedById: user.id },
   });
-  await notifyGroup(["FINANCE_BUDGET_MANAGER", "SUPER_ADMIN"], pm, "Matériel promotionnel — bordereau de paiement à régler");
-  await audit(user, id, "UPDATE", `Bordereau de paiement initié${order ? ` (ordre ${order.reference})` : ""}`);
+  await notifyGroup(["FINANCE_BUDGET_MANAGER", "SUPER_ADMIN"], pm, "Matériel promotionnel — bordereau de paiement au centre de paiement");
+  await audit(user, id, "UPDATE", `Bordereau de paiement initié (ordre ${order.reference}, en attente du centre de paiement)`);
   revalidate(id);
   return { ok: true };
 }
@@ -340,6 +381,10 @@ export async function confirmPayment(formData: FormData): Promise<ActionResult> 
   if (!pm) return { ok: false, error: "Dossier introuvable." };
   if (!isFinance(user)) return { ok: false, error: "Réservé aux finances." };
   if (pm.status !== "PAYMENT_INITIATED") return { ok: false, error: "Aucun bordereau de paiement en attente." };
+  // « PAIEMENT EFFECTUÉ » SE CONSTATE SUR L'ORDRE, il ne se déclare pas (§118.148). Le dossier
+  // passait à PAYMENT_DONE pendant que son ordre attendait encore le centre de paiement.
+  const nonRegle = await ordreNonRegle(pm.paymentOrderId);
+  if (nonRegle) return { ok: false, error: nonRegle };
 
   await prisma.promoMaterial.update({ where: { id }, data: { status: "PAYMENT_DONE", paymentDoneAt: new Date(), updatedById: user.id } });
   const note = fdStr(formData, "comment");
@@ -468,18 +513,33 @@ export async function settle(formData: FormData): Promise<ActionResult> {
   if (!isFinance(user)) return { ok: false, error: "Réservé aux finances." };
   if (pm.status !== "INVOICED") return { ok: false, error: "Aucune facture à régler." };
 
-  const amount = fdNum(formData, "amount") ?? Number(pm.chosenAmount ?? pm.amount ?? 0);
-  const order = amount > 0
-    ? await createExpenseOrder({
-        label: `Règlement matériel promotionnel — ${pm.title}${pm.chosenAgency ? ` (${pm.chosenAgency})` : ""}`,
-        amount, category: "FOURNISSEUR", beneficiary: pm.chosenAgency, sourceType: "PROMO_MATERIAL", sourceId: pm.id, requestedById: user.id,
-      })
-    : null;
+  // DEUX TEMPS, PARCE QUE CE SONT DEUX FAITS (§118.148). Ce geste créait l'ordre de dépense ET,
+  // dans le même clic, déclarait le dossier « réglé et clôturé » — un ordre que le centre de
+  // paiement pouvait encore refuser, sur un dossier que plus personne ne rouvrirait.
+  //   1. sans ordre de règlement : on le CRÉE, il part au centre, le dossier reste « facturé » ;
+  //   2. avec un ordre : le dossier se clôt une fois cet ordre RÉGLÉ, et pas avant.
+  if (!pm.settlementOrderId) {
+    const amount = fdNum(formData, "amount") ?? Number(pm.chosenAmount ?? pm.amount ?? 0);
+    if (!(amount > 0)) {
+      return { ok: false, error: "Renseignez le montant à régler : un paiement passe par le centre de paiement, qui autorise un montant." };
+    }
+    const order = await createExpenseOrder({
+      label: `Règlement matériel promotionnel — ${pm.title}${pm.chosenAgency ? ` (${pm.chosenAgency})` : ""}`,
+      amount, category: "FOURNISSEUR", beneficiary: pm.chosenAgency, sourceType: "PROMO_MATERIAL", sourceId: pm.id, requestedById: user.id,
+    });
+    await prisma.promoMaterial.update({ where: { id }, data: { settlementOrderId: order.id, updatedById: user.id } });
+    await audit(user, id, "UPDATE", `Règlement final envoyé au centre de paiement (ordre ${order.reference})`);
+    revalidate(id);
+    return { ok: true, message: `Ordre ${order.reference} créé — il attend le centre de paiement. Le dossier se clôturera une fois l'ordre réglé.` };
+  }
 
-  await prisma.promoMaterial.update({ where: { id }, data: { status: "SETTLED", settlementOrderId: order?.id ?? null, updatedById: user.id } });
+  const nonRegle = await ordreNonRegle(pm.settlementOrderId);
+  if (nonRegle) return { ok: false, error: nonRegle };
+
+  await prisma.promoMaterial.update({ where: { id }, data: { status: "SETTLED", updatedById: user.id } });
   if (pm.adminRequestId) await prisma.administrativeRequest.update({ where: { id: pm.adminRequestId }, data: { status: "DONE" } }).catch(() => {});
   await notifyRequester(pm, "Matériel promotionnel — dossier réglé et clôturé");
-  await audit(user, id, "VALIDATE", `Règlement final${order ? ` (ordre ${order.reference})` : ""}`);
+  await audit(user, id, "VALIDATE", "Règlement final constaté — dossier clôturé");
   revalidate(id);
   return { ok: true };
 }

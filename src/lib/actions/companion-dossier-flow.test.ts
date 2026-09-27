@@ -11,6 +11,7 @@ import { getAccess, type SessionUser } from "@/lib/rbac";
 import { createExpenseOrder, dossierHrefByOrder } from "@/lib/expense-orders";
 import { decidePaymentRequest, cancelPaymentRequest, nudgePaymentRequest } from "./payment-request-actions";
 import { settleExpenseOrder } from "./expense-actions";
+import { canDecideFromDossier } from "@/lib/finance/dossier-auto";
 
 let dbOk = false;
 try { await prisma.$queryRaw`SELECT 1`; dbOk = true; } catch { dbOk = false; }
@@ -121,7 +122,10 @@ suite("Un ordre de dépense, un dossier — quelle que soit sa provenance", () =
     fd.set("id", dossier.id); fd.set("move", "APPROVE");
     const r = await decidePaymentRequest(fd);
     expect(r.ok).toBe(false);
-    expect(r.error).toMatch(/centre de paiement/i);
+    // La phrase EXACTE de la garde, lue à sa source : « /centre de paiement/ » passait déjà
+    // AVANT que la garde ait un appelant — un autre refus disait les mêmes mots, et l'assertion
+    // mesurait le vocabulaire ambiant, pas la garde (§118.17, §118.148).
+    expect(r.error).toBe(canDecideFromDossier("EXPENSE_ORDER").reason);
   });
 
   it("ET IL NE SE RETIRE PAS NON PLUS — l'ordre resterait à régler sous un dossier « annulé »", async () => {

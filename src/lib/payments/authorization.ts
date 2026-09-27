@@ -43,7 +43,7 @@ export function isHighValue(amount: number): boolean {
  * parce qu'effacer le passé rendrait illisible tout ce qui a été payé avant la règle actuelle.
  */
 export type CentralStatus =
-  | "NOT_REQUIRED"      // sous le seuil, ou exempté (moyens généraux)
+  | "NOT_REQUIRED"      // HISTORIQUE : émis sous l'ancienne règle du seuil — plus aucun ordre n'y naît
   | "AWAITING"          // en attente d'une décision du centre
   | "CHANGES_REQUESTED" // le centre demande une révision du montant
   | "INFO_REQUESTED"    // le centre demande une argumentation
@@ -69,7 +69,6 @@ export const CENTRAL_DECISION_LABEL: Record<CentralDecision, string> = {
   REQUEST_INFO: "Demander une argumentation",
 };
 
-/** Les modules dont les paiements NE passent PAS par le centre. */
 /**
  * Ce paiement doit-il être autorisé par le centre ? OUI — toujours.
  *
@@ -188,6 +187,38 @@ export function applyDecision(current: CentralStatus, decision: CentralDecision)
     case "REQUEST_CHANGES": return "CHANGES_REQUESTED";
     case "REQUEST_INFO": return "INFO_REQUESTED";
   }
+}
+
+/**
+ * LE MONTANT D'UN ORDRE CHANGE APRÈS SA SOUMISSION — que devient son autorisation ? (§118.148)
+ *
+ * Le centre autorise un MONTANT, pas un dossier. Mesuré : le budget accordé d'un congrès se
+ * modifie après la validation définitive, et l'action répercutait le nouveau montant sur l'ordre
+ * de dépense sans toucher à son autorisation — un ordre autorisé à 500 000 DZD partait payé à
+ * 900 000 aux Finances, et le centre n'avait jamais vu les 400 000 de plus. « Tous les paiements
+ * passent par le centre » ne vaut rien si le montant qui part n'est pas celui qui y est passé.
+ *
+ * La règle, dans l'ordre :
+ *   • BAISSER ne rouvre rien — c'est un geste qui RÉDUIT l'engagement, et le centre a déjà
+ *     autorisé davantage ;
+ *   • RELEVER un montant AUTORISÉ (ou d'un ordre HISTORIQUE non encore payé) le renvoie au centre :
+ *     l'empreinte réelle d'un paiement ne dépasse jamais l'empreinte autorisée (§118.16) ;
+ *   • en attente du centre, la balle y est déjà : il décidera sur le nouveau montant ;
+ *   • révision ou argumentation demandée : la balle est au demandeur, sa resoumission ramènera le
+ *     dossier au centre, qui verra alors le nouveau montant ;
+ *   • REFUSÉ reste refusé : relever un montant refusé ne le rend pas acceptable, et un refus ne se
+ *     contourne pas en retouchant le chiffre.
+ *
+ * Un montant ILLISIBLE compte comme une hausse — le sens sûr, comme `isHighValue`.
+ */
+export function statutApresNouveauMontant(input: {
+  courant: CentralStatus; avant: number; apres: number;
+}): CentralStatus {
+  const { courant, avant, apres } = input;
+  const monte = !Number.isFinite(avant) || !Number.isFinite(apres) || apres > avant;
+  if (!monte) return courant;
+  if (courant === "APPROVED" || courant === "NOT_REQUIRED") return "AWAITING";
+  return courant;
 }
 
 /**

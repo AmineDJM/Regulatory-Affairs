@@ -967,8 +967,19 @@ redirige.
 
 **La règle** : **tout paiement de la société**, quel que soit le module qui l'a produit — Ad & Pro,
 secrétariat, formations, recrutement, moyens généraux, **BV Regulatory compris** — et **quel que
-soit le montant**, passe par le **centre de paiement** avant d'atteindre les Finances. La **paie
-RH** est le seul circuit à part : elle a le sien.
+soit le montant**, passe par le **centre de paiement** avant d'atteindre les Finances.
+
+**Ce qui n'y passe pas AUJOURD'HUI est NOMMÉ, jamais tu (§118.148).** « Concernant les paiements,
+c'est clair, tous passent par le centre de paiements » (Direction, 09/2026). Le registre des chemins
+de paiement (`lib/finances/settlement.ts`) porte désormais un axe **`centre`** : `AUTORISE` (l'ordre
+naît en attente du centre et `canDisburse` refuse de payer sans lui — ordre de dépense, demande de
+paiement, facture envoyée au règlement), `ENREGISTRE` (le geste enregistre un mouvement DÉJÀ fait —
+écriture directe au livre, facture « marquée réglée » avant son enregistrement, achat sur caisse ; il
+n'y a rien à autoriser, et payer un fournisseur par ce chemin serait un contournement) et
+**`HORS_CENTRE`** — trois chemins décidés dans l'ERP sans le centre : la **paie** (virements de
+salaires sans ordre de dépense), la **remise de caisse d'avance** et sa **rallonge**. Ce sont des
+exceptions à la règle, chacune avec la décision qu'elle attend de la Direction (`horsCentre()`), et un
+test tombe si un quatrième chemin change de camp sans que personne l'ait décidé.
 
 **Le seuil et l'exemption ont été retirés (2026-08).** Au-dessous de 50 000 DZD, et pour les moyens
 généraux, l'ordre filait droit aux Finances. L'intention était bonne — ne pas faire viser une
@@ -1004,9 +1015,35 @@ paierait de bonne foi ce qui n'est pas autorisé. Un paiement **refusé**, lui, 
 savoir qu'il ne viendra pas. Et **l'accès à la demande complète** leur reste ouvert : le financier
 qui paie doit pouvoir lire ce qu'il paie.
 
-**Où le verrou est réellement posé** : au **décaissement** (`markExpenseOrderPaid`), pas à
+**Où le verrou est réellement posé** : au **décaissement** (`settleExpenseOrder`), pas à
 l'affichage. Masquer une ligne est du confort ; `canDisburse(centralStatus)` est la règle. Toute
 autre porte vers le paiement devra passer par cette même fonction.
+
+**SIX PORTES À CÔTÉ DE LA PORTE GARDÉE (§118.148)** — chacune laissait le paiement se déclarer fait,
+ou l'argent partir, sans que le centre ait vu le montant :
+- **Le dossier compagnon se tranchait dans le dossier.** `canDecideFromDossier` était écrite, testée…
+  et n'avait AUCUN appelant : « refusé » posé sur le dossier laissait l'ordre payable. L'action la lit.
+- **Relever un budget accordé ne renvoyait rien au centre** (congrès, événements) : l'autorisation
+  donnée pour 500 000 couvrait 900 000. `statutApresNouveauMontant` — une HAUSSE rouvre, une baisse
+  non, un refus reste un refus, un montant illisible compte comme une hausse — et la raison part dans
+  le fil du centre.
+- **« Annule ce qu'Adam a modifié »** pouvait remettre `APPROVED` sur un ordre que le centre venait de
+  rouvrir : `centralStatus` a quitté la liste des champs restaurables.
+- **`updateInvoice`** acceptait une date de règlement sur une facture partie au centre (les deux
+  autres portes la refusaient) — le même dinar écrit deux fois.
+- **Le matériel promotionnel** déclarait « paiement effectué », « réglé et clôturé », ou fermait son
+  chantier « Paiement » d'un clic, sans ordre payé : les trois gestes lisent maintenant l'ordre, et
+  `chantierPaiementClos` (`lib/payments/reglement.ts`, pur) exige au moins un règlement et TOUS réglés.
+- **La rallonge de caisse** sortait de la banque sans écriture au livre (la remise, elle, écrivait).
+
+**UN SEUL ÉCRIVAIN D'ORDRE DE DÉPENSE, TENU PAR UN CLIQUET** (`lib/payments/centre-ecrivains.test.ts`).
+Le schéma garde `centralStatus = NOT_REQUIRED` par défaut — l'état HISTORIQUE que `canDisburse` laisse
+payer — donc un second `prisma.expenseOrder.create` ajouté demain ferait sortir de l'argent sans que
+le centre le voie, en silence. Le cliquet lit la source SANS ses commentaires et exige : un seul site
+de création (`createExpenseOrder`), qui pose le statut CALCULÉ par `initialCentralStatus` ; aucune
+écriture SQL brute ; et une liste FERMÉE, avec la règle qui justifie chaque entrée, de ceux qui
+écrivent l'autorisation (le centre, la réouverture des congrès), le paiement (`settleExpenseOrder`,
+qui consulte le verrou) ou le montant.
 
 - **Module PUR** : `src/lib/payments/authorization.ts` (`needsCentralAuthorization`,
   `initialCentralStatus`, `canDisburse`, `visibleToFinance`, `sitsOnPaymentCentre`, `applyDecision`,
@@ -1054,8 +1091,51 @@ BC), et la fiche lit l'achat d'un bout à l'autre : chaque maillon avec sa date,
 **délai en jours** entre deux maillons, l'**écart devis → facture** quand il existe (il doit se
 voir AVANT que l'argent parte), et au bout le **règlement** avec son état — au centre de paiement,
 aux Finances, réglé, refusé. « Envoyer au règlement » sur une facture crée l'ordre de dépense par
-la porte commune (centre de paiement dès 50 000 DZD) ; `LegalDocument.expenseOrderId` empêche
-d'envoyer deux fois la même facture au paiement.
+la porte commune — il naît en attente du centre de paiement, quel que soit le montant ;
+`LegalDocument.expenseOrderId` empêche d'envoyer deux fois la même facture au paiement, et une
+facture qui découle d'un **bon de commande que son centre n'a pas validé** ne part pas (voir
+ci-dessous).
+
+### Bons de commande — tout BC passe par un centre de validation (§118.148)
+
+« Concernant les BC, ils doivent tous passer soit par le centre de validation Ad & Pro si la demande
+est depuis Ad & Pro, soit par le centre de validation normal, si elle provient de quelque part
+d'autre » (Direction, 09/2026). **La règle est pure** (`lib/bons-de-commande/regle.ts`, socle, zéro
+import) et **l'aiguillage l'applique** (`lib/bons-de-commande/aiguillage.ts`) :
+
+- **QUEL CENTRE ?** On remonte l'ORIGINE du BC (sa fiche source, la pièce dont il découle, jusqu'à
+  six maillons, en passant par une demande au secrétariat ou un dossier de paiement) : un seul
+  maillon Ad & Pro suffit pour le **centre de validation Ad & Pro** (un visa `AdProGateVisa` SANS
+  seuil — « tous » veut dire tous) ; sinon le **centre de validations** (une demande de validation
+  adressée au Directeur Général, ou au Super Admin à défaut).
+- **UNE SEULE PORTE, JAMAIS DEUX.** Le BC d'un POSTE Ad & Pro a déjà la sienne (`orderStage`, visée au
+  centre Ad & Pro par le DG ou le Super Admin — plus par la Direction, ni par les Finances pour le
+  matériel promotionnel) ; en poser une seconde ferait valider deux fois le même engagement.
+- **CE QUI ARRIVE QUAND LE BC CHANGE** (`gesteAiguillage`) : aucune porte → la POSER ; en attente dans
+  l'autre centre (rattaché après coup à une fiche Ad & Pro) → la TRANSFÉRER ; VALIDÉ puis RELEVÉ →
+  ROUVRIR en disant de combien ; à revoir puis corrigé → ROUVRIR ; BAISSÉ, ou montant d'abord inconnu
+  qu'on renseigne → rien ; REFUSÉ → rien, même retouché, même rattaché ailleurs : un refus ne se
+  contourne pas. Annuler ou supprimer un BC retire sa porte en attente.
+- **LA FACTURE QUI EN DÉCOULE** ne part pas au règlement tant que le BC n'est pas validé
+  (`canSendToSettlement` → `blocageParLeBC`, qui nomme le BC et le centre). Un BC d'AVANT la règle
+  (sans porte) ne bloque rien — sinon tout le registre gèlerait — et sa fiche offre « Adresser au
+  centre » (`adresserBCAuCentre`, aussi en conversation : `legal_operation/submit_purchase_order`).
+- **LA PHRASE NE LE FAIT PAS PASSER POUR VALIDÉ** : la fiche, la fabrique (écran des Finances et outil
+  d'Adam) et la création disent « en attente de son centre — ne l'envoyez pas au fournisseur »
+  (`reserveBC`), calculé UNE fois par la fabrique, et « aucun siège au centre » quand personne n'y
+  siège. Le chantier « Bon de commande » du matériel promotionnel exige un BC validé
+  (`chantierBCClos`).
+- **Toutes les créations de documents Legal qui peuvent être un BC passent par l'aiguillage** — la
+  fiche Legal, le renouvellement, la demande au secrétariat, la fabrique — et le cliquet
+  `centre-ecrivains.test.ts` le tient sur la source (avec un niveau de délégation, pour la fabrique).
+
+**Deux défauts trouvés en le branchant.** Le formulaire « Pièces liées » d'une fiche envoyait la
+partie en TEXTE alors que Legal exige une partie de l'annuaire : il refusait TOUTE création — donc le
+geste même que le refus du chantier BC nomme ; il envoie désormais les identifiants, et le courrier
+ses expéditeur/destinataire. Et Adam écrivait la partie en texte libre : `create_legal_document`
+refusait après le clic, `update_legal_document` refusait toute pièce déjà rattachée à l'annuaire. La
+partie donnée par son NOM est maintenant résolue contre l'annuaire (`counterpartyName`), jamais écrite
+telle quelle.
 
 Un devis à **deux** bons de commande (deux lots) : chaque BC remonte au même devis, et l'on lit
 toujours **le fil de la pièce qu'on regarde** — jamais un graphe qui mélangerait deux commandes.
@@ -3871,7 +3951,8 @@ entité) sont éligibles. Supprimer une gamme **ne supprime aucun produit** (`SE
 | **Legal — coordonnées légales & fiscales** | Modèle `CompanyLegalIdentity` + `EntityType.COMPANY` ; module PUR `lib/legal/identity.ts` (`IDENTITY_SECTIONS`, `identityBlock`, `filledCount`) + tests ; `lib/actions/company-identity-actions.ts` ; `app/(app)/legal/identites/`. |
 | **Siège nommé au centre de paiement** | `PaymentCentreSeat` (userId unique, `grantedById`, `grantedAt`, `note` obligatoire) ; règle dans `sitsOnPaymentCentre` ; résolution **une fois par requête** dans `getAccess` → `EffectiveAccess.paymentCentreSeat` (la règle est SYNCHRONE et appelée depuis l'écran, l'action, l'assistant et la recherche — elle ne peut pas lire la base), qui ouvre AUSSI le module `PAYMENT_CENTRE` (un droit qu'on n'atteint qu'en connaissant l'URL n'est pas un droit accordé) ; actions `grantPaymentCentreSeat` / `revokePaymentCentreSeat` (`lib/actions/payment-centre-seat-actions.ts`, **Super Admin seul** — siéger ne donne pas le droit d'élargir le cercle) ; écran `app/(app)/admin/access/payment-centre-seats.tsx`, qui montre les deux titres ENSEMBLE (rôle + désignation). **EXCLUDED de la parité Adam** : accorder cette autorisation, c'est donner le pouvoir d'engager l'argent de la société (§118-15). Refusés : compte système, compte désactivé, et ceux qui y siègent déjà par leur rôle. Migration `20261007090000_…`. |
 | **Règlement — trois états** | Module PUR `lib/finance/settlement.ts` (`settlementState` · `checkDeferral` · `deferralNote` · `sortForSettlement`, 22 tests) : **non payé** (défaut) / **reporté à une date** / **payé**. Le report est une **DATE** (`ExpenseOrder.deferredUntil|deferredReason|deferredById|deferredAt`), jamais un statut — il **expire seul**, sans que personne ait à y penser, et l'ordre reste **dans la file**. Actions : `deferExpenseOrder` / `resumeExpenseOrder` (`lib/actions/expense-actions.ts`) ; ops Adam `defer_payment` / `resume_payment`. **SUPPRIMÉS** (écran + action + op) : `cancelExpenseOrder`, `requestBudgetRevision`, `resolveBudgetRevision` — l'ordre arrive autorisé par le centre, le rouvrir à la caisse défait une décision prise ailleurs (§118-7 : pas de porte dérobée). Migration `20261006090000_…` : les ordres `REVISION_REQUESTED` repassent `PENDING`, motif recopié en notes. |
-| **Centre de paiement (guichet unique)** | Module PUR `lib/payments/authorization.ts` (`needsCentralAuthorization` — **toujours vrai**, `initialCentralStatus`, **`canDisburse`** — le verrou réel —, `visibleToFinance`, `isHighValue` + `CENTRAL_AUTH_THRESHOLD_DZD` = 50 000 **en marqueur, plus en filtre**, `sitsOnPaymentCentre` (**`SUPER_ADMIN`, `DIRECTION`, ou un SIÈGE NOMMÉ** — pas le DG par son rôle), `PAYMENT_CENTRE_REFUSAL` (le refus, écrit une seule fois), `applyDecision`, `applyResubmission`, `blockedReason`) + `authorization.test.ts` (18 tests) ; `ExpenseOrder.centralStatus|proposedAmount|decidedById|decidedAt` + `PaymentCentreMessage` ; `createExpenseOrder` calcule le statut d'entrée et notifie `DIRECTION` + `SUPER_ADMIN` (`lib/expense-orders.ts`) ; **la demande de paiement crée son ordre à la SOUMISSION** (`lib/actions/payment-request-actions.ts`) ; garde dans `markExpenseOrderPaid` (`lib/actions/expense-actions.ts`) ; `lib/actions/payment-centre-actions.ts` ; `app/(app)/centre-de-paiement/`. Migrations `20260824150000_payment_centre` puis `20261002140000_centre_guichet_unique`. |
+| **Centre de paiement (guichet unique)** | Module PUR `lib/payments/authorization.ts` (`needsCentralAuthorization` — **toujours vrai**, `initialCentralStatus`, **`canDisburse`** — le verrou réel —, `visibleToFinance`, `isHighValue` + `CENTRAL_AUTH_THRESHOLD_DZD` = 50 000 **en marqueur, plus en filtre**, `sitsOnPaymentCentre` (**`SUPER_ADMIN`, `DIRECTION`, ou un SIÈGE NOMMÉ** — pas le DG par son rôle), `PAYMENT_CENTRE_REFUSAL` (le refus, écrit une seule fois), `applyDecision`, `applyResubmission`, `blockedReason`) + `authorization.test.ts` (18 tests) ; `ExpenseOrder.centralStatus|proposedAmount|decidedById|decidedAt` + `PaymentCentreMessage` ; `createExpenseOrder` calcule le statut d'entrée et notifie `DIRECTION` + `SUPER_ADMIN` (`lib/expense-orders.ts`) ; **la demande de paiement crée son ordre à la SOUMISSION** (`lib/actions/payment-request-actions.ts`) ; garde dans `settleExpenseOrder` (`lib/actions/expense-actions.ts`) ; `lib/actions/payment-centre-actions.ts` ; `app/(app)/centre-de-paiement/`. Migrations `20260824150000_payment_centre` puis `20261002140000_centre_guichet_unique`. **§118.148** : `statutApresNouveauMontant` (une hausse rouvre l'autorisation), `lib/payments/reglement.ts` (`etatDeLOrdre`, `chantierPaiementClos`), registre `PAYMENT_PATHS.centre` + `horsCentre()` (`lib/finances/settlement.ts`), cliquet des écrivains `lib/payments/centre-ecrivains.test.ts`, banc `centre-portes-flow.test.ts`. |
+| **Bons de commande — un centre de validation pour chacun (§118.148)** | Règle PURE `lib/bons-de-commande/regle.ts` (socle : `centreDeLOrigine`, `etatDepuisValidation/Visa/Poste`, `gesteAiguillage` POSER/TRANSFERER/ROUVRIR/ACTUALISER/RIEN, `blocageParLeBC`, `reserveBC`, `chantierBCClos`) ; aiguillage `lib/bons-de-commande/aiguillage.ts` (`aiguillerBC` — ne lève jamais, `porteDuBC`, `portesDesBC`, `retirerPortesEnAttente`) appelé par toute création/modification/annulation/suppression d'un BC (Legal, renouvellement, secrétariat, fabrique, rattachement Ad & Pro) ; `adresserBCAuCentre` + op `legal_operation/submit_purchase_order` ; fiche `app/(app)/legal/[id]/bc-gate.tsx` ; lentille du centre Ad & Pro (`BC_POSTE` / `BC_LEGAL` / `BC_PROMO`) ; migrations `20261127090000_bc_par_les_centres`, `20261127091000_rallonge_caisse_ecriture`. Bancs : `regle.test.ts` (27), `aiguillage-flow.test.ts` (13, vrais points d'entrée). |
 | **Centre de validation Ad & Pro** | **Règle du seuil au SOCLE** `lib/seuils/ad-pro.ts` (`porteDgRequise`, `motifPorteDg` — zéro import, parce que `tasks` et `adpro` sont deux domaines qui n'ont pas le droit de se parler : **c'est exactement pourquoi la règle était écrite DEUX fois**, `dgRequis` dans `workflow/parcours.ts` et la même arithmétique recopiée dans `promo-material/circuit.ts`) + `seuils/ad-pro.test.ts` ; module PUR `lib/ad-pro/centre.ts` (`siegeAuCentreAdPro`, `REFUS_CENTRE_AD_PRO`, **`FORME_PORTE: Record<AdProKind, FormePorte>`** — `ETAPE_CIRCUIT` / `ETAPE_PROMO` / `VISA_CENTRE`, exhaustif par le typecheck —, `NATURES_A_VISA` DÉRIVÉ, `visaAutoriseAAvancer`, `motifBlocageVisa`, `trierCentre`, `compteursCentre` avec **`sansMontant`**) + `ad-pro/centre.test.ts` (14 tests) ; **`AdProGateVisa`** (`@@unique([entityType, entityId])`, `threshold` FIGÉ §118.41) ; `lib/ad-pro/visa.ts` (`poserVisaAdPro` idempotente et qui ne RÉOUVRE jamais un visa tranché, `blocageCentreAdPro`) ; lecteur UNIQUE `lib/queries/ad-pro-centre.ts` ; portes posées dans `consulting-actions.ts` (soumission) et `ad-pro-other-actions.ts` (création) ; `lib/actions/ad-pro-centre-actions.ts` ; seuil réglable depuis les DEUX écrans par la MÊME action (`settings-actions.ts:setAdProDgThreshold`) ; `app/(app)/centre-ad-pro/` ; op de conversation `adpro_operation/decide_gate_visa` ; banc de bout en bout `lib/actions/ad-pro-centre-flow.test.ts` (12 tests, vrais points d'entrée). Migration `20261117090000_centre_validation_ad_pro`. |
 | **Matériel promo — circuit court** | Module PUR `lib/promo-material/circuit.ts` (`PROMO_STEPS` (7), `PROMO_TRACKS` (`PURCHASE_ORDER`/`PAYMENT`/`AD_VISA`), `initialStep` — saute la demande de devis si le devis est déjà là —, `canValidate` (N+1 réel : `Employee.managerId`, à défaut `departmentRef.head`), **`seesFullCircuit`** (Super Admin + PDG **uniquement**), `tracksOpen`, `allTracksDone`, `pendingTracks`, `progress`, `waitingOn`) + `circuit.test.ts` (23 tests) ; `lib/actions/promo-circuit-actions.ts`. |
 | **Rejeu de session (support)** | Module PUR `lib/replay/capture.ts` (`FORBIDDEN_FIELD` — mot de passe / secret / jeton / IBAN / RIB / CVV / carte —, `FORBIDDEN_INPUT_TYPE` — `password`, `hidden` —, `fieldIsRecordable`, `isSensitiveLabel`, `cleanLabel`, `scrubDetail`, **`makeEvent` : la porte d'entrée UNIQUE**, `coalesce`, `describeEvent`, `stamp`, `firstErrorIndex`) + `capture.test.ts` (20 tests) ; modèle `SessionEvent` ; `components/layout/session-recorder.tsx` (monté dans `app/(app)/layout.tsx`, `sendBeacon`, **ne lit jamais `.value`**) ; `app/api/replay/route.ts` (**re-masque côté serveur**, 204 systématique, lot plafonné à 200) ; `app/(app)/admin/replay/{page,replay-viewer}.tsx` (**`SUPER_ADMIN` seul**). |
@@ -5795,6 +5876,51 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 ---
 
 ## 🧾 Journal des évolutions récentes
+
+### « TOUS LES PAIEMENTS PAR LE CENTRE, TOUS LES BC PAR UN CENTRE DE VALIDATION » — et les portes qui passaient à côté (2026-09)
+
+Deux règles de la Direction, énoncées en deux lignes : « Concernant les paiements, c'est clair, tous passent par le
+centre de paiements. Concernant les BC, ils doivent tous passer soit par le centre de validation Ad&Pro si la demande
+est depuis Ad&Pro, soit par le centre de validation normal, si elle provient de quelque part d'autre. » La première
+était déjà écrite dans le code ; la mesure a montré par où elle fuyait. La seconde n'existait nulle part.
+
+**LES PAIEMENTS : LA RÈGLE ÉTAIT JUSTE, SIX PORTES PASSAIENT À CÔTÉ.** Un dossier compagnon se tranchait dans le
+dossier (la garde existait, sans appelant) ; relever un budget accordé de congrès laissait l'ordre autorisé pour
+l'ancien montant ; « annule ce qu'Adam a modifié » pouvait remettre « Autorisé » sur un ordre que le centre venait de
+rouvrir ; `updateInvoice` posait une date de règlement sur une facture partie au centre ; le matériel promotionnel
+déclarait son paiement fait sans ordre payé, par trois gestes différents ; la rallonge de caisse sortait de la banque
+sans écriture. Toutes sont fermées par leur vrai point d'entrée, et **un cliquet** tient le reste : un seul écrivain
+d'ordre de dépense, qui fait naître l'ordre au centre — parce que le défaut du schéma (`NOT_REQUIRED`) est l'état que
+le verrou laisse payer, et qu'un second écrivain ajouté demain l'hériterait en silence. **Ce qui n'y passe pas est
+NOMMÉ** : paie, remise de caisse et rallonge sont trois exceptions écrites au registre, chacune avec la décision
+qu'elle attend de la Direction.
+
+**LES BC : DEUX CENTRES, CHOISIS PAR L'ORIGINE.** Un BC né d'une demande Ad & Pro — même au bout d'un chemin qui
+passe par le secrétariat ou un dossier de paiement — va au centre de validation Ad & Pro (un visa sans seuil) ; tout
+autre BC au centre de validations. Une seule porte par BC (celui d'un poste Ad & Pro a déjà la sienne), et des
+transitions écrites une fois : transférée si on le rattache après coup, rouverte s'il est relevé après validation,
+jamais déplacée ni contournée après un refus. La facture qui en découle ne part pas au paiement tant que le BC n'est
+pas validé, et toute phrase qui annonce un BC dit qu'il attend son centre — sinon il part chez le fournisseur parce
+qu'il en a l'air.
+
+**DEUX DÉFAUTS TROUVÉS EN BRANCHANT.** Le formulaire « Pièces liées » refusait toute création de document Legal (il
+envoyait la partie en texte, Legal exige l'annuaire) — c'est pourtant le geste que le refus du chantier BC nomme. Et
+Adam écrivait la partie en texte libre : sa création échouait après le clic. Les deux passent maintenant par
+l'annuaire.
+
+**VINGT-CINQ BC D'UN COUP, ET LES DERNIERS SORTAIENT SANS PORTE.** La suite complète était verte ; ses journaux ne
+l'étaient pas. Dix BC émis en parallèle posent dix demandes de validation dont la référence `VAL-AAAA-NNN` se dérive du
+maximum : au-delà de six essais, la demande n'était pas créée et le BC sortait hors de tout centre, avec une phrase
+muette. Les créations d'une même série de références passent désormais une par une (`enSerie`), un aiguillage qui
+échoue le DIT (« il n'est PAS validé », avec « Adresser au centre »), et réémettre un BC identique — la reprise d'une
+mission — lui pose la porte qui lui manquait. Côté bancs, un siège de centre stable (`vitest.global-setup.ts`) remplace
+le Directeur Général qu'un banc venait de créer et que tous les autres désignaient.
+
+**Mesure** : 29 + 9 sabotages joués, tous tombent, chacun vérifié sur son témoin — dont un qui a montré qu'une assertion
+existante (`/centre de paiement/`) passait AVANT que la garde qu'elle prétendait tenir ait un appelant : un autre refus
+disait les mêmes mots. **Suite complète : 783 fichiers, 9 007 tests, 0 rouge.** Détail au §118.148 de `CLAUDE.md`.
+**Précisé depuis par la Direction** : seuls les BC au-dessus d'un montant réglé depuis le centre Ad & Pro passent par un
+centre, puis les Finances les signent — c'est le lot suivant.
 
 ### MESSAGERIE & NOTIFICATIONS — LE SUPER ADMIN PEUT ENFIN RETIRER CE QUI N'A PAS À RESTER (2026-09)
 

@@ -17,6 +17,7 @@ import {
 import { buildRef } from "@/lib/refs";
 import { montantDeLaDemande } from "@/lib/ad-pro/montant-demande";
 import { fdStr, fdNum, type ActionResult } from "@/lib/actions/types";
+import { siegeAuCentreAdPro, REFUS_BC_CENTRE_AD_PRO } from "@/lib/ad-pro/centre";
 
 /**
  * POSTES D'UNE OPÉRATION AD & PRO — actions serveur, pour les QUATRE opérations du pôle :
@@ -234,7 +235,7 @@ async function loadItem(id: string) {
     select: {
       id: true, label: true, kind: true, supplier: true, amountGranted: true, amountEstimated: true,
       expenseOrderId: true, promoMaterialId: true, status: true, budgetKind: true,
-      budgetCategoryId: true, orderStage: true, adminRequestId: true,
+      budgetCategoryId: true, orderStage: true, adminRequestId: true, orderRequestedById: true,
       sponsoringId: true, congressNationalId: true, congressInternationalId: true, eventId: true,
     },
   });
@@ -442,10 +443,12 @@ export async function emitItemExpenseOrder(_prev: ActionResult | undefined, form
   const info = await PARENTS[owner.parent].load(owner.id);
   if (!info) return { ok: false, error: "Opération introuvable." };
 
-  // Le circuit demandé : demande → visa Direction → émission. On n'émet pas sans le visa, sauf
-  // pour les postes hérités d'avant ce circuit (orderStage NONE), qui gardent l'ancien geste direct.
-  if (item.orderStage === "REQUESTED") return { ok: false, error: "La Direction n'a pas encore visé ce bon de commande." };
-  if (item.orderStage === "REFUSED") return { ok: false, error: "L'émission de ce bon de commande a été refusée." };
+  // Le circuit : demande du BC → VALIDATION AU CENTRE AD & PRO → émission. Un BC demandé ne part
+  // pas sans le visa du centre (§118.148). Un poste SANS bon de commande (orderStage NONE — une
+  // aide versée à l'association sur convention, un poste d'avant ce circuit) s'émet directement :
+  // il n'y a pas de BC à valider, et son paiement passe de toute façon par le centre de PAIEMENT.
+  if (item.orderStage === "REQUESTED") return { ok: false, error: "Le centre de validation Ad & Pro n'a pas encore validé ce bon de commande." };
+  if (item.orderStage === "REFUSED") return { ok: false, error: "Le bon de commande de ce poste a été refusé par le centre de validation Ad & Pro." };
 
   const amount = item.amountGranted != null ? toNumber(item.amountGranted) : null;
   const check = canEmitOrder({ amountGranted: amount, expenseOrderId: item.expenseOrderId, status: item.status }, info.decided);
@@ -775,7 +778,7 @@ async function nextAdminRequestRef(): Promise<string> {
   return buildRef("DEM", year, rows.map((r) => r.reference));
 }
 
-// ───────────────────────── Bon de commande : demande → Direction → Finances ─────────────────────────
+// ───────────────────────── Bon de commande : demande → centre Ad & Pro → Finances ─────────────────────────
 
 /** DEMANDE d'émission du bon de commande d'un poste accordé (première marche du circuit). */
 export async function requestAdProItemOrder(_prev: ActionResult | undefined, formData: FormData): Promise<ActionResult> {
@@ -802,17 +805,19 @@ export async function requestAdProItemOrder(_prev: ActionResult | undefined, for
   });
   const info = await PARENTS[owner.parent].load(owner.id);
   const cible = `${info?.ref ?? ""} — « ${item.label} » (${toNumber(item.amountGranted!).toLocaleString("fr-FR")} DZD)`;
-  await notifyRoles(["DIRECTION", "SUPER_ADMIN"], {
+  // TOUT BC NÉ D'AD & PRO PASSE PAR LE CENTRE DE VALIDATION AD & PRO (décision de la Direction,
+  // §118.148) : ses sièges sont prévenus, et le lien mène au CENTRE, où la ligne attend.
+  await notifyRoles(["GENERAL_MANAGER", "SUPER_ADMIN"], {
     type: "VALIDATION_REQUIRED",
-    title: "Bon de commande à viser",
+    title: "Bon de commande à valider",
     body: cible,
-    link: `${PARENTS[owner.parent].path}/${owner.id}`,
+    link: "/centre-ad-pro",
   }).catch(() => undefined);
   // L'ASSISTANTE DE DIRECTION ÉTABLIT LE BON DE COMMANDE — « demander l'établissement d'un BC
   // qui arrivera à l'assistante de direction pour chaque poste ». Elle n'était prévenue de rien :
-  // la demande partait à la Direction pour son visa, et l'assistante apprenait après coup qu'il
-  // fallait rédiger la pièce. On AJOUTE un destinataire, on ne retire aucune garde — le visa de
-  // la Direction reste ce qui engage, et c'est un geste distinct de l'établissement du document.
+  // la demande partait au visa, et l'assistante apprenait après coup qu'il fallait rédiger la
+  // pièce. On AJOUTE un destinataire, on ne retire aucune garde — le visa du centre reste ce qui
+  // engage, et c'est un geste distinct de l'établissement du document.
   await notifyRoles(["DIRECTION_ASSISTANT"], {
     type: "ASSIGNMENT",
     title: "Bon de commande à établir",
@@ -825,8 +830,17 @@ export async function requestAdProItemOrder(_prev: ActionResult | undefined, for
 }
 
 /**
- * VISA de la Direction sur la demande d'émission — puis les Finances émettent. Deux marches,
- * parce que ce sont deux responsabilités : la Direction engage, les Finances paient.
+ * VISA DU CENTRE DE VALIDATION AD & PRO sur la demande d'émission — puis les Finances émettent.
+ * Deux marches, parce que ce sont deux responsabilités : le centre engage, les Finances paient.
+ *
+ * ── POURQUOI LE CENTRE, ET PLUS « LA DIRECTION » ─────────────────────────────────────────
+ *
+ * « Concernant les BC, ils doivent tous passer soit par le centre de validation Ad&Pro si la
+ * demande est depuis Ad&Pro, soit par le centre de validation normal » (Direction, 09/2026). Le
+ * visa était donné par quiconque avait la vue globale ou VALIDATE sur le module — la Direction
+ * des opérations, la Direction Marketing : aucun centre ne voyait passer ces BC. Il revient aux
+ * SIÈGES du centre (`siegeAuCentreAdPro`), et le centre les LIT (`queries/ad-pro-centre.ts`) :
+ * décider depuis la fiche ou depuis le centre appelle la MÊME action, avec la même garde.
  *
  * La note de la Direction a son PROPRE champ. Elle vivait dans `orderNote`, où le demandeur
  * avait écrit le contenu du bon de commande et ses références : chaque visa l'EFFAÇAIT, et
@@ -841,14 +855,29 @@ export async function approveAdProItemOrder(_prev: ActionResult | undefined, for
   const found = await loadItem(id);
   if (!found) return { ok: false, error: "Poste introuvable." };
   const { item, owner } = found;
-  if (!canAllocate(user, owner.parent)) return { ok: false, error: "Seule la Direction vise un bon de commande." };
+  if (!siegeAuCentreAdPro(user)) return { ok: false, error: REFUS_BC_CENTRE_AD_PRO };
   if (item.orderStage !== "REQUESTED") return { ok: false, error: "Aucune demande d'émission en attente sur ce poste." };
 
   const note = fdStr(formData, "note");
+  const info = await PARENTS[owner.parent].load(owner.id);
+  const lien = `${PARENTS[owner.parent].path}/${owner.id}`;
+  const cible = `${info?.ref ?? ""} — « ${item.label} » (${toNumber(item.amountGranted!).toLocaleString("fr-FR")} DZD)`;
   if (decision === "REFUSE") {
+    // UN REFUS SANS MOTIF EST UNE IMPASSE pour le demandeur — la règle du centre, ici aussi.
+    // `=== null` et non `!note` : la dérivation des contrats lit `if (!v)` comme « champ
+    // OBLIGATOIRE » pour toute l'action, et le motif n'est exigé que pour un REFUS — l'approbation
+    // sans note deviendrait inappelable par le chemin générique (§118.87c, §118.138).
+    if (note === null) return { ok: false, error: "Indiquez le motif du refus : sans lui, le demandeur ne sait pas quoi corriger." };
     await prisma.adProItem.update({ where: { id }, data: { orderStage: "REFUSED", orderDecisionNote: note, updatedById: user.id } });
-    await audit(user, owner.parent, owner.id, "UPDATE", `Émission du bon de commande REFUSÉE pour « ${item.label} »${note ? ` — ${note}` : ""}.`);
+    await audit(user, owner.parent, owner.id, "UPDATE", `Bon de commande REFUSÉ par le centre de validation Ad & Pro pour « ${item.label} » — ${note}.`);
+    if (item.orderRequestedById) {
+      await notifyUser({
+        userId: item.orderRequestedById, type: "VALIDATION_REQUIRED",
+        title: "Bon de commande refusé par le centre Ad & Pro", body: `${cible} — ${note}`, link: lien,
+      }).catch(() => undefined);
+    }
     revalidate(owner.parent, owner.id);
+    revalidatePath("/centre-ad-pro");
     return { ok: true, id };
   }
 
@@ -856,14 +885,20 @@ export async function approveAdProItemOrder(_prev: ActionResult | undefined, for
     where: { id },
     data: { orderStage: "DIRECTION_OK", orderDirectionAt: new Date(), orderDirectionById: user.id, orderDecisionNote: note, updatedById: user.id },
   });
-  const info = await PARENTS[owner.parent].load(owner.id);
   await notifyRoles(["FINANCE_BUDGET_MANAGER", "SUPER_ADMIN"], {
     type: "VALIDATION_REQUIRED",
-    title: "Bon de commande visé — à émettre",
-    body: `${info?.ref ?? ""} — « ${item.label} » (${toNumber(item.amountGranted!).toLocaleString("fr-FR")} DZD)`,
-    link: `${PARENTS[owner.parent].path}/${owner.id}`,
+    title: "Bon de commande validé — à émettre",
+    body: cible,
+    link: lien,
   }).catch(() => undefined);
-  await audit(user, owner.parent, owner.id, "UPDATE", `Bon de commande visé par la Direction pour « ${item.label} » — transmis aux Finances.`);
+  if (item.orderRequestedById) {
+    await notifyUser({
+      userId: item.orderRequestedById, type: "GENERIC",
+      title: "Bon de commande validé par le centre Ad & Pro", body: `${cible} — transmis aux Finances.`, link: lien,
+    }).catch(() => undefined);
+  }
+  await audit(user, owner.parent, owner.id, "UPDATE", `Bon de commande validé par le centre de validation Ad & Pro pour « ${item.label} » — transmis aux Finances.`);
   revalidate(owner.parent, owner.id);
+  revalidatePath("/centre-ad-pro");
   return { ok: true, id };
 }

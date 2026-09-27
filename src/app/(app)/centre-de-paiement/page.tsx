@@ -21,11 +21,16 @@ export const metadata = { title: "Centre de paiement — AMD Internal OS" };
 /**
  * LE CENTRE DE PAIEMENT — le PDG et le Super Admin autorisent, la comptabilité exécute.
  *
- * Aucun décaissement à partir de 50 000 DZD ne quitte les Finances sans passer par ici. Les
- * moyens généraux sont exemptés (la petite caisse a son circuit), la paie n'entre pas dans ce
- * dispositif. Au-dessous du seuil, un paiement validé par le circuit habituel file directement
- * aux Finances — faire viser une facture de 3 000 DZD par le PDG, c'est garantir qu'il ne visera
- * plus rien au bout de trois semaines.
+ * AUCUN décaissement ne quitte les Finances sans passer par ici, quel que soit son montant —
+ * « Concernant les paiements, c'est clair, tous passent par le centre de paiements » (Direction,
+ * 09/2026). Le seuil de 50 000 DZD et l'exemption des moyens généraux ont disparu depuis
+ * longtemps du CODE (`needsCentralAuthorization` rend toujours vrai) ; cet en-tête, lui, les
+ * annonçait encore — et c'est lui qu'on lit en premier (§118.148). Le seuil survit comme un
+ * MARQUEUR qui trie la file (`isHighValue`), jamais comme un filtre.
+ *
+ * Ce qui décaisse SANS ordre de dépense — la paie, la caisse d'avance — ne passe pas par ici :
+ * ces exceptions sont écrites, avec la décision qu'elles attendent de la Direction, dans le
+ * registre des chemins de paiement (`finances/settlement.ts`, `horsCentre()`).
  *
  * L'écran est ouvert au CENTRE (qui décide) et au DEMANDEUR (qui répond quand on lui rend la
  * main) : les Finances, elles, n'ont rien à faire ici — un paiement leur arrive une fois autorisé.
@@ -155,7 +160,7 @@ export default async function CentreDePaiementPage() {
     <div className="space-y-5">
       <PageHeader
         title="Centre de paiement"
-        description={`Tout paiement à partir de ${CENTRAL_AUTH_THRESHOLD_DZD.toLocaleString("fr-FR")} DZD est autorisé ici avant d'atteindre les Finances — les moyens généraux exceptés. Le centre autorise, la comptabilité exécute : c'est la séparation des deux gestes qui rend le contrôle réel. Une décision n'est pas forcément « oui » ou « non » : on peut demander une révision du montant ou une argumentation, et le demandeur répond dans le même fil.`}
+        description={`Tout paiement de la société est autorisé ici avant d'atteindre les Finances, quel que soit son montant — ceux à partir de ${CENTRAL_AUTH_THRESHOLD_DZD.toLocaleString("fr-FR")} DZD en tête de file. Le centre autorise, la comptabilité exécute : c'est la séparation des deux gestes qui rend le contrôle réel. Une décision n'est pas forcément « oui » ou « non » : on peut demander une révision du montant ou une argumentation, et le demandeur répond dans le même fil.`}
       />
 
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">

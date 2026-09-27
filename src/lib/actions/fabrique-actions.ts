@@ -203,9 +203,11 @@ export async function emettrePieceCommerciale(_prev: ResultatEmission | undefine
     ok: true, id: r.legalDocumentId, reference: r.reference, legalDocumentId: r.legalDocumentId,
     docxNodeId: r.docx.nodeId, docxNom: r.docx.nom, pdfNodeId: r.pdf?.nodeId ?? null, pdfNom: r.pdf?.nom ?? null, pdfMethode: r.pdf?.methode ?? null,
     totalTtc: r.totaux.totalTtc, dejaEmis: r.dejaEmis, surPapierEnTete: r.surPapierEnTete, avertissements: r.avertissements,
-    message: r.dejaEmis
+    message: (r.dejaEmis
       ? `${libelle} ${r.reference} existait déjà pour ${r.tiers} : rendu tel quel, rien de nouveau n'a été émis.`
-      : `${libelle} ${r.reference} émis${r.type === "FACTURE" ? "e" : ""} au nom de ${r.societe.nom} pour ${r.tiers}.`,
+      : `${libelle} ${r.reference} émis${r.type === "FACTURE" ? "e" : ""} au nom de ${r.societe.nom} pour ${r.tiers}.`)
+      // Un BC émis attend son centre de validation (§118.148) : l'écran le dit, dans la même phrase.
+      + (r.reserveBonDeCommande ? ` ${r.reserveBonDeCommande}` : ""),
   };
 }
 

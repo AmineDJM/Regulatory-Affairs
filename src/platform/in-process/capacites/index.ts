@@ -46,6 +46,11 @@ export {
 // même portée : `resoudreCible` compose `porteeEntite`, donc une fiche hors périmètre
 // n'apparaît pas même comme candidate.
 export { resoudreCible, direRefus, type Cible, type Resolution } from "@/lib/cibles/resoudre";
+// LA PORTÉE DE LECTURE DES PIÈCES LEGAL (§118.148) — celle de l'écran, pas une copie. Une op qui
+// DÉSIGNE une pièce par son titre la cherche sous cette portée : sinon elle confirmerait
+// l'existence d'un document restreint — et son titre — à quelqu'un qui n'en est pas lecteur. Le
+// cliquet de frontière a compté 430 pour 428 quand l'op l'importait du socle en direct.
+export { legalReaderWhere } from "@/lib/lecteurs/legal";
 // BRANCHER / DÉTACHER UNE PIÈCE LEGAL EXISTANTE sur une fiche Ad & Pro. Ces deux actions
 // exigent DEUX droits (lire la pièce, modifier la fiche) et les vérifient elles-mêmes ; le
 // port ne fait que les rendre atteignables sans qu'Adam connaisse `actions/` (§118.111).

@@ -776,8 +776,12 @@ export const OFFICE_TOOLS: PowerTool[] = [
         message: r.dejaEmis
           ? `${libelle} ${r.reference} existait déjà pour ${r.tiers} : rendu tel quel, rien de nouveau n'a été émis.`
           : `${libelle} ${r.reference} émis${r.type === "FACTURE" ? "e" : ""} au nom de ${r.societe.nom} pour ${r.tiers} : TTC ${r.totaux.totalTtc.toLocaleString("fr-FR", { minimumFractionDigits: 2 })} DZD, fichier Word${r.pdf ? " et PDF" : ""} dans le Drive, pièce inscrite au registre Legal${r.surPapierEnTete ? ", sur le papier en-tête de la société" : ""}.`
-            + reserveDeMarque(r),
-        ...(reserveDeMarque(r) ? { consigne: "REPRENDRE la réserve dans la réponse : une pièce sans identité ni papier en-tête part au nom de la société et ne ressemble pas à un document officiel. Dire ce qui manque et où le renseigner." } : {}),
+            + reserveDeMarque(r)
+            // UN BC ÉMIS N'EST PAS UN BC VALIDÉ (§118.148) : il attend son centre, et la phrase le dit.
+            + (r.reserveBonDeCommande ? ` ${r.reserveBonDeCommande}` : ""),
+        ...(reserveDeMarque(r) || r.reserveBonDeCommande
+          ? { consigne: "REPRENDRE la réserve dans la réponse : une pièce sans identité ni papier en-tête ne ressemble pas à un document officiel, et un bon de commande qui attend son centre de validation n'engage pas encore la société. Dire ce qui manque et ce qui reste à faire." }
+          : {}),
       });
     },
   },

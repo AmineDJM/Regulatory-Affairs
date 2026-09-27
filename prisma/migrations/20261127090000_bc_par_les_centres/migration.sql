@@ -1,0 +1,20 @@
+-- ═══════════════════════════════════════════════════════════════════════════════════════════
+-- TOUT BON DE COMMANDE PASSE PAR UN CENTRE DE VALIDATION (§118.148).
+--
+-- « Concernant les BC, ils doivent tous passer soit par le centre de validation Ad&Pro si la
+-- demande est depuis Ad&Pro, soit par le centre de validation normal, si elle provient de
+-- quelque part d'autre. »
+--
+-- Le visa du centre Ad & Pro (`AdProGateVisa`) porte désormais aussi la porte d'un BON DE
+-- COMMANDE né d'Ad & Pro. Un BC y passe QUEL QUE SOIT son montant : son visa n'a donc pas de
+-- seuil, et la colonne devient facultative. Les visas existants (consulting, autres demandes)
+-- gardent le leur — rien n'est réécrit.
+--
+-- Aucun BC existant ne reçoit de porte par cette migration : les BC d'avant la règle ne bloquent
+-- rien (une garde qui gèlerait rétroactivement le registre serait désactivée dans la semaine,
+-- §118.16). Le geste « Adresser au centre » de la fiche d'un BC rattrape celui qu'on veut y
+-- soumettre.
+--
+-- Idempotente : relancée, elle ne fait rien.
+-- ═══════════════════════════════════════════════════════════════════════════════════════════
+ALTER TABLE "AdProGateVisa" ALTER COLUMN "threshold" DROP NOT NULL;

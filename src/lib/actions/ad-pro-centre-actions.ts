@@ -62,16 +62,21 @@ export async function deciderVisaCentreAdPro(formData: FormData): Promise<Action
       data: { status: approuve ? "APPROVED" : "REFUSED", decidedById: user.id, decidedAt: new Date(), note },
     });
 
+    // UN BON DE COMMANDE (§118.148) passe par le même visa et la même action : sa ligne vit dans
+    // le registre Legal, et c'est là que le demandeur retrouve la décision.
+    const estBC = entityType === "LEGAL_DOCUMENT";
     const kind = NATURE_PAR_ENTITE.get(entityType);
-    const lien = kind ? `${HREF.get(kind) ?? "/ad-pro"}/${entityId}` : "/ad-pro";
+    const lien = estBC ? `/legal/${entityId}` : kind ? `${HREF.get(kind) ?? "/ad-pro"}/${entityId}` : "/ad-pro";
     const montant = visa.amount == null ? "montant non renseigné" : `${Number(visa.amount).toLocaleString("fr-FR")} DZD`;
 
     await recordAudit({
       actorId: user.id, action: "UPDATE", module: "Centre de validation Ad & Pro",
       entityType: entityType as EntityType, entityId,
-      summary: approuve
-        ? `Centre Ad & Pro : demande AUTORISÉE au-delà du seuil (${montant})`
-        : `Centre Ad & Pro : demande REFUSÉE au-delà du seuil (${montant}) — ${note}`,
+      summary: estBC
+        ? (approuve ? `Centre Ad & Pro : bon de commande VALIDÉ (${montant})` : `Centre Ad & Pro : bon de commande REFUSÉ (${montant}) — ${note}`)
+        : approuve
+          ? `Centre Ad & Pro : demande AUTORISÉE au-delà du seuil (${montant})`
+          : `Centre Ad & Pro : demande REFUSÉE au-delà du seuil (${montant}) — ${note}`,
     });
 
     // LE DEMANDEUR EST PRÉVENU — sans quoi son dossier repart ou s'arrête sans qu'il sache
@@ -85,10 +90,14 @@ export async function deciderVisaCentreAdPro(formData: FormData): Promise<Action
         // Ad & Pro (l'enum ne porte pas d'APPROVED/REJECTED distincts, et en ajouter deux pour
         // une nuance que le TITRE porte déjà serait une migration d'enum pour rien).
         type: "SPONSORING_VALIDATION",
-        title: approuve ? "Centre Ad & Pro : votre demande est autorisée" : "Centre Ad & Pro : votre demande est refusée",
-        body: approuve
-          ? "Le centre de validation a autorisé le dépassement du seuil. Le circuit reprend son cours."
-          : `Motif : ${note}`,
+        title: estBC
+          ? (approuve ? "Centre Ad & Pro : votre bon de commande est validé" : "Centre Ad & Pro : votre bon de commande est refusé")
+          : approuve ? "Centre Ad & Pro : votre demande est autorisée" : "Centre Ad & Pro : votre demande est refusée",
+        body: estBC
+          ? (approuve ? "Le bon de commande peut partir chez le fournisseur ; la facture qui en découlera pourra partir au règlement." : `Motif : ${note}`)
+          : approuve
+            ? "Le centre de validation a autorisé le dépassement du seuil. Le circuit reprend son cours."
+            : `Motif : ${note}`,
         link: lien,
       });
     }
@@ -112,6 +121,12 @@ async function lireDemandeur(entityType: EntityType, entityId: string): Promise<
     const o = await prisma.adProOtherRequest
       .findUnique({ where: { id: entityId }, select: { requesterId: true } }).catch(() => null);
     return o?.requesterId ?? null;
+  }
+  if (entityType === "LEGAL_DOCUMENT") {
+    // Le BC : celui qui l'a enregistré ou composé est celui qui attend la décision.
+    const d = await prisma.legalDocument
+      .findUnique({ where: { id: entityId }, select: { createdById: true } }).catch(() => null);
+    return d?.createdById ?? null;
   }
   // Une nature qui n'a PAS de visa n'a pas à passer par ici : on ne devine pas son porteur.
   return null;
