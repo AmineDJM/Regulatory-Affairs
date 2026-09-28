@@ -1165,6 +1165,13 @@ model User {
   tourPlansToReview       TourPlan[]                       @relation("TourPlanReviewer")
   tourPlansEscalated      TourPlan[]                       @relation("TourPlanEscalatedTo")
   tourPlansDecided        TourPlan[]                       @relation("TourPlanDecidedBy")
+  /// LE COACHING (§118.157) : les fiches où il est évalué, celles qu'il a menées comme manager,
+  /// celles qu'il a écrites ou finalisées, et les versions de grille qu'il a publiées.
+  coachingSheets          CoachingSheet[]                  @relation("CoachingCollaborator")
+  coachingSheetsManaged   CoachingSheet[]                  @relation("CoachingManager")
+  coachingSheetsCreated   CoachingSheet[]                  @relation("CoachingAuthor")
+  coachingSheetsFinalized CoachingSheet[]                  @relation("CoachingFinalizer")
+  coachingGrids           CoachingGrid[]                   @relation("CoachingGridAuthor")
   delegatePlans           MedicalDelegatePlan[]
   bdOpportunities         BusinessDevelopmentOpportunity[]
   bdProjects              BdProject[]                      @relation("BdProjectOwner")
@@ -9540,6 +9547,69 @@ model MedicalVisitMessage {
 
   @@unique([visitId, messageId])
   @@index([messageId])
+}
+
+// ─────────────────── Force de vente : la FICHE DE COACHING (§118.157) ───────────────────
+
+/// UNE VERSION DE LA GRILLE DE COACHING — administrée par le directeur des opérations.
+///
+/// La grille (titre, quatre niveaux de maîtrise, axes et critères, libellés du bilan) est UN
+/// document JSON validé par `lib/coaching/grille.ts`. Chaque modification crée une VERSION et
+/// n'en réécrit jamais une : une fiche garde la grille sous laquelle elle a été remplie, sinon
+/// un « 3 » coché l'an dernier se relirait dans les critères du jour.
+model CoachingGrid {
+  id          String   @id @default(cuid())
+  /// 1, 2, 3… — la version courante est la plus haute.
+  version     Int      @unique
+  content     Json
+  /// POURQUOI cette version — le motif qu'a écrit le directeur des opérations, s'il en a donné un.
+  note        String?
+  createdById String?
+  createdBy   User?    @relation("CoachingGridAuthor", fields: [createdById], references: [id], onDelete: SetNull)
+  createdAt   DateTime @default(now())
+
+  sheets CoachingSheet[]
+}
+
+enum CoachingSheetStatus {
+  DRAFT
+  FINALIZED
+}
+
+/// UNE FICHE DE COACHING — une tournée en double, évaluée sur SA version de la grille.
+///
+/// Le TOTAL n'est pas stocké : il se calcule sur les notes et la grille (`bilanDesNotes`). Le
+/// stocker ferait deux vérités, et celle qu'on oublie de recalculer serait celle qu'on exporte.
+model CoachingSheet {
+  id             String              @id @default(cuid())
+  gridId         String
+  grid           CoachingGrid        @relation(fields: [gridId], references: [id], onDelete: Restrict)
+  /// LE COLLABORATEUR ÉVALUÉ — le KAM, le délégué.
+  collaboratorId String
+  collaborator   User                @relation("CoachingCollaborator", fields: [collaboratorId], references: [id], onDelete: Cascade)
+  /// LE MANAGER qui a fait la tournée en double — l'auteur, par défaut.
+  managerId      String?
+  manager        User?               @relation("CoachingManager", fields: [managerId], references: [id], onDelete: SetNull)
+  /// LE JOUR DE LA TOURNÉE.
+  visitDate      DateTime            @db.Date
+  /// « Secteur / Région / CDR » — pré-rempli depuis la force de vente, modifiable.
+  sector         String?
+  /// `{ <clé d'axe>: 1..4 }` — un axe non noté est ABSENT, jamais 0.
+  scores         Json
+  strengths      String?
+  improvements   String?
+  status         CoachingSheetStatus @default(DRAFT)
+  finalizedAt    DateTime?
+  finalizedById  String?
+  finalizedBy    User?               @relation("CoachingFinalizer", fields: [finalizedById], references: [id], onDelete: SetNull)
+  createdById    String?
+  createdBy      User?               @relation("CoachingAuthor", fields: [createdById], references: [id], onDelete: SetNull)
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+
+  @@index([collaboratorId, visitDate])
+  @@index([managerId])
+  @@index([createdById, status])
 }
 
 /// L'INSTANTANÉ MENSUEL D'UN KAM — le mois clos ne se recalcule plus.

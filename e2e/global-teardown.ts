@@ -20,6 +20,13 @@ export default async function globalTeardown(): Promise<void> {
     await prisma.driveNode.deleteMany({ where: { name: { startsWith: "__e2e__" } } }).catch(() => {});
     await prisma.artifactSession.deleteMany({ where: { name: { startsWith: "__e2e__" } } }).catch(() => {});
     await prisma.assistantProvenance.deleteMany({ where: { question: { startsWith: "__e2e__" } } }).catch(() => {});
+    // LE COACHING (§118.157) : une version de grille publiée par un compte de banc SURVIVRAIT à
+    // son auteur (`SetNull`) et deviendrait la grille EN VIGUEUR de toute la base. Les fiches
+    // d'abord (elles tiennent leur version par une clé `Restrict`), puis les versions.
+    await prisma.coachingSheet.deleteMany({
+      where: { OR: [{ collaborator: { email: { startsWith: "__e2e__" } } }, { createdBy: { email: { startsWith: "__e2e__" } } }] },
+    });
+    await prisma.coachingGrid.deleteMany({ where: { createdBy: { email: { startsWith: "__e2e__" } } } });
     await prisma.user.deleteMany({ where: { email: { startsWith: "__e2e__" } } });
   } finally {
     await prisma.$disconnect();

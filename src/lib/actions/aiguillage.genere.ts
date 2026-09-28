@@ -1,7 +1,7 @@
 // ⚠️  FICHIER GÉNÉRÉ — ne pas éditer à la main. Voir `npm run actions:contrat`.
 //
 // Chaque entrée est un spécificateur LITTÉRAL : l'empaqueteur les voit tous, et rien n'est
-// chargé avant l'appel. `executer.test.ts` résout les 765 actions et échoue en
+// chargé avant l'appel. `executer.test.ts` résout les 770 actions et échoue en
 // nommant celle qui a disparu — c'est le contrôle d'appelant que le compilateur ne fait pas ici.
 
 export const MODULES_ACTIONS: Readonly<Record<string, () => Promise<Record<string, unknown>>>> = {
@@ -32,6 +32,7 @@ export const MODULES_ACTIONS: Readonly<Record<string, () => Promise<Record<strin
   "budget-scope-actions": () => import("./budget-scope-actions") as unknown as Promise<Record<string, unknown>>,
   "calendar-actions": () => import("./calendar-actions") as unknown as Promise<Record<string, unknown>>,
   "care-actions": () => import("./care-actions") as unknown as Promise<Record<string, unknown>>,
+  "coaching-actions": () => import("./coaching-actions") as unknown as Promise<Record<string, unknown>>,
   "comment-actions": () => import("./comment-actions") as unknown as Promise<Record<string, unknown>>,
   "company-access-actions": () => import("./company-access-actions") as unknown as Promise<Record<string, unknown>>,
   "company-actions": () => import("./company-actions") as unknown as Promise<Record<string, unknown>>,

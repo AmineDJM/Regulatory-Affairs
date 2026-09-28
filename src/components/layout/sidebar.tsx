@@ -6,7 +6,7 @@ import { usePathname } from "next/navigation";
 import { Icon } from "@/components/ui/icon";
 import { cn } from "@/lib/utils";
 import type { NavItem } from "@/lib/labels";
-import { groupIntoPoles, itemsOfGroup, poleOfPath, OPEN_POLES_KEY, type NavPoleKey, pastillesDesEntrees, modulesDeLEntree } from "@/lib/navigation";
+import { groupIntoPoles, itemsOfGroup, poleOfPath, OPEN_POLES_KEY, type NavPoleKey, pastillesDesEntrees, modulesComptes, modulesPropres } from "@/lib/navigation";
 import { OfficePins } from "./office-pins";
 
 interface SidebarProps {
@@ -57,6 +57,9 @@ export function Sidebar({ items, messagingUnread = 0, moduleBadges = {} }: Sideb
 
   // Les entrées reçues sont DÉJÀ filtrées par le RBAC côté serveur : ranger n'ouvre aucun droit.
   const poles = React.useMemo(() => groupIntoPoles(items), [items]);
+  // Où chaque module VIT dans ce menu (§118.157) : un onglet ne reprend pas la pastille d'une
+  // notification dont le module a sa propre entrée.
+  const proprietaires = React.useMemo(() => modulesPropres(items), [items]);
   const pilotage = React.useMemo(() => itemsOfGroup(items, "Pilotage"), [items]);
   const transverse = React.useMemo(() => itemsOfGroup(items, "Transverse"), [items]);
   const systeme = React.useMemo(() => itemsOfGroup(items, "Système"), [items]);
@@ -136,7 +139,7 @@ export function Sidebar({ items, messagingUnread = 0, moduleBadges = {} }: Sideb
         {kids.length > 0 && opened && (
           <ul className="mt-0.5 space-y-0.5">{(() => {
             // Le parent compte déjà son module : un sous-menu du même module ne le recompte pas.
-            const pastilles = pastillesDesEntrees(kids, moduleBadges, modulesDeLEntree(item));
+            const pastilles = pastillesDesEntrees(kids, moduleBadges, modulesComptes(item, proprietaires), proprietaires);
             return kids.map((c, i) => renderItem(c, true, depth + 1, pastilles[i]));
           })()}</ul>
         )}
@@ -149,7 +152,7 @@ export function Sidebar({ items, messagingUnread = 0, moduleBadges = {} }: Sideb
       <div key={group}>
         <p className="px-3 pb-1.5 text-[0.625rem] font-semibold uppercase tracking-wider text-sidebar-muted">{group}</p>
         <ul className="space-y-0.5">{(() => {
-          const pastilles = pastillesDesEntrees(groupItems, moduleBadges);
+          const pastilles = pastillesDesEntrees(groupItems, moduleBadges, [], proprietaires);
           return groupItems.map((i, k) => renderItem(i, false, 0, pastilles[k]));
         })()}</ul>
       </div>
@@ -183,7 +186,7 @@ export function Sidebar({ items, messagingUnread = 0, moduleBadges = {} }: Sideb
                 const opened = isOpen(pole.key, pole.defaultOpen);
                 const anyActive = pole.children.some((c) => navPaths(c)
                   .some((p) => pathname === p || pathname.startsWith(p + "/")));
-                const pastilles = pastillesDesEntrees(pole.children, moduleBadges);
+                const pastilles = pastillesDesEntrees(pole.children, moduleBadges, [], proprietaires);
                 const badge = pastilles.reduce((a, n) => a + n, 0);
                 return (
                   <li key={pole.key}>

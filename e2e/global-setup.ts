@@ -60,6 +60,12 @@ export default async function globalSetup(): Promise<void> {
   try {
     // Nettoyage d'un run précédent interrompu, puis seed frais.
     await prisma.userInvite.deleteMany({ where: { token: { startsWith: "__e2e__" } } });
+    // Le décor du coaching AVANT les comptes (§118.157) : supprimer d'abord les comptes laisserait
+    // une version de grille sans auteur, devenue la grille en vigueur de toute la base.
+    await prisma.coachingSheet.deleteMany({
+      where: { OR: [{ collaborator: { email: { startsWith: "__e2e__" } } }, { createdBy: { email: { startsWith: "__e2e__" } } }] },
+    });
+    await prisma.coachingGrid.deleteMany({ where: { createdBy: { email: { startsWith: "__e2e__" } } } });
     await prisma.user.deleteMany({ where: { email: { startsWith: "__e2e__" } } });
 
     const testeur = await prisma.user.create({

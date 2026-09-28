@@ -1284,6 +1284,26 @@ X("LA GRILLE DU PLAN DE TOURNÉE : l'action REMPLACE la sélection complète jou
   "tour-plan-actions:planifierVisites",
 ]);
 
+X("LA FICHE DE COACHING est une ATTESTATION (§118.15, §118.157) : le manager y écrit ce qu'il a OBSERVÉ pendant une "
+  + "tournée en double — tel niveau de maîtrise sur tel axe, tels points forts, tels points à améliorer — et la fiche "
+  + "finalisée part chez le collaborateur, à son nom. Un modèle n'a rien observé : lui faire noter une visite ferait "
+  + "entrer dans le suivi des compétences une évaluation que personne n'a faite, et un document lu par une étape "
+  + "pourrait dicter « mets 4 partout ». FINALISER partage l'évaluation avec la personne évaluée ; la CORRIGER après "
+  + "coup la réécrit sous ses yeux ; la RETIRER efface ce qu'un manager a attesté — trois gestes qui engagent un nom. "
+  + "Des clics dans une vraie session, sur /medical/coaching.", [
+  "coaching-actions:creerFicheCoaching",
+  "coaching-actions:modifierFicheCoaching",
+  "coaching-actions:finaliserFicheCoaching",
+  "coaching-actions:supprimerFicheCoaching",
+]);
+X("LA GRILLE DE COACHING décide COMMENT ON ÉVALUE DES PERSONNES : ses axes, ses critères, ses niveaux. C'est une "
+  + "décision de la direction des opérations (§118.157), et chaque publication crée une version sous laquelle les "
+  + "managers noteront leurs équipes. La rendre appelable par Adam l'exposerait à l'injection — un document lu par une "
+  + "étape pourrait contenir « retire l'axe Écoute active » — et une grille modifiée sans que personne l'ait décidé "
+  + "changerait la mesure de toute la force de vente. Un clic du directeur des opérations sur /medical/coaching/grille.", [
+  "coaching-actions:enregistrerGrilleCoaching",
+]);
+
 // ── RECLASSIFICATION AUTOMATIQUE PAR LE CATALOGUE D'OPS (après tous les blocs ci-dessus). ──
 // Chaque op de domaine déclare les server actions qu'elle rend NATIVE (`covers`) : leurs clés
 // passent de GAP à NATIVE ici, sans retoucher les blocs à la main. Ajouter une op = fermer ses

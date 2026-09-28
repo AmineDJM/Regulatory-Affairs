@@ -85,6 +85,41 @@ export function modulesDeLEntree(entree: Pick<NavItem, "module" | "tabs">): stri
 }
 
 /**
+ * LES MODULES QUE LES ENTRÉES D'UN MENU PORTENT EN PROPRE — le module de chaque entrée et de chaque
+ * sous-menu, jamais ceux de leurs onglets. C'est la réponse à « où ce module VIT-il dans CE menu ? ».
+ */
+export function modulesPropres(entrees: readonly Pick<NavItem, "module" | "children">[]): Set<string> {
+  const propres = new Set<string>();
+  const visiter = (liste: readonly Pick<NavItem, "module" | "children">[]) => {
+    for (const e of liste) {
+      propres.add(e.module);
+      if (e.children) visiter(e.children);
+    }
+  };
+  visiter(entrees);
+  return propres;
+}
+
+/**
+ * CE QU'UNE ENTRÉE COMPTE dans un menu donné (§118.157) : son module, et ceux de ses onglets
+ * qu'AUCUNE entrée du menu ne porte en propre.
+ *
+ * « Annuaires » porte des onglets de la Promotion médicale (médecins, pharmaciens, établissements)
+ * et de l'espace de travail (partenaires, personnes). Compter leurs modules allumait « Annuaires 1 »
+ * à chaque notification médicale — mesuré dans la peau d'un KAM : la fiche de coaching finalisée
+ * s'affichait deux fois dans son menu, là où elle se lit et là où elle n'est pas. Une notification
+ * se compte là où son module VIT. Un onglet la reprend seulement quand l'entrée qui porte ce module
+ * n'est pas dans le menu de la personne — l'accès par annuaire (§118.147) ouvre exactement ce cas,
+ * et y taire la pastille cacherait la notification partout.
+ *
+ * Sans `proprietaires`, tous les onglets comptent : c'est la règle d'avant, et elle reste juste
+ * pour une entrée dont les onglets n'ont pas d'autre maison.
+ */
+export function modulesComptes(entree: Pick<NavItem, "module" | "tabs">, proprietaires: ReadonlySet<string> = new Set()): string[] {
+  return modulesDeLEntree(entree).filter((m) => m === entree.module || !proprietaires.has(m));
+}
+
+/**
  * LES PASTILLES D'UNE LISTE D'ENTRÉES SŒURS — chaque module compté UNE fois (§118.154).
  *
  * La pastille d'une entrée compte les notifications non lues de SON module. Or plusieurs entrées
@@ -104,11 +139,12 @@ export function pastillesDesEntrees(
   entrees: Pick<NavItem, "module" | "tabs">[],
   badges: Record<string, number>,
   dejaComptes: Iterable<string> = [],
+  proprietaires: ReadonlySet<string> = new Set(),
 ): number[] {
   const vus = new Set<string>(dejaComptes);
   return entrees.map((entree) => {
     let n = 0;
-    for (const m of modulesDeLEntree(entree)) {
+    for (const m of modulesComptes(entree, proprietaires)) {
       if (vus.has(m)) continue;
       vus.add(m);
       n += badges[m] ?? 0;

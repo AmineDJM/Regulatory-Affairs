@@ -1661,6 +1661,11 @@ export const MEDICAL_TABS: NavTab[] = [
   // LE PLAN DE TOURNÉE — là où le KAM prépare son mois et où son N+1 le tranche. Il vient
   // AVANT l'annuaire : un engagement validé passe devant un référentiel qu'on consulte.
   { module: "MEDICAL", label: "Plan de tournée", href: "/medical/plan-de-tournee" },
+  // LE COACHING — la fiche « tournée en double » (§118.157), juste après le plan de tournée : on
+  // l'écrit au retour d'une tournée. Sa grille est administrée par le directeur des opérations,
+  // qui n'a que la LECTURE du module — l'onglet s'affiche donc sur le droit de voir, et ce que
+  // chacun y FAIT vient de la règle du coaching (`lib/coaching/acces.ts`).
+  { module: "MEDICAL", label: "Coaching", href: "/medical/coaching" },
   { module: "MEDICAL", label: "Annuaire", href: "/medical/annuaire" },
   // PLUS D'ONGLET « ÉTABLISSEMENTS » ICI (décision de la Direction, 09/2026 — §118.138) : « on
   // les crée et on les gère depuis les Annuaires ». Le référentiel des hôpitaux ne vit donc plus

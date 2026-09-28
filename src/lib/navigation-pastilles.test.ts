@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { NAVIGATION, type NavItem } from "@/lib/labels";
-import { groupIntoPoles, pastillesDesEntrees, modulesDeLEntree } from "@/lib/navigation";
+import { FLAT_GROUPS, groupIntoPoles, itemsOfGroup, pastillesDesEntrees, modulesComptes, modulesDeLEntree, modulesPropres } from "@/lib/navigation";
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
@@ -72,9 +72,66 @@ describe("les deux menus lisent la même règle (points d'appel, §118.49)", () 
     }
   });
 
-  it("les sous-menus passent les modules de leur parent comme déjà comptés, dans les deux menus", () => {
+  it("les sous-menus passent ce que leur parent a COMPTÉ comme déjà compté, dans les deux menus", () => {
     for (const f of ["src/components/layout/sidebar.tsx", "src/components/layout/mobile-tabbar.tsx"]) {
-      expect(lire(f), f).toMatch(/pastillesDesEntrees\(kids, moduleBadges, modulesDeLEntree\(item\)\)/);
+      expect(lire(f), f).toMatch(/pastillesDesEntrees\(kids, moduleBadges, modulesComptes\(item, proprietaires\), proprietaires\)/);
     }
+  });
+
+  it("chaque liste passe où vivent les modules du menu (§118.157) — sans quoi un onglet reprend la pastille de son module", () => {
+    for (const f of ["src/components/layout/sidebar.tsx", "src/components/layout/mobile-tabbar.tsx"]) {
+      const src = lire(f);
+      expect(src, f).toMatch(/modulesPropres\(items\)/);
+      // Aucun appel sans le quatrième argument : chaque liste du menu doit le recevoir.
+      const appels = src.match(/pastillesDesEntrees\([^;]*?\)(?=[;.])/g) ?? [];
+      expect(appels.length, f).toBeGreaterThanOrEqual(3);
+      for (const appel of appels) expect(appel, `${f} : ${appel}`).toMatch(/proprietaires\)$/);
+    }
+  });
+});
+
+describe("une notification se compte là où son module VIT (§118.157)", () => {
+  const promo = entree("Promotion médicale");
+  const annuaires = entree("Annuaires");
+
+  it("PRÉMISSE : Annuaires porte des onglets de la Promotion médicale et de l'espace de travail, qui ont chacun leur entrée", () => {
+    expect(modulesDeLEntree(annuaires)).toEqual(expect.arrayContaining(["DIRECTORIES", "MEDICAL", "WORKSPACE"]));
+    const propres = modulesPropres(NAVIGATION);
+    expect(propres.has("MEDICAL") && propres.has("WORKSPACE") && propres.has("DIRECTORIES")).toBe(true);
+    expect(promo.module).toBe("MEDICAL");
+  });
+
+  it("la fiche de coaching finalisée allume la Promotion médicale, pas les Annuaires — qui gardent leur propre module", () => {
+    // Sur le menu entier, Annuaires ne compte plus que son propre module…
+    expect(modulesComptes(annuaires, modulesPropres(NAVIGATION))).toEqual(["DIRECTORIES"]);
+    // … et dans un menu où seule la Promotion médicale porte le module MEDICAL, la notification y va.
+    const proprietaires = modulesPropres([promo, annuaires]);
+    expect(pastillesDesEntrees([annuaires], { MEDICAL: 1 }, [], proprietaires)).toEqual([0]);
+    expect(pastillesDesEntrees([promo], { MEDICAL: 1 }, [], proprietaires)).toEqual([1]);
+    expect(pastillesDesEntrees([annuaires], { DIRECTORIES: 2 }, [], proprietaires)).toEqual([2]);
+  });
+
+  it("un SOUS-MENU est aussi une maison : le module qu'il porte ne se recompte pas sur l'onglet d'une autre entrée", () => {
+    // Aucune entrée du menu d'aujourd'hui n'exerce ce cas (un onglet dont le module ne vit que
+    // dans un sous-menu) : le décor synthétique tient la règle pour le jour où il existera (§118.82).
+    const parent = { module: "A", children: [{ module: "B" }] } as unknown as NavItem;
+    const autre = { module: "C", tabs: [{ module: "B" }] } as unknown as NavItem;
+    const proprietaires = modulesPropres([parent, autre]);
+    expect(proprietaires.has("B")).toBe(true);
+    expect(pastillesDesEntrees([autre], { B: 1 }, [], proprietaires)).toEqual([0]);
+  });
+
+  it("sans la Promotion médicale dans le menu (accès par annuaire, §118.147), l'onglet reprend la pastille — sinon elle ne s'afficherait nulle part", () => {
+    expect(pastillesDesEntrees([annuaires], { MEDICAL: 1 }, [], modulesPropres([annuaires]))).toEqual([1]);
+  });
+
+  it("sur le VRAI menu entier, dessiné liste par liste comme les deux menus le font, une notification médicale s'affiche UNE fois", () => {
+    const proprietaires = modulesPropres(NAVIGATION);
+    const listes = [...FLAT_GROUPS.map((g) => itemsOfGroup(NAVIGATION, g)), ...groupIntoPoles(NAVIGATION).map((p) => p.children)];
+    const total = (badges: Record<string, number>, prop?: Set<string>) =>
+      listes.flatMap((l) => pastillesDesEntrees(l, badges, [], prop)).reduce((a, n) => a + n, 0);
+    expect(total({ MEDICAL: 1 }, proprietaires)).toBe(1);
+    // TÉMOIN : sans la règle, la même notification s'affichait deux fois — l'assertion peut tomber.
+    expect(total({ MEDICAL: 1 })).toBe(2);
   });
 });

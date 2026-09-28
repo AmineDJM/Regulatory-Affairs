@@ -9,7 +9,7 @@ import type { NavItem } from "@/lib/labels";
 import { cn } from "@/lib/utils";
 import { useScrollLock } from "@/lib/use-scroll-lock";
 import { useTabBarHeight } from "@/components/layout/chrome-metrics";
-import { groupIntoPoles, itemsOfGroup, poleOfPath, OPEN_POLES_KEY, FLAT_GROUPS, pastillesDesEntrees, modulesDeLEntree } from "@/lib/navigation";
+import { groupIntoPoles, itemsOfGroup, poleOfPath, OPEN_POLES_KEY, FLAT_GROUPS, pastillesDesEntrees, modulesComptes, modulesPropres } from "@/lib/navigation";
 
 /**
  * BARRE D'ONGLETS MOBILE — navigation principale sur téléphone (l'app installée depuis
@@ -80,6 +80,9 @@ export function MobileTabBar({
   const pathname = usePathname();
   const [drawer, setDrawer] = React.useState(false);
   const [q, setQ] = React.useState("");
+  // Où chaque module VIT dans ce menu (§118.157) — lu sur le menu ENTIER, pas sur la recherche en
+  // cours : filtrer « annuaires » ne doit pas faire changer de maison une notification médicale.
+  const proprietaires = React.useMemo(() => modulesPropres(items), [items]);
   /**
    * Ouvertures dépliées — MÊME mémoire que la barre latérale (clé = pôle pour un pôle, route du
    * parent pour un sous-module). Chargée après montage : le serveur ne connaît pas le
@@ -153,13 +156,13 @@ export function MobileTabBar({
   // jamais sous un parent qui le compte déjà — sinon Finances et ses trois sous-menus affichent
   // chacun les mêmes notifications. Une seule fonction pour les deux menus.
   const renderTiles = (list: NavItem[]) => {
-    const pastilles = pastillesDesEntrees(list, moduleBadges);
+    const pastilles = pastillesDesEntrees(list, moduleBadges, [], proprietaires);
     return (
     <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
       {list.map((item, rang) => {
         const kids = item.children ?? [];
         const opened = searching || expanded[item.href] === true;
-        const pastillesEnfants = pastillesDesEntrees(kids, moduleBadges, modulesDeLEntree(item));
+        const pastillesEnfants = pastillesDesEntrees(kids, moduleBadges, modulesComptes(item, proprietaires), proprietaires);
         return (
           <React.Fragment key={item.href}>
             <Tile item={item} pathname={pathname} badge={pastilles[rang]}>
@@ -222,7 +225,7 @@ export function MobileTabBar({
                 <div className="space-y-2">
                   {poles.map((pole) => {
                     const opened = isPoleOpen(pole.key, pole.defaultOpen);
-                    const badge = pastillesDesEntrees(pole.children, moduleBadges).reduce((a, n) => a + n, 0);
+                    const badge = pastillesDesEntrees(pole.children, moduleBadges, [], proprietaires).reduce((a, n) => a + n, 0);
                     return (
                       <div key={pole.key} className="overflow-hidden rounded-2xl border border-border bg-card">
                         <button
