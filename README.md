@@ -6075,6 +6075,25 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 
 ## 🧾 Journal des évolutions récentes
 
+### LE CONTRÔLE DE STYLE BLOQUAIT LE DÉPLOIEMENT (2026-09)
+
+Render construit l'application par `npm run build:render`, qui lance `next lint` **avant** `next build`. Les
+vérifications du dépôt lançaient `next build`, qui ignore le lint : une erreur de lint ne se voyait nulle part avant le
+serveur de déploiement. Depuis le 05/09, une seule ligne — une directive qui désactivait une règle d'un plugin que la
+configuration ne charge pas — faisait sortir `next lint` en échec. La ligne est retirée (la règle n'étant pas active,
+la directive ne servait à rien) et `next lint` rend « No ESLint warnings or errors ». Deux garde-fous empêchent le
+retour : `npx next lint` fait désormais partie des vérifications avant commit, et un test (`lint-directives.test.ts`)
+refuse toute directive qui nomme une règle absente de la configuration réellement chargée — lue par ESLint lui-même,
+pas recopiée à la main.
+
+**Ce qu'on ne sait pas d'ici.** Si le service Render suit le `render.yaml` du dépôt, tout déploiement de la branche
+publiée échouait depuis le 05/09 et la production tournait sur une version antérieure. Ce conteneur ne voit ni le
+tableau de bord de Render ni l'adresse de l'ERP en production (l'adresse inscrite dans la description d'API sert une
+autre application) : la vérification se fait dans Render › Events.
+
+**Mesure** : `next lint` en code 0 (au lieu de 1), 8 sabotages joués sur le nouveau test et tous détectés. Détail au
+§118.155 de `CLAUDE.md`.
+
 ### LES PASTILLES DU MENU, ET LES DEMANDES AU SECRÉTARIAT QUI NAISSAIENT SANS SOCIÉTÉ (2026-09)
 
 Suite des parcours par rôle. **Les pastilles du menu ne se répètent plus.** Une pastille compte les notifications non

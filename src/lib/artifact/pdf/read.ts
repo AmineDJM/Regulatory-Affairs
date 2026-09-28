@@ -41,7 +41,8 @@ export interface LecturePdf {
 }
 
 // mupdf ne publie pas de types complets : on garde une surface `unknown` élargie, comme l'adaptateur.
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+// Pas de directive de lint ici : la règle visée n'existe pas dans la configuration (son plugin n'est
+// pas chargé), et la nommer faisait sortir `next lint` en échec — donc le build de Render (§118.155).
 type Doc = any;
 
 async function ouvrirPdf(octets: Buffer | Uint8Array): Promise<Doc> {
