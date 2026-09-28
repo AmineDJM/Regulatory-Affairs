@@ -19,6 +19,8 @@ import { balayerMentions } from "@/lib/fabric";
 import { rechaufferAlertes } from "@/lib/assistant/hot-alerts";
 import { balayageQualiteSiDu } from "@/lib/quality/engine";
 import { mettreEnCacheClausesSiDu } from "@/platform/in-process/intelligence";
+import { viderFile as viderFileSiteWeb } from "@/lib/site-web/file";
+import { rapprocherSiteSiDu } from "@/lib/site-web/reconciliation";
 import { runKnowledgeSweep, enqueueBacklogs, enqueueStalled, refreshEntityIndex } from "@/lib/knowledge/worker";
 import { runScheduledWorkflows } from "@/lib/scheduler/runner";
 import { registerBuiltinWorkflows } from "@/lib/scheduler/handlers";
@@ -146,6 +148,17 @@ export async function runScheduledJobs(): Promise<void> {
     // changé sont relues une fois par jour et mises en réserve dans `custom.intelligence` — les
     // lectures du jour (Adam, boîte de décision) trouvent des clauses déjà lues au lieu de les relire.
     await mettreEnCacheClausesSiDu().catch((e) => console.error("[scheduled] réserve des clauses", e));
+    // SITE PUBLIC ADVENTUM (§118.158) : la file d'envoi des offres d'emploi et des articles, puis
+    // la réconciliation quotidienne (`GET /jobs`, `GET /posts`). Ici et non dans le registre des
+    // planifications, pour la raison des récurrences de stock : ce sont des EFFETS (des requêtes
+    // qui publient sur un site public), écrits en revue de code, que le registre interdit à juste
+    // titre (`mutates: false`). La file est le FILET : les délais courts du contrat (1 s, 5 s,
+    // 30 s) sont tenus par un minuteur du processus, et c'est ce passage-ci qui reprend tout ce
+    // qui est dû après un redémarrage. Les deux se taisent tant que l'intégration n'est pas
+    // configurée (ADVENTUM_BASE_URL + ADVENTUM_API_KEY), et la réconciliation se débraye par
+    // SITE_WEB_RECONCILIATION=off.
+    await viderFileSiteWeb().catch((e) => console.error("[scheduled] file du site web", e));
+    await rapprocherSiteSiDu().catch((e) => console.error("[scheduled] rapprochement du site web", e));
 
     // LA COUCHE DE CONNAISSANCE — elle avance à son rythme, derrière tout le reste.
     //

@@ -3,10 +3,10 @@
 // se charge, et `DOMAIN_TOOL_DEFS` n'est pas itérable. Cycle CONNU, remède documenté.
 import "@/lib/assistant";
 import { describe, expect, it } from "vitest";
-import { CAPABILITY_OPS_IMPL } from "./impl-capabilite";
+import { CAPABILITY_OPS_IMPL, refusDuCheminGenerique } from "./impl-capabilite";
 import { direEmpreinteEcriture } from "@/platform/in-process/capacites";
 import {
-  CONTRATS_ACTIONS, direContrat, interdictionGenerique,
+  CONTRATS_ACTIONS, direContrat,
   type ChampAction, type ContratAction,
 } from "@/platform/in-process/capacites";
 import type { CurrentUser } from "@/lib/session";
@@ -65,7 +65,10 @@ const ACTEUR = {
 } as unknown as CurrentUser;
 
 describe("PARC — toute action ouverte se propose, et ce qu'elle promet suffit", () => {
-  const ouvertes = CONTRATS_ACTIONS.filter((c) => !c.illisible && !interdictionGenerique(c));
+  // LA MÊME RÈGLE QUE L'OP : juger « ouverte » avec les seuls trois faits de `generique.ts`
+  // compterait comme ouvertes les actions qu'une décision écrite exclut (§118.158) — et le banc
+  // accuserait l'op de refuser ce qu'elle a raison de refuser.
+  const ouvertes = CONTRATS_ACTIONS.filter((c) => !c.illisible && !refusDuCheminGenerique(c));
 
   it("le parc ouvert est bien celui qu'on croit", () => {
     // Un banc qui boucle sur une liste vide passe au vert sans rien éprouver (§118.17).
@@ -117,7 +120,7 @@ describe("PARC — toute action ouverte se propose, et ce qu'elle promet suffit"
   }, 120_000);
 
   it("AUCUNE action refusée par conception ne construit de carte — la garde est AVANT", async () => {
-    const interdites = CONTRATS_ACTIONS.filter((c) => !c.illisible && interdictionGenerique(c));
+    const interdites = CONTRATS_ACTIONS.filter((c) => !c.illisible && refusDuCheminGenerique(c));
     expect(interdites.length, "aucune action refusée : la garde ne s'arme plus").toBeGreaterThan(10);
     const passees: string[] = [];
     for (const c of interdites) {

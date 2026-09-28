@@ -1172,6 +1172,10 @@ model User {
   coachingSheetsCreated   CoachingSheet[]                  @relation("CoachingAuthor")
   coachingSheetsFinalized CoachingSheet[]                  @relation("CoachingFinalizer")
   coachingGrids           CoachingGrid[]                   @relation("CoachingGridAuthor")
+  jobPostingsCreated      JobPosting[]                     @relation("JobPostingAuthor")
+  jobPostingsUpdated      JobPosting[]                     @relation("JobPostingEditor")
+  blogArticlesCreated     BlogArticle[]                    @relation("BlogArticleAuthor")
+  blogArticlesUpdated     BlogArticle[]                    @relation("BlogArticleEditor")
   delegatePlans           MedicalDelegatePlan[]
   bdOpportunities         BusinessDevelopmentOpportunity[]
   bdProjects              BdProject[]                      @relation("BdProjectOwner")
@@ -1887,6 +1891,8 @@ model RecruitmentRequest {
   approvals    RecruitmentApproval[]
   infoRequests RecruitmentInfoRequest[]
   candidates   RecruitmentCandidate[]
+  /// L'offre publiée sur le site public, si les RH en ont préparé une (§118.158).
+  jobPosting   JobPosting?
 
   @@index([stage])
   @@index([requesterId])
@@ -7219,6 +7225,15 @@ model AppSetting {
   // La clé privée reste côté serveur ; la publique est servie via /api/push/key.
   vapidPublicKey                String?
   vapidPrivateKey               String?
+  /// LE SITE WEB A REFUSÉ LA CONFIGURATION (§118.158) — un 401 (clé ou signature refusée) ou une
+  /// redirection (adresse fausse). Tant que l'EMPREINTE de la configuration en vigueur est celle
+  /// qui a été refusée, plus rien ne part vers le site : réessayer en boucle une clé refusée ne
+  /// fait que remplir les journaux des deux côtés (« Ne pas réessayer en boucle », contrat §6).
+  /// Une configuration différente (clé ou adresse changée) lève le blocage d'elle-même. On ne
+  /// stocke JAMAIS la clé : seulement une empreinte tronquée de son condensat.
+  siteBlocageEmpreinte          String?
+  siteBlocageAt                 DateTime?
+  siteBlocageMotif              String?
   updatedAt                     DateTime  @updatedAt
   updatedById                   String?
 }
@@ -12768,4 +12783,191 @@ model PurchaseRequestLogEntry {
   @@index([requestId])
   @@index([createdAt])
   @@index([requesterId])
+}
+
+// ═══════════════════════ SITE WEB ADVENTUM — contenus poussés par l'ERP (§118.158) ═══════════════════════
+//
+// L'ERP est la SOURCE DE VÉRITÉ des offres d'emploi et des articles du site public, et il les
+// POUSSE : `PUT /api/v1/jobs/{externalId}`, `PUT /api/v1/posts/{externalId}` (contrat du site,
+// `docs/ERP-INTEGRATION.md`). L'`externalId` est l'identifiant de l'objet ici — rejouer une
+// requête ne crée jamais de doublon, et l'ERP n'a rien à stocker en retour, sinon l'adresse
+// publique qu'il affiche.
+
+/// UNE OFFRE D'EMPLOI destinée au site public (`/carrieres/<slug>`). Elle ne porte QUE ce que le
+/// site affiche : la rémunération et la justification d'un recrutement restent sur la demande
+/// interne, et le corps envoyé est construit champ par champ (`lib/site-web/contrat.ts`).
+model JobPosting {
+  id                   String              @id @default(cuid())
+  /// Le recrutement dont l'offre découle, s'il y en a un. L'offre n'est publique que tant que ce
+  /// poste est OUVERT : pourvu, clos, refusé ou annulé, elle part en brouillon.
+  recruitmentRequestId String?             @unique
+  recruitmentRequest   RecruitmentRequest? @relation(fields: [recruitmentRequestId], references: [id], onDelete: SetNull)
+  title                String
+  department           String?
+  location             String?
+  /// « CDI », « CDD », « Stage »… écrit comme le site le lit (CDD → TEMPORARY, Stage → INTERN).
+  contractLabel        String?
+  experience           String?
+  summary              String?
+  mission              String[]            @default([])
+  profile              String[]            @default([])
+  offer                String[]            @default([])
+  /// Le choix de la personne. Publié ne veut pas dire « en ligne » : seul le site le confirme.
+  published            Boolean             @default(false)
+  createdById          String?
+  createdBy            User?               @relation("JobPostingAuthor", fields: [createdById], references: [id], onDelete: SetNull)
+  updatedById          String?
+  updatedBy            User?               @relation("JobPostingEditor", fields: [updatedById], references: [id], onDelete: SetNull)
+  createdAt            DateTime            @default(now())
+  updatedAt            DateTime            @updatedAt
+
+  @@index([published])
+}
+
+/// UN ARTICLE DE BLOG destiné au site public (`/blog/<slug>`). Corps en Markdown structuré en `##`
+/// (le site en tire le sommaire) — jamais de titre de niveau 1, que le titre fournit.
+model BlogArticle {
+  id               String    @id @default(cuid())
+  title            String
+  /// L'adresse voulue. Vide = le site la dérive du titre (le cas normal). Unique quand elle est donnée.
+  slug             String?   @unique
+  description      String?
+  body             String
+  category         String?
+  tags             String[]  @default([])
+  author           String?
+  /// La date de publication affichée (datePublished). Posée à la première mise en ligne si
+  /// l'auteur n'en fixe pas — et elle ne bouge plus à chaque correction.
+  publishedOn      DateTime?
+  /// La première demande de mise en ligne.
+  firstPublishedAt DateTime?
+  /// La dernière révision d'un article déjà publié (dateModified).
+  revisedAt        DateTime?
+  featured         Boolean   @default(false)
+  published        Boolean   @default(false)
+  createdById      String?
+  createdBy        User?     @relation("BlogArticleAuthor", fields: [createdById], references: [id], onDelete: SetNull)
+  updatedById      String?
+  updatedBy        User?     @relation("BlogArticleEditor", fields: [updatedById], references: [id], onDelete: SetNull)
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  @@index([published])
+}
+
+enum SiteContentKind {
+  JOB
+  POST
+}
+
+enum SiteSyncState {
+  PENDING
+  DONE
+  FAILED
+}
+
+/// L'ÉTAT DE CHAQUE CONTENU POUSSÉ VERS LE SITE — et, tel quel, la FILE D'ENVOI.
+///
+/// Une ligne par (nature, externalId), jamais une par envoi : seule la DERNIÈRE version d'un
+/// contenu compte, puisque chaque PUT porte le document entier. Trois corrections rapides ne font
+/// pas trois requêtes en file mais une ligne dont la `version` a monté — et la version protège de
+/// la course : un envoi réussi ne marque « fait » que la version qu'il portait.
+///
+/// La ligne SURVIT à la suppression du contenu (opération DELETE) : c'est ce qui permet à la
+/// réconciliation de SAVOIR qu'un contenu encore présent sur le site a été retiré de l'ERP, au
+/// lieu de le deviner d'après une absence.
+model SitePublication {
+  id                 String            @id @default(cuid())
+  kind               SiteContentKind
+  externalId         String
+  /// Le titre au moment de la mise en file — pour lire le journal sans la source, qui peut avoir été supprimée.
+  label              String
+  /// "PUT" | "DELETE"
+  operation          String
+  /// La chaîne JSON EXACTE à envoyer, sérialisée UNE fois : c'est elle qui est signée et envoyée.
+  body               String?
+  bodyHash           String?
+  version            Int               @default(1)
+  state              SiteSyncState     @default(PENDING)
+  /// Les tentatives pour la version COURANTE (remis à zéro à chaque nouvelle version).
+  attempts           Int               @default(0)
+  nextAttemptAt      DateTime          @default(now())
+  /// Le verrou de l'envoi en cours — une ligne prise n'est pas reprise par un autre passage.
+  claimedAt          DateTime?
+  lastStatus         Int?
+  lastError          String?
+  lastAttemptAt      DateTime?
+  /// Ce que le site a CONFIRMÉ détenir (200/201) — l'empreinte et l'état de publication.
+  confirmedHash      String?
+  confirmedPublished Boolean?
+  confirmedAt        DateTime?
+  /// L'adresse publique rendue par le site (`/carrieres/…`, `/blog/…`).
+  siteUrl            String?
+  siteSlug           String?
+  /// Qui a demandé l'envoi — prévenu si le site refuse le contenu.
+  requestedById      String?
+  /// Une seule alerte par incident, pas une par passage du battement.
+  alertedAt          DateTime?
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
+  attemptLog         SitePushAttempt[]
+
+  @@unique([kind, externalId])
+  @@index([state, nextAttemptAt])
+}
+
+/// LE JOURNAL DES REQUÊTES vers le site : externalId, code HTTP, corps de réponse (§7 du contrat).
+/// Jamais la clé ni les en-têtes. Élagué aux dernières tentatives de chaque contenu.
+model SitePushAttempt {
+  id            String          @id @default(cuid())
+  publicationId String
+  publication   SitePublication @relation(fields: [publicationId], references: [id], onDelete: Cascade)
+  kind          SiteContentKind
+  externalId    String
+  method        String
+  path          String
+  version       Int
+  /// Nul = aucune réponse HTTP (réseau, délai dépassé, sortie refusée dans ce processus).
+  status        Int?
+  /// SUCCES | DEJA_ABSENT | REESSAYER | CORRIGER | BLOQUANT | LOCAL
+  outcome       String
+  responseBody  String?
+  error         String?
+  durationMs    Int             @default(0)
+  createdAt     DateTime        @default(now())
+
+  @@index([publicationId, createdAt])
+  @@index([createdAt])
+}
+
+/// UNE RÉCONCILIATION avec le site (`GET /jobs`, `GET /posts`) — quotidienne, ou demandée.
+model SiteReconciliation {
+  id           String    @id @default(cuid())
+  /// "AUTO" | "MANUEL"
+  trigger      String
+  byId         String?
+  startedAt    DateTime  @default(now())
+  finishedAt   DateTime?
+  ok           Boolean   @default(false)
+  error        String?
+  siteJobs     Int?
+  sitePosts    Int?
+  conformes    Int       @default(0)
+  repousses    Int       @default(0)
+  suppressions Int       @default(0)
+  /// Écarts qu'on ne repousse PAS : le site a déjà refusé ce contenu tel quel (4xx).
+  rejetes      Int       @default(0)
+  /// [{ nature, externalId, titre, url }] — présents sur le site, inconnus de l'ERP. Jamais supprimés d'office.
+  orphelins    Json?
+  /// [{ externalId, libelle, slug, titreDuDepot }] — masqués par un article du dépôt du site.
+  collisions   Json?
+  /// [{ nature, externalId, libelle, raison }] — ce qui a été repoussé, et pourquoi.
+  ecarts       Json?
+  /// { jobs, posts } — saisis dans l'admin du site, sans externalId.
+  manuels      Json?
+  /// Les slugs des articles du DÉPÔT du site au moment du rapprochement — l'éditeur s'en sert pour
+  /// prévenir d'une collision AVANT l'envoi.
+  depotSlugs   String[]  @default([])
+
+  @@index([startedAt])
 }

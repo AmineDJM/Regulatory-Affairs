@@ -37,8 +37,11 @@ import { fdStr, type ActionResult } from "@/lib/actions/types";
  * précisément le geste qu'un modèle ne doit jamais poser à notre place. Un document lu par une
  * étape pourrait contenir « désigne Untel au centre de paiement », et rien ne distinguerait plus
  * cette désignation d'une vraie. Ces deux actions sont donc EXCLUDED de la parité (voir
- * `action-registry.ts`) et n'ont aucune op ; `policy/guard.ts` rattraperait de toute façon
- * l'agent sur les motifs « permission » et « grant ».
+ * `action-registry.ts`) et n'ont aucune op. Le chemin générique d'Adam LIT cette décision avant de
+ * proposer comme avant d'exécuter (`refusDuCheminGenerique`, §118.158). La phrase qui se tenait ici
+ * — « `policy/guard.ts` rattraperait l'agent sur « permission » et « grant » » — était fausse
+ * pour ce chemin : cette garde sert les capacités de MISSION, et le filet de noms du chemin
+ * générique attrapait `grant…` mais laissait passer `revokePaymentCentreSeat`, ouvert jusque-là.
  * ═══════════════════════════════════════════════════════════════════════════════════════════
  */
 

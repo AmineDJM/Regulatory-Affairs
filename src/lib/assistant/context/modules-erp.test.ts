@@ -37,12 +37,13 @@ describe("les modules de l'ERP sont atteignables", () => {
    *
    * Le sabotage : vider les `domaines` d'un module servi — le compte monte et le test tombe.
    */
-  it("les 43 modules déclarent leur service, et les sans-outil se comptent", () => {
+  it("les 44 modules déclarent leur service, et les sans-outil se comptent", () => {
     const modules = Object.keys(MODULE_LABELS);
     expect(Object.keys(SERVICE_DU_MODULE).sort()).toEqual(modules.sort());
     const sansOutil = Object.entries(SERVICE_DU_MODULE).filter(([, s]) => s.domaines.length === 0).map(([c]) => c);
-    // MESURÉ : les moyens généraux et le retour d'expérience n'ont aucune capacité Adam.
-    expect(sansOutil.sort()).toEqual(["FEEDBACK", "GENERAL_MEANS"]);
+    // MESURÉ : les moyens généraux et le retour d'expérience n'ont aucune capacité Adam ; le site
+    // public non plus, par décision — publier sur le site est un geste d'écran (§118.158).
+    expect(sansOutil.sort()).toEqual(["FEEDBACK", "GENERAL_MEANS", "SITE_WEB"]);
   });
 
   /**

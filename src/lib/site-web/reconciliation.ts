@@ -1,0 +1,332 @@
+import { prisma } from "@/lib/prisma";
+import { SortieInterdite } from "@/lib/sortie/garde";
+import { notifyRoles } from "@/lib/notify";
+import {
+  classerReponse, lireArticlesDuDepot, lireListeSite, planifierRapprochement, serialiser,
+  type PlanRapprochement,
+} from "./contrat";
+import { lireConfiguration } from "./config";
+import { voulusDepuisLaBase } from "./contenus";
+import { blocageEnVigueur, bloquerPourConfiguration, empreinteCorps, mettreEnFile, viderFile } from "./file";
+import { envoyerAuSite, type ReponseSite, type TransportSite } from "./transport";
+
+/**
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ * LA RÉCONCILIATION QUOTIDIENNE AVEC LE SITE (§118.158, contrat §7.5).
+ *
+ * `GET /jobs` et `GET /posts`, comparés à ce que l'ERP VEUT — recalculé depuis les contenus, pas
+ * relu dans la file. Elle rattrape tout ce que la file n'a pas pu tenir : un envoi épuisé, un site
+ * redéployé sans disque persistant qui a tout perdu (contrat §9), une étape de recrutement écrite
+ * hors des actions.
+ *
+ *   • ce qui manque ou diverge est REMIS EN FILE (la file envoie, réessaie, journalise) ;
+ *   • ce qui a été supprimé ici et survit là-bas voit son DELETE rejoué ;
+ *   • ce que le site détient déjà à l'identique est CONFIRMÉ — y compris un envoi que la file
+ *     croyait perdu (délai dépassé alors que le site avait bien écrit) ;
+ *   • ce que l'ERP ne connaît pas est NOMMÉ, jamais supprimé : un `externalId` absent de la file
+ *     n'est pas la preuve qu'on l'a retiré (§118.9 — seul TROUVÉ autorise à agir) ;
+ *   • un article masqué par un article du dépôt du site (même slug) est SIGNALÉ : le site répond
+ *     200 et ne l'affiche pas, c'est le faux succès que personne ne verrait autrement.
+ *
+ * Un contenu que le site a REFUSÉ tel quel (4xx) n'est pas repoussé tel quel chaque nuit : il est
+ * compté « rejeté », et c'est à une personne de le corriger.
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ */
+
+export const INTERVALLE_RAPPROCHEMENT_MS = 24 * 3_600_000;
+/** Un rapprochement qui a échoué (site injoignable) se retente une heure plus tard, pas à chaque minute. */
+export const REESSAI_RAPPROCHEMENT_MS = 3_600_000;
+
+export interface BilanRapprochement {
+  ok: boolean;
+  message: string;
+  id: string | null;
+  conformes: number;
+  repousses: number;
+  suppressions: number;
+  rejetes: number;
+  orphelins: number;
+  collisions: number;
+}
+
+const vide = (message: string, id: string | null = null): BilanRapprochement => ({
+  ok: false, message, id, conformes: 0, repousses: 0, suppressions: 0, rejetes: 0, orphelins: 0, collisions: 0,
+});
+
+function lireJson(texte: string | null): Record<string, unknown> | null {
+  if (!texte) return null;
+  try {
+    const j = JSON.parse(texte) as unknown;
+    return j && typeof j === "object" && !Array.isArray(j) ? (j as Record<string, unknown>) : null;
+  } catch {
+    return null;
+  }
+}
+
+export interface OptionsRapprochement {
+  declencheur: "AUTO" | "MANUEL";
+  parId?: string | null;
+  maintenant?: Date;
+  transport?: TransportSite;
+}
+
+export async function rapprocherSite(opts: OptionsRapprochement): Promise<BilanRapprochement> {
+  const maintenant = opts.maintenant ?? new Date();
+  const conf = lireConfiguration();
+  if (!conf.ok) return vide(conf.raison);
+  if (await blocageEnVigueur(conf.config.empreinte)) {
+    return vide("Publication suspendue : le site a refusé la configuration. Corrigez-la (ou vérifiez la connexion) avant de rapprocher.");
+  }
+  const transport = opts.transport ?? envoyerAuSite;
+  const ligne = await prisma.siteReconciliation.create({
+    data: { trigger: opts.declencheur, byId: opts.parId ?? null, startedAt: maintenant },
+    select: { id: true },
+  });
+  const echec = async (erreur: string): Promise<BilanRapprochement> => {
+    await prisma.siteReconciliation.update({ where: { id: ligne.id }, data: { finishedAt: new Date(), ok: false, error: erreur.slice(0, 1_000) } });
+    return vide(erreur, ligne.id);
+  };
+
+  // ── Lire ce que le site détient ──────────────────────────────────────────────────────
+  const lus: { jobs?: Record<string, unknown>; posts?: Record<string, unknown> } = {};
+  for (const [cle, chemin] of [["jobs", "/jobs"], ["posts", "/posts"]] as const) {
+    let rep: ReponseSite;
+    try {
+      rep = await transport({ methode: "GET", chemin });
+    } catch (e) {
+      if (e instanceof SortieInterdite) return echec("Sortie interdite dans ce processus (test ou banc) : le site n'a pas été interrogé.");
+      return echec(`GET ${chemin} : ${e instanceof Error ? e.message : String(e)}`);
+    }
+    const issue = classerReponse("GET", rep.statut);
+    if (issue === "BLOQUANT") return echec(await bloquerPourConfiguration(conf.config.empreinte, rep, maintenant));
+    if (issue !== "SUCCES") {
+      return echec(`GET ${chemin} : ${rep.statut === null ? (rep.erreur ?? "site injoignable") : `réponse ${rep.statut}`}. Nouvel essai dans une heure.`);
+    }
+    const json = lireJson(rep.texte);
+    if (!json) return echec(`GET ${chemin} : réponse illisible (pas un objet JSON). Rien n'a été comparé.`);
+    lus[cle] = json;
+  }
+
+  const jobs = lireListeSite(lus.jobs!.jobs);
+  const posts = lireListeSite(lus.posts!.posts);
+  const depot = lireArticlesDuDepot(lus.posts!.readOnlyFileArticles);
+  if (!Array.isArray(lus.jobs!.jobs) || !Array.isArray(lus.posts!.posts)) {
+    // Une réponse sans liste n'est pas « le site n'a rien » : tout repousser sur cette foi-là
+    // serait inoffensif pour le site (PUT idempotents) mais ferait croire à une perte de données.
+    return echec("Le site a répondu sans la liste attendue (`jobs` ou `posts`) : rien n'a été comparé.");
+  }
+
+  // ── Comparer à ce que l'ERP veut, et appliquer ───────────────────────────────────────
+  const voulus = await voulusDepuisLaBase();
+  const plan = planifierRapprochement(voulus, { jobs: jobs.enregistrements, posts: posts.enregistrements, depot });
+  const cle = (nature: string, externalId: string) => `${nature}:${externalId}`;
+  const voulusParCle = new Map(voulus.map((v) => [cle(v.nature, v.externalId), v] as const));
+  const lignes = await prisma.sitePublication.findMany({
+    select: { id: true, kind: true, externalId: true, operation: true, state: true, bodyHash: true, lastStatus: true, claimedAt: true },
+  });
+  const lignesParCle = new Map(lignes.map((l) => [cle(l.kind, l.externalId), l] as const));
+
+  let repousses = 0;
+  let rejetes = 0;
+  let suppressions = 0;
+  const ecarts: { nature: string; externalId: string; libelle: string; raison: string }[] = [];
+
+  for (const p of plan.aPousser) {
+    const v = voulusParCle.get(cle(p.nature, p.externalId));
+    if (!v?.corps) continue;
+    const hash = empreinteCorps(serialiser(v.corps));
+    const l = lignesParCle.get(cle(p.nature, p.externalId));
+    const refuseTelQuel = l && l.state === "FAILED" && l.lastStatus !== null && l.lastStatus >= 400 && l.lastStatus < 500 && l.bodyHash === hash;
+    if (refuseTelQuel) {
+      rejetes += 1;
+      ecarts.push({ nature: p.nature, externalId: p.externalId, libelle: p.libelle, raison: `${p.raison} — non repoussé : le site a refusé ce contenu tel quel (${l!.lastStatus})` });
+      continue;
+    }
+    const r = await mettreEnFile({ nature: p.nature, externalId: p.externalId, libelle: p.libelle, operation: "PUT", corps: v.corps, forcer: true });
+    if (r.enFile) repousses += 1;
+    ecarts.push({ nature: p.nature, externalId: p.externalId, libelle: p.libelle, raison: p.raison });
+  }
+
+  // Connus de l'ERP mais refusés par le contrat du site dans leur état actuel : ni repoussés, ni
+  // orphelins — nommés, parce qu'une personne doit les corriger (et c'est la seule issue).
+  for (const v of voulus) {
+    if (v.operation !== "PUT" || v.corps) continue;
+    rejetes += 1;
+    ecarts.push({ nature: v.nature, externalId: v.externalId, libelle: v.libelle, raison: `non envoyé : ${v.refus ?? "contenu refusé par le contrat du site"}` });
+  }
+
+  for (const s of plan.aSupprimer) {
+    const r = await mettreEnFile({ nature: s.nature, externalId: s.externalId, libelle: s.libelle, operation: "DELETE", corps: null, forcer: true });
+    if (r.enFile) suppressions += 1;
+    ecarts.push({ nature: s.nature, externalId: s.externalId, libelle: s.libelle, raison: "supprimé dans l'ERP, encore présent sur le site" });
+  }
+
+  for (const c of plan.conformes) {
+    const v = voulusParCle.get(cle(c.nature, c.externalId));
+    const l = lignesParCle.get(cle(c.nature, c.externalId));
+    if (!v) continue;
+    if (v.operation === "PUT" && v.corps) {
+      const hash = empreinteCorps(serialiser(v.corps));
+      if (!l) {
+        // Voulu en ligne, déjà en ligne à l'identique, mais sans ligne de file : on l'inscrit,
+        // pour que l'écran dise « En ligne » au lieu de « À envoyer ».
+        await prisma.sitePublication.create({
+          data: {
+            kind: c.nature, externalId: c.externalId, label: v.libelle, operation: "PUT", body: serialiser(v.corps), bodyHash: hash,
+            state: "DONE", attempts: 0, confirmedHash: hash, confirmedPublished: v.corps.published, confirmedAt: maintenant,
+            siteUrl: c.url, siteSlug: c.slug,
+          },
+        }).catch(() => undefined);
+        continue;
+      }
+      // La ligne décrit la version voulue et le site la détient : c'est FAIT — même si l'envoi a
+      // été déclaré perdu (délai dépassé alors que le site avait bien écrit). Une ligne en vol
+      // n'est pas touchée : son envoi dira lui-même ce qu'il en est.
+      if (l.operation === "PUT" && l.bodyHash === hash && l.state !== "DONE" && !l.claimedAt) {
+        await prisma.sitePublication.updateMany({
+          where: { id: l.id, bodyHash: hash, claimedAt: null },
+          data: { state: "DONE", confirmedHash: hash, confirmedPublished: v.corps.published, confirmedAt: maintenant, siteUrl: c.url, siteSlug: c.slug, lastError: null },
+        });
+      } else if (l.state === "DONE" && c.url) {
+        await prisma.sitePublication.updateMany({ where: { id: l.id, siteUrl: null }, data: { siteUrl: c.url, siteSlug: c.slug } });
+      }
+    } else if (l && l.operation === "DELETE" && l.state !== "DONE" && !l.claimedAt) {
+      await prisma.sitePublication.updateMany({
+        where: { id: l.id, operation: "DELETE", claimedAt: null },
+        data: { state: "DONE", confirmedHash: null, confirmedPublished: null, confirmedAt: maintenant, siteUrl: null, siteSlug: null, lastError: null },
+      });
+    }
+  }
+
+  const illisibles = jobs.illisibles + posts.illisibles;
+  await prisma.siteReconciliation.update({
+    where: { id: ligne.id },
+    data: {
+      finishedAt: new Date(), ok: true,
+      error: illisibles ? `${illisibles} élément(s) de la réponse du site illisible(s) — ignorés, et comptés ici.` : null,
+      siteJobs: jobs.enregistrements.length, sitePosts: posts.enregistrements.length,
+      conformes: plan.conformes.length, repousses, suppressions, rejetes,
+      orphelins: plan.orphelins, collisions: plan.collisions, ecarts, manuels: plan.manuels,
+      depotSlugs: depot.map((d) => d.slug),
+    },
+  });
+
+  await signalerNouveautes(ligne.id, maintenant, plan);
+
+  // Les repoussés partent maintenant, par la file — avec ses réessais et son journal.
+  if (repousses || suppressions) await viderFile({ transport: opts.transport, maintenant: opts.maintenant });
+
+  const morceaux = [
+    `${plan.conformes.length} conforme(s)`,
+    repousses ? `${repousses} repoussé(s)` : null,
+    suppressions ? `${suppressions} suppression(s) rejouée(s)` : null,
+    rejetes ? `${rejetes} refusé(s) par le site, à corriger` : null,
+    plan.orphelins.length ? `${plan.orphelins.length} inconnu(s) de l'ERP sur le site (non supprimés)` : null,
+    plan.collisions.length ? `${plan.collisions.length} article(s) masqué(s) par un article du dépôt du site` : null,
+  ].filter(Boolean);
+  return {
+    ok: true, message: `Rapprochement fait : ${morceaux.join(", ")}.`, id: ligne.id,
+    conformes: plan.conformes.length, repousses, suppressions, rejetes, orphelins: plan.orphelins.length, collisions: plan.collisions.length,
+  };
+}
+
+/**
+ * PRÉVENIR, MAIS SEULEMENT DE CE QUI EST NOUVEAU. Un orphelin ou une collision déjà signalés la
+ * veille ne refont pas une notification chaque nuit — une alerte permanente devient du bruit, et
+ * l'on cesse de la lire (§118.32).
+ */
+async function signalerNouveautes(id: string, debut: Date, plan: PlanRapprochement): Promise<void> {
+  if (!plan.orphelins.length && !plan.collisions.length) return;
+  // LE PRÉCÉDENT est le dernier rapprochement réussi AVANT celui-ci — pas « le plus récent en
+  // base ». Mesuré : un rapprochement daté plus tard (un banc qui joue le lendemain, une instance
+  // dont l'horloge avance) devenait la référence, ses orphelins ne contenaient pas ceux du jour,
+  // et la même alerte repartait à chaque passage — le bruit exact que cette fonction existe pour
+  // éviter (§118.32). « Déjà signalé » veut dire signalé par un passage ANTÉRIEUR.
+  const precedent = await prisma.siteReconciliation.findFirst({
+    where: { ok: true, id: { not: id }, startedAt: { lt: debut } },
+    orderBy: { startedAt: "desc" },
+    select: { orphelins: true, collisions: true },
+  });
+  const deja = (json: unknown): Set<string> =>
+    new Set(Array.isArray(json) ? json.map((x) => (x && typeof x === "object" ? String((x as { externalId?: unknown }).externalId ?? "") : "")) : []);
+  const orphelinsVus = deja(precedent?.orphelins);
+  const collisionsVues = deja(precedent?.collisions);
+  const nouveauxOrphelins = plan.orphelins.filter((o) => !orphelinsVus.has(o.externalId));
+  const nouvellesCollisions = plan.collisions.filter((c) => !collisionsVues.has(c.externalId));
+  const phrases: string[] = [];
+  if (nouvellesCollisions.length) {
+    phrases.push(`${nouvellesCollisions.map((c) => `« ${c.libelle} » (adresse /blog/${c.slug})`).join(", ")} : le site affiche à la place l'article de son dépôt « ${nouvellesCollisions[0]!.titreDuDepot} »${nouvellesCollisions.length > 1 ? " (et d'autres)" : ""}. Donnez à l'article une autre adresse.`);
+  }
+  if (nouveauxOrphelins.length) {
+    phrases.push(`${nouveauxOrphelins.length} contenu(s) présent(s) sur le site sont inconnus de l'ERP (${nouveauxOrphelins.slice(0, 3).map((o) => `« ${o.titre} »`).join(", ")}${nouveauxOrphelins.length > 3 ? "…" : ""}) — ils n'ont pas été supprimés.`);
+  }
+  if (phrases.length) await notifyRoles(["SUPER_ADMIN"], { type: "GENERIC", title: "Site web : rapprochement à regarder", body: phrases.join(" "), link: "/site-web" });
+}
+
+let rapprochementEnCours = false;
+
+/**
+ * LE PAS DU BATTEMENT : un rapprochement par jour, et un nouvel essai une heure après un échec.
+ * L'instant se relit en base : un redémarrage ne provoque pas de rapprochement de plus, et
+ * plusieurs instances qui se croiseraient ne font rien de dangereux — chaque écriture est
+ * idempotente (mise en file par contenu, PUT sur `externalId`).
+ */
+export async function rapprocherSiteSiDu(maintenant: Date = new Date(), transport?: TransportSite): Promise<BilanRapprochement | null> {
+  if (process.env.SITE_WEB_RECONCILIATION === "off") return null;
+  if (rapprochementEnCours) return null;
+  if (!lireConfiguration().ok) return null;
+  const [dernierOk, dernier] = await Promise.all([
+    prisma.siteReconciliation.findFirst({ where: { ok: true }, orderBy: { startedAt: "desc" }, select: { startedAt: true } }),
+    prisma.siteReconciliation.findFirst({ orderBy: { startedAt: "desc" }, select: { startedAt: true, ok: true } }),
+  ]);
+  if (dernierOk && maintenant.getTime() - dernierOk.startedAt.getTime() < INTERVALLE_RAPPROCHEMENT_MS) return null;
+  if (dernier && !dernier.ok && maintenant.getTime() - dernier.startedAt.getTime() < REESSAI_RAPPROCHEMENT_MS) return null;
+  rapprochementEnCours = true;
+  try {
+    return await rapprocherSite({ declencheur: "AUTO", maintenant, transport });
+  } finally {
+    rapprochementEnCours = false;
+  }
+}
+
+// ───────────────────────────── Vérifier la connexion ─────────────────────────────
+
+export interface Sante {
+  ok: boolean;
+  message: string;
+  configure: boolean | null;
+  authentifie: boolean | null;
+  capacites: string[];
+  heureDuSite: string | null;
+}
+
+/**
+ * `GET /health` avec la clé : le site dit s'il est configuré (`ERP_API_KEY` posée chez lui) et si
+ * la clé envoyée est la bonne. C'est le premier point de la mise en service (contrat §10).
+ */
+export async function verifierSante(transport: TransportSite = envoyerAuSite): Promise<Sante> {
+  const base: Sante = { ok: false, message: "", configure: null, authentifie: null, capacites: [], heureDuSite: null };
+  const conf = lireConfiguration();
+  if (!conf.ok) return { ...base, message: conf.raison };
+  let rep: ReponseSite;
+  try {
+    rep = await transport({ methode: "GET", chemin: "/health" });
+  } catch (e) {
+    return { ...base, message: e instanceof SortieInterdite ? "Sortie interdite dans ce processus (test ou banc) : le site n'a pas été interrogé." : String(e) };
+  }
+  if (rep.statut === null) return { ...base, message: `Site injoignable : ${rep.erreur ?? "aucune réponse"}.` };
+  if (rep.statut === 401) return { ...base, authentifie: false, message: "Le site refuse la clé (401) : ADVENTUM_API_KEY (ERP) et ERP_API_KEY (site) ne portent pas la même valeur." };
+  if (rep.statut >= 300 && rep.statut < 400) return { ...base, message: `Le site redirige (${rep.statut}${rep.location ? ` vers ${rep.location}` : ""}) : corrigez ADVENTUM_BASE_URL.` };
+  const j = lireJson(rep.texte);
+  if (rep.statut !== 200 || !j) return { ...base, message: `Réponse inattendue du site (${rep.statut}).` };
+  const configure = typeof j.configured === "boolean" ? j.configured : null;
+  const authentifie = typeof j.authenticated === "boolean" ? j.authenticated : null;
+  const capacites = Array.isArray(j.capabilities) ? j.capabilities.filter((c): c is string => typeof c === "string") : [];
+  const heureDuSite = typeof j.serverTime === "string" ? j.serverTime : null;
+  const lu = { ...base, configure, authentifie, capacites, heureDuSite };
+  if (configure === false) return { ...lu, message: "Le site n'a pas de clé : posez ERP_API_KEY dans son environnement (Render du site), avec la même valeur que ADVENTUM_API_KEY ici." };
+  if (authentifie === false) return { ...lu, message: "Le site est configuré mais ne reconnaît pas la clé envoyée : les deux valeurs diffèrent." };
+  const manque = ["jobs", "posts"].filter((c) => capacites.length > 0 && !capacites.includes(c));
+  if (manque.length) return { ...lu, message: `Connexion établie, mais le site n'annonce pas : ${manque.join(", ")}.` };
+  return { ...lu, ok: true, message: `Connexion établie : clé reconnue${capacites.length ? ` (capacités : ${capacites.join(", ")})` : ""}.` };
+}

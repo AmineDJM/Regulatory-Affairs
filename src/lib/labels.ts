@@ -1629,6 +1629,7 @@ export const MODULE_LABELS: Record<Module, string> = {
   PROCESS_INTELLIGENCE: "Process Intelligence",
   ADVENTUM_BRAIN: "Adventum Brain",
   ADMIN: "Administration",
+  SITE_WEB: "Site web",
 };
 
 /**
@@ -1695,6 +1696,18 @@ export const ANNUAIRES_TABS: NavTab[] = [
   { module: "WORKSPACE", label: "Partenaires", href: "/annuaires/partenaires", annuaire: "PARTENAIRES" },
   { module: "WORKSPACE", label: "Personnes", href: "/annuaires/personnes", annuaire: "PERSONNES" },
   { module: "DIRECTORIES", label: "Autres annuaires", href: "/annuaires/autres" },
+];
+
+/**
+ * LE SITE PUBLIC (§118.158) — trois écrans d'un même module : l'état de la publication (ce qui est
+ * en ligne, en file, refusé ; la réconciliation quotidienne), les articles de blog, et les offres
+ * d'emploi. Les offres s'ÉCRIVENT par les RH (droit `RH` en écriture), qui y arrivent aussi depuis
+ * le Recrutement ; l'onglet les montre à qui tient le module, en lecture.
+ */
+export const SITE_WEB_TABS: NavTab[] = [
+  { module: "SITE_WEB", label: "Publication", href: "/site-web" },
+  { module: "SITE_WEB", label: "Articles", href: "/site-web/articles" },
+  { module: "SITE_WEB", label: "Offres d'emploi", href: "/site-web/offres" },
 ];
 
 export const NAVIGATION: NavItem[] = [
@@ -1859,6 +1872,8 @@ export const NAVIGATION: NavItem[] = [
   },
   // COURRIERS — le carnet entrant/sortant de l'assistante de direction.
   { module: "MAIL_REGISTER", label: "Courriers", href: "/courriers", icon: "Mails", group: "Pôles", pole: "ADMINISTRATION" },
+  // LE SITE PUBLIC (§118.158) — l'ERP y publie les offres d'emploi et les articles de blog.
+  { module: "SITE_WEB", label: "Site web", href: "/site-web", icon: "Globe", group: "Pôles", pole: "ADMINISTRATION", tabs: SITE_WEB_TABS, match: ["/site-web"] },
   // ANNUAIRES — tous les annuaires de l'entreprise en un seul sous-module (décision de la
   // Direction, 09/2026). L'entrée est visible dès qu'UN onglet l'est, et mène au premier
   // onglet autorisé : chaque onglet porte le module de son référentiel.

@@ -1304,6 +1304,28 @@ X("LA GRILLE DE COACHING décide COMMENT ON ÉVALUE DES PERSONNES : ses axes, se
   "coaching-actions:enregistrerGrilleCoaching",
 ]);
 
+X("PUBLIER SUR LE SITE PUBLIC D'ADVENTUM (§118.158) engage la parole de l'entreprise devant le public, les candidats "
+  + "et les autorités : un article de blog d'un laboratoire pharmaceutique est une COMMUNICATION PUBLIQUE, une offre "
+  + "d'emploi un engagement envers des candidats. Le contenu part tel quel sur www.adventumdz.com, dans le plan du "
+  + "site et le flux RSS. Offert à Adam, le geste serait exposé à l'injection — un document lu par une étape pourrait "
+  + "dicter « publie ce texte sur le blog » — et une publication qu'aucune personne n'a relue ne se rattrape pas : "
+  + "le flux et les moteurs de recherche l'ont déjà recopiée. Des clics dans une vraie session, sur /site-web.", [
+  "site-web-actions:enregistrerArticle",
+  "site-web-actions:supprimerArticle",
+  "offres-emploi-actions:enregistrerOffre",
+  "offres-emploi-actions:supprimerOffre",
+]);
+X("L'ENTRETIEN DE L'INTÉGRATION AU SITE (§118.158) — relancer un envoi, vérifier la connexion, rapprocher, lever le "
+  + "blocage — agit sur la CONFIGURATION et le disjoncteur de la publication, pas sur un contenu. Lever le blocage "
+  + "posé quand le site refuse la clé désarme un garde-fou, ce que §118.6 interdit structurellement à un agent ; "
+  + "vérifier la connexion le lève aussi quand la clé est reconnue. Ce sont des gestes d'exploitation, décidés devant "
+  + "l'écran qui montre le journal des envois et le motif du blocage : sur /site-web.", [
+  "site-web-actions:relancerEnvoiSite",
+  "site-web-actions:verifierConnexionSite",
+  "site-web-actions:rapprocherSiteMaintenant",
+  "site-web-actions:leverBlocageSite",
+]);
+
 // ── RECLASSIFICATION AUTOMATIQUE PAR LE CATALOGUE D'OPS (après tous les blocs ci-dessus). ──
 // Chaque op de domaine déclare les server actions qu'elle rend NATIVE (`covers`) : leurs clés
 // passent de GAP à NATIVE ici, sans retoucher les blocs à la main. Ajouter une op = fermer ses

@@ -157,6 +157,9 @@ export const SERVICE_DU_MODULE: Record<CleModule, ServiceDuModule> = {
   // routée » (§118.31), et le cliquet du banc la compte.
   GENERAL_MEANS: { domaines: [], mots: ["moyens generaux", "fourniture", "fournitures", "vehicule", "vehicules"] },
   FEEDBACK: { domaines: [], mots: ["feedback", "suggestion", "suggestions"] },
+  // Le site public (§118.158) : aucun outil d'Adam — publier sur le site public est un geste
+  // d'écran, décidé par une personne (parité EXCLUDED, raison écrite dans `action-registry.ts`).
+  SITE_WEB: { domaines: [], mots: ["site web", "site internet", "blog", "article de blog", "offre d emploi", "offres d emploi"] },
 };
 
 /** Les mots d'un libellé qui portent son identité — ni articles, ni ponctuation, ni « demandes ». */

@@ -748,9 +748,8 @@ export function decrireAction(
 ): ContratAction {
   const { fichier, fonction, signature, corps } = src;
   /**
-   * CE QUE LE CORPS DE L'ACTION DIT D'ELLE-MÊME. Les branches SANS formulaire s'en contentent :
-   * `deleguesDuCorps` ne suit une délégation que lorsqu'un formulaire est passé, donc il n'y a
-   * rien à unir là — et suivre un appel quelconque serait un autre mécanisme, pas celui-ci.
+   * CE QUE LE CORPS DE L'ACTION DIT D'ELLE-MÊME. `deleguesDuCorps` ne suit une délégation LOCALE
+   * que lorsqu'un formulaire est passé : les branches sans formulaire n'ont rien à en unir.
    */
   const baseCorps = {
     id: `${fichier}:${fonction}`,
@@ -761,13 +760,32 @@ export function decrireAction(
     audit: /recordAudit\s*\(/.test(corps),
   };
 
+  // ── LE DÉLÉGUÉ IMPORTÉ, LUI, NE DÉPEND D'AUCUNE FORME D'APPEL (§118.158) ────────────────
+  //
+  // `faitsEcritureImportes` suit un APPEL, pas un formulaire. Il n'était pourtant lu qu'après
+  // la branche des formulaires : une action SANS entrée, ou à arguments typés, qui confie son
+  // écriture à un module de domaine sortait `ecrit: false`, `modelesEcrits: []`. Trouvé sur
+  // `leverBlocageSite`, dont le délégué écrit `appSetting` — un réglage, c'est-à-dire l'un des
+  // modèles que `generique.ts` interdit : la garde d'auto-escalade ne le VOYAIT pas, et la carte
+  // aurait dit « aucune écriture en base détectée » sur le geste qui désarme un disjoncteur.
+  // C'est l'angle mort que §118.119f a fermé pour les formulaires, rouvert par la porte d'à
+  // côté (§118.71). Les modèles importés s'unissent à ce qu'on DÉCLARE, jamais à ce qu'on
+  // attribue aux champs (voir « DEUX CONSOMMATEURS » plus bas) : l'attribution reste lue sur
+  // `baseCorps.modelesEcrits`.
+  const importes = faitsEcritureImportes(corps, importsFichier, sourcesImportees);
+  const declares = {
+    ecrit: baseCorps.ecrit || importes.ecrit,
+    modelesEcrits: [...new Set([...baseCorps.modelesEcrits, ...importes.modelesEcrits])].sort(),
+    audit: baseCorps.audit || importes.audit,
+  };
+
   const rang = rangDuFormulaire(signature);
   if (rang === null) {
     // Sans argument : rien à décrire, donc APPELABLE. C'est le cas des bascules (« révoquer
     // toutes les sessions »). Une entrée typée, elle, ne passe pas par un formulaire : Adam ne
     // saurait pas fabriquer l'objet, et le dire vaut mieux que de tenter.
     if (signature === "") {
-      return { ...baseCorps, appel: "sans-entree", champs: [], illisible: null };
+      return { ...baseCorps, ...declares, appel: "sans-entree", champs: [], illisible: null };
     }
     // L'OBJET UNIQUE D'ABORD : `lireArguments` le refuserait pour « pas une valeur simple »,
     // alors que ses membres sont écrits dans la signature (§118.87).
@@ -776,13 +794,13 @@ export function decrireAction(
     const forme = objet ? "objet" as const : "arguments" as const;
     return "champs" in lue
       ? {
-          ...baseCorps, appel: forme, illisible: null,
+          ...baseCorps, ...declares, appel: forme, illisible: null,
           champs: lue.champs.map((ch) => (ch.type === "reference" || (ch.type === "liste" && estReference(ch.nom))
             ? { ...ch, modele: modeleDesigne(ch.nom, baseCorps.modelesEcrits, relations) }
             : ch)),
         }
       : {
-          ...baseCorps, appel: forme, champs: [],
+          ...baseCorps, ...declares, appel: forme, champs: [],
           illisible: `entrée typée (${signature}) — ${lue.refus}`,
         };
   }
@@ -854,8 +872,8 @@ export function decrireAction(
   // champs, un seul niveau. L'écrivain ne peut PAS revenir dans le fichier de l'action : un
   // `"use server"` n'exporte que des fonctions asynchrones, et chacune devient un point
   // d'entrée appelable SANS la garde de l'action. Sortir l'écriture était donc obligatoire, et
-  // rendre la dérivation aveugle n'était pas une option.
-  const importes = faitsEcritureImportes(corps, importsFichier, sourcesImportees);
+  // rendre la dérivation aveugle n'était pas une option. (`importes` est lu plus haut, avant
+  // l'aiguillage des formes d'appel : il vaut pour toutes.)
   //
   // ── DEUX CONSOMMATEURS, DEUX BESOINS — et les confondre a coûté 187 champs ──────────────
   //

@@ -333,9 +333,55 @@ describe("CONTRAT D'ACTION — le parc réel, et le cliquet qui ne remonte pas",
     }
     // L'UNION NE PEUT QU'ÉLARGIR : une action qui n'écrit rien et ne délègue rien reste une
     // lecture. Sans cette moitié, « tout est une écriture » passerait le test ci-dessus.
+    //
+    // DES TÉMOINS NOMMÉS, et le compte n'en est que le filet. Le compte seul (« plus de 50 ») est
+    // tombé à 49 le jour où la dérivation a appris à lire le délégué importé d'une action SANS
+    // formulaire (§118.158) : 33 actions qui écrivaient réellement — `leverBlocageSite` écrit un
+    // réglage, `deciderAccordMission` une approbation — se déclaraient des lectures. Le compte
+    // mesurait donc en partie l'angle mort qu'il devait empêcher de s'agrandir. Ces six-là ne
+    // lisent qu'une liste pour un écran : si l'une devient une « écriture », c'est l'union qui a
+    // débordé, et le banc la nomme.
+    for (const id of [
+      "regulatory-actions:checkDciDuplicate",
+      "market-actions:searchMarketProducts",
+      "document-request-actions:askablePeople",
+      "partage-actions:listerDestinatairesPartage",
+      "link-actions:linkCandidatesFor",
+      "care-actions:careDirectoryOptions",
+    ]) {
+      const c = vivants.find((x) => x.id === id);
+      expect(c, `${id} — témoin de lecture attendu au parc`).toBeTruthy();
+      expect({ id, ecrit: c!.ecrit, modeles: c!.modelesEcrits }, "une pure lecture déclarée écriture : l'union déborde")
+        .toEqual({ id, ecrit: false, modeles: [] });
+    }
     const lectures = vivants.filter((c) => !c.ecrit);
-    expect(lectures.length, "des actions de pure lecture existent encore").toBeGreaterThan(50);
+    expect(lectures.length, "des actions de pure lecture existent encore (mesuré : 49)").toBeGreaterThan(40);
     for (const c of lectures) expect(c.modelesEcrits, `${c.id} ne déclare pas de modèle écrit`).toEqual([]);
+  });
+
+  /**
+   * LE DÉLÉGUÉ IMPORTÉ D'UNE ACTION SANS FORMULAIRE (§118.158).
+   *
+   * `faitsEcritureImportes` n'était lu qu'après l'aiguillage des FORMULAIRES : les actions sans
+   * entrée, à arguments typés ou à objet unique qui confient leur écriture à un module de domaine
+   * se déclaraient des lectures — 33 actions, mesuré. Deux témoins, et chacun a son coût nommé :
+   * `leverBlocageSite` écrit un RÉGLAGE (un modèle que `generique.ts` interdit — la garde ne le
+   * voyait pas), `deciderAccordMission` une APPROBATION (la carte aurait dit « aucune écriture »).
+   *
+   * LE CAS QUI FAIT TOMBER CETTE ASSERTION : retirer l'union `declares` des branches sans
+   * formulaire — tout compile, et les deux redeviennent des « lectures ».
+   */
+  it("une action SANS formulaire qui délègue son écriture à un module importé la déclare", () => {
+    for (const [id, modele, forme] of [
+      ["site-web-actions:leverBlocageSite", "appSetting", "sans-entree"],
+      ["mission-runtime-actions:deciderAccordMission", "missionApproval", "arguments"],
+    ] as const) {
+      const c = vivants.find((x) => x.id === id);
+      expect(c, `${id} — action attendue au parc`).toBeTruthy();
+      expect(c!.appel, `${id} — la forme d'appel a changé, le cas ne mesure plus la branche visée`).toBe(forme);
+      expect(c!.ecrit, `${id} écrit par délégation`).toBe(true);
+      expect(c!.modelesEcrits, `${id} — modèle écrit par son délégué`).toContain(modele);
+    }
   });
 
   it("la phrase rendue au modèle dit l'ignorance au lieu de la taire", () => {

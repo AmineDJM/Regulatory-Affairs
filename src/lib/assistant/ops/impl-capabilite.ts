@@ -5,6 +5,7 @@ import {
   resoudreEntrees, champsDesignables, type ContratAction,
 } from "@/platform/in-process/capacites";
 import { OPS_CATALOG } from "./catalog";
+import { ACTION_CLASSIFICATION } from "@/lib/assistant/action-registry";
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
@@ -33,6 +34,47 @@ import { OPS_CATALOG } from "./catalog";
  */
 
 const MAX_CANDIDATES = 6;
+
+/**
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ * CE QU'UNE DÉCISION ÉCRITE A EXCLU DU CHAMP D'ADAM, LE CHEMIN GÉNÉRIQUE NE LE ROUVRE PAS
+ * (§118.158).
+ *
+ * `ACTION_CLASSIFICATION` range chaque action serveur, et EXCLUDED y porte une décision ÉCRITE,
+ * chacune avec sa raison : signer un BC est une attestation, publier sur le site public ne se
+ * rattrape pas, usurper une identité appartient à la personne au clavier. Le chemin générique,
+ * lui, ne lisait que ses trois faits (le fichier, le modèle écrit, les mots du nom). Mesuré :
+ * **95 actions EXCLUDED sur 125 lui restaient OUVERTES** — dont `startImpersonation`,
+ * `purgeSettledExpenseOrders`, les fiches de coaching, les décisions de plan de tournée, la
+ * révocation d'un siège au centre de paiement et la publication sur le site. Chaque note
+ * affirmait une chose que le code ne tenait pas, et c'est la publication sur le site qui l'a
+ * montré : son propre en-tête écrivait « aucun de ces gestes n'est offert à Adam ».
+ *
+ * ── POURQUOI ICI ─────────────────────────────────────────────────────────────────────────
+ *
+ * Le registre vit côté Adam. Descendre la règle dans `actions/generique.ts` ferait lire à l'ERP
+ * la politique d'Adam — une traversée à l'envers. Et c'est l'endroit où TOUTES les instances
+ * passent (§118.58) : cette op est le seul appelant de production de `executerAction`, et un
+ * banc l'exige. Réparer quatre-vingt-quinze notes une par une n'aurait pas protégé la
+ * quatre-vingt-seizième.
+ *
+ * ── TROIS PORTES, ET L'EXÉCUTION RELIT ───────────────────────────────────────────────────
+ *
+ * La fiche (ce que le modèle lit), la proposition (la carte) et l'exécution. L'exécution relit
+ * AVANT d'appeler l'action : une carte proposée avant ce correctif, ou des arguments forgés, ne
+ * passent pas. Le refus CITE la décision, qui nomme l'écran où le geste se fait — refusé à Adam
+ * n'est pas impossible, et le taire ferait répondre « je ne trouve rien » là où la vérité est
+ * « je l'ai trouvée et je n'y touche pas » (§118.30, §118.74).
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ */
+export function refusDuCheminGenerique(c: ContratAction): string | null {
+  const interdit = interdictionGenerique(c);
+  if (interdit) return interdit;
+  const classement = ACTION_CLASSIFICATION[c.id];
+  if (classement?.status !== "EXCLUDED") return null;
+  return `Cette action est tenue hors du champ d'Adam par une décision écrite : ${(classement.note ?? "").trim()} `
+    + `C'est un refus de conception, pas une limite technique : le chemin générique ne s'y substitue pas.`;
+}
 
 /**
  * QUELLE OP DÉCLARÉE COUVRE CETTE ACTION ? — ce qui transforme une limite en ROUTE.
@@ -85,7 +127,7 @@ function lireChamps(brut: string): { ok: true; champs: Record<string, unknown> }
  * identifiant », et le modèle en invente un ou renonce (§118.19).
  */
 const fiche = (c: ContratAction): string => {
-  const interdit = interdictionGenerique(c);
+  const interdit = refusDuCheminGenerique(c);
   if (interdit) return `${c.id} — REFUSÉE : ${interdit}`;
   const nommables = champsDesignables(c);
   const suffixe = nommables.length
@@ -134,7 +176,7 @@ export const CAPABILITY_OPS_IMPL: Record<string, OpImpl> = {
 
       // L'AUTO-ESCALADE d'abord : constater qu'une entrée est mal formée sur `updateUserRole`
       // reviendrait à dire « corrige ta saisie et réessaie » (§118.6).
-      const interdit = interdictionGenerique(contrat);
+      const interdit = refusDuCheminGenerique(contrat);
       if (interdit) return { error: interdit };
 
       const lus = lireChamps(typeof input.champs === "string" ? input.champs : "");
@@ -209,6 +251,11 @@ export const CAPABILITY_OPS_IMPL: Record<string, OpImpl> = {
       const id = args.action ?? "";
       const lus = lireChamps(args.champs ?? "");
       if (!lus.ok) return { ok: false, error: lus.erreur };
+      // RELIRE AVANT D'APPELER : la carte a pu être proposée avant que la décision soit écrite,
+      // ou les arguments forgés. `executerAction` ne connaît pas le registre d'Adam (§118.158).
+      const vise = CONTRAT_PAR_ID.get(id);
+      const exclu = vise ? refusDuCheminGenerique(vise) : null;
+      if (exclu) return { ok: false, error: exclu };
       const r = await executerAction(user, id, lus.champs);
       if (!r.ok) return { ok: false, error: r.message };
 

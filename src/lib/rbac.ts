@@ -63,6 +63,11 @@ export const MODULES = [
   // planifiés, décisions du centre de paiement.
   "CHIEF_OF_STAFF",
   "PROCESS_INTELLIGENCE", "ADVENTUM_BRAIN", "ADMIN",
+  // SITE_WEB : le site public adventumdz.com — les articles de blog que l'ERP y publie, et l'état
+  // de la publication (file d'envoi, journal, réconciliation). Les OFFRES D'EMPLOI, elles, se
+  // publient par les RH (droit `RH` en écriture) : ce sont des recrutements, pas de la
+  // communication (§118.158).
+  "SITE_WEB",
 ] as const;
 export type Module = (typeof MODULES)[number];
 
@@ -137,6 +142,8 @@ export const PERMISSIONS: Record<UserRole, RoleMatrix> = {
     CHIEF_OF_STAFF: MANAGE,
     VALIDATIONS: [...VALIDATION_USER, "VALIDATE"], DIRECTIVES: MANAGE, SUPPORT: MANAGE, DOSSIERS: MANAGE,
     NOTIFICATIONS: ["VIEW"],
+    // Le SITE PUBLIC (§118.158) : les articles de blog et l'état de la publication.
+    SITE_WEB: MANAGE,
     // NB : Administration et Adventum Brain (+ Process Intelligence) sont réservés au
     // Super Admin. La Direction n'y a plus accès.
   },
@@ -172,6 +179,8 @@ export const PERMISSIONS: Record<UserRole, RoleMatrix> = {
     // règle pure `siegeAuCentreAdPro` : le module ouvre la porte, la règle dit qui s'assied.
     AD_PRO_CENTRE: MANAGE,
     NOTIFICATIONS: ["VIEW"],
+    // Le SITE PUBLIC (§118.158) — tous les pouvoirs métier, la communication de l'entreprise comprise.
+    SITE_WEB: MANAGE,
   },
   // DIRECTEUR DES OPÉRATIONS — rôle À PART, pas une Direction au rabais.
   //
@@ -255,6 +264,11 @@ export const PERMISSIONS: Record<UserRole, RoleMatrix> = {
     WORKSPACE: WORKSPACE_USER, FEEDBACK: FEEDBACK_USER, MESSAGING: MESSAGING_USER, VALIDATIONS: VALIDATION_USER, DRIVE: DRIVE_USER, ADMIN_REQUESTS: REQUEST_USER,
     SPONSORING: MANAGE, CONGRESS_INTERNATIONAL: MANAGE, CONGRESS_NATIONAL: MANAGE, EVENTS: MANAGE, PROMO_MATERIAL: MANAGE, CONSULTING: MANAGE, AD_PRO_OTHER: MANAGE,
     MEDICAL: READ, FIELD_REPORTS: READ, BUDGETS: READ, DOCUMENTS: CONTRIBUTE, DIRECTIVES: DIRECTIVES_USER, SUPPORT: SUPPORT_USER, DOSSIERS: DOSSIERS_USER, NOTIFICATIONS: ["VIEW"],
+    // LE BLOG DU SITE PUBLIC (§118.158) : c'est de la communication, donc la Direction Marketing.
+    // Une DÉCISION prise ici, pas écrite dans la demande — elle se défait en une ligne : retirer
+    // cette entrée laisse les articles à la Direction, au Directeur Général et au Super Admin, et
+    // la console d'accès les ouvre ensuite nommément à qui les rédige.
+    SITE_WEB: MANAGE,
   },
   BUSINESS_DEVELOPMENT_MANAGER: {
     WORKSPACE: WORKSPACE_USER, FEEDBACK: FEEDBACK_USER, MESSAGING: MESSAGING_USER, VALIDATIONS: VALIDATION_USER, DRIVE: DRIVE_USER, ADMIN_REQUESTS: REQUEST_USER, BUSINESS_DEVELOPMENT: MANAGE, PRODUCT_EXPLORER: MANAGE, DOCUMENTS: CONTRIBUTE, DIRECTIVES: DIRECTIVES_USER, SUPPORT: SUPPORT_USER, DOSSIERS: DOSSIERS_USER, NOTIFICATIONS: ["VIEW"],

@@ -222,7 +222,10 @@ describe("LA GARDE QUI COMPTE : aucun transport n'est atteignable sans la porte"
    * lit la source : une garde présente mais neutralisée (`if (false && …)`). C'est le rôle du
    * banc de transport, qui APPELLE la fonction et exige le refus — les deux ensemble, jamais
    * l'une seule (§118.49 : vérifier un corps sans son appelant ne prouve rien).
-   * Mesure : 2 modules répondent au fait, et les deux sont gardés.
+   * Mesure : 2 modules répondaient au fait, et les deux étaient gardés. Depuis §118.158 ils sont
+   * TROIS : le transport du site public (`lib/site-web/transport.ts`, `envoyerAuSite`) — attrapé
+   * sans que personne ait pensé à lui, ce qui est exactement ce pour quoi cette règle existe.
+   * Son banc à lui (`site-web/transport.test.ts`) APPELLE le transport et exige le refus.
    */
   it("tout module qui appelle le RÉSEAU et exporte un ENVOI appelle la garde", () => {
     const emetteur = /export\s+(?:async\s+)?function\s+(?:send|envoyer|pousser|notifier)[A-Z_]\w*/;

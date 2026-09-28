@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { UserPlus, Info } from "lucide-react";
+import { UserPlus, Info, Globe } from "lucide-react";
 import { requireModule } from "@/lib/session";
 import { userCan, isTopManagement } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
@@ -13,6 +13,8 @@ import { formatDate } from "@/lib/utils";
 import { recruitmentScope } from "@/lib/recruitment/access";
 import { STAGE_LABEL, STAGE_TONE, summarize, type RecruitmentStage } from "@/lib/recruitment/request-flow";
 import { NewRecruitmentButton } from "./new-request";
+import { Button } from "@/components/ui/button";
+import { peutPublierOffres } from "@/lib/site-web/acces";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Recrutement — AMD Internal OS" };
@@ -85,6 +87,13 @@ export default async function RecrutementPage() {
         title="Recrutement"
         description="Les postes demandés, leur validation hiérarchique, leur instruction par les RH, puis les CV reçus jusqu'à l'intégration."
       >
+        {/* Les OFFRES DU SITE (§118.158) : un poste ouvert se publie sur adventumdz.com/carrieres. La
+            porte est celle qui instruit un recrutement (RH en écriture, direction). */}
+        {peutPublierOffres(user) && (
+          <Link href="/site-web/offres">
+            <Button size="sm" variant="outline"><Globe className="h-4 w-4" /> Offres sur le site</Button>
+          </Link>
+        )}
         {canCreate && (
           <NewRecruitmentButton
             departments={departments.map((d) => ({ value: d.id, label: d.label }))}

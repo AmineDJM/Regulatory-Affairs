@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
-import { ArrowLeft, Paperclip, CheckCircle2, XCircle, CircleDashed, MinusCircle } from "lucide-react";
+import Link from "next/link";
+import { ArrowLeft, Paperclip, CheckCircle2, XCircle, CircleDashed, MinusCircle, Globe, ArrowRight } from "lucide-react";
 import { requireModule } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
 import { userCan } from "@/lib/rbac";
@@ -15,6 +16,10 @@ import {
   STAGE_LABEL, STAGE_TONE, salaryRange, needsOnboarding, candidateRank,
   type ChainStep, type RecruitmentStage, type RecruitmentContract, type CandidateStatus,
 } from "@/lib/recruitment/request-flow";
+import { etatAffiche, publicationsDe, suspensionEnVigueur } from "@/lib/site-web/etat";
+import { posteOuvert } from "@/lib/site-web/contenus";
+import { peutPublierOffres } from "@/lib/site-web/acces";
+import { EtatPublicationBadge } from "@/components/site-web/etat-badge";
 import {
   ChainDecisionPanel, CancelRequestButton, HrPanel, AnswerInfoForm,
   AddCandidateButton, CandidateActions, OnboardPanel, CloseRequestButton,
@@ -86,6 +91,15 @@ export default async function RecruitmentPage({ params }: { params: { id: string
   const active = currentStep(steps);
   const progress = chainProgress(steps);
   const myTurn = stage === "CHAIN" && (active?.approverId === user.id || viewer.isTop);
+
+  // L'OFFRE SUR LE SITE (§118.158) — son état tel que le SITE l'a confirmé, pour qui publie les offres.
+  const publieOffres = peutPublierOffres(user);
+  const offreSite = publieOffres
+    ? await prisma.jobPosting.findUnique({ where: { recruitmentRequestId: req.id }, select: { id: true, published: true } })
+    : null;
+  const etatOffre = offreSite
+    ? etatAffiche((await publicationsDe("JOB", [offreSite.id])).get(offreSite.id) ?? null, offreSite.published, await suspensionEnVigueur())
+    : null;
 
   const [documents, cvs] = await Promise.all([
     prisma.document.findMany({
@@ -315,6 +329,38 @@ export default async function RecruitmentPage({ params }: { params: { id: string
               )}
             </CardContent>
           </Card>
+
+          {publieOffres && (offreSite || !["CLOSED", "REJECTED", "CANCELLED"].includes(stage)) && (
+            <Card>
+              <CardHeader><CardTitle className="flex items-center gap-2"><Globe className="h-4 w-4" /> Offre sur le site</CardTitle></CardHeader>
+              <CardContent className="space-y-2 text-sm">
+                {offreSite && etatOffre ? (
+                  <>
+                    <EtatPublicationBadge etat={etatOffre} avecDetail />
+                    {offreSite.published && !posteOuvert(stage) && (
+                      <p className="text-xs text-warning">
+                        Le poste n&apos;est pas ouvert : l&apos;offre reste invisible sur le site{stage === "CLOSED" ? " — il est pourvu ou clos" : ""}.
+                      </p>
+                    )}
+                    <Link href={`/site-web/offres/${offreSite.id}`} className="inline-flex items-center gap-1 text-primary hover:underline">
+                      Ouvrir l&apos;offre <ArrowRight className="h-3.5 w-3.5" />
+                    </Link>
+                  </>
+                ) : (
+                  <>
+                    <p className="text-muted-foreground">
+                      {stage === "SOURCING"
+                        ? "Le poste est ouvert et n'est pas encore annoncé sur adventumdz.com/carrieres."
+                        : "Préparez l'offre dès maintenant : elle ne sera visible qu'à l'ouverture du poste."}
+                    </p>
+                    <Link href={`/site-web/offres/nouvelle?demande=${req.id}`} className="inline-flex items-center gap-1 text-primary hover:underline">
+                      Préparer l&apos;offre <ArrowRight className="h-3.5 w-3.5" />
+                    </Link>
+                  </>
+                )}
+              </CardContent>
+            </Card>
+          )}
 
           {(viewer.isHr || viewer.isTop) && (stage === "SOURCING" || stage === "ONBOARDING") && (
             <CloseRequestButton id={req.id} />

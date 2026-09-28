@@ -236,6 +236,7 @@ jamais identique.
 | **Adventum Brain** 🧠 | `/adventum-brain` | **Super Admin uniquement — le cockpit qui voit ce que les autres ne voient pas.** War Room, Risk Radar, Root Cause, Knowledge Graph, Autopilot, Intelligence Feed + **Process Intelligence** en onglet. → [détails](#-adventum-brain-cockpit-super-admin) |
 | **Administration** | `/admin` | Comptes (création, **modification e-mail/profil/rôle**), **matrice d'accès** (onglet × action × ligne), **sessions révocables**, activité, **journal d'audit** (paginé), **champs personnalisés**, règles de validation, feedback, **Départements & sous-départements** (`/admin/departments` — structure hiérarchique à 2 niveaux « comme une vraie boîte », employés rattachés depuis leur fiche RH), comptes portail fournisseur, **Vue exacte** (impersonation), **Contrôle IA** + **Score d'adoption** en onglets, **limites d'upload** configurables, **Corbeille des suppressions définitives** (`/admin/corbeille` — chaque suppression définitive est **restaurable** jusqu'à destruction réelle), carte **Stockage Drive** (consommation exacte globale dédupliquée + par utilisateur, **capacité et quota modifiables et appliqués à l'envoi**), colonne **« Dernière activité (dernier clic) »** précise à la minute, **Rejeu de session** (`/admin/replay` — **Super Admin uniquement** : la suite exacte des actions d'une personne, pour reproduire un bug sans le faire raconter ; **aucune valeur de champ n'est enregistrée**). → [détails](#rejeu-de-session--rembobiner-ce-quune-personne-a-fait) |
 | **Annuaires** | `/annuaires` | **Module à part du pôle Administration** (`DIRECTORIES`) qui **centralise tous les annuaires** en onglets : **Médecins**, **Pharmaciens** (le grade `PHARMACIEN` de la même feuille de praticiens), **Établissements**, **Partenaires** (les contacts extérieurs de la société), **Personnes** (l'annuaire interne) et **Autres annuaires** (spécialités, fournisseurs Regulatory, partenaires courriers, lieux de stock — avec leur compte et le lien vers leur écran, ou « accès réservé »). **La porte est ouverte à tous** (accès implicite `VIEW`, comme « Mon équipe ») et **n'ouvre rien de plus** : chaque onglet est gardé par le module de SON référentiel (`MEDICAL` pour les trois premiers, `WORKSPACE` pour Partenaires et Personnes) — un lecteur sans Promotion médicale ne voit pas les onglets médicaux, et l'adresse tapée à la main refuse de la même façon. **Accès PAR ANNUAIRE** : dans la console (compte › accès, ou « Accès par module »), un accès **Personnalisé** au module Annuaires coche les annuaires à ouvrir — médecins, pharmaciens, établissements, partenaires, personnes — avec les gestes cochés (créer, modifier, supprimer), **sans** donner le module du référentiel : l'assistante de direction reçoit les établissements sans toute la Promotion médicale. L'ouverture **s'ajoute** au rôle (une case oubliée ne retire rien), l'annuaire s'ouvre **en entier** (un référentiel, pas un portefeuille), et la structure (annuaires nommés, colonnes, import de fichier) reste à la Promotion médicale. Les écrans d'origine (`/medical/annuaire`, `/medical/etablissements`, `/mon-espace/annuaire`) restent en place et lisent les **mêmes chargeurs** (`lib/queries/annuaires.ts`) : deux portes, une lecture. → [détails](#annuaires--praticiens-et-contacts-de-lentreprise) |
+| **Site web** | `/site-web` | **Pôle Administration** (`SITE_WEB`) : l'ERP **publie** les **offres d'emploi** et les **articles de blog** du site public **adventumdz.com** — il en est la source de vérité, le site n'est jamais saisi à la main pour ces contenus. Trois onglets : **Publication** (état de la connexion, contenus envoyés et leur état sur le site — *À envoyer*, *En attente*, *Nouvel essai prévu*, *En ligne*, *Retiré du site*, *Refusé par le site*, *Échec d'envoi* —, journal des derniers échanges, dernier rapprochement, et la **mise en service**), **Articles** (éditeur Markdown avec aperçu, sommaire, temps de lecture, refus d'un `# Titre` avant l'envoi) et **Offres d'emploi** (préparées depuis une demande de recrutement, **jamais** avec la rémunération ni la justification). Chaque envoi part par une **file** qui réessaie, et un **rapprochement quotidien** relit ce que le site détient. La Direction, la Direction Générale et la Direction Marketing écrivent les articles ; les RH et la direction publient les offres. → [détails](#site-web-adventum--lerp-publie-les-offres-demploi-et-les-articles) |
 | **Recherche globale** | `/search` | RBAC-aware + **palette ⌘K**. |
 
 ### Externe
@@ -1682,6 +1683,70 @@ suffit pas, il faut être partie à la demande (auteur, validateur, RH, directio
 **Fichiers** : `lib/recruitment/request-flow.ts` (+ 32 tests) · `lib/recruitment/access.ts` ·
 `lib/actions/recruitment-actions.ts` · `app/(app)/recrutement/`.
 
+### Site web Adventum — l'ERP publie les offres d'emploi et les articles
+
+L'ERP est la **source de vérité** et **pousse** vers le site public (www.adventumdz.com) par son API de contenu,
+déjà en production côté site. Rien n'est développé côté site ; la documentation de l'API vit dans le dépôt du site
+(`docs/ERP-INTEGRATION.md`, `docs/openapi.yaml`).
+
+- **Une écriture = un `PUT`** sur `/api/v1/jobs/{externalId}` ou `/api/v1/posts/{externalId}`, où `externalId`
+  est l'**identifiant de l'ERP** — donc la clé d'idempotence : rejouer ne crée jamais de doublon, et rien n'est à
+  stocker en retour. Une suppression est un `DELETE` ; un `404` sur un `DELETE` compte comme fait. Authentification
+  `Authorization: Bearer <clé>` (la clé ne passe jamais dans une adresse), signature facultative
+  `X-Adventum-Signature: sha256=<HMAC du corps exact>` quand un secret est posé.
+- **La file** (`SitePublication`, une ligne par contenu) : l'action serveur écrit et met en file, elle n'attend
+  jamais le site. Trois corrections rapides font UNE ligne dont la version monte ; un envoi réussi ne confirme que
+  la version qu'il portait. **Réessais** sur erreur réseau, délai dépassé (10 s), `429` et `5xx` : 1 s, 5 s, 30 s,
+  2 min, 10 min, puis l'échec est **dit** (une seule notification) à qui a publié ; le `Retry-After` du site est
+  honoré, plafonné à une heure. **Jamais de réessai sur un `4xx`** : le contenu est en cause, il faut le corriger.
+- **Disjoncteur** : un `401` ou une redirection mettent la **configuration** en cause — tous les envois s'arrêtent,
+  les Super Admins sont prévenus une fois, aucune tentative n'est consommée, et le bandeau de `/site-web` nomme la
+  cause. Une clé corrigée le lève d'elle-même ; « Vérifier la connexion » (`GET /health`) le lève si le site
+  reconnaît la clé ; « Lever le blocage » est réservé au Super Admin.
+- **Rapprochement quotidien** (le battement, `runScheduledJobs`) : `GET /jobs` et `GET /posts` sont comparés à ce
+  que l'ERP VEUT, recalculé depuis la base. Ce qui manque ou diffère repart, une suppression perdue est rejouée, le
+  conforme est confirmé. Un contenu présent sur le site mais **inconnu de l'ERP est nommé, jamais supprimé**. Un
+  contenu que le site a refusé tel quel n'est pas renvoyé tant qu'il n'a pas changé. Un article dont l'adresse est
+  prise par un article du **dépôt** du site est signalé (le site afficherait le sien). Une heure après un échec, un
+  nouvel essai ; `SITE_WEB_RECONCILIATION=off` le coupe. « Rapprocher maintenant » depuis `/site-web`.
+- **Offres d'emploi** (`JobPosting`) : préparées depuis une demande de recrutement (carte « Offre sur le site » de
+  la fiche), elles en reprennent l'intitulé, la direction, le contrat, les missions et les compétences —
+  **jamais** la rémunération ni la justification. Une offre n'est **visible que tant que le poste est ouvert** :
+  préparée avant, elle part en ligne quand les RH ouvrent le poste ; pourvu, clos, refusé ou annulé, elle repasse
+  **tout de suite** en brouillon sur le site (chaque changement d'étape du recrutement la resynchronise).
+- **Articles** (`BlogArticle`) : Markdown structuré en `##` — un `# Titre` est refusé en nommant sa ligne, à
+  l'écran avant l'envoi comme dans l'action. Aperçu sans HTML brut, sommaire, temps de lecture, longueur idéale de la
+  description.
+- **Droits** : module `SITE_WEB` (Direction, Direction Générale, Direction Marketing — et le Super Admin) pour les
+  articles et l'exploitation ; les **offres** suivent la règle du recrutement (RH en écriture, ou la direction). La
+  demande de recrutement se lit sous `recruitmentScope(user)` — à la préparation (`?demande=`) comme au rattachement
+  d'une offre neuve : les deux règles disent aujourd'hui la même chose, et c'est la lecture bornée, pas la
+  coïncidence, qui tiendra le jour où l'une s'élargit.
+- **Adam n'y touche pas** : publier sur le site public ne se rattrape pas, et lever un disjoncteur désarme un
+  garde-fou — les huit gestes sont classés EXCLUDED, et le chemin générique d'Adam **lit** désormais cette
+  décision avant de proposer comme avant d'exécuter.
+- **Configuration** : `ADVENTUM_BASE_URL` (`https://www.adventumdz.com`, obligatoire), `ADVENTUM_API_KEY` (la même valeur que
+  `ERP_API_KEY` côté site), `ADVENTUM_WEBHOOK_SECRET` (facultatif, la même valeur que `ERP_WEBHOOK_SECRET` côté
+  site). La clé n'est ni
+  affichée ni enregistrée : l'écran montre l'**empreinte** de la configuration.
+
+**Mise en service** (aussi listée sur `/site-web`, étape par étape) : générer la clé (`openssl rand -hex 32`) ; la
+poser côté site (`ERP_API_KEY`) et côté ERP (`ADVENTUM_API_KEY`, avec `ADVENTUM_BASE_URL`, Render → Environment) ;
+si la signature est voulue, `ERP_WEBHOOK_SECRET` côté site et `ADVENTUM_WEBHOOK_SECRET` ici, même valeur ; côté site,
+un **disque persistant** (offre payante de Render) et `JOBS_DATA_DIR=/var/data` — sans lui, un redéploiement efface
+les contenus, le rapprochement les renverrait, mais les pages disparaîtraient jusque-là ; « Vérifier la connexion »
+doit répondre que le site **reconnaît la clé** (`authenticated: true`) ; publier une offre et un article de test,
+vérifier leur page publique, `/blog` et le plan du site, puis les supprimer ; enfin **décider du sort de
+`ADMIN_PASSWORD`** côté site — le retirer ferme l'administration du site et laisse l'ERP seul maître du contenu ; la
+garder permet une saisie de secours, que le rapprochement compte sans y toucher.
+
+Code : `lib/site-web/{contrat,markdown}.ts` (PURS — le contrat du site, la lecture du Markdown), `config.ts`,
+`transport.ts` (la seule fonction qui appelle le site, gardée par `exigerSortieAutorisee`), `file.ts`,
+`contenus.ts`, `reconciliation.ts`, `acces.ts`, `etat.ts` ; actions `lib/actions/{site-web,offres-emploi}-actions.ts` ;
+écrans `app/(app)/site-web/**`, carte « Offre sur le site » de `app/(app)/recrutement/[id]` ; composants
+`components/site-web/*`. Modèles `JobPosting`, `BlogArticle`, `SitePublication`, `SitePushAttempt`,
+`SiteReconciliation` ; migration `20261202090000_site_web_adventum`.
+
 ### Congés — l'intérimaire qui tient la place
 
 **Modèle** : `LeaveRequest.standInId` · `standInStatus` (`StandInStatus`) · `standInModules` ·
@@ -2911,6 +2976,7 @@ pour l'envoi) et un onglet qui s'effondre est un bien pire défaut qu'un envoi n
   **notifications de paie différées** (24 h, `employeeNotifyAt`/`employeeNotifiedAt`). Chaque envoi est protégé par
   un **claim `updateMany`** anti-concurrence. Cloche + push (même téléphone hors ligne). Ajouter un job = une
   fonction appelée dans `runScheduledJobs`.
+- **Site web** (§118.158) : le même battement **vide la file** des envois vers le site public (réessais à leur échéance, lus en base — un redémarrage ne perd rien) puis lance le **rapprochement quotidien** quand il est dû. Ils vivent ici et non dans le registre d'ordonnancement, qui n'admet que des tâches sans effet.
 
 ### Rôles secondaires & résolution d'accès
 
@@ -4176,6 +4242,7 @@ entité) sont éligibles. Supprimer une gamme **ne supprime aucun produit** (`SE
 | **Sécurité / session** | `lib/rbac.ts` (PERMISSIONS, `userCan`, `anyRoleFilter`, `getAccess` cumul secondaire), `lib/session.ts` (`requireUser`/`requireModule`, maj `UserSession.lastSeenAt`), `lib/entity-access.ts` (accès par ligne + `ENTITY_MODULE`). |
 | **Workflow Ad & Pro** | `lib/workflow/engine.ts` · `defaults.ts` · `engine.test.ts`, `lib/queries/workflow.ts`, `components/workflow/workflow-panel.tsx`, `app/(app)/admin/workflows/`. |
 | **RH** | `lib/actions/hr-actions.ts` (fiche employé, salaires, essai, congés éditables par le DRH), `hr-document-actions.ts` (demandes, notes de frais, entrevues, archives), `payroll-hr-actions.ts` (paie), `lib/queries/hr-documents.ts` (DTO + confidentialité salaires), pages `app/(app)/rh/` (+ `paie/`, `departements/`), `app/(app)/mon-dossier/`. |
+| **Site web Adventum (§118.158)** | `lib/site-web/contrat.ts` (PUR : le contrat du site — limites, refus, corps d'une offre et d'un article, `classerReponse`, `prochainEssai`, `planifierRapprochement`, `etatPublication`) · `markdown.ts` (PUR : titres, refus d'un `# Titre` avec sa ligne, sommaire, temps de lecture, aperçu en blocs typés) · `config.ts` (variables, empreinte) · `transport.ts` (`envoyerAuSite`, la **seule** fonction qui appelle le site, garde de sortie en premier) · `file.ts` (file, versions, prise atomique, disjoncteur, alertes) · `contenus.ts` (mise en file, offre ↔ demande de recrutement, contenus voulus) · `reconciliation.ts` (rapprochement, `rapprocherSiteSiDu`, `verifierSante`) · `acces.ts` · `etat.ts` ; actions `lib/actions/{site-web,offres-emploi}-actions.ts` ; écrans `app/(app)/site-web/**`. |
 | **Structure & hiérarchie** | `lib/departments.ts` (arbre N niveaux, membres, **résolution du N+1**), `lib/actions/department-actions.ts` (CRUD + rattachements, anti-cycle), `app/(app)/rh/departements/`, `app/(app)/admin/organigramme/`. Portées d'étape `DEPARTMENT_MANAGER`/`DEPARTMENT_HEAD` dans `lib/workflow/`. |
 | **Secrétariat / courses** | `lib/actions/admin-request-actions.ts` (demandes, missions, courses, archive DONE), `lib/queries/admin-requests.ts`, pages `app/(app)/demandes/` (+ `courses/`, `driver/`, `expense-ack.tsx`). |
 | **Stocks** | `lib/actions/stock-snapshot-actions.ts`, `lib/queries/stock.ts`, `app/(app)/stocks/`. **Portée de stock (§118.134)** : module PUR `lib/stocks/portee.ts` (`modeDepuisFaits`, `composerPortee`, `etablissementDansPortee`, `produitDansPortee`, `releveDansPortee`, `explicationPortee`, `refusHorsPortee`) + `portee.test.ts` ; chargeur `lib/queries/stock-portee.ts` (`chargerPorteeStock`, `chargerHopitauxStock`, `chargerProduitsStock`, `clauseRelevesDePortee`) + `stock-portee.test.ts` (KAM, National Sales, KAM sans secteur, chaîne, `read_stock`, écritures, rattachement) ; lieux `lib/stocks/lieux.ts` ; `StockAnnex.institutionId` (migration `20261115090000_stock_annex_institution`, `SetNull`) ; port `platform/in-process/stocks` (`chargerPorteeStock`, `chercherEtablissementDeStock`, `chercherLieuHerite`) pour `read_stock` et les ops `stock_operation/{create_hospital,record_snapshot}` (`ops/impl-wave4.ts`). |
@@ -4304,12 +4371,13 @@ entité) sont éligibles. Supprimer une gamme **ne supprime aucun produit** (`SE
 | `src/lib/cibles/resoudre-entrees.ts` | Le pont « nom humain → ligne de la base » du chemin générique : `resoudreCible` sous la portée de la personne, l'ANNUAIRE pour les personnes, substitution montrée sur la carte, refus avec candidats sur une ambiguïté, passage tel quel DIT quand rien ne se lit à coup sûr. |
 | `src/lib/actions/contrat-scan.ts` | La lecture du parc (disque + énums du schéma) — la seule pièce qui touche `fs`. |
 | `src/lib/actions/contrat.genere.json` / `.ts` | L'artefact (données) et son module de chargement. Régénérés par `npm run actions:contrat`, redérivés et comparés par `contrat.test.ts`. |
-| `src/lib/actions/generique.ts` | **Pur.** Ce qui est refusé au chemin générique — **DEUX faits d'armement** : le modèle ÉCRIT (auto-escalade) et le FICHIER (`SURFACES_HUMAINES` : les attestations de Mission Control et les interrupteurs d'Adam délèguent leur écriture, donc aucun modèle ne les trahit). Plus la validation d'une entrée contre son contrat, `argumentsDAppel` (les 6 formes d'appel décidées en UN endroit exhaustif — un `never` final refuse de compiler si l'on en ajoute une sans dire comment l'appeler), et la découverte par recouvrement de mots. |
+| `src/lib/actions/generique.ts` | **Pur.** Ce qui est refusé au chemin générique — **DEUX faits d'armement** : le modèle ÉCRIT (auto-escalade) et le FICHIER (`SURFACES_HUMAINES` : les attestations de Mission Control et les interrupteurs d'Adam délèguent leur écriture, donc aucun modèle ne les trahit). Un TROISIÈME refus vit côté Adam (`refusDuCheminGenerique`, dans l'op) : la décision EXCLUDED du registre de parité, qui n'était lue par personne — 95 actions exclues sur 125 restaient appelables (§118.158). Plus la validation d'une entrée contre son contrat, `argumentsDAppel` (les 6 formes d'appel décidées en UN endroit exhaustif — un `never` final refuse de compiler si l'on en ajoute une sans dire comment l'appeler), et la découverte par recouvrement de mots. |
 | `src/lib/actions/executer.ts` | Appelle l'action de l'ÉCRAN — par formulaire, par état+formulaire, sans entrée, ou **positionnellement** pour les entrées typées. Ne vérifie aucun droit lui-même ; lit l'échec déclaré des actions qui écrivent. |
 | `src/lib/actions/aiguillage.genere.ts` | Table d'aiguillage : un spécificateur littéral par fichier, chargé paresseusement. Écartée du scan Graphify (voir `scripts/graphify-refresh.sh`). |
 | `src/platform/in-process/capacites/` | Le **port** : la seule porte par laquelle Adam atteint tout cela. Réexporte, n'ajoute aucune logique. |
-| `src/lib/assistant/ops/impl-capabilite.ts` | L'op `capability_operation.run` — propose une carte de confirmation, puis exécute **et RELIT**. Son refus fait la découverte. Trois phrases possibles, jamais « fait » tout court : ce qui a été constaté, ce qui a été fait sans pouvoir être constaté, ou l'échec. |
-| `src/lib/assistant/ops/capabilite-parc.test.ts` | Le banc du PARC : les **601** actions ouvertes passent par la carte de confirmation, entrée fabriquée depuis leur propre contrat, zéro écriture. Tient trois propriétés — ce que le contrat déclare suffisant est accepté, chaque carte porte l'action visée et ce qu'elle touche, aucune action refusée par conception ne construit de carte. |
+| `src/lib/assistant/ops/impl-capabilite.ts` | L'op `capability_operation.run` — propose une carte de confirmation, puis exécute **et RELIT**. Son refus fait la découverte. `refusDuCheminGenerique` réunit les trois faits de `generique.ts` et la décision EXCLUDED du registre (`action-registry.ts`), lue à la fiche, à la proposition ET à l'exécution — qui relit avant d'appeler l'action. Trois phrases possibles, jamais « fait » tout court : ce qui a été constaté, ce qui a été fait sans pouvoir être constaté, ou l'échec. |
+| `src/lib/assistant/ops/exclusions-generique.test.ts` | Le banc de la décision EXCLUDED : toute action exclue et lisible est refusée en citant sa raison, **rien d'autre n'est refusé en plus** (les deux sens), proposition et exécution refusent par le vrai point d'entrée, la règle est lue aux trois portes, et l'op reste le **seul** appelant de production de `executerAction`. |
+| `src/lib/assistant/ops/capabilite-parc.test.ts` | Le banc du PARC : les **583** actions ouvertes (sur 755 lisibles ; 172 refusées par conception, dont les décisions EXCLUDED depuis §118.158) passent par la carte de confirmation, entrée fabriquée depuis leur propre contrat, zéro écriture. Tient trois propriétés — ce que le contrat déclare suffisant est accepté, chaque carte porte l'action visée et ce qu'elle touche, aucune action refusée par conception ne construit de carte. |
 | `src/lib/cibles/relire.ts` | La relecture APRÈS écriture (§104.16 : « c'est fait » n'est pas une preuve). Identifiant lu sur le RETOUR d'abord (une création n'en a pas en entrée), entité DÉRIVÉE du modèle écrit, lecture par `porteeEntite` + `canReadEntity` — le chemin de l'écran, jamais un accès privilégié. `null` quand la ligne ne se désigne pas à coup sûr, et l'appelant le DIT. |
 
 ### Mission Runtime (`src/lib/missions/`) — façade L2
@@ -5900,6 +5968,10 @@ créez les comptes de l'équipe, attribuez les accès (onglet × action × ligne
 | `CTD_MODEL_CHEAP` | ⬜ | Surcharge du modèle économique (défaut `gpt-5.6-luna`). |
 | `CTD_BUDGET_USD_DEFAULT` | ⬜ | Plafond IA **global** par dossier, en dollars (défaut : aucun). Un dossier peut avoir son propre plafond, réglé à l'écran. Atteint ⇒ les appels sont **refusés avant dépense**, et l'écran le dit. |
 | `REG_ANPP_WATCH` | ⬜ | `0` désactive la veille quotidienne des pages de publication ANPP (défaut activée). La veille **signale** un changement, elle n'ingère et n'active rien. |
+| `ADVENTUM_BASE_URL` | ⬜ | Adresse du **site public** qui reçoit les offres d'emploi et les articles — `https://www.adventumdz.com` (aucune valeur par défaut : sans elle, rien ne part, et `/site-web` le dit). `…/api/v1` accepté, jamais doublé ; en `https`, sans identifiants. |
+| `ADVENTUM_API_KEY` | ⬜ | Clé de l'API de contenu du site — **la même valeur** que `ERP_API_KEY` côté site (`openssl rand -hex 32`). Absente → rien ne part, et `/site-web` le dit. Ne la committez jamais : elle donne le droit de publier sur le site public. |
+| `ADVENTUM_WEBHOOK_SECRET` | ⬜ | Facultatif : signe chaque envoi (`X-Adventum-Signature`, HMAC-SHA256 du corps exact). La même valeur que `ERP_WEBHOOK_SECRET` côté site, sinon le site refuse. |
+| `SITE_WEB_RECONCILIATION` | ⬜ | `off` coupe le rapprochement quotidien avec le site (la file, elle, continue d'envoyer). |
 
 > \* Requis **ensemble** uniquement pour activer l'édition Office. Côté **service OnlyOffice**, poser
 > `JWT_ENABLED=true` et `JWT_SECRET=<même valeur que ONLYOFFICE_JWT_SECRET>`.
@@ -6138,6 +6210,33 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 ---
 
 ## 🧾 Journal des évolutions récentes
+
+### LE SITE ADVENTUM REÇOIT SES OFFRES D'EMPLOI ET SES ARTICLES DE L'ERP — et Adam ne peut plus publier à la place de personne (2026-09)
+
+Le site public **adventumdz.com** reçoit désormais ses **offres d'emploi** et ses **articles de blog** de l'ERP, qui
+en devient la source de vérité (module **Site web**, pôle Administration). Chaque envoi est un `PUT` rejouable sans
+doublon, identifié par l'identifiant de l'ERP ; une **file** réessaie les échecs réseau et les `503` (1 s, 5 s,
+30 s, 2 min, 10 min) et ne rejoue jamais un contenu que le site a refusé ; un `401` coupe tout et prévient les Super
+Admins ; un **rapprochement quotidien** relit ce que le site détient, renvoie ce qu'il a perdu, rejoue une
+suppression perdue — et **nomme sans le supprimer** ce qu'il détient et que l'ERP ne connaît pas.
+
+- **Les offres** se préparent depuis une demande de recrutement, sans jamais la rémunération ni la justification ;
+  elles ne sont visibles **que tant que le poste est ouvert**, et repassent en brouillon sur le site dès qu'il est
+  pourvu ou clos. La demande n'est lue que **sous la portée du recrutement** : publier des offres ne donne pas le
+  droit d'ouvrir un poste qu'on ne voit pas.
+- **Les articles** s'écrivent en Markdown avec aperçu : un `# Titre` est refusé avant l'envoi, en nommant sa ligne.
+- **Ce que le lot a trouvé ailleurs, et fermé** : le chemin générique d'Adam ne lisait pas les décisions « ce geste
+  n'est pas offert à Adam » du registre — **95 actions exclues sur 125** lui restaient appelables, dont l'usurpation
+  d'identité, la purge des règlements, les fiches de coaching et la publication sur le site. Il les refuse
+  désormais, en citant la raison écrite. Et 33 actions déléguant leur écriture se déclaraient à tort sans écriture.
+
+**Mesure** : 91 cas dédiés (contrat 36, Markdown 18, transport contre un `fetch` bouché 12, file et rapprochement
+par les vraies actions 20, branchements du recrutement, de la portée et du battement 5) + 7 sur la décision EXCLUDED
++ 1 sur la dérivation des contrats ; 37 sabotages, 37 détectés (dont un sur le banc navigateur) ; banc navigateur **5 parcours
+sur 5** contre le build de production (Direction, article, offre préparée depuis la demande, délégué refusé, téléphone). Aucun échange réel avec le site n'a été joué depuis ce
+conteneur (pas de clé, sorties interdites en test) : le premier aura lieu à la mise en service. Détail au §118.158 de
+`CLAUDE.md`. **Déploiement** : la migration `20261202090000_site_web_adventum` crée cinq tables et s'applique au
+déploiement ; rien ne part vers le site tant que `ADVENTUM_API_KEY` n'est pas posée.
 
 ### LA FICHE DE COACHING « TOURNÉE EN DOUBLE » EN NATIF — administrée par le directeur des opérations (2026-09)
 

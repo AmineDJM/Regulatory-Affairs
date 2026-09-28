@@ -239,10 +239,19 @@ describe("SURFACES HUMAINES — ouvrir une lecture ne doit pas ouvrir une porte"
   ] as [string, string][]) {
     it(`${quoi} est REFUSÉ au chemin générique (${id.split(":")[1]})`, () => {
       const c = parcId(id);
-      // Le point de la démonstration : elle est DESCRIPTIBLE (donc atteignable sans la garde)
-      // et elle n'écrit AUCUN modèle (donc invisible à la garde des modèles).
+      // Le point de la démonstration : elle est DESCRIPTIBLE (donc atteignable sans la garde) et
+      // AUCUN des modèles qu'elle écrit n'est interdit (donc la garde des modèles la laisse passer).
+      //
+      // La première version exigeait « aucun modèle écrit » : c'était vrai parce que la dérivation
+      // ne VOYAIT pas les écritures d'un délégué importé par une action sans formulaire. Elle les
+      // voit depuis §118.158 (`missionApproval`, `communicationPolicy`…), et aucun de ces modèles
+      // n'est un droit : la démonstration tient pour sa vraie raison — c'est le FICHIER qui les
+      // arrête, et rien d'autre.
       expect(c.illisible, "cette action n'est plus descriptible — le banc ne prouve plus rien").toBeNull();
-      expect(c.modelesEcrits, "elle écrit un modèle : ce n'est plus le cas d'angle mort").toEqual([]);
+      expect(
+        c.modelesEcrits.filter((m) => m in MODELES_INTERDITS),
+        "elle écrit un modèle interdit : la garde des modèles l'arrêterait seule, ce n'est plus le cas d'angle mort",
+      ).toEqual([]);
       const refus = interdictionGenerique(c);
       expect(refus, `${id} passe la garde`).toBeTruthy();
       expect(refus, "le refus doit nommer le geste humain qui reste possible").toMatch(/Mission Control|réglages d'Adam/);
@@ -252,7 +261,7 @@ describe("SURFACES HUMAINES — ouvrir une lecture ne doit pas ouvrir une porte"
   it("SABOTAGE : sans le fait « fichier », les six passeraient", () => {
     // LE CAS QUI FAIT TOMBER L'ASSERTION PRÉCÉDENTE, joué : on retire la surface du contrat
     // (en la renommant) et l'on constate que plus RIEN ne les arrête — ni les modèles écrits
-    // (il n'y en a pas), ni le filet des noms (`deciderAccordMission` n'a aucun mot-clé de
+    // (aucun n'est un droit), ni le filet des noms (`deciderAccordMission` n'a aucun mot-clé de
     // droit). Sans ce sabotage, on ne saurait pas nommer ce qui fait tenir la garde.
     for (const id of [
       "mission-runtime-actions:deciderAccordMission",

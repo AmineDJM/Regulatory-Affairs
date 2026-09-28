@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { synchroniserOffreDeLaDemande } from "@/lib/site-web/contenus";
 import type { ContractType } from "@prisma/client";
 import { requireUser } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
@@ -186,6 +187,9 @@ export async function decideRecruitmentStep(formData: FormData): Promise<ActionR
       data: { stage: outcome.stage, ...(outcome.stage === "REJECTED" ? { closingNote: reason, closedAt: new Date() } : {}) },
     }),
   ]);
+  // L'offre publiée sur le site suit l'étape du poste (§118.158) : ouverte, elle est en ligne ;
+  // pourvue, close, refusée ou annulée, elle repasse en brouillon — tout de suite.
+  await synchroniserOffreDeLaDemande(id, user.id);
 
   // On prévient CELUI QUI ATTEND : la marche suivante, ou les RH quand la chaîne est franchie,
   // ou le demandeur quand c'est un refus. Une notification à tout le monde n'aiderait personne.
@@ -248,6 +252,9 @@ export async function cancelRecruitmentRequest(formData: FormData): Promise<Acti
   await prisma.recruitmentRequest.update({
     where: { id }, data: { stage: "CANCELLED", closedAt: new Date(), closingNote: fdStr(formData, "reason") },
   });
+  // L'offre publiée sur le site suit l'étape du poste (§118.158) : ouverte, elle est en ligne ;
+  // pourvue, close, refusée ou annulée, elle repasse en brouillon — tout de suite.
+  await synchroniserOffreDeLaDemande(id, user.id);
   await recordAudit({
     actorId: user.id, action: "UPDATE", module: "Recrutement",
     entityType: "RECRUITMENT_REQUEST", entityId: id,
@@ -279,6 +286,9 @@ export async function askRecruitmentInfo(formData: FormData): Promise<ActionResu
     // file des RH — sinon ils la rouvriraient chaque jour sans que rien n'ait bougé.
     prisma.recruitmentRequest.update({ where: { id }, data: { stage: "INFO_REQUESTED" } }),
   ]);
+  // L'offre publiée sur le site suit l'étape du poste (§118.158) : ouverte, elle est en ligne ;
+  // pourvue, close, refusée ou annulée, elle repasse en brouillon — tout de suite.
+  await synchroniserOffreDeLaDemande(id, user.id);
   await notifyUser({
     userId: req.requesterId, type: "GENERIC",
     title: "Précisions demandées sur votre demande de recrutement",
@@ -323,6 +333,9 @@ export async function answerRecruitmentInfo(formData: FormData): Promise<ActionR
   const pending = await prisma.recruitmentInfoRequest.count({ where: { requestId: id, answeredAt: null } });
   if (pending === 0) {
     await prisma.recruitmentRequest.update({ where: { id }, data: { stage: "HR_REVIEW" } });
+    // L'offre publiée sur le site suit l'étape du poste (§118.158) : ouverte, elle est en ligne ;
+    // pourvue, close, refusée ou annulée, elle repasse en brouillon — tout de suite.
+    await synchroniserOffreDeLaDemande(id, user.id);
     await notifyUser({
       userId: info.askedById, type: "GENERIC",
       title: "Réponse à vos précisions — demande de recrutement",
@@ -352,6 +365,9 @@ export async function openRecruitmentSourcing(formData: FormData): Promise<Actio
   if (!abilities(req.stage, viewer).openSourcing) return { ok: false, error: "Non autorisé à cette étape." };
 
   await prisma.recruitmentRequest.update({ where: { id }, data: { stage: "SOURCING" } });
+  // L'offre publiée sur le site suit l'étape du poste (§118.158) : ouverte, elle est en ligne ;
+  // pourvue, close, refusée ou annulée, elle repasse en brouillon — tout de suite.
+  await synchroniserOffreDeLaDemande(id, user.id);
   await notifyUser({
     userId: req.requesterId, type: "GENERIC",
     title: "Recrutement ouvert",
@@ -393,6 +409,9 @@ export async function closeRecruitmentRequest(formData: FormData): Promise<Actio
     where: { id },
     data: { stage: reject ? "REJECTED" : "CLOSED", closingNote: note, closedAt: new Date() },
   });
+  // L'offre publiée sur le site suit l'étape du poste (§118.158) : ouverte, elle est en ligne ;
+  // pourvue, close, refusée ou annulée, elle repasse en brouillon — tout de suite.
+  await synchroniserOffreDeLaDemande(id, user.id);
   await notifyUser({
     userId: req.requesterId, type: "GENERIC",
     title: reject ? "Demande de recrutement refusée par les RH" : "Recrutement clôturé",
@@ -526,6 +545,9 @@ export async function moveRecruitmentCandidate(formData: FormData): Promise<Acti
   // la fiche employé (ou, pour un consulting, la simple prise en compte d'un externe).
   if (move === "HIRE") {
     await prisma.recruitmentRequest.update({ where: { id: candidate.requestId }, data: { stage: "ONBOARDING" } });
+    // L'offre publiée sur le site suit l'étape du poste (§118.158) : ouverte, elle est en ligne ;
+    // pourvue, close, refusée ou annulée, elle repasse en brouillon — tout de suite.
+    await synchroniserOffreDeLaDemande(candidate.requestId, user.id);
     await notifyRoles(rolesWithModule("RH", "UPDATE"), {
       type: "GENERIC",
       title: needsOnboarding(req.contractType as RecruitmentContract) ? "Intégration à préparer" : "Consultant externe retenu",
@@ -600,6 +622,9 @@ export async function onboardRecruitment(formData: FormData): Promise<ActionResu
         closingNote: `${hired.fullName} — consultant externe (pas de fiche employé).`,
       },
     });
+    // L'offre publiée sur le site suit l'étape du poste (§118.158) : ouverte, elle est en ligne ;
+    // pourvue, close, refusée ou annulée, elle repasse en brouillon — tout de suite.
+    await synchroniserOffreDeLaDemande(id, user.id);
     await recordAudit({
       actorId: user.id, action: "UPDATE", module: "Recrutement",
       entityType: "RECRUITMENT_REQUEST", entityId: id,
@@ -637,6 +662,9 @@ export async function onboardRecruitment(formData: FormData): Promise<ActionResu
       data: { stage: "CLOSED", closedAt: new Date(), closingNote: `${hired.fullName} recruté — fiche employé créée.` },
     }),
   ]);
+  // L'offre publiée sur le site suit l'étape du poste (§118.158) : ouverte, elle est en ligne ;
+  // pourvue, close, refusée ou annulée, elle repasse en brouillon — tout de suite.
+  await synchroniserOffreDeLaDemande(id, user.id);
   await recordAudit({
     actorId: user.id, action: "CREATE", module: "Recrutement",
     entityType: "EMPLOYEE", entityId: employee.id,

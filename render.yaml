@@ -82,3 +82,14 @@ services:
         sync: false
       - key: VAPID_SUBJECT
         sync: false
+      # Publication vers le site public Adventum (offres d'emploi, articles) — §118.158.
+      # ADVENTUM_API_KEY porte la MÊME valeur que ERP_API_KEY côté site (openssl rand -hex 32) :
+      # elle donne le droit de publier sur le site public, elle ne vit QUE dans ce magasin de
+      # secrets. Sans ces deux variables, la file et la réconciliation se taisent.
+      - key: ADVENTUM_BASE_URL
+        sync: false
+      - key: ADVENTUM_API_KEY
+        sync: false
+      # Facultatif : signature HMAC-SHA256 du corps (même valeur que ERP_WEBHOOK_SECRET côté site).
+      - key: ADVENTUM_WEBHOOK_SECRET
+        sync: false
