@@ -74,6 +74,7 @@
  * que ses appelants n'aient pas à savoir d'où elle vient.
  */
 import { estKam, ROLE_DIRECTION_MARKETING, ROLE_KAM, type RolesPersonne } from "@/lib/personnes/roles-vente";
+import type { WorkflowCategory } from "./types";
 
 export { ROLE_KAM, ROLE_DIRECTION_MARKETING, estKam };
 export type DemandeurParcours = RolesPersonne;
@@ -132,6 +133,12 @@ export function parcoursAdPro(args: {
   rang: number;
   /** Le demandeur exerce-t-il comme KAM (délégué médical) ? */
   kam: boolean;
+  /**
+   * LA NATURE DE LA DEMANDE — OBLIGATOIRE, jamais un défaut. Elle ne change qu'UNE branche (le
+   * sponsoring d'un KAM, décision du 28/09/2026) ; une valeur par défaut réintroduirait le mauvais
+   * parcours, en silence, chez le prochain appelant qui l'oublierait (§118.127b).
+   */
+  categorie: WorkflowCategory;
 }): Parcours {
   // LA DIRECTION, LE DG, LE DIRECTEUR DES OPÉRATIONS, LE SUPER ADMIN — personne au-dessus d'eux.
   // Leur demande n'a ni préliminaire, ni porte du DG (le DG est à ce rang), ni validation de la
@@ -154,6 +161,15 @@ export function parcoursAdPro(args: {
   // sur sa route : « le national sales ne valide QUE si c'est un KAM ». C'est cette branche qui
   // rend le parcours non contigu, et donc le tamis nécessaire.
   if (args.kam) {
+    // LE SPONSORING D'UN KAM — décision de la Direction du 28/09/2026 : « une fois validée par le
+    // national sales ET le directeur des opérations, la direction marketing pré-valide ou refuse
+    // la tenue ». Les deux filtres, dans cet ordre, puis Direction Marketing — et pour le
+    // SPONSORING SEUL : la décision a été prise pour cette nature. L'étendre aux congrès et aux
+    // événements serait une empreinte plus large que la demande (§118.16) ; la règle du 22/09
+    // (« le national sales ne valide QUE si c'est un KAM ») reste celle des trois autres.
+    if (args.categorie === "SPONSORING") {
+      return { entree: SLUG_PRELIMINAIRE, decision: null, ignorees: [] };
+    }
     return { entree: SLUG_PRELIMINAIRE, decision: null, ignorees: [SLUG_DIRECTION] };
   }
   // TOUT AUTRE DEMANDEUR : « ça part direct chez la direction marketing ». Aucun filtre
@@ -183,8 +199,9 @@ export function parcoursEffectif(
   demandeur: DemandeurParcours | null | undefined,
   slugsDeLaDefinition: readonly string[],
   rang: number,
+  categorie: WorkflowCategory,
 ): Parcours {
-  const brut = parcoursAdPro({ rang, kam: estKam(demandeur) });
+  const brut = parcoursAdPro({ rang, kam: estKam(demandeur), categorie });
   const connus = new Set(slugsDeLaDefinition);
   return {
     entree: brut.entree,

@@ -258,7 +258,7 @@ export async function submitEventForApproval(formData: FormData): Promise<Action
   }
   // La Direction, elle, CHOISIT : trancher tout de suite, ou demander d'abord l'avis d'un chef
   // de produit. `adProInit` ignore ce drapeau pour les autres rangs — le choix ne se vole pas.
-  const init = adProInit(user, pmId);
+  const init = adProInit(user, "EVENTS", pmId);
   /*
    * LA GAMME VIENT DE LA LIGNE, PAS DU FORMULAIRE — et c'est un défaut mesuré, pas une précaution.
    *

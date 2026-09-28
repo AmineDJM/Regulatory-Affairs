@@ -29,8 +29,8 @@ export const metadata = { title: "Centre de paiement — AMD Internal OS" };
  * MARQUEUR qui trie la file (`isHighValue`), jamais comme un filtre.
  *
  * Ce qui décaisse SANS ordre de dépense — la paie, la caisse d'avance — ne passe pas par ici :
- * ces exceptions sont écrites, avec la décision qu'elles attendent de la Direction, dans le
- * registre des chemins de paiement (`finances/settlement.ts`, `horsCentre()`).
+ * ces exceptions sont ASSUMÉES par la Direction (28/09/2026), et chacune porte sa décision écrite
+ * dans le registre des chemins de paiement (`finances/settlement.ts`, `horsCentre()`).
  *
  * L'écran est ouvert au CENTRE (qui décide) et au DEMANDEUR (qui répond quand on lui rend la
  * main) : les Finances, elles, n'ont rien à faire ici — un paiement leur arrive une fois autorisé.

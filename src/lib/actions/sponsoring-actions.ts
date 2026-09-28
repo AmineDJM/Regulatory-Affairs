@@ -143,7 +143,7 @@ export async function createSponsoring(
   // La Direction peut demander l'avis de la Direction Marketing avant de trancher — ou trancher tout
   // de suite. `adProInit` ignore ce drapeau pour les autres rangs : le choix ne s'attrape pas en
   // forgeant un champ de formulaire.
-  const init = adProInit(user, pmId);
+  const init = adProInit(user, "SPONSORING", pmId);
   /*
    * LA GAMME SE LIT UNE FOIS, ET LE RÉFÉRENT VIENT DE CELLE QU'ON ÉCRIT.
    *

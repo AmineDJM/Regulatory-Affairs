@@ -344,8 +344,8 @@ export async function ensureInstance(entityType: EntityType, entityId: string): 
   const { currentSlug, status } = positionFromLegacy(orderedSteps(def), summary?.legacyStatus ?? null);
   // LA BORNE DE SORTIE DU PARCOURS, fixée MAINTENANT et jamais recalculée.
   //
-  // Elle se lit sur le DEMANDEUR : la demande d'un KAM est tranchée par Direction Marketing,
-  // celle de tout autre demandeur par la Direction. On la fige à la naissance de l'instance
+  // Elle se lit sur le DEMANDEUR et sur la NATURE de la demande (`parcoursAdPro` : trois branches,
+  // et le sponsoring d'un KAM qui traverse aussi la Direction des opérations). On la fige à la naissance de l'instance
   // parce qu'un KAM promu National Sales en cours de circuit ne doit pas voir sa chaîne
   // changer — et surtout parce qu'un National Sales redevenu KAM ne doit pas PERDRE la
   // validation de la Direction qui lui était promise. Le parcours est un fait de la DEMANDE.
@@ -361,7 +361,7 @@ export async function ensureInstance(entityType: EntityType, entityId: string): 
   // LES DEUX FAITS SE LISENT D'UN SEUL APPEL. Ils viennent de la même branche : en tirer un sans
   // l'autre laisserait une demande s'arrêter là où la vue annonce qu'elle continue (§118.5).
   const parcours = demandeur
-    ? parcoursEffectif(demandeur, orderedSteps(def).map((st) => st.slug), adProOriginRank(demandeur))
+    ? parcoursEffectif(demandeur, orderedSteps(def).map((st) => st.slug), adProOriginRank(demandeur), category)
     : null;
   const finalSlug = parcours?.decision ?? null;
   const skippedSlugs = parcours ? [...parcours.ignorees] : [];

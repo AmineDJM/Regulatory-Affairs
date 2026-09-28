@@ -53,6 +53,20 @@ describe("PAYMENT_PATHS — le registre qu'on relit avant d'ajouter un geste d'a
     for (const p of horsCentre()) expect(p.centreWhy, p.key).toMatch(/Direction/);
   });
 
+  it("chaque exception porte la DÉCISION qui l'assume — et seules les exceptions en portent une", () => {
+    // Décision de la Direction du 28/09/2026 : « garder les trois exceptions ». Ce qui ferait
+    // tomber ce cas : un chemin passé HORS_CENTRE sans décision écrite — une exception que
+    // personne n'a décidée, c'est-à-dire un trou. Et dans l'autre sens, une « décision » posée sur
+    // un chemin qui passe par le centre ferait croire qu'il a fallu l'autoriser.
+    for (const p of horsCentre()) {
+      expect(p.decision?.trim().length ?? 0, `${p.key} : exception sans décision écrite`).toBeGreaterThan(20);
+      expect(p.decision, p.key).toMatch(/\d{2}\/\d{2}\/\d{4}/);
+    }
+    for (const p of PAYMENT_PATHS.filter((c) => c.centre !== "HORS_CENTRE")) {
+      expect(p.decision, `${p.key} : une décision n'a de sens que sur une exception`).toBeUndefined();
+    }
+  });
+
   it("les règlements décidés dans l'ERP passent par le centre : ordre, demande, facture", () => {
     for (const key of ["expense-order", "payment-request", "invoice-settlement"]) {
       expect(paymentPath(key)?.centre, key).toBe("AUTORISE");

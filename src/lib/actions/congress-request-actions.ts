@@ -72,7 +72,10 @@ export async function createCongressRequest(
   }
   // La Direction peut demander l'avis de la Direction Marketing avant de trancher — ou trancher tout
   // de suite. `adProInit` ignore ce drapeau pour les autres rangs.
-  const init = adProInit(user, pmId);
+  // La NATURE de la demande — celle de l'entité créée plus bas (`t === "INTL"` crée un congrès
+  // international, sinon un congrès national). Elle ne change pas l'ENTRÉE, seulement la suite
+  // (§118.156), mais le parcours se lit toujours avec elle.
+  const init = adProInit(user, t === "INTL" ? "CONGRESS_INTERNATIONAL" : "CONGRESS_NATIONAL", pmId);
   // LA GAMME SE LIT UNE FOIS : le référent vient de la gamme qu'on ÉCRIT, jamais d'une lecture
   // parallèle du formulaire. Les deux coïncident ici, et c'est précisément le genre d'accord qui
   // se défait le jour où la gamme se déduit du demandeur, en silence (§118.5).

@@ -37,7 +37,8 @@ export type MoneyDirection = "IN" | "OUT";
  *     rien à autoriser — mais payer un fournisseur par ce chemin serait un contournement.
  *   • `HORS_CENTRE` — le décaissement est décidé DANS l'ERP sans passer par le centre. C'est une
  *     exception à la règle de la Direction (« tous passent par le centre de paiements ») : elle
- *     est écrite ici pour qu'on sache qu'elle existe, jamais tue.
+ *     est écrite ici pour qu'on sache qu'elle existe, jamais tue — et elle porte la DÉCISION qui
+ *     l'assume (`decision`), sans quoi ce n'est pas une exception, c'est un trou.
  */
 export type CentrePath = "AUTORISE" | "ENREGISTRE" | "HORS_CENTRE";
 
@@ -55,6 +56,12 @@ export interface PaymentPath {
   centre: CentrePath;
   /** Pourquoi — exigé dès que la réponse n'est pas `AUTORISE`. */
   centreWhy: string;
+  /**
+   * LA DÉCISION qui assume un chemin `HORS_CENTRE` — qui, quand, et ce qui a été tranché. Exigée
+   * sur chaque exception : un décaissement hors centre SANS décision écrite n'est pas une
+   * exception, c'est un trou que personne n'a vu (§118.156). Absente partout ailleurs.
+   */
+  decision?: string;
 }
 
 /**
@@ -87,7 +94,8 @@ export const PAYMENT_PATHS: PaymentPath[] = [
     key: "payroll", label: "Paie transférée au budget", module: "RH → Finances",
     settles: true, why: "Une écriture par salarié, au COÛT EMPLOYEUR (charges comprises).",
     centre: "HORS_CENTRE",
-    centreWhy: "La paie se verse sans ordre de dépense : bulletins et virements de salaires ne passent pas par le centre. Exception EXISTANTE à la règle « tous les paiements par le centre » — à trancher par la Direction : la faire autoriser par le centre, ou l'assumer comme exception écrite.",
+    centreWhy: "La paie se verse sans ordre de dépense : bulletins et virements de salaires ne passent pas par le centre. Exception à la règle « tous les paiements par le centre », assumée par la Direction.",
+    decision: "Assumée par la Direction le 28/09/2026 : « garder les trois exceptions » (paie, remise et rallonge de caisse d'avance).",
   },
   {
     key: "finance-direct", label: "Encaissement / décaissement direct", module: "Finances",
@@ -106,13 +114,15 @@ export const PAYMENT_PATHS: PaymentPath[] = [
     key: "petty-cash-allotment", label: "Caisse d'avance remise", module: "Moyens généraux",
     settles: true, why: "L'argent quitte la banque à ce moment-là : c'est là que l'écriture se pose.",
     centre: "HORS_CENTRE",
-    centreWhy: "La remise d'une caisse d'avance est décidée par l'administration sans ordre de dépense. Exception EXISTANTE — à trancher par la Direction.",
+    centreWhy: "La remise d'une caisse d'avance est décidée par l'administration sans ordre de dépense. Exception assumée par la Direction.",
+    decision: "Assumée par la Direction le 28/09/2026 : « garder les trois exceptions » (paie, remise et rallonge de caisse d'avance).",
   },
   {
     key: "petty-cash-top-up", label: "Rallonge de caisse d'avance accordée", module: "Moyens généraux",
     settles: true, why: "La rallonge quitte la banque comme la remise : même écriture, au moment où elle est accordée.",
     centre: "HORS_CENTRE",
-    centreWhy: "Accordée par les RH sans ordre de dépense, comme la remise qu'elle complète. Même exception, même décision à prendre par la Direction.",
+    centreWhy: "Accordée par les RH sans ordre de dépense, comme la remise qu'elle complète. Même exception, assumée par la Direction.",
+    decision: "Assumée par la Direction le 28/09/2026 : « garder les trois exceptions » (paie, remise et rallonge de caisse d'avance).",
   },
   {
     key: "petty-cash-expense", label: "Achat payé sur la caisse d'avance", module: "Moyens généraux",
@@ -134,11 +144,12 @@ export function nonSettlingPaths(): PaymentPath[] {
 }
 
 /**
- * LES EXCEPTIONS À « TOUS LES PAIEMENTS PAR LE CENTRE » — celles qu'il faut trancher.
+ * LES EXCEPTIONS À « TOUS LES PAIEMENTS PAR LE CENTRE » — ASSUMÉES par la Direction (28/09/2026).
  *
- * La Direction a énoncé la règle ; ces chemins la contredisent AUJOURD'HUI. Les lister n'est pas
- * les autoriser : c'est ce qui les empêche de redevenir invisibles. Chacun porte la décision
- * qu'il attend.
+ * La Direction a énoncé la règle, puis a tranché : la paie, la remise et la rallonge de caisse
+ * d'avance restent hors centre. Les lister n'était pas les autoriser ; c'est la DÉCISION écrite
+ * sur chacune qui les autorise, et un quatrième chemin qui changerait de camp sans décision
+ * ferait tomber le banc.
  */
 export function horsCentre(): PaymentPath[] {
   return PAYMENT_PATHS.filter((p) => p.centre === "HORS_CENTRE");

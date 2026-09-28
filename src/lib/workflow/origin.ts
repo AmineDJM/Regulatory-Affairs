@@ -1,6 +1,7 @@
 import type { UserRole } from "@prisma/client";
 import { hasGlobalView, hasRole } from "@/lib/rbac";
 import { estKam, parcoursAdPro, SLUG_MARKETING, SLUG_PRELIMINAIRE } from "./parcours";
+import type { WorkflowCategory } from "./types";
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
@@ -92,20 +93,21 @@ export interface AdProInit {
 /**
  * Étape de DÉPART d'une demande Ad & Pro, et son statut legacy.
  *
- * Les deux parcours tenus par `parcoursAdPro` :
- *   • KAM → préliminaire (National Sales), puis la chaîne entière ;
+ * Les entrées tenues par `parcoursAdPro` (la nature ne change que la SUITE, jamais l'entrée) :
+ *   • KAM → préliminaire (National Sales) ;
  *   • Direction / DG / Super Admin → directement Direction Marketing, qui TRANCHE ;
- *   • tout autre demandeur → porte du DG (franchie sous le seuil), Direction, Direction Marketing.
+ *   • tout autre demandeur → porte du DG (franchie sous le seuil).
  *
  * Le rang l'emporte sur le métier : un délégué médical qui porte aussi Direction Marketing ne
  * s'arbitre pas sa propre demande — c'est la Direction qui tranche la sienne.
  */
 export function adProInit(
   user: OriginUser,
+  categorie: WorkflowCategory,
   productManagerId?: string | null,
 ): AdProInit {
   const rang = adProOriginRank(user);
-  const { entree } = parcoursAdPro({ rang, kam: estKam(user) });
+  const { entree } = parcoursAdPro({ rang, kam: estKam(user), categorie });
   const referent = productManagerId?.trim() || null;
 
   // LE KAM entre par son superviseur national.

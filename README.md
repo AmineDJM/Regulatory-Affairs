@@ -381,12 +381,14 @@ libellés français viennent de `src/lib/labels.ts`.
 
 Le **même** circuit sert le **Sponsoring**, les **Congrès internationaux/nationaux** et les **Événements** :
 
-**Le parcours dépend de QUI demande — TROIS branches** (décision de la Direction, 22/09/2026) :
+**Le parcours dépend de QUI demande — TROIS branches** (décision de la Direction, 22/09/2026 ; le sponsoring d'un KAM
+précisé le 28/09/2026) :
 
 ```
 Demande d'un KAM (délégué médical)
-   → NATIONAL SALES : approuve / refuse                                     ← son superviseur, et LUI SEUL
+   → NATIONAL SALES : approuve / refuse                                     ← son superviseur
    → [porte du DG : au-delà du seuil réglé — franchie seule en dessous]
+   → (SPONSORING seulement) DIRECTION DES OPÉRATIONS : accord               ← décision du 28/09/2026
    → DIRECTION MARKETING : montant accordé + (sous-)catégorie budgétaire     ← elle TRANCHE
    → [Information médicale : déclaration du pharmacien (PRIM)]               ← uniquement si applicable
    → Ordre de dépense → Finances / comptable
@@ -462,7 +464,8 @@ Marketing **valide tout, met chaque poste dans un budget, valide et clôture**. 
 Création : demandé par le médecin + suggéré par le délégué + NATURE (direct / indirect)
    → le POSTE naît avec la demande : « Sponsoring direct (association) » ou « Sponsoring indirect
      (prise en charge) », chiffré au montant SUGGÉRÉ, la demande du médecin écrite dans le poste
-   → circuit inchangé (tamis à trois branches, porte du DG au-delà du seuil)
+   → circuit à trois branches — un KAM : National Sales PUIS Direction des opérations (28/09/2026) —
+     et porte du DG au-delà du seuil
    → DIRECTION MARKETING : pré-valide ou refuse la TENUE — aucun montant accordé, aucun ordre global
         → statut « Tenue pré-validée — postes en cours » ; la déclaration PRIM part (estimation des postes)
    → POSTES : ajout (stand, billetterie, hôtellerie…), devis au secrétariat, décision poste par poste,
@@ -1049,8 +1052,9 @@ paiement, facture envoyée au règlement), `ENREGISTRE` (le geste enregistre un 
 n'y a rien à autoriser, et payer un fournisseur par ce chemin serait un contournement) et
 **`HORS_CENTRE`** — trois chemins décidés dans l'ERP sans le centre : la **paie** (virements de
 salaires sans ordre de dépense), la **remise de caisse d'avance** et sa **rallonge**. Ce sont des
-exceptions à la règle, chacune avec la décision qu'elle attend de la Direction (`horsCentre()`), et un
-test tombe si un quatrième chemin change de camp sans que personne l'ait décidé.
+exceptions à la règle, **assumées par la Direction le 28/09/2026** (« garder les trois exceptions ») :
+chacune porte sa décision écrite (`horsCentre()`), et un test tombe si un quatrième chemin change de
+camp sans décision.
 
 **Le seuil et l'exemption ont été retirés (2026-08).** Au-dessous de 50 000 DZD, et pour les moyens
 généraux, l'ordre filait droit aux Finances. L'intention était bonne — ne pas faire viser une
@@ -6074,6 +6078,21 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 ---
 
 ## 🧾 Journal des évolutions récentes
+
+### LE SPONSORING D'UN KAM PASSE PAR LE NATIONAL SALES PUIS LA DIRECTION DES OPÉRATIONS, ET LES TROIS PAIEMENTS HORS CENTRE SONT ASSUMÉS (2026-09)
+
+Deux décisions de la Direction, le 28/09. **Le sponsoring d'un KAM** passe désormais par le National Sales PUIS la
+Direction des opérations, avant que la Direction Marketing pré-valide ou refuse la tenue (« une fois validée par le
+national sales et directeur des opérations »). La règle du 22/09 — le National Sales seul — reste celle des
+congrès, des événements et des autres demandes d'un KAM : la décision a été prise pour le sponsoring. Le parcours se
+fige à la naissance d'une demande ; celles déjà déposées gardent le leur. **Les paiements hors centre** (la paie, la
+remise de caisse d'avance et sa rallonge) restent des exceptions, désormais assumées : chacune porte la décision
+écrite, et un test tombe si un chemin de paiement sort du centre sans décision.
+
+**Mesure** : 7 sabotages joués et tous détectés, dont un qui fait ignorer la nature de la demande par le moteur. Un
+test de bout en bout passe par le vrai moteur de circuit (National Sales → porte du DG → Direction des opérations →
+Direction Marketing), avec un témoin : le congrès du même KAM saute toujours la Direction des opérations. Détail au
+§118.156 de `CLAUDE.md`.
 
 ### LE CONTRÔLE DE STYLE BLOQUAIT LE DÉPLOIEMENT (2026-09)
 

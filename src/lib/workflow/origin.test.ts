@@ -4,6 +4,9 @@ import * as origin from "./origin";
 import { adProInit, adProOriginRank } from "./origin";
 import { parcoursEffectif, SLUG_DG, SLUG_DIRECTION, SLUG_MARKETING, SLUG_PRELIMINAIRE } from "./parcours";
 
+/** Une nature ordinaire : l'ENTRÉE ne dépend pas de la nature (§118.156), seule la suite en dépend. */
+const C = "CONGRESS_NATIONAL" as const;
+
 const u = (role: UserRole, secondaryRole: UserRole | null = null) => ({ role, secondaryRole });
 
 /** La colonne vertébrale, dans l'ordre où le circuit la traverse depuis 09/2026 (§118.138). */
@@ -11,7 +14,7 @@ const SPINE = [SLUG_PRELIMINAIRE, SLUG_DG, SLUG_DIRECTION, SLUG_MARKETING];
 
 describe("Routage Ad & Pro selon le rang du créateur (origin)", () => {
   it("un délégué part de l'étape préliminaire (circuit complet)", () => {
-    const init = adProInit(u("MEDICAL_DELEGATE"));
+    const init = adProInit(u("MEDICAL_DELEGATE"), C);
     expect(adProOriginRank(u("MEDICAL_DELEGATE"))).toBe(0);
     expect(init.stage).toBe("PRELIMINARY");
     expect(init.status).toBe("AWAITING_PRELIMINARY");
@@ -21,7 +24,7 @@ describe("Routage Ad & Pro selon le rang du créateur (origin)", () => {
 
   it("le National Sales n'approuve pas sa propre demande : elle entre par la porte du DG", () => {
     expect(adProOriginRank(u("NATIONAL_SALES"))).toBe(1);
-    const init = adProInit(u("NATIONAL_SALES"), "pm-1");
+    const init = adProInit(u("NATIONAL_SALES"), C, "pm-1");
     expect(init.stage).toBe("ANALYSIS");
     expect(init.status).toBe("PRELIMINARY_APPROVED");
     expect(init.productManagerId, "le référent nommé est enregistré").toBe("pm-1");
@@ -32,7 +35,7 @@ describe("Routage Ad & Pro selon le rang du créateur (origin)", () => {
     // Le référent est un ENREGISTREMENT, plus une condition : la décision appartient au RÔLE
     // Direction Marketing tout entier. L'exiger ferait échouer une demande légitime le jour où
     // la personne qui suit la gamme est absente de la liste.
-    const init = adProInit(u("NATIONAL_SALES"));
+    const init = adProInit(u("NATIONAL_SALES"), C);
     expect(init.stage).toBe("ANALYSIS");
     expect(init.status).toBe("PRELIMINARY_APPROVED");
     expect(init.productManagerId).toBeNull();
@@ -43,7 +46,7 @@ describe("Routage Ad & Pro selon le rang du créateur (origin)", () => {
     // Un demandeur hors force de vente n'a pas de superviseur national : l'étape préliminaire
     // serait un accord demandé à quelqu'un qui n'a pas autorité sur lui.
     for (const role of ["DIRECTION_ASSISTANT", "FINANCE_BUDGET_MANAGER", "COORDINATOR"] as UserRole[]) {
-      const init = adProInit(u(role));
+      const init = adProInit(u(role), C);
       expect(adProOriginRank(u(role)), role).toBe(0);
       expect(init.stage, role).toBe("ANALYSIS");
       expect(init.status, role).toBe("PRELIMINARY_APPROVED");
@@ -54,14 +57,14 @@ describe("Routage Ad & Pro selon le rang du créateur (origin)", () => {
     // Un délégué médical qui porte AUSSI la casquette Direction Marketing est un KAM au sens du
     // texte, mais sa demande ne peut pas être TRANCHÉE par lui-même : sa chaîne s'arrête donc
     // une étape plus tôt, chez la Direction. Sans cette borne, elle lui reviendrait.
-    expect(adProInit(u("MEDICAL_DELEGATE")).stage).toBe("PRELIMINARY");
+    expect(adProInit(u("MEDICAL_DELEGATE"), C).stage).toBe("PRELIMINARY");
     const double = u("MEDICAL_DELEGATE", "PRODUCT_MANAGER");
     expect(adProOriginRank(double)).toBe(2);
-    expect(adProInit(double).stage).toBe("ANALYSIS");
-    expect(parcoursEffectif(double, SPINE, 2).decision, "la Direction tranche à sa place").toBe(SLUG_DIRECTION);
+    expect(adProInit(double, C).stage).toBe("ANALYSIS");
+    expect(parcoursEffectif(double, SPINE, 2, C).decision, "la Direction tranche à sa place").toBe(SLUG_DIRECTION);
     // Un KAM n'a AUCUNE borne (Direction Marketing est la dernière étape) et saute pourtant la
     // Direction des opérations : c'est exactement ce que la borne seule ne pouvait pas dire.
-    const kam = parcoursEffectif(u("MEDICAL_DELEGATE"), SPINE, 0);
+    const kam = parcoursEffectif(u("MEDICAL_DELEGATE"), SPINE, 0, C);
     expect(kam.decision, "Direction Marketing tranche, et c'est la dernière étape").toBeNull();
     expect(kam.ignorees, "le national sales valide, la Direction des opérations non").toEqual([SLUG_DIRECTION]);
   });
@@ -69,11 +72,11 @@ describe("Routage Ad & Pro selon le rang du créateur (origin)", () => {
   it("Direction Marketing entre par la porte du DG et NE TRANCHE PAS sa propre demande", () => {
     for (const role of ["PRODUCT_MANAGER", "MEDICAL_PROMOTION_MANAGER"] as UserRole[]) {
       expect(adProOriginRank(u(role))).toBe(2);
-      const init = adProInit(u(role), "pm-ignored");
+      const init = adProInit(u(role), C, "pm-ignored");
       expect(init.stage, role).toBe("ANALYSIS");
       expect(init.status, role).toBe("PRELIMINARY_APPROVED");
       expect(init.preliminaryBySelf, role).toBe(true);
-      expect(parcoursEffectif(u(role), SPINE, 2).decision, role).toBe(SLUG_DIRECTION);
+      expect(parcoursEffectif(u(role), SPINE, 2, C).decision, role).toBe(SLUG_DIRECTION);
     }
   });
 
@@ -83,8 +86,8 @@ describe("Routage Ad & Pro selon le rang du créateur (origin)", () => {
     // l'accord d'un DG qui est à son propre rang.
     for (const role of ["DIRECTION", "SUPER_ADMIN"] as UserRole[]) {
       expect(adProOriginRank(u(role))).toBe(3);
-      expect(adProInit(u(role)).stage, role).toBe("FINAL");
-      expect(adProInit(u(role)).status, role).toBe("AWAITING_FINAL");
+      expect(adProInit(u(role), C).stage, role).toBe("FINAL");
+      expect(adProInit(u(role), C).status, role).toBe("AWAITING_FINAL");
     }
   });
 
@@ -94,7 +97,7 @@ describe("Routage Ad & Pro selon le rang du créateur (origin)", () => {
   it("le Directeur Général et le Directeur des Opérations vont eux aussi directement à la décision", () => {
     for (const role of ["GENERAL_MANAGER", "OPERATIONS_DIRECTOR"] as UserRole[]) {
       expect(adProOriginRank(u(role)), role).toBe(3);
-      const init = adProInit(u(role));
+      const init = adProInit(u(role), C);
       expect(init.stage, role).toBe("FINAL");
       expect(init.status, role).toBe("AWAITING_FINAL");
       expect(init.preliminaryBySelf, role).toBe(true);
@@ -125,9 +128,9 @@ describe("Routage Ad & Pro selon le rang du créateur (origin)", () => {
  */
 describe("le référent Direction Marketing, quand une action en fournit encore un", () => {
   it("le référent nommé est enregistré là où il a un sens, et ignoré ailleurs", () => {
-    expect(adProInit({ role: "DIRECTION" }, "pm_1").productManagerId).toBe("pm_1");
-    expect(adProInit({ role: "MEDICAL_DELEGATE" }, "pm_1").productManagerId, "un KAM entre par son superviseur").toBeNull();
-    expect(adProInit({ role: "DIRECTION" }, "   ").productManagerId, "un nom vide ne désigne personne").toBeNull();
+    expect(adProInit({ role: "DIRECTION" }, C, "pm_1").productManagerId).toBe("pm_1");
+    expect(adProInit({ role: "MEDICAL_DELEGATE" }, C, "pm_1").productManagerId, "un KAM entre par son superviseur").toBeNull();
+    expect(adProInit({ role: "DIRECTION" }, C, "   ").productManagerId, "un nom vide ne désigne personne").toBeNull();
   });
 
   it("le CHOIX de circuit n'existe plus — l'export a disparu avec le champ qu'il posait", () => {
