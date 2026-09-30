@@ -82,6 +82,19 @@ export function lireSante(rep: Pick<ReponseSite, "statut" | "texte" | "erreur">,
   };
 }
 
+/**
+ * LE SITE TOURNE-T-IL SUR UNE VERSION QUI REÇOIT LES CANDIDATURES ? (§118.159g) Une version d'avant
+ * la liaison reconnaît la clé et publie les offres — l'écran dirait « Relié » — mais n'a ni
+ * formulaire ni route de retour : rien n'arrivera jamais, en silence. Mesuré sur son code (b276b75) :
+ * sa santé authentifiée annonce `["jobs", "posts"]`, la version reliée `["jobs", "posts",
+ * "applications"]`. Sans clé reconnue, le site ne dit rien de lui-même : on rend `null` — on ne sait
+ * pas —, jamais « non » (§118.16).
+ */
+export function recoitLesCandidatures(sante: SanteSite): boolean | null {
+  if (sante.statut !== 200 || sante.authentifie !== true) return null;
+  return sante.capacites.includes("applications");
+}
+
 export async function derniereSante(): Promise<{ sante: SanteSite | null; au: Date | null }> {
   const s = await prisma.appSetting.findUnique({ where: { id: "global" }, select: { siteSante: true, siteSanteAt: true } }).catch(() => null);
   const sante = s?.siteSante && typeof s.siteSante === "object" ? (s.siteSante as unknown as SanteSite) : null;

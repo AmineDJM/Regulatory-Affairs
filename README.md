@@ -1756,8 +1756,11 @@ visiteurs, et **recharge** ses contenus depuis l'ERP à chaque démarrage. Le co
   l'écran montre une **empreinte**.
 
 **Mise en service — un seul geste** (la carte « Connexion au site » de `/site-web` le dit pas à pas) : « Générer la
-clé » ; dans Render, service **du site** → *Environment* → *Add from .env* → coller le bloc → *Save and deploy*.
-C'est tout : l'écran passe à « Relié » de lui-même. Puis, pour vérifier : publier une offre de test, postuler avec un
+clé » ; dans Render, service **du site** → *Environment* → *Add from .env* → coller le bloc → *Save, rebuild, and
+deploy* — pas *Save and deploy*, qui redémarre la version déjà construite, peut-être l'ancienne (documentation de
+Render). C'est tout : l'écran passe à « Relié » de lui-même, et dit si le site tourne encore sur une version qui ne
+reçoit pas les candidatures (sa santé n'annonce pas `applications`), avec le geste qui rattrape : *Manual Deploy* →
+*Deploy latest commit*. Puis, pour vérifier : publier une offre de test, postuler avec un
 CV de test, la voir arriver dans *Recrutement › Candidatures du site*, et tout supprimer. Reste une décision humaine :
 le sort de `ADMIN_PASSWORD` côté site — le retirer laisse l'ERP seul maître du contenu.
 
@@ -6248,7 +6251,7 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 Demande du dirigeant, qui n'est pas développeur : « plus de limites, tout connecté, les clés générées toutes seules,
 je veux quasiment rien faire ». La mise en service tient désormais en **un geste** : « Générer la clé » sur
 `/site-web`, puis coller le bloc de trois lignes dans l'environnement du site sur Render (*Environment* →
-*Add from .env* → *Save and deploy*). L'écran passe à « Relié » de lui-même.
+*Add from .env* → *Save, rebuild, and deploy*). L'écran passe à « Relié » de lui-même.
 
 - **Les candidatures du site entrent dans l'ERP** : chaque offre porte un formulaire (CV PDF/Word/ODT ≤ 5 Mo,
   consentement), `/carrieres` un formulaire de candidature spontanée. Une candidature pour un poste ouvert devient
@@ -6263,11 +6266,14 @@ je veux quasiment rien faire ». La mise en service tient désormais en **un ges
 - **La concurrence « une seule alerte »**, que le lot précédent déclarait non éprouvée, est jouée : huit passages
   lancés ensemble, un passage bloqué repris par un autre — une alerte à chaque fois, chaque garde sabotée seule
   faisant tomber son cas.
+- **La consigne Render est celle qui reconstruit** : *Save, rebuild, and deploy*. « Save and deploy » redémarre la
+  version déjà construite — peut-être l'ancienne, qui reconnaîtrait la clé sans jamais recevoir une candidature. L'écran
+  le détecte (la santé du site n'annonce pas `applications`) et nomme le geste qui rattrape.
 - **Un banc à deux serveurs** (`npm run bench:site-web`) lance l'ERP et le site ensemble, lit le bloc sur l'écran
   et joue le parcours entier dans un vrai navigateur : **8 étapes sur 8 en 16 s**, et le bloc collé en partie le
   fait tomber.
 
-**Mesure** : typecheck 0 ; 9 495 tests verts sur 822 fichiers, 0 rouge ; build propre depuis un dossier vide ; `next lint` 0 erreur ; 35 sabotages, 35 chutes ; artefact des contrats 784 / 761 / 23 (6 actions ajoutées, rien perdu) ; plafonds d'architecture inchangés (frontière 427, traversées 68, fournisseurs 42, inversions, fuites du socle et cycles à 0). Côté site : typecheck 0 et build propre. Détail au §118.159 de `CLAUDE.md`.
+**Mesure** : typecheck 0 ; 9 500 tests verts sur 823 fichiers, 0 rouge ; build propre depuis un dossier vide ; `next lint` 0 erreur ; 39 sabotages, 39 chutes ; artefact des contrats 784 / 761 / 23 (6 actions ajoutées, rien perdu) ; plafonds d'architecture inchangés (frontière 427, traversées 68, fournisseurs 42, inversions, fuites du socle et cycles à 0). Côté site : typecheck 0 et build propre. Détail au §118.159 de `CLAUDE.md`.
 
 ### LE SITE ADVENTUM REÇOIT SES OFFRES D'EMPLOI ET SES ARTICLES DE L'ERP — et Adam ne peut plus publier à la place de personne (2026-09)
 

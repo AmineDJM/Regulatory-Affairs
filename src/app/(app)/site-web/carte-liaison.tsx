@@ -5,6 +5,7 @@ import { formatDateTime } from "@/lib/utils";
 import type { ApercuConfiguration } from "@/lib/site-web/config";
 import type { Blocage } from "@/lib/site-web/file";
 import type { EtatLiaison } from "@/lib/site-web/etat";
+import { recoitLesCandidatures } from "@/lib/site-web/liaison";
 import { BlocCle } from "@/components/site-web/bloc-cle";
 import { GesteIntegration } from "@/components/site-web/gestes-integration";
 
@@ -82,8 +83,9 @@ export function CarteLiaison({
                   </li>
                   <li>
                     Menu <span className="font-medium">Environment</span> → <span className="font-medium">Add from .env</span> → collez →{" "}
-                    <span className="font-medium">Save and deploy</span> (le site redémarre tout seul, 2 à 3 minutes). Pas « Save only » : le
-                    site ne lirait le bloc qu&apos;au prochain déploiement.
+                    <span className="font-medium">Save, rebuild, and deploy</span> (le site se reconstruit à partir de sa dernière version et
+                    redémarre tout seul : quelques minutes). Pas « Save only » : rien ne changerait. Ni « Save and deploy » : il redémarrerait
+                    la version déjà construite, qui peut être l&apos;ancienne.
                   </li>
                   <li>C&apos;est tout. Cette page passe à <span className="font-medium">« Relié »</span> d&apos;elle-même : l&apos;ERP vérifie chaque minute.</li>
                 </ol>
@@ -148,6 +150,12 @@ export function CarteLiaison({
                 <Constat ok={sante.authentifie === true}>
                   {sante.authentifie ? "Le site reconnaît la clé de l'ERP." : "Le site ne reconnaît pas la clé de l'ERP."}
                 </Constat>
+                {recoitLesCandidatures(sante) === false && (
+                  <Constat ok={false}>
+                    Le site tourne encore sur une ancienne version : il publie les offres, mais ne reçoit pas les candidatures. Dans Render,
+                    service du site → Manual Deploy → Deploy latest commit (quelques minutes).
+                  </Constat>
+                )}
                 {sante.erpRelie !== null && (
                   <Constat ok={sante.erpRelie}>
                     {sante.erpRelie
