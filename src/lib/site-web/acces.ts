@@ -9,8 +9,9 @@ import { isTopManagement, userCan, type SessionUser } from "@/lib/rbac";
  *     porte que celle qui instruit une demande de recrutement (`recruitment/access.ts`). Le module
  *     « Site web » ne les ouvre qu'en LECTURE à qui ne tient pas les RH.
  *   • Les ARTICLES DE BLOG se publient par le module « Site web » (écriture) — de la communication.
- *   • LEVER LE BLOCAGE posé quand le site refuse la clé : le Super Admin, qui tient les variables
- *     d'environnement. Vérifier la connexion le lève aussi, dès que le site reconnaît la clé.
+ *   • LEVER LE BLOCAGE posé quand le site refuse la clé : le Super Admin, qui tient la liaison.
+ *     Vérifier la connexion le lève aussi, dès que le site reconnaît la clé.
+ *   • GÉNÉRER LA CLÉ de liaison (§118.159) : le Super Admin seul.
  *
  * Deux copies de « qui peut publier » finiraient par diverger, et le symptôme serait un bouton
  * visible qu'une action refuse (§118.5) : les écrans ne calculent rien eux-mêmes.
@@ -43,5 +44,14 @@ export function peutRapprocher(user: SessionUser): boolean {
 }
 
 export function peutLeverBlocage(user: SessionUser): boolean {
+  return user.role === "SUPER_ADMIN";
+}
+
+/**
+ * GÉRER LA CLÉ DE LIAISON (§118.159) — la générer, l'abandonner, voir le bloc à coller : le Super
+ * Admin, le rôle PRINCIPAL et lui seul. C'est l'identifiant qui donne le droit de publier sur le
+ * site public ; il ne se prête pas avec une casquette secondaire.
+ */
+export function peutGererLaLiaison(user: SessionUser): boolean {
   return user.role === "SUPER_ADMIN";
 }

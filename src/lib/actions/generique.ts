@@ -74,6 +74,10 @@ export const MODELES_INTERDITS: Readonly<Record<string, string>> = {
   adoptionSetting: "les réglages d'adoption",
   sfeSettings: "les réglages SFE",
   assistantRule: "les règles enseignées à Adam — une règle est l'attestation d'une PERSONNE",
+  // LA CLÉ DE LIAISON AU SITE PUBLIC (§118.159) — l'identifiant qui donne le droit d'y publier.
+  // Refusée sur le MODÈLE écrit, en plus de la décision EXCLUDED : une action ajoutée demain qui
+  // l'écrirait, sous un autre nom, dans un autre fichier, l'est sans que personne y pense.
+  siteWebCle: "la clé de liaison au site public — l'identifiant qui donne le droit d'y publier",
 };
 
 /**

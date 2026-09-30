@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { UserPlus, Info, Globe } from "lucide-react";
+import { UserPlus, Info, Globe, Inbox } from "lucide-react";
 import { requireModule } from "@/lib/session";
 import { userCan, isTopManagement } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
@@ -15,6 +15,7 @@ import { STAGE_LABEL, STAGE_TONE, summarize, type RecruitmentStage } from "@/lib
 import { NewRecruitmentButton } from "./new-request";
 import { Button } from "@/components/ui/button";
 import { peutPublierOffres } from "@/lib/site-web/acces";
+import { peutTraiterCandidaturesSite } from "@/lib/site-web/candidatures";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Recrutement — AMD Internal OS" };
@@ -35,8 +36,11 @@ export default async function RecrutementPage() {
   const canCreate = userCan(user, "RECRUITMENT", "CREATE");
   const isHr = userCan(user, "RH", "UPDATE");
   const isTop = isTopManagement(user);
+  // LES CANDIDATURES DU SITE (§118.159) : celles qui attendent un tri, comptées ici pour qu'on
+  // n'ait pas à penser à aller les chercher. La porte est celle du tri — RH et direction.
+  const trieur = peutTraiterCandidaturesSite(user);
 
-  const [requests, departments, companies] = await Promise.all([
+  const [requests, departments, companies, aTrier] = await Promise.all([
     prisma.recruitmentRequest.findMany({
       where: await companyScopedWhere(user.id, { AND: [recruitmentScope(user)] }),
       orderBy: [{ createdAt: "desc" }],
@@ -50,6 +54,7 @@ export default async function RecrutementPage() {
     }),
     canCreate ? getDepartmentOptions() : Promise.resolve([]),
     getMyCompanies(user.id),
+    trieur ? prisma.siteCandidature.count({ where: { etat: "NOUVELLE" } }) : Promise.resolve(0),
   ]);
 
   const rows = requests.map((r) => {
@@ -89,6 +94,13 @@ export default async function RecrutementPage() {
       >
         {/* Les OFFRES DU SITE (§118.158) : un poste ouvert se publie sur adventumdz.com/carrieres. La
             porte est celle qui instruit un recrutement (RH en écriture, direction). */}
+        {trieur && (
+          <Link href="/recrutement/candidatures">
+            <Button size="sm" variant={aTrier > 0 ? "primary" : "outline"}>
+              <Inbox className="h-4 w-4" /> Candidatures du site{aTrier > 0 ? ` (${aTrier} à trier)` : ""}
+            </Button>
+          </Link>
+        )}
         {peutPublierOffres(user) && (
           <Link href="/site-web/offres">
             <Button size="sm" variant="outline"><Globe className="h-4 w-4" /> Offres sur le site</Button>

@@ -1,6 +1,8 @@
 import { prisma } from "@/lib/prisma";
 import { etatPublication, type EtatFile, type FaitsPublication, type NatureContenu, type Ton } from "./contrat";
-import { apercuConfiguration, urlPublique, type ApercuConfiguration } from "./config";
+import { apercuDe, urlPublique, type ApercuConfiguration } from "./config";
+import { clesIllisibles, configurationEnVigueur } from "./cles";
+import { derniereSante, type SanteSite } from "./liaison";
 import { lireBlocage, type Blocage } from "./file";
 
 /**
@@ -32,7 +34,8 @@ export interface VuePublication {
 export type Suspension = "NON_CONFIGURE" | "BLOQUE" | null;
 
 /** Rien ne part-il en ce moment, et pourquoi ? */
-export async function suspensionEnVigueur(apercu: ApercuConfiguration = apercuConfiguration()): Promise<Suspension> {
+export async function suspensionEnVigueur(apercuDonne?: ApercuConfiguration): Promise<Suspension> {
+  const apercu = apercuDonne ?? apercuDe(await configurationEnVigueur());
   if (!apercu.configuree) return "NON_CONFIGURE";
   const b = await lireBlocage();
   return b && b.empreinte === apercu.empreinte ? "BLOQUE" : null;
@@ -139,7 +142,7 @@ export interface EtatIntegration {
 const tableau = <T,>(v: unknown): T[] => (Array.isArray(v) ? (v as T[]) : []);
 
 export async function etatIntegration(): Promise<EtatIntegration> {
-  const config = apercuConfiguration();
+  const config = apercuDe(await configurationEnVigueur());
   const [blocage, groupes, dernier, dernierReussi] = await Promise.all([
     lireBlocage(),
     prisma.sitePublication.groupBy({ by: ["state", "operation", "confirmedPublished"], _count: { _all: true } }),
@@ -180,4 +183,39 @@ export async function etatIntegration(): Promise<EtatIntegration> {
 export async function slugsDuDepotConnus(): Promise<{ slugs: string[]; au: Date | null }> {
   const r = await prisma.siteReconciliation.findFirst({ where: { ok: true }, orderBy: { startedAt: "desc" }, select: { depotSlugs: true, startedAt: true } });
   return { slugs: r?.depotSlugs ?? [], au: r?.startedAt ?? null };
+}
+
+// ───────────────────────────── La liaison (§118.159) ─────────────────────────────
+
+export interface EtatLiaison {
+  /** La clé en vigueur quand elle vient de l'ERP — son empreinte et ses dates, jamais sa valeur. */
+  active: { empreinte: string; creeLe: Date; activeeLe: Date | null } | null;
+  /** La clé en attente — sans sa valeur : l'écran la relit à part, et seulement pour le Super Admin. */
+  attente: { empreinte: string; creeLe: Date; derniereVerification: Date | null; dernierConstat: string | null; prochaineVerification: Date } | null;
+  /** Les états dont la clé ne s'ouvre plus (clé maîtresse du serveur changée) — à régénérer, dit comme tel. */
+  illisibles: string[];
+  sante: SanteSite | null;
+  santeAu: Date | null;
+}
+
+export async function etatLiaison(): Promise<EtatLiaison> {
+  const [lignes, illisibles, s] = await Promise.all([
+    prisma.siteWebCle.findMany({
+      where: { etat: { in: ["ACTIVE", "ATTENTE"] } },
+      select: { etat: true, empreinte: true, creeLe: true, activeeLe: true, derniereVerification: true, dernierConstat: true, prochaineVerification: true },
+    }),
+    clesIllisibles(),
+    derniereSante(),
+  ]);
+  const a = lignes.find((l) => l.etat === "ACTIVE");
+  const p = lignes.find((l) => l.etat === "ATTENTE");
+  return {
+    active: a && !illisibles.includes("ACTIVE") ? { empreinte: a.empreinte, creeLe: a.creeLe, activeeLe: a.activeeLe } : null,
+    attente: p && !illisibles.includes("ATTENTE")
+      ? { empreinte: p.empreinte, creeLe: p.creeLe, derniereVerification: p.derniereVerification, dernierConstat: p.dernierConstat, prochaineVerification: p.prochaineVerification }
+      : null,
+    illisibles,
+    sante: s.sante,
+    santeAu: s.au,
+  };
 }

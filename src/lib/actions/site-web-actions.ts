@@ -10,9 +10,11 @@ import { refusTitresNiveau1 } from "@/lib/site-web/markdown";
 import { retirerDuSite, synchroniserArticle, type ResultatSynchro } from "@/lib/site-web/contenus";
 import { leverBlocage, relancerPublication, reveillerFile } from "@/lib/site-web/file";
 import { rapprocherSite, verifierSante } from "@/lib/site-web/reconciliation";
+import { abandonnerCleEnAttente, genererCle } from "@/lib/site-web/cles";
+import { entretenirLiaison } from "@/lib/site-web/liaison";
 import { slugsDuDepotConnus } from "@/lib/site-web/etat";
 import {
-  peutEcrireArticles, peutLeverBlocage, peutPublierOffres, peutRapprocher, peutSupprimerArticles, peutVoirSiteWeb,
+  peutEcrireArticles, peutGererLaLiaison, peutLeverBlocage, peutPublierOffres, peutRapprocher, peutSupprimerArticles, peutVoirSiteWeb,
 } from "@/lib/site-web/acces";
 
 /**
@@ -183,6 +185,19 @@ export async function relancerEnvoiSite(formData: FormData): Promise<ActionResul
 export async function verifierConnexionSite(): Promise<ActionResult> {
   const user = await requireUser();
   if (!peutVoirSiteWeb(user) && !peutPublierOffres(user)) return { ok: false, error: "Le module « Site web » ne vous est pas ouvert." };
+  // UNE CLÉ EN ATTENTE passe d'abord (§118.159) : c'est presque toujours ce que la personne veut
+  // savoir en cliquant — « est-ce que le site a pris la clé que je viens de coller ? ». Le même
+  // entretien que le battement, sans attendre son rythme ; il lit aussi la santé du site.
+  const l = await entretenirLiaison({ force: true });
+  if (l.presentation?.issue === "PROMUE") {
+    reveillerFile(0);
+    revalider();
+    return { ok: true, message: l.presentation.message };
+  }
+  if (l.presentation && l.presentation.issue !== "PAS_DUE") {
+    revalider();
+    return { ok: false, error: l.presentation.message };
+  }
   const s = await verifierSante();
   if (s.ok && s.authentifie) {
     await leverBlocage();
@@ -190,7 +205,7 @@ export async function verifierConnexionSite(): Promise<ActionResult> {
     revalider();
     return {
       ok: true,
-      message: `${s.message}${s.heureDuSite ? ` Heure du site : ${s.heureDuSite}.` : ""} Si un blocage était posé, il est levé ; si le site refuse encore les envois, vérifiez le secret de signature (ADVENTUM_WEBHOOK_SECRET ↔ ERP_WEBHOOK_SECRET).`,
+      message: `${s.message}${s.heureDuSite ? ` Heure du site : ${s.heureDuSite}.` : ""} Si un blocage était posé, il est levé ; si le site refuse encore les envois, générez une nouvelle clé et collez le bloc ENTIER dans l'environnement du site (il porte aussi le secret de signature).`,
     };
   }
   return { ok: false, error: s.message };
@@ -215,4 +230,29 @@ export async function leverBlocageSite(): Promise<ActionResult> {
   await recordAudit({ actorId: user.id, action: "UPDATE", module: AUDIT_MODULE, summary: "Blocage de la publication vers le site levé à la main" });
   revalider();
   return { ok: true, message: "Blocage levé : les envois reprennent. Si la clé est toujours refusée, il se reposera au premier envoi." };
+}
+
+/**
+ * GÉNÈRE LA CLÉ DE LIAISON (§118.159) — la clé et le secret de signature, EN ATTENTE. Rien d'autre
+ * ne change : l'ERP continue de publier avec la clé en vigueur jusqu'à ce que le site reconnaisse la
+ * nouvelle. L'écran montre alors le bloc à coller ; il ne transite pas par la réponse de l'action.
+ *
+ * Super Admin seulement : c'est l'identifiant qui donne le droit de publier sur le site public, et
+ * §118.6 interdit à Adam d'en créer un — l'action est refusée au chemin générique (EXCLUDED).
+ */
+export async function genererCleSite(): Promise<ActionResult> {
+  const user = await requireUser();
+  if (!peutGererLaLiaison(user)) return { ok: false, error: "Seul un Super Admin génère la clé de liaison au site." };
+  const c = await genererCle(user.id);
+  revalider();
+  return { ok: true, message: `Clé générée (empreinte ${c.empreinte}). Copiez le bloc affiché et collez-le dans l'environnement du site : l'ERP bascule tout seul dès que le site l'a.` };
+}
+
+/** ABANDONNE la clé en attente (collée nulle part, ou montrée à la mauvaise personne). L'active ne bouge pas. */
+export async function abandonnerCleSite(): Promise<ActionResult> {
+  const user = await requireUser();
+  if (!peutGererLaLiaison(user)) return { ok: false, error: "Seul un Super Admin gère la clé de liaison au site." };
+  const fait = await abandonnerCleEnAttente(user.id);
+  revalider();
+  return fait ? { ok: true, message: "Clé en attente abandonnée : elle ne sera jamais acceptée. La clé en vigueur reste la même." } : { ok: false, error: "Aucune clé en attente." };
 }

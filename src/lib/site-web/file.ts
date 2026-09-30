@@ -6,7 +6,7 @@ import {
   CHEMIN_API, classerReponse, ESSAIS_MAX, externalIdValide, LIBELLE_NATURE, messageDuSite, prochainEssai, serialiser,
   type IssueRequete, type JobInput, type NatureContenu, type PostInput,
 } from "./contrat";
-import { lireConfiguration } from "./config";
+import { configurationEnVigueur, presenterCleEnAttente } from "./cles";
 import { envoyerAuSite, type ReponseSite, type TransportSite } from "./transport";
 
 /**
@@ -176,11 +176,21 @@ export async function bloquerPourConfiguration(
   empreinte: string,
   rep: Pick<ReponseSite, "statut" | "texte" | "location">,
   maintenant: Date,
+  /** Ce que le site a répondu à la clé EN ATTENTE, quand elle a été présentée juste avant (§118.159). */
+  cleEnAttente: string | null = null,
 ): Promise<string> {
   const detail = messageDuSite(rep.texte);
-  const motif = rep.statut === 401
-    ? `Le site refuse la clé d'API (401${detail ? ` : ${detail}` : ""}). Vérifiez que ADVENTUM_API_KEY (ERP) et ERP_API_KEY (site) portent la même valeur, ainsi que ADVENTUM_WEBHOOK_SECRET si la signature est activée sur le site.`
-    : `Le site redirige (${rep.statut}${rep.location ? ` vers ${rep.location}` : ""}) : l'adresse configurée n'est pas la bonne. Corrigez ADVENTUM_BASE_URL.`;
+  // Deux 401 qui ne se réparent pas pareil : la CLÉ refusée (le site en a une autre) et la
+  // SIGNATURE refusée (la clé est bonne, le secret diffère). Le site le dit dans son message.
+  const signature = rep.statut === 401 && /signature/i.test(detail ?? "");
+  const motifBase = rep.statut === 401
+    ? signature
+      ? `Le site reconnaît la clé mais refuse la SIGNATURE des envois (401${detail ? ` : ${detail}` : ""}) : la ligne ERP_WEBHOOK_SECRET de son environnement n'est pas celle du bloc. Générez une nouvelle clé depuis Site web et collez le bloc entier dans Render — ou retirez ERP_WEBHOOK_SECRET du site.`
+      : `Le site refuse la clé (401${detail ? ` : ${detail}` : ""}) : il en porte une autre. Générez une nouvelle clé depuis Site web et collez le bloc dans l'environnement du site (Render) — l'ERP bascule tout seul dès que le site la reconnaît.`
+    : `Le site redirige (${rep.statut}${rep.location ? ` vers ${rep.location}` : ""}) : l'adresse du site n'est pas la bonne. Corrigez ADVENTUM_BASE_URL (Render de l'ERP), ou retirez-la pour revenir à l'adresse mesurée.`;
+  // Une clé en attente a été présentée et le site ne l'a pas prise : c'est presque toujours LÀ
+  // qu'est la réparation (bloc collé en partie, ou pas encore enregistré) — on le dit dans le motif.
+  const motif = cleEnAttente ? `${motifBase} Clé en attente : ${cleEnAttente}` : motifBase;
   if (await poserBlocage(empreinte, motif, maintenant)) {
     await notifyRoles(["SUPER_ADMIN"], { type: "GENERIC", title: "Site web : publication suspendue", body: `${motif} Aucun envoi ne part d'ici là.`, link: "/site-web" });
   }
@@ -245,6 +255,11 @@ export interface BilanVidage {
   nonConfigure: boolean;
   /** La sortie est interdite dans ce processus (test, banc) : rien n'est parti, rien n'a été compté. */
   sortieInterdite: boolean;
+  /**
+   * La clé a été refusée, mais la clé EN ATTENTE vient d'être reconnue et promue (§118.159) : rien
+   * n'est bloqué, le prochain passage part avec la nouvelle — le vidage s'arrête pour la relire.
+   */
+  reconfigure: boolean;
 }
 
 export interface OptionsVidage {
@@ -262,8 +277,8 @@ let videEnCours = false;
  * jamais : le battement enchaîne d'autres balayages derrière.
  */
 export async function viderFile(opts: OptionsVidage = {}): Promise<BilanVidage> {
-  const bilan: BilanVidage = { envoyes: 0, reussis: 0, aReessayer: 0, refuses: 0, epuises: 0, bloque: false, nonConfigure: false, sortieInterdite: false };
-  const conf = lireConfiguration();
+  const bilan: BilanVidage = { envoyes: 0, reussis: 0, aReessayer: 0, refuses: 0, epuises: 0, bloque: false, nonConfigure: false, sortieInterdite: false, reconfigure: false };
+  const conf = await configurationEnVigueur();
   if (!conf.ok) { bilan.nonConfigure = true; return bilan; }
   // Un seul vidage à la fois dans ce processus ; entre processus, c'est la prise en base qui
   // arbitre. Un banc qui injecte son transport arbitre lui-même — c'est la PRISE qu'il éprouve.
@@ -280,6 +295,7 @@ export async function viderFile(opts: OptionsVidage = {}): Promise<BilanVidage> 
       if (!pub) break;
       const issue = await envoyerUne(pub, transport, maintenant, conf.config.empreinte);
       if (issue === "LOCAL") { bilan.sortieInterdite = true; break; }
+      if (issue === "RECONFIGURE") { bilan.reconfigure = true; break; }
       bilan.envoyes += 1;
       if (issue === "SUCCES" || issue === "DEJA_ABSENT") bilan.reussis += 1;
       else if (issue === "REESSAYER") bilan.aReessayer += 1;
@@ -287,7 +303,8 @@ export async function viderFile(opts: OptionsVidage = {}): Promise<BilanVidage> 
       else if (issue === "CORRIGER") bilan.refuses += 1;
       else if (issue === "BLOQUANT") { bilan.bloque = true; break; }
     }
-    if (!bilan.bloque && !bilan.sortieInterdite && !opts.transport) {
+    if (bilan.reconfigure && !opts.transport) reveillerFile(0);
+    if (!bilan.bloque && !bilan.sortieInterdite && !bilan.reconfigure && !opts.transport) {
       const suivante = await prisma.sitePublication.findFirst({
         where: { state: "PENDING", claimedAt: null },
         orderBy: { nextAttemptAt: "asc" },
@@ -342,7 +359,7 @@ async function prendreUne(maintenant: Date, seulement?: string[]): Promise<Envoi
   return null;
 }
 
-type IssueEnvoi = IssueRequete | "EPUISE" | "LOCAL";
+type IssueEnvoi = IssueRequete | "EPUISE" | "LOCAL" | "RECONFIGURE";
 
 /** L'adresse publique rendue par le site, lue sans supposer la forme exacte de la réponse. */
 function lireEnregistrement(texte: string | null): { url: string | null; slug: string | null; published: boolean | null } {
@@ -414,7 +431,21 @@ async function envoyerUne(pub: EnvoiPris, transport: TransportSite, maintenant: 
   const message = rep.statut === null ? (rep.erreur ?? "site injoignable") : (messageDuSite(rep.texte) ?? `réponse ${rep.statut}`);
 
   if (issue === "BLOQUANT") {
-    const motif = await bloquerPourConfiguration(empreinte, rep, maintenant);
+    // ROTATION EN COURS (§118.159) : le site vient peut-être de recevoir la NOUVELLE clé et refuse
+    // l'ancienne. Avant de tout couper et d'alerter, on lui présente la clé en attente ; s'il la
+    // reconnaît, elle devient active et l'envoi repart avec elle — ni blocage ni alerte pour un
+    // changement de clé réussi. Aucune tentative consommée : le contenu n'est pas en cause.
+    let constatAttente: string | null = null;
+    if (rep.statut === 401) {
+      const essai = await presenterCleEnAttente(transport, { maintenant, force: true });
+      if (essai.issue === "PROMUE") {
+        await prisma.sitePublication.updateMany({ where: memeVersion, data: { lastStatus: rep.statut, lastError: null, lastAttemptAt: maintenant } });
+        await relacher();
+        return "RECONFIGURE";
+      }
+      if (essai.issue === "PAS_ENCORE" || essai.issue === "INJOIGNABLE") constatAttente = essai.message;
+    }
+    const motif = await bloquerPourConfiguration(empreinte, rep, maintenant, constatAttente);
     // Le CONTENU n'est pas en cause : aucune tentative consommée, la ligne attend la réparation.
     await prisma.sitePublication.updateMany({ where: memeVersion, data: { lastStatus: rep.statut, lastError: motif.slice(0, 500), lastAttemptAt: maintenant } });
     await relacher();
@@ -454,10 +485,11 @@ async function envoyerUne(pub: EnvoiPris, transport: TransportSite, maintenant: 
  *
  * DEUX GARDES tiennent « une seule alerte » : la PRISE atomique (`prendreUne`) empêche deux passages
  * de tenir la même ligne, et cette précondition couvre ce que la prise ne couvre pas — un passage
- * resté bloqué au-delà de `VERROU_PERIME_MS`, dont la ligne a été reprise par un autre. Retirer la
- * précondition SEULE laisse les bancs verts (mesuré : la prise tient), et aucun banc ne joue deux
- * passages simultanés sur un envoi qui échoue. La propriété est donc écrite ici, pas prétendue
- * exercée (§118.140, §118.82).
+ * resté bloqué au-delà de `VERROU_PERIME_MS`, dont la ligne a été reprise par un autre. Chacune est
+ * éprouvée en concurrence RÉELLE, et chacune a son témoin (`publication.test.ts`, « CONCURRENCE ») :
+ * huit passages lancés ensemble n'envoient qu'une fois — prise sans verrou, QUATRE envois mesurés,
+ * et pourtant une seule alerte, parce que cette précondition tenait encore ; un retardataire dont
+ * la ligne a été reprise ne redit pas l'échec — précondition retirée, deux alertes (§118.159).
  */
 async function echouer(
   pub: EnvoiPris,

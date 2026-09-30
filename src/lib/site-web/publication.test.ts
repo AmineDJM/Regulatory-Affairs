@@ -1,4 +1,4 @@
-import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CurrentUser } from "@/lib/session";
 
 vi.mock("next/cache", () => ({ revalidatePath: () => {} }));
@@ -6,20 +6,31 @@ vi.mock("next/cache", () => ({ revalidatePath: () => {} }));
 let ACTOR: CurrentUser | null = null;
 vi.mock("@/lib/session", () => ({ requireUser: async () => ACTOR, getCurrentUser: async () => ACTOR }));
 
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { getAccess, isTopManagement, userCan, type SessionUser } from "@/lib/rbac";
 import {
-  enregistrerArticle, leverBlocageSite, relancerEnvoiSite, supprimerArticle, verifierConnexionSite,
+  abandonnerCleSite, enregistrerArticle, genererCleSite, leverBlocageSite, relancerEnvoiSite, supprimerArticle,
+  verifierConnexionSite,
 } from "@/lib/actions/site-web-actions";
 import { enregistrerOffre } from "@/lib/actions/offres-emploi-actions";
 import { closeRecruitmentRequest, openRecruitmentSourcing } from "@/lib/actions/recruitment-actions";
-import { leverBlocage, lireBlocage, viderFile } from "./file";
+import { leverBlocage, lireBlocage, VERROU_PERIME_MS, viderFile } from "./file";
 import { rapprocherSite, rapprocherSiteSiDu, verifierSante } from "./reconciliation";
 import { synchroniserArticle } from "./contenus";
-import { lireConfiguration } from "./config";
+import { empreinteCle, lireConfiguration } from "./config";
 import { DELAIS_REESSAI_MS, ESSAIS_MAX, slugSuggere } from "./contrat";
-import { etatAffiche, etatIntegration, publicationsDe } from "./etat";
-import type { ReponseSite, RequeteSite, TransportSite } from "./transport";
+import { etatAffiche, etatIntegration, etatLiaison, publicationsDe } from "./etat";
+import { envoyerAuSite, signer, type ReponseSite, type RequeteSite, type TransportSite } from "./transport";
+import {
+  blocEnvironnement, cleActive, cleEnAttente, clesIllisibles, configurationEnVigueur, genererCle, origineDeLERP,
+  presenterCleEnAttente, prochainePresentation, promouvoir,
+} from "./cles";
+import { authentifierLeSite, signatureAttendue, SIGNATURE_REFUSEE } from "./entrant";
+import { derniereSante, entretenirLiaison } from "./liaison";
+import { GET as contenusDuSite } from "@/app/api/site-web/v1/contenus/route";
+import { POST as candidatureDuSite } from "@/app/api/site-web/v1/candidatures/route";
+import { deleteFileByKey } from "@/lib/storage";
 
 let dbOk = false;
 try { await prisma.$queryRaw`SELECT 1`; dbOk = true; } catch { dbOk = false; }
@@ -37,7 +48,12 @@ const suite = dbOk ? describe : describe.skip;
  * séquentiel, et chaque cas repart d'une file vide de ses propres lignes.
  *
  * AUCUNE REQUÊTE NE SORT : le transport est injecté partout, et le seul cas qui passe par le
- * transport de production prouve justement que la garde le bloque AVANT le réseau.
+ * transport de production prouve justement que la garde le bloque AVANT le réseau. La liaison
+ * (§118.159) passe, elle, par le VRAI transport vers une adresse de la MACHINE (`127.0.0.1`), que
+ * `fetch` bouché fait répondre comme le site : rien ne quitte le processus.
+ *
+ * LES CLÉS DE LIAISON SONT GLOBALES comme le disjoncteur (une seule active, une seule en attente) :
+ * elles vivent ici, dans le même fichier séquentiel, et chaque cas repart d'une table vide.
  * ═══════════════════════════════════════════════════════════════════════════════════════════
  */
 
@@ -56,6 +72,7 @@ function poserEnv() {
 }
 
 const plus = (ms: number) => new Date(Date.now() + ms);
+const VRAI_FETCH = global.fetch;
 
 /**
  * CE QU'UN RUN INTERROMPU LAISSE NE DOIT PAS FAUSSER LE SUIVANT (§118.91, §118.136).
@@ -128,6 +145,51 @@ function fauxSite() {
   return { ...s, posts, jobs, manuels, depot };
 }
 
+/**
+ * LE SITE, AU NIVEAU DU RÉSEAU (§118.159) — pour les cas où ce qui compte est l'EN-TÊTE : quelle clé
+ * l'ERP présente, et avec quel secret il signe. Il tient ce que `lib/api-auth.ts` du site tient,
+ * relu pour l'écrire : 503 tant qu'il n'a aucune clé, 401 sur une autre clé, et dès qu'il a un
+ * secret, 401 « Invalid body signature » sur TOUTE requête mal signée — corps vide compris. Il
+ * répond à une adresse de la MACHINE : le vrai transport y va sans que rien sorte du processus.
+ */
+const SITE_LOCAL = "http://127.0.0.1:39123";
+function siteReseau(etat: { cle: string | null; secret: string | null }) {
+  const posts = new Map<string, Record<string, unknown>>();
+  const vus: { methode: string; chemin: string; cle: string; signe: boolean }[] = [];
+  const json = (statut: number, corps: unknown) =>
+    new Response(JSON.stringify(corps), { status: statut, headers: { "content-type": "application/json" } });
+  const fn = (async (url: string | URL | Request, init?: RequestInit) => {
+    const u = new URL(String(url));
+    if (u.origin !== SITE_LOCAL) return VRAI_FETCH(url as never, init);
+    const h = new Headers(init?.headers);
+    const methode = init?.method ?? "GET";
+    const chemin = u.pathname.replace(/^\/api\/v1/, "");
+    const presentee = /^Bearer (.+)$/.exec(h.get("authorization") ?? "")?.[1] ?? "";
+    const corps = typeof init?.body === "string" ? init.body : "";
+    vus.push({ methode, chemin, cle: presentee, signe: h.has("x-adventum-signature") });
+    if (chemin === "/health" && !presentee) return json(200, { status: "ok", configured: Boolean(etat.cle), authenticated: false });
+    if (!etat.cle) return json(503, { status: "error", error: "Content API disabled: ERP_API_KEY is not set on the website environment." });
+    if (presentee !== etat.cle) return json(401, { status: "error", error: "Invalid or missing bearer token." });
+    if (etat.secret && (h.get("x-adventum-signature") ?? "") !== signer(corps, etat.secret)) {
+      return json(401, { status: "error", error: "Invalid body signature." });
+    }
+    if (chemin === "/health") return json(200, { status: "ok", configured: true, authenticated: true, capabilities: ["jobs", "posts"] });
+    if (methode === "GET" && chemin === "/posts") return json(200, { count: posts.size, posts: [...posts.values()], readOnlyFileArticles: [] });
+    if (methode === "GET" && chemin === "/jobs") return json(200, { count: 0, jobs: [] });
+    const m = /^\/posts\/(.+)$/.exec(chemin);
+    if (m && methode === "PUT") {
+      const b = JSON.parse(corps) as Record<string, unknown>;
+      const ext = decodeURIComponent(m[1]!);
+      const cree = !posts.has(ext);
+      const slug = slugSuggere(String(b.title ?? ""));
+      posts.set(ext, { ...b, externalId: ext, slug, url: `/blog/${slug}` });
+      return json(cree ? 201 : 200, { ok: true, created: cree, post: posts.get(ext) });
+    }
+    return json(404, { error: "not_found" });
+  }) as typeof fetch;
+  return { fn, vus, posts, etat };
+}
+
 async function actorFor(id: string): Promise<CurrentUser> {
   const u = await prisma.user.findUniqueOrThrow({ where: { id } });
   const access = await getAccess(id, u.role as SessionUser["role"]);
@@ -155,8 +217,17 @@ suite("Site Adventum — file, disjoncteur, recrutement, réconciliation", () =>
     await prisma.recruitmentRequest.deleteMany({ where: { position: { startsWith: TAG } } });
   }
 
+  async function viderLaLiaison() {
+    await prisma.siteWebCle.deleteMany({});
+    await prisma.appSetting.updateMany({ where: { id: "global" }, data: { siteSante: Prisma.DbNull, siteSanteAt: null, siteBootId: null } });
+    const candidatures = await prisma.siteCandidature.findMany({ where: { siteId: { startsWith: `banc${RUN}` } }, select: { id: true, cvCle: true } });
+    for (const c of candidatures) if (c.cvCle) await deleteFileByKey(c.cvCle).catch(() => undefined);
+    await prisma.siteCandidature.deleteMany({ where: { siteId: { startsWith: `banc${RUN}` } } });
+  }
+
   async function nettoyer() {
     await viderLesContenus();
+    await viderLaLiaison();
     const users = await prisma.user.findMany({ where: { email: { startsWith: TAG } }, select: { id: true } });
     const uids = users.map((u) => u.id);
     await prisma.notification.deleteMany({ where: { userId: { in: uids } } });
@@ -174,9 +245,17 @@ suite("Site Adventum — file, disjoncteur, recrutement, réconciliation", () =>
     Object.assign(ids, { dir: dir.id, sa: sa.id, fin: fin.id, pm: pm.id });
   });
 
+  // Les rapprochements que le code lance DE LUI-MÊME (après une liaison, après un redémarrage du
+  // site) n'ont pas d'identifiant à noter : on retire aussi tout ce qui a commencé pendant le cas.
+  // Seul ce fichier rapproche, et il est séquentiel : rien d'autre ne peut tomber dans la fenêtre.
+  let debutDuCas = new Date();
+  beforeEach(() => { debutDuCas = new Date(); });
+
   afterEach(async () => {
-    await prisma.siteReconciliation.deleteMany({ where: { id: { in: RAPPROCHEMENTS.splice(0) } } });
+    global.fetch = VRAI_FETCH;
+    await prisma.siteReconciliation.deleteMany({ where: { OR: [{ id: { in: RAPPROCHEMENTS.splice(0) } }, { startedAt: { gte: debutDuCas } }] } });
     await viderLesContenus();
+    await viderLaLiaison();
     await leverBlocage();
     poserEnv();
     ACTOR = null;
@@ -338,7 +417,7 @@ suite("Site Adventum — file, disjoncteur, recrutement, réconciliation", () =>
     const conf = lireConfiguration();
     expect(conf.ok).toBe(true);
     expect(blocage?.empreinte).toBe(conf.ok ? conf.config.empreinte : "");
-    expect(blocage?.motif).toMatch(/ADVENTUM_API_KEY/);
+    expect(blocage?.motif).toMatch(/Générez une nouvelle clé/);
     expect(await notifs(ids.sa!, "Site web : publication suspendue")).toBe(avantAlertes + 1);
 
     // Bloqué : plus AUCUN appel, et pas une seconde alerte pour le même incident.
@@ -410,6 +489,83 @@ suite("Site Adventum — file, disjoncteur, recrutement, réconciliation", () =>
     const fin = await pub("POST", id);
     expect(fin).toMatchObject({ state: "DONE", version: 2, confirmedHash: fin.bodyHash });
     expect(JSON.parse(t.appels[1]!.corps!).title).toBe(`${TAG}Course corrigée`);
+  });
+
+  // ───────────────────────────── Concurrence : une seule alerte ─────────────────────────────
+
+  /**
+   * UN SITE QUI RETIENT SA PREMIÈRE RÉPONSE. Le premier appel attend qu'on ouvre le portillon ; les
+   * suivants — il n'y en a que si une garde est tombée — répondent tout de suite. Retenir TOUS les
+   * appels bloquerait le banc précisément dans le cas qu'il existe pour attraper.
+   */
+  function siteRetenu(reponse: () => ReponseSite) {
+    const appels: RequeteSite[] = [];
+    let ouvrir!: () => void;
+    const ouvert = new Promise<void>((r) => { ouvrir = r; });
+    let signaler!: () => void;
+    const premierAppel = new Promise<void>((r) => { signaler = r; });
+    const fn: TransportSite = async (r) => {
+      appels.push(r);
+      if (appels.length === 1) { signaler(); await ouvert; }
+      return reponse();
+    };
+    return { fn, appels, ouvrir, premierAppel };
+  }
+
+  it("CONCURRENCE — huit passages lancés ENSEMBLE sur un envoi refusé : la PRISE n'en laisse partir qu'un, et l'échec ne se dit qu'une fois", async () => {
+    const id = await publier("Concurrence prise");
+    const ligne = await pub("POST", id);
+    const titre = "Site web : contenu refusé";
+    const avant = await notifs(ids.dir!, titre);
+    const site = siteRetenu(() => rep(422, { error: "title: too long" }));
+    const m = plus(1_000);
+    let rendus = 0;
+    const passages = Array.from({ length: 8 }, () =>
+      viderFile({ transport: site.fn, seulement: [ligne.id], maintenant: m }).then((b) => { rendus += 1; return b; }));
+    await site.premierAppel;
+    // Les sept autres tentent leur prise PENDANT que la ligne est tenue ; c'est seulement quand ils
+    // ont TOUS rendu la main que le site répond au premier. Sans cette attente, le banc pourrait
+    // passer parce que les passages se seraient simplement succédé.
+    await vi.waitFor(() => expect(rendus).toBe(7), { timeout: 15_000, interval: 20 });
+    site.ouvrir();
+    const bilans = await Promise.all(passages);
+    expect(site.appels, "une version, un envoi").toHaveLength(1);
+    expect(bilans.filter((b) => b.envoyes === 1)).toHaveLength(1);
+    expect(bilans.filter((b) => b.envoyes === 0)).toHaveLength(7);
+    expect(await notifs(ids.dir!, titre)).toBe(avant + 1);
+    expect(await pub("POST", id)).toMatchObject({ state: "FAILED", attempts: 1, lastStatus: 422, claimedAt: null });
+    expect(await prisma.sitePushAttempt.count({ where: { publicationId: ligne.id } })).toBe(1);
+  });
+
+  it("CONCURRENCE — un passage bloqué au-delà du verrou : la ligne est REPRISE, l'échec est dit une fois, et le retardataire se tait", async () => {
+    // Le cas que la prise ne couvre pas : pour le second passage, un verrou de plus de
+    // VERROU_PERIME_MS est celui d'un processus mort. S'il ne l'est pas, les deux finissent par
+    // échouer sur la MÊME version — et c'est la précondition `alertedAt: null` d'`echouer`, seule,
+    // qui empêche deux alertes pour un seul incident.
+    const id = await publier("Concurrence verrou perime");
+    const ligne = await pub("POST", id);
+    const titre = "Site web : contenu refusé";
+    const avant = await notifs(ids.dir!, titre);
+    const lent = siteRetenu(() => rep(422, { error: "title: too long" }));
+    const m0 = plus(1_000);
+    const passageA = viderFile({ transport: lent.fn, seulement: [ligne.id], maintenant: m0 });
+    await lent.premierAppel;
+    expect((await pub("POST", id)).claimedAt?.getTime(), "A tient la ligne").toBe(m0.getTime());
+
+    const vif = script(() => rep(422, { error: "title: too long" }));
+    const bB = await viderFile({ transport: vif.fn, seulement: [ligne.id], maintenant: new Date(m0.getTime() + VERROU_PERIME_MS + 1_000) });
+    expect(bB, "B reprend une ligne dont le verrou est périmé").toMatchObject({ envoyes: 1, refuses: 1 });
+    expect(await notifs(ids.dir!, titre)).toBe(avant + 1);
+
+    lent.ouvrir();
+    const bA = await passageA;
+    expect(bA).toMatchObject({ envoyes: 1, refuses: 1 });
+    expect(lent.appels).toHaveLength(1);
+    expect(vif.appels).toHaveLength(1);
+    expect(await notifs(ids.dir!, titre), "le retardataire ne redit pas un échec déjà dit").toBe(avant + 1);
+    const fin = await pub("POST", id);
+    expect(fin).toMatchObject({ state: "FAILED", claimedAt: null, lastStatus: 422 });
+    expect(fin.alertedAt).not.toBeNull();
   });
 
   it("SORTIE INTERDITE : le transport de production est bloqué AVANT le réseau — rien n'est parti, aucune tentative consommée", async () => {
@@ -661,10 +817,352 @@ suite("Site Adventum — file, disjoncteur, recrutement, réconciliation", () =>
 
   // ───────────────────────────── Vérifier la connexion ─────────────────────────────
 
+  // ───────────────────────────── La liaison : l'ERP fabrique la clé (§118.159) ─────────────────────────────
+
+  it("GÉNÉRER : une clé EN ATTENTE, scellée — ni la clé ni son secret en clair en base, ni dans la réponse ; une seconde génération retire la première ; le Super Admin seul", async () => {
+    ACTOR = await actorFor(ids.dir!);
+    expect((await genererCleSite()).ok, "la Direction ne génère pas l'identifiant qui publie sur le site public").toBe(false);
+    expect(await prisma.siteWebCle.count()).toBe(0);
+
+    ACTOR = await actorFor(ids.sa!);
+    const r1 = await genererCleSite();
+    expect(r1.ok, r1.error).toBe(true);
+    const a1 = (await cleEnAttente())!;
+    expect(a1.cle).toMatch(/^[0-9a-f]{64}$/);
+    expect(a1.secret).toMatch(/^[0-9a-f]{64}$/);
+    expect(a1.secret).not.toBe(a1.cle);
+    expect(a1.empreinte).toBe(empreinteCle(a1.cle));
+    expect(r1.message).toContain(a1.empreinte);
+    expect(r1.message, "la réponse de l'action ne transporte jamais la clé").not.toContain(a1.cle);
+    const brute = await prisma.siteWebCle.findUniqueOrThrow({ where: { id: a1.id } });
+    expect(brute.etat).toBe("ATTENTE");
+    expect(brute.cle).not.toContain(a1.cle);
+    expect(brute.secret).not.toContain(a1.secret);
+    expect(await prisma.auditLog.count({ where: { summary: { contains: a1.cle } } })).toBe(0);
+
+    // Une clé EN ATTENTE ne publie rien : la configuration en vigueur est toujours l'environnement.
+    const enVigueur = await configurationEnVigueur();
+    expect(enVigueur.ok && enVigueur.config.source).toBe("ENVIRONNEMENT");
+    expect(enVigueur.ok && enVigueur.config.cle).toBe(CLE);
+
+    expect((await genererCleSite()).ok).toBe(true);
+    const a2 = (await cleEnAttente())!;
+    expect(a2.id).not.toBe(a1.id);
+    expect((await prisma.siteWebCle.findUniqueOrThrow({ where: { id: a1.id } })).etat, "un seul bloc à coller").toBe("RETIREE");
+    expect(await prisma.siteWebCle.count({ where: { etat: "ATTENTE" } })).toBe(1);
+
+    // L'INVARIANT EST DANS LA BASE, pas dans la discipline du code : une seconde ligne en attente
+    // est refusée par l'index partiel, quel que soit le chemin qui l'écrirait.
+    await expect(prisma.siteWebCle.create({ data: { etat: "ATTENTE", cle: "x", secret: "y", empreinte: "z" } }))
+      .rejects.toMatchObject({ code: "P2002" });
+
+    ACTOR = await actorFor(ids.dir!);
+    expect((await abandonnerCleSite()).ok).toBe(false);
+    ACTOR = await actorFor(ids.sa!);
+    expect((await abandonnerCleSite()).ok).toBe(true);
+    expect(await cleEnAttente()).toBeNull();
+    expect((await abandonnerCleSite()).ok, "rien à abandonner : le dire").toBe(false);
+  });
+
+  it("le rythme de présentation est DÉGRESSIF : chaque minute la première demi-heure, dix minutes ensuite, une heure après un jour", () => {
+    const c = new Date("2026-09-30T10:00:00Z");
+    const pas = (minutes: number) => {
+      const m = new Date(c.getTime() + minutes * 60_000);
+      return prochainePresentation(c, m).getTime() - m.getTime();
+    };
+    expect(pas(1)).toBe(60_000);
+    expect(pas(29)).toBe(60_000);
+    expect(pas(31)).toBe(600_000);
+    expect(pas(24 * 60 - 1)).toBe(600_000);
+    expect(pas(24 * 60 + 1)).toBe(3_600_000);
+  });
+
+  it("PRÉSENTER la clé au site : chaque réponse NOMME le geste ; rien avant l'échéance ; reconnue → PROMUE, l'ancienne retirée, une notification", async () => {
+    // Une clé active ANTÉRIEURE, pour voir qu'elle est retirée au moment exact de la promotion.
+    const ancienne = await genererCle(ids.sa!);
+    expect(await promouvoir(ancienne.id, "banc")).toBe(true);
+    const nouvelle = await genererCle(ids.sa!);
+    const m0 = plus(1_000);
+
+    const pasDeCle = script(() => rep(503, { status: "error", error: "Content API disabled: ERP_API_KEY is not set on the website environment." }));
+    const p1 = await presenterCleEnAttente(pasDeCle.fn, { maintenant: m0 });
+    expect(p1).toMatchObject({ issue: "PAS_ENCORE" });
+    expect(p1.message).toMatch(/collez le bloc/);
+    expect(pasDeCle.appels).toEqual([{ methode: "GET", chemin: "/health", identifiants: { cle: nouvelle.cle, secret: nouvelle.secret } }]);
+    const l1 = await prisma.siteWebCle.findUniqueOrThrow({ where: { id: nouvelle.id } });
+    expect(l1.prochaineVerification.getTime() - m0.getTime()).toBe(60_000);
+    expect(l1.dernierConstat).toBe(p1.message);
+
+    // Avant l'échéance, rien ne part : chaque présentation réveille un site endormi (plan gratuit).
+    expect((await presenterCleEnAttente(pasDeCle.fn, { maintenant: new Date(m0.getTime() + 30_000) })).issue).toBe("PAS_DUE");
+    expect(pasDeCle.appels).toHaveLength(1);
+
+    const autreCle = script(() => rep(401, { status: "error", error: "Invalid or missing bearer token." }));
+    expect((await presenterCleEnAttente(autreCle.fn, { maintenant: new Date(m0.getTime() + 61_000) })).message).toMatch(/pas celle-ci/);
+    const autreSecret = script(() => rep(401, { status: "error", error: "Invalid body signature." }));
+    const p3 = await presenterCleEnAttente(autreSecret.fn, { force: true, maintenant: new Date(m0.getTime() + 62_000) });
+    expect(p3.issue, "bonne clé, mauvais secret : publier échouerait — pas de promotion").toBe("PAS_ENCORE");
+    expect(p3.message).toMatch(/bloc ENTIER/);
+    expect((await cleActive())!.id).toBe(ancienne.id);
+
+    const avant = await notifs(ids.sa!, "Site web relié");
+    const reconnue = script(() => rep(200, { status: "ok", configured: true, authenticated: true, capabilities: ["jobs", "posts"] }));
+    const p4 = await presenterCleEnAttente(reconnue.fn, { force: true, maintenant: new Date(m0.getTime() + 63_000) });
+    expect(p4.issue).toBe("PROMUE");
+    expect((await cleActive())!.id).toBe(nouvelle.id);
+    expect(await cleEnAttente()).toBeNull();
+    expect((await prisma.siteWebCle.findUniqueOrThrow({ where: { id: ancienne.id } })).etat).toBe("RETIREE");
+    const conf = await configurationEnVigueur();
+    expect(conf.ok && conf.config).toMatchObject({ source: "ERP", cle: nouvelle.cle, secret: nouvelle.secret, cleId: nouvelle.id });
+    expect(await notifs(ids.sa!, "Site web relié")).toBe(avant + 1);
+    expect((await presenterCleEnAttente(reconnue.fn, { force: true })).issue).toBe("AUCUNE");
+  });
+
+  it("DEUX PROMOTIONS SIMULTANÉES (la présentation et un appel du site avec la nouvelle clé) : une seule l'emporte, une seule notification", async () => {
+    const k = await genererCle(ids.sa!);
+    const avant = await notifs(ids.sa!, "Site web relié");
+    const issues = await Promise.all([promouvoir(k.id, "a"), promouvoir(k.id, "b"), promouvoir(k.id, "c"), promouvoir(k.id, "d")]);
+    expect(issues.filter(Boolean)).toHaveLength(1);
+    expect(await prisma.siteWebCle.count({ where: { etat: "ACTIVE" } })).toBe(1);
+    expect(await notifs(ids.sa!, "Site web relié")).toBe(avant + 1);
+  });
+
+  it("ROTATION SANS COUPURE, par le VRAI transport : la clé en attente ne publie rien ; le site change de clé → le 401 fait présenter la nouvelle, qui repart, sans blocage ni alerte ni essai consommé", async () => {
+    process.env.ADVENTUM_BASE_URL = SITE_LOCAL;
+    delete process.env.ADVENTUM_API_KEY;
+    const site = siteReseau({ cle: null, secret: null });
+    global.fetch = site.fn;
+
+    // 1. PREMIÈRE LIAISON : le Super Admin génère, colle le bloc (le site redémarre avec), vérifie.
+    ACTOR = await actorFor(ids.sa!);
+    expect((await genererCleSite()).ok).toBe(true);
+    const k1 = (await cleEnAttente())!;
+    Object.assign(site.etat, { cle: k1.cle, secret: k1.secret });
+    const v = await verifierConnexionSite();
+    expect(v.ok, v.error).toBe(true);
+    expect(v.message).toMatch(/Relié/);
+    expect((await cleActive())!.id).toBe(k1.id);
+    // La présentation a signé avec le secret de la clé présentée — sinon le site l'aurait refusée.
+    expect(site.vus.find((x) => x.chemin === "/health")).toMatchObject({ cle: k1.cle, signe: true });
+
+    // 2. On publie : la clé ACTIVE part, signée.
+    const a = await publier("Rotation un");
+    const la = await pub("POST", a);
+    expect(await viderFile({ transport: envoyerAuSite, seulement: [la.id], maintenant: plus(1_000) })).toMatchObject({ reussis: 1 });
+    expect(site.vus.at(-1)).toMatchObject({ methode: "PUT", cle: k1.cle, signe: true });
+
+    // 3. Une nouvelle clé EN ATTENTE ne publie rien tant que le site ne l'a pas.
+    ACTOR = await actorFor(ids.sa!);
+    expect((await genererCleSite()).ok).toBe(true);
+    const k2 = (await cleEnAttente())!;
+    const b = await publier("Rotation deux");
+    const lb = await pub("POST", b);
+    expect(await viderFile({ transport: envoyerAuSite, seulement: [lb.id], maintenant: plus(2_000) })).toMatchObject({ reussis: 1 });
+    expect(site.vus.at(-1)).toMatchObject({ methode: "PUT", cle: k1.cle });
+
+    // 4. La personne colle le nouveau bloc : le site ne connaît plus que k2.
+    Object.assign(site.etat, { cle: k2.cle, secret: k2.secret });
+    const c = await publier("Rotation trois");
+    const lc = await pub("POST", c);
+    const alertes = await notifs(ids.sa!, "Site web : publication suspendue");
+    const b1 = await viderFile({ transport: envoyerAuSite, seulement: [lc.id], maintenant: plus(3_000) });
+    expect(b1, "le 401 de l'ancienne clé fait présenter la nouvelle : reconnue, elle devient active").toMatchObject({ reconfigure: true, bloque: false });
+    expect((await cleActive())!.id).toBe(k2.id);
+    expect(await pub("POST", c)).toMatchObject({ state: "PENDING", attempts: 0, lastStatus: 401, lastError: null });
+    expect(await lireBlocage()).toBeNull();
+    expect(await notifs(ids.sa!, "Site web : publication suspendue")).toBe(alertes);
+
+    const b2 = await viderFile({ transport: envoyerAuSite, seulement: [lc.id], maintenant: plus(4_000) });
+    expect(b2).toMatchObject({ reussis: 1, bloque: false });
+    expect(site.vus.at(-1)).toMatchObject({ methode: "PUT", cle: k2.cle, signe: true });
+    expect(await pub("POST", c)).toMatchObject({ state: "DONE", attempts: 1 });
+    expect(site.posts.has(c)).toBe(true);
+  });
+
+  it("le site a la clé mais un AUTRE secret (bloc collé en partie) : pas de promotion, le blocage le dit avec le geste qui répare", async () => {
+    process.env.ADVENTUM_BASE_URL = SITE_LOCAL;
+    const site = siteReseau({ cle: CLE, secret: null });
+    global.fetch = site.fn;
+    const k = await genererCle(ids.sa!);
+    Object.assign(site.etat, { cle: k.cle, secret: "un-autre-secret" });
+    const id = await publier("Secret partiel");
+    const b = await viderFile({ transport: envoyerAuSite, seulement: [(await pub("POST", id)).id], maintenant: plus(1_000) });
+    expect(b.bloque).toBe(true);
+    expect(await cleEnAttente(), "la clé en attente n'est pas promue sur une signature refusée").not.toBeNull();
+    const bl = await lireBlocage();
+    expect(bl?.motif).toMatch(/Clé en attente : .*bloc ENTIER/);
+  });
+
+  it("ILLISIBLE : une clé dont le sceau ne s'ouvre plus n'est pas « jamais relié » — l'écran le dit, la configuration retombe sur l'environnement", async () => {
+    await prisma.siteWebCle.create({ data: { etat: "ACTIVE", cle: "pas-un-sceau", secret: "pas-un-sceau", empreinte: "illisible0000" } });
+    expect(await clesIllisibles()).toEqual(["ACTIVE"]);
+    const l = await etatLiaison();
+    expect(l.illisibles).toEqual(["ACTIVE"]);
+    expect(l.active).toBeNull();
+    const conf = await configurationEnVigueur();
+    expect(conf.ok && conf.config.source).toBe("ENVIRONNEMENT");
+  });
+
+  it("LE BLOC À COLLER : la clé, son secret, et l'adresse de l'ERP — jamais une adresse inventée, jamais en clair hors de la machine", () => {
+    expect(blocEnvironnement({ cle: "k", secret: "s", erp: "https://erp.test" })).toBe("ERP_API_KEY=k\nERP_WEBHOOK_SECRET=s\nERP_BASE_URL=https://erp.test");
+    expect(blocEnvironnement({ cle: "k", secret: "s", erp: null })).toBe("ERP_API_KEY=k\nERP_WEBHOOK_SECRET=s");
+    const env = (e: Record<string, string>) => e as unknown as NodeJS.ProcessEnv;
+    expect(origineDeLERP(env({ APP_URL: "https://erp.adventum.dz/tableau" }), { hote: "autre.test", proto: "https" })).toBe("https://erp.adventum.dz");
+    expect(origineDeLERP(env({}), { hote: "erp.onrender.com", proto: "https" })).toBe("https://erp.onrender.com");
+    expect(origineDeLERP(env({}), { hote: "erp.onrender.com", proto: "http" }), "http:// hors de la machine emporterait la clé en clair").toBeNull();
+    expect(origineDeLERP(env({}), { hote: "localhost:3000", proto: "http" })).toBe("http://localhost:3000");
+    expect(origineDeLERP(env({ RENDER_EXTERNAL_URL: "https://amd.onrender.com" }), { hote: null, proto: null })).toBe("https://amd.onrender.com");
+    expect(origineDeLERP(env({}), { hote: null, proto: null })).toBeNull();
+  });
+
+  it("L'ENTRETIEN (battement) : la santé du site lue UNE FOIS L'HEURE — un site endormi ne se réveille pas chaque minute ; un redémarrage (bootId) fait rapprocher aussitôt", async () => {
+    let boot = `boot-${RUN}-1`;
+    const site = fauxSite();
+    const t = script((r) => (r.chemin === "/health"
+      ? rep(200, {
+        status: "ok", configured: true, authenticated: true, capabilities: ["jobs", "posts"], bootId: boot,
+        startedAt: "2026-09-30T08:00:00.000Z", erp: { linked: true, signing: false, lastError: null },
+        applications: { pending: 2, oldestAt: "2026-09-30T07:00:00.000Z" }, storage: { fallback: true },
+      })
+      : site.fn(r)));
+    const m0 = plus(1_000);
+    const minute = 60_000;
+
+    const b1 = await entretenirLiaison({ transport: t.fn, maintenant: m0 });
+    expect(b1.redemarrage).toBe(false);
+    expect((await derniereSante()).sante).toMatchObject({
+      authentifie: true, bootId: boot, erpRelie: true, signe: false, candidaturesEnAttente: 2, stockageDeSecours: true,
+    });
+    expect(t.appels.map((a) => a.chemin)).toEqual(["/health"]);
+
+    await entretenirLiaison({ transport: t.fn, maintenant: new Date(m0.getTime() + 30 * minute) });
+    expect(t.appels, "moins d'une heure après : le site n'est pas réveillé").toHaveLength(1);
+
+    await entretenirLiaison({ transport: t.fn, maintenant: new Date(m0.getTime() + 61 * minute) });
+    expect(t.appels.map((a) => a.chemin), "même démarrage : une lecture, pas de rapprochement").toEqual(["/health", "/health"]);
+
+    boot = `boot-${RUN}-2`;
+    const b3 = await entretenirLiaison({ transport: t.fn, maintenant: new Date(m0.getTime() + 122 * minute) });
+    expect(b3).toMatchObject({ redemarrage: true, rapproche: true });
+    expect(t.appels.map((a) => a.chemin)).toEqual(["/health", "/health", "/health", "/jobs", "/posts"]);
+
+    await entretenirLiaison({ transport: t.fn, maintenant: new Date(m0.getTime() + 123 * minute), force: true });
+    expect(t.appels.filter((a) => a.chemin === "/health"), "« Vérifier maintenant » ignore l'heure").toHaveLength(4);
+  });
+
+  // ───────────────────────────── Le site appelle l'ERP (§118.159) ─────────────────────────────
+
+  it("LE SITE APPELLE L'ERP : sans clé 503 ; clé absente, fausse ou signature fausse 401 ; la clé en attente est PROMUE sur-le-champ ; celle de l'environnement ne vaut que tant qu'aucune clé n'est active", async () => {
+    const h = (cle?: string, sig?: string) =>
+      new Headers({ ...(cle ? { authorization: `Bearer ${cle}` } : {}), ...(sig ? { "x-adventum-signature": sig } : {}) });
+    delete process.env.ADVENTUM_API_KEY;
+    expect(await authentifierLeSite(h("x"), null)).toMatchObject({ ok: false, statut: 503 });
+
+    process.env.ADVENTUM_API_KEY = CLE;
+    expect(await authentifierLeSite(h(CLE), null)).toEqual({ ok: true, source: "ENVIRONNEMENT" });
+    expect(await authentifierLeSite(h(), null)).toMatchObject({ ok: false, statut: 401 });
+    expect(await authentifierLeSite(h(`${CLE}x`), null)).toMatchObject({ ok: false, statut: 401 });
+
+    const k = await genererCle(ids.sa!);
+    const corps = JSON.stringify({ id: "x" });
+    expect(await authentifierLeSite(h(k.cle), corps), "un corps non signé, avec une clé qui a un secret").toMatchObject({ ok: false, statut: 401, erreur: SIGNATURE_REFUSEE });
+    expect(await authentifierLeSite(h(k.cle, "sha256=00"), corps)).toMatchObject({ ok: false, statut: 401 });
+    expect(await cleEnAttente(), "un refus ne promeut rien").not.toBeNull();
+
+    const avant = await notifs(ids.sa!, "Site web relié");
+    expect(await authentifierLeSite(h(k.cle, `sha256=${signatureAttendue(corps, k.secret)}`), corps)).toEqual({ ok: true, source: "ATTENTE_PROMUE" });
+    expect((await cleActive())!.id).toBe(k.id);
+    expect(await notifs(ids.sa!, "Site web relié")).toBe(avant + 1);
+
+    expect(await authentifierLeSite(h(CLE), null), "une clé active existe : l'ancienne de l'environnement ne sert plus").toMatchObject({ ok: false, statut: 401 });
+    expect(await authentifierLeSite(h(k.cle, `sha256=${signatureAttendue("", k.secret)}`), null)).toEqual({ ok: true, source: "ACTIVE" });
+    expect(await authentifierLeSite(h(k.cle, signatureAttendue(corps, k.secret).toUpperCase()), corps)).toEqual({ ok: true, source: "ACTIVE" });
+  });
+
+  it("UN GET SE SIGNE AUSSI : sans signature, ou signé sur autre chose que la chaîne vide, la clé seule ne relit rien — la règle que le site applique à l'ERP", async () => {
+    const h = (cle: string, sig?: string) =>
+      new Headers({ authorization: `Bearer ${cle}`, ...(sig ? { "x-adventum-signature": sig } : {}) });
+    const k = await genererCle(ids.sa!);
+    expect(await promouvoir(k.id, "banc")).toBe(true);
+    // La clé SEULE — celle qu'un journal de mandataire aurait gardée sans son secret.
+    expect(await authentifierLeSite(h(k.cle), null)).toMatchObject({ ok: false, statut: 401, erreur: SIGNATURE_REFUSEE });
+    expect(await authentifierLeSite(h(k.cle, `sha256=${signatureAttendue("{}", k.secret)}`), null), "signé, mais pas sur la chaîne vide").toMatchObject({ ok: false, statut: 401 });
+    expect(await authentifierLeSite(h(k.cle, `sha256=${signatureAttendue("", "un-autre-secret")}`), null), "la bonne clé, un autre secret").toMatchObject({ ok: false, statut: 401 });
+    expect(await authentifierLeSite(h(k.cle, `sha256=${signatureAttendue("", k.secret)}`), null)).toEqual({ ok: true, source: "ACTIVE" });
+
+    const url = "http://erp.banc.test/api/site-web/v1/contenus";
+    expect((await contenusDuSite(new Request(url, { headers: { authorization: `Bearer ${k.cle}` } }))).status, "la route elle-même : non signé → 401").toBe(401);
+    const signe = await contenusDuSite(new Request(url, {
+      headers: { authorization: `Bearer ${k.cle}`, "x-adventum-signature": `sha256=${signatureAttendue("", k.secret)}` },
+    }));
+    expect(signe.status).toBe(200);
+  });
+
+  it("GET /api/site-web/v1/contenus : EXACTEMENT les corps que la file enverrait — jamais un brouillon — et rien sans la clé", async () => {
+    const id = await publier("Restauration");
+    ACTOR = await actorFor(ids.dir!);
+    const brouillon = await enregistrerArticle(form({ intention: "brouillon", title: `${TAG}Restauration brouillon`, body: "## A\n\nB" }));
+    expect(brouillon.ok).toBe(true);
+
+    const url = "http://erp.banc.test/api/site-web/v1/contenus";
+    expect((await contenusDuSite(new Request(url))).status).toBe(401);
+    const res = await contenusDuSite(new Request(url, { headers: { authorization: `Bearer ${CLE}` } }));
+    expect(res.status).toBe(200);
+    expect(res.headers.get("cache-control")).toBe("no-store");
+    const j = (await res.json()) as { posts: Record<string, unknown>[]; jobs: unknown[]; count: number };
+    const ligne = await pub("POST", id);
+    expect(j.posts.find((p) => p.externalId === id)).toEqual({ externalId: id, ...JSON.parse(ligne.body!) });
+    expect(j.posts.some((p) => p.externalId === brouillon.id), "un brouillon jamais publié n'a rien à faire sur le site").toBe(false);
+    expect(j.count).toBe(j.posts.length + j.jobs.length);
+  });
+
+  it("POST /api/site-web/v1/candidatures : signée → 201 ; renvoyée → 200 sans doublon ; non signée → 401 ; trop lourde → 413 ; illisible → 400 ; incomplète → 422 avec sa raison", async () => {
+    const k = await genererCle(ids.sa!);
+    expect(await promouvoir(k.id, "banc")).toBe(true);
+    const url = "http://erp.banc.test/api/site-web/v1/candidatures";
+    const envoyer = (corps: string, signe = true, entetes: Record<string, string> = {}) =>
+      candidatureDuSite(new Request(url, {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${k.cle}`, "content-type": "application/json",
+          ...(signe ? { "x-adventum-signature": `sha256=${signatureAttendue(corps, k.secret)}` } : {}), ...entetes,
+        },
+        body: corps,
+      }));
+    const pdf = Buffer.concat([Buffer.from("%PDF-1.4\n"), Buffer.alloc(200, 0x20), Buffer.from("\n%%EOF")]);
+    const candidature = {
+      id: `banc${RUN}-route-0001`, submittedAt: new Date().toISOString(), fullName: `${TAG}Candidate Route`, email: "candidate.route@example.test",
+      phone: "+213 555 00 00 00", message: "Bonjour.", consent: true, language: "fr",
+      cv: { fileName: "cv.pdf", contentType: "application/pdf", base64: pdf.toString("base64") },
+    };
+    const corps = JSON.stringify(candidature);
+
+    expect((await envoyer(corps, false)).status).toBe(401);
+    expect(await prisma.siteCandidature.count({ where: { siteId: candidature.id } })).toBe(0);
+
+    const r1 = await envoyer(corps);
+    expect(r1.status).toBe(201);
+    const j1 = (await r1.json()) as { received: boolean; id: string; duplicate: boolean; state: string };
+    expect(j1).toMatchObject({ received: true, duplicate: false, state: "NOUVELLE" });
+
+    const r2 = await envoyer(corps);
+    expect(r2.status).toBe(200);
+    expect(await r2.json()).toMatchObject({ id: j1.id, duplicate: true });
+    expect(await prisma.siteCandidature.count({ where: { siteId: candidature.id } })).toBe(1);
+
+    expect((await envoyer(corps, true, { "content-length": String(64 * 1024 * 1024) })).status).toBe(413);
+    expect((await envoyer("{pas du json")).status).toBe(400);
+    const sansConsentement = JSON.stringify({ ...candidature, id: `banc${RUN}-route-0002`, consent: false });
+    const r422 = await envoyer(sansConsentement);
+    expect(r422.status).toBe(422);
+    expect(((await r422.json()) as { error: string }).error).toMatch(/consent/);
+  });
+
   it("vérifier la connexion : le site dit s'il a une clé et s'il reconnaît la nôtre — chaque cas nommé", async () => {
     const sante = (corps: unknown, statut = 200) => verifierSante(script(() => rep(statut, corps)).fn);
     expect(await sante({ status: "ok", configured: true, authenticated: true, capabilities: ["jobs", "posts"] })).toMatchObject({ ok: true, authentifie: true });
-    expect((await sante({ configured: false, authenticated: false })).message).toMatch(/ERP_API_KEY/);
+    expect((await sante({ configured: false, authenticated: false })).message).toMatch(/collez le bloc/);
+    expect((await sante({ status: "error", error: "Invalid body signature." }, 401)).message, "bonne clé, autre secret : un autre geste").toMatch(/signature/);
     expect((await sante({ configured: true, authenticated: false })).message).toMatch(/ne reconnaît pas/);
     expect((await sante({ error: "unauthorized" }, 401)).authentifie).toBe(false);
     expect((await sante({ configured: true, authenticated: true, capabilities: ["jobs"] })).message).toMatch(/n'annonce pas : posts/);

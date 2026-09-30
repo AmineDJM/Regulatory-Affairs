@@ -5,7 +5,7 @@ import {
   classerReponse, lireArticlesDuDepot, lireListeSite, planifierRapprochement, serialiser,
   type PlanRapprochement,
 } from "./contrat";
-import { lireConfiguration } from "./config";
+import { configurationEnVigueur } from "./cles";
 import { voulusDepuisLaBase } from "./contenus";
 import { blocageEnVigueur, bloquerPourConfiguration, empreinteCorps, mettreEnFile, viderFile } from "./file";
 import { envoyerAuSite, type ReponseSite, type TransportSite } from "./transport";
@@ -72,7 +72,7 @@ export interface OptionsRapprochement {
 
 export async function rapprocherSite(opts: OptionsRapprochement): Promise<BilanRapprochement> {
   const maintenant = opts.maintenant ?? new Date();
-  const conf = lireConfiguration();
+  const conf = await configurationEnVigueur();
   if (!conf.ok) return vide(conf.raison);
   if (await blocageEnVigueur(conf.config.empreinte)) {
     return vide("Publication suspendue : le site a refusé la configuration. Corrigez-la (ou vérifiez la connexion) avant de rapprocher.");
@@ -274,7 +274,7 @@ let rapprochementEnCours = false;
 export async function rapprocherSiteSiDu(maintenant: Date = new Date(), transport?: TransportSite): Promise<BilanRapprochement | null> {
   if (process.env.SITE_WEB_RECONCILIATION === "off") return null;
   if (rapprochementEnCours) return null;
-  if (!lireConfiguration().ok) return null;
+  if (!(await configurationEnVigueur()).ok) return null;
   const [dernierOk, dernier] = await Promise.all([
     prisma.siteReconciliation.findFirst({ where: { ok: true }, orderBy: { startedAt: "desc" }, select: { startedAt: true } }),
     prisma.siteReconciliation.findFirst({ orderBy: { startedAt: "desc" }, select: { startedAt: true, ok: true } }),
@@ -306,7 +306,7 @@ export interface Sante {
  */
 export async function verifierSante(transport: TransportSite = envoyerAuSite): Promise<Sante> {
   const base: Sante = { ok: false, message: "", configure: null, authentifie: null, capacites: [], heureDuSite: null };
-  const conf = lireConfiguration();
+  const conf = await configurationEnVigueur();
   if (!conf.ok) return { ...base, message: conf.raison };
   let rep: ReponseSite;
   try {
@@ -315,8 +315,19 @@ export async function verifierSante(transport: TransportSite = envoyerAuSite): P
     return { ...base, message: e instanceof SortieInterdite ? "Sortie interdite dans ce processus (test ou banc) : le site n'a pas été interrogé." : String(e) };
   }
   if (rep.statut === null) return { ...base, message: `Site injoignable : ${rep.erreur ?? "aucune réponse"}.` };
-  if (rep.statut === 401) return { ...base, authentifie: false, message: "Le site refuse la clé (401) : ADVENTUM_API_KEY (ERP) et ERP_API_KEY (site) ne portent pas la même valeur." };
-  if (rep.statut >= 300 && rep.statut < 400) return { ...base, message: `Le site redirige (${rep.statut}${rep.location ? ` vers ${rep.location}` : ""}) : corrigez ADVENTUM_BASE_URL.` };
+  if (rep.statut === 401) {
+    // Le site vérifie la clé AVANT la signature : un refus de signature veut dire « bonne clé,
+    // autre secret » — presque toujours un bloc collé en partie. Deux réparations, deux phrases.
+    const signature = /signature/i.test(String(lireJson(rep.texte)?.error ?? ""));
+    return {
+      ...base,
+      authentifie: false,
+      message: signature
+        ? "Le site reconnaît la clé mais refuse la signature (401) : son secret de signature n'est pas celui du bloc. Générez une nouvelle clé et collez le bloc ENTIER (les trois lignes) dans l'environnement du site."
+        : "Le site refuse la clé (401) : il en porte une autre. Générez une nouvelle clé depuis Site web et collez le bloc dans l'environnement du site (Render).",
+    };
+  }
+  if (rep.statut >= 300 && rep.statut < 400) return { ...base, message: `Le site redirige (${rep.statut}${rep.location ? ` vers ${rep.location}` : ""}) : l'adresse du site n'est pas la bonne (ADVENTUM_BASE_URL).` };
   const j = lireJson(rep.texte);
   if (rep.statut !== 200 || !j) return { ...base, message: `Réponse inattendue du site (${rep.statut}).` };
   const configure = typeof j.configured === "boolean" ? j.configured : null;
@@ -324,8 +335,8 @@ export async function verifierSante(transport: TransportSite = envoyerAuSite): P
   const capacites = Array.isArray(j.capabilities) ? j.capabilities.filter((c): c is string => typeof c === "string") : [];
   const heureDuSite = typeof j.serverTime === "string" ? j.serverTime : null;
   const lu = { ...base, configure, authentifie, capacites, heureDuSite };
-  if (configure === false) return { ...lu, message: "Le site n'a pas de clé : posez ERP_API_KEY dans son environnement (Render du site), avec la même valeur que ADVENTUM_API_KEY ici." };
-  if (authentifie === false) return { ...lu, message: "Le site est configuré mais ne reconnaît pas la clé envoyée : les deux valeurs diffèrent." };
+  if (configure === false) return { ...lu, message: "Le site n'a pas de clé : collez le bloc de la clé (Site web › Connexion) dans l'environnement du site (Render)." };
+  if (authentifie === false) return { ...lu, message: "Le site est configuré mais ne reconnaît pas la clé envoyée : générez une nouvelle clé et collez le bloc dans l'environnement du site." };
   const manque = ["jobs", "posts"].filter((c) => capacites.length > 0 && !capacites.includes(c));
   if (manque.length) return { ...lu, message: `Connexion établie, mais le site n'annonce pas : ${manque.join(", ")}.` };
   return { ...lu, ok: true, message: `Connexion établie : clé reconnue${capacites.length ? ` (capacités : ${capacites.join(", ")})` : ""}.` };

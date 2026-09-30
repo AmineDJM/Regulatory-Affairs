@@ -1,6 +1,19 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createHmac } from "node:crypto";
 import { SortieInterdite } from "@/lib/sortie/garde";
+
+/**
+ * LA CLÉ EN VIGUEUR, lue dans l'environnement SEUL. En production, `configurationEnVigueur` préfère
+ * la clé qu'un Super Admin a fait fabriquer par l'ERP (`cles.ts`, en base) : ce fichier-ci ne
+ * touche aucune base, et une clé ACTIVE posée au même instant par le banc de la publication (un
+ * autre fichier, en parallèle) changerait l'en-tête que ces cas vérifient. Le choix entre la clé de
+ * l'ERP et celle de l'environnement est éprouvé là-bas, par les vraies lignes.
+ */
+vi.mock("./cles", async () => {
+  const { lireConfiguration } = await vi.importActual<typeof import("./config")>("./config");
+  return { configurationEnVigueur: async () => lireConfiguration(process.env) };
+});
+
 import { envoyerAuSite, lireRetryAfter, signer } from "./transport";
 
 /**
@@ -102,17 +115,28 @@ describe("Le chemin de production, contre un fetch bouché", () => {
     expect(signer(corps, SECRET)).toBe(attendu);
   });
 
-  it("GET et DELETE : ni corps, ni type de contenu, ni signature", async () => {
+  it("GET et DELETE : ni corps ni type de contenu — mais SIGNÉS (la chaîne vide) dès qu'un secret est connu", async () => {
+    // Le site vérifie la signature sur TOUTE requête authentifiée quand il a son secret
+    // (`lib/api-auth.ts` : `authenticate(request, rawBody = "")`) — sa doc disait « PUT seulement »,
+    // son code fait foi. Sans cette signature, une lecture ou une suppression seraient refusées.
     process.env.ADVENTUM_WEBHOOK_SECRET = SECRET;
     boucher(() => new Response("{}", { status: 200 }));
     await envoyerAuSite({ methode: "GET", chemin: "/posts" });
     await envoyerAuSite({ methode: "DELETE", chemin: "/posts/ck9", corps: "ignoré" });
+    const vide = `sha256=${createHmac("sha256", SECRET).update("", "utf8").digest("hex")}`;
     for (const a of appels) {
       expect(a.init.body).toBeUndefined();
       expect(entete(a, "Content-Type")).toBeUndefined();
-      expect(entete(a, "X-Adventum-Signature")).toBeUndefined();
+      expect(entete(a, "X-Adventum-Signature")).toBe(vide);
       expect(entete(a, "Authorization")).toBe(`Bearer ${CLE}`);
     }
+  });
+
+  it("sans secret, AUCUNE signature, quel que soit le verbe : une signature vide ferait refuser un site qui en attend une", async () => {
+    boucher(() => new Response("{}", { status: 200 }));
+    await envoyerAuSite({ methode: "GET", chemin: "/posts" });
+    await envoyerAuSite({ methode: "DELETE", chemin: "/posts/ck9" });
+    for (const a of appels) expect(entete(a, "X-Adventum-Signature")).toBeUndefined();
   });
 
   it("l'adresse configurée à l'API (…/api/v1/) ne double pas le préfixe", async () => {
@@ -155,13 +179,93 @@ describe("Le chemin de production, contre un fetch bouché", () => {
     expect(r.erreur).toBe("délai dépassé (40 ms)");
   });
 
-  it("sans configuration, rien ne part et la cause est nommée", async () => {
+  it("sans clé, rien ne part et la cause est nommée — avec le geste qui relie, pas un nom de variable", async () => {
     delete process.env.ADVENTUM_API_KEY;
     boucher(() => new Response("{}", { status: 200 }));
     const r = await envoyerAuSite({ methode: "GET", chemin: "/jobs" });
     expect(appels).toHaveLength(0);
     expect(r.statut).toBeNull();
-    expect(r.erreur).toMatch(/ADVENTUM_API_KEY/);
+    expect(r.erreur).toMatch(/pas encore relié/);
+    expect(r.erreur).toMatch(/Générer|génère/i);
+  });
+
+  it("sans adresse fixée, l'adresse MESURÉE du site : l'apex, jamais le www qui redirige", async () => {
+    delete process.env.ADVENTUM_BASE_URL;
+    boucher(() => new Response("{}", { status: 200 }));
+    await envoyerAuSite({ methode: "GET", chemin: "/health" });
+    expect(appels[0]!.url).toBe("https://adventumdz.com/api/v1/health");
+  });
+});
+
+describe("Présenter une clé EN ATTENTE (§118.159) — une lecture, jamais une écriture", () => {
+  beforeEach(() => { process.env.ADAM_SORTIE_AUTORISEE = "1"; });
+
+  const presentes = { cle: "cle-en-attente", secret: "secret-en-attente" };
+
+  it("un GET porte la clé présentée ET signe avec SON secret, à la place de ceux en vigueur", async () => {
+    process.env.ADVENTUM_WEBHOOK_SECRET = SECRET;
+    boucher(() => new Response("{}", { status: 200 }));
+    await envoyerAuSite({ methode: "GET", chemin: "/health", identifiants: presentes });
+    expect(entete(appels[0]!, "Authorization")).toBe("Bearer cle-en-attente");
+    // Le site qui vient de recevoir le bloc a le NOUVEAU secret : signer avec l'ancien le ferait
+    // refuser la clé qu'il détient bel et bien.
+    expect(entete(appels[0]!, "X-Adventum-Signature")).toBe(signer("", "secret-en-attente"));
+  });
+
+  it("même sans clé en vigueur : c'est ainsi que se fait la toute première liaison", async () => {
+    delete process.env.ADVENTUM_API_KEY;
+    boucher(() => new Response("{}", { status: 200 }));
+    const r = await envoyerAuSite({ methode: "GET", chemin: "/health", identifiants: { cle: "premiere-cle", secret: null } });
+    expect(r.statut).toBe(200);
+    expect(entete(appels[0]!, "Authorization")).toBe("Bearer premiere-cle");
+    expect(entete(appels[0]!, "X-Adventum-Signature")).toBeUndefined();
+  });
+
+  it("une ÉCRITURE ignore les identifiants présentés : on ne publie qu'avec la clé que le site a reconnue", async () => {
+    boucher(() => new Response("{}", { status: 200 }));
+    await envoyerAuSite({ methode: "PUT", chemin: "/posts/ck1", corps: "{}", identifiants: presentes });
+    await envoyerAuSite({ methode: "DELETE", chemin: "/posts/ck1", identifiants: presentes });
+    for (const a of appels) {
+      expect(entete(a, "Authorization")).toBe(`Bearer ${CLE}`);
+      expect(entete(a, "X-Adventum-Signature")).toBeUndefined();
+    }
+  });
+
+  it("une écriture sans clé en vigueur ne part pas, même si une clé est présentée", async () => {
+    delete process.env.ADVENTUM_API_KEY;
+    boucher(() => new Response("{}", { status: 200 }));
+    const r = await envoyerAuSite({ methode: "PUT", chemin: "/posts/ck1", corps: "{}", identifiants: presentes });
+    expect(appels).toHaveLength(0);
+    expect(r.statut).toBeNull();
+  });
+});
+
+describe("La machine elle-même n'est pas une sortie (§118.159)", () => {
+  // AUCUNE clé de sortie posée ici : c'est l'exemption qui doit laisser passer, ou rien.
+  it.each(["http://localhost:3999", "http://127.0.0.1:3999", "http://[::1]:3999"])("%s : la requête part sans ADAM_SORTIE_AUTORISEE", async (base) => {
+    process.env.ADVENTUM_BASE_URL = base;
+    boucher(() => new Response("{}", { status: 200 }));
+    const r = await envoyerAuSite({ methode: "PUT", chemin: "/posts/ck1", corps: "{}" });
+    expect(r.statut).toBe(200);
+    expect(appels).toHaveLength(1);
+  });
+
+  it("un NOM qui désigne la machine ne compte pas : seule l'adresse littérale est exemptée", async () => {
+    // `localtest.me` se résout en 127.0.0.1 — mais la garde ne résout rien, et c'est voulu : un
+    // nom peut changer de cible entre la garde et la requête.
+    process.env.ADVENTUM_BASE_URL = "https://localtest.me";
+    boucher(() => new Response("{}", { status: 200 }));
+    await expect(envoyerAuSite({ methode: "GET", chemin: "/health" })).rejects.toBeInstanceOf(SortieInterdite);
+    expect(appels).toHaveLength(0);
+  });
+
+  it("http:// hors de la machine est refusé avant tout : la clé ne circule jamais en clair", async () => {
+    process.env.ADAM_SORTIE_AUTORISEE = "1";
+    process.env.ADVENTUM_BASE_URL = "http://adventumdz.com";
+    boucher(() => new Response("{}", { status: 200 }));
+    const r = await envoyerAuSite({ methode: "GET", chemin: "/health" });
+    expect(appels).toHaveLength(0);
+    expect(r.erreur).toMatch(/https/);
   });
 });
 

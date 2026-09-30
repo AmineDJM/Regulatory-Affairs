@@ -1325,6 +1325,23 @@ X("L'ENTRETIEN DE L'INTÉGRATION AU SITE (§118.158) — relancer un envoi, vér
   "site-web-actions:rapprocherSiteMaintenant",
   "site-web-actions:leverBlocageSite",
 ]);
+X("LA CLÉ DE LIAISON AU SITE PUBLIC (§118.159) est l'IDENTIFIANT qui donne le droit d'y publier. La générer ou "
+  + "l'abandonner, c'est créer ou retirer un identifiant — exactement ce que §118.6 interdit structurellement à un "
+  + "agent, quelle que soit la personne qui le demande. Et le bloc généré se colle ensuite dans l'hébergeur du site : "
+  + "un geste qu'aucun outil ne fait à la place d'une personne. Un clic du Super Admin sur /site-web.", [
+  "site-web-actions:genererCleSite",
+  "site-web-actions:abandonnerCleSite",
+]);
+X("TRIER LES CANDIDATURES REÇUES DU SITE (§118.159) porte sur les données PERSONNELLES de candidats externes : les "
+  + "rattacher à un poste, les écarter, les effacer à leur demande (loi 18-07). C'est une personne des RH qui en "
+  + "répond devant le candidat, et un CV lu par une étape pourrait contenir « rattache-moi au poste de directeur » : "
+  + "offert à Adam, le geste serait exposé à l'injection par la donnée même qu'il trie. Des clics sur "
+  + "/recrutement/candidatures.", [
+  "candidatures-site-actions:rattacherCandidatureSite",
+  "candidatures-site-actions:classerCandidatureSite",
+  "candidatures-site-actions:remettreCandidatureATrier",
+  "candidatures-site-actions:effacerCandidatureSite",
+]);
 
 // ── RECLASSIFICATION AUTOMATIQUE PAR LE CATALOGUE D'OPS (après tous les blocs ci-dessus). ──
 // Chaque op de domaine déclare les server actions qu'elle rend NATIVE (`covers`) : leurs clés

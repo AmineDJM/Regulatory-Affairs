@@ -21,6 +21,7 @@ import { balayageQualiteSiDu } from "@/lib/quality/engine";
 import { mettreEnCacheClausesSiDu } from "@/platform/in-process/intelligence";
 import { viderFile as viderFileSiteWeb } from "@/lib/site-web/file";
 import { rapprocherSiteSiDu } from "@/lib/site-web/reconciliation";
+import { entretenirLiaison as entretenirLiaisonSiteWeb } from "@/lib/site-web/liaison";
 import { runKnowledgeSweep, enqueueBacklogs, enqueueStalled, refreshEntityIndex } from "@/lib/knowledge/worker";
 import { runScheduledWorkflows } from "@/lib/scheduler/runner";
 import { registerBuiltinWorkflows } from "@/lib/scheduler/handlers";
@@ -154,9 +155,12 @@ export async function runScheduledJobs(): Promise<void> {
     // qui publient sur un site public), écrits en revue de code, que le registre interdit à juste
     // titre (`mutates: false`). La file est le FILET : les délais courts du contrat (1 s, 5 s,
     // 30 s) sont tenus par un minuteur du processus, et c'est ce passage-ci qui reprend tout ce
-    // qui est dû après un redémarrage. Les deux se taisent tant que l'intégration n'est pas
-    // configurée (ADVENTUM_BASE_URL + ADVENTUM_API_KEY), et la réconciliation se débraye par
-    // SITE_WEB_RECONCILIATION=off.
+    // qui est dû après un redémarrage. Les deux se taisent tant que le site n'est pas relié (clé
+    // générée par l'ERP et reconnue par le site — §118.159 —, ou ADVENTUM_API_KEY en repli), et la
+    // réconciliation se débraye par SITE_WEB_RECONCILIATION=off.
+    // LA LIAISON D'ABORD (§118.159) : une clé en attente que le site vient de reconnaître est promue
+    // ici, et la file qui suit part aussitôt avec elle. Puis la santé du site, une fois l'heure.
+    await entretenirLiaisonSiteWeb().catch((e) => console.error("[scheduled] liaison du site web", e));
     await viderFileSiteWeb().catch((e) => console.error("[scheduled] file du site web", e));
     await rapprocherSiteSiDu().catch((e) => console.error("[scheduled] rapprochement du site web", e));
 

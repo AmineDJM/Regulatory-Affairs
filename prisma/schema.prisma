@@ -1970,8 +1970,10 @@ model RecruitmentCandidate {
 
   /// Fiche employé créée à l'intégration. Absente pour un consulting — un consultant externe
   /// n'entre pas dans l'effectif.
-  employeeId String?   @unique
-  employee   Employee? @relation("RecruitmentHire", fields: [employeeId], references: [id], onDelete: SetNull)
+  employeeId      String?          @unique
+  employee        Employee?        @relation("RecruitmentHire", fields: [employeeId], references: [id], onDelete: SetNull)
+  /// La candidature du SITE PUBLIC dont ce candidat est issu, quand il vient de là (§118.159).
+  siteCandidature SiteCandidature?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -7234,6 +7236,16 @@ model AppSetting {
   siteBlocageEmpreinte          String?
   siteBlocageAt                 DateTime?
   siteBlocageMotif              String?
+  /// LA DERNIÈRE LECTURE DE LA SANTÉ DU SITE (§118.159) — `GET /health` avec la clé active, au plus
+  /// une fois l'heure : ce que le site dit de lui-même (liaison à l'ERP, signature, candidatures en
+  /// attente de livraison, stockage). Une fois l'heure et pas plus : chaque lecture RÉVEILLE un site
+  /// hébergé en plan gratuit, et le garder éveillé en permanence consommerait les heures gratuites de
+  /// tout le compte Render — le jour où elles manquent, c'est le site public qui s'éteint.
+  siteSante                     Json?
+  siteSanteAt                   DateTime?
+  /// L'identifiant de DÉMARRAGE du site : il change quand le site redémarre (déploiement, mise en
+  /// veille du plan gratuit, qui efface ce qu'il a reçu). L'ERP rapproche alors aussitôt.
+  siteBootId                    String?
   updatedAt                     DateTime  @updatedAt
   updatedById                   String?
 }
@@ -12821,6 +12833,9 @@ model JobPosting {
   createdAt            DateTime            @default(now())
   updatedAt            DateTime            @updatedAt
 
+  /// Les candidatures déposées sur le site pour cette offre (§118.159).
+  candidatures SiteCandidature[]
+
   @@index([published])
 }
 
@@ -12970,4 +12985,81 @@ model SiteReconciliation {
   depotSlugs   String[]  @default([])
 
   @@index([startedAt])
+}
+
+/// LES CLÉS DE LA LIAISON AVEC LE SITE, GÉNÉRÉES PAR L'ERP (§118.159).
+///
+/// Personne n'a plus à fabriquer une clé ni à la recopier des deux côtés : le Super Admin clique
+/// « Générer », colle UN bloc dans l'environnement du site, et c'est tout. La clé naît EN ATTENTE ;
+/// l'ERP la présente au site (`GET /health`) jusqu'à ce qu'il la reconnaisse, puis elle devient
+/// ACTIVE et l'ancienne est retirée dans la même transaction — la rotation se fait sans coupure,
+/// parce que l'ancienne clé sert tant que le site n'a pas la nouvelle.
+///
+/// SCELLÉES au repos (`secret-box`, AES-256-GCM), comme les jetons Google et Microsoft. Une clé EN
+/// ATTENTE se remontre au Super Admin (elle ne publie encore rien) ; une clé ACTIVE ne se montre
+/// plus jamais — on en génère une autre. Au plus une ACTIVE et une EN ATTENTE : un index partiel
+/// l'impose (migration), pas une discipline de code.
+model SiteWebCle {
+  id                    String    @id @default(cuid())
+  /// "ATTENTE" | "ACTIVE" | "RETIREE"
+  etat                  String    @default("ATTENTE")
+  /// `ERP_API_KEY` côté site — scellée.
+  cle                   String
+  /// `ERP_WEBHOOK_SECRET` côté site — scellé.
+  secret                String
+  /// Condensat tronqué de la clé : ce que l'écran et l'audit montrent — jamais un morceau de la clé.
+  empreinte             String
+  creeParId             String?
+  creeLe                DateTime  @default(now())
+  /// La prochaine présentation au site d'une clé en attente (rythme dégressif).
+  prochaineVerification DateTime  @default(now())
+  derniereVerification  DateTime?
+  /// Ce que le site a répondu à la dernière présentation, en une phrase.
+  dernierConstat        String?
+  activeeLe             DateTime?
+  retireeLe             DateTime?
+
+  @@index([etat])
+}
+
+/// UNE CANDIDATURE DÉPOSÉE SUR LE SITE PUBLIC (§118.159).
+///
+/// La boîte d'ARRIVÉE, pas le pipeline : le pipeline vit dans `RecruitmentCandidate`. Une
+/// candidature à une offre rattachée à un recrutement OUVERT y entre d'elle-même ; les autres —
+/// spontanée, offre sans recrutement, poste déjà pourvu, offre inconnue de l'ERP — attendent ici
+/// qu'une personne des RH la rattache à un poste ou la classe. Rien n'est perdu, rien n'est deviné.
+model SiteCandidature {
+  id           String                @id @default(cuid())
+  /// L'identifiant que le SITE a donné au dépôt — la clé d'idempotence : un renvoi ne crée rien.
+  siteId       String                @unique
+  jobPostingId String?
+  jobPosting   JobPosting?           @relation(fields: [jobPostingId], references: [id], onDelete: SetNull)
+  /// L'offre telle que le site l'a nommée au dépôt — lisible même si l'offre a disparu depuis.
+  offreTitre   String?
+  offreRef     String?
+  nom          String
+  email        String
+  telephone    String?
+  message      String?
+  /// Le CV, dans le stockage chiffré (clé de fichier), avec de quoi le servir et le reconnaître.
+  cvCle        String?
+  cvNom        String?
+  cvType       String?
+  cvTaille     Int?
+  cvEmpreinte  String?
+  /// "NOUVELLE" | "RATTACHEE" | "CLASSEE"
+  etat         String                @default("NOUVELLE")
+  /// Pourquoi elle n'est pas entrée seule dans un recrutement — ou pourquoi elle a été classée.
+  motif        String?
+  candidateId  String?               @unique
+  candidate    RecruitmentCandidate? @relation(fields: [candidateId], references: [id], onDelete: SetNull)
+  consentement Boolean               @default(false)
+  langue       String?
+  soumiseLe    DateTime
+  recueLe      DateTime              @default(now())
+  traiteeParId String?
+  traiteeLe    DateTime?
+
+  @@index([etat, recueLe])
+  @@index([jobPostingId])
 }

@@ -1,5 +1,6 @@
 import Link from "next/link";
-import { AlertTriangle, CheckCircle2, Circle, ExternalLink, FileText, Globe2, Briefcase, ShieldAlert } from "lucide-react";
+import { headers } from "next/headers";
+import { AlertTriangle, CheckCircle2, Circle, ExternalLink, FileText, Briefcase, ShieldAlert } from "lucide-react";
 import { requireModule } from "@/lib/session";
 import { PageHeader } from "@/components/shared/page-header";
 import { ModuleTabs } from "@/components/shared/module-tabs";
@@ -12,12 +13,14 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { visibleTabs } from "@/lib/nav-tabs";
 import { SITE_WEB_TABS } from "@/lib/labels";
 import { formatDateTime } from "@/lib/utils";
-import { etatAffiche, etatIntegration, journalRecent, listePublications } from "@/lib/site-web/etat";
+import { etatAffiche, etatIntegration, etatLiaison, journalRecent, listePublications } from "@/lib/site-web/etat";
 import { lienDuContenu } from "@/lib/site-web/file";
 import { LIBELLE_NATURE } from "@/lib/site-web/contrat";
-import { peutEcrireArticles, peutLeverBlocage, peutPublierOffres, peutRapprocher } from "@/lib/site-web/acces";
+import { blocEnvironnement, cleEnAttente, origineDeLERP } from "@/lib/site-web/cles";
+import { peutEcrireArticles, peutGererLaLiaison, peutLeverBlocage, peutPublierOffres, peutRapprocher } from "@/lib/site-web/acces";
 import { EtatPublicationBadge } from "@/components/site-web/etat-badge";
 import { GesteIntegration } from "@/components/site-web/gestes-integration";
+import { CarteLiaison } from "./carte-liaison";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Site web — AMD Internal OS" };
@@ -27,7 +30,8 @@ export const metadata = { title: "Site web — AMD Internal OS" };
  * LA PUBLICATION VERS LE SITE PUBLIC (§118.158) — l'ERP est la source de vérité, il POUSSE.
  *
  * Cet écran répond à trois questions, dans l'ordre où on les pose :
- *   1. Est-ce que ça marche ? — configuration, blocage (clé refusée), dernière vérification ;
+ *   1. Est-ce que ça marche ? — la liaison (§118.159 : la clé que l'ERP fabrique, le bloc à coller,
+ *      ce que le site dit de lui-même), le blocage (clé refusée) ;
  *   2. Qu'est-ce qui est en ligne, en attente, en échec ? — un état par contenu, jamais
  *      « publié » tant que le site ne l'a pas confirmé ;
  *   3. Le site et l'ERP disent-ils la même chose ? — le dernier rapprochement, ses écarts, ce
@@ -36,8 +40,27 @@ export const metadata = { title: "Site web — AMD Internal OS" };
  */
 export default async function SiteWebPage() {
   const user = await requireModule("SITE_WEB");
-  const [integ, publications, journal] = await Promise.all([etatIntegration(), listePublications(200), journalRecent(30)]);
+  const [integ, liaison, publications, journal] = await Promise.all([
+    etatIntegration(), etatLiaison(), listePublications(200), journalRecent(30),
+  ]);
   const { config, blocage, suspendu, compteurs, dernier } = integ;
+  const gere = peutGererLaLiaison(user);
+  // LE BLOC À COLLER — relu ici, et seulement pour le Super Admin : la clé EN ATTENTE ne publie
+  // encore rien, et la remontrer évite de tout recommencer si le bloc a été perdu avant le collage.
+  // L'adresse de l'ERP est celle par laquelle il est RÉELLEMENT arrivé sur cet écran.
+  let bloc: string | null = null;
+  if (gere && liaison.attente) {
+    const attente = await cleEnAttente();
+    if (attente) {
+      const h = headers();
+      const erp = origineDeLERP(process.env, {
+        hote: h.get("x-forwarded-host") ?? h.get("host"),
+        proto: h.get("x-forwarded-proto"),
+      });
+      bloc = blocEnvironnement({ cle: attente.cle, secret: attente.secret, erp });
+    }
+  }
+  const sante = liaison.sante;
   const vues = publications.map((p) => ({ p, e: etatAffiche(p, p.operation === "PUT" && p.confirmePublie !== false, suspendu) }));
   const aTraiter = vues.filter(({ p }) => p.etat === "FAILED" || (p.etat === "PENDING" && p.essais > 0));
 
@@ -69,47 +92,27 @@ export default async function SiteWebPage() {
           </div>
           <div className="flex flex-wrap gap-2">
             <GesteIntegration geste="verifier" />
+            {gere && !liaison.attente && (
+              <GesteIntegration
+                geste="generer"
+                libelle="Générer une nouvelle clé"
+                variante="primary"
+                confirmation="Générer une nouvelle clé ? Vous collerez ensuite le bloc dans l'environnement du site : la publication reprend d'elle-même dès qu'il l'a."
+              />
+            )}
             {peutLeverBlocage(user) && <GesteIntegration geste="lever" variante="ghost" />}
           </div>
         </div>
       )}
 
-      <Card>
-        <CardHeader className="flex-row flex-wrap items-center justify-between gap-2 space-y-0">
-          <CardTitle className="flex items-center gap-2"><Globe2 className="h-4 w-4" /> Connexion au site</CardTitle>
-          {config.configuree && (
-            <div className="flex flex-wrap items-start gap-2">
-              {!blocage && <GesteIntegration geste="verifier" />}
-              {peutRapprocher(user) && <GesteIntegration geste="rapprocher" />}
-            </div>
-          )}
-        </CardHeader>
-        <CardContent className="space-y-2 text-sm">
-          {config.configuree ? (
-            <>
-              <p className="flex flex-wrap items-center gap-2">
-                <Badge tone={blocage ? "danger" : "success"} dot>{blocage ? "Clé refusée" : "Configurée"}</Badge>
-                <span className="font-mono text-xs">{config.adresse}</span>
-              </p>
-              <p className="text-muted-foreground">
-                Signature HMAC des envois : {config.signature ? "activée" : "non activée (facultative)"} · empreinte de la configuration{" "}
-                <span className="font-mono text-xs">{config.empreinte}</span> — la clé elle-même n&apos;est jamais affichée ni enregistrée.
-              </p>
-            </>
-          ) : (
-            <>
-              <p className="flex flex-wrap items-center gap-2">
-                <Badge tone="warning" dot>Non configurée</Badge>
-                <span>{config.raison}</span>
-              </p>
-              <p className="text-muted-foreground">
-                Tant que l&apos;intégration n&apos;est pas configurée, les contenus publiés attendent en file : ils partiront d&apos;eux-mêmes
-                dès que les variables seront posées (voir la mise en service ci-dessous).
-              </p>
-            </>
-          )}
-        </CardContent>
-      </Card>
+      <CarteLiaison
+        config={config}
+        blocage={blocage}
+        liaison={liaison}
+        bloc={bloc}
+        peutGerer={gere}
+        peutRapprocher={peutRapprocher(user)}
+      />
 
       {/* ── 2. QU'EST-CE QUI EST EN LIGNE ? ─────────────────────────────────────────── */}
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
@@ -292,31 +295,28 @@ export default async function SiteWebPage() {
         </section>
       )}
 
-      {/* ── LA MISE EN SERVICE (contrat §10) ─────────────────────────────────────────── */}
+      {/* ── OÙ EN EST LA MISE EN SERVICE ? (§118.159) — chaque coche est LUE, jamais déclarée ─── */}
       <Card>
         <CardHeader><CardTitle>Mise en service</CardTitle></CardHeader>
         <CardContent>
           <ol className="space-y-2 text-sm">
-            <Etape faite={config.configuree}>
-              Générer une clé (<code className="rounded bg-muted px-1 text-xs">openssl rand -hex 32</code>) et la poser des DEUX côtés, avec la même valeur :
-              {" "}<code className="rounded bg-muted px-1 text-xs">ERP_API_KEY</code> sur le site, <code className="rounded bg-muted px-1 text-xs">ADVENTUM_API_KEY</code> ici,
-              avec <code className="rounded bg-muted px-1 text-xs">ADVENTUM_BASE_URL</code> (Render → Environment). Jamais dans un dépôt.
+            <Etape faite={config.configuree && !blocage}>
+              Relier le site : un Super Admin clique « Générer la clé », puis colle le bloc affiché dans l&apos;environnement du site
+              (Render). L&apos;ERP fabrique la clé lui-même — personne n&apos;a à l&apos;inventer ni à la recopier des deux côtés.
             </Etape>
-            <Etape faite={config.signature}>
-              Facultatif : activer la signature — <code className="rounded bg-muted px-1 text-xs">ERP_WEBHOOK_SECRET</code> sur le site et
-              {" "}<code className="rounded bg-muted px-1 text-xs">ADVENTUM_WEBHOOK_SECRET</code> ici, même valeur.
+            <Etape faite={sante && sante.statut === 200 ? sante.authentifie === true : null}>
+              Le site reconnaît la clé de l&apos;ERP.
             </Etape>
-            <Etape faite={null}>
-              Sur le site : attacher un disque persistant (offre payante de Render) et poser <code className="rounded bg-muted px-1 text-xs">JOBS_DATA_DIR=/var/data</code>.
-              Sans lui, le site perd tout à chaque redéploiement — le rapprochement quotidien repousse alors tout, mais les pages disparaissent jusque-là.
+            <Etape faite={sante && sante.statut === 200 ? sante.erpRelie : null}>
+              Le site sait où envoyer les candidatures (ligne ERP_BASE_URL du bloc).
             </Etape>
             <Etape faite={config.configuree && !blocage && Boolean(integ.dernierReussi)}>
-              « Vérifier la connexion » : le site doit répondre <span className="font-medium">clé reconnue</span>. Puis un premier rapprochement réussi.
+              Un premier rapprochement réussi : l&apos;ERP a comparé ce que le site détient à ce qu&apos;il veut qu&apos;il détienne.
             </Etape>
-            <Etape faite={compteurs.enLigne > 0}>Publier une offre de test et un article de test, vérifier leur page sur le site, puis les supprimer.</Etape>
-            <Etape faite={null}>
-              Décider du sort de <code className="rounded bg-muted px-1 text-xs">ADMIN_PASSWORD</code> du site : son administration reste utilisable,
-              mais ce qu&apos;on y saisit n&apos;est pas dans l&apos;ERP (le rapprochement le compte sans y toucher).
+            <Etape faite={compteurs.enLigne > 0}>Une offre ou un article en ligne, confirmé par le site.</Etape>
+            <Etape faite={sante && sante.statut === 200 && sante.stockageDeSecours !== null ? !sante.stockageDeSecours : null}>
+              Facultatif : un disque permanent pour le site (offre payante de Render). Sans lui, le site recharge ses offres et ses
+              articles depuis l&apos;ERP à chaque redémarrage — automatiquement, en quelques secondes.
             </Etape>
           </ol>
           {config.racine && (
@@ -339,7 +339,7 @@ function Etape({ faite, children }: { faite: boolean | null; children: React.Rea
         : <Circle className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" aria-label={faite === null ? "Invérifiable d'ici" : "À faire"} />}
       <span className="min-w-0">
         {children}
-        {faite === null && <span className="block text-xs text-muted-foreground">Côté site : invérifiable depuis l&apos;ERP.</span>}
+        {faite === null && <span className="block text-xs text-muted-foreground">Pas encore lisible : le site ne l&apos;a pas encore dit à l&apos;ERP.</span>}
       </span>
     </li>
   );

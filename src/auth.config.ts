@@ -31,6 +31,13 @@ export const authConfig = {
       // devinable. La salle est gérée par Jitsi ; aucune donnée interne n'est exposée.
       if (nextUrl.pathname.startsWith("/meet/")) return true;
 
+      // LE SITE PUBLIC appelle l'ERP (§118.159) : les candidatures déposées sur adventumdz.com, et
+      // la relecture de ses contenus quand il redémarre. Il n'a pas de session — ces routes
+      // vérifient ELLES-MÊMES sa clé et la signature du corps (`site-web/entrant.ts`), et un
+      // cliquet exige que chacune le fasse avant tout le reste. Le préfixe est exact, barre finale
+      // comprise : `/api/site-web/candidatures/…` (le CV servi aux RH) reste derrière la session.
+      if (nextUrl.pathname.startsWith("/api/site-web/v1/")) return true;
+
       if (isOnLogin) {
         if (isLoggedIn) {
           return Response.redirect(new URL("/mon-espace", nextUrl));
