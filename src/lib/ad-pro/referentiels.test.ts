@@ -5,7 +5,7 @@ import { AD_PRO_KINDS, type AdProKind } from "./unified";
 import {
   REFERENTIELS_PAR_NATURE, natureDesigneMedecinsEtProduits, medecinsEtProduitsFields,
   champMedecins, champProduits,
-  sponsoringCreateFields, consultingCreateFields, adProOtherCreateFields, promoMaterialCreateFields,
+  sponsoringCreateFields, consultingCreateFields, adProOtherCreateFields,
 } from "./create-fields";
 import {
   AVAILABLE_PRODUCT_STATUSES, CHAMPS_MEDECINS, CHAMPS_PRODUITS, readMultiField, MULTI_SEP,
@@ -92,7 +92,10 @@ const PORTE_DE_CREATION: Record<AdProKind, Porte> = {
   },
   CONSULTING: { champs: () => consultingCreateFields({ companies: ENTITES, businessUnits: GAMMES, products: PRODUITS, doctors: MEDECINS }) },
   OTHER: { champs: () => adProOtherCreateFields({ companies: ENTITES, businessUnits: GAMMES, products: PRODUITS, doctors: MEDECINS }) },
-  PROMO_MATERIAL: { champs: () => promoMaterialCreateFields({ companies: ENTITES, assistants: [], businessUnits: GAMMES }) },
+  // La demande de matériel se compose de LIGNES du catalogue (§118.171) : son formulaire est
+  // dessiné à part, et c'est lui qu'on lit — les produits d'une ligne sont ceux du CATALOGUE
+  // (`produitIds`), pas les produits promouvables d'une demande Ad & Pro.
+  PROMO_MATERIAL: { source: "src/components/ad-pro/demande-materiel-form.tsx" },
 };
 
 /**

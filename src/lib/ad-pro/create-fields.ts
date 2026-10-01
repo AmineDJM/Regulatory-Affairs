@@ -3,6 +3,7 @@ import { PRIORITY, SPONSORING_TYPES, SPONSORING_NATURE, MATERIAL_TYPE_OPTIONS, C
 import { wilayaOptions } from "@/lib/geo/algeria";
 import { availableProductOptions, doctorOptions, specialtyOptions, type DoctorRow, type ProductRow, type SpecialtyRow } from "@/lib/ad-pro/pickers";
 import type { AdProKind } from "@/lib/ad-pro/unified";
+import type { OptionCatalogue } from "@/lib/promo-material/achats";
 
 /**
  * LES CHAMPS DE CRÉATION AD & PRO, ÉCRITS UNE SEULE FOIS.
@@ -31,13 +32,10 @@ export interface AdProCreateData {
   /** Collaborateurs actifs : participants, responsable d'événement. */
   users: UserOption[];
   /**
-   * LES ASSISTANTES DE DIRECTION ACTIVES — celles qui retranscrivent les devis d'un matériel
-   * promotionnel (§118.152). Pas « tous les collaborateurs » : le menu proposait chaque compte
-   * actif, et le demandeur pouvait nommer n'importe quel collègue pour recopier les prix qu'il
-   * retiendra ensuite — la séparation des tâches que la retranscription existe pour garantir,
-   * contournée par un menu déroulant. Vide quand la nature n'est pas demandée.
+   * LE CATALOGUE PROMOTIONNEL ET LES PRODUITS — une demande de matériel promotionnel se compose de
+   * LIGNES dès sa création (§118.171). Vides quand la nature n'est pas demandée.
    */
-  assistants: UserOption[];
+  catalogueMateriel: { catalogue: OptionCatalogue[]; produits: { id: string; nom: string }[] };
   /** Le référentiel des spécialités médicales (`MedicalSpecialty`). */
   specialties: SpecialtyRow[];
   /** Les libellés de spécialité HÉRITÉS des fiches médecins non rattachées — la réalité y est. */
@@ -47,7 +45,7 @@ export interface AdProCreateData {
    * national par la gamme qu'il supervise). `null` ⇒ le choix reste manuel.
    */
   businessUnitDeduite: { id: string; name: string; raison: string } | null;
-  /** Entités (matériel promotionnel), déjà réduites à des options. */
+  /** Entités (consulting, autres demandes), déjà réduites à des options. */
   companies: { value: string; label: string }[];
   /** LES GAMMES : c'est le budget Ad&Pro de l'une d'elles que la demande engage. */
   businessUnits: { id: string; name: string }[];
@@ -328,26 +326,6 @@ export function specialtyField(
     type: "select", name: "specialty", label: "Spécialité", required: true,
     options, placeholder: "— Choisir la spécialité —",
   }];
-}
-
-export function promoMaterialCreateFields(opts: {
-  companies: readonly { value: string; label: string }[];
-  assistants: readonly PersonOption[];
-  businessUnits?: readonly { id: string; name: string }[];
-}): FieldDef[] {
-  return [
-    ...businessUnitField(opts.businessUnits ?? []),
-    { type: "text", name: "title", label: "Campagne / matériel", required: true, full: true, placeholder: "Ex. Brochure Cardiomax 2026" },
-    { type: "select", name: "materialType", label: "Type de matériel", options: MATERIAL_TYPE_OPTIONS, placeholder: "— Type de matériel —" },
-    { type: "select", name: "companyId", label: "Entité", options: [...opts.companies], placeholder: "— Entité —" },
-    { type: "textarea", name: "description", label: "Brief / description", full: true },
-    { type: "number", name: "amount", label: "Budget estimé (DZD)" },
-    // QUI RETRANSCRIRA LES DEVIS (§118.152). Sans choix, toutes les assistantes de direction sont
-    // prévenues quand les devis sont demandés. La case « devis déjà en main » n'existe plus : au
-    // nouveau circuit, un devis qu'on a déjà se remet à l'assistante et se retranscrit comme les
-    // autres — le sauter ferait choisir des lignes que personne n'a recopiées.
-    { type: "select", name: "assistantId", label: "Assistante de direction (retranscrit les devis)", options: opts.assistants.map((a) => ({ value: a.id, label: a.name })), placeholder: "— Toutes les assistantes de direction —" },
-  ];
 }
 
 /**

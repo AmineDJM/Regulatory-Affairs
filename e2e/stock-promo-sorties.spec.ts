@@ -6,7 +6,7 @@ import { E2E } from "./global-setup";
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
  * LES ÉTAPES 2 À 4 DU STOCK PROMOTIONNEL DANS LE NAVIGATEUR (§118.165–167) — écrans réels, base
- * réelle, zéro appel de modèle.
+ * réelle, aucun appel de modèle de son fait — hormis le point du matin que tente la page d'arrivée du Super Admin (voir `playwright.config.ts`).
  *
  * Les bancs de flux prouvent les RÈGLES par les vraies actions ; aucun ne prouvait qu'elles ont un
  * ÉCRAN qui s'ouvre et qui les déclenche (§118.50). Ce parcours le fait, dans la peau de quatre

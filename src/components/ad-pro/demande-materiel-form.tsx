@@ -1,0 +1,257 @@
+"use client";
+
+import * as React from "react";
+import { useRouter } from "next/navigation";
+import { AlertCircle, Loader2, Plus, Trash2 } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Sheet } from "@/components/ui/sheet";
+import { useAutoOpen } from "@/components/shared/use-auto-open";
+import { Input, Label, Select, Textarea } from "@/components/ui/input";
+import { MultiSelectField } from "@/components/shared/create-record-button";
+import { createPromoMaterial } from "@/lib/actions/promo-material-actions";
+import { ACTIONS, ACTION_AIDE, ACTION_LABEL } from "@/lib/promo-material/actions-fournisseur";
+import { FAMILLES, FAMILLE_LABEL, familleQuantifiee } from "@/lib/promo/catalogue";
+import { MATERIAL_TYPE_OPTIONS } from "@/lib/labels";
+import type { LigneDemandeSaisie } from "@/lib/promo-material/lignes-demande";
+import type { OptionCatalogue } from "@/lib/queries/promo-achats";
+
+/**
+ * LA DEMANDE DE MATÉRIEL PROMOTIONNEL, COMPOSÉE DE LIGNES DÈS SA CRÉATION (§118.171).
+ *
+ * « C'est directement ici que le demandeur ajoute les différentes lignes de matériel qu'il cherche
+ * (selon les trois familles), la quantité et les actions — il peut ajouter des lignes à chaque
+ * fois. » Un formulaire à champs fixes ne sait pas dire « autant de lignes que je veux » : celui-ci
+ * tient une liste, et l'envoie en un seul champ (`lignes`) que l'action relit avec la règle de la
+ * fiche. Ce composant ne décide RIEN : il ne valide pas une ligne (la règle est au serveur, et une
+ * seconde copie ici finirait par ne plus accepter la même chose, §118.5) ; il compose et il montre
+ * ce que le serveur refuse, ligne par ligne.
+ *
+ * Ce qu'il NE demande plus (décision du 01/10) : la Business Unit (« pas du tout pertinent ici »),
+ * le budget estimé (« on ne l'a pas au début »), l'assistante qui retranscrira les devis, et
+ * l'entité — celle où la personne travaille, déduite au serveur.
+ */
+
+type Ligne = { uid: string; catalogueId: string; produitsOuverts: boolean };
+
+export function DemandeMaterielForm({ catalogue, produits, onDone, onCancel, cancelLabel = "Annuler" }: {
+  catalogue: OptionCatalogue[];
+  produits: { id: string; nom: string }[];
+  onDone?: () => void;
+  onCancel?: () => void;
+  cancelLabel?: string;
+}) {
+  const router = useRouter();
+  // Une clé par ligne, stable quand on en RETIRE une : l'indice décalerait les saisies d'une
+  // ligne sur sa voisine. `useId` plutôt qu'un compteur de module, que le serveur et le navigateur
+  // ne compteraient pas pareil.
+  const base = React.useId();
+  const suivante = React.useRef(0);
+  const nouvelleLigne = React.useCallback((): Ligne => ({ uid: `${base}${++suivante.current}`, catalogueId: "", produitsOuverts: false }), [base]);
+  const [lignes, setLignes] = React.useState<Ligne[]>(() => [{ uid: `${base}0`, catalogueId: "", produitsOuverts: false }]);
+  const [busy, setBusy] = React.useState(false);
+  const [err, setErr] = React.useState<string | null>(null);
+  // Verrou SYNCHRONE : un double clic part avant que `busy` n'ait désactivé le bouton, et ferait
+  // deux demandes identiques (la règle de `RecordForm`, que ce formulaire ne peut pas emprunter).
+  const verrou = React.useRef(false);
+  const parId = React.useMemo(() => new Map(catalogue.map((c) => [c.id, c])), [catalogue]);
+
+  const maj = (uid: string, patch: Partial<Ligne>) => setLignes((ls) => ls.map((l) => (l.uid === uid ? { ...l, ...patch } : l)));
+
+  async function envoyer(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    if (verrou.current) return;
+    verrou.current = true;
+    setBusy(true);
+    setErr(null);
+    const saisie = new FormData(e.currentTarget);
+    const fd = new FormData();
+    for (const cle of ["title", "materialType", "description"]) {
+      const v = saisie.get(cle);
+      if (typeof v === "string") fd.set(cle, v);
+    }
+    const envoi: LigneDemandeSaisie[] = lignes.map((l) => ({
+      catalogueId: l.catalogueId,
+      quantite: String(saisie.get(`${l.uid}:quantite`) ?? ""),
+      actions: saisie.getAll(`${l.uid}:actions`).map(String),
+      produitIds: saisie.getAll(`${l.uid}:produitIds`).map(String),
+      commentaire: String(saisie.get(`${l.uid}:commentaire`) ?? ""),
+    }));
+    fd.set("lignes", JSON.stringify(envoi));
+    try {
+      const r = await createPromoMaterial(undefined, fd);
+      if (r.ok && r.id) {
+        onDone?.();
+        router.push(`/promo-material/${r.id}`);
+        return;
+      }
+      setErr(r.error ?? "La demande n'a pas pu être créée.");
+    } catch {
+      setErr("L'enregistrement n'a pas abouti (connexion ou serveur). VÉRIFIEZ D'ABORD LA LISTE : la demande a pu être créée malgré tout — recommencer à l'aveugle créerait un doublon.");
+    } finally {
+      verrou.current = false;
+      setBusy(false);
+    }
+  }
+
+  return (
+    <form onSubmit={envoyer} className="space-y-4">
+      <div className="space-y-1.5">
+        <Label htmlFor="mp-title">Campagne / matériel <span className="text-destructive">*</span></Label>
+        <Input id="mp-title" name="title" required placeholder="Ex. Brochure Cardiomax 2026" />
+      </div>
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <div className="space-y-1.5">
+          <Label htmlFor="mp-type">Type de matériel</Label>
+          <Select id="mp-type" name="materialType" defaultValue="">
+            <option value="">— Type de matériel —</option>
+            {MATERIAL_TYPE_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+          </Select>
+        </div>
+      </div>
+      <div className="space-y-1.5">
+        <Label htmlFor="mp-description">Brief / description</Label>
+        <Textarea id="mp-description" name="description" rows={3} />
+      </div>
+
+      <fieldset className="space-y-3">
+        <legend className="text-sm font-semibold">Lignes demandées <span className="text-destructive">*</span></legend>
+        <p className="text-xs text-muted-foreground">
+          Une ligne par article du catalogue : sa quantité et ce qu&apos;on attend du fournisseur. C&apos;est ce que
+          l&apos;assistante de direction fera chiffrer.
+        </p>
+        {catalogue.length === 0 && (
+          <p className="rounded-lg bg-warning/10 px-3 py-2 text-xs text-muted-foreground">
+            Le catalogue promotionnel est vide : le Super Admin (ou qui il désigne) y ajoute les articles, depuis
+            Ad &amp; Pro › Catalogue promotionnel.
+          </p>
+        )}
+        <ol className="space-y-3">
+          {lignes.map((l, i) => {
+            const article = parId.get(l.catalogueId) ?? null;
+            const quantifiee = article ? familleQuantifiee(article.famille) : true;
+            const montreProduits = Boolean(article?.exigeProduit) || l.produitsOuverts;
+            return (
+              <li key={l.uid} className="space-y-2 rounded-lg border border-border p-3" aria-label={`Ligne ${i + 1}`}>
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-xs font-semibold text-muted-foreground">Ligne {i + 1}</span>
+                  {lignes.length > 1 && (
+                    <Button
+                      type="button" size="sm" variant="ghost" disabled={busy}
+                      onClick={() => setLignes((ls) => ls.filter((x) => x.uid !== l.uid))}
+                      aria-label={`Retirer la ligne ${i + 1}`}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  )}
+                </div>
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
+                  <div className="space-y-1">
+                    <Label htmlFor={`${l.uid}-article`}>Article du catalogue</Label>
+                    <Select
+                      id={`${l.uid}-article`} value={l.catalogueId}
+                      onChange={(e) => maj(l.uid, { catalogueId: e.target.value })}
+                    >
+                      <option value="">— Choisir l&apos;article —</option>
+                      {FAMILLES.map((f) => {
+                        const articles = catalogue.filter((c) => c.famille === f);
+                        if (articles.length === 0) return null;
+                        return (
+                          <optgroup key={f} label={FAMILLE_LABEL[f]}>
+                            {articles.map((c) => (
+                              <option key={c.id} value={c.id}>{c.reference} — {c.nom}{c.exigeProduit ? " (par produit)" : ""}</option>
+                            ))}
+                          </optgroup>
+                        );
+                      })}
+                    </Select>
+                  </div>
+                  <div className="space-y-1">
+                    <Label htmlFor={`${l.uid}-quantite`}>Quantité{article ? ` (${article.unite})` : ""}</Label>
+                    <Input
+                      id={`${l.uid}-quantite`} name={`${l.uid}:quantite`} inputMode="decimal"
+                      disabled={!quantifiee} placeholder={quantifiee ? "Ex. 500" : "Sans quantité"}
+                      className="text-right tabular-nums"
+                    />
+                    {!quantifiee && <p className="text-[0.6875rem] text-muted-foreground">Support numérique : pas de quantité.</p>}
+                  </div>
+                </div>
+                <div className="space-y-1">
+                  <span className="text-xs font-medium">Ce qu&apos;on attend du fournisseur</span>
+                  <div className="flex flex-wrap gap-1.5">
+                    {ACTIONS.map((a) => (
+                      <label key={a} title={ACTION_AIDE[a]} className="inline-flex cursor-pointer items-center gap-1.5 rounded-full border border-input px-2.5 py-1 text-xs has-[:checked]:border-primary has-[:checked]:bg-primary/10">
+                        <input type="checkbox" name={`${l.uid}:actions`} value={a} className="h-3.5 w-3.5 rounded border-input" />
+                        {ACTION_LABEL[a]}
+                      </label>
+                    ))}
+                  </div>
+                </div>
+                {montreProduits ? (
+                  <div className="space-y-1">
+                    <span className="text-xs font-medium">Produit(s) promu(s){article?.exigeProduit ? " *" : ""}</span>
+                    <MultiSelectField
+                      field={{
+                        type: "multiselect", name: `${l.uid}:produitIds`, label: `Produit(s) de la ligne ${i + 1}`,
+                        options: produits.map((p) => ({ value: p.id, label: p.nom })),
+                        required: Boolean(article?.exigeProduit),
+                        searchPlaceholder: "Rechercher un produit…", emptyLabel: "Aucun produit actif dans le référentiel.",
+                      }}
+                    />
+                  </div>
+                ) : (
+                  <button type="button" onClick={() => maj(l.uid, { produitsOuverts: true })} className="text-xs font-medium text-primary hover:underline">
+                    + Préciser le ou les produits promus
+                  </button>
+                )}
+                <div className="space-y-1">
+                  <Label htmlFor={`${l.uid}-commentaire`}>Précision (facultatif)</Label>
+                  <Input id={`${l.uid}-commentaire`} name={`${l.uid}:commentaire`} placeholder="Format, recto-verso, finition, délai…" />
+                </div>
+              </li>
+            );
+          })}
+        </ol>
+        <Button type="button" size="sm" variant="outline" disabled={busy || catalogue.length === 0} onClick={() => setLignes((ls) => [...ls, nouvelleLigne()])}>
+          <Plus className="h-4 w-4" /> Ajouter une ligne
+        </Button>
+      </fieldset>
+
+      {err && (
+        <div role="alert" className="flex items-start gap-2 rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">
+          <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" /> <span>{err}</span>
+        </div>
+      )}
+      <div className="flex flex-wrap gap-2">
+        <Button type="submit" disabled={busy}>
+          {busy && <Loader2 className="h-4 w-4 animate-spin" />} Enregistrer
+        </Button>
+        {onCancel && <Button type="button" variant="outline" disabled={busy} onClick={onCancel}>{cancelLabel}</Button>}
+      </div>
+    </form>
+  );
+}
+
+/**
+ * LE BOUTON DE L'ÉCRAN « Matériel promotionnel » — le même formulaire que le panneau commun
+ * d'Ad & Pro : une seule définition, deux portes d'entrée. `?new=1` l'ouvre (lien direct de la
+ * vue unifiée, `createHref`).
+ */
+export function NouvelleDemandeMaterielButton({ catalogue, produits }: {
+  catalogue: OptionCatalogue[];
+  produits: { id: string; nom: string }[];
+}) {
+  const [open, setOpen] = React.useState(false);
+  useAutoOpen("new", () => setOpen(true));
+  return (
+    <>
+      <Button onClick={() => setOpen(true)}><Plus className="h-4 w-4" /> Nouvelle demande</Button>
+      <Sheet
+        open={open} onClose={() => setOpen(false)} width="lg"
+        title="Demande de matériel promotionnel"
+        description="Les lignes que vous voulez faire produire, acheter ou louer, piochées dans le catalogue. La demande est d'abord validée (N+1, ou directrice marketing), puis vous demandez les devis au secrétariat."
+      >
+        {open && <DemandeMaterielForm catalogue={catalogue} produits={produits} onDone={() => setOpen(false)} onCancel={() => setOpen(false)} />}
+      </Sheet>
+    </>
+  );
+}

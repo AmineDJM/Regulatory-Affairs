@@ -6,7 +6,7 @@ import { E2E } from "./global-setup";
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
  * COMPTAGES, TABLEAU DE BORD ET REFONTES DANS LE NAVIGATEUR (§118.168) — écrans réels, base
- * réelle, zéro appel de modèle, dans la peau de quatre personnes.
+ * réelle, aucun appel de modèle de son fait — hormis le point du matin que tente la page d'arrivée du Super Admin (voir `playwright.config.ts`), dans la peau de quatre personnes.
  *
  * Le banc de flux (`promo-comptage-flow.test.ts`) prouve la RÈGLE par les vraies actions ; celui-ci
  * prouve qu'elle a un ÉCRAN (§118.50) : le directeur des opérations demande un comptage à un

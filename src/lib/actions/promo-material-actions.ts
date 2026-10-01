@@ -1,9 +1,9 @@
 "use server";
 
-import type { MaterialType } from "@prisma/client";
+import { Prisma, type MaterialType } from "@prisma/client";
 import { revalidatePath } from "next/cache";
 import { requireUser } from "@/lib/session";
-import { userCan, hasGlobalView, hasRole, type SessionUser } from "@/lib/rbac";
+import { userCan, hasGlobalView, type SessionUser } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { canAccessEntity } from "@/lib/entity-access";
 import { recordAudit } from "@/lib/audit";
@@ -15,6 +15,9 @@ import { initialStep, libelleEtape } from "@/lib/promo-material/circuit";
 import { promoManagerOf } from "@/lib/queries/promo-material";
 import { validateursDeLaDemande } from "@/lib/queries/promo-circuit";
 import { fdStr, fdNum, type ActionResult } from "@/lib/actions/types";
+import { parseQuantity } from "@/lib/promo/stock";
+import { validerArticleDemande, type ArticleDemandeValide, type FamillePromo } from "@/lib/promo-material/achats";
+import { lireLignesDemande, ligneVide, REFUS_SANS_LIGNE } from "@/lib/promo-material/lignes-demande";
 import { siegeAuCentreAdPro, REFUS_BC_CENTRE_AD_PRO } from "@/lib/ad-pro/centre";
 import { getAppSettings } from "@/lib/settings";
 import { moneyEntityOf } from "@/lib/company";
@@ -136,36 +139,59 @@ export async function createPromoMaterial(_prev: ActionResult | undefined, formD
     // National Sales créent aussi (droit du module) ; celui qui est refusé n'a pas le droit du module.
     if (!userCan(user, "PROMO_MATERIAL", "CREATE")) return { ok: false, error: "Votre profil n'a pas le droit de créer une demande de matériel promotionnel (module Matériel promotionnel) : l'accès se règle en Administration › Comptes." };
     const title = fdStr(formData, "title");
-    if (!title) return { ok: false, error: "Le titre / la campagne est obligatoire." };
-
-    const assistantId = fdStr(formData, "assistantId");
     const description = fdStr(formData, "description");
-    const amount = fdNum(formData, "amount");
     const materialType = fdStr(formData, "materialType");
-    // L'ENTITÉ LAISSÉE VIDE N'EST PAS « AUCUNE ENTITÉ » (§118.153). Sans repli, le dossier naissait
-    // sans entité : la liste unifiée Ad & Pro, qui cloisonne par entité, ne le montrait à PERSONNE,
-    // et la directrice marketing qui venait de le valider ne l'y retrouvait pas — mesuré en
-    // parcours réel, le menu « Entité » étant facultatif. Le repli est celui de l'ARGENT
-    // (`moneyEntityOf`, comme le sponsoring et les événements) : ce dossier émet des bons de
-    // commande au nom d'une société, et c'est la société où le demandeur TRAVAILLE qui engage,
-    // pas celle que sa barre d'affichage montre à cet instant.
-    const companyId = fdStr(formData, "companyId") || (await moneyEntityOf(user.id));
 
-    // QUI RETRANSCRIT LES PRIX (§118.152) : une assistante de direction ACTIVE, et jamais le
-    // demandeur lui-même. Le menu de l'écran proposait tout compte actif — le demandeur pouvait
-    // nommer un collègue pour recopier les prix qu'il retiendra ensuite, c'est-à-dire contourner
-    // par un menu déroulant la séparation des tâches que la retranscription existe pour garantir.
-    // Le menu ne liste plus que les assistantes ; ce contrôle-ci est la garde, parce qu'un menu
-    // n'en est pas une (une requête forgée l'ignore). Sans choix, toutes sont prévenues.
-    if (assistantId) {
-      if (assistantId === user.id) {
-        return { ok: false, error: "Vous ne pouvez pas retranscrire les devis de votre propre demande : laissez le choix vide (toutes les assistantes de direction sont prévenues) ou nommez-en une autre." };
-      }
-      const assistante = await prisma.user.findUnique({ where: { id: assistantId }, select: { isActive: true, role: true, secondaryRole: true } });
-      if (!assistante || !assistante.isActive || !hasRole(assistante, "DIRECTION_ASSISTANT")) {
-        return { ok: false, error: "La personne choisie pour retranscrire les devis n'est pas une assistante de direction active : laissez le choix vide (toutes les assistantes de direction sont prévenues) ou choisissez-en une dans la liste." };
-      }
+    // LES LIGNES SE SAISISSENT À LA CRÉATION (§118.171) — l'article du catalogue (trois familles),
+    // la quantité, ce qu'on attend du fournisseur. La demande naissait vide et se composait sur la
+    // fiche après coup : le validateur, prévenu à la création, tranchait une demande qui ne disait
+    // pas encore ce qu'elle demandait. Tout ce qui manque se dit EN UNE FOIS, ligne par ligne
+    // (§118.18), avec la règle de la fiche (`validerArticleDemande`) et nulle autre (§118.5).
+    const manques: string[] = [];
+    if (!title) manques.push("Le titre / la campagne est obligatoire.");
+    const lues = lireLignesDemande(fdStr(formData, "lignes"));
+    if (!lues.ok) return { ok: false, error: lues.error };
+    const saisies = lues.lignes.filter((l) => !ligneVide(l));
+    if (saisies.length === 0) manques.push(REFUS_SANS_LIGNE);
+    const idsCatalogue = [...new Set(saisies.map((l) => l.catalogueId).filter(Boolean))];
+    const catalogue = idsCatalogue.length
+      ? await prisma.promoCatalogueArticle.findMany({
+          where: { id: { in: idsCatalogue } },
+          select: { id: true, reference: true, nom: true, famille: true, exigeProduit: true, actif: true },
+        })
+      : [];
+    const parId = new Map(catalogue.map((c) => [c.id, c]));
+    const lignes: (ArticleDemandeValide & { catalogueId: string })[] = [];
+    saisies.forEach((s, i) => {
+      const c = parId.get(s.catalogueId) ?? null;
+      const quantite = s.quantite ? parseQuantity(s.quantite) : null;
+      const v = validerArticleDemande({
+        catalogue: c ? { ...c, famille: c.famille as FamillePromo } : null,
+        produitIds: s.produitIds,
+        quantite,
+        quantiteIllisible: Boolean(s.quantite) && quantite == null,
+        actions: s.actions,
+        commentaire: s.commentaire || null,
+      });
+      if (v.ok && c) lignes.push({ ...v.article, catalogueId: c.id });
+      else if (!v.ok) manques.push(`Ligne ${i + 1} : ${v.error}`);
+    });
+    if (manques.length || !title) return { ok: false, error: manques.join(" ") };
+    const produitIds = [...new Set(lignes.flatMap((l) => l.produitIds))];
+    if (produitIds.length && (await prisma.product.count({ where: { id: { in: produitIds } } })) !== produitIds.length) {
+      return { ok: false, error: "Un des produits choisis est introuvable : rechargez le formulaire." };
     }
+
+    // CE QUE LA DEMANDE NE PORTE PLUS (décision du 01/10). La GAMME : « pas du tout pertinent
+    // ici » — le matériel se demande par article du catalogue, pas par Business Unit. Le BUDGET
+    // ESTIMÉ : « on ne l'a pas au début » — il naît des devis retranscrits. L'ASSISTANTE : sans
+    // choix, tout le secrétariat est prévenu quand les devis sont demandés (`retranscritLesDevis`
+    // honore l'assistante nommée, et le secrétariat sinon), ce qui ôte aussi au demandeur le
+    // moyen de nommer qui recopiera les prix qu'il retiendra ensuite (§118.152k). L'ENTITÉ est
+    // celle où le demandeur TRAVAILLE (`moneyEntityOf`, la règle de l'argent) : le menu qui
+    // permettait d'en choisir une autre laissait aussi forger une société qu'on ne voit pas, et
+    // un dossier né sans entité disparaissait de la liste unifiée (§118.153).
+    const companyId = await moneyEntityOf(user.id);
 
     const figes = await validateursDeLaDemande(user.id);
     const validation = figes.validateur.kind !== "AUCUNE";
@@ -179,10 +205,6 @@ export async function createPromoMaterial(_prev: ActionResult | undefined, formD
         description,
         materialType: materialType ? (materialType as MaterialType) : null,
         companyId: companyId || null,
-        // LA GAMME QUI PORTE LA DEMANDE — c'est SON budget Ad&Pro qui est engagé.
-        businessUnitId: fdStr(formData, "businessUnitId") || null,
-        amount: amount ?? null,
-        assistantId,
         status: "PROSPECTION_REQUESTED",
         circuitState,
         circuitVersion: 2,
@@ -193,6 +215,20 @@ export async function createPromoMaterial(_prev: ActionResult | undefined, formD
         requesterId: user.id,
         createdById: user.id,
         updatedById: user.id,
+        // Les lignes naissent AVEC le dossier, dans la même écriture : un dossier sans ses lignes
+        // — ou des lignes sans dossier — ne se voit jamais, même entre deux requêtes.
+        articlesDemandes: {
+          create: lignes.map((l, position) => ({
+            catalogueId: l.catalogueId,
+            position,
+            quantite: l.quantite != null ? new Prisma.Decimal(l.quantite) : null,
+            actions: l.actions,
+            commentaire: l.commentaire,
+            createdById: user.id,
+            updatedById: user.id,
+            produits: { create: l.produitIds.map((productId) => ({ productId })) },
+          })),
+        },
       },
     }));
 
@@ -200,7 +236,7 @@ export async function createPromoMaterial(_prev: ActionResult | undefined, formD
     const avis = { type: "VALIDATION_REQUIRED" as const, title: "Matériel promotionnel — demande à valider", body: `${pm.reference} — ${pm.title}`, link: `${PATH}/${pm.id}` };
     if (figes.validateur.kind === "PERSONNE") await notifyUser({ userId: figes.validateur.userId, ...avis });
     else if (figes.validateur.kind === "PLAFOND") await notifyRoles(["DIRECTION"], avis);
-    await audit(user, pm.id, "CREATE", `Matériel promotionnel créé — ${pm.reference}. ${figes.validateur.motif} Étape : ${libelleEtape(circuitState, 2)}.`);
+    await audit(user, pm.id, "CREATE", `Matériel promotionnel créé — ${pm.reference}, ${lignes.length} ligne(s) demandée(s). ${figes.validateur.motif} Étape : ${libelleEtape(circuitState, 2)}.`);
     revalidate(pm.id);
     return { ok: true, id: pm.id };
   } catch (err) {

@@ -3,7 +3,7 @@ import { E2E } from "./e2e/global-setup";
 
 /**
  * E2E PLAYWRIGHT — parcours RÉELS contre le build de production (`next start` sur `.next`),
- * SANS AUCUN APPEL IA : les specs couvrent l'authentification et le circuit d'invitation de
+ * SANS APPEL IA DE LEUR FAIT (la page d'arrivée du Super Admin en tente un : voir plus bas) : les specs couvrent l'authentification et le circuit d'invitation de
  * compte (page publique, usage unique) — des flux entièrement déterministes. La logique du
  * Chief (résolution, portes, confirmations) est verrouillée par la suite vitest (goldens) ;
  * l'E2E vérifie que les ÉCRANS tiennent debout de bout en bout.
@@ -61,7 +61,12 @@ export default defineConfig({
       // LE COMPOSEUR D'ADAM S'OUVRE (F8). La spec « d'où tu tiens ça ? » tape une phrase dans le
       // bureau d'Adam et attend une réponse DÉTERMINISTE : le code relit le registre des faits,
       // sans un seul appel de modèle. Sans clé présente, le champ est désactivé ; la clé ici est
-      // un jalon, pas un secret : aucune requête ne part vers un fournisseur dans cette suite.
+      // un jalon, pas un secret. UNE requête part pourtant, mesuré le 01/10 : la page d'arrivée du
+      // Super Admin (« Aujourd'hui ») demande son point du matin à un modèle (`getDailyBrief`, réservé
+      // à qui voit Adam) ; avec cette fausse clé le fournisseur la refuse (401) et la page s'affiche
+      // sans le point du matin. Le `fetch` du serveur ne passe pas par le mandataire du conteneur
+      // (§118.84) : rien n'est facturé — mais « aucune requête ne part » était faux, et l'écrire ici
+      // l'aurait fait croire à chaque spec qui se connecte en Super Admin.
       ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY ?? "e2e-cle-presente-mais-non-utilisee",
       OPENAI_API_KEY: process.env.OPENAI_API_KEY ?? "e2e-cle-presente-mais-non-utilisee",
     },

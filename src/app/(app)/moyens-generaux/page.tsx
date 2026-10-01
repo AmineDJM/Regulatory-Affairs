@@ -15,8 +15,7 @@ import { EmptyState } from "@/components/shared/empty-state";
 import { formatCurrency } from "@/lib/utils";
 import { CashPanel } from "./cash-panel";
 import { ExpensePanel } from "./expense-panel";
-import { DepartmentSwitcher } from "./department-switcher";
-import { ServiceSwitch } from "./service-switch";
+import { ServiceSwitch, ChangerDeService } from "./service-switch";
 import { SuppliesManager } from "../demandes/supplies-manager";
 import { ExpenseTable } from "./expense-table";
 
@@ -40,7 +39,7 @@ export const metadata = { title: "Moyens généraux — AMD Internal OS" };
  */
 export default async function MoyensGenerauxPage({
   searchParams,
-}: { searchParams: { dept?: string; year?: string } }) {
+}: { searchParams: { year?: string } }) {
   // DEUX VISAGES SUR LE MÊME ÉCRAN, et c'est le sujet de cette page.
   //
   // Demander un achat est un geste de TOUT employé : un délégué qui a besoin de cartouches n'a
@@ -89,8 +88,34 @@ export default async function MoyensGenerauxPage({
     );
   }
 
-  const departmentId = await resolveGeneralMeansDepartment(user, searchParams.dept);
+  // LE SUPER ADMIN DÉSIGNE LE SERVICE — et lui seul (`setGeneralMeansDepartment` le revérifie).
+  const pilote = user.role === "SUPER_ADMIN" || user.secondaryRole === "SUPER_ADMIN";
+  const serviceCourant = pilote ? (await getAppSettings()).generalMeansDepartmentId : null;
+  // La liste des départements ne sert qu'à DÉSIGNER le service (`ChangerDeService`) : elle n'ouvre
+  // la caisse d'aucun d'eux. Chargée pour le seul Super Admin.
+  const departements = pilote
+    ? (await prisma.department.findMany({ select: { id: true, name: true, parent: { select: { name: true } } }, orderBy: { name: "asc" } }))
+        .map((d) => ({ id: d.id, libelle: d.parent ? `${d.parent.name} › ${d.name}` : d.name }))
+    : [];
+
+  const departmentId = await resolveGeneralMeansDepartment(user);
   if (!departmentId) {
+    // UNE ISSUE POUR LE SUPER ADMIN. Sans département à lui et sans service valide (jamais désigné,
+    // ou supprimé depuis), il n'avait que « aucun département rattaché » — et le seul geste qui
+    // désigne le service vivait sur l'écran d'un département qu'il ne pouvait plus ouvrir.
+    if (pilote) {
+      return (
+        <div className="space-y-5">
+          <PageHeader title="Moyens généraux" description="La caisse des moyens généraux de la société — l'exercice et le mois — et ses achats, au même endroit." />
+          <EmptyState
+            icon="Landmark"
+            title={serviceCourant ? "Le service des moyens généraux n'existe plus" : "Aucun service des moyens généraux n'est désigné"}
+            description="Choisissez le département qui tient la caisse de la société : c'est elle que tout le monde ouvrira en arrivant ici."
+          />
+          <ChangerDeService departements={departements} actuel={null} ouvertParDefaut />
+        </div>
+      );
+    }
     return (
       <div className="space-y-5">
         <PageHeader title="Moyens généraux" description="La caisse d'un département — l'exercice et le mois — et ses achats, au même endroit." />
@@ -106,18 +131,13 @@ export default async function MoyensGenerauxPage({
   const view = await getGeneralMeans(user, departmentId, year);
   if (!view) notFound();
 
-  // CHAQUE DÉPARTEMENT A SES MOYENS GÉNÉRAUX. Celui qui PILOTE le module (les ressources
-  // humaines, l'administration) passe donc de l'un à l'autre ; l'utilisatrice quotidienne, elle,
-  // reste sur le sien — la liste ne lui est pas proposée, et les budgets des autres ne lui sont
-  // pas ouverts.
-  // SEUL LE SUPER ADMIN CHANGE DE DÉPARTEMENT. Pour tout le monde, les moyens généraux sont
-  // ceux de la société : un sélecteur de département dirait le contraire, et l'on se demanderait
-  // à quelle caisse on a affaire.
-  const pilote = user.role === "SUPER_ADMIN" || user.secondaryRole === "SUPER_ADMIN";
-  const serviceCourant = pilote ? (await getAppSettings()).generalMeansDepartmentId : null;
-  const departments = pilote
-    ? await prisma.department.findMany({ select: { id: true, name: true }, orderBy: { name: "asc" } })
-    : [];
+  // UN SEUL SERVICE À L'ÉCRAN, Super Admin compris (décision du 01/10 : « enlève les autres
+  // départements, laisse que l'Administration »). Le sélecteur qui lui ouvrait les moyens généraux
+  // de chaque département est retiré : pour tout le monde, les moyens généraux sont ceux de la
+  // société, et un sélecteur dirait le contraire. Le découpage par département reste la façon dont
+  // l'argent est IMPUTÉ — il se lit dans Budgets › par département, lien conservé ci-dessous.
+  // Le Super Admin garde ce qui n'appartient qu'à lui : voir QUEL département tient le service,
+  // et en désigner un autre (`ChangerDeService`) — sans ouvrir la caisse de cet autre.
 
   // Les candidats à qui remettre une caisse : seule l'administration a besoin de cette liste.
   const people = view.canAllot
@@ -146,15 +166,12 @@ export default async function MoyensGenerauxPage({
 
   return (
     <div className="space-y-5">
-      {/* Le département ne figure au titre que pour le Super Admin : c'est le seul pour qui
-          « lequel ? » est une question. Pour les autres, il n'y en a qu'un. */}
+      {/* Le département ne figure au titre que pour le Super Admin : c'est lui qui désigne le
+          service, il doit voir lequel est en vigueur. Pour les autres, il n'y en a qu'un. */}
       <PageHeader
         title={pilote ? `Moyens généraux — ${view.department.path}` : "Moyens généraux"}
         description="La caisse à deux horizons — l'exercice (l'année) et le mois — et le détail des dépenses avec leurs justificatifs. Tout achat porte sa facture ou son bon de paiement."
       >
-        {pilote && departments.length > 1 && (
-          <DepartmentSwitcher departments={departments} current={view.department.id} year={year} />
-        )}
         {/* QUEL DÉPARTEMENT TIENT LES MOYENS GÉNÉRAUX DE LA SOCIÉTÉ — le réglage qui décide où
             tout le monde atterrit. Il n'appartient qu'au Super Admin. */}
         {pilote && (
@@ -163,6 +180,7 @@ export default async function MoyensGenerauxPage({
             current={serviceCourant}
           />
         )}
+        {pilote && <ChangerDeService departements={departements} actuel={serviceCourant} />}
         {canManageCatalog && <SuppliesManager articles={catalogRows} />}
         {/* L'ANNUAIRE DE L'ENTREPRISE — l'imprimeur, le transitaire, l'agence de voyage. C'est ce
             service qui traite avec eux : sa porte est ici. */}

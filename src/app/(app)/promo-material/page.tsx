@@ -1,21 +1,18 @@
 import Link from "next/link";
 import { requireModule } from "@/lib/session";
-import { userCan, anyRoleFilter } from "@/lib/rbac";
-import { prisma } from "@/lib/prisma";
+import { userCan } from "@/lib/rbac";
 import { getPromoMaterials } from "@/lib/queries/promo-material";
-import { createPromoMaterial } from "@/lib/actions/promo-material-actions";
 import { PageHeader } from "@/components/shared/page-header";
 import { KpiCard } from "@/components/shared/kpi-card";
 import { EmptyState } from "@/components/shared/empty-state";
 import { StatusBadge } from "@/components/shared/status-badge";
-import { CreateRecordButton } from "@/components/shared/create-record-button";
+import { NouvelleDemandeMaterielButton } from "@/components/ad-pro/demande-materiel-form";
+import { optionsDesArticlesDemandes } from "@/lib/queries/promo-achats";
 import { ModuleTabs } from "@/components/shared/module-tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { promoMaterialCreateFields } from "@/lib/ad-pro/create-fields";
 import { PROMO_MATERIAL_STATUS, EVENTS_TABS, MATERIAL_TYPE } from "@/lib/labels";
 import { libelleEtape, type PromoState } from "@/lib/promo-material/circuit";
 import { CompanyBadge } from "@/components/shared/company-badge";
-import { getMyCompanies, companyOptions } from "@/lib/company";
 import { formatCurrency, formatDate } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
@@ -23,21 +20,14 @@ export const dynamic = "force-dynamic";
 export default async function PromoMaterialPage() {
   const user = await requireModule("PROMO_MATERIAL");
   const canCreate = userCan(user, "PROMO_MATERIAL", "CREATE");
-  const [items, companies] = await Promise.all([getPromoMaterials(user), getMyCompanies(user.id)]);
-
-  // LES ASSISTANTES DE DIRECTION (§118.152) — et elles seules. Ce menu proposait tout compte
-  // actif : le demandeur pouvait nommer un collègue pour recopier les prix qu'il retiendra
-  // ensuite. L'action refuse aussi tout autre choix — le menu n'est pas la garde.
-  const assistants = canCreate
-    ? await prisma.user.findMany({ where: { isActive: true, ...anyRoleFilter(["DIRECTION_ASSISTANT"]) }, select: { id: true, name: true }, orderBy: { name: "asc" } })
-    : [];
-  // Mêmes champs qu'au panneau commun d'Ad & Pro : une seule définition, deux portes d'entrée.
-  // LES GAMMES ACTIVES — c'est le budget Ad&Pro de l'une d'elles que la demande engage.
-  const businessUnits = await prisma.businessUnit.findMany({
-    where: { isActive: true }, select: { id: true, name: true },
-    orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
-  });
-  const createFields = promoMaterialCreateFields({ companies: companyOptions(companies), assistants, businessUnits });
+  // LE CATALOGUE ET LES PRODUITS, pour composer la demande en LIGNES dès sa création (§118.171) —
+  // le même chargement que la fiche, et le même formulaire que le panneau commun d'Ad & Pro.
+  // Plus de gamme, d'assistante, de budget ni d'entité à choisir (décision du 01/10) : rien
+  // d'autre à charger.
+  const [items, options] = await Promise.all([
+    getPromoMaterials(user),
+    canCreate ? optionsDesArticlesDemandes() : Promise.resolve(null),
+  ]);
 
   // Un dossier au circuit court se juge sur SON état ; un ancien dossier sur l'ancien statut.
   const isClosed = (i: { status: string; circuitState: string | null }) =>
@@ -47,11 +37,8 @@ export default async function PromoMaterialPage() {
 
   return (
     <div className="space-y-5">
-      <PageHeader title="Matériel promotionnel" description="Demande validée (N+1 ou directrice marketing) → articles piochés dans le catalogue → devis retranscrits par l'assistante → choix des lignes → Direction Marketing (et Directeur Général au-dessus du seuil) → bons de commande générés, factures ligne à ligne, réception au stock, paiements — visa publicitaire ou déclaration à chaque paiement.">
-        {canCreate && (
-          <CreateRecordButton
-            autoOpenParam="new" label="Nouvelle demande" title="Demande de matériel promotionnel" description="Votre demande est d'abord validée (N+1, ou directrice marketing). Sur sa fiche, vous piochez ensuite dans le catalogue les articles à faire chiffrer, puis vous demandez les devis au secrétariat." width="md" action={createPromoMaterial} redirectBase="/promo-material" fields={createFields} />
-        )}
+      <PageHeader title="Matériel promotionnel" description="Demande composée de lignes piochées dans le catalogue → validée (N+1 ou directrice marketing) → devis retranscrits par l'assistante → choix des lignes → Direction Marketing (et Directeur Général au-dessus du seuil) → bons de commande générés, factures ligne à ligne, réception au stock, paiements — visa publicitaire ou déclaration à chaque paiement.">
+        {canCreate && options && <NouvelleDemandeMaterielButton catalogue={options.catalogue} produits={options.produits} />}
       </PageHeader>
 
       <ModuleTabs tabs={EVENTS_TABS.map((t) => ({ label: t.label, href: t.href, show: userCan(user, t.module, "VIEW") }))} />

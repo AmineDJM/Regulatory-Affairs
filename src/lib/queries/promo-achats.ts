@@ -1,7 +1,7 @@
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { estAction, type PromoAction } from "@/lib/promo-material/actions-fournisseur";
-import type { ArticleDemandeLu, FamillePromo, LigneFactureLue } from "@/lib/promo-material/achats";
+import type { ArticleDemandeLu, FamillePromo, LigneFactureLue, OptionCatalogue } from "@/lib/promo-material/achats";
 
 /**
  * LE CHARGEUR DES ACHATS DU MATÉRIEL PROMOTIONNEL (§118.165) — ce que la règle pure ne lit pas.
@@ -41,14 +41,8 @@ export async function articlesDemandesDuDossier(promoMaterialId: string): Promis
   return rows.map(articleDemandeLu);
 }
 
-export interface OptionCatalogue {
-  id: string;
-  reference: string;
-  nom: string;
-  famille: FamillePromo;
-  unite: string;
-  exigeProduit: boolean;
-}
+/** Le type vit dans le domaine (`promo-material/achats.ts`) : le chargeur le réexporte. */
+export type { OptionCatalogue } from "@/lib/promo-material/achats";
 
 /**
  * CE QUE LE FORMULAIRE D'UN ARTICLE DEMANDÉ PROPOSE — le catalogue ACTIF et les produits actifs.

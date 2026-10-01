@@ -5,8 +5,7 @@ import { E2E } from "./global-setup";
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
- * LE STOCK PROMOTIONNEL DANS LE NAVIGATEUR (§118.164) — écrans réels, base réelle, zéro appel de
- * modèle, dans la peau de trois personnes.
+ * LE STOCK PROMOTIONNEL DANS LE NAVIGATEUR (§118.164) — écrans réels, base réelle, aucun appel de modèle de son fait — hormis le point du matin que tente la page d'arrivée du Super Admin (voir `playwright.config.ts`), dans la peau de trois personnes.
  *
  * Le banc de flux (`promo-stock-flow.test.ts`) prouve la RÈGLE par les vraies actions ; celui-ci
  * prouve qu'elle a un ÉCRAN (§118.50) : le Super Admin crée l'article au catalogue et l'entre au

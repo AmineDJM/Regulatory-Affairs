@@ -173,11 +173,12 @@ export async function openRemittances(
 }
 
 /**
- * Le département dont on montre les moyens généraux : celui demandé, à défaut celui que la
- * personne DIRIGE, à défaut le sien. Sans ce repli, l'assistante devrait connaître l'identifiant
- * de son propre département pour voir sa caisse.
+ * Le département dont on montre les moyens généraux : le SERVICE désigné, pour tout le monde.
+ * Sans service, celui que la personne DIRIGE, à défaut la caisse qu'elle détient, à défaut le sien
+ * — sans ce repli, l'assistante devrait connaître l'identifiant de son propre département pour
+ * voir sa caisse.
  */
-export async function resolveGeneralMeansDepartment(user: SessionUser, requested?: string | null): Promise<string | null> {
+export async function resolveGeneralMeansDepartment(user: SessionUser): Promise<string | null> {
   // LES MOYENS GÉNÉRAUX SONT CEUX DE TOUT LE MONDE.
   //
   // Chacun arrivait sur les moyens généraux DE SON DÉPARTEMENT : autant de caisses que de
@@ -185,13 +186,23 @@ export async function resolveGeneralMeansDepartment(user: SessionUser, requested
   // cartouches à une caisse, on les recevait d'une autre, et personne ne savait laquelle était
   // « la bonne ». Le service désigné (réglé par le Super Admin) est donc la porte de tous.
   //
-  // Le découpage par département n'a pas disparu — il reste la façon dont l'argent est IMPUTÉ,
-  // et le Super Admin continue de passer d'un département à l'autre pour tenir les budgets. Mais
-  // lui seul : c'est ce que `requested` traduit ici.
-  const superAdmin = user.role === "SUPER_ADMIN" || user.secondaryRole === "SUPER_ADMIN";
-  if (requested && superAdmin) return requested;
+  // ET PLUS PERSONNE NE PASSE D'UN DÉPARTEMENT À L'AUTRE ICI, Super Admin compris (décision du
+  // 01/10 : « enlève les autres départements, laisse que l'Administration »). Le Super Admin
+  // ouvrait jusque-là les moyens généraux de n'importe quel département par `?dept=` : ce
+  // paramètre n'a plus d'appelant, il est retiré — le garder ferait une porte cachée vers ce
+  // qu'on vient de retirer de l'écran (§118.14). Le découpage par département n'a pas disparu :
+  // il reste la façon dont l'argent est IMPUTÉ, et il se lit dans Budgets › par département.
   const { generalMeansDepartmentId } = await getAppSettings();
-  if (generalMeansDepartmentId) return generalMeansDepartmentId;
+  // Le service doit EXISTER : le réglage n'est pas une clé étrangère, et un département supprimé
+  // laisserait tout le module en 404 — sans plus aucun `?dept=` pour en sortir. On retombe alors
+  // sur le repli ; et le Super Admin, qu'il ait un département à lui ou non, retrouve de quoi en
+  // redésigner un (« Changer de service… », et l'écran vide qui le propose d'office). Sans ce
+  // second geste, le premier jet de cette phrase promettait une issue qui n'existait pas pour un
+  // Super Admin sans département — le repli rend alors `null`.
+  if (generalMeansDepartmentId) {
+    const service = await prisma.department.findUnique({ where: { id: generalMeansDepartmentId }, select: { id: true } });
+    if (service) return service.id;
+  }
 
   // Aucun service désigné : on retombe sur l'ancien comportement plutôt que sur un écran vide.
   // Une plateforme qui n'a pas encore été réglée doit continuer de fonctionner.

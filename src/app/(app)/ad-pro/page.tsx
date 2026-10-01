@@ -5,6 +5,9 @@ import { PageHeader } from "@/components/shared/page-header";
 import { KpiCard } from "@/components/shared/kpi-card";
 import { EmptyState } from "@/components/shared/empty-state";
 import { countByState, creatableKinds } from "@/lib/ad-pro/unified";
+import { ModuleTabs } from "@/components/shared/module-tabs";
+import { visibleTabs } from "@/lib/nav-tabs";
+import { EVENTS_TABS } from "@/lib/labels";
 import { AdProList } from "./ad-pro-list";
 import { NewRequestPicker } from "./new-request-picker";
 
@@ -34,9 +37,10 @@ export default async function AdProPage() {
   // Créer et consulter ne sont pas le même droit : le panneau ne propose que les natures qui
   // aboutiront, la liste des écrans détaillés suit les modules simplement accessibles.
   const kinds = creatableKinds((m) => userCan(user, m as Module, "CREATE"));
-  const [rows, createData] = await Promise.all([
+  const [rows, createData, tabs] = await Promise.all([
     getAdProRequests(user),
     getAdProCreateData(user.id, kinds.map((k) => k.kind)),
+    visibleTabs(user, EVENTS_TABS),
   ]);
   const counts = countByState(rows);
 
@@ -51,6 +55,13 @@ export default async function AdProPage() {
           data={createData}
         />
       </PageHeader>
+
+      {/* LA BARRE D'ONGLETS DU PÔLE — c'est ICI que mène le menu « Ad & Pro ». Elle manquait sur
+          cette seule page : le Stock et le Catalogue promotionnels, qui ne sont pas des natures de
+          demande et n'ont donc aucune autre porte, étaient introuvables depuis le menu — tous les
+          autres écrans du pôle la portaient, celui par lequel on entre ne la portait pas (§118.169).
+          `onglets-porte.test.ts` l'exige de toute entrée de menu à onglets. */}
+      <ModuleTabs tabs={tabs} />
 
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
         <KpiCard label="En attente de décision" value={counts.AWAITING} icon="Hourglass" tone={counts.AWAITING > 0 ? "warning" : "default"} />

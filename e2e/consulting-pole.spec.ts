@@ -6,7 +6,7 @@ import { E2E } from "./global-setup";
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
  * TRANSFÉRER UN CONTRAT DE CONSULTING D'AD & PRO AUX RH — de bout en bout, dans le navigateur
- * (§118.150). Écrans réels, base réelle, zéro appel de modèle.
+ * (§118.150). Écrans réels, base réelle, aucun appel de modèle de son fait — hormis le point du matin que tente la page d'arrivée du Super Admin (voir `playwright.config.ts`).
  *
  * ── CE QUE CETTE SPEC PROUVE, ET QU'AUCUN TEST UNITAIRE NE PEUT PROUVER ─────────────────
  *

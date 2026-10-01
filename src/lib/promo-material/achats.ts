@@ -38,6 +38,21 @@ import { formatDzd, totalLigneHT, totauxTaxes, type DevisLu, type Totaux } from 
 
 export type FamillePromo = "CONSOMMABLE" | "DURABLE" | "NUMERIQUE";
 
+/**
+ * UN ARTICLE DU CATALOGUE TEL QU'UN FORMULAIRE LE PROPOSE — le type vit ICI, dans le domaine, et
+ * le chargeur (`queries/promo-achats`) le réexporte. Écrit d'abord chez le chargeur, il faisait
+ * importer une FAÇADE par un module du domaine (`ad-pro/create-fields.ts`) : une inversion de
+ * couche, même pour un simple type (`domains.test.ts`, §118.171).
+ */
+export interface OptionCatalogue {
+  id: string;
+  reference: string;
+  nom: string;
+  famille: FamillePromo;
+  unite: string;
+  exigeProduit: boolean;
+}
+
 /** Tolérance de comparaison des quantités — trois décimales, comme la base. */
 const EPS = 0.0005;
 const r3 = (n: number): number => Math.round(n * 1000) / 1000;

@@ -92,10 +92,14 @@ export function BudgetExpenses({ overview, canAttribute }: { overview: BudgetOve
                 {tx.kind === "GENERAL_MEANS" ? (
                   // Un achat des moyens généraux se corrige LÀ-BAS, avec son justificatif. Le
                   // modifier depuis le budget donnerait deux endroits pour changer un même
-                  // montant — donc, tôt ou tard, deux montants différents.
-                  <Link href="/moyens-generaux" className="shrink-0 text-xs font-medium text-primary hover:underline">
-                    Voir la dépense
-                  </Link>
+                  // montant — donc, tôt ou tard, deux montants différents. Le lien n'est offert que
+                  // si la dépense est au SERVICE : l'écran ne montre plus que lui (§118.170), et un
+                  // « Voir la dépense » qui mène là où elle n'est pas fait chercher ce qui n'y est pas.
+                  tx.lien ? (
+                    <Link href={tx.lien} className="shrink-0 text-xs font-medium text-primary hover:underline">
+                      Voir la dépense
+                    </Link>
+                  ) : null
                 ) : !canAttribute ? null : tx.kind === "FINANCE" ? (
                   // Dépense de trésorerie : ré-imputable ici, mais elle se supprime dans les Finances.
                   <Select defaultValue={tx.categoryId} onChange={(e) => assign(tx.id, e.target.value)} className="h-9 w-48 text-xs" aria-label={`Ré-imputer ${tx.label}`}>

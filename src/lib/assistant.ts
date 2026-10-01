@@ -39,7 +39,6 @@ import { createEventForUser, algiersInputToUtc, CALENDAR_KINDS } from "@/lib/cal
 import { createDossierRecord } from "@/lib/dossiers-core";
 import { createSponsoring } from "@/lib/actions/sponsoring-actions";
 import { createEvent } from "@/lib/actions/event-actions";
-import { createPromoMaterial } from "@/lib/actions/promo-material-actions";
 import { envoyerMessageDirect } from "@/lib/messaging";
 import { getMailAccount, listMessages, getMessage } from "@/lib/mail";
 import {
@@ -152,7 +151,12 @@ import {
 } from "@/lib/assistant/admin-write";
 import { LIBELLES_COLONNES } from "@/lib/vues/colonnes-regulatory";
 
+/** Le refus de l'outil de création d'une demande de matériel — le même à la carte et à l'exécution. */
+const REFUS_MATERIEL_PAR_ADAM =
+  "Une demande de matériel promotionnel se compose de lignes piochées dans le catalogue (article, quantité, actions attendues du fournisseur) : elle se crée depuis Ad & Pro › Nouvelle demande › Matériel promotionnel, où le formulaire propose le catalogue.";
+
 // ───────────────────────────── Types publics ─────────────────────────────
+
 
 export interface ChatTurn {
   role: "user" | "assistant";
@@ -1573,16 +1577,15 @@ const WRITE_TOOLS: ClaudeToolDef[] = [
   {
     name: "create_promo_material_request",
     description:
-      "PROPOSE une demande de MATÉRIEL PROMOTIONNEL (Ad & Pro). La demande naît sur le circuit par devis retranscrits : elle est d'abord VALIDÉE (N+1, ou directrice marketing pour un membre du marketing) ; le demandeur demande ENSUITE les devis au secrétariat depuis la fiche. Aucun devis n'est demandé à la création. N'exécute rien : confirmation requise. Réservé aux porteurs du module Matériel promotionnel (création).",
+      "Ne crée PLUS de demande de MATÉRIEL PROMOTIONNEL : une demande se compose de lignes piochées dans le catalogue (article, quantité, actions attendues du fournisseur) et se saisit à l'écran, Ad & Pro › Nouvelle demande › Matériel promotionnel. Appeler cet outil rend cette indication, rien d'autre.",
     input_schema: {
       type: "object",
       properties: {
-        title: { type: "string", description: "Intitulé du matériel demandé (obligatoire)." },
-        materialType: { type: "string", description: "Type de matériel (optionnel)." },
-        amount: { type: "number", description: "Montant estimé en DZD (optionnel)." },
-        description: { type: "string", description: "Précisions / cahier des charges." },
+        // Aucun champ n'est exigé : l'outil ne crée rien, il nomme l'écran. Le budget estimé a
+        // quitté la demande (décision du 01/10) — le décrire ici le ferait réclamer.
+        title: { type: "string", description: "Intitulé du matériel évoqué (facultatif)." },
       },
-      required: ["title"],
+      required: [],
     },
   },
   {
@@ -3442,19 +3445,11 @@ export async function buildProposal(toolName: string, input: Record<string, unkn
   }
 
   if (toolName === "create_promo_material_request") {
-    if (!userCan(user, "PROMO_MATERIAL", "CREATE")) return { error: "Votre profil n'a pas le droit de créer une demande de matériel promotionnel (module Matériel promotionnel) : l'accès se règle en Administration › Comptes." };
-    const title = asStr(input, "title").trim();
-    if (!title) return { error: "L'intitulé du matériel est obligatoire." };
-    const amountRaw = input.amount;
-    const amount = typeof amountRaw === "number" && Number.isFinite(amountRaw) ? amountRaw : null;
-    const fields = [{ label: "Matériel", value: title }];
-    if (asStr(input, "materialType")) fields.push({ label: "Type", value: asStr(input, "materialType") });
-    if (amount !== null) fields.push({ label: "Montant estimé", value: `${amount.toLocaleString("fr-FR")} DZD` });
-    if (asStr(input, "description")) fields.push({ label: "Précisions", value: asStr(input, "description") });
-    return {
-      kind: "create_promo_material_request", module: "PROMO_MATERIAL", title: "Créer une demande de matériel promotionnel", fields, warnings,
-      payload: { kind: "create_promo_material_request", title, materialType: asStr(input, "materialType") || null, amount, description: asStr(input, "description") || null },
-    };
+    // LA DEMANDE SE COMPOSE DE LIGNES DU CATALOGUE (§118.171) — article, quantité, actions
+    // attendues du fournisseur —, et cet outil ne sait pas les porter. Proposer une carte que
+    // l'action refuserait APRÈS le clic serait un geste offert puis retiré (§118.83) : la garde
+    // est ici, avant, et elle nomme l'écran qui sait. Adam est en pause de développement.
+    return { error: REFUS_MATERIEL_PAR_ADAM };
   }
 
   if (toolName === "decide_payment") {
@@ -6851,21 +6846,9 @@ export async function performAction(user: CurrentUser, payload: AssistantActionP
   }
 
   if (payload?.kind === "create_promo_material_request") {
-    if (!userCan(user, "PROMO_MATERIAL", "CREATE")) return { ok: false, error: "Votre profil n'a pas le droit de créer une demande de matériel promotionnel (module Matériel promotionnel) : l'accès se règle en Administration › Comptes." };
-    const title = (payload.title ?? "").trim();
-    if (!title) return { ok: false, error: "L'intitulé du matériel est obligatoire." };
-    const fd = new FormData();
-    fd.set("title", title);
-    if (payload.materialType) fd.set("materialType", payload.materialType);
-    if (payload.description) fd.set("description", payload.description);
-    if (payload.amount != null) fd.set("amount", String(payload.amount));
-    const r = await createPromoMaterial(undefined, fd);
-    if (!r.ok) return { ok: false, error: r.error ?? "La demande de matériel promotionnel n'a pas pu être créée." };
-    // LA PHRASE DIT CE QUI S'EST PASSÉ (§118.152). Elle annonçait « prospection d'agences
-    // lancée » : c'était vrai du circuit d'avant, faux du circuit 2 — la demande attend sa
-    // validation, et les devis se demandent ensuite depuis la fiche. Une phrase qui annonce un
-    // effet qui n'a pas eu lieu est un faux succès, et c'est elle que la personne croit.
-    return { ok: true, message: `Demande de matériel promotionnel « ${title} » créée : elle attend d'abord sa validation (N+1, ou directrice marketing) ; vous demanderez ensuite les devis au secrétariat depuis sa fiche.`, revalidate: ["/promo-material"] };
+    // Une carte d'avant le §118.171 peut encore être confirmée : elle ne porte aucune ligne,
+    // l'action la refuserait — on le dit ici, dans la même phrase que la proposition.
+    return { ok: false, error: REFUS_MATERIEL_PAR_ADAM };
   }
 
   if (payload?.kind === "decide_payment") {

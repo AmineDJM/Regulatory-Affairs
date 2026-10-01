@@ -24,6 +24,9 @@ export interface GeneralMeansAttribution {
   amount: number;
   categoryId: string;
   department: string;
+  /** Le département dont les moyens généraux portent la dépense — l'écran ne montre plus que le
+   *  SERVICE (§118.170) : c'est ce fait qui dit si « Voir la dépense » mène quelque part. */
+  departmentId: string;
   createdBy: string | null;
 }
 
@@ -70,7 +73,7 @@ export async function generalMeansConsumption(
     },
     orderBy: { date: "desc" },
     select: {
-      id: true, label: true, amount: true, date: true, budgetCategoryId: true,
+      id: true, label: true, amount: true, date: true, budgetCategoryId: true, departmentId: true,
       department: { select: { name: true } },
       createdBy: { select: { name: true } },
       lines: { select: { amount: true, budgetCategoryId: true } },
@@ -97,6 +100,7 @@ export async function generalMeansConsumption(
         amount: imp.amount,
         categoryId: imp.categoryId,
         department: e.department?.name ?? "",
+        departmentId: e.departmentId,
         createdBy: e.createdBy?.name ?? null,
       });
     }

@@ -4,7 +4,7 @@ import { E2E } from "./global-setup";
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
- * LE CENTRE DE MISSIONS, DE BOUT EN BOUT — écrans réels, base réelle, zéro appel de modèle.
+ * LE CENTRE DE MISSIONS, DE BOUT EN BOUT — écrans réels, base réelle, aucun appel de modèle de son fait — hormis le point du matin que tente la page d'arrivée du Super Admin (voir `playwright.config.ts`).
  *
  * ── CE QUE CETTE SPEC PROUVE, ET QU'AUCUN TEST UNITAIRE NE PEUT PROUVER ─────────────────
  *

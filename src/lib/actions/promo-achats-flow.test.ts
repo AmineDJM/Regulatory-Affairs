@@ -53,6 +53,9 @@ const form = (fields: Record<string, string | string[]>): FormData => {
   return fd;
 };
 const pdf = (nom: string) => new File([new Uint8Array([37, 80, 68, 70, 45, 49, 46, 52])], nom, { type: "application/pdf" });
+/** Le champ `lignes` du formulaire de création (§118.171) : une ligne, telle que l'écran l'envoie. */
+const uneLigne = (catalogueId: string, quantite: string, actions: string[]) =>
+  JSON.stringify([{ catalogueId, quantite, actions, produitIds: [], commentaire: "" }]);
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
@@ -239,16 +242,22 @@ suite("Matériel promotionnel — achats piochés dans le catalogue, facture lig
 
   it("LA DEMANDE se pioche dans le catalogue : tout ce qui manque en une fois, et seul le demandeur (ou la Direction) la compose", async () => {
     await comme("cp");
-    const r = await createPromoMaterial(undefined, form({ title: `${TAG} Lancement Nivolex`, assistantId: u.asst!, companyId, amount: "700000" }));
+    // LA DEMANDE NAÎT AVEC SES LIGNES (§118.171). Ce banc éprouve ensuite la COMPOSITION depuis la
+    // fiche : il retire la ligne de naissance pour repartir d'une liste vide — ce que la fiche
+    // permet tant que les devis ne sont pas demandés. Ni assistante, ni budget, ni entité au
+    // formulaire : l'entité est celle où le demandeur travaille.
+    const r = await createPromoMaterial(undefined, form({ title: `${TAG} Lancement Nivolex`, lignes: uneLigne(catBloc, "20", ["IMPRESSION"]) }));
     expect(r.ok, r.ok ? "" : r.error).toBe(true);
     pmId = r.id!;
-    reference = (await prisma.promoMaterial.findUniqueOrThrow({ where: { id: pmId }, select: { reference: true } })).reference;
-    const autre = await createPromoMaterial(undefined, form({ title: `${TAG} Autre dossier`, assistantId: u.asst!, companyId }));
+    const ne = await prisma.promoMaterial.findUniqueOrThrow({ where: { id: pmId }, select: { reference: true, companyId: true, articlesDemandes: { select: { id: true } } } });
+    reference = ne.reference;
+    expect(ne.companyId, "l'entité du dossier est celle où travaille le demandeur").toBe(companyId);
+    expect(ne.articlesDemandes).toHaveLength(1);
+    expect((await retirerArticleDemandePromo(form({ promoMaterialId: pmId, requestItemId: ne.articlesDemandes[0]!.id }))).ok).toBe(true);
+    const autre = await createPromoMaterial(undefined, form({ title: `${TAG} Autre dossier`, lignes: uneLigne(catStylo, "50", ["ACHAT"]) }));
     expect(autre.ok, autre.ok ? "" : autre.error).toBe(true);
     autreId = autre.id!;
-    const a = await enregistrerArticleDemandePromo(form({ promoMaterialId: autreId, catalogueId: catStylo, quantite: "50", actions: ["ACHAT"] }));
-    expect(a.ok, a.ok ? "" : a.error).toBe(true);
-    articleAutre = a.id!;
+    articleAutre = (await prisma.promoRequestItem.findFirstOrThrow({ where: { promoMaterialId: autreId }, select: { id: true } })).id;
 
     // QUI : ni l'assistante, ni un délégué étranger au dossier.
     await comme("asst");
@@ -321,10 +330,14 @@ suite("Matériel promotionnel — achats piochés dans le catalogue, facture lig
     expect(v.ok, v.ok ? "" : v.error).toBe(true);
 
     // LA CARTE D'ADAM NE PROMET PAS CE QUE L'ACTION REFUSERAIT (§118.83) : sans article, elle n'offre
-    // pas la demande de devis ; avec, elle montre ce qui partira chez l'assistante.
+    // pas la demande de devis ; avec, elle montre ce qui partira chez l'assistante. Une demande naît
+    // avec ses lignes (§118.171), mais la fiche peut toutes les retirer avant les devis : la garde
+    // reste donc nécessaire, et c'est par ce chemin qu'un dossier y arrive vide.
     await comme("cp");
-    const vide = await createPromoMaterial(undefined, form({ title: `${TAG} Sans article`, assistantId: u.asst!, companyId }));
+    const vide = await createPromoMaterial(undefined, form({ title: `${TAG} Sans article`, lignes: uneLigne(catBloc, "20", ["IMPRESSION"]) }));
     expect(vide.ok, vide.ok ? "" : vide.error).toBe(true);
+    const ligneDuVide = await prisma.promoRequestItem.findFirstOrThrow({ where: { promoMaterialId: vide.id! }, select: { id: true } });
+    expect((await retirerArticleDemandePromo(form({ promoMaterialId: vide.id!, requestItemId: ligneDuVide.id }))).ok).toBe(true);
     await comme("dir");
     expect((await validatePromoStep(form({ id: vide.id! }))).ok).toBe(true);
     const cp = await actorFor(u.cp!);

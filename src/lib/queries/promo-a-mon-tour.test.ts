@@ -39,7 +39,7 @@ async function acteur(id: string, role: SessionUser["role"]): Promise<CurrentUse
 suite("chacun voit SON tour, avec le vrai libellé", () => {
   const u: Record<string, string> = {};
   const d: Record<string, string> = {};
-  let companyId = "";
+  let companyId = "", article = "";
 
   beforeAll(async () => {
     await nettoyer();
@@ -67,12 +67,16 @@ suite("chacun voit SON tour, avec le vrai libellé", () => {
     await dossier("devis", "QUOTE_REQUESTED", "kam");
     await dossier("dg", "REVIEW_DG", "dm");
     await dossier("exec", "IN_EXECUTION", "kam");
+    // Une demande naît avec ses lignes (§118.171) : l'article que le KAM demandera.
+    article = (await prisma.promoCatalogueArticle.create({ data: { reference: `${TAG}ART`, nom: `${TAG} Carnet bilan`, famille: "CONSOMMABLE" } })).id;
   }, 60_000);
 
   afterAll(nettoyer);
 
   async function nettoyer() {
     await prisma.promoMaterial.deleteMany({ where: { title: { startsWith: TAG } } });
+    // Les lignes sont parties avec leur dossier (Cascade) : l'article ne les retient plus.
+    await prisma.promoCatalogueArticle.deleteMany({ where: { reference: { startsWith: TAG } } });
     await prisma.employee.deleteMany({ where: { fullName: { startsWith: TAG }, managerId: { not: null } } });
     await prisma.employee.deleteMany({ where: { fullName: { startsWith: TAG } } });
     await prisma.auditLog.deleteMany({ where: { actor: { email: { startsWith: TAG } } } }).catch(() => undefined);
@@ -127,11 +131,12 @@ suite("chacun voit SON tour, avec le vrai libellé", () => {
     const fd = new FormData();
     fd.set("title", `${TAG} Carnets bilan`);
     fd.set("description", "Carnets pour la tournée d'octobre");
+    fd.set("lignes", JSON.stringify([{ catalogueId: article, quantite: "300", actions: ["IMPRESSION"], produitIds: [], commentaire: "" }]));
     const r = await createPromoMaterial(undefined, fd);
     expect(r.ok, JSON.stringify(r)).toBe(true);
     const cree = await prisma.promoMaterial.findFirstOrThrow({ where: { title: `${TAG} Carnets bilan` } });
-    // Sans entité choisie, la société est celle qui emploie le demandeur — sinon le dossier
-    // naissait sans société, et `platformScope` le rendait invisible à son propre auteur.
+    // La société est celle qui emploie le demandeur — le formulaire ne la demande plus (§118.171) ;
+    // sans elle le dossier naissait sans société, et `platformScope` le cachait à son propre auteur.
     expect(cree.companyId).toBe(companyId);
     expect((await getAdProRequests(kam)).map((x) => x.id)).toContain(cree.id);
   });

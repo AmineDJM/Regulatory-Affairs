@@ -7,12 +7,12 @@ import { Sheet } from "@/components/ui/sheet";
 import { Icon } from "@/components/ui/icon";
 import { RecordForm } from "@/components/shared/create-record-button";
 import { createSponsoring } from "@/lib/actions/sponsoring-actions";
-import { createPromoMaterial } from "@/lib/actions/promo-material-actions";
+import { DemandeMaterielForm } from "@/components/ad-pro/demande-materiel-form";
 import { createConsultingContract } from "@/lib/actions/consulting-actions";
 import { createAdProOtherRequest } from "@/lib/actions/ad-pro-other-actions";
 import type { AdProKind, KindSpec } from "@/lib/ad-pro/unified";
 import {
-  sponsoringCreateFields, promoMaterialCreateFields, consultingCreateFields, adProOtherCreateFields,
+  sponsoringCreateFields, consultingCreateFields, adProOtherCreateFields,
   toPeople, type AdProCreateData,
 } from "@/lib/ad-pro/create-fields";
 import { CongressRequestForm } from "../congress-international/congress-request-form";
@@ -136,12 +136,9 @@ export function NewRequestPicker({ kinds, data }: NewRequestPickerProps) {
               />
             )}
             {spec.kind === "PROMO_MATERIAL" && (
-              <RecordForm
-                {...nav}
-                action={createPromoMaterial}
-                redirectBase="/promo-material"
-                fields={promoMaterialCreateFields({ companies: data.companies, assistants: toPeople(data.assistants), businessUnits: data.businessUnits })}
-              />
+              // LES LIGNES DÈS LA CRÉATION (§118.171) : un formulaire à champs fixes ne sait pas dire
+              // « autant de lignes que je veux ». Plus de gamme, de budget, d'assistante ni d'entité.
+              <DemandeMaterielForm {...nav} catalogue={data.catalogueMateriel.catalogue} produits={data.catalogueMateriel.produits} />
             )}
             {spec.kind === "CONSULTING" && (
               <RecordForm

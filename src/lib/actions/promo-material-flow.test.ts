@@ -32,7 +32,7 @@ function form(extra: Record<string, string> = {}): FormData {
 }
 
 suite("Matériel promotionnel — circuit complet (Marketing → Assistante → Finances → Info médicale → Direction)", () => {
-  let mkt = "", asst = "", fin = "", med = "", dir = "", dg = "", pmId = "";
+  let mkt = "", asst = "", fin = "", med = "", dir = "", dg = "", pmId = "", article = "";
 
   beforeAll(async () => {
     const mk = (s: string, role: SessionUser["role"]) =>
@@ -48,6 +48,14 @@ suite("Matériel promotionnel — circuit complet (Marketing → Assistante → 
       mk("dg", "GENERAL_MANAGER"),
     ]);
     mkt = a.id; asst = b.id; fin = c.id; med = d.id; dir = e.id; dg = g.id;
+    // UNE DEMANDE NAÎT AVEC SES LIGNES (§118.171) : il faut un article du catalogue à demander. Le TAG
+    // de ce banc est FIXE — un run interrompu laisse l'article, d'où l'upsert plutôt qu'une création.
+    article = (await prisma.promoCatalogueArticle.upsert({
+      where: { reference: `${TAG}ART` },
+      update: { actif: true },
+      create: { reference: `${TAG}ART`, nom: `${TAG} Brochure`, famille: "CONSOMMABLE" },
+      select: { id: true },
+    })).id;
   });
 
   afterAll(async () => {
@@ -62,6 +70,8 @@ suite("Matériel promotionnel — circuit complet (Marketing → Assistante → 
     await prisma.expenseOrder.deleteMany({ where: { id: { in: ordres } } }).catch(() => {});
     await prisma.comment.deleteMany({ where: { entityType: "PROMO_MATERIAL", entityId: pmId } }).catch(() => {});
     await prisma.promoMaterial.deleteMany({ where: { reference: { startsWith: "MP-" }, title: { contains: TAG } } }).catch(() => {});
+    // Les lignes demandées sont parties avec leur dossier (Cascade) : l'article ne les retient plus.
+    await prisma.promoCatalogueArticle.deleteMany({ where: { reference: { startsWith: TAG } } }).catch(() => {});
     await prisma.administrativeRequest.deleteMany({ where: { title: { contains: TAG } } }).catch(() => {});
     await prisma.userAccess.deleteMany({ where: { user: { email: { startsWith: TAG } } } }).catch(() => {});
     await prisma.notification.deleteMany({ where: { user: { email: { startsWith: TAG } } } }).catch(() => {});
@@ -70,8 +80,11 @@ suite("Matériel promotionnel — circuit complet (Marketing → Assistante → 
 
   it("Marketing crée la demande de prospection", async () => {
     ACTOR = await actorFor(mkt, "MEDICAL_PROMOTION_MANAGER");
-    const r = await createPromoMaterial(undefined, form({ title: `Brochure ${TAG}`, assistantId: asst, amount: "120000" }));
-    expect(r.ok).toBe(true);
+    const r = await createPromoMaterial(undefined, form({
+      title: `Brochure ${TAG}`,
+      lignes: JSON.stringify([{ catalogueId: article, quantite: "2000", actions: ["IMPRESSION"], produitIds: [], commentaire: "" }]),
+    }));
+    expect(r.ok, r.ok ? "" : r.error).toBe(true);
     pmId = r.id!;
     const pm = await prisma.promoMaterial.findUniqueOrThrow({ where: { id: pmId } });
     expect(pm.status).toBe("PROSPECTION_REQUESTED");
@@ -83,7 +96,9 @@ suite("Matériel promotionnel — circuit complet (Marketing → Assistante → 
     // dossier est donc ramené à ce que la création d'alors produisait (version 1, devis à
     // demander) : c'est l'état exact d'un dossier en vol en production, pas un raccourci de banc.
     expect(pm.circuitVersion, "une demande neuve naît sur le circuit par devis retranscrits").toBe(2);
-    await prisma.promoMaterial.update({ where: { id: pmId }, data: { circuitVersion: 1, circuitState: "QUOTE_REQUESTED" } });
+    // La création d'alors portait aussi l'assistante désignée et un budget estimé, que le
+    // formulaire ne demande plus (§118.171) : un dossier en vol les a, donc le banc les remet.
+    await prisma.promoMaterial.update({ where: { id: pmId }, data: { circuitVersion: 1, circuitState: "QUOTE_REQUESTED", assistantId: asst, amount: 120000 } });
   });
 
   it("un acteur hors rôle ne peut pas faire avancer l'étape", async () => {

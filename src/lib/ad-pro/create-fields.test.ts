@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { sponsoringCreateFields, promoMaterialCreateFields, toPeople } from "./create-fields";
+import { sponsoringCreateFields, toPeople } from "./create-fields";
 
 const names = (fields: { name: string }[]) => fields.map((f) => f.name);
 const find = (fields: { name: string }[], name: string) => fields.find((f) => f.name === name);
@@ -23,7 +23,6 @@ describe("Le formulaire de sponsoring", () => {
     // sans lui rendre un effet, c'est-à-dire un mensonge fait à qui le règle (§118.14).
     for (const f of [
       sponsoringCreateFields({}),
-      promoMaterialCreateFields({ companies: [], assistants: [] }),
     ]) {
       expect(names(f)).not.toContain("productManagerId");
       expect(names(f)).not.toContain("viaProductManager");
@@ -116,23 +115,6 @@ describe("Le formulaire de sponsoring", () => {
     const bu = find(f, "businessUnitId") as unknown as { options: { value: string }[]; placeholder?: string };
     expect(bu.options.map((o) => o.value)).toEqual(["bu1", "bu2"]);
     expect(bu.placeholder).toContain("Choisir la gamme");
-  });
-});
-
-describe("Le formulaire de matériel promotionnel", () => {
-  it("porte l'entité et l'assistante à notifier", () => {
-    const f = promoMaterialCreateFields({
-      companies: [{ value: "c1", label: "Adventum" }],
-      assistants: [{ id: "u1", name: "Nadia" }],
-    });
-    expect(find(f, "companyId")).toMatchObject({ options: [{ value: "c1", label: "Adventum" }] });
-    expect(find(f, "assistantId")).toMatchObject({ options: [{ value: "u1", label: "Nadia" }] });
-    expect(find(f, "title")).toMatchObject({ required: true });
-  });
-
-  it("reste utilisable sans entité ni assistante connues", () => {
-    const f = promoMaterialCreateFields({ companies: [], assistants: [] });
-    expect(find(f, "title")).toMatchObject({ required: true });
   });
 });
 

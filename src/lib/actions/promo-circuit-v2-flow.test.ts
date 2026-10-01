@@ -8,7 +8,7 @@ vi.mock("@/lib/session", () => ({ requireUser: async () => ACTOR }));
 // ⚠ ORDRE D'IMPORT (documenté dans `assistant/capability-audit.test.ts`) : `ops/index.ts` et
 // `lib/assistant.ts` forment un cycle d'INITIALISATION. `assistant` se charge le PREMIER, comme dans
 // l'application — avant toute action qui, par la fabrique, remonterait le cycle par l'autre bout.
-import "@/lib/assistant";
+import { buildProposal, performAction } from "@/lib/assistant";
 import { DOMAIN_TOOLS } from "@/lib/assistant/ops";
 import { prisma } from "@/lib/prisma";
 import { getAccess, userCan, type SessionUser } from "@/lib/rbac";
@@ -25,7 +25,8 @@ import {
   genererBonsDeCommandePromo, marquerBonDeCommandeEnvoye, deposerFacturePromo, demanderPaiementFacturePromo,
   annulerBonDeCommandePromo, receptionnerLigneFacturePromo,
 } from "./promo-execution-actions";
-import { enregistrerArticleDemandePromo } from "./promo-demande-actions";
+import { enregistrerArticleDemandePromo, retirerArticleDemandePromo } from "./promo-demande-actions";
+import { REFUS_SANS_LIGNE } from "@/lib/promo-material/lignes-demande";
 import { deciderVisaCentreAdPro } from "./ad-pro-centre-actions";
 import { signerBonDeCommande } from "./bc-signature-actions";
 import { decidePayment } from "./payment-centre-actions";
@@ -78,6 +79,10 @@ const etatDe = (id: string) => prisma.promoMaterial.findUniqueOrThrow({ where: {
 suite("Matériel promotionnel — circuit 2 de bout en bout", () => {
   const u: Record<string, string> = {};
   let companyId = "", fourA = "", fourB = "", pmId = "", kamPmId = "", catPresentoir = "", catStand = "", catCarnet = "";
+  // Ce que les cas de création FORGENT ou choisissent : des lignes À CE BANC (§118.102a). Lire « le
+  // premier produit actif » de la base partagée a fait citer, par une ligne demandée, le produit
+  // qu'un banc voisin venait de créer — et son nettoyage a échoué sur la clé étrangère.
+  let produitBanc = "", buBanc = "", autreSociete = "";
   const emp: Record<string, string> = {};
   let seuilDg = 0;
 
@@ -120,16 +125,28 @@ suite("Matériel promotionnel — circuit 2 de bout en bout", () => {
         bankName: "BNA", bankAgency: "Hydra", rib: "001 00123 0123456789 45", managerName: "Direction", managerTitle: "Gérant",
       },
     });
-    fourA = (await prisma.companyContact.create({ data: { name: `${TAG} Imprimerie Atlas`, address: "Zone industrielle", city: "Alger", rc: "16/00-111", nif: "0001", companyId: null } })).id;
-    fourB = (await prisma.companyContact.create({ data: { name: `${TAG} Stands Sahel`, address: "Rue 5", city: "Oran", rc: "31/00-222", nif: "0002", companyId: null } })).id;
     seuilDg = (await getAppSettings()).adProDgThreshold ?? 0;
+    // UNE VAGUE : ce que rien ne lie part ENSEMBLE (§118.102b) — fournisseurs, catalogue, produit,
+    // gamme, seconde société. Écrites l'une après l'autre, ces huit lignes avaient fait passer ce
+    // décor au-delà du plafond mesuré d'attentes séquentielles (`decors-de-test.test.ts`).
     // LE CATALOGUE (§118.165) — la demande s'y pioche : un présentoir (durable), un stand (durable,
     // reçu « en plus »), un carnet (consommable).
-    const cat = async (suffixe: string, nom: string, famille: "CONSOMMABLE" | "DURABLE") =>
-      (await prisma.promoCatalogueArticle.create({ data: { reference: `${TAG}-${suffixe}`, nom: `${TAG} ${nom}`, famille } })).id;
-    catPresentoir = await cat("PLV", "Présentoir PLV", "DURABLE");
-    catStand = await cat("STAND", "Stand modulaire", "DURABLE");
-    catCarnet = await cat("CARNET", "Carnet bilan", "CONSOMMABLE");
+    const cat = (suffixe: string, nom: string, famille: "CONSOMMABLE" | "DURABLE") =>
+      prisma.promoCatalogueArticle.create({ data: { reference: `${TAG}-${suffixe}`, nom: `${TAG} ${nom}`, famille }, select: { id: true } });
+    const vague = await Promise.all([
+      prisma.companyContact.create({ data: { name: `${TAG} Imprimerie Atlas`, address: "Zone industrielle", city: "Alger", rc: "16/00-111", nif: "0001", companyId: null }, select: { id: true } }),
+      prisma.companyContact.create({ data: { name: `${TAG} Stands Sahel`, address: "Rue 5", city: "Oran", rc: "31/00-222", nif: "0002", companyId: null }, select: { id: true } }),
+      cat("PLV", "Présentoir PLV", "DURABLE"),
+      cat("STAND", "Stand modulaire", "DURABLE"),
+      cat("CARNET", "Carnet bilan", "CONSOMMABLE"),
+      prisma.product.create({
+        data: { code: `${TAG}P1`, canonicalName: `${TAG} Nivolex`, dci: `${TAG}p1dci`, identityKey: `${TAG}P1` } as never,
+        select: { id: true },
+      }),
+      prisma.businessUnit.create({ data: { name: `${TAG} Oncologie`, companyId }, select: { id: true } }),
+      prisma.company.create({ data: { name: `${TAG} Autre`, shortName: `${TAG.slice(0, 10)}AU`, color: "#5B6B7A" }, select: { id: true } }),
+    ]);
+    [fourA, fourB, catPresentoir, catStand, catCarnet, produitBanc, buBanc, autreSociete] = vague.map((r) => r.id);
   }, 60_000);
 
   afterAll(async () => {
@@ -160,6 +177,10 @@ suite("Matériel promotionnel — circuit 2 de bout en bout", () => {
     await prisma.promoStockLot.deleteMany({ where: { item: { companyId } } }).catch(() => {});
     await prisma.promoStockItem.deleteMany({ where: { companyId } }).catch(() => {});
     await prisma.promoCatalogueArticle.deleteMany({ where: { reference: { startsWith: TAG } } }).catch(() => {});
+    // Les lignes demandées sont parties avec leurs dossiers : le produit ne leur est plus retenu.
+    await prisma.product.deleteMany({ where: { code: { startsWith: TAG } } }).catch(() => {});
+    await prisma.businessUnit.deleteMany({ where: { id: buBanc } }).catch(() => {});
+    await prisma.company.deleteMany({ where: { id: autreSociete } }).catch(() => {});
     await prisma.administrativeRequest.deleteMany({ where: { linkedEntityType: "PROMO_MATERIAL", linkedEntityId: { in: pmIds } } }).catch(() => {});
     const ids = Object.values(u);
     await prisma.fileVersion.deleteMany({ where: { node: { ownerId: { in: ids } } } }).catch(() => {});
@@ -209,60 +230,109 @@ suite("Matériel promotionnel — circuit 2 de bout en bout", () => {
     expect((await validateursDeLaDemande(u.ops)).validateur.kind).toBe("AUCUNE");
   });
 
-  it("L'ASSISTANTE QUI RETRANSCRIT : une assistante de direction active — ni un collègue quelconque, ni le demandeur", async () => {
-    // Le menu proposait TOUT compte actif : le demandeur pouvait nommer un collègue pour recopier
-    // les prix qu'il retiendra ensuite. L'action est la garde, pas le menu — une requête forgée
-    // ignore un menu.
+  it("LA DEMANDE NAÎT AVEC SES LIGNES (§118.171) : sans ligne, ou une ligne incomplète, rien n'est écrit — et tout ce qui manque se dit en une fois", async () => {
+    // « C'est directement ici que le demandeur ajoute les différentes lignes de matériel qu'il
+    // cherche, la quantité et les actions. » La demande naissait VIDE, et son validateur, prévenu
+    // à la création, tranchait une demande qui ne disait pas ce qu'elle demandait.
     ACTOR = await actorFor(u.cp);
-    const collegue = await createPromoMaterial(undefined, form({ title: `${TAG} Refus collègue`, assistantId: u.dehors, companyId }));
-    expect(collegue.ok).toBe(false);
-    expect(collegue.error).toMatch(/n'est pas une assistante de direction active/);
-    const soiMeme = await createPromoMaterial(undefined, form({ title: `${TAG} Refus soi-même`, assistantId: u.cp, companyId }));
-    expect(soiMeme.ok).toBe(false);
-    expect(soiMeme.error).toMatch(/votre propre demande/);
-    expect(await prisma.promoMaterial.count({ where: { title: { in: [`${TAG} Refus collègue`, `${TAG} Refus soi-même`] } } })).toBe(0);
+    const sansLigne = await createPromoMaterial(undefined, form({ title: `${TAG} Sans ligne` }));
+    expect(sansLigne.ok).toBe(false);
+    expect(sansLigne.error).toBe(REFUS_SANS_LIGNE);
 
-    // LE RÔLE SECONDAIRE COMPTE — c'est la lecture canonique (`hasRole`, `anyRoleFilter`) : une
-    // assistante qui porte le rôle en second n'en est pas moins l'assistante.
-    u.asst2 = (await prisma.user.create({
-      data: { name: `${TAG} asst2`, email: `${TAG}asst2@t.dz`, role: "MEDICAL_PROMOTION_MANAGER", secondaryRole: "DIRECTION_ASSISTANT", passwordHash: "x" },
-    })).id;
-    const secondaire = await createPromoMaterial(undefined, form({ title: `${TAG} Secondaire`, assistantId: u.asst2, companyId }));
-    expect(secondaire.ok, secondaire.ok ? "" : secondaire.error).toBe(true);
+    // UNE FOIS (§118.18) : le titre ET les deux lignes fautives, dans le même refus, chacune nommée.
+    const incomplete = await createPromoMaterial(undefined, form({
+      title: "",
+      lignes: JSON.stringify([
+        { catalogueId: catCarnet, quantite: "500", actions: [] },
+        { catalogueId: "", actions: ["IMPRESSION"] },
+      ]),
+    }));
+    expect(incomplete.ok).toBe(false);
+    expect(incomplete.error).toMatch(/titre/);
+    expect(incomplete.error).toMatch(/Ligne 1 : Il manque au moins une action/);
+    expect(incomplete.error).toMatch(/Ligne 2 : Choisissez l'article dans le catalogue/);
+    // Une saisie illisible est refusée, jamais devinée.
+    const illisible = await createPromoMaterial(undefined, form({ title: `${TAG} Illisible`, lignes: "{pas du json" }));
+    expect(illisible.ok).toBe(false);
+    expect(illisible.error).toMatch(/illisibles/);
+    expect(await prisma.promoMaterial.count({ where: { title: { in: [`${TAG} Sans ligne`, `${TAG} Illisible`, ""] }, requesterId: u.cp } })).toBe(0);
 
-    // LE CAS QUI DISCRIMINE la garde « jamais soi-même » : une demandeuse qui EST assistante (rôle
-    // secondaire) et se nomme. Sans cette garde, le contrôle de rôle la laisserait passer — elle
-    // retranscrirait les prix qu'elle retiendra ensuite.
-    ACTOR = await actorFor(u.asst2);
-    const elleMeme = await createPromoMaterial(undefined, form({ title: `${TAG} Refus elle-même`, assistantId: u.asst2, companyId }));
-    expect(elleMeme.ok).toBe(false);
-    expect(elleMeme.error).toMatch(/votre propre demande/);
-    expect(await prisma.promoMaterial.count({ where: { title: `${TAG} Refus elle-même` } })).toBe(0);
-    ACTOR = await actorFor(u.cp);
+    // Une ligne entièrement VIDE est un reste de formulaire : écartée, pas refusée. Les autres
+    // naissent AVEC le dossier, dans l'ordre saisi, avec leurs produits et leurs actions.
+    const lignes = [
+      { catalogueId: catCarnet, quantite: "500", actions: ["CONCEPTION", "IMPRESSION"], commentaire: "A5, recto-verso", produitIds: [produitBanc] },
+      { catalogueId: "", quantite: "", actions: [], produitIds: [], commentaire: "" },
+      { catalogueId: catStand, quantite: "", actions: ["LOCATION"], commentaire: "" },
+    ];
+    const ok = await createPromoMaterial(undefined, form({ title: `${TAG} Deux lignes`, lignes: JSON.stringify(lignes) }));
+    expect(ok.ok, ok.ok ? "" : ok.error).toBe(true);
+    const items = await prisma.promoRequestItem.findMany({
+      where: { promoMaterialId: ok.id! }, orderBy: { position: "asc" },
+      select: { catalogueId: true, quantite: true, actions: true, commentaire: true, position: true, produits: { select: { productId: true } } },
+    });
+    expect(items.map((i) => [i.catalogueId, i.position, i.actions])).toEqual([
+      [catCarnet, 0, ["CONCEPTION", "IMPRESSION"]],
+      [catStand, 1, ["LOCATION"]],
+    ]);
+    expect(Number(items[0].quantite)).toBe(500);
+    expect(items[0].commentaire).toBe("A5, recto-verso");
+    expect(items[0].produits.map((p) => p.productId)).toEqual([produitBanc]);
+    expect(items[1].quantite).toBeNull();
 
-    // L'ÉCRAN ne propose que les assistantes, par la même lecture — et rien quand la nature
-    // n'est pas demandée.
-    const ids = (await getAdProCreateData(u.cp, ["PROMO_MATERIAL"])).assistants.map((a) => a.id);
-    expect(ids).toEqual(expect.arrayContaining([u.asst, u.asst2]));
-    expect(ids).not.toContain(u.dehors);
-    expect(ids).not.toContain(u.cp);
-    expect((await getAdProCreateData(u.cp, ["EVENT"])).assistants).toEqual([]);
-
-    // Ce décor ne doit rien laisser aux cas suivants : le dossier et l'assistante secondaire partent.
-    await prisma.notification.deleteMany({ where: { link: `/promo-material/${secondaire.id}` } });
-    await prisma.auditLog.deleteMany({ where: { entityId: secondaire.id! } }).catch(() => {});
-    await prisma.promoMaterial.delete({ where: { id: secondaire.id! } });
-    await prisma.user.delete({ where: { id: u.asst2 } });
-    delete u.asst2;
-    // PLAFOND LOCAL (§118.124b) : 704 ms seul, au-delà des 20 000 ms globales dans la suite complète
-    // (832 fichiers, quatre cœurs, la même base) — ce cas écrit et relit une dizaine de comptes et un
-    // dossier entier. Le plafond répond à « est-il bloqué ? », jamais à « est-il lent ? » ; le global
-    // ne bouge pas.
+    // Ce décor ne doit rien laisser aux cas suivants.
+    await prisma.notification.deleteMany({ where: { link: `/promo-material/${ok.id}` } });
+    await prisma.auditLog.deleteMany({ where: { entityId: ok.id! } }).catch(() => {});
+    await prisma.promoMaterial.delete({ where: { id: ok.id! } });
   }, 60_000);
+
+  it("CE QUE LA DEMANDE NE PORTE PLUS (décision du 01/10) : gamme, budget, assistante et entité FORGÉS sont ignorés", async () => {
+    // L'écran ne les propose plus ; une requête forgée les porterait quand même. Ignorés au
+    // serveur, et l'ENTITÉ est celle où le demandeur travaille — un menu qui en laissait choisir
+    // une autre laissait aussi forger une société qu'on ne voit pas.
+    // Chaque valeur forgée désigne une ligne qui EXISTE : une action qui la lirait l'écrirait, et
+    // l'égalité ci-dessous tomberait — un identifiant inventé ferait échouer l'écriture pour une
+    // AUTRE raison, et ne prouverait rien de ce qu'on lit.
+    ACTOR = await actorFor(u.cp);
+    expect((await getMyCompanies(u.cp)).map((c) => c.id), "prémisse : l'autre société n'est pas la sienne").not.toContain(autreSociete);
+    const r = await createPromoMaterial(undefined, form({
+      title: `${TAG} Forgée`,
+      lignes: JSON.stringify([{ catalogueId: catCarnet, quantite: "50", actions: ["IMPRESSION"] }]),
+      businessUnitId: buBanc, amount: "900000", assistantId: u.dehors, companyId: autreSociete,
+    }));
+    expect(r.ok, r.ok ? "" : r.error).toBe(true);
+    const pm = await prisma.promoMaterial.findUniqueOrThrow({ where: { id: r.id! }, select: { businessUnitId: true, amount: true, assistantId: true, companyId: true } });
+    expect(pm).toEqual({ businessUnitId: null, amount: null, assistantId: null, companyId });
+
+    // L'ÉCRAN : le panneau commun charge le catalogue ACTIF pour cette nature, et rien pour une autre.
+    const data = await getAdProCreateData(u.cp, ["PROMO_MATERIAL"]);
+    expect(data.catalogueMateriel.catalogue.map((c) => c.id)).toEqual(expect.arrayContaining([catPresentoir, catStand, catCarnet]));
+    expect((await getAdProCreateData(u.cp, ["EVENT"])).catalogueMateriel.catalogue).toEqual([]);
+
+    await prisma.notification.deleteMany({ where: { link: `/promo-material/${r.id}` } });
+    await prisma.auditLog.deleteMany({ where: { entityId: r.id! } }).catch(() => {});
+    await prisma.promoMaterial.delete({ where: { id: r.id! } });
+  }, 60_000);
+
+  it("ADAM NE COMPOSE PAS DE LIGNES : l'outil le dit AVANT toute carte, et une carte d'avant ne crée rien", async () => {
+    // L'outil ne sait pas porter les lignes du catalogue. Proposer une carte que l'action refuserait
+    // après le clic serait un geste offert puis retiré (§118.83) : le refus vient avant, et il nomme
+    // l'écran qui sait faire. Une carte proposée AVANT le changement peut encore être confirmée :
+    // elle ne crée rien non plus, et dit la même chose.
+    const cp = await actorFor(u.cp);
+    const carte = await buildProposal("create_promo_material_request", { title: `${TAG} Par Adam` }, cp);
+    expect("error" in carte ? carte.error : "une carte a été proposée").toMatch(/se crée depuis Ad & Pro › Nouvelle demande › Matériel promotionnel/);
+    const vieille = await performAction(cp, { kind: "create_promo_material_request", title: `${TAG} Carte d'avant`, amount: 50_000 });
+    expect(vieille.ok).toBe(false);
+    expect(vieille.error).toMatch(/se crée depuis Ad & Pro › Nouvelle demande › Matériel promotionnel/);
+    expect(await prisma.promoMaterial.count({ where: { title: { in: [`${TAG} Par Adam`, `${TAG} Carte d'avant`] } } })).toBe(0);
+  });
 
   it("CRÉATION : circuit 2, validateur FIGÉ, et c'est lui — pas tout le monde — qui est prévenu", async () => {
     ACTOR = await actorFor(u.cp);
-    const r = await createPromoMaterial(undefined, form({ title: `${TAG} Présentoirs Nivolex`, assistantId: u.asst, companyId, amount: "900000" }));
+    const r = await createPromoMaterial(undefined, form({
+      title: `${TAG} Présentoirs Nivolex`,
+      lignes: JSON.stringify([{ catalogueId: catPresentoir, quantite: "100", actions: ["FABRICATION"], commentaire: "Sol, 160 cm" }]),
+    }));
     expect(r.ok, r.ok ? "" : r.error).toBe(true);
     pmId = r.id!;
     const pm = await prisma.promoMaterial.findUniqueOrThrow({ where: { id: pmId } });
@@ -287,7 +357,12 @@ suite("Matériel promotionnel — circuit 2 de bout en bout", () => {
     ACTOR = await actorFor(u.asst);
     expect((await demanderDevisPromo(form({ promoMaterialId: pmId }))).ok, "l'assistante ne demande pas à la place du demandeur").toBe(false);
     ACTOR = await actorFor(u.cp);
-    // §118.165 : sans article demandé, l'assistante ne saurait pas quels devis chercher.
+    // §118.165 : sans article demandé, l'assistante ne saurait pas quels devis chercher. La demande
+    // NAÎT avec ses lignes (§118.171) ; ce garde-fou-ci reste atteignable si l'on retire la
+    // dernière ligne sur la fiche — on le joue ainsi, puis on la remet.
+    const premiere = await prisma.promoRequestItem.findFirstOrThrow({ where: { promoMaterialId: pmId }, select: { id: true } });
+    const retrait = await retirerArticleDemandePromo(form({ promoMaterialId: pmId, requestItemId: premiere.id }));
+    expect(retrait.ok, retrait.ok ? "" : retrait.error).toBe(true);
     const sansArticle = await demanderDevisPromo(form({ promoMaterialId: pmId }));
     expect(sansArticle.ok).toBe(false);
     expect(sansArticle.ok ? "" : sansArticle.error).toMatch(/articles à faire chiffrer/);
@@ -298,7 +373,10 @@ suite("Matériel promotionnel — circuit 2 de bout en bout", () => {
     const pm = await prisma.promoMaterial.findUniqueOrThrow({ where: { id: pmId }, select: { circuitState: true, adminRequestId: true } });
     expect(pm.circuitState).toBe("QUOTE_REQUESTED");
     const dem = await prisma.administrativeRequest.findUniqueOrThrow({ where: { id: pm.adminRequestId! } });
-    expect(dem).toMatchObject({ type: "QUOTE", linkedEntityType: "PROMO_MATERIAL", linkedEntityId: pmId, assignedToId: u.asst });
+    // Aucune assistante n'est plus nommée à la création (§118.171) : la demande n'est assignée à
+    // personne, et TOUT le secrétariat est prévenu — dont l'assistante du banc.
+    expect(dem).toMatchObject({ type: "QUOTE", linkedEntityType: "PROMO_MATERIAL", linkedEntityId: pmId, assignedToId: null });
+    expect(await prisma.notification.count({ where: { userId: u.asst, link: `/promo-material/${pmId}` } })).toBeGreaterThanOrEqual(1);
     // La demande au secrétariat DIT les articles : l'assistante sait quoi chercher sans ouvrir la fiche.
     expect(dem.description).toMatch(/Présentoir PLV.*100.*fabrication.*Sol, 160 cm/s);
     // Un double clic ne fait pas une seconde demande.

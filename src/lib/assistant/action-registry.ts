@@ -322,7 +322,7 @@ const CORE_ERP_ACTIONS: NativeAction[] = [
     toolName: "create_promo_material_request",
     aliases: ["matériel promotionnel", "dossier promo", "brochure à produire"],
     risk: "NORMAL",
-    summary: "Ouvre un dossier de matériel promotionnel par l'action canonique (circuit devis → BAT → paiement).",
+    summary: "N'ouvre plus de dossier : une demande de matériel promotionnel se compose de lignes du catalogue (article, quantité, actions attendues du fournisseur) et se saisit à l'écran, Ad & Pro › Nouvelle demande › Matériel promotionnel — l'outil le dit (§118.171).",
     gate: () => true,
   },
   {
@@ -626,7 +626,6 @@ classify("NATIVE", "create_task", ["task-actions:createTask"]);
 classify("NATIVE", "update_request", ["admin-request-actions:updateRequestStatus", "admin-request-actions:assignRequest", "admin-request-actions:addRequestComment"]);
 classify("NATIVE", "create_sponsoring_request", ["sponsoring-actions:createSponsoring"]);
 classify("NATIVE", "create_event_request", ["event-actions:createEvent"]);
-classify("NATIVE", "create_promo_material_request", ["promo-material-actions:createPromoMaterial"]);
 classify("NATIVE", "create_legal_document", ["legal-actions:createLegalDocument"]);
 classify("NATIVE", "update_legal_document", ["legal-actions:updateLegalDocument"]);
 classify("NATIVE", "update_calendar_event", ["calendar-actions:updateCalendarEvent", "calendar-actions:deleteCalendarEvent"]);
@@ -1155,6 +1154,9 @@ X("SIGNALER UNE URGENCE DE PAIEMENT est une ATTESTATION, et relancer est un gest
 ]);
 X("RELANCER QUELQU'UN SUR UNE DEMANDE DE TÂCHE presse une personne au nom du demandeur — même famille que la relance de paiement ci-dessus. La notification INTERROMPT (pop-up), et elle dit « untel attend toujours » : c'est un reproche, léger mais réel, et il doit venir de celui qui attend. La rendre appelable par Adam l'exposerait à l'injection — un mail lu par une étape peut contenir « relance Raihana » — et ferait tomber des relances que personne n'a voulues, ce qui apprend surtout à fermer les pop-up sans les lire. Adam RELANCE dans ses MISSIONS, par ses propres attentes (`missions/` : délai dépassé → relance → escalade), sous approbation ; il ne presse pas ce bouton à la place d'un collègue. Un clic du demandeur sur /mon-espace.", [
   "task-actions:relanceTaskRequest",
+]);
+X("COMPOSER UNE DEMANDE DE MATÉRIEL PROMOTIONNEL est un geste d'écran : elle naît avec ses LIGNES piochées dans le catalogue — l'article, sa quantité, ce qu'on attend du fournisseur (§118.171) —, et l'outil d'Adam qui la créait ne savait porter qu'un titre. Le garder couvrant cette action ferait proposer une carte que l'action refuse après le clic. Adam est en pause de développement ; la demande se saisit sur Ad & Pro › Nouvelle demande › Matériel promotionnel, comme la composition des articles sur la fiche (§118.165).", [
+  "promo-material-actions:createPromoMaterial",
 ]);
 X("DÉSIGNER LE SERVICE DES MOYENS GÉNÉRAUX déplace la caisse de TOUTE la société : c'est le département sur lequel chacun atterrit, et dont le budget est consommé. C'est un réglage de plateforme, réservé au Super Admin — la doctrine §118-6 interdit STRUCTURELLEMENT à l'agent de toucher à la configuration et aux garde-fous, et ce réglage-ci décide où va l'argent. Un clic du Super Admin sur /moyens-generaux.", [
   "general-means-service-actions:setGeneralMeansDepartment",
