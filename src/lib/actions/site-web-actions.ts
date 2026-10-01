@@ -13,9 +13,8 @@ import { rapprocherSite, verifierSante } from "@/lib/site-web/reconciliation";
 import { abandonnerCleEnAttente, genererCle } from "@/lib/site-web/cles";
 import { entretenirLiaison } from "@/lib/site-web/liaison";
 import { slugsDuDepotConnus } from "@/lib/site-web/etat";
-import {
-  peutEcrireArticles, peutGererLaLiaison, peutLeverBlocage, peutPublierOffres, peutRapprocher, peutSupprimerArticles, peutVoirSiteWeb,
-} from "@/lib/site-web/acces";
+import { peutEcrireArticles, peutGererLaLiaison, peutPublierOffres, peutSupprimerArticles } from "@/lib/site-web/acces";
+import { ECRAN_LIAISON, REFUS_LIAISON } from "@/lib/site-web/ecran";
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
@@ -46,6 +45,7 @@ type Intention = (typeof INTENTIONS)[number];
 function revalider(id?: string) {
   revalidatePath("/site-web");
   revalidatePath("/site-web/articles");
+  revalidatePath(ECRAN_LIAISON.href);
   if (id) revalidatePath(`/site-web/articles/${id}`);
 }
 
@@ -151,12 +151,16 @@ export async function supprimerArticle(formData: FormData): Promise<ActionResult
   if (!peutSupprimerArticles(user)) return { ok: false, error: "Supprimer un article demande le droit de suppression du module « Site web »." };
   const id = fdStr(formData, "id");
   if (!id) return { ok: false, error: "Article manquant." };
-  const a = await prisma.blogArticle.findUnique({ where: { id }, select: { id: true, title: true } });
+  const a = await prisma.blogArticle.findUnique({
+    where: { id }, select: { id: true, title: true, reprise: { select: { origine: true, cleSite: true } } },
+  });
   if (!a) return { ok: false, error: "Article introuvable." };
 
   // La suppression sur le site est mise en file AVANT de retirer la ligne : la ligne de file
-  // survit à l'article, et c'est elle qui garantit que le DELETE finira par partir.
-  const retrait = await retirerDuSite("POST", a.id, a.title, user.id);
+  // survit à l'article, et c'est elle qui garantit que le DELETE finira par partir. Un article REPRIS
+  // du site (§118.160) la charge de dire quel fichier il remplaçait : lu ici, AVANT la suppression —
+  // après, le lien vers la reprise n'existe plus.
+  const retrait = await retirerDuSite("POST", a.id, a.title, user.id, a.reprise);
   await prisma.blogArticle.delete({ where: { id: a.id } });
   await recordAudit({ actorId: user.id, action: "DELETE", module: AUDIT_MODULE, entityId: a.id, summary: `Suppression de l'article « ${a.title} »` });
   revalider();
@@ -181,10 +185,13 @@ export async function relancerEnvoiSite(formData: FormData): Promise<ActionResul
 /**
  * VÉRIFIE LA CONNEXION (`GET /health`, le premier point de la mise en service). Si le site
  * reconnaît la clé, un blocage posé sur un 401 est levé : la configuration vient d'être prouvée.
+ *
+ * Super Admin seulement (§118.160) : le geste présente au site la clé EN ATTENTE, la promeut et lève
+ * un blocage — trois effets sur la liaison, qui vit désormais dans la console d'administration.
  */
 export async function verifierConnexionSite(): Promise<ActionResult> {
   const user = await requireUser();
-  if (!peutVoirSiteWeb(user) && !peutPublierOffres(user)) return { ok: false, error: "Le module « Site web » ne vous est pas ouvert." };
+  if (!peutGererLaLiaison(user)) return { ok: false, error: REFUS_LIAISON };
   // UNE CLÉ EN ATTENTE passe d'abord (§118.159) : c'est presque toujours ce que la personne veut
   // savoir en cliquant — « est-ce que le site a pris la clé que je viens de coller ? ». Le même
   // entretien que le battement, sans attendre son rythme ; il lit aussi la santé du site.
@@ -211,10 +218,14 @@ export async function verifierConnexionSite(): Promise<ActionResult> {
   return { ok: false, error: s.message };
 }
 
-/** RAPPROCHE MAINTENANT le site et l'ERP, sans attendre le passage quotidien. */
+/**
+ * RAPPROCHE MAINTENANT le site et l'ERP, sans attendre le passage quotidien — le Super Admin, depuis
+ * la console (§118.160). Le rapprochement quotidien et celui qui suit un redémarrage du site
+ * tournent, eux, sans personne.
+ */
 export async function rapprocherSiteMaintenant(): Promise<ActionResult> {
   const user = await requireUser();
-  if (!peutRapprocher(user)) return { ok: false, error: "Rapprocher le site demande de pouvoir y publier (articles ou offres d'emploi)." };
+  if (!peutGererLaLiaison(user)) return { ok: false, error: REFUS_LIAISON };
   const b = await rapprocherSite({ declencheur: "MANUEL", parId: user.id });
   revalider();
   revalidatePath("/site-web/offres");
@@ -224,7 +235,7 @@ export async function rapprocherSiteMaintenant(): Promise<ActionResult> {
 /** LÈVE LE BLOCAGE à la main — le Super Admin, qui tient les variables d'environnement. */
 export async function leverBlocageSite(): Promise<ActionResult> {
   const user = await requireUser();
-  if (!peutLeverBlocage(user)) return { ok: false, error: "Seul un Super Admin lève ce blocage : il tient la configuration de l'intégration." };
+  if (!peutGererLaLiaison(user)) return { ok: false, error: REFUS_LIAISON };
   await leverBlocage();
   reveillerFile(0);
   await recordAudit({ actorId: user.id, action: "UPDATE", module: AUDIT_MODULE, summary: "Blocage de la publication vers le site levé à la main" });
@@ -242,7 +253,7 @@ export async function leverBlocageSite(): Promise<ActionResult> {
  */
 export async function genererCleSite(): Promise<ActionResult> {
   const user = await requireUser();
-  if (!peutGererLaLiaison(user)) return { ok: false, error: "Seul un Super Admin génère la clé de liaison au site." };
+  if (!peutGererLaLiaison(user)) return { ok: false, error: REFUS_LIAISON };
   const c = await genererCle(user.id);
   revalider();
   return { ok: true, message: `Clé générée (empreinte ${c.empreinte}). Copiez le bloc affiché et collez-le dans l'environnement du site : l'ERP bascule tout seul dès que le site l'a.` };
@@ -251,7 +262,7 @@ export async function genererCleSite(): Promise<ActionResult> {
 /** ABANDONNE la clé en attente (collée nulle part, ou montrée à la mauvaise personne). L'active ne bouge pas. */
 export async function abandonnerCleSite(): Promise<ActionResult> {
   const user = await requireUser();
-  if (!peutGererLaLiaison(user)) return { ok: false, error: "Seul un Super Admin gère la clé de liaison au site." };
+  if (!peutGererLaLiaison(user)) return { ok: false, error: REFUS_LIAISON };
   const fait = await abandonnerCleEnAttente(user.id);
   revalider();
   return fait ? { ok: true, message: "Clé en attente abandonnée : elle ne sera jamais acceptée. La clé en vigueur reste la même." } : { ok: false, error: "Aucune clé en attente." };

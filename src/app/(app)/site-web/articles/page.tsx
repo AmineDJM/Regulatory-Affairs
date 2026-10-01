@@ -13,6 +13,7 @@ import { formatDate } from "@/lib/utils";
 import { etatAffiche, publicationsDe, suspensionEnVigueur } from "@/lib/site-web/etat";
 import { peutEcrireArticles } from "@/lib/site-web/acces";
 import { EtatPublicationBadge } from "@/components/site-web/etat-badge";
+import { RepriseBadge } from "@/components/site-web/reprise";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Articles du site — AMD Internal OS" };
@@ -28,7 +29,7 @@ export default async function ArticlesPage() {
       orderBy: [{ updatedAt: "desc" }],
       select: {
         id: true, title: true, category: true, published: true, featured: true, publishedOn: true, updatedAt: true,
-        updatedBy: { select: { name: true } },
+        updatedBy: { select: { name: true } }, reprise: { select: { origine: true } },
       },
     }),
     suspensionEnVigueur(),
@@ -69,6 +70,7 @@ export default async function ArticlesPage() {
                     <TableCell label="Titre" className="max-w-[26rem] font-medium">
                       <Link href={`/site-web/articles/${a.id}`} className="break-words hover:underline">{a.title}</Link>
                       {a.featured && <Star className="ml-1.5 inline h-3.5 w-3.5 text-warning" aria-label="À la une" />}
+                      <RepriseBadge origine={a.reprise?.origine} />
                     </TableCell>
                     <TableCell label="Catégorie">{a.category ?? <span className="text-muted-foreground">—</span>}</TableCell>
                     <TableCell label="Date affichée" className="tabular-nums">{a.publishedOn ? formatDate(a.publishedOn) : "—"}</TableCell>

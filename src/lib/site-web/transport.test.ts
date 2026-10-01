@@ -115,14 +115,14 @@ describe("Le chemin de production, contre un fetch bouché", () => {
     expect(signer(corps, SECRET)).toBe(attendu);
   });
 
-  it("GET et DELETE : ni corps ni type de contenu — mais SIGNÉS (la chaîne vide) dès qu'un secret est connu", async () => {
+  it("GET (même avec un corps donné) et DELETE ordinaire : ni corps ni type de contenu — mais SIGNÉS (la chaîne vide) dès qu'un secret est connu", async () => {
     // Le site vérifie la signature sur TOUTE requête authentifiée quand il a son secret
     // (`lib/api-auth.ts` : `authenticate(request, rawBody = "")`) — sa doc disait « PUT seulement »,
     // son code fait foi. Sans cette signature, une lecture ou une suppression seraient refusées.
     process.env.ADVENTUM_WEBHOOK_SECRET = SECRET;
     boucher(() => new Response("{}", { status: 200 }));
-    await envoyerAuSite({ methode: "GET", chemin: "/posts" });
-    await envoyerAuSite({ methode: "DELETE", chemin: "/posts/ck9", corps: "ignoré" });
+    await envoyerAuSite({ methode: "GET", chemin: "/posts", corps: "ignoré : une lecture n'a jamais de corps" });
+    await envoyerAuSite({ methode: "DELETE", chemin: "/posts/ck9" });
     const vide = `sha256=${createHmac("sha256", SECRET).update("", "utf8").digest("hex")}`;
     for (const a of appels) {
       expect(a.init.body).toBeUndefined();
@@ -130,6 +130,18 @@ describe("Le chemin de production, contre un fetch bouché", () => {
       expect(entete(a, "X-Adventum-Signature")).toBe(vide);
       expect(entete(a, "Authorization")).toBe(`Bearer ${CLE}`);
     }
+  });
+
+  it("le DELETE d'un contenu REPRIS du site porte ce qu'il remplaçait (§118.160) — envoyé tel quel, typé, et SIGNÉ sur ces octets-là", async () => {
+    // Sans ce corps, supprimer un article repris ferait revenir le fichier du dépôt du site.
+    process.env.ADVENTUM_WEBHOOK_SECRET = SECRET;
+    boucher(() => new Response("{}", { status: 200 }));
+    const corps = JSON.stringify({ replacesFile: "enregistrement-medicament-algerie-etapes" });
+    await envoyerAuSite({ methode: "DELETE", chemin: "/posts/ck9", corps });
+    const [a] = appels;
+    expect(a!.init.body).toBe(corps);
+    expect(entete(a!, "Content-Type")).toBe("application/json");
+    expect(entete(a!, "X-Adventum-Signature")).toBe(`sha256=${createHmac("sha256", SECRET).update(corps, "utf8").digest("hex")}`);
   });
 
   it("sans secret, AUCUNE signature, quel que soit le verbe : une signature vide ferait refuser un site qui en attend une", async () => {

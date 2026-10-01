@@ -2,8 +2,8 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { Trash2, Loader2, AlertTriangle } from "lucide-react";
-import { superAdminDelete } from "@/lib/actions/admin-delete-actions";
+import { Trash2, Loader2, AlertTriangle, Undo2 } from "lucide-react";
+import { superAdminDelete, apercuDeSuppression } from "@/lib/actions/admin-delete-actions";
 import { Button } from "@/components/ui/button";
 import { Sheet } from "@/components/ui/sheet";
 
@@ -13,12 +13,17 @@ import { Sheet } from "@/components/ui/sheet";
  * Le serveur revérifie le rôle — ce bouton n'est qu'une commodité.
  *
  * LA PHRASE DE LA CONFIRMATION DISAIT LE CONTRAIRE DU CODE. Elle annonçait « cette action ne
- * peut pas être annulée » alors que `superAdminDelete` passe par `snapshotAndSoftDelete`, qui
- * dépose un instantané dans la corbeille (Administration → Corbeille) d'où le Super Admin
- * restaure. Deux vérités dans le même geste, et celle que la personne LIT était la fausse
- * (§118.5) : elle décourageait un rangement parfaitement défaisable, ou — pire — faisait croire
- * qu'un élément supprimé par erreur était perdu. La phrase dit maintenant ce qui est vrai : le
- * retrait est total sur tous les écrans, et réversible jusqu'à la destruction réelle.
+ * peut pas être annulée » alors que la suppression dépose un instantané dans la corbeille
+ * (Administration → Corbeille) d'où le Super Admin restaure. Deux vérités dans le même geste, et
+ * celle que la personne LIT était la fausse (§118.5). La phrase dit maintenant ce qui est vrai.
+ *
+ * CE QUI PART AVEC L'ÉLÉMENT SE LIT AVANT LE CLIC (§118.53, §118.162). Supprimer un sponsoring
+ * emporte sa déclaration d'information médicale, ses demandes au secrétariat, son circuit, ses
+ * postes : la fenêtre le DIT, lu par le même inventaire que la suppression elle-même — deux
+ * listes de « ce qui part » finiraient par dire deux choses. Et quand une branche porte un fait
+ * qui a quitté l'ERP (règlement, signature, dépôt aux autorités, courrier inscrit), le refus
+ * s'affiche AVANT le clic et le bouton ne s'arme pas : proposer un geste qu'on retire ensuite
+ * est une fausse promesse (§118.83).
  *
  * `warning` reste la place de ce que la restauration NE rendra PAS : pour un groupe de
  * messagerie, la cascade emporte membres et messages, donc « restaurable » sans cette réserve
@@ -49,27 +54,8 @@ export function SuperAdminDeleteButton({
 }) {
   const router = useRouter();
   const [open, setOpen] = React.useState(false);
-  const [busy, setBusy] = React.useState(false);
-  const [error, setError] = React.useState<string | null>(null);
 
   if (!enabled) return null;
-
-  async function confirmDelete() {
-    setBusy(true);
-    setError(null);
-    const fd = new FormData();
-    fd.set("kind", kind);
-    fd.set("id", id);
-    const r = await superAdminDelete(fd);
-    if (r.ok) {
-      setOpen(false);
-      if (!stay) router.push(r.redirect ?? "/mon-espace");
-      router.refresh();
-    } else {
-      setBusy(false);
-      setError(r.error ?? "Suppression impossible.");
-    }
-  }
 
   return (
     <>
@@ -86,40 +72,200 @@ export function SuperAdminDeleteButton({
         </Button>
       )}
 
-      <Sheet
+      <ConfirmationSuppression
         open={open}
-        onClose={() => !busy && setOpen(false)}
-        title="Supprimer définitivement"
-        description="Action réservée au Super Admin — réversible depuis la corbeille."
-      >
-        <div className="space-y-4">
-          <div className="flex gap-3 rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
-            <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0" />
-            <div className="space-y-1">
-              <p className="font-medium">Cette suppression retire l'élément de tous les écrans.</p>
-              <p>L'élément, ses pièces jointes et ses commentaires n'apparaîtront plus nulle part. Un instantané est déposé dans Administration → Corbeille : le Super Admin peut restaurer, jusqu'à la destruction réelle. Les lignes liées supprimées en cascade, elles, ne reviennent pas.</p>
-              {warning && <p className="font-semibold">{warning}</p>}
-            </div>
-          </div>
+        onClose={() => setOpen(false)}
+        kind={kind}
+        id={id}
+        name={name}
+        warning={warning}
+        reserveAuSuperAdmin
+        executer={superAdminDelete}
+        onSupprime={(r) => {
+          setOpen(false);
+          if (!stay) router.push(r.redirect ?? "/mon-espace");
+          router.refresh();
+        }}
+      />
+    </>
+  );
+}
 
-          <div className="rounded-lg border border-border bg-secondary/40 px-3 py-2 text-sm">
-            <p className="text-xs text-muted-foreground">Élément à supprimer</p>
-            <p className="font-medium">{name}</p>
-          </div>
+type Apercu = Awaited<ReturnType<typeof apercuDeSuppression>>;
+type ResultatSuppression = { ok: boolean; error?: string; redirect?: string };
 
-          {error && <p className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</p>}
+/**
+ * LA FENÊTRE DE CONFIRMATION — partagée par le bouton du Super Admin et par la suppression
+ * d'un événement depuis sa fiche (droit « supprimer » du module Événements). Une seule fenêtre,
+ * parce que deux fenêtres pour le même geste diraient deux choses sur ce qui part (§118.5) :
+ * l'une des deux était un `window.confirm` qui annonçait « et ses inscriptions » et rien d'autre,
+ * puis taisait le refus quand la suppression n'avait pas lieu.
+ */
+export function ConfirmationSuppression({
+  open,
+  onClose,
+  kind,
+  id,
+  name,
+  warning,
+  reserveAuSuperAdmin = false,
+  executer,
+  onSupprime,
+}: {
+  open: boolean;
+  onClose: () => void;
+  kind: string;
+  id: string;
+  name: string;
+  warning?: string;
+  /** Le geste n'est ouvert qu'au Super Admin — la description le dit. */
+  reserveAuSuperAdmin?: boolean;
+  /** L'action serveur qui supprime — elle revérifie le droit ET relit ce qui part. */
+  executer: (fd: FormData) => Promise<ResultatSuppression>;
+  onSupprime: (r: ResultatSuppression) => void;
+}) {
+  const [busy, setBusy] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
+  const [apercu, setApercu] = React.useState<Apercu | null>(null);
+  const [lectureImpossible, setLectureImpossible] = React.useState(false);
 
-          <div className="flex justify-end gap-2 pt-1">
-            <Button variant="outline" onClick={() => setOpen(false)} disabled={busy}>
-              Annuler
-            </Button>
-            <Button variant="destructive" onClick={confirmDelete} disabled={busy}>
-              {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
-              Oui, supprimer définitivement
-            </Button>
+  // L'aperçu se relit à CHAQUE ouverture : entre deux ouvertures, une déclaration a pu naître,
+  // un paiement partir.
+  React.useEffect(() => {
+    if (!open) return;
+    let vivant = true;
+    setApercu(null); setLectureImpossible(false); setError(null); setBusy(false);
+    const fd = new FormData();
+    fd.set("kind", kind);
+    fd.set("id", id);
+    apercuDeSuppression(fd)
+      .then((a) => { if (vivant) setApercu(a); })
+      .catch(() => { if (vivant) setLectureImpossible(true); });
+    return () => { vivant = false; };
+  }, [open, kind, id]);
+
+  const lu = apercu && !("erreur" in apercu) ? apercu : null;
+  const erreurLecture = apercu && "erreur" in apercu ? apercu.erreur : null;
+  const introuvable = lu !== null && lu.nom === null;
+  const refus = lu?.refus ?? null;
+  // Le bouton ne s'arme qu'une fois SU ce qui part — sauf si la lecture a échoué pour une raison
+  // de transport : la suppression relit elle-même tout, et refuse ce qui l'interdit.
+  const enLecture = apercu === null && !lectureImpossible;
+  const armable = !busy && !enLecture && !refus && !introuvable && !erreurLecture;
+
+  async function confirmer() {
+    setBusy(true);
+    setError(null);
+    const fd = new FormData();
+    fd.set("kind", kind);
+    fd.set("id", id);
+    const r = await executer(fd);
+    if (r.ok) {
+      onSupprime(r);
+    } else {
+      setBusy(false);
+      setError(r.error ?? "Suppression impossible.");
+    }
+  }
+
+  return (
+    <Sheet
+      open={open}
+      onClose={() => !busy && onClose()}
+      title="Supprimer définitivement"
+      description={reserveAuSuperAdmin
+        ? "Action réservée au Super Admin — réversible depuis la corbeille."
+        : "Réversible : le Super Admin peut restaurer depuis la corbeille."}
+    >
+      <div className="space-y-4">
+        <div className="flex gap-3 rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
+          <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0" />
+          <div className="space-y-1">
+            <p className="font-medium">Cette suppression retire l'élément de tous les écrans.</p>
+            <p>
+              L'élément, ses pièces jointes et ses commentaires n'apparaîtront plus nulle part. Un instantané est
+              déposé dans Administration → Corbeille : le Super Admin peut restaurer, jusqu'à la destruction réelle.
+              {lu && !lu.lot ? " Les lignes liées supprimées en cascade, elles, ne reviennent pas." : ""}
+            </p>
+            {warning && <p className="font-semibold">{warning}</p>}
           </div>
         </div>
-      </Sheet>
-    </>
+
+        <div className="rounded-lg border border-border bg-secondary/40 px-3 py-2 text-sm">
+          <p className="text-xs text-muted-foreground">Élément à supprimer</p>
+          <p className="font-medium">{name}</p>
+        </div>
+
+        <CeQuiPartAvec enLecture={enLecture} lectureImpossible={lectureImpossible} apercu={lu} />
+
+        {(refus || erreurLecture || introuvable) && (
+          <p role="alert" className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">
+            {refus ?? erreurLecture ?? "Élément introuvable (déjà supprimé ?)."}
+          </p>
+        )}
+        {error && <p role="alert" className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</p>}
+
+        <div className="flex justify-end gap-2 pt-1">
+          <Button variant="outline" onClick={onClose} disabled={busy}>
+            Annuler
+          </Button>
+          <Button variant="destructive" onClick={confirmer} disabled={!armable}>
+            {busy || enLecture ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+            Oui, supprimer définitivement
+          </Button>
+        </div>
+      </div>
+    </Sheet>
+  );
+}
+
+/** « Part aussi avec lui » — l'inventaire du lot, lu avant le clic. */
+function CeQuiPartAvec({ enLecture, lectureImpossible, apercu }: {
+  enLecture: boolean;
+  lectureImpossible: boolean;
+  apercu: Extract<Apercu, { lot: boolean }> | null;
+}) {
+  if (enLecture) {
+    return (
+      <p className="flex items-center gap-2 text-sm text-muted-foreground">
+        <Loader2 className="h-4 w-4 animate-spin" /> Lecture de ce qui en dépend…
+      </p>
+    );
+  }
+  if (lectureImpossible) {
+    return (
+      <p className="text-sm text-muted-foreground">
+        Je n'ai pas pu lire ce qui en dépend. La suppression le relira elle-même, et refusera si un paiement, une
+        signature ou un dépôt aux autorités l'interdit.
+      </p>
+    );
+  }
+  if (!apercu || !apercu.lot || apercu.nom === null) return null;
+  if (apercu.emporte.length === 0 && apercu.detache.length === 0) {
+    return <p className="text-sm text-muted-foreground">Rien d'autre n'en dépend : l'élément part seul.</p>;
+  }
+  return (
+    <div className="space-y-2 rounded-lg border border-border px-3 py-2 text-sm">
+      {apercu.emporte.length > 0 && (
+        <div>
+          <p className="text-xs font-medium text-muted-foreground">Part aussi avec lui</p>
+          <ul className="mt-1 list-disc space-y-0.5 pl-5">
+            {apercu.emporte.map((e) => <li key={e}>{e}</li>)}
+          </ul>
+        </div>
+      )}
+      {/* CE QUI RESTE mais perd son lien — un projet supprimé déclasse ses dossiers (§118.163). */}
+      {apercu.detache.length > 0 && (
+        <div>
+          <p className="text-xs font-medium text-muted-foreground">Reste, mais perd son lien avec lui</p>
+          <ul className="mt-1 list-disc space-y-0.5 pl-5">
+            {apercu.detache.map((e) => <li key={e}>{e}</li>)}
+          </ul>
+        </div>
+      )}
+      <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+        <Undo2 className="h-3.5 w-3.5" /> Tout cela revient avec lui si le Super Admin le restaure.
+      </p>
+    </div>
   );
 }

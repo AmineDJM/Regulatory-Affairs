@@ -183,6 +183,7 @@ jamais identique.
 | **Mon dossier RH** | `/mon-dossier` | Documents RH personnels (contrats, bulletins, attestations) + **demandes RH** (attestation, CNAS, relevé d'émoluments, titre/demandes de congé — annuel, sans solde, exceptionnel, maternité —, sortie exceptionnelle, arrêt maladie, **note de frais avec mois obligatoire**, **entrevue avec les RH** à date négociée) avec **pièces jointes** et **fil d'échange** par demande + onglet **« Mes ordres de mission »**. Carte **« Ma rémunération »** (salaire de base, Ret SS 9 %, Ret IRG, Remb. frais, Net à payer — **jamais** le brut, la Ret SS 35 % ni la TFP). Notification **« salaire versé »** reçue **24 h après** le marquage par les RH. Accès **strict** à ses propres documents. |
 | **Calendrier** | `/calendar` | Agenda d'entreprise (fuseau **Alger**), création de rendez-vous + invitations, **accessible à l'Assistant IA** (créer/inviter par la conversation). |
 | **Réunions** | `/meetings` | Appels & réunions (lien Meet simple **ou présentiel avec lieu**) + **fil de discussion** (chat texte + pièces jointes) + **réponse d'invitation** (Oui/Peut-être/Non) + **enregistrement / transcription / compte-rendu IA** + **rappel 30 min avant** (notification planifiée). L'organisateur peut **modifier** titre, objet, lien, type et **horaire** (heure d'Alger). |
+| **Sujets** *(ex-« Projets », renommé le 01/10/2026)* | `/dossiers` | **Sujet** de suivi ad hoc : description, **responsable + participants**, statut, **fichiers** et **fil de discussion**. Créable **manuellement**, **proposé par l'IA**, ou **créé automatiquement** quand on implique une tierce personne sur un événement. « Projets » ne nomme plus que le registre de Business Development (§118.163). **Chaque sujet a son entité** (société du groupe), choisie à la création parmi celles que la personne VOIT, sinon celle où elle travaille ; la liste respecte le cloisonnement d'entité **sans perdre** un sujet d'avant sans entité (il reste visible, rattachable depuis Administration › Entités). (Route interne `/dossiers`, entité `Dossier` inchangées.) |
 | **Dashboard** | `/dashboard` | KPIs & graphiques adaptés au rôle. |
 
 ### Pôles métier
@@ -207,6 +208,7 @@ jamais identique.
 | **Rapports terrain** | `/field-reports` | **Rapports vocaux IA** des délégués : parler → transcription → analyse → relecture → validation. Onglet **« Overview »** (`/field-reports/overview`) : **graphes d'analyse** (visites par médecin / hôpital / délégué / spécialité, tendance 12 mois, statut, produits) — accès **par autorisation du Super Admin** (`fieldReportsOverviewRoles`). La fiche d'un rapport est gardée par le module **Rapports terrain** (et non plus « Promotion médicale »). → [détails](#-intelligence-artificielle-claude--whisper) |
 | **Annuaire** *(ex-« Promotion médicale »)* | `/medical` | **Annuaire structuré** : Spécialité → Secteur (Hôpital / Libéral) → médecins, titre/grade. Onglet **Annuaire** (`/medical/annuaire`) = **feuille modifiable en place** (11 colonnes exactes — « Ville » a disparu, la wilaya est le seul découpage géographique —, 58 wilayas en liste fermée, potentiel, export), qui se manipule **comme un tableur** : clic, Maj+clic, Ctrl+clic et glisser sélectionnent des cellules, flèches et Tab déplacent, Ctrl+C copie en TSV, une **barre de sélection** colore (huit teintes, persistées **par cellule**, sous le même droit que l'édition) ou efface ; les **colonnes sur mesure** (texte, nombre, date, choix) se créent, se remplissent et se suppriment depuis la feuille, en **plusieurs annuaires nommés** (« Cardiologues Centre », « Pédiatres Ouest »…) qu'on crée, renomme et supprime — la suppression d'un annuaire **déplace ses praticiens** vers un autre plutôt que de les détruire. **Segmentation à 5 niveaux** (Très haut / Haut / Moyen / Bas / Très bas) pour **influence**, **potentiel** et **affinité**, **par spécialité et par produit**, médecins **et** pharmaciens. Visites & tournées **scopées par délégué**, plans de tournées **duplicables**. |
 | **Information médicale** | `/information-medicale` | Module du **pharmacien responsable de l'information médicale (PRIM)**, en **DEUX CIRCUITS** que la nature du dossier décide. **Événements & prises en charge** (national, international, événements, sponsorings) : aucun bon de versement — le PRIM soumet sa **lecture** (« à déclarer au ministère » ou « sans déclaration », motif exigé), la fait valider, puis dépose auprès du **ministère de l'Industrie pharmaceutique** et valide. **Matériel promotionnel** : le dossier se sépare en **matériels**, un **bon de versement par matériel**, **une** validation pour le dépôt du lot, puis le paiement de **chaque quittance séparément** (centre de paiement → Finances → remise au bureau). Le PRIM peut aussi **ouvrir lui-même** un dossier, et **entre DEUX natures seulement** : déclaration **MIP** ou **demande de visa publicitaire**. Le « bon de versement » n'est pas ce qu'on OUVRE — c'est une ÉTAPE du circuit du matériel, à l'intérieur du dossier ; le proposer produisait des dossiers vides dont le bon n'attendait rien. La nature reste **RECONNUE en lecture** (les dossiers historiques gardent leur circuit) et ceux qui la portaient sont **reclassés en visa publicitaire** — même circuit MATÉRIEL, donc rien ne se perd. **Consultation des pièces de l'événement source**, demande de pièces, affichage du demandeur. → [workflow](#information-médicale--déclaration-réglementaire-prim) |
+| **Business Development › Projets** | `/business-development/projets` | Le registre des projets de la direction, **son propre module `BD_PROJECTS`** réglé par le Super Admin dans Administration › Accès comme tous les autres (§118.163) — par défaut, chaque rôle qui voit Regulatory le LIT, le Super Admin le gère. **Chaque projet appartient à une entité** (obligatoire à la création, parmi celles que la personne voit) : c'est elle qui décide qui le voit ; un projet d'avant sans entité reste affiché pour qu'on le rattache. Supprimer un projet passe par la corbeille : ses gammes et produits partent avec lui, ses dossiers Regulatory sont DÉCLASSÉS (et la fenêtre le dit avant le clic), tout revient à la restauration. Le classement d'un dossier Regulatory n'accepte que les projets que son menu propose. |
 | **Business Development** | `/business-development` | **Grand tableau stratégique Projet → Gamme → Produit** (~20 colonnes), colonnes gelées, export CSV. **Intègre Pharmatool** : pipeline de données concurrentielles, **Vue d'ensemble**, **moteur de matching DCI**, **Opportunités**, **Pricing** (ville / hôpital), **Analyse produit / concurrence** (HHI, parts de marché, radar), **Explorateur produits** (recherche **en temps réel** + filtres classe/labo, sélection multi-produits, comparaison volume/prix/valeur). |
 
 ### Transverse
@@ -215,7 +217,6 @@ jamais identique.
 |---|---|---|
 | **Demandes de validations** | `/validations` | **Bureau de validation central** : agrège **toutes les validations en attente** issues des autres modules (Bureau du secrétariat, Ad & Pro, **Finances**, information médicale…) — visible des **validateurs** (pas du demandeur). Le Super Admin définit des **règles configurables** (module, type d'objet, montant, département, rôle, priorité → 1 ou 2 validateurs, séquentiel/parallèle). → [détails](#centre-de-validation-agrégation--configurable) |
 | **Documents** (Drive + Documents + **catégories**) | `/drive` | Stockage **chiffré et durable en base** (`FileBlob`), visionneuses PDF / Word / Excel / PowerPoint / images / vidéo / audio, **édition Office** (OnlyOffice), **impression**, versioning. **Imports larges**, **déplacer**, **corbeille en cascade**, **accès par personne** (voir / modifier) à l'import. **Catégories** (espaces partagés type « Promotion Médicale ») créées par un rôle autorisé par le Super Admin, présentées en **onglets** à côté de Drive/Documents, accès encadré (consultation vs gestion). |
-| **Projets** | `/dossiers` | **Projet** de suivi d'un sujet ad hoc : description, **responsable + participants**, statut, **fichiers** et **fil de discussion**. Créable **manuellement**, **proposé par l'IA**, ou **créé automatiquement** quand on implique une tierce personne sur un événement. (Route interne `/dossiers`, entité `Dossier` inchangées.) |
 | **Mon Équipe** | `/mon-equipe` | L'écran de celui qui **encadre** (RBAC `MY_TEAM`, ouvert à tous — l'entrée n'apparaît qu'à qui a réellement des N-1, garde `myTeam`). **Tout l'arbre sous soi** : N-1, N-2, jusqu'en bas (`subtreeOf`, chaque rang = `directReportsOf`, la MÊME fonction qui route les demandes), chacun portant son N+1 et son rang. **Ce qui attend ma décision s'arrête au PREMIER RANG** : le congé d'un N-2 est routé vers SON N+1 (`TeamMember.pending` vaut 0 plus bas). **Au clic sur une personne : quelques KPI SELON SON MÉTIER** (`teamMemberKpis`) — charge de travail pour tous (tâches ouvertes/en retard, demandes en cours, congés pris), puis TERRAIN (visites 30 j, planifiées, médecins, comptes rendus manquants), RÉGLEMENTAIRE (dossiers portés, en retard, étapes), INFORMATION MÉDICALE (à instruire, en attente de pièces, validés 30 j), COORDINATION (courses 30 j, hors délai `n / N`, à faire) ; un métier sans compteur propre le DIT. **La porte n'est PAS le module** (tout le monde l'a) mais la HIÉRARCHIE, revérifiée côté serveur — et un identifiant inconnu reçoit le MÊME refus qu'un hors-équipe. Ce n'est **pas** un mini-module RH : ni salaire, ni évaluation, ni dossier. **Recrutement** est son sous-module dans le menu, avec ses **droits propres**. |
 | **Recrutement** | `/recrutement` | Le poste demandé, de l'idée d'un directeur jusqu'à l'intégration. Un **directeur de département** formule le besoin (poste, missions, compétences, contrat **CDI / CDD / consulting / stage**, fourchette de rémunération, dates, fiche de poste) — le droit de demander suit l'**organigramme**, pas une liste de rôles. Sa **hiérarchie valide marche par marche jusqu'au sommet** (chaîne **figée à la soumission** ; la direction peut trancher à n'importe quelle marche, les marches sautées étant marquées **non consultées**). Les **RH instruisent** et demandent des précisions autant de fois qu'il le faut — la demande **retourne alors au demandeur**. Poste ouvert : **CV reçus** déposés par les RH, **présélection par le demandeur**, **choix de la direction parmi les présélectionnés ou en dehors**, entretiens, recrutement. Puis l'**intégration** (fiche employé pré-remplie) — **sauf pour un consulting**, intervenant externe hors effectif et hors paie. → [circuit](#-journal-des-évolutions-récentes) |
 | **Bureau du secrétariat** | `/demandes` | « Bureau de l'assistante de direction » : **10 types** de demandes, **catalogue d'articles de fourniture**, **demandes multi-cellules**, **fenêtre de 15 min** pour que le demandeur **modifie TOUT ce qu'il a saisi** ou supprime sa demande, **suppression traçable** (corbeille + motif), **flux par demande** (achat → validation Finances → devis/facture → Fin de la demande), validations, ordres de dépense, **espace Courses** (`/demandes/courses` : courses chauffeur **multi-points A/B/C** avec consigne par point, date **et heure max** — heure d'Alger —, pièces jointes, vue chauffeur en checklist), **accusé de réception des originaux de notes de frais** (section dédiée sur `/demandes`, verrouille/déverrouille le traitement RH), demandes terminées **archivées dans le Drive** (« Dossier traité »). → [workflow](#bureau-du-secrétariat--flux-par-demande) |
@@ -275,8 +276,8 @@ Autres connexions notables :
 - **Regulatory → Finances** : une **Demande de BV** émet un ordre de dépense avec échéance.
 - **Regulatory → Stocks PCH** : les **mouvements de stock** sont liés aux **produits Regulatory**.
 - **Bureau du secrétariat → Finances** : une demande d'achat déclenche une **validation Finances** (devis → facture).
-- **Tâches / Messages → Projets** : un message peut devenir une **tâche demandée** ; une tâche peut ouvrir un projet.
-- **Tierce personne → Projets** : impliquer quelqu'un sur un événement **crée automatiquement un projet** (sans budget).
+- **Tâches / Messages → Sujets** : un message peut devenir une **tâche demandée** ; une tâche peut ouvrir un sujet.
+- **Tierce personne → Sujets** : impliquer quelqu'un sur un événement **crée automatiquement un sujet** (sans budget).
 - **Tous les modules → Validations** : chaque circuit d'approbation remonte dans le **bureau de validation central**.
 - **RH (Paie) → Finances & Budgets** : « Transférer dans le budget » crée **une écriture Salaire (sortie) par employé** imputée à la (sous-)catégorie choisie ; la fiche de paie part dans le **dossier RH** de l'employé ; l'employé est notifié **24 h après** (tâches planifiées internes).
 - **Notes de frais : RH ⇄ Bureau du secrétariat** : le traitement RH est **verrouillé** tant que le secrétariat n'a pas **accusé réception des originaux** (accusé tracé, visible des deux côtés, notifié).
@@ -1231,6 +1232,16 @@ la porte commune — il naît en attente du centre de paiement, quel que soit le
 facture qui découle d'un **bon de commande que son centre n'a pas validé** ne part pas (voir
 ci-dessous).
 
+**Sur les fiches Ad & Pro, les pièces liées se lisent dans cet ordre** (§118.161, décision de la Direction du
+30/09/2026) : **Devis → Bon de commande → Facture**, chacun avec sa version plateforme (Word / PDF de la fabrique) et
+son PDF, puis les **Engagements** (conventions d'orateurs, contrats — sans les BC, qui ont leur maillon) et les
+courriers. Chaque maillon a SON bouton, sa nature part en champ caché, et le BC dit de quel devis il découle, la
+facture de quel BC. Le bloc « Documents » générique a disparu des sept natures ; les fichiers déjà déposés comme
+devis, BC ou facture sont montrés dans la section de leur nature, et « Créer sa fiche » leur crée leur pièce au
+registre en y RANGEANT le fichier — sans second téléversement, et seulement pour un fichier déposé sur CETTE fiche
+que la personne peut gérer. Les droits se lisent pièce par pièce par la porte du serveur (`accesAuxPiecesLegal`) :
+rien n'est chargé de ce que la personne ne peut pas ouvrir.
+
 ### Bons de commande — tout BC passe par un centre de validation (§118.148), au-dessus du seuil des BC depuis §118.149
 
 « Concernant les BC, ils doivent tous passer soit par le centre de validation Ad & Pro si la demande
@@ -1732,7 +1743,8 @@ visiteurs, et **recharge** ses contenus depuis l'ERP à chaque démarrage. Le co
   conforme est confirmé. Un contenu présent sur le site mais **inconnu de l'ERP est nommé, jamais supprimé**. Un
   contenu que le site a refusé tel quel n'est pas renvoyé tant qu'il n'a pas changé. Un article dont l'adresse est
   prise par un article du **dépôt** du site est signalé (le site afficherait le sien). Une heure après un échec, un
-  nouvel essai ; `SITE_WEB_RECONCILIATION=off` le coupe. « Rapprocher maintenant » depuis `/site-web`.
+  nouvel essai ; `SITE_WEB_RECONCILIATION=off` le coupe. « Rapprocher maintenant » depuis **Administration ›
+  Site web**.
 - **Offres d'emploi** (`JobPosting`) : préparées depuis une demande de recrutement (carte « Offre sur le site » de
   la fiche), elles en reprennent l'intitulé, la direction, le contrat, les missions et les compétences —
   **jamais** la rémunération ni la justification. Une offre n'est **visible que tant que le poste est ouvert** :
@@ -1741,6 +1753,33 @@ visiteurs, et **recharge** ses contenus depuis l'ERP à chaque démarrage. Le co
 - **Articles** (`BlogArticle`) : Markdown structuré en `##` — un `# Titre` est refusé en nommant sa ligne, à
   l'écran avant l'envoi comme dans l'action. Aperçu sans HTML brut, sommaire, temps de lecture, longueur idéale de la
   description.
+- **La liaison vit dans la console, Super Admin seul** (§118.160) : la clé (générer, abandonner, voir le bloc), la
+  vérification, le rapprochement à la demande, la levée du blocage et ce que le site dit de lui-même sont sur
+  **Administration › Site web** (`/admin/site-web`), gardés par UN prédicat (`peutGererLaLiaison`, le rôle PRINCIPAL
+  Super Admin). Trois prédicats écrits pour la même chose avaient fini par dire trois choses : « Rapprocher
+  maintenant » s'ouvrait à quiconque publiait un article. `/site-web` garde les CONTENUS et dit en une phrase si
+  les envois partent — sans geste de liaison, que ceux qui publient n'ont pas à faire.
+- **Ce que le site avait écrit lui-même est repris dans l'ERP** (§118.160) : les articles de son dépôt
+  (`content/blog/*.md`), ses offres d'exemple, les offres saisies dans son administration. Le rapprochement lit
+  `GET /repository` du site, crée les enregistrements de l'ERP (`SiteReprise` garde l'origine et la clé côté site),
+  puis les pousse par la file ordinaire — l'article avec `replacesFile` : la version de l'ERP REMPLACE le fichier,
+  à la même adresse (une adresse déjà partagée n'est pas cassée). La règle tient en une phrase : **ce qui est en ligne
+  reste en ligne, ce qui ne l'est pas ne le devient pas** — une offre d'exemple est reprise en BROUILLON (publier un
+  poste est une décision de recrutement). Supprimer un article repris le retire du blog ET laisse une pierre tombale :
+  le site la reçoit avec ses contenus à chaque redémarrage (`replacedFiles`), sans quoi le fichier du dépôt
+  reviendrait. Tant que le site ne sait pas rendre son dépôt (ancienne version), l'ERP réessaie toutes les heures et
+  l'écran le dit, avec le geste Render qui rattrape. Une pastille « Repris du site » suit chaque contenu repris.
+- **« Rédiger avec l'IA »** (§118.160) : sur un article comme sur une offre, une consigne de quelques phrases et l'IA
+  remplit les champs EXACTS du formulaire (titre, description, corps en `##`, catégorie, mots-clés ; intitulé,
+  département, lieu, contrat, expérience, résumé, missions, profil, ce que nous offrons) sous un schéma imposé au
+  fournisseur. Rien n'est enregistré ni publié : le texte revient dans le formulaire, la personne le relit, le
+  corrige — ou clique « Annuler la rédaction » — puis enregistre. Un champ que l'IA rend vide garde la valeur saisie.
+  **Ce que le modèle reçoit** : la consigne et les champs du formulaire, lus clé par clé dans l'action — jamais la
+  rémunération ni la justification de la demande de recrutement. **Ce que la relecture DIT** : une liste bornée au
+  maximum du site, une description hors de la longueur idéale, un titre « # » ramené en « ## », un type de contrat
+  inconnu laissé vide. Mêmes droits que l'écriture (module « Site web » pour un article, RH ou direction pour une
+  offre) ; bascule « Rédaction du site » dans le Centre de contrôle IA ; chaque appel au journal d'usage, une
+  réponse inexploitable comptée comme un échec de la fonction.
 - **Droits** : module `SITE_WEB` (Direction, Direction Générale, Direction Marketing — et le Super Admin) pour les
   articles et l'exploitation ; les **offres** suivent la règle du recrutement (RH en écriture, ou la direction). La
   demande de recrutement se lit sous `recruitmentScope(user)` — à la préparation (`?demande=`) comme au rattachement
@@ -1755,7 +1794,7 @@ visiteurs, et **recharge** ses contenus depuis l'ERP à chaque démarrage. Le co
   `ADVENTUM_API_KEY` et `ADVENTUM_WEBHOOK_SECRET` restent lus en repli. Aucune clé n'est affichée une fois active :
   l'écran montre une **empreinte**.
 
-**Mise en service — un seul geste** (la carte « Connexion au site » de `/site-web` le dit pas à pas) : « Générer la
+**Mise en service — un seul geste** (la carte « Connexion au site » d'**Administration › Site web** le dit pas à pas) : « Générer la
 clé » ; dans Render, service **du site** → *Environment* → *Add from .env* → coller le bloc → *Save, rebuild, and
 deploy* — pas *Save and deploy*, qui redémarre la version déjà construite, peut-être l'ancienne (documentation de
 Render). C'est tout : l'écran passe à « Relié » de lui-même, et dit si le site tourne encore sur une version qui ne
@@ -1767,20 +1806,25 @@ le sort de `ADMIN_PASSWORD` côté site — le retirer laisse l'ERP seul maître
 **Banc à deux serveurs** (`npm run bench:site-web`, après un `npm run build` ici et dans le dépôt du site) : l'ERP et
 le site en `next start` sur ce poste, reliés par le VRAI bloc lu sur l'écran — génération, reconnaissance sans autre
 geste, offre en ligne, candidature avec CV relu octet pour octet dans l'ERP, redémarrage du site sur un disque vide,
-candidature spontanée, santé à l'écran, suppression. `BANC_SABOTAGE=sans-secret` démarre le site avec le bloc collé en
-partie : le banc doit tomber, et il tombe.
+candidature spontanée, santé à l'écran, reprise des articles du VRAI dépôt du site (servis aux mêmes adresses, un
+second rapprochement ne repousse rien), modification et suppression d'un article repris (qui ne revient pas après un
+redémarrage sur disque vide), suppression de l'offre. `BANC_SABOTAGE=sans-secret` démarre le site avec le bloc collé
+en partie : le banc doit tomber, et il tombe.
 
 Code : `lib/site-web/{contrat,markdown}.ts` (PURS — le contrat du site, la lecture du Markdown), `config.ts`,
 `transport.ts` (la seule fonction qui appelle le site, gardée par `exigerSortieAutorisee` — sauf un hôte LOCAL, nommé),
 `file.ts`, `contenus.ts`, `reconciliation.ts`, `acces.ts`, `etat.ts`, `cles.ts` (génération, scellement, présentation,
 promotion), `liaison.ts` (l'entretien du battement), `entrant.ts` (la porte des appels du site), `candidatures.ts`
-(réception, tri, effacement) ; routes `app/api/site-web/v1/{candidatures,contenus}` (hors session, gardées par
+(réception, tri, effacement), `reprise-lecture.ts` (PUR — le dépôt du site lu et traduit), `reprise.ts` (la reprise
+écrite), `redaction.ts` (PUR — consigne, schéma imposé, relecture) ; l'appel au modèle `lib/redaction-site-ia.ts`
+(hors du domaine : un domaine ne parle pas aux fournisseurs) ; routes `app/api/site-web/v1/{candidatures,contenus}` (hors session, gardées par
 `authentifierLeSite`) et `app/api/site-web/candidatures/[id]/cv` ; actions
-`lib/actions/{site-web,offres-emploi,candidatures-site}-actions.ts` ; écrans `app/(app)/site-web/**` (carte
-« Connexion au site »), `app/(app)/recrutement/candidatures`, carte « Offre sur le site » de
+`lib/actions/{site-web,offres-emploi,candidatures-site,site-web-redaction}-actions.ts` ; écrans
+`app/(app)/site-web/**`, `app/(app)/admin/site-web` (carte « Connexion au site », reprise), `app/(app)/recrutement/candidatures`, carte « Offre sur le site » de
 `app/(app)/recrutement/[id]` ; composants `components/site-web/*`. Modèles `JobPosting`, `BlogArticle`,
-`SitePublication`, `SitePushAttempt`, `SiteReconciliation`, `SiteWebCle`, `SiteCandidature` ; migrations
-`20261202090000_site_web_adventum`, `20261203090000_site_web_liaison`.
+`SitePublication`, `SitePushAttempt`, `SiteReconciliation`, `SiteWebCle`, `SiteCandidature`, `SiteReprise` ;
+migrations `20261202090000_site_web_adventum`, `20261203090000_site_web_liaison`, `20261204090000_site_web_reprise`,
+`20261207090000_ia_redaction_site` (`AiSetting.siteWebAiEnabled`).
 
 ### Congés — l'intérimaire qui tient la place
 
@@ -2922,6 +2966,21 @@ fichiers dérivés des MÊMES données, cohérents chiffre par chiffre — ou au
   `reserve` annonce qu'une restauration rend un groupe VIDE puisque membres et messages partent en cascade) et
   **`NOTIFICATION`** (une notification reçue : supprimée, son destinataire ne la voit plus ; elle se restaure
   à l'identique).
+- **Une demande part avec TOUTES ses branches** (§118.162, décision de la Direction du 30/09/2026) : supprimer un
+  sponsoring, un congrès, un événement, un consulting, une « autre demande », un matériel promotionnel ou un projet
+  emporte, dans UNE transaction et UNE entrée de corbeille, ce qui n'existe que pour lui — sa déclaration
+  d'information médicale, ses demandes au secrétariat, son circuit, son visa, sa demande de paiement, ses pièces au
+  registre Legal, ses postes, ses rappels — et **tout revient ensemble** à la restauration, parents d'abord
+  (`DeletedRecord.lot`). Les enfants en cascade et les liens « mis à vide » se lisent dans le SCHÉMA au moment de
+  supprimer ; seule la table des couples polymorphes (`…Type` / `…Id`, que Postgres ne peut pas propager) est une
+  décision humaine (`lib/suppression/branches.ts`), et un cliquet exige que TOUT couple du schéma y soit classé —
+  emporté, cœur (pièces et commentaires) ou histoire (audit, faits, index : on ne réécrit pas le passé). Un fait
+  qui a QUITTÉ l'ERP (règlement parti, pièce signée, déclaration déposée, courrier inscrit) n'est pas effacé : la
+  suppression est refusée et le refus le nomme. La fenêtre de confirmation lit l'aperçu avant le clic — ce qui
+  partira, et ce qui RESTE mais perd son lien (un projet supprimé déclasse ses dossiers). Au-delà de 5 000 lignes, le
+  lot est refusé en le disant. Le cœur vit hors de tout fichier `"use server"` (`lib/suppression/coeur.ts`) : il
+  n'est appelé que par des actions qui ont vérifié le droit — dont `deleteEvent`, qui supprimait jusque-là un
+  événement sans instantané, sans audit ni corbeille.
 - **La phrase de la confirmation disait le contraire du code** : elle annonçait « cette action ne peut pas être
   annulée » alors que `snapshotAndSoftDelete` dépose l'instantané dans la corbeille. Deux vérités dans le même
   geste, et celle que la personne LIT était la fausse — elle décourageait un rangement défaisable, ou faisait
@@ -5750,8 +5809,11 @@ affiche proprement « IA non configurée » — **aucune fonctionnalité ne cass
 
 ### Centre de contrôle IA (Super Admin · `/admin` → onglet IA)
 
-Pilotage de l'IA **sans toucher au code** : **interrupteur général** + **bascule par fonction**, **état des clés**
-(lecture seule), **tableau de bord d'usage** (volume, taux de succès, latence, derniers échecs via `AiUsageLog`).
+Pilotage de l'IA **sans toucher au code** : **interrupteur général** + **bascule par fonction** (dont « Rédaction du
+site » depuis 10/2026), **état des clés** (lecture seule), **tableau de bord d'usage** (volume, taux de succès,
+latence, derniers échecs via `AiUsageLog`). Un cliquet exige que chaque bascule de `AiSetting` soit lue par l'action,
+offerte par l'écran ET rejouée par l'op d'Adam : une bascule oubliée serait ÉTEINTE à chaque réglage, l'action
+réécrivant toutes les colonnes.
 
 ---
 
@@ -6245,6 +6307,47 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 ---
 
 ## 🧾 Journal des évolutions récentes
+
+### « RÉDIGER AVEC L'IA », LES CONTENUS DU SITE REPRIS DANS L'ERP, ET LA LIAISON DANS LA CONSOLE (2026-10)
+
+**Demande.** La connexion au site dans la console d'administration, Super Admin seul ; les articles et offres déjà
+présents sur le site présents dans l'ERP pour qu'on les modifie et les supprime ; l'IA pour écrire un article ou une
+offre, en remplissant les champs exacts, modifiable ensuite.
+
+**Ce qui change.** (1) **Administration › Site web** porte la clé, la vérification, le rapprochement à la demande et
+le blocage — un seul prédicat, le Super Admin ; `/site-web` garde les contenus. (2) Le rapprochement **reprend** les
+articles du dépôt du site, ses offres d'exemple (en brouillon) et les offres saisies dans son administration :
+ils deviennent des contenus de l'ERP, poussés aux mêmes adresses ; un article repris puis supprimé ne revient pas,
+même après un redémarrage du site sur un disque vide. (3) **« Rédiger avec l'IA »** remplit le formulaire d'un article
+ou d'une offre ; rien n'est enregistré ni publié avant que la personne relise ; ni la rémunération ni la justification
+ne partent au modèle ; bascule « Rédaction du site » dans le Centre de contrôle IA.
+
+**Trouvé en chemin.** La liste des articles du site omettait leur corps : chaque rapprochement repoussait les cinq
+articles repris, « écart sur body » — réparé côté site, tenu par le banc à deux serveurs (un second rapprochement :
+0 repoussé). Le journal d'usage de l'IA comptait une réponse inexploitable comme un succès, et inscrivait une panne au
+nom du mauvais fournisseur. Détail : CLAUDE.md §118.160.
+
+### Ad & PRO — LES PIÈCES LIÉES EN CHAÎNE, ET UNE DEMANDE SUPPRIMÉE EMPORTE TOUTES SES BRANCHES (2026-10)
+
+**Pièces liées (§118.161).** Le bloc « Documents » générique disparaît des sept natures : Devis → Bon de commande →
+Facture, puis Engagements (sans BC) et courriers, chaque maillon avec son bouton. Le bouton « Engagement » créait un
+BC par défaut — retiré. Les fichiers déjà déposés se rangent dans leur fiche (« Créer sa fiche ») sans être
+téléversés une seconde fois. Les droits se lisent pièce par pièce : un document restreint ne montre plus ses fichiers
+à tout lecteur de Legal.
+
+**Suppression en cascade (§118.162).** Supprimer une demande emporte, dans une seule transaction et une seule entrée
+de corbeille, sa déclaration d'information médicale, ses demandes au secrétariat, son circuit, ses postes, ses pièces
+au registre — et tout revient à la restauration. Un fait qui a quitté l'ERP (règlement, pièce signée, déclaration
+déposée) bloque la suppression en le disant. Les événements ne se suppriment plus par un chemin irréversible ;
+consulting et « autre demande » ont enfin une suppression.
+
+### SUJETS, PROJETS ET ENTITÉS (2026-10)
+
+« Projets » de Pilotage s'appelle **Sujets** ; chaque sujet a son entité (sans perdre les sujets d'avant). Le registre
+**Business Development › Projets** devient un module à part (`BD_PROJECTS`), réglé par le Super Admin dans la console,
+et chaque projet appartient à une entité. Trouvé en renommant : l'accès temporaire d'un validateur se déduisait du
+LIBELLÉ de menu de la demande — après le renommage, une validation libellée « Projets » aurait ouvert le registre BD à
+treize rôles qui ne l'ont pas ; le lien stocké l'emporte désormais sur le libellé. Détail : CLAUDE.md §118.163.
 
 ### LE SITE ET L'ERP SE PARLENT DANS LES DEUX SENS — la clé se génère en un clic, les candidatures arrivent dans le recrutement (2026-09)
 

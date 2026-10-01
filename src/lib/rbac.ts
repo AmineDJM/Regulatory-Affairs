@@ -68,6 +68,12 @@ export const MODULES = [
   // publient par les RH (droit `RH` en écriture) : ce sont des recrutements, pas de la
   // communication (§118.158).
   "SITE_WEB",
+  // BD_PROJECTS : « Projets (BD) » — le registre des projets par lesquels on classe les dossiers
+  // réglementaires. Un module À PART (§118.163), et non plus une porte déduite de Regulatory à
+  // côté d'un module retiré : le Super Admin l'ouvre, le ferme et en règle les gestes personne par
+  // personne dans Administration › Accès, comme n'importe quel module. Market Intelligence
+  // (`BUSINESS_DEVELOPMENT`) reste retiré : ce module-ci ne le rouvre pas.
+  "BD_PROJECTS",
 ] as const;
 export type Module = (typeof MODULES)[number];
 
@@ -308,6 +314,26 @@ export const PERMISSIONS: Record<UserRole, RoleMatrix> = {
   },
   VIEWER: { WORKSPACE: ["VIEW", "CREATE", "UPDATE"], FEEDBACK: FEEDBACK_USER, MESSAGING: MESSAGING_USER, DRIVE: ["VIEW", "EXPORT"], ADMIN_REQUESTS: ["VIEW", "CREATE", "UPLOAD"], DOCUMENTS: ["VIEW"], DIRECTIVES: DIRECTIVES_USER, SUPPORT: SUPPORT_USER, DOSSIERS: DOSSIERS_USER, NOTIFICATIONS: ["VIEW"] },
 };
+
+/**
+ * « PROJETS (BD) » PAR DÉFAUT — le périmètre d'avant, sous la forme d'un module (§118.163).
+ *
+ * La porte se DÉDUISAIT de Regulatory (« quiconque voit Regulatory lit le registre ») : personne ne
+ * pouvait la régler, ni pour l'ouvrir à quelqu'un qui n'a pas Regulatory, ni pour la fermer à
+ * quelqu'un qui l'a. Elle devient un module, et ce qui suit n'en est que le DÉFAUT : la LECTURE
+ * pour chaque rôle qui voit Regulatory — exactement les mêmes personnes qu'hier, pour que personne
+ * ne perde l'écran le jour où la règle change de forme. Nommer, renommer et supprimer un projet
+ * restent au seul Super Admin par défaut (il tient tous les modules). Tout le reste se règle
+ * désormais dans Administration › Accès, personne par personne.
+ *
+ * Un défaut, pas une copie : il se lit dans la matrice des rôles, donc un rôle qui gagne demain
+ * Regulatory gagne aussi la lecture du registre, sans qu'on y pense.
+ */
+for (const role of Object.keys(PERMISSIONS) as UserRole[]) {
+  if (role === "SUPER_ADMIN") continue;
+  const matrice = PERMISSIONS[role];
+  if (matrice.REGULATORY?.includes("VIEW") && !matrice.BD_PROJECTS) matrice.BD_PROJECTS = ["VIEW"];
+}
 
 const GLOBAL_VIEW_ROLES: UserRole[] = ["SUPER_ADMIN", "DIRECTION"];
 
@@ -639,6 +665,19 @@ function moduleFromLink(link: string): Module | null {
   return byHref?.module ?? null;
 }
 
+/**
+ * LES LIBELLÉS RÉEMPLOYÉS — un nom de menu qui a désigné un AUTRE module.
+ *
+ * « Projets » a nommé Pilotage (les sujets) jusqu'au renommage de §118.163 ; il ne nomme plus que
+ * le registre BD. Une demande de validation libellée « Projets » ne dit donc pas, par son nom,
+ * lequel des deux elle vise : seul le LIEN le dit. Sans lien, on n'ouvre AUCUN module sur la foi du
+ * nom. L'ancienne lecture (Pilotage) est déjà ouverte à tous les rôles — mesuré, 19 sur 19 —, donc
+ * rien ne se perd ; la nouvelle (le registre BD, fermé par défaut à 13 rôles) aurait été un
+ * élargissement silencieux accordé au validateur d'un sujet. La ligne liée, elle, reste accordée,
+ * et la page « Demandes de validations » aussi : il peut toujours décider.
+ */
+const LIBELLES_REEMPLOYES: ReadonlySet<string> = new Set(["Projets"]);
+
 function moduleFromValidation(moduleLabel: string | null, link: string | null): Module | null {
   let fromLabel: Module | null = null;
   if (moduleLabel) {
@@ -654,8 +693,17 @@ function moduleFromValidation(moduleLabel: string | null, link: string | null): 
   }
   // Le libellé générique « Demandes de validations » (→ VALIDATIONS) n'est jamais la
   // cible réelle : dans ce cas l'URL de l'objet lié est le signal fiable.
+  const fromLink = link ? moduleFromLink(link) : null;
+  // QUAND LES DEUX DÉSIGNENT DEUX MODULES, LE LIEN L'EMPORTE (§118.163). Un libellé de menu est
+  // un NOM, et un nom se renomme ou se réemploie : « Projets » désignait Pilotage jusqu'à ce que
+  // Pilotage devienne « Sujets » et que « Projets » ne nomme plus que le registre BD. Une demande
+  // ancienne libellée « Projets » aurait alors ouvert au validateur un module sans rapport avec
+  // ce qu'il doit décider. Le lien, lui, désigne l'objet même qu'il doit ouvrir — c'est la seule
+  // raison d'être de cet accès temporaire.
+  if (fromLabel && fromLink && fromLabel !== fromLink) return fromLink;
+  if (moduleLabel && LIBELLES_REEMPLOYES.has(moduleLabel.trim())) return fromLink;
   if (fromLabel && fromLabel !== "VALIDATIONS") return fromLabel;
-  return (link ? moduleFromLink(link) : null) ?? fromLabel;
+  return fromLink ?? fromLabel;
 }
 
 // ───────────────────────── Effective (resolved) access ─────────────────────────
@@ -1123,28 +1171,32 @@ export function annuaireOuvertParConsole(user: SessionUser, cle: AnnuaireAccorda
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
- * BD › PROJETS — le sous-module qui survit au retrait de Business Development.
+ * BD › PROJETS — un module à part, réglé depuis la console (§118.163).
  *
- * Le module est retiré du service (`modules-retired.ts`, 2026-09) et le reste : `userCan` répond
- * NON sur `BUSINESS_DEVELOPMENT` pour tout le monde. Ces deux portes-ci ne passent donc PAS par
- * lui — sans quoi rouvrir Projets rouvrirait aussi Market Intelligence, ses actions serveur et
- * l'accès générique d'Adam au module entier : l'empreinte réelle dépasserait la demande.
+ * Décision de la Direction (30/09/2026) : « le module Projets dans Business Development : donne la
+ * permission au Super Admin de gérer l'accès au module depuis Super Admin ».
  *
- * VOIR — quiconque voit Regulatory. L'écran est une LECTURE Regulatory du registre de projets
- * (« ce projet contient quels dossiers, et où en est chacun ? ») et les dossiers qu'il affiche
- * passent déjà par `regulatoryVisibleWhere` : il ne montre rien de plus que le tableau Regulatory.
+ * Le registre survivait au retrait de Market Intelligence par une porte DÉDUITE (« quiconque voit
+ * Regulatory »), qui ne passait pas par le module retiré. Elle avait raison sur ce point et le garde
+ * — `BUSINESS_DEVELOPMENT` reste retiré, `userCan` y répond NON pour tout le monde, sinon rouvrir
+ * Projets rouvrirait Market Intelligence, ses actions et l'accès générique d'Adam (§118.16). Mais
+ * une porte déduite ne se RÈGLE pas : aucune case de la console ne l'ouvrait ni ne la fermait.
+ * Elle devient donc un module, `BD_PROJECTS`, et ces deux prédicats le lisent.
  *
- * GÉRER — le Super Admin, et lui seul. C'est la demande telle qu'elle a été formulée : « classer
- * chaque dossier par projet que LE SUPER ADMIN a nommé/créé ». Nommer un projet est un geste de
- * référentiel : la liste doit être stable pour que le classement veuille dire quelque chose.
+ * VOIR — le droit de lecture du module (par défaut : chaque rôle qui voit Regulatory, voir sous
+ * `PERMISSIONS`). Ce que l'écran montre d'un projet — ses dossiers — reste filtré par
+ * `regulatoryVisibleWhere` : ouvrir le registre à quelqu'un ne lui ouvre aucun dossier.
+ *
+ * GÉRER — le droit de MODIFIER le module (par défaut : le Super Admin seul, qui tient tous les
+ * modules). Créer et supprimer lisent leur geste propre (`CREATE`, `DELETE`) dans les actions.
  * ═══════════════════════════════════════════════════════════════════════════════════════════
  */
 export function canViewBdProjects(user: SessionUser): boolean {
-  return userCan(user, "REGULATORY", "VIEW");
+  return userCan(user, "BD_PROJECTS", "VIEW");
 }
 
 export function canManageBdProjects(user: SessionUser): boolean {
-  return user.role === "SUPER_ADMIN";
+  return userCan(user, "BD_PROJECTS", "UPDATE");
 }
 
 /** Modules the user can at least view — drives the sidebar. */
@@ -1277,25 +1329,22 @@ export function scopeCongressNational(user: SessionUser): Prisma.CongressNationa
 /** Projets BD (Projet → Gamme → Produit) : scope ALL voit tout ; sinon le
  *  propriétaire du projet + les projets explicitement accordés (RowGrant). */
 export function scopeBdProject(user: SessionUser): Prisma.BdProjectWhereInput {
-  const m = user.access.modules.get("BUSINESS_DEVELOPMENT");
+  const m = user.access.modules.get("BD_PROJECTS");
   /**
-   * LE MODULE EST RETIRÉ, LE REGISTRE NE L'EST PAS.
+   * LA PORTÉE SE LIT SUR LE MODULE `BD_PROJECTS` LUI-MÊME (§118.163) : sans le module, rien ;
+   * avec, la portée que la console lui a donnée — tout le registre par défaut (`defaultScope`).
    *
-   * Sans cette branche, la portée rend « rien » à TOUT LE MONDE — c'est la conséquence
-   * mécanique du retrait, et elle atteint quatre lecteurs : l'écran Projets, la porte par
-   * ligne, la liste déroulante « Projet » de Regulatory, et la fiche d'un projet. Un écran qui
-   * s'ouvre et ne montre jamais rien est PIRE qu'un écran fermé : il se lit comme « il n'y a
-   * aucun projet », et personne ne va chercher plus loin.
-   *
-   * C'est §118.61 : déplacer une garde oblige à retrouver TOUS ceux qui lisaient l'ancienne.
-   * Ici la question s'est posée en exécutant — le Super Admin ne pouvait pas renommer le projet
-   * qu'il venait de créer.
+   * Elle a longtemps été DÉDUITE de Regulatory, parce que le registre vivait sous
+   * `BUSINESS_DEVELOPMENT`, un module retiré que `getAccess` n'accorde à personne : sans cette
+   * déduction, la portée rendait « rien » à TOUT LE MONDE, et quatre lecteurs le payaient —
+   * l'écran Projets, la porte par ligne, la liste déroulante « Projet » de Regulatory et la fiche
+   * d'un projet (§118.61). Le module propre remplace la déduction : la console l'ouvre ou le ferme,
+   * et le défaut reproduit exactement l'ancienne porte (qui voit Regulatory lit le registre).
    *
    * Le registre est une liste d'ÉTIQUETTES : ce qu'un projet contient (les dossiers) reste filtré
-   * par `regulatoryVisibleWhere`, donc l'ouvrir à qui voit Regulatory ne montre rien de plus que
-   * le tableau Regulatory.
+   * par `regulatoryVisibleWhere`, et l'ENTITÉ du projet se compose à part (`projetsBdVisibles`).
    */
-  if (!m) return canViewBdProjects(user) ? {} : { id: "__none__" };
+  if (!m) return { id: "__none__" };
   if (m.scope === "ALL") return {};
   const ors: Prisma.BdProjectWhereInput[] = [{ ownerId: user.id }];
   const ids = grantsFor(user, "BD_PROJECT");

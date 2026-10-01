@@ -11,25 +11,27 @@ import { GesteIntegration } from "@/components/site-web/gestes-integration";
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
- * LA CONNEXION AU SITE (§118.159) — ce que le Super Admin a à faire, et rien de plus : un bouton,
- * un bloc à copier, un collage dans Render. Tout le reste s'affiche au lieu de se demander.
+ * LA CONNEXION AU SITE (§118.159, §118.160) — ce que le Super Admin a à faire, et rien de plus : un
+ * bouton, un bloc à copier, un collage dans Render. Tout le reste s'affiche au lieu de se demander.
  *
  * L'écran répond dans l'ordre aux questions qu'une personne qui n'est pas développeur se pose :
  * « Est-ce relié ? », « Qu'est-ce que je dois faire ? », « Est-ce que ça a marché ? ». Il ne montre
- * jamais une clé ACTIVE ; il montre la clé EN ATTENTE au seul Super Admin, tant qu'elle ne publie
- * encore rien.
+ * jamais une clé ACTIVE ; il montre la clé EN ATTENTE tant qu'elle ne publie encore rien.
+ *
+ * Cette carte ne vit QUE dans la console d'administration, que seul le Super Admin ouvre (§118.160) :
+ * elle n'a donc plus de variante « vous n'avez pas le droit ». Une carte à deux publics portait deux
+ * textes, et le second disait à la Direction « un Super Admin le relie depuis cette page » — une page
+ * où la Direction voyait des boutons de liaison qui refusaient.
  * ═══════════════════════════════════════════════════════════════════════════════════════════
  */
 export function CarteLiaison({
-  config, blocage, liaison, bloc, peutGerer, peutRapprocher,
+  config, blocage, liaison, bloc,
 }: {
   config: ApercuConfiguration;
   blocage: Blocage | null;
   liaison: EtatLiaison;
-  /** Le bloc à coller — fourni seulement au Super Admin, et seulement pour une clé en attente. */
+  /** Le bloc à coller — composé côté serveur, et seulement pour une clé en attente. */
   bloc: string | null;
-  peutGerer: boolean;
-  peutRapprocher: boolean;
 }) {
   const { sante, santeAu, attente } = liaison;
   const relie = config.configuree && !blocage;
@@ -40,7 +42,7 @@ export function CarteLiaison({
         <CardTitle className="flex items-center gap-2"><Globe2 className="h-4 w-4" /> Connexion au site</CardTitle>
         <div className="flex flex-wrap items-start gap-2">
           {(config.configuree || attente) && !blocage && <GesteIntegration geste="verifier" />}
-          {config.configuree && peutRapprocher && <GesteIntegration geste="rapprocher" />}
+          {config.configuree && <GesteIntegration geste="rapprocher" />}
         </div>
       </CardHeader>
       <CardContent className="space-y-4 text-sm">
@@ -73,7 +75,7 @@ export function CarteLiaison({
         {attente && (
           <div className="space-y-3 rounded-xl border border-primary/30 bg-primary/5 p-4">
             <p className="flex items-center gap-2 font-medium"><KeyRound className="h-4 w-4" /> Une seule chose à faire : coller ce bloc dans le site</p>
-            {peutGerer && bloc ? (
+            {bloc ? (
               <>
                 <ol className="list-decimal space-y-1 pl-5">
                   <li>Cliquez sur <span className="font-medium">« Copier le bloc »</span>.</li>
@@ -98,7 +100,9 @@ export function CarteLiaison({
                 )}
               </>
             ) : (
-              <p className="text-muted-foreground">Un Super Admin a généré une clé : il la colle dans l&apos;environnement du site.</p>
+              <p className="text-destructive">
+                Le bloc de cette clé ne peut plus être relu (la clé de chiffrement du serveur a changé) : abandonnez-la, puis générez-en une nouvelle.
+              </p>
             )}
             <p className="text-xs text-muted-foreground">
               Générée le {formatDateTime(attente.creeLe)} · empreinte <span className="font-mono">{attente.empreinte}</span>
@@ -109,7 +113,7 @@ export function CarteLiaison({
                 En attendant, les publications continuent avec la clé actuelle : rien ne se coupe pendant le changement.
               </p>
             )}
-            {peutGerer && <GesteIntegration geste="abandonner" variante="ghost" confirmation="Abandonner cette clé ? Elle ne sera jamais acceptée ; la clé actuelle reste en vigueur." />}
+            <GesteIntegration geste="abandonner" variante="ghost" confirmation="Abandonner cette clé ? Elle ne sera jamais acceptée ; la clé actuelle reste en vigueur." />
           </div>
         )}
 
@@ -117,16 +121,14 @@ export function CarteLiaison({
           <div className="space-y-2 rounded-xl border border-warning/40 bg-warning/5 p-4">
             <p className="font-medium">Le site n&apos;est pas encore relié à l&apos;ERP.</p>
             <p className="text-muted-foreground">
-              {peutGerer
-                ? "Cliquez sur « Générer la clé » : l'ERP fabrique la clé lui-même et vous montre un bloc à coller dans Render. Rien d'autre."
-                : "Un Super Admin le relie en un clic, depuis cette page."}
-              {" "}Les contenus publiés d&apos;ici là attendent en file et partiront d&apos;eux-mêmes.
+              Cliquez sur « Générer la clé » : l&apos;ERP fabrique la clé lui-même et vous montre un bloc à coller dans Render. Rien
+              d&apos;autre. Les contenus publiés d&apos;ici là attendent en file et partiront d&apos;eux-mêmes.
             </p>
-            {peutGerer && <GesteIntegration geste="generer" variante="primary" />}
+            <GesteIntegration geste="generer" variante="primary" />
           </div>
         )}
 
-        {peutGerer && !attente && config.configuree && (
+        {!attente && config.configuree && (
           <GesteIntegration
             geste="generer"
             libelle="Générer une nouvelle clé"

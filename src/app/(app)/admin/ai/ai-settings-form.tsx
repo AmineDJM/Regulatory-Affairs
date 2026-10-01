@@ -14,6 +14,7 @@ export interface AiSettings {
   processIntelEnabled: boolean;
   fieldReportAiEnabled: boolean;
   voiceTranscriptEnabled: boolean;
+  siteWebAiEnabled: boolean;
 }
 
 type FeatureKey = Exclude<keyof AiSettings, "masterEnabled">;
@@ -25,6 +26,7 @@ const FEATURES: { key: FeatureKey; label: string; desc: string }[] = [
   { key: "processIntelEnabled", label: "Process Intelligence", desc: "Synthèse IA des ralentissements et de la charge." },
   { key: "fieldReportAiEnabled", label: "Analyse des rapports terrain", desc: "Structuration IA des comptes rendus de visite." },
   { key: "voiceTranscriptEnabled", label: "Transcription vocale (Whisper)", desc: "Dictée → texte des rapports terrain (OpenAI)." },
+  { key: "siteWebAiEnabled", label: "Rédaction du site (articles et offres)", desc: "« Rédiger avec l'IA » : un brouillon d'article ou d'offre d'emploi, relu et publié par une personne." },
 ];
 
 function Toggle({ checked, onClick, disabled }: { checked: boolean; onClick: () => void; disabled?: boolean }) {

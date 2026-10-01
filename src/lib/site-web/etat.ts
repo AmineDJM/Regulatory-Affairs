@@ -181,8 +181,80 @@ export async function etatIntegration(): Promise<EtatIntegration> {
  * frappe (et sans rien inventer : aucun rapprochement encore, aucune liste).
  */
 export async function slugsDuDepotConnus(): Promise<{ slugs: string[]; au: Date | null }> {
-  const r = await prisma.siteReconciliation.findFirst({ where: { ok: true }, orderBy: { startedAt: "desc" }, select: { depotSlugs: true, startedAt: true } });
-  return { slugs: r?.depotSlugs ?? [], au: r?.startedAt ?? null };
+  const [r, reprises] = await Promise.all([
+    prisma.siteReconciliation.findFirst({ where: { ok: true }, orderBy: { startedAt: "desc" }, select: { depotSlugs: true, startedAt: true } }),
+    prisma.siteReprise.findMany({ where: { origine: "ARTICLE_DEPOT" }, select: { cleSite: true } }),
+  ]);
+  // UN FICHIER REPRIS PAR L'ERP N'EST PLUS UNE ADRESSE « DU DÉPÔT » (§118.160) : l'article repris la
+  // garde — c'est sa propre adresse, et lui refuser de s'enregistrer sous elle empêcherait de corriger
+  // l'article même qu'on vient de reprendre pour le corriger. Le site cache le fichier dès qu'il a
+  // notre version ; la liste du dernier rapprochement, elle, a pu être lue avant.
+  const reprisesSlugs = new Set(reprises.map((x) => x.cleSite));
+  return { slugs: (r?.depotSlugs ?? []).filter((s) => !reprisesSlugs.has(s)), au: r?.startedAt ?? null };
+}
+
+// ───────────────────────────── La reprise des contenus du site (§118.160) ─────────────────────────────
+
+export interface LigneReprise {
+  id: string;
+  origine: string;
+  cleSite: string;
+  titre: string;
+  le: Date;
+  /** La fiche de l'ERP — nulle quand le contenu repris a depuis été SUPPRIMÉ dans l'ERP. */
+  lien: string | null;
+  publie: boolean | null;
+}
+
+export interface EtatReprise {
+  lignes: LigneReprise[];
+  /** Le dépôt du site a-t-il déjà été lu une fois ? Non : la reprise n'a pas encore eu lieu. */
+  depotLu: boolean;
+  /** Le dernier passage qui a TENTÉ la reprise, et ce qu'il en a dit. */
+  dernier: {
+    at: Date;
+    lue: boolean;
+    impossible: string | null;
+    aCorriger: { titre: string; raison: string; id: string; nature: string }[];
+    conflits: { titre: string; raison: string }[];
+    rechargement: { fichiers: string[]; message: string } | null;
+  } | null;
+}
+
+/** CE QUI A ÉTÉ REPRIS DU SITE, et où en est la reprise — pour l'écran de la liaison. */
+export async function etatReprise(): Promise<EtatReprise> {
+  const [lignes, dernier, lu] = await Promise.all([
+    prisma.siteReprise.findMany({
+      orderBy: [{ origine: "asc" }, { titre: "asc" }],
+      select: {
+        id: true, origine: true, cleSite: true, titre: true, createdAt: true, articleId: true, jobId: true,
+        article: { select: { published: true } }, job: { select: { published: true } },
+      },
+    }),
+    prisma.siteReconciliation.findFirst({ where: { ok: true }, orderBy: { startedAt: "desc" }, select: { startedAt: true, repriseLue: true, reprise: true } }),
+    prisma.siteReconciliation.findFirst({ where: { ok: true, repriseLue: true }, select: { id: true } }),
+  ]);
+  const j = dernier?.reprise && typeof dernier.reprise === "object" && !Array.isArray(dernier.reprise)
+    ? (dernier.reprise as Record<string, unknown>) : null;
+  const liste = <T,>(v: unknown): T[] => (Array.isArray(v) ? (v as T[]) : []);
+  const recharge = j?.rechargement && typeof j.rechargement === "object" ? (j.rechargement as { fichiers?: unknown; message?: unknown }) : null;
+  return {
+    lignes: lignes.map((l) => ({
+      id: l.id, origine: l.origine, cleSite: l.cleSite, titre: l.titre, le: l.createdAt,
+      lien: l.articleId ? `/site-web/articles/${l.articleId}` : l.jobId ? `/site-web/offres/${l.jobId}` : null,
+      publie: l.article?.published ?? l.job?.published ?? null,
+    })),
+    depotLu: Boolean(lu),
+    dernier: dernier ? {
+      at: dernier.startedAt,
+      lue: dernier.repriseLue,
+      impossible: typeof j?.impossible === "string" ? j.impossible : null,
+      aCorriger: liste(j?.aCorriger),
+      conflits: liste(j?.conflits),
+      rechargement: recharge && typeof recharge.message === "string"
+        ? { fichiers: Array.isArray(recharge.fichiers) ? recharge.fichiers.map(String) : [], message: recharge.message } : null,
+    } : null,
+  };
 }
 
 // ───────────────────────────── La liaison (§118.159) ─────────────────────────────

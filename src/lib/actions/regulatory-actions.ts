@@ -20,6 +20,7 @@ import {
 } from "@/lib/regulatory/structural-fields";
 import { canAccessEntity } from "@/lib/entity-access";
 import { prisma } from "@/lib/prisma";
+import { projetsBdVisibles } from "@/lib/queries/bd";
 import { buildRef } from "@/lib/refs";
 import { recordAudit } from "@/lib/audit";
 import { notifyUser, notifyRoles } from "@/lib/notify";
@@ -1298,14 +1299,15 @@ export async function setRegulatoryClassification(formData: FormData): Promise<A
 
   // LE PROJET BD — une ÉTIQUETTE de classement, comme les segments : elle n'ouvre ni ne ferme
   // aucun accès (contrairement à l'entité), donc elle suit le droit de MODIFIER le dossier et
-  // non le privilège structurel. Le projet est vérifié EXISTANT : accepter un identifiant
-  // inconnu rangerait le dossier dans un projet que personne ne pourrait plus retrouver, et
-  // l'écran afficherait une case vide sans rien dire.
+  // non le privilège structurel. Le projet est vérifié VISIBLE, par la clause même du menu qui le
+  // propose (`projetsBdVisibles`, §118.163) : un identifiant que le menu ne donne pas — inconnu,
+  // ou d'un projet que la personne ne voit pas — rangerait le dossier dans un projet qu'elle ne
+  // pourrait plus retrouver, et le tableau afficherait une case vide sans rien dire.
   if (formData.has("bdProjectId")) {
     const projectId = str(formData, "bdProjectId");
     if (projectId) {
-      const known = await prisma.bdProject.count({ where: { id: projectId } });
-      if (!known) return { ok: false, error: "Projet inconnu." };
+      const visible = await prisma.bdProject.count({ where: { AND: [{ id: projectId }, await projetsBdVisibles(user)] } });
+      if (!visible) return { ok: false, error: "Projet inconnu, ou que vous ne voyez pas (module « Projets », ou autre entité)." };
     }
     data.bdProjectId = projectId || null;
   }

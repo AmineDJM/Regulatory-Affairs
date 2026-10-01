@@ -219,6 +219,17 @@ describe("comparer ce que l'ERP veut à ce que le site détient — sans fausses
     expect(ecartsArticle(voulu, site)).toEqual(["published"]);
   });
 
+  it("le corps ne se juge que si le site le REND — et un corps rendu différent EST un écart (§118.160)", () => {
+    // Mesuré sur le vrai site : sa liste omettait `body`, et chaque rapprochement repoussait TOUS
+    // les articles en les croyant modifiés. Les deux moitiés, sans quoi la garde serait vraie à tort.
+    const voulu = corpsArticle(ARTICLE, new Date());
+    const { body: _b, ...sansCorps } = voulu;
+    void _b;
+    expect(ecartsArticle(voulu, sansCorps), "un champ que le site ne rend pas ne prouve rien").toEqual([]);
+    expect(ecartsArticle(voulu, { ...voulu, body: `${voulu.body}\n\nUne phrase de plus.` })).toEqual(["body"]);
+    expect(ecartsArticle(voulu, { ...voulu, body: "" }), "un corps VIDE rendu n'est pas un corps absent").toEqual(["body"]);
+  });
+
   it("le slug ne se compare que s'il a été envoyé", () => {
     const sans = corpsArticle(ARTICLE, new Date());
     expect(ecartsArticle(sans, { ...sans, slug: "derive-par-le-site" })).toEqual([]);

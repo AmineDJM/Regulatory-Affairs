@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { ECRAN_LIAISON } from "./ecran";
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
@@ -124,7 +125,7 @@ export function empreinteCle(cle: string): string {
 }
 
 export const RAISON_NON_RELIE =
-  "Le site n'est pas encore relié : un Super Admin génère la clé depuis Site web — un bloc à coller dans Render, rien d'autre.";
+  `Le site n'est pas encore relié : un Super Admin génère la clé depuis ${ECRAN_LIAISON.nom} — un bloc à coller dans Render, rien d'autre.`;
 
 /**
  * LIT LA CONFIGURATION — l'adresse, et la clé stockée par l'ERP si elle existe, sinon celle de

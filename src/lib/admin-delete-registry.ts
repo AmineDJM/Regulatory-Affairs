@@ -1,5 +1,7 @@
 import type { EntityType } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { inventorier } from "@/lib/suppression/lot";
+import { resumeDesLiens } from "@/lib/suppression/branches";
 
 /**
  * LE REGISTRE des suppressions définitives — la source de vérité UNIQUE, partagée par :
@@ -42,7 +44,9 @@ export type DeletableKind =
   | "MAIL_ENTRY"
   | "LEGAL_DOCUMENT"
   | "CONVERSATION"
-  | "NOTIFICATION";
+  | "NOTIFICATION"
+  | "CONSULTING_CONTRACT"
+  | "AD_PRO_OTHER";
 
 export interface KindSpec {
   label: string; // libellé du type (« dossier réglementaire »)
@@ -98,6 +102,16 @@ export interface KindSpec {
    * personne ne saurait d'où vient l'écart. Absent = rien à compenser (le cas courant).
    */
   restored?: (id: string) => Promise<void>;
+  /**
+   * CETTE LIGNE EMPORTE SES BRANCHES (§118.162) — sa déclaration d'information médicale, ses
+   * demandes au secrétariat, son circuit, ses visas, ses pièces au registre, ses postes… tout ce
+   * qui n'existe que pour elle part dans le MÊME lot de corbeille et revient avec lui. Et elle
+   * refuse de partir quand une branche porte un fait qui a quitté l'ERP (règlement, signature,
+   * déclaration aux autorités, courrier inscrit). Voir `lib/suppression/`.
+   *
+   * Absent = l'ancien comportement : la ligne seule, ses pièces et ses commentaires.
+   */
+  lot?: boolean;
 }
 
 export const DELETE_REGISTRY: Record<DeletableKind, KindSpec> = {
@@ -122,6 +136,7 @@ export const DELETE_REGISTRY: Record<DeletableKind, KindSpec> = {
     redirect: "/sponsoring",
     model: "sponsoringRequest",
     entityType: "SPONSORING",
+    lot: true,
     searchFields: ["reference", "institution"],
     async describe(id) {
       const r = await prisma.sponsoringRequest.findUnique({ where: { id }, select: { reference: true, institution: true } });
@@ -136,6 +151,10 @@ export const DELETE_REGISTRY: Record<DeletableKind, KindSpec> = {
     module: "Événements",
     redirect: "/events",
     model: "event",
+    // Il manquait : les pièces jointes et commentaires d'un événement supprimé restaient en base,
+    // rattachés à rien — et la restauration ne les rendait pas.
+    entityType: "EVENT",
+    lot: true,
     searchFields: ["name"],
     async describe(id) {
       const r = await prisma.event.findUnique({ where: { id }, select: { name: true } });
@@ -257,8 +276,8 @@ export const DELETE_REGISTRY: Record<DeletableKind, KindSpec> = {
     },
   },
   DOSSIER: {
-    label: "projet",
-    module: "Projets",
+    label: "sujet",
+    module: "Sujets",
     redirect: "/dossiers",
     model: "dossier",
     entityType: "DOSSIER",
@@ -362,11 +381,16 @@ export const DELETE_REGISTRY: Record<DeletableKind, KindSpec> = {
     },
   },
   BD_PROJECT: {
-    label: "projet (Business Development)",
-    module: "Business Development",
-    redirect: "/business-development",
+    label: "projet",
+    module: "Projets",
+    // L'écran « Projets » (module `BD_PROJECTS`, §118.163) — et non plus la racine de Market
+    // Intelligence, retirée : un retour après suppression vers une page qui ne s'ouvre pas.
+    redirect: "/business-development/projets",
     model: "bdProject",
     entityType: "BD_PROJECT",
+    // Ses gammes et ses produits partent en cascade, et chaque dossier réglementaire classé perd
+    // son projet : un lot les instantane tous, et tout revient ensemble à la restauration.
+    lot: true,
     searchFields: ["name"],
     async describe(id) {
       const r = await prisma.bdProject.findUnique({ where: { id }, select: { name: true } });
@@ -457,6 +481,7 @@ export const DELETE_REGISTRY: Record<DeletableKind, KindSpec> = {
     redirect: "/information-medicale",
     model: "medicalInfoDeclaration",
     entityType: "MEDICAL_INFO_DECLARATION",
+    lot: true,
     searchFields: ["reference", "label"],
     async describe(id) {
       const r = await prisma.medicalInfoDeclaration.findUnique({ where: { id }, select: { reference: true, label: true } });
@@ -472,6 +497,7 @@ export const DELETE_REGISTRY: Record<DeletableKind, KindSpec> = {
     redirect: "/promo-material",
     model: "promoMaterial",
     entityType: "PROMO_MATERIAL",
+    lot: true,
     searchFields: ["reference", "title"],
     async describe(id) {
       const r = await prisma.promoMaterial.findUnique({ where: { id }, select: { reference: true, title: true } });
@@ -487,6 +513,7 @@ export const DELETE_REGISTRY: Record<DeletableKind, KindSpec> = {
     redirect: "/congress-international",
     model: "congressInternational",
     entityType: "CONGRESS_INTERNATIONAL",
+    lot: true,
     searchFields: ["name"],
     async describe(id) {
       const r = await prisma.congressInternational.findUnique({ where: { id }, select: { name: true } });
@@ -502,6 +529,7 @@ export const DELETE_REGISTRY: Record<DeletableKind, KindSpec> = {
     redirect: "/congress-national",
     model: "congressNational",
     entityType: "CONGRESS_NATIONAL",
+    lot: true,
     searchFields: ["name"],
     async describe(id) {
       const r = await prisma.congressNational.findUnique({ where: { id }, select: { name: true } });
@@ -562,6 +590,44 @@ export const DELETE_REGISTRY: Record<DeletableKind, KindSpec> = {
     },
     async remove(id) {
       await prisma.legalDocument.delete({ where: { id } });
+    },
+  },
+
+  /**
+   * UN CONTRAT DE CONSULTING et UNE « AUTRE DEMANDE » Ad & Pro — les deux natures du pôle qui
+   * n'avaient AUCUNE suppression (§118.162). « Toute demande est liée du début à la fin à ses
+   * branches » ne pouvait pas valoir pour cinq natures sur sept : elles passent par le même lot.
+   */
+  CONSULTING_CONTRACT: {
+    label: "contrat de consulting",
+    module: "Consulting",
+    redirect: "/consulting",
+    model: "consultingContract",
+    entityType: "CONSULTING_CONTRACT",
+    lot: true,
+    searchFields: ["reference", "title"],
+    async describe(id) {
+      const r = await prisma.consultingContract.findUnique({ where: { id }, select: { reference: true, title: true } });
+      return r ? `${r.reference} — ${r.title}` : null;
+    },
+    async remove(id) {
+      await prisma.consultingContract.delete({ where: { id } });
+    },
+  },
+  AD_PRO_OTHER: {
+    label: "autre demande Ad & Pro",
+    module: "Ad & Pro",
+    redirect: "/ad-pro/autres",
+    model: "adProOtherRequest",
+    entityType: "AD_PRO_OTHER",
+    lot: true,
+    searchFields: ["reference", "title"],
+    async describe(id) {
+      const r = await prisma.adProOtherRequest.findUnique({ where: { id }, select: { reference: true, title: true } });
+      return r ? `${r.reference} — ${r.title}` : null;
+    },
+    async remove(id) {
+      await prisma.adProOtherRequest.delete({ where: { id } });
     },
   },
 
@@ -658,4 +724,55 @@ export function deleteDelegateOf(spec: KindSpec) {
     findMany: (a: { where: Record<string, unknown>; select: { id: true }; take: number }) => Promise<{ id: string }[]>;
     create: (a: { data: Record<string, unknown> }) => Promise<unknown>;
   }>)[spec.model];
+}
+
+/** Le nom du MODÈLE Prisma d'une entrée du registre — son délégué, première lettre capitale. */
+export function modeleDuRegistre(spec: KindSpec): string {
+  return spec.model.charAt(0).toUpperCase() + spec.model.slice(1);
+}
+
+/**
+ * LE REFUS D'UN LOT — ce qui a quitté l'ERP, nommé. Pas de faux remède : quand un règlement est
+ * parti ou qu'une pièce est signée, la demande EST la justification de ce fait, elle reste.
+ */
+export function refusDuLot(bloquants: readonly string[]): string {
+  return `Suppression refusée : ${bloquants.join(" ; ")}. Cet élément justifie ces faits — le supprimer les laisserait sans cause, il reste donc au registre. (Un courrier inscrit se retire d'abord depuis le registre des courriers, si c'est bien voulu.)`;
+}
+
+/** Ce qu'une suppression emportera, et ce qui l'interdit — lu AVANT de confirmer (§118.53). */
+export interface ApercuSuppression {
+  nom: string | null;
+  /** « 2 postes », « 1 déclaration d'information médicale »… Vide : l'élément part seul. */
+  emporte: string[];
+  /**
+   * CE QUI RESTE mais PERD SON LIEN avec lui — « 3 dossiers réglementaires » perdent leur projet.
+   * Ces lignes ne partent pas : leur lien est vidé, noté, et rétabli à la restauration. Le taire
+   * laisserait croire qu'un projet supprimé ne touche à rien, alors que trois dossiers perdent leur
+   * classement au même clic (§118.53, §118.163).
+   */
+  detache: string[];
+  refus: string | null;
+  /** Vrai : ce qui part avec l'élément REVIENT avec lui à la restauration. */
+  lot: boolean;
+}
+
+/**
+ * L'APERÇU — le MÊME inventaire que la suppression, lu sans rien écrire. L'écran (bouton rouge)
+ * et Adam (carte de confirmation) le lisent tous deux : deux rédactions de « ce qui part avec »
+ * finiraient par dire deux choses différentes (§118.5).
+ */
+export async function apercuSuppression(kind: DeletableKind, id: string): Promise<ApercuSuppression> {
+  const spec = DELETE_REGISTRY[kind];
+  const refusPropre = spec.refuse ? await spec.refuse(id) : null;
+  const nom = await spec.describe(id);
+  if (!spec.lot || nom === null) return { nom, emporte: [], detache: [], refus: refusPropre, lot: Boolean(spec.lot) };
+  const inv = await inventorier(modeleDuRegistre(spec), id);
+  if (!inv) return { nom: null, emporte: [], detache: [], refus: refusPropre, lot: true };
+  return {
+    nom,
+    emporte: inv.resume,
+    detache: resumeDesLiens(inv.liensExternes),
+    refus: refusPropre ?? (inv.bloquants.length ? refusDuLot(inv.bloquants) : null),
+    lot: true,
+  };
 }

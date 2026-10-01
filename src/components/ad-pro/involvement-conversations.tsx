@@ -47,7 +47,7 @@ export function InvolvementConversations({
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <h3 className="text-sm font-semibold">Avec {t.personName}</h3>
                 <Link href={`/dossiers/${t.dossierId}`} className="inline-flex items-center gap-1 text-xs text-primary hover:underline">
-                  Ouvrir le projet <ExternalLink className="h-3 w-3" />
+                  Ouvrir le sujet <ExternalLink className="h-3 w-3" />
                 </Link>
               </div>
 

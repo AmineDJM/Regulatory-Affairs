@@ -127,7 +127,7 @@ export function ModuleAccessGrid({
           fd.set(`mode_${u.id}`, r.mode);
           if (r.mode === "CUSTOM") {
             for (const a of cols) if (r.actions[a]) fd.set(`act_${u.id}_${a}`, "on");
-            // Drive & Projets : portée toujours cloisonnée (privé), jamais « tout ».
+            // Drive & Sujets : portée toujours cloisonnée (privé), jamais « tout ».
             fd.set(`scope_${u.id}`, module === "DRIVE" || module === "DOSSIERS" ? "ASSIGNED" : r.scope);
             // Les annuaires : lus depuis l'ÉTAT, comme les gestes — un compte que la recherche
             // masque garde ses annuaires au lieu de les perdre à l'enregistrement.
@@ -321,7 +321,7 @@ export function ModuleAccessGrid({
                   )}
                   <TableCell>
                     {module === "DRIVE" || module === "DOSSIERS" ? (
-                      <span className="text-xs text-muted-foreground" title="Confidentialité stricte : l'utilisateur ne voit que ses propres fichiers / projets et ceux qu'on lui a partagés ou confiés.">Privé (assignées)</span>
+                      <span className="text-xs text-muted-foreground" title="Confidentialité stricte : l'utilisateur ne voit que ses propres fichiers / sujets et ceux qu'on lui a partagés ou confiés.">Privé (assignées)</span>
                     ) : spec?.rowScoped ? (
                       <Select value={r.scope} disabled={!custom} onChange={(e) => update(u.id, { scope: e.target.value as "ALL" | "ASSIGNED" })} className="h-8 w-36 text-xs">
                         <option value="ALL">Toutes les lignes</option>

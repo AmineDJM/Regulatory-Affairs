@@ -46,6 +46,16 @@ let lecteur: CurrentUser;
 const tenus = new Set<string>();
 const SABOTAGES = 17;
 
+/**
+ * LE JOUR DU BANC — la date à laquelle ces faits sont JUGÉS. Les faits portent une date fixe
+ * (`horodatage`), et la calibration juge la fraîcheur d'une COPIE contre « maintenant » (§118.55) :
+ * sans jour fixé, le cas « une lecture OCR n'est jamais certaine » est passé de PROBABLE à PÉRIMÉ le
+ * 1er octobre 2026, trente jours après la date du fait — rouge un matin, sur une règle juste. Un juge
+ * relatif à « aujourd'hui » ne prouve une règle de calendrier que les jours où le calendrier le veut
+ * bien (§118.131) : chaque `calibrer` de ce banc reçoit ce jour-là.
+ */
+const JOUR_DU_BANC = { maintenant: new Date("2026-09-02T00:00:00.000Z") } as const;
+
 const fait = (p: Partial<FaitCalibrable> & Pick<FaitCalibrable, "id" | "libelle" | "valeur">): FaitCalibrable => ({
   nature: "ERP", outil: "inspect_record", confiance: 0.95, base: "native", fraicheur: "TEMPS_REEL", horodatage: "2026-09-01T00:00:00.000Z", preuveNegative: null, ...p,
 });
@@ -125,10 +135,10 @@ suite("sabotages — quatorze situations adverses, tenues par le code", () => {
   }, 60_000);
 
   it("3. source obsolète ou non sûre : une lecture OCR ou de modèle n'est jamais CERTAINE → vérifier avant d'agir", () => {
-    const ocr = calibrer([fait({ id: "f1", libelle: "Total TTC", valeur: "142 800", nature: "DOCUMENT", outil: "read_document", base: "ocr", confiance: 0.6, fraicheur: "INDEXEE" })]);
+    const ocr = calibrer([fait({ id: "f1", libelle: "Total TTC", valeur: "142 800", nature: "DOCUMENT", outil: "read_document", base: "ocr", confiance: 0.6, fraicheur: "INDEXEE" })], JOUR_DU_BANC);
     expect(ocr.certitude).toBe("PROBABLE");
     expect(ocr.conduite).toBe("VERIFIER");
-    const luna = calibrer([fait({ id: "f2", libelle: "Fournisseur", valeur: "Kwality", nature: "DOCUMENT", outil: "read_document", base: "luna", confiance: 0.97 })]);
+    const luna = calibrer([fait({ id: "f2", libelle: "Fournisseur", valeur: "Kwality", nature: "DOCUMENT", outil: "read_document", base: "luna", confiance: 0.97 })], JOUR_DU_BANC);
     expect(luna.certitude).not.toBe("CERTAIN");
     tenus.add("source_obsolete");
   });
@@ -137,7 +147,7 @@ suite("sabotages — quatorze situations adverses, tenues par le code", () => {
     const c = calibrer([
       fait({ id: "e1", libelle: "Chiffre d'affaires 2025", valeur: "15 000 000 DZD", nature: "ERP", outil: "finance_totals" }),
       fait({ id: "x1", libelle: "Chiffre d'affaires 2025", valeur: "17 000 000 DZD", nature: "DOCUMENT", outil: "read_spreadsheet", confiance: 0.9 }),
-    ]);
+    ], JOUR_DU_BANC);
     expect(c.certitude).toBe("CONTRADICTION");
     expect(c.conduite).toBe("ARBITRER");
     expect(c.contradictions).toHaveLength(1);
@@ -244,7 +254,7 @@ suite("sabotages — quatorze situations adverses, tenues par le code", () => {
     const c = calibrer([
       fait({ id: "s1", libelle: "Pénalité contractuelle", valeur: "10 %", nature: "DOCUMENT", outil: "specialiste:legal", confiance: 0.9 }),
       fait({ id: "s2", libelle: "Pénalité contractuelle", valeur: "5 %", nature: "DOCUMENT", outil: "specialiste:finance", confiance: 0.9 }),
-    ]);
+    ], JOUR_DU_BANC);
     expect(c.certitude).toBe("CONTRADICTION");
     expect(c.conduite).toBe("ARBITRER");
     expect(c.contradictions[0].outils.sort()).toEqual(["specialiste:finance", "specialiste:legal"]);

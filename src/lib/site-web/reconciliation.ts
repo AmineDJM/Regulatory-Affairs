@@ -9,6 +9,10 @@ import { configurationEnVigueur } from "./cles";
 import { voulusDepuisLaBase } from "./contenus";
 import { blocageEnVigueur, bloquerPourConfiguration, empreinteCorps, mettreEnFile, viderFile } from "./file";
 import { envoyerAuSite, type ReponseSite, type TransportSite } from "./transport";
+import { ECRAN_LIAISON } from "./ecran";
+import { lireDepotDuSite } from "./reprise-lecture";
+import { reprendreDuSite, repriseImpossible, type BilanReprise } from "./reprise";
+import type { CorpsSuppression, EnregistrementSite } from "./contrat";
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
@@ -30,8 +34,18 @@ import { envoyerAuSite, type ReponseSite, type TransportSite } from "./transport
  *
  * Un contenu que le site a REFUSÉ tel quel (4xx) n'est pas repoussé tel quel chaque nuit : il est
  * compté « rejeté », et c'est à une personne de le corriger.
+ *
+ * ET ELLE REPREND CE QUE LE SITE A ÉCRIT LUI-MÊME (§118.160) : les articles de son dépôt, ses offres
+ * d'exemple, les offres saisies dans son administration deviennent des contenus de l'ERP
+ * (`reprise.ts`), puis partent remplacer la copie du site par le chemin ordinaire — la file, ses
+ * réessais, son journal. Tant que le site ne sait pas rendre son dépôt (ancienne version), le
+ * battement repasse toutes les heures au lieu d'une fois par jour, et l'écran le dit.
  * ═══════════════════════════════════════════════════════════════════════════════════════════
  */
+
+/** La phrase d'un site qui ne sait pas encore rendre son dépôt — elle nomme le geste qui la lève. */
+export const SITE_SANS_DEPOT =
+  "Le site n'est pas encore à jour : il ne sait pas rendre à l'ERP ses propres articles et offres. Sur Render, « Manual Deploy › Deploy latest commit » ; l'ERP réessaie toutes les heures.";
 
 export const INTERVALLE_RAPPROCHEMENT_MS = 24 * 3_600_000;
 /** Un rapprochement qui a échoué (site injoignable) se retente une heure plus tard, pas à chaque minute. */
@@ -47,10 +61,12 @@ export interface BilanRapprochement {
   rejetes: number;
   orphelins: number;
   collisions: number;
+  /** La reprise des contenus du site faite à ce passage (§118.160) — nulle quand rien n'a été lu. */
+  reprise: BilanReprise | null;
 }
 
 const vide = (message: string, id: string | null = null): BilanRapprochement => ({
-  ok: false, message, id, conformes: 0, repousses: 0, suppressions: 0, rejetes: 0, orphelins: 0, collisions: 0,
+  ok: false, message, id, conformes: 0, repousses: 0, suppressions: 0, rejetes: 0, orphelins: 0, collisions: 0, reprise: null,
 });
 
 function lireJson(texte: string | null): Record<string, unknown> | null {
@@ -116,17 +132,23 @@ export async function rapprocherSite(opts: OptionsRapprochement): Promise<BilanR
     return echec("Le site a répondu sans la liste attendue (`jobs` ou `posts`) : rien n'a été comparé.");
   }
 
+  // ── Reprendre ce que le site a écrit lui-même (§118.160) — AVANT de calculer ce que l'ERP veut :
+  //    les contenus repris en font partie, et partent remplacer la copie du site dans ce passage.
+  const reprise = await lireEtReprendre(transport, jobs.enregistrements, opts.parId ?? null, maintenant);
+  const reprisIds = new Set(reprise.repris.map((r) => `${r.nature}:${r.id}`));
+
   // ── Comparer à ce que l'ERP veut, et appliquer ───────────────────────────────────────
   const voulus = await voulusDepuisLaBase();
   const plan = planifierRapprochement(voulus, { jobs: jobs.enregistrements, posts: posts.enregistrements, depot });
   const cle = (nature: string, externalId: string) => `${nature}:${externalId}`;
   const voulusParCle = new Map(voulus.map((v) => [cle(v.nature, v.externalId), v] as const));
   const lignes = await prisma.sitePublication.findMany({
-    select: { id: true, kind: true, externalId: true, operation: true, state: true, bodyHash: true, lastStatus: true, claimedAt: true },
+    select: { id: true, kind: true, externalId: true, operation: true, state: true, body: true, bodyHash: true, lastStatus: true, claimedAt: true },
   });
   const lignesParCle = new Map(lignes.map((l) => [cle(l.kind, l.externalId), l] as const));
 
   let repousses = 0;
+  let reprisEnvoyes = 0;
   let rejetes = 0;
   let suppressions = 0;
   const ecarts: { nature: string; externalId: string; libelle: string; raison: string }[] = [];
@@ -143,8 +165,15 @@ export async function rapprocherSite(opts: OptionsRapprochement): Promise<BilanR
       continue;
     }
     const r = await mettreEnFile({ nature: p.nature, externalId: p.externalId, libelle: p.libelle, operation: "PUT", corps: v.corps, forcer: true });
-    if (r.enFile) repousses += 1;
-    ecarts.push({ nature: p.nature, externalId: p.externalId, libelle: p.libelle, raison: p.raison });
+    // Un contenu tout juste REPRIS n'est pas un écart rattrapé : c'est la version de l'ERP qui part
+    // remplacer celle du site. Le compter parmi les « repoussés » ferait lire une panne là où il n'y
+    // en a pas.
+    const repris = reprisIds.has(cle(p.nature, p.externalId));
+    if (r.enFile) {
+      if (repris) reprisEnvoyes += 1;
+      else repousses += 1;
+    }
+    ecarts.push({ nature: p.nature, externalId: p.externalId, libelle: p.libelle, raison: repris ? "repris du site — la version de l'ERP part remplacer celle du site" : p.raison });
   }
 
   // Connus de l'ERP mais refusés par le contrat du site dans leur état actuel : ni repoussés, ni
@@ -156,7 +185,11 @@ export async function rapprocherSite(opts: OptionsRapprochement): Promise<BilanR
   }
 
   for (const s of plan.aSupprimer) {
-    const r = await mettreEnFile({ nature: s.nature, externalId: s.externalId, libelle: s.libelle, operation: "DELETE", corps: null, forcer: true });
+    // Une suppression de contenu REPRIS garde le corps qu'elle portait (ce qu'elle remplaçait) : la
+    // rejouer sans lui laisserait le site sans la consigne de cacher sa propre copie.
+    const l = lignesParCle.get(cle(s.nature, s.externalId));
+    const corps = l?.operation === "DELETE" && l.body ? lireCorpsSuppression(l.body) : null;
+    const r = await mettreEnFile({ nature: s.nature, externalId: s.externalId, libelle: s.libelle, operation: "DELETE", corps, forcer: true });
     if (r.enFile) suppressions += 1;
     ecarts.push({ nature: s.nature, externalId: s.externalId, libelle: s.libelle, raison: "supprimé dans l'ERP, encore présent sur le site" });
   }
@@ -190,13 +223,21 @@ export async function rapprocherSite(opts: OptionsRapprochement): Promise<BilanR
       } else if (l.state === "DONE" && c.url) {
         await prisma.sitePublication.updateMany({ where: { id: l.id, siteUrl: null }, data: { siteUrl: c.url, siteSlug: c.slug } });
       }
-    } else if (l && l.operation === "DELETE" && l.state !== "DONE" && !l.claimedAt) {
+    } else if (l && l.operation === "DELETE" && l.state !== "DONE" && !l.claimedAt && !l.bodyHash) {
+      // (Une suppression de contenu REPRIS — elle porte un corps — n'est pas « faite » parce que le
+      // site ne détient pas l'enregistrement : elle doit encore lui dire de cacher SA copie. La file
+      // l'enverra ; c'est sa réponse qui la clôt.)
       await prisma.sitePublication.updateMany({
         where: { id: l.id, operation: "DELETE", claimedAt: null },
         data: { state: "DONE", confirmedHash: null, confirmedPublished: null, confirmedAt: maintenant, siteUrl: null, siteSlug: null, lastError: null },
       });
     }
   }
+
+  // ── Un article repris puis SUPPRIMÉ dans l'ERP que le site montre encore (§118.160) : le site a
+  //    perdu la consigne de le cacher (redémarré sans disque pendant que l'ERP était injoignable).
+  //    On lui demande de recharger ses contenus — la liste des fichiers à cacher en fait partie.
+  const rechargement = await rechargerSiFichierSupprimeVisible(transport, depot.map((d) => d.slug));
 
   const illisibles = jobs.illisibles + posts.illisibles;
   await prisma.siteReconciliation.update({
@@ -208,16 +249,25 @@ export async function rapprocherSite(opts: OptionsRapprochement): Promise<BilanR
       conformes: plan.conformes.length, repousses, suppressions, rejetes,
       orphelins: plan.orphelins, collisions: plan.collisions, ecarts, manuels: plan.manuels,
       depotSlugs: depot.map((d) => d.slug),
+      repriseLue: reprise.lue, repris: reprise.repris.length,
+      reprise: {
+        impossible: reprise.impossible, repris: reprise.repris, aCorriger: reprise.aCorriger, conflits: reprise.conflits,
+        illisibles: reprise.illisibles, rechargement,
+      },
     },
   });
 
   await signalerNouveautes(ligne.id, maintenant, plan);
 
   // Les repoussés partent maintenant, par la file — avec ses réessais et son journal.
-  if (repousses || suppressions) await viderFile({ transport: opts.transport, maintenant: opts.maintenant });
+  if (repousses || suppressions || reprisEnvoyes) await viderFile({ transport: opts.transport, maintenant: opts.maintenant });
 
   const morceaux = [
     `${plan.conformes.length} conforme(s)`,
+    reprise.repris.length ? `${reprise.repris.length} contenu(s) repris du site` : null,
+    reprise.aCorriger.length ? `${reprise.aCorriger.length} repris à corriger avant de remplacer la version du site` : null,
+    reprise.conflits.length ? `${reprise.conflits.length} non repris (adresse déjà prise dans l'ERP)` : null,
+    reprise.impossible ? `reprise impossible — ${reprise.impossible}` : null,
     repousses ? `${repousses} repoussé(s)` : null,
     suppressions ? `${suppressions} suppression(s) rejouée(s)` : null,
     rejetes ? `${rejetes} refusé(s) par le site, à corriger` : null,
@@ -227,7 +277,72 @@ export async function rapprocherSite(opts: OptionsRapprochement): Promise<BilanR
   return {
     ok: true, message: `Rapprochement fait : ${morceaux.join(", ")}.`, id: ligne.id,
     conformes: plan.conformes.length, repousses, suppressions, rejetes, orphelins: plan.orphelins.length, collisions: plan.collisions.length,
+    reprise,
   };
+}
+
+/** Relit le corps d'une suppression de contenu repris — `null` sur tout ce qui ne se lit pas à coup sûr. */
+function lireCorpsSuppression(body: string): CorpsSuppression | null {
+  const j = lireJson(body);
+  if (typeof j?.replacesFile === "string" && j.replacesFile) return { replacesFile: j.replacesFile };
+  if (typeof j?.replacesJob === "string" && j.replacesJob) return { replacesJob: j.replacesJob };
+  return null;
+}
+
+/**
+ * LIT LE DÉPÔT DU SITE ET REPREND ce que l'ERP n'en connaît pas (§118.160). Ne fait jamais échouer le
+ * rapprochement : une reprise impossible est DITE (site pas à jour, réponse illisible) et le reste du
+ * rapprochement se fait quand même.
+ */
+async function lireEtReprendre(
+  transport: TransportSite, jobsDuSite: readonly EnregistrementSite[], parId: string | null, maintenant: Date,
+): Promise<BilanReprise> {
+  let rep: ReponseSite;
+  try {
+    rep = await transport({ methode: "GET", chemin: "/repository" });
+  } catch (e) {
+    if (e instanceof SortieInterdite) return repriseImpossible("Sortie interdite dans ce processus (test ou banc) : le dépôt du site n'a pas été lu.");
+    return repriseImpossible(`GET /repository : ${e instanceof Error ? e.message : String(e)}`);
+  }
+  // Un site d'avant la reprise ne connaît pas cette adresse : 404. Ce n'est pas une panne.
+  if (rep.statut === 404) return repriseImpossible(SITE_SANS_DEPOT);
+  if (rep.statut !== 200) {
+    return repriseImpossible(`Le site n'a pas rendu son dépôt (${rep.statut === null ? (rep.erreur ?? "site injoignable") : `réponse ${rep.statut}`}) : nouvel essai au prochain rapprochement.`);
+  }
+  const depot = lireDepotDuSite(lireJson(rep.texte));
+  if (!depot) return repriseImpossible("Le site a rendu son dépôt sous une forme illisible : rien n'a été repris.");
+  return reprendreDuSite({ depot, manuels: jobsDuSite.filter((j) => !j.externalId), parId, maintenant });
+}
+
+/**
+ * UN FICHIER REPRIS PUIS SUPPRIMÉ, ENCORE VISIBLE ? Le site a perdu la liste des fichiers à cacher :
+ * on lui demande de recharger ses contenus depuis l'ERP (`POST /resync`), qui la lui redonne. Rien
+ * n'est tenté quand tout est en ordre — un rechargement n'est pas un geste gratuit pour le site.
+ */
+async function rechargerSiFichierSupprimeVisible(
+  transport: TransportSite, depotVisible: readonly string[],
+): Promise<{ fichiers: string[]; statut: number | null; message: string } | null> {
+  if (!depotVisible.length) return null;
+  const supprimes = await prisma.siteReprise.findMany({
+    where: { origine: "ARTICLE_DEPOT", articleId: null, cleSite: { in: [...depotVisible] } },
+    select: { cleSite: true },
+  });
+  if (!supprimes.length) return null;
+  const fichiers = supprimes.map((r) => r.cleSite).sort();
+  let rep: ReponseSite;
+  try {
+    rep = await transport({ methode: "POST", chemin: "/resync", corps: "" });
+  } catch (e) {
+    return { fichiers, statut: null, message: e instanceof SortieInterdite ? "Sortie interdite dans ce processus : aucun rechargement demandé." : String(e) };
+  }
+  const message = rep.statut === 200 || rep.statut === 202
+    ? "Le site recharge ses contenus : les articles supprimés dans l'ERP disparaissent de son blog."
+    : rep.statut === 429
+      ? "Le site vient de recharger ses contenus : nouvel essai au prochain rapprochement."
+      : rep.statut === 404
+        ? SITE_SANS_DEPOT
+        : `Rechargement refusé (${rep.statut ?? rep.erreur ?? "site injoignable"}) : nouvel essai au prochain rapprochement.`;
+  return { fichiers, statut: rep.statut, message };
 }
 
 /**
@@ -275,11 +390,16 @@ export async function rapprocherSiteSiDu(maintenant: Date = new Date(), transpor
   if (process.env.SITE_WEB_RECONCILIATION === "off") return null;
   if (rapprochementEnCours) return null;
   if (!(await configurationEnVigueur()).ok) return null;
-  const [dernierOk, dernier] = await Promise.all([
+  const [dernierOk, dernier, depotDejaLu] = await Promise.all([
     prisma.siteReconciliation.findFirst({ where: { ok: true }, orderBy: { startedAt: "desc" }, select: { startedAt: true } }),
     prisma.siteReconciliation.findFirst({ orderBy: { startedAt: "desc" }, select: { startedAt: true, ok: true } }),
+    prisma.siteReconciliation.findFirst({ where: { ok: true, repriseLue: true }, select: { id: true } }),
   ]);
-  if (dernierOk && maintenant.getTime() - dernierOk.startedAt.getTime() < INTERVALLE_RAPPROCHEMENT_MS) return null;
+  // TANT QUE LE DÉPÔT DU SITE N'A JAMAIS ÉTÉ LU (§118.160) — ERP tout juste déployé, site pas encore
+  // à jour —, le rapprochement repasse toutes les heures au lieu d'une fois par jour : la reprise des
+  // contenus du site ne doit pas attendre le lendemain, et elle se fait dès que le site sait répondre.
+  const intervalle = depotDejaLu ? INTERVALLE_RAPPROCHEMENT_MS : REESSAI_RAPPROCHEMENT_MS;
+  if (dernierOk && maintenant.getTime() - dernierOk.startedAt.getTime() < intervalle) return null;
   if (dernier && !dernier.ok && maintenant.getTime() - dernier.startedAt.getTime() < REESSAI_RAPPROCHEMENT_MS) return null;
   rapprochementEnCours = true;
   try {
@@ -324,7 +444,7 @@ export async function verifierSante(transport: TransportSite = envoyerAuSite): P
       authentifie: false,
       message: signature
         ? "Le site reconnaît la clé mais refuse la signature (401) : son secret de signature n'est pas celui du bloc. Générez une nouvelle clé et collez le bloc ENTIER (les trois lignes) dans l'environnement du site."
-        : "Le site refuse la clé (401) : il en porte une autre. Générez une nouvelle clé depuis Site web et collez le bloc dans l'environnement du site (Render).",
+        : `Le site refuse la clé (401) : il en porte une autre. Générez une nouvelle clé depuis ${ECRAN_LIAISON.nom} et collez le bloc dans l'environnement du site (Render).`,
     };
   }
   if (rep.statut >= 300 && rep.statut < 400) return { ...base, message: `Le site redirige (${rep.statut}${rep.location ? ` vers ${rep.location}` : ""}) : l'adresse du site n'est pas la bonne (ADVENTUM_BASE_URL).` };
@@ -335,7 +455,7 @@ export async function verifierSante(transport: TransportSite = envoyerAuSite): P
   const capacites = Array.isArray(j.capabilities) ? j.capabilities.filter((c): c is string => typeof c === "string") : [];
   const heureDuSite = typeof j.serverTime === "string" ? j.serverTime : null;
   const lu = { ...base, configure, authentifie, capacites, heureDuSite };
-  if (configure === false) return { ...lu, message: "Le site n'a pas de clé : collez le bloc de la clé (Site web › Connexion) dans l'environnement du site (Render)." };
+  if (configure === false) return { ...lu, message: `Le site n'a pas de clé : générez-la depuis ${ECRAN_LIAISON.nom} et collez le bloc affiché dans l'environnement du site (Render).` };
   if (authentifie === false) return { ...lu, message: "Le site est configuré mais ne reconnaît pas la clé envoyée : générez une nouvelle clé et collez le bloc dans l'environnement du site." };
   const manque = ["jobs", "posts"].filter((c) => capacites.length > 0 && !capacites.includes(c));
   if (manque.length) return { ...lu, message: `Connexion établie, mais le site n'annonce pas : ${manque.join(", ")}.` };

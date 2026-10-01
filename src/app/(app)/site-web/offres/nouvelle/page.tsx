@@ -10,6 +10,7 @@ import { posteOuvert } from "@/lib/site-web/contenus";
 import { peutPublierOffres } from "@/lib/site-web/acces";
 import { recruitmentScope } from "@/lib/recruitment/access";
 import { OffreForm, type OffreEditee } from "@/components/site-web/offre-form";
+import { disponibiliteRedaction } from "@/lib/redaction-site-ia";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Nouvelle offre d'emploi — AMD Internal OS" };
@@ -62,6 +63,8 @@ export default async function NouvelleOffrePage({ searchParams }: { searchParams
     };
   }
 
+  const ia = await disponibiliteRedaction();
+
   return (
     <div className="mx-auto max-w-6xl space-y-5">
       <BackLink href={demande ? `/recrutement/${demande.id}` : "/site-web/offres"}>
@@ -79,6 +82,7 @@ export default async function NouvelleOffrePage({ searchParams }: { searchParams
         peutEcrire
         peutSupprimer={false}
         prerempliDepuisDemande={demande !== null}
+        ia={ia}
       />
     </div>
   );

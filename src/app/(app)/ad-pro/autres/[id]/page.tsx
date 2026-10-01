@@ -6,12 +6,15 @@ import { prisma } from "@/lib/prisma";
 import { toNumber, formatCurrency, formatDate } from "@/lib/utils";
 import { onlyofficeConfigured } from "@/lib/onlyoffice";
 import { PageHeader } from "@/components/shared/page-header";
+import { SuperAdminDeleteButton } from "@/components/shared/super-admin-delete";
 import { BackLink } from "@/components/shared/back-link";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { DocumentUpload } from "@/components/documents/document-upload";
-import { AD_PRO_DOC_CATEGORIES } from "@/lib/ad-pro/doc-categories";
-import { DocumentList, type DocItem } from "@/components/documents/document-list";
+import { AD_PRO_DOC_CATEGORIES, categoriesDuDepotDeLaDemande } from "@/lib/ad-pro/doc-categories";
+import { contextePiecesLiees } from "@/lib/ad-pro/pieces-liees";
+import { LinkedRecords } from "@/components/shared/linked-records";
+import type { DocItem } from "@/components/documents/document-list";
 import { AD_PRO_OTHER_STATUS } from "@/lib/labels";
 import { OtherDecisionPanel } from "./decision-panel";
 import { AdProDiscussionCard } from "@/components/ad-pro/discussion-card";
@@ -52,6 +55,7 @@ export default async function AdProOtherDetailPage({ params }: { params: { id: s
   const mayDecide = userCan(user, "AD_PRO_OTHER", "VALIDATE");
   const open = req.status !== "DONE" && req.status !== "CANCELLED";
   const canUpload = (userCan(user, "AD_PRO_OTHER", "UPLOAD") || mine) && open;
+  const ctxPieces = await contextePiecesLiees(user, "AD_PRO_OTHER");
 
   const docItems: DocItem[] = documents.map((d) => ({
     id: d.id, name: d.name, category: d.category, version: d.version, sizeBytes: d.sizeBytes,
@@ -64,6 +68,8 @@ export default async function AdProOtherDetailPage({ params }: { params: { id: s
       <BackLink href="/ad-pro/autres"><ArrowLeft className="h-4 w-4" /> Autres demandes</BackLink>
       <PageHeader title={req.title} description={`Réf. ${req.reference}`}>
         <StatusBadge map={AD_PRO_OTHER_STATUS} value={req.status} />
+        {/* Une nature du pôle qui n'avait AUCUNE suppression (§118.162). */}
+        <SuperAdminDeleteButton kind="AD_PRO_OTHER" id={req.id} name={`${req.reference} — ${req.title}`} enabled={user.role === "SUPER_ADMIN"} />
       </PageHeader>
 
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
@@ -92,19 +98,24 @@ export default async function AdProOtherDetailPage({ params }: { params: { id: s
             </CardContent>
           </Card>
 
-          <Card>
-            <CardHeader><CardTitle>Pièces jointes</CardTitle></CardHeader>
-            <CardContent className="space-y-3">
-              {canUpload && <DocumentUpload entityType="AD_PRO_OTHER" entityId={req.id} categories={[...AD_PRO_DOC_CATEGORIES]} />}
-              <DocumentList
-                documents={docItems}
-                canDelete={userCan(user, "AD_PRO_OTHER", "DELETE") || hasGlobalView(user.role)}
-                canRename={canUpload}
-                canEdit={onlyofficeConfigured() && canUpload}
-                path={`/ad-pro/autres/${req.id}`}
-              />
-            </CardContent>
-          </Card>
+          {/* LES PIÈCES LIÉES, comme sur les six autres natures du pôle (§118.161) : le bloc
+              générique « Pièces jointes » disparaît au profit de la chaîne devis → bon de commande →
+              facture et des engagements ; les pièces de la demande gardent leur place nommée. */}
+          <LinkedRecords
+            entityType="AD_PRO_OTHER" entityId={req.id} reference={req.reference} canCreate={canUpload}
+            acces={ctxPieces.acces} candidatsLegal={ctxPieces.candidatsLegal}
+            piecesDeLaDemande={{
+              titre: "Pièces de la demande (demande, justificatifs, photos…)",
+              documents: docItems,
+              televerseur: canUpload
+                ? <DocumentUpload entityType="AD_PRO_OTHER" entityId={req.id} categories={categoriesDuDepotDeLaDemande(AD_PRO_DOC_CATEGORIES)} />
+                : undefined,
+              canDelete: userCan(user, "AD_PRO_OTHER", "DELETE") || hasGlobalView(user.role),
+              canRename: canUpload,
+              canEdit: onlyofficeConfigured() && canUpload,
+              path: `/ad-pro/autres/${req.id}`,
+            }}
+          />
         </div>
 
         <OtherDecisionPanel

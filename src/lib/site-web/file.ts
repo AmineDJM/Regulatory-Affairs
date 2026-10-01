@@ -4,10 +4,11 @@ import { SortieInterdite } from "@/lib/sortie/garde";
 import { notifyRoles, notifyUser } from "@/lib/notify";
 import {
   CHEMIN_API, classerReponse, ESSAIS_MAX, externalIdValide, LIBELLE_NATURE, messageDuSite, prochainEssai, serialiser,
-  type IssueRequete, type JobInput, type NatureContenu, type PostInput,
+  type CorpsSuppression, type IssueRequete, type JobInput, type NatureContenu, type PostInput,
 } from "./contrat";
 import { configurationEnVigueur, presenterCleEnAttente } from "./cles";
 import { envoyerAuSite, type ReponseSite, type TransportSite } from "./transport";
+import { ECRAN_LIAISON } from "./ecran";
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
@@ -61,7 +62,11 @@ export interface MiseEnFile {
   externalId: string;
   libelle: string;
   operation: "PUT" | "DELETE";
-  corps: JobInput | PostInput | null;
+  /**
+   * PUT : le contenu. DELETE : rien — sauf pour un contenu REPRIS du site (§118.160), dont la
+   * suppression dit ce qu'elle remplaçait (`CorpsSuppression`).
+   */
+  corps: JobInput | PostInput | CorpsSuppression | null;
   demandeParId?: string | null;
   /** Rejouer même un contenu identique à la dernière version (relance, réconciliation). */
   forcer?: boolean;
@@ -81,7 +86,7 @@ export async function mettreEnFile(m: MiseEnFile): Promise<ResultatMiseEnFile> {
   if (!externalIdValide(m.externalId)) {
     return { enFile: false, raison: `Identifiant « ${m.externalId} » impropre à une adresse : rien n'est envoyé.`, publicationId: null };
   }
-  const body = m.operation === "PUT" && m.corps ? serialiser(m.corps) : null;
+  const body = m.corps ? serialiser(m.corps) : null;
   if (m.operation === "PUT" && body === null) return { enFile: false, raison: "Aucun contenu à envoyer.", publicationId: null };
   const bodyHash = body ? empreinteCorps(body) : null;
 
@@ -90,8 +95,10 @@ export async function mettreEnFile(m: MiseEnFile): Promise<ResultatMiseEnFile> {
     select: { id: true, operation: true, bodyHash: true, state: true, confirmedHash: true, lastStatus: true },
   });
 
-  // Supprimer ce qui n'est jamais parti : le site ne l'a pas, il n'y a rien à lui dire.
-  if (m.operation === "DELETE" && !existant) {
+  // Supprimer ce qui n'est jamais parti : le site ne l'a pas, il n'y a rien à lui dire. Sauf une
+  // suppression qui PORTE un corps — un contenu repris du site (§118.160) : le site détient SA copie
+  // même si la nôtre n'est jamais partie, et c'est elle que cette suppression doit faire disparaître.
+  if (m.operation === "DELETE" && !existant && !body) {
     return { enFile: false, raison: "Jamais envoyé au site : rien à y supprimer.", publicationId: null };
   }
 
@@ -185,14 +192,14 @@ export async function bloquerPourConfiguration(
   const signature = rep.statut === 401 && /signature/i.test(detail ?? "");
   const motifBase = rep.statut === 401
     ? signature
-      ? `Le site reconnaît la clé mais refuse la SIGNATURE des envois (401${detail ? ` : ${detail}` : ""}) : la ligne ERP_WEBHOOK_SECRET de son environnement n'est pas celle du bloc. Générez une nouvelle clé depuis Site web et collez le bloc entier dans Render — ou retirez ERP_WEBHOOK_SECRET du site.`
-      : `Le site refuse la clé (401${detail ? ` : ${detail}` : ""}) : il en porte une autre. Générez une nouvelle clé depuis Site web et collez le bloc dans l'environnement du site (Render) — l'ERP bascule tout seul dès que le site la reconnaît.`
+      ? `Le site reconnaît la clé mais refuse la SIGNATURE des envois (401${detail ? ` : ${detail}` : ""}) : la ligne ERP_WEBHOOK_SECRET de son environnement n'est pas celle du bloc. Générez une nouvelle clé depuis ${ECRAN_LIAISON.nom} et collez le bloc entier dans Render — ou retirez ERP_WEBHOOK_SECRET du site.`
+      : `Le site refuse la clé (401${detail ? ` : ${detail}` : ""}) : il en porte une autre. Générez une nouvelle clé depuis ${ECRAN_LIAISON.nom} et collez le bloc dans l'environnement du site (Render) — l'ERP bascule tout seul dès que le site la reconnaît.`
     : `Le site redirige (${rep.statut}${rep.location ? ` vers ${rep.location}` : ""}) : l'adresse du site n'est pas la bonne. Corrigez ADVENTUM_BASE_URL (Render de l'ERP), ou retirez-la pour revenir à l'adresse mesurée.`;
   // Une clé en attente a été présentée et le site ne l'a pas prise : c'est presque toujours LÀ
   // qu'est la réparation (bloc collé en partie, ou pas encore enregistré) — on le dit dans le motif.
   const motif = cleEnAttente ? `${motifBase} Clé en attente : ${cleEnAttente}` : motifBase;
   if (await poserBlocage(empreinte, motif, maintenant)) {
-    await notifyRoles(["SUPER_ADMIN"], { type: "GENERIC", title: "Site web : publication suspendue", body: `${motif} Aucun envoi ne part d'ici là.`, link: "/site-web" });
+    await notifyRoles(["SUPER_ADMIN"], { type: "GENERIC", title: "Site web : publication suspendue", body: `${motif} Aucun envoi ne part d'ici là.`, link: ECRAN_LIAISON.href });
   }
   return motif;
 }
@@ -388,7 +395,8 @@ async function envoyerUne(pub: EnvoiPris, transport: TransportSite, maintenant: 
 
   let rep: ReponseSite;
   try {
-    rep = await transport({ methode, chemin, corps: methode === "PUT" ? pub.body : null });
+    // Le corps de la ligne part tel qu'il a été sérialisé — y compris sur un DELETE de contenu repris.
+    rep = await transport({ methode, chemin, corps: pub.body });
   } catch (e) {
     if (e instanceof SortieInterdite) {
       // RIEN N'EST PARTI. Ce n'est ni un échec du site ni une tentative : on n'en consomme pas,

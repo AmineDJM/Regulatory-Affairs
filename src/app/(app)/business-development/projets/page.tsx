@@ -1,11 +1,16 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { ArrowUpRight, FolderKanban } from "lucide-react";
+import { FolderKanban } from "lucide-react";
 import { requireUser } from "@/lib/session";
-import { scopeBdProject, canViewBdProjects, canManageBdProjects } from "@/lib/rbac";
+import { userCan, canViewBdProjects, canManageBdProjects } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { regulatoryVisibleWhere } from "@/lib/queries/regulatory-rows";
+import { projetsBdVisibles, entiteProposee } from "@/lib/queries/bd";
+import { getMyCompanies, companyOptions, companyIdForNew, companyLabel } from "@/lib/company";
 import { createBdProject } from "@/lib/actions/bd-project-actions";
+import { Badge } from "@/components/ui/badge";
+import { ProjectEditor } from "../project-editor";
+import { SupprimerProjet } from "./supprimer-projet";
 import { PageHeader } from "@/components/shared/page-header";
 import { EmptyState } from "@/components/shared/empty-state";
 import { StatusBadge } from "@/components/shared/status-badge";
@@ -36,25 +41,37 @@ export const dynamic = "force-dynamic";
  *
  * ── DEUX PORTES, ET ELLES NE SE REMPLACENT PAS ────────────────────────────────────────────
  *
- * `scopeBdProject` décide des projets qu'on voit ; `regulatoryVisibleWhere` décide des dossiers
+ * `projetsBdVisibles` décide des projets qu'on voit ; `regulatoryVisibleWhere` décide des dossiers
  * qu'on voit DEDANS — la même clause que le tableau Regulatory, verrou du pipeline et périmètre
  * société compris. Un projet peut donc s'afficher avec MOINS de dossiers que ce qu'il contient,
  * et c'est le comportement juste : le compte affiché est celui de ce qu'on a le droit de voir,
  * jamais un total qui révélerait l'existence de dossiers fermés.
+ *
+ * ── UN MODULE À PART, ET UNE ENTITÉ PAR PROJET (§118.163) ────────────────────────────────────
+ *
+ * « Projets » est le module `BD_PROJECTS`, réglé par le Super Admin dans Administration › Accès
+ * (voir, créer, modifier, supprimer) ; Market Intelligence, dont il vient, reste retiré. Et chaque
+ * projet appartient à UNE société du groupe : la liste suit le sélecteur d'entité, et un projet
+ * d'avant, sans entité, reste affiché avec ce qui manque — l'entité de ses dossiers y est proposée.
  * ═══════════════════════════════════════════════════════════════════════════════════════════
  */
 export default async function BdProjetsPage() {
-  // BUSINESS_DEVELOPMENT est RETIRÉ du service : `requireModule` renverrait tout le monde,
-  // Super Admin compris. Ce sous-module a été redemandé et survit au retrait, donc il porte sa
-  // propre porte — voir `modules-retired.ts` et `canViewBdProjects` dans `rbac.ts`.
+  // Pas de `requireModule("BUSINESS_DEVELOPMENT")` : ce module-là est retiré et refuse tout le
+  // monde. La porte est celle du module Projets (`canViewBdProjects` → `BD_PROJECTS`).
   const user = await requireUser();
-  if (!canViewBdProjects(user)) redirect("/?denied=BUSINESS_DEVELOPMENT");
-  const canCreate = canManageBdProjects(user);
+  if (!canViewBdProjects(user)) redirect("/?denied=BD_PROJECTS");
+  const canCreate = userCan(user, "BD_PROJECTS", "CREATE");
+  const canUpdate = canManageBdProjects(user);
+  const canDelete = userCan(user, "BD_PROJECTS", "DELETE");
 
-  const [projects, dossiers] = await Promise.all([
+  const [projects, dossiers, entites, entiteParDefaut] = await Promise.all([
     prisma.bdProject.findMany({
-      where: scopeBdProject(user),
-      select: { id: true, name: true, status: true, description: true, owner: { select: { name: true } } },
+      where: await projetsBdVisibles(user),
+      select: {
+        id: true, name: true, status: true, description: true, comment: true, companyId: true,
+        company: { select: { id: true, name: true, shortName: true, color: true } },
+        owner: { select: { name: true } },
+      },
       orderBy: [{ name: "asc" }],
     }),
     // LA MÊME PORTE QUE LE TABLEAU REGULATORY. Charger les dossiers « du projet » sans elle
@@ -63,14 +80,17 @@ export default async function BdProjetsPage() {
     prisma.regulatoryProduct.findMany({
       where: { AND: [await regulatoryVisibleWhere(user), { bdProjectId: { not: null } }] },
       select: {
-        id: true, reference: true, dci: true, brandName: true, bdProjectId: true,
+        id: true, reference: true, dci: true, brandName: true, bdProjectId: true, companyId: true,
         status: true, priority: true, manufacturingStatus: true, targetDate: true,
         company: { select: { shortName: true, name: true } },
         responsible: { select: { name: true } },
       },
       orderBy: [{ priority: "desc" }, { reference: "asc" }],
     }),
+    getMyCompanies(user.id),
+    companyIdForNew(user.id),
   ]);
+  const optionsEntite = companyOptions(entites);
 
   const parProjet = new Map<string, typeof dossiers>();
   for (const d of dossiers) {
@@ -91,9 +111,10 @@ export default async function BdProjetsPage() {
             title="Nouveau projet"
             description="Nommez le projet. Les dossiers s'y rangent ensuite depuis Regulatory, colonne « Projet »."
             action={createBdProject}
-            redirectBase="/business-development"
             fields={[
               { type: "text", name: "name", label: "Nom du projet", required: true, full: true },
+              // L'ENTITÉ est obligatoire (§118.163) : c'est elle qui décide qui voit le projet.
+              { type: "select", name: "companyId", label: "Entité", options: optionsEntite, required: true, defaultValue: entiteParDefaut ?? undefined, placeholder: "Choisir l'entité…" },
               { type: "select", name: "status", label: "Statut", options: optionsFromMap(BD_PROJECT_STATUS), defaultValue: "IDEA" },
               { type: "textarea", name: "description", label: "Description / objectif" },
             ]}
@@ -122,6 +143,13 @@ export default async function BdProjetsPage() {
                       <FolderKanban className="h-4 w-4 shrink-0 text-primary/80" />
                       {p.name}
                       {st && <StatusBadge map={BD_PROJECT_STATUS} value={p.status} dot={false} />}
+                      {/* L'ENTITÉ se voit sur chaque projet — et son absence aussi : un projet d'avant
+                          reste affiché pour qu'on le rattache, pas caché (§118.163). */}
+                      {p.company ? (
+                        <Badge tone="neutral" dot={false}>{companyLabel(p.company)}</Badge>
+                      ) : (
+                        <Badge tone="warning" dot={false}>Entité à renseigner</Badge>
+                      )}
                       <span className="text-xs font-normal text-muted-foreground">
                         {lignes.length} dossier{lignes.length > 1 ? "s" : ""}
                       </span>
@@ -129,17 +157,23 @@ export default async function BdProjetsPage() {
                     {p.description && <p className="mt-1 text-sm text-muted-foreground">{p.description}</p>}
                     {p.owner?.name && <p className="text-xs text-muted-foreground">Porté par {p.owner.name}</p>}
                   </div>
-                  <div className="flex shrink-0 items-center gap-2">
+                  {/* Plus de lien « Fiche du projet » : la fiche vivait sous Market Intelligence, retiré,
+                      et refusait tout le monde. Ce qu'on y faisait — renommer, rattacher, supprimer —
+                      se fait ici, avec les droits du module Projets (§118.163). */}
+                  <div className="flex shrink-0 flex-wrap items-center gap-2">
                     <PartagerButton
                       refType="BD_PROJECT" refId={p.id} refLabel={p.name}
                       href="/business-development/projets"
                     />
-                    <Link
-                      href={`/business-development/${p.id}`}
-                      className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
-                    >
-                      Fiche du projet <ArrowUpRight className="h-3.5 w-3.5" />
-                    </Link>
+                    {canUpdate && (
+                      <ProjectEditor
+                        id={p.id} name={p.name} status={p.status}
+                        description={p.description ?? ""} comment={p.comment ?? ""}
+                        companyId={p.companyId} companies={optionsEntite}
+                        proposition={p.companyId ? null : entiteProposee(lignes.map((d) => d.companyId))}
+                      />
+                    )}
+                    {canDelete && <SupprimerProjet id={p.id} name={p.name} />}
                   </div>
                 </CardHeader>
                 <CardContent>

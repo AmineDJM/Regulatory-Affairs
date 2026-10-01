@@ -51,6 +51,7 @@ suite("Centre de contrôle IA — bascules & journal d'usage", () => {
     const r = await updateAiSettings(fd({
       masterEnabled: true, assistantEnabled: true, brainEnabled: false,
       proactiveNudgesEnabled: true, processIntelEnabled: true, fieldReportAiEnabled: true, voiceTranscriptEnabled: true,
+      siteWebAiEnabled: true,
     }));
     expect(r.ok).toBe(true);
     const row = await prisma.aiSetting.findUniqueOrThrow({ where: { id: "global" } });

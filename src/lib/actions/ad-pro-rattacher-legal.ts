@@ -7,7 +7,8 @@ import { canAccessEntity } from "@/lib/entity-access";
 import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
 import { fdStr, type ActionResult } from "@/lib/actions/types";
-import { LEGAL_DOC_KIND } from "@/lib/labels";
+import { natureLegale } from "@/lib/labels";
+import { AD_PRO_ENTITY_TYPE, AD_PRO_KINDS } from "@/lib/ad-pro/unified";
 import { aiguillerBC } from "@/lib/bons-de-commande/aiguillage";
 import { LIBELLE_CENTRE_BC, reserveSansPorte, reserveDeLAiguillage } from "@/lib/bons-de-commande/regle";
 
@@ -50,15 +51,16 @@ const CIBLES: readonly EntityType[] = [
   "PROMO_MATERIAL", "AD_PRO_OTHER", "CONSULTING_CONTRACT",
 ];
 
-const CHEMIN: Partial<Record<EntityType, string>> = {
-  SPONSORING: "/sponsoring",
-  CONGRESS_INTERNATIONAL: "/congress-international",
-  CONGRESS_NATIONAL: "/congress-national",
-  EVENT: "/events",
-  PROMO_MATERIAL: "/ad-pro/materiel",
-  AD_PRO_OTHER: "/ad-pro/autres",
-  CONSULTING_CONTRACT: "/consulting",
-};
+/**
+ * L'ADRESSE DE CHAQUE FICHE — lue dans le registre des natures, pas recopiée. La table écrite à la
+ * main portait « /ad-pro/materiel » pour le matériel promotionnel, une page qui n'existe pas (la
+ * fiche vit sous « /promo-material ») : rattacher une pièce ne rafraîchissait jamais cette fiche.
+ * `CIBLES`, elle, reste une liste LITTÉRALE : c'est sous cette forme que le contrat de l'action lit
+ * les valeurs admises (`enumsLocaux`) — un cliquet exige qu'elle reste égale au registre.
+ */
+const CHEMIN: Partial<Record<EntityType, string>> = Object.fromEntries(
+  AD_PRO_KINDS.map((k) => [AD_PRO_ENTITY_TYPE[k.kind], k.href]),
+);
 
 export async function rattacherLegalAFiche(
   _prev: ActionResult | undefined,
@@ -105,7 +107,7 @@ export async function rattacherLegalAFiche(
   await recordAudit({
     actorId: user.id, action: "UPDATE", module: "Legal",
     entityType: "LEGAL_DOCUMENT", entityId: legalId,
-    summary: `${LEGAL_DOC_KIND[doc.kind] ?? doc.kind} « ${doc.title} » rattaché·e à ${cible} ${cibleId}`,
+    summary: `${natureLegale(doc.kind)} « ${doc.title} » rattaché·e à ${cible} ${cibleId}`,
   });
 
   // UN BC RATTACHÉ À UNE FICHE AD & PRO VIENT D'AD & PRO (§118.148) : s'il attendait encore au

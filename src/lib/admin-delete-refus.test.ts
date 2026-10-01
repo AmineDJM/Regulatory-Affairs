@@ -8,7 +8,11 @@ function sansCommentaires(src: string): string {
 }
 const lire = (p: string) => sansCommentaires(readFileSync(p, "utf8"));
 
-const CŒUR = "src/lib/actions/admin-delete-actions.ts";
+// Le cœur de la suppression réversible a quitté le fichier d'actions (§118.162) : un fichier
+// `"use server"` exporte des points d'entrée publics, et une fonction qui prend un type et un
+// identifiant sans vérifier qui appelle n'a rien à y faire. Les ACTIONS restent la porte.
+const CŒUR = "src/lib/suppression/coeur.ts";
+const ACTIONS = "src/lib/actions/admin-delete-actions.ts";
 const ADAM = "src/lib/assistant.ts";
 
 describe("Registre des suppressions — le refus et la réserve", () => {
@@ -19,7 +23,9 @@ describe("Registre des suppressions — le refus et la réserve", () => {
       expect(spec.model, `${k} doit nommer son délégué Prisma`).toBeTruthy();
       expect(spec.redirect).toBe("/admin/messagerie");
     }
-    expect(DELETABLE_KINDS).toHaveLength(28);
+    // 28 → 30 : le contrat de consulting et l'« autre demande » Ad & Pro, les deux natures du
+    // pôle qui n'avaient AUCUNE suppression (§118.162).
+    expect(DELETABLE_KINDS).toHaveLength(30);
   });
 
   it("une conversation refuse, une notification non — et chacune dit pourquoi", () => {
@@ -33,9 +39,9 @@ describe("Registre des suppressions — le refus et la réserve", () => {
     expect(DELETE_REGISTRY.NOTIFICATION.reserve).toBeUndefined();
   });
 
-  it("les 26 types d'origine ne refusent rien et ne réservent rien — l'ajout n'a rien changé chez eux", () => {
+  it("les autres types ne refusent rien et ne réservent rien — l'ajout n'a rien changé chez eux", () => {
     const anciens = DELETABLE_KINDS.filter((k) => k !== "CONVERSATION" && k !== "NOTIFICATION");
-    expect(anciens).toHaveLength(26);
+    expect(anciens).toHaveLength(28);
     for (const k of anciens) {
       expect(DELETE_REGISTRY[k].refuse, `${k} ne refusait rien avant ce lot`).toBeUndefined();
       expect(DELETE_REGISTRY[k].reserve, `${k} n'annonçait aucune réserve avant ce lot`).toBeUndefined();
@@ -51,20 +57,33 @@ describe("Registre des suppressions — le refus et la réserve", () => {
  * geste est offert puis retiré, ce que §118.83 interdit.
  */
 describe("Cliquet — le refus est lu AVANT, aux deux portes", () => {
-  it("le cœur partagé lit le refus avant le premier instantané", () => {
+  it("le cœur partagé lit le refus avant le premier instantané — et avant le lot", () => {
     const src = lire(CŒUR);
     const iRefus = src.indexOf("spec.refuse(id)");
     const iSnapshot = src.indexOf("deleteDelegateOf(spec).findUnique");
-    expect(iRefus, "snapshotAndSoftDelete doit appeler spec.refuse").toBeGreaterThan(-1);
+    const iLot = src.indexOf("supprimerAvecBranches(kind");
+    expect(iRefus, "supprimerReversible doit appeler spec.refuse").toBeGreaterThan(-1);
     expect(iSnapshot).toBeGreaterThan(-1);
+    expect(iLot, "le lot doit être appelé par le cœur").toBeGreaterThan(-1);
     expect(iRefus, "le refus doit précéder l'instantané").toBeLessThan(iSnapshot);
+    expect(iRefus, "le refus doit précéder le lot").toBeLessThan(iLot);
+  });
+
+  it("les actions passent par le cœur — aucune ne supprime par son propre chemin", () => {
+    const src = lire(ACTIONS);
+    expect(src.match(/supprimerReversible\(/g)?.length ?? 0, "superAdminDelete ET deleteOwnRecord").toBe(2);
+    expect(src).not.toContain("spec.remove(");
   });
 
   it("Adam lit le refus avant de construire la carte de confirmation", () => {
+    // Le refus vient désormais de l'APERÇU (§118.162), qui lit `spec.refuse` puis l'inventaire du
+    // lot — la même lecture que la fenêtre de l'écran.
     const src = lire(ADAM);
-    const iRefus = src.indexOf("spec.refuse(target.id)");
+    const iApercu = src.indexOf("apercuSuppression(rawKind, target.id)");
+    const iRefus = src.indexOf("if (apercu.refus) return { error: apercu.refus }");
     const iCarte = src.indexOf("const confirmText = target.name.includes");
-    expect(iRefus, "delete_record doit appeler spec.refuse").toBeGreaterThan(-1);
+    expect(iApercu, "delete_record doit lire l'aperçu").toBeGreaterThan(-1);
+    expect(iRefus, "delete_record doit rendre le refus de l'aperçu").toBeGreaterThan(-1);
     expect(iCarte).toBeGreaterThan(-1);
     expect(iRefus, "le refus doit précéder la carte — pas un geste offert puis retiré").toBeLessThan(iCarte);
   });
@@ -80,10 +99,12 @@ describe("La phrase de la confirmation ne contredit pas le code", () => {
 
   it("la suppression dépose un instantané — c'est la PRÉMISSE de tout ce qui suit", () => {
     // Sans ce fait, les deux assertions suivantes n'auraient aucune raison d'être : c'est lui
-    // qui rend « irréversible » faux (§118.104 — on vérifie la prémisse).
+    // qui rend « irréversible » faux (§118.104 — on vérifie la prémisse). Deux dépôts : l'élément
+    // seul, et le lot (dans la transaction qui supprime).
     const src = lire(CŒUR);
     expect(src).toContain("prisma.deletedRecord.create");
-    expect(src).toContain("superAdminDelete");
+    expect(src).toContain("tx.deletedRecord.create");
+    expect(lire(ACTIONS)).toContain("superAdminDelete");
   });
 
   it("elle n'annonce pas une irréversibilité que la corbeille dément", () => {

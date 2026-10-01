@@ -241,7 +241,11 @@ suite("Matériel promotionnel — circuit 2 de bout en bout", () => {
     await prisma.promoMaterial.delete({ where: { id: secondaire.id! } });
     await prisma.user.delete({ where: { id: u.asst2 } });
     delete u.asst2;
-  });
+    // PLAFOND LOCAL (§118.124b) : 704 ms seul, au-delà des 20 000 ms globales dans la suite complète
+    // (832 fichiers, quatre cœurs, la même base) — ce cas écrit et relit une dizaine de comptes et un
+    // dossier entier. Le plafond répond à « est-il bloqué ? », jamais à « est-il lent ? » ; le global
+    // ne bouge pas.
+  }, 60_000);
 
   it("CRÉATION : circuit 2, validateur FIGÉ, et c'est lui — pas tout le monde — qui est prévenu", async () => {
     ACTOR = await actorFor(u.cp);

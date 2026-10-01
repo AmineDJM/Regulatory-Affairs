@@ -476,7 +476,7 @@ export const ORG7D_OPS_IMPL: Record<string, OpImpl> = {
         ["expenseOrder", "Ordres de dépense"], ["medicalDoctor", "Praticiens (annuaire)"],
         ["fieldReport", "Rapports terrain"], ["medicalInfoDeclaration", "Information médicale"],
         ["pchTender", "Marchés PCH"], ["logisticsOrder", "Commandes logistiques"],
-        ["sale", "Ventes"], ["dossier", "Projets"],
+        ["sale", "Ventes"], ["dossier", "Sujets"],
       ];
       const model = matchLabel(opStr(input, "type") || opStr(input, "target"), MODEL_PAIRS);
       if (typeof model !== "string") return model;
@@ -610,6 +610,7 @@ export const ORG7D_OPS_IMPL: Record<string, OpImpl> = {
         ["processIntelEnabled", "Process Intelligence"],
         ["fieldReportAiEnabled", "Analyse des rapports terrain"],
         ["voiceTranscriptEnabled", "Transcription vocale (Whisper)"],
+        ["siteWebAiEnabled", "Rédaction du site (articles et offres)"],
       ];
       const key = matchLabel(opStr(input, "feature") || opStr(input, "target"), AI_PAIRS);
       if (typeof key !== "string") return key;
@@ -625,10 +626,11 @@ export const ORG7D_OPS_IMPL: Record<string, OpImpl> = {
         proactiveNudgesEnabled: s?.proactiveNudgesEnabled ?? true, brainEnabled: s?.brainEnabled ?? true,
         processIntelEnabled: s?.processIntelEnabled ?? true, fieldReportAiEnabled: s?.fieldReportAiEnabled ?? true,
         voiceTranscriptEnabled: s?.voiceTranscriptEnabled ?? true,
+        siteWebAiEnabled: s?.siteWebAiEnabled ?? true,
       };
       if (cur[key as keyof typeof cur] === on) return { error: `« ${label} » est déjà ${on ? "activé" : "coupé"}.` };
       const next = { ...cur, [key]: on };
-      const warnings = ["Les bascules non citées sont rejouées à l'identique (FUSION) — l'action réécrit les sept."];
+      const warnings = ["Les bascules non citées sont rejouées à l'identique (FUSION) — l'action réécrit les huit."];
       if (key === "masterEnabled" && !on) warnings.push("INTERRUPTEUR GÉNÉRAL : couper ici coupe TOUTE l'IA — y compris cet assistant (il ne pourra plus rallumer lui-même).");
       return {
         title: `Centre de contrôle IA — ${on ? "activer" : "couper"} « ${label} »`,
@@ -642,6 +644,7 @@ export const ORG7D_OPS_IMPL: Record<string, OpImpl> = {
           proactiveNudgesEnabled: onOff(next.proactiveNudgesEnabled), brainEnabled: onOff(next.brainEnabled),
           processIntelEnabled: onOff(next.processIntelEnabled), fieldReportAiEnabled: onOff(next.fieldReportAiEnabled),
           voiceTranscriptEnabled: onOff(next.voiceTranscriptEnabled),
+          siteWebAiEnabled: onOff(next.siteWebAiEnabled),
         },
         successMessage: `« ${label} » ${on ? "activé" : "coupé"}.`,
       };

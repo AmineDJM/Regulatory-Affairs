@@ -117,3 +117,9 @@ export { LIBELLE_POLE, poleDe, poleOppose, type PoleConsulting } from "@/lib/lec
 // (§118.83). La règle est PURE et vit dans `ad-pro/` ; Adam n'a pas le droit de l'importer en
 // direct, il passe par cette porte, comme pour les pièces du secrétariat ci-dessus.
 export { bilanCloture, type BilanCloture } from "@/lib/ad-pro/cloture-sponsoring";
+
+// CE QU'UNE SUPPRESSION EMPORTERAIT (§118.162) — l'aperçu du lot : ce qui part avec l'élément, et
+// ce qui l'interdit (règlement, signature, dépôt aux autorités, courrier inscrit). L'op d'Adam qui
+// supprime un événement le lit AVANT de montrer sa carte, comme la fenêtre de l'écran : deux
+// rédactions de « ce qui part avec » finiraient par dire deux choses (§118.5).
+export { apercuSuppression, type ApercuSuppression } from "@/lib/admin-delete-registry";

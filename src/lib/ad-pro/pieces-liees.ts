@@ -1,9 +1,8 @@
 import { prisma } from "@/lib/prisma";
 import { userCan, type SessionUser } from "@/lib/rbac";
 import { companyScopedWhere } from "@/lib/company";
-import { legalReaderWhere } from "@/lib/lecteurs/legal";
-import { onlyofficeConfigured } from "@/lib/onlyoffice";
-import { LEGAL_DOC_KIND } from "@/lib/labels";
+import { legalReaderWhere, legalWriteAllowed } from "@/lib/lecteurs/legal";
+import { natureLegale } from "@/lib/labels";
 import type { AccesPiecesLiees } from "@/components/shared/linked-records";
 
 /**
@@ -36,6 +35,45 @@ export interface PiecesLieesContexte {
 }
 
 /**
+ * LES DROITS D'UNE PERSONNE SUR LES PIÈCES LIÉES D'UNE FICHE — sans rien lire en base.
+ *
+ * Deux sortes de fiches montent le bloc : les sept natures Ad & Pro (qui peuvent aussi RATTACHER
+ * un document existant, `contextePiecesLiees`) et les demandes du secrétariat. La seconde montait
+ * le bloc SANS ces droits : aucun fichier n'y était montré, et chaque bouton de création y était
+ * offert à qui gère la demande — y compris ceux que l'action Legal refuse ensuite (§118.161).
+ */
+export function accesPiecesLiees(user: SessionUser): AccesPiecesLiees {
+  const peutLireLegal = userCan(user, "LEGAL", "VIEW") || userCan(user, "FINANCES", "VIEW");
+  const peutLireCourriers = userCan(user, "MAIL_REGISTER", "VIEW");
+
+  // CE QU'ON PEUT CRÉER D'ICI, NATURE PAR NATURE — la porte d'écriture de Legal (`legalWriteAllowed`),
+  // la même que l'action serveur : les Finances créent factures et bons de commande, Legal crée tout.
+  // Un bouton « Devis » offert à qui l'action refusera ensuite ferait chercher la panne (§118.161).
+  const creerLegal = (kind: string) => legalWriteAllowed({
+    onLegal: userCan(user, "LEGAL", "CREATE"), onFinances: userCan(user, "FINANCES", "CREATE"), kind,
+  });
+
+  return {
+    legal: peutLireLegal,
+    courriers: peutLireCourriers,
+    // La personne qui regarde : le bloc lit, PIÈCE PAR PIÈCE, ce que la porte Legal lui ouvrira —
+    // lire, déposer, renommer, supprimer (§118.161). RENOMMER ET SUPPRIMER suivent donc le module
+    // de la PIÈCE et ses lecteurs désignés, jamais celui de la fiche : le droit de décider d'un
+    // sponsoring n'est pas le droit de supprimer la pièce d'un contrat. Les trois drapeaux de
+    // module qui tenaient lieu de cette règle (renommer, supprimer, éditer) ont disparu : ils
+    // ouvraient les pièces d'un document restreint à qui avait seulement le module.
+    spectateur: user,
+    creer: {
+      devis: creerLegal("QUOTE"),
+      bonDeCommande: creerLegal("PURCHASE_ORDER"),
+      facture: creerLegal("INVOICE"),
+      engagement: creerLegal("AGREEMENT"),
+      courrier: userCan(user, "MAIL_REGISTER", "CREATE"),
+    },
+  };
+}
+
+/**
  * `moduleAdPro` est le module de la FICHE (SPONSORING, EVENTS, CONGRESS…) : c'est lui qui dit si
  * la personne peut modifier CE dossier, donc lui rattacher quelque chose. Les droits sur les
  * documents des pièces, eux, viennent de Legal et de Courriers — jamais du module de la fiche.
@@ -44,19 +82,8 @@ export async function contextePiecesLiees(
   user: SessionUser,
   moduleAdPro: Parameters<typeof userCan>[1],
 ): Promise<PiecesLieesContexte> {
-  const peutLireLegal = userCan(user, "LEGAL", "VIEW") || userCan(user, "FINANCES", "VIEW");
-  const peutLireCourriers = userCan(user, "MAIL_REGISTER", "VIEW");
-  const peutModifierLegal = userCan(user, "LEGAL", "UPDATE") || userCan(user, "FINANCES", "UPDATE");
-
-  const acces: AccesPiecesLiees = {
-    legal: peutLireLegal,
-    courriers: peutLireCourriers,
-    // RENOMMER ET SUPPRIMER suivent le module de la PIÈCE, pas celui de la fiche : le droit de
-    // décider d'un sponsoring n'est pas le droit de supprimer la pièce d'un contrat.
-    peutRenommer: peutModifierLegal,
-    peutSupprimer: userCan(user, "LEGAL", "DELETE") || userCan(user, "FINANCES", "DELETE"),
-    peutEditer: onlyofficeConfigured() && peutModifierLegal,
-  };
+  const acces = accesPiecesLiees(user);
+  const peutLireLegal = acces.legal ?? false;
 
   // RATTACHER exige les deux droits : modifier la fiche cible, et voir le document. Sans l'un ou
   // l'autre, la liste est vide et le bouton ne s'affiche pas — plutôt qu'un geste qui échoue.
@@ -80,7 +107,7 @@ export async function contextePiecesLiees(
     acces,
     candidatsLegal: libres.map((d) => ({
       value: d.id,
-      label: [d.reference, d.title, LEGAL_DOC_KIND[d.kind] ?? d.kind].filter(Boolean).join(" · "),
+      label: [d.reference, d.title, natureLegale(d.kind)].filter(Boolean).join(" · "),
     })),
   };
 }

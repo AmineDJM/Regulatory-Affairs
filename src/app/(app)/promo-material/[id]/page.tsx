@@ -19,9 +19,10 @@ import { canEditAdProRequest, isAdProDecided } from "@/lib/ad-pro-edit";
 import { adProEditValues } from "@/lib/queries/ad-pro-edit";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { DocumentList, type DocItem } from "@/components/documents/document-list";
+import type { DocItem } from "@/components/documents/document-list";
 import { DocumentUpload } from "@/components/documents/document-upload";
-import { PROMO_MATERIAL_DOC_CATEGORIES } from "@/lib/ad-pro/doc-categories";
+import { PROMO_MATERIAL_DOC_CATEGORIES, categoriesDuDepotDeLaDemande } from "@/lib/ad-pro/doc-categories";
+import { contextePiecesLiees } from "@/lib/ad-pro/pieces-liees";
 import { LinkedRecords } from "@/components/shared/linked-records";
 import { canAttachToAdPro, attachHint } from "@/lib/ad-pro/attachments";
 import { AdProDiscussionCard } from "@/components/ad-pro/discussion-card";
@@ -99,6 +100,9 @@ export default async function PromoMaterialDetailPage({ params }: { params: { id
     || flags.isMarketing || flags.isAssistant || flags.isFinance || flags.isMedicalInfo;
   const uploadHint = canUpload ? null : attachHint(attacheur, dossierAdPro);
   const canDelete = userCan(user, "PROMO_MATERIAL", "DELETE") || isDirection;
+  // Ce que la personne peut ouvrir, déposer, créer parmi les pièces liées — la règle commune du
+  // pôle (`contextePiecesLiees`), la même que sur les six autres fiches.
+  const ctxPieces = await contextePiecesLiees(user, "PROMO_MATERIAL");
 
   // LES ORDRES DE DÉPENSE du bordereau et du règlement final (§118.148) : « Paiement effectué » et
   // la clôture se constatent sur eux — l'écran dit où ils en sont avant d'offrir le bouton.
@@ -299,16 +303,6 @@ export default async function PromoMaterialDetailPage({ params }: { params: { id
             </CardContent>
           </Card>
 
-          <Card>
-            <CardHeader><CardTitle>{v2 ? "Documents du dossier (scans des devis, maquettes, BAT, matériel…)" : "Documents (devis, BC, quittance, matériel, visa, facture…)"}</CardTitle></CardHeader>
-            <CardContent className="space-y-3">
-              {canUpload
-                ? <DocumentUpload entityType="PROMO_MATERIAL" entityId={pm.id} categories={[...PROMO_MATERIAL_DOC_CATEGORIES]} />
-                : uploadHint && <p className="text-xs text-muted-foreground">{uploadHint}</p>}
-              <DocumentList documents={docItems} canDelete={canDelete} canRename={canUpload} canEdit={onlyofficeConfigured() && canUpload} path={`/promo-material/${pm.id}`} />
-            </CardContent>
-          </Card>
-
           {/* CE QUI EN DÉCOULE : engagement, facture, courrier. Le mécanisme connaissait déjà ce
               type de dossier ; il ne manquait que le bloc — et l'on ne pouvait donc RIEN rattacher
               à un dossier de matériel. Créés d'ici, ils gardent le lien : c'est le seul moment où
@@ -317,7 +311,30 @@ export default async function PromoMaterialDetailPage({ params }: { params: { id
               ici ne serait rattaché à aucun devis validé — il échapperait au choix des lignes, et
               la facture qui en découlerait ne serait comptée par aucun chantier. Le bloc reste en
               LECTURE : ce qui est rattaché au dossier s'y voit toujours. */}
-          <LinkedRecords entityType="PROMO_MATERIAL" entityId={pm.id} reference={pm.reference} canCreate={canUpload && !v2} />
+          {/* LE BLOC « DOCUMENTS » GÉNÉRIQUE A DISPARU (§118.161) — décision de la Direction : les
+              devis, bons de commande et factures ont chacun leur fiche au registre ET leur PDF, dans
+              la chaîne des pièces liées. Les fichiers déjà déposés sur le dossier ne disparaissent
+              pas : les pièces du dossier (matériel, BAT, visa, bordereau…) gardent leur place
+              nommée, et un devis ou un BC déposé comme simple fichier est montré dans la section de
+              sa nature, avec « Créer sa fiche ». */}
+          <LinkedRecords
+            entityType="PROMO_MATERIAL" entityId={pm.id} reference={pm.reference} canCreate={canUpload && !v2}
+            acces={ctxPieces.acces} candidatsLegal={ctxPieces.candidatsLegal}
+            piecesDeLaDemande={{
+              titre: v2 ? "Pièces du dossier (maquettes, BAT, matériel, visa…)" : "Pièces du dossier (matériel, visa, bordereau, quittance…)",
+              documents: docItems,
+              televerseur: canUpload
+                ? <DocumentUpload entityType="PROMO_MATERIAL" entityId={pm.id} categories={categoriesDuDepotDeLaDemande(PROMO_MATERIAL_DOC_CATEGORIES)} />
+                : undefined,
+              motif: canUpload ? null : uploadHint ?? null,
+              // AU CIRCUIT 2, un fichier « devis » du dossier est le SCAN d'un devis retranscrit :
+              // sa version plateforme est la ligne du tableau « Devis retranscrits », pas une fiche
+              // à créer — le dire, au lieu de le présenter comme une pièce orpheline.
+              noteLibres: v2 ? "Scans joints aux devis retranscrits — leur version plateforme est le tableau « Devis retranscrits »." : undefined,
+              canDelete, canRename: canUpload, canEdit: onlyofficeConfigured() && canUpload,
+              path: `/promo-material/${pm.id}`,
+            }}
+          />
 
           {/* LA SECTION DISCUSSION — la MÊME que sur les six autres natures du pôle.
               Le matériel promotionnel était le SEUL des sept à porter un fil, et il le portait

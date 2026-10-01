@@ -10,10 +10,12 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { getAccess, isTopManagement, userCan, type SessionUser } from "@/lib/rbac";
 import {
-  abandonnerCleSite, enregistrerArticle, genererCleSite, leverBlocageSite, relancerEnvoiSite, supprimerArticle,
+  abandonnerCleSite, enregistrerArticle, genererCleSite, leverBlocageSite, rapprocherSiteMaintenant, relancerEnvoiSite, supprimerArticle,
   verifierConnexionSite,
 } from "@/lib/actions/site-web-actions";
-import { enregistrerOffre } from "@/lib/actions/offres-emploi-actions";
+import { peutEcrireArticles, peutGererLaLiaison } from "./acces";
+import { ECRAN_LIAISON, REFUS_LIAISON } from "./ecran";
+import { enregistrerOffre, supprimerOffre } from "@/lib/actions/offres-emploi-actions";
 import { closeRecruitmentRequest, openRecruitmentSourcing } from "@/lib/actions/recruitment-actions";
 import { leverBlocage, lireBlocage, VERROU_PERIME_MS, viderFile } from "./file";
 import { rapprocherSite, rapprocherSiteSiDu, verifierSante } from "./reconciliation";
@@ -121,28 +123,75 @@ function fauxSite() {
   const jobs = new Map<string, Record<string, unknown>>();
   const manuels: Record<string, unknown>[] = [];
   const depot: { slug: string; title: string; url: string }[] = [];
+  // LE DÉPÔT DU SITE (§118.160) — ses articles en Markdown BRUT, ses offres d'exemple, les offres
+  // saisies dans son administration, et les fichiers qu'il CACHE : ceux qu'un article de l'ERP
+  // remplace (`replacesFile`) et ceux dont l'ERP a supprimé la reprise (pierres tombales). Il tient
+  // ce que `lib/blog.ts`, `lib/jobs.ts` et `lib/replaced-files.ts` du site tiennent, relus pour
+  // l'écrire. `sansDepot` joue un site d'AVANT la reprise : `/repository` y répond 404.
+  const depotComplet: Record<string, unknown>[] = [];
+  const exemples: Record<string, unknown>[] = [];
+  const offresSaisies: Record<string, unknown>[] = [];
+  const tombes = new Set<string>();
+  const etat = { sansDepot: false, rechargements: 0 };
+  const caches = () => {
+    const c = new Set(tombes);
+    for (const p of posts.values()) if (typeof p.replacesFile === "string") c.add(p.replacesFile);
+    return c;
+  };
+  const retirerSaisie = (id: unknown) => {
+    const i = offresSaisies.findIndex((o) => o.id === id);
+    if (i >= 0) offresSaisies.splice(i, 1);
+    return i >= 0;
+  };
   const s = script((r) => {
     if (r.methode === "GET" && r.chemin === "/posts") {
-      return rep(200, { count: posts.size + manuels.length, posts: [...posts.values(), ...manuels], readOnlyFileArticles: depot });
+      const c = caches();
+      const visibles = depotComplet.filter((a) => !c.has(String(a.slug))).map((a) => ({ slug: a.slug, title: a.title, url: `/blog/${a.slug}` }));
+      return rep(200, {
+        count: posts.size + manuels.length, posts: [...posts.values(), ...manuels],
+        readOnlyFileArticles: [...depot, ...visibles], replacedFiles: [...c].sort(),
+      });
     }
-    if (r.methode === "GET" && r.chemin === "/jobs") return rep(200, { count: jobs.size, jobs: [...jobs.values()] });
+    if (r.methode === "GET" && r.chemin === "/jobs") {
+      return rep(200, { count: jobs.size + offresSaisies.length, jobs: [...jobs.values(), ...offresSaisies.map((o) => ({ ...o, externalId: null }))] });
+    }
+    if (r.methode === "GET" && r.chemin === "/repository") {
+      if (etat.sansDepot) return rep(404, { error: "not_found" });
+      const c = caches();
+      return rep(200, { articles: depotComplet.map((a) => ({ ...a, replaced: c.has(String(a.slug)) })), sampleJobs: exemples });
+    }
+    if (r.methode === "POST" && r.chemin === "/resync") {
+      if (etat.sansDepot) return rep(404, { error: "not_found" });
+      etat.rechargements += 1;
+      return rep(200, { reloaded: true });
+    }
     const m = /^\/(posts|jobs)\/(.+)$/.exec(r.chemin);
     if (!m) return rep(404, { error: "not_found" });
     const store = m[1] === "posts" ? posts : jobs;
     const ext = decodeURIComponent(m[2]!);
+    const b = r.corps ? (JSON.parse(r.corps) as Record<string, unknown>) : {};
     if (r.methode === "DELETE") {
-      if (!store.has(ext)) return rep(404, { error: "not_found" });
+      // Un DELETE de contenu REPRIS dit ce qu'il remplaçait : le site le cache (ou retire sa copie)
+      // même s'il n'a jamais reçu notre version.
+      const existant = store.get(ext);
+      const fichier = typeof existant?.replacesFile === "string" ? existant.replacesFile : typeof b.replacesFile === "string" ? b.replacesFile : null;
+      if (m[1] === "posts" && fichier) tombes.add(fichier);
+      const saisie = m[1] === "jobs" && typeof b.replacesJob === "string" ? retirerSaisie(b.replacesJob) : false;
+      if (!store.has(ext) && !fichier && !saisie) return rep(404, { error: "not_found" });
       store.delete(ext);
       return rep(200, { ok: true, deleted: true });
     }
-    const b = JSON.parse(r.corps ?? "{}") as Record<string, unknown>;
+    if (m[1] === "jobs" && typeof b.replacesJob === "string") retirerSaisie(b.replacesJob);
     const slug = typeof b.slug === "string" ? b.slug : slugSuggere(String(b.title ?? ""));
     const url = m[1] === "posts" ? `/blog/${slug}` : `/carrieres/${slug}`;
     const cree = !store.has(ext);
-    store.set(ext, { ...b, externalId: ext, slug, url });
+    // Comme le site : le marqueur d'une offre reprise n'est pas conservé, celui d'un article oui.
+    const { replacesJob: _sansMarqueur, ...garde } = b;
+    void _sansMarqueur;
+    store.set(ext, { ...(m[1] === "jobs" ? garde : b), externalId: ext, slug, url });
     return rep(cree ? 201 : 200, { ok: true, created: cree, [m[1] === "posts" ? "post" : "job"]: store.get(ext) });
   });
-  return { ...s, posts, jobs, manuels, depot };
+  return { ...s, posts, jobs, manuels, depot, depotComplet, exemples, offresSaisies, tombes, etat };
 }
 
 /**
@@ -212,6 +261,7 @@ suite("Site Adventum — file, disjoncteur, recrutement, réconciliation", () =>
 
   async function viderLesContenus() {
     await prisma.sitePublication.deleteMany({ where: { label: { startsWith: TAG } } });
+    await prisma.siteReprise.deleteMany({ where: { titre: { startsWith: TAG } } });
     await prisma.blogArticle.deleteMany({ where: { title: { startsWith: TAG } } });
     await prisma.jobPosting.deleteMany({ where: { title: { startsWith: TAG } } });
     await prisma.recruitmentRequest.deleteMany({ where: { position: { startsWith: TAG } } });
@@ -463,6 +513,25 @@ suite("Site Adventum — file, disjoncteur, recrutement, réconciliation", () =>
     expect(await lireBlocage()).toBeNull();
   });
 
+  it("LA LIAISON EST AU SUPER ADMIN SEUL (§118.160) : la Direction, qui PUBLIE, se voit refuser les cinq gestes — et le refus nomme l'écran où ils vivent", async () => {
+    const dir = await actorFor(ids.dir!);
+    // PRÉMISSE : la Direction tient le module et publie — le refus ne peut venir que de la règle de la liaison.
+    expect(peutEcrireArticles(dir)).toBe(true);
+    expect(peutGererLaLiaison(dir)).toBe(false);
+    expect(peutGererLaLiaison(await actorFor(ids.sa!))).toBe(true);
+    ACTOR = dir;
+    const gestes = { verifierConnexionSite, rapprocherSiteMaintenant, leverBlocageSite, genererCleSite, abandonnerCleSite };
+    for (const [nom, geste] of Object.entries(gestes)) {
+      const r = await geste();
+      expect(r.ok, `${nom} accepté pour la Direction`).toBe(false);
+      expect(r.error, nom).toBe(REFUS_LIAISON);
+      expect(r.error).toContain(ECRAN_LIAISON.nom);
+    }
+    // Rien n'a bougé : aucune clé générée, aucun rapprochement lancé.
+    expect(await prisma.siteWebCle.count()).toBe(0);
+    expect(await prisma.siteReconciliation.count({ where: { startedAt: { gte: debutDuCas } } })).toBe(0);
+  });
+
   it("course : un envoi réussi ne confirme QUE la version qu'il portait — la correction faite pendant le vol repart", async () => {
     const id = await publier("Course");
     const v1 = await pub("POST", id);
@@ -585,8 +654,10 @@ suite("Site Adventum — file, disjoncteur, recrutement, réconciliation", () =>
     const j = await prisma.sitePushAttempt.findFirst({ where: { publicationId: ligne.id }, orderBy: { createdAt: "desc" } });
     expect(j?.outcome).toBe("LOCAL");
 
-    // L'action « Vérifier la connexion » passe par le même transport : elle le DIT.
-    ACTOR = await actorFor(ids.dir!);
+    // L'action « Vérifier la connexion » passe par le même transport : elle le DIT. (Jouée par le
+    // Super Admin : c'est son geste depuis §118.160 — la Direction serait refusée AVANT le transport,
+    // et le cas ne mesurerait plus la garde de sortie.)
+    ACTOR = await actorFor(ids.sa!);
     const v = await verifierConnexionSite();
     expect(v.ok).toBe(false);
     expect(v.error).toMatch(/Sortie interdite/);
@@ -1044,7 +1115,7 @@ suite("Site Adventum — file, disjoncteur, recrutement, réconciliation", () =>
     boot = `boot-${RUN}-2`;
     const b3 = await entretenirLiaison({ transport: t.fn, maintenant: new Date(m0.getTime() + 122 * minute) });
     expect(b3).toMatchObject({ redemarrage: true, rapproche: true });
-    expect(t.appels.map((a) => a.chemin)).toEqual(["/health", "/health", "/health", "/jobs", "/posts"]);
+    expect(t.appels.map((a) => a.chemin)).toEqual(["/health", "/health", "/health", "/jobs", "/posts", "/repository"]);
 
     await entretenirLiaison({ transport: t.fn, maintenant: new Date(m0.getTime() + 123 * minute), force: true });
     expect(t.appels.filter((a) => a.chemin === "/health"), "« Vérifier maintenant » ignore l'heure").toHaveLength(4);
@@ -1114,6 +1185,202 @@ suite("Site Adventum — file, disjoncteur, recrutement, réconciliation", () =>
     expect(j.posts.find((p) => p.externalId === id)).toEqual({ externalId: id, ...JSON.parse(ligne.body!) });
     expect(j.posts.some((p) => p.externalId === brouillon.id), "un brouillon jamais publié n'a rien à faire sur le site").toBe(false);
     expect(j.count).toBe(j.posts.length + j.jobs.length);
+  });
+
+  // ───────────────────────────── La reprise des contenus du site (§118.160) ─────────────────────────────
+
+  /** Un article du DÉPÔT du site, tel que `GET /repository` le rend — le Markdown brut. */
+  const articleDuDepot = (nom: string, extra: Record<string, unknown> = {}) => ({
+    slug: `siteweb-${RUN}-${nom}`,
+    title: `${TAG}Article du dépôt ${nom}`,
+    description: "Une description d'article du dépôt, pour que la reprise ait quelque chose à garder.",
+    body: "Une introduction.\n\n## Première partie\n\nDu texte **en gras**.\n\n## Seconde partie\n\n- un point\n- un autre",
+    category: "Réglementaire", tags: ["enregistrement", "Algérie"], author: "Adventum Pharma",
+    date: "2026-03-18T00:00:00.000Z", updated: "2026-09-15T00:00:00.000Z", featured: true,
+    ...extra,
+  });
+  const lirePosts = async (site: ReturnType<typeof fauxSite>) =>
+    JSON.parse((await site.fn({ methode: "GET", chemin: "/posts" })).texte!) as { readOnlyFileArticles: { slug: string }[]; replacedFiles: string[] };
+  const visiblesDuRun = async (site: ReturnType<typeof fauxSite>) =>
+    (await lirePosts(site)).readOnlyFileArticles.map((d) => d.slug).filter((x) => x.includes(RUN));
+
+  it("REPRENDRE : les articles du dépôt deviennent des articles de l'ERP poussés avec ce qu'ils remplacent ; l'exemple en brouillon, jamais envoyé ; l'offre saisie sur le site reprise avec son état — une alerte, et la seconde fois rien ne se passe", async () => {
+    const site = fauxSite();
+    site.depotComplet.push(articleDuDepot("alpha"), articleDuDepot("beta", { featured: false, date: null, updated: null }));
+    site.exemples.push({
+      slug: `exemple-${RUN}`, title: `${TAG}Chargé(e) exemple`, department: "Réglementaire", location: "Alger", type: "CDI",
+      experience: "3 ans", summary: "Un exemple.", mission: ["m1", "m2"], profile: ["p1"], offer: ["o1"],
+    });
+    site.offresSaisies.push({
+      id: `saisie-${RUN}`, slug: "poste-saisi", title: `${TAG}Poste saisi sur le site`, department: "Qualité", location: "Alger", type: "CDD",
+      experience: "", summary: "Saisi à la main.", mission: ["a"], profile: [], offer: [], published: true,
+    });
+    const alerte = "Site web : contenus repris du site";
+    const a0 = await notifs(ids.sa!, alerte);
+
+    const b1 = noter(await rapprocherSite({ declencheur: "MANUEL", parId: ids.sa!, maintenant: plus(1_000), transport: site.fn }));
+    expect(b1.ok, b1.message).toBe(true);
+    expect(b1.reprise?.repris.map((r) => r.origine).sort()).toEqual(["ARTICLE_DEPOT", "ARTICLE_DEPOT", "OFFRE_ADMIN", "OFFRE_EXEMPLE"]);
+    expect(b1.message).toMatch(/4 contenu\(s\) repris du site/);
+    expect(b1.repousses, "une reprise n'est pas un écart rattrapé").toBe(0);
+
+    // LES ARTICLES : même adresse, même texte, mêmes dates — et publiés, comme sur le site.
+    const alpha = await prisma.blogArticle.findUniqueOrThrow({ where: { slug: `siteweb-${RUN}-alpha` }, include: { reprise: true } });
+    expect(alpha).toMatchObject({ published: true, featured: true, category: "Réglementaire", tags: ["enregistrement", "Algérie"], createdById: ids.sa });
+    expect(alpha.body).toBe(articleDuDepot("alpha").body);
+    expect(alpha.publishedOn?.toISOString()).toBe("2026-03-18T00:00:00.000Z");
+    expect(alpha.firstPublishedAt?.toISOString(), "sa première mise en ligne est celle du SITE, pas celle de la reprise").toBe("2026-03-18T00:00:00.000Z");
+    expect(alpha.revisedAt?.toISOString()).toBe("2026-09-15T00:00:00.000Z");
+    expect(alpha.reprise).toMatchObject({ origine: "ARTICLE_DEPOT", cleSite: `siteweb-${RUN}-alpha` });
+
+    // POUSSÉS AVEC CE QU'ILS REMPLACENT : le site cache ses fichiers et montre la version de l'ERP.
+    expect(site.posts.get(alpha.id)).toMatchObject({ replacesFile: `siteweb-${RUN}-alpha`, body: alpha.body, published: true });
+    expect(await visiblesDuRun(site), "plus aucun fichier du dépôt visible").toEqual([]);
+
+    // L'EXEMPLE : repris en BROUILLON, et jamais envoyé — publier un poste est une décision.
+    const exemple = await prisma.jobPosting.findFirstOrThrow({ where: { title: `${TAG}Chargé(e) exemple` } });
+    expect(exemple).toMatchObject({ published: false, contractLabel: "CDI", mission: ["m1", "m2"] });
+    expect(site.jobs.has(exemple.id)).toBe(false);
+    expect(await prisma.sitePublication.count({ where: { kind: "JOB", externalId: exemple.id } })).toBe(0);
+
+    // L'OFFRE SAISIE : son état est gardé, et la version de l'ERP REMPLACE la copie du site.
+    const saisie = await prisma.jobPosting.findFirstOrThrow({ where: { title: `${TAG}Poste saisi sur le site` } });
+    expect(saisie.published).toBe(true);
+    expect(site.jobs.get(saisie.id)).toMatchObject({ title: `${TAG}Poste saisi sur le site`, published: true });
+    expect(site.offresSaisies, "jamais deux fois le même poste sur la page Carrières").toEqual([]);
+
+    expect(await notifs(ids.sa!, alerte), "une alerte pour tout le lot").toBe(a0 + 1);
+
+    // IDEMPOTENT : la seconde fois, rien n'est repris, rien n'est écrit, personne n'est dérangé.
+    site.appels.length = 0;
+    const b2 = noter(await rapprocherSite({ declencheur: "MANUEL", parId: ids.sa!, maintenant: plus(2_000), transport: site.fn }));
+    expect(b2.reprise?.repris).toEqual([]);
+    expect(site.appels.filter((a) => a.methode !== "GET")).toEqual([]);
+    expect(await prisma.siteReprise.count({ where: { titre: { startsWith: TAG } } })).toBe(4);
+    expect(await notifs(ids.sa!, alerte)).toBe(a0 + 1);
+  });
+
+  it("MODIFIER puis SUPPRIMER un article repris : il garde son adresse et remplace la version du site ; supprimé, il reste caché — la reprise survit, et la liste que le site recharge le dit", async () => {
+    const site = fauxSite();
+    site.depotComplet.push(articleDuDepot("gamma"));
+    noter(await rapprocherSite({ declencheur: "MANUEL", parId: ids.sa!, maintenant: plus(1_000), transport: site.fn }));
+    const a = await prisma.blogArticle.findUniqueOrThrow({ where: { slug: `siteweb-${RUN}-gamma` } });
+
+    // Sa propre adresse n'est pas « une adresse du dépôt » : sans quoi on ne pourrait pas corriger
+    // l'article même qu'on vient de reprendre pour le corriger.
+    ACTOR = await actorFor(ids.dir!);
+    const r = await enregistrerArticle(form({
+      id: a.id, intention: "enregistrer", title: `${TAG}Article du dépôt gamma (corrigé)`, slug: a.slug!, body: `${a.body}\n\nUne phrase ajoutée.`,
+      description: a.description ?? "", category: a.category ?? "", tags: a.tags.join(", "), author: a.author ?? "",
+    }));
+    expect(r.ok, r.error).toBe(true);
+    await viderFile({ transport: site.fn, maintenant: plus(2_000) });
+    expect(site.posts.get(a.id)).toMatchObject({ title: `${TAG}Article du dépôt gamma (corrigé)`, replacesFile: `siteweb-${RUN}-gamma` });
+
+    const d = await supprimerArticle(form({ id: a.id }));
+    expect(d.ok, d.error).toBe(true);
+    await viderFile({ transport: site.fn, maintenant: plus(3_000) });
+    expect(site.posts.has(a.id)).toBe(false);
+    expect(await visiblesDuRun(site), "l'ancien fichier ne revient pas").toEqual([]);
+
+    const b = noter(await rapprocherSite({ declencheur: "MANUEL", parId: ids.sa!, maintenant: plus(4_000), transport: site.fn }));
+    expect(b.reprise?.repris, "supprimer, c'est décider : il n'est pas repris une seconde fois").toEqual([]);
+    expect(await prisma.siteReprise.findFirst({ where: { cleSite: `siteweb-${RUN}-gamma` }, select: { articleId: true } })).toEqual({ articleId: null });
+
+    const res = await contenusDuSite(new Request("http://erp.banc.test/api/site-web/v1/contenus", { headers: { authorization: `Bearer ${CLE}` } }));
+    expect(((await res.json()) as { replacedFiles: string[] }).replacedFiles).toContain(`siteweb-${RUN}-gamma`);
+  });
+
+  it("un article repris que le site REFUSERAIT (titre de niveau 1) : repris quand même, dit « à corriger », rien ne part et le site garde le sien ; le SUPPRIMER le cache quand même", async () => {
+    const site = fauxSite();
+    site.depotComplet.push(articleDuDepot("delta", { body: "# Un titre de niveau 1\n\nDu texte." }));
+    const b = noter(await rapprocherSite({ declencheur: "MANUEL", parId: ids.sa!, maintenant: plus(1_000), transport: site.fn }));
+    expect(b.reprise?.aCorriger).toHaveLength(1);
+    expect(b.reprise?.aCorriger[0]!.raison).toMatch(/niveau 1/);
+    const a = await prisma.blogArticle.findUniqueOrThrow({ where: { slug: `siteweb-${RUN}-delta` } });
+    expect(site.posts.has(a.id), "rien ne part tant qu'une personne n'a pas corrigé").toBe(false);
+    expect(await visiblesDuRun(site), "le site garde sa version en attendant").toEqual([`siteweb-${RUN}-delta`]);
+
+    ACTOR = await actorFor(ids.dir!);
+    expect((await supprimerArticle(form({ id: a.id }))).ok).toBe(true);
+    const ligne = await pub("POST", a.id);
+    expect(ligne.operation).toBe("DELETE");
+    expect(JSON.parse(ligne.body!), "la suppression dit ce qu'elle remplaçait").toEqual({ replacesFile: `siteweb-${RUN}-delta` });
+    await viderFile({ transport: site.fn, maintenant: plus(2_000) });
+    expect(await visiblesDuRun(site)).toEqual([]);
+    expect((await pub("POST", a.id)).state).toBe("DONE");
+  });
+
+  it("une offre saisie sur le site, reprise mais refusée par le contrat, puis SUPPRIMÉE : la suppression part quand même et retire la copie du site", async () => {
+    const site = fauxSite();
+    const trop = Array.from({ length: 31 }, (_, i) => `mission ${i + 1}`);
+    site.offresSaisies.push({ id: `saisie2-${RUN}`, title: `${TAG}Poste trop long`, department: "", location: "", type: "CDI", experience: "", summary: "", mission: trop, profile: [], offer: [], published: true });
+    const b = noter(await rapprocherSite({ declencheur: "MANUEL", parId: ids.sa!, maintenant: plus(1_000), transport: site.fn }));
+    expect(b.reprise?.aCorriger.map((c) => c.origine)).toEqual(["OFFRE_ADMIN"]);
+    const o = await prisma.jobPosting.findFirstOrThrow({ where: { title: `${TAG}Poste trop long` } });
+    expect(site.offresSaisies).toHaveLength(1);
+
+    ACTOR = await actorFor(ids.dir!);
+    expect((await supprimerOffre(form({ id: o.id }))).ok).toBe(true);
+    expect(JSON.parse((await pub("JOB", o.id)).body!)).toEqual({ replacesJob: `saisie2-${RUN}` });
+    await viderFile({ transport: site.fn, maintenant: plus(2_000) });
+    expect(site.offresSaisies, "la copie du site est partie avec la nôtre").toEqual([]);
+  });
+
+  it("une adresse DÉJÀ PRISE dans l'ERP : l'article du dépôt n'est pas repris, et le conflit est nommé avec le geste qui le lève — jamais deux articles fusionnés d'office", async () => {
+    ACTOR = await actorFor(ids.dir!);
+    const brouillon = await enregistrerArticle(form({ intention: "brouillon", title: `${TAG}Déjà là`, slug: `siteweb-${RUN}-epsilon`, body: "## A\n\nB" }));
+    expect(brouillon.ok, brouillon.error).toBe(true);
+    const site = fauxSite();
+    site.depotComplet.push(articleDuDepot("epsilon"));
+    const b = noter(await rapprocherSite({ declencheur: "MANUEL", parId: ids.sa!, maintenant: plus(1_000), transport: site.fn }));
+    expect(b.reprise?.repris).toEqual([]);
+    expect(b.reprise?.conflits[0]!.raison).toMatch(new RegExp(`porte déjà l'adresse /blog/siteweb-${RUN}-epsilon.*autre adresse`));
+    expect(await prisma.siteReprise.count({ where: { cleSite: `siteweb-${RUN}-epsilon` } })).toBe(0);
+    expect(await prisma.blogArticle.count({ where: { slug: `siteweb-${RUN}-epsilon` } })).toBe(1);
+    expect(await visiblesDuRun(site), "rien ne change pour le public").toEqual([`siteweb-${RUN}-epsilon`]);
+  });
+
+  it("un site d'AVANT la reprise (pas de /repository) : la reprise est DITE impossible, le rapprochement réussit quand même, et le battement repasse toutes les heures jusqu'à ce qu'elle ait lieu — puis une fois par jour", async () => {
+    // « Le dépôt a-t-il déjà été lu ? » est une question GLOBALE, et seul ce fichier rapproche dans la
+    // base de test : on part d'une base où il ne l'a jamais été, sans quoi le cas ne mesure rien.
+    await prisma.siteReconciliation.deleteMany({ where: { repriseLue: true } });
+    const dernier = await prisma.siteReconciliation.findFirst({ orderBy: { startedAt: "desc" }, select: { startedAt: true } });
+    const base = new Date(Math.max(Date.now(), dernier?.startedAt.getTime() ?? 0) + 2 * 86_400_000);
+    const site = fauxSite();
+    site.etat.sansDepot = true;
+    const b1 = noter(await rapprocherSiteSiDu(base, site.fn));
+    expect(b1?.ok, b1?.message).toBe(true);
+    expect(b1?.reprise?.impossible).toMatch(/pas encore à jour.*Deploy latest commit/);
+    expect(await prisma.siteReconciliation.findUniqueOrThrow({ where: { id: b1!.id! }, select: { repriseLue: true } })).toEqual({ repriseLue: false });
+    expect(await rapprocherSiteSiDu(new Date(base.getTime() + 30 * 60_000), site.fn), "pas avant une heure").toBeNull();
+    site.etat.sansDepot = false;
+    const b2 = noter(await rapprocherSiteSiDu(new Date(base.getTime() + 61 * 60_000), site.fn));
+    expect(b2?.ok, "une heure après, il repasse : la reprise ne doit pas attendre le lendemain").toBe(true);
+    expect(b2?.reprise).toMatchObject({ lue: true, impossible: null });
+    expect(await rapprocherSiteSiDu(new Date(base.getTime() + 3 * 3_600_000), site.fn), "lu une fois : de nouveau une fois par jour").toBeNull();
+  });
+
+  it("un article repris puis supprimé que le site MONTRE ENCORE (il a perdu sa pierre tombale) : on lui demande de recharger ses contenus — et seulement dans ce cas", async () => {
+    const site = fauxSite();
+    site.depotComplet.push(articleDuDepot("zeta"));
+    noter(await rapprocherSite({ declencheur: "MANUEL", parId: ids.sa!, maintenant: plus(1_000), transport: site.fn }));
+    const a = await prisma.blogArticle.findUniqueOrThrow({ where: { slug: `siteweb-${RUN}-zeta` } });
+    ACTOR = await actorFor(ids.dir!);
+    expect((await supprimerArticle(form({ id: a.id }))).ok).toBe(true);
+    await viderFile({ transport: site.fn, maintenant: plus(2_000) });
+    expect(site.etat.rechargements).toBe(0);
+
+    site.tombes.clear(); // redémarré sans disque, pendant que l'ERP était injoignable
+    expect(await visiblesDuRun(site)).toEqual([`siteweb-${RUN}-zeta`]);
+    const b = noter(await rapprocherSite({ declencheur: "MANUEL", parId: ids.sa!, maintenant: plus(3_000), transport: site.fn }));
+    expect(site.etat.rechargements).toBe(1);
+    const trace = await prisma.siteReconciliation.findUniqueOrThrow({ where: { id: b.id! }, select: { reprise: true } });
+    expect(trace.reprise).toMatchObject({ rechargement: { fichiers: [`siteweb-${RUN}-zeta`], statut: 200 } });
+
+    site.tombes.add(`siteweb-${RUN}-zeta`);
+    noter(await rapprocherSite({ declencheur: "MANUEL", parId: ids.sa!, maintenant: plus(4_000), transport: site.fn }));
+    expect(site.etat.rechargements, "tout est en ordre : rien n'est demandé").toBe(1);
   });
 
   it("POST /api/site-web/v1/candidatures : signée → 201 ; renvoyée → 200 sans doublon ; non signée → 401 ; trop lourde → 413 ; illisible → 400 ; incomplète → 422 avec sa raison", async () => {

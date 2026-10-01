@@ -20,6 +20,7 @@ import { rattacherLegalAFiche, detacherLegalDeFiche } from "@/lib/actions/ad-pro
 // l'inverser fait échouer la SUITE ENTIÈRE sur « DOMAIN_TOOL_DEFS is not iterable ».
 import "@/lib/assistant";
 import { DOMAIN_TOOLS } from "@/lib/assistant/ops";
+import { AD_PRO_ENTITY_TYPE, AD_PRO_KINDS } from "@/lib/ad-pro/unified";
 
 let dbOk = false;
 try { await prisma.$queryRaw`SELECT 1`; dbOk = true; } catch { dbOk = false; }
@@ -288,27 +289,37 @@ suite("Le même rattachement depuis la conversation (legal_operation)", () => {
 
 describe("les fiches Ad & Pro n'ont plus de dépôt générique — et gardent leurs pièces", () => {
   const lire = (rel: string) => fs.readFileSync(path.join(process.cwd(), rel), "utf8");
-  const ECRANS = [
-    "src/app/(app)/sponsoring/[id]/page.tsx",
-    "src/app/(app)/events/[id]/page.tsx",
-    "src/app/(app)/congress-international/[id]/page.tsx",
-    "src/app/(app)/congress-national/[id]/page.tsx",
-  ];
+  // Le code SANS ses commentaires : un commentaire qui cite `<LinkedRecords` ne monte aucun bloc,
+  // et ce cliquet se serait accroché à la prose qui le décrit (§118.79d, §118.88, §118.138).
+  const code = (rel: string) => lire(rel).replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:"'`])\/\/[^\n]*/g, "$1").replace(/\{\/\*[\s\S]*?\*\/\}/g, "");
+  // LES SEPT FICHES, dérivées du registre canonique (§118.130) : la liste écrite à la main n'en
+  // tenait que QUATRE, et le lot du 30/09/2026 a trouvé les trois autres encore sur l'ancien
+  // bloc — le matériel promotionnel avec son dépôt générique, le consulting et « autre demande »
+  // avec une carte « Pièces » où l'on déposait devis et factures comme de simples fichiers. Une
+  // huitième nature entre ici sans que personne y pense.
+  const ECRANS = AD_PRO_KINDS.map((k) => `src/app/(app)${k.href}/[id]/page.tsx`);
+
+  it("la liste des fiches vient du registre, et chaque fiche EXISTE", () => {
+    // Sans cette prémisse, un `href` renommé ferait lire un fichier absent — et le cas suivant
+    // tomberait sur une exception au lieu de nommer la fiche.
+    expect(ECRANS.length, "les sept natures du pôle").toBe(7);
+    for (const f of ECRANS) expect(fs.existsSync(path.join(process.cwd(), f)), `${f} n'existe pas`).toBe(true);
+  });
 
   it("plus AUCUN bloc « Documents » générique sur les fiches Ad & Pro", () => {
     // Ce qui le ferait tomber : le remettre. On y déposait à la main ce qui aurait dû être une
     // pièce du circuit, si bien que la même dépense existait deux fois — un fichier posé là et
     // un engagement dans Legal, aucun des deux ne sachant que l'autre existait.
     for (const f of [...ECRANS, "src/app/(app)/congress-international/congress-detail-view.tsx"]) {
-      expect(lire(f), `${f} porte encore un bloc « Documents » générique`).not.toMatch(/CardTitle>Documents</);
+      expect(code(f), `${f} porte encore un bloc « Documents » générique`).not.toMatch(/CardTitle[^>]*>\s*(?:<[^>]+>\s*)*(?:Documents|Pièces jointes|Pièces \()/);
     }
   });
 
-  it("les QUATRE écrans montent le bloc des pièces liées AVEC l'emplacement nommé et les droits", () => {
+  it("les SEPT écrans montent le bloc des pièces liées AVEC l'emplacement nommé et les droits", () => {
     // LA MOITIÉ QUI COMPTE : retirer le dépôt générique SANS ceci aurait rendu invisible la
     // demande du médecin — obligatoire à la création, et le document que tout le circuit lit.
     for (const f of ECRANS) {
-      const src = lire(f);
+      const src = code(f);
       expect(src, `${f} : pas de bloc de pièces liées`).toContain("<LinkedRecords");
       expect(src, `${f} : les pièces de la demande n'ont pas d'emplacement nommé`).toContain("piecesDeLaDemande");
       expect(src, `${f} : les droits sur les pièces liées ne sont pas passés`).toContain("ctxPieces.acces");
@@ -316,12 +327,77 @@ describe("les fiches Ad & Pro n'ont plus de dépôt générique — et gardent l
     }
   });
 
-  it("les droits viennent du MÊME calcul pour les quatre — quatre orthographes en oublieraient un", () => {
+  it("les droits viennent du MÊME calcul pour les sept — sept orthographes en oublieraient un", () => {
     // C'est le défaut mesuré de `ad-pro/attachments.ts` : « chacun l'épelait à sa façon, et
     // chaque orthographe oubliait quelqu'un, qui envoyait alors la facture par mail avec un
     // dossier vide ».
     for (const f of ECRANS) {
-      expect(lire(f), `${f} recalcule les droits au lieu de lire le contexte partagé`).toContain("contextePiecesLiees(user,");
+      expect(code(f), `${f} recalcule les droits au lieu de lire le contexte partagé`).toContain("contextePiecesLiees(user,");
     }
+  });
+
+  it("TOUT écran qui monte le bloc lui passe les droits de la personne — pas seulement le pôle", () => {
+    // Sans `acces`, le bloc n'a personne à qui demander : aucun fichier n'est montré, et chaque
+    // bouton de création est offert à qui gère la fiche — y compris ceux que l'action Legal
+    // refuse ensuite. La demande du secrétariat montait le bloc ainsi ; réparer celle-là ne
+    // protège pas la suivante, donc on cherche TOUS les points de montage (§118.58).
+    const racines = ["src/app", "src/components"];
+    const fichiers: string[] = [];
+    const parcourir = (d: string) => {
+      for (const e of fs.readdirSync(path.join(process.cwd(), d), { withFileTypes: true })) {
+        const rel = path.join(d, e.name);
+        if (e.isDirectory()) parcourir(rel);
+        else if (/\.tsx$/.test(e.name)) fichiers.push(rel);
+      }
+    };
+    racines.forEach(parcourir);
+    let montages = 0;
+    for (const f of fichiers) {
+      if (f.endsWith("linked-records.tsx")) continue;
+      const src = code(f);
+      const n = (src.match(/<LinkedRecords\b/g) ?? []).length;
+      if (n === 0) continue;
+      montages += n;
+      const avecAcces = (src.match(/\bacces=\{/g) ?? []).length;
+      expect(avecAcces, `${f} monte le bloc sans les droits de la personne`).toBeGreaterThanOrEqual(n);
+    }
+    // Le plancher : les sept fiches Ad & Pro et la demande du secrétariat. Sans lui, un parcours
+    // cassé ne trouverait AUCUN montage et ce cas passerait au vert sans rien vérifier (§118.17).
+    expect(montages).toBeGreaterThanOrEqual(8);
+  });
+
+  it("le dépôt de la DEMANDE ne propose plus devis, BC, facture ni convention — ils ont leur fiche", () => {
+    // « Devis → BC → Facture, chacun avec sa version plateforme et son PDF » (30/09/2026) : un
+    // devis déposé comme simple fichier dans l'emplacement de la demande n'aurait ni fiche, ni
+    // chaîne, ni validation — la double saisie qu'on ferme. Chaque téléverseur de la fiche passe
+    // donc la liste FILTRÉE, et la liste brute ne lui est jamais donnée.
+    for (const f of ECRANS) {
+      const src = code(f);
+      const televerseurs = [...src.matchAll(/<DocumentUpload\b[^>]*>/g)].map((m) => m[0]);
+      expect(televerseurs.length, `${f} : l'emplacement de la demande n'a aucun téléverseur`).toBeGreaterThan(0);
+      for (const t of televerseurs) {
+        expect(t, `${f} : un téléverseur propose encore les catégories de la chaîne`).toMatch(/categories=\{categoriesDuDepotDeLaDemande\(/);
+      }
+    }
+  });
+});
+
+describe("Rattacher une pièce Legal — les fiches du pôle, lues dans le registre", () => {
+  // Le CODE, pas la prose qui le décrit (§118.79d) : l'en-tête cite l'ancienne route fautive.
+  const code = (rel: string) => fs.readFileSync(path.join(process.cwd(), rel), "utf8")
+    .replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:"'`])\/\/[^\n]*/g, "$1");
+  it("la liste des natures qui acceptent un rattachement est EXACTEMENT celle du registre", () => {
+    // `CIBLES` reste littérale (le contrat de l'action lit ses valeurs admises sous cette forme) :
+    // ce cas l'empêche de diverger du registre des natures — une huitième nature devra y entrer.
+    const src = code("src/lib/actions/ad-pro-rattacher-legal.ts");
+    const liste = src.match(/const CIBLES: readonly EntityType\[\] = \[([^\]]*)\]/)?.[1] ?? "";
+    const cibles = [...liste.matchAll(/"([A-Z_]+)"/g)].map((m) => m[1]).sort();
+    expect(cibles).toEqual(AD_PRO_KINDS.map((k) => AD_PRO_ENTITY_TYPE[k.kind]).sort());
+  });
+
+  it("l'adresse de chaque fiche vient du registre — plus aucune route écrite à la main", () => {
+    const src = code("src/lib/actions/ad-pro-rattacher-legal.ts");
+    expect(src).toContain("AD_PRO_KINDS.map((k) => [AD_PRO_ENTITY_TYPE[k.kind], k.href])");
+    expect(src).not.toContain('"/ad-pro/materiel"');
   });
 });

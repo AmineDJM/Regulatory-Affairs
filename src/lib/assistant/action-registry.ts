@@ -277,12 +277,12 @@ const CORE_ERP_ACTIONS: NativeAction[] = [
   },
   {
     id: "DOSSIER_CREATE",
-    module: "Projets",
-    uiLabel: "Ouvrir un projet",
+    module: "Sujets",
+    uiLabel: "Ouvrir un sujet",
     toolName: "create_dossier",
-    aliases: ["ouvre un projet", "crée un dossier projet", "nouveau projet"],
+    aliases: ["ouvre un sujet", "nouveau sujet", "ouvre un projet", "crée un dossier projet", "nouveau projet"],
     risk: "NORMAL",
-    summary: "Ouvre un projet (référence, responsable, échéance) par le même cœur que l'écran.",
+    summary: "Ouvre un sujet de Pilotage (référence, responsable, échéance) par le même cœur que l'écran.",
     gate: (u) => userCan(u, "DOSSIERS", "CREATE"),
   },
   {
@@ -654,6 +654,10 @@ classify("COVERED", "document_profile (geste definir, champ marque)", ["brand-ac
 // `document_profile` (champ `numerotation`).
 classify("COVERED", "document_build", ["fabrique-actions:emettrePieceCommerciale", "fabrique-actions:previsualiserPieceCommerciale"]);
 classify("COVERED", "document_profile (geste definir, champ numerotation)", ["fabrique-actions:reglerNumerotationPieces"]);
+// L'APERÇU D'UNE SUPPRESSION (§118.162) — la fenêtre de l'écran le lit avant le clic ; en
+// conversation, c'est la carte de `delete_record` qui le montre (« Part aussi »), par la même
+// fonction du registre : une seule lecture de « ce qui part avec » pour les deux portes.
+classify("COVERED", "delete_record (carte : « Part aussi »)", ["admin-delete-actions:apercuDeSuppression"]);
 classify("COVERED", "create_task (planifiée, circuit demande)", ["task-actions:requestTask"]);
 classify("COVERED", "update_task", ["task-actions:updateTaskStatus", "task-actions:startTask"]);
 classify("COVERED", "create_dossier", ["dossier-actions:createDossier"]);
@@ -1331,6 +1335,14 @@ X("LA CLÉ DE LIAISON AU SITE PUBLIC (§118.159) est l'IDENTIFIANT qui donne le 
   + "un geste qu'aucun outil ne fait à la place d'une personne. Un clic du Super Admin sur /site-web.", [
   "site-web-actions:genererCleSite",
   "site-web-actions:abandonnerCleSite",
+]);
+X("« RÉDIGER AVEC L'IA » SUR LE SITE (§118.160) remplit les champs d'un FORMULAIRE ouvert à l'écran : rien n'est "
+  + "enregistré ni publié, le texte revient dans les champs pour qu'une personne le relise, le corrige, puis clique "
+  + "« Enregistrer » ou « Publier » — gestes eux-mêmes réservés à une vraie session. Sans formulaire pour le recevoir, "
+  + "le geste n'a pas d'objet : Adam rédige déjà dans sa propre conversation, et lui donner une seconde porte vers le "
+  + "même modèle ne ferait que doubler un appel facturé. Un clic sur /site-web.", [
+  "site-web-redaction-actions:redigerArticleAvecIA",
+  "site-web-redaction-actions:redigerOffreAvecIA",
 ]);
 X("TRIER LES CANDIDATURES REÇUES DU SITE (§118.159) porte sur les données PERSONNELLES de candidats externes : les "
   + "rattacher à un poste, les écarter, les effacer à leur demande (loi 18-07). C'est une personne des RH qui en "

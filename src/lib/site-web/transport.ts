@@ -38,10 +38,14 @@ import { configurationEnVigueur } from "./cles";
  */
 
 export interface RequeteSite {
-  methode: "GET" | "PUT" | "DELETE";
+  /** POST : la seule demande de ce genre est `/resync` (§118.160) — recharger ses contenus depuis l'ERP. */
+  methode: "GET" | "PUT" | "DELETE" | "POST";
   /** Relatif à l'API : `/jobs/<externalId>`, `/posts`, `/health`. */
   chemin: string;
-  /** La chaîne JSON EXACTE à envoyer (PUT). Jamais reconstruite ici. */
+  /**
+   * La chaîne JSON EXACTE à envoyer (PUT ; un DELETE de contenu repris du site, §118.160). Jamais
+   * reconstruite ici. Un GET n'en porte jamais.
+   */
   corps?: string | null;
   /**
    * D'AUTRES identifiants que ceux en vigueur — pour PRÉSENTER au site une clé en attente et son
@@ -115,7 +119,9 @@ export async function envoyerAuSite(r: RequeteSite): Promise<ReponseSite> {
   const cle = imposes ? imposes.cle : lecture.ok ? lecture.config.cle : "";
   const secret = imposes ? imposes.secret : lecture.ok ? lecture.config.secret : null;
   const headers: Record<string, string> = { Authorization: `Bearer ${cle}`, Accept: "application/json" };
-  const corps = r.methode === "PUT" ? (r.corps ?? "") : null;
+  // PUT : toujours un corps. DELETE et POST : seulement quand la file en a sérialisé un (une
+  // suppression de contenu repris dit ce qu'elle remplaçait). GET : jamais.
+  const corps = r.methode === "PUT" ? (r.corps ?? "") : r.methode === "GET" ? null : (r.corps ?? null);
   if (corps !== null) headers["Content-Type"] = "application/json";
   // Signée même sans corps : le site vérifie la signature sur toute requête (voir l'en-tête).
   if (secret) headers["X-Adventum-Signature"] = signer(corps ?? "", secret);

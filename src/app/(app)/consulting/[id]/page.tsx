@@ -6,13 +6,16 @@ import { prisma } from "@/lib/prisma";
 import { toNumber, formatCurrency, formatDate } from "@/lib/utils";
 import { onlyofficeConfigured } from "@/lib/onlyoffice";
 import { PageHeader } from "@/components/shared/page-header";
+import { SuperAdminDeleteButton } from "@/components/shared/super-admin-delete";
 import { BackLink } from "@/components/shared/back-link";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { DocumentUpload } from "@/components/documents/document-upload";
-import { AD_PRO_DOC_CATEGORIES } from "@/lib/ad-pro/doc-categories";
-import { DocumentList, type DocItem } from "@/components/documents/document-list";
+import { AD_PRO_DOC_CATEGORIES, categoriesDuDepotDeLaDemande } from "@/lib/ad-pro/doc-categories";
+import { contextePiecesLiees } from "@/lib/ad-pro/pieces-liees";
+import { LinkedRecords } from "@/components/shared/linked-records";
+import type { DocItem } from "@/components/documents/document-list";
 import { CONSULTING_STATUS, CONSULTING_BILLING } from "@/lib/labels";
 import { billingSuffix, isOverdue, isContractEditable, isAwaitingDecision, totalCommitment } from "@/lib/ad-pro/consulting";
 import { ConsultingActions, type ContractTask } from "./actions-panel";
@@ -75,6 +78,9 @@ export default async function ConsultingContractPage({ params }: { params: { id:
     && (contract.validatorId === null || contract.validatorId === user.id || hasGlobalView(user.role));
   const editable = isContractEditable(contract.status);
   const canUpload = (userCan(user, moduleDuContrat, "UPLOAD") || mine) && editable;
+  // Ce que la personne peut ouvrir, déposer, créer parmi les pièces liées — la règle commune du
+  // pôle, lue sur le module du CONTRAT (Consulting ou RH selon son pôle, §118.150).
+  const ctxPieces = await contextePiecesLiees(user, moduleDuContrat);
   // TRANSFÉRER : modifier des DEUX côtés (`transfertAutorise`), la même règle que l'action.
   const versPole = poleOppose(pole);
   const canTransfer = transfertAutorise({
@@ -109,6 +115,9 @@ export default async function ConsultingContractPage({ params }: { params: { id:
         {/* LA MAISON DU CONTRAT, dite en toutes lettres : c'est elle qui décide qui le voit. */}
         <Badge tone={pole === "RH" ? "purple" : "neutral"} dot={false}>Suivi par {LIBELLE_POLE[pole]}</Badge>
         {isOverdue(contract) && <Badge tone="danger" dot={false}>terme dépassé</Badge>}
+        {/* Une nature du pôle qui n'avait AUCUNE suppression (§118.162) : elle passe par le même
+            lot que les autres — ses branches partent et reviennent avec elle. */}
+        <SuperAdminDeleteButton kind="CONSULTING_CONTRACT" id={contract.id} name={`${contract.reference} — ${contract.title}`} enabled={user.role === "SUPER_ADMIN"} />
       </PageHeader>
 
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
@@ -159,19 +168,25 @@ export default async function ConsultingContractPage({ params }: { params: { id:
             </CardContent>
           </Card>
 
-          <Card>
-            <CardHeader><CardTitle>Pièces (contrat signé, avenants, factures, livrables…)</CardTitle></CardHeader>
-            <CardContent className="space-y-3">
-              {canUpload && <DocumentUpload entityType="CONSULTING_CONTRACT" entityId={contract.id} categories={[...AD_PRO_DOC_CATEGORIES]} />}
-              <DocumentList
-                documents={docItems}
-                canDelete={userCan(user, moduleDuContrat, "DELETE") || hasGlobalView(user.role)}
-                canRename={canUpload}
-                canEdit={onlyofficeConfigured() && canUpload}
-                path={`/consulting/${contract.id}`}
-              />
-            </CardContent>
-          </Card>
+          {/* LES PIÈCES LIÉES, comme sur les six autres natures du pôle (§118.161) : le bloc
+              générique « Pièces (contrat signé, avenants, factures, livrables…) » disparaît. Les
+              factures du consultant, ses devis et ses bons de commande ont leur fiche au registre ET
+              leur PDF, dans la chaîne ; les pièces du contrat lui-même gardent leur place nommée. */}
+          <LinkedRecords
+            entityType="CONSULTING_CONTRACT" entityId={contract.id} reference={contract.reference} canCreate={canUpload}
+            acces={ctxPieces.acces} candidatsLegal={ctxPieces.candidatsLegal}
+            piecesDeLaDemande={{
+              titre: "Pièces du contrat (contrat signé, livrables, comptes rendus…)",
+              documents: docItems,
+              televerseur: canUpload
+                ? <DocumentUpload entityType="CONSULTING_CONTRACT" entityId={contract.id} categories={categoriesDuDepotDeLaDemande(AD_PRO_DOC_CATEGORIES)} />
+                : undefined,
+              canDelete: userCan(user, moduleDuContrat, "DELETE") || hasGlobalView(user.role),
+              canRename: canUpload,
+              canEdit: onlyofficeConfigured() && canUpload,
+              path: `/consulting/${contract.id}`,
+            }}
+          />
         </div>
 
         <ConsultingActions

@@ -16,7 +16,9 @@ export type AiFeature =
   | "field_report"
   | "voice"
   /** Session vocale speech-to-speech temps réel (API Realtime) — journalisée par session. */
-  | "voice_realtime";
+  | "voice_realtime"
+  /** « Rédiger avec l'IA » — un article de blog ou une offre d'emploi du site public (§118.160). */
+  | "site_web";
 
 export interface AiSettingsView {
   masterEnabled: boolean;
@@ -26,6 +28,7 @@ export interface AiSettingsView {
   processIntelEnabled: boolean;
   fieldReportAiEnabled: boolean;
   voiceTranscriptEnabled: boolean;
+  siteWebAiEnabled: boolean;
 }
 
 const DEFAULTS: AiSettingsView = {
@@ -36,6 +39,7 @@ const DEFAULTS: AiSettingsView = {
   processIntelEnabled: true,
   fieldReportAiEnabled: true,
   voiceTranscriptEnabled: true,
+  siteWebAiEnabled: true,
 };
 
 /** Quelle bascule gouverne quelle fonction. */
@@ -49,6 +53,7 @@ const FEATURE_KEY: Record<AiFeature, keyof AiSettingsView> = {
   voice: "voiceTranscriptEnabled",
   // La session temps réel suit la MÊME bascule que l'assistant : couper l'assistant coupe la voix.
   voice_realtime: "assistantEnabled",
+  site_web: "siteWebAiEnabled",
 };
 
 /**
@@ -69,6 +74,7 @@ export async function getAiSettings(): Promise<AiSettingsView> {
       processIntelEnabled: row.processIntelEnabled,
       fieldReportAiEnabled: row.fieldReportAiEnabled,
       voiceTranscriptEnabled: row.voiceTranscriptEnabled,
+      siteWebAiEnabled: row.siteWebAiEnabled,
     };
   } catch {
     return DEFAULTS;

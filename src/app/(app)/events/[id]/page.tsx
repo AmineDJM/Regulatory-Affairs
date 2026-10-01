@@ -32,7 +32,7 @@ import { onlyofficeConfigured } from "@/lib/onlyoffice";
 import { DocumentUpload } from "@/components/documents/document-upload";
 import { LinkedRecords } from "@/components/shared/linked-records";
 import { contextePiecesLiees } from "@/lib/ad-pro/pieces-liees";
-import { AD_PRO_DOC_CATEGORIES } from "@/lib/ad-pro/doc-categories";
+import { AD_PRO_DOC_CATEGORIES, categoriesDuDepotDeLaDemande } from "@/lib/ad-pro/doc-categories";
 import { getAdProCreateData } from "@/lib/queries/ad-pro";
 import { canAttachToAdPro, attachHint } from "@/lib/ad-pro/attachments";
 import type { DocItem } from "@/components/documents/document-list";
@@ -156,7 +156,7 @@ export default async function EventDetailPage({ params }: { params: { id: string
         piecesDeLaDemande={{
           titre: "Pièces de l'événement (convention, programme, photos…)",
           documents: docItems,
-          televerseur: canUploadDocs ? <DocumentUpload entityType="EVENT" entityId={e.id} categories={[...AD_PRO_DOC_CATEGORIES]} /> : undefined,
+          televerseur: canUploadDocs ? <DocumentUpload entityType="EVENT" entityId={e.id} categories={categoriesDuDepotDeLaDemande(AD_PRO_DOC_CATEGORIES)} /> : undefined,
           motif: uploadHint,
           canDelete: userCan(user, "EVENTS", "DELETE") || hasGlobalView(user),
           canRename: canUploadDocs,

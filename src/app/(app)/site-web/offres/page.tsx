@@ -19,6 +19,7 @@ import { etatAffiche, publicationsDe, suspensionEnVigueur } from "@/lib/site-web
 import { posteOuvert } from "@/lib/site-web/contenus";
 import { peutPublierOffres, peutVoirOffres } from "@/lib/site-web/acces";
 import { EtatPublicationBadge } from "@/components/site-web/etat-badge";
+import { RepriseBadge } from "@/components/site-web/reprise";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Offres d'emploi du site — AMD Internal OS" };
@@ -40,6 +41,7 @@ export default async function OffresPage() {
       select: {
         id: true, title: true, department: true, location: true, contractLabel: true, published: true, updatedAt: true,
         recruitmentRequest: { select: { id: true, reference: true, stage: true } },
+        reprise: { select: { origine: true } },
       },
     }),
     publie
@@ -112,6 +114,7 @@ export default async function OffresPage() {
                   <TableRow key={o.id}>
                     <TableCell label="Poste" className="max-w-[24rem] font-medium">
                       <Link href={`/site-web/offres/${o.id}`} className="break-words hover:underline">{o.title}</Link>
+                      <RepriseBadge origine={o.reprise?.origine} />
                       {o.department && <span className="block text-xs font-normal text-muted-foreground">{o.department}</span>}
                     </TableCell>
                     <TableCell label="Contrat · lieu" className="text-sm">

@@ -8,6 +8,8 @@ import { formatDateTime } from "@/lib/utils";
 import { etatAffiche, publicationsDe, slugsDuDepotConnus, suspensionEnVigueur } from "@/lib/site-web/etat";
 import { peutEcrireArticles, peutSupprimerArticles } from "@/lib/site-web/acces";
 import { ArticleForm } from "@/components/site-web/article-form";
+import { disponibiliteRedaction } from "@/lib/redaction-site-ia";
+import { RepriseNote } from "@/components/site-web/reprise";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Article — AMD Internal OS" };
@@ -23,14 +25,18 @@ export default async function ArticlePage({ params }: { params: { id: string } }
   const user = await requireModule("SITE_WEB");
   const a = await prisma.blogArticle.findUnique({
     where: { id: params.id },
-    include: { createdBy: { select: { name: true } }, updatedBy: { select: { name: true } } },
+    include: {
+      createdBy: { select: { name: true } }, updatedBy: { select: { name: true } },
+      reprise: { select: { origine: true, cleSite: true, titre: true, createdAt: true } },
+    },
   });
   if (!a) notFound();
-  const [pubs, suspendu, depot, categories] = await Promise.all([
+  const [pubs, suspendu, depot, categories, ia] = await Promise.all([
     publicationsDe("POST", [a.id]),
     suspensionEnVigueur(),
     slugsDuDepotConnus(),
     prisma.blogArticle.findMany({ where: { category: { not: null } }, distinct: ["category"], select: { category: true }, take: 50 }),
+    disponibiliteRedaction(),
   ]);
   const pub = pubs.get(a.id) ?? null;
   const etat = etatAffiche(pub, a.published, suspendu);
@@ -42,6 +48,7 @@ export default async function ArticlePage({ params }: { params: { id: string } }
         title={a.title}
         description={`Créé${a.createdBy ? ` par ${a.createdBy.name}` : ""} le ${formatDateTime(a.createdAt)} · modifié${a.updatedBy ? ` par ${a.updatedBy.name}` : ""} le ${formatDateTime(a.updatedAt)}${a.revisedAt ? ` · dernière révision publiée le ${formatDateTime(a.revisedAt)}` : ""}`}
       />
+      <RepriseNote reprise={a.reprise} dejaEnvoye={pub !== null} />
       <ArticleForm
         article={{
           id: a.id, title: a.title, slug: a.slug ?? "", description: a.description ?? "", body: a.body, category: a.category ?? "",
@@ -54,6 +61,7 @@ export default async function ArticlePage({ params }: { params: { id: string } }
         peutEcrire={peutEcrireArticles(user)}
         peutSupprimer={peutSupprimerArticles(user)}
         categories={categories.flatMap((c) => (c.category ? [c.category] : []))}
+        ia={ia}
       />
     </div>
   );

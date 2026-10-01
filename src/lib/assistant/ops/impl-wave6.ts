@@ -398,8 +398,8 @@ async function resolveDossier(raw: string): Promise<DossierHit | { error: string
     orderBy: { updatedAt: "desc" }, take: 6,
   });
   if (rows.length === 1) return rows[0];
-  if (rows.length === 0) return { error: `Aucun projet « ${q} ».` };
-  return { error: `Plusieurs projets correspondent : ${rows.map((d) => `${d.reference} — ${d.title}`).join(" ; ")} — donner la référence.` };
+  if (rows.length === 0) return { error: `Aucun sujet « ${q} ».` };
+  return { error: `Plusieurs sujets correspondent : ${rows.map((d) => `${d.reference} — ${d.title}`).join(" ; ")} — donner la référence.` };
 }
 
 async function resolveDossierMessage(dossier: DossierHit, excerptRaw: string): Promise<{ id: string; excerpt: string } | { error: string }> {
@@ -442,7 +442,7 @@ export const DOSSIER_OPS_IMPL: Record<string, OpImpl> = {
       if (typeof m === "object") return m;
       return {
         title: `${d.reference} — ${d.title} → ${DOSSIER_STATUS_FR.find(([c]) => c === m)?.[1]}`,
-        fields: [{ label: "Projet", value: `${d.reference} — ${d.title}` }, { label: "Statut", value: DOSSIER_STATUS_FR.find(([c]) => c === m)?.[1] ?? m }],
+        fields: [{ label: "Sujet", value: `${d.reference} — ${d.title}` }, { label: "Statut", value: DOSSIER_STATUS_FR.find(([c]) => c === m)?.[1] ?? m }],
         warnings: ["Geste du créateur, du responsable ou de la Direction (revérifié par l'action)."],
         args: { id: d.id, status: m },
         successMessage: `${d.reference} : ${DOSSIER_STATUS_FR.find(([c]) => c === m)?.[1]}.`,
@@ -459,7 +459,7 @@ export const DOSSIER_OPS_IMPL: Record<string, OpImpl> = {
       const current = await prisma.dossier.findUnique({
         where: { id: d.id }, select: { assignedToId: true, participantIds: true },
       });
-      if (!current) return { error: "Projet introuvable." };
+      if (!current) return { error: "Sujet introuvable." };
       // FUSION : l'action REMPLACE responsable ET participants — l'existant est relu :
       // responsable absent → conservé ; participants absents → rejoués ; « aucun » vide.
       let assigneeId = current.assignedToId;
@@ -489,7 +489,7 @@ export const DOSSIER_OPS_IMPL: Record<string, OpImpl> = {
       return {
         title: `Équipe du projet ${d.reference}`,
         fields: [
-          { label: "Projet", value: `${d.reference} — ${d.title}` },
+          { label: "Sujet", value: `${d.reference} — ${d.title}` },
           { label: "Responsable", value: assigneeShown },
           { label: "Participants", value: partsShown },
         ],
@@ -528,7 +528,7 @@ export const DOSSIER_OPS_IMPL: Record<string, OpImpl> = {
       return {
         title: `Message sur ${d.reference}`,
         fields: fieldsOf([
-          ["Projet", `${d.reference} — ${d.title}`],
+          ["Sujet", `${d.reference} — ${d.title}`],
           ["Message", body],
           ["Mentions", mentioned.length ? mentioned.join(", ") : null],
         ]),
@@ -569,7 +569,7 @@ export const DOSSIER_OPS_IMPL: Record<string, OpImpl> = {
       return {
         title: `Lier l'e-mail « ${subject} » à ${dossierShown}`,
         fields: fieldsOf([
-          ["Projet", dossierShown],
+          ["Sujet", dossierShown],
           ["Objet", subject],
           ["Expéditeur", opStr(input, "person") || null],
           ["Reçu le", isoDate(opStr(input, "date"))],
@@ -604,11 +604,11 @@ export const DOSSIER_OPS_IMPL: Record<string, OpImpl> = {
       if (rows.length === 0) return { error: `Aucune tâche « ${q} ».` };
       if (rows.length > 1) return { error: `Plusieurs tâches correspondent : ${rows.map((t) => t.title).join(" ; ")} — préciser.` };
       return {
-        title: `Ouvrir un projet de suivi depuis la tâche « ${rows[0].title} »`,
+        title: `Ouvrir un sujet depuis la tâche « ${rows[0].title} »`,
         fields: [{ label: "Tâche", value: rows[0].title }],
-        warnings: ["Le projet reprend titre, description, responsable, priorité et échéance de la tâche."],
+        warnings: ["Le sujet reprend titre, description, responsable, priorité et échéance de la tâche."],
         args: { taskId: rows[0].id },
-        successMessage: `Projet ouvert depuis « ${rows[0].title} ».`,
+        successMessage: `Sujet ouvert depuis « ${rows[0].title} ».`,
         revalidate: ["/dossiers"],
       };
     },
@@ -625,7 +625,7 @@ export const DOSSIER_OPS_IMPL: Record<string, OpImpl> = {
       if ("error" in d) return d;
       return {
         title: `ARCHIVER le projet ${d.reference} — ${d.title}`,
-        fields: [{ label: "Projet", value: `${d.reference} — ${d.title}` }],
+        fields: [{ label: "Sujet", value: `${d.reference} — ${d.title}` }],
         warnings: ["Le projet sort des listes actives (statut Archivé) — il reste consultable, rien n'est supprimé."],
         args: { id: d.id },
         successMessage: `${d.reference} archivé.`,
@@ -643,7 +643,7 @@ export const DOSSIER_OPS_IMPL: Record<string, OpImpl> = {
       if ("error" in msg) return msg;
       return {
         title: `Supprimer un message du fil de ${d.reference}`,
-        fields: [{ label: "Projet", value: `${d.reference} — ${d.title}` }, { label: "Message", value: msg.excerpt }],
+        fields: [{ label: "Sujet", value: `${d.reference} — ${d.title}` }, { label: "Message", value: msg.excerpt }],
         warnings: ["Suppression définitive du message ET de ses pièces jointes — réservé à l'auteur, au responsable ou à la Direction."],
         args: { id: msg.id },
         successMessage: `Message supprimé du fil de ${d.reference}.`,

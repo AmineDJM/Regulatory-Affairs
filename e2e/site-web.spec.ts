@@ -26,6 +26,7 @@ const prisma = new PrismaClient({
 
 const DIR_EMAIL = "__e2e__dir-siteweb@test.dz";
 const DEL_EMAIL = "__e2e__delegue-siteweb@test.dz";
+const SA_EMAIL = "__e2e__sa-siteweb@test.dz";
 const REF = "__e2e__REC-SITEWEB";
 const POSTE = "__e2e__ Délégué médical Oran";
 const SALAIRE = 987654;
@@ -55,7 +56,7 @@ async function tientEnLargeur(page: Page) {
 }
 
 async function nettoyer() {
-  const users = await prisma.user.findMany({ where: { email: { in: [DIR_EMAIL, DEL_EMAIL] } }, select: { id: true } });
+  const users = await prisma.user.findMany({ where: { email: { in: [DIR_EMAIL, DEL_EMAIL, SA_EMAIL] } }, select: { id: true } });
   const ids = users.map((u) => u.id);
   const offres = await prisma.jobPosting.findMany({ where: { title: { startsWith: "__e2e__" } }, select: { id: true } });
   const articles = await prisma.blogArticle.findMany({ where: { title: { startsWith: "__e2e__" } }, select: { id: true } });
@@ -78,6 +79,7 @@ test.beforeAll(async () => {
   const hash = await bcrypt.hash(E2E.password, 10);
   const dir = await prisma.user.create({ data: { email: DIR_EMAIL, name: "__e2e__ Direction Site", passwordHash: hash, role: "DIRECTION" } });
   await prisma.user.create({ data: { email: DEL_EMAIL, name: "__e2e__ Délégué Site", passwordHash: hash, role: "MEDICAL_DELEGATE" } });
+  await prisma.user.create({ data: { email: SA_EMAIL, name: "__e2e__ Super Admin Site", passwordHash: hash, role: "SUPER_ADMIN" } });
   const demande = await prisma.recruitmentRequest.create({
     data: {
       reference: REF, requesterId: dir.id, position: POSTE, contractType: "CDI",
@@ -94,17 +96,43 @@ test.afterAll(async () => {
   await prisma.$disconnect();
 });
 
-test("la Direction trouve « Site web » dans le menu, et la connexion DIT ce qui manque", async ({ page }) => {
+test("la Direction trouve « Site web » dans le menu : l'écran DIT que rien ne part, sans un seul geste de liaison (§118.160)", async ({ page }) => {
   await login(page, DIR_EMAIL);
   await page.goto("/site-web");
   await expect(page.getByRole("heading", { name: "Site web — adventumdz.com" })).toBeVisible();
   // L'entrée du menu existe (pôle Administration) : c'est par elle qu'on y arrive.
   expect(await page.locator('a[href="/site-web"]').count()).toBeGreaterThan(0);
-  // Le serveur de cette suite n'a pas la clé : l'écran le dit, avec la variable qui manque.
-  await expect(page.getByText("Non configurée", { exact: true })).toBeVisible();
-  await expect(page.getByText(/Intégration au site non configurée/)).toBeVisible();
-  await expect(page.getByText("Mise en service", { exact: true })).toBeVisible();
+  // Le serveur de cette suite n'a pas la clé : l'écran le dit — et dit QUI s'en charge, et où.
+  await expect(page.getByText("Le site n'est pas encore relié à l'ERP.", { exact: true })).toBeVisible();
+  await expect(page.getByText(/Un Super Admin le relie depuis Administration › Site web \(connexion\)/)).toBeVisible();
+  // La liaison n'est plus ici : ni carte, ni mise en service, ni bouton.
+  for (const bouton of ["Générer la clé", "Vérifier la connexion", "Rapprocher maintenant"]) {
+    await expect(page.getByRole("button", { name: bouton })).toHaveCount(0);
+  }
+  await expect(page.getByText("Mise en service", { exact: true })).toHaveCount(0);
+  await expect(page.getByText("Connexion au site", { exact: true })).toHaveCount(0);
+  // Et l'écran d'administration ne s'ouvre pas à la Direction, même par l'adresse.
+  await page.goto("/admin/site-web");
+  expect(new URL(page.url()).pathname, "l'écran de la liaison s'ouvre à la Direction").not.toBe("/admin/site-web");
+  await expect(page.getByRole("heading", { name: "Site web — connexion" })).toHaveCount(0);
   await capture(page, "1-hub");
+});
+
+test("le Super Admin relie le site depuis la console d'administration — la connexion, les gestes et la mise en service y sont", async ({ page }) => {
+  await login(page, SA_EMAIL);
+  // Depuis l'écran de publication, un lien mène à la connexion.
+  await page.goto("/site-web");
+  await expect(page.getByRole("link", { name: /Relier le site/ })).toHaveAttribute("href", "/admin/site-web");
+  await page.goto("/admin/site-web");
+  await expect(page.getByRole("heading", { name: "Site web — connexion" })).toBeVisible();
+  await expect(page.getByText("Connexion au site", { exact: true })).toBeVisible();
+  await expect(page.getByText("Pas encore relié", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Générer la clé" })).toBeVisible();
+  await expect(page.getByText("Mise en service", { exact: true })).toBeVisible();
+  // L'onglet de la console mène ici.
+  await expect(page.locator('a[href="/admin/site-web"]').first()).toBeVisible();
+  await tientEnLargeur(page);
+  await capture(page, "1b-admin-connexion");
 });
 
 test("un article : le `# Titre` est refusé AVANT l'envoi en nommant la ligne, l'aperçu rend le Markdown, et « publier » ne ment pas", async ({ page }) => {

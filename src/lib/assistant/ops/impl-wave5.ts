@@ -25,7 +25,7 @@ import {
   demandesAuCentreAdPro, deciderVisaCentreAdPro, setAdProDgThreshold, setBcValidationThreshold, DEFAULT_APP_SETTINGS,
   PIECE_SECRETARIAT, NATURES_PIECE_SECRETARIAT, type NaturePieceSecretariat,
   resoudreCible, direRefus, LIBELLE_POLE, poleDe, poleOppose, type PoleConsulting,
-  bilanCloture,
+  bilanCloture, apercuSuppression,
 } from "@/platform/in-process/capacites";
 import {
   createConsultingContract, requestConsultingValidation, decideConsultingContract,
@@ -167,11 +167,19 @@ export const EVENT_OPS_IMPL: Record<string, OpImpl> = {
     async propose(input): Promise<OpProposalDraft | { error: string }> {
       const hit = await resolveEvent(opStr(input, "target") || opStr(input, "name"));
       if ("error" in hit) return hit;
-      const regs = await prisma.eventRegistration.count({ where: { eventId: hit.id } });
+      // LE MÊME APERÇU QUE LA FENÊTRE DE L'ÉCRAN (§118.162) : ce qui part avec l'événement (sa
+      // déclaration d'information médicale, son circuit, ses postes, ses inscriptions…) et ce qui
+      // l'interdit. La carte disait « aucun retour possible » et ne comptait que les inscriptions :
+      // deux phrases fausses — la suppression est réversible, et elle emporte bien plus.
+      const apercu = await apercuSuppression("EVENT", hit.id);
+      if (apercu.refus) return { error: apercu.refus };
       return {
         title: `SUPPRIMER l'événement « ${hit.name} »`,
-        fields: [{ label: "Événement", value: hit.name }, { label: "Inscriptions emportées", value: String(regs) }],
-        warnings: ["Suppression DÉFINITIVE de l'événement et de ses inscriptions — aucun retour possible."],
+        fields: [
+          { label: "Événement", value: hit.name },
+          { label: "Part aussi", value: apercu.emporte.length ? apercu.emporte.join(", ") : "rien d'autre" },
+        ],
+        warnings: ["L'événement et tout ce qui en dépend disparaissent de tous les écrans. Réversible : le Super Admin peut tout restaurer depuis la corbeille."],
         confirmText: hit.name,
         args: { id: hit.id },
         successMessage: `Événement « ${hit.name} » supprimé.`,

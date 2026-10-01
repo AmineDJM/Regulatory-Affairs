@@ -12,6 +12,8 @@ import { attachFormFiles } from "@/lib/documents";
 import { invoiceDirection, canMarkPaidDirectly } from "@/lib/finances/settlement";
 import { legalWriteAllowed } from "@/lib/legal/invoices";
 import { syncInvoiceSettlement } from "@/lib/finance/settle-invoice";
+import { refusMaillonAmont } from "@/lib/legal/chaine";
+import { refusPieceARanger, rangerPiece } from "@/lib/legal/adoption";
 import type { CurrentUser } from "@/lib/session";
 
 /**
@@ -77,15 +79,31 @@ export async function createInvoice(
   if (!title) return { ok: false, error: "L'objet de la facture est obligatoire." };
   if (f.amount !== null && !Number.isFinite(f.amount)) return { ok: false, error: "Montant invalide." };
 
+  // LE BON DE COMMANDE DONT ELLE DÉCOULE (§118.161) — le « → » de la chaîne d'une fiche. C'est ce
+  // lien qui fait attendre la validation du BC avant de payer la facture (§118.148) ; une facture
+  // créée depuis une fiche sans lui échappait à cette porte.
+  const chainFromId = fdStr(formData, "chainFromId");
+  const refusAmont = await refusMaillonAmont(chainFromId);
+  if (refusAmont) return { ok: false, error: refusAmont };
+
+  // Le type ne se pose QUE si la cible existe : un « PCH_ORDER » sans identifiant serait un lien
+  // qui pointe nulle part (le select « Bon de commande » peut rester vide).
+  const sourceId = fdStr(formData, "sourceId");
+  const source = { type: sourceId ? ((fdStr(formData, "sourceType") as EntityType | null) ?? null) : null, id: sourceId };
+  // « CRÉER SA FICHE » : le fichier déjà déposé sur la demande est RANGÉ dans la facture créée —
+  // vérifié AVANT d'écrire, pour ne pas laisser une facture sans son fichier.
+  const pieceExistanteId = fdStr(formData, "pieceExistanteId");
+  const refusRangement = await refusPieceARanger(user, pieceExistanteId, source);
+  if (refusRangement) return { ok: false, error: refusRangement };
+
   const created = await prisma.legalDocument.create({
     data: {
       ...f, title,
       kind: "INVOICE",
       companyId: await companyIdForNew(user.id),
-      // Le type ne se pose QUE si la cible existe : un « PCH_ORDER » sans identifiant serait un
-      // lien qui pointe nulle part (le select « Bon de commande » peut rester vide).
-      sourceType: fdStr(formData, "sourceId") ? ((fdStr(formData, "sourceType") as EntityType | null) ?? null) : null,
-      sourceId: fdStr(formData, "sourceId"),
+      chainFromId,
+      sourceType: source.type,
+      sourceId: source.id,
       createdById: user.id, updatedById: user.id,
     },
     select: { id: true },
@@ -102,16 +120,21 @@ export async function createInvoice(
   // pour y téléverser le PDF : trois écrans pour un fichier qu'on avait sous la main, et en
   // pratique un justificatif qui reste dans la boîte mail.
   const files = await attachFormFiles(user.id, "LEGAL_DOCUMENT", created.id, formData);
+  const range = pieceExistanteId ? await rangerPiece(user, pieceExistanteId, source, created.id) : null;
 
   revalidatePath("/legal");
   revalidatePath("/finances");
   // Née rattachée à un bon de commande PCH : la fiche marché l'affiche aussi.
   if (fdStr(formData, "sourceType") === "PCH_ORDER") revalidatePath("/pch");
-  return files.failed.length
-    ? {
-        ok: true, id: created.id,
-        message: `Facture créée. ${files.attached} pièce(s) jointe(s) ; échec sur : ${files.failed.map((x) => x.name).join(", ")}.`,
-      }
+  // Le rangement se DIT, dans les deux sens : un fichier qui n'a pas suivi ne se lit pas comme rangé.
+  const rangement = pieceExistanteId
+    ? (range ? `« ${range} » est rangé dans la facture.` : "Le fichier n'a pas pu être rangé : il n'était plus sur la fiche d'origine.")
+    : null;
+  const fichiers = files.failed.length
+    ? `${files.attached} pièce(s) jointe(s) ; échec sur : ${files.failed.map((x) => x.name).join(", ")}.`
+    : null;
+  return fichiers || rangement
+    ? { ok: true, id: created.id, message: ["Facture créée.", fichiers, rangement].filter(Boolean).join(" ") }
     : { ok: true, id: created.id };
 }
 

@@ -3,15 +3,18 @@
 import { revalidatePath } from "next/cache";
 import type { BdProjectStatus, BdSourcing, Prisma } from "@prisma/client";
 import { requireUser } from "@/lib/session";
-import { userCan, canManageBdProjects } from "@/lib/rbac";
+import { userCan } from "@/lib/rbac";
 import { canAccessEntity } from "@/lib/entity-access";
 import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
+import { companyIdForNew, getMyCompanies } from "@/lib/company";
+import { supprimerReversible } from "@/lib/suppression/coeur";
 import { fdStr, fdNum, type ActionResult } from "@/lib/actions/types";
 
 const MODULE = "BUSINESS_DEVELOPMENT" as const;
 const AUDIT_MODULE = "Business Development";
 const BD_PATH = "/business-development";
+const PROJETS_PATH = "/business-development/projets";
 
 const PROJECT_STATUSES: BdProjectStatus[] = [
   "IDEA", "TO_ANALYZE", "IN_PROGRESS", "AWAITING_SUPPLIER", "AWAITING_INTERNAL",
@@ -32,19 +35,47 @@ const PROJECT_TEXT = new Set(["name", "description", "comment"]);
 
 // ───────────────────────────── Projet ─────────────────────────────
 
+/**
+ * LE REGISTRE DE PROJETS EST SON PROPRE MODULE, `BD_PROJECTS` (§118.163) : il survit au retrait de
+ * Market Intelligence (`BUSINESS_DEVELOPMENT`, que `userCan` refuse à tout le monde) et se règle,
+ * personne par personne, dans Administration › Accès. Le refus le DIT, parce qu'un « non autorisé »
+ * sans remède fait chercher un bug là où il y a une case à cocher (§118.30).
+ */
+const REFUS_MODULE = (geste: string) =>
+  `Vous n'avez pas le droit de ${geste} un projet — le Super Admin l'accorde dans Administration › Accès (module « Projets »).`;
+
+/**
+ * L'ENTITÉ D'UN PROJET — celle qu'on a CHOISIE, sinon celle sur laquelle on travaille, et
+ * toujours une entité que la personne VOIT (§118.163).
+ *
+ * « Voir » et non « engager » : classer des dossiers sous un projet n'émet rien au nom de la
+ * société — c'est `canEditCompanyId` qui garde l'émission d'une pièce, pas le rangement. Exiger le
+ * droit d'engager refuserait à un responsable Regulatory un projet de sa propre société.
+ */
+async function entiteDuProjet(userId: string, choisie: string | null): Promise<{ ok: true; companyId: string } | { ok: false; error: string }> {
+  const companyId = choisie ?? (await companyIdForNew(userId));
+  if (companyId === null) {
+    return { ok: false, error: "Choisissez l'entité (société) du projet : un projet appartient à une société du groupe, et c'est elle qui décide qui le voit." };
+  }
+  const miennes = await getMyCompanies(userId);
+  if (!miennes.some((c) => c.id === companyId)) {
+    return { ok: false, error: "Cette entité ne vous est pas ouverte : choisissez l'une de celles que vous voyez (sélecteur d'entité, en haut de l'écran)." };
+  }
+  return { ok: true, companyId };
+}
+
 export async function createBdProject(
   _prev: ActionResult | undefined,
   formData: FormData,
 ): Promise<ActionResult> {
   const user = await requireUser();
-  // LE REGISTRE DE PROJETS survit au retrait de Business Development (`modules-retired.ts`) :
-  // il porte donc sa PROPRE porte, qui ne passe pas par le module. Passer par `userCan(MODULE)`
-  // refuserait tout le monde, Super Admin compris, et l'écran serait inatteignable.
-  if (!canManageBdProjects(user)) return { ok: false, error: "Réservé au Super Admin." };
+  if (!userCan(user, "BD_PROJECTS", "CREATE")) return { ok: false, error: REFUS_MODULE("créer") };
   const name = fdStr(formData, "name");
   if (!name) return { ok: false, error: "Le nom du projet est obligatoire." };
   const statusRaw = fdStr(formData, "status");
   const status = (statusRaw && PROJECT_STATUSES.includes(statusRaw as BdProjectStatus) ? statusRaw : "IDEA") as BdProjectStatus;
+  const entite = await entiteDuProjet(user.id, fdStr(formData, "companyId"));
+  if (!entite.ok) return entite;
 
   const created = await prisma.bdProject.create({
     data: {
@@ -52,6 +83,7 @@ export async function createBdProject(
       status,
       description: fdStr(formData, "description"),
       comment: fdStr(formData, "comment"),
+      companyId: entite.companyId,
       ownerId: user.id,
       createdById: user.id,
     },
@@ -61,6 +93,7 @@ export async function createBdProject(
     entityType: "BD_PROJECT", entityId: created.id, summary: `Projet « ${name} »`,
   });
   revalidatePath(BD_PATH);
+  revalidatePath(PROJETS_PATH);
   return { ok: true, id: created.id };
 }
 
@@ -73,6 +106,18 @@ export async function updateBdProject(formData: FormData): Promise<ActionResult>
   if (!name) return { ok: false, error: "Le nom du projet est obligatoire." };
   const statusRaw = fdStr(formData, "status");
   const status = (statusRaw && PROJECT_STATUSES.includes(statusRaw as BdProjectStatus) ? statusRaw : undefined) as BdProjectStatus | undefined;
+  const avant = await prisma.bdProject.findUnique({ where: { id }, select: { companyId: true } });
+  if (!avant) return { ok: false, error: "Projet introuvable." };
+  // L'ENTITÉ : un choix EXPLICITE gagne ; sinon le projet GARDE la sienne — corriger un nom ne
+  // détache pas un projet de sa société. On ne détache jamais : « chaque projet associé à une
+  // société » (§118.163). Un projet d'avant, sans entité, en reçoit une au premier enregistrement.
+  const choisie = fdStr(formData, "companyId");
+  let companyId = avant.companyId;
+  if (choisie !== null && choisie !== avant.companyId) {
+    const entite = await entiteDuProjet(user.id, choisie);
+    if (!entite.ok) return entite;
+    companyId = entite.companyId;
+  }
 
   await prisma.bdProject.update({
     where: { id },
@@ -81,6 +126,7 @@ export async function updateBdProject(formData: FormData): Promise<ActionResult>
       status,
       description: fdStr(formData, "description"),
       comment: fdStr(formData, "comment"),
+      companyId,
       updatedById: user.id,
     },
   });
@@ -89,25 +135,34 @@ export async function updateBdProject(formData: FormData): Promise<ActionResult>
     entityType: "BD_PROJECT", entityId: id, summary: `Projet « ${name} » mis à jour`,
   });
   revalidatePath(BD_PATH);
+  revalidatePath(PROJETS_PATH);
   revalidatePath(`${BD_PATH}/${id}`);
   return { ok: true, id };
 }
 
+/**
+ * SUPPRIMER UN PROJET — par la corbeille, avec ce qui en dépend (§118.162, §118.163).
+ *
+ * C'était un `delete` sec : gammes et produits partaient en cascade, et chaque dossier réglementaire
+ * classé perdait son projet — sans instantané, sans retour possible, sans que personne ne le
+ * voie avant le clic. La suppression passe désormais par le cœur réversible : le projet, ses gammes
+ * et ses produits partent en UN lot, le classement des dossiers est noté, et tout revient ensemble
+ * si le Super Admin le restaure. Même chemin que le bouton du Super Admin : deux suppressions du
+ * même objet qui ne rendent pas la même chose seraient deux vérités (§118.5).
+ */
 export async function deleteBdProject(formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
   const id = fdStr(formData, "id");
   if (!id) return { ok: false, error: "Identifiant manquant." };
-  if (!canManageBdProjects(user)) return { ok: false, error: "Réservé au Super Admin." };
+  if (!userCan(user, "BD_PROJECTS", "DELETE")) return { ok: false, error: REFUS_MODULE("supprimer") };
   if (!(await canAccessEntity(user, "BD_PROJECT", id, "DELETE"))) return { ok: false, error: "Non autorisé." };
-  const before = await prisma.bdProject.findUnique({ where: { id }, select: { name: true } });
-
-  await prisma.bdProject.delete({ where: { id } }); // cascade → gammes + produits
-  await recordAudit({
-    actorId: user.id, action: "DELETE", module: AUDIT_MODULE,
-    entityType: "BD_PROJECT", entityId: id, summary: `Projet « ${before?.name ?? id} » supprimé`,
-  });
+  const nom = (await prisma.bdProject.findUnique({ where: { id }, select: { name: true } }))?.name ?? id;
+  const r = await supprimerReversible("BD_PROJECT", id, user.id, `Suppression d'un projet — « ${nom} » (restaurable depuis la corbeille)`);
+  if (!r.ok) return { ok: false, error: r.error ?? "Suppression impossible." };
   revalidatePath(BD_PATH);
-  return { ok: true };
+  revalidatePath(PROJETS_PATH);
+  revalidatePath("/regulatory");
+  return { ok: true, message: "Projet supprimé — restaurable depuis la corbeille, avec ses gammes, ses produits et le classement de ses dossiers." };
 }
 
 // ───────────────────────────── Gamme ─────────────────────────────

@@ -33,6 +33,10 @@ export default async function CorbeillePage() {
     deletedBy: r.deletedById ? nameById.get(r.deletedById) ?? null : null,
     restoredAt: r.restoredAt?.toISOString() ?? null,
     documents: Array.isArray(r.documents) ? (r.documents as unknown[]).length : 0,
+    // CE QUI EST PARTI AVEC L'ÉLÉMENT (§118.162) — et qui reviendra avec lui. Sans cette ligne, la
+    // corbeille montrerait « Sponsoring SP-2026-014 » sans dire que sa déclaration d'information
+    // médicale et ses postes sont dans la même entrée.
+    emportes: lotResume(r.lot),
   }));
 
   return (
@@ -42,7 +46,7 @@ export default async function CorbeillePage() {
       </BackLink>
       <PageHeader
         title="Corbeille des suppressions définitives"
-        description="Chaque suppression « définitive » est réversible ici (ligne principale + pièces + commentaires), jusqu'à destruction réelle. Les éléments liés supprimés en cascade ne sont pas restaurés."
+        description="Chaque suppression « définitive » est réversible ici, jusqu'à destruction réelle. Une demande Ad & Pro revient avec tout ce qui était parti avec elle ; pour les autres éléments, les lignes liées supprimées en cascade ne reviennent pas."
       />
       {items.length === 0 ? (
         <EmptyState icon="Trash2" title="Corbeille vide" description="Les suppressions définitives apparaîtront ici, restaurables." />
@@ -51,4 +55,11 @@ export default async function CorbeillePage() {
       )}
     </div>
   );
+}
+
+/** Le résumé d'un lot de corbeille — lu défensivement : une entrée d'avant le lot n'en a pas. */
+function lotResume(lot: unknown): string[] {
+  if (!lot || typeof lot !== "object") return [];
+  const resume = (lot as { resume?: unknown }).resume;
+  return Array.isArray(resume) ? resume.filter((x): x is string => typeof x === "string") : [];
 }

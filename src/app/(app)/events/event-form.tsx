@@ -11,6 +11,7 @@ import { EVENT_TYPE, EVENT_SCOPE, EVENT_FORMAT, EVENT_STATUS } from "@/lib/label
 import { createEvent, updateEvent, deleteEvent } from "@/lib/actions/event-actions";
 import type { EventDetail } from "@/lib/queries/events";
 import { MultiSelectField } from "@/components/shared/create-record-button";
+import { ConfirmationSuppression } from "@/components/shared/super-admin-delete";
 import { wilayaOptions } from "@/lib/geo/algeria";
 import {
   availableProductOptions, doctorOptions, specialtyOptions, splitMulti,
@@ -253,6 +254,12 @@ export function EditEventButton({ event, responsibles, referentiels, canDelete }
   const [open, setOpen] = React.useState(false);
   const [saving, setSaving] = React.useState(false);
   const [err, setErr] = React.useState<string | null>(null);
+  // LA SUPPRESSION passe par la même fenêtre que le bouton du Super Admin (§118.162) : elle lit
+  // AVANT le clic ce qui part avec l'événement (sa déclaration d'information médicale, son
+  // circuit, ses postes, ses inscriptions…) et dit le refus quand une branche porte un paiement
+  // ou une signature. C'était un `window.confirm` qui annonçait « et ses inscriptions », puis
+  // taisait l'échec : un refus du serveur ne s'affichait nulle part.
+  const [suppression, setSuppression] = React.useState(false);
   return (
     <>
       <Button variant="outline" size="sm" onClick={() => { setErr(null); setOpen(true); }}><Pencil className="h-4 w-4" /> Modifier</Button>
@@ -261,11 +268,22 @@ export function EditEventButton({ event, responsibles, referentiels, canDelete }
           <EventFields e={event} responsibles={responsibles} referentiels={referentiels} />
           {err && <p className="text-sm text-destructive">{err}</p>}
           <div className="flex items-center justify-between">
-            {canDelete ? <Button type="button" variant="ghost" className="text-destructive" onClick={() => { if (window.confirm("Supprimer cet événement et ses inscriptions ?")) { const fd = new FormData(); fd.set("id", event.id); deleteEvent(fd).then((r) => { if (r.ok) router.push("/events"); }); } }}><Trash2 className="h-4 w-4" /> Supprimer</Button> : <span />}
+            {canDelete ? <Button type="button" variant="ghost" className="text-destructive" onClick={() => { setOpen(false); setSuppression(true); }}><Trash2 className="h-4 w-4" /> Supprimer</Button> : <span />}
             <div className="flex gap-2"><Button type="button" variant="outline" onClick={() => setOpen(false)}>Annuler</Button><Button type="submit" disabled={saving}>{saving && <Loader2 className="h-4 w-4 animate-spin" />} Enregistrer</Button></div>
           </div>
         </form>
       </Sheet>
+      {canDelete && (
+        <ConfirmationSuppression
+          open={suppression}
+          onClose={() => setSuppression(false)}
+          kind="EVENT"
+          id={event.id}
+          name={event.name}
+          executer={deleteEvent}
+          onSupprime={() => { setSuppression(false); router.push("/events"); router.refresh(); }}
+        />
+      )}
     </>
   );
 }

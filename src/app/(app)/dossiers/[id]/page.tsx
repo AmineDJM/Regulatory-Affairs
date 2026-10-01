@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ArrowLeft, FolderKanban, MessageSquare, Paperclip } from "lucide-react";
+import { ArrowLeft, ClipboardList, MessageSquare, Paperclip } from "lucide-react";
 import { requireUser } from "@/lib/session";
 import { userCan } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
@@ -62,18 +62,22 @@ export default async function DossierDetailPage({ params }: { params: { id: stri
   return (
     <div className="space-y-5">
       <BackLink href="/dossiers">
-        <ArrowLeft className="h-4 w-4" /> Retour aux projets
+        <ArrowLeft className="h-4 w-4" /> Retour aux sujets
       </BackLink>
 
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div className="space-y-1">
           <div className="flex items-center gap-2">
-            <FolderKanban className="h-5 w-5 text-primary" />
+            <ClipboardList className="h-5 w-5 text-primary" />
             <h1 className="text-xl font-semibold tracking-tight">{d.title}</h1>
           </div>
           <p className="text-sm text-muted-foreground">
             <span className="font-mono">{d.reference}</span> · ouvert par {d.createdBy?.name ?? "—"}
             {d.assignedTo && <> · responsable {d.assignedTo.name}</>}
+          </p>
+          {/* L'ENTITÉ DU SUJET (§118.163) — et, sans elle, ce qui manque et qui le règle. */}
+          <p className="text-xs text-muted-foreground">
+            Entité : {d.company ? (d.company.shortName || d.company.name) : <span className="text-warning">à renseigner — le Super Admin la rattache depuis Administration › Entités</span>}
           </p>
         </div>
         <div className="flex flex-col items-end gap-2">

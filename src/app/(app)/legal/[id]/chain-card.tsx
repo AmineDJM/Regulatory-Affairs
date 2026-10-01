@@ -3,7 +3,7 @@ import { ArrowRight, BadgeCheck, CircleDollarSign, Clock, Hourglass, ShieldCheck
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { formatCurrency, formatDate } from "@/lib/utils";
-import { LEGAL_DOC_KIND } from "@/lib/labels";
+import { natureLegale } from "@/lib/labels";
 import { delayDays, delayLabel, missingKinds, amountDrift, CHAIN_KIND_LABEL } from "@/lib/legal/chain";
 import type { ChainLink, ChainSettlement } from "@/lib/queries/legal-chain";
 import { SendToSettlementButton } from "./send-to-settlement";
@@ -59,14 +59,14 @@ export function LegalChainCard({
                 {/* Le DÉLAI entre deux maillons — « +11 j » se lit, deux dates se calculent. */}
                 {delay && (
                   <p className="flex items-center gap-1.5 pl-1 text-xs text-muted-foreground">
-                    <Clock className="h-3 w-3" /> {delay} après {LEGAL_DOC_KIND[prev!.kind] ?? prev!.kind}
+                    <Clock className="h-3 w-3" /> {delay} après {natureLegale(prev!.kind)}
                   </p>
                 )}
                 <div className={`rounded-lg border p-3 ${l.isCurrent ? "border-primary/40 bg-primary/5" : "border-border"}`}>
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <span className="flex items-center gap-2 text-sm">
                       <Badge tone={l.kind === "INVOICE" ? "warning" : l.kind === "QUOTE" ? "info" : "purple"} dot={false}>
-                        {LEGAL_DOC_KIND[l.kind] ?? l.kind}
+                        {natureLegale(l.kind)}
                       </Badge>
                       {l.isCurrent ? (
                         <span className="font-medium">{l.reference ? `${l.reference} · ` : ""}{l.title}</span>

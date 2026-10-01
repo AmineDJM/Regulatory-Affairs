@@ -390,7 +390,7 @@ export async function searchEverythingStrict(user: SessionUser, q: string, take 
   }
   for (const r of projets) {
     hits.push({
-      famille: "Projets", titre: `${r.reference} — ${r.title}`,
+      famille: "Sujets", titre: `${r.reference} — ${r.title}`,
       detail: r.assignedTo?.name ? `Responsable : ${r.assignedTo.name}` : "",
       reference: r.reference, statut: r.status, lien: `/dossiers/${r.id}`,
     });

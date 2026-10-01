@@ -117,10 +117,10 @@ function CreateDossierButton({ id }: { id: string }) {
   const router = useRouter();
   const [busy, setBusy] = React.useState(false);
   return (
-    <button type="button" disabled={busy} title="Ouvrir un projet à partir de cette tâche"
+    <button type="button" disabled={busy} title="Ouvrir un sujet à partir de cette tâche"
       onClick={async () => { setBusy(true); const r = await createDossierFromTask(id); if (r.ok && r.dossierId) router.push(`/dossiers/${r.dossierId}`); else setBusy(false); }}
       className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-xs font-medium text-muted-foreground hover:bg-secondary hover:text-foreground disabled:opacity-50">
-      {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <FolderKanban className="h-3.5 w-3.5" />} Projet
+      {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <FolderKanban className="h-3.5 w-3.5" />} Sujet
     </button>
   );
 }

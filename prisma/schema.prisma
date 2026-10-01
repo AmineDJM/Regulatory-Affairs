@@ -1577,6 +1577,7 @@ model Company {
   products                Product[]
   directives              Directive[]
   adamRules               AdamRule[]
+  bdProjects              BdProject[]              @relation("BdProjectCompany")
 
   @@index([isActive])
 }
@@ -4107,6 +4108,12 @@ model BdProject {
 
   ownerId  String?
   owner    User?               @relation("BdProjectOwner", fields: [ownerId], references: [id])
+  /// L'ENTITÉ DU PROJET (§118.163) — la société du groupe à laquelle il appartient, et donc
+  /// qui le voit dans une vue cloisonnée (`companyScopedWhere`). Obligatoire à la création ;
+  /// nullable pour l'historique : un projet d'avant reste visible et se rattache depuis l'écran
+  /// « Projets », où l'entité de ses dossiers est PROPOSÉE — jamais posée à la place de quelqu'un.
+  companyId String?
+  company   Company?  @relation("BdProjectCompany", fields: [companyId], references: [id], onDelete: SetNull)
   ranges   BdRange[]
   /// LES DOSSIERS RÉGLEMENTAIRES classés dans ce projet — le sous-module « Projets » les
   /// affiche, un tableau par projet.
@@ -4119,6 +4126,7 @@ model BdProject {
 
   @@index([status])
   @@index([ownerId])
+  @@index([companyId])
 }
 
 model BdRange {
@@ -6975,6 +6983,7 @@ model AiSetting {
   processIntelEnabled    Boolean  @default(true) // Process Intelligence
   fieldReportAiEnabled   Boolean  @default(true) // analyse IA des rapports terrain
   voiceTranscriptEnabled Boolean  @default(true) // transcription vocale (Whisper)
+  siteWebAiEnabled       Boolean  @default(true) // « Rédiger avec l'IA » — articles et offres du site (§118.160)
   updatedAt              DateTime @updatedAt
   updatedById            String?
 }
@@ -7101,6 +7110,10 @@ model DeletedRecord {
   payload     Json // ligne principale complète (scalaires)
   documents   Json? // pièces jointes polymorphes (métadonnées, fichiers conservés)
   comments    Json? // commentaires polymorphes
+  /// LE LOT (§118.162) — les BRANCHES parties avec l'élément (sa déclaration d'information
+  /// médicale, ses demandes au secrétariat, son circuit, ses postes…), parents d'abord, et les
+  /// liens extérieurs à rétablir. Nul : l'élément est parti seul, comme avant.
+  lot         Json?
   deletedById String?
   deletedAt   DateTime  @default(now())
   restoredAt  DateTime? // restauré (l'entrée reste pour l'historique)
@@ -12835,6 +12848,9 @@ model JobPosting {
 
   /// Les candidatures déposées sur le site pour cette offre (§118.159).
   candidatures SiteCandidature[]
+  /// L'offre reprise du site dont celle-ci est la version ERP (§118.160) — exemple livré avec le
+  /// site, ou offre saisie dans son administration.
+  reprise      SiteReprise?
 
   @@index([published])
 }
@@ -12866,8 +12882,37 @@ model BlogArticle {
   updatedBy        User?     @relation("BlogArticleEditor", fields: [updatedById], references: [id], onDelete: SetNull)
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @updatedAt
+  /// L'article du DÉPÔT du site dont celui-ci est la version ERP (§118.160) : poussé avec
+  /// `replacesFile`, il remplace le fichier sur le site public.
+  reprise          SiteReprise?
 
   @@index([published])
+}
+
+/// CE QUE L'ERP A REPRIS DU SITE (§118.160) — les articles écrits dans le dépôt du site, ses offres
+/// d'exemple, les offres saisies dans son administration. L'ERP en crée SES enregistrements, que l'on
+/// modifie et supprime depuis le module « Site web » comme les autres.
+///
+/// La ligne SURVIT au contenu (`SetNull`) : un article repris puis supprimé dans l'ERP doit rester
+/// caché sur le site — sans elle, le fichier du dépôt reviendrait au redémarrage suivant du site — et
+/// un exemple supprimé ne doit pas être repris une seconde fois au rapprochement suivant.
+model SiteReprise {
+  id        String       @id @default(cuid())
+  /// "ARTICLE_DEPOT" | "OFFRE_EXEMPLE" | "OFFRE_ADMIN"
+  origine   String
+  /// Ce qui l'identifie côté site : le slug du fichier, le slug de l'exemple, l'id de l'offre saisie.
+  cleSite   String
+  /// Son titre sur le site au moment de la reprise — pour la nommer même une fois supprimée.
+  titre     String
+  articleId String?      @unique
+  article   BlogArticle? @relation(fields: [articleId], references: [id], onDelete: SetNull)
+  jobId     String?      @unique
+  job       JobPosting?  @relation(fields: [jobId], references: [id], onDelete: SetNull)
+  /// Qui a lancé le rapprochement qui l'a reprise — nul quand c'est le battement.
+  parId     String?
+  createdAt DateTime     @default(now())
+
+  @@unique([origine, cleSite])
 }
 
 enum SiteContentKind {
@@ -12983,6 +13028,13 @@ model SiteReconciliation {
   /// Les slugs des articles du DÉPÔT du site au moment du rapprochement — l'éditeur s'en sert pour
   /// prévenir d'une collision AVANT l'envoi.
   depotSlugs   String[]  @default([])
+  /// La reprise des contenus du site (§118.160) : son dépôt a-t-il été LU à ce passage ? Faux tant
+  /// que le site ne sait pas le rendre (ancienne version) — le battement repasse alors toutes les heures.
+  repriseLue   Boolean   @default(false)
+  /// Combien de contenus ont été repris à ce passage.
+  repris       Int       @default(0)
+  /// { repris: [{ origine, titre, id }], aCorriger: [{ origine, titre, raison }], conflits: [...], impossible?: string }
+  reprise      Json?
 
   @@index([startedAt])
 }

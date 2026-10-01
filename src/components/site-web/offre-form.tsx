@@ -5,6 +5,9 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { AlertTriangle, CheckCircle2, EyeOff, Loader2, Lock, Save, Send, Trash2 } from "lucide-react";
 import { enregistrerOffre, supprimerOffre } from "@/lib/actions/offres-emploi-actions";
+import { redigerOffreAvecIA } from "@/lib/actions/site-web-redaction-actions";
+import { fusionnerRedaction, type DisponibiliteRedaction, type OffreRedigee } from "@/lib/site-web/redaction";
+import { RedigerAvecIA } from "@/components/site-web/rediger-ia";
 import type { ActionResult } from "@/lib/actions/types";
 import { LIMITES_OFFRE, lignes, refusOffre, TYPES_CONTRAT_SITE, type OffreSaisie } from "@/lib/site-web/contrat";
 import { Button } from "@/components/ui/button";
@@ -46,9 +49,11 @@ export interface DemandeLiee {
 type Intention = "brouillon" | "publier" | "enregistrer" | "retirer";
 
 export function OffreForm({
-  offre, dejaEnvoye, etat, demande, peutEcrire, peutSupprimer, prerempliDepuisDemande = false,
+  offre, dejaEnvoye, etat, demande, peutEcrire, peutSupprimer, prerempliDepuisDemande = false, ia,
 }: {
   offre: OffreEditee;
+  /** « Rédiger avec l'IA » : disponible, ou la raison pour laquelle il ne l'est pas (§118.160). */
+  ia: DisponibiliteRedaction;
   dejaEnvoye: boolean;
   etat: EtatVisible | null;
   demande: DemandeLiee | null;
@@ -60,6 +65,8 @@ export function OffreForm({
   const [v, setV] = React.useState<OffreEditee>(offre);
   const [enCours, setEnCours] = React.useState<Intention | "supprimer" | null>(null);
   const [retour, setRetour] = React.useState<{ ok: boolean; texte: string } | null>(null);
+  // Les champs d'AVANT la rédaction par l'IA : un texte remplacé d'un clic revient d'un clic.
+  const [avantIA, setAvantIA] = React.useState<OffreEditee | null>(null);
   const modifie = React.useMemo(() => JSON.stringify(v) !== JSON.stringify(offre), [v, offre]);
 
   React.useEffect(() => { setV(offre); }, [offre]);
@@ -71,6 +78,24 @@ export function OffreForm({
   }, [modifie]);
 
   const champ = <K extends keyof OffreEditee>(k: K) => (valeur: OffreEditee[K]) => setV((x) => ({ ...x, [k]: valeur }));
+
+  // Les champs DU FORMULAIRE, et eux seuls : ni rémunération ni justification n'existent ici,
+  // donc elles ne peuvent pas partir chez le modèle (`lireEntreeOffre` relit clé par clé).
+  const redigerIA = (consigne: string, partirDuTexte: boolean) => {
+    const fd = new FormData();
+    fd.set("consigne", consigne);
+    if (partirDuTexte) {
+      for (const k of ["title", "department", "location", "contractLabel", "experience", "summary", "mission", "profile", "offer"] as const) fd.set(k, v[k]);
+    }
+    return redigerOffreAvecIA(fd);
+  };
+  // Un champ que l'IA rend VIDE garde sa valeur (`fusionnerRedaction`) : le département ou le
+  // contrat repris de la demande de recrutement ne disparaissent pas parce que la consigne ne les
+  // répétait pas.
+  const appliquerIA = (c: OffreRedigee) => {
+    setAvantIA(v);
+    setV((x) => fusionnerRedaction(x, c));
+  };
 
   const mission = lignes(v.mission);
   const profile = lignes(v.profile);
@@ -175,6 +200,16 @@ export function OffreForm({
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_22rem]">
         <div className="min-w-0 space-y-4">
+          {peutEcrire && (
+            <RedigerAvecIA<OffreRedigee>
+              disponibilite={ia}
+              exemple="Ex. : délégué médical oncologie pour l'Est (Constantine), 3 ans d'expérience, visite des CHU, véhicule de fonction."
+              aSaisie={Boolean(v.title.trim() || v.summary.trim() || v.mission.trim() || v.profile.trim())}
+              rediger={redigerIA}
+              appliquer={appliquerIA}
+              annuler={avantIA ? () => { setV(avantIA); setAvantIA(null); } : null}
+            />
+          )}
           <div className="space-y-1.5">
             <Label htmlFor="offre-titre">Intitulé du poste</Label>
             <Input id="offre-titre" value={v.title} onChange={(e) => champ("title")(e.target.value)} disabled={!peutEcrire} placeholder="Délégué médical — Oncologie" />

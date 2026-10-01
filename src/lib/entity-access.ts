@@ -10,8 +10,9 @@ import { MODULE_DU_POLE, poleDe } from "@/lib/lecteurs/consulting";
 import { annuaireDuPraticien } from "@/lib/annuaires/acces";
 import { getMyCompanies } from "@/lib/company";
 import { peutOuvrirLeDossierPromo } from "@/lib/queries/promo-circuit";
+import { projetsBdVisibles } from "@/lib/queries/bd";
 import {
-  userCan, hasGlobalView, scopeRegulatory, scopeMedicalDoctors, scopeMedicalVisits, scopeSales, scopeBusinessDevelopment, scopeBdProject, scopeSupport, scopeDossiers, type Action, type Module, type SessionUser, canViewBdProjects, canManageBdProjects,
+  userCan, hasGlobalView, scopeRegulatory, scopeMedicalDoctors, scopeMedicalVisits, scopeSales, scopeBusinessDevelopment, scopeSupport, scopeDossiers, type Action, type Module, type SessionUser,
   annuaireOuvertParConsole, scopeCongressIntl, scopeCongressNational, scopePromoMaterial,
 } from "@/lib/rbac";
 
@@ -29,7 +30,7 @@ export const ENTITY_MODULE: Record<EntityType, Module> = {
   VISIT: "MEDICAL",
   DELEGATE_PLAN: "MEDICAL",
   BD_OPPORTUNITY: "BUSINESS_DEVELOPMENT",
-  BD_PROJECT: "BUSINESS_DEVELOPMENT",
+  BD_PROJECT: "BD_PROJECTS",
   FINANCE_TRANSACTION: "FINANCES",
   EMPLOYEE: "RH",
   COMPANY: "LEGAL",
@@ -202,6 +203,70 @@ async function dansLaPorteeAdPro(user: SessionUser, entityType: EntityType, enti
   }
 }
 
+/**
+ * LES PIÈCES LEGAL qu'une personne peut ouvrir, alimenter ou gérer — EN LOT, par LA règle de la
+ * porte unitaire (`canAccessEntity` n'en est que l'appel sur un seul identifiant).
+ *
+ * ── POURQUOI UNE LECTURE EN LOT ─────────────────────────────────────────────────────────────
+ *
+ * Les pièces liées d'une fiche Ad & Pro (§118.161) proposent, ligne par ligne, d'ouvrir les PDF
+ * d'un devis, d'y en joindre un, de le renommer. Chaque bouton doit correspondre EXACTEMENT à ce
+ * que le serveur acceptera — un bouton visible qui refuse ensuite fait chercher la panne au lieu
+ * de faire demander le droit. Trente appels unitaires par ouverture de fiche feraient soixante
+ * allers-retours (§118.102b) ; une seconde écriture de la règle à côté de la porte finirait par
+ * diverger d'elle (§118.5). Il n'y en a donc qu'une, et la porte unitaire la lit.
+ *
+ * ── LA RÈGLE ────────────────────────────────────────────────────────────────────────────────
+ *
+ *  • Le module Legal pour le geste demandé, PUIS la portée de la LIGNE : l'entité (les
+ *    engagements d'une société ne se lisent pas depuis une autre) ET les lecteurs désignés —
+ *    sans ces derniers, un document restreint resterait fermé à l'écran mais ses pièces se
+ *    téléchargeraient encore par leur identifiant. Même porte que la liste Legal : un engagement
+ *    sans entité y figure, ses pièces s'ouvrent donc aussi.
+ *  • En LECTURE seulement, pour qui n'a PAS le module : les pièces nées d'un matériel
+ *    promotionnel (`sourceType` PROMO_MATERIAL) s'ouvrent à qui ouvre le dossier (§118.152) — le
+ *    demandeur qui a déposé la facture, l'assistante qui suit le dossier, le pharmacien qui
+ *    instruit la demande de visa. Ce n'est pas une porte vers les contrats : seules les pièces
+ *    nées de CE dossier passent, et les droits d'écriture restent ceux de Legal.
+ */
+export async function accesAuxPiecesLegal(
+  user: SessionUser,
+  ids: readonly string[],
+  actions: readonly Action[],
+): Promise<Map<Action, Set<string>>> {
+  const res = new Map<Action, Set<string>>(actions.map((a) => [a, new Set<string>()]));
+  const uniques = [...new Set(ids.filter(Boolean))];
+  if (uniques.length === 0 || actions.length === 0) return res;
+
+  if (actions.includes("VIEW") && !userCan(user, "LEGAL", "VIEW")) {
+    const pieces = await prisma.legalDocument.findMany({
+      where: { id: { in: uniques }, sourceType: "PROMO_MATERIAL", sourceId: { not: null } },
+      select: { id: true, sourceId: true },
+    });
+    if (pieces.length > 0) {
+      const dossiers = await prisma.promoMaterial.findMany({
+        where: { id: { in: [...new Set(pieces.map((p) => p.sourceId as string))] } },
+        select: { id: true, requesterId: true, assistantId: true, requestValidatorId: true, marketingValidatorId: true },
+      });
+      const ouverts = new Set<string>();
+      for (const pm of dossiers) if (await peutOuvrirLeDossierPromo(user, pm)) ouverts.add(pm.id);
+      for (const p of pieces) if (p.sourceId && ouverts.has(p.sourceId)) res.get("VIEW")!.add(p.id);
+    }
+  }
+
+  const permises = actions.filter((a) => userCan(user, "LEGAL", a));
+  if (permises.length === 0) return res;
+  const readerScope = legalReaderWhere({ viewerId: user.id, isSuperAdmin: user.role === "SUPER_ADMIN" });
+  const dansLaPortee = await prisma.legalDocument.findMany({
+    where: await companyScopedWhere(user.id, {
+      AND: [{ id: { in: uniques } }, ...(readerScope ? [readerScope] : [])],
+    }),
+    select: { id: true },
+  });
+  for (const a of permises) for (const d of dansLaPortee) res.get(a)!.add(d.id);
+  return res;
+}
+
 export async function canAccessEntity(
   user: SessionUser,
   entityType: EntityType,
@@ -251,16 +316,14 @@ export async function canAccessEntity(
     return canAccessEntity(user, PARENT_ENTITE[parent.parent], parent.id, action);
   }
 
-  // PROJET BD : l'accès ne vient PAS du module, parce que le module est RETIRÉ du service
-  // (`modules-retired.ts`, 2026-09) et que le registre des projets, lui, a été redemandé. La
-  // porte de module ci-dessous répondrait NON à tout le monde, Super Admin compris, et l'écran
-  // « BD › Projets » serait inatteignable. Les portes propres au sous-module maintenu sont
-  // `canViewBdProjects` / `canManageBdProjects` ; la portée par ligne reste `scopeBdProject`.
+  // PROJET BD : son propre module, `BD_PROJECTS` (§118.163) — celui que le Super Admin règle dans
+  // Administration › Accès. Market Intelligence, dont il vient, reste retiré. La ligne se lit dans
+  // la MÊME clause que la liste (`projetsBdVisibles` : portée du module ∧ entité), sans quoi une
+  // fiche s'ouvrirait sur un projet que la liste cache — ou l'inverse.
   if (entityType === "BD_PROJECT") {
-    const permis = action === "VIEW" ? canViewBdProjects(user) : canManageBdProjects(user);
-    if (!permis) return false;
+    if (!userCan(user, "BD_PROJECTS", action)) return false;
     const found = await prisma.bdProject.findFirst({
-      where: { id: entityId, ...scopeBdProject(user) }, select: { id: true },
+      where: { AND: [{ id: entityId }, await projetsBdVisibles(user)] }, select: { id: true },
     });
     return Boolean(found);
   }
@@ -440,15 +503,11 @@ export async function canAccessEntity(
     if (pm && (await peutOuvrirLeDossierPromo(user, pm))) return true;
   }
 
-  if (entityType === "LEGAL_DOCUMENT" && action === "VIEW" && !userCan(user, module, action)) {
-    const piece = await prisma.legalDocument.findUnique({ where: { id: entityId }, select: { sourceType: true, sourceId: true } });
-    if (piece?.sourceType === "PROMO_MATERIAL" && piece.sourceId) {
-      const pm = await prisma.promoMaterial.findUnique({
-        where: { id: piece.sourceId },
-        select: { id: true, requesterId: true, assistantId: true, requestValidatorId: true, marketingValidatorId: true },
-      });
-      if (pm && (await peutOuvrirLeDossierPromo(user, pm))) return true;
-    }
+  // UNE PIÈCE LEGAL — la règle vit dans `accesAuxPiecesLegal`, qui la sert aussi EN LOT : l'écran
+  // qui liste les pièces liées d'une fiche (§118.161) doit montrer exactement ce que cette porte
+  // laissera ouvrir, et deux écritures de la même règle finiraient par diverger (§118.5).
+  if (entityType === "LEGAL_DOCUMENT") {
+    return (await accesAuxPiecesLegal(user, [entityId], [action])).get(action)?.has(entityId) ?? false;
   }
 
   if (!userCan(user, module, action)) return false;
@@ -539,22 +598,7 @@ export async function canAccessEntity(
       // le sien. Le demandeur, lui, complète sa propre demande.
       return action === "VIEW" || canAttachTask(t, user.id);
     }
-    case "LEGAL_DOCUMENT": {
-      // Deux gardes : l'ENTITÉ (les engagements d'une société ne se lisent pas depuis une autre)
-      // ET les LECTEURS DÉSIGNÉS. Cette porte-ci gouverne les pièces jointes, les commentaires
-      // et les liaisons : sans la seconde, un document restreint resterait fermé à l'écran mais
-      // ses pièces se téléchargeraient encore par leur identifiant.
-      const readerScope = legalReaderWhere({ viewerId: user.id, isSuperAdmin: user.role === "SUPER_ADMIN" });
-      const found = await prisma.legalDocument.findFirst({
-        // Même porte que la liste Legal : un engagement sans entité y figure, ses pièces
-        // doivent donc s'ouvrir. La restriction par LECTEURS, elle, ne bouge pas d'un pouce.
-        where: await companyScopedWhere(user.id, {
-          AND: [{ id: entityId }, ...(readerScope ? [readerScope] : [])],
-        }),
-        select: { id: true },
-      });
-      return Boolean(found);
-    }
+    // LEGAL_DOCUMENT n'arrive jamais ici : il est rendu plus haut par `accesAuxPiecesLegal`.
     case "RECRUITMENT_REQUEST": {
       // Un CV et une fourchette de rémunération sont des données PERSONNELLES : avoir le module
       // ne suffit pas. Il faut être partie à la demande — l'avoir écrite, devoir la valider, ou

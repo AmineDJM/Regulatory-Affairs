@@ -839,7 +839,7 @@ export const DOMAIN_TOOLS: Record<string, DomainToolSpec> = {
     def: {
       name: "dossier_operation",
       description:
-        "PROJETS DE SUIVI — statut (ouvert → terminé / archivé), équipe (responsable + participants REJOUÉS en FUSION, « aucun » vide), fil « Suivi & discussion » (messages, mentions de MEMBRES, modification / suppression par extrait), e-mail journalisé dans le fil (projet existant ou créé à la volée), ouverture d'un projet depuis une tâche — par les actions canoniques. "
+        "SUJETS DE PILOTAGE (anciennement « projets de suivi ») — statut (ouvert → terminé / archivé), équipe (responsable + participants REJOUÉS en FUSION, « aucun » vide), fil « Suivi & discussion » (messages, mentions de MEMBRES, modification / suppression par extrait), e-mail journalisé dans le fil (sujet existant ou créé à la volée), ouverture d'un sujet depuis une tâche — par les actions canoniques. "
         + `Champ « op » : ${opsSummary("dossier_operation")}. `
         + "Le projet se donne par référence ou intitulé (« target ») ; un message du fil par un extrait (« message », ou « dernier »).",
       input_schema: {

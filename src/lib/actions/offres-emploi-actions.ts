@@ -144,10 +144,14 @@ export async function supprimerOffre(formData: FormData): Promise<ActionResult> 
   if (!peutPublierOffres(user)) return { ok: false, error: REFUS };
   const id = fdStr(formData, "id");
   if (!id) return { ok: false, error: "Offre manquante." };
-  const o = await prisma.jobPosting.findUnique({ where: { id }, select: { id: true, title: true, recruitmentRequestId: true } });
+  const o = await prisma.jobPosting.findUnique({
+    where: { id }, select: { id: true, title: true, recruitmentRequestId: true, reprise: { select: { origine: true, cleSite: true } } },
+  });
   if (!o) return { ok: false, error: "Offre introuvable." };
 
-  const retrait = await retirerDuSite("JOB", o.id, o.title, user.id);
+  // Une offre saisie sur le site puis reprise (§118.160) : la suppression dit laquelle, pour que le
+  // site retire SA copie même si la nôtre n'y est jamais partie. Lu avant la suppression.
+  const retrait = await retirerDuSite("JOB", o.id, o.title, user.id, o.reprise);
   await prisma.jobPosting.delete({ where: { id: o.id } });
   await recordAudit({ actorId: user.id, action: "DELETE", module: AUDIT_MODULE, entityId: o.id, summary: `Suppression de l'offre « ${o.title} »` });
   revalider(undefined, o.recruitmentRequestId);

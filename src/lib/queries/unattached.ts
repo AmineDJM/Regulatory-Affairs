@@ -46,7 +46,10 @@ const TABLES: { label: string; model: string; href: string | null; count: () => 
   { label: "Marchés PCH", model: "pchTender", href: "/pch", count: () => prisma.pchTender.count({ where: { companyId: null } }) },
   { label: "Commandes logistiques", model: "logisticsOrder", href: "/logistics", count: () => prisma.logisticsOrder.count({ where: { companyId: null } }) },
   { label: "Ventes", model: "sale", href: "/sales", count: () => prisma.sale.count({ where: { companyId: null } }) },
-  { label: "Projets", model: "dossier", href: "/dossiers", count: () => prisma.dossier.count({ where: { companyId: null } }) },
+  { label: "Sujets (Pilotage)", model: "dossier", href: "/dossiers", count: () => prisma.dossier.count({ where: { companyId: null } }) },
+  // Les projets BD (§118.163) : un projet d'avant n'a pas d'entité — il se rattache ici en masse, ou
+  // un par un depuis l'écran « Projets », où l'entité de ses dossiers est proposée.
+  { label: "Projets (BD)", model: "bdProject", href: "/business-development/projets", count: () => prisma.bdProject.count({ where: { companyId: null } }) },
   { label: "Demandes de support", model: "supportRequest", href: "/support", count: () => prisma.supportRequest.count({ where: { companyId: null } }) },
   { label: "Formations", model: "training", href: null, count: () => prisma.training.count({ where: { companyId: null } }) },
 ];

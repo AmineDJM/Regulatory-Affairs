@@ -11,13 +11,19 @@ import { Badge } from "@/components/ui/badge";
 import { BD_PROJECT_STATUS } from "@/lib/labels";
 
 export function ProjectEditor({
-  id, name, status, description, comment,
+  id, name, status, description, comment, companyId = null, companies, proposition = null,
 }: {
   id: string;
   name: string;
   status: string;
   description: string;
   comment: string;
+  /** L'entité du projet (§118.163) — `null` pour un projet d'avant, pas encore rattaché. */
+  companyId?: string | null;
+  /** Les entités que la personne VOIT. Absent : le champ n'est pas proposé (la fiche d'avant). */
+  companies?: { value: string; label: string }[];
+  /** L'entité que désignent TOUS ses dossiers — proposée, jamais enregistrée sans un clic. */
+  proposition?: string | null;
 }) {
   const router = useRouter();
   const [open, setOpen] = React.useState(false);
@@ -44,6 +50,27 @@ export function ProjectEditor({
             <Label htmlFor="name">Nom du projet<span className="ml-0.5 text-destructive">*</span></Label>
             <Input id="name" name="name" required defaultValue={name} />
           </div>
+          {companies && (
+            <div className="space-y-1.5">
+              <Label htmlFor={`companyId-${id}`}>Entité<span className="ml-0.5 text-destructive">*</span></Label>
+              <Select id={`companyId-${id}`} name="companyId" required defaultValue={companyId ?? proposition ?? ""}>
+                <option value="" disabled>Choisir l'entité…</option>
+                {companies.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}
+              </Select>
+              {/* LA PROPOSITION SE DIT : un projet d'avant reçoit l'entité de ses dossiers, et la
+                  personne doit savoir que ce choix vient du classement, pas d'elle (§118.163). */}
+              {!companyId && proposition && (
+                <p className="text-xs text-muted-foreground">
+                  Proposée d'après les dossiers classés dans ce projet — vérifiez-la avant d'enregistrer.
+                </p>
+              )}
+              {!companyId && !proposition && (
+                <p className="text-xs text-muted-foreground">
+                  Ce projet n'est rattaché à aucune entité : choisissez celle à laquelle il appartient.
+                </p>
+              )}
+            </div>
+          )}
           <div className="space-y-1.5">
             <Label htmlFor="status">Statut</Label>
             <Select id="status" name="status" defaultValue={status}>

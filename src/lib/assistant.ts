@@ -80,7 +80,7 @@ import { setRegulatoryResponsible, setRegulatoryStepState, setRegulatoryPresubOu
 import { superAdminDelete, restoreDeletedRecord, destroyDeletedRecord } from "@/lib/actions/admin-delete-actions";
 import { toggleUserActive, updateUserRole, setSecondaryRole } from "@/lib/actions/admin-actions";
 import { createTaskRecord } from "@/lib/tasks/create-core";
-import { DELETE_REGISTRY, DELETABLE_KINDS, isDeletableKind, type DeletableKind } from "@/lib/admin-delete-registry";
+import { DELETE_REGISTRY, DELETABLE_KINDS, apercuSuppression, isDeletableKind, type DeletableKind } from "@/lib/admin-delete-registry";
 import { resolveDeletableTarget, resolveTrashEntry } from "@/lib/assistant/delete-resolve";
 import { nativeActionHint, actionsForUser } from "@/lib/assistant/action-registry";
 import { DOMAIN_TOOLS, DOMAIN_TOOL_DEFS } from "@/lib/assistant/ops";
@@ -1113,7 +1113,11 @@ const SUPERADMIN_WRITE_TOOLS: ClaudeToolDef[] = [
       "RÉSERVÉ AU SUPER ADMIN : PROPOSE la SUPPRESSION DÉFINITIVE d'un enregistrement — LA MÊME "
       + "suppression que le bouton rouge « Supprimer définitivement » des fiches : l'élément, ses pièces "
       + "jointes et ses commentaires disparaissent de tous les écrans, un instantané est déposé dans la "
-      + "corbeille (Administration → Corbeille) d'où le Super Admin peut restaurer. N'exécute rien : "
+      + "corbeille (Administration → Corbeille) d'où le Super Admin peut restaurer. Une demande Ad & Pro "
+      + "(sponsoring, événement, congrès, matériel promotionnel, consulting, autre demande) et une déclaration "
+      + "d'information médicale partent AVEC leurs branches (déclaration, demandes au secrétariat, circuit, "
+      + "postes, pièces liées) et reviennent avec elles ; la suppression est refusée si une branche porte un "
+      + "règlement, une signature, un dépôt aux autorités ou un courrier inscrit. N'exécute rien : "
       + "confirmation FORTE requise (la référence est à ressaisir). Désigner l'élément par sa référence "
       + "(ex. REG-2026-041), son nom/titre, ou son id interne (visible dans les liens). "
       + "Types supprimables (kind) : "
@@ -1133,7 +1137,8 @@ const SUPERADMIN_WRITE_TOOLS: ClaudeToolDef[] = [
     description:
       "RÉSERVÉ AU SUPER ADMIN : PROPOSE la RESTAURATION d'un élément de la corbeille (Administration → "
       + "Corbeille) — recréé à l'identique (mêmes id/référence) avec ses pièces jointes et commentaires. "
-      + "Les enfants perdus en cascade ne reviennent pas. N'exécute rien : confirmation requise. "
+      + "Une demande Ad & Pro revient avec tout ce qui était parti avec elle ; pour les autres types, les "
+      + "enfants perdus en cascade ne reviennent pas. N'exécute rien : confirmation requise. "
       + "Désigner l'élément par son nom/référence tel qu'affiché dans la corbeille (et préciser kind si ambigu).",
     input_schema: {
       type: "object",
@@ -3140,7 +3145,7 @@ export async function buildProposal(toolName: string, input: Record<string, unkn
     if (due) fields.push({ label: "Échéance", value: due });
     if (priority) fields.push({ label: "Priorité", value: PRIORITY[priority]?.label ?? priority });
     return {
-      kind: "create_dossier", module: "DOSSIERS", title: "Ouvrir un projet", fields, warnings,
+      kind: "create_dossier", module: "DOSSIERS", title: "Ouvrir un sujet", fields, warnings,
       payload: {
         kind: "create_dossier", title, description: asStr(input, "description") || null, category,
         assigneeId: assignee.id, assigneeName: assignee.name, priority, dueDate: due,
@@ -4021,10 +4026,10 @@ export async function buildProposal(toolName: string, input: Record<string, unkn
     // résout n'importe quel élément (`resolveDeletableTarget`, chemin 1), y compris un que le
     // registre refuse. Sans cette porte, Adam proposait le geste, la personne le confirmait, et
     // l'exécution le refusait — une garde se place AVANT, jamais après le clic (§118.83).
-    if (spec.refuse) {
-      const motif = await spec.refuse(target.id);
-      if (motif) return { error: motif };
-    }
+    // L'APERÇU porte ce refus ET ce qui partirait avec l'élément (§118.162) — le même que lit la
+    // fenêtre de l'écran : deux rédactions de « ce qui part avec » diraient deux choses (§118.5).
+    const apercu = await apercuSuppression(rawKind, target.id);
+    if (apercu.refus) return { error: apercu.refus };
 
     // La référence à RESSAISIR pour armer la confirmation : la partie référence du nom affiché
     // (« REG-2026-041 — FOSFOMYCINE » → « REG-2026-041 »), ou le nom entier s'il n'y en a pas.
@@ -4039,11 +4044,16 @@ export async function buildProposal(toolName: string, input: Record<string, unkn
         { label: "Élément", value: target.name },
         { label: "Type", value: `${spec.label} (module ${spec.module})` },
         { label: "Impact", value: "L'élément, ses pièces jointes et ses commentaires disparaissent de tous les écrans." },
+        ...(apercu.lot && apercu.emporte.length ? [{ label: "Part aussi", value: apercu.emporte.join(", ") }] : []),
+        // Ce qui RESTE mais perd son lien — le même aperçu que la fenêtre de l'écran (§118.163).
+        ...(apercu.lot && apercu.detache.length ? [{ label: "Perd son lien", value: apercu.detache.join(", ") }] : []),
       ],
       warnings: [
         `NIVEAU CRITIQUE : même suppression que le bouton rouge de la fiche — la confirmation exige de RESSAISIR « ${confirmText} ».`,
         "Un instantané est déposé dans la corbeille (Administration → Corbeille) : le Super Admin peut restaurer l'élément, ses pièces jointes et ses commentaires.",
-        "Les lignes liées supprimées en cascade (enfants du schéma) ne sont PAS restaurables.",
+        apercu.lot
+          ? "Ce qui part avec lui revient avec lui si le Super Admin le restaure."
+          : "Les lignes liées supprimées en cascade (enfants du schéma) ne sont PAS restaurables.",
         // La réserve PROPRE à ce type, quand la cascade emporte le contenu même de l'objet.
         ...(spec.reserve ? [spec.reserve] : []),
         ...warnings,
@@ -4078,6 +4088,11 @@ export async function buildProposal(toolName: string, input: Record<string, unkn
     }
 
     if (forRestore) {
+      // UN LOT (§118.162) revient avec ses branches : la carte le dit, au lieu d'annoncer que
+      // « les éléments liés ne reviennent pas » — faux pour une demande Ad & Pro.
+      const rec = await prisma.deletedRecord.findUnique({ where: { id: entry.recordId }, select: { lot: true } });
+      const lot = rec?.lot && typeof rec.lot === "object" ? (rec.lot as { resume?: unknown }) : null;
+      const revient = lot && Array.isArray(lot.resume) ? lot.resume.filter((x): x is string => typeof x === "string") : [];
       return {
         kind: "restore_record",
         module: "ADMIN",
@@ -4086,8 +4101,11 @@ export async function buildProposal(toolName: string, input: Record<string, unkn
           { label: "Élément", value: entry.name },
           { label: "Type", value: entry.label },
           { label: "Effet", value: "Recréé à l'identique (mêmes id/référence) avec ses pièces jointes et commentaires." },
+          ...(revient.length ? [{ label: "Revient avec lui", value: revient.join(", ") }] : []),
         ],
-        warnings: ["Les éléments liés qui avaient été supprimés en cascade ne reviennent pas."],
+        warnings: [lot
+          ? "Tout ce qui était parti avec lui revient avec lui — ou rien ne revient, si un élément lié manque."
+          : "Les éléments liés qui avaient été supprimés en cascade ne reviennent pas."],
         payload: { kind: "restore_record", recordId: entry.recordId, name: entry.name, label: entry.label },
       };
     }

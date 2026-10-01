@@ -10,6 +10,8 @@ import { etatAffiche, publicationsDe, suspensionEnVigueur } from "@/lib/site-web
 import { posteOuvert } from "@/lib/site-web/contenus";
 import { peutPublierOffres, peutVoirOffres } from "@/lib/site-web/acces";
 import { OffreForm } from "@/components/site-web/offre-form";
+import { disponibiliteRedaction } from "@/lib/redaction-site-ia";
+import { RepriseNote } from "@/components/site-web/reprise";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Offre d'emploi — AMD Internal OS" };
@@ -24,10 +26,11 @@ export default async function OffrePage({ params }: { params: { id: string } }) 
     include: {
       createdBy: { select: { name: true } }, updatedBy: { select: { name: true } },
       recruitmentRequest: { select: { id: true, reference: true, position: true, stage: true } },
+      reprise: { select: { origine: true, cleSite: true, titre: true, createdAt: true } },
     },
   });
   if (!o) notFound();
-  const [pubs, suspendu] = await Promise.all([publicationsDe("JOB", [o.id]), suspensionEnVigueur()]);
+  const [pubs, suspendu, ia] = await Promise.all([publicationsDe("JOB", [o.id]), suspensionEnVigueur(), disponibiliteRedaction()]);
   const pub = pubs.get(o.id) ?? null;
   const etat = etatAffiche(pub, o.published, suspendu);
   const r = o.recruitmentRequest;
@@ -40,6 +43,7 @@ export default async function OffrePage({ params }: { params: { id: string } }) 
         title={o.title}
         description={`Créée${o.createdBy ? ` par ${o.createdBy.name}` : ""} le ${formatDateTime(o.createdAt)} · modifiée${o.updatedBy ? ` par ${o.updatedBy.name}` : ""} le ${formatDateTime(o.updatedAt)}`}
       />
+      <RepriseNote reprise={o.reprise} dejaEnvoye={pub !== null} />
       <OffreForm
         offre={{
           id: o.id, title: o.title, department: o.department ?? "", location: o.location ?? "", contractLabel: o.contractLabel ?? "",
@@ -51,6 +55,7 @@ export default async function OffrePage({ params }: { params: { id: string } }) 
         demande={r ? { id: r.id, reference: r.reference, poste: r.position, etape: STAGE_LABEL[r.stage as RecruitmentStage] ?? r.stage, ouvert: posteOuvert(r.stage) } : null}
         peutEcrire={publie}
         peutSupprimer={publie}
+        ia={ia}
       />
     </div>
   );

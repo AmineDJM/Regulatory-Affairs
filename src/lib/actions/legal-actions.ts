@@ -1,6 +1,8 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { refusMaillonAmont } from "@/lib/legal/chaine";
+import { refusPieceARanger, rangerPiece } from "@/lib/legal/adoption";
 import type { EntityType, LegalDocKind, LegalDocStatus } from "@prisma/client";
 import { requireUser } from "@/lib/session";
 import { userCan } from "@/lib/rbac";
@@ -137,13 +139,8 @@ async function avecPartieNommee(
   return { ok: true, ids: [...new Set([...ids, trouvee.id])] };
 }
 
-/** Le maillon amont existe-t-il ? Un identifiant de formulaire ne se croit pas sur parole. */
-async function checkChainFrom(chainFromId: string | null, selfId?: string): Promise<string | null> {
-  if (!chainFromId) return null;
-  if (selfId && chainFromId === selfId) return "Une pièce ne peut pas se suivre elle-même.";
-  const prev = await prisma.legalDocument.findUnique({ where: { id: chainFromId }, select: { id: true } });
-  return prev ? null : "La pièce amont (devis / bon de commande) n'existe plus.";
-}
+/** Le maillon amont existe-t-il ? La règle vit dans `legal/chaine.ts`, partagée avec les factures. */
+const checkChainFrom = refusMaillonAmont;
 
 export async function createLegalDocument(
   _prev: ActionResult | undefined,
@@ -184,6 +181,13 @@ export async function createLegalDocument(
     }
   }
 
+  // « CRÉER SA FICHE » (§118.161) : le fichier déjà déposé sur la demande est RANGÉ dans la pièce
+  // créée. Vérifié AVANT d'écrire : refuser après laisserait une fiche sans son fichier.
+  const source = { type: (fdStr(formData, "sourceType") as EntityType | null) ?? null, id: fdStr(formData, "sourceId") };
+  const pieceExistanteId = fdStr(formData, "pieceExistanteId");
+  const refusRangement = await refusPieceARanger(user, pieceExistanteId, source);
+  if (refusRangement) return { ok: false, error: refusRangement };
+
   const companyId = await companyIdForNew(user.id);
   const created = await prisma.legalDocument.create({
     data: {
@@ -192,8 +196,8 @@ export async function createLegalDocument(
       companyId,
       // Le fichier du Drive est RÉFÉRENCÉ, jamais recopié.
       driveNodeId,
-      sourceType: (fdStr(formData, "sourceType") as EntityType | null) ?? null,
-      sourceId: fdStr(formData, "sourceId"),
+      sourceType: source.type,
+      sourceId: source.id,
       createdById: user.id,
       updatedById: user.id,
     },
@@ -231,12 +235,18 @@ export async function createLegalDocument(
   // Les pièces jointes du formulaire, rattachées au document qui vient de naître. Un échec de
   // fichier ne défait PAS la création : l'engagement est enregistré, on dit ce qui n'a pas suivi.
   const files = await attachFormFiles(user.id, "LEGAL_DOCUMENT", created.id, formData);
+  const range = pieceExistanteId ? await rangerPiece(user, pieceExistanteId, source, created.id) : null;
 
   revalidatePath("/legal");
   const fichiers = files.failed.length
     ? `Document créé. ${files.attached} pièce(s) jointe(s) ; échec sur : ${files.failed.map((x) => x.name).join(", ")}.`
     : null;
-  const message = [fichiers ?? (aiguillage ? "Document créé." : null), aiguillage].filter(Boolean).join(" ");
+  // LE RANGEMENT SE DIT, dans les deux sens : un fichier qui n'a pas suivi (déplacé ou supprimé
+  // entre la vérification et l'écriture) ne doit pas se lire comme rangé.
+  const rangement = pieceExistanteId
+    ? (range ? `« ${range} » est rangé dans la fiche.` : "Le fichier n'a pas pu être rangé : il n'était plus sur la fiche d'origine.")
+    : null;
+  const message = [fichiers ?? (aiguillage || rangement ? "Document créé." : null), rangement, aiguillage].filter(Boolean).join(" ");
   return { ok: true, id: created.id, message: message || undefined };
 }
 

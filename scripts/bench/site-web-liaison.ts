@@ -17,7 +17,13 @@
  *   5. le site redémarre sur un disque VIDE (le plan gratuit de Render) : l'offre y est encore ;
  *   6. une candidature spontanée arrive « à trier », avec sa raison ;
  *   7. l'écran de l'ERP dit ce que le site dit de lui-même ;
- *   8. supprimer l'offre dans l'ERP la retire du site (un DELETE signé sur la chaîne vide).
+ *   8. les articles écrits dans le DÉPÔT du site sont REPRIS dans l'ERP (§118.160) — ceux du vrai
+ *      dépôt, pas un décor — et le blog les sert aux mêmes adresses, en version de l'ERP ; les offres
+ *      d'exemple sont reprises en brouillon et restent hors de la page Carrières ;
+ *   9. modifier un article repris dans l'ERP change sa page sur le site ;
+ *  10. supprimer un article repris le retire du blog, et il ne REVIENT PAS après un redémarrage du
+ *      site sur un disque vide — la pierre tombale revient de l'ERP avec le reste ;
+ *  11. supprimer l'offre dans l'ERP la retire du site (un DELETE signé sur la chaîne vide).
  *
  * RIEN NE SORT DE LA MACHINE : l'ERP tourne sorties INTERDITES (`ADAM_SORTIE_INTERDITE=1`) et ne
  * parle au site que parce qu'il est LOCAL (exemption nommée de `site-web/transport.ts`) ; le site ne
@@ -197,6 +203,15 @@ async function nettoyer(): Promise<void> {
   // l'entreprise.
   await prisma.siteWebCle.deleteMany({});
   await prisma.siteReconciliation.deleteMany({});
+  // LA REPRISE (§118.160) : ce que le banc a repris du VRAI dépôt du site (ses articles, ses offres
+  // d'exemple), et tout l'état de publication qui en découle — y compris celui des articles repris
+  // puis supprimés, que plus aucune ligne de contenu ne désigne.
+  const reprises = await prisma.siteReprise.findMany({ select: { articleId: true, jobId: true } });
+  await prisma.sitePushAttempt.deleteMany({});
+  await prisma.sitePublication.deleteMany({});
+  await prisma.siteReprise.deleteMany({});
+  await prisma.blogArticle.deleteMany({ where: { id: { in: reprises.flatMap((r) => (r.articleId ? [r.articleId] : [])) } } });
+  await prisma.jobPosting.deleteMany({ where: { id: { in: reprises.flatMap((r) => (r.jobId ? [r.jobId] : [])) } } });
   await prisma.appSetting.updateMany({ data: { siteBlocageEmpreinte: null, siteBlocageAt: null, siteBlocageMotif: null } });
 
   // Les notifications que l'ERP a envoyées PAR RÔLE pendant le banc (les RH, les Super Admins de la
@@ -204,7 +219,7 @@ async function nettoyer(): Promise<void> {
   await prisma.notification.deleteMany({
     where: {
       createdAt: { gte: new Date(t0) },
-      title: { in: ["Site web relié", "Candidature reçue du site", "Candidature reçue du site — à trier", "CV reçu à présélectionner"] },
+      title: { in: ["Site web relié", "Candidature reçue du site", "Candidature reçue du site — à trier", "CV reçu à présélectionner", "Site web : contenus repris du site"] },
     },
   });
 
@@ -315,7 +330,8 @@ async function main(): Promise<void> {
     await connecter(erpPage);
 
     await etape("1. « Générer la clé » affiche le bloc à coller", async () => {
-      await erpPage.goto(`${ERP}/site-web`);
+      // La liaison vit dans la console d'administration (§118.160) : c'est là que le Super Admin la relie.
+      await erpPage.goto(`${ERP}/admin/site-web`);
       await erpPage.getByText("Pas encore relié", { exact: true }).first().waitFor({ timeout: 30_000 });
       await erpPage.getByRole("button", { name: "Générer la clé" }).click();
       const texte = (await erpPage.getByTestId("bloc-cle").textContent({ timeout: 30_000 })) ?? "";
@@ -342,7 +358,7 @@ async function main(): Promise<void> {
         const l = await prisma.siteWebCle.findUnique({ where: { id: attente.id }, select: { etat: true, dernierConstat: true } });
         return l?.etat === "ACTIVE" ? l : null;
       }, 120_000, 1_000);
-      await erpPage.goto(`${ERP}/site-web`);
+      await erpPage.goto(`${ERP}/admin/site-web`);
       await erpPage.getByText("Relié", { exact: true }).first().waitFor({ timeout: 30_000 });
       return `active ${Math.round((Date.now() - demarreLe) / 1000)} s après le démarrage du site — « ${cle.dernierConstat} » ; l'écran dit « Relié »`;
     });
@@ -417,7 +433,7 @@ async function main(): Promise<void> {
     });
 
     await etape("7. L'écran de l'ERP dit ce que le site dit de lui-même", async () => {
-      await erpPage.goto(`${ERP}/site-web`);
+      await erpPage.goto(`${ERP}/admin/site-web`);
       await erpPage.getByRole("button", { name: "Vérifier la connexion" }).click();
       for (const phrase of ["Le site reconnaît la clé de l'ERP.", "Le site connaît l'adresse de l'ERP", "Le site signe ses envois"]) {
         await erpPage.getByText(phrase).first().waitFor({ timeout: 30_000 });
@@ -425,7 +441,85 @@ async function main(): Promise<void> {
       return "clé reconnue · adresse de l'ERP connue · envois signés";
     });
 
-    await etape("8. Supprimer l'offre dans l'ERP la retire du site (DELETE signé sur la chaîne vide)", async () => {
+    // ── LA REPRISE DES CONTENUS DU SITE (§118.160) — sur le VRAI dépôt du site, pas sur un décor ──
+    let repris: { id: string; slug: string; titre: string }[] = [];
+    await etape("8. Les articles du site sont REPRIS dans l'ERP, et le blog les sert aux mêmes adresses — version de l'ERP", async () => {
+      const depot = JSON.parse((await apiSite("/repository")).corps) as { articles: { slug: string }[]; sampleJobs: { slug: string; title: string }[] };
+      exiger(depot.articles.length > 0, "le dépôt du site ne rend aucun article");
+      await erpPage.goto(`${ERP}/admin/site-web`);
+      await erpPage.getByRole("button", { name: "Rapprocher maintenant" }).click();
+      const lignes = await attendre("les articles repris dans l'ERP", async () => {
+        const r = await prisma.siteReprise.findMany({ where: { origine: "ARTICLE_DEPOT" }, select: { articleId: true, cleSite: true, titre: true } });
+        return r.length === depot.articles.length ? r : null;
+      }, 90_000, 1_000);
+      repris = lignes.map((l) => ({ id: l.articleId!, slug: l.cleSite, titre: l.titre }));
+      const posts = await attendre("les versions de l'ERP servies par le site", async () => {
+        const j = JSON.parse((await apiSite("/posts")).corps) as { posts: { replacesFile: string | null; body?: unknown }[]; readOnlyFileArticles: unknown[] };
+        return j.readOnlyFileArticles.length === 0 && j.posts.filter((p) => p.replacesFile).length === depot.articles.length ? j : null;
+      }, 90_000, 1_000);
+      // Le contrat (PostRecord) inclut le corps : sans lui, l'ERP ne peut pas dire ce que le site détient.
+      exiger(posts.posts.every((p) => typeof p.body === "string" && p.body.length > 0), "la liste du site ne rend pas le corps des articles");
+      for (const a of repris) {
+        const page = await requete(`${SITE}/blog/${a.slug}`);
+        exiger(page.statut === 200, `/blog/${a.slug} répond ${page.statut} : une adresse déjà partagée serait cassée`);
+      }
+      // Les offres d'exemple : reprises en BROUILLON — dans l'ERP, jamais sur la page Carrières.
+      const exemples = await prisma.siteReprise.findMany({ where: { origine: "OFFRE_EXEMPLE" }, select: { job: { select: { published: true } } } });
+      exiger(exemples.length === depot.sampleJobs.length && exemples.every((e) => e.job?.published === false), `offres d'exemple : ${JSON.stringify(exemples)}`);
+      const offresDuSite = JSON.parse((await apiSite("/jobs")).corps) as { jobs: { title: string; published: boolean }[] };
+      const exposees = offresDuSite.jobs.filter((j) => j.published && depot.sampleJobs.some((e) => e.title === j.title));
+      exiger(exposees.length === 0, `${exposees.length} offre(s) d'exemple en ligne : un poste fictif attirerait des candidatures`);
+      await erpPage.goto(`${ERP}/admin/site-web`);
+      await erpPage.getByText("Contenus repris du site", { exact: true }).waitFor({ timeout: 30_000 });
+      // UN RAPPROCHEMENT DE PLUS NE REPOUSSE RIEN : le site rend ce qu'il détient (le corps compris),
+      // l'ERP le compare et le trouve conforme. Mesuré avant la correction : les cinq articles
+      // repartaient à chaque passage, « écart sur body », parce que la liste du site omettait le corps.
+      const avant = new Date();
+      await erpPage.getByRole("button", { name: "Rapprocher maintenant" }).click();
+      const second = await attendre("un second rapprochement", () =>
+        prisma.siteReconciliation.findFirst({ where: { startedAt: { gte: avant }, ok: true }, select: { repousses: true, ecarts: true, conformes: true } }),
+        60_000, 1_000);
+      exiger(second.repousses === 0, `un rapprochement sans changement a repoussé ${second.repousses} contenu(s) : ${JSON.stringify(second.ecarts).slice(0, 300)}`);
+      return `${repris.length} article(s) repris et servis par l'ERP (${posts.posts.length} au total), aucun fichier du dépôt affiché ; ${exemples.length} offre(s) d'exemple en brouillon ; un rapprochement de plus : ${second.conformes} conforme(s), 0 repoussé`;
+    });
+
+    await etape("9. Modifier un article repris dans l'ERP change sa page sur le site", async () => {
+      const cible = repris[0]!;
+      const nouveau = `${cible.titre.slice(0, 150)} — mis à jour depuis l'ERP`;
+      await erpPage.goto(`${ERP}/site-web/articles/${cible.id}`);
+      await erpPage.locator("#article-titre").fill(nouveau);
+      await erpPage.getByRole("button", { name: "Enregistrer les modifications" }).click();
+      await attendre("le nouveau titre sur le site", async () => {
+        const r = await apiSite(`/posts/${cible.id}`);
+        return r.statut === 200 && (JSON.parse(r.corps) as { post?: { title?: string } }).post?.title === nouveau;
+      }, 90_000, 1_000);
+      exiger((await requete(`${SITE}/blog/${cible.slug}`)).statut === 200, "l'adresse a changé");
+      return `« ${nouveau} » servi à /blog/${cible.slug}`;
+    });
+
+    await etape("10. Supprimer un article repris le retire du blog — il ne revient pas, même après un redémarrage du site sur un disque VIDE", async () => {
+      const cible = repris[1] ?? repris[0]!;
+      await erpPage.goto(`${ERP}/site-web/articles/${cible.id}`);
+      await erpPage.getByRole("button", { name: "Supprimer" }).click();
+      await attendre("la page retirée", async () => (await requete(`${SITE}/blog/${cible.slug}`)).statut === 404, 90_000, 1_000);
+      await arreter(site);
+      const disque3 = fs.mkdtempSync(path.join(os.tmpdir(), "banc-site-3-"));
+      disques.push(disque3);
+      site = demarrerSite(disque3);
+      await pret(`${SITE}/api/v1/health`, 120_000);
+      await attendre("le rechargement depuis l'ERP", async () => {
+        const h = JSON.parse((await apiSite("/health")).corps) as { erp?: { lastRestore?: { ok: boolean } } };
+        return h.erp?.lastRestore?.ok === true;
+      }, 60_000, 1_000);
+      const apres = await requete(`${SITE}/blog/${cible.slug}`);
+      exiger(apres.statut === 404, `après le redémarrage, /blog/${cible.slug} répond ${apres.statut} : le fichier du dépôt est revenu`);
+      exiger(!(await requete(`${SITE}/blog`)).corps.includes(`/blog/${cible.slug}"`), "la liste du blog le montre encore");
+      const autre = repris.find((a) => a.id !== cible.id);
+      if (autre) exiger((await requete(`${SITE}/blog/${autre.slug}`)).statut === 200, `/blog/${autre.slug} a disparu avec lui`);
+      return `/blog/${cible.slug} : 404, et toujours 404 après un redémarrage sur disque vide ; les autres articles repris sont revenus`;
+    });
+
+    await etape("11. Supprimer l'offre dans l'ERP la retire du site (DELETE signé sur la chaîne vide)", async () => {
       await erpPage.goto(`${ERP}/site-web/offres/${offreId}`);
       await erpPage.getByRole("button", { name: "Supprimer" }).click();
       await attendre("l'offre retirée de /carrieres", async () => !(await requete(`${SITE}/carrieres`)).corps.includes(POSTE), 90_000, 1_000);

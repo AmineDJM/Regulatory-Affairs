@@ -9,6 +9,7 @@ import {
   type IdentifiantsStockes, type LectureConfiguration,
 } from "./config";
 import type { ReponseSite, TransportSite } from "./transport";
+import { ECRAN_LIAISON } from "./ecran";
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
@@ -248,7 +249,7 @@ export async function promouvoir(id: string, pourquoi: string, maintenant: Date 
     type: "GENERIC",
     title: "Site web relié",
     body: `Le site a reconnu la nouvelle clé (${pourquoi}). Les publications partent avec elle ; l'ancienne ne sert plus.`,
-    link: "/site-web",
+    link: ECRAN_LIAISON.href,
   });
   return true;
 }

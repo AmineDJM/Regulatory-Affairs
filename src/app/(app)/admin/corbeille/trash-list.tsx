@@ -17,6 +17,8 @@ export interface TrashItem {
   deletedBy: string | null;
   restoredAt: string | null;
   documents: number;
+  /** Ce qui est parti AVEC l'élément et revient avec lui (lot, §118.162) — vide sinon. */
+  emportes: string[];
 }
 
 export function TrashList({ items }: { items: TrashItem[] }) {
@@ -25,9 +27,10 @@ export function TrashList({ items }: { items: TrashItem[] }) {
   const [err, setErr] = React.useState<string | null>(null);
 
   async function run(item: TrashItem, action: "restore" | "destroy") {
+    const avec = item.emportes.length ? ` avec ${item.emportes.join(", ")}` : "";
     const confirmMsg = action === "restore"
-      ? `Restaurer ${item.label} « ${item.name} » ?`
-      : `Détruire DÉFINITIVEMENT ${item.label} « ${item.name} » ? Les fichiers seront effacés — irréversible.`;
+      ? `Restaurer ${item.label} « ${item.name} »${avec} ?`
+      : `Détruire DÉFINITIVEMENT ${item.label} « ${item.name} »${avec} ? Les fichiers seront effacés — irréversible.`;
     if (!window.confirm(confirmMsg)) return;
     setBusyId(item.id); setErr(null);
     const fd = new FormData(); fd.set("id", item.id);
@@ -50,6 +53,9 @@ export function TrashList({ items }: { items: TrashItem[] }) {
               <p className="text-xs text-muted-foreground">
                 {it.label} · supprimé le {formatDateTime(it.deletedAt)}{it.deletedBy ? ` par ${it.deletedBy}` : ""}
               </p>
+              {it.emportes.length > 0 && (
+                <p className="text-xs text-muted-foreground">Parti avec lui, revient avec lui : {it.emportes.join(", ")}</p>
+              )}
             </div>
             {it.restoredAt ? (
               <Badge tone="success" dot={false}>Restauré le {formatDateTime(it.restoredAt)}</Badge>

@@ -212,7 +212,7 @@ function probeNavCoherence(): Finding[] {
 async function moduleStats(): Promise<ModuleStat[]> {
   const defs: { key: string; label: string; run: () => Promise<number> }[] = [
     { key: "users", label: "Utilisateurs actifs", run: () => prisma.user.count({ where: { isActive: true } }) },
-    { key: "dossiers", label: "Projets (dossiers)", run: () => prisma.dossier.count() },
+    { key: "dossiers", label: "Sujets (Pilotage)", run: () => prisma.dossier.count() },
     { key: "regDossiers", label: "Dossiers Regulatory", run: () => prisma.regulatoryDossier.count() },
     { key: "sponsoring", label: "Demandes de sponsoring", run: () => prisma.sponsoringRequest.count() },
     { key: "congressIntl", label: "Prises en charge Internationales", run: () => prisma.congressInternational.count() },

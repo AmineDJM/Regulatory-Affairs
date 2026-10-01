@@ -14,8 +14,12 @@ import { join, relative } from "node:path";
  *   2. L'exemption du middleware est EXACTE : `/api/site-web/v1/`, barre finale comprise. Le CV
  *      d'une candidature (`/api/site-web/candidatures/…`) reste derrière la session.
  *   3. La valeur d'une clé ne quitte pas la couche serveur de la liaison : seuls les modules de
- *      `lib/site-web/` la lisent, plus l'écran « Site web » — et lui seulement pour le Super Admin,
- *      sur une clé EN ATTENTE. Un composant ou un autre écran qui l'importerait l'afficherait.
+ *      `lib/site-web/` la lisent, plus l'écran de la LIAISON (Administration › Site web (connexion)) — et lui
+ *      seulement derrière sa porte Super Admin, sur une clé EN ATTENTE. Un composant ou un autre
+ *      écran qui l'importerait l'afficherait.
+ *   4. La liaison ne vit QUE dans la console d'administration (§118.160) : aucun écran du module
+ *      « Site web » n'offre un geste de liaison, et l'écran de la liaison ferme sa porte avant de
+ *      lire quoi que ce soit.
  *
  * On lit la source SANS ses commentaires : quatre fois dans ce dépôt un cliquet s'est accroché à
  * la prose qui le décrivait (§118.79d, §118.88, §118.112b, §118.138).
@@ -106,6 +110,9 @@ describe("Les routes que le site appelle", () => {
   });
 });
 
+const ECRAN = "src/app/(app)/admin/site-web/page.tsx";
+const CARTE = "src/app/(app)/admin/site-web/carte-liaison.tsx";
+
 describe("La valeur d'une clé ne quitte pas la couche serveur", () => {
   const LECTEURS = /\b(cleEnAttente|cleActive)\b/;
   const importeurs = fichiers("src", (f) => /\.(ts|tsx)$/.test(f) && !/\.test\.tsx?$/.test(f))
@@ -114,31 +121,74 @@ describe("La valeur d'une clé ne quitte pas la couche serveur", () => {
       return /from\s*"(@\/lib\/site-web\/cles|\.\/cles)"/.test(src) && LECTEURS.test(src.match(/import\s*\{[^}]*\}\s*from\s*"(?:@\/lib\/site-web\/cles|\.\/cles)"/)?.[0] ?? "");
     });
 
-  it("seuls les modules de `lib/site-web/` et l'écran « Site web » lisent une clé", () => {
-    const hors = importeurs.filter((f) => !f.startsWith("src/lib/site-web/") && f !== "src/app/(app)/site-web/page.tsx");
+  it("seuls les modules de `lib/site-web/` et l'écran de la LIAISON lisent une clé", () => {
+    const hors = importeurs.filter((f) => !f.startsWith("src/lib/site-web/") && f !== ECRAN);
     expect(hors, hors.join("\n")).toEqual([]);
     // PRÉMISSE : l'écran est bien trouvé — sans quoi la règle suivante ne mesurerait rien.
-    expect(importeurs).toContain("src/app/(app)/site-web/page.tsx");
+    expect(importeurs).toContain(ECRAN);
   });
 
-  it("l'écran ne relit la clé EN ATTENTE que pour le Super Admin — jamais la clé active", () => {
-    const page = lire("src/app/(app)/site-web/page.tsx");
+  it("l'écran ferme sa porte Super Admin AVANT toute lecture — et ne relit jamais la clé active", () => {
+    const page = lire(ECRAN);
     expect(page).not.toMatch(/\bcleActive\s*\(/);
-    const appel = page.indexOf("cleEnAttente(");
-    expect(appel).toBeGreaterThan(-1);
-    const avant = page.slice(0, appel);
-    const garde = avant.lastIndexOf("if (gere && liaison.attente)");
-    expect(garde, "la lecture de la clé doit être dans le bloc gardé").toBeGreaterThan(-1);
-    // Rien ne ferme le bloc entre la garde et l'appel.
-    expect(avant.slice(garde).split("{").length - avant.slice(garde).split("}").length).toBeGreaterThanOrEqual(1);
-    expect(page).toMatch(/const\s+gere\s*=\s*peutGererLaLiaison\(user\)/);
+    const porte = page.search(/if\s*\(\s*!peutGererLaLiaison\(user\)\s*\)\s*redirect\(/);
+    expect(porte, "la porte Super Admin a disparu de l'écran de la liaison").toBeGreaterThan(-1);
+    // Toute lecture — l'état de la liaison, l'état de l'intégration, la clé en attente — vient APRÈS.
+    for (const lecture of ["cleEnAttente(", "etatLiaison(", "etatIntegration("]) {
+      const at = page.indexOf(lecture);
+      expect(at, `${lecture} introuvable`).toBeGreaterThan(-1);
+      expect(at, `${lecture} est lu AVANT la porte`).toBeGreaterThan(porte);
+    }
   });
 
   it("aucun composant ne reçoit une clé : la carte ne prend que le bloc, déjà composé côté serveur", () => {
-    const carte = lire("src/app/(app)/site-web/carte-liaison.tsx");
+    const carte = lire(CARTE);
     expect(carte).not.toMatch(/from\s*"@\/lib\/site-web\/cles"/);
     const composants = fichiers("src/components", (f) => /\.(ts|tsx)$/.test(f));
     const fautes = composants.filter((f) => /from\s*"@\/lib\/site-web\/cles"/.test(lire(f)));
     expect(fautes, fautes.join("\n")).toEqual([]);
+  });
+});
+
+describe("La liaison ne vit que dans la console d'administration (§118.160)", () => {
+  const GESTES_DE_LIAISON = /geste="(verifier|rapprocher|generer|abandonner|lever)"/g;
+
+  it("aucun écran du module « Site web » n'offre un geste de liaison — seul « relancer » (un contenu) y reste", () => {
+    const ecrans = fichiers("src/app/(app)/site-web", (f) => /\.tsx$/.test(f));
+    // PLANCHER : la page du module, la liste et les fiches — un parcours cassé rendrait le cliquet vert.
+    expect(ecrans.length, ecrans.join(", ")).toBeGreaterThanOrEqual(4);
+    const fautes = ecrans.flatMap((f) => [...lire(f).matchAll(GESTES_DE_LIAISON)].map((m) => `${f} : ${m[0]}`));
+    expect(fautes, fautes.join("\n")).toEqual([]);
+    // Et rien n'y lit l'état de la LIAISON (la santé du site, la clé en attente) : c'est l'écran d'administration qui le montre.
+    const lecteurs = ecrans.filter((f) => /\betatLiaison\s*\(|carte-liaison/.test(lire(f)));
+    expect(lecteurs, lecteurs.join("\n")).toEqual([]);
+  });
+
+  it("l'écran d'administration offre les cinq gestes — sans quoi il n'y aurait plus d'endroit où relier le site", () => {
+    const vus = new Set([...`${lire(ECRAN)}\n${lire(CARTE)}`.matchAll(GESTES_DE_LIAISON)].map((m) => m[1]));
+    expect([...vus].sort()).toEqual(["abandonner", "generer", "lever", "rapprocher", "verifier"]);
+  });
+
+  it("l'adresse nommée par les phrases et les alertes EST l'écran : un lien qui mène ailleurs enverrait chercher la clé où elle n'est plus", async () => {
+    const { ECRAN_LIAISON } = await import("./ecran");
+    expect(`src/app/(app)${ECRAN_LIAISON.href}/page.tsx`).toBe(ECRAN);
+    const { ADMIN_TABS } = await import("@/lib/labels");
+    const onglet = ADMIN_TABS.find((t) => t.href === ECRAN_LIAISON.href);
+    expect(onglet, "l'écran de la liaison n'a pas d'onglet dans la console").toBeDefined();
+    // Le NOM que citent les phrases est celui de l'onglet, mot pour mot : « depuis Administration ›
+    // Site web » quand l'onglet s'appelle autrement fait chercher un endroit qui n'existe pas.
+    expect(ECRAN_LIAISON.nom).toBe(`Administration › ${onglet!.label}`);
+    // Les deux alertes de LIAISON (clé reconnue, publication suspendue) y mènent — lues à leur source.
+    const alertes = [
+      ["src/lib/site-web/cles.ts", "Site web relié"],
+      ["src/lib/site-web/file.ts", "Site web : publication suspendue"],
+    ] as const;
+    for (const [f, titre] of alertes) {
+      const src = lire(f);
+      const at = src.indexOf(titre);
+      expect(at, `${titre} introuvable dans ${f}`).toBeGreaterThan(-1);
+      const appel = src.slice(Math.max(0, src.lastIndexOf("notifyRoles(", at)), src.indexOf("});", at) + 3);
+      expect(appel, `l'alerte « ${titre} » ne mène pas à l'écran de la liaison`).toMatch(/link:\s*ECRAN_LIAISON\.href/);
+    }
   });
 });

@@ -7,6 +7,7 @@ import { BackLink } from "@/components/shared/back-link";
 import { slugsDuDepotConnus } from "@/lib/site-web/etat";
 import { peutEcrireArticles } from "@/lib/site-web/acces";
 import { ArticleForm } from "@/components/site-web/article-form";
+import { disponibiliteRedaction } from "@/lib/redaction-site-ia";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Nouvel article — AMD Internal OS" };
@@ -15,9 +16,10 @@ export const metadata = { title: "Nouvel article — AMD Internal OS" };
 export default async function NouvelArticlePage() {
   const user = await requireModule("SITE_WEB");
   if (!peutEcrireArticles(user)) redirect("/site-web/articles");
-  const [depot, categories] = await Promise.all([
+  const [depot, categories, ia] = await Promise.all([
     slugsDuDepotConnus(),
     prisma.blogArticle.findMany({ where: { category: { not: null } }, distinct: ["category"], select: { category: true }, take: 50 }),
+    disponibiliteRedaction(),
   ]);
   return (
     <div className="mx-auto max-w-6xl space-y-5">
@@ -32,6 +34,7 @@ export default async function NouvelArticlePage() {
         peutEcrire
         peutSupprimer={false}
         categories={categories.flatMap((c) => (c.category ? [c.category] : []))}
+        ia={ia}
       />
     </div>
   );

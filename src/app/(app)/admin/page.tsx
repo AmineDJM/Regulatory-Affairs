@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Palette, Activity, Bot, Building2, Coins, Columns3, Database, Factory, Gauge, HardDrive, History, Layers, Library, Mail, MessageSquare, MessagesSquare, Network, Rocket, Settings2, ShieldCheck, Trash2, Workflow, ScanSearch, ScrollText } from "lucide-react";
+import { Palette, Activity, Bot, Building2, Coins, Columns3, Database, Factory, Gauge, Globe2, HardDrive, History, Layers, Library, Mail, MessageSquare, MessagesSquare, Network, Rocket, Settings2, ShieldCheck, Trash2, Workflow, ScanSearch, ScrollText } from "lucide-react";
 import { requireModule } from "@/lib/session";
 import { userCan } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
@@ -136,6 +136,10 @@ export default async function AdminPage() {
                 par APPARTENANCE, donc ce qu'on n'a pas rejoint ne s'atteint que d'ici. */}
             <Link href="/admin/messagerie">
               <Button variant="outline"><MessagesSquare className="h-4 w-4" /> Messagerie &amp; notifications</Button>
+            </Link>
+            {/* La liaison au site public : la clé, la vérification, la mise en service (§118.160). */}
+            <Link href="/admin/site-web">
+              <Button variant="outline"><Globe2 className="h-4 w-4" /> Site web (connexion)</Button>
             </Link>
             <Link href="/admin/corbeille">
               <Button variant="outline"><Trash2 className="h-4 w-4" /> Corbeille</Button>

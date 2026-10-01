@@ -16,6 +16,7 @@ import { PROMO_MATERIAL_DOC_CATEGORIES } from "@/lib/ad-pro/doc-categories";
 import { dejaPorteParSaFiche } from "@/lib/ad-pro/unified";
 import { DocumentList, type DocItem } from "@/components/documents/document-list";
 import { LinkedRecords } from "@/components/shared/linked-records";
+import { accesPiecesLiees } from "@/lib/ad-pro/pieces-liees";
 import { AttachmentValidationBlock } from "./attachment-validation";
 import { onlyofficeConfigured } from "@/lib/onlyoffice";
 import { ADMIN_REQUEST_TYPE, ADMIN_REQUEST_STATUS, ADMIN_APPROVAL_STATUS, DRIVER_MISSION_STATUS, PRIORITY, AUDIT_ACTION, VALIDATION_STATUS } from "@/lib/labels";
@@ -264,7 +265,7 @@ export default async function RequestDetailPage({ params }: { params: { id: stri
 
           {/* CE QUI EN DÉCOULE : bon de commande, facture, courrier. Créés d'ici, ils gardent le
               lien vers cette demande — c'est le seul moment où l'on sait de quoi ils viennent. */}
-          <LinkedRecords entityType="ADMIN_REQUEST" entityId={req.id} reference={req.reference} canCreate={canManage} />
+          <LinkedRecords entityType="ADMIN_REQUEST" entityId={req.id} reference={req.reference} canCreate={canManage} acces={accesPiecesLiees(user)} />
 
           <Card>
             <CardHeader><CardTitle>Commentaires</CardTitle></CardHeader>

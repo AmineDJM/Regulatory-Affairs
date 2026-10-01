@@ -16,7 +16,7 @@ import { DocumentUpload } from "@/components/documents/document-upload";
 import type { DocItem } from "@/components/documents/document-list";
 import { LinkedRecords } from "@/components/shared/linked-records";
 import { contextePiecesLiees } from "@/lib/ad-pro/pieces-liees";
-import { AD_PRO_DOC_CATEGORIES } from "@/lib/ad-pro/doc-categories";
+import { AD_PRO_DOC_CATEGORIES, categoriesDuDepotDeLaDemande } from "@/lib/ad-pro/doc-categories";
 import { canAttachToAdPro, attachHint } from "@/lib/ad-pro/attachments";
 import { onlyofficeConfigured } from "@/lib/onlyoffice";
 import { SPONSORING_STATUS, SPONSORING_NATURE, PRIORITY } from "@/lib/labels";
@@ -287,7 +287,7 @@ export default async function SponsoringDetailPage({ params }: { params: { id: s
               titre: "Demande(s) du médecin et pièces de la demande",
               documents: docItems,
               televerseur: canUpload
-                ? <DocumentUpload entityType="SPONSORING" entityId={req.id} categories={[...AD_PRO_DOC_CATEGORIES]} />
+                ? <DocumentUpload entityType="SPONSORING" entityId={req.id} categories={categoriesDuDepotDeLaDemande(AD_PRO_DOC_CATEGORIES)} />
                 : undefined,
               motif: canUpload
                 ? null

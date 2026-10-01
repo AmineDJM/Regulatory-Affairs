@@ -34,7 +34,7 @@ const RELIEE = {
 };
 const ANONYME = { status: "ok", service: "adventum-content-api", version: "1", configured: true, authenticated: false };
 
-const carte = () => readFileSync(join(process.cwd(), "src/app/(app)/site-web/carte-liaison.tsx"), "utf8");
+const carte = () => readFileSync(join(process.cwd(), "src/app/(app)/admin/site-web/carte-liaison.tsx"), "utf8");
 
 describe("Le site tourne-t-il sur la version qui reçoit les candidatures ?", () => {
   it("l'ANCIENNE version reconnaît la clé mais ne reçoit rien : NON — et c'est bien la clé qui est reconnue", () => {

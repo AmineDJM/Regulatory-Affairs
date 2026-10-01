@@ -7,7 +7,7 @@ import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { cn, formatCurrency, formatDate } from "@/lib/utils";
-import { LEGAL_DOC_KIND, LEGAL_DOC_STATUS, LEGAL_EXPIRY_LEVEL } from "@/lib/labels";
+import { LEGAL_DOC_KIND, LEGAL_DOC_STATUS, LEGAL_EXPIRY_LEVEL, natureLegale } from "@/lib/labels";
 import { renewLegalDocument, cancelLegalDocument } from "@/lib/actions/legal-actions";
 import { setInvoicePaid } from "@/lib/actions/invoice-actions";
 import { moveLegalDocuments } from "@/lib/actions/legal-folder-actions";
@@ -252,7 +252,7 @@ export function LegalTable({
                       <span className="block text-[0.6875rem] text-muted-foreground">renouvelle « {r.renewedFromTitle} »</span>
                     )}
                   </td>
-                  <td className="px-3 py-2 text-xs">{LEGAL_DOC_KIND[r.kind] ?? r.kind}</td>
+                  <td className="px-3 py-2 text-xs">{natureLegale(r.kind)}</td>
                   <td className="px-3 py-2 text-muted-foreground">{r.counterparty || "—"}</td>
                   <td className="px-3 py-2 whitespace-nowrap text-muted-foreground">{r.startDate ? formatDate(r.startDate) : "—"}</td>
                   <td className="px-3 py-2 whitespace-nowrap">

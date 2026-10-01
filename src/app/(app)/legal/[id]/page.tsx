@@ -17,7 +17,7 @@ import { AskChief } from "@/components/shared/ask-chief";
 import { realtimeVoiceConfigured, canUseRealtimeVoice } from "@/lib/assistant/voice-realtime";
 import { DocumentUpload } from "@/components/documents/document-upload";
 import { DocumentList, type DocItem } from "@/components/documents/document-list";
-import { LEGAL_DOC_KIND, LEGAL_DOC_STATUS, LEGAL_EXPIRY_LEVEL, AUDIT_ACTION } from "@/lib/labels";
+import { LEGAL_DOC_STATUS, LEGAL_EXPIRY_LEVEL, AUDIT_ACTION, natureLegale } from "@/lib/labels";
 import { formatCurrency, formatDate, formatDateTime, toNumber } from "@/lib/utils";
 import { effectiveStatus, expiryLevel, daysLeft } from "@/lib/legal/lifecycle";
 import { sourceHref, sourceCaption } from "@/lib/links/source-link";
@@ -189,7 +189,7 @@ export default async function LegalDocumentPage({ params }: { params: { id: stri
   const folderOptions = flattenFolders(buildFolderTree(folderRows)).map((n) => ({ value: n.id, label: indentedLabel(n) }));
   const chainCandidates = chainDocs.map((r) => ({
     value: r.id,
-    label: `${LEGAL_DOC_KIND[r.kind] ?? r.kind} — ${r.reference ? `${r.reference} · ` : ""}${r.title}`,
+    label: `${natureLegale(r.kind)} — ${r.reference ? `${r.reference} · ` : ""}${r.title}`,
   }));
 
   // La valeur COURANTE d'un contrat amendé — calculée, jamais stockée (§17-18).
@@ -277,7 +277,7 @@ export default async function LegalDocumentPage({ params }: { params: { id: stri
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
             <Badge tone={st?.tone ?? "neutral"} dot={false}>{st?.label ?? status}</Badge>
-            <span className="text-xs text-muted-foreground">{LEGAL_DOC_KIND[doc.kind] ?? doc.kind}</span>
+            <span className="text-xs text-muted-foreground">{natureLegale(doc.kind)}</span>
             {doc.reference && <span className="font-mono text-xs text-muted-foreground">{doc.reference}</span>}
             {doc.company && <span className="text-xs text-muted-foreground">{doc.company.shortName || doc.company.name}</span>}
             {peutVoirAdam(user) && userCan(user, "CHIEF_OF_STAFF", "VIEW") && (

@@ -15,7 +15,7 @@ import type { EntityType } from "@prisma/client";
 export const ENTITY_TYPE_LABELS: Partial<Record<EntityType, string>> = {
   REGULATORY_PRODUCT: "Dossier réglementaire",
   REGULATORY_STEP: "Étape réglementaire",
-  DOSSIER: "Dossier",
+  DOSSIER: "Sujet",
   DRIVE_NODE: "Élément du Drive",
   LEGAL_DOCUMENT: "Engagement juridique",
   MAIL_ENTRY: "Courrier",

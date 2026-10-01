@@ -139,8 +139,12 @@ export const SERVICE_DU_MODULE: Record<CleModule, ServiceDuModule> = {
   SUPPORT: { domaines: ["ADMIN", "MISSION"], mots: ["support", "ticket", "tickets", "incident", "incidents", "panne"], outils: ["support_operation"] },
   DIRECTIVES: { domaines: ["ADMIN", "TEACH"], mots: ["directive", "directives", "note de service", "circulaire"], outils: ["directive_operation"] },
   // Les projets et le pôle marché. `dossier_operation` est REGULATORY, `bd_operation` DIRECTORY.
-  DOSSIERS: { domaines: ["REGULATORY", "MISSION"], mots: ["projet", "projets"], outils: ["dossier_operation"] },
+  // « Sujets » (Pilotage, anciennement « Projets ») : le mot d'avant reste compris.
+  DOSSIERS: { domaines: ["REGULATORY", "MISSION"], mots: ["sujet", "sujets", "projet", "projets"], outils: ["dossier_operation"] },
   BUSINESS_DEVELOPMENT: { domaines: ["DIRECTORY", "REGULATORY", "DATA"], mots: ["market intelligence", "veille", "concurrence", "part de marche", "parts de marche"], outils: ["bd_operation"] },
+  // Le registre des projets BD (§118.163) : des étiquettes par lesquelles on classe les dossiers
+  // réglementaires — c'est donc Regulatory qui le lit, et `bd_operation` qui l'écrit.
+  BD_PROJECTS: { domaines: ["REGULATORY", "DIRECTORY"], mots: ["registre des projets", "projet bd", "projets bd", "classement par projet"], outils: ["bd_operation"] },
   // Mon espace et mon équipe. `my_overview`, `list_my_tasks`, `list_my_requests` ; `read_employee`.
   WORKSPACE: { domaines: ["MISSION"], mots: ["mon espace", "mes taches", "mes demandes", "mon tableau de bord"], outils: ["my_overview", "list_my_tasks", "list_my_requests"] },
   MY_TEAM: { domaines: ["HR", "DIRECTORY"], mots: ["mon equipe", "mes collaborateurs", "mes subordonnes"], outils: ["org_operation"] },

@@ -8,6 +8,7 @@ import type { CongressRequestStatus } from "@prisma/client";
 import { requireUser } from "@/lib/session";
 import { userCan, anyRoleFilter } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
+import { supprimerReversible } from "@/lib/suppression/coeur";
 import { moneyEntityOf } from "@/lib/company";
 import { recordAudit } from "@/lib/audit";
 import { notifyRoles, notifyUser } from "@/lib/notify";
@@ -221,14 +222,25 @@ export async function updateEvent(formData: FormData): Promise<ActionResult> {
   return { ok: true };
 }
 
+/**
+ * SUPPRIMER UN ÉVÉNEMENT — par le cœur réversible, avec ses branches (§118.162).
+ *
+ * Ce geste écrivait `prisma.event.delete` : ni instantané, ni audit, ni corbeille, ouvert à quatre
+ * rôles — et il laissait derrière lui la déclaration d'information médicale, la demande au
+ * secrétariat, le circuit de validation de l'événement. Le droit reste celui du module
+ * (`EVENTS` › supprimer) ; le RESTE est celui de toutes les suppressions : réversible, tracé, et
+ * refusé quand une branche porte un fait qui a quitté l'ERP.
+ */
 export async function deleteEvent(formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
   if (!userCan(user, "EVENTS", "DELETE")) return { ok: false, error: "Non autorisé." };
   const id = fdStr(formData, "id");
   if (!id) return { ok: false, error: "Identifiant manquant." };
-  await prisma.event.delete({ where: { id } });
+  const nom = (await prisma.event.findUnique({ where: { id }, select: { name: true } }))?.name ?? id;
+  const r = await supprimerReversible("EVENT", id, user.id, `Suppression d'un événement — « ${nom} » (restaurable depuis la corbeille)`);
+  if (!r.ok) return { ok: false, error: r.error ?? "Suppression impossible." };
   revalidatePath("/events");
-  return { ok: true };
+  return { ok: true, message: "Événement supprimé — restaurable depuis la corbeille, avec tout ce qui en dépendait." };
 }
 
 // ──────────────── Demande de prise en charge (circuit de financement) ────────────────

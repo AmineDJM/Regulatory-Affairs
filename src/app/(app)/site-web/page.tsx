@@ -1,6 +1,5 @@
 import Link from "next/link";
-import { headers } from "next/headers";
-import { AlertTriangle, CheckCircle2, Circle, ExternalLink, FileText, Briefcase, ShieldAlert } from "lucide-react";
+import { AlertTriangle, ExternalLink, FileText, Briefcase, KeyRound, ShieldAlert } from "lucide-react";
 import { requireModule } from "@/lib/session";
 import { PageHeader } from "@/components/shared/page-header";
 import { ModuleTabs } from "@/components/shared/module-tabs";
@@ -13,14 +12,13 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { visibleTabs } from "@/lib/nav-tabs";
 import { SITE_WEB_TABS } from "@/lib/labels";
 import { formatDateTime } from "@/lib/utils";
-import { etatAffiche, etatIntegration, etatLiaison, journalRecent, listePublications } from "@/lib/site-web/etat";
+import { etatAffiche, etatIntegration, journalRecent, listePublications } from "@/lib/site-web/etat";
 import { lienDuContenu } from "@/lib/site-web/file";
 import { LIBELLE_NATURE } from "@/lib/site-web/contrat";
-import { blocEnvironnement, cleEnAttente, origineDeLERP } from "@/lib/site-web/cles";
-import { peutEcrireArticles, peutGererLaLiaison, peutLeverBlocage, peutPublierOffres, peutRapprocher } from "@/lib/site-web/acces";
+import { peutEcrireArticles, peutGererLaLiaison, peutPublierOffres } from "@/lib/site-web/acces";
+import { ECRAN_LIAISON } from "@/lib/site-web/ecran";
 import { EtatPublicationBadge } from "@/components/site-web/etat-badge";
 import { GesteIntegration } from "@/components/site-web/gestes-integration";
-import { CarteLiaison } from "./carte-liaison";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Site web — AMD Internal OS" };
@@ -30,8 +28,11 @@ export const metadata = { title: "Site web — AMD Internal OS" };
  * LA PUBLICATION VERS LE SITE PUBLIC (§118.158) — l'ERP est la source de vérité, il POUSSE.
  *
  * Cet écran répond à trois questions, dans l'ordre où on les pose :
- *   1. Est-ce que ça marche ? — la liaison (§118.159 : la clé que l'ERP fabrique, le bloc à coller,
- *      ce que le site dit de lui-même), le blocage (clé refusée) ;
+ *   1. Est-ce que ça part ? — une phrase quand rien ne part (site pas encore relié, clé refusée),
+ *      et c'est tout : la LIAISON elle-même (la clé, la vérification, le rapprochement à la
+ *      demande, la mise en service) vit dans la console d'administration, que seul le Super Admin
+ *      ouvre (§118.160). Les publiants n'ont pas de geste de liaison à faire — leur en montrer
+ *      revenait à montrer des boutons qu'une action refuse ;
  *   2. Qu'est-ce qui est en ligne, en attente, en échec ? — un état par contenu, jamais
  *      « publié » tant que le site ne l'a pas confirmé ;
  *   3. Le site et l'ERP disent-ils la même chose ? — le dernier rapprochement, ses écarts, ce
@@ -40,27 +41,13 @@ export const metadata = { title: "Site web — AMD Internal OS" };
  */
 export default async function SiteWebPage() {
   const user = await requireModule("SITE_WEB");
-  const [integ, liaison, publications, journal] = await Promise.all([
-    etatIntegration(), etatLiaison(), listePublications(200), journalRecent(30),
+  const [integ, publications, journal] = await Promise.all([
+    etatIntegration(), listePublications(200), journalRecent(30),
   ]);
   const { config, blocage, suspendu, compteurs, dernier } = integ;
+  // Le Super Admin est le seul à qui l'écran nomme l'endroit où la liaison se règle — les autres
+  // apprennent seulement qu'un Super Admin s'en charge (§118.160).
   const gere = peutGererLaLiaison(user);
-  // LE BLOC À COLLER — relu ici, et seulement pour le Super Admin : la clé EN ATTENTE ne publie
-  // encore rien, et la remontrer évite de tout recommencer si le bloc a été perdu avant le collage.
-  // L'adresse de l'ERP est celle par laquelle il est RÉELLEMENT arrivé sur cet écran.
-  let bloc: string | null = null;
-  if (gere && liaison.attente) {
-    const attente = await cleEnAttente();
-    if (attente) {
-      const h = headers();
-      const erp = origineDeLERP(process.env, {
-        hote: h.get("x-forwarded-host") ?? h.get("host"),
-        proto: h.get("x-forwarded-proto"),
-      });
-      bloc = blocEnvironnement({ cle: attente.cle, secret: attente.secret, erp });
-    }
-  }
-  const sante = liaison.sante;
   const vues = publications.map((p) => ({ p, e: etatAffiche(p, p.operation === "PUT" && p.confirmePublie !== false, suspendu) }));
   const aTraiter = vues.filter(({ p }) => p.etat === "FAILED" || (p.etat === "PENDING" && p.essais > 0));
 
@@ -76,43 +63,43 @@ export default async function SiteWebPage() {
         {peutPublierOffres(user) && (
           <Link href="/site-web/offres/nouvelle"><Button size="sm" variant="outline"><Briefcase className="h-4 w-4" /> Nouvelle offre</Button></Link>
         )}
+        {config.racine && (
+          <a href={config.racine} target="_blank" rel="noopener noreferrer">
+            <Button size="sm" variant="ghost"><ExternalLink className="h-4 w-4" /> Ouvrir le site</Button>
+          </a>
+        )}
+        {gere && (
+          <Link href={ECRAN_LIAISON.href}><Button size="sm" variant="ghost"><KeyRound className="h-4 w-4" /> Connexion au site</Button></Link>
+        )}
       </PageHeader>
       <ModuleTabs tabs={await visibleTabs(user, SITE_WEB_TABS)} />
 
-      {/* ── 1. EST-CE QUE ÇA MARCHE ? ──────────────────────────────────────────────── */}
-      {blocage && (
-        <div role="alert" className="flex flex-col gap-3 rounded-xl border border-destructive/40 bg-destructive/5 p-4 sm:flex-row sm:items-start sm:justify-between">
-          <div className="flex gap-2 text-sm">
-            <ShieldAlert className="mt-0.5 h-5 w-5 shrink-0 text-destructive" />
-            <div>
-              <p className="font-semibold text-destructive">Publication suspendue depuis le {formatDateTime(blocage.at)}</p>
-              <p className="mt-1 text-foreground">{blocage.motif}</p>
-              <p className="mt-1 text-muted-foreground">Rien n&apos;est perdu : les envois attendent en file et repartiront dès que la configuration sera corrigée.</p>
-            </div>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <GesteIntegration geste="verifier" />
-            {gere && !liaison.attente && (
-              <GesteIntegration
-                geste="generer"
-                libelle="Générer une nouvelle clé"
-                variante="primary"
-                confirmation="Générer une nouvelle clé ? Vous collerez ensuite le bloc dans l'environnement du site : la publication reprend d'elle-même dès qu'il l'a."
-              />
-            )}
-            {peutLeverBlocage(user) && <GesteIntegration geste="lever" variante="ghost" />}
+      {/* ── 1. EST-CE QUE ÇA PART ? — une phrase, pas un geste (§118.160) ─────────────────── */}
+      {blocage ? (
+        <div role="alert" className="flex gap-2 rounded-xl border border-destructive/40 bg-destructive/5 p-4 text-sm">
+          <ShieldAlert className="mt-0.5 h-5 w-5 shrink-0 text-destructive" />
+          <div className="min-w-0">
+            <p className="font-semibold text-destructive">Publication vers le site suspendue depuis le {formatDateTime(blocage.at)}</p>
+            <p className="mt-1 text-muted-foreground">
+              Le site refuse les envois de l&apos;ERP : la liaison est à corriger. Rien n&apos;est perdu — les envois attendent en file et
+              repartiront d&apos;eux-mêmes dès qu&apos;elle le sera.{" "}
+              {gere
+                ? <Link href={ECRAN_LIAISON.href} className="font-medium text-primary underline">Rétablir la connexion</Link>
+                : `Un Super Admin la rétablit depuis ${ECRAN_LIAISON.nom}.`}
+            </p>
           </div>
         </div>
-      )}
-
-      <CarteLiaison
-        config={config}
-        blocage={blocage}
-        liaison={liaison}
-        bloc={bloc}
-        peutGerer={gere}
-        peutRapprocher={peutRapprocher(user)}
-      />
+      ) : !config.configuree ? (
+        <div className="rounded-xl border border-warning/40 bg-warning/5 p-4 text-sm">
+          <p className="font-medium">Le site n&apos;est pas encore relié à l&apos;ERP.</p>
+          <p className="mt-1 text-muted-foreground">
+            Les contenus publiés d&apos;ici là attendent en file et partiront d&apos;eux-mêmes.{" "}
+            {gere
+              ? <Link href={ECRAN_LIAISON.href} className="font-medium text-primary underline">Relier le site (un clic)</Link>
+              : `Un Super Admin le relie depuis ${ECRAN_LIAISON.nom}.`}
+          </p>
+        </div>
+      ) : null}
 
       {/* ── 2. QU'EST-CE QUI EST EN LIGNE ? ─────────────────────────────────────────── */}
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
@@ -188,7 +175,7 @@ export default async function SiteWebPage() {
           {!dernier ? (
             <p className="text-muted-foreground">
               Aucun rapprochement encore. Il a lieu chaque jour (lecture de GET /jobs et GET /posts, comparée à ce que l&apos;ERP veut) dès que
-              l&apos;intégration est configurée{peutRapprocher(user) ? " — ou maintenant, avec « Rapprocher maintenant »" : ""}.
+              l&apos;intégration est configurée{gere ? ` — ou maintenant, depuis ${ECRAN_LIAISON.nom}` : ""}.
             </p>
           ) : (
             <>
@@ -294,53 +281,6 @@ export default async function SiteWebPage() {
           </div>
         </section>
       )}
-
-      {/* ── OÙ EN EST LA MISE EN SERVICE ? (§118.159) — chaque coche est LUE, jamais déclarée ─── */}
-      <Card>
-        <CardHeader><CardTitle>Mise en service</CardTitle></CardHeader>
-        <CardContent>
-          <ol className="space-y-2 text-sm">
-            <Etape faite={config.configuree && !blocage}>
-              Relier le site : un Super Admin clique « Générer la clé », puis colle le bloc affiché dans l&apos;environnement du site
-              (Render). L&apos;ERP fabrique la clé lui-même — personne n&apos;a à l&apos;inventer ni à la recopier des deux côtés.
-            </Etape>
-            <Etape faite={sante && sante.statut === 200 ? sante.authentifie === true : null}>
-              Le site reconnaît la clé de l&apos;ERP.
-            </Etape>
-            <Etape faite={sante && sante.statut === 200 ? sante.erpRelie : null}>
-              Le site sait où envoyer les candidatures (ligne ERP_BASE_URL du bloc).
-            </Etape>
-            <Etape faite={config.configuree && !blocage && Boolean(integ.dernierReussi)}>
-              Un premier rapprochement réussi : l&apos;ERP a comparé ce que le site détient à ce qu&apos;il veut qu&apos;il détienne.
-            </Etape>
-            <Etape faite={compteurs.enLigne > 0}>Une offre ou un article en ligne, confirmé par le site.</Etape>
-            <Etape faite={sante && sante.statut === 200 && sante.stockageDeSecours !== null ? !sante.stockageDeSecours : null}>
-              Facultatif : un disque permanent pour le site (offre payante de Render). Sans lui, le site recharge ses offres et ses
-              articles depuis l&apos;ERP à chaque redémarrage — automatiquement, en quelques secondes.
-            </Etape>
-          </ol>
-          {config.racine && (
-            <a href={config.racine} target="_blank" rel="noopener noreferrer" className="mt-3 inline-flex items-center gap-1 text-sm text-primary hover:underline">
-              Ouvrir le site <ExternalLink className="h-3.5 w-3.5" />
-            </a>
-          )}
-        </CardContent>
-      </Card>
     </div>
-  );
-}
-
-/** Une étape de mise en service : faite (lue dans l'état), à faire, ou impossible à vérifier d'ici (`null`). */
-function Etape({ faite, children }: { faite: boolean | null; children: React.ReactNode }) {
-  return (
-    <li className="flex gap-2">
-      {faite === true
-        ? <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-success" aria-label="Fait" />
-        : <Circle className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" aria-label={faite === null ? "Invérifiable d'ici" : "À faire"} />}
-      <span className="min-w-0">
-        {children}
-        {faite === null && <span className="block text-xs text-muted-foreground">Pas encore lisible : le site ne l&apos;a pas encore dit à l&apos;ERP.</span>}
-      </span>
-    </li>
   );
 }

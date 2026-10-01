@@ -892,7 +892,7 @@ export const ENTITY_TYPE_LABELS: Record<string, string> = {
   MEDICAL_INFO_DECLARATION: "Information médicale",
   DIRECTIVE: "Directive",
   SUPPORT_REQUEST: "Demande de support",
-  DOSSIER: "Projet",
+  DOSSIER: "Sujet",
   PROMO_MATERIAL: "Matériel promotionnel",
   HR_REQUEST: "Demande RH",
   EVENT: "Événement",
@@ -1038,6 +1038,23 @@ export const LEGAL_DOC_KIND: Record<string, string> = {
   LEASE: "Bail",
   OTHER: "Autre",
 };
+
+/**
+ * LE LIBELLÉ D'UNE NATURE LEGAL, POUR L'AFFICHER — toutes les natures, avenant compris.
+ *
+ * `LEGAL_DOC_KIND` a DEUX usages qui ne se confondent pas : la liste des natures qu'on CRÉE depuis
+ * un formulaire générique, et le libellé qu'on AFFICHE. L'avenant n'est pas dans la première — il
+ * naît de SON contrat (`amendsId`), avec son impact marché, et un avenant créé sans contrat serait
+ * une pièce mal formée — donc il manquait à la seconde : la liste de Legal, la chaîne d'une pièce
+ * et les pièces liées d'une fiche affichaient « AMENDMENT », le nom anglais de l'énumération, à une
+ * personne qui lit « Avenant » partout ailleurs. Le libellé d'affichage couvre CHAQUE nature du
+ * schéma (un test l'exige) ; la liste des natures créables ne bouge pas.
+ */
+const LIBELLE_NATURE_LEGALE: Record<string, string> = { ...LEGAL_DOC_KIND, AMENDMENT: "Avenant" };
+
+export function natureLegale(kind: string): string {
+  return LIBELLE_NATURE_LEGALE[kind] ?? kind;
+}
 
 export const LEGAL_DOC_STATUS: Record<string, Display> = {
   ACTIVE: { label: "En vigueur", tone: "success" },
@@ -1410,7 +1427,7 @@ export interface NavItem {
    * envoyé qu'au Super Admin (`peutPiloterMissionsAdam`, §118.136) — le module WORKSPACE est à
    * tout le monde, la règle n'est pas un module.
    */
-  gate?: "regEnrollment" | "pipeline" | "payroll" | "myTeam" | "adamMissions" | "bdProjets" | "adam";
+  gate?: "regEnrollment" | "pipeline" | "payroll" | "myTeam" | "adamMissions" | "adam";
   /**
    * Entrée fusionnée : plusieurs sous-modules présentés en onglets sur la page.
    * L'entrée est visible si l'utilisateur a accès à **au moins un** onglet, et son
@@ -1565,6 +1582,9 @@ export const ADMIN_TABS: NavTab[] = [
   // une file qui s'engorge ou une dérive vers les modèles chers se découvre sur une facture.
   { module: "ADMIN", label: "Couche de connaissance", href: "/admin/connaissance" },
   { module: "ADMIN", label: "Messagerie & notifications", href: "/admin/messagerie" },
+  // La LIAISON au site public (§118.160) : la clé, la vérification, le rapprochement à la demande,
+  // la mise en service — Super Admin seul. Les contenus se publient, eux, depuis le module « Site web ».
+  { module: "ADMIN", label: "Site web (connexion)", href: "/admin/site-web" },
   { module: "ADMIN", label: "Test Center", href: "/admin/test-center" },
 ];
 
@@ -1619,7 +1639,10 @@ export const MODULE_LABELS: Record<Module, string> = {
   AD_PRO_CENTRE: "Centre de validation Ad & Pro",
   DIRECTIVES: "Directives",
   SUPPORT: "Demandes de support",
-  DOSSIERS: "Projets",
+  // « SUJETS » — Pilotage (anciennement « Projets », renommé sur décision de la Direction,
+  // 30/09/2026) : un sujet délégué et suivi (recherche, analyse, demande). « Projets » ne nomme
+  // plus que le registre de Business Development (§118.163).
+  DOSSIERS: "Sujets",
   DOCUMENTS: "Documents",
   DRIVE: "Drive",
   ADMIN_REQUESTS: "Bureau du secrétariat",
@@ -1630,6 +1653,11 @@ export const MODULE_LABELS: Record<Module, string> = {
   ADVENTUM_BRAIN: "Adventum Brain",
   ADMIN: "Administration",
   SITE_WEB: "Site web",
+  // « PROJETS » (BD) — le registre par lequel on classe les dossiers réglementaires, devenu un
+  // module réglé depuis la console comme les autres (§118.163). Le libellé suit le menu ; il ne
+  // se confond plus avec Pilotage, renommé « Sujets » : deux cases « Projets » dans la console
+  // feraient ouvrir l'un en croyant ouvrir l'autre.
+  BD_PROJECTS: "Projets",
 };
 
 /**
@@ -1732,7 +1760,7 @@ export const NAVIGATION: NavItem[] = [
   // cabinet : histoire complète d'un dossier, lecture des documents, bilans, rappels planifiés,
   // décisions du centre de paiement.
   { module: "CHIEF_OF_STAFF", label: "My Chief of Staff", href: "/chief-of-staff", icon: "Crown", group: "Pilotage", gate: "adam" },
-  { module: "DOSSIERS", label: "Projets", href: "/dossiers", icon: "FolderKanban", group: "Pilotage" },
+  { module: "DOSSIERS", label: "Sujets", href: "/dossiers", icon: "ClipboardList", group: "Pilotage" },
   // Messagerie Microsoft 365 — sous le module MESSAGING (droit déjà existant) ; l'ouverture réelle
   // dépend en plus du drapeau MICROSOFT_MAIL et de la liste pilote, vérifiés dans l'écran.
   // Elle est dans PILOTAGE et non dans Transverse : on relève ses mails en même temps qu'on
@@ -1920,14 +1948,13 @@ export const NAVIGATION: NavItem[] = [
   // « Projets » demande « qu'est-ce que ce projet contient, dossier par dossier ? ». Le
   // classement se pose dans Regulatory, il se LIT ici.
   // MARKET INTELLIGENCE est RETIRÉ du service (2026-09) ; « Projets » a été redemandé et lui
-  // survit seul (`modules-retired.ts`, SOUS_MODULES_MAINTENUS). L'entrée n'est donc plus un
-  // parent avec un enfant — le parent ouvrirait une adresse qui ne s'ouvre plus.
-  // LA GARDE `bdProjets` (§118.153) : un chemin maintenu est ouvert à l'AFFICHAGE pour tout le
-  // monde (`estCheminMaintenu`), mais l'écran ne s'ouvre qu'à qui voit Regulatory. Mesuré en
-  // parcours réel : le délégué, les Finances et le pharmacien voyaient « Projets » au menu et
-  // tombaient sur un refus — l'entrée qu'on clique sans comprendre, que les autres gardes existent
-  // pour empêcher.
-  { module: "BUSINESS_DEVELOPMENT", label: "Projets", href: "/business-development/projets", icon: "FolderKanban", group: "Pôles", pole: "BUSINESS_DEV", gate: "bdProjets" },
+  // survit seul. L'entrée n'est donc plus un parent avec un enfant — le parent ouvrirait une
+  // adresse qui ne s'ouvre plus.
+  // « PROJETS » EST SON PROPRE MODULE, `BD_PROJECTS` (§118.163). Il survivait au retrait par un
+  // chemin « maintenu » et une garde déduite de Regulatory, que personne ne pouvait régler :
+  // l'entrée s'affiche désormais comme toutes les autres, parce que la personne a le module, et
+  // le Super Admin l'ouvre ou la ferme dans Administration › Accès.
+  { module: "BD_PROJECTS", label: "Projets", href: "/business-development/projets", icon: "FolderKanban", group: "Pôles", pole: "BUSINESS_DEV" },
   // L'EXPLORATEUR PRODUITS — module à part, et non plus une sous-page d'Intelligence marché.
   // On ne l'ouvre pas « en analysant le marché » : on l'ouvre parce qu'on cherche UN produit,
   // UNE molécule, UN laboratoire. C'était le geste le plus fréquent du pôle, et il fallait deux

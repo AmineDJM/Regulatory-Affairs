@@ -160,8 +160,8 @@ export function OnboardingWizard(props: Props) {
                 />
                 <TourFeature
                   icon={<FolderKanban className="h-4 w-4" />}
-                  title="Un sujet = un projet"
-                  text="Recherche de prix, analyse IQVIA, négociation… Centralisez tout (discussion, fichiers Excel/PPT, e-mails) dans un projet. Vous pouvez en créer un d'un clic, ou demander à l'assistant de le faire."
+                  title="Un sujet, tout au même endroit"
+                  text="Recherche de prix, analyse IQVIA, négociation… Centralisez tout (discussion, fichiers Excel/PPT, e-mails) dans un sujet. Vous pouvez en créer un d'un clic, ou demander à l'assistant de le faire."
                   preview={<DossierPreview />}
                 />
                 {canConnectMail && (

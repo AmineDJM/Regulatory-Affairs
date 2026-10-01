@@ -23,6 +23,11 @@ export interface DossierInput {
   /** Demande Ad & Pro d'origine (implication de tierce personne) — pour remonter la conversation. */
   sourceType?: string | null;
   sourceId?: string | null;
+  /**
+   * L'ENTITÉ CHOISIE (§118.163) — déjà vérifiée par l'appelant contre ce que la personne voit.
+   * Absente : celle sur laquelle l'auteur travaille (`companyIdForNew`), comme avant.
+   */
+  companyId?: string | null;
 }
 
 export async function nextDossierRef(): Promise<string> {
@@ -52,7 +57,7 @@ export async function createDossierRecord(input: DossierInput, actorId: string):
   const created = await prisma.dossier.create({
     data: {
       reference,
-      companyId: await companyIdForNew(actorId),
+      companyId: input.companyId ?? (await companyIdForNew(actorId)),
       title: input.title.trim(),
       description: input.description?.trim() || null,
       category: input.category?.trim() || null,
@@ -70,8 +75,8 @@ export async function createDossierRecord(input: DossierInput, actorId: string):
   const recipients = new Set<string>([...(assignedToId ? [assignedToId] : []), ...participantIds]);
   recipients.delete(actorId);
   for (const userId of recipients) {
-    await notifyUser({ userId, type: "ASSIGNMENT", title: "Nouveau projet", body: `${reference} — ${created.title}`, link: `/dossiers/${created.id}` });
+    await notifyUser({ userId, type: "ASSIGNMENT", title: "Nouveau sujet", body: `${reference} — ${created.title}`, link: `/dossiers/${created.id}` });
   }
-  await recordAudit({ actorId, action: "CREATE", module: "Projets", entityType: "DOSSIER", entityId: created.id, summary: `Projet ${reference} — ${created.title}` });
+  await recordAudit({ actorId, action: "CREATE", module: "Sujets", entityType: "DOSSIER", entityId: created.id, summary: `Sujet ${reference} — ${created.title}` });
   return { id: created.id, reference: created.reference };
 }

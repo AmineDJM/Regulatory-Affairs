@@ -1,25 +1,24 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import type { Prisma } from "@prisma/client";
 import { requireUser } from "@/lib/session";
 import { userCan, type Module, type Action } from "@/lib/rbac";
+import { canAccessEntity } from "@/lib/entity-access";
 import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
 import { deleteFileByKey } from "@/lib/storage";
 import { releaseBlob } from "@/lib/drive-storage";
 import {
   DELETE_REGISTRY,
+  apercuSuppression,
   deleteDelegateOf,
   isDeletableKind,
+  type ApercuSuppression,
   type DeletableKind,
 } from "@/lib/admin-delete-registry";
+import { restaurerLotDeLaCorbeille, supprimerReversible, type DeleteResult } from "@/lib/suppression/coeur";
 
-export interface DeleteResult {
-  ok: boolean;
-  error?: string;
-  redirect?: string;
-}
+export type { DeleteResult } from "@/lib/suppression/coeur";
 
 
 /**
@@ -46,75 +45,11 @@ const CREATOR_DELETE_PERMISSION: Partial<Record<DeletableKind, [Module, Action]>
 
 
 /**
- * LE CŒUR de la suppression réversible — partagé par le Super Admin et le créateur.
- *
- * Instantané complet (ligne principale + pièces jointes + commentaires) déposé dans la corbeille
- * (Administration → Corbeille), puis suppression. Restaurable — ou détruit pour de bon (là
- * seulement, les fichiers sont effacés). Les enfants supprimés en cascade ne sont pas restaurables.
- * `summary` distingue, dans le journal, une suppression par l'administrateur d'une suppression par
- * le créateur.
+ * LE CŒUR de la suppression réversible vit dans `lib/suppression/coeur.ts` (§118.162) : ce fichier
+ * est `"use server"`, donc tout ce qu'il exporte est un point d'entrée public — une fonction qui
+ * prend un type et un identifiant sans vérifier qui appelle n'a rien à y faire. Les actions
+ * ci-dessous vérifient le DROIT, puis délèguent.
  */
-async function snapshotAndSoftDelete(kind: DeletableKind, id: string, actorId: string, summary: string): Promise<DeleteResult> {
-  const spec = DELETE_REGISTRY[kind];
-
-  // 0) CE QUE CE TYPE REFUSE, avant tout instantané : le refus porte sa raison et le geste qui
-  //    reste. Sans cette porte, un refus légitime sortait soit en « introuvable » (faux : l'objet
-  //    est là), soit en « des éléments liés bloquent » (faux : rien ne se détache).
-  if (spec.refuse) {
-    const motif = await spec.refuse(id);
-    if (motif) return { ok: false, error: motif };
-  }
-
-  const name = await spec.describe(id);
-  if (name === null) return { ok: false, error: "Élément introuvable (déjà supprimé ?)." };
-
-  // 1) Instantané de la ligne principale (tous les champs scalaires/Json).
-  const payload = await deleteDelegateOf(spec).findUnique({ where: { id } });
-  if (!payload) return { ok: false, error: "Élément introuvable (déjà supprimé ?)." };
-
-  // 2) Instantané puis retrait des Documents/Commentaires polymorphes. Les FICHIERS
-  //    restent dans le stockage : ils ne sont effacés qu'à la destruction réelle.
-  let docsSnapshot: Record<string, unknown>[] = [];
-  let commentsSnapshot: Record<string, unknown>[] = [];
-  if (spec.entityType) {
-    docsSnapshot = (await prisma.document.findMany({ where: { entityType: spec.entityType, entityId: id } })) as unknown as Record<string, unknown>[];
-    commentsSnapshot = (await prisma.comment.findMany({ where: { entityType: spec.entityType, entityId: id } })) as unknown as Record<string, unknown>[];
-    await prisma.document.deleteMany({ where: { entityType: spec.entityType, entityId: id } });
-    await prisma.comment.deleteMany({ where: { entityType: spec.entityType, entityId: id } });
-  }
-
-  // 3) Suppression de la ligne principale (les enfants en cascade suivent).
-  try {
-    await spec.remove(id);
-  } catch (err) {
-    console.error("[softDelete] échec suppression", kind, id, err);
-    // Remet les documents/commentaires retirés à l'étape 2 (la ligne principale existe encore).
-    if (spec.entityType) {
-      if (docsSnapshot.length) await prisma.document.createMany({ data: docsSnapshot as never[] }).catch(() => {});
-      if (commentsSnapshot.length) await prisma.comment.createMany({ data: commentsSnapshot as never[] }).catch(() => {});
-    }
-    return { ok: false, error: "Suppression impossible (des éléments liés bloquent). Détachez-les puis réessayez." };
-  }
-
-  // 4) Dépôt dans la corbeille (restaurable par le Super Admin).
-  await prisma.deletedRecord.create({
-    data: {
-      kind, label: spec.label, name, sourceId: id,
-      payload: payload as Prisma.InputJsonValue,
-      documents: docsSnapshot.length ? (docsSnapshot as Prisma.InputJsonValue) : undefined,
-      comments: commentsSnapshot.length ? (commentsSnapshot as Prisma.InputJsonValue) : undefined,
-      deletedById: actorId,
-    },
-  });
-
-  await recordAudit({
-    actorId, action: "DELETE", module: spec.module, entityType: spec.entityType, entityId: id, summary,
-  });
-
-  revalidatePath(spec.redirect);
-  return { ok: true, redirect: spec.redirect };
-}
-
 /**
  * Suppression « définitive » d'un enregistrement par le Super Admin (et lui seul).
  * RÉVERSIBLE : voir `snapshotAndSoftDelete`.
@@ -130,7 +65,7 @@ export async function superAdminDelete(formData: FormData): Promise<DeleteResult
   if (!id || !isDeletableKind(kind)) return { ok: false, error: "Élément invalide." };
 
   const name = await DELETE_REGISTRY[kind].describe(id);
-  return snapshotAndSoftDelete(kind, id, user.id, `Suppression définitive (Super Admin) — ${DELETE_REGISTRY[kind].label} « ${name ?? id} » (restaurable depuis la corbeille)`);
+  return supprimerReversible(kind, id, user.id, `Suppression définitive (Super Admin) — ${DELETE_REGISTRY[kind].label} « ${name ?? id} » (restaurable depuis la corbeille)`);
 }
 
 /**
@@ -158,7 +93,7 @@ export async function deleteOwnRecord(formData: FormData): Promise<DeleteResult>
   }
 
   const name = await spec.describe(id);
-  return snapshotAndSoftDelete(kind, id, user.id, `Suppression par ${isCreator ? "le créateur" : "un administrateur"} — ${spec.label} « ${name ?? id} » (restaurable depuis la corbeille)`);
+  return supprimerReversible(kind, id, user.id, `Suppression par ${isCreator ? "le créateur" : "un administrateur"} — ${spec.label} « ${name ?? id} » (restaurable depuis la corbeille)`);
 }
 
 /**
@@ -174,6 +109,20 @@ export async function restoreDeletedRecord(formData: FormData): Promise<DeleteRe
   if (!rec || rec.restoredAt || rec.purgedAt) return { ok: false, error: "Entrée introuvable ou déjà traitée." };
   if (!isDeletableKind(rec.kind)) return { ok: false, error: "Type inconnu." };
   const spec = DELETE_REGISTRY[rec.kind];
+
+  // UN LOT (§118.162) : la demande ET ses branches reviennent ensemble, ou rien ne revient.
+  const lot = await restaurerLotDeLaCorbeille(rec, rec.kind);
+  if (lot) {
+    if (!lot.ok) return lot;
+    await prisma.deletedRecord.update({ where: { id: recId }, data: { restoredAt: new Date() } });
+    await recordAudit({
+      actorId: user.id, action: "UPDATE", module: spec.module, entityType: spec.entityType, entityId: rec.sourceId,
+      summary: `Restauration depuis la corbeille — ${spec.label} « ${rec.name} », avec ses éléments liés`,
+    });
+    revalidatePath("/admin/corbeille");
+    revalidatePath(spec.redirect);
+    return { ok: true, redirect: spec.redirect };
+  }
 
   const exists = await deleteDelegateOf(spec).findUnique({ where: { id: rec.sourceId } });
   if (exists) return { ok: false, error: "Un enregistrement avec cet identifiant existe déjà (déjà restauré ?)." };
@@ -228,4 +177,45 @@ export async function destroyDeletedRecord(formData: FormData): Promise<DeleteRe
   });
   revalidatePath("/admin/corbeille");
   return { ok: true };
+}
+
+/**
+ * CE QUE LA SUPPRESSION EMPORTERA — lu par la fenêtre de confirmation AVANT le clic (§118.53).
+ *
+ * Même porte que la suppression elle-même : le Super Admin, ou — pour les types qu'un MODULE
+ * laisse supprimer depuis son écran — qui détient ce droit ET voit la ligne. Un aperçu ouvert à
+ * tout le monde dirait à n'importe qui ce qui dépend d'une demande qu'il ne voit pas.
+ */
+/**
+ * La porte de l'aperçu est EXACTEMENT celle de l'action qui supprime — ni plus large (on dirait à
+ * quelqu'un ce qui dépend d'une ligne qu'il ne peut pas toucher), ni plus étroite (le bouton ne
+ * s'armerait pas devant une suppression que l'action accepte).
+ */
+const SUPPRIME_PAR_SON_MODULE: Partial<Record<DeletableKind, { module: Module; action: Action; ligne: boolean }>> = {
+  // `deleteEvent` (§118.162) : le droit « supprimer » du module Événements, et lui seul.
+  EVENT: { module: "EVENTS", action: "DELETE", ligne: false },
+  // `deleteBdProject` (§118.163) : le droit du module Projets ET la ligne dans sa portée.
+  BD_PROJECT: { module: "BD_PROJECTS", action: "DELETE", ligne: true },
+};
+
+/**
+ * Le prédicat est NOMMÉ : écrit en ligne avec un module lu dans une table, la carte de
+ * confirmation l'aurait décrit « gardé par rien » (§118.150g) — la dérivation ne reconnaît une
+ * garde qu'à son nom ou à un module littéral.
+ */
+async function peutSupprimerDepuisSonModule(user: Awaited<ReturnType<typeof requireUser>>, kind: DeletableKind, id: string): Promise<boolean> {
+  if (user.role === "SUPER_ADMIN") return true;
+  const droit = SUPPRIME_PAR_SON_MODULE[kind];
+  if (!droit || !userCan(user, droit.module, droit.action)) return false;
+  const entite = DELETE_REGISTRY[kind].entityType;
+  return !droit.ligne || !entite || canAccessEntity(user, entite, id, droit.action);
+}
+
+export async function apercuDeSuppression(formData: FormData): Promise<ApercuSuppression | { erreur: string }> {
+  const user = await requireUser();
+  const kind = String(formData.get("kind") ?? "");
+  const id = String(formData.get("id") ?? "");
+  if (!id || !isDeletableKind(kind)) return { erreur: "Élément invalide." };
+  if (!(await peutSupprimerDepuisSonModule(user, kind, id))) return { erreur: "Réservé à qui peut supprimer cet élément." };
+  return apercuSuppression(kind, id);
 }

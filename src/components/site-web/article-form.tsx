@@ -4,6 +4,9 @@ import * as React from "react";
 import { useRouter } from "next/navigation";
 import { AlertTriangle, CheckCircle2, EyeOff, Loader2, Save, Send, Trash2 } from "lucide-react";
 import { enregistrerArticle, supprimerArticle } from "@/lib/actions/site-web-actions";
+import { redigerArticleAvecIA } from "@/lib/actions/site-web-redaction-actions";
+import { fusionnerRedaction, type ArticleRedige, type DisponibiliteRedaction } from "@/lib/site-web/redaction";
+import { RedigerAvecIA } from "@/components/site-web/rediger-ia";
 import type { ActionResult } from "@/lib/actions/types";
 import {
   avertissementsArticle, DEFAUTS_SITE, DESCRIPTION_IDEALE, LIMITES_ARTICLE, lignes, refusAdresseDuDepot, refusArticle, slugSuggere,
@@ -47,9 +50,11 @@ export interface ArticleEdite {
 type Intention = "brouillon" | "publier" | "enregistrer" | "retirer";
 
 export function ArticleForm({
-  article, dejaEnvoye, etat, slugsDuDepot, depotConnuAu, peutEcrire, peutSupprimer, categories,
+  article, dejaEnvoye, etat, slugsDuDepot, depotConnuAu, peutEcrire, peutSupprimer, categories, ia,
 }: {
   article: ArticleEdite;
+  /** « Rédiger avec l'IA » : disponible, ou la raison pour laquelle il ne l'est pas (§118.160). */
+  ia: DisponibiliteRedaction;
   dejaEnvoye: boolean;
   etat: EtatVisible | null;
   slugsDuDepot: string[];
@@ -63,6 +68,8 @@ export function ArticleForm({
   const [onglet, setOnglet] = React.useState<"rediger" | "apercu">("rediger");
   const [enCours, setEnCours] = React.useState<Intention | "supprimer" | null>(null);
   const [retour, setRetour] = React.useState<{ ok: boolean; texte: string } | null>(null);
+  // Les champs d'AVANT la rédaction par l'IA : un texte remplacé d'un clic revient d'un clic.
+  const [avantIA, setAvantIA] = React.useState<ArticleEdite | null>(null);
   const modifie = React.useMemo(() => JSON.stringify(v) !== JSON.stringify(article), [v, article]);
 
   // L'état enregistré change après un envoi (router.refresh) : on repart de la version serveur.
@@ -76,6 +83,22 @@ export function ArticleForm({
   }, [modifie]);
 
   const champ = <K extends keyof ArticleEdite>(k: K) => (valeur: ArticleEdite[K]) => setV((x) => ({ ...x, [k]: valeur }));
+
+  const redigerIA = (consigne: string, partirDuTexte: boolean) => {
+    const fd = new FormData();
+    fd.set("consigne", consigne);
+    if (partirDuTexte) {
+      fd.set("title", v.title); fd.set("description", v.description); fd.set("body", v.body); fd.set("category", v.category);
+    }
+    for (const c of categories) fd.append("categories", c);
+    return redigerArticleAvecIA(fd);
+  };
+  // Un champ que l'IA rend VIDE garde sa valeur (`fusionnerRedaction`).
+  const appliquerIA = (c: ArticleRedige) => {
+    setAvantIA(v);
+    setV((x) => fusionnerRedaction(x, c));
+    setOnglet("rediger");
+  };
 
   // ── Les contrôles, en direct, par les mêmes fonctions que le serveur ─────────────────
   const tags = React.useMemo(() => lignes(v.tags.replace(/,/g, "\n")), [v.tags]);
@@ -175,6 +198,16 @@ export function ArticleForm({
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_20rem]">
         {/* ── Le texte ─────────────────────────────────────────────────────────────── */}
         <div className="min-w-0 space-y-4">
+          {peutEcrire && (
+            <RedigerAvecIA<ArticleRedige>
+              disponibilite={ia}
+              exemple="Ex. : un article sur la sérialisation des médicaments en Algérie — ce qui change pour les pharmacies, le calendrier, ce que fait Adventum."
+              aSaisie={Boolean(v.title.trim() || v.body.trim() || v.description.trim())}
+              rediger={redigerIA}
+              appliquer={appliquerIA}
+              annuler={avantIA ? () => { setV(avantIA); setAvantIA(null); } : null}
+            />
+          )}
           <div className="space-y-1.5">
             <Label htmlFor="article-titre">Titre</Label>
             <Input

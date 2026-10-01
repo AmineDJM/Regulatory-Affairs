@@ -90,6 +90,12 @@ export interface OffreSaisie {
   offer: readonly string[];
   /** Le choix de la personne : l'offre est-elle publiée ? */
   published: boolean;
+  /**
+   * L'offre SAISIE DANS L'ADMINISTRATION DU SITE que celle-ci reprend (§118.160) — son identifiant
+   * côté site. Posée, le site retire sa copie et ne garde que la nôtre : jamais deux fois le même
+   * poste sur la page Carrières.
+   */
+  repriseDe?: string | null;
 }
 
 /** Un article de blog tel que l'ERP le tient. */
@@ -108,6 +114,11 @@ export interface ArticleSaisi {
   updated: Date | null;
   featured: boolean;
   published: boolean;
+  /**
+   * L'article du DÉPÔT du site que celui-ci reprend (§118.160) — son slug. Posé, le site cache le
+   * fichier pour de bon et c'est notre version qui EST l'article, publiée ou non.
+   */
+  repriseDe?: string | null;
 }
 
 // ───────────────────────────── Ce qui part sur le réseau ─────────────────────────────
@@ -124,6 +135,8 @@ export interface JobInput {
   profile: string[];
   offer: string[];
   published: boolean;
+  /** L'offre saisie dans l'administration du site que celle-ci remplace (§118.160). */
+  replacesJob?: string;
 }
 
 /** Le corps d'un `PUT /posts/{externalId}` — `PostInput` de l'OpenAPI, champ pour champ. */
@@ -139,7 +152,17 @@ export interface PostInput {
   updated?: string;
   featured: boolean;
   published: boolean;
+  /** L'article du dépôt du site que celui-ci remplace (§118.160). */
+  replacesFile?: string;
 }
+
+/**
+ * LE CORPS D'UNE SUPPRESSION de contenu repris (§118.160). Un `DELETE` ordinaire n'en a pas ; celui
+ * d'un contenu repris du site dit AUSSI ce qu'il remplaçait — parce que le site doit le cacher même
+ * s'il n'a jamais reçu notre version (supprimée avant d'être partie, ou refusée tant qu'elle était à
+ * corriger). Sans ce corps, supprimer un article repris ferait REVENIR le fichier du dépôt.
+ */
+export type CorpsSuppression = { replacesFile: string } | { replacesJob: string };
 
 /**
  * UNE LISTE À PUCES saisie en texte — une ligne par élément.
@@ -293,6 +316,9 @@ export function corpsOffre(o: OffreSaisie, posteOuvert = true): JobInput {
     profile: liste(o.profile),
     offer: liste(o.offer),
     published: o.published && posteOuvert,
+    // EN DERNIER, et seulement quand il y a lieu : le corps d'une offre qui n'est pas une reprise
+    // sérialise EXACTEMENT comme avant — son empreinte ne change pas, rien ne repart pour rien.
+    ...(net(o.repriseDe) ? { replacesJob: net(o.repriseDe) } : {}),
   };
 }
 
@@ -342,6 +368,9 @@ export function corpsArticle(a: ArticleSaisi, dateParDefaut: Date): PostInput {
   };
   const updated = iso(a.updated);
   if (updated) corps.updated = updated;
+  // EN DERNIER, et seulement pour une reprise : un article ordinaire garde sa sérialisation exacte.
+  const reprise = net(a.repriseDe);
+  if (reprise) corps.replacesFile = reprise;
   return corps;
 }
 
@@ -350,7 +379,7 @@ export function corpsArticle(a: ArticleSaisi, dateParDefaut: Date): PostInput {
  * même chaîne » (ERP-INTEGRATION.md §3) : la chaîne produite ici est stockée telle quelle dans la
  * file, signée telle quelle, envoyée telle quelle. Personne ne la reconstruit entre-temps.
  */
-export function serialiser(corps: JobInput | PostInput): string {
+export function serialiser(corps: JobInput | PostInput | CorpsSuppression): string {
   return JSON.stringify(corps);
 }
 
@@ -523,9 +552,14 @@ export function ecartsArticle(voulu: PostInput, site: Record<string, unknown>): 
   const ecarts: string[] = [];
   if (texte(site.title) !== voulu.title) ecarts.push("title");
   // Le corps : fins de ligne unifiées et blancs finaux ignorés — un site qui normalise les
-  // retours chariot ne doit pas faire repousser 200 000 caractères chaque nuit.
-  const corpsSite = (typeof site.body === "string" ? site.body : "").replace(/\r\n/g, "\n").trimEnd();
-  if (corpsSite !== voulu.body.trimEnd()) ecarts.push("body");
+  // retours chariot ne doit pas faire repousser 200 000 caractères chaque nuit. Et il ne se juge
+  // que si le site le REND (§118.160) : sa liste l'omettait, contrat pourtant clair, et chaque
+  // rapprochement repoussait TOUS les articles en les croyant modifiés — « 5 repoussés, écart sur
+  // body » chaque nuit, sans un seul écart réel. Un champ qu'on ne lit pas ne prouve rien (§118.16).
+  if (typeof site.body === "string") {
+    const corpsSite = site.body.replace(/\r\n/g, "\n").trimEnd();
+    if (corpsSite !== voulu.body.trimEnd()) ecarts.push("body");
+  }
   if (texte(site.description) !== voulu.description) ecarts.push("description");
   if (voulu.slug !== undefined && texte(site.slug) !== voulu.slug) ecarts.push("slug");
   if ((texte(site.category) || DEFAUTS_SITE.category) !== voulu.category) ecarts.push("category");
@@ -535,6 +569,13 @@ export function ecartsArticle(voulu: PostInput, site: Record<string, unknown>): 
   if (voulu.updated !== undefined && jour(site.updated) !== jour(voulu.updated)) ecarts.push("updated");
   if (booleen(site.featured, false) !== voulu.featured) ecarts.push("featured");
   if (booleen(site.published, true) !== voulu.published) ecarts.push("published");
+  // LA REPRISE se compare quand le site DIT ce qu'il détient (§118.160) : un site qui aurait perdu
+  // le marqueur remontrerait le fichier du dépôt à côté de notre version. Un site qui ne rend pas
+  // la clé (version antérieure) ne compte pas : ce qu'on ne lit pas à coup sûr ne fait pas
+  // repousser un article chaque nuit (§118.16).
+  if (voulu.replacesFile !== undefined && "replacesFile" in site && texte(site.replacesFile) !== voulu.replacesFile) {
+    ecarts.push("replacesFile");
+  }
   return ecarts;
 }
 

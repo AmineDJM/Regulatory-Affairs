@@ -21,7 +21,7 @@ import { legalViewScope, natureFromParam, invoiceTally, PURCHASE_CHAIN_KINDS } f
 import { ComposerPieceButton, type TypePieceComposable } from "@/components/pieces/composer-piece";
 import { compositionDesPieces } from "@/lib/queries/composition-pieces";
 import { formatCurrency } from "@/lib/utils";
-import { ROLE_LABELS, LEGAL_DOC_KIND } from "@/lib/labels";
+import { ROLE_LABELS, LEGAL_DOC_KIND, natureLegale } from "@/lib/labels";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Legal — AMD Internal OS" };
@@ -184,7 +184,7 @@ export default async function LegalPage({ searchParams }: { searchParams?: { ech
     : [];
   const chainCandidates = chainDocs.map((r) => ({
     value: r.id,
-    label: `${LEGAL_DOC_KIND[r.kind] ?? r.kind} — ${r.reference ? `${r.reference} · ` : ""}${r.title}`,
+    label: `${natureLegale(r.kind)} — ${r.reference ? `${r.reference} · ` : ""}${r.title}`,
   }));
 
   const watch = rows.filter((r) => r.expiry === "SOON" || r.expiry === "IMMINENT").length;

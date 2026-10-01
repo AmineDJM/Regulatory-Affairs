@@ -1,19 +1,21 @@
 import Link from "next/link";
 import type { EntityType } from "@prisma/client";
-import { Scale, ReceiptText, Mails, ExternalLink, Paperclip } from "lucide-react";
-import { prisma } from "@/lib/prisma";
+import { Scale, ReceiptText, Mails, ExternalLink, Paperclip, FileText, ShoppingCart, ArrowDown } from "lucide-react";
+import type { SessionUser } from "@/lib/rbac";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { LEGAL_DOC_KIND, LEGAL_DOC_STATUS, MAIL_DIRECTION } from "@/lib/labels";
-import { formatCurrency, formatDate, toNumber } from "@/lib/utils";
-import { isInvoice, invoiceSettlementState, INVOICE_SETTLEMENT } from "@/lib/labels";
-import { AttachToSourceButtons } from "./attach-to-source";
+import { lienFichierEmis, type FichiersEmis } from "@/lib/legal/fichiers-emis";
+import type { NatureDeChaine } from "@/lib/ad-pro/doc-categories";
+import { chargerPiecesLiees, type LignePiece, type LigneCourrier, type Ton } from "@/lib/queries/chaine-des-pieces";
+import { AttachToSourceButtons, CreerFicheDepuisPiece, type NaturePieceLiee } from "./attach-to-source";
 import { AttacherLegalExistant } from "./attacher-legal-existant";
+import { JoindrePdf } from "./joindre-pdf";
 import { DocumentList, type DocItem } from "@/components/documents/document-list";
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
- * CE QUI SE RATTACHE À CET OBJET — engagements, factures, courriers, ET LEURS PIÈCES.
+ * CE QUI SE RATTACHE À CET OBJET — devis, bons de commande, factures, engagements, courriers,
+ * ET LEURS PIÈCES.
  *
  * Un bon de commande naît d'une demande de sponsoring ; une facture naît d'un événement ou d'une
  * demande au secrétariat ; un courrier accompagne un marché. Ces liens existent dans la vraie vie
@@ -25,52 +27,52 @@ import { DocumentList, type DocItem } from "@/components/documents/document-list
  * pièce DÉJÀ rattachée : c'est le seul moment où l'on sait de quoi elle vient, et le seul moment
  * où le rattachement ne coûte rien.
  *
- * ── CE QUI A CHANGÉ, ET POURQUOI ────────────────────────────────────────────────────────
+ * ── LA CHAÎNE, PUIS LES ENGAGEMENTS (§118.161) ──────────────────────────────────────────
  *
- * Sur les fiches Ad & Pro, un bloc « Documents » générique vivait à côté de celui-ci : un
- * téléverseur, quarante catégories, une liste à plat. On y déposait à la main ce qui aurait dû
- * être une pièce du circuit — la facture du traiteur, le bon de commande, l'offre de service —
- * si bien que la même dépense existait DEUX fois : un fichier posé là, et un engagement dans
- * Legal. Aucun des deux ne savait que l'autre existait, et rien ne rapprochait le fichier du
- * montant qu'il justifie.
+ * Décision de la Direction (30/09/2026) : « Devis (un ou plusieurs, avec version plateforme et
+ * PDF associé) → Bon de commande (idem) → Facture (idem), et une autre partie (Engagement) qui
+ * inclut les conventions d'orateurs, les contrats et tout autre chose. Enlève les BC des
+ * engagements, même si tous les BC sont enregistrés dans Legal. »
  *
- * Le bloc générique disparaît donc, et celui-ci le REMPLACE : chaque pièce liée montre SES
- * documents, ouvrables, renommables et supprimables en un clic depuis la demande. Il n'y a plus
- * qu'un endroit où une facture existe — celui qui porte aussi son montant, son échéance et son
- * état de règlement.
+ * Le bloc regroupait jusqu'ici « Engagements » (tout Legal sauf les factures — les BC et les devis
+ * y compris) et « Factures ». Il se lit désormais dans l'ordre d'un achat : chaque DEVIS, chaque
+ * BON DE COMMANDE et le devis dont il découle, chaque FACTURE et le BC qu'elle exécute — la
+ * chaîne que le registre porte déjà (`chainFromId`). Chaque ligne montre sa « version plateforme »
+ * (la fiche au registre, et le Word / PDF qu'a produits la fabrique quand c'est elle qui l'a
+ * émise) et SES PDF, avec « Joindre le PDF » quand la porte du serveur l'acceptera. Les
+ * engagements et les courriers viennent ensuite, dans leur propre partie.
  *
- * ── CE QUI NE DISPARAÎT PAS AVEC LUI ────────────────────────────────────────────────────
+ * ── CE QUI NE DISPARAÎT PAS ─────────────────────────────────────────────────────────────
  *
- * La pièce de la demande ELLE-MÊME. Sur un sponsoring, c'est la demande du médecin : obligatoire
- * à la création, et le document que tout le circuit lit. La retirer avec le bloc générique
- * l'aurait rendue INVISIBLE, sur l'écran même où elle se juge. Elle garde donc un emplacement
- * NOMMÉ (`piecesDeLaDemande`), fourni par l'appelant — ce n'est plus un dépôt générique où l'on
- * range n'importe quoi, c'est la pièce qu'on attend, appelée par son nom.
+ * La pièce de la demande ELLE-MÊME (§118.109) garde son emplacement NOMMÉ (`piecesDeLaDemande`).
+ * Et les fichiers qu'on y avait déposés comme « Devis », « Bon de commande », « Facture » ou
+ * « Convention », avant que ces pièces aient une fiche : ils sont montrés dans la section de leur
+ * nature, avec « Créer sa fiche », qui leur crée leur fiche au registre en y RANGEANT le fichier.
+ * Rien n'est retiré de la vue, rien n'est téléversé deux fois.
  *
- * ── LA GARDE, ET LE CAS QUI LA JUSTIFIE ─────────────────────────────────────────────────
+ * ── LA GARDE ────────────────────────────────────────────────────────────────────────────
  *
- * Les documents d'une pièce liée appartiennent à SON module. Quelqu'un qui a Ad & Pro sans Legal
- * voit déjà le titre et le montant d'un engagement rattaché ; lui ouvrir ses fichiers lui
- * donnerait le contrat lui-même. `acces` est donc fourni par l'appelant, qui SEUL connaît les
- * droits du spectateur : sans le droit de lire Legal, les pièces restent listées (comportement
- * d'avant) et leurs documents ne sont même pas CHARGÉS — une garde qui ne se contente pas de
- * masquer un rendu.
+ * Tout ce que la personne peut OUVRIR, DÉPOSER, RENOMMER se lit pièce par pièce, par la porte même
+ * du serveur, dans `chargerPiecesLiees` (`queries/chaine-des-pieces.ts`) — c'est là qu'elle se
+ * prouve, sur la base, avec de vrais acteurs. Sans spectateur connu, rien n'est chargé.
  *
  * Composant SERVEUR : il interroge la base. La création, elle, passe par un client (le panneau).
  * ═══════════════════════════════════════════════════════════════════════════════════════════
  */
+
 /** Ce que l'appelant sait des droits du spectateur sur les modules des pièces liées. */
 export interface AccesPiecesLiees {
-  /** Peut lire les documents d'un engagement / d'une facture (module Legal). */
+  /** Peut lire le module Legal (ou Finances) — indicatif ; la porte pièce par pièce fait foi. */
   legal?: boolean;
   /** Peut lire les documents d'un courrier (module Courriers). */
   courriers?: boolean;
-  /** Peut renommer un document d'une pièce liée. */
-  peutRenommer?: boolean;
-  /** Peut supprimer un document d'une pièce liée. */
-  peutSupprimer?: boolean;
-  /** L'édition Office est configurée ET permise. */
-  peutEditer?: boolean;
+  /**
+   * La personne qui regarde : le bloc lit, pièce par pièce, ce que la porte Legal lui ouvrira
+   * (lire, déposer, renommer, supprimer). Absente ⇒ aucun document de pièce n'est chargé.
+   */
+  spectateur?: SessionUser;
+  /** Ce qu'elle peut CRÉER d'ici, nature par nature — la porte d'écriture de Legal, pas celle de la fiche. */
+  creer?: { devis: boolean; bonDeCommande: boolean; facture: boolean; engagement: boolean; courrier: boolean };
 }
 
 /** L'emplacement NOMMÉ des pièces de la demande elle-même — jamais un dépôt générique. */
@@ -87,14 +89,25 @@ export interface PiecesDeLaDemande {
   canEdit?: boolean;
   /** Le chemin à revalider après un renommage ou une suppression. */
   path: string;
+  /**
+   * Ce que sont les fichiers de nature « devis / BC / facture / convention » déposés sur la fiche,
+   * quand ce n'est PAS « un fichier sans fiche » — au circuit 2 du matériel promotionnel, ce sont
+   * les scans des devis retranscrits. Absent : la phrase par défaut, et « Créer sa fiche ».
+   */
+  noteLibres?: string;
 }
+
+/** La nature d'une pièce libre (catégorie de fichier) → le formulaire qui lui crée sa fiche. */
+const FORMULAIRE_DE: Record<NatureDeChaine, Exclude<NaturePieceLiee, "mail">> = {
+  QUOTE: "quote", PURCHASE_ORDER: "order", INVOICE: "invoice", AGREEMENT: "legal",
+};
 
 export async function LinkedRecords({
   entityType, entityId, reference, canCreate = false, acces, piecesDeLaDemande, candidatsLegal,
 }: {
   entityType: EntityType;
   entityId: string;
-  /** La référence lisible de l'objet (« SPO-2026-014 ») : elle préremplit les pièces créées. */
+  /** La référence lisible de l'objet (« SPO-2026-014 ») : elle préremplit les engagements créés. */
   reference?: string | null;
   canCreate?: boolean;
   /** Droits du spectateur sur les modules des pièces liées. Absent ⇒ aucun document n'est chargé. */
@@ -108,91 +121,50 @@ export async function LinkedRecords({
    */
   candidatsLegal?: { value: string; label: string }[];
 }) {
-  const where = { sourceType: entityType, sourceId: entityId };
-  // UNE SEULE REQUÊTE POUR LES DEUX GROUPES. Une facture est un document légal de nature
-  // « facture » : l'interroger à part demanderait deux fois la même table et ferait, tôt ou
-  // tard, deux réponses différentes à la même question.
-  const [docs, mails] = await Promise.all([
-    prisma.legalDocument.findMany({
-      where, orderBy: { createdAt: "desc" }, take: 40,
-      select: {
-        id: true, title: true, reference: true, kind: true, status: true, endDate: true,
-        amount: true, startDate: true, paidDate: true, expenseOrderId: true,
-      },
-    }),
-    prisma.mailEntry.findMany({
-      where, orderBy: { createdAt: "desc" }, take: 20,
-      select: { id: true, title: true, reference: true, direction: true, sentAt: true },
-    }),
-  ]);
-  // Les FACTURES gardent leur groupe : elles répondent à une autre question que les engagements
-  // (« est-ce payé ? » plutôt que « jusqu'à quand ? »), et les mêler perdrait les deux.
-  const invoices = docs.filter((d) => isInvoice(d.kind)).slice(0, 20);
-  const legal = docs.filter((d) => !isInvoice(d.kind)).slice(0, 20);
-
-  // ─── LES PIÈCES DES PIÈCES — chargées SOUS LES DROITS du module qui les porte ───────────
-  //
-  // Deux requêtes au plus, jamais une par ligne : trente engagements liés feraient trente
-  // allers-retours à chaque ouverture de fiche. Et rien n'est chargé quand le spectateur n'a pas
-  // le module — la garde ne se contente pas de masquer un rendu.
-  const idsLegal = acces?.legal ? [...legal, ...invoices].map((d) => d.id) : [];
-  const idsCourrier = acces?.courriers ? mails.map((m) => m.id) : [];
-  const [fichiersLegal, fichiersCourrier] = await Promise.all([
-    idsLegal.length
-      ? prisma.document.findMany({
-          where: { entityType: "LEGAL_DOCUMENT", entityId: { in: idsLegal } },
-          include: { uploadedBy: { select: { name: true } } }, orderBy: { createdAt: "desc" },
-        })
-      : Promise.resolve([]),
-    idsCourrier.length
-      ? prisma.document.findMany({
-          where: { entityType: "MAIL_ENTRY", entityId: { in: idsCourrier } },
-          include: { uploadedBy: { select: { name: true } } }, orderBy: { createdAt: "desc" },
-        })
-      : Promise.resolve([]),
-  ]);
-  const parPiece = new Map<string, DocItem[]>();
-  for (const d of [...fichiersLegal, ...fichiersCourrier]) {
-    const liste = parPiece.get(d.entityId) ?? [];
-    liste.push({
-      id: d.id, name: d.name, category: d.category, version: d.version, sizeBytes: d.sizeBytes,
-      confidentiality: d.confidentiality, uploadedBy: d.uploadedBy?.name ?? null,
-      createdAt: d.createdAt.toISOString(), hasFile: Boolean(d.fileKey),
-    });
-    parPiece.set(d.entityId, liste);
-  }
-  /** Les documents d'une pièce liée, avec les droits de SON module. */
-  const piecesDe = (id: string) => ({
-    documents: parPiece.get(id) ?? [],
-    canDelete: acces?.peutSupprimer === true,
-    canRename: acces?.peutRenommer === true,
-    canEdit: acces?.peutEditer === true,
+  const p = await chargerPiecesLiees({
+    entityType, entityId, canCreate,
+    spectateur: acces?.spectateur ?? null,
+    courriers: acces?.courriers === true,
+    creer: acces?.creer ?? null,
+    documentsDeLaFiche: piecesDeLaDemande?.documents,
   });
 
-  const total = legal.length + invoices.length + mails.length;
   // Rien à montrer, rien à créer ET aucune pièce propre : on n'affiche pas une carte vide sur
   // toutes les fiches de l'ERP.
-  if (total === 0 && !canCreate && !piecesDeLaDemande) return null;
+  if (p.total === 0 && !canCreate && !piecesDeLaDemande) return null;
+
+  const ref = reference ?? null;
+  const boutonsChaine = (["quote", "order", "invoice"] as const).filter((k) => p.droitDeCreer[k]);
+  const boutonsEngagement = (["legal", "mail"] as const).filter((k) => p.droitDeCreer[k]);
+
+  const fichiersLibres = (nature: NatureDeChaine) => p.libres[nature].length > 0 && piecesDeLaDemande ? (
+    <FichiersLibres
+      documents={p.libres[nature]} slot={piecesDeLaDemande}
+      creer={p.droitDeCreer[FORMULAIRE_DE[nature]] && !piecesDeLaDemande.noteLibres
+        ? (doc) => (
+            <CreerFicheDepuisPiece
+              entityType={entityType} entityId={entityId} reference={ref}
+              kind={FORMULAIRE_DE[nature]} piece={{ id: doc.id, nom: doc.name }} devis={p.devisAmont} bons={p.bonsAmont}
+            />
+          )
+        : null}
+    />
+  ) : null;
 
   return (
     <Card>
       <CardHeader>
         <CardTitle className="flex flex-wrap items-center justify-between gap-2">
-          <span>Engagements, factures et courriers liés{total > 0 && <span className="ml-1 text-sm font-normal text-muted-foreground">({total})</span>}</span>
-          {canCreate && (
-            <span className="flex flex-wrap items-center gap-2">
-              <AttachToSourceButtons entityType={entityType} entityId={entityId} reference={reference ?? null} />
-              {/* RATTACHER CE QUI EXISTE DÉJÀ. Les boutons voisins CRÉENT — la bonne façon quand
-                  la pièce n'existe pas encore. Sans celui-ci, la seule issue pour une convention
-                  déjà enregistrée dans Legal était de la RECRÉER : deux lignes pour le même
-                  engagement, deux montants dans les totaux, et celle qui porte les pièces
-                  jointes n'est pas celle qui porte le lien. */}
-              <AttacherLegalExistant entityType={entityType} entityId={entityId} candidats={candidatsLegal ?? []} />
-            </span>
-          )}
+          <span>Pièces liées{p.total > 0 && <span className="ml-1 text-sm font-normal text-muted-foreground">({p.total})</span>}</span>
+          {/* RATTACHER CE QUI EXISTE DÉJÀ — un devis, un BC, une facture ou une convention déjà
+              enregistrés dans Legal. Les boutons des sections CRÉENT — la bonne façon quand la
+              pièce n'existe pas encore. Sans celui-ci, la seule issue pour une pièce déjà au
+              registre était de la RECRÉER : deux lignes pour la même dépense, deux montants dans
+              les totaux, et celle qui porte les pièces jointes n'est pas celle qui porte le lien. */}
+          {canCreate && <AttacherLegalExistant entityType={entityType} entityId={entityId} candidats={candidatsLegal ?? []} />}
         </CardTitle>
       </CardHeader>
-      <CardContent className="space-y-4 text-sm">
+      <CardContent className="space-y-6 text-sm">
         {/* LA PIÈCE DE LA DEMANDE, appelée par son nom — elle vient EN PREMIER parce que c'est
             elle qui justifie tout le reste, et parce qu'elle est obligatoire à la création. */}
         {piecesDeLaDemande && (
@@ -204,7 +176,7 @@ export async function LinkedRecords({
               ? <p className="text-xs text-muted-foreground">{piecesDeLaDemande.motif}</p>
               : null)}
             <DocumentList
-              documents={piecesDeLaDemande.documents}
+              documents={p.propres}
               canDelete={piecesDeLaDemande.canDelete}
               canRename={piecesDeLaDemande.canRename}
               canEdit={piecesDeLaDemande.canEdit}
@@ -212,71 +184,129 @@ export async function LinkedRecords({
             />
           </div>
         )}
-        {total === 0 ? (
-          <p className="text-muted-foreground">
-            Rien de rattaché pour l&apos;instant. Un bon de commande ou une facture créé·e d&apos;ici gardera le lien vers cette fiche.
-          </p>
-        ) : (
-          <>
-            {legal.length > 0 && (
-              <Group icon={<Scale className="h-3.5 w-3.5" />} title="Engagements">
-                {legal.map((d) => {
-                  const st = LEGAL_DOC_STATUS[d.status];
-                  return (
-                    <Row key={d.id} href={`/legal/${d.id}`} title={d.title} reference={d.reference}
-                      meta={[LEGAL_DOC_KIND[d.kind] ?? d.kind, d.endDate ? `jusqu'au ${formatDate(d.endDate)}` : "sans échéance",
-                        d.amount !== null ? formatCurrency(toNumber(d.amount)) : ""].filter(Boolean).join(" · ")}
-                      badge={st ? { label: st.label, tone: st.tone } : null}
-                      pieces={piecesDe(d.id)} pathPiece={`/legal/${d.id}`} />
-                  );
-                })}
-              </Group>
-            )}
-            {invoices.length > 0 && (
-              <Group icon={<ReceiptText className="h-3.5 w-3.5" />} title="Factures">
-                {invoices.map((i) => {
-                  const st = INVOICE_SETTLEMENT[invoiceSettlementState(i)];
-                  return (
-                    <Row key={i.id} href={`/legal/${i.id}`} title={i.title} reference={i.reference}
-                      meta={[i.startDate ? `émise le ${formatDate(i.startDate)}` : "", i.paidDate ? `réglée le ${formatDate(i.paidDate)}` : "",
-                        i.amount !== null ? formatCurrency(toNumber(i.amount)) : ""].filter(Boolean).join(" · ")}
-                      badge={st ? { label: st.label, tone: st.tone } : null}
-                      pieces={piecesDe(i.id)} pathPiece={`/legal/${i.id}`} />
-                  );
-                })}
-              </Group>
-            )}
-            {mails.length > 0 && (
-              <Group icon={<Mails className="h-3.5 w-3.5" />} title="Courriers">
-                {mails.map((m) => {
-                  const dir = MAIL_DIRECTION[m.direction];
-                  return (
-                    <Row key={m.id} href={`/courriers/${m.id}`} title={m.title} reference={m.reference}
-                      meta={m.sentAt ? `parti le ${formatDate(m.sentAt)}` : ""}
-                      badge={dir ? { label: dir.label, tone: dir.tone } : null}
-                      pieces={piecesDe(m.id)} pathPiece={`/courriers/${m.id}`} />
-                  );
-                })}
-              </Group>
-            )}
-          </>
-        )}
+
+        {/* ── LA CHAÎNE : devis → bon de commande → facture ─────────────────────────────── */}
+        <Partie
+          titre="Devis → Bon de commande → Facture"
+          boutons={boutonsChaine.length > 0
+            ? <AttachToSourceButtons entityType={entityType} entityId={entityId} reference={ref} kinds={[...boutonsChaine]} devis={p.devisAmont} bons={p.bonsAmont} />
+            : null}
+        >
+          <Maillon icone={<FileText className="h-3.5 w-3.5" />} titre="Devis" affiches={p.sections.QUOTE.length} total={p.totaux.QUOTE}
+            vide={p.libres.QUOTE.length === 0 ? "Aucun devis." : null}>
+            {p.sections.QUOTE.map((l) => <LignePieceRow key={l.id} l={l} />)}
+            {fichiersLibres("QUOTE")}
+          </Maillon>
+          <Fleche />
+          <Maillon icone={<ShoppingCart className="h-3.5 w-3.5" />} titre="Bons de commande" affiches={p.sections.PURCHASE_ORDER.length} total={p.totaux.PURCHASE_ORDER}
+            vide={p.libres.PURCHASE_ORDER.length === 0 ? "Aucun bon de commande." : null}>
+            {p.sections.PURCHASE_ORDER.map((l) => <LignePieceRow key={l.id} l={l} />)}
+            {fichiersLibres("PURCHASE_ORDER")}
+          </Maillon>
+          <Fleche />
+          <Maillon icone={<ReceiptText className="h-3.5 w-3.5" />} titre="Factures" affiches={p.sections.INVOICE.length} total={p.totaux.INVOICE}
+            vide={p.libres.INVOICE.length === 0 ? "Aucune facture." : null}>
+            {p.sections.INVOICE.map((l) => <LignePieceRow key={l.id} l={l} />)}
+            {fichiersLibres("INVOICE")}
+          </Maillon>
+        </Partie>
+
+        {/* ── LES ENGAGEMENTS (et les courriers) — sans les BC, qui ont leur maillon ─────────── */}
+        <Partie
+          titre="Engagements"
+          sousTitre="Conventions d'orateurs, contrats, avenants, et tout le reste — puis les courriers."
+          boutons={boutonsEngagement.length > 0
+            ? <AttachToSourceButtons entityType={entityType} entityId={entityId} reference={ref} kinds={[...boutonsEngagement]} />
+            : null}
+        >
+          <Maillon icone={<Scale className="h-3.5 w-3.5" />} titre="Engagements" affiches={p.sections.ENGAGEMENT.length} total={p.totaux.ENGAGEMENT}
+            vide={p.libres.AGREEMENT.length === 0 ? "Aucun engagement." : null}>
+            {p.sections.ENGAGEMENT.map((l) => <LignePieceRow key={l.id} l={l} />)}
+            {fichiersLibres("AGREEMENT")}
+          </Maillon>
+          {p.nbCourriers > 0 && (
+            <Maillon icone={<Mails className="h-3.5 w-3.5" />} titre="Courriers" affiches={p.courriers.length} total={p.nbCourriers} vide={null}>
+              {p.courriers.map((c) => <LigneCourrierRow key={c.id} c={c} />)}
+            </Maillon>
+          )}
+        </Partie>
       </CardContent>
     </Card>
   );
 }
 
-function Group({ icon, title, children }: { icon: React.ReactNode; title: string; children: React.ReactNode }) {
+function Partie({ titre, sousTitre, boutons, children }: { titre: string; sousTitre?: string; boutons: React.ReactNode; children: React.ReactNode }) {
+  return (
+    <section className="space-y-3">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border pb-2">
+        <div className="min-w-0">
+          <h3 className="text-sm font-semibold">{titre}</h3>
+          {sousTitre && <p className="text-xs text-muted-foreground">{sousTitre}</p>}
+        </div>
+        {boutons}
+      </div>
+      <div className="space-y-3">{children}</div>
+    </section>
+  );
+}
+
+/** Un maillon de la chaîne (ou la liste des engagements) — son compte, et ce qu'il ne montre pas. */
+function Maillon({ icone, titre, affiches, total, vide, children }: {
+  icone: React.ReactNode; titre: string; affiches: number; total: number; vide: string | null; children: React.ReactNode;
+}) {
   return (
     <div className="space-y-1">
-      <p className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">{icon} {title}</p>
+      <p className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+        {icone} {titre} <span className="font-normal normal-case">({total})</span>
+      </p>
+      {/* UNE COUPE SE DIT (§118.60) : une liste tronquée qui se tait se lit comme exhaustive. */}
+      {total > affiches && (
+        <p className="text-[0.6875rem] text-muted-foreground">Les {affiches} plus récents sur {total} — la liste complète est dans Legal.</p>
+      )}
+      {affiches === 0 && vide ? <p className="text-xs text-muted-foreground">{vide}</p> : null}
       <ul className="divide-y divide-border">{children}</ul>
     </div>
   );
 }
 
+/** Le « → » entre deux maillons — un repère de lecture ; le LIEN, lui, est `chainFromId`. */
+function Fleche() {
+  return <ArrowDown className="mx-auto h-4 w-4 text-muted-foreground" aria-hidden />;
+}
+
 /**
- * UNE PIÈCE LIÉE, ET SES DOCUMENTS EN DESSOUS.
+ * LES FICHIERS DÉPOSÉS SUR LA DEMANDE AVANT QUE LA CHAÎNE EXISTE — dans la section de leur
+ * nature, avec leurs droits d'origine, et « Créer sa fiche » quand la personne peut la créer.
+ */
+function FichiersLibres({ documents, slot, creer }: {
+  documents: DocItem[];
+  slot: PiecesDeLaDemande;
+  creer: ((doc: DocItem) => React.ReactNode) | null;
+}) {
+  return (
+    <li className="space-y-1 py-1.5">
+      <p className="text-[0.6875rem] text-muted-foreground">
+        {slot.noteLibres ?? (
+          <>
+            Déposé{documents.length > 1 ? "s" : ""} directement sur la demande, sans fiche au registre
+            {creer ? " — « Créer sa fiche » l'y range, sans le téléverser une seconde fois." : "."}
+          </>
+        )}
+      </p>
+      {documents.map((doc) => (
+        <div key={doc.id} className="flex flex-wrap items-center gap-2">
+          <div className="min-w-0 flex-1">
+            <DocumentList documents={[doc]} canDelete={slot.canDelete} canRename={slot.canRename} canEdit={slot.canEdit} path={slot.path} />
+          </div>
+          {creer?.(doc)}
+        </div>
+      ))}
+    </li>
+  );
+}
+
+/**
+ * UNE PIÈCE LIÉE, SA VERSION PLATEFORME ET SES DOCUMENTS EN DESSOUS.
  *
  * Les documents sont rendus À L'INTÉRIEUR de la ligne et non dans un bloc séparé : c'est ce qui
  * répond à « de quoi vient ce fichier ? » sans qu'on ait à faire le rapprochement de tête. Un
@@ -286,38 +316,66 @@ function Group({ icon, title, children }: { icon: React.ReactNode; title: string
  * Le compte est TOUJOURS affiché, zéro compris : « aucune pièce » sur une facture est une
  * information (le justificatif manque), et le taire ferait chercher ailleurs.
  */
-function Row({ href, title, reference, meta, badge, pieces, pathPiece }: {
-  href: string; title: string; reference: string | null;
-  meta: string; badge: { label: string; tone: "neutral" | "info" | "success" | "warning" | "danger" | "purple" } | null;
-  pieces?: { documents: DocItem[]; canDelete: boolean; canRename: boolean; canEdit: boolean };
-  pathPiece?: string;
-}) {
-  const fichiers = pieces?.documents ?? [];
+function LignePieceRow({ l }: { l: LignePiece }) {
+  const plateforme: FichiersEmis | null = l.plateforme;
+  const aPlateforme = Boolean(plateforme?.pdf || plateforme?.docx);
   return (
     <li className="py-1.5">
-      <div className="flex items-center justify-between gap-2">
-        <span className="min-w-0">
-          <Link href={href} className="inline-flex min-w-0 items-center gap-1 font-medium hover:underline">
-            <span className="truncate">{title}</span> <ExternalLink className="h-3 w-3 shrink-0 text-muted-foreground" />
-          </Link>
-          <span className="block truncate text-[0.6875rem] text-muted-foreground">
-            {[reference, meta].filter(Boolean).join(" · ") || "—"}
-          </span>
-        </span>
-        {badge && <Badge tone={badge.tone} dot={false}>{badge.label}</Badge>}
-      </div>
-      {pieces && (
-        fichiers.length > 0 ? (
+      <EnTete href={`/legal/${l.id}`} titre={l.titre} reference={l.reference} meta={l.meta} badge={l.badge} />
+      {aPlateforme && (
+        <p className="mt-1 flex flex-wrap items-center gap-2 pl-3 text-[0.6875rem] text-muted-foreground">
+          Version plateforme :
+          {plateforme?.pdf && <a className="font-medium text-foreground hover:underline" href={lienFichierEmis(l.id, "pdf")} target="_blank" rel="noreferrer">PDF</a>}
+          {plateforme?.docx && <a className="font-medium text-foreground hover:underline" href={lienFichierEmis(l.id, "docx")} target="_blank" rel="noreferrer">Word</a>}
+        </p>
+      )}
+      {l.documents && (
+        l.documents.length > 0 ? (
           <div className="mt-1.5 border-l-2 border-border pl-3">
-            <DocumentList
-              documents={fichiers} canDelete={pieces.canDelete} canRename={pieces.canRename}
-              canEdit={pieces.canEdit} path={pathPiece}
-            />
+            <DocumentList documents={l.documents} canDelete={l.gerable} canRename={l.gerable} canEdit={l.editable} path={`/legal/${l.id}`} />
           </div>
         ) : (
-          <p className="mt-1 pl-3 text-[0.6875rem] text-muted-foreground">Aucune pièce jointe à ce document.</p>
+          <p className="mt-1 pl-3 text-[0.6875rem] text-muted-foreground">
+            {aPlateforme ? "Aucun PDF joint (signé, tamponné…) en plus de la version plateforme." : "Aucun PDF joint à cette pièce."}
+          </p>
+        )
+      )}
+      {l.joindre && <div className="pl-3"><JoindrePdf entityId={l.id} categorie={l.joindre} /></div>}
+    </li>
+  );
+}
+
+function LigneCourrierRow({ c }: { c: LigneCourrier }) {
+  return (
+    <li className="py-1.5">
+      <EnTete href={`/courriers/${c.id}`} titre={c.titre} reference={c.reference} meta={c.meta} badge={c.badge} />
+      {c.documents && (
+        c.documents.length > 0 ? (
+          <div className="mt-1.5 border-l-2 border-border pl-3">
+            <DocumentList documents={c.documents} canDelete={false} canRename={false} canEdit={false} path={`/courriers/${c.id}`} />
+          </div>
+        ) : (
+          <p className="mt-1 pl-3 text-[0.6875rem] text-muted-foreground">Aucune pièce jointe à ce courrier.</p>
         )
       )}
     </li>
+  );
+}
+
+function EnTete({ href, titre, reference, meta, badge }: {
+  href: string; titre: string; reference: string | null; meta: string; badge: { label: string; tone: Ton } | null;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-2">
+      <span className="min-w-0">
+        <Link href={href} className="inline-flex min-w-0 items-center gap-1 font-medium hover:underline">
+          <span className="truncate">{titre}</span> <ExternalLink className="h-3 w-3 shrink-0 text-muted-foreground" />
+        </Link>
+        <span className="block truncate text-[0.6875rem] text-muted-foreground">
+          {[reference, meta].filter(Boolean).join(" · ") || "—"}
+        </span>
+      </span>
+      {badge && <Badge tone={badge.tone} dot={false}>{badge.label}</Badge>}
+    </div>
   );
 }
