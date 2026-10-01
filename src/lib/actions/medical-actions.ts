@@ -10,6 +10,8 @@ import { suivreRenommageEtablissement } from "@/lib/stocks/lieux";
 import { recordAudit } from "@/lib/audit";
 import { fdStr, fdDate, type ActionResult } from "@/lib/actions/types";
 import { canonicalWilaya } from "@/lib/medical/wilaya";
+import { sousVerrous } from "@/lib/promo/stock-ecriture";
+import { dejaDansLaVisite, ecrireRemises, lireMaterielRemis, motifDeRemise, phraseMateriel, RefusRemise, toucheLeStock, verrousDuRapport } from "@/lib/promo/remises-visite";
 
 const SECTORS: MedicalSector[] = ["HOSPITAL", "LIBERAL", "BOTH"];
 const TITLES: DoctorTitle[] = [
@@ -393,40 +395,60 @@ export async function logVisit(
     ? await prisma.product.findMany({ where: { id: { in: productIds } }, select: { id: true, canonicalName: true } })
     : [];
 
-  const created = await prisma.medicalVisit.create({
-    data: {
-      date,
-      doctorId,
-      // Règle 2 : l'auteur de la saisie, jamais un champ du formulaire.
-      delegateId: user.id,
-      // Règle 1 : ce qu'on saisit a eu lieu.
-      status: "COMPLETED",
-      report: fdStr(formData, "report"),
-      followUpActions: fdStr(formData, "followUpActions"),
-      // Le texte hérité reste renseigné pour les écrans qui le lisent encore ; la VÉRITÉ
-      // exploitable, elle, est dans les liens.
-      presentedProducts: products.map((p) => p.canonicalName).join(", ") || null,
-      createdById: user.id,
-      updatedById: user.id,
-      productLinks: products.length
-        ? { create: products.map((p) => ({ productId: p.id })) }
-        : undefined,
-    },
-    select: { id: true },
-  });
+  // Règle 6 (§118.166) : LE MATÉRIEL REMIS sort du stock de celui qui saisit, dans la MÊME
+  // transaction que la visite — au-delà de son stock, rien n'est enregistré. C'est le même écrivain
+  // que le rapport d'une visite planifiée : un stock juste ou faux selon le bouton pris serait pire
+  // qu'un bouton de moins.
+  const deja = await dejaDansLaVisite(null);
+  const lu = await lireMaterielRemis(formData, deja, now);
+  if (!lu.ok) return { ok: false, error: lu.error };
 
-  // La fiche du praticien porte sa dernière visite : sans cette mise à jour, la tournée du
-  // lendemain le reproposerait en tête, et l'écran perdrait la confiance du terrain.
-  await prisma.medicalDoctor.update({ where: { id: doctorId }, data: { lastVisit: date } });
+  let created: { id: string };
+  try {
+    created = await sousVerrous(verrousDuRapport(lu.materiel, deja), async (tx, verrouilles) => {
+      const v = await tx.medicalVisit.create({
+        data: {
+          date,
+          doctorId,
+          // Règle 2 : l'auteur de la saisie, jamais un champ du formulaire.
+          delegateId: user.id,
+          // Règle 1 : ce qu'on saisit a eu lieu.
+          status: "COMPLETED",
+          report: fdStr(formData, "report"),
+          followUpActions: fdStr(formData, "followUpActions"),
+          // Le texte hérité reste renseigné pour les écrans qui le lisent encore ; la VÉRITÉ
+          // exploitable, elle, est dans les liens.
+          presentedProducts: products.map((p) => p.canonicalName).join(", ") || null,
+          createdById: user.id,
+          updatedById: user.id,
+          productLinks: products.length
+            ? { create: products.map((p) => ({ productId: p.id })) }
+            : undefined,
+        },
+        select: { id: true },
+      });
+      // La fiche du praticien porte sa dernière visite : sans cette mise à jour, la tournée du
+      // lendemain le reproposerait en tête, et l'écran perdrait la confiance du terrain.
+      await tx.medicalDoctor.update({ where: { id: doctorId }, data: { lastVisit: date } });
+      await ecrireRemises(tx, lu.materiel, verrouilles, {
+        visitId: v.id, doctorId, detenteurId: user.id, auteurId: user.id, maintenant: now, motif: motifDeRemise(date, doctor.name),
+      });
+      return v;
+    });
+  } catch (e) {
+    if (e instanceof RefusRemise) return { ok: false, error: e.message };
+    throw e;
+  }
 
   await recordAudit({
     actorId: user.id, action: "CREATE", module: "Promotion médicale",
     entityType: "VISIT", entityId: created.id,
-    summary: `Visite saisie — ${doctor.name}${products.length ? ` (${products.length} produit${products.length > 1 ? "s" : ""})` : ""}`,
+    summary: `Visite saisie — ${doctor.name}${products.length ? ` (${products.length} produit${products.length > 1 ? "s" : ""})` : ""}${phraseMateriel(lu.materiel)}`,
   });
   revalidatePath("/medical/ma-journee");
   revalidatePath("/medical");
   revalidatePath("/planning/pilotage");
+  if (toucheLeStock(lu.materiel, deja)) revalidatePath("/promo-material/stock");
   return { ok: true, id: created.id };
 }
 

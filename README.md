@@ -192,7 +192,7 @@ jamais identique.
 |---|---|---|
 | **Regulatory** | `/regulatory` | Dossiers **AMM / ANPP**, **workflow 17 étapes** + **processus officiel ANPP** (19 étapes / 5 phases — CTD déposé sur l'étape 1, check-list de présoumission en étape 2, allers-retours de réserves dans la frise), documents par molécule, **DCI mono / double / triple**, commentaires, champs personnalisés. Catégorie **Médicament / Dispositif médical**. **Référentiel fournisseurs** créé par les responsables réglementaires (menu déroulant dans les dossiers), colonnes **Forme** (galénique), **Dosage + unité** (mg/g/µg/UI/%…) en menus déroulants et **Conditionnement** (« B/30 » — à dosage égal, c'est lui qui distingue deux dossiers). Colonne **« Chargé du dossier »** : la personne qui porte le dossier se choisit **au menu déroulant depuis le tableau**, sans ouvrir la fiche. **Cadenas** : un dossier verrouillé est **invisible pour toute l'équipe** — y compris la Direction, son responsable et l'assistant IA ; seul le **Super Admin** le voit et l'ouvre. Section **Réserves** (upload PDF). **Demande de BV** → ordre de dépense (échéance). **Détenteur de DE** + **variation d'enregistrement** (packaging secondaire / primaire / full process, avec date) — toute variation en **fabrication locale exige le Fabricant** (bloqué serveur + champ requis). **UNE DCI DÉJÀ SUIVIE SE DIT PENDANT LA SAISIE** (pipeline comme suivi de dossiers) : le formulaire NOMME les dossiers existants et demande de vérifier qu'il s'agit bien d'un autre dosage, d'une autre forme ou d'un autre produit — on avertit, on n'interdit pas (interdire ferait saisir le doublon sous une DCI mal orthographiée, donc plus rapprochable du premier), et la création repart d'un clic « J'ai vérifié ». La comparaison **trie les molécules d'une association** (« A + B » = « B + A ») et ignore casse et accents. Un dossier **verrouillé au pipeline se COMPTE sans se NOMMER**, avec le geste qui débloque : **« Demander l'accès »** prévient la supervision Regulatory (notification + audit, aucun registre de plus). Carte **« Vue fournisseur »** (pilote le portail externe). **Relance de mise à jour** (Super Admin / Directeur Général) : une personne ou tout le monde, avec le portefeuille, la part en sommeil (30 j sans mouvement) et la date de la dernière relance — les dossiers verrouillés et aboutis en sont exclus. |
 | **Ad & Pro** | `/sponsoring` (+ onglets) | Module unifié **Sponsoring · Congrès internationaux · Événements nationaux · Events · Matériel promotionnel**. Circuit de demande avec le **National Sales** (approuve la demande d'un KAM, et elle seule), **référents Direction Marketing configurés par Business Unit**, **sponsoring en trois temps** (la Direction Marketing **pré-valide la tenue**, les **postes** se préparent — devis, BC, factures —, puis **validation finale : chaque poste dans un budget, clôture**, la somme des postes accordés devenant le montant accordé), **tierce personne** impliquée via son espace (+ dossier auto), **décision définitive de la Direction** (budget accordé visible), enchaînement **Information médicale → Finances**. **Liste des personnes prises en charge** (pièces d'identité) + **ordre de mission**. Le **matériel promotionnel** suit le **circuit 2** : validation de la demande (directrice marketing pour le marketing, N+1 plafonné au directeur des opérations sinon, personne pour la directrice ni pour le directeur des opérations) → devis **retranscrits ligne à ligne** par l'assistante → le demandeur **retient des lignes** de plusieurs devis → Direction Marketing → **DG au-dessus du seuil** → **BC générés par la plateforme** (un par fournisseur, centre Ad & Pro au-dessus du seuil BC, signature des Finances) → **facture obligatoire par BC** → **paiement au centre de paiement** avec la **demande de visa ou de déclaration** à l'information médicale. Les dossiers d'avant gardent leur circuit court. → [circuit 2](#matériel-promotionnel--circuit-2--devis-retranscrits-lignes-retenues-bc-générés) · [circuit court](#matériel-promotionnel--cinq-marches-puis-trois-chantiers-en-parallèle) |
-| **Stock promotionnel** | `/promo-material/stock` | Sous-module d'Ad & Pro (module `PROMO_STOCK`, §118.164) : le **magasin central** tenu par la directrice marketing, ce que chaque délégué a en main, ce qui est **en route**. Une quantité se calcule à partir des **mouvements**, par **lot** (le plus tôt périmé sort d'abord, un lot périmé ne se distribue plus) ; une dotation n'entre dans le stock d'un délégué qu'à **sa confirmation** ; le directeur des opérations a la vue globale et déplace le matériel de ses équipes. → [détails](#matériel-promotionnel--le-stock--catalogue-magasin-dotations-confirmées-118164) |
+| **Stock promotionnel** | `/promo-material/stock` | Sous-module d'Ad & Pro (module `PROMO_STOCK`, §118.164) : le **magasin central** tenu par la directrice marketing, ce que chaque délégué a en main, ce qui est **en route**. Une quantité se calcule à partir des **mouvements**, par **lot** (le plus tôt périmé sort d'abord, un lot périmé ne se distribue plus) ; une dotation n'entre dans le stock d'un délégué qu'à **sa confirmation** ; le directeur des opérations a la vue globale et déplace le matériel de ses équipes. Les **achats** y entrent par leur **facture**, ligne à ligne (ce qui est reçu, et lui seul, est payé) ; le **matériel remis en visite** sort du stock du délégué (au-delà de son solde, la visite est bloquée) ; un poste **« Matériel du stock »** d'une demande Ad & Pro réserve à l'accord et se confirme après l'événement ; le directeur des opérations fait **compter** ses équipes, ponctuellement ou régulièrement ; **alertes** et **tableau de bord** (§118.165–168). → [détails](#matériel-promotionnel--le-stock--catalogue-magasin-achats-visites-événements-comptages-118164168) |
 | **Catalogue promotionnel** | `/promo-material/catalogue` | Sous-module d'Ad & Pro (module `PROMO_CATALOG`) : les articles commandables sous une référence **fixe** `CAT-0001`, en trois familles (consommable, durable, numérique). Tenu par le Super Admin, ouvert **en lecture ou en écriture personne par personne** (Administration › Accès). |
 | **Budgets & enveloppes** | `/budgets` | **Enveloppes budgétaires** (Super Admin, délégable) : période, **modules rattachés**, **catégories + sous-catégories**, **budget total** fixe ou flexible, **allocation** des dépenses validées, **vue consolidée** du total de toutes les enveloppes, **accès par rôle ET par personne**. → [détails](#-budgets-enveloppes--sous-catégories) |
 | **Finances** | `/finances/paiements-a-faire` | **DEUX SOUS-MODULES** : **Banque & paiements** (`/finances/paiements-a-faire` — le solde de trésorerie et le détail par compte, puis la file du décaissement, alimentée **exclusivement** par le centre de paiement) et **Comptabilité** (`/finances/comptabilite` — le livre, l'import, les soldes d'ouverture, et ce que le DAF doit encore arbitrer). Le **Dashboard a été supprimé** (2026-09) : il ne portait aucun geste. Cliquer « Finances » mène à « Banque & paiements » ; `/finances` redirige. « Demander l'actualisation des soldes » est réservé au **Super Admin** (écran, action serveur et Adam). Les **factures** ne sont pas ici : ce sont des documents légaux de nature « facture » (`/legal?nature=INVOICE`), et la comptabilité y garde sa porte. Aucun paiement n'arrive ici sans être **autorisé par le centre**, quel que soit son montant. |
@@ -1234,6 +1234,14 @@ la porte commune — il naît en attente du centre de paiement, quel que soit le
 facture qui découle d'un **bon de commande que son centre n'a pas validé** ne part pas (voir
 ci-dessous).
 
+**Un enregistrement ne détache jamais une pièce de sa chaîne** (§118.168). Le menu « Fait suite à » propose les
+cent devis et BC les plus récents ET, à la modification, la pièce **actuelle** en tête — sous un libellé neutre
+quand elle est hors du périmètre de la personne (`piecesAmontProposees`, `lib/queries/legal-chain.ts`). Sans
+elle, corriger la date d'une facture chaînée à un BC plus ancien la détachait en silence, et elle sortait du
+cumul qui empêche de payer plus que la commande. Une facture **saisie ligne à ligne sur un dossier de matériel
+promotionnel** garde son BC : la rattacher ailleurs se fait en l'annulant depuis le dossier, puis en la
+redéposant (le refus le dit).
+
 **Sur les fiches Ad & Pro, les pièces liées se lisent dans cet ordre** (§118.161, décision de la Direction du
 30/09/2026) : **Devis → Bon de commande → Facture**, chacun avec sa version plateforme (Word / PDF de la fabrique) et
 son PDF, puis les **Engagements** (conventions d'orateurs, contrats — sans les BC, qui ont leur maillon) et les
@@ -1613,13 +1621,15 @@ lorsque les trois le sont ; c'est `allTracksDone` qui le dit, pas quelqu'un qui 
   `progress`, `waitingOn`) + `circuit.test.ts` (**23 tests**).
 - **Actions** : `lib/actions/promo-circuit-actions.ts`. Migration `20260824160000_promo_short_circuit`.
 
-### Matériel promotionnel — le stock : catalogue, magasin, dotations confirmées (§118.164)
+### Matériel promotionnel — le stock : catalogue, magasin, achats, visites, événements, comptages (§118.164–168)
 
-> **Étape 1 sur 5.** Le socle : catalogue, magasin, ce que chacun a en main, ce qui est en route. Les étapes
-> suivantes s'y branchent sans le refaire : demande d'achat piochée dans le catalogue (avec **plusieurs
-> actions par ligne de devis et de BC** — conception, impression…) et réception des factures en stock,
-> bloc « Matériel remis » dans la visite, poste « Matériel du stock » sur les demandes Ad & Pro,
-> comptages demandés par le directeur des opérations.
+> **Les cinq étapes sont livrées.** (1) Le socle : catalogue, magasin, ce que chacun a en main, ce qui est en
+> route (§118.164). (2) La demande d'achat piochée dans le catalogue, avec **plusieurs actions par ligne de
+> devis et de BC** (conception, impression…), et la facture qui fait entrer au stock ce qui est reçu
+> (§118.165). (3) Le bloc « Matériel remis » de la visite, déduit du stock du délégué (§118.166). (4) Le poste
+> « Matériel du stock » des demandes Ad & Pro (§118.167). (5) Les comptages, les alertes, le tableau de bord et
+> les propositions de refonte (§118.168). Chaque étape s'est branchée sur le registre de mouvements sans le
+> refaire : aucun autre fichier que l'écrivain unique n'écrit un mouvement.
 
 **Décisions de la Direction (01/10/2026).** Le magasin central est géré par **la directrice du département
 marketing** ; le **Super Admin** peut tout gérer, modifier et supprimer ; le **délégué confirme la
@@ -1661,11 +1671,11 @@ Nivolex » et « — Trastuzex » sont deux stocks.
 
 | Qui | Ce qu'il voit | Ce qu'il fait |
 |---|---|---|
-| **Super Admin** | Tout | Tout — entrée manuelle, inventaire d'ouverture, annulation de mouvement, corbeille — sauf confirmer une réception à la place de quelqu'un |
-| **Directrice de la Direction Marketing** (la cheffe, lue sur l'organigramme) | Vue globale | Le **magasin** : doter, servir et refuser les demandes, confirmer les retours, corriger l'inventaire du magasin, fiches, lots et supports numériques |
-| **Directeur des opérations** (rôles « Directeur des Opérations » et « Direction des opérations », lus comme la même fonction — §118.157) | Vue globale | Déplacer le matériel **de ses équipes, à l'intérieur de ses équipes** (ou le rendre au magasin) — la personne touchée est prévenue |
+| **Super Admin** | Tout | Tout — entrée manuelle, inventaire d'ouverture, annulation de mouvement, corbeille, comptages à tout le monde, refontes — sauf confirmer une réception ou saisir un comptage à la place de quelqu'un |
+| **Directrice de la Direction Marketing** (la cheffe, lue sur l'organigramme) | Vue globale + **tableau de bord** | Le **magasin** : doter, servir et refuser les demandes, confirmer les retours, corriger l'inventaire du magasin, **saisir le comptage du magasin**, fiches, lots et supports numériques ; **retenir ou écarter les refontes** proposées |
+| **Directeur des opérations** (rôles « Directeur des Opérations » et « Direction des opérations », lus comme la même fonction — §118.157) | Vue globale + **tableau de bord** | Déplacer le matériel **de ses équipes, à l'intérieur de ses équipes** (ou le rendre au magasin) — la personne touchée est prévenue ; **faire compter** une personne de ses équipes, toute son équipe ou le magasin, **une fois ou régulièrement** (par famille) |
 | **Superviseur** (National Sales) | Son stock et celui de son équipe (organigramme + KAM des gammes qu'il supervise) | Son propre stock — il **voit** celui de ses KAM, il n'en dispose pas |
-| **Délégué / KAM** | Son stock | Confirmer ses réceptions, transférer à un collègue, rendre au magasin, déclarer une perte, demander du matériel |
+| **Délégué / KAM** | Son stock | Confirmer ses réceptions, transférer à un collègue, rendre au magasin, déclarer une perte, demander du matériel ; **remettre en visite** (bloc « Matériel remis ») ; **saisir ses comptages** ; **proposer la refonte** d'un support durable |
 | **Finances, Directeur Général, autres membres de la Direction Marketing** | Vue globale | Lecture (et leur propre stock, s'ils en ont en main) |
 
 **Les vues** : *Mon stock*, *Mon équipe*, *Magasin*, *Vue générale* — chacune n'apparaît que si la règle
@@ -1692,6 +1702,87 @@ chacun atteste un fait physique, et Adam est en pause.
   `app/(app)/promo-material/catalogue/`.
 - **Bancs** : `promo-stock-flow.test.ts` (24 cas par les vraies actions, acteurs SANS vue globale),
   `e2e/stock-promo.spec.ts` (navigateur, bureau et téléphone). Migration `20261208090000_stock_promo_socle`.
+
+#### Étape 2 — un achat entre au stock par sa FACTURE, ligne à ligne (§118.165)
+
+- **La demande se pioche dans le catalogue** : par article, ses produits et un commentaire, autant d'articles
+  qu'on veut ; seul le demandeur (ou la Direction en suppléance) la compose, et elle ne bouge plus une fois les
+  devis demandés — l'assistante fait chiffrer ce qui a été demandé.
+- **Chaque ligne de devis et de BC porte son ACTION** — conception, impression, fabrication, achat, location,
+  livraison, installation, autre. C'est elle qui décide du stock : une impression, une fabrication ou un achat
+  reçus **entrent au magasin** ; une conception, une livraison, une location sont simplement « faites ». La
+  conception d'un **support numérique** est le support : reçue, elle pose son lien au stock. Le BC nomme l'action
+  devant la désignation (« Impression — Fiche posologique Nivolex »).
+- **La facture reprend les lignes du BC** : quantité et prix se corrigent pour coller au papier et l'écart se
+  voit, mais on ne facture jamais plus que ce qui reste à facturer. Le total se **calcule** (même arithmétique que
+  le devis) ; le total **imprimé** se saisit à part et contrôle la saisie à un dinar près.
+- **La réception** : le demandeur coche ce qui est arrivé (le Super Admin en suppléance) — un lot entre au
+  magasin au coût de la facture, la directrice est prévenue ; deux clics simultanés ne font qu'un lot. Annuler une
+  réception la contre-passe, et se refuse si une partie est déjà sortie du magasin.
+- **Le paiement attend la réception.** Une ligne non livrée ne se paie pas ; y **renoncer** est explicite, écrit
+  et définitif — la quantité renoncée reste facturée, elle ne se refacture pas ailleurs. Une facture d'avant le
+  détail ligne à ligne se paie comme avant.
+
+#### Étape 3 — le matériel remis en visite sort du stock du délégué (§118.166)
+
+- Un bloc **« Matériel remis »** dans le rapport de visite, la visite imprévue et la saisie rapide de « Ma
+  journée » — **un seul module serveur** pour les trois portes (`lib/promo/remises-visite.ts`). Il ne propose que
+  ce que le délégué a **en main**, distribuable séparé du périmé.
+- **Au-delà du solde, la visite est BLOQUÉE**, et rien n'est écrit — ni la visite, ni ses produits, ni la remise.
+  La remise sort du stock du **délégué de la visite**, même quand un superviseur rapporte à sa place.
+- **Corriger n'est pas recompter** : dans les 48 h, seuls les articles dont la quantité change sont repris
+  (l'ancienne remise contre-passée en entier, même prise sur deux lots), et un rapport renvoyé à l'identique
+  n'écrit rien. Un support numérique se **présente** : une utilisation comptée, aucun stock retiré.
+- La vue **« Remis aux médecins »** du stock donne l'historique par médecin, net des corrections, à ce que chacun
+  a le droit de voir. Une remise ne s'annule pas depuis le stock (le refus nomme le rapport de visite).
+
+#### Étape 4 — le matériel du stock d'un événement Ad & Pro (§118.167)
+
+- Un poste **« Matériel du stock »** sur un sponsoring, un événement ou un congrès : **sans argent** (aucun
+  montant, aucun BC, aucune facture), sa nature ne change que sur un brouillon vierge.
+- **Demandée** (la liste ne bouge rien au magasin) → **réservée à l'accord** (la quantité quitte le magasin, lot
+  le plus tôt périmé d'abord ; au-delà du distribuable, l'accord est refusé en entier) → **confirmée après
+  l'événement** : un consommable dit combien a été remis, un durable est **prêté** — rendu, abîmé ou perdu, la
+  somme doit faire le compte — et **le reste revient au magasin** par la même écriture.
+- Du matériel réservé **bloque** le retrait du poste, la clôture de la demande, la corbeille et le transfert d'un
+  congrès — chacun en nommant le remède. Confirmer : le demandeur, le magasin, la Direction ou le Super Admin.
+
+#### Étape 5 — comptages, alertes, tableau de bord, refontes (§118.168)
+
+- **Comptages** (vue « Comptages ») : le directeur des opérations fait compter une personne de ses équipes, toute
+  son équipe ou le magasin (avec la vue globale), sur les consommables, les durables ou tout ; **une fois** (avec
+  une échéance) ou **régulièrement** (chaque semaine, mois, trimestre ou semestre, à 8 h, sans rattrapage ni
+  empilement). Seul **celui qui détient** saisit — chaque article du registre doit avoir sa ligne, « 0 » compris ;
+  l'écart se lit au moment de la saisie et devient une **correction** au registre, qui porte le comptage. À chaque
+  déclenchement, l'autorité de l'auteur est **relue** : sinon la récurrence se met en pause, avec son motif.
+- **Alertes** (battement, une fois l'heure) : rupture, sous le seuil, péremption à 30 jours, périmé encore en
+  main, support numérique à renouveler, envoi en route depuis 7 jours, comptage en retard. Chacune part **une
+  fois**, à l'entrée dans l'état, à la personne concernée — **une notification par personne** — et repart si
+  l'état revient.
+- **Tableau de bord** (vue « Tableau de bord » — directrice marketing, vue globale, Super Admin) : la valeur du
+  stock (les unités sans coût comptées à part), ce qui est sorti sur 90 jours (remis aux médecins, en
+  événements, pertes, écarts de comptage), les plus distribués, les **articles dormants** (avec leur total), les
+  alertes en vigueur.
+- **Refontes** : quiconque voit le stock propose de refaire un support **durable** (une proposition ouverte par
+  personne et par article) ; la directrice marketing (ou le Super Admin) la **retient** ou l'**écarte** avec un
+  mot. Retenir ne commande rien : la commande suit le circuit d'achat.
+
+**Fichiers des étapes 2 à 5.** Règles PURES : `lib/promo-material/achats.ts`, `lib/promo-material/actions-fournisseur.ts`,
+`lib/promo/remises.ts`, `lib/promo/reservations.ts`, `lib/promo/comptages.ts` (+ leurs tests). Serveur :
+`lib/promo/remises-visite.ts`, `lib/promo/comptages-ecriture.ts` (sous verrou, par l'écrivain unique),
+`lib/promo-stock-comptages.ts` (récurrences et alertes, appelées par le battement), chargeurs
+`lib/queries/promo-achats.ts`, `lib/queries/promo-remises.ts`, `lib/queries/promo-stock-alertes.ts`. Actions :
+`lib/actions/promo-demande-actions.ts`, `lib/actions/promo-execution-actions.ts`, `lib/actions/promo-comptage-actions.ts`,
+`lib/actions/ad-pro-item-actions.ts`. Écrans : `app/(app)/promo-material/[id]/articles-card.tsx`,
+`app/(app)/medical/ma-journee/materiel-remis.tsx`, `components/ad-pro/materiel-stock.tsx`,
+`app/(app)/promo-material/stock/{stock-medecins,stock-comptages,stock-tableau}.tsx`. Bancs :
+`promo-achats-flow.test.ts`, `promo-remises-flow.test.ts`, `ad-pro-stock-flow.test.ts`, `promo-comptage-flow.test.ts` ;
+parcours navigateur contre le build de production `e2e/stock-promo-sorties.spec.ts` (visite au téléphone, visite
+bloquée, remis aux médecins, demande d'achat, réception, matériel d'un sponsoring) et
+`e2e/stock-promo-comptages.spec.ts` (comptage demandé, saisi au téléphone, refonte proposée puis retenue).
+Migrations `20261209090000_stock_promo_achats`, `20261210090000_stock_promo_visites`,
+`20261211090000_stock_promo_evenements`, `20261212090000_stock_promo_comptages`,
+`20261213090000_stock_promo_refonte_unique`. Aucun de ces gestes n'est offert à Adam (EXCLUDED, raison écrite).
 
 ### Rejeu de session — rembobiner ce qu'une personne a fait
 
@@ -6389,6 +6480,39 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 ---
 
 ## 🧾 Journal des évolutions récentes
+
+### STOCK PROMOTIONNEL, ÉTAPES 2 À 5 — LES ACHATS ENTRENT PAR LEUR FACTURE, LES VISITES ET LES ÉVÉNEMENTS EN SORTENT, ET LE DIRECTEUR DES OPÉRATIONS FAIT COMPTER (2026-10)
+
+**Demande.** Terminer le stock promotionnel, « toutes les étapes, entièrement » : la demande d'achat piochée dans
+le catalogue avec plusieurs actions par ligne (conception, impression…) et le paiement après réception ; le
+matériel remis en visite, bloqué au-delà du stock ; le matériel des événements Ad & Pro, réservé avant et
+confirmé après ; les comptages demandés par le directeur des opérations, les alertes, le tableau de bord et les
+propositions de refonte des durables.
+
+**Ce qui change.** (1) **Achats** : la facture reprend les lignes du BC, le demandeur coche ce qui est reçu et
+c'est cela qui entre au magasin ; l'action de chaque ligne décide ce qui se compte ; le paiement attend la
+réception, sauf renoncement écrit et définitif. (2) **Visites** : un bloc « Matériel remis » dans les trois façons
+d'enregistrer une visite, déduit du stock du délégué, bloqué au-delà de son solde, corrigé dans les 48 h sans
+double compte ; historique par médecin. (3) **Événements Ad & Pro** : un poste « Matériel du stock », sans argent,
+réservé à l'accord, confirmé après (un durable est prêté : rendu, abîmé ou perdu), le reste revenant seul au
+magasin ; du matériel encore dehors bloque la clôture. (4) **Comptages** ponctuels ou réguliers, saisis par
+celui qui détient le matériel ; **alertes** une fois, à la bonne personne ; **tableau de bord** ; **refontes**
+proposées et tranchées.
+
+**Trouvé en chemin.** En relisant l'étape 5 avant de la saboter : une refonte pouvait être tranchée, par son
+identifiant, hors de l'entité de qui tranche, et un double clic ouvrait deux propositions identiques — les deux
+fermés (périmètre relu dans l'action, index partiel). Les dormants du tableau de bord étaient coupés à cinquante
+sans le dire — le total est désormais affiché. La suite complète a ensuite rendu deux rouges hors du stock : la
+découverte d'actions d'Adam ne listait plus que des gestes refusés (les nouvelles actions du stock, refusées à
+raison, prenaient les six places à égalité de score) — elle sépare maintenant ouvertes et refusées et compte ce
+qu'elle ne montre pas ; et un banc des devis demandait des devis sur un dossier sans article, ce que l'étape 2
+refuse désormais. Les écrans des étapes 2 à 4 n'avaient jamais été ouverts dans un navigateur : en écrivant leurs
+parcours, la saisie d'un comptage se fermait sans rien dire (elle annonce maintenant son résumé), et cinq refus
+nommaient des chemins de menu qui n'existent pas. Enfin, le parcours de la réception a trouvé un défaut de
+**Legal** : l'écran de modification ne proposait que les cent devis et BC les plus récents, si bien qu'enregistrer
+une facture chaînée à un BC plus ancien la **détachait** de son BC sans un mot — corrigé (la pièce actuelle est
+toujours proposée, et une facture saisie ligne à ligne sur un dossier promotionnel ne change pas de BC). Détail :
+CLAUDE.md §118.165–168.
 
 ### STOCK PROMOTIONNEL, ÉTAPE 1 — LE CATALOGUE, LE MAGASIN, ET DES DOTATIONS QUE LE DÉLÉGUÉ CONFIRME (2026-10)
 

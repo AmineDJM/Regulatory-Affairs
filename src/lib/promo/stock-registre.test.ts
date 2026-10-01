@@ -85,4 +85,28 @@ describe("le registre du stock promotionnel", () => {
     const battement = PRODUCTION.find((f) => f.rel === "src/lib/scheduled.ts")!;
     expect(battement.src).toMatch(/await relancerReceptionsStock\(\)/);
   });
+
+  it("les comptages réguliers et les alertes ont leur POINT D'APPEL dans le battement (§118.49, §118.168)", () => {
+    const battement = PRODUCTION.find((f) => f.rel === "src/lib/scheduled.ts")!;
+    expect(battement.src, "sans cet appel, une récurrence planifiée ne part jamais").toMatch(/await declencherComptagesRecurrents\(\)/);
+    expect(battement.src, "sans cet appel, aucune alerte ne part — le tableau de bord les montrerait, personne ne les recevrait").toMatch(/await alerterStock\(\)/);
+  });
+
+  it("un comptage corrige par l'écrivain, sous le verrou de TOUS ses articles, et se PREND avant toute correction (§118.168)", () => {
+    const f = PRODUCTION.find((x) => x.rel === "src/lib/promo/comptages-ecriture.ts");
+    expect(f, "l'enregistrement des comptages a bougé : mettre ce banc à jour, ne pas le désarmer").toBeTruthy();
+    expect(f!.src).toMatch(/\bsousVerrous\(/);
+    expect(f!.src, "l'écart se lit SOUS le verrou, au moment de la saisie").toMatch(/\bsoldeDe\(tx\b/);
+    const prise = f!.src.search(/promoStockComptage\.updateMany\(\{\s*where:\s*\{\s*id:\s*c\.comptageId,\s*statut:\s*"DEMANDE"/);
+    const correction = f!.src.search(/\bcorrigerAuCompte\(tx\b/);
+    expect(prise, "la prise conditionnelle du comptage (DEMANDE → SAISI)").toBeGreaterThan(-1);
+    expect(correction).toBeGreaterThan(-1);
+    expect(prise, "prise APRÈS la première correction : deux saisies simultanées corrigeraient deux fois").toBeLessThan(correction);
+  });
+
+  it("les actions de comptage n'écrivent aucun mouvement elles-mêmes : elles passent par l'enregistrement sous verrou", () => {
+    const a = PRODUCTION.find((x) => x.rel === "src/lib/actions/promo-comptage-actions.ts")!;
+    expect(a.src).not.toMatch(/\b(entrerLot|fairePartir|confirmerArrivee|renvoyer|sortirSansContrepartie|corrigerAuCompte|annulerMouvementEcrit)\(/);
+    expect(a.src).toMatch(/\benregistrerSaisieComptage\(/);
+  });
 });

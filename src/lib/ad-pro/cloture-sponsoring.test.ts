@@ -12,7 +12,7 @@ import {
  */
 
 const poste = (label: string, status: string, amountGranted: number | null, budgetCategoryId: string | null = null): PostePourCloture =>
-  ({ label, status, amountGranted, budgetCategoryId });
+  ({ label, status, amountGranted, budgetCategoryId, kind: "OTHER", lignesStock: [] });
 
 describe("l'état des postes d'un sponsoring — décidé, tardif, clos", () => {
   it("PRÉ-VALIDÉ : décidé (ses postes engagent) mais PAS tardif (ajouter des postes est l'étape)", () => {
@@ -130,5 +130,40 @@ describe("qui clôture — celui qui a pré-validé la tenue, jamais le demandeu
     expect(refusCloture("DIRECTION_MARKETING")).toMatch(/Direction Marketing/);
     expect(refusCloture("DIRECTION")).toMatch(/la Direction \(la demande vient de la Direction Marketing/);
     expect(quiCloture("final")).toBe("DIRECTION");
+  });
+});
+
+describe("le matériel du stock dans le bilan de clôture (§118.167)", () => {
+  const stock = (label: string, status: string, lignes: { libelle: string; statut: string }[]): PostePourCloture =>
+    ({ label, status, amountGranted: null, budgetCategoryId: null, kind: "STOCK_MATERIAL", lignesStock: lignes });
+
+  it("un poste « Matériel du stock » accordé n'exige ni budget ni montant — et ne compte pas dans le total", () => {
+    const b = bilanCloture("PRE_VALIDATED", [
+      poste("Sponsoring direct", "APPROVED", 80_000, "cat-1"),
+      stock("Matériel du stand", "APPROVED", [{ libelle: "Kakémono", statut: "CONFIRMEE" }]),
+    ]);
+    expect(b.cloturable, b.manques.join(" ; ")).toBe(true);
+    expect(b.total).toBe(80_000);
+  });
+
+  it("une ligne encore RÉSERVÉE bloque la clôture, et la phrase la nomme", () => {
+    const b = bilanCloture("PRE_VALIDATED", [
+      poste("Sponsoring direct", "APPROVED", 80_000, "cat-1"),
+      stock("Matériel du stand", "APPROVED", [{ libelle: "Kakémono Nivolex", statut: "RESERVEE" }]),
+    ]);
+    expect(b.cloturable).toBe(false);
+    expect(b.manques.join(" ")).toMatch(/attendent leur confirmation.*« Kakémono Nivolex »/);
+  });
+
+  it("le même poste traité comme une dépense ordinaire serait bloqué faute de budget — c'est la nature qui l'exempte", () => {
+    // Ce qui le ferait tomber : oublier la nature dans le filtre de l'argent. Le témoin le prouve.
+    const b = bilanCloture("PRE_VALIDATED", [{ ...stock("Matériel du stand", "APPROVED", []), kind: "OTHER" }]);
+    expect(b.cloturable).toBe(false);
+    expect(b.manques.join(" ")).toMatch(/sans budget/);
+  });
+
+  it("un poste de stock encore à décider bloque comme n'importe quel poste", () => {
+    const b = bilanCloture("PRE_VALIDATED", [stock("Matériel", "PENDING", [{ libelle: "Brochure", statut: "DEMANDEE" }])]);
+    expect(b.manques.join(" ")).toMatch(/encore à décider/);
   });
 });

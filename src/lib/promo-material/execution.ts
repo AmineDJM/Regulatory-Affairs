@@ -33,6 +33,11 @@ export interface FactureDuBC {
   paiementDemande: boolean;
   /** Sa demande de visa publicitaire ou de déclaration au ministère, si elle existe. */
   demandeInfoMedicale: { reference: string; nature: string } | null;
+  /**
+   * Les lignes de la facture DÉTAILLÉE qui attendent encore leur réception (§118.165) — le paiement
+   * les attend. 0 (ou absent) pour une facture d'avant le détail ligne à ligne.
+   */
+  receptionAttendue?: number;
 }
 
 export interface BCDuDevis {
@@ -71,7 +76,14 @@ export function verdictPaiements(devis: readonly BCDuDevis[]): Verdict {
   const avecBC = devisEngages(devis).filter((d) => d.bc);
   if (avecBC.length === 0) return { ok: false, raison: "Aucun bon de commande n'est encore généré : les factures viennent après." };
   const sansFacture = avecBC.filter((d) => d.factures.length === 0).map(nomBC);
-  const nonReglees = avecBC.flatMap((d) => d.factures.filter((f) => !f.reglee).map((f) => `${nomFacture(f)} (${d.fournisseur}) — ${f.etatReglement}`));
+  const nonReglees = avecBC.flatMap((d) => d.factures.filter((f) => !f.reglee).map((f) => {
+    // LA RÉCEPTION D'ABORD (§118.165) : « non envoyée » seul laisserait croire qu'il suffit de
+    // demander le paiement, alors que le geste attendu est de cocher ce qui est arrivé.
+    const attente = !f.paiementDemande && (f.receptionAttendue ?? 0) > 0
+      ? `, ${f.receptionAttendue} ligne${(f.receptionAttendue ?? 0) > 1 ? "s" : ""} à réceptionner`
+      : "";
+    return `${nomFacture(f)} (${d.fournisseur}) — ${f.etatReglement}${attente}`;
+  }));
   const manques = [
     ...(sansFacture.length ? [`facture obligatoire attendue pour ${sansFacture.join(", ")}`] : []),
     ...(nonReglees.length ? [`pas encore réglé : ${nonReglees.join(" ; ")}`] : []),

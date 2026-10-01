@@ -13,11 +13,12 @@ import {
   peutAnnulerDemande, peutAnnulerTransfert, peutConfirmerReception, peutCorriger, peutDeclarerPerte, peutDemander, peutDoter,
   peutEntrerAlaMain, peutGererArticles, peutPoserOuverture, peutServirDemande, peutSortirDe, type FaitsStock,
 } from "@/lib/promo/stock-acces";
+import { STATUT_REFONTE_LABEL, peutProposerRefonte } from "@/lib/promo/comptages";
 import type { ActionResult } from "@/lib/actions/types";
 import type { ArticleVue, DemandeVue, MouvementVue, PageStock, SupportVue, TransfertVue } from "@/lib/queries/promo-stock";
 import { annulerDemande, confirmerReception } from "@/lib/actions/promo-stock-actions";
 import {
-  BadgeFamille, BadgeNiveau, BadgeValidite, LotsDuDetenteur, Section, TitreArticle, Vide,
+  BadgeFamille, BadgeNiveau, BadgeValidite, Chiffre, LotsDuDetenteur, Section, TitreArticle, Vide,
   date, depuis, distribuable, enLotPerime, jour, nombre, nomDe, quantiteDe, soldeDe,
 } from "./stock-commun";
 import type { Dialogue } from "./stock-formulaires";
@@ -40,6 +41,8 @@ export interface Ctx {
   f: FaitsStock;
   ouvrir: (d: Dialogue) => void;
   executer: (fn: () => Promise<ActionResult>, succes: string) => Promise<void>;
+  /** Le bandeau de l'écran, pour un formulaire qui appelle son action lui-même (la saisie d'un comptage). */
+  annoncer: (texte: string) => void;
   occupe: boolean;
 }
 
@@ -48,18 +51,6 @@ const fd = (entrees: Record<string, string>): FormData => {
   for (const [k, v] of Object.entries(entrees)) f.set(k, v);
   return f;
 };
-
-function Chiffre({ label, valeur, ton = "neutre", aide }: { label: string; valeur: string; ton?: "neutre" | "alerte" | "danger" | "info"; aide?: string }) {
-  return (
-    <div className="surface min-w-0 p-3" title={aide}>
-      <p className="text-xs font-medium text-muted-foreground">{label}</p>
-      <p className={cn(
-        "mt-1 break-words text-lg font-semibold tabular-nums sm:text-xl",
-        ton === "alerte" && "text-warning", ton === "danger" && "text-destructive", ton === "info" && "text-blue-600",
-      )}>{valeur}</p>
-    </div>
-  );
-}
 
 // ─────────────────────────────── BRIQUES PARTAGÉES ───────────────────────────────
 
@@ -186,6 +177,18 @@ function GestesDuDetenteur({ a, detenteurId, ctx }: { a: ArticleVue; detenteurId
   return <div className="flex flex-wrap gap-1.5">{boutons}</div>;
 }
 
+/**
+ * PROPOSER LA REFONTE d'un support DURABLE (§118.168) — montré seulement si la règle l'ouvre, et
+ * jamais en double : une proposition déjà ouverte par la personne le dit au lieu de proposer.
+ */
+function BoutonRefonte({ a, ctx }: { a: ArticleVue; ctx: Ctx }) {
+  const { page, f } = ctx;
+  if (!a.isActive || !peutProposerRefonte(f, a.catalogue.famille)) return null;
+  const ouverte = page.refontes.some((r) => r.itemId === a.id && r.auteurId === page.moi && r.statut === "OUVERTE");
+  if (ouverte) return <span className="text-xs text-muted-foreground">Refonte proposée</span>;
+  return <Button size="sm" variant="ghost" onClick={() => ctx.ouvrir({ type: "proposerRefonte", article: a })}>Proposer une refonte</Button>;
+}
+
 function ListeSupports({ supports, ctx }: { supports: SupportVue[]; ctx: Ctx }) {
   const { f } = ctx;
   if (!supports.length) return <Vide>Aucun support numérique déclaré.</Vide>;
@@ -305,6 +308,7 @@ export function VueMoi({ ctx }: { ctx: Ctx }) {
   const envoyes = page.transferts.filter((t) => t.statut === "EN_ROUTE" && t.versId !== moi && (t.deId === moi || t.initiateurId === moi));
   const demandes = page.demandes.filter((d) => d.demandeurId === moi);
   const supports = page.supports.filter((s) => s.isActive && s.etat !== "PERIME");
+  const mesRefontes = page.refontes.filter((r) => r.auteurId === moi);
   const historique = page.articles
     .flatMap((a) => a.journal.filter((m) => m.detenteurId === moi).map((m) => ({ a, m })))
     .sort((x, y) => y.m.occurredAt.localeCompare(x.m.occurredAt))
@@ -339,6 +343,7 @@ export function VueMoi({ ctx }: { ctx: Ctx }) {
                       {nombre(quantiteDe(a, moi))} <span className="text-xs font-normal text-muted-foreground">{a.catalogue.unite}</span>
                     </span>
                     <GestesDuDetenteur a={a} detenteurId={moi} ctx={ctx} />
+                    <BoutonRefonte a={a} ctx={ctx} />
                   </div>
                 </li>
               );
@@ -369,6 +374,22 @@ export function VueMoi({ ctx }: { ctx: Ctx }) {
       {supports.length > 0 && (
         <Section titre="Supports numériques en vigueur" aide="E-flyers, vidéos, e-ADV : un lien, pas de quantité.">
           <ListeSupports supports={supports} ctx={ctx} />
+        </Section>
+      )}
+
+      {mesRefontes.length > 0 && (
+        <Section titre="Mes propositions de refonte" aide="La Direction Marketing les retient ou les écarte ; sa réponse s'affiche ici.">
+          <ul className="space-y-1.5 text-sm">
+            {mesRefontes.map((r) => (
+              <li key={r.id} className="flex flex-col gap-1 rounded-lg border border-border px-3 py-2 sm:flex-row sm:items-center sm:justify-between">
+                <span className="min-w-0 break-words">{r.libelle} <span className="text-xs text-muted-foreground">· « {r.motif} »</span></span>
+                <span className="shrink-0 text-xs text-muted-foreground">
+                  <Badge tone={r.statut === "RETENUE" ? "success" : r.statut === "ECARTEE" ? "neutral" : "info"}>{STATUT_REFONTE_LABEL[r.statut]}</Badge>
+                  {r.noteDecision ? ` « ${r.noteDecision} »` : ""}
+                </span>
+              </li>
+            ))}
+          </ul>
         </Section>
       )}
 
@@ -528,6 +549,31 @@ export function VueMagasin({ ctx }: { ctx: Ctx }) {
         </Section>
       )}
 
+      {/* LE MATÉRIEL SORTI POUR DES ÉVÉNEMENTS (§118.167) : réservé à l'accord d'un poste Ad & Pro, il a
+          quitté le solde du magasin sans être chez personne. Sans cette liste, il disparaîtrait des
+          chiffres sans qu'on sache où il est — la confirmation se fait sur la fiche de la demande. */}
+      {page.horsMagasin.length > 0 && (
+        <Section
+          titre="Sorti pour des événements"
+          compte={page.horsMagasin.length}
+          aide="Réservé à l'accord d'un poste « Matériel du stock » d'une demande Ad & Pro. Après l'événement, la demande confirme ce qui a été remis, et le reste revient ici."
+        >
+          <ul className="divide-y divide-border rounded-lg border border-border">
+            {page.horsMagasin.map((h) => (
+              <li key={h.ligneId} className="flex flex-col gap-1 px-3 py-2 text-sm sm:flex-row sm:items-center sm:justify-between">
+                <span className="min-w-0 break-words">
+                  <strong className="tabular-nums">{nombre(h.quantite)}</strong> {h.libelle}
+                  {h.depuis && <span className="text-xs text-muted-foreground"> · depuis le {date(h.depuis)}</span>}
+                </span>
+                <a href={h.lien} className="inline-flex shrink-0 items-center gap-1 text-xs font-medium text-primary hover:underline">
+                  {h.demande} <ExternalLink className="h-3 w-3" aria-hidden />
+                </a>
+              </li>
+            ))}
+          </ul>
+        </Section>
+      )}
+
       <Section
         titre="Articles au magasin"
         actions={archivesListe.length > 0 ? (
@@ -559,6 +605,7 @@ export function VueMagasin({ ctx }: { ctx: Ctx }) {
                       {a.enRoute > 0 && <span className="text-xs text-muted-foreground">+ {nombre(a.enRoute)} en route</span>}
                       <GestesDuDetenteur a={a} detenteurId={null} ctx={ctx} />
                       {peutGererArticles(f) && <Button size="sm" variant="ghost" onClick={() => ctx.ouvrir({ type: "fiche", article: a })}>Fiche</Button>}
+                      <BoutonRefonte a={a} ctx={ctx} />
                     </div>
                   </div>
                   {deplie && <DetailArticle a={a} ctx={ctx} detenteurId={null} />}

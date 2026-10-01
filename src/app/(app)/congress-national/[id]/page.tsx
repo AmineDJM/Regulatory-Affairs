@@ -18,7 +18,7 @@ import { getInvolvementThreads } from "@/lib/queries/involvement";
 import { toNumber } from "@/lib/utils";
 import { promoMaterialOptions } from "@/lib/actions/ad-pro-item-actions";
 import { AdProItemsPanel } from "@/components/ad-pro/items-panel";
-import { loadAdProItems, adProBudgetOptions } from "@/lib/queries/ad-pro-items";
+import { loadAdProItems, adProBudgetOptions, contexteMaterielStock } from "@/lib/queries/ad-pro-items";
 import { CarePanel } from "@/components/care/care-panel";
 import { getCareDossier } from "@/lib/queries/care";
 import { careDirectoryOptions, carePromoOptions } from "@/lib/actions/care-actions";
@@ -89,6 +89,8 @@ export default async function CongressNatDetailPage({ params }: { params: { id: 
   ]);
   // L'enveloppe d'un congrès, c'est le montant accordé par la Direction à la décision définitive.
   const canAllocate = hasGlobalView(user) || userCan(user, "CONGRESS_NATIONAL", "VALIDATE");
+  // LE MAGASIN où un poste « Matériel du stock » pioche, et qui confirme après l'événement (§118.167).
+  const materielStock = await contexteMaterielStock(user, "CONGRESS_NATIONAL", detail.id, canAllocate);
 
   // Le dossier de prise en charge : les personnes, ce qu'il faut pour chacune, et les devis.
   const [care, directory, carePromos] = await Promise.all([getCareDossier("NATIONAL", detail.id), careDirectoryOptions(), carePromoOptions()]);
@@ -158,6 +160,7 @@ export default async function CongressNatDetailPage({ params }: { params: { id: 
             // (« choisissez d'abord le budget ») sur la seule fiche où l'on ne pouvait pas le
             // choisir — et le bouton « Émettre (Finances) » n'y apparaissait jamais (§118.148).
             budgetOptions={budgetOptions}
+            materiel={materielStock}
             canIssueOrder={userCan(user, "FINANCES", "UPDATE") || userCan(user, "FINANCES", "VALIDATE")}
             canViserBC={siegeAuCentreAdPro(user)}
           />

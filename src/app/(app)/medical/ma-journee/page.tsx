@@ -4,6 +4,7 @@ import { requireModule } from "@/lib/session";
 import { userCan } from "@/lib/rbac";
 import { loadMyFieldDay } from "@/lib/queries/my-field-day";
 import { loadEmploiDuTemps } from "@/lib/queries/tour-schedule";
+import { stockPourVisite, type StockPourVisite } from "@/lib/queries/promo-remises";
 import { estVue, VUE_LABELS, type VueTournee } from "@/lib/sfe/tournee";
 import { EmploiDuTemps } from "./emploi-du-temps";
 import { PageHeader } from "@/components/shared/page-header";
@@ -44,9 +45,13 @@ export default async function MaJourneePage({ searchParams }: { searchParams?: {
   // montant dans sa voiture. Une vue inconnue dans l'adresse retombe dessus plutôt que de rendre
   // une page vide.
   const vue: VueTournee = searchParams?.vue && estVue(searchParams.vue) ? searchParams.vue : "AUJOURD_HUI";
-  const [day, edt] = await Promise.all([
+  // LE MATÉRIEL EN MAIN n'est chargé que pour qui saisit des visites : c'est le bloc « Matériel
+  // remis » du rapport qui le lit (§118.166), et un compte qui ne saisit rien n'en a pas l'usage.
+  const sansStock: StockPourVisite = { articles: [], numeriques: [] };
+  const [day, edt, stock] = await Promise.all([
     loadMyFieldDay(user.id),
     loadEmploiDuTemps(user, vue),
+    canLog ? stockPourVisite(user.id) : Promise.resolve(sansStock),
   ]);
   const p = day.progress;
 
@@ -118,6 +123,7 @@ export default async function MaJourneePage({ searchParams }: { searchParams?: {
             messages={edt.messages}
             sansBu={edt.sansBu}
             panel={day.panel.map((d) => ({ id: d.id, name: d.name }))}
+            stock={stock}
           />
         ) : (
           <p className="text-sm text-muted-foreground">Vous n&apos;avez pas le droit de saisir des visites.</p>
@@ -134,7 +140,7 @@ export default async function MaJourneePage({ searchParams }: { searchParams?: {
           </Link>
         </div>
         {canLog ? (
-          <DayClient tournee={day.tournee} panel={day.panel} produits={day.produits} />
+          <DayClient tournee={day.tournee} panel={day.panel} produits={day.produits} stock={stock} />
         ) : (
           <p className="text-sm text-muted-foreground">Vous n&apos;avez pas le droit de saisir des visites.</p>
         )}

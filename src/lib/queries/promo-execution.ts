@@ -5,6 +5,8 @@ import { etatDeLOrdre, LIBELLE_ETAT_REGLEMENT, type EtatReglement } from "@/lib/
 import { DECLARATION_KIND_LABEL, isDeclarationKind } from "@/lib/medical-info/circuits";
 import { devisDuDossier, devisLu } from "@/lib/queries/promo-circuit";
 import { totauxRetenus, type Totaux } from "@/lib/promo-material/devis";
+import { lignesAReceptionner, lignesDuBC, type LigneBC } from "@/lib/promo-material/achats";
+import { detailsDesFactures, type DetailFacture } from "@/lib/queries/promo-achats";
 import {
   verdictBonsDeCommande, verdictPaiements, verdictVisas,
   type BCDuDevis, type FactureDuBC, type Verdict,
@@ -26,6 +28,8 @@ export interface FactureLue extends FactureDuBC {
   date: Date | null;
   expenseOrderId: string | null;
   etat: EtatReglement;
+  /** Le détail ligne à ligne et la réception (§118.165) — nul pour une facture d'avant. */
+  detail: DetailFacture | null;
 }
 
 export interface ExecutionDevis extends BCDuDevis {
@@ -39,6 +43,13 @@ export interface ExecutionDevis extends BCDuDevis {
     docx: boolean; pdf: boolean;
   } | null;
   factures: FactureLue[];
+  /**
+   * LES LIGNES DU BC (les lignes retenues), avec ce que les factures actives en ont déjà facturé —
+   * ce que le dépôt d'une facture pré-remplit (§118.165).
+   */
+  lignesBC: LigneBC[];
+  /** Les taxes du devis — celles du BC, que la facture reprend (corrigeables). */
+  taxes: { tvaRate: number; extraTaxLabel: string | null; extraTaxRate: number | null };
 }
 
 export async function executionDuDossier(promoId: string): Promise<ExecutionDevis[]> {
@@ -61,7 +72,7 @@ export async function executionDuDossier(promoId: string): Promise<ExecutionDevi
       })
     : [];
   const ordreIds = factures.map((f) => f.expenseOrderId).filter((x): x is string => Boolean(x));
-  const [ordres, declarations] = await Promise.all([
+  const [ordres, declarations, details] = await Promise.all([
     ordreIds.length ? prisma.expenseOrder.findMany({ where: { id: { in: ordreIds } }, select: { id: true, status: true, centralStatus: true } }) : Promise.resolve([]),
     factures.length
       ? prisma.medicalInfoDeclaration.findMany({
@@ -69,6 +80,7 @@ export async function executionDuDossier(promoId: string): Promise<ExecutionDevi
           select: { sourceId: true, reference: true, declarationKind: true },
         })
       : Promise.resolve([]),
+    detailsDesFactures(factures.map((f) => f.id)),
   ]);
   const ordreParId = new Map(ordres.map((o) => [o.id, o]));
   const declParFacture = new Map(declarations.map((d) => [d.sourceId, d]));
@@ -82,9 +94,11 @@ export async function executionDuDossier(promoId: string): Promise<ExecutionDevi
           const o = f.expenseOrderId ? ordreParId.get(f.expenseOrderId) : undefined;
           const e: EtatReglement = o ? etatDeLOrdre(o) : f.paidDate ? "REGLE" : "NON_ENVOYE";
           const decl = declParFacture.get(f.id);
+          const detail = details.get(f.id) ?? null;
           return {
             id: f.id, reference: f.reference, montant: f.amount != null ? Number(f.amount) : null,
-            date: f.startDate, expenseOrderId: f.expenseOrderId, etat: e,
+            date: f.startDate, expenseOrderId: f.expenseOrderId, etat: e, detail,
+            receptionAttendue: detail ? lignesAReceptionner(detail.lignes).length : 0,
             reglee: e === "REGLE", etatReglement: LIBELLE_ETAT_REGLEMENT[e],
             paiementDemande: Boolean(f.expenseOrderId) || Boolean(f.paidDate),
             demandeInfoMedicale: decl
@@ -104,6 +118,8 @@ export async function executionDuDossier(promoId: string): Promise<ExecutionDevi
         ? { id: bcActif.id, reference: bcActif.reference, montant: bcActif.montant, libelleEtape: LIBELLE_ETAPE_BC[bcActif.etape], docx: Boolean(f?.docx), pdf: Boolean(f?.pdf) }
         : null,
       factures: sesFactures,
+      lignesBC: bcActif ? lignesDuBC(d, sesFactures.flatMap((x) => x.detail?.lignes ?? [])) : [],
+      taxes: { tvaRate: d.tvaRate, extraTaxLabel: d.extraTaxLabel, extraTaxRate: d.extraTaxRate },
     };
   });
 }

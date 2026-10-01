@@ -8,6 +8,10 @@ import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
 import { fdStr, fdDate, type ActionResult } from "@/lib/actions/types";
 import { fenetreRapport } from "@/lib/sfe/tournee";
+import { sousVerrous } from "@/lib/promo/stock-ecriture";
+import {
+  dejaDansLaVisite, ecrireRemises, lireMaterielRemis, motifDeRemise, phraseMateriel, RefusRemise, toucheLeStock, verrousDuRapport,
+} from "@/lib/promo/remises-visite";
 
 /**
  * LE RAPPORT TERRAIN D'UNE VISITE PLANIFIÉE, la visite IMPRÉVUE, et celle que la Direction
@@ -30,6 +34,7 @@ import { fenetreRapport } from "@/lib/sfe/tournee";
 const MODULE = "MEDICAL" as const;
 const PATH_JOURNEE = "/medical/ma-journee";
 const PATH_TOURNEE = "/medical/plan-de-tournee";
+const PATH_STOCK = "/promo-material/stock";
 
 /** Le KAM peut-il écrire sur cette visite ? Lui, ou une supervision qui la couvre. */
 async function peutRapporter(
@@ -86,7 +91,11 @@ export async function rapporterVisite(formData: FormData): Promise<ActionResult>
   if (!visitId) return { ok: false, error: "Visite introuvable." };
   const visite = await prisma.medicalVisit.findUnique({
     where: { id: visitId },
-    select: { id: true, date: true, status: true, delegateId: true, doctorId: true, tourPlanId: true },
+    select: {
+      id: true, date: true, status: true, delegateId: true, doctorId: true, tourPlanId: true, origin: true,
+      doctor: { select: { name: true } },
+      _count: { select: { productLinks: true, messageLinks: true } },
+    },
   });
   if (!visite) return { ok: false, error: "Visite introuvable." };
   if (!(await peutRapporter(user, visite))) return { ok: false, error: "Cette visite n'est pas la vôtre." };
@@ -110,9 +119,19 @@ export async function rapporterVisite(formData: FormData): Promise<ActionResult>
     return { ok: false, error: "Dictez ou écrivez le compte rendu : une visite rapportée sans un mot est une case cochée, pas un compte rendu." };
   }
 
+  // CORRIGER N'EXIGE JAMAIS PLUS QUE CE QUE LA CRÉATION A EXIGÉ (§118.166). Une visite imprévue
+  // naît sans produit ni message obligatoire (une rencontre de couloir n'a pas d'ordre de mission),
+  // et la saisie rapide de « Ma journée » n'en demande pas : les exiger à la CORRECTION rendrait ces
+  // visites incorrigibles — corriger une quantité remise forcerait à inventer un message. Un rapport
+  // fait AVEC ses produits et ses messages, lui, les garde obligatoires.
+  const imprevue = visite.origin === "UNPLANNED";
+  const dejaRapportee = visite.status === "COMPLETED";
+  const exigeProduits = !imprevue && !(dejaRapportee && visite._count.productLinks === 0);
+  const exigeMessages = !imprevue && !(dejaRapportee && visite._count.messageLinks === 0);
+
   // ── LES PRODUITS — ceux de SA BU, et rien d'autre ─────────────────────────────────────────
   const productIds = [...new Set(formData.getAll("productId").map(String).filter(Boolean))];
-  if (productIds.length === 0) {
+  if (productIds.length === 0 && exigeProduits) {
     return { ok: false, error: "Choisissez le ou les produits discutés avec le médecin — sans eux, l'effort par produit ne se mesure pas." };
   }
   const { admis, sansCanonique } = await produitsDeLaBu(visite.delegateId ?? user.id);
@@ -130,73 +149,99 @@ export async function rapporterVisite(formData: FormData): Promise<ActionResult>
 
   // ── LES MESSAGES PRÉ-DÉFINIS ──────────────────────────────────────────────────────────────
   const messageIds = [...new Set(formData.getAll("messageId").map(String).filter(Boolean))];
-  if (messageIds.length === 0) {
+  if (messageIds.length === 0 && exigeMessages) {
     return { ok: false, error: "Choisissez le ou les messages de la Direction Marketing que vous avez portés — c'est ce qui rend leur efficacité mesurable." };
   }
-  const messages = await prisma.promoMessage.findMany({
-    where: { id: { in: messageIds }, isActive: true },
-    select: { id: true },
-  });
+  const messages = messageIds.length
+    ? await prisma.promoMessage.findMany({ where: { id: { in: messageIds }, isActive: true }, select: { id: true } })
+    : [];
   if (messages.length !== messageIds.length) {
     return { ok: false, error: `${messageIds.length - messages.length} message(s) sélectionné(s) ne sont plus actifs — rechargez l'écran.` };
   }
 
-  await prisma.$transaction(async (tx) => {
-    await tx.medicalVisit.update({
-      where: { id: visite.id },
-      data: {
-        status: "COMPLETED",
-        report: contenu,
-        doctorFeedback: fdStr(formData, "doctorFeedback"),
-        followUpActions: fdStr(formData, "followUpActions"),
-        // Le texte hérité reste renseigné pour les écrans qui le lisent encore ; la VÉRITÉ
-        // exploitable est dans les liens.
-        presentedProducts: produits.map((p) => p.canonicalName).join(", ") || null,
-        updatedById: user.id,
-      },
-    });
-    // Les liens sont REMPLACÉS : corriger un rapport dans sa fenêtre doit pouvoir retirer un
-    // produit coché par erreur.
-    await tx.medicalVisitProduct.deleteMany({ where: { visitId: visite.id } });
-    await tx.medicalVisitProduct.createMany({
-      data: productIds.map((productId) => ({ visitId: visite.id, productId })),
-      skipDuplicates: true,
-    });
-    await tx.medicalVisitMessage.deleteMany({ where: { visitId: visite.id } });
-    await tx.medicalVisitMessage.createMany({
-      data: messageIds.map((messageId) => ({ visitId: visite.id, messageId })),
-      skipDuplicates: true,
-    });
-    if (visite.doctorId) {
-      // La fiche du praticien porte sa dernière visite : sans cette mise à jour, la tournée du
-      // lendemain le reproposerait en tête.
-      await tx.medicalDoctor.update({ where: { id: visite.doctorId }, data: { lastVisit: visite.date } });
-    }
-    // UN RAPPORT VOCAL est un `FieldReport` — l'objet du module Rapports terrain, avec sa
-    // transcription et sa propre validation. On le RATTACHE à la visite (`visitId`) : sans le
-    // lien, l'emploi du temps ne pourrait pas passer au vert sur un rapport dicté (§118.5 : on
-    // ajoute le lien, on ne fond pas les deux objets).
-    if (transcription) {
-      await tx.fieldReport.create({
+  // ── LE MATÉRIEL REMIS (§118.166) — déduit du stock du DÉLÉGUÉ de la visite ───────────────────
+  const maintenant = new Date();
+  const deja = await dejaDansLaVisite(visite.id);
+  const lu = await lireMaterielRemis(formData, deja, maintenant);
+  if (!lu.ok) return { ok: false, error: lu.error };
+  // C'EST LA VOITURE DU DÉLÉGUÉ QUI SE VIDE — même quand un superviseur rapporte à sa place.
+  const detenteurId = visite.delegateId ?? user.id;
+  const verrous = verrousDuRapport(lu.materiel, deja);
+
+  try {
+    await sousVerrous(verrous, async (tx, verrouilles) => {
+      await tx.medicalVisit.update({
+        where: { id: visite.id },
         data: {
-          delegateId: visite.delegateId ?? user.id,
-          visitId: visite.id,
-          visitDate: visite.date,
-          doctorId: visite.doctorId,
-          transcript: transcription,
-          status: "DRAFT",
+          status: "COMPLETED",
+          report: contenu,
+          doctorFeedback: fdStr(formData, "doctorFeedback"),
+          followUpActions: fdStr(formData, "followUpActions"),
+          // Le texte hérité reste renseigné pour les écrans qui le lisent encore ; la VÉRITÉ
+          // exploitable est dans les liens.
+          presentedProducts: produits.map((p) => p.canonicalName).join(", ") || null,
+          updatedById: user.id,
         },
       });
-    }
-  });
+      // Les liens sont REMPLACÉS : corriger un rapport dans sa fenêtre doit pouvoir retirer un
+      // produit coché par erreur.
+      await tx.medicalVisitProduct.deleteMany({ where: { visitId: visite.id } });
+      await tx.medicalVisitProduct.createMany({
+        data: productIds.map((productId) => ({ visitId: visite.id, productId })),
+        skipDuplicates: true,
+      });
+      await tx.medicalVisitMessage.deleteMany({ where: { visitId: visite.id } });
+      await tx.medicalVisitMessage.createMany({
+        data: messageIds.map((messageId) => ({ visitId: visite.id, messageId })),
+        skipDuplicates: true,
+      });
+      if (visite.doctorId) {
+        // La fiche du praticien porte sa dernière visite : sans cette mise à jour, la tournée du
+        // lendemain le reproposerait en tête.
+        await tx.medicalDoctor.update({ where: { id: visite.doctorId }, data: { lastVisit: visite.date } });
+      }
+      // UN RAPPORT VOCAL est un `FieldReport` — l'objet du module Rapports terrain, avec sa
+      // transcription et sa propre validation. On le RATTACHE à la visite (`visitId`) : sans le
+      // lien, l'emploi du temps ne pourrait pas passer au vert sur un rapport dicté (§118.5 : on
+      // ajoute le lien, on ne fond pas les deux objets).
+      if (transcription) {
+        // UNE CORRECTION NE CRÉE PAS UN SECOND RAPPORT VOCAL (§118.166) : le brouillon existant
+        // prend la nouvelle transcription ; un rapport déjà VALIDÉ par le délégué n'est pas réécrit
+        // dans son dos — sa relecture vaut décision.
+        const existant = await tx.fieldReport.findFirst({ where: { visitId: visite.id }, select: { id: true, status: true } });
+        if (!existant) {
+          await tx.fieldReport.create({
+            data: {
+              delegateId: visite.delegateId ?? user.id,
+              visitId: visite.id,
+              visitDate: visite.date,
+              doctorId: visite.doctorId,
+              transcript: transcription,
+              status: "DRAFT",
+            },
+          });
+        } else if (existant.status === "DRAFT") {
+          await tx.fieldReport.update({ where: { id: existant.id }, data: { transcript: transcription } });
+        }
+      }
+      await ecrireRemises(tx, lu.materiel, verrouilles, {
+        visitId: visite.id, doctorId: visite.doctorId, detenteurId, auteurId: user.id, maintenant,
+        motif: motifDeRemise(visite.date, visite.doctor?.name ?? null),
+      });
+    });
+  } catch (e) {
+    if (e instanceof RefusRemise) return { ok: false, error: e.message };
+    throw e;
+  }
 
   await recordAudit({
     actorId: user.id, action: "UPDATE", module: "Promotion médicale",
     entityType: "VISIT", entityId: visite.id,
-    summary: `Rapport terrain — ${produits.length} produit(s), ${messageIds.length} message(s)${transcription ? " (vocal)" : ""}`,
+    summary: `Rapport terrain — ${produits.length} produit(s), ${messageIds.length} message(s)${transcription ? " (vocal)" : ""}${phraseMateriel(lu.materiel)}`,
   });
   revalidatePath(PATH_JOURNEE);
   revalidatePath(PATH_TOURNEE);
+  if (toucheLeStock(lu.materiel, deja)) revalidatePath(PATH_STOCK);
   return { ok: true, id: visite.id };
 }
 
@@ -258,40 +303,55 @@ export async function ajouterVisiteImprevue(formData: FormData): Promise<ActionR
     return { ok: false, error: `${messageIds.length - messages.length} message(s) ne sont plus actifs — rechargez l'écran.` };
   }
 
-  const cree = await prisma.$transaction(async (tx) => {
-    const v = await tx.medicalVisit.create({
-      data: {
-        date, doctorId, delegateId: user.id,
-        status: "COMPLETED", origin: "UNPLANNED", tourPlanId: null,
-        report: contenu,
-        followUpActions: fdStr(formData, "followUpActions"),
-        presentedProducts: produits.map((p) => p.canonicalName).join(", ") || null,
-        createdById: user.id, updatedById: user.id,
-      },
-      select: { id: true },
-    });
-    if (productIds.length) {
-      await tx.medicalVisitProduct.createMany({ data: productIds.map((productId) => ({ visitId: v.id, productId })), skipDuplicates: true });
-    }
-    if (messageIds.length) {
-      await tx.medicalVisitMessage.createMany({ data: messageIds.map((messageId) => ({ visitId: v.id, messageId })), skipDuplicates: true });
-    }
-    await tx.medicalDoctor.update({ where: { id: doctorId }, data: { lastVisit: date } });
-    if (transcription) {
-      await tx.fieldReport.create({
-        data: { delegateId: user.id, visitId: v.id, visitDate: date, doctorId, transcript: transcription, status: "DRAFT" },
+  // ── LE MATÉRIEL REMIS (§118.166) — la visite se crée avec ses remises, ou pas du tout ──────────
+  const deja = await dejaDansLaVisite(null);
+  const lu = await lireMaterielRemis(formData, deja, maintenant);
+  if (!lu.ok) return { ok: false, error: lu.error };
+
+  let cree: string;
+  try {
+    cree = await sousVerrous(verrousDuRapport(lu.materiel, deja), async (tx, verrouilles) => {
+      const v = await tx.medicalVisit.create({
+        data: {
+          date, doctorId, delegateId: user.id,
+          status: "COMPLETED", origin: "UNPLANNED", tourPlanId: null,
+          report: contenu,
+          followUpActions: fdStr(formData, "followUpActions"),
+          presentedProducts: produits.map((p) => p.canonicalName).join(", ") || null,
+          createdById: user.id, updatedById: user.id,
+        },
+        select: { id: true },
       });
-    }
-    return v.id;
-  });
+      if (productIds.length) {
+        await tx.medicalVisitProduct.createMany({ data: productIds.map((productId) => ({ visitId: v.id, productId })), skipDuplicates: true });
+      }
+      if (messageIds.length) {
+        await tx.medicalVisitMessage.createMany({ data: messageIds.map((messageId) => ({ visitId: v.id, messageId })), skipDuplicates: true });
+      }
+      await tx.medicalDoctor.update({ where: { id: doctorId }, data: { lastVisit: date } });
+      if (transcription) {
+        await tx.fieldReport.create({
+          data: { delegateId: user.id, visitId: v.id, visitDate: date, doctorId, transcript: transcription, status: "DRAFT" },
+        });
+      }
+      await ecrireRemises(tx, lu.materiel, verrouilles, {
+        visitId: v.id, doctorId, detenteurId: user.id, auteurId: user.id, maintenant, motif: motifDeRemise(date, doctor.name),
+      });
+      return v.id;
+    });
+  } catch (e) {
+    if (e instanceof RefusRemise) return { ok: false, error: e.message };
+    throw e;
+  }
 
   await recordAudit({
     actorId: user.id, action: "CREATE", module: "Promotion médicale",
     entityType: "VISIT", entityId: cree,
-    summary: `Visite IMPRÉVUE — ${doctor.name}${produits.length ? ` (${produits.length} produit(s))` : ""}`,
+    summary: `Visite IMPRÉVUE — ${doctor.name}${produits.length ? ` (${produits.length} produit(s))` : ""}${phraseMateriel(lu.materiel)}`,
   });
   revalidatePath(PATH_JOURNEE);
   revalidatePath(PATH_TOURNEE);
+  if (toucheLeStock(lu.materiel, deja)) revalidatePath(PATH_STOCK);
   return { ok: true, id: cree };
 }
 

@@ -75,6 +75,13 @@ interface Common {
 
 const ENGAGE_PAR_ORDRE = "Un ordre de dépense a été émis sur cette demande : elle ne peut plus être transférée.";
 
+/** La colonne qui rattache un poste à chaque nature de demande transférable. */
+const COLONNE_POSTE: Record<AdProKind, "sponsoringId" | "congressNationalId" | "congressInternationalId"> = {
+  SPONSORING: "sponsoringId",
+  CONGRESS_NATIONAL: "congressNationalId",
+  CONGRESS_INTERNATIONAL: "congressInternationalId",
+};
+
 async function readSource(kind: AdProKind, id: string): Promise<Common | null> {
   if (kind === "SPONSORING") {
     const r = await prisma.sponsoringRequest.findUnique({ where: { id } });
@@ -199,6 +206,18 @@ export async function transferAdProRequest(_prev: ActionResult | undefined, form
   const src = await readSource(fromRaw, sourceId);
   if (!src) return { ok: false, error: "Demande introuvable." };
   if (src.engagement) return { ok: false, error: src.engagement };
+  // DU MATÉRIEL DU STOCK RÉSERVÉ (§118.167) : la demande d'origine se ferme, ses postes y restent —
+  // et avec eux du matériel sorti du magasin que plus personne ne confirmerait. Pour toute nature
+  // de demande : un congrès accordé porte des postes de stock aussi bien qu'un sponsoring.
+  const reservees = await prisma.adProStockLine.count({
+    where: { statut: "RESERVEE", item: { [COLONNE_POSTE[fromRaw]]: sourceId } },
+  });
+  if (reservees > 0) {
+    return {
+      ok: false,
+      error: `${reservees} article(s) du stock sont réservés pour cette demande : confirmez d'abord ce qui a été remis (0 si rien) — le reste revient au magasin —, puis transférez-la.`,
+    };
+  }
 
   try {
     const targetId = await createTarget(toRaw, src, user.id, `${LABELS[fromRaw]} (${src.title})`);

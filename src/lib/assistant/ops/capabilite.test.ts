@@ -17,8 +17,8 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { prisma } from "@/lib/prisma";
 import { getAccess, type SessionUser } from "@/lib/rbac";
-import { CAPABILITY_OPS_IMPL } from "./impl-capabilite";
-import { CONTRATS_ACTIONS } from "@/platform/in-process/capacites";
+import { CAPABILITY_OPS_IMPL, refusDuCheminGenerique } from "./impl-capabilite";
+import { CONTRATS_ACTIONS, chercherCapacites } from "@/platform/in-process/capacites";
 import { entiteDuModele } from "@/lib/cibles/modele-entite";
 import { relireApresEcriture } from "@/lib/cibles/relire";
 import { porteeEntite } from "@/lib/api/registry/portee";
@@ -73,6 +73,94 @@ describe("LE REFUS FAIT LA DÉCOUVERTE — un outil au lieu de trois", () => {
     expect(msg).toMatch(/correspond à \d+ actions/);
     expect(msg).toContain(":");           // des identifiants exploitables
     expect(msg).toMatch(/ : texte| : reference| : date/); // et leurs champs
+  });
+
+  /**
+   * LES REFUSÉES NE PRENNENT PAS LES PLACES DES OUVERTES (§118.168).
+   *
+   * La recherche coupait à six AVANT de savoir lesquelles sont ouvertes : les sept actions du
+   * stock dont le nom porte « demande », toutes EXCLUDED, ont occupé les six places à égalité de
+   * score, et « créer une demande » ne rendait plus que des refus. Le cas précédent est tombé
+   * dans la suite complète, pas en relecture. Ceux-ci tiennent les trois branches du remède.
+   */
+  const correspondances = (q: string) => {
+    const tous = chercherCapacites(CONTRATS_ACTIONS, q, Number.POSITIVE_INFINITY);
+    return {
+      tous,
+      ouvertes: tous.filter((t) => refusDuCheminGenerique(t.contrat) === null),
+      refusees: tous.filter((t) => refusDuCheminGenerique(t.contrat) !== null),
+    };
+  };
+  const puces = (msg: string) => msg.split("\n").filter((l) => l.startsWith("  • "));
+
+  it("des refusées qui SURCLASSENT les ouvertes ne les cachent plus — et restent NOMMÉES, toutes comptées", async () => {
+    const q = "créer une demande";
+    const { tous, ouvertes, refusees } = correspondances(q);
+    // PRÉMISSE : le cas exact du défaut — au moins six refusées classées au niveau de la meilleure
+    // ouverte ou au-dessus. Sans elle, ce cas passerait sur un parc où le défaut ne peut pas naître.
+    expect(ouvertes.length, "prémisse : des ouvertes existent").toBeGreaterThan(0);
+    expect(refusees.filter((t) => t.score >= ouvertes[0]!.score).length,
+      "prémisse : six refusées au moins arrivent devant ou à égalité de la meilleure ouverte").toBeGreaterThanOrEqual(6);
+
+    const r = await run.propose({ action: q }, {} as CurrentUser);
+    const msg = (r as { error: string }).error;
+    // L'en-tête COMPTE, il ne recopie pas la coupe : « 6 actions » sur vingt-huit se lisait comme un total.
+    expect(msg).toContain(`correspond à ${tous.length} actions`);
+    // Les fiches complètes vont aux OUVERTES, celles dont les champs servent au tour suivant.
+    const ouvertesMontrees = puces(msg).filter((l) => !l.includes("— REFUSÉE"));
+    expect(ouvertesMontrees.length).toBe(Math.min(6, ouvertes.length));
+    for (const o of ouvertes.slice(0, 6)) expect(msg).toContain(`  • ${o.contrat.id} — `);
+    // Les ouvertes qui ne tiennent pas dans les six places sont COMPTÉES, jamais coupées en silence.
+    expect(ouvertes.length, "prémisse : plus d'ouvertes que de places").toBeGreaterThan(6);
+    expect(msg).toContain(`… et ${ouvertes.length - 6} autre(s) action(s) ouverte(s)`);
+    // Les refusées sont NOMMÉES — les taire ferait répondre « je ne trouve rien » (§118.74).
+    for (const t of refusees) expect(msg, `refusée tue : ${t.contrat.id}`).toContain(t.contrat.id);
+    expect(msg).toMatch(/tenues hors du champ d'Adam par conception/);
+  });
+
+  it("une phrase qui désigne MIEUX un geste refusé le met DEVANT, avec sa raison et son écran", async () => {
+    const q = "annuler la demande de matériel";
+    const { ouvertes, refusees } = correspondances(q);
+    expect(ouvertes.length, "prémisse : des ouvertes existent").toBeGreaterThan(0);
+    expect(refusees[0]?.contrat.id, "prémisse : la meilleure correspondance est le geste refusé").toBe("promo-stock-actions:annulerDemande");
+    expect(refusees[0]!.score, "prémisse : il surclasse toute ouverte").toBeGreaterThan(ouvertes[0]!.score);
+
+    const msg = ((await run.propose({ action: q }, {} as CurrentUser)) as { error: string }).error;
+    const premiere = puces(msg)[0] ?? "";
+    // Rangée derrière six gestes ouverts sans rapport, elle pousserait le modèle vers le mauvais objet (§104.7).
+    expect(premiere).toContain("promo-stock-actions:annulerDemande — REFUSÉE");
+    expect(premiere).toContain("Ad & Pro › Stock promotionnel");
+    // Deux refusées passent devant ; les suivantes sont nommées jusqu'à huit, et le reste COMPTÉ.
+    expect(refusees.length, "prémisse : plus de refusées que de noms").toBeGreaterThan(2 + 8);
+    expect(msg).toContain(`, et ${refusees.length - 2 - 8} autre(s).`);
+  });
+
+  it("UNE seule ouverte parmi des refusées n'est PAS désignée d'office — le refus montre les deux", async () => {
+    // « purge » : une seule action ouverte (le stockage orphelin) et une refusée IRRÉVERSIBLE (les
+    // ordres de dépense réglés). Désigner l'ouverte parce qu'elle est seule exécutable choisirait le
+    // geste à la place d'un humain (§118.34) — et la personne visait peut-être l'autre.
+    const q = "purge";
+    const { ouvertes, refusees } = correspondances(q);
+    expect(ouvertes.length, "prémisse : une seule ouverte").toBe(1);
+    expect(refusees.length, "prémisse : au moins une refusée").toBeGreaterThan(0);
+
+    const r = await run.propose({ action: q }, {} as CurrentUser);
+    expect("error" in r, "une proposition construite = le geste choisi à la place de la personne").toBe(true);
+    const msg = (r as { error: string }).error;
+    expect(msg).toContain(ouvertes[0]!.contrat.id);
+    for (const t of refusees) expect(msg).toContain(t.contrat.id);
+  });
+
+  it("sans aucune ouverte, la réponse est la fiche des refus — et ce qui dépasse est COMPTÉ", async () => {
+    const q = "comptage";
+    const { tous, ouvertes } = correspondances(q);
+    expect(ouvertes.length, "prémisse : aucune ouverte").toBe(0);
+    expect(tous.length, "prémisse : plus de correspondances que de places").toBeGreaterThan(6);
+
+    const msg = ((await run.propose({ action: q }, {} as CurrentUser)) as { error: string }).error;
+    expect(puces(msg)).toHaveLength(6);
+    for (const l of puces(msg)) expect(l).toContain("— REFUSÉE");
+    expect(msg).toContain(`… et ${tous.length - 6} autre(s), refusée(s) elles aussi.`);
   });
 
   it("une intention qui ne mène nulle part le DIT, avec le geste pour reformuler", async () => {

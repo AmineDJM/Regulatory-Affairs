@@ -10,6 +10,7 @@ import { getAccess, type SessionUser } from "@/lib/rbac";
 import { platformScope } from "@/lib/company";
 import { getRequestList } from "@/lib/queries/admin-requests";
 import { demanderDevisPromo } from "./promo-devis-actions";
+import { enregistrerArticleDemandePromo } from "./promo-demande-actions";
 
 let dbOk = false;
 try { await prisma.$queryRaw`SELECT 1`; dbOk = true; } catch { dbOk = false; }
@@ -24,9 +25,12 @@ async function acteur(id: string): Promise<CurrentUser> {
   const access = await getAccess(id, u.role);
   return { id, name: u.name, email: u.email, role: u.role, secondaryRole: u.secondaryRole, access, mustChangePassword: false };
 }
-const form = (fields: Record<string, string>): FormData => {
+const form = (fields: Record<string, string | string[]>): FormData => {
   const fd = new FormData();
-  for (const [k, v] of Object.entries(fields)) fd.set(k, v);
+  for (const [k, v] of Object.entries(fields)) {
+    if (Array.isArray(v)) for (const x of v) fd.append(k, x);
+    else fd.set(k, v);
+  }
   return fd;
 };
 
@@ -76,6 +80,17 @@ suite("demanderDevisPromo — la société d'une demande de devis", () => {
     dossierSansSociete = await dossier("NUL", null);
     dossierDeD = await dossier("D", societeD);
     dossierSuppleance = await dossier("SUPPL", null);
+    // LES ARTICLES D'ABORD (§118.165) : une demande de devis sans liste d'articles est refusée — la
+    // liste dit à l'assistante quels devis chercher. Composée par le DEMANDEUR, par la vraie action
+    // de l'écran : un article inséré à la main prouverait un dossier que personne ne compose ainsi.
+    const carnet = (await prisma.promoCatalogueArticle.create({
+      data: { reference: `${TAG}CAT`, nom: `${TAG} Carnet`, famille: "CONSOMMABLE" }, select: { id: true },
+    })).id;
+    ACTOR = await acteur(u.kam);
+    for (const pmId of [dossierSansSociete, dossierDeD, dossierSuppleance]) {
+      const a = await enregistrerArticleDemandePromo(form({ promoMaterialId: pmId, catalogueId: carnet, quantite: "200", actions: ["IMPRESSION"] }));
+      expect(a.ok, a.ok ? "" : a.error).toBe(true);
+    }
   }, 60_000);
 
   afterAll(nettoyer);
@@ -85,7 +100,9 @@ suite("demanderDevisPromo — la société d'une demande de devis", () => {
     await prisma.promoMaterial.updateMany({ where: { id: { in: dossiers } }, data: { adminRequestId: null } }).catch(() => undefined);
     await prisma.administrativeRequest.deleteMany({ where: { linkedEntityType: "PROMO_MATERIAL", linkedEntityId: { in: dossiers } } });
     await prisma.administrativeRequest.deleteMany({ where: { title: { startsWith: TAG } } });
+    // Les articles composés partent avec leur dossier (cascade) ; l'article du catalogue après eux.
     await prisma.promoMaterial.deleteMany({ where: { id: { in: dossiers } } });
+    await prisma.promoCatalogueArticle.deleteMany({ where: { reference: { startsWith: TAG } } });
     await prisma.notification.deleteMany({ where: { user: { email: { startsWith: TAG } } } }).catch(() => undefined);
     await prisma.auditLog.deleteMany({ where: { actor: { email: { startsWith: TAG } } } }).catch(() => undefined);
     await prisma.employee.deleteMany({ where: { fullName: { startsWith: TAG } } });

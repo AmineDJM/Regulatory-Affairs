@@ -7,7 +7,14 @@ import type { ActionResult } from "@/lib/actions/types";
 import { FAMILLE_LABEL, familleAValidite, familleQuantifiee } from "@/lib/promo/catalogue";
 import { MOVEMENT_LABEL } from "@/lib/promo/stock";
 import { peutTransfererVers, type FaitsStock } from "@/lib/promo/stock-acces";
-import type { ArticleVue, DemandeVue, LotVue, MouvementVue, PageStock, SupportVue, TransfertVue } from "@/lib/queries/promo-stock";
+import {
+  CIBLE_COMPTAGE_LABEL, FREQUENCES_COMPTAGE, FREQUENCE_COMPTAGE_LABEL, libelleFamilleComptage,
+  peutDemanderAEquipe, peutDemanderComptage, type CibleComptage,
+} from "@/lib/promo/comptages";
+import type {
+  ArticleVue, ComptageVue, DemandeVue, LotVue, MouvementVue, PageStock, RefonteVue, SupportVue, TransfertVue,
+} from "@/lib/queries/promo-stock";
+import { annulerComptage, deciderRefonte, demanderComptage, planifierComptage, proposerRefonte } from "@/lib/actions/promo-comptage-actions";
 import {
   annulerMouvement, annulerTransfert, confirmerReception, corrigerInventaire, declarerPerte, declarerSupportNumerique,
   demanderMateriel, doter, entrerEnStock, modifierArticleStock, modifierLot, poserInventaireOuverture, refuserDemande,
@@ -43,7 +50,12 @@ export type Dialogue =
   | { type: "recuEnPartie"; transfert: TransfertVue }
   | { type: "refuserReception"; transfert: TransfertVue }
   | { type: "annulerTransfert"; transfert: TransfertVue }
-  | { type: "annulerMouvement"; article: ArticleVue; mouvement: MouvementVue };
+  | { type: "annulerMouvement"; article: ArticleVue; mouvement: MouvementVue }
+  | { type: "demanderComptage" }
+  | { type: "planifierComptage" }
+  | { type: "annulerComptage"; comptage: ComptageVue }
+  | { type: "proposerRefonte"; article: ArticleVue }
+  | { type: "deciderRefonte"; refonte: RefonteVue; decision: "RETENUE" | "ECARTEE" };
 
 interface Definition {
   titre: string;
@@ -87,8 +99,118 @@ function champProduits(page: PageStock): FieldDef {
   };
 }
 
+/** « AAAA-MM-JJ » dans `n` jours, compté en UTC — la date que le serveur relit. */
+function dansJours(page: PageStock, n: number): string {
+  const d = new Date(page.maintenant);
+  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() + n)).toISOString().slice(0, 10);
+}
+
+/**
+ * À QUI DEMANDER UN COMPTAGE — seulement les cibles que la RÈGLE ouvre à la personne, et pour une
+ * personne, seulement celles de `peutFaireCompter` (la même règle, côté serveur). Proposer « le
+ * magasin » à qui n'a pas la vue globale serait proposer un geste que l'action refuse (§118.83).
+ */
+function champsCibleComptage(page: PageStock, f: FaitsStock): FieldDef[] {
+  const cibles: CibleComptage[] = [];
+  if (page.peutFaireCompter.length > 0) cibles.push("PERSONNE");
+  if (peutDemanderAEquipe(f)) cibles.push("EQUIPE");
+  if (peutDemanderComptage(f, null)) cibles.push("MAGASIN");
+  return [
+    {
+      type: "select", name: "cible", label: "Qui compte", required: true, defaultValue: cibles[0],
+      options: cibles.map((c) => ({ value: c, label: CIBLE_COMPTAGE_LABEL[c] })),
+      hint: "« Toute mon équipe » : un comptage par personne qui a le stock — l'équipe est relue à chaque fois.",
+    },
+    {
+      type: "select", name: "holderId", label: "La personne (si « Une personne »)", placeholder: "Choisir la personne",
+      options: page.peutFaireCompter.map((p) => ({ value: p.id, label: p.nom })),
+    },
+    {
+      type: "select", name: "famille", label: "Quoi compter", defaultValue: "",
+      options: [
+        { value: "", label: "Tout le matériel" },
+        { value: "CONSOMMABLE", label: "Les consommables" },
+        { value: "DURABLE", label: "Les durables" },
+      ],
+    },
+  ];
+}
+
 function definition(d: Dialogue, page: PageStock, f: FaitsStock): Definition {
   switch (d.type) {
+    case "demanderComptage":
+      return {
+        titre: "Demander un comptage",
+        description: "La personne compte ce qu'elle a réellement en main ; chaque écart avec le registre est corrigé, et vous recevez le résultat.",
+        champs: [
+          ...champsCibleComptage(page, f),
+          { type: "date", name: "echeance", label: "À saisir avant le", required: true, defaultValue: dansJours(page, 7) },
+          { type: "textarea", name: "note", label: "Note pour la personne (facultative)" },
+        ],
+        action: demanderComptage,
+        bouton: "Demander",
+        succes: "Comptage demandé.",
+      };
+    case "planifierComptage":
+      return {
+        titre: "Planifier un comptage régulier",
+        description: "Il repart seul à chaque échéance, à 8 h. Si vous perdez le droit de le demander (équipe ou rôle changés), il se met en pause et vous en êtes prévenu.",
+        champs: [
+          ...champsCibleComptage(page, f),
+          {
+            type: "select", name: "frequence", label: "Cadence", required: true, defaultValue: "MENSUEL",
+            options: FREQUENCES_COMPTAGE.map((x) => ({ value: x, label: FREQUENCE_COMPTAGE_LABEL[x] })),
+          },
+          { type: "date", name: "premiereLe", label: "Premier comptage le", required: true, defaultValue: dansJours(page, 1) },
+          { type: "number", name: "delaiJours", label: "Jours pour compter", defaultValue: 7, hint: "De 1 à 60 jours après chaque déclenchement." },
+          { type: "textarea", name: "note", label: "Note pour la personne (facultative)" },
+        ],
+        action: planifierComptage,
+        bouton: "Planifier",
+        succes: "Comptage planifié.",
+      };
+    case "annulerComptage": {
+      const c = d.comptage;
+      return {
+        titre: "Annuler ce comptage",
+        description: `Comptage ${c.holderId === null ? "du magasin central" : `de ${nomDe(page, c.holderId)}`} (${libelleFamilleComptage(c.famille)}), attendu le ${jour(c.echeance)}. La personne en est prévenue.`,
+        champs: [
+          { type: "hidden", name: "comptageId", value: c.id },
+          { type: "textarea", name: "motif", label: "Pourquoi", required: true, placeholder: "Inventaire déjà fait, demande en double…" },
+        ],
+        action: annulerComptage,
+        bouton: "Annuler le comptage",
+        succes: "Comptage annulé.",
+      };
+    }
+    case "proposerRefonte":
+      return {
+        titre: `Proposer une refonte — ${d.article.libelle}`,
+        description: "La Direction Marketing la lit, puis la retient ou l'écarte ; vous en êtes prévenu.",
+        champs: [
+          { type: "hidden", name: "itemId", value: d.article.id },
+          { type: "textarea", name: "motif", label: "Ce qui ne va pas", required: true, placeholder: "Toile usée, visuel dépassé, mentions à mettre à jour, format inadapté au stand…" },
+        ],
+        action: proposerRefonte,
+        bouton: "Proposer",
+        succes: "Proposition envoyée.",
+      };
+    case "deciderRefonte": {
+      const r = d.refonte;
+      const retenir = d.decision === "RETENUE";
+      return {
+        titre: retenir ? `Retenir la refonte — ${r.libelle}` : `Écarter la refonte — ${r.libelle}`,
+        description: `Proposée par ${nomDe(page, r.auteurId)} : « ${r.motif} ». ${retenir ? "Retenir ne commande rien : la commande passe ensuite par le circuit d'achat." : "La personne qui l'a proposée lit votre réponse."}`,
+        champs: [
+          { type: "hidden", name: "refonteId", value: r.id },
+          { type: "hidden", name: "decision", value: d.decision },
+          { type: "textarea", name: "note", label: retenir ? "Note (facultative)" : "Pourquoi", required: !retenir },
+        ],
+        action: deciderRefonte,
+        bouton: retenir ? "Retenir" : "Écarter",
+        succes: retenir ? "Refonte retenue." : "Refonte écartée.",
+      };
+    }
     case "doter": {
       const a = d.article;
       const dispo = distribuable(a, null);

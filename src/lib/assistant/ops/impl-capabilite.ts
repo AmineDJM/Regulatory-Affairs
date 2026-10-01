@@ -34,6 +34,10 @@ import { ACTION_CLASSIFICATION } from "@/lib/assistant/action-registry";
  */
 
 const MAX_CANDIDATES = 6;
+/** Les refusées plus proches de la phrase que toute ouverte : celles-là portent leur raison. */
+const MAX_REFUSEES_DEVANT = 2;
+/** Les autres refusées sont nommées par leur identifiant, et le reste est COMPTÉ. */
+const MAX_REFUSEES_NOMMEES = 8;
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
@@ -141,6 +145,26 @@ const fiche = (c: ContratAction): string => {
  *
  * Un identifiant exact tranche. Sinon on cherche, et l'on ne rend une action QUE si la
  * recherche en désigne une seule — sans quoi le refus montre les candidates.
+ *
+ * ── LES REFUSÉES NE PRENNENT PAS LES PLACES DES OUVERTES (§118.168) ──────────────────────
+ *
+ * La recherche coupait à six AVANT de savoir lesquelles sont ouvertes. Le stock promotionnel a
+ * ajouté des actions dont le nom porte « demande », toutes tenues hors du champ d'Adam par une
+ * décision écrite : à égalité de score, l'ordre alphabétique les a mises aux six premières
+ * places, et « créer une demande » ne rendait plus QUE des refus — alors que
+ * `admin-request-actions:createRequest`, ouverte, était trouvée. Un modèle qui lit six refus
+ * conclut « je ne peux pas » : le défaut de §118.63, fabriqué par l'ajout d'actions qu'on avait
+ * raison de refuser. Et l'en-tête disait « correspond à 6 actions » sur vingt-huit
+ * correspondances : une coupe qui se lisait comme un compte (§118.60).
+ *
+ * On cherche donc TOUT, puis on sépare. Les fiches complètes vont aux OUVERTES : ce sont les
+ * seules dont les champs servent au tour suivant. Les refusées restent NOMMÉES — les taire ferait
+ * répondre « je ne trouve rien » là où la vérité est « je l'ai trouvée et je n'y touche pas »
+ * (§118.74) — et celles que la phrase désigne MIEUX que toute ouverte passent devant, avec leur
+ * raison et leur écran : « annuler la demande de matériel » désigne `annulerDemande`, refusée, et
+ * la ranger derrière six gestes ouverts sans rapport pousserait le modèle vers le mauvais objet
+ * (§104.7). Sans aucune ouverte, la réponse est la fiche des refus, comme avant. Ce qui n'est pas
+ * montré est COMPTÉ, jamais coupé en silence.
  */
 function designer(texte: string): { contrat: ContratAction } | { refus: string } {
   const q = texte.trim();
@@ -149,7 +173,7 @@ function designer(texte: string): { contrat: ContratAction } | { refus: string }
   const exact = CONTRAT_PAR_ID.get(q);
   if (exact) return { contrat: exact };
 
-  const trouves = chercherCapacites(CONTRATS_ACTIONS, q, MAX_CANDIDATES);
+  const trouves = chercherCapacites(CONTRATS_ACTIONS, q, Number.POSITIVE_INFINITY);
   if (trouves.length === 0) {
     return {
       refus: `Aucune action de l'ERP ne correspond à « ${q} ». Reformulez avec le geste et son objet `
@@ -160,9 +184,38 @@ function designer(texte: string): { contrat: ContratAction } | { refus: string }
 
   // PLUSIEURS N'EN DÉSIGNENT AUCUNE (§118.34). Le refus porte les fiches : le tour suivant
   // choisit ET connaît déjà les champs, donc il n'y a pas d'aller-retour supplémentaire.
+  const ouvertes = trouves.filter((t) => refusDuCheminGenerique(t.contrat) === null);
+  const refusees = trouves.filter((t) => refusDuCheminGenerique(t.contrat) !== null);
+  const entete = `« ${q} » correspond à ${trouves.length} actions — précisez laquelle par son identifiant :`;
+  const puce = (t: { contrat: ContratAction }) => `  • ${fiche(t.contrat)}`;
+  const reste = (n: number, quoi: string) => (n > 0 ? [`  … et ${n} ${quoi}.`] : []);
+
+  if (ouvertes.length === 0) {
+    return {
+      refus: [
+        entete,
+        ...refusees.slice(0, MAX_CANDIDATES).map(puce),
+        ...reste(refusees.length - MAX_CANDIDATES, "autre(s), refusée(s) elles aussi"),
+      ].join("\n"),
+    };
+  }
+
+  const meilleureOuverte = ouvertes[0]!.score;
+  const devant = refusees.filter((t) => t.score > meilleureOuverte).slice(0, MAX_REFUSEES_DEVANT);
+  const autres = refusees.filter((t) => !devant.includes(t));
+  const nommees = autres.slice(0, MAX_REFUSEES_NOMMEES).map((t) => t.contrat.id);
   return {
-    refus: `« ${q} » correspond à ${trouves.length} actions — précisez laquelle par son identifiant :\n`
-      + trouves.map((t) => `  • ${fiche(t.contrat)}`).join("\n"),
+    refus: [
+      entete,
+      ...devant.map(puce),
+      ...ouvertes.slice(0, MAX_CANDIDATES).map(puce),
+      ...reste(ouvertes.length - MAX_CANDIDATES, "autre(s) action(s) ouverte(s), moins proches de la phrase : précisez le geste et son objet pour les voir"),
+      ...(nommees.length > 0
+        ? [`Trouvées aussi, mais tenues hors du champ d'Adam par conception (leur identifiant exact donne `
+          + `la raison et l'écran où le geste se fait) : ${nommees.join(", ")}`
+          + `${autres.length > nommees.length ? `, et ${autres.length - nommees.length} autre(s)` : ""}.`]
+        : []),
+    ].join("\n"),
   };
 }
 

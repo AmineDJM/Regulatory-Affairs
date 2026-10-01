@@ -21,6 +21,16 @@ import { devisDuDossier, devisLu } from "@/lib/queries/promo-circuit";
 import { lignesDuBonDeCommande, formatDzd } from "@/lib/promo-material/devis";
 import { piloteLExecution } from "@/lib/promo-material/circuit";
 import { fdStr, fdNum, fdDate, type ActionResult } from "@/lib/actions/types";
+import {
+  ecartTotalImprime, ecartsAuBC, lignesDuBC, lignesProposees, natureDeReception, peutReceptionner, phraseEcart,
+  totauxFacture, validerLignesFacture, validerReception, verdictPaiementDetaille, type FamillePromo,
+} from "@/lib/promo-material/achats";
+import { articleDemandeLu, ligneFactureLue, SELECT_ARTICLE_DEMANDE, SELECT_LIGNE_FACTURE } from "@/lib/queries/promo-achats";
+import { gestionnairesDuMagasin } from "@/lib/queries/promo-stock";
+import { notifyUser } from "@/lib/notify";
+import { familleAValidite, familleQuantifiee } from "@/lib/promo/catalogue";
+import { libelleArticleStock, lireDateJour, parseQuantity } from "@/lib/promo/stock";
+import { annulerMouvementEcrit, entrerLot, sousVerrou, trouverOuCreerArticle } from "@/lib/promo/stock-ecriture";
 
 /**
  * L'EXÉCUTION DU MATÉRIEL PROMOTIONNEL — bons de commande, factures, paiements, visas (§118.152).
@@ -310,14 +320,31 @@ export async function marquerBonDeCommandeEnvoye(formData: FormData): Promise<Ac
 
 // ───────────────────────── 3. Factures, paiements, visas ─────────────────────────
 
+/** « 4 800 », « 4 800,5 » → nombre ; vide → 0 (la ligne n'est pas sur cette facture) ; illisible → null. */
+function lireNombreSaisi(brut: unknown): number | null {
+  const s = String(brut ?? "").trim();
+  if (s === "") return 0;
+  return parseQuantity(s);
+}
+
 /**
- * DÉPOSER LA FACTURE D'UN BON DE COMMANDE — obligatoire pour demander un paiement.
+ * DÉPOSER LA FACTURE D'UN BON DE COMMANDE — détaillée ligne à ligne, obligatoire pour demander un
+ * paiement (§118.152, §118.165).
  *
- * La facture devient une pièce Legal CHAÎNÉE à son BC (`chainFromId`) et rattachée au dossier —
- * c'est ce lien qui la fait compter dans le chantier des paiements, et qui applique au paiement la
- * porte du BC. Le FICHIER est obligatoire : une facture sans pièce ne se contrôle pas. Et les
- * factures d'un BC ne dépassent pas son montant : payer plus que la commande validée, c'est
- * engager la société sur ce que personne n'a validé.
+ * « La facture doit renseigner exactement le matériel reçu en stock. » Ses lignes sont celles du BC,
+ * PRÉ-REMPLIES avec ce qui reste à facturer ; la quantité et le prix se corrigent pour coller au
+ * papier, et les écarts avec le BC sont DITS. On ne facture pas plus que ce qui reste sur une ligne.
+ * Le TOTAL se calcule (§118.59) ; le total IMPRIMÉ (« amount ») se saisit pour contrôler la saisie, et
+ * un écart de plus d'un dinar la refuse. Les taxes sont celles du BC, corrigeables.
+ *
+ * Sans lignes saisies (un appel qui ne les détaille pas), la facture reprend ce qui reste à facturer
+ * sur chaque ligne du BC, à son prix — et le contrôle du total imprimé dit si c'était faux.
+ *
+ * La facture devient une pièce Legal CHAÎNÉE à son BC (`chainFromId`) et rattachée au dossier — c'est
+ * ce lien qui la fait compter dans le chantier des paiements, et qui applique au paiement la porte du
+ * BC. Le FICHIER est obligatoire : une facture sans pièce ne se contrôle pas. Et les factures d'un BC
+ * ne dépassent pas son montant : payer plus que la commande validée, c'est engager la société sur ce
+ * que personne n'a validé.
  */
 export async function deposerFacturePromo(formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
@@ -334,7 +361,7 @@ export async function deposerFacturePromo(formData: FormData): Promise<ActionRes
   const fichier = formData.get("file");
   const manques = [
     ...(!reference ? ["le numéro de la facture"] : []),
-    ...(!(montant != null && montant > 0) ? ["son montant TTC"] : []),
+    ...(!(montant != null && montant > 0) ? ["son total TTC imprimé"] : []),
     ...(!(fichier instanceof File && fichier.size > 0) ? ["le fichier de la facture (obligatoire)"] : []),
   ];
   if (manques.length) return { ok: false, error: `Il manque ${manques.join(", ")}.` };
@@ -342,47 +369,352 @@ export async function deposerFacturePromo(formData: FormData): Promise<ActionRes
   const invalide = validateDocumentUpload(file.name, file.size, (await getAppSettings()).maxUploadMb);
   if (invalide) return { ok: false, error: `Fichier « ${file.name} » : ${invalide}` };
 
+  // LES TAXES : celles du BC (son devis), sauf saisie explicite — une facture à 9 % pour un BC à
+  // 19 % se paie au montant facturé ; le plafond du BC tient de toute façon.
+  const taxesDuDevis = await prisma.promoQuote.findUnique({ where: { id: lu.devis.id }, select: { tvaRate: true, extraTaxLabel: true, extraTaxRate: true } });
+  const brutTva = fdStr(formData, "tvaRate");
+  const tvaRate = brutTva != null ? parseQuantity(brutTva) : Number(taxesDuDevis?.tvaRate ?? 19);
+  if (tvaRate == null || !(tvaRate >= 0 && tvaRate <= 100)) return { ok: false, error: "Le taux de TVA s'exprime en pour cent, entre 0 et 100." };
+  const taxeSaisie = formData.has("extraTaxRate");
+  const brutTaxe = taxeSaisie ? fdStr(formData, "extraTaxRate") : null;
+  const extraTaxRate = taxeSaisie
+    ? (brutTaxe ? parseQuantity(brutTaxe) : null)
+    : (taxesDuDevis?.extraTaxRate != null ? Number(taxesDuDevis.extraTaxRate) : null);
+  if (taxeSaisie && brutTaxe && (extraTaxRate == null || !(extraTaxRate > 0 && extraTaxRate <= 100))) {
+    return { ok: false, error: "La taxe additionnelle s'exprime en pour cent, entre 0 et 100 (laissez vide s'il n'y en a pas)." };
+  }
+  const extraTaxLabel = extraTaxRate != null ? (fdStr(formData, "extraTaxLabel") ?? taxesDuDevis?.extraTaxLabel ?? "Taxe additionnelle") : null;
+
   // SÉRIALISÉ PAR BC, du plafond à la création : deux dépôts simultanés liraient le même cumul et
   // passeraient tous deux sous le montant du BC — ensemble, ils le dépasseraient (§118.148).
   const bcId = lu.bc.id;
   const bcMontant = lu.bc.montant;
   const bcReference = lu.bc.reference;
   return enSerie(`promo-facture:${bcId}`, async (): Promise<ActionResult> => {
+    // LES LIGNES DU BC, avec ce que les factures ACTIVES en ont déjà facturé — relues sous la file.
+    const brut = (await devisDuDossier(pm.id)).find((d) => d.id === lu.devis.id);
+    if (!brut) return { ok: false, error: "Ce devis n'appartient pas à ce dossier." };
+    const facturees = await prisma.promoFactureLigne.findMany({
+      where: { facture: { legalDocument: { kind: "INVOICE", chainFromId: bcId, status: { not: "CANCELLED" } } } },
+      select: { quoteLineId: true, quantite: true },
+    });
+    const lignesBC = lignesDuBC(devisLu(brut), facturees.map((f) => ({ quoteLineId: f.quoteLineId, quantite: Number(f.quantite) })));
+    const ids = formData.getAll("ligneQuoteLineId").map((x) => String(x));
+    const qtes = formData.getAll("ligneQuantite");
+    const prix = formData.getAll("lignePrix");
+    const saisies = ids.length
+      ? ids.map((id, i) => ({ quoteLineId: id, quantite: lireNombreSaisi(qtes[i]), prixUnitaire: lireNombreSaisi(prix[i]) }))
+      : lignesProposees(lignesBC);
+    const v = validerLignesFacture(saisies, lignesBC);
+    if (!v.ok) return { ok: false, error: v.error };
+    const totaux = totauxFacture({ tvaRate, extraTaxRate }, v.lignes);
+    const ecartImprime = ecartTotalImprime(totaux.ttc, montant as number);
+    if (ecartImprime) {
+      return {
+        ok: false,
+        error: `Les lignes font ${formatDzd(totaux.ttc)} TTC (HT ${formatDzd(totaux.ht)}, TVA ${tvaRate} %${extraTaxRate ? `, ${extraTaxLabel} ${extraTaxRate} %` : ""}), la facture annonce ${formatDzd(montant as number)} : vérifiez les quantités, les prix et les taxes saisis.`,
+      };
+    }
     const deja = await prisma.legalDocument.aggregate({ where: { kind: "INVOICE", chainFromId: bcId, status: { not: "CANCELLED" } }, _sum: { amount: true } });
     const cumul = Number(deja._sum.amount ?? 0) + (montant as number);
     if (bcMontant != null && cumul > bcMontant + 1) {
       return { ok: false, error: `Les factures de ce bon de commande feraient ${formatDzd(cumul)}, pour un BC de ${formatDzd(bcMontant)} : on ne paie pas plus que la commande validée. Vérifiez le montant, ou faites réviser le BC.` };
     }
     const bc = await prisma.legalDocument.findUnique({ where: { id: bcId }, select: { companyId: true } });
-    const facture = await prisma.legalDocument.create({
-      data: {
-        companyId: bc?.companyId ?? pm.companyId,
-        kind: "INVOICE",
-        reference,
-        title: `Facture ${reference} — ${lu.devis.supplierName} (${pm.reference})`,
-        counterparty: lu.devis.supplierName,
-        counterpartyIds: lu.devis.supplierId ? [lu.devis.supplierId] : [],
-        startDate: fdDate(formData, "invoiceDate") ?? new Date(),
-        amount: new Prisma.Decimal(montant as number),
-        chainFromId: bcId,
-        sourceType: "PROMO_MATERIAL",
-        sourceId: pm.id,
-        createdById: user.id, updatedById: user.id,
-      },
-      select: { id: true },
+    const facture = await prisma.$transaction(async (tx) => {
+      const doc = await tx.legalDocument.create({
+        data: {
+          companyId: bc?.companyId ?? pm.companyId,
+          kind: "INVOICE",
+          reference,
+          title: `Facture ${reference} — ${lu.devis.supplierName} (${pm.reference})`,
+          counterparty: lu.devis.supplierName,
+          counterpartyIds: lu.devis.supplierId ? [lu.devis.supplierId] : [],
+          startDate: fdDate(formData, "invoiceDate") ?? new Date(),
+          amount: new Prisma.Decimal(montant as number),
+          chainFromId: bcId,
+          sourceType: "PROMO_MATERIAL",
+          sourceId: pm.id,
+          createdById: user.id, updatedById: user.id,
+        },
+        select: { id: true },
+      });
+      await tx.promoFacture.create({
+        data: {
+          legalDocumentId: doc.id, quoteId: lu.devis.id,
+          tvaRate: new Prisma.Decimal(tvaRate), extraTaxLabel, extraTaxRate: extraTaxRate != null ? new Prisma.Decimal(extraTaxRate) : null,
+          totalImprime: new Prisma.Decimal(montant as number), createdById: user.id,
+          lignes: {
+            create: v.lignes.map((l, i) => ({
+              position: i, designation: l.designation, action: l.action, unite: l.unite,
+              quantite: new Prisma.Decimal(l.quantite), prixUnitaire: new Prisma.Decimal(l.prixUnitaire),
+              quoteLineId: l.quoteLineId, requestItemId: l.requestItemId,
+            })),
+          },
+        },
+      });
+      return doc;
     });
     const piece = await persistUploadedDocument(user.id, {
       entityType: "LEGAL_DOCUMENT", entityId: facture.id, category: "INVOICE", confidentiality: "INTERNAL", stepKey: "facture", file,
     });
     if (!piece.ok) {
-      // Une facture sans son fichier ne se contrôle pas : on ne la garde pas.
+      // Une facture sans son fichier ne se contrôle pas : on ne la garde pas (son détail part avec elle).
       await prisma.legalDocument.delete({ where: { id: facture.id } }).catch(() => undefined);
       return { ok: false, error: `Fichier « ${file.name} » : ${piece.error ?? "téléversement impossible"}` };
     }
-    await audit(user, pm.id, `Facture ${reference} déposée pour le BC ${bcReference ?? ""} (${lu.devis.supplierName}) — ${formatDzd(montant as number)} TTC`);
+    const ecarts = ecartsAuBC(v.lignes, lignesBC);
+    await audit(user, pm.id, `Facture ${reference} déposée pour le BC ${bcReference ?? ""} (${lu.devis.supplierName}) — ${v.lignes.length} ligne(s), ${formatDzd(montant as number)} TTC${ecarts.length ? ` ; écarts au BC : ${ecarts.map(phraseEcart).join(" ; ")}` : ""}`);
     revalidatePath(chemin(pm.id));
-    return { ok: true, id: facture.id, message: `Facture ${reference} enregistrée — vous pouvez demander son paiement.` };
+    return {
+      ok: true, id: facture.id,
+      message: `Facture ${reference} enregistrée (${v.lignes.length} ligne${v.lignes.length > 1 ? "s" : ""}, ${formatDzd(montant as number)} TTC). `
+        + (ecarts.length ? `Écarts avec le BC : ${ecarts.map(phraseEcart).join(" ; ")}. ` : "")
+        + "Cochez la réception de chaque ligne à l'arrivée du matériel : c'est ce qui entre au stock, et ce qu'on paie.",
+    };
   });
+}
+
+/** La ligne de facture d'un dossier, avec sa facture — `null` si elle n'est pas à ce dossier. */
+async function ligneDuDossier(pm: Dossier, ligneId: string | null) {
+  if (!ligneId) return null;
+  return prisma.promoFactureLigne.findFirst({
+    where: { id: ligneId, facture: { legalDocument: { kind: "INVOICE", sourceType: "PROMO_MATERIAL", sourceId: pm.id, status: { not: "CANCELLED" } } } },
+    select: {
+      ...SELECT_LIGNE_FACTURE,
+      facture: { select: { legalDocument: { select: { id: true, reference: true, companyId: true, expenseOrderId: true, paidDate: true, counterparty: true } } } },
+    },
+  });
+}
+
+/** Le refus commun de la réception ; `null` = on peut cocher. */
+function refusReception(user: SessionUser, pm: Dossier | null): string | null {
+  if (!pm) return "Dossier introuvable.";
+  if (pm.circuitVersion !== 2) return "Ce dossier suit l'ancien circuit : il n'a pas de réception ligne à ligne.";
+  if (!peutReceptionner({ id: user.id, role: user.role }, pm)) {
+    return "La réception se coche par le demandeur du dossier (le Super Admin en suppléance) : c'est lui qui atteste ce qui est arrivé.";
+  }
+  if (pm.circuitState !== "IN_EXECUTION") return pm.circuitState === "COMPLETED" ? "Ce dossier est terminé." : "La réception vient après les bons de commande et leurs factures.";
+  return null;
+}
+
+const quantiteLue = (n: number) => n.toLocaleString("fr-FR", { maximumFractionDigits: 3 });
+
+/**
+ * RÉCEPTIONNER UNE LIGNE DE FACTURE — « le demandeur coche, sur la facture décomposée en tableau,
+ * les références et quantités reçues : elles entrent au stock général » (§118.165).
+ *
+ * Ce que la ligne PRODUIT (impression, fabrication, achat) entre au MAGASIN CENTRAL de la société
+ * qui a commandé, en un LOT au coût de la facture (origine ACHAT) — par l'écrivain unique du stock,
+ * sous le verrou de l'article, et dans la MÊME transaction que la coche : deux clics ne font pas
+ * deux lots, et une coche ne survit pas à une entrée qui a échoué. Une prestation (conception,
+ * livraison…) est cochée « faite ». Un support NUMÉRIQUE reçoit son lien et sa validité, sans
+ * quantité. L'article de stock est celui de l'article DEMANDÉ (catalogue + produits) ; une ligne
+ * « en plus » le choisit ici.
+ *
+ * C'est une ATTESTATION (« c'est arrivé ») : le demandeur, le Super Admin en suppléance — jamais
+ * Adam (EXCLUDED). Et elle se clôt quand le paiement est demandé : on ne coche plus ce qu'on a payé.
+ */
+export async function receptionnerLigneFacturePromo(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  const pm = await chargerDossier(fdStr(formData, "promoMaterialId"));
+  const refus = refusReception(user, pm);
+  if (refus || !pm) return { ok: false, error: refus ?? "Dossier introuvable." };
+  const brut = await ligneDuDossier(pm, fdStr(formData, "ligneId"));
+  if (!brut) return { ok: false, error: "Cette ligne n'appartient pas à une facture de ce dossier." };
+  const facture = brut.facture.legalDocument;
+  if (facture.expenseOrderId || facture.paidDate) return { ok: false, error: "Le paiement de cette facture est déjà demandé : sa réception est close." };
+  const ligne = ligneFactureLue(brut);
+  const brutQ = fdStr(formData, "quantiteRecue");
+  const q = brutQ ? parseQuantity(brutQ) : null;
+  if (brutQ && q == null) return { ok: false, error: "Quantité reçue illisible." };
+  const v = validerReception(ligne, q);
+  if (!v.ok) return { ok: false, error: v.error };
+
+  const articleDemande = ligne.requestItemId
+    ? await prisma.promoRequestItem.findUnique({ where: { id: ligne.requestItemId }, select: SELECT_ARTICLE_DEMANDE })
+    : null;
+  const nature = natureDeReception(ligne, articleDemande ? articleDemandeLu(articleDemande) : null);
+
+  // L'ARTICLE DU CATALOGUE QUI REÇOIT — celui de l'article demandé, ou choisi ici.
+  let catalogueId: string | null = null;
+  let produitIds: string[] = [];
+  if (nature.type === "STOCK") {
+    catalogueId = nature.catalogueId;
+    produitIds = nature.produitIds;
+  } else if (nature.type === "A_CHOISIR") {
+    catalogueId = fdStr(formData, "catalogueId");
+    produitIds = formData.getAll("produitIds").map(String).filter(Boolean);
+    if (!catalogueId && nature.obligatoire) {
+      return { ok: false, error: "Cette ligne n'était pas demandée : choisissez l'article du catalogue qui reçoit ces unités (et ses produits)." };
+    }
+  }
+  const maintenant = new Date();
+  const libelleFacture = `facture ${facture.reference ?? "sans numéro"}${facture.counterparty ? ` (${facture.counterparty})` : ""}`;
+
+  // UNE PRESTATION — cochée « faite », rien n'entre au stock.
+  if (!catalogueId) {
+    const r = await prisma.promoFactureLigne.updateMany({
+      where: { id: ligne.id, quantiteRecue: null, renonce: false },
+      data: { quantiteRecue: new Prisma.Decimal(v.quantite), recueLe: maintenant, recueParId: user.id },
+    });
+    if (r.count === 0) return { ok: false, error: `« ${ligne.designation} » vient d'être réceptionnée.` };
+    await audit(user, pm.id, `Réception cochée — « ${ligne.designation} » (${libelleFacture}) : prestation faite${user.id !== pm.requesterId ? " (en suppléance du demandeur)" : ""}`);
+    revalidatePath(chemin(pm.id));
+    return { ok: true, message: `« ${ligne.designation} » cochée faite — c'est une prestation : rien n'entre au stock.` };
+  }
+
+  const catalogue = await prisma.promoCatalogueArticle.findUnique({
+    where: { id: catalogueId },
+    select: { id: true, reference: true, nom: true, famille: true, unite: true, materialType: true, exigeProduit: true, actif: true },
+  });
+  if (!catalogue) return { ok: false, error: "Article du catalogue introuvable." };
+  if (nature.type === "A_CHOISIR") {
+    if (!catalogue.actif) return { ok: false, error: `${catalogue.reference} est archivé : choisissez un article actif du catalogue.` };
+    if (catalogue.exigeProduit && produitIds.length === 0) return { ok: false, error: `${catalogue.nom} n'existe que pour un produit : choisissez le ou les produits concernés.` };
+  }
+  const nomsProduits = produitIds.length
+    ? await prisma.product.findMany({ where: { id: { in: produitIds } }, select: { canonicalName: true } })
+    : [];
+  if (nomsProduits.length !== new Set(produitIds).size) return { ok: false, error: "Un des produits choisis est introuvable." };
+  const libelle = libelleArticleStock(catalogue.nom, nomsProduits.map((p) => p.canonicalName));
+  const famille = catalogue.famille as FamillePromo;
+  const companyId = facture.companyId ?? pm.companyId;
+  const article = await trouverOuCreerArticle({
+    companyId, catalogueId: catalogue.id, produitIds, nom: libelle, unite: catalogue.unite,
+    materialType: catalogue.materialType, auteurId: user.id,
+  });
+
+  // UN SUPPORT NUMÉRIQUE — son lien et sa validité, pas de quantité.
+  if (!familleQuantifiee(famille)) {
+    const lien = fdStr(formData, "lien");
+    const brutValidite = fdStr(formData, "valableJusquau");
+    const validite = lireDateJour(brutValidite);
+    if (brutValidite && !validite) return { ok: false, error: "Date de fin de validité illisible (format attendu : AAAA-MM-JJ)." };
+    const fait = await prisma.$transaction(async (tx) => {
+      const r = await tx.promoFactureLigne.updateMany({
+        where: { id: ligne.id, quantiteRecue: null, renonce: false },
+        data: { quantiteRecue: new Prisma.Decimal(ligne.quantite), recueLe: maintenant, recueParId: user.id, stockItemId: article.id },
+      });
+      if (r.count === 0) return false;
+      if (lien || validite) {
+        await tx.promoStockItem.update({ where: { id: article.id }, data: { ...(lien ? { lien } : {}), ...(validite ? { valableJusquau: validite } : {}), updatedById: user.id } });
+      }
+      return true;
+    });
+    if (!fait) return { ok: false, error: `« ${ligne.designation} » vient d'être réceptionnée.` };
+    await audit(user, pm.id, `Réception cochée — « ${ligne.designation} » (${libelleFacture}) : support numérique ${libelle} livré`);
+    revalidatePath(chemin(pm.id));
+    revalidatePath("/promo-material/stock");
+    return { ok: true, message: `${libelle} livré${lien ? " — son lien est enregistré au stock" : ""}.` };
+  }
+
+  // DES UNITÉS — un lot au magasin central, au coût de la facture.
+  const brutValidite = fdStr(formData, "valableJusquau");
+  const valableJusquau = lireDateJour(brutValidite);
+  if (brutValidite && !valableJusquau) return { ok: false, error: "Date de fin de validité illisible (format attendu : AAAA-MM-JJ)." };
+  if (valableJusquau && !familleAValidite(famille)) return { ok: false, error: "Un article durable ne périme pas : laissez la fin de validité vide." };
+  const r = await sousVerrou(article.id, async (tx) => {
+    const maj = await tx.promoFactureLigne.updateMany({
+      where: { id: ligne.id, quantiteRecue: null, renonce: false },
+      data: { quantiteRecue: new Prisma.Decimal(v.quantite), recueLe: maintenant, recueParId: user.id },
+    });
+    if (maj.count === 0) return { refus: `« ${ligne.designation} » vient d'être réceptionnée.` };
+    const lot = await entrerLot(tx, article.id, {
+      holderId: null, quantite: v.quantite, kind: "RECEIPT", origine: "ACHAT",
+      coutUnitaire: ligne.prixUnitaire, valableJusquau,
+      libelle: `Achat ${pm.reference} — ${libelleFacture}`,
+      motif: `Réception de la ${libelleFacture} (${pm.reference})`, recuLe: maintenant, auteurId: user.id,
+    });
+    await tx.promoFactureLigne.update({ where: { id: ligne.id }, data: { stockItemId: article.id, stockLotId: lot.lotId } });
+    return lot;
+  });
+  if ("refus" in r) return { ok: false, error: r.refus };
+  await audit(user, pm.id, `Réception cochée — « ${ligne.designation} » (${libelleFacture}) : +${quantiteLue(v.quantite)} ${libelle} au magasin central (lot ${r.numero})${user.id !== pm.requesterId ? " — en suppléance du demandeur" : ""}`);
+  // LA GESTIONNAIRE DU MAGASIN APPREND CE QUI ENTRE : c'est elle qui dote ensuite les délégués.
+  const gestionnaires = await gestionnairesDuMagasin();
+  for (const userId of new Set(gestionnaires)) {
+    if (userId === user.id) continue;
+    await notifyUser({ userId, type: "GENERIC", title: "Entrée au magasin — achat reçu", body: `+${quantiteLue(v.quantite)} ${libelle} (${pm.reference}, ${libelleFacture})`, link: "/promo-material/stock" });
+  }
+  revalidatePath(chemin(pm.id));
+  revalidatePath("/promo-material/stock");
+  return {
+    ok: true,
+    message: `+${quantiteLue(v.quantite)} ${libelle} entrés au magasin central (lot ${r.numero})`
+      + (v.quantite < ligne.quantite ? ` — ${quantiteLue(ligne.quantite - v.quantite)} facturées ne sont pas arrivées : au paiement, vous direz si vous y renoncez.` : "."),
+  };
+}
+
+/**
+ * ANNULER UNE RÉCEPTION — une coche erronée se défait, tant que le paiement n'est pas demandé.
+ *
+ * Le lot entré au magasin est CONTRE-PASSÉ par l'écrivain unique (son exact inverse) — refusé si une
+ * partie en est déjà sortie : annuler l'entrée de 5 000 fiches dont 300 sont chez des délégués
+ * laisserait le magasin à −300. Rien ne se supprime ; la ligne redevient « à réceptionner ».
+ */
+export async function annulerReceptionLigneFacturePromo(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  const pm = await chargerDossier(fdStr(formData, "promoMaterialId"));
+  const refus = refusReception(user, pm);
+  if (refus || !pm) return { ok: false, error: refus ?? "Dossier introuvable." };
+  const brut = await ligneDuDossier(pm, fdStr(formData, "ligneId"));
+  if (!brut) return { ok: false, error: "Cette ligne n'appartient pas à une facture de ce dossier." };
+  const facture = brut.facture.legalDocument;
+  if (facture.expenseOrderId || facture.paidDate) return { ok: false, error: "Le paiement de cette facture est déjà demandé : sa réception ne se défait plus." };
+  if (brut.quantiteRecue == null) return { ok: false, error: `« ${brut.designation} » n'est pas réceptionnée.` };
+  const motif = fdStr(formData, "motif");
+  const remise = { quantiteRecue: null, recueLe: null, recueParId: null, stockItemId: null, stockLotId: null };
+
+  if (brut.stockLotId && brut.stockItemId) {
+    const entree = await prisma.promoStockMovement.findFirst({ where: { lotId: brut.stockLotId, kind: "RECEIPT" }, select: { id: true } });
+    if (!entree) return { ok: false, error: "L'entrée au stock de cette ligne est introuvable." };
+    const lotId = brut.stockLotId;
+    const r = await sousVerrou(brut.stockItemId, async (tx) => {
+      const a = await annulerMouvementEcrit(tx, entree.id, user.id, motif ?? `Réception annulée (${pm.reference})`);
+      if (!a.ok) return { refus: a.refus };
+      const maj = await tx.promoFactureLigne.updateMany({ where: { id: brut.id, stockLotId: lotId }, data: remise });
+      if (maj.count === 0) throw new Error("La ligne a changé pendant l'annulation.");
+      return { ok: true as const };
+    });
+    if ("refus" in r) return { ok: false, error: r.refus };
+  } else {
+    await prisma.promoFactureLigne.update({ where: { id: brut.id }, data: remise });
+  }
+  await audit(user, pm.id, `Réception annulée — « ${brut.designation} » (facture ${facture.reference ?? ""})${motif ? ` — ${motif.slice(0, 200)}` : ""}`);
+  revalidatePath(chemin(pm.id));
+  revalidatePath("/promo-material/stock");
+  return { ok: true, message: `Réception de « ${brut.designation} » annulée${brut.stockLotId ? " — son entrée au magasin est contre-passée" : ""}.` };
+}
+
+/**
+ * ANNULER UNE FACTURE — un doublon, une facture fausse, une facture dont rien n'est arrivé.
+ *
+ * Elle reste au registre, ANNULÉE (jamais effacée), avec son motif. Refusée quand le paiement est
+ * demandé (il est parti au centre de paiement), et quand une ligne est réceptionnée : ce qui est
+ * entré au stock y est physiquement — on défait d'abord la réception, en connaissance de cause.
+ */
+export async function annulerFacturePromo(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  const pm = await chargerDossier(fdStr(formData, "promoMaterialId"));
+  const refus = refusExecution(user, pm);
+  if (refus || !pm) return { ok: false, error: refus ?? "Dossier introuvable." };
+  const motif = fdStr(formData, "motif");
+  if (!motif) return { ok: false, error: "Dites pourquoi cette facture est annulée : elle reste au registre, avec ce motif." };
+  const facture = await factureDuDossier(pm, fdStr(formData, "invoiceId"));
+  if (!facture) return { ok: false, error: "Cette facture n'appartient pas à ce dossier." };
+  if (facture.expenseOrderId || facture.paidDate) return { ok: false, error: "Le paiement de cette facture est déjà demandé : elle ne s'annule plus d'ici." };
+  const recues = await prisma.promoFactureLigne.count({ where: { facture: { legalDocumentId: facture.id }, quantiteRecue: { not: null } } });
+  if (recues > 0) return { ok: false, error: `${recues} ligne(s) de cette facture sont réceptionnées : annulez d'abord leur réception (ce qui est entré au stock y est physiquement).` };
+  const doc = await prisma.legalDocument.findUnique({ where: { id: facture.id }, select: { status: true } });
+  if (!doc || !canCancel(doc.status)) return { ok: false, error: "Cette facture ne peut plus être annulée." };
+  await prisma.legalDocument.update({
+    where: { id: facture.id },
+    data: { status: "CANCELLED", cancelledAt: new Date(), cancelReason: motif, updatedById: user.id },
+  });
+  await audit(user, pm.id, `Facture ${facture.reference ?? ""} annulée — ${motif.slice(0, 200)}`);
+  revalidatePath(chemin(pm.id));
+  return { ok: true, message: `Facture ${facture.reference ?? ""} annulée — ses lignes redeviennent à facturer sur le BC.` };
 }
 
 const FORMALITES = ["AD_VISA", "MIP"] as const;
@@ -431,15 +763,44 @@ export async function demanderPaiementFacturePromo(formData: FormData): Promise<
     if (!bc || bc.annule) return { ok: false, error: "Cette facture ne découle d'aucun bon de commande actif du dossier." };
     if (bc.etape !== "SIGNE") return { ok: false, error: `Le bon de commande ${bc.reference ?? ""} n'est pas signé par les Finances : sa facture ne se paie pas encore.` };
 
-    const montant = facture.amount != null ? Number(facture.amount) : 0;
+    // LA RÉCEPTION D'ABORD (§118.165) : une facture DÉTAILLÉE se paie pour ce qui est REÇU. Une
+    // ligne qui attend bloque le paiement — sauf renoncement CONFIRMÉ, définitif (« un paiement
+    // pour cette ligne ne pourra pas être fait ultérieurement »). Une facture d'avant le détail
+    // ligne à ligne garde le comportement d'avant : son montant, sans réception.
+    const detail = await prisma.promoFacture.findUnique({
+      where: { legalDocumentId: facture.id },
+      select: { tvaRate: true, extraTaxRate: true, totalImprime: true, lignes: { orderBy: { position: "asc" }, select: SELECT_LIGNE_FACTURE } },
+    });
+    let montant = facture.amount != null ? Number(facture.amount) : 0;
+    let renoncer: string[] = [];
+    let partiel = false;
+    if (detail) {
+      const v = verdictPaiementDetaille(
+        { tvaRate: Number(detail.tvaRate), extraTaxRate: detail.extraTaxRate != null ? Number(detail.extraTaxRate) : null, totalImprime: detail.totalImprime != null ? Number(detail.totalImprime) : null },
+        detail.lignes.map(ligneFactureLue),
+        formData.get("confirmeRenoncement") === "1",
+      );
+      if (!v.ok) return { ok: false, error: v.error };
+      montant = v.montant;
+      renoncer = v.renoncer;
+      partiel = !v.complet;
+    }
     const envoi = canSendToSettlement({
       kind: facture.kind, amount: montant || null, paidDate: facture.paidDate, expenseOrderId: facture.expenseOrderId,
       bc: { porte: await porteDuBC(bc.id), reference: bc.reference },
     });
     if (!envoi.ok) return { ok: false, error: envoi.error };
+    if (renoncer.length) {
+      // Écrit AVANT l'ordre : un renoncement confirmé ne dépend pas de la suite. Conditionnel : une
+      // ligne déjà renoncée ne l'est pas deux fois (la date et l'auteur restent ceux du premier geste).
+      await prisma.promoFactureLigne.updateMany({
+        where: { id: { in: renoncer }, renonce: false },
+        data: { renonce: true, renonceMotif: fdStr(formData, "motifRenoncement"), renonceLe: new Date(), renonceParId: user.id },
+      });
+    }
 
     const ordre = await createExpenseOrder({
-      label: `${facture.reference ? `${facture.reference} — ` : ""}${facture.title}`,
+      label: `${facture.reference ? `${facture.reference} — ` : ""}${facture.title}${partiel ? " — part reçue" : ""}`,
       amount: montant,
       category: "FOURNISSEUR",
       beneficiary: facture.counterparty,
@@ -462,13 +823,14 @@ export async function demanderPaiementFacturePromo(formData: FormData): Promise<
       requesterId: pm.requesterId,
       declarationKind: formalite,
     }).catch(() => null);
-    await audit(user, pm.id, `Paiement demandé — facture ${facture.reference ?? ""} (${formatDzd(montant)}, ordre ${ordre.reference}) ; ${declaration ? `${LIBELLE_FORMALITE[formalite]} ${declaration.reference} adressée à l'information médicale` : `${LIBELLE_FORMALITE[formalite]} NON adressée (échec) — à rattraper`}`);
+    await audit(user, pm.id, `Paiement demandé — facture ${facture.reference ?? ""} (${formatDzd(montant)}${partiel ? ", part reçue" : ""}, ordre ${ordre.reference})${renoncer.length ? ` ; ${renoncer.length} ligne(s) non livrée(s) — renoncement confirmé, elles ne se paieront pas` : ""} ; ${declaration ? `${LIBELLE_FORMALITE[formalite]} ${declaration.reference} adressée à l'information médicale` : `${LIBELLE_FORMALITE[formalite]} NON adressée (échec) — à rattraper`}`);
     revalidatePath(chemin(pm.id));
     revalidatePath("/information-medicale");
     const formaliteLue = `${LIBELLE_FORMALITE[formalite][0].toUpperCase()}${LIBELLE_FORMALITE[formalite].slice(1)}`;
     return {
       ok: true,
-      message: `Paiement demandé (ordre ${ordre.reference}) : il attend le centre de paiement. `
+      message: `Paiement demandé (ordre ${ordre.reference}, ${formatDzd(montant)}${partiel ? " — la part reçue" : ""}) : il attend le centre de paiement. `
+        + (renoncer.length ? `${renoncer.length} ligne${renoncer.length > 1 ? "s" : ""} non livrée${renoncer.length > 1 ? "s" : ""} : renoncement enregistré, elle${renoncer.length > 1 ? "s" : ""} ne se paiera${renoncer.length > 1 ? "ont" : ""} pas. ` : "")
         + (declaration
           ? `${formaliteLue} ${declaration.reference} adressée à l'information médicale.`
           : `${formaliteLue} : elle n'a PAS pu partir — utilisez « Adresser à l'information médicale » sur cette facture.`),

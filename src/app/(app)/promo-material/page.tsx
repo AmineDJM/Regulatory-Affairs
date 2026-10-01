@@ -47,10 +47,10 @@ export default async function PromoMaterialPage() {
 
   return (
     <div className="space-y-5">
-      <PageHeader title="Matériel promotionnel" description="Demande validée (N+1 ou directrice marketing) → devis retranscrits par l'assistante → choix des lignes → Direction Marketing (et Directeur Général au-dessus du seuil) → bons de commande générés, factures et paiements, visa publicitaire ou déclaration à chaque paiement.">
+      <PageHeader title="Matériel promotionnel" description="Demande validée (N+1 ou directrice marketing) → articles piochés dans le catalogue → devis retranscrits par l'assistante → choix des lignes → Direction Marketing (et Directeur Général au-dessus du seuil) → bons de commande générés, factures ligne à ligne, réception au stock, paiements — visa publicitaire ou déclaration à chaque paiement.">
         {canCreate && (
           <CreateRecordButton
-            autoOpenParam="new" label="Nouvelle demande" title="Demande de matériel promotionnel" description="Votre demande est d'abord validée (N+1, ou directrice marketing) ; vous demanderez ensuite les devis au secrétariat." width="md" action={createPromoMaterial} redirectBase="/promo-material" fields={createFields} />
+            autoOpenParam="new" label="Nouvelle demande" title="Demande de matériel promotionnel" description="Votre demande est d'abord validée (N+1, ou directrice marketing). Sur sa fiche, vous piochez ensuite dans le catalogue les articles à faire chiffrer, puis vous demandez les devis au secrétariat." width="md" action={createPromoMaterial} redirectBase="/promo-material" fields={createFields} />
         )}
       </PageHeader>
 

@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { refusMaillonAmont } from "@/lib/legal/chaine";
+import { refusMaillonAmont, REFUS_CHAINE_FACTURE_PROMO } from "@/lib/legal/chaine";
 import { refusPieceARanger, rangerPiece } from "@/lib/legal/adoption";
 import type { EntityType, LegalDocKind, LegalDocStatus } from "@prisma/client";
 import { requireUser } from "@/lib/session";
@@ -259,7 +259,8 @@ export async function updateLegalDocument(formData: FormData): Promise<ActionRes
   // LA NATURE ACTUELLE COMPTE AUTANT QUE LA DEMANDÉE : sans elle, la comptabilité pourrait
   // rebaptiser un bail en « facture » pour s'ouvrir le droit de le modifier.
   const avant = await prisma.legalDocument.findUnique({
-    where: { id }, select: { kind: true, expenseOrderId: true, counterparty: true, counterpartyIds: true, amount: true },
+    where: { id },
+    select: { kind: true, expenseOrderId: true, counterparty: true, counterpartyIds: true, amount: true, chainFromId: true, promoFacture: { select: { id: true } } },
   });
   if (!avant) return { ok: false, error: "Document introuvable." };
   if (!peutEcrire(user, "UPDATE", avant.kind) || !peutEcrire(user, "UPDATE", f.kind)) {
@@ -271,6 +272,15 @@ export async function updateLegalDocument(formData: FormData): Promise<ActionRes
   if (!dates.ok) return { ok: false, error: dates.error };
   const chainErr = await checkChainFrom(f.chainFromId, id);
   if (chainErr) return { ok: false, error: chainErr };
+  // UNE FACTURE SAISIE LIGNE À LIGNE SUR UN DOSSIER PROMOTIONNEL RESTE CHAÎNÉE À SON BC (§118.168).
+  // Ses lignes découlent de celles de CE bon de commande. La rattacher ailleurs — ou la détacher —
+  // la ferait sortir du cumul qui empêche de payer plus que la commande et de l'écran du dossier
+  // (qui la trouve par la chaîne), pendant que sa réception (qui la trouve par sa source) la verrait
+  // encore : deux lectures du même fait qui ne s'accordent plus. Le geste qui corrige une facture
+  // déposée sur le mauvais BC existe, et le refus le nomme.
+  if (avant.promoFacture && (f.chainFromId ?? null) !== (avant.chainFromId ?? null)) {
+    return { ok: false, error: REFUS_CHAINE_FACTURE_PROMO };
+  }
   // Le circuit de règlement possède la date de paiement des factures qu'il porte.
   const reglement = canMarkPaidDirectly({ paidDate: f.paidDate, expenseOrderId: avant.expenseOrderId });
   if (!reglement.ok) return { ok: false, error: reglement.error };

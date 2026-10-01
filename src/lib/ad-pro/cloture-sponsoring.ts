@@ -22,10 +22,12 @@
  *     par manque ferait un aller-retour par poste sur une demande qui en porte dix (§118.18).
  *   · QUI CLÔTURE : celui qui tenait l'étape qui a pré-validé la tenue.
  *
- * Module PUR (le seul import est un type) : l'écran, l'action serveur et l'op d'Adam le lisent, et
- * les bancs l'éprouvent sans base.
+ * Module PUR (il n'importe que la règle pure du matériel réservé, `promo/reservations`) : l'écran,
+ * l'action serveur et l'op d'Adam le lisent, et les bancs l'éprouvent sans base.
  * ═══════════════════════════════════════════════════════════════════════════════════════════
  */
+
+import { manqueMaterielReserve, NATURE_MATERIEL_STOCK } from "@/lib/promo/reservations";
 
 // ─────────────────────────── L'état des postes d'un sponsoring ───────────────────────────
 
@@ -90,6 +92,17 @@ export interface PostePourCloture {
   status: StatutPoste | string;
   amountGranted: number | null;
   budgetCategoryId: string | null;
+  /**
+   * La NATURE du poste : un poste « Matériel du stock » n'engage pas d'argent (§118.167) — ni
+   * budget ni montant ne s'y exigent. Obligatoire, et c'est voulu : un appelant qui l'oublierait
+   * ferait exiger un budget à du matériel sorti du magasin, et la clôture serait impossible.
+   */
+  kind: string;
+  /**
+   * Ses lignes de matériel du stock, avec leur statut. Obligatoire aussi : un appelant qui les
+   * oublierait laisserait clôturer une demande dont le matériel réservé est encore dehors.
+   */
+  lignesStock: readonly { libelle: string; statut: string }[];
 }
 
 export interface BilanCloture {
@@ -125,7 +138,10 @@ function nommer(labels: readonly string[], max = 4): string {
  *   · AUCUN POSTE N'EST ENCORE À DÉCIDER — « tout valider » : un poste en suspens au moment où le
  *     total se fige serait une dépense ni accordée ni refusée, qui ne pèserait sur aucun budget ;
  *   · CHAQUE POSTE ACCORDÉ A SON BUDGET ET SON MONTANT — « mettre chaque poste dans un budget ».
- *     Sans budget, la dépense tombe dans « à imputer » ; sans montant, le total ment.
+ *     Sans budget, la dépense tombe dans « à imputer » ; sans montant, le total ment. Un poste
+ *     « Matériel du stock » en est EXEMPT : il n'engage pas d'argent, son matériel sort du magasin ;
+ *   · AUCUN MATÉRIEL RÉSERVÉ N'ATTEND SA CONFIRMATION (§118.167) — tant qu'une ligne est
+ *     réservée, une partie du magasin est dehors sans que personne sache si elle revient.
  *
  * Tous les postes REFUSÉS ne bloquent pas : la clôture écrit alors 0 DZD, ce qui est vrai — la
  * tenue a été pré-validée, rien n'a été financé. Exiger un poste accordé ferait de cette demande
@@ -146,16 +162,22 @@ export function bilanCloture(statut: string, postes: readonly PostePourCloture[]
   if (aDecider.length > 0) {
     manques.push(`${aDecider.length} poste${aDecider.length > 1 ? "s" : ""} encore à décider (accorder ou refuser) : ${nommer(aDecider.map((p) => p.label))}`);
   }
-  const sansBudget = accordes.filter((p) => !p.budgetCategoryId);
+  // L'ARGENT ne se juge que sur les postes qui en engagent : un poste « Matériel du stock » n'a ni
+  // budget ni montant, et les lui exiger rendrait toute demande qui en porte un impossible à clore.
+  const accordesArgent = accordes.filter((p) => p.kind !== NATURE_MATERIEL_STOCK);
+  const sansBudget = accordesArgent.filter((p) => !p.budgetCategoryId);
   if (sansBudget.length > 0) {
     manques.push(`${sansBudget.length} poste${sansBudget.length > 1 ? "s" : ""} accordé${sansBudget.length > 1 ? "s" : ""} sans budget — rangez chacun dans un budget : ${nommer(sansBudget.map((p) => p.label))}`);
   }
-  const sansMontant = accordes.filter((p) => !(typeof p.amountGranted === "number" && Number.isFinite(p.amountGranted) && p.amountGranted > 0));
+  const sansMontant = accordesArgent.filter((p) => !(typeof p.amountGranted === "number" && Number.isFinite(p.amountGranted) && p.amountGranted > 0));
   if (sansMontant.length > 0) {
     manques.push(`${sansMontant.length} poste${sansMontant.length > 1 ? "s" : ""} accordé${sansMontant.length > 1 ? "s" : ""} sans montant : ${nommer(sansMontant.map((p) => p.label))}`);
   }
 
-  const total = Math.round(accordes.reduce((t, p) => t + (typeof p.amountGranted === "number" && Number.isFinite(p.amountGranted) ? p.amountGranted : 0), 0) * 100) / 100;
+  const materiel = manqueMaterielReserve(postes.flatMap((p) => p.lignesStock));
+  if (materiel) manques.push(materiel);
+
+  const total = Math.round(accordesArgent.reduce((t, p) => t + (typeof p.amountGranted === "number" && Number.isFinite(p.amountGranted) ? p.amountGranted : 0), 0) * 100) / 100;
   return {
     cloturable: manques.length === 0,
     manques,

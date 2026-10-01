@@ -75,10 +75,10 @@ describe("le devis et la facture d'un dossier", () => {
   const execution = (factures: { id: string; reference: string | null; fournisseur: string }[]): ExecutionDevis[] =>
     ["Imprimerie Atlas", "Stands Sahel"].map((f, i) => ({
       quoteId: `q${i}`, supplierId: null, fournisseur: f, reference: null, lignesRetenues: 1,
-      retenu: { ht: 0, tva: 0, taxe: 0, ttc: 0, lignes: 1 }, envoyeLe: null, bc: null, bcDetail: null,
+      retenu: { ht: 0, tva: 0, taxe: 0, ttc: 0, lignes: 1 }, envoyeLe: null, bc: null, bcDetail: null, lignesBC: [], taxes: { tvaRate: 19, extraTaxLabel: null, extraTaxRate: null },
       factures: factures.filter((x) => x.fournisseur === f).map((x) => ({
         id: x.id, reference: x.reference, montant: 1000, date: null, expenseOrderId: null, etat: "NON_ENVOYE" as const,
-        reglee: false, etatReglement: "", paiementDemande: false, demandeInfoMedicale: null,
+        reglee: false, etatReglement: "", paiementDemande: false, demandeInfoMedicale: null, detail: null,
       })),
     }));
 

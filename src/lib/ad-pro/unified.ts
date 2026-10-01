@@ -125,7 +125,7 @@ export const AD_PRO_KINDS: KindSpec[] = [
   },
   {
     kind: "PROMO_MATERIAL", label: "Matériel promotionnel", icon: "Package", href: "/promo-material", module: "PROMO_MATERIAL", createHref: "/promo-material?new=1",
-    hint: "Faire produire une brochure, un présentoir, un objet — par une agence.",
+    hint: "Faire produire ou acheter une brochure, un présentoir, un objet : les articles se piochent dans le catalogue, et ce qui est reçu entre au stock.",
   },
   {
     kind: "CONSULTING", label: "Consulting", icon: "Handshake", href: "/consulting", module: "CONSULTING", createHref: "/consulting?new=1",

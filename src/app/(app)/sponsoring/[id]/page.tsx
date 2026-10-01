@@ -28,7 +28,7 @@ import { getInvolvementThreads } from "@/lib/queries/involvement";
 import { SuperAdminDeleteButton } from "@/components/shared/super-admin-delete";
 import { promoMaterialOptions } from "@/lib/actions/ad-pro-item-actions";
 import { AdProItemsPanel } from "@/components/ad-pro/items-panel";
-import { loadAdProItems, adProBudgetOptions } from "@/lib/queries/ad-pro-items";
+import { loadAdProItems, adProBudgetOptions, contexteMaterielStock, postesPourCloture } from "@/lib/queries/ad-pro-items";
 import { AdProTransferButton } from "@/components/ad-pro/transfer-button";
 import { AdProEditButton } from "@/components/ad-pro/edit-request-button";
 import { canEditAdProRequest, isAdProDecided } from "@/lib/ad-pro-edit";
@@ -111,9 +111,11 @@ export default async function SponsoringDetailPage({ params }: { params: { id: s
     req.closedById ? prisma.user.findUnique({ where: { id: req.closedById }, select: { name: true } }) : Promise.resolve(null),
   ]);
   const qui = quiClotureDe(instanceBorne?.finalSlug ?? null);
-  const bilan = bilanCloture(req.status, items.map((it) => ({
-    label: it.label, status: it.status, amountGranted: it.amountGranted, budgetCategoryId: it.budgetCategoryId,
-  })));
+  // LE BILAN se juge sur les postes tels que la CLÔTURE les lit — nature et matériel réservé compris
+  // (§118.167) : la MÊME lecture que l'action et que l'op d'Adam.
+  const bilan = bilanCloture(req.status, await postesPourCloture(req.id));
+  // LE MAGASIN où un poste « Matériel du stock » pioche, et qui confirme après l'événement (§118.167).
+  const materielStock = await contexteMaterielStock(user, "SPONSORING", req.id, canDirection);
   const peutAgirSurLaCloture = peutCloturer({
     estSuperAdmin: user.role === "SUPER_ADMIN",
     porteLeRoleQuiTranche: porteLeRoleQuiTranche(user),
@@ -223,6 +225,7 @@ export default async function SponsoringDetailPage({ params }: { params: { id: s
                 canAllocate={canDirection}
                 promoOptions={promoOptions}
                 budgetOptions={budgetOptions}
+                materiel={materielStock}
                 canIssueOrder={userCan(user, "FINANCES", "UPDATE") || userCan(user, "FINANCES", "VALIDATE")}
                 canViserBC={siegeAuCentreAdPro(user)}
               />

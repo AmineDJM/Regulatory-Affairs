@@ -6,19 +6,26 @@ import { AlertCircle, CheckCircle2, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { aUneEquipe, peutConfirmerReception, peutServirDemande, peutVoirStockDe, tientLeMagasin } from "@/lib/promo/stock-acces";
+import { peutDeciderRefonte, peutDemanderDesComptages, peutSaisirComptage, peutVoirTableauDeBord } from "@/lib/promo/comptages";
 import type { ActionResult } from "@/lib/actions/types";
 import type { PageStock } from "@/lib/queries/promo-stock";
 import { faitsDe } from "./stock-commun";
 import { FormulaireStock, type Dialogue } from "./stock-formulaires";
 import { VueEquipe, VueGenerale, VueMagasin, VueMoi, type Ctx } from "./stock-vues";
+import { VueMedecins } from "./stock-medecins";
+import { VueComptages } from "./stock-comptages";
+import { VueTableau } from "./stock-tableau";
 
-type Vue = "moi" | "equipe" | "magasin" | "general";
+type Vue = "moi" | "equipe" | "magasin" | "general" | "comptages" | "tableau" | "medecins";
 
 const LIBELLE_VUE: Record<Vue, string> = {
   moi: "Mon stock",
   equipe: "Mon équipe",
   magasin: "Magasin",
   general: "Vue générale",
+  comptages: "Comptages",
+  tableau: "Tableau de bord",
+  medecins: "Remis aux médecins",
 };
 
 /**
@@ -35,18 +42,28 @@ export function StockEcran({ page, vueDemandee }: { page: PageStock; vueDemandee
     if (aUneEquipe(f)) v.push("equipe");
     if (peutVoirStockDe(f, null)) v.push("magasin");
     if (f.superAdmin || f.vueGlobale) v.push("general");
+    // LES COMPTAGES (§118.168) : pour qui en a à saisir, en a demandé, ou peut en demander.
+    if (page.comptages.length > 0 || page.recurrences.length > 0 || peutDemanderDesComptages(f) || page.peutFaireCompter.length > 0) v.push("comptages");
+    // LE TABLEAU DE BORD : la Direction Marketing, la vue globale, le Super Admin — la règle, pas un rôle.
+    if (peutVoirTableauDeBord(f) && page.tableau) v.push("tableau");
+    // L'HISTORIQUE PAR MÉDECIN est ouvert à qui a le module : le chargeur ne lui a envoyé que les
+    // remises des détenteurs qu'il voit (§118.166) — un délégué y lit les siennes.
+    v.push("medecins");
     return v;
-  }, [f]);
+  }, [f, page]);
 
   const aConfirmer = page.transferts.filter((t) => t.statut === "EN_ROUTE" && t.versId === page.moi).length;
   const pourLeMagasin = (peutServirDemande(f) ? page.demandes.filter((d) => d.statut === "OUVERTE").length : 0)
     + (peutConfirmerReception(f, null) ? page.transferts.filter((t) => t.statut === "EN_ROUTE" && t.versId === null).length : 0);
+  const aCompter = page.comptages.filter((c) => c.statut === "DEMANDE" && peutSaisirComptage(f, c.holderId)).length;
+  const pourLeTableau = (page.tableau?.alertes.length ?? 0) + (peutDeciderRefonte(f) ? page.refontes.filter((r) => r.statut === "OUVERTE").length : 0);
 
   // La vue d'arrivée : ce que l'adresse demande si la règle l'ouvre ; sinon ce qui attend la
   // personne d'abord — une réception à confirmer passe avant tout, puis le métier de chacun.
   const [vue, setVue] = React.useState<Vue>(() => {
     if (vueDemandee && (visibles as string[]).includes(vueDemandee)) return vueDemandee as Vue;
     if (aConfirmer > 0) return "moi";
+    if (aCompter > 0) return "comptages";
     if (tientLeMagasin(f) && visibles.includes("magasin")) return "magasin";
     if (visibles.includes("general")) return "general";
     if (visibles.includes("equipe")) return "equipe";
@@ -83,14 +100,14 @@ export function StockEcran({ page, vueDemandee }: { page: PageStock; vueDemandee
     }
   }, [router]);
 
-  const ctx: Ctx = { page, f, ouvrir: setDialogue, executer, occupe };
+  const ctx: Ctx = { page, f, ouvrir: setDialogue, executer, annoncer: (texte) => setMessage({ ok: true, texte }), occupe };
 
   return (
     <div className="space-y-4">
       {visibles.length > 1 && (
         <div className="flex flex-wrap gap-1 rounded-lg border border-border bg-card p-1" role="tablist" aria-label="Vues du stock">
           {visibles.map((v) => {
-            const compte = v === "moi" ? aConfirmer : v === "magasin" ? pourLeMagasin : 0;
+            const compte = v === "moi" ? aConfirmer : v === "magasin" ? pourLeMagasin : v === "comptages" ? aCompter : v === "tableau" ? pourLeTableau : 0;
             return (
               <button
                 key={v} type="button" role="tab" aria-selected={vue === v} onClick={() => choisir(v)}
@@ -129,6 +146,9 @@ export function StockEcran({ page, vueDemandee }: { page: PageStock; vueDemandee
       {vue === "equipe" && <VueEquipe ctx={ctx} />}
       {vue === "magasin" && <VueMagasin ctx={ctx} />}
       {vue === "general" && <VueGenerale ctx={ctx} />}
+      {vue === "comptages" && <VueComptages ctx={ctx} />}
+      {vue === "tableau" && <VueTableau ctx={ctx} />}
+      {vue === "medecins" && <VueMedecins page={page} />}
 
       {dialogue && (
         <FormulaireStock

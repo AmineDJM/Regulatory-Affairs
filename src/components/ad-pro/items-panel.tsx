@@ -25,6 +25,15 @@ import {
 } from "@/lib/ad-pro/pieces-secretariat";
 import { DocumentUpload } from "@/components/documents/document-upload";
 import { AD_PRO_DOC_CATEGORIES } from "@/lib/ad-pro/doc-categories";
+import { faitDeStock, NATURE_MATERIEL_STOCK } from "@/lib/promo/reservations";
+import { BlocMaterielStock, type LigneStockVue, type ContexteMaterielStock } from "./materiel-stock";
+
+export type { LigneStockVue, ContexteMaterielStock, ArticleMagasinVue } from "./materiel-stock";
+
+/** Un poste « Matériel du stock » n'engage pas d'argent : il ne montre ni montant, ni budget, ni BC. */
+const estPosteStock = (it: { kind: AdProItemKind }) => it.kind === NATURE_MATERIEL_STOCK;
+/** Un poste qui liste les articles du stock se compose tant qu'il n'est ni soumis ni accordé. */
+const POSTE_STOCK_EDITABLE: readonly AdProItemStatus[] = ["DRAFT", "REVISION", "REJECTED"];
 
 export interface ItemRow {
   id: string;
@@ -61,6 +70,8 @@ export interface ItemRow {
   orderDecisionNote: string | null;
   /** Historique des allers-retours avec la Direction (le plus récent en tête). */
   decisions: { decision: AdProItemStatus; note: string | null; amount: number | null; at: string; by: string | null }[];
+  /** Le matériel du magasin listé par un poste « Matériel du stock » (§118.167) — vide sinon. */
+  lignesStock: LigneStockVue[];
 }
 
 interface Props {
@@ -98,6 +109,12 @@ interface Props {
   budgetOptions?: { id: string; label: string }[];
   /** Les Finances émettent le bon de commande visé par la Direction. */
   canIssueOrder?: boolean;
+  /**
+   * Le magasin où un poste « Matériel du stock » pioche, et qui confirme après l'événement
+   * (§118.167). Obligatoire : une page qui l'oublierait laisserait ses postes de stock sans
+   * article à lister ni confirmation possible, en silence.
+   */
+  materiel: ContexteMaterielStock;
 }
 
 /**
@@ -135,7 +152,7 @@ const PARENT_PATH: Record<AdProParent, string> = {
 
 export function AdProItemsPanel({
   parent, parentId, items, amountGranted, decided, tardif = decided, fige = false, canEdit: canEditBrut, canAllocate: canAllocateBrut, promoOptions, plan,
-  budgetOptions = [], canIssueOrder = false, canViserBC = false,
+  budgetOptions = [], canIssueOrder = false, canViserBC = false, materiel,
 }: Props) {
   // CLÔTURÉE : on ne décrit, ne chiffre, ne décide et ne réimpute plus — l'action le refuserait
   // (`refusSiClos`), et un bouton qu'une action refuse n'est pas un bouton. Les gestes
@@ -307,6 +324,17 @@ export function AdProItemsPanel({
                   </p>
                 )}
 
+                {estPosteStock(it) ? (
+                  <BlocMaterielStock
+                    itemId={it.id}
+                    lignes={it.lignesStock}
+                    magasin={materiel.magasin}
+                    editable={canEdit && POSTE_STOCK_EDITABLE.includes(it.status)}
+                    peutConfirmer={materiel.peutConfirmer}
+                    busy={busy}
+                    run={run}
+                  />
+                ) : (
                 <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
                   <span className="text-muted-foreground">
                     Estimé : <span className="tabular-nums text-foreground">{it.amountEstimated != null ? formatCurrency(it.amountEstimated) : "—"}</span>
@@ -324,6 +352,7 @@ export function AdProItemsPanel({
                     </span>
                   )}
                 </div>
+                )}
 
                 {/* Le matériel promotionnel : on RENVOIE vers son circuit, on ne le recopie pas. */}
                 {it.kind === "PROMO_MATERIAL" && (
@@ -381,7 +410,7 @@ export function AdProItemsPanel({
 
                 {/* Paiement du poste. */}
                 <div className="flex flex-wrap items-center gap-2">
-                  {it.expenseOrder ? (
+                  {estPosteStock(it) ? null : it.expenseOrder ? (
                     <Badge tone="success" dot={false}>
                       <Receipt className="mr-1 h-3 w-3" /> {it.expenseOrder.reference} · {it.expenseOrder.status}
                     </Badge>
@@ -399,12 +428,14 @@ export function AdProItemsPanel({
                       Émettre l&apos;ordre de dépense
                     </Button>
                   ) : null}
-                  {!it.expenseOrder && canAllocateBrut && !emit.ok && (
+                  {!estPosteStock(it) && !it.expenseOrder && canAllocateBrut && !emit.ok && (
                     <span className="text-[0.6875rem] text-muted-foreground">{emit.reason}</span>
                   )}
                   {/* RETIRER — libre tant qu'aucun ordre n'est parti aux Finances ; réservé à la
                       Direction ensuite, avec annulation de l'ordre (et jamais si déjà réglé). */}
-                  {canEdit && removable.ok && (
+                  {/* Un poste dont le matériel est dehors, ou a été remis, ne se retire pas : l'action
+                      le refuserait (`faitDeStock`), et un bouton qu'elle refuse n'est pas un bouton. */}
+                  {canEdit && removable.ok && !it.lignesStock.some((l) => faitDeStock(l) != null) && (
                     <button
                       onClick={() => {
                         if (it.expenseOrderId && !window.confirm(
@@ -484,6 +515,10 @@ function AllocateField({ itemId, current, busy, onSave }: { itemId: string; curr
 function AddItemForm({ parent, parentId, decided, busy, onCancel, onSubmit }: {
   parent: AdProParent; parentId: string; decided: boolean; busy: boolean; onCancel: () => void; onSubmit: (fd: FormData) => void;
 }) {
+  // « MATÉRIEL DU STOCK » n'a ni fournisseur, ni montant, ni nature de budget (§118.167) : ces
+  // champs disparaissent quand on la choisit — les envoyer quand même ferait refuser l'ajout.
+  const [nature, setNature] = React.useState<AdProItemKind>("STAND");
+  const stock = nature === NATURE_MATERIEL_STOCK;
   return (
     <form
       onSubmit={(e) => { e.preventDefault(); onSubmit(new FormData(e.currentTarget)); }}
@@ -494,25 +529,40 @@ function AddItemForm({ parent, parentId, decided, busy, onCancel, onSubmit }: {
       <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
         <label className="text-xs">
           Nature
-          <select name="kind" defaultValue="STAND" className="mt-1 w-full rounded-lg border border-border bg-background px-2.5 py-2 text-sm outline-none focus:border-primary/60">
+          <select
+            name="kind" value={nature} onChange={(e) => setNature(e.target.value as AdProItemKind)}
+            className="mt-1 w-full rounded-lg border border-border bg-background px-2.5 py-2 text-sm outline-none focus:border-primary/60"
+          >
             {ITEM_KINDS.map((k) => <option key={k} value={k}>{ITEM_KIND_LABELS[k]}</option>)}
           </select>
         </label>
         <label className="text-xs">
           Libellé
-          <input name="label" required placeholder="Stand 12 m² — hall B" className="mt-1 w-full rounded-lg border border-border bg-background px-2.5 py-2 text-sm outline-none focus:border-primary/60" />
+          <input name="label" required placeholder={stock ? "Matériel du stand — congrès SAHO" : "Stand 12 m² — hall B"} className="mt-1 w-full rounded-lg border border-border bg-background px-2.5 py-2 text-sm outline-none focus:border-primary/60" />
         </label>
-        <label className="text-xs">
-          Payé à
-          <input name="supplier" placeholder="Organisateur, agence, association…" className="mt-1 w-full rounded-lg border border-border bg-background px-2.5 py-2 text-sm outline-none focus:border-primary/60" />
-        </label>
-        <label className="text-xs">
-          Montant estimé (DZD)
-          <input name="amountEstimated" type="number" min="0" step="1000" className="mt-1 w-full rounded-lg border border-border bg-background px-2.5 py-2 text-sm tabular-nums outline-none focus:border-primary/60" />
-        </label>
+        {!stock && (
+          <>
+            <label className="text-xs">
+              Payé à
+              <input name="supplier" placeholder="Organisateur, agence, association…" className="mt-1 w-full rounded-lg border border-border bg-background px-2.5 py-2 text-sm outline-none focus:border-primary/60" />
+            </label>
+            <label className="text-xs">
+              Montant estimé (DZD)
+              <input name="amountEstimated" type="number" min="0" step="1000" className="mt-1 w-full rounded-lg border border-border bg-background px-2.5 py-2 text-sm tabular-nums outline-none focus:border-primary/60" />
+            </label>
+          </>
+        )}
       </div>
 
+      {stock && (
+        <p className="rounded-lg bg-secondary/40 px-2.5 py-1.5 text-xs text-muted-foreground">
+          Vous listerez ensuite les articles du magasin et leurs quantités. Rien n&apos;en sort avant l&apos;accord du poste ;
+          après l&apos;événement, vous direz ce qui a été remis, et le reste reviendra au magasin.
+        </p>
+      )}
+
       {/* LA question à poser au moment de l'ajout : cet argent est-il déjà accordé, ou en plus ? */}
+      {!stock && (
       <fieldset className="rounded-lg border border-border p-2.5">
         <legend className="px-1 text-xs text-muted-foreground">Ce poste est-il déjà couvert par le budget accordé ?</legend>
         <div className="flex flex-wrap gap-3 text-sm">
@@ -524,12 +574,13 @@ function AddItemForm({ parent, parentId, decided, busy, onCancel, onSubmit }: {
           </label>
         </div>
       </fieldset>
+      )}
       <label className="block text-xs">
         Précisions
         <input name="notes" placeholder="Facultatif" className="mt-1 w-full rounded-lg border border-border bg-background px-2.5 py-2 text-sm outline-none focus:border-primary/60" />
       </label>
 
-      {decided && (
+      {decided && !stock && (
         <p className="flex items-start gap-1.5 text-[0.6875rem] text-warning">
           <AlertTriangle className="mt-px h-3 w-3 shrink-0" />
           L&apos;opération est déjà tranchée : ce poste sera marqué « ajouté après décision ». S&apos;il
@@ -563,6 +614,32 @@ function EditItemForm({ item, busy, onCancel, onSave }: {
   item: ItemRow; busy: boolean; onCancel: () => void; onSave: (fd: FormData) => void;
 }) {
   const budgetLocked = budgetKindLocked(item);
+  // UN POSTE « MATÉRIEL DU STOCK » ne se décrit que par son libellé et ses précisions : ni montant,
+  // ni fournisseur, ni nature de budget — et sa nature ne change plus hors d'un brouillon vierge
+  // (`refusChangementNature`). Son matériel se compose dans son propre bloc.
+  if (estPosteStock(item)) {
+    return (
+      <form
+        onSubmit={(e) => { e.preventDefault(); onSave(new FormData(e.currentTarget)); }}
+        className="space-y-2 rounded-xl border border-primary/30 bg-primary/5 p-3"
+      >
+        <label className="block text-xs">
+          Libellé
+          <input name="label" required defaultValue={item.label} className="mt-1 w-full rounded-lg border border-border bg-background px-2.5 py-2 text-sm outline-none focus:border-primary/60" />
+        </label>
+        <label className="block text-xs">
+          Précisions
+          <input name="notes" defaultValue={item.notes ?? ""} placeholder="Facultatif" className="mt-1 w-full rounded-lg border border-border bg-background px-2.5 py-2 text-sm outline-none focus:border-primary/60" />
+        </label>
+        <div className="flex gap-2">
+          <Button size="sm" type="submit" disabled={busy}>
+            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />} Enregistrer
+          </Button>
+          <Button size="sm" type="button" variant="outline" onClick={onCancel}>Annuler</Button>
+        </div>
+      </form>
+    );
+  }
   return (
     <form
       onSubmit={(e) => { e.preventDefault(); onSave(new FormData(e.currentTarget)); }}
@@ -679,7 +756,11 @@ function ItemLifecycle({ item, canEdit, canAllocate, fige, canViserBC, canIssueO
     .filter((d) => d.status !== "DONE" && d.status !== "CANCELLED")
     .map((d) => d.nature);
 
-  const submit = canSubmitItem({ status: item.status, amountEstimated: item.amountEstimated, amountGranted: item.amountGranted });
+  const stock = estPosteStock(item);
+  const submit = canSubmitItem({
+    status: item.status, amountEstimated: item.amountEstimated, amountGranted: item.amountGranted,
+    kind: item.kind, lignesStock: item.lignesStock.length,
+  });
   const order = canRequestPurchaseOrder({
     status: item.status, amountGranted: item.amountGranted,
     budgetCategoryId: item.budgetCategoryId, orderStage: item.orderStage,
@@ -712,7 +793,7 @@ function ItemLifecycle({ item, canEdit, canAllocate, fige, canViserBC, canIssueO
             <span className="text-muted-foreground">— joignez-y les pièces reçues.</span>
           </div>
         )}
-        {canEdit && (
+        {canEdit && !stock && (
           <div className="flex flex-wrap items-center gap-2">
             {NATURES_PIECE_SECRETARIAT.map((nature) => {
               const garde = peutDemanderPiece(nature, { ouvertes: naturesOuvertes, bcDemande: item.orderStage !== "NONE" });
@@ -822,16 +903,17 @@ function ItemLifecycle({ item, canEdit, canAllocate, fige, canViserBC, canIssueO
               <div className="flex flex-wrap gap-2">
                 <Button
                   size="sm" disabled={busy === `dec:${item.id}`}
-                  onClick={() => void run(`dec:${item.id}`, () => decideAdProItem(undefined, fdOf({ decision: "APPROVED", note })), "Poste accordé.")}
+                  title={stock ? "Accorder réserve le matériel au magasin : il en sort, et personne ne peut plus le doter ailleurs." : undefined}
+                  onClick={() => void run(`dec:${item.id}`, () => decideAdProItem(undefined, fdOf({ decision: "APPROVED", note })), stock ? "Poste accordé — le matériel est réservé au magasin." : "Poste accordé.")}
                 >
-                  <ThumbsUp className="h-4 w-4" /> Accorder
+                  <ThumbsUp className="h-4 w-4" /> {stock ? "Accorder et réserver" : "Accorder"}
                 </Button>
                 <Button
                   size="sm" variant="outline" disabled={busy === `dec:${item.id}` || !note.trim()}
                   title={!note.trim() ? "Indiquez ce qu'il faut revoir" : undefined}
-                  onClick={() => void run(`dec:${item.id}`, () => decideAdProItem(undefined, fdOf({ decision: "REVISION", note })), "Budget à revoir — le demandeur est prévenu.")}
+                  onClick={() => void run(`dec:${item.id}`, () => decideAdProItem(undefined, fdOf({ decision: "REVISION", note })), stock ? "Liste à revoir — le demandeur est prévenu." : "Budget à revoir — le demandeur est prévenu.")}
                 >
-                  <RotateCcw className="h-4 w-4" /> Revoir le budget
+                  <RotateCcw className="h-4 w-4" /> {stock ? "Revoir la liste" : "Revoir le budget"}
                 </Button>
                 <Button
                   size="sm" variant="outline" className="text-destructive" disabled={busy === `dec:${item.id}` || !note.trim()}
@@ -874,8 +956,9 @@ function ItemLifecycle({ item, canEdit, canAllocate, fige, canViserBC, canIssueO
         </ul>
       )}
 
-      {/* ── Budget : « comme d'habitude », une fois le poste accordé ── */}
-      {item.status === "APPROVED" && (
+      {/* ── Budget : « comme d'habitude », une fois le poste accordé — jamais sur du matériel
+          du stock, qui n'engage pas d'argent (§118.167). ── */}
+      {item.status === "APPROVED" && !stock && (
         <div className="flex flex-wrap items-center gap-2 text-xs">
           <Wallet className="h-3.5 w-3.5 text-muted-foreground" />
           {canAllocate && !fige && item.orderStage !== "ISSUED" ? (
@@ -898,7 +981,7 @@ function ItemLifecycle({ item, canEdit, canAllocate, fige, canViserBC, canIssueO
       )}
 
       {/* ── Bon de commande : demande → centre de validation Ad & Pro → émission par les Finances ── */}
-      {item.status === "APPROVED" && (
+      {item.status === "APPROVED" && !stock && (
         <div className="flex flex-wrap items-center gap-2">
           <Badge tone={ITEM_ORDER_STAGE_LABELS[item.orderStage].tone} dot={false}>
             {item.orderSansCentre ? LIBELLE_BC_SOUS_LE_SEUIL : ITEM_ORDER_STAGE_LABELS[item.orderStage].label}

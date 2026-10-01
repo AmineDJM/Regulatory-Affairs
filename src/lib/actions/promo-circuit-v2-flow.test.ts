@@ -23,8 +23,9 @@ import {
 } from "./promo-devis-actions";
 import {
   genererBonsDeCommandePromo, marquerBonDeCommandeEnvoye, deposerFacturePromo, demanderPaiementFacturePromo,
-  annulerBonDeCommandePromo,
+  annulerBonDeCommandePromo, receptionnerLigneFacturePromo,
 } from "./promo-execution-actions";
+import { enregistrerArticleDemandePromo } from "./promo-demande-actions";
 import { deciderVisaCentreAdPro } from "./ad-pro-centre-actions";
 import { signerBonDeCommande } from "./bc-signature-actions";
 import { decidePayment } from "./payment-centre-actions";
@@ -76,7 +77,7 @@ const etatDe = (id: string) => prisma.promoMaterial.findUniqueOrThrow({ where: {
  */
 suite("Matériel promotionnel — circuit 2 de bout en bout", () => {
   const u: Record<string, string> = {};
-  let companyId = "", fourA = "", fourB = "", pmId = "", kamPmId = "";
+  let companyId = "", fourA = "", fourB = "", pmId = "", kamPmId = "", catPresentoir = "", catStand = "", catCarnet = "";
   const emp: Record<string, string> = {};
   let seuilDg = 0;
 
@@ -122,6 +123,13 @@ suite("Matériel promotionnel — circuit 2 de bout en bout", () => {
     fourA = (await prisma.companyContact.create({ data: { name: `${TAG} Imprimerie Atlas`, address: "Zone industrielle", city: "Alger", rc: "16/00-111", nif: "0001", companyId: null } })).id;
     fourB = (await prisma.companyContact.create({ data: { name: `${TAG} Stands Sahel`, address: "Rue 5", city: "Oran", rc: "31/00-222", nif: "0002", companyId: null } })).id;
     seuilDg = (await getAppSettings()).adProDgThreshold ?? 0;
+    // LE CATALOGUE (§118.165) — la demande s'y pioche : un présentoir (durable), un stand (durable,
+    // reçu « en plus »), un carnet (consommable).
+    const cat = async (suffixe: string, nom: string, famille: "CONSOMMABLE" | "DURABLE") =>
+      (await prisma.promoCatalogueArticle.create({ data: { reference: `${TAG}-${suffixe}`, nom: `${TAG} ${nom}`, famille } })).id;
+    catPresentoir = await cat("PLV", "Présentoir PLV", "DURABLE");
+    catStand = await cat("STAND", "Stand modulaire", "DURABLE");
+    catCarnet = await cat("CARNET", "Carnet bilan", "CONSOMMABLE");
   }, 60_000);
 
   afterAll(async () => {
@@ -147,6 +155,11 @@ suite("Matériel promotionnel — circuit 2 de bout en bout", () => {
     await prisma.legalDocument.deleteMany({ where: { id: { in: pieces } } }).catch(() => {});
     await prisma.comment.deleteMany({ where: { entityType: "PROMO_MATERIAL", entityId: { in: pmIds } } }).catch(() => {});
     await prisma.promoMaterial.deleteMany({ where: { id: { in: pmIds } } }).catch(() => {});
+    // Le stock reçu (§118.165), puis le catalogue — un article demandé retient son article du catalogue.
+    await prisma.promoStockMovement.deleteMany({ where: { item: { companyId } } }).catch(() => {});
+    await prisma.promoStockLot.deleteMany({ where: { item: { companyId } } }).catch(() => {});
+    await prisma.promoStockItem.deleteMany({ where: { companyId } }).catch(() => {});
+    await prisma.promoCatalogueArticle.deleteMany({ where: { reference: { startsWith: TAG } } }).catch(() => {});
     await prisma.administrativeRequest.deleteMany({ where: { linkedEntityType: "PROMO_MATERIAL", linkedEntityId: { in: pmIds } } }).catch(() => {});
     const ids = Object.values(u);
     await prisma.fileVersion.deleteMany({ where: { node: { ownerId: { in: ids } } } }).catch(() => {});
@@ -270,16 +283,24 @@ suite("Matériel promotionnel — circuit 2 de bout en bout", () => {
     expect((await etatDe(pmId)).circuitState).toBe("QUOTE_TO_REQUEST");
   });
 
-  it("DEMANDER LES DEVIS : le demandeur ; la demande au secrétariat porte le lien canonique", async () => {
+  it("DEMANDER LES DEVIS : le demandeur, une fois les articles posés ; la demande au secrétariat porte le lien canonique", async () => {
     ACTOR = await actorFor(u.asst);
     expect((await demanderDevisPromo(form({ promoMaterialId: pmId }))).ok, "l'assistante ne demande pas à la place du demandeur").toBe(false);
     ACTOR = await actorFor(u.cp);
+    // §118.165 : sans article demandé, l'assistante ne saurait pas quels devis chercher.
+    const sansArticle = await demanderDevisPromo(form({ promoMaterialId: pmId }));
+    expect(sansArticle.ok).toBe(false);
+    expect(sansArticle.ok ? "" : sansArticle.error).toMatch(/articles à faire chiffrer/);
+    const art = await enregistrerArticleDemandePromo(form({ promoMaterialId: pmId, catalogueId: catPresentoir, quantite: "100", actions: ["FABRICATION"], commentaire: "Sol, 160 cm" }));
+    expect(art.ok, art.ok ? "" : art.error).toBe(true);
     const r = await demanderDevisPromo(form({ promoMaterialId: pmId, note: "Trois agences au moins" }));
     expect(r.ok, r.ok ? "" : r.error).toBe(true);
     const pm = await prisma.promoMaterial.findUniqueOrThrow({ where: { id: pmId }, select: { circuitState: true, adminRequestId: true } });
     expect(pm.circuitState).toBe("QUOTE_REQUESTED");
     const dem = await prisma.administrativeRequest.findUniqueOrThrow({ where: { id: pm.adminRequestId! } });
     expect(dem).toMatchObject({ type: "QUOTE", linkedEntityType: "PROMO_MATERIAL", linkedEntityId: pmId, assignedToId: u.asst });
+    // La demande au secrétariat DIT les articles : l'assistante sait quoi chercher sans ouvrir la fiche.
+    expect(dem.description).toMatch(/Présentoir PLV.*100.*fabrication.*Sol, 160 cm/s);
     // Un double clic ne fait pas une seconde demande.
     expect((await demanderDevisPromo(form({ promoMaterialId: pmId }))).ok).toBe(false);
     expect(await prisma.administrativeRequest.count({ where: { linkedEntityType: "PROMO_MATERIAL", linkedEntityId: pmId } })).toBe(1);
@@ -287,20 +308,28 @@ suite("Matériel promotionnel — circuit 2 de bout en bout", () => {
 
   it("RETRANSCRIRE : l'assistante, pas le demandeur ; un écart avec le total imprimé bloque la fin, et se DIT", async () => {
     ACTOR = await actorFor(u.cp);
-    const refus = await enregistrerDevisPromo(form({ promoMaterialId: pmId, supplierId: fourA, ligneReference: "X", ligneQuantite: "1", lignePrix: "1" }));
+    const refus = await enregistrerDevisPromo(form({ promoMaterialId: pmId, supplierId: fourA, ligneReference: "X", ligneQuantite: "1", lignePrix: "1", ligneAction: "IMPRESSION" }));
     expect(refus.ok, "celui qui recopie les prix n'est pas celui qui les retient").toBe(false);
 
     ACTOR = await actorFor(u.asst);
+    const article = (await prisma.promoRequestItem.findFirstOrThrow({ where: { promoMaterialId: pmId } })).id;
+    // §118.165 : une ligne sans ACTION est refusée — c'est elle qui dira à la réception si ce qui arrive entre au stock.
+    const sansAction = form({ promoMaterialId: pmId, supplierId: fourA, ligneReference: ["Présentoir"], ligneQuantite: ["1"], lignePrix: ["1"] });
+    sansAction.set("scan", pdf("x.pdf"));
+    const refusAction = await enregistrerDevisPromo(sansAction);
+    expect(refusAction.ok).toBe(false);
+    expect(refusAction.ok ? "" : refusAction.error).toMatch(/action/);
     const fd = form({
       promoMaterialId: pmId, supplierId: fourA, reference: "A-26/057", quoteDate: "2026-09-20", tvaRate: "19", announcedTotal: "999999",
       ligneReference: ["Présentoir PLV sol", "Kakemono 80×200"], ligneUnite: ["pièce", "pièce"], ligneQuantite: ["100", "40"], lignePrix: ["10000", "5000"],
+      ligneAction: ["FABRICATION", "IMPRESSION"], ligneArticle: [article, ""],
     });
     fd.set("scan", pdf("devis-atlas.pdf"));
     const a = await enregistrerDevisPromo(fd);
     expect(a.ok, a.ok ? "" : a.error).toBe(true);
     const fdB = form({
       promoMaterialId: pmId, supplierId: fourB, reference: "S-114", tvaRate: "19", extraTaxLabel: "Taxe Pub", extraTaxRate: "2",
-      ligneReference: ["Stand modulaire 3×3"], ligneQuantite: ["1"], lignePrix: ["300000"],
+      ligneReference: ["Stand modulaire 3×3"], ligneQuantite: ["1"], lignePrix: ["300000"], ligneAction: ["FABRICATION"],
     });
     fdB.set("scan", pdf("devis-sahel.pdf"));
     const b = await enregistrerDevisPromo(fdB);
@@ -314,6 +343,7 @@ suite("Matériel promotionnel — circuit 2 de bout en bout", () => {
     const fix = form({
       promoMaterialId: pmId, quoteId: a.id!, supplierId: fourA, reference: "A-26/057", tvaRate: "19", announcedTotal: "1200000",
       ligneReference: ["Présentoir PLV sol", "Kakemono 80×200"], ligneUnite: ["pièce", "pièce"], ligneQuantite: ["100", "40"], lignePrix: ["10000", "5000"],
+      ligneAction: ["FABRICATION", "IMPRESSION"], ligneArticle: [article, ""],
     });
     expect((await enregistrerDevisPromo(fix)).ok).toBe(true);
     const fin = await terminerRetranscriptionPromo(form({ promoMaterialId: pmId }));
@@ -501,6 +531,21 @@ suite("Matériel promotionnel — circuit 2 de bout en bout", () => {
     expect(factures).toHaveLength(2);
     ACTOR = await actorFor(u.cp);
     expect((await demanderPaiementFacturePromo(form({ promoMaterialId: pmId, invoiceId: factures[0].id }))).ok, "la formalité est obligatoire").toBe(false);
+    // §118.165 : le paiement attend la RÉCEPTION — puis le demandeur coche ce qui est arrivé. Le
+    // présentoir entre dans l'article demandé ; le stand, « en plus », choisit son article ici.
+    const attente = await demanderPaiementFacturePromo(form({ promoMaterialId: pmId, invoiceId: factures[0].id, formalite: "AD_VISA" }));
+    expect(attente.ok).toBe(false);
+    expect(attente.ok ? "" : attente.error).toMatch(/pas reçue.*ne pourra pas être fait ultérieurement/s);
+    const lignes = await prisma.promoFactureLigne.findMany({ where: { facture: { legalDocument: { sourceId: pmId } } }, select: { id: true, designation: true } });
+    expect(lignes).toHaveLength(2);
+    for (const l of lignes) {
+      const enPlus = l.designation.startsWith("Stand");
+      const r = await receptionnerLigneFacturePromo(form({ promoMaterialId: pmId, ligneId: l.id, ...(enPlus ? { catalogueId: catStand } : {}) }));
+      expect(r.ok, r.ok ? "" : r.error).toBe(true);
+    }
+    const stock = await prisma.promoStockItem.findMany({ where: { companyId }, select: { catalogueId: true, lots: { select: { origine: true, coutUnitaire: true } } } });
+    expect(stock.map((s) => s.catalogueId).sort()).toEqual([catPresentoir, catStand].sort());
+    expect(stock.flatMap((s) => s.lots).every((l) => l.origine === "ACHAT")).toBe(true);
     for (const f of factures) {
       const r = await demanderPaiementFacturePromo(form({ promoMaterialId: pmId, invoiceId: f.id, formalite: "AD_VISA" }));
       expect(r.ok, r.ok ? "" : r.error).toBe(true);
@@ -568,10 +613,11 @@ suite("Matériel promotionnel — circuit 2 de bout en bout", () => {
 
   it("DEMANDER UNE CORRECTION : le dossier revient à l'assistante, la sélection est effacée, le motif est au fil", async () => {
     ACTOR = await actorFor(u.kam);
+    expect((await enregistrerArticleDemandePromo(form({ promoMaterialId: kamPmId, catalogueId: catCarnet, quantite: "500", actions: ["IMPRESSION"] }))).ok).toBe(true);
     const r0 = await demanderDevisPromo(form({ promoMaterialId: kamPmId }));
     expect(r0.ok, r0.ok ? "" : r0.error).toBe(true);
     ACTOR = await actorFor(u.asst);
-    const fd = form({ promoMaterialId: kamPmId, supplierId: fourA, ligneReference: ["Carnet A5"], ligneQuantite: ["500"], lignePrix: ["120"] });
+    const fd = form({ promoMaterialId: kamPmId, supplierId: fourA, ligneReference: ["Carnet A5"], ligneQuantite: ["500"], lignePrix: ["120"], ligneAction: ["IMPRESSION"] });
     fd.set("scan", pdf("devis.pdf"));
     expect((await enregistrerDevisPromo(fd)).ok).toBe(true);
     expect((await terminerRetranscriptionPromo(form({ promoMaterialId: kamPmId }))).ok).toBe(true);
@@ -600,7 +646,7 @@ suite("Matériel promotionnel — circuit 2 de bout en bout", () => {
   it("REFUSER : motif obligatoire, et le refus arrête le circuit", async () => {
     ACTOR = await actorFor(u.asst);
     const ligne = await prisma.promoQuoteLine.findFirstOrThrow({ where: { quote: { promoMaterialId: kamPmId } }, include: { quote: true } });
-    const fix = form({ promoMaterialId: kamPmId, quoteId: ligne.quoteId, supplierId: fourA, ligneReference: ["Carnet A5"], ligneQuantite: ["500"], lignePrix: ["12"] });
+    const fix = form({ promoMaterialId: kamPmId, quoteId: ligne.quoteId, supplierId: fourA, ligneReference: ["Carnet A5"], ligneQuantite: ["500"], lignePrix: ["12"], ligneAction: ["IMPRESSION"] });
     expect((await enregistrerDevisPromo(fix)).ok).toBe(true);
     expect((await terminerRetranscriptionPromo(form({ promoMaterialId: kamPmId }))).ok).toBe(true);
     ACTOR = await actorFor(u.kam);

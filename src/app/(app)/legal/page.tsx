@@ -1,4 +1,3 @@
-import type { Prisma } from "@prisma/client";
 import { notFound } from "next/navigation";
 import { requireUser } from "@/lib/session";
 import { listPartyOptions } from "@/lib/queries/company-contacts";
@@ -20,8 +19,9 @@ import { legalReaderWhere } from "@/lib/lecteurs/legal";
 import { legalViewScope, natureFromParam, invoiceTally, PURCHASE_CHAIN_KINDS } from "@/lib/legal/invoices";
 import { ComposerPieceButton, type TypePieceComposable } from "@/components/pieces/composer-piece";
 import { compositionDesPieces } from "@/lib/queries/composition-pieces";
+import { piecesAmontProposees } from "@/lib/queries/legal-chain";
 import { formatCurrency } from "@/lib/utils";
-import { ROLE_LABELS, LEGAL_DOC_KIND, natureLegale } from "@/lib/labels";
+import { ROLE_LABELS, LEGAL_DOC_KIND } from "@/lib/labels";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Legal — AMD Internal OS" };
@@ -171,21 +171,7 @@ export default async function LegalPage({ searchParams }: { searchParams?: { ech
   // Les pièces AMONT possibles pour la chaîne d'achat (un BC suit son devis, une facture son BC).
   // Requête à part, SANS le filtre de dossier ouvert : le devis peut être rangé ailleurs que là où
   // l'on crée la facture. Même cloisonnement (entité + lecteurs) que la liste.
-  const chainDocs = canCreate
-    ? await prisma.legalDocument.findMany({
-        where: await companyScopedWhere<Prisma.LegalDocumentWhereInput>(user.id, {
-          ...(readerScope ? { AND: [readerScope] } : {}),
-          kind: { in: ["QUOTE", "PURCHASE_ORDER"] },
-        }),
-        select: { id: true, kind: true, reference: true, title: true },
-        orderBy: { createdAt: "desc" },
-        take: 100,
-      })
-    : [];
-  const chainCandidates = chainDocs.map((r) => ({
-    value: r.id,
-    label: `${natureLegale(r.kind)} — ${r.reference ? `${r.reference} · ` : ""}${r.title}`,
-  }));
+  const chainCandidates = canCreate ? await piecesAmontProposees({ userId: user.id, readerScope }) : [];
 
   const watch = rows.filter((r) => r.expiry === "SOON" || r.expiry === "IMMINENT").length;
   const overdue = rows.filter((r) => r.expiry === "OVERDUE").length;

@@ -1,4 +1,3 @@
-import type { Prisma } from "@prisma/client";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowLeft, Paperclip, ExternalLink } from "lucide-react";
@@ -28,7 +27,7 @@ import { RecordDeleteButton } from "@/components/shared/record-delete-button";
 import { PartagerButton } from "@/components/shared/partager-button";
 import { legalReaderWhere, canManageLegalReaders } from "@/lib/lecteurs/legal";
 import { LegalAccessPanel } from "./access-panel";
-import { loadLegalChain } from "@/lib/queries/legal-chain";
+import { loadLegalChain, piecesAmontProposees } from "@/lib/queries/legal-chain";
 import { valeurContractuelleCourante } from "@/lib/pch/market-math";
 import { MarketContext } from "./market-context";
 import { LegalChainCard } from "./chain-card";
@@ -170,27 +169,14 @@ export default async function LegalDocumentPage({ params }: { params: { id: stri
   // et devoir revenir à la liste pour le déplacer, c'est ne jamais le déplacer.
   const [folderRows, chainDocs, chain] = await Promise.all([
     prisma.legalFolder.findMany({ select: { id: true, name: true, parentId: true } }),
-    // Les pièces amont possibles pour rattacher CE document à sa chaîne d'achat.
-    prisma.legalDocument.findMany({
-      // Même porte que la liste : le cloisonnement par entité TIENT sur les pièces amont
-      // proposées — on ne chaîne pas une facture au bon de commande d'une autre société.
-      where: await companyScopedWhere<Prisma.LegalDocumentWhereInput>(user.id, {
-        AND: [...(readerScope ? [readerScope] : [])],
-        kind: { in: ["QUOTE", "PURCHASE_ORDER"] },
-        id: { not: doc.id },
-      }),
-      select: { id: true, kind: true, reference: true, title: true },
-      orderBy: { createdAt: "desc" },
-      take: 100,
-    }),
+    // Les pièces amont possibles pour rattacher CE document à sa chaîne d'achat — et la pièce
+    // ACTUELLE toujours, sans quoi « Enregistrer » détachait une facture d'un BC ancien (§118.168).
+    piecesAmontProposees({ userId: user.id, readerScope, docId: doc.id, actuelId: doc.chainFromId }),
     // La chaîne complète : maillons, validateurs de chacun, règlement au bout.
     loadLegalChain(doc.id),
   ]);
   const folderOptions = flattenFolders(buildFolderTree(folderRows)).map((n) => ({ value: n.id, label: indentedLabel(n) }));
-  const chainCandidates = chainDocs.map((r) => ({
-    value: r.id,
-    label: `${natureLegale(r.kind)} — ${r.reference ? `${r.reference} · ` : ""}${r.title}`,
-  }));
+  const chainCandidates = chainDocs;
 
   // La valeur COURANTE d'un contrat amendé — calculée, jamais stockée (§17-18).
   const montantInitial = doc.amount !== null ? toNumber(doc.amount) : null;

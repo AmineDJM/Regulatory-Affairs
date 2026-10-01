@@ -25,7 +25,7 @@ import { AdProEditButton } from "@/components/ad-pro/edit-request-button";
 import { canEditAdProRequest, isAdProDecided } from "@/lib/ad-pro-edit";
 import { adProEditValues } from "@/lib/queries/ad-pro-edit";
 import { AdProItemsPanel } from "@/components/ad-pro/items-panel";
-import { loadAdProItems, adProBudgetOptions } from "@/lib/queries/ad-pro-items";
+import { loadAdProItems, adProBudgetOptions, contexteMaterielStock } from "@/lib/queries/ad-pro-items";
 import { promoMaterialOptions } from "@/lib/actions/ad-pro-item-actions";
 import { toNumber } from "@/lib/utils";
 import { onlyofficeConfigured } from "@/lib/onlyoffice";
@@ -62,6 +62,8 @@ export default async function EventDetailPage({ params }: { params: { id: string
     canManage ? getAdProCreateData(user.id, ["EVENT"]) : Promise.resolve(null),
   ]);
   const canAllocateItems = hasGlobalView(user) || userCan(user, "EVENTS", "VALIDATE");
+  // LE MAGASIN où un poste « Matériel du stock » pioche, et qui confirme après l'événement (§118.167).
+  const materielStock = await contexteMaterielStock(user, "EVENT", e.id, canAllocateItems);
 
   // CORRIGER LA DEMANDE : le demandeur tant qu'elle n'est pas tranchée, la Direction toujours.
   const eventDecided = e.requestStatus ? isAdProDecided("EVENT", e.requestStatus) : false;
@@ -212,6 +214,7 @@ export default async function EventDetailPage({ params }: { params: { id: string
             canAllocate={canAllocateItems}
             promoOptions={promoOptions}
             budgetOptions={budgetOptions}
+            materiel={materielStock}
             canIssueOrder={userCan(user, "FINANCES", "UPDATE") || userCan(user, "FINANCES", "VALIDATE")}
             canViserBC={siegeAuCentreAdPro(user)}
           />

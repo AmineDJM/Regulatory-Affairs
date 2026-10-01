@@ -16,6 +16,7 @@ import { manquesDeRetranscription, totauxDeLaSelection, formatDzd } from "@/lib/
 import { demandeLesDevis, retranscritLesDevis, choisitLesLignes } from "@/lib/promo-material/circuit";
 import { devisDuDossier, devisLu } from "@/lib/queries/promo-circuit";
 import { validatePromoStep } from "@/lib/actions/promo-circuit-actions";
+import { ACTION_LABEL, estAction, type PromoAction } from "@/lib/promo-material/actions-fournisseur";
 
 /**
  * LES DEVIS DU MATÉRIEL PROMOTIONNEL — demande, retranscription, choix des lignes (§118.152).
@@ -108,6 +109,35 @@ export async function demanderDevisPromo(formData: FormData): Promise<ActionResu
   if (pm.circuitState !== "QUOTE_TO_REQUEST") return { ok: false, error: "Les devis de ce dossier sont déjà demandés." };
   const note = fdStr(formData, "note");
 
+  // LES ARTICLES D'ABORD (§118.165) : « pour que l'assistante sache clairement quels devis
+  // chercher ». Une demande de devis sans article ferait chercher l'assistante dans un brief en
+  // prose — exactement ce que la liste piochée dans le catalogue remplace. Le refus nomme le geste,
+  // et le cas où le catalogue ne contient pas encore l'article (seul le Super Admin l'y ajoute).
+  const articles = await prisma.promoRequestItem.findMany({
+    where: { promoMaterialId: pm.id },
+    orderBy: [{ position: "asc" }, { createdAt: "asc" }],
+    select: {
+      quantite: true, actions: true, commentaire: true,
+      catalogue: { select: { reference: true, nom: true, unite: true } },
+      produits: { select: { product: { select: { canonicalName: true } } } },
+    },
+  });
+  if (articles.length === 0) {
+    const catalogueVide = (await prisma.promoCatalogueArticle.count({ where: { actif: true } })) === 0;
+    return {
+      ok: false,
+      error: catalogueVide
+        ? "Composez d'abord la liste des articles à faire chiffrer — mais le catalogue est encore vide : demandez au Super Admin d'y ajouter vos supports (Ad & Pro › Catalogue promotionnel)."
+        : "Composez d'abord la liste des articles à faire chiffrer (« Articles demandés », piochés dans le catalogue) : c'est elle qui dit à l'assistante quels devis chercher.",
+    };
+  }
+  const listeArticles = articles.map((a, i) => {
+    const produits = a.produits.map((p) => p.product.canonicalName).join(", ");
+    const quantite = a.quantite != null ? ` · ${Number(a.quantite).toLocaleString("fr-FR")} ${a.catalogue.unite}` : "";
+    const actions = a.actions.filter(estAction).map((x) => ACTION_LABEL[x as PromoAction].toLowerCase()).join(", ");
+    return `${i + 1}. ${a.catalogue.reference} ${a.catalogue.nom}${produits ? ` — ${produits}` : ""}${quantite} (${actions})${a.commentaire ? ` — ${a.commentaire}` : ""}`;
+  }).join("\n");
+
   // LA SOCIÉTÉ DE LA DEMANDE — celle du dossier, sinon celle où TRAVAILLE le demandeur. Un dossier
   // né avant que la création porte son entité a `companyId` nul ; sa demande au secrétariat
   // héritait de ce nul, et une ligne sans société n'apparaît dans AUCUNE vue cloisonnée
@@ -128,7 +158,8 @@ export async function demanderDevisPromo(formData: FormData): Promise<ActionResu
       title: `Devis — matériel promotionnel ${pm.reference} : ${pm.title}`,
       description: [
         note,
-        `Dossier ${pm.reference}. Recevez les devis des agences, puis retranscrivez-les ligne à ligne sur la fiche du dossier (référence, unité, quantité, prix unitaire), avec le scan de chaque devis.`,
+        `Articles à faire chiffrer :\n${listeArticles}`,
+        `Dossier ${pm.reference}. Recevez les devis des agences, puis retranscrivez-les ligne à ligne sur la fiche du dossier (référence, unité, quantité, prix unitaire, action, article demandé), avec le scan de chaque devis.`,
         pm.description ? `Brief : ${pm.description}` : null,
       ].filter(Boolean).join("\n"),
       priority: "HIGH",
@@ -161,14 +192,24 @@ export async function demanderDevisPromo(formData: FormData): Promise<ActionResu
 
 // ───────────────────────── 2. L'assistante retranscrit ─────────────────────────
 
-/** Une ligne lue du formulaire, ou le motif qui la refuse (avec son rang, pour qu'on la retrouve). */
-function lireLignes(formData: FormData): { ok: true; lignes: { reference: string; unit: string | null; quantity: number; unitPrice: number }[] } | { ok: false; error: string } {
+type LigneLue = { reference: string; unit: string | null; quantity: number; unitPrice: number; action: PromoAction; requestItemId: string | null };
+
+/**
+ * Une ligne lue du formulaire, ou le motif qui la refuse (avec son rang, pour qu'on la retrouve).
+ *
+ * Chaque ligne porte l'ACTION qu'elle chiffre (§118.165) — conception, impression… : c'est elle qui
+ * dira, à la réception, si ce qui arrive entre au stock. Et, si elle chiffre un article DEMANDÉ, son
+ * rattachement ; une ligne sans article est une ligne « en plus », que le demandeur pourra retenir.
+ */
+function lireLignes(formData: FormData): { ok: true; lignes: LigneLue[] } | { ok: false; error: string } {
   const refs = formData.getAll("ligneReference").map((x) => String(x ?? "").trim());
   const unites = formData.getAll("ligneUnite").map((x) => String(x ?? "").trim());
   const quantites = formData.getAll("ligneQuantite").map((x) => String(x ?? "").trim());
   const prix = formData.getAll("lignePrix").map((x) => String(x ?? "").trim());
+  const actions = formData.getAll("ligneAction").map((x) => String(x ?? "").trim());
+  const articles = formData.getAll("ligneArticle").map((x) => String(x ?? "").trim());
   const n = Math.max(refs.length, quantites.length, prix.length);
-  const lignes: { reference: string; unit: string | null; quantity: number; unitPrice: number }[] = [];
+  const lignes: LigneLue[] = [];
   const nombre = (s: string) => (s === "" ? NaN : Number(s.replace(/\s/g, "").replace(",", ".")));
   for (let i = 0; i < n; i += 1) {
     const r = refs[i] ?? "";
@@ -180,7 +221,11 @@ function lireLignes(formData: FormData): { ok: true; lignes: { reference: string
     if (!r) return { ok: false, error: `Ligne ${i + 1} : la référence (ou désignation) est obligatoire.` };
     if (!(quantity > 0)) return { ok: false, error: `Ligne ${i + 1} (« ${r} ») : la quantité doit être un nombre supérieur à zéro.` };
     if (!(unitPrice >= 0)) return { ok: false, error: `Ligne ${i + 1} (« ${r} ») : le prix unitaire doit être un nombre positif.` };
-    lignes.push({ reference: r, unit: (unites[i] ?? "") || null, quantity, unitPrice });
+    const action = actions[i] ?? "";
+    if (!estAction(action)) {
+      return { ok: false, error: `Ligne ${i + 1} (« ${r} ») : choisissez l'action qu'elle chiffre (conception, impression, fabrication, achat, location…) — c'est elle qui dira à la réception si ce qui arrive entre au stock.` };
+    }
+    lignes.push({ reference: r, unit: (unites[i] ?? "") || null, quantity, unitPrice, action, requestItemId: (articles[i] ?? "") || null });
   }
   return { ok: true, lignes };
 }
@@ -217,6 +262,13 @@ export async function enregistrerDevisPromo(formData: FormData): Promise<ActionR
 
   const lues = lireLignes(formData);
   if (!lues.ok) return { ok: false, error: lues.error };
+  // UN RATTACHEMENT VENU D'UN CHAMP NE SE CROIT PAS SUR PAROLE : l'article doit être un article
+  // demandé de CE dossier — sinon une ligne chiffrerait l'article d'un autre dossier.
+  const rattaches = [...new Set(lues.lignes.map((l) => l.requestItemId).filter((x): x is string => Boolean(x)))];
+  if (rattaches.length) {
+    const connus = await prisma.promoRequestItem.count({ where: { id: { in: rattaches }, promoMaterialId: pm.id } });
+    if (connus !== rattaches.length) return { ok: false, error: "Une ligne est rattachée à un article qui n'est pas demandé sur ce dossier." };
+  }
   const tvaSaisie = fdNum(formData, "tvaRate");
   const tvaRate = tvaSaisie ?? 19;
   if (!(tvaRate >= 0 && tvaRate <= 100)) return { ok: false, error: "Le taux de TVA s'exprime en pour cent, entre 0 et 100." };
@@ -251,6 +303,7 @@ export async function enregistrerDevisPromo(formData: FormData): Promise<ActionR
   const lignes = lues.lignes.map((l, i) => ({
     position: i, reference: l.reference, unit: l.unit,
     quantity: new Prisma.Decimal(l.quantity), unitPrice: new Prisma.Decimal(l.unitPrice),
+    action: l.action, requestItemId: l.requestItemId,
   }));
   const devis = await prisma.$transaction(async (tx) => {
     if (existant) {

@@ -43,6 +43,10 @@ export { executionDuDossier, type ExecutionDevis, type FactureLue } from "@/lib/
 export { totauxDeLaSelection, totauxRetenus, totalLigneHT, formatDzd, type DevisLu, type LigneDevisLue } from "@/lib/promo-material/devis";
 // L'ÉTAPE EN CLAIR, dans le vocabulaire de SON circuit — la même phrase que la fiche et la liste.
 export { libelleEtape } from "@/lib/promo-material/circuit";
+// LES ACHATS (§118.165) : la règle qui dit ce qu'une facture sans détail reprend du BC, et ce qu'un
+// dossier a demandé — lues par les cartes d'Adam pour ne pas offrir un geste que l'action refuserait.
+export { lignesProposees, totauxFacture } from "@/lib/promo-material/achats";
+export { articlesDemandesDuDossier } from "@/lib/queries/promo-achats";
 
 const BORNE = 100;
 

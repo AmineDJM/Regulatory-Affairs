@@ -3,7 +3,13 @@ import { toNumber } from "@/lib/utils";
 import { getBudgetCategoryOptions } from "@/lib/queries/budget";
 import type { SessionUser } from "@/lib/rbac";
 import type { ItemRow } from "@/components/ad-pro/items-panel";
+import type { LigneStockVue, ContexteMaterielStock } from "@/components/ad-pro/materiel-stock";
 import { PARENT_COLONNE, type AdProParent } from "@/lib/ad-pro-items";
+import { etatValidite, libelleArticleStock } from "@/lib/promo/stock";
+import { familleQuantifiee, type PromoFamille } from "@/lib/promo/catalogue";
+import { peutConfirmerMateriel } from "@/lib/promo/reservations";
+import type { PostePourCloture } from "@/lib/ad-pro/cloture-sponsoring";
+import { gestionnairesDuMagasin } from "@/lib/queries/promo-stock";
 import { NATURES_PIECE_SECRETARIAT, PIECE_SECRETARIAT, type NaturePieceSecretariat } from "@/lib/ad-pro/pieces-secretariat";
 import { statutDuDossier } from "@/lib/promo-material/statut";
 
@@ -38,7 +44,7 @@ export async function loadAdProItems(parent: AdProParent, parentId: string): Pro
   const promoIds = rawItems.map((i) => i.promoMaterialId).filter((x): x is string => Boolean(x));
   const orderIds = rawItems.map((i) => i.expenseOrderId).filter((x): x is string => Boolean(x));
   const itemIds = rawItems.map((i) => i.id);
-  const [promoRows, orderRows, demandeRows, docRows] = await Promise.all([
+  const [promoRows, orderRows, demandeRows, docRows, lignesParPoste] = await Promise.all([
     promoIds.length
       ? prisma.promoMaterial.findMany({ where: { id: { in: promoIds } }, select: { id: true, reference: true, title: true, status: true, circuitState: true, circuitVersion: true } })
       : Promise.resolve([]),
@@ -60,6 +66,8 @@ export async function loadAdProItems(parent: AdProParent, parentId: string): Pro
       where: { entityType: "AD_PRO_ITEM", entityId: { in: itemIds } },
       _count: { _all: true },
     }),
+    // LE MATÉRIEL DU STOCK des postes qui en portent (§118.167) — en lot, comme le reste.
+    lignesStockParPoste(itemIds),
   ]);
   const natureDuType = new Map<string, NaturePieceSecretariat>(
     NATURES_PIECE_SECRETARIAT.map((n) => [String(PIECE_SECRETARIAT[n].type), n]),
@@ -96,6 +104,7 @@ export async function loadAdProItems(parent: AdProParent, parentId: string): Pro
     budgetCategoryLabel: i.budgetCategory ? `${i.budgetCategory.envelope.name} › ${i.budgetCategory.name}` : null,
     demandes: demandesParPoste.get(i.id) ?? [],
     documentCount: docsParPoste.get(i.id) ?? 0,
+    lignesStock: lignesParPoste.get(i.id) ?? [],
     orderStage: i.orderStage,
     // SOUS LE SEUIL (§118.149) : le BC est passé aux Finances sans qu'aucun centre le vise — seul
     // le visa du centre pose `orderDirectionAt`. La fiche ne doit pas dire « validé par le centre ».
@@ -124,4 +133,143 @@ export async function adProBudgetOptions(viewer: SessionUser): Promise<{ id: str
     viewer,
   );
   return opts.map((o) => ({ id: o.id, label: o.label }));
+}
+
+// ─────────────────────────── Le matériel du stock d'un poste (§118.167) ───────────────────────────
+
+const r3 = (n: number): number => Math.round(n * 1000) / 1000;
+const num = (v: unknown): number => (v == null ? 0 : Number(v));
+
+/** Les lignes de matériel de ces postes, rangées par poste — une requête pour tous. */
+export async function lignesStockParPoste(itemIds: readonly string[]): Promise<Map<string, LigneStockVue[]>> {
+  const out = new Map<string, LigneStockVue[]>();
+  if (itemIds.length === 0) return out;
+  const lignes = await prisma.adProStockLine.findMany({
+    where: { itemId: { in: [...itemIds] } },
+    orderBy: { createdAt: "asc" },
+    select: {
+      id: true, itemId: true, stockItemId: true, quantite: true, statut: true,
+      utilisee: true, rendue: true, abimee: true, perdue: true, confirmeeLe: true, note: true,
+      stockItem: {
+        select: {
+          catalogue: { select: { nom: true, famille: true, unite: true } },
+          produits: { select: { product: { select: { canonicalName: true } } } },
+        },
+      },
+    },
+  });
+  const opt = (v: unknown): number | null => (v == null ? null : num(v));
+  for (const l of lignes) {
+    const liste = out.get(l.itemId) ?? [];
+    liste.push({
+      id: l.id,
+      stockItemId: l.stockItemId,
+      libelle: libelleArticleStock(l.stockItem.catalogue.nom, l.stockItem.produits.map((p) => p.product.canonicalName)),
+      famille: l.stockItem.catalogue.famille as PromoFamille,
+      unite: l.stockItem.catalogue.unite,
+      quantite: num(l.quantite),
+      statut: l.statut,
+      utilisee: opt(l.utilisee),
+      rendue: opt(l.rendue),
+      abimee: opt(l.abimee),
+      perdue: opt(l.perdue),
+      confirmeeLe: l.confirmeeLe?.toISOString() ?? null,
+      note: l.note,
+    });
+    out.set(l.itemId, liste);
+  }
+  return out;
+}
+
+/**
+ * LES POSTES D'UN SPONSORING, TELS QUE LA CLÔTURE LES JUGE — une seule lecture pour l'écran, l'action
+ * et l'op d'Adam : la nature et le matériel réservé font partie du bilan (§118.167), et trois
+ * lectures écrites à la main finiraient par oublier l'un des deux chez l'un des trois (§118.5).
+ */
+export async function postesPourCloture(sponsoringId: string): Promise<PostePourCloture[]> {
+  const postes = await prisma.adProItem.findMany({
+    where: { sponsoringId },
+    select: { id: true, label: true, status: true, kind: true, amountGranted: true, budgetCategoryId: true },
+    orderBy: [{ position: "asc" }, { createdAt: "asc" }],
+  });
+  const lignes = await lignesStockParPoste(postes.filter((p) => p.kind === "STOCK_MATERIAL").map((p) => p.id));
+  return postes.map((p) => ({
+    label: p.label,
+    status: p.status,
+    kind: p.kind,
+    amountGranted: p.amountGranted != null ? toNumber(p.amountGranted) : null,
+    budgetCategoryId: p.budgetCategoryId,
+    lignesStock: (lignes.get(p.id) ?? []).map((l) => ({ libelle: l.libelle, statut: l.statut })),
+  }));
+}
+
+/** Le demandeur et la société d'une opération — ce que le matériel du stock en a besoin. */
+async function auteurEtSociete(parent: AdProParent, parentId: string): Promise<{ requesterId: string | null; companyId: string | null } | null> {
+  const select = { requesterId: true, companyId: true } as const;
+  switch (parent) {
+    case "SPONSORING": return prisma.sponsoringRequest.findUnique({ where: { id: parentId }, select });
+    case "CONGRESS_NATIONAL": return prisma.congressNational.findUnique({ where: { id: parentId }, select });
+    case "CONGRESS_INTERNATIONAL": return prisma.congressInternational.findUnique({ where: { id: parentId }, select });
+    case "EVENT": return prisma.event.findUnique({ where: { id: parentId }, select });
+  }
+}
+
+/**
+ * CE QU'UN POSTE « MATÉRIEL DU STOCK » PEUT DEMANDER, ET QUI CONFIRME APRÈS (§118.167).
+ *
+ * Le MAGASIN de la société de l'opération — les articles qui se comptent, avec ce qui s'y distribue
+ * aujourd'hui (lots non périmés) : c'est une INDICATION, l'accord du poste relit tout sous le verrou
+ * de chaque article et refuse ce que le magasin n'a plus. Sans société lisible, le magasin des
+ * articles sans société : on ne pioche pas dans celui d'une autre société.
+ *
+ * `decideLesPostes` vient de la page, qui le calcule déjà pour le panneau : le recalculer ici en
+ * ferait une seconde règle de « qui décide des postes ».
+ */
+export async function contexteMaterielStock(
+  user: SessionUser, parent: AdProParent, parentId: string, decideLesPostes: boolean, maintenant: Date = new Date(),
+): Promise<ContexteMaterielStock> {
+  const [op, gestionnaires] = await Promise.all([auteurEtSociete(parent, parentId), gestionnairesDuMagasin()]);
+  const companyId = op?.companyId ?? null;
+  const articles = await prisma.promoStockItem.findMany({
+    where: { isActive: true, companyId },
+    select: {
+      id: true,
+      catalogue: { select: { nom: true, famille: true, unite: true } },
+      produits: { select: { product: { select: { canonicalName: true } } } },
+    },
+  });
+  const quantifies = articles.filter((a) => familleQuantifiee(a.catalogue.famille as PromoFamille));
+  const ids = quantifies.map((a) => a.id);
+  const sommes = ids.length
+    ? await prisma.promoStockMovement.groupBy({ by: ["itemId", "lotId"], where: { itemId: { in: ids }, holderId: null }, _sum: { delta: true } })
+    : [];
+  const positifs = sommes.filter((x) => num(x._sum.delta) > 0);
+  const lots = positifs.length
+    ? await prisma.promoStockLot.findMany({ where: { id: { in: positifs.map((x) => x.lotId) } }, select: { id: true, valableJusquau: true } })
+    : [];
+  const validite = new Map(lots.map((l) => [l.id, l.valableJusquau]));
+  const distribuable = new Map<string, number>();
+  for (const x of positifs) {
+    // LA MÊME LECTURE QUE LA RÉSERVATION : un lot périmé ne se réserve pas (`allouer`).
+    if (etatValidite(validite.get(x.lotId) ?? null, maintenant) === "PERIME") continue;
+    distribuable.set(x.itemId, r3((distribuable.get(x.itemId) ?? 0) + num(x._sum.delta)));
+  }
+  const magasin = quantifies
+    .map((a) => ({
+      itemId: a.id,
+      libelle: libelleArticleStock(a.catalogue.nom, a.produits.map((p) => p.product.canonicalName)),
+      famille: a.catalogue.famille as PromoFamille,
+      unite: a.catalogue.unite,
+      distribuable: distribuable.get(a.id) ?? 0,
+    }))
+    .sort((a, b) => a.libelle.localeCompare(b.libelle, "fr"));
+  return {
+    magasin,
+    peutConfirmer: peutConfirmerMateriel({
+      superAdmin: user.role === "SUPER_ADMIN",
+      estLeDemandeur: op?.requesterId === user.id,
+      gereLeMagasin: gestionnaires.includes(user.id),
+      decideLesPostes,
+    }),
+  };
 }

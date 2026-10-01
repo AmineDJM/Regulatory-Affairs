@@ -6,6 +6,7 @@ import {
   type AvancementTournee, type EtatVisite, type RetardDeSoumission, type StatutPlan, type VueTournee,
 } from "@/lib/sfe/tournee";
 import { lireReglageTournee } from "@/lib/sfe/tournee-reglage";
+import { remisesDesVisites, type RemisesDeVisite } from "@/lib/queries/promo-remises";
 
 /**
  * L'EMPLOI DU TEMPS D'UN KAM — ce que l'écran affiche, et ce que la Direction compte.
@@ -40,6 +41,13 @@ export interface LigneEmploiDuTemps {
   rapport: string | null;
   produits: string[];
   messages: string[];
+  /** Les identifiants, pour rouvrir le rapport tel qu'il a été fait (correction dans les 48 h). */
+  produitIds: string[];
+  messageIds: string[];
+  /** « Ce qu'il reste à faire », tel que saisi. */
+  suite: string | null;
+  /** Ce que la visite a remis (net) et présenté (§118.166). */
+  remises: RemisesDeVisite;
   /** Combien d'heures il reste pour rapporter. 0 = fenêtre fermée. */
   heuresRestantes: number;
   /** Un rapport VOCAL est rattaché. */
@@ -104,10 +112,10 @@ export async function loadEmploiDuTemps(
       orderBy: [{ date: "asc" }],
       select: {
         id: true, date: true, status: true, origin: true, objective: true, report: true, doctorId: true,
-        tourPlanId: true,
+        tourPlanId: true, followUpActions: true,
         doctor: { select: { name: true, institution: true, wilaya: true, specialty: true } },
-        productLinks: { select: { product: { select: { canonicalName: true } } } },
-        messageLinks: { select: { message: { select: { title: true } } } },
+        productLinks: { select: { productId: true, product: { select: { canonicalName: true } } } },
+        messageLinks: { select: { messageId: true, message: { select: { title: true } } } },
         fieldReports: { select: { id: true }, take: 1 },
       },
     }),
@@ -136,6 +144,10 @@ export async function loadEmploiDuTemps(
     }),
   ]);
 
+  // CE QUE CHAQUE VISITE A REMIS — une lecture pour toutes (§118.102b : jamais une par ligne).
+  const remises = await remisesDesVisites(visites.map((v) => v.id));
+  const RIEN: RemisesDeVisite = { materiel: [], numeriques: [] };
+
   const lignes: LigneEmploiDuTemps[] = visites.map((v) => {
     const f = fenetreRapport(v.date, maintenant);
     return {
@@ -157,6 +169,10 @@ export async function loadEmploiDuTemps(
       rapport: v.report,
       produits: v.productLinks.map((l) => l.product.canonicalName),
       messages: v.messageLinks.map((l) => l.message.title),
+      produitIds: v.productLinks.map((l) => l.productId),
+      messageIds: v.messageLinks.map((l) => l.messageId),
+      suite: v.followUpActions,
+      remises: remises.get(v.id) ?? RIEN,
       heuresRestantes: f.heuresRestantes,
       vocal: v.fieldReports.length > 0,
     };

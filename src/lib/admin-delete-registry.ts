@@ -523,10 +523,21 @@ export const DELETE_REGISTRY: Record<DeletableKind, KindSpec> = {
       const r = await prisma.promoCatalogueArticle.findUnique({ where: { id }, select: { reference: true, nom: true } });
       return r ? `${r.reference} — ${r.nom}` : null;
     },
+    // DEUX LECTEURS, et les deux retiennent (§118.165) : un article de stock, ET un article DEMANDÉ
+    // sur un dossier d'achat (la clé étrangère est en Restrict). Sans le second, la suppression d'un
+    // article demandé mais jamais reçu tombait sur l'erreur brute de la base — « des éléments liés
+    // bloquent », un diagnostic qui ne nomme rien.
     async refuse(id) {
-      const n = await prisma.promoStockItem.count({ where: { catalogueId: id } });
-      return n > 0
-        ? `Cet article a servi : ${n} article(s) de stock le citent, et leur historique en dépend. Archivez-le plutôt — il ne se proposera plus, et restera lisible là où il a servi.`
+      const [stock, demandes] = await Promise.all([
+        prisma.promoStockItem.count({ where: { catalogueId: id } }),
+        prisma.promoRequestItem.count({ where: { catalogueId: id } }),
+      ]);
+      const usages = [
+        ...(stock > 0 ? [`${stock} article(s) de stock le citent`] : []),
+        ...(demandes > 0 ? [`${demandes} demande(s) d'achat de matériel promotionnel le commandent`] : []),
+      ];
+      return usages.length
+        ? `Cet article a servi : ${usages.join(", et ")} — leur historique en dépend. Archivez-le plutôt : il ne se proposera plus, et restera lisible là où il a servi.`
         : null;
     },
     async remove(id) {
@@ -547,12 +558,16 @@ export const DELETE_REGISTRY: Record<DeletableKind, KindSpec> = {
       return r ? r.name : null;
     },
     async refuse(id) {
-      const [mouvements, demandes] = await Promise.all([
+      // UN SUPPORT NUMÉRIQUE N'A PAS DE MOUVEMENT, mais il a été PRÉSENTÉ en visite (§118.166) :
+      // l'effacer retirerait la ligne de l'historique des médecins — la base le refuserait de
+      // toute façon (clé étrangère RESTRICT), et le refus doit dire pourquoi au lieu d'échouer.
+      const [mouvements, demandes, presentations] = await Promise.all([
         prisma.promoStockMovement.count({ where: { itemId: id } }),
         prisma.promoStockRequest.count({ where: { itemId: id } }),
+        prisma.medicalVisitSupportNumerique.count({ where: { itemId: id } }),
       ]);
-      return mouvements > 0 || demandes > 0
-        ? `Cet article a une histoire (${mouvements} mouvement(s), ${demandes} demande(s)) : on ne l'efface pas. Archivez-le depuis sa fiche une fois son stock à zéro.`
+      return mouvements > 0 || demandes > 0 || presentations > 0
+        ? `Cet article a une histoire (${mouvements} mouvement(s), ${demandes} demande(s)${presentations ? `, ${presentations} présentation(s) en visite` : ""}) : on ne l'efface pas. Archivez-le depuis sa fiche une fois son stock à zéro.`
         : null;
     },
     async remove(id) {

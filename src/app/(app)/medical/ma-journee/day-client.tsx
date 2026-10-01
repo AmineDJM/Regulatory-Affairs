@@ -10,6 +10,8 @@ import { Input, Label, Textarea } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import type { CarriedProduct, TourneeItem } from "@/lib/sfe-day";
+import type { StockPourVisite } from "@/lib/queries/promo-remises";
+import { BlocMaterielRemis } from "./materiel-remis";
 
 /**
  * LA SAISIE D'UNE VISITE, EN TROIS GESTES — l'écran que le terrain ouvre debout.
@@ -39,11 +41,13 @@ export interface DayPanelDoctor {
 }
 
 export function DayClient({
-  tournee, panel, produits,
+  tournee, panel, produits, stock,
 }: {
   tournee: TourneeItem[];
   panel: DayPanelDoctor[];
   produits: CarriedProduct[];
+  /** Le matériel en main — la saisie rapide aussi peut déclarer une remise (§118.166). */
+  stock: StockPourVisite;
 }) {
   const router = useRouter();
   const [cible, setCible] = React.useState<{ id: string; name: string } | null>(null);
@@ -104,6 +108,7 @@ export function DayClient({
         <CaptureSheet
           doctor={cible}
           produits={produits}
+          stock={stock}
           onClose={() => setCible(null)}
           onDone={() => { setCible(null); router.refresh(); }}
         />
@@ -155,10 +160,11 @@ function PickDoctor({
 
 /** Les trois gestes : le praticien (déjà choisi), les produits, un mot. */
 function CaptureSheet({
-  doctor, produits, onClose, onDone,
+  doctor, produits, stock, onClose, onDone,
 }: {
   doctor: { id: string; name: string };
   produits: CarriedProduct[];
+  stock: StockPourVisite;
   onClose: () => void;
   onDone: () => void;
 }) {
@@ -224,6 +230,11 @@ function CaptureSheet({
           <Textarea id="visit-report" name="report" rows={3} placeholder="Une phrase suffit — dictez-la avec le micro de votre clavier." />
           <p className="text-xs text-muted-foreground">Facultatif. Le micro de votre clavier fonctionne ici.</p>
         </div>
+
+        {/* LE MATÉRIEL REMIS, replié : la saisie rapide reste « trois champs », mais une remise
+            faite ici sort du stock comme partout ailleurs — sinon le stock serait juste ou faux
+            selon le bouton pris (§118.166). */}
+        <BlocMaterielRemis stock={stock} produitsCoches={checked} compact />
 
         <div className="space-y-1.5">
           <Label htmlFor="visit-follow">À faire ensuite</Label>

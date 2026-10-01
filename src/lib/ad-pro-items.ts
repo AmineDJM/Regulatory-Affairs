@@ -97,6 +97,8 @@ export const ITEM_KIND_LABELS: Record<AdProItemKind, string> = {
   // annonçait une chose que la nature d'à côté fait désormais — une prose qui contredit le code
   // est pire que pas de prose (§118.112b).
   TRAVEL: "Déplacement",
+  // LE MATÉRIEL DU STOCK (§118.167) — pris au magasin central, réservé à l'accord, confirmé après.
+  STOCK_MATERIAL: "Matériel du stock",
   OTHER: "Autre",
 };
 
@@ -112,7 +114,7 @@ export const ITEM_KIND_LABELS: Record<AdProItemKind, string> = {
  */
 export const ITEM_KINDS: AdProItemKind[] = [
   "STAND", "SYMPOSIUM", "PROMO_MATERIAL", "ASSOCIATION_SUPPORT", "INDIRECT_SUPPORT", "VENUE", "CATERING", "DINNER",
-  "ACCOMMODATION", "TICKETING", "CONSULTING", "SERVICE", "TRAVEL", "OTHER",
+  "ACCOMMODATION", "TICKETING", "CONSULTING", "SERVICE", "TRAVEL", "STOCK_MATERIAL", "OTHER",
 ];
 
 export const ITEM_STATUS_LABELS: Record<AdProItemStatus, { label: string; tone: "neutral" | "info" | "warning" | "success" | "danger" }> = {
@@ -244,9 +246,18 @@ export function canSubmitItem(item: {
   status: AdProItemStatus;
   amountEstimated?: number | null;
   amountGranted?: number | null;
+  /** La nature : un poste « Matériel du stock » n'engage pas d'argent (§118.167). */
+  kind?: AdProItemKind;
+  /** Combien d'articles du stock il liste — c'est eux, pas un montant, qui se décident. */
+  lignesStock?: number;
 }): { ok: boolean; reason?: string } {
   if (item.status === "PENDING") return { ok: false, reason: "Ce poste est déjà en attente de la Direction." };
   if (item.status === "APPROVED") return { ok: false, reason: "Ce poste est déjà accordé." };
+  if (item.kind === "STOCK_MATERIAL") {
+    return (item.lignesStock ?? 0) > 0
+      ? { ok: true }
+      : { ok: false, reason: "Ajoutez au moins un article du stock (et sa quantité) avant de soumettre ce poste." };
+  }
   const amount = item.amountGranted ?? item.amountEstimated;
   if (typeof amount !== "number" || !Number.isFinite(amount) || amount <= 0) {
     return { ok: false, reason: "Chiffrez le poste (montant estimé) avant de le soumettre." };

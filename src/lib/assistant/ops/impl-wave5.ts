@@ -25,7 +25,7 @@ import {
   demandesAuCentreAdPro, deciderVisaCentreAdPro, setAdProDgThreshold, setBcValidationThreshold, DEFAULT_APP_SETTINGS,
   PIECE_SECRETARIAT, NATURES_PIECE_SECRETARIAT, type NaturePieceSecretariat,
   resoudreCible, direRefus, LIBELLE_POLE, poleDe, poleOppose, type PoleConsulting,
-  bilanCloture, apercuSuppression,
+  bilanCloture, postesPourCloture, apercuSuppression,
 } from "@/platform/in-process/capacites";
 import {
   createConsultingContract, requestConsultingValidation, decideConsultingContract,
@@ -344,15 +344,7 @@ export const ADPRO5_OPS_IMPL: Record<string, OpImpl> = {
       if ("error" in req) return req;
       // LE BILAN AVANT LA CARTE : une carte qui propose une clôture que l'action refusera est un
       // geste offert puis retiré (§118.83). Le refus dit TOUT ce qui manque, en une fois.
-      const postes = await prisma.adProItem.findMany({
-        where: { sponsoringId: req.id },
-        select: { label: true, status: true, amountGranted: true, budgetCategoryId: true },
-        orderBy: { position: "asc" },
-      });
-      const bilan = bilanCloture(req.status, postes.map((p) => ({
-        label: p.label, status: p.status, budgetCategoryId: p.budgetCategoryId,
-        amountGranted: p.amountGranted != null ? Number(p.amountGranted) : null,
-      })));
+      const bilan = bilanCloture(req.status, await postesPourCloture(req.id));
       if (!bilan.cloturable) return { error: `Clôture impossible pour ${req.reference} — ${bilan.manques.join(" ; ")}.` };
       const note = opStr(input, "note") || null;
       return {

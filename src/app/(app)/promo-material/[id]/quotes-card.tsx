@@ -7,6 +7,8 @@ import {
   enregistrerDevisPromo, supprimerDevisPromo, terminerRetranscriptionPromo, choisirLignesPromo, demanderCorrectionDevisPromo,
 } from "@/lib/actions/promo-devis-actions";
 import { totauxDeLaSelection, totauxDuDevis, totalLigneHT, ecartDeRetranscription, formatDzd, type DevisLu } from "@/lib/promo-material/devis";
+import { ACTIONS, ACTION_LABEL, type PromoAction } from "@/lib/promo-material/actions-fournisseur";
+import { libelleArticleDemande, rapprocher, type ArticleDemandeLu } from "@/lib/promo-material/achats";
 import type { PartyOption } from "@/lib/contacts/parties";
 import { PartyPicker } from "@/components/directory/party-picker";
 import { Button } from "@/components/ui/button";
@@ -37,6 +39,8 @@ export interface DevisAffiche extends DevisLu {
 interface Props {
   id: string;
   quotes: DevisAffiche[];
+  /** Les articles DEMANDÉS — chaque ligne de devis s'y rapproche, ou est « en plus » (§118.165). */
+  articles: ArticleDemandeLu[];
   /** L'assistante peut retranscrire (tranché au serveur : son rôle ET l'étape). */
   canTranscribe: boolean;
   /** Le demandeur peut choisir (tranché au serveur : lui ET l'étape). */
@@ -70,17 +74,20 @@ const Info = ({ msg }: { msg: string | null }) =>
 
 // ───────────────────────── L'éditeur d'un devis (assistante) ─────────────────────────
 
-interface LigneSaisie { reference: string; unit: string; quantity: string; unitPrice: string }
-const LIGNE_VIDE: LigneSaisie = { reference: "", unit: "", quantity: "", unitPrice: "" };
+interface LigneSaisie { reference: string; unit: string; quantity: string; unitPrice: string; action: string; article: string }
+const LIGNE_VIDE: LigneSaisie = { reference: "", unit: "", quantity: "", unitPrice: "", action: "", article: "" };
 const nombre = (s: string) => Number(s.replace(/\s/g, "").replace(",", "."));
 
-function EditeurDevis({ id, devis, parties, canCreateContact, onDone }: {
-  id: string; devis: DevisAffiche | null; parties?: PartyOption[]; canCreateContact: boolean; onDone: () => void;
+function EditeurDevis({ id, devis, articles, parties, canCreateContact, onDone }: {
+  id: string; devis: DevisAffiche | null; articles: ArticleDemandeLu[]; parties?: PartyOption[]; canCreateContact: boolean; onDone: () => void;
 }) {
   const { saving, err, run } = useRun();
   const [lignes, setLignes] = React.useState<LigneSaisie[]>(() =>
     devis && devis.lines.length
-      ? devis.lines.map((l) => ({ reference: l.reference, unit: l.unit ?? "", quantity: String(l.quantity), unitPrice: String(l.unitPrice) }))
+      ? devis.lines.map((l) => ({
+          reference: l.reference, unit: l.unit ?? "", quantity: String(l.quantity), unitPrice: String(l.unitPrice),
+          action: l.action ?? "", article: l.requestItemId ?? "",
+        }))
       : [{ ...LIGNE_VIDE }, { ...LIGNE_VIDE }, { ...LIGNE_VIDE }],
   );
   const maj = (i: number, k: keyof LigneSaisie, v: string) => setLignes((ls) => ls.map((l, j) => (j === i ? { ...l, [k]: v } : l)));
@@ -117,10 +124,12 @@ function EditeurDevis({ id, devis, parties, canCreateContact, onDone }: {
       </div>
 
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[560px] text-sm">
+        <table className="w-full min-w-[880px] text-sm">
           <thead>
             <tr className="text-left text-xs text-muted-foreground">
               <th className="py-1 pr-2 font-medium">Référence / désignation</th>
+              <th className="py-1 pr-2 font-medium">Action *</th>
+              <th className="py-1 pr-2 font-medium">Article demandé</th>
               <th className="py-1 pr-2 font-medium">Unité</th>
               <th className="py-1 pr-2 font-medium">Quantité</th>
               <th className="py-1 pr-2 font-medium">Prix unitaire HT</th>
@@ -135,6 +144,20 @@ function EditeurDevis({ id, devis, parties, canCreateContact, onDone }: {
               return (
                 <tr key={i} className="align-top">
                   <td className="py-1 pr-2"><Input name="ligneReference" value={l.reference} onChange={(e) => maj(i, "reference", e.target.value)} aria-label={`Référence ligne ${i + 1}`} /></td>
+                  <td className="py-1 pr-2">
+                    <select name="ligneAction" value={l.action} onChange={(e) => maj(i, "action", e.target.value)} aria-label={`Action ligne ${i + 1}`}
+                      className="h-9 w-36 rounded-md border border-input bg-background px-2 text-sm">
+                      <option value="">Action…</option>
+                      {ACTIONS.map((a) => <option key={a} value={a}>{ACTION_LABEL[a]}</option>)}
+                    </select>
+                  </td>
+                  <td className="py-1 pr-2">
+                    <select name="ligneArticle" value={l.article} onChange={(e) => maj(i, "article", e.target.value)} aria-label={`Article demandé ligne ${i + 1}`}
+                      className="h-9 w-48 rounded-md border border-input bg-background px-2 text-sm">
+                      <option value="">En plus (non demandé)</option>
+                      {articles.map((a) => <option key={a.id} value={a.id}>{libelleArticleDemande(a)}</option>)}
+                    </select>
+                  </td>
                   <td className="py-1 pr-2"><Input name="ligneUnite" value={l.unit} onChange={(e) => maj(i, "unit", e.target.value)} aria-label={`Unité ligne ${i + 1}`} placeholder="pièce" className="w-24" /></td>
                   <td className="py-1 pr-2"><Input name="ligneQuantite" value={l.quantity} onChange={(e) => maj(i, "quantity", e.target.value)} inputMode="decimal" aria-label={`Quantité ligne ${i + 1}`} className="w-24" /></td>
                   <td className="py-1 pr-2"><Input name="lignePrix" value={l.unitPrice} onChange={(e) => maj(i, "unitPrice", e.target.value)} inputMode="decimal" aria-label={`Prix unitaire ligne ${i + 1}`} className="w-32" /></td>
@@ -148,7 +171,7 @@ function EditeurDevis({ id, devis, parties, canCreateContact, onDone }: {
           </tbody>
           <tfoot>
             <tr>
-              <td colSpan={4} className="pt-2">
+              <td colSpan={6} className="pt-2">
                 <Button type="button" size="sm" variant="outline" onClick={() => setLignes((ls) => [...ls, { ...LIGNE_VIDE }])}><Plus className="h-4 w-4" /> Ajouter une ligne</Button>
               </td>
               <td className="pt-2 text-right font-medium tabular-nums">{formatDzd(totalHT)}</td>
@@ -169,7 +192,7 @@ function EditeurDevis({ id, devis, parties, canCreateContact, onDone }: {
 
 // ───────────────────────── La carte ─────────────────────────
 
-export function PromoQuotesCard({ id, quotes, canTranscribe, canSelect, manques, parties, canCreateContact, seuilDg }: Props) {
+export function PromoQuotesCard({ id, quotes, articles, canTranscribe, canSelect, manques, parties, canCreateContact, seuilDg }: Props) {
   const { saving, err, msg, run } = useRun();
   const [edition, setEdition] = React.useState<string | "nouveau" | null>(null);
   const [choisies, setChoisies] = React.useState<Set<string>>(() => new Set(quotes.flatMap((q) => q.lines.filter((l) => l.selected).map((l) => l.id))));
@@ -186,6 +209,9 @@ export function PromoQuotesCard({ id, quotes, canTranscribe, canSelect, manques,
     run(() => choisirLignesPromo(f));
   };
   const auDg = seuilDg != null && seuilDg > 0 && selection.lignes > 0 && selection.ttc > seuilDg;
+  const nomArticle = new Map(articles.map((a) => [a.id, `${a.reference} ${a.nom}${a.produits.length ? ` — ${a.produits.map((p) => p.nom).join(", ")}` : ""}`]));
+  // LE RAPPROCHEMENT — calculé par le module pur, avec la sélection de l'écran (§118.165).
+  const rapprochement = articles.length > 0 && quotes.length > 0 ? rapprocher(articles, affiches) : null;
 
   return (
     <div className="space-y-4">
@@ -198,7 +224,7 @@ export function PromoQuotesCard({ id, quotes, canTranscribe, canSelect, manques,
         const ecart = ecartDeRetranscription(q);
         const toutCoche = q.lines.length > 0 && q.lines.every((l) => choisies.has(l.id));
         if (edition === q.id) {
-          return <EditeurDevis key={q.id} id={id} devis={q} parties={parties} canCreateContact={canCreateContact} onDone={() => setEdition(null)} />;
+          return <EditeurDevis key={q.id} id={id} devis={q} articles={articles} parties={parties} canCreateContact={canCreateContact} onDone={() => setEdition(null)} />;
         }
         return (
           <div key={q.id} className="rounded-lg border border-border">
@@ -247,7 +273,15 @@ export function PromoQuotesCard({ id, quotes, canTranscribe, canSelect, manques,
                         {canSelect && (
                           <td className="px-3 py-1.5"><input type="checkbox" checked={retenue} onChange={() => bascule(l.id)} aria-label={`Retenir ${l.reference}`} /></td>
                         )}
-                        <td className="px-3 py-1.5">{l.reference}{!canSelect && retenue && <Badge tone="success" className="ml-2">retenue</Badge>}</td>
+                        <td className="px-3 py-1.5">
+                          {l.reference}{!canSelect && retenue && <Badge tone="success" className="ml-2">retenue</Badge>}
+                          <span className="mt-0.5 flex flex-wrap gap-1 text-xs">
+                            {l.action && <Badge tone="info">{ACTION_LABEL[l.action as PromoAction]}</Badge>}
+                            {l.requestItemId
+                              ? <span className="text-muted-foreground">{nomArticle.get(l.requestItemId) ?? "article demandé"}</span>
+                              : articles.length > 0 && <span className="text-amber-700 dark:text-amber-400">en plus (non demandé)</span>}
+                          </span>
+                        </td>
                         <td className="px-3 py-1.5 text-muted-foreground">{l.unit ?? "—"}</td>
                         <td className="px-3 py-1.5 text-right tabular-nums">{l.quantity.toLocaleString("fr-FR")}</td>
                         <td className="px-3 py-1.5 text-right tabular-nums">{formatDzd(l.unitPrice)}</td>
@@ -275,8 +309,45 @@ export function PromoQuotesCard({ id, quotes, canTranscribe, canSelect, manques,
         );
       })}
 
+      {rapprochement && (
+        <div className="space-y-2 rounded-lg border border-border p-3">
+          <p className="text-sm font-medium">Rapprochement avec la demande</p>
+          <div className="space-y-2">
+            {rapprochement.articles.map(({ article, lignes, actionsSansDevis }) => (
+              <div key={article.id} className="rounded-md bg-muted/40 px-3 py-2 text-sm">
+                <p className="font-medium">{libelleArticleDemande(article)}</p>
+                {lignes.length === 0
+                  ? <p className="text-xs text-amber-700 dark:text-amber-400">Aucune ligne de devis ne chiffre encore cet article.</p>
+                  : (
+                    <ul className="mt-1 space-y-0.5 text-xs">
+                      {lignes.map((l) => (
+                        <li key={l.ligneId} className={l.retenue ? "font-medium text-emerald-700 dark:text-emerald-400" : "text-muted-foreground"}>
+                          {l.fournisseur} — {l.action ? `${ACTION_LABEL[l.action]} · ` : ""}{l.reference} · {l.quantite.toLocaleString("fr-FR")} × {formatDzd(l.prixUnitaire)} = {formatDzd(l.totalHT)} HT{l.retenue ? " · retenue" : ""}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                {actionsSansDevis.length > 0 && lignes.length > 0 && (
+                  <p className="text-xs text-amber-700 dark:text-amber-400">Pas encore chiffré : {actionsSansDevis.map((a) => ACTION_LABEL[a].toLowerCase()).join(", ")}.</p>
+                )}
+              </div>
+            ))}
+            {rapprochement.enPlus.length > 0 && (
+              <div className="rounded-md border border-dashed border-border px-3 py-2 text-xs">
+                <p className="font-medium">En plus de la demande — {rapprochement.enPlus.length} ligne{rapprochement.enPlus.length > 1 ? "s" : ""}, qui peuvent être retenues :</p>
+                <ul className="mt-1 space-y-0.5 text-muted-foreground">
+                  {rapprochement.enPlus.map((l) => (
+                    <li key={l.ligneId}>{l.fournisseur} — {l.action ? `${ACTION_LABEL[l.action]} · ` : ""}{l.reference} · {formatDzd(l.totalHT)} HT{l.retenue ? " · retenue" : ""}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {canTranscribe && edition === "nouveau" && (
-        <EditeurDevis id={id} devis={null} parties={parties} canCreateContact={canCreateContact} onDone={() => setEdition(null)} />
+        <EditeurDevis id={id} devis={null} articles={articles} parties={parties} canCreateContact={canCreateContact} onDone={() => setEdition(null)} />
       )}
 
       <Erreur msg={err} />

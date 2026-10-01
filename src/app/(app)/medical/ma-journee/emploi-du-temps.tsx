@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { AlertTriangle, Check, Clock, Loader2, Mic, Plus, Square } from "lucide-react";
+import { AlertTriangle, Check, Clock, Loader2, Mic, Package, Pencil, Plus, Square } from "lucide-react";
 import { rapporterVisite, ajouterVisiteImprevue } from "@/lib/actions/tour-visit-actions";
 import { ETAT_VISITE_LABELS, VUES, VUE_LABELS, type EtatVisite, type VueTournee } from "@/lib/sfe/tournee";
 import type { AvancementTournee } from "@/lib/sfe/tournee";
@@ -11,6 +11,8 @@ import { Button } from "@/components/ui/button";
 import { Sheet } from "@/components/ui/sheet";
 import { Input, Label, Select, Textarea } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
+import type { StockPourVisite } from "@/lib/queries/promo-remises";
+import { BlocMaterielRemis, type RemisesInitiales } from "./materiel-remis";
 
 export interface LigneVue {
   id: string;
@@ -25,9 +27,24 @@ export interface LigneVue {
   rapport: string | null;
   produits: string[];
   messages: string[];
+  produitIds: string[];
+  messageIds: string[];
+  suite: string | null;
+  remises: RemisesInitiales;
   heuresRestantes: number;
   vocal: boolean;
 }
+
+/** Ce qui pré-remplit le formulaire quand on CORRIGE un rapport fait (§118.166). */
+interface RapportInitial {
+  texte: string;
+  suite: string;
+  produitIds: string[];
+  messageIds: string[];
+  remises: RemisesInitiales;
+}
+
+const nombre = (n: number) => n.toLocaleString("fr-FR", { maximumFractionDigits: 3 });
 
 /**
  * L'EMPLOI DU TEMPS DU KAM — gris tant que le rapport n'est pas fait, vert après.
@@ -52,7 +69,7 @@ export interface LigneVue {
  * DIT et le clavier reste. Annoncer une dictée qui ne marche pas est pire que ne pas l'offrir.
  */
 export function EmploiDuTemps({
-  vue, lignes, avancement, produits, produitsIncomplets, messages, sansBu, panel,
+  vue, lignes, avancement, produits, produitsIncomplets, messages, sansBu, panel, stock,
 }: {
   vue: VueTournee;
   lignes: LigneVue[];
@@ -63,10 +80,14 @@ export function EmploiDuTemps({
   sansBu: boolean;
   /** Le panel, pour la visite imprévue. */
   panel: { id: string; name: string }[];
+  /** Le matériel en main du délégué, pour le bloc « Matériel remis » (§118.166). */
+  stock: StockPourVisite;
 }) {
   const router = useRouter();
   const params = useSearchParams();
   const [ouverte, setOuverte] = React.useState<LigneVue | null>(null);
+  /** La visite ouverte l'est-elle pour une CORRECTION (rapport déjà fait, fenêtre encore ouverte) ? */
+  const correction = ouverte?.etat === "FAITE";
   const [imprevue, setImprevue] = React.useState(false);
   const [busy, setBusy] = React.useState(false);
   const [err, setErr] = React.useState<string | null>(null);
@@ -164,6 +185,19 @@ export function EmploiDuTemps({
                   {l.etat === "FAITE" && l.produits.length > 0 && (
                     <span className="mt-0.5 block text-xs text-muted-foreground">{l.produits.join(" · ")}</span>
                   )}
+                  {/* CE QUI A ÉTÉ REMIS SE VOIT sur la ligne : le délégué relit sa journée sans
+                      rouvrir chaque rapport, et une erreur de quantité se repère avant la fin des 48 h. */}
+                  {(l.remises.materiel.length > 0 || l.remises.numeriques.length > 0) && (
+                    <span className="mt-0.5 flex items-start gap-1 text-xs text-muted-foreground">
+                      <Package className="mt-0.5 h-3 w-3 shrink-0" aria-hidden />
+                      <span>
+                        {[
+                          ...l.remises.materiel.map((m) => `${nombre(m.quantite)} ${m.libelle}`),
+                          ...l.remises.numeriques.map((n) => `${n.libelle} (présenté)`),
+                        ].join(" · ")}
+                      </span>
+                    </span>
+                  )}
                 </td>
                 <td className="px-3 py-2">
                   <Badge tone={tonDe(l.etat)}>{ETAT_VISITE_LABELS[l.etat]}</Badge>
@@ -183,6 +217,12 @@ export function EmploiDuTemps({
                     </Button>
                   ) : l.etat === "PERDUE" ? (
                     <span className="text-xs text-warning">Délai dépassé</span>
+                  ) : l.etat === "FAITE" && l.heuresRestantes > 0 ? (
+                    // CORRIGER DANS LA FENÊTRE : une quantité remise mal tapée se rattrape ici, et le
+                    // stock suit — seuls les articles dont la quantité change sont repris (§118.166).
+                    <Button size="sm" variant="ghost" onClick={() => { setErr(null); setOuverte(l); }} disabled={busy}>
+                      <Pencil className="h-3.5 w-3.5" /> Corriger
+                    </Button>
                   ) : l.etat === "FAITE" ? (
                     <Check className="ml-auto h-4 w-4 text-success" aria-label="Rapport fait" />
                   ) : null}
@@ -201,12 +241,15 @@ export function EmploiDuTemps({
       <Sheet
         open={ouverte !== null}
         onClose={() => setOuverte(null)}
-        title={ouverte ? `Rapport — ${ouverte.doctorName}` : ""}
-        description={ouverte ? `Visite du ${new Date(ouverte.date).toLocaleDateString("fr-FR")} · ${ouverte.heuresRestantes} h restantes pour la rapporter.` : ""}
+        title={ouverte ? `${correction ? "Corriger le rapport" : "Rapport"} — ${ouverte.doctorName}` : ""}
+        description={ouverte
+          ? `Visite du ${new Date(ouverte.date).toLocaleDateString("fr-FR")} · ${ouverte.heuresRestantes} h restantes pour la ${correction ? "corriger" : "rapporter"}.`
+          : ""}
         width="md"
       >
         {ouverte && (
           <FormulaireRapport
+            key={ouverte.id}
             action={async (fd) => {
               fd.set("visitId", ouverte.id);
               if (await run(rapporterVisite, fd)) setOuverte(null);
@@ -215,7 +258,16 @@ export function EmploiDuTemps({
             produitsIncomplets={produitsIncomplets}
             messages={messages}
             sansBu={sansBu}
-            messageObligatoire
+            // UNE CORRECTION N'EXIGE PAS PLUS QUE LA CRÉATION : la règle est au serveur, l'écran la
+            // reflète — une imprévue, ou une visite rapportée sans message, se corrige sans message.
+            messageObligatoire={ouverte.origine !== "UNPLANNED" && !(correction && ouverte.messageIds.length === 0)}
+            produitObligatoire={ouverte.origine !== "UNPLANNED" && !(correction && ouverte.produitIds.length === 0)}
+            stock={stock}
+            initial={correction ? {
+              texte: ouverte.rapport ?? "", suite: ouverte.suite ?? "",
+              produitIds: ouverte.produitIds, messageIds: ouverte.messageIds, remises: ouverte.remises,
+            } : undefined}
+            libelleEnvoi={correction ? "Enregistrer la correction" : "Enregistrer le rapport"}
             busy={busy}
             err={err}
             onCancel={() => setOuverte(null)}
@@ -240,6 +292,8 @@ export function EmploiDuTemps({
           // LE MESSAGE EST FACULTATIF ICI — la demande le dit, et une rencontre de couloir n'a
           // pas d'ordre de mission.
           messageObligatoire={false}
+          produitObligatoire={false}
+          stock={stock}
           busy={busy}
           err={err}
           onCancel={() => setImprevue(false)}
@@ -274,7 +328,8 @@ export function EmploiDuTemps({
  * apprendrait deux gestes pour une seule chose (§118.5).
  */
 function FormulaireRapport({
-  action, produits, produitsIncomplets, messages, sansBu, messageObligatoire, busy, err, onCancel, entete,
+  action, produits, produitsIncomplets, messages, sansBu, messageObligatoire, produitObligatoire, stock, initial,
+  libelleEnvoi = "Enregistrer le rapport", busy, err, onCancel, entete,
 }: {
   action: (fd: FormData) => void | Promise<void>;
   produits: { productId: string; name: string }[];
@@ -282,12 +337,24 @@ function FormulaireRapport({
   messages: { id: string; title: string; body: string | null; buName: string | null }[];
   sansBu: boolean;
   messageObligatoire: boolean;
+  produitObligatoire: boolean;
+  stock: StockPourVisite;
+  /** Le rapport tel qu'il a été fait — pour une correction dans la fenêtre des 48 h. */
+  initial?: RapportInitial | undefined;
+  libelleEnvoi?: string;
   busy: boolean;
   err: string | null;
   onCancel: () => void;
   entete?: React.ReactNode;
 }) {
-  const [texte, setTexte] = React.useState("");
+  const [texte, setTexte] = React.useState(initial?.texte ?? "");
+  // LES PRODUITS COCHÉS sont un état : le bloc « Matériel remis » met en tête les articles de ces
+  // produits. UN SEUL PRODUIT DANS LA GAMME arrive coché (hors correction) — décocher est plus
+  // rapide que chercher, et c'est ce qui fait tenir « le minimum de clics ».
+  const [coches, setCoches] = React.useState<Set<string>>(() => new Set(
+    initial ? initial.produitIds : produits.length === 1 && produits[0] ? [produits[0].productId] : [],
+  ));
+  const basculer = (id: string) => setCoches((c) => { const n = new Set(c); if (n.has(id)) n.delete(id); else n.add(id); return n; });
   const [dictee, setDictee] = React.useState<"absente" | "prete" | "en-cours">("absente");
   const recRef = React.useRef<{ start: () => void; stop: () => void } | null>(null);
 
@@ -329,7 +396,7 @@ function FormulaireRapport({
       {/* ── LES PRODUITS DE SA GAMME ─────────────────────────────────────────── */}
       <div className="space-y-1.5">
         <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-          Produits discutés <span className="text-destructive">*</span>
+          Produits discutés {produitObligatoire && <span className="text-destructive">*</span>}
         </p>
         {sansBu ? (
           <p className="rounded-lg border border-warning/40 bg-warning/10 p-2.5 text-xs">
@@ -347,13 +414,11 @@ function FormulaireRapport({
           </p>
         ) : (
           <div className="flex flex-wrap gap-2">
-            {produits.map((p, i) => (
+            {produits.map((p) => (
               <label key={p.productId} className="inline-flex items-center gap-1.5 rounded-lg border border-input px-2 py-1 text-sm">
                 <input
                   type="checkbox" name="productId" value={p.productId}
-                  // UN SEUL PRODUIT DANS LA GAMME : il arrive coché. Décocher est plus rapide que
-                  // chercher, et c'est ce qui fait tenir « le minimum de clics ».
-                  defaultChecked={produits.length === 1 && i === 0}
+                  checked={coches.has(p.productId)} onChange={() => basculer(p.productId)}
                   className="h-4 w-4 rounded border-input"
                 />
                 {p.name}
@@ -383,7 +448,7 @@ function FormulaireRapport({
           <div className="max-h-40 space-y-1 overflow-y-auto rounded-lg border border-border p-2">
             {messages.map((m) => (
               <label key={m.id} className="flex items-start gap-2 rounded-md px-1 py-1 text-sm hover:bg-secondary">
-                <input type="checkbox" name="messageId" value={m.id} className="mt-0.5 h-4 w-4 rounded border-input" />
+                <input type="checkbox" name="messageId" value={m.id} defaultChecked={initial?.messageIds.includes(m.id) ?? false} className="mt-0.5 h-4 w-4 rounded border-input" />
                 <span className="min-w-0">
                   <span className="font-medium">{m.title}</span>
                   {m.body && <span className="block text-xs text-muted-foreground">{m.body}</span>}
@@ -417,16 +482,19 @@ function FormulaireRapport({
         {dictee !== "absente" && <input type="hidden" name="transcript" value={dictee === "prete" && texte ? texte : ""} />}
       </div>
 
+      {/* ── LE MATÉRIEL REMIS (§118.166) ─────────────────────────────────────── */}
+      <BlocMaterielRemis stock={stock} produitsCoches={coches} initial={initial?.remises} />
+
       <div>
         <Label htmlFor="rapport-suite">Ce qu&apos;il reste à faire</Label>
-        <Input id="rapport-suite" name="followUpActions" placeholder="Rappeler après le comité du 12, envoyer l'étude…" />
+        <Input id="rapport-suite" name="followUpActions" defaultValue={initial?.suite ?? ""} placeholder="Rappeler après le comité du 12, envoyer l'étude…" />
       </div>
 
       {err && <p className="text-sm text-destructive">{err}</p>}
       <div className="flex justify-end gap-2 pt-1">
         <Button type="button" variant="ghost" onClick={onCancel} disabled={busy}>Annuler</Button>
         <Button type="submit" disabled={busy}>
-          {busy && <Loader2 className="h-4 w-4 animate-spin" />} Enregistrer le rapport
+          {busy && <Loader2 className="h-4 w-4 animate-spin" />} {libelleEnvoi}
         </Button>
       </div>
       {messageObligatoire && messages.length > 0 && (

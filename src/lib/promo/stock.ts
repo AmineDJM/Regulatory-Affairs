@@ -36,7 +36,11 @@ export type MovementKind =
   /** Retour à l'envoyeur : transfert refusé ou annulé. */
   | "TRANSFER_BACK"
   /** Annulation d'un mouvement erroné — son exact inverse. */
-  | "REVERSAL";
+  | "REVERSAL"
+  /** Réservé pour un événement Ad & Pro : quitte le magasin à l'accord du poste (§118.167). */
+  | "RESERVATION_OUT"
+  /** Retour d'événement : ce qui n'a pas été remis, ou le durable rendu. */
+  | "RESERVATION_BACK";
 
 export const MOVEMENT_LABEL: Record<MovementKind, string> = {
   RECEIPT: "Entrée",
@@ -48,6 +52,8 @@ export const MOVEMENT_LABEL: Record<MovementKind, string> = {
   TRANSFER_IN: "Réception",
   TRANSFER_BACK: "Retour à l'envoyeur",
   REVERSAL: "Annulation",
+  RESERVATION_OUT: "Réservé pour un événement",
+  RESERVATION_BACK: "Retour d'événement",
 };
 
 /**

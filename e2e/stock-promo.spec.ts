@@ -38,6 +38,16 @@ async function login(page: Page, email: string) {
   await page.waitForURL((url) => !url.pathname.startsWith("/login"), { timeout: 60_000 });
 }
 
+/**
+ * NAVIGUER PUIS ATTENDRE QUE LA PAGE SOIT INTERACTIVE. Un bouton cliqué avant l'hydratation ne fait
+ * RIEN — aucune requête ne part (mesuré sur la trace du premier passage : le clic « J'ai tout reçu »
+ * n'a déclenché aucun POST) — et le banc accuse alors l'écran d'un défaut qu'il n'a pas.
+ */
+async function aller(page: Page, url: string) {
+  await page.goto(url);
+  await page.waitForLoadState("networkidle");
+}
+
 async function capture(page: Page, nom: string) {
   if (CAPTURES) await page.screenshot({ path: `${CAPTURES}/${nom}.png`, fullPage: true });
 }
@@ -94,7 +104,7 @@ test.afterAll(async () => {
 
 test("le Super Admin crée l'article au catalogue — un seul onglet allumé, le sien", async ({ page }) => {
   await login(page, SA_EMAIL);
-  await page.goto("/promo-material/catalogue");
+  await aller(page, "/promo-material/catalogue");
   await expect(page.getByRole("heading", { name: /Catalogue promotionnel/ })).toBeVisible();
   // L'onglet ACTIF est le plus précis : « Matériel promotionnel » (/promo-material) ne s'allume pas
   // sous /promo-material/catalogue (§118.164).
@@ -115,7 +125,7 @@ test("le Super Admin crée l'article au catalogue — un seul onglet allumé, le
 
 test("le Super Admin entre 50 fiches au magasin — un lot, et le chiffre à l'écran", async ({ page }) => {
   await login(page, SA_EMAIL);
-  await page.goto("/promo-material/stock?vue=magasin");
+  await aller(page, "/promo-material/stock?vue=magasin");
   await expect(page.locator("a[aria-current='page']")).toHaveText("Stock promotionnel");
   await page.getByRole("button", { name: "Entrée manuelle" }).click();
   const panneau = page.getByRole("dialog");
@@ -134,7 +144,7 @@ test("le Super Admin entre 50 fiches au magasin — un lot, et le chiffre à l'�
 
 test("la directrice marketing dote le délégué : rien n'entre chez lui avant SA confirmation", async ({ page }) => {
   await login(page, DM_EMAIL);
-  await page.goto("/promo-material/stock");
+  await aller(page, "/promo-material/stock");
   // Elle tient le magasin : c'est la vue d'arrivée.
   await expect(page.getByRole("tab", { name: /Magasin/ })).toHaveAttribute("aria-selected", "true");
   const ligne = page.locator("li", { hasText: ARTICLE }).first();
@@ -153,7 +163,7 @@ test("la directrice marketing dote le délégué : rien n'entre chez lui avant S
 test("le délégué arrive sur sa réception à confirmer, et l'atteste lui-même — au format téléphone", async ({ page }) => {
   await page.setViewportSize({ width: 375, height: 812 });
   await login(page, KAM_EMAIL);
-  await page.goto("/promo-material/stock");
+  await aller(page, "/promo-material/stock");
   // Ni le magasin ni la vue générale : il ne voit que le sien.
   await expect(page.getByRole("tab", { name: /Magasin/ })).toHaveCount(0);
   await expect(page.getByRole("tab", { name: /Vue générale/ })).toHaveCount(0);
@@ -172,7 +182,7 @@ test("le délégué arrive sur sa réception à confirmer, et l'atteste lui-mêm
 test("la vue du magasin tient aussi au format téléphone", async ({ page }) => {
   await page.setViewportSize({ width: 375, height: 812 });
   await login(page, DM_EMAIL);
-  await page.goto("/promo-material/stock?vue=magasin");
+  await aller(page, "/promo-material/stock?vue=magasin");
   await expect(page.locator("li", { hasText: ARTICLE }).first()).toContainText("40");
   await sansDebordement(page);
   await capture(page, "6-magasin-mobile");

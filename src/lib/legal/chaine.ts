@@ -15,3 +15,11 @@ export async function refusMaillonAmont(chainFromId: string | null, selfId?: str
   const prev = await prisma.legalDocument.findUnique({ where: { id: chainFromId }, select: { id: true } });
   return prev ? null : "La pièce amont (devis / bon de commande) n'existe plus.";
 }
+
+/**
+ * Le refus d'un changement de chaîne sur une facture saisie ligne à ligne sur un dossier de
+ * matériel promotionnel (§118.168) : il nomme le geste qui corrige (§118.30). Une seule rédaction,
+ * lue par l'action ET par son banc — un `"use server"` n'exporte que des fonctions asynchrones.
+ */
+export const REFUS_CHAINE_FACTURE_PROMO =
+  "Cette facture a été saisie ligne à ligne sur un dossier de matériel promotionnel : elle reste chaînée à SON bon de commande. Pour la rattacher à un autre, annulez-la depuis le dossier (Ad & Pro › Matériel promotionnel), puis redéposez-la sur le bon.";

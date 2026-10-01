@@ -4,6 +4,7 @@ import {
   demanderDevisPromo, supprimerDevisPromo, terminerRetranscriptionPromo, choisirLignesPromo, demanderCorrectionDevisPromo,
   genererBonsDeCommandePromo, modifierBonDeCommandePromo, annulerBonDeCommandePromo, marquerBonDeCommandeEnvoye,
   deposerFacturePromo, demanderPaiementFacturePromo, adresserInfoMedicaleFacturePromo,
+  articlesDemandesDuDossier, lignesProposees, totauxFacture,
   type DossierPromoDesigne,
 } from "@/platform/in-process/promo";
 import type { OpImpl, OpProposalDraft } from "./types";
@@ -88,11 +89,20 @@ export const PROMO2_OPS_IMPL: Record<string, OpImpl> = {
       const r = ETAPE_REQUISE.request_promo_quotes;
       const d = await dossierALEtape(user, input, r.etat, r.phrase);
       if ("error" in d) return d;
+      // §118.165 : l'action refuse une demande sans article — la carte ne l'offre donc pas.
+      const articles = await articlesDemandesDuDossier(d.id);
+      if (articles.length === 0) {
+        return { error: `${d.reference} n'a encore aucun article demandé : le demandeur les pioche dans le catalogue sur la fiche (carte « Articles demandés »), puis les devis se demandent — l'assistante saura quoi faire chiffrer.` };
+      }
       const note = opStr(input, "note");
       return {
         title: `Demander les devis au secrétariat — ${d.reference}`,
-        fields: fieldsOf([dossierField(d), ["Message au secrétariat", note || null]]),
-        warnings: ["Geste du DEMANDEUR : la demande part au secrétariat (l'assistante désignée, sinon toutes les assistantes de direction), qui retranscrit chaque devis ligne à ligne sur la fiche."],
+        fields: fieldsOf([
+          dossierField(d),
+          ["Articles à faire chiffrer", articles.map((a) => `${a.reference} ${a.nom}${a.quantite != null ? ` · ${a.quantite.toLocaleString("fr-FR")} ${a.unite}` : ""}`).join(" ; ")],
+          ["Message au secrétariat", note || null],
+        ]),
+        warnings: ["Geste du DEMANDEUR : la demande part au secrétariat (l'assistante désignée, sinon toutes les assistantes de direction), avec la liste des articles ; elle retranscrit chaque devis ligne à ligne sur la fiche. La liste des articles ne se modifie plus ensuite."],
         args: { promoMaterialId: d.id, note: note || null },
         successMessage: `Devis demandés au secrétariat sur ${d.reference}.`,
         revalidate: PATH,
@@ -318,6 +328,15 @@ export const PROMO2_OPS_IMPL: Record<string, OpImpl> = {
       const reference = opStr(input, "invoiceRef");
       if (!reference) return { error: "Donnez la référence de la facture (champ « invoiceRef »)." };
       const deja = devis.factures.reduce((s, f) => s + (f.montant ?? 0), 0);
+      // §118.165 : une facture déposée d'ici n'est pas détaillée — l'action reprend alors CE QUI RESTE
+      // à facturer sur chaque ligne du BC, à son prix, et refuse un montant qui n'y tombe pas (± 1 DZD).
+      // La carte calcule la même chose AVANT le clic, plutôt que de promettre un dépôt refusé ensuite.
+      const proposees = lignesProposees(devis.lignesBC);
+      if (proposees.length === 0) return { error: `Tout le BC de ${devis.fournisseur} est déjà facturé : il ne reste rien à facturer.` };
+      const attendu = totauxFacture({ tvaRate: devis.taxes.tvaRate, extraTaxRate: devis.taxes.extraTaxRate }, proposees).ttc;
+      if (Math.abs(attendu - montant) > 1) {
+        return { error: `Ce qui reste à facturer sur le BC de ${devis.fournisseur} fait ${formatDzd(attendu)} TTC, la facture annonce ${formatDzd(montant)}. Une facture partielle, ou à des prix différents du BC, se détaille ligne à ligne depuis la fiche (${d.reference}, carte « Exécution »).` };
+      }
       return {
         title: `Déposer la facture ${reference} (${devis.fournisseur}) — ${d.reference}`,
         fields: fieldsOf([
@@ -327,8 +346,12 @@ export const PROMO2_OPS_IMPL: Record<string, OpImpl> = {
           ["Date", opStr(input, "date") || null],
           ["Fichier", `${fichier.name} (${kb(fichier.size)})`],
           ["Déjà facturé sur ce BC", deja > 0 ? formatDzd(deja) : null],
+          ["Lignes facturées", `les ${proposees.length} ligne(s) restantes du BC, aux prix du BC`],
         ]),
-        warnings: ["Le fichier est obligatoire, et les factures d'un BC ne dépassent jamais son montant. Le BC doit être signé par les Finances."],
+        warnings: [
+          "Le fichier est obligatoire, et les factures d'un BC ne dépassent jamais son montant. Le BC doit être signé par les Finances.",
+          "Ensuite, le demandeur coche sur la fiche ce qui est arrivé : c'est ce qui entre au stock, et ce qu'on paie.",
+        ],
         args: { promoMaterialId: d.id, quoteId: devis.quoteId, reference, amount: String(montant), invoiceDate: opStr(input, "date") || null, fileNodeId: fichier.id },
         successMessage: `Facture ${reference} déposée sur le BC de ${devis.fournisseur} (${d.reference}).`,
         revalidate: PATH,
@@ -355,6 +378,12 @@ export const PROMO2_OPS_IMPL: Record<string, OpImpl> = {
       const f = designerFacture(await executionDuDossier(d.id), opStr(input, "invoiceRef") || opStr(input, "supplier"));
       if ("error" in f) return f;
       if (f.facture.paiementDemande) return { error: `Le paiement de la facture ${f.facture.reference ?? ""} est déjà demandé (${f.facture.etatReglement}).` };
+      // §118.165 : une facture détaillée se paie pour ce qui est REÇU. Cocher la réception, et renoncer
+      // à payer une ligne non livrée, sont des attestations du demandeur — sur la fiche, jamais d'ici.
+      const attente = f.facture.receptionAttendue ?? 0;
+      if (attente > 0) {
+        return { error: `${attente} ligne${attente > 1 ? "s" : ""} de la facture ${f.facture.reference ?? ""} attend${attente > 1 ? "ent" : ""} leur réception : le demandeur coche sur la fiche (${d.reference}) ce qui est arrivé — c'est ce qui entre au stock et ce qu'on paie. Pour payer malgré une ligne non livrée, il y renonce sur la fiche, définitivement.` };
+      }
       return {
         title: `Demander le paiement de la facture ${f.facture.reference ?? ""} (${f.devis.fournisseur}) — ${d.reference}`,
         fields: fieldsOf([

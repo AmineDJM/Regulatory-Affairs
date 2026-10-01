@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { declencherRecurrencesStock } from "@/lib/stocks/recurrence-runner";
 import { relancerReceptionsStock } from "@/lib/promo-stock-rappels";
+import { alerterStock, declencherComptagesRecurrents } from "@/lib/promo-stock-comptages";
 import { notifyUser } from "@/lib/notify";
 import { performAiHealthCheck } from "@/lib/ai-health";
 import { runDueRegulatoryJobs } from "@/lib/regulatory/intelligence/jobs/runner";
@@ -123,6 +124,13 @@ export async function runScheduledJobs(): Promise<void> {
     // Au troisième jour sans confirmation, une relance — une seule — part vers celui qui doit
     // confirmer. Ici pour la même raison que les récurrences : c'est un EFFET écrit en revue de code.
     await relancerReceptionsStock().catch((e) => console.error("[scheduled] relance des réceptions de stock", e));
+    // STOCK PROMOTIONNEL, ÉTAPE 5 (§118.168) : les comptages récurrents que le directeur des
+    // opérations a posés (autorité de l'auteur RELUE à chaque déclenchement, jamais de rattrapage),
+    // puis les alertes — une fois l'heure, à l'ENTRÉE dans un état (seuil, rupture, péremption à
+    // trente jours, lot périmé en main, envoi non confirmé, comptage en retard), une notification
+    // par personne. Ici pour la même raison : ce sont des EFFETS écrits en revue de code.
+    await declencherComptagesRecurrents().catch((e) => console.error("[scheduled] comptages récurrents du stock", e));
+    await alerterStock().catch((e) => console.error("[scheduled] alertes du stock promotionnel", e));
     // Échéances de DÉPÔT des marchés PCH : responsable + équipe prévenus à J-7, J-2 et au
     // dépassement — le rappel se tait dès que la soumission est déposée.
     await runPchDeadlineSweep().catch(() => undefined);

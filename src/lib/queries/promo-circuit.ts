@@ -203,7 +203,7 @@ export const SELECT_DEVIS = {
   id: true, position: true, supplierId: true, supplierName: true, reference: true, quoteDate: true,
   tvaRate: true, extraTaxLabel: true, extraTaxRate: true, announcedTotal: true, documentId: true, note: true,
   purchaseOrderId: true, purchaseOrderSentAt: true, purchaseOrderSentById: true,
-  lines: { orderBy: { position: "asc" }, select: { id: true, position: true, reference: true, unit: true, quantity: true, unitPrice: true, selected: true } },
+  lines: { orderBy: { position: "asc" }, select: { id: true, position: true, reference: true, unit: true, quantity: true, unitPrice: true, selected: true, action: true, requestItemId: true } },
 } satisfies Prisma.PromoQuoteSelect;
 
 type DevisBrut = Prisma.PromoQuoteGetPayload<{ select: typeof SELECT_DEVIS }>;
@@ -213,7 +213,10 @@ export function devisLu(d: DevisBrut): DevisLu {
     id: d.id, supplierId: d.supplierId, supplierName: d.supplierName, reference: d.reference,
     tvaRate: Number(d.tvaRate), extraTaxLabel: d.extraTaxLabel, extraTaxRate: d.extraTaxRate != null ? Number(d.extraTaxRate) : null,
     announcedTotal: d.announcedTotal != null ? Number(d.announcedTotal) : null, documentId: d.documentId,
-    lines: d.lines.map((l) => ({ id: l.id, position: l.position, reference: l.reference, unit: l.unit, quantity: Number(l.quantity), unitPrice: Number(l.unitPrice), selected: l.selected })),
+    lines: d.lines.map((l) => ({
+      id: l.id, position: l.position, reference: l.reference, unit: l.unit, quantity: Number(l.quantity), unitPrice: Number(l.unitPrice), selected: l.selected,
+      action: l.action ?? null, requestItemId: l.requestItemId,
+    })),
   };
 }
 

@@ -5,6 +5,7 @@ import {
   allouer, cleProduits, repartirReception, KINDS_ANNULABLES,
   type LotDisponible, type MovementKind, type Tranche,
 } from "@/lib/promo/stock";
+import { repartirRetour } from "@/lib/promo/reservations";
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
@@ -66,6 +67,31 @@ export async function sousVerrou<T>(
   }, { timeout: 15_000, maxWait: 15_000 });
 }
 
+/**
+ * EXÉCUTER SOUS LE VERROU DE PLUSIEURS ARTICLES (§118.166) — un rapport de visite remet souvent
+ * trois ou quatre articles à la fois. Les lignes se verrouillent dans UN ordre (leur identifiant) :
+ * deux rapports qui touchent les mêmes articles les prennent dans le même ordre, donc s'attendent
+ * au lieu de s'interbloquer. Sans article, c'est une transaction ordinaire.
+ *
+ * Le refus d'un article manquant n'est pas un `{ refus }` ici : l'appelant a déjà vérifié chaque
+ * article AVANT d'ouvrir la transaction, et un article supprimé entre-temps (un geste refusé dès
+ * qu'il a servi) rend la liste verrouillée plus courte — `fn` le voit, et le dit.
+ */
+export async function sousVerrous<T>(
+  itemIds: readonly string[],
+  fn: (tx: Tx, verrouilles: ReadonlyMap<string, ArticleVerrouille>) => Promise<T>,
+): Promise<T> {
+  const ids = [...new Set(itemIds)].sort();
+  return prisma.$transaction(async (tx) => {
+    const rows = ids.length
+      ? await tx.$queryRaw<ArticleVerrouille[]>`
+          SELECT "id", "companyId", "catalogueId", "isActive"
+          FROM "PromoStockItem" WHERE "id" IN (${Prisma.join(ids)}) ORDER BY "id" FOR UPDATE`
+      : [];
+    return fn(tx, new Map(rows.map((r) => [r.id, r])));
+  }, { timeout: 15_000, maxWait: 15_000 });
+}
+
 /** Les lots d'un article chez UN détenteur (`null` = le magasin), avec leur solde. */
 export async function lotsDe(tx: Tx, itemId: string, holderId: string | null): Promise<LotDisponible[]> {
   const sommes = await tx.promoStockMovement.groupBy({
@@ -107,6 +133,8 @@ export interface EntreeLot {
   motif?: string | null;
   recuLe?: Date;
   auteurId: string;
+  /** Le comptage dont cette entrée corrige l'écart (§118.168) — « retrouvé au comptage du … ». */
+  comptageId?: string | null;
 }
 
 /** UNE ENTRÉE crée UN lot : la date, le coût et la fin de validité voyagent avec la quantité. */
@@ -127,6 +155,7 @@ export async function entrerLot(tx: Tx, itemId: string, e: EntreeLot): Promise<{
     data: {
       itemId, lotId: lot.id, holderId: e.holderId, kind: e.kind, delta: r3(e.quantite),
       reason: e.motif ?? null, occurredAt: e.recuLe ?? new Date(), createdById: e.auteurId,
+      comptageId: e.comptageId ?? null,
     },
   });
   return { lotId: lot.id, numero: lot.numero };
@@ -144,6 +173,8 @@ export async function sortirSansContrepartie(tx: Tx, itemId: string, s: {
   auteurId: string;
   maintenant: Date;
   lotId?: string | null;
+  /** Le comptage dont cette sortie corrige l'écart (§118.168). */
+  comptageId?: string | null;
 }): Promise<{ ok: true; tranches: Tranche[] } | { ok: false; refus: string }> {
   const lots = await lotsDe(tx, itemId, s.holderId);
   const cibles = s.lotId ? lots.filter((l) => l.lotId === s.lotId) : lots;
@@ -154,7 +185,7 @@ export async function sortirSansContrepartie(tx: Tx, itemId: string, s: {
     await tx.promoStockMovement.create({
       data: {
         itemId, lotId: t.lotId, holderId: s.holderId, kind: s.kind, delta: -t.quantite,
-        reason: s.motif, createdById: s.auteurId,
+        reason: s.motif, createdById: s.auteurId, comptageId: s.comptageId ?? null,
       },
     });
   }
@@ -173,13 +204,17 @@ export async function corrigerAuCompte(tx: Tx, itemId: string, c: {
   motif: string | null;
   auteurId: string;
   maintenant: Date;
+  /** Le comptage qui a produit ce nombre (§118.168) : chaque correction le porte. */
+  comptageId?: string | null;
 }): Promise<{ ok: true; avant: number; apres: number } | { ok: false; refus: string }> {
   const avant = await soldeDe(tx, itemId, c.holderId);
   const delta = r3(c.compte - avant);
   if (delta === 0) return { ok: false, refus: `Le solde enregistré est déjà ${avant} : rien à corriger.` };
+  const comptageId = c.comptageId ?? null;
   if (delta < 0) {
     const s = await sortirSansContrepartie(tx, itemId, {
       holderId: c.holderId, quantite: -delta, kind: "CORRECTION", motif: c.motif, auteurId: c.auteurId, maintenant: c.maintenant,
+      comptageId,
     });
     if (!s.ok) return s;
     return { ok: true, avant, apres: c.compte };
@@ -190,14 +225,14 @@ export async function corrigerAuCompte(tx: Tx, itemId: string, c: {
     if (reste <= 0) break;
     const comble = r3(Math.min(-l.solde, reste));
     await tx.promoStockMovement.create({
-      data: { itemId, lotId: l.lotId, holderId: c.holderId, kind: "CORRECTION", delta: comble, reason: c.motif, createdById: c.auteurId },
+      data: { itemId, lotId: l.lotId, holderId: c.holderId, kind: "CORRECTION", delta: comble, reason: c.motif, createdById: c.auteurId, comptageId },
     });
     reste = r3(reste - comble);
   }
   if (reste > 0) {
     await entrerLot(tx, itemId, {
       holderId: c.holderId, quantite: reste, kind: "CORRECTION", origine: "CORRECTION",
-      libelle: "Retrouvé à l'inventaire", motif: c.motif, auteurId: c.auteurId,
+      libelle: comptageId ? "Retrouvé au comptage" : "Retrouvé à l'inventaire", motif: c.motif, auteurId: c.auteurId, comptageId,
     });
   }
   return { ok: true, avant, apres: c.compte };
@@ -313,6 +348,129 @@ export async function renvoyer(tx: Tx, transfertId: string, r: {
 }
 
 /**
+ * REMETTRE À UN MÉDECIN, lors d'une visite (§118.166) : la quantité sort du stock de celui qui a
+ * fait la visite, lot par lot — le plus tôt périmé d'abord, JAMAIS un lot périmé (un échantillon
+ * périmé ne se remet pas, il se déclare détruit). Chaque tranche porte la visite et le médecin :
+ * c'est ce qui fait l'historique « ce que ce médecin a reçu », et ce qu'une correction contre-passe.
+ * L'appelant tient le verrou de l'article.
+ */
+export async function remettreAuMedecin(tx: Tx, itemId: string, r: {
+  holderId: string;
+  quantite: number;
+  visitId: string;
+  doctorId: string | null;
+  motif: string | null;
+  auteurId: string;
+  maintenant: Date;
+}): Promise<{ ok: true; tranches: Tranche[] } | { ok: false; refus: string }> {
+  const lots = await lotsDe(tx, itemId, r.holderId);
+  const a = allouer(lots, r.quantite, { maintenant: r.maintenant, inclurePerimes: false });
+  if (!a.ok) return { ok: false, refus: a.raison };
+  for (const t of a.tranches) {
+    await tx.promoStockMovement.create({
+      data: {
+        itemId, lotId: t.lotId, holderId: r.holderId, kind: "DISTRIBUTION", delta: -t.quantite,
+        visitId: r.visitId, doctorId: r.doctorId, reason: r.motif, occurredAt: r.maintenant, createdById: r.auteurId,
+      },
+    });
+  }
+  return { ok: true, tranches: a.tranches };
+}
+
+/**
+ * REPRENDRE CE QU'UNE VISITE A REMIS d'un article — chaque remise encore active reçoit son exact
+ * inverse (`REVERSAL`, même lot, même détenteur, même visite, `annuleId` unique). C'est ainsi
+ * qu'un rapport corrigé dans sa fenêtre rend le stock juste sans rien supprimer : l'historique du
+ * médecin garde la trace de la remise ET de sa correction. Rend la quantité reprise.
+ * L'appelant tient le verrou de l'article.
+ */
+export async function reprendreRemisesDeLaVisite(tx: Tx, visitId: string, itemId: string, auteurId: string, motif: string | null):
+  Promise<number> {
+  const actives = await tx.promoStockMovement.findMany({
+    where: { visitId, itemId, kind: "DISTRIBUTION", annulation: { is: null } },
+    select: { id: true, lotId: true, holderId: true, delta: true, doctorId: true },
+  });
+  let reprise = 0;
+  for (const m of actives) {
+    const inverse = r3(-zero(m.delta));
+    await tx.promoStockMovement.create({
+      data: {
+        itemId, lotId: m.lotId, holderId: m.holderId, kind: "REVERSAL", delta: inverse,
+        annuleId: m.id, visitId, doctorId: m.doctorId, reason: motif, createdById: auteurId,
+      },
+    });
+    reprise = r3(reprise + inverse);
+  }
+  return reprise;
+}
+
+/**
+ * RÉSERVER POUR UN ÉVÉNEMENT AD & PRO (§118.167) : la quantité quitte le MAGASIN, lot par lot (le
+ * plus tôt périmé d'abord, jamais un lot périmé — on n'expose pas sur un stand une brochure dont la
+ * validité est passée). Chaque tranche porte la ligne du poste : c'est ce qui permet de faire revenir
+ * le reste dans ses lots, et de dire à l'écran où est passé ce que le magasin n'a plus.
+ * L'appelant tient le verrou de l'article.
+ */
+export async function reserverPourEvenement(tx: Tx, itemId: string, r: {
+  ligneId: string;
+  quantite: number;
+  motif: string | null;
+  auteurId: string;
+  maintenant: Date;
+}): Promise<{ ok: true; tranches: Tranche[] } | { ok: false; refus: string }> {
+  const lots = await lotsDe(tx, itemId, null);
+  const a = allouer(lots, r.quantite, { maintenant: r.maintenant, inclurePerimes: false });
+  if (!a.ok) return { ok: false, refus: a.raison };
+  for (const t of a.tranches) {
+    await tx.promoStockMovement.create({
+      data: {
+        itemId, lotId: t.lotId, holderId: null, kind: "RESERVATION_OUT", delta: -t.quantite,
+        adProLineId: r.ligneId, reason: r.motif, occurredAt: r.maintenant, createdById: r.auteurId,
+      },
+    });
+  }
+  return { ok: true, tranches: a.tranches };
+}
+
+/**
+ * CE QUI REVIENT AU MAGASIN d'une réservation — dans les lots d'où c'est sorti, le plus tard
+ * périmé d'abord (ce qui a été remis pendant l'événement, ce sont les unités qui expiraient le
+ * plus tôt). Ne rend jamais plus que ce que la ligne a fait sortir, net de ce qui est déjà revenu.
+ * L'appelant tient le verrou de l'article. Rend la quantité effectivement revenue.
+ */
+export async function rendreAuMagasin(tx: Tx, itemId: string, r: {
+  ligneId: string;
+  quantite: number;
+  motif: string | null;
+  auteurId: string;
+}): Promise<number> {
+  if (!(r.quantite > 0)) return 0;
+  const ms = await tx.promoStockMovement.findMany({
+    where: { adProLineId: r.ligneId, kind: { in: ["RESERVATION_OUT", "RESERVATION_BACK"] } },
+    select: { lotId: true, delta: true, lot: { select: { valableJusquau: true, recuLe: true, numero: true } } },
+  });
+  const parLot = new Map<string, { quantite: number; lot: { valableJusquau: Date | null; recuLe: Date; numero: number } }>();
+  for (const m of ms) {
+    const e = parLot.get(m.lotId) ?? { quantite: 0, lot: m.lot };
+    e.quantite = r3(e.quantite - zero(m.delta));
+    parLot.set(m.lotId, e);
+  }
+  const tranches = [...parLot].filter(([, e]) => e.quantite > 0)
+    .map(([lotId, e]) => ({ lotId, quantite: e.quantite, valableJusquau: e.lot.valableJusquau, recuLe: e.lot.recuLe, numero: e.lot.numero }));
+  let rendu = 0;
+  for (const t of repartirRetour(tranches, r.quantite)) {
+    await tx.promoStockMovement.create({
+      data: {
+        itemId, lotId: t.lotId, holderId: null, kind: "RESERVATION_BACK", delta: t.quantite,
+        adProLineId: r.ligneId, reason: r.motif, createdById: r.auteurId,
+      },
+    });
+    rendu = r3(rendu + t.quantite);
+  }
+  return rendu;
+}
+
+/**
  * ANNULER UN MOUVEMENT — son exact inverse, au même lot et chez le même détenteur. Refusé si
  * l'inverse creusait un solde sous zéro : annuler l'entrée de 500 fiches dont 300 sont déjà
  * parties chez des délégués laisserait le magasin à −300. Le refus le dit.
@@ -330,7 +488,14 @@ export async function annulerMouvementEcrit(tx: Tx, mouvementId: string, auteurI
       ok: false,
       refus: m.kind.startsWith("TRANSFER")
         ? "Un transfert ne s'annule pas ligne par ligne : annulez-le tant qu'il est en route, ou faites rendre le matériel."
-        : "Ce mouvement ne s'annule pas : refaites la saisie juste.",
+        : m.kind === "DISTRIBUTION"
+          // Une remise annulée ici laisserait le rapport de visite dire « 20 fiches remises » sur
+          // un stock qui ne les a plus retirées : deux vérités sur la même remise (§118.166).
+          ? "Une remise à un médecin se corrige depuis le rapport de sa visite, dans les 48 h — c'est ce qui garde le rapport et le stock d'accord. Au-delà, par un comptage du stock du délégué."
+          : m.kind.startsWith("RESERVATION")
+            // Même raison pour une réservation d'événement : c'est le POSTE qui la porte (§118.167).
+            ? "Une réservation d'événement se gère depuis le poste « Matériel du stock » de sa demande Ad & Pro : on y confirme ce qui a été remis, et le reste revient."
+            : "Ce mouvement ne s'annule pas : refaites la saisie juste.",
     };
   }
   const inverse = r3(-zero(m.delta));

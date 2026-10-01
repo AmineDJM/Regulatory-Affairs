@@ -23,6 +23,8 @@
  * Module PUR — aucune base, aucun import de domaine : le chargeur passe des nombres.
  */
 
+import { designationAvecAction, type PromoAction } from "@/lib/promo-material/actions-fournisseur";
+
 export interface LigneDevisLue {
   id: string;
   position: number;
@@ -31,6 +33,10 @@ export interface LigneDevisLue {
   quantity: number;
   unitPrice: number;
   selected: boolean;
+  /** L'action que la ligne chiffre (conception, impression…) — nulle sur les lignes d'avant (§118.165). */
+  action?: PromoAction | null;
+  /** L'article demandé auquel la ligne se rapproche — nul = ligne « en plus » (§118.165). */
+  requestItemId?: string | null;
 }
 
 export interface DevisLu {
@@ -64,7 +70,19 @@ export function totalLigneHT(l: Pick<LigneDevisLue, "quantity" | "unitPrice">): 
   return dzd(cents(Number(l.quantity) * Number(l.unitPrice)));
 }
 
-function totauxDeLignes(d: Pick<DevisLu, "tvaRate" | "extraTaxRate">, lignes: readonly LigneDevisLue[]): Totaux {
+/**
+ * LES TOTAUX DE LIGNES TAXÉES — la seule arithmétique des montants du matériel promotionnel :
+ * le devis, la sélection, et la FACTURE la lisent (§118.165). Deux calculs du même TTC finiraient
+ * par annoncer deux montants pour les mêmes lignes, et c'est celui de la facture qu'on paierait.
+ */
+export function totauxTaxes(
+  taxes: { tvaRate: number; extraTaxRate: number | null },
+  lignes: readonly { quantity: number; unitPrice: number }[],
+): Totaux {
+  return totauxDeLignes(taxes, lignes);
+}
+
+function totauxDeLignes(d: Pick<DevisLu, "tvaRate" | "extraTaxRate">, lignes: readonly { quantity: number; unitPrice: number }[]): Totaux {
   const htC = lignes.reduce((s, l) => s + cents(Number(l.quantity) * Number(l.unitPrice)), 0);
   const tvaC = Math.round((htC * Number(d.tvaRate ?? 0)) / 100);
   const taxeC = d.extraTaxRate ? Math.round((htC * Number(d.extraTaxRate)) / 100) : 0;
@@ -135,12 +153,16 @@ export function manquesDeRetranscription(devis: readonly DevisLu[]): string[] {
   return manques;
 }
 
-/** Les lignes que le bon de commande de CE devis portera : les retenues, rien d'autre. */
+/**
+ * Les lignes que le bon de commande de CE devis portera : les retenues, rien d'autre — et chacune
+ * avec son ACTION devant la désignation (« Impression — Fiche posologique »), parce que le BC est
+ * la pièce que le fournisseur lit (§118.165).
+ */
 export function lignesDuBonDeCommande(d: DevisLu): { designation: string; quantite: number; unite: string | null; prixUnitaire: number }[] {
   return d.lines
     .filter((l) => l.selected)
     .sort((a, b) => a.position - b.position)
-    .map((l) => ({ designation: l.reference.trim(), quantite: Number(l.quantity), unite: l.unit?.trim() || null, prixUnitaire: Number(l.unitPrice) }));
+    .map((l) => ({ designation: designationAvecAction(l.reference, l.action), quantite: Number(l.quantity), unite: l.unit?.trim() || null, prixUnitaire: Number(l.unitPrice) }));
 }
 
 /** 1 234 567,5 → « 1 234 567,50 DZD » — pour les phrases de refus, lues par une personne. */

@@ -22,6 +22,7 @@ import { ITEM_KIND_LABELS } from "@/lib/ad-pro-items";
 import { toNumber } from "@/lib/utils";
 import { porteLeRoleQuiTranche } from "@/lib/personnes/referents-gamme";
 import { bilanCloture, peutCloturer, quiCloture, refusCloture, type QuiCloture } from "@/lib/ad-pro/cloture-sponsoring";
+import { postesPourCloture } from "@/lib/queries/ad-pro-items";
 
 const PATH = "/sponsoring";
 
@@ -325,17 +326,9 @@ export async function cloturerSponsoring(formData: FormData): Promise<ActionResu
   const qui = await quiClotureLaDemande(id);
   if (!peutCloturer(faitsCloturant(user, req.requesterId), qui)) return { ok: false, error: refusCloture(qui) };
 
-  const postes = await prisma.adProItem.findMany({
-    where: { sponsoringId: id },
-    select: { label: true, status: true, amountGranted: true, budgetCategoryId: true },
-    orderBy: { position: "asc" },
-  });
-  const bilan = bilanCloture(req.status, postes.map((p) => ({
-    label: p.label,
-    status: p.status,
-    amountGranted: p.amountGranted != null ? toNumber(p.amountGranted) : null,
-    budgetCategoryId: p.budgetCategoryId,
-  })));
+  // Les postes TELS QUE LA CLÔTURE LES JUGE — nature et matériel réservé compris (§118.167) : la
+  // même lecture que la page et que l'op d'Adam.
+  const bilan = bilanCloture(req.status, await postesPourCloture(id));
   if (!bilan.cloturable) return { ok: false, error: `Clôture impossible — ${bilan.manques.join(" ; ")}.` };
 
   const note = fdStr(formData, "note");

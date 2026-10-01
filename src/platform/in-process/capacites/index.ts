@@ -117,6 +117,10 @@ export { LIBELLE_POLE, poleDe, poleOppose, type PoleConsulting } from "@/lib/lec
 // (§118.83). La règle est PURE et vit dans `ad-pro/` ; Adam n'a pas le droit de l'importer en
 // direct, il passe par cette porte, comme pour les pièces du secrétariat ci-dessus.
 export { bilanCloture, type BilanCloture } from "@/lib/ad-pro/cloture-sponsoring";
+// LES POSTES TELS QUE LA CLÔTURE LES JUGE (§118.167) — nature et matériel réservé compris. L'op
+// d'Adam les lisait avec sa propre requête ; trois lectures écrites à la main auraient oublié le
+// matériel chez l'une des trois, et la carte aurait proposé une clôture que l'action refuse.
+export { postesPourCloture } from "@/lib/queries/ad-pro-items";
 
 // CE QU'UNE SUPPRESSION EMPORTERAIT (§118.162) — l'aperçu du lot : ce qui part avec l'élément, et
 // ce qui l'interdit (règlement, signature, dépôt aux autorités, courrier inscrit). L'op d'Adam qui

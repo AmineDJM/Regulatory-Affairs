@@ -2176,6 +2176,11 @@ enum AdProItemKind {
   /// Le SPONSORING INDIRECT (§118.151) : la société ne verse rien à l'association, elle prend en
   /// charge des prestations ou des médecins. Pendant d'`ASSOCIATION_SUPPORT` (le sponsoring direct).
   INDIRECT_SUPPORT
+  /// LE MATÉRIEL DU STOCK (§118.167) : kakémonos, présentoirs, brochures, objets PRIS AU MAGASIN
+  /// CENTRAL pour l'événement — réservés à l'accord du poste, confirmés après (remis, rendus,
+  /// abîmés, perdus), le reste revenant au magasin. Il n'engage aucun argent : ni montant ni
+  /// budget ne s'y exigent ; ses lignes sont dans `AdProStockLine`.
+  STOCK_MATERIAL
   OTHER
 }
 
@@ -2295,7 +2300,9 @@ model AdProItem {
   /// et la seule chose que le circuit devait transmettre disparaissait (§118.45).
   orderDecisionNote  String?
 
-  decisions AdProItemDecision[]
+  decisions  AdProItemDecision[]
+  /// Les articles du stock d'un poste « Matériel du stock » (§118.167).
+  stockLines AdProStockLine[]
 
   position           Int                      @default(0)
   createdById        String?
@@ -3788,6 +3795,8 @@ model MedicalDoctor {
   delegate   User?   @relation(fields: [delegateId], references: [id])
 
   visits       MedicalVisit[]
+  /// LE MATÉRIEL PROMOTIONNEL qu'il a reçu en visite (§118.166) — l'historique de sa fiche.
+  promoRemises PromoStockMovement[] @relation("PromoRemiseMedecin")
   fieldReports FieldReport[]
   /// Les couleurs posées sur ses cellules dans la feuille de l'annuaire (§118.133).
   cellStyles   DirectoryCellStyle[]
@@ -4013,27 +4022,45 @@ model MedicalVisit {
   doctorFeedback    String?
   followUpActions   String?
 
-  createdById  String?
-  updatedById  String?
-  createdAt    DateTime              @default(now())
-  updatedAt    DateTime              @updatedAt
-  productLinks MedicalVisitProduct[]
+  createdById        String?
+  updatedById        String?
+  createdAt          DateTime                       @default(now())
+  updatedAt          DateTime                       @updatedAt
+  productLinks       MedicalVisitProduct[]
   /// LE PLAN DE TOURNÉE dont cette visite descend. NUL = visite hors plan, ce qui est
   /// exactement ce qu'une visite IMPRÉVUE veut dire — et c'est pourquoi le dénominateur de
   /// « visitées / planifiées » se lit sur cette colonne et nulle part ailleurs.
-  tourPlanId   String?
-  tourPlan     TourPlan?             @relation(fields: [tourPlanId], references: [id], onDelete: SetNull)
+  tourPlanId         String?
+  tourPlan           TourPlan?                      @relation(fields: [tourPlanId], references: [id], onDelete: SetNull)
   /// QUI L'A VOULUE : le plan, le terrain (imprévue), ou la Direction (« demain va voir Achour »).
-  origin       VisitOrigin           @default(PLAN)
+  origin             VisitOrigin                    @default(PLAN)
   /// LES MESSAGES PRÉ-DÉFINIS retenus lors du rapport terrain.
-  messageLinks MedicalVisitMessage[]
+  messageLinks       MedicalVisitMessage[]
   /// LES RAPPORTS VOCAUX qui documentent cette visite.
-  fieldReports FieldReport[]         @relation("FieldReportVisit")
+  fieldReports       FieldReport[]                  @relation("FieldReportVisit")
+  /// LE MATÉRIEL REMIS (§118.166) : les mouvements de stock qui sortent du stock du délégué.
+  promoRemises       PromoStockMovement[]           @relation("PromoRemiseVisite")
+  /// LES SUPPORTS NUMÉRIQUES présentés pendant la visite — une utilisation, sans quantité.
+  supportsNumeriques MedicalVisitSupportNumerique[]
 
   @@index([delegateId])
   @@index([doctorId])
   @@index([status])
   @@index([date])
+}
+
+/// UN SUPPORT NUMÉRIQUE PRÉSENTÉ EN VISITE (§118.166) — e-ADV, vidéo, e-flyer : il compte une
+/// utilisation, sans rien retirer d'un stock qui n'a pas de quantité.
+model MedicalVisitSupportNumerique {
+  visitId   String
+  visit     MedicalVisit   @relation(fields: [visitId], references: [id], onDelete: Cascade)
+  /// Restrict : un support présenté porte une histoire — il s'archive, il ne s'efface pas.
+  itemId    String
+  item      PromoStockItem @relation(fields: [itemId], references: [id], onDelete: Restrict)
+  createdAt DateTime       @default(now())
+
+  @@id([visitId, itemId])
+  @@index([itemId])
 }
 
 model MedicalDelegatePlan {
@@ -6307,7 +6334,7 @@ model PromoMaterial {
   /// gardent la chaîne qui leur avait été PROMISE (§118.142) ; 2 = la demande validée, les devis
   /// RETRANSCRITS en lignes, le choix ligne à ligne, les BC générés par la plateforme, une facture
   /// par BC, et une demande de visa ou de déclaration à chaque paiement. Voir `promo-material/circuit.ts`.
-  circuitVersion       Int          @default(1)
+  circuitVersion       Int                @default(1)
   /// LE VALIDATEUR DE LA DEMANDE (étape 0 du circuit 2), figé à la création : la directrice
   /// marketing pour un membre de la Direction Marketing, sinon le N+1 — jamais au-delà du directeur
   /// des opérations. Nul alors que l'étape a lieu = la Direction des opérations valide (le plafond).
@@ -6316,7 +6343,7 @@ model PromoMaterial {
   requestValidatorId   String?
   /// La demande passe-t-elle par une validation hiérarchique ? Figé à la création, comme son
   /// validateur : faux pour la directrice marketing elle-même et pour un demandeur au plafond.
-  requestValidation    Boolean      @default(false)
+  requestValidation    Boolean            @default(false)
   /// LA DIRECTRICE MARKETING DE CE DEMANDEUR, quand il appartient à la Direction Marketing (figée) :
   /// c'est elle qui valide son devis. Nulle pour les autres : la ou les cheffes de la Direction
   /// Marketing valident, lues à l'étape.
@@ -6326,6 +6353,10 @@ model PromoMaterial {
   quotesRequestedById  String?
   /// Les devis RETRANSCRITS par l'assistante de direction — un par agence ou partenaire.
   quotes               PromoQuote[]
+  /// LES ARTICLES DEMANDÉS (§118.165) — ce que le demandeur veut faire faire, pioché dans le
+  /// catalogue : c'est ce que l'assistante cherche à faire chiffrer, et à quoi chaque ligne de
+  /// devis se rapproche.
+  articlesDemandes     PromoRequestItem[]
 
   createdById String?
   updatedById String?
@@ -6376,6 +6407,8 @@ model PromoQuote {
   /// Le BC est-il parti chez le fournisseur ? Seul un BC SIGNÉ part (§118.149).
   purchaseOrderSentAt   DateTime?
   purchaseOrderSentById String?
+  /// Les factures DÉTAILLÉES du BC de ce devis (§118.165).
+  factures              PromoFacture[]
   createdById           String?
   createdAt             DateTime         @default(now())
   updatedAt             DateTime         @updatedAt
@@ -6386,23 +6419,163 @@ model PromoQuote {
 
 /// UNE LIGNE DE DEVIS — ce que le demandeur RETIENT, ou non, une à une.
 model PromoQuoteLine {
-  id        String     @id @default(cuid())
-  quoteId   String
-  quote     PromoQuote @relation(fields: [quoteId], references: [id], onDelete: Cascade)
-  position  Int        @default(0)
+  id            String              @id @default(cuid())
+  quoteId       String
+  quote         PromoQuote          @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+  position      Int                 @default(0)
   /// La référence ou la désignation de l'article, telle que sur le devis.
-  reference String
+  reference     String
   /// L'unité de compte (« pièce », « lot de 50 », « m² ») — facultative.
-  unit      String?
-  quantity  Decimal    @db.Decimal(14, 3)
+  unit          String?
+  quantity      Decimal             @db.Decimal(14, 3)
   /// Le prix unitaire HORS TAXES.
-  unitPrice Decimal    @db.Decimal(14, 2)
+  unitPrice     Decimal             @db.Decimal(14, 2)
   /// Retenue par le demandeur : c'est ce qui entre dans le montant validé et dans le bon de commande.
-  selected  Boolean    @default(false)
-  createdAt DateTime   @default(now())
-  updatedAt DateTime   @updatedAt
+  selected      Boolean             @default(false)
+  /// L'ACTION que cette ligne chiffre — conception, impression, location… (§118.165) : un même
+  /// article se commande souvent en deux temps chez deux fournisseurs. Nulle sur les lignes d'avant.
+  action        PromoAction?
+  /// L'ARTICLE DEMANDÉ que cette ligne chiffre. Nul = une ligne « en plus », que le demandeur
+  /// n'avait pas demandée et peut quand même retenir (ou une ligne d'avant ce rapprochement).
+  requestItemId String?
+  requestItem   PromoRequestItem?   @relation(fields: [requestItemId], references: [id], onDelete: SetNull)
+  factureLignes PromoFactureLigne[]
+  createdAt     DateTime            @default(now())
+  updatedAt     DateTime            @updatedAt
 
   @@index([quoteId])
+  @@index([requestItemId])
+}
+
+/// CE QU'ON ATTEND DU FOURNISSEUR sur un article (§118.165) — « pour le devis ainsi que pour le BC
+/// du matériel promotionnel, on peut avoir plusieurs actions en l'occurrence conception, impression ».
+/// Vocabulaire FERMÉ : c'est lui qui dit si une ligne reçue entre au stock (une impression oui, une
+/// conception non) — ouvert, il ferait entrer au magasin des prestations qui ne se comptent pas.
+enum PromoAction {
+  CONCEPTION /// Création graphique, maquette, BAT : une prestation, rien à compter.
+  IMPRESSION /// Tirage d'un support conçu : des unités qui entrent au stock.
+  FABRICATION /// Fabrication d'un objet (présentoir, stand) : des unités qui entrent au stock.
+  ACHAT /// Achat d'un objet fini (stylos, goodies) : des unités qui entrent au stock.
+  LOCATION /// Location : l'objet repart chez le fournisseur, rien n'entre au stock.
+  LIVRAISON /// Transport, livraison : une prestation.
+  INSTALLATION /// Montage, installation : une prestation.
+  AUTRE /// Toute autre prestation : rien à compter.
+}
+
+/// UN ARTICLE DEMANDÉ (§118.165) — une ligne de la demande d'achat ou de location, piochée dans le
+/// CATALOGUE : l'article, le ou les produits qu'il promeut, la quantité souhaitée, ce qu'on attend
+/// du fournisseur (conception, impression…) et un commentaire. C'est ce que l'assistante de
+/// direction cherche à faire chiffrer, et ce que la réception fera entrer au stock.
+model PromoRequestItem {
+  id              String                    @id @default(cuid())
+  promoMaterialId String
+  promoMaterial   PromoMaterial             @relation(fields: [promoMaterialId], references: [id], onDelete: Cascade)
+  position        Int                       @default(0)
+  /// L'article du catalogue. Restrict : un article demandé ne s'efface pas sous une demande — il
+  /// s'archive (le registre de suppression le dit avant le clic).
+  catalogueId     String
+  catalogue       PromoCatalogueArticle     @relation(fields: [catalogueId], references: [id], onDelete: Restrict)
+  /// La quantité souhaitée — facultative : une conception seule n'a rien à compter.
+  quantite        Decimal?                  @db.Decimal(12, 3)
+  /// Ce qu'on attend du fournisseur — au moins une action.
+  actions         PromoAction[]             @default([])
+  commentaire     String?
+  produits        PromoRequestItemProduct[]
+  lignesDevis     PromoQuoteLine[]
+  lignesFacture   PromoFactureLigne[]
+  createdById     String?
+  updatedById     String?
+  createdAt       DateTime                  @default(now())
+  updatedAt       DateTime                  @updatedAt
+
+  @@index([promoMaterialId])
+  @@index([catalogueId])
+}
+
+/// LES PRODUITS d'un article demandé — les produits CANONIQUES, ceux que portera l'article de stock.
+model PromoRequestItemProduct {
+  itemId    String
+  item      PromoRequestItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  productId String
+  product   Product          @relation("PromoDemandeProduit", fields: [productId], references: [id], onDelete: Restrict)
+
+  @@id([itemId, productId])
+  @@index([productId])
+}
+
+/// LA FACTURE D'UN BC DE MATÉRIEL PROMOTIONNEL, DÉTAILLÉE (§118.165) — ce que la pièce Legal ne
+/// porte pas : ses lignes, ses taxes, et le total imprimé qui contrôle la saisie.
+///
+/// « La facture doit renseigner exactement le matériel reçu en stock. » La pièce Legal garde son
+/// rôle (registre, règlement, centre de paiement) ; cette table porte ce qu'on a facturé ligne à
+/// ligne, et ce que le demandeur a coché REÇU — c'est ce qui entre au stock, et ce qu'on paie.
+model PromoFacture {
+  id              String              @id @default(cuid())
+  legalDocumentId String              @unique
+  legalDocument   LegalDocument       @relation(fields: [legalDocumentId], references: [id], onDelete: Cascade)
+  /// Le devis dont le BC découle — le lien vers les lignes VALIDÉES.
+  quoteId         String?
+  quote           PromoQuote?         @relation(fields: [quoteId], references: [id], onDelete: SetNull)
+  /// TVA en POUR CENT, reprise du BC et corrigeable : une facture à 9 % pour un BC à 19 % se paie
+  /// au montant facturé — le plafond du BC tient de toute façon.
+  tvaRate         Decimal             @db.Decimal(5, 2)
+  extraTaxLabel   String?
+  extraTaxRate    Decimal?            @db.Decimal(5, 2)
+  /// Le total TTC IMPRIMÉ sur la facture — pour CONTRÔLER la saisie, jamais pour calculer.
+  totalImprime    Decimal?            @db.Decimal(14, 2)
+  lignes          PromoFactureLigne[]
+  createdById     String?
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+
+  @@index([quoteId])
+}
+
+/// UNE LIGNE DE FACTURE — ce qui est facturé, puis ce qui est REÇU (§118.165).
+///
+/// Pré-remplie depuis la ligne du BC (`quoteLineId`) ; la quantité et le prix se corrigent pour
+/// coller à la facture, et l'écart avec le BC se voit. La RÉCEPTION est cochée par le demandeur :
+/// une ligne qui produit des unités (impression, fabrication, achat) entre alors au magasin central
+/// en un LOT au coût de la facture (`stockLotId`). Une ligne non livrée ne se paie pas — et y
+/// renoncer est définitif : « un paiement pour cette ligne ne pourra pas être fait ultérieurement ».
+model PromoFactureLigne {
+  id            String            @id @default(cuid())
+  factureId     String
+  facture       PromoFacture      @relation(fields: [factureId], references: [id], onDelete: Cascade)
+  position      Int               @default(0)
+  designation   String
+  action        PromoAction?
+  unite         String?
+  quantite      Decimal           @db.Decimal(14, 3)
+  /// Le prix unitaire HORS TAXES facturé.
+  prixUnitaire  Decimal           @db.Decimal(14, 2)
+  /// La ligne du BC (donc du devis) que cette ligne facture.
+  quoteLineId   String?
+  quoteLine     PromoQuoteLine?   @relation(fields: [quoteLineId], references: [id], onDelete: SetNull)
+  /// L'article demandé, hérité de la ligne du devis : c'est lui qui dit quel article de stock reçoit.
+  requestItemId String?
+  requestItem   PromoRequestItem? @relation(fields: [requestItemId], references: [id], onDelete: SetNull)
+  /// LA RÉCEPTION — la quantité reçue (une prestation : la quantité facturée, cochée « faite »).
+  quantiteRecue Decimal?          @db.Decimal(14, 3)
+  recueLe       DateTime?
+  recueParId    String?
+  /// LE RENONCEMENT — ce qui n'a pas été livré (toute la ligne, ou son reliquat) ne se paiera pas.
+  renonce       Boolean           @default(false)
+  renonceMotif  String?
+  renonceLe     DateTime?
+  renonceParId  String?
+  /// Où la ligne est entrée au stock : l'article et le lot créés à la réception.
+  stockItemId   String?
+  stockItem     PromoStockItem?   @relation(fields: [stockItemId], references: [id], onDelete: SetNull)
+  stockLotId    String?
+  stockLot      PromoStockLot?    @relation(fields: [stockLotId], references: [id], onDelete: SetNull)
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+
+  @@index([factureId])
+  @@index([quoteLineId])
+  @@index([requestItemId])
+  @@index([stockLotId])
 }
 
 /// LES TROIS FAMILLES DU MATÉRIEL PROMOTIONNEL — trois comportements, pas trois étiquettes (§118.164).
@@ -6419,25 +6592,27 @@ enum PromoFamille {
 /// donnée : c'est elle que citent les demandes, les stocks et (plus tard) les factures. Le NOM, lui,
 /// se corrige — une faute de frappe ne doit pas obliger à recréer l'article.
 model PromoCatalogueArticle {
-  id            String           @id @default(cuid())
+  id               String             @id @default(cuid())
   /// CAT-0001, CAT-0002… — distincte des dossiers « MP-AAAA-NNN » pour ne jamais s'y confondre.
-  reference     String           @unique
-  nom           String
-  famille       PromoFamille
+  reference        String             @unique
+  nom              String
+  famille          PromoFamille
   /// Le même vocabulaire que les demandes (fiche posologique, banner, présentoir…).
-  materialType  MaterialType?
-  unite         String           @default("pièce")
-  description   String?
+  materialType     MaterialType?
+  unite            String             @default("pièce")
+  description      String?
   /// Un support qui n'existe que pour un produit (fiche posologique, ADV) : le produit est exigé
   /// à l'entrée en stock — « 300 fiches posologiques » sans produit ne désigne rien qu'on puisse remettre.
-  exigeProduit  Boolean          @default(false)
+  exigeProduit     Boolean            @default(false)
   /// Archivé : ne se propose plus, mais reste lisible partout où il a servi.
-  actif         Boolean          @default(true)
-  createdById   String?
-  updatedById   String?
-  createdAt     DateTime         @default(now())
-  updatedAt     DateTime         @updatedAt
-  articlesStock PromoStockItem[]
+  actif            Boolean            @default(true)
+  createdById      String?
+  updatedById      String?
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
+  articlesStock    PromoStockItem[]
+  /// Les articles DEMANDÉS qui le citent (§118.165).
+  articlesDemandes PromoRequestItem[]
 
   @@index([famille, actif])
 }
@@ -6452,15 +6627,15 @@ model PromoCatalogueArticle {
 /// détenteur. Un nombre écrit puis corrigé à la main est faux dès la première sortie non saisie,
 /// et rien ne dit quand.
 model PromoStockItem {
-  id              String                  @id @default(cuid())
+  id              String                         @id @default(cuid())
   companyId       String? // entité (Adventum / Pharmagène / …)
-  company         Company?                @relation(fields: [companyId], references: [id])
+  company         Company?                       @relation(fields: [companyId], references: [id])
   /// L'article du catalogue que ce stock matérialise.
   catalogueId     String
-  catalogue       PromoCatalogueArticle   @relation(fields: [catalogueId], references: [id])
+  catalogue       PromoCatalogueArticle          @relation(fields: [catalogueId], references: [id])
   /// LA CLÉ DES PRODUITS — leurs identifiants canoniques triés, joints par une virgule ("" = sans
   /// produit). Écrite UNE fois, à la création : c'est elle que l'index d'unicité lit.
-  produitsCle     String                  @default("")
+  produitsCle     String                         @default("")
   produits        PromoStockItemProduct[]
   /// Libellé à la création (article + produits). L'écran recompose depuis le catalogue ; ce champ
   /// sert à la recherche et aux lecteurs d'avant ce registre.
@@ -6474,7 +6649,7 @@ model PromoStockItem {
   /// Où c'est rangé au magasin.
   location        String?
   /// Seuil d'alerte propre à l'article — 50 présentoirs, ce n'est pas 50 stylos.
-  alertThreshold  Decimal?                @db.Decimal(12, 3)
+  alertThreshold  Decimal?                       @db.Decimal(12, 3)
   notes           String?
   /// Campagne dont cet article est issu, quand il vient d'une commande tracée.
   promoMaterialId String?
@@ -6482,15 +6657,25 @@ model PromoStockItem {
   /// numérique n'a ni lot ni mouvement — il n'y a rien à compter.
   lien            String?
   valableJusquau  DateTime?
-  isActive        Boolean                 @default(true)
+  isActive        Boolean                        @default(true)
   lots            PromoStockLot[]
   movements       PromoStockMovement[]
   transferts      PromoStockTransfer[]
   demandes        PromoStockRequest[]
+  /// Les lignes de facture reçues dans cet article (§118.165).
+  factureLignes   PromoFactureLigne[]
+  /// Les présentations en visite d'un support numérique (§118.166).
+  presentations   MedicalVisitSupportNumerique[]
+  /// Les réservations pour des événements Ad & Pro (§118.167).
+  lignesEvenement AdProStockLine[]
+  /// Les lignes de comptage qui l'ont compté (§118.168).
+  lignesComptage  PromoStockComptageLigne[]
+  /// Les propositions de refonte d'un support DURABLE (§118.168).
+  refontes        PromoStockRefonte[]
   createdById     String?
   updatedById     String?
-  createdAt       DateTime                @default(now())
-  updatedAt       DateTime                @updatedAt
+  createdAt       DateTime                       @default(now())
+  updatedAt       DateTime                       @updatedAt
 
   @@index([companyId])
   @@index([isActive])
@@ -6539,6 +6724,8 @@ model PromoStockLot {
   createdAt      DateTime             @default(now())
   updatedAt      DateTime             @updatedAt
   mouvements     PromoStockMovement[]
+  /// La ligne de facture dont ce lot est la réception (origine ACHAT, §118.165).
+  factureLignes  PromoFactureLigne[]
 
   @@unique([itemId, numero])
   @@index([itemId])
@@ -6569,6 +6756,21 @@ model PromoStockMovement {
   /// À qui / pour quoi : un événement, un congrès (texte des mouvements d'avant le registre).
   recipient   String?
   reason      String?
+  /// LA VISITE où ce matériel a été remis (§118.166) — SetNull : le stock dit la vérité du
+  /// mouvement ; la visite en est le contexte, et sa suppression ne recrée pas les fiches.
+  visitId     String?
+  visit       MedicalVisit?       @relation("PromoRemiseVisite", fields: [visitId], references: [id], onDelete: SetNull)
+  /// LE MÉDECIN qui l'a reçu — l'historique de sa fiche.
+  doctorId    String?
+  doctor      MedicalDoctor?      @relation("PromoRemiseMedecin", fields: [doctorId], references: [id], onDelete: SetNull)
+  /// LA LIGNE DU POSTE AD & PRO pour laquelle ce matériel a été réservé, ou est revenu (§118.167).
+  /// SetNull : le registre garde la vérité du mouvement ; la ligne en est le contexte.
+  adProLineId String?
+  adProLine   AdProStockLine?     @relation(fields: [adProLineId], references: [id], onDelete: SetNull)
+  /// LE COMPTAGE dont ce mouvement corrige l'écart (§118.168). SetNull : le registre garde la vérité
+  /// du mouvement ; le comptage en est le contexte (« pourquoi −15 ? — le comptage du 12/10 »).
+  comptageId  String?
+  comptage    PromoStockComptage? @relation(fields: [comptageId], references: [id], onDelete: SetNull)
   occurredAt  DateTime            @default(now())
   createdById String?
   createdAt   DateTime            @default(now())
@@ -6578,6 +6780,10 @@ model PromoStockMovement {
   @@index([holderId])
   @@index([lotId])
   @@index([transferId])
+  @@index([visitId])
+  @@index([doctorId])
+  @@index([adProLineId])
+  @@index([comptageId])
 }
 
 enum PromoMovementKind {
@@ -6590,6 +6796,8 @@ enum PromoMovementKind {
   TRANSFER_IN /// Arrivée confirmée par celui qui reçoit
   TRANSFER_BACK /// Retour à l'envoyeur : transfert refusé ou annulé
   REVERSAL /// Annulation d'un mouvement erroné — son exact inverse
+  RESERVATION_OUT /// Réservé pour un événement Ad & Pro : quitte le magasin à l'accord du poste (§118.167)
+  RESERVATION_BACK /// Retour d'événement : ce qui n'a pas été remis, ou le durable rendu
 }
 
 /// LA NATURE d'un transfert — déduite de ses deux bouts, jamais saisie.
@@ -6669,6 +6877,157 @@ model PromoStockRequest {
   @@index([statut])
   @@index([demandeurId, statut])
   @@index([itemId])
+}
+
+/// L'ÉTAT D'UN COMPTAGE (§118.168).
+enum PromoComptageStatut {
+  DEMANDE /// Demandé, en attente de la saisie de celui qui détient le matériel
+  SAISI /// Compté : chaque écart est au registre, en correction qui porte ce comptage
+  ANNULE /// Annulé avant la saisie, par son demandeur ou le Super Admin
+}
+
+/// LA CADENCE d'une récurrence de comptage.
+enum PromoComptageFrequence {
+  HEBDOMADAIRE
+  MENSUEL
+  TRIMESTRIEL
+  SEMESTRIEL
+}
+
+/// À QUI s'adresse un comptage récurrent.
+enum PromoComptageCible {
+  PERSONNE /// Une personne nommée
+  EQUIPE /// Toute l'équipe de l'auteur — RELUE à chaque déclenchement : qui a quitté l'équipe ne reçoit plus rien
+  MAGASIN /// Le magasin central, compté par sa gestionnaire
+}
+
+/// UN COMPTAGE — « comptez ce que vous avez en main », demandé par le directeur des opérations
+/// (décision de la Direction, 01/10) (§118.168).
+///
+/// Compter est une ATTESTATION : seul celui qui détient le matériel la donne (la gestionnaire du
+/// magasin pour le magasin). L'écart entre le compté et le registre se lit SOUS LE VERROU de chaque
+/// article au moment de la saisie — jamais au moment de la demande : une visite faite entre-temps
+/// aurait sinon passé pour un manquant. Chaque écart devient une CORRECTION au registre, qui porte
+/// ce comptage : « pourquoi −15 ? » a toujours sa réponse.
+model PromoStockComptage {
+  id           String                        @id @default(cuid())
+  /// Qui compte : null = le magasin central.
+  holderId     String?
+  /// La famille comptée ; null = tout ce qui se compte (consommables et durables).
+  famille      PromoFamille?
+  demandeurId  String
+  recurrenceId String?
+  recurrence   PromoStockComptageRecurrence? @relation(fields: [recurrenceId], references: [id], onDelete: SetNull)
+  statut       PromoComptageStatut           @default(DEMANDE)
+  /// Le jour où le comptage est attendu — minuit UTC du jour dit, INCLUSIF (en retard le lendemain).
+  echeance     DateTime
+  note         String?
+  saisiLe      DateTime?
+  saisiParId   String?
+  annuleLe     DateTime?
+  annuleParId  String?
+  annuleMotif  String?
+  createdAt    DateTime                      @default(now())
+  updatedAt    DateTime                      @updatedAt
+  lignes       PromoStockComptageLigne[]
+  mouvements   PromoStockMovement[]
+
+  @@index([holderId, statut])
+  @@index([statut, echeance])
+  @@index([recurrenceId, statut])
+  @@index([demandeurId])
+}
+
+/// UNE LIGNE DE COMPTAGE — ce que le registre attendait, ce qui a été compté, l'écart.
+model PromoStockComptageLigne {
+  id         String             @id @default(cuid())
+  comptageId String
+  comptage   PromoStockComptage @relation(fields: [comptageId], references: [id], onDelete: Cascade)
+  itemId     String
+  item       PromoStockItem     @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  /// Le solde que le registre portait au moment de la saisie, relu sous le verrou de l'article.
+  attendu    Decimal            @db.Decimal(12, 3)
+  compte     Decimal            @db.Decimal(12, 3)
+  /// compte − attendu : négatif = manquant, positif = retrouvé.
+  ecart      Decimal            @db.Decimal(12, 3)
+
+  @@unique([comptageId, itemId])
+  @@index([itemId])
+}
+
+/// UN COMPTAGE RÉCURRENT — posé une fois, il repart seul (§118.168, sur le modèle de §118.119).
+///
+/// L'AUTORITÉ DE L'AUTEUR EST RELUE À CHAQUE DÉCLENCHEMENT : un auteur qui n'a plus le droit de
+/// demander ce comptage — mutation, départ, droits retirés — voit sa récurrence mise en PAUSE, avec
+/// le motif, jamais supprimée. Sans cette relecture, une planification serait une permission qui
+/// survit à son titulaire. Et l'on ne RATTRAPE pas : six mois de pause ne font pas six comptages le
+/// jour de la reprise — ce qui n'a pas eu lieu à sa date n'a plus d'objet.
+model PromoStockComptageRecurrence {
+  id               String                 @id @default(cuid())
+  cible            PromoComptageCible
+  /// La personne, pour une cible PERSONNE ; null sinon.
+  holderId         String?
+  famille          PromoFamille?
+  frequence        PromoComptageFrequence
+  /// La première échéance : chaque occurrence se calcule DEPUIS elle — le 31 janvier mensuel donne
+  /// le 28 février puis le 31 mars, jamais le 28 pour toujours.
+  ancreLe          DateTime
+  /// La prochaine échéance (UTC) — c'est elle que le battement interroge.
+  prochaineLe      DateTime
+  /// Combien de jours la personne a pour compter, à partir du déclenchement.
+  delaiJours       Int                    @default(7)
+  note             String?
+  /// QUI L'A POSÉE — c'est SON autorité qui fait partir chaque comptage.
+  auteurId         String?
+  actif            Boolean                @default(true)
+  pauseMotif       String?
+  pauseLe          DateTime?
+  derniereLe       DateTime?
+  /// Combien de déclenchements ont réellement produit au moins un comptage.
+  nbDeclenchements Int                    @default(0)
+  createdAt        DateTime               @default(now())
+  updatedAt        DateTime               @updatedAt
+  comptages        PromoStockComptage[]
+
+  @@index([actif, prochaineLe])
+  @@index([auteurId])
+}
+
+/// UNE ALERTE DE STOCK DÉJÀ ENVOYÉE — l'alerte part à l'ENTRÉE dans un état, pas à chaque battement
+/// (§118.168). La clé dit quoi (« seuil:<article> », « peremption:<lot>:<détenteur> »…) ; elle se
+/// retire quand l'état cesse, et l'alerte repartira s'il revient. La clé est prise AVANT la
+/// notification : deux battements concurrents n'alertent pas deux fois.
+model PromoStockAlerte {
+  cle      String   @id
+  envoyeLe DateTime @default(now())
+}
+
+enum PromoRefonteStatut {
+  OUVERTE
+  RETENUE
+  ECARTEE
+}
+
+/// UNE PROPOSITION DE REFONTE d'un support DURABLE — « ce kakémono est usé, son visuel a vieilli »
+/// (§118.168). Quiconque voit le stock propose ; la gestionnaire du magasin (ou le Super Admin)
+/// retient ou écarte, avec un mot. Retenir ne commande rien : c'est la décision qui ouvre une
+/// demande de matériel, faite ensuite par le circuit d'achat. Au plus UNE OUVERTE par personne et
+/// par article : un index partiel l'impose (migration), pas une lecture suivie d'une création.
+model PromoStockRefonte {
+  id           String             @id @default(cuid())
+  itemId       String
+  item         PromoStockItem     @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  auteurId     String
+  motif        String
+  statut       PromoRefonteStatut @default(OUVERTE)
+  decideParId  String?
+  decideLe     DateTime?
+  noteDecision String?
+  createdAt    DateTime           @default(now())
+  updatedAt    DateTime           @updatedAt
+
+  @@index([itemId, statut])
+  @@index([statut])
 }
 
 // ─────────────── Feedback utilisateur ───────────────
@@ -11011,6 +11370,8 @@ model LegalDocument {
   updatedById       String?
   createdAt         DateTime              @default(now())
   updatedAt         DateTime              @updatedAt
+  /// LE DÉTAIL d'une facture de matériel promotionnel (§118.165) : lignes, taxes, réception.
+  promoFacture      PromoFacture?
 
   @@index([companyId, status])
   @@index([kind])
@@ -12658,19 +13019,20 @@ model Product {
   updatedAt DateTime @updatedAt
 
   aliases            ProductAlias[]
-  regulatoryProfiles RegulatoryProduct[]      @relation("ProductRegulatoryProfile")
-  promoProfiles      PromoProduct[]           @relation("ProductPromoProfile")
-  bdProfiles         BdProduct[]              @relation("ProductBdProfile")
-  tenderLines        PchTenderLine[]          @relation("TenderLineProduct")
-  contractLines      PchContractLine[]        @relation("ContractLineProduct")
-  sales              Sale[]                   @relation("SaleProduct")
+  regulatoryProfiles RegulatoryProduct[]       @relation("ProductRegulatoryProfile")
+  promoProfiles      PromoProduct[]            @relation("ProductPromoProfile")
+  bdProfiles         BdProduct[]               @relation("ProductBdProfile")
+  tenderLines        PchTenderLine[]           @relation("TenderLineProduct")
+  contractLines      PchContractLine[]         @relation("ContractLineProduct")
+  sales              Sale[]                    @relation("SaleProduct")
   visitLinks         MedicalVisitProduct[]
   /// LES MESSAGES PRÉ-DÉFINIS qui portent sur ce produit.
-  promoMessages      PromoMessage[]           @relation("PromoMessageProduct")
+  promoMessages      PromoMessage[]            @relation("PromoMessageProduct")
   adProAllocations   AdProProductAllocation[]
   assignments        ProductAssignment[]
   /// Le matériel promotionnel en stock pour ce produit (§118.164).
-  promoStockItems    PromoStockItemProduct[]  @relation("PromoStockProduit")
+  promoStockItems    PromoStockItemProduct[]   @relation("PromoStockProduit")
+  promoRequestItems  PromoRequestItemProduct[] @relation("PromoDemandeProduit")
 
   @@index([dci])
   @@index([companyId])
@@ -13323,4 +13685,47 @@ model SiteCandidature {
 
   @@index([etat, recueLe])
   @@index([jobPostingId])
+}
+
+/// UNE LIGNE DU POSTE « MATÉRIEL DU STOCK » D'UNE DEMANDE AD & PRO (§118.167).
+///
+/// DEMANDÉE (le demandeur liste l'article et la quantité ; rien ne bouge au magasin) → RÉSERVÉE (à
+/// l'accord du poste, la quantité quitte le magasin : personne ne peut plus la doter ailleurs) →
+/// CONFIRMÉE (après l'événement : remis, rendus, abîmés, perdus ; le reste revient au magasin par
+/// la même écriture). Les quantités confirmées sont des FAITS déclarés une fois, jamais recalculés.
+model AdProStockLine {
+  id             String               @id @default(cuid())
+  itemId         String
+  item           AdProItem            @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  /// L'article du magasin. RESTRICT : un article qui a servi à un événement ne s'efface pas.
+  stockItemId    String
+  stockItem      PromoStockItem       @relation(fields: [stockItemId], references: [id], onDelete: Restrict)
+  quantite       Decimal              @db.Decimal(12, 3)
+  statut         AdProStockLineStatut @default(DEMANDEE)
+  reserveeLe     DateTime?
+  reserveeParId  String?
+  /// Consommable : remis pendant l'événement.
+  utilisee       Decimal?             @db.Decimal(12, 3)
+  /// Revenu au magasin (le reste d'un consommable, le durable rendu en état).
+  rendue         Decimal?             @db.Decimal(12, 3)
+  /// Durable : revenu abîmé (retiré du stock) ou perdu.
+  abimee         Decimal?             @db.Decimal(12, 3)
+  perdue         Decimal?             @db.Decimal(12, 3)
+  confirmeeLe    DateTime?
+  confirmeeParId String?
+  note           String?
+  createdById    String?
+  createdAt      DateTime             @default(now())
+  updatedAt      DateTime             @updatedAt
+  mouvements     PromoStockMovement[]
+
+  @@unique([itemId, stockItemId])
+  @@index([stockItemId])
+  @@index([statut])
+}
+
+enum AdProStockLineStatut {
+  DEMANDEE
+  RESERVEE
+  CONFIRMEE
 }

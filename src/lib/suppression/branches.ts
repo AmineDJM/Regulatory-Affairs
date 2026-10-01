@@ -43,6 +43,8 @@ import type { EntityType } from "@prisma/client";
  * ═══════════════════════════════════════════════════════════════════════════════════════════
  */
 
+import { faitDeStock } from "@/lib/promo/reservations";
+
 export type Conduite = "EMPORTEE" | "COEUR" | "HISTOIRE";
 
 export interface Referent {
@@ -196,6 +198,15 @@ export function faitIrreversible(modele: string, d: Record<string, unknown>): st
       return null;
     case "MailEntry":
       return `le courrier ${ref(d)} est inscrit au registre des courriers`;
+    case "PromoFactureLigne":
+      // LA RÉCEPTION D'UNE LIGNE DE FACTURE A FAIT ENTRER DU MATÉRIEL AU MAGASIN (§118.165) : le
+      // lot reste au stock quoi qu'on efface, et la demande est la cause de cette entrée.
+      if (Number(d.quantiteRecue ?? 0) > 0) return `du matériel de la facture (« ${String(d.designation ?? "ligne")} ») a été reçu au magasin`;
+      return null;
+    case "AdProStockLine":
+      // LE MATÉRIEL DU STOCK (§118.167) — la MÊME règle que la suppression d'un poste : sinon une
+      // demande que la corbeille refuse se laisserait vider poste par poste (§118.71).
+      return faitDeStock({ statut: String(d.statut ?? ""), utilisee: d.utilisee, abimee: d.abimee, perdue: d.perdue });
     default:
       return null;
   }
@@ -216,6 +227,13 @@ export const LIBELLE_DU_MODELE: Readonly<Record<string, [string, string]>> = {
   CareCell: ["case de prise en charge", "cases de prise en charge"],
   CareQuote: ["devis de prise en charge", "devis de prise en charge"],
   CareQuoteCell: ["ligne de devis", "lignes de devis"],
+  AdProStockLine: ["article du stock demandé", "articles du stock demandés"],
+  // Les achats du matériel promotionnel (§118.165) : ce qu'une demande pioche dans le catalogue,
+  // et les factures reçues ligne à ligne.
+  PromoRequestItem: ["article demandé", "articles demandés"],
+  PromoRequestItemProduct: ["produit d'un article demandé", "produits d'articles demandés"],
+  PromoFacture: ["facture saisie en lignes", "factures saisies en lignes"],
+  PromoFactureLigne: ["ligne de facture", "lignes de facture"],
   PromoQuote: ["devis retranscrit", "devis retranscrits"],
   PromoQuoteLine: ["ligne de devis", "lignes de devis"],
   ConsultingTask: ["tâche du contrat", "tâches du contrat"],

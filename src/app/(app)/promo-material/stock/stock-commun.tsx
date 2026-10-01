@@ -156,6 +156,19 @@ export function Section({
   );
 }
 
+/** Un chiffre clé — le même dessin dans les vues du magasin, générale et du tableau de bord. */
+export function Chiffre({ label, valeur, ton = "neutre", aide }: { label: string; valeur: string; ton?: "neutre" | "alerte" | "danger" | "info"; aide?: string }) {
+  return (
+    <div className="surface min-w-0 p-3" title={aide}>
+      <p className="text-xs font-medium text-muted-foreground">{label}</p>
+      <p className={cn(
+        "mt-1 break-words text-lg font-semibold tabular-nums sm:text-xl",
+        ton === "alerte" && "text-warning", ton === "danger" && "text-destructive", ton === "info" && "text-blue-600",
+      )}>{valeur}</p>
+    </div>
+  );
+}
+
 export function Vide({ children }: { children: React.ReactNode }) {
   return <p className="rounded-lg border border-dashed border-border px-3 py-4 text-center text-sm text-muted-foreground">{children}</p>;
 }

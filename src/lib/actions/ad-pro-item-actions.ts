@@ -25,6 +25,14 @@ import { signalerSiASigner } from "@/lib/bons-de-commande/etat";
 import { CHEMIN_BC_A_SIGNER } from "@/lib/bons-de-commande/aiguillage";
 import { ROLE_DIRECTION_MARKETING } from "@/lib/workflow/parcours";
 import { etatPostesSponsoring } from "@/lib/ad-pro/cloture-sponsoring";
+import { rendreAuMagasin, reserverPourEvenement, sousVerrous, type Tx } from "@/lib/promo/stock-ecriture";
+import {
+  faitDeStock, lireConfirmation, peutConfirmerMateriel, refusArgentSurPosteStock, refusChangementNature, refusReservation,
+  REFUS_CONFIRMATION_MATERIEL, type Confirmation,
+} from "@/lib/promo/reservations";
+import { libelleArticleStock } from "@/lib/promo/stock";
+import { familleQuantifiee, type PromoFamille } from "@/lib/promo/catalogue";
+import { articleDansMonPerimetre, gestionnairesDuMagasin } from "@/lib/queries/promo-stock";
 
 /**
  * POSTES D'UNE OPÉRATION AD & PRO — actions serveur, pour les QUATRE opérations du pôle :
@@ -340,6 +348,10 @@ export async function addAdProItem(_prev: ActionResult | undefined, formData: Fo
 
   const amountEstimated = fdNum(formData, "amountEstimated");
   if (amountEstimated != null && amountEstimated < 0) return { ok: false, error: "Un montant ne peut pas être négatif." };
+  // UN POSTE « MATÉRIEL DU STOCK » NE PORTE PAS DE MONTANT (§118.167) : son matériel sort du
+  // magasin, il ne s'achète pas. Un montant saisi y serait additionné au montant de la demande.
+  const sansMontant = amountEstimated != null && amountEstimated > 0 ? refusArgentSurPosteStock(kind, "un montant") : null;
+  if (sansMontant) return { ok: false, error: sansMontant };
   // « Ce poste est-il DANS le budget accordé, ou EN PLUS ? » — question posée dès l'ajout : sans
   // elle, une rallonge assumée serait lue comme un dépassement subi.
   const budgetKind = (fdStr(formData, "budgetKind") === "ADDITIONAL" ? "ADDITIONAL" : "INCLUDED") as AdProItemBudgetKind;
@@ -359,7 +371,7 @@ export async function addAdProItem(_prev: ActionResult | undefined, formData: Fo
         label,
         notes: fdStr(formData, "notes"),
         supplier: fdStr(formData, "supplier"),
-        amountEstimated: amountEstimated ?? null,
+        amountEstimated: kind === "STOCK_MATERIAL" ? null : amountEstimated ?? null,
         budgetKind,
         addedAfterDecision: late,
         position: (last?.position ?? 0) + 1,
@@ -425,6 +437,22 @@ export async function updateAdProItem(_prev: ActionResult | undefined, formData:
   const budgetKind = budgetKindRaw === "INCLUDED" || budgetKindRaw === "ADDITIONAL" ? budgetKindRaw : null;
   const budgetDecided = budgetKindLocked(item);
 
+  // LA NATURE « MATÉRIEL DU STOCK » ne se gagne ni ne se perd hors d'un brouillon vierge
+  // (§118.167) : elle change ce que le poste EST, pas seulement ce qu'il décrit.
+  if (kind && kind !== item.kind) {
+    const refus = refusChangementNature(item.kind, kind, {
+      statut: item.status,
+      lignesStock: await prisma.adProStockLine.count({ where: { itemId: id } }),
+      argentEngage: item.amountEstimated != null || item.amountGranted != null || item.budgetCategoryId != null
+        || item.expenseOrderId != null || item.orderStage !== "NONE" || item.adminRequestId != null || item.promoMaterialId != null,
+    });
+    if (refus) return { ok: false, error: refus };
+  }
+  if ((wantsAllocate && amountGranted != null && amountGranted > 0) || (amountEstimated != null && amountEstimated > 0)) {
+    const refus = refusArgentSurPosteStock(kind ?? item.kind, "un montant");
+    if (refus) return { ok: false, error: refus };
+  }
+
   try {
     await prisma.adProItem.update({
       where: { id },
@@ -466,6 +494,13 @@ export async function deleteAdProItem(_prev: ActionResult | undefined, formData:
   if (!canEditItems(user, owner.parent)) return { ok: false, error: "Non autorisé." };
   const clos = await refusSiClos(owner.parent, owner.id);
   if (clos) return { ok: false, error: clos };
+  // LE MATÉRIEL DU STOCK (§118.167) : réservé, il est dehors et effacer le poste l'y laisserait ;
+  // remis, abîmé ou perdu, le poste est la cause de ces sorties. La MÊME règle que la corbeille
+  // (`faitDeStock`) — sinon une demande qu'elle refuse se viderait poste par poste (§118.71).
+  const faitStock = (await prisma.adProStockLine.findMany({
+    where: { itemId: id }, select: { statut: true, utilisee: true, abimee: true, perdue: true },
+  })).map((l) => faitDeStock(l)).find((f) => f != null);
+  if (faitStock) return { ok: false, error: `Ce poste ne se retire pas : ${faitStock}.` };
 
   // UN POSTE PAYÉ NE S'EFFACE PAS EN SILENCE — mais il doit pouvoir être retiré.
   //
@@ -522,6 +557,8 @@ export async function emitItemExpenseOrder(_prev: ActionResult | undefined, form
   const found = await loadItem(id);
   if (!found) return { ok: false, error: "Poste introuvable." };
   const { item, owner } = found;
+  const refusStock = refusArgentSurPosteStock(item.kind, "un ordre de dépense");
+  if (refusStock) return { ok: false, error: refusStock };
   // ÉMISSION = geste des FINANCES (ou d'un profil à vue globale). La Direction, elle, a visé.
   const isFinance = userCan(user, "FINANCES", "UPDATE") || userCan(user, "FINANCES", "VALIDATE");
   if (!isFinance && !canAllocate(user, owner.parent)) return { ok: false, error: "Seules les Finances émettent le bon de commande." };
@@ -588,6 +625,10 @@ export async function linkPromoMaterial(_prev: ActionResult | undefined, formDat
   if (!found) return { ok: false, error: "Poste introuvable." };
   const { item, owner } = found;
   if (!canEditItems(user, owner.parent)) return { ok: false, error: "Non autorisé." };
+  // Rattacher un dossier d'ACHAT ferait de ce poste un poste « Matériel promotionnel » (la nature
+  // change ci-dessous) — et laisserait ses lignes de stock à une nature qui ne sait plus les rendre.
+  const refusStock = refusArgentSurPosteStock(item.kind, "un dossier d'achat de matériel promotionnel");
+  if (refusStock) return { ok: false, error: refusStock };
 
   const promoMaterialId = fdStr(formData, "promoMaterialId");
   if (promoMaterialId) {
@@ -645,6 +686,8 @@ export async function submitAdProItem(_prev: ActionResult | undefined, formData:
     status: item.status,
     amountEstimated: item.amountEstimated != null ? toNumber(item.amountEstimated) : null,
     amountGranted: item.amountGranted != null ? toNumber(item.amountGranted) : null,
+    kind: item.kind,
+    lignesStock: item.kind === "STOCK_MATERIAL" ? await prisma.adProStockLine.count({ where: { itemId: id } }) : 0,
   });
   if (!check.ok) return { ok: false, error: check.reason ?? "Soumission impossible." };
 
@@ -704,19 +747,32 @@ export async function decideAdProItem(_prev: ActionResult | undefined, formData:
   if (granted != null && granted < 0) return { ok: false, error: "Un montant ne peut pas être négatif." };
   const status = decision as AdProItemStatus;
 
-  await prisma.adProItem.update({
+  // `tx` et non un autre nom : la dérivation des contrats lit `prisma.X` et `tx.X` pour dire ce que
+  // l'action écrit (§118.137) — un paramètre nommé autrement faisait disparaître le poste de la
+  // carte de confirmation, et `id` ne désignait plus rien pour le chemin générique.
+  const ecrireDecision = (tx: Tx | typeof prisma) => tx.adProItem.update({
     where: { id },
     data: {
       status,
       decidedAt: new Date(),
       decidedById: user.id,
       decisionNote: note,
-      ...(status === "APPROVED"
+      ...(status === "APPROVED" && item.kind !== "STOCK_MATERIAL"
         ? { amountGranted: granted ?? item.amountGranted ?? item.amountEstimated ?? null }
         : {}),
       updatedById: user.id,
     },
   });
+  if (item.kind === "STOCK_MATERIAL") {
+    // LE MATÉRIEL DU STOCK SE RÉSERVE À L'ACCORD (§118.167) — dans la MÊME transaction que la
+    // décision : un poste « accordé » dont le matériel n'a pas pu être réservé promettrait au
+    // demandeur des kakémonos que le magasin n'a pas. Un refus ou une révision rend au magasin ce
+    // qu'un accord précédent avait réservé.
+    const r = await deciderMaterielStock(id, status, user.id, ecrireDecision);
+    if (!r.ok) return { ok: false, error: r.error };
+  } else {
+    await ecrireDecision(prisma);
+  }
   await recordDecision(id, status, note, granted ?? (item.amountGranted != null ? toNumber(item.amountGranted) : null), user.id);
   // LA DEMANDE SUIT : une rallonge accordée (ou retirée) change le montant de l'opération.
   await reprojeterMontantDemande(owner.parent, owner.id);
@@ -746,6 +802,8 @@ export async function setAdProItemBudget(_prev: ActionResult | undefined, formDa
   if (!found) return { ok: false, error: "Poste introuvable." };
   const { item, owner } = found;
   if (!canAllocate(user, owner.parent)) return { ok: false, error: "Seule la Direction impute un poste à un budget." };
+  const refusStock = refusArgentSurPosteStock(item.kind, "un budget");
+  if (refusStock) return { ok: false, error: refusStock };
   const clos = await refusSiClos(owner.parent, owner.id);
   if (clos) return { ok: false, error: clos };
   if (item.status !== "APPROVED") return { ok: false, error: "Le poste doit d'abord être accordé." };
@@ -810,6 +868,8 @@ export async function demanderPieceSecretariat(_prev: ActionResult | undefined, 
   if (!found) return { ok: false, error: "Poste introuvable." };
   const { item, owner } = found;
   if (!canEditItems(user, owner.parent)) return { ok: false, error: "Non autorisé." };
+  const refusStock = refusArgentSurPosteStock(item.kind, "un devis, un bon de commande ou une facture");
+  if (refusStock) return { ok: false, error: refusStock };
 
   const garde = peutDemanderPiece(nature, {
     ouvertes: await piecesOuvertes(id),
@@ -892,6 +952,8 @@ export async function requestAdProItemOrder(_prev: ActionResult | undefined, for
   if (!found) return { ok: false, error: "Poste introuvable." };
   const { item, owner } = found;
   if (!canEditItems(user, owner.parent)) return { ok: false, error: "Non autorisé." };
+  const refusStock = refusArgentSurPosteStock(item.kind, "un bon de commande");
+  if (refusStock) return { ok: false, error: refusStock };
 
   const check = canRequestPurchaseOrder({
     status: item.status,
@@ -1048,3 +1110,219 @@ export async function approveAdProItemOrder(_prev: ActionResult | undefined, for
   if (piecesDuPoste.length > 0) revalidatePath(CHEMIN_BC_A_SIGNER);
   return { ok: true, id };
 }
+
+// ─────────────────────── Le matériel du stock d'un événement (§118.167) ───────────────────────
+
+/** Un poste « Matériel du stock » se compose tant qu'il n'est ni soumis ni accordé. */
+const POSTE_STOCK_EDITABLE = new Set<AdProItemStatus>(["DRAFT", "REVISION", "REJECTED"]);
+
+/** Le libellé lisible d'un article du stock (« Fiche posologique — Nivolex »). */
+async function libellesArticles(ids: readonly string[]): Promise<Map<string, { libelle: string; famille: PromoFamille }>> {
+  if (ids.length === 0) return new Map();
+  const items = await prisma.promoStockItem.findMany({
+    where: { id: { in: [...ids] } },
+    select: {
+      id: true,
+      catalogue: { select: { nom: true, famille: true } },
+      produits: { select: { product: { select: { canonicalName: true } } } },
+    },
+  });
+  return new Map(items.map((it) => [it.id, {
+    libelle: libelleArticleStock(it.catalogue.nom, it.produits.map((p) => p.product.canonicalName)),
+    famille: it.catalogue.famille as PromoFamille,
+  }]));
+}
+
+/**
+ * LA DÉCISION D'UN POSTE « MATÉRIEL DU STOCK » — la réservation (ou sa restitution) et la décision
+ * s'écrivent ENSEMBLE, sous le verrou de chaque article. Au-delà de ce que le magasin a de
+ * distribuable, l'accord est refusé en entier, ligne nommée : rien n'est accordé, rien n'est réservé.
+ */
+async function deciderMaterielStock(
+  itemId: string,
+  status: AdProItemStatus,
+  auteurId: string,
+  ecrireDecision: (client: Tx) => Promise<unknown>,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const lignes = await prisma.adProStockLine.findMany({
+    where: { itemId },
+    select: { id: true, stockItemId: true, quantite: true, statut: true },
+  });
+  if (lignes.some((l) => l.statut === "CONFIRMEE")) {
+    return { ok: false, error: "Le matériel de ce poste a déjà été confirmé après l'événement : sa décision ne peut plus changer." };
+  }
+  if (status === "APPROVED" && lignes.length === 0) {
+    return { ok: false, error: "Ce poste ne liste aucun article du stock : il n'y a rien à accorder." };
+  }
+  const libelles = await libellesArticles(lignes.map((l) => l.stockItemId));
+  const motif = "Réservé pour l'événement (poste « Matériel du stock » accordé)";
+  class Refus extends Error {}
+  try {
+    await sousVerrous(lignes.map((l) => l.stockItemId), async (tx) => {
+      // RELIRE SOUS LE VERROU : un autre accord du même poste a pu passer entre-temps.
+      const actuelles = await tx.adProStockLine.findMany({ where: { itemId }, select: { id: true, stockItemId: true, quantite: true, statut: true } });
+      if (status === "APPROVED") {
+        for (const l of actuelles.filter((x) => x.statut === "DEMANDEE")) {
+          const q = toNumber(l.quantite);
+          const r = await reserverPourEvenement(tx, l.stockItemId, { ligneId: l.id, quantite: q, motif, auteurId, maintenant: new Date() });
+          if (!r.ok) throw new Refus(refusReservation(libelles.get(l.stockItemId)?.libelle ?? "Article", q, r.refus));
+          await tx.adProStockLine.update({ where: { id: l.id }, data: { statut: "RESERVEE", reserveeLe: new Date(), reserveeParId: auteurId } });
+        }
+      } else {
+        for (const l of actuelles.filter((x) => x.statut === "RESERVEE")) {
+          await rendreAuMagasin(tx, l.stockItemId, { ligneId: l.id, quantite: toNumber(l.quantite), motif: `Poste ${status === "REJECTED" ? "refusé" : "à revoir"} : la réservation revient au magasin`, auteurId });
+          await tx.adProStockLine.update({ where: { id: l.id }, data: { statut: "DEMANDEE", reserveeLe: null, reserveeParId: null } });
+        }
+      }
+      await ecrireDecision(tx);
+    });
+  } catch (e) {
+    if (e instanceof Refus) return { ok: false, error: e.message };
+    throw e;
+  }
+  revalidatePath("/promo-material/stock");
+  return { ok: true };
+}
+
+/**
+ * AJOUTER (OU REQUANTIFIER) UN ARTICLE DU STOCK SUR LE POSTE. Le demandeur pioche dans le MAGASIN
+ * de la société de l'opération ; rien ne bouge au magasin avant l'accord. Une quantité à zéro
+ * retire l'article. Un support numérique n'a pas de quantité : il ne se réserve pas.
+ */
+export async function ajouterArticleStockAuPoste(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  const itemId = fdStr(formData, "itemId");
+  const stockItemId = fdStr(formData, "stockItemId");
+  if (!itemId || !stockItemId) return { ok: false, error: "Choisissez l'article du stock." };
+  const quantite = fdNum(formData, "quantite");
+  if (quantite == null || !Number.isFinite(quantite) || quantite < 0) return { ok: false, error: "Indiquez une quantité (0 pour retirer l'article)." };
+  const found = await loadItem(itemId);
+  if (!found) return { ok: false, error: "Poste introuvable." };
+  const { item, owner } = found;
+  if (!canEditItems(user, owner.parent)) return { ok: false, error: "Non autorisé." };
+  const info = await PARENTS[owner.parent].load(owner.id);
+  if (!info) return { ok: false, error: "Opération introuvable." };
+  const clos = refusPostesClos(info);
+  if (clos) return { ok: false, error: clos };
+  if (item.kind !== "STOCK_MATERIAL") return { ok: false, error: "Ce poste n'est pas un poste « Matériel du stock »." };
+  if (!POSTE_STOCK_EDITABLE.has(item.status)) {
+    return { ok: false, error: item.status === "APPROVED"
+      ? "Ce poste est accordé et son matériel réservé : sa liste ne change plus (la Direction peut le remettre « à revoir »)."
+      : "Ce poste attend la décision de la Direction : sa liste ne change pas pendant ce temps." };
+  }
+  const article = await articleDansMonPerimetre(user.id, stockItemId);
+  if (!article || !article.isActive) return { ok: false, error: "Article du stock introuvable ou archivé." };
+  if (!familleQuantifiee(article.catalogue.famille as PromoFamille)) return { ok: false, error: "Un support numérique se présente, il ne se réserve pas." };
+  if (info.companyId && article.companyId && article.companyId !== info.companyId) {
+    return { ok: false, error: "Cet article appartient au magasin d'une autre société que celle de l'opération." };
+  }
+  const libelle = libelleArticleStock(article.catalogue.nom, article.produits.map((p) => p.product.canonicalName));
+  if (quantite === 0) {
+    await prisma.adProStockLine.deleteMany({ where: { itemId, stockItemId, statut: "DEMANDEE" } });
+  } else {
+    await prisma.adProStockLine.upsert({
+      where: { itemId_stockItemId: { itemId, stockItemId } },
+      create: { itemId, stockItemId, quantite, createdById: user.id },
+      update: { quantite },
+    });
+  }
+  await audit(user, owner.parent, owner.id, "UPDATE", quantite === 0
+    ? `Poste « ${item.label} » : « ${libelle} » retiré du matériel demandé.`
+    : `Poste « ${item.label} » : ${quantite.toLocaleString("fr-FR")} « ${libelle} » demandé(s) au magasin.`);
+  revalidate(owner.parent, owner.id);
+  return { ok: true, id: itemId };
+}
+
+/**
+ * CONFIRMER LE MATÉRIEL APRÈS L'ÉVÉNEMENT (§118.167). Un consommable : combien ont été remis (le
+ * reste revient). Un durable PRÊTÉ : combien sont rendus, abîmés, perdus — la somme doit faire le
+ * compte réservé. Tout ce qui ne va pas est dit en une fois ; sinon le reste revient au magasin par
+ * la même écriture, dans les lots d'où il était sorti, et la magasinière en est prévenue.
+ *
+ * Confirmer « 0 remis » avant l'événement est aussi la façon d'annuler une réservation.
+ * Qui confirme : le demandeur (il a tenu l'événement), la gestionnaire du magasin (elle reçoit le
+ * retour), la Direction qui décide des postes, ou le Super Admin.
+ */
+export async function confirmerMaterielStock(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  const itemId = fdStr(formData, "itemId");
+  if (!itemId) return { ok: false, error: "Poste non précisé." };
+  const found = await loadItem(itemId);
+  if (!found) return { ok: false, error: "Poste introuvable." };
+  const { item, owner } = found;
+  if (item.kind !== "STOCK_MATERIAL") return { ok: false, error: "Ce poste n'est pas un poste « Matériel du stock »." };
+  const info = await PARENTS[owner.parent].load(owner.id);
+  if (!info) return { ok: false, error: "Opération introuvable." };
+  const gestionnaires = await gestionnairesDuMagasin();
+  const peut = peutConfirmerMateriel({
+    superAdmin: user.role === "SUPER_ADMIN",
+    estLeDemandeur: info.requesterId === user.id,
+    gereLeMagasin: gestionnaires.includes(user.id),
+    decideLesPostes: canAllocate(user, owner.parent),
+  });
+  if (!peut) return { ok: false, error: REFUS_CONFIRMATION_MATERIEL };
+
+  const lignes = await prisma.adProStockLine.findMany({ where: { itemId, statut: "RESERVEE" }, select: { id: true, stockItemId: true, quantite: true } });
+  if (lignes.length === 0) return { ok: false, error: "Aucun matériel réservé n'attend de confirmation sur ce poste." };
+  const libelles = await libellesArticles(lignes.map((l) => l.stockItemId));
+  const ids = formData.getAll("ligneId").map(String);
+  const champ = (nom: string, i: number) => formData.getAll(nom)[i];
+  const fautes: string[] = [];
+  const decisions = new Map<string, Confirmation>();
+  for (const l of lignes) {
+    const i = ids.indexOf(l.id);
+    const meta = libelles.get(l.stockItemId);
+    const libelle = meta?.libelle ?? "Article";
+    if (i < 0) { fautes.push(`« ${libelle} » : rien n'est déclaré`); continue; }
+    const r = lireConfirmation(meta?.famille ?? "CONSOMMABLE", toNumber(l.quantite), {
+      utilisee: champ("utilisee", i), rendue: champ("rendue", i), abimee: champ("abimee", i), perdue: champ("perdue", i),
+    }, libelle);
+    if (!r.ok) fautes.push(r.faute);
+    else decisions.set(l.id, r.confirmation);
+  }
+  if (fautes.length) return { ok: false, error: `Confirmation à revoir : ${fautes.join(" ; ")}.` };
+
+  const note = fdStr(formData, "note");
+  let revenu = 0;
+  const fait = await sousVerrous(lignes.map((l) => l.stockItemId), async (tx) => {
+    // CONDITIONNEL : deux confirmations simultanées ne font revenir le reste qu'une fois.
+    let n = 0;
+    for (const l of lignes) {
+      const c = decisions.get(l.id)!;
+      const maj = await tx.adProStockLine.updateMany({
+        where: { id: l.id, statut: "RESERVEE" },
+        data: {
+          statut: "CONFIRMEE", utilisee: c.utilisee, rendue: c.rendue, abimee: c.abimee, perdue: c.perdue,
+          confirmeeLe: new Date(), confirmeeParId: user.id, note,
+        },
+      });
+      if (maj.count === 0) continue;
+      n += 1;
+      revenu += await rendreAuMagasin(tx, l.stockItemId, { ligneId: l.id, quantite: c.retour, motif: `Retour de l'événement — ${info.ref}`, auteurId: user.id });
+    }
+    return n;
+  });
+  if (fait === 0) return { ok: false, error: "Ce matériel a déjà été confirmé entre-temps : rechargez la fiche." };
+
+  if (revenu > 0) {
+    for (const g of gestionnaires.filter((g) => g !== user.id)) {
+      await notifyUser({
+        userId: g, type: "GENERIC", title: "Matériel revenu d'un événement",
+        body: `${info.ref} — ${revenu.toLocaleString("fr-FR")} unité(s) reviennent au magasin.`,
+        link: "/promo-material/stock?vue=magasin",
+      }).catch(() => undefined);
+    }
+  }
+  const resume = [...decisions].map(([id, c]) => {
+    const l = lignes.find((x) => x.id === id)!;
+    const lib = libelles.get(l.stockItemId)?.libelle ?? "Article";
+    return c.utilisee != null
+      ? `${lib} : ${c.utilisee.toLocaleString("fr-FR")} remis, ${c.retour.toLocaleString("fr-FR")} revenu(s)`
+      : `${lib} : ${c.rendue.toLocaleString("fr-FR")} rendu(s), ${(c.abimee ?? 0).toLocaleString("fr-FR")} abîmé(s), ${(c.perdue ?? 0).toLocaleString("fr-FR")} perdu(s)`;
+  }).join(" ; ");
+  await audit(user, owner.parent, owner.id, "UPDATE", `Matériel du stock confirmé — poste « ${item.label} » : ${resume}${note ? ` (${note})` : ""}.`);
+  revalidate(owner.parent, owner.id);
+  revalidatePath("/promo-material/stock");
+  return { ok: true, id: itemId, message: revenu > 0 ? `Matériel confirmé : ${revenu.toLocaleString("fr-FR")} unité(s) reviennent au magasin.` : "Matériel confirmé : rien ne revient au magasin." };
+}
+

@@ -1087,12 +1087,50 @@ X("LE STOCK PROMOTIONNEL (§118.164) : chaque geste ATTESTE un fait physique —
   "promo-stock-actions:demanderMateriel", "promo-stock-actions:servirDemande",
   "promo-stock-actions:refuserDemande", "promo-stock-actions:annulerDemande",
 ]);
-X("LE CATALOGUE PROMOTIONNEL (§118.164) : la liste de RÉFÉRENCE que citent les stocks et, demain, les demandes "
+X("LE CATALOGUE PROMOTIONNEL (§118.164) : la liste de RÉFÉRENCE que citent les stocks et les demandes "
   + "d'achat — ses références CAT-NNNN sont fixes, et le Super Admin choisit nommément qui la lit et qui l'écrit "
   + "(Administration › Accès). La tenir est une décision d'organisation, pas une demande de conversation ; et Adam "
   + "est en pause de développement : aucun geste neuf ne lui est ouvert. Un clic sur Ad & Pro › Catalogue promotionnel.", [
   "promo-catalogue-actions:creerArticleCatalogue", "promo-catalogue-actions:modifierArticleCatalogue",
   "promo-catalogue-actions:archiverArticleCatalogue",
+]);
+X("LES ACHATS DU MATÉRIEL PROMOTIONNEL (§118.165) — la RÉCEPTION d'une ligne de facture, son annulation, et "
+  + "l'annulation d'une facture. Cocher « reçu » est une ATTESTATION : c'est elle qui fait entrer des unités au "
+  + "magasin central et qui ouvre le paiement, et l'audit porte le nom du demandeur. Un modèle ne voit pas le carton "
+  + "arriver ; une facture ou un mail lu par une étape peut contenir « tout est arrivé », et rien ne distinguerait plus "
+  + "la réception forgée de la vraie — le stock compterait ce que personne n'a vu, et le paiement partirait (§118.15). "
+  + "Annuler une facture ou une réception défait ce qu'une personne a attesté : même raison. Un clic du demandeur sur "
+  + "/promo-material/<id>, facture en tableau sous les yeux.", [
+  "promo-execution-actions:receptionnerLigneFacturePromo", "promo-execution-actions:annulerReceptionLigneFacturePromo",
+  "promo-execution-actions:annulerFacturePromo",
+]);
+X("LA DEMANDE D'ACHAT DU MATÉRIEL PROMOTIONNEL (§118.165) se compose en PIOCHANT dans le catalogue : l'article, ses "
+  + "produits, la quantité, ce qu'on attend du fournisseur. C'est ce que l'assistante fera chiffrer, mot pour mot. "
+  + "Adam est en pause de développement : aucun geste neuf ne lui est ouvert. Un clic du demandeur sur "
+  + "/promo-material/<id>, carte « Articles demandés ».", [
+  "promo-demande-actions:enregistrerArticleDemandePromo", "promo-demande-actions:retirerArticleDemandePromo",
+]);
+X("LE MATÉRIEL DU STOCK D'UN POSTE AD & PRO (§118.167) — lister les articles du magasin qu'un événement emporte, et "
+  + "CONFIRMER après l'événement ce qui a été remis, rendu, abîmé ou perdu. La confirmation est une ATTESTATION : elle fait "
+  + "rentrer le reste au magasin, sort définitivement le remis du registre, et l'audit porte le nom de qui l'a dite. Un "
+  + "modèle n'était pas sur le stand ; un compte rendu lu par une étape peut écrire « tout a été distribué », et rien ne "
+  + "distinguerait plus la confirmation forgée de la vraie — le magasin perdrait des kakémonos qui sont rentrés (§118.15). "
+  + "Lister reste une décision du demandeur, et Adam est en pause de développement : aucun geste neuf ne lui est ouvert. "
+  + "Un clic sur la fiche de la demande, bloc « Matériel pris au magasin ».", [
+  "ad-pro-item-actions:ajouterArticleStockAuPoste", "ad-pro-item-actions:confirmerMaterielStock",
+]);
+X("LES COMPTAGES, ALERTES ET REFONTES DU STOCK PROMOTIONNEL (§118.168). SAISIR un comptage est une ATTESTATION — « j'en ai "
+  + "40 en main » — que seul celui qui détient le matériel donne : chaque écart devient une correction au registre portée à "
+  + "son nom. Un modèle ne voit ni le carton ni la voiture ; un compte rendu lu par une étape peut écrire « tout y est », et le "
+  + "registre recopierait ce que personne n'a compté (§118.15). DEMANDER ou PLANIFIER un comptage engage le travail d'une "
+  + "personne au nom du directeur des opérations, et son autorité est relue à chaque déclenchement ; RETENIR une refonte est une "
+  + "décision de la Direction Marketing. Adam est en pause de développement : aucun geste neuf ne lui est ouvert. Un clic sur "
+  + "Ad & Pro › Stock promotionnel, onglets « Comptages » et « Tableau de bord ».", [
+  "promo-comptage-actions:demanderComptage", "promo-comptage-actions:saisirComptage",
+  "promo-comptage-actions:annulerComptage", "promo-comptage-actions:planifierComptage",
+  "promo-comptage-actions:suspendreRecurrenceComptage", "promo-comptage-actions:reprendreRecurrenceComptage",
+  "promo-comptage-actions:supprimerRecurrenceComptage", "promo-comptage-actions:proposerRefonte",
+  "promo-comptage-actions:deciderRefonte",
 ]);
 X("DÉPOSER LE LOGO D'UNE SOCIÉTÉ est le dépôt d'un FICHIER image (PNG ou JPEG, octets vérifiés) : la conversation ne "
   + "transporte pas d'image de marque, et un modèle n'en fabrique pas une. L'écran Administration › Marque & modèles le fait, "

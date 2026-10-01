@@ -1,5 +1,8 @@
+import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { toNumber } from "@/lib/utils";
+import { companyScopedWhere } from "@/lib/company";
+import { natureLegale } from "@/lib/labels";
 import { chainOf, type ChainDoc } from "@/lib/legal/chain";
 
 /**
@@ -128,4 +131,58 @@ export async function loadLegalChain(docId: string): Promise<{ links: ChainLink[
   }
 
   return { links, settlement };
+}
+
+/** Les pièces amont proposées au menu : les plus récentes — un menu de trois mille pièces ne se lit pas. */
+export const AMONT_PROPOSEES = 100;
+
+export interface OptionAmont { value: string; label: string }
+
+/** Le libellé d'une pièce amont qu'on ne peut pas lire : garder le lien n'en révèle pas le titre. */
+export const AMONT_HORS_PERIMETRE = "Pièce amont actuelle (hors de votre périmètre)";
+
+/**
+ * LES PIÈCES AMONT PROPOSÉES au menu « Fait suite à » — et, à la modification, la pièce ACTUELLE
+ * toujours, en tête (§118.168).
+ *
+ * Le menu ne montre que les cent devis et bons de commande les plus récents. Une facture chaînée à
+ * un BC plus ancien n'y retrouvait donc pas son BC : le navigateur affichait « — Pièce isolée — »,
+ * et un simple « Enregistrer » (pour corriger une date) la DÉTACHAIT de son bon de commande, sans un
+ * mot. Détachée, elle sortait de tout ce qui lit la chaîne : le cumul des factures d'un BC (on ne
+ * paie pas plus que la commande), la règle « la facture d'un BC non validé ne part pas », l'écran
+ * d'exécution d'un dossier. Un formulaire qui efface ce qu'on ne touche pas (§118.152c).
+ *
+ * La pièce actuelle hors du périmètre de la personne (une autre société, un document restreint)
+ * reste proposée sous un libellé NEUTRE : garder un lien n'accorde rien, l'effacer parce qu'on ne
+ * voit pas sa cible serait la perte silencieuse, et nommer son titre le révélerait.
+ */
+export async function piecesAmontProposees(opts: {
+  userId: string;
+  readerScope: Prisma.LegalDocumentWhereInput | null;
+  /** La pièce qu'on modifie — jamais candidate à se suivre elle-même. */
+  docId?: string;
+  /** Sa pièce amont ACTUELLE, à la modification. */
+  actuelId?: string | null;
+}): Promise<OptionAmont[]> {
+  // Même porte que la liste : le cloisonnement par entité ET les lecteurs désignés tiennent sur ce
+  // que le menu propose — on ne chaîne pas une facture au bon de commande d'une autre société.
+  const portee = (extra: Prisma.LegalDocumentWhereInput) =>
+    companyScopedWhere<Prisma.LegalDocumentWhereInput>(opts.userId, {
+      AND: [...(opts.readerScope ? [opts.readerScope] : []), extra],
+    });
+  const select = { id: true, kind: true, reference: true, title: true } as const;
+  const [recentes, actuelle] = await Promise.all([
+    prisma.legalDocument.findMany({
+      where: await portee({ kind: { in: ["QUOTE", "PURCHASE_ORDER"] }, ...(opts.docId ? { id: { not: opts.docId } } : {}) }),
+      select, orderBy: { createdAt: "desc" }, take: AMONT_PROPOSEES,
+    }),
+    opts.actuelId
+      ? prisma.legalDocument.findFirst({ where: await portee({ id: opts.actuelId }), select })
+      : Promise.resolve(null),
+  ]);
+  const libelle = (r: { kind: string; reference: string | null; title: string }) =>
+    `${natureLegale(r.kind)} — ${r.reference ? `${r.reference} · ` : ""}${r.title}`;
+  const options = recentes.map((r) => ({ value: r.id, label: libelle(r) }));
+  if (!opts.actuelId || options.some((o) => o.value === opts.actuelId)) return options;
+  return [{ value: opts.actuelId, label: actuelle ? libelle(actuelle) : AMONT_HORS_PERIMETRE }, ...options];
 }

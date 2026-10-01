@@ -32,7 +32,7 @@ import { onlyofficeConfigured } from "@/lib/onlyoffice";
 import { AD_PRO_DOC_CATEGORIES, categoriesDuDepotDeLaDemande } from "@/lib/ad-pro/doc-categories";
 import { canAttachToAdPro } from "@/lib/ad-pro/attachments";
 import { AdProItemsPanel } from "@/components/ad-pro/items-panel";
-import { loadAdProItems, adProBudgetOptions } from "@/lib/queries/ad-pro-items";
+import { loadAdProItems, adProBudgetOptions, contexteMaterielStock } from "@/lib/queries/ad-pro-items";
 import { promoMaterialOptions } from "@/lib/actions/ad-pro-item-actions";
 import { toNumber } from "@/lib/utils";
 import { siegeAuCentreAdPro } from "@/lib/ad-pro/centre";
@@ -105,6 +105,8 @@ export default async function CongressIntlDetailPage({ params }: { params: { id:
     adProBudgetOptions(user),
   ]);
   const canAllocateItems = hasGlobalView(user) || userCan(user, "CONGRESS_INTERNATIONAL", "VALIDATE");
+  // LE MAGASIN où un poste « Matériel du stock » pioche, et qui confirme après l'événement (§118.167).
+  const materielStock = await contexteMaterielStock(user, "CONGRESS_INTERNATIONAL", detail.id, canAllocateItems);
 
   return (
     <div className="space-y-5">
@@ -151,6 +153,7 @@ export default async function CongressIntlDetailPage({ params }: { params: { id:
             canAllocate={canAllocateItems}
             promoOptions={promoOptions}
             budgetOptions={budgetOptions}
+            materiel={materielStock}
             canIssueOrder={userCan(user, "FINANCES", "UPDATE") || userCan(user, "FINANCES", "VALIDATE")}
             canViserBC={siegeAuCentreAdPro(user)}
           />

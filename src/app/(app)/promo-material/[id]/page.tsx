@@ -1,5 +1,5 @@
 import { notFound, redirect } from "next/navigation";
-import { ArrowLeft, ClipboardList, Megaphone, PackageCheck } from "lucide-react";
+import { ArrowLeft, ClipboardList, ListChecks, Megaphone, PackageCheck } from "lucide-react";
 import { requireUser, safeLanding } from "@/lib/session";
 import { userCan, hasGlobalView } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
@@ -37,7 +37,11 @@ import {
 import { PromoActionPanel } from "./promo-panels";
 import { PromoCircuitCard, type ChantierAffiche } from "./circuit-card";
 import { PromoQuotesCard, type DevisAffiche } from "./quotes-card";
-import { PromoExecutionCard, type ExecutionAffichee } from "./execution-card";
+import { PromoExecutionCard, type ExecutionAffichee, type NatureAffichee } from "./execution-card";
+import { PromoArticlesCard } from "./articles-card";
+import { articlesDemandesDuDossier, optionsDesArticlesDemandes } from "@/lib/queries/promo-achats";
+import { etatReception, natureDeReception, peutReceptionner, resteAFacturer } from "@/lib/promo-material/achats";
+import { libelleArticleStock } from "@/lib/promo/stock";
 import { BackLink } from "@/components/shared/back-link";
 import { siegeAuCentreAdPro } from "@/lib/ad-pro/centre";
 import { etatDeLOrdre, LIBELLE_ETAT_REGLEMENT } from "@/lib/payments/reglement";
@@ -189,6 +193,12 @@ export default async function PromoMaterialDetailPage({ params }: { params: { id
     progressTotal: circuitProgress.total,
   };
 
+  // LES ARTICLES DEMANDÉS (circuit 2, §118.165) — la demande piochée dans le catalogue. Le demandeur
+  // (ou la Direction) la compose tant que les devis ne sont pas demandés — la règle de l'action.
+  const articles = v2 ? await articlesDemandesDuDossier(pm.id) : [];
+  const canEditArticles = v2 && (circuitState === "REVIEW_REQUEST" || circuitState === "QUOTE_TO_REQUEST") && demandeLesDevis(acteur, pm);
+  const canReceive = v2 && circuitState === "IN_EXECUTION" && peutReceptionner({ id: user.id, role: user.role }, pm);
+
   // LES DEVIS (circuit 2) — le tableau interne, dès que les devis sont demandés.
   const montrerDevis = v2 && circuitState !== "REVIEW_REQUEST" && circuitState !== "QUOTE_TO_REQUEST";
   const devisBruts = montrerDevis ? await devisDuDossier(pm.id) : [];
@@ -216,17 +226,55 @@ export default async function PromoMaterialDetailPage({ params }: { params: { id
     });
     for (const d of docs) if (!fichiersFactures.has(d.entityId)) fichiersFactures.set(d.entityId, d.id);
   }
+  // OÙ CHAQUE LIGNE REÇUE EST ENTRÉE — le lot et l'article de stock, lus en un lot (§118.165).
+  const lotIds = execution.flatMap((e) => e.factures.flatMap((f) => f.detail?.lignes.map((l) => l.stockLotId) ?? [])).filter((x): x is string => Boolean(x));
+  const lots = new Map(
+    (lotIds.length
+      ? await prisma.promoStockLot.findMany({
+          where: { id: { in: lotIds } },
+          select: { id: true, numero: true, item: { select: { catalogue: { select: { nom: true } }, produits: { select: { product: { select: { canonicalName: true } } } } } } },
+        })
+      : []
+    ).map((l) => [l.id, `Lot ${l.numero} — ${libelleArticleStock(l.item.catalogue.nom, l.item.produits.map((p) => p.product.canonicalName))}`]),
+  );
+  const articleParId = new Map(articles.map((a) => [a.id, a]));
   const executions: ExecutionAffichee[] = execution.filter((e) => e.lignesRetenues > 0).map((e) => ({
     quoteId: e.quoteId, fournisseur: e.fournisseur, reference: e.reference,
     lignes: e.lignesRetenues, ttc: e.retenu.ttc,
     bc: e.bcDetail && e.bc ? { ...e.bcDetail, etape: e.bc.etape } : null,
     envoyeLe: e.envoyeLe ? e.envoyeLe.toISOString() : null,
+    lignesBC: e.lignesBC.map((l) => ({
+      quoteLineId: l.quoteLineId, designation: l.designation, action: l.action, unite: l.unite,
+      quantite: l.quantite, prixUnitaire: l.prixUnitaire, reste: resteAFacturer(l),
+    })),
+    taxes: e.taxes,
     factures: e.factures.map((f) => ({
       id: f.id, reference: f.reference, montant: f.montant, date: f.date ? f.date.toISOString() : null,
       etatReglement: f.etatReglement, reglee: f.reglee, paiementDemande: f.paiementDemande,
       demandeInfoMedicale: f.demandeInfoMedicale, fichierId: fichiersFactures.get(f.id) ?? null,
+      detail: f.detail
+        ? {
+            tvaRate: f.detail.tvaRate, extraTaxLabel: f.detail.extraTaxLabel, extraTaxRate: f.detail.extraTaxRate, totalImprime: f.detail.totalImprime,
+            lignes: f.detail.lignes.map((l) => {
+              const article = l.requestItemId ? articleParId.get(l.requestItemId) ?? null : null;
+              const n = natureDeReception(l, article);
+              const nature: NatureAffichee = n.type === "STOCK"
+                ? { type: "STOCK", famille: n.famille, libelle: article ? libelleArticleStock(article.nom, article.produits.map((p) => p.nom)) : "article demandé" }
+                : n;
+              return {
+                id: l.id, designation: l.designation, action: l.action, unite: l.unite, quantite: l.quantite, prixUnitaire: l.prixUnitaire,
+                quantiteRecue: l.quantiteRecue, renonce: l.renonce, etat: etatReception(l), nature,
+                entree: l.stockLotId ? lots.get(l.stockLotId) ?? null : null,
+              };
+            }),
+          }
+        : null,
     })),
   }));
+  // LE CATALOGUE N'EST CHARGÉ QUE SI UNE LIGNE « EN PLUS » ATTEND SA RÉCEPTION — c'est la seule qui
+  // choisit son article ici ; les autres reçoivent dans l'article demandé.
+  const choixAReception = canReceive && executions.some((e) => e.factures.some((f) => !f.paiementDemande && f.detail?.lignes.some((l) => l.nature.type === "A_CHOISIR" && l.etat === "EN_ATTENTE")));
+  const optionsCatalogue = canEditArticles || choixAReception ? await optionsDesArticlesDemandes() : null;
 
   return (
     <div className="space-y-5">
@@ -251,6 +299,17 @@ export default async function PromoMaterialDetailPage({ params }: { params: { id
         <CardContent><PromoCircuitCard {...circuitProps} /></CardContent>
       </Card>
 
+      {/* LES ARTICLES DEMANDÉS — la demande piochée dans le catalogue : ce que l'assistante cherche à
+          faire chiffrer, et à quoi chaque ligne de devis se rapproche (§118.165). */}
+      {v2 && (
+        <Card>
+          <CardHeader><CardTitle className="flex items-center gap-2 text-base"><ListChecks className="h-4 w-4" /> Articles demandés</CardTitle></CardHeader>
+          <CardContent>
+            <PromoArticlesCard id={pm.id} articles={articles} canEdit={canEditArticles} options={canEditArticles ? optionsCatalogue : null} />
+          </CardContent>
+        </Card>
+      )}
+
       {/* LES DEVIS — le tableau interne : l'assistante retranscrit, le demandeur choisit ses lignes,
           les autres lisent. Il apparaît dès que les devis sont demandés. */}
       {montrerDevis && (
@@ -258,7 +317,7 @@ export default async function PromoMaterialDetailPage({ params }: { params: { id
           <CardHeader><CardTitle className="flex items-center gap-2 text-base"><ClipboardList className="h-4 w-4" /> Devis retranscrits</CardTitle></CardHeader>
           <CardContent>
             <PromoQuotesCard
-              id={pm.id} quotes={devis} canTranscribe={canTranscribe} canSelect={canSelect}
+              id={pm.id} quotes={devis} articles={articles} canTranscribe={canTranscribe} canSelect={canSelect}
               manques={canTranscribe ? manquesDeRetranscription(devis) : []}
               parties={parties} canCreateContact={userCan(user, "GENERAL_MEANS", "CREATE")}
               seuilDg={ctx?.seuilDg ?? null}
@@ -271,9 +330,12 @@ export default async function PromoMaterialDetailPage({ params }: { params: { id
           demande de visa (ou de déclaration) qui part avec chaque paiement. */}
       {enExecution && (
         <Card>
-          <CardHeader><CardTitle className="flex items-center gap-2 text-base"><PackageCheck className="h-4 w-4" /> Exécution — bons de commande, factures, paiements</CardTitle></CardHeader>
+          <CardHeader><CardTitle className="flex items-center gap-2 text-base"><PackageCheck className="h-4 w-4" /> Exécution — bons de commande, factures, réception, paiements</CardTitle></CardHeader>
           <CardContent>
-            <PromoExecutionCard id={pm.id} executions={executions} canPilot={piloteLExecution(acteur, pm)} ouvert={circuitState === "IN_EXECUTION"} />
+            <PromoExecutionCard
+              id={pm.id} executions={executions} canPilot={piloteLExecution(acteur, pm)} canReceive={canReceive}
+              ouvert={circuitState === "IN_EXECUTION"} optionsReception={choixAReception ? optionsCatalogue : null}
+            />
           </CardContent>
         </Card>
       )}
