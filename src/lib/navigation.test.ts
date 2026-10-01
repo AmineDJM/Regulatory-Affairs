@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { groupIntoPoles, itemsOfGroup, poleOfPath, aliasMatches, POLE_OPEN_THRESHOLD, NAV_POLES } from "./navigation";
+import { readFileSync } from "node:fs";
+import { groupIntoPoles, itemsOfGroup, poleOfPath, aliasMatches, ongletActif, POLE_OPEN_THRESHOLD, NAV_POLES } from "./navigation";
 import { NAVIGATION, type NavItem } from "./labels";
 import { MODULES } from "./rbac";
 
@@ -270,5 +271,31 @@ describe("Finances — trois écrans, et cliquer le module conduit au travail", 
     // l'adresse sortait du `match`, l'entrée du menu s'éteindrait en y arrivant, et l'on se
     // croirait ailleurs que dans les Finances.
     expect(finances?.match ?? []).toContain("/finances");
+  });
+});
+
+describe("l'onglet actif — le plus PRÉCIS, et lui seul (§118.164)", () => {
+  const ONGLETS = ["/ad-pro", "/sponsoring", "/promo-material", "/promo-material/stock", "/promo-material/catalogue", "/ad-pro/autres"];
+
+  it("un sous-module rangé sous l'adresse d'un autre n'allume que lui", () => {
+    expect(ongletActif("/promo-material/stock", ONGLETS)).toBe("/promo-material/stock");
+    expect(ongletActif("/promo-material/catalogue", ONGLETS)).toBe("/promo-material/catalogue");
+    expect(ongletActif("/ad-pro/autres", ONGLETS)).toBe("/ad-pro/autres");
+  });
+
+  it("une fiche sous un onglet allume cet onglet ; une adresse voisine ne l'allume pas", () => {
+    expect(ongletActif("/promo-material/cmabc123", ONGLETS)).toBe("/promo-material");
+    expect(ongletActif("/promo-material", ONGLETS)).toBe("/promo-material");
+    expect(ongletActif("/promo-materiel", ONGLETS), "un préfixe de MOT n'est pas un préfixe d'adresse").toBeNull();
+    expect(ongletActif("/finances", ONGLETS)).toBeNull();
+  });
+
+  it("la barre d'onglets lit cette règle — le POINT D'APPEL, pas seulement le corps (§118.49)", () => {
+    const src = readFileSync("src/components/shared/module-tabs.tsx", "utf8");
+    expect(src).toMatch(/ongletActif\(pathname, visible\.map\(\(t\) => t\.href\)\)/);
+    // L'onglet actif se DIT aussi aux lecteurs d'écran (et c'est ce que le banc navigateur lit) :
+    // la couleur seule ne se lit pas.
+    expect(src).toMatch(/aria-current=\{isActive\(t\.href\) \? "page" : undefined\}/);
+    expect(src, "l'ancienne règle allumait deux onglets").not.toMatch(/pathname\.startsWith\(href \+ "\/"\)/);
   });
 });

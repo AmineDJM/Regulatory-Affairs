@@ -68,7 +68,9 @@ export type FieldDef =
   // crée la pièce (« cette facture vient de CETTE demande »). Ce n'est pas un secret — le
   // serveur revérifie ce qu'il en fait — c'est un contexte que l'utilisateur n'a pas à ressaisir.
   | { type: "hidden"; name: string; value: string }
-  | { type: "checkbox"; name: string; label: string; full?: boolean }
+  // `defaultChecked` : le même formulaire sert à MODIFIER — sans lui, rouvrir une fiche pour
+  // corriger son nom décocherait en silence une case qui était cochée.
+  | { type: "checkbox"; name: string; label: string; full?: boolean; defaultChecked?: boolean; hint?: string }
   | { type: "multiselect"; name: string; label: string; options: { value: string; label: string }[]; required?: boolean; hint?: string; full?: boolean; defaultValue?: string[]; searchPlaceholder?: string; emptyLabel?: string }
   | { type: "file"; name: string; label: string; multiple?: boolean; required?: boolean; hint?: string; defaultValue?: string | number; full?: boolean; /** Formats proposés par le sélecteur (`.pdf,.png`…) — le serveur revérifie TOUJOURS. */ accept?: string }
   // L'EXPLORATEUR DU DRIVE, ouvert par-dessus le formulaire : on désigne un dossier ou un
@@ -463,10 +465,13 @@ export function RecordForm({
                   {field.hint && <p className="text-xs text-muted-foreground">{field.hint}</p>}
                 </>
               ) : field.type === "checkbox" ? (
-                <label className="flex items-center gap-2 text-sm">
-                  <input type="checkbox" name={field.name} className="h-4 w-4 rounded border-input" />
-                  {field.label}
-                </label>
+                <>
+                  <label className="flex items-center gap-2 text-sm">
+                    <input type="checkbox" name={field.name} defaultChecked={field.defaultChecked} className="h-4 w-4 rounded border-input" />
+                    {field.label}
+                  </label>
+                  {field.hint && <p className="text-xs text-muted-foreground">{field.hint}</p>}
+                </>
               ) : field.type === "multiselect" ? (
                 <MultiSelectField field={field} />
               ) : field.type === "parties" ? (

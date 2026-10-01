@@ -855,9 +855,6 @@ G("circuit matériel promo (devis→BAT→paiement, étapes après création)", 
   "promo-material-actions:cancelPromoMaterial", "promo-circuit-actions:startPromoCircuit",
   "promo-circuit-actions:markQuoteReceived", "promo-circuit-actions:validatePromoStep",
   "promo-circuit-actions:refusePromoStep", "promo-circuit-actions:completePromoTrack",
-  "promo-stock-actions:createStockItem", "promo-stock-actions:updateStockItem",
-  "promo-stock-actions:deleteStockItem", "promo-stock-actions:recordStockMovement",
-  "promo-stock-actions:deleteStockMovement",
 ]);
 G("sponsoring / congrès / prises en charge (décisions et étapes après création)", [
   "sponsoring-actions:requestThirdPartyInput", "sponsoring-actions:sponsoringAppeal",
@@ -1075,6 +1072,28 @@ classify("COVERED", "mission_status (l'écran d'une mission dit ce qu'elle atten
 
 // ── EXCLUDED : pas un travail d'assistant — raison donnée, pas un oubli. ──
 const X = (note: string, keys: string[]) => classify("EXCLUDED", note, keys);
+X("LE STOCK PROMOTIONNEL (§118.164) : chaque geste ATTESTE un fait physique — « je l'ai reçu » (confirmer "
+  + "une réception), « je l'ai remis » (doter, transférer, rendre), « je l'ai perdu », « je l'ai compté » "
+  + "(inventaire d'ouverture, correction), « il est entré au magasin ». Un modèle ne voit ni le magasin ni la "
+  + "voiture d'un délégué : lui confier ces gestes ferait porter au nom d'une personne un stock qu'elle n'a "
+  + "jamais vu, et une confirmation de réception est précisément ce qu'un document injecté demanderait (§118.15). "
+  + "Adam est de plus en pause de développement. Un clic sur Ad & Pro › Stock promotionnel.", [
+  "promo-stock-actions:entrerEnStock", "promo-stock-actions:poserInventaireOuverture",
+  "promo-stock-actions:declarerSupportNumerique", "promo-stock-actions:modifierArticleStock",
+  "promo-stock-actions:modifierLot", "promo-stock-actions:doter", "promo-stock-actions:transferer",
+  "promo-stock-actions:confirmerReception", "promo-stock-actions:refuserReception",
+  "promo-stock-actions:annulerTransfert", "promo-stock-actions:declarerPerte",
+  "promo-stock-actions:corrigerInventaire", "promo-stock-actions:annulerMouvement",
+  "promo-stock-actions:demanderMateriel", "promo-stock-actions:servirDemande",
+  "promo-stock-actions:refuserDemande", "promo-stock-actions:annulerDemande",
+]);
+X("LE CATALOGUE PROMOTIONNEL (§118.164) : la liste de RÉFÉRENCE que citent les stocks et, demain, les demandes "
+  + "d'achat — ses références CAT-NNNN sont fixes, et le Super Admin choisit nommément qui la lit et qui l'écrit "
+  + "(Administration › Accès). La tenir est une décision d'organisation, pas une demande de conversation ; et Adam "
+  + "est en pause de développement : aucun geste neuf ne lui est ouvert. Un clic sur Ad & Pro › Catalogue promotionnel.", [
+  "promo-catalogue-actions:creerArticleCatalogue", "promo-catalogue-actions:modifierArticleCatalogue",
+  "promo-catalogue-actions:archiverArticleCatalogue",
+]);
 X("DÉPOSER LE LOGO D'UNE SOCIÉTÉ est le dépôt d'un FICHIER image (PNG ou JPEG, octets vérifiés) : la conversation ne "
   + "transporte pas d'image de marque, et un modèle n'en fabrique pas une. L'écran Administration › Marque & modèles le fait, "
   + "sous le même droit (Direction ou papeterie), avec le même audit.", ["brand-actions:deposerLogo"]);

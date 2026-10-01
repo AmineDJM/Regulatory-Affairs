@@ -110,8 +110,14 @@ import { scanBoundary, ADAM_PATHS, BRIDGE_PATHS, NEUTRAL } from "./boundary-scan
  * actions réexportées) — aucun franchissement neuf. Et l'op qui valide ou refuse une étape lisait
  * le vocabulaire d'étapes (`promo-material/circuit`) en direct : elle le lit désormais par le même
  * pont, dans le vocabulaire du circuit du dossier. Solde : −1.
+ *
+ * 427 → 426 (2026-10-01, stock promotionnel §118.164) : les ops de stock d'Adam
+ * (`impl-wave5b` → `promo-stock-actions`) sont retirées avec l'ancien registre — chaque geste de
+ * stock atteste un fait physique qu'un modèle ne voit pas, et Adam est en pause. Mesuré par
+ * différence avec une copie de HEAD : un franchissement de moins, aucun de plus. Plafond ramené
+ * au chiffre mesuré — laissé à 427, il ne signalerait plus le premier franchissement neuf.
  */
-const DEBT_CEILING = 427;
+const DEBT_CEILING = 426;
 
 describe("frontière Adam ↔ ERP", () => {
   const report = scanBoundary();

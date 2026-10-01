@@ -47,8 +47,15 @@ export interface Personne {
   actif: boolean;
 }
 
-/** Les deux libellés de la même fonction : la ligne hiérarchique ne monte pas au-delà. */
-const AU_PLAFOND = ["DIRECTION", "OPERATIONS_DIRECTOR"] as const;
+/**
+ * Les deux libellés de la même fonction : la ligne hiérarchique ne monte pas au-delà.
+ *
+ * Exporté sous son NOM MÉTIER pour le stock promotionnel (§118.164), qui donne au directeur des
+ * opérations la vue globale et la gestion du matériel de ses équipes : une seconde liste des
+ * mêmes deux rôles finirait par en compter un de moins (§118.5).
+ */
+export const ROLES_DIRECTEUR_DES_OPERATIONS = ["DIRECTION", "OPERATIONS_DIRECTOR"] as const;
+const AU_PLAFOND = ROLES_DIRECTEUR_DES_OPERATIONS;
 /** Ce qui est AU-DESSUS du plafond : on n'y adresse jamais une validation de demande. */
 const AU_DESSUS = ["GENERAL_MANAGER", "SUPER_ADMIN"] as const;
 

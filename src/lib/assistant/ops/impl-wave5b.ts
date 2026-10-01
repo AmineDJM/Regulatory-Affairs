@@ -10,12 +10,9 @@ import {
   startBat, submitFinalMaterial, recordInvoice, settle, addPromoComment, cancelPromoMaterial,
 } from "@/lib/actions/promo-material-actions";
 import { startPromoCircuit, markQuoteReceived, completePromoTrack } from "@/lib/actions/promo-circuit-actions";
-import {
-  createStockItem, updateStockItem, deleteStockItem, recordStockMovement, deleteStockMovement,
-} from "@/lib/actions/promo-stock-actions";
 import type { OpImpl, OpProposalDraft } from "./types";
 import { opStr } from "./types";
-import { runFd, runFd2, fieldsOf, resolveOne, isoDate, dzd } from "./helpers";
+import { runFd, runFd2, fieldsOf, dzd } from "./helpers";
 import { matchLabel, fold } from "./impl-regulatory";
 import { designerDossierPromo } from "@/platform/in-process/promo";
 
@@ -23,11 +20,10 @@ import { designerDossierPromo } from "@/platform/in-process/promo";
  * OPS VAGUE 5b — PRISES EN CHARGE (décision PAR PERSONNE, besoins par personne, devis qui
  * couvrent N cases avec le garde-fou anti double paiement, envoi aux Finances bloqué tant
  * qu'il manque une pièce), MATÉRIEL PROMOTIONNEL (les 15 marches du circuit long, le circuit
- * court à chantiers parallèles, le stock à mouvements — jamais un champ quantité).
+ * court à chantiers parallèles). Le STOCK n'a plus d'ops ici : ses gestes attestent des faits
+ * physiques et sont réservés à l'écran (§118.164).
  * Toujours par les ACTIONS CANONIQUES.
  */
-
-const day = (d: Date | null | undefined): string | null => (d ? d.toISOString().slice(0, 10) : null);
 
 // ─────────────────────────── PRISES EN CHARGE ───────────────────────────
 
@@ -727,148 +723,5 @@ export const PROMO_OPS_IMPL: Record<string, OpImpl> = {
     },
     execute: (args) => runFd(completePromoTrack, args, "La clôture du chantier a été refusée.", { revalidate: ["/promo-material"] }),
   },
-
-  create_stock_item: {
-    async propose(input): Promise<OpProposalDraft | { error: string }> {
-      const name = opStr(input, "name") || opStr(input, "label");
-      if (!name) return { error: "Nommez l'article de stock (champ « name »)." };
-      return {
-        title: `Créer l'article de stock « ${name} »`,
-        fields: fieldsOf([
-          ["Article", name],
-          ["Stock initial", opStr(input, "quantity") || null],
-          ["Seuil d'alerte", opStr(input, "threshold") || null],
-          ["Unité", opStr(input, "unit") || null],
-          ["Emplacement", opStr(input, "location") || null],
-        ]),
-        warnings: ["La quantité initiale devient une ENTRÉE (jamais un champ quantité) : dès la première ligne, le stock a une explication."],
-        args: {
-          name, initialQuantity: opStr(input, "quantity") || null, alertThreshold: opStr(input, "threshold") || null,
-          unit: opStr(input, "unit") || null, location: opStr(input, "location") || null,
-          reference: opStr(input, "note") || null, notes: opStr(input, "notes") || null,
-        },
-        successMessage: `Article « ${name} » créé.`,
-        revalidate: ["/promo-material/stock"],
-      };
-    },
-    execute: (args) => runFd(createStockItem, args, "La création de l'article a été refusée.", { revalidate: ["/promo-material/stock"] }),
-  },
-
-  update_stock_item: {
-    async propose(input): Promise<OpProposalDraft | { error: string }> {
-      const item = await resolveStockItem(opStr(input, "name") || opStr(input, "label"));
-      if ("error" in item) return item;
-      const current = await prisma.promoStockItem.findUnique({
-        where: { id: item.id }, select: { reference: true, unit: true, location: true, alertThreshold: true, notes: true },
-      });
-      const newName = opStr(input, "newName") || item.name;
-      // FUSION : l'action REMPLACE la fiche (référence, unité, emplacement, seuil, notes) —
-      // l'existant est relu et rejoué. La QUANTITÉ, elle, ne se saisit jamais ici.
-      return {
-        title: `Modifier l'article « ${item.name} »`,
-        fields: fieldsOf([
-          ["Article", newName !== item.name ? `${item.name} → ${newName}` : item.name],
-          ["Seuil d'alerte", opStr(input, "threshold") || (current?.alertThreshold != null ? String(Number(current.alertThreshold)) : null)],
-          ["Le reste", "rejoué à l'identique (la quantité ne se saisit JAMAIS ici — passer par un mouvement)"],
-        ]),
-        args: {
-          id: item.id, name: newName,
-          reference: opStr(input, "note") || current?.reference || null,
-          unit: opStr(input, "unit") || current?.unit || null,
-          location: opStr(input, "location") || current?.location || null,
-          alertThreshold: opStr(input, "threshold") || (current?.alertThreshold != null ? String(Number(current.alertThreshold)) : null),
-          notes: opStr(input, "notes") || current?.notes || null,
-        },
-        successMessage: `Article « ${newName} » modifié.`,
-        revalidate: ["/promo-material/stock"],
-      };
-    },
-    execute: (args) => runFd(updateStockItem, args, "La modification de l'article a été refusée.", { revalidate: ["/promo-material/stock"] }),
-  },
-
-  delete_stock_item: {
-    async propose(input): Promise<OpProposalDraft | { error: string }> {
-      const item = await resolveStockItem(opStr(input, "name") || opStr(input, "label"));
-      if ("error" in item) return item;
-      const movements = await prisma.promoStockMovement.count({ where: { itemId: item.id } });
-      return {
-        title: `SUPPRIMER l'article « ${item.name} »`,
-        fields: [{ label: "Article", value: item.name }, { label: "Mouvements emportés", value: String(movements) }],
-        warnings: ["Suppression DÉFINITIVE de l'article ET de son historique de mouvements — pour un article réel qui ne sert plus, préférez le désactiver (update)."],
-        confirmText: item.name,
-        args: { id: item.id },
-        successMessage: `Article « ${item.name} » supprimé (historique compris).`,
-        revalidate: ["/promo-material/stock"],
-      };
-    },
-    execute: (args) => runFd(deleteStockItem, args, "La suppression de l'article a été refusée.", { revalidate: ["/promo-material/stock"] }),
-  },
-
-  record_stock_movement: {
-    async propose(input): Promise<OpProposalDraft | { error: string }> {
-      const item = await resolveStockItem(opStr(input, "name") || opStr(input, "label"));
-      if ("error" in item) return item;
-      const raw = fold(opStr(input, "mode") || opStr(input, "kind"));
-      const kind = /entr[ée]e|r[ée]ception|receipt/.test(raw) ? "RECEIPT"
-        : /distribu|sortie|remise/.test(raw) ? "DISTRIBUTION"
-        : /perte|casse|perdu/.test(raw) ? "LOSS"
-        : /correction|ajust/.test(raw) ? "CORRECTION" : null;
-      if (!kind) return { error: "Précisez la nature du mouvement (champ « mode ») : entrée, distribution, perte, ou correction." };
-      const qty = opStr(input, "quantity");
-      if (!qty) return { error: "Indiquez la quantité (champ « quantity » — positive ; seule la correction accepte un signe)." };
-      const KIND_FR: Record<string, string> = { RECEIPT: "Entrée", DISTRIBUTION: "Distribution", LOSS: "Perte", CORRECTION: "Correction" };
-      return {
-        title: `${KIND_FR[kind]} de ${qty} — ${item.name}`,
-        fields: fieldsOf([
-          ["Article", item.name],
-          ["Mouvement", `${KIND_FR[kind]} de ${qty}`],
-          ["Destinataire", opStr(input, "person") || null],
-          ["Motif", opStr(input, "note") || null],
-          ["Date", isoDate(opStr(input, "date"))],
-        ]),
-        warnings: ["Le stock est recalculé côté serveur AVANT la garde — une sortie sur un stock insuffisant est refusée."],
-        args: {
-          itemId: item.id, kind, quantity: qty,
-          recipient: opStr(input, "person") || null, reason: opStr(input, "note") || null,
-          occurredAt: isoDate(opStr(input, "date")),
-        },
-        successMessage: `${KIND_FR[kind]} de ${qty} enregistrée sur « ${item.name} ».`,
-        revalidate: ["/promo-material/stock"],
-      };
-    },
-    execute: (args) => runFd(recordStockMovement, args, "Le mouvement a été refusé.", { revalidate: ["/promo-material/stock"] }),
-  },
-
-  delete_stock_movement: {
-    async propose(input): Promise<OpProposalDraft | { error: string }> {
-      const item = await resolveStockItem(opStr(input, "name") || opStr(input, "label"));
-      if ("error" in item) return item;
-      const date = isoDate(opStr(input, "date"));
-      const rows = await prisma.promoStockMovement.findMany({
-        where: {
-          itemId: item.id,
-          ...(date ? { occurredAt: { gte: new Date(`${date}T00:00:00Z`), lt: new Date(new Date(`${date}T00:00:00Z`).getTime() + 86_400_000) } } : {}),
-        },
-        select: { id: true, kind: true, delta: true, occurredAt: true },
-        orderBy: { occurredAt: "desc" }, take: 6,
-      });
-      const label = (m: (typeof rows)[number]) => `${day(m.occurredAt)} · ${m.kind} ${Number(m.delta) > 0 ? "+" : ""}${Number(m.delta)}`;
-      if (rows.length === 0) return { error: `Aucun mouvement sur « ${item.name} »${date ? ` le ${date}` : ""}.` };
-      if (rows.length > 1) return { error: `Plusieurs mouvements : ${rows.map(label).join(" ; ")} — préciser la date (champ « date »).` };
-      return {
-        title: `Annuler le mouvement ${label(rows[0])} — ${item.name}`,
-        fields: [{ label: "Mouvement", value: `${label(rows[0])} — ${item.name}` }],
-        warnings: ["On SUPPRIME l'erreur de saisie (pas de contre-mouvement) — le journal d'audit garde la trace de l'annulation."],
-        args: { id: rows[0].id },
-        successMessage: `Mouvement annulé sur « ${item.name} ».`,
-        revalidate: ["/promo-material/stock"],
-      };
-    },
-    execute: (args) => runFd(deleteStockMovement, args, "L'annulation du mouvement a été refusée.", { revalidate: ["/promo-material/stock"] }),
-  },
 };
 
-const resolveStockItem = (raw: string) =>
-  resolveOne(raw, "l'article de stock (champ « name »)",
-    (q) => prisma.promoStockItem.findMany({ where: { name: { contains: q, mode: "insensitive" } }, select: { id: true, name: true }, take: 6 }),
-    (i) => i.name);

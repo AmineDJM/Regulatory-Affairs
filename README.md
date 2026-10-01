@@ -192,6 +192,8 @@ jamais identique.
 |---|---|---|
 | **Regulatory** | `/regulatory` | Dossiers **AMM / ANPP**, **workflow 17 étapes** + **processus officiel ANPP** (19 étapes / 5 phases — CTD déposé sur l'étape 1, check-list de présoumission en étape 2, allers-retours de réserves dans la frise), documents par molécule, **DCI mono / double / triple**, commentaires, champs personnalisés. Catégorie **Médicament / Dispositif médical**. **Référentiel fournisseurs** créé par les responsables réglementaires (menu déroulant dans les dossiers), colonnes **Forme** (galénique), **Dosage + unité** (mg/g/µg/UI/%…) en menus déroulants et **Conditionnement** (« B/30 » — à dosage égal, c'est lui qui distingue deux dossiers). Colonne **« Chargé du dossier »** : la personne qui porte le dossier se choisit **au menu déroulant depuis le tableau**, sans ouvrir la fiche. **Cadenas** : un dossier verrouillé est **invisible pour toute l'équipe** — y compris la Direction, son responsable et l'assistant IA ; seul le **Super Admin** le voit et l'ouvre. Section **Réserves** (upload PDF). **Demande de BV** → ordre de dépense (échéance). **Détenteur de DE** + **variation d'enregistrement** (packaging secondaire / primaire / full process, avec date) — toute variation en **fabrication locale exige le Fabricant** (bloqué serveur + champ requis). **UNE DCI DÉJÀ SUIVIE SE DIT PENDANT LA SAISIE** (pipeline comme suivi de dossiers) : le formulaire NOMME les dossiers existants et demande de vérifier qu'il s'agit bien d'un autre dosage, d'une autre forme ou d'un autre produit — on avertit, on n'interdit pas (interdire ferait saisir le doublon sous une DCI mal orthographiée, donc plus rapprochable du premier), et la création repart d'un clic « J'ai vérifié ». La comparaison **trie les molécules d'une association** (« A + B » = « B + A ») et ignore casse et accents. Un dossier **verrouillé au pipeline se COMPTE sans se NOMMER**, avec le geste qui débloque : **« Demander l'accès »** prévient la supervision Regulatory (notification + audit, aucun registre de plus). Carte **« Vue fournisseur »** (pilote le portail externe). **Relance de mise à jour** (Super Admin / Directeur Général) : une personne ou tout le monde, avec le portefeuille, la part en sommeil (30 j sans mouvement) et la date de la dernière relance — les dossiers verrouillés et aboutis en sont exclus. |
 | **Ad & Pro** | `/sponsoring` (+ onglets) | Module unifié **Sponsoring · Congrès internationaux · Événements nationaux · Events · Matériel promotionnel**. Circuit de demande avec le **National Sales** (approuve la demande d'un KAM, et elle seule), **référents Direction Marketing configurés par Business Unit**, **sponsoring en trois temps** (la Direction Marketing **pré-valide la tenue**, les **postes** se préparent — devis, BC, factures —, puis **validation finale : chaque poste dans un budget, clôture**, la somme des postes accordés devenant le montant accordé), **tierce personne** impliquée via son espace (+ dossier auto), **décision définitive de la Direction** (budget accordé visible), enchaînement **Information médicale → Finances**. **Liste des personnes prises en charge** (pièces d'identité) + **ordre de mission**. Le **matériel promotionnel** suit le **circuit 2** : validation de la demande (directrice marketing pour le marketing, N+1 plafonné au directeur des opérations sinon, personne pour la directrice ni pour le directeur des opérations) → devis **retranscrits ligne à ligne** par l'assistante → le demandeur **retient des lignes** de plusieurs devis → Direction Marketing → **DG au-dessus du seuil** → **BC générés par la plateforme** (un par fournisseur, centre Ad & Pro au-dessus du seuil BC, signature des Finances) → **facture obligatoire par BC** → **paiement au centre de paiement** avec la **demande de visa ou de déclaration** à l'information médicale. Les dossiers d'avant gardent leur circuit court. → [circuit 2](#matériel-promotionnel--circuit-2--devis-retranscrits-lignes-retenues-bc-générés) · [circuit court](#matériel-promotionnel--cinq-marches-puis-trois-chantiers-en-parallèle) |
+| **Stock promotionnel** | `/promo-material/stock` | Sous-module d'Ad & Pro (module `PROMO_STOCK`, §118.164) : le **magasin central** tenu par la directrice marketing, ce que chaque délégué a en main, ce qui est **en route**. Une quantité se calcule à partir des **mouvements**, par **lot** (le plus tôt périmé sort d'abord, un lot périmé ne se distribue plus) ; une dotation n'entre dans le stock d'un délégué qu'à **sa confirmation** ; le directeur des opérations a la vue globale et déplace le matériel de ses équipes. → [détails](#matériel-promotionnel--le-stock--catalogue-magasin-dotations-confirmées-118164) |
+| **Catalogue promotionnel** | `/promo-material/catalogue` | Sous-module d'Ad & Pro (module `PROMO_CATALOG`) : les articles commandables sous une référence **fixe** `CAT-0001`, en trois familles (consommable, durable, numérique). Tenu par le Super Admin, ouvert **en lecture ou en écriture personne par personne** (Administration › Accès). |
 | **Budgets & enveloppes** | `/budgets` | **Enveloppes budgétaires** (Super Admin, délégable) : période, **modules rattachés**, **catégories + sous-catégories**, **budget total** fixe ou flexible, **allocation** des dépenses validées, **vue consolidée** du total de toutes les enveloppes, **accès par rôle ET par personne**. → [détails](#-budgets-enveloppes--sous-catégories) |
 | **Finances** | `/finances/paiements-a-faire` | **DEUX SOUS-MODULES** : **Banque & paiements** (`/finances/paiements-a-faire` — le solde de trésorerie et le détail par compte, puis la file du décaissement, alimentée **exclusivement** par le centre de paiement) et **Comptabilité** (`/finances/comptabilite` — le livre, l'import, les soldes d'ouverture, et ce que le DAF doit encore arbitrer). Le **Dashboard a été supprimé** (2026-09) : il ne portait aucun geste. Cliquer « Finances » mène à « Banque & paiements » ; `/finances` redirige. « Demander l'actualisation des soldes » est réservé au **Super Admin** (écran, action serveur et Adam). Les **factures** ne sont pas ici : ce sont des documents légaux de nature « facture » (`/legal?nature=INVOICE`), et la comptabilité y garde sa porte. Aucun paiement n'arrive ici sans être **autorisé par le centre**, quel que soit son montant. |
 | **Centre de paiement** | `/centre-de-paiement` | **Module À PART, hors Finances** (RBAC `PAYMENT_CENTRE` — PDG + Super Admin) : celui qui **autorise** l'argent n'est pas dans l'écran de celui qui le **décaisse**. **GUICHET UNIQUE** : aucun paiement n'atteint les Finances sans autorisation, **quel que soit le montant et le module** — plus de seuil, plus d'exemption. Une demande de paiement y entre **dès sa soumission**, avant l'instruction des Finances. Quatre issues (autoriser · refuser · révision du montant · argumentation) avec fil d'allers-retours. → [détails](#centre-de-paiement--rien-ne-sort-quel-que-soit-le-montant-sans-le-pdg) |
@@ -1610,6 +1612,86 @@ lorsque les trois le sont ; c'est `allTracksDone` qui le dit, pas quelqu'un qui 
   `initialStep`, `canValidate`, `seesFullCircuit`, `tracksOpen`, `allTracksDone`, `pendingTracks`,
   `progress`, `waitingOn`) + `circuit.test.ts` (**23 tests**).
 - **Actions** : `lib/actions/promo-circuit-actions.ts`. Migration `20260824160000_promo_short_circuit`.
+
+### Matériel promotionnel — le stock : catalogue, magasin, dotations confirmées (§118.164)
+
+> **Étape 1 sur 5.** Le socle : catalogue, magasin, ce que chacun a en main, ce qui est en route. Les étapes
+> suivantes s'y branchent sans le refaire : demande d'achat piochée dans le catalogue (avec **plusieurs
+> actions par ligne de devis et de BC** — conception, impression…) et réception des factures en stock,
+> bloc « Matériel remis » dans la visite, poste « Matériel du stock » sur les demandes Ad & Pro,
+> comptages demandés par le directeur des opérations.
+
+**Décisions de la Direction (01/10/2026).** Le magasin central est géré par **la directrice du département
+marketing** ; le **Super Admin** peut tout gérer, modifier et supprimer ; le **délégué confirme la
+réception** de ce qu'on lui envoie ; le **directeur des opérations** a la **vue globale** du stock et la
+**gestion du matériel de ses équipes** (les superviseurs sous lui et leurs KAM).
+
+**Le catalogue** (`/promo-material/catalogue`, module `PROMO_CATALOG`) — ce qu'on PEUT commander, chaque
+article sous une référence **fixe** `CAT-0001` (quatre chiffres AU MOINS, jamais au plus). Le Super Admin
+le tient et l'ouvre **en lecture ou en écriture, personne par personne**, dans Administration › Accès.
+Trois **familles**, trois comportements : **consommable** (une quantité qui baisse, des lots datés),
+**durable** (ne périme pas), **numérique** (un lien et une période de validité, aucune quantité). Un
+article « existe par produit » (fiche posologique, aide de visite) exige son produit à l'entrée en stock.
+Un article qui a servi ne se supprime pas : la corbeille le **refuse avant le clic** et nomme l'archivage ;
+il ne passe pas non plus vers ou depuis « numérique ».
+
+**Le stock** (`/promo-material/stock`, module `PROMO_STOCK`) — une quantité ne se saisit **jamais** : elle
+est la somme des **mouvements**, par article, par **lot** et par **détenteur** (le magasin central, ou une
+personne). Un article de stock = (société, article du catalogue, produits) : « Fiche posologique —
+Nivolex » et « — Trastuzex » sont deux stocks.
+
+- **Lots** : chaque entrée crée un lot daté (coût, fin de validité). Une sortie prend toujours le lot qui
+  **expire le plus tôt** ; un lot **périmé ne se distribue plus** — il se déclare détruit (perte), et
+  c'est lui qui part en premier. La validité est **inclusive** (valable jusqu'au 1er : distribuable le 1er).
+- **Transferts confirmés** : une dotation, un transfert entre collègues ou un retour au magasin quitte
+  l'envoyeur au départ et reste **« en route »** — chez personne — jusqu'à ce que **celui qui reçoit**
+  confirme. C'est une **attestation** (« je l'ai entre les mains ») : personne ne la donne à sa place,
+  pas même le Super Admin, qui peut en revanche **annuler** le transfert. Reçu en partie : la quantité
+  réelle et un **motif obligatoire**, l'envoyeur est prévenu, et le manquant n'est retiré à personne une
+  seconde fois. Refus (motif obligatoire) ou annulation : tout revient à l'envoyeur, au même lot. Au
+  **troisième jour** sans confirmation, une relance — **une seule** — part vers celui qui doit confirmer.
+- **Rien ne s'efface** : une erreur s'**annule** (Super Admin) par son exact inverse, l'original reste
+  lisible ; une annulation qui creuserait un lot sous zéro est refusée et le dit. L'**inventaire
+  d'ouverture** se pose une fois par article et par détenteur ; ensuite, un écart se règle par une
+  **correction** (au magasin : sa gestionnaire ; chez une personne : le Super Admin).
+- **Demandes** : un délégué demande au magasin ; le magasin la **sert** (une dotation pré-remplie, que
+  le délégué confirme) ou la **refuse avec un motif** ; seul son auteur l'**annule**.
+- **Deux dotations simultanées** qui dépassent le magasin : une passe, l'autre est refusée — le solde ne
+  devient jamais négatif (verrou par article, soldes relus en base).
+
+| Qui | Ce qu'il voit | Ce qu'il fait |
+|---|---|---|
+| **Super Admin** | Tout | Tout — entrée manuelle, inventaire d'ouverture, annulation de mouvement, corbeille — sauf confirmer une réception à la place de quelqu'un |
+| **Directrice de la Direction Marketing** (la cheffe, lue sur l'organigramme) | Vue globale | Le **magasin** : doter, servir et refuser les demandes, confirmer les retours, corriger l'inventaire du magasin, fiches, lots et supports numériques |
+| **Directeur des opérations** (rôles « Directeur des Opérations » et « Direction des opérations », lus comme la même fonction — §118.157) | Vue globale | Déplacer le matériel **de ses équipes, à l'intérieur de ses équipes** (ou le rendre au magasin) — la personne touchée est prévenue |
+| **Superviseur** (National Sales) | Son stock et celui de son équipe (organigramme + KAM des gammes qu'il supervise) | Son propre stock — il **voit** celui de ses KAM, il n'en dispose pas |
+| **Délégué / KAM** | Son stock | Confirmer ses réceptions, transférer à un collègue, rendre au magasin, déclarer une perte, demander du matériel |
+| **Finances, Directeur Général, autres membres de la Direction Marketing** | Vue globale | Lecture (et leur propre stock, s'ils en ont en main) |
+
+**Les vues** : *Mon stock*, *Mon équipe*, *Magasin*, *Vue générale* — chacune n'apparaît que si la règle
+l'ouvre, et l'écran arrive d'abord sur ce qui attend la personne (une réception à confirmer passe avant
+tout). Ce qu'une personne ne peut pas voir n'est pas **chargé**, pas seulement masqué. L'écran ne calcule
+aucun droit : il appelle les **mêmes** prédicats que les actions (`promo/stock-acces.ts`).
+
+**La reprise de l'historique** : chaque article de l'ancien écran reçoit **son** article du catalogue (aucune
+fusion sur la ressemblance des noms), et ses mouvements entrent dans un lot « historique repris » au
+magasin — le solde après migration est le solde d'avant, au mouvement près.
+
+**Adam** : aucun de ces gestes ne lui est offert (classés EXCLUDED, refusés par le chemin générique) —
+chacun atteste un fait physique, et Adam est en pause.
+
+- **Règles PURES** : `lib/promo/catalogue.ts` (familles, références, validation), `lib/promo/stock.ts`
+  (lots, validité, ordre de sortie, allocation, réception en partie), `lib/promo/stock-acces.ts` (qui peut
+  quoi, et les phrases de refus) + leurs tests.
+- **Écrivain UNIQUE** : `lib/promo/stock-ecriture.ts` (verrou par article, soldes en base, lots, transferts,
+  annulations) ; cliquet `stock-registre.test.ts` (aucun autre fichier n'écrit un mouvement, aucun mouvement
+  n'est modifié ni supprimé).
+- **Chargeur** : `lib/queries/promo-stock.ts` (faits, équipe, page) ; **actions** :
+  `lib/actions/promo-stock-actions.ts`, `lib/actions/promo-catalogue-actions.ts` ; **relance** :
+  `lib/promo-stock-rappels.ts` (appelée par le battement) ; **écrans** : `app/(app)/promo-material/stock/`,
+  `app/(app)/promo-material/catalogue/`.
+- **Bancs** : `promo-stock-flow.test.ts` (24 cas par les vraies actions, acteurs SANS vue globale),
+  `e2e/stock-promo.spec.ts` (navigateur, bureau et téléphone). Migration `20261208090000_stock_promo_socle`.
 
 ### Rejeu de session — rembobiner ce qu'une personne a fait
 
@@ -6307,6 +6389,28 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 ---
 
 ## 🧾 Journal des évolutions récentes
+
+### STOCK PROMOTIONNEL, ÉTAPE 1 — LE CATALOGUE, LE MAGASIN, ET DES DOTATIONS QUE LE DÉLÉGUÉ CONFIRME (2026-10)
+
+**Demande.** Un catalogue tenu par le Super Admin, ouvert en lecture ou en écriture à qui il veut ; un stock
+de matériel promotionnel à trois familles ; le magasin central géré par la directrice marketing ; le délégué
+qui confirme ce qu'il reçoit ; le directeur des opérations avec la vue globale et la gestion du matériel de
+ses équipes. C'est l'étape 1 d'un plan en cinq (achats et réceptions, visites, postes Ad & Pro, comptages
+suivront).
+
+**Ce qui change.** (1) **Catalogue promotionnel** (`/promo-material/catalogue`) : références fixes `CAT-0001`,
+familles consommable / durable / numérique, archivage au lieu de suppression pour un article qui a servi.
+(2) **Stock promotionnel** (`/promo-material/stock`) refait : une quantité est la somme des mouvements, par
+**lot** (le plus tôt périmé sort d'abord, un lot périmé ne se distribue plus) et par **détenteur** (le
+magasin, chaque personne) ; dotations, transferts et retours restent **en route** jusqu'à la confirmation de
+celui qui reçoit — reçu en partie avec motif, refus avec motif, relance unique au troisième jour ; demandes
+au magasin servies ou refusées avec motif ; annulation d'un mouvement par son inverse, jamais par
+effacement. (3) **Quatre vues** — Mon stock, Mon équipe, Magasin, Vue générale — ouvertes par la règle, pas
+par le rôle. L'historique de l'ancien écran est repris tel quel, solde pour solde.
+
+**Trouvé en chemin.** L'ancien écran additionnait ses soldes en mémoire sur les cent derniers mouvements ; et
+sous `/promo-material/stock`, deux onglets s'allumaient à la fois (« Matériel promotionnel » et « Stock ») —
+désormais seul le plus précis, et il est annoncé aux lecteurs d'écran. Détail : CLAUDE.md §118.164.
 
 ### « RÉDIGER AVEC L'IA », LES CONTENUS DU SITE REPRIS DANS L'ERP, ET LA LIAISON DANS LA CONSOLE (2026-10)
 

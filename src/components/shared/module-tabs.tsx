@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { ongletActif } from "@/lib/navigation";
 
 export interface ModuleTab {
   label: string;
@@ -28,7 +29,10 @@ export function ModuleTabs({ tabs, arrows = false }: { tabs: ModuleTab[]; arrows
   const visible = tabs.filter((t) => t.show !== false);
   if (visible.length <= 1) return null;
 
-  const isActive = (href: string) => pathname === href || pathname.startsWith(href + "/");
+  // Le plus PRÉCIS des onglets qui correspondent, et lui seul (§118.164) : sans cela, un
+  // sous-module rangé sous l'adresse d'un autre allumait les deux.
+  const actif = ongletActif(pathname, visible.map((t) => t.href));
+  const isActive = (href: string) => href === actif;
   const index = visible.findIndex((t) => isActive(t.href));
   const prev = index > 0 ? visible[index - 1] : null;
   const next = index >= 0 && index < visible.length - 1 ? visible[index + 1] : null;
@@ -50,6 +54,8 @@ export function ModuleTabs({ tabs, arrows = false }: { tabs: ModuleTab[]; arrows
         <Link
           key={t.href}
           href={t.href}
+          // L'onglet actif se DIT aussi aux lecteurs d'écran : la couleur seule ne se lit pas.
+          aria-current={isActive(t.href) ? "page" : undefined}
           className={cn(
             "border-b-2 px-3.5 py-2 text-sm font-medium transition-colors",
             isActive(t.href)

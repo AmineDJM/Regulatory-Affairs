@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { declencherRecurrencesStock } from "@/lib/stocks/recurrence-runner";
+import { relancerReceptionsStock } from "@/lib/promo-stock-rappels";
 import { notifyUser } from "@/lib/notify";
 import { performAiHealthCheck } from "@/lib/ai-health";
 import { runDueRegulatoryJobs } from "@/lib/regulatory/intelligence/jobs/runner";
@@ -118,6 +119,10 @@ export async function runScheduledJobs(): Promise<void> {
     // raison (`mutates: false`) : là-bas la clé est choisie par un humain ou proposée par un
     // modèle, ici l'effet est écrit en revue de code et ne varie pas.
     await declencherRecurrencesStock().catch((e) => console.error("[scheduled] stock recurrences failed", e));
+    // STOCK PROMOTIONNEL (§118.164) : une dotation n'entre chez le délégué qu'à SA confirmation.
+    // Au troisième jour sans confirmation, une relance — une seule — part vers celui qui doit
+    // confirmer. Ici pour la même raison que les récurrences : c'est un EFFET écrit en revue de code.
+    await relancerReceptionsStock().catch((e) => console.error("[scheduled] relance des réceptions de stock", e));
     // Échéances de DÉPÔT des marchés PCH : responsable + équipe prévenus à J-7, J-2 et au
     // dépassement — le rappel se tait dès que la soumission est déposée.
     await runPchDeadlineSweep().catch(() => undefined);

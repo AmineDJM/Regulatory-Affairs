@@ -723,26 +723,21 @@ export const DOMAIN_TOOLS: Record<string, DomainToolSpec> = {
     def: {
       name: "promo_operation",
       description:
-        "MATÉRIEL PROMOTIONNEL — le CIRCUIT 2 (devis demandés au secrétariat et retranscrits ligne à ligne, lignes retenues par le demandeur, bons de commande GÉNÉRÉS par la plateforme, factures par BC, paiement au centre de paiement avec la demande de visa ou de déclaration), la bascule d'un dossier d'avant sur ce circuit, le CIRCUIT COURT d'avant (devis reçu sur pièce exigée, chantiers parallèles BC / paiement / visa), les marches du circuit long (devis déposés, agence retenue, BC aux Finances puis validé puis envoyé, bordereau de paiement, paiement, matériel réalisé, examen Direction, conformité + visa, BAT, livraison, facture, règlement-clôture), commentaires, annulation, et le STOCK à MOUVEMENTS (articles, entrées / distributions / pertes / corrections — jamais un champ quantité) — par les actions canoniques. "
+        "MATÉRIEL PROMOTIONNEL — le CIRCUIT 2 (devis demandés au secrétariat et retranscrits ligne à ligne, lignes retenues par le demandeur, bons de commande GÉNÉRÉS par la plateforme, factures par BC, paiement au centre de paiement avec la demande de visa ou de déclaration), la bascule d'un dossier d'avant sur ce circuit, le CIRCUIT COURT d'avant (devis reçu sur pièce exigée, chantiers parallèles BC / paiement / visa), les marches du circuit long (devis déposés, agence retenue, BC aux Finances puis validé puis envoyé, bordereau de paiement, paiement, matériel réalisé, examen Direction, conformité + visa, BAT, livraison, facture, règlement-clôture), commentaires, annulation — par les actions canoniques. Le STOCK promotionnel n'est PAS ici : dotations, réceptions, pertes et inventaires attestent des faits physiques et se font à l'écran (Ad & Pro › Stock promotionnel). "
         + `Champ « op » : ${opsSummary("promo_operation")}. `
-        + "Le dossier se donne par référence MP-… ou titre (« reference ») ; l'article de stock par son nom (« name »).",
+        + "Le dossier se donne par référence MP-… ou titre (« reference »).",
       input_schema: {
         type: "object",
         properties: {
           op: { type: "string", enum: opEnum("promo_operation"), description: "Le geste à faire." },
           reference: { type: "string", description: "Le dossier visé (MP-… ou titre)." },
-          label: { type: "string", description: "Synonyme de « reference » (ou de « name » pour le stock)." },
+          label: { type: "string", description: "Synonyme de « reference »." },
           supplier: { type: "string", description: "choose_promo_agency : l'agence retenue. Circuit 2 : le FOURNISSEUR qui désigne un devis (et son BC) — choose_promo_lines : un ou plusieurs (virgules), chacun retient tout son devis." },
-          name: { type: "string", description: "Stock : l'article visé / à créer." },
-          newName: { type: "string", description: "update_stock_item : nouveau nom de l'article." },
+          name: { type: "string", description: "Synonyme de « supplier » (l'agence ou le fournisseur visé)." },
           amount: { type: "string", description: "Montant (DZD) — agence retenue, règlement final, facture déposée (deposit_promo_invoice)." },
-          quantity: { type: "string", description: "Stock : quantité (mouvement, ou stock initial à la création)." },
-          threshold: { type: "string", description: "Stock : seuil d'alerte." },
-          unit: { type: "string", description: "Stock : unité (boîte, pièce…)." },
-          location: { type: "string", description: "Stock : emplacement." },
-          person: { type: "string", description: "record_stock_movement : destinataire de la distribution ; update_promo_bc : l'interlocuteur du BC." },
-          date: { type: "string", description: "Mouvement de stock, facture déposée : date (AAAA-MM-JJ)." },
-          mode: { type: "string", description: "record_stock_movement : entrée / distribution / perte / correction ; choose_promo_lines : « valider » soumet le choix ; paiement / information médicale : « visa » (demande de visa publicitaire) ou « déclaration » (au ministère)." },
+                    person: { type: "string", description: "update_promo_bc : l'interlocuteur du BC." },
+          date: { type: "string", description: "Facture déposée : date (AAAA-MM-JJ)." },
+          mode: { type: "string", description: "choose_promo_lines : « valider » soumet le choix ; paiement / information médicale : « visa » (demande de visa publicitaire) ou « déclaration » (au ministère)." },
           track: { type: "string", description: "complete_promo_track : bon de commande / demande de paiement / visa publicitaire." },
           lines: { type: "string", description: "choose_promo_lines : les LIGNES retenues, séparées par « ; » — « Fournisseur : ligne » quand deux devis portent la même référence." },
           invoiceRef: { type: "string", description: "Circuit 2 : la référence de la facture (dépôt, paiement, information médicale)." },
@@ -751,8 +746,8 @@ export const DOMAIN_TOOLS: Record<string, DomainToolSpec> = {
           delay: { type: "string", description: "generate_promo_bcs / update_promo_bc : délai de livraison." },
           phone: { type: "string", description: "update_promo_bc : téléphone de l'interlocuteur." },
           message: { type: "string", description: "comment_promo : le commentaire ; confirm_promo_conformity : référence de l'autorité." },
-          note: { type: "string", description: "Commentaire d'étape / n° de BC / référence du visa / motif du mouvement ; circuit 2 : message au secrétariat, ce qui est à corriger, motif d'annulation ou de modification d'un BC." },
-          notes: { type: "string", description: "Stock : notes de la fiche article ; BC du circuit 2 : notes imprimées sur le bon de commande." },
+          note: { type: "string", description: "Commentaire d'étape / n° de BC / référence du visa ; circuit 2 : message au secrétariat, ce qui est à corriger, motif d'annulation ou de modification d'un BC." },
+          notes: { type: "string", description: "BC du circuit 2 : notes imprimées sur le bon de commande." },
         },
         required: ["op"],
       },

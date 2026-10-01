@@ -25,7 +25,16 @@ describe("Registre des suppressions — le refus et la réserve", () => {
     }
     // 28 → 30 : le contrat de consulting et l'« autre demande » Ad & Pro, les deux natures du
     // pôle qui n'avaient AUCUNE suppression (§118.162).
-    expect(DELETABLE_KINDS).toHaveLength(30);
+    // 30 → 32 : l'article du catalogue promotionnel et l'article de stock (§118.164) — deux types
+    // qui REFUSENT quand ils ont servi : on les archive, on n'efface pas une histoire.
+    expect(DELETABLE_KINDS).toHaveLength(32);
+  });
+
+  it("le catalogue et le stock promotionnels refusent AVANT le clic, sans réserve", () => {
+    for (const k of ["PROMO_CATALOGUE", "PROMO_STOCK_ITEM"] as DeletableKind[]) {
+      expect(DELETE_REGISTRY[k].refuse, `${k} refuse quand il a servi`).toBeTypeOf("function");
+      expect(DELETE_REGISTRY[k].reserve).toBeUndefined();
+    }
   });
 
   it("une conversation refuse, une notification non — et chacune dit pourquoi", () => {
@@ -40,7 +49,8 @@ describe("Registre des suppressions — le refus et la réserve", () => {
   });
 
   it("les autres types ne refusent rien et ne réservent rien — l'ajout n'a rien changé chez eux", () => {
-    const anciens = DELETABLE_KINDS.filter((k) => k !== "CONVERSATION" && k !== "NOTIFICATION");
+    const AVEC_REFUS: readonly string[] = ["CONVERSATION", "NOTIFICATION", "PROMO_CATALOGUE", "PROMO_STOCK_ITEM"];
+    const anciens = DELETABLE_KINDS.filter((k) => !AVEC_REFUS.includes(k));
     expect(anciens).toHaveLength(28);
     for (const k of anciens) {
       expect(DELETE_REGISTRY[k].refuse, `${k} ne refusait rien avant ce lot`).toBeUndefined();

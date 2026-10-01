@@ -1,0 +1,142 @@
+"use client";
+
+import * as React from "react";
+import { useRouter } from "next/navigation";
+import { AlertCircle, CheckCircle2, X } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { cn } from "@/lib/utils";
+import { aUneEquipe, peutConfirmerReception, peutServirDemande, peutVoirStockDe, tientLeMagasin } from "@/lib/promo/stock-acces";
+import type { ActionResult } from "@/lib/actions/types";
+import type { PageStock } from "@/lib/queries/promo-stock";
+import { faitsDe } from "./stock-commun";
+import { FormulaireStock, type Dialogue } from "./stock-formulaires";
+import { VueEquipe, VueGenerale, VueMagasin, VueMoi, type Ctx } from "./stock-vues";
+
+type Vue = "moi" | "equipe" | "magasin" | "general";
+
+const LIBELLE_VUE: Record<Vue, string> = {
+  moi: "Mon stock",
+  equipe: "Mon équipe",
+  magasin: "Magasin",
+  general: "Vue générale",
+};
+
+/**
+ * LE STOCK PROMOTIONNEL — l'écran. Il ne calcule aucun droit : il reçoit les FAITS de la personne
+ * et appelle les prédicats purs que les actions relisent. Il n'affiche aucune vue que la règle ne
+ * lui ouvre pas — le chargeur, lui, ne lui a même pas ENVOYÉ ce qu'elle ne peut pas voir.
+ */
+export function StockEcran({ page, vueDemandee }: { page: PageStock; vueDemandee: string | null }) {
+  const router = useRouter();
+  const f = React.useMemo(() => faitsDe(page), [page]);
+
+  const visibles = React.useMemo(() => {
+    const v: Vue[] = ["moi"];
+    if (aUneEquipe(f)) v.push("equipe");
+    if (peutVoirStockDe(f, null)) v.push("magasin");
+    if (f.superAdmin || f.vueGlobale) v.push("general");
+    return v;
+  }, [f]);
+
+  const aConfirmer = page.transferts.filter((t) => t.statut === "EN_ROUTE" && t.versId === page.moi).length;
+  const pourLeMagasin = (peutServirDemande(f) ? page.demandes.filter((d) => d.statut === "OUVERTE").length : 0)
+    + (peutConfirmerReception(f, null) ? page.transferts.filter((t) => t.statut === "EN_ROUTE" && t.versId === null).length : 0);
+
+  // La vue d'arrivée : ce que l'adresse demande si la règle l'ouvre ; sinon ce qui attend la
+  // personne d'abord — une réception à confirmer passe avant tout, puis le métier de chacun.
+  const [vue, setVue] = React.useState<Vue>(() => {
+    if (vueDemandee && (visibles as string[]).includes(vueDemandee)) return vueDemandee as Vue;
+    if (aConfirmer > 0) return "moi";
+    if (tientLeMagasin(f) && visibles.includes("magasin")) return "magasin";
+    if (visibles.includes("general")) return "general";
+    if (visibles.includes("equipe")) return "equipe";
+    return "moi";
+  });
+  const choisir = (v: Vue) => {
+    setVue(v);
+    // L'adresse suit la vue (lien partageable, retour arrière) sans recharger la page.
+    window.history.replaceState(null, "", `?vue=${v}`);
+  };
+
+  const [dialogue, setDialogue] = React.useState<Dialogue | null>(null);
+  const [message, setMessage] = React.useState<{ ok: boolean; texte: string } | null>(null);
+  const [occupe, setOccupe] = React.useState(false);
+
+  React.useEffect(() => {
+    if (!message?.ok) return;
+    const t = setTimeout(() => setMessage(null), 8000);
+    return () => clearTimeout(t);
+  }, [message]);
+
+  const executer = React.useCallback(async (fn: () => Promise<ActionResult>, succes: string) => {
+    setOccupe(true);
+    setMessage(null);
+    try {
+      const r = await fn();
+      if (r.ok) { setMessage({ ok: true, texte: r.message ?? succes }); router.refresh(); }
+      else setMessage({ ok: false, texte: r.error ?? "L'action n'a pas abouti." });
+    } catch {
+      // Une action peut avoir ÉCRIT avant de lever : on ne dit jamais « recommencez » à l'aveugle.
+      setMessage({ ok: false, texte: "L'action n'a pas abouti (connexion ou serveur). Rechargez la page avant de recommencer : elle a pu se faire malgré tout." });
+    } finally {
+      setOccupe(false);
+    }
+  }, [router]);
+
+  const ctx: Ctx = { page, f, ouvrir: setDialogue, executer, occupe };
+
+  return (
+    <div className="space-y-4">
+      {visibles.length > 1 && (
+        <div className="flex flex-wrap gap-1 rounded-lg border border-border bg-card p-1" role="tablist" aria-label="Vues du stock">
+          {visibles.map((v) => {
+            const compte = v === "moi" ? aConfirmer : v === "magasin" ? pourLeMagasin : 0;
+            return (
+              <button
+                key={v} type="button" role="tab" aria-selected={vue === v} onClick={() => choisir(v)}
+                className={cn(
+                  "inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
+                  vue === v ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-secondary hover:text-foreground",
+                )}
+              >
+                {LIBELLE_VUE[v]}
+                {compte > 0 && <Badge tone={vue === v ? "neutral" : "info"}>{compte}</Badge>}
+              </button>
+            );
+          })}
+        </div>
+      )}
+
+      {message && (
+        <div
+          role={message.ok ? "status" : "alert"}
+          className={cn(
+            "flex items-start justify-between gap-3 rounded-lg px-3 py-2 text-sm",
+            message.ok ? "bg-success/10 text-success" : "bg-destructive/10 text-destructive",
+          )}
+        >
+          <span className="flex items-start gap-2">
+            {message.ok ? <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" /> : <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />}
+            {message.texte}
+          </span>
+          <button type="button" onClick={() => setMessage(null)} aria-label="Fermer le message" className="shrink-0 rounded p-0.5 hover:bg-black/5">
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+      )}
+
+      {vue === "moi" && <VueMoi ctx={ctx} />}
+      {vue === "equipe" && <VueEquipe ctx={ctx} />}
+      {vue === "magasin" && <VueMagasin ctx={ctx} />}
+      {vue === "general" && <VueGenerale ctx={ctx} />}
+
+      {dialogue && (
+        <FormulaireStock
+          dialogue={dialogue} page={page} f={f}
+          onClose={() => setDialogue(null)}
+          onSucces={(texte) => setMessage({ ok: true, texte })}
+        />
+      )}
+    </div>
+  );
+}

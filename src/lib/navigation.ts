@@ -215,3 +215,22 @@ export function aliasMatches(query: string): { href: string; label: string }[] {
 function norm(s: string): string {
   return s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
 }
+
+/**
+ * L'ONGLET ACTIF — le plus PRÉCIS de ceux qui correspondent à l'adresse, et lui seul.
+ *
+ * La règle était « l'adresse vaut l'onglet ou commence par lui suivi d'une barre ». Elle allumait
+ * DEUX onglets dès qu'un sous-module vit sous l'adresse d'un autre : sur `/promo-material/stock`,
+ * « Matériel promotionnel » (`/promo-material`) ET « Stock promotionnel » étaient soulignés, et
+ * sur `/ad-pro/autres` « Toutes les demandes » l'était avec « Autres demandes ». Deux onglets
+ * soulignés ne disent pas où l'on est (§118.51 : l'écran ment par son dénominateur). Le plus long
+ * préfixe gagne ; `null` si aucun ne correspond (une fiche ouverte depuis un autre module).
+ */
+export function ongletActif(pathname: string, hrefs: readonly string[]): string | null {
+  let meilleur: string | null = null;
+  for (const href of hrefs) {
+    const correspond = pathname === href || pathname.startsWith(href.endsWith("/") ? href : `${href}/`);
+    if (correspond && (meilleur === null || href.length > meilleur.length)) meilleur = href;
+  }
+  return meilleur;
+}

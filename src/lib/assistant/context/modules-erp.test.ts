@@ -37,13 +37,16 @@ describe("les modules de l'ERP sont atteignables", () => {
    *
    * Le sabotage : vider les `domaines` d'un module servi — le compte monte et le test tombe.
    */
-  it("les 44 modules déclarent leur service, et les sans-outil se comptent", () => {
+  it("les 46 modules déclarent leur service, et les sans-outil se comptent", () => {
     const modules = Object.keys(MODULE_LABELS);
     expect(Object.keys(SERVICE_DU_MODULE).sort()).toEqual(modules.sort());
     const sansOutil = Object.entries(SERVICE_DU_MODULE).filter(([, s]) => s.domaines.length === 0).map(([c]) => c);
     // MESURÉ : les moyens généraux et le retour d'expérience n'ont aucune capacité Adam ; le site
-    // public non plus, par décision — publier sur le site est un geste d'écran (§118.158).
-    expect(sansOutil.sort()).toEqual(["FEEDBACK", "GENERAL_MEANS", "SITE_WEB"]);
+    // public non plus, par décision — publier sur le site est un geste d'écran (§118.158). Le
+    // STOCK et le CATALOGUE promotionnels non plus (§118.164) : chaque geste de stock atteste un
+    // fait PHYSIQUE (« je l'ai reçu », « je l'ai compté ») qu'un modèle ne voit pas, les anciennes
+    // ops de stock d'Adam ont été retirées avec l'ancien registre, et Adam est en pause.
+    expect(sansOutil.sort()).toEqual(["FEEDBACK", "GENERAL_MEANS", "PROMO_CATALOG", "PROMO_STOCK", "SITE_WEB"]);
   });
 
   /**

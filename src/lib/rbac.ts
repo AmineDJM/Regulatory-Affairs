@@ -74,6 +74,19 @@ export const MODULES = [
   // personne dans Administration › Accès, comme n'importe quel module. Market Intelligence
   // (`BUSINESS_DEVELOPMENT`) reste retiré : ce module-ci ne le rouvre pas.
   "BD_PROJECTS",
+  // PROMO_STOCK : le STOCK du matériel promotionnel (§118.164) — le magasin central, ce que chaque
+  // délégué a en main, ce qui est en route. Un module À PART du circuit d'achat (`PROMO_MATERIAL`) :
+  // le directeur des opérations y a la vue globale et la gestion de ses équipes sans avoir à
+  // instruire les achats, et un délégué y tient son stock sans voir les dossiers des autres.
+  // La PORTÉE réglée dans la console fait la vue globale (TOUT) ou la vue « moi et mon équipe ».
+  "PROMO_STOCK",
+  // PROMO_CATALOG : le CATALOGUE du matériel promotionnel — les références fixes CAT-0001… que
+  // citent les demandes et les stocks. « Le super administrateur a un catalogue ; il peut l'ouvrir
+  // en édition ou en lecture à qui il veut dans la société » : par défaut au seul Super Admin, il
+  // s'ouvre personne par personne dans Administration › Accès (Voir = lecture, Créer/Modifier =
+  // édition). Choisir un article dans une demande ne demande pas ce module : c'est une liste de
+  // référence, comme celle des produits.
+  "PROMO_CATALOG",
 ] as const;
 export type Module = (typeof MODULES)[number];
 
@@ -141,6 +154,9 @@ export const PERMISSIONS: Record<UserRole, RoleMatrix> = {
     LOGISTICS: MANAGE, PCH: MANAGE, STOCKS: MANAGE, MEDICAL: MANAGE, FIELD_REPORTS: MANAGE, SALES_PLANNING: MANAGE, BUSINESS_DEVELOPMENT: MANAGE, PRODUCT_EXPLORER: MANAGE,
     MEDICAL_INFO: MANAGE, PROMO_MATERIAL: MANAGE, CONSULTING: MANAGE, AD_PRO_OTHER: MANAGE, DOCUMENTS: MANAGE, ADMIN_REQUESTS: MANAGE,
     GENERAL_MEANS: MANAGE, LEGAL: MANAGE, MAIL_REGISTER: MANAGE, RECRUITMENT: MANAGE,
+    // Le stock promotionnel (§118.164) : la Direction des opérations a la vue globale ET la gestion
+    // du matériel de ses équipes. La règle (`promo/stock-acces.ts`) dit lesquelles.
+    PROMO_STOCK: CONTRIBUTE,
     // Le CENTRE DE PAIEMENT : le PDG y siège avec le Super Admin — et personne d'autre,
     // pas même le Directeur Général (règle sitsOnPaymentCentre, lib/payments/authorization.ts).
     PAYMENT_CENTRE: MANAGE,
@@ -171,6 +187,8 @@ export const PERMISSIONS: Record<UserRole, RoleMatrix> = {
     SALES_PLANNING: MANAGE, BUSINESS_DEVELOPMENT: MANAGE, PRODUCT_EXPLORER: MANAGE, MEDICAL_INFO: MANAGE,
     PROMO_MATERIAL: MANAGE, CONSULTING: MANAGE, AD_PRO_OTHER: MANAGE, DOCUMENTS: MANAGE,
     ADMIN_REQUESTS: MANAGE, GENERAL_MEANS: MANAGE, LEGAL: MANAGE, MAIL_REGISTER: MANAGE,
+    // Le stock promotionnel (§118.164) : la vue, sans le magasin (il appartient à la Direction Marketing).
+    PROMO_STOCK: READ,
     // Le DG est le SOMMET de la chaîne de validation d'un recrutement, et celui qui tranche
     // entre les candidats : le module lui est acquis, quelle que soit sa place dans l'organigramme.
     RECRUITMENT: MANAGE,
@@ -203,6 +221,10 @@ export const PERMISSIONS: Record<UserRole, RoleMatrix> = {
     REGULATORY: READ, BUDGETS: READ, FINANCES: READ, RH: READ, MEDICAL: READ, FIELD_REPORTS: READ,
     SALES_PLANNING: READ, DOCUMENTS: CONTRIBUTE,
     DIRECTIVES: DIRECTIVES_USER, SUPPORT: SUPPORT_USER, DOSSIERS: DOSSIERS_USER, NOTIFICATIONS: ["VIEW"],
+    // LE STOCK PROMOTIONNEL (décision de la Direction, 01/10/2026) : « la vue globale du stock
+    // promotionnel, mais aussi la gestion du matériel de ses équipes — les superviseurs en dessous
+    // de lui et les KAM ». Le module ouvre l'écran ; la règle dit QUI sont ses équipes.
+    PROMO_STOCK: CONTRIBUTE,
   },
   HEAD_OF_REGULATORY: {
     WORKSPACE: WORKSPACE_USER, FEEDBACK: FEEDBACK_USER, MESSAGING: MESSAGING_USER, VALIDATIONS: VALIDATION_USER, DRIVE: DRIVE_USER, ADMIN_REQUESTS: REQUEST_USER, REGULATORY: MANAGE, DOCUMENTS: CONTRIBUTE, BUDGETS: READ, DIRECTIVES: DIRECTIVES_USER, SUPPORT: SUPPORT_USER, DOSSIERS: DOSSIERS_USER, NOTIFICATIONS: ["VIEW"],
@@ -219,6 +241,8 @@ export const PERMISSIONS: Record<UserRole, RoleMatrix> = {
   },
   MEDICAL_PROMOTION_MANAGER: {
     WORKSPACE: WORKSPACE_USER, FEEDBACK: FEEDBACK_USER, MESSAGING: MESSAGING_USER, VALIDATIONS: VALIDATION_USER, DRIVE: DRIVE_USER, ADMIN_REQUESTS: REQUEST_USER, MEDICAL: MANAGE, FIELD_REPORTS: MANAGE, SALES_PLANNING: MANAGE, EVENTS: MANAGE, CONGRESS_NATIONAL: CONTRIBUTE, CONGRESS_INTERNATIONAL: CONTRIBUTE, PROMO_MATERIAL: CONTRIBUTE, CONSULTING: CONTRIBUTE, AD_PRO_OTHER: CONTRIBUTE, DOCUMENTS: CONTRIBUTE, DIRECTIVES: DIRECTIVES_USER, SUPPORT: SUPPORT_USER, DOSSIERS: DOSSIERS_USER, NOTIFICATIONS: ["VIEW"],
+    // Son stock et celui de son équipe (portée ASSIGNÉE, carte `assigned`) — §118.164.
+    PROMO_STOCK: CONTRIBUTE,
   },
   // KAM / délégué médical : accède à SON tableau de bord de force de vente (Pilotage — lecture,
   // portée limitée à lui-même par la couche métier ; il édite ses propres affectations via `canEditRep`).
@@ -228,7 +252,10 @@ export const PERMISSIONS: Record<UserRole, RoleMatrix> = {
   // personnalisé posé par le Super Admin lui permettait de créer sa demande. CONTRIBUTE, pas
   // MANAGE : il demande, il ne tranche rien (le circuit décide qui valide), et la portée est
   // ASSIGNÉE (carte `assigned` de defaultScope) — il ne voit que SES dossiers.
-  MEDICAL_DELEGATE: { WORKSPACE: WORKSPACE_USER, FEEDBACK: FEEDBACK_USER, MESSAGING: MESSAGING_USER, VALIDATIONS: VALIDATION_USER, DRIVE: DRIVE_USER, ADMIN_REQUESTS: REQUEST_USER, MEDICAL: CONTRIBUTE, FIELD_REPORTS: CONTRIBUTE, SALES_PLANNING: READ, EVENTS: CONTRIBUTE, CONGRESS_NATIONAL: CONTRIBUTE, CONGRESS_INTERNATIONAL: CONTRIBUTE, PROMO_MATERIAL: CONTRIBUTE, DIRECTIVES: DIRECTIVES_USER, SUPPORT: SUPPORT_USER, DOSSIERS: DOSSIERS_USER, NOTIFICATIONS: ["VIEW"] },
+  MEDICAL_DELEGATE: { WORKSPACE: WORKSPACE_USER, FEEDBACK: FEEDBACK_USER, MESSAGING: MESSAGING_USER, VALIDATIONS: VALIDATION_USER, DRIVE: DRIVE_USER, ADMIN_REQUESTS: REQUEST_USER, MEDICAL: CONTRIBUTE, FIELD_REPORTS: CONTRIBUTE, SALES_PLANNING: READ, EVENTS: CONTRIBUTE, CONGRESS_NATIONAL: CONTRIBUTE, CONGRESS_INTERNATIONAL: CONTRIBUTE, PROMO_MATERIAL: CONTRIBUTE, DIRECTIVES: DIRECTIVES_USER, SUPPORT: SUPPORT_USER, DOSSIERS: DOSSIERS_USER, NOTIFICATIONS: ["VIEW"],
+    // SON stock promotionnel (§118.164) : confirmer ses réceptions, rendre, transférer à un collègue,
+    // déclarer une perte, demander du matériel. Portée ASSIGNÉE : il ne voit que le sien.
+    PROMO_STOCK: CONTRIBUTE },
   // National Sales : **toutes les capacités du délégué médical** (créer des demandes
   // de sponsoring / congrès / événements, terrain, annuaire) PLUS l'**approbation
   // préliminaire** de ces demandes avec choix du référent Direction Marketing. Volontairement
@@ -246,7 +273,10 @@ export const PERMISSIONS: Record<UserRole, RoleMatrix> = {
   // prenante, `peutOuvrirLeDossierPromo`) — pas par une vue de TOUS les dossiers de la société,
   // qu'aucune étape ne lui demande de lire. Le geste qui retourne cette décision : le retirer
   // de la carte `assigned` pour la clé PROMO_MATERIAL.
-  NATIONAL_SALES: { WORKSPACE: WORKSPACE_USER, FEEDBACK: FEEDBACK_USER, MESSAGING: MESSAGING_USER, VALIDATIONS: VALIDATION_USER, DRIVE: DRIVE_USER, ADMIN_REQUESTS: REQUEST_USER, MEDICAL: CONTRIBUTE, FIELD_REPORTS: CONTRIBUTE, SALES_PLANNING: READ, EVENTS: CONTRIBUTE, CONGRESS_NATIONAL: CONTRIBUTE, CONGRESS_INTERNATIONAL: CONTRIBUTE, SPONSORING: CONTRIBUTE, PROMO_MATERIAL: CONTRIBUTE, CONSULTING: CONTRIBUTE, AD_PRO_OTHER: CONTRIBUTE, DIRECTIVES: DIRECTIVES_USER, SUPPORT: SUPPORT_USER, DOSSIERS: DOSSIERS_USER, NOTIFICATIONS: ["VIEW"] },
+  NATIONAL_SALES: { WORKSPACE: WORKSPACE_USER, FEEDBACK: FEEDBACK_USER, MESSAGING: MESSAGING_USER, VALIDATIONS: VALIDATION_USER, DRIVE: DRIVE_USER, ADMIN_REQUESTS: REQUEST_USER, MEDICAL: CONTRIBUTE, FIELD_REPORTS: CONTRIBUTE, SALES_PLANNING: READ, EVENTS: CONTRIBUTE, CONGRESS_NATIONAL: CONTRIBUTE, CONGRESS_INTERNATIONAL: CONTRIBUTE, SPONSORING: CONTRIBUTE, PROMO_MATERIAL: CONTRIBUTE, CONSULTING: CONTRIBUTE, AD_PRO_OTHER: CONTRIBUTE, DIRECTIVES: DIRECTIVES_USER, SUPPORT: SUPPORT_USER, DOSSIERS: DOSSIERS_USER, NOTIFICATIONS: ["VIEW"],
+    // Son stock et celui des KAM de ses gammes (§118.164) — il les VOIT ; la gestion des équipes est
+    // au directeur des opérations.
+    PROMO_STOCK: CONTRIBUTE },
   // DIRECTION MARKETING. Depuis 09/2026 elle TRANCHE toute demande Ad & Pro (montant accordé +
   // sous-catégorie budgétaire) et valide le matériel promotionnel — §118.138. `SPONSORING` et
   // `PROMO_MATERIAL` sont donc ouverts : sans eux elle ne peut pas même OUVRIR la demande
@@ -270,6 +300,10 @@ export const PERMISSIONS: Record<UserRole, RoleMatrix> = {
     WORKSPACE: WORKSPACE_USER, FEEDBACK: FEEDBACK_USER, MESSAGING: MESSAGING_USER, VALIDATIONS: VALIDATION_USER, DRIVE: DRIVE_USER, ADMIN_REQUESTS: REQUEST_USER,
     SPONSORING: MANAGE, CONGRESS_INTERNATIONAL: MANAGE, CONGRESS_NATIONAL: MANAGE, EVENTS: MANAGE, PROMO_MATERIAL: MANAGE, CONSULTING: MANAGE, AD_PRO_OTHER: MANAGE,
     MEDICAL: READ, FIELD_REPORTS: READ, BUDGETS: READ, DOCUMENTS: CONTRIBUTE, DIRECTIVES: DIRECTIVES_USER, SUPPORT: SUPPORT_USER, DOSSIERS: DOSSIERS_USER, NOTIFICATIONS: ["VIEW"],
+    // LE MAGASIN CENTRAL du matériel promotionnel (décision de la Direction, 01/10/2026) : « c'est la
+    // directrice marketing » qui le gère. Le module est ouvert à la Direction Marketing entière (la
+    // vue globale) ; la règle (`promo/stock-acces.ts`) réserve le magasin à sa CHEFFE.
+    PROMO_STOCK: CONTRIBUTE,
     // LE BLOG DU SITE PUBLIC (§118.158) : c'est de la communication, donc la Direction Marketing.
     // Une DÉCISION prise ici, pas écrite dans la demande — elle se défait en une ligne : retirer
     // cette entrée laisse les articles à la Direction, au Directeur Général et au Super Admin, et
@@ -282,6 +316,8 @@ export const PERMISSIONS: Record<UserRole, RoleMatrix> = {
   FINANCE_BUDGET_MANAGER: {
     WORKSPACE: WORKSPACE_USER, FEEDBACK: FEEDBACK_USER, MESSAGING: MESSAGING_USER, VALIDATIONS: VALIDATION_USER, DRIVE: DRIVE_USER, ADMIN_REQUESTS: REQUEST_USER, BUDGETS: MANAGE, FINANCES: MANAGE, GENERAL_MEANS: MANAGE, RH: READ, SPONSORING: READ, SALES: READ, LOGISTICS: READ, PCH: READ, STOCKS: READ,
     DOCUMENTS: READ, MEDICAL_INFO: ["VIEW", "UPLOAD"], PROMO_MATERIAL: ["VIEW", "UPLOAD", "EXPORT"], CONSULTING: READ, AD_PRO_OTHER: READ, DIRECTIVES: DIRECTIVES_USER, SUPPORT: SUPPORT_USER, DOSSIERS: DOSSIERS_USER, NOTIFICATIONS: ["VIEW"],
+    // Le stock promotionnel en lecture : ce qui est entré, ce qui reste (§118.164).
+    PROMO_STOCK: READ,
   },
   // Pharmacien responsable de l'information médicale : déclare aux autorités les
   // événements validés définitivement, exige des pièces, puis valide (→ ordre de
@@ -634,6 +670,10 @@ export function defaultScope(role: UserRole, module: Module): AccessScope {
     // Matériel promotionnel (§118.153) : le délégué et le superviseur national DEMANDENT — ils
     // voient leurs dossiers, et ceux où le circuit les attend s'ouvrent par la règle du dossier.
     PROMO_MATERIAL: ["MEDICAL_DELEGATE", "NATIONAL_SALES"],
+    // Stock promotionnel (§118.164) : la force de vente voit SON stock et celui de son équipe ;
+    // les autres porteurs du module (Direction, Direction Marketing, directeur des opérations,
+    // Finances) ont la vue globale. La console élargit ou resserre personne par personne.
+    PROMO_STOCK: ["MEDICAL_DELEGATE", "NATIONAL_SALES", "MEDICAL_PROMOTION_MANAGER"],
   };
   return assigned[module]?.includes(role) ? "ASSIGNED" : "ALL";
 }

@@ -46,7 +46,9 @@ export type DeletableKind =
   | "CONVERSATION"
   | "NOTIFICATION"
   | "CONSULTING_CONTRACT"
-  | "AD_PRO_OTHER";
+  | "AD_PRO_OTHER"
+  | "PROMO_CATALOGUE"
+  | "PROMO_STOCK_ITEM";
 
 export interface KindSpec {
   label: string; // libellé du type (« dossier réglementaire »)
@@ -505,6 +507,56 @@ export const DELETE_REGISTRY: Record<DeletableKind, KindSpec> = {
     },
     async remove(id) {
       await prisma.promoMaterial.delete({ where: { id } });
+    },
+  },
+  // LE CATALOGUE PROMOTIONNEL (§118.164) — « le super administrateur peut supprimer ». Un article qui
+  // a SERVI ne se supprime pas : des stocks le citent et leur historique en dépend ; il s'ARCHIVE
+  // (`archiverArticleCatalogue`), reste lisible là où il a servi, et ne se propose plus. Le refus le
+  // dit AVANT le clic, et nomme le geste qui le remplace (§118.83).
+  PROMO_CATALOGUE: {
+    label: "article du catalogue promotionnel",
+    module: "Catalogue promotionnel",
+    redirect: "/promo-material/catalogue",
+    model: "promoCatalogueArticle",
+    searchFields: ["reference", "nom"],
+    async describe(id) {
+      const r = await prisma.promoCatalogueArticle.findUnique({ where: { id }, select: { reference: true, nom: true } });
+      return r ? `${r.reference} — ${r.nom}` : null;
+    },
+    async refuse(id) {
+      const n = await prisma.promoStockItem.count({ where: { catalogueId: id } });
+      return n > 0
+        ? `Cet article a servi : ${n} article(s) de stock le citent, et leur historique en dépend. Archivez-le plutôt — il ne se proposera plus, et restera lisible là où il a servi.`
+        : null;
+    },
+    async remove(id) {
+      await prisma.promoCatalogueArticle.delete({ where: { id } });
+    },
+  },
+  // UN ARTICLE DE STOCK (§118.164) — seulement s'il n'a JAMAIS bougé (un support numérique déclaré
+  // par erreur, un article créé sans entrée). Un article qui a un mouvement porte une histoire :
+  // on l'archive, on ne l'efface pas — l'écran d'avant supprimait l'article ET son historique.
+  PROMO_STOCK_ITEM: {
+    label: "article de stock promotionnel",
+    module: "Stock promotionnel",
+    redirect: "/promo-material/stock",
+    model: "promoStockItem",
+    searchFields: ["name"],
+    async describe(id) {
+      const r = await prisma.promoStockItem.findUnique({ where: { id }, select: { name: true } });
+      return r ? r.name : null;
+    },
+    async refuse(id) {
+      const [mouvements, demandes] = await Promise.all([
+        prisma.promoStockMovement.count({ where: { itemId: id } }),
+        prisma.promoStockRequest.count({ where: { itemId: id } }),
+      ]);
+      return mouvements > 0 || demandes > 0
+        ? `Cet article a une histoire (${mouvements} mouvement(s), ${demandes} demande(s)) : on ne l'efface pas. Archivez-le depuis sa fiche une fois son stock à zéro.`
+        : null;
+    },
+    async remove(id) {
+      await prisma.promoStockItem.delete({ where: { id } });
     },
   },
   CONGRESS_INTERNATIONAL: {

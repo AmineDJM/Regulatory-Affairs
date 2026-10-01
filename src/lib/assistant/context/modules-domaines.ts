@@ -127,6 +127,11 @@ export const SERVICE_DU_MODULE: Record<CleModule, ServiceDuModule> = {
   CONGRESS_INTERNATIONAL: { domaines: ["MISSION", "CALENDAR", "FINANCE"], mots: ["congres international", "prise en charge internationale"], outils: ["care_operation", "create_congress_request"] },
   EVENTS: { domaines: ["CALENDAR", "MISSION", "FINANCE"], mots: ["evenement", "evenements", "manifestation", "manifestations"], outils: ["event_operation", "search_events", "create_event_request"] },
   PROMO_MATERIAL: { domaines: ["MISSION", "LEGAL"], mots: ["materiel promotionnel", "support promotionnel", "brochure", "brochures", "echantillon", "echantillons"], outils: ["promo_operation", "create_promo_material_request"] },
+  // Le STOCK et le CATALOGUE promotionnels (§118.164) n'ont AUCUNE capacité Adam, par décision :
+  // chaque geste de stock atteste un fait PHYSIQUE (« je l'ai reçu », « je l'ai compté », « je
+  // l'ai perdu ») qu'un modèle ne peut pas voir, et Adam est en pause de développement.
+  PROMO_STOCK: { domaines: [], mots: ["stock promotionnel", "stock promo", "magasin central", "dotation", "dotations", "fiche posologique", "fiches posologiques"] },
+  PROMO_CATALOG: { domaines: [], mots: ["catalogue promotionnel", "catalogue du materiel promotionnel"] },
   CONSULTING: { domaines: ["MISSION", "FINANCE"], mots: ["consulting", "prestation", "prestations", "consultant", "consultants"], outils: ["consulting_operation"] },
   AD_PRO_OTHER: { domaines: ["MISSION", "FINANCE"], mots: ["ad pro", "ad et pro", "ad & pro"], outils: ["adpro_operation"] },
   // Les circuits de validation. `validation_operation` et `advance_workflow` sont MISSION/ADMIN.

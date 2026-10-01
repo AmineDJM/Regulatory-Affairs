@@ -9,8 +9,8 @@ import { buildProposal, type AssistantActionPayload } from "@/lib/assistant";
  * PAR personne avec pièce d'identité d'office, besoins pièce/prestation, « sans objet » ≠
  * suppression, devis multi-cases avec garde anti DOUBLE PAIEMENT, envoi Finances bloquant),
  * MATÉRIEL PROMOTIONNEL (circuit court à devis-en-main, agence retenue, chantiers parallèles,
- * règlement au montant du dossier par défaut) et STOCK à MOUVEMENTS (FUSION de la fiche
- * article, distribution gardée par le stock recalculé, suppression CRITIQUE comptée).
+ * règlement au montant du dossier par défaut). Le STOCK n'est plus offert à Adam (§118.164) :
+ * ses gestes attestent des faits physiques et se font à l'écran — un cas le tient.
  */
 
 function userWith(perms: Partial<Record<Module, Action[]>>, role: CurrentUser["role"], id: string, name: string): CurrentUser {
@@ -43,7 +43,6 @@ let cellHotelId = "";
 let cellTicketId = "";
 let quoteId = "";
 let promoId = "";
-let stockItemId = "";
 
 // Le vrai loader d'accès donne TOUT au Super Admin ; le harness construit l'accès à la
 // main — on lui donne donc les permissions modules que l'écran exige.
@@ -115,11 +114,6 @@ suite("ops vague 5b — prises en charge, matériel promotionnel, stock", () => 
     });
     promoId = promo.id;
 
-    const item = await prisma.promoStockItem.create({
-      data: { name: `${TAG} Présentoir comptoir`, reference: "REF-01", unit: "pièce", location: "Magasin Alger", alertThreshold: 10, notes: "lot 2025" },
-    });
-    stockItemId = item.id;
-    await prisma.promoStockMovement.create({ data: { itemId: item.id, kind: "RECEIPT", delta: 100, reason: "Livraison initiale" } });
   });
 
 
@@ -298,44 +292,11 @@ suite("ops vague 5b — prises en charge, matériel promotionnel, stock", () => 
     });
   });
 
-  describe("stock du matériel promo — la quantité ne se saisit jamais", () => {
-    it("update_stock_item : FUSION — changer le SEUL seuil rejoue référence, unité, emplacement et notes", async () => {
-      const p = await buildProposal("promo_operation", {
-        op: "update_stock_item", name: `${TAG} Présentoir comptoir`, threshold: "25",
-      }, sa());
-      expect("error" in p).toBe(false);
-      if (!("error" in p)) {
-        const a = domainArgs(p);
-        expect(a.id).toBe(stockItemId);
-        expect(a.alertThreshold).toBe("25");
-        expect(a.reference).toBe("REF-01");
-        expect(a.unit).toBe("pièce");
-        expect(a.location).toBe("Magasin Alger");
-        expect(a.notes).toBe("lot 2025");
-      }
-    });
-
-    it("record_stock_movement : une DISTRIBUTION porte destinataire et motif, la garde du stock recalculé est annoncée", async () => {
-      const p = await buildProposal("promo_operation", {
-        op: "record_stock_movement", name: `${TAG} Présentoir comptoir`, mode: "distribution", quantity: "40", person: "Yasmine déléguée",
-      }, sa());
-      expect("error" in p).toBe(false);
-      if (!("error" in p)) {
-        expect(domainArgs(p).kind).toBe("DISTRIBUTION");
-        expect(domainArgs(p).quantity).toBe("40");
-        expect(domainArgs(p).recipient).toBe("Yasmine déléguée");
-        expect(p.warnings.join(" ")).toMatch(/recalculé/);
-      }
-    });
-
-    it("delete_stock_item : CRITIQUE — confirmation par le nom exact, mouvements emportés comptés", async () => {
-      const p = await buildProposal("promo_operation", {
-        op: "delete_stock_item", name: `${TAG} Présentoir comptoir`,
-      }, sa());
-      expect("error" in p).toBe(false);
-      if (!("error" in p)) {
-        expect(p.confirmText).toBe(`${TAG} Présentoir comptoir`);
-        expect(p.fields.map((f) => f.value).join(" ")).toContain("1");
+  describe("le stock promotionnel n'est plus offert à Adam (§118.164)", () => {
+    it("les anciens gestes de stock ne construisent plus de carte : ils attestent des faits physiques", async () => {
+      for (const op of ["create_stock_item", "update_stock_item", "delete_stock_item", "record_stock_movement", "delete_stock_movement"]) {
+        const p = await buildProposal("promo_operation", { op, name: `${TAG} Présentoir comptoir`, quantity: "40" }, sa());
+        expect("error" in p, op).toBe(true);
       }
     });
   });

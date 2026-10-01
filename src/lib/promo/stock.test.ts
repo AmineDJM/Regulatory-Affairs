@@ -1,104 +1,131 @@
 import { describe, it, expect } from "vitest";
 import {
-  stockOf, parseQuantity, deltaFor, signOf, canWithdraw, validateMovement, stockLevel,
+  allouer, cleProduits, etatValidite, libelleArticleStock, lireDateJour, natureDuTransfert, ordreDeSortie, parseQuantity,
+  repartirReception, stockLevel, JOURS_ALERTE_VALIDITE, type LotDisponible,
 } from "./stock";
 
-describe("Le stock est une conséquence des mouvements, jamais une saisie", () => {
-  it("additionne les entrées et les sorties", () => {
-    expect(stockOf([{ kind: "RECEIPT", delta: 5000 }, { kind: "DISTRIBUTION", delta: -1200 }])).toBe(3800);
-  });
+/**
+ * LE STOCK PROMOTIONNEL, RÈGLES PURES (§118.164) — lots, validité, ordre de sortie, réception en
+ * partie. Le registre ne stocke que des MOUVEMENTS ; ces règles disent lesquels écrire.
+ */
 
-  it("vaut zéro sans mouvement, pas NaN", () => {
-    expect(stockOf([])).toBe(0);
-  });
+const jour = (iso: string) => new Date(`${iso}T00:00:00.000Z`);
+const lot = (numero: number, solde: number, fin: string | null, recu = "2026-01-01"): LotDisponible =>
+  ({ lotId: `L${numero}`, numero, solde, valableJusquau: fin ? jour(fin) : null, recuLe: jour(recu) });
 
-  it("ignore une valeur aberrante plutôt que de contaminer tout le stock", () => {
-    expect(stockOf([{ kind: "RECEIPT", delta: 100 }, { kind: "RECEIPT", delta: Number.NaN }])).toBe(100);
-  });
-});
-
-describe("C'est la NATURE du mouvement qui donne le sens, pas la personne qui saisit", () => {
-  it("une entrée ajoute, une distribution retire — quel que soit le signe saisi", () => {
-    expect(deltaFor("RECEIPT", 600)).toBe(600);
-    expect(deltaFor("DISTRIBUTION", 600)).toBe(-600);
-    expect(deltaFor("DISTRIBUTION", -600)).toBe(-600); // un signe saisi par erreur ne renverse rien
-    expect(deltaFor("LOSS", 12)).toBe(-12);
-  });
-
-  it("seule la correction d'inventaire accepte les deux sens", () => {
-    expect(signOf("CORRECTION")).toBeNull();
-    expect(deltaFor("CORRECTION", -40)).toBe(-40);
-    expect(deltaFor("CORRECTION", 40)).toBe(40);
-  });
-
-  it("lit une quantité tapée à la main, et refuse ce qui n'est pas un nombre", () => {
-    expect(parseQuantity("1 200")).toBe(1200);
-    expect(parseQuantity("12,5")).toBe(12.5);
+describe("Une quantité saisie à la main", () => {
+  it("lit la virgule française et les espaces, refuse ce qui n'est pas un nombre", () => {
+    expect(parseQuantity("1 200,5")).toBe(1200.5);
     expect(parseQuantity("")).toBeNull();
-    expect(parseQuantity("beaucoup")).toBeNull();
-  });
-});
-
-describe("On ne sort pas ce qu'on n'a pas", () => {
-  it("refuse une sortie supérieure au stock, et DIT ce qui reste", () => {
-    const r = canWithdraw(300, 500);
-    expect(r.ok).toBe(false);
-    expect(r.reason).toContain("300");
-  });
-
-  it("sur un stock vide, oriente vers l'entrée manquante plutôt que vers un chiffre", () => {
-    // Un stock négatif ne veut rien dire physiquement : il masque une entrée non saisie.
-    const r = canWithdraw(0, 10);
-    expect(r.ok).toBe(false);
-    expect(r.reason).toMatch(/entrée|inventaire/i);
-  });
-
-  it("accepte de vider exactement le stock", () => {
-    expect(canWithdraw(300, 300).ok).toBe(true);
-  });
-
-  it("refuse une quantité nulle", () => {
-    expect(canWithdraw(300, 0).ok).toBe(false);
-  });
-});
-
-describe("La garde vaut pour toutes les natures", () => {
-  it("laisse toujours passer une entrée", () => {
-    expect(validateMovement("RECEIPT", 0, 5000).ok).toBe(true);
-  });
-
-  it("applique la garde de stock à une perte comme à une distribution", () => {
-    expect(validateMovement("LOSS", 5, 10).ok).toBe(false);
-    expect(validateMovement("DISTRIBUTION", 5, 10).ok).toBe(false);
-  });
-
-  it("une correction NÉGATIVE ne peut pas creuser le stock sous zéro", () => {
-    expect(validateMovement("CORRECTION", 100, -150).ok).toBe(false);
-    expect(validateMovement("CORRECTION", 100, -50).ok).toBe(true);
-  });
-
-  it("une correction POSITIVE passe toujours : c'est le cas du carton retrouvé", () => {
-    expect(validateMovement("CORRECTION", 0, 80).ok).toBe(true);
-  });
-
-  it("refuse une quantité vide", () => {
-    expect(validateMovement("RECEIPT", 0, 0).ok).toBe(false);
+    expect(parseQuantity("douze")).toBeNull();
+    expect(parseQuantity(Number.NaN)).toBeNull();
   });
 });
 
 describe("Signaler AVANT la rupture", () => {
-  it("distingue rupture, stock bas et disponible", () => {
+  it("distingue rupture, stock bas et disponible ; sans seuil, seule la rupture crie", () => {
     expect(stockLevel(0, 50)).toBe("OUT");
     expect(stockLevel(40, 50)).toBe("LOW");
-    expect(stockLevel(400, 50)).toBe("OK");
-  });
-
-  it("sans seuil réglé, ne crie au loup que sur la rupture", () => {
+    expect(stockLevel(60, 50)).toBe("OK");
     expect(stockLevel(3, null)).toBe("OK");
-    expect(stockLevel(0, null)).toBe("OUT");
+    expect(stockLevel(-2, null), "un solde négatif se lit comme une rupture, pas comme un stock").toBe("OUT");
+  });
+});
+
+describe("L'identité d'un article de stock", () => {
+  it("l'ordre de saisie des produits ne compte pas — « A + B » et « B + A » sont le même article", () => {
+    expect(cleProduits(["b", "a", "a", " "])).toBe("a,b");
+    expect(cleProduits(["a", "b"])).toBe(cleProduits(["b", "a"]));
+    expect(cleProduits([])).toBe("");
   });
 
-  it("un stock négatif (donnée héritée) se lit comme une rupture, pas comme un stock", () => {
-    expect(stockLevel(-5, 10)).toBe("OUT");
+  it("le libellé nomme les produits, ou se tait quand il n'y en a pas", () => {
+    expect(libelleArticleStock("Fiche posologique", ["Nivolex", "Trastuzex"])).toBe("Fiche posologique — Nivolex, Trastuzex");
+    expect(libelleArticleStock("Stylo", [])).toBe("Stylo");
+  });
+});
+
+describe("La nature d'un transfert se DÉDUIT de ses deux bouts", () => {
+  it("dotation, transfert, retour — et rien quand ce n'est pas un transfert", () => {
+    expect(natureDuTransfert(null, "u1")).toBe("DOTATION");
+    expect(natureDuTransfert("u1", "u2")).toBe("TRANSFERT");
+    expect(natureDuTransfert("u1", null)).toBe("RETOUR");
+    expect(natureDuTransfert(null, null), "du magasin au magasin").toBeNull();
+    expect(natureDuTransfert("u1", "u1"), "de soi à soi").toBeNull();
+  });
+});
+
+describe("La validité d'un lot", () => {
+  const maintenant = jour("2026-10-01");
+
+  it("est INCLUSIVE : valable jusqu'au 1er octobre, il se distribue encore le 1er", () => {
+    expect(etatValidite(jour("2026-10-01"), new Date("2026-10-01T23:59:00.000Z"))).toBe("BIENTOT");
+    expect(etatValidite(jour("2026-10-01"), jour("2026-10-02"))).toBe("PERIME");
+  });
+
+  it("prévient dans les trente jours, et pas avant", () => {
+    expect(JOURS_ALERTE_VALIDITE).toBe(30);
+    expect(etatValidite(jour("2026-10-20"), maintenant)).toBe("BIENTOT");
+    expect(etatValidite(jour("2026-12-31"), maintenant)).toBe("VALIDE");
+    expect(etatValidite(null, maintenant)).toBe("SANS_DATE");
+  });
+
+  it("une date saisie se lit en jour UTC, et le 31 février n'existe pas", () => {
+    expect(lireDateJour("2026-12-31")?.toISOString()).toBe("2026-12-31T00:00:00.000Z");
+    expect(lireDateJour("2026-02-31"), "Date.UTC le ferait glisser au 3 mars en silence").toBeNull();
+    expect(lireDateJour("31/12/2026")).toBeNull();
+    expect(lireDateJour("")).toBeNull();
+  });
+});
+
+describe("L'ordre de sortie — le plus tôt périmé d'abord, et il est TOTAL", () => {
+  it("date de fin, puis ancienneté, puis numéro ; un lot sans date passe après", () => {
+    const lots = [lot(3, 5, null), lot(2, 5, "2027-06-30", "2026-03-01"), lot(1, 5, "2027-06-30", "2026-02-01"), lot(4, 5, "2026-12-31")];
+    expect([...lots].sort(ordreDeSortie).map((l) => l.numero)).toEqual([4, 1, 2, 3]);
+    expect([...lots].reverse().sort(ordreDeSortie).map((l) => l.numero), "deux ordres d'entrée, une seule sortie").toEqual([4, 1, 2, 3]);
+  });
+});
+
+describe("Allouer une sortie", () => {
+  const maintenant = jour("2026-10-01");
+  const lots = [lot(1, 10, "2026-09-30"), lot(2, 20, "2026-12-31"), lot(3, 30, null)];
+
+  it("une distribution ne prend JAMAIS un lot périmé, et prend le plus tôt périmé d'abord", () => {
+    const a = allouer(lots, 25, { maintenant, inclurePerimes: false });
+    expect(a).toEqual({ ok: true, tranches: [{ lotId: "L2", quantite: 20 }, { lotId: "L3", quantite: 5 }] });
+  });
+
+  it("le refus sépare ce qui MANQUE de ce qui existe mais ne se distribue plus", () => {
+    const a = allouer(lots, 55, { maintenant, inclurePerimes: false });
+    expect(a.ok).toBe(false);
+    if (a.ok) return;
+    expect(a.disponible).toBe(50);
+    expect(a.bloqueParPeremption).toBe(10);
+    expect(a.raison).toMatch(/50 de distribuable/);
+    expect(a.raison).toMatch(/lot périmé/);
+  });
+
+  it("une PERTE prend le lot périmé en premier : c'est ainsi qu'on le déclare détruit", () => {
+    const a = allouer(lots, 12, { maintenant, inclurePerimes: true });
+    expect(a).toEqual({ ok: true, tranches: [{ lotId: "L1", quantite: 10 }, { lotId: "L2", quantite: 2 }] });
+  });
+
+  it("refuse une quantité nulle ou négative, et vide exactement le stock quand on le demande", () => {
+    expect(allouer(lots, 0, { maintenant, inclurePerimes: false }).ok).toBe(false);
+    expect(allouer(lots, -5, { maintenant, inclurePerimes: false }).ok, "une quantité négative n'est pas une sortie de 5").toBe(false);
+    expect(allouer(lots, 50, { maintenant, inclurePerimes: false }).ok).toBe(true);
+  });
+});
+
+describe("Une réception confirmée en partie", () => {
+  it("le reçu suit l'ordre de sortie ; le reste est MANQUANT, lot par lot", () => {
+    const r = repartirReception([{ lotId: "L2", quantite: 20 }, { lotId: "L3", quantite: 10 }], 25);
+    expect(r.recues).toEqual([{ lotId: "L2", quantite: 20 }, { lotId: "L3", quantite: 5 }]);
+    expect(r.manquantes).toEqual([{ lotId: "L3", quantite: 5 }]);
+  });
+
+  it("tout reçu : rien de manquant ; rien reçu : tout manque", () => {
+    expect(repartirReception([{ lotId: "L1", quantite: 8 }], 8).manquantes).toEqual([]);
+    expect(repartirReception([{ lotId: "L1", quantite: 8 }], 0).recues).toEqual([]);
   });
 });

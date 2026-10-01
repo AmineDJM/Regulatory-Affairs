@@ -1551,8 +1551,12 @@ export const EVENTS_TABS: NavTab[] = [
   { module: "EVENTS", label: "Événements", href: "/events" },
   { module: "PROMO_MATERIAL", label: "Matériel promotionnel", href: "/promo-material" },
   // Le STOCK est un écran à part : on n'y vient pas pour suivre une campagne mais pour savoir
-  // ce qu'il reste, et le tenir à jour. Deux questions différentes, deux écrans.
-  { module: "PROMO_MATERIAL", label: "Stock promotionnel", href: "/promo-material/stock" },
+  // ce qu'il reste, et le tenir à jour. Deux questions différentes, deux écrans — et deux modules
+  // (§118.164) : le directeur des opérations tient le stock de ses équipes sans instruire d'achat.
+  { module: "PROMO_STOCK", label: "Stock promotionnel", href: "/promo-material/stock" },
+  // Le CATALOGUE : les références fixes que citent les demandes et les stocks. Au Super Admin par
+  // défaut ; il l'ouvre en lecture ou en écriture à qui il veut (Administration › Accès).
+  { module: "PROMO_CATALOG", label: "Catalogue promotionnel", href: "/promo-material/catalogue" },
   { module: "CONSULTING", label: "Consulting", href: "/consulting" },
   { module: "AD_PRO_OTHER", label: "Autres demandes", href: "/ad-pro/autres" },
 ];
@@ -1632,6 +1636,8 @@ export const MODULE_LABELS: Record<Module, string> = {
   STOCKS: "Stocks PCH",
   MEDICAL_INFO: "Information médicale",
   PROMO_MATERIAL: "Matériel promotionnel",
+  PROMO_STOCK: "Stock promotionnel",
+  PROMO_CATALOG: "Catalogue promotionnel",
   CONSULTING: "Consulting",
   AD_PRO_OTHER: "Ad & Pro — autres demandes",
   VALIDATIONS: "Demandes de validations",
@@ -1938,7 +1944,7 @@ export const NAVIGATION: NavItem[] = [
   { module: "MEDICAL", label: "Promotion médicale", href: "/medical/ma-journee", icon: "Stethoscope", group: "Pôles", pole: "SALES_MARKETING", tabs: MEDICAL_TABS, match: ["/medical"] },
   { module: "SALES_PLANNING", label: "Force de vente", href: "/planning", icon: "Target", group: "Pôles", pole: "SALES_MARKETING" },
   { module: "FIELD_REPORTS", label: "Rapports terrain", href: "/field-reports", icon: "NotebookPen", group: "Pôles", pole: "SALES_MARKETING" },
-  { module: "SPONSORING", label: "Ad & Pro", href: "/ad-pro", icon: "PartyPopper", group: "Pôles", pole: "SALES_MARKETING", tabs: EVENTS_TABS, match: ["/sponsoring", "/promo-material", "/promo-material/stock", "/consulting"] },
+  { module: "SPONSORING", label: "Ad & Pro", href: "/ad-pro", icon: "PartyPopper", group: "Pôles", pole: "SALES_MARKETING", tabs: EVENTS_TABS, match: ["/sponsoring", "/promo-material", "/promo-material/stock", "/promo-material/catalogue", "/consulting"] },
 
   // BUSINESS DEVELOPMENT — l'AVANT-VENTE : ce qu'on étudie et ce qu'on vise. Les ventes
   // réalisées sont passées dans Sales & Marketing : analyser une opportunité et constater un

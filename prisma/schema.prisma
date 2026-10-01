@@ -4106,18 +4106,18 @@ model BdProject {
   description String?
   comment     String?
 
-  ownerId  String?
-  owner    User?               @relation("BdProjectOwner", fields: [ownerId], references: [id])
+  ownerId   String?
+  owner     User?               @relation("BdProjectOwner", fields: [ownerId], references: [id])
   /// L'ENTITÉ DU PROJET (§118.163) — la société du groupe à laquelle il appartient, et donc
   /// qui le voit dans une vue cloisonnée (`companyScopedWhere`). Obligatoire à la création ;
   /// nullable pour l'historique : un projet d'avant reste visible et se rattache depuis l'écran
   /// « Projets », où l'entité de ses dossiers est PROPOSÉE — jamais posée à la place de quelqu'un.
   companyId String?
-  company   Company?  @relation("BdProjectCompany", fields: [companyId], references: [id], onDelete: SetNull)
-  ranges   BdRange[]
+  company   Company?            @relation("BdProjectCompany", fields: [companyId], references: [id], onDelete: SetNull)
+  ranges    BdRange[]
   /// LES DOSSIERS RÉGLEMENTAIRES classés dans ce projet — le sous-module « Projets » les
   /// affiche, un tableau par projet.
-  dossiers RegulatoryProduct[] @relation("BdProjectDossiers")
+  dossiers  RegulatoryProduct[] @relation("BdProjectDossiers")
 
   createdById String?
   updatedById String?
@@ -6405,63 +6405,270 @@ model PromoQuoteLine {
   @@index([quoteId])
 }
 
-/// STOCK DE MATÉRIEL PROMOTIONNEL — l'article, tel qu'on le range et qu'on le compte.
+/// LES TROIS FAMILLES DU MATÉRIEL PROMOTIONNEL — trois comportements, pas trois étiquettes (§118.164).
+enum PromoFamille {
+  CONSOMMABLE /// Fiches posologiques, flyers, stylos, blocs : une quantité qui baisse à chaque remise.
+  DURABLE /// Banners, présentoirs, stands : des unités qui se prêtent, reviennent, et s'abîment.
+  NUMERIQUE /// E-flyer, vidéo, e-ADV : pas de quantité — un lien et une période de validité.
+}
+
+/// LE CATALOGUE DU MATÉRIEL PROMOTIONNEL — ce qu'on PEUT commander, chacun sous une référence FIXE.
 ///
-/// La quantité N'EST PAS stockée ici : elle se calcule à partir des mouvements. Un nombre écrit
-/// puis corrigé à la main est faux dès la première sortie non saisie, et rien ne dit quand.
+/// Le Super Admin le tient ; il l'ouvre en lecture ou en écriture à qui il veut (module
+/// `PROMO_CATALOG`, Administration › Accès). La référence `CAT-0001` ne change plus une fois
+/// donnée : c'est elle que citent les demandes, les stocks et (plus tard) les factures. Le NOM, lui,
+/// se corrige — une faute de frappe ne doit pas obliger à recréer l'article.
+model PromoCatalogueArticle {
+  id            String           @id @default(cuid())
+  /// CAT-0001, CAT-0002… — distincte des dossiers « MP-AAAA-NNN » pour ne jamais s'y confondre.
+  reference     String           @unique
+  nom           String
+  famille       PromoFamille
+  /// Le même vocabulaire que les demandes (fiche posologique, banner, présentoir…).
+  materialType  MaterialType?
+  unite         String           @default("pièce")
+  description   String?
+  /// Un support qui n'existe que pour un produit (fiche posologique, ADV) : le produit est exigé
+  /// à l'entrée en stock — « 300 fiches posologiques » sans produit ne désigne rien qu'on puisse remettre.
+  exigeProduit  Boolean          @default(false)
+  /// Archivé : ne se propose plus, mais reste lisible partout où il a servi.
+  actif         Boolean          @default(true)
+  createdById   String?
+  updatedById   String?
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+  articlesStock PromoStockItem[]
+
+  @@index([famille, actif])
+}
+
+/// UN ARTICLE DE STOCK — un article du catalogue, pour un ou des produits, dans une société.
+///
+/// « Fiche posologique — Nivolex » et « Fiche posologique — Trastuzex » sont deux articles de stock
+/// du même article du catalogue : physiquement, ce ne sont pas les mêmes feuilles. L'identité est
+/// (société, article du catalogue, produits) ; un index unique en base la garantit.
+///
+/// La quantité N'EST PAS stockée ici : elle se calcule à partir des mouvements, par lot et par
+/// détenteur. Un nombre écrit puis corrigé à la main est faux dès la première sortie non saisie,
+/// et rien ne dit quand.
 model PromoStockItem {
-  id              String               @id @default(cuid())
+  id              String                  @id @default(cuid())
   companyId       String? // entité (Adventum / Pharmagène / …)
-  company         Company?             @relation(fields: [companyId], references: [id])
+  company         Company?                @relation(fields: [companyId], references: [id])
+  /// L'article du catalogue que ce stock matérialise.
+  catalogueId     String
+  catalogue       PromoCatalogueArticle   @relation(fields: [catalogueId], references: [id])
+  /// LA CLÉ DES PRODUITS — leurs identifiants canoniques triés, joints par une virgule ("" = sans
+  /// produit). Écrite UNE fois, à la création : c'est elle que l'index d'unicité lit.
+  produitsCle     String                  @default("")
+  produits        PromoStockItemProduct[]
+  /// Libellé à la création (article + produits). L'écran recompose depuis le catalogue ; ce champ
+  /// sert à la recherche et aux lecteurs d'avant ce registre.
   name            String
-  /// Nature du support (présentoir, bloc-notes, poster…) — même vocabulaire que les campagnes.
+  /// Nature du support (héritée des articles d'avant le catalogue).
   materialType    MaterialType?
-  /// Référence interne / fournisseur, quand elle existe.
+  /// Référence interne / fournisseur, quand elle existe (articles d'avant le catalogue).
   reference       String?
   /// Unité de compte : « pièce », « boîte », « lot de 50 »…
   unit            String?
-  /// Où c'est rangé : magasin, agence, voiture d'un délégué.
+  /// Où c'est rangé au magasin.
   location        String?
   /// Seuil d'alerte propre à l'article — 50 présentoirs, ce n'est pas 50 stylos.
-  alertThreshold  Decimal?             @db.Decimal(12, 3)
+  alertThreshold  Decimal?                @db.Decimal(12, 3)
   notes           String?
   /// Campagne dont cet article est issu, quand il vient d'une commande tracée.
   promoMaterialId String?
-  isActive        Boolean              @default(true)
+  /// Support NUMÉRIQUE : le lien (Drive, site, plateforme) et la date de fin de validité. Un support
+  /// numérique n'a ni lot ni mouvement — il n'y a rien à compter.
+  lien            String?
+  valableJusquau  DateTime?
+  isActive        Boolean                 @default(true)
+  lots            PromoStockLot[]
   movements       PromoStockMovement[]
+  transferts      PromoStockTransfer[]
+  demandes        PromoStockRequest[]
   createdById     String?
   updatedById     String?
-  createdAt       DateTime             @default(now())
-  updatedAt       DateTime             @updatedAt
+  createdAt       DateTime                @default(now())
+  updatedAt       DateTime                @updatedAt
 
   @@index([companyId])
   @@index([isActive])
   @@index([promoMaterialId])
+  @@index([catalogueId])
 }
 
-/// UN MOUVEMENT DE STOCK — la seule chose qu'on écrit vraiment.
+/// LES PRODUITS d'un article de stock — les produits CANONIQUES, ceux que la visite coche (§118.115).
+model PromoStockItemProduct {
+  itemId    String
+  item      PromoStockItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  productId String
+  /// Restrict : un produit qui porte du matériel en stock ne s'efface pas en silence.
+  product   Product        @relation("PromoStockProduit", fields: [productId], references: [id], onDelete: Restrict)
+
+  @@id([itemId, productId])
+  @@index([productId])
+}
+
+/// D'OÙ VIENT UN LOT — ce que l'écran dit quand on demande « pourquoi ce lot existe ».
+enum PromoLotOrigine {
+  SAISIE /// Entrée manuelle du Super Admin (don, retour fournisseur, stock trouvé…).
+  OUVERTURE /// Inventaire d'ouverture : le magasin, puis ce que chacun avait déjà en main.
+  CORRECTION /// Unités retrouvées à l'inventaire, dont on ne sait pas de quel lot elles viennent.
+  REPRISE /// L'historique d'avant le registre par lots, repris tel quel.
+  ACHAT /// Réception d'une facture du circuit d'achat.
+}
+
+/// UN LOT — une entrée datée, avec son coût et sa fin de validité.
+///
+/// Personne ne choisit un lot à la main : une sortie prend toujours le lot qui expire le plus tôt
+/// (puis le plus ancien). Un lot périmé ne se distribue plus ; il se déclare perdu ou détruit.
+model PromoStockLot {
+  id             String               @id @default(cuid())
+  itemId         String
+  item           PromoStockItem       @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  /// Rang du lot dans l'article (Lot 1, Lot 2…) — ce qu'on lit à l'écran.
+  numero         Int
+  origine        PromoLotOrigine
+  recuLe         DateTime             @default(now())
+  coutUnitaire   Decimal?             @db.Decimal(14, 2)
+  /// Fin de validité (RCP, visa, campagne). Absente : le lot ne périme pas.
+  valableJusquau DateTime?
+  libelle        String?
+  createdById    String?
+  createdAt      DateTime             @default(now())
+  updatedAt      DateTime             @updatedAt
+  mouvements     PromoStockMovement[]
+
+  @@unique([itemId, numero])
+  @@index([itemId])
+}
+
+/// UN MOUVEMENT DE STOCK — la seule chose qu'on écrit vraiment. Jamais supprimé : une erreur se
+/// corrige par un mouvement INVERSE (`annuleId`), et l'histoire reste entière.
 model PromoStockMovement {
-  id          String            @id @default(cuid())
+  id          String              @id @default(cuid())
   itemId      String
-  item        PromoStockItem    @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  item        PromoStockItem      @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  /// Le lot touché. NoAction : vérifié en fin d'instruction, donc la suppression d'un article
+  /// (qui emporte lots et mouvements) passe, et la suppression d'un lot seul ne passe pas.
+  lotId       String
+  lot         PromoStockLot       @relation(fields: [lotId], references: [id], onDelete: NoAction)
+  /// QUI détient : null = le magasin central de la société de l'article.
+  holderId    String?
   kind        PromoMovementKind
   /// Variation SIGNÉE : + entrée, − sortie. Le sens vient de la nature, pas de la saisie.
-  delta       Decimal           @db.Decimal(12, 3)
-  /// À qui / pour quoi : un délégué, un événement, un congrès.
+  delta       Decimal             @db.Decimal(12, 3)
+  /// Le transfert dont ce mouvement est une jambe (départ, arrivée, retour).
+  transferId  String?
+  transfer    PromoStockTransfer? @relation(fields: [transferId], references: [id], onDelete: NoAction)
+  /// Le mouvement que celui-ci ANNULE — unique : un mouvement ne s'annule qu'une fois.
+  annuleId    String?             @unique
+  annule      PromoStockMovement? @relation("PromoMouvementAnnule", fields: [annuleId], references: [id], onDelete: NoAction)
+  annulation  PromoStockMovement? @relation("PromoMouvementAnnule")
+  /// À qui / pour quoi : un événement, un congrès (texte des mouvements d'avant le registre).
   recipient   String?
   reason      String?
-  occurredAt  DateTime          @default(now())
+  occurredAt  DateTime            @default(now())
   createdById String?
-  createdAt   DateTime          @default(now())
+  createdAt   DateTime            @default(now())
 
   @@index([itemId, occurredAt])
+  @@index([itemId, holderId])
+  @@index([holderId])
+  @@index([lotId])
+  @@index([transferId])
 }
 
 enum PromoMovementKind {
-  RECEIPT /// Entrée : livraison de l'agence, retour de stock
-  DISTRIBUTION /// Sortie : remise à un délégué, dotation d'un événement
-  LOSS /// Sortie sans contrepartie : casse, perte, support daté périmé
+  RECEIPT /// Entrée : livraison, saisie manuelle du Super Admin
+  DISTRIBUTION /// Sortie : remise (mouvements d'avant le registre ; remise à un médecin)
+  LOSS /// Sortie sans contrepartie : casse, perte, support périmé détruit, écart de réception
   CORRECTION /// Correction d'inventaire — dans les deux sens, et assumée
+  OPENING /// Inventaire d'ouverture — une fois par article et par détenteur
+  TRANSFER_OUT /// Départ d'un transfert (dotation, transfert, retour) : quitte le détenteur
+  TRANSFER_IN /// Arrivée confirmée par celui qui reçoit
+  TRANSFER_BACK /// Retour à l'envoyeur : transfert refusé ou annulé
+  REVERSAL /// Annulation d'un mouvement erroné — son exact inverse
+}
+
+/// LA NATURE d'un transfert — déduite de ses deux bouts, jamais saisie.
+enum PromoTransfertNature {
+  DOTATION /// Magasin → une personne
+  TRANSFERT /// Une personne → une autre
+  RETOUR /// Une personne → le magasin
+}
+
+enum PromoTransfertStatut {
+  EN_ROUTE /// Parti, pas encore confirmé par celui qui reçoit
+  RECU /// Confirmé (en tout ou en partie) par celui qui reçoit
+  REFUSE /// Refusé par celui qui reçoit : tout revient à l'envoyeur
+  ANNULE /// Annulé avant réception : tout revient à l'envoyeur
+}
+
+/// UN TRANSFERT — l'un déclare, l'autre confirme (§118.164).
+///
+/// Tant qu'il est EN_ROUTE, la quantité a quitté l'envoyeur et n'est chez personne : elle est
+/// « en route », et l'écran le dit. Le délégué CONFIRME la réception (décision de la Direction,
+/// 01/10) : c'est une attestation, faite par lui, dans sa session.
+model PromoStockTransfer {
+  id             String               @id @default(cuid())
+  itemId         String
+  item           PromoStockItem       @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  nature         PromoTransfertNature
+  /// Qui donne : null = le magasin central.
+  deId           String?
+  /// Qui reçoit : null = le magasin central (un retour).
+  versId         String?
+  quantite       Decimal              @db.Decimal(12, 3)
+  /// Ce que le destinataire a réellement reçu — l'écart, s'il y en a, est déclaré manquant.
+  quantiteRecue  Decimal?             @db.Decimal(12, 3)
+  statut         PromoTransfertStatut @default(EN_ROUTE)
+  note           String?
+  noteDecision   String?
+  initiateurId   String
+  decideParId    String?
+  decideLe       DateTime?
+  /// Le rappel « confirmez la réception » ne part qu'une fois.
+  rappelEnvoyeLe DateTime?
+  /// La demande de matériel que ce transfert sert, le cas échéant.
+  demandeId      String?              @unique
+  demande        PromoStockRequest?   @relation(fields: [demandeId], references: [id], onDelete: SetNull)
+  createdAt      DateTime             @default(now())
+  updatedAt      DateTime             @updatedAt
+  mouvements     PromoStockMovement[]
+
+  @@index([versId, statut])
+  @@index([deId, statut])
+  @@index([itemId, statut])
+}
+
+enum PromoDemandeStatut {
+  OUVERTE
+  SERVIE
+  REFUSEE
+  ANNULEE
+}
+
+/// UNE DEMANDE DE MATÉRIEL — un délégué demande au magasin ; le magasin la sert en une dotation.
+model PromoStockRequest {
+  id           String              @id @default(cuid())
+  itemId       String
+  item         PromoStockItem      @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  demandeurId  String
+  quantite     Decimal             @db.Decimal(12, 3)
+  note         String?
+  statut       PromoDemandeStatut  @default(OUVERTE)
+  decideParId  String?
+  decideLe     DateTime?
+  noteDecision String?
+  createdAt    DateTime            @default(now())
+  updatedAt    DateTime            @updatedAt
+  transfert    PromoStockTransfer?
+
+  @@index([statut])
+  @@index([demandeurId, statut])
+  @@index([itemId])
 }
 
 // ─────────────── Feedback utilisateur ───────────────
@@ -12462,6 +12669,8 @@ model Product {
   promoMessages      PromoMessage[]           @relation("PromoMessageProduct")
   adProAllocations   AdProProductAllocation[]
   assignments        ProductAssignment[]
+  /// Le matériel promotionnel en stock pour ce produit (§118.164).
+  promoStockItems    PromoStockItemProduct[]  @relation("PromoStockProduit")
 
   @@index([dci])
   @@index([companyId])
@@ -12858,14 +13067,14 @@ model JobPosting {
 /// UN ARTICLE DE BLOG destiné au site public (`/blog/<slug>`). Corps en Markdown structuré en `##`
 /// (le site en tire le sommaire) — jamais de titre de niveau 1, que le titre fournit.
 model BlogArticle {
-  id               String    @id @default(cuid())
+  id               String       @id @default(cuid())
   title            String
   /// L'adresse voulue. Vide = le site la dérive du titre (le cas normal). Unique quand elle est donnée.
-  slug             String?   @unique
+  slug             String?      @unique
   description      String?
   body             String
   category         String?
-  tags             String[]  @default([])
+  tags             String[]     @default([])
   author           String?
   /// La date de publication affichée (datePublished). Posée à la première mise en ligne si
   /// l'auteur n'en fixe pas — et elle ne bouge plus à chaque correction.
@@ -12874,14 +13083,14 @@ model BlogArticle {
   firstPublishedAt DateTime?
   /// La dernière révision d'un article déjà publié (dateModified).
   revisedAt        DateTime?
-  featured         Boolean   @default(false)
-  published        Boolean   @default(false)
+  featured         Boolean      @default(false)
+  published        Boolean      @default(false)
   createdById      String?
-  createdBy        User?     @relation("BlogArticleAuthor", fields: [createdById], references: [id], onDelete: SetNull)
+  createdBy        User?        @relation("BlogArticleAuthor", fields: [createdById], references: [id], onDelete: SetNull)
   updatedById      String?
-  updatedBy        User?     @relation("BlogArticleEditor", fields: [updatedById], references: [id], onDelete: SetNull)
-  createdAt        DateTime  @default(now())
-  updatedAt        DateTime  @updatedAt
+  updatedBy        User?        @relation("BlogArticleEditor", fields: [updatedById], references: [id], onDelete: SetNull)
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
   /// L'article du DÉPÔT du site dont celui-ci est la version ERP (§118.160) : poussé avec
   /// `replacesFile`, il remplace le fichier sur le site public.
   reprise          SiteReprise?
