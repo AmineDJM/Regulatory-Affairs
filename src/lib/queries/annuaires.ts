@@ -4,8 +4,10 @@ import { scopeMedicalDoctors, hasGlobalView, type SessionUser } from "@/lib/rbac
 import { companyScopedWhere, getMyCompanies, companyLabel } from "@/lib/company";
 import { canonicalWilaya } from "@/lib/medical/wilaya";
 import { cleCellule } from "@/lib/grille/couleurs";
-import type { AnnuaireRow, CustomColumnVue } from "@/lib/medical/directory-grid";
-import type { DirectoryRow, EtablissementRow, ContactRow, DirectoryPerson } from "@/lib/annuaires/types";
+import { ligneAnnuaire, type AnnuaireRow, type CustomColumnVue } from "@/lib/medical/directory-grid";
+import type { DirectoryRow, EtablissementRow, ContactRow, DirectoryPerson, EtablissementOption } from "@/lib/annuaires/types";
+
+export type { EtablissementOption };
 
 /**
  * ═══════════════════════════════════════════════════════════
@@ -58,8 +60,27 @@ export async function clauseAnnuairesFermes(user: SessionUser): Promise<Prisma.M
 /** Médecins = tout grade sauf PHARMACIEN ; pharmaciens = ce grade seul ; `null` = tous. */
 export type FiltreGrade = "medecins" | "pharmaciens" | null;
 
+/**
+ * LES OPTIONS DE LA COLONNE « ÉTABLISSEMENT » — un référentiel, pas une portée (`page.tsx` des
+ * établissements : `MedicalInstitution` n'a aucune fonction de portée, et les huit lecteurs du dépôt
+ * l'interrogent sans clause). Les DÉSACTIVÉS sont rendus aussi : une fiche déjà rattachée à un
+ * hôpital fermé doit pouvoir le montrer ; c'est la grille qui ne les PROPOSE plus.
+ */
+export async function chargerOptionsEtablissements(): Promise<EtablissementOption[]> {
+  const etabs = await prisma.medicalInstitution.findMany({
+    select: { id: true, name: true, wilaya: true, isActive: true, services: { select: { id: true, name: true } } },
+    orderBy: { name: "asc" },
+  });
+  return etabs.map((e) => ({
+    ...e,
+    services: [...e.services].sort((a, b) => a.name.localeCompare(b.name, "fr")),
+  }));
+}
+
 export interface FeuillePraticiens {
   rows: AnnuaireRow[];
+  /** Les établissements que les colonnes « Établissement » et « Service » proposent. */
+  etablissements: EtablissementOption[];
   couleurs: Record<string, string>;
   customColumns: CustomColumnVue[];
   specialties: string[];
@@ -128,12 +149,15 @@ export async function chargerFeuillePraticiens(
   // globale (§118.104) ; la page d'origine portait ce défaut depuis l'accès par annuaire.
   const whereFeuille = { AND: [scope, directoryWhere, hiddenWhere, gradeWhere] };
 
-  const [doctors, specialtyRefs, directoryCounts, generalCount, myCompanies, colonnesSurMesure, people] = await Promise.all([
+  const [doctors, specialtyRefs, directoryCounts, generalCount, myCompanies, colonnesSurMesure, people, etablissements] = await Promise.all([
     prisma.medicalDoctor.findMany({
       where: whereFeuille,
       orderBy: [{ name: "asc" }],
       include: {
         specialtyRef: { select: { name: true } },
+        // L'établissement et le service RATTACHÉS (§118.172) — leurs noms font foi à l'affichage.
+        institutionRef: { select: { name: true } },
+        serviceRef: { select: { name: true } },
         // Les couleurs de la feuille voyagent avec les lignes : une requête, pas une par cellule.
         cellStyles: { select: { field: true, color: true } },
       },
@@ -156,6 +180,7 @@ export async function chargerFeuillePraticiens(
     opts.canManage
       ? prisma.user.findMany({ where: { isActive: true }, select: { id: true, name: true }, orderBy: { name: "asc" } })
       : Promise.resolve([]),
+    chargerOptionsEtablissements(),
   ]);
 
   const countByDirectory = new Map(directoryCounts.map((c) => [c.directoryId as string, c._count._all]));
@@ -174,22 +199,8 @@ export async function chargerFeuillePraticiens(
     options: (c.options ?? "").split("|").map((o) => o.trim()).filter(Boolean),
   }));
 
-  const rows: AnnuaireRow[] = doctors.map((d) => ({
-    id: d.id,
-    lastName: d.lastName,
-    firstName: d.firstName,
-    address: d.address,
-    wilaya: d.wilaya,
-    potential: d.potential,
-    postalCode: d.postalCode,
-    phone: d.phone,
-    // La saisie libre l'emporte à l'affichage sur le référentiel, comme à l'édition.
-    specialty: d.specialty ?? d.specialtyRef?.name ?? null,
-    title: d.title,
-    email: d.email,
-    sector: d.sector,
-    custom: d.custom && typeof d.custom === "object" && !Array.isArray(d.custom) ? (d.custom as Record<string, unknown>) : {},
-  }));
+  // UNE seule traduction de la fiche en ligne, partagée avec l'export (`ligneAnnuaire`).
+  const rows: AnnuaireRow[] = doctors.map(ligneAnnuaire);
 
   // Saisie assistée de la spécialité : le référentiel structuré ET les libellés déjà employés.
   const specialties = [...new Set([
@@ -198,7 +209,7 @@ export async function chargerFeuillePraticiens(
   ])].sort((a, b) => a.localeCompare(b, "fr"));
 
   return {
-    rows, couleurs, customColumns, specialties, directories, generalCount, openDirectoryId,
+    rows, etablissements, couleurs, customColumns, specialties, directories, generalCount, openDirectoryId,
     directoryName: openDirectoryId
       ? `« ${visibleDirectoryRows.find((d) => d.id === openDirectoryId)?.name ?? "cet annuaire"} »`
       : "l'annuaire général",
@@ -232,21 +243,36 @@ export async function chargerEtablissements(
     compteEntier?: boolean;
   } = {},
 ): Promise<FeuilleEtablissements> {
-  const [institutions, doctorCounts, sectorCounts] = await Promise.all([
+  const portee = opts.compteEntier ? {} : scopeMedicalDoctors(user);
+  const [institutions, doctorCounts, sectorCounts, doctorsParService, secteursParService] = await Promise.all([
     prisma.medicalInstitution.findMany({
       orderBy: [{ name: "asc" }],
-      include: { cellStyles: { select: { field: true, color: true } } },
+      include: {
+        cellStyles: { select: { field: true, color: true } },
+        // SES SERVICES (§118.172) — une requête pour tout l'écran, pas une par ligne.
+        services: { select: { id: true, name: true } },
+      },
     }),
     prisma.medicalDoctor.groupBy({
       by: ["institutionId"],
-      where: { ...(opts.compteEntier ? {} : scopeMedicalDoctors(user)), institutionId: { not: null } },
+      where: { ...portee, institutionId: { not: null } },
       _count: { _all: true },
     }),
     // DANS COMBIEN DE SECTEURS COMMERCIAUX il entre : c'est ce que la suppression ampute.
     prisma.salesSectorInstitution.groupBy({ by: ["institutionId"], _count: { _all: true } }),
+    // Ce que chaque SERVICE porte : ses praticiens (même portée que l'établissement) et les
+    // secteurs qui le choisissent nommément — ce que sa suppression emporte, dit avant le clic.
+    prisma.medicalDoctor.groupBy({
+      by: ["serviceId"],
+      where: { ...portee, serviceId: { not: null } },
+      _count: { _all: true },
+    }),
+    prisma.salesSectorInstitutionService.groupBy({ by: ["serviceId"], _count: { _all: true } }),
   ]);
   const parDoctor = new Map(doctorCounts.map((c) => [c.institutionId as string, c._count._all]));
   const parSecteur = new Map(sectorCounts.map((c) => [c.institutionId, c._count._all]));
+  const doctorsDuService = new Map(doctorsParService.map((c) => [c.serviceId as string, c._count._all]));
+  const secteursDuService = new Map(secteursParService.map((c) => [c.serviceId, c._count._all]));
   const couleurs: Record<string, string> = {};
   for (const i of institutions) for (const s of i.cellStyles) couleurs[cleCellule(i.id, s.field)] = s.color;
   const rows: EtablissementRow[] = institutions.map((i) => ({
@@ -265,6 +291,9 @@ export async function chargerEtablissements(
     isActive: i.isActive,
     doctorCount: parDoctor.get(i.id) ?? 0,
     sectorCount: parSecteur.get(i.id) ?? 0,
+    services: i.services
+      .map((s) => ({ id: s.id, name: s.name, doctorCount: doctorsDuService.get(s.id) ?? 0, sectorCount: secteursDuService.get(s.id) ?? 0 }))
+      .sort((a, b) => a.name.localeCompare(b.name, "fr")),
   }));
   return { rows, couleurs };
 }

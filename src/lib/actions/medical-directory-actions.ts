@@ -10,14 +10,16 @@ import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
 import { companyIdForNew } from "@/lib/company";
 import { readDirectoryWorkbook } from "@/lib/medical/directory-workbook";
-import { parseDirectorySheet, type DirectoryImportRow } from "@/lib/medical/directory-sheet";
+import { parseDirectorySheet, champsAEcrire, type DirectoryImportRow, type DirectoryField } from "@/lib/medical/directory-sheet";
+import { cleDEtablissement, indexerEtablissements, serviceParNom } from "@/lib/annuaires/rattachement";
+import { cleDeService } from "@/lib/annuaires/services";
 import { unresolvedHint } from "@/lib/medical/wilaya";
 import { inferWilayas } from "@/lib/medical/wilaya-ai";
 import {
   isAnnuaireField, validateAnnuaireValue, composeDoctorName, type AnnuaireField,
 } from "@/lib/medical/directory-grid";
 import {
-  proposeMapping, validateMapping, applyMapping, targetsFor,
+  proposeMapping, validateMapping, applyMapping, targetsFor, stdFieldOf,
   canonicalHeaderRow, toCanonicalRow,
   type HeaderProposal, type TargetColumn, type ColumnKind,
 } from "@/lib/medical/directory-mapping";
@@ -93,6 +95,9 @@ export async function importDirectorySheet(formData: FormData): Promise<ActionRe
   // déjà lire : la reconnaissance des grades, secteurs et wilayas n'existe qu'en un exemplaire.
   const mappingRaw = String(formData.get("mapping") ?? "").trim();
   let customByRow: Record<string, string>[] = [];
+  // LES COLONNES QUE LE FICHIER PORTE, quand la personne les a rattachées à l'écran : la feuille
+  // reconstruite ci-dessous est CANONIQUE (toutes les colonnes, vides ou non), elle ne le dit plus.
+  let presentsImposes: Set<DirectoryField> | undefined;
   if (mappingRaw) {
     let mapping: (string | null)[];
     try {
@@ -102,6 +107,7 @@ export async function importDirectorySheet(formData: FormData): Promise<ActionRe
     }
     const problemes = validateMapping(mapping);
     if (problemes.length > 0) return { ok: false, error: problemes[0].message };
+    presentsImposes = new Set(mapping.map(stdFieldOf).filter((f): f is DirectoryField => f !== null));
 
     const corps = sheet.slice(1);
     const canoniques: unknown[][] = [canonicalHeaderRow()];
@@ -114,7 +120,7 @@ export async function importDirectorySheet(formData: FormData): Promise<ActionRe
     sheet = canoniques;
   }
 
-  const parsed = parseDirectorySheet(sheet);
+  const parsed = parseDirectorySheet(sheet, presentsImposes);
   if (parsed.rows.length === 0) {
     return {
       ok: false,
@@ -151,8 +157,34 @@ export async function importDirectorySheet(formData: FormData): Promise<ActionRe
   const aiFilled = needAi.filter((r) => r.wilaya).length;
 
   const companyId = await companyIdForNew(user.id);
+  const presents = parsed.presents;
+
+  // QUI POSSÈDE CE QU'ON IMPORTE. Qui ne voit pas TOUS les praticiens (un délégué : sa portée est
+  // « ses » praticiens) possède les fiches qu'il crée — c'est la règle de l'ajout à la main
+  // (`addDirectoryDoctor`). L'import ne l'appliquait pas : un délégué importait cinquante
+  // praticiens, l'action annonçait « 50 fiches créées », et la feuille ne lui en montrait aucune —
+  // elles n'appartenaient à personne, donc pas à lui. Et la colonne « Délégué » d'un fichier ne
+  // lui donne pas le droit d'attribuer des fiches à d'autres : seul celui qui voit tout attribue.
+  const voitTout = user.access.modules.get("MEDICAL")?.scope === "ALL";
+  const proprietaireImpose = voitTout ? null : user.id;
+  const delegueDuFichier = (r: DirectoryImportRow): string | null =>
+    r.delegate ? delegateByName.get(r.delegate.toLowerCase()) ?? null : null;
+  const delegueInconnu = new Set<string>();
+  for (const r of parsed.rows) if (r.delegate && !delegueDuFichier(r)) delegueInconnu.add(r.delegate);
+
+  // LE RAPPROCHEMENT — « même praticien » = même nom ET même établissement, dans l'annuaire visé.
+  // Un fichier SANS colonne d'établissement ne dit pas l'établissement : chercher « nom + vide »
+  // ne retrouvait que les fiches sans établissement, et chaque praticien hospitalier était recréé
+  // en double à chaque import de ce fichier. Sans cette colonne, on rapproche par le NOM seul —
+  // et un nom porté par deux fiches de l'annuaire (deux homonymes, deux hôpitaux) ne désigne
+  // personne : la ligne est écartée et DITE, jamais rattachée au hasard (§118.34).
+  const parEtablissement = presents.has("institution");
+  const cleNom = (n: string) => n.toLowerCase();
+  // L'établissement se compare comme l'annuaire des établissements le compare (casse, accents,
+  // espaces) : une fiche rattachée porte le nom CANONIQUE (« Hôpital Mustapha »), et le même
+  // fichier réimporté (« hopital mustapha ») doit la retrouver au lieu d'en créer une jumelle.
   const key = (r: { name: string; institution: string | null }) =>
-    `${r.name.toLowerCase()}|${(r.institution ?? "").toLowerCase()}`;
+    parEtablissement ? `${cleNom(r.name)}|${cleDEtablissement(r.institution ?? "")}` : cleNom(r.name);
 
   // On relit les fiches existantes portant l'un des noms du fichier : c'est la seule façon de
   // reconnaître un doublon sans charger tout l'annuaire.
@@ -162,38 +194,49 @@ export async function importDirectorySheet(formData: FormData): Promise<ActionRe
   // — c'est-à-dire modifiait la liste de quelqu'un d'autre, et n'en créait aucune dans la sienne.
   const existing = await prisma.medicalDoctor.findMany({
     where: { name: { in: [...new Set(parsed.rows.map((r) => r.name))] }, directoryId },
-    select: { id: true, name: true, institution: true },
+    select: {
+      id: true, name: true, institution: true, institutionId: true, serviceId: true,
+      lastName: true, firstName: true, specialty: true, wilaya: true, custom: true,
+    },
   });
-  const existingByKey = new Map(existing.map((d) => [key(d), d.id]));
+  type Existante = (typeof existing)[number];
+  const existingByKey = new Map<string, Existante>();
+  const homonymes = new Set<string>();
+  for (const d of existing) {
+    const k = key(d);
+    if (existingByKey.has(k)) homonymes.add(k); else existingByKey.set(k, d);
+  }
 
-  const dataOf = (r: DirectoryImportRow) => ({
-    // NOM / PRÉNOM / ADRESSE / WILAYA / CODE POSTAL sont les colonnes de la GRILLE. Ils étaient
-    // absents de cette écriture : le fichier les portait, l'import les lisait — et l'écran
-    // restait vide. C'était le défaut principal de l'import.
-    lastName: r.lastName,
-    firstName: r.firstName,
-    address: r.address,
-    wilaya: r.wilaya,
-    postalCode: r.postalCode,
-    title: r.title as never,
-    specialty: r.specialty,
-    sector: r.sector as never,
-    institution: r.institution,
-    // LA VILLE N'EST PLUS ÉCRITE : elle a quitté la feuille (décision de la Direction, 09/2026).
-    // Ce que le fichier en dit a déjà servi — à DÉDUIRE la wilaya, dans `parseDirectoryRow`.
-    region: r.region,
-    phone: r.phone,
-    email: r.email,
-    influence: r.influence as never,
-    potential: r.potential as never,
-    affinity: r.affinity as never,
-    targetProducts: r.targetProducts,
-    comments: r.comments,
-    delegateId: r.delegate ? delegateByName.get(r.delegate.toLowerCase()) ?? null : null,
-  });
+  // LA PORTÉE, FICHE PAR FICHE — la MÊME règle que la cellule de la feuille (`canAccessEntity`).
+  // Le rapprochement ne la regardait pas : un délégué qui importait « Dr Benali » mettait à jour
+  // le Dr Benali d'un collègue (son téléphone, son grade, son délégué) — une écriture que la
+  // feuille lui aurait refusée cellule par cellule (§118.71). Une fiche hors de sa portée n'est
+  // ni modifiée ni dupliquée : la ligne est écartée et comptée.
+  const clesDuFichier = new Set(parsed.rows.map(key));
+  const modifiables = new Set<string>();
+  for (const d of existingByKey.values()) {
+    if (clesDuFichier.has(key(d)) && await canAccessEntity(user, "DOCTOR", d.id, "UPDATE")) modifiables.add(d.id);
+  }
+
+  // L'ANNUAIRE DES ÉTABLISSEMENTS (§118.172) — lu UNE fois, interrogé ligne par ligne. Un nom
+  // rattache s'il désigne UN SEUL établissement actif, au caractère près (casse, accents et
+  // espaces mis à part) ; sinon il reste un texte « à rattacher », et le message le dit.
+  const etablissements = presents.has("institution") || presents.has("service")
+    ? await prisma.medicalInstitution.findMany({
+        select: { id: true, name: true, isActive: true, wilaya: true, services: { select: { id: true, name: true } } },
+      })
+    : [];
+  const resoudreEtab = indexerEtablissements(etablissements);
+  const servicesDe = new Map(etablissements.map((e) => [e.id, e.services]));
+  const nomDeEtab = new Map(etablissements.map((e) => [e.id, e.name]));
+  let rattachees = 0;
+  const etabsARattacher = new Map<string, "inconnu" | "ambigu" | "inactif">();
+  const servicesInconnus = new Set<string>();
 
   let created = 0;
   let updated = 0;
+  let horsPortee = 0;
+  let ambiguesNom = 0;
   for (const row of parsed.rows) {
     // LES VALEURS SUR MESURE, retrouvées par l'INDICE DE LA LIGNE DU FICHIER. Les apparier par
     // position dans le résultat aurait donné à chaque praticien les valeurs de son voisin dès
@@ -201,33 +244,94 @@ export async function importDirectorySheet(formData: FormData): Promise<ActionRe
     const sur = customByRow[row.sourceIndex];
     const custom = sur && Object.keys(sur).length > 0 ? sur : null;
 
-    const id = existingByKey.get(key(row));
-    if (id) {
+    const k = key(row);
+    if (homonymes.has(k)) { ambiguesNom += 1; continue; }
+    const existant = existingByKey.get(k) ?? null;
+    if (existant && !modifiables.has(existant.id)) { horsPortee += 1; continue; }
+
+    // L'ÉTABLISSEMENT ET LE SERVICE — des LIENS, jamais devinés.
+    const lien: { institutionId?: string | null; institution?: string | null; serviceId?: string | null } = {};
+    if (presents.has("institution")) {
+      const texte = row.institution;
+      const lieAvant = existant?.institutionId ?? null;
+      if (!texte) {
+        if (existant && (lieAvant || existant.institution)) Object.assign(lien, { institutionId: null, institution: null, serviceId: null });
+      } else {
+        const r = resoudreEtab(texte);
+        if (r.statut === "trouve") {
+          if (r.etablissement.id !== lieAvant) { lien.institutionId = r.etablissement.id; rattachees += 1; }
+          lien.institution = r.etablissement.name;
+        } else if (lieAvant && cleDEtablissement(existant?.institution ?? "") === cleDEtablissement(texte)) {
+          // DÉJÀ LIÉE à l'établissement que le texte nomme — désactivé depuis, ou devenu homonyme
+          // d'un autre : le lien d'avant reste. Le casser parce que le nom ne désigne plus un seul
+          // hôpital retirerait une information juste.
+        } else {
+          lien.institutionId = null;
+          lien.institution = texte;
+          if (!etabsARattacher.has(texte)) etabsARattacher.set(texte, r.statut);
+        }
+      }
+    }
+    const etabFinal = lien.institutionId !== undefined ? lien.institutionId : existant?.institutionId ?? null;
+    if (presents.has("service")) {
+      if (!row.service) {
+        if (existant?.serviceId) lien.serviceId = null;
+      } else if (etabFinal) {
+        const svc = serviceParNom(servicesDe.get(etabFinal) ?? [], row.service, cleDeService);
+        if (svc) lien.serviceId = svc.id;
+        // UN SERVICE QUE L'ÉTABLISSEMENT N'A PAS n'est jamais créé depuis un fichier : « Cardio »
+        // à côté de « Cardiologie » ferait deux services pour un. Il est DIT, pour qu'on l'ajoute
+        // dans l'annuaire des établissements s'il existe vraiment.
+        else servicesInconnus.add(`${nomDeEtab.get(etabFinal) ?? "?"} › ${row.service}`);
+      } else {
+        servicesInconnus.add(`${row.institution ?? "sans établissement"} › ${row.service}`);
+      }
+    }
+    // Un service n'appartient qu'à SON établissement : changer d'établissement le retire, sauf
+    // si la même ligne en désigne un du nouveau.
+    if (lien.institutionId !== undefined && lien.institutionId !== (existant?.institutionId ?? null) && lien.serviceId === undefined) {
+      lien.serviceId = null;
+    }
+
+    const champs = champsAEcrire(row, presents, existant);
+    const delegueLu = delegueDuFichier(row);
+
+    if (existant) {
       // On FUSIONNE les colonnes sur mesure au lieu de remplacer le JSON : un fichier qui ne
       // porte que deux colonnes ne doit pas effacer les huit autres déjà saisies à la main.
-      let fusion: Prisma.InputJsonObject | undefined;
-      if (custom) {
-        const avant = await prisma.medicalDoctor.findUnique({ where: { id }, select: { custom: true } });
-        const base = (avant?.custom ?? {}) as Prisma.InputJsonObject;
-        fusion = { ...base, ...custom };
-      }
+      const base = (existant.custom && typeof existant.custom === "object" && !Array.isArray(existant.custom)
+        ? existant.custom : {}) as Prisma.InputJsonObject;
       await prisma.medicalDoctor.update({
-        where: { id },
-        data: { ...dataOf(row), ...(fusion ? { custom: fusion } : {}), updatedById: user.id },
+        where: { id: existant.id },
+        data: {
+          ...(champs as Prisma.MedicalDoctorUncheckedUpdateInput),
+          ...lien,
+          // LE DÉLÉGUÉ, seulement par qui voit tout, et seulement nommé à coup sûr : une cellule vide
+          // ou un nom inconnu ne retire pas une fiche à celui qui la suit.
+          ...(voitTout && presents.has("delegate") && delegueLu ? { delegateId: delegueLu } : {}),
+          ...(custom ? { custom: { ...base, ...custom } } : {}),
+          updatedById: user.id,
+        },
       });
       updated += 1;
     } else {
       const doc = await prisma.medicalDoctor.create({
         data: {
-          name: row.name, companyId, directoryId, ...dataOf(row),
+          ...(champs as Omit<Prisma.MedicalDoctorUncheckedCreateInput, "name">),
+          name: row.name, companyId, directoryId,
+          ...lien,
+          institution: lien.institution !== undefined ? lien.institution : row.institution,
+          delegateId: proprietaireImpose ?? delegueLu,
           ...(custom ? { custom } : {}),
           createdById: user.id, updatedById: user.id,
         },
-        select: { id: true, name: true, institution: true },
+        select: { id: true, name: true, institution: true, institutionId: true, serviceId: true, lastName: true, firstName: true, specialty: true, wilaya: true, custom: true },
       });
       // Un même fichier peut lister deux fois la même personne : la seconde occurrence doit
-      // mettre à jour la fiche qu'on vient de créer, pas en créer une jumelle.
-      existingByKey.set(key(doc), doc.id);
+      // mettre à jour la fiche qu'on vient de créer, pas en créer une jumelle — sous la même clé
+      // que celle qui l'a cherchée (le nom retenu peut différer du texte du fichier).
+      existingByKey.set(k, doc);
+      modifiables.add(doc.id);
       created += 1;
     }
   }
@@ -238,17 +342,34 @@ export async function importDirectorySheet(formData: FormData): Promise<ActionRe
   const unknownCols = mappingRaw ? [] : parsed.unknown.map((u) => u.header);
   await recordAudit({
     actorId: user.id, action: "CREATE", module: "Promotion médicale",
-    summary: `Import dans ${directoryName} — ${created} créé(s), ${updated} mis à jour, ${parsed.skipped} ignoré(s)${aiFilled > 0 ? ` · ${aiFilled} wilaya(s) déduite(s) par l'assistant` : ""}${unknownCols.length ? ` · colonnes non reconnues : ${unknownCols.join(", ")}` : ""}`,
+    summary: `Import dans ${directoryName} — ${created} créé(s), ${updated} mis à jour, ${parsed.skipped} ignoré(s)${horsPortee + ambiguesNom > 0 ? `, ${horsPortee + ambiguesNom} écartée(s)` : ""}${rattachees > 0 ? ` · ${rattachees} rattachée(s) à un établissement` : ""}${aiFilled > 0 ? ` · ${aiFilled} wilaya(s) déduite(s) par l'assistant` : ""}${unknownCols.length ? ` · colonnes non reconnues : ${unknownCols.join(", ")}` : ""}`,
   });
 
   revalidatePath("/medical");
   revalidatePath("/medical/annuaire");
+  revalidatePath("/annuaires");
 
   // LA DESTINATION EST DITE. C'est ce qui manquait pour s'apercevoir du défaut : le message
   // annonçait « 312 fiches créées » sans jamais nommer l'annuaire, donc sans jamais contredire
   // ce qu'on croyait avoir fait.
   const parts = [`${created} fiche(s) créée(s)`, `${updated} mise(s) à jour`, `dans ${directoryName}`];
   if (parsed.skipped > 0) parts.push(`${parsed.skipped} ligne(s) sans nom ignorée(s)`);
+  // CE QUI N'A PAS ÉTÉ ÉCRIT EST COMPTÉ — une ligne écartée en silence se lit comme une ligne
+  // importée (§118.52).
+  if (horsPortee > 0) parts.push(`${horsPortee} praticien(s) déjà présent(s) hors de votre portée, laissé(s) tel(s) quel(s)`);
+  if (ambiguesNom > 0) parts.push(`${ambiguesNom} ligne(s) écartée(s) : plusieurs fiches portent ce nom — ajoutez la colonne « Établissement » pour les distinguer`);
+  if (rattachees > 0) parts.push(`${rattachees} rattachée(s) à l'annuaire des établissements`);
+  if (etabsARattacher.size > 0) {
+    const liste = [...etabsARattacher.entries()];
+    const raison = (r: "inconnu" | "ambigu" | "inactif") => (r === "ambigu" ? "plusieurs établissements de ce nom" : r === "inactif" ? "établissement désactivé" : "absent de l'annuaire");
+    parts.push(`établissement(s) à rattacher à la main : ${liste.slice(0, 5).map(([n, r]) => `« ${n} » (${raison(r)})`).join(", ")}${liste.length > 5 ? ` et ${liste.length - 5} autre(s)` : ""}`);
+  }
+  if (servicesInconnus.size > 0) {
+    const liste = [...servicesInconnus];
+    parts.push(`service(s) non rattaché(s) — absent(s) de leur établissement : ${liste.slice(0, 5).join(", ")}${liste.length > 5 ? ` et ${liste.length - 5} autre(s)` : ""} (à ajouter dans Annuaires › Établissements)`);
+  }
+  if (delegueInconnu.size > 0 && voitTout) parts.push(`délégué(s) introuvable(s) — les fiches existantes gardent leur délégué, les nouvelles n'en ont pas : ${[...delegueInconnu].slice(0, 5).join(", ")}`);
+  if (presents.has("delegate") && !voitTout) parts.push("colonne « Délégué » non appliquée : les fiches que vous créez vous sont attribuées");
   if (unknownCols.length) parts.push(`colonne(s) non reconnue(s) : ${unknownCols.join(", ")}`);
   return { ok: true, message: parts.join(" · ") };
 }
@@ -301,6 +422,9 @@ export async function previewDirectorySheet(formData: FormData): Promise<
   };
 }
 
+/** Une fois par clic : au-delà, c'est une migration, et on la fait par vues (wilaya, annuaire nommé). */
+const RATTACHEMENT_MAX = 2000;
+
 /** L'échelle de potentiel tient à jour l'ancien champ de priorité (lecteurs hérités). */
 const segToPriority: Record<SegmentLevel, Priority> = {
   VERY_HIGH: "CRITICAL", HIGH: "HIGH", MEDIUM: "MEDIUM", LOW: "LOW", VERY_LOW: "LOW",
@@ -328,12 +452,49 @@ export async function saveDirectoryCell(input: { id: string; field: string; valu
 
   const before = await prisma.medicalDoctor.findUnique({
     where: { id },
-    select: { firstName: true, lastName: true },
+    select: { firstName: true, lastName: true, institutionId: true, serviceId: true },
   });
   if (!before) return { ok: false, error: "Fiche introuvable." };
 
   const data: Record<string, unknown> = { updatedById: user.id };
   switch (field as AnnuaireField) {
+    case "institution": {
+      // LE LIEN VERS L'ANNUAIRE DES ÉTABLISSEMENTS (§118.172). Vide = la fiche n'a plus
+      // d'établissement — ni lien, ni texte, ni service (un service n'existe que dans le sien).
+      if (v === null) {
+        data.institutionId = null; data.institution = null; data.serviceId = null;
+        break;
+      }
+      const etab = await prisma.medicalInstitution.findUnique({ where: { id: v }, select: { id: true, name: true, isActive: true } });
+      if (!etab) return { ok: false, error: "Cet établissement n'existe pas (ou plus) dans l'annuaire des établissements — rechargez la feuille." };
+      if (etab.id === before.institutionId) return { ok: true };
+      // ON NE RATTACHE PAS À UN HÔPITAL FERMÉ. Une fiche déjà rattachée à un établissement
+      // désactivé le GARDE (c'est un fait d'histoire) ; on ne l'y range plus.
+      if (!etab.isActive) {
+        return { ok: false, error: `« ${etab.name} » est désactivé dans l'annuaire des établissements : réactivez-le d'abord (Annuaires › Établissements), ou choisissez-en un autre.` };
+      }
+      data.institutionId = etab.id;
+      // Le libellé dénormalisé suit le lien : visites, congrès et tournées le lisent tel quel.
+      data.institution = etab.name;
+      // LE SERVICE SUIT SON ÉTABLISSEMENT : celui de l'ancien hôpital n'existe pas dans le nouveau.
+      data.serviceId = null;
+      break;
+    }
+    case "service": {
+      if (v === null) { data.serviceId = null; break; }
+      if (!before.institutionId) {
+        return { ok: false, error: "Choisissez d'abord l'établissement de la fiche : un service est toujours celui d'un établissement." };
+      }
+      const service = await prisma.medicalInstitutionService.findUnique({ where: { id: v }, select: { institutionId: true } });
+      if (!service) return { ok: false, error: "Ce service n'existe plus dans l'annuaire des établissements — rechargez la feuille." };
+      // Le menu ne propose que les services de l'établissement de la ligne ; une requête forgée
+      // ignore un menu — c'est ici que la règle se tient.
+      if (service.institutionId !== before.institutionId) {
+        return { ok: false, error: "Ce service n'appartient pas à l'établissement de la fiche." };
+      }
+      data.serviceId = v;
+      break;
+    }
     case "lastName":
     case "firstName": {
       data[field] = v;
@@ -361,6 +522,69 @@ export async function saveDirectoryCell(input: { id: string; field: string; valu
   revalidatePath("/annuaires");
   revalidatePath("/medical");
   return { ok: true };
+}
+
+/**
+ * RATTACHER LES FICHES D'AVANT LE LIEN — en lot, par le NOM, et seulement à coup sûr (§118.172).
+ *
+ * Avant ce lot, l'établissement d'un praticien était un texte tapé à la main. Des centaines de
+ * fiches portent donc « CHU Mustapha » SANS lien vers l'annuaire des établissements : la feuille
+ * les montre « à rattacher », et les rattacher une à une, personne ne le fait. Ce geste rattache
+ * celles dont le texte désigne UN SEUL établissement actif, au caractère près (`rattachement.ts`),
+ * et DIT les autres — homonymes, inconnus, désactivés — pour qu'on les rattache à la main.
+ *
+ * Il ne touche QUE les fiches que la personne peut modifier (la règle de la cellule), et que la
+ * vue qu'elle regarde contient (`ids`) : un clic dans l'annuaire des pharmaciens ne rattache pas
+ * les médecins d'un annuaire qu'elle n'a pas ouvert.
+ */
+export async function rattacherEtablissementsParNom(input: { ids: string[] }): Promise<ActionResult & { rattachees?: number }> {
+  const user = await requireUser();
+  const ids = [...new Set((input.ids ?? []).map((i) => String(i).trim()).filter(Boolean))];
+  if (ids.length === 0) return { ok: false, error: "Aucune fiche à rattacher dans cette vue." };
+  if (ids.length > RATTACHEMENT_MAX) {
+    return { ok: false, error: `${ids.length} fiches d'un coup : c'est plus que les ${RATTACHEMENT_MAX} qu'un rattachement traite — filtrez la feuille (une wilaya, un annuaire nommé) et recommencez.` };
+  }
+  const fiches = await prisma.medicalDoctor.findMany({
+    where: { id: { in: ids }, institutionId: null, institution: { not: null } },
+    select: { id: true, institution: true },
+  });
+  const etablissements = await prisma.medicalInstitution.findMany({ select: { id: true, name: true, isActive: true, wilaya: true } });
+  const resoudre = indexerEtablissements(etablissements);
+
+  let rattachees = 0;
+  let horsPortee = 0;
+  const restent = new Map<string, "inconnu" | "ambigu" | "inactif">();
+  for (const f of fiches) {
+    const r = resoudre(f.institution);
+    if (r.statut !== "trouve") {
+      if (f.institution && !restent.has(f.institution)) restent.set(f.institution, r.statut);
+      continue;
+    }
+    if (!(await canAccessEntity(user, "DOCTOR", f.id, "UPDATE"))) { horsPortee += 1; continue; }
+    // L'écriture est CONDITIONNELLE : une fiche rattachée entre la lecture et ce clic (par la
+    // feuille, par un autre onglet) garde le choix qu'on vient d'y faire.
+    const { count } = await prisma.medicalDoctor.updateMany({
+      where: { id: f.id, institutionId: null },
+      data: { institutionId: r.etablissement.id, institution: r.etablissement.name, serviceId: null, updatedById: user.id },
+    });
+    rattachees += count;
+  }
+  if (rattachees > 0) {
+    await recordAudit({
+      actorId: user.id, action: "UPDATE", module: "Annuaires",
+      summary: `Annuaire des praticiens — ${rattachees} fiche(s) rattachée(s) à l'annuaire des établissements par leur nom`,
+    });
+    revalidatePath("/medical/annuaire");
+    revalidatePath("/annuaires");
+  }
+  const parts = [rattachees > 0 ? `${rattachees} fiche(s) rattachée(s) à l'annuaire des établissements` : "Aucune fiche rattachée"];
+  if (horsPortee > 0) parts.push(`${horsPortee} hors de votre portée, laissée(s) telle(s) quelle(s)`);
+  if (restent.size > 0) {
+    const liste = [...restent.entries()];
+    const raison = (r: "inconnu" | "ambigu" | "inactif") => (r === "ambigu" ? "plusieurs établissements de ce nom" : r === "inactif" ? "établissement désactivé" : "absent de l'annuaire");
+    parts.push(`à rattacher à la main : ${liste.slice(0, 6).map(([n, r]) => `« ${n} » (${raison(r)})`).join(", ")}${liste.length > 6 ? ` et ${liste.length - 6} autre(s)` : ""}`);
+  }
+  return { ok: true, rattachees, message: parts.join(" · ") };
 }
 
 /**
@@ -446,6 +670,10 @@ export async function addDirectoryDoctor(input: {
   title?: string;
   /** L'annuaire nommé dans lequel ranger la fiche ; absent = l'annuaire général. */
   directoryId?: string | null;
+  /** L'établissement de l'annuaire des établissements (§118.172) — choisi, jamais tapé. */
+  institutionId?: string | null;
+  /** Son service — toujours un service DE cet établissement. */
+  serviceId?: string | null;
 }): Promise<ActionResult> {
   const user = await requireUser();
   // LE GRADE D'ABORD : c'est lui qui range la fiche dans l'annuaire des médecins ou des
@@ -472,6 +700,23 @@ export async function addDirectoryDoctor(input: {
   if (!wilaya.ok) return { ok: false, error: wilaya.error };
   const specialty = input.specialty.replace(/\s+/g, " ").trim() || null;
 
+  // L'ÉTABLISSEMENT ET LE SERVICE — les mêmes règles que la cellule de la feuille : un
+  // établissement ACTIF de l'annuaire, et un service qui lui appartient.
+  const institutionId = input.institutionId ? String(input.institutionId).trim() || null : null;
+  const serviceId = input.serviceId ? String(input.serviceId).trim() || null : null;
+  let institution: string | null = null;
+  if (institutionId) {
+    const etab = await prisma.medicalInstitution.findUnique({ where: { id: institutionId }, select: { name: true, isActive: true } });
+    if (!etab) return { ok: false, error: "Cet établissement n'existe pas (ou plus) dans l'annuaire des établissements." };
+    if (!etab.isActive) return { ok: false, error: `« ${etab.name} » est désactivé dans l'annuaire des établissements : réactivez-le d'abord, ou choisissez-en un autre.` };
+    institution = etab.name;
+  }
+  if (serviceId) {
+    if (!institutionId) return { ok: false, error: "Un service se choisit dans un établissement : choisissez d'abord l'établissement." };
+    const service = await prisma.medicalInstitutionService.findUnique({ where: { id: serviceId }, select: { institutionId: true } });
+    if (!service || service.institutionId !== institutionId) return { ok: false, error: "Ce service n'appartient pas à l'établissement choisi." };
+  }
+
   // Un délégué est propriétaire des fiches qu'il crée (portée au niveau ligne).
   const delegateId = user.role === "MEDICAL_DELEGATE" ? user.id : null;
   const companyId = await companyIdForNew(user.id);
@@ -480,6 +725,7 @@ export async function addDirectoryDoctor(input: {
     data: {
       name, lastName: lastName || null, firstName: firstName || null,
       specialty, wilaya: wilaya.value, delegateId, companyId, directoryId,
+      institutionId, institution, serviceId,
       ...(title && title.ok && title.value ? { title: title.value as never } : {}),
       createdById: user.id, updatedById: user.id,
     },

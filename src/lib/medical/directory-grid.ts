@@ -17,6 +17,11 @@ import { DOCTOR_TITLE, MEDICAL_SECTOR, SEGMENT_LEVEL, ALGERIA_WILAYAS } from "@/
  * ni au secteur. Un fichier importé qui porte une colonne « Ville » n'est pas perdu pour autant :
  * elle sert à DÉDUIRE la wilaya (`directory-sheet.ts`), et c'est la wilaya qu'on garde.
  *
+ * L'ÉTABLISSEMENT ET LE SERVICE SONT DES LIENS (décision de la Direction, 01/10 — §118.172).
+ * « Les annuaires des médecins et des pharmaciens doivent tous posséder un lien avec [l'annuaire
+ * des établissements] pour la colonne établissement et la colonne service. » Les deux cellules se
+ * CHOISISSENT : l'établissement dans l'annuaire, le service parmi ceux de cet établissement.
+ *
  * Module PUR — aucune base, aucune lecture de fichier. Il décrit les colonnes et VALIDE une
  * valeur avant écriture ; il est testé, et il est partagé tel quel par la grille (client) et par
  * l'export (serveur). Un seul endroit décide de ce qu'est une colonne valide.
@@ -25,9 +30,18 @@ import { DOCTOR_TITLE, MEDICAL_SECTOR, SEGMENT_LEVEL, ALGERIA_WILAYAS } from "@/
 /** Un champ éditable de l'annuaire — chacun correspond à une colonne de `MedicalDoctor`. */
 export type AnnuaireField =
   | "lastName" | "firstName" | "address" | "wilaya" | "potential"
-  | "postalCode" | "phone" | "specialty" | "title" | "email" | "sector";
+  | "postalCode" | "phone" | "specialty" | "institution" | "service" | "title" | "email" | "sector";
 
-export type CellEditor = "text" | "select";
+/**
+ * `reference` : une cellule qui ne contient PAS une valeur mais un LIEN vers un autre annuaire
+ * (§118.172). Ses options ne sont pas fixes — la liste des établissements, les services DE
+ * l'établissement de la ligne — et c'est l'écran qui les fournit, ligne par ligne ; ce module ne
+ * fait que déclarer la colonne et dire ce qu'elle affiche.
+ */
+export type CellEditor = "text" | "select" | "reference";
+
+/** L'annuaire qu'une colonne `reference` désigne. */
+export type CibleReference = "etablissement" | "service";
 
 export interface AnnuaireColumn {
   field: AnnuaireField;
@@ -40,6 +54,8 @@ export interface AnnuaireColumn {
   suggest?: boolean;
   /** Largeur indicative (rem) — un annuaire qu'il faut élargir à la main agace. */
   width?: number;
+  /** Pour une colonne `reference` : l'annuaire qu'elle désigne. */
+  reference?: CibleReference;
 }
 
 const fromMap = (map: Record<string, unknown>): { value: string; label: string }[] =>
@@ -64,6 +80,11 @@ export const ANNUAIRE_COLUMNS: AnnuaireColumn[] = [
   { field: "postalCode", header: "Code postal", editor: "text", width: 10 },
   { field: "phone", header: "Numéro de téléphone", editor: "text", width: 15 },
   { field: "specialty", header: "Spécialité 1", editor: "text", suggest: true, width: 16 },
+  // LE LIEN VERS L'ANNUAIRE DES ÉTABLISSEMENTS (§118.172) — choisi dans la liste, jamais tapé :
+  // « CHU Mustapha », « C.H.U Mustapha » et « chu mustapha » étaient trois hôpitaux pour les
+  // humains et zéro pour le logiciel. Le service est celui DE l'établissement de la ligne.
+  { field: "institution", header: "Établissement", editor: "reference", reference: "etablissement", width: 20 },
+  { field: "service", header: "Service", editor: "reference", reference: "service", width: 15 },
   { field: "title", header: "Grade", editor: "select", options: fromMap(DOCTOR_TITLE), width: 15 },
   { field: "email", header: "Mail", editor: "text", width: 18 },
   { field: "sector", header: "Privé/Public", editor: "select", options: fromMap(MEDICAL_SECTOR), width: 13 },
@@ -106,6 +127,11 @@ export function validateAnnuaireValue(
       return TITLE_VALUES.includes(v) ? { ok: true, value: v } : { ok: false, error: "Grade invalide." };
     case "sector":
       return SECTOR_VALUES.includes(v) ? { ok: true, value: v } : { ok: false, error: "Secteur invalide." };
+    case "institution":
+    case "service":
+      // UN IDENTIFIANT, pas un texte : son existence — et, pour un service, son appartenance à
+      // l'établissement de la fiche — se vérifient en base, dans l'action. Vide = retirer le lien.
+      return { ok: true, value: v || null };
     default:
       // Champs texte : nom, prénom, adresse, code postal, téléphone, spécialité, mail.
       return { ok: true, value: v || null };
@@ -132,11 +158,79 @@ export interface AnnuaireRow {
   postalCode: string | null;
   phone: string | null;
   specialty: string | null;
+  /**
+   * L'ÉTABLISSEMENT RATTACHÉ (§118.172) — l'identifiant de l'annuaire des établissements, ou
+   * `null`. Une fiche d'avant le lien peut porter un nom tapé à la main SANS identifiant : elle
+   * est « à rattacher », et la feuille le montre comme tel.
+   */
+  institutionId: string | null;
+  /** Le nom affiché : celui de l'établissement rattaché, sinon le texte hérité. */
+  institution: string | null;
+  /** Le SERVICE, toujours un service de `institutionId`. */
+  serviceId: string | null;
+  service: string | null;
   title: string;
   email: string | null;
   sector: string;
   /** Les valeurs des colonnes PROPRES à l'annuaire (`MedicalDoctor.custom`), par clé de colonne. */
   custom?: Record<string, unknown>;
+}
+
+/** Une fiche porte-t-elle un établissement tapé à la main, sans lien vers l'annuaire ? */
+export function estARattacher(row: Pick<AnnuaireRow, "institutionId" | "institution">): boolean {
+  return row.institutionId === null && Boolean(row.institution?.trim());
+}
+
+/**
+ * LA LIGNE D'UN PRATICIEN, telle que la feuille ET le classeur la lisent — UNE seule traduction
+ * de la fiche en ligne. Le chargeur et l'export la recopiaient chacun ; la seconde copie n'avait
+ * pas les colonnes sur mesure, et c'est ainsi qu'un export « reprend les colonnes de l'écran »…
+ * sauf celles qu'on y a ajoutées depuis (§118.5).
+ */
+export function ligneAnnuaire(d: {
+  id: string;
+  lastName: string | null;
+  firstName: string | null;
+  address: string | null;
+  wilaya: string | null;
+  potential: string;
+  postalCode: string | null;
+  phone: string | null;
+  specialty: string | null;
+  specialtyRef?: { name: string } | null;
+  institution: string | null;
+  institutionId: string | null;
+  institutionRef?: { name: string } | null;
+  serviceId: string | null;
+  serviceRef?: { name: string } | null;
+  title: string;
+  email: string | null;
+  sector: string;
+  custom?: unknown;
+}): AnnuaireRow {
+  return {
+    id: d.id,
+    lastName: d.lastName,
+    firstName: d.firstName,
+    address: d.address,
+    wilaya: d.wilaya,
+    potential: d.potential,
+    postalCode: d.postalCode,
+    phone: d.phone,
+    // La saisie libre l'emporte à l'affichage sur le référentiel, comme à l'édition.
+    specialty: d.specialty ?? d.specialtyRef?.name ?? null,
+    // Le nom de l'établissement RATTACHÉ fait foi (un renommage dans l'annuaire suit) ; le texte
+    // hérité ne s'affiche que faute de lien. Un lien vers une ligne disparue retombe sur le texte.
+    institutionId: d.institutionRef ? d.institutionId : null,
+    institution: d.institutionRef?.name ?? d.institution ?? null,
+    // Un service n'a de sens que dans son établissement : sans établissement rattaché, aucun.
+    serviceId: d.institutionRef && d.serviceRef ? d.serviceId : null,
+    service: d.institutionRef ? d.serviceRef?.name ?? null : null,
+    title: d.title,
+    email: d.email,
+    sector: d.sector,
+    custom: d.custom && typeof d.custom === "object" && !Array.isArray(d.custom) ? (d.custom as Record<string, unknown>) : {},
+  };
 }
 
 const optionLabel = (col: AnnuaireColumn, value: string | null): string => {
@@ -149,6 +243,8 @@ export function annuaireCell(row: AnnuaireRow, field: AnnuaireField): string {
   const col = BY_FIELD.get(field)!;
   const raw = row[field];
   if (col.editor === "select") return optionLabel(col, raw as string | null);
+  // Une colonne `reference` porte déjà le NOM dans la ligne (`institution`, `service`) : c'est lui
+  // qu'on lit et qu'on exporte — un identifiant ne dit rien à personne dans un tableur.
   return (raw as string | null) ?? "";
 }
 

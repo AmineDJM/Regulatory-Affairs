@@ -7,7 +7,8 @@ import { userCan, anyRoleFilter } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
 import { monthLabel, canEditRep } from "@/lib/sfe";
-import { fdStr, type ActionResult } from "@/lib/actions/types";
+import { fdStr, fdCase, type ActionResult } from "@/lib/actions/types";
+import { lireCouverture } from "@/lib/annuaires/services";
 import { canAttachBuDepartment, buDepartmentName, buDepartmentCode } from "@/lib/sfe/bu-department";
 import { GRANULARITES, GRANULARITE_LABELS, JOURS_AVANT_ECHEANCE_MAX, estGranularite } from "@/lib/sfe/tournee";
 import { ROLES_QUI_TRANCHENT } from "@/lib/personnes/referents-gamme";
@@ -77,7 +78,9 @@ export async function updateBusinessUnit(formData: FormData): Promise<ActionResu
       headId: fdStr(formData, "headId") || null,
       supervisorId: fdStr(formData, "supervisorId") || null,
       ...(formData.has("channel") ? { channel: parseChannel(fdStr(formData, "channel")) } : {}),
-      isActive: formData.get("isActive") === null ? undefined : formData.get("isActive") === "on",
+      // ABSENT = inchangé ; « on » / « off » tranchent (§118.172). L'écran n'envoyait QUE « on » :
+      // décocher « Active » ne faisait rien, et une gamme ne se désactivait jamais.
+      isActive: fdCase(formData, "isActive"),
     },
   });
   revalidatePath(BU_PATH);
@@ -244,7 +247,9 @@ export async function updatePromoProduct(formData: FormData): Promise<ActionResu
       channel: parseChannel(fdStr(formData, "channel")),
       businessUnitId: fdStr(formData, "businessUnitId") || null,
       managerId: fdStr(formData, "managerId") || null,
-      isActive: formData.get("isActive") === null ? undefined : formData.get("isActive") === "on",
+      // ABSENT = inchangé ; « on » / « off » tranchent (§118.172). L'écran n'envoyait QUE « on » :
+      // décocher « Actif » ne faisait rien, et un produit ne se désactivait jamais.
+      isActive: fdCase(formData, "isActive"),
     },
   });
   revalidatePath(BU_PATH);
@@ -376,16 +381,24 @@ export async function saveRepProfile(formData: FormData): Promise<ActionResult> 
   if (!userCan(user, MODULE, "UPDATE")) return { ok: false, error: "Non autorisé." };
   const repId = fdStr(formData, "repId");
   if (!repId) return { ok: false, error: "KAM introuvable." };
+  // CE QUE LE FORMULAIRE NE PORTE PAS NE CHANGE PAS (§118.172, §118.152c). L'upsert réécrivait
+  // toutes les colonnes : « Rattacher un KAM » n'envoie que la BU, donc un KAM retiré de sa BU puis
+  // rattaché perdait capacités, ETP, séniorité, région et note — remis à « valeur globale » et
+  // « 1 ETP » sans un mot. Et la ligne d'un KAM n'envoie pas la note : chaque correction de
+  // capacité l'effaçait. L'op d'Adam rejouait l'existant pour s'en protéger (« FUSION ») ; c'est
+  // l'action qui doit le tenir, sinon chaque appelant doit y penser.
+  const arrondi = (v: number | null) => (v != null ? Math.round(v) : null);
+  const actif = fdCase(formData, "isActive");
   const data = {
-    businessUnitId: fdStr(formData, "businessUnitId") || null,
-    region: fdStr(formData, "region"),
-    capDaysPerMonth: num(formData, "capDaysPerMonth") != null ? Math.round(num(formData, "capDaysPerMonth")!) : null,
-    capVisitsPerDay: num(formData, "capVisitsPerDay") != null ? Math.round(num(formData, "capVisitsPerDay")!) : null,
-    capFieldPct: num(formData, "capFieldPct") != null ? Math.round(num(formData, "capFieldPct")!) : null,
-    fteBudget: num(formData, "fteBudget") ?? 1,
-    seniority: fdStr(formData, "seniority"),
-    isActive: formData.get("isActive") !== "off",
-    note: fdStr(formData, "note"),
+    ...(formData.has("businessUnitId") ? { businessUnitId: fdStr(formData, "businessUnitId") || null } : {}),
+    ...(formData.has("region") ? { region: fdStr(formData, "region") } : {}),
+    ...(formData.has("capDaysPerMonth") ? { capDaysPerMonth: arrondi(num(formData, "capDaysPerMonth")) } : {}),
+    ...(formData.has("capVisitsPerDay") ? { capVisitsPerDay: arrondi(num(formData, "capVisitsPerDay")) } : {}),
+    ...(formData.has("capFieldPct") ? { capFieldPct: arrondi(num(formData, "capFieldPct")) } : {}),
+    ...(formData.has("fteBudget") ? { fteBudget: num(formData, "fteBudget") ?? 1 } : {}),
+    ...(formData.has("seniority") ? { seniority: fdStr(formData, "seniority") } : {}),
+    ...(actif !== undefined ? { isActive: actif } : {}),
+    ...(formData.has("note") ? { note: fdStr(formData, "note") } : {}),
   };
   await prisma.salesRepProfile.upsert({
     where: { repId },
@@ -492,11 +505,45 @@ async function ecrireSecteur(
   }
   if (homonyme) return { ok: false, error: `Un secteur « ${name} » existe déjà dans cette BU.` };
 
+  // CE QUE LE SECTEUR COUVRE DE CHAQUE ÉTABLISSEMENT (§118.172) — tous ses services, ou certains.
+  // `null` = le formulaire n'en dit rien (une op d'Adam, un appel qui ne touche qu'au nom) : chaque
+  // établissement DÉJÀ couvert garde sa couverture, un nouveau les prend tous. Un champ absent ne
+  // doit pas élargir en silence un territoire qu'on avait restreint (§118.152c).
+  const couv = lireCouverture(formData.get("couverture"));
+  if (!couv.ok) return { ok: false, error: couv.error };
+  const restreints = couv.parEtablissement
+    ? new Map([...couv.parEtablissement].filter(([id]) => institutionIds.includes(id)))
+    : null;
+  if (restreints && restreints.size > 0) {
+    // « AUCUN SERVICE » n'est pas un choix qu'on fait exprès : c'est « tous » qu'on a oublié de
+    // cocher, ou un établissement qu'on voulait retirer. On le dit plutôt que de deviner.
+    const vides = [...restreints].filter(([, ids]) => ids.length === 0).map(([id]) => id);
+    if (vides.length > 0) {
+      const noms = await prisma.medicalInstitution.findMany({ where: { id: { in: vides } }, select: { name: true } });
+      return { ok: false, error: `Aucun service choisi pour ${noms.map((n) => `« ${n.name} »`).join(", ")} : cochez au moins un service, ou « Tous les services ».` };
+    }
+    // UN SERVICE N'EXISTE QUE DANS SON ÉTABLISSEMENT — un écran ignore ce qu'une requête forgée
+    // envoie, c'est ici que la règle se tient.
+    const demandes = [...restreints].flatMap(([institutionId, ids]) => ids.map((serviceId) => ({ institutionId, serviceId })));
+    const connus = await prisma.medicalInstitutionService.findMany({
+      where: { id: { in: [...new Set(demandes.map((d) => d.serviceId))] } },
+      select: { id: true, institutionId: true },
+    });
+    const deQui = new Map(connus.map((c) => [c.id, c.institutionId]));
+    if (demandes.some((d) => deQui.get(d.serviceId) !== d.institutionId)) {
+      return { ok: false, error: "Un service choisi n'existe plus, ou n'appartient pas à son établissement — rechargez l'écran." };
+    }
+  }
+
+  // LES CHAMPS QUE LE FORMULAIRE NE PORTE PAS NE CHANGENT PAS. L'écran n'a ni couleur ni
+  // interrupteur d'activité : la couleur était remise à `null` et le secteur RÉACTIVÉ à chaque
+  // enregistrement — le défaut du témoin caché, par son autre face (§118.172).
+  const actif = fdCase(formData, "isActive");
   const data = {
     name,
-    city: fdStr(formData, "city"),
-    color: fdStr(formData, "color"),
-    isActive: formData.get("isActive") !== "off",
+    ...(formData.has("city") ? { city: fdStr(formData, "city") } : {}),
+    ...(formData.has("color") ? { color: fdStr(formData, "color") } : {}),
+    ...(actif !== undefined ? { isActive: actif } : {}),
   };
 
   const ecrit = await prisma.$transaction(async (tx) => {
@@ -522,6 +569,28 @@ async function ecrireSecteur(
         skipDuplicates: true,
       });
     }
+    // LA COUVERTURE, seulement quand le formulaire la dit. Un établissement sans entrée couvre
+    // TOUS ses services ; une entrée le restreint à ceux qu'elle liste — et ce que la restriction
+    // ne liste plus en sort.
+    if (restreints) {
+      const liens = await tx.salesSectorInstitution.findMany({
+        where: { sectorId: secteur.id },
+        select: { id: true, institutionId: true },
+      });
+      for (const lien of liens) {
+        const choisis = restreints.get(lien.institutionId);
+        await tx.salesSectorInstitution.update({ where: { id: lien.id }, data: { tousLesServices: !choisis } });
+        await tx.salesSectorInstitutionService.deleteMany({
+          where: { sectorInstitutionId: lien.id, ...(choisis ? { serviceId: { notIn: choisis } } : {}) },
+        });
+        if (choisis?.length) {
+          await tx.salesSectorInstitutionService.createMany({
+            data: choisis.map((serviceId) => ({ sectorInstitutionId: lien.id, serviceId })),
+            skipDuplicates: true,
+          });
+        }
+      }
+    }
     if (repIds.length) {
       await tx.salesSectorRep.createMany({
         data: repIds.map((repId) => ({ sectorId: secteur.id, repId })),
@@ -533,7 +602,7 @@ async function ecrireSecteur(
 
   await recordAudit({
     actorId, action: sectorId ? "UPDATE" : "CREATE", module: "Force de vente",
-    summary: `Secteur « ${name} » — ${institutionIds.length} établissement(s), ${repIds.length} KAM`,
+    summary: `Secteur « ${name} » — ${institutionIds.length} établissement(s)${restreints && restreints.size > 0 ? ` dont ${restreints.size} limité(s) à certains services` : ""}, ${repIds.length} KAM`,
   });
   revalidatePath(BU_PATH);
   return { ok: true, id: ecrit };

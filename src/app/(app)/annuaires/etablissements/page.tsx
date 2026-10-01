@@ -3,6 +3,7 @@ import { requireModule } from "@/lib/session";
 import { peutAnnuaire, userCan } from "@/lib/rbac";
 import { INSTITUTION_TYPE, INSTITUTION_SECTOR } from "@/lib/labels";
 import { chargerEtablissements } from "@/lib/queries/annuaires";
+import { prisma } from "@/lib/prisma";
 import { EtablissementsTable } from "./etablissements-table";
 import { EnTeteAnnuaires } from "../en-tete";
 
@@ -32,12 +33,16 @@ export default async function AnnuaireEtablissementsPage() {
   if (!peutAnnuaire(user, "ETABLISSEMENTS", "VIEW")) redirect("/dashboard?denied=MEDICAL");
   // Qui ne voit AUCUN praticien par son module compte les rattachements en entier : sinon il lit
   // « 0 » partout, et supprimer un CHU ne l'avertirait de rien.
-  const feuille = await chargerEtablissements(user, { compteEntier: !userCan(user, "MEDICAL", "VIEW") });
+  const [feuille, specialites] = await Promise.all([
+    chargerEtablissements(user, { compteEntier: !userCan(user, "MEDICAL", "VIEW") }),
+    // Les spécialités connues, PROPOSÉES à la saisie d'un service — un référentiel, pas une porte.
+    prisma.medicalSpecialty.findMany({ select: { name: true }, orderBy: { name: "asc" } }),
+  ]);
   return (
     <div className="space-y-5">
       <EnTeteAnnuaires
         user={user}
-        description="CHU, EPH, EHS, cliniques, polycliniques, cabinets — le référentiel auquel se rattachent les praticiens et sur lequel se découpent les secteurs de la force de vente."
+        description="CHU, EPH, EHS, cliniques, polycliniques, cabinets, et leurs services — le référentiel auquel se rattachent les praticiens. Les secteurs commerciaux ne se saisissent pas ici : chaque Business Unit les découpe dans sa configuration."
       />
       <EtablissementsTable
         rows={feuille.rows}
@@ -47,6 +52,7 @@ export default async function AnnuaireEtablissementsPage() {
         canCreate={peutAnnuaire(user, "ETABLISSEMENTS", "CREATE")}
         canEdit={peutAnnuaire(user, "ETABLISSEMENTS", "UPDATE")}
         canDelete={peutAnnuaire(user, "ETABLISSEMENTS", "DELETE")}
+        suggestionsServices={specialites.map((s) => s.name)}
       />
     </div>
   );

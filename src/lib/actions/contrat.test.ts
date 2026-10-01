@@ -694,6 +694,81 @@ export async function poser(formData: FormData): Promise<R> {
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
+ * UN TEST DE PRÉSENCE N'EST PAS UNE LECTURE, ET LE RÉCEPTEUR COMPTE (§118.172).
+ *
+ * Les écritures PARTIELLES — « ce que le formulaire ne porte pas ne change pas » — s'écrivent
+ * `formData.has("x") ? { x: lire(x) } : {}`. Trois défauts de la dérivation, trouvés en lisant le
+ * diff de l'artefact après ce lot (§118.137) : la dernière passe (`.has`) RE-TYPAIT en texte un
+ * champ lu comme nombre ou comme date ; un lecteur local qui ne fait que tester la présence
+ * (`(k) => formData.has(k)`) prouvait une OBLIGATION (`if (porte("wilaya") && !wilaya.ok)`) ; et
+ * `presents.has("institution")` — un ENSEMBLE de colonnes — ou `user.access.modules.get("MEDICAL")`
+ * se déclaraient champs du formulaire. Et un appel de MÉTHODE (`Number.isFinite(`) passait pour
+ * une garde : 37 fiches du parc annonçaient « isFinite » ou « isArray ».
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ */
+describe("CONTRAT D'ACTION — présence, récepteur et gardes", () => {
+  const lire = (src: string) => contratsDuFichier("t-actions", `"use server";\n${src}`);
+
+  it("un test de présence ne re-type pas un champ lu ailleurs ; seul, il le DÉCLARE en texte", () => {
+    const [c] = lire(`export async function poser(formData: FormData): Promise<R> {
+  const data = {
+    ...(formData.has("montant") ? { montant: fdNum(formData, "montant") } : {}),
+    ...(formData.has("echeance") ? { echeance: fdDate(formData, "echeance") } : {}),
+    ...(formData.has("drapeau") ? { drapeau: true } : {}),
+  };
+  await prisma.truc.update({ where: { id: 1 }, data });
+  return { ok: true };
+}`);
+    expect(c!.illisible).toBeNull();
+    expect(c!.champs.map((x) => `${x.nom}:${x.type}`).sort()).toEqual(["drapeau:texte", "echeance:date", "montant:nombre"]);
+  });
+
+  it("un lecteur local de PRÉSENCE ne prouve aucune obligation et ne type rien", () => {
+    const [c] = lire(`export async function poser(formData: FormData): Promise<R> {
+  const porte = (cle: string) => formData.has(cle);
+  const wilaya = porte("wilaya") ? lireWilaya(fdStr(formData, "wilaya")) : null;
+  if (wilaya && !wilaya.ok) return { ok: false };
+  const nom = fdStr(formData, "nom");
+  if (!nom) return { ok: false };
+  await prisma.truc.update({ where: { id: 1 }, data: { nom, ...(porte("cap") ? { cap: fdNum(formData, "cap") } : {}) } });
+  return { ok: true };
+}`);
+    expect(c!.illisible).toBeNull();
+    const parNom = new Map(c!.champs.map((x) => [x.nom, x]));
+    expect(parNom.get("wilaya")).toMatchObject({ type: "texte", obligatoire: false });
+    expect(parNom.get("cap")).toMatchObject({ type: "nombre", obligatoire: false });
+    // Le témoin : une VRAIE garde `if (!nom)` reste une obligation.
+    expect(parNom.get("nom")).toMatchObject({ obligatoire: true });
+  });
+
+  it("une lecture sur un autre récepteur que le formulaire n'est pas un champ", () => {
+    const [c] = lire(`export async function poser(formData: FormData): Promise<R> {
+  const presents = new Set(["institution"]);
+  const voitTout = user.access.modules.get("MEDICAL")?.scope === "ALL";
+  const fd = formData;
+  const titre = fd.get("titre");
+  if (presents.has("institution") && voitTout) await prisma.truc.update({ where: { id: 1 }, data: { titre: String(titre) } });
+  return { ok: true };
+}`);
+    expect(c!.illisible).toBeNull();
+    // L'alias direct du formulaire compte ; l'ensemble et la table des accès, non.
+    expect(c!.champs.map((x) => x.nom)).toEqual(["titre"]);
+  });
+
+  it("un appel de MÉTHODE n'est pas une garde ; un prédicat de droit, si", () => {
+    const [c] = lire(`export async function poser(formData: FormData): Promise<R> {
+  const n = Number(fdStr(formData, "n"));
+  if (!Number.isFinite(n) || Number.isNaN(n) || !Array.isArray([n])) return { ok: false };
+  if (!isAdProDecided(n) || !canEditAdProRequest(user)) return { ok: false };
+  await prisma.truc.update({ where: { id: 1 }, data: { n } });
+  return { ok: true };
+}`);
+    expect(c!.porte.gardes).toEqual(["canEditAdProRequest", "isAdProDecided"]);
+  });
+});
+
+/**
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
  * CE QUI LIT UN CHAMP DOIT ÊTRE VU — le cliquet qui empêche le trou de se rouvrir.
  *
  * La dérivation ne connaissait que quatre lecteurs (`fdStr`, `fdNum`, `fdDate`, `fdBool`) ; le

@@ -6,7 +6,7 @@ import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
 import { getAppSettings } from "@/lib/settings";
 import { peutEcrireMessagesPromo } from "@/lib/sfe/tournee";
-import { fdStr, type ActionResult } from "@/lib/actions/types";
+import { fdStr, fdCase, type ActionResult } from "@/lib/actions/types";
 
 /**
  * LES MESSAGES PRÉ-DÉFINIS DE LA DIRECTION MARKETING — ce que le KAM doit dire au médecin.
@@ -86,9 +86,11 @@ export async function updatePromoMessage(formData: FormData): Promise<ActionResu
       businessUnitId: fdStr(formData, "businessUnitId") || null,
       productId: fdStr(formData, "productId") || null,
       sortOrder: Number(fdStr(formData, "sortOrder") ?? "0") || 0,
-      // Le champ ABSENT laisse l'état inchangé ; « off » désactive. C'est la convention des
-      // cases à cocher du dépôt, et elle exige le témoin caché côté écran.
-      isActive: formData.get("isActive") === "on" ? true : formData.get("isActive") === "off" ? false : undefined,
+      // Le champ ABSENT laisse l'état inchangé ; le témoin caché seul (« off ») désactive ; la case
+      // cochée (« off » PUIS « on ») active. `formData.get` rendait le témoin, donc chaque
+      // enregistrement désactivait le message — et un message inactif ne se propose plus aux KAM
+      // (§118.172). `fdCase` lit TOUTES les valeurs.
+      isActive: fdCase(formData, "isActive"),
     },
   });
   await recordAudit({

@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { branchesDesPraticiensCouverts, lienCouvre, type LienCouverture } from "@/lib/annuaires/services";
 import type { SessionUser } from "@/lib/rbac";
 import {
   avancementTournee, echeanceDeSoumission, etatVisite, fenetreDeVue, fenetreRapport, periodeDe,
@@ -246,29 +247,37 @@ export interface PlanTourneeVue {
 export async function loadPanelPlanifiable(repId: string): Promise<PraticienPlanifiable[]> {
   const secteurs = await prisma.salesSector.findMany({
     where: { isActive: true, reps: { some: { repId } } },
-    select: { name: true, institutions: { select: { institutionId: true } } },
+    select: {
+      name: true,
+      institutions: { select: { institutionId: true, tousLesServices: true, services: { select: { serviceId: true } } } },
+    },
   });
-  const institutionIds = [...new Set(secteurs.flatMap((s) => s.institutions.map((i) => i.institutionId)))];
-  const secteurParEtab = new Map<string, string>();
-  for (const s of secteurs) for (const i of s.institutions) secteurParEtab.set(i.institutionId, s.name);
+  // LA COUVERTURE DU SECTEUR (§118.172) : un établissement entier, ou seulement certains de ses
+  // services. Un praticien d'un établissement restreint n'entre dans le panel que par son SERVICE
+  // — et un praticien sans service, dans un tel établissement, n'y entre pas : on ne devine pas.
+  const liens: (LienCouverture & { secteur: string })[] = secteurs.flatMap((s) => s.institutions.map((i) => ({
+    institutionId: i.institutionId, tousLesServices: i.tousLesServices, serviceIds: i.services.map((x) => x.serviceId), secteur: s.name,
+  })));
 
   const praticiens = await prisma.medicalDoctor.findMany({
     where: {
       OR: [
         { delegateId: repId },
-        ...(institutionIds.length > 0 ? [{ institutionId: { in: institutionIds } }] : []),
+        ...branchesDesPraticiensCouverts(liens),
       ],
     },
     orderBy: [{ name: "asc" }],
     select: {
       id: true, name: true, specialty: true, institution: true, wilaya: true, potential: true,
-      institutionId: true,
+      institutionId: true, serviceId: true,
     },
   });
   return praticiens.map((d) => ({
     id: d.id, name: d.name, specialty: d.specialty, institution: d.institution,
     wilaya: d.wilaya, potential: d.potential ? String(d.potential) : null,
-    secteur: d.institutionId ? secteurParEtab.get(d.institutionId) ?? null : null,
+    // LE SECTEUR qui l'amène — la MÊME règle que la clause (`lienCouvre`), pour qu'un praticien
+    // venu par un service ne soit pas étiqueté du secteur qui ne couvre pas ce service.
+    secteur: liens.find((l) => lienCouvre(l, d))?.secteur ?? null,
   }));
 }
 

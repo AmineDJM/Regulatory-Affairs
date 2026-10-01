@@ -68,16 +68,20 @@ export default async function BusinessUnitsPage() {
       orderBy: [{ name: "asc" }],
       select: {
         id: true, name: true, city: true, color: true, isActive: true, businessUnitId: true,
-        institutions: { select: { institutionId: true } },
+        institutions: { select: { institutionId: true, tousLesServices: true, services: { select: { serviceId: true } } } },
         reps: { select: { repId: true } },
       },
     }),
-    // LE RÉFÉRENTIEL DES ÉTABLISSEMENTS, à cocher. Bornée aux ACTIFS : un établissement qu'on a
-    // retiré du service ne se propose plus au découpage — mais ceux DÉJÀ dans un secteur restent
-    // affichés (le secteur porte leurs identifiants, la ligne les nomme).
+    // LE RÉFÉRENTIEL DES ÉTABLISSEMENTS, à cocher, avec leurs SERVICES (§118.172). Les ACTIFS, ET
+    // ceux qu'un secteur couvre déjà même désactivés : la version d'avant ne chargeait que les
+    // actifs en affirmant que « ceux déjà dans un secteur restent affichés » — ils ne l'étaient
+    // pas, la ligne disait « établissement retiré », et enregistrer le secteur les en retirait.
     prisma.medicalInstitution.findMany({
-      where: { isActive: true },
-      select: { id: true, name: true, city: true, type: true },
+      where: { OR: [{ isActive: true }, { sectors: { some: {} } }] },
+      select: {
+        id: true, name: true, wilaya: true, type: true, isActive: true,
+        services: { select: { id: true, name: true }, orderBy: { name: "asc" } },
+      },
       orderBy: [{ name: "asc" }],
     }),
     // LES RÉFÉRENTS DIRECTION MARKETING de toutes les gammes, en une requête et groupés à
@@ -159,9 +163,14 @@ export default async function BusinessUnitsPage() {
           id: x.id, name: x.name, city: x.city, color: x.color, isActive: x.isActive,
           businessUnitId: x.businessUnitId,
           institutionIds: x.institutions.map((i) => i.institutionId),
+          liens: x.institutions.map((i) => ({
+            institutionId: i.institutionId, tousLesServices: i.tousLesServices, serviceIds: i.services.map((sv) => sv.serviceId),
+          })),
           repIds: x.reps.map((r) => r.repId),
         }))}
-        etablissements={etablissements.map((e) => ({ id: e.id, name: e.name, city: e.city, type: String(e.type) }))}
+        etablissements={etablissements.map((e) => ({
+          id: e.id, name: e.name, wilaya: e.wilaya, type: String(e.type), isActive: e.isActive, services: e.services,
+        }))}
       />
     </div>
   );

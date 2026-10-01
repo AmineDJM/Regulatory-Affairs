@@ -52,7 +52,7 @@ export default async function AnnuairePage({ searchParams }: { searchParams?: { 
         people={feuille.people}
       />
       <AnnuaireGrid
-        rows={feuille.rows} couleurs={feuille.couleurs} customColumns={feuille.customColumns}
+        rows={feuille.rows} etablissements={feuille.etablissements} couleurs={feuille.couleurs} customColumns={feuille.customColumns}
         canEdit={canEdit} canImport={canImport} canImportFile={canImport} canDelete={canDelete} specialties={feuille.specialties}
         canManageColumns={canEdit}
         directoryId={feuille.openDirectoryId}

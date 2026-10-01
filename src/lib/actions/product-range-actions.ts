@@ -5,7 +5,7 @@ import { requireUser } from "@/lib/session";
 import { userCan, type SessionUser } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
-import { fdStr, type ActionResult } from "@/lib/actions/types";
+import { fdStr, fdCase, type ActionResult } from "@/lib/actions/types";
 
 /**
  * LES GAMMES — création, contenu, et rattachement des personnes.
@@ -78,7 +78,9 @@ export async function updateProductRange(formData: FormData): Promise<ActionResu
     });
     if (dup) return { ok: false, error: `« ${name} » existe déjà dans cette entité.` };
   }
-  const isActiveRaw = formData.get("isActive");
+  // ABSENT = inchangé, le témoin caché seul = désactivée, la case cochée = active (§118.172). Sans
+  // témoin, décocher « Active » n'envoyait rien et la gamme restait active.
+  const isActive = fdCase(formData, "isActive");
 
   await prisma.productRange.update({
     where: { id },
@@ -86,7 +88,7 @@ export async function updateProductRange(formData: FormData): Promise<ActionResu
       name,
       description: fdStr(formData, "description") || null,
       color: fdStr(formData, "color") || null,
-      ...(isActiveRaw != null ? { isActive: isActiveRaw === "on" || isActiveRaw === "true" } : {}),
+      ...(isActive !== undefined ? { isActive } : {}),
     },
   });
 

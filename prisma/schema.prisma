@@ -3747,18 +3747,22 @@ model MedicalSpecialty {
 
 model MedicalDoctor {
   custom                Json? // admin-defined dynamic fields
-  id                    String              @id @default(cuid())
+  id                    String                     @id @default(cuid())
   companyId             String? // entité (Adventum / Pharmagène / …)
-  company               Company?            @relation(fields: [companyId], references: [id])
+  company               Company?                   @relation(fields: [companyId], references: [id])
   name                  String
-  title                 DoctorTitle         @default(AUTRE) // grade : Professeur, etc.
+  title                 DoctorTitle                @default(AUTRE) // grade : Professeur, etc.
   specialty             String? // libellé libre hérité (fallback si non rattaché)
   specialtyId           String?
-  specialtyRef          MedicalSpecialty?   @relation(fields: [specialtyId], references: [id], onDelete: SetNull)
-  sector                MedicalSector       @default(LIBERAL)
+  specialtyRef          MedicalSpecialty?          @relation(fields: [specialtyId], references: [id], onDelete: SetNull)
+  sector                MedicalSector              @default(LIBERAL)
   institution           String? // hôpital / clinique (libellé dénormalisé, hérité)
   institutionId         String?
-  institutionRef        MedicalInstitution? @relation(fields: [institutionId], references: [id], onDelete: SetNull)
+  institutionRef        MedicalInstitution?        @relation(fields: [institutionId], references: [id], onDelete: SetNull)
+  /// SON SERVICE dans l'établissement (§118.172) — toujours un service DE `institutionId` :
+  /// l'action qui l'écrit le vérifie, et changer d'établissement le retire.
+  serviceId             String?
+  serviceRef            MedicalInstitutionService? @relation(fields: [serviceId], references: [id], onDelete: SetNull)
   city                  String?
   region                String?
   /// Découpage administratif algérien — une des 58 wilayas, choisie dans une liste fermée pour
@@ -3771,12 +3775,12 @@ model MedicalDoctor {
   firstName             String?
   phone                 String?
   email                 String?
-  influenceLevel        InfluenceLevel      @default(MEDIUM) // hérité (remplacé par `influence`)
-  prescriptionPotential Priority            @default(MEDIUM) // hérité (remplacé par `potential`)
+  influenceLevel        InfluenceLevel             @default(MEDIUM) // hérité (remplacé par `influence`)
+  prescriptionPotential Priority                   @default(MEDIUM) // hérité (remplacé par `potential`)
   // Segmentation à 5 niveaux (très haut → très bas) sur trois axes.
-  influence             SegmentLevel        @default(MEDIUM) // influence (produit / spécialité)
-  potential             SegmentLevel        @default(MEDIUM) // potentiel de prescription
-  affinity              SegmentLevel        @default(MEDIUM) // affinité avec nous
+  influence             SegmentLevel               @default(MEDIUM) // influence (produit / spécialité)
+  potential             SegmentLevel               @default(MEDIUM) // potentiel de prescription
+  affinity              SegmentLevel               @default(MEDIUM) // affinité avec nous
   // Logique de segmentation produit : par spécialité (specialtyRef) et/ou par
   // produit(s) ciblé(s). `targetProducts` liste les produits suivis pour ce praticien.
   targetProducts        String?
@@ -3809,6 +3813,7 @@ model MedicalDoctor {
   @@index([delegateId])
   @@index([specialtyId])
   @@index([institutionId])
+  @@index([serviceId])
   @@index([sector])
   @@index([region])
   @@index([city])
@@ -3966,6 +3971,9 @@ model MedicalInstitution {
   updatedAt   DateTime          @updatedAt
 
   doctors       MedicalDoctor[]
+  /// SES SERVICES (cardiologie, oncologie, pharmacie centrale…) — §118.172. Un praticien se
+  /// rattache à l'un d'eux ; un secteur commercial couvre l'établissement entier ou certains.
+  services      MedicalInstitutionService[]
   /// LES SECTEURS COMMERCIAUX qui couvrent cet établissement.
   sectors       SalesSectorInstitution[]
   /// Les couleurs posées sur ses cellules dans la feuille des établissements (§118.133).
@@ -3976,6 +3984,36 @@ model MedicalInstitution {
   @@index([type])
   @@index([wilaya])
   @@index([name])
+}
+
+/// UN SERVICE D'UN ÉTABLISSEMENT — cardiologie, oncologie médicale, pharmacie centrale (§118.172).
+///
+/// Décision de la Direction (01/10) : « pour chaque établissement hospitalier, on doit pouvoir
+/// renseigner les services qu'il a, ajouter ou supprimer ces services ». Un service n'existe
+/// QU'À L'INTÉRIEUR de son établissement : la cardiologie du CHU Mustapha n'est pas celle d'Oran,
+/// et un praticien « en cardiologie » sans hôpital ne désigne rien. D'où la cascade : supprimer
+/// l'établissement emporte ses services ; supprimer un service laisse ses praticiens en place,
+/// rattachés à l'établissement, sans service (`SetNull` côté praticien).
+///
+/// Le NOM est unique par établissement, sans égard à la casse ni aux espaces de bord : la
+/// migration pose un index d'EXPRESSION (`lower(btrim(name))`), que Prisma ne sait pas écrire —
+/// « Cardiologie » et « cardiologie  » seraient deux services pour la base et un seul pour
+/// tout le monde.
+model MedicalInstitutionService {
+  id            String             @id @default(cuid())
+  institutionId String
+  institution   MedicalInstitution @relation(fields: [institutionId], references: [id], onDelete: Cascade)
+  name          String
+  createdById   String?
+  createdAt     DateTime           @default(now())
+  updatedAt     DateTime           @updatedAt
+
+  /// Les praticiens rattachés à ce service.
+  doctors  MedicalDoctor[]
+  /// Les secteurs qui le couvrent NOMMÉMENT (un secteur « tous les services » n'en a pas besoin).
+  secteurs SalesSectorInstitutionService[]
+
+  @@index([institutionId])
 }
 
 /// LA COULEUR D'UNE CELLULE D'ANNUAIRE (§118.133).
@@ -9981,15 +10019,36 @@ model SalesSector {
 /// n'a plus d'objet (Cascade) — contrairement à `SalesRepProfile`, qui porte une CONFIGURATION
 /// (capacité, ETP) qu'on ne jette pas avec la personne.
 model SalesSectorInstitution {
-  id            String             @id @default(cuid())
-  sectorId      String
-  sector        SalesSector        @relation(fields: [sectorId], references: [id], onDelete: Cascade)
-  institutionId String
-  institution   MedicalInstitution @relation(fields: [institutionId], references: [id], onDelete: Cascade)
-  createdAt     DateTime           @default(now())
+  id              String                          @id @default(cuid())
+  sectorId        String
+  sector          SalesSector                     @relation(fields: [sectorId], references: [id], onDelete: Cascade)
+  institutionId   String
+  institution     MedicalInstitution              @relation(fields: [institutionId], references: [id], onDelete: Cascade)
+  /// TOUS LES SERVICES de l'établissement — le défaut, et ce que portait tout lien d'avant
+  /// (§118.172). Faux = seulement les services listés dans `services`. Un service ajouté plus tard
+  /// à l'établissement entre dans un secteur « tous les services », jamais dans un secteur qui en
+  /// a choisi certains.
+  tousLesServices Boolean                         @default(true)
+  services        SalesSectorInstitutionService[]
+  createdAt       DateTime                        @default(now())
 
   @@unique([sectorId, institutionId])
   @@index([institutionId])
+}
+
+/// UN SERVICE CHOISI dans un établissement d'un secteur (§118.172) — seulement quand le secteur
+/// n'en couvre pas TOUS. Supprimer le service retire la ligne ; un lien qui n'a plus aucun
+/// service ne s'élargit JAMAIS en « tous les services » : élargir un territoire en silence
+/// ouvrirait à un KAM des praticiens que personne ne lui a confiés. Il le dit à l'écran.
+model SalesSectorInstitutionService {
+  id                  String                    @id @default(cuid())
+  sectorInstitutionId String
+  sectorInstitution   SalesSectorInstitution    @relation(fields: [sectorInstitutionId], references: [id], onDelete: Cascade)
+  serviceId           String
+  service             MedicalInstitutionService @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+
+  @@unique([sectorInstitutionId, serviceId])
+  @@index([serviceId])
 }
 
 /// LE KAM AFFECTÉ À UN SECTEUR.

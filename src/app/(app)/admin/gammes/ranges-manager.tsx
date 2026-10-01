@@ -327,6 +327,8 @@ function RangeSheet({
         </div>
         {range && (
           <label className="flex items-center gap-2 text-sm">
+            {/* LE TÉMOIN CACHÉ, AVANT la case : décochée, c'est lui qui dit « non » (§118.172). */}
+            <input type="hidden" name="isActive" value="off" />
             <input type="checkbox" name="isActive" defaultChecked={range.isActive} className="h-4 w-4" />
             Gamme active
           </label>

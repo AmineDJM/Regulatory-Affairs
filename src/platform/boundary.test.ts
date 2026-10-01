@@ -116,8 +116,16 @@ import { scanBoundary, ADAM_PATHS, BRIDGE_PATHS, NEUTRAL } from "./boundary-scan
  * stock atteste un fait physique qu'un modèle ne voit pas, et Adam est en pause. Mesuré par
  * différence avec une copie de HEAD : un franchissement de moins, aucun de plus. Plafond ramené
  * au chiffre mesuré — laissé à 427, il ne signalerait plus le premier franchissement neuf.
+ *
+ * 426 → 425 (2026-10-01, MESURÉ AU LOT SUIVANT, §118.172) : la demande de matériel née avec ses
+ * lignes (§118.171) a retiré à `assistant.ts` son import de `createPromoMaterial` — l'outil d'Adam
+ * refuse désormais à la proposition comme à l'exécution, sans appeler l'action. Le lot qui l'a
+ * fait n'a pas ramené le plafond : le cliquet a vécu un lot avec un cran de marge, c'est-à-dire en
+ * état d'accepter le premier import neuf sans rien dire (§118.79c). Mesuré ici par différence
+ * entre deux copies (`git archive`) — 8089f05 et le commit du lot : un franchissement de moins,
+ * aucun de plus.
  */
-const DEBT_CEILING = 426;
+const DEBT_CEILING = 425;
 
 describe("frontière Adam ↔ ERP", () => {
   const report = scanBoundary();

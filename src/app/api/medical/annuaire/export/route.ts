@@ -7,7 +7,7 @@ import { companyScopedWhere } from "@/lib/company";
 import { recordAudit } from "@/lib/audit";
 import { buildAnnuaireWorkbook } from "@/lib/medical/directory-workbook";
 import { directoryExportFilename } from "@/lib/medical/directory-sheet";
-import type { AnnuaireRow } from "@/lib/medical/directory-grid";
+import { ligneAnnuaire } from "@/lib/medical/directory-grid";
 
 /**
  * EXPORT DE L'ANNUAIRE EN CLASSEUR — exactement les colonnes de l'écran.
@@ -44,23 +44,16 @@ export async function GET(req: Request) {
       ],
     },
     orderBy: [{ name: "asc" }],
-    include: { specialtyRef: { select: { name: true } } },
+    include: {
+      specialtyRef: { select: { name: true } },
+      institutionRef: { select: { name: true } },
+      serviceRef: { select: { name: true } },
+    },
   });
 
-  const rows: AnnuaireRow[] = doctors.map((d) => ({
-    id: d.id,
-    lastName: d.lastName,
-    firstName: d.firstName,
-    address: d.address,
-    wilaya: d.wilaya,
-    potential: d.potential,
-    postalCode: d.postalCode,
-    phone: d.phone,
-    specialty: d.specialty ?? d.specialtyRef?.name ?? null,
-    title: d.title,
-    email: d.email,
-    sector: d.sector,
-  }));
+  // LA MÊME TRADUCTION QUE LA FEUILLE (`ligneAnnuaire`) : l'export recopiait la sienne, et un
+  // export qui « reprend les colonnes de l'écran » finit par ne plus les reprendre (§118.5).
+  const rows = doctors.map(ligneAnnuaire);
 
   const buffer = buildAnnuaireWorkbook(rows);
   await recordAudit({

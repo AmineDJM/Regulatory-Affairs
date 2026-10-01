@@ -1197,6 +1197,12 @@ X("LE CONTRÔLE DE DOUBLON DE DCI est le miroir d'un formulaire, pas un geste : 
 X("APERÇU AVANT ÉCRITURE : une étape d'ÉCRAN, sans effet. Elle lit un classeur et propose une correspondance de colonnes à valider à la main. Adam, lui, importe par la reconnaissance automatique (`importDirectorySheet` sans correspondance) : il n'a personne pour trancher, et une confirmation qu'aucun humain ne lit n'est pas une confirmation.", [
   "medical-directory-actions:previewDirectorySheet",
 ]);
+X("LES SERVICES D'UN ÉTABLISSEMENT ET LE RATTACHEMENT EN LOT DES PRATICIENS sont des gestes d'écran neufs (§118.172), et Adam est en pause de développement : aucun geste neuf ne lui est ouvert. Le rattachement en lot, de plus, ne vaut que DEVANT la liste qu'il rattache — la personne voit les fiches « à rattacher » de son filtre et clique ; il ne rattache que le nom qui désigne UN établissement actif, et nomme les autres. Les services se gèrent sur Annuaires › Établissements (bouton « Services » de la ligne), le rattachement sur la feuille des médecins ou des pharmaciens.", [
+  "etablissement-services-actions:ajouterServicesEtablissement",
+  "etablissement-services-actions:renommerServiceEtablissement",
+  "etablissement-services-actions:supprimerServiceEtablissement",
+  "medical-directory-actions:rattacherEtablissementsParNom",
+]);
 // NB : `admin-actions:createUser` a quitté cette liste — le besoin « créer un compte » est
 // couvert par `org_operation:create_account_invite` (lien d'invitation : la personne définit
 // SON mot de passe ; rien ne transite par la conversation) via la reclassification catalogue.

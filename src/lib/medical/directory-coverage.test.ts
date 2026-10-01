@@ -35,9 +35,12 @@ describe("Annuaire — tout ce que l'écran affiche doit pouvoir s'importer", ()
     // seul découpage, et c'est elle que l'export porte et que l'import relit.
     const row = [
       "BENALI", "Karim", "12 rue Didouche Mourad", "Alger",
-      "HIGH", "16000", "0550 12 34 56", "Cardiologie", "Chef de service",
+      "HIGH", "16000", "0550 12 34 56", "Cardiologie", "CHU Mustapha", "Cardiologie A", "Chef de service",
       "k.benali@chu.dz", "HOSPITAL",
     ];
+    // L'en-tête et la ligne doivent avoir la même largeur : sinon la ligne de ce banc glisse d'une
+    // colonne dès qu'on en ajoute une à l'export, et l'assertion du grade lit l'établissement.
+    expect(row).toHaveLength(headers.length);
     const parsed = parseDirectorySheet([headers, row]);
 
     expect(parsed.rows).toHaveLength(1);
@@ -50,8 +53,29 @@ describe("Annuaire — tout ce que l'écran affiche doit pouvoir s'importer", ()
     expect(r.postalCode).toBe("16000");
     expect(r.phone).toBe("0550 12 34 56");
     expect(r.specialty).toBe("Cardiologie");
+    // L'établissement et le service (§118.172) : relus pour être RATTACHÉS par l'import.
+    expect(r.institution).toBe("CHU Mustapha");
+    expect(r.service).toBe("Cardiologie A");
     expect(r.title).toBe("CHEF_DE_SERVICE");
     expect(r.email).toBe("k.benali@chu.dz");
+  });
+
+  it("« Service » a sa propre colonne ; un fichier qui n'a qu'elle remplit AUSSI la spécialité", () => {
+    const seul = parseDirectorySheet([["Nom", "Service"], ["BENALI", "Néphrologie"]]);
+    expect(seul.rows[0].service).toBe("Néphrologie");
+    expect(seul.rows[0].specialty).toBe("Néphrologie");
+    // Un fichier qui A une colonne de spécialité a parlé, même vide : on ne la remplit pas à sa place.
+    const deux = parseDirectorySheet([["Nom", "Spécialité", "Service"], ["BENALI", "", "Néphrologie"]]);
+    expect(deux.rows[0].service).toBe("Néphrologie");
+    expect(deux.rows[0].specialty).toBeNull();
+    // Et une correspondance tranchée à l'écran dit ce que le fichier porte — la feuille canonique
+    // reconstruite a toutes les colonnes, elle ne le dit plus.
+    const canonique = parseDirectorySheet(
+      [DIRECTORY_COLUMNS.map((c) => c.header), DIRECTORY_COLUMNS.map((c) => (c.key === "lastName" ? "BENALI" : c.key === "service" ? "Néphrologie" : ""))],
+      new Set(["lastName", "service"] as const),
+    );
+    expect(canonique.rows[0].specialty).toBe("Néphrologie");
+    expect([...canonique.presents].sort()).toEqual(["lastName", "service"]);
   });
 
   it("aucune colonne de notre export n'est rendue « non reconnue »", () => {

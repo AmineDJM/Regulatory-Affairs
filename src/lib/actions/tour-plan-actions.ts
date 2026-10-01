@@ -13,6 +13,7 @@ import {
   type Granularite, type StatutPlan,
 } from "@/lib/sfe/tournee";
 import { lireReglageTournee } from "@/lib/sfe/tournee-reglage";
+import { loadPanelPlanifiable } from "@/lib/queries/tour-schedule";
 
 /**
  * LE PLAN DE TOURNÉE — écriture, soumission, escalade, décision.
@@ -170,6 +171,26 @@ export async function planifierVisites(formData: FormData): Promise<ActionResult
   // Une visite rapportée reste, quoi qu'il arrive.
   const aRetirer = existantes.filter((v) => v.status === "PLANNED" && !voulues.has(cle(v.date, v.doctorId)));
   const aCreer = paires.filter((p) => !deja.has(cle(p.jour, p.doctorId)));
+
+  // LE PANEL DU KAM, ET LUI SEUL (§118.172). L'écran ne propose que les praticiens de ses secteurs
+  // et ceux qui lui sont rattachés ; l'action relit la MÊME liste (`loadPanelPlanifiable`) — deux
+  // lectures du territoire finiraient par répondre différemment (§118.5). Sans elle, une requête
+  // forgée planifiait n'importe quel praticien de l'annuaire, et le N+1 aurait validé une tournée
+  // que la couverture de la BU n'autorise pas : le découpage par service n'aurait tenu qu'à l'écran.
+  // Seul ce qu'on AJOUTE est vérifié : une visite déjà planifiée dont le praticien a quitté le
+  // panel depuis (secteur redécoupé, praticien réaffecté) reste — la refuser bloquerait toute
+  // retouche du plan pour un fait que le KAM n'a pas causé (§118.27).
+  const nouveaux = [...new Set(aCreer.map((p) => p.doctorId))];
+  if (nouveaux.length > 0) {
+    const panel = new Set((await loadPanelPlanifiable(plan.repId)).map((d) => d.id));
+    const hors = nouveaux.filter((id) => !panel.has(id));
+    if (hors.length > 0) {
+      return {
+        ok: false,
+        error: `${hors.length} praticien(s) hors du panel de ce KAM — ni rattachés à lui, ni couverts par l'un de ses secteurs. La couverture se règle dans Force de vente › Business Units.`,
+      };
+    }
+  }
 
   await prisma.$transaction(async (tx) => {
     if (aRetirer.length > 0) await tx.medicalVisit.deleteMany({ where: { id: { in: aRetirer.map((v) => v.id) } } });

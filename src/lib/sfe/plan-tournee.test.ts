@@ -242,6 +242,40 @@ suite("Plan de tournée — écran, validation, rapport, dénominateur", () => {
     expect(r.ok === false ? r.error : "").toContain("illisibles");
   });
 
+  it("un praticien HORS du panel est refusé — l'écran ne le propose pas, une requête forgée ne le planifie pas", async () => {
+    // Le cas qui le ferait tomber : une action qui ne vérifie que l'EXISTENCE du praticien. Le
+    // découpage d'une BU par service ne tiendrait alors qu'à l'écran.
+    ACTEUR = await acteur(kamId, "MEDICAL_DELEGATE");
+    const etranger = await prisma.medicalDoctor.create({ data: { name: `${TAG}Dr Etranger`, wilaya: "Alger" } });
+    const panel = (await loadPanelPlanifiable(kamId)).map((p) => p.id);
+    expect(panel, "PRÉMISSE : le praticien n'est pas dans le panel").not.toContain(etranger.id);
+    const avant = await prisma.medicalVisit.findMany({ where: { tourPlanId: planId }, select: { date: true, doctorId: true } });
+    const garde = avant.map((v) => `${jourIso(v.date)}|${v.doctorId}`);
+    const r = await planifierVisites(fd({ planId, visite: [...garde, `${jourIso(avant[0]!.date)}|${etranger.id}`] }));
+    expect(r.ok).toBe(false);
+    expect(r.ok === false ? r.error : "").toContain("hors du panel");
+    expect(await prisma.medicalVisit.count({ where: { tourPlanId: planId, doctorId: etranger.id } })).toBe(0);
+    expect(await prisma.medicalVisit.count({ where: { tourPlanId: planId } })).toBe(avant.length);
+  });
+
+  it("une visite DÉJÀ planifiée dont le praticien a QUITTÉ le panel reste — seul ce qu'on AJOUTE est vérifié", async () => {
+    // Le cas qui le ferait tomber : une garde posée sur TOUTE la sélection. Un secteur redécoupé
+    // après coup bloquerait alors toute retouche du plan, pour un fait que le KAM n'a pas causé.
+    ACTEUR = await acteur(kamId, "MEDICAL_DELEGATE");
+    const avant = await prisma.medicalVisit.findMany({ where: { tourPlanId: planId }, select: { date: true, doctorId: true } });
+    expect(avant.length, "PRÉMISSE : une visite déjà planifiée").toBeGreaterThan(0);
+    const parti = avant[0]!.doctorId!;
+    await prisma.medicalDoctor.update({ where: { id: parti }, data: { delegateId: null } });
+    try {
+      expect((await loadPanelPlanifiable(kamId)).map((p) => p.id), "PRÉMISSE : il a quitté le panel").not.toContain(parti);
+      const r = await planifierVisites(fd({ planId, visite: avant.map((v) => `${jourIso(v.date)}|${v.doctorId}`) }));
+      expect(r.ok, r.ok === false ? r.error : "").toBe(true);
+      expect(await prisma.medicalVisit.count({ where: { tourPlanId: planId, doctorId: parti } })).toBe(1);
+    } finally {
+      await prisma.medicalDoctor.update({ where: { id: parti }, data: { delegateId: kamId } });
+    }
+  });
+
   it("soumettre RÉSOUT le validateur — le superviseur de la BU, et il est FIGÉ", async () => {
     ACTEUR = await acteur(kamId, "MEDICAL_DELEGATE");
     const r = await soumettrePlanTournee(fd({ planId }));

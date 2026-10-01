@@ -3,24 +3,30 @@
 import * as React from "react";
 import { useRouter } from "next/navigation";
 import {
-  Search, Upload, Loader2, FileSpreadsheet, Info, Plus, Rows3, LayoutList, Check, X, Trash2, Columns3,
+  Search, Upload, Loader2, FileSpreadsheet, Info, Plus, Rows3, LayoutList, Check, X, Trash2, Columns3, Building2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input, Select } from "@/components/ui/input";
 import { normalizeHeader } from "@/lib/medical/directory-sheet";
-import { ANNUAIRE_COLUMNS, annuaireCell, type AnnuaireRow, type AnnuaireField, type CustomColumnVue } from "@/lib/medical/directory-grid";
+import {
+  ANNUAIRE_COLUMNS, annuaireCell, estARattacher,
+  type AnnuaireRow, type AnnuaireField, type CustomColumnVue, type CibleReference,
+} from "@/lib/medical/directory-grid";
 import {
   importDirectorySheet, previewDirectorySheet, saveDirectoryCell, saveDirectoryCustomCell,
-  addDirectoryDoctor, deleteDirectoryDoctors,
+  addDirectoryDoctor, deleteDirectoryDoctors, rattacherEtablissementsParNom,
 } from "@/lib/actions/medical-directory-actions";
+import { cleDEtablissement } from "@/lib/annuaires/rattachement";
+import type { EtablissementOption } from "@/lib/annuaires/types";
 import { createDirectoryColumn, deleteDirectoryColumn } from "@/lib/actions/medical-directory-crud-actions";
 import { colorerCellulesAnnuaire } from "@/lib/actions/annuaire-couleurs-actions";
 import type { HeaderProposal, TargetColumn } from "@/lib/medical/directory-mapping";
 import { cleCellule, type CouleurCellule } from "@/lib/grille/couleurs";
 import type { Coord } from "@/lib/grille/selection";
 import { useSelectionGrille } from "@/components/grille/use-selection";
-import { BarreSelection, classeCouleurCellule } from "@/components/grille/barre-selection";
+import { BarreSelection, DockSelection, classeCouleurCellule } from "@/components/grille/barre-selection";
+import { useRafraichir } from "@/components/shared/use-rafraichir";
 import { ImportMappingSheet } from "./import-mapping-sheet";
 
 /**
@@ -59,19 +65,27 @@ export type { CustomColumnVue };
 interface ColonneVue {
   cle: string;
   header: string;
-  editor: "text" | "select" | "number" | "date";
+  editor: "text" | "select" | "number" | "date" | "reference";
   options?: { value: string; label: string }[];
   suggest?: boolean;
   width: number;
   custom: boolean;
   /** Le champ du tronc commun, quand c'en est un (pour l'affichage traduit et l'écriture). */
   field?: AnnuaireField;
+  /** Pour une colonne `reference` : l'annuaire qu'elle désigne (§118.172). */
+  reference?: CibleReference;
+}
+
+/** Un groupe d'options d'un menu de lien (« Proche du texte saisi », « Tous les établissements »). */
+interface GroupeOptions {
+  label: string | null;
+  options: { value: string; label: string }[];
 }
 
 function colonnesDeLaFeuille(custom: CustomColumnVue[]): ColonneVue[] {
   const std: ColonneVue[] = ANNUAIRE_COLUMNS.map((c) => ({
     cle: c.field, header: c.header, editor: c.editor, options: c.options, suggest: c.suggest,
-    width: c.width ?? 12, custom: false, field: c.field,
+    width: c.width ?? 12, custom: false, field: c.field, reference: c.reference,
   }));
   const cus: ColonneVue[] = custom.map((c) => ({
     cle: c.key, header: c.label, width: 12, custom: true,
@@ -89,11 +103,52 @@ function valeurAffichee(row: AnnuaireRow, col: ColonneVue): string {
   return typeof v === "number" ? String(v).replace(".", ",") : String(v);
 }
 
-/** La valeur BRUTE d'une cellule (code d'énuméré, texte) — ce que l'éditeur reçoit. */
+/** La valeur BRUTE d'une cellule (code d'énuméré, texte, IDENTIFIANT d'un lien) — ce que l'éditeur reçoit. */
 function valeurBrute(row: AnnuaireRow, col: ColonneVue): string {
+  // Un lien s'édite par son identifiant : le nom affiché n'est qu'un libellé de l'annuaire.
+  if (col.reference === "etablissement") return row.institutionId ?? "";
+  if (col.reference === "service") return row.serviceId ?? "";
   if (col.field) return ((row[col.field] as string | null) ?? "");
   const v = row.custom?.[col.cle];
   return v === null || v === undefined ? "" : String(v);
+}
+
+const libelleEtab = (e: EtablissementOption) => (e.wilaya ? `${e.name} · ${e.wilaya}` : e.name);
+
+/**
+ * LES CHOIX D'UNE CELLULE DE LIEN, pour CETTE ligne (§118.172).
+ *
+ * Établissement : les établissements ACTIFS de l'annuaire — et, en tête, ceux dont le nom est
+ * PROCHE du texte qu'une fiche d'avant portait (« chu mustapha » → « CHU Mustapha »), pour que
+ * rattacher se fasse en un choix. L'établissement DÉJÀ rattaché reste proposé même désactivé :
+ * ouvrir la cellule ne doit pas faire croire qu'il a disparu. Proposer n'est pas choisir — c'est
+ * la personne qui choisit, et l'action revérifie.
+ *
+ * Service : seulement ceux de l'établissement de la ligne. Rien d'autre n'a de sens.
+ */
+function groupesDeLaCellule(col: ColonneVue, row: AnnuaireRow, etablissements: readonly EtablissementOption[]): GroupeOptions[] {
+  if (col.reference === "service") {
+    const etab = etablissements.find((e) => e.id === row.institutionId);
+    return [{ label: null, options: [{ value: "", label: "— Aucun service —" }, ...(etab?.services ?? []).map((s) => ({ value: s.id, label: s.name }))] }];
+  }
+  const actifs = etablissements.filter((e) => e.isActive || e.id === row.institutionId);
+  const groupes: GroupeOptions[] = [{ label: null, options: [{ value: "", label: "— Aucun établissement —" }] }];
+  if (estARattacher(row)) {
+    const cle = cleDEtablissement(row.institution ?? "");
+    const mots = cle.split(" ").filter((m) => m.length >= 3);
+    const proches = actifs.filter((e) => {
+      const n = cleDEtablissement(e.name);
+      return n === cle || n.includes(cle) || cle.includes(n) || (mots.length > 0 && mots.every((m) => n.includes(m)));
+    }).slice(0, 8);
+    if (proches.length > 0) {
+      groupes.push({ label: `Proche du texte saisi « ${row.institution} »`, options: proches.map((e) => ({ value: e.id, label: libelleEtab(e) })) });
+    }
+  }
+  groupes.push({
+    label: "Tous les établissements",
+    options: actifs.map((e) => ({ value: e.id, label: e.isActive ? libelleEtab(e) : `${libelleEtab(e)} (désactivé)` })),
+  });
+  return groupes;
 }
 
 interface Edition {
@@ -104,11 +159,13 @@ interface Edition {
 
 // ── L'ÉDITEUR D'UNE CELLULE : rendu seulement pendant l'édition. ──
 function EditeurCellule({
-  col, valeur, initial, onCommit, onCancel,
+  col, valeur, initial, groupes, onCommit, onCancel,
 }: {
   col: ColonneVue;
   valeur: string;
   initial?: string;
+  /** Les choix d'une cellule de LIEN, calculés pour sa ligne. */
+  groupes?: GroupeOptions[];
   onCommit: (next: string, suite?: "bas" | "droite" | "gauche") => void;
   onCancel: () => void;
 }) {
@@ -139,6 +196,28 @@ function EditeurCellule({
   }, []);
 
   const classes = "w-full min-w-[6rem] select-text rounded bg-card px-2 py-1.5 text-sm outline-none ring-2 ring-ring";
+
+  if (col.editor === "reference") {
+    return (
+      <select
+        ref={ref as React.RefObject<HTMLSelectElement>}
+        defaultValue={valeur}
+        aria-label={col.header}
+        className={cn(classes, "cursor-pointer")}
+        onChange={(e) => commit(e.target.value)}
+        onBlur={cancel}
+        onKeyDown={(e) => {
+          if (e.key === "Escape") { e.preventDefault(); cancel(); }
+          if (e.key === "Enter") { e.preventDefault(); commit((e.target as HTMLSelectElement).value, "bas"); }
+          if (e.key === "Tab") { e.preventDefault(); commit((e.target as HTMLSelectElement).value, e.shiftKey ? "gauche" : "droite"); }
+        }}
+      >
+        {(groupes ?? []).map((g, i) => (g.label
+          ? <optgroup key={i} label={g.label}>{g.options.map((o) => <option key={`${i}-${o.value}`} value={o.value}>{o.label}</option>)}</optgroup>
+          : g.options.map((o) => <option key={`${i}-${o.value}`} value={o.value}>{o.label}</option>)))}
+      </select>
+    );
+  }
 
   if (col.editor === "select") {
     return (
@@ -190,11 +269,12 @@ function EditeurCellule({
  */
 function GridTable({
   rows, offset, colonnes, editable, selected, onToggle, onToggleAll, grille, edition, onCommit, onCancel,
-  couleurs, overrides,
+  couleurs, overrides, etablissements, effective,
 }: {
   rows: AnnuaireRow[];
   offset: number;
   colonnes: ColonneVue[];
+  etablissements: readonly EtablissementOption[];
   editable: boolean;
   selected: Set<string>;
   onToggle: (id: string, on: boolean) => void;
@@ -205,6 +285,8 @@ function GridTable({
   onCancel: () => void;
   couleurs: Record<string, string>;
   overrides: Map<string, string>;
+  /** La ligne telle qu'elle EST : la base, plus ce qu'on vient d'y écrire (§118.172). */
+  effective: (row: AnnuaireRow) => AnnuaireRow;
 }) {
   const allChecked = rows.length > 0 && rows.every((r) => selected.has(r.id));
   return (
@@ -264,14 +346,24 @@ function GridTable({
                       {enEdition && editable ? (
                         <EditeurCellule
                           col={col}
-                          valeur={valeurBrute(row, col)}
+                          valeur={valeurBrute(effective(row), col)}
                           initial={edition.initial}
-                          onCommit={(next, suite) => onCommit(row, col, next, suite)}
+                          groupes={col.editor === "reference" ? groupesDeLaCellule(col, effective(row), etablissements) : undefined}
+                          onCommit={(next, suite) => onCommit(effective(row), col, next, suite)}
                           onCancel={onCancel}
                         />
                       ) : (
                         <span className="block min-h-[2rem] px-2 py-1.5">
                           {affichee || <span className="text-muted-foreground/40">—</span>}
+                          {/* UN TEXTE SANS LIEN SE DIT COMME TEL (§118.172) : « EPH Rouiba » tapé
+                              à la main n'est rattaché à aucun établissement de l'annuaire — il ne
+                              compte dans aucun secteur et n'a pas de service. */}
+                          {col.reference === "etablissement" && estARattacher(row) && !overrides.has(cleCellule(row.id, col.cle)) && (
+                            <span className="ml-1.5 inline-block rounded bg-warning/15 px-1.5 py-0.5 align-middle text-[10px] font-medium uppercase tracking-wide text-warning"
+                              title="Texte saisi à la main, sans lien vers l'annuaire des établissements : choisissez l'établissement dans la liste.">
+                              à rattacher
+                            </span>
+                          )}
                         </span>
                       )}
                     </td>
@@ -287,10 +379,12 @@ function GridTable({
 }
 
 export function AnnuaireGrid({
-  rows, couleurs, customColumns, canEdit, canImport, canImportFile, canDelete, canManageColumns, specialties, directoryId, directoryName,
+  rows, etablissements, couleurs, customColumns, canEdit, canImport, canImportFile, canDelete, canManageColumns, specialties, directoryId, directoryName,
   titreParDefaut, exportHref = "/api/medical/annuaire/export",
 }: {
   rows: AnnuaireRow[];
+  /** L'annuaire des établissements et leurs services — les choix des colonnes de lien (§118.172). */
+  etablissements: EtablissementOption[];
   /** Les couleurs posées sur la feuille — `<id>:<colonne>` → clé de palette. */
   couleurs: Record<string, string>;
   /** Les colonnes propres à l'annuaire ouvert (vide pour l'annuaire général ou la vue « Tous »). */
@@ -325,7 +419,9 @@ export function AnnuaireGrid({
   titreParDefaut?: string;
   exportHref?: string;
 }) {
-  const router = useRouter();
+  // Le rafraîchissement est SUIVI : tant qu'il court, ce qu'on vient d'écrire reste affiché et fait
+  // foi pour le geste suivant (§118.172).
+  const { enCours: rafraichit, rafraichir } = useRafraichir();
   // SÉLECTION DE LIGNES (cases) — un annuaire se nettoie par lots (doublons d'import, cabinet
   // fermé). Ligne par ligne, personne ne le fait : on garde alors des fiches fausses, pire
   // qu'absentes. Distincte de la sélection de CELLULES, qui sert à colorer et copier.
@@ -388,7 +484,42 @@ export function AnnuaireGrid({
   // Ce qu'on vient d'écrire, affiché tout de suite : entre l'envoi et le rafraîchissement du
   // serveur, la cellule ne doit pas remontrer l'ancienne valeur.
   const [overrides, setOverrides] = React.useState<Map<string, string>>(new Map());
-  React.useEffect(() => { setOverrides(new Map()); }, [rows]);
+  /**
+   * CE QU'ON VIENT D'ÉCRIRE, EN BRUT (§118.172) — `overrides` montre le LIBELLÉ, ceci dit ce que la
+   * cellule VAUT pour le geste suivant. Sans cette mémoire, un second choix dans la même cellule
+   * avant le rafraîchissement se comparait à la ligne d'AVANT : revenir à l'ancienne valeur était
+   * jugé « inchangé », rien ne partait, et la base gardait le premier choix pendant que l'écran
+   * montrait le second. Et le service d'une ligne dont on venait de choisir l'établissement se
+   * cherchait dans l'établissement d'avant (« choisissez d'abord l'établissement » à la personne
+   * qui venait de le faire). Trouvés par le banc navigateur, rafraîchissement ralenti.
+   *
+   * Les deux mémoires se vident ENSEMBLE, et seulement quand plus rien ne court — ni écriture en
+   * vol, ni rafraîchissement : un rafraîchissement qui arrive pendant qu'une AUTRE écriture vole
+   * encore porte des données qui ne la contiennent pas.
+   */
+  const [brutsLocaux, setBrutsLocaux] = React.useState<Map<string, string>>(new Map());
+  const [enVol, setEnVol] = React.useState(0);
+  React.useEffect(() => {
+    if (rafraichit || enVol > 0) return;
+    setOverrides((m) => (m.size === 0 ? m : new Map()));
+    setBrutsLocaux((m) => (m.size === 0 ? m : new Map()));
+  }, [rows, rafraichit, enVol]);
+  /** La ligne telle qu'elle EST maintenant : la base, plus ce qu'on vient d'y écrire. */
+  const effective = React.useCallback((row: AnnuaireRow): AnnuaireRow => {
+    if (brutsLocaux.size === 0) return row;
+    let out: AnnuaireRow | null = null;
+    for (const col of colonnes) {
+      const k = cleCellule(row.id, col.cle);
+      if (!brutsLocaux.has(k)) continue;
+      const v = brutsLocaux.get(k) ?? "";
+      out ??= { ...row, custom: row.custom ? { ...row.custom } : row.custom };
+      if (col.reference === "etablissement") out.institutionId = v || null;
+      else if (col.reference === "service") out.serviceId = v || null;
+      else if (col.field) (out as unknown as Record<string, unknown>)[col.field] = v === "" ? null : v;
+      else if (out.custom) out.custom[col.cle] = v === "" ? null : v;
+    }
+    return out ?? row;
+  }, [brutsLocaux, colonnes]);
 
   // ── COULEURS, avec mise à jour optimiste ──
   const [couleursLocales, setCouleursLocales] = React.useState<Record<string, string>>(couleurs);
@@ -404,9 +535,25 @@ export function AnnuaireGrid({
     if (!canEdit) return;
     const col = colonnes[coord.c];
     if (!col) return;
+    // UN SERVICE N'EXISTE QUE DANS SON ÉTABLISSEMENT (§118.172). Ouvrir un menu vide sans dire
+    // pourquoi ferait chercher une panne : on dit ce qui manque, et où le faire.
+    if (col.reference === "service") {
+      const brute = ordonnees[coord.r];
+      const row = brute ? effective(brute) : undefined;
+      if (!row) return;
+      if (!row.institutionId) {
+        setMsg({ ok: false, text: "Choisissez d'abord l'établissement de cette ligne : un service est toujours celui d'un établissement." });
+        return;
+      }
+      const etab = etablissements.find((e) => e.id === row.institutionId);
+      if (!etab || etab.services.length === 0) {
+        setMsg({ ok: false, text: `« ${etab?.name ?? row.institution ?? "Cet établissement"} » n'a aucun service renseigné : ajoutez-les dans Annuaires › Établissements (bouton « Services » de sa ligne).` });
+        return;
+      }
+    }
     // Une frappe sur un menu fermé n'a pas de sens : on ouvre le menu, sans texte initial.
     setEdition({ r: coord.r, c: coord.c, initial: col.editor === "text" || col.editor === "number" ? initial : undefined });
-  }, [canEdit, colonnes]);
+  }, [canEdit, colonnes, ordonnees, etablissements, effective]);
 
   const grille = useSelectionGrille({
     lignes: ordonnees.length,
@@ -427,20 +574,61 @@ export function AnnuaireGrid({
     const avant = valeurBrute(row, col);
     if (next === avant) return;
     const k = cleCellule(row.id, col.cle);
-    // Affichage immédiat : pour un menu, le libellé de l'option ; sinon le texte tel quel.
-    const libelle = col.options?.find((o) => o.value === next)?.label ?? next;
-    setOverrides((m) => new Map(m).set(k, libelle));
+    // Affichage immédiat : pour un menu, le libellé de l'option ; pour un lien, le NOM de ce
+    // qu'on vient de choisir ; sinon le texte tel quel.
+    const etab = col.reference === "etablissement" ? etablissements.find((e) => e.id === next) : undefined;
+    const libelle = col.reference === "etablissement"
+      ? etab?.name ?? ""
+      : col.reference === "service"
+        ? etablissements.find((e) => e.id === row.institutionId)?.services.find((x) => x.id === next)?.name ?? ""
+        : col.options?.find((o) => o.value === next)?.label ?? next;
+    // CHANGER D'ÉTABLISSEMENT RETIRE LE SERVICE (l'action le fait) : la cellule voisine le montre
+    // tout de suite, plutôt que d'afficher un service de l'ancien hôpital jusqu'au rafraîchissement.
+    const kService = col.reference === "etablissement" ? cleCellule(row.id, "service") : null;
+    setOverrides((m) => {
+      const n = new Map(m).set(k, libelle);
+      if (kService) n.set(kService, "");
+      return n;
+    });
+    setBrutsLocaux((m) => {
+      const n = new Map(m).set(k, next);
+      if (kService) n.set(kService, "");
+      return n;
+    });
+    setEnVol((x) => x + 1);
     const promesse = col.field
       ? saveDirectoryCell({ id: row.id, field: col.field, value: next })
       : saveDirectoryCustomCell({ id: row.id, key: col.cle, value: next });
     void promesse.then((r) => {
-      if (r.ok) { setMsg(null); router.refresh(); }
+      setEnVol((x) => x - 1);
+      if (r.ok) { setMsg(null); rafraichir(); }
       else {
-        setOverrides((m) => { const n = new Map(m); n.delete(k); return n; });
+        setOverrides((m) => { const n = new Map(m); n.delete(k); if (kService) n.delete(kService); return n; });
+        setBrutsLocaux((m) => { const n = new Map(m); n.delete(k); if (kService) n.delete(kService); return n; });
         setMsg({ ok: false, text: r.error ?? "Écriture refusée." });
       }
     });
-  }, [grille, router]);
+  }, [grille, rafraichir, etablissements]);
+
+  // LES FICHES D'AVANT LE LIEN, dans la vue qu'on regarde (§118.172) : un établissement tapé à
+  // la main, sans lien vers l'annuaire. Le geste qui les rattache en une fois — et seulement à
+  // coup sûr — vit ici, à côté de ce qu'il corrige.
+  const aRattacher = React.useMemo(() => filtered.filter(estARattacher), [filtered]);
+  const [rattachement, setRattachement] = React.useState(false);
+  const rattacher = () => {
+    if (aRattacher.length === 0) return;
+    if (!window.confirm(
+      `Rattacher à l'annuaire des établissements les ${aRattacher.length} fiche(s) « à rattacher » de cette vue ?\n\n`
+      + "Seules celles dont le texte désigne EXACTEMENT un établissement actif (majuscules et accents mis à part) seront rattachées ; "
+      + "les autres restent « à rattacher », et le message dira pourquoi.",
+    )) return;
+    setRattachement(true); setMsg(null);
+    void rattacherEtablissementsParNom({ ids: aRattacher.map((r) => r.id) }).then((r) => {
+      setRattachement(false);
+      setMsg({ ok: r.ok, text: r.ok ? (r.message ?? "Rattachement terminé.") : (r.error ?? "Rattachement impossible.") });
+      if (r.ok) rafraichir();
+    });
+  };
 
   const appliquerCouleur = React.useCallback((couleur: CouleurCellule | null) => {
     const cibles = grille.cellules
@@ -459,9 +647,9 @@ export function AnnuaireGrid({
       setBusy(false);
       if (!r.ok) { setCouleursLocales(avant); setMsg({ ok: false, text: r.error ?? "Coloration refusée." }); return; }
       if (r.ignorees > 0) setMsg({ ok: true, text: r.message ?? "" });
-      router.refresh();
+      rafraichir();
     });
-  }, [grille.cellules, ordonnees, colonnes, couleursLocales, router]);
+  }, [grille.cellules, ordonnees, colonnes, couleursLocales, rafraichir]);
 
   // ÉTAPE 1 — on LIT le fichier et on propose une correspondance. Rien n'est écrit.
   const runPreview = (file: File) => {
@@ -491,14 +679,14 @@ export function AnnuaireGrid({
     void importDirectorySheet(fd).then((r) => {
       setBusy(false);
       setMsg({ ok: r.ok, text: r.ok ? (r.message ?? "Annuaire importé.") : (r.error ?? "Import impossible.") });
-      if (r.ok) router.refresh();
+      if (r.ok) rafraichir();
       if (fileRef.current) fileRef.current.value = "";
     });
   };
 
   const tableProps = {
     colonnes, editable: canEdit, selected, onToggle: toggleOne, onToggleAll: toggleMany, grille, edition,
-    onCommit: validerEdition, onCancel: annulerEdition, couleurs: couleursLocales, overrides,
+    onCommit: validerEdition, onCancel: annulerEdition, couleurs: couleursLocales, overrides, etablissements, effective,
   };
 
   return (
@@ -549,6 +737,13 @@ export function AnnuaireGrid({
               <Rows3 className="h-3.5 w-3.5" /> Par spécialité
             </button>
           </div>
+          {canEdit && aRattacher.length > 0 && (
+            <Button size="sm" variant="outline" disabled={rattachement} onClick={rattacher}
+              title="Rattacher à l'annuaire des établissements les fiches dont l'établissement a été tapé à la main">
+              {rattachement ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Building2 className="h-3.5 w-3.5" />}
+              Rattacher les établissements ({aRattacher.length})
+            </Button>
+          )}
           {canManageColumns && directoryId && (
             <Button size="sm" variant={colonnesOuvertes ? "secondary" : "outline"} onClick={() => setColonnesOuvertes((v) => !v)}>
               <Columns3 className="h-3.5 w-3.5" /> Colonnes{customColumns.length > 0 ? ` (${customColumns.length})` : ""}
@@ -579,50 +774,11 @@ export function AnnuaireGrid({
         <GestionColonnes
           directoryId={directoryId}
           colonnes={customColumns}
-          onDone={() => router.refresh()}
+          onDone={() => rafraichir()}
         />
       )}
 
-      {/* CE QUI EST SÉLECTIONNÉ, ET CE QU'ON EN FAIT — la barre n'apparaît que s'il y a une
-          sélection : un bouton « Supprimer » toujours visible finit par être cliqué à vide. */}
-      {selected.size > 0 && (
-        <div className="flex flex-wrap items-center gap-2 rounded-xl border border-primary/30 bg-primary/5 p-2.5 text-sm">
-          <span className="font-medium">{selected.size} ligne{selected.size > 1 ? "s" : ""} sélectionnée{selected.size > 1 ? "s" : ""}</span>
-          {canDelete && (
-            <Button
-              size="sm" variant="outline" disabled={deleting}
-              onClick={() => {
-                if (!window.confirm(`Supprimer ${selected.size} fiche(s) de l'annuaire ? Cette action est définitive.`)) return;
-                setDeleting(true);
-                void deleteDirectoryDoctors([...selected]).then((r) => {
-                  setDeleting(false);
-                  setMsg({ ok: r.ok, text: r.ok ? (r.message ?? "Supprimé.") : (r.error ?? "Suppression impossible.") });
-                  if (r.ok) { setSelected(new Set()); router.refresh(); }
-                });
-              }}
-              className="text-destructive"
-            >
-              {deleting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />} Supprimer
-            </Button>
-          )}
-          <Button size="sm" variant="ghost" onClick={() => setSelected(new Set())}>
-            <X className="h-3.5 w-3.5" /> Tout désélectionner
-          </Button>
-        </div>
-      )}
-
-      <BarreSelection
-        nombre={grille.nombre}
-        peutColorer={canEdit}
-        busy={busy}
-        onCouleur={(c) => appliquerCouleur(c)}
-        onEffacer={() => appliquerCouleur(null)}
-        onCopier={grille.copier}
-        onFermer={grille.vider}
-        message={msg && grille.nombre > 0 ? msg : null}
-      />
-
-      {canImport && <AddDoctorRow specialtyListId={SPECIALTY_LIST_ID} titreParDefaut={titreParDefaut} directoryId={directoryId} />}
+      {canImport && <AddDoctorRow specialtyListId={SPECIALTY_LIST_ID} titreParDefaut={titreParDefaut} directoryId={directoryId} etablissements={etablissements} />}
 
       {canEdit && (
         <p className="flex items-start gap-2 rounded-lg border border-border bg-secondary/30 p-2.5 text-xs text-muted-foreground">
@@ -631,16 +787,11 @@ export function AnnuaireGrid({
             <strong>Un clic sélectionne</strong> une cellule — Maj étend, Ctrl ajoute, on peut aussi glisser et se
             déplacer aux flèches. <strong>Double-clic, Entrée ou une frappe</strong> ouvrent la correction ;
             Entrée valide et descend, Tab valide et avance, Échap annule. Wilaya, grade, secteur et potentiel se
-            choisissent dans un menu. Les cellules sélectionnées se <strong>colorent</strong> et se{" "}
+            choisissent dans un menu ; l&apos;<strong>établissement</strong> se choisit dans l&apos;annuaire des
+            établissements, et le <strong>service</strong> parmi ceux de cet établissement. Les cellules sélectionnées se <strong>colorent</strong> et se{" "}
             <strong>copient</strong> (Ctrl+C) depuis la barre qui apparaît.
             {canImportFile && <> L&apos;<strong>import</strong> accepte un fichier existant ; l&apos;<strong>export</strong> reprend les colonnes de la feuille.</>}
           </span>
-        </p>
-      )}
-
-      {msg && grille.nombre === 0 && (
-        <p className={`rounded-xl px-3 py-2 text-sm ${msg.ok ? "bg-success/10 text-success" : "bg-destructive/10 text-destructive"}`}>
-          {msg.text}
         </p>
       )}
 
@@ -671,27 +822,85 @@ export function AnnuaireGrid({
           <GridTable rows={ordonnees} offset={0} {...tableProps} />
         )}
       </div>
+
+      {/* TOUT CE QUI APPARAÎT VIT SOUS LA FEUILLE, DANS LE FLUX (§118.172). Posé au-dessus, il la
+          décalait au premier clic d'un double-clic, et le second ouvrait la cellule de la ligne du
+          DESSUS ; collé au bas de l'écran, il recouvrait la dernière ligne visible et prenait le clic. */}
+      <DockSelection>
+        {/* CE QUI EST SÉLECTIONNÉ, ET CE QU'ON EN FAIT — la barre n'apparaît que s'il y a une
+            sélection : un bouton « Supprimer » toujours visible finit par être cliqué à vide. */}
+        {selected.size > 0 && (
+          <div className="flex flex-wrap items-center gap-2 rounded-xl border border-primary/40 bg-card p-2.5 text-sm shadow-sm">
+            <span className="font-medium">{selected.size} ligne{selected.size > 1 ? "s" : ""} sélectionnée{selected.size > 1 ? "s" : ""}</span>
+            {canDelete && (
+              <Button
+                size="sm" variant="outline" disabled={deleting}
+                onClick={() => {
+                  if (!window.confirm(`Supprimer ${selected.size} fiche(s) de l'annuaire ? Cette action est définitive.`)) return;
+                  setDeleting(true);
+                  void deleteDirectoryDoctors([...selected]).then((r) => {
+                    setDeleting(false);
+                    setMsg({ ok: r.ok, text: r.ok ? (r.message ?? "Supprimé.") : (r.error ?? "Suppression impossible.") });
+                    if (r.ok) { setSelected(new Set()); rafraichir(); }
+                  });
+                }}
+                className="text-destructive"
+              >
+                {deleting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />} Supprimer
+              </Button>
+            )}
+            <Button size="sm" variant="ghost" onClick={() => setSelected(new Set())}>
+              <X className="h-3.5 w-3.5" /> Tout désélectionner
+            </Button>
+          </div>
+        )}
+
+        <BarreSelection
+          nombre={grille.nombre}
+          peutColorer={canEdit}
+          busy={busy}
+          onCouleur={(c) => appliquerCouleur(c)}
+          onEffacer={() => appliquerCouleur(null)}
+          onCopier={grille.copier}
+          onFermer={grille.vider}
+          message={msg && grille.nombre > 0 ? msg : null}
+        />
+        {msg && grille.nombre === 0 && (
+          <p role={msg.ok ? "status" : "alert"} className={`rounded-xl border bg-card px-3 py-2 text-sm shadow-sm ${msg.ok ? "border-success/40 text-success" : "border-destructive/40 text-destructive"}`}>
+            {msg.text}
+          </p>
+        )}
+      </DockSelection>
     </div>
   );
 }
 
 /** La ligne d'ajout — un nom (ou prénom) suffit, le reste se remplit ensuite dans la feuille. */
-function AddDoctorRow({ specialtyListId, titreParDefaut, directoryId }: { specialtyListId: string; titreParDefaut?: string; directoryId: string | null }) {
+function AddDoctorRow({
+  specialtyListId, titreParDefaut, directoryId, etablissements,
+}: { specialtyListId: string; titreParDefaut?: string; directoryId: string | null; etablissements: readonly EtablissementOption[] }) {
   const router = useRouter();
   const [open, setOpen] = React.useState(false);
   const [lastName, setLastName] = React.useState("");
   const [firstName, setFirstName] = React.useState("");
   const [specialty, setSpecialty] = React.useState("");
   const [wilaya, setWilaya] = React.useState("");
+  const [institutionId, setInstitutionId] = React.useState("");
+  const [serviceId, setServiceId] = React.useState("");
   const [busy, setBusy] = React.useState(false);
   const [err, setErr] = React.useState<string | null>(null);
 
   const wilayaOptions = ANNUAIRE_COLUMNS.find((c) => c.field === "wilaya")?.options ?? [];
+  const actifs = etablissements.filter((e) => e.isActive);
+  const services = etablissements.find((e) => e.id === institutionId)?.services ?? [];
 
-  const reset = () => { setLastName(""); setFirstName(""); setSpecialty(""); setWilaya(""); setErr(null); };
+  const reset = () => { setLastName(""); setFirstName(""); setSpecialty(""); setWilaya(""); setInstitutionId(""); setServiceId(""); setErr(null); };
   const submit = () => {
     setBusy(true); setErr(null);
-    void addDirectoryDoctor({ lastName, firstName, specialty, wilaya, title: titreParDefaut, directoryId }).then((r) => {
+    void addDirectoryDoctor({
+      lastName, firstName, specialty, wilaya, title: titreParDefaut, directoryId,
+      institutionId: institutionId || null, serviceId: serviceId || null,
+    }).then((r) => {
       setBusy(false);
       if (r.ok) { reset(); setOpen(false); router.refresh(); }
       else setErr(r.error ?? "Ajout impossible.");
@@ -708,13 +917,22 @@ function AddDoctorRow({ specialtyListId, titreParDefaut, directoryId }: { specia
 
   return (
     <div className="space-y-2 rounded-xl border border-border bg-card p-3">
-      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
-        <Input placeholder="Nom" value={lastName} onChange={(e) => setLastName(e.target.value)} autoFocus />
-        <Input placeholder="Prénom" value={firstName} onChange={(e) => setFirstName(e.target.value)} />
-        <Input placeholder="Spécialité 1" list={specialtyListId} value={specialty} onChange={(e) => setSpecialty(e.target.value)} />
-        <Select value={wilaya} onChange={(e) => setWilaya(e.target.value)}>
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
+        <Input placeholder="Nom" aria-label="Nom" value={lastName} onChange={(e) => setLastName(e.target.value)} autoFocus />
+        <Input placeholder="Prénom" aria-label="Prénom" value={firstName} onChange={(e) => setFirstName(e.target.value)} />
+        <Input placeholder="Spécialité 1" aria-label="Spécialité" list={specialtyListId} value={specialty} onChange={(e) => setSpecialty(e.target.value)} />
+        <Select value={wilaya} aria-label="Wilaya" onChange={(e) => setWilaya(e.target.value)}>
           <option value="">Wilaya…</option>
           {wilayaOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+        </Select>
+        {/* L'ÉTABLISSEMENT DÈS LA CRÉATION (§118.172) — choisi dans l'annuaire, jamais tapé. */}
+        <Select value={institutionId} aria-label="Établissement" onChange={(e) => { setInstitutionId(e.target.value); setServiceId(""); }}>
+          <option value="">Établissement…</option>
+          {actifs.map((e) => <option key={e.id} value={e.id}>{libelleEtab(e)}</option>)}
+        </Select>
+        <Select value={serviceId} aria-label="Service" disabled={!institutionId || services.length === 0} onChange={(e) => setServiceId(e.target.value)}>
+          <option value="">{!institutionId ? "Service (choisir l'établissement d'abord)" : services.length === 0 ? "Aucun service renseigné" : "Service…"}</option>
+          {services.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}
         </Select>
       </div>
       {err && <p className="text-xs text-destructive">{err}</p>}

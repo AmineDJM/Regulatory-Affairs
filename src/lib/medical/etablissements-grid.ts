@@ -6,12 +6,21 @@
  * couleur posée sur « ville » — une colonne que la feuille n'a plus — vivrait en base sans
  * jamais s'afficher.
  *
- * Deux des colonnes sont CALCULÉES (praticiens rattachés, secteurs qui le couvrent) : on peut
- * les colorer comme les autres — un tableur ne distingue pas une cellule saisie d'une cellule
- * calculée quand on la surligne — mais elles ne s'éditent pas.
+ * Trois des colonnes ne s'éditent pas dans la cellule — les SERVICES (ils se tiennent dans leur
+ * panneau, §118.172), les praticiens rattachés et les secteurs qui le couvrent (calculés). On
+ * peut les colorer comme les autres — un tableur ne distingue pas une cellule saisie d'une
+ * cellule calculée quand on la surligne.
+ *
+ * ── « LES SECTEURS NE SE RENSEIGNENT PAS DANS CET ANNUAIRE » (Direction, 01/10) ─────────────
+ *
+ * La fiche portait une case « Secteur » qui disait PUBLIC ou PRIVÉ — un attribut de
+ * l'établissement, sans aucun rapport avec les secteurs commerciaux que chaque Business Unit
+ * découpe. Le même mot pour deux choses : on croyait découper un territoire dans l'annuaire. La
+ * case s'appelle désormais « Public / privé », et la colonne calculée « Secteurs BU » dit
+ * combien de secteurs commerciaux le couvrent — elle ne se saisit pas ici, elle se lit.
  */
 
-export type EtablissementField = "name" | "type" | "sector" | "wilaya" | "doctorCount" | "sectorCount";
+export type EtablissementField = "name" | "type" | "sector" | "wilaya" | "services" | "doctorCount" | "sectorCount";
 
 export interface EtablissementColumn {
   field: EtablissementField;
@@ -23,10 +32,11 @@ export interface EtablissementColumn {
 export const ETABLISSEMENT_COLUMNS: readonly EtablissementColumn[] = [
   { field: "name", header: "Établissement" },
   { field: "type", header: "Type" },
-  { field: "sector", header: "Secteur" },
+  { field: "sector", header: "Public / privé" },
   { field: "wilaya", header: "Wilaya" },
+  { field: "services", header: "Services" },
   { field: "doctorCount", header: "Praticiens", calculee: true },
-  { field: "sectorCount", header: "Secteurs", calculee: true },
+  { field: "sectorCount", header: "Secteurs BU", calculee: true },
 ];
 
 const FIELDS = new Set<string>(ETABLISSEMENT_COLUMNS.map((c) => c.field));

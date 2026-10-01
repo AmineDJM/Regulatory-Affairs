@@ -471,7 +471,8 @@ export const PLANNING_OPS_IMPL: Record<string, OpImpl> = {
         where: { repId: rep.id },
         select: { businessUnitId: true, region: true, capDaysPerMonth: true, capVisitsPerDay: true, capFieldPct: true, fteBudget: true, seniority: true, isActive: true, note: true },
       });
-      // FUSION : l'upsert REMPLACE tout (fteBudget absent → 1 !) — l'existant est relu et rejoué.
+      // L'existant est relu et rejoué pour que la CARTE montre ce qui restera. L'action, elle, garde
+      // désormais ce que le formulaire ne porte pas (§118.172) — elle réécrivait tout (ETP absent → 1).
       let businessUnitId = cur?.businessUnitId ?? null; let buShown = cur?.businessUnitId ? "(inchangée)" : null;
       const buRaw = opStr(input, "label");
       if (/^aucun/i.test(buRaw)) { businessUnitId = null; buShown = "— (retirée)"; }

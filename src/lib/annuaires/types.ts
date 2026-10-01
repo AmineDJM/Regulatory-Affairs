@@ -27,6 +27,31 @@ export interface EtablissementRow {
   doctorCount: number;
   /** Dans combien de SECTEURS commerciaux il entre. Supprimer un établissement les ampute. */
   sectorCount: number;
+  /** SES SERVICES (§118.172), par ordre alphabétique — avec ce que chacun porte. */
+  services: ServiceEtablissementRow[];
+}
+
+/**
+ * UN ÉTABLISSEMENT TEL QUE LA FEUILLE DES PRATICIENS LE PROPOSE (§118.172) — avec ses services,
+ * pour que la colonne « Service » d'une ligne ne propose QUE ceux de son établissement. Ici, et
+ * non dans le chargeur : la grille est un composant client, et ce type est tout ce qu'elle en lit.
+ */
+export interface EtablissementOption {
+  id: string;
+  name: string;
+  wilaya: string | null;
+  isActive: boolean;
+  services: { id: string; name: string }[];
+}
+
+/** Un service d'un établissement, tel que l'écran le liste et que la suppression le compte. */
+export interface ServiceEtablissementRow {
+  id: string;
+  name: string;
+  /** Les praticiens qui y sont rattachés — dans la portée de la personne, comme `doctorCount`. */
+  doctorCount: number;
+  /** Les secteurs qui le choisissent NOMMÉMENT (un secteur « tous les services » ne compte pas). */
+  sectorCount: number;
 }
 
 /** Un annuaire NOMMÉ de praticiens (`directory-bar.tsx`). */

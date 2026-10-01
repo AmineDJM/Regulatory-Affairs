@@ -264,6 +264,8 @@ function ContactSheet({
 
         {showActive && (
           <label className="flex items-center gap-2 text-sm">
+            {/* LE TÉMOIN CACHÉ, AVANT la case : décochée, c'est lui qui met le contact de côté (§118.172). */}
+            <input type="hidden" name="isActive" value="0" />
             <input type="checkbox" name="isActive" value="1" defaultChecked={defaults.isActive ?? true} />
             Contact actif — décochez pour le mettre de côté sans le supprimer
           </label>

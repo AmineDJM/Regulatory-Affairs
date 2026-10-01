@@ -17,7 +17,7 @@ import { continuousCash, canSpendFromFund } from "@/lib/general-means/continuous
 import { openRemittances } from "@/lib/queries/general-means";
 import { toNumber } from "@/lib/utils";
 import { nextFinanceRef } from "@/lib/finance/next-ref";
-import { fdStr, fdNum, type ActionResult } from "@/lib/actions/types";
+import { fdStr, fdNum, fdCase, type ActionResult } from "@/lib/actions/types";
 import { readReceipt, saveReceiptLines } from "@/lib/general-means/expense-lines";
 import { allowedGeneralMeansCategoryIds, keepAllowedCategory } from "@/lib/general-means/budget-targets";
 
@@ -482,7 +482,11 @@ export async function setPettyCashPlan(formData: FormData): Promise<ActionResult
   if (typeof monthlyAmount !== "number") return { ok: false, error: monthlyAmount.error };
   const rechargeDay = normalizeRechargeDay(fdStr(formData, "rechargeDay"));
   const holderId = fdStr(formData, "holderId");
-  const isActive = fdStr(formData, "isActive") !== "0";
+  // ABSENT = actif (un plan qu'on crée sans toucher à la case l'est) ; le témoin caché « 0 » seul =
+  // suspendu ; la case cochée (« 0 » PUIS « 1 ») = actif. Lu par `fdStr`, le témoin passait
+  // devant la case et suspendait le plan à chaque enregistrement ; sans témoin, décocher ne
+  // suspendait rien (§118.172).
+  const isActive = fdCase(formData, "isActive") ?? true;
 
   const data = { monthlyAmount, rechargeDay, holderId, isActive, setById: user.id };
   await prisma.pettyCashPlan.upsert({

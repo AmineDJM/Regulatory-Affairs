@@ -1,0 +1,84 @@
+import { describe, it, expect } from "vitest";
+import { readdirSync, readFileSync, statSync } from "node:fs";
+import { join, relative } from "node:path";
+
+/**
+ * ═══════════════════════════════════════════════════════════
+ * UN RAFRAÎCHISSEMENT QU'ON NE SUIT PAS LAISSE ROUVRIR UNE FICHE PÉRIMÉE (§118.172).
+ *
+ * Trouvé par le banc navigateur des annuaires : décocher « actif », enregistrer, rouvrir la fiche
+ * aussitôt → la case est encore cochée, et enregistrer RÉACTIVE l'établissement. Entre la fin d'une
+ * action et l'arrivée des nouvelles données, un écran qui appelle `router.refresh()` « à nu » montre
+ * l'état d'AVANT avec des boutons déjà cliquables. `useRafraichir` place le rafraîchissement dans
+ * une transition et dit quand il est fini ; l'écran garde ses gestes fermés jusque-là.
+ *
+ * Deux règles, et elles ne gardent pas la même chose :
+ *   1. les écrans de ce lot passent par le crochet — vérifié à leur POINT D'APPEL (§118.49) ;
+ *   2. le parc ne grandit plus en appels nus — CLIQUET au chiffre MESURÉ (§118.79c). Il en reste
+ *      beaucoup, et la plupart n'ouvrent aucune fiche ; les convertir tous d'un coup élargirait ce
+ *      lot sans rien prouver. Un écran AJOUTÉ demain, lui, n'a plus le choix.
+ * ═══════════════════════════════════════════════════════════
+ */
+
+const SRC = join(process.cwd(), "src");
+
+function fichiers(dir: string, acc: string[] = []): string[] {
+  for (const nom of readdirSync(dir)) {
+    const chemin = join(dir, nom);
+    if (statSync(chemin).isDirectory()) fichiers(chemin, acc);
+    else if (/\.tsx?$/.test(nom) && !/\.test\.tsx?$/.test(nom)) acc.push(chemin);
+  }
+  return acc;
+}
+
+/** Commentaires de bloc et de ligne retirés : un cliquet ne doit pas s'accrocher à la prose (§118.79d). */
+function sansCommentaires(src: string): string {
+  return src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:"'`])\/\/[^\n]*/g, "$1");
+}
+
+const APPEL_NU = /\brouter\.refresh\(\)/g;
+
+/** Mesuré au §118.172, après conversion des écrans de ce lot : 355 appels nus (commentaires retirés). Il ne peut que baisser. */
+const PLAFOND_APPELS_NUS = 355;
+
+describe("le rafraîchissement suivi", () => {
+  const parc = fichiers(SRC).map((f) => ({ f, src: sansCommentaires(readFileSync(f, "utf8")) }));
+
+  it("la garde lit bien le parc (plancher de fichiers)", () => {
+    expect(parc.length).toBeGreaterThan(1000);
+  });
+
+  it("les écrans de ce lot appellent `useRafraichir`, et n'appellent plus `router.refresh()` à nu", () => {
+    const ecrans = [
+      "src/app/(app)/annuaires/etablissements/etablissements-table.tsx",
+      "src/app/(app)/annuaires/etablissements/services-panel.tsx",
+      "src/app/(app)/planning/business-units/bu-manager.tsx",
+      "src/components/shared/use-action.ts",
+    ];
+    for (const e of ecrans) {
+      const src = sansCommentaires(readFileSync(join(process.cwd(), e), "utf8"));
+      expect(src, `${e} doit appeler useRafraichir()`).toMatch(/useRafraichir\(\)/);
+      expect(src.match(APPEL_NU) ?? [], `${e} rafraîchit encore à nu`).toEqual([]);
+    }
+    // La feuille des praticiens : le composant PRINCIPAL suit son rafraîchissement ; les deux
+    // petits formulaires qu'il héberge (ajout de ligne, colonnes) n'ouvrent aucune fiche.
+    const grille = sansCommentaires(readFileSync(join(process.cwd(), "src/app/(app)/medical/annuaire/annuaire-grid.tsx"), "utf8"));
+    const principal = grille.slice(grille.indexOf("export function AnnuaireGrid("), grille.indexOf("function AddDoctorRow("));
+    expect(principal).toMatch(/useRafraichir\(\)/);
+    expect(principal.match(APPEL_NU) ?? []).toEqual([]);
+  });
+
+  it("le crochet place bien le rafraîchissement DANS une transition", () => {
+    const src = sansCommentaires(readFileSync(join(process.cwd(), "src/components/shared/use-rafraichir.ts"), "utf8"));
+    expect(src).toMatch(/useTransition\(\)/);
+    expect(src).toMatch(/demarrer\(\(\)\s*=>\s*\{\s*router\.refresh\(\);\s*\}\)/);
+  });
+
+  it("le parc ne grandit pas en appels nus (cliquet au chiffre mesuré)", () => {
+    const parFichier = parc
+      .map(({ f, src }) => ({ f: relative(process.cwd(), f), n: (src.match(APPEL_NU) ?? []).length }))
+      .filter((x) => x.n > 0);
+    const total = parFichier.reduce((a, x) => a + x.n, 0);
+    expect(total, `${total} appels à router.refresh() à nu (plafond ${PLAFOND_APPELS_NUS}) — un écran neuf passe par useRafraichir()`).toBeLessThanOrEqual(PLAFOND_APPELS_NUS);
+  });
+});

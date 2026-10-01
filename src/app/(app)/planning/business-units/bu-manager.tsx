@@ -1,7 +1,6 @@
 "use client";
 
 import * as React from "react";
-import { useRouter } from "next/navigation";
 import {
   AlertTriangle, Building2, Check, ChevronDown, ChevronRight, Loader2, Map, Package, Pencil, Plus,
   Trash2, UserCog, Users, Wallet,
@@ -19,7 +18,10 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
+import { libelleCouverture, type LienCouverture } from "@/lib/annuaires/services";
 import { Sheet } from "@/components/ui/sheet";
+import { useRafraichir } from "@/components/shared/use-rafraichir";
 
 /**
  * LE MONTAGE D'UNE BU, DE HAUT EN BAS.
@@ -61,10 +63,20 @@ export interface KamRow {
 export interface SectorRow {
   id: string; name: string; city: string | null; color: string | null; isActive: boolean;
   institutionIds: string[];
+  /**
+   * CE QUE LE SECTEUR COUVRE DE CHAQUE ÉTABLISSEMENT (§118.172) : tous ses services, ou certains.
+   * « Chaque Business Unit aura son propre sectoring regroupant une liste d'établissements
+   * hospitaliers et un ou certains ou tous leurs services. »
+   */
+  liens: LienCouverture[];
   repIds: string[];
 }
 
-export interface EtabOpt { id: string; name: string; city: string | null; type: string }
+/** Un établissement à cocher — avec sa wilaya, son état et ses services (§118.172). */
+export interface EtabOpt {
+  id: string; name: string; wilaya: string | null; type: string; isActive: boolean;
+  services: { id: string; name: string }[];
+}
 
 export interface ProductRow {
   id: string; name: string; code: string | null; channel: string;
@@ -97,8 +109,12 @@ export function BusinessUnitsManager({
   /** Les personnes qui PORTENT le rôle Direction Marketing : les seules désignables. */
   referentsEligibles: Opt[];
 }) {
-  const router = useRouter();
-  const [busy, setBusy] = React.useState(false);
+  // LES GESTES ATTENDENT LES NOUVELLES DONNÉES (§118.172) : le panneau d'un secteur naît de la
+  // couverture qu'il lit à l'ouverture. Rouvert avant le rafraîchissement, il remontrait l'état
+  // d'AVANT, et l'enregistrer le RÉÉCRIVAIT par-dessus ce qu'on venait de changer.
+  const { enCours: rafraichit, rafraichir } = useRafraichir();
+  const [enAction, setBusy] = React.useState(false);
+  const busy = enAction || rafraichit;
   const [creating, setCreating] = React.useState(false);
   const [open, setOpen] = React.useState<Record<string, boolean>>({});
 
@@ -107,9 +123,9 @@ export function BusinessUnitsManager({
     const r = await action(fd);
     setBusy(false);
     if (!r.ok) { window.alert(r.error ?? "Action impossible."); return false; }
-    if (refresh) router.refresh();
+    if (refresh) rafraichir();
     return true;
-  }, [router]);
+  }, [rafraichir]);
 
   const kamsOf = (buId: string | null) => kams.filter((k) => k.businessUnitId === buId);
   const sectorsOf = (buId: string) => sectors.filter((x) => x.businessUnitId === buId);
@@ -265,7 +281,8 @@ function BuCard({
     fd.set("color", next.color ?? ""); fd.set("companyId", next.companyId ?? "");
     fd.set("headId", next.headId ?? ""); fd.set("supervisorId", next.supervisorId ?? "");
     fd.set("channel", next.channel);
-    if (next.isActive) fd.set("isActive", "on");
+    // « on » OU « off » : n'envoyer que « on » laissait une gamme décochée active (§118.172).
+    fd.set("isActive", next.isActive ? "on" : "off");
     void run(updateBusinessUnit, fd);
   }
 
@@ -583,7 +600,8 @@ function ProductLine({ prod, buChannel, users, busy, run }: {
     fd.set("id", next.id); fd.set("name", next.name); fd.set("code", next.code ?? "");
     fd.set("channel", next.channel); fd.set("businessUnitId", next.businessUnitId ?? "");
     fd.set("managerId", next.managerId ?? "");
-    if (next.isActive) fd.set("isActive", "on");
+    // « on » OU « off » : n'envoyer que « on » laissait un produit décoché actif (§118.172).
+    fd.set("isActive", next.isActive ? "on" : "off");
     void run(updatePromoProduct, fd, refresh);
   }
   // L'INCOHÉRENCE SE DIT, elle ne se corrige pas toute seule : c'est peut-être l'exception voulue.
@@ -662,9 +680,49 @@ function SecteursDeLaBu({
   const [edite, setEdite] = React.useState<SectorRow | null>(null);
   const [cree, setCree] = React.useState(false);
   const [filtre, setFiltre] = React.useState("");
+  /**
+   * LA SÉLECTION, CONTRÔLÉE (§118.172) — par établissement coché : tous ses services, ou ceux
+   * choisis. Elle naît de la couverture enregistrée à l'ouverture du panneau ; c'est ELLE, et non
+   * ce que le filtre laisse voir, qui part avec le formulaire.
+   */
+  const [choix, setChoix] = React.useState<globalThis.Map<string, { tous: boolean; services: Set<string> }>>(new globalThis.Map());
 
-  const nomEtab = (id: string) => etablissements.find((e) => e.id === id)?.name ?? "(établissement retiré)";
+  const parId = React.useMemo(() => new globalThis.Map(etablissements.map((e) => [e.id, e])), [etablissements]);
+  const nomEtab = (id: string) => parId.get(id)?.name ?? "(établissement retiré de l'annuaire)";
+  const nomService = (id: string) => {
+    for (const e of etablissements) { const x = e.services.find((sv) => sv.id === id); if (x) return x.name; }
+    return null;
+  };
   const nomKam = (id: string) => kams.find((k) => k.repId === id)?.name ?? null;
+
+  const ouvrir = (sec: SectorRow | null) => {
+    const m = new globalThis.Map<string, { tous: boolean; services: Set<string> }>();
+    for (const l of sec?.liens ?? []) m.set(l.institutionId, { tous: l.tousLesServices, services: new Set(l.serviceIds) });
+    setChoix(m);
+    setFiltre("");
+    if (sec) setEdite(sec); else setCree(true);
+  };
+  const fermer = () => { setCree(false); setEdite(null); setFiltre(""); };
+
+  const basculerEtab = (id: string, on: boolean) => setChoix((m) => {
+    const n = new globalThis.Map(m);
+    if (on) n.set(id, m.get(id) ?? { tous: true, services: new Set() }); else n.delete(id);
+    return n;
+  });
+  const basculerTous = (id: string, tous: boolean) => setChoix((m) => {
+    const n = new globalThis.Map(m);
+    const avant = m.get(id) ?? { tous: true, services: new Set<string>() };
+    n.set(id, { tous, services: new Set(avant.services) });
+    return n;
+  });
+  const basculerService = (id: string, serviceId: string, on: boolean) => setChoix((m) => {
+    const n = new globalThis.Map(m);
+    const avant = m.get(id) ?? { tous: false, services: new Set<string>() };
+    const services = new Set(avant.services);
+    if (on) services.add(serviceId); else services.delete(serviceId);
+    n.set(id, { tous: false, services });
+    return n;
+  });
 
   const supprimer = async (sec: SectorRow) => {
     const msg = `Supprimer le secteur « ${sec.name} » ?`
@@ -677,9 +735,13 @@ function SecteursDeLaBu({
     void run(deleteSector, fd);
   };
 
-  const visibles = filtre.trim()
-    ? etablissements.filter((e) => `${e.name} ${e.city ?? ""}`.toLowerCase().includes(filtre.trim().toLowerCase()))
-    : etablissements;
+  const cle = filtre.trim().toLowerCase();
+  const correspond = (e: EtabOpt) => !cle || `${e.name} ${e.wilaya ?? ""}`.toLowerCase().includes(cle);
+  // LES DÉSACTIVÉS ne se proposent plus au découpage — sauf ceux que le secteur couvre DÉJÀ :
+  // les retirer de la liste les retirerait du secteur à l'enregistrement, sans un mot.
+  const proposes = etablissements.filter((e) => e.isActive || choix.has(e.id));
+  const masques = proposes.filter((e) => !correspond(e)).length;
+  const sansService = [...choix.entries()].filter(([, c]) => !c.tous && c.services.size === 0).map(([id]) => nomEtab(id));
 
   const ouvert = cree || edite !== null;
 
@@ -701,7 +763,7 @@ function SecteursDeLaBu({
             {sec.repIds.length === 0 && <Badge tone="neutral" dot={false}>Personne ne le couvre</Badge>}
             <span className="ml-auto flex items-center gap-1">
               <button
-                type="button" onClick={() => setEdite(sec)} disabled={busy}
+                type="button" onClick={() => ouvrir(sec)} disabled={busy}
                 className="rounded-md p-1 text-muted-foreground hover:bg-secondary hover:text-foreground"
                 aria-label={`Modifier le secteur ${sec.name}`}
               >
@@ -715,10 +777,11 @@ function SecteursDeLaBu({
                 <Trash2 className="h-3.5 w-3.5" />
               </button>
             </span>
-            {sec.institutionIds.length > 0 && (
+            {sec.liens.length > 0 && (
               <span className="w-full text-xs text-muted-foreground">
-                {sec.institutionIds.slice(0, 6).map(nomEtab).join(", ")}
-                {sec.institutionIds.length > 6 ? ` … +${sec.institutionIds.length - 6}` : ""}
+                {/* CE QUE LE SECTEUR COUVRE, en clair : « CHU Mustapha (Cardiologie, Oncologie) ». */}
+                {sec.liens.slice(0, 6).map((l) => libelleCouverture(nomEtab(l.institutionId), l, nomService)).join(" · ")}
+                {sec.liens.length > 6 ? ` … +${sec.liens.length - 6}` : ""}
                 {sec.repIds.length > 0 && ` — ${sec.repIds.map(nomKam).filter(Boolean).join(", ")}`}
               </span>
             )}
@@ -727,7 +790,7 @@ function SecteursDeLaBu({
       </div>
 
       <button
-        type="button" onClick={() => setCree(true)} disabled={busy}
+        type="button" onClick={() => ouvrir(null)} disabled={busy}
         className="inline-flex items-center gap-1.5 rounded-lg border border-input px-2.5 py-1.5 text-sm hover:bg-secondary disabled:opacity-60"
       >
         <Plus className="h-4 w-4" /> Découper un secteur
@@ -735,18 +798,26 @@ function SecteursDeLaBu({
 
       <Sheet
         open={ouvert}
-        onClose={() => { setCree(false); setEdite(null); setFiltre(""); }}
+        onClose={fermer}
         title={edite ? `Secteur « ${edite.name} »` : "Découper un secteur"}
-        description="Un nom que la force de vente emploie (« Est », « Oranais », « Alger »), les établissements qu'il couvre, et les KAM qui le parcourent."
+        description="Un nom que la force de vente emploie (« Est », « Oranais », « Alger »), les établissements qu'il couvre — tous leurs services, ou certains —, et les KAM qui le parcourent."
         width="lg"
       >
         <form
+          key={edite?.id ?? (cree ? "nouveau" : "ferme")}
           className="space-y-3"
           action={async (fd) => {
             if (edite) fd.set("id", edite.id);
             else fd.set("businessUnitId", buId);
+            // LA SÉLECTION PART DE L'ÉTAT, pas des cases à l'écran : un filtre qui masque des lignes
+            // ne les retire pas du secteur.
+            fd.delete("institutionIds");
+            for (const id of choix.keys()) fd.append("institutionIds", id);
+            const couverture: Record<string, string[]> = {};
+            for (const [id, c] of choix) if (!c.tous) couverture[id] = [...c.services];
+            fd.set("couverture", JSON.stringify(couverture));
             const ok = await run(edite ? updateSector : createSector, fd);
-            if (ok) { setCree(false); setEdite(null); setFiltre(""); }
+            if (ok) fermer();
           }}
         >
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
@@ -788,60 +859,105 @@ function SecteursDeLaBu({
           <div className="space-y-1.5">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                Établissements du secteur
+                Établissements du secteur {choix.size > 0 && <span className="normal-case">· {choix.size} coché(s)</span>}
               </p>
               <input
                 value={filtre} onChange={(e) => setFiltre(e.target.value)}
-                placeholder="Filtrer par nom ou ville" className={`${inputCls} w-56`}
+                placeholder="Filtrer par nom ou wilaya" className={`${inputCls} w-56`}
                 aria-label="Filtrer les établissements"
               />
             </div>
             {/* L'ANNUAIRE VIDE SE DIT, avec le geste qui le remplit — un cadre de cases vide se
                 lit comme « il n'y a pas d'hôpitaux », alors que la vérité est « personne n'en a
                 encore saisi ». */}
-            {etablissements.length === 0 ? (
+            {proposes.length === 0 ? (
               <p className="rounded-lg border border-dashed border-border p-3 text-xs text-muted-foreground">
                 L&apos;annuaire des établissements est vide : un secteur est une sélection d&apos;hôpitaux, il n&apos;y a
-                donc rien à cocher. Ajoutez-les dans <span className="font-medium">Annuaire › Établissements</span>.
+                donc rien à cocher. Ajoutez-les dans <span className="font-medium">Annuaires › Établissements</span>.
               </p>
             ) : (
-              <div className="max-h-64 space-y-1 overflow-y-auto rounded-lg border border-border p-2">
-                {visibles.length === 0 && (
+              <div className="max-h-80 space-y-1 overflow-y-auto rounded-lg border border-border p-2">
+                {masques === proposes.length && (
                   <p className="px-1 py-2 text-xs text-muted-foreground">Aucun établissement ne correspond à ce filtre.</p>
                 )}
-                {visibles.map((e) => (
-                  <label key={e.id} className="flex items-center gap-2 rounded-md px-1 py-1 text-sm hover:bg-secondary">
-                    <input
-                      type="checkbox" name="institutionIds" value={e.id}
-                      defaultChecked={edite?.institutionIds.includes(e.id) ?? false}
-                      className="h-4 w-4 rounded border-input"
-                    />
-                    <Building2 className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden />
-                    <span className="min-w-0 truncate">{e.name}</span>
-                    {e.city && <span className="ml-auto shrink-0 text-xs text-muted-foreground">{e.city}</span>}
-                  </label>
-                ))}
+                {/* TOUTES LES LIGNES SONT RENDUES, le filtre ne fait que MASQUER : la version d'avant
+                    ne montait que les lignes filtrées, et enregistrer après avoir filtré RETIRAIT du
+                    secteur tout ce qu'on ne voyait plus — alors que son commentaire promettait
+                    l'inverse (§118.172). La sélection vit désormais dans l'état. */}
+                {proposes.map((e) => {
+                  const c = choix.get(e.id);
+                  return (
+                    <div key={e.id} className={cn("rounded-md px-1 py-1", !correspond(e) && "hidden", c && "bg-primary/5")}>
+                      <label className="flex items-center gap-2 text-sm">
+                        <input
+                          type="checkbox" checked={Boolean(c)}
+                          onChange={(ev) => basculerEtab(e.id, ev.target.checked)}
+                          className="h-4 w-4 rounded border-input"
+                          aria-label={`Couvrir ${e.name}`}
+                        />
+                        <Building2 className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden />
+                        <span className="min-w-0 truncate">{e.name}</span>
+                        {!e.isActive && <Badge tone="warning" dot={false}>désactivé</Badge>}
+                        {e.wilaya && <span className="ml-auto shrink-0 text-xs text-muted-foreground">{e.wilaya}</span>}
+                      </label>
+                      {/* LES SERVICES DE CET ÉTABLISSEMENT — tous, ou certains. Un établissement sans
+                          service renseigné est couvert en entier : il n'y a rien à choisir. */}
+                      {c && e.services.length > 0 && (
+                        <div className="ml-6 mt-1 space-y-1">
+                          <label className="inline-flex items-center gap-1.5 text-xs">
+                            <input
+                              type="checkbox" checked={c.tous}
+                              onChange={(ev) => basculerTous(e.id, ev.target.checked)}
+                              className="h-3.5 w-3.5 rounded border-input"
+                              aria-label={`Tous les services de ${e.name}`}
+                            />
+                            Tous les services ({e.services.length})
+                          </label>
+                          {!c.tous && (
+                            <div className="flex flex-wrap gap-1.5">
+                              {e.services.map((sv) => (
+                                <label key={sv.id} className={cn(
+                                  "inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-xs",
+                                  c.services.has(sv.id) ? "border-primary/50 bg-primary/10" : "border-input",
+                                )}>
+                                  <input
+                                    type="checkbox" checked={c.services.has(sv.id)}
+                                    onChange={(ev) => basculerService(e.id, sv.id, ev.target.checked)}
+                                    className="h-3 w-3 rounded border-input"
+                                    aria-label={`${sv.name} — ${e.name}`}
+                                  />
+                                  {sv.name}
+                                </label>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             )}
-            {/* LE FILTRE NE DÉCOCHE PAS ce qu'il masque : les cases filtrées restent montées et
-                partent avec le formulaire. Les démonter ferait qu'un filtre appliqué avant
-                d'enregistrer RETIRERAIT du secteur tout ce qu'on ne voyait plus — une empreinte
-                bien plus large que le geste demandé, et parfaitement silencieuse. */}
-            {filtre.trim() && edite && (
+            {cle && masques > 0 && choix.size > 0 && (
               <p className="text-xs text-muted-foreground">
-                Le filtre masque des lignes sans les décocher : la sélection enregistrée reste complète.
+                Le filtre masque {masques} ligne(s) sans les décocher : la sélection enregistrée reste complète.
+              </p>
+            )}
+            {sansService.length > 0 && (
+              <p role="alert" className="rounded-lg bg-warning/10 px-2 py-1.5 text-xs text-warning">
+                Aucun service choisi pour {sansService.join(", ")} : cochez au moins un service, ou « Tous les services ».
               </p>
             )}
           </div>
 
           <div className="flex justify-end gap-2 pt-1">
             <button
-              type="button" onClick={() => { setCree(false); setEdite(null); setFiltre(""); }}
+              type="button" onClick={fermer}
               className="rounded-lg px-3 py-2 text-sm text-muted-foreground hover:bg-secondary"
             >
               Annuler
             </button>
-            <button type="submit" disabled={busy} className={btnCls}>
+            <button type="submit" disabled={busy || sansService.length > 0} className={btnCls}>
               {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
               {edite ? "Enregistrer" : "Créer le secteur"}
             </button>

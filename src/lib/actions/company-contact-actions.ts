@@ -6,7 +6,7 @@ import { peutAnnuaire } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
 import { getMyCompanies, companyIdForNew } from "@/lib/company";
-import { fdStr, type ActionResult } from "@/lib/actions/types";
+import { fdStr, fdCase, type ActionResult } from "@/lib/actions/types";
 
 /**
  * L'ANNUAIRE DE L'ENTREPRISE — les contacts externes, tenus au même endroit pour tout le monde.
@@ -100,7 +100,9 @@ export async function updateCompanyContact(formData: FormData): Promise<ActionRe
     data: {
       ...data,
       ...(companyRaw != null ? { companyId: String(companyRaw) || null } : {}),
-      ...(formData.has("isActive") ? { isActive: fdStr(formData, "isActive") === "1" } : {}),
+      // La case « Contact actif » se décoche pour METTRE DE CÔTÉ : sans témoin caché, la case
+      // décochée n'envoyait rien et `has` laissait le contact actif (§118.172).
+      ...(fdCase(formData, "isActive") !== undefined ? { isActive: fdCase(formData, "isActive") } : {}),
       updatedById: user.id,
     },
   });

@@ -6,9 +6,10 @@ import { requireUser } from "@/lib/session";
 import { userCan, peutAnnuaire } from "@/lib/rbac";
 import { canAccessEntity } from "@/lib/entity-access";
 import { prisma } from "@/lib/prisma";
+import { cleDEtablissement, indexerEtablissements } from "@/lib/annuaires/rattachement";
 import { suivreRenommageEtablissement } from "@/lib/stocks/lieux";
 import { recordAudit } from "@/lib/audit";
-import { fdStr, fdDate, type ActionResult } from "@/lib/actions/types";
+import { fdStr, fdDate, fdCase, type ActionResult } from "@/lib/actions/types";
 import { canonicalWilaya } from "@/lib/medical/wilaya";
 import { sousVerrous } from "@/lib/promo/stock-ecriture";
 import { dejaDansLaVisite, ecrireRemises, lireMaterielRemis, motifDeRemise, phraseMateriel, RefusRemise, toucheLeStock, verrousDuRapport } from "@/lib/promo/remises-visite";
@@ -109,29 +110,46 @@ export async function createInstitution(formData: FormData): Promise<ActionResul
   return { ok: true, id: created.id };
 }
 
+/**
+ * MODIFIER UN ÉTABLISSEMENT — et seulement ce que le formulaire PORTE (§118.172).
+ *
+ * Un champ ABSENT du formulaire garde sa valeur ; un champ présent et vide l'efface. C'est ce qui
+ * permet au bouton « Désactiver / Réactiver » de la ligne d'envoyer l'identifiant et l'état, et
+ * rien d'autre : avec un remplacement complet, il aurait effacé le type, la wilaya et le
+ * téléphone de l'hôpital qu'on voulait seulement remettre en service (§118.152c).
+ *
+ * La case « actif » se lit par `fdCase` : le formulaire de la fiche pose un témoin « off » AVANT
+ * la case, et `formData.get` rendait ce témoin — enregistrer un établissement actif le
+ * DÉSACTIVAIT, et le réactiver était impossible.
+ */
 export async function updateInstitution(formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
   // L'ANNUAIRE DES ÉTABLISSEMENTS (§118.147) : la Promotion médicale, OU l'annuaire ouvert en
   // « update » pour cette personne depuis la console — la même règle que l'écran.
   if (!peutAnnuaire(user, "ETABLISSEMENTS", "UPDATE")) return { ok: false, error: "Non autorisé." };
   const id = fdStr(formData, "id");
-  const name = fdStr(formData, "name");
-  if (!id || !name) return { ok: false, error: "Paramètres manquants." };
-  const wilaya = parseWilaya(fdStr(formData, "wilaya"));
-  if (!wilaya.ok) return { ok: false, error: wilaya.error };
+  if (!id) return { ok: false, error: "Établissement introuvable." };
+  const avant = await prisma.medicalInstitution.findUnique({ where: { id }, select: { name: true } });
+  if (!avant) return { ok: false, error: "Établissement introuvable." };
+  const porte = (cle: string) => formData.has(cle);
+  const nouveauNom = porte("name") ? fdStr(formData, "name") : avant.name;
+  if (nouveauNom === null) return { ok: false, error: "Le nom de l'établissement ne peut pas être vide." };
+  const wilaya = porte("wilaya") ? parseWilaya(fdStr(formData, "wilaya")) : null;
+  if (wilaya && !wilaya.ok) return { ok: false, error: wilaya.error };
+  const name = nouveauNom;
   await prisma.medicalInstitution.update({
     where: { id },
     data: {
       name,
-      type: parseInstitutionType(fdStr(formData, "type")),
-      sector: parseInstitutionSector(fdStr(formData, "sector")),
-      wilaya: wilaya.value,
-      region: fdStr(formData, "region"),
-      address: fdStr(formData, "address"),
-      phone: fdStr(formData, "phone"),
-      email: fdStr(formData, "email"),
-      notes: fdStr(formData, "notes"),
-      isActive: formData.get("isActive") === "on" ? true : formData.get("isActive") === "off" ? false : undefined,
+      ...(porte("type") ? { type: parseInstitutionType(fdStr(formData, "type")) } : {}),
+      ...(porte("sector") ? { sector: parseInstitutionSector(fdStr(formData, "sector")) } : {}),
+      ...(wilaya ? { wilaya: wilaya.value } : {}),
+      ...(porte("region") ? { region: fdStr(formData, "region") } : {}),
+      ...(porte("address") ? { address: fdStr(formData, "address") } : {}),
+      ...(porte("phone") ? { phone: fdStr(formData, "phone") } : {}),
+      ...(porte("email") ? { email: fdStr(formData, "email") } : {}),
+      ...(porte("notes") ? { notes: fdStr(formData, "notes") } : {}),
+      isActive: fdCase(formData, "isActive"),
     },
   });
   // Re-synchronise le libellé dénormalisé sur les praticiens rattachés.
@@ -293,10 +311,36 @@ export async function updateDoctor(formData: FormData): Promise<ActionResult> {
   if (!before) return { ok: false, error: "Médecin introuvable." };
 
   const name = fdStr(formData, "name") ?? before.name;
-  const specialtyId = fdStr(formData, "specialtyId");
+  // LES LIENS NE S'EFFACENT QUE SI LE FORMULAIRE LES PORTE (§118.172). Un appelant qui ne connaît
+  // pas ces champs — l'op d'Adam rejoue la fiche par ses LIBELLÉS, sans aucun identifiant — les
+  // remettait à `null` à chaque modification : changer un téléphone détachait le praticien de son
+  // établissement, de son service et de sa spécialité de référence, sans un mot.
+  const specialtyId = formData.has("specialtyId") ? fdStr(formData, "specialtyId") : before.specialtyId;
   const sName = await specialtyName(specialtyId);
-  const institutionId = fdStr(formData, "institutionId");
+  let institutionId = formData.has("institutionId") ? fdStr(formData, "institutionId") : before.institutionId;
+  // UN ÉTABLISSEMENT NOMMÉ SANS IDENTIFIANT (l'op d'Adam écrit « CHU Mustapha »). Garder le lien
+  // d'avant en ignorant ce nom aurait annoncé « établissement modifié » sans rien modifier — le
+  // faux succès. Le nom se résout par la règle unique (`rattachement.ts`) : un seul établissement
+  // actif de ce nom → le lien ; sinon la fiche porte le texte, « à rattacher », comme un import.
+  let institutionTexte: string | null | undefined;
+  if (!formData.has("institutionId") && formData.has("institution")) {
+    const texte = fdStr(formData, "institution");
+    const actuel = before.institutionId ? await institutionName(before.institutionId) : before.institution;
+    if (cleDEtablissement(texte ?? "") !== cleDEtablissement(actuel ?? "")) {
+      // `=== null` et non `!texte` : la dérivation des contrats lit `if (!v)` comme « champ
+      // OBLIGATOIRE » (§118.138), et l'établissement d'une fiche ne l'est pas — il s'efface.
+      if (texte === null) { institutionId = null; institutionTexte = null; }
+      else {
+        const etabs = await prisma.medicalInstitution.findMany({ select: { id: true, name: true, isActive: true, wilaya: true } });
+        const r = indexerEtablissements(etabs)(texte);
+        if (r.statut === "trouve") institutionId = r.etablissement.id;
+        else { institutionId = null; institutionTexte = texte; }
+      }
+    }
+  }
   const iName = await institutionName(institutionId);
+  // UN SERVICE N'EXISTE QUE DANS SON ÉTABLISSEMENT : changer d'établissement le retire.
+  const serviceId = institutionId === before.institutionId ? before.serviceId : null;
   // Un manager (vue globale) peut réassigner le délégué ; un délégué reste propriétaire.
   const isManager = user.role !== "MEDICAL_DELEGATE";
   // La wilaya ne s'efface que si le formulaire la PORTE vide : un appelant qui ne connaît pas
@@ -313,7 +357,8 @@ export async function updateDoctor(formData: FormData): Promise<ActionResult> {
       specialty: sName ?? (specialtyId ? before.specialty : fdStr(formData, "specialty")),
       sector: parseSector(fdStr(formData, "sector")),
       institutionId,
-      institution: iName ?? (institutionId ? before.institution : fdStr(formData, "institution")),
+      serviceId,
+      institution: iName ?? (institutionTexte !== undefined ? institutionTexte : institutionId ? before.institution : fdStr(formData, "institution") ?? before.institution),
       wilaya: wilaya.value,
       region: fdStr(formData, "region"),
       phone: fdStr(formData, "phone"),

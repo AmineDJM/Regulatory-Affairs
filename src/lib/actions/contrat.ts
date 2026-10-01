@@ -463,7 +463,9 @@ export function enumsLocaux(source: string): TableEnums {
 // ───────────────────────────────────────────────────────────────────────────────────────────
 
 export const HELPERS_PARTAGES: Readonly<Record<string, TypeChamp>> = {
-  fdStr: "texte", fdNum: "nombre", fdDate: "date", fdBool: "booleen",
+  // `fdCase` (§118.172) : la case à cocher PRÉCÉDÉE de son témoin caché — `fdBool` lit la PREMIÈRE
+  // valeur, donc le témoin, et une case cochée ne réactivait jamais rien.
+  fdStr: "texte", fdNum: "nombre", fdDate: "date", fdBool: "booleen", fdCase: "booleen",
 };
 
 /** `id`, `userId`, `dossierId`… désignent une autre fiche. C'est le pont vers `resoudreCible`. */
@@ -511,10 +513,11 @@ export function lecteursLocaux(
   corps: string,
   formulaires: readonly string[],
   lecteursConnus: Readonly<Record<string, TypeChamp>>,
-): { lecteurs: Record<string, TypeChamp>; parametres: Set<string> } {
+): { lecteurs: Record<string, TypeChamp>; parametres: Set<string>; presences: Set<string> } {
   const lecteurs: Record<string, TypeChamp> = {};
   const parametres = new Set<string>();
-  if (formulaires.length === 0) return { lecteurs, parametres };
+  const presences = new Set<string>();
+  if (formulaires.length === 0) return { lecteurs, parametres, presences };
   const ech = (n: string) => n.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const fd = formulaires.map(ech).join("|");
   const noms = Object.keys(lecteursConnus).map(ech).join("|");
@@ -532,18 +535,25 @@ export function lecteursLocaux(
     // conclut que sur une occurrence qui NOMME à la fois le formulaire et le paramètre.
     const fenetre = propre.slice(m.index + m[0].length, m.index + m[0].length + 500);
     const k = ech(cle);
+    const lit = (methode: string) => new RegExp(`\\b(?:${fd})\\s*\\.\\s*${methode}\\s*\\(\\s*${k}\\s*\\)`).test(fenetre);
     const type: TypeChamp | null =
-      new RegExp(`\\b(?:${fd})\\s*\\.\\s*getAll\\s*\\(\\s*${k}\\s*\\)`).test(fenetre) ? "liste"
-      : new RegExp(`\\b(?:${fd})\\s*\\.\\s*(?:get|has)\\s*\\(\\s*${k}\\s*\\)`).test(fenetre) ? "texte"
+      lit("getAll") ? "liste"
+      : lit("get") ? "texte"
       : (() => {
           const r = new RegExp(`\\b(${noms})\\s*\\(\\s*(?:${fd})\\s*,\\s*${k}\\s*\\)`).exec(fenetre);
           return r ? lecteursConnus[r[1]!]! : null;
-        })();
+        })()
+        // UN TEST DE PRÉSENCE n'est pas une lecture (§118.172) : `(cle) => formData.has(cle)` dit
+        // si le formulaire PORTE un champ, jamais ce qu'il vaut. Il reste un lecteur local — sans
+        // quoi `formData.has(cle)`, clé non littérale, rendrait l'action illisible — mais il ne
+        // TYPE rien et ne prouve aucune obligation : `if (porte("wilaya") && !wilaya.ok)` déclarait
+        // la wilaya OBLIGATOIRE sur une action qui la rend facultative.
+        ?? (lit("has") ? (presences.add(nom), "texte" as const) : null);
     if (!type) continue;
     lecteurs[nom] = type;
     parametres.add(cle);
   }
-  return { lecteurs, parametres };
+  return { lecteurs, parametres, presences };
 }
 
 /**
@@ -639,7 +649,12 @@ function lirePorte(corps: string, constantes: Readonly<Record<string, string>>):
   // `allowedGeneralMeansCategoryIds`, qui rend une LISTE D'IDENTIFIANTS et non un droit. On relève
   // une garde sur un fait, jamais sur un nom plausible (§118.79a) — l'inscrire ferait annoncer une
   // garde là où il n'y a qu'une lecture de catégories.
-  for (const g of corps.matchAll(/\b(require[A-Z][A-Za-z]*|assert[A-Z][A-Za-z]*|can[A-Z][A-Za-z]*|has[A-Z][A-Za-z]*|is[A-Z][A-Za-z]*|peut[A-Z][A-Za-z]*|sits[A-Z][A-Za-z]*|siege[A-Z][A-Za-z]*|holds[A-Z][A-Za-z]*)\s*\(/g)) {
+  //
+  // Un APPEL DE MÉTHODE n'est pas une garde (§118.172) : `Array.isArray(`, `Number.isFinite(`,
+  // `Number.isNaN(` s'écrivent comme un prédicat de droit, et 37 fiches du parc annonçaient
+  // « isFinite » ou « isArray » parmi leurs gardes. Mesuré sur toutes les sources d'actions : aucun
+  // prédicat de droit ne s'appelle comme méthode — le point qui précède suffit à les écarter.
+  for (const g of corps.matchAll(/(?<![.\w$])(require[A-Z][A-Za-z]*|assert[A-Z][A-Za-z]*|can[A-Z][A-Za-z]*|has[A-Z][A-Za-z]*|is[A-Z][A-Za-z]*|peut[A-Z][A-Za-z]*|sits[A-Z][A-Za-z]*|siege[A-Z][A-Za-z]*|holds[A-Z][A-Za-z]*)\s*\(/g)) {
     if (g[1] !== "requireUser") gardes.add(g[1]!);
   }
   return { module, verbe, entite, moduleFr, gardes: [...gardes].sort() };
@@ -906,7 +921,9 @@ export function decrireAction(
     };
   }
 
-  const propres = lireChamps(corps, enums, tousLecteurs, base.modelesEcrits, relations, Object.keys(locaux.lecteurs));
+  const propres = lireChamps(
+    corps, enums, tousLecteurs, base.modelesEcrits, relations, Object.keys(locaux.lecteurs), formulaires, locaux.presences,
+  );
 
   // CE QUE LES FONCTIONS DU FICHIER LISENT DANS LE MÊME FORMULAIRE (voir `deleguesDuCorps`).
   //
@@ -928,6 +945,7 @@ export function decrireAction(
     }
     parDelegation.push(...lireChamps(
       d.corps, enums, { ...lecteurs, ...locD.lecteurs }, base.modelesEcrits, relations, Object.keys(locD.lecteurs),
+      fdD, locD.presences,
     ));
   }
   const vus = new Set<string>();
@@ -966,10 +984,16 @@ function lireChamps(
   relations: TableRelations,
   /** Les lecteurs LOCAUX, appelés avec la seule clé (`parseDate("arrivedDate")`). */
   locaux: readonly string[] = [],
+  /** Les noms sous lesquels le corps tient le FORMULAIRE (paramètre et alias directs). */
+  formulaires: readonly string[] = [],
+  /** Les lecteurs locaux qui ne font que TESTER la présence (`(k) => formData.has(k)`). */
+  presences: ReadonlySet<string> = new Set(),
 ): ChampAction[] {
   const parNom = new Map<string, ChampAction>();
   /** Le nom de variable sous lequel un champ a été rangé — pour retrouver sa garde et son cast. */
   const variableDe = new Map<string, string>();
+  /** Les champs seulement TESTÉS (présence) — déclarés à la fin, s'ils ne sont lus nulle part. */
+  const faibles = new Set<string>();
 
   const poser = (nom: string, type: TypeChamp) => {
     const deja = parNom.get(nom);
@@ -1003,15 +1027,29 @@ function lireChamps(
   if (locaux.length > 0) {
     const nomsLocaux = locaux.map((n) => n.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|");
     for (const m of corps.matchAll(new RegExp(`(?:const|let)\\s+([A-Za-z_0-9]+)\\s*=\\s*(?:await\\s+)?(${nomsLocaux})\\s*\\(\\s*"([^"]+)"`, "g"))) {
+      if (presences.has(m[2]!)) { faibles.add(m[3]!); continue; }
       poser(m[3]!, lecteurs[m[2]!]!);
       variableDe.set(m[3]!, m[1]!);
     }
     for (const m of corps.matchAll(new RegExp(`\\b(${nomsLocaux})\\s*\\(\\s*"([^"]+)"`, "g"))) {
+      if (presences.has(m[1]!)) { faibles.add(m[2]!); continue; }
       poser(m[2]!, lecteurs[m[1]!]!);
     }
   }
-  for (const m of corps.matchAll(/\.getAll\s*\(\s*"([^"]+)"/g)) poser(m[1]!, "liste");
-  for (const m of corps.matchAll(/\.(?:get|has)\s*\(\s*"([^"]+)"/g)) poser(m[1]!, "texte");
+  // LE RÉCEPTEUR COMPTE (§118.79b, §118.172) : `user.access.modules.get("MEDICAL")` n'est pas un
+  // champ du formulaire, `presents.has("institution")` (un ENSEMBLE de colonnes) non plus — et
+  // l'import des praticiens déclarait « MEDICAL », « institution », « service » et « delegate »
+  // comme des champs à remplir. Les lectures directes se bornent aux noms du formulaire.
+  const recepteur = formulaires.length > 0
+    ? `\\b(?:${formulaires.map((n) => n.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|")})\\s*`
+    : "";
+  for (const m of corps.matchAll(new RegExp(`${recepteur}\\.getAll\\s*\\(\\s*"([^"]+)"`, "g"))) poser(m[1]!, "liste");
+  for (const m of corps.matchAll(new RegExp(`${recepteur}\\.get\\s*\\(\\s*"([^"]+)"`, "g"))) poser(m[1]!, "texte");
+  // UN TEST DE PRÉSENCE DÉCLARE un champ, il ne le TYPE pas : `formData.has("capDaysPerMonth")`
+  // précède `num(formData, "capDaysPerMonth")` dans une écriture partielle, et la dernière passe
+  // gagnait — un nombre redevenait du texte. Il ne pose qu'un champ que rien d'autre n'a lu.
+  for (const m of corps.matchAll(new RegExp(`${recepteur}\\.has\\s*\\(\\s*"([^"]+)"`, "g"))) faibles.add(m[1]!);
+  for (const nom of faibles) if (!parNom.has(nom)) poser(nom, "texte");
 
   for (const champ of parNom.values()) {
     const v = variableDe.get(champ.nom);

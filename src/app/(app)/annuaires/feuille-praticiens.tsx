@@ -56,7 +56,7 @@ export async function FeuillePraticiensHub({
         basePath={basePath}
       />
       <AnnuaireGrid
-        rows={feuille.rows} couleurs={feuille.couleurs} customColumns={feuille.customColumns}
+        rows={feuille.rows} etablissements={feuille.etablissements} couleurs={feuille.couleurs} customColumns={feuille.customColumns}
         canEdit={canEdit} canImport={canImport} canImportFile={userCan(user, "MEDICAL", "CREATE")} canDelete={canDelete} specialties={feuille.specialties}
         canManageColumns={canManageStructure}
         directoryId={feuille.openDirectoryId}

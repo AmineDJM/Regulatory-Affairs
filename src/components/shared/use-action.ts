@@ -1,9 +1,9 @@
 "use client";
 
 import * as React from "react";
-import { useRouter } from "next/navigation";
 import type { ActionResult } from "@/lib/actions/types";
 import { actionFailureMessage, ACTION_TIMEOUT_MS } from "@/lib/action-outcome";
+import { useRafraichir } from "./use-rafraichir";
 
 /**
  * APPELER UNE ACTION SERVEUR SANS POUVOIR RESTER BLOQUÉ.
@@ -27,7 +27,9 @@ import { actionFailureMessage, ACTION_TIMEOUT_MS } from "@/lib/action-outcome";
  * réessayer — ce réflexe-là fabrique les doublons.
  */
 export function useAction() {
-  const router = useRouter();
+  // Le bouton reste « en cours » jusqu'à ce que les NOUVELLES données soient à l'écran : rendu
+  // plus tôt, il laisse rouvrir une fiche sur l'état d'avant (§118.172, `use-rafraichir.ts`).
+  const { enCours, rafraichir } = useRafraichir();
   const [saving, setSaving] = React.useState(false);
   const [err, setErr] = React.useState<string | null>(null);
   // Le composant peut disparaître pendant l'attente (panneau refermé) : écrire dans son état
@@ -51,7 +53,7 @@ export function useAction() {
         fini = true;
         if (!vivant.current) return r.ok;
         setSaving(false);
-        if (r.ok) { onOk?.(); router.refresh(); return true; }
+        if (r.ok) { onOk?.(); rafraichir(); return true; }
         setErr(r.error ?? "Action impossible.");
         return false;
       } catch (e) {
@@ -63,12 +65,13 @@ export function useAction() {
         clearTimeout(minuteur);
       }
     },
-    [router],
+    [rafraichir],
   );
 
   // `busy` est l'alias historique de `saving` : les six écrans repris n'utilisaient pas le même
   // nom, et les renommer tous aurait élargi ce lot sans rien corriger.
-  return { saving, busy: saving, err, setErr, run };
+  const occupe = saving || enCours;
+  return { saving: occupe, busy: occupe, err, setErr, run };
 }
 
 /**
@@ -78,15 +81,17 @@ export function useAction() {
  * « Accepter » ferait tourner aussi « Refuser », et l'on ne saurait plus lequel on a pressé.
  */
 export function useKeyedAction() {
-  const router = useRouter();
+  const { enCours, rafraichir } = useRafraichir();
   const [busy, setBusy] = React.useState<string | null>(null);
+  // Le bouton pressé reste désigné jusqu'à l'arrivée des nouvelles données (§118.172).
+  const [derniere, setDerniere] = React.useState<string | null>(null);
   const [error, setError] = React.useState<string | null>(null);
   const vivant = React.useRef(true);
   React.useEffect(() => () => { vivant.current = false; }, []);
 
   const run = React.useCallback(
     async (key: string, fn: () => Promise<ActionResult>): Promise<boolean> => {
-      setBusy(key); setError(null);
+      setBusy(key); setDerniere(key); setError(null);
       let fini = false;
       const minuteur = setTimeout(() => {
         if (fini || !vivant.current) return;
@@ -99,7 +104,7 @@ export function useKeyedAction() {
         if (!vivant.current) return r.ok;
         setBusy(null);
         if (!r.ok) { setError(r.error ?? "Action impossible."); return false; }
-        router.refresh();
+        rafraichir();
         return true;
       } catch (e) {
         fini = true;
@@ -110,8 +115,8 @@ export function useKeyedAction() {
         clearTimeout(minuteur);
       }
     },
-    [router],
+    [rafraichir],
   );
 
-  return { busy, error, run, setError };
+  return { busy: busy ?? (enCours ? derniere : null), error, run, setError };
 }

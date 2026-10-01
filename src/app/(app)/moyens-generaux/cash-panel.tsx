@@ -276,6 +276,8 @@ export function CashPanel({ view, people }: { view: GeneralMeansView; people: { 
             </label>
           </div>
           <label className="inline-flex items-center gap-1.5 text-xs">
+            {/* LE TÉMOIN CACHÉ, AVANT la case : décochée, c'est lui qui suspend le plan (§118.172). */}
+            <input type="hidden" name="isActive" value="0" />
             <input type="checkbox" name="isActive" value="1" defaultChecked={view.plan?.isActive ?? true} className="h-4 w-4 rounded border-input" />
             Rechargement actif (les RH sont prévenues 48 h avant chaque échéance)
           </label>

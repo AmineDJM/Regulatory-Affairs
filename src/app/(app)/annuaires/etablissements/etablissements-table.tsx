@@ -1,8 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { useRouter } from "next/navigation";
-import { Building2, Loader2, MapPin, Pencil, Plus, Search, Stethoscope, Trash2 } from "lucide-react";
+import { Building2, Layers, Loader2, MapPin, Pencil, Plus, Power, PowerOff, Search, Stethoscope, Trash2 } from "lucide-react";
 import { createInstitution, updateInstitution, deleteInstitution } from "@/lib/actions/medical-actions";
 import { colorerCellulesAnnuaire } from "@/lib/actions/annuaire-couleurs-actions";
 import { Button } from "@/components/ui/button";
@@ -14,7 +13,9 @@ import { ALGERIA_WILAYAS } from "@/lib/labels";
 import { ETABLISSEMENT_COLUMNS, type EtablissementField } from "@/lib/medical/etablissements-grid";
 import { cleCellule, type CouleurCellule } from "@/lib/grille/couleurs";
 import { useSelectionGrille } from "@/components/grille/use-selection";
-import { BarreSelection, classeCouleurCellule } from "@/components/grille/barre-selection";
+import { BarreSelection, DockSelection, classeCouleurCellule } from "@/components/grille/barre-selection";
+import { ServicesPanel } from "./services-panel";
+import { useRafraichir } from "@/components/shared/use-rafraichir";
 
 import type { EtablissementRow } from "@/lib/annuaires/types";
 
@@ -55,7 +56,7 @@ export type { EtablissementRow };
  * ligne supprimée, qu'on doit lire avant de décider.
  */
 export function EtablissementsTable({
-  rows, couleurs, types, sectors, canCreate, canEdit, canDelete,
+  rows, couleurs, types, sectors, canCreate, canEdit, canDelete, suggestionsServices = [],
 }: {
   rows: EtablissementRow[];
   /** Les couleurs posées sur la feuille — `<id>:<colonne>` → clé de palette. */
@@ -66,8 +67,16 @@ export function EtablissementsTable({
   canCreate: boolean;
   canEdit: boolean;
   canDelete: boolean;
+  /** Les spécialités connues, PROPOSÉES à la saisie d'un service (§118.172) — jamais imposées. */
+  suggestionsServices?: string[];
 }) {
-  const router = useRouter();
+  // Les gestes attendent que l'écran ait reçu ses nouvelles données : une fiche ouverte
+  // avant porterait l'état d'AVANT, et l'enregistrer le réécrirait (§118.172).
+  const { enCours: rafraichit, rafraichir } = useRafraichir();
+  // LE PANNEAU DES SERVICES suit la LIGNE par son identifiant, relue à chaque rendu : garder
+  // l'objet de la ligne montrerait la liste d'avant l'ajout, jusqu'à ce qu'on le referme.
+  const [servicesDeId, setServicesDeId] = React.useState<string | null>(null);
+  const servicesDe = servicesDeId ? rows.find((r) => r.id === servicesDeId) ?? null : null;
   const [creating, setCreating] = React.useState(false);
   const [editing, setEditing] = React.useState<EtablissementRow | null>(null);
   const [busy, setBusy] = React.useState(false);
@@ -78,6 +87,8 @@ export function EtablissementsTable({
   React.useEffect(() => { setCouleursLocales(couleurs); }, [couleurs]);
   const [msgCouleur, setMsgCouleur] = React.useState<{ ok: boolean; text: string } | null>(null);
 
+  const occupe = busy || rafraichit;
+
   const labelType = (v: string) => types.find((t) => t.value === v)?.label ?? v;
   const labelSector = (v: string) => sectors.find((s) => s.value === v)?.label ?? v;
 
@@ -86,7 +97,7 @@ export function EtablissementsTable({
     const r = await action(fd);
     setBusy(false);
     if (!r.ok) { setErr(r.error ?? "Action impossible."); return false; }
-    router.refresh();
+    rafraichir();
     return true;
   };
 
@@ -94,6 +105,7 @@ export function EtablissementsTable({
     const consequences = [
       e.doctorCount > 0 ? `${e.doctorCount} praticien(s) passeront en « sans établissement » (ils ne sont PAS supprimés)` : null,
       e.sectorCount > 0 ? `${e.sectorCount} secteur(s) commercial(aux) le perdront — un KAM dont le secteur se vide n'a plus de médecin à visiter` : null,
+      e.services.length > 0 ? `ses ${e.services.length} service(s) sont supprimés avec lui` : null,
     ].filter(Boolean);
     const msg = `Supprimer « ${e.name} » ?`
       + (consequences.length ? `\n\n${consequences.map((c) => `• ${c}`).join("\n")}` : "");
@@ -101,6 +113,23 @@ export function EtablissementsTable({
     const fd = new FormData();
     fd.set("id", e.id);
     await run(deleteInstitution, fd);
+  };
+
+  /**
+   * DÉSACTIVER / RÉACTIVER EN UN CLIC (§118.172). Le formulaire de la fiche portait une case
+   * « actif » que le serveur lisait de travers : enregistrer un établissement actif le
+   * désactivait, et le réactiver était impossible. Le geste vit maintenant aussi sur la ligne, et
+   * n'envoie que l'identifiant et l'état — `updateInstitution` laisse le reste tel quel.
+   */
+  const basculerActif = async (e: EtablissementRow) => {
+    if (e.isActive && !window.confirm(
+      `Désactiver « ${e.name} » ?\n\nIl ne se proposera plus au rattachement d'un praticien ni au découpage d'un secteur. `
+      + "Les praticiens et les secteurs qui le portent déjà le gardent.",
+    )) return;
+    const fd = new FormData();
+    fd.set("id", e.id);
+    fd.set("isActive", e.isActive ? "off" : "on");
+    await run(updateInstitution, fd);
   };
 
   // LE FILTRE EST CLIENT : le parc d'établissements se compte en centaines, pas en dizaines de
@@ -119,6 +148,7 @@ export function EtablissementsTable({
       case "type": return labelType(row.type);
       case "sector": return labelSector(row.sector);
       case "wilaya": return row.wilaya ?? "";
+      case "services": return row.services.map((s) => s.name).join(", ");
       case "doctorCount": return String(row.doctorCount);
       case "sectorCount": return String(row.sectorCount);
     }
@@ -151,7 +181,7 @@ export function EtablissementsTable({
       setBusy(false);
       if (!r.ok) { setCouleursLocales(avant); setMsgCouleur({ ok: false, text: r.error ?? "Coloration refusée." }); return; }
       if (r.ignorees > 0) setMsgCouleur({ ok: true, text: r.message ?? "" });
-      router.refresh();
+      rafraichir();
     });
   };
 
@@ -173,24 +203,11 @@ export function EtablissementsTable({
           {types.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
         </Select>
         {canCreate && (
-          <Button onClick={() => { setErr(null); setCreating(true); }} disabled={busy}>
+          <Button onClick={() => { setErr(null); setCreating(true); }} disabled={occupe}>
             <Plus className="h-4 w-4" /> Ajouter un établissement
           </Button>
         )}
       </div>
-
-      {err && <p className="rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">{err}</p>}
-
-      <BarreSelection
-        nombre={grille.nombre}
-        peutColorer={canEdit}
-        busy={busy}
-        onCouleur={(c) => appliquerCouleur(c)}
-        onEffacer={() => appliquerCouleur(null)}
-        onCopier={grille.copier}
-        onFermer={grille.vider}
-        message={msgCouleur}
-      />
 
       <div {...grille.propsConteneur} className="overflow-x-auto rounded-xl border border-border outline-none focus-visible:ring-1 focus-visible:ring-ring">
         <table className="w-full min-w-[760px] select-none text-sm">
@@ -249,24 +266,53 @@ export function EtablissementsTable({
                       {e.wilaya || "—"}
                     </span>
                   ))}
-                  {cellule(4, "doctorCount", e.doctorCount > 0
+                  {cellule(4, "services", (
+                    // LES SERVICES (§118.172) : les premiers en clair, le reste compté, et le
+                    // panneau à un clic — qui ne peut pas modifier l'y LIT sans bouton.
+                    <span className="flex flex-wrap items-center gap-1">
+                      {e.services.slice(0, 3).map((s) => (
+                        <span key={s.id} className="rounded-md bg-muted px-1.5 py-0.5 text-xs">{s.name}</span>
+                      ))}
+                      {e.services.length > 3 && <span className="text-xs text-muted-foreground">+{e.services.length - 3}</span>}
+                      <button
+                        type="button" onClick={(ev) => { ev.stopPropagation(); setServicesDeId(e.id); }}
+                        onMouseDown={(ev) => ev.stopPropagation()}
+                        className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs text-primary hover:bg-primary/10"
+                        aria-label={`Services de ${e.name}`}
+                      >
+                        <Layers className="h-3.5 w-3.5" aria-hidden />
+                        {e.services.length === 0 ? (canEdit ? "Ajouter" : "Aucun") : canEdit ? "Gérer" : "Voir"}
+                      </button>
+                    </span>
+                  ))}
+                  {cellule(5, "doctorCount", e.doctorCount > 0
                     ? <span className="inline-flex items-center gap-1"><Stethoscope className="h-3.5 w-3.5 text-muted-foreground" aria-hidden />{e.doctorCount}</span>
                     : <span className="text-muted-foreground">—</span>, "text-right tabular-nums")}
-                  {cellule(5, "sectorCount", e.sectorCount > 0 ? e.sectorCount : <span className="text-muted-foreground">—</span>, "text-right tabular-nums")}
+                  {cellule(6, "sectorCount", e.sectorCount > 0 ? e.sectorCount : <span className="text-muted-foreground">—</span>, "text-right tabular-nums")}
                   <td className="px-3 py-2">
                     <span className="flex items-center justify-end gap-1">
                       {canEdit && (
                         <button
-                          type="button" onClick={() => { setErr(null); setEditing(e); }} disabled={busy}
+                          type="button" onClick={() => { setErr(null); setEditing(e); }} disabled={occupe}
                           className="rounded-md p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground"
                           aria-label={`Modifier ${e.name}`}
                         >
                           <Pencil className="h-4 w-4" />
                         </button>
                       )}
+                      {canEdit && (
+                        <button
+                          type="button" onClick={() => void basculerActif(e)} disabled={occupe}
+                          className="rounded-md p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+                          aria-label={e.isActive ? `Désactiver ${e.name}` : `Réactiver ${e.name}`}
+                          title={e.isActive ? "Désactiver" : "Réactiver"}
+                        >
+                          {e.isActive ? <PowerOff className="h-4 w-4" /> : <Power className="h-4 w-4 text-success" />}
+                        </button>
+                      )}
                       {canDelete && (
                         <button
-                          type="button" onClick={() => void remove(e)} disabled={busy}
+                          type="button" onClick={() => void remove(e)} disabled={occupe}
                           className="rounded-md p-1.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
                           aria-label={`Supprimer ${e.name}`}
                         >
@@ -282,10 +328,34 @@ export function EtablissementsTable({
         </table>
       </div>
 
+      {/* SOUS le tableau et dans le flux, jamais au-dessus ni collé au bas de l'écran : une barre qui
+          surgit au-dessus le décale, une barre collée en bas recouvre la dernière ligne — dans les
+          deux cas le clic suivant tombe ailleurs (§118.172, `DockSelection`). */}
+      <DockSelection>
+        {err && <p role="alert" className="rounded-lg border border-destructive/40 bg-card px-3 py-2 text-sm text-destructive">{err}</p>}
+        <BarreSelection
+          nombre={grille.nombre}
+          peutColorer={canEdit}
+          busy={occupe}
+          onCouleur={(c) => appliquerCouleur(c)}
+          onEffacer={() => appliquerCouleur(null)}
+          onCopier={grille.copier}
+          onFermer={grille.vider}
+          message={msgCouleur}
+        />
+      </DockSelection>
+
       <p className="text-xs text-muted-foreground">
         {visibles.length} établissement(s) affiché(s) sur {rows.length}.
         {canEdit && " Un clic sélectionne une cellule, Maj étend, Ctrl ajoute ; la barre colore et copie la sélection."}
       </p>
+
+      <ServicesPanel
+        etablissement={servicesDe}
+        canEdit={canEdit}
+        suggestions={suggestionsServices}
+        onClose={() => setServicesDeId(null)}
+      />
 
       <Sheet
         open={creating || editing !== null}
@@ -314,7 +384,9 @@ export function EtablissementsTable({
               </Select>
             </div>
             <div>
-              <Label htmlFor="etab-sector">Secteur</Label>
+              {/* PUBLIC OU PRIVÉ — un attribut de l'établissement, pas un secteur commercial : les
+                  secteurs se découpent dans la configuration de chaque Business Unit (§118.172). */}
+              <Label htmlFor="etab-sector">Public / privé</Label>
               <Select id="etab-sector" name="sector" defaultValue={editing?.sector ?? "PUBLIC"}>
                 {sectors.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
               </Select>
@@ -368,11 +440,11 @@ export function EtablissementsTable({
           )}
           {err && <p className="text-sm text-destructive">{err}</p>}
           <div className="flex justify-end gap-2 pt-1">
-            <Button type="button" variant="ghost" onClick={() => { setCreating(false); setEditing(null); }} disabled={busy}>
+            <Button type="button" variant="ghost" onClick={() => { setCreating(false); setEditing(null); }} disabled={occupe}>
               Annuler
             </Button>
-            <Button type="submit" disabled={busy}>
-              {busy && <Loader2 className="h-4 w-4 animate-spin" />}
+            <Button type="submit" disabled={occupe}>
+              {occupe && <Loader2 className="h-4 w-4 animate-spin" />}
               {editing ? "Enregistrer" : "Ajouter"}
             </Button>
           </div>

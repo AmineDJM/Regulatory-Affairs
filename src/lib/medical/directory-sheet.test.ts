@@ -102,6 +102,8 @@ describe("Restructurer une ligne à NOTRE format", () => {
       lastName: "MOUFFOK", firstName: "Amina",
       title: "PROFESSEUR", specialty: "Cardiologie",
       sector: "HOSPITAL", institution: "CHU Mustapha",
+      // Le service a sa propre colonne (§118.172) ; ce fichier n'en a pas.
+      service: null,
       address: null, city: null, wilaya: "Alger", postalCode: null, region: null,
       phone: "0550 11 22 33", email: null,
       influence: "VERY_HIGH", potential: "MEDIUM", affinity: "MEDIUM",
@@ -168,7 +170,7 @@ describe("Lire une feuille entière, et dire ce qui a été écarté", () => {
   });
 
   it("une feuille vide ne casse rien", () => {
-    expect(parseDirectorySheet([])).toEqual({ rows: [], skipped: 0, matched: [], unknown: [] });
+    expect(parseDirectorySheet([])).toEqual({ rows: [], skipped: 0, matched: [], unknown: [], presents: new Set() });
   });
 });
 

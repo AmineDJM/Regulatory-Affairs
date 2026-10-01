@@ -36,7 +36,7 @@ export interface DirectoryColumn {
 
 export type DirectoryField =
   | "name" | "lastName" | "firstName"
-  | "title" | "specialty" | "sector" | "institution"
+  | "title" | "specialty" | "sector" | "institution" | "service"
   | "address" | "city" | "wilaya" | "postalCode" | "region"
   | "phone" | "email" | "influence" | "potential" | "affinity" | "targetProducts"
   | "delegate" | "comments";
@@ -50,9 +50,14 @@ export const DIRECTORY_COLUMNS: DirectoryColumn[] = [
   { key: "lastName", header: "Nom", aliases: ["nom de famille", "last name"] },
   { key: "firstName", header: "Prénom", aliases: ["prenom", "prenoms", "first name"] },
   { key: "title", header: "Grade", aliases: ["titre", "qualite", "fonction", "grade universitaire", "statut"] },
-  { key: "specialty", header: "Spécialité", aliases: ["specialite", "specialite 1", "discipline", "service"] },
+  { key: "specialty", header: "Spécialité", aliases: ["specialite", "specialite 1", "discipline"] },
   { key: "sector", header: "Secteur", aliases: ["type d exercice", "exercice", "public prive", "prive public", "secteur d activite"] },
   { key: "institution", header: "Établissement", aliases: ["etablissement", "hopital", "clinique", "structure", "officine", "lieu d exercice", "ehs", "chu"] },
+  // LE SERVICE A SA PROPRE COLONNE (§118.172). « Service » était un alias de la spécialité : un
+  // fichier qui portait les deux perdait le service (rendu « non reconnu »). Il se rattache aux
+  // services de l'établissement de la ligne ; un fichier qui n'a QUE « Service » remplit aussi la
+  // spécialité, comme avant — c'est ainsi que ces fichiers-là l'entendaient.
+  { key: "service", header: "Service", aliases: ["service hospitalier", "unite de soins"] },
   { key: "address", header: "Adresse", aliases: ["adresse", "adresse complete", "rue", "adresse du cabinet", "adresse professionnelle", "lieu"] },
   // LA VILLE N'EST PLUS UNE COLONNE DE LA FEUILLE (décision de la Direction, 09/2026) : un
   // fichier qui la porte n'est pas perdu pour autant — elle sert à DÉDUIRE la wilaya, et c'est
@@ -211,6 +216,8 @@ export interface DirectoryImportRow {
   specialty: string | null;
   sector: string;
   institution: string | null;
+  /** Le service tel que le fichier le nomme — rattaché à l'import, jamais créé (§118.172). */
+  service: string | null;
   address: string | null;
   city: string | null;
   /** Une des 58 wilayas, déduite quand le fichier ne la nomme pas. `null` plutôt que devinée. */
@@ -249,6 +256,12 @@ export function parseDirectoryRow(
   values: readonly unknown[],
   mapping: readonly (DirectoryField | null)[],
   sourceIndex = 0,
+  /**
+   * LES COLONNES QUE LE FICHIER PORTE VRAIMENT. Par défaut, celles de l'en-tête ; mais une
+   * correspondance tranchée à l'écran reconstruit une feuille CANONIQUE qui a toutes les colonnes
+   * — c'est alors la correspondance qui dit lesquelles le fichier portait (`parseDirectorySheet`).
+   */
+  presents: ReadonlySet<DirectoryField> = new Set(mapping.filter((m): m is DirectoryField => m !== null)),
 ): DirectoryImportRow | null {
   const get = (field: DirectoryField): string => {
     const i = mapping.indexOf(field);
@@ -270,15 +283,22 @@ export function parseDirectoryRow(
   const city = get("city");
   const institution = get("institution");
   const postalCode = get("postalCode");
+  const service = get("service");
+  // UN FICHIER SANS COLONNE DE SPÉCIALITÉ qui porte un service : c'est ainsi qu'il l'entendait
+  // (« Service : Cardiologie ») — la spécialité en est remplie, comme quand « Service » en était un
+  // alias. Un fichier qui A une colonne de spécialité, même vide sur cette ligne, a parlé : on ne
+  // la remplit pas à sa place.
+  const specialty = get("specialty") || (presents.has("specialty") ? "" : service);
 
   return {
     name,
     lastName: orNull(lastName),
     firstName: orNull(firstName),
     title: titleFrom(get("title")),
-    specialty: orNull(get("specialty")),
+    specialty: orNull(specialty),
     sector: sectorFrom(get("sector") || institution),
     institution: orNull(institution),
+    service: orNull(service),
     address: orNull(address),
     city: orNull(city),
     // LA WILAYA SE DÉDUIT quand le fichier ne la nomme pas : c'est elle qui permet de filtrer et
@@ -298,31 +318,125 @@ export function parseDirectoryRow(
   };
 }
 
+/** Les colonnes simples d'une fiche que l'import écrit (les liens — établissement, service,
+ *  délégué — se résolvent en base, dans l'action). */
+export interface ChampsFiche {
+  lastName?: string | null;
+  firstName?: string | null;
+  address?: string | null;
+  wilaya?: string | null;
+  postalCode?: string | null;
+  title?: string;
+  specialty?: string | null;
+  sector?: string;
+  region?: string | null;
+  phone?: string | null;
+  email?: string | null;
+  influence?: string;
+  potential?: string;
+  affinity?: string;
+  targetProducts?: string | null;
+  comments?: string | null;
+}
+
+/**
+ * CE QU'UNE LIGNE DU FICHIER ÉCRIT — tout, pour une fiche NOUVELLE ; seulement ce que le fichier
+ * PORTE, pour une fiche EXISTANTE (§118.172).
+ *
+ * Le défaut d'avant : chaque champ du tronc commun était réécrit sur chaque fiche rapprochée,
+ * qu'il soit dans le fichier ou non. Une colonne absente valait « vide », un grade absent valait
+ * « Autre », un secteur absent « Libéral ». Importer un fichier de trois colonnes (Nom, Prénom,
+ * Téléphone) pour mettre les numéros à jour remettait le grade de chaque praticien à « Autre » —
+ * un pharmacien quittait l'annuaire des pharmaciens —, effaçait les adresses et les e-mails, et
+ * remettait le potentiel de tout le monde à « Moyen ». Aucune erreur : « 312 mises à jour ».
+ *
+ * Deux degrés pour ce qui n'est pas dans le fichier mais s'en DÉDUIT :
+ *   • le nom et le prénom tirés d'une colonne « Nom complet », la spécialité tirée d'un service,
+ *     la wilaya tirée d'un code postal : ce sont des heuristiques — elles COMPLÈTENT une fiche
+ *     (champ vide), elles ne remplacent jamais ce que quelqu'un a corrigé à la main ;
+ *   • la wilaya lue dans sa propre colonne remplace, mais une cellule illisible n'efface pas une
+ *     wilaya connue : « Algr » ne vaut pas « aucune wilaya ».
+ */
+export function champsAEcrire(
+  row: DirectoryImportRow,
+  presents: ReadonlySet<DirectoryField>,
+  existant: { lastName: string | null; firstName: string | null; specialty: string | null; wilaya: string | null } | null,
+): ChampsFiche {
+  if (!existant) {
+    return {
+      lastName: row.lastName, firstName: row.firstName, address: row.address, wilaya: row.wilaya,
+      postalCode: row.postalCode, title: row.title, specialty: row.specialty, sector: row.sector,
+      region: row.region, phone: row.phone, email: row.email, influence: row.influence,
+      potential: row.potential, affinity: row.affinity, targetProducts: row.targetProducts, comments: row.comments,
+    };
+  }
+  const out: ChampsFiche = {};
+  const a = (f: DirectoryField) => presents.has(f);
+  const complete = <K extends keyof ChampsFiche>(cle: K, valeur: ChampsFiche[K], courant: unknown) => {
+    if (valeur !== null && valeur !== undefined && (courant === null || courant === undefined || courant === "")) out[cle] = valeur;
+  };
+
+  if (a("lastName")) out.lastName = row.lastName; else if (a("name")) complete("lastName", row.lastName, existant.lastName);
+  if (a("firstName")) out.firstName = row.firstName; else if (a("name")) complete("firstName", row.firstName, existant.firstName);
+  if (a("specialty")) out.specialty = row.specialty; else if (a("service")) complete("specialty", row.specialty, existant.specialty);
+  if (row.wilaya) {
+    if (a("wilaya")) out.wilaya = row.wilaya; else complete("wilaya", row.wilaya, existant.wilaya);
+  }
+  if (a("address")) out.address = row.address;
+  if (a("postalCode")) out.postalCode = row.postalCode;
+  if (a("title")) out.title = row.title;
+  if (a("sector")) out.sector = row.sector;
+  if (a("region")) out.region = row.region;
+  if (a("phone")) out.phone = row.phone;
+  if (a("email")) out.email = row.email;
+  if (a("influence")) out.influence = row.influence;
+  if (a("potential")) out.potential = row.potential;
+  if (a("affinity")) out.affinity = row.affinity;
+  if (a("targetProducts")) out.targetProducts = row.targetProducts;
+  if (a("comments")) out.comments = row.comments;
+  return out;
+}
+
 /**
  * Toutes les lignes exploitables d'une feuille, et ce qui a été écarté.
  *
  * Un import qui dit « 312 lignes importées » sans dire que 40 ont été laissées de côté fabrique
  * un annuaire incomplet dont personne ne se méfie.
  */
-export function parseDirectorySheet(rows: readonly (readonly unknown[])[]): {
+export function parseDirectorySheet(
+  rows: readonly (readonly unknown[])[],
+  /**
+   * Les colonnes que le fichier porte, quand une correspondance tranchée à l'écran les a déjà
+   * dites (la feuille reçue est alors CANONIQUE : elle a toutes les colonnes, vides ou non).
+   */
+  presentsImposes?: ReadonlySet<DirectoryField>,
+): {
   rows: DirectoryImportRow[];
   skipped: number;
   matched: DirectoryField[];
   unknown: { index: number; header: string }[];
+  /**
+   * LES CHAMPS QUE LE FICHIER PORTE — et c'est la moitié de la règle d'écriture (§118.172) : une
+   * fiche EXISTANTE ne reçoit QUE ceux-là. Un fichier de trois colonnes n'efface pas les dix
+   * autres ; sans cette liste, il remettait le grade de chaque praticien rapproché à « Autre » —
+   * un pharmacien quittait l'annuaire des pharmaciens — et retirait leur délégué.
+   */
+  presents: ReadonlySet<DirectoryField>;
 } {
-  if (rows.length === 0) return { rows: [], skipped: 0, matched: [], unknown: [] };
+  if (rows.length === 0) return { rows: [], skipped: 0, matched: [], unknown: [], presents: new Set() };
   const { mapping, matched, unknown } = mapHeaderRow(rows[0]);
+  const presents: ReadonlySet<DirectoryField> = presentsImposes ?? new Set(matched);
   const out: DirectoryImportRow[] = [];
   let skipped = 0;
   // L'INDICE EST CELUI DU FICHIER, pas celui du résultat : les lignes vides sautées et les
   // lignes sans nom écartées décalent les deux dès la première anomalie.
   rows.slice(1).forEach((raw, sourceIndex) => {
     if (raw.every((c) => tidy(c) === "")) return; // ligne vide : ce n'est pas un rejet
-    const parsed = parseDirectoryRow(raw, mapping, sourceIndex);
+    const parsed = parseDirectoryRow(raw, mapping, sourceIndex, presents);
     if (parsed) out.push(parsed);
     else skipped += 1;
   });
-  return { rows: out, skipped, matched, unknown };
+  return { rows: out, skipped, matched, unknown, presents };
 }
 
 /** L'en-tête du classeur exporté — l'ordre des colonnes de l'annuaire. */
