@@ -6493,6 +6493,21 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 
 ## 🧾 Journal des évolutions récentes
 
+### LES NOTIFICATIONS SE LISENT SANS PARCOURIR TOUTE LA TABLE (2026-10)
+
+**Constat.** Un test de performance — la boîte de décision, qui doit se composer en moins de 1,5 s — est passé de
+1,2 s à 2 s sur la base de développement. La cause n'était pas la machine : la lecture « mes notifications non
+lues, les plus récentes d'abord » (centre d'actions, chaque page) et la page **Notifications** (« toutes, les plus
+récentes d'abord ») n'avaient pas d'index qui serve leur TRI. Pour une personne qui a peu de notifications, la base
+remontait la table entière par date : **4,7 millions de lignes lues pour un résultat vide, 1,8 s**.
+
+**Ce qui change.** Deux index — (personne, lue, date décroissante) et (personne, date décroissante) — remplacent
+l'ancien (personne, lue), dont le premier est une extension. La même lecture prend désormais **0,07 ms** ; la boîte
+de décision se compose en **53 ms** (médiane) au lieu de 1 964 ms. Aucune donnée n'est supprimée et aucun écran ne
+change. Migration `20261216090000_notification_non_lues_index`. **Point d'attention au déploiement** : la création
+d'un index bloque les écritures dans la table le temps de la construire (12 s ici pour 4,7 millions de lignes) ; la
+taille de la table de production ne se lit pas depuis l'environnement de développement. Détail : CLAUDE.md §118.174.
+
 ### LE STOCK PROMOTIONNEL DEVIENT UN SOUS-MODULE À PART, SON CATALOGUE EST LA LISTE DES SUPPORTS, ET LE MATÉRIEL REMIS AUX MÉDECINS N'A QUE DEUX PORTES (2026-10)
 
 **Demandes.** (1) « Le catalogue du matériel promotionnel doit être plus simple : ce sont les supports déjà créés qui

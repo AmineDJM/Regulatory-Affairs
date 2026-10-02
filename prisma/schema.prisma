@@ -4314,7 +4314,16 @@ model Notification {
   popup     Boolean          @default(false)
   createdAt DateTime         @default(now())
 
-  @@index([userId, isRead])
+  // Deux lectures, deux index — chacun SERT le tri, sans quoi le planificateur parcourt l'index
+  // des dates à l'envers en filtrant, et pour une personne qui a peu de notifications (un compte
+  // neuf) il lit TOUTE la table : 4,7 millions de lignes, 1,8 s, mesuré sur les deux.
+  //   • « ses non lues, les plus récentes d'abord » (boîte de décision, centre d'actions) et leur
+  //     compte (chaque page) : l'égalité sur la personne et sur « non lue », puis le tri. Remplace
+  //     `[userId, isRead]`, dont c'est un préfixe.
+  //   • « toutes ses notifications, les plus récentes d'abord » (page Notifications) : la
+  //     personne, puis le tri — l'index précédent ne peut pas le donner, `isRead` s'intercale.
+  @@index([userId, isRead, createdAt(sort: Desc)])
+  @@index([userId, createdAt(sort: Desc)])
   @@index([createdAt])
 }
 
