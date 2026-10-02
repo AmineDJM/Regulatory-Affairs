@@ -10,7 +10,7 @@ import { getAccess, type SessionUser } from "@/lib/rbac";
 import { createSponsoring, cloturerSponsoring, rouvrirSponsoring } from "@/lib/actions/sponsoring-actions";
 import {
   addAdProItem, decideAdProItem, setAdProItemBudget, updateAdProItem, emitItemExpenseOrder,
-  deleteAdProItem, submitAdProItem,
+  deleteAdProItem, submitAdProItem, repartirPoste,
 } from "@/lib/actions/ad-pro-item-actions";
 import { settleExpenseOrder } from "@/lib/actions/expense-actions";
 import { transferAdProRequest } from "@/lib/actions/ad-pro-transfer-actions";
@@ -382,9 +382,27 @@ suite("Sponsoring — pré-validation de la tenue, postes, validation finale et 
 
     const poste = await prisma.adProItem.findFirstOrThrow({ where: { sponsoringId: id } });
     expect(poste.kind).toBe("INDIRECT_SUPPORT");
+    // UN SPONSORING INDIRECT NE S'ACCORDE PAS D'UN SEUL TENANT (§118.175) : il se répartit d'abord
+    // par nature, et chaque nature se décide, se commande et se paie à part.
     ACTOR = await actorFor(dirId, "DIRECTION");
-    expect((await decideAdProItem(undefined, fd({ id: poste.id, decision: "APPROVED" }))).ok).toBe(true);
-    expect((await setAdProItemBudget(undefined, fd({ id: poste.id, budgetCategoryId: catId }))).ok).toBe(true);
+    const tenant = await decideAdProItem(undefined, fd({ id: poste.id, decision: "APPROVED" }));
+    expect(tenant.ok, "un sponsoring indirect non réparti ne s'accorde pas").toBe(false);
+    ACTOR = await actorFor(dmId, "PRODUCT_MANAGER");
+    const rep = await repartirPoste(undefined, fd({
+      id: poste.id,
+      repartition: JSON.stringify([
+        { kind: "PRINTING", montant: 40000, precision: "Affiches", payeA: "" },
+        { kind: "ACCOMMODATION", montant: 50000, precision: "", payeA: "" },
+      ]),
+    }));
+    expect(rep.ok, rep.ok === false ? rep.error : "").toBe(true);
+    const natures = await prisma.adProItem.findMany({ where: { sponsoringId: id }, orderBy: { position: "asc" } });
+    expect(natures.map((n) => n.kind)).toEqual(["PRINTING", "ACCOMMODATION"]);
+    ACTOR = await actorFor(dirId, "DIRECTION");
+    for (const n of natures) {
+      expect((await decideAdProItem(undefined, fd({ id: n.id, decision: "APPROVED" }))).ok).toBe(true);
+      expect((await setAdProItemBudget(undefined, fd({ id: n.id, budgetCategoryId: catId }))).ok).toBe(true);
+    }
 
     ACTOR = await actorFor(dmId, "PRODUCT_MANAGER");
     expect((await cloturerSponsoring(fd({ id }))).ok, "l'auteur ne se clôture pas").toBe(false);
@@ -395,7 +413,7 @@ suite("Sponsoring — pré-validation de la tenue, postes, validation finale et 
     ACTOR = await actorFor(dirId, "DIRECTION");
     const r = await cloturerSponsoring(fd({ id }));
     expect(r.ok, r.ok === false ? r.error : "").toBe(true);
-    expect(Number((await prisma.sponsoringRequest.findUniqueOrThrow({ where: { id } })).amountGranted), "le sponsoring suggéré, accordé tel quel").toBe(90_000);
+    expect(Number((await prisma.sponsoringRequest.findUniqueOrThrow({ where: { id } })).amountGranted), "la somme des natures accordées : 40 000 + 50 000").toBe(90_000);
   });
 
   it("l'ANCIEN circuit reste intact : un accord à montant global se solde toujours par son règlement", async () => {

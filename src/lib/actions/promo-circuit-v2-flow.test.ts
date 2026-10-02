@@ -231,6 +231,7 @@ suite("Matériel promotionnel — circuit 2 de bout en bout", () => {
   });
 
   it("LA DEMANDE NAÎT AVEC SES LIGNES (§118.171) : sans ligne, ou une ligne incomplète, rien n'est écrit — et tout ce qui manque se dit en une fois", async () => {
+    const debut = new Date(Date.now() - 1_000);
     // « C'est directement ici que le demandeur ajoute les différentes lignes de matériel qu'il
     // cherche, la quantité et les actions. » La demande naissait VIDE, et son validateur, prévenu
     // à la création, tranchait une demande qui ne disait pas ce qu'elle demandait.
@@ -279,13 +280,17 @@ suite("Matériel promotionnel — circuit 2 de bout en bout", () => {
     expect(items[0].produits.map((p) => p.productId)).toEqual([produitBanc]);
     expect(items[1].quantite).toBeNull();
 
-    // Ce décor ne doit rien laisser aux cas suivants.
-    await prisma.notification.deleteMany({ where: { link: `/promo-material/${ok.id}` } });
+    // Ce décor ne doit rien laisser aux cas suivants. BORNÉ À CE CAS (`createdAt`) : par le seul
+    // lien, Postgres parcourait toute la table — 4,9 millions de lignes de résidus de bancs dans la
+    // base de travail, 1,1 Go lu (144 254 pages) —, et sous la suite complète le cas dépassait ses
+    // 60 s alors qu'il en fait une seul (§118.175). La date passe par l'index ; le lien trie le reste.
+    await prisma.notification.deleteMany({ where: { link: `/promo-material/${ok.id}`, createdAt: { gte: debut } } });
     await prisma.auditLog.deleteMany({ where: { entityId: ok.id! } }).catch(() => {});
     await prisma.promoMaterial.delete({ where: { id: ok.id! } });
   }, 60_000);
 
   it("CE QUE LA DEMANDE NE PORTE PLUS (décision du 01/10) : gamme, budget, assistante et entité FORGÉS sont ignorés", async () => {
+    const debut = new Date(Date.now() - 1_000);
     // L'écran ne les propose plus ; une requête forgée les porterait quand même. Ignorés au
     // serveur, et l'ENTITÉ est celle où le demandeur travaille — un menu qui en laissait choisir
     // une autre laissait aussi forger une société qu'on ne voit pas.
@@ -308,7 +313,7 @@ suite("Matériel promotionnel — circuit 2 de bout en bout", () => {
     expect(data.catalogueMateriel.catalogue.map((c) => c.id)).toEqual(expect.arrayContaining([catPresentoir, catStand, catCarnet]));
     expect((await getAdProCreateData(u.cp, ["EVENT"])).catalogueMateriel.catalogue).toEqual([]);
 
-    await prisma.notification.deleteMany({ where: { link: `/promo-material/${r.id}` } });
+    await prisma.notification.deleteMany({ where: { link: `/promo-material/${r.id}`, createdAt: { gte: debut } } });
     await prisma.auditLog.deleteMany({ where: { entityId: r.id! } }).catch(() => {});
     await prisma.promoMaterial.delete({ where: { id: r.id! } });
   }, 60_000);

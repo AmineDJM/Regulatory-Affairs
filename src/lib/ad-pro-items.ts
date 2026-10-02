@@ -87,6 +87,9 @@ export const ITEM_KIND_LABELS: Record<AdProItemKind, string> = {
   ASSOCIATION_SUPPORT: "Sponsoring direct (association)",
   INDIRECT_SUPPORT: "Sponsoring indirect (prise en charge)",
   SERVICE: "Prestation",
+  // L'IMPRIMERIE (§118.175) : l'impression payée à un imprimeur — l'une des natures d'un
+  // sponsoring indirect. Le matériel promotionnel, lui, a son propre circuit (visa, BAT).
+  PRINTING: "Imprimerie",
   CONSULTING: "Consulting",
   CATERING: "Traiteur",
   DINNER: "Prise en charge des dîners",
@@ -113,7 +116,7 @@ export const ITEM_KIND_LABELS: Record<AdProItemKind, string> = {
  * ensemble (§118.130).
  */
 export const ITEM_KINDS: AdProItemKind[] = [
-  "STAND", "SYMPOSIUM", "PROMO_MATERIAL", "ASSOCIATION_SUPPORT", "INDIRECT_SUPPORT", "VENUE", "CATERING", "DINNER",
+  "STAND", "SYMPOSIUM", "PROMO_MATERIAL", "PRINTING", "ASSOCIATION_SUPPORT", "INDIRECT_SUPPORT", "VENUE", "CATERING", "DINNER",
   "ACCOMMODATION", "TICKETING", "CONSULTING", "SERVICE", "TRAVEL", "STOCK_MATERIAL", "OTHER",
 ];
 
@@ -258,12 +261,24 @@ export function canSubmitItem(item: {
       ? { ok: true }
       : { ok: false, reason: "Ajoutez au moins un article du stock (et sa quantité) avant de soumettre ce poste." };
   }
+  // UN SPONSORING INDIRECT SE RÉPARTIT D'ABORD PAR NATURE (§118.175) : « 1 000 000 DZD répartis en
+  // 400 000 d'imprimerie et 600 000 d'hôtellerie ». L'imprimeur et l'hôtel sont deux fournisseurs,
+  // deux BC, deux paiements — un poste « sponsoring indirect » d'un seul tenant ne pourrait en payer
+  // qu'un. Le refus NOMME le geste qui le lève, parce qu'un refus sans remède fait chercher.
+  if (item.kind === "INDIRECT_SUPPORT") {
+    return { ok: false, reason: REFUS_INDIRECT_NON_REPARTI };
+  }
   const amount = item.amountGranted ?? item.amountEstimated;
   if (typeof amount !== "number" || !Number.isFinite(amount) || amount <= 0) {
     return { ok: false, reason: "Chiffrez le poste (montant estimé) avant de le soumettre." };
   }
   return { ok: true };
 }
+
+/** La phrase du refus — lue par l'action, l'écran et leurs bancs : une seule rédaction. */
+export const REFUS_INDIRECT_NON_REPARTI =
+  "Répartissez d'abord ce sponsoring indirect par nature (« Répartir par nature » : imprimerie, hôtellerie, billetterie…) — "
+  + "chaque nature devient un poste qui se valide, se commande et se paie à part.";
 
 /**
  * Une demande d'ÉMISSION DE BON DE COMMANDE ne se fait que sur un poste ACCORDÉ, CHIFFRÉ, dont

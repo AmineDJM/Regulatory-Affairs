@@ -81,7 +81,14 @@ describe("Cliquet — le refus est lu AVANT, aux deux portes", () => {
 
   it("les actions passent par le cœur — aucune ne supprime par son propre chemin", () => {
     const src = lire(ACTIONS);
-    expect(src.match(/supprimerReversible\(/g)?.length ?? 0, "superAdminDelete ET deleteOwnRecord").toBe(2);
+    // TROIS portes, un seul cœur : la suppression du Super Admin, celle du créateur, et celle d'une
+    // demande Ad & Pro par le directeur des opérations ou la directrice marketing (§118.175).
+    expect(src.match(/supprimerReversible\(/g)?.length ?? 0, "superAdminDelete, deleteOwnRecord ET supprimerDemandeAdPro").toBe(3);
+    for (const fn of ["superAdminDelete", "deleteOwnRecord", "supprimerDemandeAdPro"]) {
+      const corps = src.slice(src.indexOf(`export async function ${fn}(`));
+      const fin = corps.indexOf("\nexport ", 1);
+      expect((fin > 0 ? corps.slice(0, fin) : corps).includes("supprimerReversible("), `${fn} passe par le cœur`).toBe(true);
+    }
     expect(src).not.toContain("spec.remove(");
   });
 

@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   AVAILABLE_PRODUCT_STATUSES, isAvailableProduct, productLabel, availableProductOptions,
   doctorOptionLabel, doctorOptions, joinMulti, splitMulti, readMultiField, MULTI_SEP, specialtyOptions,
+  nomsHorsAnnuaire, lireMedecinsDemande, repartirMedecins,
 } from "./pickers";
 
 const prod = (o: Partial<Parameters<typeof productLabel>[0]> & { dci: string }) => ({
@@ -133,5 +134,43 @@ describe("La spécialité en menu déroulant — référentiel + réalité des f
   it("rien à proposer rend une liste VIDE — c'est l'appelant qui décide du repli", () => {
     expect(specialtyOptions([], [])).toEqual([]);
     expect(specialtyOptions([], [null, undefined, "  "])).toEqual([]);
+  });
+});
+
+describe("le médecin absent de l'annuaire (§118.175)", () => {
+  it("les noms saisis à la main s'AJOUTENT aux médecins cochés, sans doublon", () => {
+    // « Si le médecin n'est pas présent dans l'annuaire, on coche « non présent » et on l'écrit
+    // manuellement » — la saisie ne REMPLACE pas les cases cochées. Ce qui le ferait tomber :
+    // `readMultiField(coches, horsAnnuaire)`, où la saisie n'est qu'un repli et disparaît dès
+    // qu'une case est cochée.
+    expect(lireMedecinsDemande(["Dr Amel Haddad"], "Dr Yacine Ouali\nDr Amel Haddad", null))
+      .toBe(`Dr Amel Haddad${MULTI_SEP}Dr Yacine Ouali`);
+    // Saisie seule : elle suffit, aucune case n'est exigée.
+    expect(lireMedecinsDemande([], "Dr Yacine Ouali", null)).toBe("Dr Yacine Ouali");
+  });
+
+  it("un nom par ligne, et le séparateur des colonnes est accepté — aucun nom propre ne le contient", () => {
+    expect(nomsHorsAnnuaire("Dr A\r\n  Dr B  \n\nDr C · Dr D; Dr E")).toEqual(["Dr A", "Dr B", "Dr C", "Dr D", "Dr E"]);
+    // Une virgule N'EST PAS un séparateur : « Benali, Ahmed » est un seul praticien.
+    expect(nomsHorsAnnuaire("Benali, Ahmed")).toEqual(["Benali, Ahmed"]);
+    expect(nomsHorsAnnuaire("   ")).toEqual([]);
+    expect(nomsHorsAnnuaire(null)).toEqual([]);
+  });
+
+  it("rien coché, rien saisi : le repli libre d'avant passe encore, et sinon la colonne reste VIDE", () => {
+    expect(lireMedecinsDemande([], "", "Dr saisi sans annuaire")).toBe("Dr saisi sans annuaire");
+    expect(lireMedecinsDemande([], null, null)).toBeNull();
+  });
+
+  it("ROUVRIR SANS PERDRE : ce qui est dans l'annuaire se recoche, le reste revient dans la saisie", () => {
+    // Le défaut que ce partage ferme : un nom écrit à la main n'a aucune case où se recocher ; sans
+    // lui, le premier enregistrement de la fiche l'effaçait, en silence (§118.152c).
+    const options = [{ value: "Dr Amel Haddad" }, { value: "Dr Karim Bensalem" }];
+    const r = repartirMedecins(`Dr Amel Haddad${MULTI_SEP}Dr Yacine Ouali${MULTI_SEP}Dr Nadia Kaci`, options);
+    expect(r.coches).toEqual(["Dr Amel Haddad"]);
+    expect(r.horsAnnuaire).toBe("Dr Yacine Ouali\nDr Nadia Kaci");
+    // L'aller-retour est EXACT : relire ce que l'écran renvoie rend la même colonne.
+    expect(lireMedecinsDemande(r.coches, r.horsAnnuaire, null)).toBe(`Dr Amel Haddad${MULTI_SEP}Dr Yacine Ouali${MULTI_SEP}Dr Nadia Kaci`);
+    expect(repartirMedecins(null, options)).toEqual({ coches: [], horsAnnuaire: "" });
   });
 });

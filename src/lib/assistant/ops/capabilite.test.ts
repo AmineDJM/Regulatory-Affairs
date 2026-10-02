@@ -17,7 +17,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { prisma } from "@/lib/prisma";
 import { getAccess, type SessionUser } from "@/lib/rbac";
-import { CAPABILITY_OPS_IMPL, refusDuCheminGenerique } from "./impl-capabilite";
+import { CAPABILITY_OPS_IMPL, refusDuCheminGenerique, MAX_REFUSEES_DEVANT, MAX_REFUSEES_NOMMEES } from "./impl-capabilite";
 import { CONTRATS_ACTIONS, chercherCapacites } from "@/platform/in-process/capacites";
 import { entiteDuModele } from "@/lib/cibles/modele-entite";
 import { relireApresEcriture } from "@/lib/cibles/relire";
@@ -113,8 +113,17 @@ describe("LE REFUS FAIT LA DÉCOUVERTE — un outil au lieu de trois", () => {
     // Les ouvertes qui ne tiennent pas dans les six places sont COMPTÉES, jamais coupées en silence.
     expect(ouvertes.length, "prémisse : plus d'ouvertes que de places").toBeGreaterThan(6);
     expect(msg).toContain(`… et ${ouvertes.length - 6} autre(s) action(s) ouverte(s)`);
-    // Les refusées sont NOMMÉES — les taire ferait répondre « je ne trouve rien » (§118.74).
-    for (const t of refusees) expect(msg, `refusée tue : ${t.contrat.id}`).toContain(t.contrat.id);
+    // Les refusées sont NOMMÉES — les taire ferait répondre « je ne trouve rien » (§118.74) — et
+    // quand elles dépassent ce que la fiche peut citer, le reste est COMPTÉ : toutes nommées ou
+    // comptées, jamais tues. Ce cas exigeait qu'elles soient TOUTES nommées ; il est tombé quand le
+    // parc a franchi la borne (§118.175 : deux gestes de plus portent « demande »), alors que la
+    // règle du produit — celles qui surclassent devant, les suivantes nommées, le reste compté —
+    // était respectée. Les bornes viennent du module, pas d'une recopie (§118.120).
+    const devant = refusees.filter((t) => t.score > ouvertes[0]!.score).slice(0, MAX_REFUSEES_DEVANT);
+    const autres = refusees.filter((t) => !devant.includes(t));
+    for (const t of [...devant, ...autres.slice(0, MAX_REFUSEES_NOMMEES)]) expect(msg, `refusée tue : ${t.contrat.id}`).toContain(t.contrat.id);
+    const comptees = autres.length - MAX_REFUSEES_NOMMEES;
+    if (comptees > 0) expect(msg, "les refusées au-delà de la borne sont COMPTÉES").toContain(`, et ${comptees} autre(s).`);
     expect(msg).toMatch(/tenues hors du champ d'Adam par conception/);
   });
 

@@ -228,6 +228,8 @@ export const LIBELLE_DU_MODELE: Readonly<Record<string, [string, string]>> = {
   CareQuote: ["devis de prise en charge", "devis de prise en charge"],
   CareQuoteCell: ["ligne de devis", "lignes de devis"],
   AdProStockLine: ["article du stock demandé", "articles du stock demandés"],
+  // Les voyageurs d'un poste de billetterie (§118.175) : ils partent avec leur poste, et reviennent avec lui.
+  AdProVoyageur: ["voyageur", "voyageurs"],
   // Les achats du matériel promotionnel (§118.165) : ce qu'une demande pioche dans le catalogue,
   // et les factures reçues ligne à ligne.
   PromoRequestItem: ["article demandé", "articles demandés"],

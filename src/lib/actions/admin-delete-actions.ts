@@ -17,6 +17,8 @@ import {
   type DeletableKind,
 } from "@/lib/admin-delete-registry";
 import { restaurerLotDeLaCorbeille, supprimerReversible, type DeleteResult } from "@/lib/suppression/coeur";
+import { peutSupprimerUneDemandeAdPro } from "@/lib/queries/ad-pro-suppression";
+import { estDemandeAdProSupprimable, REFUS_SUPPRESSION_AD_PRO } from "@/lib/ad-pro/suppression";
 
 export type { DeleteResult } from "@/lib/suppression/coeur";
 
@@ -94,6 +96,25 @@ export async function deleteOwnRecord(formData: FormData): Promise<DeleteResult>
 
   const name = await spec.describe(id);
   return supprimerReversible(kind, id, user.id, `Suppression par ${isCreator ? "le créateur" : "un administrateur"} — ${spec.label} « ${name ?? id} » (restaurable depuis la corbeille)`);
+}
+
+/**
+ * SUPPRIMER UNE DEMANDE AD & PRO — le Super Admin, le directeur des opérations, la directrice
+ * marketing (§118.175). « Donner la main au Directeur des opérations pour la suppression des
+ * demandes Ad&Pro, pareil pour la directrice marketing » (Direction, 01/10).
+ *
+ * Le geste reste celui du Super Admin, au même cœur : RÉVERSIBLE (la demande ET ses branches
+ * partent ensemble à la corbeille, d'où elles reviennent ensemble, §118.162), refusé quand une
+ * branche porte un fait qui a quitté l'ERP. On délègue un rangement, jamais une destruction.
+ */
+export async function supprimerDemandeAdPro(formData: FormData): Promise<DeleteResult> {
+  const user = await requireUser();
+  const kind = String(formData.get("kind") ?? "");
+  const id = String(formData.get("id") ?? "");
+  if (!id || !isDeletableKind(kind) || !estDemandeAdProSupprimable(kind)) return { ok: false, error: "Élément invalide." };
+  if (!(await peutSupprimerUneDemandeAdPro(user, kind, id))) return { ok: false, error: REFUS_SUPPRESSION_AD_PRO };
+  const name = await DELETE_REGISTRY[kind].describe(id);
+  return supprimerReversible(kind, id, user.id, `Suppression d'une demande Ad & Pro — ${DELETE_REGISTRY[kind].label} « ${name ?? id} » (restaurable depuis la corbeille)`);
 }
 
 /**
@@ -205,6 +226,10 @@ const SUPPRIME_PAR_SON_MODULE: Partial<Record<DeletableKind, { module: Module; a
  */
 async function peutSupprimerDepuisSonModule(user: Awaited<ReturnType<typeof requireUser>>, kind: DeletableKind, id: string): Promise<boolean> {
   if (user.role === "SUPER_ADMIN") return true;
+  // UNE DEMANDE AD & PRO (§118.175) : le directeur des opérations et la directrice marketing la
+  // suppriment aussi — la MÊME règle que `supprimerDemandeAdPro`, sans quoi l'aperçu ne s'ouvrirait
+  // pas devant une suppression que l'action accepte.
+  if (estDemandeAdProSupprimable(kind) && (await peutSupprimerUneDemandeAdPro(user, kind, id))) return true;
   const droit = SUPPRIME_PAR_SON_MODULE[kind];
   if (!droit || !userCan(user, droit.module, droit.action)) return false;
   const entite = DELETE_REGISTRY[kind].entityType;

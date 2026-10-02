@@ -38,8 +38,13 @@ function sansCommentaires(src: string): string {
 
 const APPEL_NU = /\brouter\.refresh\(\)/g;
 
-/** Mesuré au §118.172, après conversion des écrans de ce lot : 355 appels nus (commentaires retirés). Il ne peut que baisser. */
-const PLAFOND_APPELS_NUS = 355;
+/**
+ * Mesuré au §118.172, après conversion des écrans de ce lot : 355 appels nus (commentaires retirés).
+ * Ramené à 353 au §118.175 — les postes Ad & Pro et la suppression d'une demande suivent leur
+ * rafraîchissement ; laissé à 355, le cliquet accepterait deux appels neufs sans rien dire (§118.79c).
+ * Il ne peut que baisser.
+ */
+const PLAFOND_APPELS_NUS = 353;
 
 describe("le rafraîchissement suivi", () => {
   const parc = fichiers(SRC).map((f) => ({ f, src: sansCommentaires(readFileSync(f, "utf8")) }));
@@ -54,6 +59,11 @@ describe("le rafraîchissement suivi", () => {
       "src/app/(app)/annuaires/etablissements/services-panel.tsx",
       "src/app/(app)/planning/business-units/bu-manager.tsx",
       "src/components/shared/use-action.ts",
+      // §118.175 : la carte d'un poste ouvre des fiches (modifier le poste, un voyageur) sur
+      // l'état qu'elle montre — ouvertes avant la fin du rafraîchissement, elles réécriraient
+      // l'état d'avant.
+      "src/components/ad-pro/items-panel.tsx",
+      "src/components/ad-pro/supprimer-demande.tsx",
     ];
     for (const e of ecrans) {
       const src = sansCommentaires(readFileSync(join(process.cwd(), e), "utf8"));

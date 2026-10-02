@@ -10,7 +10,7 @@ import { notifyUser, notifyRoles } from "@/lib/notify";
 import { buildRef, createWithRetry } from "@/lib/refs";
 import { companyIdForNew } from "@/lib/company";
 import { attachFiles } from "@/lib/attach-files";
-import { readMultiField } from "@/lib/ad-pro/pickers";
+import { readMultiField, lireMedecinsDemande } from "@/lib/ad-pro/pickers";
 import { fdStr, fdNum, type ActionResult } from "@/lib/actions/types";
 import { nextConsultingStatus, isContractEditable } from "@/lib/ad-pro/consulting";
 import { poserVisaAdPro, blocageCentreAdPro, retirerVisaEnAttente } from "@/lib/ad-pro/visa";
@@ -142,7 +142,7 @@ export async function createConsultingContract(_prev: ActionResult | undefined, 
     // Facultatifs ici (`REFERENTIELS_PAR_NATURE`) : un accompagnement réglementaire n'a pas de
     // praticien, et exiger un choix qui n'existe pas serait un refus à tort (§118.27).
     const couple = {
-      medecins: readMultiField(formData.getAll("doctorIds").map(String), fdStr(formData, "doctor")),
+      medecins: lireMedecinsDemande(formData.getAll("doctorIds").map(String), fdStr(formData, "doctorHorsAnnuaire"), fdStr(formData, "doctor")),
       produits: readMultiField(formData.getAll("productIds").map(String), fdStr(formData, "product")),
     };
 

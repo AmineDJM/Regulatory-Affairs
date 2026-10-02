@@ -6,7 +6,8 @@ import { prisma } from "@/lib/prisma";
 import { toNumber, formatCurrency, formatDate } from "@/lib/utils";
 import { onlyofficeConfigured } from "@/lib/onlyoffice";
 import { PageHeader } from "@/components/shared/page-header";
-import { SuperAdminDeleteButton } from "@/components/shared/super-admin-delete";
+import { SupprimerDemandeAdPro } from "@/components/ad-pro/supprimer-demande";
+import { peutSupprimerUneDemandeAdPro } from "@/lib/queries/ad-pro-suppression";
 import { BackLink } from "@/components/shared/back-link";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -117,7 +118,7 @@ export default async function ConsultingContractPage({ params }: { params: { id:
         {isOverdue(contract) && <Badge tone="danger" dot={false}>terme dépassé</Badge>}
         {/* Une nature du pôle qui n'avait AUCUNE suppression (§118.162) : elle passe par le même
             lot que les autres — ses branches partent et reviennent avec elle. */}
-        <SuperAdminDeleteButton kind="CONSULTING_CONTRACT" id={contract.id} name={`${contract.reference} — ${contract.title}`} enabled={user.role === "SUPER_ADMIN"} />
+        <SupprimerDemandeAdPro kind="CONSULTING_CONTRACT" id={contract.id} name={`${contract.reference} — ${contract.title}`} enabled={await peutSupprimerUneDemandeAdPro(user, "CONSULTING_CONTRACT", contract.id)} />
       </PageHeader>
 
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">

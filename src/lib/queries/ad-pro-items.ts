@@ -12,6 +12,9 @@ import type { PostePourCloture } from "@/lib/ad-pro/cloture-sponsoring";
 import { gestionnairesDuMagasin } from "@/lib/queries/promo-stock";
 import { NATURES_PIECE_SECRETARIAT, PIECE_SECRETARIAT, type NaturePieceSecretariat } from "@/lib/ad-pro/pieces-secretariat";
 import { statutDuDossier } from "@/lib/promo-material/statut";
+import { porteDesVoyageurs } from "@/lib/ad-pro/voyageurs";
+import { splitMulti } from "@/lib/ad-pro/pickers";
+import type { VoyageurVue } from "@/components/ad-pro/voyageurs-bloc";
 
 /**
  * CHARGEMENT DES POSTES D'UNE OPÉRATION AD & PRO — un seul endroit pour les quatre modules.
@@ -44,6 +47,44 @@ export async function loadAdProItems(parent: AdProParent, parentId: string): Pro
   const promoIds = rawItems.map((i) => i.promoMaterialId).filter((x): x is string => Boolean(x));
   const orderIds = rawItems.map((i) => i.expenseOrderId).filter((x): x is string => Boolean(x));
   const itemIds = rawItems.map((i) => i.id);
+  // LA BILLETTERIE (§118.175) : ses voyageurs, leurs passeports, le sujet de réservation, et les
+  // noms que la demande porte déjà — chargés seulement s'il y a un poste qui en a l'usage.
+  const billetterie = rawItems.filter((i) => porteDesVoyageurs(i.kind)).map((i) => i.id);
+  const sujetsIds = rawItems.map((i) => i.reservationDossierId).filter((x): x is string => Boolean(x));
+  const [voyageurRows, passeportRows, sujetRows, nomsSuggeres] = await Promise.all([
+    billetterie.length
+      ? prisma.adProVoyageur.findMany({ where: { itemId: { in: billetterie } }, orderBy: [{ position: "asc" }, { createdAt: "asc" }] })
+      : Promise.resolve([]),
+    billetterie.length
+      ? prisma.document.findMany({
+          where: { entityType: "AD_PRO_ITEM", entityId: { in: billetterie }, stepKey: { not: null } },
+          select: { id: true, name: true, stepKey: true, fileKey: true }, orderBy: { createdAt: "asc" },
+        })
+      : Promise.resolve([]),
+    sujetsIds.length
+      ? prisma.dossier.findMany({ where: { id: { in: sujetsIds } }, select: { id: true, reference: true } })
+      : Promise.resolve([]),
+    billetterie.length ? nomsDeLaDemande(parent, parentId) : Promise.resolve([] as string[]),
+  ]);
+  const passeportsDe = new Map<string, VoyageurVue["passeports"]>();
+  for (const d of passeportRows) {
+    if (!d.stepKey) continue;
+    const l = passeportsDe.get(d.stepKey) ?? [];
+    l.push({ id: d.id, name: d.name, hasFile: Boolean(d.fileKey) });
+    passeportsDe.set(d.stepKey, l);
+  }
+  const iso = (d: Date | null) => (d ? d.toISOString().slice(0, 10) : null);
+  const voyageursDe = new Map<string, VoyageurVue[]>();
+  for (const v of voyageurRows) {
+    const l = voyageursDe.get(v.itemId) ?? [];
+    l.push({
+      id: v.id, nom: v.nom, villeDepart: v.villeDepart, villeArrivee: v.villeArrivee,
+      dateDepart: iso(v.dateDepart), dateRetour: iso(v.dateRetour), notes: v.notes, passeports: passeportsDe.get(v.id) ?? [],
+    });
+    voyageursDe.set(v.itemId, l);
+  }
+  const sujetDe = new Map(sujetRows.map((d) => [d.id, { id: d.id, reference: d.reference }]));
+
   const [promoRows, orderRows, demandeRows, docRows, lignesParPoste] = await Promise.all([
     promoIds.length
       ? prisma.promoMaterial.findMany({ where: { id: { in: promoIds } }, select: { id: true, reference: true, title: true, status: true, circuitState: true, circuitVersion: true } })
@@ -105,6 +146,10 @@ export async function loadAdProItems(parent: AdProParent, parentId: string): Pro
     demandes: demandesParPoste.get(i.id) ?? [],
     documentCount: docsParPoste.get(i.id) ?? 0,
     lignesStock: lignesParPoste.get(i.id) ?? [],
+    repartitionId: i.repartitionId,
+    reservation: i.reservationDossierId ? sujetDe.get(i.reservationDossierId) ?? null : null,
+    voyageurs: voyageursDe.get(i.id) ?? [],
+    nomsSuggeres: porteDesVoyageurs(i.kind) ? nomsSuggeres : [],
     orderStage: i.orderStage,
     // SOUS LE SEUIL (§118.149) : le BC est passé aux Finances sans qu'aucun centre le vise — seul
     // le visa du centre pose `orderDirectionAt`. La fiche ne doit pas dire « validé par le centre ».
@@ -119,6 +164,34 @@ export async function loadAdProItems(parent: AdProParent, parentId: string): Pro
       by: d.by?.name ?? null,
     })),
   }));
+}
+
+/**
+ * LES NOMS QUE LA DEMANDE PORTE DÉJÀ — proposés à la saisie d'un voyageur (§118.175).
+ *
+ * Les médecins concernés d'un sponsoring ou d'un événement (le texte de la demande, tel qu'écrit à
+ * sa création), les personnes prises en charge d'un congrès. Une SUGGESTION : le nom saisi reste
+ * libre, et rien n'est rattaché à une fiche d'après lui (§118.85).
+ */
+async function nomsDeLaDemande(parent: AdProParent, parentId: string): Promise<string[]> {
+  if (parent === "SPONSORING" || parent === "EVENT") {
+    const r = parent === "SPONSORING"
+      ? await prisma.sponsoringRequest.findUnique({ where: { id: parentId }, select: { doctor: true } })
+      : await prisma.event.findUnique({ where: { id: parentId }, select: { doctor: true } });
+    return splitMulti(r?.doctor ?? null);
+  }
+  const colonne = parent === "CONGRESS_NATIONAL" ? "congressNationalId" : "congressInternationalId";
+  const personnes = await prisma.careBeneficiary.findMany({
+    where: { [colonne]: parentId }, orderBy: { position: "asc" },
+    select: { doctorId: true, firstName: true, lastName: true },
+  });
+  const ids = personnes.map((p) => p.doctorId).filter((x): x is string => Boolean(x));
+  const nomDe = new Map(
+    (ids.length ? await prisma.medicalDoctor.findMany({ where: { id: { in: ids } }, select: { id: true, name: true } }) : [])
+      .map((d) => [d.id, d.name]),
+  );
+  const noms = personnes.map((p) => (p.doctorId ? nomDe.get(p.doctorId) : [p.firstName, p.lastName].filter(Boolean).join(" ")) ?? "");
+  return [...new Set(noms.map((n) => n.trim()).filter(Boolean))];
 }
 
 /**

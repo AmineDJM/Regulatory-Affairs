@@ -139,6 +139,16 @@ async function avecPartieNommee(
   return { ok: true, ids: [...new Set([...ids, trouvee.id])] };
 }
 
+/**
+ * LE DOCUMENT ARRIVE-T-IL AVEC SA PIÈCE ? — un fichier joint au formulaire, un fichier déjà déposé
+ * sur la fiche d'origine qu'on range (`pieceExistanteId`, §118.161), ou un fichier du Drive. Les
+ * clés sont LITTÉRALES : la dérivation des contrats ne lit pas une clé passée par une variable.
+ */
+function aUnePieceJointe(formData: FormData): boolean {
+  const fichier = formData.getAll("attachment").some((v) => v instanceof File && v.size > 0);
+  return fichier || Boolean(fdStr(formData, "pieceExistanteId")) || Boolean(fdStr(formData, "driveNodeId"));
+}
+
 /** Le maillon amont existe-t-il ? La règle vit dans `legal/chaine.ts`, partagée avec les factures. */
 const checkChainFrom = refusMaillonAmont;
 
@@ -165,8 +175,17 @@ export async function createLegalDocument(
   if (!demandees.ok) return { ok: false, error: demandees.error };
   const parties = await resolveParties(user.id, demandees.ids);
   if (!parties.ok) return { ok: false, error: parties.error };
-  if (parties.ids.length === 0) {
+  // UN DEVIS : seuls le TITRE et la PIÈCE JOINTE sont obligatoires (§118.175) — « dans l'upload des
+  // devis, à part le titre du devis et la PJ, rien n'est obligatoire » (Direction, 01/10). Le
+  // fournisseur se lit sur le PDF ; l'exiger avant d'enregistrer faisait créer des contacts à la
+  // hâte pour un devis qu'on comparait à deux autres. Ce que la pièce jointe, elle, ne remplace pas :
+  // un devis sans son PDF n'est qu'un titre, que personne ne peut vérifier.
+  const devis = f.kind === "QUOTE";
+  if (parties.ids.length === 0 && !devis) {
     return { ok: false, error: "Choisissez au moins une partie dans l'annuaire de l'entreprise (« Créer un contact » l'y ajoute si elle en est absente)." };
+  }
+  if (devis && !aUnePieceJointe(formData)) {
+    return { ok: false, error: "Un devis s'enregistre avec sa pièce jointe : joignez le PDF du devis (ou choisissez le fichier dans le Drive)." };
   }
 
   // LE NŒUD DU DRIVE EST VÉRIFIÉ AVANT D'ÊTRE ÉCRIT. L'identifiant vient d'un champ de
@@ -297,7 +316,9 @@ export async function updateLegalDocument(formData: FormData): Promise<ActionRes
   const parties = await resolveParties(user.id, demandees.ids);
   if (!parties.ok) return { ok: false, error: parties.error };
   const heritage = avant.counterpartyIds.length === 0 && Boolean(avant.counterparty?.trim());
-  if (parties.ids.length === 0 && !heritage) {
+  // Un DEVIS s'enregistre sans partie (§118.175) : le corriger ensuite ne doit pas en exiger une —
+  // sinon on ne pourrait plus rectifier sa date sans inventer un fournisseur.
+  if (parties.ids.length === 0 && !heritage && f.kind !== "QUOTE") {
     return { ok: false, error: "Choisissez au moins une partie dans l'annuaire de l'entreprise (« Créer un contact » l'y ajoute si elle en est absente)." };
   }
 

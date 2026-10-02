@@ -25,7 +25,8 @@ import { AppealPanel } from "./decision-panel";
 import { ThirdPartyButton } from "./third-party-button";
 import { InvolvementConversations } from "@/components/ad-pro/involvement-conversations";
 import { getInvolvementThreads } from "@/lib/queries/involvement";
-import { SuperAdminDeleteButton } from "@/components/shared/super-admin-delete";
+import { SupprimerDemandeAdPro } from "@/components/ad-pro/supprimer-demande";
+import { peutSupprimerUneDemandeAdPro } from "@/lib/queries/ad-pro-suppression";
 import { promoMaterialOptions } from "@/lib/actions/ad-pro-item-actions";
 import { AdProItemsPanel } from "@/components/ad-pro/items-panel";
 import { loadAdProItems, adProBudgetOptions, contexteMaterielStock, postesPourCloture } from "@/lib/queries/ad-pro-items";
@@ -166,7 +167,7 @@ export default async function SponsoringDetailPage({ params }: { params: { id: s
           )}
           {(canPreliminary || canDirection || isProductManager || isRequester) && <ThirdPartyButton id={req.id} people={missionUsers} />}
           {hasGlobalView(user) && <AdProTransferButton from="SPONSORING" sourceId={req.id} title={req.institution} />}
-          <SuperAdminDeleteButton kind="SPONSORING" id={req.id} name={`${req.reference} — ${req.institution}`} enabled={user.role === "SUPER_ADMIN"} />
+          <SupprimerDemandeAdPro kind="SPONSORING" id={req.id} name={`${req.reference} — ${req.institution}`} enabled={await peutSupprimerUneDemandeAdPro(user, "SPONSORING", req.id)} />
         </div>
       </div>
 

@@ -8,7 +8,7 @@
 import type { Priority } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { companyIdForNew } from "@/lib/company";
-import { buildRef } from "@/lib/refs";
+import { buildRef, createWithRetry } from "@/lib/refs";
 import { recordAudit } from "@/lib/audit";
 import { notifyUser } from "@/lib/notify";
 
@@ -41,7 +41,6 @@ export async function nextDossierRef(): Promise<string> {
  * l'assistant IA (après confirmation). Notifie le responsable + les participants.
  */
 export async function createDossierRecord(input: DossierInput, actorId: string): Promise<{ id: string; reference: string }> {
-  const reference = await nextDossierRef();
   // On ne garde que des participants valides et actifs, hors responsable/créateur.
   const wanted = (input.participantIds ?? []).filter((id) => id && id !== input.assignedToId && id !== actorId);
   const participantIds = wanted.length
@@ -54,10 +53,14 @@ export async function createDossierRecord(input: DossierInput, actorId: string):
     if (!a?.isActive) assignedToId = null;
   }
 
-  const created = await prisma.dossier.create({
+  // LA RÉFÉRENCE SE RECALCULE À CHAQUE ESSAI (§118.175) : dérivée du maximum, deux sujets ouverts à
+  // la même seconde — une demande de réservation et un sujet ouvert à la main — lisaient le même,
+  // et le second échouait sur la contrainte d'unicité. L'entité se lit UNE fois, hors de l'essai.
+  const companyId = input.companyId ?? (await companyIdForNew(actorId));
+  const created = await createWithRetry(async () => prisma.dossier.create({
     data: {
-      reference,
-      companyId: input.companyId ?? (await companyIdForNew(actorId)),
+      reference: await nextDossierRef(),
+      companyId,
       title: input.title.trim(),
       description: input.description?.trim() || null,
       category: input.category?.trim() || null,
@@ -70,13 +73,36 @@ export async function createDossierRecord(input: DossierInput, actorId: string):
       createdById: actorId,
     },
     select: { id: true, reference: true, title: true },
-  });
+  }));
 
   const recipients = new Set<string>([...(assignedToId ? [assignedToId] : []), ...participantIds]);
   recipients.delete(actorId);
   for (const userId of recipients) {
-    await notifyUser({ userId, type: "ASSIGNMENT", title: "Nouveau sujet", body: `${reference} — ${created.title}`, link: `/dossiers/${created.id}` });
+    await notifyUser({ userId, type: "ASSIGNMENT", title: "Nouveau sujet", body: `${created.reference} — ${created.title}`, link: `/dossiers/${created.id}` });
   }
-  await recordAudit({ actorId, action: "CREATE", module: "Sujets", entityType: "DOSSIER", entityId: created.id, summary: `Sujet ${reference} — ${created.title}` });
+  await recordAudit({ actorId, action: "CREATE", module: "Sujets", entityType: "DOSSIER", entityId: created.id, summary: `Sujet ${created.reference} — ${created.title}` });
   return { id: created.id, reference: created.reference };
+}
+
+/**
+ * ÉCRIRE DANS UN SUJET au nom d'un geste métier (§118.175) — une demande de réservation mise à
+ * jour, un voyageur décalé. Le message vient de l'auteur du geste, et les AUTRES membres du sujet
+ * sont prévenus : c'est la même chose que ce que `postDossierMessage` fait pour un message tapé,
+ * sans ses mentions ni ses pièces jointes. Rend `false` si le sujet n'existe plus — l'appelant le
+ * DIT au lieu de croire le message parti.
+ */
+export async function ecrireDansLeSujet(input: { dossierId: string; authorId: string; body: string }): Promise<boolean> {
+  const d = await prisma.dossier.findUnique({
+    where: { id: input.dossierId },
+    select: { id: true, reference: true, createdById: true, assignedToId: true, participantIds: true },
+  });
+  if (!d) return false;
+  await prisma.dossierMessage.create({ data: { dossierId: d.id, authorId: input.authorId, body: input.body } });
+  await prisma.dossier.update({ where: { id: d.id }, data: { updatedAt: new Date() } });
+  const membres = new Set<string>([...(d.createdById ? [d.createdById] : []), ...(d.assignedToId ? [d.assignedToId] : []), ...d.participantIds]);
+  membres.delete(input.authorId);
+  for (const userId of membres) {
+    await notifyUser({ userId, type: "GENERIC", title: "Nouveau message sur un sujet", body: `${d.reference} — ${input.body.slice(0, 80)}`, link: `/dossiers/${d.id}` });
+  }
+  return true;
 }

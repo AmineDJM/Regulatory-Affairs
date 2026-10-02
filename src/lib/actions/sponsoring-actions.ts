@@ -6,10 +6,10 @@ import { requireUser } from "@/lib/session";
 import { userCan, hasGlobalView, hasRole, anyRoleFilter, type SessionUser } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { moneyEntityOf } from "@/lib/company";
-import { readMultiField } from "@/lib/ad-pro/pickers";
+import { readMultiField, lireMedecinsDemande } from "@/lib/ad-pro/pickers";
 import { businessUnitDuDemandeur } from "@/lib/ad-pro/business-unit-auto";
 import { normalizeCity } from "@/lib/geo/algeria";
-import { buildRef } from "@/lib/refs";
+import { buildRef, createWithRetry } from "@/lib/refs";
 import { recordAudit } from "@/lib/audit";
 import { attachFiles } from "@/lib/attach-files";
 import { notifyRoles, notifyUser } from "@/lib/notify";
@@ -87,7 +87,7 @@ export async function createSponsoring(
   // LES CLÉS SONT LITTÉRALES, et elles le restent : la dérivation des contrats d'action ne
   // lit pas les clés d'un délégué IMPORTÉ, et un champ non déclaré est un champ que le chemin
   // générique d'Adam se fait refuser (§118.87c). Le NOM est partagé et tenu par un cliquet.
-  const medecins = readMultiField(formData.getAll("doctorIds").map(String), fdStr(formData, "doctor"));
+  const medecins = lireMedecinsDemande(formData.getAll("doctorIds").map(String), fdStr(formData, "doctorHorsAnnuaire"), fdStr(formData, "doctor"));
   const produits = readMultiField(formData.getAll("productIds").map(String), fdStr(formData, "product"));
   const natureLue = fdStr(formData, "nature") as SponsoringNature | null;
   const nature = natureLue && NATURES_SPONSORING.includes(natureLue) ? natureLue : null;
@@ -161,11 +161,17 @@ export async function createSponsoring(
   const referentGamme = await referentAInscrire(gammeDeLaDemande);
   const now = new Date();
 
+  // LA RÉFÉRENCE SE RECALCULE À CHAQUE ESSAI (§118.175). Elle se dérive du MAXIMUM existant :
+  // deux dépôts à la même seconde lisaient le même, calculaient la même, et le second tombait sur
+  // la contrainte d'unicité — une erreur brute, après avoir rempli le formulaire et choisi sa pièce.
+  // Le consulting, « autre demande » et le matériel promotionnel réessayaient depuis toujours ; le
+  // sponsoring, non. Le banc FORCE l'entrelacement (deux dépôts bloqués à l'insertion, relâchés
+  // ensemble), sans quoi il passerait sans le filet (§118.65).
   const year = new Date().getFullYear();
-  const refs = await prisma.sponsoringRequest.findMany({ where: { reference: { startsWith: `SPO-${year}-` } }, select: { reference: true } });
-  const reference = buildRef("SPO", year, refs.map((r) => r.reference));
+  const referenceSuivante = async () => buildRef("SPO", year,
+    (await prisma.sponsoringRequest.findMany({ where: { reference: { startsWith: `SPO-${year}-` } }, select: { reference: true } })).map((r) => r.reference));
 
-  const created = await prisma.sponsoringRequest.create({
+  const created = await createWithRetry(async () => prisma.sponsoringRequest.create({
     data: {
       // LA GAMME QUI PORTE LA DEMANDE — c'est SON budget Ad&Pro qui est engagé.
       //
@@ -174,7 +180,7 @@ export async function createSponsoring(
       // il se forge, et une gamme forgée fait peser la dépense sur le budget d'une autre équipe.
       // Là où elle ne se lit pas, la saisie reste souveraine.
       businessUnitId: gammeDeLaDemande,
-      reference,
+      reference: await referenceSuivante(),
       institution,
       // PLUSIEURS MÉDECINS, PLUSIEURS PRODUITS. Le formulaire envoie une entrée par case cochée ;
       // la colonne, elle, est un texte lu partout (liste, fiche, libellé de l'ordre de dépense,
@@ -242,7 +248,7 @@ export async function createSponsoring(
         },
       },
     },
-  });
+  }));
 
   // Les demandes du médecin, jointes DÈS la création : c'est la pièce que tout le circuit va
   // lire, et la faire ajouter « à l'écran suivant » revient à la voir manquer une fois sur deux.
@@ -252,8 +258,8 @@ export async function createSponsoring(
   });
   if (attached.error) return { ok: false, error: attached.error };
 
-  await recordAudit({ actorId: user.id, action: "CREATE", module: "Sponsoring", entityType: "SPONSORING", entityId: created.id, summary: `Demande ${reference} — ${institution} — sponsoring ${nature === "DIRECT" ? "direct" : "indirect"}, poste créé avec la demande${attached.saved > 0 ? ` (${attached.saved} pièce(s) jointe(s))` : ""}` });
-  await notifyAdProCreation(init, created.id, `${reference} — ${institution}`);
+  await recordAudit({ actorId: user.id, action: "CREATE", module: "Sponsoring", entityType: "SPONSORING", entityId: created.id, summary: `Demande ${created.reference} — ${institution} — sponsoring ${nature === "DIRECT" ? "direct" : "indirect"}, poste créé avec la demande${attached.saved > 0 ? ` (${attached.saved} pièce(s) jointe(s))` : ""}` });
+  await notifyAdProCreation(init, created.id, `${created.reference} — ${institution}`);
 
   revalidatePath(PATH);
   return { ok: true, id: created.id };

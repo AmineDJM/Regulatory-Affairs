@@ -2176,6 +2176,10 @@ enum AdProItemKind {
   /// Le SPONSORING INDIRECT (§118.151) : la société ne verse rien à l'association, elle prend en
   /// charge des prestations ou des médecins. Pendant d'`ASSOCIATION_SUPPORT` (le sponsoring direct).
   INDIRECT_SUPPORT
+  /// L'IMPRIMERIE (§118.175) — l'impression payée à un imprimeur pour l'occasion. Elle n'est pas
+  /// le MATÉRIEL PROMOTIONNEL (visa, conformité, agence, BAT) : c'est l'une des natures qu'un
+  /// sponsoring indirect prend en charge (« 400 000 d'imprimerie et 600 000 d'hôtellerie »).
+  PRINTING
   /// LE MATÉRIEL DU STOCK (§118.167) : kakémonos, présentoirs, brochures, objets PRIS AU MAGASIN
   /// CENTRAL pour l'événement — réservés à l'accord du poste, confirmés après (remis, rendus,
   /// abîmés, perdus), le reste revenant au magasin. Il n'engage aucun argent : ni montant ni
@@ -2304,6 +2308,18 @@ model AdProItem {
   /// Les articles du stock d'un poste « Matériel du stock » (§118.167).
   stockLines AdProStockLine[]
 
+  /// LA RÉPARTITION D'UN SPONSORING INDIRECT (§118.175). L'imprimerie et l'hôtel sont deux
+  /// fournisseurs : deux devis, deux BC, deux factures — donc deux postes, chacun avec sa chaîne.
+  /// Les postes nés d'une même répartition portent le même identifiant (celui du premier, qui est
+  /// le poste d'origine) : c'est ce qui permet à l'écran de les montrer ensemble, sous leur total.
+  repartitionId        String?
+  /// LE SUJET DE RÉSERVATION d'une billetterie, ouvert pour l'assistante de direction. Une
+  /// seconde demande écrit dans le MÊME sujet au lieu d'en ouvrir un autre.
+  reservationDossierId String?
+  reservationDossier   Dossier?        @relation("AdProItemReservation", fields: [reservationDossierId], references: [id], onDelete: SetNull)
+  /// Les voyageurs d'un poste « billetterie » (§118.175).
+  voyageurs            AdProVoyageur[]
+
   position           Int                      @default(0)
   createdById        String?
   updatedById        String?
@@ -2317,6 +2333,37 @@ model AdProItem {
   @@index([eventId])
   @@index([promoMaterialId])
   @@index([status])
+  @@index([repartitionId])
+  @@index([reservationDossierId])
+}
+
+/// UN VOYAGEUR D'UN POSTE « BILLETTERIE » (§118.175).
+///
+/// « On doit pouvoir sélectionner à chaque fois le nom de la personne, la date de départ, de
+/// retour, téléverser le passeport — et donner de la flexibilité : on modifie les dates plus tard,
+/// ou on n'a pas les informations à l'avance » (Direction, 01/10). D'où un nom OBLIGATOIRE et
+/// tout le reste facultatif : on prend en charge un médecin avant de savoir quand il part.
+///
+/// Le PASSEPORT n'est pas une colonne : c'est un `Document` du poste (catégorie « pièce
+/// d'identité ») dont `stepKey` est l'identifiant du voyageur — le téléversement, l'aperçu, les
+/// droits et la corbeille sont ceux de toute pièce jointe d'un poste, jamais un second chemin.
+model AdProVoyageur {
+  id           String    @id @default(cuid())
+  itemId       String
+  item         AdProItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  nom          String
+  villeDepart  String?
+  villeArrivee String?
+  dateDepart   DateTime?
+  dateRetour   DateTime?
+  notes        String?
+  position     Int       @default(0)
+  createdById  String?
+  updatedById  String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@index([itemId])
 }
 
 /// HISTORIQUE DES DÉCISIONS D'UN POSTE — « autant de fois qu'il le faut » : une demande de
@@ -3568,30 +3615,32 @@ enum DossierStatus {
 /// pièces (PPT/Excel/PDF/e-mails) via Document(entityType=DOSSIER). Créable manuellement
 /// ou proposé par l'IA depuis un chat / e-mail.
 model Dossier {
-  id             String           @id @default(cuid())
-  companyId      String? // entité de rattachement (Adventum / Pharmagène / …)
-  company        Company?         @relation(fields: [companyId], references: [id])
-  reference      String           @unique // DOS-AAAA-NNN
-  title          String
-  description    String?
-  category       String? // Recherche, Hôtels, Billets, Analyse IQVIA, Veille…
-  priority       Priority         @default(MEDIUM)
-  status         DossierStatus    @default(OPEN)
-  createdById    String?
-  createdBy      User?            @relation("DossierCreator", fields: [createdById], references: [id])
-  assignedToId   String? // responsable principal
-  assignedTo     User?            @relation("DossierAssignee", fields: [assignedToId], references: [id])
-  participantIds String[]         @default([]) // collaborateurs additionnels (userIds)
+  id                String           @id @default(cuid())
+  companyId         String? // entité de rattachement (Adventum / Pharmagène / …)
+  company           Company?         @relation(fields: [companyId], references: [id])
+  reference         String           @unique // DOS-AAAA-NNN
+  title             String
+  description       String?
+  category          String? // Recherche, Hôtels, Billets, Analyse IQVIA, Veille…
+  priority          Priority         @default(MEDIUM)
+  status            DossierStatus    @default(OPEN)
+  createdById       String?
+  createdBy         User?            @relation("DossierCreator", fields: [createdById], references: [id])
+  assignedToId      String? // responsable principal
+  assignedTo        User?            @relation("DossierAssignee", fields: [assignedToId], references: [id])
+  participantIds    String[]         @default([]) // collaborateurs additionnels (userIds)
   /// OBJET D'ORIGINE quand ce dossier est né d'une implication de tierce personne sur une
   /// demande Ad & Pro (congrès, événement) : c'est ce qui permet de faire remonter la
   /// conversation À L'ENDROIT de la demande, au lieu de la laisser dans un projet à part que le
   /// demandeur oublie d'ouvrir.
-  sourceType     EntityType?
-  sourceId       String?
-  dueDate        DateTime?
-  messages       DossierMessage[]
-  createdAt      DateTime         @default(now())
-  updatedAt      DateTime         @updatedAt
+  sourceType        EntityType?
+  sourceId          String?
+  dueDate           DateTime?
+  messages          DossierMessage[]
+  /// Les postes « billetterie » dont c'est le sujet de réservation (§118.175).
+  adProReservations AdProItem[]      @relation("AdProItemReservation")
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
 
   @@index([status])
   @@index([createdById])

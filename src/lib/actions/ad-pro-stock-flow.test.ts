@@ -51,7 +51,8 @@ const form = (fields: Record<string, string | string[]>): FormData => {
  *   dem   National Sales : il demande (sponsoring et congrès), il liste, il confirme après
  *   dir   Direction (vue globale) : elle décide des postes — l'accord RÉSERVE
  *   dm    directrice de la Direction Marketing : elle tient le magasin, le retour la prévient
- *   autre délégué médical : ni demandeur, ni magasin, ni décideur
+ *   autre délégué médical : ni demandeur, ni magasin, ni décideur — et il ne VOIT pas le sponsoring
+ *   ns2   un autre National Sales : il voit la demande, sans être ni demandeur, ni magasin, ni décideur
  *   sa    Super Admin : clôture, transfert
  *
  * LE MAGASIN : 3 kakémonos (durables), 200 brochures en deux lots (2028 et 2030) plus 50 PÉRIMÉES,
@@ -68,11 +69,11 @@ suite("Matériel du stock d'un événement — réserver à l'accord, confirmer 
     await nettoyer();
     const faire = (nom: string, role: string) =>
       prisma.user.create({ data: { name: `${TAG}${nom}`, email: `${TAG}${nom}@t.dz`, role: role as never, passwordHash: "x" } });
-    const [dem, dir, dm, autre, sa] = await Promise.all([
+    const [dem, dir, dm, autre, sa, ns2] = await Promise.all([
       faire("dem", "NATIONAL_SALES"), faire("dir", "DIRECTION"), faire("dm", "PRODUCT_MANAGER"),
-      faire("autre", "MEDICAL_DELEGATE"), faire("sa", "SUPER_ADMIN"),
+      faire("autre", "MEDICAL_DELEGATE"), faire("sa", "SUPER_ADMIN"), faire("ns2", "NATIONAL_SALES"),
     ]);
-    Object.assign(ids, { dem: dem.id, dir: dir.id, dm: dm.id, autre: autre.id, sa: sa.id });
+    Object.assign(ids, { dem: dem.id, dir: dir.id, dm: dm.id, autre: autre.id, sa: sa.id, ns2: ns2.id });
     // La cheffe de la Direction Marketing se LIT sur l'organigramme : personne de son rôle au-dessus d'elle.
     await prisma.employee.create({ data: { fullName: `${TAG}dm`, userId: dm.id } });
 
@@ -184,6 +185,15 @@ suite("Matériel du stock d'un événement — réserver à l'accord, confirmer 
     const autre = await actorFor(ids.autre!);
     expect(hasGlobalView(autre) || userCan(autre, "SPONSORING", "VALIDATE")).toBe(false);
     expect(await gestionnairesDuMagasin()).not.toContain(ids.autre);
+    // Les deux INTRUS ne se ressemblent pas, et c'est ce qui fait deux cas (§118.175) : le délégué
+    // n'a PAS le module Sponsoring (il ne voit pas la demande), le second National Sales l'a — il
+    // voit la demande, sans pouvoir confirmer. Sans cette prémisse, le refus de la règle de
+    // confirmation pourrait venir de la porte de ligne, et le cas ne la garderait plus.
+    expect(userCan(autre, "SPONSORING", "VIEW"), "le délégué ne voit pas le sponsoring").toBe(false);
+    const ns2 = await actorFor(ids.ns2!);
+    expect(userCan(ns2, "SPONSORING", "VIEW"), "le second National Sales voit le sponsoring").toBe(true);
+    expect(hasGlobalView(ns2) || userCan(ns2, "SPONSORING", "VALIDATE")).toBe(false);
+    expect(await gestionnairesDuMagasin()).not.toContain(ids.ns2);
     expect([await magasin(brochure), await magasin(kakemono), await magasin(stylo)]).toEqual([250, 3, 10]);
   });
 
@@ -359,8 +369,16 @@ suite("Matériel du stock d'un événement — réserver à l'accord, confirmer 
   it("CONFIRMER : seuls le demandeur, le magasin, la Direction ou le Super Admin — et une faute ne change RIEN", async () => {
     const lignes = await lignesDe(poste1);
     const [lBrochure, lKakemono] = [lignes.find((l) => l.stockItemId === brochure)!, lignes.find((l) => l.stockItemId === kakemono)!];
+    const saisieIntrus = () => form({ itemId: poste1, ligneId: [lBrochure.id, lKakemono.id], utilisee: ["120", ""], rendue: ["", "2"], abimee: ["", "0"], perdue: ["", "0"] });
+    // DEUX PORTES, DEUX REFUS (§118.175). Qui ne VOIT pas la demande ne la trouve pas — la même
+    // phrase que l'absence, qui ne confirme pas qu'elle existe ; qui la voit sans pouvoir confirmer
+    // reçoit la règle de la confirmation.
     await comme("autre");
-    const intrus = await confirmerMaterielStock(form({ itemId: poste1, ligneId: [lBrochure.id, lKakemono.id], utilisee: ["120", ""], rendue: ["", "2"], abimee: ["", "0"], perdue: ["", "0"] }));
+    const aveugle = await confirmerMaterielStock(saisieIntrus());
+    expect(aveugle.ok).toBe(false);
+    expect(aveugle.ok ? "" : aveugle.error).toBe("Poste introuvable.");
+    await comme("ns2");
+    const intrus = await confirmerMaterielStock(saisieIntrus());
     expect(intrus.ok).toBe(false);
     expect(intrus.ok ? "" : intrus.error).toBe(REFUS_CONFIRMATION_MATERIEL);
     await comme("dem");

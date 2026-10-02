@@ -77,7 +77,7 @@ async function nettoyer() {
 }
 
 suite("Supprimer une demande emporte TOUTES ses branches — et la restauration les rend", () => {
-  let saId = "", dirId = "";
+  let saId = "", dirId = "", kamId = "";
   let defId = "";
   // Le sponsoring et ses branches.
   const S: Record<string, string> = {};
@@ -159,7 +159,11 @@ suite("Supprimer une demande emporte TOUTES ses branches — et la restauration 
     await nettoyer();
     const sa = await prisma.user.create({ data: { name: `${TAG}admin`, email: `${RUN}sa@t.dz`, role: "SUPER_ADMIN", passwordHash: "x" } });
     const dir = await prisma.user.create({ data: { name: `${TAG}direction`, email: `${RUN}dir@t.dz`, role: "DIRECTION", passwordHash: "x" } });
-    saId = sa.id; dirId = dir.id;
+    // UN KAM : il voit sa demande, il ne la supprime pas. Le directeur des opérations, lui, peut
+    // désormais supprimer une demande Ad & Pro (§118.175) — il ne peut donc plus jouer « celui qui
+    // ne peut pas », et ce banc mesurerait un refus qui n'existe plus.
+    const kam = await prisma.user.create({ data: { name: `${TAG}kam`, email: `${RUN}kam@t.dz`, role: "MEDICAL_DELEGATE", passwordHash: "x" } });
+    saId = sa.id; dirId = dir.id; kamId = kam.id;
     defId = (await prisma.workflowDefinition.create({ data: { category: `${RUN}WF`, name: `${TAG}circuit` } })).id;
     Object.assign(S, await semerSponsoring("A"));
 
@@ -203,9 +207,16 @@ suite("Supprimer une demande emporte TOUTES ses branches — et la restauration 
   });
 
   it("l'aperçu est fermé à qui ne peut pas supprimer — il dirait ce qui dépend d'une demande qu'on ne voit pas", async () => {
-    ACTOR = await acteur(dirId, "DIRECTION");
+    ACTOR = await acteur(kamId, "MEDICAL_DELEGATE");
     const a = await apercuDeSuppression(fd({ kind: "SPONSORING", id: S.sp }));
-    expect("erreur" in a && a.erreur).toMatch(/Réservé/);
+    expect("erreur" in a ? a.erreur : "aperçu ouvert").toMatch(/Réservé/);
+    // L'AUTRE MOITIÉ — le directeur des opérations peut supprimer une demande Ad & Pro (§118.175),
+    // donc l'aperçu s'ouvre pour lui : un aperçu fermé devant une suppression que l'action
+    // accepte ferait supprimer à l'aveugle. Sans ce cas, une porte d'aperçu trop étroite
+    // passerait pour juste.
+    ACTOR = await acteur(dirId, "DIRECTION");
+    const b = await apercuDeSuppression(fd({ kind: "SPONSORING", id: S.sp }));
+    expect("erreur" in b ? b.erreur : null).toBeNull();
   });
 
   it("un fait qui a QUITTÉ l'ERP refuse la suppression — avant le clic comme au clic — et rien ne part", async () => {

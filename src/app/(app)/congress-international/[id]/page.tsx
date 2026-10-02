@@ -10,7 +10,8 @@ import { getEntityMissions } from "@/lib/queries/missions";
 import { getWorkflowForEntity } from "@/lib/queries/workflow";
 import { PageHeader } from "@/components/shared/page-header";
 import { StatusBadge } from "@/components/shared/status-badge";
-import { SuperAdminDeleteButton } from "@/components/shared/super-admin-delete";
+import { SupprimerDemandeAdPro } from "@/components/ad-pro/supprimer-demande";
+import { peutSupprimerUneDemandeAdPro } from "@/lib/queries/ad-pro-suppression";
 import { type DocItem } from "@/components/documents/document-list";
 import { CONGRESS_REQUEST_STATUS } from "@/lib/labels";
 import { CongressDetailView } from "../congress-detail-view";
@@ -119,7 +120,7 @@ export default async function CongressIntlDetailPage({ params }: { params: { id:
           <AdProEditButton kind="CONGRESS_INTERNATIONAL" id={detail.id} decided={requestDecided} values={editValues} />
         )}
         {hasGlobalView(user) && <AdProTransferButton from="CONGRESS_INTERNATIONAL" sourceId={detail.id} title={detail.name} />}
-        <SuperAdminDeleteButton kind="CONGRESS_INTERNATIONAL" id={detail.id} name={detail.name} enabled={user.role === "SUPER_ADMIN"} />
+        <SupprimerDemandeAdPro kind="CONGRESS_INTERNATIONAL" id={detail.id} name={detail.name} enabled={await peutSupprimerUneDemandeAdPro(user, "CONGRESS_INTERNATIONAL", detail.id)} />
       </PageHeader>
       {/* Les personnes prises en charge — le cœur de la demande. Avant le reste : c'est la
           question qu'on se pose en ouvrant l'écran. */}

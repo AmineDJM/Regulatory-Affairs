@@ -2,20 +2,23 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { Plus, Trash2, Loader2, CheckCircle2, XCircle, Receipt, Link2, AlertTriangle, ExternalLink, Send, FileText, Wallet, ThumbsUp, ThumbsDown, RotateCcw, History, Pencil, X } from "lucide-react";
+import { useRafraichir } from "@/components/shared/use-rafraichir";
+import {
+  Plus, Trash2, Loader2, CheckCircle2, XCircle, Receipt, Link2, AlertTriangle, ExternalLink, Send, FileText,
+  ThumbsUp, ThumbsDown, RotateCcw, History, Pencil, MoreHorizontal, Circle, X, Wallet, Split, ChevronDown, ChevronRight,
+} from "lucide-react";
 import type { AdProItemKind, AdProItemStatus, AdProItemBudgetKind, AdProItemOrderStage } from "@prisma/client";
 import { Button } from "@/components/ui/button";
 import { ItemAskPanel } from "./item-ask-panel";
 import { Badge } from "@/components/ui/badge";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import {
-  breakdown, canEmitOrder, canSubmitItem, canRequestPurchaseOrder, canRemoveItem, budgetKindLocked, plannedGaps,
+  breakdown, canEmitOrder, canRemoveItem, budgetKindLocked, plannedGaps,
   ITEM_KINDS, ITEM_KIND_LABELS, ITEM_STATUS_LABELS, ITEM_BUDGET_KIND_LABELS, ITEM_ORDER_STAGE_LABELS, LIBELLE_BC_SOUS_LE_SEUIL,
   type AdProParent,
 } from "@/lib/ad-pro-items";
 import {
-  addAdProItem, updateAdProItem, deleteAdProItem,
+  addAdProItem, updateAdProItem, deleteAdProItem, repartirPoste,
   emitItemExpenseOrder, linkPromoMaterial,
   submitAdProItem, decideAdProItem, setAdProItemBudget,
   demanderPieceSecretariat, requestAdProItemOrder, approveAdProItemOrder,
@@ -23,12 +26,20 @@ import {
 import {
   NATURES_PIECE_SECRETARIAT, PIECE_SECRETARIAT, peutDemanderPiece, type NaturePieceSecretariat,
 } from "@/lib/ad-pro/pieces-secretariat";
+import {
+  etapesDuPoste, prochainPas, grouperParRepartition, faitsDuPoste, VERSEMENT_SANS_BC,
+  type CleGeste, type Etape, type RegardPoste,
+} from "@/lib/ad-pro/poste-etapes";
+import { NATURES_REPARTITION } from "@/lib/ad-pro/repartition";
+import { porteDesVoyageurs } from "@/lib/ad-pro/voyageurs";
 import { DocumentUpload } from "@/components/documents/document-upload";
 import { AD_PRO_DOC_CATEGORIES } from "@/lib/ad-pro/doc-categories";
 import { faitDeStock, NATURE_MATERIEL_STOCK } from "@/lib/promo/reservations";
 import { BlocMaterielStock, type LigneStockVue, type ContexteMaterielStock } from "./materiel-stock";
+import { BlocVoyageurs, type VoyageurVue } from "./voyageurs-bloc";
 
 export type { LigneStockVue, ContexteMaterielStock, ArticleMagasinVue } from "./materiel-stock";
+export type { VoyageurVue } from "./voyageurs-bloc";
 
 /** Un poste « Matériel du stock » n'engage pas d'argent : il ne montre ni montant, ni budget, ni BC. */
 const estPosteStock = (it: { kind: AdProItemKind }) => it.kind === NATURE_MATERIEL_STOCK;
@@ -72,6 +83,14 @@ export interface ItemRow {
   decisions: { decision: AdProItemStatus; note: string | null; amount: number | null; at: string; by: string | null }[];
   /** Le matériel du magasin listé par un poste « Matériel du stock » (§118.167) — vide sinon. */
   lignesStock: LigneStockVue[];
+  /** Les postes nés d'une même répartition d'un sponsoring indirect (§118.175). */
+  repartitionId: string | null;
+  /** Le sujet de réservation d'une billetterie, s'il a été ouvert. */
+  reservation: { id: string; reference: string } | null;
+  /** Les voyageurs d'un poste « billetterie » — vide sinon. */
+  voyageurs: VoyageurVue[];
+  /** Les noms que la demande porte déjà — proposés à la saisie d'un voyageur, jamais imposés. */
+  nomsSuggeres: string[];
 }
 
 interface Props {
@@ -117,30 +136,27 @@ interface Props {
   materiel: ContexteMaterielStock;
 }
 
+type Run = (key: string, fn: () => Promise<{ ok: boolean; error?: string; message?: string }>, okText: string) => Promise<void>;
+
 /**
- * DE QUOI EST FAIT LE MONTANT — les postes d'une opération Ad & Pro.
+ * DE QUOI EST FAIT LE MONTANT — les postes d'une opération Ad & Pro (§118.175).
  *
- * Sert le **sponsoring** et les **prises en charge nationales** : la question est la même dans les deux
- * cas. Un sponsoring est rarement un simple chèque, un congrès rarement une simple inscription —
- * il y a le stand, le symposium, les brochures produites pour l'occasion, une prestation. Les
- * modules ne portaient qu'un montant global : on ne savait ni de quoi il était fait, ni à qui
- * allait l'argent.
+ * « Ici c'est trop complexe : plus simple, plus séparé, plus lisible, moins de boutons et de CTA
+ * partout » (Direction, 01/10). Un poste affichait jusqu'à neuf commandes à la fois, dont
+ * plusieurs désactivées avec leur raison collée à côté ; on lisait tout pour trouver la seule
+ * chose qu'on pouvait faire. Chaque poste est maintenant une CARTE :
  *
- * Sert les QUATRE opérations du pôle (sponsoring, prises en charge nationales et
- * internationales, événements).
+ *   1. ce qu'il est (nature, libellé, statut) et ce qu'il coûte, sur deux lignes ;
+ *   2. une FRISE — chiffré → Direction → budget → bon de commande → paiement ;
+ *   3. UN bouton, le prochain geste de la personne qui regarde — ou, s'il n'est pas le sien, une
+ *      phrase qui dit ce qu'on attend et de qui (`prochainPas`, une règle pure et testée) ;
+ *   4. le reste dans un menu « ⋯ » et un volet « Pièces et demandes » replié : rien ne disparaît,
+ *      rien ne crie.
  *
- * Quatre principes tenus à l'écran :
- *   1. **Chaque poste se valide À PART.** Consulting, traiteur, salle ne se décident pas
- *      ensemble : la Direction accorde l'un, refuse l'autre, demande à revoir le troisième —
- *      autant de fois qu'il le faut, chaque tour restant visible dans l'historique.
- *   2. **Le dépassement se voit.** Un poste peut être ajouté après la décision — c'est autorisé.
- *      La ventilation dépasse alors l'enveloppe : on l'affiche en clair plutôt que de le
- *      découvrir à la facture.
- *   3. **Le matériel promotionnel n'est pas recopié ici.** Il a son circuit (visa publicitaire,
- *      conformité, agence, BAT) ; le poste y renvoie et en montre l'avancement en lecture.
- *   4. **Ce qui est annoncé doit être chiffré.** Un congrès qui déclare un stand ou un symposium
- *      sans poste correspondant a un budget incomplet — on le dit, sans bloquer : un stand peut
- *      être offert par l'organisateur.
+ * Les quatre principes d'avant tiennent toujours : chaque poste se valide À PART ; le dépassement
+ * se voit ; le matériel promotionnel n'est pas recopié ici ; ce qui est annoncé doit être chiffré.
+ * Et un sponsoring indirect se RÉPARTIT par nature : ses postes s'affichent ensemble, sous leur
+ * total.
  */
 /** Où vit chaque opération porteuse de postes — une seule table, jamais recopiée. */
 const PARENT_PATH: Record<AdProParent, string> = {
@@ -158,12 +174,15 @@ export function AdProItemsPanel({
   // (`refusSiClos`), et un bouton qu'une action refuse n'est pas un bouton. Les gestes
   // d'EXÉCUTION (pièces, BC, émission) gardent leurs droits d'origine, passés à part.
   const canEdit = canEditBrut && !fige;
-  const canAllocate = canAllocateBrut && !fige;
-  const router = useRouter();
-  const [busy, setBusy] = React.useState<string | null>(null);
+  // LE RAFRAÎCHISSEMENT SUIVI (§118.172) : entre la fin d'une action et l'arrivée des nouvelles
+  // données, la carte montrerait l'état d'AVANT avec ses gestes déjà cliquables — « Modifier le
+  // poste » ou un voyageur s'ouvriraient sur un instantané périmé, et l'enregistrer réécrirait
+  // l'ancien état par-dessus le nouveau. Les gestes restent fermés jusqu'à ce que l'écran soit à jour.
+  const { enCours: rafraichissement, rafraichir } = useRafraichir();
+  const [busyAction, setBusy] = React.useState<string | null>(null);
+  const busy = busyAction ?? (rafraichissement ? RAFRAICHISSEMENT : null);
   const [msg, setMsg] = React.useState<{ ok: boolean; text: string } | null>(null);
   const [adding, setAdding] = React.useState(false);
-  const [editingId, setEditingId] = React.useState<string | null>(null);
   const lock = React.useRef(false);
 
   // Le chemin de l'opération porteuse : la demande de pièce y renvoie, pour que celui qui a
@@ -172,9 +191,10 @@ export function AdProItemsPanel({
 
   const b = breakdown(items, amountGranted);
   const gaps = plannedGaps(items, plan ?? {});
+  const groupes = grouperParRepartition(items);
 
-  const run = async (key: string, fn: () => Promise<{ ok: boolean; error?: string; message?: string }>, okText: string) => {
-    if (lock.current) return;
+  const run: Run = async (key, fn, okText) => {
+    if (lock.current || rafraichissement) return;
     lock.current = true;
     setBusy(key);
     setMsg(null);
@@ -183,12 +203,31 @@ export function AdProItemsPanel({
       // La phrase de l'ACTION l'emporte quand elle en rend une : elle seule sait, par exemple,
       // qu'un BC sous le seuil est parti aux Finances sans passer par le centre (§118.149).
       setMsg({ ok: r.ok, text: r.ok ? (r.message ?? okText) : (r.error ?? "Échec.") });
-      if (r.ok) router.refresh();
+      if (r.ok) rafraichir();
     } finally {
       setBusy(null);
       lock.current = false;
     }
   };
+
+  const carte = (it: ItemRow) => (
+    <PosteCarte
+      key={it.id}
+      item={it}
+      regard={{
+        canEdit: canEditBrut, canAllocate: canAllocateBrut, canViserBC,
+        // L'ÉMISSION : les Finances, ou la Direction (`emitItemExpenseOrder` accepte les deux).
+        canEmettre: canIssueOrder || canAllocateBrut,
+        fige, operationDecidee: decided,
+      }}
+      budgetOptions={budgetOptions}
+      promoOptions={promoOptions}
+      materiel={materiel}
+      busy={busy}
+      run={run}
+      parentLink={parentLink}
+    />
+  );
 
   return (
     <div className="space-y-4">
@@ -268,194 +307,24 @@ export function AdProItemsPanel({
       {/* ── Les postes ── */}
       {items.length === 0 ? (
         <p className="rounded-xl border border-dashed border-border p-4 text-sm text-muted-foreground">
-          Aucun poste. Détaillez ce que couvre ce sponsoring — appui, stand, matériel promotionnel,
-          prestation — pour savoir de quoi est fait le montant et à qui va l&apos;argent.
+          Aucun poste. Détaillez ce que couvre cette opération — appui, stand, imprimerie, billetterie, prestation —
+          pour savoir de quoi est fait le montant et à qui va l&apos;argent.
         </p>
       ) : (
-        <ul className="divide-y divide-border">
-          {items.map((it) => {
-            const emit = canEmitOrder(it, decided);
-            const removable = canRemoveItem(
-              { expenseOrderId: it.expenseOrderId, expenseOrderStatus: it.expenseOrder?.status ?? null },
-              { canAllocate },
-            );
-            const editing = editingId === it.id;
-            return (
-              <li key={it.id} className="space-y-2 py-3">
-                <div className="flex flex-wrap items-start gap-2">
-                  <Badge tone={it.kind === "PROMO_MATERIAL" ? "purple" : "neutral"} dot={false}>{ITEM_KIND_LABELS[it.kind]}</Badge>
-                  <span className="min-w-0 flex-1 font-medium">{it.label}</span>
-                  <Badge tone={ITEM_STATUS_LABELS[it.status].tone} dot={false}>{ITEM_STATUS_LABELS[it.status].label}</Badge>
-                  {it.budgetKind === "ADDITIONAL" && <Badge tone="warning" dot={false}>budget supplémentaire</Badge>}
-                  {it.addedAfterDecision && (
-                    <Badge tone="warning" dot={false}>ajouté après décision</Badge>
-                  )}
-                  {canEdit && (
-                    <button
-                      onClick={() => setEditingId(editing ? null : it.id)}
-                      className="inline-flex items-center gap-1 rounded-lg border border-border px-2 py-1 text-xs font-medium text-muted-foreground hover:bg-secondary"
-                    >
-                      {editing ? <X className="h-3.5 w-3.5" /> : <Pencil className="h-3.5 w-3.5" />} {editing ? "Fermer" : "Modifier"}
-                    </button>
-                  )}
-                </div>
-
-                {/* ÉDITION DU POSTE — libellé, fournisseur, note, estimation, nature de budget.
-                    Ces champs DÉCRIVENT la dépense, ils ne l'engagent pas : les corriger après
-                    l'émission d'un bon de commande est légitime (« Lotus Media » mal orthographié
-                    doit pouvoir se réparer). Seul le montant AFFECTÉ se verrouille avec l'ordre
-                    de dépense, parce que lui seul a été transmis aux Finances. */}
-                {editing && (
-                  <EditItemForm
-                    item={it}
-                    busy={busy === `edit:${it.id}`}
-                    onCancel={() => setEditingId(null)}
-                    onSave={(fd) => {
-                      fd.set("id", it.id);
-                      void run(`edit:${it.id}`, () => updateAdProItem(undefined, fd), "Poste modifié.").then(() => setEditingId(null));
-                    }}
-                  />
-                )}
-
-                {(it.notes || it.supplier) && (
-                  <p className="text-xs text-muted-foreground">
-                    {it.supplier && <>Payé à <strong className="text-foreground">{it.supplier}</strong>{it.notes ? " · " : ""}</>}
-                    {it.notes}
-                  </p>
-                )}
-
-                {estPosteStock(it) ? (
-                  <BlocMaterielStock
-                    itemId={it.id}
-                    lignes={it.lignesStock}
-                    magasin={materiel.magasin}
-                    editable={canEdit && POSTE_STOCK_EDITABLE.includes(it.status)}
-                    peutConfirmer={materiel.peutConfirmer}
-                    busy={busy}
-                    run={run}
-                  />
-                ) : (
-                <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
-                  <span className="text-muted-foreground">
-                    Estimé : <span className="tabular-nums text-foreground">{it.amountEstimated != null ? formatCurrency(it.amountEstimated) : "—"}</span>
-                  </span>
-                  {canAllocate && !it.expenseOrderId ? (
-                    <AllocateField itemId={it.id} current={it.amountGranted} busy={busy === `alloc:${it.id}`} onSave={(v) => {
-                      const fd = new FormData();
-                      fd.set("id", it.id);
-                      fd.set("amountGranted", v);
-                      void run(`alloc:${it.id}`, () => updateAdProItem(undefined, fd), "Montant affecté.");
-                    }} />
-                  ) : (
-                    <span className="text-muted-foreground">
-                      Affecté : <span className="tabular-nums font-medium text-foreground">{it.amountGranted != null ? formatCurrency(it.amountGranted) : "—"}</span>
-                    </span>
-                  )}
-                </div>
-                )}
-
-                {/* Le matériel promotionnel : on RENVOIE vers son circuit, on ne le recopie pas. */}
-                {it.kind === "PROMO_MATERIAL" && (
-                  <div className="rounded-lg border border-border px-2.5 py-2 text-xs">
-                    {it.promoMaterial ? (
-                      <div className="flex flex-wrap items-center gap-2">
-                        <Link href={`/promo-material/${it.promoMaterialId}`} className="inline-flex items-center gap-1 font-medium text-primary hover:underline">
-                          {it.promoMaterial.reference} <ExternalLink className="h-3 w-3" />
-                        </Link>
-                        <span className="min-w-0 flex-1 truncate text-muted-foreground">{it.promoMaterial.title}</span>
-                        <Badge tone="info" dot={false}>{it.promoMaterial.status}</Badge>
-                      </div>
-                    ) : canEdit ? (
-                      <div className="flex flex-wrap items-center gap-2">
-                        <Link2 className="h-3.5 w-3.5 text-muted-foreground" />
-                        <select
-                          defaultValue=""
-                          onChange={(e) => {
-                            if (!e.target.value) return;
-                            const fd = new FormData();
-                            fd.set("id", it.id);
-                            fd.set("promoMaterialId", e.target.value);
-                            void run(`link:${it.id}`, () => linkPromoMaterial(undefined, fd), "Matériel rattaché.");
-                          }}
-                          className="min-w-0 flex-1 rounded-lg border border-border bg-background px-2 py-1 text-xs outline-none focus:border-primary/60"
-                        >
-                          <option value="">Rattacher un matériel promotionnel existant…</option>
-                          {promoOptions.map((p) => <option key={p.id} value={p.id}>{p.reference} — {p.title}</option>)}
-                        </select>
-                        <Link href="/promo-material" className="whitespace-nowrap text-primary hover:underline">ou en créer un</Link>
-                      </div>
-                    ) : (
-                      <span className="text-muted-foreground">Aucun matériel rattaché.</span>
-                    )}
-                    <p className="mt-1 text-[0.6875rem] text-muted-foreground">
-                      Le matériel suit <strong>son propre circuit</strong> (visa publicitaire, conformité, agence, BAT).
-                      Ce sponsoring en montre l&apos;avancement, il ne le pilote pas.
-                    </p>
-                  </div>
-                )}
-
-                {/* ── Le cycle du poste : devis → validation → budget → bon de commande ── */}
-                <ItemLifecycle
-                  item={it}
-                  canEdit={canEditBrut}
-                  canAllocate={canAllocateBrut}
-                  fige={fige}
-                  canViserBC={canViserBC}
-                  canIssueOrder={canIssueOrder}
-                  budgetOptions={budgetOptions}
-                  busy={busy}
-                  run={run}
-                  parentLink={parentLink}
-                />
-
-                {/* Paiement du poste. */}
-                <div className="flex flex-wrap items-center gap-2">
-                  {estPosteStock(it) ? null : it.expenseOrder ? (
-                    <Badge tone="success" dot={false}>
-                      <Receipt className="mr-1 h-3 w-3" /> {it.expenseOrder.reference} · {it.expenseOrder.status}
-                    </Badge>
-                  ) : canAllocateBrut ? (
-                    <Button
-                      size="sm" variant="outline" disabled={!emit.ok || busy === `emit:${it.id}`}
-                      title={emit.reason}
-                      onClick={() => {
-                        const fd = new FormData();
-                        fd.set("id", it.id);
-                        void run(`emit:${it.id}`, () => emitItemExpenseOrder(undefined, fd), "Ordre de dépense émis.");
-                      }}
-                    >
-                      {busy === `emit:${it.id}` ? <Loader2 className="h-4 w-4 animate-spin" /> : <Receipt className="h-4 w-4" />}
-                      Émettre l&apos;ordre de dépense
-                    </Button>
-                  ) : null}
-                  {!estPosteStock(it) && !it.expenseOrder && canAllocateBrut && !emit.ok && (
-                    <span className="text-[0.6875rem] text-muted-foreground">{emit.reason}</span>
-                  )}
-                  {/* RETIRER — libre tant qu'aucun ordre n'est parti aux Finances ; réservé à la
-                      Direction ensuite, avec annulation de l'ordre (et jamais si déjà réglé). */}
-                  {/* Un poste dont le matériel est dehors, ou a été remis, ne se retire pas : l'action
-                      le refuserait (`faitDeStock`), et un bouton qu'elle refuse n'est pas un bouton. */}
-                  {canEdit && removable.ok && !it.lignesStock.some((l) => faitDeStock(l) != null) && (
-                    <button
-                      onClick={() => {
-                        if (it.expenseOrderId && !window.confirm(
-                          `Retirer ce poste annulera l'ordre de dépense ${it.expenseOrder?.reference ?? ""} transmis aux Finances. Continuer ?`,
-                        )) return;
-                        const fd = new FormData();
-                        fd.set("id", it.id);
-                        void run(`del:${it.id}`, () => deleteAdProItem(undefined, fd), "Poste retiré.");
-                      }}
-                      disabled={busy === `del:${it.id}`}
-                      className="ml-auto inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-                      title={it.expenseOrderId ? "L'ordre de dépense sera annulé" : undefined}
-                    >
-                      <Trash2 className="h-3.5 w-3.5" /> Retirer
-                    </button>
-                  )}
-                </div>
-              </li>
-            );
-          })}
+        <ul className="space-y-3">
+          {groupes.map((g) => g.repartitionId ? (
+            <li key={g.cle} className="space-y-2 rounded-xl border border-primary/30 bg-primary/5 p-2.5">
+              <p className="flex flex-wrap items-center gap-2 px-1 text-sm">
+                <Split className="h-4 w-4 text-primary" />
+                <strong>Sponsoring indirect</strong>
+                <span className="tabular-nums text-muted-foreground">
+                  {formatCurrency(g.items.reduce((s, it) => s + (it.amountGranted ?? it.amountEstimated ?? 0), 0))}
+                </span>
+                <span className="text-muted-foreground">· {g.items.length} nature{g.items.length > 1 ? "s" : ""}</span>
+              </p>
+              <ul className="space-y-2">{g.items.map(carte)}</ul>
+            </li>
+          ) : carte(g.items[0]!))}
         </ul>
       )}
 
@@ -491,14 +360,590 @@ export function AdProItemsPanel({
   );
 }
 
+/** L'état « l'écran se met à jour » — tous les gestes de toutes les cartes attendent. */
+const RAFRAICHISSEMENT = "rafraichissement";
+
+// ─────────────────────────────── La carte d'un poste ───────────────────────────────
+
+type Panneau = CleGeste | "MODIFIER" | "HISTORIQUE";
+
+/** Ce qu'un geste OUVRE (un petit formulaire) — les autres partent au clic. */
+const GESTES_A_FORMULAIRE: readonly CleGeste[] = ["REPARTIR", "CHIFFRER", "DECIDER", "MONTANT", "BUDGET", "DEMANDER_BC", "VISER_BC"];
+
+function PosteCarte({ item, regard, budgetOptions, promoOptions, materiel, busy, run, parentLink }: {
+  item: ItemRow;
+  regard: RegardPoste;
+  budgetOptions: { id: string; label: string }[];
+  promoOptions: { id: string; reference: string; title: string; status: string }[];
+  materiel: ContexteMaterielStock;
+  busy: string | null;
+  run: Run;
+  parentLink: string;
+}) {
+  const [panneau, setPanneau] = React.useState<Panneau | null>(null);
+  const [menu, setMenu] = React.useState(false);
+  const [pieces, setPieces] = React.useState(false);
+  const menuRef = React.useRef<HTMLDivElement>(null);
+
+  // Le menu se ferme au clic ailleurs : un menu qui reste ouvert recouvre la carte d'en dessous.
+  React.useEffect(() => {
+    if (!menu) return;
+    const fermer = (e: MouseEvent) => { if (!menuRef.current?.contains(e.target as Node)) setMenu(false); };
+    document.addEventListener("mousedown", fermer);
+    return () => document.removeEventListener("mousedown", fermer);
+  }, [menu]);
+
+  const stock = estPosteStock(item);
+  const editer = regard.canEdit && !regard.fige;
+  const arbitrer = regard.canAllocate && !regard.fige;
+  const faits = faitsDuPoste(item);
+  const pas = prochainPas(faits, regard);
+  const etapes = etapesDuPoste(faits);
+
+  const fdOf = (extra: Record<string, string> = {}) => {
+    const fd = new FormData();
+    fd.set("id", item.id);
+    for (const [k, v] of Object.entries(extra)) if (v) fd.set(k, v);
+    return fd;
+  };
+  const fermer = () => setPanneau(null);
+
+  /** Le geste principal — un formulaire qui s'ouvre, ou une action qui part. */
+  const agir = (cle: CleGeste) => {
+    if (GESTES_A_FORMULAIRE.includes(cle)) {
+      setPanneau(panneau === cle ? null : (cle === "CHIFFRER" ? "MODIFIER" : cle));
+      return;
+    }
+    if (cle === "SOUMETTRE") void run(`submit:${item.id}`, () => submitAdProItem(undefined, fdOf()), "Poste soumis à la Direction.");
+    if (cle === "EMETTRE_BC") void run(`emit:${item.id}`, () => emitItemExpenseOrder(undefined, fdOf()), "Bon de commande émis (ordre de dépense créé).");
+    if (cle === "EMETTRE_DIRECT") void run(`emit:${item.id}`, () => emitItemExpenseOrder(undefined, fdOf()), "Ordre de dépense émis.");
+  };
+
+  // ── LE MENU « ⋯ » — ce qui ne crie pas, mais reste là. Chaque entrée n'apparaît que si
+  //    l'action l'acceptera : un geste offert puis refusé est une fausse promesse (§118.83).
+  const emitSansBC = canEmitOrder(item, regard.operationDecidee);
+  const removable = canRemoveItem(
+    { expenseOrderId: item.expenseOrderId, expenseOrderStatus: item.expenseOrder?.status ?? null },
+    { canAllocate: arbitrer },
+  );
+  const entrees: { cle: string; libelle: string; icone: React.ReactNode; faire: () => void; danger?: boolean }[] = [];
+  if (editer) entrees.push({ cle: "modifier", libelle: "Modifier le poste", icone: <Pencil className="h-3.5 w-3.5" />, faire: () => setPanneau("MODIFIER") });
+  if (arbitrer && !stock && !item.expenseOrderId && pas.geste?.cle !== "MONTANT") {
+    entrees.push({ cle: "montant", libelle: "Affecter un montant", icone: <Wallet className="h-3.5 w-3.5" />, faire: () => setPanneau("MONTANT") });
+  }
+  if (arbitrer && !stock && item.status === "APPROVED" && item.orderStage !== "ISSUED" && item.budgetCategoryId && pas.geste?.cle !== "BUDGET") {
+    entrees.push({ cle: "budget", libelle: "Changer le budget", icone: <Wallet className="h-3.5 w-3.5" />, faire: () => setPanneau("BUDGET") });
+  }
+  // ÉMETTRE SANS BON DE COMMANDE : une aide versée sur convention, un poste d'avant le circuit —
+  // `emitItemExpenseOrder` l'accepte de la Direction sur un poste accordé sans BC. Ce n'est pas le
+  // chemin ordinaire (le BC l'est) : il vit dans le menu, pas en bouton principal.
+  if (regard.canAllocate && !stock && emitSansBC.ok && item.orderStage === "NONE" && !VERSEMENT_SANS_BC.includes(item.kind)) {
+    entrees.push({
+      cle: "emettre", libelle: "Émettre l'ordre de dépense sans BC", icone: <Receipt className="h-3.5 w-3.5" />,
+      faire: () => {
+        if (!window.confirm("Émettre l'ordre de dépense de ce poste SANS bon de commande ? Le paiement passera par le centre de paiement.")) return;
+        void run(`emit:${item.id}`, () => emitItemExpenseOrder(undefined, fdOf()), "Ordre de dépense émis.");
+      },
+    });
+  }
+  if (item.decisions.length > 0) {
+    entrees.push({ cle: "historique", libelle: `Historique (${item.decisions.length})`, icone: <History className="h-3.5 w-3.5" />, faire: () => setPanneau("HISTORIQUE") });
+  }
+  // RETIRER — libre tant qu'aucun ordre n'est parti aux Finances ; réservé à la Direction ensuite,
+  // avec annulation de l'ordre (et jamais si déjà réglé). Un poste dont le matériel est dehors, ou
+  // a été remis, ne se retire pas : l'action le refuserait (`faitDeStock`).
+  if (editer && removable.ok && !item.lignesStock.some((l) => faitDeStock(l) != null)) {
+    entrees.push({
+      cle: "retirer", libelle: "Retirer le poste", icone: <Trash2 className="h-3.5 w-3.5" />, danger: true,
+      faire: () => {
+        const question = item.expenseOrderId
+          ? `Retirer ce poste annulera l'ordre de dépense ${item.expenseOrder?.reference ?? ""} transmis aux Finances. Continuer ?`
+          : `Retirer le poste « ${item.label} » ?`;
+        if (!window.confirm(question)) return;
+        void run(`del:${item.id}`, () => deleteAdProItem(undefined, fdOf()), "Poste retiré.");
+      },
+    });
+  }
+
+  const enCours = busy !== null && (busy === RAFRAICHISSEMENT || busy.endsWith(`:${item.id}`));
+  const nbPieces = item.documentCount + item.demandes.length;
+
+  return (
+    <li className="space-y-2.5 rounded-xl border border-border bg-card p-3">
+      {/* 1. CE QU'IL EST */}
+      <div className="flex flex-wrap items-start gap-2">
+        {/* La nature en pastille — sauf quand le libellé la REDIT mot pour mot (une nature répartie
+            sans précision) : deux fois le même mot sur une ligne, c'est du bruit qu'on apprend à sauter. */}
+        {item.label.trim().toLocaleLowerCase("fr") !== ITEM_KIND_LABELS[item.kind].toLocaleLowerCase("fr") && (
+          <Badge tone={item.kind === "PROMO_MATERIAL" ? "purple" : "neutral"} dot={false}>{ITEM_KIND_LABELS[item.kind]}</Badge>
+        )}
+        <span className="min-w-0 flex-1 font-medium">{item.label}</span>
+        <Badge tone={ITEM_STATUS_LABELS[item.status].tone} dot={false}>{ITEM_STATUS_LABELS[item.status].label}</Badge>
+        {item.budgetKind === "ADDITIONAL" && <Badge tone="warning" dot={false}>budget supplémentaire</Badge>}
+        {item.addedAfterDecision && <Badge tone="warning" dot={false}>ajouté après décision</Badge>}
+        {entrees.length > 0 && (
+          <div ref={menuRef} className="relative">
+            <button
+              type="button" onClick={() => setMenu((v) => !v)} aria-haspopup="menu" aria-expanded={menu} disabled={busy === RAFRAICHISSEMENT}
+              aria-label={`Autres actions — ${item.label}`}
+              className="rounded-lg border border-border p-1 text-muted-foreground hover:bg-secondary"
+            >
+              <MoreHorizontal className="h-4 w-4" />
+            </button>
+            {menu && (
+              <div role="menu" className="absolute right-0 z-20 mt-1 w-60 rounded-lg border border-border bg-popover p-1 text-sm shadow-lg">
+                {entrees.map((e) => (
+                  <button
+                    key={e.cle} type="button" role="menuitem"
+                    onClick={() => { setMenu(false); e.faire(); }}
+                    className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left hover:bg-secondary ${e.danger ? "text-destructive" : ""}`}
+                  >
+                    {e.icone} {e.libelle}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* 2. CE QU'IL COÛTE — une ligne. */}
+      {!stock && (
+        <p className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-muted-foreground">
+          <span>Estimé : <span className="tabular-nums text-foreground">{item.amountEstimated != null ? formatCurrency(item.amountEstimated) : "—"}</span></span>
+          <span>Accordé : <span className="tabular-nums font-medium text-foreground">{item.amountGranted != null ? formatCurrency(item.amountGranted) : "—"}</span></span>
+          {item.supplier && <span>Payé à <strong className="text-foreground">{item.supplier}</strong></span>}
+          {item.budgetCategoryLabel && <span>Budget : <strong className="text-foreground">{item.budgetCategoryLabel}</strong></span>}
+          {item.expenseOrder && <span className="inline-flex items-center gap-1"><Receipt className="h-3.5 w-3.5" /> {item.expenseOrder.reference} · {item.expenseOrder.status}</span>}
+        </p>
+      )}
+      {item.notes && <p className="text-xs text-muted-foreground">{item.notes}</p>}
+
+      {/* 3. OÙ IL EN EST — la frise. */}
+      {etapes.length > 0 && <Frise etapes={etapes} />}
+
+      {/* LE MATÉRIEL DU STOCK a son propre bloc : lister, puis confirmer après l'événement. */}
+      {stock && (
+        <BlocMaterielStock
+          itemId={item.id}
+          lignes={item.lignesStock}
+          magasin={materiel.magasin}
+          editable={editer && POSTE_STOCK_EDITABLE.includes(item.status)}
+          peutConfirmer={materiel.peutConfirmer}
+          busy={busy}
+          run={run}
+        />
+      )}
+
+      {/* Le matériel promotionnel : on RENVOIE vers son circuit, on ne le recopie pas. */}
+      {item.kind === "PROMO_MATERIAL" && (
+        <div className="rounded-lg border border-border px-2.5 py-2 text-xs">
+          {item.promoMaterial ? (
+            <div className="flex flex-wrap items-center gap-2">
+              <Link href={`/promo-material/${item.promoMaterialId}`} className="inline-flex items-center gap-1 font-medium text-primary hover:underline">
+                {item.promoMaterial.reference} <ExternalLink className="h-3 w-3" />
+              </Link>
+              <span className="min-w-0 flex-1 truncate text-muted-foreground">{item.promoMaterial.title}</span>
+              <Badge tone="info" dot={false}>{item.promoMaterial.status}</Badge>
+            </div>
+          ) : editer ? (
+            <div className="flex flex-wrap items-center gap-2">
+              <Link2 className="h-3.5 w-3.5 text-muted-foreground" />
+              <select
+                defaultValue=""
+                onChange={(e) => {
+                  if (!e.target.value) return;
+                  void run(`link:${item.id}`, () => linkPromoMaterial(undefined, fdOf({ promoMaterialId: e.target.value })), "Matériel rattaché.");
+                }}
+                aria-label="Rattacher un matériel promotionnel existant"
+                className="min-w-0 flex-1 rounded-lg border border-border bg-background px-2 py-1 text-xs outline-none focus:border-primary/60"
+              >
+                <option value="">Rattacher un matériel promotionnel existant…</option>
+                {promoOptions.map((p) => <option key={p.id} value={p.id}>{p.reference} — {p.title}</option>)}
+              </select>
+              <Link href="/promo-material" className="whitespace-nowrap text-primary hover:underline">ou en créer un</Link>
+            </div>
+          ) : (
+            <span className="text-muted-foreground">Aucun matériel rattaché.</span>
+          )}
+          <p className="mt-1 text-[0.6875rem] text-muted-foreground">
+            Le matériel suit <strong>son propre circuit</strong> (visa publicitaire, conformité, agence, BAT) : cette opération en montre l&apos;avancement.
+          </p>
+        </div>
+      )}
+
+      {/* La parole de la Direction quand elle renvoie le poste. */}
+      {item.decisionNote && (item.status === "REVISION" || item.status === "REJECTED") && (
+        <p className="rounded-lg bg-warning/10 px-2.5 py-1.5 text-xs text-foreground">
+          <strong>Direction :</strong> {item.decisionNote}
+        </p>
+      )}
+
+      {/* 4. LE PROCHAIN GESTE — un bouton, ou une phrase qui dit qui on attend. */}
+      {(pas.geste || pas.attente) && (
+        <div className="flex flex-wrap items-center gap-2">
+          {pas.geste ? (
+            <Button size="sm" onClick={() => agir(pas.geste!.cle)} disabled={enCours}>
+              {enCours ? <Loader2 className="h-4 w-4 animate-spin" /> : <IconeGeste cle={pas.geste.cle} />}
+              {pas.geste.libelle}
+            </Button>
+          ) : (
+            <p className="text-xs text-muted-foreground">{pas.attente}</p>
+          )}
+        </div>
+      )}
+
+      {/* Les petits formulaires qu'un geste ouvre — un seul à la fois. */}
+      {panneau === "MODIFIER" && editer && (
+        <EditItemForm
+          item={item}
+          busy={busy === `edit:${item.id}`}
+          onCancel={fermer}
+          onSave={(fd) => {
+            fd.set("id", item.id);
+            void run(`edit:${item.id}`, () => updateAdProItem(undefined, fd), "Poste modifié.").then(fermer);
+          }}
+        />
+      )}
+      {panneau === "REPARTIR" && editer && (
+        <FormulaireRepartition
+          origine={item.amountEstimated}
+          busy={busy === `rep:${item.id}`}
+          onCancel={fermer}
+          onSubmit={(fd) => {
+            fd.set("id", item.id);
+            void run(`rep:${item.id}`, () => repartirPoste(undefined, fd), "Poste réparti.").then(fermer);
+          }}
+        />
+      )}
+      {panneau === "DECIDER" && arbitrer && item.status === "PENDING" && (
+        <BoiteDecision item={item} busy={busy} run={run} fdOf={fdOf} onCancel={fermer} />
+      )}
+      {panneau === "MONTANT" && arbitrer && !item.expenseOrderId && (
+        <AllocateField itemId={item.id} current={item.amountGranted} busy={busy === `alloc:${item.id}`} onSave={(v) => {
+          void run(`alloc:${item.id}`, () => updateAdProItem(undefined, fdOf({ amountGranted: v })), "Montant affecté.").then(fermer);
+        }} />
+      )}
+      {panneau === "BUDGET" && arbitrer && item.status === "APPROVED" && (
+        <div className="flex flex-wrap items-center gap-2 text-xs">
+          <Wallet className="h-3.5 w-3.5 text-muted-foreground" />
+          <select
+            value={item.budgetCategoryId ?? ""}
+            onChange={(e) => void run(`budget:${item.id}`, () => setAdProItemBudget(undefined, fdOf({ budgetCategoryId: e.target.value })), "Budget choisi.").then(fermer)}
+            aria-label="Budget imputé à ce poste"
+            className="min-w-0 flex-1 rounded-lg border border-border bg-background px-2 py-1 text-xs outline-none focus:border-primary/60"
+          >
+            <option value="">Choisir le budget (enveloppe › catégorie)…</option>
+            {budgetOptions.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
+          </select>
+          {busy === `budget:${item.id}` && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+        </div>
+      )}
+      {panneau === "DEMANDER_BC" && regard.canEdit && item.status === "APPROVED" && (
+        <DemandeBC busy={busy === `po:${item.id}`} onCancel={fermer} onSend={(message) =>
+          void run(`po:${item.id}`, () => requestAdProItemOrder(undefined, fdOf({ note: message })), "Émission du bon de commande demandée.").then(fermer)
+        } />
+      )}
+      {panneau === "VISER_BC" && regard.canViserBC && item.orderStage === "REQUESTED" && (
+        <VisaBC busy={busy === `poa:${item.id}`} onCancel={fermer} onDecide={(decision, note) =>
+          void run(`poa:${item.id}`, () => approveAdProItemOrder(undefined, fdOf({ decision, note })),
+            decision === "APPROVE" ? "Bon de commande validé — transmis aux Finances." : "Bon de commande refusé.").then(fermer)
+        } />
+      )}
+      {panneau === "HISTORIQUE" && item.decisions.length > 0 && (
+        <ul className="space-y-1 rounded-lg bg-secondary/40 p-2 text-[0.6875rem]">
+          {item.decisions.map((d, i) => (
+            <li key={i} className="flex flex-wrap gap-x-2 text-muted-foreground">
+              <span className="font-medium text-foreground">{ITEM_STATUS_LABELS[d.decision].label}</span>
+              {d.amount != null && <span className="tabular-nums">{formatCurrency(d.amount)}</span>}
+              <span>{formatDate(d.at)}</span>
+              {d.by && <span>· {d.by}</span>}
+              {d.note && <span className="w-full italic">« {d.note} »</span>}
+            </li>
+          ))}
+          <li><button type="button" onClick={fermer} className="text-muted-foreground hover:text-foreground">Masquer</button></li>
+        </ul>
+      )}
+
+      {/* LES DEUX PAROLES DU BON DE COMMANDE, côte à côte. Elles vivaient dans le même champ, donc
+          chaque visa effaçait le message du demandeur — et rien ne les affichait, ce qui rendait la
+          perte indétectable (§118.45). */}
+      {item.status === "APPROVED" && item.orderNote && (
+        <p className="rounded-lg bg-secondary/40 px-2.5 py-1.5 text-xs text-foreground">
+          <strong>Demande d&apos;émission :</strong> {item.orderNote}
+        </p>
+      )}
+      {item.status === "APPROVED" && item.orderDecisionNote && (
+        <p className="rounded-lg bg-warning/10 px-2.5 py-1.5 text-xs text-foreground">
+          {item.orderSansCentre
+            ? <><strong>{LIBELLE_BC_SOUS_LE_SEUIL} :</strong> {item.orderDecisionNote}</>
+            : <><strong>Centre de validation ({ITEM_ORDER_STAGE_LABELS[item.orderStage].label}) :</strong> {item.orderDecisionNote}</>}
+        </p>
+      )}
+
+      {/* LA BILLETTERIE : qui voyage, quand — et la réservation à l'assistante de direction. */}
+      {porteDesVoyageurs(item.kind) && (
+        <BlocVoyageurs
+          itemId={item.id}
+          voyageurs={item.voyageurs}
+          nomsSuggeres={item.nomsSuggeres}
+          reservation={item.reservation}
+          // Les voyageurs sont une précision d'EXÉCUTION : ils se tiennent à jour même sur une
+          // demande clôturée, comme le bon de commande.
+          peutEditer={regard.canEdit}
+          peutReserver={item.status !== "REJECTED"}
+          busy={busy}
+          run={run}
+        />
+      )}
+
+      {/* 5. PIÈCES ET DEMANDES — repliées : on les ouvre quand on en a besoin. */}
+      <div className="border-t border-border/70 pt-2">
+        <button
+          type="button" onClick={() => setPieces((v) => !v)} aria-expanded={pieces}
+          className="inline-flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground"
+        >
+          {pieces ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+          Pièces et demandes{nbPieces > 0 ? ` (${nbPieces})` : ""}
+        </button>
+        {pieces && (
+          <PiecesEtDemandes item={item} peutDemander={regard.canEdit} busy={busy} run={run} parentLink={parentLink} fdOf={fdOf} />
+        )}
+      </div>
+    </li>
+  );
+}
+
+function IconeGeste({ cle }: { cle: CleGeste }) {
+  switch (cle) {
+    case "REPARTIR": return <Split className="h-4 w-4" />;
+    case "CHIFFRER": return <Pencil className="h-4 w-4" />;
+    case "DECIDER": return <ThumbsUp className="h-4 w-4" />;
+    case "MONTANT": case "BUDGET": return <Wallet className="h-4 w-4" />;
+    case "VISER_BC": return <ThumbsUp className="h-4 w-4" />;
+    case "EMETTRE_BC": case "EMETTRE_DIRECT": return <Receipt className="h-4 w-4" />;
+    default: return <Send className="h-4 w-4" />;
+  }
+}
+
+/** La frise : ce qui est fait, ce qui se passe, ce qui vient — et un refus, là où il a eu lieu. */
+function Frise({ etapes }: { etapes: Etape[] }) {
+  return (
+    <ol className="flex flex-wrap items-center gap-x-1 gap-y-1 text-[0.6875rem]" aria-label="Étapes du poste">
+      {etapes.map((e, i) => {
+        const ton = e.etat === "FAIT" ? "text-success" : e.etat === "EN_COURS" ? "font-semibold text-primary" : e.etat === "REFUSE" ? "text-destructive" : "text-muted-foreground";
+        const icone = e.etat === "FAIT" ? <CheckCircle2 className="h-3 w-3" />
+          : e.etat === "REFUSE" ? <X className="h-3 w-3" />
+          : <Circle className={`h-3 w-3 ${e.etat === "EN_COURS" ? "fill-current" : ""}`} />;
+        const etat = e.etat === "FAIT" ? "fait" : e.etat === "EN_COURS" ? "en cours" : e.etat === "REFUSE" ? "refusé" : "à venir";
+        return (
+          <li key={e.cle} className="flex items-center gap-1">
+            {i > 0 && <span aria-hidden className="text-border">—</span>}
+            <span className={`inline-flex items-center gap-1 ${ton}`} aria-label={`${e.libelle} : ${etat}`}>{icone} {e.libelle}</span>
+          </li>
+        );
+      })}
+    </ol>
+  );
+}
+
+/** La Direction tranche : accorder / revoir / refuser — autant de fois qu'il le faut. */
+function BoiteDecision({ item, busy, run, fdOf, onCancel }: {
+  item: ItemRow; busy: string | null; run: Run; fdOf: (extra?: Record<string, string>) => FormData; onCancel: () => void;
+}) {
+  const [note, setNote] = React.useState("");
+  const stock = estPosteStock(item);
+  const occupe = busy === `dec:${item.id}`;
+  return (
+    <div className="space-y-2 rounded-lg border border-border bg-background p-2.5">
+      <input
+        value={note} onChange={(e) => setNote(e.target.value)}
+        placeholder="Motif / consigne (obligatoire pour un refus ou une révision)"
+        aria-label="Motif de la décision sur le poste"
+        className="w-full rounded-lg border border-border bg-background px-2.5 py-1.5 text-xs outline-none focus:border-primary/60"
+      />
+      <div className="flex flex-wrap gap-2">
+        <Button
+          size="sm" disabled={occupe}
+          title={stock ? "Accorder réserve le matériel au magasin : il en sort, et personne ne peut plus le doter ailleurs." : undefined}
+          onClick={() => void run(`dec:${item.id}`, () => decideAdProItem(undefined, fdOf({ decision: "APPROVED", note })), stock ? "Poste accordé — le matériel est réservé au magasin." : "Poste accordé.")}
+        >
+          <ThumbsUp className="h-4 w-4" /> {stock ? "Accorder et réserver" : "Accorder"}
+        </Button>
+        <Button
+          size="sm" variant="outline" disabled={occupe || !note.trim()}
+          title={!note.trim() ? "Indiquez ce qu'il faut revoir" : undefined}
+          onClick={() => void run(`dec:${item.id}`, () => decideAdProItem(undefined, fdOf({ decision: "REVISION", note })), stock ? "Liste à revoir — le demandeur est prévenu." : "Budget à revoir — le demandeur est prévenu.")}
+        >
+          <RotateCcw className="h-4 w-4" /> {stock ? "Revoir la liste" : "Revoir le budget"}
+        </Button>
+        <Button
+          size="sm" variant="outline" className="text-destructive" disabled={occupe || !note.trim()}
+          title={!note.trim() ? "Indiquez le motif du refus" : undefined}
+          onClick={() => void run(`dec:${item.id}`, () => decideAdProItem(undefined, fdOf({ decision: "REJECTED", note })), "Poste refusé.")}
+        >
+          <ThumbsDown className="h-4 w-4" /> Refuser
+        </Button>
+        <Button size="sm" variant="ghost" onClick={onCancel}>Annuler</Button>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * LE MESSAGE QUI PART AVEC LA DEMANDE D'ÉMISSION — « on écrit un message avec les différents
+ * contenus, les références ». C'est ce que l'assistante de direction lit pour ÉTABLIR le bon de
+ * commande : sans lui, elle doit rappeler le demandeur.
+ */
+function DemandeBC({ busy, onSend, onCancel }: { busy: boolean; onSend: (message: string) => void; onCancel: () => void }) {
+  const [message, setMessage] = React.useState("");
+  return (
+    <div className="space-y-1.5 rounded-lg border border-border bg-background p-2 text-xs">
+      <textarea
+        value={message} onChange={(e) => setMessage(e.target.value)} rows={3}
+        placeholder="Contenu du bon de commande, références, coordonnées du fournisseur — ce que l'assistante doit y porter."
+        aria-label="Message de la demande d'émission du bon de commande"
+        className="w-full rounded-lg border border-border bg-background px-2.5 py-1.5 text-xs outline-none focus:border-primary/60"
+      />
+      <div className="flex flex-wrap gap-2">
+        <Button size="sm" disabled={busy} onClick={() => onSend(message)}>
+          {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />} Envoyer la demande
+        </Button>
+        <Button size="sm" variant="ghost" onClick={onCancel}>Annuler</Button>
+      </div>
+    </div>
+  );
+}
+
+/** Le centre de validation Ad & Pro vise le bon de commande — un refus porte son motif. */
+function VisaBC({ busy, onDecide, onCancel }: { busy: boolean; onDecide: (decision: "APPROVE" | "REFUSE", note: string) => void; onCancel: () => void }) {
+  const [note, setNote] = React.useState("");
+  return (
+    <div className="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-background p-2">
+      <Button size="sm" disabled={busy} onClick={() => onDecide("APPROVE", note)}>
+        <ThumbsUp className="h-4 w-4" /> Valider le BC
+      </Button>
+      <Button
+        size="sm" variant="outline" className="text-destructive" disabled={busy || !note.trim()}
+        title={note.trim() ? undefined : "Indiquez le motif du refus dans le champ ci-dessous."}
+        onClick={() => onDecide("REFUSE", note)}
+      >
+        <ThumbsDown className="h-4 w-4" /> Refuser
+      </Button>
+      <input
+        value={note} onChange={(e) => setNote(e.target.value)}
+        placeholder="Motif (obligatoire pour refuser)"
+        aria-label="Motif de la décision sur le bon de commande"
+        className="min-w-0 flex-1 rounded-lg border border-border bg-background px-2 py-1 text-xs outline-none focus:border-primary/60"
+      />
+      <Button size="sm" variant="ghost" onClick={onCancel}>Annuler</Button>
+    </div>
+  );
+}
+
+/**
+ * PIÈCES ET DEMANDES D'UN POSTE — repliées par défaut.
+ *
+ * Le devis et la facture sont la MÊME démarche (une demande au bureau du secrétariat, avec son
+ * message) : deux boutons écrits à la main auraient divergé sur ce message, qui est précisément ce
+ * que le circuit doit transporter. Les pièces jointes vivent SUR le poste et pas sur l'opération :
+ * la facture du traiteur et celle de l'agence sont deux pièces de deux postes.
+ */
+function PiecesEtDemandes({ item, peutDemander, busy, run, parentLink, fdOf }: {
+  item: ItemRow; peutDemander: boolean; busy: string | null; run: Run; parentLink: string; fdOf: (extra?: Record<string, string>) => FormData;
+}) {
+  const [redige, setRedige] = React.useState<NaturePieceSecretariat | null>(null);
+  const [message, setMessage] = React.useState("");
+  const naturesOuvertes = item.demandes.filter((d) => d.status !== "DONE" && d.status !== "CANCELLED").map((d) => d.nature);
+  return (
+    <div className="mt-2 space-y-2 text-xs">
+      {item.demandes.length > 0 && (
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+          <FileText className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+          {item.demandes.map((d) => (
+            <Link
+              key={d.id} href={`/demandes/${d.id}`}
+              className="inline-flex items-center gap-1 rounded-lg border border-border bg-background px-2 py-0.5 font-medium text-primary hover:bg-secondary"
+            >
+              {PIECE_SECRETARIAT[d.nature].libelle} {d.reference} <ExternalLink className="h-3 w-3" />
+            </Link>
+          ))}
+          <span className="text-muted-foreground">— joignez-y les pièces reçues.</span>
+        </div>
+      )}
+      {/* Le matériel du stock ne s'achète pas : ni devis ni facture (§118.167). */}
+      {peutDemander && !estPosteStock(item) && (
+        <div className="flex flex-wrap items-center gap-2">
+          {NATURES_PIECE_SECRETARIAT.map((nature) => {
+            const garde = peutDemanderPiece(nature, { ouvertes: naturesOuvertes, bcDemande: item.orderStage !== "NONE" });
+            // Une demande que l'enchaînement refuse n'est pas offerte : la raison se lit sur
+            // l'étape (la facture vient après le BC), pas sous un bouton grisé.
+            if (!garde.ok) return null;
+            return (
+              <button
+                key={nature} type="button"
+                onClick={() => { setRedige(redige === nature ? null : nature); setMessage(""); }}
+                className="inline-flex items-center gap-1 rounded-lg border border-border bg-background px-2 py-1 font-medium hover:bg-secondary"
+              >
+                <FileText className="h-3.5 w-3.5" /> {PIECE_SECRETARIAT[nature].bouton}
+              </button>
+            );
+          })}
+        </div>
+      )}
+      {/* Le message part AVEC la demande : le demander après coup obligerait l'assistante à
+          revenir vers le demandeur pour savoir ce qu'elle doit établir. */}
+      {peutDemander && redige && (
+        <div className="space-y-1.5 rounded-lg border border-border bg-background p-2">
+          <textarea
+            value={message} onChange={(e) => setMessage(e.target.value)} rows={3}
+            placeholder={PIECE_SECRETARIAT[redige].aide}
+            aria-label={`Message de la demande de ${PIECE_SECRETARIAT[redige].libelle.toLowerCase()}`}
+            className="w-full rounded-lg border border-border bg-background px-2.5 py-1.5 text-xs outline-none focus:border-primary/60"
+          />
+          <div className="flex flex-wrap gap-2">
+            <Button
+              size="sm" disabled={busy === `piece:${item.id}`}
+              onClick={() => void run(
+                `piece:${item.id}`,
+                () => demanderPieceSecretariat(undefined, fdOf({ nature: redige, note: message })),
+                `Demande de ${PIECE_SECRETARIAT[redige].libelle.toLowerCase()} ouverte au secrétariat.`,
+              ).then(() => { setRedige(null); setMessage(""); })}
+            >
+              {busy === `piece:${item.id}` ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+              Envoyer au secrétariat
+            </Button>
+            <Button size="sm" variant="ghost" onClick={() => { setRedige(null); setMessage(""); }}>Annuler</Button>
+          </div>
+        </div>
+      )}
+      {/* LES PIÈCES DU POSTE — « on peut mettre une PJ ou plusieurs à chaque poste ». */}
+      <div className="rounded-lg border border-border bg-background p-2">
+        <p className="mb-1 text-[0.6875rem] text-muted-foreground">Pièces du poste{item.documentCount > 0 ? ` (${item.documentCount})` : ""}</p>
+        <DocumentUpload entityType="AD_PRO_ITEM" entityId={item.id} categories={[...AD_PRO_DOC_CATEGORIES]} compact />
+      </div>
+      {/* Réclamer à quelqu'un une pièce ou une validation : le devis passe par le secrétariat ;
+          tout le reste — une attestation, un contrat signé — est chez quelqu'un d'autre. */}
+      {peutDemander && (
+        <ItemAskPanel
+          entityType="AD_PRO_ITEM"
+          entityId={item.id}
+          link={parentLink}
+          subject={`${ITEM_KIND_LABELS[item.kind]} : ${item.label}`}
+        />
+      )}
+    </div>
+  );
+}
+
 /** Saisie du montant affecté, validée à la sortie du champ — pas de bouton par ligne. */
 function AllocateField({ itemId, current, busy, onSave }: { itemId: string; current: number | null; busy: boolean; onSave: (v: string) => void }) {
   const [value, setValue] = React.useState(current != null ? String(current) : "");
   React.useEffect(() => { setValue(current != null ? String(current) : ""); }, [current]);
 
   return (
-    <label className="flex items-center gap-1.5 text-muted-foreground">
-      Affecté :
+    <label className="flex items-center gap-1.5 text-sm text-muted-foreground">
+      Montant accordé :
       <input
         type="number" min="0" step="1000" value={value}
         onChange={(e) => setValue(e.target.value)}
@@ -512,13 +957,93 @@ function AllocateField({ itemId, current, busy, onSave }: { itemId: string; curr
   );
 }
 
+// ─────────────────────────────── Répartir un sponsoring indirect ───────────────────────────────
+
+interface LigneSaisie { kind: string; montant: string; precision: string; payeA: string }
+const ligneVide = (): LigneSaisie => ({ kind: "", montant: "", precision: "", payeA: "" });
+
+/**
+ * LES NATURES D'UN SPONSORING INDIRECT — une ligne par nature, le total sous les yeux (§118.175).
+ * Le formulaire envoie un JSON (`repartition`) : des clés `ligne-3-montant` rendraient l'action
+ * illisible à la dérivation des contrats (§118.73).
+ */
+function EditeurRepartition({ origine }: { origine?: number | null }) {
+  const [lignes, setLignes] = React.useState<LigneSaisie[]>([ligneVide(), ligneVide()]);
+  const total = lignes.reduce((s, l) => {
+    const n = Number(l.montant.replace(/\s/g, "").replace(",", "."));
+    return s + (Number.isFinite(n) && n > 0 ? n : 0);
+  }, 0);
+  const maj = (i: number, champ: keyof LigneSaisie, v: string) => setLignes((ls) => ls.map((l, j) => (j === i ? { ...l, [champ]: v } : l)));
+  const champ = "w-full rounded-lg border border-border bg-background px-2 py-1.5 text-sm outline-none focus:border-primary/60";
+  return (
+    <div className="space-y-2">
+      <input type="hidden" name="repartition" value={JSON.stringify(lignes)} />
+      <p className="text-xs text-muted-foreground">
+        Donnez la ou les natures et leur montant — par exemple <strong>imprimerie 400 000</strong> et <strong>hôtellerie 600 000</strong>.
+        Chaque nature devient un poste, qui se valide, se commande et se paie à part.
+      </p>
+      {lignes.map((l, i) => (
+        <div key={i} className="grid grid-cols-1 gap-2 rounded-lg border border-border p-2 sm:grid-cols-[1.2fr_0.8fr_1fr_1fr_auto]">
+          <select value={l.kind} onChange={(e) => maj(i, "kind", e.target.value)} aria-label={`Prise en charge ${i + 1}`} className={champ}>
+            <option value="">— Prise en charge —</option>
+            {NATURES_REPARTITION.map((k) => <option key={k} value={k}>{ITEM_KIND_LABELS[k]}</option>)}
+          </select>
+          <input value={l.montant} onChange={(e) => maj(i, "montant", e.target.value)} inputMode="decimal" placeholder="Montant DZD" aria-label={`Montant ${i + 1}`} className={`${champ} tabular-nums`} />
+          <input value={l.precision} onChange={(e) => maj(i, "precision", e.target.value)} placeholder="Précision (facultatif)" aria-label={`Précision ${i + 1}`} className={champ} />
+          <input value={l.payeA} onChange={(e) => maj(i, "payeA", e.target.value)} placeholder="Fournisseur (facultatif)" aria-label={`Fournisseur ${i + 1}`} className={champ} />
+          <button
+            type="button" disabled={lignes.length <= 1}
+            onClick={() => setLignes((ls) => ls.filter((_, j) => j !== i))}
+            aria-label={`Retirer la ligne ${i + 1}`}
+            className="rounded p-1.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive disabled:opacity-40"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+      ))}
+      <div className="flex flex-wrap items-center gap-3 text-sm">
+        <button type="button" onClick={() => setLignes((ls) => [...ls, ligneVide()])} className="inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline">
+          <Plus className="h-3.5 w-3.5" /> Ajouter une nature
+        </button>
+        <span className="ml-auto text-muted-foreground">
+          Total : <strong className="tabular-nums text-foreground">{formatCurrency(total)}</strong>
+          {origine != null && Math.round(origine) !== Math.round(total) && total > 0 && (
+            <> — le poste portait <span className="tabular-nums">{formatCurrency(origine)}</span></>
+          )}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+function FormulaireRepartition({ origine, busy, onSubmit, onCancel }: {
+  origine: number | null; busy: boolean; onSubmit: (fd: FormData) => void; onCancel: () => void;
+}) {
+  return (
+    <form onSubmit={(e) => { e.preventDefault(); onSubmit(new FormData(e.currentTarget)); }} className="space-y-2 rounded-xl border border-primary/30 bg-primary/5 p-3">
+      <EditeurRepartition origine={origine} />
+      <div className="flex gap-2">
+        <Button size="sm" type="submit" disabled={busy}>
+          {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Split className="h-4 w-4" />} Répartir
+        </Button>
+        <Button size="sm" type="button" variant="outline" onClick={onCancel}>Annuler</Button>
+      </div>
+    </form>
+  );
+}
+
+// ─────────────────────────────── Ajouter / modifier ───────────────────────────────
+
 function AddItemForm({ parent, parentId, decided, busy, onCancel, onSubmit }: {
   parent: AdProParent; parentId: string; decided: boolean; busy: boolean; onCancel: () => void; onSubmit: (fd: FormData) => void;
 }) {
   // « MATÉRIEL DU STOCK » n'a ni fournisseur, ni montant, ni nature de budget (§118.167) : ces
   // champs disparaissent quand on la choisit — les envoyer quand même ferait refuser l'ajout.
+  // « SPONSORING INDIRECT » se donne en NATURES (§118.175) : le montant unique cède la place à la
+  // répartition, qui crée un poste par nature.
   const [nature, setNature] = React.useState<AdProItemKind>("STAND");
   const stock = nature === NATURE_MATERIEL_STOCK;
+  const indirect = nature === "INDIRECT_SUPPORT";
   return (
     <form
       onSubmit={(e) => { e.preventDefault(); onSubmit(new FormData(e.currentTarget)); }}
@@ -538,9 +1063,13 @@ function AddItemForm({ parent, parentId, decided, busy, onCancel, onSubmit }: {
         </label>
         <label className="text-xs">
           Libellé
-          <input name="label" required placeholder={stock ? "Matériel du stand — congrès SAHO" : "Stand 12 m² — hall B"} className="mt-1 w-full rounded-lg border border-border bg-background px-2.5 py-2 text-sm outline-none focus:border-primary/60" />
+          <input
+            name="label" required
+            placeholder={stock ? "Matériel du stand — congrès SAHO" : indirect ? "Sponsoring indirect — congrès SAHO" : "Stand 12 m² — hall B"}
+            className="mt-1 w-full rounded-lg border border-border bg-background px-2.5 py-2 text-sm outline-none focus:border-primary/60"
+          />
         </label>
-        {!stock && (
+        {!stock && !indirect && (
           <>
             <label className="text-xs">
               Payé à
@@ -554,6 +1083,8 @@ function AddItemForm({ parent, parentId, decided, busy, onCancel, onSubmit }: {
         )}
       </div>
 
+      {indirect && <EditeurRepartition />}
+
       {stock && (
         <p className="rounded-lg bg-secondary/40 px-2.5 py-1.5 text-xs text-muted-foreground">
           Vous listerez ensuite les articles du magasin et leurs quantités. Rien n&apos;en sort avant l&apos;accord du poste ;
@@ -563,17 +1094,17 @@ function AddItemForm({ parent, parentId, decided, busy, onCancel, onSubmit }: {
 
       {/* LA question à poser au moment de l'ajout : cet argent est-il déjà accordé, ou en plus ? */}
       {!stock && (
-      <fieldset className="rounded-lg border border-border p-2.5">
-        <legend className="px-1 text-xs text-muted-foreground">Ce poste est-il déjà couvert par le budget accordé ?</legend>
-        <div className="flex flex-wrap gap-3 text-sm">
-          <label className="inline-flex items-center gap-1.5">
-            <input type="radio" name="budgetKind" value="INCLUDED" defaultChecked /> Inclus dans le budget accordé
-          </label>
-          <label className="inline-flex items-center gap-1.5">
-            <input type="radio" name="budgetKind" value="ADDITIONAL" /> Budget supplémentaire (rallonge)
-          </label>
-        </div>
-      </fieldset>
+        <fieldset className="rounded-lg border border-border p-2.5">
+          <legend className="px-1 text-xs text-muted-foreground">Ce poste est-il déjà couvert par le budget accordé ?</legend>
+          <div className="flex flex-wrap gap-3 text-sm">
+            <label className="inline-flex items-center gap-1.5">
+              <input type="radio" name="budgetKind" value="INCLUDED" defaultChecked /> Inclus dans le budget accordé
+            </label>
+            <label className="inline-flex items-center gap-1.5">
+              <input type="radio" name="budgetKind" value="ADDITIONAL" /> Budget supplémentaire (rallonge)
+            </label>
+          </div>
+        </fieldset>
       )}
       <label className="block text-xs">
         Précisions
@@ -602,73 +1133,48 @@ function AddItemForm({ parent, parentId, decided, busy, onCancel, onSubmit }: {
 /**
  * MODIFIER UN POSTE — ce qui le DÉCRIT, pas ce qui l'engage.
  *
- * Le panneau ne savait rien corriger : une fois le poste créé, un fournisseur mal orthographié,
- * une estimation dépassée ou un libellé approximatif restaient là pour toujours. C'était
- * d'autant plus gênant que ces champs ne portent aucun engagement financier — seul le montant
- * AFFECTÉ a été transmis aux Finances, et lui seul se verrouille avec l'ordre de dépense.
- *
- * La nature de budget (inclus / rallonge) reste modifiable tant que la Direction n'a pas
- * tranché : après, c'est sur quoi elle s'est prononcée.
+ * Ces champs ne portent aucun engagement financier — seul le montant AFFECTÉ a été transmis aux
+ * Finances, et lui seul se verrouille avec l'ordre de dépense. La nature de budget (inclus /
+ * rallonge) reste modifiable tant que la Direction n'a pas tranché : après, c'est sur quoi elle
+ * s'est prononcée.
  */
 function EditItemForm({ item, busy, onCancel, onSave }: {
   item: ItemRow; busy: boolean; onCancel: () => void; onSave: (fd: FormData) => void;
 }) {
   const budgetLocked = budgetKindLocked(item);
+  const champ = "mt-1 w-full rounded-lg border border-border bg-background px-2.5 py-2 text-sm outline-none focus:border-primary/60";
   // UN POSTE « MATÉRIEL DU STOCK » ne se décrit que par son libellé et ses précisions : ni montant,
   // ni fournisseur, ni nature de budget — et sa nature ne change plus hors d'un brouillon vierge
   // (`refusChangementNature`). Son matériel se compose dans son propre bloc.
   if (estPosteStock(item)) {
     return (
-      <form
-        onSubmit={(e) => { e.preventDefault(); onSave(new FormData(e.currentTarget)); }}
-        className="space-y-2 rounded-xl border border-primary/30 bg-primary/5 p-3"
-      >
-        <label className="block text-xs">
-          Libellé
-          <input name="label" required defaultValue={item.label} className="mt-1 w-full rounded-lg border border-border bg-background px-2.5 py-2 text-sm outline-none focus:border-primary/60" />
-        </label>
-        <label className="block text-xs">
-          Précisions
-          <input name="notes" defaultValue={item.notes ?? ""} placeholder="Facultatif" className="mt-1 w-full rounded-lg border border-border bg-background px-2.5 py-2 text-sm outline-none focus:border-primary/60" />
-        </label>
+      <form onSubmit={(e) => { e.preventDefault(); onSave(new FormData(e.currentTarget)); }} className="space-y-2 rounded-xl border border-primary/30 bg-primary/5 p-3">
+        <label className="block text-xs">Libellé<input name="label" required defaultValue={item.label} className={champ} /></label>
+        <label className="block text-xs">Précisions<input name="notes" defaultValue={item.notes ?? ""} placeholder="Facultatif" className={champ} /></label>
         <div className="flex gap-2">
-          <Button size="sm" type="submit" disabled={busy}>
-            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />} Enregistrer
-          </Button>
+          <Button size="sm" type="submit" disabled={busy}>{busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />} Enregistrer</Button>
           <Button size="sm" type="button" variant="outline" onClick={onCancel}>Annuler</Button>
         </div>
       </form>
     );
   }
   return (
-    <form
-      onSubmit={(e) => { e.preventDefault(); onSave(new FormData(e.currentTarget)); }}
-      className="space-y-2 rounded-xl border border-primary/30 bg-primary/5 p-3"
-    >
+    <form onSubmit={(e) => { e.preventDefault(); onSave(new FormData(e.currentTarget)); }} className="space-y-2 rounded-xl border border-primary/30 bg-primary/5 p-3">
       <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
         <label className="text-xs">
           Nature
-          <select name="kind" defaultValue={item.kind} className="mt-1 w-full rounded-lg border border-border bg-background px-2.5 py-2 text-sm outline-none focus:border-primary/60">
+          <select name="kind" defaultValue={item.kind} className={champ}>
             {ITEM_KINDS.map((k) => <option key={k} value={k}>{ITEM_KIND_LABELS[k]}</option>)}
           </select>
         </label>
-        <label className="text-xs">
-          Libellé
-          <input name="label" required defaultValue={item.label} className="mt-1 w-full rounded-lg border border-border bg-background px-2.5 py-2 text-sm outline-none focus:border-primary/60" />
-        </label>
-        <label className="text-xs">
-          Payé à
-          <input name="supplier" defaultValue={item.supplier ?? ""} placeholder="Organisateur, agence, association…" className="mt-1 w-full rounded-lg border border-border bg-background px-2.5 py-2 text-sm outline-none focus:border-primary/60" />
-        </label>
+        <label className="text-xs">Libellé<input name="label" required defaultValue={item.label} className={champ} /></label>
+        <label className="text-xs">Payé à<input name="supplier" defaultValue={item.supplier ?? ""} placeholder="Organisateur, agence, association…" className={champ} /></label>
         <label className="text-xs">
           Montant estimé (DZD)
-          <input name="amountEstimated" type="number" min="0" step="1000" defaultValue={item.amountEstimated ?? ""} className="mt-1 w-full rounded-lg border border-border bg-background px-2.5 py-2 text-sm tabular-nums outline-none focus:border-primary/60" />
+          <input name="amountEstimated" type="number" min="0" step="1000" defaultValue={item.amountEstimated ?? ""} className={`${champ} tabular-nums`} />
         </label>
       </div>
-      <label className="block text-xs">
-        Précisions
-        <input name="notes" defaultValue={item.notes ?? ""} placeholder="Facultatif" className="mt-1 w-full rounded-lg border border-border bg-background px-2.5 py-2 text-sm outline-none focus:border-primary/60" />
-      </label>
+      <label className="block text-xs">Précisions<input name="notes" defaultValue={item.notes ?? ""} placeholder="Facultatif" className={champ} /></label>
 
       {budgetLocked ? (
         <p className="text-[0.6875rem] text-muted-foreground">
@@ -692,15 +1198,12 @@ function EditItemForm({ item, busy, onCancel, onSave }: {
       {item.expenseOrderId && (
         <p className="flex items-start gap-1.5 text-[0.6875rem] text-muted-foreground">
           <AlertTriangle className="mt-px h-3 w-3 shrink-0 text-warning" />
-          Un ordre de dépense a été émis : le <strong>montant affecté</strong> ne change plus. Le reste
-          se corrige librement.
+          Un ordre de dépense a été émis : le <strong>montant affecté</strong> ne change plus. Le reste se corrige librement.
         </p>
       )}
 
       <div className="flex gap-2">
-        <Button size="sm" type="submit" disabled={busy}>
-          {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />} Enregistrer
-        </Button>
+        <Button size="sm" type="submit" disabled={busy}>{busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />} Enregistrer</Button>
         <Button size="sm" type="button" variant="outline" onClick={onCancel}>Annuler</Button>
       </div>
     </form>
@@ -714,375 +1217,6 @@ function Figure({ label, value, hint, tone }: { label: string; value: string; hi
       <p className="text-xs text-muted-foreground">{label}</p>
       <p className={`mt-0.5 text-base font-semibold tabular-nums ${cls}`}>{value}</p>
       {hint && <p className="text-[0.6875rem] text-muted-foreground">{hint}</p>}
-    </div>
-  );
-}
-
-/**
- * LE CYCLE D'UN POSTE, sur une seule ligne de vie : devis → validation par la Direction →
- * choix du budget → bon de commande (demande, visa, émission).
- *
- * Chaque étape n'apparaît QUE lorsqu'elle a un sens : on ne propose pas de choisir un budget
- * avant l'accord, ni de demander un bon de commande sans budget. Un écran qui affiche des
- * boutons inertes fait perdre plus de temps qu'il n'en fait gagner.
- */
-function ItemLifecycle({ item, canEdit, canAllocate, fige, canViserBC, canIssueOrder, budgetOptions, busy, run, parentLink }: {
-  item: ItemRow;
-  canEdit: boolean;
-  canAllocate: boolean;
-  /** Demande clôturée : soumettre, décider et réimputer ne se proposent plus (§118.151). */
-  fige: boolean;
-  canViserBC: boolean;
-  canIssueOrder: boolean;
-  budgetOptions: { id: string; label: string }[];
-  busy: string | null;
-  run: (key: string, fn: () => Promise<{ ok: boolean; error?: string }>, okText: string) => Promise<void>;
-  /** Retour vers l'opération porteuse — celui qui dépose une pièce n'a pas forcément accès ici. */
-  parentLink: string;
-}) {
-  const [note, setNote] = React.useState("");
-  // Le motif d'une décision sur le BON DE COMMANDE — distinct de celui de la décision sur le poste,
-  // pour qu'un brouillon de l'une ne parte pas avec l'autre.
-  const [noteBC, setNoteBC] = React.useState("");
-  const [showHistory, setShowHistory] = React.useState(false);
-  const [deciding, setDeciding] = React.useState(false);
-  // LE MESSAGE D'UNE DEMANDE DE PIÈCE — « on écrit un message avec les différents contenus, les
-  // références ». Il est porté par la nature en cours de rédaction : deux champs séparés
-  // laisseraient un brouillon de devis partir dans une demande de facture.
-  const [redige, setRedige] = React.useState<NaturePieceSecretariat | "BC" | null>(null);
-  const [message, setMessage] = React.useState("");
-  const [piecesOuvertes, setPiecesOuvertes] = React.useState(false);
-  const naturesOuvertes = item.demandes
-    .filter((d) => d.status !== "DONE" && d.status !== "CANCELLED")
-    .map((d) => d.nature);
-
-  const stock = estPosteStock(item);
-  const submit = canSubmitItem({
-    status: item.status, amountEstimated: item.amountEstimated, amountGranted: item.amountGranted,
-    kind: item.kind, lignesStock: item.lignesStock.length,
-  });
-  const order = canRequestPurchaseOrder({
-    status: item.status, amountGranted: item.amountGranted,
-    budgetCategoryId: item.budgetCategoryId, orderStage: item.orderStage,
-  });
-  const fdOf = (extra: Record<string, string> = {}) => {
-    const fd = new FormData();
-    fd.set("id", item.id);
-    for (const [k, v] of Object.entries(extra)) if (v) fd.set(k, v);
-    return fd;
-  };
-
-  return (
-    <div className="space-y-2 rounded-lg border border-border/70 bg-secondary/20 p-2.5">
-      {/* ── Demander une pièce au secrétariat : devis, puis facture après le bon de commande ──
-          Le devis et la facture sont la MÊME démarche (une demande au bureau du secrétariat,
-          avec son message) : deux boutons écrits à la main auraient divergé sur ce message,
-          qui est précisément ce que le circuit doit transporter. */}
-      <div className="space-y-1.5 text-xs">
-        {item.demandes.length > 0 && (
-          <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-            <FileText className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-            {item.demandes.map((d) => (
-              <Link
-                key={d.id} href={`/demandes/${d.id}`}
-                className="inline-flex items-center gap-1 rounded-lg border border-border bg-background px-2 py-0.5 font-medium text-primary hover:bg-secondary"
-              >
-                {PIECE_SECRETARIAT[d.nature].libelle} {d.reference} <ExternalLink className="h-3 w-3" />
-              </Link>
-            ))}
-            <span className="text-muted-foreground">— joignez-y les pièces reçues.</span>
-          </div>
-        )}
-        {canEdit && !stock && (
-          <div className="flex flex-wrap items-center gap-2">
-            {NATURES_PIECE_SECRETARIAT.map((nature) => {
-              const garde = peutDemanderPiece(nature, { ouvertes: naturesOuvertes, bcDemande: item.orderStage !== "NONE" });
-              return (
-                <button
-                  key={nature} type="button"
-                  disabled={!garde.ok || busy === `piece:${item.id}`}
-                  title={garde.ok ? undefined : garde.raison}
-                  onClick={() => { setRedige(redige === nature ? null : nature); setMessage(""); }}
-                  className="inline-flex items-center gap-1 rounded-lg border border-border bg-background px-2 py-1 font-medium hover:bg-secondary disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  <FileText className="h-3.5 w-3.5" />
-                  {PIECE_SECRETARIAT[nature].bouton}
-                </button>
-              );
-            })}
-          </div>
-        )}
-        {/* Le message part AVEC la demande : le demander après coup obligerait l'assistante à
-            revenir vers le demandeur pour savoir ce qu'elle doit établir. */}
-        {canEdit && redige && redige !== "BC" && (
-          <div className="space-y-1.5 rounded-lg border border-border bg-background p-2">
-            <textarea
-              value={message} onChange={(e) => setMessage(e.target.value)} rows={3}
-              placeholder={PIECE_SECRETARIAT[redige].aide}
-              className="w-full rounded-lg border border-border bg-background px-2.5 py-1.5 text-xs outline-none focus:border-primary/60"
-            />
-            <div className="flex flex-wrap gap-2">
-              <Button
-                size="sm" disabled={busy === `piece:${item.id}`}
-                onClick={() => void run(
-                  `piece:${item.id}`,
-                  () => demanderPieceSecretariat(undefined, fdOf({ nature: redige, note: message })),
-                  `Demande de ${PIECE_SECRETARIAT[redige].libelle.toLowerCase()} ouverte au secrétariat.`,
-                ).then(() => { setRedige(null); setMessage(""); })}
-              >
-                {busy === `piece:${item.id}` ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-                Envoyer au secrétariat
-              </Button>
-              <Button size="sm" variant="ghost" onClick={() => { setRedige(null); setMessage(""); }}>Annuler</Button>
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* ── LES PIÈCES DU POSTE — « on peut mettre une PJ ou plusieurs à chaque poste ».
-          Elles vivent SUR le poste et pas sur l'opération : la facture du traiteur et celle de
-          l'agence sont deux pièces de deux postes, et les poser au même endroit oblige à
-          rouvrir chacune pour savoir laquelle justifie quoi. */}
-      <div className="space-y-1.5 text-xs">
-        <button
-          type="button" onClick={() => setPiecesOuvertes((v) => !v)}
-          className="inline-flex items-center gap-1 font-medium text-muted-foreground hover:text-foreground"
-        >
-          <Receipt className="h-3.5 w-3.5" />
-          Pièces du poste{item.documentCount > 0 ? ` (${item.documentCount})` : ""}
-        </button>
-        {piecesOuvertes && (
-          <div className="rounded-lg border border-border bg-background p-2">
-            <DocumentUpload entityType="AD_PRO_ITEM" entityId={item.id} categories={[...AD_PRO_DOC_CATEGORIES]} compact />
-          </div>
-        )}
-      </div>
-
-      {/* ── Réclamer à quelqu'un : une pièce, ou une validation ──
-          Le devis passe par le secrétariat ; tout le reste — une facture, une attestation, un
-          contrat signé — est chez quelqu'un d'autre, et n'a aucune raison de transiter par lui. */}
-      {canEdit && (
-        <ItemAskPanel
-          entityType="AD_PRO_ITEM"
-          entityId={item.id}
-          link={parentLink}
-          subject={`${ITEM_KIND_LABELS[item.kind]} : ${item.label}`}
-        />
-      )}
-
-      {/* ── Validation du poste ── */}
-      {item.decisionNote && (item.status === "REVISION" || item.status === "REJECTED") && (
-        <p className="rounded-lg bg-warning/10 px-2.5 py-1.5 text-xs text-foreground">
-          <strong>Direction :</strong> {item.decisionNote}
-        </p>
-      )}
-
-      <div className="flex flex-wrap items-center gap-2">
-        {canEdit && !fige && (item.status === "DRAFT" || item.status === "REVISION" || item.status === "REJECTED") && (
-          <Button
-            size="sm" variant="outline" disabled={!submit.ok || busy === `submit:${item.id}`} title={submit.reason}
-            onClick={() => void run(`submit:${item.id}`, () => submitAdProItem(undefined, fdOf()), "Poste soumis à la Direction.")}
-          >
-            {busy === `submit:${item.id}` ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-            {item.status === "DRAFT" ? "Soumettre à la Direction" : "Resoumettre"}
-          </Button>
-        )}
-        {canEdit && !fige && !submit.ok && item.status !== "PENDING" && item.status !== "APPROVED" && (
-          <span className="text-[0.6875rem] text-muted-foreground">{submit.reason}</span>
-        )}
-
-        {/* La Direction tranche : accorder / revoir / refuser — autant de fois qu'il le faut. */}
-        {canAllocate && !fige && item.status === "PENDING" && (
-          deciding ? (
-            <div className="w-full space-y-2 rounded-lg border border-border bg-background p-2.5">
-              <input
-                value={note} onChange={(e) => setNote(e.target.value)}
-                placeholder="Motif / consigne (obligatoire pour un refus ou une révision)"
-                className="w-full rounded-lg border border-border bg-background px-2.5 py-1.5 text-xs outline-none focus:border-primary/60"
-              />
-              <div className="flex flex-wrap gap-2">
-                <Button
-                  size="sm" disabled={busy === `dec:${item.id}`}
-                  title={stock ? "Accorder réserve le matériel au magasin : il en sort, et personne ne peut plus le doter ailleurs." : undefined}
-                  onClick={() => void run(`dec:${item.id}`, () => decideAdProItem(undefined, fdOf({ decision: "APPROVED", note })), stock ? "Poste accordé — le matériel est réservé au magasin." : "Poste accordé.")}
-                >
-                  <ThumbsUp className="h-4 w-4" /> {stock ? "Accorder et réserver" : "Accorder"}
-                </Button>
-                <Button
-                  size="sm" variant="outline" disabled={busy === `dec:${item.id}` || !note.trim()}
-                  title={!note.trim() ? "Indiquez ce qu'il faut revoir" : undefined}
-                  onClick={() => void run(`dec:${item.id}`, () => decideAdProItem(undefined, fdOf({ decision: "REVISION", note })), stock ? "Liste à revoir — le demandeur est prévenu." : "Budget à revoir — le demandeur est prévenu.")}
-                >
-                  <RotateCcw className="h-4 w-4" /> {stock ? "Revoir la liste" : "Revoir le budget"}
-                </Button>
-                <Button
-                  size="sm" variant="outline" className="text-destructive" disabled={busy === `dec:${item.id}` || !note.trim()}
-                  title={!note.trim() ? "Indiquez le motif du refus" : undefined}
-                  onClick={() => void run(`dec:${item.id}`, () => decideAdProItem(undefined, fdOf({ decision: "REJECTED", note })), "Poste refusé.")}
-                >
-                  <ThumbsDown className="h-4 w-4" /> Refuser
-                </Button>
-                <Button size="sm" variant="ghost" onClick={() => setDeciding(false)}>Annuler</Button>
-              </div>
-            </div>
-          ) : (
-            <Button size="sm" onClick={() => setDeciding(true)}>
-              <ThumbsUp className="h-4 w-4" /> Décider de ce poste
-            </Button>
-          )
-        )}
-
-        {item.decisions.length > 0 && (
-          <button
-            type="button" onClick={() => setShowHistory((v) => !v)}
-            className="inline-flex items-center gap-1 text-[0.6875rem] text-muted-foreground hover:text-foreground"
-          >
-            <History className="h-3 w-3" /> {showHistory ? "Masquer" : `Historique (${item.decisions.length})`}
-          </button>
-        )}
-      </div>
-
-      {showHistory && item.decisions.length > 0 && (
-        <ul className="space-y-1 rounded-lg bg-background p-2 text-[0.6875rem]">
-          {item.decisions.map((d, i) => (
-            <li key={i} className="flex flex-wrap gap-x-2 text-muted-foreground">
-              <span className="font-medium text-foreground">{ITEM_STATUS_LABELS[d.decision].label}</span>
-              {d.amount != null && <span className="tabular-nums">{formatCurrency(d.amount)}</span>}
-              <span>{formatDate(d.at)}</span>
-              {d.by && <span>· {d.by}</span>}
-              {d.note && <span className="w-full italic">« {d.note} »</span>}
-            </li>
-          ))}
-        </ul>
-      )}
-
-      {/* ── Budget : « comme d'habitude », une fois le poste accordé — jamais sur du matériel
-          du stock, qui n'engage pas d'argent (§118.167). ── */}
-      {item.status === "APPROVED" && !stock && (
-        <div className="flex flex-wrap items-center gap-2 text-xs">
-          <Wallet className="h-3.5 w-3.5 text-muted-foreground" />
-          {canAllocate && !fige && item.orderStage !== "ISSUED" ? (
-            <select
-              value={item.budgetCategoryId ?? ""}
-              onChange={(e) => void run(`budget:${item.id}`, () => setAdProItemBudget(undefined, fdOf({ budgetCategoryId: e.target.value })), "Budget choisi.")}
-              aria-label="Budget imputé à ce poste"
-              className="min-w-0 flex-1 rounded-lg border border-border bg-background px-2 py-1 text-xs outline-none focus:border-primary/60"
-            >
-              <option value="">Choisir le budget (enveloppe › catégorie)…</option>
-              {budgetOptions.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
-            </select>
-          ) : (
-            <span className="text-muted-foreground">
-              Budget : <strong className="text-foreground">{item.budgetCategoryLabel ?? "non choisi"}</strong>
-            </span>
-          )}
-          {busy === `budget:${item.id}` && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-        </div>
-      )}
-
-      {/* ── Bon de commande : demande → centre de validation Ad & Pro → émission par les Finances ── */}
-      {item.status === "APPROVED" && !stock && (
-        <div className="flex flex-wrap items-center gap-2">
-          <Badge tone={ITEM_ORDER_STAGE_LABELS[item.orderStage].tone} dot={false}>
-            {item.orderSansCentre ? LIBELLE_BC_SOUS_LE_SEUIL : ITEM_ORDER_STAGE_LABELS[item.orderStage].label}
-          </Badge>
-
-          {canEdit && (item.orderStage === "NONE" || item.orderStage === "REFUSED") && (
-            <Button
-              size="sm" variant="outline" disabled={!order.ok || busy === `po:${item.id}`} title={order.reason}
-              onClick={() => { setRedige(redige === "BC" ? null : "BC"); setMessage(""); }}
-            >
-              <Send className="h-4 w-4" />
-              Demander l&apos;émission du BC
-            </Button>
-          )}
-          {canEdit && !order.ok && item.orderStage === "NONE" && (
-            <span className="text-[0.6875rem] text-muted-foreground">{order.reason}</span>
-          )}
-
-          {canViserBC && item.orderStage === "REQUESTED" && (
-            <>
-              <Button
-                size="sm" disabled={busy === `poa:${item.id}`}
-                onClick={() => void run(`poa:${item.id}`, () => approveAdProItemOrder(undefined, fdOf({ decision: "APPROVE", note: noteBC })), "Bon de commande validé — transmis aux Finances.")}
-              >
-                <ThumbsUp className="h-4 w-4" /> Valider le BC
-              </Button>
-              <Button
-                size="sm" variant="outline" className="text-destructive" disabled={busy === `poa:${item.id}` || !noteBC.trim()}
-                title={noteBC.trim() ? undefined : "Indiquez le motif du refus dans le champ ci-dessous."}
-                onClick={() => void run(`poa:${item.id}`, () => approveAdProItemOrder(undefined, fdOf({ decision: "REFUSE", note: noteBC })), "Bon de commande refusé.")}
-              >
-                <ThumbsDown className="h-4 w-4" /> Refuser
-              </Button>
-              <input
-                value={noteBC} onChange={(e) => setNoteBC(e.target.value)}
-                placeholder="Motif (obligatoire pour refuser)"
-                aria-label="Motif de la décision sur le bon de commande"
-                className="min-w-0 flex-1 rounded-lg border border-border bg-background px-2 py-1 text-xs outline-none focus:border-primary/60"
-              />
-            </>
-          )}
-          {!canViserBC && item.orderStage === "REQUESTED" && (
-            <span className="text-[0.6875rem] text-muted-foreground">
-              En attente du centre de validation Ad &amp; Pro (Direction Générale ou Super Admin).
-            </span>
-          )}
-
-          {canIssueOrder && item.orderStage === "DIRECTION_OK" && !item.expenseOrderId && (
-            <Button
-              size="sm" disabled={busy === `emit:${item.id}`}
-              onClick={() => void run(`emit:${item.id}`, () => emitItemExpenseOrder(undefined, fdOf()), "Bon de commande émis (ordre de dépense créé).")}
-            >
-              {busy === `emit:${item.id}` ? <Loader2 className="h-4 w-4 animate-spin" /> : <Receipt className="h-4 w-4" />}
-              Émettre (Finances)
-            </Button>
-          )}
-        </div>
-      )}
-
-      {/* LE MESSAGE QUI PART AVEC LA DEMANDE D'ÉMISSION — « on écrit un message avec les
-          différents contenus, les références ». C'est ce que l'assistante de direction lit pour
-          ÉTABLIR le bon de commande : sans lui, elle doit rappeler le demandeur. */}
-      {canEdit && redige === "BC" && item.status === "APPROVED" && (
-        <div className="space-y-1.5 rounded-lg border border-border bg-background p-2 text-xs">
-          <textarea
-            value={message} onChange={(e) => setMessage(e.target.value)} rows={3}
-            placeholder="Contenu du bon de commande, références, coordonnées du fournisseur — ce que l'assistante doit y porter."
-            className="w-full rounded-lg border border-border bg-background px-2.5 py-1.5 text-xs outline-none focus:border-primary/60"
-          />
-          <div className="flex flex-wrap gap-2">
-            <Button
-              size="sm" disabled={!order.ok || busy === `po:${item.id}`} title={order.reason}
-              onClick={() => void run(
-                `po:${item.id}`,
-                () => requestAdProItemOrder(undefined, fdOf({ note: message })),
-                "Émission du bon de commande demandée.",
-              ).then(() => { setRedige(null); setMessage(""); })}
-            >
-              {busy === `po:${item.id}` ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-              Envoyer la demande
-            </Button>
-            <Button size="sm" variant="ghost" onClick={() => { setRedige(null); setMessage(""); }}>Annuler</Button>
-          </div>
-        </div>
-      )}
-
-      {/* LES DEUX PAROLES, CÔTE À CÔTE. Elles vivaient dans le même champ, donc chaque visa
-          effaçait le message du demandeur — et rien ne les affichait, ce qui rendait la perte
-          indétectable (§118.45). */}
-      {item.status === "APPROVED" && item.orderNote && (
-        <p className="rounded-lg bg-secondary/40 px-2.5 py-1.5 text-xs text-foreground">
-          <strong>Demande d&apos;émission :</strong> {item.orderNote}
-        </p>
-      )}
-      {item.status === "APPROVED" && item.orderDecisionNote && (
-        <p className="rounded-lg bg-warning/10 px-2.5 py-1.5 text-xs text-foreground">
-          {item.orderSansCentre
-            ? <><strong>Sans centre de validation :</strong> {item.orderDecisionNote}</>
-            : <><strong>Centre de validation ({ITEM_ORDER_STAGE_LABELS[item.orderStage].label}) :</strong> {item.orderDecisionNote}</>}
-        </p>
-      )}
     </div>
   );
 }

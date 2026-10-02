@@ -26,7 +26,8 @@ import { contextePiecesLiees } from "@/lib/ad-pro/pieces-liees";
 import { LinkedRecords } from "@/components/shared/linked-records";
 import { canAttachToAdPro, attachHint } from "@/lib/ad-pro/attachments";
 import { AdProDiscussionCard } from "@/components/ad-pro/discussion-card";
-import { SuperAdminDeleteButton } from "@/components/shared/super-admin-delete";
+import { SupprimerDemandeAdPro } from "@/components/ad-pro/supprimer-demande";
+import { peutSupprimerUneDemandeAdPro } from "@/lib/queries/ad-pro-suppression";
 import { onlyofficeConfigured } from "@/lib/onlyoffice";
 import { PROMO_MATERIAL_STATUS } from "@/lib/labels";
 import {
@@ -288,7 +289,7 @@ export default async function PromoMaterialDetailPage({ params }: { params: { id
         {canEditPromoRequest && promoEditValues && (
           <AdProEditButton kind="PROMO_MATERIAL" id={pm.id} decided={promoDecided} values={promoEditValues} />
         )}
-        <SuperAdminDeleteButton kind="PROMO_MATERIAL" id={pm.id} name={pm.title} enabled={user.role === "SUPER_ADMIN"} />
+        <SupprimerDemandeAdPro kind="PROMO_MATERIAL" id={pm.id} name={pm.title} enabled={await peutSupprimerUneDemandeAdPro(user, "PROMO_MATERIAL", pm.id)} />
       </PageHeader>
 
       {/* LE CIRCUIT — ce que chacun voit ici dépend de qui il est : la chaîne entière pour PDG /

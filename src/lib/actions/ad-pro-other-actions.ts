@@ -10,7 +10,7 @@ import { recordAudit } from "@/lib/audit";
 import { notifyRoles, notifyUser } from "@/lib/notify";
 import { buildRef, createWithRetry } from "@/lib/refs";
 import { companyIdForNew } from "@/lib/company";
-import { readMultiField } from "@/lib/ad-pro/pickers";
+import { readMultiField, lireMedecinsDemande } from "@/lib/ad-pro/pickers";
 import { fdStr, fdNum, type ActionResult } from "@/lib/actions/types";
 
 const PATH = "/ad-pro/autres";
@@ -61,7 +61,7 @@ export async function createAdProOtherRequest(_prev: ActionResult | undefined, f
     // PRATICIEN ET PRODUIT concernés, FACULTATIFS par définition de la nature : « autre » ne sait
     // pas d'avance de quoi il s'agit. Sans ces champs, ils repartaient dans la description.
     const couple = {
-      medecins: readMultiField(formData.getAll("doctorIds").map(String), fdStr(formData, "doctor")),
+      medecins: lireMedecinsDemande(formData.getAll("doctorIds").map(String), fdStr(formData, "doctorHorsAnnuaire"), fdStr(formData, "doctor")),
       produits: readMultiField(formData.getAll("productIds").map(String), fdStr(formData, "product")),
     };
 

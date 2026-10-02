@@ -77,7 +77,16 @@ export type FieldDef =
    * (`temoins-cases.test.ts`) dans chaque module d'actions qu'importe le formulaire qui le déclare.
    */
   | { type: "checkbox"; name: string; label: string; full?: boolean; defaultChecked?: boolean; hint?: string; temoin?: boolean }
-  | { type: "multiselect"; name: string; label: string; options: { value: string; label: string }[]; required?: boolean; hint?: string; full?: boolean; defaultValue?: string[]; searchPlaceholder?: string; emptyLabel?: string }
+  | {
+      type: "multiselect"; name: string; label: string; options: { value: string; label: string }[]; required?: boolean; hint?: string; full?: boolean; defaultValue?: string[]; searchPlaceholder?: string; emptyLabel?: string;
+      /**
+       * CE QUI N'EST PAS DANS LA LISTE (§118.175) — une case « non présent » qui ouvre une saisie
+       * libre, envoyée sous `name`. Les noms saisis S'AJOUTENT aux cases cochées côté serveur, et
+       * le champ obligatoire est satisfait par l'un OU l'autre : un médecin hors annuaire ne doit
+       * pas bloquer la demande.
+       */
+      horsListe?: { name: string; label: string; placeholder?: string; defaultValue?: string };
+    }
   | { type: "file"; name: string; label: string; multiple?: boolean; required?: boolean; hint?: string; defaultValue?: string | number; full?: boolean; /** Formats proposés par le sélecteur (`.pdf,.png`…) — le serveur revérifie TOUJOURS. */ accept?: string }
   // L'EXPLORATEUR DU DRIVE, ouvert par-dessus le formulaire : on désigne un dossier ou un
   // fichier qui existe déjà plutôt que d'en téléverser une copie. Le champ ne transporte qu'un
@@ -207,11 +216,18 @@ export function MultiSelectField({ field }: {
    * évite l'aller-retour, il ne le remplace pas.
    */
   const temoin = React.useRef<HTMLInputElement>(null);
+  // « NON PRÉSENT » : la saisie libre compte comme un choix — le témoin ne réclame une case que
+  // si la saisie est vide aussi.
+  const [horsOuvert, setHorsOuvert] = React.useState(() => Boolean(field.horsListe?.defaultValue?.trim()));
+  const [horsTexte, setHorsTexte] = React.useState(field.horsListe?.defaultValue ?? "");
+  const horsRempli = Boolean(field.horsListe) && horsOuvert && horsTexte.trim().length > 0;
   React.useEffect(() => {
     temoin.current?.setCustomValidity(
-      field.required && picked.length === 0 ? `Sélectionnez au moins une entrée pour « ${field.label} ».` : "",
+      field.required && picked.length === 0 && !horsRempli
+        ? `Sélectionnez au moins une entrée pour « ${field.label} »${field.horsListe ? ` (ou cochez « ${field.horsListe.label} »)` : ""}.`
+        : "",
     );
-  }, [field.required, field.label, picked.length]);
+  }, [field.required, field.label, field.horsListe, picked.length, horsRempli]);
 
   const q = query.trim().toLowerCase();
   const visible = React.useMemo(
@@ -263,6 +279,22 @@ export function MultiSelectField({ field }: {
           </label>
         ))}
       </div>
+      {field.horsListe && (
+        <div className="mt-1.5 space-y-1">
+          <label className="inline-flex items-center gap-2 text-sm">
+            <input type="checkbox" checked={horsOuvert} onChange={(e) => setHorsOuvert(e.target.checked)} className="h-4 w-4 rounded border-input" />
+            {field.horsListe.label}
+          </label>
+          {horsOuvert && (
+            <textarea
+              name={field.horsListe.name} value={horsTexte} onChange={(e) => setHorsTexte(e.target.value)} rows={2}
+              placeholder={field.horsListe.placeholder ?? "Un nom par ligne"}
+              aria-label={field.horsListe.label}
+              className="w-full rounded-lg border border-input bg-background px-2.5 py-1.5 text-sm outline-none focus:border-primary/60"
+            />
+          )}
+        </div>
+      )}
       {field.hint && <p className="text-xs text-muted-foreground">{field.hint}</p>}
     </>
   );

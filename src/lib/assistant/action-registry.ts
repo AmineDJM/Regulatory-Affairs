@@ -1118,6 +1118,22 @@ X("LE MATÉRIEL DU STOCK D'UN POSTE AD & PRO (§118.167) — lister les articles
   + "Un clic sur la fiche de la demande, bloc « Matériel pris au magasin ».", [
   "ad-pro-item-actions:ajouterArticleStockAuPoste", "ad-pro-item-actions:confirmerMaterielStock",
 ]);
+X("LES POSTES D'UNE DEMANDE AD & PRO, SIMPLIFIÉS (§118.175) — RÉPARTIR un sponsoring indirect par nature (« 400 000 en "
+  + "imprimerie, 600 000 en hôtellerie ») et tenir les VOYAGEURS d'un poste de billetterie (nom, trajet, dates, passeport), "
+  + "puis en DEMANDER la réservation à l'assistante de direction, qui reçoit un sujet. Répartir est la décision du demandeur "
+  + "sur sa propre dépense ; un voyageur porte des données personnelles et une pièce d'identité qui se dépose en FICHIER ; "
+  + "la réservation engage le travail d'une personne. Adam est en pause de développement : aucun geste neuf ne lui est "
+  + "ouvert. Un clic sur la fiche de la demande, carte du poste (« Répartir par nature », bloc « Voyageurs »).", [
+  "ad-pro-item-actions:repartirPoste", "ad-pro-item-actions:ajouterVoyageur", "ad-pro-item-actions:modifierVoyageur",
+  "ad-pro-item-actions:retirerVoyageur", "ad-pro-item-actions:demanderReservation",
+]);
+X("SUPPRIMER UNE DEMANDE AD & PRO depuis sa fiche — la porte ouverte au directeur des opérations et à la directrice "
+  + "marketing (§118.175), à côté de celle du Super Admin. Adam n'est visible que du Super Admin (§118.153), qui supprime "
+  + "déjà par `delete_record` ; offrir cette seconde porte à Adam ne servirait personne. Et le geste se fait devant son "
+  + "APERÇU — ce qui part avec la demande, ce qui perd son lien (§118.53, §118.162). Un clic sur la fiche, « Supprimer la "
+  + "demande ».", [
+  "admin-delete-actions:supprimerDemandeAdPro",
+]);
 X("LES COMPTAGES, ALERTES ET REFONTES DU STOCK PROMOTIONNEL (§118.168). SAISIR un comptage est une ATTESTATION — « j'en ai "
   + "40 en main » — que seul celui qui détient le matériel donne : chaque écart devient une correction au registre portée à "
   + "son nom. Un modèle ne voit ni le carton ni la voiture ; un compte rendu lu par une étape peut écrire « tout y est », et le "

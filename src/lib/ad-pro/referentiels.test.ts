@@ -272,6 +272,45 @@ describe("le couple médecins + produits sur les natures Ad & Pro", () => {
     expect(lecteurs, "les cinq fichiers d'action du pôle qui lisent le couple").toBe(5);
   });
 
+  it("LE MÉDECIN HORS ANNUAIRE : chaque lecture des médecins cochés lit AUSSI la saisie « non présent »", () => {
+    /*
+     * §118.175 — « si le médecin n'est pas présent dans l'annuaire, on coche « non présent » et on
+     * l'écrit manuellement ». Le formulaire envoie ces noms sous `doctorHorsAnnuaire` ; une action
+     * qui lirait `doctorIds` sans eux les JETTERAIT — le formulaire accepterait la saisie, la
+     * demande partirait, et le praticien disparaîtrait sans un mot.
+     *
+     * Ce qui le ferait tomber : une lecture `readMultiField(formData.getAll("doctorIds"), …)`
+     * laissée telle quelle, ou une septième lecture qui oublierait la saisie. La règle est donc
+     * vérifiée LECTURE PAR LECTURE, pas fichier par fichier : un fichier qui lit la saisie une
+     * fois pourrait l'oublier à sa lecture suivante (`event-actions.ts` en a trois).
+     */
+    let lectures = 0;
+    for (const chemin of ACTIONS_DU_POLE) {
+      const src = lireSource(chemin);
+      const cle = `getAll("${CHAMPS_MEDECINS.coches}")`;
+      for (let i = src.indexOf(cle); i >= 0; i = src.indexOf(cle, i + 1)) {
+        lectures += 1;
+        const avant = src.slice(Math.max(0, i - 60), i);
+        const apres = src.slice(i, i + 160);
+        expect(avant.includes("lireMedecinsDemande("), `${chemin} : « ${CHAMPS_MEDECINS.coches} » lu hors de lireMedecinsDemande`).toBe(true);
+        expect(apres.includes(`"${CHAMPS_MEDECINS.horsAnnuaire}"`), `${chemin} : la saisie « ${CHAMPS_MEDECINS.horsAnnuaire} » n'est pas lue avec les médecins cochés`).toBe(true);
+      }
+    }
+    // LA PRÉMISSE — un plancher, pas un compte : sponsoring (1), événement (3 : la garde des
+    // champs manquants, la création, la modification), consulting (1), « autre » (1). Sans elle,
+    // une boucle vide rendrait le cas vrai pour la mauvaise raison (§118.117).
+    expect(lectures, "lectures des médecins cochés dans les actions du pôle").toBeGreaterThanOrEqual(6);
+
+    // ET LE CHAMP EST OFFERT là où les médecins se cochent : par le constructeur partagé (sponsoring,
+    // consulting, « autre ») et par le formulaire écrit à la main de l'événement. Une action qui
+    // lit un champ que personne n'envoie ne protège de rien (§118.50).
+    const medecins = champMedecins({ doctors: MEDECINS, obligatoire: true });
+    expect(medecins.type === "multiselect" && medecins.horsListe?.name, "champMedecins : aucune saisie « non présent »")
+      .toBe(CHAMPS_MEDECINS.horsAnnuaire);
+    expect(lireSource("src/app/(app)/events/event-form.tsx").includes("name: CHAMPS_MEDECINS.horsAnnuaire"), "formulaire de l'événement")
+      .toBe(true);
+  });
+
   it("la lecture d'un couple : la liste cochée l'emporte, le repli passe seul", () => {
     // `readMultiField` est le SEUL joint du dépôt : deux découpes à la main finiraient par
     // diverger sur le séparateur.

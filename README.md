@@ -496,6 +496,51 @@ Création : demandé par le médecin + suggéré par le délégué + NATURE (dir
 > un circuit qu'un Super Admin a remodelé garde son comportement, et la migration ne touche que l'étape encore à
 > sa graine d'origine. Les demandes déjà APPROUVÉES restent approuvées, à leur montant.
 
+
+#### Les postes d'une demande — un geste à la fois (2026-10)
+
+« Ici c'est trop complexe : plus simple, plus séparé, plus lisible, moins de boutons » (Direction, 01/10). Chaque
+carte de poste dit **ce qu'il est**, **ce qu'il coûte** (estimé, accordé, payé à, budget), **où il en est** (la
+frise chiffré → Direction → budget → bon de commande → paiement) et **un seul geste** — celui de la personne qui
+regarde — ou ce qu'on attend et de qui (`ad-pro/poste-etapes.ts`, pur). Les gestes secondaires (modifier, affecter
+un montant, changer le budget, émettre sans BC, historique, retirer) vivent dans le menu « ⋯ », et les pièces et
+demandes au secrétariat dans un dépliant « Pièces et demandes ».
+
+- **Sponsoring indirect, réparti par nature.** « 1 000 000 DZD = 400 000 d'imprimerie + 600 000 d'hôtellerie » :
+  « Répartir par nature » fait de chaque nature un poste (imprimerie, hôtellerie, billetterie, transport, traiteur,
+  dîner, salle, stand, symposium, prestation…) qui se valide, se commande et se paie à part. La première nature
+  garde l'identifiant du poste d'origine (ses pièces, ses demandes, son historique) ; les natures sœurs sont
+  regroupées à l'écran (« Sponsoring indirect · total · n natures »). Un indirect non réparti **ne se soumet pas et
+  ne s'accorde pas** ; il se refuse ou se renvoie en révision. Ajouter un sponsoring indirect le crée déjà réparti.
+- **Médecin absent de l'annuaire.** Sous le choix des médecins, la case « Médecin non présent dans l'annuaire »
+  ouvre une saisie libre (un nom par ligne) : les noms écrits **s'ajoutent** aux médecins cochés. Rien n'est créé
+  dans l'annuaire.
+- **Billetterie : les voyageurs.** Sur un poste « Prise en charge de la billetterie » : nom (suggéré parmi les
+  médecins de la demande), trajet, dates d'aller et de retour, précisions, passeport (pièce du poste). Un nom
+  suffit ; ce qui manque pour réserver est nommé sur la ligne. « Demander la réservation » ouvre un **sujet** pour
+  l'assistante de direction (responsable si elle est seule, toutes participantes sinon), visible en bas de la fiche
+  de la demande ; une seconde demande et tout changement de voyageur s'écrivent dans le même sujet. Un poste refusé
+  ne se réserve pas.
+- **Supprimer une demande Ad & Pro** (bouton « Supprimer la demande » sur la fiche, les sept natures) : le Super
+  Admin, le directeur des opérations, la directrice marketing (lue sur l'organigramme). Jamais l'auteur ; un
+  contrat de consulting passé aux RH, seul le Super Admin. La demande doit être visible de la personne. La fenêtre
+  montre ce qui part avec ; tout est réversible depuis la corbeille.
+- **Déposer un devis** (« Devis » dans les pièces liées) : seuls le **titre** et le **PDF** sont obligatoires — le
+  fournisseur est facultatif. Un engagement, un bon de commande ou une facture exigent toujours leur partie.
+- **On agit sur un poste d'une demande qu'on VOIT.** Chaque geste sur un poste (modifier, soumettre, décider,
+  répartir, voyageurs, réservation, matériel du stock…) lit la porte de la fiche de sa demande (`canAccessEntity`,
+  VIEW) en plus du droit du module : un délégué n'agit pas sur les postes du congrès d'un collègue (portée « ses
+  lignes »), même avec un identifiant ; hors de sa portée, le poste est « introuvable ». Sponsoring et événements
+  n'ont pas de portée de ligne : rien ne change pour eux.
+- **Deux dépôts à la même seconde** reçoivent deux références : la création d'un sponsoring, d'un sujet et d'une
+  demande de pièce recalcule sa référence sous collision (`createWithRetry`), comme le consulting, « autre demande »
+  et le matériel promotionnel le faisaient déjà.
+
+`src/components/ad-pro/items-panel.tsx` · `voyageurs-bloc.tsx` · `supprimer-demande.tsx` ·
+`src/lib/ad-pro/{poste-etapes,repartition,repartition-ecriture,voyageurs,suppression}.ts` ·
+`src/lib/queries/ad-pro-suppression.ts` · actions `repartirPoste`, `ajouterVoyageur`, `modifierVoyageur`,
+`retirerVoyageur`, `demanderReservation`, `supprimerDemandeAdPro` · migration `20261217090000_ad_pro_postes_simples`.
+
 #### Sept natures, une seule porte
 
 **Sept natures, une seule porte.** Sponsoring, prise en charge internationale, prise en charge
@@ -6492,6 +6537,39 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 ---
 
 ## 🧾 Journal des évolutions récentes
+
+### LES POSTES AD & PRO, PLUS SIMPLES — RÉPARTITION, BILLETTERIE, SUPPRESSION, DEVIS (2026-10)
+
+**Constat.** « Ici c'est trop complexe » (Direction, 01/10) : une carte de poste affichait jusqu'à neuf commandes,
+dont plusieurs désactivées avec leur raison collée à côté, et le geste qu'on y cherchait était noyé. Un sponsoring
+indirect restait UN poste qu'on ne pouvait payer qu'à un seul fournisseur ; un médecin absent de l'annuaire ne
+pouvait pas être nommé ; la billetterie n'avait ni voyageurs ni réservation ; seul le Super Admin supprimait une
+demande ; et un devis exigeait un fournisseur choisi dans l'annuaire.
+
+**Ce qui change.** (1) Chaque carte de poste montre ce qu'il est, ce qu'il coûte, où il en est (frise) et UN geste
+— celui de la personne qui regarde — ou ce qu'on attend et de qui ; le reste vit dans un menu « ⋯ ». (2) Le
+sponsoring indirect se **répartit par nature** (« 400 000 d'imprimerie + 600 000 d'hôtellerie ») : chaque nature
+devient un poste qui se valide, se commande et se paie à part ; non réparti, il ne se soumet ni ne s'accorde.
+Nouvelle nature « Imprimerie ». (3) À la création d'une demande, « Médecin non présent dans l'annuaire » ouvre une
+saisie libre dont les noms **s'ajoutent** aux médecins cochés. (4) Un poste de billetterie porte ses **voyageurs**
+(nom, trajet, dates, passeport — tout sauf le nom peut venir plus tard) et « Demander la réservation » ouvre un
+**sujet** pour l'assistante de direction, en bas de la fiche ; tout changement ensuite s'y écrit. (5) **Supprimer
+une demande Ad & Pro** est ouvert au directeur des opérations et à la directrice marketing (lue sur
+l'organigramme), en plus du Super Admin — réversible, devant l'aperçu de ce qui part avec. (6) Un **devis** ne
+demande que son titre et son PDF. Migration `20261217090000_ad_pro_postes_simples` (nature « Imprimerie », lien de
+répartition, voyageurs, sujet de réservation).
+
+**Trouvé en chemin, et réparé.** (a) Les gestes sur les postes ne vérifiaient que le droit du module : sur un
+congrès, un délégué pouvait agir sur les postes de la demande d'un collègue par un identifiant forgé (et, avec les
+gestes neufs, y inscrire des voyageurs ou ouvrir une réservation). Ils lisent désormais la porte de la fiche ; hors
+de portée, le poste est « introuvable ». (b) Deux sponsorings déposés à la même seconde faisaient échouer le second
+sur la contrainte d'unicité de sa référence ; idem pour un sujet et une demande de pièce d'un poste. Les trois
+recalculent leur référence sous collision, et un cliquet (`refs-filet.test.ts`) interdit à tout fichier neuf de
+numéroter sans filet — douze fichiers existants restent une dette nommée, qui ne peut que baisser.
+
+**Point d'attention.** Un sponsoring indirect DÉJÀ accordé avant ce lot continue sa route tel quel ; un indirect
+encore en brouillon doit être réparti avant d'être soumis. Le Directeur des Opérations (rôle à part) n'a pas les
+modules Ad & Pro par défaut : il ne supprime que ce qu'un accès personnalisé lui ouvre.
 
 ### LES NOTIFICATIONS SE LISENT SANS PARCOURIR TOUTE LA TABLE (2026-10)
 

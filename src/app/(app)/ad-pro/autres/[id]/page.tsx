@@ -6,7 +6,8 @@ import { prisma } from "@/lib/prisma";
 import { toNumber, formatCurrency, formatDate } from "@/lib/utils";
 import { onlyofficeConfigured } from "@/lib/onlyoffice";
 import { PageHeader } from "@/components/shared/page-header";
-import { SuperAdminDeleteButton } from "@/components/shared/super-admin-delete";
+import { SupprimerDemandeAdPro } from "@/components/ad-pro/supprimer-demande";
+import { peutSupprimerUneDemandeAdPro } from "@/lib/queries/ad-pro-suppression";
 import { BackLink } from "@/components/shared/back-link";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -69,7 +70,7 @@ export default async function AdProOtherDetailPage({ params }: { params: { id: s
       <PageHeader title={req.title} description={`Réf. ${req.reference}`}>
         <StatusBadge map={AD_PRO_OTHER_STATUS} value={req.status} />
         {/* Une nature du pôle qui n'avait AUCUNE suppression (§118.162). */}
-        <SuperAdminDeleteButton kind="AD_PRO_OTHER" id={req.id} name={`${req.reference} — ${req.title}`} enabled={user.role === "SUPER_ADMIN"} />
+        <SupprimerDemandeAdPro kind="AD_PRO_OTHER" id={req.id} name={`${req.reference} — ${req.title}`} enabled={await peutSupprimerUneDemandeAdPro(user, "AD_PRO_OTHER", req.id)} />
       </PageHeader>
 
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">

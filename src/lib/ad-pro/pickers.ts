@@ -189,8 +189,49 @@ export function readMultiField(picked: readonly string[], freeText: string | nul
  * (`ad-pro/referentiels.test.ts`) qui exige que les six emploient exactement ces noms — la
  * garde passe de « un seul lecteur » à « un seul NOM, vérifié chez chaque lecteur ».
  */
-export const CHAMPS_MEDECINS = { coches: "doctorIds", libre: "doctor" } as const;
+export const CHAMPS_MEDECINS = { coches: "doctorIds", libre: "doctor", horsAnnuaire: "doctorHorsAnnuaire" } as const;
 export const CHAMPS_PRODUITS = { coches: "productIds", libre: "product" } as const;
+
+/**
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ * LE MÉDECIN QUI N'EST PAS DANS L'ANNUAIRE (§118.175).
+ *
+ * « Dans la création d'un sponsoring, si le médecin n'est pas présent dans l'annuaire, on doit
+ * cocher « non présent » et l'écrire manuellement » (Direction, 01/10). Le choix multiple ne
+ * proposait que l'annuaire : un praticien invité par une association, jamais visité, ne pouvait
+ * pas être nommé — on l'écrivait dans la description, où rien ne le compte.
+ *
+ * Les noms saisis À LA MAIN s'AJOUTENT aux noms cochés — jamais l'un à la place de l'autre — et la
+ * réunion se fait ICI, une fois, sans doublon : `readMultiField` reste le seul joint du dépôt.
+ * Rien n'est créé dans l'annuaire : une fiche de praticien est un travail de la Promotion médicale,
+ * et la créer depuis une demande de sponsoring en ferait une porte d'écriture à côté de la sienne.
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ */
+
+/** Les noms saisis hors annuaire : un par ligne (le séparateur des colonnes « · » est accepté aussi). */
+export function nomsHorsAnnuaire(brut: string | null | undefined): string[] {
+  return (brut ?? "").split(/\r?\n|·|;/).map((t) => t.trim()).filter(Boolean);
+}
+
+/** Les médecins d'une demande : ceux de l'annuaire, PLUS ceux qui n'y sont pas — puis le repli libre. */
+export function lireMedecinsDemande(
+  coches: readonly string[], horsAnnuaire: string | null | undefined, libre: string | null | undefined,
+): string | null {
+  return readMultiField([...coches, ...nomsHorsAnnuaire(horsAnnuaire)], libre);
+}
+
+/**
+ * L'INVERSE, POUR ROUVRIR UNE DEMANDE — ce qui est dans l'annuaire se recoche, le reste revient
+ * dans la saisie « non présent ». Sans ce partage, un nom écrit à la main n'aurait aucune case où
+ * se recocher : il disparaîtrait au premier enregistrement, en silence (§118.152c).
+ */
+export function repartirMedecins(
+  stocke: string | null | undefined, options: readonly { value: string }[],
+): { coches: string[]; horsAnnuaire: string } {
+  const connus = new Set(options.map((o) => o.value));
+  const noms = splitMulti(stocke);
+  return { coches: noms.filter((n) => connus.has(n)), horsAnnuaire: noms.filter((n) => !connus.has(n)).join("\n") };
+}
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════

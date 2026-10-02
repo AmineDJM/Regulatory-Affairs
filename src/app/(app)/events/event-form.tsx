@@ -14,7 +14,7 @@ import { MultiSelectField } from "@/components/shared/create-record-button";
 import { ConfirmationSuppression } from "@/components/shared/super-admin-delete";
 import { wilayaOptions } from "@/lib/geo/algeria";
 import {
-  availableProductOptions, doctorOptions, specialtyOptions, splitMulti,
+  availableProductOptions, doctorOptions, specialtyOptions, splitMulti, repartirMedecins, CHAMPS_MEDECINS,
   type DoctorRow, type ProductRow, type SpecialtyRow,
 } from "@/lib/ad-pro/pickers";
 
@@ -80,6 +80,9 @@ function EventFields({ e, responsibles, referentiels = {} }: {
   referentiels?: EventReferentiels;
 }) {
   const medecins = doctorOptions(referentiels.doctors ?? []);
+  // ROUVRIR SANS PERDRE (§118.175) : un médecin écrit à la main n'a pas de case où se recocher —
+  // il revient dans la saisie « non présent », sinon le premier enregistrement l'effacerait.
+  const medecinsDejaNommes = repartirMedecins(e?.doctor ?? null, medecins);
   const produits = availableProductOptions(referentiels.products ?? []);
   const specialites = specialtyOptions(referentiels.specialties ?? [], referentiels.specialtiesHeritees ?? []);
   const wilayas = wilayaOptions();
@@ -165,7 +168,11 @@ function EventFields({ e, responsibles, referentiels = {} }: {
         {medecins.length > 0 ? (
           <MultiSelectField field={{
             type: "multiselect", name: "doctorIds", label: "Médecin(s) concerné(s)", required: true, full: true,
-            options: medecins, defaultValue: splitMulti(e?.doctor ?? null),
+            options: medecins, defaultValue: medecinsDejaNommes.coches,
+            horsListe: {
+              name: CHAMPS_MEDECINS.horsAnnuaire, label: "Médecin non présent dans l'annuaire",
+              placeholder: "Un nom par ligne — Dr …", defaultValue: medecinsDejaNommes.horsAnnuaire,
+            },
             searchPlaceholder: "Chercher un médecin de l'annuaire…",
             emptyLabel: "Aucun médecin dans l'annuaire.",
             hint: "Depuis l'annuaire des praticiens. Plusieurs choix possibles.",

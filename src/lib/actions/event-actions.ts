@@ -16,7 +16,7 @@ import { statutManuelOuRien, estStatutDuCircuit } from "@/lib/events/statut";
 import { adProInit, PRODUCT_MANAGER_ROLES } from "@/lib/workflow/origin";
 import { referentAInscrire } from "@/lib/ad-pro/referent-de-la-gamme";
 import { fdStr, fdNum, fdDate, type ActionResult } from "@/lib/actions/types";
-import { readMultiField } from "@/lib/ad-pro/pickers";
+import { readMultiField, lireMedecinsDemande } from "@/lib/ad-pro/pickers";
 
 const inEnum = <T extends Record<string, string>>(e: T, v: string | null, fallback: T[keyof T]): T[keyof T] =>
   v && (Object.values(e) as string[]).includes(v) ? (v as T[keyof T]) : fallback;
@@ -97,7 +97,7 @@ function statutSaisi(formData: FormData): { ok: true; statut: string | null } | 
 function champsManquants(formData: FormData): string[] {
   // Clés LITTÉRALES : voir `ad-pro/pickers.ts` — la dérivation des contrats ne suit pas les
   // clés d'un délégué importé, et le repli du produit s'appelle désormais `product` partout.
-  const medecins = readMultiField(formData.getAll("doctorIds").map(String), fdStr(formData, "doctor"));
+  const medecins = lireMedecinsDemande(formData.getAll("doctorIds").map(String), fdStr(formData, "doctorHorsAnnuaire"), fdStr(formData, "doctor"));
   const produits = readMultiField(formData.getAll("productIds").map(String), fdStr(formData, "product"));
   const budget = fdNum(formData, "estimatedBudget");
   return [
@@ -127,7 +127,7 @@ export async function createEvent(formData: FormData): Promise<ActionResult> {
   if (!name) return { ok: false, error: "Le nom de l'événement est obligatoire." };
   const manquants = champsManquants(formData);
   const couple = {
-    medecins: readMultiField(formData.getAll("doctorIds").map(String), fdStr(formData, "doctor")),
+    medecins: lireMedecinsDemande(formData.getAll("doctorIds").map(String), fdStr(formData, "doctorHorsAnnuaire"), fdStr(formData, "doctor")),
     produits: readMultiField(formData.getAll("productIds").map(String), fdStr(formData, "product")),
   };
   if (manquants.length > 0) {
@@ -184,7 +184,7 @@ export async function updateEvent(formData: FormData): Promise<ActionResult> {
   // n'exige rien du tout — il suffirait d'enregistrer une seconde fois.
   const manquants = champsManquants(formData);
   const couple = {
-    medecins: readMultiField(formData.getAll("doctorIds").map(String), fdStr(formData, "doctor")),
+    medecins: lireMedecinsDemande(formData.getAll("doctorIds").map(String), fdStr(formData, "doctorHorsAnnuaire"), fdStr(formData, "doctor")),
     produits: readMultiField(formData.getAll("productIds").map(String), fdStr(formData, "product")),
   };
   if (manquants.length > 0) {

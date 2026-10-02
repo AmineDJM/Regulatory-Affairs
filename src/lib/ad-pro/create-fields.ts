@@ -1,7 +1,7 @@
 import type { FieldDef } from "@/components/shared/create-record-button";
 import { PRIORITY, SPONSORING_TYPES, SPONSORING_NATURE, CONSULTING_BILLING_OPTIONS } from "@/lib/labels";
 import { wilayaOptions } from "@/lib/geo/algeria";
-import { availableProductOptions, doctorOptions, specialtyOptions, type DoctorRow, type ProductRow, type SpecialtyRow } from "@/lib/ad-pro/pickers";
+import { availableProductOptions, doctorOptions, specialtyOptions, CHAMPS_MEDECINS, type DoctorRow, type ProductRow, type SpecialtyRow } from "@/lib/ad-pro/pickers";
 import type { AdProKind } from "@/lib/ad-pro/unified";
 import type { OptionCatalogue } from "@/lib/promo-material/achats";
 
@@ -198,6 +198,9 @@ export function champMedecins(opts: { doctors: readonly DoctorRow[]; obligatoire
         options: medecins, searchPlaceholder: "Chercher un médecin de l'annuaire…",
         emptyLabel: "Aucun médecin dans l'annuaire.",
         hint: `Depuis l'annuaire des praticiens. Plusieurs choix possibles.${facultatif}`,
+        // LE MÉDECIN ABSENT DE L'ANNUAIRE (§118.175) : coché « non présent », il s'écrit à la main et
+        // s'AJOUTE aux médecins cochés — `lireMedecinsDemande` les réunit côté serveur.
+        horsListe: { name: CHAMPS_MEDECINS.horsAnnuaire, label: "Médecin non présent dans l'annuaire", placeholder: "Un nom par ligne — Dr …" },
       }
     : { type: "text", name: "doctor", label: "Médecin concerné", required: req, full: true, hint: `L'annuaire des praticiens est vide : saisissez le nom.${facultatif}` };
 }

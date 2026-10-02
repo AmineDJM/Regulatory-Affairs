@@ -19,7 +19,8 @@ import { getInvolvementThreads } from "@/lib/queries/involvement";
 import { getEntityMissions } from "@/lib/queries/missions";
 import { getWorkflowForEntity } from "@/lib/queries/workflow";
 import { MissionAssignmentsCard } from "@/components/missions/mission-assignments-card";
-import { SuperAdminDeleteButton } from "@/components/shared/super-admin-delete";
+import { SupprimerDemandeAdPro } from "@/components/ad-pro/supprimer-demande";
+import { peutSupprimerUneDemandeAdPro } from "@/lib/queries/ad-pro-suppression";
 import { BackLink } from "@/components/shared/back-link";
 import { AdProEditButton } from "@/components/ad-pro/edit-request-button";
 import { canEditAdProRequest, isAdProDecided } from "@/lib/ad-pro-edit";
@@ -123,7 +124,7 @@ export default async function EventDetailPage({ params }: { params: { id: string
         {!canManage && canEditEventRequest && eventEditValues && (
           <AdProEditButton kind="EVENT" id={e.id} decided={eventDecided} values={eventEditValues} />
         )}
-        <SuperAdminDeleteButton kind="EVENT" id={e.id} name={e.name} enabled={user.role === "SUPER_ADMIN"} />
+        <SupprimerDemandeAdPro kind="EVENT" id={e.id} name={e.name} enabled={await peutSupprimerUneDemandeAdPro(user, "EVENT", e.id)} />
       </PageHeader>
 
       <div className="grid gap-5">

@@ -121,8 +121,10 @@ function champs(kind: NaturePieceLiee, ctx: ContexteFormulaire): FieldDef[] {
   //
   // Le champ s'appelle `attachment` : c'est le nom que `attachFormFiles` lit côté serveur, le
   // même pour les natures. Un second nom aurait été un second chemin à maintenir.
-  const piece = (label: string): FieldDef[] => [{
-    type: "file", name: "attachment", label, multiple: true, full: true,
+  const piece = (label: string, exigee = false): FieldDef[] => [{
+    // EXIGÉE pour un devis (§118.175) — sauf si le fichier est déjà déposé sur la demande : il sera
+    // rangé dans la fiche, et le redemander ferait téléverser une seconde copie.
+    type: "file", name: "attachment", label, multiple: true, full: true, required: exigee && !existante,
     hint: existante
       ? `« ${existante.nom} » est déjà déposé sur la demande : il sera rangé dans cette fiche. Ajoutez ici d'autres fichiers seulement s'il en manque.`
       : "Joint dès la création : c'est le seul moment où on l'a sous la main.",
@@ -133,8 +135,8 @@ function champs(kind: NaturePieceLiee, ctx: ContexteFormulaire): FieldDef[] {
   // l'annuaire : TOUT engagement créé d'ici était refusé — « choisissez au moins une partie » —
   // alors que la personne venait de la taper. Et c'est ce bouton-là que le refus du chantier
   // « bon de commande » nomme comme remède : un remède qui échoue est une impasse (§118.63).
-  const partie = (label: string): FieldDef => ({
-    type: "parties", name: "counterpartyIds", label, required: true, full: true, arity: "many",
+  const partie = (label: string, requise = true): FieldDef => ({
+    type: "parties", name: "counterpartyIds", label, required: requise, full: true, arity: "many",
     placeholder: "Chercher la partie dans l’annuaire — un métier, un nom, un numéro…",
     hint: "Choisissez-la dans l’annuaire de l’entreprise. Absente ? « Créer un contact » l’y ajoute sans quitter cette saisie.",
   });
@@ -151,12 +153,13 @@ function champs(kind: NaturePieceLiee, ctx: ContexteFormulaire): FieldDef[] {
         { type: "hidden", name: "kind", value: "QUOTE" },
         { type: "text", name: "title", label: "Titre exact du devis", required: true, full: true, defaultValue: titre },
         { type: "text", name: "reference", label: "N° du devis (celui du fournisseur)" },
-        partie("Fournisseur"),
+        // « À part le titre du devis et la PJ, rien n'est obligatoire » (Direction, 01/10).
+        partie("Fournisseur (facultatif)", false),
         { type: "date", name: "startDate", label: "Date du devis" },
         { type: "date", name: "endDate", label: "Valable jusqu'au (facultatif)" },
         { type: "number", name: "amount", label: "Montant (DZD)" },
         { type: "textarea", name: "notes", label: "Notes", full: true },
-        ...piece("PDF du devis"),
+        ...piece("PDF du devis", true),
       ];
     case "order":
       return [

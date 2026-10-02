@@ -35,9 +35,9 @@ import { ACTION_CLASSIFICATION } from "@/lib/assistant/action-registry";
 
 const MAX_CANDIDATES = 6;
 /** Les refusées plus proches de la phrase que toute ouverte : celles-là portent leur raison. */
-const MAX_REFUSEES_DEVANT = 2;
+export const MAX_REFUSEES_DEVANT = 2;
 /** Les autres refusées sont nommées par leur identifiant, et le reste est COMPTÉ. */
-const MAX_REFUSEES_NOMMEES = 8;
+export const MAX_REFUSEES_NOMMEES = 8;
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════

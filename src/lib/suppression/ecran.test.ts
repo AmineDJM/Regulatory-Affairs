@@ -80,14 +80,18 @@ describe("Écran — un événement se supprime par la même fenêtre, plus par 
   });
 });
 
-describe("Écran — toute fiche du pôle Ad & Pro offre la suppression au Super Admin", () => {
-  it("les sept fiches montent le bouton, avec LEUR type au registre", () => {
+describe("Écran — toute fiche du pôle Ad & Pro offre la suppression (Super Admin, directeur des opérations, directrice marketing)", () => {
+  it("les sept fiches montent le bouton, avec LEUR type au registre ET la porte de l'action (§118.175)", () => {
     for (const nature of AD_PRO_KINDS) {
       const type = AD_PRO_ENTITY_TYPE[nature.kind];
       const kind = DELETABLE_KINDS.find((k) => DELETE_REGISTRY[k].entityType === type);
       expect(kind, `${nature.kind} doit être au registre`).toBeDefined();
       const src = code(`src/app/(app)${nature.href}/[id]/page.tsx`);
-      expect(src, `${nature.href}/[id] doit monter le bouton de suppression`).toMatch(new RegExp(`<SuperAdminDeleteButton[^>]*kind="${kind}"`));
+      // Le bouton s'arme sur la MÊME règle que l'action qui supprime : armé sur le seul rôle Super
+      // Admin, il resterait caché au directeur des opérations que l'action accepte (§118.83).
+      expect(src, `${nature.href}/[id] doit monter le bouton de suppression`).toMatch(
+        new RegExp(`<SupprimerDemandeAdPro[^>]*kind="${kind}"[^>]*enabled=\\{await peutSupprimerUneDemandeAdPro\\(user, "${kind}"`),
+      );
     }
   });
 });

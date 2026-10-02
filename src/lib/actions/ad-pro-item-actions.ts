@@ -4,19 +4,20 @@ import { CHEMIN_STOCK_PROMO, lienStockPromo } from "@/lib/chemins/stock-promo";
 import { revalidatePath } from "next/cache";
 import type { AdProItemKind, AdProItemStatus, AdProItemBudgetKind, UserRole } from "@prisma/client";
 import { requireUser } from "@/lib/session";
-import { userCan, hasGlobalView, type SessionUser } from "@/lib/rbac";
+import { userCan, hasGlobalView, anyRoleFilter, type SessionUser } from "@/lib/rbac";
+import { canAccessEntity } from "@/lib/entity-access";
 import { prisma } from "@/lib/prisma";
 import { toNumber } from "@/lib/utils";
 import { moneyEntityOf } from "@/lib/company";
 import { recordAudit } from "@/lib/audit";
 import { notifyUser, notifyRoles } from "@/lib/notify";
 import { createExpenseOrder } from "@/lib/expense-orders";
-import { canEmitOrder, canSubmitItem, canRequestPurchaseOrder, canRemoveItem, budgetKindLocked, ITEM_KINDS, ITEM_KIND_LABELS, type AdProParent } from "@/lib/ad-pro-items";
+import { canEmitOrder, canSubmitItem, canRequestPurchaseOrder, canRemoveItem, budgetKindLocked, ITEM_KINDS, ITEM_KIND_LABELS, PARENT_ENTITE, ITEM_STATUS_LABELS, REFUS_INDIRECT_NON_REPARTI, type AdProParent } from "@/lib/ad-pro-items";
 import {
   PIECE_SECRETARIAT, NATURES_PIECE_SECRETARIAT, peutDemanderPiece, titrePiece,
   type NaturePieceSecretariat,
 } from "@/lib/ad-pro/pieces-secretariat";
-import { buildRef } from "@/lib/refs";
+import { buildRef, createWithRetry } from "@/lib/refs";
 import { montantDeLaDemande } from "@/lib/ad-pro/montant-demande";
 import { fdStr, fdNum, type ActionResult } from "@/lib/actions/types";
 import { siegeAuCentreAdPro, REFUS_BC_CENTRE_AD_PRO } from "@/lib/ad-pro/centre";
@@ -34,6 +35,13 @@ import {
 import { libelleArticleStock } from "@/lib/promo/stock";
 import { familleQuantifiee, type PromoFamille } from "@/lib/promo/catalogue";
 import { articleDansMonPerimetre, gestionnairesDuMagasin } from "@/lib/queries/promo-stock";
+import { lireRepartition, libelleLigne, type LigneRepartition } from "@/lib/ad-pro/repartition";
+import { ecrireRepartition, type PosteReparti } from "@/lib/ad-pro/repartition-ecriture";
+import { STATUTS_EDITABLES } from "@/lib/ad-pro/poste-etapes";
+import {
+  lireVoyageur, ligneVoyageur, changementsVoyageur, porteDesVoyageurs, type SaisieVoyageur, type VoyageurLu,
+} from "@/lib/ad-pro/voyageurs";
+import { createDossierRecord, ecrireDansLeSujet } from "@/lib/dossiers-core";
 
 /**
  * POSTES D'UNE OPÉRATION AD & PRO — actions serveur, pour les QUATRE opérations du pôle :
@@ -311,8 +319,33 @@ async function reprojeterMontantDemande(parent: AdProParent, parentId: string): 
   }
 }
 
-/** Charge un poste avec son parent résolu — le point d'entrée de toutes les actions par `id`. */
-async function loadItem(id: string) {
+/**
+ * LA DEMANDE DOIT ÊTRE VISIBLE (§118.175) — la porte de LIGNE du parent, celle de sa fiche.
+ *
+ * Le droit d'écrire dans le MODULE ne suffit pas : un congrès a une portée « ses lignes », et un
+ * délégué n'y voit que SES demandes — la liste et la fiche l'appliquent, la porte des pièces aussi
+ * (§118.153). Les gestes sur les postes, eux, ne lisaient que le module : un identifiant forgé
+ * faisait modifier, soumettre ou retirer les postes du congrès d'un collègue — et, par les gestes
+ * de ce lot, y inscrire des voyageurs et ouvrir un sujet de réservation à son nom. Une porte gardée
+ * à côté d'une porte ouverte (§118.71). Sponsoring et événements n'ont pas de portée de ligne (qui
+ * a le module les voit tous, comme leur liste) : pour eux, rien ne change.
+ *
+ * La règle est CELLE de la fiche (`canAccessEntity`, VIEW), jamais une recopie : deux lectures de
+ * « qui voit ce congrès » finiraient par diverger (§118.5). Elle n'accorde rien : le droit d'agir
+ * reste celui de chaque geste (`canEditItems`, `canAllocate`…) ; elle n'ajoute que « on agit sur
+ * une demande qu'on voit ».
+ */
+function demandeVisible(user: SessionUser, parent: AdProParent, parentId: string): Promise<boolean> {
+  return canAccessEntity(user, PARENT_ENTITE[parent], parentId, "VIEW");
+}
+
+/**
+ * Charge un poste avec son parent résolu — le point d'entrée de toutes les actions par `id`. Hors
+ * de la portée de la personne, le poste est INTROUVABLE : la même phrase que l'absence, qui ne
+ * confirme pas qu'il existe. L'acteur est un paramètre OBLIGATOIRE : un défaut rouvrirait la porte
+ * en silence au prochain appelant qui l'oublierait (§118.127b).
+ */
+async function loadItem(id: string, user: SessionUser) {
   const item = await prisma.adProItem.findUnique({
     where: { id },
     select: {
@@ -324,7 +357,72 @@ async function loadItem(id: string) {
   });
   if (!item) return null;
   const owner = parentOf(item);
-  return owner ? { item, owner } : null;
+  if (!owner || !(await demandeVisible(user, owner.parent, owner.id))) return null;
+  return { item, owner };
+}
+
+// ───────────────────────────── Répartir un sponsoring indirect (§118.175) ─────────────────────────────
+
+/** « imprimerie 400 000 DZD, hôtellerie 600 000 DZD » — la phrase de l'audit et du message, une fois. */
+function resumeRepartition(lignes: readonly LigneRepartition[]): string {
+  return lignes.map((l) => `${ITEM_KIND_LABELS[l.kind].toLowerCase()} ${l.montant.toLocaleString("fr-FR")} DZD`).join(", ");
+}
+
+/** Les lignes lues, prêtes à écrire : le libellé de chaque poste se compose ici, une fois. */
+function postesRepartis(lignes: readonly LigneRepartition[]): PosteReparti[] {
+  return lignes.map((l) => ({ kind: l.kind, label: libelleLigne(ITEM_KIND_LABELS[l.kind], l.precision), montant: l.montant, payeA: l.payeA }));
+}
+
+/**
+ * RÉPARTIR PAR NATURE le poste « sponsoring indirect » créé avec la demande (§118.175).
+ *
+ * Tant qu'il n'est ni soumis ni accordé : la Direction ne s'est pas encore prononcée sur sa forme.
+ * Une fois soumis, le répartir changerait sous ses yeux ce qu'elle est en train de décider. Et rien
+ * ne se répartit quand un bon de commande ou un ordre de dépense est déjà parti : l'argent engagé
+ * l'a été sur ce poste-là, tel qu'il était.
+ */
+export async function repartirPoste(_prev: ActionResult | undefined, formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  const id = fdStr(formData, "id");
+  if (!id) return { ok: false, error: "Poste non précisé." };
+  const found = await loadItem(id, user);
+  if (!found) return { ok: false, error: "Poste introuvable." };
+  const { item, owner } = found;
+  if (!canEditItems(user, owner.parent)) return { ok: false, error: "Non autorisé." };
+  const clos = await refusSiClos(owner.parent, owner.id);
+  if (clos) return { ok: false, error: clos };
+  if (item.kind !== "INDIRECT_SUPPORT") return { ok: false, error: "Seul un sponsoring indirect se répartit par nature." };
+  if (!STATUTS_EDITABLES.includes(item.status)) {
+    return { ok: false, error: "Ce poste est déjà soumis ou accordé : sa forme ne change plus — la Direction s'est prononcée (ou se prononce) sur lui tel qu'il est." };
+  }
+  if (item.expenseOrderId || item.orderStage !== "NONE") {
+    return { ok: false, error: "Un bon de commande ou un ordre de dépense est déjà parti sur ce poste : il ne se répartit plus." };
+  }
+
+  const lue = lireRepartition(fdStr(formData, "repartition"));
+  if (!lue.ok) return { ok: false, error: lue.error };
+
+  const avant = await prisma.adProItem.findUnique({ where: { id }, select: { label: true, notes: true, budgetKind: true, addedAfterDecision: true } });
+  if (!avant) return { ok: false, error: "Poste introuvable." };
+  try {
+    await prisma.$transaction((tx) => ecrireRepartition(tx, {
+      rattachement: { [PARENTS[owner.parent].column]: owner.id }, lignes: postesRepartis(lue.lignes), premierId: id, userId: user.id,
+      base: { label: avant.label, notes: avant.notes, budgetKind: avant.budgetKind, addedAfterDecision: avant.addedAfterDecision },
+    }));
+  } catch (err) {
+    console.error("[ad-pro-item] répartition impossible", err);
+    return { ok: false, error: "La répartition n'a pas pu être enregistrée : rien n'a changé. Réessayez dans un instant." };
+  }
+  const estime = item.amountEstimated != null ? toNumber(item.amountEstimated) : null;
+  // L'ÉCART SE DIT, il ne se refuse pas : le délégué peut avoir ajusté en répartissant. Le taire
+  // laisserait croire que le total n'a pas bougé.
+  const ecart = estime != null && Math.round(estime * 100) !== Math.round(lue.total * 100)
+    ? ` Le poste d'origine portait ${estime.toLocaleString("fr-FR")} DZD.`
+    : "";
+  await audit(user, owner.parent, owner.id, "UPDATE",
+    `« ${avant.label} » réparti en ${lue.lignes.length} poste(s) — ${resumeRepartition(lue.lignes)} — total ${lue.total.toLocaleString("fr-FR")} DZD.${ecart}`);
+  revalidate(owner.parent, owner.id);
+  return { ok: true, id, message: `Réparti en ${lue.lignes.length} poste(s) : ${resumeRepartition(lue.lignes)} — total ${lue.total.toLocaleString("fr-FR")} DZD.${ecart}` };
 }
 
 // ───────────────────────────── Ajouter / modifier / retirer ─────────────────────────────
@@ -340,7 +438,8 @@ export async function addAdProItem(_prev: ActionResult | undefined, formData: Fo
   if (!canEditItems(user, parentRaw)) return { ok: false, error: "Non autorisé." };
 
   const info = await PARENTS[parentRaw].load(parentId);
-  if (!info) return { ok: false, error: "Opération introuvable." };
+  // Hors de la portée de la personne, la demande est introuvable — la même phrase que l'absence.
+  if (!info || !(await demandeVisible(user, parentRaw, parentId))) return { ok: false, error: "Opération introuvable." };
   const clos = refusPostesClos(info);
   if (clos) return { ok: false, error: clos };
 
@@ -356,6 +455,28 @@ export async function addAdProItem(_prev: ActionResult | undefined, formData: Fo
   // « Ce poste est-il DANS le budget accordé, ou EN PLUS ? » — question posée dès l'ajout : sans
   // elle, une rallonge assumée serait lue comme un dépassement subi.
   const budgetKind = (fdStr(formData, "budgetKind") === "ADDITIONAL" ? "ADDITIONAL" : "INCLUDED") as AdProItemBudgetKind;
+
+  // UN SPONSORING INDIRECT NAÎT RÉPARTI PAR NATURE (§118.175) — « 1 000 000 DZD répartis en
+  // 400 000 d'imprimerie et 600 000 d'hôtellerie ». Il ne devient pas UN poste « sponsoring
+  // indirect » qu'on ne pourrait payer qu'à un seul fournisseur : chaque nature devient un poste,
+  // avec sa chaîne, et `repartitionId` les relie. Sans répartition, le refus nomme ce qui manque.
+  if (kind === "INDIRECT_SUPPORT") {
+    const lue = lireRepartition(fdStr(formData, "repartition"));
+    if (!lue.ok) return { ok: false, error: lue.error };
+    try {
+      const ids = await prisma.$transaction((tx) => ecrireRepartition(tx, {
+        rattachement: { [PARENTS[parentRaw].column]: parentId }, lignes: postesRepartis(lue.lignes), premierId: null, userId: user.id,
+        base: { label, notes: fdStr(formData, "notes"), budgetKind, addedAfterDecision: info.tardif },
+      }));
+      await audit(user, parentRaw, parentId, "CREATE",
+        `Sponsoring indirect « ${label} » réparti en ${lue.lignes.length} poste(s) — ${resumeRepartition(lue.lignes)} — total ${lue.total.toLocaleString("fr-FR")} DZD${info.tardif ? " — APRÈS la décision définitive" : ""}.`);
+      revalidate(parentRaw, parentId);
+      return { ok: true, id: ids[0], message: `Sponsoring indirect réparti en ${lue.lignes.length} poste(s) : ${resumeRepartition(lue.lignes)} — total ${lue.total.toLocaleString("fr-FR")} DZD.` };
+    } catch (err) {
+      console.error("[ad-pro-item] répartition impossible", err);
+      return { ok: false, error: "La répartition n'a pas pu être enregistrée : aucun poste n'a été créé. Réessayez dans un instant." };
+    }
+  }
 
   try {
     // Un poste ajouté APRÈS la décision est autorisé — c'est le choix retenu — mais il est
@@ -397,7 +518,7 @@ export async function updateAdProItem(_prev: ActionResult | undefined, formData:
 
   const id = fdStr(formData, "id");
   if (!id) return { ok: false, error: "Poste non précisé." };
-  const found = await loadItem(id);
+  const found = await loadItem(id, user);
   if (!found) return { ok: false, error: "Poste introuvable." };
   const { item, owner } = found;
   if (!canEditItems(user, owner.parent)) return { ok: false, error: "Non autorisé." };
@@ -489,7 +610,7 @@ export async function deleteAdProItem(_prev: ActionResult | undefined, formData:
 
   const id = fdStr(formData, "id");
   if (!id) return { ok: false, error: "Poste non précisé." };
-  const found = await loadItem(id);
+  const found = await loadItem(id, user);
   if (!found) return { ok: false, error: "Poste introuvable." };
   const { item, owner } = found;
   if (!canEditItems(user, owner.parent)) return { ok: false, error: "Non autorisé." };
@@ -555,7 +676,7 @@ export async function emitItemExpenseOrder(_prev: ActionResult | undefined, form
 
   const id = fdStr(formData, "id");
   if (!id) return { ok: false, error: "Poste non précisé." };
-  const found = await loadItem(id);
+  const found = await loadItem(id, user);
   if (!found) return { ok: false, error: "Poste introuvable." };
   const { item, owner } = found;
   const refusStock = refusArgentSurPosteStock(item.kind, "un ordre de dépense");
@@ -622,7 +743,7 @@ export async function linkPromoMaterial(_prev: ActionResult | undefined, formDat
 
   const id = fdStr(formData, "id");
   if (!id) return { ok: false, error: "Poste non précisé." };
-  const found = await loadItem(id);
+  const found = await loadItem(id, user);
   if (!found) return { ok: false, error: "Poste introuvable." };
   const { item, owner } = found;
   if (!canEditItems(user, owner.parent)) return { ok: false, error: "Non autorisé." };
@@ -676,7 +797,7 @@ export async function submitAdProItem(_prev: ActionResult | undefined, formData:
   const user = await requireUser();
   const id = fdStr(formData, "id");
   if (!id) return { ok: false, error: "Poste non précisé." };
-  const found = await loadItem(id);
+  const found = await loadItem(id, user);
   if (!found) return { ok: false, error: "Poste introuvable." };
   const { item, owner } = found;
   if (!canEditItems(user, owner.parent)) return { ok: false, error: "Non autorisé." };
@@ -731,7 +852,7 @@ export async function decideAdProItem(_prev: ActionResult | undefined, formData:
   if (!id || !decision) return { ok: false, error: "Décision incomplète." };
   if (!["APPROVED", "REJECTED", "REVISION"].includes(decision)) return { ok: false, error: "Décision inconnue." };
 
-  const found = await loadItem(id);
+  const found = await loadItem(id, user);
   if (!found) return { ok: false, error: "Poste introuvable." };
   const { item, owner } = found;
   if (!canAllocate(user, owner.parent)) return { ok: false, error: "Seule la Direction décide d'un poste." };
@@ -740,6 +861,11 @@ export async function decideAdProItem(_prev: ActionResult | undefined, formData:
   if (item.status === "APPROVED" && item.orderStage === "ISSUED") {
     return { ok: false, error: "Le bon de commande de ce poste a été émis : sa décision ne peut plus changer." };
   }
+  // UN SPONSORING INDIRECT NON RÉPARTI NE S'ACCORDE PAS (§118.175). L'accorder d'un seul tenant
+  // ouvrirait UN bon de commande, à UN fournisseur, pour l'imprimerie ET l'hôtellerie — exactement
+  // ce que la répartition existe pour empêcher. Le refuser ou le renvoyer en révision reste
+  // possible : ces gestes ne paient rien, et la révision est le chemin qui rouvre la répartition.
+  if (item.kind === "INDIRECT_SUPPORT" && decision === "APPROVED") return { ok: false, error: REFUS_INDIRECT_NON_REPARTI };
 
   const note = fdStr(formData, "note");
   // En accordant, la Direction peut arrêter le montant du poste (c'est le geste naturel :
@@ -799,7 +925,7 @@ export async function setAdProItemBudget(_prev: ActionResult | undefined, formDa
   const user = await requireUser();
   const id = fdStr(formData, "id");
   if (!id) return { ok: false, error: "Poste non précisé." };
-  const found = await loadItem(id);
+  const found = await loadItem(id, user);
   if (!found) return { ok: false, error: "Poste introuvable." };
   const { item, owner } = found;
   if (!canAllocate(user, owner.parent)) return { ok: false, error: "Seule la Direction impute un poste à un budget." };
@@ -865,7 +991,7 @@ export async function demanderPieceSecretariat(_prev: ActionResult | undefined, 
     : null;
   if (!id) return { ok: false, error: "Poste non précisé." };
   if (!nature) return { ok: false, error: `Nature de pièce inconnue : ${brut}. Attendu : ${NATURES_PIECE_SECRETARIAT.join(", ")}.` };
-  const found = await loadItem(id);
+  const found = await loadItem(id, user);
   if (!found) return { ok: false, error: "Poste introuvable." };
   const { item, owner } = found;
   if (!canEditItems(user, owner.parent)) return { ok: false, error: "Non autorisé." };
@@ -886,10 +1012,11 @@ export async function demanderPieceSecretariat(_prev: ActionResult | undefined, 
   const note = fdStr(formData, "note");
 
   try {
-    const reference = await nextAdminRequestRef();
-    const request = await prisma.administrativeRequest.create({
+    // La série DEM est PARTAGÉE avec le bureau du secrétariat, qui réessayait sous collision ; ce
+    // chemin-ci non, et deux demandes à la même seconde faisaient échouer la seconde (§118.175).
+    const request = await createWithRetry(async () => prisma.administrativeRequest.create({
       data: {
-        reference,
+        reference: await nextAdminRequestRef(),
         type: spec.type,
         title: titrePiece(nature, `${ITEM_KIND_LABELS[item.kind]} : ${item.label}`, info.ref),
         description: [
@@ -909,7 +1036,7 @@ export async function demanderPieceSecretariat(_prev: ActionResult | undefined, 
         linkedEntityId: item.id,
       },
       select: { id: true, reference: true },
-    });
+    }));
     // `adminRequestId` reste le RACCOURCI du devis (relation `AdProItemQuoteRequest`, posée
     // avant le lien canonique) : on ne le LIT plus nulle part, mais l'écrire garde le
     // `onDelete: SetNull` utile et évite une migration de colonne pour rien.
@@ -949,7 +1076,7 @@ export async function requestAdProItemOrder(_prev: ActionResult | undefined, for
   const user = await requireUser();
   const id = fdStr(formData, "id");
   if (!id) return { ok: false, error: "Poste non précisé." };
-  const found = await loadItem(id);
+  const found = await loadItem(id, user);
   if (!found) return { ok: false, error: "Poste introuvable." };
   const { item, owner } = found;
   if (!canEditItems(user, owner.parent)) return { ok: false, error: "Non autorisé." };
@@ -1049,7 +1176,7 @@ export async function approveAdProItemOrder(_prev: ActionResult | undefined, for
   const id = fdStr(formData, "id");
   const decision = fdStr(formData, "decision") ?? "APPROVE";
   if (!id) return { ok: false, error: "Poste non précisé." };
-  const found = await loadItem(id);
+  const found = await loadItem(id, user);
   if (!found) return { ok: false, error: "Poste introuvable." };
   const { item, owner } = found;
   if (!siegeAuCentreAdPro(user)) return { ok: false, error: REFUS_BC_CENTRE_AD_PRO };
@@ -1197,7 +1324,7 @@ export async function ajouterArticleStockAuPoste(formData: FormData): Promise<Ac
   if (!itemId || !stockItemId) return { ok: false, error: "Choisissez l'article du stock." };
   const quantite = fdNum(formData, "quantite");
   if (quantite == null || !Number.isFinite(quantite) || quantite < 0) return { ok: false, error: "Indiquez une quantité (0 pour retirer l'article)." };
-  const found = await loadItem(itemId);
+  const found = await loadItem(itemId, user);
   if (!found) return { ok: false, error: "Poste introuvable." };
   const { item, owner } = found;
   if (!canEditItems(user, owner.parent)) return { ok: false, error: "Non autorisé." };
@@ -1248,7 +1375,7 @@ export async function confirmerMaterielStock(formData: FormData): Promise<Action
   const user = await requireUser();
   const itemId = fdStr(formData, "itemId");
   if (!itemId) return { ok: false, error: "Poste non précisé." };
-  const found = await loadItem(itemId);
+  const found = await loadItem(itemId, user);
   if (!found) return { ok: false, error: "Poste introuvable." };
   const { item, owner } = found;
   if (item.kind !== "STOCK_MATERIAL") return { ok: false, error: "Ce poste n'est pas un poste « Matériel du stock »." };
@@ -1327,3 +1454,199 @@ export async function confirmerMaterielStock(formData: FormData): Promise<Action
   return { ok: true, id: itemId, message: revenu > 0 ? `Matériel confirmé : ${revenu.toLocaleString("fr-FR")} unité(s) reviennent au magasin.` : "Matériel confirmé : rien ne revient au magasin." };
 }
 
+// ───────────────────────── Billetterie : voyageurs et réservation (§118.175) ─────────────────────────
+
+/** Le poste « billetterie » d'un voyageur, avec son opération — le point d'entrée des actions par voyageur. */
+async function chargerVoyageur(id: string, user: SessionUser) {
+  const v = await prisma.adProVoyageur.findUnique({
+    where: { id },
+    select: { id: true, itemId: true, nom: true, villeDepart: true, villeArrivee: true, dateDepart: true, dateRetour: true, notes: true },
+  });
+  if (!v) return null;
+  const found = await loadItem(v.itemId, user);
+  return found ? { voyageur: v, ...found } : null;
+}
+
+/** La ligne d'un voyageur telle qu'il est en base — ce que `changementsVoyageur` compare. */
+const voyageurLu = (v: { nom: string; villeDepart: string | null; villeArrivee: string | null; dateDepart: Date | null; dateRetour: Date | null; notes: string | null }): VoyageurLu => ({
+  nom: v.nom, villeDepart: v.villeDepart, villeArrivee: v.villeArrivee, dateDepart: v.dateDepart, dateRetour: v.dateRetour, notes: v.notes,
+});
+
+/**
+ * UN CHANGEMENT APRÈS LA DEMANDE DE RÉSERVATION SE DIT DANS LE SUJET — « on modifie les dates
+ * plus tard ». Sans cette ligne, l'assistante réserverait sur les dates d'avant, et la flexibilité
+ * demandée se paierait en billets à changer. Rend la phrase à ajouter au message de l'action.
+ */
+async function signalerAuSujet(item: { id: string }, auteurId: string, corps: string): Promise<string> {
+  const poste = await prisma.adProItem.findUnique({ where: { id: item.id }, select: { reservationDossierId: true, label: true } });
+  if (!poste?.reservationDossierId) return "";
+  const ecrit = await ecrireDansLeSujet({ dossierId: poste.reservationDossierId, authorId: auteurId, body: `${poste.label} — ${corps}` });
+  return ecrit ? " L'assistante est prévenue dans le sujet de réservation." : " Le sujet de réservation n'existe plus : redemandez la réservation pour le rouvrir.";
+}
+
+/**
+ * AJOUTER UN VOYAGEUR à un poste « billetterie ». Un NOM suffit : on prend en charge un médecin
+ * avant de savoir quand il part. Ce n'est pas un arbitrage, c'est une précision d'exécution —
+ * donc offert aussi sur une demande clôturée, comme le bon de commande.
+ */
+export async function ajouterVoyageur(_prev: ActionResult | undefined, formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  const itemId = fdStr(formData, "itemId");
+  if (!itemId) return { ok: false, error: "Poste non précisé." };
+  const found = await loadItem(itemId, user);
+  if (!found) return { ok: false, error: "Poste introuvable." };
+  const { item, owner } = found;
+  if (!canEditItems(user, owner.parent)) return { ok: false, error: "Non autorisé." };
+  if (!porteDesVoyageurs(item.kind)) return { ok: false, error: "Seul un poste « billetterie » porte des voyageurs." };
+
+  const lu = lireVoyageur({
+    nom: fdStr(formData, "nom"), villeDepart: fdStr(formData, "villeDepart"), villeArrivee: fdStr(formData, "villeArrivee"),
+    dateDepart: fdStr(formData, "dateDepart"), dateRetour: fdStr(formData, "dateRetour"), notes: fdStr(formData, "notes"),
+  });
+  if (!lu.ok) return { ok: false, error: lu.error };
+  const last = await prisma.adProVoyageur.findFirst({ where: { itemId }, orderBy: { position: "desc" }, select: { position: true } });
+  const cree = await prisma.adProVoyageur.create({
+    data: { itemId, ...lu.voyageur, position: (last?.position ?? 0) + 1, createdById: user.id, updatedById: user.id },
+    select: { id: true },
+  });
+  const sujet = await signalerAuSujet(item, user.id, `voyageur ajouté :\n${ligneVoyageur({ ...lu.voyageur, passeport: false })}`);
+  await audit(user, owner.parent, owner.id, "UPDATE", `Voyageur « ${lu.voyageur.nom} » ajouté au poste « ${item.label} ».`);
+  revalidate(owner.parent, owner.id);
+  return { ok: true, id: cree.id, message: `Voyageur ajouté.${sujet}` };
+}
+
+/**
+ * MODIFIER UN VOYAGEUR — seules les clés PRÉSENTES s'écrivent (§118.152c) : corriger une date ne
+ * doit pas effacer le trajet qu'un formulaire partiel n'a pas renvoyé.
+ */
+export async function modifierVoyageur(_prev: ActionResult | undefined, formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  const id = fdStr(formData, "id");
+  if (!id) return { ok: false, error: "Voyageur non précisé." };
+  const found = await chargerVoyageur(id, user);
+  if (!found) return { ok: false, error: "Voyageur introuvable." };
+  const { voyageur: v, item, owner } = found;
+  if (!canEditItems(user, owner.parent)) return { ok: false, error: "Non autorisé." };
+
+  const jour = (d: Date | null) => (d ? d.toISOString().slice(0, 10) : null);
+  const saisie: SaisieVoyageur = {
+    nom: formData.has("nom") ? fdStr(formData, "nom") : v.nom,
+    villeDepart: formData.has("villeDepart") ? fdStr(formData, "villeDepart") : v.villeDepart,
+    villeArrivee: formData.has("villeArrivee") ? fdStr(formData, "villeArrivee") : v.villeArrivee,
+    dateDepart: formData.has("dateDepart") ? fdStr(formData, "dateDepart") : jour(v.dateDepart),
+    dateRetour: formData.has("dateRetour") ? fdStr(formData, "dateRetour") : jour(v.dateRetour),
+    notes: formData.has("notes") ? fdStr(formData, "notes") : v.notes,
+  };
+  const lu = lireVoyageur(saisie);
+  if (!lu.ok) return { ok: false, error: lu.error };
+  const changements = changementsVoyageur(voyageurLu(v), lu.voyageur);
+  if (changements.length === 0) return { ok: true, id, message: "Rien n'a changé." };
+
+  await prisma.adProVoyageur.update({ where: { id }, data: { ...lu.voyageur, updatedById: user.id } });
+  const sujet = await signalerAuSujet(item, user.id, `voyageur modifié — ${v.nom} : ${changements.join(" ; ")}`);
+  await audit(user, owner.parent, owner.id, "UPDATE", `Voyageur « ${v.nom} » du poste « ${item.label} » modifié — ${changements.join(" ; ")}.`);
+  revalidate(owner.parent, owner.id);
+  return { ok: true, id, message: `Voyageur modifié.${sujet}` };
+}
+
+/**
+ * RETIRER UN VOYAGEUR. Son passeport, s'il a été déposé, RESTE parmi les pièces du poste : une
+ * pièce jointe ne s'efface pas en silence avec la ligne qui la désignait — elle se retire depuis
+ * son aperçu, comme toute pièce.
+ */
+export async function retirerVoyageur(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  const id = fdStr(formData, "id");
+  if (!id) return { ok: false, error: "Voyageur non précisé." };
+  const found = await chargerVoyageur(id, user);
+  if (!found) return { ok: false, error: "Voyageur introuvable." };
+  const { voyageur: v, item, owner } = found;
+  if (!canEditItems(user, owner.parent)) return { ok: false, error: "Non autorisé." };
+  await prisma.adProVoyageur.delete({ where: { id } });
+  const sujet = await signalerAuSujet(item, user.id, `voyageur retiré : ${v.nom}.`);
+  await audit(user, owner.parent, owner.id, "UPDATE", `Voyageur « ${v.nom} » retiré du poste « ${item.label} ».`);
+  revalidate(owner.parent, owner.id);
+  return { ok: true, message: `Voyageur retiré.${sujet}` };
+}
+
+/**
+ * DEMANDER LA RÉSERVATION des billets d'un poste — « les demandes de réservation vont à
+ * l'assistante de direction et ouvrent un sujet ».
+ *
+ * Le sujet est le lieu de l'échange (« l'Ibis est complet, je prends le Sofitel ? ») : il naît lié
+ * à la DEMANDE, donc il remonte en bas de sa fiche, à l'endroit où le demandeur le suit. Une
+ * seconde demande sur le même poste écrit dans le MÊME sujet, avec la liste à jour : deux sujets
+ * pour les mêmes billets se contrediraient.
+ *
+ * Pas de garde sur l'accord du poste : pour obtenir un devis, l'agence a besoin des noms et des
+ * dates. Mais la phrase DIT où en est le poste — réserver un billet que la Direction n'a pas
+ * accordé engagerait la société sur une dépense que personne n'a décidée. Un poste REFUSÉ, lui,
+ * ne se réserve pas.
+ */
+export async function demanderReservation(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  const id = fdStr(formData, "id");
+  if (!id) return { ok: false, error: "Poste non précisé." };
+  const found = await loadItem(id, user);
+  if (!found) return { ok: false, error: "Poste introuvable." };
+  const { item, owner } = found;
+  if (!canEditItems(user, owner.parent)) return { ok: false, error: "Non autorisé." };
+  if (!porteDesVoyageurs(item.kind)) return { ok: false, error: "Seul un poste « billetterie » se réserve." };
+  if (item.status === "REJECTED") return { ok: false, error: "Ce poste a été refusé par la Direction : on ne réserve pas de billets pour lui." };
+
+  const voyageurs = await prisma.adProVoyageur.findMany({ where: { itemId: id }, orderBy: [{ position: "asc" }, { createdAt: "asc" }] });
+  if (voyageurs.length === 0) return { ok: false, error: "Ajoutez au moins un voyageur (son nom suffit) avant de demander la réservation." };
+  const passeports = new Set((await prisma.document.findMany({
+    where: { entityType: "AD_PRO_ITEM", entityId: id, stepKey: { in: voyageurs.map((v) => v.id) } },
+    select: { stepKey: true },
+  })).map((d) => d.stepKey));
+  const lignes = voyageurs.map((v) => ligneVoyageur({ ...voyageurLu(v), passeport: passeports.has(v.id) }));
+
+  const info = await PARENTS[owner.parent].load(owner.id);
+  if (!info) return { ok: false, error: "Opération introuvable." };
+  const etat = item.status === "APPROVED"
+    ? "Poste ACCORDÉ par la Direction — vous pouvez réserver."
+    : `Poste pas encore accordé (${ITEM_STATUS_LABELS[item.status].label.toLowerCase()}) — préparez le devis ; ne réservez qu'après l'accord.`;
+  const corps = [
+    `Demande ${info.ref} — poste « ${item.label} ».`,
+    etat,
+    `Voyageurs (${voyageurs.length}) :`,
+    ...lignes,
+    `Fiche : ${PARENTS[owner.parent].path}/${owner.id}`,
+  ].join("\n");
+
+  const poste = await prisma.adProItem.findUnique({ where: { id }, select: { reservationDossierId: true } });
+  if (poste?.reservationDossierId && await ecrireDansLeSujet({ dossierId: poste.reservationDossierId, authorId: user.id, body: `Demande de réservation mise à jour.\n${corps}` })) {
+    await audit(user, owner.parent, owner.id, "UPDATE", `Réservation du poste « ${item.label} » redemandée (${voyageurs.length} voyageur(s)).`);
+    revalidate(owner.parent, owner.id);
+    return { ok: true, id: poste.reservationDossierId, message: "Demande de réservation mise à jour dans le sujet ouvert — l'assistante de direction est prévenue." };
+  }
+
+  // L'ASSISTANTE DE DIRECTION : une seule active ⇒ elle en est responsable ; plusieurs ⇒ toutes
+  // participantes, sans responsable désignée — en choisir une serait choisir à la place d'un
+  // humain (§118.34). Aucune ⇒ la demande n'a personne à qui partir, et on le dit.
+  const assistantes = await prisma.user.findMany({
+    where: { isActive: true, ...anyRoleFilter(["DIRECTION_ASSISTANT"]) },
+    select: { id: true }, orderBy: { createdAt: "asc" },
+  });
+  if (assistantes.length === 0) {
+    return { ok: false, error: "Aucune assistante de direction active : la demande de réservation n'a personne à qui partir (Administration › Comptes)." };
+  }
+  const seule = assistantes.length === 1 ? assistantes[0]!.id : null;
+  const sujet = await createDossierRecord({
+    title: `Réservation billets — ${info.ref} · ${item.label}`,
+    description: corps,
+    category: "Billets",
+    priority: "HIGH",
+    assignedToId: seule,
+    participantIds: [...(seule ? [] : assistantes.map((a) => a.id)), ...(info.requesterId ? [info.requesterId] : [])],
+    sourceType: PARENT_ENTITE[owner.parent],
+    sourceId: owner.id,
+    companyId: info.companyId ?? null,
+  }, user.id);
+  await prisma.adProItem.update({ where: { id }, data: { reservationDossierId: sujet.id, updatedById: user.id } });
+  await audit(user, owner.parent, owner.id, "UPDATE", `Réservation du poste « ${item.label} » demandée — sujet ${sujet.reference} (${voyageurs.length} voyageur(s)).`);
+  revalidate(owner.parent, owner.id);
+  revalidatePath("/dossiers");
+  return { ok: true, id: sujet.id, message: `Demande de réservation envoyée — sujet ${sujet.reference} ouvert pour l'assistante de direction.` };
+}
