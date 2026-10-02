@@ -160,6 +160,20 @@ const VISIT_STATUS_FR: [string, string][] = [
   ["PLANNED", "Planifiée"], ["COMPLETED", "Réalisée"], ["CANCELLED", "Annulée"], ["POSTPONED", "Reportée"],
 ];
 
+/**
+ * UNE VISITE FAITE NE S'ENREGISTRE PAS PAR create_visit / update_visit (§118.71).
+ *
+ * Les actions qu'appellent ces deux opérations PLANIFIENT : elles refusent désormais le statut
+ * « réalisée », parce qu'elles ne tiennent ni la fenêtre de 48 h, ni les produits de la gamme, ni le
+ * matériel remis. Le refus est posé AVANT la carte — une carte qu'on confirme puis qu'on voit
+ * refuser est un geste offert puis retiré (§118.83) — et il nomme l'opération qui sait faire :
+ * c'est le PLANIFICATEUR qui lit ce refus, pas une personne devant un écran (§118.69).
+ */
+const REFUS_FAITE_PAR_LOG_VISIT =
+  "Une visite FAITE ne s'enregistre pas par cette opération : passez par log_visit (la saisie de « Ma journée », dans les 48 h, "
+  + "produits de la gamme) ou par le rapport de la visite planifiée. Cette opération planifie, reporte ou annule.";
+
+
 function enumIn(raw: string, entries: [string, string][]): string | null | { error: string } {
   const q = raw.trim();
   if (!q) return null;
@@ -568,6 +582,7 @@ export const MEDICAL_OPS_IMPL: Record<string, OpImpl> = {
       if ("error" in doctor) return doctor;
       const status = enumIn(opStr(input, "status"), VISIT_STATUS_FR);
       if (status && typeof status === "object") return status;
+      if (status === "COMPLETED") return { error: REFUS_FAITE_PAR_LOG_VISIT };
       let delegateId: string | null = null; let delegateName: string | null = null;
       if (opStr(input, "person")) {
         const delegate = await resolvePerson(opStr(input, "person"), "le délégué (champ « person »)");
@@ -602,6 +617,7 @@ export const MEDICAL_OPS_IMPL: Record<string, OpImpl> = {
       if ("error" in visit) return visit;
       const status = enumIn(opStr(input, "status"), VISIT_STATUS_FR);
       if (status && typeof status === "object") return status;
+      if (status === "COMPLETED") return { error: REFUS_FAITE_PAR_LOG_VISIT };
       // L'action n'écrit QUE les champs soumis : rien à rejouer, on n'envoie que le demandé.
       const updates = fieldsOf([
         ["Statut", status ? VISIT_STATUS_FR.find(([c]) => c === status)?.[1] ?? null : null],

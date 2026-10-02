@@ -4,7 +4,7 @@ import { requireModule } from "@/lib/session";
 import { userCan } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { getDepartmentTree, flattenTree } from "@/lib/departments";
-import { getMyCompanies, getCompanyScope, companyLabel } from "@/lib/company";
+import { getMyCompanies, myCompanyScope, platformScope, companyLabel } from "@/lib/company";
 import { PageHeader } from "@/components/shared/page-header";
 import { Button } from "@/components/ui/button";
 import { KpiCard } from "@/components/shared/kpi-card";
@@ -19,18 +19,28 @@ export default async function DepartmentsPage() {
   const canManage = userCan(user, "RH", "UPDATE");
 
   // Périmètre d'ENTITÉ actif (sélecteur de la barre supérieure) : chaque société a ses
-  // propres départements ; « toutes les entités » donne la vue groupe.
-  const companyScope = getCompanyScope();
-  const [companies, tree, employees, unassigned] = await Promise.all([
-    getMyCompanies(user.id),
-    getDepartmentTree(companyScope),
+  // propres départements ; « toutes les entités » donne la vue de SES entités.
+  //
+  // LA PORTÉE EST VALIDÉE (§118.177). Elle lisait le cookie tel quel : y écrire l'identifiant d'une
+  // autre société montrait ses départements et ses salariés, et SANS cookie un salarié mono-entité
+  // voyait ceux de tout le groupe. C'est le défaut que `myCompanyScope` ferme ailleurs — « le
+  // cookie est une demande, jamais une autorisation ». Les salariés passent par `platformScope`,
+  // le filtre de la liste RH (`getRhData`) : deux écrans du même module ne doivent pas répondre
+  // différemment à « quels salariés vois-je ? ».
+  const [companyScope, companies, entite] = await Promise.all([
+    myCompanyScope(user.id), getMyCompanies(user.id), platformScope(user.id),
+  ]);
+  // On n'enferme personne par omission : sans entité ouverte, la structure reste celle du groupe.
+  const parmi = companies.length > 0 ? companies.map((c) => c.id) : null;
+  const [tree, employees, unassigned] = await Promise.all([
+    getDepartmentTree(companyScope, parmi),
     prisma.employee.findMany({
-      where: { isActive: true, ...(companyScope ? { companyId: companyScope } : {}) },
+      where: { AND: [{ isActive: true }, entite] },
       select: { id: true, fullName: true, position: true },
       orderBy: { fullName: "asc" },
     }),
     prisma.employee.findMany({
-      where: { isActive: true, departmentId: null, ...(companyScope ? { companyId: companyScope } : {}) },
+      where: { AND: [{ isActive: true, departmentId: null }, entite] },
       select: { id: true, fullName: true, position: true },
       orderBy: { fullName: "asc" },
     }),

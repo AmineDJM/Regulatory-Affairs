@@ -6,12 +6,11 @@ import {
 } from "lucide-react";
 import type { RegFindingSeverity } from "@prisma/client";
 import { requireModule } from "@/lib/session";
-import { getCompanyScope } from "@/lib/company";
 import { PageHeader } from "@/components/shared/page-header";
 import { ReminderButton } from "@/components/reminders/reminder-button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { regCan, resolveRegCompanyId } from "@/lib/regulatory/intelligence/access";
+import { regCan, resolveRegCompanyIdFor } from "@/lib/regulatory/intelligence/access";
 import { getDossier, listVersions, listVersionDocuments, getAssessment, listFindings, listFacts, listConflicts, reservesByIds, documentNamesByIds } from "@/lib/regulatory/intelligence/queries";
 import { findingQuality } from "@/lib/regulatory/intelligence/findings/enrich";
 import { buildCoverage, buildRegistrationDocs } from "@/lib/regulatory/intelligence/twin/build-twin";
@@ -65,7 +64,7 @@ export default async function DossierDetailPage({ params }: { params: { dossierI
   const user = await requireModule("REGULATORY");
   if (!regCan(user, "regulatory.workspace.view")) notFound();
 
-  const companyId = await resolveRegCompanyId(getCompanyScope());
+  const companyId = await resolveRegCompanyIdFor(user.id);
   if (!companyId) notFound();
 
   const dossier = await getDossier(companyId, params.dossierId);

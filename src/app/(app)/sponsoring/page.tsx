@@ -1,7 +1,7 @@
 import { requireModule } from "@/lib/session";
 import { userCan, anyRoleFilter } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
-import { platformScope } from "@/lib/company";
+import { clauseSponsoringsVisibles } from "@/lib/queries/visibilite-listes";
 import { toNumber } from "@/lib/utils";
 import { PageHeader } from "@/components/shared/page-header";
 import { CreateRecordButton } from "@/components/shared/create-record-button";
@@ -41,7 +41,7 @@ export default async function SponsoringPage() {
 
   // Cloisonnement par entité : la vue « Adventum » ne montre que les demandes d'Adventum.
   const requests = await prisma.sponsoringRequest.findMany({
-    where: await platformScope(user.id),
+    where: await clauseSponsoringsVisibles(user.id),
     orderBy: { requestDate: "desc" },
     include: { requester: { select: { name: true } } },
   });

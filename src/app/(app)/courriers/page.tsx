@@ -4,7 +4,8 @@ import { listPartyOptions } from "@/lib/queries/company-contacts";
 import { hiddenByScopeMessage } from "@/lib/company-visibility";
 import { userCan } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
-import { getCompanyScope, companyScopedWhere, companyIdForNew } from "@/lib/company";
+import { getCompanyScope, companyIdForNew } from "@/lib/company";
+import { clauseCourriersVisibles } from "@/lib/queries/visibilite-listes";
 import { PageHeader } from "@/components/shared/page-header";
 import { KpiCard } from "@/components/shared/kpi-card";
 import { CreateRecordButton } from "@/components/shared/create-record-button";
@@ -67,7 +68,9 @@ export default async function CourriersPage({ searchParams }: { searchParams?: {
   // COMBIEN LE FILTRE D'ENTITÉ RETIRE — compté, puis DIT. Sans ce chiffre, on ouvre le registre
   // et l'on compte dix-neuf plis, on y revient et l'on en compte quatorze : rien à l'écran ne
   // relie les deux faits, et l'on conclut que le module perd des courriers.
-  const porteeWhere = await companyScopedWhere(user.id, folderWhere);
+  // Le PÉRIMÈTRE de la liste est celui que la recherche globale lit aussi (§118.177) ; le dossier
+  // ouvert est un filtre d'affichage, composé EN `AND` par-dessus.
+  const porteeWhere = { AND: [await clauseCourriersVisibles(user.id), folderWhere] };
   // L'ENTITÉ EST PRÉ-CHOISIE À LA CRÉATION — celle sur laquelle la personne travaille, ou la
   // sienne. Le menu s'ouvrait sur un choix vide : la plupart des plis étaient enregistrés sans
   // entité, et sortaient aussitôt de toutes les vues cloisonnées. Un pré-choix VISIBLE, qu'on

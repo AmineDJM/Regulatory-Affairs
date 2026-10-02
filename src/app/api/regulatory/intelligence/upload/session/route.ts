@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/session";
-import { getCompanyScope } from "@/lib/company";
-import { regCan, resolveRegCompanyId } from "@/lib/regulatory/intelligence/access";
+import { regCan, resolveRegCompanyIdFor } from "@/lib/regulatory/intelligence/access";
 import { startUploadSession, startDirectUploadSession, objectStorageConfigured, DEFAULT_PART_SIZE, SMALL_FILE_THRESHOLD, MAX_TOTAL_BYTES, UPLOAD_CONCURRENCY } from "@/lib/regulatory/intelligence/upload/session";
 
 /**
@@ -15,7 +14,7 @@ export async function POST(req: NextRequest) {
   const user = await getCurrentUser();
   if (!user) return NextResponse.json({ error: "Non authentifié." }, { status: 401 });
   if (!regCan(user, "regulatory.dossier.upload")) return NextResponse.json({ error: "Téléversement non autorisé." }, { status: 403 });
-  const companyId = await resolveRegCompanyId(getCompanyScope());
+  const companyId = await resolveRegCompanyIdFor(user.id);
   if (!companyId) return NextResponse.json({ error: "Module non activé pour cette entité." }, { status: 403 });
 
   let body: { dossierId?: string; filename?: string; totalBytes?: number; partSize?: number; sha256?: string; contentType?: string };

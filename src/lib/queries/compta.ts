@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { platformScope } from "@/lib/company";
+import { clauseEcrituresVisibles } from "@/lib/queries/visibilite-listes";
 import { toNumber } from "@/lib/utils";
 
 /**
@@ -47,7 +48,7 @@ export async function getComptaData(userId: string) {
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
 
   const [txs, orders] = await Promise.all([
-    prisma.financeTransaction.findMany({ where: scope, orderBy: { date: "desc" }, take: 2000 }),
+    prisma.financeTransaction.findMany({ where: await clauseEcrituresVisibles(userId), orderBy: { date: "desc" }, take: 2000 }),
     prisma.expenseOrder.findMany({
       where: { AND: [{ status: "PENDING" }, scope] },
       include: { requestedBy: { select: { name: true } } },

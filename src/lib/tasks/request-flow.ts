@@ -143,6 +143,28 @@ export function canSee(t: TaskLike, userId: string, globalView = false): boolean
   );
 }
 
+/**
+ * LE MÊME CERCLE, EN CLAUSE DE REQUÊTE — pour les lectures qui cherchent des tâches au lieu d'en
+ * ouvrir une (la recherche globale). Deux écritures de « qui voit cette tâche » finiraient par
+ * diverger : la palette montrait le titre d'une tâche que la fiche refusait ensuite d'ouvrir
+ * (elle comptait la vue globale prêtée par un rôle SECONDAIRE, la fiche lit le rôle principal),
+ * et ne trouvait pas celles où l'on est participant ou lecteur (§118.177). Un test rejoue `canSee`
+ * et cette clause sur le même décor : elles doivent répondre pareil, tâche par tâche.
+ */
+export function clauseTachesVisibles(userId: string, globalView: boolean): {
+  OR?: ({ assignedToId: string } | { createdById: string } | { participantIds: { has: string } } | { readerIds: { has: string } })[];
+} {
+  if (globalView) return {};
+  return {
+    OR: [
+      { assignedToId: userId },
+      { createdById: userId },
+      { participantIds: { has: userId } },
+      { readerIds: { has: userId } },
+    ],
+  };
+}
+
 /** Qui peut joindre une pièce : ceux qui font le travail, et le demandeur (il complète sa demande). */
 export function canAttach(t: TaskLike, userId: string): boolean {
   return canDoWork(t, userId) || t.createdById === userId;

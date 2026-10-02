@@ -1,7 +1,7 @@
 import type { Prisma, AdminRequestStatus, AdminRequestType } from "@prisma/client";
 import { scopeAdminRequests, hasGlobalView, userCan, type SessionUser } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
-import { platformScope } from "@/lib/company";
+import { clauseDemandesSecretariatVisibles } from "@/lib/queries/visibilite-listes";
 
 const REQ_INCLUDE = {
   requester: { select: { name: true } },
@@ -11,7 +11,7 @@ const REQ_INCLUDE = {
 
 export async function getRequestList(user: SessionUser, filters: { status?: string; type?: string }) {
   // Cloisonnement par entité : la vue « Adventum » ne montre que les demandes d'Adventum.
-  const and: Prisma.AdministrativeRequestWhereInput[] = [scopeAdminRequests(user), await platformScope(user.id)];
+  const and: Prisma.AdministrativeRequestWhereInput[] = [await clauseDemandesSecretariatVisibles(user)];
   if (filters.status) and.push({ status: filters.status as AdminRequestStatus });
   if (filters.type) and.push({ type: filters.type as AdminRequestType });
   return prisma.administrativeRequest.findMany({

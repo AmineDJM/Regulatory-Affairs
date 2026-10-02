@@ -1,8 +1,9 @@
 import { requireModule } from "@/lib/session";
-import { userCan, scopeSales } from "@/lib/rbac";
+import { userCan } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { toNumber, formatCurrency } from "@/lib/utils";
-import { companyScopedWhere, getMyCompanies, companyOptions } from "@/lib/company";
+import { getMyCompanies, companyOptions } from "@/lib/company";
+import { clauseVentesVisibles } from "@/lib/queries/visibilite-listes";
 import { PageHeader } from "@/components/shared/page-header";
 import { KpiCard } from "@/components/shared/kpi-card";
 import { CreateRecordButton } from "@/components/shared/create-record-button";
@@ -15,7 +16,7 @@ import { ImportSalesButton } from "./import-sales";
 export default async function SalesPage() {
   const user = await requireModule("SALES");
   const canCreate = userCan(user, "SALES", "CREATE");
-  const where = await companyScopedWhere(user.id, scopeSales(user));
+  const where = await clauseVentesVisibles(user);
   const companies = await getMyCompanies(user.id);
 
   const sales = await prisma.sale.findMany({

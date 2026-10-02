@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/prisma";
-import { platformScope } from "@/lib/company";
+import { clauseSalariesVisibles } from "@/lib/queries/visibilite-listes";
 import { userCan, hasGlobalView, isTopManagement, type SessionUser } from "@/lib/rbac";
 import { canDecideLeave, type LeaveStage } from "@/lib/leave-workflow";
 import { buildLeaveSheet } from "@/lib/hr/leave-sheet";
@@ -108,7 +108,7 @@ export async function getRhData(userId: string) {
   const [employees, pendingLeaves, recentLeaves, advances] = await Promise.all([
     prisma.employee.findMany({
       // Portée VALIDÉE contre les droits (le cookie est une demande, pas une autorisation).
-      where: await platformScope(userId),
+      where: await clauseSalariesVisibles(userId),
       orderBy: [{ isActive: "desc" }, { fullName: "asc" }],
       include: { user: { select: { id: true, email: true } }, company: { select: { id: true, name: true, shortName: true, color: true } }, _count: { select: { leaveRequests: true } } },
     }),

@@ -218,6 +218,17 @@ export function fenetreRapport(dateVisite: Date, maintenant: Date): {
   };
 }
 
+/**
+ * LE REFUS D'UNE VISITE « FAITE » HORS DÉLAI, à la CRÉATION — une seule rédaction pour les deux
+ * portes qui créent une visite déjà faite (la visite imprévue et la saisie rapide de « Ma
+ * journée »). La même borne de 48 h que le rapport d'une visite planifiée : sans elle, créer une
+ * visite datée d'il y a trois semaines serait le moyen de contourner le verrou (§118.71).
+ */
+export function refusVisiteHorsDelai(dateVisite: Date): string {
+  return `Une visite s'enregistre dans les ${HEURES_RAPPORT} h : celle du ${dateVisite.toLocaleDateString("fr-FR")} est hors délai. `
+    + "C'est la même borne que pour une visite planifiée — sans elle, enregistrer une visite après coup serait le moyen de la contourner.";
+}
+
 // ─────────────────────────── L'état d'une visite ───────────────────────────
 
 /**

@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/prisma";
-import { platformScope } from "@/lib/company";
+import { clauseCongresInternationauxVisibles, clauseCongresNationauxVisibles } from "@/lib/queries/visibilite-listes";
 import { scopeCongressIntl, scopeCongressNational, type SessionUser } from "@/lib/rbac";
 import { toNumber } from "@/lib/utils";
 
@@ -31,11 +31,10 @@ async function userNameMap(ids: string[]): Promise<Map<string, string>> {
 
 export async function getCongressList(type: CongressType, user: SessionUser): Promise<CongressListRow[]> {
   // Cloisonnement par entité : la vue « Adventum » ne montre que les demandes d'Adventum.
-  const scope = await platformScope(user.id);
   const items =
     type === "INTL"
-      ? await prisma.congressInternational.findMany({ where: { AND: [scopeCongressIntl(user), scope] }, orderBy: [{ createdAt: "desc" }] })
-      : await prisma.congressNational.findMany({ where: { AND: [scopeCongressNational(user), scope] }, orderBy: [{ createdAt: "desc" }] });
+      ? await prisma.congressInternational.findMany({ where: await clauseCongresInternationauxVisibles(user), orderBy: [{ createdAt: "desc" }] })
+      : await prisma.congressNational.findMany({ where: await clauseCongresNationauxVisibles(user), orderBy: [{ createdAt: "desc" }] });
 
   const names = await userNameMap(items.map((c) => c.requesterId ?? "").filter(Boolean));
 

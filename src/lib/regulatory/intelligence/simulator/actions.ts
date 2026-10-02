@@ -3,8 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { requireUser } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
-import { getCompanyScope } from "@/lib/company";
-import { regCan, resolveRegCompanyId } from "../access";
+import { regCan, resolveRegCompanyIdFor } from "../access";
 import { runReviewerSimulation, type SimulationResult } from "./run";
 
 /** Lance la simulation multi-perspectives (G11). NON prédictive. Org-scopé + rôle. */
@@ -14,7 +13,7 @@ export async function runSimulationAction(formData: FormData): Promise<Simulatio
   const dossierId = formData.get("dossierId") ? String(formData.get("dossierId")) : null;
   if (!dossierId) return { ok: false, configured: false, perspectives: [], error: "Dossier manquant." };
 
-  const companyId = await resolveRegCompanyId(getCompanyScope());
+  const companyId = await resolveRegCompanyIdFor(user.id);
   if (!companyId) return { ok: false, configured: false, perspectives: [], error: "Module non activé." };
   const version = await prisma.regulatoryDossierVersion.findFirst({ where: { dossierId, dossier: { companyId } }, orderBy: { versionNo: "desc" }, select: { id: true } });
   if (!version) return { ok: false, configured: false, perspectives: [], error: "Aucune version." };

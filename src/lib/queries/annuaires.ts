@@ -57,6 +57,27 @@ export async function clauseAnnuairesFermes(user: SessionUser): Promise<Prisma.M
   return fermes.length > 0 ? { OR: [{ directoryId: null }, { directoryId: { notIn: fermes } }] } : {};
 }
 
+/**
+ * LES PRATICIENS QU'UNE PERSONNE VOIT DANS LA FEUILLE ENTIÈRE — la portée du module (ou l'annuaire
+ * entier quand la console l'ouvre), dans l'entité, hors annuaires nommés fermés. Lue par l'EXPORT
+ * et par la RECHERCHE GLOBALE : la palette ignorait les deux dernières clauses, et retrouvait les
+ * praticiens des autres sociétés et ceux d'un annuaire réservé à trois personnes (§118.177).
+ *
+ * Les clauses se composent EN `AND` : la portée d'un délégué et l'exclusion des annuaires fermés
+ * sont deux `OR`, et les étaler dans le même objet ferait écraser l'une par l'autre (§118.133).
+ */
+export async function clausePraticiensVisibles(
+  user: SessionUser,
+  opts: { entier: boolean },
+): Promise<Prisma.MedicalDoctorWhereInput> {
+  return {
+    AND: [
+      await companyScopedWhere(user.id, opts.entier ? {} : scopeMedicalDoctors(user)),
+      await clauseAnnuairesFermes(user),
+    ],
+  };
+}
+
 /** Médecins = tout grade sauf PHARMACIEN ; pharmaciens = ce grade seul ; `null` = tous. */
 export type FiltreGrade = "medecins" | "pharmaciens" | null;
 

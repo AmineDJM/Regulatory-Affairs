@@ -371,6 +371,13 @@ export async function importDirectorySheet(formData: FormData): Promise<ActionRe
   if (delegueInconnu.size > 0 && voitTout) parts.push(`délégué(s) introuvable(s) — les fiches existantes gardent leur délégué, les nouvelles n'en ont pas : ${[...delegueInconnu].slice(0, 5).join(", ")}`);
   if (presents.has("delegate") && !voitTout) parts.push("colonne « Délégué » non appliquée : les fiches que vous créez vous sont attribuées");
   if (unknownCols.length) parts.push(`colonne(s) non reconnue(s) : ${unknownCols.join(", ")}`);
+  // UN NIVEAU ILLISIBLE N'EST NI ÉCRIT NI TU : la fiche garde le sien (ou le défaut, si elle est
+  // neuve), et la cellule est nommée — sinon « Très bon » mal orthographié deviendrait un silence.
+  const illisibles = parsed.rows.flatMap((r) => r.niveauxIllisibles);
+  if (illisibles.length > 0) {
+    const nom = { influence: "Influence", potential: "Potentiel", affinity: "Affinité" } as const;
+    parts.push(`${illisibles.length} niveau(x) illisible(s) non écrit(s) : ${illisibles.slice(0, 5).map((i) => `« ${i.valeur} » (${nom[i.champ]})`).join(", ")}${illisibles.length > 5 ? ` et ${illisibles.length - 5} autre(s)` : ""}`);
+  }
   return { ok: true, message: parts.join(" · ") };
 }
 

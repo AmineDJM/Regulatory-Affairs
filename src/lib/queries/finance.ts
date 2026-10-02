@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
-import { platformScope, companyScopedWhere } from "@/lib/company";
+import { companyScopedWhere } from "@/lib/company";
+import { clauseEcrituresVisibles } from "@/lib/queries/visibilite-listes";
 import { toNumber } from "@/lib/utils";
 import { jourAlger, soldesTresorerie, disponible, type FluxTresorerie, type SoldeCompte } from "@/lib/finance/tresorerie";
 import { lireComptes, versCompte } from "@/lib/finance/comptes";
@@ -43,7 +44,7 @@ export interface LedgerRow {
  * décider si l'on peut payer (§118.5).
  */
 export async function getFinanceData(userId: string) {
-  const txs = await prisma.financeTransaction.findMany({ where: await platformScope(userId), orderBy: { date: "desc" } });
+  const txs = await prisma.financeTransaction.findMany({ where: await clauseEcrituresVisibles(userId), orderBy: { date: "desc" } });
   const now = new Date();
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
 

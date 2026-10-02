@@ -38,11 +38,18 @@ const NAMED_ON_DOSSIER = (userId: string) => ({
  */
 export async function regulatoryVisibleWhere(user: SessionUser) {
   const rangeScope = await productRangeScope(user.id);
+  // LES CLAUSES SE COMPOSENT EN `AND`, JAMAIS PAR ÉTALEMENT (§118.133, §118.177). Elle étalait la
+  // portée du module puis ajoutait sa propre clé `AND` — or, pour qui n'a pas la portée « toutes
+  // les lignes » et ne voit pas les dossiers verrouillés, `scopeRegulatory` rend précisément
+  // `{ AND: [{ OR: … }, { isLocked: false }] }`. Dès qu'une GAMME s'appliquait, la seconde clé
+  // écrasait la première : la portée par ligne ET le verrou du pipeline disparaissaient, pour
+  // l'écran et pour chacun des appelants de cette clause. C'est exactement le piège que l'en-tête
+  // de `companyScopedWhere` décrit, reproduit un étage plus bas.
   return companyScopedWhere(user.id, {
-    ...scopeRegulatory(user),
-    ...(rangeScope
-      ? { AND: [{ OR: [rangeScope, NAMED_ON_DOSSIER(user.id)] }] }
-      : {}),
+    AND: [
+      scopeRegulatory(user),
+      ...(rangeScope ? [{ OR: [rangeScope, NAMED_ON_DOSSIER(user.id)] }] : []),
+    ],
   });
 }
 

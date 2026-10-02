@@ -4,7 +4,7 @@ import { requireUser } from "@/lib/session";
 import { listPartyOptions } from "@/lib/queries/company-contacts";
 import { userCan } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
-import { companyScopedWhere, getMyCompanies, companyLabel } from "@/lib/company";
+import { getMyCompanies, companyLabel } from "@/lib/company";
 import { PageHeader } from "@/components/shared/page-header";
 import { KpiCard } from "@/components/shared/kpi-card";
 import { CreateRecordButton } from "@/components/shared/create-record-button";
@@ -17,7 +17,8 @@ import { LegalFolderBar, type FolderRow } from "./folder-bar";
 import { buildFolderTree, flattenFolders, indentedLabel } from "@/lib/legal/folders";
 import { legalListScope } from "@/lib/legal/list-view";
 import { legalReaderWhere } from "@/lib/lecteurs/legal";
-import { legalViewScope, natureFromParam, invoiceTally, PURCHASE_CHAIN_KINDS } from "@/lib/legal/invoices";
+import { natureFromParam, invoiceTally, PURCHASE_CHAIN_KINDS } from "@/lib/legal/invoices";
+import { perimetreLegal } from "@/lib/queries/visibilite-listes";
 import { ComposerPieceButton, type TypePieceComposable } from "@/components/pieces/composer-piece";
 import { compositionDesPieces } from "@/lib/queries/composition-pieces";
 import { piecesAmontProposees } from "@/lib/queries/legal-chain";
@@ -52,16 +53,17 @@ export const metadata = { title: "Legal — AMD Internal OS" };
  */
 export default async function LegalPage({ searchParams }: { searchParams?: { echeances?: string; dossier?: string; nature?: string } }) {
   const user = await requireUser();
-  const portee = legalViewScope({
-    onLegal: userCan(user, "LEGAL", "VIEW"),
-    onFinances: userCan(user, "FINANCES", "VIEW"),
-    onBonsDeCommande: userCan(user, "PURCHASE_ORDERS", "VIEW"),
-  });
+  // LA PORTÉE ET SA CLAUSE, calculées UNE fois (`perimetreLegal`) et lues aussi par la recherche
+  // globale : la palette ne doit trouver que ce que cette liste montre (§118.177).
+  const { portee, where: visible } = await perimetreLegal(user);
   if (portee === "NONE") notFound();
   // LA PORTE DU MODULE « BONS DE COMMANDE » (§118.176) n'ouvre que les bons de commande, et ils ont
   // leur écran : le registre entier n'est pas le sien. On l'y conduit plutôt que de lui montrer une
   // liste d'engagements réduite à ce que sa propre file montre déjà mieux.
   if (portee === "BONS_DE_COMMANDE") redirect(CHEMIN_BONS_DE_COMMANDE);
+  // Inatteignable : ces deux portées sont les seules sans clause. Le dire au typage plutôt que
+  // d'affirmer une valeur non nulle qu'aucun code ne vérifierait.
+  if (!visible) notFound();
   // LA CHAÎNE D'ACHAT SEULE : la comptabilité voit les factures et les bons de commande qu'elle
   // émet — pas les baux ni les contrats. La nature se choisit parmi ces deux-là, facture d'abord.
   const facturesSeules = portee === "PURCHASE_CHAIN";
@@ -92,15 +94,10 @@ export default async function LegalPage({ searchParams }: { searchParams?: { ech
   const unfiledOnly = searchParams?.dossier === "none";
   const folderWhere = unfiledOnly ? { folderId: null } : openFolderId ? { folderId: openFolderId } : {};
   // LA PORTÉE, DANS LA REQUÊTE. `facturesSeules` n'est pas une préférence d'affichage : c'est le
-  // droit de la personne, et il se tient côté serveur.
-  const natureWhere = facturesSeules ? { kind: { in: [...PURCHASE_CHAIN_KINDS] as ("INVOICE" | "PURCHASE_ORDER")[] } } : {};
-
+  // droit de la personne, et il se tient côté serveur — dans `visible`, avec les lecteurs et
+  // l'entité. Le dossier ouvert, lui, est un filtre d'affichage, composé EN `AND` par-dessus.
   const docs = await prisma.legalDocument.findMany({
-    where: await companyScopedWhere(user.id, {
-      ...folderWhere,
-      ...natureWhere,
-      ...(readerScope ? { AND: [readerScope] } : {}),
-    }),
+    where: { AND: [visible, folderWhere] },
     orderBy: [{ endDate: "asc" }, { createdAt: "desc" }],
     include: {
       driveNode: { select: { id: true, name: true } },
@@ -157,11 +154,7 @@ export default async function LegalPage({ searchParams }: { searchParams?: { ech
   ]);
   const counts = await prisma.legalDocument.groupBy({
     by: ["folderId"],
-    where: await companyScopedWhere(user.id, {
-      ...natureWhere,
-      ...(readerScope ? { AND: [readerScope] } : {}),
-      folderId: { not: null },
-    }),
+    where: { AND: [visible, { folderId: { not: null } }] },
     _count: { _all: true },
   });
   const countByFolder = new Map(counts.map((c) => [c.folderId as string, c._count._all]));

@@ -3,12 +3,25 @@ import { scopeDirectives, hasGlobalView, userCan, type SessionUser } from "@/lib
 import { canReadDirective } from "@/lib/directives/audience";
 import { companyIdsOf, directiveAttachments, resolveRecipientIds, scopeOf } from "@/lib/directives/recipients";
 
+/**
+ * LES NOTES QU'UNE PERSONNE PEUT LIRE — la clause de la liste, lue aussi par la recherche globale.
+ *
+ * Les notes adressées « aux salariés d'une entité » n'apparaissent qu'à ceux qui en relèvent : il
+ * faut donc savoir de quelle(s) entité(s) la personne relève AVANT de composer la portée.
+ *
+ * La recherche composait la sienne — « je l'ai écrite, ou elle m'est adressée, ou elle ne vise
+ * personne en particulier » — sans regarder la PUBLICATION : `targetUserId` vaut `null` pour
+ * toute note adressée à un rôle, à une entité ou à tous, donc chaque titulaire du module lisait
+ * dans la palette les brouillons, les notes en attente de signature et les notes refusées des
+ * autres, et celles destinées à un rôle qui n'était pas le sien (§118.177).
+ */
+export async function clauseDirectivesVisibles(user: SessionUser) {
+  return scopeDirectives(user, await companyIdsOf(user.id));
+}
+
 export async function getDirectives(user: SessionUser) {
-  // Les notes adressées « aux salariés d'une entité » n'apparaissent qu'à ceux qui en relèvent :
-  // il faut donc savoir de quelle(s) entité(s) la personne relève AVANT de composer la portée.
-  const companyIds = await companyIdsOf(user.id);
   return prisma.directive.findMany({
-    where: scopeDirectives(user, companyIds),
+    where: await clauseDirectivesVisibles(user),
     include: {
       from: { select: { name: true } },
       targetUser: { select: { name: true } },

@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/session";
-import { getCompanyScope } from "@/lib/company";
 import { prisma } from "@/lib/prisma";
-import { regCan, resolveRegCompanyId } from "@/lib/regulatory/intelligence/access";
+import { regCan, resolveRegCompanyIdFor } from "@/lib/regulatory/intelligence/access";
 import { ingestDossierZip } from "@/lib/regulatory/intelligence/ingest/ingest-dossier";
 import { DEFAULT_ZIP_LIMITS } from "@/lib/regulatory/intelligence/ingest/zip-inspector";
 
@@ -24,7 +23,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Téléversement non autorisé." }, { status: 403 });
   }
 
-  const companyId = await resolveRegCompanyId(getCompanyScope());
+  const companyId = await resolveRegCompanyIdFor(user.id);
   if (!companyId) {
     return NextResponse.json({ error: "Module non activé pour cette entité — sélectionnez l'entité concernée." }, { status: 403 });
   }

@@ -182,15 +182,30 @@ suite("ops vague 4b — Annuaire médical, Gammes, Études de marché", () => {
 
     it("update_visit : la visite se résout par praticien+date ; SEULS les champs donnés partent (statut FR)", async () => {
       const p = await buildProposal("medical_operation", {
-        op: "update_visit", doctor: "Dr Benali", date: "2026-08-18", status: "réalisée", report: "RAS, très intéressé",
+        op: "update_visit", doctor: "Dr Benali", date: "2026-08-18", status: "reportée", notes: "Revoir après le congrès",
       }, sa());
       expect("error" in p).toBe(false);
       if ("error" in p) return;
       const a = domainArgs(p);
       expect(a.id).toBe(visitId);
-      expect(a.status).toBe("COMPLETED");
-      expect(a.report).toBe("RAS, très intéressé");
-      expect(a.objective).toBeNull();
+      expect(a.status).toBe("POSTPONED");
+      expect(a.objective).toBe("Revoir après le congrès");
+      expect(a.report).toBeNull();
+    });
+
+    it("update_visit / create_visit : une visite FAITE ne passe pas par elles — le refus vient AVANT la carte et nomme log_visit", async () => {
+      // §118.71 : l'action refuse désormais le statut « réalisée » (ni fenêtre de 48 h, ni gamme, ni
+      // matériel remis). Construire la carte quand même offrirait un geste qu'on retire au clic.
+      const u = await buildProposal("medical_operation", {
+        op: "update_visit", doctor: "Dr Benali", date: "2026-08-18", status: "réalisée", report: "RAS, très intéressé",
+      }, sa());
+      expect("error" in u).toBe(true);
+      if ("error" in u) expect(u.error).toMatch(/log_visit/);
+      const c = await buildProposal("medical_operation", {
+        op: "create_visit", doctor: "Dr Benali", date: "2026-08-18", status: "réalisée",
+      }, sa());
+      expect("error" in c).toBe(true);
+      if ("error" in c) expect(c.error).toMatch(/log_visit/);
     });
 
     it("set_directory_access : liste RESTREINTE par noms ; « tous » lève la restriction", async () => {

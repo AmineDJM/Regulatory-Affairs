@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   normalizeHeader, matchColumn, mapHeaderRow, titleFrom, sectorFrom, levelFrom,
-  parseDirectoryRow, parseDirectorySheet, directoryHeaderRow, DIRECTORY_COLUMNS,
+  parseDirectoryRow, parseDirectorySheet, directoryHeaderRow, DIRECTORY_COLUMNS, champsAEcrire,
 } from "./directory-sheet";
 
 describe("Reconnaître les colonnes d'un fichier qu'on n'a pas écrit", () => {
@@ -79,10 +79,25 @@ describe("Reconnaître les VALEURS telles qu'on les écrit vraiment", () => {
   it("les niveaux, en toutes lettres comme en notes", () => {
     expect(levelFrom("Très haut")).toBe("VERY_HIGH");
     expect(levelFrom("élevé")).toBe("HIGH");
+    expect(levelFrom("Moyen")).toBe("MEDIUM");
     expect(levelFrom("faible")).toBe("LOW");
     expect(levelFrom("très faible")).toBe("VERY_LOW");
-    expect(levelFrom("")).toBe("MEDIUM");
-    expect(levelFrom("n'importe quoi")).toBe("MEDIUM");
+    expect(["5", "4", "3", "2", "1"].map(levelFrom)).toEqual(["VERY_HIGH", "HIGH", "MEDIUM", "LOW", "VERY_LOW"]);
+  });
+
+  it("les LETTRES : A+ > A > B > C > D — un D n'est plus lu « Moyen »", () => {
+    // Le défaut : « D » tombait sur « Moyen », donc un praticien D remontait à la fréquence de
+    // visite d'un moyen ; et « A+ » ne pouvait jamais être reconnu (le « + » était retiré avant).
+    expect(["A+", "A", "B", "C", "D"].map(levelFrom)).toEqual(["VERY_HIGH", "HIGH", "MEDIUM", "LOW", "VERY_LOW"]);
+    expect(levelFrom("d")).toBe("VERY_LOW");
+    expect(levelFrom(" a + ")).toBe("VERY_HIGH");
+  });
+
+  it("une cellule VIDE ou ILLISIBLE ne vaut RIEN — jamais « Moyen » par défaut (spec §43, §80)", () => {
+    expect(levelFrom("")).toBeNull();
+    expect(levelFrom(null)).toBeNull();
+    expect(levelFrom("n'importe quoi")).toBeNull();
+    expect(levelFrom("Très bon")).toBeNull();
   });
 });
 
@@ -106,7 +121,9 @@ describe("Restructurer une ligne à NOTRE format", () => {
       service: null,
       address: null, city: null, wilaya: "Alger", postalCode: null, region: null,
       phone: "0550 11 22 33", email: null,
-      influence: "VERY_HIGH", potential: "MEDIUM", affinity: "MEDIUM",
+      // Ce fichier n'a ni potentiel ni affinité : RIEN, et non « Moyen » (on n'invente pas).
+      influence: "VERY_HIGH", potential: null, affinity: null,
+      niveauxIllisibles: [],
       targetProducts: null, delegate: null, comments: null,
       // La ligne du FICHIER d'où elle vient : les lignes vides et les lignes sans nom décalent
       // le résultat, si bien que le i-ème rendu n'est presque jamais la i-ème ligne lue.
@@ -211,5 +228,34 @@ describe("Le classeur exporté se réimporte tel quel", () => {
       influence: "VERY_HIGH", potential: "HIGH", affinity: "MEDIUM",
       city: "Alger", region: "Centre", email: "a.mouffok@chu.dz",
     });
+  });
+});
+
+describe("Un niveau illisible n'efface pas un niveau connu (import)", () => {
+  const headers = ["Nom", "Potentiel", "Influence"];
+  const { mapping } = mapHeaderRow(headers);
+  const presents = new Set(mapping.filter((m): m is NonNullable<typeof m> => m !== null));
+  const existant = { lastName: null, firstName: null, specialty: null, wilaya: null };
+
+  it("fiche EXISTANTE : cellule vide ou illisible → le champ n'est pas écrit ; lisible → écrit", () => {
+    const vide = parseDirectoryRow(["Benali Karim", "", "Très bon"], mapping);
+    expect(vide).not.toBeNull();
+    if (!vide) return;
+    const champs = champsAEcrire(vide, presents, existant);
+    expect("potential" in champs).toBe(false);
+    expect("influence" in champs).toBe(false);
+    expect(vide.niveauxIllisibles).toEqual([{ champ: "influence", valeur: "Très bon" }]);
+
+    const lisible = parseDirectoryRow(["Benali Karim", "D", "A"], mapping);
+    if (!lisible) throw new Error("ligne attendue");
+    expect(champsAEcrire(lisible, presents, existant)).toMatchObject({ potential: "VERY_LOW", influence: "HIGH" });
+  });
+
+  it("fiche NEUVE : un niveau illisible n'est pas inventé (le défaut de la base s'applique)", () => {
+    const row = parseDirectoryRow(["Benali Karim", "??", ""], mapping);
+    if (!row) throw new Error("ligne attendue");
+    const champs = champsAEcrire(row, presents, null);
+    expect("potential" in champs).toBe(false);
+    expect("influence" in champs).toBe(false);
   });
 });

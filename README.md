@@ -240,7 +240,7 @@ jamais identique.
 | **Administration** | `/admin` | Comptes (création, **modification e-mail/profil/rôle**), **matrice d'accès** (onglet × action × ligne), **sessions révocables**, activité, **journal d'audit** (paginé), **champs personnalisés**, règles de validation, feedback, **Départements & sous-départements** (`/admin/departments` — structure hiérarchique à 2 niveaux « comme une vraie boîte », employés rattachés depuis leur fiche RH), comptes portail fournisseur, **Vue exacte** (impersonation), **Contrôle IA** + **Score d'adoption** en onglets, **limites d'upload** configurables, **Corbeille des suppressions définitives** (`/admin/corbeille` — chaque suppression définitive est **restaurable** jusqu'à destruction réelle), carte **Stockage Drive** (consommation exacte globale dédupliquée + par utilisateur, **capacité et quota modifiables et appliqués à l'envoi**), colonne **« Dernière activité (dernier clic) »** précise à la minute, **Rejeu de session** (`/admin/replay` — **Super Admin uniquement** : la suite exacte des actions d'une personne, pour reproduire un bug sans le faire raconter ; **aucune valeur de champ n'est enregistrée**). → [détails](#rejeu-de-session--rembobiner-ce-quune-personne-a-fait) |
 | **Annuaires** | `/annuaires` | **Module à part du pôle Administration** (`DIRECTORIES`) qui **centralise tous les annuaires** en onglets : **Médecins**, **Pharmaciens** (le grade `PHARMACIEN` de la même feuille de praticiens), **Établissements**, **Partenaires** (les contacts extérieurs de la société), **Personnes** (l'annuaire interne) et **Autres annuaires** (spécialités, fournisseurs Regulatory, partenaires courriers, lieux de stock — avec leur compte et le lien vers leur écran, ou « accès réservé »). **La porte est ouverte à tous** (accès implicite `VIEW`, comme « Mon équipe ») et **n'ouvre rien de plus** : chaque onglet est gardé par le module de SON référentiel (`MEDICAL` pour les trois premiers, `WORKSPACE` pour Partenaires et Personnes) — un lecteur sans Promotion médicale ne voit pas les onglets médicaux, et l'adresse tapée à la main refuse de la même façon. **Accès PAR ANNUAIRE** : dans la console (compte › accès, ou « Accès par module »), un accès **Personnalisé** au module Annuaires coche les annuaires à ouvrir — médecins, pharmaciens, établissements, partenaires, personnes — avec les gestes cochés (créer, modifier, supprimer), **sans** donner le module du référentiel : l'assistante de direction reçoit les établissements sans toute la Promotion médicale. L'ouverture **s'ajoute** au rôle (une case oubliée ne retire rien), l'annuaire s'ouvre **en entier** (un référentiel, pas un portefeuille), et la structure (annuaires nommés, colonnes, import de fichier) reste à la Promotion médicale. Les écrans d'origine (`/medical/annuaire`, `/medical/etablissements`, `/mon-espace/annuaire`) restent en place et lisent les **mêmes chargeurs** (`lib/queries/annuaires.ts`) : deux portes, une lecture. → [détails](#annuaires--praticiens-et-contacts-de-lentreprise) |
 | **Site web** | `/site-web` | **Pôle Administration** (`SITE_WEB`) : l'ERP **publie** les **offres d'emploi** et les **articles de blog** du site public **adventumdz.com** — il en est la source de vérité, le site n'est jamais saisi à la main pour ces contenus. Trois onglets : **Publication** (état de la connexion, contenus envoyés et leur état sur le site — *À envoyer*, *En attente*, *Nouvel essai prévu*, *En ligne*, *Retiré du site*, *Refusé par le site*, *Échec d'envoi* —, journal des derniers échanges, dernier rapprochement, et la **mise en service**), **Articles** (éditeur Markdown avec aperçu, sommaire, temps de lecture, refus d'un `# Titre` avant l'envoi) et **Offres d'emploi** (préparées depuis une demande de recrutement, **jamais** avec la rémunération ni la justification). Chaque envoi part par une **file** qui réessaie, et un **rapprochement quotidien** relit ce que le site détient. La liaison marche **dans les deux sens** : la clé se **génère en un clic** (un bloc à coller dans Render), les **candidatures** déposées sur le site arrivent dans **Recrutement › Candidatures du site** (ou directement dans le recrutement quand le poste est ouvert), et le site se recharge depuis l'ERP à chaque démarrage. La Direction, la Direction Générale et la Direction Marketing écrivent les articles ; les RH et la direction publient les offres. → [détails](#site-web-adventum--lerp-publie-les-offres-demploi-et-les-articles) |
-| **Recherche globale** | `/search` | RBAC-aware + **palette ⌘K**. |
+| **Recherche globale** | `/search` | RBAC-aware + **palette ⌘K**. **Elle cherche dans ce que chaque écran de liste montre, et nulle part ailleurs** : chaque famille lit la clause de SA liste (`queries/visibilite-listes.ts`, `regulatoryVisibleWhere`, `accessibleDocumentWhere`…) — entité, portée par ligne, lecteurs, annuaires fermés, publication des directives, membres actifs des discussions (§118.177). |
 
 ### Externe
 
@@ -1046,7 +1046,9 @@ ensuite). C'est une **dimension transverse** appliquée à tout le logiciel :
   dupliquer créerait deux vérités à désynchroniser.
 - **Sélecteur de portée** (barre supérieure, `CompanySwitcher`) : « Toutes les entités » ou une entité précise.
   Mémorisé dans le cookie `amd-company`. ⚠️ **Le cookie est une demande, jamais une autorisation** : il est validé
-  contre les droits réels (`resolveScope`) avant tout usage.
+  contre les droits réels (`resolveScope`) avant tout usage — y compris par l'analyse CTD (`resolveRegCompanyIdFor`,
+  qui ne choisit qu'une organisation activée **parmi les entités ouvertes à la personne**) et l'écran des départements.
+  Un cliquet déclare les seuls lecteurs de `getCompanyScope()` (§118.177).
 - **Les filtres et leurs usages** (`src/lib/company.ts` → `src/lib/company-access.ts`, fonctions **pures testées**) :
   - `myCompanyWhere(userId)` / `companyAccessWhere` — domaines **historiquement** rattachés (Regulatory, ventes…).
     « Toutes les entités » signifie « toutes celles auxquelles j'ai droit », **jamais** toutes celles qui existent ;
@@ -6551,6 +6553,60 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 ---
 
 ## 🧾 Journal des évolutions récentes
+
+### GRAPHE AMD — PHASE 0 : L'AUDIT, ET CE QUI FUYAIT DÉJÀ (2026-10)
+
+**Demande** (Direction, 01/10). Le chantier « graphe AMD » : une donnée créée une fois, une identité unique,
+réutilisée partout — Business Units multi-spécialité, produit canonique, annuaire maître, consommation
+hospitalière, affinité, potentiel, segmentation, priorités, cycles, coûts, vues 360°, cockpits. Phase 0 : auditer
+le dépôt avant de construire, pour ne rien recréer sous un autre nom.
+
+**L'audit** (carte complète : `docs/graphe-amd/PHASE0.md` ; le cahier des charges : `docs/graphe-amd/SPEC.md`). Ce qui existe et sera réutilisé : le produit canonique
+(`Product`, `ProductAlias`, clé d'identité DCI + dosage + unité + forme + conditionnement) et ses profils
+(Regulatory, promotion, BD) ; `PromoProduct`, l'affectation de fait d'un produit à une Business Unit ;
+`PromotionAssignment` (le classement P1-P3 par KAM et par cycle) ; `BusinessUnit` ; `MedicalSpecialty` ;
+`MedicalDoctor`, `MedicalInstitution` et ses services ; `SalesSector` ; `PromoCycle` et le plan de tournée ;
+`MedicalVisit` et ses produits liés ; les réglages SFE ; les motifs de versions (grille de coaching, définitions de
+circuit) ; les données de marché ; les imports à lot et empreinte ; la chaîne des marchés PCH ; les finances.
+Ce qui manque est rangé par phase (produit canonique jamais créé ni lié par l'application, panel du KAM à deux
+définitions, spécialité écrite en texte, types d'entité d'audit, budget des BU, cycles jamais clos, doublons
+d'import des ventes, indicateurs PCH). Le **fichier de segmentation Adventum n'est pas dans le dépôt** : les tests
+du cahier des charges seront écrits sur ses exemples, et l'import branché quand il sera fourni.
+
+**Corrigé tout de suite, parce que ça fuyait déjà.**
+- **La recherche globale montrait les lignes des autres sociétés.** Sur vingt-trois familles, quinze ignoraient le
+  cloisonnement par entité que leur écran de liste applique — sponsorings, écritures, salariés, praticiens,
+  marchés, contrats, courriers… —, et la moitié des fiches s'ouvraient ensuite. S'y ajoutaient les dossiers CTD
+  sans la permission du module ni l'entité activée, les directives non publiées ou destinées à un autre rôle, les
+  messages des groupes qu'on avait quittés, les noms des documents de modules qu'on ne voit pas, les praticiens
+  des annuaires fermés et les produits hors gamme. Chaque liste a désormais **une** clause
+  (`queries/visibilite-listes.ts`), que l'écran appelle pour charger et la recherche pour chercher dedans : la
+  palette ⌘K ne trouve que ce que l'écran montre, ni plus ni moins.
+- **L'analyse CTD faisait confiance au cookie d'entité.** Écrire l'identifiant d'une autre société dans son cookie
+  ouvrait son espace CTD, téléversement compris ; sans cookie, « toutes les entités » désignait l'unique
+  organisation activée, même d'une autre société. La portée est maintenant validée contre les droits, à chacun des
+  trente-trois endroits qui la lisaient, et la carte qui demande de choisir une entité ne nomme plus que des
+  entités qu'on peut sélectionner. L'écran des départements (RH) lisait le même cookie brut : réparé de même.
+- **Le tableau Regulatory perdait sa portée** pour quiconque est rattaché à une gamme sans voir tous les dossiers :
+  la clause de gamme écrasait celle de la portée par ligne et du verrou du pipeline.
+- **Une visite faite passait par une porte non gardée.** La saisie rapide de « Ma journée » (et l'opération
+  d'Adam qui l'appelle) acceptait une visite datée de trois semaines et n'importe quel produit, là où le rapport
+  et la visite imprévue appliquent la fenêtre de 48 h et la gamme de la Business Unit ; la planification
+  acceptait le statut « réalisée ». Une seule règle désormais, aux quatre portes.
+- **L'import de l'annuaire lisait « D » comme « Moyen »** (et tout niveau illisible aussi, en écrasant le niveau
+  connu) ; « A+ » ne se lisait jamais. Un niveau illisible n'écrit plus rien et il est signalé dans le bilan.
+
+**Ce qui reste, nommé.** Huit fiches de détail n'appliquent pas encore le cloisonnement d'entité (un identifiant
+qui fuirait par un autre chemin ouvrirait la fiche) : les fermer suppose de décider qui valide d'une entité à
+l'autre — un point à trancher par la Direction. La recherche fédérée d'Adam garde ses propres familles (Adam est
+en pause, Super Admin seul).
+
+**Vérification.** Banc en base `recherche-perimetre.test.ts` (13 cas, lecteurs cloisonnés : Directeur Général
+d'une seule entité, assistante réglementaire à gamme, lecteur des Documents, ancien membre d'un groupe, vue globale
+prêtée par un rôle secondaire), cliquet `visibilite-listes.test.ts` (8 cas : points d'appel des deux côtés,
+aucune portée recomposée dans la recherche, lecteurs du cookie déclarés), banc des portes de visite (6 cas par les
+vraies actions) et lecture des niveaux d'import ; **31 sabotages, 31 chutes** — dont un d'abord passé au vert, qui
+a fait écrire le cas d'une personne à deux entités.
 
 ### LES FINANCES DU 01/10 — COMPTES ANCRÉS, SOLDE DE TRÉSORERIE, PAIE ET CAISSE PAR LE CENTRE, BONS DE COMMANDE À PART, « À IMPUTER » SUPPRIMABLE (2026-10)
 

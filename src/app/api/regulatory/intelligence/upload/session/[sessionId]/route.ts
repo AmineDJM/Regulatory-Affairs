@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/session";
-import { getCompanyScope } from "@/lib/company";
-import { regCan, resolveRegCompanyId } from "@/lib/regulatory/intelligence/access";
+import { regCan, resolveRegCompanyIdFor } from "@/lib/regulatory/intelligence/access";
 import { uploadSessionStatus, abortUploadSession } from "@/lib/regulatory/intelligence/upload/session";
 
 /** État d'une session (reprise) + abandon. */
@@ -12,7 +11,7 @@ async function scope(req: NextRequest): Promise<{ companyId: string } | { error:
   const user = await getCurrentUser();
   if (!user) return { error: "Non authentifié.", status: 401 };
   if (!regCan(user, "regulatory.dossier.upload")) return { error: "Non autorisé.", status: 403 };
-  const companyId = await resolveRegCompanyId(getCompanyScope());
+  const companyId = await resolveRegCompanyIdFor(user.id);
   if (!companyId) return { error: "Module non activé.", status: 403 };
   return { companyId };
 }

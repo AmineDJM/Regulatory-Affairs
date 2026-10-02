@@ -3,8 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { requireUser } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
-import { getCompanyScope } from "@/lib/company";
-import { regCan, resolveRegCompanyId } from "../access";
+import { regCan, resolveRegCompanyIdFor } from "../access";
 import { buildFindingsReport, buildReserveResponseLetter, type GenerateResult } from "./reports";
 
 /**
@@ -19,8 +18,8 @@ import { buildFindingsReport, buildReserveResponseLetter, type GenerateResult } 
 
 const str = (fd: FormData, k: string) => { const v = fd.get(k); return v ? String(v).trim() : null; };
 
-async function scopeCompanyId(): Promise<string | null> {
-  return resolveRegCompanyId(getCompanyScope());
+async function scopeCompanyId(userId: string): Promise<string | null> {
+  return resolveRegCompanyIdFor(userId);
 }
 
 /** Rapport de constats (.docx) de la dernière version — le document qu'on pose en réunion. */
@@ -30,7 +29,7 @@ export async function generateFindingsReportAction(formData: FormData): Promise<
   const dossierId = str(formData, "dossierId");
   if (!dossierId) return { ok: false, error: "Paramètres manquants." };
 
-  const companyId = await scopeCompanyId();
+  const companyId = await scopeCompanyId(user.id);
   if (!companyId) return { ok: false, error: "Module non activé." };
   const version = await prisma.regulatoryDossierVersion.findFirst({
     where: { dossierId, dossier: { companyId } }, orderBy: { versionNo: "desc" }, select: { id: true },
@@ -49,7 +48,7 @@ export async function generateReserveLetterAction(formData: FormData): Promise<G
   const cycleId = str(formData, "cycleId");
   if (!cycleId) return { ok: false, error: "Paramètres manquants." };
 
-  const companyId = await scopeCompanyId();
+  const companyId = await scopeCompanyId(user.id);
   if (!companyId) return { ok: false, error: "Module non activé." };
   // Le cycle doit appartenir au périmètre de l'organisation courante — jamais de fuite inter-entités.
   const cycle = await prisma.regulatoryReserveCycle.findFirst({

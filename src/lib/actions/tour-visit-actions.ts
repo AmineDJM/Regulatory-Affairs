@@ -8,7 +8,8 @@ import { canAccessEntity } from "@/lib/entity-access";
 import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
 import { fdStr, fdDate, type ActionResult } from "@/lib/actions/types";
-import { fenetreRapport } from "@/lib/sfe/tournee";
+import { fenetreRapport, refusVisiteHorsDelai } from "@/lib/sfe/tournee";
+import { produitsDeLaBu, refusProduitsHorsBu } from "@/lib/sfe/produits-bu";
 import { sousVerrous } from "@/lib/promo/stock-ecriture";
 import {
   dejaDansLaVisite, ecrireRemises, lireMaterielRemis, motifDeRemise, phraseMateriel, RefusRemise, toucheLeStock, verrousDuRapport,
@@ -45,31 +46,6 @@ async function peutRapporter(
   if (visite.delegateId === user.id) return true;
   if (hasGlobalView(user)) return true;
   return visite.doctorId ? canAccessEntity(user, "DOCTOR", visite.doctorId, "UPDATE") : false;
-}
-
-/**
- * LES PRODUITS ADMIS pour ce KAM — ceux de SA Business Unit, résolus vers le produit canonique.
- *
- * `PromoProduct` porte la gamme (`businessUnitId`) et pointe sur le produit canonique
- * (`productId`) ; c'est ce dernier que `MedicalVisitProduct` lie. Un produit promu SANS produit
- * canonique ne peut pas être rattaché à une visite : on le DIT au lieu de le laisser disparaître
- * du rapport après que le KAM l'a coché (§118.71 — une valeur non résolue ne doit jamais
- * disparaître en silence).
- */
-async function produitsDeLaBu(repId: string): Promise<{ admis: Set<string>; sansCanonique: string[] }> {
-  const profil = await prisma.salesRepProfile.findUnique({
-    where: { repId },
-    select: { businessUnitId: true },
-  });
-  if (!profil?.businessUnitId) return { admis: new Set(), sansCanonique: [] };
-  const promus = await prisma.promoProduct.findMany({
-    where: { businessUnitId: profil.businessUnitId, isActive: true },
-    select: { name: true, productId: true },
-  });
-  return {
-    admis: new Set(promus.map((p) => p.productId).filter((x): x is string => Boolean(x))),
-    sansCanonique: promus.filter((p) => !p.productId).map((p) => p.name),
-  };
 }
 
 /**
@@ -135,16 +111,10 @@ export async function rapporterVisite(formData: FormData): Promise<ActionResult>
   if (productIds.length === 0 && exigeProduits) {
     return { ok: false, error: "Choisissez le ou les produits discutés avec le médecin — sans eux, l'effort par produit ne se mesure pas." };
   }
-  const { admis, sansCanonique } = await produitsDeLaBu(visite.delegateId ?? user.id);
-  const horsBu = productIds.filter((id) => !admis.has(id));
+  const gamme = await produitsDeLaBu(visite.delegateId ?? user.id);
+  const horsBu = productIds.filter((id) => !gamme.admis.has(id));
   if (horsBu.length > 0) {
-    return {
-      ok: false,
-      error: `${horsBu.length} produit(s) ne sont pas dans la gamme de ce KAM — un rapport ne porte que les produits de sa Business Unit.`
-        + (sansCanonique.length > 0
-          ? ` À noter : ${sansCanonique.length} produit(s) promu(s) de sa gamme (${sansCanonique.slice(0, 3).join(", ")}) n'ont pas de produit canonique rattaché et ne peuvent donc pas figurer dans un rapport — à corriger dans Force de vente › Business Units.`
-          : ""),
-    };
+    return { ok: false, error: refusProduitsHorsBu(horsBu.length, gamme, "ce KAM") };
   }
   const produits = await prisma.product.findMany({ where: { id: { in: productIds } }, select: { id: true, canonicalName: true } });
 
@@ -274,23 +244,16 @@ export async function ajouterVisiteImprevue(formData: FormData): Promise<ActionR
   const maintenant = new Date();
   const saisie = fdDate(formData, "date");
   const date = saisie && saisie <= maintenant ? saisie : maintenant;
-  const f = fenetreRapport(date, maintenant);
-  if (!f.ouvert) {
-    return {
-      ok: false,
-      error: `Une visite s'enregistre dans les 48 h : celle du ${date.toLocaleDateString("fr-FR")} est hors délai. `
-        + "C'est la même borne que pour une visite planifiée — sans elle, l'ajout d'imprévu serait le moyen de la contourner.",
-    };
-  }
+  if (!fenetreRapport(date, maintenant).ouvert) return { ok: false, error: refusVisiteHorsDelai(date) };
 
   const contenu = fdStr(formData, "report") ?? fdStr(formData, "transcript");
   if (!contenu) return { ok: false, error: "Dictez ou écrivez le compte rendu de cette rencontre." };
   const transcription = fdStr(formData, "transcript");
 
   const productIds = [...new Set(formData.getAll("productId").map(String).filter(Boolean))];
-  const { admis } = await produitsDeLaBu(user.id);
-  const horsBu = productIds.filter((id) => !admis.has(id));
-  if (horsBu.length > 0) return { ok: false, error: `${horsBu.length} produit(s) hors de votre gamme.` };
+  const gamme = await produitsDeLaBu(user.id);
+  const horsBu = productIds.filter((id) => !gamme.admis.has(id));
+  if (horsBu.length > 0) return { ok: false, error: refusProduitsHorsBu(horsBu.length, gamme, "vous") };
   const produits = productIds.length
     ? await prisma.product.findMany({ where: { id: { in: productIds } }, select: { id: true, canonicalName: true } })
     : [];

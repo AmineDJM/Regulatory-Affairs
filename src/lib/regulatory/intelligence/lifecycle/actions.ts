@@ -4,8 +4,7 @@ import type { RegLifecycleKind, RegLifecycleOperation } from "@prisma/client";
 import { revalidatePath } from "next/cache";
 import { requireUser } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
-import { getCompanyScope } from "@/lib/company";
-import { regCan, resolveRegCompanyId } from "../access";
+import { regCan, resolveRegCompanyIdFor } from "../access";
 import { regAudit } from "../audit";
 import { analyzeImpact, type ImpactResult } from "./impact";
 
@@ -19,7 +18,7 @@ const OPS = ["NEW", "REPLACE", "DELETE", "APPEND"];
 async function guard(dossierId: string): Promise<{ ok: true; userId: string; companyId: string } | { ok: false; error: string }> {
   const user = await requireUser();
   if (!regCan(user, "regulatory.dossier.analyse") && user.role !== "SUPER_ADMIN") return { ok: false, error: "Non autorisé." };
-  const companyId = await resolveRegCompanyId(getCompanyScope());
+  const companyId = await resolveRegCompanyIdFor(user.id);
   if (!companyId) return { ok: false, error: "Module non activé." };
   if (!(await prisma.regulatoryDossier.findFirst({ where: { id: dossierId, companyId }, select: { id: true } }))) return { ok: false, error: "Dossier introuvable." };
   return { ok: true, userId: user.id, companyId };

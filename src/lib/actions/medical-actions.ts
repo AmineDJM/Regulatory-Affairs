@@ -14,6 +14,8 @@ import { fdStr, fdDate, fdCase, type ActionResult } from "@/lib/actions/types";
 import { canonicalWilaya } from "@/lib/medical/wilaya";
 import { sousVerrous } from "@/lib/promo/stock-ecriture";
 import { dejaDansLaVisite, ecrireRemises, lireMaterielRemis, motifDeRemise, phraseMateriel, RefusRemise, toucheLeStock, verrousDuRapport } from "@/lib/promo/remises-visite";
+import { fenetreRapport, refusVisiteHorsDelai } from "@/lib/sfe/tournee";
+import { produitsDeLaBu, refusProduitsHorsBu } from "@/lib/sfe/produits-bu";
 
 const SECTORS: MedicalSector[] = ["HOSPITAL", "LIBERAL", "BOTH"];
 const TITLES: DoctorTitle[] = [
@@ -407,7 +409,12 @@ export async function updateDoctor(formData: FormData): Promise<ActionResult> {
  *     texte : c'est ce qui permet de croiser l'effort et les ventes par produit. Le texte
  *     `presentedProducts` reste renseigné pour les écrans hérités qui le lisent encore.
  *  5. **La date peut être ANTÉRIEURE** (saisie le soir, ou le lendemain), jamais future : on
- *     n'enregistre pas une visite qui n'a pas eu lieu.
+ *     n'enregistre pas une visite qui n'a pas eu lieu. Et jamais au-delà de la fenêtre de 48 h —
+ *     la même que la visite imprévue et le rapport d'une visite planifiée : sans elle, cette
+ *     porte était le moyen de contourner le verrou en datant une visite d'il y a trois semaines
+ *     (§118.71). « Le soir, ou le lendemain », c'est-à-dire dans la fenêtre.
+ *  6. **Les produits sont ceux de SA Business Unit** — la règle des deux autres portes, lue au
+ *     même endroit (`sfe/produits-bu.ts`).
  */
 export async function logVisit(
   _prev: ActionResult | undefined,
@@ -430,13 +437,20 @@ export async function logVisit(
     return { ok: false, error: "Ce praticien n'est pas dans votre panel." };
   }
 
-  // Règle 5 : jamais dans le futur — une visite « faite » demain n'existe pas.
+  // Règle 5 : jamais dans le futur — une visite « faite » demain n'existe pas — et jamais hors de
+  // la fenêtre de 48 h.
   const now = new Date();
   const saisie = fdDate(formData, "date");
   const date = saisie && saisie <= now ? saisie : now;
+  if (!fenetreRapport(date, now).ouvert) return { ok: false, error: refusVisiteHorsDelai(date) };
 
-  // Règle 4 : les produits arrivent en identifiants ; on ne garde que ceux qui existent.
+  // Règles 4 et 6 : les produits arrivent en identifiants, et ce sont ceux de SA gamme.
   const productIds = [...new Set(formData.getAll("productId").map(String).filter(Boolean))];
+  if (productIds.length > 0) {
+    const gamme = await produitsDeLaBu(user.id);
+    const horsBu = productIds.filter((id) => !gamme.admis.has(id));
+    if (horsBu.length > 0) return { ok: false, error: refusProduitsHorsBu(horsBu.length, gamme, "vous") };
+  }
   const products = productIds.length
     ? await prisma.product.findMany({ where: { id: { in: productIds } }, select: { id: true, canonicalName: true } })
     : [];
@@ -498,6 +512,19 @@ export async function logVisit(
   return { ok: true, id: created.id };
 }
 
+/**
+ * UNE VISITE FAITE NE NAÎT ET NE SE RÉÉCRIT QUE PAR SES PORTES (§118.71).
+ *
+ * `createVisit` et `updateVisit` PLANIFIENT (depuis un bureau, ou par l'opération d'Adam qui les
+ * appelle). Les laisser poser le statut « réalisée » faisait d'elles une quatrième et une cinquième
+ * porte vers une visite faite — sans la fenêtre de 48 h, sans les produits de la gamme, sans le
+ * matériel remis, sans les messages pré-définis. Le refus nomme les portes qui, elles, tiennent ces
+ * règles (§118.30).
+ */
+const REFUS_VISITE_FAITE_HORS_PORTE =
+  "Une visite faite s'enregistre depuis « Ma journée » (ou par le rapport de la visite planifiée, dans le plan de tournée) : "
+  + "c'est là que s'appliquent la fenêtre de 48 h, les produits de la gamme et le matériel remis. Ici, on planifie.";
+
 export async function createVisit(
   _prev: ActionResult | undefined,
   formData: FormData,
@@ -507,6 +534,8 @@ export async function createVisit(
 
   const doctorId = fdStr(formData, "doctorId");
   const delegateId = user.role === "MEDICAL_DELEGATE" ? user.id : fdStr(formData, "delegateId") ?? user.id;
+  const statut = (fdStr(formData, "status") as VisitStatus) ?? "PLANNED";
+  if (statut === "COMPLETED") return { ok: false, error: REFUS_VISITE_FAITE_HORS_PORTE };
 
   const created = await prisma.medicalVisit.create({
     data: {
@@ -516,7 +545,7 @@ export async function createVisit(
       region: fdStr(formData, "region"),
       objective: fdStr(formData, "objective"),
       presentedProducts: fdStr(formData, "presentedProducts"),
-      status: (fdStr(formData, "status") as VisitStatus) ?? "PLANNED",
+      status: statut,
       createdById: user.id,
     },
   });
@@ -543,6 +572,12 @@ export async function updateVisit(formData: FormData): Promise<ActionResult> {
   const before = await prisma.medicalVisit.findUnique({ where: { id } });
   if (!before) return { ok: false, error: "Visite introuvable." };
   const status = (fdStr(formData, "status") as VisitStatus) ?? before.status;
+  // Une visite RAPPORTÉE se corrige par son rapport, dans les 48 h — jamais ici, où rien ne
+  // tiendrait la fenêtre ni la gamme. Et une visite planifiée ne devient pas « faite » ici non plus.
+  if (before.status === "COMPLETED") {
+    return { ok: false, error: "Cette visite est déjà rapportée : elle se corrige depuis son rapport, dans les 48 h (« Ma journée » ou le plan de tournée)." };
+  }
+  if (status === "COMPLETED") return { ok: false, error: REFUS_VISITE_FAITE_HORS_PORTE };
   const has = (k: string) => formData.has(k);
   const doctorId = fdStr(formData, "doctorId");
   const delegateId = fdStr(formData, "delegateId");

@@ -3,8 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { requireUser } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
-import { getCompanyScope } from "@/lib/company";
-import { regCan, resolveRegCompanyId } from "../access";
+import { regCan, resolveRegCompanyIdFor } from "../access";
 import { regAudit } from "../audit";
 import { ingestReserveDocument } from "./library-ingest";
 import { findSimilarReserves, bestHistoricalResponse, reserveRisk, reserveStats, proposeRules, ruleConfidence } from "./library";
@@ -29,7 +28,7 @@ const MAX_UPLOAD_BYTES = 40 * 1024 * 1024; // 40 Mo : une lettre scannée reste 
 async function guard(): Promise<{ ok: true; userId: string; companyId: string } | { ok: false; error: string }> {
   const user = await requireUser();
   if (!regCan(user, "regulatory.reserve.manage") && user.role !== "SUPER_ADMIN") return { ok: false, error: "Non autorisé." };
-  const companyId = await resolveRegCompanyId(getCompanyScope());
+  const companyId = await resolveRegCompanyIdFor(user.id);
   if (!companyId) return { ok: false, error: "Module non activé pour cette entité." };
   return { ok: true, userId: user.id, companyId };
 }
