@@ -11,6 +11,7 @@ import {
   peutPiloterMissionsAdam,
   REFUS_MISSIONS_ADAM,
   scopeMedicalDoctors,
+  clausePanelDuKam,
   seesWholeSecretariat,
   scopeRegulatory,
   regulatoryLockWhere,
@@ -206,7 +207,11 @@ describe("row-level scoping", () => {
     const su = mkUser("s1", "SALES_USER", fromRole("SALES_USER"));
     expect(scopeSales(su)).toEqual({ OR: [{ salesUserId: "s1" }] });
     const del = mkUser("d1", "MEDICAL_DELEGATE", fromRole("MEDICAL_DELEGATE"));
-    expect(scopeMedicalDoctors(del)).toEqual({ OR: [{ delegateId: "d1" }] });
+    // LE PANEL DU KAM (§118.179) : ses rattachements directs ET ce que ses secteurs couvrent. La
+    // forme de la clause est éprouvée ici ; ce qu'elle CHOISIT dans une vraie base l'est dans
+    // `queries/panel-kam.test.ts`, branche par branche.
+    expect(scopeMedicalDoctors(del)).toEqual({ OR: [clausePanelDuKam("d1")] });
+    expect(clausePanelDuKam("d1").OR).toContainEqual({ delegateId: "d1" });
     const mgr = mkUser("m1", "MEDICAL_PROMOTION_MANAGER", fromRole("MEDICAL_PROMOTION_MANAGER"));
     expect(scopeMedicalDoctors(mgr)).toEqual({});
   });

@@ -422,6 +422,17 @@ enum EntityType {
   /// LE PRODUIT CANONIQUE (§118.178) — sa création d'après un dossier, sa correction, ses alias
   /// et son nom s'écrivent dans SON historique, pas seulement dans celui d'un de ses dossiers.
   PRODUCT
+  /// Une BUSINESS UNIT (§118.181) — sa création, sa modification, sa suppression.
+  BUSINESS_UNIT
+  /// Un PLAN DE TOURNÉE (§118.181) — planifier, soumettre, escalader, décider. Ces gestes
+  /// s'auditaient sous VISIT avec l'identifiant du PLAN : rien ne les retrouvait.
+  TOUR_PLAN
+  /// Un SECTEUR commercial d'une BU (§118.181) — son découpage, ses KAM, sa suppression.
+  SALES_SECTOR
+  /// Un ÉTABLISSEMENT de l'annuaire (§118.181).
+  INSTITUTION
+  /// Une SPÉCIALITÉ du référentiel (§118.180) — ajout, renommage, fusion, retrait.
+  SPECIALTY
 }
 
 enum DocumentCategory {

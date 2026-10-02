@@ -1234,6 +1234,11 @@ X("LE CATALOGUE DES PRODUITS CANONIQUES (§118.178) — rattacher un dossier à 
   "produit-canonique-actions:ajouterAliasProduitCanonique",
   "produit-canonique-actions:retirerAliasProduitCanonique",
 ]);
+X("LE RÉFÉRENTIEL DES SPÉCIALITÉS (§118.180) — fusionner deux spécialités, rattacher un libellé hérité à une spécialité, rattacher en lot les fiches dont la spécialité est écrite sans lien — sont des gestes d'écran neufs, et Adam est en pause de développement : aucun geste neuf ne lui est ouvert. La fusion change, de plus, la spécialité de fiches que la personne ne voit peut-être pas : c'est une décision de STRUCTURE, prise devant l'écran qui en montre l'effet. Tout se fait sur Annuaires › Spécialités et dans la feuille des praticiens (« Rattacher les spécialités »).", [
+  "medical-actions:fusionnerSpecialite",
+  "medical-actions:rattacherLibelleSpecialite",
+  "medical-directory-actions:rattacherSpecialitesParNom",
+]);
 // NB : `admin-actions:createUser` a quitté cette liste — le besoin « créer un compte » est
 // couvert par `org_operation:create_account_invite` (lien d'invitation : la personne définit
 // SON mot de passe ; rien ne transite par la conversation) via la reclassification catalogue.

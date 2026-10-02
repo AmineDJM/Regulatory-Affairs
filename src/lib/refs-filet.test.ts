@@ -115,8 +115,30 @@ describe("Cliquet — une référence numérotée porte son filet", () => {
     expect(repares, "réparé : retirez-le de DETTE — un cliquet qui ne peut pas descendre ne garde rien (§118.79c)").toEqual([]);
     // 12 → 11 (§118.176) : la paie ne numérote plus rien elle-même — le « transfert au budget », qui
     // écrivait une écriture FIN par salarié sans filet, n'existe plus ; l'envoi au centre passe par
-    // `createExpenseOrder`, qui porte le sien.
+    // `createExpenseOrder`. Ce commentaire disait « qui porte le sien » : c'était FAUX jusqu'au §118.182
+    // — le filet du fichier était celui du dossier compagnon, et la création de l'ORDRE n'en avait
+    // aucun. Le cas ci-dessous le mesure création par création.
     expect(DETTE.size, "dette mesurée le 02/10/2026").toBeLessThanOrEqual(10);
+  });
+
+  it("L'ÉCRIVAIN DE TOUT DÉCAISSEMENT porte un filet sur CHACUNE de ses créations numérotées (§118.182)", () => {
+    // Le cliquet ci-dessus juge par FICHIER, et c'est ce qui l'a rendu aveugle : `expense-orders.ts`
+    // portait un filet — sur le dossier compagnon — pendant que la création de l'ORDRE, le seul passage
+    // de tout l'argent qui sort, n'en avait aucun. Ce fichier-là se juge création par création.
+    const avantLaCreation = (fichier: string, modele: string) => {
+      const code = sansCommentaires(readFileSync(fichier, "utf8"));
+      const i = code.search(new RegExp(`prisma\\.${modele}\\.create\\(`));
+      expect(i, `${fichier} : ${modele}.create introuvable`).toBeGreaterThan(0);
+      return code.slice(Math.max(0, i - 160), i);
+    };
+    for (const [modele, serie] of [["expenseOrder", "SERIE_ORDRES"], ["paymentRequest", "SERIE_DEMANDES_PAIEMENT"]] as const) {
+      const avant = avantLaCreation("src/lib/expense-orders.ts", modele);
+      expect(avant, `${modele} : la création doit être DANS l'essai — la référence se recalcule à chaque tentative`).toMatch(/createWithRetry\(\s*async\s*\(\)\s*=>\s*$/);
+      expect(avant, `${modele} : et dans la file de SA série`).toMatch(new RegExp(`enSerie\\(\\s*${serie}\\s*,\\s*\\(\\)\\s*=>\\s*createWithRetry\\(`));
+    }
+    // LA SÉRIE PAY A DEUX CRÉATEURS : une file chacun n'en protégerait que la moitié.
+    expect(avantLaCreation("src/lib/actions/payment-request-actions.ts", "paymentRequest"), "la demande de paiement partage la file PAY")
+      .toMatch(/enSerie\(\s*SERIE_DEMANDES_PAIEMENT\s*,\s*\(\)\s*=>\s*createWithRetry\(/);
   });
 
   it("les trois créations réparées par ce lot gardent leur filet", () => {

@@ -10,11 +10,11 @@ import { userCan, hasGlobalView, type SessionUser } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
 import { notifyUser, notifyRoles } from "@/lib/notify";
-import { buildRef, createWithRetry } from "@/lib/refs";
+import { buildRef, createWithRetry, enSerie } from "@/lib/refs";
 import { moneyEntityOf, getMyCompanies } from "@/lib/company";
 import { resolveMoneyEntity, checkMoneyEntity } from "@/lib/finance/money-entity";
 import { persistUploadedDocument } from "@/lib/documents";
-import { createExpenseOrder } from "@/lib/expense-orders";
+import { createExpenseOrder, SERIE_DEMANDES_PAIEMENT } from "@/lib/expense-orders";
 import { toNumber } from "@/lib/utils";
 import { fdStr, fdNum, type ActionResult } from "@/lib/actions/types";
 import {
@@ -202,7 +202,9 @@ export async function createPaymentRequest(_prev: ActionResult | undefined, form
       if (!gate.ok) return { ok: false, error: gate.reason ?? "Le dossier est incomplet." };
     }
 
-    const req = await createWithRetry(async () =>
+    // LA SÉRIE PAY EST PARTAGÉE avec le dossier compagnon d'un ordre (`expense-orders.ts`) : une seule
+    // file pour une série, sinon chacune ne protège que sa moitié (§118.182).
+    const req = await enSerie(SERIE_DEMANDES_PAIEMENT, () => createWithRetry(async () =>
       prisma.paymentRequest.create({
         data: {
           reference: await nextRef(),
@@ -238,7 +240,7 @@ export async function createPaymentRequest(_prev: ActionResult | undefined, form
           link: fdStr(formData, "link"),
         },
       }),
-    );
+    ));
 
     // Les pièces du premier dépôt. Un échec d'enregistrement ne doit pas emporter la demande :
     // on préfère un dossier créé auquel il manque une pièce — visible, corrigeable — à un

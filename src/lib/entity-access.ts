@@ -84,6 +84,14 @@ export const ENTITY_MODULE: Record<EntityType, Module> = {
   // plus bas. Un CV est une donnée personnelle : le module seul ne doit pas suffire à l'ouvrir.
   RECRUITMENT_REQUEST: "RECRUITMENT",
   RECRUITMENT_CANDIDATE: "RECRUITMENT",
+  // LES TYPES D'AUDIT DU GRAPHE (§118.181) — ils nomment l'objet d'une ligne d'historique, et rien
+  // d'autre : aucune pièce jointe, aucun commentaire ne s'y accroche. `canAccessEntity` les REFUSE
+  // explicitement plus bas ; le module n'est là que parce que la table est exhaustive.
+  BUSINESS_UNIT: "SALES_PLANNING",
+  TOUR_PLAN: "MEDICAL",
+  SALES_SECTOR: "SALES_PLANNING",
+  INSTITUTION: "MEDICAL",
+  SPECIALTY: "MEDICAL",
 };
 
 /**
@@ -561,8 +569,11 @@ export async function canAccessEntity(
       return Boolean(found);
     }
     case "DOCTOR": {
+      // Les clauses se COMPOSENT en `AND`, jamais par étalement (§118.133) : la portée d'un
+      // délégué est désormais son PANEL (§118.179), et un étalement qui croiserait une clé `id`
+      // remplacerait l'identifiant visé.
       const found = await prisma.medicalDoctor.findFirst({
-        where: { id: entityId, ...scopeMedicalDoctors(user) },
+        where: { AND: [{ id: entityId }, scopeMedicalDoctors(user)] },
         select: { id: true },
       });
       return Boolean(found);
@@ -659,6 +670,15 @@ export async function canAccessEntity(
       });
       return c ? Boolean(await recruitmentViewer(user, c.requestId)) : false;
     }
+    case "BUSINESS_UNIT":
+    case "TOUR_PLAN":
+    case "SALES_SECTOR":
+    case "INSTITUTION":
+    case "SPECIALTY":
+      // Des types d'AUDIT (§118.181), pas des portes. Les laisser tomber dans le `default` ouvrirait
+      // à quiconque a le module le droit d'accrocher une pièce ou un commentaire au plan de tournée
+      // d'un collègue, par un type forgé — la porte de §118.153g, rouverte par un ajout d'énumération.
+      return false;
     default:
       // Modules without row-level scoping: module permission is sufficient.
       return true;

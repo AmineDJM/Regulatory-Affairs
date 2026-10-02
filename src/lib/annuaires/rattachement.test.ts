@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { cleDEtablissement, indexerEtablissements, serviceParNom, libelleEtablissement } from "./rattachement";
-import { cleDeService, lireNomsDeServices, lireCouverture, branchesDesPraticiensCouverts, lienCouvre, libelleCouverture } from "./services";
+import { cleDeService, lireNomsDeServices, lireCouverture, lienCouvre, libelleCouverture } from "./services";
 import { champsAEcrire, parseDirectorySheet } from "@/lib/medical/directory-sheet";
 import { fdCase } from "@/lib/actions/types";
 
@@ -98,7 +98,6 @@ describe("ce qu'un secteur couvre", () => {
       { institutionId: "e2", tousLesServices: false, serviceIds: ["s1", "s2"] },
       { institutionId: "e3", tousLesServices: false, serviceIds: [] },
     ];
-    expect(branchesDesPraticiensCouverts(liens)).toEqual([{ institutionId: { in: ["e1"] } }, { serviceId: { in: ["s1", "s2"] } }]);
     expect(lienCouvre(liens[1], { institutionId: "e2", serviceId: "s1" })).toBe(true);
     // Un praticien SANS service, dans un établissement restreint, n'est pas couvert : on ne devine pas.
     expect(lienCouvre(liens[1], { institutionId: "e2", serviceId: null })).toBe(false);
@@ -107,7 +106,6 @@ describe("ce qu'un secteur couvre", () => {
     expect(lienCouvre(liens[2], { institutionId: "e3", serviceId: "x" })).toBe(false);
     expect(libelleCouverture("EPH", liens[2], () => null)).toContain("aucun service");
     expect(libelleCouverture("CHU", liens[0], () => null)).toBe("CHU (tous les services)");
-    expect(branchesDesPraticiensCouverts([])).toEqual([]);
   });
 });
 

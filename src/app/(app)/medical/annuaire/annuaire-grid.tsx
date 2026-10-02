@@ -3,19 +3,19 @@
 import * as React from "react";
 import { useRouter } from "next/navigation";
 import {
-  Search, Upload, Loader2, FileSpreadsheet, Info, Plus, Rows3, LayoutList, Check, X, Trash2, Columns3, Building2,
+  Search, Upload, Loader2, FileSpreadsheet, Info, Plus, Rows3, LayoutList, Check, X, Trash2, Columns3, Building2, Stethoscope,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input, Select } from "@/components/ui/input";
 import { normalizeHeader } from "@/lib/medical/directory-sheet";
 import {
-  ANNUAIRE_COLUMNS, annuaireCell, estARattacher,
+  ANNUAIRE_COLUMNS, annuaireCell, estARattacher, specialiteEstARattacher,
   type AnnuaireRow, type AnnuaireField, type CustomColumnVue, type CibleReference,
 } from "@/lib/medical/directory-grid";
 import {
   importDirectorySheet, previewDirectorySheet, saveDirectoryCell, saveDirectoryCustomCell,
-  addDirectoryDoctor, deleteDirectoryDoctors, rattacherEtablissementsParNom,
+  addDirectoryDoctor, deleteDirectoryDoctors, rattacherEtablissementsParNom, rattacherSpecialitesParNom,
 } from "@/lib/actions/medical-directory-actions";
 import { cleDEtablissement } from "@/lib/annuaires/rattachement";
 import type { EtablissementOption } from "@/lib/annuaires/types";
@@ -364,6 +364,15 @@ function GridTable({
                               à rattacher
                             </span>
                           )}
+                          {/* LA MÊME RÈGLE POUR LA SPÉCIALITÉ (§118.180) : « Cardio » écrit sans lien
+                              n'est rattaché à aucune spécialité du référentiel — rien de ce qui lit le
+                              référentiel ne le voit. */}
+                          {col.field === "specialty" && specialiteEstARattacher(row) && !overrides.has(cleCellule(row.id, col.cle)) && (
+                            <span className="ml-1.5 inline-block rounded bg-warning/15 px-1.5 py-0.5 align-middle text-[10px] font-medium uppercase tracking-wide text-warning"
+                              title="Spécialité écrite sans lien vers le référentiel : retapez-la telle que le référentiel la nomme, ou rattachez-la dans Annuaires › Spécialités.">
+                              à rattacher
+                            </span>
+                          )}
                         </span>
                       )}
                     </td>
@@ -630,6 +639,26 @@ export function AnnuaireGrid({
     });
   };
 
+  // LES SPÉCIALITÉS ÉCRITES SANS LIEN, dans la vue qu'on regarde (§118.180) — le même geste que
+  // pour les établissements, et la même retenue : seul un texte qui désigne UNE spécialité du
+  // référentiel est rattaché ; les autres sont DITS.
+  const specialitesARattacher = React.useMemo(() => filtered.filter(specialiteEstARattacher), [filtered]);
+  const [rattachementSpecialites, setRattachementSpecialites] = React.useState(false);
+  const rattacherSpecialites = () => {
+    if (specialitesARattacher.length === 0) return;
+    if (!window.confirm(
+      `Rattacher au référentiel des spécialités les ${specialitesARattacher.length} fiche(s) « à rattacher » de cette vue ?\n\n`
+      + "Seules celles dont le texte désigne EXACTEMENT une spécialité du référentiel (majuscules et accents mis à part) seront rattachées ; "
+      + "les autres restent « à rattacher », et le message dira pourquoi.",
+    )) return;
+    setRattachementSpecialites(true); setMsg(null);
+    void rattacherSpecialitesParNom({ ids: specialitesARattacher.map((r) => r.id) }).then((r) => {
+      setRattachementSpecialites(false);
+      setMsg({ ok: r.ok, text: r.ok ? (r.message ?? "Rattachement terminé.") : (r.error ?? "Rattachement impossible.") });
+      if (r.ok) rafraichir();
+    });
+  };
+
   const appliquerCouleur = React.useCallback((couleur: CouleurCellule | null) => {
     const cibles = grille.cellules
       .map(({ r, c }) => ({ id: ordonnees[r]?.id ?? "", field: colonnes[c]?.cle ?? "" }))
@@ -742,6 +771,13 @@ export function AnnuaireGrid({
               title="Rattacher à l'annuaire des établissements les fiches dont l'établissement a été tapé à la main">
               {rattachement ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Building2 className="h-3.5 w-3.5" />}
               Rattacher les établissements ({aRattacher.length})
+            </Button>
+          )}
+          {canEdit && specialitesARattacher.length > 0 && (
+            <Button size="sm" variant="outline" disabled={rattachementSpecialites} onClick={rattacherSpecialites}
+              title="Rattacher au référentiel des spécialités les fiches dont la spécialité est écrite sans lien">
+              {rattachementSpecialites ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Stethoscope className="h-3.5 w-3.5" />}
+              Rattacher les spécialités ({specialitesARattacher.length})
             </Button>
           )}
           {canManageColumns && directoryId && (

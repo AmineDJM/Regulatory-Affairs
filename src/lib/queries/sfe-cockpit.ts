@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { anyRoleFilter } from "@/lib/rbac";
+import { panelsDesKams } from "@/lib/queries/panel-kam";
 import {
   getSfeConfig, repCapacity, assignmentEffort, fteFromEffort, panelRequiredVisits,
   type SfeConfig,
@@ -100,7 +101,10 @@ export async function loadCockpit(input: {
     cycle
       ? prisma.promotionAssignment.findMany({ where: { cycleId: cycle.id, repId: { in: repIds } } })
       : Promise.resolve([]),
-    prisma.medicalDoctor.findMany({ where: { delegateId: { in: repIds } }, select: { delegateId: true, potential: true } }),
+    // LE PANEL ENTIER de chaque KAM — secteur ∪ rattachement (§118.179). Compté sur le seul
+    // rattachement, il déclarait « aucun praticien dans son panel » (alerte NON ARMÉ) à un KAM dont
+    // le secteur en comptait quarante, et la couverture se calculait sur un dénominateur faux.
+    panelsDesKams(repIds),
     prisma.medicalVisit.findMany({
       where: { delegateId: { in: repIds }, status: "COMPLETED", date: { gte: monthStart, lt: monthEnd } },
       select: { delegateId: true, doctorId: true },
@@ -119,11 +123,10 @@ export async function loadCockpit(input: {
   const loggedByRep = new Map(lastLogged.map((g) => [g.delegateId ?? "", g._max.createdAt ?? null]));
 
   const panelByRep = new Map<string, Record<string, number>>();
-  for (const d of panel) {
-    if (!d.delegateId) continue;
-    const rec = panelByRep.get(d.delegateId) ?? {};
-    rec[d.potential] = (rec[d.potential] ?? 0) + 1;
-    panelByRep.set(d.delegateId, rec);
+  for (const [repId, praticiens] of panel) {
+    const rec: Record<string, number> = {};
+    for (const d of praticiens) rec[d.potential] = (rec[d.potential] ?? 0) + 1;
+    panelByRep.set(repId, rec);
   }
 
   const realByRep = new Map<string, number>();

@@ -4,10 +4,11 @@ import { CHEMIN_STOCK_PROMO } from "@/lib/chemins/stock-promo";
 import { revalidatePath } from "next/cache";
 import type { DoctorTitle, InfluenceLevel, InstitutionSector, InstitutionType, MedicalSector, Priority, SegmentLevel, VisitStatus } from "@prisma/client";
 import { requireUser } from "@/lib/session";
-import { userCan, peutAnnuaire } from "@/lib/rbac";
+import { userCan, peutAnnuaire, scopeMedicalDoctors } from "@/lib/rbac";
 import { canAccessEntity } from "@/lib/entity-access";
 import { prisma } from "@/lib/prisma";
 import { cleDEtablissement, indexerEtablissements } from "@/lib/annuaires/rattachement";
+import { cleDeSpecialite, ecritureDeSpecialite, indexerSpecialites, lienDeSpecialiteValide } from "@/lib/annuaires/specialites";
 import { suivreRenommageEtablissement } from "@/lib/stocks/lieux";
 import { recordAudit } from "@/lib/audit";
 import { fdStr, fdDate, fdCase, type ActionResult } from "@/lib/actions/types";
@@ -29,6 +30,32 @@ async function specialtyName(id: string | null): Promise<string | null> {
   if (!id) return null;
   const s = await prisma.medicalSpecialty.findUnique({ where: { id }, select: { name: true } });
   return s?.name ?? null;
+}
+
+/**
+ * LA SPÉCIALITÉ D'UNE FICHE, lue dans un formulaire (§118.180) — la même règle que l'établissement.
+ *
+ * Un IDENTIFIANT du référentiel fait foi (et s'il n'existe plus, on le DIT au lieu d'écrire une clé
+ * morte) ; un TEXTE seul se RÉSOUT — relié quand il désigne une spécialité du référentiel à coup
+ * sûr, gardé tel quel, sans lien, sinon ; un identifiant VIDE retire la spécialité. `null` : le
+ * formulaire n'en dit rien, et la fiche garde ce qu'elle porte (§118.152c).
+ */
+async function specialiteDuFormulaire(
+  formData: FormData,
+): Promise<{ ok: true; ecriture: { specialtyId: string | null; specialty: string | null } | null } | { ok: false; error: string }> {
+  const choisi = fdStr(formData, "specialtyId");
+  if (choisi) {
+    const nom = await specialtyName(choisi);
+    return nom
+      ? { ok: true, ecriture: { specialtyId: choisi, specialty: nom } }
+      : { ok: false, error: "Cette spécialité n'existe plus dans le référentiel — rechargez l'écran." };
+  }
+  if (formData.has("specialty")) {
+    const referentiel = await prisma.medicalSpecialty.findMany({ select: { id: true, name: true } });
+    return { ok: true, ecriture: ecritureDeSpecialite(fdStr(formData, "specialty"), indexerSpecialites(referentiel)) };
+  }
+  if (formData.has("specialtyId")) return { ok: true, ecriture: { specialtyId: null, specialty: null } };
+  return { ok: true, ecriture: null };
 }
 
 function parseSector(v: string | null): MedicalSector {
@@ -108,7 +135,7 @@ export async function createInstitution(formData: FormData): Promise<ActionResul
       createdById: user.id,
     },
   });
-  await recordAudit({ actorId: user.id, action: "CREATE", module: "Promotion médicale", summary: `Établissement « ${name} »` });
+  await recordAudit({ actorId: user.id, action: "CREATE", module: "Annuaires", entityType: "INSTITUTION", entityId: created.id, summary: `Établissement « ${name} »` });
   revalidatePath("/medical");
   return { ok: true, id: created.id };
 }
@@ -160,6 +187,12 @@ export async function updateInstitution(formData: FormData): Promise<ActionResul
   // LE LIEU DE STOCK SUIT : son nom est ce que les demandes d'état, les récurrences et Adam
   // affichent (§118.134). Deux noms pour le même hôpital finiraient par diverger (§118.5).
   await suivreRenommageEtablissement(id, name);
+  // L'HISTOIRE D'UN ÉTABLISSEMENT (§118.181) : la modification n'était pas auditée du tout — un
+  // hôpital renommé ou désactivé ne laissait aucune trace de qui, ni de quand.
+  await recordAudit({
+    actorId: user.id, action: "UPDATE", module: "Annuaires", entityType: "INSTITUTION", entityId: id,
+    summary: name !== avant.name ? `Établissement « ${avant.name} » renommé « ${name} »` : `Établissement « ${name} » modifié`,
+  });
   revalidatePath("/medical");
   revalidatePath("/stocks");
   return { ok: true };
@@ -172,25 +205,63 @@ export async function deleteInstitution(formData: FormData): Promise<ActionResul
   if (!peutAnnuaire(user, "ETABLISSEMENTS", "DELETE")) return { ok: false, error: "Non autorisé." };
   const id = fdStr(formData, "id");
   if (!id) return { ok: false, error: "Identifiant manquant." };
+  const avant = await prisma.medicalInstitution.findUnique({ where: { id }, select: { name: true } });
+  if (!avant) return { ok: false, error: "Cet établissement n'existe plus — rechargez l'écran." };
   // FK SetNull : les praticiens rattachés basculent en « Sans établissement » (non supprimés).
   await prisma.medicalInstitution.delete({ where: { id } });
+  await recordAudit({
+    actorId: user.id, action: "DELETE", module: "Annuaires", entityType: "INSTITUTION", entityId: id,
+    summary: `Établissement « ${avant.name} » supprimé`,
+  });
   revalidatePath("/medical");
   return { ok: true };
 }
 
 // ─────────────────────────── Spécialités ───────────────────────────
+//
+// LE RÉFÉRENTIEL DES SPÉCIALITÉS (§118.180). Ces trois écritures existaient sans aucun écran
+// (§118.14) ; l'onglet Annuaires › Spécialités les rend atteignables, et c'est en les rendant
+// atteignables qu'on a lu ce qu'elles faisaient :
+//  - renommer vers un nom DÉJÀ pris faisait tomber la contrainte d'unicité en erreur brute ;
+//  - renommer EFFAÇAIT la couleur et les notes que le formulaire ne portait pas (§118.152c) ;
+//  - supprimer EFFAÇAIT la spécialité écrite sur chaque fiche rattachée — la donnée du praticien
+//    disparaissait avec l'entrée du référentiel ;
+//  - rien n'était audité, sauf la création, et sans type d'entité.
+// Le doublon du référentiel (« Pédiatrie » et « Pediatrie ») se refuse sur la MÊME clé que la
+// résolution d'un texte (`cleDeSpecialite`) : deux règles de comparaison feraient accepter ici ce
+// que la feuille ne saurait plus départager.
+
+/** Le nom propre d'une spécialité, ou `null`. */
+function nomDeSpecialite(brut: string | null): string | null {
+  const nom = (brut ?? "").replace(/\s+/g, " ").trim();
+  return nom ? nom : null;
+}
+
+/** Une AUTRE spécialité du référentiel qui porte déjà ce nom, à l'écriture près. */
+async function specialiteHomonyme(nom: string, saufId: string | null): Promise<{ id: string; name: string } | null> {
+  const cle = cleDeSpecialite(nom);
+  const toutes = await prisma.medicalSpecialty.findMany({ select: { id: true, name: true } });
+  return toutes.find((s) => s.id !== saufId && cleDeSpecialite(s.name) === cle) ?? null;
+}
 
 export async function createSpecialty(formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
   if (!userCan(user, "MEDICAL", "CREATE")) return { ok: false, error: "Non autorisé." };
-  const name = fdStr(formData, "name");
-  if (!name) return { ok: false, error: "Le nom de la spécialité est obligatoire." };
-  const existing = await prisma.medicalSpecialty.findFirst({ where: { name: { equals: name, mode: "insensitive" } }, select: { id: true } });
-  if (existing) return { ok: false, error: "Cette spécialité existe déjà." };
+  // `if (!saisi)` sur la lecture même : c'est ce que la dérivation des contrats lit comme « champ
+  // OBLIGATOIRE » (§118.138) — passé par une fonction, le nom serait annoncé facultatif.
+  const saisi = fdStr(formData, "name");
+  if (!saisi) return { ok: false, error: "Le nom de la spécialité est obligatoire." };
+  const name = nomDeSpecialite(saisi) ?? saisi;
+  const homonyme = await specialiteHomonyme(name, null);
+  if (homonyme) return { ok: false, error: `« ${name} » existe déjà dans le référentiel (« ${homonyme.name} »).` };
   const created = await prisma.medicalSpecialty.create({
     data: { name, color: fdStr(formData, "color"), notes: fdStr(formData, "notes"), createdById: user.id },
   });
-  await recordAudit({ actorId: user.id, action: "CREATE", module: "Promotion médicale", summary: `Spécialité « ${name} »` });
+  await recordAudit({
+    actorId: user.id, action: "CREATE", module: "Annuaires",
+    entityType: "SPECIALTY", entityId: created.id, summary: `Spécialité « ${name} » ajoutée au référentiel`,
+  });
+  revalidatePath("/annuaires/specialites");
   revalidatePath("/medical");
   return { ok: true, id: created.id };
 }
@@ -199,25 +270,179 @@ export async function updateSpecialty(formData: FormData): Promise<ActionResult>
   const user = await requireUser();
   if (!userCan(user, "MEDICAL", "UPDATE")) return { ok: false, error: "Non autorisé." };
   const id = fdStr(formData, "id");
-  const name = fdStr(formData, "name");
-  if (!id || !name) return { ok: false, error: "Paramètres manquants." };
-  await prisma.medicalSpecialty.update({ where: { id }, data: { name, color: fdStr(formData, "color"), notes: fdStr(formData, "notes") } });
-  // Re-synchronise le libellé dénormalisé sur les médecins rattachés.
-  await prisma.medicalDoctor.updateMany({ where: { specialtyId: id }, data: { specialty: name } });
+  if (!id) return { ok: false, error: "Identifiant manquant." };
+  const avant = await prisma.medicalSpecialty.findUnique({ where: { id }, select: { name: true } });
+  if (!avant) return { ok: false, error: "Cette spécialité n'existe plus — rechargez l'écran." };
+
+  // CE QUE LE FORMULAIRE NE PORTE PAS NE S'ÉCRIT PAS (§118.152c) : renommer ne doit effacer ni la
+  // couleur ni les notes. Les clés se lisent EN LITTÉRAL, pour que la fiche de l'action les dise.
+  const data: { name?: string; color?: string | null; notes?: string | null } = {};
+  if (formData.has("name")) {
+    const name = nomDeSpecialite(fdStr(formData, "name"));
+    if (!name) return { ok: false, error: "Le nom de la spécialité ne peut pas être vide." };
+    if (name !== avant.name) {
+      const homonyme = await specialiteHomonyme(name, id);
+      if (homonyme) {
+        return { ok: false, error: `« ${name} » existe déjà dans le référentiel (« ${homonyme.name} ») : fusionnez les deux plutôt que de les renommer pareil.` };
+      }
+      data.name = name;
+    }
+  }
+  if (formData.has("color")) data.color = fdStr(formData, "color");
+  if (formData.has("notes")) data.notes = fdStr(formData, "notes");
+  if (Object.keys(data).length === 0) return { ok: true };
+
+  await prisma.$transaction(async (tx) => {
+    await tx.medicalSpecialty.update({ where: { id }, data });
+    // LE LIBELLÉ DÉNORMALISÉ SUIT LE LIEN — comme l'établissement : visites, congrès et exports le
+    // lisent tel quel. Seulement là où le lien VAUT (`lienDeSpecialiteValide`) : une fiche dont le
+    // texte contredit son lien porte une saisie plus récente, et un renommage ne l'efface pas.
+    if (data.name) {
+      const ecritures = await tx.medicalDoctor.groupBy({ by: ["specialty"], where: { specialtyId: id } });
+      const suivent = ecritures
+        .map((e) => e.specialty)
+        .filter((t): t is string => t !== null && lienDeSpecialiteValide(t, avant.name));
+      await tx.medicalDoctor.updateMany({
+        where: { specialtyId: id, OR: [{ specialty: null }, { specialty: { in: suivent } }] },
+        data: { specialty: data.name },
+      });
+    }
+  });
+  await recordAudit({
+    actorId: user.id, action: "UPDATE", module: "Annuaires", entityType: "SPECIALTY", entityId: id,
+    summary: data.name ? `Spécialité « ${avant.name} » renommée « ${data.name} »` : `Spécialité « ${avant.name} » modifiée`,
+  });
+  revalidatePath("/annuaires/specialites");
   revalidatePath("/medical");
   return { ok: true };
 }
 
+/**
+ * RETIRER UNE SPÉCIALITÉ DU RÉFÉRENTIEL — sans rien retirer aux praticiens.
+ *
+ * Une fiche rattachée GARDE ce qui y était écrit : elle perd le lien, pas sa spécialité, et la
+ * feuille la montre « à rattacher ». L'ancienne écriture effaçait le texte de chaque fiche :
+ * supprimer une ligne de référentiel détruisait une donnée de praticien. Une fiche SANS texte
+ * recopie le nom qu'elle affichait ; une fiche qui en porte un garde LE SIEN — même quand il
+ * contredisait le lien, puisque c'était la saisie la plus récente (`lienDeSpecialiteValide`).
+ * Pour réunir deux doublons, le bon geste est la FUSION, qui déplace les fiches.
+ */
 export async function deleteSpecialty(formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
   if (!userCan(user, "MEDICAL", "DELETE")) return { ok: false, error: "Non autorisé." };
   const id = fdStr(formData, "id");
   if (!id) return { ok: false, error: "Identifiant manquant." };
-  // Le FK est SetNull : les médecins basculent en « Sans spécialité » (non supprimés).
-  await prisma.medicalDoctor.updateMany({ where: { specialtyId: id }, data: { specialty: null } });
-  await prisma.medicalSpecialty.delete({ where: { id } });
+  const avant = await prisma.medicalSpecialty.findUnique({ where: { id }, select: { name: true } });
+  if (!avant) return { ok: false, error: "Cette spécialité n'existe plus — rechargez l'écran." };
+  const detaches = await prisma.$transaction(async (tx) => {
+    await tx.medicalDoctor.updateMany({ where: { specialtyId: id, specialty: null }, data: { specialty: avant.name } });
+    const { count } = await tx.medicalDoctor.updateMany({ where: { specialtyId: id }, data: { specialtyId: null } });
+    await tx.medicalSpecialty.delete({ where: { id } });
+    return count;
+  });
+  await recordAudit({
+    actorId: user.id, action: "DELETE", module: "Annuaires", entityType: "SPECIALTY", entityId: id,
+    summary: `Spécialité « ${avant.name} » retirée du référentiel${detaches ? ` — ${detaches} fiche(s) gardent leur spécialité écrite, à rattacher` : ""}`,
+  });
+  revalidatePath("/annuaires/specialites");
   revalidatePath("/medical");
-  return { ok: true };
+  return { ok: true, message: detaches ? `${detaches} fiche(s) gardent leur spécialité écrite, sans lien — à rattacher.` : undefined };
+}
+
+/**
+ * FUSIONNER UNE SPÉCIALITÉ DANS UNE AUTRE — le geste qui réunit deux doublons du référentiel.
+ *
+ * Les fiches de la première passent à la seconde (lien ET libellé), puis la première disparaît.
+ * Tout ou rien, dans une transaction : une fusion à moitié laisserait des fiches pointer vers une
+ * spécialité qui n'existe plus. C'est un geste de STRUCTURE — il change la spécialité de fiches
+ * que la personne ne voit peut-être pas — : il demande le droit de supprimer du référentiel.
+ *
+ * Ne passent que les fiches dont le lien VAUT (`lienDeSpecialiteValide`). Une fiche dont le texte
+ * contredisait le lien garde son texte et perd ce lien périmé : la rattacher à la cible ferait
+ * poser un SECOND lien que son texte contredit, sur la décision de quelqu'un qui ne l'a pas vue.
+ */
+export async function fusionnerSpecialite(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  if (!userCan(user, "MEDICAL", "DELETE")) return { ok: false, error: "Non autorisé." };
+  const id = fdStr(formData, "id");
+  const cibleId = fdStr(formData, "cibleId");
+  if (!id || !cibleId) return { ok: false, error: "Choisissez la spécialité dans laquelle fusionner." };
+  if (id === cibleId) return { ok: false, error: "Une spécialité ne se fusionne pas dans elle-même." };
+  const [source, cible] = await Promise.all([
+    prisma.medicalSpecialty.findUnique({ where: { id }, select: { name: true } }),
+    prisma.medicalSpecialty.findUnique({ where: { id: cibleId }, select: { name: true } }),
+  ]);
+  if (!source || !cible) return { ok: false, error: "L'une des deux spécialités n'existe plus — rechargez l'écran." };
+  const { deplaces, detaches } = await prisma.$transaction(async (tx) => {
+    const ecritures = await tx.medicalDoctor.groupBy({ by: ["specialty"], where: { specialtyId: id } });
+    const suivent = ecritures
+      .map((e) => e.specialty)
+      .filter((t): t is string => t !== null && lienDeSpecialiteValide(t, source.name));
+    const passe = await tx.medicalDoctor.updateMany({
+      where: { specialtyId: id, OR: [{ specialty: null }, { specialty: { in: suivent } }] },
+      data: { specialtyId: cibleId, specialty: cible.name },
+    });
+    const reste = await tx.medicalDoctor.updateMany({ where: { specialtyId: id }, data: { specialtyId: null } });
+    await tx.medicalSpecialty.delete({ where: { id } });
+    return { deplaces: passe.count, detaches: reste.count };
+  });
+  const garde = detaches ? ` ; ${detaches} fiche(s) dont le texte contredisait le lien le gardent, sans lien — à rattacher` : "";
+  await recordAudit({
+    actorId: user.id, action: "UPDATE", module: "Annuaires", entityType: "SPECIALTY", entityId: cibleId,
+    summary: `Spécialité « ${source.name} » fusionnée dans « ${cible.name} » — ${deplaces} fiche(s) déplacée(s)${garde}`,
+  });
+  revalidatePath("/annuaires/specialites");
+  revalidatePath("/medical");
+  return { ok: true, message: `« ${source.name} » fusionnée dans « ${cible.name} » : ${deplaces} fiche(s) déplacée(s)${garde}.` };
+}
+
+/**
+ * RATTACHER UN LIBELLÉ HÉRITÉ À UNE SPÉCIALITÉ DU RÉFÉRENTIEL — un geste, toutes ses fiches.
+ *
+ * « Cardio » écrit sur douze fiches ne désigne pas « Cardiologie » à coup sûr : c'est une personne
+ * qui décide qu'il la désigne, et ce geste applique sa décision à toutes les fiches qui portent ce
+ * libellé (à l'écriture près) — sans lien, ou avec un lien que ce texte contredit. On ne touche QUE
+ * les fiches que la personne voit et modifie (`scopeMedicalDoctors`, la portée de la fiche) : un
+ * délégué ne relabellise pas le panel d'un collègue.
+ *
+ * Une seule écriture, dont les conditions se relisent AU MOMENT d'écrire : une fiche rattachée entre
+ * l'affichage et ce clic porte désormais le nom de sa spécialité, donc n'a plus ce libellé, et garde
+ * le choix qu'on y a fait. On lit les ÉCRITURES distinctes de la portée, pas ses fiches : il y en a
+ * des dizaines, pas des milliers.
+ */
+export async function rattacherLibelleSpecialite(formData: FormData): Promise<ActionResult & { rattachees?: number }> {
+  const user = await requireUser();
+  if (!userCan(user, "MEDICAL", "UPDATE")) return { ok: false, error: "Non autorisé." };
+  const libelle = fdStr(formData, "libelle");
+  const specialtyId = fdStr(formData, "specialtyId");
+  if (!libelle || !specialtyId) return { ok: false, error: "Choisissez la spécialité du référentiel à laquelle rattacher ce libellé." };
+  const cible = await prisma.medicalSpecialty.findUnique({ where: { id: specialtyId }, select: { id: true, name: true } });
+  if (!cible) return { ok: false, error: "Cette spécialité n'existe plus — rechargez l'écran." };
+  const cle = cleDeSpecialite(libelle);
+  const scope = scopeMedicalDoctors(user);
+  const [ecritures, referentiel] = await Promise.all([
+    prisma.medicalDoctor.groupBy({ by: ["specialty"], where: { AND: [scope, { specialty: { not: null } }] } }),
+    prisma.medicalSpecialty.findMany({ select: { id: true, name: true } }),
+  ]);
+  const textes = ecritures.map((e) => e.specialty).filter((t): t is string => t !== null && cleDeSpecialite(t) === cle);
+  // Une fiche liée à une spécialité qui S'ÉCRIT comme ce libellé l'est déjà à bon droit — son lien
+  // vaut — et ce geste ne la déplace pas.
+  const memeEcriture = referentiel.filter((s) => cleDeSpecialite(s.name) === cle).map((s) => s.id);
+  const { count } = textes.length === 0 ? { count: 0 } : await prisma.medicalDoctor.updateMany({
+    where: {
+      AND: [scope, { specialty: { in: textes } }, { OR: [{ specialtyId: null }, { specialtyId: { notIn: memeEcriture } }] }],
+    },
+    data: { specialtyId: cible.id, specialty: cible.name, updatedById: user.id },
+  });
+  if (count === 0) return { ok: true, rattachees: 0, message: `Aucune fiche ne porte encore « ${libelle} » sans lien dans ce que vous voyez de l'annuaire.` };
+  await recordAudit({
+    actorId: user.id, action: "UPDATE", module: "Annuaires", entityType: "SPECIALTY", entityId: cible.id,
+    summary: `Libellé « ${libelle} » rattaché à « ${cible.name} » — ${count} fiche(s)`,
+  });
+  revalidatePath("/annuaires/specialites");
+  revalidatePath("/medical/annuaire");
+  revalidatePath("/annuaires");
+  return { ok: true, rattachees: count, message: `${count} fiche(s) « ${libelle} » rattachée(s) à « ${cible.name} ».` };
 }
 
 // ─────────────────────────── Médecins ───────────────────────────
@@ -264,8 +489,9 @@ export async function createDoctor(
 
   // A delegate owns the doctors they create; a manager may assign one.
   const delegateId = user.role === "MEDICAL_DELEGATE" ? user.id : fdStr(formData, "delegateId") ?? null;
-  const specialtyId = fdStr(formData, "specialtyId");
-  const sName = await specialtyName(specialtyId);
+  const sp = await specialiteDuFormulaire(formData);
+  if (!sp.ok) return { ok: false, error: sp.error };
+  const specialite = sp.ecriture ?? { specialtyId: null, specialty: null };
   const institutionId = fdStr(formData, "institutionId");
   const iName = await institutionName(institutionId);
   const wilaya = parseWilaya(fdStr(formData, "wilaya"));
@@ -275,8 +501,8 @@ export async function createDoctor(
     data: {
       name,
       title: parseTitle(fdStr(formData, "title")),
-      specialtyId,
-      specialty: sName ?? fdStr(formData, "specialty"),
+      specialtyId: specialite.specialtyId,
+      specialty: specialite.specialty,
       sector: parseSector(fdStr(formData, "sector")),
       institutionId,
       institution: iName ?? fdStr(formData, "institution"),
@@ -318,8 +544,9 @@ export async function updateDoctor(formData: FormData): Promise<ActionResult> {
   // pas ces champs — l'op d'Adam rejoue la fiche par ses LIBELLÉS, sans aucun identifiant — les
   // remettait à `null` à chaque modification : changer un téléphone détachait le praticien de son
   // établissement, de son service et de sa spécialité de référence, sans un mot.
-  const specialtyId = formData.has("specialtyId") ? fdStr(formData, "specialtyId") : before.specialtyId;
-  const sName = await specialtyName(specialtyId);
+  const sp = await specialiteDuFormulaire(formData);
+  if (!sp.ok) return { ok: false, error: sp.error };
+  const specialite = sp.ecriture ?? { specialtyId: before.specialtyId, specialty: before.specialty };
   let institutionId = formData.has("institutionId") ? fdStr(formData, "institutionId") : before.institutionId;
   // UN ÉTABLISSEMENT NOMMÉ SANS IDENTIFIANT (l'op d'Adam écrit « CHU Mustapha »). Garder le lien
   // d'avant en ignorant ce nom aurait annoncé « établissement modifié » sans rien modifier — le
@@ -356,8 +583,8 @@ export async function updateDoctor(formData: FormData): Promise<ActionResult> {
     data: {
       name,
       title: parseTitle(fdStr(formData, "title")),
-      specialtyId,
-      specialty: sName ?? (specialtyId ? before.specialty : fdStr(formData, "specialty")),
+      specialtyId: specialite.specialtyId,
+      specialty: specialite.specialty,
       sector: parseSector(fdStr(formData, "sector")),
       institutionId,
       serviceId,

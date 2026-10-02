@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/prisma";
-import { branchesDesPraticiensCouverts, lienCouvre, type LienCouverture } from "@/lib/annuaires/services";
-import type { SessionUser } from "@/lib/rbac";
+import { lienCouvre, type LienCouverture } from "@/lib/annuaires/services";
+import { clausePanelDuKam, type SessionUser } from "@/lib/rbac";
 import {
   avancementTournee, echeanceDeSoumission, etatVisite, fenetreDeVue, fenetreRapport, periodeDe,
   retardDeSoumission,
@@ -243,6 +243,10 @@ export interface PlanTourneeVue {
  * L'union est VOULUE : borner au seul secteur ferait disparaître les libéraux, borner au seul
  * rattachement ferait disparaître l'hôpital que la Direction vient de lui confier. Les deux
  * sources répondent à la même question, et c'est leur réunion qui est le panel.
+ *
+ * L'APPARTENANCE se lit dans LA clause du panel (`clausePanelDuKam`, §118.179) — la même que Ma
+ * journée, la saisie d'une visite, le cockpit et la porte de la fiche. Ce chargeur ne lit les
+ * secteurs que pour NOMMER celui qui amène chaque praticien.
  */
 export async function loadPanelPlanifiable(repId: string): Promise<PraticienPlanifiable[]> {
   const secteurs = await prisma.salesSector.findMany({
@@ -260,12 +264,7 @@ export async function loadPanelPlanifiable(repId: string): Promise<PraticienPlan
   })));
 
   const praticiens = await prisma.medicalDoctor.findMany({
-    where: {
-      OR: [
-        { delegateId: repId },
-        ...branchesDesPraticiensCouverts(liens),
-      ],
-    },
+    where: clausePanelDuKam(repId),
     orderBy: [{ name: "asc" }],
     select: {
       id: true, name: true, specialty: true, institution: true, wilaya: true, potential: true,

@@ -207,7 +207,7 @@ export async function planifierVisites(formData: FormData): Promise<ActionResult
 
   await recordAudit({
     actorId: user.id, action: "UPDATE", module: "Promotion médicale",
-    entityType: "VISIT", entityId: plan.id,
+    entityType: "TOUR_PLAN", entityId: plan.id,
     summary: `Plan de tournée — ${paires.length} visite(s) planifiée(s) (+${aCreer.length} / −${aRetirer.length})`,
   });
   revalidatePath(PATH_TOURNEE);
@@ -276,7 +276,7 @@ export async function soumettrePlanTournee(formData: FormData): Promise<ActionRe
   });
   await recordAudit({
     actorId: user.id, action: "UPDATE", module: "Promotion médicale",
-    entityType: "VISIT", entityId: plan.id,
+    entityType: "TOUR_PLAN", entityId: plan.id,
     summary: `Plan de tournée soumis à validation (${plan.visits.length} visite(s))`,
   });
   revalidatePath(PATH_TOURNEE);
@@ -325,7 +325,7 @@ export async function escaladerPlanTournee(formData: FormData): Promise<ActionRe
   });
   await recordAudit({
     actorId: user.id, action: "UPDATE", module: "Promotion médicale",
-    entityType: "VISIT", entityId: plan.id, summary: "Plan de tournée escaladé au N+2",
+    entityType: "TOUR_PLAN", entityId: plan.id, summary: "Plan de tournée escaladé au N+2",
   });
   revalidatePath(PATH_TOURNEE);
   return { ok: true, id: plan.id };
@@ -375,7 +375,7 @@ export async function deciderPlanTournee(formData: FormData): Promise<ActionResu
   });
   await recordAudit({
     actorId: user.id, action: "UPDATE", module: "Promotion médicale",
-    entityType: "VISIT", entityId: plan.id,
+    entityType: "TOUR_PLAN", entityId: plan.id,
     summary: decision === "APPROVE" ? "Plan de tournée VALIDÉ" : "Plan de tournée REJETÉ (48 h pour resoumettre)",
   });
   revalidatePath(PATH_TOURNEE);

@@ -1756,6 +1756,9 @@ export const ANNUAIRES_TABS: NavTab[] = [
   { module: "MEDICAL", label: "Médecins", href: "/annuaires/medecins", annuaire: "MEDECINS" },
   { module: "MEDICAL", label: "Pharmaciens", href: "/annuaires/pharmaciens", annuaire: "PHARMACIENS" },
   { module: "MEDICAL", label: "Établissements", href: "/annuaires/etablissements", annuaire: "ETABLISSEMENTS" },
+  // LE RÉFÉRENTIEL DES SPÉCIALITÉS (§118.180) — une STRUCTURE de l'annuaire : il s'ouvre par la
+  // Promotion médicale, pas par une case « Médecins » de la console (§118.147).
+  { module: "MEDICAL", label: "Spécialités", href: "/annuaires/specialites" },
   { module: "WORKSPACE", label: "Partenaires", href: "/annuaires/partenaires", annuaire: "PARTENAIRES" },
   { module: "WORKSPACE", label: "Personnes", href: "/annuaires/personnes", annuaire: "PERSONNES" },
   { module: "DIRECTORIES", label: "Autres annuaires", href: "/annuaires/autres" },

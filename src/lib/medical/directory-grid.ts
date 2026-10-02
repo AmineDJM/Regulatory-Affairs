@@ -1,4 +1,5 @@
 import { DOCTOR_TITLE, MEDICAL_SECTOR, SEGMENT_LEVEL, ALGERIA_WILAYAS } from "@/lib/labels";
+import { lienDeSpecialiteValide } from "@/lib/annuaires/specialites";
 
 /**
  * L'ANNUAIRE ÉDITABLE — les colonnes exactes du terrain, et leur éditeur.
@@ -157,6 +158,13 @@ export interface AnnuaireRow {
   potential: string;
   postalCode: string | null;
   phone: string | null;
+  /**
+   * LA SPÉCIALITÉ RATTACHÉE (§118.180) — l'identifiant du référentiel quand le lien VAUT, sinon
+   * `null`. Une fiche peut porter une spécialité écrite SANS lien (« Cardio »), ou un texte qui
+   * contredit son lien (un import d'avant) : elle est « à rattacher », et la feuille le montre.
+   */
+  specialtyId: string | null;
+  /** Le nom affiché : celui du référentiel quand le lien vaut, sinon le texte écrit. */
   specialty: string | null;
   /**
    * L'ÉTABLISSEMENT RATTACHÉ (§118.172) — l'identifiant de l'annuaire des établissements, ou
@@ -174,6 +182,11 @@ export interface AnnuaireRow {
   sector: string;
   /** Les valeurs des colonnes PROPRES à l'annuaire (`MedicalDoctor.custom`), par clé de colonne. */
   custom?: Record<string, unknown>;
+}
+
+/** Une fiche porte-t-elle une spécialité écrite, sans lien vers le référentiel ? (§118.180) */
+export function specialiteEstARattacher(row: Pick<AnnuaireRow, "specialtyId" | "specialty">): boolean {
+  return row.specialtyId === null && Boolean(row.specialty?.trim());
 }
 
 /** Une fiche porte-t-elle un établissement tapé à la main, sans lien vers l'annuaire ? */
@@ -197,6 +210,7 @@ export function ligneAnnuaire(d: {
   postalCode: string | null;
   phone: string | null;
   specialty: string | null;
+  specialtyId?: string | null;
   specialtyRef?: { name: string } | null;
   institution: string | null;
   institutionId: string | null;
@@ -208,6 +222,11 @@ export function ligneAnnuaire(d: {
   sector: string;
   custom?: unknown;
 }): AnnuaireRow {
+  // LE LIEN NE VAUT QUE SI LE TEXTE LE DÉSIGNE (§118.180) : alors le NOM du référentiel s'affiche,
+  // dans son écriture propre. Un texte qui contredit le lien est une saisie plus récente (l'ancien
+  // import remplaçait le texte sans toucher au lien) : la saisie l'emporte, comme à l'édition, et la
+  // fiche se dit « à rattacher » — afficher le lien défairait cette saisie en silence (§118.172).
+  const lien = d.specialtyRef && lienDeSpecialiteValide(d.specialty, d.specialtyRef.name) ? d.specialtyRef : null;
   return {
     id: d.id,
     lastName: d.lastName,
@@ -217,8 +236,8 @@ export function ligneAnnuaire(d: {
     potential: d.potential,
     postalCode: d.postalCode,
     phone: d.phone,
-    // La saisie libre l'emporte à l'affichage sur le référentiel, comme à l'édition.
-    specialty: d.specialty ?? d.specialtyRef?.name ?? null,
+    specialtyId: lien ? d.specialtyId ?? null : null,
+    specialty: lien ? lien.name : d.specialty ?? null,
     // Le nom de l'établissement RATTACHÉ fait foi (un renommage dans l'annuaire suit) ; le texte
     // hérité ne s'affiche que faute de lien. Un lien vers une ligne disparue retombe sur le texte.
     institutionId: d.institutionRef ? d.institutionId : null,

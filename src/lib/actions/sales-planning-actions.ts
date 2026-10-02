@@ -60,7 +60,7 @@ export async function createBusinessUnit(formData: FormData): Promise<ActionResu
     },
     select: { id: true },
   });
-  await recordAudit({ actorId: user.id, action: "CREATE", module: "Force de vente", summary: `BU « ${name} »` });
+  await recordAudit({ actorId: user.id, action: "CREATE", module: "Force de vente", entityType: "BUSINESS_UNIT", entityId: created.id, summary: `BU « ${name} »` });
   revalidatePath(BU_PATH);
   return { ok: true, id: created.id };
 }
@@ -85,6 +85,9 @@ export async function updateBusinessUnit(formData: FormData): Promise<ActionResu
       isActive: fdCase(formData, "isActive"),
     },
   });
+  // L'HISTOIRE D'UNE BU (§118.181) : sa modification n'était pas auditée — un superviseur changé,
+  // un canal réglé, une gamme désactivée ne laissaient aucune trace.
+  await recordAudit({ actorId: user.id, action: "UPDATE", module: "Force de vente", entityType: "BUSINESS_UNIT", entityId: id, summary: "BU modifiée" });
   revalidatePath(BU_PATH);
   return { ok: true };
 }
@@ -157,7 +160,7 @@ export async function openBusinessUnitBudget(formData: FormData): Promise<Action
   await prisma.businessUnit.update({ where: { id }, data: { departmentId: dep.id } });
 
   await recordAudit({
-    actorId: user.id, action: "CREATE", module: "Force de vente",
+    actorId: user.id, action: "CREATE", module: "Force de vente", entityType: "BUSINESS_UNIT", entityId: bu.id,
     summary: `Budget ouvert pour la BU « ${bu.name} » — sous-département ${buDepartmentName(bu.name)}`,
   });
   revalidatePath(BU_PATH);
@@ -186,7 +189,7 @@ export async function deleteBusinessUnit(formData: FormData): Promise<ActionResu
     return { ok: false, error: `La BU « ${bu.name} » porte encore ${quoi}. Déplacez-les d'abord, ou désactivez la BU.` };
   }
   await prisma.businessUnit.delete({ where: { id } });
-  await recordAudit({ actorId: user.id, action: "DELETE", module: "Force de vente", summary: `BU « ${bu.name} » supprimée` });
+  await recordAudit({ actorId: user.id, action: "DELETE", module: "Force de vente", entityType: "BUSINESS_UNIT", entityId: id, summary: `BU « ${bu.name} » supprimée` });
   revalidatePath(BU_PATH);
   return { ok: true };
 }
@@ -618,7 +621,7 @@ async function ecrireSecteur(
   });
 
   await recordAudit({
-    actorId, action: sectorId ? "UPDATE" : "CREATE", module: "Force de vente",
+    actorId, action: sectorId ? "UPDATE" : "CREATE", module: "Force de vente", entityType: "SALES_SECTOR", entityId: ecrit,
     summary: `Secteur « ${name} » — ${institutionIds.length} établissement(s)${restreints && restreints.size > 0 ? ` dont ${restreints.size} limité(s) à certains services` : ""}, ${repIds.length} KAM`,
   });
   revalidatePath(BU_PATH);
@@ -641,7 +644,7 @@ export async function deleteSector(formData: FormData): Promise<ActionResult> {
   if (!secteur) return { ok: false, error: "Secteur introuvable." };
   await prisma.salesSector.delete({ where: { id } });
   await recordAudit({
-    actorId: user.id, action: "DELETE", module: "Force de vente",
+    actorId: user.id, action: "DELETE", module: "Force de vente", entityType: "SALES_SECTOR", entityId: id,
     // Le nombre de KAM qui PERDENT leur territoire est ce qu'on veut relire dans l'audit : c'est
     // la conséquence, pas la ligne supprimée.
     summary: `Secteur « ${secteur.name} » supprimé — ${secteur._count.reps} KAM sans territoire`,
@@ -763,7 +766,7 @@ export async function addBuMarketingReferent(formData: FormData): Promise<Action
   });
   if (count === 0) return { ok: true }; // déjà référente — le geste est idempotent, pas en échec
   await recordAudit({
-    actorId: user.id, action: "UPDATE", module: "Force de vente",
+    actorId: user.id, action: "UPDATE", module: "Force de vente", entityType: "BUSINESS_UNIT", entityId: businessUnitId,
     summary: `Référent Direction Marketing ajouté — ${cible.name} sur la gamme ${bu.name}`,
   });
   revalidatePath("/planning/business-units");
@@ -782,7 +785,7 @@ export async function removeBuMarketingReferent(formData: FormData): Promise<Act
   if (!ligne) return { ok: true }; // déjà retirée : le geste est idempotent
   await prisma.businessUnitMarketingReferent.delete({ where: { id } });
   await recordAudit({
-    actorId: user.id, action: "UPDATE", module: "Force de vente",
+    actorId: user.id, action: "UPDATE", module: "Force de vente", entityType: "BUSINESS_UNIT", entityId: ligne.businessUnitId,
     summary: `Référent Direction Marketing retiré — ${ligne.user.name} de la gamme ${ligne.businessUnit.name}`,
   });
   revalidatePath("/planning/business-units");

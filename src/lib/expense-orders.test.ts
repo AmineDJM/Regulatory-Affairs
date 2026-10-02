@@ -116,6 +116,24 @@ suite("L'entité d'un ordre de dépense", () => {
     });
     expect(vus.map((o) => o.id)).not.toContain(ailleurs.id);
   });
+
+  it("DOUZE DÉCAISSEMENTS À LA MÊME SECONDE : douze ordres, douze références, douze dossiers (§118.182)", async () => {
+    // LE DÉFAUT, trouvé par la suite complète le 02/10 : l'ordre se créait SANS filet — deux demandes
+    // simultanées lisaient le même maximum, et la seconde échouait sur la contrainte d'unicité, après le
+    // clic. Le dossier compagnon, lui, réessayait six fois : au-delà de six concurrents il manquait, EN
+    // SILENCE — il est best-effort, et un ordre sans dossier redevient un libellé qu'on ne peut pas ouvrir.
+    const N = 12;
+    const ordres = await Promise.all(Array.from({ length: N }, (_, i) => createExpenseOrder({
+      label: `${TAG} rafale ${i}`, amount: 1000 + i, category: "AUTRE", requestedById: requesterId,
+    })));
+    orderIds.push(...ordres.map((o) => o.id));
+    expect(new Set(ordres.map((o) => o.reference)).size, "douze références distinctes").toBe(N);
+    const dossiers = await prisma.paymentRequest.findMany({
+      where: { expenseOrderId: { in: ordres.map((o) => o.id) } }, select: { expenseOrderId: true },
+    });
+    expect(new Set(dossiers.map((d) => d.expenseOrderId)).size, "chaque ordre a SON dossier compagnon").toBe(N);
+    expect(dossiers, "un seul dossier par ordre").toHaveLength(N);
+  });
 });
 
 /**

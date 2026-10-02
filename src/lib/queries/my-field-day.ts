@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { clausePanelDuKam } from "@/lib/rbac";
 import { getSfeConfig, panelRequiredVisits } from "@/lib/sfe";
 import {
   buildTournee, carriedProducts, monthProgress,
@@ -40,8 +41,10 @@ export async function loadMyFieldDay(userId: string, today = new Date()): Promis
   const [config, cycle, doctors, visitsThisMonth, recentes] = await Promise.all([
     getSfeConfig(),
     prisma.promoCycle.findUnique({ where: { year_month: { year, month } }, select: { id: true } }),
+    // LE PANEL ENTIER — secteur ∪ rattachement (§118.179) : la tournée proposée ici et le plan de
+    // tournée lisent la même clause, sinon un praticien planifié n'apparaîtrait pas le jour venu.
     prisma.medicalDoctor.findMany({
-      where: { delegateId: userId },
+      where: clausePanelDuKam(userId),
       select: {
         id: true, name: true, potential: true, specialty: true, institution: true, wilaya: true,
         lastVisit: true,

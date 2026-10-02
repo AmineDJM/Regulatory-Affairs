@@ -88,7 +88,7 @@ describe("Afficher une cellule — écran et export disent la même chose", () =
   const row: AnnuaireRow = {
     id: "d1", lastName: "MOUFFOK", firstName: "Amina", address: "12 rue X",
     wilaya: "Alger", potential: "VERY_HIGH", postalCode: "16000", phone: "0550112233",
-    specialty: "Cardiologie", title: "PROFESSEUR", email: "a@chu.dz", sector: "HOSPITAL",
+    specialtyId: "sp1", specialty: "Cardiologie", title: "PROFESSEUR", email: "a@chu.dz", sector: "HOSPITAL",
     institutionId: "e1", institution: "CHU Mustapha", serviceId: "s1", service: "Cardiologie A",
   };
 

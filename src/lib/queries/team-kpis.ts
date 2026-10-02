@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { toNumber } from "@/lib/utils";
+import { clausePanelDuKam } from "@/lib/rbac";
 import {
   commonKpis, jobKpis, jobOf, JOB_LABEL, NO_JOB_KPI_NOTE,
   type CommonCounts, type JobCounts, type TeamJob, type TeamKpi,
@@ -115,7 +116,8 @@ async function jobCountsOf(job: TeamJob, userId: string | null, now: Date, depui
       const [visitsDone30, visitsPlanned, doctors, visitsWithoutReport] = await Promise.all([
         prisma.medicalVisit.count({ where: { delegateId: userId, status: "COMPLETED", date: { gte: depuis30 } } }),
         prisma.medicalVisit.count({ where: { delegateId: userId, status: "PLANNED", date: { gte: now } } }),
-        prisma.medicalDoctor.count({ where: { delegateId: userId } }),
+        // « Médecins au portefeuille » : SON PANEL, secteur ∪ rattachement (§118.179).
+        prisma.medicalDoctor.count({ where: clausePanelDuKam(userId) }),
         // « RÉALISÉE MAIS RIEN D'ÉCRIT » — une visite faite dont il ne reste rien pour celui
         // qui reprendra le médecin. Borné aux 30 derniers jours comme les visites elles-mêmes :
         // un compte rendu de l'an dernier ne se rattrape plus, et le compter ferait un chiffre

@@ -212,6 +212,11 @@ suite("Plan de tournée — écran, validation, rapport, dénominateur", () => {
     expect(visites.every((v) => v.origin === "PLAN")).toBe(true);
     // LE DÉLÉGUÉ VIENT DU PLAN, jamais du formulaire : sinon un KAM planifierait pour un autre.
     expect(visites.every((v) => v.delegateId === kamId)).toBe(true);
+    // LE JOURNAL NOMME UN PLAN, PAS UNE VISITE (§118.181) : `entityId` est l'identifiant du PLAN,
+    // et l'ancien type VISIT faisait lire cette ligne comme l'histoire d'une visite qui n'existe pas.
+    const journal = await prisma.auditLog.findMany({ where: { entityId: planId }, select: { entityType: true } });
+    expect(journal.length).toBeGreaterThan(0);
+    expect(journal.map((l) => l.entityType)).toEqual(journal.map(() => "TOUR_PLAN"));
   });
 
   it("REPLANIFIER remplace la sélection — décocher retire", async () => {
@@ -355,6 +360,18 @@ suite("Plan de tournée — écran, validation, rapport, dénominateur", () => {
     const encore = await deciderPlanTournee(fd({ planId, decision: "REJECT", comment: "changement d'avis" }));
     expect(encore.ok).toBe(false);
     expect(encore.ok === false ? encore.error : "").toContain("ne se décide pas");
+  });
+
+  it("TOUT le journal du plan est sous SON type — planifier, soumettre, rejeter, valider (§118.181)", async () => {
+    const journal = await prisma.auditLog.findMany({ where: { entityId: planId }, select: { entityType: true, summary: true } });
+    const resumes = journal.map((l) => l.summary ?? "");
+    // Les gestes que ce banc a joués y sont TOUS : sans eux, l'assertion de type porterait sur une
+    // liste amputée et passerait au vert. L'escalade n'y est pas — ce banc n'a pas de N+2, elle est
+    // refusée plus haut, et son type n'est éprouvé par aucun cas qui réussit.
+    for (const geste of ["planifiée", "soumis à validation", "REJETÉ", "VALIDÉ"]) {
+      expect(resumes.some((s) => s.includes(geste)), geste).toBe(true);
+    }
+    expect(journal.map((l) => l.entityType)).toEqual(journal.map(() => "TOUR_PLAN"));
   });
 
   // ── LE RAPPORT TERRAIN ──────────────────────────────────────────────────────────────────

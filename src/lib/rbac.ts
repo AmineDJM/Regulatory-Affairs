@@ -1340,11 +1340,54 @@ export function regulatoryLockWhere(user: SessionUser | null): Prisma.Regulatory
   return user && seesLockedRegulatory(user) ? {} : { isLocked: false };
 }
 
+/**
+ * LE PANEL D'UN KAM — les praticiens qu'il couvre, en UNE clause (§118.179).
+ *
+ * Son SECTEUR d'abord : un secteur est une sélection d'établissements — entiers, ou certains de
+ * leurs services (§118.172) — et les praticiens de ce qu'il couvre sont son territoire. Plus ceux
+ * qui lui sont rattachés directement (`delegateId`) : un libéral n'a pas d'hôpital.
+ *
+ * Il y avait DEUX définitions. Le plan de tournée lisait secteur ∪ rattachement ; tout le reste —
+ * Ma journée, la saisie d'une visite, la visite imprévue, le cockpit et ses alertes, la carte
+ * d'équipe, l'accès à la fiche — le seul rattachement. Un KAM planifiait un praticien de son
+ * secteur, puis ne le trouvait pas dans Ma journée, ne pouvait ni saisir la visite imprévue ni
+ * ouvrir sa fiche, et le cockpit l'alertait « aucun praticien dans son panel » sur un secteur qui
+ * en comptait quarante.
+ *
+ * Ce que la clause ne fait PAS : un établissement RESTREINT ne couvre que les services choisis, et
+ * un praticien SANS service n'y entre pas (on ne devine pas son service, §118.34) ; un secteur
+ * INACTIF ne couvre rien. Relationnelle et synchrone : elle se compose dans n'importe quelle
+ * requête sans lecture préalable, et c'est elle — elle seule — que lisent les panels de plusieurs
+ * KAM (`queries/panel-kam.ts`) : une seconde écriture de la règle en mémoire divergerait sur le
+ * premier cas que personne n'a pensé à tester.
+ */
+export function clausePanelDuKam(repId: string): Prisma.MedicalDoctorWhereInput {
+  const secteurDuKam: Prisma.SalesSectorWhereInput = { isActive: true, reps: { some: { repId } } };
+  return {
+    OR: [
+      { delegateId: repId },
+      { institutionRef: { sectors: { some: { tousLesServices: true, sector: secteurDuKam } } } },
+      { serviceRef: { secteurs: { some: { sectorInstitution: { tousLesServices: false, sector: secteurDuKam } } } } },
+    ],
+  };
+}
+
+/**
+ * LES PRATICIENS QU'UNE PERSONNE VOIT ET TOUCHE dans l'annuaire de la Promotion médicale.
+ *
+ * Portée entière : tous. Portée « ses lignes » (le délégué) : SON PANEL — secteur ∪ rattachement
+ * (§118.179) — plus ce qui lui est accordé ligne à ligne. C'est la règle du cahier des charges
+ * (« CAM : son portefeuille + mises à jour terrain »), et c'est ce qui rend cohérents le plan de
+ * tournée (qui propose les praticiens du secteur) et la fiche (qui doit s'ouvrir sur eux).
+ * Le geste qui la retourne, si la Direction veut qu'un délégué ne MODIFIE que ses rattachés : dans
+ * `canAccessEntity("DOCTOR")`, garder `{ delegateId }` pour les gestes autres que VIEW — et la
+ * feuille de l'annuaire devra alors porter un drapeau « modifiable » par ligne.
+ */
 export function scopeMedicalDoctors(user: SessionUser): Prisma.MedicalDoctorWhereInput {
   const m = user.access.modules.get("MEDICAL");
   if (!m) return { id: "__none__" };
   if (m.scope === "ALL") return {};
-  const ors: Prisma.MedicalDoctorWhereInput[] = [{ delegateId: user.id }];
+  const ors: Prisma.MedicalDoctorWhereInput[] = [clausePanelDuKam(user.id)];
   const ids = grantsFor(user, "DOCTOR");
   if (ids.length) ors.push({ id: { in: ids } });
   return { OR: ors };
