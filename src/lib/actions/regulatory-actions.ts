@@ -21,8 +21,10 @@ import {
 import { canAccessEntity } from "@/lib/entity-access";
 import { prisma } from "@/lib/prisma";
 import { projetsBdVisibles } from "@/lib/queries/bd";
-import { buildRef } from "@/lib/refs";
+import { buildRef, createWithRetry, enSerie } from "@/lib/refs";
 import { recordAudit } from "@/lib/audit";
+import { rattacherDossier, phraseRattachement, synchroniserCycleDeVie } from "@/lib/products/canonique";
+import { phraseManques } from "@/lib/products/identity";
 import { notifyUser, notifyRoles } from "@/lib/notify";
 import { createExpenseOrder } from "@/lib/expense-orders";
 import { saveFile, validateUpload } from "@/lib/storage";
@@ -231,11 +233,6 @@ export async function createRegulatoryProduct(
   if (!okCompany) return { ok: false, error: "Entité inconnue ou désactivée." };
 
   const year = new Date().getFullYear();
-  const refs = await prisma.regulatoryProduct.findMany({
-    where: { reference: { startsWith: `REG-${year}-` } },
-    select: { reference: true },
-  });
-  const reference = buildRef("REG", year, refs.map((r) => r.reference));
 
   const responsibleId = str(formData, "responsibleId");
   const assistantId = str(formData, "assistantId");
@@ -259,9 +256,15 @@ export async function createRegulatoryProduct(
   // qui pourrait créer un dossier que personne d'autre ne verrait.
   const lockOnCreate = str(formData, "lock") === "1" && user.role === "SUPER_ADMIN";
 
-  const product = await prisma.regulatoryProduct.create({
+  // LA RÉFÉRENCE SE CALCULE SOUS LA FILE (§118.175, §118.178). Deux créations simultanées lisaient
+  // le même maximum et la seconde tombait sur l'unicité de `reference` — une erreur brute après un
+  // formulaire de trente champs. Une création à la fois dans ce processus, un réessai entre deux.
+  const product = await enSerie("REG", () => createWithRetry(async () => prisma.regulatoryProduct.create({
     data: {
-      reference,
+      reference: buildRef("REG", year, (await prisma.regulatoryProduct.findMany({
+        where: { reference: { startsWith: `REG-${year}-` } },
+        select: { reference: true },
+      })).map((r) => r.reference)),
       dci,
       molecules: molecules.length > 1 ? (molecules as unknown as Prisma.InputJsonValue) : undefined,
       brandName: str(formData, "brandName"),
@@ -302,7 +305,8 @@ export async function createRegulatoryProduct(
         })),
       },
     },
-  });
+  })));
+  const reference = product.reference;
 
   await recordAudit({
     actorId: user.id,
@@ -312,6 +316,18 @@ export async function createRegulatoryProduct(
     entityId: product.id,
     summary: `Nouveau dossier ${reference} — ${dci}${lockOnCreate ? " (créé verrouillé, dans le pipeline)" : ""}`,
   });
+
+  // LE PRODUIT CANONIQUE (§118.178) : un dossier à l'identité complète rejoint son produit dès sa
+  // naissance — sinon on dit ce qui manque. Le dossier est créé quoi qu'il arrive : un incident de
+  // rattachement se DIT dans le message, il ne défait pas une création réussie, et le rattachement
+  // global du catalogue le rattrapera.
+  const lien = await rattacherDossier(product.id, { acteurId: user.id }).catch((e) => {
+    console.error("[produit canonique] rattachement à la création", e);
+    return null;
+  });
+  const messageProduit = lien
+    ? phraseRattachement(lien, phraseManques)
+    : "Le produit canonique n'a pas pu être rattaché maintenant : le catalogue produits le rattachera.";
 
   // UN DOSSIER VERROUILLÉ NE PRÉVIENT PERSONNE. Il n'existe que pour le Super Admin
   // (`lockGate`) : annoncer sa création à l'équipe reviendrait à lui envoyer un lien qui
@@ -342,7 +358,7 @@ export async function createRegulatoryProduct(
   // Le pipeline est l'écran des dossiers verrouillés : un dossier qui y naît doit s'y voir
   // tout de suite, sans attendre l'expiration du cache de navigation.
   revalidatePath("/regulatory/pipeline");
-  return { ok: true, id: product.id };
+  return { ok: true, id: product.id, message: messageProduit ?? undefined };
 }
 
 /**
@@ -516,6 +532,15 @@ export async function updateRegulatoryProduct(
     summary: structural.changes.length
       ? `Dossier ${before.reference} — ${structural.changes.map((c) => `${c.label} : ${c.from} → ${c.to}`).join(" · ")}`
       : `Dossier ${before.reference} modifié — ${dci}`,
+  });
+
+  // LE LIEN SUIT LA DONNÉE (§118.178) : une identité corrigée rejoint son produit, une identité
+  // devenue incomplète ne défait rien. Appelé à CHAQUE enregistrement — idempotent, il n'écrit
+  // que si quelque chose a changé. Son état se LIT sur la fiche du dossier, en permanence : le
+  // message de cette action est réservé aux réserves, qui gardent la fenêtre ouverte, et un
+  // « rattaché » à chaque enregistrement la garderait ouverte pour rien.
+  await rattacherDossier(id, { acteurId: user.id }).catch((e) => {
+    console.error("[produit canonique] rattachement à la modification", e);
   });
 
   // Le chargé du dossier apprend le changement — celui d'AVANT si la personne a changé : c'est
@@ -918,9 +943,10 @@ async function syncStatusFromWorkflow(
   const d = deriveStatus(wf, current);
   if (!d.changed) return current;
 
-  await prisma.regulatoryProduct.update({
+  const maj = await prisma.regulatoryProduct.update({
     where: { id: productId },
     data: { status: d.status as RegulatoryStatus, updatedById: actorId },
+    select: { productId: true },
   });
   await recordAudit({
     actorId, action: "UPDATE", module: "Regulatory",
@@ -928,6 +954,10 @@ async function syncStatusFromWorkflow(
     field: "status", oldValue: current, newValue: d.status,
     summary: `Niveau de process de ${reference} → ${d.status} (déduit du processus d'enregistrement)`,
   });
+  // Le CYCLE DE VIE du produit canonique suit ce que ses dossiers prouvent : une décision obtenue
+  // l'enregistre (§118.178). C'est le seul écrivain du niveau de process, donc le seul endroit
+  // où le cycle de vie peut prendre du retard.
+  if (maj.productId) await synchroniserCycleDeVie(maj.productId);
 
   // Dépôt effectué : la supervision doit fixer la date cible d'enregistrement. Le message
   // partait déjà quand le niveau se posait à la main — il ne doit pas se perdre maintenant

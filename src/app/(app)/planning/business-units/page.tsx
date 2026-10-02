@@ -8,6 +8,7 @@ import { PageHeader } from "@/components/shared/page-header";
 import { PlanningTabs } from "../tabs";
 import { ROLES_QUI_TRANCHENT, porteLeRoleQuiTranche } from "@/lib/personnes/referents-gamme";
 import { BusinessUnitsManager } from "./bu-manager";
+import { DOSSIERS_PROPOSABLES_BU } from "@/lib/sfe/produits-bu";
 
 export const dynamic = "force-dynamic";
 
@@ -55,7 +56,7 @@ export default async function BusinessUnitsPage() {
     // LES DOSSIERS RÉGLEMENTAIRES, source des produits promus. Bornés aux dossiers vivants :
     // un dossier verrouillé n'a pas à entrer au catalogue promotionnel.
     prisma.regulatoryProduct.findMany({
-      where: { isLocked: false },
+      where: DOSSIERS_PROPOSABLES_BU,
       select: { id: true, reference: true, dci: true, brandName: true },
       orderBy: [{ dci: "asc" }],
       take: 400,

@@ -1,4 +1,13 @@
+import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+
+/**
+ * LES DOSSIERS QU'ON PEUT AJOUTER À UNE BUSINESS UNIT — la clause de la LISTE de l'écran ET celle
+ * de l'ACTION (§118.177 : une liste, une clause). L'écran ne proposait que les dossiers non
+ * verrouillés ; l'action, elle, acceptait n'importe quel identifiant : un dossier du pipeline,
+ * deviné, devenait un produit de BU portant son nom et sa DCI (§118.178).
+ */
+export const DOSSIERS_PROPOSABLES_BU = { isLocked: false } satisfies Prisma.RegulatoryProductWhereInput;
 
 /**
  * LES PRODUITS QU'UNE VISITE PEUT PORTER — ceux de la Business Unit de celui qui la fait.
@@ -75,6 +84,7 @@ export function refusProduitsHorsBu(
     : `${horsBu} produit(s) ne sont pas dans la gamme de ce KAM — un rapport ne porte que les produits de sa Business Unit.`;
   return base + (p.sansCanonique.length > 0
     ? ` À noter : ${p.sansCanonique.length} produit(s) promu(s) de la gamme (${p.sansCanonique.slice(0, 3).join(", ")}) `
-      + "n'ont pas de produit canonique rattaché et ne peuvent donc pas figurer dans un rapport — à corriger dans Force de vente › Business Units."
+      + "n'ont pas de produit canonique rattaché et ne peuvent donc pas figurer dans un rapport — "
+      + "le « Catalogue produits » de Regulatory dit, pour chacun, ce qui manque (dossier à rattacher ou à compléter)."
     : "");
 }

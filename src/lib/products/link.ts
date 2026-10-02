@@ -2,6 +2,7 @@ import { userCan, scopeRegulatory, type SessionUser } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
 import type { ActionResult } from "@/lib/actions/types";
+import { rattacherDossier } from "./canonique";
 
 /**
  * RATTACHER UN PRODUIT À SON DOSSIER RÉGLEMENTAIRE — le cœur, appelé par les DEUX portes.
@@ -42,25 +43,41 @@ export async function linkProductToDossierFor(user: SessionUser, input: {
   // verrouillé ou hors périmètre en devinant son identifiant.
   const dossier = await prisma.regulatoryProduct.findFirst({
     where: { id: input.regulatoryProductId, ...scopeRegulatory(user) },
-    select: { id: true, dci: true, dosage: true, reference: true },
+    select: { id: true, dci: true, dosage: true, reference: true, productId: true },
   });
   if (!dossier) return { ok: false, error: "Dossier réglementaire introuvable dans votre périmètre." };
+
+  // LE PRODUIT CANONIQUE DU DOSSIER (§118.178) : rattaché à son dossier, le profil en hérite — c'est
+  // lui qu'une visite rapporte et que la 360° lit. Un dossier pas encore rattaché l'est ici, sur sa
+  // seule identité complète ; incomplet, il ne donne rien, et le catalogue dit ce qui manque.
+  let produitDuDossier = dossier.productId;
+  if (!produitDuDossier) {
+    const lien = await rattacherDossier(dossier.id, { acteurId: user.id }).catch(() => null);
+    if (lien && lien.etat !== "INCOMPLET" && lien.etat !== "INTROUVABLE") produitDuDossier = lien.produitId;
+  }
 
   const dossierName = [dossier.dci, dossier.dosage, dossier.reference && `(${dossier.reference})`].filter(Boolean).join(" ");
 
   if (input.kind === "BD") {
-    const p = await prisma.bdProduct.findUnique({ where: { id: input.id }, select: { dci: true } });
+    const p = await prisma.bdProduct.findUnique({ where: { id: input.id }, select: { dci: true, productId: true } });
     if (!p) return { ok: false, error: "Produit introuvable." };
-    await prisma.bdProduct.update({ where: { id: input.id }, data: { regulatoryProductId: dossier.id } });
+    await prisma.bdProduct.update({
+      where: { id: input.id },
+      // Un produit canonique déjà choisi par une personne n'est pas remplacé par effet de bord.
+      data: { regulatoryProductId: dossier.id, ...(p.productId ? {} : { productId: produitDuDossier }) },
+    });
     await recordAudit({
       actorId: user.id, action: "UPDATE", module: "Regulatory",
       entityType: "REGULATORY_PRODUCT", entityId: dossier.id,
       summary: `Catalogues rapprochés — le produit BD « ${p.dci} » est rattaché à ${dossierName}`,
     });
   } else {
-    const p = await prisma.promoProduct.findUnique({ where: { id: input.id }, select: { name: true } });
+    const p = await prisma.promoProduct.findUnique({ where: { id: input.id }, select: { name: true, productId: true } });
     if (!p) return { ok: false, error: "Produit introuvable." };
-    await prisma.promoProduct.update({ where: { id: input.id }, data: { regulatoryProductId: dossier.id } });
+    await prisma.promoProduct.update({
+      where: { id: input.id },
+      data: { regulatoryProductId: dossier.id, ...(p.productId ? {} : { productId: produitDuDossier }) },
+    });
     await recordAudit({
       actorId: user.id, action: "UPDATE", module: "Regulatory",
       entityType: "REGULATORY_PRODUCT", entityId: dossier.id,
@@ -78,18 +95,28 @@ export async function unlinkProductFromDossierFor(user: SessionUser, input: { ki
   if (!input.id) return { ok: false, error: "Produit manquant." };
 
   if (input.kind === "BD") {
-    const p = await prisma.bdProduct.findUnique({ where: { id: input.id }, select: { dci: true, regulatoryProductId: true } });
+    const p = await prisma.bdProduct.findUnique({
+      where: { id: input.id },
+      select: { dci: true, regulatoryProductId: true, productId: true, regulatoryProduct: { select: { productId: true } } },
+    });
     if (!p) return { ok: false, error: "Produit introuvable." };
-    await prisma.bdProduct.update({ where: { id: input.id }, data: { regulatoryProductId: null } });
+    // Le produit canonique HÉRITÉ du dossier part avec lui : défaire « c'est ce dossier », c'est
+    // défaire « c'est ce produit ». Un produit choisi à part par une personne reste.
+    const herite = Boolean(p.productId && p.productId === p.regulatoryProduct?.productId);
+    await prisma.bdProduct.update({ where: { id: input.id }, data: { regulatoryProductId: null, ...(herite ? { productId: null } : {}) } });
     await recordAudit({
       actorId: user.id, action: "UPDATE", module: "Regulatory",
       entityType: "REGULATORY_PRODUCT", entityId: p.regulatoryProductId ?? undefined,
       summary: `Rapprochement défait — le produit BD « ${p.dci} » n'est plus rattaché`,
     });
   } else {
-    const p = await prisma.promoProduct.findUnique({ where: { id: input.id }, select: { name: true, regulatoryProductId: true } });
+    const p = await prisma.promoProduct.findUnique({
+      where: { id: input.id },
+      select: { name: true, regulatoryProductId: true, productId: true, regulatoryProduct: { select: { productId: true } } },
+    });
     if (!p) return { ok: false, error: "Produit introuvable." };
-    await prisma.promoProduct.update({ where: { id: input.id }, data: { regulatoryProductId: null } });
+    const herite = Boolean(p.productId && p.productId === p.regulatoryProduct?.productId);
+    await prisma.promoProduct.update({ where: { id: input.id }, data: { regulatoryProductId: null, ...(herite ? { productId: null } : {}) } });
     await recordAudit({
       actorId: user.id, action: "UPDATE", module: "Regulatory",
       entityType: "REGULATORY_PRODUCT", entityId: p.regulatoryProductId ?? undefined,

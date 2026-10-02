@@ -11,6 +11,7 @@ import { annuaireDuPraticien } from "@/lib/annuaires/acces";
 import { getMyCompanies } from "@/lib/company";
 import { peutOuvrirLeDossierPromo } from "@/lib/queries/promo-circuit";
 import { projetsBdVisibles } from "@/lib/queries/bd";
+import { clauseProduitsVisibles } from "@/lib/queries/produits-canoniques";
 import {
   userCan, hasGlobalView, scopeRegulatory, scopeMedicalDoctors, scopeMedicalVisits, scopeSales, scopeBusinessDevelopment, scopeSupport, scopeDossiers, type Action, type Module, type SessionUser,
   annuaireOuvertParConsole, scopeCongressIntl, scopeCongressNational, scopePromoMaterial,
@@ -19,6 +20,9 @@ import {
 /** Maps a polymorphic entity type to its owning module. */
 export const ENTITY_MODULE: Record<EntityType, Module> = {
   REGULATORY_PRODUCT: "REGULATORY",
+  // Le produit canonique se tient au catalogue Regulatory ; sa VISIBILITÉ, elle, suit ses dossiers
+  // (`clauseProduitsVisibles`, branche dédiée plus bas).
+  PRODUCT: "REGULATORY",
   REGULATORY_STEP: "REGULATORY",
   SPONSORING: "SPONSORING",
   BUDGET: "BUDGETS",
@@ -544,6 +548,14 @@ export async function canAccessEntity(
     case "REGULATORY_PRODUCT": {
       const found = await prisma.regulatoryProduct.findFirst({
         where: { id: entityId, ...scopeRegulatory(user) },
+        select: { id: true },
+      });
+      return Boolean(found);
+    }
+    case "PRODUCT": {
+      // La clause du CATALOGUE, pas une seconde écriture : un produit se voit par ses dossiers.
+      const found = await prisma.product.findFirst({
+        where: { AND: [{ id: entityId }, await clauseProduitsVisibles(user)] },
         select: { id: true },
       });
       return Boolean(found);

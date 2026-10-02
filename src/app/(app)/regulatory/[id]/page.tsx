@@ -5,6 +5,9 @@ import { requireModule } from "@/lib/session";
 import { userCan, isRegulatorySupervisor } from "@/lib/rbac";
 import { effectiveStage } from "@/lib/regulatory/manufacturing-stage";
 import { getAppSettings } from "@/lib/settings";
+import { manquesIdentite, phraseManques } from "@/lib/products/identity";
+import { tupleDuDossier } from "@/lib/products/canonique";
+import { RattacherDossierBouton } from "../catalogue/rattacher-dossier";
 import { canAccessEntity } from "@/lib/entity-access";
 import { prisma } from "@/lib/prisma";
 import { addRegulatoryComment } from "@/lib/actions/regulatory-actions";
@@ -71,6 +74,8 @@ export default async function RegulatoryDetailPage({ params, searchParams }: { p
       variations: { orderBy: { createdAt: "desc" } },
       // LA FRISE du dossier : CTD initial → réserves → réponses → versions → décision.
       dossierSteps: { orderBy: { order: "asc" }, include: { createdBy: { select: { name: true } } } },
+      // LE PRODUIT CANONIQUE (§118.178) — dit sur la fiche, en permanence.
+      canonicalProduct: { select: { id: true, code: true, canonicalName: true } },
     },
   });
   if (!product) notFound();
@@ -194,6 +199,7 @@ export default async function RegulatoryDetailPage({ params, searchParams }: { p
     .filter(Boolean)
     .join(" ") || null;
   const formLabel = product.pharmaceuticalForm ? PHARMA_FORM[product.pharmaceuticalForm] ?? product.pharmaceuticalForm : null;
+  const manquesProduit = product.canonicalProduct ? [] : manquesIdentite(tupleDuDossier(product));
 
   return (
     <div className="space-y-5">
@@ -215,6 +221,25 @@ export default async function RegulatoryDetailPage({ params, searchParams }: { p
           </div>
           <h1 className="text-2xl font-semibold tracking-tight">{product.dci}</h1>
           {product.brandName && <p className="text-muted-foreground">{product.brandName}</p>}
+          {/* LE PRODUIT CANONIQUE — ou ce qui manque pour l'identifier. Un dossier sans produit
+              n'entre dans aucune Business Unit : le dire ici évite de le découvrir au terrain. */}
+          {product.canonicalProduct ? (
+            <p className="text-xs text-muted-foreground">
+              Produit canonique :{" "}
+              <Link href={`/regulatory/catalogue/${product.canonicalProduct.id}`} className="font-medium text-foreground hover:underline">
+                {product.canonicalProduct.code} — {product.canonicalProduct.canonicalName}
+              </Link>
+            </p>
+          ) : manquesProduit.length > 0 ? (
+            <p className="text-xs text-warning">
+              Produit canonique en attente : il manque {phraseManques(manquesProduit)}.
+            </p>
+          ) : (
+            <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+              <span>Pas encore rattaché au catalogue produits.</span>
+              {canUpdate && <RattacherDossierBouton dossierId={product.id} />}
+            </div>
+          )}
         </div>
         <div className="flex flex-col items-end gap-2">
           {canUpdate ? (

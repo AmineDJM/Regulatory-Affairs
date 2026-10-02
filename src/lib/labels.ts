@@ -520,6 +520,18 @@ export const PRODUCT_CHANNEL: Record<string, Display> = {
   BOTH: { label: "Ville + Hôpital", tone: "neutral" },
 };
 
+/**
+ * LE CYCLE DE VIE D'UN PRODUIT CANONIQUE (§118.178) — distinct du statut réglementaire d'un
+ * dossier : « enregistré » se DÉDUIT des dossiers (une décision obtenue), « commercialisé » et
+ * « arrêté » sont des décisions humaines qu'aucun statut de dossier ne contredit.
+ */
+export const PRODUCT_LIFECYCLE: Record<string, Display> = {
+  STUDY: { label: "À l'étude", tone: "neutral" },
+  REGISTERED: { label: "Enregistré", tone: "success" },
+  MARKETED: { label: "Commercialisé", tone: "info" },
+  DISCONTINUED: { label: "Arrêté", tone: "warning" },
+};
+
 // Demandes de l'information médicale (PRIM) → Regulatory.
 export const REG_REQUEST_STATUS: Record<string, Display> = {
   OPEN: { label: "Ouverte", tone: "info" },

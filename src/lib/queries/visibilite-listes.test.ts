@@ -103,6 +103,31 @@ describe("Recherche globale — chaque famille lit la clause de SON écran (§11
   });
 });
 
+describe("La gamme Regulatory ne se recompose pas à côté de la clause de l'écran (§118.178)", () => {
+  /**
+   * La phase 0 a réparé `regulatoryVisibleWhere` : étaler `scopeRegulatory` puis ajouter
+   * `AND: [gamme]` écrasait la portée par ligne et le verrou du pipeline. La phase 1 a trouvé
+   * TROIS autres lecteurs qui recomposaient la même clause avec le même défaut, à côté d'elle —
+   * le rapprochement des catalogues, la relance des dossiers, l'export Excel. Réparer les trois ne
+   * protège pas le quatrième (§118.58) : la forme fautive est interdite partout.
+   */
+  it("aucun fichier ne compose la gamme avec un étalement de la portée Regulatory", () => {
+    const fautifs = fichiersDeProduction().filter((f) => {
+      if (f === "src/lib/queries/regulatory-rows.ts") return false;
+      const c = code(f);
+      return /productRangeScope\(/.test(c) && /\.\.\.\s*scopeRegulatory\(/.test(c);
+    });
+    expect(fautifs, "recompose la gamme et la portée par étalement : lire `regulatoryVisibleWhere(user)`").toEqual([]);
+  });
+
+  it("le rapprochement des catalogues, la relance et l'export lisent la clause de l'écran", () => {
+    for (const f of ["src/lib/queries/product-catalog.ts", "src/lib/queries/regulatory-reminders.ts", "src/app/api/regulatory/export/route.ts"]) {
+      expect(code(f), f).toMatch(/regulatoryVisibleWhere\(user\)/);
+      expect(code(f), f).not.toMatch(/\.\.\.\s*scopeRegulatory\(/);
+    }
+  });
+});
+
 /** Tous les fichiers `.ts` / `.tsx` de production sous `src/`. */
 function fichiersDeProduction(dir = "src"): string[] {
   const out: string[] = [];

@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/session";
-import { userCan, scopeRegulatory } from "@/lib/rbac";
+import { userCan } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
-import { companyScopedWhere } from "@/lib/company";
+import { regulatoryVisibleWhere } from "@/lib/queries/regulatory-rows";
 import { recordAudit } from "@/lib/audit";
 import { effectiveStage } from "@/lib/regulatory/manufacturing-stage";
 import { dossierReceived } from "@/lib/regulatory/dossier-received";
@@ -15,9 +15,11 @@ import { buildRegulatoryWorkbook, regulatoryExportFilename, type RegulatoryExpor
  * affichés**, filtres compris. Exporter autre chose que ce qu'on a sous les yeux est la
  * meilleure façon de faire circuler un classeur dont personne ne sait ce qu'il contient.
  *
- * La PORTÉE reste maîtresse : les identifiants reçus sont recroisés avec `scopeRegulatory` et
- * l'entité courante. Un identifiant deviné ne sort donc rien — et un dossier VERROUILLÉ reste
- * invisible, ici comme ailleurs, puisque le verrou vit dans la portée.
+ * La PORTÉE reste maîtresse : les identifiants reçus sont recroisés avec la clause de l'écran
+ * (`regulatoryVisibleWhere` : portée par ligne, verrou, entité, GAMME). Un identifiant deviné ne
+ * sort donc rien — et un dossier VERROUILLÉ reste invisible, ici comme ailleurs. La version
+ * d'avant recomposait la portée sans la gamme : l'export « complet » sortait les dossiers d'une
+ * gamme que l'écran ne montrait pas (§118.178).
  */
 export async function POST(req: NextRequest) {
   const user = await getCurrentUser();
@@ -35,10 +37,12 @@ export async function POST(req: NextRequest) {
   }
 
   const products = await prisma.regulatoryProduct.findMany({
-    where: await companyScopedWhere(user.id, {
-      ...scopeRegulatory(user),
-      ...(ids && ids.length > 0 ? { id: { in: ids } } : {}),
-    }),
+    where: {
+      AND: [
+        await regulatoryVisibleWhere(user),
+        ...(ids && ids.length > 0 ? [{ id: { in: ids } }] : []),
+      ],
+    },
     orderBy: [{ priority: "desc" }, { updatedAt: "desc" }],
     include: {
       responsible: { select: { name: true } },

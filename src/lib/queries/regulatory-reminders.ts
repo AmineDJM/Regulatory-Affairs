@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/prisma";
-import { scopeRegulatory, type SessionUser } from "@/lib/rbac";
-import { companyScopedWhere, productRangeScope } from "@/lib/company";
+import type { SessionUser } from "@/lib/rbac";
+import { regulatoryVisibleWhere } from "@/lib/queries/regulatory-rows";
 import { reminderTargets, type ReminderBoard } from "@/lib/regulatory/update-reminder";
 
 /**
@@ -16,12 +16,11 @@ import { reminderTargets, type ReminderBoard } from "@/lib/regulatory/update-rem
  * droit de voir soi-même.
  */
 export async function regulatoryReminderBoard(user: SessionUser, now = new Date()): Promise<ReminderBoard> {
-  const rangeScope = await productRangeScope(user.id);
+  // LA CLAUSE DE L'ÉCRAN, telle quelle (§118.178) : l'en-tête promet « mêmes droits de ligne,
+  // même entité, mêmes gammes » — la recomposition par étalement perdait la portée par ligne et le
+  // verrou dès qu'une gamme s'appliquait, et la relance aurait compté des dossiers invisibles.
   const dossiers = await prisma.regulatoryProduct.findMany({
-    where: await companyScopedWhere(user.id, {
-      ...scopeRegulatory(user),
-      ...(rangeScope ? { AND: [rangeScope] } : {}),
-    }),
+    where: await regulatoryVisibleWhere(user),
     select: {
       responsibleId: true,
       isLocked: true,

@@ -1226,6 +1226,14 @@ X("LES SERVICES D'UN ÉTABLISSEMENT ET LE RATTACHEMENT EN LOT DES PRATICIENS son
   "etablissement-services-actions:supprimerServiceEtablissement",
   "medical-directory-actions:rattacherEtablissementsParNom",
 ]);
+X("LE CATALOGUE DES PRODUITS CANONIQUES (§118.178) — rattacher un dossier à son produit, nommer un produit, lui donner ou lui retirer un alias, et rattacher tout l'existant — sont des gestes d'écran neufs, et Adam est en pause de développement : aucun geste neuf ne lui est ouvert. Le rattachement de l'existant, de plus, ne vaut que DEVANT son aperçu : il touche tous les dossiers, y compris ceux qu'aucun autre rôle ne voit, et le Super Admin le simule avant de l'appliquer. Tout se fait sur Regulatory › Catalogue produits (le rattachement d'un dossier aussi depuis sa fiche) ; un dossier à l'identité complète se rattache d'ailleurs seul à son enregistrement.", [
+  "produit-canonique-actions:rattacherDossierCanonique",
+  "produit-canonique-actions:simulerRattachementCanonique",
+  "produit-canonique-actions:appliquerRattachementCanonique",
+  "produit-canonique-actions:renommerProduitCanonique",
+  "produit-canonique-actions:ajouterAliasProduitCanonique",
+  "produit-canonique-actions:retirerAliasProduitCanonique",
+]);
 // NB : `admin-actions:createUser` a quitté cette liste — le besoin « créer un compte » est
 // couvert par `org_operation:create_account_invite` (lien d'invitation : la personne définit
 // SON mot de passe ; rien ne transite par la conversation) via la reclassification catalogue.

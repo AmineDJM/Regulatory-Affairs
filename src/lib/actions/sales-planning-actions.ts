@@ -12,6 +12,8 @@ import { lireCouverture } from "@/lib/annuaires/services";
 import { canAttachBuDepartment, buDepartmentName, buDepartmentCode } from "@/lib/sfe/bu-department";
 import { GRANULARITES, GRANULARITE_LABELS, JOURS_AVANT_ECHEANCE_MAX, estGranularite } from "@/lib/sfe/tournee";
 import { ROLES_QUI_TRANCHENT } from "@/lib/personnes/referents-gamme";
+import { DOSSIERS_PROPOSABLES_BU } from "@/lib/sfe/produits-bu";
+import { rattacherDossier } from "@/lib/products/canonique";
 
 const MODULE = "SALES_PLANNING" as const;
 const PATH = "/planning";
@@ -202,14 +204,23 @@ export async function createPromoProduct(formData: FormData): Promise<ActionResu
   const regulatoryProductId = fdStr(formData, "regulatoryProductId");
   let name = fdStr(formData, "name");
   let code = fdStr(formData, "code");
+  // LE PRODUIT CANONIQUE DU DOSSIER (§118.178) : c'est lui qu'une visite rapporte. Sans lui, le
+  // produit ajouté à la BU ne pouvait figurer dans AUCUN rapport — refusé à chaque visite.
+  let productId: string | null = null;
   if (regulatoryProductId) {
-    const dossier = await prisma.regulatoryProduct.findUnique({
-      where: { id: regulatoryProductId },
-      select: { reference: true, dci: true, brandName: true },
+    // La clause de la LISTE de l'écran : un dossier du pipeline, deviné, n'entre pas au catalogue.
+    const dossier = await prisma.regulatoryProduct.findFirst({
+      where: { AND: [{ id: regulatoryProductId }, DOSSIERS_PROPOSABLES_BU] },
+      select: { reference: true, dci: true, brandName: true, productId: true },
     });
-    if (!dossier) return { ok: false, error: "Ce dossier Regulatory n'existe pas." };
+    if (!dossier) return { ok: false, error: "Ce dossier Regulatory n'existe pas, ou n'est pas encore ouvert au catalogue promotionnel." };
     name = name || dossier.brandName || dossier.dci;
     code = code || dossier.reference;
+    productId = dossier.productId;
+    if (!productId) {
+      const lien = await rattacherDossier(regulatoryProductId, { acteurId: user.id }).catch(() => null);
+      productId = lien && "produitId" in lien && lien.etat !== "INCOMPLET" ? lien.produitId : null;
+    }
   }
   if (!name) return { ok: false, error: "Choisissez un dossier Regulatory, ou donnez un nom de produit." };
 
@@ -227,6 +238,7 @@ export async function createPromoProduct(formData: FormData): Promise<ActionResu
       name, code: code ?? undefined, channel, businessUnitId,
       managerId: fdStr(formData, "managerId") || null,
       regulatoryProductId: regulatoryProductId || null,
+      productId,
     },
   });
   await recordAudit({ actorId: user.id, action: "CREATE", module: "Force de vente", summary: `Produit « ${name} »${regulatoryProductId ? " (depuis son dossier Regulatory)" : ""}` });
@@ -239,14 +251,19 @@ export async function updatePromoProduct(formData: FormData): Promise<ActionResu
   if (!userCan(user, MODULE, "UPDATE")) return { ok: false, error: "Non autorisé." };
   const id = fdStr(formData, "id");
   if (!id) return { ok: false, error: "Produit introuvable." };
+  // CE QUE LE FORMULAIRE NE PORTE PAS NE S'ÉCRIT PAS (§118.152c, §118.178). « Rattacher un produit
+  // existant » n'envoie que l'identifiant et la BU : l'ancienne écriture effaçait au passage le
+  // code, le référent Direction Marketing, et remettait le canal à « Ville + Hôpital ». Chaque clé
+  // se lit en littéral — passée par une variable, l'action deviendrait illisible à la dérivation
+  // des contrats.
   await prisma.promoProduct.update({
     where: { id },
     data: {
       name: fdStr(formData, "name") ?? undefined,
-      code: fdStr(formData, "code"),
-      channel: parseChannel(fdStr(formData, "channel")),
-      businessUnitId: fdStr(formData, "businessUnitId") || null,
-      managerId: fdStr(formData, "managerId") || null,
+      ...(formData.has("code") ? { code: fdStr(formData, "code") } : {}),
+      ...(formData.has("channel") ? { channel: parseChannel(fdStr(formData, "channel")) } : {}),
+      ...(formData.has("businessUnitId") ? { businessUnitId: fdStr(formData, "businessUnitId") || null } : {}),
+      ...(formData.has("managerId") ? { managerId: fdStr(formData, "managerId") || null } : {}),
       // ABSENT = inchangé ; « on » / « off » tranchent (§118.172). L'écran n'envoyait QUE « on » :
       // décocher « Actif » ne faisait rien, et un produit ne se désactivait jamais.
       isActive: fdCase(formData, "isActive"),

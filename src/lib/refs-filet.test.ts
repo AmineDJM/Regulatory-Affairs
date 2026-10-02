@@ -32,7 +32,6 @@ const DETTE = new Set([
   "src/lib/actions/logistics-actions.ts",
   "src/lib/actions/pch-actions.ts",
   "src/lib/actions/purchase-request-actions.ts",
-  "src/lib/actions/regulatory-actions.ts",
   "src/lib/actions/support-actions.ts",
   "src/lib/medical-info.ts",
   // Deux AIDES de la série FIN : le filet appartient à leurs appelants, qui n'en ont pas.
@@ -117,7 +116,7 @@ describe("Cliquet — une référence numérotée porte son filet", () => {
     // 12 → 11 (§118.176) : la paie ne numérote plus rien elle-même — le « transfert au budget », qui
     // écrivait une écriture FIN par salarié sans filet, n'existe plus ; l'envoi au centre passe par
     // `createExpenseOrder`, qui porte le sien.
-    expect(DETTE.size, "dette mesurée le 02/10/2026").toBeLessThanOrEqual(11);
+    expect(DETTE.size, "dette mesurée le 02/10/2026").toBeLessThanOrEqual(10);
   });
 
   it("les trois créations réparées par ce lot gardent leur filet", () => {

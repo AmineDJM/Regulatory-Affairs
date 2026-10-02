@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/prisma";
-import { scopeRegulatory, type SessionUser } from "@/lib/rbac";
-import { companyScopedWhere, productRangeScope } from "@/lib/company";
+import type { SessionUser } from "@/lib/rbac";
+import { regulatoryVisibleWhere } from "@/lib/queries/regulatory-rows";
 import { bestMatches, isConfident, type MatchProposal } from "@/lib/products/catalog-match";
 
 /**
@@ -57,17 +57,15 @@ function proposalsFor(
 }
 
 export async function getCatalogReconciliation(user: SessionUser): Promise<CatalogReconciliation> {
-  // Même règle que le tableau Regulatory : on ne propose pas de rattacher à un dossier d'une
-  // gamme qu'on ne suit pas.
-  const rangeScope = await productRangeScope(user.id);
   const [products, bd, promo] = await Promise.all([
-    // La portée réglementaire s'applique : on ne propose pas de rattacher à un dossier qu'on
-    // n'aurait pas le droit de voir.
+    // LA CLAUSE DE L'ÉCRAN REGULATORY, et pas une recomposition (§118.177, §118.178). Celle-ci
+    // ÉTALAIT la portée du module puis ajoutait `AND: [gamme]` — or, pour qui n'a pas la portée
+    // entière, `scopeRegulatory` rend précisément `{ AND: [portée par ligne, verrou] }` : dès qu'une
+    // gamme s'appliquait, la seconde clé écrasait la première, et le rapprochement proposait des
+    // dossiers verrouillés au pipeline et ceux des autres. Le défaut corrigé dans
+    // `regulatoryVisibleWhere` à la phase 0, recopié ici.
     prisma.regulatoryProduct.findMany({
-      where: await companyScopedWhere(user.id, {
-        ...scopeRegulatory(user),
-        ...(rangeScope ? { AND: [rangeScope] } : {}),
-      }),
+      where: await regulatoryVisibleWhere(user),
       select: { id: true, reference: true, dci: true, brandName: true, dosage: true, pharmaceuticalForm: true },
       orderBy: [{ dci: "asc" }, { dosage: "asc" }],
       take: 2000,

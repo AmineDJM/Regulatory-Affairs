@@ -13,8 +13,10 @@
 /** Normalisation pharma-safe (sans accents, MAJUSCULES, séparateurs → espaces). */
 export function normText(s: string | null | undefined): string {
   if (s == null) return "";
-  let t = String(s).normalize("NFKD").replace(/[̀-ͯ]/g, "").toUpperCase();
-  t = t.replace(/µ/g, "U").replace(/μ/g, "U");
+  // LE SIGNE MICRO AVANT TOUT. NFKD change « µ » (U+00B5) en « μ » grec, et la mise en majuscules
+  // en fait « Μ » (U+039C) — que le remplacement d'après ne voyait plus : « 4 µg » sortait « 4 G »,
+  // c'est-à-dire mille fois la dose (§118.178). Remplacé ici, il ne peut plus se transformer.
+  let t = String(s).replace(/[\u00B5\u03BC\u039C]/g, "U").normalize("NFKD").replace(/[̀-ͯ]/g, "").toUpperCase();
   t = t.replace(/[/\\|,;:+()[\]{}]/g, " ");
   t = t.replace(/[^A-Z0-9.%\s-]/g, " ");
   return t.replace(/\s+/g, " ").trim();

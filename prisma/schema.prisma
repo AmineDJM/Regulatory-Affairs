@@ -419,6 +419,9 @@ enum EntityType {
   /// Une FACTURE (module Finances) — cible de liens « Relier à… » : le recouvrement écrit des
   /// courriers PAR facture, et un même courrier peut en porter plusieurs.
   INVOICE
+  /// LE PRODUIT CANONIQUE (§118.178) — sa création d'après un dossier, sa correction, ses alias
+  /// et son nom s'écrivent dans SON historique, pas seulement dans celui d'un de ses dossiers.
+  PRODUCT
 }
 
 enum DocumentCategory {
@@ -1793,6 +1796,7 @@ model RegulatoryProduct {
   canonicalProduct Product?       @relation("ProductRegulatoryProfile", fields: [productId], references: [id], onDelete: SetNull)
 
   @@index([status])
+  @@index([productId])
   @@index([bdProjectId])
   @@index([priority])
   @@index([responsibleId])
@@ -4319,6 +4323,7 @@ model BdProduct {
   canonicalProduct Product? @relation("ProductBdProfile", fields: [productId], references: [id], onDelete: SetNull)
 
   @@index([rangeId])
+  @@index([productId])
 }
 
 // ───────────────────────────── Cross-cutting ─────────────────────────────
@@ -10024,6 +10029,7 @@ model PromoProduct {
   canonicalProduct Product?              @relation("ProductPromoProfile", fields: [productId], references: [id], onDelete: SetNull)
 
   @@index([businessUnitId])
+  @@index([productId])
 }
 
 // Cycle promotionnel mensuel.
