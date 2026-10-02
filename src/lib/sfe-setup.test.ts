@@ -7,7 +7,7 @@ import {
 const vide = {
   supervisorId: null, channel: "BOTH", repCount: 0, productCount: 0,
   sectorCount: 0, sectorsWithoutInstitution: 0, repsWithSector: 0,
-  referentCount: 0, referentsSansRole: 0,
+  referentCount: 0, referentsSansRole: 0, specialtyCount: 0,
 };
 
 describe("le montage d'une BU — l'ordre, et ce qui manque", () => {
@@ -17,8 +17,18 @@ describe("le montage d'une BU — l'ordre, et ce qui manque", () => {
     expect(buSetupComplete(vide)).toBe(false);
   });
 
-  it("l'ordre est celui du montage : superviseur → terrain → KAM → secteurs → référents → produits", () => {
-    expect(buSetupSteps(vide).map((s) => s.key)).toEqual(["SUPERVISEUR", "CANAL", "KAM", "SECTEURS", "REFERENTS", "PRODUITS"]);
+  it("l'ordre est celui du montage : superviseur → terrain → spécialités → KAM → secteurs → référents → produits", () => {
+    expect(buSetupSteps(vide).map((s) => s.key)).toEqual(["SUPERVISEUR", "CANAL", "SPECIALITES", "KAM", "SECTEURS", "REFERENTS", "PRODUITS"]);
+  });
+
+  it("LES SPÉCIALITÉS (§118.183) : au moins une — la principale n'est PAS exigée", () => {
+    // Le cas qui ferait tomber une garde trop large : une BU sans aucune spécialité ne franchit pas
+    // l'étape ; celui qui ferait tomber une garde trop étroite : trois spécialités sans principale la
+    // franchissent — la principale sert l'affichage, elle ne restreint rien.
+    const etape = (n: number) => buSetupSteps({ ...vide, supervisorId: "u1", specialtyCount: n }).find((s) => s.key === "SPECIALITES")!;
+    expect(etape(0).done).toBe(false);
+    expect(etape(3).done).toBe(true);
+    expect(nextBuStep({ ...vide, supervisorId: "u1" })?.key).toBe("SPECIALITES");
   });
 
   it("chaque étape dit CE QU'ON PERD tant qu'elle manque — jamais « obligatoire »", () => {
@@ -40,10 +50,11 @@ describe("le montage d'une BU — l'ordre, et ce qui manque", () => {
     const pleine = {
       supervisorId: "u1", channel: "HOSPITAL", repCount: 4, productCount: 3,
       sectorCount: 2, sectorsWithoutInstitution: 0, repsWithSector: 4, referentCount: 1, referentsSansRole: 0,
+      specialtyCount: 3,
     };
     expect(nextBuStep(pleine)).toBeNull();
     expect(buSetupComplete(pleine)).toBe(true);
-    expect(buSetupProgress(pleine)).toEqual({ done: 6, total: 6 });
+    expect(buSetupProgress(pleine)).toEqual({ done: 7, total: 7 });
   });
 
   it("un référent qui NE PORTE PAS le rôle ne franchit PAS l'étape", () => {
@@ -66,10 +77,10 @@ describe("le montage d'une BU — l'ordre, et ce qui manque", () => {
   });
 
   it("la jauge compte les étapes franchies, dans l'ordre ou non", () => {
-    // Le TOTAL est SIX depuis que les référents Direction Marketing d'une gamme se configurent
-    // ici : une BU montée sans référent ne prévient personne nommément (§118.144).
-    expect(buSetupProgress(vide)).toEqual({ done: 1, total: 6 });
-    expect(buSetupProgress({ ...vide, productCount: 5 })).toEqual({ done: 2, total: 6 });
+    // Le TOTAL est SEPT depuis que les spécialités d'une BU se choisissent ici (§118.183), après les
+    // référents Direction Marketing (§118.144).
+    expect(buSetupProgress(vide)).toEqual({ done: 1, total: 7 });
+    expect(buSetupProgress({ ...vide, productCount: 5 })).toEqual({ done: 2, total: 7 });
   });
 });
 
@@ -78,7 +89,8 @@ describe("le montage d'une BU — l'ordre, et ce qui manque", () => {
  * ferait tomber chaque assertion est nommé à côté d'elle.
  */
 describe("les secteurs d'une BU — un KAM sans territoire a un panel VIDE", () => {
-  const secteur = (o: Partial<typeof vide>) => ({ ...vide, supervisorId: "u1", productCount: 2, ...o });
+  // Une BU AU STADE des secteurs : supervisée, avec ses spécialités (§118.183) et ses produits.
+  const secteur = (o: Partial<typeof vide>) => ({ ...vide, supervisorId: "u1", productCount: 2, specialtyCount: 1, ...o });
   const etape = (o: Partial<typeof vide>) => buSetupSteps(secteur(o)).find((s) => s.key === "SECTEURS")!;
 
   it("aucun secteur : l'étape n'est pas franchie, et la raison le DIT", () => {

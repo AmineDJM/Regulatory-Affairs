@@ -14,6 +14,8 @@ import { GRANULARITES, GRANULARITE_LABELS, JOURS_AVANT_ECHEANCE_MAX, estGranular
 import { ROLES_QUI_TRANCHENT } from "@/lib/personnes/referents-gamme";
 import { DOSSIERS_PROPOSABLES_BU } from "@/lib/sfe/produits-bu";
 import { rattacherDossier } from "@/lib/products/canonique";
+import { enSerie } from "@/lib/refs";
+import { specialitesDemandees, ecrireSpecialitesBu, resumeSpecialitesBu } from "@/lib/sfe/specialites-bu";
 
 const MODULE = "SALES_PLANNING" as const;
 const PATH = "/planning";
@@ -46,7 +48,12 @@ export async function createBusinessUnit(formData: FormData): Promise<ActionResu
   if (!userCan(user, MODULE, "CREATE")) return { ok: false, error: "Non autorisé." };
   const name = fdStr(formData, "name");
   if (!name) return { ok: false, error: "Le nom de la BU est obligatoire." };
-  const created = await prisma.businessUnit.create({
+  // LES SPÉCIALITÉS se vérifient AVANT d'écrire quoi que ce soit (§118.183) : une BU créée puis refusée
+  // sur ses spécialités resterait en base, à moitié montée, sans que personne l'ait voulue.
+  const voulues = await specialitesDemandees(formData.getAll("specialtyIds").map(String), fdStr(formData, "principaleId"));
+  if (!voulues.ok) return { ok: false, error: voulues.error };
+  const created = await prisma.$transaction(async (tx) => {
+    const bu = await tx.businessUnit.create({
     data: {
       name,
       code: fdStr(formData, "code") ?? undefined,
@@ -59,9 +66,17 @@ export async function createBusinessUnit(formData: FormData): Promise<ActionResu
       channel: parseChannel(fdStr(formData, "channel")),
     },
     select: { id: true },
+    });
+    const ecrit = await ecrireSpecialitesBu(tx, user.id, bu.id, voulues.ids, voulues.principaleId);
+    return { id: bu.id, ecrit };
   });
-  await recordAudit({ actorId: user.id, action: "CREATE", module: "Force de vente", entityType: "BUSINESS_UNIT", entityId: created.id, summary: `BU « ${name} »` });
+  const specialites = await resumeSpecialitesBu(created.ecrit, voulues.principaleId);
+  await recordAudit({
+    actorId: user.id, action: "CREATE", module: "Force de vente", entityType: "BUSINESS_UNIT", entityId: created.id,
+    summary: `BU « ${name} »${specialites ? ` — spécialités : ${specialites}` : ""}`,
+  });
   revalidatePath(BU_PATH);
+  if (voulues.ids.length) revalidatePath("/annuaires/specialites");
   return { ok: true, id: created.id };
 }
 
@@ -70,15 +85,20 @@ export async function updateBusinessUnit(formData: FormData): Promise<ActionResu
   if (!userCan(user, MODULE, "UPDATE")) return { ok: false, error: "Non autorisé." };
   const id = fdStr(formData, "id");
   if (!id) return { ok: false, error: "BU introuvable." };
+  // CE QUE LE FORMULAIRE NE PORTE PAS NE S'ÉCRIT PAS (§118.152c, §118.183) : l'écran envoie tout, mais
+  // une op ou un formulaire partiel n'envoie que ce qui change — et l'ancienne écriture EFFAÇAIT le code,
+  // la couleur, l'entité, le chef et le superviseur à chaque fois. Les clés se lisent EN LITTÉRAL, pour
+  // que la fiche de l'action les dise. Un nom porté VIDE ne s'écrit pas : une BU garde toujours un nom.
+  const nom = fdStr(formData, "name");
   await prisma.businessUnit.update({
     where: { id },
     data: {
-      name: fdStr(formData, "name") ?? undefined,
-      code: fdStr(formData, "code"),
-      color: fdStr(formData, "color"),
-      companyId: fdStr(formData, "companyId") || null,
-      headId: fdStr(formData, "headId") || null,
-      supervisorId: fdStr(formData, "supervisorId") || null,
+      ...(nom ? { name: nom } : {}),
+      ...(formData.has("code") ? { code: fdStr(formData, "code") } : {}),
+      ...(formData.has("color") ? { color: fdStr(formData, "color") } : {}),
+      ...(formData.has("companyId") ? { companyId: fdStr(formData, "companyId") || null } : {}),
+      ...(formData.has("headId") ? { headId: fdStr(formData, "headId") || null } : {}),
+      ...(formData.has("supervisorId") ? { supervisorId: fdStr(formData, "supervisorId") || null } : {}),
       ...(formData.has("channel") ? { channel: parseChannel(fdStr(formData, "channel")) } : {}),
       // ABSENT = inchangé ; « on » / « off » tranchent (§118.172). L'écran n'envoyait QUE « on » :
       // décocher « Active » ne faisait rien, et une gamme ne se désactivait jamais.
@@ -90,6 +110,39 @@ export async function updateBusinessUnit(formData: FormData): Promise<ActionResu
   await recordAudit({ actorId: user.id, action: "UPDATE", module: "Force de vente", entityType: "BUSINESS_UNIT", entityId: id, summary: "BU modifiée" });
   revalidatePath(BU_PATH);
   return { ok: true };
+}
+
+/**
+ * LES SPÉCIALITÉS QU'UNE BU VISE — l'ensemble complet, remplacé d'un geste (§118.183).
+ *
+ * La garde est celle de l'identité de la BU : changer ce qu'elle vise, c'est la modifier. Le directeur
+ * des opérations la règle dès que la console lui ouvre la Force de vente en écriture — c'est une
+ * CONFIGURATION de rôle, pas une règle de ce code.
+ *
+ * En série par BU : deux enregistrements simultanés de la même BU se succèdent au lieu de se croiser —
+ * croisés, l'index partiel « une principale par BU » refuserait le second en erreur brute.
+ */
+export async function enregistrerSpecialitesBu(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  if (!userCan(user, MODULE, "UPDATE")) return { ok: false, error: "Non autorisé." };
+  const businessUnitId = fdStr(formData, "businessUnitId");
+  if (!businessUnitId) return { ok: false, error: "BU introuvable." };
+  const bu = await prisma.businessUnit.findUnique({ where: { id: businessUnitId }, select: { id: true, name: true } });
+  if (!bu) return { ok: false, error: "Cette BU n'existe plus — rechargez l'écran." };
+  const voulues = await specialitesDemandees(formData.getAll("specialtyIds").map(String), fdStr(formData, "principaleId"));
+  if (!voulues.ok) return { ok: false, error: voulues.error };
+  const ecrit = await enSerie(`bu-specialites:${bu.id}`, () =>
+    prisma.$transaction((tx) => ecrireSpecialitesBu(tx, user.id, bu.id, voulues.ids, voulues.principaleId)));
+  const resume = await resumeSpecialitesBu(ecrit, voulues.principaleId);
+  if (resume) {
+    await recordAudit({
+      actorId: user.id, action: "UPDATE", module: "Force de vente", entityType: "BUSINESS_UNIT", entityId: bu.id,
+      summary: `Spécialités de la BU « ${bu.name} » — ${resume}`,
+    });
+  }
+  revalidatePath(BU_PATH);
+  revalidatePath("/annuaires/specialites");
+  return { ok: true, message: resume ? undefined : "Rien n'a changé." };
 }
 
 /**

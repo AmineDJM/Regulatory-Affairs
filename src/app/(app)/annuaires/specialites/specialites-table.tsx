@@ -134,7 +134,7 @@ export function SpecialitesTable({
                       onClick={async () => {
                         const cible = specialites.find((o) => o.id === fusion.cibleId);
                         if (!cible) return;
-                        if (!window.confirm(`Fusionner « ${s.name} » dans « ${cible.name} » ?\n\n• ${s.praticiens} praticien(s) passeront à « ${cible.name} »\n• « ${s.name} » disparaîtra du référentiel`)) return;
+                        if (!window.confirm(`Fusionner « ${s.name} » dans « ${cible.name} » ?\n\n• ${s.praticiens} praticien(s) passeront à « ${cible.name} »${s.bu.length ? `\n• ${s.bu.length} Business Unit(s) viseront « ${cible.name} »` : ""}\n• « ${s.name} » disparaîtra du référentiel`)) return;
                         if (await executer(fusionnerSpecialite, { id: s.id, cibleId: fusion.cibleId })) setFusion(null);
                       }}
                     >
@@ -148,6 +148,13 @@ export function SpecialitesTable({
                 ) : (
                   <>
                     <span className="min-w-0 flex-1 font-medium">{s.name}</span>
+                    {s.bu.length > 0 && (
+                      // LES BU QUI LA VISENT (§118.183) — dites AVANT le clic : un retrait sera refusé, une
+                      // fusion les fera suivre.
+                      <span className="text-xs text-muted-foreground" title="Business Units qui visent cette spécialité (★ : principale)">
+                        BU : {s.bu.map((b) => `${b.nom}${b.principale ? " ★" : ""}`).join(", ")}
+                      </span>
+                    )}
                     <span className="text-xs text-muted-foreground">{s.praticiens} praticien(s)</span>
                     {canEdit && (
                       <button type="button" disabled={busy} aria-label={`Renommer ${s.name}`}

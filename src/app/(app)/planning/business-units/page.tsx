@@ -29,7 +29,7 @@ export default async function BusinessUnitsPage() {
   const canConfigure = userCan(user, "SALES_PLANNING", "UPDATE") || hasGlobalView(user);
   if (!canConfigure) redirect("/planning/pilotage");
 
-  const [bus, companies, supervisors, allUsers, kamUsers, profiles, products, dossiers, config, secteurs, etablissements, referents, marketing] = await Promise.all([
+  const [bus, companies, supervisors, allUsers, kamUsers, profiles, products, dossiers, config, secteurs, etablissements, referents, marketing, specialites] = await Promise.all([
     prisma.businessUnit.findMany({
       orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
       select: {
@@ -37,6 +37,8 @@ export default async function BusinessUnitsPage() {
         supervisorId: true, channel: true, isActive: true,
         // LE SOUS-DÉPARTEMENT de la gamme : c'est lui qui dit si son budget est ouvert.
         departmentId: true,
+        // LES SPÉCIALITÉS QU'ELLE VISE (§118.183), avec leur nom lu dans le référentiel.
+        specialites: { select: { specialtyId: true, principale: true, specialty: { select: { name: true } } } },
       },
     }),
     prisma.company.findMany({ where: { isActive: true }, select: { id: true, name: true, shortName: true }, orderBy: { sortOrder: "asc" } }),
@@ -108,6 +110,8 @@ export default async function BusinessUnitsPage() {
       select: { id: true, name: true },
       orderBy: { name: "asc" },
     }),
+    // LE RÉFÉRENTIEL DES SPÉCIALITÉS, à cocher (§118.183) — une liste de noms, pas une donnée cloisonnée.
+    prisma.medicalSpecialty.findMany({ select: { id: true, name: true }, orderBy: { name: "asc" } }),
   ]);
   const profileByRep = new Map(profiles.map((p) => [p.repId, p]));
 
@@ -119,7 +123,14 @@ export default async function BusinessUnitsPage() {
       />
       <PlanningTabs active="business-units" canConfigure isSupervisor />
       <BusinessUnitsManager
-        businessUnits={bus.map((b) => ({ ...b, channel: String(b.channel) }))}
+        businessUnits={bus.map(({ specialites: liens, ...b }) => ({
+          ...b, channel: String(b.channel),
+          // La principale d'abord, puis l'ordre alphabétique : c'est l'ordre de la carte et de son en-tête.
+          specialites: liens
+            .map((l) => ({ id: l.specialtyId, name: l.specialty.name, principale: l.principale }))
+            .sort((x, y) => Number(y.principale) - Number(x.principale) || x.name.localeCompare(y.name, "fr")),
+        }))}
+        specialitesReferentiel={specialites}
         companies={companies.map((c) => ({ id: c.id, name: c.shortName || c.name }))}
         supervisors={supervisors}
         referents={referents

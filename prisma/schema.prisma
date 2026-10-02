@@ -3812,6 +3812,8 @@ model MedicalSpecialty {
   color       String? // accent visuel
   notes       String?
   doctors     MedicalDoctor[]
+  /// LES BUSINESS UNITS QUI LA VISENT (§118.183) — une spécialité visée ne se retire pas du référentiel.
+  businessUnits BusinessUnitSpecialty[]
   createdById String?
   createdAt   DateTime        @default(now())
   updatedAt   DateTime        @updatedAt
@@ -10002,9 +10004,33 @@ model BusinessUnit {
   consultings            ConsultingContract[]            @relation("AdProConsulting")
   autresDemandes         AdProOtherRequest[]             @relation("AdProOther")
   marketingReferents     BusinessUnitMarketingReferent[] @relation("AdProMarketingReferents")
+  /// LES SPÉCIALITÉS QU'ELLE VISE (§118.183) — plusieurs, dont une principale facultative.
+  specialites            BusinessUnitSpecialty[]
 
   @@index([companyId])
   @@index([supervisorId])
+}
+
+/// UNE BUSINESS UNIT VISE PLUSIEURS SPÉCIALITÉS (§118.183) — « BU ≠ spécialité ».
+///
+/// La BU Specialty Care vise la neurologie, la dermatologie et l'urologie : une colonne `specialtyId`
+/// sur la BU aurait interdit ce cas. La PRINCIPALE est un drapeau facultatif, qui sert l'affichage et
+/// ne restreint rien ; « au plus une principale par BU » est tenu par un index PARTIEL de la migration
+/// (`BusinessUnitSpecialty_une_principale`), que ce schéma ne sait pas déclarer.
+model BusinessUnitSpecialty {
+  id             String           @id @default(cuid())
+  businessUnitId String
+  businessUnit   BusinessUnit     @relation(fields: [businessUnitId], references: [id], onDelete: Cascade)
+  specialtyId    String
+  /// RESTRICT : retirer du référentiel une spécialité qu'une BU vise changerait, en silence, ce que la
+  /// BU concerne — l'action refuse en nommant les BU, et la base refuse aussi.
+  specialty      MedicalSpecialty @relation(fields: [specialtyId], references: [id], onDelete: Restrict)
+  principale     Boolean          @default(false)
+  createdById    String?
+  createdAt      DateTime         @default(now())
+
+  @@unique([businessUnitId, specialtyId])
+  @@index([specialtyId])
 }
 
 // Produit promu (marque marketing) — catalogue structuré pour l'affectation et les prévisions.

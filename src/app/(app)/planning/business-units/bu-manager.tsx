@@ -3,14 +3,15 @@
 import * as React from "react";
 import {
   AlertTriangle, Building2, Check, ChevronDown, ChevronRight, Loader2, Map, Package, Pencil, Plus,
-  Trash2, UserCog, Users, Wallet,
+  Star, Stethoscope, Trash2, UserCog, Users, Wallet,
 } from "lucide-react";
 import {
   createBusinessUnit, updateBusinessUnit, deleteBusinessUnit, openBusinessUnitBudget,
   createPromoProduct, updatePromoProduct, deletePromoProduct,
   saveRepProfile, createSector, updateSector, deleteSector,
-  addBuMarketingReferent, removeBuMarketingReferent,
+  addBuMarketingReferent, removeBuMarketingReferent, enregistrerSpecialitesBu,
 } from "@/lib/actions/sales-planning-actions";
+import { ChoixSpecialites, type ChoixSpecialitesValeur } from "./choix-specialites";
 import {
   CHANNELS, CHANNEL_LABELS, buSetupProgress, buSetupSteps, channelCovers, channelLabel,
   type Channel,
@@ -47,6 +48,8 @@ export interface BuRow {
    * enveloppe Ad&Pro et sa masse salariale — une BU sans département ne compte nulle part.
    */
   departmentId: string | null;
+  /** LES SPÉCIALITÉS QU'ELLE VISE (§118.183) — la principale d'abord quand elle existe. */
+  specialites: { id: string; name: string; principale: boolean }[];
 }
 export interface KamRow {
   repId: string; name: string; role: string; businessUnitId: string | null; region: string | null;
@@ -90,7 +93,7 @@ export interface ReferentRow { id: string; userId: string; name: string; porteLe
 
 export function BusinessUnitsManager({
   businessUnits, companies, supervisors, users, kams, products, dossiers, config,
-  sectors, etablissements, referents, referentsEligibles,
+  sectors, etablissements, referents, referentsEligibles, specialitesReferentiel,
 }: {
   businessUnits: BuRow[];
   companies: Opt[];
@@ -108,6 +111,8 @@ export function BusinessUnitsManager({
   referents: ReferentRow[];
   /** Les personnes qui PORTENT le rôle Direction Marketing : les seules désignables. */
   referentsEligibles: Opt[];
+  /** Le référentiel des spécialités, à cocher (§118.183). Vide → le choix dit où il se remplit. */
+  specialitesReferentiel: Opt[];
 }) {
   // LES GESTES ATTENDENT LES NOUVELLES DONNÉES (§118.172) : le panneau d'un secteur naît de la
   // couverture qu'il lit à l'ouverture. Rouvert avant le rafraîchissement, il remontrait l'état
@@ -117,6 +122,9 @@ export function BusinessUnitsManager({
   const busy = enAction || rafraichit;
   const [creating, setCreating] = React.useState(false);
   const [open, setOpen] = React.useState<Record<string, boolean>>({});
+  // LE CHOIX DES SPÉCIALITÉS À LA CRÉATION (§118.183) — contrôlé : il part en champs cachés, et se vide
+  // à chaque ouverture du tiroir pour ne pas reproposer la sélection de la BU précédente.
+  const [choixCreation, setChoixCreation] = React.useState<ChoixSpecialitesValeur>({ ids: [], principaleId: null });
 
   const run = React.useCallback(async (action: Action, fd: FormData, refresh = true) => {
     setBusy(true);
@@ -140,7 +148,7 @@ export function BusinessUnitsManager({
           il repoussait les BU existantes sous la ligne de flottaison — alors qu'on vient ici dix
           fois pour en consulter une, et une fois pour en créer une. */}
       <div className="flex justify-end">
-        <Button onClick={() => { setCreating(true); }} disabled={busy}>
+        <Button onClick={() => { setChoixCreation({ ids: [], principaleId: null }); setCreating(true); }} disabled={busy}>
           <Plus className="h-4 w-4" /> Créer une BU
         </Button>
       </div>
@@ -174,6 +182,14 @@ export function BusinessUnitsManager({
             </select>
             <input name="color" type="color" defaultValue="#2563eb" className="h-9 w-16 rounded-lg border border-input bg-background" title="Couleur" />
           </div>
+          {/* LES SPÉCIALITÉS VISÉES, dès la création (§118.183) — « BU ≠ spécialité » : plusieurs, dont une
+              principale facultative. Elles se règlent aussi plus tard, dans la carte de la BU. */}
+          <fieldset className="space-y-1.5">
+            <legend className="text-sm font-medium">Spécialités visées</legend>
+            <ChoixSpecialites referentiel={specialitesReferentiel} valeur={choixCreation} onChange={setChoixCreation} disabled={busy} />
+            {choixCreation.ids.map((id) => <input key={id} type="hidden" name="specialtyIds" value={id} />)}
+            {choixCreation.principaleId && <input type="hidden" name="principaleId" value={choixCreation.principaleId} />}
+          </fieldset>
           <div className="flex justify-end gap-2">
             <button type="button" onClick={() => setCreating(false)} className="rounded-lg px-3 py-2 text-sm text-muted-foreground hover:bg-secondary">Annuler</button>
             <button type="submit" disabled={busy} className={btnCls}>
@@ -208,6 +224,7 @@ export function BusinessUnitsManager({
           etablissements={etablissements}
           referentsInside={referentsOf(bu.id)}
           referentsEligibles={referentsEligibles}
+          specialitesReferentiel={specialitesReferentiel}
           productsInside={productsOf(bu.id)}
           productsFree={orphelinsProd}
         />
@@ -243,7 +260,7 @@ export function BusinessUnitsManager({
 function BuCard({
   bu, open, onToggle, companies, supervisors, users, dossiers, config, busy, run,
   kamsInside, kamsFree, productsInside, productsFree, sectorsInside, etablissements,
-  referentsInside, referentsEligibles,
+  referentsInside, referentsEligibles, specialitesReferentiel,
 }: {
   bu: BuRow; open: boolean; onToggle: () => void;
   companies: Opt[]; supervisors: Opt[]; users: Opt[];
@@ -254,6 +271,7 @@ function BuCard({
   sectorsInside: SectorRow[]; etablissements: EtabOpt[];
   /** Les référents Direction Marketing DE CETTE GAMME, et les personnes éligibles à l'être. */
   referentsInside: ReferentRow[]; referentsEligibles: Opt[];
+  specialitesReferentiel: Opt[];
 }) {
   // LES TROIS NOMBRES QUE L'ÉTAPE « SECTEURS » RÉCLAME, et il en faut trois : « la BU a des
   // secteurs » cache trois pannes distinctes, toutes silencieuses (voir `sfe-setup.ts`).
@@ -268,6 +286,7 @@ function BuCard({
     // référent sans le rôle sont DEUX pannes distinctes, et toutes deux silencieuses.
     referentCount: referentsInside.length,
     referentsSansRole: referentsInside.filter((r) => !r.porteLeRole).length,
+    specialtyCount: bu.specialites.length,
   };
   const steps = buSetupSteps(etat);
   const manquantes = steps.filter((s) => !s.done);
@@ -303,6 +322,12 @@ function BuCard({
               {superviseur ? `Supervisée par ${superviseur}` : "Sans superviseur"}
               {" · "}{kamsInside.length} KAM{" · "}{productsInside.length} produit(s)
             </span>
+            {/* CE QU'ELLE VISE, lisible carte fermée (§118.183) : la principale marquée d'une étoile. */}
+            {bu.specialites.length > 0 && (
+              <span className="mt-0.5 block text-xs text-muted-foreground">
+                {bu.specialites.map((s) => `${s.name}${s.principale ? " ★" : ""}`).join(" · ")}
+              </span>
+            )}
             {manquantes.length > 0 && (
               <span className="mt-1 block text-xs text-amber-700 dark:text-amber-500">
                 À faire : {manquantes.map((s) => s.label.toLowerCase()).join(", ")}.
@@ -387,6 +412,17 @@ function BuCard({
             {!bu.supervisorId && (
               <p className="text-xs text-muted-foreground">{steps.find((s) => s.key === "SUPERVISEUR")!.why}</p>
             )}
+          </section>
+
+          {/* ── 2 bis. Les spécialités visées (§118.183) ────────────────── */}
+          <section className="space-y-2">
+            <h4 className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              <Stethoscope className="h-3.5 w-3.5" aria-hidden /> Spécialités visées ({bu.specialites.length})
+            </h4>
+            <SpecialitesDeLaBu
+              bu={bu} referentiel={specialitesReferentiel} busy={busy} run={run}
+              why={bu.specialites.length === 0 ? steps.find((s) => s.key === "SPECIALITES")!.why : null}
+            />
           </section>
 
           {/* ── 3. Les KAM ──────────────────────────────────────────────── */}
@@ -965,5 +1001,73 @@ function SecteursDeLaBu({
         </form>
       </Sheet>
     </>
+  );
+}
+
+/** LES SPÉCIALITÉS D'UNE BU — ce qu'elle vise, et le geste qui le change (§118.183). */
+function SpecialitesDeLaBu({ bu, referentiel, busy, run, why }: {
+  bu: BuRow;
+  referentiel: Opt[];
+  busy: boolean;
+  run: (a: Action, fd: FormData, refresh?: boolean) => Promise<boolean>;
+  /** La raison de l'étape quand elle manque — celle de `buSetupSteps`, jamais réécrite ici. */
+  why: string | null;
+}) {
+  const [edite, setEdite] = React.useState(false);
+  const initial = React.useMemo<ChoixSpecialitesValeur>(
+    () => ({ ids: bu.specialites.map((s) => s.id), principaleId: bu.specialites.find((s) => s.principale)?.id ?? null }),
+    [bu.specialites],
+  );
+  const [valeur, setValeur] = React.useState<ChoixSpecialitesValeur>(initial);
+  // L'ÉDITEUR S'OUVRE SUR L'ÉTAT DU JOUR : rouvert après un enregistrement, il ne doit pas remontrer
+  // la sélection d'avant (§118.172) — les gestes attendent déjà le rafraîchissement (`busy`).
+  React.useEffect(() => { if (!edite) setValeur(initial); }, [initial, edite]);
+
+  async function enregistrer() {
+    const fd = new FormData();
+    fd.set("businessUnitId", bu.id);
+    for (const id of valeur.ids) fd.append("specialtyIds", id);
+    if (valeur.principaleId) fd.set("principaleId", valeur.principaleId);
+    if (await run(enregistrerSpecialitesBu, fd)) setEdite(false);
+  }
+
+  const principale = bu.specialites.find((s) => s.principale) ?? null;
+  const associees = bu.specialites.filter((s) => !s.principale);
+  return (
+    <div className="space-y-2">
+      {bu.specialites.length > 0 ? (
+        <ul className="flex flex-wrap gap-1.5" aria-label="Spécialités de la BU">
+          {principale && (
+            <li className="inline-flex items-center gap-1 rounded-full bg-amber-500/15 px-2.5 py-0.5 text-xs font-medium text-amber-800 dark:text-amber-300">
+              <Star className="h-3 w-3 fill-current" aria-hidden /> {principale.name}
+              <span className="sr-only">(principale)</span>
+            </li>
+          )}
+          {associees.map((s) => (
+            <li key={s.id} className="rounded-full bg-secondary px-2.5 py-0.5 text-xs">{s.name}</li>
+          ))}
+        </ul>
+      ) : (
+        why && <p className="text-xs text-muted-foreground">{why}</p>
+      )}
+      {edite ? (
+        <div className="space-y-2 rounded-lg border border-border p-2.5">
+          <ChoixSpecialites referentiel={referentiel} valeur={valeur} onChange={setValeur} disabled={busy} />
+          <div className="flex justify-end gap-2">
+            <button type="button" onClick={() => setEdite(false)} disabled={busy} className="rounded-lg px-3 py-1.5 text-sm text-muted-foreground hover:bg-secondary">Annuler</button>
+            <button type="button" onClick={enregistrer} disabled={busy} className={btnCls}>
+              {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />} Enregistrer les spécialités
+            </button>
+          </div>
+        </div>
+      ) : (
+        <button
+          type="button" onClick={() => setEdite(true)} disabled={busy}
+          className="inline-flex items-center gap-1.5 rounded-lg border border-input px-2.5 py-1.5 text-sm hover:bg-secondary disabled:opacity-60"
+        >
+          <Stethoscope className="h-4 w-4" aria-hidden /> {bu.specialites.length > 0 ? "Modifier les spécialités" : "Choisir les spécialités"}
+        </button>
+      )}
+    </div>
   );
 }

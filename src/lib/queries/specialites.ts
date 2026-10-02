@@ -31,7 +31,15 @@ export async function chargerSpecialites(user: SessionUser): Promise<{
   // UNE lecture, par COUPLE (lien, texte) : c'est le couple qui dit si le lien vaut. Le nombre de
   // couples distincts est celui des écritures d'une spécialité, pas celui des fiches.
   const [referentiel, couples] = await Promise.all([
-    prisma.medicalSpecialty.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true, color: true, notes: true } }),
+    prisma.medicalSpecialty.findMany({
+      orderBy: { name: "asc" },
+      select: {
+        id: true, name: true, color: true, notes: true,
+        // LES BU QUI LA VISENT (§118.183) : c'est ce qui dit, avant le clic, pourquoi un retrait sera
+        // refusé — et ce qu'une fusion fera suivre. Le nom d'une gamme n'est pas confidentiel.
+        businessUnits: { select: { principale: true, businessUnit: { select: { name: true } } } },
+      },
+    }),
     prisma.medicalDoctor.groupBy({
       by: ["specialtyId", "specialty"],
       where: { AND: [scope, { OR: [{ specialtyId: { not: null } }, { specialty: { not: null } }] }] },
@@ -79,7 +87,12 @@ export async function chargerSpecialites(user: SessionUser): Promise<{
     .sort((a, b) => b.praticiens - a.praticiens || a.libelle.localeCompare(b.libelle, "fr"));
 
   return {
-    specialites: referentiel.map((s) => ({ ...s, praticiens: parId.get(s.id) ?? 0 })),
+    specialites: referentiel.map((s) => ({
+      id: s.id, name: s.name, color: s.color, notes: s.notes, praticiens: parId.get(s.id) ?? 0,
+      bu: s.businessUnits
+        .map((l) => ({ nom: l.businessUnit.name, principale: l.principale }))
+        .sort((a, b) => a.nom.localeCompare(b.nom, "fr")),
+    })),
     heritees: heritees.slice(0, LIBELLES_MAX),
     heriteesTotal: heritees.length,
   };

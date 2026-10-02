@@ -56,7 +56,7 @@ export function channelCovers(bu: string, product: string): boolean {
   return bu === "BOTH" || bu === product;
 }
 
-export type BuStepKey = "SUPERVISEUR" | "CANAL" | "KAM" | "SECTEURS" | "PRODUITS" | "REFERENTS";
+export type BuStepKey = "SUPERVISEUR" | "CANAL" | "SPECIALITES" | "KAM" | "SECTEURS" | "PRODUITS" | "REFERENTS";
 
 export interface BuSetupInput {
   supervisorId: string | null;
@@ -94,6 +94,11 @@ export interface BuSetupInput {
    */
   referentCount: number;
   referentsSansRole: number;
+  /**
+   * LES SPÉCIALITÉS QUE LA BU VISE (§118.183) — « BU ≠ spécialité ». Un nombre suffit : la principale
+   * est facultative, et une BU qui vise trois spécialités sans en désigner une est MONTÉE.
+   */
+  specialtyCount: number;
 }
 
 export interface BuStep {
@@ -158,6 +163,12 @@ export function buSetupSteps(bu: BuSetupInput): BuStep[] {
       label: "Choisir le terrain",
       done: true,
       why: "Ville, hôpital ou les deux : le canal de la BU s'applique à ses produits, qui n'ont plus à le redire un par un.",
+    },
+    {
+      key: "SPECIALITES",
+      label: "Choisir les spécialités",
+      done: bu.specialtyCount > 0,
+      why: "Une BU vise une ou plusieurs spécialités (« neurologie, dermatologie, urologie ») : sans elles, rien ne dit à quels médecins s'adressent ses produits.",
     },
     {
       key: "KAM",

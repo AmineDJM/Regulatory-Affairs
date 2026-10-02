@@ -118,6 +118,8 @@ export interface SpecialiteRow {
   notes: string | null;
   /** Praticiens RATTACHÉS, dans la portée de la personne. */
   praticiens: number;
+  /** Les Business Units qui la visent (§118.183) — et si elle y est la principale. */
+  bu: { nom: string; principale: boolean }[];
 }
 
 /**

@@ -334,6 +334,19 @@ export async function deleteSpecialty(formData: FormData): Promise<ActionResult>
   if (!id) return { ok: false, error: "Identifiant manquant." };
   const avant = await prisma.medicalSpecialty.findUnique({ where: { id }, select: { name: true } });
   if (!avant) return { ok: false, error: "Cette spécialité n'existe plus — rechargez l'écran." };
+  // UNE SPÉCIALITÉ VISÉE PAR UNE BU NE SE RETIRE PAS (§118.183) : la retirer changerait, en silence, ce
+  // que la BU concerne. Le refus nomme les BU et les deux gestes qui le lèvent — la fusion, elle, fait
+  // suivre les BU. La base refuse aussi (`onDelete: Restrict`), si un autre chemin essayait.
+  const visees = await prisma.businessUnitSpecialty.findMany({
+    where: { specialtyId: id }, select: { businessUnit: { select: { name: true } } }, orderBy: { businessUnit: { name: "asc" } },
+  });
+  if (visees.length) {
+    const noms = visees.map((v) => `« ${v.businessUnit.name} »`).join(", ");
+    return {
+      ok: false,
+      error: `« ${avant.name} » est visée par ${visees.length} Business Unit(s) (${noms}) : retirez-la de ces BU (Force de vente › Business Units), ou fusionnez-la dans une autre spécialité — la fusion fait suivre les BU.`,
+    };
+  }
   const detaches = await prisma.$transaction(async (tx) => {
     await tx.medicalDoctor.updateMany({ where: { specialtyId: id, specialty: null }, data: { specialty: avant.name } });
     const { count } = await tx.medicalDoctor.updateMany({ where: { specialtyId: id }, data: { specialtyId: null } });
@@ -373,7 +386,7 @@ export async function fusionnerSpecialite(formData: FormData): Promise<ActionRes
     prisma.medicalSpecialty.findUnique({ where: { id: cibleId }, select: { name: true } }),
   ]);
   if (!source || !cible) return { ok: false, error: "L'une des deux spécialités n'existe plus — rechargez l'écran." };
-  const { deplaces, detaches } = await prisma.$transaction(async (tx) => {
+  const { deplaces, detaches, bus } = await prisma.$transaction(async (tx) => {
     const ecritures = await tx.medicalDoctor.groupBy({ by: ["specialty"], where: { specialtyId: id } });
     const suivent = ecritures
       .map((e) => e.specialty)
@@ -383,10 +396,26 @@ export async function fusionnerSpecialite(formData: FormData): Promise<ActionRes
       data: { specialtyId: cibleId, specialty: cible.name },
     });
     const reste = await tx.medicalDoctor.updateMany({ where: { specialtyId: id }, data: { specialtyId: null } });
+    // LES BU SUIVENT (§118.183) : une BU qui visait la source vise la cible — sans doublon quand elle la
+    // visait déjà, et la principale TIENT : si la source était sa principale, la cible le devient. Le
+    // lien de la source part AVANT que la cible ne devienne principale, sinon l'index partiel (« une
+    // principale par BU ») refuserait la fusion.
+    const liens = await tx.businessUnitSpecialty.findMany({ where: { specialtyId: id }, select: { id: true, businessUnitId: true, principale: true } });
+    for (const l of liens) {
+      const deja = await tx.businessUnitSpecialty.findUnique({
+        where: { businessUnitId_specialtyId: { businessUnitId: l.businessUnitId, specialtyId: cibleId } }, select: { id: true },
+      });
+      if (deja) {
+        await tx.businessUnitSpecialty.delete({ where: { id: l.id } });
+        if (l.principale) await tx.businessUnitSpecialty.update({ where: { id: deja.id }, data: { principale: true } });
+      } else {
+        await tx.businessUnitSpecialty.update({ where: { id: l.id }, data: { specialtyId: cibleId } });
+      }
+    }
     await tx.medicalSpecialty.delete({ where: { id } });
-    return { deplaces: passe.count, detaches: reste.count };
+    return { deplaces: passe.count, detaches: reste.count, bus: liens.length };
   });
-  const garde = detaches ? ` ; ${detaches} fiche(s) dont le texte contredisait le lien le gardent, sans lien — à rattacher` : "";
+  const garde = `${detaches ? ` ; ${detaches} fiche(s) dont le texte contredisait le lien le gardent, sans lien — à rattacher` : ""}${bus ? ` ; ${bus} Business Unit(s) visent désormais « ${cible.name} »` : ""}`;
   await recordAudit({
     actorId: user.id, action: "UPDATE", module: "Annuaires", entityType: "SPECIALTY", entityId: cibleId,
     summary: `Spécialité « ${source.name} » fusionnée dans « ${cible.name} » — ${deplaces} fiche(s) déplacée(s)${garde}`,

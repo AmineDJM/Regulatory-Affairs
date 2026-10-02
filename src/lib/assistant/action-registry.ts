@@ -1234,6 +1234,9 @@ X("LE CATALOGUE DES PRODUITS CANONIQUES (§118.178) — rattacher un dossier à 
   "produit-canonique-actions:ajouterAliasProduitCanonique",
   "produit-canonique-actions:retirerAliasProduitCanonique",
 ]);
+X("LES SPÉCIALITÉS D'UNE BUSINESS UNIT (§118.183) — l'ensemble des spécialités qu'une BU vise, et sa principale — sont un geste d'écran neuf, et Adam est en pause de développement : aucun geste neuf ne lui est ouvert. L'ensemble se REMPLACE d'un geste (décocher retire), ce qui se décide devant la liste du référentiel. Tout se fait sur Force de vente › Business Units, dans la carte de la BU ou à sa création.", [
+  "sales-planning-actions:enregistrerSpecialitesBu",
+]);
 X("LE RÉFÉRENTIEL DES SPÉCIALITÉS (§118.180) — fusionner deux spécialités, rattacher un libellé hérité à une spécialité, rattacher en lot les fiches dont la spécialité est écrite sans lien — sont des gestes d'écran neufs, et Adam est en pause de développement : aucun geste neuf ne lui est ouvert. La fusion change, de plus, la spécialité de fiches que la personne ne voit peut-être pas : c'est une décision de STRUCTURE, prise devant l'écran qui en montre l'effet. Tout se fait sur Annuaires › Spécialités et dans la feuille des praticiens (« Rattacher les spécialités »).", [
   "medical-actions:fusionnerSpecialite",
   "medical-actions:rattacherLibelleSpecialite",
