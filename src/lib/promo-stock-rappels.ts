@@ -1,3 +1,4 @@
+import { lienStockPromo } from "@/lib/chemins/stock-promo";
 import { prisma } from "@/lib/prisma";
 import { notifyUser } from "@/lib/notify";
 import { gestionnairesDuMagasin } from "@/lib/queries/promo-stock";
@@ -51,7 +52,7 @@ export async function relancerReceptionsStock(maintenant = new Date()): Promise<
         type: "GENERIC",
         title: t.versId ? "Réception de matériel à confirmer" : "Retour au magasin à confirmer",
         body: `${quantite} × ${libelle}, envoyé(s) il y a plus de ${JOURS_AVANT_RAPPEL} jours, ne sont toujours pas confirmé(s). Confirmez ce que vous avez reçu — ou refusez-le : tant que rien n'est confirmé, ce matériel n'est dans le stock de personne.`,
-        link: t.versId ? "/promo-material/stock?vue=moi" : "/promo-material/stock?vue=magasin",
+        link: t.versId ? lienStockPromo("moi") : lienStockPromo("magasin"),
       });
     }
     relances++;

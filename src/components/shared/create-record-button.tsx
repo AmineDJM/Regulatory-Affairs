@@ -70,7 +70,13 @@ export type FieldDef =
   | { type: "hidden"; name: string; value: string }
   // `defaultChecked` : le même formulaire sert à MODIFIER — sans lui, rouvrir une fiche pour
   // corriger son nom décocherait en silence une case qui était cochée.
-  | { type: "checkbox"; name: string; label: string; full?: boolean; defaultChecked?: boolean; hint?: string }
+  /**
+   * `temoin` : pose AVANT la case un champ caché du même nom (`value="off"`). Décochée, une case
+   * n'envoie RIEN — sans témoin, décocher sur une fiche qui l'était ne change donc rien à l'envoi
+   * (§118.172). Avec lui, l'action lit oui, non, ou rien du tout par `fdCase` ; un banc l'exige
+   * (`temoins-cases.test.ts`) dans chaque module d'actions qu'importe le formulaire qui le déclare.
+   */
+  | { type: "checkbox"; name: string; label: string; full?: boolean; defaultChecked?: boolean; hint?: string; temoin?: boolean }
   | { type: "multiselect"; name: string; label: string; options: { value: string; label: string }[]; required?: boolean; hint?: string; full?: boolean; defaultValue?: string[]; searchPlaceholder?: string; emptyLabel?: string }
   | { type: "file"; name: string; label: string; multiple?: boolean; required?: boolean; hint?: string; defaultValue?: string | number; full?: boolean; /** Formats proposés par le sélecteur (`.pdf,.png`…) — le serveur revérifie TOUJOURS. */ accept?: string }
   // L'EXPLORATEUR DU DRIVE, ouvert par-dessus le formulaire : on désigne un dossier ou un
@@ -466,6 +472,7 @@ export function RecordForm({
                 </>
               ) : field.type === "checkbox" ? (
                 <>
+                  {field.temoin && <input type="hidden" name={field.name} value="off" />}
                   <label className="flex items-center gap-2 text-sm">
                     <input type="checkbox" name={field.name} defaultChecked={field.defaultChecked} className="h-4 w-4 rounded border-input" />
                     {field.label}

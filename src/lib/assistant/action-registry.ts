@@ -1076,7 +1076,7 @@ X("LE STOCK PROMOTIONNEL (§118.164) : chaque geste ATTESTE un fait physique —
   + "(inventaire d'ouverture, correction), « il est entré au magasin ». Un modèle ne voit ni le magasin ni la "
   + "voiture d'un délégué : lui confier ces gestes ferait porter au nom d'une personne un stock qu'elle n'a "
   + "jamais vu, et une confirmation de réception est précisément ce qu'un document injecté demanderait (§118.15). "
-  + "Adam est de plus en pause de développement. Un clic sur Ad & Pro › Stock promotionnel.", [
+  + "Adam est de plus en pause de développement. Un clic sur Sales & Marketing › Stock promotionnel.", [
   "promo-stock-actions:entrerEnStock", "promo-stock-actions:poserInventaireOuverture",
   "promo-stock-actions:declarerSupportNumerique", "promo-stock-actions:modifierArticleStock",
   "promo-stock-actions:modifierLot", "promo-stock-actions:doter", "promo-stock-actions:transferer",
@@ -1089,7 +1089,7 @@ X("LE STOCK PROMOTIONNEL (§118.164) : chaque geste ATTESTE un fait physique —
 X("LE CATALOGUE PROMOTIONNEL (§118.164) : la liste de RÉFÉRENCE que citent les stocks et les demandes "
   + "d'achat — ses références CAT-NNNN sont fixes, et le Super Admin choisit nommément qui la lit et qui l'écrit "
   + "(Administration › Accès). La tenir est une décision d'organisation, pas une demande de conversation ; et Adam "
-  + "est en pause de développement : aucun geste neuf ne lui est ouvert. Un clic sur Ad & Pro › Catalogue promotionnel.", [
+  + "est en pause de développement : aucun geste neuf ne lui est ouvert. Un clic sur Sales & Marketing › Stock promotionnel › Catalogue.", [
   "promo-catalogue-actions:creerArticleCatalogue", "promo-catalogue-actions:modifierArticleCatalogue",
   "promo-catalogue-actions:archiverArticleCatalogue",
 ]);
@@ -1124,7 +1124,7 @@ X("LES COMPTAGES, ALERTES ET REFONTES DU STOCK PROMOTIONNEL (§118.168). SAISIR 
   + "registre recopierait ce que personne n'a compté (§118.15). DEMANDER ou PLANIFIER un comptage engage le travail d'une "
   + "personne au nom du directeur des opérations, et son autorité est relue à chaque déclenchement ; RETENIR une refonte est une "
   + "décision de la Direction Marketing. Adam est en pause de développement : aucun geste neuf ne lui est ouvert. Un clic sur "
-  + "Ad & Pro › Stock promotionnel, onglets « Comptages » et « Tableau de bord ».", [
+  + "Sales & Marketing › Stock promotionnel, onglets « Comptages » et « Tableau de bord ».", [
   "promo-comptage-actions:demanderComptage", "promo-comptage-actions:saisirComptage",
   "promo-comptage-actions:annulerComptage", "promo-comptage-actions:planifierComptage",
   "promo-comptage-actions:suspendreRecurrenceComptage", "promo-comptage-actions:reprendreRecurrenceComptage",

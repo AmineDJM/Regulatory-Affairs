@@ -1,5 +1,6 @@
 "use server";
 
+import { MENU_CATALOGUE_PROMO } from "@/lib/chemins/stock-promo";
 import { revalidatePath } from "next/cache";
 import { Prisma } from "@prisma/client";
 import { requireUser } from "@/lib/session";
@@ -127,7 +128,7 @@ export async function demanderDevisPromo(formData: FormData): Promise<ActionResu
     return {
       ok: false,
       error: catalogueVide
-        ? "Composez d'abord la liste des articles à faire chiffrer — mais le catalogue est encore vide : demandez au Super Admin d'y ajouter vos supports (Ad & Pro › Catalogue promotionnel)."
+        ? `Composez d'abord la liste des articles à faire chiffrer — mais le catalogue est encore vide : demandez au Super Admin d'y ajouter vos supports (${MENU_CATALOGUE_PROMO}).`
         : "Composez d'abord la liste des articles à faire chiffrer (« Articles demandés », piochés dans le catalogue) : c'est elle qui dit à l'assistante quels devis chercher.",
     };
   }

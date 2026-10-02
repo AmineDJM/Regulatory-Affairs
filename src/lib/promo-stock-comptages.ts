@@ -1,3 +1,4 @@
+import { lienStockPromo } from "@/lib/chemins/stock-promo";
 import { prisma } from "@/lib/prisma";
 import { notifyUser } from "@/lib/notify";
 import { faitsStockDe, gestionnairesDuMagasin, peutRecevoirDuStock } from "@/lib/queries/promo-stock";
@@ -36,7 +37,7 @@ import {
  */
 
 const PAR_PASSAGE = 20;
-const LIEN = "/promo-material/stock?vue=comptages";
+const LIEN = lienStockPromo("comptages");
 
 const jourFr = (d: Date) => d.toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit", year: "numeric", timeZone: "UTC" });
 

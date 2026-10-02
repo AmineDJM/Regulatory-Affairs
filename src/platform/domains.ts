@@ -166,6 +166,14 @@ const SOCLE = [
    * fichier serveur ajouté à côté ne se retrouve pas exempté sans décision (§118.128).
    */
   "src/lib/bons-de-commande/regle",
+  /**
+   * `chemins/` : les ADRESSES des écrans que plusieurs couches citent (§118.173) — des constantes,
+   * zéro import. Le menu (`labels.ts`, au socle) lit l'adresse du stock promotionnel ; les
+   * écrivains du stock (domaine `adpro`), les actions, les chargeurs et les écrans aussi. Écrite
+   * à vingt-cinq endroits, l'adresse a changé une fois et vingt-cinq copies auraient dû suivre :
+   * c'est la garantie qu'un lien finit par mener à l'ancien écran (§118.5).
+   */
+  "src/lib/chemins/",
 ];
 
 /**

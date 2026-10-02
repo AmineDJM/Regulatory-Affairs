@@ -20,7 +20,7 @@
  *      liste blanche ne se trompe pas quand un champ nouveau apparaît dans le modèle.
  */
 
-import { SPONSORING_TYPES, PRIORITY, NATIONAL_EVENT_TYPE, EVENT_TYPE, EVENT_FORMAT, MATERIAL_TYPE } from "@/lib/labels";
+import { SPONSORING_TYPES, PRIORITY, NATIONAL_EVENT_TYPE, EVENT_TYPE, EVENT_FORMAT } from "@/lib/labels";
 
 export type AdProKind = "SPONSORING" | "CONGRESS_NATIONAL" | "CONGRESS_INTERNATIONAL" | "PROMO_MATERIAL" | "EVENT";
 
@@ -137,7 +137,6 @@ export const EDITABLE_FIELDS: Record<AdProKind, readonly EditableField[]> = {
   ],
   PROMO_MATERIAL: [
     { key: "title", label: "Intitulé du matériel", type: "text" },
-    { key: "materialType", label: "Type de matériel", type: "select", options: mapOptions(MATERIAL_TYPE) },
     { key: "description", label: "Description / besoin", type: "textarea" },
     { key: "amount", label: "Budget global", type: "number" },
   ],

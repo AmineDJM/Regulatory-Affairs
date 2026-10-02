@@ -1,5 +1,6 @@
 "use server";
 
+import { CHEMIN_STOCK_PROMO } from "@/lib/chemins/stock-promo";
 import { revalidatePath } from "next/cache";
 import type { DoctorTitle, InfluenceLevel, InstitutionSector, InstitutionType, MedicalSector, Priority, SegmentLevel, VisitStatus } from "@prisma/client";
 import { requireUser } from "@/lib/session";
@@ -493,7 +494,7 @@ export async function logVisit(
   revalidatePath("/medical/ma-journee");
   revalidatePath("/medical");
   revalidatePath("/planning/pilotage");
-  if (toucheLeStock(lu.materiel, deja)) revalidatePath("/promo-material/stock");
+  if (toucheLeStock(lu.materiel, deja)) revalidatePath(CHEMIN_STOCK_PROMO);
   return { ok: true, id: created.id };
 }
 

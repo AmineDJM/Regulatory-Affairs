@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { lienStockPromo } from "@/lib/chemins/stock-promo";
 import {
   alertesDuStock, cleDansLePerimetre, comptageEnRetard, comptagesSeRecouvrent, echeanceDuComptage, estDormant,
   lireDelaiJours, lireSaisieComptage, messageDAlertes, occurrenceComptage, partitionComptage, peutAnnulerComptage,
@@ -328,7 +329,7 @@ describe("les alertes — une seule règle pour le battement et le tableau de bo
     expect(m.corps).not.toMatch(/t6/);
     expect(m.corps).toMatch(/et 2 autre\(s\)/);
     expect(m.lien).toBe("/l");
-    expect(messageDAlertes([al(1, "/a"), al(2, "/b")])!.lien, "des liens différents : le tableau de bord").toBe("/promo-material/stock?vue=tableau");
+    expect(messageDAlertes([al(1, "/a"), al(2, "/b")])!.lien, "des liens différents : le tableau de bord").toBe(lienStockPromo("tableau"));
   });
 });
 

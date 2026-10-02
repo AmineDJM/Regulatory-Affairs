@@ -185,6 +185,23 @@ export const NEUTRAL = new Set([
   // il avait raison. Deux listes de colonnes divergent à la première ajoutée : le tableau
   // montre « Projet » et Adam répond « colonne inconnue » (§118.5).
   "src/lib/vues/colonnes-regulatory",
+  // `chemins/stock-promo` dit OÙ VIVENT le stock et le catalogue promotionnels (§118.173) : deux
+  // adresses, la liste fermée des vues de l'écran, le lien vers une vue, et le chemin du menu tel
+  // qu'une phrase le nomme. Des chaînes et un lecteur de paramètre — zéro import, sans état, sans
+  // base, sans règle métier : rien ici ne dit ce qu'un stock contient.
+  //
+  // Il est ici parce que `labels` — neutre — le lit pour dessiner le menu, et qu'un module neutre
+  // n'importe qu'un module neutre : ce cliquet l'a refusé à la première suite complète du lot, et
+  // il avait raison. La mesure donne le reste : VINGT-DEUX importeurs de production répartis sur
+  // des couches qui n'ont pas le droit de se parler — le menu (socle), les actions et les rappels
+  // du stock, leurs chargeurs, la corbeille, les écrans serveur comme client. Écrite en toutes
+  // lettres à vingt-cinq endroits, l'ancienne adresse menait à l'ancien écran dès qu'elle bougeait
+  // (§118.5) ; chacun la lit maintenant ici. Aucun fichier d'Adam ne l'importe : l'entrée ne
+  // déplace aucun franchissement, et le compteur ne bouge pas.
+  //
+  // Le chemin est EXACT, pas le dossier : un futur `src/lib/chemins/quelque-chose-de-lourd.ts` ne
+  // doit pas se retrouver exempté sans que personne l'ait décidé.
+  "src/lib/chemins/stock-promo",
 ]);
 
 export interface Violation {

@@ -72,7 +72,9 @@ describe("le registre du stock promotionnel", () => {
   });
 
   it("les écrans du stock lisent la RÈGLE, jamais un rôle", () => {
-    const ecrans = PRODUCTION.filter((f) => f.rel.startsWith("src/app/(app)/promo-material/stock/"));
+    // Les écrans du STOCK — le catalogue, rangé sous la même adresse depuis le §118.173, a sa propre
+    // règle (le module `PROMO_CATALOG`) et n'est pas jugé ici.
+    const ecrans = PRODUCTION.filter((f) => f.rel.startsWith("src/app/(app)/stock-promotionnel/") && !f.rel.startsWith("src/app/(app)/stock-promotionnel/catalogue/"));
     expect(ecrans.length).toBeGreaterThanOrEqual(4);
     for (const e of ecrans) {
       expect(e.src, `${e.rel} : un droit calculé sur un rôle diverge de celui que l'action lit`).not.toMatch(/SUPER_ADMIN|\.role\b/);

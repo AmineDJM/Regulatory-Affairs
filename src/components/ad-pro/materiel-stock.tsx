@@ -1,5 +1,6 @@
 "use client";
 
+import { CHEMIN_STOCK_PROMO, MENU_STOCK_PROMO } from "@/lib/chemins/stock-promo";
 import * as React from "react";
 import Link from "next/link";
 import { Boxes, Loader2, Plus, CheckCircle2, Trash2 } from "lucide-react";
@@ -141,7 +142,7 @@ export function BlocMaterielStock({
         magasin.length === 0 ? (
           <p className="text-muted-foreground">
             Le magasin de cette société n&apos;a aucun article qui se compte. Il se garnit depuis{" "}
-            <Link href="/promo-material/stock" className="text-primary hover:underline">Ad &amp; Pro › Stock promotionnel</Link>.
+            <Link href={CHEMIN_STOCK_PROMO} className="text-primary hover:underline">{MENU_STOCK_PROMO}</Link>.
           </p>
         ) : (
           <form

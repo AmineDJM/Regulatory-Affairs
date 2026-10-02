@@ -56,7 +56,7 @@ export default async function PromoMaterialPage() {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Référence</TableHead><TableHead>Campagne</TableHead><TableHead>Type</TableHead><TableHead>Agence</TableHead>
+                <TableHead>Référence</TableHead><TableHead>Campagne</TableHead><TableHead>Articles</TableHead><TableHead>Agence</TableHead>
                 <TableHead className="text-right">Montant</TableHead><TableHead>Statut</TableHead><TableHead>Créé le</TableHead>
               </TableRow>
             </TableHeader>
@@ -68,7 +68,14 @@ export default async function PromoMaterialPage() {
                     <Link href={`/promo-material/${i.id}`} className="hover:underline">{i.title}</Link>
                     {i.company && <div className="mt-0.5"><CompanyBadge company={i.company} /></div>}
                   </TableCell>
-                  <TableCell className="text-muted-foreground">{i.materialType ? MATERIAL_TYPE[i.materialType] : "—"}</TableCell>
+                  {/* LES ARTICLES DE LA DEMANDE (§118.173) — ses lignes, et non plus un « type » saisi à
+                      côté. Trois noms au plus, le reste COMPTÉ : une coupe muette se lirait comme
+                      la liste entière. Un dossier d'avant les lignes garde son type d'alors. */}
+                  <TableCell className="text-muted-foreground">
+                    {i.articles.length > 0
+                      ? `${i.articles.slice(0, 3).join(", ")}${i.articles.length > 3 ? ` (+${i.articles.length - 3})` : ""}`
+                      : i.typeHerite ? MATERIAL_TYPE[i.typeHerite] ?? i.typeHerite : "—"}
+                  </TableCell>
                   <TableCell className="text-muted-foreground">{i.chosenAgency || "—"}</TableCell>
                   <TableCell className="text-right">{i.amount != null ? formatCurrency(i.amount) : "—"}</TableCell>
                   <TableCell>

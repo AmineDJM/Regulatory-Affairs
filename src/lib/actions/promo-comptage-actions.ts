@@ -1,5 +1,6 @@
 "use server";
 
+import { CHEMIN_STOCK_PROMO, lienStockPromo } from "@/lib/chemins/stock-promo";
 import { revalidatePath } from "next/cache";
 import { Prisma } from "@prisma/client";
 import { requireUser } from "@/lib/session";
@@ -31,9 +32,9 @@ import { articlesDuComptage, enregistrerSaisieComptage } from "@/lib/promo/compt
  * ═══════════════════════════════════════════════════════════════════════════════════════════
  */
 
-const PATH = "/promo-material/stock";
-const LIEN = "/promo-material/stock?vue=comptages";
-const LIEN_MOI = "/promo-material/stock?vue=moi";
+const PATH = CHEMIN_STOCK_PROMO;
+const LIEN = lienStockPromo("comptages");
+const LIEN_MOI = lienStockPromo("moi");
 const MODULE = "Stock promotionnel";
 
 const jourFr = (d: Date) => d.toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit", year: "numeric", timeZone: "UTC" });
@@ -388,7 +389,7 @@ export async function proposerRefonte(formData: FormData): Promise<ActionResult>
     await notifyUser({
       userId, type: "GENERIC", title: "Refonte proposée",
       body: `${await nomDe(user.id)} propose de refaire « ${it.name} » : « ${motif} ».`,
-      link: "/promo-material/stock?vue=tableau",
+      link: lienStockPromo("tableau"),
     });
   }
   await recordAudit({ actorId: user.id, action: "CREATE", module: MODULE, entityId: r.id, summary: `Refonte proposée — ${it.name} : ${motif}` });

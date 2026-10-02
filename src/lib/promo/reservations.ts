@@ -35,6 +35,7 @@
  * ═══════════════════════════════════════════════════════════════════════════════════════════
  */
 
+import { MENU_STOCK_PROMO } from "@/lib/chemins/stock-promo";
 import type { PromoFamille } from "@/lib/promo/catalogue";
 
 const r3 = (n: number): number => Math.round(n * 1000) / 1000;
@@ -146,7 +147,7 @@ export function repartirRetour(tranches: readonly TrancheReservee[], retour: num
  */
 export function refusReservation(libelle: string, quantite: number, raisonAllocation: string): string {
   return `${nombre(quantite)} « ${libelle} » à réserver, mais le magasin ne le permet pas : ${raisonAllocation.replace(/\.$/, "")}. `
-    + "Rien n'est accordé. Réduisez la quantité du poste, ou faites d'abord entrer du stock (Ad & Pro › Stock promotionnel).";
+    + `Rien n'est accordé. Réduisez la quantité du poste, ou faites d'abord entrer du stock (${MENU_STOCK_PROMO}).`;
 }
 
 export interface LignePourCloture {

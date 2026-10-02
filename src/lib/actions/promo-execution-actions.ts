@@ -1,5 +1,6 @@
 "use server";
 
+import { CHEMIN_STOCK_PROMO } from "@/lib/chemins/stock-promo";
 import { revalidatePath } from "next/cache";
 import { Prisma } from "@prisma/client";
 import { requireUser } from "@/lib/session";
@@ -605,7 +606,7 @@ export async function receptionnerLigneFacturePromo(formData: FormData): Promise
     if (!fait) return { ok: false, error: `« ${ligne.designation} » vient d'être réceptionnée.` };
     await audit(user, pm.id, `Réception cochée — « ${ligne.designation} » (${libelleFacture}) : support numérique ${libelle} livré`);
     revalidatePath(chemin(pm.id));
-    revalidatePath("/promo-material/stock");
+    revalidatePath(CHEMIN_STOCK_PROMO);
     return { ok: true, message: `${libelle} livré${lien ? " — son lien est enregistré au stock" : ""}.` };
   }
 
@@ -635,10 +636,10 @@ export async function receptionnerLigneFacturePromo(formData: FormData): Promise
   const gestionnaires = await gestionnairesDuMagasin();
   for (const userId of new Set(gestionnaires)) {
     if (userId === user.id) continue;
-    await notifyUser({ userId, type: "GENERIC", title: "Entrée au magasin — achat reçu", body: `+${quantiteLue(v.quantite)} ${libelle} (${pm.reference}, ${libelleFacture})`, link: "/promo-material/stock" });
+    await notifyUser({ userId, type: "GENERIC", title: "Entrée au magasin — achat reçu", body: `+${quantiteLue(v.quantite)} ${libelle} (${pm.reference}, ${libelleFacture})`, link: CHEMIN_STOCK_PROMO });
   }
   revalidatePath(chemin(pm.id));
-  revalidatePath("/promo-material/stock");
+  revalidatePath(CHEMIN_STOCK_PROMO);
   return {
     ok: true,
     message: `+${quantiteLue(v.quantite)} ${libelle} entrés au magasin central (lot ${r.numero})`
@@ -683,7 +684,7 @@ export async function annulerReceptionLigneFacturePromo(formData: FormData): Pro
   }
   await audit(user, pm.id, `Réception annulée — « ${brut.designation} » (facture ${facture.reference ?? ""})${motif ? ` — ${motif.slice(0, 200)}` : ""}`);
   revalidatePath(chemin(pm.id));
-  revalidatePath("/promo-material/stock");
+  revalidatePath(CHEMIN_STOCK_PROMO);
   return { ok: true, message: `Réception de « ${brut.designation} » annulée${brut.stockLotId ? " — son entrée au magasin est contre-passée" : ""}.` };
 }
 

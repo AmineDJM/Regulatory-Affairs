@@ -1,5 +1,6 @@
 import type { AnnuaireAccordable } from "./annuaires/acces";
 import type { Action, Module } from "./rbac";
+import { CHEMIN_CATALOGUE_PROMO, CHEMIN_STOCK_PROMO } from "./chemins/stock-promo";
 
 /**
  * Centralised French display labels and badge tones for every enum value.
@@ -1550,15 +1551,26 @@ export const EVENTS_TABS: NavTab[] = [
   { module: "CONGRESS_NATIONAL", label: "Prises en charge Nationales", href: "/congress-national" },
   { module: "EVENTS", label: "Événements", href: "/events" },
   { module: "PROMO_MATERIAL", label: "Matériel promotionnel", href: "/promo-material" },
-  // Le STOCK est un écran à part : on n'y vient pas pour suivre une campagne mais pour savoir
-  // ce qu'il reste, et le tenir à jour. Deux questions différentes, deux écrans — et deux modules
-  // (§118.164) : le directeur des opérations tient le stock de ses équipes sans instruire d'achat.
-  { module: "PROMO_STOCK", label: "Stock promotionnel", href: "/promo-material/stock" },
-  // Le CATALOGUE : les références fixes que citent les demandes et les stocks. Au Super Admin par
-  // défaut ; il l'ouvre en lecture ou en écriture à qui il veut (Administration › Accès).
-  { module: "PROMO_CATALOG", label: "Catalogue promotionnel", href: "/promo-material/catalogue" },
+  // LE STOCK ET LE CATALOGUE NE SONT PLUS DES ONGLETS D'AD & PRO (§118.173) — décision de la
+  // Direction (01/10) : « un sous-module à part de Sales & Marketing, totalement à part ». Ils ont
+  // leur propre entrée de menu (`STOCK_PROMO_TABS`), et restent reliés aux achats par leurs liens :
+  // une réception de facture entre au magasin, un poste Ad & Pro y réserve son matériel.
   { module: "CONSULTING", label: "Consulting", href: "/consulting" },
   { module: "AD_PRO_OTHER", label: "Autres demandes", href: "/ad-pro/autres" },
+];
+/**
+ * LE STOCK PROMOTIONNEL — un sous-module À PART du pôle Sales & Marketing (§118.173).
+ *
+ * Deux écrans, deux questions : le STOCK (« qu'avons-nous, où, et qu'est-ce qui est en route ? »,
+ * module `PROMO_STOCK` : le directeur des opérations tient le stock de ses équipes sans instruire
+ * d'achat) et le CATALOGUE (les supports qu'on peut commander, triés en trois familles, module
+ * `PROMO_CATALOG` : au Super Admin par défaut, ouvert par lui à qui il veut). L'entrée de menu
+ * s'ouvre sur le premier des deux que la personne a le droit de voir. Les adresses vivent au socle
+ * (`chemins/stock-promo.ts`) : le menu, les actions, les rappels et les écrans les lisent.
+ */
+export const STOCK_PROMO_TABS: NavTab[] = [
+  { module: "PROMO_STOCK", label: "Stock", href: CHEMIN_STOCK_PROMO },
+  { module: "PROMO_CATALOG", label: "Catalogue", href: CHEMIN_CATALOGUE_PROMO },
 ];
 // Module « Drive » (Drive personnel). L'onglet « Documents » a été retiré (tout est consolidé
 // dans le Drive + les catégories partagées ; on y glisse des dossiers à la souris).
@@ -1944,7 +1956,9 @@ export const NAVIGATION: NavItem[] = [
   { module: "MEDICAL", label: "Promotion médicale", href: "/medical/ma-journee", icon: "Stethoscope", group: "Pôles", pole: "SALES_MARKETING", tabs: MEDICAL_TABS, match: ["/medical"] },
   { module: "SALES_PLANNING", label: "Force de vente", href: "/planning", icon: "Target", group: "Pôles", pole: "SALES_MARKETING" },
   { module: "FIELD_REPORTS", label: "Rapports terrain", href: "/field-reports", icon: "NotebookPen", group: "Pôles", pole: "SALES_MARKETING" },
-  { module: "SPONSORING", label: "Ad & Pro", href: "/ad-pro", icon: "PartyPopper", group: "Pôles", pole: "SALES_MARKETING", tabs: EVENTS_TABS, match: ["/sponsoring", "/promo-material", "/promo-material/stock", "/promo-material/catalogue", "/consulting"] },
+  { module: "SPONSORING", label: "Ad & Pro", href: "/ad-pro", icon: "PartyPopper", group: "Pôles", pole: "SALES_MARKETING", tabs: EVENTS_TABS, match: ["/sponsoring", "/promo-material", "/consulting"] },
+  // LE STOCK PROMOTIONNEL — son propre sous-module (§118.173), et plus un onglet d'Ad & Pro.
+  { module: "PROMO_STOCK", label: "Stock promotionnel", href: CHEMIN_STOCK_PROMO, icon: "Warehouse", group: "Pôles", pole: "SALES_MARKETING", tabs: STOCK_PROMO_TABS, match: [CHEMIN_STOCK_PROMO] },
 
   // BUSINESS DEVELOPMENT — l'AVANT-VENTE : ce qu'on étudie et ce qu'on vise. Les ventes
   // réalisées sont passées dans Sales & Marketing : analyser une opportunité et constater un

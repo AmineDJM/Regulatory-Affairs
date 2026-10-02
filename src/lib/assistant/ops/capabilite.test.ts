@@ -129,7 +129,7 @@ describe("LE REFUS FAIT LA DÉCOUVERTE — un outil au lieu de trois", () => {
     const premiere = puces(msg)[0] ?? "";
     // Rangée derrière six gestes ouverts sans rapport, elle pousserait le modèle vers le mauvais objet (§104.7).
     expect(premiere).toContain("promo-stock-actions:annulerDemande — REFUSÉE");
-    expect(premiere).toContain("Ad & Pro › Stock promotionnel");
+    expect(premiere).toContain("Sales & Marketing › Stock promotionnel");
     // Deux refusées passent devant ; les suivantes sont nommées jusqu'à huit, et le reste COMPTÉ.
     expect(refusees.length, "prémisse : plus de refusées que de noms").toBeGreaterThan(2 + 8);
     expect(msg).toContain(`, et ${refusees.length - 2 - 8} autre(s).`);

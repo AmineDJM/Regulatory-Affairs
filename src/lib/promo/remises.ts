@@ -23,6 +23,8 @@
  * ═══════════════════════════════════════════════════════════════════════════════════════════
  */
 
+import { MENU_STOCK_PROMO } from "@/lib/chemins/stock-promo";
+
 const r3 = (n: number): number => Math.round(n * 1000) / 1000;
 const nombre = (n: number): string => n.toLocaleString("fr-FR", { maximumFractionDigits: 3 });
 
@@ -129,7 +131,7 @@ export function gestesDeRemise(avant: ReadonlyMap<string, number>, apres: readon
  */
 export function refusRemise(libelle: string, quantite: number, raisonAllocation: string): string {
   return `${nombre(quantite)} « ${libelle} » remis, mais votre stock ne le permet pas : ${raisonAllocation.replace(/\.$/, "")}. `
-    + "Rien n'est enregistré — ni la visite, ni la remise. Corrigez la quantité, ou demandez une dotation (Ad & Pro › Stock promotionnel).";
+    + `Rien n'est enregistré — ni la visite, ni la remise. Corrigez la quantité, ou demandez une dotation (${MENU_STOCK_PROMO}).`;
 }
 
 /** « 20 Fiche posologique — Nivolex, 5 Stylo » — ce que l'audit et l'écran disent d'une visite. */

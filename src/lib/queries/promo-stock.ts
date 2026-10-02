@@ -281,6 +281,15 @@ export interface PageStock {
    * Chargé seulement pour qui voit le magasin.
    */
   horsMagasin: HorsMagasinVue[];
+  /**
+   * CE QUI A ÉTÉ REMIS LORS DES OPÉRATIONS AD & PRO (§118.173) — la seconde porte du matériel vers
+   * les médecins, à côté des visites : un poste « Matériel du stock » confirmé après l'événement dit
+   * combien a été remis. Ces quantités sortent du MAGASIN : `null` pour qui ne le voit pas (l'écran
+   * ne montre alors pas la section, plutôt qu'une liste vide qui se lirait « rien n'a été remis »).
+   */
+  remisesOperations: RemiseOperationVue[] | null;
+  /** Combien de remises la liste ne montre pas (bornée, et elle le DIT). */
+  remisesOperationsNonAffichees: number;
   /** LES COMPTAGES que la personne voit — à faire, demandés par elle, de son équipe (§118.168). */
   comptages: ComptageVue[];
   /** Les comptages récurrents qu'elle a posés (tous, pour le Super Admin et la vue globale). */
@@ -366,8 +375,39 @@ export interface HorsMagasinVue {
   depuis: string | null;
 }
 
+export interface RemiseOperationVue {
+  ligneId: string;
+  itemId: string;
+  libelle: string;
+  /** Ce qui a été REMIS pendant l'événement — le reste est revenu au magasin par la même écriture. */
+  quantite: number;
+  demande: string;
+  lien: string;
+  confirmeeLe: string | null;
+  confirmeeParId: string | null;
+}
+
 const JOURNAL_PAR_ARTICLE = 40;
 const MEDECINS_AFFICHES = 300;
+const OPERATIONS_AFFICHEES = 100;
+
+/** La demande qui porte un poste Ad & Pro — sa référence (ou son nom), et où l'ouvrir. */
+function demandeDuPoste(it: {
+  sponsoringId: string | null; eventId: string | null; congressNationalId: string | null; congressInternationalId: string | null;
+  sponsoring: { reference: string } | null; event: { name: string } | null;
+  congressNational: { name: string } | null; congressInternational: { name: string } | null;
+}): [string, string] {
+  return it.sponsoringId ? [it.sponsoring?.reference ?? "Sponsoring", `/sponsoring/${it.sponsoringId}`]
+    : it.eventId ? [it.event?.name ?? "Événement", `/events/${it.eventId}`]
+    : it.congressNationalId ? [it.congressNational?.name ?? "Congrès national", `/congress-national/${it.congressNationalId}`]
+    : [it.congressInternational?.name ?? "Congrès international", `/congress-international/${it.congressInternationalId ?? ""}`];
+}
+
+const SELECT_POSTE = {
+  sponsoringId: true, eventId: true, congressNationalId: true, congressInternationalId: true,
+  sponsoring: { select: { reference: true } }, event: { select: { name: true } },
+  congressNational: { select: { name: true } }, congressInternational: { select: { name: true } },
+} as const;
 
 export async function chargerPageStock(user: SessionUser, maintenant = new Date()): Promise<PageStock> {
   const f = await faitsStock(user);
@@ -590,25 +630,50 @@ export async function chargerPageStock(user: SessionUser, maintenant = new Date(
       take: 200,
       select: {
         id: true, stockItemId: true, quantite: true, reserveeLe: true,
-        item: {
-          select: {
-            sponsoringId: true, eventId: true, congressNationalId: true, congressInternationalId: true,
-            sponsoring: { select: { reference: true } }, event: { select: { name: true } },
-            congressNational: { select: { name: true } }, congressInternational: { select: { name: true } },
-          },
-        },
+        item: { select: SELECT_POSTE },
       },
     });
     for (const l of lignes) {
-      const it = l.item;
-      const [demande, lien] = it.sponsoringId ? [it.sponsoring?.reference ?? "Sponsoring", `/sponsoring/${it.sponsoringId}`]
-        : it.eventId ? [it.event?.name ?? "Événement", `/events/${it.eventId}`]
-        : it.congressNationalId ? [it.congressNational?.name ?? "Congrès national", `/congress-national/${it.congressNationalId}`]
-        : [it.congressInternational?.name ?? "Congrès international", `/congress-international/${it.congressInternationalId ?? ""}`];
+      const [demande, lien] = demandeDuPoste(l.item);
       horsMagasin.push({
         ligneId: l.id, itemId: l.stockItemId, libelle: libelleDe.get(l.stockItemId) ?? "Article",
         quantite: num(l.quantite), demande, lien, depuis: l.reserveeLe?.toISOString() ?? null,
       });
+    }
+  }
+
+  // CE QUI A ÉTÉ REMIS LORS DES OPÉRATIONS AD & PRO (§118.173) — mêmes lecteurs que la liste du
+  // dessus (le magasin, la vue globale), mêmes articles. Seul un consommable REMIS compte : un
+  // durable se PRÊTE et revient (rendu, abîmé ou perdu) — le compter « remis à un médecin » ferait
+  // croire qu'un kakémono a été offert.
+  let remisesOperations: RemiseOperationVue[] | null = null;
+  let remisesOperationsNonAffichees = 0;
+  if (voirMagasin || f.vueGlobale || f.superAdmin) {
+    remisesOperations = [];
+    if (itemIds.length) {
+      const where = { statut: "CONFIRMEE" as const, utilisee: { gt: 0 }, stockItemId: { in: itemIds } };
+      const [lignes, total] = await Promise.all([
+        prisma.adProStockLine.findMany({
+          where,
+          orderBy: [{ confirmeeLe: "desc" }, { id: "asc" }],
+          take: OPERATIONS_AFFICHEES,
+          select: { id: true, stockItemId: true, utilisee: true, confirmeeLe: true, confirmeeParId: true, item: { select: SELECT_POSTE } },
+        }),
+        prisma.adProStockLine.count({ where }),
+      ]);
+      for (const l of lignes) {
+        const [demande, lien] = demandeDuPoste(l.item);
+        remisesOperations.push({
+          ligneId: l.id, itemId: l.stockItemId, libelle: libelleDe.get(l.stockItemId) ?? "Article",
+          quantite: num(l.utilisee ?? 0), demande, lien,
+          confirmeeLe: l.confirmeeLe?.toISOString() ?? null, confirmeeParId: l.confirmeeParId,
+        });
+      }
+      remisesOperationsNonAffichees = Math.max(0, total - lignes.length);
+      const sansNom = [...new Set(remisesOperations.map((o) => o.confirmeeParId).filter((id): id is string => Boolean(id) && !(id! in personnes)))];
+      if (sansNom.length) {
+        for (const u of await prisma.user.findMany({ where: { id: { in: sansNom } }, select: { id: true, name: true } })) personnes[u.id] = u.name;
+      }
     }
   }
 
@@ -718,6 +783,8 @@ export async function chargerPageStock(user: SessionUser, maintenant = new Date(
     })),
     remisesNonAffichees: Math.max(0, medecinsActifs.length - medecinsAffiches.length),
     horsMagasin,
+    remisesOperations,
+    remisesOperationsNonAffichees,
     comptages,
     recurrences,
     refontes,

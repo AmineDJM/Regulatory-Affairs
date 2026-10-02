@@ -1,6 +1,6 @@
 "use server";
 
-import { Prisma, type MaterialType } from "@prisma/client";
+import { Prisma } from "@prisma/client";
 import { revalidatePath } from "next/cache";
 import { requireUser } from "@/lib/session";
 import { userCan, hasGlobalView, type SessionUser } from "@/lib/rbac";
@@ -140,7 +140,6 @@ export async function createPromoMaterial(_prev: ActionResult | undefined, formD
     if (!userCan(user, "PROMO_MATERIAL", "CREATE")) return { ok: false, error: "Votre profil n'a pas le droit de créer une demande de matériel promotionnel (module Matériel promotionnel) : l'accès se règle en Administration › Comptes." };
     const title = fdStr(formData, "title");
     const description = fdStr(formData, "description");
-    const materialType = fdStr(formData, "materialType");
 
     // LES LIGNES SE SAISISSENT À LA CRÉATION (§118.171) — l'article du catalogue (trois familles),
     // la quantité, ce qu'on attend du fournisseur. La demande naissait vide et se composait sur la
@@ -203,7 +202,6 @@ export async function createPromoMaterial(_prev: ActionResult | undefined, formD
         reference: await nextPromoRef(),
         title,
         description,
-        materialType: materialType ? (materialType as MaterialType) : null,
         companyId: companyId || null,
         status: "PROSPECTION_REQUESTED",
         circuitState,

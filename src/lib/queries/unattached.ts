@@ -1,3 +1,4 @@
+import { CHEMIN_STOCK_PROMO } from "@/lib/chemins/stock-promo";
 import { prisma } from "@/lib/prisma";
 
 /**
@@ -36,7 +37,7 @@ const TABLES: { label: string; model: string; href: string | null; count: () => 
   { label: "Prises en charge nationales", model: "congressNational", href: "/congress-national", count: () => prisma.congressNational.count({ where: { companyId: null } }) },
   { label: "Événements", model: "event", href: "/events", count: () => prisma.event.count({ where: { companyId: null } }) },
   { label: "Matériel promotionnel", model: "promoMaterial", href: "/promo-material", count: () => prisma.promoMaterial.count({ where: { companyId: null } }) },
-  { label: "Stock promotionnel", model: "promoStockItem", href: "/promo-material/stock", count: () => prisma.promoStockItem.count({ where: { companyId: null } }) },
+  { label: "Stock promotionnel", model: "promoStockItem", href: CHEMIN_STOCK_PROMO, count: () => prisma.promoStockItem.count({ where: { companyId: null } }) },
   { label: "Enveloppes budgétaires", model: "budgetEnvelope", href: "/budgets/reglages", count: () => prisma.budgetEnvelope.count({ where: { companyId: null } }) },
   { label: "Mouvements de trésorerie", model: "financeTransaction", href: "/finances", count: () => prisma.financeTransaction.count({ where: { companyId: null } }) },
   { label: "Ordres de dépense", model: "expenseOrder", href: "/finances/paiements-a-faire", count: () => prisma.expenseOrder.count({ where: { companyId: null } }) },

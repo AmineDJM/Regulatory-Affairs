@@ -1,5 +1,6 @@
 "use server";
 
+import { CHEMIN_STOCK_PROMO } from "@/lib/chemins/stock-promo";
 import { revalidatePath } from "next/cache";
 import { requireUser } from "@/lib/session";
 import { userCan, hasGlobalView } from "@/lib/rbac";
@@ -34,7 +35,7 @@ import {
 const MODULE = "MEDICAL" as const;
 const PATH_JOURNEE = "/medical/ma-journee";
 const PATH_TOURNEE = "/medical/plan-de-tournee";
-const PATH_STOCK = "/promo-material/stock";
+const PATH_STOCK = CHEMIN_STOCK_PROMO;
 
 /** Le KAM peut-il écrire sur cette visite ? Lui, ou une supervision qui la couvre. */
 async function peutRapporter(

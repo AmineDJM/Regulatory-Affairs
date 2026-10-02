@@ -101,20 +101,32 @@ test.afterAll(async () => {
   await prisma.$disconnect();
 });
 
-test("le Super Admin crée l'article au catalogue — un seul onglet allumé, le sien", async ({ page }) => {
+test("le catalogue : les supports rangés en trois familles, et le Super Admin en ajoute un — un seul onglet allumé, le sien", async ({ page }) => {
   await login(page, SA_EMAIL);
+  // L'ANCIENNE adresse mène au catalogue : des liens et des favoris la portent encore (§118.173).
   await aller(page, "/promo-material/catalogue");
+  await expect(page).toHaveURL(/\/stock-promotionnel\/catalogue$/);
   await expect(page.getByRole("heading", { name: /Catalogue promotionnel/ })).toBeVisible();
-  // L'onglet ACTIF est le plus précis : « Matériel promotionnel » (/promo-material) ne s'allume pas
-  // sous /promo-material/catalogue (§118.164).
+  // L'onglet ACTIF est le plus précis : « Stock » (/stock-promotionnel) ne s'allume pas sous
+  // /stock-promotionnel/catalogue (§118.164).
   await expect(page.locator("a[aria-current='page']")).toHaveCount(1);
-  await expect(page.locator("a[aria-current='page']")).toHaveText("Catalogue promotionnel");
+  await expect(page.locator("a[aria-current='page']")).toHaveText("Catalogue");
+  // LE CATALOGUE, C'EST LA LISTE DES SUPPORTS (§118.173) : trois familles, chacune sa section, et
+  // les supports d'origine rangés dans la leur.
+  for (const titre of ["Consommables", "Durables", "Numériques"]) {
+    await expect(page.getByRole("heading", { name: new RegExp(`^${titre}`) })).toBeVisible();
+  }
+  await expect(page.getByRole("region", { name: /^Durables/ }).getByText("Présentoir", { exact: true })).toBeVisible();
+  await expect(page.getByRole("region", { name: /^Numériques/ }).getByText("Vidéo", { exact: true })).toBeVisible();
+  await expect(page.getByRole("region", { name: /^Consommables/ }).getByText("Fiche POSO", { exact: true })).toBeVisible();
 
-  await page.getByRole("button", { name: /Nouvel article/ }).click();
-  // Le formulaire vit dans un panneau : on le vise LUI — la barre de filtres derrière porte aussi
-  // un champ « Famille ».
+  await page.getByRole("button", { name: /Nouveau support/ }).click();
+  // Le formulaire vit dans un panneau : on le vise LUI.
   const panneau = page.getByRole("dialog");
-  await panneau.getByLabel(/Nom de l'article/).fill(ARTICLE);
+  // Le formulaire SIMPLE : le nom, la famille, « existe par produit » — rien d'autre ne se saisit.
+  await expect(panneau.getByLabel(/Nature de support/)).toHaveCount(0);
+  await expect(panneau.getByLabel(/^Unité/)).toHaveCount(0);
+  await panneau.getByLabel(/Nom du support/).fill(ARTICLE);
   await panneau.getByLabel(/^Famille/).selectOption({ label: "Consommable" });
   await panneau.getByRole("button", { name: "Ajouter au catalogue" }).click();
   await expect(page.getByRole("status").filter({ hasText: /CAT-\d{4,} — __e2e__ Fiche posologique stock ajouté au catalogue/ })).toBeVisible();
@@ -124,8 +136,8 @@ test("le Super Admin crée l'article au catalogue — un seul onglet allumé, le
 
 test("le Super Admin entre 50 fiches au magasin — un lot, et le chiffre à l'écran", async ({ page }) => {
   await login(page, SA_EMAIL);
-  await aller(page, "/promo-material/stock?vue=magasin");
-  await expect(page.locator("a[aria-current='page']")).toHaveText("Stock promotionnel");
+  await aller(page, "/stock-promotionnel?vue=magasin");
+  await expect(page.locator("a[aria-current='page']")).toHaveText("Stock");
   await page.getByRole("button", { name: "Entrée manuelle" }).click();
   const panneau = page.getByRole("dialog");
   const choix = panneau.getByLabel(/Article du catalogue/);
@@ -143,7 +155,7 @@ test("le Super Admin entre 50 fiches au magasin — un lot, et le chiffre à l'�
 
 test("la directrice marketing dote le délégué : rien n'entre chez lui avant SA confirmation", async ({ page }) => {
   await login(page, DM_EMAIL);
-  await aller(page, "/promo-material/stock");
+  await aller(page, "/stock-promotionnel");
   // Elle tient le magasin : c'est la vue d'arrivée.
   await expect(page.getByRole("tab", { name: /Magasin/ })).toHaveAttribute("aria-selected", "true");
   const ligne = page.locator("li", { hasText: ARTICLE }).first();
@@ -162,7 +174,7 @@ test("la directrice marketing dote le délégué : rien n'entre chez lui avant S
 test("le délégué arrive sur sa réception à confirmer, et l'atteste lui-même — au format téléphone", async ({ page }) => {
   await page.setViewportSize({ width: 375, height: 812 });
   await login(page, KAM_EMAIL);
-  await aller(page, "/promo-material/stock");
+  await aller(page, "/stock-promotionnel");
   // Ni le magasin ni la vue générale : il ne voit que le sien.
   await expect(page.getByRole("tab", { name: /Magasin/ })).toHaveCount(0);
   await expect(page.getByRole("tab", { name: /Vue générale/ })).toHaveCount(0);
@@ -181,7 +193,7 @@ test("le délégué arrive sur sa réception à confirmer, et l'atteste lui-mêm
 test("la vue du magasin tient aussi au format téléphone", async ({ page }) => {
   await page.setViewportSize({ width: 375, height: 812 });
   await login(page, DM_EMAIL);
-  await aller(page, "/promo-material/stock?vue=magasin");
+  await aller(page, "/stock-promotionnel?vue=magasin");
   await expect(page.locator("li", { hasText: ARTICLE }).first()).toContainText("40");
   await sansDebordement(page);
   await capture(page, "6-magasin-mobile");

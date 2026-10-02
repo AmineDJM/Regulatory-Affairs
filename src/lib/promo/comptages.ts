@@ -1,3 +1,4 @@
+import { lienStockPromo } from "@/lib/chemins/stock-promo";
 import { etatValidite, parseQuantity } from "@/lib/promo/stock";
 import { peutVoirStockDe, tientLeMagasin, type FaitsStock } from "@/lib/promo/stock-acces";
 import type { PromoFamille } from "@/lib/promo/catalogue";
@@ -382,9 +383,9 @@ export interface EntreeAlertes {
 const nb = (n: number) => n.toLocaleString("fr-FR", { maximumFractionDigits: 3 });
 const jourFr = (d: Date) => d.toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit", year: "numeric", timeZone: "UTC" });
 const cleDet = (h: string | null) => h ?? "magasin";
-const LIEN_MAGASIN = "/promo-material/stock?vue=magasin";
-const LIEN_MOI = "/promo-material/stock?vue=moi";
-const LIEN_COMPTAGES = "/promo-material/stock?vue=comptages";
+const LIEN_MAGASIN = lienStockPromo("magasin");
+const LIEN_MOI = lienStockPromo("moi");
+const LIEN_COMPTAGES = lienStockPromo("comptages");
 
 /**
  * LES ALERTES EN VIGUEUR — calculées depuis des faits, par une seule fonction : le battement qui
@@ -491,7 +492,7 @@ export function messageDAlertes(alertes: readonly Alerte[]): { titre: string; co
   }
   const premieres = alertes.slice(0, 5).map((a) => `• ${a.texte}`).join("\n");
   const reste = alertes.length > 5 ? `\n… et ${alertes.length - 5} autre(s), sur le tableau de bord du stock.` : "";
-  const lien = alertes.every((a) => a.lien === alertes[0]!.lien) ? alertes[0]!.lien : "/promo-material/stock?vue=tableau";
+  const lien = alertes.every((a) => a.lien === alertes[0]!.lien) ? alertes[0]!.lien : lienStockPromo("tableau");
   return { titre: `Stock promotionnel — ${alertes.length} alertes`, corps: `${premieres}${reste}`, lien };
 }
 

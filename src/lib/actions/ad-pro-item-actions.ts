@@ -1,5 +1,6 @@
 "use server";
 
+import { CHEMIN_STOCK_PROMO, lienStockPromo } from "@/lib/chemins/stock-promo";
 import { revalidatePath } from "next/cache";
 import type { AdProItemKind, AdProItemStatus, AdProItemBudgetKind, UserRole } from "@prisma/client";
 import { requireUser } from "@/lib/session";
@@ -1180,7 +1181,7 @@ async function deciderMaterielStock(
     if (e instanceof Refus) return { ok: false, error: e.message };
     throw e;
   }
-  revalidatePath("/promo-material/stock");
+  revalidatePath(CHEMIN_STOCK_PROMO);
   return { ok: true };
 }
 
@@ -1309,7 +1310,7 @@ export async function confirmerMaterielStock(formData: FormData): Promise<Action
       await notifyUser({
         userId: g, type: "GENERIC", title: "Matériel revenu d'un événement",
         body: `${info.ref} — ${revenu.toLocaleString("fr-FR")} unité(s) reviennent au magasin.`,
-        link: "/promo-material/stock?vue=magasin",
+        link: lienStockPromo("magasin"),
       }).catch(() => undefined);
     }
   }
@@ -1322,7 +1323,7 @@ export async function confirmerMaterielStock(formData: FormData): Promise<Action
   }).join(" ; ");
   await audit(user, owner.parent, owner.id, "UPDATE", `Matériel du stock confirmé — poste « ${item.label} » : ${resume}${note ? ` (${note})` : ""}.`);
   revalidate(owner.parent, owner.id);
-  revalidatePath("/promo-material/stock");
+  revalidatePath(CHEMIN_STOCK_PROMO);
   return { ok: true, id: itemId, message: revenu > 0 ? `Matériel confirmé : ${revenu.toLocaleString("fr-FR")} unité(s) reviennent au magasin.` : "Matériel confirmé : rien ne revient au magasin." };
 }
 

@@ -62,6 +62,13 @@ describe("liste blanche des champs", () => {
     }
   });
 
+  it("une demande de matériel ne se corrige plus par un « type » (§118.173) — ses lignes du catalogue disent ce qu'elle commande", () => {
+    // Le catalogue EST la liste des supports : un type choisi à côté des lignes redisait la même
+    // chose, et pouvait la contredire. La correction ne l'offre plus, et ne l'écrit plus.
+    expect(editableField("PROMO_MATERIAL", "materialType")).toBeNull();
+    expect(editableField("PROMO_MATERIAL", "title"), "le reste de la fiche se corrige toujours").not.toBeNull();
+  });
+
   it("n'expose aucun champ en double dans un même type", () => {
     for (const kind of ["SPONSORING", "CONGRESS_NATIONAL", "CONGRESS_INTERNATIONAL"] as const) {
       const keys = EDITABLE_FIELDS[kind].map((f) => f.key);

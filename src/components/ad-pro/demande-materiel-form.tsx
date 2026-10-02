@@ -11,7 +11,7 @@ import { MultiSelectField } from "@/components/shared/create-record-button";
 import { createPromoMaterial } from "@/lib/actions/promo-material-actions";
 import { ACTIONS, ACTION_AIDE, ACTION_LABEL } from "@/lib/promo-material/actions-fournisseur";
 import { FAMILLES, FAMILLE_LABEL, familleQuantifiee } from "@/lib/promo/catalogue";
-import { MATERIAL_TYPE_OPTIONS } from "@/lib/labels";
+import { MENU_CATALOGUE_PROMO } from "@/lib/chemins/stock-promo";
 import type { LigneDemandeSaisie } from "@/lib/promo-material/lignes-demande";
 import type { OptionCatalogue } from "@/lib/queries/promo-achats";
 
@@ -28,7 +28,10 @@ import type { OptionCatalogue } from "@/lib/queries/promo-achats";
  *
  * Ce qu'il NE demande plus (décision du 01/10) : la Business Unit (« pas du tout pertinent ici »),
  * le budget estimé (« on ne l'a pas au début »), l'assistante qui retranscrira les devis, et
- * l'entité — celle où la personne travaille, déduite au serveur.
+ * l'entité — celle où la personne travaille, déduite au serveur. Ni le « type de matériel »
+ * (§118.173) : le catalogue EST la liste des supports, et chaque ligne en désigne un — un type
+ * choisi à côté redisait la même chose, et pouvait la contredire (« Stylos » sur une demande de
+ * fiches POSO).
  */
 
 type Ligne = { uid: string; catalogueId: string; produitsOuverts: boolean };
@@ -65,7 +68,7 @@ export function DemandeMaterielForm({ catalogue, produits, onDone, onCancel, can
     setErr(null);
     const saisie = new FormData(e.currentTarget);
     const fd = new FormData();
-    for (const cle of ["title", "materialType", "description"]) {
+    for (const cle of ["title", "description"]) {
       const v = saisie.get(cle);
       if (typeof v === "string") fd.set(cle, v);
     }
@@ -99,15 +102,6 @@ export function DemandeMaterielForm({ catalogue, produits, onDone, onCancel, can
         <Label htmlFor="mp-title">Campagne / matériel <span className="text-destructive">*</span></Label>
         <Input id="mp-title" name="title" required placeholder="Ex. Brochure Cardiomax 2026" />
       </div>
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-        <div className="space-y-1.5">
-          <Label htmlFor="mp-type">Type de matériel</Label>
-          <Select id="mp-type" name="materialType" defaultValue="">
-            <option value="">— Type de matériel —</option>
-            {MATERIAL_TYPE_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-          </Select>
-        </div>
-      </div>
       <div className="space-y-1.5">
         <Label htmlFor="mp-description">Brief / description</Label>
         <Textarea id="mp-description" name="description" rows={3} />
@@ -121,8 +115,8 @@ export function DemandeMaterielForm({ catalogue, produits, onDone, onCancel, can
         </p>
         {catalogue.length === 0 && (
           <p className="rounded-lg bg-warning/10 px-3 py-2 text-xs text-muted-foreground">
-            Le catalogue promotionnel est vide : le Super Admin (ou qui il désigne) y ajoute les articles, depuis
-            Ad &amp; Pro › Catalogue promotionnel.
+            Le catalogue promotionnel est vide : le Super Admin (ou qui il désigne) y ajoute les supports, depuis
+            {MENU_CATALOGUE_PROMO}.
           </p>
         )}
         <ol className="space-y-3">

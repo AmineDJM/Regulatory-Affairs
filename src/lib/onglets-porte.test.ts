@@ -1,7 +1,8 @@
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { EVENTS_TABS, NAVIGATION, type NavItem } from "@/lib/labels";
+import { EVENTS_TABS, NAVIGATION, STOCK_PROMO_TABS, type NavItem } from "@/lib/labels";
+import { CHEMIN_CATALOGUE_PROMO, CHEMIN_STOCK_PROMO } from "@/lib/chemins/stock-promo";
 
 /**
  * DES ONGLETS SANS PORTE (§118.169).
@@ -109,12 +110,14 @@ describe("Des onglets qui ont une porte depuis le menu", () => {
     expect(sansPorte, sansPorte.join("\n")).toEqual([]);
   });
 
-  it("Ad & Pro : le Stock et le Catalogue promotionnels sont des onglets du pôle, et chacun garde la barre", () => {
-    const hrefs = EVENTS_TABS.map((t) => t.href);
-    expect(hrefs).toContain("/promo-material/stock");
-    expect(hrefs).toContain("/promo-material/catalogue");
-    // Y arriver ne suffit pas : on doit pouvoir en REPARTIR vers les autres écrans du pôle.
-    for (const href of hrefs) expect(pageMontreOnglets(href), href).toBe(true);
+  it("le Stock promotionnel est un sous-module À PART (§118.173) — et chacun de ses écrans, comme ceux d'Ad & Pro, garde la barre", () => {
+    const adpro = EVENTS_TABS.map((t) => t.href);
+    const stock = STOCK_PROMO_TABS.map((t) => t.href);
+    expect(adpro, "le stock n'est plus un onglet d'Ad & Pro").not.toContain(CHEMIN_STOCK_PROMO);
+    expect(stock).toEqual([CHEMIN_STOCK_PROMO, CHEMIN_CATALOGUE_PROMO]);
+    expect(entreesAOnglets().some((e) => e.href === CHEMIN_STOCK_PROMO), "son entrée de menu, à onglets").toBe(true);
+    // Y arriver ne suffit pas : on doit pouvoir en REPARTIR vers les autres écrans du module.
+    for (const href of [...adpro, ...stock]) expect(pageMontreOnglets(href), href).toBe(true);
   });
 
   it("CLIQUET : les pages d'onglet qui ne montrent pas la barre ne sont pas plus nombreuses qu'aujourd'hui", () => {

@@ -288,7 +288,7 @@ function definition(d: Dialogue, page: PageStock, f: FaitsStock): Definition {
         });
       return {
         titre: `Déclarer une perte — ${a.libelle}`,
-        description: `${d.detenteurId === null ? "Magasin central" : `Stock de ${nomDe(page, d.detenteurId)}`} : ${nombre(tenu)} en main${perime > 0 ? `, dont ${nombre(perime)} dans un lot périmé` : ""}. Casse, perte, lot périmé détruit : la perte sort du stock, avec son motif.`,
+        description: `${d.detenteurId === null ? "Magasin central" : `Stock de ${nomDe(page, d.detenteurId)}`} : ${nombre(tenu)} en main${perime > 0 ? `, dont ${nombre(perime)} dans un lot périmé` : ""}. Casse, perte, lot périmé détruit : la perte sort du stock, avec son motif. Un article REMIS à un médecin n'est pas une perte : il se dit dans le rapport de visite, ou sur le poste « Matériel du stock » de la demande Ad & Pro.`,
         champs: [
           { type: "hidden", name: "itemId", value: a.id },
           { type: "hidden", name: "detenteurId", value: d.detenteurId ?? "" },

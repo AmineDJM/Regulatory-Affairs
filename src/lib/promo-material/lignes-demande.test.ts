@@ -91,22 +91,24 @@ describe("ligneVide — un reste de formulaire s'écarte, une ligne incomplète 
 
 /** La source sans ses commentaires — un cliquet ne s'accroche pas à la prose qui le décrit (§118.79d, §118.88). */
 const sansCommentaires = (src: string) => src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:"'`])\/\/.*$/gm, "$1");
-const RETIRES = ["businessUnitId", "amount", "assistantId", "companyId"] as const;
+// Le « type de matériel » s'ajoute à la liste au §118.173 : le catalogue EST la liste des supports,
+// et chaque ligne en désigne un — un type choisi à côté redisait la même chose, et pouvait la contredire.
+const RETIRES = ["businessUnitId", "amount", "assistantId", "companyId", "materialType"] as const;
 
 describe("ce que la demande ne porte PLUS (décision du 01/10) — lu sur les faits, pas sur une liste", () => {
   it("l'ACTION ne lit ni gamme, ni budget, ni assistante, ni entité — et lit `lignes` (contrat dérivé de sa source)", () => {
     const contrat = CONTRAT_PAR_ID.get("promo-material-actions:createPromoMaterial");
     expect(contrat, "prémisse : l'action est décrite").toBeDefined();
     const champs = (contrat!.champs ?? []).map((c) => c.nom).sort();
-    expect(champs).toEqual(["description", "lignes", "materialType", "title"]);
+    expect(champs).toEqual(["description", "lignes", "title"]);
     for (const r of RETIRES) expect(champs, r).not.toContain(r);
   });
 
-  it("le FORMULAIRE n'envoie que le titre, le type, le brief et les lignes", () => {
+  it("le FORMULAIRE n'envoie que le titre, le brief et les lignes", () => {
     const src = sansCommentaires(readFileSync(path.join(process.cwd(), "src/components/ad-pro/demande-materiel-form.tsx"), "utf8"));
     // PRÉMISSE : la lecture voit bien les clés qu'il envoie — sans cela, l'absence ci-dessous ne
     // prouverait rien (un fichier vide ne contiendrait aucune clé retirée non plus).
-    expect(src).toMatch(/\["title", "materialType", "description"\]/);
+    expect(src).toMatch(/\["title", "description"\]/);
     expect(src).toMatch(/fd\.set\("lignes", JSON\.stringify\(envoi\)\)/);
     for (const r of RETIRES) expect(src, `le formulaire envoie encore « ${r} »`).not.toMatch(new RegExp(`["'\`]${r}["'\`]`));
   });

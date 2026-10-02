@@ -12,7 +12,14 @@ export interface PromoListItem {
   circuitState: string | null;
   /** La version du circuit — le libellé d'une étape en dépend (`libelleEtape`). */
   circuitVersion: number;
-  materialType: string | null;
+  /**
+   * CE QUE LA DEMANDE COMMANDE — les noms des supports de ses lignes, dans l'ordre (§118.173). Le
+   * catalogue EST la liste des supports : une demande se dit par ses lignes, plus par un « type »
+   * choisi à côté. Un dossier d'AVANT les lignes garde son type (`typeHerite`) — l'histoire ne se
+   * réécrit pas, et sans lui la colonne se viderait sur tous les anciens dossiers.
+   */
+  articles: string[];
+  typeHerite: string | null;
   company: CompanyLite | null;
   chosenAgency: string | null;
   amount: number | null;
@@ -47,7 +54,10 @@ async function resolveNames(ids: (string | null)[]): Promise<Map<string, string>
 export async function getPromoMaterials(user: SessionUser): Promise<PromoListItem[]> {
   const rows = await prisma.promoMaterial.findMany({
     where: await companyScopedWhere(user.id, scopePromoMaterial(user)),
-    include: { company: { select: { id: true, name: true, shortName: true, color: true } } },
+    include: {
+      company: { select: { id: true, name: true, shortName: true, color: true } },
+      articlesDemandes: { orderBy: { position: "asc" }, select: { catalogue: { select: { nom: true } } } },
+    },
     orderBy: { createdAt: "desc" },
     take: 500,
   });
@@ -56,7 +66,8 @@ export async function getPromoMaterials(user: SessionUser): Promise<PromoListIte
     id: r.id, reference: r.reference, title: r.title, status: r.status,
     circuitState: r.circuitState,
     circuitVersion: r.circuitVersion,
-    materialType: r.materialType,
+    articles: r.articlesDemandes.map((l) => l.catalogue.nom),
+    typeHerite: r.materialType,
     company: r.company,
     chosenAgency: r.chosenAgency,
     amount: r.chosenAmount != null ? toNumber(r.chosenAmount) : r.amount != null ? toNumber(r.amount) : null,

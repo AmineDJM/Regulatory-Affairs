@@ -408,6 +408,18 @@ suite("Matériel du stock d'un événement — réserver à l'accord, confirmer 
     expect(audit?.summary).toMatch(/1 rendu\(s\), 1 abîmé\(s\), 0 perdu\(s\)/);
   });
 
+  it("REMIS AUX MÉDECINS, SECONDE PORTE (§118.173) : la remise confirmée se lit sous sa demande — le durable prêté n'y est pas, et qui ne voit pas le magasin ne reçoit pas la section", async () => {
+    const pageDm = await chargerPageStock(await actorFor(ids.dm!));
+    const ici = (pageDm.remisesOperations ?? []).filter((o) => o.lien === `/sponsoring/${spo}`);
+    // 120 brochures REMISES ; le kakémono, prêté puis rendu ou abîmé, n'a été donné à personne.
+    expect(ici.map((o) => [o.itemId, o.quantite])).toEqual([[brochure, 120]]);
+    expect(ici[0]!.demande).toBe(`${TAG}SPO-1`);
+    expect([ids.dem, ids.dm]).toContain(ici[0]!.confirmeeParId);
+    expect(pageDm.personnes[ici[0]!.confirmeeParId!], "le nom de qui a confirmé est chargé — sinon l'écran dirait « Compte supprimé »").toBeTruthy();
+    const pageAutre = await chargerPageStock(await actorFor(ids.autre!));
+    expect(pageAutre.remisesOperations, "qui ne voit pas le magasin ne reçoit pas la section").toBeNull();
+  });
+
   it("CONFIRMÉ AVEC DU REMIS : le poste ne se retire plus et la corbeille refuse — il justifie des sorties du stock", async () => {
     await comme("dem");
     const del = await deleteAdProItem(undefined, form({ id: poste1 }));

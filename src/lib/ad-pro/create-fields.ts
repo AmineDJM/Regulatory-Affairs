@@ -1,5 +1,5 @@
 import type { FieldDef } from "@/components/shared/create-record-button";
-import { PRIORITY, SPONSORING_TYPES, SPONSORING_NATURE, MATERIAL_TYPE_OPTIONS, CONSULTING_BILLING_OPTIONS } from "@/lib/labels";
+import { PRIORITY, SPONSORING_TYPES, SPONSORING_NATURE, CONSULTING_BILLING_OPTIONS } from "@/lib/labels";
 import { wilayaOptions } from "@/lib/geo/algeria";
 import { availableProductOptions, doctorOptions, specialtyOptions, type DoctorRow, type ProductRow, type SpecialtyRow } from "@/lib/ad-pro/pickers";
 import type { AdProKind } from "@/lib/ad-pro/unified";

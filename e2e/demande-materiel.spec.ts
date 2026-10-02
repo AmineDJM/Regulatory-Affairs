@@ -109,18 +109,20 @@ test.afterAll(async () => {
   await prisma.$disconnect();
 });
 
-test("Ad & Pro : la page d'accueil montre ses onglets — le stock et le catalogue se trouvent d'un clic", async ({ page }) => {
+test("Stock promotionnel : une entrée À PART du menu Sales & Marketing — ses onglets Stock et Catalogue, et l'ancienne adresse y mène (§118.173)", async ({ page }) => {
   await login(page, SA_EMAIL);
   await aller(page, "/ad-pro");
-  const stock = page.getByRole("link", { name: "Stock promotionnel", exact: true });
-  const catalogue = page.getByRole("link", { name: "Catalogue promotionnel", exact: true });
-  await expect(stock).toBeVisible();
-  await expect(catalogue).toBeVisible();
-  await stock.click();
-  await page.waitForURL(/\/promo-material\/stock/);
-  await aller(page, "/ad-pro");
-  await page.getByRole("link", { name: "Catalogue promotionnel", exact: true }).click();
-  await page.waitForURL(/\/promo-material\/catalogue/);
+  // Ad & Pro ne porte plus le stock : sa barre est celle des demandes.
+  await expect(page.getByRole("link", { name: "Catalogue promotionnel", exact: true })).toHaveCount(0);
+  // On y va comme une personne : par le MENU, où le pôle de la page courante est déplié.
+  await page.getByRole("link", { name: "Stock promotionnel", exact: true }).first().click();
+  await page.waitForURL(/\/stock-promotionnel(\?|$)/);
+  await expect(page.getByRole("link", { name: "Stock", exact: true })).toBeVisible();
+  await page.getByRole("link", { name: "Catalogue", exact: true }).click();
+  await page.waitForURL(/\/stock-promotionnel\/catalogue$/);
+  // L'ANCIENNE adresse, que portent des notifications déjà parties, mène au même écran — sa vue comprise.
+  await aller(page, "/promo-material/stock?vue=moi");
+  await expect(page).toHaveURL(/\/stock-promotionnel\?vue=moi$/);
 });
 
 test("Moyens généraux : sans service ni département, le Super Admin DÉSIGNE — puis change — sans voir d'autre caisse", async ({ page }) => {
@@ -151,7 +153,8 @@ test("Matériel promotionnel : la demande se compose de LIGNES dès sa création
   const panneau = page.getByRole("dialog");
   await expect(panneau.getByText("Lignes demandées")).toBeVisible();
   // CE QUE LE FORMULAIRE NE DEMANDE PLUS (décision du 01/10).
-  for (const retire of [/Budget estimé/, /Assistante de direction \(retranscrit/, /Business Unit/, /^Entité$/]) {
+  // Le « type de matériel » aussi (§118.173) : le catalogue EST la liste des supports, chaque ligne en désigne un.
+  for (const retire of [/Budget estimé/, /Assistante de direction \(retranscrit/, /Business Unit/, /^Entité$/, /Type de matériel/]) {
     await expect(panneau.getByText(retire), `le formulaire affiche encore ${retire}`).toHaveCount(0);
   }
 
@@ -183,6 +186,13 @@ test("Matériel promotionnel : la demande se compose de LIGNES dès sa création
     [carnetId, 300, ["IMPRESSION"]],
     [eadvId, null, ["CONCEPTION"]],
   ]);
+
+  // LA LISTE dit ce que la demande commande — ses lignes, et plus un « type » (§118.173).
+  await aller(page, "/promo-material");
+  const rangee = page.getByRole("row").filter({ hasText: TITRE });
+  const noms = await prisma.promoCatalogueArticle.findMany({ where: { id: { in: [carnetId, eadvId] } }, select: { id: true, nom: true } });
+  const nomDe = (id: string) => noms.find((n) => n.id === id)!.nom;
+  await expect(rangee).toContainText(`${nomDe(carnetId)}, ${nomDe(eadvId)}`);
 });
 
 test("Matériel promotionnel au téléphone : le formulaire tient dans 375 px, et une ligne s'ajoute", async ({ page }) => {

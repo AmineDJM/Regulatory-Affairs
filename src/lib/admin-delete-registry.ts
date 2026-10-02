@@ -1,3 +1,4 @@
+import { CHEMIN_CATALOGUE_PROMO, CHEMIN_STOCK_PROMO } from "@/lib/chemins/stock-promo";
 import type { EntityType } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { inventorier } from "@/lib/suppression/lot";
@@ -516,7 +517,7 @@ export const DELETE_REGISTRY: Record<DeletableKind, KindSpec> = {
   PROMO_CATALOGUE: {
     label: "article du catalogue promotionnel",
     module: "Catalogue promotionnel",
-    redirect: "/promo-material/catalogue",
+    redirect: CHEMIN_CATALOGUE_PROMO,
     model: "promoCatalogueArticle",
     searchFields: ["reference", "nom"],
     async describe(id) {
@@ -550,7 +551,7 @@ export const DELETE_REGISTRY: Record<DeletableKind, KindSpec> = {
   PROMO_STOCK_ITEM: {
     label: "article de stock promotionnel",
     module: "Stock promotionnel",
-    redirect: "/promo-material/stock",
+    redirect: CHEMIN_STOCK_PROMO,
     model: "promoStockItem",
     searchFields: ["name"],
     async describe(id) {

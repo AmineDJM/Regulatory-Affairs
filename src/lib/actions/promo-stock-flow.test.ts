@@ -204,6 +204,30 @@ suite("Stock promotionnel — magasin, dotations confirmées, équipes, attestat
     expect(lue.nom).toBe(`${TAG}Bloc-notes A5`);
   });
 
+  it("CORRIGER UN SUPPORT ne touche que ce que le formulaire PORTE (§118.173) — et la case « par produit » dit oui comme non", async () => {
+    await comme("sa");
+    // Un support repris porte sa nature, son unité et sa description : le formulaire simple ne les
+    // saisit plus. Le corriger ne doit pas les effacer (§118.152c).
+    const r = await creerArticleCatalogue(form({ nom: `${TAG}Kakémono`, famille: "DURABLE", materialType: "BANNER", unite: "unité", description: "85×200", exigeProduit: "on" }));
+    expect(r.ok, r.error).toBe(true);
+    const lire = () => prisma.promoCatalogueArticle.findUniqueOrThrow({
+      where: { id: r.id! }, select: { nom: true, famille: true, materialType: true, unite: true, description: true, exigeProduit: true },
+    });
+    // Le formulaire SIMPLE : le nom, la famille, et la case avec son TÉMOIN, décochée.
+    const corr = await modifierArticleCatalogue(form({ id: r.id!, nom: `${TAG}Kakémono roll-up`, famille: "DURABLE", exigeProduit: "off" }));
+    expect(corr.ok, corr.error).toBe(true);
+    expect(await lire()).toEqual({ nom: `${TAG}Kakémono roll-up`, famille: "DURABLE", materialType: "BANNER", unite: "unité", description: "85×200", exigeProduit: false });
+    // Cochée : le témoin ET la case partent — « off » puis « on » ; une seule « on » l'emporte.
+    expect((await modifierArticleCatalogue(form({ id: r.id!, exigeProduit: ["off", "on"] }))).ok).toBe(true);
+    expect((await lire()).exigeProduit).toBe(true);
+    // Une saisie qui ne PORTE pas la case ne dit rien d'elle : la valeur reste.
+    expect((await modifierArticleCatalogue(form({ id: r.id!, nom: `${TAG}Kakémono roll-up 85` }))).ok).toBe(true);
+    expect(await lire()).toMatchObject({ nom: `${TAG}Kakémono roll-up 85`, exigeProduit: true, description: "85×200", unite: "unité", materialType: "BANNER" });
+    // Une clé PRÉSENTE et vide efface : c'est ainsi qu'on retire une description.
+    expect((await modifierArticleCatalogue(form({ id: r.id!, description: "" }))).ok).toBe(true);
+    expect((await lire()).description).toBeNull();
+  });
+
   it("entrée manuelle : le Super Admin seul ; un article « par produit » exige son produit", async () => {
     await comme("dm");
     const r0 = await entrerEnStock(form({ catalogueId: fiche, produitIds: [produit], quantite: "100", motif: "don" }));

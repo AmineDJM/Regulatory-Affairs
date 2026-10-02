@@ -84,6 +84,22 @@ export function nomsTemoins(src: string): string[] {
   return [...temoins].filter((n) => cases.has(n)).sort();
 }
 
+/**
+ * Les cases DÉCLARÉES avec leur témoin dans une liste de champs de `RecordForm` (§118.173) :
+ * `{ type: "checkbox", name: "x", …, temoin: true }`. Le composant pose le champ caché lui-même —
+ * `name={field.name}`, que `nomsTemoins` ne peut pas lire —, donc le banc lit la DÉCLARATION.
+ */
+export function nomsTemoinsDeclares(src: string): string[] {
+  const noms = new Set<string>();
+  for (const m of sansCommentaires(src).matchAll(/\{[^{}]*\btype:\s*["']checkbox["'][^{}]*\}/g)) {
+    const objet = m[0];
+    if (!/\btemoin:\s*true\b/.test(objet)) continue;
+    const nom = objet.match(/\bname:\s*["']([^"']+)["']/);
+    if (nom) noms.add(nom[1]);
+  }
+  return [...noms].sort();
+}
+
 const echapper = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 /** Les lectures d'un nom qui NE passent PAS par `fdCase` — chacune lirait le témoin en premier. */
@@ -119,6 +135,16 @@ describe("le détecteur lui-même — dans les deux sens (§118.17)", () => {
     expect(nomsTemoins(formulaire)).toEqual(["isActive"]);
   });
 
+  it("une case DÉCLARÉE avec son témoin dans une liste de champs est reconnue ; sans `temoin: true`, non", () => {
+    const champs = `
+      { type: "checkbox", name: "exigeProduit", label: "Existe par produit", defaultChecked: a?.x ?? false, temoin: true },
+      { type: "checkbox", name: "sansTemoin", label: "Rien" },
+      // { type: "checkbox", name: "enProse", temoin: true },
+      { type: "text", name: "texte", temoin: true },
+    `;
+    expect(nomsTemoinsDeclares(champs)).toEqual(["exigeProduit"]);
+  });
+
   it("`.get`, `.getAll`, `fdBool`, `fdStr` sont des fautes ; `fdCase` et `.has` n'en sont pas", () => {
     expect(lecturesFautives(`a = formData.get("isActive");`, "isActive")).toHaveLength(1);
     expect(lecturesFautives(`a = fd.getAll('isActive');`, "isActive")).toHaveLength(1);
@@ -132,16 +158,31 @@ describe("le détecteur lui-même — dans les deux sens (§118.17)", () => {
   });
 });
 
+describe("`RecordForm` pose le témoin d'une case qui le DÉCLARE (§118.173)", () => {
+  it("le champ caché part AVANT la case, du même nom — vérifié au POINT D'APPEL, dans le composant (§118.49)", () => {
+    // Sans ce rendu, `temoin: true` serait une déclaration sans effet : la case décochée ne
+    // dirait rien, et le banc ci-dessous jugerait une lecture qu'aucun formulaire n'alimente.
+    const src = sansCommentaires(readFileSync(join(SRC, "components/shared/create-record-button.tsx"), "utf8"));
+    const temoin = src.indexOf('{field.temoin && <input type="hidden" name={field.name} value="off" />}');
+    const caseACocher = src.indexOf('<input type="checkbox" name={field.name}');
+    expect(temoin, "le témoin caché d'une case déclarée").toBeGreaterThan(-1);
+    expect(caseACocher).toBeGreaterThan(temoin);
+  });
+});
+
 describe("chaque case à témoin est lue par `fdCase` dans les actions de son formulaire", () => {
   const formulaires = fichiers(SRC, /\.tsx$/)
     .map((f) => ({ f, src: readFileSync(f, "utf8") }))
-    .map(({ f, src }) => ({ f, src, noms: nomsTemoins(src) }))
+    .map(({ f, src }) => ({ f, src, noms: [...new Set([...nomsTemoins(src), ...nomsTemoinsDeclares(src)])].sort() }))
     .filter((x) => x.noms.length > 0);
 
   it("la garde lit bien le parc (plancher de formulaires à témoin)", () => {
     // Mesuré au §118.172 : cinq formulaires (établissements, gammes, contacts, messages
     // pré-définis, rechargement de caisse). Sous ce plancher, un parcours cassé passerait au vert.
     expect(formulaires.length).toBeGreaterThanOrEqual(5);
+    // Et au moins une case DÉCLARÉE à `RecordForm` (§118.173, le catalogue promotionnel) : sans ce
+    // plancher, un motif de déclaration cassé laisserait passer toutes les suivantes sans les voir.
+    expect(formulaires.filter((x) => nomsTemoinsDeclares(x.src).length > 0).length).toBeGreaterThanOrEqual(1);
   });
 
   it("aucune lecture d'un nom à témoin ne passe par autre chose que `fdCase`", () => {

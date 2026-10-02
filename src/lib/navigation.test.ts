@@ -1,7 +1,8 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { groupIntoPoles, itemsOfGroup, poleOfPath, aliasMatches, ongletActif, POLE_OPEN_THRESHOLD, NAV_POLES } from "./navigation";
-import { NAVIGATION, type NavItem } from "./labels";
+import { EVENTS_TABS, NAVIGATION, STOCK_PROMO_TABS, type NavItem } from "./labels";
+import { CHEMIN_CATALOGUE_PROMO, CHEMIN_STOCK_PROMO } from "./chemins/stock-promo";
 import { MODULES } from "./rbac";
 
 /** Les entrées telles que le layout les livre : DÉJÀ filtrées par le RBAC. */
@@ -275,12 +276,18 @@ describe("Finances — trois écrans, et cliquer le module conduit au travail", 
 });
 
 describe("l'onglet actif — le plus PRÉCIS, et lui seul (§118.164)", () => {
-  const ONGLETS = ["/ad-pro", "/sponsoring", "/promo-material", "/promo-material/stock", "/promo-material/catalogue", "/ad-pro/autres"];
+  // Les VRAIES barres (§118.173), et non une liste recopiée ici : celle d'hier rangeait le stock
+  // sous /promo-material, et elle aurait continué de passer pendant que le menu montrait autre
+  // chose. Deux sous-modules vivent sous l'adresse d'un autre : le catalogue sous le stock, et
+  // « Autres demandes » sous « Toutes les demandes ».
+  const ONGLETS = EVENTS_TABS.map((t) => t.href);
+  const ONGLETS_STOCK = STOCK_PROMO_TABS.map((t) => t.href);
 
   it("un sous-module rangé sous l'adresse d'un autre n'allume que lui", () => {
-    expect(ongletActif("/promo-material/stock", ONGLETS)).toBe("/promo-material/stock");
-    expect(ongletActif("/promo-material/catalogue", ONGLETS)).toBe("/promo-material/catalogue");
+    expect(ongletActif(CHEMIN_CATALOGUE_PROMO, ONGLETS_STOCK)).toBe(CHEMIN_CATALOGUE_PROMO);
+    expect(ongletActif(CHEMIN_STOCK_PROMO, ONGLETS_STOCK)).toBe(CHEMIN_STOCK_PROMO);
     expect(ongletActif("/ad-pro/autres", ONGLETS)).toBe("/ad-pro/autres");
+    expect(ongletActif("/ad-pro", ONGLETS)).toBe("/ad-pro");
   });
 
   it("une fiche sous un onglet allume cet onglet ; une adresse voisine ne l'allume pas", () => {

@@ -1,5 +1,6 @@
 "use client";
 
+import { CHEMIN_STOCK_PROMO, MENU_STOCK_PROMO } from "@/lib/chemins/stock-promo";
 import * as React from "react";
 import Link from "next/link";
 import { Package } from "lucide-react";
@@ -66,7 +67,7 @@ export function BlocMaterielRemis({
   const contenu = vide ? (
     <p className="rounded-lg border border-dashed border-border p-2.5 text-xs text-muted-foreground">
       Vous n&apos;avez aucun matériel en main. Une dotation se demande depuis{" "}
-      <Link href="/promo-material/stock" className="text-primary hover:underline">Ad &amp; Pro › Stock promotionnel</Link>.
+      <Link href={CHEMIN_STOCK_PROMO} className="text-primary hover:underline">{MENU_STOCK_PROMO}</Link>.
     </p>
   ) : (
     <div className="space-y-2">

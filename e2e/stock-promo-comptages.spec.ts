@@ -115,7 +115,7 @@ test.afterAll(async () => {
 
 test("le décor par les vrais écrans : le magasin reçoit, la directrice dote, le délégué confirme", async ({ page }) => {
   await login(page, SA_EMAIL);
-  await aller(page, "/promo-material/stock?vue=magasin");
+  await aller(page, "/stock-promotionnel?vue=magasin");
   for (const [nom, quantite] of [[FICHE, "30"], [KAKEMONO, "2"]] as const) {
     await page.getByRole("button", { name: "Entrée manuelle" }).click();
     const panneau = page.getByRole("dialog");
@@ -129,7 +129,7 @@ test("le décor par les vrais écrans : le magasin reçoit, la directrice dote, 
   }
 
   await login(page, DM_EMAIL);
-  await aller(page, "/promo-material/stock?vue=magasin");
+  await aller(page, "/stock-promotionnel?vue=magasin");
   for (const [nom, quantite] of [[FICHE, "12"], [KAKEMONO, "1"]] as const) {
     await page.locator("li", { hasText: nom }).first().getByRole("button", { name: "Doter" }).click();
     const panneau = page.getByRole("dialog");
@@ -140,7 +140,7 @@ test("le décor par les vrais écrans : le magasin reçoit, la directrice dote, 
   }
 
   await login(page, KAM_EMAIL);
-  await aller(page, "/promo-material/stock");
+  await aller(page, "/stock-promotionnel");
   const boutons = page.getByRole("button", { name: "J'ai tout reçu" });
   await expect(boutons).toHaveCount(2);
   for (const reste of [1, 0]) {
@@ -155,7 +155,7 @@ test("le décor par les vrais écrans : le magasin reçoit, la directrice dote, 
 
 test("le directeur des opérations demande un comptage à un délégué de son équipe", async ({ page }) => {
   await login(page, OPS_EMAIL);
-  await aller(page, "/promo-material/stock?vue=comptages");
+  await aller(page, "/stock-promotionnel?vue=comptages");
   await expect(page.getByRole("tab", { name: /Comptages/ })).toHaveAttribute("aria-selected", "true");
   await page.getByRole("button", { name: "Demander un comptage" }).click();
   const panneau = page.getByRole("dialog");
@@ -172,7 +172,7 @@ test("le directeur des opérations demande un comptage à un délégué de son �
 test("le délégué arrive sur son comptage, le saisit lui-même au format téléphone — et l'écart corrigé lui est DIT", async ({ page }) => {
   await page.setViewportSize({ width: 375, height: 812 });
   await login(page, KAM_EMAIL);
-  await aller(page, "/promo-material/stock");
+  await aller(page, "/stock-promotionnel");
   // Un comptage à saisir passe avant tout : c'est la vue d'arrivée.
   await expect(page.getByRole("tab", { name: /Comptages/ })).toHaveAttribute("aria-selected", "true");
   // Ni tableau de bord ni magasin pour un délégué.
@@ -197,7 +197,7 @@ test("le délégué arrive sur son comptage, le saisit lui-même au format tél�
 
 test("le délégué propose de refaire son kakémono", async ({ page }) => {
   await login(page, KAM_EMAIL);
-  await aller(page, "/promo-material/stock?vue=moi");
+  await aller(page, "/stock-promotionnel?vue=moi");
   await page.locator("li", { hasText: KAKEMONO }).first().getByRole("button", { name: "Proposer une refonte" }).click();
   const panneau = page.getByRole("dialog");
   await panneau.getByLabel(/Ce qui ne va pas/).fill("Toile usée, visuel de l'ancienne charte");
@@ -209,7 +209,7 @@ test("le délégué propose de refaire son kakémono", async ({ page }) => {
 test("la directrice marketing la retient depuis son tableau de bord — qui tient aussi au format téléphone", async ({ page }) => {
   await page.setViewportSize({ width: 375, height: 812 });
   await login(page, DM_EMAIL);
-  await aller(page, "/promo-material/stock?vue=tableau");
+  await aller(page, "/stock-promotionnel?vue=tableau");
   await expect(page.getByRole("tab", { name: /Tableau de bord/ })).toHaveAttribute("aria-selected", "true");
   await expect(page.getByText("Valeur du stock").first()).toBeVisible();
   await expect(page.getByText("Refontes proposées").first()).toBeVisible();
@@ -227,7 +227,7 @@ test("la directrice marketing la retient depuis son tableau de bord — qui tien
 
 test("le directeur des opérations lit le résultat du comptage : ce que le registre attendait, ce qui a été compté", async ({ page }) => {
   await login(page, OPS_EMAIL);
-  await aller(page, "/promo-material/stock?vue=comptages");
+  await aller(page, "/stock-promotionnel?vue=comptages");
   const resultat = page.locator("li", { hasText: KAM_NOM }).filter({ hasText: "1 écart(s)" });
   await expect(resultat).toBeVisible();
   await resultat.getByRole("button").first().click();

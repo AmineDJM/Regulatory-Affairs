@@ -1,5 +1,6 @@
 "use server";
 
+import { CHEMIN_STOCK_PROMO } from "@/lib/chemins/stock-promo";
 import { revalidatePath } from "next/cache";
 import { requireUser } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
@@ -36,7 +37,7 @@ import {
  * ═══════════════════════════════════════════════════════════════════════════════════════════
  */
 
-const PATH = "/promo-material/stock";
+const PATH = CHEMIN_STOCK_PROMO;
 const MODULE = "Stock promotionnel";
 
 function reussi(id: string, message?: string): ActionResult {

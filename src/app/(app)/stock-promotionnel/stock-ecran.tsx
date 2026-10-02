@@ -1,5 +1,6 @@
 "use client";
 
+import type { VueStockPromo } from "@/lib/chemins/stock-promo";
 import * as React from "react";
 import { useRouter } from "next/navigation";
 import { AlertCircle, CheckCircle2, X } from "lucide-react";
@@ -16,7 +17,10 @@ import { VueMedecins } from "./stock-medecins";
 import { VueComptages } from "./stock-comptages";
 import { VueTableau } from "./stock-tableau";
 
-type Vue = "moi" | "equipe" | "magasin" | "general" | "comptages" | "tableau" | "medecins";
+// Les vues sont celles que les notifications et les liens désignent (`?vue=…`) : une seule liste,
+// au socle avec l'adresse (§118.173) — une vue ajoutée ici sans y être ne serait atteignable par
+// aucun lien, et l'escale de l'ancienne adresse la jetterait.
+type Vue = VueStockPromo;
 
 const LIBELLE_VUE: Record<Vue, string> = {
   moi: "Mon stock",

@@ -194,7 +194,7 @@ test.afterAll(async () => {
 
 test("le décor par les vrais écrans : le magasin reçoit, la directrice dote le délégué, il confirme", async ({ page }) => {
   await login(page, SA_EMAIL);
-  await aller(page, "/promo-material/stock?vue=magasin");
+  await aller(page, "/stock-promotionnel?vue=magasin");
   for (const [nom, quantite] of [[FICHE, "20"], [BROCHURE, "30"]] as const) {
     await page.getByRole("button", { name: "Entrée manuelle" }).click();
     const panneau = page.getByRole("dialog");
@@ -208,7 +208,7 @@ test("le décor par les vrais écrans : le magasin reçoit, la directrice dote l
   }
 
   await login(page, DM_EMAIL);
-  await aller(page, "/promo-material/stock?vue=magasin");
+  await aller(page, "/stock-promotionnel?vue=magasin");
   await page.locator("li", { hasText: FICHE }).first().getByRole("button", { name: "Doter" }).click();
   const panneau = page.getByRole("dialog");
   await panneau.getByLabel(/Personne dotée/).selectOption({ label: KAM_NOM });
@@ -217,7 +217,7 @@ test("le décor par les vrais écrans : le magasin reçoit, la directrice dote l
   await expect(page.getByRole("status").filter({ hasText: `8 en route vers ${KAM_NOM}` })).toBeVisible();
 
   await login(page, KAM_EMAIL);
-  await aller(page, "/promo-material/stock");
+  await aller(page, "/stock-promotionnel");
   await page.getByRole("button", { name: "J'ai tout reçu" }).click();
   await expect(page.getByRole("button", { name: "J'ai tout reçu" })).toHaveCount(0);
   expect(await solde(kamId, FICHE)).toBe(8);
@@ -265,7 +265,7 @@ test("ÉTAPE 3 — au-delà de ce qu'il a en main, la visite est BLOQUÉE et l'�
 
 test("ÉTAPE 3 — la remise apparaît dans « Remis aux médecins »", async ({ page }) => {
   await login(page, KAM_EMAIL);
-  await aller(page, "/promo-material/stock?vue=medecins");
+  await aller(page, "/stock-promotionnel?vue=medecins");
   await expect(page.getByRole("tab", { name: /Remis aux médecins/ })).toHaveAttribute("aria-selected", "true");
   const ligne = page.locator("li", { hasText: MEDECIN });
   await expect(ligne).toContainText(`3 ${FICHE}`);
