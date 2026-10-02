@@ -9,9 +9,9 @@ import {
   addPaymentComment, commentPaymentPiece, reviewPaymentPiece,
   updatePaymentRequestDetails,
 } from "@/lib/actions/payment-request-actions";
-import { updateTransaction, deleteTransaction, deleteTreasuryAccount, createPayroll, payPayroll } from "@/lib/actions/finance-actions";
+import { updateTransaction, deleteTransaction, deleteTreasuryAccount, createPayroll } from "@/lib/actions/finance-actions";
 import { updateInvoice, deleteInvoice } from "@/lib/actions/invoice-actions";
-import { markSalaryPaid, unmarkSalaryPaid, transferPayrollToBudget } from "@/lib/actions/payroll-hr-actions";
+import { markSalaryPaid, unmarkSalaryPaid } from "@/lib/actions/payroll-hr-actions";
 import { createBudget } from "@/lib/actions/budget-actions";
 import { respondToPaymentCentre } from "@/lib/actions/payment-centre-actions";
 import type { PaymentMove } from "@/lib/finance/payment-request";
@@ -390,11 +390,11 @@ export const FINANCE_FLOWS_OPS_IMPL: Record<string, OpImpl> = {
           ["Détenteur·rice", holderName], ["Note", opStr(input, "note") || null],
         ]),
         warnings: [
-          "La somme S'AJOUTE au fond : aucune remise antérieure n'est close.",
-          "L'argent est réputé remis : la personne détentrice devra CONFIRMER la réception avant de dépenser.",
+          "La remise part d'abord au CENTRE DE PAIEMENT : rien ne sort de la banque avant son autorisation et le versement par les Finances.",
+          "Une fois versée, elle S'AJOUTE au fond (aucune remise antérieure n'est close) et la personne détentrice confirme alors la réception.",
         ],
         args: { departmentId: dept.id, holderId, period, amount: String(amount), note: opStr(input, "note") || null },
-        successMessage: `${dzd(amount)} remis à la caisse de ${dept.name}.`,
+        successMessage: `Remise de ${dzd(amount)} pour la caisse de ${dept.name} envoyée au centre de paiement.`,
         link: "/moyens-generaux", revalidate: ["/moyens-generaux"],
       };
     },
@@ -416,7 +416,7 @@ export const FINANCE_FLOWS_OPS_IMPL: Record<string, OpImpl> = {
           ["Période enregistrée", cash.period],
           ["Détenteur·rice", cash.holderName],
         ]),
-        warnings: ["Seule la personne détentrice (ou la Direction) confirme — l'action refusera sinon. La somme devient alors dépensable."],
+        warnings: ["Seule la personne détentrice (ou la Direction) confirme, et seulement une fois la remise VERSÉE (centre de paiement puis Finances) — l'action refusera sinon. La somme devient alors dépensable."],
         args: { id: cash.id },
         successMessage: `Réception confirmée — la somme est en main chez ${cash.deptName}.`,
         revalidate: ["/moyens-generaux"],
@@ -995,25 +995,6 @@ export const FINANCE_FLOWS_OPS_IMPL: Record<string, OpImpl> = {
     execute: (args) => runFd2(createPayroll, args, "La création du bulletin a été refusée.", { revalidate: ["/finances"] }),
   },
 
-  pay_payroll: {
-    async propose(input): Promise<OpProposalDraft | { error: string }> {
-      const entry = await resolvePayrollEntry(input, ["DRAFT", "VALIDATED"]);
-      if ("error" in entry) return entry;
-      return {
-        title: `Régler la paie ${entry.month}/${entry.year} — ${entry.employeeName}`,
-        fields: [
-          { label: "Bulletin", value: `${entry.employeeName} · ${entry.month}/${entry.year}` },
-          { label: "Net à verser", value: dzd(entry.net) },
-        ],
-        warnings: ["L'ARGENT SORT : une écriture SALAIRE (décaissement réalisé) est inscrite au livre à la confirmation."],
-        args: { id: entry.id },
-        successMessage: `Paie ${entry.month}/${entry.year} de ${entry.employeeName} réglée — écriture inscrite.`,
-        link: "/finances", revalidate: ["/finances"],
-      };
-    },
-    execute: (args) => runFd(payPayroll, args, "Le règlement de la paie a été refusé.", { revalidate: ["/finances"] }),
-  },
-
   // ─────────────── Paie RH (masse salariale) ───────────────
 
   mark_salary_paid: {
@@ -1035,11 +1016,11 @@ export const FINANCE_FLOWS_OPS_IMPL: Record<string, OpImpl> = {
           ["Coût employeur", dzd(employerCost)], ["Brut", gross !== null ? dzd(gross) : null], ["Net (salarié)", dzd(net)],
         ]),
         warnings: [
-          "Le mois passe PAYÉ pour cet employé (sans fiche de paie jointe — elle peut être déposée depuis l'écran RH).",
-          "L'imputation au budget se fait ensuite par le TRANSFERT du mois.",
+          "Le salaire du mois est SAISI pour cet employé (sans fiche de paie jointe — elle peut être déposée depuis l'écran RH).",
+          "Il n'est VERSÉ qu'au virement de la paie de son entité : un envoi au centre de paiement, depuis RH › Paie, avec la somme des salaires à virer.",
         ],
         args: { employeeId: emp.id, year: String(year), month: String(month), employerCost: String(employerCost), net: String(net), gross: gross !== null ? String(gross) : null },
-        successMessage: `Paie ${month}/${year} de ${emp.fullName} marquée payée.`,
+        successMessage: `Salaire ${month}/${year} de ${emp.fullName} saisi — versé au prochain virement de la paie de son entité.`,
         link: "/rh", revalidate: ["/rh"],
       };
     },
@@ -1056,41 +1037,13 @@ export const FINANCE_FLOWS_OPS_IMPL: Record<string, OpImpl> = {
           { label: "Ligne", value: `${entry.employeeName} · ${entry.month}/${entry.year}` },
           { label: "Net", value: dzd(entry.net) },
         ],
-        warnings: ["Correction d'erreur de saisie : la ligne repasse en brouillon et la fiche de paie déposée est retirée. Impossible après transfert au budget."],
+        warnings: ["Correction d'erreur de saisie : la ligne repasse en brouillon et la fiche de paie déposée est retirée. Impossible une fois la paie de son entité partie au centre de paiement (ou transférée par l'ancien circuit)."],
         args: { id: entry.id },
         successMessage: `Paiement ${entry.month}/${entry.year} de ${entry.employeeName} annulé (correction).`,
         revalidate: ["/rh"],
       };
     },
     execute: (args) => runFd(unmarkSalaryPaid, args, "L'annulation a été refusée.", { revalidate: ["/rh"] }),
-  },
-
-  transfer_payroll_to_budget: {
-    async propose(input): Promise<OpProposalDraft | { error: string }> {
-      const year = num(input, "year") ?? new Date().getFullYear();
-      const month = (opStr(input, "month") ? monthOf(opStr(input, "month")) : null) ?? new Date().getMonth() + 1;
-      const cat = await resolveBudgetCategoryLine(opStr(input, "category"));
-      if ("error" in cat) return cat;
-      const entries = await prisma.payrollEntry.findMany({
-        where: { year, month, status: "PAID", budgetTransferredAt: null },
-        select: { employerCost: true, gross: true, bonuses: true, deductions: true },
-      });
-      if (entries.length === 0) return { error: `Aucun salaire payé à transférer pour ${month}/${year}.` };
-      const total = entries.reduce((a, e) => a + (e.employerCost !== null ? toNumber(e.employerCost) : toNumber(e.gross)), 0);
-      return {
-        title: `Transférer la paie ${month}/${year} au budget « ${cat.name} »`,
-        fields: [
-          { label: "Mois", value: `${month}/${year}` },
-          { label: "Salaires à transférer", value: `${entries.length} salaire·s payés (≈ ${dzd(total)} au coût employeur)` },
-          { label: "Catégorie budgétaire", value: `${cat.name} (${cat.envelope.name})` },
-        ],
-        warnings: ["Une écriture SALAIRE (décaissement) est inscrite PAR employé, au COÛT EMPLOYEUR (brut + charges patronales), et imputée à la catégorie — le budget est consommé d'autant."],
-        args: { year: String(year), month: String(month), budgetCategoryId: cat.id },
-        successMessage: `Paie ${month}/${year} transférée au budget « ${cat.name} » (${entries.length} salaire·s).`,
-        link: "/budgets", revalidate: ["/rh", "/finances", "/budgets"],
-      };
-    },
-    execute: (args) => runFd(transferPayrollToBudget, args, "Le transfert au budget a été refusé.", { revalidate: ["/rh", "/finances", "/budgets"] }),
   },
 
   // ─────────────── Ligne budgétaire (suivi annuel) ───────────────

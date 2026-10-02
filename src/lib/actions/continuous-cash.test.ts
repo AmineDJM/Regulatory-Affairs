@@ -12,6 +12,8 @@ import { continuousCash } from "@/lib/general-means/continuous-cash";
 import { openRemittances } from "@/lib/queries/general-means";
 import { allotPettyCash, confirmPettyCashReceipt, closePettyCash } from "./petty-cash-actions";
 import { addDepartmentExpense } from "./department-budget-actions";
+import { decidePayment } from "./payment-centre-actions";
+import { settleExpenseOrder } from "./expense-actions";
 
 let dbOk = false;
 try { await prisma.$queryRaw`SELECT 1`; dbOk = true; } catch { dbOk = false; }
@@ -71,9 +73,19 @@ suite("Caisse d'avance continue", () => {
   });
 
   afterAll(async () => {
+    // Les remises passent par le centre (§118.176) : leurs ordres, leurs dossiers compagnons et les
+    // écritures du versement partent avec elles.
+    const liens = await prisma.pettyCashAllotment.findMany({
+      where: { departmentId: deptId }, select: { expenseOrderId: true, transactionId: true },
+    }).catch(() => []);
+    const ordres = liens.map((l) => l.expenseOrderId).filter((v): v is string => Boolean(v));
+    const ecritures = liens.map((l) => l.transactionId).filter((v): v is string => Boolean(v));
     await prisma.departmentBudgetExpense.deleteMany({ where: { departmentId: deptId } }).catch(() => {});
     await prisma.pettyCashTopUpRequest.deleteMany({ where: { allotment: { departmentId: deptId } } }).catch(() => {});
     await prisma.pettyCashAllotment.deleteMany({ where: { departmentId: deptId } }).catch(() => {});
+    await prisma.paymentRequest.deleteMany({ where: { expenseOrderId: { in: ordres } } }).catch(() => {});
+    await prisma.expenseOrder.deleteMany({ where: { id: { in: ordres } } }).catch(() => {});
+    await prisma.financeTransaction.deleteMany({ where: { id: { in: ecritures } } }).catch(() => {});
     await prisma.pettyCashPlan.deleteMany({ where: { departmentId: deptId } }).catch(() => {});
     await prisma.userAccess.deleteMany({ where: { userId: { in: [adminId, holderId] } } }).catch(() => {});
     await prisma.notification.deleteMany({ where: { user: { email: { startsWith: TAG } } } }).catch(() => {});
@@ -84,6 +96,22 @@ suite("Caisse d'avance continue", () => {
   const remettre = async (amount: string, period: string) => {
     ACTOR = await actorFor(adminId, "SUPER_ADMIN");
     return allotPettyCash(form({ departmentId: deptId, holderId, amount, period }));
+  };
+  /**
+   * LE CENTRE AUTORISE, LES FINANCES VERSENT (§118.176) — par les vraies actions, celles des
+   * boutons. Sans ce passage, la détentrice ne peut rien confirmer : la somme n'est pas partie.
+   */
+  const verserTout = async () => {
+    ACTOR = await actorFor(adminId, "SUPER_ADMIN");
+    const attente = await prisma.pettyCashAllotment.findMany({
+      where: { departmentId: deptId, status: "ALLOTTED", transactionId: null, expenseOrderId: { not: null } },
+      select: { expenseOrderId: true },
+    });
+    for (const r of attente) {
+      expect((await decidePayment(form({ id: r.expenseOrderId!, decision: "APPROVE" }))).ok).toBe(true);
+      const regle = await settleExpenseOrder(form({ id: r.expenseOrderId! }));
+      expect(regle.ok, regle.error).toBe(true);
+    }
   };
   const confirmerTout = async () => {
     ACTOR = await actorFor(holderId, "DIRECTION_ASSISTANT");
@@ -104,10 +132,20 @@ suite("Caisse d'avance continue", () => {
     // qu'on peut poser — c'est seulement le cloisonnement qui disparaît.
     expect(lignes.map((l) => l.period)).toEqual(["2026-08", "2026-09"]);
 
+    // Elles partent au CENTRE DE PAIEMENT (§118.176) : chacune porte son ordre, en attente, et la
+    // détentrice ne peut encore rien confirmer — la somme n'a pas quitté la banque.
+    expect(lignes.every((l) => l.expenseOrderId && !l.transactionId)).toBe(true);
+    ACTOR = await actorFor(holderId, "DIRECTION_ASSISTANT");
+    const tot = await confirmPettyCashReceipt(form({ id: lignes[0]!.id }));
+    expect(tot.ok).toBe(false);
+    expect(tot.error).toMatch(/centre de paiement/);
+    expect((await openRemittances(deptId)).every((r) => r.enAttenteDuCentre)).toBe(true);
+
+    await verserTout();
     const f = await fond();
     expect(f.remitted).toBe(80_000);
     expect(f.remittanceCount).toBe(2);
-    // Rien n'est encore confirmé reçu : décidé n'est pas détenu.
+    // Versé n'est pas confirmé reçu : décidé, puis versé, n'est pas encore détenu.
     expect(f.received).toBe(0);
     expect(f.awaitingAmount).toBe(80_000);
   });
@@ -121,6 +159,7 @@ suite("Caisse d'avance continue", () => {
   });
 
   it("chaque remise se confirme SÉPARÉMENT, et le fond ne compte que le confirmé", async () => {
+    await verserTout();
     await confirmerTout();
     const f = await fond();
     expect(f.received).toBe(90_000);

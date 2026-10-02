@@ -1,16 +1,16 @@
 import { prisma } from "@/lib/prisma";
 import { toNumber } from "@/lib/utils";
 import { getAppSettings } from "@/lib/settings";
-import { portesDesBC, notifierFinancesBCASigner } from "./aiguillage";
+import { portesDesBC, notifierSignatairesBCASigner } from "./aiguillage";
 import { etapeBC, validationRequiseBC, type EtapeBC, type PorteBC } from "./regle";
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
  * L'ÉTAT D'UN BON DE COMMANDE, DE BOUT EN BOUT — une seule lecture (§118.149).
  *
- * « À signer » se demande à quatre endroits : la file des Finances (Finances › Bons de commande),
+ * « À signer » se demande à quatre endroits : la file du module « Bons de commande » (§118.176),
  * l'action qui signe, la fiche Legal du BC, et les décisions des centres qui doivent prévenir les
- * Finances. Quatre lectures de la même question finiraient par diverger — la file montrerait un
+ * signataires. Quatre lectures de la même question finiraient par diverger — la file montrerait un
  * BC que l'action refuse de signer (§118.5). Elles passent toutes ici, qui compose les trois faits
  * de la règle pure : la PORTE (lue en lot par `portesDesBC`), le SEUIL en vigueur, et la
  * SIGNATURE et l'entrée dans le circuit, lues sur la pièce.
@@ -83,7 +83,7 @@ export async function etatDuBC(id: string, opts: { seuil?: number } = {}): Promi
 }
 
 /**
- * APRÈS LA DÉCISION D'UN CENTRE : si le BC est désormais « à signer », les Finances le sauront.
+ * APRÈS LA DÉCISION D'UN CENTRE : si le BC est désormais « à signer », ses signataires le sauront.
  *
  * Appelée par les deux centres quand ils VALIDENT un BC, et par le visa d'un poste Ad & Pro dont
  * la pièce existe déjà. Relit l'état plutôt que de le supposer : un BC validé mais annulé entre
@@ -92,7 +92,7 @@ export async function etatDuBC(id: string, opts: { seuil?: number } = {}): Promi
 export async function signalerSiASigner(docId: string): Promise<boolean> {
   const etat = await etatDuBC(docId).catch(() => null);
   if (!etat || etat.annule || etat.etape !== "A_SIGNER") return false;
-  await notifierFinancesBCASigner({
+  await notifierSignatairesBCASigner({
     id: etat.id, reference: etat.reference, title: etat.title, counterparty: etat.counterparty,
     amount: etat.montant, createdById: etat.createdById,
   });

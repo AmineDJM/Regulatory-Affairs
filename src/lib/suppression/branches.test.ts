@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { Prisma } from "@prisma/client";
 import {
-  ENTITE_DU_MODELE, LIBELLE_DU_MODELE, LIENS_DIRECTS, REFERENTS, faitIrreversible,
+  ENTITE_DU_MODELE, LIBELLE_DU_MODELE, LIENS_DIRECTS, REFERENCES_TEXTE, REFERENTS, faitIrreversible,
 } from "./branches";
 import { RELATIONS, ouIdentite } from "./lot";
 import { DELETE_REGISTRY, DELETABLE_KINDS, modeleDuRegistre } from "@/lib/admin-delete-registry";
@@ -111,6 +111,27 @@ describe("Branches — les tables que le lot lit existent, et parlent la bonne l
       expect(PAR_NOM.get(l.cible)?.fields.some((x) => x.isId && x.name === "id"), `cible ${l.cible}`).toBe(true);
       expect(RELATIONS.some((r) => r.enfant === l.modele && r.champ === l.champ), `${l.modele}.${l.champ} est devenu une clé étrangère : retirez-le d'ici`).toBe(false);
     }
+  });
+
+  it("REFERENCES_TEXTE (§118.176) : un champ TEXTE qui existe, vers un modèle qui existe, qu'aucune clé ne porte — et un nom pour le dire", () => {
+    // La même exigence que `LIENS_DIRECTS` : écrites ici PARCE QUE Postgres ne les voit pas. Et la
+    // ligne qui RESTE doit avoir un nom : l'aperçu dit « 1 ordre de dépense perd son lien », pas
+    // « 1 ExpenseOrder ».
+    for (const l of REFERENCES_TEXTE) {
+      const f = PAR_NOM.get(l.modele)!.fields.find((x) => x.name === l.champ);
+      expect(f?.kind === "scalar" && f.type === "String", `${l.modele}.${l.champ} doit être un texte`).toBe(true);
+      expect(PAR_NOM.get(l.cible)?.fields.some((x) => x.isId && x.name === "id"), `cible ${l.cible}`).toBe(true);
+      expect(RELATIONS.some((r) => r.enfant === l.modele && r.champ === l.champ), `${l.modele}.${l.champ} est devenu une clé étrangère : retirez-le d'ici`).toBe(false);
+      expect(LIBELLE_DU_MODELE[l.modele], `${l.modele} sans nom lisible`).toBeDefined();
+    }
+  });
+
+  it("REFERENCES_TEXTE ne font JAMAIS entrer leur ligne dans le lot — deux listes, deux questions", () => {
+    // Mêlées à `LIENS_DIRECTS`, elles seraient suivies dans l'autre sens : supprimer un ordre de
+    // dépense emporterait l'écriture de trésorerie qui le règle. Aucune paire ne doit figurer dans
+    // les deux listes.
+    const directs = new Set(LIENS_DIRECTS.map((l) => `${l.modele}.${l.champ}`));
+    expect(REFERENCES_TEXTE.filter((l) => directs.has(`${l.modele}.${l.champ}`))).toEqual([]);
   });
 
   it("tout ce qui peut partir avec une demande porte un nom en français", () => {

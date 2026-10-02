@@ -4,7 +4,7 @@ import { userCan } from "@/lib/rbac";
 import type { CurrentUser } from "@/lib/session";
 import { companyScopedWhere } from "@/lib/company";
 import { legalReaderWhere } from "@/lib/lecteurs/legal";
-import { legalViewScope } from "@/lib/legal/invoices";
+import { MODULE_LABELS } from "@/lib/labels";
 import { getAppSettings } from "@/lib/settings";
 import { etatsDesBC } from "@/lib/bons-de-commande/etat";
 import type { EtapeBC, PorteBC } from "@/lib/bons-de-commande/regle";
@@ -12,42 +12,50 @@ import { fichiersEmis } from "@/lib/legal/fichiers-emis";
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
- * FINANCES › BONS DE COMMANDE — la file de ce que les Finances doivent SIGNER (§118.149).
+ * BONS DE COMMANDE — la file de ce qu'il faut SIGNER (§118.149), module À PART (§118.176).
  *
  * « Mets un sous-module spécial sous Finances : Bons de commande — les bons de commande à signer
  * de leur part. Si un BC se retrouve là-bas, c'est qu'il doit être signé. » La file ne contient
  * donc QUE des BC « à signer » : validés par leur centre, ou sous le seuil de validation. Un BC
  * qui attend encore un centre n'y est pas — il n'est pas à signer, il est à valider — mais il est
- * COMPTÉ, pour que les Finances sachent ce qui arrive.
+ * COMPTÉ, pour que les signataires sachent ce qui arrive.
+ *
+ * Puis (01/10/2026) : « le module bon de commande doit être à part et le super admin donne les
+ * accès à qui il veut ». La porte n'est plus le droit des Finances mais celui du module
+ * `PURCHASE_ORDERS` : « Voir » ouvre la file, « Modifier » est le droit de signer.
  *
  * ── QUI VOIT QUOI ────────────────────────────────────────────────────────────────────────────
  *
- * Exactement ce que l'écran Legal montre à la même personne : la même portée (`legalViewScope` —
- * un financier voit la chaîne d'achat), la même entité (`companyScopedWhere`) et les mêmes
- * LECTEURS DÉSIGNÉS (`legalReaderWhere`). Une file qui montrerait un BC restreint à quelqu'un
- * qui n'en est pas lecteur lui en révélerait le titre, la partie en face et le montant (§118.71).
+ * Le module, puis exactement ce que le registre Legal protège déjà : la même entité
+ * (`companyScopedWhere`) et les mêmes LECTEURS DÉSIGNÉS (`legalReaderWhere`). Une file qui
+ * montrerait un BC restreint à quelqu'un qui n'en est pas lecteur lui en révélerait le titre, la
+ * partie en face et le montant (§118.71). Et la FICHE du bon de commande s'ouvre par la même
+ * porte (`legalViewScope`, troisième droit) : une file qu'aucun clic n'ouvre serait une impasse.
  * ═══════════════════════════════════════════════════════════════════════════════════════════
  */
 
-/** Qui SIGNE un bon de commande : les Finances — le droit de modifier dans leur module. */
+/**
+ * Qui SIGNE un bon de commande : le droit « Modifier » du module Bons de commande (§118.176) — par
+ * défaut ceux qui modifiaient les Finances, ensuite qui le Super Admin désigne.
+ */
 export function peutSignerBC(user: Pick<CurrentUser, "role" | "access">): boolean {
-  return userCan(user as CurrentUser, "FINANCES", "UPDATE");
+  return userCan(user as CurrentUser, "PURCHASE_ORDERS", "UPDATE");
 }
 
-/** Le refus, écrit une fois : l'écran et l'action disent la même phrase. */
+/**
+ * Le refus, écrit une fois : l'écran et l'action disent la même phrase. Il nomme la CASE à cocher
+ * et l'écran où elle se coche : « revient aux Finances » ne dit pas au Super Admin quoi faire
+ * (§118.30), et n'est plus vrai.
+ */
 export const REFUS_SIGNATURE_BC =
-  "La signature d'un bon de commande revient aux Finances (droit de modification du module Finances).";
+  `La signature d'un bon de commande demande le droit « Modifier » du module « ${MODULE_LABELS.PURCHASE_ORDERS} » — un Super Admin l'accorde dans Administration › Accès.`;
 
 /**
- * LES BC QUE CETTE PERSONNE A LE DROIT DE LIRE — `null` : aucun. La même clause que la liste
- * Legal, réduite aux bons de commande ; l'action de signature la rejoue sur la pièce visée.
+ * LES BC QUE CETTE PERSONNE A LE DROIT DE LIRE — `null` : aucun. Le module, puis la même clause que
+ * la liste Legal réduite aux bons de commande ; l'action de signature la rejoue sur la pièce visée.
  */
 export async function bcVisiblesWhere(user: CurrentUser): Promise<Prisma.LegalDocumentWhereInput | null> {
-  const portee = legalViewScope({
-    onLegal: userCan(user, "LEGAL", "VIEW"),
-    onFinances: userCan(user, "FINANCES", "VIEW"),
-  });
-  if (portee === "NONE") return null;
+  if (!userCan(user, "PURCHASE_ORDERS", "VIEW")) return null;
   const readerScope = legalReaderWhere({ viewerId: user.id, isSuperAdmin: user.role === "SUPER_ADMIN" });
   return companyScopedWhere(user.id, {
     kind: "PURCHASE_ORDER",

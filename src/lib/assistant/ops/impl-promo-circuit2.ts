@@ -11,6 +11,7 @@ import type { OpImpl, OpProposalDraft } from "./types";
 import { opStr } from "./types";
 import { fieldsOf, runFd, toFd } from "./helpers";
 import { resolveDriveFile, driveNodeToFile, kb } from "./impl-wave8-files";
+import { CHEMIN_BONS_DE_COMMANDE } from "@/lib/chemins/bons-de-commande";
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
@@ -235,10 +236,10 @@ export const PROMO2_OPS_IMPL: Record<string, OpImpl> = {
         ],
         args: { promoMaterialId: d.id, livraisonAdresse: adresse || null, livraisonDelai: delai || null, notes: opStr(input, "notes") || null },
         successMessage: `Bons de commande générés sur ${d.reference}.`,
-        revalidate: [...PATH, "/finances/bons-de-commande"],
+        revalidate: [...PATH, CHEMIN_BONS_DE_COMMANDE],
       };
     },
-    execute: (args) => runFd(genererBonsDeCommandePromo, args, "La génération des bons de commande a été refusée.", { revalidate: [...PATH, "/finances/bons-de-commande"] }),
+    execute: (args) => runFd(genererBonsDeCommandePromo, args, "La génération des bons de commande a été refusée.", { revalidate: [...PATH, CHEMIN_BONS_DE_COMMANDE] }),
   },
 
   update_promo_bc: {
@@ -269,10 +270,10 @@ export const PROMO2_OPS_IMPL: Record<string, OpImpl> = {
           notes: opStr(input, "notes") || null, motif: opStr(input, "note") || null,
         },
         successMessage: `BC de ${devis.fournisseur} modifié sur ${d.reference}.`,
-        revalidate: [...PATH, "/finances/bons-de-commande"],
+        revalidate: [...PATH, CHEMIN_BONS_DE_COMMANDE],
       };
     },
-    execute: (args) => runFd(modifierBonDeCommandePromo, args, "La modification du bon de commande a été refusée.", { revalidate: [...PATH, "/finances/bons-de-commande"] }),
+    execute: (args) => runFd(modifierBonDeCommandePromo, args, "La modification du bon de commande a été refusée.", { revalidate: [...PATH, CHEMIN_BONS_DE_COMMANDE] }),
   },
 
   cancel_promo_bc: {
@@ -289,10 +290,10 @@ export const PROMO2_OPS_IMPL: Record<string, OpImpl> = {
         warnings: ["Refusé si une facture en découle déjà. Le devis redevient « à générer »."],
         args: { promoMaterialId: d.id, quoteId: devis.quoteId, motif },
         successMessage: `BC de ${devis.fournisseur} annulé sur ${d.reference}.`,
-        revalidate: [...PATH, "/finances/bons-de-commande"],
+        revalidate: [...PATH, CHEMIN_BONS_DE_COMMANDE],
       };
     },
-    execute: (args) => runFd(annulerBonDeCommandePromo, args, "L'annulation du bon de commande a été refusée.", { revalidate: [...PATH, "/finances/bons-de-commande"] }),
+    execute: (args) => runFd(annulerBonDeCommandePromo, args, "L'annulation du bon de commande a été refusée.", { revalidate: [...PATH, CHEMIN_BONS_DE_COMMANDE] }),
   },
 
   mark_promo_bc_sent: {

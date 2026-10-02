@@ -1,7 +1,7 @@
 import type { EntityType } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { companyScopedWhere } from "@/lib/company";
-import { legalReaderWhere } from "@/lib/lecteurs/legal";
+import { legalKindVisible, legalReaderWhere, legalViewScope, legalWriteAllowed } from "@/lib/lecteurs/legal";
 import { canSee as canSeeTask, canAttach as canAttachTask } from "@/lib/tasks/request-flow";
 import { recruitmentViewer } from "@/lib/recruitment/access";
 import { isOwnBusiness } from "@/lib/ad-pro/attachments";
@@ -218,11 +218,19 @@ async function dansLaPorteeAdPro(user: SessionUser, entityType: EntityType, enti
  *
  * ── LA RÈGLE ────────────────────────────────────────────────────────────────────────────────
  *
- *  • Le module Legal pour le geste demandé, PUIS la portée de la LIGNE : l'entité (les
+ *  • La PORTE DE LA FICHE, par nature de pièce, PUIS la portée de la LIGNE : l'entité (les
  *    engagements d'une société ne se lisent pas depuis une autre) ET les lecteurs désignés —
  *    sans ces derniers, un document restreint resterait fermé à l'écran mais ses pièces se
  *    téléchargeraient encore par leur identifiant. Même porte que la liste Legal : un engagement
  *    sans entité y figure, ses pièces s'ouvrent donc aussi.
+ *  • La porte de la fiche a TROIS entrées (`legalViewScope`) : Legal ouvre tout le registre, les
+ *    Finances la chaîne d'achat (factures et bons de commande), le module « Bons de commande » les
+ *    seuls bons de commande (§118.176). Cette fonction ne lisait que la première : la fiche d'une
+ *    facture s'ouvrait aux Finances, lui proposait « Joindre » et listait ses fichiers — et le
+ *    serveur refusait l'envoi comme le téléchargement. Un bouton offert puis refusé fait chercher
+ *    une panne qui n'existe pas (§118.83). L'ÉCRITURE suit la même règle que la fiche
+ *    (`legalWriteAllowed`) : Legal partout, les Finances sur la chaîne d'achat ; le module « Bons de
+ *    commande » n'écrit rien — signer n'est pas modifier la pièce.
  *  • En LECTURE seulement, pour qui n'a PAS le module : les pièces nées d'un matériel
  *    promotionnel (`sourceType` PROMO_MATERIAL) s'ouvrent à qui ouvre le dossier (§118.152) — le
  *    demandeur qui a déposé la facture, l'assistante qui suit le dossier, le pharmacien qui
@@ -254,18 +262,38 @@ export async function accesAuxPiecesLegal(
     }
   }
 
-  const permises = actions.filter((a) => userCan(user, "LEGAL", a));
-  if (permises.length === 0) return res;
+  // LA PORTE DE LA FICHE, par nature : les mêmes trois entrées que `/legal/[id]`.
+  const portee = legalViewScope({
+    onLegal: userCan(user, "LEGAL", "VIEW"),
+    onFinances: userCan(user, "FINANCES", "VIEW"),
+    onBonsDeCommande: userCan(user, "PURCHASE_ORDERS", "VIEW"),
+  });
+  const financesEcrivent = userCan(user, "FINANCES", "UPDATE");
+  const permis = (a: Action, kind: string): boolean => {
+    if (userCan(user, "LEGAL", a)) return true;
+    if (a === "VIEW") return legalKindVisible(portee, kind);
+    // Les gestes que la fiche offre à qui peut ÉCRIRE la pièce — joindre, renommer, retirer.
+    if (GESTES_D_ECRITURE_DE_PIECE.includes(a)) return legalWriteAllowed({ onLegal: false, onFinances: financesEcrivent, kind });
+    return false;
+  };
+  const candidates = actions.filter((a) =>
+    userCan(user, "LEGAL", a)
+    || (a === "VIEW" && portee !== "NONE")
+    || (GESTES_D_ECRITURE_DE_PIECE.includes(a) && financesEcrivent));
+  if (candidates.length === 0) return res;
   const readerScope = legalReaderWhere({ viewerId: user.id, isSuperAdmin: user.role === "SUPER_ADMIN" });
   const dansLaPortee = await prisma.legalDocument.findMany({
     where: await companyScopedWhere(user.id, {
       AND: [{ id: { in: uniques } }, ...(readerScope ? [readerScope] : [])],
     }),
-    select: { id: true },
+    select: { id: true, kind: true },
   });
-  for (const a of permises) for (const d of dansLaPortee) res.get(a)!.add(d.id);
+  for (const d of dansLaPortee) for (const a of candidates) if (permis(a, String(d.kind))) res.get(a)!.add(d.id);
   return res;
 }
+
+/** Les gestes sur les fichiers d'une pièce que la fiche offre à qui peut l'écrire. */
+const GESTES_D_ECRITURE_DE_PIECE: readonly Action[] = ["UPLOAD", "UPDATE", "DELETE"];
 
 export async function canAccessEntity(
   user: SessionUser,

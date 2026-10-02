@@ -36,6 +36,7 @@ import { opStr } from "./types";
 import { runFd, runFd2, fieldsOf, resolveOne, isoDate, dzd, toFd } from "./helpers";
 import { matchLabel, fold } from "./impl-regulatory";
 import { resolveMissionParent, type MissionParent } from "./impl-wave2b";
+import { CHEMIN_BONS_DE_COMMANDE } from "@/lib/chemins/bons-de-commande";
 
 /**
  * OPS VAGUE 5a — EVENTS (fiche en FUSION intégrale, circuit de prise en charge, inscriptions),
@@ -1080,13 +1081,13 @@ export const ADPRO5_OPS_IMPL: Record<string, OpImpl> = {
         args: { bcValidationThreshold: String(seuil.valeur) },
         successMessage: "Seuil des bons de commande réglé.",
         link: "/centre-ad-pro",
-        revalidate: ["/centre-ad-pro", "/finances/bons-de-commande"],
+        revalidate: ["/centre-ad-pro", CHEMIN_BONS_DE_COMMANDE],
       };
     },
     async execute(args) {
       const r = await setBcValidationThreshold(toFd(args));
       if (!r.ok) return { ok: false, error: r.error ?? "Le réglage du seuil a été refusé." };
-      return { ok: true, ...(r.message ? { message: r.message } : {}), link: "/centre-ad-pro", revalidate: ["/centre-ad-pro", "/finances/bons-de-commande"] };
+      return { ok: true, ...(r.message ? { message: r.message } : {}), link: "/centre-ad-pro", revalidate: ["/centre-ad-pro", CHEMIN_BONS_DE_COMMANDE] };
     },
   },
 

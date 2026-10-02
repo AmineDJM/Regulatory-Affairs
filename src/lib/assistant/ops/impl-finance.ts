@@ -316,18 +316,20 @@ export const FINANCE_OPS_IMPL: Record<string, OpImpl> = {
       const name = opStr(input, "account") || opStr(input, "label");
       const amount = opAmount(input, "amount");
       if (!name) return { error: "Donnez le nom du compte de trésorerie (champ « account », ex. « Banque BNA »)." };
-      if (amount === null) return { error: "Donnez le solde d'ouverture en DZD (champ « amount » — 0 accepté)." };
+      if (amount === null) return { error: "Donnez le solde du relevé en DZD (champ « amount » — 0 accepté)." };
       const date = iso(opStr(input, "date"));
+      // L'ANCRAGE EXIGE SA DATE (§118.176) : un solde sans jour ne dit pas quelles écritures il contient.
+      if (!date) return { error: "Donnez la date du relevé (champ « date ») : le solde s'entend en fin de cette journée." };
       return {
-        title: `Solde d'ouverture de « ${name} » : ${dzd(amount)}`,
+        title: `Ouvrir le compte « ${name} », ancré à ${dzd(amount)} au ${date}`,
         fields: [
           { label: "Compte", value: name },
-          { label: "Solde d'ouverture", value: dzd(amount) },
-          { label: "Date d'ouverture", value: date ?? "aujourd'hui" },
+          { label: "Solde du relevé", value: dzd(amount) },
+          { label: "Date du relevé", value: date },
         ],
-        warnings: ["Tous les soldes affichés du compte découlent de ce point de départ."],
+        warnings: ["Refusé si le compte existe déjà : un ancrage existant se corrige depuis l'écran, avec un motif."],
         args: { name, amount: String(amount), date, notes: opStr(input, "notes") },
-        successMessage: `Solde d'ouverture de « ${name} » réglé à ${dzd(amount)}.`,
+        successMessage: `Compte « ${name} » ouvert, ancré à ${dzd(amount)}.`,
         link: "/finances",
         revalidate: ["/finances"],
       };

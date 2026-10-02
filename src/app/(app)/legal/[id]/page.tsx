@@ -70,6 +70,9 @@ export default async function LegalDocumentPage({ params }: { params: { id: stri
   const portee = legalViewScope({
     onLegal: userCan(user, "LEGAL", "VIEW"),
     onFinances: userCan(user, "FINANCES", "VIEW"),
+    // TROISIÈME PORTE (§118.176) : le module « Bons de commande » ouvre la fiche d'un BON DE
+    // COMMANDE, et d'elle seule — ce que la file demande de signer doit pouvoir se lire.
+    onBonsDeCommande: userCan(user, "PURCHASE_ORDERS", "VIEW"),
   });
   if (portee === "NONE") notFound();
 

@@ -50,11 +50,14 @@
  *      signé — une seule fonction pour la file des Finances, l'action de signature, la fiche et
  *      la phrase d'émission, sinon quatre lectures de « prêt à signer » divergeraient (§118.5).
  *
- * Module PUR — zéro import, au SOCLE. Quatre couches en ont besoin sans avoir le droit de se
- * parler : les actions de Legal, la fabrique documentaire (le pont), le règlement des factures
- * (domaine `finance`) et le centre Ad & Pro (domaine `adpro`).
+ * Module PUR, au SOCLE — sa seule importation est une constante du socle : le chemin du module
+ * « Bons de commande » tel qu'une phrase le nomme (§118.176). Quatre couches en ont besoin sans
+ * avoir le droit de se parler : les actions de Legal, la fabrique documentaire (le pont), le
+ * règlement des factures (domaine `finance`) et le centre Ad & Pro (domaine `adpro`).
  * ═══════════════════════════════════════════════════════════════════════════════════════════
  */
+
+import { MENU_BONS_DE_COMMANDE } from "@/lib/chemins/bons-de-commande";
 
 /** Les deux centres entre lesquels un BC s'aiguille. */
 export type CentreBC = "AD_PRO" | "VALIDATION";
@@ -376,13 +379,13 @@ export function reserveEtapeBC(etape: EtapeBC, porte: PorteBC | null, seuil?: nu
     case "SANS_PORTE":
       return "Ce bon de commande dépasse le seuil de validation et n'est passé par aucun centre : il n'est PAS validé. « Adresser au centre », sur sa fiche Legal.";
     case "A_SIGNER": {
-      const signature = "Il attend la signature des Finances (Finances › Bons de commande) : ne l'envoyez pas au fournisseur avant.";
+      const signature = `Il attend la signature des Finances (${MENU_BONS_DE_COMMANDE}) : ne l'envoyez pas au fournisseur avant.`;
       if (!porte && typeof seuil === "number" && seuil > 0) {
         return `Sous le seuil de validation des bons de commande (${seuil.toLocaleString("fr-FR")} DZD) : aucun centre n'a à le valider. ${signature}`;
       }
       return porte?.etat === "VALIDE"
         ? `Validé par le ${LIBELLE_CENTRE_BC[porte.centre]}. ${signature}`
-        : `Ce bon de commande attend la signature des Finances (Finances › Bons de commande) : ne l'envoyez pas au fournisseur avant.`;
+        : `Ce bon de commande attend la signature des Finances (${MENU_BONS_DE_COMMANDE}) : ne l'envoyez pas au fournisseur avant.`;
     }
     case "SIGNE":
     case "HORS_CIRCUIT":
@@ -491,7 +494,7 @@ export function chantierBCClos(bcs: readonly {
     return {
       ok: false,
       raison: `Bon(s) de commande pas encore signé(s) par les Finances : ${nonSignes.map((b) => nom(b.reference)).join(", ")}. `
-        + "Le chantier se clôt une fois tous signés (Finances › Bons de commande).",
+        + `Le chantier se clôt une fois tous signés (${MENU_BONS_DE_COMMANDE}).`,
     };
   }
   return { ok: true };

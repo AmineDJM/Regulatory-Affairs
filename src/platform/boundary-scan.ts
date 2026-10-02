@@ -202,6 +202,19 @@ export const NEUTRAL = new Set([
   // Le chemin est EXACT, pas le dossier : un futur `src/lib/chemins/quelque-chose-de-lourd.ts` ne
   // doit pas se retrouver exempté sans que personne l'ait décidé.
   "src/lib/chemins/stock-promo",
+  // `chemins/bons-de-commande` dit OÙ VIT le module « Bons de commande » (§118.176) : une adresse
+  // et le chemin du menu tel qu'une phrase le nomme. Deux chaînes — zéro import, sans état, sans
+  // base, sans règle métier : rien ici ne dit ce qu'un bon de commande contient ni qui le signe.
+  //
+  // Il est ici pour la raison de `chemins/stock-promo`, mot pour mot : le menu (`labels`, neutre)
+  // la lit, les écrivains des bons de commande et leurs écrans aussi, et TROIS fichiers d'Adam
+  // citaient l'ancienne adresse en toutes lettres dans leurs chemins à rafraîchir — c'étaient les
+  // copies qui seraient restées sur `/finances/bons-de-commande` quand le module est parti, et un
+  // rafraîchissement qui vise une adresse morte laisse l'écran réel afficher l'état d'avant.
+  // Les lire ici ne déplace aucun franchissement : le compteur ne bouge pas.
+  //
+  // Le chemin est EXACT, pas le dossier.
+  "src/lib/chemins/bons-de-commande",
 ]);
 
 export interface Violation {

@@ -3,6 +3,7 @@ import { recordAudit } from "@/lib/audit";
 import { toNumber } from "@/lib/utils";
 import { buildRef } from "@/lib/refs";
 import { settlementAction, invoiceDirection, invoiceSettlementLabel } from "@/lib/finances/settlement";
+import { compteDeLEcriture } from "@/lib/finance/comptes";
 
 /**
  * L'ÉCRITURE FINANCIÈRE D'UNE FACTURE SAISIE COMME DÉJÀ RÉGLÉE.
@@ -94,6 +95,8 @@ export async function syncInvoiceSettlement(documentId: string, actorId: string)
       counterparty: doc.counterparty,
       status: "SETTLED",
       companyId: doc.companyId,
+      // Le compte d'où part (ou où arrive) le règlement, figé à l'écriture (§118.176).
+      treasuryAccountId: await compteDeLEcriture({ compte: "Banque", societeId: doc.companyId }),
       createdById: actorId,
     },
     select: { id: true },

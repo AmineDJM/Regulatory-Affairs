@@ -49,8 +49,17 @@ describe("PAYMENT_PATHS — le registre qu'on relit avant d'ajouter un geste d'a
   it("les exceptions à la règle de la Direction sont NOMMÉES — et ce sont exactement celles qu'on a mesurées", () => {
     // Si ce cas tombe, c'est qu'un chemin a changé de camp : soit la Direction a tranché (et le
     // registre doit le dire), soit un nouveau décaissement échappe au centre sans décision.
-    expect(horsCentre().map((p) => p.key).sort()).toEqual(["payroll", "petty-cash-allotment", "petty-cash-top-up"]);
+    // Le 01/10/2026 la Direction a fait passer la paie et la remise mensuelle par le centre
+    // (§118.176) : seule la rallonge, qu'elle n'a pas nommée, reste dehors.
+    expect(horsCentre().map((p) => p.key).sort()).toEqual(["petty-cash-top-up"]);
     for (const p of horsCentre()) expect(p.centreWhy, p.key).toMatch(/Direction/);
+  });
+
+  it("la PAIE et la REMISE de caisse passent par le centre (§118.176) — avec la phrase de la Direction", () => {
+    for (const key of ["payroll", "petty-cash-allotment"]) {
+      expect(paymentPath(key)?.centre, key).toBe("AUTORISE");
+      expect(paymentPath(key)?.centreWhy, key).toMatch(/01\/10\/2026/);
+    }
   });
 
   it("chaque exception porte la DÉCISION qui l'assume — et seules les exceptions en portent une", () => {

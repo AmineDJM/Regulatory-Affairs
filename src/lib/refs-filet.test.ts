@@ -30,7 +30,6 @@ const DETTE = new Set([
   "src/lib/actions/directive-actions.ts",
   "src/lib/actions/finance-actions.ts",
   "src/lib/actions/logistics-actions.ts",
-  "src/lib/actions/payroll-hr-actions.ts",
   "src/lib/actions/pch-actions.ts",
   "src/lib/actions/purchase-request-actions.ts",
   "src/lib/actions/regulatory-actions.ts",
@@ -115,7 +114,10 @@ describe("Cliquet — une référence numérotée porte son filet", () => {
     const { sansFilet } = etat();
     const repares = [...DETTE].filter((f) => !sansFilet.includes(f));
     expect(repares, "réparé : retirez-le de DETTE — un cliquet qui ne peut pas descendre ne garde rien (§118.79c)").toEqual([]);
-    expect(DETTE.size, "dette mesurée le 02/10/2026").toBeLessThanOrEqual(12);
+    // 12 → 11 (§118.176) : la paie ne numérote plus rien elle-même — le « transfert au budget », qui
+    // écrivait une écriture FIN par salarié sans filet, n'existe plus ; l'envoi au centre passe par
+    // `createExpenseOrder`, qui porte le sien.
+    expect(DETTE.size, "dette mesurée le 02/10/2026").toBeLessThanOrEqual(11);
   });
 
   it("les trois créations réparées par ce lot gardent leur filet", () => {

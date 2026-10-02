@@ -28,6 +28,47 @@ import { fdStr, fdNum, type ActionResult } from "@/lib/actions/types";
 const PATH = "/centre-de-paiement";
 
 /**
+ * UNE REMISE DE CAISSE D'AVANCE REFUSÉE SORT DU FOND (§118.176).
+ *
+ * Elle avait été inscrite par les RH en attente du centre : refusée, elle n'a jamais eu lieu. On
+ * la CLÔT — elle quitte la caisse en cours sans rien emporter, puisque rien n'a pu y être dépensé
+ * — et la raison du refus s'écrit sur elle, lisible là où la détentrice l'attendait. La garder
+ * ouverte la ferait compter parmi les sommes « remises », et relancer une confirmation qu'aucune
+ * réception ne pourra donner. L'écran la montre « refusée par le centre », pas « soldée » : il le
+ * lit sur l'ordre, qui le dit.
+ *
+ * La paie refusée n'a rien à écrire : son état se lit sur l'ordre, et ses salaires redeviennent
+ * « à envoyer » d'eux-mêmes (`virementCouvre`). Les RH qui l'ont envoyée sont prévenues comme tout
+ * demandeur.
+ */
+async function suitesDuRefus(orderId: string, motif: string): Promise<void> {
+  try {
+    const remise = await prisma.pettyCashAllotment.findUnique({
+      where: { expenseOrderId: orderId },
+      select: { id: true, status: true, note: true, holderId: true, createdById: true, amount: true, department: { select: { name: true } } },
+    });
+    if (!remise || remise.status !== "ALLOTTED") return;
+    const raison = `Refusée par le centre de paiement : ${motif}`;
+    await prisma.pettyCashAllotment.updateMany({
+      where: { id: remise.id, status: "ALLOTTED" },
+      data: { status: "CLOSED", note: remise.note ? `${remise.note} — ${raison}` : raison },
+    });
+    if (remise.holderId && remise.holderId !== remise.createdById) {
+      await notifyUser({
+        userId: remise.holderId, type: "GENERIC", title: "Remise de caisse refusée",
+        body: `${Number(remise.amount).toLocaleString("fr-FR")} DZD annoncés pour la caisse ${remise.department.name} : refusés par le centre de paiement — ${motif.slice(0, 200)}`,
+        link: "/moyens-generaux",
+      });
+    }
+    revalidatePath("/moyens-generaux");
+  } catch (e) {
+    // La décision est déjà écrite : une remise qui ne se clôt pas reste visible « refusée » à
+    // l'écran (lu sur l'ordre) et ne peut pas être confirmée. Rien ne doit défaire le refus.
+    console.error("[centre] remise de caisse refusée non close", e);
+  }
+}
+
+/**
  * DEUX DÉCISIONS, ET DEUX SEULEMENT : autoriser ou refuser.
  *
  * `REQUEST_CHANGES` (« réviser le montant ») et `REQUEST_INFO` (« demander une argumentation »)
@@ -122,6 +163,8 @@ export async function decidePayment(formData: FormData): Promise<ActionResult> {
     actorId: user.id, action: "UPDATE", module: "Finances", entityType: "EXPENSE_ORDER", entityId: id,
     summary: `Centre de paiement — ${CENTRAL_DECISION_LABEL[decision]} : ${order.reference} « ${order.label} » (${money})`,
   });
+
+  if (next === "REFUSED") await suitesDuRefus(id, body.trim());
 
   // On prévient CELUI QUI ATTEND : le demandeur quand la balle lui revient, la comptabilité quand
   // le paiement est enfin exécutable.

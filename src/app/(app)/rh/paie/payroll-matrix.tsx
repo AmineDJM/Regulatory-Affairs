@@ -3,17 +3,22 @@
 import * as React from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Loader2, Check, Undo2, Pencil, PiggyBank, ChevronLeft, ChevronRight, ArrowLeft, Paperclip, FileWarning } from "lucide-react";
-import { markSalaryPaid, unmarkSalaryPaid, updatePayrollEntry, transferPayrollToBudget } from "@/lib/actions/payroll-hr-actions";
+import { Loader2, Check, Undo2, Pencil, ChevronLeft, ChevronRight, Paperclip, FileWarning, Send } from "lucide-react";
+import { markSalaryPaid, unmarkSalaryPaid, updatePayrollEntry } from "@/lib/actions/payroll-hr-actions";
 import { Button } from "@/components/ui/button";
 import { Sheet } from "@/components/ui/sheet";
-import { Input, Label, Select } from "@/components/ui/input";
+import { Input, Label } from "@/components/ui/input";
 import { formatBytes, formatCurrency, formatMonth } from "@/lib/utils";
 import { DocumentPreview } from "@/components/documents/document-preview";
 
 export interface PayrollCell {
-  state: "UNPAID" | "PAID" | "TRANSFERRED";
-  /** Brut = base du transfert budgétaire. */
+  /**
+   * Où en est le salaire (§118.176) : `UNPAID` rien de saisi ; `SAISI` saisi, pas encore envoyé ;
+   * `ENVOYE` dans la paie de l'entité partie au centre de paiement ; `VIRE` réglé par les Finances
+   * (ou transféré par l'ancien circuit). « Payé » avant le virement aurait été une promesse.
+   */
+  state: "UNPAID" | "SAISI" | "ENVOYE" | "VIRE";
+  /** Brut — ligne de bulletin. */
   amount: number | null;
   /** Net = ce que perçoit le salarié. */
   net: number | null;
@@ -43,31 +48,22 @@ export interface PayrollRow {
 const MONTHS = ["Jan", "Fév", "Mar", "Avr", "Mai", "Juin", "Juil", "Août", "Sep", "Oct", "Nov", "Déc"];
 const ym = (year: number, month: number) => `${year}-${String(month).padStart(2, "0")}`;
 
-export function PayrollMatrix({ year, rows, budgetOptions }: { year: number; rows: PayrollRow[]; budgetOptions: { id: string; label: string }[] }) {
+const ETAT_CELLULE: Record<Exclude<PayrollCell["state"], "UNPAID">, { texte: string; classe: string; titre: string }> = {
+  SAISI: { texte: "Saisi", classe: "bg-success/15 text-success", titre: "saisi — part au centre de paiement avec la paie de son entité (annulable tant qu'elle n'est pas envoyée)" },
+  ENVOYE: { texte: "Envoyé", classe: "bg-warning/15 text-warning", titre: "dans la paie envoyée au centre de paiement — virée une fois autorisée" },
+  VIRE: { texte: "Viré", classe: "bg-primary/10 text-primary", titre: "viré par les Finances" },
+};
+
+export function PayrollMatrix({ year, rows }: { year: number; rows: PayrollRow[] }) {
   const router = useRouter();
   const [paying, setPaying] = React.useState<{ row: PayrollRow; month: number } | null>(null);
-  // CORRIGER une ligne déjà payée : le même formulaire, prérempli avec ce qui a été enregistré.
+  // CORRIGER une ligne déjà saisie : le même formulaire, prérempli avec ce qui a été enregistré.
   const [editing, setEditing] = React.useState<{ row: PayrollRow; month: number; cell: PayrollCell } | null>(null);
-  const [transfer, setTransfer] = React.useState(false);
   const [busy, setBusy] = React.useState(false);
   const [err, setErr] = React.useState<string | null>(null);
 
-  // Assistant de transfert : étape 1 = mois + catégorie (modifiables), étape 2 = résumé.
-  const [step, setStep] = React.useState<1 | 2>(1);
-  const [tMonth, setTMonth] = React.useState<number>(new Date().getFullYear() === year ? new Date().getMonth() + 1 : 12);
-  const [tCategory, setTCategory] = React.useState<string>(budgetOptions[0]?.id ?? "");
-
-  const transferable = React.useMemo(
-    () => rows
-      .map((r) => ({ name: r.name, cell: r.months[tMonth - 1] }))
-      .filter((x) => x.cell.state === "PAID"),
-    [rows, tMonth],
-  );
-  const transferTotal = transferable.reduce((a, x) => a + (x.cell.amount ?? 0), 0);
-  const categoryLabel = budgetOptions.find((b) => b.id === tCategory)?.label ?? "—";
-
   async function undo(entryId: string, name: string, month: number) {
-    if (!window.confirm(`Annuler le paiement de ${name} pour ${formatMonth(ym(year, month))} ? (possible tant que non transféré)`)) return;
+    if (!window.confirm(`Annuler la saisie de ${name} pour ${formatMonth(ym(year, month))} ? (possible tant que la paie n'est pas envoyée au centre)`)) return;
     const fd = new FormData(); fd.set("id", entryId);
     const r = await unmarkSalaryPaid(fd);
     if (!r.ok) window.alert(r.error ?? "Échec.");
@@ -82,9 +78,12 @@ export function PayrollMatrix({ year, rows, budgetOptions }: { year: number; row
           <span className="min-w-16 text-center text-sm font-semibold">{year}</span>
           <Link href={`/rh/paie?year=${year + 1}`} className="rounded-md border border-border p-1.5 hover:bg-secondary"><ChevronRight className="h-4 w-4" /></Link>
         </div>
-        <Button size="sm" onClick={() => { setStep(1); setErr(null); setTransfer(true); }}>
-          <PiggyBank className="h-4 w-4" /> Transférer dans le budget
-        </Button>
+        {/* LE « TRANSFERT AU BUDGET » N'EXISTE PLUS (§118.176) : il écrivait un décaissement par
+            salarié, hors du centre de paiement. La paie part au centre, entité par entité, depuis
+            le panneau « Virement de la paie » — c'est son règlement qui l'inscrit au livre. */}
+        <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
+          <Send className="h-3.5 w-3.5" /> Envoi au centre de paiement : panneau « Virement de la paie » ci-dessus.
+        </span>
       </div>
 
       <div className="surface overflow-x-auto">
@@ -112,10 +111,10 @@ export function PayrollMatrix({ year, rows, budgetOptions }: { year: number; row
                     ) : (
                       <div className="group relative inline-flex flex-col items-center">
                         <span
-                          className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium ${cell.state === "TRANSFERRED" ? "bg-primary/10 text-primary" : "bg-success/15 text-success"}`}
-                          title={`${cell.amount != null ? `Brut ${formatCurrency(cell.amount)} (→ budget)` : ""}${cell.net != null ? ` · Net ${formatCurrency(cell.net)} (salarié)` : ""}${cell.state === "TRANSFERRED" ? " · transféré au budget" : " · payé (annulable avant transfert)"}`}
+                          className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium ${ETAT_CELLULE[cell.state].classe}`}
+                          title={`${cell.employerCost != null ? `Coût employeur ${formatCurrency(cell.employerCost)}` : cell.amount != null ? `Brut ${formatCurrency(cell.amount)}` : ""}${cell.net != null ? ` · Net ${formatCurrency(cell.net)} (salarié)` : ""} · ${ETAT_CELLULE[cell.state].titre}`}
                         >
-                          <Check className="h-3 w-3" /> Payé
+                          <Check className="h-3 w-3" /> {ETAT_CELLULE[cell.state].texte}
                         </span>
                         {/* LA FICHE DE PAIE, VISIBLE SANS SURVOL. Le trombone n'est pas un
                             ornement : c'est la preuve que le bulletin est bien là, et le lien
@@ -157,7 +156,7 @@ export function PayrollMatrix({ year, rows, budgetOptions }: { year: number; row
                             >
                               <Pencil className="h-3 w-3" /> modifier
                             </button>
-                            {cell.state === "PAID" && (
+                            {cell.state === "SAISI" && (
                               <button
                                 onClick={() => undo(cell.entryId!, r.name, i + 1)}
                                 className="inline-flex items-center gap-0.5 text-[0.625rem] text-muted-foreground hover:text-destructive"
@@ -177,19 +176,19 @@ export function PayrollMatrix({ year, rows, budgetOptions }: { year: number; row
         </table>
       </div>
       <p className="text-xs text-muted-foreground">
-        Vert = payé (annulable tant que non transféré) · Bleu = transféré dans le budget.
-        Le <strong>trombone</strong> ouvre la fiche de paie du mois ; « sans fiche » signale un mois
-        payé dont le bulletin manque encore — on le dépose d&apos;un clic. Une ligne se
-        <strong> corrige</strong> dans les deux cas — après transfert, l&apos;écriture budgétaire est
-        corrigée avec elle. L&apos;employé reçoit sa notification 24 h après le marquage.
+        Vert = saisi (annulable tant que la paie n&apos;est pas envoyée) · Orange = envoyé au centre de paiement ·
+        Bleu = viré par les Finances. Le <strong>trombone</strong> ouvre la fiche de paie du mois ; « sans fiche »
+        signale un mois saisi dont le bulletin manque encore — on le dépose d&apos;un clic. Une ligne se
+        <strong> corrige</strong> à tout moment ; une paie déjà envoyée garde la somme déclarée à l&apos;envoi.
+        L&apos;employé est prévenu au virement, et jamais moins de 24 h après la saisie.
       </p>
 
       {/* Marquer payé : montant total + fiche de paie */}
       <Sheet
         open={paying !== null}
         onClose={() => !busy && setPaying(null)}
-        title={paying ? `Payer — ${paying.row.name}` : ""}
-        description={paying ? `${formatMonth(ym(year, paying.month))} · la fiche de paie (facultative), si jointe, sera déposée dans son dossier RH ; il sera notifié dans 24 h.` : undefined}
+        title={paying ? `Saisir la paie — ${paying.row.name}` : ""}
+        description={paying ? `${formatMonth(ym(year, paying.month))} · la fiche de paie (facultative), si jointe, sera déposée dans son dossier RH ; le salarié sera prévenu au virement de la paie de son entité.` : undefined}
         width="md"
       >
         {paying && (
@@ -229,26 +228,27 @@ export function PayrollMatrix({ year, rows, budgetOptions }: { year: number; row
             <div className="space-y-1.5">
               <Label htmlFor="pay-file">Fiche de paie <span className="text-xs font-normal text-muted-foreground">(facultatif)</span></Label>
               <input id="pay-file" name="payslip" type="file" className="block w-full text-sm text-muted-foreground file:mr-3 file:rounded-lg file:border-0 file:bg-secondary file:px-3 file:py-1.5 file:text-sm file:font-medium" />
-              <p className="text-xs text-muted-foreground">Optionnel — vous pouvez marquer payé sans joindre la fiche.</p>
+              <p className="text-xs text-muted-foreground">Optionnel — vous pouvez saisir le salaire sans joindre la fiche.</p>
             </div>
             {err && <p className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">{err}</p>}
             <div className="flex justify-end gap-2">
               <Button type="button" variant="outline" onClick={() => setPaying(null)} disabled={busy}>Annuler</Button>
-              <Button type="submit" disabled={busy}>{busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />} Marquer payé</Button>
+              <Button type="submit" disabled={busy}>{busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />} Enregistrer la saisie</Button>
             </div>
           </form>
         )}
       </Sheet>
 
-      {/* CORRIGER une ligne déjà payée — le même formulaire, prérempli. Refuser la correction
-          après transfert, c'est garantir qu'on vit avec un chiffre faux : personne ne défera un
-          transfert de paie pour mille dinars. On corrige donc, et le budget suit. */}
+      {/* CORRIGER une ligne déjà saisie — le même formulaire, prérempli. Refuser la correction
+          après l'envoi, c'est garantir qu'on vit avec un bulletin faux : personne ne défera une
+          paie virée pour mille dinars. On corrige la ligne ; le virement, lui, porte la somme
+          déclarée à l'envoi (§118.176) — et l'ancien transfert au budget suit sa ligne comme avant. */}
       <Sheet
         open={editing !== null}
         onClose={() => !busy && setEditing(null)}
         title={editing ? `Corriger la paie — ${editing.row.name}` : ""}
         description={editing
-          ? `${formatMonth(ym(year, editing.month))}${editing.cell.state === "TRANSFERRED" ? " · déjà transférée : l'écriture budgétaire sera corrigée avec la ligne." : ""}`
+          ? `${formatMonth(ym(year, editing.month))}${editing.cell.state === "VIRE" || editing.cell.state === "ENVOYE" ? " · la paie de ce mois est déjà envoyée : la ligne se corrige, la somme déclarée au centre ne change pas." : ""}`
           : undefined}
         width="md"
       >
@@ -324,74 +324,6 @@ export function PayrollMatrix({ year, rows, budgetOptions }: { year: number; row
         )}
       </Sheet>
 
-      {/* Transfert budget : étape 1 (mois + catégorie) → étape 2 (résumé) → confirmation */}
-      <Sheet open={transfer} onClose={() => !busy && setTransfer(false)} title="Transférer la paie dans le budget" width="md">
-        <div className="space-y-4">
-          {step === 1 ? (
-            <>
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1.5">
-                  <Label htmlFor="t-month">Mois</Label>
-                  <Select id="t-month" value={String(tMonth)} onChange={(e) => setTMonth(Number(e.target.value))}>
-                    {MONTHS.map((m, i) => <option key={i} value={i + 1}>{m} {year}</option>)}
-                  </Select>
-                </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor="t-cat">Catégorie budgétaire exacte</Label>
-                  <Select id="t-cat" value={tCategory} onChange={(e) => setTCategory(e.target.value)}>
-                    {budgetOptions.map((b) => <option key={b.id} value={b.id}>{b.label}</option>)}
-                  </Select>
-                </div>
-              </div>
-              <p className="text-xs text-muted-foreground">
-                {transferable.length} salaire·s payé·s non transféré·s pour {formatMonth(ym(year, tMonth))} — total <span className="font-medium text-foreground">brut</span> {formatCurrency(transferTotal)} (montant imputé au budget).
-              </p>
-              <div className="flex justify-end gap-2">
-                <Button type="button" variant="outline" onClick={() => setTransfer(false)}>Annuler</Button>
-                <Button type="button" disabled={transferable.length === 0 || !tCategory} onClick={() => setStep(2)}>Voir le résumé</Button>
-              </div>
-            </>
-          ) : (
-            <>
-              <div className="rounded-lg border border-border bg-muted/20 p-3 text-sm">
-                <p className="mb-2 font-medium">Résumé du transfert — {formatMonth(ym(year, tMonth))}</p>
-                <ul className="max-h-56 space-y-1 overflow-y-auto">
-                  {transferable.map((x) => (
-                    <li key={x.name} className="flex items-center justify-between gap-2">
-                      <span>{x.name}</span>
-                      <span className="font-medium">{x.cell.amount != null ? formatCurrency(x.cell.amount) : "—"}</span>
-                    </li>
-                  ))}
-                </ul>
-                <div className="mt-2 flex items-center justify-between border-t border-border pt-2">
-                  <span className="font-medium">Total brut ({transferable.length} salaire·s)</span>
-                  <span className="text-base font-semibold">{formatCurrency(transferTotal)}</span>
-                </div>
-                <p className="mt-2 text-xs text-muted-foreground">Catégorie budgétaire : <span className="font-medium text-foreground">{categoryLabel}</span></p>
-              </div>
-              <p className="text-xs text-muted-foreground">Une écriture de trésorerie « Salaire » (sortie) est créée par employé sur le montant <span className="font-medium text-foreground">brut</span> (coût réel), imputée à cette catégorie. Le net reste ce que perçoit le salarié. Les lignes transférées sont ensuite verrouillées.</p>
-              {err && <p className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">{err}</p>}
-              <div className="flex justify-between gap-2">
-                <Button type="button" variant="outline" onClick={() => setStep(1)} disabled={busy}><ArrowLeft className="h-4 w-4" /> Retour / modifier</Button>
-                <Button
-                  type="button"
-                  disabled={busy}
-                  onClick={async () => {
-                    setBusy(true); setErr(null);
-                    const fd = new FormData();
-                    fd.set("year", String(year)); fd.set("month", String(tMonth)); fd.set("budgetCategoryId", tCategory);
-                    const r = await transferPayrollToBudget(fd);
-                    setBusy(false);
-                    if (r.ok) { setTransfer(false); setStep(1); router.refresh(); } else setErr(r.error ?? "Échec.");
-                  }}
-                >
-                  {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <PiggyBank className="h-4 w-4" />} Confirmer le transfert
-                </Button>
-              </div>
-            </>
-          )}
-        </div>
-      </Sheet>
     </div>
   );
 }

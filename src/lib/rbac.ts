@@ -87,6 +87,14 @@ export const MODULES = [
   // édition). Choisir un article dans une demande ne demande pas ce module : c'est une liste de
   // référence, comme celle des produits.
   "PROMO_CATALOG",
+  // PURCHASE_ORDERS : « Bons de commande » — la file des bons de commande à SIGNER (§118.149),
+  // devenue un module À PART des Finances (décision de la Direction, 01/10/2026 : « le module bon
+  // de commande doit être à part et le super admin donne les accès à qui il veut », §118.176).
+  // « Voir » ouvre la file et la lecture des bons de commande (fiche, fichiers émis) ; « Modifier »
+  // est le droit de SIGNER — c'est la case que le Super Admin coche dans Administration › Accès.
+  // Composer un bon de commande reste un geste de Legal ou des Finances : il écrit au registre et
+  // engage une société, ce module ne l'ouvre pas.
+  "PURCHASE_ORDERS",
 ] as const;
 export type Module = (typeof MODULES)[number];
 
@@ -136,6 +144,20 @@ const DOSSIERS_USER: Action[] = ["VIEW", "CREATE", "UPDATE", "UPLOAD"];
 // Moyens généraux : celui qui ACHÈTE au quotidien saisit ses dépenses et leurs pièces, tient
 // sa caisse d'avance et consulte son budget — il ne l'ALLOUE pas (c'est `BUDGETS`, ailleurs).
 const GENERAL_MEANS_USER: Action[] = ["VIEW", "CREATE", "UPDATE", "UPLOAD", "EXPORT"];
+/**
+ * BONS DE COMMANDE (§118.176) — « Voir » ouvre la file et la lecture des bons de commande,
+ * « Modifier » est le droit de SIGNER. Les défauts reproduisent EXACTEMENT le périmètre d'hier,
+ * quand la file vivait dans les Finances : qui modifiait les Finances signait (Direction,
+ * Directeur Général, Finances & Budget), qui les lisait voyait la file (Directeur des opérations).
+ * Personne ne perd l'écran le jour où la règle change de forme (§118.163) ; tout le reste se règle
+ * désormais personne par personne dans Administration › Accès — c'est la demande.
+ *
+ * ÉCRITS, pas dérivés des Finances : un module « à part » qui suivrait les droits des Finances ne
+ * serait pas à part — un rôle qui gagnerait demain les Finances gagnerait aussi la signature, sans
+ * que personne l'ait décidé (§118.130).
+ */
+const BC_SIGNATAIRE: Action[] = ["VIEW", "UPDATE"];
+const BC_LECTEUR: Action[] = ["VIEW"];
 
 type RoleMatrix = Partial<Record<Module, Action[]>>;
 
@@ -166,6 +188,8 @@ export const PERMISSIONS: Record<UserRole, RoleMatrix> = {
     NOTIFICATIONS: ["VIEW"],
     // Le SITE PUBLIC (§118.158) : les articles de blog et l'état de la publication.
     SITE_WEB: MANAGE,
+    // Les BONS DE COMMANDE (§118.176) : elle signait hier (Finances en écriture) — elle signe encore.
+    PURCHASE_ORDERS: BC_SIGNATAIRE,
     // NB : Administration et Adventum Brain (+ Process Intelligence) sont réservés au
     // Super Admin. La Direction n'y a plus accès.
   },
@@ -205,6 +229,8 @@ export const PERMISSIONS: Record<UserRole, RoleMatrix> = {
     NOTIFICATIONS: ["VIEW"],
     // Le SITE PUBLIC (§118.158) — tous les pouvoirs métier, la communication de l'entreprise comprise.
     SITE_WEB: MANAGE,
+    // Les BONS DE COMMANDE (§118.176) : il signait hier (Finances en écriture) — il signe encore.
+    PURCHASE_ORDERS: BC_SIGNATAIRE,
   },
   // DIRECTEUR DES OPÉRATIONS — rôle À PART, pas une Direction au rabais.
   //
@@ -225,6 +251,9 @@ export const PERMISSIONS: Record<UserRole, RoleMatrix> = {
     // promotionnel, mais aussi la gestion du matériel de ses équipes — les superviseurs en dessous
     // de lui et les KAM ». Le module ouvre l'écran ; la règle dit QUI sont ses équipes.
     PROMO_STOCK: CONTRIBUTE,
+    // Les BONS DE COMMANDE (§118.176) : il lisait les Finances, donc il voyait la file — il la voit
+    // encore, sans signer.
+    PURCHASE_ORDERS: BC_LECTEUR,
   },
   HEAD_OF_REGULATORY: {
     WORKSPACE: WORKSPACE_USER, FEEDBACK: FEEDBACK_USER, MESSAGING: MESSAGING_USER, VALIDATIONS: VALIDATION_USER, DRIVE: DRIVE_USER, ADMIN_REQUESTS: REQUEST_USER, REGULATORY: MANAGE, DOCUMENTS: CONTRIBUTE, BUDGETS: READ, DIRECTIVES: DIRECTIVES_USER, SUPPORT: SUPPORT_USER, DOSSIERS: DOSSIERS_USER, NOTIFICATIONS: ["VIEW"],
@@ -318,6 +347,8 @@ export const PERMISSIONS: Record<UserRole, RoleMatrix> = {
     DOCUMENTS: READ, MEDICAL_INFO: ["VIEW", "UPLOAD"], PROMO_MATERIAL: ["VIEW", "UPLOAD", "EXPORT"], CONSULTING: READ, AD_PRO_OTHER: READ, DIRECTIVES: DIRECTIVES_USER, SUPPORT: SUPPORT_USER, DOSSIERS: DOSSIERS_USER, NOTIFICATIONS: ["VIEW"],
     // Le stock promotionnel en lecture : ce qui est entré, ce qui reste (§118.164).
     PROMO_STOCK: READ,
+    // Les BONS DE COMMANDE (§118.176) : c'est leur file — la signature est leur métier.
+    PURCHASE_ORDERS: BC_SIGNATAIRE,
   },
   // Pharmacien responsable de l'information médicale : déclare aux autorités les
   // événements validés définitivement, exige des pièces, puis valide (→ ordre de

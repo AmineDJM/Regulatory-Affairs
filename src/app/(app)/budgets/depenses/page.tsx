@@ -32,7 +32,7 @@ export default async function BudgetExpensesPage({ searchParams }: { searchParam
       ) : (
         <>
           <BudgetContextBar envelopes={envelopes} currentId={overview.envelope.id} from={overview.period.from} to={overview.period.to} />
-          <BudgetExpenses overview={overview} canAttribute={canAttribute} />
+          <BudgetExpenses overview={overview} canAttribute={canAttribute} canDelete={user.role === "SUPER_ADMIN"} />
         </>
       )}
     </div>

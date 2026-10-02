@@ -447,6 +447,13 @@ export const DELETE_REGISTRY: Record<DeletableKind, KindSpec> = {
     async remove(id) {
       await prisma.financeTransaction.delete({ where: { id } });
     },
+    // UN LOT (§118.176) — « supprime carrément ça, une ou plusieurs » (Direction, 01/10, sur les
+    // écritures « à imputer »). Supprimée seule, une écriture laissait derrière elle ce qui la
+    // CITE : la facture qu'elle règle (clé mise à vide, jamais rétablie à la restauration), l'ordre
+    // de dépense, la dotation de caisse ou le bulletin qui la nomment par un champ texte (qui
+    // désignaient alors une écriture disparue). En lot, ces liens sont vidés ensemble, NOMMÉS
+    // avant le clic (« ce qui reste mais perd son lien »), et rétablis si on la restaure.
+    lot: true,
   },
   EXPENSE_ORDER: {
     label: "ordre de dépense",

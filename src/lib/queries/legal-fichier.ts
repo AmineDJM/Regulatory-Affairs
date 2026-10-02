@@ -11,14 +11,19 @@ import { fichiersEmis, type FormatFichierEmis } from "@/lib/legal/fichiers-emis"
  *
  * Deux portes, et ce sont celles qui existent déjà :
  *   • celle de l'écran Legal : la portée (`legalViewScope` — le registre entier pour Legal, les
- *     seules factures et bons de commande pour les Finances), la société, les lecteurs désignés ;
+ *     seules factures et bons de commande pour les Finances, les seuls bons de commande pour le
+ *     module « Bons de commande », §118.176), la société, les lecteurs désignés ;
  *   • celle de l'ENREGISTREMENT (`canAccessEntity`), qui ouvre en lecture les pièces nées d'un
  *     dossier de matériel promotionnel à ceux qui ouvrent le dossier.
  * Aucune troisième règle : le fichier suit la pièce, et une pièce que la fiche refuse, son fichier
  * le refuse aussi.
  */
 export async function peutLireLaPieceLegale(user: SessionUser, doc: { id: string; kind: string }): Promise<boolean> {
-  const portee = legalViewScope({ onLegal: userCan(user, "LEGAL", "VIEW"), onFinances: userCan(user, "FINANCES", "VIEW") });
+  const portee = legalViewScope({
+    onLegal: userCan(user, "LEGAL", "VIEW"),
+    onFinances: userCan(user, "FINANCES", "VIEW"),
+    onBonsDeCommande: userCan(user, "PURCHASE_ORDERS", "VIEW"),
+  });
   if (portee !== "NONE" && legalKindVisible(portee, doc.kind)) {
     const readerScope = legalReaderWhere({ viewerId: user.id, isSuperAdmin: user.role === "SUPER_ADMIN" });
     const trouve = await prisma.legalDocument.findFirst({

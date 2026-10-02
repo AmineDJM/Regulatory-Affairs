@@ -244,3 +244,81 @@ export async function apercuDeSuppression(formData: FormData): Promise<ApercuSup
   if (!(await peutSupprimerDepuisSonModule(user, kind, id))) return { erreur: "Réservé à qui peut supprimer cet élément." };
   return apercuSuppression(kind, id);
 }
+
+/**
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ * SUPPRIMER UNE SÉLECTION D'UN GESTE — les écritures « à imputer » (§118.176).
+ *
+ * « Tu dois me donner la main pour que je supprime carrément ça, une ou plusieurs » (Direction,
+ * 01/10, devant la liste « À imputer » des Budgets : une facture informative datée de décembre,
+ * deux fois la même location de voiture, des dotations de caisse). Le geste est celui du Super
+ * Admin, au MÊME cœur que sa suppression unitaire : chaque écriture part en lot à la corbeille,
+ * avec ce qui la cite (vidé, nommé, rétabli si on la restaure, §118.162).
+ *
+ * Trois propriétés :
+ *   • CHAQUE élément est indépendant : une écriture refusée n'empêche pas les autres de partir, et
+ *     le refus est NOMMÉ, élément par élément — un lot partiellement valide applique ce qu'il peut
+ *     et DIT le reste (§104.6). Jamais « 5 supprimées » sur quatre.
+ *   • La liste des types est FERMÉE (`SUPPRESSION_GROUPEE`) : la demande porte sur les écritures, et
+ *     un geste de sélection sur tout le registre serait une empreinte plus large que la demande
+ *     (§118.16). L'élargir est une décision.
+ *   • Une limite opérationnelle, dite comme telle (§118.2) : au-delà de `MAX_PAR_GESTE`, refus en
+ *     nommant le nombre — l'écran n'en montre de toute façon que trente à la fois.
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ */
+const SUPPRESSION_GROUPEE: ReadonlySet<DeletableKind> = new Set<DeletableKind>(["FINANCE_TRANSACTION"]);
+const MAX_PAR_GESTE = 100;
+
+export interface ResultatSuppressionGroupee {
+  ok: boolean;
+  error?: string;
+  message?: string;
+  supprimes: string[];
+  refus: { nom: string; raison: string }[];
+}
+
+export async function superAdminDeleteMany(formData: FormData): Promise<ResultatSuppressionGroupee> {
+  const user = await requireUser();
+  const vide = { supprimes: [] as string[], refus: [] as { nom: string; raison: string }[] };
+  if (user.role !== "SUPER_ADMIN") return { ok: false, error: "Réservé au Super Admin.", ...vide };
+  const kind = String(formData.get("kind") ?? "");
+  const ids = [...new Set(formData.getAll("id").map((v) => String(v)).filter(Boolean))];
+  if (!isDeletableKind(kind) || !SUPPRESSION_GROUPEE.has(kind)) return { ok: false, error: "Ce type d'élément ne se supprime pas en sélection.", ...vide };
+  if (ids.length === 0) return { ok: false, error: "Aucun élément sélectionné.", ...vide };
+  if (ids.length > MAX_PAR_GESTE) {
+    return { ok: false, error: `${ids.length} éléments sélectionnés : au-delà de ${MAX_PAR_GESTE}, une suppression ne se fait pas d'un seul geste.`, ...vide };
+  }
+  const spec = DELETE_REGISTRY[kind];
+  const supprimes: string[] = [];
+  const refus: { nom: string; raison: string }[] = [];
+  for (const id of ids) {
+    const nom = (await spec.describe(id)) ?? id;
+    const r = await supprimerReversible(kind, id, user.id, `Suppression définitive (Super Admin, sélection de ${ids.length}) — ${spec.label} « ${nom} » (restaurable depuis la corbeille)`);
+    if (r.ok) supprimes.push(nom);
+    else refus.push({ nom, raison: r.error ?? "Suppression refusée." });
+  }
+  const n = supprimes.length;
+  const phrase = n === 0
+    ? "Aucun élément supprimé."
+    : `${n} ${n > 1 ? "écritures supprimées" : "écriture supprimée"} — restaurable${n > 1 ? "s" : ""} depuis Administration › Corbeille.`;
+  const detailRefus = refus.length ? ` ${refus.length} refusée${refus.length > 1 ? "s" : ""} : ${refus.map((x) => `${x.nom} (${x.raison})`).join(" ; ")}.` : "";
+  return { ok: n > 0, ...(n === 0 ? { error: phrase + detailRefus } : { message: phrase + detailRefus }), supprimes, refus };
+}
+
+/**
+ * L'APERÇU D'UNE SÉLECTION — ce que chaque élément emporte et ce qui, en restant, perd son lien,
+ * lu par le MÊME inventaire que la suppression (`apercuSuppression`) : la confirmation dit ce qui
+ * se passera, élément par élément, avant le clic (§118.53). N'écrit rien.
+ */
+export async function apercuSuppressionGroupee(formData: FormData): Promise<{ erreur: string } | { elements: (ApercuSuppression & { id: string })[] }> {
+  const user = await requireUser();
+  if (user.role !== "SUPER_ADMIN") return { erreur: "Réservé au Super Admin." };
+  const kind = String(formData.get("kind") ?? "");
+  const ids = [...new Set(formData.getAll("id").map((v) => String(v)).filter(Boolean))];
+  if (!isDeletableKind(kind) || !SUPPRESSION_GROUPEE.has(kind)) return { erreur: "Ce type d'élément ne se supprime pas en sélection." };
+  if (ids.length === 0 || ids.length > MAX_PAR_GESTE) return { erreur: ids.length === 0 ? "Aucun élément sélectionné." : `Au-delà de ${MAX_PAR_GESTE} éléments, une suppression ne se fait pas d'un seul geste.` };
+  const elements: (ApercuSuppression & { id: string })[] = [];
+  for (const id of ids) elements.push({ id, ...(await apercuSuppression(kind, id)) });
+  return { elements };
+}
+

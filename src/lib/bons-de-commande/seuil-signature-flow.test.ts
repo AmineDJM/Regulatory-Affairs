@@ -139,13 +139,15 @@ suite("Seuil des bons de commande et signature des Finances — le flux réel", 
     await prisma.user.deleteMany({ where: { email: { startsWith: TAG } } }).catch(() => {});
   });
 
-  it("PRÉMISSES : le signataire a les Finances en écriture et n'est pas Super Admin ; l'auteur n'a PAS le droit de signer", async () => {
+  it("PRÉMISSES : le signataire a la signature du module « Bons de commande » et n'est pas Super Admin ; l'auteur n'a PAS le droit de signer", async () => {
+    // La porte de la signature est le module « Bons de commande » depuis §118.176 — plus le droit
+    // des Finances. Le gestionnaire budgétaire la tient PAR DÉFAUT (le périmètre d'hier).
     const f = await actorFor(financeId, "FINANCE_BUDGET_MANAGER");
-    expect(userCan(f, "FINANCES", "UPDATE")).toBe(true);
+    expect(userCan(f, "PURCHASE_ORDERS", "UPDATE")).toBe(true);
     expect(f.role).not.toBe("SUPER_ADMIN");
     const l = await actorFor(legalId, "DIRECTION_ASSISTANT");
     expect(userCan(l, "LEGAL", "CREATE")).toBe(true);
-    expect(userCan(l, "FINANCES", "UPDATE"), "sans cela, le refus de signature ne se mesurerait pas").toBe(false);
+    expect(userCan(l, "PURCHASE_ORDERS", "UPDATE"), "sans cela, le refus de signature ne se mesurerait pas").toBe(false);
   });
 
   it("SOUS LE SEUIL : aucun centre, directement dans la file des Finances — et la phrase le DIT", async () => {
@@ -196,7 +198,7 @@ suite("Seuil des bons de commande et signature des Finances — le flux réel", 
     expect(notif, "la validation du centre prévient les Finances").not.toBeNull();
   });
 
-  it("SIGNER : qui n'a pas les Finances est refusé ; le signataire signe ; la signature ne se donne pas deux fois", async () => {
+  it("SIGNER : qui n'a pas la signature des bons de commande est refusé ; le signataire signe ; la signature ne se donne pas deux fois", async () => {
     const r = await creerBC("asigner", "1");
     const refus = await signer(r.id!, "LEGAL");
     expect(refus.ok).toBe(false);

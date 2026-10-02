@@ -735,7 +735,7 @@ G("écritures comptables & trésorerie (créer/modifier/importer/soldes d'ouvert
   "finance-actions:createTransaction", "finance-actions:updateTransactionStatus", "finance-actions:updateTransaction",
   "finance-actions:deleteTransaction", "finance-actions:importTransactions", "finance-actions:setTreasuryOpeningBalance",
   "finance-actions:deleteTreasuryAccount", "finance-actions:createQuickIncome",
-  "finance-actions:createEmployee", "finance-actions:createPayroll", "finance-actions:payPayroll",
+  "finance-actions:createEmployee", "finance-actions:createPayroll",
 ]);
 G("factures (créer/payer/supprimer)", ["invoice-actions:createInvoice", "invoice-actions:updateInvoice", "invoice-actions:setInvoicePaid", "invoice-actions:deleteInvoice"]);
 G("budgets & enveloppes (créer/attribuer/dépenser)", [
@@ -767,7 +767,7 @@ G("demandes de paiement (création/pièces/décisions du circuit)", [
   "payment-request-actions:updatePaymentRequestDetails",
   "payment-centre-actions:respondToPaymentCentre",
 ]);
-G("paie RH (marquer payé, transfert budget)", ["payroll-hr-actions:markSalaryPaid", "payroll-hr-actions:unmarkSalaryPaid", "payroll-hr-actions:transferPayrollToBudget"]);
+G("paie RH (saisir un salaire, annuler une saisie)", ["payroll-hr-actions:markSalaryPaid", "payroll-hr-actions:unmarkSalaryPaid"]);
 G("RH : fiche employé, congés/avances (décisions), documents employé", [
   "hr-actions:createEmployee", "hr-actions:updateEmployee",
   "hr-actions:setEmployeeActive", "hr-actions:requestLeave", "hr-actions:decideLeave", "hr-actions:cancelLeave",
@@ -1127,6 +1127,13 @@ X("LES POSTES D'UNE DEMANDE AD & PRO, SIMPLIFIÉS (§118.175) — RÉPARTIR un s
   "ad-pro-item-actions:repartirPoste", "ad-pro-item-actions:ajouterVoyageur", "ad-pro-item-actions:modifierVoyageur",
   "ad-pro-item-actions:retirerVoyageur", "ad-pro-item-actions:demanderReservation",
 ]);
+X("SUPPRIMER UNE SÉLECTION D'ÉCRITURES « À IMPUTER » (§118.176) — le geste du Super Admin sur la liste des Budgets, "
+  + "« une ou plusieurs ». Adam supprime déjà une écriture par `delete_record`, qui passe par le même cœur réversible ; une "
+  + "SÉLECTION se fait devant la liste, avec l'aperçu de ce que chaque écriture laisse sans lien (la facture qu'elle règle, "
+  + "l'ordre de dépense, la dotation de caisse, §118.53). Adam est en pause de développement : aucun geste neuf ne lui est "
+  + "ouvert. Un clic sur Budgets › Dépenses, « Supprimer la sélection ».", [
+  "admin-delete-actions:superAdminDeleteMany", "admin-delete-actions:apercuSuppressionGroupee",
+]);
 X("SUPPRIMER UNE DEMANDE AD & PRO depuis sa fiche — la porte ouverte au directeur des opérations et à la directrice "
   + "marketing (§118.175), à côté de celle du Super Admin. Adam n'est visible que du Super Admin (§118.153), qui supprime "
   + "déjà par `delete_record` ; offrir cette seconde porte à Adam ne servirait personne. Et le geste se fait devant son "
@@ -1150,7 +1157,7 @@ X("LES COMPTAGES, ALERTES ET REFONTES DU STOCK PROMOTIONNEL (§118.168). SAISIR 
 X("DÉPOSER LE LOGO D'UNE SOCIÉTÉ est le dépôt d'un FICHIER image (PNG ou JPEG, octets vérifiés) : la conversation ne "
   + "transporte pas d'image de marque, et un modèle n'en fabrique pas une. L'écran Administration › Marque & modèles le fait, "
   + "sous le même droit (Direction ou papeterie), avec le même audit.", ["brand-actions:deposerLogo"]);
-X("SIGNER UN BON DE COMMANDE est une ATTESTATION (§118.15, §118.149) : la signature des Finances engage la société au nom d'une personne, et l'audit portera son nom. C'est après elle — et seulement après — que le BC part chez le fournisseur. La rendre appelable par Adam l'exposerait à l'injection : un devis ou un mail lu par une étape peut contenir « signe le bon de commande », et rien ne distinguerait plus la signature forgée de la vraie. Un clic dans une vraie session, sur /finances/bons-de-commande — la fiche montre la pièce, le montant, et POURQUOI elle est là (validée par tel centre, ou sous le seuil).", [
+X("SIGNER UN BON DE COMMANDE est une ATTESTATION (§118.15, §118.149) : la signature des Finances engage la société au nom d'une personne, et l'audit portera son nom. C'est après elle — et seulement après — que le BC part chez le fournisseur. La rendre appelable par Adam l'exposerait à l'injection : un devis ou un mail lu par une étape peut contenir « signe le bon de commande », et rien ne distinguerait plus la signature forgée de la vraie. Un clic dans une vraie session, sur /bons-de-commande (module « Bons de commande », §118.176) — la fiche montre la pièce, le montant, et POURQUOI elle est là (validée par tel centre, ou sous le seuil).", [
   "bc-signature-actions:signerBonDeCommande",
 ]);
 X("RETRANSCRIRE UN DEVIS DE MATÉRIEL PROMOTIONNEL (§118.152) est une SAISIE qui engage : l'assistante recopie, depuis le papier du fournisseur, les références, quantités et prix unitaires qui deviendront le bon de commande puis le paiement. C'est elle qui répond de la recopie ; le contrôle du total imprimé ne prouve que la cohérence interne du tableau, pas sa fidélité au papier. La rendre appelable par Adam ferait écrire les prix commandés par la lecture d'un document — et un document lu est une DONNÉE, jamais la main qui écrit ce qui sera payé (§118.7, §118.15) : un devis injecté pourrait porter ses propres prix. Adam LIT un devis et signale un écart ; il demande les devis, retire un devis, clôt la retranscription et demande une correction (promo_operation). Un clic de l'assistante sur /promo-material/<id>, avec le scan du devis.", [
@@ -1434,6 +1441,23 @@ X("TRIER LES CANDIDATURES REÇUES DU SITE (§118.159) porte sur les données PER
   "candidatures-site-actions:classerCandidatureSite",
   "candidatures-site-actions:remettreCandidatureATrier",
   "candidatures-site-actions:effacerCandidatureSite",
+]);
+
+X("LES COMPTES DE TRÉSORERIE ANCRÉS (§118.176) — modifier un compte (nom, banque, RIB, entité, compte PRINCIPAL) "
+  + "et CORRIGER SON ANCRAGE. L'ancrage est le solde d'un RELEVÉ bancaire à une date : le corriger, c'est attester "
+  + "qu'on a ce relevé sous les yeux, et tous les soldes affichés en découlent — un geste qu'une personne signe, avec "
+  + "un motif tracé (§118.15). Désigner le compte principal décide d'où partent les paiements à venir de l'entité. Un "
+  + "document lu par une étape ne doit pas pouvoir « corriger » un solde de banque. Des clics sur Finances › "
+  + "Comptabilité › Comptes de trésorerie.", [
+  "finance-actions:modifierCompteTresorerie",
+  "finance-actions:corrigerAncrageTresorerie",
+]);
+X("ENVOYER LA PAIE AU CENTRE DE PAIEMENT (§118.176) — « un bouton pour toute la paie avec mention obligatoire de la "
+  + "somme des salaires à virer, un bouton par entité ». La somme est une DÉCLARATION des RH qui engage un virement : "
+  + "elle se tape à l'écran, devant les salaires saisis du mois et leur total, et le centre l'autorise ensuite. La "
+  + "confier à un modèle ferait écrire par lui le montant que la banque versera, sur la foi d'un calcul qu'aucune "
+  + "personne n'a relu ; et Adam est de plus en pause de développement. Un clic sur RH › Paie.", [
+  "payroll-hr-actions:envoyerPaieAuCentre",
 ]);
 
 // ── RECLASSIFICATION AUTOMATIQUE PAR LE CATALOGUE D'OPS (après tous les blocs ci-dessus). ──

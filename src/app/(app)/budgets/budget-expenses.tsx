@@ -9,6 +9,7 @@ import { formatCurrency, formatDate } from "@/lib/utils";
 import { attributeTransaction, deleteBudgetExpense } from "@/lib/actions/budget-envelope-actions";
 import type { BudgetOverview, AttributedTx } from "@/lib/queries/budget";
 import { useRun, AddExpenseRow, ExpenseEditSheet } from "./budget-forms";
+import { BarreSuppressionAImputer } from "./suppression-a-imputer";
 
 /**
  * BUDGETS — écran « DÉPENSES ». C'est ici qu'on TRAVAILLE, et nulle part ailleurs.
@@ -17,10 +18,23 @@ import { useRun, AddExpenseRow, ExpenseEditSheet } from "./budget-forms";
  * imputées viennent donc EN PREMIER — elles faussent tous les chiffres tant qu'elles
  * traînent — et le reste (l'historique de ce qui est déjà imputé) vient après.
  */
-export function BudgetExpenses({ overview, canAttribute }: { overview: BudgetOverview; canAttribute: boolean }) {
+export function BudgetExpenses({ overview, canAttribute, canDelete }: {
+  overview: BudgetOverview;
+  canAttribute: boolean;
+  /** Le Super Admin supprime une ou plusieurs écritures « à imputer » (§118.176) — le serveur revérifie. */
+  canDelete: boolean;
+}) {
   const { run } = useRun();
   const [editExpense, setEditExpense] = React.useState<AttributedTx | null>(null);
+  const [selection, setSelection] = React.useState<Set<string>>(new Set());
   const cats = overview.categories;
+  const aImputer = overview.unattributed.transactions;
+  const basculer = (id: string) => setSelection((s) => {
+    const n = new Set(s);
+    if (n.has(id)) n.delete(id); else n.add(id);
+    return n;
+  });
+  const toutes = aImputer.length > 0 && aImputer.every((t) => selection.has(t.id));
 
   const assign = (transactionId: string, categoryId: string) => {
     const fd = new FormData();
@@ -37,15 +51,39 @@ export function BudgetExpenses({ overview, canAttribute }: { overview: BudgetOve
           <Inbox className="h-4 w-4 text-warning" />
           <h2 className="text-sm font-semibold">À imputer</h2>
           {overview.unattributed.total > 0 && <Badge tone="warning" dot={false}>{formatCurrency(overview.unattributed.total)}</Badge>}
+          {canDelete && aImputer.length > 0 && (
+            <label className="ml-auto flex items-center gap-1.5 text-xs text-muted-foreground">
+              <input
+                type="checkbox" checked={toutes}
+                onChange={() => setSelection(toutes ? new Set() : new Set(aImputer.map((t) => t.id)))}
+                className="h-4 w-4 rounded border-input"
+              />
+              Tout sélectionner
+            </label>
+          )}
         </div>
+        {canDelete && (
+          <BarreSuppressionAImputer
+            selection={selection}
+            ecritures={aImputer.map((t) => ({ id: t.id, reference: t.reference, label: t.label, amount: t.amount, status: t.status }))}
+            onVider={() => setSelection(new Set())}
+          />
+        )}
         {overview.unattributed.transactions.length === 0 ? (
           <p className="surface flex items-center gap-2 p-4 text-sm text-muted-foreground">
             <CheckCheck className="h-4 w-4 text-success" /> Tout est rangé — chaque dépense de la période est rattachée à une catégorie.
           </p>
         ) : (
           <ul className="surface divide-y divide-border">
-            {overview.unattributed.transactions.map((tx) => (
+            {aImputer.map((tx) => (
               <li key={tx.id} className="flex flex-wrap items-center gap-3 px-3 py-2.5 text-sm">
+                {canDelete && (
+                  <input
+                    type="checkbox" checked={selection.has(tx.id)} onChange={() => basculer(tx.id)}
+                    aria-label={`Sélectionner ${tx.reference}`}
+                    className="h-4 w-4 shrink-0 rounded border-input"
+                  />
+                )}
                 <div className="min-w-0 flex-1">
                   <p className="truncate font-medium">{tx.label}</p>
                   <p className="text-xs text-muted-foreground">{tx.reference} · {formatDate(tx.date)}{tx.counterparty ? ` · ${tx.counterparty}` : ""}</p>

@@ -139,7 +139,7 @@ export function readersCaption(doc: LegalDocumentAccess): string {
  * D'où trois portées, et pas deux. Elle est appliquée PAR LE SERVEUR, dans la requête, et non
  * par un filtre d'écran : un filtre d'écran se retire dans le navigateur.
  */
-export type LegalViewScope = "ALL" | "PURCHASE_CHAIN" | "NONE";
+export type LegalViewScope = "ALL" | "PURCHASE_CHAIN" | "BONS_DE_COMMANDE" | "NONE";
 
 /**
  * LES NATURES QUE LA COMPTABILITÉ VOIT ET ÉCRIT : les factures, et les bons de commande dont
@@ -151,9 +151,21 @@ export type LegalViewScope = "ALL" | "PURCHASE_CHAIN" | "NONE";
  */
 export const PURCHASE_CHAIN_KINDS: readonly string[] = ["INVOICE", "PURCHASE_ORDER"];
 
-export function legalViewScope(rights: { onLegal: boolean; onFinances: boolean }): LegalViewScope {
+/**
+ * LA TROISIÈME PORTE, ET LA PLUS ÉTROITE : le module « Bons de commande » (§118.176). Le Super
+ * Admin l'ouvre « à qui il veut » — y compris à quelqu'un qui n'a ni Legal ni les Finances. Il faut
+ * alors qu'il puisse LIRE ce qu'on lui demande de signer : la fiche du bon de commande, ses
+ * fichiers. Sans cette porte, la file lui montrerait des pièces qu'aucun clic n'ouvre, et une
+ * signature sur une pièce qu'on ne peut pas lire n'est pas une signature (§118.149e). Elle n'ouvre
+ * QUE les bons de commande — pas les factures, pas le reste du registre.
+ *
+ * Les trois droits sont OBLIGATOIRES : un défaut silencieux (« pas de troisième porte ») ferait
+ * redevenir la file une impasse chez le prochain appelant qui l'oublierait (§118.127b).
+ */
+export function legalViewScope(rights: { onLegal: boolean; onFinances: boolean; onBonsDeCommande: boolean }): LegalViewScope {
   if (rights.onLegal) return "ALL";
   if (rights.onFinances) return "PURCHASE_CHAIN";
+  if (rights.onBonsDeCommande) return "BONS_DE_COMMANDE";
   return "NONE";
 }
 
@@ -161,6 +173,7 @@ export function legalViewScope(rights: { onLegal: boolean; onFinances: boolean }
 export function legalKindVisible(scope: LegalViewScope, kind: string): boolean {
   if (scope === "ALL") return true;
   if (scope === "PURCHASE_CHAIN") return PURCHASE_CHAIN_KINDS.includes(kind);
+  if (scope === "BONS_DE_COMMANDE") return kind === "PURCHASE_ORDER";
   return false;
 }
 

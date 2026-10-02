@@ -287,6 +287,9 @@ suite("ops FINANCES vague 1 — budgets, caisse, paiements, écritures, paie (go
       if ("error" in p) return;
       expect(p.title).toContain("Remettre");
       expect(p.warnings.join(" ")).toMatch(/S'AJOUTE au fond/);
+      // ET ELLE PASSE PAR LE CENTRE (§118.176) : « l'argent est réputé remis » était faux dès lors.
+      expect(p.warnings.join(" ")).toMatch(/CENTRE DE PAIEMENT/);
+      expect(p.warnings.join(" ")).not.toMatch(/réputé remis/);
 
       // Un « nouveau mois » ne redemande plus la détentrice : elle est reprise du fond en cours.
       const autreMois = await buildProposal("finance_operation", {
@@ -452,12 +455,11 @@ suite("ops FINANCES vague 1 — budgets, caisse, paiements, écritures, paie (go
       expect(JSON.stringify(p.fields)).toMatch(/155.000.DZD/);
     });
 
-    it("pay_payroll : le bulletin NON PAYÉ du mois se résout par employé + mois — l'argent sort (averti)", async () => {
+    it("pay_payroll N'EXISTE PLUS (§118.176) : régler un bulletin sortait l'argent du livre sans le centre de paiement", async () => {
+      // Une op qui inscrivait l'écriture SALAIRE d'un bulletin, côté Finances : la seconde porte de
+      // la paie, à côté de celle que le centre garde. La paie part au centre depuis RH › Paie.
       const p = await buildProposal("finance_operation", { op: "pay_payroll", employee: `${TAG} Samir`, month: "juin", year: "2031" }, fin());
-      expect("error" in p).toBe(false);
-      if ("error" in p) return;
-      expect(p.warnings.join(" ")).toMatch(/ARGENT SORT/);
-      expect(JSON.stringify(p.fields)).toMatch(/150.000.DZD/);
+      expect("error" in p).toBe(true);
     });
 
     it("mark_salary_paid : coût employeur et net OBLIGATOIRES et cohérents ; mois FR accepté", async () => {
@@ -483,15 +485,24 @@ suite("ops FINANCES vague 1 — budgets, caisse, paiements, écritures, paie (go
       expect(JSON.stringify(p.fields)).toMatch(/130.000.DZD/);
     });
 
-    it("transfer_payroll_to_budget : catégorie par NOM + décompte EXACT des salaires du mois", async () => {
+    it("transfer_payroll_to_budget N'EXISTE PLUS (§118.176) : la paie part au centre de paiement, jamais par une écriture par salarié", async () => {
+      // Le transfert écrivait un décaissement par salarié sans que le centre l'ait vu — le chemin
+      // que la Direction a fermé. L'envoi au centre est un geste d'écran (RH › Paie) ; une op qui
+      // le rouvrirait ferait sortir la paie deux fois du livre.
       const p = await buildProposal("finance_operation", {
         op: "transfer_payroll_to_budget", month: "juillet", year: "2031", category: `${TAG} Salaires`,
       }, rh());
+      expect("error" in p).toBe(true);
+    });
+
+    it("mark_salary_paid DIT que la saisie n'est pas le versement : le virement passe par le centre", async () => {
+      const p = await buildProposal("finance_operation", {
+        op: "mark_salary_paid", employee: `${TAG} Samir`, employerCost: "190000", net: "130000", month: "août", year: "2031",
+      }, rh());
       expect("error" in p).toBe(false);
       if ("error" in p) return;
-      expect(domainArgs(p).budgetCategoryId).toBe(categoryId);
-      expect(JSON.stringify(p.fields)).toContain("1 salaire");
-      expect(p.warnings.join(" ")).toMatch(/COÛT EMPLOYEUR|coût employeur/i);
+      expect(p.warnings.join(" ")).toMatch(/centre de paiement/);
+      expect(p.warnings.join(" ")).not.toMatch(/TRANSFERT du mois/);
     });
   });
 

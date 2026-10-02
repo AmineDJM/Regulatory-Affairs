@@ -17,7 +17,9 @@
  * ── LA RÈGLE ────────────────────────────────────────────────────────────────────────────────
  *
  * La masse salariale d'un département, pour une année, vaut **la somme des coûts employeur de ses
- * salariés payés cette année-là**. Elle se REMPLACE à chaque transfert — jamais elle ne s'ajoute.
+ * salariés payés cette année-là**. Elle se REMPLACE à chaque virement de paie réglé (§118.176 :
+ * le « transfert au budget » n'existe plus, la paie part au centre de paiement) — jamais elle ne
+ * s'ajoute.
  * Le coût employeur, et non le brut : c'est ce que la société décaisse réellement, charges
  * comprises ; imputer le brut sous-évalue la masse du montant des charges.
  *

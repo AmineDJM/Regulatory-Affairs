@@ -11,9 +11,11 @@ import { dossierHrefByOrder } from "@/lib/expense-orders";
 import { needsBudgetChoice } from "@/lib/finance/settle-budget";
 import { pickAutoCategory } from "@/lib/budget/auto-category";
 import { ENTITY_MODULE, modulesDesEntites } from "@/lib/entity-access";
-import { getFinanceData } from "@/lib/queries/finance";
+import { chargerTresorerie } from "@/lib/queries/finance";
 import { TreasuryUpdateRequestButton } from "../treasury-update-request";
-import { OrdersTable, type OrderRow, type BudgetChoice } from "./orders-table";
+import { OrdersTable, type OrderRow, type BudgetChoice, type CompteChoice } from "./orders-table";
+import { compteParDefaut } from "@/lib/finance/tresorerie";
+import { comptesTresorerie } from "@/lib/finance/comptes";
 import { PurgeHistoryButton } from "./purge-history";
 
 /**
@@ -120,6 +122,12 @@ export default async function PaiementsAFairePage({ searchParams }: { searchPara
         )
       : null;
 
+  // LES COMPTES D'OÙ PEUT PARTIR UN RÈGLEMENT — et le défaut de chaque ordre, par la MÊME règle que
+  // l'écriture (`compteParDefaut` sur TOUS les comptes), sinon l'écran proposerait un compte et le
+  // serveur en figerait un autre (§118.176).
+  const [tresorerie, tousLesComptes] = await Promise.all([chargerTresorerie(user.id), comptesTresorerie()]);
+  const comptes: CompteChoice[] = tresorerie.comptes.map((c) => ({ id: c.id, nom: c.nom }));
+
   const toRow = (o: (typeof orders)[number]): OrderRow => ({
     id: o.id, reference: o.reference, label: o.label, beneficiary: o.beneficiary,
     category: o.category, amount: toNumber(o.amount), status: o.status,
@@ -136,6 +144,7 @@ export default async function PaiementsAFairePage({ searchParams }: { searchPara
       auto: autoOf(o),
       availableCount: categoryLines.length,
     }),
+    compteParDefautId: compteParDefaut(tousLesComptes, o.companyId),
   });
 
   // UN ORDRE REPORTÉ RESTE DANS LA FILE — daté, pas classé. Le sortir d'ici ferait de « reporter »
@@ -149,10 +158,11 @@ export default async function PaiementsAFairePage({ searchParams }: { searchPara
   const others = orders.filter((o) => o.status === "PAID" || o.status === "CANCELLED");
   const totalPending = pending.reduce((a, o) => a + toNumber(o.amount), 0);
 
-  // LA BANQUE — le même calcul que la comptabilité (`getFinanceData`) : soldes d'ouverture plus
-  // les flux réglés. Un second calcul aurait donné deux soldes, et l'on n'aurait plus su lequel
-  // croire au moment précis où il faut décider si l'on peut payer.
-  const tresorerie = await getFinanceData(user.id);
+  // LA BANQUE — « Solde trésorerie = somme des comptes − paiements autorisés » (Direction, 01/10).
+  // Chaque compte part de son relevé ANCRÉ et n'ajoute que les écritures réglées postérieures
+  // (§118.176) ; la même lecture que la comptabilité (`chargerTresorerie`) — un second calcul
+  // donnerait deux soldes au moment précis où il faut décider si l'on peut payer.
+  // (chargée plus haut, avec les comptes du règlement)
 
   return (
     <div className="space-y-6">
@@ -172,8 +182,13 @@ export default async function PaiementsAFairePage({ searchParams }: { searchPara
           Le solde d'abord : c'est lui qui dit si la file ci-dessous peut être servie. */}
       <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
         <KpiCard
-          label="Solde trésorerie" value={formatCurrency(tresorerie.totalBalance)} icon="Landmark"
-          tone={tresorerie.totalBalance >= 0 ? "success" : "danger"}
+          label="Solde trésorerie"
+          value={tresorerie.comptes.length > 0 ? formatCurrency(tresorerie.disponible) : "—"}
+          icon="Landmark"
+          tone={tresorerie.comptes.length === 0 ? "default" : tresorerie.disponible >= 0 ? "success" : "danger"}
+          hint={tresorerie.comptes.length > 0
+            ? `Comptes ${formatCurrency(tresorerie.total)} − autorisés à régler ${formatCurrency(tresorerie.autorises.montant)}`
+            : "Aucun compte ancré"}
         />
         <KpiCard label="Ordres à régler" value={pending.length} icon="ReceiptText" tone={pending.length > 0 ? "warning" : "default"} />
         <KpiCard label="Montant à régler" value={formatCurrency(totalPending)} icon="Banknote" tone="warning" />
@@ -181,25 +196,39 @@ export default async function PaiementsAFairePage({ searchParams }: { searchPara
         <KpiCard label="Total ordres émis" value={orders.length} icon="ListChecks" tone="info" />
       </div>
 
-      {tresorerie.accounts.length > 0 && (
-        <div className="flex flex-wrap items-center gap-3">
-          {tresorerie.accounts.map((a) => (
-            <div key={a.account} className="surface flex items-center gap-3 px-4 py-2.5">
-              <span className="text-sm text-muted-foreground">{a.account}</span>
-              <span className={`font-semibold ${a.balance >= 0 ? "text-foreground" : "text-destructive"}`}>{formatCurrency(a.balance)}</span>
-            </div>
-          ))}
-          {tresorerie.openingTotal !== 0 && (
-            <span className="text-xs text-muted-foreground">
-              dont {formatCurrency(tresorerie.openingTotal)} de solde d&apos;ouverture + flux réglés
-            </span>
+      {/* LES COMPTES, CHACUN DEPUIS SON RELEVÉ. Sans compte ancré, l'écran le DIT : additionner des
+          flux sans point de départ affichait un solde qui ne ressemblait à aucun relevé (§118.176). */}
+      {tresorerie.comptes.length === 0 ? (
+        <p className="surface p-4 text-sm text-muted-foreground" data-tresorerie="sans-compte">
+          Aucun compte de trésorerie ancré : le solde ne se calcule pas encore. Ouvrez un compte avec le solde d&apos;un relevé
+          (Finances › Comptabilité › Comptes de trésorerie).
+        </p>
+      ) : (
+        <div className="space-y-2">
+          <div className="flex flex-wrap items-center gap-3">
+            {tresorerie.comptes.map((c) => (
+              <div key={c.id} className="surface flex items-center gap-3 px-4 py-2.5" data-compte={c.nom}>
+                <span className="text-sm text-muted-foreground">{c.nom}</span>
+                <span className={`font-semibold tabular-nums ${c.solde >= 0 ? "text-foreground" : "text-destructive"}`}>{formatCurrency(c.solde)}</span>
+              </div>
+            ))}
+          </div>
+          <p className="text-xs text-muted-foreground">
+            {tresorerie.comptes.length} compte(s) : {formatCurrency(tresorerie.total)}, depuis leurs relevés ancrés · {tresorerie.autorises.nombre} paiement(s)
+            autorisé(s) par le centre et pas encore réglé(s) : {formatCurrency(tresorerie.autorises.montant)} · disponible : {formatCurrency(tresorerie.disponible)}
+          </p>
+          {tresorerie.nonRattaches.nombre > 0 && (
+            <p className="text-xs text-warning" role="status">
+              {tresorerie.nonRattaches.nombre} écriture(s) réglée(s) depuis l&apos;ancrage ne sont rattachées à aucun compte ({formatCurrency(tresorerie.nonRattaches.montant)}) :
+              désignez un compte principal, ou nommez leur compte dans le livre.
+            </p>
           )}
         </div>
       )}
 
       <section className="space-y-3">
         <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">À régler</h2>
-        <OrdersTable rows={pending.map(toRow)} canSettle={canSettle} emptyLabel="Aucun ordre à régler" focusId={focusId} budgets={budgets} />
+        <OrdersTable rows={pending.map(toRow)} canSettle={canSettle} emptyLabel="Aucun ordre à régler" focusId={focusId} budgets={budgets} comptes={comptes} />
       </section>
 
       {reportes.length > 0 && (
@@ -209,7 +238,7 @@ export default async function PaiementsAFairePage({ searchParams }: { searchPara
           <p className="text-xs text-muted-foreground">
             Ces ordres sont dus — leur règlement est daté, pas abandonné. Ils redescendent dans « À régler » à l&apos;échéance du report, sans que personne n&apos;ait à y penser.
           </p>
-          <OrdersTable rows={reportes.map(toRow)} canSettle={canSettle} focusId={focusId} budgets={budgets} />
+          <OrdersTable rows={reportes.map(toRow)} canSettle={canSettle} focusId={focusId} budgets={budgets} comptes={comptes} />
         </section>
       )}
 

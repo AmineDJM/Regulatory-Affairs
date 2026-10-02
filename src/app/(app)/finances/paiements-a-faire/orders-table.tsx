@@ -47,6 +47,17 @@ export interface OrderRow {
    * après le virement, plus personne n'y revient et l'enveloppe affiche un chiffre faux.
    */
   needsBudget: boolean;
+  /**
+   * LE COMPTE D'OÙ PARTIRA L'ARGENT par défaut : le principal de l'entité de l'ordre (§118.176).
+   * Nul quand la règle ne désigne aucun compte — l'écriture partira alors sans compte nommé.
+   */
+  compteParDefautId: string | null;
+}
+
+/** Un compte de trésorerie qu'on peut choisir au règlement (« payé depuis… »). */
+export interface CompteChoice {
+  id: string;
+  nom: string;
 }
 
 /** Les catégories budgétaires où classer — chargées une fois pour toute la table. */
@@ -174,14 +185,18 @@ function DeferControl({ row }: { row: OrderRow }) {
  * module d'origine), le bouton règle directement : ajouter une question dont on connaît la réponse
  * apprend à cliquer sans lire.
  */
-function SettleControl({ row, budgets }: { row: OrderRow; budgets: BudgetChoice[] }) {
+function SettleControl({ row, budgets, comptes }: { row: OrderRow; budgets: BudgetChoice[]; comptes: CompteChoice[] }) {
   const router = useRouter();
   const [open, setOpen] = React.useState(false);
   const [saving, setSaving] = React.useState(false);
   const [err, setErr] = React.useState<string | null>(null);
   const [categoryId, setCategoryId] = React.useState("");
+  // « PAYÉ DEPUIS… » — demandé seulement quand il y a un CHOIX : avec un seul compte, la question
+  // a sa réponse, et la poser apprendrait à cliquer sans lire (§118.176).
+  const choisirCompte = comptes.length >= 2;
+  const [compteId, setCompteId] = React.useState(row.compteParDefautId ?? "");
 
-  if (!row.needsBudget) {
+  if (!row.needsBudget && !choisirCompte) {
     return <SubmitForm action={settleExpenseOrder} id={row.id}><MiniBtn tone="success"><Banknote className="h-3.5 w-3.5" /> Payé</MiniBtn></SubmitForm>;
   }
   return (
@@ -194,14 +209,18 @@ function SettleControl({ row, budgets }: { row: OrderRow; budgets: BudgetChoice[
       </button>
       <Sheet
         open={open} onClose={() => !saving && setOpen(false)}
-        title="Classer, puis régler"
-        description="La dépense n'est rattachée à aucun budget. On la classe maintenant : après le virement, plus personne n'y revient."
+        title={row.needsBudget ? "Classer, puis régler" : "Régler"}
+        description={row.needsBudget
+          ? "La dépense n'est rattachée à aucun budget. On la classe maintenant : après le virement, plus personne n'y revient."
+          : "Le compte d'où part l'argent : c'est lui dont le solde baisse."}
         width="md"
       >
         <form
           action={async (fd) => {
             setSaving(true); setErr(null);
-            fd.set("id", row.id); fd.set("budgetCategoryId", categoryId);
+            fd.set("id", row.id);
+            if (row.needsBudget) fd.set("budgetCategoryId", categoryId);
+            if (choisirCompte && compteId) fd.set("treasuryAccountId", compteId);
             const r = await settleExpenseOrder(fd);
             setSaving(false);
             if (r.ok) { setOpen(false); router.refresh(); } else setErr(r.error ?? "Erreur.");
@@ -211,18 +230,31 @@ function SettleControl({ row, budgets }: { row: OrderRow; budgets: BudgetChoice[
           <p className="text-xs text-muted-foreground">
             {row.reference} — {row.label} · <span className="font-semibold text-foreground">{formatCurrency(row.amount)}</span>
           </p>
-          <p className="rounded-lg bg-warning/10 px-3 py-2 text-xs text-foreground">{BUDGET_CLASSIFY_PROMPT}</p>
-          <div className="space-y-1">
-            <Label htmlFor={`bud-${row.id}`}>Budget exact <span className="text-destructive">*</span></Label>
-            <Select id={`bud-${row.id}`} value={categoryId} onChange={(e) => setCategoryId(e.target.value)} required>
-              <option value="">— Choisir la catégorie —</option>
-              {budgets.map((b) => <option key={b.id} value={b.id}>{b.label}</option>)}
-            </Select>
-          </div>
+          {row.needsBudget && (
+            <>
+              <p className="rounded-lg bg-warning/10 px-3 py-2 text-xs text-foreground">{BUDGET_CLASSIFY_PROMPT}</p>
+              <div className="space-y-1">
+                <Label htmlFor={`bud-${row.id}`}>Budget exact <span className="text-destructive">*</span></Label>
+                <Select id={`bud-${row.id}`} value={categoryId} onChange={(e) => setCategoryId(e.target.value)} required>
+                  <option value="">— Choisir la catégorie —</option>
+                  {budgets.map((b) => <option key={b.id} value={b.id}>{b.label}</option>)}
+                </Select>
+              </div>
+            </>
+          )}
+          {choisirCompte && (
+            <div className="space-y-1">
+              <Label htmlFor={`cpt-${row.id}`}>Payé depuis</Label>
+              <Select id={`cpt-${row.id}`} value={compteId} onChange={(e) => setCompteId(e.target.value)}>
+                <option value="">— Compte par défaut de l&apos;entité —</option>
+                {comptes.map((c) => <option key={c.id} value={c.id}>{c.nom}</option>)}
+              </Select>
+            </div>
+          )}
           {err && <div className="flex items-center gap-2 rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive"><AlertCircle className="h-4 w-4" /> {err}</div>}
           <div className="flex justify-end gap-2">
             <Button type="button" variant="outline" disabled={saving} onClick={() => setOpen(false)}>Annuler</Button>
-            <Button type="submit" disabled={saving || !categoryId}>{saving && <Loader2 className="h-4 w-4 animate-spin" />} Classer et régler</Button>
+            <Button type="submit" disabled={saving || (row.needsBudget && !categoryId)}>{saving && <Loader2 className="h-4 w-4 animate-spin" />} {row.needsBudget ? "Classer et régler" : "Régler"}</Button>
           </div>
         </form>
       </Sheet>
@@ -256,7 +288,7 @@ const TONE: Record<SettlementState, "neutral" | "warning" | "success"> = {
  * arrivait ici depuis « Mon espace » sur un tableau de trois cents ordres, à chercher des yeux
  * celui qu'on venait de cliquer.
  */
-export function OrdersTable({ rows, canSettle, emptyLabel, focusId = null, budgets = [] }: { rows: OrderRow[]; canSettle: boolean; emptyLabel?: string; focusId?: string | null; budgets?: BudgetChoice[] }) {
+export function OrdersTable({ rows, canSettle, emptyLabel, focusId = null, budgets = [], comptes = [] }: { rows: OrderRow[]; canSettle: boolean; emptyLabel?: string; focusId?: string | null; budgets?: BudgetChoice[]; comptes?: CompteChoice[] }) {
   // `now` est figé au premier rendu : recalculer l'expiration d'un report à chaque re-render
   // ferait sauter une ligne d'une section à l'autre pendant qu'on la regarde.
   const now = React.useMemo(() => new Date(), []);
@@ -335,7 +367,7 @@ export function OrdersTable({ rows, canSettle, emptyLabel, focusId = null, budge
                   <TableCell className="text-right">
                     {r.status === "PENDING" ? (
                       <div className="flex flex-wrap items-center justify-end gap-1.5">
-                        <SettleControl row={r} budgets={budgets} />
+                        <SettleControl row={r} budgets={budgets} comptes={comptes} />
                         <DeferControl row={r} />
                         {/* LEVER LE REPORT, c'est revenir à « non payé » — le premier des trois
                             états, pas un quatrième geste. Sans lui, une date saisie trop loin ne

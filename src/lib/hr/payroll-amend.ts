@@ -11,6 +11,11 @@
  * et le budget en dit un autre, et l'on découvre l'écart en fin d'exercice, sans savoir lequel
  * des deux a raison.
  *
+ * Depuis §118.176, ce transfert n'existe plus : la paie part au centre de paiement, entité par
+ * entité, et son virement — une seule écriture, de la somme DÉCLARÉE — ne suit pas la correction
+ * d'une ligne : il dit ce que la banque a réellement versé. `syncBudget` ne concerne donc plus que
+ * l'historique de l'ancien transfert, dont chaque ligne porte encore sa propre écriture.
+ *
  * Module PUR — testé, sans base de données.
  */
 

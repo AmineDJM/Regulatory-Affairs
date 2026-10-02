@@ -156,6 +156,8 @@ export const ENTITE_DU_MODELE: Readonly<Record<string, EntityType>> = {
   MissionAssignment: "MISSION_ASSIGNMENT",
   Task: "TASK",
   BdProject: "BD_PROJECT",
+  // L'écriture de trésorerie (§118.176) : ses pièces jointes et commentaires partent avec elle.
+  FinanceTransaction: "FINANCE_TRANSACTION",
 };
 
 /**
@@ -169,6 +171,30 @@ export const LIENS_DIRECTS: readonly { modele: string; champ: string; cible: str
   { modele: "MedicalInfoDeclaration", champ: "bvRequestId", cible: "PaymentRequest" },
   { modele: "PaymentRequest", champ: "expenseOrderId", cible: "ExpenseOrder" },
   { modele: "LegalDocument", champ: "expenseOrderId", cible: "ExpenseOrder" },
+];
+
+/**
+ * LES RÉFÉRENCES TEXTE vers une ligne du lot, depuis une ligne qui RESTE (§118.176).
+ *
+ * Un champ texte, pas une clé étrangère : Postgres ne le viderait pas, et il désignerait une ligne
+ * disparue — l'ordre de dépense réglé dirait « payé par l'écriture FIN-2026-104 » sur une écriture
+ * qui n'existe plus. Le lot le VIDE, dans la même transaction, et le RÉTABLIT à la restauration,
+ * exactement comme un lien qu'une clé étrangère met à vide.
+ *
+ * À la différence de `LIENS_DIRECTS`, ces lignes ne partent JAMAIS avec le lot : un ordre de dépense
+ * n'est pas « en aval » de son écriture, c'est l'écriture qui raconte son règlement. Les mêler à
+ * `LIENS_DIRECTS` les aurait fait suivre dans l'autre sens — supprimer un ordre aurait emporté
+ * l'écriture de trésorerie qui le règle. Deux questions, deux listes (§118.57).
+ */
+export const REFERENCES_TEXTE: readonly { modele: string; champ: string; cible: string }[] = [
+  { modele: "ExpenseOrder", champ: "transactionId", cible: "FinanceTransaction" },
+  { modele: "PettyCashAllotment", champ: "transactionId", cible: "FinanceTransaction" },
+  { modele: "PettyCashTopUpRequest", champ: "transactionId", cible: "FinanceTransaction" },
+  { modele: "SalaryAdvance", champ: "transactionId", cible: "FinanceTransaction" },
+  { modele: "PayrollEntry", champ: "transactionId", cible: "FinanceTransaction" },
+  // Le virement de paie garde l'écriture qui l'a soldé (§118.176) — ce fait survit à la purge
+  // de l'historique des règlements, et doit être vidé puis rétabli avec elle.
+  { modele: "PayrollWire", champ: "transactionId", cible: "FinanceTransaction" },
 ];
 
 const ref = (d: Record<string, unknown>) => {
@@ -275,6 +301,13 @@ export const LIBELLE_DU_MODELE: Readonly<Record<string, [string, string]>> = {
   BdRange: ["gamme", "gammes"],
   BdProduct: ["produit à l'étude", "produits à l'étude"],
   RegulatoryProduct: ["dossier réglementaire", "dossiers réglementaires"],
+  // Une écriture de trésorerie supprimée depuis « À imputer » (§118.176) : ce qui la cite et RESTE.
+  FinanceTransaction: ["écriture de trésorerie", "écritures de trésorerie"],
+  PettyCashAllotment: ["dotation de caisse d'avance", "dotations de caisse d'avance"],
+  PettyCashTopUpRequest: ["rallonge de caisse d'avance", "rallonges de caisse d'avance"],
+  SalaryAdvance: ["avance sur salaire", "avances sur salaire"],
+  PayrollEntry: ["bulletin de paie", "bulletins de paie"],
+  PayrollWire: ["virement de paie", "virements de paie"],
 };
 
 export function libelleDe(modele: string, n: number): string {

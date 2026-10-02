@@ -139,6 +139,9 @@ export const SERVICE_DU_MODULE: Record<CleModule, ServiceDuModule> = {
   VALIDATION_CENTRE: { domaines: ["MISSION", "ADMIN"], mots: ["centre de validation", "file de validation"], outils: ["validation_operation", "read_workflow"] },
   AD_PRO_CENTRE: { domaines: ["FINANCE", "MISSION"], mots: ["centre de validation ad pro", "seuil ad pro", "arbitrage ad pro"], outils: ["adpro_operation", "read_workflow"] },
   PAYMENT_CENTRE: { domaines: ["FINANCE"], mots: ["centre de paiement", "a payer", "echeancier"], outils: ["decide_payment", "request_treasury_update"] },
+  // Les BONS DE COMMANDE (§118.176) : des pièces du registre Legal, que les outils de Legal lisent.
+  // La SIGNATURE n'a aucune capacité Adam, par décision : c'est une attestation (§118.15).
+  PURCHASE_ORDERS: { domaines: ["LEGAL"], mots: ["bc a signer", "bons de commande a signer", "signature des bons de commande"] },
   // Les demandes internes. `create_admin_request`, `support_operation`, `directive_operation`.
   ADMIN_REQUESTS: { domaines: ["ADMIN", "MISSION"], mots: ["secretariat", "demande administrative", "attestation", "ordre de mission"], outils: ["create_admin_request"] },
   SUPPORT: { domaines: ["ADMIN", "MISSION"], mots: ["support", "ticket", "tickets", "incident", "incidents", "panne"], outils: ["support_operation"] },

@@ -1,4 +1,6 @@
 import { prisma } from "@/lib/prisma";
+import { clauseSalairesVersesANotifier } from "@/lib/hr/virement-paie";
+import { instantDuCentreDePaie } from "@/lib/hr/paie-centre";
 import { declencherRecurrencesStock } from "@/lib/stocks/recurrence-runner";
 import { relancerReceptionsStock } from "@/lib/promo-stock-rappels";
 import { alerterStock, declencherComptagesRecurrents } from "@/lib/promo-stock-comptages";
@@ -321,13 +323,19 @@ async function sendDueReminders(): Promise<void> {
 }
 
 /**
- * Notifie chaque employé que sa paie a été versée — 24 h APRÈS le marquage « Payé »
- * par les RH (marge d'annulation en cas d'erreur). Une seule fois par bulletin.
+ * Notifie chaque employé que sa paie a été versée — 24 h AU PLUS TÔT après la saisie par les RH
+ * (marge d'annulation en cas d'erreur), et seulement une fois son VIREMENT réglé (§118.176) : la
+ * paie passe désormais par le centre de paiement, et « votre salaire a été versé » avant que le
+ * centre l'ait autorisé serait la promesse d'un argent qui n'est pas parti. Une seule fois par
+ * bulletin. La règle vit dans `hr/virement-paie.ts` (`clauseSalairesVersesANotifier`).
  */
 async function sendDuePayrollNotifications(): Promise<void> {
   const now = new Date();
+  // Les salaires marqués payés AVANT la bascule ont été versés par l'ancien circuit : ils
+  // s'annoncent comme avant, sans virement (§118.176).
+  const depuisLeCentre = await instantDuCentreDePaie().catch(() => null);
   const due = await prisma.payrollEntry.findMany({
-    where: { status: "PAID", employeeNotifiedAt: null, employeeNotifyAt: { not: null, lte: now } },
+    where: clauseSalairesVersesANotifier(now, depuisLeCentre),
     include: { employee: { select: { userId: true, fullName: true } } },
     take: 100,
   });

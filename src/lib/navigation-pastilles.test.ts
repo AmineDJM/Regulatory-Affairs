@@ -21,16 +21,27 @@ const entree = (label: string): NavItem => {
 };
 
 describe("pastillesDesEntrees — chaque module compté une fois", () => {
-  it("PRÉMISSE : Finances et ses trois sous-menus portent le MÊME module — sinon le cas ne mesure rien", () => {
+  it("PRÉMISSE : Finances et ses sous-menus portent le MÊME module — sinon le cas ne mesure rien", () => {
+    // Deux sous-menus depuis que les Bons de commande sont un module à part (§118.176).
     const finances = entree("Finances");
-    expect(finances.children?.map((c) => c.module)).toEqual(["FINANCES", "FINANCES", "FINANCES"]);
+    expect(finances.children?.map((c) => c.module)).toEqual(["FINANCES", "FINANCES"]);
   });
 
   it("le parent porte la pastille ; ses sous-menus du même module n'en portent aucune", () => {
     const finances = entree("Finances");
     const badges = { FINANCES: 3 };
     expect(pastillesDesEntrees([finances], badges)).toEqual([3]);
-    expect(pastillesDesEntrees(finances.children ?? [], badges, modulesDeLEntree(finances))).toEqual([0, 0, 0]);
+    expect(pastillesDesEntrees(finances.children ?? [], badges, modulesDeLEntree(finances))).toEqual([0, 0]);
+  });
+
+  it("LES BONS DE COMMANDE ONT LEUR PROPRE PASTILLE — « Bon de commande à signer » ne s'affiche plus sous Finances (§118.176)", () => {
+    // Le lien des notifications « à signer » mène au module à part : leur pastille est la sienne,
+    // et une notification des Finances ne s'y affiche pas (deux modules, deux comptes).
+    const finances = entree("Finances");
+    const bc = entree("Bons de commande");
+    expect(bc.module).toBe("PURCHASE_ORDERS");
+    const badges = { FINANCES: 2, PURCHASE_ORDERS: 5 };
+    expect(pastillesDesEntrees([finances, bc], badges)).toEqual([2, 5]);
   });
 
   it("un sous-menu d'un AUTRE module garde sa propre pastille — la règle n'efface rien", () => {

@@ -5,6 +5,7 @@ import { mergeGrants, canViewDepartmentBudget, editableKindsOn, EMPTY_GRANT, typ
 import { headedDepartmentIds } from "@/lib/queries/department-budget";
 import { nextRechargeDate, type PettyCashStatus } from "@/lib/petty-cash";
 import { continuousCash, remittanceSpent, type ContinuousCash, type CashRemittance } from "@/lib/general-means/continuous-cash";
+import { etatRemise, remiseEnAttente, type EtatRemise } from "@/lib/general-means/remise-centre";
 import { isFullyClassified } from "@/lib/budget/imputation";
 import { getAppSettings } from "@/lib/settings";
 
@@ -53,6 +54,11 @@ export interface GeneralMeansRemittance {
   /** Ce qui est sorti depuis cette remise. */
   spent: number;
   status: PettyCashStatus;
+  /**
+   * OÙ EN EST L'ARGENT (§118.176) — lu sur l'ordre de la remise : en attente du centre, autorisée
+   * et à verser, versée, refusée. `VERSEE` pour une remise d'avant la règle.
+   */
+  centre: EtatRemise;
   holder: string;
   receivedAt: string | null;
   note: string | null;
@@ -152,12 +158,14 @@ function grantOf(rows: { departmentId: string | null; accessRoles: string[]; acc
  */
 export async function openRemittances(
   departmentId: string,
-): Promise<(CashRemittance & { holderId: string | null })[]> {
+): Promise<(CashRemittance & { holderId: string | null; enAttenteDuCentre: boolean })[]> {
   const rows = await prisma.pettyCashAllotment.findMany({
     where: { departmentId, status: { not: "CLOSED" } },
     orderBy: { createdAt: "desc" },
     select: {
       id: true, period: true, createdAt: true, amount: true, status: true, holderId: true,
+      expenseOrderId: true, transactionId: true,
+      expenseOrder: { select: { status: true, centralStatus: true } },
       expenses: { select: { id: true, amount: true } },
     },
   });
@@ -168,6 +176,11 @@ export async function openRemittances(
     amount: toNumber(r.amount),
     status: r.status,
     holderId: r.holderId,
+    // UNE REMISE QUI ATTEND LE CENTRE (§118.176) n'est pas encore dans le fond : elle ne se solde
+    // pas avec lui, et elle ne se confirme pas.
+    enAttenteDuCentre: remiseEnAttente(etatRemise({
+      aUnOrdre: Boolean(r.expenseOrderId), ordre: r.expenseOrder, transactionId: r.transactionId,
+    })),
     expenses: r.expenses.map((e) => ({ id: e.id, amount: toNumber(e.amount) })),
   }));
 }
@@ -256,6 +269,7 @@ export async function getGeneralMeans(
     include: {
       holder: { select: { id: true, name: true } },
       expenses: { select: { id: true, amount: true } },
+      expenseOrder: { select: { status: true, centralStatus: true } },
       topUps: {
         orderBy: { createdAt: "desc" },
         include: { requestedBy: { select: { name: true } } },
@@ -389,6 +403,9 @@ export async function getGeneralMeans(
     status: r.status,
     expenses: r.expenses.map((e) => ({ id: e.id, amount: toNumber(e.amount) })),
   });
+  const centreDe = (r: RemittanceRow): EtatRemise => etatRemise({
+    aUnOrdre: Boolean(r.expenseOrderId), ordre: r.expenseOrder, transactionId: r.transactionId,
+  });
   const readable = (r: RemittanceRow): GeneralMeansRemittance => {
     const base = asRemittance(r);
     return {
@@ -398,13 +415,17 @@ export async function getGeneralMeans(
       amount: base.amount,
       spent: remittanceSpent(base),
       status: r.status as PettyCashStatus,
+      centre: centreDe(r),
       holder: r.holder?.name ?? "",
       receivedAt: r.receivedAt ? r.receivedAt.toISOString() : null,
       note: r.note,
     };
   };
 
-  const fund = continuousCash(openRows.map(asRemittance));
+  // LE FOND NE COMPTE QUE CE QUI A ÉTÉ VERSÉ (§118.176). Une remise qui attend le centre n'a pas
+  // quitté la banque : la compter « remise » ferait annoncer à la détentrice une somme à
+  // confirmer qu'elle ne peut pas recevoir. Elle reste dans la liste, avec ce qu'elle attend.
+  const fund = continuousCash(openRows.filter((r) => !remiseEnAttente(centreDe(r))).map(asRemittance));
   const cash: GeneralMeansCash | null = latest
     ? {
         currentId: fund.currentId,

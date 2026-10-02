@@ -17,6 +17,9 @@ import { continuousCash, canSpendFromFund } from "@/lib/general-means/continuous
 import { openRemittances } from "@/lib/queries/general-means";
 import { toNumber } from "@/lib/utils";
 import { nextFinanceRef } from "@/lib/finance/next-ref";
+import { compteDeLEcriture } from "@/lib/finance/comptes";
+import { createExpenseOrder } from "@/lib/expense-orders";
+import { etatRemise, refusConfirmationRemise } from "@/lib/general-means/remise-centre";
 import { fdStr, fdNum, fdCase, type ActionResult } from "@/lib/actions/types";
 import { readReceipt, saveReceiptLines } from "@/lib/general-means/expense-lines";
 import { allowedGeneralMeansCategoryIds, keepAllowedCategory } from "@/lib/general-means/budget-targets";
@@ -65,7 +68,7 @@ export async function allotPettyCash(formData: FormData): Promise<ActionResult> 
   if (typeof amount !== "number") return { ok: false, error: amount.error };
   if (amount <= 0) return { ok: false, error: "Indiquez la somme remise." };
 
-  const department = await prisma.department.findUnique({ where: { id: departmentId }, select: { name: true } });
+  const department = await prisma.department.findUnique({ where: { id: departmentId }, select: { name: true, companyId: true } });
   if (!department) return { ok: false, error: "Département introuvable." };
 
   // À QUI ? La personne nommée sur le formulaire ; à défaut celle qui détient déjà le fond, à
@@ -82,58 +85,59 @@ export async function allotPettyCash(formData: FormData): Promise<ActionResult> 
 
   const premiere = ouvertes.length === 0;
 
-  // ── REMETTRE UNE CAISSE EST UN DÉCAISSEMENT, ET IL SE COMPTABILISE ────────────────────────
+  // ── LA REMISE PASSE PAR LE CENTRE DE PAIEMENT (§118.176) ──────────────────────────────────
   //
-  // L'argent quitte la banque pour alimenter la caisse d'un service. Les DÉPENSES de cette caisse
-  // étaient bien suivies (ligne de budget du département) ; la SORTIE initiale, celle qui fait
-  // exister le fond, ne l'était pas. Le solde comptable et le solde bancaire divergeaient
-  // d'autant, et l'écart ne se découvrait qu'au rapprochement, un mois plus tard.
+  // « La caisse qui est donnée mensuellement aux moyens généraux […] doit dorénavant aussi passer
+  // par le centre de paiement et attendre la validation » (la Direction, 01/10/2026). La remise
+  // naît donc avec son ORDRE DE DÉPENSE, en attente du centre — et l'écriture de trésorerie ne se
+  // pose plus ici : elle se pose au RÈGLEMENT de l'ordre, là où l'argent quitte réellement la
+  // banque. L'écrire maintenant, c'était inscrire au livre un décaissement que personne n'avait
+  // encore autorisé.
   //
-  // BEST-EFFORT, comme partout dans ce circuit : une écriture qui échoue ne doit pas empêcher la
-  // remise — l'argent prime, et le contrôle du livre signale ce qui manque
-  // (`lib/finance/ledger-audit.ts`).
-  const tx = await prisma.financeTransaction
-    .create({
-      data: {
-        reference: await nextFinanceRef(),
-        date: new Date(),
-        direction: "OUT",
-        category: "AUTRE",
-        label: `Caisse d'avance — ${department.name} (${periodLabel(period)})`,
-        amount,
-        method: "CASH",
-        account: "Caisse",
-        counterparty: holderName ?? null,
-        status: "SETTLED",
-        createdById: user.id,
-      },
-      select: { id: true },
-    })
-    .catch((e) => {
-      console.error("[petty-cash] écriture de trésorerie non passée", e);
-      return null;
-    });
-
-  await prisma.pettyCashAllotment.create({
+  // L'ordre porte l'entité du DÉPARTEMENT : c'est elle qui engage la dépense, pas celle de la
+  // personne qui clique.
+  const remise = await prisma.pettyCashAllotment.create({
     data: {
       departmentId, period, amount, holderId: holder, note: fdStr(formData, "note"),
-      createdById: user.id, transactionId: tx?.id ?? null,
+      createdById: user.id,
     },
+    select: { id: true },
   });
+  let ordre: { id: string; reference: string };
+  try {
+    ordre = await createExpenseOrder({
+      label: `Caisse d'avance — ${department.name} (${periodLabel(period)})`,
+      amount,
+      category: "AUTRE",
+      beneficiary: holderName ?? "Caisse d'avance",
+      requestedById: user.id,
+      companyId: department.companyId,
+      notes: `Remise en caisse d'avance${holderName ? ` à ${holderName}` : ""} — ${department.name}, ${periodLabel(period)}. Un achat payé sur la caisse s'impute ensuite à son budget : la remise elle-même ne se classe pas.`,
+    });
+  } catch (e) {
+    // RIEN N'EST PARTI : une remise sans ordre ne serait ni autorisable ni confirmable.
+    await prisma.pettyCashAllotment.delete({ where: { id: remise.id } }).catch(() => undefined);
+    console.error("[petty-cash] ordre de la remise non créé", e);
+    return { ok: false, error: "La remise n'a pas pu partir au centre de paiement — rien n'a été enregistré, réessayez." };
+  }
+  await prisma.pettyCashAllotment.update({ where: { id: remise.id }, data: { expenseOrderId: ordre.id } });
 
   await recordAudit({
     actorId: user.id, action: "CREATE", module: "Budgets",
     entityType: "BUDGET", entityId: departmentId,
-    summary: `Caisse d'avance — ${department.name} : ${premiere ? "" : "nouvelle "}remise de ${amount} DZD (${periodLabel(period)})`,
+    summary: `Caisse d'avance — ${department.name} : ${premiere ? "" : "nouvelle "}remise de ${amount} DZD (${periodLabel(period)}) envoyée au centre de paiement (${ordre.reference})`,
   });
+  // LA DÉTENTRICE APPREND CE QUI L'ATTEND — pas « confirmez la réception » d'une somme qui n'est
+  // pas partie : elle sera prévenue une seconde fois au versement, et c'est alors qu'elle confirme.
   await notifyUser({
     userId: holder, type: "GENERIC",
-    title: premiere ? "Caisse d'avance remise" : "Nouvelle remise en caisse d'avance",
-    body: `${amount} DZD remis le ${new Date().toLocaleDateString("fr-FR")} — confirmez la réception dans Moyens généraux.`,
+    title: premiere ? "Caisse d'avance annoncée" : "Nouvelle remise en caisse d'avance annoncée",
+    body: `${amount} DZD demandés au centre de paiement le ${new Date().toLocaleDateString("fr-FR")} — vous serez prévenue au versement, et confirmerez alors la réception.`,
     link: PATH,
   });
   revalidatePath(PATH);
-  return { ok: true };
+  revalidatePath("/centre-de-paiement");
+  return { ok: true, message: `Remise de ${amount.toLocaleString("fr-FR")} DZD envoyée au centre de paiement (${ordre.reference}) : elle rejoindra le fond une fois autorisée et versée par les Finances.` };
 }
 
 /**
@@ -148,13 +152,23 @@ export async function confirmPettyCashReceipt(formData: FormData): Promise<Actio
   if (!id) return { ok: false, error: "Caisse non précisée." };
   const cash = await prisma.pettyCashAllotment.findUnique({
     where: { id },
-    include: { department: { select: { name: true, id: true } } },
+    include: {
+      department: { select: { name: true, id: true } },
+      expenseOrder: { select: { status: true, centralStatus: true } },
+    },
   });
   if (!cash) return { ok: false, error: "Caisse introuvable." };
   if (cash.holderId !== user.id && !hasGlobalView(user)) {
     return { ok: false, error: "Seule la personne à qui la somme a été remise confirme sa réception." };
   }
+  // ON NE CONFIRME PAS AVOIR REÇU CE QUI N'EST PAS PARTI (§118.176) : tant que le centre n'a pas
+  // autorisé la remise et que les Finances ne l'ont pas versée, il n'y a rien à recevoir. Une
+  // remise d'avant la règle (sans ordre) se confirme comme avant.
+  const refusAttente = refusConfirmationRemise(etatRemise({
+    aUnOrdre: Boolean(cash.expenseOrderId), ordre: cash.expenseOrder, transactionId: cash.transactionId,
+  }));
   if (cash.status !== "ALLOTTED") return { ok: false, error: "Cette réception est déjà confirmée." };
+  if (refusAttente) return { ok: false, error: refusAttente };
 
   await prisma.pettyCashAllotment.update({
     where: { id },
@@ -183,9 +197,16 @@ export async function closePettyCash(formData: FormData): Promise<ActionResult> 
   const cash = await prisma.pettyCashAllotment.findUnique({ where: { id }, select: { departmentId: true } });
   if (!cash) return { ok: false, error: "Caisse introuvable." };
 
-  const ouvertes = await openRemittances(cash.departmentId);
-  if (ouvertes.length === 0) return { ok: false, error: "Cette caisse est déjà soldée." };
-  if (!ouvertes.some((r) => r.holderId === user.id) && !canAllot(user)) return { ok: false, error: "Non autorisé." };
+  const toutes = await openRemittances(cash.departmentId);
+  if (toutes.length === 0) return { ok: false, error: "Cette caisse est déjà soldée." };
+  if (!toutes.some((r) => r.holderId === user.id) && !canAllot(user)) return { ok: false, error: "Non autorisé." };
+  // UNE REMISE QUI ATTEND LE CENTRE NE SE SOLDE PAS AVEC LE FOND (§118.176) : elle n'y est pas
+  // encore. La solder ferait verser par les Finances une remise close, que personne ne pourrait
+  // plus recevoir — l'argent sortirait de la banque vers une caisse fermée.
+  const ouvertes = toutes.filter((r) => !r.enAttenteDuCentre);
+  if (ouvertes.length === 0) {
+    return { ok: false, error: "Rien à solder : la seule remise en cours attend encore le centre de paiement (ou son versement par les Finances)." };
+  }
 
   const fund = continuousCash(ouvertes);
   await prisma.pettyCashAllotment.updateMany({
@@ -379,7 +400,7 @@ export async function decidePettyCashTopUp(formData: FormData): Promise<ActionRe
 
   const req = await prisma.pettyCashTopUpRequest.findUnique({
     where: { id },
-    include: { allotment: { include: { department: { select: { name: true } } } } },
+    include: { allotment: { include: { department: { select: { name: true, companyId: true } } } } },
   });
   if (!req) return { ok: false, error: "Demande introuvable." };
   if (req.status !== "PENDING") return { ok: false, error: "Cette demande a déjà été tranchée." };
@@ -430,6 +451,8 @@ export async function decidePettyCashTopUp(formData: FormData): Promise<ActionRe
           account: "Caisse",
           counterparty: holderName,
           status: "SETTLED",
+          companyId: req.allotment.department.companyId,
+          treasuryAccountId: await compteDeLEcriture({ compte: "Caisse", societeId: req.allotment.department.companyId }),
           createdById: user.id,
         },
         select: { id: true },
@@ -532,7 +555,7 @@ export async function runPettyCashRechargeReminders(now = new Date()): Promise<n
     await notifyRoles(["SUPER_ADMIN", "DIRECTION"], {
       type: "GENERIC",
       title: "Caisse d'avance — rechargement dans 48 h",
-      body: `${plan.department.name} : ${toNumber(plan.monthlyAmount)} DZD à remettre le ${r.at.toLocaleDateString("fr-FR")}.`,
+      body: `${plan.department.name} : ${toNumber(plan.monthlyAmount)} DZD à remettre le ${r.at.toLocaleDateString("fr-FR")}. La remise passe par le centre de paiement : envoyez-la dès maintenant pour qu'elle soit autorisée et versée à temps.`,
       link: PATH,
     });
     await prisma.pettyCashPlan.update({ where: { id: plan.id }, data: { lastReminderPeriod: r.period } });

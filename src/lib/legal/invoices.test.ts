@@ -88,18 +88,31 @@ describe("ce qui reste à payer, et combien", () => {
 
 describe("qui voit quoi, une fois les deux registres fondus", () => {
   it("LEGAL VOIT TOUT le registre", () => {
-    expect(legalViewScope({ onLegal: true, onFinances: false })).toBe("ALL");
-    expect(legalViewScope({ onLegal: true, onFinances: true })).toBe("ALL");
+    expect(legalViewScope({ onLegal: true, onFinances: false, onBonsDeCommande: false })).toBe("ALL");
+    expect(legalViewScope({ onLegal: true, onFinances: true, onBonsDeCommande: true })).toBe("ALL");
   });
 
   // Centraliser ne doit rien retirer à personne : la comptabilité venait lire ce qui reste
   // à payer, et le registre des engagements ne lui est pas ouvert pour autant.
   it("LA COMPTABILITÉ NE PERD PAS LES FACTURES — et ne gagne pas les baux", () => {
-    expect(legalViewScope({ onLegal: false, onFinances: true })).toBe("PURCHASE_CHAIN");
+    expect(legalViewScope({ onLegal: false, onFinances: true, onBonsDeCommande: false })).toBe("PURCHASE_CHAIN");
+    // Le module « Bons de commande » en plus ne RÉTRÉCIT pas sa portée : la chaîne d'achat contient déjà les BC.
+    expect(legalViewScope({ onLegal: false, onFinances: true, onBonsDeCommande: true })).toBe("PURCHASE_CHAIN");
+  });
+
+  // §118.176 — le Super Admin ouvre le module « à qui il veut », y compris sans Legal ni Finances :
+  // il faut pouvoir LIRE ce qu'on signe, et rien d'autre.
+  it("LE MODULE « BONS DE COMMANDE » SEUL ouvre les bons de commande — pas les factures, pas les contrats", () => {
+    const portee = legalViewScope({ onLegal: false, onFinances: false, onBonsDeCommande: true });
+    expect(portee).toBe("BONS_DE_COMMANDE");
+    expect(legalKindVisible(portee, "PURCHASE_ORDER")).toBe(true);
+    expect(legalKindVisible(portee, "INVOICE")).toBe(false);
+    expect(legalKindVisible(portee, "CONTRACT")).toBe(false);
+    expect(legalKindVisible(portee, "QUOTE")).toBe(false);
   });
 
   it("ni l'un ni l'autre : rien", () => {
-    expect(legalViewScope({ onLegal: false, onFinances: false })).toBe("NONE");
+    expect(legalViewScope({ onLegal: false, onFinances: false, onBonsDeCommande: false })).toBe("NONE");
   });
 
   it("écrire : la comptabilité tient les factures, Legal tient le registre", () => {

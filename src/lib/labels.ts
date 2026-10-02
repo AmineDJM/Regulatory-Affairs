@@ -1,6 +1,7 @@
 import type { AnnuaireAccordable } from "./annuaires/acces";
 import type { Action, Module } from "./rbac";
 import { CHEMIN_CATALOGUE_PROMO, CHEMIN_STOCK_PROMO } from "./chemins/stock-promo";
+import { CHEMIN_BONS_DE_COMMANDE } from "./chemins/bons-de-commande";
 
 /**
  * Centralised French display labels and badge tones for every enum value.
@@ -1676,6 +1677,10 @@ export const MODULE_LABELS: Record<Module, string> = {
   // se confond plus avec Pilotage, renommé « Sujets » : deux cases « Projets » dans la console
   // feraient ouvrir l'un en croyant ouvrir l'autre.
   BD_PROJECTS: "Projets",
+  // « BONS DE COMMANDE » — la file des bons de commande à signer, devenue un module à part des
+  // Finances (§118.176). Le libellé suit le menu : c'est sous ce nom qu'on le cherche dans la
+  // console pour l'ouvrir à quelqu'un.
+  PURCHASE_ORDERS: "Bons de commande",
 };
 
 /**
@@ -1859,12 +1864,16 @@ export const NAVIGATION: NavItem[] = [
     children: [
       { module: "FINANCES", label: "Banque & paiements", href: "/finances/paiements-a-faire", icon: "Banknote", group: "Pôles", pole: "ADMINISTRATION" },
       { module: "FINANCES", label: "Comptabilité", href: "/finances/comptabilite", icon: "BookOpen", group: "Pôles", pole: "ADMINISTRATION" },
-      // LES BONS DE COMMANDE À SIGNER (§118.149) — « un sous-module spécial : les bons de commande
-      // à signer de leur part. Si un BC se retrouve là-bas, c'est qu'il doit être signé. » La file
-      // ne contient QUE cela : validés par leur centre, ou sous le seuil de validation.
-      { module: "FINANCES", label: "Bons de commande", href: "/finances/bons-de-commande", icon: "FilePen", group: "Pôles", pole: "ADMINISTRATION" },
     ],
   },
+  // LES BONS DE COMMANDE — un module À PART (décision de la Direction, 01/10/2026, §118.176).
+  //
+  // C'était le troisième sous-module des Finances (§118.149) : « les bons de commande à signer de
+  // leur part. Si un BC se retrouve là-bas, c'est qu'il doit être signé. » La file n'a pas changé ;
+  // sa PORTE, si : « le module bon de commande doit être à part et le super admin donne les accès à
+  // qui il veut ». Rangé sous les Finances, il s'ouvrait à quiconque lisait les Finances, et l'on ne
+  // pouvait ni le donner à quelqu'un qui ne les a pas, ni le retirer à quelqu'un qui les a.
+  { module: "PURCHASE_ORDERS", label: "Bons de commande", href: CHEMIN_BONS_DE_COMMANDE, icon: "FilePen", group: "Pôles", pole: "ADMINISTRATION" },
   // LE CENTRE DE PAIEMENT — un module À PART, HORS Finances : celui qui autorise l'argent ne
   // doit pas être dans l'écran de celui qui le décaisse. L'entrée n'apparaît qu'à qui a le
   // module (PDG + Super Admin) ; un demandeur à qui le centre rend la main y arrive par le LIEN

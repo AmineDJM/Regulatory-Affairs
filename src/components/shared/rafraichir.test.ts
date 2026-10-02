@@ -42,9 +42,11 @@ const APPEL_NU = /\brouter\.refresh\(\)/g;
  * Mesuré au §118.172, après conversion des écrans de ce lot : 355 appels nus (commentaires retirés).
  * Ramené à 353 au §118.175 — les postes Ad & Pro et la suppression d'une demande suivent leur
  * rafraîchissement ; laissé à 355, le cliquet accepterait deux appels neufs sans rien dire (§118.79c).
- * Il ne peut que baisser.
+ * Ramené à 350 au §118.176 — l'ancien écran des soldes d'ouverture (deux appels) a cédé la place
+ * aux comptes de trésorerie ancrés, et la feuille de paie a perdu son « transfert au budget » ; le
+ * panneau qui envoie la paie au centre suit son rafraîchissement. Il ne peut que baisser.
  */
-const PLAFOND_APPELS_NUS = 353;
+const PLAFOND_APPELS_NUS = 350;
 
 describe("le rafraîchissement suivi", () => {
   const parc = fichiers(SRC).map((f) => ({ f, src: sansCommentaires(readFileSync(f, "utf8")) }));
@@ -64,6 +66,10 @@ describe("le rafraîchissement suivi", () => {
       // l'état d'avant.
       "src/components/ad-pro/items-panel.tsx",
       "src/components/ad-pro/supprimer-demande.tsx",
+      // §118.176 : envoyer la paie au centre, puis renvoyer sur l'état d'avant, partirait deux fois ;
+      // supprimer des écritures « à imputer » rouvrirait une sélection sur des lignes disparues.
+      "src/app/(app)/rh/paie/virements-paie.tsx",
+      "src/app/(app)/budgets/suppression-a-imputer.tsx",
     ];
     for (const e of ecrans) {
       const src = sansCommentaires(readFileSync(join(process.cwd(), e), "utf8"));

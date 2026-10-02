@@ -4,6 +4,7 @@ import { groupIntoPoles, itemsOfGroup, poleOfPath, aliasMatches, ongletActif, PO
 import { EVENTS_TABS, NAVIGATION, STOCK_PROMO_TABS, type NavItem } from "./labels";
 import { CHEMIN_CATALOGUE_PROMO, CHEMIN_STOCK_PROMO } from "./chemins/stock-promo";
 import { MODULES } from "./rbac";
+import { CHEMIN_BONS_DE_COMMANDE } from "@/lib/chemins/bons-de-commande";
 
 /** Les entrées telles que le layout les livre : DÉJÀ filtrées par le RBAC. */
 const accessible = (modules: string[]): NavItem[] =>
@@ -246,7 +247,7 @@ describe("aucune route n'a changé — les liens historiques restent valides", (
   });
 });
 
-describe("Finances — trois écrans, et cliquer le module conduit au travail", () => {
+describe("Finances — deux écrans, et cliquer le module conduit au travail", () => {
   const finances = NAVIGATION.find((n) => n.label === "Finances");
 
   it("CLIQUER « FINANCES » MÈNE À « BANQUE & PAIEMENTS »", () => {
@@ -258,13 +259,23 @@ describe("Finances — trois écrans, et cliquer le module conduit au travail", 
   it("LE « DASHBOARD » N'EST PLUS UN SOUS-MODULE, et ceux qui restent sont nommés", () => {
     const enfants = (finances?.children ?? []).map((c) => c.label);
     expect(enfants).not.toContain("Dashboard");
-    // « Bons de commande » (§118.149) — « un sous-module spécial : les bons de commande à signer
-    // de leur part ». Un écran de TRAVAIL (on y signe), pas un écran d'escale : il ne réintroduit
-    // pas le défaut que le retrait du tableau de bord a fermé.
-    expect(enfants).toEqual(["Banque & paiements", "Comptabilité", "Bons de commande"]);
-    const bc = (finances?.children ?? []).find((c) => c.label === "Bons de commande");
-    expect(bc?.href).toBe("/finances/bons-de-commande");
-    expect(bc?.module, "l'entrée suit le module Finances — la signature, elle, exige d'y écrire").toBe("FINANCES");
+    // « Bons de commande » a quitté les Finances (§118.176) : un module À PART, et non plus un
+    // troisième sous-module — sinon il s'ouvrirait encore à quiconque lit les Finances.
+    expect(enfants).toEqual(["Banque & paiements", "Comptabilité"]);
+  });
+
+  it("LES BONS DE COMMANDE SONT UN MODULE À PART — leur propre entrée, leur propre droit (§118.176)", () => {
+    // « Le module bon de commande doit être à part et le super admin donne les accès à qui il
+    // veut. » L'entrée suit le module `PURCHASE_ORDERS`, réglé dans Administration › Accès, et pas
+    // les Finances : sans cela, la donner à quelqu'un qui n'a pas les Finances serait impossible,
+    // et la retirer à quelqu'un qui les a aussi.
+    const bc = NAVIGATION.find((n) => n.label === "Bons de commande");
+    expect(bc, "une entrée de premier niveau, pas un sous-menu des Finances").toBeDefined();
+    expect(bc?.module).toBe("PURCHASE_ORDERS");
+    expect(bc?.href).toBe(CHEMIN_BONS_DE_COMMANDE);
+    expect(bc?.pole, "le pôle où on la cherchait hier : Administration").toBe("ADMINISTRATION");
+    const sousFinances = (finances?.children ?? []).some((c) => c.href === CHEMIN_BONS_DE_COMMANDE || c.label === "Bons de commande");
+    expect(sousFinances, "plus aucun chemin vers la file depuis les Finances").toBe(false);
   });
 
   it("L'ANCIENNE ADRESSE RESTE DANS LE PÉRIMÈTRE — le menu ne se désélectionne pas", () => {

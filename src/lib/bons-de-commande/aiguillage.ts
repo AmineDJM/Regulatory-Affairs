@@ -8,6 +8,8 @@ import { centreValidatorFrom } from "@/lib/validations/centre";
 import { TYPES_ENTITE_AD_PRO } from "@/lib/ad-pro/unified";
 import { poleDe } from "@/lib/lecteurs/consulting";
 import { getAppSettings } from "@/lib/settings";
+import { CHEMIN_BONS_DE_COMMANDE } from "@/lib/chemins/bons-de-commande";
+import { notifierSignatairesBC } from "./signataires";
 import {
   centreDeLOrigine, etatDepuisPoste, etatDepuisValidation, etatDepuisVisa, gesteAiguillage,
   validationRequiseBC, etapeBC,
@@ -15,8 +17,12 @@ import {
   type CentreBC, type EtapeBC, type PorteBC,
 } from "./regle";
 
-/** L'écran des Finances où un BC « à signer » attend — les notifications y mènent. */
-export const CHEMIN_BC_A_SIGNER = "/finances/bons-de-commande";
+/**
+ * L'écran où un BC « à signer » attend — les notifications y mènent. Le module « Bons de commande »
+ * est à part depuis §118.176 : l'adresse vit au socle (`chemins/bons-de-commande`), lue aussi par
+ * le menu ; ce nom reste celui que les écrivains citent déjà.
+ */
+export const CHEMIN_BC_A_SIGNER = CHEMIN_BONS_DE_COMMANDE;
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
@@ -399,14 +405,16 @@ export interface ResultatAiguillage {
 }
 
 /**
- * PRÉVENIR LES FINANCES QU'UN BC ATTEND LEUR SIGNATURE (§118.149) — « si un BC se retrouve
- * là-bas, c'est qu'il doit être signé » : encore faut-il qu'elles sachent qu'il y est.
+ * PRÉVENIR LES SIGNATAIRES QU'UN BC ATTEND LEUR SIGNATURE (§118.149) — « si un BC se retrouve
+ * là-bas, c'est qu'il doit être signé » : encore faut-il qu'ils sachent qu'il y est. QUI est
+ * prévenu ne se lit plus sur un rôle mais sur le module « Bons de commande » tel que le Super
+ * Admin l'a réglé (`signataires.ts`, §118.176).
  *
  * Appelée sur une TRANSITION vers « à signer » (aiguillage, décision d'un centre), jamais à
  * chaque relecture : une notification répétée pour la même pièce cesse d'être lue (§118.32).
  */
-export async function notifierFinancesBCASigner(doc: DocBC): Promise<void> {
-  await notifyRoles(["FINANCE_BUDGET_MANAGER"], {
+export async function notifierSignatairesBCASigner(doc: DocBC): Promise<void> {
+  await notifierSignatairesBC({
     type: "VALIDATION_REQUIRED",
     title: "Bon de commande à signer",
     body: `${intitule(doc)} (${montantLisible(montantDe(doc))})`,
@@ -544,7 +552,7 @@ export async function aiguillerBC(
     ): Promise<ResultatAiguillage> => {
       const etape = etapeBC({ porte, validationRequise: requise, signe, dansLeCircuit: true });
       const versLesFinances = etape === "A_SIGNER" && etapeAvant !== "A_SIGNER";
-      if (versLesFinances && !opts.silencieux) await notifierFinancesBCASigner(doc);
+      if (versLesFinances && !opts.silencieux) await notifierSignatairesBCASigner(doc);
       return {
         porte, geste: gesteRendu, etape, seuil,
         ...(signatureRetiree ? { signatureRetiree } : {}),
@@ -725,7 +733,7 @@ export async function reaiguillerSurChangementDeSeuil(ancien: number, nouveau: n
     if (r.geste === "POSEE") bilan.versUnCentre += 1;
   }
   if (bilan.versLaSignature > 0) {
-    await notifyRoles(["FINANCE_BUDGET_MANAGER"], {
+    await notifierSignatairesBC({
       type: "VALIDATION_REQUIRED",
       title: bilan.versLaSignature === 1 ? "Un bon de commande à signer" : `${bilan.versLaSignature} bons de commande à signer`,
       body: `Le seuil de validation des bons de commande est passé à ${nouveau.toLocaleString("fr-FR")} DZD : `

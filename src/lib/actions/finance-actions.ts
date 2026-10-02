@@ -1,14 +1,18 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import type { FinanceCategory, FinanceDirection, FinanceMethod, FinanceStatus, PayrollStatus } from "@prisma/client";
+import type { FinanceCategory, FinanceDirection, FinanceMethod, FinanceStatus, PayrollStatus, Prisma } from "@prisma/client";
 import { requireUser } from "@/lib/session";
 import { userCan } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { buildRef, nextRefNumber } from "@/lib/refs";
 import { recordAudit } from "@/lib/audit";
 import { notifyRoles } from "@/lib/notify";
-import { fdStr, fdNum, fdDate, type ActionResult } from "@/lib/actions/types";
+import { fdStr, fdNum, fdDate, fdCase, type ActionResult } from "@/lib/actions/types";
+import { getMyCompanies, companyScopedWhere } from "@/lib/company";
+import { toNumber } from "@/lib/utils";
+import { compteDeLEcriture, comptesTresorerie } from "@/lib/finance/comptes";
+import { resoudreCompte } from "@/lib/finance/tresorerie";
 
 const IN_CATEGORIES = ["RECETTE", "CCA", "PRET"];
 
@@ -54,6 +58,10 @@ export async function createTransaction(
       status: (fdStr(formData, "status") as FinanceStatus) ?? "SETTLED",
       notes: fdStr(formData, "notes"),
       companyId: fdStr(formData, "companyId") || null,
+      // LE COMPTE SE FIGE À L'ÉCRITURE (§118.176) : celui qui a été choisi, sinon la règle.
+      treasuryAccountId: await compteDeLEcriture({
+        compteId: fdStr(formData, "treasuryAccountId"), compte: fdStr(formData, "account") ?? "Banque", societeId: fdStr(formData, "companyId") || null,
+      }),
       createdById: user.id,
     },
   });
@@ -113,6 +121,9 @@ export async function updateTransaction(formData: FormData): Promise<ActionResul
       invoiceRef: fdStr(formData, "invoiceRef"),
       status: (fdStr(formData, "status") as FinanceStatus) ?? "SETTLED",
       notes: fdStr(formData, "notes"),
+      // Le compte FIGÉ ne bouge que si le formulaire en NOMME un : corriger un libellé ne doit pas
+      // faire changer de compte un paiement déjà rattaché (§118.152c, §118.176).
+      ...(formData.has("treasuryAccountId") ? { treasuryAccountId: fdStr(formData, "treasuryAccountId") || null } : {}),
     },
   });
   await recordAudit({
@@ -157,6 +168,7 @@ export async function importTransactions(
   const year = new Date().getFullYear();
   const existingRefs = await prisma.financeTransaction.findMany({ where: { reference: { startsWith: `FIN-${year}-` } }, select: { reference: true } });
   let base = nextRefNumber(existingRefs.map((r) => r.reference)) - 1; // prochain = base+1 (dérivé du max, robuste aux trous)
+  const comptes = await comptesTresorerie();
   for (const line of lines) {
     const c = line.split(/[;,]/).map((x) => x.trim());
     if (c.length < 5) continue;
@@ -176,6 +188,8 @@ export async function importTransactions(
         account: account || "Banque",
         counterparty: counterparty || null,
         status: "SETTLED",
+        // La colonne « compte » du relevé désigne le compte par son NOM ; sinon la règle (§118.176).
+        treasuryAccountId: resoudreCompte(comptes, { compte: account || "Banque", societeId: null }),
         createdById: user.id,
       },
     }).catch(() => undefined);
@@ -186,12 +200,44 @@ export async function importTransactions(
   return { ok: true };
 }
 
-// ── Solde d'ouverture de trésorerie (initialisation puis calcul) ──
+// ── Comptes de trésorerie ANCRÉS (§118.176) ──
+
+/** Un RIB algérien : vingt chiffres (banque, agence, compte, clé). Un IBAN étranger passe tel quel. */
+function lireRib(brut: string | null): { ok: true; rib: string | null } | { ok: false; error: string } {
+  if (!brut) return { ok: true, rib: null };
+  const net = brut.replace(/[\s.-]/g, "").toUpperCase();
+  if (/^\d+$/.test(net)) {
+    return net.length === 20 ? { ok: true, rib: net } : { ok: false, error: `Un RIB algérien compte 20 chiffres — celui-ci en a ${net.length}.` };
+  }
+  return /^[A-Z]{2}\d{2}[A-Z0-9]{8,30}$/.test(net) ? { ok: true, rib: net } : { ok: false, error: "RIB illisible : 20 chiffres (RIB algérien) ou un IBAN." };
+}
+
+/** L'entité titulaire doit être une entité que la personne voit — un compte ne s'ouvre pas au nom d'une autre. */
+async function entiteOuverte(userId: string, companyId: string | null): Promise<boolean> {
+  if (!companyId) return true;
+  return (await getMyCompanies(userId)).some((c) => c.id === companyId);
+}
 
 /**
- * Définit (ou met à jour) le solde d'ouverture d'un compte de trésorerie. Le solde
- * courant affiché = solde d'ouverture + flux réglés. Permet d'initialiser la
- * trésorerie à l'adoption de la plateforme, puis de la laisser se calculer.
+ * UN SEUL COMPTE PRINCIPAL PAR ENTITÉ — et le changement se DIT. Désigner un nouveau principal
+ * retire ce rôle à l'ancien, dans la même écriture, et la phrase le nomme : un changement silencieux
+ * déciderait d'où partent les paiements à venir sans que personne l'ait lu. Les écritures passées ne
+ * bougent pas : chacune a figé son compte en s'écrivant.
+ */
+async function retirerLesAutresPrincipaux(tx: Prisma.TransactionClient, companyId: string | null, saufId: string): Promise<string[]> {
+  const autres = await tx.treasuryAccount.findMany({ where: { principal: true, companyId, id: { not: saufId } }, select: { id: true, name: true } });
+  if (autres.length > 0) await tx.treasuryAccount.updateMany({ where: { id: { in: autres.map((a) => a.id) } }, data: { principal: false } });
+  return autres.map((a) => a.name);
+}
+
+/**
+ * OUVRIR UN COMPTE DE TRÉSORERIE — et rien d'autre.
+ *
+ * « SGA Birkhadem, compte Adventum, 2 966 153 DZD au 28/09/2026 » : un compte naît ANCRÉ — un solde
+ * de relevé à une date, en fin de journée. L'ancien geste était un « upsert » sur le nom : rouvrir
+ * « Banque » réécrivait son ouverture en silence, et l'on ne savait plus d'où partait le solde
+ * affiché. Un nom déjà pris est REFUSÉ, et le refus nomme le geste qui corrige : l'ancrage se
+ * corrige à part, avec un motif.
  */
 export async function setTreasuryOpeningBalance(
   _prev: ActionResult | undefined,
@@ -201,30 +247,146 @@ export async function setTreasuryOpeningBalance(
   if (!userCan(user, "FINANCES", "UPDATE")) return { ok: false, error: "Non autorisé." };
   const name = (fdStr(formData, "name") ?? "").trim();
   if (!name) return { ok: false, error: "Nom du compte obligatoire." };
-  const openingBalance = fdNum(formData, "openingBalance") ?? 0;
-  const openingDate = fdDate(formData, "openingDate") ?? new Date();
-  const notes = fdStr(formData, "notes");
+  const openingBalance = fdNum(formData, "openingBalance");
+  if (openingBalance === null || !Number.isFinite(openingBalance)) return { ok: false, error: "Indiquez le solde du relevé à la date d'ancrage (0 accepté)." };
+  const openingDate = fdDate(formData, "openingDate");
+  if (!openingDate) return { ok: false, error: "Indiquez la date du relevé : le solde s'entend en fin de cette journée." };
+  const rib = lireRib(fdStr(formData, "rib"));
+  if (!rib.ok) return { ok: false, error: rib.error };
+  const companyId = fdStr(formData, "companyId") || null;
+  if (!(await entiteOuverte(user.id, companyId))) return { ok: false, error: "Entité introuvable ou hors de votre périmètre." };
+  const principal = fdCase(formData, "principal") === true;
 
-  await prisma.treasuryAccount.upsert({
-    where: { name },
-    update: { openingBalance, openingDate, notes },
-    create: { name, openingBalance, openingDate, notes, createdById: user.id },
+  const existant = await prisma.treasuryAccount.findUnique({ where: { name }, select: { id: true } });
+  if (existant) {
+    return { ok: false, error: `Le compte « ${name} » existe déjà : son ancrage ne se réécrit pas par une ouverture. Corrigez-le depuis « Corriger l'ancrage », avec un motif.` };
+  }
+
+  const { compte, retires } = await prisma.$transaction(async (tx) => {
+    const cree = await tx.treasuryAccount.create({
+      data: {
+        name, openingBalance, openingDate, notes: fdStr(formData, "notes"), bank: fdStr(formData, "bank"), rib: rib.rib,
+        companyId, principal, createdById: user.id, updatedById: user.id,
+      },
+      select: { id: true },
+    });
+    const retires = principal ? await retirerLesAutresPrincipaux(tx, companyId, cree.id) : [];
+    return { compte: cree, retires };
+  });
+  const jour = openingDate.toLocaleDateString("fr-FR", { timeZone: "Africa/Algiers" });
+  await recordAudit({
+    actorId: user.id, action: "CREATE", module: "Finances",
+    summary: `Compte de trésorerie « ${name} » ouvert — ancré à ${openingBalance.toLocaleString("fr-FR")} DZD au ${jour}${principal ? " (compte principal)" : ""}${retires.length ? ` ; ${retires.join(", ")} cesse d'être principal` : ""}`,
+  });
+  revalidatePath("/finances");
+  return {
+    ok: true, id: compte.id,
+    message: `Compte « ${name} » ouvert : ${openingBalance.toLocaleString("fr-FR")} DZD au ${jour}.${retires.length ? ` ${retires.join(", ")} n'est plus le compte principal.` : ""}`,
+  };
+}
+
+/**
+ * MODIFIER UN COMPTE — libellé, banque, RIB, entité, compte principal, notes. JAMAIS l'ancrage :
+ * il se corrige à part, avec un motif (`corrigerAncrageTresorerie`). Seules les clés PRÉSENTES
+ * s'écrivent : un formulaire qui ne porte pas le RIB ne l'efface pas (§118.152c).
+ */
+export async function modifierCompteTresorerie(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  if (!userCan(user, "FINANCES", "UPDATE")) return { ok: false, error: "Non autorisé." };
+  const id = fdStr(formData, "id");
+  if (!id) return { ok: false, error: "Compte non précisé." };
+  const avant = await prisma.treasuryAccount.findFirst({ where: await companyScopedWhere(user.id, { id }), select: { id: true, name: true, companyId: true, principal: true } });
+  if (!avant) return { ok: false, error: "Compte introuvable." };
+
+  const data: Prisma.TreasuryAccountUpdateInput = {};
+  const changes: string[] = [];
+  if (formData.has("name")) {
+    const name = (fdStr(formData, "name") ?? "").trim();
+    if (!name) return { ok: false, error: "Nom du compte obligatoire." };
+    if (name !== avant.name) {
+      if (await prisma.treasuryAccount.count({ where: { name, id: { not: id } } })) return { ok: false, error: `Un compte « ${name} » existe déjà.` };
+      data.name = name;
+      changes.push(`nom « ${avant.name} » → « ${name} »`);
+    }
+  }
+  if (formData.has("bank")) data.bank = fdStr(formData, "bank");
+  if (formData.has("rib")) {
+    const rib = lireRib(fdStr(formData, "rib"));
+    if (!rib.ok) return { ok: false, error: rib.error };
+    data.rib = rib.rib;
+  }
+  if (formData.has("notes")) data.notes = fdStr(formData, "notes");
+  let companyId = avant.companyId;
+  if (formData.has("companyId")) {
+    companyId = fdStr(formData, "companyId") || null;
+    if (!(await entiteOuverte(user.id, companyId))) return { ok: false, error: "Entité introuvable ou hors de votre périmètre." };
+    data.company = companyId ? { connect: { id: companyId } } : { disconnect: true };
+  }
+  const principal = formData.has("principal") ? fdCase(formData, "principal") === true : avant.principal;
+  data.principal = principal;
+
+  const retires = await prisma.$transaction(async (tx) => {
+    await tx.treasuryAccount.update({ where: { id }, data: { ...data, updatedById: user.id } });
+    return principal ? retirerLesAutresPrincipaux(tx, companyId, id) : [];
   });
   await recordAudit({
     actorId: user.id, action: "UPDATE", module: "Finances",
-    summary: `Solde d'ouverture « ${name} » = ${openingBalance.toLocaleString("fr-FR")} DZD`,
+    summary: `Compte de trésorerie « ${avant.name} » modifié${changes.length ? ` — ${changes.join(", ")}` : ""}${principal !== avant.principal ? (principal ? " — devient principal" : " — n'est plus principal") : ""}${retires.length ? ` ; ${retires.join(", ")} cesse d'être principal` : ""}`,
   });
   revalidatePath("/finances");
-  return { ok: true };
+  return { ok: true, id, message: `Compte modifié.${retires.length ? ` ${retires.join(", ")} n'est plus le compte principal.` : ""}` };
 }
 
+/**
+ * CORRIGER L'ANCRAGE — le solde du relevé ou sa date. Un MOTIF est exigé, et l'audit garde l'ancien
+ * et le nouveau : c'est le point de départ de tous les soldes affichés, il ne change pas sans
+ * qu'on puisse dire pourquoi ni d'où l'on venait.
+ */
+export async function corrigerAncrageTresorerie(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  if (!userCan(user, "FINANCES", "UPDATE")) return { ok: false, error: "Non autorisé." };
+  const id = fdStr(formData, "id");
+  if (!id) return { ok: false, error: "Compte non précisé." };
+  const openingBalance = fdNum(formData, "openingBalance");
+  const openingDate = fdDate(formData, "openingDate");
+  const motif = (fdStr(formData, "motif") ?? "").trim();
+  const manque: string[] = [];
+  if (openingBalance === null || !Number.isFinite(openingBalance)) manque.push("le solde du relevé");
+  if (!openingDate) manque.push("sa date");
+  if (motif.length < 5) manque.push("le motif de la correction");
+  if (manque.length) return { ok: false, error: `Indiquez ${manque.join(", ")}.` };
+  const avant = await prisma.treasuryAccount.findFirst({ where: await companyScopedWhere(user.id, { id }), select: { name: true, openingBalance: true, openingDate: true } });
+  if (!avant) return { ok: false, error: "Compte introuvable." };
+  await prisma.treasuryAccount.update({ where: { id }, data: { openingBalance: openingBalance!, openingDate: openingDate!, updatedById: user.id } });
+  const jour = (d: Date) => d.toLocaleDateString("fr-FR", { timeZone: "Africa/Algiers" });
+  await recordAudit({
+    actorId: user.id, action: "UPDATE", module: "Finances", field: "ancrage",
+    oldValue: `${toNumber(avant.openingBalance).toLocaleString("fr-FR")} DZD au ${jour(avant.openingDate)}`,
+    newValue: `${openingBalance!.toLocaleString("fr-FR")} DZD au ${jour(openingDate!)}`,
+    summary: `Ancrage du compte « ${avant.name} » corrigé — ${toNumber(avant.openingBalance).toLocaleString("fr-FR")} DZD au ${jour(avant.openingDate)} → ${openingBalance!.toLocaleString("fr-FR")} DZD au ${jour(openingDate!)} — motif : ${motif}`,
+  });
+  revalidatePath("/finances");
+  return { ok: true, id, message: `Ancrage corrigé : ${openingBalance!.toLocaleString("fr-FR")} DZD au ${jour(openingDate!)}.` };
+}
+
+/**
+ * SUPPRIMER UN COMPTE — refusé tant que des écritures le NOMMENT : le supprimer laisserait ces
+ * paiements sans compte, et l'ancien geste avalait l'erreur et répondait « fait » (un faux succès
+ * parfait, la clé étrangère refusant la suppression en silence).
+ */
 export async function deleteTreasuryAccount(formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
   if (!userCan(user, "FINANCES", "UPDATE")) return { ok: false, error: "Non autorisé." };
   const id = fdStr(formData, "id");
   if (!id) return { ok: false, error: "Identifiant manquant." };
-  await prisma.treasuryAccount.delete({ where: { id } }).catch(() => undefined);
-  await recordAudit({ actorId: user.id, action: "DELETE", module: "Finances", summary: "Solde d'ouverture supprimé" });
+  const compte = await prisma.treasuryAccount.findFirst({ where: await companyScopedWhere(user.id, { id }), select: { name: true, openingBalance: true } });
+  if (!compte) return { ok: false, error: "Compte introuvable." };
+  const nommees = await prisma.financeTransaction.count({ where: { treasuryAccountId: id } });
+  if (nommees > 0) {
+    return { ok: false, error: `${nommees} écriture(s) nomment le compte « ${compte.name} » : il ne se supprime pas. Renommez-le, ou corrigez son ancrage, s'il le faut.` };
+  }
+  await prisma.treasuryAccount.delete({ where: { id } });
+  await recordAudit({ actorId: user.id, action: "DELETE", module: "Finances", summary: `Compte de trésorerie « ${compte.name} » supprimé (ancrage ${toNumber(compte.openingBalance).toLocaleString("fr-FR")} DZD)` });
   revalidatePath("/finances");
   return { ok: true };
 }
@@ -279,39 +441,15 @@ export async function createPayroll(
   return { ok: true };
 }
 
-/** Mark a payslip PAID → record a treasury OUT transaction. */
-export async function payPayroll(formData: FormData): Promise<ActionResult> {
-  const user = await requireUser();
-  if (!userCan(user, "FINANCES", "UPDATE")) return { ok: false, error: "Non autorisé." };
-  const id = fdStr(formData, "id");
-  if (!id) return { ok: false, error: "Bulletin introuvable." };
-  const entry = await prisma.payrollEntry.findUnique({ where: { id }, include: { employee: true } });
-  if (!entry) return { ok: false, error: "Bulletin introuvable." };
-  if (entry.status === "PAID") return { ok: true };
-
-  const tx = await prisma.financeTransaction.create({
-    data: {
-      reference: await nextRef("FIN"),
-      date: new Date(),
-      direction: "OUT",
-      category: "SALAIRE",
-      label: `Salaire ${entry.month}/${entry.year} — ${entry.employee.fullName}`,
-      amount: entry.net,
-      method: "BANK_TRANSFER",
-      account: "Banque",
-      counterparty: entry.employee.fullName,
-      status: "SETTLED",
-      employeeId: entry.employeeId,
-      createdById: user.id,
-    },
-  });
-  await prisma.payrollEntry.update({
-    where: { id }, data: { status: "PAID", paidDate: new Date(), transactionId: tx.id },
-  });
-  await recordAudit({ actorId: user.id, action: "VALIDATE", module: "Finances", entityType: "PAYROLL", entityId: id, summary: `Paie réglée — ${entry.employee.fullName}` });
-  revalidatePath("/finances");
-  return { ok: true };
-}
+/**
+ * « RÉGLER LA PAIE » D'UN BULLETIN N'EXISTE PLUS ICI (§118.176). Cette action marquait un bulletin
+ * payé et inscrivait l'écriture SALAIRE — l'argent sortait du livre sans que le centre de paiement
+ * l'ait vu. « La paie doit dorénavant passer par le centre de paiement et attendre la validation »
+ * (Direction, 01/10/2026) : elle part, entité par entité, depuis RH › Paie (`envoyerPaieAuCentre`),
+ * et c'est le RÈGLEMENT de son ordre qui l'inscrit au livre. Aucun écran ne l'appelait ; seule une
+ * op d'Adam le faisait — retirée avec elle. La laisser aurait gardé une porte ouverte à côté de la
+ * porte gardée (§118.71).
+ */
 
 /**
  * ENCAISSEMENT SIMPLE — cinq champs et c'est réglé : date, référence, libellé, montant, client.
@@ -350,6 +488,9 @@ export async function createQuickIncome(
       counterparty: fdStr(formData, "client"),
       status: "SETTLED",
       companyId: fdStr(formData, "companyId") || null,
+      treasuryAccountId: await compteDeLEcriture({
+        compteId: fdStr(formData, "treasuryAccountId"), compte: "Banque", societeId: fdStr(formData, "companyId") || null,
+      }),
       createdById: user.id,
     },
     select: { id: true, reference: true },

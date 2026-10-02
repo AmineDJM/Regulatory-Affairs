@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Input, Label } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { EmptyState } from "@/components/shared/empty-state";
+import { MENU_BONS_DE_COMMANDE } from "@/lib/chemins/bons-de-commande";
 import { setAdProDgThreshold, setBcValidationThreshold } from "@/lib/actions/settings-actions";
 import { deciderVisaCentreAdPro } from "@/lib/actions/ad-pro-centre-actions";
 import { approveAdProItemOrder } from "@/lib/actions/ad-pro-item-actions";
@@ -72,7 +73,7 @@ export function CentreAdProBoard({ rows, seuil, seuilBC }: { rows: LigneCentre[]
           {bcs.length === 0 ? (
             <EmptyState
               title="Aucun bon de commande en attente"
-              description="La demande de bon de commande d'un poste, et toute pièce BC enregistrée dans Legal depuis une demande Ad & Pro, arrivent ici avant d'engager la société — une fois validées, elles passent à la signature des Finances (Finances › Bons de commande)."
+              description={`La demande de bon de commande d'un poste, et toute pièce BC enregistrée dans Legal depuis une demande Ad & Pro, arrivent ici avant d'engager la société — une fois validées, elles passent à la signature des Finances (${MENU_BONS_DE_COMMANDE}).`}
             />
           ) : (
             <ul className="space-y-3">
@@ -176,8 +177,8 @@ function SeuilBCForm({ seuil }: { seuil: number }) {
         <CardDescription>
           Un bon de commande <strong>strictement</strong> au-dessus de ce montant passe par un centre de
           validation — celui-ci s&apos;il naît d&apos;Ad &amp; Pro, le centre de validations sinon — avant
-          la signature des Finances. En deçà, il passe directement à leur signature (Finances › Bons de
-          commande). Il vaut pour tous les bons de commande de la société.
+          la signature des Finances. En deçà, il passe directement à leur signature ({MENU_BONS_DE_COMMANDE}).
+          Il vaut pour tous les bons de commande de la société.
         </CardDescription>
       </CardHeader>
       <CardContent>

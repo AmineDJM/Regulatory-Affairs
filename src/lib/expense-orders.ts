@@ -39,6 +39,13 @@ interface CreateExpenseOrderInput {
   deadlineNature?: string | null;
   /** (Sous-)catégorie budgétaire choisie par la Direction — attribution au règlement. */
   budgetCategoryId?: string | null;
+  /**
+   * L'ENTITÉ, quand l'ordre n'a pas de source qui la porte (§118.176) — la remise d'une caisse
+   * d'avance engage la société du DÉPARTEMENT qui la reçoit, pas celle de la personne qui clique.
+   * Sans elle, le repli sur la fiche du demandeur rattacherait la remise à la mauvaise société,
+   * et un Directeur Général cloisonné sur la bonne ne la verrait pas au centre.
+   */
+  companyId?: string | null;
 }
 
 // Dépenses « événementielles » : une facture est obligatoire avant le règlement.
@@ -86,6 +93,8 @@ const COMPANY_OF_SOURCE: Partial<Record<EntityType, (id: string) => Promise<{ co
   CONSULTING_CONTRACT: (id) => prisma.consultingContract.findUnique({ where: { id }, select: { companyId: true } }),
   EVENT: (id) => prisma.event.findUnique({ where: { id }, select: { companyId: true } }),
   REGULATORY_PRODUCT: (id) => prisma.regulatoryProduct.findUnique({ where: { id }, select: { companyId: true } }),
+  // LA PAIE D'UNE ENTITÉ (§118.176) : le virement porte l'entité dont on vire les salaires.
+  PAYROLL: (id) => prisma.payrollWire.findUnique({ where: { id }, select: { companyId: true } }),
 };
 
 /**
@@ -104,6 +113,8 @@ export const EXPENSE_SOURCE_TYPES = Object.keys(COMPANY_OF_SOURCE) as EntityType
  * d'appartenance du demandeur ; à défaut encore, sur rien (l'ordre restera à rattacher).
  */
 async function companyOfExpense(input: CreateExpenseOrderInput): Promise<string | null> {
+  // L'entité DÉCLARÉE par l'appelant l'emporte : il la tient de l'objet qui engage la dépense.
+  if (input.companyId) return input.companyId;
   try {
     if (input.sourceId && input.sourceType) {
       const lire = COMPANY_OF_SOURCE[input.sourceType];

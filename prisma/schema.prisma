@@ -1543,6 +1543,8 @@ model Company {
   promoStockItems         PromoStockItem[]
   medicalDoctors          MedicalDoctor[]
   financeTransactions     FinanceTransaction[]
+  treasuryAccounts        TreasuryAccount[]
+  payrollWires            PayrollWire[]
   medicalInfoDeclarations MedicalInfoDeclaration[]
   stockSnapshots          StockSnapshot[]
   logisticsOrders         LogisticsOrder[]
@@ -2754,27 +2756,35 @@ model PettyCashTopUpRequest {
 }
 
 model PettyCashAllotment {
-  id            String          @id @default(cuid())
-  departmentId  String
-  department    Department      @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+  id             String          @id @default(cuid())
+  departmentId   String
+  department     Department      @relation(fields: [departmentId], references: [id], onDelete: Cascade)
   /// Mois concerné, « AAAA-MM ». Une caisse par mois et par détenteur : mélanger deux mois,
   /// c'est perdre la capacité de dire « il restait combien fin juillet ».
-  period        String
-  amount        Decimal         @default(0) @db.Decimal(14, 2)
-  status        PettyCashStatus @default(ALLOTTED)
+  period         String
+  amount         Decimal         @default(0) @db.Decimal(14, 2)
+  status         PettyCashStatus @default(ALLOTTED)
   /// Qui DÉTIENT la caisse (et confirme la réception).
-  holderId      String?
-  holder        User?           @relation("PettyCashHolder", fields: [holderId], references: [id], onDelete: SetNull)
-  receivedAt    DateTime?
-  note          String?
+  holderId       String?
+  holder         User?           @relation("PettyCashHolder", fields: [holderId], references: [id], onDelete: SetNull)
+  receivedAt     DateTime?
+  note           String?
   /// L'ÉCRITURE DE TRÉSORERIE de la remise. Remettre une caisse d'avance SORT de l'argent de la
   /// banque : sans écriture, le livre ignore un décaissement réel et le rapprochement bancaire
-  /// décroche. Nul = remise antérieure à cette règle, signalée par le contrôle du livre.
-  transactionId String?
-  createdById   String?
-  createdBy     User?           @relation("PettyCashCreator", fields: [createdById], references: [id], onDelete: SetNull)
-  createdAt     DateTime        @default(now())
-  updatedAt     DateTime        @updatedAt
+  /// décroche. Posée au RÈGLEMENT de l'ordre de la remise (§118.176) — avant cette règle, à la
+  /// remise elle-même. Nul sur une remise d'avant la première règle, signalée par le contrôle du
+  /// livre ; nul aussi tant que l'ordre attend le centre ou les Finances : rien n'est encore parti.
+  transactionId  String?
+  /// L'ORDRE DE DÉPENSE de la remise (§118.176) — « la caisse qui est donnée mensuellement aux
+  /// moyens généraux doit passer par le centre de paiement et attendre la validation ». Tant qu'il
+  /// n'est pas réglé, la somme n'a pas quitté la banque : la détentrice ne peut pas confirmer
+  /// l'avoir reçue. Nul = remise antérieure à la règle, qui se confirme comme avant.
+  expenseOrderId String?         @unique
+  expenseOrder   ExpenseOrder?   @relation("PettyCashAllotmentOrder", fields: [expenseOrderId], references: [id], onDelete: SetNull)
+  createdById    String?
+  createdBy      User?           @relation("PettyCashCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
 
   expenses DepartmentBudgetExpense[]
   topUps   PettyCashTopUpRequest[]
@@ -4679,6 +4689,12 @@ model FinanceTransaction {
   budgetCategoryId String?
   budgetCategory   BudgetCategoryLine? @relation(fields: [budgetCategoryId], references: [id], onDelete: SetNull)
 
+  /// LE COMPTE D'OÙ PART (ou où arrive) L'ARGENT, figé à l'écriture (§118.176). Lu au moment où le
+  /// flux s'écrit, il ne bouge plus quand on change ensuite de compte principal : sans lui, les
+  /// soldes passés changeraient de compte à chaque réglage. Nul sur l'historique d'avant.
+  treasuryAccountId String?
+  treasuryAccount   TreasuryAccount? @relation(fields: [treasuryAccountId], references: [id], onDelete: Restrict)
+
   createdById String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
@@ -4692,6 +4708,7 @@ model FinanceTransaction {
   @@index([status])
   @@index([account])
   @@index([budgetCategoryId])
+  @@index([treasuryAccountId])
 }
 
 /// UN PAPIER EN-TÊTE — le modèle Office qu'on ouvre au lieu d'une page blanche.
@@ -4827,18 +4844,32 @@ model AdamRule {
   @@index([status, effectiveFrom])
 }
 
-/// Solde d'ouverture d'un compte de trésorerie (Caisse, Banque…). Sert de base de
-/// calcul : solde courant = solde d'ouverture + flux réglés enregistrés. Permet
-/// d'initialiser la trésorerie à l'adoption de la plateforme, puis de la calculer.
+/// UN COMPTE DE TRÉSORERIE ANCRÉ (§118.176) — « SGA Birkhadem, compte Adventum, 2 966 153 DZD au
+/// 28/09/2026 ». L'ANCRAGE (`openingBalance` au jour `openingDate`, en fin de journée, comme un
+/// relevé) n'est jamais réécrit par une ouverture : il se CORRIGE, avec un motif tracé. Le solde du
+/// compte = l'ancrage + les écritures RÉGLÉES qui lui reviennent, datées APRÈS le jour d'ancrage.
 model TreasuryAccount {
   id             String   @id @default(cuid())
-  name           String   @unique // "Banque", "Caisse", …
+  name           String   @unique // « SGA Birkhadem — Adventum », « Banque », …
   openingBalance Decimal  @default(0) @db.Decimal(14, 2)
   openingDate    DateTime @default(now())
   notes          String?
+  /// La banque et l'agence (« SGA Birkhadem ») et le RIB : ce qu'on lit sur le relevé.
+  bank           String?
+  rib            String?
+  /// L'entité titulaire — c'est elle qui paie depuis ce compte.
+  companyId      String?
+  company        Company? @relation(fields: [companyId], references: [id], onDelete: SetNull)
+  /// Le compte d'où part un paiement de son entité, quand l'écriture ne nomme pas le sien.
+  principal      Boolean  @default(false)
   createdById    String?
+  updatedById    String?
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
+
+  transactions FinanceTransaction[]
+
+  @@index([companyId])
 }
 
 /// Employee record — shared by RH (dossiers, congés, contrats) and Paie.
@@ -5290,6 +5321,10 @@ model ExpenseOrder {
   /// Le montant que le centre demande de retenir, quand il demande une révision.
   centralProposedAmount Decimal?               @db.Decimal(14, 2)
   centralMessages       PaymentCentreMessage[]
+  /// La remise de caisse d'avance que cet ordre paie (§118.176) — nulle pour tout autre ordre.
+  pettyCashAllotment    PettyCashAllotment?    @relation("PettyCashAllotmentOrder")
+  /// Le virement de paie que cet ordre porte (§118.176) — nul pour tout autre ordre.
+  payrollWire           PayrollWire?
   createdAt             DateTime               @default(now())
   updatedAt             DateTime               @updatedAt
 
@@ -5714,6 +5749,12 @@ model PayrollEntry {
   employeeNotifiedAt  DateTime? // notification effectivement envoyée
   budgetTransferredAt DateTime? // transféré dans le budget (verrouille la ligne)
   budgetCategoryId    String? // (sous-)catégorie budgétaire choisie au transfert
+  /// LE VIREMENT qui porte ce salaire (§118.176) — posé quand la paie de l'entité part au centre
+  /// de paiement. Un virement refusé ne couvre plus rien : le salaire repart au prochain envoi.
+  /// Nul sur un salaire pas encore envoyé, et sur l'historique de l'ancien « transfert au budget »
+  /// (qui porte, lui, `transactionId` et `budgetTransferredAt`).
+  payrollWireId       String?
+  payrollWire         PayrollWire?  @relation(fields: [payrollWireId], references: [id], onDelete: SetNull)
   createdById         String?
   createdAt           DateTime      @default(now())
   updatedAt           DateTime      @updatedAt
@@ -5722,6 +5763,38 @@ model PayrollEntry {
   @@index([year, month])
   @@index([status])
   @@index([employeeNotifyAt])
+  @@index([payrollWireId])
+}
+
+/// LE VIREMENT DE LA PAIE D'UNE ENTITÉ POUR UN MOIS (§118.176) — « pour la paie, c'est un bouton
+/// pour toute la paie avec mention obligatoire de la somme des salaires à virer (un bouton par
+/// entité) ». L'envoi crée un ORDRE DE DÉPENSE en attente du centre de paiement ; c'est son
+/// RÈGLEMENT par les Finances qui écrit au livre — une seule écriture, de la somme DÉCLARÉE — et
+/// qui fait passer les salaires qu'il porte à « virés » (les salariés ne sont prévenus qu'alors).
+///
+/// `paidAt` et `transactionId` gardent le FAIT du virement même quand l'ordre est purgé de
+/// l'historique des règlements : sans eux, une paie virée redeviendrait « à envoyer » et
+/// partirait deux fois. Plusieurs virements par mois sont possibles (un complément après le
+/// premier), jamais deux en cours à la fois.
+model PayrollWire {
+  id             String        @id @default(cuid())
+  companyId      String
+  company        Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  year           Int
+  month          Int
+  /// LA SOMME DES SALAIRES À VIRER, déclarée par les RH — c'est elle que le centre autorise.
+  amount         Decimal       @db.Decimal(14, 2)
+  expenseOrderId String?       @unique
+  expenseOrder   ExpenseOrder? @relation(fields: [expenseOrderId], references: [id], onDelete: SetNull)
+  paidAt         DateTime?
+  transactionId  String?
+  createdById    String?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  entries PayrollEntry[]
+
+  @@index([companyId, year, month])
 }
 
 // ─────────────── Validation Center (règles configurables par le Super Admin) ───────────────
@@ -7898,6 +7971,12 @@ model AppSetting {
   /// l'argent est imputé — mais il ne se PILOTE plus que depuis le compte Super Admin.
   /// Nul = aucun service désigné ; on retombe alors sur le rattachement, comme avant.
   generalMeansDepartmentId      String?
+  /// L'INSTANT OÙ LA PAIE EST PASSÉE PAR LE CENTRE DE PAIEMENT (§118.176) — posé UNE fois par la
+  /// migration `20261220090000_paie_avant_le_centre`, jamais déplacé. Avant lui, « marquer payé »
+  /// voulait dire « versé » : l'ancien circuit prévenait le salarié « votre salaire a été versé »
+  /// 24 h après. Ces salaires-là sont VIRÉS — les présenter « à envoyer » au centre les ferait payer
+  /// une seconde fois. Après lui, marquer payé n'est plus qu'une SAISIE.
+  payrollCentreSince            DateTime?
   // Clés VAPID (Web Push) auto-générées et persistées si non fournies par l'environnement.
   // La clé privée reste côté serveur ; la publique est servie via /api/push/key.
   vapidPublicKey                String?

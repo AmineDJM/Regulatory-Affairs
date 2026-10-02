@@ -10,6 +10,7 @@ import { siegeAuCentreAdPro, REFUS_CENTRE_AD_PRO } from "@/lib/ad-pro/centre";
 import { AD_PRO_ENTITY_TYPE, AD_PRO_KINDS, type AdProKind } from "@/lib/ad-pro/unified";
 import { fdStr, type ActionResult } from "@/lib/actions/types";
 import { CHEMIN_BC_A_SIGNER } from "@/lib/bons-de-commande/aiguillage";
+import { MENU_BONS_DE_COMMANDE } from "@/lib/chemins/bons-de-commande";
 import { signalerSiASigner } from "@/lib/bons-de-commande/etat";
 
 /**
@@ -97,7 +98,7 @@ export async function deciderVisaCentreAdPro(formData: FormData): Promise<Action
           : approuve ? "Centre Ad & Pro : votre demande est autorisée" : "Centre Ad & Pro : votre demande est refusée",
         body: estBC
           ? (approuve
-            ? "Validé : il passe à la signature des Finances (Finances › Bons de commande). Il pourra partir chez le fournisseur une fois signé."
+            ? `Validé : il passe à la signature des Finances (${MENU_BONS_DE_COMMANDE}). Il pourra partir chez le fournisseur une fois signé.`
             : `Motif : ${note}`)
           : approuve
             ? "Le centre de validation a autorisé le dépassement du seuil. Le circuit reprend son cours."

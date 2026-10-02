@@ -8,11 +8,18 @@ import { putBlob, releaseBlob } from "@/lib/drive-storage";
 import { validateUpload } from "@/lib/storage";
 import { getAppSettings } from "@/lib/settings";
 import { recordAudit } from "@/lib/audit";
-import { buildRef } from "@/lib/refs";
+import { enSerie } from "@/lib/refs";
 import { formatMonth } from "@/lib/utils";
 import { fdStr, fdNum, type ActionResult } from "@/lib/actions/types";
-import { massByDepartment, budgetRefreshes, refreshSummary, type PayrollCostLine } from "@/lib/hr/payroll-mass";
+import { createExpenseOrder } from "@/lib/expense-orders";
+import { getMyCompanies } from "@/lib/company";
+import { getBudgetCategoryOptions } from "@/lib/queries/budget";
 import { entryCost } from "@/lib/hr/payroll-cost";
+import {
+  etatVirement, etatSalaire, virementCouvre, moisDeLEntite, lireSommeAVirer, libelleVirementPaie,
+  noteVirementPaie, moisDeLaPaie, deMois, ETAT_VIREMENT_LABEL, SOMME_A_VIRER_MANQUANTE, saisiAvantLeCentre, type VirementDuMois,
+} from "@/lib/hr/virement-paie";
+import { instantDuCentreDePaie } from "@/lib/hr/paie-centre";
 import { validateAmounts, resolvedGross, amendImpact, canAmend } from "@/lib/hr/payroll-amend";
 import { docxToPdf, isConvertibleWord, pdfFileName } from "@/lib/payslip/to-pdf";
 import { MIME_DOCX } from "@/lib/artifact/adapters/docx/adapter";
@@ -138,6 +145,9 @@ export async function markSalaryPaid(formData: FormData): Promise<ActionResult> 
     payslipDocumentId,
     employeeNotifyAt: new Date(now.getTime() + NOTIFY_DELAY_MS),
     employeeNotifiedAt: null,
+    // Une saisie NEUVE n'est couverte par aucun virement : celui d'un ancien envoi refusé ne la
+    // porte plus, et elle partira au prochain (§118.176).
+    payrollWireId: null,
     createdById: existing ? undefined : user.id,
   };
   if (existing) await prisma.payrollEntry.update({ where: { id: existing.id }, data });
@@ -145,7 +155,7 @@ export async function markSalaryPaid(formData: FormData): Promise<ActionResult> 
 
   await recordAudit({
     actorId: user.id, action: "VALIDATE", module: "RH", entityType: "PAYROLL",
-    summary: `Paie ${ym(year, month)} — ${employee.fullName} : payé (coût employeur ${data.employerCost.toLocaleString("fr-FR")} → budget · net ${data.net.toLocaleString("fr-FR")} DZD au salarié)`,
+    summary: `Paie ${ym(year, month)} — ${employee.fullName} : saisie (coût employeur ${data.employerCost.toLocaleString("fr-FR")} · net ${data.net.toLocaleString("fr-FR")} DZD au salarié) — versée au virement de la paie de son entité`,
   });
   revalidatePath(PATH);
   return { ok: true };
@@ -161,9 +171,28 @@ export async function unmarkSalaryPaid(formData: FormData): Promise<ActionResult
   if (!canRunPayroll(user)) return { ok: false, error: "Réservé aux RH." };
   const id = fdStr(formData, "id");
   if (!id) return { ok: false, error: "Ligne introuvable." };
-  const entry = await prisma.payrollEntry.findUnique({ where: { id }, include: { employee: { select: { fullName: true } } } });
+  const entry = await prisma.payrollEntry.findUnique({
+    where: { id },
+    include: {
+      employee: { select: { fullName: true } },
+      payrollWire: { select: { paidAt: true, expenseOrder: { select: { reference: true, status: true, centralStatus: true } } } },
+    },
+  });
   if (!entry || entry.status !== "PAID") return { ok: false, error: "Ligne introuvable." };
   if (entry.budgetTransferredAt) return { ok: false, error: "Déjà transférée dans le budget : annulation impossible ici." };
+  // UN SALAIRE ENVOYÉ AU CENTRE NE S'ANNULE PLUS (§118.176) : il fait partie de la somme que le
+  // centre autorise — ou que les Finances ont virée. L'annuler laisserait cette somme décrire une
+  // paie qui n'existe plus. Il se CORRIGE (bulletin, montants) ; refusé, le virement le libère.
+  if (entry.payrollWire) {
+    const etat = etatVirement({ paidAt: entry.payrollWire.paidAt, ordre: entry.payrollWire.expenseOrder });
+    if (virementCouvre(etat)) {
+      const ref = entry.payrollWire.expenseOrder?.reference;
+      return {
+        ok: false,
+        error: `Ce salaire fait partie de la paie ${ETAT_VIREMENT_LABEL[etat]}${ref ? ` (${ref})` : ""} : corrigez la ligne au lieu de l'annuler.`,
+      };
+    }
+  }
 
   if (entry.payslipDocumentId) {
     const doc = await prisma.employeeDocument.findUnique({ where: { id: entry.payslipDocumentId }, select: { blobId: true } });
@@ -172,7 +201,7 @@ export async function unmarkSalaryPaid(formData: FormData): Promise<ActionResult
   }
   await prisma.payrollEntry.update({
     where: { id },
-    data: { status: "DRAFT", paidDate: null, payslipDocumentId: null, employeeNotifyAt: null },
+    data: { status: "DRAFT", paidDate: null, payslipDocumentId: null, employeeNotifyAt: null, payrollWireId: null },
   });
   await recordAudit({
     actorId: user.id, action: "UPDATE", module: "RH", entityType: "PAYROLL",
@@ -183,135 +212,150 @@ export async function unmarkSalaryPaid(formData: FormData): Promise<ActionResult
 }
 
 /**
- * Transfère dans le BUDGET tous les salaires payés (non encore transférés) d'un mois :
- * une écriture de trésorerie SALAIRE (sortie) par employé, imputée à la (sous-)catégorie
- * budgétaire choisie. Appelé après le résumé de confirmation côté interface.
+ * ENVOYER LA PAIE D'UNE ENTITÉ AU CENTRE DE PAIEMENT — un bouton par entité (§118.176).
+ *
+ * « Pour la paie, c'est un bouton pour toute la paie avec mention obligatoire de la somme des
+ * salaires à virer. (un bouton par entité) » — la Direction, 01/10/2026.
+ *
+ * ── CE QUE L'ENVOI FAIT ─────────────────────────────────────────────────────────────────────
+ *
+ * Il crée l'ORDRE DE DÉPENSE de la paie, en attente du centre : le centre l'autorise, les Finances
+ * la virent, et c'est AU RÈGLEMENT qu'une écriture — une seule, de la somme déclarée — entre au
+ * livre. Il remplace le « transfert au budget », qui écrivait un décaissement par salarié sans
+ * que personne au centre l'ait vu : c'était précisément le chemin que la Direction vient de fermer.
+ *
+ * Il pose son virement sur les salaires saisis À CE MOMENT-LÀ de cette entité : c'est d'eux que
+ * la somme déclarée parle. Un salaire saisi ensuite part dans un COMPLÉMENT — un second envoi,
+ * jamais tant que le premier est en cours.
+ *
+ * ── LA SOMME EST DÉCLARÉE, PAS DEVINÉE ──────────────────────────────────────────────────────
+ *
+ * Obligatoire, et jamais pré-remplie : c'est l'attestation des RH sur ce qui doit partir. La somme
+ * des nets saisis l'accompagne dans la note du centre, avec l'écart s'il y en a un — une prime ou
+ * une retenue l'explique, et le centre juge en le voyant.
+ *
+ * ── DEUX ENVOIS SIMULTANÉS N'EN FONT QU'UN ──────────────────────────────────────────────────
+ *
+ * Un double clic ferait sinon deux ordres pour la même paie, et le centre pourrait dire oui aux
+ * deux. Les envois d'une même entité et d'un même mois passent UN PAR UN (`enSerie`), et chacun
+ * relit, dans son tour, ce qui est déjà en cours.
  */
-export async function transferPayrollToBudget(formData: FormData): Promise<ActionResult> {
+export async function envoyerPaieAuCentre(formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
   if (!canRunPayroll(user)) return { ok: false, error: "Réservé aux RH." };
+  const companyId = fdStr(formData, "companyId");
   const year = fdNum(formData, "year");
   const month = fdNum(formData, "month");
+  if (!companyId) return { ok: false, error: "Précisez l'entité dont la paie part au centre." };
+  if (!year || !month || month < 1 || month > 12) return { ok: false, error: "Mois invalide." };
+  const sommeSaisie = fdStr(formData, "amount");
+  if (!sommeSaisie) return { ok: false, error: SOMME_A_VIRER_MANQUANTE };
+  const somme = lireSommeAVirer(sommeSaisie);
+  if (!somme.ok) return { ok: false, error: somme.erreur };
+
+  // L'ENTITÉ DOIT ÊTRE L'UNE DES VÔTRES : envoyer la paie d'une société qu'on ne voit pas, c'est
+  // engager son argent sans en avoir le droit.
+  const entite = (await getMyCompanies(user.id)).find((c) => c.id === companyId);
+  if (!entite) return { ok: false, error: "Cette entité ne vous est pas ouverte : sa paie ne part pas d'ici." };
+  const nomEntite = entite.shortName || entite.name;
+
+  // LA CATÉGORIE BUDGÉTAIRE, facultative : sans elle, les Finances classent au règlement. Choisie,
+  // elle doit être l'une de celles qui vous sont ouvertes — un identifiant forgé ne classe pas la
+  // paie dans l'enveloppe d'un autre.
   const budgetCategoryId = fdStr(formData, "budgetCategoryId");
-  if (!year || !month) return { ok: false, error: "Mois invalide." };
-  if (!budgetCategoryId) return { ok: false, error: "Choisissez la catégorie budgétaire." };
-  const category = await prisma.budgetCategoryLine.findUnique({ where: { id: budgetCategoryId }, select: { name: true } });
-  if (!category) return { ok: false, error: "Catégorie budgétaire introuvable." };
+  if (budgetCategoryId) {
+    const ouvertes = await getBudgetCategoryOptions(undefined, user);
+    if (!ouvertes.some((o) => o.id === budgetCategoryId)) {
+      return { ok: false, error: "Cette catégorie budgétaire ne vous est pas ouverte." };
+    }
+  }
 
-  const entries = await prisma.payrollEntry.findMany({
-    where: { year, month, status: "PAID", budgetTransferredAt: null },
-    include: { employee: { select: { fullName: true } } },
-  });
-  if (entries.length === 0) return { ok: false, error: "Aucun salaire payé à transférer pour ce mois." };
+  const depuisLeCentre = await instantDuCentreDePaie();
+  return enSerie(`paie:${companyId}:${year}-${month}`, async (): Promise<ActionResult> => {
+    const [lignes, virements] = await Promise.all([
+      prisma.payrollEntry.findMany({
+        where: { year, month, status: "PAID", employee: { companyId } },
+        select: {
+          id: true, status: true, net: true, transactionId: true, budgetTransferredAt: true, paidDate: true, createdAt: true,
+          payrollWire: { select: { paidAt: true, expenseOrder: { select: { status: true, centralStatus: true } } } },
+        },
+      }),
+      prisma.payrollWire.findMany({
+        where: { companyId, year, month },
+        orderBy: { createdAt: "asc" },
+        select: {
+          id: true, amount: true, createdAt: true, paidAt: true,
+          expenseOrder: { select: { reference: true, status: true, centralStatus: true } },
+        },
+      }),
+    ]);
+    const salaires = lignes.map((l) => ({
+      id: l.id,
+      net: Number(l.net),
+      etat: etatSalaire({
+        status: l.status, transactionId: l.transactionId, budgetTransferredAt: l.budgetTransferredAt,
+        virement: l.payrollWire ? etatVirement({ paidAt: l.payrollWire.paidAt, ordre: l.payrollWire.expenseOrder }) : null,
+        // Versé par l'ANCIEN circuit (marqué payé avant la bascule) : jamais couvert par un envoi —
+        // le renvoyer au centre le paierait deux fois.
+        avantLeCentre: saisiAvantLeCentre(l, depuisLeCentre),
+      }),
+    }));
+    const duMois: VirementDuMois[] = virements.map((v) => ({
+      id: v.id,
+      reference: v.expenseOrder?.reference ?? null,
+      montant: Number(v.amount),
+      etat: etatVirement({ paidAt: v.paidAt, ordre: v.expenseOrder }),
+      envoyeLe: v.createdAt.toISOString(),
+      vireLe: v.paidAt ? v.paidAt.toISOString() : null,
+    }));
+    const mois = moisDeLEntite({ entite: nomEntite, year, month, salaires, virements: duMois });
+    if (mois.refus) return { ok: false, error: mois.refus };
 
-  // Références robustes calculées une fois pour le lot.
-  const finRefs = (await prisma.financeTransaction.findMany({
-    where: { reference: { startsWith: `FIN-${year}-` } },
-    select: { reference: true },
-  })).map((r) => r.reference);
-
-  let total = 0;
-  for (const [i, entry] of entries.entries()) {
-    const reference = buildRef("FIN", year, finRefs).replace(/(\d+)$/, (m) => String(Number(m) + i).padStart(m.length, "0"));
-    const tx = await prisma.financeTransaction.create({
-      data: {
-        reference,
-        date: new Date(),
-        direction: "OUT",
-        category: "SALAIRE",
-        label: `Salaire ${ym(year, month)} — ${entry.employee.fullName} (coût employeur)`,
-        // LE COÛT EMPLOYEUR est ce que la société décaisse réellement — charges patronales
-        // comprises — et donc ce qui doit peser sur le budget. Le brut n'en est qu'une partie ;
-        // imputer le brut sous-évaluait la masse salariale du montant des charges.
-        amount: entryCost({
-          employerCost: entry.employerCost != null ? Number(entry.employerCost) : null,
-          gross: Number(entry.gross), bonuses: Number(entry.bonuses), deductions: Number(entry.deductions),
-        }),
-        method: "BANK_TRANSFER",
-        account: "Banque",
-        counterparty: entry.employee.fullName,
-        status: "SETTLED",
-        employeeId: entry.employeeId,
-        budgetCategoryId,
-        createdById: user.id,
-      },
+    const aCouvrir = salaires.filter((s) => s.etat === "SAISI");
+    const wire = await prisma.payrollWire.create({
+      data: { companyId, year, month, amount: somme.montant, createdById: user.id },
       select: { id: true },
     });
-    await prisma.payrollEntry.update({
-      where: { id: entry.id },
-      data: { transactionId: tx.id, budgetTransferredAt: new Date(), budgetCategoryId },
+    let ordre: { id: string; reference: string };
+    try {
+      ordre = await createExpenseOrder({
+        label: libelleVirementPaie(nomEntite, year, month, mois.complement),
+        amount: somme.montant,
+        category: "SALAIRE",
+        beneficiary: `Salariés — ${nomEntite}`,
+        sourceType: "PAYROLL",
+        sourceId: wire.id,
+        requestedById: user.id,
+        notes: noteVirementPaie({ declare: somme.montant, salaires: aCouvrir.length, nets: mois.netsAEnvoyer }),
+        budgetCategoryId: budgetCategoryId ?? null,
+      });
+    } catch (e) {
+      // RIEN N'EST PARTI : on ne laisse pas un virement sans ordre, qui se lirait « annulé » sans
+      // que personne ait rien décidé.
+      await prisma.payrollWire.delete({ where: { id: wire.id } }).catch(() => undefined);
+      console.error("[paie] envoi au centre de paiement non abouti", e);
+      return { ok: false, error: "L'envoi au centre de paiement n'a pas abouti — rien n'est parti, réessayez." };
+    }
+
+    await prisma.$transaction([
+      prisma.payrollWire.update({ where: { id: wire.id }, data: { expenseOrderId: ordre.id } }),
+      prisma.payrollEntry.updateMany({ where: { id: { in: aCouvrir.map((s) => s.id) } }, data: { payrollWireId: wire.id } }),
+    ]);
+
+    const libelleMois = moisDeLaPaie(year, month);
+    await recordAudit({
+      actorId: user.id, action: "CREATE", module: "RH", entityType: "PAYROLL", entityId: wire.id,
+      summary: `${mois.complement ? "Complément de paie" : "Paie"} ${libelleMois} — ${nomEntite} envoyé${mois.complement ? "" : "e"} au centre de paiement (${ordre.reference}) : ${somme.montant.toLocaleString("fr-FR")} DZD déclarés, ${aCouvrir.length} salaire${aCouvrir.length > 1 ? "s" : ""}`,
     });
-    total += entryCost({
-      employerCost: entry.employerCost != null ? Number(entry.employerCost) : null,
-      gross: Number(entry.gross), bonuses: Number(entry.bonuses), deductions: Number(entry.deductions),
-    });
-  }
-
-  // ── LE BUDGET S'ACTUALISE, IL NE S'AJOUTE PAS ────────────────────────────────────────────
-  //
-  // La ligne « masse salariale » du département restait un montant SAISI À LA MAIN : on la
-  // remontait à chaque embauche, on l'oubliait à chaque départ, et six mois plus tard le budget
-  // annonçait une masse que personne ne reconnaissait. Elle se LIT pourtant — c'est la somme des
-  // coûts employeur réellement payés sur l'année.
-  //
-  // On la RECALCULE et on la REMPLACE. Incrémenter supposerait de ne jamais transférer deux fois,
-  // de ne jamais corriger une ligne, de ne jamais annuler un paiement : les trois arrivent.
-  // Recalculer rend l'opération idempotente, et une correction se répercute d'elle-même.
-  const actualisation = await refreshPayrollMass(year, user.id);
-
-  await recordAudit({
-    actorId: user.id, action: "VALIDATE", module: "RH", entityType: "PAYROLL",
-    summary: `Paie ${formatMonth(ym(year, month))} transférée au budget « ${category.name} » — ${entries.length} salaire·s, ${total.toLocaleString("fr-FR")} DZD · ${actualisation}`,
+    revalidatePath(PATH);
+    revalidatePath("/centre-de-paiement");
+    return {
+      ok: true,
+      message: mois.complement
+        ? `Le complément de paie ${deMois(libelleMois)} de ${nomEntite} est envoyé au centre de paiement (${ordre.reference}). Il sera viré une fois autorisé ; les salariés concernés seront prévenus au virement.`
+        : `La paie ${deMois(libelleMois)} de ${nomEntite} est envoyée au centre de paiement (${ordre.reference}). Elle sera virée une fois autorisée ; les salariés seront prévenus au virement.`,
+    };
   });
-  revalidatePath(PATH);
-  revalidatePath("/finances");
-  revalidatePath("/budgets");
-  return { ok: true };
-}
-
-/**
- * RECALCULER LA MASSE SALARIALE DE L'ANNÉE, département par département — et l'ÉCRIRE.
- *
- * Par ENTITÉ aussi, mais indirectement et c'est voulu : un département appartient à une société,
- * donc la masse d'une société est la somme de celle de ses départements. Poser un second total
- * par entité créerait une deuxième vérité, qui divergerait au premier rattachement corrigé.
- *
- * Rend la phrase que le journal retient.
- */
-async function refreshPayrollMass(year: number, actorId: string): Promise<string> {
-  const paid = await prisma.payrollEntry.findMany({
-    where: { year, status: "PAID" },
-    select: {
-      gross: true, bonuses: true, deductions: true, employerCost: true,
-      employee: { select: { departmentId: true, companyId: true } },
-    },
-  });
-  const lignes: PayrollCostLine[] = paid.map((e) => ({
-    departmentId: e.employee?.departmentId ?? null,
-    companyId: e.employee?.companyId ?? null,
-    cost: entryCost({
-      employerCost: e.employerCost != null ? Number(e.employerCost) : null,
-      gross: Number(e.gross), bonuses: Number(e.bonuses), deductions: Number(e.deductions),
-    }),
-  }));
-  const { byDepartment } = massByDepartment(lignes);
-
-  const existantes = await prisma.departmentBudget.findMany({
-    where: { year, kind: "HR" },
-    select: { departmentId: true, amount: true },
-  });
-  const current = new Map(existantes.map((b) => [b.departmentId, Number(b.amount)]));
-  const aEcrire = budgetRefreshes(byDepartment, current);
-
-  for (const r of aEcrire) {
-    await prisma.departmentBudget.upsert({
-      where: { departmentId_year_kind: { departmentId: r.departmentId, year, kind: "HR" } },
-      create: { departmentId: r.departmentId, year, kind: "HR", amount: r.amount, setById: actorId },
-      // REMPLACEMENT, jamais `increment` : c'est toute la règle.
-      update: { amount: r.amount, setById: actorId },
-    }).catch((e) => console.error("[paie] masse salariale non actualisée", r.departmentId, e));
-  }
-  return refreshSummary(aEcrire, (n) => `${n.toLocaleString("fr-FR")} DZD`);
 }
 
 /**
@@ -338,7 +382,10 @@ export async function updatePayrollEntry(formData: FormData): Promise<ActionResu
 
   const entry = await prisma.payrollEntry.findUnique({
     where: { id },
-    include: { employee: { select: { fullName: true } } },
+    include: {
+      employee: { select: { fullName: true } },
+      payrollWire: { select: { paidAt: true, expenseOrder: { select: { reference: true, status: true, centralStatus: true } } } },
+    },
   });
   if (!entry) return { ok: false, error: "Ligne introuvable." };
   const allowed = canAmend(entry);
@@ -400,5 +447,17 @@ export async function updatePayrollEntry(formData: FormData): Promise<ActionResu
   });
   revalidatePath(PATH);
   if (impact.syncBudget) { revalidatePath("/finances"); revalidatePath("/budgets"); }
+  // UN SALAIRE DÉJÀ ENVOYÉ AU CENTRE SE CORRIGE — le virement, lui, ne bouge pas (§118.176) : il
+  // porte la somme que les RH ont déclarée et que le centre a vue (ou que les Finances ont virée).
+  // Le dire évite de croire que la banque a suivi la correction.
+  const virement = entry.payrollWire
+    ? { etat: etatVirement({ paidAt: entry.payrollWire.paidAt, ordre: entry.payrollWire.expenseOrder }), ref: entry.payrollWire.expenseOrder?.reference ?? null }
+    : null;
+  if (virement && virementCouvre(virement.etat)) {
+    return {
+      ok: true,
+      message: `Ligne corrigée. La paie ${ETAT_VIREMENT_LABEL[virement.etat]}${virement.ref ? ` (${virement.ref})` : ""} n'est pas modifiée : elle porte la somme déclarée à l'envoi.`,
+    };
+  }
   return { ok: true, message: impact.syncBudget ? "Ligne et écriture budgétaire corrigées." : "Ligne corrigée." };
 }

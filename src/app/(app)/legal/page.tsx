@@ -1,4 +1,5 @@
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
+import { CHEMIN_BONS_DE_COMMANDE } from "@/lib/chemins/bons-de-commande";
 import { requireUser } from "@/lib/session";
 import { listPartyOptions } from "@/lib/queries/company-contacts";
 import { userCan } from "@/lib/rbac";
@@ -54,8 +55,13 @@ export default async function LegalPage({ searchParams }: { searchParams?: { ech
   const portee = legalViewScope({
     onLegal: userCan(user, "LEGAL", "VIEW"),
     onFinances: userCan(user, "FINANCES", "VIEW"),
+    onBonsDeCommande: userCan(user, "PURCHASE_ORDERS", "VIEW"),
   });
   if (portee === "NONE") notFound();
+  // LA PORTE DU MODULE « BONS DE COMMANDE » (§118.176) n'ouvre que les bons de commande, et ils ont
+  // leur écran : le registre entier n'est pas le sien. On l'y conduit plutôt que de lui montrer une
+  // liste d'engagements réduite à ce que sa propre file montre déjà mieux.
+  if (portee === "BONS_DE_COMMANDE") redirect(CHEMIN_BONS_DE_COMMANDE);
   // LA CHAÎNE D'ACHAT SEULE : la comptabilité voit les factures et les bons de commande qu'elle
   // émet — pas les baux ni les contrats. La nature se choisit parmi ces deux-là, facture d'abord.
   const facturesSeules = portee === "PURCHASE_CHAIN";
@@ -69,7 +75,7 @@ export default async function LegalPage({ searchParams }: { searchParams?: { ech
 
   // LE BOUTON « COMPOSER » : les natures que cette personne a le droit d'ÉMETTRE — la même règle
   // que la fabrique et qu'Adam (`legalWriteAllowed`), rejouée par le serveur au moment d'émettre.
-  // Calculée UNE fois pour Legal et pour Finances › Bons de commande (`compositionDesPieces`).
+  // Calculée UNE fois pour Legal et pour le module « Bons de commande » (`compositionDesPieces`).
   const composition = await compositionDesPieces(user);
   const typesComposables: TypePieceComposable[] = composition?.types ?? [];
   const typeCompose: TypePieceComposable = nature === "PURCHASE_ORDER" ? "BON_DE_COMMANDE" : nature === "QUOTE" ? "DEVIS" : "FACTURE";

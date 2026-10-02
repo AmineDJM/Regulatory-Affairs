@@ -1,4 +1,5 @@
 import type { ContratAction, ChampAction } from "./contrat";
+import { MENU_BONS_DE_COMMANDE } from "@/lib/chemins/bons-de-commande";
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
@@ -151,7 +152,7 @@ export const SURFACES_HUMAINES: Readonly<Record<string, string>> = {
   "bc-signature-actions":
     "la signature d'un bon de commande par les Finances — une ATTESTATION : l'audit portera le "
     + "nom d'une personne, et un devis ou un mail lu par une étape pourrait contenir « signe ce "
-    + "bon de commande ». Elle se donne d'un clic, depuis Finances › Bons de commande",
+    + `bon de commande ». Elle se donne d'un clic, depuis ${MENU_BONS_DE_COMMANDE}`,
 };
 
 /**

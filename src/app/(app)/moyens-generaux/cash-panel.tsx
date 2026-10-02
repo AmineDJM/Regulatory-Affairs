@@ -13,6 +13,7 @@ import { EmptyState } from "@/components/shared/empty-state";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { PETTY_CASH_STATUS_LABEL, periodLabel, MAX_RECHARGE_DAY } from "@/lib/petty-cash";
 import { cashWarning } from "@/lib/general-means/continuous-cash";
+import { ETAT_REMISE_LABEL, remiseEnAttente } from "@/lib/general-means/remise-centre";
 import {
   allotPettyCash, confirmPettyCashReceipt, requestPettyCashTopUp, closePettyCash,
   decidePettyCashTopUp, setPettyCashPlan,
@@ -43,19 +44,27 @@ export function CashPanel({ view, people }: { view: GeneralMeansView; people: { 
   const [pane, setPane] = React.useState<"none" | "topup" | "allot" | "plan">("none");
   const [grant, setGrant] = React.useState<Record<string, string>>({});
 
-  const run = async (key: string, fn: () => Promise<{ ok: boolean; error?: string }>, okText: string) => {
+  // LA PHRASE DE L'ACTION D'ABORD, quand elle en a une : celle de la remise porte la RÉFÉRENCE de
+  // l'ordre parti au centre de paiement (§118.176) — c'est ce qu'on suit ensuite là-bas. Le texte
+  // local ne sert qu'aux gestes dont l'action ne dit rien de plus qu'un succès.
+  const run = async (key: string, fn: () => Promise<{ ok: boolean; error?: string; message?: string }>, okText: string) => {
     setBusy(key); setMsg(null);
     const r = await fn();
     setBusy(null);
-    setMsg({ ok: r.ok, text: r.ok ? okText : (r.error ?? "Échec.") });
+    setMsg({ ok: r.ok, text: r.ok ? (r.message ?? okText) : (r.error ?? "Échec.") });
     if (r.ok) { setPane("none"); router.refresh(); }
   };
 
   const cash = view.cash;
   const fund = cash?.fund ?? null;
   const warning = cashWarning(fund, formatCurrency);
-  /** La remise qui attend une confirmation de réception, quand c'est à moi de la donner. */
-  const aConfirmer = view.isHolder ? cash?.remittances.filter((r) => r.status === "ALLOTTED") ?? [] : [];
+  /**
+   * La remise qui attend une confirmation de réception, quand c'est à moi de la donner — et
+   * seulement une fois VERSÉE (§118.176) : on ne confirme pas avoir reçu ce qui attend le centre.
+   */
+  const aConfirmer = view.isHolder ? cash?.remittances.filter((r) => r.status === "ALLOTTED" && r.centre === "VERSEE") ?? [] : [];
+  /** Les remises demandées au centre, pas encore versées — montrées à part, hors du fond. */
+  const enAttente = cash?.remittances.filter((r) => remiseEnAttente(r.centre)) ?? [];
 
   return (
     <div className="space-y-3">
@@ -65,7 +74,7 @@ export function CashPanel({ view, people }: { view: GeneralMeansView; people: { 
             <Wallet className="h-4 w-4 text-primary" />
             <h2 className="text-sm font-semibold">Caisse d&apos;avance</h2>
             <Badge tone={fund.received > 0 ? "success" : "warning"} dot={false}>
-              {fund.received > 0 ? "Ouverte" : "En attente de réception"}
+              {fund.received > 0 ? "Ouverte" : fund.remittanceCount === 0 && enAttente.length > 0 ? "En attente du centre de paiement" : "En attente de réception"}
             </Badge>
             <span className="text-xs text-muted-foreground">
               {fund.remittanceCount} remise{fund.remittanceCount > 1 ? "s" : ""} en cours
@@ -109,13 +118,28 @@ export function CashPanel({ view, people }: { view: GeneralMeansView; people: { 
             </p>
           )}
 
+          {/* LES REMISES DEMANDÉES AU CENTRE DE PAIEMENT (§118.176) — elles ne sont pas encore dans
+              le fond : le centre doit les autoriser, puis les Finances les verser. La détentrice
+              confirmera leur réception à ce moment-là, et pas avant. */}
+          {enAttente.map((r) => (
+            <div key={r.id} className="flex flex-wrap items-center gap-2 rounded-xl border border-border bg-secondary/30 p-3 text-sm">
+              <CalendarClock className="h-4 w-4 shrink-0 text-muted-foreground" />
+              <span className="min-w-0 flex-1">
+                <strong>{formatCurrency(r.amount)}</strong> demandés le {formatDate(r.remittedAt)}
+                {r.holder ? ` pour ${r.holder}` : ""} — {ETAT_REMISE_LABEL[r.centre].label.toLowerCase()}.
+                Ils rejoindront le fond une fois versés.
+              </span>
+              <Badge tone="warning" dot={false}>{ETAT_REMISE_LABEL[r.centre].label}</Badge>
+            </div>
+          ))}
+
           {/* CONFIRMER LA RÉCEPTION, REMISE PAR REMISE. Une somme décidée n'est pas une somme
               détenue : tant que la personne n'a pas dit l'avoir reçue, elle n'est pas dépensable. */}
           {aConfirmer.map((r) => (
             <div key={r.id} className="flex flex-wrap items-center gap-2 rounded-xl border border-warning/40 bg-warning/5 p-3 text-sm">
               <AlertTriangle className="h-4 w-4 shrink-0 text-warning" />
               <span className="min-w-0 flex-1">
-                <strong>{formatCurrency(r.amount)}</strong> vous ont été remis le {formatDate(r.remittedAt)} —
+                <strong>{formatCurrency(r.amount)}</strong> ont été versés pour votre caisse (remise du {formatDate(r.remittedAt)}) —
                 cette somme n&apos;est pas dépensable tant que vous n&apos;avez pas confirmé l&apos;avoir reçue.
               </span>
               <Button size="sm" disabled={busy === `recv:${r.id}`} onClick={() => {
@@ -167,7 +191,7 @@ export function CashPanel({ view, people }: { view: GeneralMeansView; people: { 
           icon="Wallet"
           title="Aucune somme en caisse"
           description={view.canAllot
-            ? "Remettez une somme à la personne qui achète au quotidien : elle confirmera l'avoir reçue, puis y imputera ses dépenses. Les remises suivantes s'ajouteront au fond — la caisse ne se ferme pas au changement de mois."
+            ? "Remettez une somme à la personne qui achète au quotidien : la remise passe d'abord par le centre de paiement ; une fois versée, elle confirmera l'avoir reçue, puis y imputera ses dépenses. Les remises suivantes s'ajouteront au fond — la caisse ne se ferme pas au changement de mois."
             : "L'administration n'a pas encore remis de somme pour ce département."}
         />
       )}
@@ -178,14 +202,14 @@ export function CashPanel({ view, people }: { view: GeneralMeansView; people: { 
             e.preventDefault();
             const fd = new FormData(e.currentTarget);
             fd.set("departmentId", view.department.id);
-            void run("allot", () => allotPettyCash(fd), "Somme remise — elle s'ajoute au fond.");
+            void run("allot", () => allotPettyCash(fd), "Remise envoyée au centre de paiement — elle rejoindra le fond une fois autorisée et versée.");
           }}
           className="space-y-2 rounded-xl border border-primary/30 bg-primary/5 p-3"
         >
           <p className="text-sm font-medium">Remettre une somme en caisse</p>
           <p className="text-xs text-muted-foreground">
-            Elle <strong>s&apos;ajoute</strong> au fond en cours et garde sa date : rien n&apos;est clos, rien ne
-            sort de l&apos;écran.
+            La remise part d&apos;abord au <strong>centre de paiement</strong> : une fois autorisée et versée par
+            les Finances, elle <strong>s&apos;ajoute</strong> au fond en cours et garde sa date — rien n&apos;est clos.
           </p>
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
             <label className="text-xs">
@@ -206,7 +230,7 @@ export function CashPanel({ view, people }: { view: GeneralMeansView; people: { 
           </div>
           <div className="flex gap-2">
             <Button size="sm" type="submit" disabled={busy === "allot"}>
-              {busy === "allot" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />} Remettre
+              {busy === "allot" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />} Envoyer au centre de paiement
             </Button>
             {cash && <Button size="sm" type="button" variant="outline" onClick={() => setPane("none")}>Annuler</Button>}
           </div>
@@ -389,7 +413,15 @@ function RemittanceList({ title, rows, muted }: { title: string; rows: GeneralMe
                 <td className="px-3 py-1.5 text-right tabular-nums">{formatCurrency(r.amount)}</td>
                 <td className="px-3 py-1.5 text-right tabular-nums">{r.spent > 0 ? formatCurrency(r.spent) : "—"}</td>
                 <td className="px-3 py-1.5">
-                  <Badge tone={PETTY_CASH_STATUS_LABEL[r.status].tone} dot={false}>{PETTY_CASH_STATUS_LABEL[r.status].label}</Badge>
+                  {/* L'ARGENT D'ABORD (§118.176) : une remise pas encore versée — ou refusée — dit ce
+                      qu'elle attend ; « soldée » sur une remise refusée ferait croire qu'elle a eu lieu. */}
+                  {r.centre !== "VERSEE" ? (
+                    <Badge tone={ETAT_REMISE_LABEL[r.centre].tone} dot={false}>
+                      {ETAT_REMISE_LABEL[r.centre].label}
+                    </Badge>
+                  ) : (
+                    <Badge tone={PETTY_CASH_STATUS_LABEL[r.status].tone} dot={false}>{PETTY_CASH_STATUS_LABEL[r.status].label}</Badge>
+                  )}
                 </td>
               </tr>
             ))}

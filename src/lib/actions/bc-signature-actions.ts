@@ -13,14 +13,15 @@ import { bcVisiblesWhere, peutSignerBC, REFUS_SIGNATURE_BC } from "@/lib/queries
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
- * SIGNER UN BON DE COMMANDE — le geste des Finances (§118.149).
+ * SIGNER UN BON DE COMMANDE — le geste des signataires (§118.149), module à part (§118.176).
  *
  * « Si un BC se retrouve là-bas, c'est qu'il doit être signé. » La signature est une
  * ATTESTATION : elle engage la société au nom d'une personne, et l'audit portera son nom. Elle
  * se donne donc par un CLIC, dans une vraie session — jamais par Adam, jamais par le chemin
  * générique (le fichier est une surface humaine, §118.15, `actions/generique.ts`).
  *
- * Trois gardes, dans l'ordre où elles se lisent : le DROIT (les Finances), la LECTURE (la même
+ * Trois gardes, dans l'ordre où elles se lisent : le DROIT (« Modifier » sur le module « Bons de
+ * commande », que le Super Admin accorde à qui il veut), la LECTURE (la même
  * portée que l'écran Legal : un BC restreint ne se signe pas par quelqu'un qui ne peut pas le
  * voir), et l'ÉTAPE — un BC qui attend encore son centre, ou qui a été refusé, ne se signe pas,
  * et le refus dit pourquoi et ce qui le lève (`motifNonSignable`). L'écriture ne pose la signature
@@ -66,15 +67,17 @@ export async function signerBonDeCommande(formData: FormData): Promise<ActionRes
   const ref = etat.reference?.trim() ? etat.reference.trim() : `« ${etat.title} »`;
   const montant = etat.montant != null && etat.montant > 0 ? `${etat.montant.toLocaleString("fr-FR")} DZD` : "montant non renseigné";
   await recordAudit({
-    actorId: user.id, action: "VALIDATE", module: "Finances", entityType: "LEGAL_DOCUMENT", entityId: id,
-    summary: `Bon de commande ${ref} signé par les Finances (${montant})${etat.counterparty ? ` — ${etat.counterparty}` : ""}`,
+    // L'audit nomme le MODULE de la signature, et la personne par `actorId` : « signé par les
+    // Finances » serait faux sous la plume d'un signataire que le Super Admin a désigné ailleurs.
+    actorId: user.id, action: "VALIDATE", module: "Bons de commande", entityType: "LEGAL_DOCUMENT", entityId: id,
+    summary: `Bon de commande ${ref} signé (${montant})${etat.counterparty ? ` — ${etat.counterparty}` : ""}`,
   });
   // CELUI QUI A ÉTABLI LE BC EST PRÉVENU : c'est lui qui l'envoie au fournisseur, et il ne le fait
   // qu'une fois signé.
   if (etat.createdById && etat.createdById !== user.id) {
     await notifyUser({
       userId: etat.createdById, type: "GENERIC",
-      title: "Bon de commande signé par les Finances",
+      title: "Bon de commande signé",
       body: `${ref} (${montant}) — il peut partir chez le fournisseur.`,
       link: `/legal/${id}`,
     }).catch(() => undefined);

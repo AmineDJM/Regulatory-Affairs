@@ -3,7 +3,7 @@ import { userCan } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { companyScopedWhere } from "@/lib/company";
 import { toNumber } from "@/lib/utils";
-import { getFinanceData } from "@/lib/queries/finance";
+import { getFinanceData, chargerTresorerie } from "@/lib/queries/finance";
 import { getComptaData } from "@/lib/queries/compta";
 import { ComptaCockpit } from "../compta-cockpit";
 import { auditLedger, auditSummary } from "@/lib/finance/ledger-audit";
@@ -15,7 +15,7 @@ import { FINANCE_CATEGORY, FINANCE_DIRECTION, FINANCE_METHOD, FINANCE_STATUS } f
 import { getMyCompanies, companyOptions } from "@/lib/company";
 import { LedgerTable } from "../ledger-table";
 import { ImportTransactionsButton } from "../import-transactions";
-import { OpeningBalancesButton } from "../opening-balances";
+import { ComptesTresorerieButton } from "../comptes-tresorerie";
 
 export const dynamic = "force-dynamic";
 
@@ -39,7 +39,7 @@ export default async function ComptabilitePage() {
   const canCreate = userCan(user, "FINANCES", "CREATE");
   const canUpdate = userCan(user, "FINANCES", "UPDATE");
   const canDelete = userCan(user, "FINANCES", "DELETE");
-  const [data, compta, companies, settled, remises] = await Promise.all([
+  const [data, compta, companies, settled, remises, tresorerie] = await Promise.all([
     getFinanceData(user.id),
     // CE QUE LE DAF DOIT ENCORE ARBITRER — arrivé du tableau de bord supprimé.
     getComptaData(user.id),
@@ -64,7 +64,11 @@ export default async function ComptabilitePage() {
     }),
     // LES REMISES DE CAISSE D'AVANCE — l'autre porte par laquelle l'argent quitte la banque. Les
     // DÉPENSES de la caisse étaient suivies ; la remise qui fait exister le fond ne l'était pas.
+    // Une remise qui attend encore le centre de paiement (ou qu'il a refusée) n'a rien sorti : la
+    // signaler « sans écriture » serait une fausse alerte (§118.176). On ne lit que les remises
+    // d'avant la règle et celles dont l'ordre est réglé — l'écriture leur est alors due.
     prisma.pettyCashAllotment.findMany({
+      where: { OR: [{ expenseOrderId: null }, { expenseOrder: { status: "PAID" } }] },
       orderBy: { createdAt: "desc" },
       take: 300,
       select: {
@@ -72,6 +76,8 @@ export default async function ComptabilitePage() {
         department: { select: { name: true } },
       },
     }),
+    // LES COMPTES ANCRÉS (§118.176) — la même lecture que « Banque & paiements ».
+    chargerTresorerie(user.id),
   ]);
 
   const audit = auditLedger(
@@ -95,8 +101,8 @@ export default async function ComptabilitePage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader title="Finances — Comptabilité" description="Le livre comptable : écritures, import de relevés et soldes d'ouverture.">
-        {canUpdate && <OpeningBalancesButton items={data.openingBalances} openingTotal={data.openingTotal} />}
+      <PageHeader title="Finances — Comptabilité" description="Le livre comptable : écritures, import de relevés et comptes de trésorerie ancrés.">
+        <ComptesTresorerieButton comptes={tresorerie.comptes} entites={companyOptions(companies)} canUpdate={canUpdate} />
         {canCreate && (
           <>
             {/* ENCAISSEMENT SIMPLE — cinq champs. Le formulaire complet reste à côté pour la

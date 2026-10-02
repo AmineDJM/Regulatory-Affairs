@@ -1,6 +1,7 @@
 "use server";
 
 import { CHEMIN_STOCK_PROMO } from "@/lib/chemins/stock-promo";
+import { CHEMIN_BONS_DE_COMMANDE } from "@/lib/chemins/bons-de-commande";
 import { revalidatePath } from "next/cache";
 import { Prisma } from "@prisma/client";
 import { requireUser } from "@/lib/session";
@@ -199,7 +200,7 @@ export async function genererBonsDeCommandePromo(formData: FormData): Promise<Ac
     }
     if (emis.length) await audit(user, pm.id, `Bons de commande générés : ${emis.join(" ; ")}`);
     revalidatePath(chemin(pm.id));
-    revalidatePath("/finances/bons-de-commande");
+    revalidatePath(CHEMIN_BONS_DE_COMMANDE);
     if (emis.length === 0) return { ok: false, error: `Aucun bon de commande n'a pu être généré — ${echecs.join(" ; ")}.` };
     const suite = [...new Set(reserves)].join(" ");
     return {
@@ -296,7 +297,7 @@ export async function annulerBonDeCommandePromo(formData: FormData): Promise<Act
   await prisma.promoQuote.update({ where: { id: lu.devis.id }, data: { purchaseOrderId: null, purchaseOrderSentAt: null, purchaseOrderSentById: null } });
   await audit(user, pm.id, `Bon de commande ${lu.bc.reference ?? ""} supprimé (annulé au registre) — ${motif.slice(0, 200)}`);
   revalidatePath(chemin(pm.id));
-  revalidatePath("/finances/bons-de-commande");
+  revalidatePath(CHEMIN_BONS_DE_COMMANDE);
   return { ok: true, message: `Bon de commande ${lu.bc.reference ?? ""} annulé — le devis de ${lu.devis.supplierName} peut en recevoir un nouveau.` };
 }
 

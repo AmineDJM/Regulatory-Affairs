@@ -1,6 +1,6 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { REFERENTS, ENTITE_DU_MODELE, LIENS_DIRECTS, faitIrreversible, delegueDe, libelleDe, nomDe } from "./branches";
+import { REFERENTS, ENTITE_DU_MODELE, LIENS_DIRECTS, REFERENCES_TEXTE, faitIrreversible, delegueDe, libelleDe, nomDe } from "./branches";
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
@@ -283,8 +283,10 @@ export async function inventorier(modeleTete: string, idTete: string): Promise<I
   // dossier qui désigne l'ordre de dépense de celui-ci. Ce sont des champs texte, pas des clés
   // étrangères : Postgres ne les viderait pas, et ils désigneraient une ligne disparue — la
   // facture se croirait « partie au circuit » sur un ordre qui n'existe plus. Le lot les vide, et
-  // les rétablit à la restauration, comme un lien mis à vide par une clé étrangère.
-  for (const lien of LIENS_DIRECTS) {
+  // les rétablit à la restauration, comme un lien mis à vide par une clé étrangère. Les RÉFÉRENCES
+  // TEXTE (§118.176) se traitent ici de la même façon — et ici SEULEMENT : elles ne font jamais
+  // entrer leur ligne dans le lot.
+  for (const lien of [...LIENS_DIRECTS, ...REFERENCES_TEXTE]) {
     const cibles = idsParModele.get(lien.cible);
     if (!cibles?.length) continue;
     const select: Record<string, true> = { [lien.champ]: true };

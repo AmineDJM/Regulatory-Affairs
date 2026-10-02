@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { MENU_BONS_DE_COMMANDE } from "@/lib/chemins/bons-de-commande";
 import {
   centreDeLOrigine, etatDepuisValidation, etatDepuisVisa, etatDepuisPoste,
   blocageParLeBC, reserveBC, reserveSansPorte, gesteAiguillage, chantierBCClos,
@@ -270,11 +271,13 @@ describe("les phrases de l'étape — ce qu'on lit avant d'envoyer, ce qu'on lit
 });
 
 describe("chantierBCClos avec l'étape — validé ne suffit plus, il faut la signature (§118.149)", () => {
-  it("un BC validé mais pas encore signé tient le chantier ouvert — en nommant la file des Finances", () => {
+  it("un BC validé mais pas encore signé tient le chantier ouvert — en nommant la file où il attend", () => {
     const r = chantierBCClos([{ reference: "BC-1", porte: porte({ etat: "VALIDE" }), etape: "A_SIGNER" }]);
     expect(r.ok).toBe(false);
     expect(r.ok ? "" : r.raison).toMatch(/pas encore signé/);
-    expect(r.ok ? "" : r.raison).toMatch(/Finances › Bons de commande/);
+    // Le chemin du MENU d'aujourd'hui (§118.176) — « Finances › Bons de commande » n'existe plus.
+    expect(r.ok ? "" : r.raison).toContain(MENU_BONS_DE_COMMANDE);
+    expect(r.ok ? "" : r.raison).not.toMatch(/Finances › Bons de commande/);
   });
   it("un BC SOUS le seuil n'a pas de porte à attendre : il n'est pas « vu par aucun centre », il est à signer", () => {
     const r = chantierBCClos([{ reference: "BC-2", porte: null, etape: "A_SIGNER" }]);

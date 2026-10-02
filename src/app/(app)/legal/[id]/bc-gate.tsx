@@ -59,7 +59,7 @@ export function BonDeCommandeGate({
   validationRequise: boolean;
   signeLe: string | null;
   signePar: string | null;
-  /** La personne peut-elle signer (droit de modification des Finances) ? */
+  /** La personne peut-elle signer (« Modifier » sur le module « Bons de commande », §118.176) ? */
   peutSigner: boolean;
 }) {
   const router = useRouter();
@@ -92,7 +92,7 @@ export function BonDeCommandeGate({
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-3 text-sm">
-        {/* L'ÉTAPE, DE BOUT EN BOUT — la même que dans Finances › Bons de commande. */}
+        {/* L'ÉTAPE, DE BOUT EN BOUT — la même que dans le module « Bons de commande ». */}
         <div className="flex flex-wrap items-center gap-2">
           <Badge tone={etape === "SIGNE" ? "success" : etape === "REFUSE" ? "danger" : etape === "A_SIGNER" ? "info" : "warning"} dot={false}>
             {LIBELLE_ETAPE_BC[etape]}

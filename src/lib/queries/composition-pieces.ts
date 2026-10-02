@@ -10,8 +10,8 @@ import type { TypePieceComposable } from "@/components/pieces/composer-piece";
  * CE QU'IL FAUT POUR COMPOSER UNE PIÈCE — les natures qu'on a le droit d'émettre, les sociétés
  * qu'on peut engager, la papeterie Word, et le droit de régler la numérotation.
  *
- * Deux écrans portent le bouton « Composer » : Legal, et Finances › Bons de commande (§118.149 —
- * « même chose pour les financiers dans les finances »). Ils calculaient chacun leurs droits et
+ * Deux écrans portent le bouton « Composer » : Legal, et le module « Bons de commande » (§118.149
+ * — « même chose pour les financiers dans les finances » ; module à part depuis §118.176). Ils calculaient chacun leurs droits et
  * leur papeterie ; deux calculs de « qui peut émettre un BC » finissent par diverger, et le
  * symptôme serait un bouton qu'une action refuse (§118.5). La règle d'émission est celle de la
  * fabrique et d'Adam (`legalWriteAllowed`), rejouée par le serveur au moment d'émettre : l'écran

@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { clauseAImputer } from "@/lib/finance/a-imputer";
 import { platformScope } from "@/lib/company";
 import { toNumber } from "@/lib/utils";
 import { canViewEnvelope, type SessionUser } from "@/lib/rbac";
@@ -385,15 +386,18 @@ export async function getBudgetOverview(
 
   // NON IMPUTÉ : compté À PART, jamais dans le consommé de l'enveloppe (c'est une dépense qui
   // n'a pas encore trouvé sa catégorie — l'imputer plus tard la fera entrer dans UNE enveloppe).
-  // Total et compte EXACTS via un agrégat, indépendants des 30 lignes affichées.
+  // Total et compte EXACTS via un agrégat, indépendants des 30 lignes affichées. La clause est
+  // UNE, lue par les deux : elle écarte les remises et rallonges de caisse d'avance, qui ne sont
+  // pas des dépenses (§118.176, `finance/a-imputer.ts`).
+  const aImputer = await clauseAImputer(from, to);
   const [unattributedAgg, unattributedTx] = await Promise.all([
     prisma.financeTransaction.aggregate({
-      where: { direction: "OUT", budgetCategoryId: null, date: { gte: from, lte: to } },
+      where: aImputer,
       _sum: { amount: true },
       _count: { _all: true },
     }),
     prisma.financeTransaction.findMany({
-      where: { direction: "OUT", budgetCategoryId: null, date: { gte: from, lte: to } },
+      where: aImputer,
       orderBy: { date: "desc" },
       take: 30,
       select: { id: true, reference: true, date: true, label: true, amount: true, category: true, counterparty: true, status: true },

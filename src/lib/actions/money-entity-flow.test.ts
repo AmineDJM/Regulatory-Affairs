@@ -11,7 +11,9 @@ import { prisma } from "@/lib/prisma";
 import { getAccess, type SessionUser } from "@/lib/rbac";
 import { moneyEntityOf } from "@/lib/company";
 import { createPaymentRequest } from "./payment-request-actions";
-import { transferPayrollToBudget } from "./payroll-hr-actions";
+import { envoyerPaieAuCentre } from "./payroll-hr-actions";
+import { decidePayment } from "./payment-centre-actions";
+import { settleExpenseOrder } from "./expense-actions";
 
 let dbOk = false;
 try { await prisma.$queryRaw`SELECT 1`; dbOk = true; } catch { dbOk = false; }
@@ -142,7 +144,10 @@ suite("L'entité de l'argent", () => {
   });
 
   describe("la masse salariale au budget", () => {
-    it("S'ACTUALISE, ELLE NE S'AJOUTE PAS — et rejouer le transfert ne double rien", async () => {
+    // Depuis §118.176, la masse s'actualise au RÈGLEMENT du virement de la paie (centre de
+    // paiement → Finances), et non plus au « transfert au budget », qui n'existe plus. La propriété
+    // est la même : on REMPLACE, on n'additionne pas.
+    it("S'ACTUALISE AU VIREMENT, ELLE NE S'AJOUTE PAS — et régler deux fois ne double rien", async () => {
       await prisma.payrollEntry.create({
         data: {
           employeeId: employeId, year: 2031, month: 3, status: "PAID", paidDate: new Date(),
@@ -161,23 +166,37 @@ suite("L'entité de l'argent", () => {
 
       ACTOR = await actorFor(rhId, "SUPER_ADMIN");
       const fd = new FormData();
-      fd.set("year", "2031"); fd.set("month", "3"); fd.set("budgetCategoryId", cat.id);
-      const r = await transferPayrollToBudget(fd);
+      fd.set("companyId", phaId); fd.set("year", "2031"); fd.set("month", "3");
+      fd.set("amount", "80000"); fd.set("budgetCategoryId", cat.id);
+      const r = await envoyerPaieAuCentre(fd);
       expect(r.ok, r.error).toBe(true);
+      const wire = await prisma.payrollWire.findFirstOrThrow({ where: { companyId: phaId, year: 2031, month: 3 } });
+      const regler = () => { const f = new FormData(); f.set("id", wire.expenseOrderId!); return settleExpenseOrder(f); };
+
+      // Avant l'autorisation du centre, rien ne bouge — ni le livre, ni la masse.
+      expect((await regler()).ok).toBe(false);
+      const autoriser = new FormData(); autoriser.set("id", wire.expenseOrderId!); autoriser.set("decision", "APPROVE");
+      expect((await decidePayment(autoriser)).ok).toBe(true);
+      const regle = await regler();
+      expect(regle.ok, regle.error).toBe(true);
 
       const apres = await prisma.departmentBudget.findUniqueOrThrow({
         where: { departmentId_year_kind: { departmentId: deptId, year: 2031, kind: "HR" } },
       });
-      expect(Number(apres.amount), "la masse salariale vaut le coût employeur payé").toBe(120_000);
+      expect(Number(apres.amount), "la masse salariale vaut le coût employeur saisi").toBe(120_000);
 
-      // REJOUER : rien de neuf à transférer, et surtout aucune addition.
-      const encore = await transferPayrollToBudget(fd);
-      expect(encore.ok).toBe(false);
+      // REJOUER le règlement : déjà réglé, rien de neuf, et surtout aucune addition.
+      expect((await regler()).ok).toBe(true);
       const inchange = await prisma.departmentBudget.findUniqueOrThrow({
         where: { departmentId_year_kind: { departmentId: deptId, year: 2031, kind: "HR" } },
       });
-      expect(Number(inchange.amount), "un second transfert ne doit rien ADDITIONNER").toBe(120_000);
+      expect(Number(inchange.amount), "un second règlement ne doit rien ADDITIONNER").toBe(120_000);
 
+      const ordre = await prisma.expenseOrder.findUniqueOrThrow({ where: { id: wire.expenseOrderId! } });
+      await prisma.paymentRequest.deleteMany({ where: { expenseOrderId: ordre.id } }).catch(() => {});
+      await prisma.payrollWire.deleteMany({ where: { id: wire.id } }).catch(() => {});
+      await prisma.expenseOrder.deleteMany({ where: { id: ordre.id } }).catch(() => {});
+      if (ordre.transactionId) await prisma.financeTransaction.deleteMany({ where: { id: ordre.transactionId } }).catch(() => {});
       await prisma.budgetCategoryLine.delete({ where: { id: cat.id } }).catch(() => {});
       await prisma.budgetEnvelope.delete({ where: { id: envelope.id } }).catch(() => {});
     });

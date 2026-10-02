@@ -21,6 +21,7 @@ import { syncInvoiceSettlement } from "@/lib/finance/settle-invoice";
 import { invoiceDirection, canSendToSettlement, canMarkPaidDirectly } from "@/lib/finances/settlement";
 import type { CurrentUser } from "@/lib/session";
 import { aiguillerBC, retirerPortesEnAttente, porteDuBC, CHEMIN_BC_A_SIGNER, type ResultatAiguillage } from "@/lib/bons-de-commande/aiguillage";
+import { MENU_BONS_DE_COMMANDE } from "@/lib/chemins/bons-de-commande";
 import {
   reserveBC, reserveSansPorte, reserveEtapeBC, PHRASE_SIGNATURE_RETIREE,
   LIBELLE_CENTRE_BC, LIBELLE_ETAT_BC, CHEMIN_CENTRE_BC,
@@ -767,7 +768,7 @@ export async function adresserBCAuCentre(formData: FormData): Promise<ActionResu
     message: phraseAiguillage(r)
       ?? [
         `Ce bon de commande est déjà au ${LIBELLE_CENTRE_BC[r.porte.centre]} — ${LIBELLE_ETAT_BC[r.porte.etat].toLowerCase()}. Rien n'a été renvoyé.`,
-        r.etape === "A_SIGNER" ? "Il attend la signature des Finances (Finances › Bons de commande)." : null,
+        r.etape === "A_SIGNER" ? `Il attend la signature des Finances (${MENU_BONS_DE_COMMANDE}).` : null,
       ].filter(Boolean).join(" "),
   };
 }

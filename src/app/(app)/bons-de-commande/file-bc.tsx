@@ -14,7 +14,7 @@ import type { LigneBCFinances } from "@/lib/queries/bons-de-commande";
 import { lienFichierEmis } from "@/lib/legal/fichiers-emis";
 
 /**
- * LA FILE DES FINANCES — chaque BC avec ce qu'il faut pour le signer en connaissance de cause :
+ * LA FILE DES SIGNATAIRES — chaque BC avec ce qu'il faut pour le signer en connaissance de cause :
  * la pièce elle-même (on signe ce qu'on a LU, §104.7), la partie en face, le montant, et
  * POURQUOI il est là — validé par tel centre, ou sous le seuil. Un BC sans cette raison se lirait
  * comme un BC qui a sauté la validation.
@@ -66,7 +66,7 @@ export function FileBonsDeCommande({
       <Card>
         <CardHeader>
           <CardTitle>Signés récemment</CardTitle>
-          <CardDescription>Les derniers bons de commande signés par les Finances — ils peuvent partir chez le fournisseur.</CardDescription>
+          <CardDescription>Les derniers bons de commande signés — ils peuvent partir chez le fournisseur.</CardDescription>
         </CardHeader>
         <CardContent>
           {signes.length === 0 ? (

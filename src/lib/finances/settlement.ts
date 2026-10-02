@@ -12,11 +12,14 @@ import { blocageParLeBC, type PorteBC } from "@/lib/bons-de-commande/regle";
  *
  *   • ORDRE DE DÉPENSE payé → écriture. Déjà en place.
  *   • DEMANDE DE PAIEMENT réglée → écriture. Déjà en place.
- *   • PAIE, au transfert budgétaire → une écriture par salarié, au COÛT EMPLOYEUR. Déjà en place.
+ *   • PAIE → un virement par entité et par mois, de la somme DÉCLARÉE par les RH, envoyé au
+ *     centre ; l'écriture se pose au règlement de son ordre (§118.176). Le « transfert au budget »
+ *     qui écrivait un décaissement par salarié, hors centre, n'existe plus.
  *   • ENCAISSEMENT / DÉCAISSEMENT direct → c'est le module lui-même.
  *   • FACTURE réglée → écriture. C'EST CE QUI MANQUAIT : marquer une facture réglée posait une
  *     date, et rien d'autre.
- *   • CAISSE D'AVANCE remise → écriture au moment où l'argent quitte la banque.
+ *   • CAISSE D'AVANCE remise → un ordre en attente du centre ; l'écriture se pose au versement,
+ *     au moment où l'argent quitte la banque (§118.176).
  *   • DÉPENSE SUR CAISSE D'AVANCE → **pas** d'écriture : l'argent a déjà quitté la société quand
  *     la caisse a été remise. En inscrire une seconde compterait le même dinar deux fois — c'est
  *     l'erreur classique, et elle gonfle les dépenses du mois sans que rien ne le signale.
@@ -91,11 +94,11 @@ export const PAYMENT_PATHS: PaymentPath[] = [
     centreWhy: "La facture devient un ordre de dépense par la porte commune, en attente du centre ; celle qui découle d'un bon de commande non validé ne part pas (§118.148).",
   },
   {
-    key: "payroll", label: "Paie transférée au budget", module: "RH → Finances",
-    settles: true, why: "Une écriture par salarié, au COÛT EMPLOYEUR (charges comprises).",
-    centre: "HORS_CENTRE",
-    centreWhy: "La paie se verse sans ordre de dépense : bulletins et virements de salaires ne passent pas par le centre. Exception à la règle « tous les paiements par le centre », assumée par la Direction.",
-    decision: "Assumée par la Direction le 28/09/2026 : « garder les trois exceptions » (paie, remise et rallonge de caisse d'avance).",
+    key: "payroll", label: "Paie virée par entité", module: "RH → centre de paiement → Finances",
+    settles: true,
+    why: "Une seule écriture par virement, de la somme DÉCLARÉE par les RH, posée au règlement de son ordre (`settleExpenseOrder`). Le « transfert au budget », qui écrivait un décaissement par salarié, n'existe plus : il compterait la paie une seconde fois.",
+    centre: "AUTORISE",
+    centreWhy: "« Un bouton pour toute la paie, avec la somme des salaires à virer, un bouton par entité » (la Direction, 01/10/2026) : l'envoi crée un ordre en attente du centre (`envoyerPaieAuCentre`), et les salariés ne sont prévenus du versement qu'au règlement.",
   },
   {
     key: "finance-direct", label: "Encaissement / décaissement direct", module: "Finances",
@@ -111,18 +114,18 @@ export const PAYMENT_PATHS: PaymentPath[] = [
     centreWhy: "Marquer réglée ENREGISTRE un règlement fait avant l'enregistrement de la facture. La PAYER passe par « Envoyer au règlement », donc par le centre — et une facture partie au circuit ne se marque plus réglée à la main (`canMarkPaidDirectly`).",
   },
   {
-    key: "petty-cash-allotment", label: "Caisse d'avance remise", module: "Moyens généraux",
-    settles: true, why: "L'argent quitte la banque à ce moment-là : c'est là que l'écriture se pose.",
-    centre: "HORS_CENTRE",
-    centreWhy: "La remise d'une caisse d'avance est décidée par l'administration sans ordre de dépense. Exception assumée par la Direction.",
-    decision: "Assumée par la Direction le 28/09/2026 : « garder les trois exceptions » (paie, remise et rallonge de caisse d'avance).",
+    key: "petty-cash-allotment", label: "Caisse d'avance remise", module: "Moyens généraux → centre de paiement → Finances",
+    settles: true,
+    why: "L'écriture se pose au VERSEMENT de la remise, au règlement de son ordre : c'est là que l'argent quitte la banque. Elle n'est pas classée au budget — chaque achat fait sur la caisse l'est, ticket par ticket.",
+    centre: "AUTORISE",
+    centreWhy: "« La caisse donnée mensuellement aux moyens généraux doit passer par le centre de paiement et attendre la validation » (la Direction, 01/10/2026) : la remise naît avec son ordre, en attente du centre, et la détentrice ne confirme sa réception qu'une fois l'ordre réglé.",
   },
   {
     key: "petty-cash-top-up", label: "Rallonge de caisse d'avance accordée", module: "Moyens généraux",
     settles: true, why: "La rallonge quitte la banque comme la remise : même écriture, au moment où elle est accordée.",
     centre: "HORS_CENTRE",
-    centreWhy: "Accordée par les RH sans ordre de dépense, comme la remise qu'elle complète. Même exception, assumée par la Direction.",
-    decision: "Assumée par la Direction le 28/09/2026 : « garder les trois exceptions » (paie, remise et rallonge de caisse d'avance).",
+    centreWhy: "Accordée par les RH sans ordre de dépense. La Direction a fait passer la paie et la remise mensuelle par le centre sans nommer la rallonge : elle reste l'exception, en attendant qu'on la tranche.",
+    decision: "Assumée par la Direction le 28/09/2026 (« garder les trois exceptions ») ; le 01/10/2026 elle a fait passer la paie et la remise mensuelle par le centre, sans nommer la rallonge — qui reste donc hors centre.",
   },
   {
     key: "petty-cash-expense", label: "Achat payé sur la caisse d'avance", module: "Moyens généraux",
@@ -144,12 +147,12 @@ export function nonSettlingPaths(): PaymentPath[] {
 }
 
 /**
- * LES EXCEPTIONS À « TOUS LES PAIEMENTS PAR LE CENTRE » — ASSUMÉES par la Direction (28/09/2026).
+ * LES EXCEPTIONS À « TOUS LES PAIEMENTS PAR LE CENTRE » — ASSUMÉES par la Direction.
  *
- * La Direction a énoncé la règle, puis a tranché : la paie, la remise et la rallonge de caisse
- * d'avance restent hors centre. Les lister n'était pas les autoriser ; c'est la DÉCISION écrite
- * sur chacune qui les autorise, et un quatrième chemin qui changerait de camp sans décision
- * ferait tomber le banc.
+ * Le 28/09/2026 elle avait gardé trois exceptions (paie, remise et rallonge de caisse d'avance) ;
+ * le 01/10/2026 elle a fait passer la paie et la remise mensuelle par le centre. Reste la rallonge,
+ * qu'elle n'a pas nommée. Les lister n'était pas les autoriser ; c'est la DÉCISION écrite sur
+ * chacune qui les autorise, et un chemin qui changerait de camp sans décision ferait tomber le banc.
  */
 export function horsCentre(): PaymentPath[] {
   return PAYMENT_PATHS.filter((p) => p.centre === "HORS_CENTRE");
