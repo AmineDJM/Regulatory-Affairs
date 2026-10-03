@@ -178,6 +178,11 @@ export const LIENS_DIRECTS: readonly { modele: string; champ: string; cible: str
   { modele: "MedicalInfoDeclaration", champ: "bvRequestId", cible: "PaymentRequest" },
   { modele: "PaymentRequest", champ: "expenseOrderId", cible: "ExpenseOrder" },
   { modele: "LegalDocument", champ: "expenseOrderId", cible: "ExpenseOrder" },
+  // L'ORDRE DE DÉPENSE D'UN POSTE Ad & Pro (§118.187) : le poste le désigne par un champ texte, et
+  // l'ordre ne porte que l'OPÉRATION en source. Sans ce lien, la corbeille emportait le poste et
+  // laissait son ordre non réglé payable au centre de paiement, pour un poste disparu ; un ordre
+  // RÉGLÉ, lui, bloque la suppression (`faitIrreversible`).
+  { modele: "AdProItem", champ: "expenseOrderId", cible: "ExpenseOrder" },
 ];
 
 /**

@@ -6,6 +6,7 @@ import { useRafraichir } from "@/components/shared/use-rafraichir";
 import {
   Plus, Trash2, Loader2, CheckCircle2, XCircle, Receipt, Link2, AlertTriangle, ExternalLink, Send, FileText,
   ThumbsUp, ThumbsDown, RotateCcw, History, Pencil, MoreHorizontal, Circle, X, Wallet, Split, ChevronDown, ChevronRight,
+  Undo2, Ban, Scale,
 } from "lucide-react";
 import type { AdProItemKind, AdProItemStatus, AdProItemBudgetKind, AdProItemOrderStage } from "@prisma/client";
 import { Button } from "@/components/ui/button";
@@ -22,7 +23,9 @@ import {
   emitItemExpenseOrder, linkPromoMaterial,
   submitAdProItem, decideAdProItem, setAdProItemBudget,
   demanderPieceSecretariat, requestAdProItemOrder, approveAdProItemOrder,
+  retirerDemandeBC, modifierDemandeBC, annulerOrdrePoste, demanderRevisionPoste,
 } from "@/lib/actions/ad-pro-item-actions";
+import { kindLabel } from "@/lib/ad-pro/unified";
 import {
   NATURES_PIECE_SECRETARIAT, PIECE_SECRETARIAT, peutDemanderPiece, type NaturePieceSecretariat,
 } from "@/lib/ad-pro/pieces-secretariat";
@@ -69,6 +72,14 @@ export interface ItemRow {
   budgetCategoryLabel: string | null;
   /** Les demandes de pièce ouvertes au secrétariat pour ce poste (devis, facture). */
   demandes: { id: string; reference: string; nature: NaturePieceSecretariat; status: string }[];
+  /** Le « BC à établir » de l'assistante — le travail qui suit la demande de bon de commande. */
+  travauxBc: { id: string; reference: string; status: string }[];
+  /**
+   * Les BC déjà établis dans Legal pour ce poste, non annulés (`ad-pro/bc-etablis.ts`) : ils lisent
+   * leur validation SUR le poste — retirer la demande de BC, la refuser ou la rendre à la Direction
+   * les laisserait sans porte. L'écran ne propose donc pas ces gestes ; il dit pourquoi (§118.83).
+   */
+  bcEtablis: string[];
   /** Combien de pièces jointes le poste porte — le détail se déplie à la demande. */
   documentCount: number;
   /** Émission du bon de commande : demande → visa du centre (au-dessus du seuil) → Finances. */
@@ -79,8 +90,10 @@ export interface ItemRow {
   orderNote: string | null;
   /** La note de la Direction sur son visa ou son refus — elle n'écrase plus la précédente. */
   orderDecisionNote: string | null;
-  /** Historique des allers-retours avec la Direction (le plus récent en tête). */
+  /** Historique des allers-retours avec la Direction (le plus récent en tête) — borné ; le total suit. */
   decisions: { decision: AdProItemStatus; note: string | null; amount: number | null; at: string; by: string | null }[];
+  /** Combien de décisions le poste porte EN TOUT : l'historique affiché n'en montre que les dernières. */
+  decisionsTotal: number;
   /** Le matériel du magasin listé par un poste « Matériel du stock » (§118.167) — vide sinon. */
   lignesStock: LigneStockVue[];
   /** Les postes nés d'une même répartition d'un sponsoring indirect (§118.175). */
@@ -226,6 +239,7 @@ export function AdProItemsPanel({
       busy={busy}
       run={run}
       parentLink={parentLink}
+      moduleLibelle={`Ad & Pro — ${kindLabel(parent)}`}
     />
   );
 
@@ -365,12 +379,12 @@ const RAFRAICHISSEMENT = "rafraichissement";
 
 // ─────────────────────────────── La carte d'un poste ───────────────────────────────
 
-type Panneau = CleGeste | "MODIFIER" | "HISTORIQUE";
+type Panneau = CleGeste | "MODIFIER" | "HISTORIQUE" | "MODIFIER_BC" | "RETIRER_BC" | "ANNULER_ORDRE" | "REVOIR_DECISION" | "REVISION_DEMANDEE";
 
 /** Ce qu'un geste OUVRE (un petit formulaire) — les autres partent au clic. */
 const GESTES_A_FORMULAIRE: readonly CleGeste[] = ["REPARTIR", "CHIFFRER", "DECIDER", "MONTANT", "BUDGET", "DEMANDER_BC", "VISER_BC"];
 
-function PosteCarte({ item, regard, budgetOptions, promoOptions, materiel, busy, run, parentLink }: {
+function PosteCarte({ item, regard, budgetOptions, promoOptions, materiel, busy, run, parentLink, moduleLibelle }: {
   item: ItemRow;
   regard: RegardPoste;
   budgetOptions: { id: string; label: string }[];
@@ -379,6 +393,8 @@ function PosteCarte({ item, regard, budgetOptions, promoOptions, materiel, busy,
   busy: string | null;
   run: Run;
   parentLink: string;
+  /** Le module que lira le validateur d'une validation demandée depuis ce poste. */
+  moduleLibelle: string;
 }) {
   const [panneau, setPanneau] = React.useState<Panneau | null>(null);
   const [menu, setMenu] = React.useState(false);
@@ -446,8 +462,38 @@ function PosteCarte({ item, regard, budgetOptions, promoOptions, materiel, busy,
       },
     });
   }
+  // LA DEMANDE DE BC SE CORRIGE ET SE RETIRE tant qu'aucun ordre n'est parti (§118.187, audit R06) —
+  // le demandeur comme qui tranche (`retirerDemandeBC`, `modifierDemandeBC`). Un BC déjà établi dans
+  // Legal lit sa validation sur ce poste : tant qu'il vit, la demande ne se retire pas, ne se refuse pas
+  // et ne se rend pas à la Direction — la carte ne propose pas ces gestes, elle dit pourquoi.
+  const bcEnCours = (item.orderStage === "REQUESTED" || item.orderStage === "DIRECTION_OK") && !item.expenseOrderId;
+  const bcLegal = bcEnCours && item.bcEtablis.length > 0;
+  const toucheBC = regard.canEdit || regard.canAllocate;
+  if (bcEnCours && toucheBC) {
+    entrees.push({ cle: "modifier-bc", libelle: "Modifier la demande de BC", icone: <Pencil className="h-3.5 w-3.5" />, faire: () => setPanneau("MODIFIER_BC") });
+    if (!bcLegal) entrees.push({ cle: "retirer-bc", libelle: "Retirer la demande de BC", icone: <Undo2 className="h-3.5 w-3.5" />, faire: () => setPanneau("RETIRER_BC") });
+  }
+  // L'ORDRE ÉMIS S'ANNULE TANT QU'IL N'EST PAS RÉGLÉ (audit R06) — les Finances ou qui tranche ; le poste se réémet ensuite.
+  const ordreAnnulable = Boolean(item.expenseOrderId) && ["PENDING", "REVISION_REQUESTED"].includes(item.expenseOrder?.status ?? "");
+  if (ordreAnnulable && regard.canEmettre) {
+    entrees.push({ cle: "annuler-ordre", libelle: "Annuler l'ordre émis", icone: <Ban className="h-3.5 w-3.5" />, danger: true, faire: () => setPanneau("ANNULER_ORDRE") });
+  }
+  // REVOIR LA DÉCISION (audit R12) : le panneau n'apparaissait qu'en attente, alors que l'action accepte
+  // de revoir un accord, un refus ou une révision tant qu'aucun ordre n'est parti. Pour qui tranche ;
+  // le demandeur, lui, DEMANDE une révision — jamais deux boutons pour la même personne.
+  const revisable = (item.status === "APPROVED" || item.status === "REJECTED" || item.status === "REVISION") && !item.expenseOrderId && item.orderStage !== "ISSUED";
+  if (arbitrer && revisable) {
+    entrees.push({ cle: "revoir", libelle: "Revoir la décision", icone: <Scale className="h-3.5 w-3.5" />, faire: () => setPanneau("REVOIR_DECISION") });
+  }
+  if (!arbitrer && editer && !stock && !bcLegal && item.status === "APPROVED" && !item.expenseOrderId && item.orderStage !== "ISSUED") {
+    entrees.push({ cle: "revision", libelle: "Demander une révision", icone: <RotateCcw className="h-3.5 w-3.5" />, faire: () => setPanneau("REVISION_DEMANDEE") });
+  }
   if (item.decisions.length > 0) {
-    entrees.push({ cle: "historique", libelle: `Historique (${item.decisions.length})`, icone: <History className="h-3.5 w-3.5" />, faire: () => setPanneau("HISTORIQUE") });
+    // L'historique est borné : le compte dit combien il en montre SUR combien (§118.60).
+    const libelleHisto = item.decisionsTotal > item.decisions.length
+      ? `Historique (${item.decisions.length} dernières sur ${item.decisionsTotal})`
+      : `Historique (${item.decisions.length})`;
+    entrees.push({ cle: "historique", libelle: libelleHisto, icone: <History className="h-3.5 w-3.5" />, faire: () => setPanneau("HISTORIQUE") });
   }
   // RETIRER — libre tant qu'aucun ordre n'est parti aux Finances ; réservé à la Direction ensuite,
   // avec annulation de l'ordre (et jamais si déjà réglé). Un poste dont le matériel est dehors, ou
@@ -593,6 +639,17 @@ function PosteCarte({ item, regard, budgetOptions, promoOptions, materiel, busy,
         </div>
       )}
 
+      {/* UN BC ÉTABLI DANS LEGAL lit sa validation sur ce poste : la carte dit pourquoi le menu n'offre plus
+          le retrait de la demande de BC, et où aller (§118.83 — un geste refusé après coup n'est pas un
+          geste). DANS le corps de la carte, jamais dans « Pièces et demandes » : repliée par défaut, cette
+          section aurait caché la raison pendant que le menu, lui, retirait déjà le geste. */}
+      {(item.orderStage === "REQUESTED" || item.orderStage === "DIRECTION_OK") && !item.expenseOrderId && item.bcEtablis.length > 0 && (
+        <p className="text-xs text-muted-foreground">
+          BC établi dans Legal : {item.bcEtablis.join(", ")} — il lit sa validation sur ce poste. Pour retirer la demande, la refuser
+          ou la rendre à la Direction, annulez-le d&apos;abord dans Legal.
+        </p>
+      )}
+
       {/* Les petits formulaires qu'un geste ouvre — un seul à la fois. */}
       {panneau === "MODIFIER" && editer && (
         <EditItemForm
@@ -618,6 +675,42 @@ function PosteCarte({ item, regard, budgetOptions, promoOptions, materiel, busy,
       )}
       {panneau === "DECIDER" && arbitrer && item.status === "PENDING" && (
         <BoiteDecision item={item} busy={busy} run={run} fdOf={fdOf} onCancel={fermer} />
+      )}
+      {panneau === "REVOIR_DECISION" && arbitrer && revisable && (
+        <BoiteDecision item={item} busy={busy} run={run} fdOf={fdOf} onCancel={fermer} revoir accordSeul={bcLegal} />
+      )}
+      {panneau === "MODIFIER_BC" && bcEnCours && toucheBC && (
+        <DemandeBC
+          initial={item.orderNote ?? ""} bouton="Mettre à jour la demande"
+          busy={busy === `pom:${item.id}`} onCancel={fermer} onSend={(message) =>
+            void run(`pom:${item.id}`, () => modifierDemandeBC(undefined, fdOf({ note: message })), "Demande de bon de commande mise à jour.").then(fermer)
+          }
+        />
+      )}
+      {panneau === "RETIRER_BC" && bcEnCours && toucheBC && (
+        <GesteAvecMotif
+          titre="Retirer la demande de bon de commande"
+          aide="Le motif reste à l'historique ; le « BC à établir » de l'assistante se ferme avec, et les Finances sont prévenues si le centre l'avait visée."
+          bouton="Retirer la demande" danger busy={busy === `por:${item.id}`} onCancel={fermer}
+          onSend={(motif) => void run(`por:${item.id}`, () => retirerDemandeBC(undefined, fdOf({ motif })), "Demande de bon de commande retirée.").then(fermer)}
+        />
+      )}
+      {panneau === "ANNULER_ORDRE" && ordreAnnulable && regard.canEmettre && (
+        <GesteAvecMotif
+          titre={`Annuler l'ordre de dépense ${item.expenseOrder?.reference ?? ""}`}
+          aide="Il n'est pas réglé : il s'annule, et le poste pourra être réémis — corrigé si besoin. Un visa du centre tient pour le montant et le prestataire qu'il a vus."
+          bouton="Annuler l'ordre" danger busy={busy === `poc:${item.id}`} onCancel={fermer}
+          onSend={(motif) => void run(`poc:${item.id}`, () => annulerOrdrePoste(undefined, fdOf({ motif })), "Ordre annulé — le poste peut être réémis.").then(fermer)}
+        />
+      )}
+      {panneau === "REVISION_DEMANDEE" && !arbitrer && editer && item.status === "APPROVED" && (
+        <GesteAvecMotif
+          titre="Demander une révision à la Direction"
+          aide="Le poste repasse « en attente » : la Direction re-décide, l'accord d'hier reste à l'historique. Une demande de BC en cours se retire avec lui."
+          bouton="Demander la révision" busy={busy === `prv:${item.id}`} onCancel={fermer}
+          extra={{ nom: "amountEstimated", libelle: "Nouvelle estimation (DZD, facultatif)" }}
+          onSend={(motif, extra) => void run(`prv:${item.id}`, () => demanderRevisionPoste(undefined, fdOf({ motif, amountEstimated: extra })), "Révision demandée — la Direction est prévenue.").then(fermer)}
+        />
       )}
       {panneau === "MONTANT" && arbitrer && !item.expenseOrderId && (
         <AllocateField itemId={item.id} current={item.amountGranted} busy={busy === `alloc:${item.id}`} onSave={(v) => {
@@ -646,7 +739,10 @@ function PosteCarte({ item, regard, budgetOptions, promoOptions, materiel, busy,
       )}
       {panneau === "VISER_BC" && regard.canViserBC && item.orderStage === "REQUESTED" && (
         <VisaBC busy={busy === `poa:${item.id}`} onCancel={fermer} onDecide={(decision, note) =>
-          void run(`poa:${item.id}`, () => approveAdProItemOrder(undefined, fdOf({ decision, note })),
+          // CE QUE LE CENTRE A LU (§118.187) : le montant et le prestataire affichés partent avec le visa.
+          void run(`poa:${item.id}`, () => approveAdProItemOrder(undefined, fdOf({
+            decision, note, montantVu: item.amountGranted != null ? String(item.amountGranted) : "", prestataireVu: item.supplier ?? "",
+          })),
             decision === "APPROVE" ? "Bon de commande validé — transmis aux Finances." : "Bon de commande refusé.").then(fermer)
         } />
       )}
@@ -707,7 +803,7 @@ function PosteCarte({ item, regard, budgetOptions, promoOptions, materiel, busy,
           Pièces et demandes{nbPieces > 0 ? ` (${nbPieces})` : ""}
         </button>
         {pieces && (
-          <PiecesEtDemandes item={item} peutDemander={regard.canEdit} busy={busy} run={run} parentLink={parentLink} fdOf={fdOf} />
+          <PiecesEtDemandes item={item} peutDemander={regard.canEdit} busy={busy} run={run} parentLink={parentLink} fdOf={fdOf} moduleLibelle={moduleLibelle} />
         )}
       </div>
     </li>
@@ -748,14 +844,35 @@ function Frise({ etapes }: { etapes: Etape[] }) {
 }
 
 /** La Direction tranche : accorder / revoir / refuser — autant de fois qu'il le faut. */
-function BoiteDecision({ item, busy, run, fdOf, onCancel }: {
+function BoiteDecision({ item, busy, run, fdOf, onCancel, revoir = false, accordSeul = false }: {
   item: ItemRow; busy: string | null; run: Run; fdOf: (extra?: Record<string, string>) => FormData; onCancel: () => void;
+  /**
+   * REVOIR UNE DÉCISION DÉJÀ PRISE (audit R12) : la décision d'hier reste à l'historique, et le bouton qui
+   * la redirait n'est pas offert — un accord redonné à l'identique n'a rien à décider.
+   */
+  revoir?: boolean;
+  /**
+   * UN BC ÉTABLI DANS LEGAL LIT SA VALIDATION SUR CE POSTE : quitter l'accord le laisserait sans porte,
+   * l'action le refuse. Seul l'accord se redonne (à un autre montant : le visa le revoit alors).
+   */
+  accordSeul?: boolean;
 }) {
   const [note, setNote] = React.useState("");
   const stock = estPosteStock(item);
   const occupe = busy === `dec:${item.id}`;
+  const offrir = (s: AdProItemStatus) => (!revoir || item.status !== s) && (!accordSeul || s === "APPROVED");
   return (
     <div className="space-y-2 rounded-lg border border-border bg-background p-2.5">
+      {revoir && (
+        <p className="text-xs text-muted-foreground">
+          Revoir la décision ({ITEM_STATUS_LABELS[item.status].label.toLowerCase()}) — elle reste à l&apos;historique ; le demandeur est prévenu.
+        </p>
+      )}
+      {accordSeul && (
+        <p className="text-xs text-amber-700 dark:text-amber-400">
+          Un bon de commande est déjà établi dans Legal ({item.bcEtablis.join(", ")}) : pour refuser ou renvoyer ce poste, annulez-le d&apos;abord dans Legal.
+        </p>
+      )}
       <input
         value={note} onChange={(e) => setNote(e.target.value)}
         placeholder="Motif / consigne (obligatoire pour un refus ou une révision)"
@@ -763,27 +880,33 @@ function BoiteDecision({ item, busy, run, fdOf, onCancel }: {
         className="w-full rounded-lg border border-border bg-background px-2.5 py-1.5 text-xs outline-none focus:border-primary/60"
       />
       <div className="flex flex-wrap gap-2">
-        <Button
-          size="sm" disabled={occupe}
-          title={stock ? "Accorder réserve le matériel au magasin : il en sort, et personne ne peut plus le doter ailleurs." : undefined}
-          onClick={() => void run(`dec:${item.id}`, () => decideAdProItem(undefined, fdOf({ decision: "APPROVED", note })), stock ? "Poste accordé — le matériel est réservé au magasin." : "Poste accordé.")}
-        >
-          <ThumbsUp className="h-4 w-4" /> {stock ? "Accorder et réserver" : "Accorder"}
-        </Button>
-        <Button
-          size="sm" variant="outline" disabled={occupe || !note.trim()}
-          title={!note.trim() ? "Indiquez ce qu'il faut revoir" : undefined}
-          onClick={() => void run(`dec:${item.id}`, () => decideAdProItem(undefined, fdOf({ decision: "REVISION", note })), stock ? "Liste à revoir — le demandeur est prévenu." : "Budget à revoir — le demandeur est prévenu.")}
-        >
-          <RotateCcw className="h-4 w-4" /> {stock ? "Revoir la liste" : "Revoir le budget"}
-        </Button>
-        <Button
-          size="sm" variant="outline" className="text-destructive" disabled={occupe || !note.trim()}
-          title={!note.trim() ? "Indiquez le motif du refus" : undefined}
-          onClick={() => void run(`dec:${item.id}`, () => decideAdProItem(undefined, fdOf({ decision: "REJECTED", note })), "Poste refusé.")}
-        >
-          <ThumbsDown className="h-4 w-4" /> Refuser
-        </Button>
+        {offrir("APPROVED") && (
+          <Button
+            size="sm" disabled={occupe}
+            title={stock ? "Accorder réserve le matériel au magasin : il en sort, et personne ne peut plus le doter ailleurs." : undefined}
+            onClick={() => void run(`dec:${item.id}`, () => decideAdProItem(undefined, fdOf({ decision: "APPROVED", note })), stock ? "Poste accordé — le matériel est réservé au magasin." : "Poste accordé.")}
+          >
+            <ThumbsUp className="h-4 w-4" /> {stock ? "Accorder et réserver" : "Accorder"}
+          </Button>
+        )}
+        {offrir("REVISION") && (
+          <Button
+            size="sm" variant="outline" disabled={occupe || !note.trim()}
+            title={!note.trim() ? "Indiquez ce qu'il faut revoir" : undefined}
+            onClick={() => void run(`dec:${item.id}`, () => decideAdProItem(undefined, fdOf({ decision: "REVISION", note })), stock ? "Liste à revoir — le demandeur est prévenu." : "Budget à revoir — le demandeur est prévenu.")}
+          >
+            <RotateCcw className="h-4 w-4" /> {stock ? "Revoir la liste" : "Revoir le budget"}
+          </Button>
+        )}
+        {offrir("REJECTED") && (
+          <Button
+            size="sm" variant="outline" className="text-destructive" disabled={occupe || !note.trim()}
+            title={!note.trim() ? "Indiquez le motif du refus" : undefined}
+            onClick={() => void run(`dec:${item.id}`, () => decideAdProItem(undefined, fdOf({ decision: "REJECTED", note })), "Poste refusé.")}
+          >
+            <ThumbsDown className="h-4 w-4" /> Refuser
+          </Button>
+        )}
         <Button size="sm" variant="ghost" onClick={onCancel}>Annuler</Button>
       </div>
     </div>
@@ -795,8 +918,13 @@ function BoiteDecision({ item, busy, run, fdOf, onCancel }: {
  * contenus, les références ». C'est ce que l'assistante de direction lit pour ÉTABLIR le bon de
  * commande : sans lui, elle doit rappeler le demandeur.
  */
-function DemandeBC({ busy, onSend, onCancel }: { busy: boolean; onSend: (message: string) => void; onCancel: () => void }) {
-  const [message, setMessage] = React.useState("");
+function DemandeBC({ busy, onSend, onCancel, initial = "", bouton = "Envoyer la demande" }: {
+  busy: boolean; onSend: (message: string) => void; onCancel: () => void;
+  /** Le message déjà envoyé, quand on CORRIGE une demande en cours (§118.187) — rien à retaper. */
+  initial?: string;
+  bouton?: string;
+}) {
+  const [message, setMessage] = React.useState(initial);
   return (
     <div className="space-y-1.5 rounded-lg border border-border bg-background p-2 text-xs">
       <textarea
@@ -807,9 +935,53 @@ function DemandeBC({ busy, onSend, onCancel }: { busy: boolean; onSend: (message
       />
       <div className="flex flex-wrap gap-2">
         <Button size="sm" disabled={busy} onClick={() => onSend(message)}>
-          {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />} Envoyer la demande
+          {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />} {bouton}
         </Button>
         <Button size="sm" variant="ghost" onClick={onCancel}>Annuler</Button>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * UN GESTE QUI EXIGE UN MOTIF — retirer une demande de BC, annuler un ordre, demander une révision
+ * (§118.187). Le motif est ce que lira la personne d'en face : le bouton reste fermé tant qu'il est vide,
+ * et l'action le refuse aussi (un formulaire se forge).
+ */
+function GesteAvecMotif({ titre, aide, bouton, danger = false, busy, extra, onSend, onCancel }: {
+  titre: string; aide: string; bouton: string; danger?: boolean; busy: boolean;
+  /** Un second champ facultatif (une nouvelle estimation). */
+  extra?: { nom: string; libelle: string };
+  onSend: (motif: string, extra: string) => void; onCancel: () => void;
+}) {
+  const [motif, setMotif] = React.useState("");
+  const [valeur, setValeur] = React.useState("");
+  return (
+    <div className="space-y-1.5 rounded-lg border border-border bg-background p-2 text-xs">
+      <p className="font-medium text-foreground">{titre}</p>
+      <p className="text-muted-foreground">{aide}</p>
+      <textarea
+        value={motif} onChange={(e) => setMotif(e.target.value)} rows={2}
+        placeholder="Motif (obligatoire)"
+        aria-label={`Motif — ${titre}`}
+        className="w-full rounded-lg border border-border bg-background px-2.5 py-1.5 text-xs outline-none focus:border-primary/60"
+      />
+      {extra && (
+        <input
+          type="number" min={0} step="any" value={valeur} onChange={(e) => setValeur(e.target.value)}
+          placeholder={extra.libelle} aria-label={extra.libelle}
+          className="w-full rounded-lg border border-border bg-background px-2.5 py-1.5 text-xs outline-none focus:border-primary/60"
+        />
+      )}
+      <div className="flex flex-wrap gap-2">
+        <Button
+          size="sm" variant={danger ? "outline" : "primary"} className={danger ? "text-destructive" : undefined}
+          disabled={busy || !motif.trim()} title={motif.trim() ? undefined : "Indiquez le motif"}
+          onClick={() => onSend(motif.trim(), valeur.trim())}
+        >
+          {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : null} {bouton}
+        </Button>
+        <Button size="sm" variant="ghost" onClick={onCancel}>Retour</Button>
       </div>
     </div>
   );
@@ -849,8 +1021,9 @@ function VisaBC({ busy, onDecide, onCancel }: { busy: boolean; onDecide: (decisi
  * que le circuit doit transporter. Les pièces jointes vivent SUR le poste et pas sur l'opération :
  * la facture du traiteur et celle de l'agence sont deux pièces de deux postes.
  */
-function PiecesEtDemandes({ item, peutDemander, busy, run, parentLink, fdOf }: {
+function PiecesEtDemandes({ item, peutDemander, busy, run, parentLink, fdOf, moduleLibelle }: {
   item: ItemRow; peutDemander: boolean; busy: string | null; run: Run; parentLink: string; fdOf: (extra?: Record<string, string>) => FormData;
+  moduleLibelle: string;
 }) {
   const [redige, setRedige] = React.useState<NaturePieceSecretariat | null>(null);
   const [message, setMessage] = React.useState("");
@@ -871,14 +1044,39 @@ function PiecesEtDemandes({ item, peutDemander, busy, run, parentLink, fdOf }: {
           <span className="text-muted-foreground">— joignez-y les pièces reçues.</span>
         </div>
       )}
+      {/* LE « BC À ÉTABLIR » DE L'ASSISTANTE (audit 360°, R24–R36) : le travail qui suit la demande de BC.
+          Il se corrige et se retire depuis CE poste (menu « ⋯ »), qui le met à jour ou le ferme avec. */}
+      {item.travauxBc.length > 0 && (
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+          <FileText className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+          {item.travauxBc.map((d) => (
+            <Link
+              key={d.id} href={`/demandes/${d.id}`}
+              className="inline-flex items-center gap-1 rounded-lg border border-border bg-background px-2 py-0.5 font-medium text-primary hover:bg-secondary"
+            >
+              BC à établir {d.reference}{d.status === "CANCELLED" ? " (close)" : d.status === "DONE" ? " (fait)" : ""} <ExternalLink className="h-3 w-3" />
+            </Link>
+          ))}
+        </div>
+      )}
       {/* Le matériel du stock ne s'achète pas : ni devis ni facture (§118.167). */}
       {peutDemander && !estPosteStock(item) && (
         <div className="flex flex-wrap items-center gap-2">
           {NATURES_PIECE_SECRETARIAT.map((nature) => {
             const garde = peutDemanderPiece(nature, { ouvertes: naturesOuvertes, bcDemande: item.orderStage !== "NONE" });
-            // Une demande que l'enchaînement refuse n'est pas offerte : la raison se lit sur
-            // l'étape (la facture vient après le BC), pas sous un bouton grisé.
-            if (!garde.ok) return null;
+            // Une demande que l'enchaînement refuse n'est pas offerte. La facture d'AVANT le BC le DIT
+            // (audit 360°, R24–R36) : le bouton disparaissait sans un mot, et sur un versement sans BC
+            // il ne venait jamais. Une demande déjà ouverte, elle, se lit dans les liens au-dessus.
+            if (!garde.ok) {
+              if (nature !== "FACTURE" || naturesOuvertes.includes("FACTURE")) return null;
+              return (
+                <span key={nature} className="text-muted-foreground">
+                  {VERSEMENT_SANS_BC.includes(item.kind)
+                    ? "Ce poste se paie sans bon de commande : sa facture, s'il y en a une, se joint directement aux pièces du poste."
+                    : "La facture se réclame après la demande de bon de commande."}
+                </span>
+              );
+            }
             return (
               <button
                 key={nature} type="button"
@@ -930,6 +1128,7 @@ function PiecesEtDemandes({ item, peutDemander, busy, run, parentLink, fdOf }: {
           entityId={item.id}
           link={parentLink}
           subject={`${ITEM_KIND_LABELS[item.kind]} : ${item.label}`}
+          moduleLibelle={moduleLibelle}
         />
       )}
     </div>

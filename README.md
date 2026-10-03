@@ -4596,6 +4596,7 @@ entité) sont éligibles. Supprimer une gamme **ne supprime aucun produit** (`SE
 | **Audit 360° — lot A, sécurité et confidentialité** | Fiches à la même règle que leurs listes : `lib/queries/regulatory-visibilite.ts` (`clauseRegulatoryVisible(user, "liste" | "fiche")`), `lib/queries/visibilite-listes.ts` (`clauseMarchesPchVisibles`, `clauseBonsDeCommandePchVisibles`, `clauseFormationsVisibles`), `lib/queries/admin-requests.ts` (`clauseDemandeLisible`), `lib/queries/medical-info.ts` (`canViewDeclaration`), branches de `lib/entity-access.ts` ; porte du marché PCH lue en base `lib/pch/porte-marche.ts` ; règle d'édition d'un événement `lib/events/modification.ts` ; confidentialité RH `lib/hr/confidentialite.ts` et compte qui suit la fiche `lib/hr/depart.ts` ; administration déléguée `lib/admin/garde-comptes.ts` ; « Vue exacte » : `getCurrentUserPourEcrire` (`lib/session.ts`), exigée de chaque route d'API qui écrit ; pilotage `lib/queries/sfe-effort.ts` ; secteurs d'un KAM bornés à sa BU (`clausePanelDuKam` dans `lib/rbac.ts`, `saveRepProfile`/`deleteRepProfile`/`ecrireSecteur` dans `sales-planning-actions.ts`) ; type `TRAINING` (migrations `20261224090000_entity_type_formation`, `20261224090100_formations_pieces_requalifiees`). Bancs : `entity-access-fiches.test.ts`, `pch/pch-entite.test.ts`, `queries/demande-declaration-acces.test.ts`, `hr/confidentialite.test.ts`, `hr/depart.test.ts`, `queries/formations-visibles.test.ts`, `legal/legal-restreint.test.ts`, `session-vue-exacte.test.ts`, `admin/garde-comptes.test.ts`, `actions/ad-pro-edition-portee.test.ts`, `sfe/plan-tournee-acces.test.ts`, `queries/sfe-effort.test.ts`, `sfe/kam-bu.test.ts`. |
 | **Audit 360° — lot B, les impasses** | Facture d'un ordre : `lib/finance/facture-ordre.ts` (`ordresAvecFacture`, `ordreAFacture` — règlement, colonne « Facture », intelligence financière) ; paiement qui suit sa demande : `lib/payments/annulation.ts` (`annulerOrdreNonRegle`, écriture conditionnelle) ; facture refusée renvoyable : `ordreClos` et `cleEnvoiAuReglement` (`lib/finances/settlement.ts`) ; information médicale : `canRequestDecision` / `declareStage` (`lib/medical-info/declare-decision.ts`), `clorePrecedente` (`medical-info-actions.ts`), `canViewDeclaration` (Finances) ; bureau du secrétariat `getRequestList` (ouvertes en entier + totaux, `lib/queries/admin-requests.ts`) ; passeport du sujet `lib/ad-pro/passeport-acces.ts` ; « À arbitrer » et « En intérim » dans `lib/queries/action-center.ts` ; pièces de l'arbitre `accesAuxPiecesLegalDetaille` (`lib/entity-access.ts`, `horsFiche` → titre sans lien dans `components/shared/linked-records.tsx`) ; portée du sponsoring `scopeSponsoring` (`lib/rbac.ts`) ; lignes d'achat `lireLignesDAchat` (`lib/general-means/purchase-request.ts`) + `components/purchase/purchase-lines.tsx` ; intérim `auNomDeQui` (`lib/hr/stand-in-resolve.ts`), lu par `leaveDecider`, `getLeavesToDecide`, `deciderFor` (formations), `decideApproval`/`getApprovals`/`clauseDemandeLisible`, `accesAuPlan` (`agitPour`), `getPendingValidations`, `droitSurLEtape` (`validation-actions.ts`) ; revue SFE `snapshotMonth` (clôture conditionnelle, `lib/sfe-sweep.ts`) ; PCH : produit canonique du lot (`matchOurProduct`) et suppression par `supprimerReversible`. Bancs : `payments/ordres-fermes-flow.test.ts`, `actions/medical-info-reprise.test.ts`, `actions/assistante-bureau-flow.test.ts`, `ad-pro/direction-marketing-flow.test.ts`, `ad-pro/sponsoring-kam-flow.test.ts`, `actions/formations-decision-flow.test.ts`, `actions/mon-equipe-flow.test.ts`, `sfe-sweep.test.ts`, `pch/lot-produit-corbeille.test.ts`, `components/purchase/purchase-lines.test.ts`, `hr/interim-decisions-flow.test.ts`. |
 | **Audit 360° — lot C1, faire corriger** | Règles pures `lib/workflow/renvoi.ts` (`refusDuRenvoi`, `etapeDeReprise`, `statutLegacyALEtape`, `motifVisible`, `peutResoumettre`, `auteursDAvis`) ; moteur `lib/workflow/engine.ts` : geste `RETURN` (`appliquerLeGeste`), `resubmitWorkflowInstance`, `apresModificationDeLaDemande`, `retirerDemande`, `fermerInstance` (arguments partagés `clotureDuCircuit`/`evenementDeCloture`), `relancerCycle` (`preparer` sous la prise), `reopenInstance` (étape qui tranche, `rolesPrevenus`), écriture commune `projeterStatut` ; **un geste à la fois** : `WorkflowInstance.claimedAt` (`argsPrise`, `argsRendre`, `prendreLeCircuitEnAttendant`, migration `20261225090100_circuit_pris_le_temps_d_un_geste`) ; statut `RETURNED` (migration `20261225090000_demande_renvoyee_pour_correction`, `events/statut.ts`, `ad-pro/unified.ts`, libellés) ; actions `resoumettreDemande`, `retirerDemandeAdPro` (`workflow-actions.ts`), `cancelCongressRequest` (motif), `submitEventForApproval` (relance), `sponsoringAppeal` ; vue `getWorkflowForEntity` (`motif`, `peutResoumettre`, `peutRetirer`) et `components/workflow/workflow-panel.tsx` ; Mon espace « À corriger » (`lib/queries/action-center.ts`). Bancs : `workflow/renvoi.test.ts`, `workflow/renvoi-flow.test.ts` (le banc possède ses circuits : copies privées semées par `stepCreate`). |
+| **Audit 360° — lot C2, réviser un poste et une demande au secrétariat** | Règle pure `lib/ad-pro/bc-poste.ts` (`gesteVisaPoste` : ROUVRIR / SOUS_LE_SEUIL / RIEN, `memePrestataire`) et empreinte du visa `AdProItem.orderVisaAmount` / `orderVisaSupplier` (migration `20261226090000_poste_visa_empreinte`) ; lecture partagée `lib/ad-pro/bc-etablis.ts` (`bcEtablisDesPostes`, `refusBcEtabli`) ; actions `ad-pro-item-actions.ts` : `retirerDemandeBC`, `modifierDemandeBC`, `annulerOrdrePoste`, `demanderRevisionPoste`, visa et émission conditionnels (`approveAdProItemOrder` : `montantVu` / `prestataireVu`), dernier rempart dans `emitItemExpenseOrder`, retrait réversible (`AD_PRO_ITEM` au registre, `lot: true`, `LIENS_DIRECTS` `AdProItem.expenseOrderId`) ; secrétariat : `lib/secretariat/porte-demandeur.ts` (PUR : `porteDuDemandeur`, `estDiscrete`, `refusDeModification`, `changementsDeLaDemande`, `suitLaDemandeDeBcDuPoste`), `lib/secretariat/annulation.ts` (`annulerDemandeSecretariat`, `prevenirLeSecretariat`), `admin-request-actions.ts` (`editOwnRequest`, `deleteOwnRequest`, écritures conditionnelles `OUVERTE`), `validation-actions.ts`, `lib/validation.ts` (`retirerValidationSansObjet` : la compensation d'une validation née après une annulation) ; écrans `components/ad-pro/items-panel.tsx`, `centre-ad-pro/centre-board.tsx`, `demandes/[id]/requester-window.tsx`. Bancs : `ad-pro/bc-poste.test.ts`, `ad-pro/postes-revision-flow.test.ts`, `ad-pro/bc-poste-points-d-appel.test.ts`, `secretariat/porte-demandeur.test.ts`, `secretariat/demandeur-flow.test.ts`, `e2e/postes-revision.spec.ts`. |
 | **Regulatory — les trois champs du Super Admin** | Module PUR `lib/regulatory/structural-fields.ts` (`STRUCTURAL_FIELDS`, `canSetStructural`, `structuralChanges`, `structuralRefusal`, `structuralNotice`) + `structural-fields.test.ts` (17 tests). Verrou posé sur les **quatre** portes de `lib/actions/regulatory-actions.ts` : `updateRegulatoryProduct` (helpers `guardStructural` / `notifyCarrierOfStructural`), `setRegulatoryResponsible`, `setRegulatoryClassification` (partie `companyId`) et `setVariationStatus` à « OBTENUE » (porte dérobée du statut de fabrication). Côté écran : `LockedField` dans `app/(app)/regulatory/edit-product.tsx`, prop `canSetStructural` de `regulatory-table.tsx`. |
 | **Regulatory — porter un dossier ouvre le module** | Module PUR `lib/regulatory/assignment.ts` (`carrierAccess`, `assignmentNotice`, `assignmentWarning`) + `assignment.test.ts` (13 tests) ; accès implicite résolu dans `getAccess` (`lib/rbac.ts`) ; exception au filtre de gamme dans `lib/queries/regulatory-rows.ts` (`NAMED_ON_DOSSIER`). |
 | **Regulatory — verrou (cadenas)** | `RegulatoryProduct.isLocked` ; `lib/rbac.ts` → `lockGate` (dans `scopeRegulatory`) + `regulatoryLockWhere` pour les lectures hors portée (`queries/stock.ts`, `actions/pch-tender-line-actions.ts`, `admin/users/[id]`, portail fournisseur) ; `setRegulatoryLock` / `unlockAllRegulatory` ; cadenas et bandeau dans `app/(app)/regulatory/regulatory-table.tsx`. Tests dans `rbac.test.ts`. |
@@ -6559,6 +6560,59 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 ---
 
 ## 🧾 Journal des évolutions récentes
+
+### AUDIT 360° — LOT C2 : LES POSTES ET LE SECRÉTARIAT NE SE FIGENT PLUS (2026-10)
+
+**Demande** (dirigeant, 02/10). Corriger tous les constats de l'audit 360° ; C2 porte la règle « valider /
+renvoyer pour correction / refuser » sur les **postes** d'une demande Ad & Pro (et leurs bons de commande) et
+sur les **demandes au secrétariat** (rapport 17, R05 à R11 ; rapport 18, R08).
+
+**Ce qui change — postes Ad & Pro.**
+- **Le visa d'un BC ne couvre que ce qu'il a vu.** Le centre de validation Ad & Pro retient le montant et le
+  prestataire qu'il a validés. Si l'on relève le montant au-delà, ou si l'on change le prestataire (« Payé à »),
+  la demande de BC **repart au centre** et les Finances sont prévenues de ne pas l'émettre. Baisser le montant
+  ne rouvre rien. Un BC passé sous le seuil puis porté au-dessus part au centre ; un BC en attente que le
+  montant fait passer sous le seuil passe directement aux Finances. Les Finances ne peuvent plus émettre un
+  ordre plus élevé, ou pour un autre fournisseur, que ce que le centre a vu.
+- **La demande de BC se modifie et se retire.** « Modifier la demande de BC » (sa demande au secrétariat suit),
+  « Retirer la demande de BC ». Tant qu'un BC établi dans Legal en découle, ces gestes sont refusés et la carte
+  le dit : il faut d'abord l'annuler dans Legal.
+- **Un ordre émis se réémet.** Les Finances annulent un ordre non réglé (motif) et le réémettent ; le visa tient
+  pour ce qu'il a vu.
+- **Une décision se revoit.** « Revoir la décision » sur un poste accordé, refusé ou à revoir (motif exigé pour
+  un refus ou un renvoi). « Demander une révision » rend à la Direction un poste déjà accordé.
+- **Retirer un poste passe par la corbeille.** Ses décisions, ses voyageurs, ses pièces, ses demandes au
+  secrétariat (l'assistante est prévenue) et son ordre non réglé partent avec lui et reviennent avec lui. Un
+  ordre déjà réglé, une pièce signée par les Finances ou du matériel déjà sorti du stock bloquent le retrait, et
+  la fenêtre dit pourquoi.
+- **Une demande refusée ou annulée** ne fait plus partir ses postes (ni soumission, ni accord, ni bon de
+  commande) ; les refuser reste possible.
+
+**Ce qui change — demandes au secrétariat.**
+- **Trente minutes ne figent plus rien.** Dans la première demi-heure, tant que l'assistante n'a pas commencé,
+  le demandeur corrige ou supprime sans déranger personne. Au-delà, tant que la demande n'est ni terminée ni
+  annulée, il la **corrige** (l'assistante est prévenue et la discussion garde ce qui a changé) ou l'**annule**
+  avec un motif (elle reste visible, close). Fermé, avec son remède : une demande terminée, une correction
+  pendant une validation, une correction quand un paiement est émis.
+- **Ce que le formulaire ne porte pas ne s'efface plus** (les lignes d'une demande d'achat survivaient mal à une
+  correction).
+- **Une annulation retire tout ce qui attendait** : validations, approbations, ordres non réglés. Une
+  approbation tranchée après coup ne paie plus une demande annulée ; une validation tranchée après la fin ne la
+  fait plus revenir « en cours ».
+- **Un geste à la fois.** Une demande annulée ou terminée au même instant qu'on la commence, qu'on la termine
+  ou qu'on la corrige : le second geste est refusé et le dit.
+
+**À faire de votre côté.** Rien.
+
+**Décision à prendre.** Les Finances n'ont pas accès aux pages des événements et des congrès : elles ne
+peuvent ni ouvrir ces demandes, ni émettre ou annuler l'ordre d'un de leurs postes, alors qu'elles reçoivent
+« BC validé — à émettre ». Deux options : leur donner la lecture de ces modules, ou un écran « BC à émettre »
+dans Bons de commande.
+
+**Ce qui reste.** Un poste refusé puis réaccordé ne rouvre pas les demandes au secrétariat closes avec son
+refus ; une approbation au secrétariat décidée après la fin de la demande émet encore son ordre (décision : la
+fin doit-elle attendre les approbations ?) ; le matériel promotionnel clôt sa demande au secrétariat sans
+passer par l'annulation commune (lot C4) ; les centres (lot C3) et les autres circuits (lot C4).
 
 ### AUDIT 360° — LOT C1 : FAIRE CORRIGER AU LIEU DE REFUSER (2026-10)
 

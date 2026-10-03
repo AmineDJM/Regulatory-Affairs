@@ -231,6 +231,11 @@ export interface LigneCentre {
   forme: FormePorte | FormeBC;
   /** Ce que la ligne dit en plus, quand il y a quelque chose à dire (le message d'une demande de BC). */
   detail?: string | null;
+  /**
+   * Le PRESTATAIRE d'un BC de poste, tel que le centre le lit — renvoyé avec le visa pour que l'action
+   * refuse un visa donné sur un prestataire qui a changé pendant la lecture (§118.187).
+   */
+  prestataire?: string | null;
   /** Depuis quand elle attend — c'est ce qui trie. */
   depuis: string;
   href: string;

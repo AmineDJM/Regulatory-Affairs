@@ -50,6 +50,7 @@ export type DeletableKind =
   | "AD_PRO_OTHER"
   | "PROMO_CATALOGUE"
   | "PROMO_STOCK_ITEM"
+  | "AD_PRO_ITEM"
   | "PCH_TENDER";
 
 export interface KindSpec {
@@ -581,6 +582,29 @@ export const DELETE_REGISTRY: Record<DeletableKind, KindSpec> = {
     },
     async remove(id) {
       await prisma.promoStockItem.delete({ where: { id } });
+    },
+  },
+  // UN POSTE D'UNE DEMANDE AD & PRO (§118.187, audit 360° R11) — « Retirer le poste » l'effaçait
+  // définitivement, hors corbeille, avec l'historique de ses décisions en cascade. Il part désormais
+  // en LOT : ses décisions, ses voyageurs, ses pièces, ses demandes au secrétariat, le BC non signé
+  // qu'elles ont fait naître, et son ordre de dépense non réglé (`LIENS_DIRECTS`) — et il revient avec
+  // eux. Il ne refuse rien LUI-MÊME : un ordre réglé, du matériel du stock dehors ou une pièce signée
+  // parmi ses branches bloquent par le LOT (`faitIrreversible`), comme pour l'appel d'offres PCH. Une
+  // seconde copie de ces règles ici finirait par ne pas refuser la même chose (§118.5).
+  AD_PRO_ITEM: {
+    label: "poste d'une demande Ad & Pro",
+    module: "Ad & Pro",
+    redirect: "/ad-pro",
+    model: "adProItem",
+    entityType: "AD_PRO_ITEM",
+    lot: true,
+    searchFields: ["label"],
+    async describe(id) {
+      const r = await prisma.adProItem.findUnique({ where: { id }, select: { label: true } });
+      return r ? r.label : null;
+    },
+    async remove(id) {
+      await prisma.adProItem.delete({ where: { id } });
     },
   },
   CONGRESS_INTERNATIONAL: {

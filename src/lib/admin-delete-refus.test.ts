@@ -29,7 +29,18 @@ describe("Registre des suppressions — le refus et la réserve", () => {
     // qui REFUSENT quand ils ont servi : on les archive, on n'efface pas une histoire.
     // 32 → 33 : l'appel d'offres PCH (§118.185, I17) — supprimé d'un seul `delete`, sans
     // corbeille, il emportait ses lots, ses bons et ses livraisons sans retour possible.
-    expect(DELETABLE_KINDS).toHaveLength(33);
+    // 33 → 34 : le poste d'une demande Ad & Pro (§118.187, R11) — « Retirer le poste » l'effaçait
+    // définitivement, avec l'historique de ses décisions en cascade.
+    expect(DELETABLE_KINDS).toHaveLength(34);
+  });
+
+  it("le poste Ad & Pro part EN LOT et ne refuse rien lui-même — c'est le lot qui refuse ce qui a quitté l'ERP", () => {
+    // Un ordre réglé, du matériel du stock dehors, une pièce signée : `faitIrreversible`, une seule
+    // copie de la règle. La recopier ici ferait deux refus qui finiraient par diverger (§118.5).
+    expect(DELETE_REGISTRY.AD_PRO_ITEM.lot, "il part avec ses décisions, ses pièces et ses demandes").toBe(true);
+    expect(DELETE_REGISTRY.AD_PRO_ITEM.refuse).toBeUndefined();
+    // Tout ce qui part revient : une réserve y serait une promesse de perte qui n'a pas lieu (§118.141c).
+    expect(DELETE_REGISTRY.AD_PRO_ITEM.reserve).toBeUndefined();
   });
 
   it("le catalogue et le stock promotionnels refusent AVANT le clic, sans réserve", () => {
@@ -55,7 +66,8 @@ describe("Registre des suppressions — le refus et la réserve", () => {
     const anciens = DELETABLE_KINDS.filter((k) => !AVEC_REFUS.includes(k));
     // 28 → 29 : l'appel d'offres PCH ne refuse ni ne réserve rien lui-même — c'est le LOT qui
     // refuse une facture réglée ou une pièce signée parmi ses branches (`faitIrreversible`).
-    expect(anciens).toHaveLength(29);
+    // 29 → 30 : le poste d'une demande Ad & Pro (§118.187), pour la même raison.
+    expect(anciens).toHaveLength(30);
     for (const k of anciens) {
       expect(DELETE_REGISTRY[k].refuse, `${k} ne refusait rien avant ce lot`).toBeUndefined();
       expect(DELETE_REGISTRY[k].reserve, `${k} n'annonçait aucune réserve avant ce lot`).toBeUndefined();

@@ -1077,6 +1077,15 @@ X("RESOUMETTRE ET RETIRER UNE DEMANDE AD & PRO (§118.186, audit R02/R24) : deux
   + "Adam est en pause de développement (Super Admin seul) : un clic sur la fiche de la demande, panneau du circuit.", [
   "workflow-actions:resoumettreDemande", "workflow-actions:retirerDemandeAdPro",
 ]);
+X("RÉVISER UN POSTE AD & PRO APRÈS COUP (§118.187, audit R05/R06/R12) — RETIRER ou MODIFIER la demande de bon de "
+  + "commande tant qu'aucun ordre n'est parti, ANNULER un ordre émis non réglé pour le réémettre, DEMANDER une révision "
+  + "d'un poste accordé. Chacun touche à de l'argent engagé (le visa du centre, l'ordre transmis aux Finances) et exige un "
+  + "motif qu'une personne écrit devant la carte du poste ; « Revoir la décision » passe, lui, par `decideAdProItem`, déjà "
+  + "couvert. Adam est en pause de développement : aucun geste neuf ne lui est ouvert. Un clic sur la fiche de la demande, "
+  + "menu « ⋯ » de la carte du poste.", [
+  "ad-pro-item-actions:retirerDemandeBC", "ad-pro-item-actions:modifierDemandeBC",
+  "ad-pro-item-actions:annulerOrdrePoste", "ad-pro-item-actions:demanderRevisionPoste",
+]);
 X("RÉTABLIR UN DOCUMENT LEGAL ANNULÉ (§118.184, audit L04) : le retour d'une annulation, ajouté parce que "
   + "l'annulation n'en avait aucun. C'est un geste de correction qu'une personne fait devant la ligne qu'elle "
   + "vient d'annuler par erreur ; Adam est en pause de développement (Super Admin seul) et l'annulation qu'il "

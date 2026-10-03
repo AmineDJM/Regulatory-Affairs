@@ -307,6 +307,7 @@ export async function demandesAuCentreAdPro(): Promise<LigneCentre[]> {
       depuis: (p.orderRequestedAt ?? p.updatedAt).toISOString(),
       href: kind ? lien(kind, opId) : "/ad-pro",
       detail: p.orderNote,
+      prestataire: p.supplier,
     });
   }
 

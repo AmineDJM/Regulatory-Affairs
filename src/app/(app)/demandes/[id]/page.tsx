@@ -34,6 +34,7 @@ import { statutDuDossier } from "@/lib/promo-material/statut";
 import { lireLignesDAchat } from "@/lib/general-means/purchase-request";
 import { auNomDeQui } from "@/lib/hr/stand-in-resolve";
 import { PurchaseLines } from "@/components/purchase/purchase-lines";
+import { porteDuDemandeur, refusDeModification, suitLaDemandeDeBcDuPoste } from "@/lib/secretariat/porte-demandeur";
 
 const REQ_DOC_CATEGORIES = ["QUOTE", "INVOICE", "REQUEST_LETTER", "CONVENTION", "SUPPORTING_DOC", "PHOTO", "OTHER"];
 
@@ -80,6 +81,13 @@ export default async function RequestDetailPage({ params }: { params: { id: stri
   // L'INTÉRIMAIRE tranche l'approbation adressée à l'absent — la même règle que l'action (I18).
   const auNomInterim = await auNomDeQui(user.id);
   const canUpload = userCan(user, "ADMIN_REQUESTS", "UPLOAD") || isSecretary;
+  // CE QUE LE DEMANDEUR PEUT ENCORE FAIRE (§118.187 — audit 360°, R08) : la règle de l'action, lue ici
+  // pour ne montrer que des gestes qu'elle acceptera.
+  // Une demande « BC à établir » se corrige et se retire depuis son poste : l'encart n'offrirait que des refus.
+  const porteDemandeur = req.deletedAt || suitLaDemandeDeBcDuPoste(req) ? null : porteDuDemandeur(req, user.id, Date.now());
+  const ordresEmis = porteDemandeur?.ok
+    ? await prisma.expenseOrder.count({ where: { sourceType: "ADMIN_REQUEST", sourceId: req.id, status: { not: "CANCELLED" } } })
+    : 0;
 
   const [documents, comments, history, users, financeUsers, linkedValidations, siblings] = await Promise.all([
     prisma.document.findMany({ where: { entityType: "ADMIN_REQUEST", entityId: req.id }, include: { uploadedBy: { select: { name: true } } }, orderBy: { createdAt: "desc" } }),
@@ -105,6 +113,13 @@ export default async function RequestDetailPage({ params }: { params: { id: stri
   // refuse n'est pas un bouton ; on montre l'étape réelle et le chemin de la fiche.
   const promoStatut = promo ? statutDuDossier(promo) : null;
   const promoACircuit = Boolean(promo?.circuitState);
+
+  const modificationFermee = porteDemandeur?.ok
+    ? refusDeModification({
+        validationEnCours: linkedValidations.some((v) => v.status === "PENDING" && !v.documentId) || req.approvals.some((a) => a.status === "PENDING"),
+        paiementEmis: ordresEmis > 0,
+      })
+    : null;
 
   const labels = fieldLabels(req.type);
   const fields = (req.fields as Record<string, unknown> | null) ?? {};
@@ -167,10 +182,12 @@ export default async function RequestDetailPage({ params }: { params: { id: stri
             </Card>
           )}
 
-          {user.id === req.requesterId && req.status === "NEW" && !req.processingStartedAt && (
+          {porteDemandeur?.ok && (
             <RequesterWindow
               requestId={req.id}
               createdAt={req.createdAt.toISOString()}
+              discret={porteDemandeur.discret}
+              modificationFermee={modificationFermee}
               values={{
                 title: req.title,
                 description: req.description,

@@ -29,7 +29,7 @@ import { createValidationRequest } from "@/lib/actions/validation-actions";
  * visites n'ouvriront pas.
  */
 export function ItemAskPanel({
-  entityType, entityId, link, subject, canAskValidation = true,
+  entityType, entityId, link, subject, moduleLibelle, canAskValidation = true,
 }: {
   /** L'objet auquel la pièce se rattachera (`AD_PRO_ITEM` pour un poste). */
   entityType: string;
@@ -38,6 +38,12 @@ export function ItemAskPanel({
   link: string;
   /** L'intitulé de l'objet, pour pré-remplir les titres. */
   subject: string;
+  /**
+   * LE MODULE QUE LIRA LE VALIDATEUR. Il était écrit « SPONSORING » en dur : une validation demandée
+   * depuis le poste d'un congrès arrivait étiquetée sponsoring dans sa file (audit 360°, R24–R36).
+   * `null` là où l'on ne demande pas de validation.
+   */
+  moduleLibelle: string | null;
   /**
    * DEMANDER UNE VALIDATION A-T-IL ENCORE UN SENS ICI ?
    *
@@ -92,7 +98,7 @@ export function ItemAskPanel({
     fd.set("title", label || `Validation — ${subject}`);
     fd.set("description", note);
     fd.set("link", link);
-    fd.set("module", "SPONSORING");
+    fd.set("module", moduleLibelle ?? "Ad & Pro");
     fd.set("validator1Id", who);
     if (who2) fd.set("validator2Id", who2);
     if (due) fd.set("deadline", due);

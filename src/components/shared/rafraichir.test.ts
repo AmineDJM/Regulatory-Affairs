@@ -47,8 +47,10 @@ const APPEL_NU = /\brouter\.refresh\(\)/g;
  * panneau qui envoie la paie au centre suit son rafraîchissement. Il ne peut que baisser.
  * Ramené à 349 au §118.186 — le panneau des circuits Ad & Pro (approuver, renvoyer, resoumettre,
  * retirer) suit son rafraîchissement : un second clic sur l'état d'avant renverrait deux fois.
+ * Ramené à 348 au §118.187 — l'encart du demandeur au secrétariat ouvre « Corriger » sur un instantané :
+ * ouvert avant la fin du rafraîchissement, il réécrirait la demande d'avant.
  */
-const PLAFOND_APPELS_NUS = 349;
+const PLAFOND_APPELS_NUS = 348;
 
 describe("le rafraîchissement suivi", () => {
   const parc = fichiers(SRC).map((f) => ({ f, src: sansCommentaires(readFileSync(f, "utf8")) }));
@@ -74,6 +76,9 @@ describe("le rafraîchissement suivi", () => {
       "src/app/(app)/budgets/suppression-a-imputer.tsx",
       // §118.186 : le panneau des circuits — renvoyer puis resoumettre sur l'état d'avant agirait deux fois.
       "src/components/workflow/workflow-panel.tsx",
+      // §118.187 : « Corriger ma demande » s'ouvre sur l'état qu'il montre — corrigée puis rouverte trop tôt,
+      // elle réécrirait la version d'avant.
+      "src/app/(app)/demandes/[id]/requester-window.tsx",
     ];
     for (const e of ecrans) {
       const src = sansCommentaires(readFileSync(join(process.cwd(), e), "utf8"));

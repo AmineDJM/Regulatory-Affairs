@@ -207,6 +207,7 @@ export function CentreBoard({ orders, canDecide }: { orders: CentreOrder[]; canD
                             entityId={o.id}
                             link="/centre-de-paiement"
                             subject={`${o.reference} — ${o.label}`}
+                            moduleLibelle={null}
                             canAskValidation={false}
                           />
                           <Button size="sm" onClick={() => { setErr(null); setActing({ order: o, decision: "APPROVE" }); }}>

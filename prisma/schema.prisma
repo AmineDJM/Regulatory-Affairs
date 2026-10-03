@@ -2331,6 +2331,12 @@ model AdProItem {
   /// chaque visa EFFAÇAIT le message du demandeur — mesuré : trois écrivains, aucun lecteur,
   /// et la seule chose que le circuit devait transmettre disparaissait (§118.45).
   orderDecisionNote  String?
+  /// L'EMPREINTE DU VISA (§118.187) : le montant et le prestataire que le centre a VUS en visant la
+  /// demande de BC — ou ceux qui sont passés aux Finances sous le seuil. L'émission compare ce qui
+  /// part à ce qui a été validé (`ad-pro/bc-poste.ts`) ; nulle sur un visa d'avant cette règle, et
+  /// alors rien n'est comparé — on ne refuse pas ce qu'on ne sait pas lire.
+  orderVisaAmount    Decimal?            @db.Decimal(14, 2)
+  orderVisaSupplier  String?
 
   decisions  AdProItemDecision[]
   /// Les articles du stock d'un poste « Matériel du stock » (§118.167).

@@ -325,7 +325,10 @@ export async function decideValidation(formData: FormData): Promise<ActionResult
   // Une validation de PIÈCE JOINTE (documentId) est un avis sur cette pièce : elle ne fait pas
   // repartir le flux de la demande — sinon valider une facture ressusciterait une demande close.
   if (finalized && req.entityType === "ADMIN_REQUEST" && req.entityId && !req.documentId) {
-    await prisma.administrativeRequest.updateMany({ where: { id: req.entityId, deletedAt: null }, data: { status: "IN_PROGRESS" } });
+    // Jamais une demande TERMINÉE ou ANNULÉE (§118.187) : depuis qu'un demandeur annule au-delà de
+    // trente minutes, la demande reste visible au lieu d'être effacée — une validation tranchée après
+    // coup ne doit pas la ressusciter « en cours ».
+    await prisma.administrativeRequest.updateMany({ where: { id: req.entityId, deletedAt: null, status: { notIn: ["DONE", "CANCELLED"] } }, data: { status: "IN_PROGRESS" } });
     revalidatePath("/demandes");
     revalidatePath("/demandes/assistant");
   }

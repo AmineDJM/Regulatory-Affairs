@@ -3,7 +3,7 @@
 import { randomUUID } from "crypto";
 import { revalidatePath } from "next/cache";
 import { FinanceCategory } from "@prisma/client";
-import type { AdminRequestType, AdminRequestStatus, Priority, AdminApprovalStatus, DriverMissionStatus } from "@prisma/client";
+import type { AdminRequestType, AdminRequestStatus, Priority, AdminApprovalStatus, DriverMissionStatus, Prisma } from "@prisma/client";
 import { requireUser } from "@/lib/session";
 import { userCan, hasGlobalView, type SessionUser } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
@@ -18,11 +18,16 @@ import { ADMIN_REQUEST_TYPE } from "@/lib/labels";
 import { recordAudit } from "@/lib/audit";
 import { notifyUser, notifyRoles } from "@/lib/notify";
 import { createExpenseOrder } from "@/lib/expense-orders";
-import { createDirectValidation } from "@/lib/validation";
+import { createDirectValidation, retirerValidationSansObjet } from "@/lib/validation";
 import { buildRef, createWithRetry } from "@/lib/refs";
 import { fdStr, fdNum, fdDate, type ActionResult } from "@/lib/actions/types";
 import { dejaPorteParSaFiche } from "@/lib/ad-pro/unified";
 import { clauseDemandeLisible } from "@/lib/queries/admin-requests";
+import { fieldLabels } from "@/lib/admin-requests";
+import {
+  porteDuDemandeur, refusDeModification, changementsDeLaDemande, suitLaDemandeDeBcDuPoste, refusDemandeDeBcDuPoste, type ContenuDemande,
+} from "@/lib/secretariat/porte-demandeur";
+import { annulerDemandeSecretariat, prevenirLeSecretariat } from "@/lib/secretariat/annulation";
 
 const DENIED: ActionResult = { ok: false, error: "Non autorisé." };
 
@@ -67,9 +72,6 @@ async function archiveAdminRequestIfDone(id: string, actorId: string): Promise<v
   }
 }
 
-/** Fenêtre pendant laquelle le demandeur peut encore modifier/supprimer sa demande. */
-const EDIT_WINDOW_MS = 30 * 60 * 1000;
-
 /** Référence robuste (dérivée du maximum réel, pas de `count()+1` fragile). */
 async function nextRequestRef(): Promise<string> {
   const year = new Date().getFullYear();
@@ -80,12 +82,20 @@ async function nextRequestRef(): Promise<string> {
   return buildRef("REQ", year, refs.map((r) => r.reference));
 }
 
-/** Le demandeur peut agir tant que la demande est NEW et dans les 30 minutes. */
-function withinRequesterWindow(req: { requesterId: string | null; status: AdminRequestStatus; createdAt: Date; processingStartedAt: Date | null }, userId: string): boolean {
-  if (req.requesterId !== userId) return false;
-  if (req.status !== "NEW") return false;
-  if (req.processingStartedAt) return false;
-  return Date.now() - req.createdAt.getTime() <= EDIT_WINDOW_MS;
+/**
+ * UNE DEMANDE TERMINÉE OU ANNULÉE NE SE TRAITE PLUS (§118.187 — audit 360°, R08). Depuis qu'un demandeur
+ * peut annuler sa demande au-delà de trente minutes, une demande annulée reste VISIBLE au bureau (elle
+ * n'est plus effacée) : « Commencer », « Demander une validation » et « Fin de la demande » l'auraient
+ * ressuscitée, ou payée. Le changement de statut manuel reste la porte explicite pour la rouvrir.
+ */
+/** Une demande qui se TRAITE encore — la condition de toute écriture qui la fait avancer (§118.187). */
+const OUVERTE = { deletedAt: null, status: { notIn: ["DONE", "CANCELLED"] as AdminRequestStatus[] } } satisfies Prisma.AdministrativeRequestWhereInput;
+const DEMANDE_CHANGEE = "Cette demande vient d'être annulée ou terminée : rouvrez-la pour voir où elle en est.";
+
+function refusDemandeClose(status: AdminRequestStatus): string | null {
+  if (status === "CANCELLED") return "Cette demande a été annulée : elle ne se traite plus. Si elle doit reprendre, changez son statut d'abord.";
+  if (status === "DONE") return "Cette demande est terminée : elle ne se traite plus. Si elle doit reprendre, changez son statut d'abord.";
+  return null;
 }
 
 /** Type-specific fields are submitted as `f_<name>` and stored in `fields` JSON. */
@@ -93,22 +103,6 @@ function collectFields(formData: FormData): Record<string, string> {
   const out: Record<string, string> = {};
   for (const [k, v] of formData.entries()) {
     if (k.startsWith("f_") && typeof v === "string" && v.trim()) out[k.slice(2)] = v.trim();
-  }
-  return out;
-}
-
-/**
- * Comme `collectFields`, mais conserve les champs **vidés** (valeur ""). Utilisé à
- * l'édition par le demandeur : il doit pouvoir modifier OU effacer n'importe quel
- * champ qu'il a saisi (remplacement intégral, pas seulement un ajout).
- */
-function collectAllFields(formData: FormData): Record<string, string> {
-  const out: Record<string, string> = {};
-  for (const [k, v] of formData.entries()) {
-    if (k.startsWith("f_") && typeof v === "string") {
-      const val = v.trim();
-      if (val) out[k.slice(2)] = val;
-    }
   }
   return out;
 }
@@ -213,14 +207,23 @@ export async function requestApproval(formData: FormData): Promise<ActionResult>
   const requestId = fdStr(formData, "requestId");
   const validatorId = fdStr(formData, "validatorId");
   if (!requestId || !validatorId) return { ok: false, error: "Validateur requis." };
-  const req = await prisma.administrativeRequest.findUnique({ where: { id: requestId }, select: { assignedToId: true, reference: true } });
-  if (!req || !isManager(user, req.assignedToId)) return DENIED;
+  const req = await prisma.administrativeRequest.findUnique({ where: { id: requestId }, select: { assignedToId: true, reference: true, status: true, deletedAt: true } });
+  if (!req || req.deletedAt || !isManager(user, req.assignedToId)) return DENIED;
+  const close = refusDemandeClose(req.status);
+  if (close) return { ok: false, error: close };
 
   const amount = fdNum(formData, "amount");
-  await prisma.adminApproval.create({
+  const approbation = await prisma.adminApproval.create({
     data: { requestId, requestedById: user.id, validatorId, status: "PENDING", comment: fdStr(formData, "comment"), amount: amount ?? undefined },
+    select: { id: true },
   });
-  await prisma.administrativeRequest.update({ where: { id: requestId }, data: { validatorId, status: "AWAITING_VALIDATION" } });
+  // CONDITIONNELLE, puis COMPENSÉE (§118.187) : une annulation passée entre la lecture et l'écriture a
+  // déjà retiré les approbations qu'elle voyait — celle-ci, née après, paierait une demande annulée.
+  const posee = await prisma.administrativeRequest.updateMany({ where: { id: requestId, ...OUVERTE }, data: { validatorId, status: "AWAITING_VALIDATION" } });
+  if (posee.count === 0) {
+    await prisma.adminApproval.deleteMany({ where: { id: approbation.id, status: "PENDING" } });
+    return { ok: false, error: DEMANDE_CHANGEE };
+  }
   await notifyUser({ userId: validatorId, type: "VALIDATION_REQUIRED", title: "Validation demandée", body: `${req.reference}${amount ? ` — ${amount.toLocaleString("fr-FR")} DZD` : ""}`, link: `/demandes/${requestId}` });
   await recordAudit({ actorId: user.id, action: "UPDATE", module: "Demandes administratives", entityType: "ADMIN_REQUEST", entityId: requestId, summary: "Validation demandée" });
   revalidatePath(`/demandes/${requestId}`);
@@ -233,8 +236,13 @@ export async function decideApproval(formData: FormData): Promise<ActionResult> 
   const approvalId = fdStr(formData, "approvalId");
   const decision = fdStr(formData, "decision") as AdminApprovalStatus | null;
   if (!approvalId || !decision || decision === "PENDING") return { ok: false, error: "Décision invalide." };
-  const approval = await prisma.adminApproval.findUnique({ where: { id: approvalId }, include: { request: { select: { id: true, title: true, requesterId: true, assignedToId: true, reference: true, fields: true } } } });
+  const approval = await prisma.adminApproval.findUnique({ where: { id: approvalId }, include: { request: { select: { id: true, title: true, requesterId: true, assignedToId: true, reference: true, fields: true, status: true, deletedAt: true } } } });
   if (!approval) return { ok: false, error: "Validation introuvable." };
+  // UNE DEMANDE ANNULÉE OU EFFACÉE NE S'APPROUVE PLUS (§118.187) — l'approbation d'un montant émet un
+  // ordre de dépense : sans cette garde, une validation restée en file payait une demande retirée.
+  if (approval.request.deletedAt || approval.request.status === "CANCELLED") {
+    return { ok: false, error: "Cette demande a été annulée : la validation n'a plus d'objet." };
+  }
   // LE VALIDATEUR NOMMÉ, OU SON INTÉRIMAIRE (§118.185 — audit 360°, I18) — jamais sur sa propre
   // demande : remplacer son directeur ne donne pas le droit de s'approuver un achat.
   const allowed = approval.validatorId === user.id || userCan(user, "ADMIN_REQUESTS", "VALIDATE") || hasGlobalView(user.role)
@@ -242,7 +250,10 @@ export async function decideApproval(formData: FormData): Promise<ActionResult> 
   if (!allowed) return DENIED;
   if (approval.status !== "PENDING") return { ok: false, error: "Déjà traité." };
 
-  await prisma.adminApproval.update({ where: { id: approvalId }, data: { status: decision, comment: fdStr(formData, "comment") ?? approval.comment, decidedAt: new Date() } });
+  // Sous condition : une validation retirée (demande annulée) ou tranchée entre la lecture et le clic
+  // ne se tranche pas une seconde fois — et ne fait pas partir un second ordre de dépense.
+  const pris = await prisma.adminApproval.updateMany({ where: { id: approvalId, status: "PENDING" }, data: { status: decision, comment: fdStr(formData, "comment") ?? approval.comment, decidedAt: new Date() } });
+  if (pris.count === 0) return { ok: false, error: "Déjà traité, ou retiré parce que la demande a été annulée." };
 
   const req = approval.request;
   let reqStatus: AdminRequestStatus = "IN_PROGRESS";
@@ -261,7 +272,10 @@ export async function decideApproval(formData: FormData): Promise<ActionResult> 
   } else if (decision === "REJECTED") {
     reqStatus = "BLOCKED";
   }
-  await prisma.administrativeRequest.update({ where: { id: req.id }, data: { status: reqStatus } });
+  // Jamais une demande TERMINÉE (§118.187) : une approbation tranchée après la fin ne la ressuscite pas
+  // — la même règle que la validation (`decideValidation`). L'ordre de dépense, lui, part : le montant
+  // a bien été autorisé.
+  await prisma.administrativeRequest.updateMany({ where: { id: req.id, ...OUVERTE }, data: { status: reqStatus } });
 
   for (const uid of [req.assignedToId, req.requesterId]) {
     if (uid && uid !== user.id) await notifyUser({ userId: uid, type: "GENERIC", title: `Validation : ${decision === "APPROVED" ? "acceptée" : decision === "REJECTED" ? "refusée" : "modif. demandée"}`, body: req.reference, link: `/demandes/${req.id}` });
@@ -414,9 +428,17 @@ export async function addRequestComment(formData: FormData): Promise<ActionResul
   if (!req) return { ok: false, error: "Demande introuvable." };
 
   await prisma.comment.create({ data: { entityType: "ADMIN_REQUEST", entityId: requestId, body, authorId: user.id } });
-  const other = user.id === req.requesterId ? req.assignedToId : req.requesterId;
-  if (other && other !== user.id) {
-    await notifyUser({ userId: other, type: "GENERIC", title: "Nouveau commentaire", body: body.slice(0, 80), link: `/demandes/${requestId}` });
+  // QUI LIT CE COMMENTAIRE (audit 360°, R09). Le demandeur parle au SECRÉTARIAT : son responsable
+  // désigné, sinon chaque assistante — les demandes ouvertes par un poste naissent sans responsable,
+  // et notifier le seul `assignedToId` revenait à ne prévenir personne sur le seul canal de correction
+  // qui restait. Quelqu'un d'autre (l'assistante, un validateur) parle au demandeur ET au responsable.
+  const avis = { type: "GENERIC" as const, title: "Nouveau commentaire", body: body.slice(0, 80), link: `/demandes/${requestId}` };
+  if (user.id === req.requesterId) {
+    await prevenirLeSecretariat(req.assignedToId, avis, user.id);
+  } else {
+    for (const uid of new Set([req.requesterId, req.assignedToId])) {
+      if (uid && uid !== user.id) await notifyUser({ userId: uid, ...avis });
+    }
   }
   revalidatePath(`/demandes/${requestId}`);
   return { ok: true };
@@ -520,59 +542,138 @@ export async function createRequestBatch(
   return { ok: true, id: createdIds[0] };
 }
 
-// ─────────────────────────── Fenêtre demandeur (30 min) ───────────────────────────
+// ─────────────────────────── Le demandeur corrige ou annule (§118.187) ───────────────────────────
 
-/** Le demandeur modifie sa propre demande dans les 30 minutes (avant traitement). */
+const PRIORITIES_DEMANDE: readonly Priority[] = ["LOW", "MEDIUM", "HIGH", "CRITICAL"];
+const jour = (d: Date | null) => (d ? d.toISOString().slice(0, 10) : null);
+const enTexte = (f: Record<string, unknown>) =>
+  Object.fromEntries(Object.entries(f).filter(([, v]) => typeof v === "string" || typeof v === "number").map(([k, v]) => [k, String(v)]));
+
+/**
+ * LE DEMANDEUR CORRIGE SA DEMANDE tant qu'elle n'est ni terminée ni annulée (audit 360°, R08). Dans
+ * les trente premières minutes, si personne ne l'a commencée, sans déranger personne ; au-delà,
+ * l'assistante est prévenue et la discussion garde ce qui a changé. Fermé, avec son remède : pendant
+ * une validation, et quand un paiement est déjà émis (`refusDeModification`).
+ *
+ * CE QUE LE FORMULAIRE NE PORTE PAS NE S'ÉCRIT PAS (§118.152c). L'ancien remplacement intégral des
+ * champs saisis effaçait tout ce qui vit dans le même JSON sans être un champ du formulaire — les
+ * LIGNES d'une demande d'achat, son total estimé —, et une correction de l'échéance effaçait la
+ * description et remettait la priorité à « moyenne ». Une clé portée vide efface, une clé absente garde.
+ */
 export async function editOwnRequest(formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
   const id = fdStr(formData, "id");
   if (!id) return { ok: false, error: "Demande introuvable." };
-  const req = await prisma.administrativeRequest.findUnique({ where: { id }, select: { requesterId: true, status: true, createdAt: true, processingStartedAt: true, fields: true, deletedAt: true } });
-  if (!req || req.deletedAt) return { ok: false, error: "Demande introuvable." };
-  if (!withinRequesterWindow(req, user.id)) return { ok: false, error: "Le délai de modification (30 min) est dépassé." };
-
-  const title = fdStr(formData, "title");
-  if (!title) return { ok: false, error: "Le titre est obligatoire." };
-  const existingFields = (req.fields as Record<string, string> | null) ?? {};
-  // Édition complète : si le formulaire renvoie des champs `f_*`, on remplace
-  // intégralement les champs saisis (y compris ceux que le demandeur a vidés) ;
-  // sinon on conserve l'existant.
-  const hasFieldInputs = [...formData.keys()].some((k) => k.startsWith("f_"));
-  const fields = hasFieldInputs ? collectAllFields(formData) : existingFields;
-
-  await prisma.administrativeRequest.update({
+  const req = await prisma.administrativeRequest.findUnique({
     where: { id },
-    data: {
-      title,
-      description: fdStr(formData, "description"),
-      priority: (fdStr(formData, "priority") as Priority) ?? "MEDIUM",
-      deadline: fdDate(formData, "deadline"),
-      fields,
+    select: {
+      requesterId: true, status: true, createdAt: true, processingStartedAt: true, deletedAt: true, assignedToId: true,
+      reference: true, type: true, title: true, description: true, priority: true, deadline: true, fields: true, linkedEntityType: true,
     },
   });
-  await recordAudit({ actorId: user.id, action: "UPDATE", module: "Bureau du secrétariat", entityType: "ADMIN_REQUEST", entityId: id, summary: "Demande modifiée par le demandeur (≤ 30 min)" });
+  if (!req || req.deletedAt) return { ok: false, error: "Demande introuvable." };
+  const porte = porteDuDemandeur(req, user.id, Date.now());
+  if (!porte.ok) return { ok: false, error: porte.raison };
+  if (suitLaDemandeDeBcDuPoste(req)) return { ok: false, error: refusDemandeDeBcDuPoste("corriger") };
+  const [validations, approbations, ordres] = await Promise.all([
+    prisma.validationRequest.count({ where: { entityType: "ADMIN_REQUEST", entityId: id, documentId: null, status: "PENDING" } }),
+    prisma.adminApproval.count({ where: { requestId: id, status: "PENDING" } }),
+    prisma.expenseOrder.count({ where: { sourceType: "ADMIN_REQUEST", sourceId: id, status: { not: "CANCELLED" } } }),
+  ]);
+  const refus = refusDeModification({ validationEnCours: validations + approbations > 0, paiementEmis: ordres > 0 });
+  if (refus) return { ok: false, error: refus };
+
+  const title = formData.has("title") ? fdStr(formData, "title") : req.title;
+  if (title === null) return { ok: false, error: "Le titre est obligatoire." };
+  const prioriteLue = formData.has("priority") ? fdStr(formData, "priority") : null;
+  const priority = PRIORITIES_DEMANDE.find((p) => p === prioriteLue) ?? req.priority;
+  const description = formData.has("description") ? fdStr(formData, "description") : req.description;
+  const deadline = formData.has("deadline") ? fdDate(formData, "deadline") : req.deadline;
+  const existants = req.fields && typeof req.fields === "object" && !Array.isArray(req.fields) ? (req.fields as Record<string, unknown>) : {};
+  const fields: Record<string, unknown> = { ...existants };
+  for (const [k, v] of formData.entries()) {
+    if (!k.startsWith("f_") || typeof v !== "string") continue;
+    const val = v.trim();
+    if (val) fields[k.slice(2)] = val;
+    else delete fields[k.slice(2)];
+  }
+
+  const avant: ContenuDemande = { title: req.title, description: req.description, priority: req.priority, deadline: jour(req.deadline), fields: enTexte(existants) };
+  const apres: ContenuDemande = { title, description, priority, deadline: jour(deadline), fields: enTexte(fields) };
+  const changes = changementsDeLaDemande(avant, apres, fieldLabels(req.type));
+  if (changes.length === 0) return { ok: true, message: "Rien n'a changé." };
+
+  // Sous condition : annulée ou terminée entre la lecture et l'écriture, elle ne se réécrit plus.
+  const ecrite = await prisma.administrativeRequest.updateMany({
+    where: { id, ...OUVERTE },
+    data: { title, description, priority, deadline, fields: fields as Prisma.InputJsonValue },
+  });
+  if (ecrite.count === 0) return { ok: false, error: DEMANDE_CHANGEE };
+  const quoi = changes.join(", ");
+  await recordAudit({
+    actorId: user.id, action: "UPDATE", module: "Bureau du secrétariat", entityType: "ADMIN_REQUEST", entityId: id,
+    summary: `Demande ${req.reference} corrigée par son demandeur${porte.discret ? " (fenêtre discrète)" : ""} — ${quoi}`,
+  });
+  if (!porte.discret) {
+    await prisma.comment.create({ data: { entityType: "ADMIN_REQUEST", entityId: id, body: `Demande corrigée par son demandeur : ${quoi}.`, authorId: user.id } });
+    await prevenirLeSecretariat(req.assignedToId, {
+      type: "GENERIC", title: "Demande corrigée par son demandeur", body: `${req.reference} — ${quoi}`, link: `/demandes/${id}`,
+    }, user.id);
+  }
   revalidatePath(`/demandes/${id}`);
   revalidatePath("/demandes");
-  return { ok: true };
+  return { ok: true, message: porte.discret ? "Demande modifiée." : `Demande modifiée — l'assistante est prévenue (${quoi}).` };
 }
 
-/** Le demandeur supprime sa propre demande dans les 30 minutes (soft delete tracé). */
+/**
+ * LE DEMANDEUR RETIRE SA DEMANDE (audit 360°, R08). Dans la fenêtre discrète, elle s'efface sans bruit,
+ * comme avant : personne n'y a rien fait. Au-delà, elle se CLÔT avec son motif — elle n'est plus effacée,
+ * parce que quelqu'un a peut-être déjà travaillé dessus — et ce qui en dépend part avec elle : validations
+ * en attente, approbations, paiement non réglé (`annulerDemandeSecretariat`). Un paiement réglé refuse.
+ */
 export async function deleteOwnRequest(formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
   const id = fdStr(formData, "id");
   if (!id) return { ok: false, error: "Demande introuvable." };
-  const req = await prisma.administrativeRequest.findUnique({ where: { id }, select: { requesterId: true, status: true, createdAt: true, processingStartedAt: true, reference: true, deletedAt: true } });
-  if (!req || req.deletedAt) return { ok: false, error: "Demande introuvable." };
-  if (!withinRequesterWindow(req, user.id)) return { ok: false, error: "Le délai de suppression (30 min) est dépassé." };
-
-  await prisma.administrativeRequest.update({
+  const req = await prisma.administrativeRequest.findUnique({
     where: { id },
-    data: { deletedAt: new Date(), deletedById: user.id, deletionReason: "Supprimée par le demandeur (≤ 30 min)", status: "CANCELLED", cancelledAt: new Date() },
+    select: { requesterId: true, status: true, createdAt: true, processingStartedAt: true, reference: true, deletedAt: true, linkedEntityType: true, type: true, title: true },
   });
-  await recordAudit({ actorId: user.id, action: "DELETE", module: "Bureau du secrétariat", entityType: "ADMIN_REQUEST", entityId: id, summary: `Demande ${req.reference} supprimée par le demandeur` });
+  if (!req || req.deletedAt) return { ok: false, error: "Demande introuvable." };
+  const porte = porteDuDemandeur(req, user.id, Date.now());
+  if (!porte.ok) return { ok: false, error: porte.raison };
+  if (suitLaDemandeDeBcDuPoste(req)) return { ok: false, error: refusDemandeDeBcDuPoste("annuler") };
+
+  if (porte.discret) {
+    const r = await prisma.administrativeRequest.updateMany({
+      where: { id, deletedAt: null, status: "NEW", processingStartedAt: null },
+      data: { deletedAt: new Date(), deletedById: user.id, deletionReason: "Supprimée par le demandeur (≤ 30 min)", status: "CANCELLED", cancelledAt: new Date() },
+    });
+    if (r.count === 0) return { ok: false, error: "L'assistante vient de commencer cette demande : rouvrez-la — elle s'annule désormais avec un motif." };
+    await recordAudit({ actorId: user.id, action: "DELETE", module: "Bureau du secrétariat", entityType: "ADMIN_REQUEST", entityId: id, summary: `Demande ${req.reference} supprimée par le demandeur` });
+    revalidatePath("/demandes");
+    revalidatePath("/demandes/assistant");
+    return { ok: true };
+  }
+
+  const motif = fdStr(formData, "motif");
+  if (motif === null) return { ok: false, error: "Dites pourquoi vous annulez : l'assistante a peut-être déjà commencé, et c'est ce qu'elle lira." };
+  const a = await annulerDemandeSecretariat(id, { acteurId: user.id, motif, cause: "par son demandeur" });
+  if (!a.ok) return { ok: false, error: a.error };
+  if (!a.annulee) return { ok: false, error: "Cette demande vient d'être terminée ou annulée : rouvrez-la pour voir où elle en est." };
+  revalidatePath(`/demandes/${id}`);
   revalidatePath("/demandes");
   revalidatePath("/demandes/assistant");
-  return { ok: true };
+  if (a.ordresAnnules.length > 0 || a.retraits > 0) revalidatePath("/validations");
+  if (a.ordresAnnules.length > 0) revalidatePath("/finances/paiements-a-faire");
+  const suites = [
+    a.retraits > 0 ? `${a.retraits} validation${a.retraits > 1 ? "s" : ""} retirée${a.retraits > 1 ? "s" : ""}` : null,
+    a.ordresAnnules.length > 0 ? `paiement${a.ordresAnnules.length > 1 ? "s" : ""} ${a.ordresAnnules.join(", ")} annulé${a.ordresAnnules.length > 1 ? "s" : ""}` : null,
+  ].filter(Boolean);
+  return {
+    ok: true,
+    message: `Demande ${a.reference} annulée — l'assistante est prévenue${suites.length ? ` ; ${suites.join(", ")}` : ""}.${a.reserve ? ` Attention : ${a.reserve}` : ""}`,
+  };
 }
 
 // ─────────────────────────── Suppression traçable (assistante) ───────────────────────────
@@ -623,12 +724,20 @@ export async function startRequestProcessing(formData: FormData): Promise<Action
   const user = await requireUser();
   const id = fdStr(formData, "id");
   if (!id) return { ok: false, error: "Demande introuvable." };
-  const req = await prisma.administrativeRequest.findUnique({ where: { id }, select: { assignedToId: true, status: true, reference: true } });
-  if (!req) return { ok: false, error: "Demande introuvable." };
+  const req = await prisma.administrativeRequest.findUnique({ where: { id }, select: { assignedToId: true, status: true, reference: true, deletedAt: true } });
+  if (!req || req.deletedAt) return { ok: false, error: "Demande introuvable." };
   if (!isManager(user, req.assignedToId)) return DENIED;
+  const close = refusDemandeClose(req.status);
+  if (close) return { ok: false, error: close };
 
-  await prisma.administrativeRequest.update({ where: { id }, data: { status: "IN_PROGRESS", processingStartedAt: new Date() } });
-  await recordAudit({ actorId: user.id, action: "UPDATE", module: "Bureau du secrétariat", entityType: "ADMIN_REQUEST", entityId: id, field: "status", newValue: "IN_PROGRESS", summary: "Traitement démarré" });
+  // QUI COMMENCE EN DEVIENT RESPONSABLE, si personne ne l'était (audit 360°, R09) : sans responsable, le
+  // commentaire du demandeur repartait vers tout le secrétariat alors qu'une personne précise avait la main.
+  const r = await prisma.administrativeRequest.updateMany({
+    where: { id, ...OUVERTE },
+    data: { status: "IN_PROGRESS", processingStartedAt: new Date(), ...(req.assignedToId ? {} : { assignedToId: user.id }) },
+  });
+  if (r.count === 0) return { ok: false, error: DEMANDE_CHANGEE };
+  await recordAudit({ actorId: user.id, action: "UPDATE", module: "Bureau du secrétariat", entityType: "ADMIN_REQUEST", entityId: id, field: "status", newValue: "IN_PROGRESS", summary: req.assignedToId ? "Traitement démarré" : "Traitement démarré — responsable : la personne qui l'a commencé" });
   revalidatePath(`/demandes/${id}`);
   revalidatePath("/demandes/assistant");
   return { ok: true };
@@ -644,9 +753,11 @@ export async function requestFinanceValidation(formData: FormData): Promise<Acti
   const user = await requireUser();
   const id = fdStr(formData, "id");
   if (!id) return { ok: false, error: "Demande introuvable." };
-  const req = await prisma.administrativeRequest.findUnique({ where: { id }, select: { assignedToId: true, reference: true, title: true } });
+  const req = await prisma.administrativeRequest.findUnique({ where: { id }, select: { assignedToId: true, reference: true, title: true, status: true } });
   if (!req) return { ok: false, error: "Demande introuvable." };
   if (!isManager(user, req.assignedToId)) return DENIED;
+  const close = refusDemandeClose(req.status);
+  if (close) return { ok: false, error: close };
 
   // Validateurs Finances : choisis dans le formulaire, sinon tous les responsables Finances.
   let validatorIds = [fdStr(formData, "validatorId"), fdStr(formData, "validator2Id")].filter((v): v is string => Boolean(v));
@@ -670,7 +781,13 @@ export async function requestFinanceValidation(formData: FormData): Promise<Acti
   });
   if (!res.ok) return { ok: false, error: res.error };
 
-  await prisma.administrativeRequest.update({ where: { id }, data: { status: "AWAITING_VALIDATION" } });
+  // CONDITIONNELLE, puis COMPENSÉE (§118.187) : annulée entre la lecture et l'écriture, la demande a
+  // déjà retiré les validations qu'elle voyait — celle-ci, née après, resterait en file pour rien.
+  const posee = await prisma.administrativeRequest.updateMany({ where: { id, ...OUVERTE }, data: { status: "AWAITING_VALIDATION" } });
+  if (posee.count === 0) {
+    if (res.requestId) await retirerValidationSansObjet(res.requestId);
+    return { ok: false, error: DEMANDE_CHANGEE };
+  }
   await recordAudit({ actorId: user.id, action: "UPDATE", module: "Bureau du secrétariat", entityType: "ADMIN_REQUEST", entityId: id, summary: `Validation Finances demandée (${res.reference})` });
   revalidatePath(`/demandes/${id}`);
   revalidatePath("/validations");
@@ -686,9 +803,11 @@ export async function requestInternalValidation(formData: FormData): Promise<Act
   const user = await requireUser();
   const id = fdStr(formData, "id");
   if (!id) return { ok: false, error: "Demande introuvable." };
-  const req = await prisma.administrativeRequest.findUnique({ where: { id }, select: { assignedToId: true, reference: true, title: true } });
+  const req = await prisma.administrativeRequest.findUnique({ where: { id }, select: { assignedToId: true, reference: true, title: true, status: true } });
   if (!req) return { ok: false, error: "Demande introuvable." };
   if (!isManager(user, req.assignedToId)) return DENIED;
+  const close = refusDemandeClose(req.status);
+  if (close) return { ok: false, error: close };
 
   const validatorIds = [fdStr(formData, "validatorId"), fdStr(formData, "validator2Id")].filter((v): v is string => Boolean(v));
   if (validatorIds.length === 0) return { ok: false, error: "Choisissez au moins un validateur." };
@@ -705,7 +824,13 @@ export async function requestInternalValidation(formData: FormData): Promise<Act
   });
   if (!res.ok) return { ok: false, error: res.error };
 
-  await prisma.administrativeRequest.update({ where: { id }, data: { status: "AWAITING_VALIDATION" } });
+  // CONDITIONNELLE, puis COMPENSÉE (§118.187) : annulée entre la lecture et l'écriture, la demande a
+  // déjà retiré les validations qu'elle voyait — celle-ci, née après, resterait en file pour rien.
+  const posee = await prisma.administrativeRequest.updateMany({ where: { id, ...OUVERTE }, data: { status: "AWAITING_VALIDATION" } });
+  if (posee.count === 0) {
+    if (res.requestId) await retirerValidationSansObjet(res.requestId);
+    return { ok: false, error: DEMANDE_CHANGEE };
+  }
   await recordAudit({ actorId: user.id, action: "UPDATE", module: "Bureau du secrétariat", entityType: "ADMIN_REQUEST", entityId: id, summary: `Validation interne demandée (${res.reference})` });
   revalidatePath(`/demandes/${id}`);
   revalidatePath("/validations");
@@ -722,10 +847,12 @@ export async function finishRequest(formData: FormData): Promise<ActionResult> {
   if (!id) return { ok: false, error: "Demande introuvable." };
   const req = await prisma.administrativeRequest.findUnique({
     where: { id },
-    select: { assignedToId: true, type: true, reference: true, title: true, linkedEntityType: true },
+    select: { assignedToId: true, type: true, reference: true, title: true, linkedEntityType: true, status: true },
   });
   if (!req) return { ok: false, error: "Demande introuvable." };
   if (!isManager(user, req.assignedToId)) return DENIED;
+  const close = refusDemandeClose(req.status);
+  if (close) return { ok: false, error: close };
 
   if (req.type === "PURCHASE") {
     const invoice = await prisma.document.count({ where: { entityType: "ADMIN_REQUEST", entityId: id, category: "INVOICE" } });
@@ -758,10 +885,17 @@ export async function finishRequest(formData: FormData): Promise<ActionResult> {
     };
   }
 
-  if (departmentId && amount != null && alreadyImputed === 0) {
-    if (amount < 0) return { ok: false, error: "Un montant ne peut pas être négatif." };
-    const dept = await prisma.department.findUnique({ where: { id: departmentId }, select: { id: true, name: true } });
-    if (!dept) return { ok: false, error: "Département introuvable." };
+  const imputer = departmentId != null && amount != null && alreadyImputed === 0;
+  if (imputer && amount < 0) return { ok: false, error: "Un montant ne peut pas être négatif." };
+  const dept = imputer ? await prisma.department.findUnique({ where: { id: departmentId }, select: { id: true, name: true } }) : null;
+  if (imputer && !dept) return { ok: false, error: "Département introuvable." };
+
+  // LA DEMANDE EST PRISE AVANT L'IMPUTATION, sous condition (§118.187) : annulée entre la lecture et
+  // l'écriture, elle ne repasse pas « terminée », et aucun budget n'est débité pour elle.
+  const prise = await prisma.administrativeRequest.updateMany({ where: { id, ...OUVERTE }, data: { status: "DONE", completedAt: new Date() } });
+  if (prise.count === 0) return { ok: false, error: DEMANDE_CHANGEE };
+
+  if (imputer && dept) {
     await prisma.departmentBudgetExpense.create({
       data: {
         departmentId: dept.id,
@@ -783,7 +917,6 @@ export async function finishRequest(formData: FormData): Promise<ActionResult> {
     revalidatePath("/budgets/departements");
   }
 
-  await prisma.administrativeRequest.update({ where: { id }, data: { status: "DONE", completedAt: new Date() } });
   await recordAudit({ actorId: user.id, action: "UPDATE", module: "Bureau du secrétariat", entityType: "ADMIN_REQUEST", entityId: id, field: "status", newValue: "DONE", summary: "Fin de la demande" });
   revalidatePath(`/demandes/${id}`);
   revalidatePath("/demandes");

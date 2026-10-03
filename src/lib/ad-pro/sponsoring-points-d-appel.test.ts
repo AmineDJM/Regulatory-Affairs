@@ -93,8 +93,10 @@ describe("les SIX gestes de poste lisent la clôture — une porte gardée à c�
     ["addAdProItem", /refusPostesClos\(\s*info\s*\)/],
     ["updateAdProItem", /refusSiClos\(\s*owner\.parent\s*,\s*owner\.id\s*\)/],
     ["deleteAdProItem", /refusSiClos\(\s*owner\.parent\s*,\s*owner\.id\s*\)/],
-    ["submitAdProItem", /refusSiClos\(\s*owner\.parent\s*,\s*owner\.id\s*\)/],
-    ["decideAdProItem", /refusSiClos\(\s*owner\.parent\s*,\s*owner\.id\s*\)/],
+    // §118.187 : ces deux gestes FONT PARTIR un poste — la garde reçoit `{ partir }`, qui ajoute le refus
+    // d'une demande refusée ou annulée. C'est la même garde, avec une option : la forme l'admet.
+    ["submitAdProItem", /refusSiClos\(\s*owner\.parent\s*,\s*owner\.id\s*,\s*\{\s*partir:\s*true\s*\}\s*\)/],
+    ["decideAdProItem", /refusSiClos\(\s*owner\.parent\s*,\s*owner\.id\s*,\s*\{\s*partir:\s*decision\s*===\s*"APPROVED"\s*\}\s*\)/],
     ["setAdProItemBudget", /refusSiClos\(\s*owner\.parent\s*,\s*owner\.id\s*\)/],
   ];
   for (const [nom, garde] of gestes) {

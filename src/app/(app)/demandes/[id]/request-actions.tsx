@@ -55,8 +55,15 @@ export function RequestActions({
 
   return (
     <div className="space-y-3">
+      {/* Une demande terminée ou annulée ne se traite plus (§118.187) : les actions la refusent, l'écran
+          ne les propose pas. Le changement de statut, plus bas, reste la porte explicite pour la rouvrir. */}
+      {(status === "DONE" || status === "CANCELLED") && (
+        <p className="rounded-lg bg-secondary/50 px-3 py-2 text-xs text-muted-foreground">
+          {status === "CANCELLED" ? "Demande annulée" : "Demande terminée"} : elle ne se traite plus. Si elle doit reprendre, changez son statut ci-dessous.
+        </p>
+      )}
       {/* Flux : commencer, demander validation, clôturer */}
-      <div className="flex flex-wrap gap-2">
+      {status !== "DONE" && status !== "CANCELLED" && <div className="flex flex-wrap gap-2">
         {status === "NEW" && (
           <form action={(fd) => { fd.set("id", requestId); return run(fd, startRequestProcessing); }}>
             <Button type="submit" size="sm" disabled={busy}><Play className="h-4 w-4" /> Commencer le traitement</Button>
@@ -83,9 +90,9 @@ export function RequestActions({
             <Button variant="outline" size="sm" type="submit" disabled={busy}><CheckCircle2 className="h-4 w-4" /> Fin de la demande</Button>
           </form>
         )}
-      </div>
+      </div>}
 
-      {isPurchase && (
+      {isPurchase && status !== "DONE" && status !== "CANCELLED" && (
         <p className="rounded-lg bg-secondary/50 px-3 py-2 text-xs text-muted-foreground">
           Flux achat : commencez le traitement → uploadez le <strong>devis</strong> de l'agence (Documents) → demandez la
           validation des Finances → après accord, uploadez la <strong>facture finale</strong> puis cliquez « Fin de la demande ».

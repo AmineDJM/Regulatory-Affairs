@@ -281,6 +281,10 @@ function DecisionVisa({ row }: { row: LigneCentre }) {
       fd.set("id", row.entityId);
       fd.set("decision", approuve ? "APPROVE" : "REFUSE");
       fd.set("note", note);
+      // CE QUE LE CENTRE A LU (§118.187) : un montant ou un prestataire changé pendant la lecture
+      // ne se vise pas sans avoir été vu — l'action compare et refuse en le disant.
+      if (row.montant != null) fd.set("montantVu", String(row.montant));
+      fd.set("prestataireVu", row.prestataire ?? "");
       r = await approveAdProItemOrder(undefined, fd);
     } else {
       fd.set("entityType", row.entityType);

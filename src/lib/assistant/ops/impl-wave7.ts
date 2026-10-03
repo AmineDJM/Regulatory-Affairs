@@ -299,7 +299,7 @@ export const ADMIN_REQUEST_OPS_IMPL: Record<string, OpImpl> = {
         select: { title: true, description: true, priority: true, deadline: true, requesterId: true, createdAt: true },
       });
       if (!cur) return { error: "Demande introuvable." };
-      if (cur.requesterId !== user.id) return { error: `${req.reference} n'est pas votre demande — seule la vôtre se modifie (fenêtre de 30 minutes).` };
+      if (cur.requesterId !== user.id) return { error: `${req.reference} n'est pas votre demande — seule la vôtre se modifie.` };
       // FUSION : titre, description, priorité et échéance sont REMPLACÉS — rejoués si non donnés.
       return {
         title: `Modifier MA demande ${req.reference}`,
@@ -307,7 +307,7 @@ export const ADMIN_REQUEST_OPS_IMPL: Record<string, OpImpl> = {
           ["Demande", `${req.reference} — ${cur.title}`],
           ["Nouveau titre", opStr(input, "newName") || null],
           ["Description", opStr(input, "notes") || (cur.description ? "(rejouée)" : null)],
-          ["Fenêtre", "modifiable dans les 30 minutes suivant la création, avant traitement"],
+          ["Règle", "tant qu'elle n'est ni terminée ni annulée ; après 30 minutes, l'assistante est prévenue"],
         ]),
         args: {
           id: req.id,
@@ -320,7 +320,7 @@ export const ADMIN_REQUEST_OPS_IMPL: Record<string, OpImpl> = {
         revalidate: ["/demandes"],
       };
     },
-    execute: (args) => runFd(editOwnRequest, args, "La modification a été refusée (fenêtre de 30 min dépassée ?).", { revalidate: ["/demandes"] }),
+    execute: (args) => runFd(editOwnRequest, args, "La modification a été refusée.", { revalidate: ["/demandes"] }),
   },
 
   delete_own_request: {
@@ -332,13 +332,13 @@ export const ADMIN_REQUEST_OPS_IMPL: Record<string, OpImpl> = {
       return {
         title: `Retirer MA demande ${req.reference}`,
         fields: [{ label: "Demande", value: `${req.reference} — ${req.title}` }],
-        warnings: ["Suppression douce TRACÉE (annulée + motif « par le demandeur ») — possible dans les 30 minutes, avant traitement."],
-        args: { id: req.id },
+        warnings: ["Dans les 30 minutes et avant traitement : suppression douce TRACÉE. Au-delà : la demande est ANNULÉE avec son motif (à donner), l'assistante prévenue."],
+        args: { id: req.id, motif: opStr(input, "notes") || null },
         successMessage: `${req.reference} retirée.`,
         revalidate: ["/demandes"],
       };
     },
-    execute: (args) => runFd(deleteOwnRequest, args, "Le retrait a été refusé (fenêtre de 30 min dépassée ?).", { revalidate: ["/demandes"] }),
+    execute: (args) => runFd(deleteOwnRequest, args, "Le retrait a été refusé.", { revalidate: ["/demandes"] }),
   },
 
   delete_requests: {

@@ -2,7 +2,7 @@
 
 import { CHEMIN_STOCK_PROMO, lienStockPromo } from "@/lib/chemins/stock-promo";
 import { revalidatePath } from "next/cache";
-import type { AdProItemKind, AdProItemStatus, AdProItemBudgetKind, UserRole } from "@prisma/client";
+import type { AdProItemKind, AdProItemOrderStage, AdProItemStatus, AdProItemBudgetKind, UserRole } from "@prisma/client";
 import { requireUser } from "@/lib/session";
 import { userCan, hasGlobalView, anyRoleFilter, type SessionUser } from "@/lib/rbac";
 import { canAccessEntity } from "@/lib/entity-access";
@@ -14,7 +14,7 @@ import { notifyUser, notifyRoles } from "@/lib/notify";
 import { createExpenseOrder } from "@/lib/expense-orders";
 import { canEmitOrder, canSubmitItem, canRequestPurchaseOrder, canRemoveItem, budgetKindLocked, ITEM_KINDS, ITEM_KIND_LABELS, PARENT_ENTITE, ITEM_STATUS_LABELS, REFUS_INDIRECT_NON_REPARTI, type AdProParent } from "@/lib/ad-pro-items";
 import {
-  PIECE_SECRETARIAT, NATURES_PIECE_SECRETARIAT, peutDemanderPiece, titrePiece,
+  PIECE_SECRETARIAT, NATURES_PIECE_SECRETARIAT, peutDemanderPiece, titrePiece, TITRE_BC_A_ETABLIR,
   type NaturePieceSecretariat,
 } from "@/lib/ad-pro/pieces-secretariat";
 import { buildRef, createWithRetry } from "@/lib/refs";
@@ -42,6 +42,12 @@ import {
   lireVoyageur, ligneVoyageur, changementsVoyageur, porteDesVoyageurs, type SaisieVoyageur, type VoyageurLu,
 } from "@/lib/ad-pro/voyageurs";
 import { createDossierRecord, ecrireDansLeSujet } from "@/lib/dossiers-core";
+import { gesteVisaPoste, memePrestataire, type EtatBcPoste, type GesteVisaPoste } from "@/lib/ad-pro/bc-poste";
+import { annulerOrdreNonRegle } from "@/lib/payments/annulation";
+import { annulerDemandeSecretariat, prevenirLeSecretariat } from "@/lib/secretariat/annulation";
+import { supprimerReversible } from "@/lib/suppression/coeur";
+import { apercuSuppression } from "@/lib/admin-delete-registry";
+import { bcEtablisDuPoste, refusBcEtabli } from "@/lib/ad-pro/bc-etablis";
 
 /**
  * POSTES D'UNE OPÉRATION AD & PRO — actions serveur, pour les QUATRE opérations du pôle :
@@ -95,6 +101,11 @@ interface ParentInfo {
    */
   clos: boolean;
   closedByClosure?: boolean;
+  /**
+   * REFUSÉE OU ANNULÉE (audit 360°, R24–R36) : ses postes restaient soumissibles, décidables, et leur
+   * bon de commande demandable — le centre aurait visé ce que les Finances n'auraient jamais pu émettre.
+   */
+  refusee: boolean;
   /** Qui a demandé l'opération — prévenu des décisions prises sur ses postes. */
   requesterId?: string | null;
   /**
@@ -125,6 +136,8 @@ interface ParentSpec {
  * passent par devis, BC et facture — laissé dehors, aucun poste ne pourrait être payé.
  */
 const CONGRESS_DECIDED = ["APPROVED", "COMPLETED"];
+/** Une demande de congrès ou d'événement refusée ou annulée : ses postes ne partent plus. */
+const CONGRESS_FERME = ["REJECTED", "CANCELLED"];
 
 const PARENTS: Record<AdProParent, ParentSpec> = {
   SPONSORING: {
@@ -141,6 +154,7 @@ const PARENTS: Record<AdProParent, ParentSpec> = {
       return {
         id: r.id, ref: r.reference, beneficiary: r.institution,
         decided: etat.decide, tardif: etat.tardif, clos: etat.clos, closedByClosure: etat.closParLaCloture,
+        refusee: r.status === "REFUSED" || r.status === "CANCELLED",
         requesterId: r.requesterId, companyId: r.companyId,
       };
     },
@@ -157,7 +171,10 @@ const PARENTS: Record<AdProParent, ParentSpec> = {
       // Le congrès n'a pas de référence : son nom est ce qui l'identifie sur une pièce.
       if (!r) return null;
       const decided = CONGRESS_DECIDED.includes(r.requestStatus);
-      return { id: r.id, ref: r.name, beneficiary: r.hostInstitution ?? r.name, decided, tardif: decided, clos: false, requesterId: r.requesterId, companyId: r.companyId };
+      return {
+        id: r.id, ref: r.name, beneficiary: r.hostInstitution ?? r.name, decided, tardif: decided, clos: false,
+        refusee: CONGRESS_FERME.includes(r.requestStatus), requesterId: r.requesterId, companyId: r.companyId,
+      };
     },
   },
   CONGRESS_INTERNATIONAL: {
@@ -171,7 +188,10 @@ const PARENTS: Record<AdProParent, ParentSpec> = {
       });
       if (!r) return null;
       const decided = CONGRESS_DECIDED.includes(r.requestStatus);
-      return { id: r.id, ref: r.name, beneficiary: r.name, decided, tardif: decided, clos: false, requesterId: r.requesterId, companyId: r.companyId };
+      return {
+        id: r.id, ref: r.name, beneficiary: r.name, decided, tardif: decided, clos: false,
+        refusee: CONGRESS_FERME.includes(r.requestStatus), requesterId: r.requesterId, companyId: r.companyId,
+      };
     },
   },
   EVENT: {
@@ -187,7 +207,8 @@ const PARENTS: Record<AdProParent, ParentSpec> = {
       // Un événement peut être organisé SANS circuit de financement (requestStatus null) : il est
       // alors piloté directement, donc ses postes ne sont pas bloqués par une décision absente.
       const decided = r.requestStatus == null ? r.status !== "DRAFT" && r.status !== "CANCELLED" : CONGRESS_DECIDED.includes(r.requestStatus);
-      return { id: r.id, ref: r.name, beneficiary: r.name, decided, tardif: decided, clos: false, requesterId: r.requesterId, companyId: r.companyId };
+      const refusee = r.requestStatus == null ? r.status === "CANCELLED" : CONGRESS_FERME.includes(r.requestStatus);
+      return { id: r.id, ref: r.name, beneficiary: r.name, decided, tardif: decided, clos: false, refusee, requesterId: r.requesterId, companyId: r.companyId };
     },
   },
 };
@@ -250,10 +271,22 @@ async function audit(user: SessionUser, parent: AdProParent, id: string, action:
  * TRANSFERT vit désormais dans un autre module, et lui promettre un « Rouvrir » serait un remède
  * qui n'existe pas (§118.63).
  */
-async function refusSiClos(parent: AdProParent, parentId: string): Promise<string | null> {
+async function refusSiClos(parent: AdProParent, parentId: string, opts: { partir?: boolean } = {}): Promise<string | null> {
   const info = await PARENTS[parent].load(parentId);
   if (!info) return "Opération introuvable.";
-  return refusPostesClos(info);
+  return refusPostesClos(info) ?? (opts.partir ? refusDemandeFermee(info) : null);
+}
+
+/**
+ * UNE DEMANDE REFUSÉE OU ANNULÉE NE FAIT PLUS PARTIR SES POSTES (audit 360°, R24–R36) — ni soumission,
+ * ni accord, ni bon de commande. Le centre aurait visé, et les Finances n'auraient jamais pu émettre :
+ * l'opération n'est pas accordée. DÉCRIRE un poste reste possible : c'est préparer la suite. Le refus
+ * nomme les deux chemins qui la relancent, sans en promettre un qui n'existerait pas pour cette nature.
+ */
+function refusDemandeFermee(info: ParentInfo): string | null {
+  return info.refusee
+    ? "La demande est refusée ou annulée : ses postes ne partent plus (ni soumission, ni accord, ni bon de commande) tant qu'elle n'est pas relancée — par un appel, ou une nouvelle demande, depuis sa fiche."
+    : null;
 }
 
 /** La phrase du refus, pour un appelant qui tient déjà l'opération chargée. */
@@ -352,6 +385,8 @@ async function loadItem(id: string, user: SessionUser) {
       id: true, label: true, kind: true, supplier: true, amountGranted: true, amountEstimated: true,
       expenseOrderId: true, promoMaterialId: true, status: true, budgetKind: true,
       budgetCategoryId: true, orderStage: true, adminRequestId: true, orderRequestedById: true,
+      orderRequestedAt: true, orderDirectionAt: true, orderVisaAmount: true, orderVisaSupplier: true,
+      reservationDossierId: true,
       sponsoringId: true, congressNationalId: true, congressInternationalId: true, eventId: true,
     },
   });
@@ -359,6 +394,116 @@ async function loadItem(id: string, user: SessionUser) {
   const owner = parentOf(item);
   if (!owner || !(await demandeVisible(user, owner.parent, owner.id))) return null;
   return { item, owner };
+}
+
+// ───────────────────── Le bon de commande d'un poste : visa, pièces établies, secrétariat (§118.187) ─────────────────────
+
+type PosteCharge = NonNullable<Awaited<ReturnType<typeof loadItem>>>["item"];
+
+/** Ce que la règle du visa lit d'un poste chargé — les valeurs AVANT la modification en cours. */
+function etatBcDe(item: PosteCharge): EtatBcPoste {
+  return {
+    etape: item.orderStage,
+    viseParLeCentre: item.orderDirectionAt != null,
+    montantVise: item.orderVisaAmount != null ? toNumber(item.orderVisaAmount) : null,
+    fournisseurVise: item.orderVisaSupplier,
+    montantAvant: item.amountGranted != null ? toNumber(item.amountGranted) : null,
+    fournisseurAvant: item.supplier,
+  };
+}
+
+/** Qui siège au centre de validation Ad & Pro, et qui émet — les rôles que la demande de BC prévient déjà. */
+const SIEGES_CENTRE: UserRole[] = ["GENERAL_MANAGER", "SUPER_ADMIN"];
+const FINANCES_BC: UserRole[] = ["FINANCE_BUDGET_MANAGER", "SUPER_ADMIN"];
+
+/**
+ * APPLIQUER LE GESTE DU VISA (`ad-pro/bc-poste.ts`) — une écriture CONDITIONNELLE sur l'étape lue :
+ * un visa donné, une émission ou un retrait survenus entre la lecture et l'écriture ne se défont pas
+ * en silence. Rend la phrase à ajouter au message de l'action, et se tait quand rien n'a bougé
+ * (§118.32).
+ */
+async function appliquerGesteVisa(
+  item: { id: string; label: string },
+  geste: GesteVisaPoste,
+  apres: { montant: number | null; fournisseur: string | null },
+  ctx: { user: SessionUser; owner: { parent: AdProParent; id: string }; ref: string | null },
+): Promise<string | null> {
+  if (geste.geste === "RIEN") return null;
+  const lien = `${PARENTS[ctx.owner.parent].path}/${ctx.owner.id}`;
+  const cible = `${ctx.ref ?? ""} — « ${item.label} »${apres.montant != null ? ` (${apres.montant.toLocaleString("fr-FR")} DZD)` : ""}`;
+  if (geste.geste === "ROUVRIR") {
+    const r = await prisma.adProItem.updateMany({
+      where: { id: item.id, orderStage: "DIRECTION_OK" },
+      data: {
+        orderStage: "REQUESTED", orderDirectionAt: null, orderDirectionById: null,
+        orderDecisionNote: geste.motif, orderVisaAmount: null, orderVisaSupplier: null, updatedById: ctx.user.id,
+      },
+    });
+    if (r.count === 0) return null;
+    await notifyRoles(SIEGES_CENTRE, {
+      type: "VALIDATION_REQUIRED", title: "Bon de commande à revoir", body: `${cible} — ${geste.motif}`, link: "/centre-ad-pro",
+    }).catch(() => undefined);
+    // Les Finances avaient reçu « à émettre » : sans ce message, l'ordre partirait sous l'ancien visa.
+    await notifyRoles(FINANCES_BC, {
+      type: "GENERIC", title: "Bon de commande renvoyé au centre — ne pas l'émettre", body: `${cible} — ${geste.motif}`, link: lien,
+    }).catch(() => undefined);
+    await audit(ctx.user, ctx.owner.parent, ctx.owner.id, "UPDATE", `Visa du bon de commande ROUVERT pour « ${item.label} » — ${geste.motif}`);
+    revalidatePath("/centre-ad-pro");
+    return `Le visa du bon de commande est rouvert : ${geste.motif} Le centre de validation Ad & Pro le revoit.`;
+  }
+  const r = await prisma.adProItem.updateMany({
+    where: { id: item.id, orderStage: "REQUESTED" },
+    data: {
+      // Aucune EMPREINTE : aucun centre n'a rien vu, et la règle ne la lit que sur un BC VISÉ (§118.45 —
+      // un état qu'aucun code ne lit n'a rien à faire en base).
+      orderStage: "DIRECTION_OK", orderDirectionAt: null, orderDirectionById: null, orderDecisionNote: geste.motif,
+      orderVisaAmount: null, orderVisaSupplier: null, updatedById: ctx.user.id,
+    },
+  });
+  if (r.count === 0) return null;
+  await notifyRoles(FINANCES_BC, {
+    type: "VALIDATION_REQUIRED", title: "Bon de commande sous le seuil — à émettre", body: cible, link: lien,
+  }).catch(() => undefined);
+  await audit(ctx.user, ctx.owner.parent, ctx.owner.id, "UPDATE", `Bon de commande de « ${item.label} » passé sous le seuil — ${geste.motif}`);
+  revalidatePath("/centre-ad-pro");
+  return geste.motif;
+}
+
+/**
+ * CLORE LES DEMANDES OUVERTES AU SECRÉTARIAT pour ce poste (audit 360°, R10) — devis, facture, « BC à
+ * établir ». Elles survivaient au poste refusé, et à la demande de BC retirée : l'assistante continuait
+ * de chercher un devis pour une dépense qui n'existait plus. (Un poste RETIRÉ, lui, les emporte dans
+ * son lot de corbeille et les rend avec lui : les clore d'abord ferait revenir un poste dont la demande
+ * de BC vit encore, avec un « BC à établir » annulé.) Chaque demande close porte son
+ * motif dans sa discussion, et la personne qui la tenait est prévenue (à défaut, le bureau). Écriture
+ * CONDITIONNELLE : une demande terminée entre-temps n'est pas rouverte en « annulée ».
+ */
+async function cloreDemandesSecretariat(
+  itemId: string, motif: string, user: SessionUser, portee: "TOUTES" | "BC_A_ETABLIR",
+): Promise<number> {
+  const ouvertes = await prisma.administrativeRequest.findMany({
+    where: {
+      linkedEntityType: "AD_PRO_ITEM", linkedEntityId: itemId, deletedAt: null,
+      status: { notIn: ["DONE", "CANCELLED"] },
+      ...(portee === "BC_A_ETABLIR" ? { type: "OTHER" as const, title: { startsWith: TITRE_BC_A_ETABLIR } } : {}),
+    },
+    select: { id: true },
+  });
+  // UNE annulation pour toutes les portes (`annulerDemandeSecretariat`) : la demande, ses validations
+  // en attente, son paiement non réglé, la trace et l'assistante — la même chose que lorsque son
+  // demandeur l'annule. Une demande dont le paiement est déjà réglé reste ouverte : elle se termine.
+  let closes = 0;
+  for (const d of ouvertes) {
+    const a = await annulerDemandeSecretariat(d.id, { acteurId: user.id, motif, cause: "avec son poste" });
+    if (a.ok && a.annulee) closes += 1;
+  }
+  if (closes > 0) revalidatePath("/demandes");
+  return closes;
+}
+
+/** « 2 demandes au secrétariat closes » — la phrase, une fois ; rien quand il n'y en avait pas. */
+function phraseDemandesCloses(n: number): string {
+  return n === 0 ? "" : ` ${n} demande${n > 1 ? "s" : ""} au secrétariat ${n > 1 ? "closes" : "close"}, l'assistante prévenue.`;
 }
 
 // ───────────────────────────── Répartir un sponsoring indirect (§118.175) ─────────────────────────────
@@ -541,6 +686,19 @@ export async function updateAdProItem(_prev: ActionResult | undefined, formData:
 
   const label = fdStr(formData, "label");
 
+  // LE BON DE COMMANDE EN COURS (§118.187). Retirer le montant d'un poste dont le BC est demandé ou
+  // visé laisserait une demande sans chiffre au centre ou aux Finances : le refus nomme le geste qui
+  // le précède. Et un prestataire ne change pas sous un ordre déjà émis à l'ancien : l'ordre s'annule
+  // d'abord, puis se réémet — sinon l'ordre et le poste diraient deux bénéficiaires.
+  const bcEnCours = item.orderStage === "REQUESTED" || item.orderStage === "DIRECTION_OK";
+  if (wantsAllocate && amountGranted == null && bcEnCours) {
+    return { ok: false, error: "Une demande de bon de commande est en cours sur ce montant : retirez-la d'abord (« Retirer la demande de BC »), puis retirez le montant." };
+  }
+  const nouveauFournisseur = formData.has("supplier") ? fdStr(formData, "supplier") : item.supplier;
+  if (item.expenseOrderId && !memePrestataire(nouveauFournisseur, item.supplier)) {
+    return { ok: false, error: "Un ordre de dépense a déjà été émis pour ce poste : pour changer de prestataire, annulez d'abord l'ordre (« Annuler l'ordre émis »), puis réémettez-le." };
+  }
+
   // CLÔTURÉE : ce qui DÉCRIT la dépense (libellé, précisions, fournisseur) se corrige encore — le
   // fournisseur sert au BC qui peut rester à émettre. Ce qui la CHIFFRE ou la QUALIFIE non : la
   // clôture a arrêté ces valeurs, et le total de la demande en est la somme.
@@ -597,8 +755,23 @@ export async function updateAdProItem(_prev: ActionResult | undefined, formData:
     // sa nature de budget peut encore changer tant qu'elle n'est pas tranchée. Laisser cette
     // porte-là sans reprojection, c'est la porte ouverte à côté de la porte gardée (§118.71).
     await reprojeterMontantDemande(owner.parent, owner.id);
+    // LE VISA NE COUVRE QUE CE QU'IL A VU (§118.187, audit R05) : un montant relevé ou un prestataire
+    // changé après le visa le rouvre ; un BC en attente que le montant fait passer sous le seuil part
+    // aux Finances.
+    let phraseVisa: string | null = null;
+    if (bcEnCours) {
+      const apres = {
+        montant: wantsAllocate ? (amountGranted ?? null) : (item.amountGranted != null ? toNumber(item.amountGranted) : null),
+        fournisseur: nouveauFournisseur,
+      };
+      const geste = gesteVisaPoste(etatBcDe(item), apres, (await getAppSettings()).bcValidationThreshold);
+      if (geste.geste !== "RIEN") {
+        const info = await PARENTS[owner.parent].load(owner.id);
+        phraseVisa = await appliquerGesteVisa(item, geste, apres, { user, owner, ref: info?.ref ?? null });
+      }
+    }
     revalidate(owner.parent, owner.id);
-    return { ok: true, id };
+    return phraseVisa ? { ok: true, id, message: `Poste modifié. ${phraseVisa}` } : { ok: true, id };
   } catch (err) {
     console.error("[ad-pro-item] mise à jour impossible", err);
     return { ok: false, error: "Le poste n'a pas pu être modifié." };
@@ -639,27 +812,77 @@ export async function deleteAdProItem(_prev: ActionResult | undefined, formData:
     { canAllocate: canAllocate(user, owner.parent) },
   );
   if (!removable.ok) return { ok: false, error: removable.reason ?? "Ce poste ne peut pas être retiré." };
+  // CE QUE LA CORBEILLE REFUSERAIT, lu AVANT d'annuler quoi que ce soit — une pièce signée par les
+  // Finances, le paiement réglé d'une demande au secrétariat : sans cette lecture, l'ordre serait
+  // annulé pour rien, et le poste resterait là (§118.53 : on lit l'empreinte avant d'écrire).
+  const apercu = await apercuSuppression("AD_PRO_ITEM", id);
+  if (apercu.refus) return { ok: false, error: apercu.refus };
+  // Les demandes au secrétariat ENCORE OUVERTES partent avec le poste (le lot les emporte, et les rend
+  // à la restauration) : l'assistante qui y travaillait doit l'apprendre — elle disparaît de sa liste.
+  const ouvertes = await prisma.administrativeRequest.findMany({
+    where: { linkedEntityType: "AD_PRO_ITEM", linkedEntityId: id, deletedAt: null, status: { notIn: ["DONE", "CANCELLED"] } },
+    select: { reference: true, title: true, assignedToId: true },
+  });
 
+  // 1) L'ORDRE ÉMIS S'ANNULE PAR L'ÉCRIVAIN COMMUN (§118.185) — conditionnel : un règlement survenu
+  //    entre la lecture et l'annulation ne se défait pas, et le poste reste alors (il justifie un
+  //    paiement réellement sorti). L'écriture d'avant était un `update` sec, qui pouvait marquer
+  //    « annulé » un ordre que le centre venait de payer.
+  let ordreAnnule: string | null = null;
   if (item.expenseOrderId) {
-    await prisma.expenseOrder.update({ where: { id: item.expenseOrderId }, data: { status: "CANCELLED" } }).catch(() => undefined);
-    await audit(user, owner.parent, owner.id, "UPDATE",
-      `Ordre de dépense ${order?.reference ?? ""} annulé — le poste « ${item.label} » a été retiré.`);
+    const a = await annulerOrdreNonRegle(item.expenseOrderId, { acteurId: user.id, motif: `le poste « ${item.label} » a été retiré` });
+    if (!a.ok) return { ok: false, error: a.error };
+    ordreAnnule = a.reference;
+    // Le poste QUITTE l'ordre annulé avant de partir à la corbeille, comme « Annuler l'ordre émis » :
+    // restauré, il pointerait sinon vers un ordre annulé, « émis » pour toujours et impossible à réémettre.
+    await prisma.adProItem.updateMany({
+      where: { id, expenseOrderId: item.expenseOrderId },
+      data: { expenseOrderId: null, orderStage: item.orderRequestedAt ? "DIRECTION_OK" : "NONE", updatedById: user.id },
+    });
   }
 
-  try {
-    await prisma.adProItem.delete({ where: { id } });
-    // Le matériel promotionnel rattaché n'est PAS supprimé : il a sa vie propre et son circuit.
-    await audit(user, owner.parent, owner.id, "DELETE",
-      `Poste « ${item.label} » retiré${item.promoMaterialId ? " (le matériel promotionnel rattaché est conservé)" : ""}.`);
-    // Une rallonge accordée qu'on retire doit QUITTER le montant de la demande : sinon la fiche
-    // porterait pour toujours un budget accordé à un poste qui n'existe plus.
-    await reprojeterMontantDemande(owner.parent, owner.id);
-    revalidate(owner.parent, owner.id);
-    return { ok: true };
-  } catch (err) {
-    console.error("[ad-pro-item] suppression impossible", err);
-    return { ok: false, error: "Le poste n'a pas pu être retiré." };
+  // 2) LE POSTE PART À LA CORBEILLE, EN LOT (§118.187, audit R11) — avec ses décisions, ses voyageurs,
+  //    ses pièces, ses demandes au secrétariat et le BC non signé qu'elles ont fait naître, et il revient
+  //    avec eux. « Retirer le poste » l'effaçait définitivement, et l'historique des décisions partait
+  //    en cascade. Le matériel promotionnel rattaché n'est PAS supprimé : il a sa vie propre et son circuit.
+  const r = await supprimerReversible("AD_PRO_ITEM", id, user.id,
+    `Poste « ${item.label} » retiré${item.promoMaterialId ? " (le matériel promotionnel rattaché est conservé)" : ""}.`);
+  if (!r.ok) {
+    return {
+      ok: false,
+      error: ordreAnnule
+        ? `L'ordre ${ordreAnnule} a été annulé, mais le poste n'a pas pu être retiré : ${r.error ?? "erreur inconnue"}`
+        : (r.error ?? "Le poste n'a pas pu être retiré."),
+    };
   }
+  await audit(user, owner.parent, owner.id, "DELETE",
+    `Poste « ${item.label} » retiré (restaurable depuis la corbeille)${ordreAnnule ? ` — ordre de dépense ${ordreAnnule} annulé` : ""}${item.promoMaterialId ? " — le matériel promotionnel rattaché est conservé" : ""}.`);
+
+  // 3) CE QUI TRAVAILLAIT POUR LUI (audit R10) : ses demandes au secrétariat sont parties AVEC lui —
+  //    leur assistante l'apprend (la demande disparaît de sa liste, elle reviendrait avec le poste) —
+  //    et le sujet de réservation d'une billetterie l'apprend aussi : l'assistante ne réserve plus des
+  //    billets pour un poste qui n'existe plus. Les clore d'abord ferait revenir un poste dont la
+  //    demande de BC vit encore, avec un « BC à établir » annulé (§118.141c) : le lot les garde telles
+  //    qu'elles étaient.
+  for (const d of ouvertes) {
+    await prevenirLeSecretariat(d.assignedToId, {
+      type: "GENERIC", title: "Demande au secrétariat retirée avec son poste",
+      body: `${d.reference} — ${d.title} : le poste « ${item.label} » a été retiré (restaurable depuis la corbeille).`, link: "/demandes",
+    }, user.id);
+  }
+  if (ouvertes.length > 0) revalidatePath("/demandes");
+  if (item.reservationDossierId) {
+    await ecrireDansLeSujet({ dossierId: item.reservationDossierId, authorId: user.id, body: `${item.label} — poste retiré : la réservation n'a plus d'objet.` }).catch(() => false);
+  }
+  // Une rallonge accordée qu'on retire doit QUITTER le montant de la demande : sinon la fiche
+  // porterait pour toujours un budget accordé à un poste qui n'existe plus.
+  await reprojeterMontantDemande(owner.parent, owner.id);
+  revalidate(owner.parent, owner.id);
+  return {
+    ok: true,
+    message: `Poste retiré — restaurable depuis la corbeille${ordreAnnule ? ` ; l'ordre ${ordreAnnule} est annulé` : ""}.`
+      + (ouvertes.length > 0 ? ` ${ouvertes.length} demande${ouvertes.length > 1 ? "s" : ""} au secrétariat ${ouvertes.length > 1 ? "sont parties" : "est partie"} avec lui, l'assistante prévenue.` : ""),
+  };
 }
 
 // ───────────────────────────── Paiement ─────────────────────────────
@@ -695,10 +918,40 @@ export async function emitItemExpenseOrder(_prev: ActionResult | undefined, form
   if (item.orderStage === "REQUESTED") return { ok: false, error: "Le centre de validation Ad & Pro n'a pas encore validé ce bon de commande." };
   if (item.orderStage === "REFUSED") return { ok: false, error: "Le bon de commande de ce poste a été refusé par le centre de validation Ad & Pro." };
 
+  // UNE ÉMISSION DÉJÀ EN COURS (la prise ci-dessous posée, l'ordre pas encore rattaché) : sans ce refus,
+  // un second clic relirait « émis, sans ordre » et la prise conditionnelle le laisserait passer.
+  if (item.orderStage === "ISSUED") {
+    return { ok: false, error: item.expenseOrderId ? "Un ordre de dépense a déjà été émis pour ce poste." : "Un ordre de dépense est déjà en cours d'émission pour ce poste : rouvrez la fiche." };
+  }
+
   const amount = item.amountGranted != null ? toNumber(item.amountGranted) : null;
   const check = canEmitOrder({ amountGranted: amount, expenseOrderId: item.expenseOrderId, status: item.status }, info.decided);
   if (!check.ok) return { ok: false, error: check.reason ?? "Émission impossible." };
 
+  // LE DERNIER REMPART (§118.187, audit R05) : ce qui part ne dépasse jamais ce que le centre a vu. Le
+  // montant ou le prestataire ont pu changer par un chemin que rien n'a surveillé : l'émission compare
+  // à l'empreinte du visa, rouvre le visa si elle est dépassée, et refuse en disant pourquoi.
+  if (item.orderStage === "DIRECTION_OK") {
+    const apres = { montant: amount, fournisseur: item.supplier };
+    const geste = gesteVisaPoste(etatBcDe(item), apres, (await getAppSettings()).bcValidationThreshold);
+    if (geste.geste === "ROUVRIR") {
+      const phrase = await appliquerGesteVisa(item, geste, apres, { user, owner, ref: info.ref });
+      return { ok: false, error: `Émission refusée — ${phrase ?? geste.motif}` };
+    }
+  }
+
+  // UNE ÉMISSION À LA FOIS (§118.187) : deux clics des Finances créaient DEUX ordres de dépense pour le
+  // même poste — chacun lisait « pas encore d'ordre », chacun en créait un. Le poste est PRIS par une
+  // écriture conditionnelle avant que l'ordre ne naisse ; le second geste trouve la prise et s'arrête.
+  // Et la prise exige un poste encore accordé : une décision revue entre-temps l'emporte.
+  const etapeLue = item.orderStage;
+  const prise = await prisma.adProItem.updateMany({
+    where: { id, expenseOrderId: null, status: "APPROVED", orderStage: etapeLue },
+    data: { orderStage: "ISSUED", updatedById: user.id },
+  });
+  if (prise.count === 0) return { ok: false, error: "Ce poste vient de changer (déjà émis, ou sa décision a été revue) : rouvrez la fiche." };
+
+  let ordreNe = false;
   try {
     const order = await createExpenseOrder({
       label: `${info.ref} — ${ITEM_KIND_LABELS[item.kind]} : ${item.label}`,
@@ -715,6 +968,7 @@ export async function emitItemExpenseOrder(_prev: ActionResult | undefined, form
       notes: `Poste de l'opération ${info.ref}.`,
     });
 
+    ordreNe = true;
     // Rattachement APRÈS création : si l'écriture échoue, on a une pièce orpheline visible côté
     // Finances plutôt qu'un poste qui se croit payé sans l'être.
     await prisma.adProItem.update({ where: { id }, data: { expenseOrderId: order.id, orderStage: "ISSUED", updatedById: user.id } });
@@ -726,6 +980,11 @@ export async function emitItemExpenseOrder(_prev: ActionResult | undefined, form
     return { ok: true, id: order.id };
   } catch (err) {
     console.error("[ad-pro-item] émission de l'ordre impossible", err);
+    // L'ordre n'est PAS né : le poste repart à l'étape d'où il venait. S'il est né sans pouvoir être
+    // rattaché, la prise RESTE — le poste ne doit pas pouvoir être émis une seconde fois.
+    if (!ordreNe) {
+      await prisma.adProItem.updateMany({ where: { id, expenseOrderId: null, orderStage: "ISSUED" }, data: { orderStage: etapeLue } }).catch(() => undefined);
+    }
     return { ok: false, error: "L'ordre de dépense n'a pas pu être émis." };
   }
 }
@@ -801,7 +1060,7 @@ export async function submitAdProItem(_prev: ActionResult | undefined, formData:
   if (!found) return { ok: false, error: "Poste introuvable." };
   const { item, owner } = found;
   if (!canEditItems(user, owner.parent)) return { ok: false, error: "Non autorisé." };
-  const clos = await refusSiClos(owner.parent, owner.id);
+  const clos = await refusSiClos(owner.parent, owner.id, { partir: true });
   if (clos) return { ok: false, error: clos };
 
   const check = canSubmitItem({
@@ -856,10 +1115,13 @@ export async function decideAdProItem(_prev: ActionResult | undefined, formData:
   if (!found) return { ok: false, error: "Poste introuvable." };
   const { item, owner } = found;
   if (!canAllocate(user, owner.parent)) return { ok: false, error: "Seule la Direction décide d'un poste." };
-  const clos = await refusSiClos(owner.parent, owner.id);
+  // Refuser ou renvoyer un poste d'une demande refusée reste possible : ces gestes ne paient rien.
+  const clos = await refusSiClos(owner.parent, owner.id, { partir: decision === "APPROVED" });
   if (clos) return { ok: false, error: clos };
-  if (item.status === "APPROVED" && item.orderStage === "ISSUED") {
-    return { ok: false, error: "Le bon de commande de ce poste a été émis : sa décision ne peut plus changer." };
+  // ÉMIS : la décision ne change plus — mais le refus nomme le geste qui la rouvre (§118.30) : l'ordre
+  // s'annule tant qu'il n'est pas réglé, et la décision se revoit ensuite.
+  if (item.status === "APPROVED" && (item.orderStage === "ISSUED" || item.expenseOrderId)) {
+    return { ok: false, error: "Un ordre de dépense a été émis pour ce poste : annulez-le d'abord (« Annuler l'ordre émis »), puis revoyez la décision." };
   }
   // UN SPONSORING INDIRECT NON RÉPARTI NE S'ACCORDE PAS (§118.175). L'accorder d'un seul tenant
   // ouvrirait UN bon de commande, à UN fournisseur, pour l'imprimerie ET l'hôtellerie — exactement
@@ -868,24 +1130,53 @@ export async function decideAdProItem(_prev: ActionResult | undefined, formData:
   if (item.kind === "INDIRECT_SUPPORT" && decision === "APPROVED") return { ok: false, error: REFUS_INDIRECT_NON_REPARTI };
 
   const note = fdStr(formData, "note");
+  // UN REFUS OU UN RENVOI SANS MOTIF EST UNE IMPASSE (audit 360°, R24–R36) : le demandeur ne sait pas
+  // quoi corriger. `=== null` et non `!note` : la dérivation des contrats lit `if (!v)` comme « champ
+  // OBLIGATOIRE » pour toute l'action, et l'accord sans note deviendrait inappelable (§118.138).
+  if (decision !== "APPROVED" && note === null) {
+    return { ok: false, error: "Indiquez le motif : sans lui, le demandeur ne sait pas quoi corriger." };
+  }
   // En accordant, la Direction peut arrêter le montant du poste (c'est le geste naturel :
   // « d'accord, mais pour 120 000 »). Sans montant saisi, l'estimation fait foi.
   const granted = fdNum(formData, "amountGranted");
   if (granted != null && granted < 0) return { ok: false, error: "Un montant ne peut pas être négatif." };
   const status = decision as AdProItemStatus;
 
+  // REVOIR UNE DÉCISION QUI AVAIT OUVERT UN BON DE COMMANDE (§118.187, audit R05/R12). Le poste quitte
+  // l'accord : sa demande de BC — en attente au centre, ou visée — n'a plus d'objet et se retire avec
+  // la décision. Sauf si un BC a DÉJÀ été établi dans Legal : il lit sa validation sur ce poste, et
+  // le retirer le laisserait sans porte ; le refus le nomme.
+  const bcEnCours = item.orderStage === "REQUESTED" || item.orderStage === "DIRECTION_OK";
+  const quitteLAccord = item.status === "APPROVED" && status !== "APPROVED";
+  if (quitteLAccord && bcEnCours) {
+    const bcs = await bcEtablisDuPoste(id);
+    if (bcs.length > 0) return { ok: false, error: refusBcEtabli(bcs, "revoyez la décision du poste") };
+  }
+  const montantAccorde = status === "APPROVED" && item.kind !== "STOCK_MATERIAL"
+    ? (granted ?? (item.amountGranted != null ? toNumber(item.amountGranted) : null) ?? (item.amountEstimated != null ? toNumber(item.amountEstimated) : null))
+    : null;
+
   // `tx` et non un autre nom : la dérivation des contrats lit `prisma.X` et `tx.X` pour dire ce que
   // l'action écrit (§118.137) — un paramètre nommé autrement faisait disparaître le poste de la
   // carte de confirmation, et `id` ne désignait plus rien pour le chemin générique.
-  const ecrireDecision = (tx: Tx | typeof prisma) => tx.adProItem.update({
-    where: { id },
+  //
+  // CONDITIONNELLE (§118.187) : une émission qui passe entre la lecture et l'écriture ne se fait pas
+  // défaire par une décision prise sur l'état d'avant — l'émission, elle, exige un poste accordé.
+  const ecrireDecision = (tx: Tx | typeof prisma) => tx.adProItem.updateMany({
+    where: { id, expenseOrderId: null, orderStage: { not: "ISSUED" } },
     data: {
       status,
       decidedAt: new Date(),
       decidedById: user.id,
       decisionNote: note,
-      ...(status === "APPROVED" && item.kind !== "STOCK_MATERIAL"
-        ? { amountGranted: granted ?? item.amountGranted ?? item.amountEstimated ?? null }
+      ...(status === "APPROVED" && item.kind !== "STOCK_MATERIAL" ? { amountGranted: montantAccorde } : {}),
+      ...(quitteLAccord && bcEnCours
+        ? {
+            orderStage: "NONE" as const, orderDirectionAt: null, orderDirectionById: null,
+            // La note du centre s'efface : elle s'afficherait, sous un accord futur, comme une parole
+            // du centre sur une demande qui n'existe plus. Le motif vit à l'historique et à l'audit.
+            orderVisaAmount: null, orderVisaSupplier: null, orderDecisionNote: null,
+          }
         : {}),
       updatedById: user.id,
     },
@@ -898,7 +1189,8 @@ export async function decideAdProItem(_prev: ActionResult | undefined, formData:
     const r = await deciderMaterielStock(id, status, user.id, ecrireDecision);
     if (!r.ok) return { ok: false, error: r.error };
   } else {
-    await ecrireDecision(prisma);
+    const r = await ecrireDecision(prisma);
+    if (r.count === 0) return { ok: false, error: "Un ordre de dépense vient d'être émis pour ce poste : rouvrez la fiche." };
   }
   await recordDecision(id, status, note, granted ?? (item.amountGranted != null ? toNumber(item.amountGranted) : null), user.id);
   // LA DEMANDE SUIT : une rallonge accordée (ou retirée) change le montant de l'opération.
@@ -906,6 +1198,25 @@ export async function decideAdProItem(_prev: ActionResult | undefined, formData:
 
   const info = await PARENTS[owner.parent].load(owner.id);
   const label = status === "APPROVED" ? "accordé" : status === "REJECTED" ? "refusé" : "à revoir (budget)";
+  // CE QUE LA DÉCISION EMPORTE (audit 360°, R10) — un poste refusé ne garde pas l'assistante au
+  // travail sur ses devis et factures ; un poste qui quitte l'accord retire son « BC à établir ». Le
+  // sujet de réservation d'une billetterie apprend la décision : c'est là que l'assistante réserve.
+  let suite = "";
+  if (status === "REJECTED") {
+    suite += phraseDemandesCloses(await cloreDemandesSecretariat(id, `le poste « ${item.label} » a été refusé par la Direction — ${note}`, user, "TOUTES"));
+  } else if (quitteLAccord && bcEnCours) {
+    suite += phraseDemandesCloses(await cloreDemandesSecretariat(id, `la décision du poste « ${item.label} » a été revue — la demande de bon de commande est retirée`, user, "BC_A_ETABLIR"));
+  }
+  if (status !== "APPROVED" && item.reservationDossierId) {
+    suite += await signalerAuSujet(item, user.id, `poste ${label} par la Direction${note ? ` (« ${note} »)` : ""} : la réservation attend la suite.`);
+  }
+  // UN ACCORD REDONNÉ À UN AUTRE MONTANT, BC en cours : le visa ne couvre que ce qu'il a vu.
+  if (status === "APPROVED" && bcEnCours && montantAccorde != null) {
+    const apres = { montant: montantAccorde, fournisseur: item.supplier };
+    const geste = gesteVisaPoste(etatBcDe(item), apres, (await getAppSettings()).bcValidationThreshold);
+    const phrase = await appliquerGesteVisa(item, geste, apres, { user, owner, ref: info?.ref ?? null });
+    if (phrase) suite += ` ${phrase}`;
+  }
   if (info?.requesterId && info.requesterId !== user.id) {
     await notifyUser({
       userId: info.requesterId,
@@ -915,9 +1226,9 @@ export async function decideAdProItem(_prev: ActionResult | undefined, formData:
       link: `${PARENTS[owner.parent].path}/${owner.id}`,
     }).catch(() => undefined);
   }
-  await audit(user, owner.parent, owner.id, "UPDATE", `Poste « ${item.label} » ${label}${note ? ` — ${note}` : ""}.`);
+  await audit(user, owner.parent, owner.id, "UPDATE", `Poste « ${item.label} » ${label}${note ? ` — ${note}` : ""}${quitteLAccord && bcEnCours ? " — demande de bon de commande retirée" : ""}.`);
   revalidate(owner.parent, owner.id);
-  return { ok: true, id };
+  return suite ? { ok: true, id, message: `Poste ${label}.${suite}` } : { ok: true, id };
 }
 
 /** Choix du BUDGET qui portera un poste accordé (catégorie d'enveloppe) — « comme d'habitude ». */
@@ -1085,7 +1396,7 @@ async function travailBcAssistante(i: {
     const ouverte = await prisma.administrativeRequest.findFirst({
       where: {
         linkedEntityType: "AD_PRO_ITEM", linkedEntityId: i.itemId, deletedAt: null, type: "OTHER",
-        title: { startsWith: "Bon de commande à établir" }, status: { notIn: ["DONE", "CANCELLED"] },
+        title: { startsWith: TITRE_BC_A_ETABLIR }, status: { notIn: ["DONE", "CANCELLED"] },
       },
       select: { id: true },
     });
@@ -1130,6 +1441,10 @@ export async function requestAdProItemOrder(_prev: ActionResult | undefined, for
     orderStage: item.orderStage,
   });
   if (!check.ok) return { ok: false, error: check.reason ?? "Demande impossible." };
+  const demande = await PARENTS[owner.parent].load(owner.id);
+  if (!demande) return { ok: false, error: "Opération introuvable." };
+  const fermee = refusDemandeFermee(demande);
+  if (fermee) return { ok: false, error: fermee };
 
   const note = fdStr(formData, "note");
   // LE SEUIL DES BONS DE COMMANDE (§118.149) — « tout BC SUPÉRIEUR à un montant configuré dans
@@ -1140,15 +1455,26 @@ export async function requestAdProItemOrder(_prev: ActionResult | undefined, for
   const montantAccorde = toNumber(item.amountGranted!);
   const seuilBC = (await getAppSettings()).bcValidationThreshold;
   const sousLeSeuil = !validationRequiseBC(montantAccorde, seuilBC);
-  await prisma.adProItem.update({
-    where: { id },
+  // CONDITIONNELLE (§118.187) : deux clics, ou deux personnes, ne font pas deux demandes — la seconde
+  // trouve le poste déjà engagé et le dit. L'EMPREINTE n'est posée QUE par le visa du centre : sous le
+  // seuil, aucun centre n'a rien vu, et la règle (`gesteVisaPoste`) ne la lit que sur un BC visé — un
+  // état qu'aucun code ne lit n'a rien à faire en base (§118.45). La note d'un refus précédent
+  // s'efface : elle s'afficherait sous la nouvelle demande comme si le centre venait de la refuser.
+  const posee = await prisma.adProItem.updateMany({
+    where: { id, status: "APPROVED", orderStage: { in: ["NONE", "REFUSED"] } },
     data: sousLeSeuil
       ? {
           orderStage: "DIRECTION_OK", orderRequestedAt: new Date(), orderRequestedById: user.id, orderNote: note,
-          orderDecisionNote: motifSousLeSeuil(seuilBC), orderDirectionAt: null, orderDirectionById: null, updatedById: user.id,
+          orderDecisionNote: motifSousLeSeuil(seuilBC), orderDirectionAt: null, orderDirectionById: null,
+          orderVisaAmount: null, orderVisaSupplier: null, updatedById: user.id,
         }
-      : { orderStage: "REQUESTED", orderRequestedAt: new Date(), orderRequestedById: user.id, orderNote: note, updatedById: user.id },
+      : {
+          orderStage: "REQUESTED", orderRequestedAt: new Date(), orderRequestedById: user.id, orderNote: note,
+          orderDecisionNote: null, orderDirectionAt: null, orderDirectionById: null,
+          orderVisaAmount: null, orderVisaSupplier: null, updatedById: user.id,
+        },
   });
+  if (posee.count === 0) return { ok: false, error: "Une demande d'émission vient d'être envoyée pour ce poste, ou sa décision a changé : rouvrez la fiche." };
   const info = await PARENTS[owner.parent].load(owner.id);
   const cible = `${info?.ref ?? ""} — « ${item.label} » (${montantAccorde.toLocaleString("fr-FR")} DZD)`;
   if (sousLeSeuil) {
@@ -1180,7 +1506,7 @@ export async function requestAdProItemOrder(_prev: ActionResult | undefined, for
   // le geste de l'assistante (rédiger la pièce), avec ce qu'il lui faut pour le faire.
   const travail = await travailBcAssistante({
     itemId: item.id, demandeurId: user.id, note,
-    titre: `Bon de commande à établir — ${ITEM_KIND_LABELS[item.kind]} : ${item.label}`,
+    titre: `${TITRE_BC_A_ETABLIR} — ${ITEM_KIND_LABELS[item.kind]} : ${item.label}`,
     contexte: [
       `Poste de l'opération ${info?.ref ?? ""}.`,
       item.supplier ? `Prestataire : ${item.supplier}.` : null,
@@ -1191,7 +1517,7 @@ export async function requestAdProItemOrder(_prev: ActionResult | undefined, for
   });
   await notifyRoles(["DIRECTION_ASSISTANT"], {
     type: "ASSIGNMENT",
-    title: "Bon de commande à établir",
+    title: TITRE_BC_A_ETABLIR,
     body: note ? `${cible} — « ${note.slice(0, 160)} »` : cible,
     link: travail ? `/demandes/${travail}` : "/demandes",
   }).catch(() => undefined);
@@ -1238,16 +1564,40 @@ export async function approveAdProItemOrder(_prev: ActionResult | undefined, for
   if (item.orderStage !== "REQUESTED") return { ok: false, error: "Aucune demande d'émission en attente sur ce poste." };
 
   const note = fdStr(formData, "note");
+  // CE QUE LE CENTRE A LU (§118.187) : l'écran envoie le montant qu'il affichait. Un montant relevé
+  // pendant la lecture serait visé sans avoir été vu — le refus le dit, avec les deux chiffres. Sans
+  // ce champ (un appelant qui ne l'envoie pas), rien n'est comparé ici ; l'empreinte, elle, est
+  // toujours posée sur la valeur LUE, par une écriture conditionnelle.
+  const montantVu = fdNum(formData, "montantVu");
+  const montantActuel = item.amountGranted != null ? toNumber(item.amountGranted) : null;
+  if (montantVu != null && montantActuel != null && montantVu !== montantActuel) {
+    return {
+      ok: false,
+      error: `Le montant de ce poste a changé pendant que vous lisiez (${montantVu.toLocaleString("fr-FR")} → ${montantActuel.toLocaleString("fr-FR")} DZD) : relisez la demande avant de la viser.`,
+    };
+  }
+  // Le PRESTATAIRE lu, de même : c'est à lui que l'argent partira. Un champ absent n'est pas comparé.
+  if (formData.has("prestataireVu") && !memePrestataire(fdStr(formData, "prestataireVu"), item.supplier)) {
+    return {
+      ok: false,
+      error: `Le prestataire de ce poste a changé pendant que vous lisiez (désormais : ${item.supplier?.trim() || "le bénéficiaire de l'opération"}) : relisez la demande avant de la viser.`,
+    };
+  }
   const info = await PARENTS[owner.parent].load(owner.id);
   const lien = `${PARENTS[owner.parent].path}/${owner.id}`;
   const cible = `${info?.ref ?? ""} — « ${item.label} » (${toNumber(item.amountGranted!).toLocaleString("fr-FR")} DZD)`;
+  const changee = "Cette demande vient de changer (retirée, déjà décidée, ou son montant ou son prestataire a bougé) : rouvrez la fiche.";
   if (decision === "REFUSE") {
     // UN REFUS SANS MOTIF EST UNE IMPASSE pour le demandeur — la règle du centre, ici aussi.
     // `=== null` et non `!note` : la dérivation des contrats lit `if (!v)` comme « champ
     // OBLIGATOIRE » pour toute l'action, et le motif n'est exigé que pour un REFUS — l'approbation
     // sans note deviendrait inappelable par le chemin générique (§118.87c, §118.138).
     if (note === null) return { ok: false, error: "Indiquez le motif du refus : sans lui, le demandeur ne sait pas quoi corriger." };
-    await prisma.adProItem.update({ where: { id }, data: { orderStage: "REFUSED", orderDecisionNote: note, updatedById: user.id } });
+    const refuse = await prisma.adProItem.updateMany({
+      where: { id, orderStage: "REQUESTED" },
+      data: { orderStage: "REFUSED", orderDecisionNote: note, updatedById: user.id },
+    });
+    if (refuse.count === 0) return { ok: false, error: changee };
     await audit(user, owner.parent, owner.id, "UPDATE", `Bon de commande REFUSÉ par le centre de validation Ad & Pro pour « ${item.label} » — ${note}.`);
     if (item.orderRequestedById) {
       await notifyUser({
@@ -1260,10 +1610,17 @@ export async function approveAdProItemOrder(_prev: ActionResult | undefined, for
     return { ok: true, id };
   }
 
-  await prisma.adProItem.update({
-    where: { id },
-    data: { orderStage: "DIRECTION_OK", orderDirectionAt: new Date(), orderDirectionById: user.id, orderDecisionNote: note, updatedById: user.id },
+  // L'EMPREINTE DU VISA (§118.187) : le montant et le prestataire LUS — et l'écriture n'aboutit que
+  // s'ils n'ont pas bougé depuis. Deux sièges qui visent ensemble, ou un retrait qui passe pendant le
+  // visa, ne s'appliquent pas deux fois.
+  const vise = await prisma.adProItem.updateMany({
+    where: { id, orderStage: "REQUESTED", amountGranted: item.amountGranted, supplier: item.supplier },
+    data: {
+      orderStage: "DIRECTION_OK", orderDirectionAt: new Date(), orderDirectionById: user.id, orderDecisionNote: note,
+      orderVisaAmount: item.amountGranted, orderVisaSupplier: item.supplier, updatedById: user.id,
+    },
   });
+  if (vise.count === 0) return { ok: false, error: changee };
   await notifyRoles(["FINANCE_BUDGET_MANAGER", "SUPER_ADMIN"], {
     type: "VALIDATION_REQUIRED",
     title: "Bon de commande validé — à émettre",
@@ -1292,6 +1649,224 @@ export async function approveAdProItemOrder(_prev: ActionResult | undefined, for
   revalidatePath("/centre-ad-pro");
   if (piecesDuPoste.length > 0) revalidatePath(CHEMIN_BC_A_SIGNER);
   return { ok: true, id };
+}
+
+// ───────────────────── Corriger le bon de commande d'un poste (§118.187, audit R06, R12) ─────────────────────
+
+/** Qui touche à la demande de BC d'un poste : qui décrit les postes, ou qui les arbitre. */
+function peutToucherDemandeBC(user: SessionUser, parent: AdProParent): boolean {
+  return canEditItems(user, parent) || canAllocate(user, parent);
+}
+
+/**
+ * RETIRER LA DEMANDE D'ÉMISSION DU BON DE COMMANDE — en attente au centre, ou visée, tant qu'aucun
+ * ordre n'est parti. Une demande envoyée ne se retirait pas : la seule issue était de supprimer le
+ * poste (audit R06). Le « BC à établir » de l'assistante se clôt avec elle, motif à l'appui.
+ */
+export async function retirerDemandeBC(_prev: ActionResult | undefined, formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  const id = fdStr(formData, "id");
+  if (!id) return { ok: false, error: "Poste non précisé." };
+  const motif = fdStr(formData, "motif");
+  if (!motif) return { ok: false, error: "Dites pourquoi vous retirez la demande : le motif reste à l'historique, et l'assistante le lit." };
+  const found = await loadItem(id, user);
+  if (!found) return { ok: false, error: "Poste introuvable." };
+  const { item, owner } = found;
+  if (!peutToucherDemandeBC(user, owner.parent)) return { ok: false, error: "Non autorisé." };
+  if (item.orderStage === "ISSUED" || item.expenseOrderId) {
+    return { ok: false, error: "Le bon de commande a déjà été émis : annulez l'ordre de dépense (« Annuler l'ordre émis ») tant qu'il n'est pas réglé." };
+  }
+  if (item.orderStage !== "REQUESTED" && item.orderStage !== "DIRECTION_OK") {
+    return { ok: false, error: "Aucune demande de bon de commande n'est en cours sur ce poste." };
+  }
+  const bcs = await bcEtablisDuPoste(id);
+  if (bcs.length > 0) return { ok: false, error: refusBcEtabli(bcs, "retirez la demande") };
+
+  const r = await prisma.adProItem.updateMany({
+    where: { id, orderStage: { in: ["REQUESTED", "DIRECTION_OK"] }, expenseOrderId: null },
+    data: {
+      orderStage: "NONE", orderDirectionAt: null, orderDirectionById: null,
+      orderVisaAmount: null, orderVisaSupplier: null, orderDecisionNote: null, updatedById: user.id,
+    },
+  });
+  if (r.count === 0) return { ok: false, error: "Cette demande vient de changer (visée, émise ou déjà retirée) : rouvrez la fiche." };
+
+  const info = await PARENTS[owner.parent].load(owner.id);
+  const closes = await cloreDemandesSecretariat(id, `la demande de bon de commande du poste « ${item.label} » a été retirée — ${motif}`, user, "BC_A_ETABLIR");
+  // Les Finances avaient reçu « à émettre » : sans ce message, elles chercheraient un BC qui n'existe plus.
+  if (item.orderStage === "DIRECTION_OK") {
+    await notifyRoles(FINANCES_BC, {
+      type: "GENERIC", title: "Bon de commande retiré — ne pas l'émettre",
+      body: `${info?.ref ?? ""} — « ${item.label} » : ${motif}`, link: `${PARENTS[owner.parent].path}/${owner.id}`,
+    }).catch(() => undefined);
+  }
+  await audit(user, owner.parent, owner.id, "UPDATE", `Demande de bon de commande RETIRÉE pour le poste « ${item.label} » — ${motif}`);
+  revalidate(owner.parent, owner.id);
+  revalidatePath("/centre-ad-pro");
+  return { ok: true, id, message: `Demande de bon de commande retirée.${phraseDemandesCloses(closes)}` };
+}
+
+/**
+ * MODIFIER LA DEMANDE D'ÉMISSION — son message : références, quantités, coordonnées du fournisseur
+ * (audit R06 : « impossible de retirer ou d'ajouter des références »). Le message ne change pas ce que
+ * le centre a visé — le montant et le prestataire, eux, passent par la règle du visa. Le « BC à
+ * établir » de l'assistante reçoit le nouveau message, et elle est prévenue.
+ */
+export async function modifierDemandeBC(_prev: ActionResult | undefined, formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  const id = fdStr(formData, "id");
+  if (!id) return { ok: false, error: "Poste non précisé." };
+  const note = fdStr(formData, "note");
+  if (!note) return { ok: false, error: "Écrivez le contenu de la demande : références, quantités, coordonnées du fournisseur." };
+  const found = await loadItem(id, user);
+  if (!found) return { ok: false, error: "Poste introuvable." };
+  const { item, owner } = found;
+  if (!peutToucherDemandeBC(user, owner.parent)) return { ok: false, error: "Non autorisé." };
+  if (item.orderStage !== "REQUESTED" && item.orderStage !== "DIRECTION_OK") {
+    return { ok: false, error: item.orderStage === "ISSUED" ? "Le bon de commande a déjà été émis : son message ne se modifie plus." : "Aucune demande de bon de commande n'est en cours sur ce poste." };
+  }
+  const r = await prisma.adProItem.updateMany({
+    where: { id, orderStage: { in: ["REQUESTED", "DIRECTION_OK"] } },
+    data: { orderNote: note, updatedById: user.id },
+  });
+  if (r.count === 0) return { ok: false, error: "Cette demande vient de changer (émise ou retirée) : rouvrez la fiche." };
+
+  const info = await PARENTS[owner.parent].load(owner.id);
+  const montant = item.amountGranted != null ? toNumber(item.amountGranted) : null;
+  const travail = await travailBcAssistante({
+    itemId: item.id, demandeurId: item.orderRequestedById ?? user.id, note,
+    titre: `${TITRE_BC_A_ETABLIR} — ${ITEM_KIND_LABELS[item.kind]} : ${item.label}`,
+    contexte: [
+      `Poste de l'opération ${info?.ref ?? ""}.`,
+      item.supplier ? `Prestataire : ${item.supplier}.` : null,
+      montant != null ? `Montant accordé : ${montant.toLocaleString("fr-FR")} DZD.` : null,
+      "Demande modifiée par le demandeur.",
+    ],
+    companyId: info?.companyId ?? (await moneyEntityOf(info?.requesterId ?? user.id)),
+  });
+  // L'assistante qui tient le « BC à établir » — à défaut, le bureau (`prevenirLeSecretariat`) : prévenir
+  // tout le rôle quand une personne a déjà pris la demande ferait du bruit chez les autres.
+  const tenue = travail ? await prisma.administrativeRequest.findUnique({ where: { id: travail }, select: { assignedToId: true } }) : null;
+  await prevenirLeSecretariat(tenue?.assignedToId ?? null, {
+    type: "ASSIGNMENT", title: "Demande de bon de commande modifiée",
+    body: `${info?.ref ?? ""} — « ${item.label} » : « ${note.slice(0, 160)} »`,
+    link: travail ? `/demandes/${travail}` : "/demandes",
+  }, user.id);
+  await audit(user, owner.parent, owner.id, "UPDATE", `Demande de bon de commande modifiée pour le poste « ${item.label} ».`);
+  revalidate(owner.parent, owner.id);
+  return { ok: true, id, message: "Demande de bon de commande mise à jour — l'assistante de direction est prévenue." };
+}
+
+/**
+ * ANNULER L'ORDRE ÉMIS, POUR LE RÉÉMETTRE — tant qu'il n'est pas réglé (audit R06). Un ordre parti au
+ * mauvais prestataire ou au mauvais montant n'avait qu'une issue : supprimer le poste. L'annulation
+ * passe par l'écrivain commun (`annulerOrdreNonRegle`, conditionnel : un règlement survenu entre-temps
+ * ne se défait pas). Le poste revient à l'étape d'avant l'émission : visé s'il avait une demande de BC
+ * — le visa tient pour ce qu'il a vu, et la règle du visa jugera la réémission —, sinon sans BC.
+ */
+export async function annulerOrdrePoste(_prev: ActionResult | undefined, formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  const id = fdStr(formData, "id");
+  if (!id) return { ok: false, error: "Poste non précisé." };
+  const motif = fdStr(formData, "motif");
+  if (!motif) return { ok: false, error: "Dites pourquoi l'ordre est annulé : le motif reste à l'historique de l'ordre et du poste." };
+  const found = await loadItem(id, user);
+  if (!found) return { ok: false, error: "Poste introuvable." };
+  const { item, owner } = found;
+  const isFinance = userCan(user, "FINANCES", "UPDATE") || userCan(user, "FINANCES", "VALIDATE");
+  if (!isFinance && !canAllocate(user, owner.parent)) return { ok: false, error: "Seules les Finances, ou qui arbitre ce module, annulent un ordre émis." };
+  if (!item.expenseOrderId) return { ok: false, error: "Aucun ordre de dépense n'a été émis pour ce poste." };
+
+  const annulation = await annulerOrdreNonRegle(item.expenseOrderId, { acteurId: user.id, motif: `poste « ${item.label} » — ${motif}` });
+  if (!annulation.ok) return { ok: false, error: annulation.error };
+  const etape: AdProItemOrderStage = item.orderRequestedAt ? "DIRECTION_OK" : "NONE";
+  await prisma.adProItem.updateMany({
+    where: { id, expenseOrderId: item.expenseOrderId },
+    data: { expenseOrderId: null, orderStage: etape, updatedById: user.id },
+  });
+  const info = await PARENTS[owner.parent].load(owner.id);
+  const prevenir = item.orderRequestedById ?? info?.requesterId ?? null;
+  if (prevenir && prevenir !== user.id) {
+    await notifyUser({
+      userId: prevenir, type: "GENERIC", title: "Ordre de dépense annulé",
+      body: `${info?.ref ?? ""} — « ${item.label} »${annulation.reference ? ` (${annulation.reference})` : ""} : ${motif}`,
+      link: `${PARENTS[owner.parent].path}/${owner.id}`,
+    }).catch(() => undefined);
+  }
+  await audit(user, owner.parent, owner.id, "UPDATE",
+    `Ordre de dépense ${annulation.reference ?? ""} ANNULÉ pour le poste « ${item.label} » — ${motif} (réémission possible).`);
+  revalidate(owner.parent, owner.id);
+  revalidatePath("/finances/paiements-a-faire");
+  return {
+    ok: true, id,
+    message: `Ordre ${annulation.reference ?? ""} annulé — le poste peut être réémis${etape === "DIRECTION_OK" ? " ; le visa du centre tient pour le montant et le prestataire qu'il a vus" : ""}.`,
+  };
+}
+
+/**
+ * DEMANDER À REVOIR UN POSTE ACCORDÉ (audit R12) — le demandeur rend SON poste à la Direction, motif
+ * à l'appui et, s'il le faut, une nouvelle estimation (« le montant accordé ne suffit pas »). C'est un
+ * geste qui RÉDUIT : il retire l'accord de son propre poste et n'accorde rien ; la Direction re-décide,
+ * l'accord d'hier reste à l'historique. Tant qu'aucun ordre n'est parti — et une demande de BC en
+ * cours se retire avec lui, sauf BC déjà établi dans Legal.
+ */
+export async function demanderRevisionPoste(_prev: ActionResult | undefined, formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  const id = fdStr(formData, "id");
+  if (!id) return { ok: false, error: "Poste non précisé." };
+  const motif = fdStr(formData, "motif");
+  if (!motif) return { ok: false, error: "Dites à la Direction ce qui doit être revu : c'est ce qu'elle lira." };
+  const estimation = fdNum(formData, "amountEstimated");
+  if (estimation != null && estimation <= 0) return { ok: false, error: "La nouvelle estimation doit être un montant positif." };
+  const found = await loadItem(id, user);
+  if (!found) return { ok: false, error: "Poste introuvable." };
+  const { item, owner } = found;
+  if (!canEditItems(user, owner.parent)) return { ok: false, error: "Non autorisé." };
+  const clos = await refusSiClos(owner.parent, owner.id);
+  if (clos) return { ok: false, error: clos };
+  if (item.status !== "APPROVED") {
+    return { ok: false, error: "Seul un poste accordé se rend à la Direction : un poste en brouillon, refusé ou à revoir se modifie et se resoumet." };
+  }
+  if (item.expenseOrderId || item.orderStage === "ISSUED") {
+    return { ok: false, error: "Un ordre de dépense a été émis pour ce poste : les Finances l'annulent d'abord (« Annuler l'ordre émis »), puis la révision se demande." };
+  }
+  if (item.kind === "STOCK_MATERIAL") {
+    return { ok: false, error: "Le matériel du stock se revoit par la Direction (« Revoir la décision ») : sa réservation suit sa décision." };
+  }
+  const bcEnCours = item.orderStage === "REQUESTED" || item.orderStage === "DIRECTION_OK";
+  if (bcEnCours) {
+    const bcs = await bcEtablisDuPoste(id);
+    if (bcs.length > 0) return { ok: false, error: refusBcEtabli(bcs, "demandez la révision") };
+  }
+  const r = await prisma.adProItem.updateMany({
+    where: { id, status: "APPROVED", expenseOrderId: null, orderStage: { not: "ISSUED" } },
+    data: {
+      status: "PENDING", submittedAt: new Date(), decisionNote: null, amountGranted: null,
+      ...(estimation != null ? { amountEstimated: estimation } : {}),
+      ...(bcEnCours
+        ? { orderStage: "NONE" as const, orderDirectionAt: null, orderDirectionById: null, orderVisaAmount: null, orderVisaSupplier: null, orderDecisionNote: null }
+        : {}),
+      updatedById: user.id,
+    },
+  });
+  if (r.count === 0) return { ok: false, error: "Ce poste vient de changer (émis, ou sa décision a été revue) : rouvrez la fiche." };
+  const ancien = item.amountGranted != null ? toNumber(item.amountGranted) : null;
+  await recordDecision(id, "PENDING", `Révision demandée par le demandeur : ${motif}`, estimation ?? ancien, user.id);
+  await reprojeterMontantDemande(owner.parent, owner.id);
+  const closes = bcEnCours
+    ? await cloreDemandesSecretariat(id, `le poste « ${item.label} » est rendu à la Direction pour révision — la demande de bon de commande est retirée`, user, "BC_A_ETABLIR")
+    : 0;
+  const info = await PARENTS[owner.parent].load(owner.id);
+  const valideurs: UserRole[] = owner.parent === "SPONSORING" ? [ROLE_DIRECTION_MARKETING, "DIRECTION", "SUPER_ADMIN"] : ["DIRECTION", "SUPER_ADMIN"];
+  await notifyRoles(valideurs, {
+    type: "VALIDATION_REQUIRED", title: "Poste accordé — révision demandée",
+    body: `${info?.ref ?? "Opération"} — « ${item.label} »${estimation != null ? ` (nouvelle estimation : ${estimation.toLocaleString("fr-FR")} DZD)` : ""} : ${motif}`,
+    link: `${PARENTS[owner.parent].path}/${owner.id}`,
+  }).catch(() => undefined);
+  await audit(user, owner.parent, owner.id, "UPDATE",
+    `Révision demandée sur le poste accordé « ${item.label} »${ancien != null ? ` (accordé ${ancien.toLocaleString("fr-FR")} DZD)` : ""} — ${motif}${bcEnCours ? " — demande de bon de commande retirée" : ""}.`);
+  revalidate(owner.parent, owner.id);
+  return { ok: true, id, message: `Poste rendu à la Direction pour révision.${phraseDemandesCloses(closes)}` };
 }
 
 // ─────────────────────── Le matériel du stock d'un événement (§118.167) ───────────────────────

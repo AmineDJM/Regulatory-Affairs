@@ -10,10 +10,11 @@ import { familleQuantifiee, type PromoFamille } from "@/lib/promo/catalogue";
 import { peutConfirmerMateriel } from "@/lib/promo/reservations";
 import type { PostePourCloture } from "@/lib/ad-pro/cloture-sponsoring";
 import { gestionnairesDuMagasin } from "@/lib/queries/promo-stock";
-import { NATURES_PIECE_SECRETARIAT, PIECE_SECRETARIAT, type NaturePieceSecretariat } from "@/lib/ad-pro/pieces-secretariat";
+import { NATURES_PIECE_SECRETARIAT, PIECE_SECRETARIAT, estDemandeBcAEtablir, type NaturePieceSecretariat } from "@/lib/ad-pro/pieces-secretariat";
 import { statutDuDossier } from "@/lib/promo-material/statut";
 import { porteDesVoyageurs } from "@/lib/ad-pro/voyageurs";
 import { splitMulti } from "@/lib/ad-pro/pickers";
+import { bcEtablisDesPostes } from "@/lib/ad-pro/bc-etablis";
 import type { VoyageurVue } from "@/components/ad-pro/voyageurs-bloc";
 
 /**
@@ -40,6 +41,9 @@ export async function loadAdProItems(parent: AdProParent, parentId: string): Pro
         take: 12,
         select: { decision: true, note: true, amount: true, at: true, by: { select: { name: true } } },
       },
+      // L'historique est borné à douze lignes : son TOTAL voyage avec lui, sinon « Historique (12) » se
+      // lirait comme tout ce qui s'est passé (§118.60, audit 360° R24–R36).
+      _count: { select: { decisions: true } },
     },
   });
   if (rawItems.length === 0) return [];
@@ -85,7 +89,7 @@ export async function loadAdProItems(parent: AdProParent, parentId: string): Pro
   }
   const sujetDe = new Map(sujetRows.map((d) => [d.id, { id: d.id, reference: d.reference }]));
 
-  const [promoRows, orderRows, demandeRows, docRows, lignesParPoste] = await Promise.all([
+  const [promoRows, orderRows, demandeRows, docRows, lignesParPoste, bcLegalParPoste] = await Promise.all([
     promoIds.length
       ? prisma.promoMaterial.findMany({ where: { id: { in: promoIds } }, select: { id: true, reference: true, title: true, status: true, circuitState: true, circuitVersion: true } })
       : Promise.resolve([]),
@@ -96,7 +100,7 @@ export async function loadAdProItems(parent: AdProParent, parentId: string): Pro
     // ferait N allers-retours sur un écran qu'on ouvre pour tout voir (§118.102b).
     prisma.administrativeRequest.findMany({
       where: { linkedEntityType: "AD_PRO_ITEM", linkedEntityId: { in: itemIds }, deletedAt: null },
-      select: { id: true, reference: true, type: true, status: true, linkedEntityId: true },
+      select: { id: true, reference: true, type: true, title: true, status: true, linkedEntityId: true },
       orderBy: { createdAt: "asc" },
     }),
     // LES PIÈCES JOINTES d'un poste : on en rend le COMPTE, pas la liste — l'écran ne les
@@ -109,12 +113,23 @@ export async function loadAdProItems(parent: AdProParent, parentId: string): Pro
     }),
     // LE MATÉRIEL DU STOCK des postes qui en portent (§118.167) — en lot, comme le reste.
     lignesStockParPoste(itemIds),
+    // LES BC DÉJÀ ÉTABLIS DANS LEGAL (§118.187) : la même lecture que les actions qui les refusent.
+    bcEtablisDesPostes(itemIds),
   ]);
   const natureDuType = new Map<string, NaturePieceSecretariat>(
     NATURES_PIECE_SECRETARIAT.map((n) => [String(PIECE_SECRETARIAT[n].type), n]),
   );
   const demandesParPoste = new Map<string, ItemRow["demandes"]>();
+  const travauxBcParPoste = new Map<string, ItemRow["travauxBc"]>();
   for (const d of demandeRows) {
+    // LE « BC À ÉTABLIR » DE L'ASSISTANTE se montre sur la carte (audit 360°, R24–R36) : c'est le geste
+    // qui suit la demande de bon de commande, et le demandeur ne le trouvait nulle part.
+    if (d.linkedEntityId && estDemandeBcAEtablir({ type: String(d.type), title: d.title })) {
+      const l = travauxBcParPoste.get(d.linkedEntityId) ?? [];
+      l.push({ id: d.id, reference: d.reference, status: String(d.status) });
+      travauxBcParPoste.set(d.linkedEntityId, l);
+      continue;
+    }
     const nature = natureDuType.get(String(d.type));
     // Une demande d'une AUTRE nature rattachée au poste (un déplacement, une signature) n'est
     // pas une pièce commerciale : on ne la range pas de force dans une case qui n'est pas la
@@ -144,6 +159,8 @@ export async function loadAdProItems(parent: AdProParent, parentId: string): Pro
     budgetCategoryId: i.budgetCategoryId,
     budgetCategoryLabel: i.budgetCategory ? `${i.budgetCategory.envelope.name} › ${i.budgetCategory.name}` : null,
     demandes: demandesParPoste.get(i.id) ?? [],
+    travauxBc: travauxBcParPoste.get(i.id) ?? [],
+    bcEtablis: bcLegalParPoste.get(i.id) ?? [],
     documentCount: docsParPoste.get(i.id) ?? 0,
     lignesStock: lignesParPoste.get(i.id) ?? [],
     repartitionId: i.repartitionId,
@@ -156,6 +173,7 @@ export async function loadAdProItems(parent: AdProParent, parentId: string): Pro
     orderSansCentre: i.orderStage === "DIRECTION_OK" && i.orderDirectionAt === null,
     orderNote: i.orderNote,
     orderDecisionNote: i.orderDecisionNote,
+    decisionsTotal: i._count.decisions,
     decisions: i.decisions.map((d) => ({
       decision: d.decision,
       note: d.note,

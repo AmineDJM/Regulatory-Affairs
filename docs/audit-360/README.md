@@ -81,9 +81,12 @@ en charge se chargent par leur identifiant seul (relevé de la phase 0).
 correction, la resoumission, le motif lisible du demandeur, l'appel à l'étape qui a tranché, l'événement refusé
 qui repart, la modification après avis et le retrait d'une demande sont livrés et testés (lot C1, `CLAUDE.md`
 §118.186) — avec, trouvé en chemin, « un geste à la fois » : deux accords simultanés n'émettent plus deux ordres
-de dépense. Restent : les postes et leurs BC (C2), les centres Ad & Pro, de paiement et de validations (C3), et
-les autres circuits — matériel promotionnel, consulting, autre demande, secrétariat, demande de paiement,
-recrutement, plan de tournée validé, pièce Legal révisée (C4).
+de dépense. **Les postes et leurs BC, et les demandes au secrétariat, sont livrés et testés (lot C2, §118.187)** :
+le visa d'un BC rouvert quand le montant monte ou que le prestataire change, la demande de BC modifiable et
+retirable, un ordre émis annulé puis réémis, une décision revue, un poste retiré qui revient avec tout ce qui en
+dépendait, une demande au secrétariat qu'on corrige ou qu'on annule au-delà de trente minutes. Restent : les
+centres Ad & Pro, de paiement et de validations (C3), et les autres circuits — matériel promotionnel, consulting,
+autre demande, demande de paiement, recrutement, plan de tournée validé, pièce Legal révisée (C4).
 
 Constat d'ensemble (rapports 17, 18, 01, 03, 14) : **la plateforme sait refuser, rarement faire corriger.**
 

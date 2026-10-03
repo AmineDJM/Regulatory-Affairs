@@ -228,3 +228,27 @@ export async function createDirectValidation(input: {
   }
   return { ok: true, matched: true, requestId: req.id, reference: req.reference };
 }
+
+/**
+ * RETIRE une demande de validation qu'on vient de créer et qui n'a plus d'objet — tant que personne
+ * ne l'a tranchée (écriture CONDITIONNELLE : une décision déjà prise reste, c'est de l'histoire).
+ *
+ * Elle sert la compensation d'une écriture conditionnelle perdue (§118.187) : la demande du
+ * secrétariat a été annulée entre la lecture et l'écriture, l'annulation a retiré les validations
+ * qu'elle VOYAIT, et celle-ci, née après, resterait en file pour rien.
+ *
+ * Pourquoi un module et pas une ligne dans l'action : la dérivation des contrats lit les modèles que
+ * le CORPS d'une action écrit pour dire ce que désigne son `id` ; une action qui écrit deux tables
+ * en direct renonce à le dire (§118.150g), et le chemin générique ne saurait plus traduire « la
+ * demande DEM-2026-012 » en identifiant. Le corps de l'action n'écrit que sa demande.
+ */
+export async function retirerValidationSansObjet(requestId: string): Promise<number> {
+  // Pour Prisma, `id: undefined` ne filtre RIEN : l'écriture retirerait TOUTES les validations en
+  // attente de la base. Le type l'interdit à l'appel ; la garde tient si un `as` le contournait.
+  if (!requestId) return 0;
+  const r = await prisma.validationRequest.updateMany({
+    where: { id: requestId, status: "PENDING" },
+    data: { status: "CANCELLED", decidedAt: new Date() },
+  });
+  return r.count;
+}
