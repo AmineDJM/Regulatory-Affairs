@@ -1074,7 +1074,9 @@ export const LEGAL_DOC_KIND: Record<string, string> = {
  * personne qui lit « Avenant » partout ailleurs. Le libellé d'affichage couvre CHAQUE nature du
  * schéma (un test l'exige) ; la liste des natures créables ne bouge pas.
  */
-const LIBELLE_NATURE_LEGALE: Record<string, string> = { ...LEGAL_DOC_KIND, AMENDMENT: "Avenant" };
+// L'AVOIR suit la même règle que l'avenant : il naît de SA facture (§118.195), jamais d'un formulaire générique —
+// donc il se LIT partout, et ne se CRÉE pas depuis la liste des natures.
+const LIBELLE_NATURE_LEGALE: Record<string, string> = { ...LEGAL_DOC_KIND, AMENDMENT: "Avenant", CREDIT_NOTE: "Avoir" };
 
 export function natureLegale(kind: string): string {
   return LIBELLE_NATURE_LEGALE[kind] ?? kind;

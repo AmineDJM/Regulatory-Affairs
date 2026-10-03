@@ -27,6 +27,8 @@
  * plus. Ce module porte cette règle, et les tests la tiennent.
  */
 
+import { entierementCreditee } from "@/lib/lecteurs/avoir";
+
 export interface LegalListRow {
   id: string;
   reference: string | null;
@@ -49,6 +51,8 @@ export interface LegalListRow {
    */
   paidDate: string | null;
   expenseOrderId: string | null;
+  /** Le total des avoirs ACTIFS d'une facture (§118.195) — absent : aucun avoir. */
+  avoirs?: number;
 }
 
 /** Les niveaux d'échéance qui méritent qu'on s'en occupe — le filtre « à surveiller ». */
@@ -147,7 +151,8 @@ export function visibleLegalRows(rows: readonly LegalListRow[], state: LegalList
     if (state.watchOnly && !URGENT_EXPIRY.has(r.expiry)) return false;
     // LE RESTE À RÉGLER : les seules factures non réglées. Une facture ANNULÉE ne sera jamais
     // payée — la montrer ici gonflerait une dette qui n'existe pas.
-    if (state.unpaidOnly && !(r.kind === "INVOICE" && !r.paidDate && r.status !== "CANCELLED")) return false;
+    // « À régler » : ni réglée, ni annulée, ni entièrement créditée par ses avoirs — la lecture du compte d'en-tête.
+    if (state.unpaidOnly && !(r.kind === "INVOICE" && !r.paidDate && r.status !== "CANCELLED" && !entierementCreditee(r.amount, r.avoirs ?? 0))) return false;
     return true;
   });
 }

@@ -30,6 +30,9 @@ import {
   definirProfilDocumentaire, emettreDocumentDrive, previsualiserDocument, reviserDocumentDrive,
   type DemandeDocument, type MethodePdf, type ModificationsDocument,
 } from "@/platform/in-process/artifact/factory";
+import { factureACrediter } from "@/lib/legal/aval";
+import { montantsDesAvoirsActifs } from "@/lib/lecteurs/avoirs-actifs";
+import { netDeLaFacture } from "@/lib/lecteurs/avoir";
 
 /** « 2 500 000,00 » (espaces, insécables, virgule) → 2500000 ; vide ou illisible → null. */
 function nombre(v: string | null | undefined): number | null {
@@ -280,6 +283,47 @@ export async function reviserPieceCommerciale(_prev: ResultatRevision | undefine
     ok: true, id: legalDocumentId, reference: r.reference, version: r.version,
     message: `${libelle} ${r.reference} révisé : version ${r.version}, ${formaterTtc(r.totaux.totalTtc)} TTC — le Word, le PDF et la fiche disent la même chose.`
       + (r.reserveBonDeCommande ? ` ${r.reserveBonDeCommande}` : ""),
+  };
+}
+
+export interface ResultatAvoir extends ActionResult {
+  reference?: string;
+}
+
+/**
+ * ÉMETTRE UN AVOIR sur une facture émise (§118.195 — audit 360°, R15) : la seule correction d'une facture, qui ne se
+ * réécrit pas. L'écran envoie les lignes à créditer et le motif ; le client, le numéro et la date d'origine, la TVA,
+ * la remise et les taxes viennent de la FACTURE, et c'est la fabrique qui les reprend — rien de cela n'est lu ici.
+ * La fabrique refuse ce qui dépasse le reste à créditer, revérifié sous verrou ; le motif est exigé après l'état.
+ */
+export async function emettreAvoir(_prev: ResultatAvoir | undefined, formData: FormData): Promise<ResultatAvoir> {
+  const user = await requireUser();
+  const factureId = fdStr(formData, "factureId");
+  if (!factureId) return { ok: false, error: "Facture introuvable." };
+  // La société de la facture, pour le profil documentaire ; une pièce qui n'est pas une facture émise est refusée
+  // par la FABRIQUE, avec sa phrase — une seconde rédaction ici finirait par dire autre chose (§118.5).
+  const facture = await factureACrediter(factureId);
+  const lignes = lireLignes(formData);
+  const r = await emettreDocumentDrive(user, {
+    type: "AVOIR", societe: facture?.companyId ?? null, chainFromId: factureId,
+    // Le client vient de la facture, sur le lien — la fabrique le remplace : rien n'est pris de l'écran.
+    tiers: { nom: "" },
+    lignes, objet: texte(formData, "motif"),
+  });
+  if (!r.ok) return { ok: false, error: r.motif + (r.bloquants?.length ? ` — ${r.bloquants.slice(0, 3).join(" ; ")}` : "") };
+  revalidatePath("/legal");
+  revalidatePath(`/legal/${factureId}`);
+  if (r.dejaEmis) {
+    return { ok: true, id: r.legalDocumentId, reference: r.reference, message: `Un avoir identique existait déjà (${r.reference}) : aucun nouvel avoir n'a été émis.` };
+  }
+  if (!facture) return { ok: true, id: r.legalDocumentId, reference: r.reference, message: `Avoir ${r.reference} émis : ${formaterTtc(r.totaux.totalTtc)} TTC crédités.` };
+  const net = netDeLaFacture(facture.ttc, await montantsDesAvoirsActifs(factureId));
+  return {
+    ok: true, id: r.legalDocumentId, reference: r.reference,
+    message: `Avoir ${r.reference} émis : ${formaterTtc(r.totaux.totalTtc)} TTC crédités sur la facture ${facture.numero} — net de la facture : ${formaterTtc(net)}.`
+      // UN AVOIR SUR UNE FACTURE RÉGLÉE est un remboursement : l'écriture du règlement a eu lieu, elle ne se réécrit
+      // pas — et la phrase dit où se demande ce qui est dû au client, au lieu de laisser croire que c'est fait.
+      + (facture.regleeLe ? " La facture est déjà réglée : ce montant est dû au client — son remboursement se demande depuis « Demandes de validations » (« Demande de paiement »)." : ""),
   };
 }
 

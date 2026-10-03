@@ -158,9 +158,10 @@ export type LegalViewScope = "ALL" | "PURCHASE_CHAIN" | "BONS_DE_COMMANDE" | "NO
  * ET les bons de commande de la société — le bon de commande de référence remis avec la facture
  * est le leur, et l'on ne peut pas émettre une pièce qu'on n'aurait pas le droit de retrouver au
  * registre. Contrats, baux, conventions, assurances restent fermés : une liste FERMÉE, en un
- * endroit, lue par la liste, la fiche, l'action serveur et Adam.
+ * endroit, lue par la liste, la fiche, l'action serveur et Adam. L'AVOIR (§118.195) en fait partie : il corrige une
+ * facture que les Finances émettent, et l'on ne peut pas émettre une correction qu'on n'aurait pas le droit de lire.
  */
-export const PURCHASE_CHAIN_KINDS: readonly string[] = ["INVOICE", "PURCHASE_ORDER"];
+export const PURCHASE_CHAIN_KINDS: readonly string[] = ["INVOICE", "PURCHASE_ORDER", "CREDIT_NOTE"];
 
 /**
  * LA TROISIÈME PORTE, ET LA PLUS ÉTROITE : le module « Bons de commande » (§118.176). Le Super

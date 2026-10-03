@@ -47,6 +47,9 @@ import {
 
 // AMENDMENT n'y figure pas, et c'est délibéré : un avenant naît de SON contrat (`amendsId`), pas
 // d'un formulaire libre — un avenant orphelin ne modifierait rien et fausserait la valeur du marché.
+// CREDIT_NOTE non plus, pour la même raison : un avoir naît de SA facture, par la fabrique (§118.195), qui reprend son
+// calcul et vérifie ce qui reste à créditer. Saisi ici et chaîné par « Fait suite à », il serait retiré du règlement de
+// la facture sans être passé par ce plafond — un crédit que personne n'a borné.
 const KINDS: LegalDocKind[] = ["CONTRACT", "QUOTE", "PURCHASE_ORDER", "INVOICE", "AGREEMENT", "NDA", "INSURANCE", "LICENSE", "LEASE", "OTHER"];
 const parseKind = (v: string | null): LegalDocKind =>
   v && KINDS.includes(v as LegalDocKind) ? (v as LegalDocKind) : "CONTRACT";
@@ -612,6 +615,14 @@ export async function cancelLegalDocument(formData: FormData): Promise<ActionRes
     if (recues > 0) {
       return { ok: false, error: `${recues} ligne(s) de cette facture sont réceptionnées au stock promotionnel : annulez d'abord leur réception depuis le dossier du matériel (ce qui est entré au magasin y est physiquement).` };
     }
+    // UNE FACTURE CRÉDITÉE PAR DES AVOIRS NE S'ANNULE PAS SOUS EUX (§118.195) : le client garderait des avoirs sur
+    // une facture qui n'existe plus. Les avoirs d'abord — ils s'annulent un par un, motif à l'appui.
+    const avoirs = await prisma.legalDocument.findMany({
+      where: { chainFromId: id, kind: "CREDIT_NOTE", status: { not: "CANCELLED" } }, select: { reference: true }, orderBy: { createdAt: "asc" },
+    });
+    if (avoirs.length > 0) {
+      return { ok: false, error: `Cette facture est créditée par ${avoirs.length > 1 ? `${avoirs.length} avoirs` : "un avoir"} (${avoirs.map((a) => a.reference ?? "sans numéro").join(", ")}) : annulez-${avoirs.length > 1 ? "les" : "le"} d'abord — une facture ne s'annule pas sous ses avoirs.` };
+    }
   }
   // UN MOTIF, toujours (audit 360°, L04) : l'annulation partait sans, et même sur le bouton « Annuler »
   // de la boîte qui le demandait. Un contrat annulé ne rappelle plus son échéance — on doit savoir pourquoi.
@@ -799,7 +810,7 @@ export async function sendLegalInvoiceToSettlement(formData: FormData): Promise<
       where: { id },
       select: {
         id: true, title: true, reference: true, kind: true, amount: true, counterparty: true,
-        endDate: true, expenseOrderId: true, paidDate: true,
+        endDate: true, expenseOrderId: true, paidDate: true, direction: true,
         chainFrom: { select: { id: true, kind: true, reference: true } },
       },
     });
@@ -817,7 +828,7 @@ export async function sendLegalInvoiceToSettlement(formData: FormData): Promise<
     // envoyer au centre de paiement. La règle est un module pur, partagé avec l'écriture directe.
     const envoi = canSendToSettlement({
       kind: doc.kind, amount: amount || null, paidDate: doc.paidDate, expenseOrderId: doc.expenseOrderId,
-      bc: bcAmont, ordreLie,
+      bc: bcAmont, ordreLie, direction: doc.direction,
     });
     if (!envoi.ok) return { ok: false, error: envoi.error };
     // Un ordre REFUSÉ reste « en attente » côté statut : on le ferme avant d'en ouvrir un second, pour

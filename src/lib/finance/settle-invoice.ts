@@ -4,6 +4,8 @@ import { toNumber } from "@/lib/utils";
 import { buildRef } from "@/lib/refs";
 import { settlementAction, invoiceDirection, invoiceSettlementLabel } from "@/lib/finances/settlement";
 import { compteDeLEcriture } from "@/lib/finance/comptes";
+import { netDeLaFacture } from "@/lib/lecteurs/avoir";
+import { montantsDesAvoirsActifs } from "@/lib/lecteurs/avoirs-actifs";
 
 /**
  * L'ÉCRITURE FINANCIÈRE D'UNE FACTURE SAISIE COMME DÉJÀ RÉGLÉE.
@@ -71,7 +73,12 @@ export async function syncInvoiceSettlement(documentId: string, actorId: string)
 
   // CREATE — le montant est obligatoire pour écrire : une écriture à zéro est un mouvement qui
   // n'a pas eu lieu, et elle brouillerait la trésorerie sans rien apporter.
-  const amount = doc.amount != null ? toNumber(doc.amount) : 0;
+  //
+  // LE NET D'UNE FACTURE CRÉDITÉE (§118.195) : le client règle la facture MOINS ses avoirs actifs — encaisser le TTC
+  // entier ferait entrer en trésorerie un montant que personne n'a versé ; une facture entièrement créditée ne
+  // s'encaisse pas du tout. Un avoir émis APRÈS le règlement ne touche pas une écriture qui a eu lieu : c'est un
+  // remboursement, qui se demande à part (la phrase de l'avoir le dit).
+  const amount = netDeLaFacture(doc.amount != null ? toNumber(doc.amount) : 0, await montantsDesAvoirsActifs(doc.id));
   if (!(amount > 0)) return;
 
   const year = (doc.paidDate ?? new Date()).getFullYear();

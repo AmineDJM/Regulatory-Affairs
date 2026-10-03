@@ -3163,7 +3163,8 @@ fichiers dérivés des MÊMES données, cohérents chiffre par chiffre — ou au
   relations, marges — intact ; `word.test.ts` le vérifie pièce du ZIP par pièce du ZIP, octet pour octet. Sans papier,
   un paquet neuf complet (styles, propriétés, A4, marges 2 cm).
 - **Une pièce émise EST une pièce du registre Legal (§17 : pas de second registre).** `emettreDocumentDrive`
-  (`platform/in-process/artifact/factory.ts`) crée un `LegalDocument` de nature QUOTE / PURCHASE_ORDER / INVOICE
+  (`platform/in-process/artifact/factory.ts`) crée un `LegalDocument` de nature QUOTE / PURCHASE_ORDER / INVOICE /
+  CREDIT_NOTE — l'avoir, §118.195
   (référence, titre exact, contrepartie, montant TTC, `direction: IN` pour une facture émise, échéance ou fin de
   validité, `chainFromId` vers la pièce amont, `driveNodeId` vers le Word) et range la spécification complète, les
   totaux, la version, l'historique et les identifiants Drive dans `custom.fabrique`. Le registre Legal, la chaîne
@@ -3178,16 +3179,23 @@ fichiers dérivés des MÊMES données, cohérents chiffre par chiffre — ou au
   (`dejaEmis`) sans rien émettre — `forcerDoublon` pour passer outre. Un numéro attribué n'est jamais réutilisé.
 - **Révision, pas réécriture.** `reviserDocumentDrive` : un devis ou un BC se révise — même numéro, nouvelle
   version du MÊME fichier Drive (la v1 reste ouvrable), `custom.fabrique.version++`, historique (qui, quand,
-  motif), montant et titre mis à jour. Une FACTURE émise ne se réécrit pas : l'outil le dit (annulation et
-  nouvelle facture). **Depuis la fiche Legal** (§118.194) : « Réviser la pièce » (`reviserPieceCommerciale`) part
+  motif), montant et titre mis à jour. Une FACTURE émise ne se réécrit pas : un AVOIR la
+  corrige (ci-dessous). **Depuis la fiche Legal** (§118.194) : « Réviser la pièce » (`reviserPieceCommerciale`) part
   de la version affichée (`versionVue`, une version dépassée est refusée), exige ce qui change (demandé APRÈS
   l'état), et une pièce dont DÉCOULE une pièce active ne se révise plus (`AVAL_QUI_FIGE` : la facture d'un BC ; le
   BC ou la facture d'un devis — un courrier « faisant suite » ne fige rien). Une révision à la fois : file par pièce
   (`enSerie`) et écriture conditionnelle sur la version lue. Le formulaire générique de la fiche ne propose plus,
   et refuse de changer, ce que le FICHIER porte (montant, numéro, nature, dates, sens, partie —
   `lib/legal/piece-emise.ts`) ; ce qu'il ne porte pas garde sa valeur.
+  **L'avoir** (§118.195) : « Émettre un avoir », sur la fiche d'une facture émise (`emettreAvoir`), crée une pièce
+  `CREDIT_NOTE` (type `AVOIR`, préfixe `AV`) sous son propre numéro — motif exigé ; client, TVA, remise et taxes
+  repris de la facture sur le lien (`chainFromId`) ; Word « à l'envers », « MONTANT CRÉDITÉ » et jamais « SOMME À
+  PAYER » — qui ne crédite jamais plus que le TTC moins les avoirs actifs (`lib/lecteurs/avoir.ts`, au centime),
+  revérifié sous le verrou de la facture dans la transaction d'émission. Le règlement d'une facture encaisse son NET,
+  une facture ne s'annule pas sous ses avoirs, et un avoir ne se révise pas (`pieceDefinitive`) : il s'annule, et un
+  autre s'émet depuis la facture.
 - **Le profil documentaire d'une société** (`CompanyDocumentProfile`, outil `document_profile`) : préfixes de
-  numérotation (DEV / BC / FA par défaut), TVA par défaut, conditions de paiement, validité des devis (30 jours),
+  numérotation (DEV / BC / FA par défaut ; l'avoir prend `AV`, que le profil ne règle pas), TVA par défaut, conditions de paiement, validité des devis (30 jours),
   mention de pied, papier en-tête désigné, signataire. Lu par qui voit la société ; réglé par ceux qui tiennent la
   papeterie (`canManageLetterheads`). L'identité légale vient de la carte Legal, la couleur d'accent de la société.
 - **Le dossier à trois formats** (`canonical.ts`, `dossier.ts`, outil `dossier_build`) : des données canoniques
@@ -3213,8 +3221,8 @@ fichiers dérivés des MÊMES données, cohérents chiffre par chiffre — ou au
   motif) et couvertes par `document_build` / `document_profile`.
 - **Mêmes droits que l'écran** : `legalWriteAllowed` (Legal ouvre tout ; **les Finances les factures ET les bons de
   commande** — décision prise avec ce lot : ce sont elles qui émettent le BC de la chaîne d'achat, elles doivent
-  pouvoir le composer ; leur vue de Legal, `legalViewScope` → `PURCHASE_CHAIN`, montre ces deux natures et rien
-  d'autre, et la fiche d'un contrat leur rend `notFound`) et `canEditCompanyId` (voir une société ne suffit pas à
+  pouvoir le composer ; leur vue de Legal, `legalViewScope` → `PURCHASE_CHAIN`, montre ces natures — et les avoirs
+  qui en corrigent les factures (`PURCHASE_CHAIN_KINDS`, §118.195) —, rien d'autre, et la fiche d'un contrat leur rend `notFound`) et `canEditCompanyId` (voir une société ne suffit pas à
   l'engager). L'outil `document_build` est FERMÉ par
   `peutEmettrePieces` (`platform/in-process/artifact/factory-access.ts`) : le planificateur ne le voit pas sans le
   droit ; la garde est rejouée dans le pont au moment d'agir. En mission : `document_build` déclaré (`legal`,
@@ -4706,6 +4714,7 @@ entité) sont éligibles. Supprimer une gamme **ne supprime aucun produit** (`SE
 | **Recrutement — renvoyer, corriger, rouvrir, annuler l'embauche, un geste à la fois (§118.192)** | Règles pures `lib/recruitment/request-flow.ts` (étape `RETURNED`, `abilities` + `returnForCorrection` / `correct` / `reopen` / `cancelHire`, `marchesChangees`, `changementsMateriels`, `reouverture`) ; actions `recruitment-actions.ts` (`renvoyerDemandeRecrutement`, `resoumettreDemandeRecrutement`, `rouvrirDemandeRecrutement`, `annulerEmbaucheRecrutement` ; `decideRecruitmentStep` et `closeRecruitmentRequest` aux décisions lisibles et motifs exigés ; toutes les écritures d'étape conditionnelles) ; « À corriger » `queries/action-center.ts` ; écrans `recrutement/[id]/{page,panels}.tsx` (`CorrigerDemandePanel`, `RouvrirPanel`, historique) ; migration `20261231090000_recrutement_renvoi`. Bancs : `recruitment/request-flow.test.ts`, `actions/recruitment-correction-flow.test.ts` (vrais points d'entrée, RH sans vue globale, 17 courses forcées), cliquet `recruitment/etape-conditionnelle.test.ts`, `site-web/recrutement.test.ts`, navigateur `e2e/correction-c4d1.spec.ts`. |
 | **Plan de tournée — réviser un plan validé, dire une visite non tenue, un geste à la fois (§118.193)** | Règles pures `lib/sfe/tournee.ts` (état `REVISION`, `gestesPossibles().revisable`, `retraitInterditApresRevision`, `aResoumettre`, `retardDeSoumission` sur la resoumission) ; actions `tour-plan-actions.ts` (`demanderRevisionPlanTournee` ; décision, soumission, escalade et grille conditionnelles, `DEJA_CHANGE`), `tour-visit-actions.ts` (`direVisiteNonTenue`, phrase vraie des 48 h), `medical-actions.ts` (`updateVisit` et `deleteVisit` gardés et conditionnels) ; vues `queries/tour-schedule.ts` (`pairesPassees`, `pairesNonTenues`, révision, `motifNonTenue`), `queries/action-center.ts` (« À corriger ») ; écrans `plan-de-tournee/planificateur.tsx`, `plan-de-tournee/page.tsx`, `ma-journee/emploi-du-temps.tsx` ; migration `20270101090000_tournee_revision` ; bancs `actions/tournee-revision-flow.test.ts`, `e2e/correction-c4d2a.spec.ts` |
 | **Pièce Legal émise — réviser depuis la fiche, formulaire qui ne réécrit pas le fichier (§118.194)** | Règles pures `lib/legal/piece-emise.ts` (`pieceEmise`, `champsDuFichierChanges`, `refusChampsDuFichier`, `remedePieceEmise`, `AVAL_QUI_FIGE`, `refusRevisionAval`, `specRevisable`) ; lecteur `lib/legal/aval.ts` (`avalActif`) ; fabrique `platform/in-process/artifact/factory.ts` (`reviserDocumentDrive` : file `enSerie`, aval, `versionVue`, motif après l'état, écriture conditionnelle sur `custom.fabrique.version`, fichier de la PIÈCE) ; actions `fabrique-actions.ts` (`reviserPieceCommerciale`), `legal-actions.ts` (`updateLegalDocument` verrouillé, `readFields(formData, natureImposee)`) ; écrans `legal/[id]/reviser-piece.tsx`, `legal/[id]/page.tsx`, `legal/legal-fields.ts` (filtre des champs du fichier), `legal/[id]/edit-legal.tsx` ; dérivation `actions/contrat.ts` (test de présence qui cède) ; bancs `actions/legal-revision-flow.test.ts`, `e2e/correction-c4d2b1.spec.ts` |
+| **Facture émise — corriger par un avoir, plafond au centime, règlement au net (§118.195)** | Règles pures au socle `lib/lecteurs/avoir.ts` (`netDeLaFacture`, `resteACrediter`, `entierementCreditee`, `refusPlafondAvoir` — en centimes, zéro import) et `lib/legal/piece-emise.ts` (type `AVOIR`, `pieceDefinitive`, `remedePieceEmise`, `refusChampsDuFichier` accordé) ; lecteurs au socle `lib/lecteurs/avoirs-actifs.ts` (`montantsDesAvoirsActifs` — aussi dans la transaction qui verrouille la facture —, `totauxAvoirsActifs` en une requête) et `lib/legal/aval.ts` (`avoirsDeLaFacture`, `factureACrediter`) ; fabrique `lib/artifact/factory/commercial.ts` (`AVOIR` dans `TYPES_DOCUMENT`, `NATURE_LEGALE` → `CREDIT_NOTE`, `PREFIXE_DEFAUT` `AV`, `estPieceFiscale`, bloquants « sans facture d'origine » et « sans motif »), `lib/artifact/factory/build.ts` (`blocsFacture` à l'envers : « MONTANT CRÉDITÉ », jamais « SOMME À PAYER »), `platform/in-process/artifact/factory.ts` (`factureDeLAvoir` — client, calcul et facture d'origine lus sur le lien —, plafond après l'essai à blanc puis sous `SELECT … FOR UPDATE`, `previsualiserDocument` qui lit la facture comme l'émission, révision refusée à la facture et à l'avoir) ; actions `fabrique-actions.ts` (`emettreAvoir`), `legal-actions.ts` (`cancelLegalDocument` refuse sous des avoirs actifs, avant le motif ; `sendLegalInvoiceToSettlement` lit le sens ; `CREDIT_NOTE` hors des natures créables) ; règlement `lib/finance/settle-invoice.ts` (`syncInvoiceSettlement` au net), `lib/finances/settlement.ts` (`REFUS_FACTURE_EMISE_AU_REGLEMENT`, `canSendToSettlement` + `direction`) ; liste `lib/legal/invoices.ts` (`invoiceTally` au net), `lib/legal/list-view.ts` (filtre « à régler »), `app/(app)/legal/page.tsx` ; qualité `lib/quality/rules.ts` (`montant_contradictoire` au net) ; lecture des Finances `lib/lecteurs/legal.ts` (`PURCHASE_CHAIN_KINDS` + `CREDIT_NOTE`) ; libellé `labels.ts` (`natureLegale` → « Avoir ») ; écrans `legal/[id]/emettre-avoir.tsx`, `legal/[id]/lignes-editables.tsx` (un seul éditeur de lignes pour la révision et l'avoir), `legal/[id]/page.tsx` (avoirs, net, phrase du règlement) ; migration `20270102090000_avoir` ; bancs `lib/legal/avoir.test.ts`, `lib/actions/avoir-flow.test.ts` |
 | **Matériel promo — circuit court** | Module PUR `lib/promo-material/circuit.ts` (`PROMO_STEPS` (7), `PROMO_TRACKS` (`PURCHASE_ORDER`/`PAYMENT`/`AD_VISA`), `initialStep` — saute la demande de devis si le devis est déjà là —, `canValidate` (N+1 réel : `Employee.managerId`, à défaut `departmentRef.head`), **`seesFullCircuit`** (Super Admin + PDG **uniquement**), `tracksOpen`, `allTracksDone`, `pendingTracks`, `progress`, `waitingOn`) + `circuit.test.ts` (23 tests) ; `lib/actions/promo-circuit-actions.ts`. |
 | **Rejeu de session (support)** | Module PUR `lib/replay/capture.ts` (`FORBIDDEN_FIELD` — mot de passe / secret / jeton / IBAN / RIB / CVV / carte —, `FORBIDDEN_INPUT_TYPE` — `password`, `hidden` —, `fieldIsRecordable`, `isSensitiveLabel`, `cleanLabel`, `scrubDetail`, **`makeEvent` : la porte d'entrée UNIQUE**, `coalesce`, `describeEvent`, `stamp`, `firstErrorIndex`) + `capture.test.ts` (20 tests) ; modèle `SessionEvent` ; `components/layout/session-recorder.tsx` (monté dans `app/(app)/layout.tsx`, `sendBeacon`, **ne lit jamais `.value`**) ; `app/api/replay/route.ts` (**re-masque côté serveur**, 204 systématique, lot plafonné à 200) ; `app/(app)/admin/replay/{page,replay-viewer}.tsx` (**`SUPER_ADMIN` seul**). |
 | **Courriers — dossiers & pièces multiples** | Modèles `MailFolder` (arbre, `MailEntry.folderId` en `ON DELETE SET NULL`) et `MailEntryPiece` (intitulé + **destinataire propre** + fichier téléversé **ou** nœud Drive référencé) ; `lib/actions/mail-folder-actions.ts`, `lib/actions/mail-piece-actions.ts` ; `app/(app)/courriers/mail-folder-bar.tsx`, `app/(app)/courriers/[id]/mail-pieces.tsx`. |
@@ -6637,6 +6646,51 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 ---
 
 ## 🧾 Journal des évolutions récentes
+
+### AUDIT 360° — LOT C4d2b2 : UNE FACTURE ÉMISE SE CORRIGE PAR UN AVOIR, LE RÈGLEMENT ENCAISSE LE NET (2026-10)
+
+Rapport 17 de l'audit (R15, seconde moitié). Doctrine : `CLAUDE.md` §118.195. Avec la pièce révisable du lot C4d2b1
+(§118.194), R15 est livré.
+
+- **« Émettre un avoir »** sur la fiche d'une facture émise par la plateforme (`emettreAvoir`, panneau
+  `legal/[id]/emettre-avoir.tsx`) : le panneau part des lignes de la facture — on garde ce qui est crédité, en
+  totalité ou en partie —, et le motif est exigé : c'est ce que l'avoir imprime. L'avoir est une pièce du registre
+  (nature `CREDIT_NOTE`, type de fabrique `AVOIR`, préfixe `AV`), sous son propre numéro ; le client, la TVA, la
+  remise et les taxes sont repris de la facture par la fabrique, jamais de l'écran. La fiche de la facture liste ses
+  avoirs et affiche son net.
+- **Le Word est la facture « à l'envers »** : « Numéro d'avoir », « Facture d'origine », « Motif », « MONTANT
+  CRÉDITÉ », « Arrêté le présent avoir à la somme de » ; jamais « SOMME À PAYER » ni mode de paiement.
+- **La facture d'origine** est émise par la plateforme (une facture déposée se corrige par la pièce que son émetteur
+  envoie), de la même société, non annulée — ces refus passent avant le motif. Sans facture, la fabrique refuse :
+  « Un avoir corrige UNE facture : émettez-le depuis la fiche de la facture ».
+- **Le plafond, au centime** (`lib/lecteurs/avoir.ts`, pur, au socle ; « avoir actif » lu une fois par `lib/lecteurs/avoirs-actifs.ts`) : un avoir ne crédite jamais plus que le TTC moins les
+  avoirs actifs ; le refus dit les deux nombres, et une facture entièrement créditée a sa phrase. Contrôlé après
+  l'essai à blanc, puis revérifié dans la transaction d'émission sous le verrou de la facture
+  (`SELECT … FOR UPDATE`) : deux avoirs simultanés de 35 700 DZD TTC sur une facture de 51 170 DZD, un seul passe —
+  entre deux processus aussi. Un avoir annulé libère le plafond.
+- **Le règlement encaisse le net** : une facture réglée inscrit son TTC moins ses avoirs actifs. Un avoir émis
+  **après** le règlement : la somme est due au client, la phrase le dit et nomme où le remboursement se demande
+  (« Demandes de validations », « Demande de paiement ») — il n'est pas automatisé (décision à prendre).
+- **Une facture ne s'annule pas sous ses avoirs** : refusé avant le motif — annulez d'abord l'avoir. **Un avoir ne
+  se révise pas**, comme la facture ; le refus de révision d'une facture nomme désormais « Émettre un avoir », et
+  celui du formulaire générique s'accorde (« Cet avoir a été émis »).
+- **Pas d'avoir par le formulaire générique** : `CREDIT_NOTE` n'est pas une nature créable, comme l'avenant — un
+  avoir naît de sa facture. Les Finances lisent et écrivent les avoirs (chaîne d'achat).
+- **Trois lecteurs du montant dû**, trouvés en cherchant qui lit ce qu'une facture doit : le compte « à régler » de
+  la liste Legal, son total et son filtre lisent le net (une facture entièrement créditée sort de « à régler ») ; la
+  règle qualité `montant_contradictoire` compare le règlement au net (au TTC, elle aurait dénoncé chaque facture
+  créditée réglée juste) ; « Envoyer au règlement » refuse une facture émise par la société (sens `IN`) — elle
+  ouvrait un ordre de dépense pour de l'argent qui doit entrer —, et la fiche dit pourquoi avec la même phrase.
+- **Au socle, pas sous Legal** : la règle et ses lecteurs vivaient d'abord sous `lib/legal/` ; le règlement (domaine
+  finance) les lisait, et le cliquet des traversées a compté 70 pour 68. Une règle pure que plusieurs domaines lisent
+  vit au socle : retour à 68, sans relever le plafond.
+- **Un avoir total resoumis rend la pièce, une émission interrompue se reprend** : le plafond se lit APRÈS la
+  reconnaissance du doublon. Avant, l'avoir identique déjà inscrit comptait contre lui-même — un double clic sur un
+  avoir total était refusé « entièrement créditée », et une émission interrompue ne se reprenait jamais (trouvé en
+  écrivant la liste des sabotages, avant d'en jouer un).
+- **Ce qui reste, nommé** : le remboursement d'un avoir émis après règlement n'est pas automatisé ; l'outil de
+  pièces d'Adam (en pause) ne connaît pas l'avoir ; le préfixe `AV` n'est pas réglable ; un avoir ne porte pas le
+  timbre fiscal d'une facture payée en espèces (le rembourser ou non est une décision fiscale).
 
 ### AUDIT 360° — LOT C4d2b1 : UNE PIÈCE ÉMISE SE RÉVISE DEPUIS SA FICHE, LE FORMULAIRE NE RÉÉCRIT PLUS SON FICHIER (2026-10)
 

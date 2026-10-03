@@ -250,7 +250,7 @@ suite("Legal — une pièce émise se révise depuis sa fiche, et le formulaire 
       const phrase = refusChampsDuFichier({ type: "FACTURE", numero: f.reference, version: 1 }, ["amount", "endDate"]);
       expect(r).toEqual({ ok: false, error: phrase });
       expect(phrase).toContain("le montant et l'échéance viennent de son fichier");
-      expect(phrase).toContain("annulez-la (motif à l'appui)");
+      expect(phrase).toContain("« Émettre un avoir », sur sa fiche");
       expect(jour((await lire(f.legalDocumentId)).endDate)).toBe(jour(avant.endDate));
     }, 90_000);
 
@@ -339,7 +339,7 @@ suite("Legal — une pièce émise se révise depuis sa fiche, et le formulaire 
 
       ACTOR = fin;
       const rf = await reviserPieceCommerciale(undefined, revision(facture.legalDocumentId, 1));
-      expect(rf.error).toBe(`La facture ${facture.reference} est émise : une facture ne se réécrit pas. Pour la corriger, annulez-la (motif à l'appui) et composez-en une nouvelle.`);
+      expect(rf.error).toBe(`La facture ${facture.reference} est émise : une facture ne se réécrit pas. Pour la corriger, émettez un avoir depuis sa fiche — en totalité ou en partie.`);
       const ra = await reviserPieceCommerciale(undefined, revision(annule.legalDocumentId, 1));
       expect(ra.error).toBe(`La pièce ${annule.reference} est annulée : elle ne se révise plus.`);
       const rv = await reviserPieceCommerciale(undefined, revision(fige.legalDocumentId, 1));

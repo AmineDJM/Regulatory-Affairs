@@ -18,6 +18,7 @@ import { buildFolderTree, flattenFolders, indentedLabel } from "@/lib/legal/fold
 import { legalListScope } from "@/lib/legal/list-view";
 import { legalReaderWhere } from "@/lib/lecteurs/legal";
 import { natureFromParam, invoiceTally, PURCHASE_CHAIN_KINDS } from "@/lib/legal/invoices";
+import { totauxAvoirsActifs } from "@/lib/lecteurs/avoirs-actifs";
 import { perimetreLegal } from "@/lib/queries/visibilite-listes";
 import { ComposerPieceButton, type TypePieceComposable } from "@/components/pieces/composer-piece";
 import { compositionDesPieces } from "@/lib/queries/composition-pieces";
@@ -122,6 +123,10 @@ export default async function LegalPage({ searchParams }: { searchParams?: { ech
     : [];
 
   const today = new Date();
+  // LES AVOIRS ACTIFS de chaque facture (§118.195), en une requête et SANS le filtre de dossier : un avoir peut être
+  // rangé ailleurs que sa facture, et ce qu'elle doit encore n'en dépend pas. Le compte « à régler », son total et
+  // le filtre de la liste lisent le NET — le même que le règlement encaisse.
+  const avoirsParFacture = await totauxAvoirsActifs(docs.filter((d) => d.kind === "INVOICE").map((d) => d.id));
   const rows: LegalRow[] = docs.map((d) => ({
     id: d.id,
     reference: d.reference,
@@ -143,6 +148,7 @@ export default async function LegalPage({ searchParams }: { searchParams?: { ech
     // LE RÈGLEMENT d'une facture — vide sur toute autre nature.
     paidDate: d.paidDate?.toISOString() ?? null,
     expenseOrderId: d.expenseOrderId,
+    avoirs: avoirsParFacture.get(d.id) ?? 0,
   }));
 
   // L'ARMOIRE. Le compte de documents par dossier respecte le MÊME cloisonnement que la liste :

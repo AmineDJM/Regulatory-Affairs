@@ -6,6 +6,7 @@ import {
   hasGlobalView, scopeAdminRequests, scopeCongressIntl, scopeCongressNational, scopeSales, scopeSponsoring, userCan, type SessionUser,
 } from "@/lib/rbac";
 import { legalReaderWhere, legalViewScope, PURCHASE_CHAIN_KINDS, type LegalViewScope } from "@/lib/lecteurs/legal";
+import type { LegalDocKind } from "@prisma/client";
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
@@ -180,7 +181,7 @@ export async function perimetreLegal(user: SessionUser): Promise<{ portee: Legal
   if (portee === "NONE" || portee === "BONS_DE_COMMANDE") return { portee, where: null };
   const lecteurs = legalReaderWhere({ viewerId: user.id, isSuperAdmin: user.role === "SUPER_ADMIN" });
   const nature: Prisma.LegalDocumentWhereInput = portee === "PURCHASE_CHAIN"
-    ? { kind: { in: [...PURCHASE_CHAIN_KINDS] as ("INVOICE" | "PURCHASE_ORDER")[] } }
+    ? { kind: { in: [...PURCHASE_CHAIN_KINDS] as LegalDocKind[] } }
     : {};
   const where = await companyScopedWhere<Prisma.LegalDocumentWhereInput>(user.id, {
     AND: [nature, ...(lecteurs ? [lecteurs as Prisma.LegalDocumentWhereInput] : [])],

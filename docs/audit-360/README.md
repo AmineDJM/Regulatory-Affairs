@@ -117,6 +117,15 @@ plans à resoumettre. **La pièce Legal émise se révise depuis sa fiche (lot C
 pièce » (même numéro, version suivante du Word et du PDF, motif exigé après l'état, version affichée exigée, une
 révision à la fois), une pièce dont découle une pièce active ne se révise plus (la règle vit chez la fabrique), et le
 formulaire « Modifier » ne propose ni ne réécrit plus ce que le fichier porte. Reste l'avoir (C4d2b2).
+     PAR les lignes ci-dessous (même retour à la ligne que le paragraphe) : -->
+
+formulaire « Modifier » ne propose ni ne réécrit plus ce que le fichier porte. **Une facture émise se corrige par un
+avoir (lot C4d2b2, §118.195) — R15 est livré** : « Émettre un avoir » depuis la fiche de la facture (sous son propre
+numéro, en totalité ou en partie, motif exigé ; client, TVA, remise et taxes repris de la facture), plafonné au
+centime par ce qui reste à créditer et revérifié sous verrou (deux avoirs simultanés : un seul passe) ; le règlement
+encaisse le net, la liste Legal ne compte plus « à régler » une facture entièrement créditée, une facture ne s'annule
+plus sous ses avoirs, et « Envoyer au règlement » refuse une facture émise par la société. Un avoir émis après le
+règlement dit que la somme est due au client : son remboursement n'est pas automatisé (décision à prendre).
 
 Constat d'ensemble (rapports 17, 18, 01, 03, 14) : **la plateforme sait refuser, rarement faire corriger.**
 

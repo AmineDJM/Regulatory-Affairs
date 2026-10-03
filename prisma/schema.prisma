@@ -11547,6 +11547,9 @@ enum LegalDocKind {
   QUOTE // devis — le premier maillon de la chaîne d'achat
   PURCHASE_ORDER // bon de commande
   INVOICE // facture — le dernier maillon avant le règlement
+  /// AVOIR (§118.195) : la correction d'une FACTURE émise, qui ne se réécrit pas — un avoir naît de SA
+  /// facture (`chainFromId`), sous son propre numéro, et en réduit le net ; il ne se crée pas seul.
+  CREDIT_NOTE
   /// AVENANT à un contrat (`amendsId`) : une vraie pièce Legal — revue, lecteurs, Drive —
   /// qui porte EN PLUS son impact marché (`amountDelta`, lignes en delta). La valeur
   /// contractuelle courante = montant initial + deltas des avenants EFFECTIFS ; elle se

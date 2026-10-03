@@ -16,6 +16,8 @@
 
 import { prisma } from "@/lib/prisma";
 import { toNumber } from "@/lib/utils";
+import { netDeLaFacture } from "@/lib/lecteurs/avoir";
+import { totauxAvoirsActifs } from "@/lib/lecteurs/avoirs-actifs";
 import {
   cleProduit, clePersonne, cleSociete, emailNormalise, estAberrant, joursEntre, mediane, resolutionEffective, signatureDe,
   verdictEmail, type Constat, type Correction, type DefinitionRegle,
@@ -421,6 +423,9 @@ const DETECTEURS: Record<string, Detecteur> = {
       }),
       prisma.expenseOrder.findMany({ where: { status: "PAID", transactionId: { not: null } }, select: { id: true, reference: true, label: true, amount: true, transactionId: true }, take: 4000 }),
     ]);
+    // CE QUE LA FACTURE DOIT VRAIMENT (§118.195) : son NET, avoirs actifs retirés — c'est ce que le règlement
+    // encaisse. Comparer l'écriture au TTC dénoncerait comme « contradictoire » chaque facture créditée réglée juste.
+    const avoirsParFacture = await totauxAvoirsActifs(factures.filter((f) => f.settlementTx?.amount != null).map((f) => f.id));
     for (const f of factures) {
       const montant = toNumber(f.amount);
       if (f.chainFrom?.amount != null && f.chainFrom.amendments.length === 0) {
@@ -430,8 +435,10 @@ const DETECTEURS: Record<string, Detecteur> = {
       }
       if (f.settlementTx?.amount != null) {
         const regle = toNumber(f.settlementTx.amount);
-        const e = ecartPct(regle, montant);
-        if (e > 1) out.push(constat(r, { entite: "LegalDocument", entiteId: f.id, href: HREF.legal(f.id), module: "FINANCES", montant, cle: ["reglement"], titre: `${f.reference ?? f.title} : réglée ${dzd(regle)} pour ${dzd(montant)} facturés`, detail: `L'écriture ${f.settlementTx.reference} ne vaut pas la facture (écart ${e.toFixed(1)} %) : trop-perçu, reste dû ou mauvais rapprochement.` }));
+        const avoirs = avoirsParFacture.get(f.id) ?? 0;
+        const du = netDeLaFacture(montant, [avoirs]);
+        const e = ecartPct(regle, du);
+        if (e > 1) out.push(constat(r, { entite: "LegalDocument", entiteId: f.id, href: HREF.legal(f.id), module: "FINANCES", montant, cle: ["reglement"], titre: `${f.reference ?? f.title} : réglée ${dzd(regle)} pour ${dzd(du)} ${avoirs > 0 ? "dus (avoirs déduits)" : "facturés"}`, detail: `L'écriture ${f.settlementTx.reference} ne vaut pas la facture (écart ${e.toFixed(1)} %) : trop-perçu, reste dû ou mauvais rapprochement.` }));
       }
     }
     const txIds = ordres.map((o) => o.transactionId!).filter(Boolean);

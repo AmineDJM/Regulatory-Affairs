@@ -24,6 +24,7 @@ import { legalFields, dateInput } from "../legal-fields";
 import { buildFolderTree, flattenFolders, indentedLabel } from "@/lib/legal/folders";
 import { EditLegalButton } from "./edit-legal";
 import { ReviserPieceButton } from "./reviser-piece";
+import { EmettreAvoirButton } from "./emettre-avoir";
 import { RecordDeleteButton } from "@/components/shared/record-delete-button";
 import { PartagerButton } from "@/components/shared/partager-button";
 import { legalReaderWhere, canManageLegalReaders } from "@/lib/lecteurs/legal";
@@ -36,14 +37,16 @@ import { EntityLinks } from "@/components/shared/entity-links";
 import { linksOf, linkedViews } from "@/lib/links/store";
 import { porteDuBC, origineDuBC, centreVouluDuBC } from "@/lib/bons-de-commande/aiguillage";
 import { blocageParLeBC } from "@/lib/bons-de-commande/regle";
+import { REFUS_FACTURE_EMISE_AU_REGLEMENT } from "@/lib/finances/settlement";
 import { siegeAuCentreAdPro } from "@/lib/ad-pro/centre";
 import { sitsOnValidationCentre } from "@/lib/validations/centre";
 import { BonDeCommandeGate } from "./bc-gate";
 import { etatDuBC } from "@/lib/bons-de-commande/etat";
 import { peutSignerBC } from "@/lib/queries/bons-de-commande";
 import { fichiersEmis, lienFichierEmis } from "@/lib/legal/fichiers-emis";
-import { pieceEmise, refusRevisionAval, remedePieceEmise, specRevisable } from "@/lib/legal/piece-emise";
-import { avalActif } from "@/lib/legal/aval";
+import { pieceDefinitive, pieceEmise, refusRevisionAval, remedePieceEmise, specRevisable } from "@/lib/legal/piece-emise";
+import { netDeLaFacture } from "@/lib/lecteurs/avoir";
+import { avalActif, avoirsDeLaFacture } from "@/lib/legal/aval";
 
 export const dynamic = "force-dynamic";
 
@@ -216,9 +219,19 @@ export default async function LegalDocumentPage({ params }: { params: { id: stri
   // nouvelle version. Le geste n'est offert qu'à qui la fabrique l'accordera — le droit d'écrire la pièce ET
   // celui d'engager sa société —, et ce qui en découle se dit AVANT le clic (§118.83).
   const emise = pieceEmise(doc.custom);
-  const revisable = emise && emise.type !== "FACTURE" && doc.status === "ACTIVE" ? specRevisable(doc.custom) : null;
+  const revisable = emise && !pieceDefinitive(emise.type) && doc.status === "ACTIVE" ? specRevisable(doc.custom) : null;
   const peutReviser = Boolean(revisable) && canEdit && (await canEditCompanyId(user.id, doc.companyId));
   const avalDeLaPiece = peutReviser && emise ? await avalActif(doc.id, emise.type) : null;
+  // UNE FACTURE ÉMISE SE CORRIGE PAR UN AVOIR (§118.195) : ses avoirs, son NET et ce qui reste à créditer se lisent
+  // ici par les mêmes lecteurs que la fabrique (qui plafonne) et que le règlement (qui encaisse le net). Le geste n'est
+  // offert qu'à qui la fabrique l'accordera — le droit de créer un avoir ET celui d'engager la société.
+  const factureEmise = emise?.type === "FACTURE";
+  const avoirs = factureEmise ? await avoirsDeLaFacture(doc.id) : [];
+  const netFacture = netDeLaFacture(doc.amount !== null ? toNumber(doc.amount) : 0, avoirs.filter((a) => a.actif).map((a) => a.montant));
+  const peutEmettreAvoir = factureEmise && doc.status === "ACTIVE" && netFacture > 0
+    && legalWriteAllowed({ onLegal: userCan(user, "LEGAL", "CREATE"), onFinances: userCan(user, "FINANCES", "CREATE"), kind: "CREDIT_NOTE" })
+    && (await canEditCompanyId(user.id, doc.companyId));
+  const lignesFacture = peutEmettreAvoir ? specRevisable(doc.custom)?.lignes ?? [] : [];
   // L'ÉTAT DE BOUT EN BOUT (§118.149) — porte, seuil, signature — par le MÊME lecteur que la file
   // des Finances et que l'action de signature : la fiche ne peut pas dire « à signer » d'un BC que
   // l'action refuserait.
@@ -238,9 +251,13 @@ export default async function LegalDocumentPage({ params }: { params: { id: stri
   const bcAmont = doc.kind === "INVOICE" && doc.chainFromId
     ? await prisma.legalDocument.findUnique({ where: { id: doc.chainFromId }, select: { id: true, kind: true, reference: true } })
     : null;
-  const settleBlocked = bcAmont?.kind === "PURCHASE_ORDER"
-    ? blocageParLeBC(await porteDuBC(bcAmont.id), bcAmont.reference)
-    : null;
+  // Une facture ÉMISE par la société se règle par son client : la fiche dit pourquoi le bouton n'est pas là, avec la
+  // phrase même du refus de l'action (§118.195).
+  const settleBlocked = doc.kind === "INVOICE" && doc.direction === "IN"
+    ? REFUS_FACTURE_EMISE_AU_REGLEMENT
+    : bcAmont?.kind === "PURCHASE_ORDER"
+      ? blocageParLeBC(await porteDuBC(bcAmont.id), bcAmont.reference)
+      : null;
 
   // L'ANNUAIRE — avec les parties DÉJÀ retenues, même retirées de l'annuaire depuis : une partie
   // à un contrat signé ne disparaît pas du contrat parce qu'on ne travaille plus avec elle.
@@ -388,10 +405,37 @@ export default async function LegalDocumentPage({ params }: { params: { id: stri
                   </div>
                   {/* CE QUI CORRIGE UNE PIÈCE ÉMISE, À L'ENDROIT OÙ ON LA REGARDE (§118.194) : la révision pour un
                       devis ou un bon de commande ; pour une facture, la phrase qui dit pourquoi elle ne se révise pas. */}
-                  {emise?.type === "FACTURE" && doc.status === "ACTIVE" && (
-                    <p className="mt-1 text-xs text-muted-foreground">Une facture émise ne se révise pas — {remedePieceEmise(emise)}</p>
+                  {factureEmise && avoirs.length > 0 && (
+                    <div className="mt-2 space-y-1 text-sm">
+                      <p className="text-xs text-muted-foreground">Avoirs sur cette facture</p>
+                      <ul className="space-y-0.5">
+                        {avoirs.map((a) => (
+                          <li key={a.id} className={a.actif ? "" : "text-muted-foreground line-through"}>
+                            <Link href={`/legal/${a.id}`} className="font-medium text-primary hover:underline">{a.reference ?? "Avoir"}</Link>
+                            {" "}— {formatCurrency(a.montant)}{a.actif ? "" : " (annulé)"}
+                          </li>
+                        ))}
+                      </ul>
+                      <p className="font-medium">Net de la facture : {formatCurrency(netFacture)}</p>
+                    </div>
                   )}
-                  {peutReviser && revisable && emise && emise.type !== "FACTURE" && (
+                  {emise && pieceDefinitive(emise.type) && doc.status === "ACTIVE" && !peutEmettreAvoir && (
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {emise.type === "AVOIR"
+                        ? "Un avoir émis ne se révise pas : il s'annule (motif à l'appui), puis un autre s'émet depuis la fiche de la facture."
+                        : netFacture <= 0
+                          ? "Facture entièrement créditée par ses avoirs."
+                          // Le geste n'est pas offert ICI : on ne nomme pas un bouton que la personne n'a pas (§118.128).
+                          : "Une facture émise ne se révise pas : un avoir la corrige, émis par une personne qui tient les pièces de cette société."}
+                    </p>
+                  )}
+                  {peutEmettreAvoir && emise && (
+                    <div className="mt-2">
+                      <p className="mb-1 text-xs text-muted-foreground">Une facture émise ne se réécrit pas : un avoir la corrige, en totalité ou en partie, sous son propre numéro.</p>
+                      <EmettreAvoirButton factureId={doc.id} numero={emise.numero} reste={formatCurrency(netFacture)} lignes={lignesFacture} />
+                    </div>
+                  )}
+                  {peutReviser && revisable && emise && !pieceDefinitive(emise.type) && (
                     avalDeLaPiece
                       ? <p className="mt-2 text-xs text-muted-foreground">{refusRevisionAval(emise.type, avalDeLaPiece)}</p>
                       : (

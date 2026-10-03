@@ -417,7 +417,10 @@ suite("Plan de tournée — réviser un plan validé, dire une visite non tenue,
 
   // ── LA VISITE QUI N'A PAS EU LIEU ───────────────────────────────────────────────────────
   it("NON TENUE — une visite à venir se dit reportée, motif à l'appui ; « Ma journée » montre le motif", async () => {
+    // DEMAIN À 11 H, jamais « dans 24 h » : la vue « Aujourd'hui » est un jour LOCAL, et lancé entre 23 h et minuit le
+    // cas lisait la visite d'un jour et la vue du lendemain — rouge une heure par jour, sur une règle juste (§118.195).
     const demain = new Date(Date.now() + 24 * H);
+    demain.setHours(11, 0, 0, 0);
     const v = await visite(null, demain);
     await comme("kam");
     expect(err(await direVisiteNonTenue(fd({ visitId: v, issue: "NOPE", motif: "x" })))).toMatch(/reportée ou annulée/);

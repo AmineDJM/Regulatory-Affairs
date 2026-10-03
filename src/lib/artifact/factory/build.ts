@@ -49,7 +49,7 @@ import { controlerAvantLivraison, type ControleLivraison } from "@/lib/artifact/
 import type { DocxModel } from "@/lib/artifact/object-model/model";
 import {
   ajouterJours, calculerTotaux, formaterDateFr, formaterDzd, formaterMontant, formaterQuantite, formaterTaux,
-  LIBELLE_MODE, LIBELLE_TYPE, verifierSpecCommerciale,
+  LIBELLE_MODE, LIBELLE_TYPE, estPieceFiscale, verifierSpecCommerciale,
   type LigneCalculee, type PartieCommerciale, type SpecDocumentCommercial, type TotauxCommerciaux,
 } from "@/lib/artifact/factory/commercial";
 import { composerDocx, paragraphe, tableau, vide, type Cellule, type ColonneTableau, type Fragment } from "@/lib/artifact/factory/word";
@@ -185,19 +185,23 @@ function blocsFacture(spec: SpecDocumentCommercial, t: TotauxCommerciaux): strin
   const e = spec.emetteur;
   const c = spec.tiers;
   const blocs: string[] = [];
+  // L'AVOIR EST UNE FACTURE À L'ENVERS (§118.195) : même mise en page, mêmes mentions — il dit ce qu'il corrige
+  // (la facture d'origine, dans les références) et ce qu'il crédite, jamais une « somme à payer ».
+  const avoir = spec.type === "AVOIR";
 
-  // 1 — L'émetteur en grand à gauche ; « Facture » et ses références à droite.
+  // 1 — L'émetteur en grand à gauche ; « Facture » (ou « Avoir ») et ses références à droite.
   const refs: [string, string][] = [
     ["Numéro de client :", present(spec.numeroClient) ? spec.numeroClient.trim() : "—"],
-    ["Numéro de facture :", spec.numero],
-    ["Date de facture :", formaterDateFr(spec.date)],
+    [avoir ? "Numéro d'avoir :" : "Numéro de facture :", spec.numero],
+    [avoir ? "Date de l'avoir :" : "Date de facture :", formaterDateFr(spec.date)],
   ];
+  if (avoir && present(spec.referenceAmont)) refs.push(["Facture d'origine :", `${spec.referenceAmont.trim()}${spec.referenceAmontDate ? ` du ${formaterDateFr(spec.referenceAmontDate)}` : ""}`]);
   if (spec.echeance) refs.push(["Échéance :", formaterDateFr(spec.echeance)]);
   const gauche: Cellule[] = [
     { contenu: [{ texte: e.nom.trim(), gras: true, taillePt: 16, couleur: accent }], fusion: 2 },
     { contenu: present(e.adresse) ? [{ texte: "Siège Social : ", gras: false }, { texte: e.adresse.trim() }] : "", fusion: 2 },
   ];
-  const lignesEntete: Cellule[][] = [[gauche[0], { contenu: [{ texte: "Facture", taillePt: 18, couleur: GRIS_TITRE }], fusion: 2 }]];
+  const lignesEntete: Cellule[][] = [[gauche[0], { contenu: [{ texte: avoir ? "Avoir" : "Facture", taillePt: 18, couleur: GRIS_TITRE }], fusion: 2 }]];
   refs.forEach(([k, v], i) => lignesEntete.push([gauche[i + 1] ?? { contenu: "", fusion: 2 }, { contenu: k, couleur: GRIS }, { contenu: v, alignement: "center" }]));
   blocs.push(tableau(lignesEntete, {
     colonnes: [{ largeurCm: 4.6 }, { largeurCm: 4.6 }, { largeurCm: 3.6 }, { largeurCm: 3.2, alignement: "center" }], bordures: false, taillePt: 10,
@@ -206,7 +210,7 @@ function blocsFacture(spec: SpecDocumentCommercial, t: TotauxCommerciaux): strin
 
   // 2 — « Facturer à : » — la bande, puis le client à gauche et ses identifiants en face.
   const colsClient: ColonneTableau[] = [{ largeurCm: 8.4 }, { largeurCm: 0.8 }, { largeurCm: 6.8 }];
-  blocs.push(tableau([[{ contenu: [{ texte: "Facturer à :", gras: true, couleur: "FFFFFF" }], fond: accent }, "", { contenu: "", fond: accent }]], { colonnes: colsClient, bordures: false, taillePt: 10 }));
+  blocs.push(tableau([[{ contenu: [{ texte: avoir ? "Avoir au bénéfice de :" : "Facturer à :", gras: true, couleur: "FFFFFF" }], fond: accent }, "", { contenu: "", fond: accent }]], { colonnes: colsClient, bordures: false, taillePt: 10 }));
   const client: Fragment[] = [{ texte: c.nom.trim(), gras: true, taillePt: 10.5 }];
   if (present(c.adresse)) for (const l of lignesDe(c.adresse)) client.push({ texte: `\n${l}` });
   if (present(c.telephone)) client.push({ texte: "\nTél/Fax : ", gras: true }, { texte: c.telephone.trim() });
@@ -220,9 +224,13 @@ function blocsFacture(spec: SpecDocumentCommercial, t: TotauxCommerciaux): strin
   blocs.push(tableau([[client, "", ids]], { colonnes: colsClient, bordures: false, taillePt: 10 }));
   blocs.push(vide(8));
 
-  // 3 — « Document Ref : » — l'objet, ou la pièce amont.
-  const ref = [spec.objet, spec.referenceAmont ? `${spec.referenceAmont}${spec.referenceAmontDate ? ` du ${formaterDateFr(spec.referenceAmontDate)}` : ""}` : null].filter(present).join(" — ");
-  blocs.push(paragraphe([{ texte: "Document Ref : ", couleur: GRIS }, { texte: ref }], { taillePt: 10, apresPt: 2 }));
+  // 3 — « Document Ref : » — l'objet, ou la pièce amont. Sur un avoir : son MOTIF (la facture est déjà en tête).
+  if (avoir) {
+    if (present(spec.objet)) blocs.push(paragraphe([{ texte: "Motif : ", couleur: GRIS }, { texte: spec.objet.trim() }], { taillePt: 10, apresPt: 2 }));
+  } else {
+    const ref = [spec.objet, spec.referenceAmont ? `${spec.referenceAmont}${spec.referenceAmontDate ? ` du ${formaterDateFr(spec.referenceAmontDate)}` : ""}` : null].filter(present).join(" — ");
+    blocs.push(paragraphe([{ texte: "Document Ref : ", couleur: GRIS }, { texte: ref }], { taillePt: 10, apresPt: 2 }));
+  }
 
   // 4 — Les lignes : sans filets, la bande d'en-tête à la couleur de la société.
   const colonnes = colonnesLignes(t,
@@ -259,9 +267,9 @@ function blocsFacture(spec: SpecDocumentCommercial, t: TotauxCommerciaux): strin
   }
   if (t.timbre > 0) droite.push(["DROIT DE TIMBRE :", formaterMontant(t.timbre)]);
   droite.push(["TOTAL TTC :", formaterMontant(t.totalTtc)]);
-  droite.push(["SOMME À PAYER :", formaterMontant(t.totalTtc), true]);
+  droite.push([avoir ? "MONTANT CRÉDITÉ :" : "SOMME À PAYER :", formaterMontant(t.totalTtc), true]);
   const gaucheBas: Cellule[] = [
-    { contenu: [{ texte: "Arrêtée la présente facture à la somme de :", gras: true, couleur: "FFFFFF" }], fond: accent },
+    { contenu: [{ texte: avoir ? "Arrêté le présent avoir à la somme de :" : "Arrêtée la présente facture à la somme de :", gras: true, couleur: "FFFFFF" }], fond: accent },
     { contenu: formaterMontant(t.totalTtc), alignement: "right", gras: true },
     { contenu: t.enLettres.toUpperCase() },
   ];
@@ -382,7 +390,7 @@ function blocsCommande(spec: SpecDocumentCommercial, t: TotauxCommerciaux): stri
 
 /** LES BLOCS DE LA PIÈCE, dans l'ordre de lecture — la mise en page de la maison, par nature. */
 export function blocsCommerciaux(spec: SpecDocumentCommercial, t: TotauxCommerciaux): string[] {
-  return spec.type === "FACTURE" ? blocsFacture(spec, t) : blocsCommande(spec, t);
+  return estPieceFiscale(spec.type) ? blocsFacture(spec, t) : blocsCommande(spec, t);
 }
 
 /**

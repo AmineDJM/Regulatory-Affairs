@@ -16,7 +16,7 @@
  * ═════════════════════════════════════════════════════════════════
  */
 
-export type TypePieceEmise = "DEVIS" | "BON_DE_COMMANDE" | "FACTURE";
+export type TypePieceEmise = "DEVIS" | "BON_DE_COMMANDE" | "FACTURE" | "AVOIR";
 
 /** Ce que l'on sait d'une pièce émise, lu dans `custom.fabrique` — `null` pour une pièce déposée. */
 export interface FaitsPieceEmise {
@@ -25,7 +25,7 @@ export interface FaitsPieceEmise {
   version: number;
 }
 
-const TYPES: readonly string[] = ["DEVIS", "BON_DE_COMMANDE", "FACTURE"];
+const TYPES: readonly string[] = ["DEVIS", "BON_DE_COMMANDE", "FACTURE", "AVOIR"];
 
 /** La pièce a-t-elle été émise par la fabrique ? On ne devine rien : sans type ni numéro lisibles, `null`. */
 export function pieceEmise(custom: unknown): FaitsPieceEmise | null {
@@ -101,20 +101,26 @@ const liste = (mots: string[]): string =>
 
 /**
  * LE GESTE QUI CORRIGE une pièce émise, dit là où on le cherche. Un devis et un bon de commande se
- * RÉVISENT (même numéro, nouvelle version). Une facture émise ne se réécrit pas : elle s'annule,
- * motif à l'appui, et une nouvelle se compose.
+ * RÉVISENT (même numéro, nouvelle version). Une facture émise ne se réécrit pas : un AVOIR la corrige,
+ * en totalité ou en partie, sous son propre numéro (§118.195). Un avoir non plus : il s'annule, motif à
+ * l'appui, et un autre s'émet depuis la facture.
  */
 export function remedePieceEmise(p: FaitsPieceEmise): string {
-  return p.type === "FACTURE"
-    ? `une facture émise ne se réécrit pas : annulez-la (motif à l'appui) et composez-en une nouvelle depuis le registre Legal (« Composer une facture »).`
-    : `« Réviser la pièce » en produit une nouvelle version, sous le même numéro — le fichier et la fiche restent d'accord.`;
+  if (p.type === "FACTURE") return `une facture émise ne se réécrit pas : « Émettre un avoir », sur sa fiche, la corrige en totalité ou en partie, sous son propre numéro.`;
+  if (p.type === "AVOIR") return `un avoir émis ne se réécrit pas : annulez-le (motif à l'appui), puis émettez-en un autre depuis la fiche de la facture.`;
+  return `« Réviser la pièce » en produit une nouvelle version, sous le même numéro — le fichier et la fiche restent d'accord.`;
+}
+
+/** Une pièce émise qui ne se RÉVISE pas : la facture et l'avoir, pièces fiscales — on les corrige par une autre pièce. */
+export function pieceDefinitive(type: TypePieceEmise): type is "FACTURE" | "AVOIR" {
+  return type === "FACTURE" || type === "AVOIR";
 }
 
 /** Le refus du formulaire générique sur un champ que le fichier porte — nommé, avec son remède (§118.30). */
 export function refusChampsDuFichier(p: FaitsPieceEmise, champs: ChampDuFichier[]): string {
   const noms = liste(champs.map((c) => LIBELLE_CHAMP_DU_FICHIER[c]));
-  const article = p.type === "FACTURE" ? "Cette facture" : "Cette pièce";
-  return `${article} a été émise par la plateforme (${p.numero}) : ${noms} ${champs.length > 1 ? "viennent" : "vient"} de son fichier, et ce formulaire ne ${champs.length > 1 ? "les" : "le"} réécrit pas — ${remedePieceEmise(p)}`;
+  const article = p.type === "FACTURE" ? "Cette facture a été émise" : p.type === "AVOIR" ? "Cet avoir a été émis" : "Cette pièce a été émise";
+  return `${article} par la plateforme (${p.numero}) : ${noms} ${champs.length > 1 ? "viennent" : "vient"} de son fichier, et ce formulaire ne ${champs.length > 1 ? "les" : "le"} réécrit pas — ${remedePieceEmise(p)}`;
 }
 
 /**
@@ -126,7 +132,9 @@ export function refusChampsDuFichier(p: FaitsPieceEmise, champs: ChampDuFichier[
 export const AVAL_QUI_FIGE: Record<TypePieceEmise, readonly string[]> = {
   DEVIS: ["PURCHASE_ORDER", "INVOICE"],
   BON_DE_COMMANDE: ["INVOICE"],
+  // Une facture et un avoir ne se révisent pas du tout (`pieceDefinitive`) : rien en aval n'a à les figer.
   FACTURE: [],
+  AVOIR: [],
 };
 
 const NATURE_AVAL: Record<string, { article: string; nom: string }> = {

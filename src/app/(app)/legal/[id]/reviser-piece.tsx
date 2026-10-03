@@ -1,12 +1,15 @@
 "use client";
 
 import * as React from "react";
-import { Loader2, Plus, RefreshCw, Trash2 } from "lucide-react";
+import { Loader2, RefreshCw } from "lucide-react";
 import { Sheet } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { Input, Label, Textarea } from "@/components/ui/input";
 import { useRafraichir } from "@/components/shared/use-rafraichir";
 import { reviserPieceCommerciale } from "@/lib/actions/fabrique-actions";
+import { ajouterLignes, LignesEditables, versEcran, type LigneEcran, type LigneRevisable } from "./lignes-editables";
+
+export type { LigneRevisable } from "./lignes-editables";
 
 /**
  * RÉVISER UNE PIÈCE ÉMISE, depuis sa fiche (§118.194 — audit 360°, R15) — un devis ou un bon de commande.
@@ -15,35 +18,8 @@ import { reviserPieceCommerciale } from "@/lib/actions/fabrique-actions";
  * échéance. Le formulaire part des valeurs de la version AFFICHÉE, et l'envoie (`versionVue`) : si quelqu'un a
  * révisé la pièce entre-temps, la fabrique refuse au lieu de réécrire par-dessus sa correction.
  *
- * Les lignes gardent ce que l'écran n'édite pas (détails, remise, TVA, sections) : elles repartent telles
- * qu'elles ont été lues, avec la seule différence de ce qu'on a changé. Les totaux ne se calculent pas ici :
- * c'est la fabrique qui les calcule, et la phrase du résultat les dit (§118.5).
+ * Les lignes se saisissent par l'éditeur commun (`lignes-editables.tsx`), le même que celui de l'avoir.
  */
-
-export interface LigneRevisable {
-  designation: string;
-  details: string[];
-  quantite: number;
-  prixUnitaire: number;
-  remise: number | null;
-  tva: number | null;
-  section: boolean;
-}
-
-interface LigneEcran { id: number; designation: string; details: string; quantite: string; prix: string; remise: string; tva: string; section: boolean }
-
-let compteur = 1;
-const versEcran = (l: LigneRevisable): LigneEcran => ({
-  id: compteur++,
-  designation: l.designation,
-  details: l.details.join("\n"),
-  quantite: l.section ? "" : String(l.quantite),
-  prix: l.section ? "" : String(l.prixUnitaire),
-  // Remise et TVA voyagent en POURCENTAGE, comme dans le compositeur : le lecteur serveur est le même.
-  remise: l.remise != null ? String(Math.round(l.remise * 10000) / 100) : "",
-  tva: l.tva != null ? String(Math.round(l.tva * 10000) / 100) : "",
-  section: l.section,
-});
 
 export function ReviserPieceButton(props: {
   legalDocumentId: string;
@@ -85,21 +61,11 @@ function ReviserPieceSheet(props: React.ComponentProps<typeof ReviserPieceButton
   const estBC = props.type === "BON_DE_COMMANDE";
   const nature = estBC ? "le bon de commande" : "le devis";
 
-  const maj = (id: number, patch: Partial<LigneEcran>) => setLignes((ls) => ls.map((l) => (l.id === id ? { ...l, ...patch } : l)));
-
   function envoyer() {
     const fd = new FormData();
     fd.set("legalDocumentId", props.legalDocumentId);
     fd.set("versionVue", String(props.version));
-    for (const l of lignes) {
-      fd.append("ligneDesignation", l.designation);
-      fd.append("ligneDetails", l.details);
-      fd.append("ligneQuantite", l.quantite);
-      fd.append("lignePrix", l.prix);
-      fd.append("ligneRemise", l.remise);
-      fd.append("ligneTva", l.tva);
-      fd.append("ligneSection", l.section ? "1" : "0");
-    }
+    ajouterLignes(fd, lignes);
     fd.set("objet", objet);
     fd.set("notes", notes);
     if (!estBC) fd.set("validiteJours", validite);
@@ -131,28 +97,7 @@ function ReviserPieceSheet(props: React.ComponentProps<typeof ReviserPieceButton
         </div>
       ) : (
         <div className="space-y-4">
-          <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <p className="text-sm font-medium">Lignes</p>
-              <Button type="button" size="sm" variant="outline" onClick={() => setLignes([...lignes, versEcran({ designation: "", details: [], quantite: 1, prixUnitaire: 0, remise: null, tva: null, section: false })])}>
-                <Plus className="h-4 w-4" aria-hidden /> Ajouter une ligne
-              </Button>
-            </div>
-            {lignes.map((l, i) => (
-              <div key={l.id} className="grid grid-cols-1 gap-2 rounded-lg border border-border p-2 sm:grid-cols-[1fr_6rem_8rem_auto]">
-                <Input aria-label={`Désignation de la ligne ${i + 1}`} value={l.designation} onChange={(e) => maj(l.id, { designation: e.target.value })} placeholder={l.section ? "Titre de section" : "Désignation"} />
-                {l.section ? <span className="text-xs text-muted-foreground sm:col-span-2">Titre de section — sans quantité ni prix.</span> : (
-                  <>
-                    <Input aria-label={`Quantité de la ligne ${i + 1}`} inputMode="decimal" value={l.quantite} onChange={(e) => maj(l.id, { quantite: e.target.value })} placeholder="Qté" />
-                    <Input aria-label={`Prix unitaire HT de la ligne ${i + 1}`} inputMode="decimal" value={l.prix} onChange={(e) => maj(l.id, { prix: e.target.value })} placeholder="PU HT" />
-                  </>
-                )}
-                <button type="button" className="rounded p-1 text-muted-foreground hover:bg-secondary" aria-label={`Retirer la ligne ${i + 1}`} onClick={() => setLignes(lignes.filter((x) => x.id !== l.id))}>
-                  <Trash2 className="h-4 w-4" aria-hidden />
-                </button>
-              </div>
-            ))}
-          </div>
+          <LignesEditables lignes={lignes} onChange={setLignes} />
 
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div className="space-y-1 sm:col-span-2">

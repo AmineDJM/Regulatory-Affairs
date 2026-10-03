@@ -47,7 +47,7 @@ import { portsArtefact } from "@/platform/in-process/artifact/ports";
 import { construireDocumentCommercial } from "@/lib/artifact/factory/build";
 import { empreinteDocument } from "@/lib/artifact/factory/empreinte";
 import {
-  ajouterJours, formaterDzd, formaterNumero, LIBELLE_TYPE, NATURE_LEGALE, TAUX_TVA_ADMIS, titreDocument,
+  ajouterJours, formaterDzd, formaterNumero, LIBELLE_TYPE, NATURE_LEGALE, PREFIXE_DEFAUT, TAUX_TVA_ADMIS, titreDocument,
   TYPES_DOCUMENT, validerMotifNumero, verifierSpecCommerciale,
   type LigneCommerciale, type ModePaiement, type PartieCommerciale, type SpecDocumentCommercial, type TaxeAdditionnelle, type TotauxCommerciaux, type TypeDocumentCommercial,
 } from "@/lib/artifact/factory/commercial";
@@ -61,7 +61,9 @@ import { standardsDocumentaires } from "@/platform/in-process/teach/store";
 import { aiguillerBC } from "@/lib/bons-de-commande/aiguillage";
 import { enSerie } from "@/lib/refs";
 import { avalActif } from "@/lib/legal/aval";
+import { montantsDesAvoirsActifs } from "@/lib/lecteurs/avoirs-actifs";
 import { refusRevisionAval } from "@/lib/legal/piece-emise";
+import { refusPlafondAvoir, resteACrediter } from "@/lib/lecteurs/avoir";
 import { reserveDeLAiguillage, type PorteBC } from "@/lib/bons-de-commande/regle";
 
 /** Les causes d'échec que le runtime de missions sait classer (`capability-failure.ts`). */
@@ -580,8 +582,9 @@ function specDepuisDemande(d: DemandeDocument, p: ProfilDocumentaire): Omit<Spec
     })),
     tvaDefaut: d.tvaDefaut ?? p.reglages.vatRate,
     remiseGlobale: d.remiseGlobale ?? null,
-    modePaiement: d.modePaiement ?? (d.type === "FACTURE" ? "VIREMENT" : null),
-    conditionsPaiement: d.conditionsPaiement ?? p.reglages.paymentTerms,
+    // UN AVOIR NE SE PAIE PAS (§118.195) : ni mode, ni conditions, ni timbre — il crédite.
+    modePaiement: d.type === "AVOIR" ? null : d.modePaiement ?? (d.type === "FACTURE" ? "VIREMENT" : null),
+    conditionsPaiement: d.type === "AVOIR" ? null : d.conditionsPaiement ?? p.reglages.paymentTerms,
     echeance: d.type === "FACTURE" ? (d.echeance ?? null) : null,
     validiteJours: d.type === "DEVIS" ? validite : null,
     objet: d.objet ?? null,
@@ -595,7 +598,7 @@ function specDepuisDemande(d: DemandeDocument, p: ProfilDocumentaire): Omit<Spec
     // LA MARQUE tranche : le signataire du type de pièce, sinon celui par défaut, sinon celui du
     // profil ; les mentions choisies par la société s'ajoutent à la note de pied ; l'accent est
     // celui de la charte (marque > pastille > défaut).
-    signataire: signatairePour(p.marque, d.type, p.reglages.signatoryName ? { nom: p.reglages.signatoryName, qualite: p.reglages.signatoryTitle } : null),
+    signataire: signatairePour(p.marque, d.type === "AVOIR" ? "FACTURE" : d.type, p.reglages.signatoryName ? { nom: p.reglages.signatoryName, qualite: p.reglages.signatoryTitle } : null),
     piedDePage: [...(p.reglages.footerNote ? [p.reglages.footerNote] : []), ...mentionsDe(p.marque, p.identite)].filter(Boolean).length
       ? [...(p.reglages.footerNote ? [p.reglages.footerNote] : []), ...mentionsDe(p.marque, p.identite)]
       : null,
@@ -678,6 +681,50 @@ export interface OptionsEmission {
   canal?: "ADAM" | null;
 }
 
+const ARTICLE_TYPE: Record<TypeDocumentCommercial, string> = { DEVIS: "un devis", BON_DE_COMMANDE: "un bon de commande", FACTURE: "une facture", AVOIR: "un avoir" };
+
+/** Le refus d'émettre sans le droit — les Finances tiennent la chaîne d'achat et de facturation, pas les devis. */
+const phraseDroitDEmettre = (type: TypeDocumentCommercial): string =>
+  `Émettre ${ARTICLE_TYPE[type]} exige le droit de créer dans Legal${type !== "DEVIS" ? " ou dans Finances" : ""}.`;
+
+/** Le préfixe de numérotation : celui du profil, et pour l'avoir — que le profil ne règle pas — celui par défaut. */
+const prefixeDe = (type: TypeDocumentCommercial, profil: ProfilDocumentaire): string =>
+  type === "DEVIS" ? profil.reglages.quotePrefix
+    : type === "BON_DE_COMMANDE" ? profil.reglages.orderPrefix
+      : type === "AVOIR" ? PREFIXE_DEFAUT.AVOIR
+        : profil.reglages.invoicePrefix;
+
+/**
+ * L'AVOIR ET SA FACTURE (§118.195). La facture d'origine se lit sur le LIEN, jamais sur la demande : le client,
+ * le numéro et la date que l'avoir imprime sont ceux de la facture qu'il corrige. Une demande qui dirait autre
+ * chose créditerait un autre client, ou « corrigerait » une facture qu'elle ne nomme pas.
+ */
+async function factureDeLAvoir(chainFromId: string | null | undefined, societeId: string): Promise<
+  {
+    ok: true; id: string; numero: string; ttc: number; tiers: SpecDocumentCommercial["tiers"]; date: string; numeroClient: string | null;
+    /** Ce que l'avoir calcule COMME sa facture, sauf demande contraire : un crédit au même prix doit porter la même TVA, la même remise, les mêmes taxes. */
+    calcul: Pick<SpecDocumentCommercial, "tvaDefaut" | "remiseGlobale" | "taxes">;
+  }
+  | EchecFabrique
+> {
+  const id = (chainFromId ?? "").trim();
+  if (!id) return echec("MISSING_INPUT", "Un avoir corrige UNE facture : émettez-le depuis la fiche de la facture (« Émettre un avoir »).");
+  const doc = await prisma.legalDocument.findUnique({ where: { id }, select: { id: true, companyId: true, kind: true, status: true, custom: true } });
+  if (!doc) return echec("NOT_FOUND", "La facture à créditer n'existe plus.");
+  const f = fabriqueDe(doc.custom);
+  if (doc.kind !== "INVOICE" || !f || f.type !== "FACTURE") {
+    return echec("MISSING_INPUT", "Un avoir se rattache à une facture émise par la plateforme : cette pièce n'en est pas une — une facture déposée se corrige par la pièce que son émetteur envoie.");
+  }
+  if (doc.companyId && doc.companyId !== societeId) return echec("MISSING_INPUT", "La facture à créditer appartient à une autre société.");
+  if (doc.status === "CANCELLED") return echec("CAPABILITY_FAILURE", `La facture ${f.numero} est annulée : il n'y a rien à créditer.`);
+  return {
+    ok: true, id: doc.id, numero: f.numero, ttc: f.totaux?.totalTtc ?? 0, tiers: f.spec.tiers, date: f.spec.date, numeroClient: f.spec.numeroClient ?? null,
+    calcul: { tvaDefaut: f.spec.tvaDefaut ?? null, remiseGlobale: f.spec.remiseGlobale ?? null, taxes: f.spec.taxes ?? null },
+  };
+}
+
+class PlafondAvoirDepasse extends Error {}
+
 /** « par Adam » ou « par <la personne> » — la même lecture pour la pièce, l'audit et la révision. */
 function parQui(user: CurrentUser, canal: OptionsEmission["canal"]): string {
   return canal === "ADAM" ? "par Adam" : `par ${user.name?.trim() || "un utilisateur"}`;
@@ -690,9 +737,9 @@ function parQui(user: CurrentUser, canal: OptionsEmission["canal"]): string {
 export async function emettreDocumentDrive(user: CurrentUser, demande: DemandeDocument, opts: OptionsEmission = {}): Promise<DocumentEmis | EchecFabrique> {
   const debut = Date.now();
   const type = demande.type;
-  if (!TYPES_DOCUMENT.includes(type)) return echec("MISSING_INPUT", `Type de document inconnu : « ${String(type)} » (DEVIS, BON_DE_COMMANDE, FACTURE).`);
+  if (!TYPES_DOCUMENT.includes(type)) return echec("MISSING_INPUT", `Type de document inconnu : « ${String(type)} » (${TYPES_DOCUMENT.join(", ")}).`);
   if (!opts.delegation && !peutEcrire(user, "CREATE", type)) {
-    return echec("MISSING_PERMISSION", `Émettre un${type === "FACTURE" ? "e facture" : type === "DEVIS" ? " devis" : " bon de commande"} exige le droit de créer dans Legal${type === "FACTURE" ? " ou dans Finances" : ""}.`);
+    return echec("MISSING_PERMISSION", phraseDroitDEmettre(type));
   }
   // Sous délégation, la société est celle que l'APPELANT nomme (celle du dossier) : pas de repli
   // sur la société de la personne qui clique — la délégation vaut pour UNE société, pas pour toutes.
@@ -703,6 +750,18 @@ export async function emettreDocumentDrive(user: CurrentUser, demande: DemandeDo
   if (!p.ok) return p;
   const { profil, papierOctets, habillage } = p;
   if (!opts.delegation && !(await canEditCompanyId(user.id, profil.societe.id))) return echec("MISSING_PERMISSION", `Vous voyez ${profil.societe.nom} sans pouvoir l'engager : la pièce ne peut pas être émise en son nom.`);
+
+  // L'AVOIR SE LIT SUR SA FACTURE (§118.195) : client, numéro et date d'origine viennent du lien, pas de la demande.
+  let facture: { id: string; numero: string; ttc: number } | null = null;
+  if (type === "AVOIR") {
+    const lu = await factureDeLAvoir(demande.chainFromId, profil.societe.id);
+    if (!lu.ok) return lu;
+    facture = { id: lu.id, numero: lu.numero, ttc: lu.ttc };
+    demande = {
+      ...demande, tiers: lu.tiers, referenceAmont: lu.numero, referenceAmontDate: lu.date, numeroClient: lu.numeroClient, chainFromId: lu.id,
+      tvaDefaut: demande.tvaDefaut ?? lu.calcul.tvaDefaut, remiseGlobale: demande.remiseGlobale ?? lu.calcul.remiseGlobale, taxes: demande.taxes ?? lu.calcul.taxes,
+    };
+  }
 
   const base = specDepuisDemande(demande, profil);
   const provisoire: SpecDocumentCommercial = { ...base, numero: "PROVISOIRE" };
@@ -725,7 +784,6 @@ export async function emettreDocumentDrive(user: CurrentUser, demande: DemandeDo
   if (!essai.verification.ok || !essai.totaux) {
     return echec("CAPABILITY_FAILURE", `${LIBELLE_TYPE[type]} non émis${type === "FACTURE" ? "e" : ""} : ${essai.verification.bloquants.slice(0, 4).join(" ; ")}`, { bloquants: essai.verification.bloquants });
   }
-
   // ── LE DOUBLON, ET L'ÉMISSION INTERROMPUE ────────────────────────────────────────────
   const empreinte = empreinteDocument(base, profil.societe.id);
   const kind = NATURE_LEGALE[type];
@@ -759,11 +817,29 @@ export async function emettreDocumentDrive(user: CurrentUser, demande: DemandeDo
     }
   }
 
+  // CE QUI RESTE À CRÉDITER, dit avant qu'un numéro existe — et revérifié sous verrou au moment d'écrire. APRÈS le
+  // doublon, jamais avant : l'avoir identique déjà inscrit compte parmi les avoirs actifs, et le juger contre ce qui
+  // reste refusait « entièrement créditée » la resoumission d'un avoir TOTAL au lieu de rendre la pièce — et empêchait
+  // pour toujours de reprendre une émission interrompue, dont la ligne restait comptée sans fichier (§118.195).
+  if (facture) {
+    const refus = refusPlafondAvoir(facture.numero, essai.totaux.totalTtc, resteACrediter(facture.ttc, await montantsDesAvoirsActifs(facture.id)));
+    if (refus) return echec("MISSING_INPUT", refus);
+  }
+
   // ── LE NUMÉRO ET LA PIÈCE, ENSEMBLE ──────────────────────────────────────────────────
   const annee = Number(base.date.slice(0, 4));
-  const prefixe = type === "DEVIS" ? profil.reglages.quotePrefix : type === "BON_DE_COMMANDE" ? profil.reglages.orderPrefix : profil.reglages.invoicePrefix;
+  const prefixe = prefixeDe(type, profil);
   const totaux = essai.totaux;
-  const cree = await prisma.$transaction(async (tx) => {
+  let cree: { id: string; fabrique: Fabrique };
+  try {
+  cree = await prisma.$transaction(async (tx) => {
+    // DEUX AVOIRS SUR LA MÊME FACTURE ne lisent pas le même reste (§118.195) : la facture est verrouillée le temps de
+    // compter ses avoirs et d'écrire celui-ci — entre deux processus aussi.
+    if (facture) {
+      await tx.$queryRaw`SELECT 1 FROM "LegalDocument" WHERE id = ${facture.id} FOR UPDATE`;
+      const refus = refusPlafondAvoir(facture.numero, totaux.totalTtc, resteACrediter(facture.ttc, await montantsDesAvoirsActifs(facture.id, tx)));
+      if (refus) throw new PlafondAvoirDepasse(refus);
+    }
     const seq = await attribuerNumero(tx, profil.societe.id, kind, annee);
     const numero = formaterNumero(prefixe, annee, seq, profil.reglages.numerotation[type] ?? null);
     const fabrique: Fabrique = {
@@ -792,6 +868,10 @@ export async function emettreDocumentDrive(user: CurrentUser, demande: DemandeDo
     });
     return { id: doc.id, fabrique };
   });
+  } catch (e) {
+    if (e instanceof PlafondAvoirDepasse) return echec("MISSING_INPUT", e.message);
+    throw e;
+  }
   return terminerEmission(user, cree.id, cree.fabrique, habillage, demande, profil, { repris: false, debut, avertissements: essai.verification.avertissements, delegation: opts.delegation ?? null, canal: opts.canal ?? null });
 }
 
@@ -877,18 +957,29 @@ export interface ApercuDocument {
  */
 export async function previsualiserDocument(user: CurrentUser, demande: DemandeDocument): Promise<ApercuDocument | EchecFabrique> {
   const type = demande.type;
-  if (!TYPES_DOCUMENT.includes(type)) return echec("MISSING_INPUT", `Type de document inconnu : « ${String(type)} » (DEVIS, BON_DE_COMMANDE, FACTURE).`);
+  if (!TYPES_DOCUMENT.includes(type)) return echec("MISSING_INPUT", `Type de document inconnu : « ${String(type)} » (${TYPES_DOCUMENT.join(", ")}).`);
   if (!peutEcrire(user, "CREATE", type)) {
-    return echec("MISSING_PERMISSION", `Émettre un${type === "FACTURE" ? "e facture" : type === "DEVIS" ? " devis" : " bon de commande"} exige le droit de créer dans Legal${type !== "DEVIS" ? " ou dans Finances" : ""}.`);
+    return echec("MISSING_PERMISSION", phraseDroitDEmettre(type));
   }
   const p = await profilDocumentaire(user, demande.societe, { papierEnTeteId: demande.letterheadId ?? null });
   if (!p.ok) return p;
   const { profil, habillage } = p;
   if (!(await canEditCompanyId(user.id, profil.societe.id))) return echec("MISSING_PERMISSION", `Vous voyez ${profil.societe.nom} sans pouvoir l'engager : la pièce ne peut pas être émise en son nom.`);
+  // L'aperçu d'un avoir lit sa facture comme l'émission : sinon il montrerait un client que l'émission remplacera.
+  let facture: { numero: string; ttc: number; avoirs: number[] } | null = null;
+  if (type === "AVOIR") {
+    const lu = await factureDeLAvoir(demande.chainFromId, profil.societe.id);
+    if (!lu.ok) return lu;
+    facture = { numero: lu.numero, ttc: lu.ttc, avoirs: await montantsDesAvoirsActifs(lu.id) };
+    demande = {
+      ...demande, tiers: lu.tiers, referenceAmont: lu.numero, referenceAmontDate: lu.date, numeroClient: lu.numeroClient, chainFromId: lu.id,
+      tvaDefaut: demande.tvaDefaut ?? lu.calcul.tvaDefaut, remiseGlobale: demande.remiseGlobale ?? lu.calcul.remiseGlobale, taxes: demande.taxes ?? lu.calcul.taxes,
+    };
+  }
   const base = specDepuisDemande(demande, profil);
   const annee = Number(base.date.slice(0, 4));
   const kind = NATURE_LEGALE[type];
-  const prefixe = type === "DEVIS" ? profil.reglages.quotePrefix : type === "BON_DE_COMMANDE" ? profil.reglages.orderPrefix : profil.reglages.invoicePrefix;
+  const prefixe = prefixeDe(type, profil);
   const motif = profil.reglages.numerotation[type] ?? null;
   const anneeSure = Number.isFinite(annee) ? annee : new Date().getUTCFullYear();
   const seq = await prisma.documentSequence.findUnique({ where: { companyId_kind_year: { companyId: profil.societe.id, kind, year: anneeSure } }, select: { last: true } });
@@ -898,7 +989,9 @@ export async function previsualiserDocument(user: CurrentUser, demande: DemandeD
   const regles = verifierSpecCommerciale(spec);
   if (regles.bloquants.length > 0) return { ...commun, totaux: null, bloquants: regles.bloquants, avertissements: [...regles.avertissements, ...manquesDIdentite(profil)], peutEmettre: false };
   const essai = await construireDocumentCommercial(spec, habillage);
-  return { ...commun, totaux: essai.totaux, bloquants: essai.verification.bloquants, avertissements: [...essai.verification.avertissements, ...manquesDIdentite(profil)], peutEmettre: essai.verification.ok };
+  const plafond = facture && essai.totaux ? refusPlafondAvoir(facture.numero, essai.totaux.totalTtc, resteACrediter(facture.ttc, facture.avoirs)) : null;
+  const bloquants = plafond ? [...essai.verification.bloquants, plafond] : essai.verification.bloquants;
+  return { ...commun, totaux: essai.totaux, bloquants, avertissements: [...essai.verification.avertissements, ...manquesDIdentite(profil)], peutEmettre: essai.verification.ok && !plafond };
 }
 
 // ─────────────────────────── La révision ───────────────────────────
@@ -934,7 +1027,8 @@ export async function reviserDocumentDrive(
     const doc = await prisma.legalDocument.findUnique({ where: { id: opts.legalDocumentId }, select: { id: true, companyId: true, kind: true, status: true, custom: true, driveNodeId: true } });
     const f = doc ? fabriqueDe(doc.custom) : null;
     if (!doc || !f) return echec("NOT_FOUND", "Cette pièce n'existe pas, ou n'a pas été émise par la fabrique (seules celles-ci se révisent).");
-    if (f.type === "FACTURE") return echec("CAPABILITY_FAILURE", `La facture ${f.numero} est émise : une facture ne se réécrit pas. Pour la corriger, annulez-la (motif à l'appui) et composez-en une nouvelle.`);
+    if (f.type === "FACTURE") return echec("CAPABILITY_FAILURE", `La facture ${f.numero} est émise : une facture ne se réécrit pas. Pour la corriger, émettez un avoir depuis sa fiche — en totalité ou en partie.`);
+    if (f.type === "AVOIR") return echec("CAPABILITY_FAILURE", `L'avoir ${f.numero} est émis : un avoir ne se réécrit pas. Pour le corriger, annulez-le (motif à l'appui) et émettez-en un autre depuis la facture.`);
     if (doc.status !== "ACTIVE") return echec("CAPABILITY_FAILURE", `La pièce ${f.numero} est ${doc.status === "CANCELLED" ? "annulée" : "close"} : elle ne se révise plus.`);
     if (!emission.delegation && !peutEcrire(user, "UPDATE", f.type)) return echec("MISSING_PERMISSION", "Réviser cette pièce exige le droit de modifier dans Legal.");
     // Sous délégation, le droit d'engager cède aux validations du dossier (voir `OptionsEmission`) ;

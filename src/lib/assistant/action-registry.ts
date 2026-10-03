@@ -1480,6 +1480,13 @@ X("RÉVISER UNE PIÈCE ÉMISE depuis sa fiche (audit 360°, lot C4d2b1, §118.19
   "fabrique-actions:reviserPieceCommerciale",
 ]);
 
+X("ÉMETTRE UN AVOIR depuis la fiche d'une facture émise (audit 360°, lot C4d2b2, §118.195) — une pièce FISCALE qui "
+  + "engage la société et réduit ce que le client doit : le geste se fait devant les lignes de la facture, motif à "
+  + "l'appui, plafonné par ce qui reste à créditer. Adam est en pause de développement : aucun geste neuf ne lui est "
+  + "ouvert, et son outil de pièces ne connaît pas l'avoir. Un clic sur la fiche Legal de la facture (« Émettre un avoir »).", [
+  "fabrique-actions:emettreAvoir",
+]);
+
 X("LA FICHE DE COACHING est une ATTESTATION (§118.15, §118.157) : le manager y écrit ce qu'il a OBSERVÉ pendant une "
   + "tournée en double — tel niveau de maîtrise sur tel axe, tels points forts, tels points à améliorer — et la fiche "
   + "finalisée part chez le collaborateur, à son nom. Un modèle n'a rien observé : lui faire noter une visite ferait "

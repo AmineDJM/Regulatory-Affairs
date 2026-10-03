@@ -25,24 +25,33 @@
 
 import { montantEnLettres } from "@/lib/artifact/factory/lettres";
 
-export const TYPES_DOCUMENT = ["DEVIS", "BON_DE_COMMANDE", "FACTURE"] as const;
+/**
+ * Les pièces que la fabrique émet. L'AVOIR (§118.195) corrige une FACTURE émise — qui, elle, ne se réécrit pas :
+ * il naît de SA facture (`chainFromId`), sous son propre numéro, et ne peut pas dépasser ce qui reste à créditer.
+ */
+export const TYPES_DOCUMENT = ["DEVIS", "BON_DE_COMMANDE", "FACTURE", "AVOIR"] as const;
 export type TypeDocumentCommercial = (typeof TYPES_DOCUMENT)[number];
 
 export const LIBELLE_TYPE: Record<TypeDocumentCommercial, string> = {
   DEVIS: "Devis",
   BON_DE_COMMANDE: "Bon de commande",
   FACTURE: "Facture",
+  AVOIR: "Avoir",
 };
 
 /** Le préfixe de numérotation par défaut — le profil documentaire d'une société peut le changer. */
-export const PREFIXE_DEFAUT: Record<TypeDocumentCommercial, string> = { DEVIS: "DEV", BON_DE_COMMANDE: "BC", FACTURE: "FA" };
+export const PREFIXE_DEFAUT: Record<TypeDocumentCommercial, string> = { DEVIS: "DEV", BON_DE_COMMANDE: "BC", FACTURE: "FA", AVOIR: "AV" };
 
 /** La nature Legal correspondante : un document émis EST une pièce du registre (§17). */
-export const NATURE_LEGALE: Record<TypeDocumentCommercial, "QUOTE" | "PURCHASE_ORDER" | "INVOICE"> = {
+export const NATURE_LEGALE: Record<TypeDocumentCommercial, "QUOTE" | "PURCHASE_ORDER" | "INVOICE" | "CREDIT_NOTE"> = {
   DEVIS: "QUOTE",
   BON_DE_COMMANDE: "PURCHASE_ORDER",
   FACTURE: "INVOICE",
+  AVOIR: "CREDIT_NOTE",
 };
+
+/** Une pièce FISCALE — une facture, ou l'avoir qui la corrige : les mêmes mentions obligatoires. */
+export const estPieceFiscale = (type: TypeDocumentCommercial): boolean => type === "FACTURE" || type === "AVOIR";
 
 /** Les taux de TVA en vigueur en Algérie : exonéré, réduit, normal. Tout autre taux est refusé. */
 export const TAUX_TVA_ADMIS = [0, 0.09, 0.19] as const;
@@ -352,6 +361,9 @@ export function verifierSpecCommerciale(spec: SpecDocumentCommercial): Verificat
   if (spec.echeance && dateIso(spec.echeance) && dateIso(spec.date) && spec.echeance < spec.date) bloquants.push("L'échéance précède la date d'émission.");
   if (vide(spec.emetteur?.nom)) bloquants.push("L'émetteur n'a pas de dénomination.");
   if (vide(spec.tiers?.nom)) bloquants.push(`${quoi} sans destinataire : le nom du ${spec.type === "BON_DE_COMMANDE" ? "fournisseur" : "client"} manque.`);
+  // UN AVOIR DIT CE QU'IL CORRIGE : sans la facture d'origine, la pièce crédite on ne sait quoi.
+  if (spec.type === "AVOIR" && vide(spec.referenceAmont)) bloquants.push("Avoir sans facture d'origine : il doit porter le numéro de la facture qu'il corrige.");
+  if (spec.type === "AVOIR" && vide(spec.objet)) bloquants.push("Avoir sans motif : dites pourquoi la facture est créditée — c'est ce que l'avoir imprime.");
 
   if (!Array.isArray(spec.lignes) || spec.lignes.length === 0) bloquants.push(`${quoi} sans aucune ligne.`);
   else {
@@ -379,15 +391,15 @@ export function verifierSpecCommerciale(spec: SpecDocumentCommercial): Verificat
     if (typeof x?.taux !== "number" || !Number.isFinite(x.taux) || x.taux <= 0 || x.taux >= 1) bloquants.push(`Taxe additionnelle ${i + 1} « ${x?.libelle ?? ""} » : taux ${String(x?.taux)} hors de ]0 ; 1[ — un taux s'écrit en fraction (0,02 = 2 %).`);
   });
 
-  // Les mentions d'identité : exigées sur une facture, souhaitées ailleurs.
+  // Les mentions d'identité : exigées sur une pièce fiscale (facture, avoir), souhaitées ailleurs.
   const manquantes = MENTIONS_EMETTEUR.filter((m) => vide(spec.emetteur?.[m.cle] as string | null | undefined)).map((m) => m.libelle);
   if (manquantes.length > 0) {
     const phrase = `Identité de l'émetteur incomplète : ${manquantes.join(", ")} — à renseigner dans la carte d'identité légale de la société.`;
-    if (spec.type === "FACTURE") bloquants.push(phrase);
+    if (estPieceFiscale(spec.type)) bloquants.push(phrase);
     else avertissements.push(phrase);
   }
-  if (spec.type === "FACTURE" && vide(spec.tiers?.nif) && vide(spec.tiers?.rc)) {
-    avertissements.push("Le client n'a ni NIF ni RC sur la facture : une facture entre professionnels les porte.");
+  if (estPieceFiscale(spec.type) && vide(spec.tiers?.nif) && vide(spec.tiers?.rc)) {
+    avertissements.push(`Le client n'a ni NIF ni RC sur ${spec.type === "AVOIR" ? "l'avoir" : "la facture"} : une pièce fiscale entre professionnels les porte.`);
   }
   if (spec.type === "DEVIS" && (spec.validiteJours === null || spec.validiteJours === undefined)) avertissements.push("Devis sans durée de validité : 30 jours seront indiqués.");
   if (spec.type === "FACTURE" && vide(spec.modePaiement)) avertissements.push("Facture sans mode de paiement.");

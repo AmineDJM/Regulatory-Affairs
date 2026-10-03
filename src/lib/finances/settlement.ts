@@ -210,6 +210,14 @@ export function settlementAction(input: {
 export type SettlementCheck = { ok: true } | { ok: false; error: string };
 
 /**
+ * UNE FACTURE QUE LA SOCIÉTÉ A ÉMISE se règle par son CLIENT (§118.195) : le centre de paiement n'autorise que des
+ * DÉPENSES, et lui envoyer une facture de vente ouvrirait un ordre de décaissement pour de l'argent qui doit entrer.
+ * La phrase est lue par l'action ET par la fiche, qui ne propose donc pas le bouton (§118.83).
+ */
+export const REFUS_FACTURE_EMISE_AU_REGLEMENT =
+  "Cette facture a été émise par la société : c'est son client qui la règle. Renseignez sa date de règlement quand le paiement arrive — le centre de paiement n'autorise que des dépenses.";
+
+/**
  * PEUT-ON ENVOYER CETTE FACTURE AU RÈGLEMENT ?
  *
  * Le refus NOMME ce qui bloque : « envoi impossible » fait rouvrir la fiche trois fois avant de
@@ -237,10 +245,13 @@ export function canSendToSettlement(input: {
    * reste celle d'avant : un lien bloque.
    */
   ordreLie?: { status: string; centralStatus: string } | null;
+  /** LE SENS DE LA FACTURE (`direction`) : « IN » = émise par la société. Absent : facture reçue, comme avant. */
+  direction?: string | null;
 }): SettlementCheck {
   if (input.kind !== "INVOICE") {
     return { ok: false, error: "Seul un document de nature « facture » s'envoie au règlement." };
   }
+  if (input.direction === "IN") return { ok: false, error: REFUS_FACTURE_EMISE_AU_REGLEMENT };
   if (input.expenseOrderId && !ordreClos(input.ordreLie)) return { ok: false, error: "Cette facture est déjà partie au règlement." };
   if (input.paidDate) {
     return {
