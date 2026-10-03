@@ -206,6 +206,56 @@ export async function getActionCenter(user: SessionUser) {
     }
   }
 
+  // 2c. À CORRIGER — MES DEMANDES AD & PRO RENVOYÉES POUR CORRECTION (§118.186 — audit 360°, R02/R03).
+  //
+  // Un renvoi rend la main au DEMANDEUR : sans cette ligne, il l'apprenait par une notification qui
+  // se perd, et la demande attendait — chez lui, sans qu'aucun écran ne le lui rappelle. Le statut
+  // projeté (« RETURNED ») suffit à la trouver ; le dernier renvoi donne l'étape et le motif.
+  const PLAFOND_A_CORRIGER = 30;
+  const [spoR, ciR, cnR, evR] = await Promise.all([
+    prisma.sponsoringRequest.findMany({ where: { requesterId: user.id, status: "RETURNED" }, select: { id: true, reference: true, institution: true }, orderBy: { updatedAt: "asc" }, take: PLAFOND_A_CORRIGER + 1 }),
+    prisma.congressInternational.findMany({ where: { requesterId: user.id, requestStatus: "RETURNED" }, select: { id: true, name: true }, orderBy: { updatedAt: "asc" }, take: PLAFOND_A_CORRIGER + 1 }),
+    prisma.congressNational.findMany({ where: { requesterId: user.id, requestStatus: "RETURNED" }, select: { id: true, name: true }, orderBy: { updatedAt: "asc" }, take: PLAFOND_A_CORRIGER + 1 }),
+    prisma.event.findMany({ where: { requesterId: user.id, requestStatus: "RETURNED" }, select: { id: true, name: true }, orderBy: { updatedAt: "asc" }, take: PLAFOND_A_CORRIGER + 1 }),
+  ]);
+  const aCorriger = [
+    ...spoR.map((r) => ({ type: "SPONSORING", id: r.id, titre: `${r.reference} — ${r.institution}`, nature: "Sponsoring", href: `/sponsoring/${r.id}` })),
+    ...ciR.map((r) => ({ type: "CONGRESS_INTERNATIONAL", id: r.id, titre: r.name, nature: "Prise en charge internationale", href: `/congress-international/${r.id}` })),
+    ...cnR.map((r) => ({ type: "CONGRESS_NATIONAL", id: r.id, titre: r.name, nature: "Prise en charge nationale", href: `/congress-national/${r.id}` })),
+    ...evR.map((r) => ({ type: "EVENT", id: r.id, titre: r.name, nature: "Événement", href: `/events/${r.id}` })),
+  ];
+  if (aCorriger.length > 0) {
+    const renvois = await prisma.workflowStepEvent.findMany({
+      where: { action: "RETURN", instance: { status: "RETURNED", entityId: { in: aCorriger.map((d) => d.id) } } },
+      select: { stepTitle: true, note: true, instance: { select: { entityId: true, entityType: true } } },
+      orderBy: { createdAt: "desc" },
+    });
+    const dernier = new Map<string, { stepTitle: string; note: string | null }>();
+    for (const r of renvois) {
+      const cle = `${r.instance.entityType}:${r.instance.entityId}`;
+      if (!dernier.has(cle)) dernier.set(cle, r);
+    }
+    const apercu = (t: string) => (t.length > 140 ? `${t.slice(0, 140)}…` : t);
+    for (const d of aCorriger.slice(0, PLAFOND_A_CORRIGER)) {
+      const r = dernier.get(`${d.type}:${d.id}`);
+      items.push({
+        key: `corriger-${d.type}-${d.id}`, title: `À corriger — ${d.titre}`,
+        subtitle: r ? `${r.stepTitle}${r.note ? ` : ${apercu(r.note)}` : ""}` : d.nature,
+        module: d.nature, href: d.href, kind: "request", priority: null,
+        deadline: null, owner: "", statusLabel: "À corriger", statusTone: "warning",
+      });
+    }
+    // Au-delà du plafond, on le DIT (§118.60) — une liste coupée se lirait comme complète.
+    if (aCorriger.length > PLAFOND_A_CORRIGER || [spoR, ciR, cnR, evR].some((l) => l.length > PLAFOND_A_CORRIGER)) {
+      items.push({
+        key: "corriger-reste", title: "D'autres demandes vous attendent pour correction",
+        subtitle: "La liste « Ad & Pro » les montre toutes (état « À corriger »).",
+        module: "Ad & Pro", href: "/ad-pro", kind: "request", priority: null,
+        deadline: null, owner: "", statusLabel: "À corriger", statusTone: "warning",
+      });
+    }
+  }
+
   // 3. Demandes administratives qui me sont assignées / que je dois valider
   if (userCan(user, "ADMIN_REQUESTS", "VIEW")) {
     const reqs = await prisma.administrativeRequest.findMany({

@@ -7,7 +7,9 @@ import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
 import { attachFiles, validateAttachments } from "@/lib/attach-files";
 import { ROLE_LABELS } from "@/lib/labels";
-import { advanceWorkflowInstance } from "@/lib/workflow/engine";
+import { advanceWorkflowInstance, resubmitWorkflowInstance, retirerDemande } from "@/lib/workflow/engine";
+import { canAccessEntity } from "@/lib/entity-access";
+import { hasGlobalView, userCan, type Module } from "@/lib/rbac";
 import {
   ACTOR_SCOPES, WORKFLOW_POWERS, WORKFLOW_CATEGORIES, CATEGORY_PATH,
   isWorkflowCategory, type ActorScope, type StepInput, type WorkflowPower,
@@ -23,9 +25,9 @@ export async function advanceWorkflow(formData: FormData): Promise<ActionResult>
   const user = await requireUser();
   const entityType = fdStr(formData, "entityType") as EntityType | null;
   const entityId = fdStr(formData, "entityId");
-  const action = fdStr(formData, "action"); // APPROVE | REJECT | COMMENT | SKIP
+  const action = fdStr(formData, "action"); // APPROVE | REJECT | COMMENT | SKIP | RETURN
   if (!entityType || !WORKFLOW_ENTITIES.includes(entityType) || !entityId) return { ok: false, error: "Paramètres manquants." };
-  if (action !== "APPROVE" && action !== "REJECT" && action !== "COMMENT" && action !== "SKIP") return { ok: false, error: "Action invalide." };
+  if (action !== "APPROVE" && action !== "REJECT" && action !== "COMMENT" && action !== "SKIP" && action !== "RETURN") return { ok: false, error: "Action invalide." };
 
   // PIÈCES JOINTES À L'AVIS : la Direction Marketing, le National Sales ou la Direction peuvent
   // appuyer leur décision sur un document (devis comparatif, note, courrier).
@@ -86,6 +88,79 @@ export async function advanceWorkflow(formData: FormData): Promise<ActionResult>
   revalidatePath("/finances");
   revalidatePath("/mon-espace");
   return { ok: true };
+}
+
+/** Le module de chaque demande à circuit — c'est lui que « trancher » (VALIDATE) désigne. */
+const MODULE_DE: Record<string, Module> = {
+  SPONSORING: "SPONSORING", CONGRESS_INTERNATIONAL: "CONGRESS_INTERNATIONAL", CONGRESS_NATIONAL: "CONGRESS_NATIONAL", EVENT: "EVENTS",
+};
+
+const CHEMIN: Record<string, string> = {
+  SPONSORING: "/sponsoring", CONGRESS_INTERNATIONAL: "/congress-international", CONGRESS_NATIONAL: "/congress-national", EVENT: "/events",
+};
+
+function revaliderLaDemande(entityType: EntityType, entityId: string) {
+  const base = CHEMIN[entityType] ?? "/ad-pro";
+  revalidatePath(`${base}/${entityId}`);
+  revalidatePath(base);
+  revalidatePath("/ad-pro");
+  revalidatePath("/mon-espace");
+}
+
+/**
+ * RESOUMETTRE une demande renvoyée pour correction (audit 360°, R02 — §118.186). Le moteur décide
+ * qui peut (le demandeur, la vue globale) et où elle reprend ; la porte de la FICHE passe d'abord —
+ * hors d'elle, la demande est introuvable, la même phrase que son absence.
+ */
+export async function resoumettreDemande(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  const entityType = fdStr(formData, "entityType") as EntityType | null;
+  const entityId = fdStr(formData, "entityId");
+  if (!entityType || !WORKFLOW_ENTITIES.includes(entityType) || !entityId) return { ok: false, error: "Paramètres manquants." };
+  if (!(await canAccessEntity(user, entityType, entityId, "VIEW"))) return { ok: false, error: "Demande introuvable." };
+  const r = await resubmitWorkflowInstance({
+    viewer: { id: user.id, role: user.role, secondaryRole: user.secondaryRole ?? null, name: user.name },
+    entityType, entityId, note: fdStr(formData, "note"),
+  });
+  if (!r.ok) return { ok: false, error: r.error };
+  revaliderLaDemande(entityType, entityId);
+  return { ok: true, message: `Demande resoumise — elle attend de nouveau « ${r.etape} ».` };
+}
+
+/**
+ * RETIRER une demande non tranchée (audit 360°, R24 — §118.186). Le demandeur la retire ; qui
+ * TRANCHE le module, ou la vue globale, peut l'annuler — les mêmes que l'annulation d'un congrès.
+ * Motif obligatoire, poste engagé bloquant : le moteur le vérifie.
+ */
+export async function retirerDemandeAdPro(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  const entityType = fdStr(formData, "entityType") as EntityType | null;
+  const entityId = fdStr(formData, "entityId");
+  const motif = fdStr(formData, "motif");
+  if (!entityType || !WORKFLOW_ENTITIES.includes(entityType) || !entityId) return { ok: false, error: "Paramètres manquants." };
+  if (!motif) return { ok: false, error: "Dites pourquoi vous retirez la demande : le motif reste à l'historique." };
+  if (!(await canAccessEntity(user, entityType, entityId, "VIEW"))) return { ok: false, error: "Demande introuvable." };
+  const demandeurId = await demandeurDe(entityType, entityId);
+  const module = MODULE_DE[entityType];
+  const autorise = demandeurId === user.id || hasGlobalView(user) || (module !== undefined && userCan(user, module, "VALIDATE"));
+  if (!autorise) return { ok: false, error: "Seuls le demandeur et qui tranche ce module retirent une demande." };
+  const r = await retirerDemande({
+    viewer: { id: user.id, role: user.role, secondaryRole: user.secondaryRole ?? null, name: user.name },
+    entityType, entityId, motif,
+  });
+  if (!r.ok) return { ok: false, error: r.error };
+  revaliderLaDemande(entityType, entityId);
+  return { ok: true, message: "Demande retirée — son circuit est clos, le motif reste à l'historique." };
+}
+
+async function demandeurDe(entityType: EntityType, entityId: string): Promise<string | null> {
+  const sel = { select: { requesterId: true } } as const;
+  const ligne =
+    entityType === "SPONSORING" ? await prisma.sponsoringRequest.findUnique({ where: { id: entityId }, ...sel })
+      : entityType === "CONGRESS_INTERNATIONAL" ? await prisma.congressInternational.findUnique({ where: { id: entityId }, ...sel })
+        : entityType === "CONGRESS_NATIONAL" ? await prisma.congressNational.findUnique({ where: { id: entityId }, ...sel })
+          : await prisma.event.findUnique({ where: { id: entityId }, ...sel });
+  return ligne?.requesterId ?? null;
 }
 
 // ───────────────────────────── Builder no-code (Super Admin) ─────────────────────────────

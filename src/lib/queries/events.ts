@@ -76,6 +76,8 @@ export interface EventDetail {
   requestStatus: string | null;
   /** Qui a demandé la prise en charge : c'est LUI qui peut corriger sa demande. */
   requesterId: string | null;
+  /** Qui a créé l'événement — son demandeur tant qu'aucune demande de prise en charge n'est partie. */
+  createdById: string | null;
   requesterName: string | null;
   productManagerId: string | null;
   productManagerName: string | null;
@@ -169,7 +171,7 @@ export async function getEventDetail(id: string): Promise<EventDetail | null> {
     doctor: e.doctor, businessUnitId: e.businessUnitId,
     description: e.description, capacity: e.capacity, estimatedBudget: e.estimatedBudget ? toNumber(e.estimatedBudget) : null,
     meetingLink: e.meetingLink, responsibleId: e.responsibleId, responsibleName: e.responsible?.name ?? null,
-    requestStatus: e.requestStatus, requesterId: e.requesterId, requesterName: nameOf(e.requesterId),
+    requestStatus: e.requestStatus, requesterId: e.requesterId, createdById: e.createdById ?? null, requesterName: nameOf(e.requesterId),
     productManagerId: e.productManagerId, productManagerName: nameOf(e.productManagerId),
     productManagerBudget: e.productManagerBudget ? toNumber(e.productManagerBudget) : null,
     productManagerNotes: e.productManagerNotes,

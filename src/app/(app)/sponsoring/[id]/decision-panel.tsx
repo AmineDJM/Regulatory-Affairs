@@ -8,11 +8,12 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/input";
 
 /**
- * Appel du délégué après décision de la Direction. Le circuit de validation lui-même
- * est désormais piloté par le moteur de workflow configurable (WorkflowPanel) ; l'appel
- * reste une action propre au sponsoring qui ré-ouvre le circuit à l'analyse Direction Marketing.
+ * Appel du délégué après la décision. Le circuit de validation lui-même est piloté par le moteur de
+ * workflow configurable (WorkflowPanel) ; l'appel reste une action propre au sponsoring, qui rouvre le
+ * circuit à l'ÉTAPE QUI A TRANCHÉ (§118.186, R04) — `etape` la nomme, pour que la phrase dise vrai :
+ * elle promettait « la Direction Marketing » quand le circuit rouvrait à la porte du DG.
  */
-export function AppealPanel({ id }: { id: string }) {
+export function AppealPanel({ id, etape }: { id: string; etape: string | null }) {
   const router = useRouter();
   const [open, setOpen] = React.useState(false);
   const [reason, setReason] = React.useState("");
@@ -34,7 +35,7 @@ export function AppealPanel({ id }: { id: string }) {
   if (!open) {
     return (
       <div className="space-y-2">
-        <p className="text-sm text-muted-foreground">Vous n'êtes pas d'accord avec la décision ? Vous pouvez faire appel : le dossier repart pour un nouvel examen de la Direction Marketing.</p>
+        <p className="text-sm text-muted-foreground">Vous n'êtes pas d'accord avec la décision ? Vous pouvez faire appel : le dossier repart pour un nouvel examen{etape ? ` — « ${etape} »` : ""}.</p>
         <Button variant="outline" size="sm" onClick={() => setOpen(true)}><Gavel className="h-4 w-4" /> Faire appel</Button>
       </div>
     );

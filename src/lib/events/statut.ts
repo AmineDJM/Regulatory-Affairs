@@ -97,6 +97,8 @@ export function statutDepuisCircuit(
   if (["AWAITING_PRELIMINARY", "PRELIMINARY_APPROVED", "AWAITING_FINAL"].includes(requestStatus)) {
     return "AWAITING_VALIDATION";
   }
-  if (["REJECTED", "CANCELLED"].includes(requestStatus)) return "DRAFT";
+  // RENVOYÉE POUR CORRECTION (§118.186) : plus rien n'est attendu d'un validateur, l'organisateur la
+  // reprend — un brouillon le temps de la correction, comme après un refus, sans en être un.
+  if (["REJECTED", "CANCELLED", "RETURNED"].includes(requestStatus)) return "DRAFT";
   return null;
 }

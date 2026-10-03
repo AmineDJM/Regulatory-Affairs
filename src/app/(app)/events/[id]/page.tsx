@@ -63,7 +63,11 @@ export default async function EventDetailPage({ params }: { params: { id: string
   // Circuit de prise en charge (financement) — mêmes rôles que pour les congrès.
   const canMarketing = hasRole(user, "NATIONAL_SALES") || user.role === "SUPER_ADMIN";
   const canValidate = hasGlobalView(user);
-  const canSubmit = userCan(user, "EVENTS", "CREATE");
+  // SOUMETTRE — ET RELANCER APRÈS UN REFUS (§118.186) — : l'organisateur, ou qui modifie l'événement en
+  // entier. La même règle que l'action : un bouton offert à qui l'action refusera fait chercher une
+  // panne qui n'existe pas (§118.83).
+  const sonEvenement = e.requesterId === user.id || (!e.requesterId && e.createdById === user.id);
+  const canSubmit = userCan(user, "EVENTS", "CREATE") && (sonEvenement || hasGlobalView(user) || userCan(user, "EVENTS", "VALIDATE"));
   // LES MÊMES RÉFÉRENTIELS QU'À LA CRÉATION. Le formulaire de modification porte les mêmes champs
   // obligatoires (`champsManquants` est lu par les deux actions) : sans les menus, la personne
   // devrait ressaisir en texte libre ce qu'elle avait choisi dans l'annuaire — et l'action la
@@ -87,7 +91,7 @@ export default async function EventDetailPage({ params }: { params: { id: string
   const [responsibles, missions, workflow, documents, involvementThreads] = await Promise.all([
     prisma.user.findMany({ where: { isActive: true }, select: { id: true, name: true }, orderBy: { name: "asc" } }),
     getEntityMissions("EVENT", e.id),
-    getWorkflowForEntity(user, "EVENT", e.id, null),
+    getWorkflowForEntity(user, "EVENT", e.id, e.requesterId ?? null),
     prisma.document.findMany({ where: { entityType: "EVENT", entityId: e.id }, include: { uploadedBy: { select: { name: true } } }, orderBy: { createdAt: "desc" } }),
     getInvolvementThreads("EVENT", e.id),
   ]);

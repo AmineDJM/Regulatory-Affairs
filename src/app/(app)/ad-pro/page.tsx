@@ -63,8 +63,10 @@ export default async function AdProPage() {
           `onglets-porte.test.ts` l'exige de toute entrée de menu à onglets. */}
       <ModuleTabs tabs={tabs} />
 
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+      <div className={`grid grid-cols-2 gap-3 ${counts.RETURNED > 0 ? "md:grid-cols-5" : "md:grid-cols-4"}`}>
         <KpiCard label="En attente de décision" value={counts.AWAITING} icon="Hourglass" tone={counts.AWAITING > 0 ? "warning" : "default"} />
+        {/* À CORRIGER (§118.186) : compté à part — c'est le DEMANDEUR qui a la main, pas un arbitre. */}
+        {counts.RETURNED > 0 && <KpiCard label="À corriger (chez le demandeur)" value={counts.RETURNED} icon="Undo2" tone="warning" />}
         <KpiCard label="Validées" value={counts.APPROVED} icon="CheckCheck" tone="info" />
         <KpiCard label="Terminées" value={counts.DONE} icon="Check" tone="success" />
         <KpiCard label="Toutes demandes" value={rows.length} icon="Layers" />

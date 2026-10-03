@@ -261,9 +261,13 @@ export const SPONSORING_STATUS: Record<string, Display> = {
   // factures), puis la validation finale les range dans un budget et clôture la demande.
   PRE_VALIDATED: { label: "Tenue pré-validée — postes en cours", tone: "info" },
   APPROVED: { label: "Accordé", tone: "success" },
-  APPEAL_PENDING: { label: "Appel — réexamen Direction Marketing", tone: "purple" },
+  // L'APPEL REVIENT À L'ÉTAPE QUI A TRANCHÉ (§118.186) — la Direction Marketing pour la plupart des
+  // demandes, la Direction pour celles de la Direction Marketing : le libellé ne nomme plus personne.
+  APPEAL_PENDING: { label: "Appel — en réexamen", tone: "purple" },
   AWAITING_FINAL_APPEAL: { label: "Appel — décision Direction", tone: "warning" },
   CANCELLED: { label: "Annulé", tone: "neutral" },
+  // RENVOYÉE POUR CORRECTION (§118.186) : chez le demandeur — ni en attente d'un validateur, ni refusée.
+  RETURNED: { label: "À corriger — chez le demandeur", tone: "warning" },
 };
 
 /**
@@ -317,12 +321,18 @@ export const CONGRESS_STATUS: Record<string, Display> = {
 
 export const CONGRESS_REQUEST_STATUS: Record<string, Display> = {
   AWAITING_PRELIMINARY: { label: "Attente National Sales", tone: "warning" },
-  PRELIMINARY_APPROVED: { label: "Analyse Direction Marketing", tone: "info" },
-  AWAITING_FINAL: { label: "Attente validation définitive", tone: "warning" },
+  // LES DEUX LIBELLÉS DU MILIEU SUIVENT LE CIRCUIT D'AUJOURD'HUI, comme ceux du sponsoring (§118.151,
+  // §118.186) : `PRELIMINARY_APPROVED` est projeté aux portes du DG et de la Direction des opérations,
+  // `AWAITING_FINAL` à l'étape de la Direction Marketing, qui TRANCHE. « Analyse Direction
+  // Marketing » décrivait le circuit d'avant l'inversion et faisait chercher la demande chez
+  // quelqu'un qui ne l'avait pas.
+  PRELIMINARY_APPROVED: { label: "En validation (DG / Direction des opérations)", tone: "info" },
+  AWAITING_FINAL: { label: "Attente décision Direction Marketing", tone: "warning" },
   APPROVED: { label: "Validé — pris en charge", tone: "success" },
   REJECTED: { label: "Refusé", tone: "danger" },
   CANCELLED: { label: "Annulé", tone: "neutral" },
   COMPLETED: { label: "Réalisé", tone: "success" },
+  RETURNED: { label: "À corriger — chez le demandeur", tone: "warning" },
 };
 
 export const NATIONAL_EVENT_TYPE: Record<string, string> = {

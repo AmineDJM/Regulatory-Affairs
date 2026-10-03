@@ -45,8 +45,10 @@ const APPEL_NU = /\brouter\.refresh\(\)/g;
  * Ramené à 350 au §118.176 — l'ancien écran des soldes d'ouverture (deux appels) a cédé la place
  * aux comptes de trésorerie ancrés, et la feuille de paie a perdu son « transfert au budget » ; le
  * panneau qui envoie la paie au centre suit son rafraîchissement. Il ne peut que baisser.
+ * Ramené à 349 au §118.186 — le panneau des circuits Ad & Pro (approuver, renvoyer, resoumettre,
+ * retirer) suit son rafraîchissement : un second clic sur l'état d'avant renverrait deux fois.
  */
-const PLAFOND_APPELS_NUS = 350;
+const PLAFOND_APPELS_NUS = 349;
 
 describe("le rafraîchissement suivi", () => {
   const parc = fichiers(SRC).map((f) => ({ f, src: sansCommentaires(readFileSync(f, "utf8")) }));
@@ -70,6 +72,8 @@ describe("le rafraîchissement suivi", () => {
       // supprimer des écritures « à imputer » rouvrirait une sélection sur des lignes disparues.
       "src/app/(app)/rh/paie/virements-paie.tsx",
       "src/app/(app)/budgets/suppression-a-imputer.tsx",
+      // §118.186 : le panneau des circuits — renvoyer puis resoumettre sur l'état d'avant agirait deux fois.
+      "src/components/workflow/workflow-panel.tsx",
     ];
     for (const e of ecrans) {
       const src = sansCommentaires(readFileSync(join(process.cwd(), e), "utf8"));

@@ -17,6 +17,7 @@ import { recordAudit } from "@/lib/audit";
 import { notifyRoles, notifyUser } from "@/lib/notify";
 import { statutManuelOuRien, estStatutDuCircuit } from "@/lib/events/statut";
 import { adProInit, PRODUCT_MANAGER_ROLES } from "@/lib/workflow/origin";
+import { relancerCycle } from "@/lib/workflow/engine";
 import { referentAInscrire } from "@/lib/ad-pro/referent-de-la-gamme";
 import { fdStr, fdNum, fdDate, type ActionResult } from "@/lib/actions/types";
 import { readMultiField, lireMedecinsDemande } from "@/lib/ad-pro/pickers";
@@ -293,9 +294,22 @@ export async function submitEventForApproval(formData: FormData): Promise<Action
   if (!userCan(user, "EVENTS", "CREATE")) return { ok: false, error: "Non autorisé." };
   const id = fdStr(formData, "id");
   if (!id) return { ok: false, error: "Identifiant manquant." };
-  const ev = await prisma.event.findUnique({ where: { id }, select: { id: true, name: true, requestStatus: true, requesterId: true, businessUnitId: true } });
+  const ev = await prisma.event.findUnique({ where: { id }, select: { id: true, name: true, requestStatus: true, requesterId: true, createdById: true, businessUnitId: true } });
   if (!ev) return { ok: false, error: "Événement introuvable." };
-  if (ev.requestStatus) return { ok: false, error: "Une demande de prise en charge est déjà en cours pour cet événement." };
+  // SOUMETTRE ENGAGE LA DÉPENSE D'UN ÉVÉNEMENT : son organisateur le fait, ou qui peut le modifier en
+  // entier (la porte de la fiche, §118.184). Un identifiant ne suffisait pas — tout porteur du droit
+  // de créer soumettait l'événement d'un collègue. Avant la première soumission, l'événement n'a pas
+  // encore de DEMANDEUR (la soumission le pose) : c'est alors son CRÉATEUR qui l'est.
+  const sonEvenement = ev.requesterId === user.id || (ev.requesterId === null && ev.createdById === user.id);
+  if (!sonEvenement && !(await canAccessEntity(user, "EVENT", id, "UPDATE"))) return { ok: false, error: "Événement introuvable." };
+  // UN NOUVEAU CYCLE APRÈS UN REFUS OU UNE ANNULATION (audit 360°, R01 — §118.186). Un événement
+  // refusé ne pouvait JAMAIS être resoumis : tout statut de demande non vide fermait la porte. On
+  // refuse la prise en charge, pas l'événement ; il peut revenir, autrement chiffré — en disant ce
+  // qui a changé, que la nouvelle demande porte jusqu'à son premier validateur.
+  const relance = ev.requestStatus === "REJECTED" || ev.requestStatus === "CANCELLED";
+  if (ev.requestStatus && !relance) return { ok: false, error: "Une demande de prise en charge est déjà en cours pour cet événement." };
+  const motifRelance = fdStr(formData, "note");
+  if (relance && motifRelance === null) return { ok: false, error: "Dites ce qui a changé depuis le refus : la nouvelle demande part avec ce motif." };
 
   // Routage intelligent : on saute les étapes d'approbation au niveau/en dessous du créateur.
   const pmId = fdStr(formData, "productManagerId");
@@ -322,9 +336,18 @@ export async function submitEventForApproval(formData: FormData): Promise<Action
   const referentGamme = await referentAInscrire(ev.businessUnitId);
   const now = new Date();
 
-  await prisma.event.update({
+  const ecrireLaDemande = () => prisma.event.update({
     where: { id },
     data: {
+      // Un nouveau cycle efface la DÉCISION précédente de la ligne — elle reste lisible dans
+      // l'historique du circuit, motif compris ; laissée ici, la fiche afficherait le refus d'hier
+      // au-dessus de la demande d'aujourd'hui.
+      ...(relance
+        ? {
+            rejectionReason: null, finalById: null, finalAt: null, finalNote: null, finalAmount: null,
+            preliminaryById: null, preliminaryAt: null, preliminaryNote: null, productManagerBudget: null, productManagerNotes: null,
+          }
+        : {}),
       requestStatus: init.status as CongressRequestStatus,
       requesterId: ev.requesterId ?? user.id,
       status: "AWAITING_VALIDATION",
@@ -343,6 +366,23 @@ export async function submitEventForApproval(formData: FormData): Promise<Action
       ...(init.preliminaryBySelf ? { preliminaryById: user.id, preliminaryAt: now } : {}),
     },
   });
+  if (relance) {
+    // Le moteur rouvre l'instance close sur l'étape d'entrée et prévient cette étape — l'aiguillage
+    // d'origine ci-dessous ne connaît que les premières soumissions. La demande s'écrit SOUS LA
+    // PRISE du circuit (`preparer`) : écrite avant, un circuit occupé laissait l'événement « en
+    // attente » sur un circuit encore refusé — et la relance suivante répondait « déjà en cours ».
+    const r = await relancerCycle({
+      viewer: { id: user.id, role: user.role, secondaryRole: user.secondaryRole ?? null, name: user.name },
+      entityType: "EVENT", entityId: id, note: motifRelance!,
+      preparer: async () => { await ecrireLaDemande(); },
+    });
+    if (!r.ok) return { ok: false, error: r.error };
+    await recordAudit({ actorId: user.id, action: "CREATE", module: "Events", entityType: "EVENT", entityId: id, summary: `Nouvelle demande de prise en charge après refus — ${ev.name}` });
+    revalidatePath(`/events/${id}`);
+    revalidatePath("/events");
+    return { ok: true, message: `Nouvelle demande envoyée — elle attend « ${r.etape} ».` };
+  }
+  await ecrireLaDemande();
   await recordAudit({ actorId: user.id, action: "CREATE", module: "Events", entityType: "EVENT", entityId: id, summary: `Demande de prise en charge — ${ev.name}` });
   const link = `/events/${id}`;
   if (init.stage === "ANALYSIS" && init.productManagerId) {

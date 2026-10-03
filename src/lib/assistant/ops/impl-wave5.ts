@@ -568,11 +568,15 @@ export const ADPRO5_OPS_IMPL: Record<string, OpImpl> = {
     async propose(input): Promise<OpProposalDraft | { error: string }> {
       const target = await resolveCongressTarget(opStr(input, "kind"), opStr(input, "target") || opStr(input, "reference"));
       if ("error" in target) return target;
+      // LE MOTIF EST OBLIGATOIRE depuis que l'annulation ferme le circuit (§118.186) : l'action le
+      // refuse sans lui, et une carte qui part sans motif promettrait un geste qui échoue au clic.
+      const motif = opStr(input, "motif") || opStr(input, "reason") || opStr(input, "note");
+      if (!motif) return { error: "Dites pourquoi annuler cette demande : le motif est obligatoire et reste à l'historique." };
       return {
         title: `Annuler la demande — ${target.label}`,
-        fields: [{ label: "Demande", value: target.label }],
+        fields: [{ label: "Demande", value: target.label }, { label: "Motif", value: motif }],
         warnings: ["Une demande déjà VALIDÉE ne s'annule plus par ce geste (l'action refuse)."],
-        args: { id: target.entityId, type: target.congressType },
+        args: { id: target.entityId, type: target.congressType, motif },
         successMessage: `Demande ${target.label} annulée.`,
         revalidate: ["/events"],
       };

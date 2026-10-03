@@ -17,6 +17,7 @@ import { getAppSettings } from "@/lib/settings";
 import { statutDepuisCircuit } from "@/lib/events/statut";
 import { AD_PRO_PARENTS, PARENT_COLONNE, type AdProParent } from "@/lib/ad-pro-items";
 import { issueTerminaleSponsoring } from "./issue-sponsoring";
+import { auteursDAvis, etapeDeReprise, peutResoumettre, refusDuRenvoi, statutLegacyALEtape } from "./renvoi";
 import {
   CATEGORY_LABELS,
   entityToCategory,
@@ -41,7 +42,12 @@ export type LoadedDefinition = Prisma.WorkflowDefinitionGetPayload<{ include: { 
 
 // ───────────────────────────── Définition (lazy-seed) ─────────────────────────────
 
-function stepCreate(s: StepInput, i: number): Prisma.WorkflowStepCreateWithoutDefinitionInput {
+/**
+ * Une étape de la colonne vertébrale par défaut, telle qu'on la sème. Exportée pour les bancs qui
+ * POSSÈDENT leur circuit (§118.186) : une copie privée, semée par la même fonction, ne diverge pas
+ * du circuit réel — et un banc voisin qui modifie le circuit partagé ne la touche pas.
+ */
+export function stepCreate(s: StepInput, i: number): Prisma.WorkflowStepCreateWithoutDefinitionInput {
   return {
     position: i,
     slug: s.slug,
@@ -475,7 +481,11 @@ export interface AdvanceInput {
   viewer: Viewer;
   entityType: EntityType;
   entityId: string;
-  action: "APPROVE" | "REJECT" | "COMMENT" | "SKIP";
+  /**
+   * `RETURN` : RENVOYER POUR CORRECTION (audit 360°, R02 — §118.186). Un refus adouci, ouvert là où le
+   * refus l'est : la demande revient au demandeur, motif à l'appui, sans être tranchée.
+   */
+  action: "APPROVE" | "REJECT" | "COMMENT" | "SKIP" | "RETURN";
   note?: string | null;
   amount?: number | null;
   budgetCategoryId?: string | null;
@@ -484,6 +494,74 @@ export interface AdvanceInput {
 
 type AdvanceResult = { ok: true; category: WorkflowCategory } | { ok: false; error: string };
 
+/**
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ * UN GESTE À LA FOIS SUR UN CIRCUIT (§118.186).
+ *
+ * Approuver, refuser, sauter, renvoyer, resoumettre, retirer, relancer, faire appel : chaque
+ * geste PREND le circuit avant son premier effet et le REND à la fin, même en échec.
+ *
+ * ── LE DÉFAUT QUE LA PRISE FERME ─────────────────────────────────────────────────────────
+ *
+ * Les écritures du moteur n'étaient pas conditionnelles : deux clics à une seconde d'intervalle
+ * sur « Approuver » à l'étape qui tranche lisaient le même état, et chacun émettait son ordre de
+ * dépense. Le renvoi pour correction a rendu le défaut plus probable — un validateur renvoie
+ * pendant qu'un autre approuve, et les deux s'appliquent : la demande est « à corriger » chez son
+ * demandeur ET approuvée.
+ *
+ * ── POURQUOI UNE CONDITION SUR L'ÉTAT NE SUFFIT PAS ─────────────────────────────────────
+ *
+ * L'approbation ne déplace l'étape qu'à sa FIN (après l'émission, la projection, les
+ * franchissements). Un second geste lu pendant ce temps voit l'étape INCHANGÉE et la croit
+ * libre : une condition `currentSlug = étape` le laisserait passer. Il faut un fait posé AU
+ * DÉBUT et retiré à la fin — c'est la prise, écrite conditionnellement : celui qui la pose gagne,
+ * l'autre trouve le circuit pris (ou déjà déplacé) et le dit.
+ *
+ * ── CE QUI EMPÊCHE UNE PANNE DE BLOQUER UN CIRCUIT ──────────────────────────────────────
+ *
+ * Une prise plus vieille que deux minutes est réputée abandonnée (processus tombé en plein
+ * geste) et se reprend. Le geste le plus long du moteur — une approbation qui émet — dure une
+ * fraction de seconde.
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ */
+const PRISE_PERIMEE_MS = 2 * 60_000;
+
+const CIRCUIT_PRIS = "La demande vient de changer, ou quelqu'un agit dessus au même instant : rouvrez-la pour voir où elle en est.";
+
+/**
+ * LA PRISE ET SA RESTITUTION — leurs ARGUMENTS, partagés par tous les gestes, qui gardent chacun
+ * l'APPEL Prisma dans leur propre corps (même raison que `clotureDuCircuit` : la dérivation des
+ * contrats ne suit qu'un niveau). La prise ne se pose que si le circuit est dans l'`etat` attendu
+ * ET libre (ou abandonné) : `count === 0` dit qu'un autre geste l'a, ou que l'état a changé.
+ */
+function argsPrise(instanceId: string, etat: Prisma.WorkflowInstanceWhereInput, maintenant: Date) {
+  return {
+    where: { AND: [{ id: instanceId }, etat, { OR: [{ claimedAt: null }, { claimedAt: { lt: new Date(maintenant.getTime() - PRISE_PERIMEE_MS) } }] }] },
+    data: { claimedAt: maintenant },
+  } satisfies Prisma.WorkflowInstanceUpdateManyArgs;
+}
+
+/** Rend la prise — la SIENNE seulement : une prise reprise après abandon appartient à un autre. */
+function argsRendre(instanceId: string, prise: Date) {
+  return { where: { id: instanceId, claimedAt: prise }, data: { claimedAt: null } } satisfies Prisma.WorkflowInstanceUpdateManyArgs;
+}
+
+/**
+ * Prendre en ATTENDANT qu'un geste en cours se termine — réservé aux suites d'une écriture déjà
+ * faite (une modification enregistrée doit encore rouvrir sa porte). Un geste humain, lui, ne
+ * patiente pas : il refuse tout de suite et le dit.
+ */
+async function prendreLeCircuitEnAttendant(instanceId: string, etat: Prisma.WorkflowInstanceWhereInput, patienceMs: number): Promise<Date | null> {
+  const fin = Date.now() + patienceMs;
+  for (;;) {
+    const maintenant = new Date();
+    const posee = await prisma.workflowInstance.updateMany(argsPrise(instanceId, etat, maintenant));
+    if (posee.count > 0) return maintenant;
+    if (Date.now() >= fin) return null;
+    await new Promise((r) => setTimeout(r, 100));
+  }
+}
+
 export async function advanceWorkflowInstance(input: AdvanceInput): Promise<AdvanceResult> {
   const { viewer, entityType, entityId, action } = input;
   const category = entityToCategory(entityType);
@@ -491,6 +569,11 @@ export async function advanceWorkflowInstance(input: AdvanceInput): Promise<Adva
 
   const instance = await ensureInstance(entityType, entityId);
   if (!instance) return { ok: false, error: "Impossible d'initialiser le circuit." };
+  // UNE DEMANDE À CORRIGER N'EST PAS UN CIRCUIT CLOS : elle est chez son demandeur. Le dire, au lieu
+  // de « déjà clôturé », évite qu'un validateur croie la décision prise par quelqu'un d'autre.
+  if (instance.status === "RETURNED") {
+    return { ok: false, error: "La demande est chez son demandeur, pour correction : elle reviendra à cette étape quand il l'aura resoumise." };
+  }
   if (instance.status !== "IN_PROGRESS") return { ok: false, error: "Ce circuit est déjà clôturé." };
 
   const def = await prisma.workflowDefinition.findUnique({ where: { id: instance.definitionId }, include: { steps: { orderBy: { position: "asc" } } } });
@@ -526,6 +609,76 @@ export async function advanceWorkflowInstance(input: AdvanceInput): Promise<Adva
     if (!note) return { ok: false, error: "Commentaire vide." };
     await prisma.comment.create({ data: { entityType, entityId, body: note, authorId: viewer.id } });
     await recordEvent(instance.id, step, "COMMENT", viewer, note, null);
+    return { ok: true, category };
+  }
+
+  // UN GESTE À LA FOIS : le circuit est PRIS avant le premier effet et rendu à la fin
+  // (`prendreLeCircuit`). Le commentaire, qui ne fait pas avancer, n'en a pas besoin.
+  const prise = new Date();
+  const posee = await prisma.workflowInstance.updateMany(argsPrise(instance.id, { status: "IN_PROGRESS", currentSlug: step.slug }, prise));
+  if (posee.count === 0) return { ok: false, error: CIRCUIT_PRIS };
+  try {
+    return await appliquerLeGeste({ input, action, viewer, entityType, entityId, category, instance, def, step, summary, note, borne, ignorees });
+  } finally {
+    await prisma.workflowInstance.updateMany(argsRendre(instance.id, prise)).catch(() => undefined);
+  }
+}
+
+/** Ce que les gestes d'avance lisent — validé par `advanceWorkflowInstance`, sous prise. */
+interface ContexteGeste {
+  input: AdvanceInput;
+  action: AdvanceInput["action"];
+  viewer: Viewer;
+  entityType: EntityType;
+  entityId: string;
+  category: WorkflowCategory;
+  instance: LoadedInstance;
+  def: LoadedDefinition;
+  step: LoadedStep;
+  summary: EntitySummary;
+  note: string | null;
+  borne: string | null;
+  ignorees: string[];
+}
+
+/**
+ * LES GESTES QUI FONT AVANCER LE CIRCUIT — renvoyer, refuser, sauter, approuver. Jamais appelés
+ * directement : `advanceWorkflowInstance` valide l'acteur et l'étape, puis PREND le circuit.
+ */
+async function appliquerLeGeste(ctx: ContexteGeste): Promise<AdvanceResult> {
+  const { input, action, viewer, entityType, entityId, category, instance, def, step, summary, note, borne, ignorees } = ctx;
+
+  // ═══════════════════════════════════════════════════════════════════════════════════════
+  // RENVOYER POUR CORRECTION (audit 360°, R02 — §118.186).
+  //
+  // Ni accord, ni refus : la demande retourne à son DEMANDEUR, avec ce qu'il doit corriger, et
+  // revient À CETTE ÉTAPE quand il la resoumet. C'est le geste qui manquait entre « laisser passer
+  // une demande fausse » et « la tuer pour un montant mal tapé ».
+  //
+  // Trois gardes, chacune avec son cas, écrites dans `refusDuRenvoi` (pur, éprouvé sans base) :
+  // ouvert là où le REFUS l'est, motif OBLIGATOIRE, un DEMANDEUR à qui renvoyer.
+  // L'écriture est CONDITIONNELLE : un renvoi et un accord donnés en même temps sur la même étape ne
+  // s'appliquent pas tous les deux — le second trouve l'étape déjà quittée et le dit.
+  // ═══════════════════════════════════════════════════════════════════════════════════════
+  if (action === "RETURN") {
+    const refus = refusDuRenvoi({ pouvoirs: step.powers, motif: note, demandeurId: summary.requesterId });
+    if (refus) return { ok: false, error: refus };
+    const demandeurId = summary.requesterId as string; // garanti par `refusDuRenvoi`
+    const pris = await prisma.workflowInstance.updateMany({
+      where: { id: instance.id, status: "IN_PROGRESS", currentSlug: step.slug },
+      data: { status: "RETURNED" },
+    });
+    if (pris.count === 0) return { ok: false, error: "La demande vient de changer d'étape : rouvrez-la pour voir où elle en est." };
+    await projectReturn(entityType, entityId, viewer);
+    await recordEvent(instance.id, step, "RETURN", viewer, note, null);
+    // LE MOTIF VOYAGE AVEC LA NOTIFICATION : le demandeur sait quoi corriger sans ouvrir la fiche.
+    await notifyUser({
+      userId: demandeurId, type: "ASSIGNMENT",
+      title: `${CATEGORY_LABELS[category]} — à corriger`,
+      body: `${summary.name} — ${step.title} : ${note}`,
+      link: entityPath(entityType, entityId),
+    });
+    await recordAudit({ actorId: viewer.id, action: "UPDATE", module: auditModule(entityType), entityType, entityId, summary: `Renvoyée pour correction (${step.title}) — ${summary.name} : ${note}` });
     return { ok: true, category };
   }
 
@@ -583,7 +736,9 @@ export async function advanceWorkflowInstance(input: AdvanceInput): Promise<Adva
     await projectReject(entityType, entityId, viewer, note);
     await recordEvent(instance.id, step, "REJECT", viewer, note, null);
     if (summary.requesterId) {
-      await notifyUser({ userId: summary.requesterId, type: "GENERIC", title: `${CATEGORY_LABELS[category]} — demande refusée`, body: summary.name, link: `${entityPath(entityType, entityId)}` });
+      // LE MOTIF VOYAGE AVEC LE REFUS (R03) : « demande refusée » sans dire pourquoi obligeait le
+      // demandeur à chercher une explication qu'aucun écran ne lui montrait.
+      await notifyUser({ userId: summary.requesterId, type: "GENERIC", title: `${CATEGORY_LABELS[category]} — demande refusée`, body: `${summary.name} — ${step.title} : ${note}`, link: `${entityPath(entityType, entityId)}` });
     }
     await recordAudit({ actorId: viewer.id, action: "REFUSE", module: auditModule(entityType), entityType, entityId, summary: `Refus définitif (${step.title}) — ${summary.name}` });
     return { ok: true, category };
@@ -972,6 +1127,42 @@ async function projectReject(entityType: EntityType, entityId: string, viewer: V
   }
 }
 
+/**
+ * LA DEMANDE RENVOYÉE SE LIT « À CORRIGER » PARTOUT — fiche, listes, compteurs.
+ *
+ * Garder le statut de l'étape (« Attente Direction Marketing ») ferait lire qu'un validateur a la
+ * main, alors que c'est le demandeur ; la marquer refusée ferait lire une décision qui n'a pas eu
+ * lieu. L'événement suit la même règle que pour un refus : plus rien n'est attendu d'un validateur,
+ * il redevient un brouillon le temps de la correction (`statutDepuisCircuit`).
+ */
+async function projectReturn(entityType: EntityType, entityId: string, viewer: Viewer) {
+  await projeterStatut(entityType, entityId, "RETURNED", viewer);
+}
+
+/**
+ * ÉCRIT LE STATUT « LEGACY » D'UNE DEMANDE — et, pour un événement, l'état que ce statut impose
+ * (`statutDepuisCircuit`). Une seule écriture pour le renvoi, la pose et le retrait : trois copies
+ * du même couple finiraient par oublier l'état de l'événement dans l'une d'elles (§118.5).
+ */
+async function projeterStatut(entityType: EntityType, entityId: string, statut: string, viewer: Viewer) {
+  const field = LEGACY_FIELD[entityType] ?? "status";
+  const data: Record<string, unknown> = { [field]: statut, updatedById: viewer.id };
+  if (entityType === "EVENT") {
+    const impose = statutDepuisCircuit(statut);
+    if (impose) data.status = impose;
+  }
+  await updateEntity(entityType, entityId, data);
+}
+
+/**
+ * PROJETTE LE STATUT D'UNE ÉTAPE où l'on POSE une demande sans passer par une approbation
+ * (resoumission, porte rouverte, nouveau cycle). Lu par une seule règle (`statutLegacyALEtape`),
+ * pour qu'une étape sans statut propre ne laisse pas l'entité figée sur son statut d'avant.
+ */
+async function projectPose(entityType: EntityType, entityId: string, def: LoadedDefinition, etape: LoadedStep, ignorees: readonly string[], viewer: Viewer) {
+  await projeterStatut(entityType, entityId, statutLegacyALEtape(orderedSteps(def), etape, ignorees, "AWAITING_PRELIMINARY"), viewer);
+}
+
 // ───────────────────────────── Divers ─────────────────────────────
 
 /**
@@ -1084,18 +1275,388 @@ function auditModule(entityType: EntityType): string {
   return entityType === "SPONSORING" ? "Sponsoring" : entityType === "EVENT" ? "Events" : "Congrès";
 }
 
+// ───────────────────────────── Révision : resoumettre, rouvrir, relancer, fermer ─────────────────────────────
+
+type ResultatRevision = { ok: true; category: WorkflowCategory; etape: string } | { ok: false; error: string };
+
+async function chargerDefinition(instance: LoadedInstance): Promise<LoadedDefinition | null> {
+  return prisma.workflowDefinition.findUnique({ where: { id: instance.definitionId }, include: { steps: { orderBy: { position: "asc" } } } });
+}
+
+/** Les étapes que le MONTANT a franchies automatiquement — les seules qu'une correction peut rouvrir. */
+async function franchiesParMontant(instanceId: string): Promise<Set<string>> {
+  const lignes = await prisma.workflowStepEvent.findMany({ where: { instanceId, action: "AUTO_SKIP" }, select: { stepSlug: true } });
+  return new Set(lignes.map((l) => l.stepSlug));
+}
+
 /**
- * Ré-ouvre une instance clôturée (ex. **appel** du délégué en sponsoring) à l'étape
- * d'analyse (première étape à portée « ASSIGNEE »), sinon la 2ᵉ étape. Sans effet si
- * l'instance n'existe pas. Garde le moteur cohérent avec le statut legacy `APPEAL_PENDING`.
+ * PRÉVIENT L'ÉTAPE OÙ L'ON POSE UNE DEMANDE hors d'une approbation (resoumission, porte rouverte,
+ * nouveau cycle) : la personne désignée, le N+1 si l'étape lui revient, le rôle et les référents.
+ * Les trois chemins d'approbation le faisaient chacun ; les trois chemins de révision passent ici.
  */
-export async function reopenInstance(entityType: EntityType, entityId: string): Promise<void> {
+async function prevenirLaPose(
+  entityType: EntityType, entityId: string, instance: LoadedInstance, etape: LoadedStep,
+  requesterId: string | null, titre: string, corps: string,
+): Promise<void> {
+  const link = entityPath(entityType, entityId);
+  if (etape.actorScope === "ASSIGNEE" && instance.assigneeId) {
+    await notifyUser({ userId: instance.assigneeId, type: "ASSIGNMENT", title: titre, body: corps, link });
+  }
+  await notifyStepManager(etape, requesterId, titre, corps, link);
+  await prevenirEtapeAtteinte(entityType, entityId, etape, { title: titre, body: corps, link }, requesterId);
+}
+
+/**
+ * RESOUMETTRE UNE DEMANDE RENVOYÉE POUR CORRECTION (audit 360°, R02 et R15 — §118.186).
+ *
+ * La demande revient à l'étape qui l'a renvoyée — la personne qui a demandé la correction juge la
+ * correction — sauf si le montant corrigé ne franchit plus une porte qu'il avait franchie sous le
+ * seuil : la porte se rouvre, et la demande reprend là (`etapeDeReprise`). Puis les
+ * franchissements automatiques s'enchaînent depuis cette étape, exactement comme à la naissance :
+ * un montant revu à la baisse ouvre seul la porte du DG que la version d'avant lui faisait garder.
+ *
+ * L'écriture est CONDITIONNELLE (`status: "RETURNED"`) : deux clics simultanés ne resoumettent
+ * qu'une fois, et le second le dit.
+ */
+export async function resubmitWorkflowInstance(input: { viewer: Viewer; entityType: EntityType; entityId: string; note?: string | null }): Promise<ResultatRevision> {
+  const { viewer, entityType, entityId } = input;
+  const category = entityToCategory(entityType);
+  if (!category) return { ok: false, error: "Catégorie de workflow inconnue." };
   const instance = await prisma.workflowInstance.findUnique({ where: { entityType_entityId: { entityType, entityId } } });
-  if (!instance) return;
-  const def = await prisma.workflowDefinition.findUnique({ where: { id: instance.definitionId }, include: { steps: { orderBy: { position: "asc" } } } });
-  if (!def) return;
-  const steps = orderedSteps(def);
-  const target = steps.find((s) => (s.actorScope as ActorScope) === "ASSIGNEE") ?? steps[1] ?? steps[0];
-  if (!target) return;
-  await prisma.workflowInstance.update({ where: { id: instance.id }, data: { currentSlug: target.slug, status: "IN_PROGRESS" } });
+  if (!instance) return { ok: false, error: "Circuit introuvable." };
+  if (instance.status !== "RETURNED") return { ok: false, error: "Cette demande n'est pas à corriger : il n'y a rien à resoumettre." };
+  const summary = await loadEntity(entityType, entityId);
+  if (!summary) return { ok: false, error: "Demande introuvable." };
+  if (!peutResoumettre({ id: viewer.id, vueGlobale: hasGlobalView(viewer) || viewer.role === "SUPER_ADMIN" }, summary.requesterId)) {
+    return { ok: false, error: "Seul le demandeur (ou la Direction) resoumet une demande renvoyée pour correction." };
+  }
+  const prise = new Date();
+  const posee = await prisma.workflowInstance.updateMany(argsPrise(instance.id, { status: "RETURNED" }, prise));
+  if (posee.count === 0) return { ok: false, error: "La demande a déjà été resoumise, ou quelqu'un agit dessus au même instant." };
+  try {
+    const def = await chargerDefinition(instance);
+    if (!def) return { ok: false, error: "Définition de workflow introuvable." };
+    const retour = stepBySlug(def, instance.currentSlug);
+    if (!retour) return { ok: false, error: "L'étape qui a renvoyé la demande n'existe plus dans le circuit : la Direction doit la reprendre." };
+    const borne = instance.finalSlug ?? null;
+    const ignorees = instance.skippedSlugs ?? [];
+    const note = input.note?.trim() || null;
+
+    const montant = toNumber(instance.amount) || (summary.estimatedAmount ?? 0);
+    const seuilDgGlobal = await getAppSettings().then((st) => st.adProDgThreshold).catch(() => null);
+    const reprise = etapeDeReprise(orderedSteps(def), retour, await franchiesParMontant(instance.id), (e) => autoSkipEligible(e, montant, seuilDgGlobal), ignorees);
+
+    const pris = await prisma.workflowInstance.updateMany({
+      where: { id: instance.id, status: "RETURNED" },
+      data: { status: "IN_PROGRESS", currentSlug: reprise.slug },
+    });
+    if (pris.count === 0) return { ok: false, error: "La demande a déjà été resoumise." };
+
+    await projectPose(entityType, entityId, def, reprise, ignorees, viewer);
+    const pose = (await settleAutoSkips(entityType, entityId, def, instance.id, montant, summary.requesterId, reprise, viewer, borne, ignorees)) ?? reprise;
+    if (pose.slug !== reprise.slug) await prisma.workflowInstance.update({ where: { id: instance.id }, data: { currentSlug: pose.slug } });
+
+    const porteRouverte = reprise.slug !== retour.slug;
+    const trace = porteRouverte
+      ? `${note ? `${note} — ` : ""}le montant (${montant} DZD) ne franchit plus « ${reprise.title} » : la demande y reprend.`
+      : note;
+    await recordEvent(instance.id, pose, "RESUBMIT", viewer, trace, null);
+
+    const titre = `${CATEGORY_LABELS[category]} — ${pose.title} (corrigée et resoumise)`;
+    const corps = note ? `${summary.name} — ${note}` : summary.name;
+    await prevenirLaPose(entityType, entityId, instance, pose, summary.requesterId, titre, corps);
+    // CELUI QUI A DEMANDÉ LA CORRECTION l'attend. Quand la demande revient à SON étape, la notification
+    // de l'étape le prévient déjà (il en porte le rôle, puisqu'il y a agi) ; quand une porte rouverte la
+    // fait reprendre AVANT son étape, personne d'autre ne le lui dirait.
+    const renvoi = porteRouverte
+      ? await prisma.workflowStepEvent.findFirst({ where: { instanceId: instance.id, action: "RETURN" }, orderBy: { createdAt: "desc" }, select: { actorId: true } })
+      : null;
+    if (renvoi?.actorId && renvoi.actorId !== viewer.id) {
+      await notifyUser({ userId: renvoi.actorId, type: "VALIDATION_REQUIRED", title: titre, body: corps, link: entityPath(entityType, entityId) });
+    }
+    await recordAudit({
+      actorId: viewer.id, action: "UPDATE", module: auditModule(entityType), entityType, entityId,
+      summary: `Corrigée et resoumise — ${summary.name}${porteRouverte ? ` (porte « ${reprise.title} » rouverte)` : ""}`,
+    });
+    return { ok: true, category, etape: pose.title };
+  } finally {
+    await prisma.workflowInstance.updateMany(argsRendre(instance.id, prise)).catch(() => undefined);
+  }
+}
+
+/**
+ * APRÈS UNE MODIFICATION DE LA DEMANDE EN COURS DE CIRCUIT (audit 360°, R15 — §118.186).
+ *
+ * Une correction faite après un premier avis ne rouvrait rien et ne prévenait personne : la
+ * personne qui avait approuvé 200 000 DZD n'apprenait jamais qu'on en demandait 400 000, et une
+ * porte du DG franchie sous le seuil restait franchie pour une demande qui l'avait dépassé.
+ *   • une porte franchie PAR LE MONTANT et que le montant ne franchit plus se ROUVRE — la demande
+ *     y retourne (même règle que la resoumission, `etapeDeReprise`) ;
+ *   • si quelqu'un a DÉJÀ donné un avis, l'étape courante et les auteurs d'avis sont prévenus de ce
+ *     qui a changé. Avant tout avis, on ne prévient personne : nul n'a encore rien regardé, et une
+ *     notification par faute de frappe corrigée serait du bruit qu'on cesse de lire (§118.32).
+ * Une demande À CORRIGER n'est pas concernée : la resoumission fera les deux.
+ */
+export async function apresModificationDeLaDemande(input: { viewer: Viewer; entityType: EntityType; entityId: string; changes: readonly string[] }): Promise<{ porteRouverte: string | null }> {
+  const { viewer, entityType, entityId } = input;
+  const category = entityToCategory(entityType);
+  if (!category) return { porteRouverte: null };
+  const lu = await prisma.workflowInstance.findUnique({ where: { entityType_entityId: { entityType, entityId } }, select: { id: true, status: true } });
+  if (!lu || lu.status !== "IN_PROGRESS") return { porteRouverte: null };
+  // Un geste en cours — une approbation qui part — se termine d'abord : la porte se juge sur
+  // l'étape où il aura laissé la demande, pas sur celle qu'on a lue avant lui. La modification est
+  // déjà enregistrée ; c'est sa SUITE qui attend son tour, quelques secondes au plus.
+  const prise = await prendreLeCircuitEnAttendant(lu.id, { status: "IN_PROGRESS" }, 5_000);
+  if (!prise) return { porteRouverte: null };
+  try {
+    // RELUE sous la prise : le geste qu'on a attendu a pu déplacer l'étape.
+    const instance = await prisma.workflowInstance.findUnique({ where: { id: lu.id } });
+    if (!instance || instance.status !== "IN_PROGRESS") return { porteRouverte: null };
+    const def = await chargerDefinition(instance);
+    const courante = def ? stepBySlug(def, instance.currentSlug) : null;
+    const summary = await loadEntity(entityType, entityId);
+    if (!def || !courante || !summary) return { porteRouverte: null };
+    const ignorees = instance.skippedSlugs ?? [];
+    const link = entityPath(entityType, entityId);
+
+    const montant = toNumber(instance.amount) || (summary.estimatedAmount ?? 0);
+    const seuilDgGlobal = await getAppSettings().then((st) => st.adProDgThreshold).catch(() => null);
+    const reprise = etapeDeReprise(orderedSteps(def), courante, await franchiesParMontant(instance.id), (e) => autoSkipEligible(e, montant, seuilDgGlobal), ignorees);
+
+    let porteRouverte: string | null = null;
+    let etapeAPrevenir = courante;
+    if (reprise.slug !== courante.slug) {
+      const pris = await prisma.workflowInstance.updateMany({
+        where: { id: instance.id, status: "IN_PROGRESS", currentSlug: courante.slug },
+        data: { currentSlug: reprise.slug },
+      });
+      if (pris.count > 0) {
+        porteRouverte = reprise.title;
+        etapeAPrevenir = reprise;
+        await projectPose(entityType, entityId, def, reprise, ignorees, viewer);
+        await recordEvent(instance.id, reprise, "REOPEN", viewer, `Montant porté à ${montant} DZD : « ${reprise.title} » n'est plus franchie sous le seuil — la demande y revient.`, null);
+        await prevenirLaPose(entityType, entityId, instance, reprise, summary.requesterId, `${CATEGORY_LABELS[category]} — ${reprise.title} (montant relevé)`, summary.name);
+      }
+    }
+
+    const historique = await prisma.workflowStepEvent.findMany({ where: { instanceId: instance.id }, select: { action: true, actorId: true }, orderBy: { createdAt: "asc" } });
+    const auteurs = auteursDAvis(historique, [viewer.id, summary.requesterId]);
+    if (auteurs.length > 0 && input.changes.length > 0) {
+      const corps = `${summary.name} — ${input.changes.join(" · ")}`;
+      for (const userId of auteurs) {
+        await notifyUser({ userId, type: "VALIDATION_REQUIRED", title: `${CATEGORY_LABELS[category]} — demande modifiée après votre avis`, body: corps, link });
+      }
+      // L'étape courante, si la porte rouverte ne l'a pas déjà prévenue : elle décidera sur la version
+      // modifiée, et doit savoir ce qui a changé depuis les avis qu'elle lit.
+      if (!porteRouverte) {
+        await prevenirEtapeAtteinte(entityType, entityId, etapeAPrevenir, { title: `${CATEGORY_LABELS[category]} — ${etapeAPrevenir.title} (demande modifiée)`, body: corps, link }, summary.requesterId);
+      }
+    }
+    return { porteRouverte };
+  } finally {
+    await prisma.workflowInstance.updateMany(argsRendre(lu.id, prise)).catch(() => undefined);
+  }
+}
+
+/**
+ * FERMER LE CIRCUIT D'UNE DEMANDE RETIRÉE, ANNULÉE OU TRANSFÉRÉE.
+ *
+ * L'annulation et le transfert écrivaient le statut de l'ENTITÉ et laissaient l'instance « en
+ * cours » : le panneau proposait encore « Approuver » sur une demande annulée, et l'approuver
+ * aurait émis l'argent d'une demande que son auteur avait retirée. Une demande close ferme son
+ * circuit, en une écriture conditionnelle (rien à fermer = rien d'écrit), avec sa raison au journal.
+ */
+export async function fermerInstance(input: { viewer: Viewer; entityType: EntityType; entityId: string; motif: string }): Promise<boolean> {
+  const instance = await prisma.workflowInstance.findUnique({ where: { entityType_entityId: { entityType: input.entityType, entityId: input.entityId } } });
+  if (!instance) return false;
+  // Toujours la SUITE d'une décision déjà écrite (un transfert a déplacé les pièces) : on attend
+  // qu'un geste en cours se termine plutôt que de laisser le circuit de la source ouvert.
+  const prise = await prendreLeCircuitEnAttendant(instance.id, { status: { in: ["IN_PROGRESS", "RETURNED"] } }, 5_000);
+  if (!prise) return false;
+  try {
+    const def = await chargerDefinition(instance);
+    const etape = def ? stepBySlug(def, instance.currentSlug) : null;
+    const pris = await prisma.workflowInstance.updateMany(clotureDuCircuit(instance.id));
+    if (pris.count === 0) return false;
+    await prisma.workflowStepEvent.create(evenementDeCloture(instance.id, etape, input.viewer, input.motif));
+    return true;
+  } finally {
+    await prisma.workflowInstance.updateMany(argsRendre(instance.id, prise)).catch(() => undefined);
+  }
+}
+
+/**
+ * LA CLÔTURE D'UN CIRCUIT — ses ARGUMENTS, partagés par ses deux écrivains (`fermerInstance`,
+ * `retirerDemande`), qui gardent chacun l'APPEL Prisma dans leur propre corps.
+ *
+ * Pourquoi pas une seule fonction qui écrit : la dérivation des contrats d'action ne suit qu'UN
+ * niveau de délégation (`faitsEcritureImportes`). Quand `retirerDemande` déléguait sa clôture à
+ * `fermerInstance`, les deux actions qui l'appellent — annuler un congrès, retirer une demande —
+ * se décrivaient « n'écrit rien », et la carte de confirmation aurait annoncé une lecture. C'est
+ * le partage de §118.137 : la partie qu'on ne veut pas voir diverger (la condition, l'état écrit,
+ * la ligne d'historique) vit une fois ; l'écriture reste visible là où elle a lieu.
+ */
+function clotureDuCircuit(instanceId: string) {
+  return {
+    where: { id: instanceId, status: { in: ["IN_PROGRESS", "RETURNED"] } },
+    data: { status: "CANCELLED", currentSlug: null },
+  } satisfies Prisma.WorkflowInstanceUpdateManyArgs;
+}
+
+function evenementDeCloture(instanceId: string, etape: LoadedStep | null, viewer: Viewer, motif: string) {
+  return {
+    data: {
+      instanceId, stepSlug: etape?.slug ?? "__cancel__", stepTitle: etape?.title ?? "Demande close",
+      action: "CANCEL", actorId: viewer.id, actorName: viewer.name ?? null, note: motif,
+    },
+  } satisfies Prisma.WorkflowStepEventCreateArgs;
+}
+
+/**
+ * RETIRER UNE DEMANDE QUI N'EST PAS ENCORE TRANCHÉE (audit 360°, R24 — §118.186).
+ *
+ * Le demandeur ne pouvait pas retirer sa propre demande : l'action existait pour les congrès, sans
+ * écran, et n'existait pas pour le sponsoring ni l'événement. Retirer est un geste qui RÉDUIT
+ * (§118.15) : il ne touche à rien de ce qui a quitté l'ERP, et c'est la condition qu'on vérifie —
+ * un poste qui engage déjà la dépense (bon de commande demandé, ordre émis) l'interdit, avec le
+ * geste qui débloque. Le motif est obligatoire (règle commune des gestes définitifs, R17) ; la
+ * permission est vérifiée par l'APPELANT, qui seul connaît la session.
+ */
+export async function retirerDemande(input: { viewer: Viewer; entityType: EntityType; entityId: string; motif: string }): Promise<ResultatRevision> {
+  const { viewer, entityType, entityId } = input;
+  const category = entityToCategory(entityType);
+  if (!category) return { ok: false, error: "Catégorie de workflow inconnue." };
+  const motif = input.motif.trim();
+  if (!motif) return { ok: false, error: "Dites pourquoi vous retirez la demande : le motif reste à l'historique." };
+  const instance = await ensureInstance(entityType, entityId);
+  if (!instance) return { ok: false, error: "Circuit introuvable." };
+  if (instance.status !== "IN_PROGRESS" && instance.status !== "RETURNED") {
+    return { ok: false, error: "La demande est déjà tranchée ou close : elle ne se retire plus." };
+  }
+  const prise = new Date();
+  const posee = await prisma.workflowInstance.updateMany(argsPrise(instance.id, { status: { in: ["IN_PROGRESS", "RETURNED"] } }, prise));
+  if (posee.count === 0) return { ok: false, error: CIRCUIT_PRIS };
+  try {
+    const colonne = PARENT_COLONNE[entityType as AdProParent];
+    if (colonne) {
+      const engages = await prisma.adProItem.count({
+        where: { [colonne]: entityId, OR: [{ expenseOrderId: { not: null } }, { orderStage: { in: ["REQUESTED", "DIRECTION_OK", "ISSUED"] } }] },
+      });
+      if (engages > 0) {
+        return { ok: false, error: `${engages} poste(s) de cette demande engagent déjà la dépense (bon de commande demandé ou ordre émis) : retirez ou annulez d'abord ces postes.` };
+      }
+    }
+    const summary = await loadEntity(entityType, entityId);
+    if (!summary) return { ok: false, error: "Demande introuvable." };
+    // La clôture s'écrit ICI et non par `fermerInstance` : voir `clotureDuCircuit`.
+    const def = await chargerDefinition(instance);
+    const etape = def ? stepBySlug(def, instance.currentSlug) : null;
+    const pris = await prisma.workflowInstance.updateMany(clotureDuCircuit(instance.id));
+    if (pris.count === 0) return { ok: false, error: "La demande vient d'être tranchée ou close." };
+    await prisma.workflowStepEvent.create(evenementDeCloture(instance.id, etape, viewer, `Retirée — ${motif}`));
+    await projeterStatut(entityType, entityId, "CANCELLED", viewer);
+    await recordAudit({ actorId: viewer.id, action: "UPDATE", module: auditModule(entityType), entityType, entityId, summary: `Demande retirée — ${summary.name} : ${motif}` });
+    return { ok: true, category, etape: "" };
+  } finally {
+    await prisma.workflowInstance.updateMany(argsRendre(instance.id, prise)).catch(() => undefined);
+  }
+}
+
+/**
+ * UN NOUVEAU CYCLE POUR UNE DEMANDE REFUSÉE OU ANNULÉE (audit 360°, R01 — §118.186).
+ *
+ * Un événement refusé ne pouvait JAMAIS être resoumis : l'instance de circuit est unique par
+ * demande, et elle restait close. On la ROUVRE plutôt que d'en créer une seconde — l'historique du
+ * premier cycle reste lisible, motif du refus compris — sur l'étape d'entrée que le statut
+ * fraîchement écrit désigne (`positionFromLegacy`, la même lecture qu'à la naissance), puis les
+ * franchissements automatiques s'enchaînent comme à la naissance.
+ */
+export async function relancerCycle(input: {
+  viewer: Viewer; entityType: EntityType; entityId: string; note: string;
+  /** L'écriture de la demande relancée, faite SOUS la prise — avant que le circuit relise son statut d'entrée. */
+  preparer?: () => Promise<void>;
+}): Promise<ResultatRevision> {
+  const { viewer, entityType, entityId } = input;
+  const category = entityToCategory(entityType);
+  if (!category) return { ok: false, error: "Catégorie de workflow inconnue." };
+  const instance = await prisma.workflowInstance.findUnique({ where: { entityType_entityId: { entityType, entityId } } });
+  if (!instance) {
+    // Jamais ouverte : la première lecture la créera à la bonne étape, d'après la demande écrite.
+    if (input.preparer) await input.preparer();
+    const neuve = await ensureInstance(entityType, entityId);
+    return neuve ? { ok: true, category, etape: neuve.currentSlug ?? "" } : { ok: false, error: "Impossible d'ouvrir le circuit." };
+  }
+  if (instance.status !== "REJECTED" && instance.status !== "CANCELLED") return { ok: false, error: "Cette demande n'est ni refusée ni annulée : son circuit est toujours ouvert." };
+  const prise = new Date();
+  const posee = await prisma.workflowInstance.updateMany(argsPrise(instance.id, { status: { in: ["REJECTED", "CANCELLED"] } }, prise));
+  if (posee.count === 0) return { ok: false, error: "La demande vient d'être relancée, ou quelqu'un agit dessus au même instant." };
+  try {
+    // La demande s'écrit d'abord, sous la prise : l'étape d'entrée se lit sur son statut FRAIS.
+    if (input.preparer) await input.preparer();
+    const def = await chargerDefinition(instance);
+    const summary = await loadEntity(entityType, entityId);
+    if (!def || !summary) return { ok: false, error: "Demande introuvable." };
+    const { currentSlug } = positionFromLegacy(orderedSteps(def), summary.legacyStatus);
+    const depart = stepBySlug(def, currentSlug);
+    if (!depart) return { ok: false, error: "Le circuit n'a pas d'étape d'entrée pour cette demande." };
+    const pris = await prisma.workflowInstance.updateMany({
+      where: { id: instance.id, status: { in: ["REJECTED", "CANCELLED"] } },
+      data: { status: "IN_PROGRESS", currentSlug: depart.slug, assigneeId: null, amount: null },
+    });
+    if (pris.count === 0) return { ok: false, error: "La demande vient d'être relancée." };
+    const montant = summary.estimatedAmount ?? 0;
+    const pose = montant > 0
+      ? (await settleAutoSkips(entityType, entityId, def, instance.id, montant, summary.requesterId, depart, viewer, instance.finalSlug ?? null, instance.skippedSlugs ?? [])) ?? depart
+      : depart;
+    if (pose.slug !== depart.slug) await prisma.workflowInstance.update({ where: { id: instance.id }, data: { currentSlug: pose.slug } });
+    await recordEvent(instance.id, pose, "RESUBMIT", viewer, `Nouveau cycle — ${input.note}`, null);
+    await prevenirLaPose(entityType, entityId, instance, pose, summary.requesterId, `${CATEGORY_LABELS[category]} — ${pose.title} (nouvelle demande après refus)`, `${summary.name} — ${input.note}`);
+    return { ok: true, category, etape: pose.title };
+  } finally {
+    await prisma.workflowInstance.updateMany(argsRendre(instance.id, prise)).catch(() => undefined);
+  }
+}
+
+/**
+ * L'APPEL D'UNE DÉCISION ROUVRE LE CIRCUIT À L'ÉTAPE QUI A TRANCHÉ (audit 360°, R04 — §118.186).
+ *
+ * Il rouvrait sur la première étape à portée « personne désignée », sinon la DEUXIÈME étape — la
+ * porte du DG depuis l'inversion du circuit : sans franchissement ni notification, le dossier
+ * attendait un Directeur Général qui n'avait rien à juger, pendant que l'écran promettait « un
+ * nouvel examen de la Direction Marketing ». L'appel conteste une DÉCISION ; il revient à qui l'a
+ * rendue — la borne du parcours, sinon la dernière étape de sa route —, qui est prévenu.
+ *
+ * Rend le titre de cette étape, pour que l'écran et la notification disent la vérité.
+ */
+export async function reopenInstance(entityType: EntityType, entityId: string, viewer?: Viewer, motif?: string | null): Promise<{ etape: string | null; rolesPrevenus: string[] }> {
+  const instance = await prisma.workflowInstance.findUnique({ where: { entityType_entityId: { entityType, entityId } } });
+  if (!instance) return { etape: null, rolesPrevenus: [] };
+  const def = await chargerDefinition(instance);
+  if (!def) return { etape: null, rolesPrevenus: [] };
+  const etapes = orderedSteps(def);
+  const ignorees = instance.skippedSlugs ?? [];
+  const decision = (instance.finalSlug ? stepBySlug(def, instance.finalSlug) : null)
+    ?? [...etapes].reverse().find((s) => !estIgnoree(s.slug, ignorees))
+    ?? etapes[etapes.length - 1];
+  if (!decision) return { etape: null, rolesPrevenus: [] };
+  // Seule une décision RENDUE se conteste : deux appels simultanés n'en rouvrent qu'un.
+  const prise = new Date();
+  const posee = await prisma.workflowInstance.updateMany(argsPrise(instance.id, { status: { in: ["APPROVED", "REJECTED"] } }, prise));
+  if (posee.count === 0) return { etape: null, rolesPrevenus: [] };
+  try {
+    await prisma.workflowInstance.update({ where: { id: instance.id }, data: { currentSlug: decision.slug, status: "IN_PROGRESS" } });
+    if (viewer) {
+      await recordEvent(instance.id, decision, "APPEAL", viewer, motif?.trim() || null, null);
+      const summary = await loadEntity(entityType, entityId);
+      const category = entityToCategory(entityType);
+      if (summary && category) {
+        await prevenirLaPose(entityType, entityId, instance, decision, summary.requesterId, `${CATEGORY_LABELS[category]} — appel à réexaminer (${decision.title})`, motif?.trim() ? `${summary.name} — ${motif.trim()}` : summary.name);
+      }
+    }
+    // Les rôles que l'étape qui tranche vient de prévenir : l'appelant qui INFORME d'autres rôles
+    // (la Direction, pour un appel) ne les prévient pas une seconde fois.
+    return { etape: decision.title, rolesPrevenus: viewer ? [...(decision.notifyRoles ?? [])] : [] };
+  } finally {
+    await prisma.workflowInstance.updateMany(argsRendre(instance.id, prise)).catch(() => undefined);
+  }
 }

@@ -14,6 +14,7 @@ import { createExpenseOrder } from "@/lib/expense-orders";
 import { statutApresNouveauMontant, type CentralStatus } from "@/lib/payments/authorization";
 import { involveThirdParty } from "@/lib/third-party";
 import { adProInit, PRODUCT_MANAGER_ROLES } from "@/lib/workflow/origin";
+import { retirerDemande } from "@/lib/workflow/engine";
 import { referentAInscrire } from "@/lib/ad-pro/referent-de-la-gamme";
 import { fdStr, fdNum, fdDate, type ActionResult } from "@/lib/actions/types";
 import { attachFiles } from "@/lib/attach-files";
@@ -487,8 +488,18 @@ export async function cancelCongressRequest(formData: FormData): Promise<ActionR
   const isOwner = c.requesterId === user.id;
   if (!isOwner && !userCan(user, moduleFor(t), "VALIDATE") && !hasGlobalView(user)) return { ok: false, error: "Non autorisé." };
   if (["APPROVED", "COMPLETED"].includes(c.requestStatus ?? "")) return { ok: false, error: "Demande déjà validée." };
-  await updateCongress(t, id, { requestStatus: "CANCELLED", updatedById: user.id });
-  await recordAudit({ actorId: user.id, action: "UPDATE", module: ML(t), entityType: entityFor(t), entityId: id, summary: `Demande annulée — ${c.name}` });
+  // PAR LE MOTEUR, ET AVEC UN MOTIF (§118.186). Cette action écrivait « annulée » sur la demande et
+  // laissait son CIRCUIT ouvert : le panneau proposait encore « Approuver », et l'approuver aurait
+  // émis l'argent d'une demande que son auteur avait retirée. `retirerDemande` ferme le circuit,
+  // refuse quand un poste engage déjà la dépense, et garde le motif — obligatoire, comme tout geste
+  // définitif (R17).
+  const motif = fdStr(formData, "motif");
+  if (!motif) return { ok: false, error: "Dites pourquoi vous annulez la demande : le motif reste à l'historique." };
+  const r = await retirerDemande({
+    viewer: { id: user.id, role: user.role, secondaryRole: user.secondaryRole ?? null, name: user.name },
+    entityType: entityFor(t), entityId: id, motif,
+  });
+  if (!r.ok) return { ok: false, error: r.error };
   revalidatePath(`${pathFor(t)}/${id}`);
   revalidatePath(pathFor(t));
   return { ok: true };

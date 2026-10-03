@@ -136,6 +136,9 @@ export default async function SponsoringDetailPage({ params }: { params: { id: s
 
   // L'appel du délégué reste une action propre au sponsoring (après décision).
   const canAppeal = isRequester && ["APPROVED", "REFUSED"].includes(req.status);
+  // L'ÉTAPE QUI TRANCHE cette demande — la dernière de SA route (la vue retire déjà les étapes hors
+  // parcours) : c'est elle que l'appel rouvre (§118.186, R04), et la phrase doit la nommer.
+  const etapeQuiTranche = workflow?.steps[workflow.steps.length - 1]?.title ?? null;
   const fmt = (v: unknown) => (v ? formatCurrency(toNumber(v as never)) : null);
 
   // Corriger la demande : le demandeur tant qu'elle n'est pas tranchée, la Direction toujours.
@@ -240,7 +243,7 @@ export default async function SponsoringDetailPage({ params }: { params: { id: s
             <CardHeader><CardTitle>Circuit de validation</CardTitle></CardHeader>
             <CardContent className="space-y-4">
               {req.appealCount > 0 && (
-                <p className="rounded-lg bg-purple-500/10 px-3 py-2 text-xs text-purple-700">Cette demande a fait l'objet d'un appel ({req.appealCount}×) — réexamen par la Direction Marketing puis décision de la Direction.</p>
+                <p className="rounded-lg bg-purple-500/10 px-3 py-2 text-xs text-purple-700">Cette demande a fait l'objet d'un appel ({req.appealCount}×) — réexamen par l'étape qui a tranché{etapeQuiTranche ? ` (« ${etapeQuiTranche} »)` : ""}.</p>
               )}
               {workflow ? (
                 <WorkflowPanel entityType="SPONSORING" entityId={req.id} view={workflow} />
@@ -249,7 +252,7 @@ export default async function SponsoringDetailPage({ params }: { params: { id: s
               )}
               {canAppeal && (
                 <div className="border-t border-border pt-3">
-                  <AppealPanel id={req.id} />
+                  <AppealPanel id={req.id} etape={etapeQuiTranche} />
                 </div>
               )}
             </CardContent>

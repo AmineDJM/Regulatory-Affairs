@@ -159,6 +159,10 @@ enum SponsoringStatus {
   /// postes se préparent — devis, BC, factures. L'argent n'est pas encore validé : il le sera
   /// poste par poste, puis à la validation finale qui CLÔTURE la demande (`CLOSED`).
   PRE_VALIDATED
+  /// RENVOYÉE POUR CORRECTION (audit 360°, R02 — §118.186) : une étape du circuit a rendu la main au
+  /// demandeur, motif à l'appui. Rien n'est refusé : il corrige puis RESOUMET, et la demande revient
+  /// à l'étape qui l'a renvoyée. Ni « en attente de décision » (personne ne décide), ni « refusée ».
+  RETURNED
 }
 
 /// LA NATURE D'UN SPONSORING (§118.151) — et donc le poste créé avec la demande.
@@ -206,6 +210,9 @@ enum CongressRequestStatus {
   REJECTED // refusée (à l'une des étapes)
   CANCELLED
   COMPLETED // événement réalisé
+  /// RENVOYÉE POUR CORRECTION (audit 360°, R02 — §118.186) : chez son demandeur, qui corrige et
+  /// RESOUMET ; la demande revient alors à l'étape qui l'a renvoyée.
+  RETURNED
 }
 
 /// Type d'événement national (pharma).
@@ -8471,8 +8478,8 @@ model WorkflowInstance {
   entityType       EntityType
   entityId         String
   category         String
-  status           String              @default("IN_PROGRESS") // IN_PROGRESS | APPROVED | REJECTED | CANCELLED
-  currentSlug      String? // étape en attente d'action ; null si terminal
+  status           String              @default("IN_PROGRESS") // IN_PROGRESS | RETURNED (à corriger, chez le demandeur) | APPROVED | REJECTED | CANCELLED
+  currentSlug      String? // étape en attente d'action ; null si terminal ; gardée pendant un renvoi (la demande y reviendra)
   /// L'ÉTAPE QUI TRANCHE POUR CETTE DEMANDE — null = la dernière étape de la définition.
   ///
   /// Le parcours Ad&Pro dépend de QUI demande. Ce champ disait « les deux chaînes sont des
@@ -8503,6 +8510,18 @@ model WorkflowInstance {
   amount           Decimal?            @db.Decimal(14, 2)
   budgetCategoryId String?
   assigneeId       String?
+  /// UN GESTE EST EN COURS SUR CE CIRCUIT depuis cet instant (§118.186) — null sinon.
+  ///
+  /// Approuver, refuser, renvoyer, resoumettre, retirer, relancer, faire appel : chaque geste
+  /// PREND le circuit avant son premier effet et le REND à la fin. Sans cette prise, deux clics à
+  /// une seconde d'intervalle sur « Approuver » à l'étape qui tranche lisaient le même état et
+  /// émettaient DEUX ordres de dépense ; un renvoi et un accord donnés ensemble s'appliquaient
+  /// tous les deux. Une condition sur l'état seul ne suffit pas : l'approbation ne déplace l'étape
+  /// qu'à sa FIN, et un second geste lu entre-temps la croyait toujours libre.
+  ///
+  /// Une prise plus vieille que deux minutes est réputée abandonnée (processus tombé en plein
+  /// geste) et se reprend : un circuit ne reste jamais bloqué par une panne.
+  claimedAt        DateTime?
   createdAt        DateTime            @default(now())
   updatedAt        DateTime            @updatedAt
   events           WorkflowStepEvent[]

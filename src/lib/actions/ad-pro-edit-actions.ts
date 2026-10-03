@@ -5,6 +5,7 @@ import { requireUser } from "@/lib/session";
 import { userCan, hasGlobalView, type Module } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
+import { apresModificationDeLaDemande } from "@/lib/workflow/engine";
 import {
   canEditAdProRequest, isAdProDecided, editableField, describeChanges,
   type AdProKind,
@@ -159,7 +160,21 @@ export async function updateAdProRequest(formData: FormData): Promise<ActionResu
     summary: `Demande modifiée${decided ? " APRÈS DÉCISION" : ""} — ${changes.join(" · ")}`,
   });
 
+  // UNE CORRECTION EN COURS DE CIRCUIT N'EST PLUS MUETTE (audit 360°, R15 — §118.186). Ceux qui ont
+  // déjà donné un avis apprennent ce qui a changé, et une porte franchie sous le seuil que le
+  // nouveau montant dépasse se rouvre. Le matériel promotionnel a son propre circuit : il n'est pas
+  // concerné. Un échec ici ne défait pas la modification, déjà écrite et tracée.
+  let porteRouverte: string | null = null;
+  if (kind !== "PROMO_MATERIAL") {
+    porteRouverte = (await apresModificationDeLaDemande({
+      viewer: { id: user.id, role: user.role, secondaryRole: user.secondaryRole ?? null, name: user.name },
+      entityType: kind, entityId: id, changes,
+    }).catch((e) => { console.error("[ad-pro-edit] suite de la modification non appliquée", e); return { porteRouverte: null }; })).porteRouverte;
+  }
+
   revalidatePath(target.path);
   revalidatePath(`${target.path}/${id}`);
-  return { ok: true, id };
+  return porteRouverte
+    ? { ok: true, id, message: `Modification enregistrée — le montant dépasse désormais le seuil de « ${porteRouverte} » : la demande y retourne.` }
+    : { ok: true, id };
 }

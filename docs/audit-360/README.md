@@ -77,6 +77,14 @@ en charge se chargent par leur identifiant seul (relevé de la phase 0).
 
 ## 3. Révisions — « ne pas être figé »
 
+**État au 3 octobre** : dans le moteur des circuits Ad & Pro (sponsoring, congrès, événements), le renvoi pour
+correction, la resoumission, le motif lisible du demandeur, l'appel à l'étape qui a tranché, l'événement refusé
+qui repart, la modification après avis et le retrait d'une demande sont livrés et testés (lot C1, `CLAUDE.md`
+§118.186) — avec, trouvé en chemin, « un geste à la fois » : deux accords simultanés n'émettent plus deux ordres
+de dépense. Restent : les postes et leurs BC (C2), les centres Ad & Pro, de paiement et de validations (C3), et
+les autres circuits — matériel promotionnel, consulting, autre demande, secrétariat, demande de paiement,
+recrutement, plan de tournée validé, pièce Legal révisée (C4).
+
 Constat d'ensemble (rapports 17, 18, 01, 03, 14) : **la plateforme sait refuser, rarement faire corriger.**
 
 - **Aucun « renvoyer pour correction »** au niveau d'une demande Ad & Pro : le refus final est définitif, le

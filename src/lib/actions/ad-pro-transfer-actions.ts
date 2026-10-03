@@ -9,6 +9,7 @@ import { toNumber } from "@/lib/utils";
 import { recordAudit } from "@/lib/audit";
 import { notifyUser } from "@/lib/notify";
 import { fdStr, type ActionResult } from "@/lib/actions/types";
+import { fermerInstance } from "@/lib/workflow/engine";
 
 /**
  * TRANSFÉRER UNE DEMANDE D'UN MODULE AD & PRO VERS UN AUTRE.
@@ -229,11 +230,14 @@ export async function transferAdProRequest(_prev: ActionResult | undefined, form
     });
 
     // Le circuit de validation de la source est clos : ses étapes n'ont plus d'objet, et le
-    // laisser ouvert ferait apparaître la demande dans les files d'attente de ses acteurs.
-    await prisma.workflowInstance.updateMany({
-      where: { entityType: fromRaw, entityId: sourceId, status: "IN_PROGRESS" },
-      data: { status: "CANCELLED", currentSlug: null },
-    }).catch(() => undefined);
+    // laisser ouvert ferait apparaître la demande dans les files d'attente de ses acteurs. Par la
+    // porte du moteur (`fermerInstance`) : elle ferme aussi une demande À CORRIGER, que l'écriture
+    // d'ici — « en cours » seulement — laissait ouverte chez son demandeur (§118.186), et elle
+    // laisse la raison au journal du circuit.
+    await fermerInstance({
+      viewer: { id: user.id, role: user.role, secondaryRole: user.secondaryRole ?? null, name: user.name },
+      entityType: fromRaw, entityId: sourceId, motif: `Transférée vers ${LABELS[toRaw]}`,
+    }).catch(() => false);
 
     await closeSource(fromRaw, sourceId, toRaw, targetId);
 
