@@ -1473,6 +1473,13 @@ X("RÉVISER UN PLAN VALIDÉ, DIRE QU'UNE VISITE N'A PAS EU LIEU (audit 360°, lo
   "tour-visit-actions:direVisiteNonTenue",
 ]);
 
+X("RÉVISER UNE PIÈCE ÉMISE depuis sa fiche (audit 360°, lot C4d2b1, §118.194) — une nouvelle version d'un devis ou "
+  + "d'un bon de commande réécrit un engagement et son fichier : un BC relevé retourne à son centre et perd la signature "
+  + "des Finances. Le geste se fait devant les lignes de la version affichée, motif à l'appui. Adam est en pause de "
+  + "développement : aucun geste neuf ne lui est ouvert. Un clic sur la fiche Legal de la pièce (« Réviser la pièce »).", [
+  "fabrique-actions:reviserPieceCommerciale",
+]);
+
 X("LA FICHE DE COACHING est une ATTESTATION (§118.15, §118.157) : le manager y écrit ce qu'il a OBSERVÉ pendant une "
   + "tournée en double — tel niveau de maîtrise sur tel axe, tels points forts, tels points à améliorer — et la fiche "
   + "finalisée part chez le collaborateur, à son nom. Un modèle n'a rien observé : lui faire noter une visite ferait "

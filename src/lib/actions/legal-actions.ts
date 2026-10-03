@@ -22,6 +22,7 @@ import { legalWriteAllowed } from "@/lib/legal/invoices";
 import { syncInvoiceSettlement } from "@/lib/finance/settle-invoice";
 import { invoiceDirection, canSendToSettlement, canMarkPaidDirectly, cleEnvoiAuReglement } from "@/lib/finances/settlement";
 import { enSerie } from "@/lib/refs";
+import { champsDuFichierChanges, pieceEmise, refusChampsDuFichier } from "@/lib/legal/piece-emise";
 import { annulerOrdreNonRegle } from "@/lib/payments/annulation";
 import type { CurrentUser } from "@/lib/session";
 import { aiguillerBC, retirerPortesEnAttente, porteDuBC, CHEMIN_BC_A_SIGNER, type ResultatAiguillage } from "@/lib/bons-de-commande/aiguillage";
@@ -66,8 +67,11 @@ function peutEcrire(user: CurrentUser, verb: "CREATE" | "UPDATE" | "DELETE", kin
 }
 
 /** Champs communs à la création et à la modification. */
-function readFields(formData: FormData) {
-  const kind = parseKind(fdStr(formData, "kind"));
+function readFields(formData: FormData, natureImposee?: LegalDocKind) {
+  // LA NATURE D'UNE PIÈCE ÉMISE est celle de son fichier (§118.194) : son formulaire ne la porte plus, et la
+  // déduire d'un champ absent lisait « contrat » — la date de règlement d'une facture émise était alors
+  // ignorée, et l'enregistrement l'effaçait, sans un mot.
+  const kind = natureImposee ?? parseKind(fdStr(formData, "kind"));
   const estFacture = kind === "INVOICE";
   return {
     title: fdStr(formData, "title"),
@@ -279,20 +283,51 @@ export async function updateLegalDocument(formData: FormData): Promise<ActionRes
   const id = fdStr(formData, "id");
   if (!id) return { ok: false, error: "Document introuvable." };
 
-  const { title, ...f } = readFields(formData);
   // LA NATURE ACTUELLE COMPTE AUTANT QUE LA DEMANDÉE : sans elle, la comptabilité pourrait
   // rebaptiser un bail en « facture » pour s'ouvrir le droit de le modifier.
   const avant = await prisma.legalDocument.findUnique({
     where: { id },
-    select: { kind: true, expenseOrderId: true, counterparty: true, counterpartyIds: true, amount: true, chainFromId: true, promoFacture: { select: { id: true } } },
+    select: {
+      kind: true, expenseOrderId: true, counterparty: true, counterpartyIds: true, amount: true, chainFromId: true, promoFacture: { select: { id: true } },
+      custom: true, reference: true, startDate: true, endDate: true, direction: true,
+    },
   });
   if (!avant) return { ok: false, error: "Document introuvable." };
-  if (!peutEcrire(user, "UPDATE", avant.kind) || !peutEcrire(user, "UPDATE", f.kind)) {
+  const emise = pieceEmise(avant.custom);
+  const { title, ...f } = readFields(formData, emise ? avant.kind : undefined);
+  // UNE PIÈCE ÉMISE PAR LA PLATEFORME (§118.194 — audit 360°, R15) : son montant, sa partie, son numéro, sa
+  // nature, ses dates et son sens viennent de son FICHIER. Ce formulaire les réécrivait sans régénérer le
+  // fichier : la fiche disait un montant, la pièce envoyée en disait un autre — et c'est la fiche qui part au
+  // règlement. Ce que le formulaire ne porte pas garde sa valeur ; ce qu'il porte doit être identique ; une
+  // vraie correction passe par la révision, qui réécrit les deux ensemble.
+  if (emise) {
+    const fichier = {
+      amount: avant.amount !== null ? Number(avant.amount) : null, reference: avant.reference, kind: String(avant.kind),
+      startDate: avant.startDate, endDate: avant.endDate, direction: avant.direction, counterpartyIds: avant.counterpartyIds,
+    };
+    // LA NATURE DEMANDÉE se lit telle qu'envoyée : la lecture qui ÉCRIT impose celle du fichier, et comparer avec
+    // elle laisserait passer en silence une nature qu'on n'écrira pas. Le reste se compare à cette lecture-là —
+    // le sens de l'argent ne se lit que sur une facture, et c'est la nature du FICHIER qui dit si c'en est une.
+    const demandees = { ...f, kind: String(readFields(formData).kind) };
+    // Des clés LITTÉRALES : une lecture par variable rendrait l'action illisible à la dérivation (§118.79b).
+    const porte = {
+      amount: formData.has("amount"), reference: formData.has("reference"), kind: formData.has("kind"),
+      startDate: formData.has("startDate"), endDate: formData.has("endDate"), direction: formData.has("direction"),
+      counterpartyIds: formData.has("counterpartyIds"),
+    };
+    const changes = champsDuFichierChanges(fichier, demandees, (champ) => porte[champ]);
+    if (changes.length > 0) return { ok: false, error: refusChampsDuFichier(emise, changes) };
+  }
+  // Sur une pièce émise, la nature et les dates sont celles du fichier — même absentes du formulaire.
+  const kind = emise ? avant.kind : f.kind;
+  const startDate = emise ? avant.startDate : f.startDate;
+  const endDate = emise ? avant.endDate : f.endDate;
+  if (!peutEcrire(user, "UPDATE", avant.kind) || !peutEcrire(user, "UPDATE", kind)) {
     return { ok: false, error: "Non autorisé." };
   }
 
   if (!title) return { ok: false, error: "Le titre exact du document est obligatoire." };
-  const dates = validateDates(f.startDate, f.endDate);
+  const dates = validateDates(startDate, endDate);
   if (!dates.ok) return { ok: false, error: dates.error };
   const chainErr = await checkChainFrom(f.chainFromId, id);
   if (chainErr) return { ok: false, error: chainErr };
@@ -316,14 +351,15 @@ export async function updateLegalDocument(formData: FormData): Promise<ActionRes
   // prestataire de 2023. Une pièce qui portait déjà un nom en texte garde donc le droit d'être
   // enregistrée telle quelle — et le formulaire, lui, invite à la rattacher.
   const { counterpartyIds, ...reste } = f;
-  const demandees = await avecPartieNommee(user.id, formData, counterpartyIds);
+  // La partie d'une pièce émise est le tiers de son fichier : elle ne se choisit pas ici (voir plus haut).
+  const demandees = emise ? { ok: true as const, ids: avant.counterpartyIds } : await avecPartieNommee(user.id, formData, counterpartyIds);
   if (!demandees.ok) return { ok: false, error: demandees.error };
-  const parties = await resolveParties(user.id, demandees.ids);
+  const parties = emise ? { ok: true as const, ids: avant.counterpartyIds, text: avant.counterparty ?? "" } : await resolveParties(user.id, demandees.ids);
   if (!parties.ok) return { ok: false, error: parties.error };
   const heritage = avant.counterpartyIds.length === 0 && Boolean(avant.counterparty?.trim());
   // Un DEVIS s'enregistre sans partie (§118.175) : le corriger ensuite ne doit pas en exiger une —
   // sinon on ne pourrait plus rectifier sa date sans inventer un fournisseur.
-  if (parties.ids.length === 0 && !heritage && f.kind !== "QUOTE") {
+  if (parties.ids.length === 0 && !heritage && kind !== "QUOTE") {
     return { ok: false, error: "Choisissez au moins une partie dans l'annuaire de l'entreprise (« Créer un contact » l'y ajoute si elle en est absente)." };
   }
 
@@ -331,6 +367,8 @@ export async function updateLegalDocument(formData: FormData): Promise<ActionRes
     where: { id },
     data: {
       ...reste, title,
+      // Ce que le fichier d'une pièce émise porte garde sa valeur (voir plus haut).
+      ...(emise ? { amount: avant.amount, reference: avant.reference, kind: avant.kind, startDate, endDate, direction: avant.direction } : {}),
       counterpartyIds: parties.ids,
       // Sans sélection ET avec un nom hérité, on ne l'EFFACE pas : perdre le seul renseignement
       // qu'on avait sur la partie serait plus grave que de le garder imparfait.
@@ -352,7 +390,7 @@ export async function updateLegalDocument(formData: FormData): Promise<ActionRes
   // UN BC MODIFIÉ SE RÉAIGUILLE : devenu BC, il reçoit sa porte ; ayant cessé de l'être, il la
   // perd ; montant RELEVÉ après validation ou correction demandée par le centre, il y retourne.
   // `montantAvant` est lu AVANT l'écriture — c'est ce qui permet de savoir qu'il a été relevé.
-  const aiguillage = avant.kind === "PURCHASE_ORDER" || f.kind === "PURCHASE_ORDER"
+  const aiguillage = avant.kind === "PURCHASE_ORDER" || kind === "PURCHASE_ORDER"
     ? phraseAiguillage(await aiguillerBC(id, {
         acteurId: user.id, modifie: true,
         montantAvant: avant.amount == null ? null : Number(avant.amount),

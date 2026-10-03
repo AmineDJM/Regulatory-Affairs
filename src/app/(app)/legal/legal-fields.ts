@@ -2,6 +2,7 @@ import type { FieldDef } from "@/components/shared/create-record-button";
 import { optionsFromMap } from "@/components/shared/form-fields";
 import { LEGAL_DOC_KIND } from "@/lib/labels";
 import type { PartyOption } from "@/lib/contacts/parties";
+import { LIBELLE_CHAMP_DU_FICHIER } from "@/lib/legal/piece-emise";
 
 /**
  * LES CHAMPS D'UN DOCUMENT LÉGAL — une seule définition pour la création ET la modification.
@@ -38,9 +39,19 @@ export function legalFields(
    * l'annuaire, calculé au serveur.
    */
   parties: { options: PartyOption[]; canCreate: boolean; selected?: string[] } = { options: [], canCreate: false },
+  /**
+   * UNE PIÈCE ÉMISE PAR LA PLATEFORME (§118.194) : son montant, sa partie, son numéro, sa nature, ses dates et
+   * son sens viennent de son FICHIER. Ces champs ne s'offrent pas ici — le serveur les garde, et refuse de les
+   * changer : la révision (ou, pour une facture, l'annulation) est le geste qui les corrige.
+   */
+  pieceEmise = false,
 ): FieldDef[] {
   const v = (k: string) => values[k] ?? undefined;
   const facture = invoiceOnly || v("kind") === "INVOICE";
+  const champs = construire();
+  return pieceEmise ? champs.filter((c) => !("name" in c) || !CHAMPS_DU_FICHIER.has(c.name)) : champs;
+
+  function construire(): FieldDef[] {
   return [
     {
       type: "text", name: "title",
@@ -127,7 +138,11 @@ export function legalFields(
         ] as FieldDef[])
       : []),
   ];
+  }
 }
+
+/** Les noms de champ que le fichier d'une pièce émise porte — lus du module pur, jamais recopiés (§118.5). */
+const CHAMPS_DU_FICHIER = new Set<string>(Object.keys(LIBELLE_CHAMP_DU_FICHIER));
 
 /** Une date pour un `<input type="date">`, dans le fuseau du serveur (celui qui la relira). */
 export function dateInput(d: Date | null | undefined): string | undefined {

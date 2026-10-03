@@ -3178,8 +3178,14 @@ fichiers dérivés des MÊMES données, cohérents chiffre par chiffre — ou au
   (`dejaEmis`) sans rien émettre — `forcerDoublon` pour passer outre. Un numéro attribué n'est jamais réutilisé.
 - **Révision, pas réécriture.** `reviserDocumentDrive` : un devis ou un BC se révise — même numéro, nouvelle
   version du MÊME fichier Drive (la v1 reste ouvrable), `custom.fabrique.version++`, historique (qui, quand,
-  motif), montant et titre mis à jour. Une FACTURE émise ne se réécrit pas : l'outil le dit (avoir ou nouvelle
-  facture).
+  motif), montant et titre mis à jour. Une FACTURE émise ne se réécrit pas : l'outil le dit (annulation et
+  nouvelle facture). **Depuis la fiche Legal** (§118.194) : « Réviser la pièce » (`reviserPieceCommerciale`) part
+  de la version affichée (`versionVue`, une version dépassée est refusée), exige ce qui change (demandé APRÈS
+  l'état), et une pièce dont DÉCOULE une pièce active ne se révise plus (`AVAL_QUI_FIGE` : la facture d'un BC ; le
+  BC ou la facture d'un devis — un courrier « faisant suite » ne fige rien). Une révision à la fois : file par pièce
+  (`enSerie`) et écriture conditionnelle sur la version lue. Le formulaire générique de la fiche ne propose plus,
+  et refuse de changer, ce que le FICHIER porte (montant, numéro, nature, dates, sens, partie —
+  `lib/legal/piece-emise.ts`) ; ce qu'il ne porte pas garde sa valeur.
 - **Le profil documentaire d'une société** (`CompanyDocumentProfile`, outil `document_profile`) : préfixes de
   numérotation (DEV / BC / FA par défaut), TVA par défaut, conditions de paiement, validité des devis (30 jours),
   mention de pied, papier en-tête désigné, signataire. Lu par qui voit la société ; réglé par ceux qui tiennent la
@@ -4699,6 +4705,7 @@ entité) sont éligibles. Supprimer une gamme **ne supprime aucun produit** (`SE
 | **Demande de paiement corrigeable, centre « lu », gestes nommés du secrétariat (§118.191)** | Règles pures `lib/finance/correction-demande.ts` (`refusDeCorrection`, `refusDuChamp`, `ecartsDeCorrection`, `phraseDeCorrection`), `lib/payments/authorization.ts` (`statutApresRevision`, `memeBeneficiaire`), `lib/finance/payment-request.ts` (`statusFromPieces` — un brouillon ne change pas de camp —, `refusDeRemplacement`, `piecesEnVigueur`), `lib/secretariat/statut-manuel.ts` (`STATUTS_MANUELS`, `refusDuStatutManuel`, `refusDeReouverture`) ; réviseur unique `lib/payments/revision-ordre.ts` (`reviserOrdreNonRegle` conditionnel et relu, `apresRevisionOrdre`) appelé par `payment-request-actions.ts:corrigerDemandePaiement` et `congress-request-actions.ts:updateGrantedBudget` (+ `medical-info.ts:repercuterMontantSurDeclaration`) ; centre `payment-centre-actions.ts:decidePayment` (`montantVu`, `beneficiaireVu`, écriture conditionnelle) ; secrétariat `admin-request-actions.ts` (`updateRequestStatus`, `rouvrirDemande`, `annulerDemandeAuSecretariat`, archive dans `finishRequest`, `restoreRequest`) ; écrans `validations/paiements/[id]/{dossier,page}.tsx` (`CorrigerDemande`), `centre-de-paiement/centre-board.tsx`, `demandes/[id]/{request-actions,page}.tsx`. Bancs : `finance/correction-demande.test.ts`, `secretariat/statut-manuel.test.ts`, `payments/authorization.test.ts`, `finance/payment-request.test.ts`, `actions/payment-correction-flow.test.ts` et `actions/secretariat-gestes-flow.test.ts` (vrais points d'entrée, acteurs sans vue globale, témoins forcés), `payments/centre-portes-flow.test.ts`, `payments/centre-ecrivains.test.ts`, navigateur `e2e/correction-c4c.spec.ts`. |
 | **Recrutement — renvoyer, corriger, rouvrir, annuler l'embauche, un geste à la fois (§118.192)** | Règles pures `lib/recruitment/request-flow.ts` (étape `RETURNED`, `abilities` + `returnForCorrection` / `correct` / `reopen` / `cancelHire`, `marchesChangees`, `changementsMateriels`, `reouverture`) ; actions `recruitment-actions.ts` (`renvoyerDemandeRecrutement`, `resoumettreDemandeRecrutement`, `rouvrirDemandeRecrutement`, `annulerEmbaucheRecrutement` ; `decideRecruitmentStep` et `closeRecruitmentRequest` aux décisions lisibles et motifs exigés ; toutes les écritures d'étape conditionnelles) ; « À corriger » `queries/action-center.ts` ; écrans `recrutement/[id]/{page,panels}.tsx` (`CorrigerDemandePanel`, `RouvrirPanel`, historique) ; migration `20261231090000_recrutement_renvoi`. Bancs : `recruitment/request-flow.test.ts`, `actions/recruitment-correction-flow.test.ts` (vrais points d'entrée, RH sans vue globale, 17 courses forcées), cliquet `recruitment/etape-conditionnelle.test.ts`, `site-web/recrutement.test.ts`, navigateur `e2e/correction-c4d1.spec.ts`. |
 | **Plan de tournée — réviser un plan validé, dire une visite non tenue, un geste à la fois (§118.193)** | Règles pures `lib/sfe/tournee.ts` (état `REVISION`, `gestesPossibles().revisable`, `retraitInterditApresRevision`, `aResoumettre`, `retardDeSoumission` sur la resoumission) ; actions `tour-plan-actions.ts` (`demanderRevisionPlanTournee` ; décision, soumission, escalade et grille conditionnelles, `DEJA_CHANGE`), `tour-visit-actions.ts` (`direVisiteNonTenue`, phrase vraie des 48 h), `medical-actions.ts` (`updateVisit` et `deleteVisit` gardés et conditionnels) ; vues `queries/tour-schedule.ts` (`pairesPassees`, `pairesNonTenues`, révision, `motifNonTenue`), `queries/action-center.ts` (« À corriger ») ; écrans `plan-de-tournee/planificateur.tsx`, `plan-de-tournee/page.tsx`, `ma-journee/emploi-du-temps.tsx` ; migration `20270101090000_tournee_revision` ; bancs `actions/tournee-revision-flow.test.ts`, `e2e/correction-c4d2a.spec.ts` |
+| **Pièce Legal émise — réviser depuis la fiche, formulaire qui ne réécrit pas le fichier (§118.194)** | Règles pures `lib/legal/piece-emise.ts` (`pieceEmise`, `champsDuFichierChanges`, `refusChampsDuFichier`, `remedePieceEmise`, `AVAL_QUI_FIGE`, `refusRevisionAval`, `specRevisable`) ; lecteur `lib/legal/aval.ts` (`avalActif`) ; fabrique `platform/in-process/artifact/factory.ts` (`reviserDocumentDrive` : file `enSerie`, aval, `versionVue`, motif après l'état, écriture conditionnelle sur `custom.fabrique.version`, fichier de la PIÈCE) ; actions `fabrique-actions.ts` (`reviserPieceCommerciale`), `legal-actions.ts` (`updateLegalDocument` verrouillé, `readFields(formData, natureImposee)`) ; écrans `legal/[id]/reviser-piece.tsx`, `legal/[id]/page.tsx`, `legal/legal-fields.ts` (filtre des champs du fichier), `legal/[id]/edit-legal.tsx` ; dérivation `actions/contrat.ts` (test de présence qui cède) ; bancs `actions/legal-revision-flow.test.ts`, `e2e/correction-c4d2b1.spec.ts` |
 | **Matériel promo — circuit court** | Module PUR `lib/promo-material/circuit.ts` (`PROMO_STEPS` (7), `PROMO_TRACKS` (`PURCHASE_ORDER`/`PAYMENT`/`AD_VISA`), `initialStep` — saute la demande de devis si le devis est déjà là —, `canValidate` (N+1 réel : `Employee.managerId`, à défaut `departmentRef.head`), **`seesFullCircuit`** (Super Admin + PDG **uniquement**), `tracksOpen`, `allTracksDone`, `pendingTracks`, `progress`, `waitingOn`) + `circuit.test.ts` (23 tests) ; `lib/actions/promo-circuit-actions.ts`. |
 | **Rejeu de session (support)** | Module PUR `lib/replay/capture.ts` (`FORBIDDEN_FIELD` — mot de passe / secret / jeton / IBAN / RIB / CVV / carte —, `FORBIDDEN_INPUT_TYPE` — `password`, `hidden` —, `fieldIsRecordable`, `isSensitiveLabel`, `cleanLabel`, `scrubDetail`, **`makeEvent` : la porte d'entrée UNIQUE**, `coalesce`, `describeEvent`, `stamp`, `firstErrorIndex`) + `capture.test.ts` (20 tests) ; modèle `SessionEvent` ; `components/layout/session-recorder.tsx` (monté dans `app/(app)/layout.tsx`, `sendBeacon`, **ne lit jamais `.value`**) ; `app/api/replay/route.ts` (**re-masque côté serveur**, 204 systématique, lot plafonné à 200) ; `app/(app)/admin/replay/{page,replay-viewer}.tsx` (**`SUPER_ADMIN` seul**). |
 | **Courriers — dossiers & pièces multiples** | Modèles `MailFolder` (arbre, `MailEntry.folderId` en `ON DELETE SET NULL`) et `MailEntryPiece` (intitulé + **destinataire propre** + fichier téléversé **ou** nœud Drive référencé) ; `lib/actions/mail-folder-actions.ts`, `lib/actions/mail-piece-actions.ts` ; `app/(app)/courriers/mail-folder-bar.tsx`, `app/(app)/courriers/[id]/mail-pieces.tsx`. |
@@ -6630,6 +6637,28 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 ---
 
 ## 🧾 Journal des évolutions récentes
+
+### AUDIT 360° — LOT C4d2b1 : UNE PIÈCE ÉMISE SE RÉVISE DEPUIS SA FICHE, LE FORMULAIRE NE RÉÉCRIT PLUS SON FICHIER (2026-10)
+
+Rapport 17 de l'audit (R15, première moitié). Doctrine : `CLAUDE.md` §118.194. L'avoir passe au lot C4d2b2.
+
+- **« Réviser la pièce »** sur la fiche d'un devis ou d'un bon de commande émis par la plateforme
+  (`reviserPieceCommerciale`, panneau `legal/[id]/reviser-piece.tsx`) : lignes, objet, notes, validité, livraison,
+  contact ; même numéro, version suivante du Word et du PDF, la fiche suit (montant, partie, échéance). La fiche
+  affiche la version. « Ce qui change » est exigé — c'est l'historique — et demandé après l'état.
+- **Une version à la fois** : la révision part de la version affichée ; si quelqu'un a révisé entre-temps, elle est
+  refusée au lieu d'écrire par-dessus. Deux révisions simultanées : une seule passe, la perdante n'écrit rien (file
+  par pièce) ; entre deux processus, l'écriture au registre exige la version lue.
+- **Ce qui découle fige** : un BC facturé, un devis commandé ou facturé ne se révisent plus — la phrase nomme la
+  pièce aval et le geste qui libère (l'annuler). La règle vit chez la fabrique pour tous ses appelants : le dossier
+  promotionnel n'en a plus de copie. Un courrier rattaché « faisant suite » ne fige rien.
+- **Le formulaire « Modifier »** d'une pièce émise ne propose plus le montant, le numéro, la nature, les dates, le
+  sens ni la partie, le dit en tête, et l'action refuse de les changer (en les nommant, avec le geste qui corrige) ;
+  renvoyés à l'identique, ils passent. La date de règlement d'une facture émise est désormais lue (elle était
+  ignorée puis effacée, la nature n'étant plus envoyée).
+- **Les Finances révisent un BC qu'un autre a émis** : le droit sur la pièce couvre son fichier, et lui seul.
+- **La dérivation des contrats** : un appel imbriqué n'était pas reconnu comme une délégation, et un test de
+  présence écrasait le type lu par un délégué (date, liste) — corrigés, l'artefact ne bouge que de l'action neuve.
 
 ### AUDIT 360° — LOT C4d2a : UN PLAN VALIDÉ SE RÉVISE, UNE VISITE SE DIT NON TENUE, UN GESTE À LA FOIS (2026-10)
 

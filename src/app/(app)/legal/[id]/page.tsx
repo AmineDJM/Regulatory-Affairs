@@ -6,7 +6,7 @@ import { listPartyOptions } from "@/lib/queries/company-contacts";
 import { PartyLink } from "@/components/directory/party-link";
 import { userCan, peutVoirAdam } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
-import { companyScopedWhere } from "@/lib/company";
+import { canEditCompanyId, companyScopedWhere } from "@/lib/company";
 import { legalKindVisible, legalViewScope, legalWriteAllowed } from "@/lib/legal/invoices";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -23,6 +23,7 @@ import { sourceHref, sourceCaption } from "@/lib/links/source-link";
 import { legalFields, dateInput } from "../legal-fields";
 import { buildFolderTree, flattenFolders, indentedLabel } from "@/lib/legal/folders";
 import { EditLegalButton } from "./edit-legal";
+import { ReviserPieceButton } from "./reviser-piece";
 import { RecordDeleteButton } from "@/components/shared/record-delete-button";
 import { PartagerButton } from "@/components/shared/partager-button";
 import { legalReaderWhere, canManageLegalReaders } from "@/lib/lecteurs/legal";
@@ -41,6 +42,8 @@ import { BonDeCommandeGate } from "./bc-gate";
 import { etatDuBC } from "@/lib/bons-de-commande/etat";
 import { peutSignerBC } from "@/lib/queries/bons-de-commande";
 import { fichiersEmis, lienFichierEmis } from "@/lib/legal/fichiers-emis";
+import { pieceEmise, refusRevisionAval, remedePieceEmise, specRevisable } from "@/lib/legal/piece-emise";
+import { avalActif } from "@/lib/legal/aval";
 
 export const dynamic = "force-dynamic";
 
@@ -209,6 +212,13 @@ export default async function LegalDocumentPage({ params }: { params: { id: stri
   const estBC = doc.kind === "PURCHASE_ORDER";
   // Les fichiers que la FABRIQUE a produits pour cette pièce (`custom.fabrique`) — voir `fichiers-emis`.
   const emis = fichiersEmis(doc.custom);
+  // UNE PIÈCE ÉMISE SE RÉVISE, ELLE NE SE RÉÉCRIT PAS (§118.194) — devis et bon de commande : même numéro,
+  // nouvelle version. Le geste n'est offert qu'à qui la fabrique l'accordera — le droit d'écrire la pièce ET
+  // celui d'engager sa société —, et ce qui en découle se dit AVANT le clic (§118.83).
+  const emise = pieceEmise(doc.custom);
+  const revisable = emise && emise.type !== "FACTURE" && doc.status === "ACTIVE" ? specRevisable(doc.custom) : null;
+  const peutReviser = Boolean(revisable) && canEdit && (await canEditCompanyId(user.id, doc.companyId));
+  const avalDeLaPiece = peutReviser && emise ? await avalActif(doc.id, emise.type) : null;
   // L'ÉTAT DE BOUT EN BOUT (§118.149) — porte, seuil, signature — par le MÊME lecteur que la file
   // des Finances et que l'action de signature : la fiche ne peut pas dire « à signer » d'un BC que
   // l'action refuserait.
@@ -254,7 +264,7 @@ export default async function LegalDocumentPage({ params }: { params: { id: stri
     folderId: doc.folderId ?? undefined,
     chainFromId: doc.chainFromId ?? undefined,
   }, "edit", [], folderOptions, chainCandidates, false,
-     { options: partyOptions, canCreate: canCreateContact, selected: doc.counterpartyIds });
+     { options: partyOptions, canCreate: canCreateContact, selected: doc.counterpartyIds }, Boolean(emise));
 
   return (
     <div className="space-y-5">
@@ -284,7 +294,12 @@ export default async function LegalDocumentPage({ params }: { params: { id: stri
             refLabel={doc.reference ? `${doc.reference} — ${doc.title}` : doc.title}
             href={`/legal/${doc.id}`}
           />
-          {canEdit && <EditLegalButton id={doc.id} fields={fields} />}
+          {canEdit && (
+            <EditLegalButton
+              id={doc.id} fields={fields}
+              note={emise ? `Pièce émise par la plateforme (${emise.numero}) : son montant, sa partie, son numéro, sa nature et ses dates viennent de son fichier et ne se corrigent pas ici — ${remedePieceEmise(emise)}` : undefined}
+            />
+          )}
           {/* Le déposant peut retirer son document — suppression réversible (corbeille admin).
               Un contrat effacé par erreur reste récupérable par un administrateur. */}
           <RecordDeleteButton
@@ -369,7 +384,26 @@ export default async function LegalDocumentPage({ params }: { params: { id: stri
                         <Paperclip className="h-3.5 w-3.5" /> Word
                       </a>
                     )}
+                    {emise && <span className="text-xs text-muted-foreground">Version {emise.version}</span>}
                   </div>
+                  {/* CE QUI CORRIGE UNE PIÈCE ÉMISE, À L'ENDROIT OÙ ON LA REGARDE (§118.194) : la révision pour un
+                      devis ou un bon de commande ; pour une facture, la phrase qui dit pourquoi elle ne se révise pas. */}
+                  {emise?.type === "FACTURE" && doc.status === "ACTIVE" && (
+                    <p className="mt-1 text-xs text-muted-foreground">Une facture émise ne se révise pas — {remedePieceEmise(emise)}</p>
+                  )}
+                  {peutReviser && revisable && emise && emise.type !== "FACTURE" && (
+                    avalDeLaPiece
+                      ? <p className="mt-2 text-xs text-muted-foreground">{refusRevisionAval(emise.type, avalDeLaPiece)}</p>
+                      : (
+                        <div className="mt-2">
+                          <ReviserPieceButton
+                            legalDocumentId={doc.id} type={emise.type} numero={emise.numero} version={emise.version}
+                            lignes={revisable.lignes} objet={revisable.objet} notes={revisable.notes}
+                            validiteJours={revisable.validiteJours} livraison={revisable.livraison} contact={revisable.contact}
+                          />
+                        </div>
+                      )
+                  )}
                 </div>
               ) : doc.driveNode && (
                 <div className="col-span-2 sm:col-span-3">

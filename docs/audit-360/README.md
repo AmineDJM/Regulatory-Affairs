@@ -113,7 +113,10 @@ de paiement renvoyés. **Le plan de tournée est livré et testé (lot C4d2a, §
 révise (motif exigé, il repasse en validation, le passé reste), une visite se dit non tenue depuis « Ma journée »
 (motif, même fenêtre de 48 h — la phrase du verrou ne promet plus une régularisation que rien ne permettait),
 décision, soumission, escalade et grille écrivent sous la condition de l'état lu, et « Mon espace » liste les
-plans à resoumettre. Restent la pièce Legal révisée et l'avoir (C4d2b).
+plans à resoumettre. **La pièce Legal émise se révise depuis sa fiche (lot C4d2b1, §118.194)** : « Réviser la
+pièce » (même numéro, version suivante du Word et du PDF, motif exigé après l'état, version affichée exigée, une
+révision à la fois), une pièce dont découle une pièce active ne se révise plus (la règle vit chez la fabrique), et le
+formulaire « Modifier » ne propose ni ne réécrit plus ce que le fichier porte. Reste l'avoir (C4d2b2).
 
 Constat d'ensemble (rapports 17, 18, 01, 03, 14) : **la plateforme sait refuser, rarement faire corriger.**
 

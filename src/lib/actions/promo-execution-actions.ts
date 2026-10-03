@@ -232,8 +232,8 @@ export async function modifierBonDeCommandePromo(formData: FormData): Promise<Ac
   const lu = await devisEtBC(pm, fdStr(formData, "quoteId"));
   if (!lu) return { ok: false, error: "Ce devis n'appartient pas à ce dossier." };
   if (!lu.bc) return { ok: false, error: "Ce devis n'a pas de bon de commande actif à modifier." };
-  const factures = await prisma.legalDocument.count({ where: { kind: "INVOICE", chainFromId: lu.bc.id, status: { not: "CANCELLED" } } });
-  if (factures > 0) return { ok: false, error: "Une facture découle déjà de ce bon de commande : il ne se modifie plus." };
+  // « Une facture découle déjà de ce bon de commande » : la règle vit chez l'écrivain, la fabrique, pour
+  // tous ses appelants (§118.194) — une seconde copie ici aurait fini par en dire une autre.
 
   // UN CHAMP LAISSÉ VIDE GARDE SA VALEUR. Le formulaire n'est pas pré-rempli, et Adam ne nomme
   // que ce qui change : écrire `null` pour chaque champ absent effaçait l'adresse de livraison de

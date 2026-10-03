@@ -27,8 +27,8 @@ import { requireUser } from "@/lib/session";
 import { fdStr, type ActionResult } from "@/lib/actions/types";
 import { MODES_PAIEMENT, TYPES_DOCUMENT, type ModePaiement, type TypeDocumentCommercial } from "@/lib/artifact/factory/commercial";
 import {
-  definirProfilDocumentaire, emettreDocumentDrive, previsualiserDocument,
-  type DemandeDocument, type MethodePdf,
+  definirProfilDocumentaire, emettreDocumentDrive, previsualiserDocument, reviserDocumentDrive,
+  type DemandeDocument, type MethodePdf, type ModificationsDocument,
 } from "@/platform/in-process/artifact/factory";
 
 /** « 2 500 000,00 » (espaces, insécables, virgule) → 2500000 ; vide ou illisible → null. */
@@ -50,14 +50,12 @@ const texte = (formData: FormData, cle: string): string | null => {
   return v && v.trim() ? v.trim() : null;
 };
 
-/** La DEMANDE de fabrique, lue depuis le formulaire — une seule lecture, pour l'aperçu et l'émission. */
-function lireDemande(formData: FormData): { ok: true; demande: DemandeDocument } | { ok: false; error: string } {
-  const type = (fdStr(formData, "type") ?? "") as TypeDocumentCommercial;
-  if (!TYPES_DOCUMENT.includes(type)) return { ok: false, error: "Nature de pièce inconnue : facture, bon de commande ou devis." };
-  const mode = fdStr(formData, "modePaiement");
-  const modePaiement = mode && (MODES_PAIEMENT as readonly string[]).includes(mode) ? (mode as ModePaiement) : null;
-
-  // LES LIGNES : des listes parallèles, une entrée par ligne saisie, dans l'ordre de l'écran.
+/**
+ * LES LIGNES : des listes parallèles, une entrée par ligne saisie, dans l'ordre de l'écran — une seule
+ * lecture pour la composition et pour la révision d'une pièce émise (§118.194) : deux lecteurs de la même
+ * saisie finiraient par arrondir ou couper différemment.
+ */
+function lireLignes(formData: FormData): DemandeDocument["lignes"] {
   const designations = formData.getAll("ligneDesignation").map(String);
   const details = formData.getAll("ligneDetails").map(String);
   const quantites = formData.getAll("ligneQuantite").map(String);
@@ -79,6 +77,22 @@ function lireDemande(formData: FormData): { ok: true; demande: DemandeDocument }
       tva: fraction(tvas[i]),
     };
   });
+  return lignes;
+}
+
+/**
+ * La DEMANDE de fabrique, lue depuis le formulaire — une seule lecture, pour l'aperçu et l'émission.
+ * Les lignes arrivent DÉJÀ lues : l'appelant appelle `lireLignes` lui-même, parce que la dérivation des
+ * contrats ne suit qu'un niveau de délégation (§118.87c) — lues ici, à deux niveaux, elles disparaissaient
+ * de ce que l'action déclare recevoir. Et il les lit dans une instruction À PART : un appel imbriqué
+ * (`lireDemande(formData, lireLignes(formData))`) n'est pas reconnu comme une délégation — mesuré, ce
+ * sont alors TOUS les autres champs de la demande qui disparaissaient du contrat.
+ */
+function lireDemande(formData: FormData, lignes: DemandeDocument["lignes"]): { ok: true; demande: DemandeDocument } | { ok: false; error: string } {
+  const type = (fdStr(formData, "type") ?? "") as TypeDocumentCommercial;
+  if (!TYPES_DOCUMENT.includes(type)) return { ok: false, error: "Nature de pièce inconnue : facture, bon de commande ou devis." };
+  const mode = fdStr(formData, "modePaiement");
+  const modePaiement = mode && (MODES_PAIEMENT as readonly string[]).includes(mode) ? (mode as ModePaiement) : null;
 
   const libellesTaxes = formData.getAll("taxeLibelle").map(String);
   const tauxTaxes = formData.getAll("taxeTaux").map(String);
@@ -152,7 +166,8 @@ export interface ApercuPiece {
  */
 export async function previsualiserPieceCommerciale(_prev: ApercuPiece | { ok: false; error: string } | undefined, formData: FormData): Promise<ApercuPiece | { ok: false; error: string }> {
   const user = await requireUser();
-  const lu = lireDemande(formData);
+  const lignes = lireLignes(formData);
+  const lu = lireDemande(formData, lignes);
   if (!lu.ok) return lu;
   const r = await previsualiserDocument(user, lu.demande);
   if (!r.ok) return { ok: false, error: r.motif };
@@ -191,7 +206,8 @@ export interface ResultatEmission extends ActionResult {
  */
 export async function emettrePieceCommerciale(_prev: ResultatEmission | undefined, formData: FormData): Promise<ResultatEmission> {
   const user = await requireUser();
-  const lu = lireDemande(formData);
+  const lignes = lireLignes(formData);
+  const lu = lireDemande(formData, lignes);
   if (!lu.ok) return { ok: false, error: lu.error };
   const r = await emettreDocumentDrive(user, lu.demande);
   if (!r.ok) return { ok: false, error: r.motif + (r.bloquants?.length ? ` — ${r.bloquants.slice(0, 3).join(" ; ")}` : "") };
@@ -209,6 +225,67 @@ export async function emettrePieceCommerciale(_prev: ResultatEmission | undefine
       // Un BC émis attend son centre de validation (§118.148) : l'écran le dit, dans la même phrase.
       + (r.reserveBonDeCommande ? ` ${r.reserveBonDeCommande}` : ""),
   };
+}
+
+export interface ResultatRevision extends ActionResult {
+  reference?: string;
+  version?: number;
+}
+
+/**
+ * RÉVISER UNE PIÈCE ÉMISE depuis sa fiche (§118.194 — audit 360°, R15) — un devis ou un bon de commande :
+ * même numéro, nouvelle version du Word et du PDF, historique au registre, et la fiche suit le fichier
+ * (montant, partie, échéance). La fabrique savait réviser ; seul le dossier promotionnel l'appelait, et la
+ * fiche Legal n'offrait que le formulaire générique — qui changeait le montant sans toucher au fichier.
+ *
+ * Ce que le formulaire ne porte pas ne s'écrit pas (§118.152) ; la version que l'écran a montrée est exigée
+ * (`versionVue`), et le motif l'est après tout ce qui refuserait la révision — c'est la fabrique qui tient
+ * l'ordre, pour tous ses appelants. Une facture émise ne se révise pas : la fabrique le refuse et dit quoi faire.
+ */
+export async function reviserPieceCommerciale(_prev: ResultatRevision | undefined, formData: FormData): Promise<ResultatRevision> {
+  const user = await requireUser();
+  const legalDocumentId = fdStr(formData, "legalDocumentId");
+  if (!legalDocumentId) return { ok: false, error: "Pièce introuvable." };
+  const vue = nombre(fdStr(formData, "versionVue"));
+  const modifications: ModificationsDocument = {};
+  if (formData.has("ligneDesignation")) modifications.lignes = lireLignes(formData);
+  if (formData.has("objet")) modifications.objet = texte(formData, "objet");
+  if (formData.has("notes")) modifications.notes = texte(formData, "notes");
+  if (formData.has("validiteJours")) {
+    const v = nombre(fdStr(formData, "validiteJours"));
+    modifications.validiteJours = v !== null && Number.isInteger(v) ? v : null;
+  }
+  if (formData.has("livraisonAdresse") || formData.has("livraisonDelai")) {
+    modifications.livraison = {
+      ...(formData.has("livraisonAdresse") ? { adresse: texte(formData, "livraisonAdresse") } : {}),
+      ...(formData.has("livraisonDelai") ? { delai: texte(formData, "livraisonDelai") } : {}),
+    };
+  }
+  if (formData.has("contactNom") || formData.has("contactTelephone")) {
+    modifications.contact = {
+      ...(formData.has("contactNom") ? { nom: texte(formData, "contactNom") } : {}),
+      ...(formData.has("contactTelephone") ? { telephone: texte(formData, "contactTelephone") } : {}),
+    };
+  }
+  if (Object.keys(modifications).length === 0) return { ok: false, error: "Rien à réviser : la révision porte sur les lignes, l'objet, les notes, la validité, la livraison ou le contact." };
+  const r = await reviserDocumentDrive(user, {
+    legalDocumentId, modifications, motif: texte(formData, "motif"),
+    versionVue: vue !== null && Number.isInteger(vue) ? vue : null, exigerMotif: true,
+  });
+  if (!r.ok) return { ok: false, error: r.motif + (r.bloquants?.length ? ` — ${r.bloquants.slice(0, 3).join(" ; ")}` : "") };
+  revalidatePath("/legal");
+  revalidatePath(`/legal/${legalDocumentId}`);
+  const libelle = r.type === "DEVIS" ? "Devis" : "Bon de commande";
+  return {
+    ok: true, id: legalDocumentId, reference: r.reference, version: r.version,
+    message: `${libelle} ${r.reference} révisé : version ${r.version}, ${formaterTtc(r.totaux.totalTtc)} TTC — le Word, le PDF et la fiche disent la même chose.`
+      + (r.reserveBonDeCommande ? ` ${r.reserveBonDeCommande}` : ""),
+  };
+}
+
+/** « 1 234 567,89 DZD » — la phrase du résultat ; les totaux viennent de la fabrique, jamais du navigateur. */
+function formaterTtc(n: number): string {
+  return `${n.toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} DZD`;
 }
 
 /**
