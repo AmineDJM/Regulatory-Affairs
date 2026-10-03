@@ -9,9 +9,9 @@ import { moneyEntityOf } from "@/lib/company";
 import { normalizeCity } from "@/lib/geo/algeria";
 import { recordAudit } from "@/lib/audit";
 import { notifyUser, notifyRoles } from "@/lib/notify";
-import { createMedicalInfoDeclaration } from "@/lib/medical-info";
+import { createMedicalInfoDeclaration, repercuterMontantSurDeclaration } from "@/lib/medical-info";
 import { createExpenseOrder } from "@/lib/expense-orders";
-import { statutApresNouveauMontant, type CentralStatus } from "@/lib/payments/authorization";
+import { reviserOrdreNonRegle, apresRevisionOrdre } from "@/lib/payments/revision-ordre";
 import { involveThirdParty } from "@/lib/third-party";
 import { adProInit, PRODUCT_MANAGER_ROLES } from "@/lib/workflow/origin";
 import { retirerDemande } from "@/lib/workflow/engine";
@@ -394,47 +394,32 @@ export async function updateGrantedBudget(formData: FormData): Promise<ActionRes
   await updateCongress(t, id, { finalAmount: amount, updatedById: user.id });
 
   // Répercussion sur la déclaration PRIM (tant qu'elle n'est pas validée).
-  const decl = await prisma.medicalInfoDeclaration.findUnique({ where: { sourceType_sourceId: { sourceType: entityFor(t), sourceId: id } }, select: { id: true, status: true, expenseOrderId: true } });
-  if (decl && decl.status !== "VALIDATED") {
-    await prisma.medicalInfoDeclaration.update({ where: { id: decl.id }, data: { amount } });
-  }
-  // Répercussion sur l'ordre de dépense (s'il existe et n'est pas réglé).
+  const decl = await repercuterMontantSurDeclaration(entityFor(t), id, amount);
+  // Répercussion sur l'ordre de dépense (s'il existe et n'est pas réglé) — par l'UNIQUE réviseur
+  // d'ordre (§118.191). Il écrivait ici en ligne, et sans condition : un règlement passé entre la
+  // lecture et l'écriture voyait son ordre PAYÉ changer de montant et son autorisation rouverte. Le
+  // réviseur relève le montant sous condition, rouvre le centre quand il monte (§118.148), et ne
+  // touche ni un ordre réglé ni un ordre refusé.
   const orderId = decl?.expenseOrderId ?? c.expenseOrderId;
+  let suiteOrdre: string | null = null;
   if (orderId) {
-    const order = await prisma.expenseOrder.findUnique({
-      where: { id: orderId }, select: { status: true, amount: true, centralStatus: true, reference: true },
-    });
-    if (order && order.status !== "PAID") {
-      // LE CENTRE AUTORISE UN MONTANT (§118.148) : relever celui d'un ordre déjà autorisé le lui
-      // renvoie. Sans cette ligne, l'ordre partait payé au nouveau montant sur la foi d'une
-      // autorisation donnée pour l'ancien — le centre n'avait jamais vu la différence.
-      const avant = Number(order.amount);
-      const suivant = statutApresNouveauMontant({ courant: order.centralStatus as CentralStatus, avant, apres: amount });
-      const rouvert = suivant !== order.centralStatus;
-      await prisma.expenseOrder.update({
-        where: { id: orderId },
-        data: { amount, ...(rouvert ? { centralStatus: suivant, centralDecidedById: null, centralDecidedAt: null } : {}) },
-      });
-      const montant = `${amount.toLocaleString("fr-FR")} DZD`;
-      if (rouvert) {
-        // La raison de la réouverture vit dans le FIL du centre — c'est là que le prochain
-        // arbitre la lira, à côté de l'autorisation précédente, qui reste dans l'historique.
-        await prisma.paymentCentreMessage.create({
-          data: {
-            orderId,
-            body: `Montant relevé de ${avant.toLocaleString("fr-FR")} à ${montant} après autorisation (budget accordé modifié) — l'autorisation est à redonner.`,
-            authorId: user.id,
-          },
-        });
-        await notifyRoles(["DIRECTION", "SUPER_ADMIN"], {
-          type: "VALIDATION_REQUIRED",
-          title: "Paiement à ré-autoriser — montant relevé",
-          body: `${order.reference} — ${c.name} : ${avant.toLocaleString("fr-FR")} → ${montant}`,
-          link: "/centre-de-paiement",
-        });
-      } else {
-        await notifyRoles(["FINANCE_BUDGET_MANAGER", "SUPER_ADMIN"], { type: "GENERIC", title: "Budget d'un événement modifié", body: `${c.name} — nouveau montant ${montant}`, link: "/finances/paiements-a-faire" });
+    const raison = "budget accordé modifié";
+    const revision = await reviserOrdreNonRegle(prisma, orderId, { montant: amount }, { acteurId: user.id, raison });
+    if (revision.ok && revision.revise) {
+      await apresRevisionOrdre(revision, { acteurId: user.id, objet: c.name, raison });
+      if (!revision.rouvert) {
+        await notifyRoles(["FINANCE_BUDGET_MANAGER", "SUPER_ADMIN"], { type: "GENERIC", title: "Budget d'un événement modifié", body: `${c.name} — nouveau montant ${amount.toLocaleString("fr-FR")} DZD`, link: "/finances/paiements-a-faire" });
       }
+    } else if (!revision.ok) {
+      // Le budget est modifié ; l'ordre, non — et on le DIT (§118.52) : un silence se lirait « le
+      // paiement suit ». Un ordre réglé a payé l'ancien montant ; un ordre refusé reste ce que le
+      // centre a refusé — réécrire son chiffre falsifierait ce qu'il a vu.
+      const ref = revision.reference ?? "";
+      suiteOrdre = revision.motif === "REGLE"
+        ? `Budget modifié — le paiement ${ref} est déjà réglé : il ne suit pas ce montant (l'argent est parti au montant d'avant).`
+        : revision.motif === "REFUSE"
+          ? `Budget modifié — le paiement ${ref} a été refusé par le centre de paiement : il ne suit pas ce montant.`
+          : `Budget modifié — l'ordre de dépense ${ref} n'a pas pu suivre (il changeait au même moment) : relancez la modification.`;
     }
   }
   await recordAudit({ actorId: user.id, action: "UPDATE", module: ML(t), entityType: entityFor(t), entityId: id, field: "finalAmount", newValue: String(amount), summary: `Budget accordé modifié — ${c.name}` });
@@ -442,7 +427,7 @@ export async function updateGrantedBudget(formData: FormData): Promise<ActionRes
   revalidatePath("/information-medicale");
   revalidatePath("/finances/paiements-a-faire");
   revalidatePath("/centre-de-paiement");
-  return { ok: true };
+  return suiteOrdre ? { ok: true, message: suiteOrdre } : { ok: true };
 }
 
 // ───────────────────────────── Impliquer une tierce personne ─────────────────────────────

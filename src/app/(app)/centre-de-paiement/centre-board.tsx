@@ -260,6 +260,10 @@ export function CentreBoard({ orders, canDecide }: { orders: CentreOrder[]; canD
               setBusy(true); setErr(null);
               fd.set("id", acting.order.id);
               fd.set("decision", acting.decision);
+              // CE QUE L'ÉCRAN AFFICHAIT (§118.191) : un montant ou un bénéficiaire corrigé pendant la
+              // lecture ne s'autorise pas sans avoir été vu — l'action compare et le dit.
+              fd.set("montantVu", String(acting.order.amount));
+              fd.set("beneficiaireVu", acting.order.beneficiary ?? "");
               const r = await decidePayment(fd);
               setBusy(false);
               if (r.ok) { setActing(null); router.refresh(); } else setErr(r.error ?? "Échec.");

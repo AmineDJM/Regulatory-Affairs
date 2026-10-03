@@ -34,7 +34,7 @@ import { statutDuDossier } from "@/lib/promo-material/statut";
 import { lireLignesDAchat } from "@/lib/general-means/purchase-request";
 import { auNomDeQui } from "@/lib/hr/stand-in-resolve";
 import { PurchaseLines } from "@/components/purchase/purchase-lines";
-import { porteDuDemandeur, refusDeModification, suitLaDemandeDeBcDuPoste } from "@/lib/secretariat/porte-demandeur";
+import { porteDuDemandeur, refusDeModification, suitLaDemandeDeBcDuPoste, refusDemandeDeBcDuPoste } from "@/lib/secretariat/porte-demandeur";
 
 const REQ_DOC_CATEGORIES = ["QUOTE", "INVOICE", "REQUEST_LETTER", "CONVENTION", "SUPPORTING_DOC", "PHOTO", "OTHER"];
 
@@ -226,6 +226,7 @@ export default async function RequestDetailPage({ params }: { params: { id: stri
                   defaultDepartmentId={req.departmentId ?? req.requester?.employee?.departmentId ?? null}
                   fromAdPro={fromAdPro}
                   alreadyImputed={alreadyImputed}
+                  refusAnnulation={suitLaDemandeDeBcDuPoste(req) ? refusDemandeDeBcDuPoste("annuler") : null}
                 />
               </CardContent>
             </Card>

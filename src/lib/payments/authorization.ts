@@ -225,6 +225,40 @@ export function statutApresNouveauMontant(input: {
 }
 
 /**
+ * DEUX NOMS DÉSIGNENT-ILS LE MÊME BÉNÉFICIAIRE ? Casse, accents et espaces mis à part — rien de plus.
+ *
+ * « SARL Atlas » devenu « sarl  atlas » n'est pas un autre bénéficiaire : rouvrir l'autorisation pour
+ * une coquille ferait re-décider le centre pour rien, et une garde qui crie pour rien cesse d'être lue
+ * (§118.32). Mais on ne rapproche RIEN d'autre : « Atlas » et « SARL Atlas » peuvent être deux sociétés,
+ * et deviner l'identité de celui qui reçoit l'argent est exactement ce que le centre existe pour éviter.
+ */
+export function memeBeneficiaire(a: string | null | undefined, b: string | null | undefined): boolean {
+  const plie = (s: string | null | undefined) =>
+    (s ?? "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim().replace(/\s+/g, " ").toLocaleLowerCase("fr");
+  return plie(a) === plie(b);
+}
+
+/**
+ * L'AUTORISATION APRÈS UNE RÉVISION DE L'ORDRE — le montant ET le bénéficiaire (§118.191, audit 360° R04).
+ *
+ * Le centre autorise un paiement : une somme, à quelqu'un. `statutApresNouveauMontant` tenait la somme ;
+ * depuis que la demande de paiement se corrige, le BÉNÉFICIAIRE aussi, et l'argent partirait à un autre
+ * que celui que le centre a vu. Changer de bénéficiaire rouvre donc une autorisation DONNÉE, exactement
+ * comme une hausse — et ne rouvre rien d'autre : en attente, la balle est déjà au centre, qui verra le
+ * nouveau nom ; refusé reste refusé (un refus ne se contourne pas en retouchant le dossier).
+ */
+export function statutApresRevision(input: {
+  courant: CentralStatus; avant: number; apres: number;
+  beneficiaireAvant: string | null | undefined; beneficiaireApres: string | null | undefined;
+}): CentralStatus {
+  const parMontant = statutApresNouveauMontant(input);
+  if (parMontant !== input.courant) return parMontant;
+  const autreBeneficiaire = !memeBeneficiaire(input.beneficiaireAvant, input.beneficiaireApres);
+  if (autreBeneficiaire && (input.courant === "APPROVED" || input.courant === "NOT_REQUIRED")) return "AWAITING";
+  return input.courant;
+}
+
+/**
  * Le demandeur peut-il resoumettre ? Seulement si le centre lui a rendu la main.
  *
  * Resoumettre depuis « en attente » permettrait de relancer indéfiniment un dossier que le centre

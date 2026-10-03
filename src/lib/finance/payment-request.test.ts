@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   nextPaymentStatus, isWithFinance, isWithRequester, isClosed, tallyPieces, statusFromPieces,
   canApprove, canResubmit, needsReplacement, urgencyRank, deadlineLabel, isOverdue, sortByPriority,
+  refusDeRemplacement, piecesEnVigueur,
 } from "./payment-request";
 
 /**
@@ -258,5 +259,48 @@ describe("La file des Finances : ce qui presse d'abord", () => {
     const copy = rows.map((r) => r.id);
     sortByPriority(rows, now);
     expect(rows.map((r) => r.id)).toEqual(copy);
+  });
+});
+
+describe("Un brouillon ne change pas de camp (§118.191)", () => {
+  it("un verdict sur une pièce de brouillon ne le fait ni passer « à revoir », ni « transmis »", () => {
+    expect(statusFromPieces("DRAFT", [p("CHANGES_REQUESTED")])).toBeNull();
+    expect(statusFromPieces("DRAFT", [p("ACCEPTED")])).toBeNull();
+  });
+});
+
+describe("Qui remplace une pièce, et quand (§118.191, audit R04)", () => {
+  const r = (pieceStatus: string, dossierStatus: string, parLeDemandeur = true, dejaRemplacee = false) =>
+    refusDeRemplacement({ pieceStatus, dossierStatus, parLeDemandeur, dejaRemplacee });
+  it("une pièce mise en cause se remplace, par le demandeur comme par les Finances", () => {
+    expect(r("CHANGES_REQUESTED", "CHANGES_REQUESTED")).toBeNull();
+    expect(r("REJECTED", "CHANGES_REQUESTED", false)).toBeNull();
+  });
+  it("chez le demandeur, il remplace aussi une pièce que personne n'a signalée — même acceptée", () => {
+    expect(r("PENDING", "DRAFT")).toBeNull();
+    expect(r("ACCEPTED", "CHANGES_REQUESTED")).toBeNull();
+  });
+  it("…mais pas les Finances à sa place, tant que le dossier est chez lui", () => {
+    expect(r("PENDING", "DRAFT", false)).toMatch(/c'est lui qui la remplace/);
+  });
+  it("chez les Finances, une pièce qu'elles n'ont pas mise en cause ne change pas sous leurs yeux", () => {
+    for (const st of ["SUBMITTED", "UNDER_REVIEW", "ON_HOLD"]) expect(r("PENDING", st)).toMatch(/quand les Finances la signalent/);
+  });
+  it("une pièce déjà remplacée ne l'est pas deux fois — même mise en cause", () => {
+    expect(r("CHANGES_REQUESTED", "CHANGES_REQUESTED", true, true)).toBe("Cette pièce a déjà été remplacée.");
+  });
+});
+
+describe("Les pièces qui comptent : une pièce remplacée sort du décompte (§118.191)", () => {
+  it("une remplacée, déclarée « acceptée » pour ne plus bloquer, ne fait plus passer le bon à payer", () => {
+    const remplacee = { ...p("ACCEPTED"), replacedBy: { id: "nouvelle" } };
+    const nouvelle = { ...p("PENDING"), replacedBy: null };
+    // Avant : la remplacée comptait comme pièce validée — bon à payer sur une remplaçante jamais vue.
+    expect(canApprove({ status: "UNDER_REVIEW", amount: 1, paymentMethodStated: true }, [remplacee, nouvelle]).ok).toBe(true);
+    expect(canApprove({ status: "UNDER_REVIEW", amount: 1, paymentMethodStated: true }, piecesEnVigueur([remplacee, nouvelle])))
+      .toEqual({ ok: false, reason: "Aucune pièce validée pour l'instant." });
+  });
+  it("lit les deux formes : la relation (`replacedBy`) et l'identifiant de la vue (`replacedById`)", () => {
+    expect(piecesEnVigueur([{ replacedById: "x" }, { replacedById: null }, { replacedBy: { id: "y" } }, {}])).toHaveLength(2);
   });
 });

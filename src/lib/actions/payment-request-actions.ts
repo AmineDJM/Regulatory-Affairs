@@ -16,16 +16,21 @@ import { resolveMoneyEntity, checkMoneyEntity } from "@/lib/finance/money-entity
 import { persistUploadedDocument } from "@/lib/documents";
 import { createExpenseOrder, SERIE_DEMANDES_PAIEMENT } from "@/lib/expense-orders";
 import { annulerOrdreNonRegle } from "@/lib/payments/annulation";
+import { reviserOrdreNonRegle, apresRevisionOrdre, type ResultatRevision } from "@/lib/payments/revision-ordre";
+import {
+  refusDeCorrection, refusDuChamp, ecartsDeCorrection, phraseDeCorrection, type ValeursDemande,
+} from "@/lib/finance/correction-demande";
 import { toNumber } from "@/lib/utils";
 import { fdStr, fdNum, type ActionResult } from "@/lib/actions/types";
 import {
   nextPaymentStatus, statusFromPieces, canApprove, canResubmit, isClosed, isWithFinance,
-  needsReplacement, type PaymentMove,
+  needsReplacement, refusDeRemplacement, type PaymentMove,
 } from "@/lib/finance/payment-request";
 import { canSubmitDossier } from "@/lib/finance/payment-dossier";
 import { canNudge, nudgeKindOf, nudgeMessage, NUDGE_LABEL, isCompanionDossier, canDecideFromDossier } from "@/lib/finance/dossier-auto";
-import { deadlineNatureOf } from "@/lib/finance/deadline-nature";
+import { deadlineNatureOf, deadlineNatureLabel } from "@/lib/finance/deadline-nature";
 import { ENTITY_MODULE } from "@/lib/entity-access";
+import { PAYMENT_URGENCY } from "@/lib/labels";
 
 const PATH = "/validations/paiements";
 
@@ -126,7 +131,12 @@ async function alertFinance(req: { id: string; reference: string; title: string;
 
 /** Recalcule l'état d'après les verdicts, et le trace s'il change. */
 async function syncStatus(requestId: string, current: string, actorId: string | null): Promise<string> {
-  const pieces = await prisma.paymentPiece.findMany({ where: { requestId }, select: { status: true } });
+  // Les pièces EN VIGUEUR : une pièce remplacée ne dicte plus rien (`piecesEnVigueur`). Mesuré : retiré
+  // seul, ce filtre ne change aucun état ici — une pièce remplacée est soit marquée acceptée à son
+  // remplacement, soit une pièce jamais mise en cause (en attente ou acceptée), et aucune des deux ne fait
+  // changer le dossier de camp (`statusFromPieces`). Il reste parce que c'est la MÊME lecture que la
+  // transmission et le bon à payer, qui, eux, en dépendent (le décompte des pièces validées).
+  const pieces = await prisma.paymentPiece.findMany({ where: { requestId, replacedBy: { is: null } }, select: { status: true } });
   const next = statusFromPieces(current, pieces);
   if (!next) return current;
   await prisma.paymentRequest.update({ where: { id: requestId }, data: { status: next as PaymentRequestStatus } });
@@ -317,13 +327,22 @@ export async function addPaymentPiece(formData: FormData): Promise<ActionResult>
     if (!(file instanceof File) || file.size === 0) return { ok: false, error: "Choisissez un fichier." };
 
     const replacesId = fdStr(formData, "replacesId");
+    // LE DEMANDEUR LUI-MÊME — pas la vue globale qui le supplée : c'est lui qui tient le dossier quand
+    // il lui revient, et ce sont ses gestes qui ne le renvoient pas aux Finances à sa place.
+    const parLeDemandeur = req.requesterId === user.id;
+    let ancienne: { status: string } | null = null;
     if (replacesId) {
       const old = await prisma.paymentPiece.findUnique({ where: { id: replacesId }, select: { requestId: true, status: true, replacedBy: { select: { id: true } } } });
       if (!old || old.requestId !== requestId) return { ok: false, error: "Pièce à remplacer introuvable." };
-      // Une pièce acceptée n'a pas à être remplacée — et une pièce déjà reprise ne l'est pas deux
-      // fois, sinon la chaîne des versions se dédouble et l'on ne sait plus laquelle fait foi.
-      if (!needsReplacement(old.status)) return { ok: false, error: "Cette pièce n'a pas été mise en cause." };
-      if (old.replacedBy) return { ok: false, error: "Cette pièce a déjà été remplacée." };
+      // Une pièce mise en cause se remplace ; tant que le dossier est chez le demandeur, il remplace
+      // aussi une pièce que personne n'a signalée (§118.191, audit R04). La règle vit dans
+      // `refusDeRemplacement`, lue aussi par l'écran.
+      const refus = refusDeRemplacement({
+        pieceStatus: old.status, dejaRemplacee: Boolean(old.replacedBy),
+        dossierStatus: req.status, parLeDemandeur: parLeDemandeur || isRequester(user, req),
+      });
+      if (refus) return { ok: false, error: refus };
+      ancienne = old;
     }
 
     const doc = await persistUploadedDocument(user.id, {
@@ -342,14 +361,25 @@ export async function addPaymentPiece(formData: FormData): Promise<ActionResult>
       },
     });
 
-    // La pièce remplacée sort du décompte : elle a été reprise, elle ne bloque plus rien.
-    if (replacesId) {
+    // La pièce remplacée sort du décompte (`piecesEnVigueur`) : elle a été reprise, elle ne bloque
+    // plus rien. Une pièce MISE EN CAUSE garde sa marque historique (« acceptée — remplacée »), que
+    // lisent aussi les synthèses ; une pièce que personne n'avait signalée garde son verdict — on ne
+    // déclare pas « acceptée » une pièce que personne n'a examinée.
+    if (replacesId && ancienne && needsReplacement(ancienne.status)) {
       await prisma.paymentPiece.update({ where: { id: replacesId }, data: { status: "ACCEPTED", reviewNote: "Remplacée par une nouvelle version." } });
     }
     await trace(requestId, user.id, "PIECE_ADDED", replacesId ? "Pièce remplacée." : "Pièce ajoutée.", piece.id);
-    await syncStatus(requestId, req.status, user.id);
+    // LE DEMANDEUR GARDE SON DOSSIER (§118.191). Remplacer la dernière pièce en cause faisait repartir
+    // le dossier aux Finances de lui-même — au milieu d'une correction : le montant que le renvoi
+    // demandait de revoir ne se corrigeait plus, le dossier n'était plus chez lui. Un geste du
+    // demandeur ne lui retire jamais son dossier : il le renvoie quand sa correction est complète
+    // (« Envoyer aux Finances »). Un geste des Finances, lui, peut le ramener chez elles.
+    if (!parLeDemandeur) await syncStatus(requestId, req.status, user.id);
     revalidate(requestId);
-    return { ok: true, id: piece.id };
+    const resteChezLui = parLeDemandeur && req.status === "CHANGES_REQUESTED";
+    return resteChezLui
+      ? { ok: true, id: piece.id, message: `${replacesId ? "Pièce remplacée" : "Pièce ajoutée"} — renvoyez le dossier aux Finances quand votre correction est complète.` }
+      : { ok: true, id: piece.id };
   } catch (err) {
     console.error("[payment] addPaymentPiece failed", err);
     return { ok: false, error: "La pièce n'a pas pu être ajoutée." };
@@ -402,6 +432,175 @@ export async function updatePaymentRequestDetails(formData: FormData): Promise<A
   }
 }
 
+/**
+ * CORRIGER SA DEMANDE — l'objet, le bénéficiaire, le montant, le contexte, l'échéance ; et, tant
+ * qu'elle n'a jamais été transmise, l'entité et l'urgence (§118.191, audit 360° R04).
+ *
+ * Ni le montant, ni le bénéficiaire, ni l'objet ne se corrigeaient — pas même en brouillon. La règle
+ * (quand, quoi, et ce qui ne se corrige pas ici) vit dans `finance/correction-demande.ts`, lue aussi
+ * par l'écran.
+ *
+ * APRÈS TRANSMISSION, l'ordre de dépense est déjà au centre : il suit, par l'UNIQUE réviseur d'ordre
+ * (`payments/revision-ordre.ts`). Relever le montant ou changer de bénéficiaire rouvre une
+ * autorisation donnée ; baisser ne rouvre rien. La demande et l'ordre s'écrivent dans la MÊME
+ * transaction : un ordre réglé ou refusé entre-temps annule toute la correction, jamais la moitié.
+ *
+ * Ce que le formulaire ne porte pas ne s'écrit pas (§118.152c) : chaque champ est lu par sa présence.
+ * Après transmission, ce qui a changé se DIT (`note`) — les Finances et le centre relisent un dossier
+ * qu'ils ont déjà vu, et doivent savoir quoi regarder.
+ */
+export async function corrigerDemandePaiement(formData: FormData): Promise<ActionResult> {
+  try {
+    const user = await requireUser();
+    const id = fdStr(formData, "id");
+    if (!id) return { ok: false, error: "Demande introuvable." };
+    const req = await prisma.paymentRequest.findUnique({ where: { id } });
+    if (!req) return { ok: false, error: "Demande introuvable." };
+    if (!isRequester(user, req)) return { ok: false, error: "Seul le demandeur corrige sa demande." };
+
+    // L'ÉTAT D'ABORD (§118.18) : la nature du dossier, sa place dans le circuit, puis l'argent.
+    const ordre = req.expenseOrderId
+      ? await prisma.expenseOrder.findUnique({ where: { id: req.expenseOrderId }, select: { status: true, centralStatus: true } })
+      : null;
+    const refus = refusDeCorrection({ status: req.status, compagnon: isCompanionDossier(req.origin), ordre });
+    if (refus) return { ok: false, error: refus };
+
+    // CE QUE LE FORMULAIRE PORTE, et lui seul. Les clés sont écrites EN CLAIR, une par une : une boucle
+    // sur une liste de clés rendrait l'action illisible à la dérivation des contrats (§118.79b). Les
+    // champs du brouillon se refusent d'abord — c'est une question d'état, pas de valeur.
+    if (formData.has("companyId")) {
+      const horsBrouillon = refusDuChamp(req.status, "companyId");
+      if (horsBrouillon) return { ok: false, error: horsBrouillon };
+    }
+    if (formData.has("urgency")) {
+      const horsBrouillon = refusDuChamp(req.status, "urgency");
+      if (horsBrouillon) return { ok: false, error: horsBrouillon };
+    }
+    const apres: Partial<ValeursDemande> = {};
+    if (formData.has("title")) {
+      const objet = fdStr(formData, "title");
+      if (objet === null) return { ok: false, error: "L'objet du paiement ne peut pas être vide." };
+      apres.title = objet;
+    }
+    if (formData.has("payee")) {
+      const beneficiaire = fdStr(formData, "payee");
+      if (beneficiaire === null) return { ok: false, error: "Le bénéficiaire ne peut pas être vide — à qui l'argent doit-il aller ?" };
+      apres.payee = beneficiaire;
+    }
+    if (formData.has("amount")) {
+      const montant = fdNum(formData, "amount");
+      if (montant === null || !(montant > 0)) return { ok: false, error: "Indiquez un montant positif." };
+      apres.amount = montant;
+    }
+    if (formData.has("description")) apres.description = fdStr(formData, "description");
+    if (formData.has("dueDate")) {
+      const brut = fdStr(formData, "dueDate");
+      const d = dateOf(brut);
+      if (brut !== null && !d) return { ok: false, error: "Échéance illisible." };
+      apres.dueDate = d ? d.toISOString().slice(0, 10) : null;
+    }
+    if (formData.has("deadlineNature")) apres.deadlineNature = deadlineNatureOf(fdStr(formData, "deadlineNature"));
+    if (formData.has("urgency")) apres.urgency = urgencyOf(fdStr(formData, "urgency"));
+    if (formData.has("companyId")) {
+      const brut = fdStr(formData, "companyId");
+      if (brut !== null) {
+        const verdict = checkMoneyEntity(brut, (await getMyCompanies(user.id)).map((c) => c.id), { hasGlobalView: hasGlobalView(user.role) });
+        if (!verdict.ok) return { ok: false, error: verdict.reason ?? "Entité refusée." };
+      }
+      apres.companyId = brut;
+    }
+
+    const avant: ValeursDemande = {
+      title: req.title, payee: req.payee, amount: toNumber(req.amount), description: req.description,
+      dueDate: req.dueDate ? req.dueDate.toISOString().slice(0, 10) : null,
+      deadlineNature: deadlineNatureOf(req.deadlineNature), urgency: req.urgency, companyId: req.companyId,
+    };
+    const entites = apres.companyId !== undefined
+      ? new Map((await prisma.company.findMany({ where: { id: { in: [req.companyId, apres.companyId].filter((x): x is string => Boolean(x)) } }, select: { id: true, name: true } })).map((c) => [c.id, c.name]))
+      : new Map<string, string>();
+    const ecarts = ecartsDeCorrection(avant, apres, {
+      deadlineNature: (v) => deadlineNatureLabel(v),
+      urgency: (v) => (v ? PAYMENT_URGENCY[v] ?? v : "—"),
+      companyId: (v) => (v ? entites.get(v) ?? "entité inconnue" : "aucune"),
+      dueDate: (v) => (v ? new Date(v).toLocaleDateString("fr-FR", { timeZone: "UTC" }) : "aucune"),
+    });
+    if (ecarts.length === 0) return { ok: true, id, message: "Rien n'a changé : la demande est restée telle quelle." };
+
+    // LE MOTIF ENSUITE : après transmission, ce qui a changé se dit. Une comparaison à `null` et non une
+    // négation : la dérivation des contrats lit la négation d'une variable comme « champ obligatoire »
+    // pour toute l'action, et le motif n'est exigé qu'APRÈS transmission (§118.138).
+    const note = fdStr(formData, "note");
+    if (req.status !== "DRAFT" && note === null) {
+      return { ok: false, error: "Dites ce qui a changé : les Finances et le centre relisent un dossier qu'ils ont déjà vu." };
+    }
+
+    const raison = `demande ${req.reference} corrigée par son demandeur`;
+    const phrase = phraseDeCorrection(ecarts, note);
+    let revision: ResultatRevision | null = null;
+    try {
+      revision = await prisma.$transaction(async (tx) => {
+        // Conditionnelle sur l'état LU : un dossier transmis, retiré ou repris par les Finances entre-
+        // temps ne se corrige pas en douce.
+        const ecrit = await tx.paymentRequest.updateMany({
+          where: { id, status: req.status },
+          data: {
+            ...(apres.title !== undefined ? { title: apres.title } : {}),
+            ...(apres.payee !== undefined ? { payee: apres.payee } : {}),
+            ...(apres.amount !== undefined ? { amount: apres.amount } : {}),
+            ...(apres.description !== undefined ? { description: apres.description } : {}),
+            ...(apres.dueDate !== undefined ? { dueDate: apres.dueDate ? new Date(apres.dueDate) : null } : {}),
+            ...(apres.deadlineNature !== undefined ? { deadlineNature: apres.deadlineNature as PaymentDeadlineNature } : {}),
+            ...(apres.urgency !== undefined ? { urgency: apres.urgency as PaymentUrgency } : {}),
+            ...(apres.companyId !== undefined ? { companyId: apres.companyId } : {}),
+          },
+        });
+        if (ecrit.count === 0) throw new CorrectionRefusee("Ce dossier vient de changer de main (transmis, retiré, ou repris par les Finances) : rouvrez la fiche.");
+        let r: ResultatRevision | null = null;
+        if (req.expenseOrderId) {
+          r = await reviserOrdreNonRegle(tx, req.expenseOrderId, {
+            montant: apres.amount,
+            beneficiaire: apres.payee,
+            libelle: apres.title !== undefined ? `${req.reference} — ${apres.title}` : undefined,
+            echeance: apres.dueDate !== undefined ? (apres.dueDate ? new Date(apres.dueDate) : null) : undefined,
+            natureEcheance: apres.deadlineNature,
+          }, { acteurId: user.id, raison });
+          if (!r.ok) throw new CorrectionRefusee(r.error);
+        }
+        await tx.paymentRequestEvent.create({ data: { requestId: id, actorId: user.id, kind: "CORRECTED", message: phrase } });
+        return r;
+      });
+    } catch (e) {
+      if (e instanceof CorrectionRefusee) return { ok: false, error: e.message };
+      throw e;
+    }
+
+    if (revision?.ok && revision.revise) {
+      await apresRevisionOrdre(revision, { acteurId: user.id, objet: `${req.reference} — ${apres.title ?? req.title}`, raison });
+    }
+    await recordAudit({
+      actorId: user.id, action: "UPDATE", module: "Demandes de paiement",
+      entityType: "PAYMENT_REQUEST", entityId: id, summary: phrase,
+    });
+    revalidate(id);
+    revalidatePath("/centre-de-paiement");
+    const rouvert = revision?.ok && revision.revise && revision.rouvert;
+    return {
+      ok: true, id,
+      message: rouvert
+        ? "Demande corrigée — le paiement repasse au centre de paiement, qui doit l'autoriser de nouveau."
+        : req.status === "CHANGES_REQUESTED"
+          ? "Demande corrigée — renvoyez-la aux Finances quand votre correction est complète."
+          : "Demande corrigée.",
+    };
+  } catch (err) {
+    console.error("[payment] corrigerDemandePaiement failed", err);
+    return { ok: false, error: "La correction n'a pas pu être enregistrée." };
+  }
+}
+
+/** Une correction refusée au milieu de la transaction — elle annule tout, et son motif remonte. */
+class CorrectionRefusee extends Error {}
+
 /** Le demandeur précise ou corrige le commentaire d'une de ses pièces. */
 export async function commentPaymentPiece(formData: FormData): Promise<ActionResult> {
   try {
@@ -434,9 +633,14 @@ export async function reviewPaymentPiece(formData: FormData): Promise<ActionResu
     const allowed: PaymentPieceStatus[] = ["PENDING", "ACCEPTED", "CHANGES_REQUESTED", "REJECTED"];
     if (!pieceId || !allowed.includes(verdict as PaymentPieceStatus)) return { ok: false, error: "Verdict invalide." };
 
-    const piece = await prisma.paymentPiece.findUnique({ where: { id: pieceId }, include: { request: true } });
+    const piece = await prisma.paymentPiece.findUnique({ where: { id: pieceId }, include: { request: true, replacedBy: { select: { id: true } } } });
     if (!piece) return { ok: false, error: "Pièce introuvable." };
     if (isClosed(piece.request.status)) return { ok: false, error: "Ce dossier est clos." };
+    // UN BROUILLON NE S'EXAMINE PAS (§118.191) : il n'a pas été transmis. Un verdict sur une de ses
+    // pièces le faisait passer « à revoir » puis « transmis » de lui-même, sans son demandeur et sans
+    // l'ordre de dépense que la transmission fait naître.
+    if (piece.request.status === "DRAFT") return { ok: false, error: "Ce dossier est encore un brouillon : ses pièces s'examinent quand son demandeur l'aura transmis." };
+    if (piece.replacedBy) return { ok: false, error: "Cette pièce a été remplacée : c'est sa remplaçante qui s'examine." };
 
     const reviewNote = fdStr(formData, "note");
     // Mettre en cause une pièce SANS dire pourquoi renvoie le demandeur deviner : c'est le
@@ -509,7 +713,7 @@ export async function submitPaymentRequest(formData: FormData): Promise<ActionRe
     if (!id) return { ok: false, error: "Demande introuvable." };
     // `kind` autant que `status` : la complétude du dossier se juge sur la NATURE des pièces
     // (bon de commande ou facture), leur verdict ne dit rien de ce qui manque.
-    const req = await prisma.paymentRequest.findUnique({ where: { id }, include: { pieces: { select: { status: true, kind: true } } } });
+    const req = await prisma.paymentRequest.findUnique({ where: { id }, include: { pieces: { where: { replacedBy: { is: null } }, select: { status: true, kind: true } } } });
     if (!req) return { ok: false, error: "Demande introuvable." };
     if (!isRequester(user, req)) return { ok: false, error: "Seul le demandeur transmet son dossier." };
     // Un dossier COMPAGNON est déjà parti avec son ordre : le « transmettre » créerait un second
@@ -574,7 +778,10 @@ export async function decidePaymentRequest(formData: FormData): Promise<ActionRe
     const moves: PaymentMove[] = ["REVIEW", "HOLD", "RESUME", "REQUEST_CHANGES", "APPROVE", "REJECT"];
     if (!id || !move || !moves.includes(move)) return { ok: false, error: "Geste inconnu." };
 
-    const req = await prisma.paymentRequest.findUnique({ where: { id }, include: { pieces: { select: { status: true, kind: true } } } });
+    // Les pièces EN VIGUEUR : une pièce remplacée, déclarée « acceptée » pour cesser de bloquer, ne
+    // compte pas comme une pièce validée — sinon le bon à payer passait sur une remplaçante jamais
+    // examinée (§118.191).
+    const req = await prisma.paymentRequest.findUnique({ where: { id }, include: { pieces: { where: { replacedBy: { is: null } }, select: { status: true, kind: true } } } });
     if (!req) return { ok: false, error: "Demande introuvable." };
 
     // UN DOSSIER COMPAGNON NE SE TRANCHE PAS ICI (§118.148). Il accompagne un ordre de dépense déjà

@@ -1633,12 +1633,12 @@ const WRITE_TOOLS: ClaudeToolDef[] = [
     name: "update_request",
     description:
       "PROPOSE la MODIFICATION d'une demande du secrétariat (REQ-…) : statut, responsable, commentaire. N'exécute rien : confirmation requise. " +
-      "Statuts : NEW, IN_PROGRESS, AWAITING_VALIDATION, AWAITING_EXTERNAL, AWAITING_PAYMENT, AWAITING_DOCUMENT, BLOCKED, DONE, CANCELLED.",
+      "Statuts posables : IN_PROGRESS (reprendre), AWAITING_EXTERNAL, AWAITING_DOCUMENT. Terminer, annuler, bloquer (avec motif) et rouvrir se font à l'écran de la demande — chacun a ses gardes.",
     input_schema: {
       type: "object",
       properties: {
         reference: { type: "string", description: "Référence de la demande (REQ-AAAA-NNN) ou fragment du titre." },
-        status: { type: "string", enum: ["NEW", "IN_PROGRESS", "AWAITING_VALIDATION", "AWAITING_EXTERNAL", "AWAITING_PAYMENT", "AWAITING_DOCUMENT", "BLOCKED", "DONE", "CANCELLED"] },
+        status: { type: "string", enum: ["IN_PROGRESS", "AWAITING_EXTERNAL", "AWAITING_DOCUMENT"] },
         assigneeName: { type: "string", description: "Nouveau responsable (résoudre via search_people)." },
         comment: { type: "string", description: "Commentaire à ajouter au fil de la demande." },
       },
@@ -3664,8 +3664,10 @@ export async function buildProposal(toolName: string, input: Record<string, unkn
 
     const status = asStr(input, "status").toUpperCase();
     if (status) {
-      const valid = ["NEW", "IN_PROGRESS", "AWAITING_VALIDATION", "AWAITING_EXTERNAL", "AWAITING_PAYMENT", "AWAITING_DOCUMENT", "BLOCKED", "DONE", "CANCELLED"];
-      if (!valid.includes(status)) return { error: "Statut de demande inconnu." };
+      // Les seuls statuts qui se posent à la main sans motif (§118.191) : terminer, annuler, bloquer et
+      // rouvrir ont leur geste à l'écran, avec leurs gardes — la carte ne les propose plus.
+      const valid = ["IN_PROGRESS", "AWAITING_EXTERNAL", "AWAITING_DOCUMENT"];
+      if (!valid.includes(status)) return { error: "Ce statut ne se pose pas d'ici : terminer, annuler, bloquer (avec son motif) et rouvrir se font sur la fiche de la demande." };
       payload.status = status;
       fields.push({ label: "Statut", value: `${ADMIN_REQUEST_STATUS[req.status]?.label ?? req.status} → ${ADMIN_REQUEST_STATUS[status as keyof typeof ADMIN_REQUEST_STATUS]?.label ?? status}` });
     }

@@ -51,8 +51,12 @@ const APPEL_NU = /\brouter\.refresh\(\)/g;
  * ouvert avant la fin du rafraîchissement, il réécrirait la demande d'avant.
  * Ramené à 347 au §118.190 — la carte du circuit d'un dossier promotionnel (valider, renvoyer, refuser,
  * resoumettre) suit son rafraîchissement : renvoyer sur l'état d'avant partirait une seconde fois.
+ * Ramené à 343 au §118.191 — le dossier d'une demande de paiement (trois appels : ses gestes, la
+ * relance, la demande d'une pièce) et les gestes du secrétariat suivent leur rafraîchissement : la
+ * correction d'une demande s'ouvre sur un instantané, et l'ouvrir sur l'état d'avant réécrirait
+ * l'ancien montant par-dessus le nouveau.
  */
-const PLAFOND_APPELS_NUS = 347;
+const PLAFOND_APPELS_NUS = 343;
 
 describe("le rafraîchissement suivi", () => {
   const parc = fichiers(SRC).map((f) => ({ f, src: sansCommentaires(readFileSync(f, "utf8")) }));

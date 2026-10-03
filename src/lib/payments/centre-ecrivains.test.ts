@@ -61,6 +61,29 @@ function arguments_(src: string, ouvrante: number): string {
 
 const ligne = (src: string, index: number) => src.slice(0, index).split("\n").length;
 
+/**
+ * CE QUE L'APPEL ÉCRIT — l'objet `data: { … }`, accolades équilibrées — et non ce qu'il LIT.
+ *
+ * Une écriture conditionnelle nomme dans son `where` le montant et l'autorisation qu'elle a lus
+ * (§118.191) : juger tout le texte de l'appel compterait comme « écrivain du montant » le centre qui
+ * ne fait que vérifier que le montant n'a pas bougé. Sans `data:` (un `upsert`), on garde tout le
+ * texte — le sens prudent : on accuse un écrivain de trop, jamais un de moins.
+ */
+function partieEcrite(args: string): string {
+  const m = /\bdata\s*:\s*\{/.exec(args);
+  if (!m) return args;
+  const ouvrante = m.index + m[0].length - 1;
+  let prof = 0;
+  for (let i = ouvrante; i < args.length; i += 1) {
+    if (args[i] === "{") prof += 1;
+    else if (args[i] === "}") {
+      prof -= 1;
+      if (prof === 0) return args.slice(ouvrante, i + 1);
+    }
+  }
+  return args.slice(ouvrante);
+}
+
 interface Site { fichier: string; ligne: number; methode: string; args: string; index: number; src: string }
 
 function sitesDAppel(fichiers: string[], modele: string, methodes: string): Site[] {
@@ -128,8 +151,9 @@ describe("un ordre de dépense ne naît qu'à UN endroit — et il y naît en at
 const ECRIVAINS_AUTORISATION: Record<string, string> = {
   // Décider (APPROVE / REFUSE / révision / argumentation) et resoumettre : c'est le centre lui-même.
   "src/lib/actions/payment-centre-actions.ts": "applyDecision",
-  // Relever le budget accordé d'un congrès RENVOIE l'ordre au centre — la règle le décide.
-  "src/lib/actions/congress-request-actions.ts": "statutApresNouveauMontant",
+  // Réviser un ordre non réglé (budget d'un congrès relevé, demande de paiement corrigée) RENVOIE
+  // l'ordre au centre quand la révision dépasse ce qu'il a autorisé — la règle le décide (§118.191).
+  "src/lib/payments/revision-ordre.ts": "statutApresRevision",
 };
 const ECRIVAINS_PAIEMENT: Record<string, string> = {
   // Le seul geste qui PAIE un ordre, et il consulte le verrou avant d'écrire.
@@ -137,8 +161,9 @@ const ECRIVAINS_PAIEMENT: Record<string, string> = {
 };
 const ECRIVAINS_MONTANT: Record<string, string> = {
   // Une hausse de montant rouvre l'autorisation : sans cela, le centre aurait autorisé 500 000
-  // et les Finances en paieraient 900 000.
-  "src/lib/actions/congress-request-actions.ts": "statutApresNouveauMontant",
+  // et les Finances en paieraient 900 000. L'UNIQUE réviseur d'ordre (§118.191) — le congrès et la
+  // demande de paiement passent par lui.
+  "src/lib/payments/revision-ordre.ts": "statutApresRevision",
 };
 /** Les écritures dont le `data` est une variable : illisibles ici, donc nommées et justifiées. */
 const ECRIVAINS_OPAQUES: Record<string, RegExp> = {
@@ -161,7 +186,7 @@ describe("qui touche à l'autorisation, au paiement et au montant d'un ordre —
     const hors: string[] = [];
     const sansRegle: string[] = [];
     for (const s of ecritures) {
-      if (!touche(s.args)) continue;
+      if (!touche(partieEcrite(s.args))) continue;
       const regle = liste[s.fichier];
       if (!regle) { hors.push(`${s.fichier}:${s.ligne}`); continue; }
       if (!new RegExp(`\\b${regle}\\s*\\(`).test(s.src)) sansRegle.push(`${s.fichier} (n'appelle plus ${regle})`);

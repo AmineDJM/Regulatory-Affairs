@@ -11,13 +11,15 @@ import { StatusBadge } from "@/components/shared/status-badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { PAYMENT_REQUEST_STATUS, PAYMENT_URGENCY, ENTITY_TYPE_LABELS } from "@/lib/labels";
-import { canApprove, canResubmit, isOverdue, deadlineLabel, isWithFinance } from "@/lib/finance/payment-request";
+import { canApprove, canResubmit, isOverdue, deadlineLabel, isWithFinance, piecesEnVigueur } from "@/lib/finance/payment-request";
 import { isCompanionDossier } from "@/lib/finance/dossier-auto";
 import { CENTRAL_STATUS_LABEL, CENTRAL_DECISION_LABEL, sitsOnPaymentCentre, type CentralStatus, type CentralDecision } from "@/lib/payments/authorization";
 import { entityHref } from "@/lib/entity-href";
 import { existingEntityIds } from "@/lib/entity-exists";
 import { deadlineNatureLabel, deadlineNatureOf } from "@/lib/finance/deadline-nature";
 import { PaymentDossier, type PieceView, type EventView } from "./dossier";
+import { refusDeCorrection } from "@/lib/finance/correction-demande";
+import { getMyCompanies } from "@/lib/company";
 import { AskChief } from "@/components/shared/ask-chief";
 import { realtimeVoiceConfigured, canUseRealtimeVoice } from "@/lib/assistant/voice-realtime";
 
@@ -115,7 +117,7 @@ export default async function PaymentRequestPage({ params }: { params: { id: str
     ? await prisma.expenseOrder.findUnique({
         where: { id: req.expenseOrderId },
         select: {
-          reference: true, centralStatus: true, centralDecidedAt: true, centralDecidedById: true,
+          reference: true, status: true, centralStatus: true, centralDecidedAt: true, centralDecidedById: true,
           centralMessages: {
             where: { decision: { not: null } }, orderBy: { createdAt: "desc" }, take: 1,
             select: { decision: true, body: true, author: { select: { name: true } } },
@@ -138,11 +140,24 @@ export default async function PaymentRequestPage({ params }: { params: { id: str
   const amount = toNumber(req.amount);
   // `entityType` et l'attestation entrent dans le calcul : c'est le rattachement qui exempte un
   // BON DE VERSEMENT du bon de commande et de la facture.
+  // Les pièces EN VIGUEUR — la même lecture que les actions (§118.191) : une pièce remplacée ne compte
+  // ni pour le bon à payer ni pour la transmission.
+  const enVigueur = piecesEnVigueur(req.pieces);
   const approve = canApprove(
     { status: req.status, amount, entityType: req.entityType, paymentMethodStated: req.paymentMethodStated },
-    req.pieces,
+    enVigueur,
   );
-  const resubmit = canResubmit(req, req.pieces);
+  const resubmit = canResubmit(req, enVigueur);
+
+  // CORRIGER LA DEMANDE (§118.191, audit R04) — la même règle que l'action, et ce que la demande porte.
+  // L'entité ne se propose qu'au brouillon : après transmission, c'est la société qui paie.
+  const refusCorrection = refusDeCorrection({
+    status: req.status, compagnon: companion,
+    ordre: order ? { status: order.status, centralStatus: order.centralStatus } : null,
+  });
+  const entitesCorrigeables = req.status === "DRAFT" && refusCorrection === null && isRequester
+    ? (await getMyCompanies(user.id)).map((c) => ({ id: c.id, name: c.shortName || c.name }))
+    : null;
 
   return (
     <div className="space-y-5">
@@ -276,6 +291,16 @@ export default async function PaymentRequestPage({ params }: { params: { id: str
         isCompanion={companion}
         orderReference={order?.reference ?? null}
         withFinance={isWithFinance(req.status)}
+        correction={{
+          refus: refusCorrection,
+          valeurs: {
+            title: req.title, payee: req.payee, amount, description: req.description,
+            dueDate: req.dueDate ? req.dueDate.toISOString().slice(0, 10) : null,
+            deadlineNature: deadlineNatureOf(req.deadlineNature), urgency: req.urgency, companyId: req.companyId,
+          },
+          entites: entitesCorrigeables,
+          centreAutorise: order?.centralStatus === "APPROVED",
+        }}
       />
     </div>
   );

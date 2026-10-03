@@ -6,12 +6,12 @@ import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
 import { notifyUser, notifyRoles } from "@/lib/notify";
 import {
-  sitsOnPaymentCentre, applyDecision, applyResubmission, canResubmit,
+  sitsOnPaymentCentre, applyDecision, applyResubmission, canResubmit, memeBeneficiaire,
   CENTRAL_DECISION_LABEL, CENTRAL_STATUS_LABEL,
   type CentralDecision, type CentralStatus,
   PAYMENT_CENTRE_REFUSAL,
 } from "@/lib/payments/authorization";
-import { fdStr, type ActionResult } from "@/lib/actions/types";
+import { fdStr, fdNum, type ActionResult } from "@/lib/actions/types";
 
 /**
  * LE CENTRE DE PAIEMENT — le PDG et le Super Admin autorisent, la comptabilité exécute.
@@ -115,7 +115,7 @@ export async function decidePayment(formData: FormData): Promise<ActionResult> {
 
   const order = await prisma.expenseOrder.findUnique({
     where: { id },
-    select: { id: true, reference: true, label: true, amount: true, centralStatus: true, requestedById: true, status: true, dueDate: true },
+    select: { id: true, reference: true, label: true, amount: true, beneficiary: true, centralStatus: true, requestedById: true, status: true, dueDate: true },
   });
   if (!order) return { ok: false, error: "Ordre de dépense introuvable." };
 
@@ -140,20 +140,48 @@ export async function decidePayment(formData: FormData): Promise<ActionResult> {
     return { ok: false, error: "Échéance illisible." };
   }
 
-  await prisma.$transaction([
-    prisma.expenseOrder.update({
-      where: { id },
+  // CE QUE LE CENTRE A LU (§118.191). Le centre autorise une somme, à quelqu'un — et depuis que le
+  // demandeur corrige sa demande, l'une et l'autre peuvent bouger pendant qu'un siège lit l'ordre.
+  // L'écran renvoie ce qu'il affichait ; un écart se dit avec les deux valeurs. Un appelant qui ne
+  // l'envoie pas n'est pas comparé ici : l'écriture, elle, porte toujours sur l'état LU.
+  const montantVu = fdNum(formData, "montantVu");
+  const montantActuel = Number(order.amount);
+  if (montantVu !== null && montantVu !== montantActuel) {
+    return {
+      ok: false,
+      error: `Le montant de ce paiement a changé pendant que vous lisiez (${montantVu.toLocaleString("fr-FR")} → ${montantActuel.toLocaleString("fr-FR")} DZD) : relisez l'ordre avant de décider.`,
+    };
+  }
+  if (formData.has("beneficiaireVu") && !memeBeneficiaire(fdStr(formData, "beneficiaireVu"), order.beneficiary)) {
+    return {
+      ok: false,
+      error: `Le bénéficiaire de ce paiement a changé pendant que vous lisiez (désormais : « ${order.beneficiary ?? "non précisé"} ») : relisez l'ordre avant de décider.`,
+    };
+  }
+
+  // UNE DÉCISION À LA FOIS, ET SUR CE QUI A ÉTÉ LU. L'écriture était faite par le seul identifiant :
+  // deux sièges qui tranchaient à la même seconde voyaient le second écraser le premier — un refus
+  // devenir une autorisation sans que personne l'ait vue —, et un montant relevé pendant la décision
+  // était autorisé sans avoir été lu. Elle est désormais conditionnelle sur l'autorisation, le montant
+  // et le bénéficiaire lus ; perdue, rien n'est écrit, pas même le message.
+  const changee = "Ce paiement vient de changer (décidé par un autre siège, corrigé ou annulé) : rouvrez le centre.";
+  const decide = await prisma.$transaction(async (tx) => {
+    const ecrit = await tx.expenseOrder.updateMany({
+      where: { id, centralStatus: order.centralStatus, amount: order.amount, beneficiary: order.beneficiary, status: order.status },
       data: {
         centralStatus: next,
         centralDecidedById: user.id,
         centralDecidedAt: new Date(),
         ...(echeanceDate ? { dueDate: echeanceDate } : {}),
       },
-    }),
-    prisma.paymentCentreMessage.create({
+    });
+    if (ecrit.count === 0) return false;
+    await tx.paymentCentreMessage.create({
       data: { orderId: id, decision, body: body.trim() || CENTRAL_DECISION_LABEL[decision], authorId: user.id },
-    }),
-  ]);
+    });
+    return true;
+  });
+  if (!decide) return { ok: false, error: changee };
 
   const money = `${Number(order.amount).toLocaleString("fr-FR")} DZD`;
   await recordAudit({

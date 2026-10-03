@@ -98,8 +98,13 @@ le comptage sont livrés et testés (lot C4b, §118.190)** : un dossier renvoyé
 étape, chez son demandeur ; le choix des lignes, qui repasse par toutes les validations — puis resoumis en disant
 ce qui a changé ; le demandeur qui redemande des devis au lieu de refuser sa propre demande ; la liste des
 articles modifiable jusqu'à la validation du choix, l'assistante prévenue et la demande au secrétariat rouverte ;
-un comptage saisi corrigé par contre-correction sur le solde du jour. Restent la demande de paiement, le
-secrétariat et le recrutement (C4c), le plan de tournée validé et la pièce Legal révisée (C4d).
+un comptage saisi corrigé par contre-correction sur le solde du jour. **La demande de paiement et le secrétariat
+sont livrés et testés (lot C4c, §118.191)** : la demande corrigée chez son demandeur (montant, bénéficiaire,
+objet, échéance ; l'entité et l'urgence au brouillon), son ordre qui suit au centre par un réviseur unique — une
+hausse ou un autre bénéficiaire rouvre l'autorisation —, le centre qui décide sur ce qu'il a lu, des pièces
+remplaçables chez le demandeur sans être déclarées acceptées ; au secrétariat, des gestes nommés à la place du
+menu libre (bloquer et rouvrir avec leur motif, annuler par l'annulation commune, terminer par la seule porte
+gardée, qui archive). Restent le recrutement, le plan de tournée validé et la pièce Legal révisée (C4d).
 
 Constat d'ensemble (rapports 17, 18, 01, 03, 14) : **la plateforme sait refuser, rarement faire corriger.**
 

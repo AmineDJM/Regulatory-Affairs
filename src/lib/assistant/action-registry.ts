@@ -1112,6 +1112,20 @@ X("RENVOYER, RESOUMETTRE, REDEMANDER — LE MATÉRIEL PROMOTIONNEL SE CORRIGE (a
   "promo-circuit-actions:renvoyerPromoStep", "promo-circuit-actions:resoumettrePromoDemande",
   "promo-devis-actions:redemanderDevisPromo", "promo-comptage-actions:corrigerComptage",
 ]);
+X("CORRIGER SA DEMANDE DE PAIEMENT (audit 360°, lot C4c, §118.191) — l'objet, le bénéficiaire, le montant, le "
+  + "contexte et l'échéance, tant que le dossier est chez le demandeur (brouillon, ou renvoyé par les Finances). C'est le "
+  + "geste du DEMANDEUR, qui dit après transmission ce qui a changé ; il fait suivre l'ordre de dépense et peut rouvrir "
+  + "l'autorisation du centre de paiement. Adam est en pause de développement : aucun geste neuf ne lui est ouvert. Un "
+  + "clic sur /validations/paiements/<id> › « Corriger la demande ».", [
+  "payment-request-actions:corrigerDemandePaiement",
+]);
+X("ROUVRIR ET ANNULER UNE DEMANDE AU SECRÉTARIAT (audit 360°, lot C4c, §118.191) — les gestes nommés qui remplacent le "
+  + "menu de statut libre : rouvrir une demande TERMINÉE avec son motif, annuler une demande par l'annulation commune (qui "
+  + "retire aussi la validation, l'approbation et le paiement en attente). Ce sont des gestes du SECRÉTARIAT qui disent "
+  + "pourquoi au demandeur. Adam est en pause de développement : aucun geste neuf ne lui est ouvert. Un clic sur "
+  + "/demandes/<id> › « Rouvrir… » ou « Annuler la demande… ».", [
+  "admin-request-actions:rouvrirDemande", "admin-request-actions:annulerDemandeAuSecretariat",
+]);
 X("RÉTABLIR UN DOCUMENT LEGAL ANNULÉ (§118.184, audit L04) : le retour d'une annulation, ajouté parce que "
   + "l'annulation n'en avait aucun. C'est un geste de correction qu'une personne fait devant la ligne qu'elle "
   + "vient d'annuler par erreur ; Adam est en pause de développement (Super Admin seul) et l'annulation qu'il "

@@ -1,11 +1,10 @@
 "use client";
 
 import * as React from "react";
-import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
   Loader2, Check, X, RotateCcw, PauseCircle, PlayCircle, Send, Plus, ShieldCheck,
-  MessageSquare, Download, Paperclip, FileQuestion, Gavel, ExternalLink, Info, BellRing, Siren,
+  MessageSquare, Download, Paperclip, FileQuestion, Gavel, ExternalLink, Info, BellRing, Siren, PencilLine,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input, Select, Textarea, Label } from "@/components/ui/input";
@@ -13,15 +12,17 @@ import { Sheet } from "@/components/ui/sheet";
 import { Badge } from "@/components/ui/badge";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { FileGlyph } from "@/components/drive/file-glyph";
-import { PAYMENT_PIECE_STATUS, PAYMENT_PIECE_KIND, PAYMENT_PIECE_KIND_OPTIONS, VALIDATION_STATUS } from "@/lib/labels";
-import { needsReplacement, tallyPieces } from "@/lib/finance/payment-request";
+import { PAYMENT_PIECE_STATUS, PAYMENT_PIECE_KIND, PAYMENT_PIECE_KIND_OPTIONS, VALIDATION_STATUS, PAYMENT_URGENCY_OPTIONS } from "@/lib/labels";
+import { needsReplacement, tallyPieces, refusDeRemplacement, piecesEnVigueur } from "@/lib/finance/payment-request";
+import { DEADLINE_NATURE_OPTIONS } from "@/lib/finance/deadline-nature";
+import { useRafraichir } from "@/components/shared/use-rafraichir";
 import { dossierHint, isBonDeVersement } from "@/lib/finance/payment-dossier";
 import { companionNotice } from "@/lib/finance/dossier-auto";
 import { pieceKindOptions, filingNotice } from "@/lib/legal/from-piece";
 import {
   addPaymentPiece, commentPaymentPiece, reviewPaymentPiece, addPaymentComment,
   submitPaymentRequest, decidePaymentRequest, cancelPaymentRequest, updatePaymentRequestDetails,
-  nudgePaymentRequest,
+  nudgePaymentRequest, corrigerDemandePaiement,
 } from "@/lib/actions/payment-request-actions";
 import { requestDocument, askablePeople } from "@/lib/actions/document-request-actions";
 
@@ -54,6 +55,20 @@ export interface EventView {
 }
 
 type Runner = (fd: FormData) => Promise<{ ok: boolean; error?: string; message?: string }>;
+
+/** Ce que la correction de la demande lit sur la fiche (§118.191). */
+export interface CorrectionView {
+  /** Pourquoi la demande ne se corrige pas maintenant — `null` si elle le peut (`refusDeCorrection`). */
+  refus: string | null;
+  valeurs: {
+    title: string; payee: string; amount: number; description: string | null;
+    dueDate: string | null; deadlineNature: string; urgency: string; companyId: string | null;
+  };
+  /** Les entités proposables — seulement pour un brouillon (l'entité ne change plus après transmission). */
+  entites: { id: string; name: string }[] | null;
+  /** Le centre a-t-il déjà autorisé ce paiement ? Une hausse ou un autre bénéficiaire le lui renverrait. */
+  centreAutorise: boolean;
+}
 
 /**
  * RELANCER, OU SIGNALER UNE URGENCE — les deux gestes du demandeur quand la balle n'est plus
@@ -147,7 +162,7 @@ function NudgePanel({ id, onDone }: { id: string; onDone: () => void }) {
  */
 export function PaymentDossier({
   id, reference, status, isRequester, isFinance, pieces, events, people, canApproveNow, approveBlocker, resubmitBlocker,
-  entityType, paymentMethodStated, contact, isCompanion = false, orderReference = null, withFinance = false,
+  entityType, paymentMethodStated, contact, isCompanion = false, orderReference = null, withFinance = false, correction,
 }: {
   id: string;
   reference: string;
@@ -174,9 +189,18 @@ export function PaymentDossier({
   entityType: string | null;
   paymentMethodStated: boolean;
   contact: { name: string | null; phone: string | null; email: string | null };
+  /**
+   * CORRIGER LA DEMANDE (§118.191, audit R04) — la raison pour laquelle elle ne se corrige pas, ou
+   * `null` ; et ce qu'elle porte aujourd'hui. La règle est `refusDeCorrection`, la même que l'action.
+   */
+  correction: CorrectionView;
 }) {
-  const router = useRouter();
-  const [busy, setBusy] = React.useState<string | null>(null);
+  // Rafraîchir SANS laisser rouvrir une fiche périmée (§118.172) : la correction s'ouvre sur un
+  // instantané de la demande, et ses gestes restent fermés tant que les données d'après ne sont pas là.
+  const { enCours, rafraichir } = useRafraichir();
+  const [enVol, setEnVol] = React.useState<string | null>(null);
+  // Un geste en vol OU un rafraîchissement en cours : les boutons restent fermés dans les deux cas.
+  const busy = enVol ?? (enCours ? "refresh" : null);
   const [err, setErr] = React.useState<string | null>(null);
   // Ce que le geste a ENTRAÎNÉ (§118.185) : un refus ou un retrait annule aussi l'ordre de dépense non réglé.
   const [info, setInfo] = React.useState<string | null>(null);
@@ -184,20 +208,21 @@ export function PaymentDossier({
   const [message, setMessage] = React.useState("");
 
   const run = async (key: string, fn: Runner, fields: Record<string, string>, files?: Record<string, File>) => {
-    setBusy(key); setErr(null); setInfo(null);
+    setEnVol(key); setErr(null); setInfo(null);
     const fd = new FormData();
     for (const [k, v] of Object.entries(fields)) fd.set(k, v);
     for (const [k, f] of Object.entries(files ?? {})) fd.set(k, f);
     const r = await fn(fd);
-    setBusy(null);
+    setEnVol(null);
     if (!r.ok) { setErr(r.error ?? "L'opération a échoué."); return false; }
     if (r.message) setInfo(r.message);
     setNote(""); setMessage("");
-    router.refresh();
+    rafraichir();
     return true;
   };
 
-  const t = tallyPieces(pieces);
+  // Le décompte ne lit que les pièces EN VIGUEUR — la même lecture que le bon à payer (§118.191).
+  const t = tallyPieces(piecesEnVigueur(pieces));
   const enValidation = pieces.filter((p) => p.validation?.status === "PENDING").length;
   const open = status !== "APPROVED" && status !== "REJECTED" && status !== "CANCELLED";
 
@@ -240,7 +265,7 @@ export function PaymentDossier({
             {pieces.map((p) => (
               <PieceCard
                 key={p.id} requestId={id} piece={p} busy={busy} run={run}
-                isRequester={isRequester} isFinance={isFinance} open={open}
+                isRequester={isRequester} isFinance={isFinance} open={open} dossierStatus={status}
               />
             ))}
           </ul>
@@ -298,7 +323,7 @@ export function PaymentDossier({
           C'est pourtant le moment où il en a le plus besoin : son fournisseur rappelle, sa
           quittance a une date. Il décrochait son téléphone, et la relance n'existait nulle part —
           ni trace, ni preuve qu'elle a eu lieu. */}
-      {isRequester && withFinance && <NudgePanel id={id} onDone={() => router.refresh()} />}
+      {isRequester && withFinance && <NudgePanel id={id} onDone={rafraichir} />}
 
       {/* ───────────── Les gestes ───────────── */}
       {open && !isCompanion && (isRequester || isFinance) && (
@@ -307,6 +332,11 @@ export function PaymentDossier({
           <Textarea value={note} onChange={(e) => setNote(e.target.value)} rows={2} placeholder="Motif / commentaire — obligatoire pour une mise en attente ou un refus." />
 
           <div className="flex flex-wrap gap-2">
+            {/* CORRIGER LA DEMANDE (§118.191, audit R04) — offert quand l'action l'accepterait, et
+                seulement alors : la règle est la même des deux côtés (`refusDeCorrection`). */}
+            {isRequester && correction.refus === null && (
+              <CorrigerDemande id={id} status={status} correction={correction} busy={busy} run={run} />
+            )}
             {isRequester && (status === "DRAFT" || status === "CHANGES_REQUESTED") && (
               <Button
                 disabled={busy !== null || Boolean(resubmitBlocker)} title={resubmitBlocker ?? undefined}
@@ -357,6 +387,8 @@ export function PaymentDossier({
             )}
           </div>
           {isFinance && approveBlocker && <p className="text-xs text-muted-foreground">{approveBlocker}</p>}
+          {/* POURQUOI LA DEMANDE NE SE CORRIGE PAS — dit au demandeur qui cherche le bouton. */}
+          {isRequester && correction.refus && <p className="text-xs text-muted-foreground">{correction.refus}</p>}
 
         </section>
       )}
@@ -364,6 +396,114 @@ export function PaymentDossier({
       {err && <p className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">{err}</p>}
       {info && <p role="status" className="rounded-lg bg-muted px-3 py-2 text-sm">{info}</p>}
     </div>
+  );
+}
+
+/**
+ * CORRIGER LA DEMANDE — l'objet, le bénéficiaire, le montant, le contexte, l'échéance (§118.191, R04).
+ *
+ * Le formulaire part avec ce que la demande porte aujourd'hui : l'action ne réécrit que ce qui change.
+ * L'entité et l'urgence ne s'offrent qu'au brouillon — après transmission, l'une est la société qui paie,
+ * l'autre se relève par « Signaler une urgence », avec son motif. Après transmission, ce qui a changé
+ * se dit : les Finances et le centre relisent un dossier qu'ils ont déjà vu.
+ */
+function CorrigerDemande({
+  id, status, correction, busy, run,
+}: {
+  id: string; status: string; correction: CorrectionView; busy: string | null;
+  run: (k: string, f: Runner, fields: Record<string, string>, files?: Record<string, File>) => Promise<boolean>;
+}) {
+  const [ouvert, setOuvert] = React.useState(false);
+  const v = correction.valeurs;
+  const brouillon = status === "DRAFT";
+  return (
+    <>
+      <Button variant="outline" disabled={busy !== null} onClick={() => setOuvert(true)}>
+        <PencilLine className="h-4 w-4" /> Corriger la demande
+      </Button>
+      {ouvert && (
+        <Sheet open onClose={() => busy === null && setOuvert(false)} width="md" title="Corriger la demande" description="Seul ce qui change est réécrit.">
+          <form
+            className="space-y-4"
+            onSubmit={async (e) => {
+              e.preventDefault();
+              const fields: Record<string, string> = { id };
+              new FormData(e.currentTarget).forEach((val, k) => { fields[k] = String(val); });
+              const ok = await run("corriger", corrigerDemandePaiement, fields);
+              if (ok) setOuvert(false);
+            }}
+          >
+            <div className="space-y-1.5">
+              <Label htmlFor="cd-title">Objet du paiement</Label>
+              <Input id="cd-title" name="title" defaultValue={v.title} required />
+            </div>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <div className="space-y-1.5">
+                <Label htmlFor="cd-payee">Bénéficiaire</Label>
+                <Input id="cd-payee" name="payee" defaultValue={v.payee} required />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="cd-amount">Montant (DZD)</Label>
+                <Input id="cd-amount" name="amount" type="number" min="0.01" step="0.01" defaultValue={String(v.amount)} required />
+              </div>
+            </div>
+            {correction.centreAutorise && (
+              <p className="rounded-lg bg-warning/10 px-3 py-2 text-xs">
+                Le centre de paiement a déjà autorisé ce paiement : <strong>relever le montant ou changer de bénéficiaire le lui renvoie</strong>,
+                il devra l&apos;autoriser de nouveau. Baisser le montant ne rouvre rien.
+              </p>
+            )}
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <div className="space-y-1.5">
+                <Label htmlFor="cd-due">Échéance souhaitée</Label>
+                <Input id="cd-due" name="dueDate" type="date" defaultValue={v.dueDate ?? ""} />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="cd-nature">Nature de l&apos;échéance</Label>
+                <Select id="cd-nature" name="deadlineNature" defaultValue={v.deadlineNature}>
+                  {DEADLINE_NATURE_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                </Select>
+              </div>
+            </div>
+            {brouillon && (
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <div className="space-y-1.5">
+                  <Label htmlFor="cd-urgency">Urgence</Label>
+                  <Select id="cd-urgency" name="urgency" defaultValue={v.urgency}>
+                    {PAYMENT_URGENCY_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                  </Select>
+                </div>
+                {correction.entites && correction.entites.length > 0 && (
+                  <div className="space-y-1.5">
+                    <Label htmlFor="cd-company">Entité qui paie</Label>
+                    <Select id="cd-company" name="companyId" defaultValue={v.companyId ?? ""}>
+                      <option value="">— à préciser —</option>
+                      {correction.entites.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                    </Select>
+                  </div>
+                )}
+              </div>
+            )}
+            <div className="space-y-1.5">
+              <Label htmlFor="cd-description">Contexte</Label>
+              <Textarea id="cd-description" name="description" rows={3} defaultValue={v.description ?? ""} />
+            </div>
+            {!brouillon && (
+              <div className="space-y-1.5">
+                <Label htmlFor="cd-note">Ce qui a changé <span className="text-destructive">*</span></Label>
+                <Textarea id="cd-note" name="note" rows={2} required placeholder="Ex. : la facture définitive porte 450 000 DZD, pas 500 000." />
+              </div>
+            )}
+            <div className="flex justify-end gap-2">
+              <Button type="button" variant="outline" disabled={busy !== null} onClick={() => setOuvert(false)}>Fermer</Button>
+              <Button type="submit" disabled={busy !== null}>
+                {busy === "corriger" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />} Enregistrer la correction
+              </Button>
+            </div>
+          </form>
+        </Sheet>
+      )}
+    </>
   );
 }
 
@@ -464,14 +604,18 @@ const EVENT_LABEL: Record<string, string> = {
   PIECE_ADDED: "Pièce ajoutée",
   PIECE_REVIEWED: "Pièce examinée",
   VALIDATION_ASKED: "Validation demandée",
+  // Un code brut dans le fil se lit comme une panne : chaque geste porte son nom.
+  CORRECTED: "Demande corrigée",
+  NUDGE: "Relance",
+  URGENT: "Urgence signalée",
 };
 
 /** Une pièce, son commentaire, son verdict, et la réponse qu'elle appelle. */
 function PieceCard({
-  requestId, piece, busy, run, isRequester, isFinance, open,
+  requestId, piece, busy, run, isRequester, isFinance, open, dossierStatus,
 }: {
   requestId: string; piece: PieceView; busy: string | null; run: (k: string, f: Runner, fields: Record<string, string>, files?: Record<string, File>) => Promise<boolean>;
-  isRequester: boolean; isFinance: boolean; open: boolean;
+  isRequester: boolean; isFinance: boolean; open: boolean; dossierStatus: string;
 }) {
   const [note, setNote] = React.useState(piece.note ?? "");
   const [review, setReview] = React.useState("");
@@ -479,6 +623,10 @@ function PieceCard({
   const fileRef = React.useRef<HTMLInputElement>(null);
   const inCause = needsReplacement(piece.status);
   const superseded = Boolean(piece.replacedById);
+  // REMPLAÇABLE QUAND L'ACTION L'ACCEPTERAIT (§118.191) : mise en cause, ou dossier chez le demandeur.
+  const remplacable = refusDeRemplacement({
+    pieceStatus: piece.status, dejaRemplacee: superseded, dossierStatus, parLeDemandeur: isRequester,
+  }) === null;
 
   return (
     <li className={`surface space-y-2 p-3 ${superseded ? "opacity-60" : ""}`}>
@@ -524,8 +672,9 @@ function PieceCard({
             </Button>
           </div>
           {/* Une pièce mise en cause se REMPLACE — l'originale reste, c'est elle qui explique
-              pourquoi il y a eu un second tour. */}
-          {inCause && (
+              pourquoi il y a eu un second tour. Tant que le dossier est chez le demandeur, il remplace
+              aussi une pièce que personne n'a signalée, et la remplaçante repart à l'examen. */}
+          {remplacable && (
             <div className="flex flex-wrap items-center gap-2">
               <input
                 ref={fileRef} type="file" className="hidden"
@@ -546,7 +695,8 @@ function PieceCard({
         </div>
       )}
 
-      {open && !superseded && isFinance && (
+      {/* UN BROUILLON NE S'EXAMINE PAS (§118.191) : l'action le refuse, l'écran ne le propose pas. */}
+      {open && !superseded && isFinance && dossierStatus !== "DRAFT" && (
         <div className="space-y-2 border-t border-border pt-2">
           <Input value={review} onChange={(e) => setReview(e.target.value)} placeholder="Ce qui ne va pas (obligatoire pour « à revoir » ou « refusée »)" />
           <div className="flex flex-wrap gap-2">
@@ -589,7 +739,7 @@ function AskPiece({
 }: {
   requestId: string; reference: string; busy: string | null; setErr: (v: string | null) => void;
 }) {
-  const router = useRouter();
+  const { rafraichir } = useRafraichir();
   const [open, setOpen] = React.useState(false);
   const [people, setPeople] = React.useState<{ id: string; name: string }[] | null>(null);
   const [who, setWho] = React.useState("");
@@ -671,7 +821,7 @@ function AskPiece({
                 if (!r.ok) { setErr(r.error ?? "La demande n'a pas pu être créée."); return; }
                 setDone(label.trim());
                 setWho(""); setLabel(""); setKind("INVOICE"); setDue(""); setNote("");
-                router.refresh();
+                rafraichir();
               }}
             >
               {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />} Envoyer la demande

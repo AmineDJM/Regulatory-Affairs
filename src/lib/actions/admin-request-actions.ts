@@ -14,7 +14,7 @@ import { saveFile, validateUpload } from "@/lib/storage";
 import { getAppSettings } from "@/lib/settings";
 import { algiersInputToUtc, formatAlgiers } from "@/lib/calendar-tz";
 import { archiveProcessedRequest } from "@/lib/archive";
-import { ADMIN_REQUEST_TYPE } from "@/lib/labels";
+import { ADMIN_REQUEST_TYPE, ADMIN_REQUEST_STATUS } from "@/lib/labels";
 import { recordAudit } from "@/lib/audit";
 import { notifyUser, notifyRoles } from "@/lib/notify";
 import { createExpenseOrder } from "@/lib/expense-orders";
@@ -22,12 +22,14 @@ import { createDirectValidation, retirerValidationSansObjet } from "@/lib/valida
 import { buildRef, createWithRetry } from "@/lib/refs";
 import { fdStr, fdNum, fdDate, type ActionResult } from "@/lib/actions/types";
 import { dejaPorteParSaFiche } from "@/lib/ad-pro/unified";
+import { ecrireAuFil } from "@/lib/ad-pro/fil";
 import { clauseDemandeLisible } from "@/lib/queries/admin-requests";
 import { fieldLabels } from "@/lib/admin-requests";
 import {
   porteDuDemandeur, refusDeModification, changementsDeLaDemande, suitLaDemandeDeBcDuPoste, refusDemandeDeBcDuPoste, type ContenuDemande,
 } from "@/lib/secretariat/porte-demandeur";
 import { annulerDemandeSecretariat, prevenirLeSecretariat } from "@/lib/secretariat/annulation";
+import { refusDuStatutManuel, refusDeReouverture } from "@/lib/secretariat/statut-manuel";
 
 const DENIED: ActionResult = { ok: false, error: "Non autorisé." };
 
@@ -86,15 +88,16 @@ async function nextRequestRef(): Promise<string> {
  * UNE DEMANDE TERMINÉE OU ANNULÉE NE SE TRAITE PLUS (§118.187 — audit 360°, R08). Depuis qu'un demandeur
  * peut annuler sa demande au-delà de trente minutes, une demande annulée reste VISIBLE au bureau (elle
  * n'est plus effacée) : « Commencer », « Demander une validation » et « Fin de la demande » l'auraient
- * ressuscitée, ou payée. Le changement de statut manuel reste la porte explicite pour la rouvrir.
+ * ressuscitée, ou payée. Une demande TERMINÉE se rouvre par `rouvrirDemande`, avec son motif ; une
+ * demande ANNULÉE ne se rouvre pas (§118.191) — ce qui en dépendait a été retiré avec elle.
  */
 /** Une demande qui se TRAITE encore — la condition de toute écriture qui la fait avancer (§118.187). */
 const OUVERTE = { deletedAt: null, status: { notIn: ["DONE", "CANCELLED"] as AdminRequestStatus[] } } satisfies Prisma.AdministrativeRequestWhereInput;
 const DEMANDE_CHANGEE = "Cette demande vient d'être annulée ou terminée : rouvrez-la pour voir où elle en est.";
 
 function refusDemandeClose(status: AdminRequestStatus): string | null {
-  if (status === "CANCELLED") return "Cette demande a été annulée : elle ne se traite plus. Si elle doit reprendre, changez son statut d'abord.";
-  if (status === "DONE") return "Cette demande est terminée : elle ne se traite plus. Si elle doit reprendre, changez son statut d'abord.";
+  if (status === "CANCELLED") return "Cette demande a été annulée : elle ne se traite plus, et ne se rouvre pas — déposez-en une nouvelle.";
+  if (status === "DONE") return "Cette demande est terminée : elle ne se traite plus. Si elle doit reprendre, rouvrez-la (« Rouvrir », avec son motif).";
   return null;
 }
 
@@ -157,30 +160,123 @@ export async function createRequest(
 
 // ─────────────────────────────── Traitement ───────────────────────────────
 
+/**
+ * CHANGER LE STATUT À LA MAIN — seulement ce qui n'a pas d'autre geste (§118.191, audit 360° R12) :
+ * attendre un tiers ou un document, être bloqué (et dire pourquoi), reprendre. Le menu offrait les neuf
+ * statuts sans condition : « Terminée » contournait la fin gardée, « Annulée » l'annulation commune, et
+ * une demande annulée se ressuscitait d'un clic. La règle vit dans `secretariat/statut-manuel.ts`, lue
+ * aussi par l'écran — qui ne propose plus de menu, mais des gestes nommés.
+ */
 export async function updateRequestStatus(formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
   const id = fdStr(formData, "id");
   const status = fdStr(formData, "status") as AdminRequestStatus | null;
   if (!id || !status) return { ok: false, error: "Paramètres manquants." };
-  const req = await prisma.administrativeRequest.findUnique({ where: { id }, select: { assignedToId: true, requesterId: true, reference: true } });
-  if (!req) return { ok: false, error: "Demande introuvable." };
+  const req = await prisma.administrativeRequest.findUnique({ where: { id }, select: { assignedToId: true, requesterId: true, reference: true, status: true, deletedAt: true } });
+  if (!req || req.deletedAt) return { ok: false, error: "Demande introuvable." };
   if (!isManager(user, req.assignedToId)) return DENIED;
 
-  const data: { status: AdminRequestStatus; completedAt?: Date | null; cancelledAt?: Date | null; blockedReason?: string | null } = { status };
-  if (status === "DONE") data.completedAt = new Date();
-  if (status === "CANCELLED") data.cancelledAt = new Date();
-  if (status === "BLOCKED") data.blockedReason = fdStr(formData, "blockedReason");
-  await prisma.administrativeRequest.update({ where: { id }, data });
+  const motif = fdStr(formData, "blockedReason");
+  const refus = refusDuStatutManuel({ courant: req.status, cible: status, motif });
+  if (refus) return { ok: false, error: refus };
 
-  if (req.requesterId && req.requesterId !== user.id) {
-    await notifyUser({ userId: req.requesterId, type: "GENERIC", title: "Demande mise à jour", body: `${req.reference} — ${status}`, link: `/demandes/${id}` });
+  // Conditionnelle sur le statut LU : une demande terminée, annulée ou mise en validation entre-temps
+  // ne change pas de statut en douce.
+  const ecrit = await prisma.administrativeRequest.updateMany({
+    where: { id, status: req.status, deletedAt: null },
+    data: { status, blockedReason: status === "BLOCKED" ? motif : null },
+  });
+  if (ecrit.count === 0) return { ok: false, error: "Cette demande vient de changer : rouvrez-la pour voir où elle en est." };
+
+  // Ce que le demandeur lit : le statut par son NOM — jamais l'énumération brute —, et le motif d'un blocage.
+  const libelle = ADMIN_REQUEST_STATUS[status]?.label ?? status;
+  const phrase = status === "BLOCKED" ? `Demande bloquée — ${motif}` : `Statut : ${libelle}`;
+  // Le motif d'un blocage va au FIL de la demande — par l'écrivain du fil, hors du corps de l'action :
+  // deux écritures en ligne feraient renoncer la dérivation des contrats à dire ce que `id` désigne.
+  if (status === "BLOCKED") {
+    await ecrireAuFil({ entityType: "ADMIN_REQUEST", entityId: id, authorId: user.id, body: phrase }).catch(() => undefined);
   }
-  await recordAudit({ actorId: user.id, action: "UPDATE", module: "Demandes administratives", entityType: "ADMIN_REQUEST", entityId: id, field: "status", newValue: status, summary: `Statut → ${status}` });
-  if (status === "DONE") await archiveAdminRequestIfDone(id, user.id);
+  if (req.requesterId && req.requesterId !== user.id) {
+    await notifyUser({
+      userId: req.requesterId, type: "GENERIC",
+      title: status === "BLOCKED" ? "Demande bloquée" : "Demande mise à jour",
+      body: `${req.reference} — ${status === "BLOCKED" ? motif : libelle}`, link: `/demandes/${id}`,
+    });
+  }
+  await recordAudit({ actorId: user.id, action: "UPDATE", module: "Demandes administratives", entityType: "ADMIN_REQUEST", entityId: id, field: "status", newValue: status, summary: phrase });
   revalidatePath(`/demandes/${id}`);
   revalidatePath("/demandes");
   revalidatePath("/demandes/assistant");
   return { ok: true };
+}
+
+/**
+ * ROUVRIR UNE DEMANDE TERMINÉE — avec son motif (§118.191, audit 360° R12). La fin déclarée trop tôt
+ * (« la livraison n'est jamais arrivée ») n'avait pas d'autre retour que le menu libre, qui rouvrait
+ * aussi une demande ANNULÉE. Seule une demande terminée se rouvre : une annulée a perdu avec elle ses
+ * validations et ses paiements, la ressusciter les laisserait derrière. La date de fin part avec la
+ * fin ; l'imputation déjà faite reste (la fin suivante ne débite pas une seconde fois).
+ */
+export async function rouvrirDemande(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  const id = fdStr(formData, "id");
+  if (!id) return { ok: false, error: "Demande introuvable." };
+  const req = await prisma.administrativeRequest.findUnique({ where: { id }, select: { assignedToId: true, requesterId: true, reference: true, status: true, deletedAt: true } });
+  if (!req || req.deletedAt) return { ok: false, error: "Demande introuvable." };
+  if (!isManager(user, req.assignedToId)) return DENIED;
+  const motif = fdStr(formData, "motif");
+  const refus = refusDeReouverture({ courant: req.status, motif });
+  if (refus) return { ok: false, error: refus };
+
+  const r = await prisma.administrativeRequest.updateMany({ where: { id, status: "DONE", deletedAt: null }, data: { status: "IN_PROGRESS", completedAt: null } });
+  if (r.count === 0) return { ok: false, error: "Cette demande vient de changer : rouvrez-la pour voir où elle en est." };
+  await ecrireAuFil({ entityType: "ADMIN_REQUEST", entityId: id, authorId: user.id, body: `Demande rouverte — ${motif}` }).catch(() => undefined);
+  if (req.requesterId && req.requesterId !== user.id) {
+    await notifyUser({ userId: req.requesterId, type: "GENERIC", title: "Demande rouverte", body: `${req.reference} — ${motif}`, link: `/demandes/${id}` });
+  }
+  await recordAudit({ actorId: user.id, action: "UPDATE", module: "Bureau du secrétariat", entityType: "ADMIN_REQUEST", entityId: id, field: "status", newValue: "IN_PROGRESS", summary: `Demande ${req.reference} rouverte — ${motif}` });
+  revalidatePath(`/demandes/${id}`);
+  revalidatePath("/demandes");
+  revalidatePath("/demandes/assistant");
+  return { ok: true, message: "Demande rouverte — le demandeur est prévenu." };
+}
+
+/**
+ * ANNULER UNE DEMANDE, PAR LE SECRÉTARIAT — avec son motif, par l'annulation commune (§118.191, R12) :
+ * elle retire aussi la validation, l'approbation et le paiement qui en dépendent (§118.187). Le menu
+ * libre écrivait « annulée » et laissait tout le reste vivant. Le demandeur est prévenu : c'est sa
+ * demande qui s'arrête.
+ */
+export async function annulerDemandeAuSecretariat(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  const id = fdStr(formData, "id");
+  if (!id) return { ok: false, error: "Demande introuvable." };
+  const req = await prisma.administrativeRequest.findUnique({ where: { id }, select: { assignedToId: true, requesterId: true, reference: true, status: true, deletedAt: true, linkedEntityType: true, type: true, title: true } });
+  if (!req || req.deletedAt) return { ok: false, error: "Demande introuvable." };
+  if (!isManager(user, req.assignedToId)) return DENIED;
+  const close = refusDemandeClose(req.status);
+  if (close) return { ok: false, error: close };
+  // La demande de BC d'un poste Ad & Pro se retire DEPUIS LE POSTE : l'annuler d'ici laisserait le
+  // poste attendre un bon de commande que personne n'établira (§118.187).
+  if (suitLaDemandeDeBcDuPoste(req)) return { ok: false, error: refusDemandeDeBcDuPoste("annuler") };
+  const motif = fdStr(formData, "motif");
+  if (motif === null) return { ok: false, error: "Dites pourquoi vous annulez : c'est ce que lira le demandeur." };
+
+  const a = await annulerDemandeSecretariat(id, { acteurId: user.id, motif, cause: "par le secrétariat" });
+  if (!a.ok) return { ok: false, error: a.error };
+  if (!a.annulee) return { ok: false, error: "Cette demande vient d'être terminée ou annulée : rouvrez-la pour voir où elle en est." };
+  if (req.requesterId && req.requesterId !== user.id) {
+    await notifyUser({ userId: req.requesterId, type: "GENERIC", title: "Demande annulée par le secrétariat", body: `${req.reference} — ${motif}`, link: `/demandes/${id}` });
+  }
+  revalidatePath(`/demandes/${id}`);
+  revalidatePath("/demandes");
+  revalidatePath("/demandes/assistant");
+  if (a.ordresAnnules.length > 0 || a.retraits > 0) revalidatePath("/validations");
+  if (a.ordresAnnules.length > 0) revalidatePath("/finances/paiements-a-faire");
+  return {
+    ok: true,
+    message: `Demande ${a.reference} annulée — le demandeur est prévenu${a.ordresAnnules.length ? ` ; paiement(s) ${a.ordresAnnules.join(", ")} annulé(s)` : ""}.${a.reserve ? ` Attention : ${a.reserve}` : ""}`,
+  };
 }
 
 export async function assignRequest(formData: FormData): Promise<ActionResult> {
@@ -708,9 +804,18 @@ export async function restoreRequest(formData: FormData): Promise<ActionResult> 
   if (!(hasGlobalView(user.role) || userCan(user, "ADMIN_REQUESTS", "UPDATE"))) return DENIED;
   const id = fdStr(formData, "id");
   if (!id) return { ok: false, error: "Demande introuvable." };
-  const req = await prisma.administrativeRequest.findUnique({ where: { id }, select: { reference: true } });
+  const req = await prisma.administrativeRequest.findUnique({ where: { id }, select: { reference: true, status: true, requesterId: true, deletedById: true, processingStartedAt: true } });
   if (!req) return { ok: false, error: "Demande introuvable." };
-  await prisma.administrativeRequest.update({ where: { id }, data: { deletedAt: null, deletedById: null, deletionReason: null, status: "NEW", cancelledAt: null } });
+  // RESTAURER N'EST PAS RESSUSCITER (§118.191). La restauration remettait TOUTE demande « nouvelle » :
+  // une demande terminée redevenait à traiter, une demande annulée — dont l'annulation avait retiré les
+  // validations et les paiements — repartait sans eux. Seule la suppression DISCRÈTE du demandeur
+  // (≤ 30 min, jamais commencée) passait la demande « annulée » en la supprimant : elle seule revient
+  // « nouvelle ». Toute autre demande revient dans l'état où on l'a supprimée.
+  const suppressionDiscrete = req.status === "CANCELLED" && req.deletedById === req.requesterId && req.processingStartedAt === null;
+  await prisma.administrativeRequest.update({
+    where: { id },
+    data: { deletedAt: null, deletedById: null, deletionReason: null, ...(suppressionDiscrete ? { status: "NEW", cancelledAt: null } : {}) },
+  });
   await recordAudit({ actorId: user.id, action: "UPDATE", module: "Bureau du secrétariat", entityType: "ADMIN_REQUEST", entityId: id, summary: `Demande ${req.reference} restaurée` });
   revalidatePath("/demandes");
   revalidatePath("/demandes/assistant");
@@ -918,6 +1023,10 @@ export async function finishRequest(formData: FormData): Promise<ActionResult> {
   }
 
   await recordAudit({ actorId: user.id, action: "UPDATE", module: "Bureau du secrétariat", entityType: "ADMIN_REQUEST", entityId: id, field: "status", newValue: "DONE", summary: "Fin de la demande" });
+  // L'ARCHIVE DANS LE DRIVE (« Dossier traité ») — elle n'était faite que par le menu libre, c'est-à-dire
+  // par le seul chemin qui contournait les gardes de cette fin (§118.191, audit R12). Une fois, jamais
+  // bloquante : la demande est terminée même si l'archive échoue.
+  await archiveAdminRequestIfDone(id, user.id).catch((e) => console.error("[admin-request] archive non faite", e));
   revalidatePath(`/demandes/${id}`);
   revalidatePath("/demandes");
   revalidatePath("/demandes/assistant");

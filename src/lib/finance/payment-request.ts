@@ -122,6 +122,12 @@ export function tallyPieces(pieces: readonly PieceLike[]): PieceTally {
  */
 export function statusFromPieces(current: string, pieces: readonly PieceLike[]): PaymentState | null {
   if (isClosed(current)) return null;
+  // UN BROUILLON NE CHANGE PAS DE CAMP (§118.191) : il n'a jamais été transmis. Un verdict posé sur
+  // une de ses pièces le faisait passer « à revoir », puis « transmis » de lui-même une fois la pièce
+  // reprise — sans que son demandeur l'ait envoyé, et sans l'ordre de dépense que la transmission
+  // fait naître. Les Finances n'examinent plus les pièces d'un brouillon (`reviewPaymentPiece`) ;
+  // cette ligne tient la même règle au niveau de la donnée.
+  if (current === "DRAFT") return null;
   const t = tallyPieces(pieces);
   if (t.toFix > 0 || t.rejected > 0) {
     return current === "CHANGES_REQUESTED" ? null : "CHANGES_REQUESTED";
@@ -186,6 +192,46 @@ export function canResubmit(
 /** Une pièce se remplace tant qu'elle est en cause — pas une fois acceptée. */
 export function needsReplacement(status: string): boolean {
   return status === "CHANGES_REQUESTED" || status === "REJECTED";
+}
+
+/**
+ * QUI REMPLACE UNE PIÈCE, ET QUAND (§118.191, audit 360° R04).
+ *
+ * Une pièce MISE EN CAUSE se remplace — par le demandeur comme par les Finances, l'originale restant
+ * dans le dossier : c'est elle qui explique pourquoi il y a eu un second tour. Mais une pièce ne se
+ * remplaçait QUE si les Finances l'avaient signalée : un brouillon qui portait la mauvaise facture
+ * n'avait pas d'issue, et un dossier renvoyé parce que « le montant a changé » ne pouvait pas recevoir
+ * la facture corrigée à la place d'une ancienne déjà acceptée. Tant que le dossier est CHEZ LE
+ * DEMANDEUR, il remplace donc aussi une pièce que personne n'a mise en cause — et la remplaçante
+ * repart à l'examen : rien n'est accordé d'avance, la pièce remplacée sort du décompte
+ * (`piecesEnVigueur`) au lieu d'être déclarée acceptée.
+ *
+ * Chez les Finances, la règle d'avant tient : une pièce qu'elles n'ont pas mise en cause ne change pas
+ * sous leurs yeux.
+ */
+export function refusDeRemplacement(input: {
+  pieceStatus: string; dejaRemplacee: boolean; dossierStatus: string; parLeDemandeur: boolean;
+}): string | null {
+  // Une pièce déjà reprise ne l'est pas deux fois : la chaîne des versions se dédoublerait, et l'on ne
+  // saurait plus laquelle fait foi.
+  if (input.dejaRemplacee) return "Cette pièce a déjà été remplacée.";
+  if (needsReplacement(input.pieceStatus)) return null;
+  if (isWithRequester(input.dossierStatus)) {
+    return input.parLeDemandeur ? null : "Cette pièce n'a pas été mise en cause : tant que le dossier est chez le demandeur, c'est lui qui la remplace.";
+  }
+  return "Cette pièce n'a pas été mise en cause : elle se remplace quand les Finances la signalent, ou quand elles vous renvoient le dossier.";
+}
+
+/**
+ * LES PIÈCES QUI COMPTENT — celles qu'aucune autre n'a remplacées.
+ *
+ * Une pièce remplacée était déclarée « acceptée » pour cesser de bloquer : elle entrait alors dans le
+ * décompte des pièces validées, et un dossier dont la seule vraie pièce n'avait jamais été examinée
+ * passait le « aucune pièce validée » du bon à payer. Elle sort du décompte, tout simplement — son
+ * verdict reste ce qu'il était, l'historique ne ment plus.
+ */
+export function piecesEnVigueur<T extends { replacedBy?: { id: string } | null; replacedById?: string | null }>(pieces: readonly T[]): T[] {
+  return pieces.filter((p) => !p.replacedBy && !p.replacedById);
 }
 
 // ───────────────────────── Priorité : la date, sinon l'urgence ─────────────────────────

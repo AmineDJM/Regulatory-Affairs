@@ -778,7 +778,18 @@ Demande (employé) — simple OU multi-cellules (lot), articles depuis le catalo
 ```
 
 Chaque **cellule** d'une demande multi-cellules est pilotée **indépendamment** (statut + validations). La
-**suppression** par l'assistante est **traçable** (corbeille + motif + audit, restauration possible).
+**suppression** par l'assistante est **traçable** (corbeille + motif + audit, restauration possible) ; une
+demande restaurée revient dans l'état où on l'a supprimée — seule la suppression discrète du demandeur revient
+« nouvelle ».
+
+**Pas de menu de statut libre (audit 360°, R12 — §118.191).** Le gestionnaire pose à la main ce qui n'a pas
+d'autre geste : « En attente d'un tiers », « En attente d'un document », « Reprendre », « Bloquer… » (motif
+exigé, lu par le demandeur, effacé à la reprise). Le reste a sa porte : « Commencer le traitement », les
+demandes de validation et d'approbation, « Fin de la demande » (seule à vérifier la facture d'un achat et son
+imputation, et qui archive la demande dans le Drive), « Annuler la demande… » (motif ; la validation,
+l'approbation et le paiement en attente partent avec elle ; non offerte pour la demande de BC d'un poste, qui se
+retire depuis le poste), « Rouvrir… » une demande terminée (motif ; une annulée ne se rouvre pas). La règle
+vit dans `secretariat/statut-manuel.ts`, lue par l'action et par l'écran.
 
 ### Information médicale — deux circuits, et la nature du dossier décide (PRIM)
 
@@ -1211,6 +1222,14 @@ Désormais : le demandeur transmet → l'ordre naît en attente → **le centre 
 instruisent et règlent ce qui est autorisé. `PaymentRequest.expenseOrderId` porte le lien et
 garantit que l'ordre n'est créé qu'une fois, même après un renvoi pour correction ; un filet
 subsiste au bon à payer pour les dossiers antérieurs à cette règle.
+
+**La demande se corrige chez son demandeur, et l'ordre suit (audit 360°, R04 — §118.191).** Au brouillon ou
+renvoyée par les Finances, le demandeur corrige l'objet, le bénéficiaire, le montant, le contexte et
+l'échéance (l'entité et l'urgence, seulement avant la première transmission) ; après transmission, « ce qui a
+changé » est exigé. L'ordre déjà au centre suit par l'unique réviseur (`payments/revision-ordre.ts`) : une
+hausse ou un autre bénéficiaire **rouvre** une autorisation donnée, une baisse ne rouvre rien ; un ordre réglé
+ou refusé ne se révise pas. Le centre, lui, **décide sur ce qu'il a lu** : un montant ou un bénéficiaire corrigé
+pendant sa lecture se dit avec les deux valeurs, et rien n'est autorisé.
 
 **Qui siège** : le **PDG** (`DIRECTION`) et le **Super Admin**, et personne d'autre — le Directeur
 Général n'y est délibérément pas. **Un centre par entité** : autoriser un paiement d'Adventum et un
@@ -4668,6 +4687,7 @@ entité) sont éligibles. Supprimer une gamme **ne supprime aucun produit** (`SE
 | **Consulting — pôle Ad & Pro / RH (§118.150)** | Module PUR au SOCLE `lib/lecteurs/consulting.ts` (`POLES_CONSULTING`, **`MODULE_DU_POLE`** — la seule traduction pôle → module, `LIBELLE_POLE`, `CHEMIN_LISTE_POLE`, `poleDe`, `poleOppose`, `transfertAutorise` — MODIFIER les deux modules —, `refusTransfert`, `polesLisibles`) + `consulting.test.ts` ; `ConsultingContract.pole` (migration `20261128100000_consulting_pole`, idempotente, **aucune ligne ne change de pôle**) ; action `consulting-actions.ts:transfererConsulting` (garde nommée `peutSurLeContrat`, visa en attente retiré par `ad-pro/visa.ts:retirerVisaEnAttente`, BC en attente relus par `bons-de-commande/aiguillage.ts:reaiguillerLesBCDe`) ; garde par enregistrement `entity-access.ts:moduleDeLEntite` / `modulesDesEntites` (lot) ; registre `api/registry/entities.ts` (portée par pôle + **`lisiblePar`**, lu par `canReadEntity`) ; centre voulu d'un BC `aiguillage.ts:centreVouluDuBC` (aiguillage ET fiche Legal) ; liste commune `components/consulting/contracts-table.tsx` montée par `/consulting` (pôle Ad & Pro) et `/rh/consultants` (pôle RH) ; fiche commune `/consulting/[id]` (porte du pôle AVANT tout chargement) + `transfer-panel.tsx` ; `ad-pro/unified.ts:dejaPorteParSaFiche` (secrétariat, page ET action) ; op `consulting_operation/transfer_contract`, désignation par `resoudreCible` (sous la portée). Bancs : `consulting-transfert-flow.test.ts` (16, vrais points d'entrée, acteurs sans vue globale), cliquet `lecteurs/consulting-cliquet.test.ts` (toute LISTE de contrats nomme le pôle), navigateur `e2e/consulting-pole.spec.ts` (5, build de production). |
 | **Consulting et « autre demande » — corriger, renvoyer, resoumettre (§118.189)** | Porte de correction COMMUNE au pôle `ad-pro-edit.ts` (liste blanche des deux natures, **`requis`** — un champ obligatoire ne se vide pas —, `DECIDED_STATUS`) + `actions/ad-pro-edit-actions.ts` (`moduleDe` par pôle, menus revérifiés côté serveur, période cohérente, `attendLeCentre`) ; machine à états `ad-pro/consulting.ts` (geste **`RETURN`**) ; `consulting-actions.ts` (`decideConsultingContract` VALIDER / RENVOYER / REFUSER — l'état d'abord, le motif ensuite —, `requestConsultingValidation` qui resoumet, efface le renvoi, le met au fil et **garde le validateur**, **`prolongerConsultingContract`**, clôture conditionnelle et motivée) ; `ad-pro-other-actions.ts` (**`resoumettreAdProOtherRequest`**, décision et clôture motivées et conditionnelles) ; porte du centre `ad-pro/visa.ts:ajusterVisaAuMontant` + `phraseGesteVisa` ; fil `ad-pro/fil.ts` ; « À corriger » `queries/ad-pro.ts` + `queries/action-center.ts` ; motif d'annulation d'un mouvement chez l'écrivain unique `promo/stock-ecriture.ts:MOTIF_ANNULATION_MOUVEMENT` ; Legal des Finances `legal-actions.ts` (la porte de la fiche est la règle d'écriture) + `legal/legal-table.tsx` ; dossier promo annulé `promo-material/statut.ts`. Bancs : `consulting-correction-flow.test.ts`, `ad-pro-other-correction-flow.test.ts`, `legal-finances-gestes.test.ts`, `promo-annulation-flow.test.ts` (vrais points d'entrée, acteurs sans vue globale, barrières de concurrence), navigateur `e2e/correction-c4a.spec.ts`. Migration `20261229090000_consulting_renvoi`. |
 | **Matériel promotionnel et comptage — renvoyer, resoumettre, redemander, corriger (§118.190)** | Règle pure `lib/promo-material/renvoi.ts` (`renvoiPossible`, `etatApresRenvoi`, `attendSaCorrection`, `REFUS_EN_CORRECTION`, `refusParLeDemandeur`) ; « À corriger » `promo-material/statut.ts` (`statutDuDossier`, `etatAdProDuDossier`) et le tour `promo-material/circuit.ts:tourDe` ; marque `PromoMaterial.returnedAt/ById/Note/From` et `PromoStockComptage.corrigeLe/ParId/Motif` (migration `20261230090000_promo_renvoi_comptage_corrige`) ; actions `promo-circuit-actions.ts` (`renvoyerPromoStep`, `resoumettrePromoDemande`, gardes d'état d'abord dans `validatePromoStep` et `refusePromoStep`), `promo-devis-actions.ts` (`redemanderDevisPromo` — la demande d'abord, la bascule ensuite —, `demanderCorrectionDevisPromo` qui rouvre), `promo-demande-actions.ts` (liste des articles jusqu'à la validation du choix, écriture conditionnelle, assistante prévenue) ; réouverture `promo-material/demande-secretariat.ts:rouvrirDemandeAuSecretariat` ; comptage `promo/comptages-ecriture.ts:corrigerSaisieComptage` (contre-correction sous verrou) + `promo-comptage-actions.ts:corrigerComptage` ; écrans `promo-material/[id]/{circuit-card,quotes-card,articles-card,page}.tsx`, `stock-promotionnel/stock-comptages.tsx` (`FormulaireCorrection`). Bancs : `promo-material/renvoi.test.ts`, `promo-material/tour.test.ts`, `actions/promo-renvoi-flow.test.ts`, `actions/promo-comptage-correction-flow.test.ts` (vrais points d'entrée, acteurs sans vue globale, témoins forcés), navigateur `e2e/correction-c4b.spec.ts` et `e2e/stock-promo-comptages.spec.ts`. |
+| **Demande de paiement corrigeable, centre « lu », gestes nommés du secrétariat (§118.191)** | Règles pures `lib/finance/correction-demande.ts` (`refusDeCorrection`, `refusDuChamp`, `ecartsDeCorrection`, `phraseDeCorrection`), `lib/payments/authorization.ts` (`statutApresRevision`, `memeBeneficiaire`), `lib/finance/payment-request.ts` (`statusFromPieces` — un brouillon ne change pas de camp —, `refusDeRemplacement`, `piecesEnVigueur`), `lib/secretariat/statut-manuel.ts` (`STATUTS_MANUELS`, `refusDuStatutManuel`, `refusDeReouverture`) ; réviseur unique `lib/payments/revision-ordre.ts` (`reviserOrdreNonRegle` conditionnel et relu, `apresRevisionOrdre`) appelé par `payment-request-actions.ts:corrigerDemandePaiement` et `congress-request-actions.ts:updateGrantedBudget` (+ `medical-info.ts:repercuterMontantSurDeclaration`) ; centre `payment-centre-actions.ts:decidePayment` (`montantVu`, `beneficiaireVu`, écriture conditionnelle) ; secrétariat `admin-request-actions.ts` (`updateRequestStatus`, `rouvrirDemande`, `annulerDemandeAuSecretariat`, archive dans `finishRequest`, `restoreRequest`) ; écrans `validations/paiements/[id]/{dossier,page}.tsx` (`CorrigerDemande`), `centre-de-paiement/centre-board.tsx`, `demandes/[id]/{request-actions,page}.tsx`. Bancs : `finance/correction-demande.test.ts`, `secretariat/statut-manuel.test.ts`, `payments/authorization.test.ts`, `finance/payment-request.test.ts`, `actions/payment-correction-flow.test.ts` et `actions/secretariat-gestes-flow.test.ts` (vrais points d'entrée, acteurs sans vue globale, témoins forcés), `payments/centre-portes-flow.test.ts`, `payments/centre-ecrivains.test.ts`, navigateur `e2e/correction-c4c.spec.ts`. |
 | **Matériel promo — circuit court** | Module PUR `lib/promo-material/circuit.ts` (`PROMO_STEPS` (7), `PROMO_TRACKS` (`PURCHASE_ORDER`/`PAYMENT`/`AD_VISA`), `initialStep` — saute la demande de devis si le devis est déjà là —, `canValidate` (N+1 réel : `Employee.managerId`, à défaut `departmentRef.head`), **`seesFullCircuit`** (Super Admin + PDG **uniquement**), `tracksOpen`, `allTracksDone`, `pendingTracks`, `progress`, `waitingOn`) + `circuit.test.ts` (23 tests) ; `lib/actions/promo-circuit-actions.ts`. |
 | **Rejeu de session (support)** | Module PUR `lib/replay/capture.ts` (`FORBIDDEN_FIELD` — mot de passe / secret / jeton / IBAN / RIB / CVV / carte —, `FORBIDDEN_INPUT_TYPE` — `password`, `hidden` —, `fieldIsRecordable`, `isSensitiveLabel`, `cleanLabel`, `scrubDetail`, **`makeEvent` : la porte d'entrée UNIQUE**, `coalesce`, `describeEvent`, `stamp`, `firstErrorIndex`) + `capture.test.ts` (20 tests) ; modèle `SessionEvent` ; `components/layout/session-recorder.tsx` (monté dans `app/(app)/layout.tsx`, `sendBeacon`, **ne lit jamais `.value`**) ; `app/api/replay/route.ts` (**re-masque côté serveur**, 204 systématique, lot plafonné à 200) ; `app/(app)/admin/replay/{page,replay-viewer}.tsx` (**`SUPER_ADMIN` seul**). |
 | **Courriers — dossiers & pièces multiples** | Modèles `MailFolder` (arbre, `MailEntry.folderId` en `ON DELETE SET NULL`) et `MailEntryPiece` (intitulé + **destinataire propre** + fichier téléversé **ou** nœud Drive référencé) ; `lib/actions/mail-folder-actions.ts`, `lib/actions/mail-piece-actions.ts` ; `app/(app)/courriers/mail-folder-bar.tsx`, `app/(app)/courriers/[id]/mail-pieces.tsx`. |
@@ -6599,6 +6619,46 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 ---
 
 ## 🧾 Journal des évolutions récentes
+
+### AUDIT 360° — LOT C4c : LA DEMANDE DE PAIEMENT SE CORRIGE, LE SECRÉTARIAT A DES GESTES NOMMÉS (2026-10)
+
+Rapport 18 de l'audit (R04, R12). Doctrine : `CLAUDE.md` §118.191. Le recrutement (R14) passe au lot C4d.
+
+- **Corriger sa demande de paiement** (`corrigerDemandePaiement`, bouton « Corriger la demande » de la fiche) :
+  l'objet, le bénéficiaire, le montant, le contexte, l'échéance — et, tant qu'elle n'a jamais été transmise,
+  l'entité et l'urgence. Rien de tout cela ne se corrigeait, pas même en brouillon. Seulement chez le demandeur
+  (brouillon, ou renvoyée par les Finances) : chez les Finances, le refus nomme le chemin (« elles vous le
+  renvoient ») ; un dossier compagnon se corrige dans son circuit d'origine ; un paiement réglé ou refusé ne se
+  corrige plus. Après transmission, « ce qui a changé » est exigé et va au fil du dossier. La règle vit dans
+  `finance/correction-demande.ts`, lue par l'écran et par l'action.
+- **L'ordre de dépense suit, par l'UNIQUE réviseur** (`payments/revision-ordre.ts:reviserOrdreNonRegle`) : relever
+  le montant ou changer de bénéficiaire rouvre une autorisation donnée (`statutApresRevision`), baisser ne rouvre
+  rien ; l'échéance de l'ordre ne suit la demande que s'il attend le centre ; la raison va au fil du centre et la
+  Direction est prévenue. L'écriture est conditionnelle sur ce qu'elle a lu (statut, autorisation, montant,
+  bénéficiaire) et relue sur fait nouveau ; la demande et l'ordre s'écrivent dans la même transaction — un
+  règlement passé entre-temps annule toute la correction, jamais la moitié.
+- **Le budget accordé d'un congrès passe par le même réviseur** : il écrivait l'ordre sans condition, si bien
+  qu'un règlement passé entre la lecture et l'écriture voyait un ordre PAYÉ changer de montant et son
+  autorisation rouverte. Un ordre réglé ou refusé ne suit pas le nouveau budget, et la phrase le dit ; la
+  déclaration d'information médicale non validée suit (`medical-info.ts:repercuterMontantSurDeclaration`).
+- **Le centre de paiement décide sur ce qu'il a lu** : l'écran renvoie le montant et le bénéficiaire affichés,
+  un écart se dit avec les deux valeurs ; la décision est conditionnelle (autorisation, montant, bénéficiaire,
+  statut) — deux sièges à la même seconde, un montant corrigé ou un ordre annulé pendant la lecture : rien n'est
+  écrit, pas même le message.
+- **Les pièces** : au brouillon, le demandeur remplace une pièce que personne n'a mise en cause, sans la déclarer
+  acceptée ; une pièce remplacée sort du décompte du bon à payer et ne s'examine plus ; les Finances n'examinent
+  plus les pièces d'un brouillon (le verdict le faisait passer « transmis » de lui-même) ; remplacer la dernière
+  pièce en cause garde le dossier chez le demandeur, qui le renvoie quand sa correction est complète.
+- **Secrétariat — plus de menu de statut libre** (`secretariat/statut-manuel.ts`) : il terminait sans les gardes
+  de la fin (et c'était le SEUL chemin qui archivait), annulait sans retirer ce qui en dépendait, ressuscitait
+  une demande annulée et envoyait l'énumération brute au demandeur. Restent des gestes nommés : « En attente
+  d'un tiers », « En attente d'un document », « Reprendre », « Bloquer… » (motif exigé, lu par le demandeur,
+  effacé à la reprise), « Rouvrir… » une demande terminée (`rouvrirDemande`, motif), « Annuler la demande… »
+  par l'annulation commune (`annulerDemandeAuSecretariat`, motif ; validation, approbation et paiement en
+  attente retirés ; demandeur prévenu) — non offerte pour la demande de BC d'un poste, dont la raison se lit à
+  sa place. « Fin de la demande » archive désormais dans le Drive ; une demande restaurée revient dans l'état où
+  on l'a supprimée (seule la suppression discrète du demandeur revient « nouvelle »).
+- Adam (en pause) : `update_request` ne propose plus que les trois statuts qui n'ont ni geste ni motif.
 
 ### AUDIT 360° — LOT C4b : LE MATÉRIEL PROMOTIONNEL ET LE COMPTAGE SE CORRIGENT (2026-10)
 

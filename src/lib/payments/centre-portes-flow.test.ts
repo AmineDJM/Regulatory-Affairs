@@ -80,6 +80,7 @@ suite("les portes du centre, par leurs vrais points d'entrée", () => {
     await prisma.adProGateVisa.deleteMany({ where: { entityType: "LEGAL_DOCUMENT", entityId: { in: docIds } } }).catch(() => {});
     await prisma.auditLog.deleteMany({ where: { entityType: "LEGAL_DOCUMENT", entityId: { in: docIds } } }).catch(() => {});
     await prisma.legalDocument.deleteMany({ where: { id: { in: docIds } } }).catch(() => {});
+    await prisma.medicalInfoDeclaration.deleteMany({ where: { reference: { startsWith: TAG } } }).catch(() => {});
     await prisma.congressNational.deleteMany({ where: { name: { startsWith: TAG } } }).catch(() => {});
     await prisma.promoMaterial.deleteMany({ where: { reference: { startsWith: TAG } } }).catch(() => {});
     await prisma.pettyCashTopUpRequest.deleteMany({ where: { reason: { startsWith: TAG } } }).catch(() => {});
@@ -128,6 +129,11 @@ suite("les portes du centre, par leurs vrais points d'entrée", () => {
       data: { name: `${TAG}Congrès SAHO`, requestStatus: "APPROVED" as never, finalAmount: 500_000, expenseOrderId: ordre.id },
       select: { id: true },
     });
+    // Sa déclaration d'information médicale, pas encore validée : elle suit le budget accordé.
+    const decl = await prisma.medicalInfoDeclaration.create({
+      data: { reference: `${TAG}DIM-1`, sourceType: "CONGRESS_NATIONAL", sourceId: congres.id, label: `${TAG}Congrès SAHO`, amount: 500_000, expenseOrderId: ordre.id },
+      select: { id: true },
+    });
 
     // BAISSER : un geste qui réduit ne rouvre rien — l'autorisation couvre un montant plus petit.
     const baisse = await updateGrantedBudget(fd({ type: "NATIONAL", id: congres.id, finalAmount: "400000" }));
@@ -135,6 +141,8 @@ suite("les portes du centre, par leurs vrais points d'entrée", () => {
     const apresBaisse = await prisma.expenseOrder.findUnique({ where: { id: ordre.id }, select: { centralStatus: true, amount: true } });
     expect(apresBaisse?.centralStatus).toBe("APPROVED");
     expect(Number(apresBaisse?.amount)).toBe(400_000);
+    const declApres = await prisma.medicalInfoDeclaration.findUnique({ where: { id: decl.id }, select: { amount: true } });
+    expect(Number(declApres?.amount), "la déclaration non validée suit le budget accordé").toBe(400_000);
 
     // RELEVER : l'autorisation portait sur 400 000 ; 900 000 est un engagement neuf.
     const hausse = await updateGrantedBudget(fd({ type: "NATIONAL", id: congres.id, finalAmount: "900000" }));
@@ -146,6 +154,47 @@ suite("les portes du centre, par leurs vrais points d'entrée", () => {
     // La raison voyage dans le FIL du centre, là où le prochain arbitre la lira.
     const fil = await prisma.paymentCentreMessage.findMany({ where: { orderId: ordre.id }, select: { body: true } });
     expect(fil.some((m) => /relevé de 400.000 à 900.000/.test(m.body.replace(/\s/g, " ").replace(/[  ]/g, " ")))).toBe(true);
+  }, 60_000);
+
+  // ── 2 bis. CE QUI NE SUIT PAS SE DIT (§118.191) ───────────────────────────────────────────────
+  it("`updateGrantedBudget` : un ordre REFUSÉ ou RÉGLÉ ne suit pas le nouveau budget — et la phrase le dit", async () => {
+    ACTEUR = sa;
+    // REFUSÉ par le centre — par SON action. Le chiffre refusé reste celui que le centre a vu.
+    const refuse = await createExpenseOrder({ label: `${TAG}congrès refusé`, amount: 300_000, category: "EVENEMENT", requestedById: dirId });
+    const non = await decidePayment(fd({ id: refuse.id, decision: "REFUSE", body: "Pas de budget cette année." }));
+    expect(non.ok, non.ok ? "" : non.error).toBe(true);
+    const c1 = await prisma.congressNational.create({
+      data: { name: `${TAG}Congrès refusé`, requestStatus: "APPROVED" as never, finalAmount: 300_000, expenseOrderId: refuse.id },
+      select: { id: true },
+    });
+    const r1 = await updateGrantedBudget(fd({ type: "NATIONAL", id: c1.id, finalAmount: "350000" }));
+    expect(r1.ok, r1.ok ? "" : r1.error).toBe(true);
+    expect(r1.ok ? r1.message : "").toMatch(/refusé par le centre de paiement : il ne suit pas ce montant/);
+    const o1 = await prisma.expenseOrder.findUnique({ where: { id: refuse.id }, select: { amount: true, centralStatus: true } });
+    expect(Number(o1?.amount), "le chiffre refusé n'est pas réécrit").toBe(300_000);
+    expect(o1?.centralStatus).toBe("REFUSED");
+
+    // RÉGLÉ : l'argent est parti au montant d'avant.
+    const regle = await createExpenseOrder({ label: `${TAG}congrès réglé`, amount: 200_000, category: "EVENEMENT", requestedById: dirId });
+    await prisma.expenseOrder.update({ where: { id: regle.id }, data: { status: "PAID", centralStatus: "APPROVED" } });
+    const c2 = await prisma.congressNational.create({
+      data: { name: `${TAG}Congrès réglé`, requestStatus: "APPROVED" as never, finalAmount: 200_000, expenseOrderId: regle.id },
+      select: { id: true },
+    });
+    // Sa déclaration est VALIDÉE : elle ne bouge plus — le pharmacien a déclaré un montant, on ne le réécrit pas sous lui.
+    const decl2 = await prisma.medicalInfoDeclaration.create({
+      data: { reference: `${TAG}DIM-2`, sourceType: "CONGRESS_NATIONAL", sourceId: c2.id, label: `${TAG}Congrès réglé`, amount: 200_000, status: "VALIDATED", expenseOrderId: regle.id },
+      select: { id: true },
+    });
+    const r2 = await updateGrantedBudget(fd({ type: "NATIONAL", id: c2.id, finalAmount: "250000" }));
+    expect(r2.ok, r2.ok ? "" : r2.error).toBe(true);
+    expect(r2.ok ? r2.message : "").toMatch(/déjà réglé : il ne suit pas ce montant/);
+    const o2 = await prisma.expenseOrder.findUnique({ where: { id: regle.id }, select: { amount: true } });
+    expect(Number(o2?.amount)).toBe(200_000);
+    expect(Number((await prisma.medicalInfoDeclaration.findUnique({ where: { id: decl2.id }, select: { amount: true } }))?.amount), "une déclaration validée ne se réécrit pas").toBe(200_000);
+    // TÉMOIN : le budget, lui, a bien changé — la phrase ne remplace pas l'écriture.
+    const congresApres = await prisma.congressNational.findUnique({ where: { id: c2.id }, select: { finalAmount: true } });
+    expect(Number(congresApres?.finalAmount)).toBe(250_000);
   }, 60_000);
 
   // ── 3. LA RALLONGE DE CAISSE S'ÉCRIT AU LIVRE ────────────────────────────────────────────────
