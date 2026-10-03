@@ -17,6 +17,8 @@ import {
   canDecideLeave, applyLeaveDecision, stageNotifyRoles, LEAVE_STAGE_LABELS, type LeaveStage,
 } from "@/lib/leave-workflow";
 import { fdStr, fdNum, fdDate, fdBool, type ActionResult } from "@/lib/actions/types";
+import { entitePermisePourFiche } from "@/lib/company";
+import { compteSuitLaFiche } from "@/lib/hr/depart";
 // LA FRONTIÈRE — l'ERP annonce ses faits ; il ne sait pas qui les écoute, et c'est le principe.
 import { emit } from "@/platform/events";
 
@@ -43,6 +45,10 @@ export async function createEmployee(
   const fullName = fdStr(formData, "fullName");
   if (!fullName) return { ok: false, error: "Le nom complet est obligatoire." };
 
+  // L'ENTITÉ est l'une de celles que le formulaire propose (`getMyCompanies`) : un identifiant forgé rangeait
+  // un salarié chez une société que la RH ne voit pas (§118.184 — audit 360°, S13).
+  const companyIdSaisi = fdStr(formData, "companyId") || null;
+  if (!(await entitePermisePourFiche(user.id, companyIdSaisi))) return { ok: false, error: "Cette entité ne vous est pas ouverte." };
   const dept = await resolveDepartmentFields(formData);
   let created;
   try {
@@ -66,7 +72,7 @@ export async function createEmployee(
         address: fdStr(formData, "address"),
         userId: fdStr(formData, "userId"),
         managerId: fdStr(formData, "managerId"),
-        companyId: fdStr(formData, "companyId") || null,
+        companyId: companyIdSaisi,
       },
     });
   } catch {
@@ -126,7 +132,11 @@ export async function updateEmployee(formData: FormData): Promise<ActionResult> 
   if (!id) return { ok: false, error: "Employé introuvable." };
 
   const before = await prisma.employee.findUnique({ where: { id } });
-  if (!before) return { ok: false, error: "Employé introuvable." };
+  // LA PORTE DE LA FICHE (`/rh/[id]` lit `entitePermisePourFiche`) : la RH d'une société modifiait, par
+  // l'identifiant, la fiche d'un salarié d'une autre (§118.184 — audit 360°, S13).
+  if (!before || !(await entitePermisePourFiche(user.id, before.companyId))) return { ok: false, error: "Employé introuvable." };
+  const companyIdSaisi = fdStr(formData, "companyId") || null;
+  if (!(await entitePermisePourFiche(user.id, companyIdSaisi))) return { ok: false, error: "Cette entité ne vous est pas ouverte." };
 
   const deptFields = await resolveDepartmentFields(formData);
   const data = {
@@ -164,7 +174,7 @@ export async function updateEmployee(formData: FormData): Promise<ActionResult> 
     address: fdStr(formData, "address"),
     userId: fdStr(formData, "userId"),
     managerId: fdStr(formData, "managerId"),
-    companyId: fdStr(formData, "companyId") || null, // entité de rattachement (modifiable)
+    companyId: companyIdSaisi, // entité de rattachement (modifiable)
     isActive: fdBool(formData, "isActive"),
   };
 
@@ -184,10 +194,12 @@ export async function updateEmployee(formData: FormData): Promise<ActionResult> 
     after as unknown as Record<string, unknown>,
     ["fullName", "position", "department", "baseSalary", "contractType", "contractEnd", "leaveBalanceDays", "isActive", "userId", "managerId"],
   );
+  // LE COMPTE SUIT LA FICHE quand elle change d'état (§118.184 — S13).
+  const compte = before.isActive !== after.isActive ? await compteSuitLaFiche(user, after, after.isActive) : null;
   revalidatePath("/rh");
   revalidatePath(`/rh/${id}`);
   revalidatePath("/rh/departements");
-  return { ok: true, id };
+  return compte ? { ok: true, id, message: compte } : { ok: true, id };
 }
 
 /**
@@ -268,14 +280,18 @@ export async function setEmployeeActive(formData: FormData): Promise<ActionResul
   const id = fdStr(formData, "id");
   if (!id) return { ok: false, error: "Employé introuvable." };
   const isActive = fdBool(formData, "isActive");
+  const fiche = await prisma.employee.findUnique({ where: { id }, select: { isActive: true, companyId: true, userId: true, fullName: true } });
+  if (!fiche || !(await entitePermisePourFiche(user.id, fiche.companyId))) return { ok: false, error: "Employé introuvable." };
   await prisma.employee.update({ where: { id }, data: { isActive } });
+  // LE COMPTE SUIT LA FICHE (§118.184 — S13) : une personne partie ne garde pas l'ERP.
+  const compte = fiche.isActive !== isActive ? await compteSuitLaFiche(user, fiche, isActive) : null;
   await recordAudit({
     actorId: user.id, action: "UPDATE", module: "Ressources humaines", entityType: "EMPLOYEE",
     entityId: id, field: "isActive", newValue: String(isActive), summary: isActive ? "Employé réactivé" : "Employé désactivé",
   });
   revalidatePath("/rh");
   revalidatePath(`/rh/${id}`);
-  return { ok: true };
+  return compte ? { ok: true, message: compte } : { ok: true };
 }
 
 // ─────────────────────────────── Leave ───────────────────────────────

@@ -92,7 +92,7 @@ export default async function CongressIntlDetailPage({ params }: { params: { id:
   // Corriger la demande : le demandeur tant qu'elle n'est pas tranchée, la Direction toujours.
   const requestDecided = isAdProDecided("CONGRESS_INTERNATIONAL", detail.requestStatus);
   const canEditRequest = canEditAdProRequest(
-    { id: user.id, hasGlobalView: hasGlobalView(user), canUpdate: userCan(user, "CONGRESS_INTERNATIONAL", "UPDATE") },
+    { id: user.id, hasGlobalView: hasGlobalView(user), canManage: userCan(user, "CONGRESS_INTERNATIONAL", "VALIDATE") },
     { requesterId: detail.requesterId, decided: requestDecided },
   );
   const editValues = canEditRequest ? await adProEditValues("CONGRESS_INTERNATIONAL", detail.id) : null;

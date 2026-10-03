@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { Banknote } from "lucide-react";
 import { requireModule } from "@/lib/session";
-import { userCan } from "@/lib/rbac";
+import { voitLesSalaires } from "@/lib/hr/confidentialite";
 import { getRhData } from "@/lib/queries/hr";
 import { getHrPulse } from "@/lib/queries/hr-pulse";
 import { PageHeader } from "@/components/shared/page-header";
@@ -20,7 +20,10 @@ export const dynamic = "force-dynamic";
 /** RH — L'ANNUAIRE : qui travaille ici, où, et sous quel contrat. Cherchable. */
 export default async function RhTeamPage() {
   const user = await requireModule("RH");
-  const canSeeSalary = userCan(user, "RH", "VALIDATE");
+  // LA MÊME RÈGLE que la fiche et la page RH (`hr/confidentialite.ts`) — elle disait VALIDER ici et rien
+  // ailleurs. Et le salaire n'est plus SÉRIALISÉ quand la colonne est masquée : il partait dans les
+  // données de la page, lisibles dans le navigateur de qui ne devait pas le voir (audit 360°, S5).
+  const canSeeSalary = voitLesSalaires(user);
 
   const [data, pulse, tabs] = await Promise.all([getRhData(user.id), getHrPulse(user.id), visibleTabs(user, HR_TABS)]);
 
@@ -31,7 +34,7 @@ export default async function RhTeamPage() {
     department: e.department,
     contractType: e.contractType,
     contractEnd: e.contractEnd?.toISOString() ?? null,
-    baseSalary: toNumber(e.baseSalary),
+    baseSalary: canSeeSalary ? toNumber(e.baseSalary) : null,
     leaveBalanceDays: toNumber(e.leaveBalanceDays),
     hasAccount: Boolean(e.user),
     isActive: e.isActive,

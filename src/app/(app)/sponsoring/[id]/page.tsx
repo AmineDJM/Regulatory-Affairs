@@ -139,7 +139,7 @@ export default async function SponsoringDetailPage({ params }: { params: { id: s
   // Corriger la demande : le demandeur tant qu'elle n'est pas tranchée, la Direction toujours.
   const sponsoringDecided = isAdProDecided("SPONSORING", req.status);
   const canEditRequest = canEditAdProRequest(
-    { id: user.id, hasGlobalView: hasGlobalView(user), canUpdate: userCan(user, "SPONSORING", "UPDATE") },
+    { id: user.id, hasGlobalView: hasGlobalView(user), canManage: userCan(user, "SPONSORING", "VALIDATE") },
     { requesterId: req.requesterId, decided: sponsoringDecided },
   );
   const editValues = canEditRequest ? await adProEditValues("SPONSORING", req.id) : null;

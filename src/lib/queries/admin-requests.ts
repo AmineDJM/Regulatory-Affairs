@@ -108,3 +108,23 @@ export async function getMissionAttachments(missionIds: string[]) {
   }
   return map;
 }
+
+/**
+ * QUI LIT UNE DEMANDE AU SECRÉTARIAT — la clause de la FICHE (`/demandes/[id]`), lue aussi par les gestes
+ * qui s'y attachent (§118.184 — audit 360°, S12).
+ *
+ * Mesuré par l'audit : `addRequestComment` ne vérifiait RIEN. N'importe quel compte, avec l'identifiant
+ * d'une demande, y écrivait un commentaire — et le demandeur ou la personne chargée recevait une
+ * notification signée de quelqu'un qui n'avait jamais vu la demande. La fiche, elle, a toujours lu deux
+ * entrées : la portée du module, et le validateur d'une PIÈCE (« on ne valide pas une facture hors de son
+ * contexte » : il voit la demande entière, même hors de son périmètre). Une seule écriture de cette règle,
+ * sinon le commentaire s'ouvrirait à quelqu'un que la fiche refuse — ou l'inverse (§118.5).
+ */
+export async function clauseDemandeLisible(user: SessionUser, requestId: string): Promise<Prisma.AdministrativeRequestWhereInput> {
+  const validateurDePiece = (await prisma.validationRequest.count({
+    where: { entityType: "ADMIN_REQUEST", entityId: requestId, documentId: { not: null }, steps: { some: { validatorId: user.id } } },
+  })) > 0;
+  // Les clauses se COMPOSENT en `AND` (§118.133) : `scopeAdminRequests` rend `{ id: "__none__" }` sans le
+  // module, et un étalement après `id` aurait remplacé l'identifiant visé.
+  return { AND: [{ id: requestId }, validateurDePiece ? { deletedAt: null } : scopeAdminRequests(user)] };
+}

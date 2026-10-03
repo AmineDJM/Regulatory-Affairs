@@ -26,32 +26,37 @@ l'autre (le plan de tournée revient dans cinq rapports).
 
 ## 1. Sécurité et confidentialité — à corriger en premier
 
+**État au 3 octobre** : S1 à S15 corrigés et testés (lot A, `CLAUDE.md` §118.184 — 95 sabotages, 95 chutes) ;
+S16 trié : les routes signalées sont gardées par une enveloppe (`handle(`) ou après le chargement — le
+scanner doit apprendre à les reconnaître. Reste ouvert : la fiche d'un sponsoring et celles des deux prises
+en charge se chargent par leur identifiant seul (relevé de la phase 0).
+
 | # | Constat | Qui est touché | |
 |---|---|---|---|
-| S1 | Le **plan de tournée d'un collègue** s'ouvre par son lien (`?plan=<id>`), avec son motif de rejet et **tout son panel** (potentiels compris) — aucune garde par ligne (`medical/plan-de-tournee/page.tsx:81-82`, `tour-schedule.ts:288`) | tout porteur de la Promotion médicale | ✔ |
-| S2 | La **fiche d'un dossier réglementaire** ouverte par son lien ne vérifie ni la **société** ni la **gamme** (`entity-access.ts:556-560` ne compose que `scopeRegulatory`) — un responsable lit **et modifie** un dossier d'une autre société | Regulatory | ✔ |
-| S3 | **Tout délégué modifie l'événement d'un collègue** (budget, médecins, produits), même d'une autre société et après décision (`queries/events.ts:140`, `event-actions.ts:177-179`) | Événements | ○ |
-| S4 | **Toutes les demandes de formation** de la société (montants, pièces) visibles de tout salarié (`formations/page.tsx:26-43`) | RH | ○ |
-| S5 | **Salaires, nets, NIN** visibles des rôles RH en simple **lecture** (Directeur des Opérations, Finances) ; documents RH téléchargeables avec la seule lecture (`rh/page.tsx:115-157`, `api/rh/document/[id]/route.ts:24`) | RH | ○ |
-| S6 | Les **listes RH ignorent la société** (demandes, congés — maladie comprise —, avances, intérims) ; la fiche salarié se lit sans portée (`queries/hr.ts:115-130`) | RH | ○ |
-| S7 | **Renouveler un contrat restreint** crée une suite **visible de tout le module** (lecteurs désignés non recopiés, `legal-actions.ts:490-507`) ; les **rappels d'échéance** envoient titre et référence de pièces restreintes ou d'autres sociétés à tous les rôles Legal (`expiry-sweep.ts:45-63`) | Juridique | ○ |
-| S8 | **« Vue exacte »** : le bandeau promet « vos actions seront enregistrées à votre nom », mais le Super Admin agit **au nom de la personne visualisée** et le journal d'audit la désigne comme auteur (`session.ts:53-75`, `impersonation-banner.tsx:9`) | Super Admin | ○ |
-| S9 | Un compte à qui l'on **délègue l'Administration peut nommer n'importe qui Super Admin**, lui compris (`access-actions.ts:246`) | Administration | ○ |
-| S10 | Une **demande Ad & Pro d'un autre** se modifie par son identifiant, sans portée (`ad-pro-edit-actions.ts:35-77`) | Ad & Pro | ○ |
-| S11 | Fiche **marché PCH**, export et pièces sans contrôle d'**entité** ; le rappel de dépôt part aux rôles PCH de toutes les sociétés (`pch/[id]/page.tsx:43-45`, `api/pch/export/route.ts:24`) | PCH | ○ |
-| S12 | **Commentaires** d'une demande au secrétariat possibles par tout compte qui a l'identifiant (`admin-request-actions.ts:390-404`) ; **pièces d'une déclaration d'information médicale** téléchargeables par tout porteur du module (`entity-access.ts:553,682`) | Secrétariat, Info médicale | ○ |
-| S13 | **Désactiver un salarié ne coupe pas son compte** (`hr-actions.ts:265-286`) | RH | ○ |
-| S14 | Le **pilotage** montre le **chiffre d'affaires de toute la société** à des rôles sans le module Ventes (`planning/pilotage/page.tsx:55-58`) | KAM, NS, managers | ○ |
-| S15 | Retirer ou déplacer un KAM **ne le sort pas de ses secteurs** : il garde l'accès aux médecins de son ancien territoire (`sales-planning-actions.ts:452-483`, `rbac.ts:1364-1372`) | Force de vente | ○ |
-| S16 | Le scanner trouve **17 routes d'API** qui lisent un identifiant sans garde par enregistrement visible et **19 sans authentification visible** (dont l'API v1 et des webhooks, à revoir une par une — `scan-code.md`) | — | à trier |
+| S1 | Le **plan de tournée d'un collègue** s'ouvre par son lien (`?plan=<id>`), avec son motif de rejet et **tout son panel** (potentiels compris) — aucune garde par ligne (`medical/plan-de-tournee/page.tsx:81-82`, `tour-schedule.ts:288`) | tout porteur de la Promotion médicale | corrigé (lot A) |
+| S2 | La **fiche d'un dossier réglementaire** ouverte par son lien ne vérifie ni la **société** ni la **gamme** (`entity-access.ts:556-560` ne compose que `scopeRegulatory`) — un responsable lit **et modifie** un dossier d'une autre société | Regulatory | corrigé (lot A) |
+| S3 | **Tout délégué modifie l'événement d'un collègue** (budget, médecins, produits), même d'une autre société et après décision (`queries/events.ts:140`, `event-actions.ts:177-179`) | Événements | corrigé (lot A) |
+| S4 | **Toutes les demandes de formation** de la société (montants, pièces) visibles de tout salarié (`formations/page.tsx:26-43`) | RH | corrigé (lot A) |
+| S5 | **Salaires, nets, NIN** visibles des rôles RH en simple **lecture** (Directeur des Opérations, Finances) ; documents RH téléchargeables avec la seule lecture (`rh/page.tsx:115-157`, `api/rh/document/[id]/route.ts:24`) | RH | corrigé (lot A) |
+| S6 | Les **listes RH ignorent la société** (demandes, congés — maladie comprise —, avances, intérims) ; la fiche salarié se lit sans portée (`queries/hr.ts:115-130`) | RH | corrigé (lot A) |
+| S7 | **Renouveler un contrat restreint** crée une suite **visible de tout le module** (lecteurs désignés non recopiés, `legal-actions.ts:490-507`) ; les **rappels d'échéance** envoient titre et référence de pièces restreintes ou d'autres sociétés à tous les rôles Legal (`expiry-sweep.ts:45-63`) | Juridique | corrigé (lot A) |
+| S8 | **« Vue exacte »** : le bandeau promet « vos actions seront enregistrées à votre nom », mais le Super Admin agit **au nom de la personne visualisée** et le journal d'audit la désigne comme auteur (`session.ts:53-75`, `impersonation-banner.tsx:9`) | Super Admin | corrigé (lot A) |
+| S9 | Un compte à qui l'on **délègue l'Administration peut nommer n'importe qui Super Admin**, lui compris (`access-actions.ts:246`) | Administration | corrigé (lot A) |
+| S10 | Une **demande Ad & Pro d'un autre** se modifie par son identifiant, sans portée (`ad-pro-edit-actions.ts:35-77`) | Ad & Pro | corrigé (lot A) |
+| S11 | Fiche **marché PCH**, export et pièces sans contrôle d'**entité** ; le rappel de dépôt part aux rôles PCH de toutes les sociétés (`pch/[id]/page.tsx:43-45`, `api/pch/export/route.ts:24`) | PCH | corrigé (lot A) |
+| S12 | **Commentaires** d'une demande au secrétariat possibles par tout compte qui a l'identifiant (`admin-request-actions.ts:390-404`) ; **pièces d'une déclaration d'information médicale** téléchargeables par tout porteur du module (`entity-access.ts:553,682`) | Secrétariat, Info médicale | corrigé (lot A) |
+| S13 | **Désactiver un salarié ne coupe pas son compte** (`hr-actions.ts:265-286`) | RH | corrigé (lot A) |
+| S14 | Le **pilotage** montre le **chiffre d'affaires de toute la société** à des rôles sans le module Ventes (`planning/pilotage/page.tsx:55-58`) | KAM, NS, managers | corrigé (lot A) |
+| S15 | Retirer ou déplacer un KAM **ne le sort pas de ses secteurs** : il garde l'accès aux médecins de son ancien territoire (`sales-planning-actions.ts:452-483`, `rbac.ts:1364-1372`) | Force de vente | corrigé (lot A) |
+| S16 | Le scanner trouve **17 routes d'API** qui lisent un identifiant sans garde par enregistrement visible et **19 sans authentification visible** (dont l'API v1 et des webhooks, à revoir une par une — `scan-code.md`) | — | trié : faux positifs du scanner |
 
 ## 2. Impasses : un geste attendu que personne ne peut faire
 
 | # | Constat | |
 |---|---|---|
-| I1 | **Plan de tournée escaladé** : le N+2 le voit « à décider » mais **n'a aucun bouton** s'il n'a pas la vue globale (`plan-de-tournee/page.tsx:130-134`) — le plan reste bloqué | ✔ |
-| I2 | Le **circuit du plan de tournée n'envoie AUCUNE notification** (soumission, escalade, validation, **rejet** dont les 48 h courent) (`tour-plan-actions.ts` : 0 notification) | ✔ |
-| I3 | Le **réviseur valide un plan sans voir les visites** (la grille jour × médecin n'est rendue qu'au KAM) (`planificateur.tsx:191-225`) | ○ |
+| I1 | **Plan de tournée escaladé** : le N+2 le voit « à décider » mais **n'a aucun bouton** s'il n'a pas la vue globale (`plan-de-tournee/page.tsx:130-134`) — le plan reste bloqué | corrigé (lot A, avec S1) |
+| I2 | Le **circuit du plan de tournée n'envoie AUCUNE notification** (soumission, escalade, validation, **rejet** dont les 48 h courent) (`tour-plan-actions.ts` : 0 notification) | corrigé (lot A, avec S1) |
+| I3 | Le **réviseur valide un plan sans voir les visites** (la grille jour × médecin n'est rendue qu'au KAM) (`planificateur.tsx:191-225`) | corrigé (lot A, avec S1) |
 | I4 | Le **KAM ne peut pas créer de sponsoring** (le rôle n'a pas le module), alors que la décision du 28/09 fait passer « le sponsoring d'un KAM » par le National Sales (`rbac.ts:284`) | ✔ |
 | I5 | **KAM et National Sales n'ont pas le module Stocks**, alors que l'écran des stocks hospitaliers est conçu pour eux (`rbac.ts:284,305`) | ✔ |
 | I6 | **« Facture obligatoire »** ne voit que les fichiers joints à l'ordre ou à la fiche source — pas les **factures rangées dans Legal** ni sur les postes : les ordres des postes / congrès / sponsorings peuvent devenir **impayables** (`expense-actions.ts:72-84`) | ✔ (règle) |
@@ -150,7 +155,8 @@ suivent un design cohérent ; le menu n'a **aucune entrée cassée** (87 adresse
 
 ## 9. Robot navigateur
 
-_(en cours — résultats ajoutés à la fin du parcours)_
+Premier passage terminé le 2 octobre (avant le lot A) : 20 comptes, 365 pages au bureau et 160 au
+téléphone. Ses résultats sont relus au ré-audit qui suit les corrections, sur le code corrigé.
 
 ## 10. Plan de correction proposé
 

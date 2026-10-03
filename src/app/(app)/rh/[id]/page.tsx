@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { ArrowLeft, Building2, ChevronRight } from "lucide-react";
 import { requireModule } from "@/lib/session";
 import { userCan } from "@/lib/rbac";
+import { voitLesSalaires } from "@/lib/hr/confidentialite";
 import { prisma } from "@/lib/prisma";
 import { getFieldDefs } from "@/lib/custom-fields";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -13,7 +14,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { CONTRACT_TYPE, LEAVE_TYPE, LEAVE_STATUS, PAYROLL_STATUS } from "@/lib/labels";
 import { formatCurrency, formatDate, formatDateTime, toNumber } from "@/lib/utils";
 import { getEmployeeHrDossier } from "@/lib/queries/hr-documents";
-import { getMyCompanies, companyOptions } from "@/lib/company";
+import { getMyCompanies, companyOptions, entitePermisePourFiche } from "@/lib/company";
 import { getDepartmentOptions, getDepartmentPath, getManagerOf } from "@/lib/departments";
 import { aiConfigured, cleModeleRequise } from "@/lib/ai";
 import { EmployeeForm, type EmployeeFormValues } from "./employee-form";
@@ -39,6 +40,11 @@ export default async function EmployeeDetailPage({ params }: { params: { id: str
     },
   });
   if (!employee) notFound();
+  // LA FICHE NE S'OUVRE PAS PLUS LARGE QUE LA LISTE (§118.184, audit 360° S6) : la liste des salariés
+  // est bornée à la société, la fiche se lisait par son seul identifiant.
+  if (!(await entitePermisePourFiche(user.id, employee.companyId))) notFound();
+  // LA PAIE N'EST PAS DANS LA LECTURE SEULE (S5) : salaire, nets des bulletins, NIN, n° CNAS.
+  const salairesVisibles = voitLesSalaires(user);
 
   const [fieldDefs, otherEmployees, unlinkedUsers, hrDossier, companies, departmentOptions, manager] = await Promise.all([
     getFieldDefs("EMPLOYEE"),
@@ -210,7 +216,7 @@ export default async function EmployeeDetailPage({ params }: { params: { id: str
                       value={`${employee.trialRenewalStart ? formatDate(employee.trialRenewalStart) : "?"} → ${employee.trialRenewalEnd ? formatDate(employee.trialRenewalEnd) : "?"}`}
                     />
                   )}
-                  <Info label="Salaire de base" value={formatCurrency(toNumber(employee.baseSalary))} />
+                  {salairesVisibles && <Info label="Salaire de base" value={formatCurrency(toNumber(employee.baseSalary))} />}
                   <Info label="Solde congés" value={`${toNumber(employee.leaveBalanceDays)} j`} />
                   <Info label="Embauche" value={employee.hireDate ? formatDate(employee.hireDate) : null} />
                   <Info label="Fin de contrat" value={employee.contractEnd ? formatDate(employee.contractEnd) : null} />
@@ -294,14 +300,14 @@ export default async function EmployeeDetailPage({ params }: { params: { id: str
             <CardContent className="space-y-3 text-sm">
               <Info label="Compte applicatif" value={employee.user ? `${employee.user.name} (${employee.user.email})` : "Non lié"} />
               <Info label="Manager (N+1)" value={employee.manager?.fullName} />
-              <Info label="NIN" value={employee.nationalId} />
-              <Info label="N° CNAS" value={employee.cnasNumber} />
+              {salairesVisibles && <Info label="NIN" value={employee.nationalId} />}
+              {salairesVisibles && <Info label="N° CNAS" value={employee.cnasNumber} />}
               <Info label="Créé le" value={formatDateTime(employee.createdAt)} />
               <Info label="Modifié le" value={formatDateTime(employee.updatedAt)} />
             </CardContent>
           </Card>
 
-          <Card>
+          {salairesVisibles && <Card>
             <CardHeader className="flex-row items-center justify-between">
               <CardTitle>Derniers bulletins</CardTitle>
               <Link href="/rh/paie" className="text-xs text-primary hover:underline">Voir la paie</Link>
@@ -319,7 +325,7 @@ export default async function EmployeeDetailPage({ params }: { params: { id: str
                 ))
               )}
             </CardContent>
-          </Card>
+          </Card>}
         </div>
       </div>
     </div>

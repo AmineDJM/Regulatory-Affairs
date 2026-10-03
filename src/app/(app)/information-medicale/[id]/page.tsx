@@ -59,7 +59,7 @@ export default async function DeclarationDetailPage({ params }: { params: { id: 
         if (piece?.sourceType !== "PROMO_MATERIAL" || !piece.sourceId) return null;
         const pm = await prisma.promoMaterial.findUnique({
           where: { id: piece.sourceId },
-          select: { id: true, reference: true, requesterId: true, assistantId: true, requestValidatorId: true, marketingValidatorId: true },
+          select: { id: true, reference: true, requesterId: true, assistantId: true, requestValidatorId: true, marketingValidatorId: true, companyId: true },
         });
         return pm ? { pm, facture: piece.reference } : null;
       })()

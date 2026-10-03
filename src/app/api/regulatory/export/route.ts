@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getCurrentUser } from "@/lib/session";
+import { getCurrentUserPourEcrire } from "@/lib/session";
 import { userCan } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { regulatoryVisibleWhere } from "@/lib/queries/regulatory-rows";
@@ -22,7 +22,7 @@ import { buildRegulatoryWorkbook, regulatoryExportFilename, type RegulatoryExpor
  * gamme que l'écran ne montrait pas (§118.178).
  */
 export async function POST(req: NextRequest) {
-  const user = await getCurrentUser();
+  const user = await getCurrentUserPourEcrire();
   if (!user) return NextResponse.json({ error: "Non authentifié." }, { status: 401 });
   if (!userCan(user, "REGULATORY", "VIEW")) return NextResponse.json({ error: "Non autorisé." }, { status: 403 });
 

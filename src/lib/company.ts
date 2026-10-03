@@ -107,6 +107,49 @@ export async function companyScopedWhere<W extends object>(userId: string, base:
   return { AND: [base, entite] } as unknown as W;
 }
 
+/**
+ * LE FILTRE D'ENTITÉ D'UNE FICHE OUVERTE PAR SON LIEN (§118.184) — toutes les sociétés auxquelles la
+ * personne a DROIT, et non la seule société choisie dans l'en-tête.
+ *
+ * Une LISTE suit le sélecteur (« je travaille sur Pharmagène en ce moment ») : c'est `companyScopedWhere`.
+ * Une FICHE s'ouvre depuis une notification, un lien partagé, un favori — la juger sur la sélection du
+ * moment ferait répondre « introuvable » à un dossier de la société B pour qui l'a sous les yeux en A,
+ * alors qu'elle y a droit. À l'inverse, ne pas la juger du tout (l'état d'avant, mesuré par l'audit) ouvrait
+ * le dossier d'une société à laquelle la personne n'a AUCUN droit, pour peu qu'elle en connaisse l'identifiant.
+ *
+ * Mêmes garde-fous que `platformScopeWhere` : aucun filtre dans un groupe d'une seule société, ni pour qui ne
+ * relève d'aucune entité (on n'aveugle personne par omission), ni pour qui a droit à tout le groupe. Une ligne
+ * SANS entité reste lisible : elle n'est le secret d'aucune société (même règle que `companyScopedWhere`).
+ */
+export async function ficheScopedWhere<W extends object>(userId: string, base: W): Promise<W> {
+  const [all, bearer] = await Promise.all([getCompanies(), accessBearerOf(userId)]);
+  if (!bearer) return base;
+  const allIds = all.map((c) => c.id);
+  if (allIds.length < 2) return base;
+  const permises = allowedCompanyIds(bearer, allIds);
+  if (permises.length === 0 || permises.length === allIds.length) return base;
+  return { AND: [base, { OR: [{ companyId: { in: permises } }, { companyId: null }] }] } as unknown as W;
+}
+
+/** La même règle que `ficheScopedWhere`, pour UNE ligne déjà lue : sa société est-elle permise à la personne ? */
+export async function entitePermisePourFiche(userId: string, companyId: string | null | undefined): Promise<boolean> {
+  return (await predicatEntitePermise(userId))(companyId);
+}
+
+/**
+ * LA MÊME RÈGLE, calculée UNE fois pour une personne et appliquée à beaucoup de lignes — un balayage qui
+ * décide pour trois cents documents ne relit pas trois cents fois les droits du même gestionnaire.
+ */
+export async function predicatEntitePermise(userId: string): Promise<(companyId: string | null | undefined) => boolean> {
+  const [all, bearer] = await Promise.all([getCompanies(), accessBearerOf(userId)]);
+  const allIds = all.map((c) => c.id);
+  if (!bearer || allIds.length < 2) return () => true;
+  const permises = allowedCompanyIds(bearer, allIds);
+  if (permises.length === 0) return () => true;
+  const ensemble = new Set(permises);
+  return (companyId) => !companyId || ensemble.has(companyId);
+}
+
 /** Libellé court d'une entité (fallback sur le nom complet). */
 export function companyLabel(c: CompanyLite): string {
   return c.shortName || c.name;

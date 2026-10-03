@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getCurrentUser } from "@/lib/session";
+import { getCurrentUserPourEcrire } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
 
 export const dynamic = "force-dynamic";
 
 /** Enregistre l'abonnement push (PushSubscription) de l'appareil de l'utilisateur. */
 export async function POST(req: NextRequest) {
-  const user = await getCurrentUser();
+  const user = await getCurrentUserPourEcrire();
   if (!user) return NextResponse.json({ error: "Non authentifié" }, { status: 401 });
   const body = (await req.json().catch(() => null)) as { endpoint?: string; keys?: { p256dh?: string; auth?: string } } | null;
   const endpoint = body?.endpoint;
@@ -25,7 +25,7 @@ export async function POST(req: NextRequest) {
 
 /** Désabonne l'appareil (ex. notifications refusées / déconnexion). */
 export async function DELETE(req: NextRequest) {
-  const user = await getCurrentUser();
+  const user = await getCurrentUserPourEcrire();
   if (!user) return NextResponse.json({ error: "Non authentifié" }, { status: 401 });
   const body = (await req.json().catch(() => null)) as { endpoint?: string } | null;
   if (body?.endpoint) await prisma.pushSubscription.deleteMany({ where: { endpoint: body.endpoint, userId: user.id } });

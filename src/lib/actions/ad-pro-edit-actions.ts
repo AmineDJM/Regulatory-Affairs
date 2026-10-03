@@ -10,6 +10,7 @@ import {
   type AdProKind,
 } from "@/lib/ad-pro-edit";
 import { fdStr, type ActionResult } from "@/lib/actions/types";
+import { canAccessEntity } from "@/lib/entity-access";
 
 /**
  * MODIFICATION D'UNE DEMANDE AD & PRO (sponsoring, prise en charge nationale/internationale).
@@ -68,7 +69,14 @@ const TARGETS: Record<AdProKind, Target> = {
     // nul, et c'est le demandeur/la Direction qui gouverne la correction.
     statusField: "requestStatus",
     load: (id) => prisma.event.findUnique({ where: { id } }) as Promise<Record<string, unknown> | null>,
-    save: (id, data) => prisma.event.update({ where: { id }, data }),
+    // L'ÉVÉNEMENT N'A PAS DE COLONNE « MODIFIÉ PAR » — les quatre autres tables, si. Écrire `updatedById`
+    // ici faisait échouer CHAQUE correction de demande d'événement sur une erreur Prisma : le demandeur
+    // ne pouvait jamais corriger la sienne (trouvé par le banc de §118.184). L'auteur est dans l'audit.
+    save: (id, data) => {
+      const sansAuteur = { ...data };
+      delete sansAuteur.updatedById;
+      return prisma.event.update({ where: { id }, data: sansAuteur });
+    },
   },
 };
 
@@ -85,12 +93,17 @@ export async function updateAdProRequest(formData: FormData): Promise<ActionResu
   const target = TARGETS[kind];
   if (!userCan(user, target.module, "VIEW")) return { ok: false, error: "Non autorisé." };
 
+  // LA PORTE DE LA FICHE, avant tout chargement (§118.184) : société, portée de ligne, parties
+  // prenantes. Un identifiant ne suffit plus à corriger la demande d'une autre société — et hors de
+  // cette porte, la demande est INTROUVABLE, la même phrase que son absence.
+  if (!(await canAccessEntity(user, kind, id, "VIEW"))) return { ok: false, error: "Demande introuvable." };
+
   const before = await target.load(id);
   if (!before) return { ok: false, error: "Demande introuvable." };
 
-  const decided = isAdProDecided(kind, String(before[target.statusField] ?? ""));
+  const decided = isAdProDecided(kind, String(before[target.statusField] ?? ""), (before.circuitState as string | null | undefined) ?? null);
   const allowed = canEditAdProRequest(
-    { id: user.id, hasGlobalView: hasGlobalView(user), canUpdate: userCan(user, target.module, "UPDATE") },
+    { id: user.id, hasGlobalView: hasGlobalView(user), canManage: userCan(user, target.module, "VALIDATE") },
     { requesterId: (before.requesterId as string | null) ?? null, decided },
   );
   if (!allowed) {

@@ -219,6 +219,9 @@ export interface PlanTourneeVue {
   submittedAt: Date | null;
   reviewerName: string | null;
   escalatedToName: string | null;
+  /** Les IDENTIFIANTS du validateur et du N+2 : la règle d'accès (`accesAuPlan`) compare des personnes, pas des noms. */
+  reviewerId: string | null;
+  escalatedToId: string | null;
   rejectionComment: string | null;
   resubmitDueAt: Date | null;
   /** Le retard de soumission, calculé UNE fois ici — l'écran l'affiche, il ne le recalcule pas. */
@@ -291,6 +294,7 @@ export async function loadPlanTournee(planId: string, maintenant: Date = new Dat
     select: {
       id: true, repId: true, periodStart: true, periodEnd: true, granularity: true, status: true,
       submissionDueAt: true, submittedAt: true, rejectionComment: true, resubmitDueAt: true,
+      reviewerId: true, escalatedToId: true,
       rep: { select: { name: true } },
       reviewer: { select: { name: true } },
       escalatedTo: { select: { name: true } },
@@ -306,6 +310,7 @@ export async function loadPlanTournee(planId: string, maintenant: Date = new Dat
     submissionDueAt: p.submissionDueAt, submittedAt: p.submittedAt,
     reviewerName: p.reviewer?.name ?? null,
     escalatedToName: p.escalatedTo?.name ?? null,
+    reviewerId: p.reviewerId, escalatedToId: p.escalatedToId,
     rejectionComment: p.rejectionComment,
     resubmitDueAt: p.resubmitDueAt,
     retard: retardDeSoumission({

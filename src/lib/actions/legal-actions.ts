@@ -10,7 +10,9 @@ import { prisma } from "@/lib/prisma";
 import { resolveParties, findPartyByName } from "@/lib/queries/company-contacts";
 import { recordAudit } from "@/lib/audit";
 import { companyIdForNew } from "@/lib/company";
-import { canRenew, canCancel, validateDates, proposeRenewalDates } from "@/lib/legal/lifecycle";
+import { canRenew, canCancel, canRestore, statutRetabli, validateDates, proposeRenewalDates } from "@/lib/legal/lifecycle";
+import { canAccessEntity } from "@/lib/entity-access";
+import { lecteursDeLaSuite } from "@/lib/lecteurs/legal";
 import { fdStr, fdDate, type ActionResult } from "@/lib/actions/types";
 import { attachFormFiles } from "@/lib/documents";
 import { createExpenseOrder } from "@/lib/expense-orders";
@@ -474,7 +476,11 @@ export async function renewLegalDocument(formData: FormData): Promise<ActionResu
   const id = fdStr(formData, "id");
   if (!id) return { ok: false, error: "Document introuvable." };
 
-  const previous = await prisma.legalDocument.findUnique({ where: { id } });
+  // LA PORTE DU DOCUMENT (audit 360°, S7) : le droit de créer dans le module ne suffisait pas — un
+  // identifiant permettait de renouveler, donc de LIRE en le recopiant, un document restreint ou d'une
+  // autre société. Hors de cette porte, il est introuvable.
+  if (!(await canAccessEntity(user, "LEGAL_DOCUMENT", id, "UPDATE"))) return { ok: false, error: "Document introuvable." };
+  const previous = await prisma.legalDocument.findUnique({ where: { id }, include: { readers: { select: { userId: true } } } });
   if (!previous) return { ok: false, error: "Document introuvable." };
   if (!canRenew(previous.status)) {
     return { ok: false, error: "Ce document ne peut plus être renouvelé (déjà renouvelé ou annulé)." };
@@ -502,6 +508,10 @@ export async function renewLegalDocument(formData: FormData): Promise<ActionResu
         companyId: previous.companyId,
         renewedFromId: previous.id,
         createdById: user.id, updatedById: user.id,
+        // UN DOCUMENT RESTREINT LE RESTE (audit 360°, S7) : la suite naissait SANS lecteurs désignés,
+        // donc visible de tout le module. Elle hérite des lecteurs de l'original, et son auteur
+        // d'origine en devient un — il perdrait sinon le contrat qu'il a lui-même enregistré.
+        readers: { create: lecteursDeLaSuite(previous.readers.map((r) => r.userId), previous.createdById, user.id).map((userId) => ({ userId })) },
       },
       select: { id: true },
     });
@@ -541,6 +551,11 @@ export async function cancelLegalDocument(formData: FormData): Promise<ActionRes
   if (!userCan(user, "LEGAL", "UPDATE")) return { ok: false, error: "Non autorisé." };
   const id = fdStr(formData, "id");
   if (!id) return { ok: false, error: "Document introuvable." };
+  // UN MOTIF, toujours (audit 360°, L04) : l'annulation partait sans, et même sur le bouton « Annuler »
+  // de la boîte qui le demandait. Un contrat annulé ne rappelle plus son échéance — on doit savoir pourquoi.
+  const reason = fdStr(formData, "reason");
+  if (!reason) return { ok: false, error: "Le motif de l'annulation est obligatoire." };
+  if (!(await canAccessEntity(user, "LEGAL_DOCUMENT", id, "UPDATE"))) return { ok: false, error: "Document introuvable." };
 
   const doc = await prisma.legalDocument.findUnique({ where: { id }, select: { title: true, status: true, kind: true } });
   if (!doc) return { ok: false, error: "Document introuvable." };
@@ -551,7 +566,7 @@ export async function cancelLegalDocument(formData: FormData): Promise<ActionRes
     data: {
       status: "CANCELLED" satisfies LegalDocStatus,
       cancelledAt: new Date(),
-      cancelReason: fdStr(formData, "reason"),
+      cancelReason: reason,
       updatedById: user.id,
     },
   });
@@ -559,9 +574,43 @@ export async function cancelLegalDocument(formData: FormData): Promise<ActionRes
     actorId: user.id, action: "UPDATE", module: "Legal",
     entityType: "LEGAL_DOCUMENT", entityId: id,
     field: "status", oldValue: doc.status, newValue: "CANCELLED",
-    summary: `Annulation de « ${doc.title} »`,
+    summary: `Annulation de « ${doc.title} » — motif : ${reason}`,
   });
   // Un BC annulé n'a plus rien à faire valider : sa porte en attente quitte le centre.
+  if (doc.kind === "PURCHASE_ORDER") await aiguillerBC(id, { acteurId: user.id });
+  revalidatePath("/legal");
+  revalidatePath(`/legal/${id}`);
+  return { ok: true };
+}
+
+/**
+ * RÉTABLIR un document annulé (audit 360°, L04) — l'annulation n'avait aucun retour. Le document reprend
+ * l'état que sa date de fin lui donne, ses rappels reprennent, et le motif de l'annulation reste au
+ * journal (on ne réécrit pas l'histoire, on la complète).
+ */
+export async function restoreLegalDocument(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  if (!userCan(user, "LEGAL", "UPDATE")) return { ok: false, error: "Non autorisé." };
+  const id = fdStr(formData, "id");
+  if (!id) return { ok: false, error: "Document introuvable." };
+  if (!(await canAccessEntity(user, "LEGAL_DOCUMENT", id, "UPDATE"))) return { ok: false, error: "Document introuvable." };
+  const doc = await prisma.legalDocument.findUnique({ where: { id }, select: { title: true, status: true, kind: true, endDate: true, cancelReason: true } });
+  if (!doc) return { ok: false, error: "Document introuvable." };
+  if (!canRestore(doc.status)) return { ok: false, error: "Seul un document annulé se rétablit." };
+  const statut = statutRetabli(doc.endDate);
+  // Écriture CONDITIONNELLE : deux clics simultanés ne rétablissent pas deux fois.
+  const fait = await prisma.legalDocument.updateMany({
+    where: { id, status: "CANCELLED" },
+    data: { status: statut, cancelledAt: null, cancelReason: null, lastRemindedAt: null, updatedById: user.id },
+  });
+  if (fait.count === 0) return { ok: false, error: "Ce document a déjà été rétabli." };
+  await recordAudit({
+    actorId: user.id, action: "UPDATE", module: "Legal",
+    entityType: "LEGAL_DOCUMENT", entityId: id,
+    field: "status", oldValue: "CANCELLED", newValue: statut,
+    summary: `Rétablissement de « ${doc.title} »${doc.cancelReason ? ` — il avait été annulé pour : ${doc.cancelReason}` : ""}`,
+  });
+  // Un BC rétabli redevient un engagement : il repasse par la règle des centres.
   if (doc.kind === "PURCHASE_ORDER") await aiguillerBC(id, { acteurId: user.id });
   revalidatePath("/legal");
   revalidatePath(`/legal/${id}`);

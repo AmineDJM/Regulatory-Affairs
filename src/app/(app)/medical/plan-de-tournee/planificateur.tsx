@@ -141,6 +141,19 @@ export function Planificateur({
   const tonStatut = status === "APPROVED" ? "success" : status === "REJECTED" ? "danger"
     : status === "SUBMITTED" || status === "ESCALATED" ? "warning" : "neutral";
 
+
+  // Les visites du plan, groupées par jour, pour la lecture du validateur — les noms viennent du panel
+  // que la page a déjà chargé ; un praticien sorti du panel depuis reste nommé « praticien hors panel ».
+  const nomDe = React.useMemo(() => new Map(praticiens.map((p) => [p.id, p.name])), [praticiens]);
+  const visitesParJour = React.useMemo(() => {
+    const parJour = new Map<string, string[]>();
+    for (const k of paires) {
+      const [j, id] = k.split("|");
+      parJour.set(j, [...(parJour.get(j) ?? []), nomDe.get(id) ?? "praticien hors panel"]);
+    }
+    return [...parJour.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+  }, [paires, nomDe]);
+
   return (
     <div className="space-y-4">
       {/* ── L'ÉTAT DU PLAN, ET CE QU'ON ATTEND ─────────────────────────────── */}
@@ -350,11 +363,32 @@ export function Planificateur({
           )}
         </>
       ) : (
-        <p className="rounded-lg border border-border bg-secondary/40 p-3 text-sm text-muted-foreground">
-          {gestes.modifiable
-            ? "Seul le KAM (ou le superviseur de sa BU) modifie ce plan."
-            : `Un plan « ${STATUT_PLAN_LABELS[status]} » ne se modifie plus : les visites sont parties chez le KAM, et changer sa tournée sous ses pieds est ce qu'un plan validé doit empêcher.`}
-        </p>
+        <>
+          {/* LE DÉTAIL, EN LECTURE (§118.184). Le validateur tranchait sur un nombre (« N visite(s) ») sans
+              voir lesquelles : jour par jour, qui le KAM va voir — c'est exactement ce qu'il valide. */}
+          <div className="space-y-2">
+            <p className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              <Users className="h-3.5 w-3.5" aria-hidden /> Visites prévues
+            </p>
+            {visitesParJour.length === 0 ? (
+              <p className="text-sm text-muted-foreground">Aucune visite planifiée.</p>
+            ) : (
+              <ul className="divide-y divide-border rounded-xl border border-border">
+                {visitesParJour.map(([j, noms]) => (
+                  <li key={j} className="flex flex-col gap-1 px-3 py-2 text-sm sm:flex-row sm:gap-3">
+                    <span className="w-40 shrink-0 font-medium tabular-nums">{jourLisible(j)}</span>
+                    <span className="min-w-0 flex-1 text-muted-foreground">{noms.join(" · ")}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+          <p className="rounded-lg border border-border bg-secondary/40 p-3 text-sm text-muted-foreground">
+            {gestes.modifiable
+              ? "Seul le KAM (ou le superviseur de sa BU) modifie ce plan."
+              : `Un plan « ${STATUT_PLAN_LABELS[status]} » ne se modifie plus : les visites sont parties chez le KAM, et changer sa tournée sous ses pieds est ce qu'un plan validé doit empêcher.`}
+          </p>
+        </>
       )}
 
       {/* ── LE REJET, AVEC SES COMMENTAIRES ─────────────────────────────────── */}

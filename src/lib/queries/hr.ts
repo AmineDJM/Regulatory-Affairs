@@ -105,26 +105,30 @@ export async function getRhData(userId: string) {
   const in60 = new Date();
   in60.setDate(now.getDate() + 60);
 
+  // LA MÊME PORTÉE pour les salariés ET pour leurs congés, leurs avances (audit 360°, S6) : les listes
+  // de congés en attente, l'historique (« Maladie », « Maternité ») et les avances ignoraient la
+  // société, et le lien « Traiter » ouvrait ensuite la fiche d'une autre société.
+  const salaries = await clauseSalariesVisibles(userId);
   const [employees, pendingLeaves, recentLeaves, advances] = await Promise.all([
     prisma.employee.findMany({
       // Portée VALIDÉE contre les droits (le cookie est une demande, pas une autorisation).
-      where: await clauseSalariesVisibles(userId),
+      where: salaries,
       orderBy: [{ isActive: "desc" }, { fullName: "asc" }],
       include: { user: { select: { id: true, email: true } }, company: { select: { id: true, name: true, shortName: true, color: true } }, _count: { select: { leaveRequests: true } } },
     }),
     prisma.leaveRequest.findMany({
-      where: { status: "PENDING" },
+      where: { status: "PENDING", employee: salaries },
       include: { employee: { select: { id: true, fullName: true } } },
       orderBy: { startDate: "asc" },
     }),
     prisma.leaveRequest.findMany({
-      where: { status: { not: "PENDING" } },
+      where: { status: { not: "PENDING" }, employee: salaries },
       include: { employee: { select: { fullName: true } } },
       orderBy: { decidedAt: "desc" },
       take: 15,
     }),
     prisma.salaryAdvance.findMany({
-      where: { status: { in: ["PENDING", "APPROVED"] } },
+      where: { status: { in: ["PENDING", "APPROVED"] }, employee: salaries },
       include: { employee: { select: { id: true, fullName: true } } },
       orderBy: { createdAt: "asc" },
     }),

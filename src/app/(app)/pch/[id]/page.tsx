@@ -31,6 +31,7 @@ import { CreateRecordButton } from "@/components/shared/create-record-button";
 import { createMailEntry } from "@/lib/actions/mail-register-actions";
 import { mailFields } from "../../courriers/mail-fields";
 import { getMyCompanies, companyLabel } from "@/lib/company";
+import { canAccessEntity } from "@/lib/entity-access";
 import { mailRoutingOptions } from "@/lib/queries/mail-routing";
 
 /**
@@ -41,6 +42,10 @@ import { mailRoutingOptions } from "@/lib/queries/mail-routing";
  */
 export default async function PchTenderPage({ params }: { params: { id: string } }) {
   const user = await requireModule("PCH");
+  // LA PORTE AVANT LE CHARGEMENT (§118.184 — audit 360°, S11) : la fiche chargeait le marché par son seul
+  // identifiant, et un gestionnaire PCH d'une société lisait le marché d'une autre — montants, contrat,
+  // bons de commande, pièces. Hors de portée, la même page qu'un marché qui n'existe pas.
+  if (!(await canAccessEntity(user, "PCH_TENDER", params.id, "VIEW"))) notFound();
   const [t, market, story, businessUnits, affectations] = await Promise.all([
     getPchTenderDetail(params.id),
     loadMarket360(params.id),

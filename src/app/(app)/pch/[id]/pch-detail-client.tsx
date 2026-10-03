@@ -80,7 +80,7 @@ export function EditTenderButton({ tender, canDelete, users = [], businessUnits 
             <W label="Date d'attribution"><Input name="awardDate" type="date" defaultValue={t.awardDate?.slice(0, 10) ?? ""} /></W>
             <W full label="— Caution —"><div /></W>
             <W label="Montant caution (DZD)"><Input name="cautionAmount" type="number" step="any" defaultValue={t.cautionAmount ?? ""} /></W>
-            <W label="Déposée ?"><label className="flex h-9 items-center gap-2 text-sm"><input type="checkbox" name="cautionDeposited" defaultChecked={t.cautionDeposited} className="h-4 w-4 rounded border-input" /> Caution déposée</label></W>
+            <W label="Déposée ?"><label className="flex h-9 items-center gap-2 text-sm"><input type="hidden" name="cautionDeposited" value="off" /><input type="checkbox" name="cautionDeposited" defaultChecked={t.cautionDeposited} className="h-4 w-4 rounded border-input" /> Caution déposée</label></W>
             <W label="Caution — début"><Input name="cautionStart" type="date" defaultValue={t.cautionStart?.slice(0, 10) ?? ""} /></W>
             <W label="Caution — fin"><Input name="cautionEnd" type="date" defaultValue={t.cautionEnd?.slice(0, 10) ?? ""} /></W>
             <W full label="Notes"><Textarea name="notes" defaultValue={t.notes} /></W>

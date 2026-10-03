@@ -3,10 +3,12 @@ import {
   canEditAdProRequest, isAdProDecided, editableField, describeChanges, EDITABLE_FIELDS,
 } from "./ad-pro-edit";
 
-const requester = { id: "u1", hasGlobalView: false, canUpdate: false };
-const direction = { id: "dir", hasGlobalView: true, canUpdate: true };
-const manager = { id: "u9", hasGlobalView: false, canUpdate: true };
-const stranger = { id: "u9", hasGlobalView: false, canUpdate: false };
+const requester = { id: "u1", hasGlobalView: false, canManage: false };
+const direction = { id: "dir", hasGlobalView: true, canManage: true };
+// Qui TRANCHE le module (VALIDATE) — la Direction Marketing, par exemple.
+const manager = { id: "u9", hasGlobalView: false, canManage: true };
+// Un délégué : il CONTRIBUE au module (UPDATE), il ne le tranche pas.
+const stranger = { id: "u9", hasGlobalView: false, canManage: false };
 
 describe("canEditAdProRequest", () => {
   it("laisse le demandeur corriger sa demande tant qu'elle n'est pas tranchée", () => {
@@ -23,7 +25,7 @@ describe("canEditAdProRequest", () => {
     expect(canEditAdProRequest(direction, { requesterId: "u1", decided: true })).toBe(true);
   });
 
-  it("ouvre la modification au droit UPDATE avant décision, pas après", () => {
+  it("ouvre la modification à qui TRANCHE le module avant décision, pas après", () => {
     expect(canEditAdProRequest(manager, { requesterId: "u1", decided: false })).toBe(true);
     expect(canEditAdProRequest(manager, { requesterId: "u1", decided: true })).toBe(false);
   });
@@ -32,14 +34,41 @@ describe("canEditAdProRequest", () => {
     expect(canEditAdProRequest(stranger, { requesterId: "u1", decided: false })).toBe(false);
   });
 
+  it("CONTRIBUER au module ne suffit pas à corriger la demande d'un collègue (§118.184)", () => {
+    // Le défaut mesuré par l'audit 360° : le droit UPDATE d'un délégué (CONTRIBUTE) lui ouvrait les
+    // demandes de TOUS ses collègues. Il ne lui ouvre que les siennes.
+    const delegue = { id: "d1", hasGlobalView: false, canManage: false };
+    expect(canEditAdProRequest(delegue, { requesterId: "d2", decided: false })).toBe(false);
+    expect(canEditAdProRequest(delegue, { requesterId: "d1", decided: false })).toBe(true);
+  });
+
   it("ne se fie pas à un demandeur absent pour ouvrir la saisie", () => {
     // requesterId null ne doit jamais « matcher » : sinon une demande orpheline serait
     // modifiable par n'importe qui.
-    expect(canEditAdProRequest({ id: "", hasGlobalView: false, canUpdate: false }, { requesterId: null, decided: false })).toBe(false);
+    expect(canEditAdProRequest({ id: "", hasGlobalView: false, canManage: false }, { requesterId: null, decided: false })).toBe(false);
   });
 });
 
 describe("isAdProDecided", () => {
+  it("un congrès ou un événement REFUSÉ est tranché — son refus s'écrit REJECTED (audit 360°, R16)", () => {
+    expect(isAdProDecided("CONGRESS_NATIONAL", "REJECTED")).toBe(true);
+    expect(isAdProDecided("CONGRESS_INTERNATIONAL", "REJECTED")).toBe(true);
+    expect(isAdProDecided("EVENT", "REJECTED")).toBe(true);
+    expect(isAdProDecided("EVENT", "CANCELLED")).toBe(true);
+    expect(isAdProDecided("EVENT", "AWAITING_FINAL")).toBe(false);
+  });
+
+  it("un matériel promotionnel À CIRCUIT se juge sur son état, pas sur son statut figé (audit 360°, R16)", () => {
+    // Le statut d'un dossier à circuit reste « Prospection demandée » pour toujours (§118.153).
+    expect(isAdProDecided("PROMO_MATERIAL", "PROSPECTION_REQUESTED", "REVIEW_DG")).toBe(false);
+    expect(isAdProDecided("PROMO_MATERIAL", "PROSPECTION_REQUESTED", "IN_EXECUTION")).toBe(true);
+    expect(isAdProDecided("PROMO_MATERIAL", "PROSPECTION_REQUESTED", "REFUSED")).toBe(true);
+    expect(isAdProDecided("PROMO_MATERIAL", "PROSPECTION_REQUESTED", "COMPLETED")).toBe(true);
+    // L'ancien circuit (sans état) garde sa liste : l'agence choisie fige la demande.
+    expect(isAdProDecided("PROMO_MATERIAL", "AGENCY_CHOSEN", null)).toBe(true);
+    expect(isAdProDecided("PROMO_MATERIAL", "QUOTES_UPLOADED", null)).toBe(false);
+  });
+
   it("reconnaît les statuts terminaux de chaque type", () => {
     expect(isAdProDecided("SPONSORING", "APPROVED")).toBe(true);
     expect(isAdProDecided("SPONSORING", "PAID")).toBe(true);

@@ -21,6 +21,7 @@ import { createDirectValidation } from "@/lib/validation";
 import { buildRef, createWithRetry } from "@/lib/refs";
 import { fdStr, fdNum, fdDate, type ActionResult } from "@/lib/actions/types";
 import { dejaPorteParSaFiche } from "@/lib/ad-pro/unified";
+import { clauseDemandeLisible } from "@/lib/queries/admin-requests";
 
 const DENIED: ActionResult = { ok: false, error: "Non autorisé." };
 
@@ -392,7 +393,10 @@ export async function addRequestComment(formData: FormData): Promise<ActionResul
   const requestId = fdStr(formData, "requestId");
   const body = fdStr(formData, "body");
   if (!requestId || !body) return { ok: false, error: "Commentaire vide." };
-  const req = await prisma.administrativeRequest.findUnique({ where: { id: requestId }, select: { requesterId: true, assignedToId: true } });
+  // LA CLAUSE DE LA FICHE (§118.184 — audit 360°, S12) : sans elle, n'importe quel compte commentait toute
+  // demande par son identifiant, et la notification partait chez le demandeur. Hors de portée, la même
+  // phrase que l'absence.
+  const req = await prisma.administrativeRequest.findFirst({ where: await clauseDemandeLisible(user, requestId), select: { requesterId: true, assignedToId: true } });
   if (!req) return { ok: false, error: "Demande introuvable." };
 
   await prisma.comment.create({ data: { entityType: "ADMIN_REQUEST", entityId: requestId, body, authorId: user.id } });

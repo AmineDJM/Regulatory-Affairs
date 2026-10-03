@@ -1362,7 +1362,12 @@ export function regulatoryLockWhere(user: SessionUser | null): Prisma.Regulatory
  * premier cas que personne n'a pensé à tester.
  */
 export function clausePanelDuKam(repId: string): Prisma.MedicalDoctorWhereInput {
-  const secteurDuKam: Prisma.SalesSectorWhereInput = { isActive: true, reps: { some: { repId } } };
+  // UN SECTEUR DE SA BU (§118.184 — audit 360°, S15) : retiré d'une BU ou passé dans une autre, un KAM
+  // gardait ses affectations aux secteurs de l'ancienne — et leurs praticiens dans son panel (fiche,
+  // modification, tournée). Le geste qui change la BU les retire désormais ; la règle de lecture ne compte
+  // de toute façon que les secteurs de la BU où il est rattaché, pour qu'une ligne restée en base, par un
+  // chemin qu'on n'a pas vu, n'ouvre rien.
+  const secteurDuKam: Prisma.SalesSectorWhereInput = { isActive: true, reps: { some: { repId } }, businessUnit: { reps: { some: { repId } } } };
   return {
     OR: [
       { delegateId: repId },

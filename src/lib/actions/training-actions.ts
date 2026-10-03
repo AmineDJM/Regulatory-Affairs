@@ -71,7 +71,7 @@ async function attachFiles(trainingId: string, files: File[], uploaderId: string
     }
     await prisma.document.create({
       data: {
-        name: file.name, category: "OTHER", entityType: "DOSSIER", entityId: trainingId,
+        name: file.name, category: "OTHER", entityType: "TRAINING", entityId: trainingId,
         fileKey: key, mimeType: file.type || null, sizeBytes: file.size,
         confidentiality: "INTERNAL", uploadedById: uploaderId,
       },
@@ -141,7 +141,7 @@ export async function requestTraining(_prev: ActionResult | undefined, formData:
     });
   }
   await recordAudit({
-    actorId: user.id, action: "CREATE", module: "Ressources humaines", entityType: "DOSSIER", entityId: created.id,
+    actorId: user.id, action: "CREATE", module: "Ressources humaines", entityType: "TRAINING", entityId: created.id,
     summary: `Demande de formation ${created.reference} — ${title}`,
   });
   await revalidateTraining(created.id);
@@ -194,7 +194,7 @@ export async function createHrTraining(_prev: ActionResult | undefined, formData
     body: `${title} — ${amount} DZD`, link: PATH,
   });
   await recordAudit({
-    actorId: user.id, action: "CREATE", module: "Ressources humaines", entityType: "DOSSIER", entityId: created.id,
+    actorId: user.id, action: "CREATE", module: "Ressources humaines", entityType: "TRAINING", entityId: created.id,
     summary: `Formation organisée ${created.reference} — ${title}`,
   });
   await revalidateTraining(created.id);
@@ -287,7 +287,7 @@ export async function decideTraining(formData: FormData): Promise<ActionResult> 
   }
   await recordAudit({
     actorId: user.id, action: decision === "APPROVED" ? "VALIDATE" : "REFUSE",
-    module: "Ressources humaines", entityType: "DOSSIER", entityId: id,
+    module: "Ressources humaines", entityType: "TRAINING", entityId: id,
     summary: `Formation ${training.reference} — ${decision === "APPROVED" ? (next.granted ? "accordée" : `validée (${CHAIN_STAGE_LABELS[training.stage as ChainStage]})`) : "refusée"}`,
   });
   await revalidateTraining(id);
@@ -363,7 +363,7 @@ export async function inviteTrainingParticipants(formData: FormData): Promise<Ac
     });
   }
   await recordAudit({
-    actorId: user.id, action: "UPDATE", module: "Ressources humaines", entityType: "DOSSIER", entityId: trainingId,
+    actorId: user.id, action: "UPDATE", module: "Ressources humaines", entityType: "TRAINING", entityId: trainingId,
     summary: `${userIds.length} participant(s) ${attendance === "MANDATORY" ? "convoqué(s)" : "invité(s)"} — ${training.title}`,
   });
   await revalidateTraining(trainingId);

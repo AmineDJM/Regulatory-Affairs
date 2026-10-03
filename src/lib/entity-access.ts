@@ -1,6 +1,6 @@
 import type { EntityType } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { companyScopedWhere } from "@/lib/company";
+import { companyScopedWhere, entitePermisePourFiche } from "@/lib/company";
 import { legalKindVisible, legalReaderWhere, legalViewScope, legalWriteAllowed } from "@/lib/lecteurs/legal";
 import { canSee as canSeeTask, canAttach as canAttachTask } from "@/lib/tasks/request-flow";
 import { recruitmentViewer } from "@/lib/recruitment/access";
@@ -12,8 +12,12 @@ import { getMyCompanies } from "@/lib/company";
 import { peutOuvrirLeDossierPromo } from "@/lib/queries/promo-circuit";
 import { projetsBdVisibles } from "@/lib/queries/bd";
 import { clauseProduitsVisibles } from "@/lib/queries/produits-canoniques";
+import { clauseRegulatoryVisible } from "@/lib/queries/regulatory-visibilite";
+import { clauseBonsDeCommandePchVisibles, clauseFormationsVisibles, clauseMarchesPchVisibles } from "@/lib/queries/visibilite-listes";
+import { isManagerOfUser } from "@/lib/departments";
+import { canViewDeclaration } from "@/lib/queries/medical-info";
 import {
-  userCan, hasGlobalView, scopeRegulatory, scopeMedicalDoctors, scopeMedicalVisits, scopeSales, scopeBusinessDevelopment, scopeSupport, scopeDossiers, type Action, type Module, type SessionUser,
+  userCan, hasGlobalView, scopeMedicalDoctors, scopeMedicalVisits, scopeSales, scopeBusinessDevelopment, scopeSupport, scopeDossiers, type Action, type Module, type SessionUser,
   annuaireOuvertParConsole, scopeCongressIntl, scopeCongressNational, scopePromoMaterial,
 } from "@/lib/rbac";
 
@@ -92,6 +96,9 @@ export const ENTITY_MODULE: Record<EntityType, Module> = {
   SALES_SECTOR: "SALES_PLANNING",
   INSTITUTION: "MEDICAL",
   SPECIALTY: "MEDICAL",
+  // Une formation relève des RH — mais la personne qui la DEMANDE n'a pas le module : sa porte est
+  // la règle de la liste (`clauseFormationsVisibles`), lue plus bas AVANT le droit de module.
+  TRAINING: "RH",
 };
 
 /**
@@ -174,17 +181,58 @@ export async function modulesDesEntites(
  */
 async function adProStakeholders(
   entityType: EntityType, entityId: string,
-): Promise<{ requesterId?: string | null; productManagerId?: string | null; assistantId?: string | null } | null> {
-  const sel = { select: { requesterId: true, productManagerId: true } } as const;
-  switch (entityType) {
-    case "SPONSORING": return prisma.sponsoringRequest.findUnique({ where: { id: entityId }, ...sel });
-    case "CONGRESS_INTERNATIONAL": return prisma.congressInternational.findUnique({ where: { id: entityId }, ...sel });
-    case "CONGRESS_NATIONAL": return prisma.congressNational.findUnique({ where: { id: entityId }, ...sel });
-    case "EVENT": return prisma.event.findUnique({ where: { id: entityId }, ...sel });
-    case "PROMO_MATERIAL":
-      return prisma.promoMaterial.findUnique({ where: { id: entityId }, select: { requesterId: true, assistantId: true } });
-    default: return null;
-  }
+): Promise<PartiesAdPro | null> {
+  // Le SUPERVISEUR de la gamme du dossier y est lu aussi : il tranche les demandes de ses KAM
+  // (étape du National Sales), donc il doit pouvoir OUVRIR ce qu'on lui demande de trancher, même
+  // si sa fiche salarié ne lui ouvre pas la société du demandeur (§118.184). Lire, pas écrire.
+  const bu = { businessUnit: { select: { supervisorId: true } } } as const;
+  const sel = { select: { requesterId: true, productManagerId: true, companyId: true, ...bu } } as const;
+  const r = await (async () => {
+    switch (entityType) {
+      case "SPONSORING": return prisma.sponsoringRequest.findUnique({ where: { id: entityId }, ...sel });
+      case "CONGRESS_INTERNATIONAL": return prisma.congressInternational.findUnique({ where: { id: entityId }, ...sel });
+      case "CONGRESS_NATIONAL": return prisma.congressNational.findUnique({ where: { id: entityId }, ...sel });
+      case "EVENT": return prisma.event.findUnique({ where: { id: entityId }, ...sel });
+      case "PROMO_MATERIAL":
+        return prisma.promoMaterial.findUnique({ where: { id: entityId }, select: { requesterId: true, assistantId: true, companyId: true, ...bu } });
+      default: return null;
+    }
+  })();
+  if (!r) return null;
+  const { businessUnit, ...parties } = r as typeof r & { businessUnit?: { supervisorId: string | null } | null };
+  return { ...parties, superviseurGammeId: businessUnit?.supervisorId ?? null };
+}
+
+/** Ce qu'une porte Ad & Pro sait d'un dossier : ses parties prenantes, sa société, le superviseur de sa gamme. */
+interface PartiesAdPro {
+  requesterId?: string | null;
+  productManagerId?: string | null;
+  assistantId?: string | null;
+  companyId?: string | null;
+  superviseurGammeId: string | null;
+}
+
+/**
+ * QUI TRANCHE un dossier Ad & Pro : le droit de VALIDER son module (Direction Marketing, Direction,
+ * Directeur Général, Super Admin), ou la vue globale. Ce sont eux que les étapes du circuit nomment
+ * par leur RÔLE — et une notification de rôle part à toutes les personnes qui le portent, quelle que
+ * soit leur société. Leur fermer la société du demandeur, ce serait leur demander de trancher ce
+ * qu'ils ne peuvent pas ouvrir (§118.27).
+ */
+function trancheAdPro(user: SessionUser, module: Module): boolean {
+  return hasGlobalView(user) || userCan(user, module, "VALIDATE");
+}
+
+/**
+ * LA SOCIÉTÉ DU DOSSIER EST-ELLE UNE FRONTIÈRE POUR CETTE PERSONNE ? Non pour ses parties prenantes,
+ * pour qui le tranche et pour le superviseur de sa gamme ; oui pour tous les autres — la fiche ne
+ * s'ouvre pas plus large que la liste (§118.184), sur TOUTES les sociétés auxquelles on a droit et
+ * pas la seule sélectionnée dans l'en-tête : une fiche s'ouvre depuis une notification.
+ */
+async function societeOuverteAdPro(user: SessionUser, module: Module, parties: PartiesAdPro): Promise<boolean> {
+  if (isOwnBusiness(user.id, parties) || trancheAdPro(user, module)) return true;
+  if (parties.superviseurGammeId && parties.superviseurGammeId === user.id) return true;
+  return entitePermisePourFiche(user.id, parties.companyId);
 }
 
 /**
@@ -266,7 +314,7 @@ export async function accesAuxPiecesLegal(
     if (pieces.length > 0) {
       const dossiers = await prisma.promoMaterial.findMany({
         where: { id: { in: [...new Set(pieces.map((p) => p.sourceId as string))] } },
-        select: { id: true, requesterId: true, assistantId: true, requestValidatorId: true, marketingValidatorId: true },
+        select: { id: true, requesterId: true, assistantId: true, requestValidatorId: true, marketingValidatorId: true, companyId: true },
       });
       const ouverts = new Set<string>();
       for (const pm of dossiers) if (await peutOuvrirLeDossierPromo(user, pm)) ouverts.add(pm.id);
@@ -329,6 +377,25 @@ export async function canAccessEntity(
     // saurait plus laquelle a servi à la décision.
     if (r.askedToId !== user.id) return false;
     return action === "VIEW" || (r.status !== "ACCEPTED" && r.status !== "CANCELLED");
+  }
+
+  // UNE DÉCLARATION D'INFORMATION MÉDICALE : la règle de SA FICHE (§118.184 — audit 360°, S12).
+  //
+  // Ce type tombait dans le `default` — le droit de module suffisait : tout porteur du module téléchargeait
+  // les pièces de n'importe quelle déclaration (attestations, récépissés du ministère, pièces demandées à
+  // un organisateur), alors que la fiche ne s'ouvre qu'au pharmacien en charge, à qui valide, à la vue
+  // globale — et à la personne SOLLICITÉE pour une pièce, qui doit pouvoir relire ce qu'elle a déposé
+  // (`canViewDeclaration`, la même fonction que la fiche : une seconde écriture divergerait, §118.5).
+  // Joindre, renommer ou retirer une pièce reste à qui INSTRUIT ; la personne sollicitée dépose SA pièce
+  // par son propre geste (`fulfillDocRequest`).
+  if (entityType === "MEDICAL_INFO_DECLARATION") {
+    const decl = await prisma.medicalInfoDeclaration.findUnique({
+      where: { id: entityId },
+      select: { pharmacistId: true, requests: { select: { targetUserId: true } } },
+    });
+    if (!decl || !canViewDeclaration(user, decl)) return false;
+    if (action === "VIEW") return true;
+    return decl.pharmacistId === user.id || hasGlobalView(user.role) || userCan(user, "MEDICAL_INFO", "VALIDATE");
   }
 
   // POSTE DE DÉPENSE : l'accès ne vient PAS d'un module, il vient de SON OPÉRATION.
@@ -445,10 +512,17 @@ export async function canAccessEntity(
   // est la MÊME que celle des écrans (`ad-pro/attachments.ts`, pure et testée) : un bouton visible
   // qui refuse ensuite fait chercher la panne au lieu de faire demander le droit.
   if ((action === "UPLOAD" || action === "VIEW") && AD_PRO_TYPES.includes(entityType)) {
-    // Le droit d'ÉCRIRE dans le module ouvre le dossier — DANS SA PORTÉE DE LIGNE (§118.153).
-    if ((userCan(user, module, "UPDATE") || userCan(user, module, "VALIDATE")) && (await dansLaPorteeAdPro(user, entityType, entityId))) return true;
     const parties = await adProStakeholders(entityType, entityId);
-    if (parties && isOwnBusiness(user.id, parties)) return true;
+    if (!parties) return false;
+    if (isOwnBusiness(user.id, parties)) return true;
+    // Le droit d'ÉCRIRE dans le module ouvre le dossier — DANS SA PORTÉE DE LIGNE (§118.153), et DANS
+    // UNE SOCIÉTÉ QU'ON A LE DROIT DE VOIR (§118.184). Ce raccourci passait AVANT le contrôle de société
+    // plus bas : un délégué lisait l'événement d'une autre société par son seul identifiant.
+    if (
+      (userCan(user, module, "UPDATE") || userCan(user, module, "VALIDATE")) &&
+      (await societeOuverteAdPro(user, module, parties)) &&
+      (await dansLaPorteeAdPro(user, entityType, entityId))
+    ) return true;
   }
 
   // L'Assistante de Direction pilote le circuit Matériel promotionnel depuis les
@@ -486,6 +560,28 @@ export async function canAccessEntity(
 
   // Demande RH : l'employé demandeur peut consulter et joindre des pièces à SA
   // demande (justificatif, arrêt maladie…), même sans droit sur le module RH.
+  // UNE FORMATION (§118.184) — la règle de SA LISTE, pas une seconde écriture (§118.5) : la demandeuse,
+  // les participants, son N+1, les RH et la vue globale ; plus la chaîne au-dessus du demandeur, qui
+  // peut trancher (`deciderFor`) et doit donc pouvoir ouvrir les pièces sur lesquelles elle tranche.
+  // Sans ce cas, les pièces d'une formation s'écrivaient sous DOSSIER et la porte cherchait un sujet
+  // qui n'existe pas : personne ne rouvrait le devis joint (audit 360°, S4).
+  if (entityType === "TRAINING") {
+    const visible = await prisma.training.findFirst({
+      where: { AND: [{ id: entityId }, await clauseFormationsVisibles(user)] },
+      select: { id: true },
+    });
+    const t = await prisma.training.findUnique({ where: { id: entityId }, select: { requesterId: true } });
+    if (!t) return false;
+    const dansLaChaine = !visible && t.requesterId && t.requesterId !== user.id
+      ? await isManagerOfUser(user.id, t.requesterId)
+      : false;
+    if (!visible && !dansLaChaine) return false;
+    if (action === "VIEW" || action === "UPLOAD") return true;
+    // Renommer ou retirer une PIÈCE : qui porte la demande, les RH, la vue globale — pas un collègue
+    // participant, ni le N+1 qui la tranche.
+    return t.requesterId === user.id || hasGlobalView(user) || userCan(user, "RH", "UPDATE") || userCan(user, "RH", "VALIDATE");
+  }
+
   if (entityType === "HR_REQUEST" && (action === "VIEW" || action === "UPLOAD" || action === "UPDATE")) {
     const req = await prisma.hrDocumentRequest.findUnique({ where: { id: entityId }, select: { employee: { select: { userId: true } } } });
     if (req?.employee?.userId === user.id) return true;
@@ -538,7 +634,7 @@ export async function canAccessEntity(
   if (entityType === "PROMO_MATERIAL" && action === "VIEW") {
     const pm = await prisma.promoMaterial.findUnique({
       where: { id: entityId },
-      select: { id: true, requesterId: true, assistantId: true, requestValidatorId: true, marketingValidatorId: true },
+      select: { id: true, requesterId: true, assistantId: true, requestValidatorId: true, marketingValidatorId: true, companyId: true },
     });
     if (pm && (await peutOuvrirLeDossierPromo(user, pm))) return true;
   }
@@ -552,10 +648,32 @@ export async function canAccessEntity(
 
   if (!userCan(user, module, action)) return false;
 
+  // ── UN DOSSIER AD & PRO : SES SOCIÉTÉS, OU SES PARTIES PRENANTES (§118.184) ─────────────────────
+  //
+  // L'audit 360° l'a mesuré : un sponsoring ou un événement tombait dans le `default` plus bas — le droit
+  // de module suffisait. Tout délégué (événements : CONTRIBUTE, donc UPDATE) modifiait l'événement d'un
+  // collègue, budget et médecins compris, même d'une autre société et après la décision.
+  //   - On n'ouvre que les dossiers des sociétés auxquelles on a DROIT (`societeOuverteAdPro`) — sauf
+  //     à en être partie prenante, à le trancher, ou à superviser sa gamme.
+  //   - ÉCRIRE dans le dossier d'un autre exige de le TRANCHER (VALIDATE — ce que CONTRIBUTE n'a pas) :
+  //     contribuer veut dire écrire SES dossiers, pas ceux des collègues. Le superviseur de la gamme
+  //     n'y gagne rien : il LIT ce qu'il tranche, sa décision passe par le circuit.
+  // Joindre une pièce (UPLOAD) et lire (VIEW) ont leur raccourci plus haut, sous la même règle de société.
+  if (AD_PRO_TYPES.includes(entityType)) {
+    const parties = await adProStakeholders(entityType, entityId);
+    if (!parties) return false;
+    if (!(await societeOuverteAdPro(user, module, parties))) return false;
+    const ecrit = action === "UPDATE" || action === "DELETE" || action === "VALIDATE";
+    if (ecrit && !isOwnBusiness(user.id, parties) && !trancheAdPro(user, module)) return false;
+  }
+
   switch (entityType) {
     case "REGULATORY_PRODUCT": {
+      // LA MÊME RÈGLE QUE LA LISTE (§118.184) : portée métier, gamme, ET entité — pour toutes les sociétés
+      // auxquelles la personne a droit. Elle ne composait que `scopeRegulatory` : un responsable à portée
+      // « toutes les lignes » lisait et modifiait le dossier d'une société qui n'était pas la sienne.
       const found = await prisma.regulatoryProduct.findFirst({
-        where: { id: entityId, ...scopeRegulatory(user) },
+        where: { AND: [{ id: entityId }, await clauseRegulatoryVisible(user, "fiche")] },
         select: { id: true },
       });
       return Boolean(found);
@@ -609,6 +727,24 @@ export async function canAccessEntity(
     case "DOSSIER": {
       const found = await prisma.dossier.findFirst({
         where: { id: entityId, ...scopeDossiers(user) },
+        select: { id: true },
+      });
+      return Boolean(found);
+    }
+    case "PCH_TENDER": {
+      // LA CLAUSE DE LA FICHE (§118.184 — audit 360°, S11) : ce type tombait dans le `default` — le droit
+      // de module suffisait, et les pièces d'un marché d'une autre société se lisaient, se joignaient et
+      // se supprimaient par son identifiant, comme la fiche elle-même s'ouvrait.
+      const found = await prisma.pchTender.findFirst({
+        where: { AND: [{ id: entityId }, await clauseMarchesPchVisibles(user.id, "fiche")] },
+        select: { id: true },
+      });
+      return Boolean(found);
+    }
+    case "PCH_ORDER": {
+      // Un bon de commande de marché n'a pas d'entité propre : il hérite de celle de SON marché.
+      const found = await prisma.pchOrder.findFirst({
+        where: { AND: [{ id: entityId }, await clauseBonsDeCommandePchVisibles(user.id, "fiche")] },
         select: { id: true },
       });
       return Boolean(found);

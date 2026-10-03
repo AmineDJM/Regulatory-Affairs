@@ -1,4 +1,4 @@
-import { cookies } from "next/headers";
+import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
 import type { Session } from "next-auth";
 import type { UserRole } from "@prisma/client";
@@ -27,7 +27,20 @@ export interface CurrentUser {
   impersonatedBy?: { id: string; name: string };
 }
 
-async function build(session: Session | null): Promise<CurrentUser | null> {
+/**
+ * CETTE REQUÊTE ÉCRIT-ELLE ? Une action serveur porte toujours l'en-tête `Next-Action` ; une route
+ * d'API qui écrit le DIT en appelant `getCurrentUserPourEcrire` (un cliquet l'exige de chaque
+ * gestionnaire POST/PUT/PATCH/DELETE). Hors requête (banc, battement), personne n'usurpe rien.
+ */
+function requeteQuiEcrit(): boolean {
+  try {
+    return Boolean(headers().get("next-action"));
+  } catch {
+    return false;
+  }
+}
+
+async function build(session: Session | null, opts: { ecriture?: boolean } = {}): Promise<CurrentUser | null> {
   if (!session?.user) return null;
 
   // Validate the revocable session: reject revoked/expired tokens so the admin
@@ -51,7 +64,13 @@ async function build(session: Session | null): Promise<CurrentUser | null> {
   // « Vue exacte » : un Super Admin peut visualiser l'OS exactement comme un autre
   // utilisateur. Le cookie n'est honoré QUE si la session réelle est Super Admin —
   // un cookie forgé par un non-admin est donc sans effet.
-  if (session.user.role === "SUPER_ADMIN") {
+  //
+  // C'est une VUE, pas une usurpation (§118.184, audit 360° S8). Le bandeau promettait « vos actions
+  // seront enregistrées au nom de l'administrateur », et chaque action partait pourtant AU NOM de la
+  // personne visualisée : une décision, un envoi, un dépôt s'écrivaient sous son nom au journal et
+  // dans les notifications. Une requête qui ÉCRIT ignore donc la vue : elle part au nom du Super
+  // Admin, avec ses droits — ce que le bandeau dit.
+  if (session.user.role === "SUPER_ADMIN" && !(opts.ecriture || requeteQuiEcrit())) {
     const targetId = cookies().get(IMPERSONATE_COOKIE)?.value;
     if (targetId && targetId !== session.user.id) {
       const target = await prisma.user.findUnique({
@@ -139,4 +158,13 @@ export async function requireModule(
 /** Non-redirecting variant for layouts / optional checks. */
 export async function getCurrentUser(): Promise<CurrentUser | null> {
   return build(await auth());
+}
+
+/**
+ * La personne au nom de qui une route d'API ÉCRIT — jamais la personne qu'un Super Admin visualise
+ * en « Vue exacte » (§118.184). Toute route POST/PUT/PATCH/DELETE l'appelle à la place de
+ * `getCurrentUser` : une action serveur se reconnaît d'elle-même, une route d'API non.
+ */
+export async function getCurrentUserPourEcrire(): Promise<CurrentUser | null> {
+  return build(await auth(), { ecriture: true });
 }

@@ -21,6 +21,7 @@
  */
 
 import { SPONSORING_TYPES, PRIORITY, NATIONAL_EVENT_TYPE, EVENT_TYPE, EVENT_FORMAT } from "@/lib/labels";
+import { etatAdProDuDossier } from "@/lib/promo-material/statut";
 
 export type AdProKind = "SPONSORING" | "CONGRESS_NATIONAL" | "CONGRESS_INTERNATIONAL" | "PROMO_MATERIAL" | "EVENT";
 
@@ -29,8 +30,13 @@ export interface AdProEditor {
   id: string;
   /** Vue globale : Direction, Directeur des opérations, Super Admin. */
   hasGlobalView: boolean;
-  /** Droit UPDATE sur le module concerné. */
-  canUpdate: boolean;
+  /**
+   * Droit de TRANCHER le module (VALIDATE : Direction Marketing, Direction, Directeur Général) — ce
+   * qui permet de corriger la demande d'un AUTRE avant la décision. Le droit UPDATE seul ne le
+   * permet pas : un délégué ou un National Sales l'ont (CONTRIBUTE) pour déposer et corriger SES
+   * demandes, et l'audit 360° a mesuré qu'il leur ouvrait celles de tous leurs collègues (§118.184).
+   */
+  canManage: boolean;
 }
 
 /** Ce qu'on sait de la demande. */
@@ -45,35 +51,51 @@ export interface AdProEditTarget {
  *
  * • **vue globale** → toujours (y compris après décision : c'est le seul niveau qui peut
  *   corriger un dossier tranché en assumant ce que ça veut dire) ;
- * • **demandeur** ou **droit UPDATE** → tant que la décision n'est pas rendue ;
- * • sinon → non.
+ * • **demandeur** ou **qui tranche le module** → tant que la décision n'est pas rendue ;
+ * • sinon → non. Contribuer au module ne suffit pas : c'est écrire SES demandes.
  */
 export function canEditAdProRequest(editor: AdProEditor, target: AdProEditTarget): boolean {
   if (editor.hasGlobalView) return true;
   if (target.decided) return false;
   if (target.requesterId && target.requesterId === editor.id) return true;
-  return editor.canUpdate;
+  return editor.canManage;
 }
 
 /**
  * Statuts terminaux par type de demande. « Terminal » = la Direction a tranché ; ce qui suit
  * (paiement, clôture) ne rouvre pas la saisie.
  */
+// « REFUSED » n'existe pas dans le statut d'une demande de congrès ou d'événement : leur refus s'écrit
+// « REJECTED » (`CongressRequestStatus`). La liste portait le premier — une valeur que la base ne peut
+// pas contenir —, donc une demande refusée gardait « Modifier », sur un dossier qu'on ne peut plus
+// resoumettre (audit 360°, R16). `CANCELLED` est terminal pour la même raison : rien ne le rouvre.
 const DECIDED_STATUS: Record<AdProKind, readonly string[]> = {
   // `PRE_VALIDATED` (§118.151) : la TENUE est décidée — réécrire l'institution ou les montants
   // demandés après coup ferait diverger la demande de ce qui a été pré-validé. La vue globale
   // garde la main, comme pour toute demande tranchée.
-  SPONSORING: ["APPROVED", "REFUSED", "ACCEPTED", "PAID", "CLOSED", "PRE_VALIDATED"],
-  CONGRESS_NATIONAL: ["APPROVED", "REFUSED", "COMPLETED"],
-  CONGRESS_INTERNATIONAL: ["APPROVED", "REFUSED", "COMPLETED"],
+  SPONSORING: ["APPROVED", "REFUSED", "ACCEPTED", "PAID", "CLOSED", "PRE_VALIDATED", "CANCELLED"],
+  CONGRESS_NATIONAL: ["APPROVED", "REJECTED", "COMPLETED", "CANCELLED"],
+  CONGRESS_INTERNATIONAL: ["APPROVED", "REJECTED", "COMPLETED", "CANCELLED"],
   // Matériel promotionnel : « décidé » = l'agence est choisie. Au-delà, le bon de commande, le
   // visa publicitaire et la conformité s'appuient sur ce qui a été arrêté — corriger le titre ou
   // le montant après coup ferait diverger la pièce et le dossier.
   PROMO_MATERIAL: ["AGENCY_CHOSEN", "BC_FINANCE_REVIEW", "BC_VALIDATED", "BC_SENT", "PAYMENT_INITIATED", "PAYMENT_DONE", "MATERIAL_PRODUCED", "CONFORMITY_REVIEW", "COMPLETED", "CANCELLED"],
-  EVENT: ["APPROVED", "REFUSED", "COMPLETED"],
+  EVENT: ["APPROVED", "REJECTED", "COMPLETED", "CANCELLED"],
 };
 
-export function isAdProDecided(kind: AdProKind, status: string): boolean {
+/**
+ * La demande est-elle tranchée ?
+ *
+ * Un dossier de matériel promotionnel À CIRCUIT garde son `status` de création pour toujours
+ * (§118.153) : c'est son `circuitState` qui dit où il en est. Le lire par le `status` le déclarait
+ * « jamais tranché », donc modifiable par son demandeur jusqu'au paiement (audit 360°, R16). On lit
+ * l'état UNIFIÉ que la liste « Toutes les demandes » affiche — refusé, validé jusqu'au bout, terminé —,
+ * pas une seconde définition.
+ */
+export function isAdProDecided(kind: AdProKind, status: string, circuitState?: string | null): boolean {
+  if (kind === "PROMO_MATERIAL" && circuitState) {
+    return etatAdProDuDossier({ status, circuitState, circuitVersion: null }) !== "AWAITING";
+  }
   return DECIDED_STATUS[kind].includes(status);
 }
 

@@ -2,7 +2,7 @@ import { GraduationCap } from "lucide-react";
 import { requireUser } from "@/lib/session";
 import { userCan, hasGlobalView } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
-import { platformScope } from "@/lib/company";
+import { clauseFormationsVisibles } from "@/lib/queries/visibilite-listes";
 import { toNumber } from "@/lib/utils";
 import { PageHeader } from "@/components/shared/page-header";
 import { KpiCard } from "@/components/shared/kpi-card";
@@ -27,9 +27,10 @@ export default async function FormationsPage() {
   const isDg = hasGlobalView(user);
   const canOrganise = isHr || isDg;
 
-  const scope = await platformScope(user.id);
+  // UNE CLAUSE, lue aussi par la porte des pièces (`canAccessEntity` › TRAINING) : la page montrait
+  // toutes les formations de la société à tout salarié (audit 360°, S4).
   const trainings = await prisma.training.findMany({
-    where: scope,
+    where: await clauseFormationsVisibles(user),
     orderBy: [{ status: "asc" }, { createdAt: "desc" }],
     take: 200,
     include: {
@@ -52,7 +53,7 @@ export default async function FormationsPage() {
 
   const docs = trainings.length
     ? await prisma.document.findMany({
-        where: { entityType: "DOSSIER", entityId: { in: trainings.map((t) => t.id) } },
+        where: { entityType: "TRAINING", entityId: { in: trainings.map((t) => t.id) } },
         select: { id: true, name: true, entityId: true },
       })
     : [];

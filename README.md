@@ -4592,6 +4592,8 @@ entité) sont éligibles. Supprimer une gamme **ne supprime aucun produit** (`SE
 | **Regulatory** | `lib/actions/regulatory-actions.ts` (validation fabricant/variation, `setRegulatoryResponsible`), `app/(app)/regulatory/` (`edit-product.tsx`, `new-product.tsx`, `regulatory-table.tsx`, `[id]/page.tsx`). Champ `RegulatoryProduct.packaging` (conditionnement). |
 | **Produit canonique (graphe AMD, phase 1A)** | Module PUR `lib/products/identity.ts` (clé d'identité : `cleDci`, `normalizeDosage`, `normalizeForme` — le vocabulaire des DOSSIERS —, `normalizePackaging`, `identiteComplete` / `manquesIdentite`, `nomCanonique`) + `identity.test.ts` (le portefeuille réel de 29 dossiers) ; `lib/products/resolve.ts` (`ensureProduct` en file + réessai, `retrouverParIdentite` qui recalcule une clé périmée) ; `lib/products/canonique.ts` (`rattacherDossier`, `rattacherTout`, `synchroniserCycleDeVie`) ; `lib/queries/produits-canoniques.ts` (`clauseProduitsVisibles` — un produit se voit par ses dossiers) ; `lib/actions/produit-canonique-actions.ts` ; écrans `app/(app)/regulatory/catalogue/` (+ `[id]/`) ; branchements dans `regulatory-actions.ts` (création, modification, `syncStatusFromWorkflow`), `sales-planning-actions.ts` (produit de BU) et `products/link.ts` ; banc `canonique-flow.test.ts` (23 cas). |
 | **Panel du KAM, spécialités, types d'audit (graphe AMD, phase 1B)** | Panel : `clausePanelDuKam` dans `lib/rbac.ts` (lue par `scopeMedicalDoctors`, donc `canAccessEntity` DOCTOR), `lib/queries/panel-kam.ts` (`panelsDesKams` pour le cockpit, `kamsQuiCouvrent` pour l'alerte KOL), lecteurs `queries/tour-schedule.ts` (`loadPanelPlanifiable`), `queries/my-field-day.ts`, `queries/team-kpis.ts`, `queries/sfe-cockpit.ts`, `adventum/risks.ts` (`suiviDuKol`) ; banc `queries/panel-kam.test.ts` (acteurs sans vue globale). Spécialités : module PUR `lib/annuaires/specialites.ts` (`cleDeSpecialite`, `indexerSpecialites`, `ecritureDeSpecialite`, `lienDeSpecialiteValide` — un lien ne vaut que si le texte le désigne), chargeur `lib/queries/specialites.ts`, actions `medical-actions.ts` (création / renommage / retrait / `fusionnerSpecialite` / `rattacherLibelleSpecialite`, fiche praticien) et `medical-directory-actions.ts` (cellule, ajout de ligne, import, `rattacherSpecialitesParNom`), écran `app/(app)/annuaires/specialites/` ; banc `actions/specialites-flow.test.ts`. Types d'audit : `EntityType` + `BUSINESS_UNIT`, `TOUR_PLAN`, `SALES_SECTOR`, `INSTITUTION`, `SPECIALTY` (migrations `20261222090000_audit_types_graphe`, `20261222090100_audit_plans_de_tournee`), refusés comme portes par `canAccessEntity` ; banc `actions/audit-types-graphe.test.ts`. |
+| **Spécialités d'une BU (graphe AMD, phase 2)** | Modèle `BusinessUnitSpecialty` (BU × spécialité, `principale` ; index PARTIEL « une principale par BU » dans la migration `20261223090000_bu_specialites`, `onDelete: Restrict` côté référentiel) ; écrivain `lib/sfe/specialites-bu.ts` (`specialitesDemandees`, `ecrireSpecialitesBu`, `resumeSpecialitesBu` — dans un module que la dérivation des contrats LIT) ; actions `createBusinessUnit` (avec ses spécialités) et `enregistrerSpecialitesBu` (`lib/actions/sales-planning-actions.ts`, en série par BU) ; écran `app/(app)/planning/business-units/` (`choix-specialites.tsx`, section `SpecialitesDeLaBu` de `bu-manager.tsx`) ; étape « Choisir les spécialités » dans `lib/sfe-setup.ts` ; référentiel : retrait refusé et fusion qui fait suivre les BU (`medical-actions.ts`), usage par BU dans `lib/queries/specialites.ts` ; bancs `actions/bu-specialites-flow.test.ts` (acteur sans vue globale) et navigateur `e2e/bu-specialites.spec.ts`. |
+| **Audit 360° — lot A, sécurité et confidentialité** | Fiches à la même règle que leurs listes : `lib/queries/regulatory-visibilite.ts` (`clauseRegulatoryVisible(user, "liste" | "fiche")`), `lib/queries/visibilite-listes.ts` (`clauseMarchesPchVisibles`, `clauseBonsDeCommandePchVisibles`, `clauseFormationsVisibles`), `lib/queries/admin-requests.ts` (`clauseDemandeLisible`), `lib/queries/medical-info.ts` (`canViewDeclaration`), branches de `lib/entity-access.ts` ; porte du marché PCH lue en base `lib/pch/porte-marche.ts` ; règle d'édition d'un événement `lib/events/modification.ts` ; confidentialité RH `lib/hr/confidentialite.ts` et compte qui suit la fiche `lib/hr/depart.ts` ; administration déléguée `lib/admin/garde-comptes.ts` ; « Vue exacte » : `getCurrentUserPourEcrire` (`lib/session.ts`), exigée de chaque route d'API qui écrit ; pilotage `lib/queries/sfe-effort.ts` ; secteurs d'un KAM bornés à sa BU (`clausePanelDuKam` dans `lib/rbac.ts`, `saveRepProfile`/`deleteRepProfile`/`ecrireSecteur` dans `sales-planning-actions.ts`) ; type `TRAINING` (migrations `20261224090000_entity_type_formation`, `20261224090100_formations_pieces_requalifiees`). Bancs : `entity-access-fiches.test.ts`, `pch/pch-entite.test.ts`, `queries/demande-declaration-acces.test.ts`, `hr/confidentialite.test.ts`, `hr/depart.test.ts`, `queries/formations-visibles.test.ts`, `legal/legal-restreint.test.ts`, `session-vue-exacte.test.ts`, `admin/garde-comptes.test.ts`, `actions/ad-pro-edition-portee.test.ts`, `sfe/plan-tournee-acces.test.ts`, `queries/sfe-effort.test.ts`, `sfe/kam-bu.test.ts`. |
 | **Regulatory — les trois champs du Super Admin** | Module PUR `lib/regulatory/structural-fields.ts` (`STRUCTURAL_FIELDS`, `canSetStructural`, `structuralChanges`, `structuralRefusal`, `structuralNotice`) + `structural-fields.test.ts` (17 tests). Verrou posé sur les **quatre** portes de `lib/actions/regulatory-actions.ts` : `updateRegulatoryProduct` (helpers `guardStructural` / `notifyCarrierOfStructural`), `setRegulatoryResponsible`, `setRegulatoryClassification` (partie `companyId`) et `setVariationStatus` à « OBTENUE » (porte dérobée du statut de fabrication). Côté écran : `LockedField` dans `app/(app)/regulatory/edit-product.tsx`, prop `canSetStructural` de `regulatory-table.tsx`. |
 | **Regulatory — porter un dossier ouvre le module** | Module PUR `lib/regulatory/assignment.ts` (`carrierAccess`, `assignmentNotice`, `assignmentWarning`) + `assignment.test.ts` (13 tests) ; accès implicite résolu dans `getAccess` (`lib/rbac.ts`) ; exception au filtre de gamme dans `lib/queries/regulatory-rows.ts` (`NAMED_ON_DOSSIER`). |
 | **Regulatory — verrou (cadenas)** | `RegulatoryProduct.isLocked` ; `lib/rbac.ts` → `lockGate` (dans `scopeRegulatory`) + `regulatoryLockWhere` pour les lectures hors portée (`queries/stock.ts`, `actions/pch-tender-line-actions.ts`, `admin/users/[id]`, portail fournisseur) ; `setRegulatoryLock` / `unlockAllRegulatory` ; cadenas et bandeau dans `app/(app)/regulatory/regulatory-table.tsx`. Tests dans `rbac.test.ts`. |
@@ -6555,6 +6557,79 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 ---
 
 ## 🧾 Journal des évolutions récentes
+
+### AUDIT 360° — LOT A : SÉCURITÉ ET CONFIDENTIALITÉ (2026-10)
+
+**Demande** (dirigeant, 02/10). Corriger tous les constats de l'audit 360°, en commençant par les seize
+constats « sécurité et confidentialité » (`docs/audit-360/README.md`, S1 à S16).
+
+**Ce qui change.**
+- **Une fiche ouverte par son lien ne s'ouvre plus plus large que sa liste.** Dossier réglementaire (société et
+  gamme), marché PCH et ses bons, demande au secrétariat (et ses commentaires), pièces d'une déclaration
+  d'information médicale, fiche salarié, formation, plan de tournée d'un collègue : chaque fiche — et chaque
+  geste qu'elle porte — lit désormais la même règle que sa liste. La fiche s'ouvre sur toutes les sociétés
+  auxquelles la personne a droit (pour qu'un validateur ne perde pas ce qu'on lui demande de trancher) ; la
+  liste suit le sélecteur de l'en-tête.
+- **Plan de tournée.** Le plan d'un collègue ne s'ouvre plus par son lien ; le N+2 d'un plan escaladé a ses
+  boutons ; le circuit prévient (soumission, escalade, validation, rejet — les 48 h de correction courent dès
+  la notification) ; le validateur voit la grille des visites avant de trancher.
+- **Événements et demandes Ad & Pro.** Un délégué ne réécrit plus l'événement d'un collègue : le formulaire
+  complet est réservé à qui tranche (avant la décision) et à la vue globale ; après la décision, seule
+  l'organisation se modifie (lien de connexion, capacité, responsable, description). La correction d'une
+  demande Ad & Pro respecte la portée de la fiche.
+- **RH.** Salaires, nets, NIN et pièces RH ne sont plus montrés aux rôles qui n'ont des RH que la lecture ; les
+  listes (demandes, congés, avances, intérims) s'arrêtent à la société ; la RH d'une société ne modifie plus un
+  salarié d'une autre. **Désactiver une fiche salarié ferme son compte et déconnecte ses sessions** — sauf le
+  compte d'un Super Admin (seul un Super Admin le ferme) et le sien ; une réactivation ne rouvre pas le compte
+  (l'écran le dit, avec l'endroit où le rouvrir).
+- **Formations.** Chacun ne voit que ses demandes, celles de son équipe et ce qu'il doit trancher. Les pièces
+  d'une formation se téléchargent enfin : elles étaient rangées sous le mauvais type et refusées à tout le
+  monde (migration qui les requalifie).
+- **Juridique.** Renouveler un contrat restreint garde ses lecteurs désignés ; les rappels d'échéance ne nomment
+  plus une pièce restreinte ou d'une autre société ; la boîte « Motif de l'annulation » n'annule plus le
+  contrat quand on clique sur « Annuler ».
+- **Vue exacte.** Ce que le Super Admin FAIT en visualisant quelqu'un part à son propre nom, comme le bandeau
+  l'annonce — au journal comme dans les notifications.
+- **Administration déléguée.** Un compte qui reçoit l'Administration ne peut plus nommer un Super Admin, toucher
+  au compte d'un Super Admin, ni s'accorder lui-même des droits.
+- **Force de vente.** Un KAM qui change de BU, ou qui en est retiré, perd ses secteurs de l'ancienne (l'écran le
+  dit) ; on n'affecte à un secteur que des KAM de la BU. Le pilotage ne montre plus le chiffre d'affaires de
+  toutes les sociétés à un délégué : il se lit à la maille d'une BU (superviseur) ou de la Direction, dans les
+  sociétés que la personne voit.
+- **PCH.** La création, la modification et la suppression d'un appel d'offres, de ses lots, bons, livraisons et
+  soumissions passent par la porte du marché, lue en base ; corriger la caution n'efface plus la date limite ;
+  le rappel de dépôt ne part plus aux gestionnaires des autres sociétés.
+
+**Ce qui reste, nommé.** Les fiches d'un sponsoring et des deux prises en charge se chargent encore par leur
+identifiant seul, sans la porte de société (relevé de la phase 0) — décision de périmètre à prendre pour les
+validateurs d'une autre société. `SalesRepProfile.repId` n'a pas de relation : un compte supprimé y laisse une
+ligne orpheline (douze purgées dans la base de développement, aucune en production). Les « routes sans garde »
+du scanner (S16) sont des faux positifs, que le scanner doit apprendre à reconnaître.
+
+### GRAPHE AMD — PHASE 2 : UNE BUSINESS UNIT VISE PLUSIEURS SPÉCIALITÉS (2026-10)
+
+**Demande** (cahier des charges, §4, §5, §19, §20). « BU ≠ spécialité » : la BU Specialty Care vise la
+neurologie, la dermatologie et l'urologie. Une spécialité principale est facultative ; elle sert
+l'affichage et ne restreint rien.
+
+**Ce qui change.**
+- **Force de vente › Business Units** : chaque carte a une section **Spécialités visées** — choisir
+  dans le référentiel (avec un filtre), marquer une principale d'une étoile, décocher pour retirer.
+  La carte fermée nomme ce que la BU vise (« Neurologie ★ · Dermatologie · Urologie »).
+- **La création d'une BU** demande ses spécialités dès le départ ; elles se règlent aussi plus tard.
+- **Une étape de montage de plus** : « Choisir les spécialités », après le terrain. Une BU qui vise
+  des spécialités sans en désigner une principale est montée ; une BU sans spécialité ne l'est pas.
+- **Le référentiel des spécialités** dit quelles BU visent chacune ; retirer une spécialité visée est
+  refusé en nommant les BU (la retirer de ces BU, ou la fusionner) ; la fusion fait suivre les BU
+  et garde leur principale.
+- **Modifier une BU ne réécrit plus ce que le formulaire ne porte pas** : renommer une BU par un
+  formulaire partiel ou par l'assistant effaçait son code, sa couleur, son entité, son chef et son
+  superviseur.
+- **L'historique** dit ce qui entre, ce qui sort et la principale quand elle change.
+
+**Ce qui reste, nommé.** Le Directeur des Opérations (rôle à part) lit la Force de vente par défaut ;
+la lui ouvrir en écriture est une ligne de console. Les spécialités cibles d'un PRODUIT dans sa BU
+viennent en phase 3.
 
 ### GRAPHE AMD — PHASE 1B : UN PANEL, UNE SPÉCIALITÉ, UN HISTORIQUE (2026-10)
 

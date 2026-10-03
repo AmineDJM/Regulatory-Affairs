@@ -3,6 +3,8 @@ import { notFound } from "next/navigation";
 import { ArrowLeft, Video } from "lucide-react";
 import { requireModule } from "@/lib/session";
 import { userCan, hasGlobalView, hasRole, anyRoleFilter } from "@/lib/rbac";
+import { canAccessEntity } from "@/lib/entity-access";
+import { porteeModificationEvenement } from "@/lib/events/modification";
 import { prisma } from "@/lib/prisma";
 import { getEventDetail } from "@/lib/queries/events";
 import { PageHeader } from "@/components/shared/page-header";
@@ -46,7 +48,17 @@ export default async function EventDetailPage({ params }: { params: { id: string
   const user = await requireModule("EVENTS");
   const e = await getEventDetail(params.id);
   if (!e) notFound();
-  const canManage = userCan(user, "EVENTS", "UPDATE");
+  // LA PORTE DE LA FICHE (§118.184) : société, parties prenantes. Un identifiant ne suffit plus à ouvrir
+  // l'événement d'une autre société — hors de cette porte, il est introuvable, comme s'il n'existait pas.
+  if (!(await canAccessEntity(user, "EVENT", e.id, "VIEW"))) notFound();
+  // LE FORMULAIRE COMPLET : qui tranche les événements, ou la vue globale — et après la décision, la
+  // seule organisation (`events/modification.ts`, la même règle que l'action). Le droit UPDATE seul
+  // l'ouvrait à tous les délégués, sur les événements de leurs collègues.
+  const eventDecided = e.requestStatus ? isAdProDecided("EVENT", e.requestStatus) : false;
+  const porteeEdition = porteeModificationEvenement({
+    vueGlobale: hasGlobalView(user), tranche: userCan(user, "EVENTS", "VALIDATE"), decided: eventDecided,
+  });
+  const canManage = porteeEdition !== "AUCUNE" && (await canAccessEntity(user, "EVENT", e.id, "UPDATE"));
   const canDelete = userCan(user, "EVENTS", "DELETE");
   // Circuit de prise en charge (financement) — mêmes rôles que pour les congrès.
   const canMarketing = hasRole(user, "NATIONAL_SALES") || user.role === "SUPER_ADMIN";
@@ -67,9 +79,8 @@ export default async function EventDetailPage({ params }: { params: { id: string
   const materielStock = await contexteMaterielStock(user, "EVENT", e.id, canAllocateItems);
 
   // CORRIGER LA DEMANDE : le demandeur tant qu'elle n'est pas tranchée, la Direction toujours.
-  const eventDecided = e.requestStatus ? isAdProDecided("EVENT", e.requestStatus) : false;
   const canEditEventRequest = canEditAdProRequest(
-    { id: user.id, hasGlobalView: hasGlobalView(user), canUpdate: userCan(user, "EVENTS", "UPDATE") },
+    { id: user.id, hasGlobalView: hasGlobalView(user), canManage: userCan(user, "EVENTS", "VALIDATE") },
     { requesterId: e.requesterId ?? null, decided: eventDecided },
   );
   const eventEditValues = canEditEventRequest ? await adProEditValues("EVENT", e.id) : null;
@@ -117,6 +128,7 @@ export default async function EventDetailPage({ params }: { params: { id: string
               businessUnits: adPro.businessUnits, businessUnitDeduite: adPro.businessUnitDeduite,
             } : undefined}
             canDelete={canDelete}
+            organisationSeule={porteeEdition === "ORGANISATION"}
           />
         )}
         {/* Le DEMANDEUR corrige sa demande tant qu'elle n'est pas tranchée (les gestionnaires

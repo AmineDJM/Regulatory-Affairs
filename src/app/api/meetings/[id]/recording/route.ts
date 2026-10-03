@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getCurrentUser } from "@/lib/session";
+import { getCurrentUserPourEcrire } from "@/lib/session";
 import { userCan } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { putBlob, releaseBlob } from "@/lib/drive-storage";
@@ -16,7 +16,7 @@ export const dynamic = "force-dynamic";
  * transcription IA est coupée : l'organisateur peut alors coller le texte manuellement.
  */
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
-  const user = await getCurrentUser();
+  const user = await getCurrentUserPourEcrire();
   if (!user || !userCan(user, "MESSAGING", "VIEW")) return NextResponse.json({ error: "Non autorisé." }, { status: 403 });
 
   const meeting = await prisma.meeting.findUnique({

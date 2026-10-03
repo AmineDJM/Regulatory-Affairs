@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getCurrentUser } from "@/lib/session";
+import { getCurrentUserPourEcrire } from "@/lib/session";
 import { userCan } from "@/lib/rbac";
 import { recordAudit } from "@/lib/audit";
 import { runStorageSelfTest } from "@/lib/storage/self-test";
@@ -16,7 +16,7 @@ export const dynamic = "force-dynamic";
  * région. Le journal d'audit garde la trace de qui a lancé le test et de son issue.
  */
 export async function POST() {
-  const user = await getCurrentUser();
+  const user = await getCurrentUserPourEcrire();
   if (!user) return NextResponse.json({ error: "Non authentifié." }, { status: 401 });
   if (!userCan(user, "ADMIN", "UPDATE")) return NextResponse.json({ error: "Réservé au Super Admin." }, { status: 403 });
 

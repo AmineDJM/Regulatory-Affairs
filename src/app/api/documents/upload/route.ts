@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import type { Confidentiality, DocumentCategory, EntityType } from "@prisma/client";
-import { getCurrentUser } from "@/lib/session";
+import { getCurrentUserPourEcrire } from "@/lib/session";
 import { canAccessEntity } from "@/lib/entity-access";
 import { getAppSettings } from "@/lib/settings";
 import { persistUploadedDocument } from "@/lib/documents";
@@ -16,7 +16,7 @@ import { shouldMirrorToDrive } from "@/lib/drive/mirror-path";
  * limité (borne de **taille par fichier** réglable en Administration).
  */
 export async function POST(req: NextRequest) {
-  const user = await getCurrentUser();
+  const user = await getCurrentUserPourEcrire();
   if (!user) return NextResponse.json({ error: "Non authentifié." }, { status: 401 });
 
   const form = await req.formData();

@@ -158,6 +158,8 @@ export const ENTITE_DU_MODELE: Readonly<Record<string, EntityType>> = {
   BdProject: "BD_PROJECT",
   // L'écriture de trésorerie (§118.176) : ses pièces jointes et commentaires partent avec elle.
   FinanceTransaction: "FINANCE_TRANSACTION",
+  // Une formation (§118.184) : ses pièces s'écrivaient sous DOSSIER, donc ne la suivaient pas.
+  Training: "TRAINING",
 };
 
 /**

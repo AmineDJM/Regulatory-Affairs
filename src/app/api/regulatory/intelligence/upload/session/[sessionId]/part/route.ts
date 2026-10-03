@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getCurrentUser } from "@/lib/session";
+import { getCurrentUserPourEcrire } from "@/lib/session";
 import { regCan, resolveRegCompanyIdFor } from "@/lib/regulatory/intelligence/access";
 import { putUploadPart } from "@/lib/regulatory/intelligence/upload/session";
 
@@ -14,7 +14,7 @@ export const maxDuration = 120;
 
 export async function PUT(req: NextRequest, { params }: { params: { sessionId: string } }) {
   try {
-    const user = await getCurrentUser();
+    const user = await getCurrentUserPourEcrire();
     if (!user) return NextResponse.json({ error: "Non authentifié." }, { status: 401 });
     if (!regCan(user, "regulatory.dossier.upload")) return NextResponse.json({ error: "Non autorisé." }, { status: 403 });
     const companyId = await resolveRegCompanyIdFor(user.id);

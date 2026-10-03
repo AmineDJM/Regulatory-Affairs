@@ -6,7 +6,10 @@ import {
 } from "@prisma/client";
 import type { CongressRequestStatus } from "@prisma/client";
 import { requireUser } from "@/lib/session";
-import { userCan, anyRoleFilter } from "@/lib/rbac";
+import { userCan, anyRoleFilter, hasGlobalView } from "@/lib/rbac";
+import { canAccessEntity } from "@/lib/entity-access";
+import { isAdProDecided } from "@/lib/ad-pro-edit";
+import { porteeModificationEvenement, champsModifies, CHAMPS_ORGANISATION } from "@/lib/events/modification";
 import { prisma } from "@/lib/prisma";
 import { supprimerReversible } from "@/lib/suppression/coeur";
 import { moneyEntityOf } from "@/lib/company";
@@ -176,10 +179,25 @@ export async function createEvent(formData: FormData): Promise<ActionResult> {
 
 export async function updateEvent(formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
-  if (!userCan(user, "EVENTS", "UPDATE")) return { ok: false, error: "Non autorisé." };
+  // LE FORMULAIRE COMPLET est à qui TRANCHE les événements, ou à la vue globale (§118.184). Le droit
+  // UPDATE seul (délégués, National Sales) l'ouvrait : tout délégué réécrivait l'événement d'un
+  // collègue. Le demandeur corrige SA demande par « Modifier la demande » (`updateAdProRequest`).
+  const vueGlobale = hasGlobalView(user);
+  const tranche = userCan(user, "EVENTS", "VALIDATE");
+  if (!vueGlobale && !tranche) {
+    return { ok: false, error: "Seuls la Direction et qui valide les événements modifient un événement en entier — le demandeur corrige sa demande depuis « Modifier la demande »." };
+  }
   const id = fdStr(formData, "id");
   const name = fdStr(formData, "name");
   if (!id || !name) return { ok: false, error: "Paramètres manquants." };
+  // La porte de la FICHE : société, parties prenantes. Hors d'elle, l'événement est introuvable.
+  if (!(await canAccessEntity(user, "EVENT", id, "UPDATE"))) return { ok: false, error: "Événement introuvable." };
+  const avant = await prisma.event.findUnique({ where: { id } });
+  if (!avant) return { ok: false, error: "Événement introuvable." };
+  const portee = porteeModificationEvenement({
+    vueGlobale, tranche,
+    decided: avant.requestStatus ? isAdProDecided("EVENT", avant.requestStatus) : false,
+  });
   // LA MÊME LISTE QU'À LA CRÉATION : exiger à la création et laisser vider à la modification
   // n'exige rien du tout — il suffirait d'enregistrer une seconde fois.
   const manquants = champsManquants(formData);
@@ -192,32 +210,49 @@ export async function updateEvent(formData: FormData): Promise<ActionResult> {
   }
   const saisi = statutSaisi(formData);
   if (!saisi.ok) return saisi;
-  await prisma.event.update({
-    where: { id },
-    data: {
-      businessUnitId: fdStr(formData, "businessUnitId") || undefined,
-      name,
-      type: inEnum(EventType, fdStr(formData, "type"), "CONGRESS"),
-      scope: inEnum(EventScope, fdStr(formData, "scope"), "NATIONAL"),
-      format: inEnum(EventFormat, fdStr(formData, "format"), "PRESENTIAL"),
-      // `undefined` = ON NE TOUCHE PAS. Écrire « DRAFT » par défaut ramènerait en brouillon un
-      // événement validé dès qu'un formulaire ne porte pas la case (§118.16).
-      status: saisi.statut ? inEnum(EventStatus, saisi.statut, "DRAFT") : undefined,
-      startDate: fdDate(formData, "startDate"),
-      endDate: fdDate(formData, "endDate"),
-      location: fdStr(formData, "location"),
-      city: fdStr(formData, "city"),
-      country: fdStr(formData, "country"),
-      specialty: fdStr(formData, "specialty"),
-      doctor: couple.medecins,
-      products: couple.produits,
-      description: fdStr(formData, "description"),
-      capacity: fdNum(formData, "capacity") ? Math.round(fdNum(formData, "capacity")!) : null,
-      estimatedBudget: fdNum(formData, "estimatedBudget"),
-      meetingLink: fdStr(formData, "meetingLink"),
-      responsibleId: fdStr(formData, "responsibleId"),
-    },
-  });
+  const data = {
+    businessUnitId: fdStr(formData, "businessUnitId") || undefined,
+    name,
+    type: inEnum(EventType, fdStr(formData, "type"), "CONGRESS"),
+    scope: inEnum(EventScope, fdStr(formData, "scope"), "NATIONAL"),
+    format: inEnum(EventFormat, fdStr(formData, "format"), "PRESENTIAL"),
+    // `undefined` = ON NE TOUCHE PAS. Écrire « DRAFT » par défaut ramènerait en brouillon un
+    // événement validé dès qu'un formulaire ne porte pas la case (§118.16).
+    status: saisi.statut ? inEnum(EventStatus, saisi.statut, "DRAFT") : undefined,
+    startDate: fdDate(formData, "startDate"),
+    endDate: fdDate(formData, "endDate"),
+    location: fdStr(formData, "location"),
+    city: fdStr(formData, "city"),
+    country: fdStr(formData, "country"),
+    specialty: fdStr(formData, "specialty"),
+    doctor: couple.medecins,
+    products: couple.produits,
+    description: fdStr(formData, "description"),
+    capacity: fdNum(formData, "capacity") ? Math.round(fdNum(formData, "capacity")!) : null,
+    estimatedBudget: fdNum(formData, "estimatedBudget"),
+    meetingLink: fdStr(formData, "meetingLink"),
+    responsibleId: fdStr(formData, "responsibleId"),
+  };
+  // APRÈS LA DÉCISION, ce qui a fondé l'accord ne se réécrit plus — sauf par la vue globale. On le DIT
+  // en nommant les champs, au lieu d'ignorer en silence une modification que la personne croirait faite.
+  if (portee === "ORGANISATION") {
+    const figes = champsModifies(avant, data);
+    if (figes.length > 0) {
+      return {
+        ok: false,
+        error: `La prise en charge est décidée : ${figes.join(", ")} ne se modifie${figes.length > 1 ? "nt" : ""} plus qu'avec la Direction. L'organisation (lien, capacité, responsable, description, état) reste modifiable.`,
+      };
+    }
+  }
+  const changes = [...champsModifies(avant, data), ...champsModifies(avant, data, CHAMPS_ORGANISATION)];
+  await prisma.event.update({ where: { id }, data });
+  // L'audit qui manquait (audit 360°, R16) : qui a changé quoi, et si c'était après la décision.
+  if (changes.length > 0) {
+    await recordAudit({
+      actorId: user.id, action: "UPDATE", module: "Events", entityType: "EVENT", entityId: id,
+      summary: `Événement « ${name} » modifié${portee === "TOUT" && avant.requestStatus && isAdProDecided("EVENT", avant.requestStatus) ? " APRÈS DÉCISION" : ""} — ${changes.join(", ")}`,
+    });
+  }
   revalidatePath(`/events/${id}`);
   return { ok: true };
 }

@@ -66,6 +66,9 @@ suite("Secteurs de la force de vente — écran et conversation, mêmes actions"
       prisma.businessUnit.create({ data: { name: `${TAG}Cardiologie` } }),
     ]);
     buId = bu.id; autreBuId = autre.id;
+    // Les KAM qu'on affecte aux secteurs sont des KAM de la BU — l'écran ne propose que ceux-là, et l'action
+    // refuse les autres (§118.184 — S15).
+    await prisma.salesRepProfile.createMany({ data: [{ repId: kam1, businessUnitId: buId }, { repId: kam2, businessUnitId: buId }] });
 
     const [i1, i2, i3] = await Promise.all([
       prisma.medicalInstitution.create({ data: { name: `${TAG}CHU Constantine`, type: "CHU", city: "Constantine" } }),

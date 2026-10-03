@@ -10,6 +10,9 @@ import { toNumber } from "@/lib/utils";
 import { controlerCommande } from "@/lib/pch/market-math";
 import { fdStr, fdNum, fdDate, fdBool, type ActionResult } from "@/lib/actions/types";
 import { unitFromBoxPrice } from "@/lib/pch/box-economics";
+import { canAccessEntity } from "@/lib/entity-access";
+import { peutAgirSurLeMarche } from "@/lib/pch/porte-marche";
+import type { SessionUser } from "@/lib/rbac";
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
@@ -54,6 +57,7 @@ export async function createSubmission(formData: FormData): Promise<ActionResult
   if (!userCan(user, "PCH", "CREATE")) return nonAutorise;
   const tenderId = fdStr(formData, "tenderId");
   if (!tenderId) return { ok: false, error: "Appel d'offres manquant." };
+  if (!(await peutAgirSurLeMarche(user, tenderId, "CREATE"))) return { ok: false, error: "Appel d'offres introuvable." };
   const tender = await prisma.pchTender.findUnique({ where: { id: tenderId }, select: { id: true, reference: true } });
   if (!tender) return { ok: false, error: "Appel d'offres introuvable." };
 
@@ -76,13 +80,17 @@ export async function createSubmission(formData: FormData): Promise<ActionResult
   return { ok: true, id: created.id };
 }
 
-/** Garde commune : une version verrouillée ne se modifie plus, quoi qu'on lui demande. */
-async function loadEditableSubmission(id: string) {
+/**
+ * Garde commune : une version verrouillée ne se modifie plus, quoi qu'on lui demande — et une version
+ * d'un marché hors de portée n'existe pas pour la personne (§118.184 — S11 : la porte se lit sur le
+ * marché de la VERSION, jamais sur celui qu'un formulaire annoncerait).
+ */
+async function loadEditableSubmission(user: SessionUser, id: string) {
   const s = await prisma.pchSubmission.findUnique({
     where: { id },
     select: { id: true, tenderId: true, version: true, lockedAt: true, checklist: true, tender: { select: { reference: true } } },
   });
-  if (!s) return { error: "Version de soumission introuvable." as const };
+  if (!s || !(await peutAgirSurLeMarche(user, s.tenderId, "UPDATE"))) return { error: "Version de soumission introuvable." as const };
   if (s.lockedAt) return { error: "Cette version a été déposée : elle ne se modifie plus." as const };
   return { submission: s };
 }
@@ -92,7 +100,7 @@ export async function updateSubmission(formData: FormData): Promise<ActionResult
   if (!userCan(user, "PCH", "UPDATE")) return nonAutorise;
   const id = fdStr(formData, "id");
   if (!id) return { ok: false, error: "Identifiant manquant." };
-  const loaded = await loadEditableSubmission(id);
+  const loaded = await loadEditableSubmission(user, id);
   if ("error" in loaded) return { ok: false, error: loaded.error };
 
   const statusRaw = fdStr(formData, "status");
@@ -112,7 +120,7 @@ export async function toggleChecklistItem(formData: FormData): Promise<ActionRes
   const id = fdStr(formData, "id");
   const key = fdStr(formData, "itemKey");
   if (!id || !key) return { ok: false, error: "Élément manquant." };
-  const loaded = await loadEditableSubmission(id);
+  const loaded = await loadEditableSubmission(user, id);
   if ("error" in loaded) return { ok: false, error: loaded.error };
 
   const items = Array.isArray(loaded.submission.checklist) ? (loaded.submission.checklist as Array<Record<string, unknown>>) : [];
@@ -133,7 +141,7 @@ export async function addChecklistItem(formData: FormData): Promise<ActionResult
   const id = fdStr(formData, "id");
   const label = fdStr(formData, "label");
   if (!id || !label) return { ok: false, error: "Libellé manquant." };
-  const loaded = await loadEditableSubmission(id);
+  const loaded = await loadEditableSubmission(user, id);
   if ("error" in loaded) return { ok: false, error: loaded.error };
 
   const items = Array.isArray(loaded.submission.checklist) ? (loaded.submission.checklist as Array<Record<string, unknown>>) : [];
@@ -158,7 +166,7 @@ export async function submitSubmission(formData: FormData): Promise<ActionResult
   if (!userCan(user, "PCH", "UPDATE")) return nonAutorise;
   const id = fdStr(formData, "id");
   if (!id) return { ok: false, error: "Identifiant manquant." };
-  const loaded = await loadEditableSubmission(id);
+  const loaded = await loadEditableSubmission(user, id);
   if ("error" in loaded) return { ok: false, error: loaded.error };
   const { submission } = loaded;
 
@@ -243,7 +251,7 @@ export async function setLineResult(formData: FormData): Promise<ActionResult> {
     where: { id: lineId },
     select: { id: true, tenderId: true, designation: true, status: true, awardedQuantityUnits: true, awardedUnitPriceDzd: true, quantityUnits: true, submittedQuantityUnits: true },
   });
-  if (!line) return { ok: false, error: "Ligne introuvable." };
+  if (!line || !(await peutAgirSurLeMarche(user, line.tenderId, "UPDATE"))) return { ok: false, error: "Ligne introuvable." };
 
   const awardedQty = posInt(formData, "awardedQuantityUnits");
   const awardedPrice = fdNum(formData, "awardedUnitPriceDzd");
@@ -284,6 +292,7 @@ export async function createContractFromAward(formData: FormData): Promise<Actio
   if (!userCan(user, "PCH", "UPDATE") || !userCan(user, "LEGAL", "CREATE")) return nonAutorise;
   const tenderId = fdStr(formData, "tenderId");
   if (!tenderId) return { ok: false, error: "Appel d'offres manquant." };
+  if (!(await peutAgirSurLeMarche(user, tenderId, "UPDATE"))) return { ok: false, error: "Appel d'offres introuvable." };
 
   const tender = await prisma.pchTender.findUnique({
     where: { id: tenderId },
@@ -358,8 +367,12 @@ export async function linkContractToTender(formData: FormData): Promise<ActionRe
   const tenderId = fdStr(formData, "tenderId");
   const contractId = fdStr(formData, "contractId");
   if (!tenderId || !contractId) return { ok: false, error: "Marché ou contrat manquant." };
+  if (!(await peutAgirSurLeMarche(user, tenderId, "UPDATE"))) return { ok: false, error: "Appel d'offres introuvable." };
+  // On ne rattache que ce qu'on peut LIRE : le formulaire demande l'identifiant « visible dans son
+  // adresse /legal/… ». Un contrat restreint ou d'une autre société restait sinon rattachable — et se
+  // lisait ensuite dans la fiche du marché (§118.184 — S11).
   const doc = await prisma.legalDocument.findUnique({ where: { id: contractId }, select: { id: true, title: true, tenderId: true } });
-  if (!doc) return { ok: false, error: "Contrat introuvable." };
+  if (!doc || !(await canAccessEntity(user, "LEGAL_DOCUMENT", contractId, "VIEW"))) return { ok: false, error: "Contrat introuvable." };
   if (doc.tenderId && doc.tenderId !== tenderId) return { ok: false, error: "Ce contrat est déjà rattaché à un autre marché." };
 
   await prisma.legalDocument.update({ where: { id: contractId }, data: { tenderId, updatedById: user.id } });
@@ -381,7 +394,9 @@ export async function createAmendment(formData: FormData): Promise<ActionResult>
     where: { id: contractId },
     select: { id: true, title: true, kind: true, companyId: true, tenderId: true, amendments: { select: { id: true } } },
   });
-  if (!contract) return { ok: false, error: "Contrat introuvable." };
+  // L'avenant se pose sur un contrat que la personne LIT — restreint, ou d'une autre société, il n'existe
+  // pas pour elle (§118.184 — S11 ; la règle des pièces Legal, `accesAuxPiecesLegal`).
+  if (!contract || !(await canAccessEntity(user, "LEGAL_DOCUMENT", contractId, "VIEW"))) return { ok: false, error: "Contrat introuvable." };
   if (contract.kind !== "CONTRACT" && contract.kind !== "AGREEMENT") {
     return { ok: false, error: "Un avenant ne peut viser qu'un contrat ou une convention." };
   }
@@ -419,7 +434,7 @@ export async function setAmendmentEffective(formData: FormData): Promise<ActionR
   const id = fdStr(formData, "id");
   if (!id) return { ok: false, error: "Identifiant manquant." };
   const doc = await prisma.legalDocument.findUnique({ where: { id }, select: { id: true, kind: true, title: true, tenderId: true } });
-  if (!doc || doc.kind !== "AMENDMENT") return { ok: false, error: "Avenant introuvable." };
+  if (!doc || doc.kind !== "AMENDMENT" || !(await canAccessEntity(user, "LEGAL_DOCUMENT", id, "UPDATE"))) return { ok: false, error: "Avenant introuvable." };
   const effectiveAt = fdDate(formData, "effectiveAt") ?? new Date();
 
   await prisma.legalDocument.update({
@@ -449,7 +464,7 @@ export async function addContractLine(formData: FormData): Promise<ActionResult>
     where: { id: documentId },
     select: { id: true, kind: true, amendsId: true, tenderId: true, title: true },
   });
-  if (!doc) return { ok: false, error: "Pièce introuvable." };
+  if (!doc || !(await canAccessEntity(user, "LEGAL_DOCUMENT", documentId, "UPDATE"))) return { ok: false, error: "Pièce introuvable." };
   const contractId = doc.kind === "AMENDMENT" ? doc.amendsId : doc.id;
   if (!contractId) return { ok: false, error: "Cet avenant n'est rattaché à aucun contrat." };
   const quantityUnits = Math.round(qty);
@@ -485,9 +500,9 @@ export async function deleteContractLine(formData: FormData): Promise<ActionResu
   if (!id) return { ok: false, error: "Identifiant manquant." };
   const line = await prisma.pchContractLine.findUnique({
     where: { id },
-    select: { id: true, designation: true, quantityUnits: true, document: { select: { tenderId: true, title: true } } },
+    select: { id: true, designation: true, quantityUnits: true, documentId: true, document: { select: { tenderId: true, title: true } } },
   });
-  if (!line) return { ok: false, error: "Ligne introuvable." };
+  if (!line || !(await canAccessEntity(user, "LEGAL_DOCUMENT", line.documentId, "UPDATE"))) return { ok: false, error: "Ligne introuvable." };
   await prisma.pchContractLine.delete({ where: { id } });
   await recordAudit({
     actorId: user.id, action: "DELETE", module: "LEGAL",
@@ -559,7 +574,7 @@ export async function addOrderLine(formData: FormData): Promise<ActionResult> {
     where: { id: orderId },
     select: { id: true, tenderId: true, contractId: true, reference: true },
   });
-  if (!order) return { ok: false, error: "Bon de commande introuvable." };
+  if (!order || !(await peutAgirSurLeMarche(user, order.tenderId, "UPDATE"))) return { ok: false, error: "Bon de commande introuvable." };
 
   const contractLineId = fdStr(formData, "contractLineId");
   const force = fdBool(formData, "force");
@@ -626,7 +641,7 @@ export async function deleteOrderLine(formData: FormData): Promise<ActionResult>
     where: { id },
     select: { id: true, designation: true, order: { select: { tenderId: true } } },
   });
-  if (!line) return { ok: false, error: "Ligne introuvable." };
+  if (!line || !(await peutAgirSurLeMarche(user, line.order.tenderId, "UPDATE"))) return { ok: false, error: "Ligne introuvable." };
   await prisma.pchOrderLine.delete({ where: { id } });
   revalidatePath(`/pch/${line.order.tenderId}`);
   return { ok: true };
@@ -659,7 +674,7 @@ export async function createDelivery(formData: FormData): Promise<ActionResult> 
       },
     },
   });
-  if (!order) return { ok: false, error: "Bon de commande introuvable." };
+  if (!order || !(await peutAgirSurLeMarche(user, order.tenderId, "UPDATE"))) return { ok: false, error: "Bon de commande introuvable." };
 
   const deliveredAt = fdDate(formData, "deliveredAt");
   const lignes: { orderLineId: string; designation: string; qty: number; productId: string | null }[] = [];
@@ -748,7 +763,7 @@ export async function deleteDelivery(formData: FormData): Promise<ActionResult> 
     where: { id },
     select: { id: true, reference: true, order: { select: { tenderId: true } }, stockMovements: { select: { id: true } } },
   });
-  if (!d) return { ok: false, error: "Livraison introuvable." };
+  if (!d || !(await peutAgirSurLeMarche(user, d.order.tenderId, "DELETE"))) return { ok: false, error: "Livraison introuvable." };
   // Les mouvements de stock liés survivent (SetNull) — les supprimer en cascade réécrirait
   // l'histoire du stock depuis un autre module. On le DIT au lieu de le faire en silence.
   await prisma.pchDelivery.delete({ where: { id } });

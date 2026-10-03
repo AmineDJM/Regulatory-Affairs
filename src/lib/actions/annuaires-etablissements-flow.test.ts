@@ -549,6 +549,8 @@ suite("Établissements, services et liens des praticiens (§118.172)", () => {
     beforeAll(async () => {
       const b = await prisma.businessUnit.create({ data: { name: `${TAG}BU Onco` }, select: { id: true } });
       bu = b.id;
+      // Le KAM qu'on affecte au secteur est un KAM de cette BU — l'écran ne propose que ceux-là (§118.184 — S15).
+      await prisma.salesRepProfile.upsert({ where: { repId: kamA }, create: { repId: kamA, businessUnitId: bu }, update: { businessUnitId: bu } });
       // Trois praticiens du panel à venir : un en cardiologie au CHU, un au CHU SANS service, un à l'EPH.
       const mk = (name: string, institutionId: string, serviceId: string | null) =>
         prisma.medicalDoctor.create({ data: { name: `${TAG}${name}`, institutionId, serviceId }, select: { id: true } });

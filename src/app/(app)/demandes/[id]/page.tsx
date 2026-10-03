@@ -2,7 +2,8 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import { requireModule } from "@/lib/session";
-import { userCan, hasGlobalView, scopeAdminRequests } from "@/lib/rbac";
+import { userCan, hasGlobalView } from "@/lib/rbac";
+import { clauseDemandeLisible } from "@/lib/queries/admin-requests";
 import { prisma } from "@/lib/prisma";
 import { fieldLabels, REQUEST_TYPE_FIELDS } from "@/lib/admin-requests";
 import { addRequestComment } from "@/lib/actions/admin-request-actions";
@@ -37,11 +38,9 @@ export default async function RequestDetailPage({ params }: { params: { id: stri
   const user = await requireModule("ADMIN_REQUESTS");
   // VALIDATEUR D'UNE PIÈCE = ACCÈS À TOUTE LA DEMANDE. On ne valide pas une facture hors de son
   // contexte : le validateur choisi voit la demande entière, même hors de son périmètre habituel.
-  const isPieceValidator = (await prisma.validationRequest.count({
-    where: { entityType: "ADMIN_REQUEST", entityId: params.id, documentId: { not: null }, steps: { some: { validatorId: user.id } } },
-  })) > 0;
+  // La règle vit dans `clauseDemandeLisible`, lue aussi par le geste de commentaire (§118.184).
   const req = await prisma.administrativeRequest.findFirst({
-    where: { id: params.id, ...(isPieceValidator ? { deletedAt: null } : scopeAdminRequests(user)) },
+    where: await clauseDemandeLisible(user, params.id),
     include: {
       requester: { select: { name: true, employee: { select: { departmentId: true } } } },
       concerned: { select: { name: true } },

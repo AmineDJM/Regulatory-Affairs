@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { notFound } from "next/navigation";
 import { ArrowRight, CalendarRange } from "lucide-react";
 import { requireModule } from "@/lib/session";
 import { userCan, hasGlobalView } from "@/lib/rbac";
@@ -11,10 +12,11 @@ import { MEDICAL_TABS } from "@/lib/labels";
 import { Badge } from "@/components/ui/badge";
 import { loadPanelPlanifiable, loadPlanTournee } from "@/lib/queries/tour-schedule";
 import {
-  GRANULARITE_LABELS, STATUT_PLAN_LABELS, estJourOuvrePourTournee, periodeSuivante, retardDeSoumission,
+  GRANULARITE_LABELS, STATUT_PLAN_LABELS, accesAuPlan, estJourOuvrePourTournee, periodeSuivante, retardDeSoumission,
   type StatutPlan,
 } from "@/lib/sfe/tournee";
 import { lireReglageTournee } from "@/lib/sfe/tournee-reglage";
+import { isManagerOfUser } from "@/lib/departments";
 import { OuvrirPlan } from "./ouvrir-plan";
 import { Planificateur } from "./planificateur";
 
@@ -79,6 +81,21 @@ export default async function PlanDeTourneePage({ searchParams }: { searchParams
 
   const planId = searchParams?.plan ?? null;
   const plan = planId ? await loadPlanTournee(planId) : null;
+  // QUI VOIT CE PLAN (§118.184) — la même règle que les actions. Un plan porte le panel du KAM et le
+  // motif d'un rejet : sans cette garde, quiconque avait le module et l'identifiant l'ouvrait.
+  // Hors de la règle, la page répond comme pour un plan qui n'existe pas.
+  const acces = plan
+    ? accesAuPlan({
+      userId: user.id, vueGlobale: hasGlobalView(user), repId: plan.repId,
+      reviewerId: plan.reviewerId, escalatedToId: plan.escalatedToId, statut: plan.status as StatutPlan,
+      // La chaîne n'est lue que si rien d'autre n'ouvre le plan : une lecture de l'organigramme en moins
+      // pour le KAM, son validateur et le N+2.
+      chaineDuKam: plan.repId === user.id || plan.reviewerId === user.id || plan.escalatedToId === user.id || hasGlobalView(user)
+        ? []
+        : (await isManagerOfUser(user.id, plan.repId)) ? [user.id] : [],
+    })
+    : null;
+  if (plan && !acces?.voir) notFound();
   const panel = plan ? await loadPanelPlanifiable(plan.repId) : [];
 
   // LES JOURS OUVRÉS DE LA PÉRIODE — la semaine ouvrée algérienne (dimanche → jeudi). Proposer
@@ -127,11 +144,10 @@ export default async function PlanDeTourneePage({ searchParams }: { searchParams
             jeSuisLeKam={plan.repId === user.id}
             // QUI TRANCHE : le validateur tant que le plan est chez lui, le N+2 dès qu'il est
             // escaladé. L'action le revérifie — l'écran ne fait que ne pas proposer l'impossible.
-            jePeuxDecider={
-              hasGlobalView(user)
-              || (plan.status === "SUBMITTED" && plan.reviewerName !== null && plan.repId !== user.id)
-            }
-            jePeuxEscalader={plan.status === "SUBMITTED" && plan.repId !== user.id}
+            // LA MÊME RÈGLE QUE L'ACTION (§118.184) : sur un plan ESCALADÉ, c'est le N+2 qui tranche — l'ancien
+            // test ne proposait la décision que sur un plan soumis, et le N+2 restait sans bouton.
+            jePeuxDecider={acces?.decider ?? false}
+            jePeuxEscalader={acces?.escalader ?? false}
           />
         </>
       ) : (

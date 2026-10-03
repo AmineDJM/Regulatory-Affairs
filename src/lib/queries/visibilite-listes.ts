@@ -1,7 +1,8 @@
 import type { Prisma } from "@prisma/client";
-import { companyScopedWhere, platformScope } from "@/lib/company";
+import { prisma } from "@/lib/prisma";
+import { companyScopedWhere, ficheScopedWhere, platformScope } from "@/lib/company";
 import {
-  scopeAdminRequests, scopeCongressIntl, scopeCongressNational, scopeSales, userCan, type SessionUser,
+  hasGlobalView, scopeAdminRequests, scopeCongressIntl, scopeCongressNational, scopeSales, userCan, type SessionUser,
 } from "@/lib/rbac";
 import { legalReaderWhere, legalViewScope, PURCHASE_CHAIN_KINDS, type LegalViewScope } from "@/lib/lecteurs/legal";
 
@@ -45,6 +46,30 @@ export async function clauseSponsoringsVisibles(userId: string): Promise<Prisma.
   return (await platformScope(userId)) as Prisma.SponsoringRequestWhereInput;
 }
 
+/**
+ * `/formations` — QUI VOIT UNE FORMATION (§118.184).
+ *
+ * La page listait TOUTES les formations de la société à tout salarié — montants demandés et accordés,
+ * motifs, pièces (audit 360°, S4). Une demande de formation est un dossier de PERSONNE : la voient
+ * celles et ceux qui la portent ou la tranchent.
+ *   • les RH (qui la valident ou la gèrent) et la vue globale : toutes, dans l'entité au sens strict ;
+ *   • sinon : la sienne, celles où l'on est participant, celles dont on est le N+1 enregistré, et
+ *     celles de ses subordonnés DIRECTS — la liste où l'on tranche l'étape « N+1 ». Le reste de la
+ *     chaîne au-dessus ouvre la FICHE (`canAccessEntity`), comme il peut trancher (`deciderFor`).
+ */
+export async function clauseFormationsVisibles(user: SessionUser): Promise<Prisma.TrainingWhereInput> {
+  const rh = userCan(user, "RH", "VALIDATE") || userCan(user, "RH", "UPDATE");
+  if (rh || hasGlobalView(user)) return (await platformScope(user.id)) as Prisma.TrainingWhereInput;
+  const moi = await prisma.employee.findUnique({ where: { userId: user.id }, select: { id: true } });
+  return {
+    OR: [
+      { requesterId: user.id },
+      { participants: { some: { userId: user.id } } },
+      ...(moi ? [{ managerId: moi.id }, { requester: { employee: { managerId: moi.id } } }] : []),
+    ],
+  };
+}
+
 /** Le livre des Finances (`getFinanceData`, `getComptaData`) — l'entité au sens strict. */
 export async function clauseEcrituresVisibles(userId: string): Promise<Prisma.FinanceTransactionWhereInput> {
   return (await platformScope(userId)) as Prisma.FinanceTransactionWhereInput;
@@ -84,9 +109,27 @@ export async function clauseEvenementsVisibles(userId: string): Promise<Prisma.E
   return (await platformScope(userId)) as Prisma.EventWhereInput;
 }
 
-/** `/pch` (`getPchTenders`) — l'entité ; un marché sans entité reste visible pour qu'on le rattache. */
-export async function clauseMarchesPchVisibles(userId: string): Promise<Prisma.PchTenderWhereInput> {
-  return companyScopedWhere<Prisma.PchTenderWhereInput>(userId, {});
+/**
+ * `/pch` (`getPchTenders`) — l'entité ; un marché sans entité reste visible pour qu'on le rattache.
+ *
+ * LA FICHE lit TOUTES les sociétés auxquelles la personne a droit, pas seulement celle que la barre
+ * supérieure affiche (§118.184 — audit 360°, S11) : la fiche, l'export et les gestes sur un marché ne
+ * lisaient AUCUNE entité — un gestionnaire PCH d'Adventum ouvrait, exportait et modifiait le marché
+ * de Pharmagène par son identifiant. Suivre la sélection d'en-tête sur une fiche ferait refuser un
+ * lien de notification dès qu'on regarde une autre société (§118.27) : c'est la règle de toutes les
+ * fiches cloisonnées (`ficheScopedWhere`).
+ */
+export async function clauseMarchesPchVisibles(userId: string, pour: "liste" | "fiche" = "liste"): Promise<Prisma.PchTenderWhereInput> {
+  if (pour === "liste") return companyScopedWhere<Prisma.PchTenderWhereInput>(userId, {});
+  const entite = await ficheScopedWhere<Prisma.PchTenderWhereInput>(userId, {});
+  // Sans restriction d'entité, la clause vide est rendue TELLE QUELLE. Prisma ÉCARTE un `{}` placé dans un
+  // `OR` au lieu de le lire « toutes les lignes » — mesuré : `OR: [{}, { responsibleId }]` ne rendait au
+  // Super Admin que les marchés dont il est responsable, et chaque geste sur un marché lui était refusé.
+  if (Object.keys(entite).length === 0) return entite;
+  // Le RESPONSABLE et l'AUTEUR d'un marché le rouvrent même d'une autre société : le formulaire propose
+  // tous les comptes actifs comme responsable, et le rappel d'échéance les prévient — leur fermer la
+  // fiche ferait d'une notification une impasse (§118.63).
+  return { OR: [entite, { responsibleId: userId }, { createdById: userId }] };
 }
 
 /**
@@ -94,8 +137,8 @@ export async function clauseMarchesPchVisibles(userId: string): Promise<Prisma.P
  * la liste des marchés les charge avec lui. Un bon de commande est donc visible quand son marché
  * l'est — il n'a pas d'entité propre, il hérite de celle du marché.
  */
-export async function clauseBonsDeCommandePchVisibles(userId: string): Promise<Prisma.PchOrderWhereInput> {
-  return { tender: await clauseMarchesPchVisibles(userId) };
+export async function clauseBonsDeCommandePchVisibles(userId: string, pour: "liste" | "fiche" = "liste"): Promise<Prisma.PchOrderWhereInput> {
+  return { tender: await clauseMarchesPchVisibles(userId, pour) };
 }
 
 /** `/courriers` — l'entité ; un pli sans entité reste visible pour qu'on le rattache. */

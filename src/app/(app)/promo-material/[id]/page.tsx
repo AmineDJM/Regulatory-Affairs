@@ -73,9 +73,9 @@ export default async function PromoMaterialDetailPage({ params }: { params: { id
   // CORRIGER LA DEMANDE : le demandeur tant que l'agence n'est pas choisie, la Direction
   // toujours. Au-delà du choix d'agence, le bon de commande et le visa s'appuient sur ce qui a
   // été arrêté — corriger après coup ferait diverger la pièce et le dossier.
-  const promoDecided = isAdProDecided("PROMO_MATERIAL", pm.status);
+  const promoDecided = isAdProDecided("PROMO_MATERIAL", pm.status, pm.circuitState);
   const canEditPromoRequest = canEditAdProRequest(
-    { id: user.id, hasGlobalView: hasGlobalView(user.role), canUpdate: userCan(user, "PROMO_MATERIAL", "UPDATE") },
+    { id: user.id, hasGlobalView: hasGlobalView(user.role), canManage: userCan(user, "PROMO_MATERIAL", "VALIDATE") },
     { requesterId: pm.requesterId, decided: promoDecided },
   );
   const promoEditValues = canEditPromoRequest ? await adProEditValues("PROMO_MATERIAL", pm.id) : null;

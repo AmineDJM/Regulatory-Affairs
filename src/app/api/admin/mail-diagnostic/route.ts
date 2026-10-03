@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getCurrentUser } from "@/lib/session";
+import { getCurrentUserPourEcrire } from "@/lib/session";
 import { userCan } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { mailDiagnostic } from "@/lib/mail";
@@ -13,7 +13,7 @@ export const dynamic = "force-dynamic";
  * IP bloquée / identifiants / timeout). Aucune action sur la boîte.
  */
 export async function POST(req: NextRequest) {
-  const user = await getCurrentUser();
+  const user = await getCurrentUserPourEcrire();
   if (!user || !userCan(user, "ADMIN", "VIEW")) return NextResponse.json({ error: "Non autorisé." }, { status: 403 });
 
   const body = (await req.json().catch(() => ({}))) as { userId?: string };

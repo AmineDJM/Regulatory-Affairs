@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getCurrentUser } from "@/lib/session";
+import { getCurrentUserPourEcrire } from "@/lib/session";
 import { regCan, resolveRegCompanyIdFor } from "@/lib/regulatory/intelligence/access";
 import { runDueRegulatoryJobs } from "@/lib/regulatory/intelligence/jobs/runner";
 
@@ -18,7 +18,7 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 120;
 
 export async function POST(_req: NextRequest) {
-  const user = await getCurrentUser();
+  const user = await getCurrentUserPourEcrire();
   if (!user) return NextResponse.json({ error: "Non authentifié." }, { status: 401 });
   if (!regCan(user, "regulatory.dossier.analyse")) return NextResponse.json({ error: "Non autorisé." }, { status: 403 });
 

@@ -473,13 +473,22 @@ export async function saveRepProfile(formData: FormData): Promise<ActionResult> 
     ...(actif !== undefined ? { isActive: actif } : {}),
     ...(formData.has("note") ? { note: fdStr(formData, "note") } : {}),
   };
-  await prisma.salesRepProfile.upsert({
-    where: { repId },
-    create: { repId, ...data },
-    update: data,
+  // UN KAM QUI CHANGE DE BU QUITTE LES SECTEURS DE L'ANCIENNE (§118.184 — audit 360°, S15) : ses
+  // affectations restaient en base, et leurs praticiens dans son panel. Retirées dans la MÊME transaction
+  // que le rattachement — un KAM ne passe pas par un état où il couvre deux BU.
+  const nouvelleBu = "businessUnitId" in data ? data.businessUnitId : undefined;
+  const retires = await prisma.$transaction(async (tx) => {
+    await tx.salesRepProfile.upsert({ where: { repId }, create: { repId, ...data }, update: data });
+    if (nouvelleBu === undefined) return 0;
+    const r = await tx.salesSectorRep.deleteMany({
+      where: { repId, ...(nouvelleBu ? { sector: { businessUnitId: { not: nouvelleBu } } } : {}) },
+    });
+    return r.count;
   });
   revalidatePath(BU_PATH);
-  return { ok: true };
+  return retires > 0
+    ? { ok: true, message: `${retires} affectation(s) à un secteur de son ancienne BU lui sont retirées : son panel suit sa nouvelle BU.` }
+    : { ok: true };
 }
 
 export async function deleteRepProfile(formData: FormData): Promise<ActionResult> {
@@ -487,7 +496,11 @@ export async function deleteRepProfile(formData: FormData): Promise<ActionResult
   if (!userCan(user, MODULE, "UPDATE")) return { ok: false, error: "Non autorisé." };
   const repId = fdStr(formData, "repId");
   if (!repId) return { ok: false, error: "KAM introuvable." };
-  await prisma.salesRepProfile.deleteMany({ where: { repId } });
+  // Retiré de la force de vente, il quitte aussi ses secteurs (§118.184 — S15), dans la même transaction.
+  await prisma.$transaction([
+    prisma.salesSectorRep.deleteMany({ where: { repId } }),
+    prisma.salesRepProfile.deleteMany({ where: { repId } }),
+  ]);
   revalidatePath(BU_PATH);
   return { ok: true };
 }
@@ -560,9 +573,11 @@ async function ecrireSecteur(
     institutionIds.length
       ? prisma.medicalInstitution.findMany({ where: { id: { in: institutionIds } }, select: { id: true } })
       : Promise.resolve([] as { id: string }[]),
+    // UN KAM DE CETTE BU (§118.184 — S15) : l'écran ne propose que les KAM rattachés à la BU ; une requête
+    // forgée y affectait n'importe quel compte, qui recevait alors un territoire d'une autre équipe.
     repIds.length
-      ? prisma.user.findMany({ where: { id: { in: repIds } }, select: { id: true } })
-      : Promise.resolve([] as { id: string }[]),
+      ? prisma.salesRepProfile.findMany({ where: { repId: { in: repIds }, businessUnitId }, select: { repId: true } })
+      : Promise.resolve([] as { repId: string }[]),
     // UN SEUL SECTEUR « Est » PAR BU. La contrainte d'unicité le tient déjà ; on la lit d'abord
     // pour rendre une phrase plutôt qu'un code Prisma.
     prisma.salesSector.findFirst({
@@ -574,7 +589,7 @@ async function ecrireSecteur(
     return { ok: false, error: `${institutionIds.length - institutions.length} établissement(s) sélectionné(s) n'existent plus dans l'annuaire — rechargez l'écran.` };
   }
   if (reps.length !== repIds.length) {
-    return { ok: false, error: `${repIds.length - reps.length} KAM sélectionné(s) n'ont plus de compte — rechargez l'écran.` };
+    return { ok: false, error: `${repIds.length - reps.length} KAM sélectionné(s) ne sont pas (ou plus) rattachés à cette BU — rattachez-les d'abord à la BU, ou rechargez l'écran.` };
   }
   if (homonyme) return { ok: false, error: `Un secteur « ${name} » existe déjà dans cette BU.` };
 

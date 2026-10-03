@@ -14,6 +14,7 @@ import { getRecommendations, normText, queryTokens, allTokensIn, type RecRow } f
 import { pchReceptionPrice, nomenclatureMatch } from "@/lib/market/pch-lookup";
 import { analyzeMolecule, canonicalForm, type MoleculeAnalysis } from "@/lib/market/molecule";
 import { ocrDocument, canOcr } from "@/lib/regulatory/intelligence/ocr/ocr-engine";
+import { marcheDeLaLigne, marcheDuBon, peutAgirSurLeMarche } from "@/lib/pch/porte-marche";
 
 const MODULE = "PCH" as const;
 const int = (fd: FormData, key: string): number | null => { const n = fdNum(fd, key); return n == null ? null : Math.max(0, Math.round(n)); };
@@ -29,7 +30,7 @@ export async function addTenderLine(formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
   if (!userCan(user, MODULE, "UPDATE")) return { ok: false, error: "Non autorisé." };
   const tenderId = fdStr(formData, "tenderId");
-  if (!tenderId) return { ok: false, error: "Appel d'offres introuvable." };
+  if (!tenderId || !(await peutAgirSurLeMarche(user, tenderId, "UPDATE"))) return { ok: false, error: "Appel d'offres introuvable." };
   const count = await prisma.pchTenderLine.count({ where: { tenderId } });
   const line = await prisma.pchTenderLine.create({ data: { tenderId, designation: fdStr(formData, "designation") || "Nouveau produit", sortOrder: count } });
   revalidatePath(`/pch/${tenderId}`);
@@ -41,7 +42,7 @@ export async function updateTenderLine(formData: FormData): Promise<ActionResult
   if (!userCan(user, MODULE, "UPDATE")) return { ok: false, error: "Non autorisé." };
   const id = fdStr(formData, "id");
   const tenderId = fdStr(formData, "tenderId");
-  if (!id) return { ok: false, error: "Ligne introuvable." };
+  if (!id || !(await peutAgirSurLeMarche(user, await marcheDeLaLigne(id), "UPDATE"))) return { ok: false, error: "Ligne introuvable." };
   const unitsPerBox = int(formData, "unitsPerBox");
   const boxPrice = fdNum(formData, "boxPriceDzd");
   await prisma.pchTenderLine.update({
@@ -116,7 +117,7 @@ export async function setTenderLineBusinessUnits(formData: FormData): Promise<Ac
   if (!userCan(user, MODULE, "UPDATE")) return { ok: false, error: "Non autorisé." };
   const id = fdStr(formData, "id");
   const tenderId = fdStr(formData, "tenderId");
-  if (!id) return { ok: false, error: "Ligne introuvable." };
+  if (!id || !(await peutAgirSurLeMarche(user, await marcheDeLaLigne(id), "UPDATE"))) return { ok: false, error: "Ligne introuvable." };
 
   const line = await prisma.pchTenderLine.findUnique({
     where: { id },
@@ -186,7 +187,7 @@ export async function deleteTenderLine(formData: FormData): Promise<ActionResult
   if (!userCan(user, MODULE, "UPDATE")) return { ok: false, error: "Non autorisé." };
   const id = fdStr(formData, "id");
   const tenderId = fdStr(formData, "tenderId");
-  if (!id) return { ok: false, error: "Ligne introuvable." };
+  if (!id || !(await peutAgirSurLeMarche(user, await marcheDeLaLigne(id), "UPDATE"))) return { ok: false, error: "Ligne introuvable." };
   await prisma.pchTenderLine.delete({ where: { id } });
   if (tenderId) revalidatePath(`/pch/${tenderId}`);
   return { ok: true };
@@ -270,7 +271,7 @@ export async function analyzeTenderText(formData: FormData): Promise<ActionResul
   if (!aiConfigured()) return { ok: false, error: "IA non configurée : ajoutez la clé ANTHROPIC_API_KEY (Render)." };
   const tenderId = fdStr(formData, "tenderId");
   const text = fdStr(formData, "text");
-  if (!tenderId) return { ok: false, error: "Appel d'offres introuvable." };
+  if (!tenderId || !(await peutAgirSurLeMarche(user, tenderId, "UPDATE"))) return { ok: false, error: "Appel d'offres introuvable." };
   if (!text || text.trim().length < 10) return { ok: false, error: "Collez le texte du document (issu de l'OCR)." };
   return extractAndSaveLines(tenderId, text, user.id, "texte collé");
 }
@@ -282,7 +283,7 @@ export async function analyzeTenderDocument(formData: FormData): Promise<ActionR
   if (!aiConfigured()) return { ok: false, error: "IA non configurée : ajoutez la clé ANTHROPIC_API_KEY (Render)." };
   const tenderId = fdStr(formData, "tenderId");
   const file = formData.get("file");
-  if (!tenderId) return { ok: false, error: "Appel d'offres introuvable." };
+  if (!tenderId || !(await peutAgirSurLeMarche(user, tenderId, "UPDATE"))) return { ok: false, error: "Appel d'offres introuvable." };
   if (!(file instanceof File) || file.size === 0) return { ok: false, error: "Choisissez le document de l'appel d'offres." };
   const ext = (file.name.split(".").pop() ?? "").toLowerCase();
   if (!canOcr(ext)) return { ok: false, error: `Format .${ext} non pris en charge pour l'OCR (PDF ou image).` };
@@ -308,7 +309,9 @@ export async function createOrderFromLine(formData: FormData): Promise<ActionRes
   const tenderId = fdStr(formData, "tenderId");
   if (!lineId || !tenderId) return { ok: false, error: "Ligne introuvable." };
   const line = await prisma.pchTenderLine.findUnique({ where: { id: lineId } });
-  if (!line) return { ok: false, error: "Ligne introuvable." };
+  // Le bon naît sur le marché de SA ligne : un `tenderId` de formulaire différent aurait créé, sur un
+  // marché permis, un bon portant la ligne d'un autre (§118.184 — S11).
+  if (!line || line.tenderId !== tenderId || !(await peutAgirSurLeMarche(user, line.tenderId, "UPDATE"))) return { ok: false, error: "Ligne introuvable." };
   if (line.status !== "WON") return { ok: false, error: "Ligne non attribuée : marquez-la « Gagné » d'abord." };
 
   const qty = int(formData, "quantity") ?? 0;
@@ -335,8 +338,8 @@ export async function enrichTenderLine(formData: FormData): Promise<ActionResult
   const id = fdStr(formData, "id");
   const tenderId = fdStr(formData, "tenderId");
   if (!id) return { ok: false, error: "Ligne introuvable." };
-  const line = await prisma.pchTenderLine.findUnique({ where: { id }, select: { designation: true } });
-  if (!line) return { ok: false, error: "Ligne introuvable." };
+  const line = await prisma.pchTenderLine.findUnique({ where: { id }, select: { designation: true, tenderId: true } });
+  if (!line || !(await peutAgirSurLeMarche(user, line.tenderId, "UPDATE"))) return { ok: false, error: "Ligne introuvable." };
 
   const ok = await enrichLineById(id);
   if (!ok) return { ok: false, error: "Aucune correspondance (intelligence marché / réceptions PCH / nomenclature)." };
@@ -350,7 +353,7 @@ export async function enrichAllTenderLines(formData: FormData): Promise<ActionRe
   const user = await requireUser();
   if (!userCan(user, MODULE, "UPDATE")) return { ok: false, error: "Non autorisé." };
   const tenderId = fdStr(formData, "tenderId");
-  if (!tenderId) return { ok: false, error: "Appel d'offres introuvable." };
+  if (!tenderId || !(await peutAgirSurLeMarche(user, tenderId, "UPDATE"))) return { ok: false, error: "Appel d'offres introuvable." };
   const lines = await prisma.pchTenderLine.findMany({ where: { tenderId }, select: { id: true }, orderBy: { sortOrder: "asc" } });
   if (lines.length === 0) return { ok: false, error: "Aucune ligne à enrichir." };
   let done = 0;
@@ -488,7 +491,7 @@ export async function setOrderArrival(formData: FormData): Promise<ActionResult>
   if (!userCan(user, MODULE, "UPDATE")) return { ok: false, error: "Non autorisé." };
   const id = fdStr(formData, "id");
   const tenderId = fdStr(formData, "tenderId");
-  if (!id) return { ok: false, error: "Bon de commande introuvable." };
+  if (!id || !(await peutAgirSurLeMarche(user, await marcheDuBon(id), "UPDATE"))) return { ok: false, error: "Bon de commande introuvable." };
   const parseDate = (k: string) => { const v = fdStr(formData, k); return v ? new Date(v) : null; };
   await prisma.pchOrder.update({
     where: { id },

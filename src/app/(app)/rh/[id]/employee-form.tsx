@@ -87,6 +87,10 @@ export function EmployeeForm({ employee, managerOptions, departmentOptions, user
   const router = useRouter();
   const [saving, setSaving] = React.useState(false);
   const [saved, setSaved] = React.useState(false);
+  // CE QUE L'ENREGISTREMENT A DIT — un refus, ou ce qu'il a entraîné (le compte qui suit la fiche,
+  // §118.184 — S13). Le formulaire affichait « Enregistré » quoi que l'action réponde : un refus se lisait
+  // comme un succès (le faux succès d'écran de §118.153d).
+  const [retour, setRetour] = React.useState<{ ok: boolean; text: string } | null>(null);
 
   // Pré-remplissage IA depuis un contrat : les valeurs extraites priment sur les valeurs
   // actuelles ; le RH relit et corrige avant d'enregistrer. Re-montage des champs par `key`.
@@ -131,8 +135,14 @@ export function EmployeeForm({ employee, managerOptions, departmentOptions, user
       <form
         action={async (fd) => {
           setSaving(true);
-          await updateEmployee(fd);
+          setRetour(null);
+          const r = await updateEmployee(fd);
           setSaving(false);
+          if (!r.ok) {
+            setRetour({ ok: false, text: r.error ?? "Enregistrement refusé." });
+            return;
+          }
+          if (r.message) setRetour({ ok: true, text: r.message });
           setSaved(true);
           router.refresh();
           setTimeout(() => setSaved(false), 1500);
@@ -190,7 +200,8 @@ export function EmployeeForm({ employee, managerOptions, departmentOptions, user
             Employé actif
           </label>
         </div>
-        <div className="flex justify-end">
+        <div className="flex flex-wrap items-center justify-end gap-3">
+          {retour && <p role={retour.ok ? "status" : "alert"} className={cn("text-xs", retour.ok ? "text-muted-foreground" : "text-destructive")}>{retour.text}</p>}
           <Button type="submit" disabled={saving}>
             {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : saved ? <Check className="h-4 w-4 text-success" /> : null}
             {saved ? "Enregistré" : "Enregistrer les modifications"}

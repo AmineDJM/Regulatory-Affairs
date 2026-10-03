@@ -400,6 +400,42 @@ export function gestesPossibles(statut: StatutPlan): {
   };
 }
 
+/**
+ * QUI VOIT UN PLAN, QUI LE TRANCHE, QUI L'ESCALADE (§118.184) — une règle, lue par l'écran ET par les
+ * actions. Un plan porte le panel du KAM (potentiels compris) et le motif d'un rejet : il ne s'ouvre pas
+ * à quiconque a le module et connaît son identifiant. On le voit si l'on en est le KAM, le validateur,
+ * le N+2 à qui il est escaladé, un manager de la chaîne du KAM, ou une vue globale.
+ *
+ * Deux défauts que cette règle ferme, mesurés par l'audit : l'écran ne proposait la décision que sur un
+ * plan SOUMIS — le N+2 d'un plan escaladé le voyait « à décider » sans un bouton, et le plan restait
+ * bloqué pour toujours ; et il proposait Valider/Rejeter à tout non-KAM, que l'action refusait ensuite.
+ * Écran et action disent maintenant la même chose, parce qu'ils lisent la même fonction (§118.5).
+ */
+export interface FaitsAccesPlan {
+  userId: string;
+  vueGlobale: boolean;
+  repId: string;
+  reviewerId: string | null;
+  escalatedToId: string | null;
+  statut: StatutPlan;
+  /** Les managers du KAM à l'organigramme, du N+1 vers le haut. */
+  chaineDuKam: readonly string[];
+}
+
+export function accesAuPlan(f: FaitsAccesPlan): { voir: boolean; decider: boolean; escalader: boolean } {
+  const gestes = gestesPossibles(f.statut);
+  const estLeKam = f.userId === f.repId;
+  // Qui tranche : le validateur tant que le plan est chez lui, le N+2 dès qu'il est escaladé — jamais
+  // les deux (la dernière écriture gagnerait en silence), et jamais le KAM sur son propre plan.
+  const decideur = f.statut === "ESCALATED" ? f.escalatedToId : f.reviewerId;
+  const decider = gestes.decidable && !estLeKam && (decideur === f.userId || f.vueGlobale);
+  const escalader = gestes.escaladable && !estLeKam && (f.reviewerId === f.userId || f.vueGlobale);
+  const voir = estLeKam || f.vueGlobale
+    || f.reviewerId === f.userId || f.escalatedToId === f.userId
+    || f.chaineDuKam.includes(f.userId);
+  return { voir, decider, escalader };
+}
+
 const MS_JOUR = 86_400_000;
 
 /** Ce qu'un écran dit d'un retard de soumission — l'échéance retenue, et les jours. */

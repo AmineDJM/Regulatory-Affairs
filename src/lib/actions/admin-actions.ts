@@ -5,6 +5,7 @@ import bcrypt from "bcryptjs";
 import type { UserRole } from "@prisma/client";
 import { requireUser } from "@/lib/session";
 import { userCan } from "@/lib/rbac";
+import { refusAdministration } from "@/lib/admin/garde-comptes";
 import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
 import { ROLE_LABELS } from "@/lib/labels";
@@ -28,6 +29,9 @@ export async function createUser(
     return { ok: false, error: "Tous les champs obligatoires doivent être remplis." };
   }
   if (password.length < 8) return { ok: false, error: "Mot de passe trop court (min. 8 caractères)." };
+  // Seul un Super Admin crée un Super Admin (§118.184, audit 360° S9).
+  const refus = refusAdministration(admin, null, "ROLE", role);
+  if (refus) return { ok: false, error: refus };
 
   const existing = await prisma.user.findUnique({ where: { email } });
   if (existing) return { ok: false, error: "Un utilisateur avec cet email existe déjà." };
@@ -68,6 +72,8 @@ export async function toggleUserActive(formData: FormData): Promise<ActionResult
   // qui attendent une réponse humaine — sans que personne ne l'apprenne. La suspension d'Adam
   // passe par le débrayage prévu (`MISSIONS_SWEEP=off`), qui laisse l'état intact.
   if (u.isSystem) return { ok: false, error: REFUS_COMPTE_SYSTEME };
+  const refus = refusAdministration(admin, { id: u.id, role: u.role }, "COMPTE");
+  if (refus) return { ok: false, error: refus };
   await prisma.user.update({ where: { id }, data: { isActive: !u.isActive } });
   await recordAudit({
     actorId: admin.id, action: "UPDATE", module: "Administration",
@@ -87,6 +93,8 @@ export async function updateUserRole(formData: FormData): Promise<ActionResult> 
 
   const u = await prisma.user.findUnique({ where: { id } });
   if (!u) return { ok: false, error: "Introuvable." };
+  const refus = refusAdministration(admin, { id: u.id, role: u.role }, "ROLE", role);
+  if (refus) return { ok: false, error: refus };
   // LE RÔLE DU COMPTE SYSTÈME NE SE CHANGE PAS. Le baisser désarmerait silencieusement toutes
   // les missions en cours ; le laisser modifiable ouvrirait un chemin d'escalade qui contourne
   // `policy/guard.ts` — il suffirait de demander à quelqu'un d'autre de cliquer.
@@ -116,8 +124,10 @@ export async function setSecondaryRole(formData: FormData): Promise<ActionResult
   if (raw === "SUPER_ADMIN") return { ok: false, error: "Le rôle secondaire ne peut pas être Super Admin." };
   const secondaryRole = raw ? (raw as UserRole) : null;
 
-  const u = await prisma.user.findUnique({ where: { id }, select: { name: true, secondaryRole: true } });
+  const u = await prisma.user.findUnique({ where: { id }, select: { id: true, role: true, name: true, secondaryRole: true } });
   if (!u) return { ok: false, error: "Introuvable." };
+  const refus = refusAdministration(admin, { id: u.id, role: u.role }, "ROLE");
+  if (refus) return { ok: false, error: refus };
   await prisma.user.update({ where: { id }, data: { secondaryRole } });
   await recordAudit({
     actorId: admin.id, action: "UPDATE", module: "Administration",

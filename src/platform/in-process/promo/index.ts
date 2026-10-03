@@ -71,7 +71,7 @@ export async function designerDossierPromo(user: SessionUser, brut: string): Pro
   if (!q) return { error: "Précisez le dossier de matériel promotionnel (champ « reference » — MP-AAAA-NNN ou titre)." };
   const select = {
     id: true, reference: true, title: true, circuitState: true, circuitVersion: true,
-    requesterId: true, assistantId: true, requestValidatorId: true, marketingValidatorId: true,
+    requesterId: true, assistantId: true, requestValidatorId: true, marketingValidatorId: true, companyId: true,
   } as const;
   const exacts = await prisma.promoMaterial.findMany({ where: { reference: { equals: q, mode: "insensitive" } }, select, take: 2 });
   const lus = exacts.length > 0

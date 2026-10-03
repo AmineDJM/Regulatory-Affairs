@@ -433,6 +433,10 @@ enum EntityType {
   INSTITUTION
   /// Une SPÉCIALITÉ du référentiel (§118.180) — ajout, renommage, fusion, retrait.
   SPECIALTY
+  /// Une FORMATION (demande d'un salarié ou session des RH, §118.184). Ses pièces et son historique
+  /// s'écrivaient sous DOSSIER (un « sujet ») avec l'identifiant de la FORMATION : la porte des pièces
+  /// cherchait alors un sujet qui n'existe pas, et personne ne pouvait télécharger un devis de formation.
+  TRAINING
 }
 
 enum DocumentCategory {

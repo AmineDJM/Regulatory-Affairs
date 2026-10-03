@@ -6,11 +6,12 @@ import { userCan, hasGlobalView } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
 import { getManagerOfUser } from "@/lib/departments";
+import { notifyUser } from "@/lib/notify";
 import { fdStr, fdDate, type ActionResult } from "@/lib/actions/types";
 import {
   bloquantsDeSoumission, echeanceDeSoumission, escaladeDuPlan, estGranularite,
   estJourOuvrePourTournee, gestesPossibles, limiteResoumission, periodeDe, reviseurDuPlan,
-  type Granularite, type StatutPlan,
+  type Granularite, type StatutPlan, accesAuPlan,
 } from "@/lib/sfe/tournee";
 import { lireReglageTournee } from "@/lib/sfe/tournee-reglage";
 import { loadPanelPlanifiable } from "@/lib/queries/tour-schedule";
@@ -222,6 +223,19 @@ export async function planifierVisites(formData: FormData): Promise<ActionResult
  * doit pas changer qui décide (§118.107). Quand personne ne surplombe le KAM, le refus le DIT
  * avec le geste — désigner un superviseur sur la BU — au lieu de laisser un plan sans issue.
  */
+/**
+ * LE CIRCUIT DU PLAN PRÉVIENT CHAQUE PERSONNE DONT C'EST LE TOUR (§118.184). Il n'envoyait aucune
+ * notification : le validateur n'apprenait pas qu'un plan l'attendait, le N+2 qu'on lui escaladait, et
+ * le KAM qu'on avait rejeté son plan — alors que ses 48 h pour resoumettre couraient déjà.
+ */
+function lienDuPlan(planId: string): string {
+  return `${PATH_TOURNEE}?plan=${planId}`;
+}
+function periodeLisible(debut: Date, fin: Date): string {
+  const f = (d: Date) => d.toLocaleDateString("fr-FR", { timeZone: "Africa/Algiers" });
+  return `${f(debut)} → ${f(fin)}`;
+}
+
 export async function soumettrePlanTournee(formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
   if (!userCan(user, MODULE, "CREATE")) return { ok: false, error: "Non autorisé." };
@@ -231,6 +245,7 @@ export async function soumettrePlanTournee(formData: FormData): Promise<ActionRe
     where: { id: planId },
     select: {
       id: true, repId: true, status: true, periodStart: true, periodEnd: true,
+      rep: { select: { name: true } },
       visits: { select: { id: true, date: true } },
     },
   });
@@ -279,6 +294,12 @@ export async function soumettrePlanTournee(formData: FormData): Promise<ActionRe
     entityType: "TOUR_PLAN", entityId: plan.id,
     summary: `Plan de tournée soumis à validation (${plan.visits.length} visite(s))`,
   });
+  await notifyUser({
+    userId: reviseur.id, type: "MEDICAL_TOUR",
+    title: `Plan de tournée à valider — ${plan.rep.name}`,
+    body: `${plan.visits.length} visite(s) du ${periodeLisible(plan.periodStart, plan.periodEnd)}. Validez-le, rejetez-le avec vos commentaires, ou demandez l'avis de votre N+1.`,
+    link: lienDuPlan(plan.id),
+  });
   revalidatePath(PATH_TOURNEE);
   return { ok: true, id: plan.id };
 }
@@ -295,16 +316,23 @@ export async function escaladerPlanTournee(formData: FormData): Promise<ActionRe
   if (!planId) return { ok: false, error: "Plan introuvable." };
   const plan = await prisma.tourPlan.findUnique({
     where: { id: planId },
-    select: { id: true, repId: true, status: true, reviewerId: true },
+    select: {
+      id: true, repId: true, status: true, reviewerId: true, escalatedToId: true, periodStart: true, periodEnd: true,
+      rep: { select: { name: true } },
+    },
   });
   if (!plan) return { ok: false, error: "Plan introuvable." };
-  // L'ESCALADE EST PERSONNELLE : c'est le réviseur DÉSIGNÉ qui se dessaisit, pas quiconque a le
-  // module. Une vue globale passe, parce qu'elle porte déjà la décision.
-  if (plan.reviewerId !== user.id && !hasGlobalView(user)) {
-    return { ok: false, error: "Seul le validateur désigné peut demander une validation à son N+1." };
-  }
   if (!gestesPossibles(plan.status as StatutPlan).escaladable) {
     return { ok: false, error: `Un plan « ${plan.status} » ne s'escalade pas — on ne remonte qu'une fois, et un plan déjà escaladé attend la décision du N+2.` };
+  }
+  // L'ESCALADE EST PERSONNELLE : c'est le réviseur DÉSIGNÉ qui se dessaisit, pas quiconque a le module.
+  // Une vue globale passe, parce qu'elle porte déjà la décision. La règle est celle de l'écran (§118.184).
+  const acces = accesAuPlan({
+    userId: user.id, vueGlobale: hasGlobalView(user), repId: plan.repId,
+    reviewerId: plan.reviewerId, escalatedToId: plan.escalatedToId, statut: plan.status as StatutPlan, chaineDuKam: [],
+  });
+  if (!acces.escalader) {
+    return { ok: false, error: "Seul le validateur désigné peut demander une validation à son N+1." };
   }
   const managerDuReviseur = plan.reviewerId ? await getManagerOfUser(plan.reviewerId) : null;
   const cible = escaladeDuPlan({
@@ -327,6 +355,12 @@ export async function escaladerPlanTournee(formData: FormData): Promise<ActionRe
     actorId: user.id, action: "UPDATE", module: "Promotion médicale",
     entityType: "TOUR_PLAN", entityId: plan.id, summary: "Plan de tournée escaladé au N+2",
   });
+  await notifyUser({
+    userId: cible, type: "MEDICAL_TOUR",
+    title: `Plan de tournée escaladé — ${plan.rep.name}`,
+    body: `Le validateur vous demande de trancher le plan du ${periodeLisible(plan.periodStart, plan.periodEnd)}.`,
+    link: lienDuPlan(plan.id),
+  });
   revalidatePath(PATH_TOURNEE);
   return { ok: true, id: plan.id };
 }
@@ -346,19 +380,22 @@ export async function deciderPlanTournee(formData: FormData): Promise<ActionResu
   if (decision !== "APPROVE" && decision !== "REJECT") return { ok: false, error: "Décision illisible (attendu : valider ou rejeter)." };
   const plan = await prisma.tourPlan.findUnique({
     where: { id: planId },
-    select: { id: true, repId: true, status: true, reviewerId: true, escalatedToId: true },
+    select: {
+      id: true, repId: true, status: true, reviewerId: true, escalatedToId: true, periodStart: true, periodEnd: true,
+    },
   });
   if (!plan) return { ok: false, error: "Plan introuvable." };
-
-  // QUI TRANCHE : le réviseur tant que le plan est chez lui, le N+2 dès qu'il est escaladé.
-  // Sans cette distinction, le plan attendrait une décision de la personne qui vient de s'en
-  // dessaisir — ou les deux pourraient décider, et la dernière écriture gagnerait en silence.
-  const decideur = plan.status === "ESCALATED" ? plan.escalatedToId : plan.reviewerId;
-  if (decideur !== user.id && !hasGlobalView(user)) {
-    return { ok: false, error: "Seule la personne à qui ce plan est soumis peut le trancher." };
-  }
   if (!gestesPossibles(plan.status as StatutPlan).decidable) {
     return { ok: false, error: `Un plan « ${plan.status} » ne se décide pas — il n'est pas (ou plus) en attente de validation.` };
+  }
+  // QUI TRANCHE : le réviseur tant que le plan est chez lui, le N+2 dès qu'il est escaladé — jamais les
+  // deux, jamais le KAM sur son propre plan. La règle est celle de l'écran (§118.184).
+  const acces = accesAuPlan({
+    userId: user.id, vueGlobale: hasGlobalView(user), repId: plan.repId,
+    reviewerId: plan.reviewerId, escalatedToId: plan.escalatedToId, statut: plan.status as StatutPlan, chaineDuKam: [],
+  });
+  if (!acces.decider) {
+    return { ok: false, error: "Seule la personne à qui ce plan est soumis peut le trancher." };
   }
 
   const commentaire = fdStr(formData, "comment");
@@ -377,6 +414,15 @@ export async function deciderPlanTournee(formData: FormData): Promise<ActionResu
     actorId: user.id, action: "UPDATE", module: "Promotion médicale",
     entityType: "TOUR_PLAN", entityId: plan.id,
     summary: decision === "APPROVE" ? "Plan de tournée VALIDÉ" : "Plan de tournée REJETÉ (48 h pour resoumettre)",
+  });
+  const limite = decision === "REJECT" ? limiteResoumission(maintenant) : null;
+  await notifyUser({
+    userId: plan.repId, type: "MEDICAL_TOUR",
+    title: decision === "APPROVE" ? "Votre plan de tournée est validé" : "Votre plan de tournée est rejeté — à corriger",
+    body: decision === "APPROVE"
+      ? `Plan du ${periodeLisible(plan.periodStart, plan.periodEnd)} : vos visites sont dans votre emploi du temps.`
+      : `${commentaire}\n\nÀ resoumettre avant le ${limite!.toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short", timeZone: "Africa/Algiers" })}.`,
+    link: lienDuPlan(plan.id),
   });
   revalidatePath(PATH_TOURNEE);
   revalidatePath(PATH_JOURNEE);

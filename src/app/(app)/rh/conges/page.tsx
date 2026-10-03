@@ -2,6 +2,7 @@ import Link from "next/link";
 import { CalendarOff, PlaneTakeoff, CheckCheck, AlarmClock } from "lucide-react";
 import { requireModule } from "@/lib/session";
 import { userCan } from "@/lib/rbac";
+import { clauseSalariesVisibles } from "@/lib/queries/visibilite-listes";
 import { getRhData } from "@/lib/queries/hr";
 import { getHrPulse } from "@/lib/queries/hr-pulse";
 import { PageHeader } from "@/components/shared/page-header";
@@ -37,7 +38,8 @@ export default async function RhLeavePage() {
   // Les intérims EN ATTENTE des RH : la marche qui manque pour que la délégation s'ouvre.
   const standIns = canManage
     ? await prisma.leaveRequest.findMany({
-        where: { standInStatus: "PENDING", status: { notIn: ["REJECTED", "CANCELLED"] } },
+        // Bornés à la société, comme la liste des salariés (audit 360°, S6).
+        where: { standInStatus: "PENDING", status: { notIn: ["REJECTED", "CANCELLED"] }, employee: await clauseSalariesVisibles(user.id) },
         orderBy: { startDate: "asc" },
         include: { employee: { select: { fullName: true } }, standIn: { select: { name: true } } },
       })

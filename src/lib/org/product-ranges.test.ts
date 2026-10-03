@@ -53,13 +53,13 @@ describe("productRangeWhere", () => {
   it("filtre sur les gammes ET laisse entières les sociétés ouvertes en entier", () => {
     const b = bearer({ fullCompanyIds: [ADV], rangeGrants: [{ rangeId: "hosp", companyId: PHG }] });
     expect(productRangeWhere(b)).toEqual({
-      OR: [{ rangeId: { in: ["hosp"] } }, { companyId: { in: [ADV] } }],
+      OR: [{ rangeId: { in: ["hosp"] } }, { companyId: null }, { companyId: { in: [ADV] } }],
     });
   });
 
-  it("sans aucune entité entière, il ne reste QUE les gammes", () => {
+  it("sans aucune entité entière, il ne reste QUE les gammes — et ce qui n'est rattaché à aucune société", () => {
     const b = bearer({ rangeGrants: [{ rangeId: "hosp", companyId: PHG }, { rangeId: "cardio", companyId: ADV }] });
-    expect(productRangeWhere(b)).toEqual({ OR: [{ rangeId: { in: ["hosp", "cardio"] } }] });
+    expect(productRangeWhere(b)).toEqual({ OR: [{ rangeId: { in: ["hosp", "cardio"] } }, { companyId: null }] });
   });
 });
 
@@ -85,6 +85,10 @@ describe("canSeeProduct — la même règle, côté mémoire", () => {
 
   it("sans rattachement par gamme, l'entité décide seule", () => {
     expect(canSeeProduct(bearer({ fullCompanyIds: [ADV] }), { companyId: ADV, rangeId: null })).toBe(true);
+  });
+
+  it("un produit SANS entité reste visible à qui reçoit une gamme EN PLUS — donner plus d'accès n'en retire pas (§118.184)", () => {
+    expect(canSeeProduct(b, { companyId: null, rangeId: null })).toBe(true);
   });
 
   it("le Super Admin voit tout, y compris un produit sans entité", () => {

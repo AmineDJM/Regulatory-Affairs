@@ -100,7 +100,7 @@ export default async function CongressNatDetailPage({ params }: { params: { id: 
   // Corriger la demande : le demandeur tant qu'elle n'est pas tranchée, la Direction toujours.
   const requestDecided = isAdProDecided("CONGRESS_NATIONAL", detail.requestStatus);
   const canEditRequest = canEditAdProRequest(
-    { id: user.id, hasGlobalView: hasGlobalView(user), canUpdate: userCan(user, "CONGRESS_NATIONAL", "UPDATE") },
+    { id: user.id, hasGlobalView: hasGlobalView(user), canManage: userCan(user, "CONGRESS_NATIONAL", "VALIDATE") },
     { requesterId: detail.requesterId, decided: requestDecided },
   );
   const editValues = canEditRequest ? await adProEditValues("CONGRESS_NATIONAL", detail.id) : null;

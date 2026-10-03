@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { toNumber } from "@/lib/utils";
 import { buildTenderWorkbook, tenderExportFilename } from "@/lib/pch-tender-export";
 import { recordAudit } from "@/lib/audit";
+import { canAccessEntity } from "@/lib/entity-access";
 
 /**
  * EXPORT EXCEL d'un appel d'offres PCH — le tableau de réponse.
@@ -20,6 +21,12 @@ export async function GET(req: NextRequest) {
 
   const id = req.nextUrl.searchParams.get("id");
   if (!id) return NextResponse.json({ error: "Appel d'offres non précisé." }, { status: 400 });
+  // LA MÊME PORTE QUE LA FICHE (§118.184 — audit 360°, S11) : l'export ne lisait que le droit de module, et
+  // le tableau de réponse d'un marché d'une autre société se téléchargeait par son identifiant. Hors de
+  // portée, la même réponse qu'un marché qui n'existe pas.
+  if (!(await canAccessEntity(user, "PCH_TENDER", id, "VIEW"))) {
+    return NextResponse.json({ error: "Appel d'offres introuvable." }, { status: 404 });
+  }
 
   const tender = await prisma.pchTender.findUnique({
     where: { id },

@@ -49,11 +49,14 @@ export type DeclarationDetail = NonNullable<Awaited<ReturnType<typeof getDeclara
  * Direction / un admin (accès au module), ou tout utilisateur sollicité pour une
  * pièce sur cette déclaration (afin qu'il puisse la déposer).
  */
-export function canViewDeclaration(user: SessionUser, decl: DeclarationDetail): boolean {
+export function canViewDeclaration(user: SessionUser, decl: { pharmacistId: string | null; requests: { targetUserId: string | null }[] }): boolean {
   if (hasGlobalView(user.role)) return true;
   if (userCan(user, "MEDICAL_INFO", "VIEW") && (decl.pharmacistId === user.id || user.role === "MEDICAL_INFO_PHARMACIST")) return true;
   if (decl.requests.some((r) => r.targetUserId === user.id)) return true;
-  // Accès module avec portée ALL (ex. configuré par un admin).
+  // Accès module avec portée ALL (ex. configuré par un admin) — ce que ce commentaire annonçait depuis
+  // toujours, et que le code ne lisait pas : il ne regardait que VALIDATE. La LISTE (`scopeMedicalInfo`)
+  // montre tout à une portée ALL ; la fiche lui répondait « introuvable » sur chaque ligne (§118.184 — S12).
+  if (userCan(user, "MEDICAL_INFO", "VIEW") && user.access.modules.get("MEDICAL_INFO")?.scope === "ALL") return true;
   return userCan(user, "MEDICAL_INFO", "VALIDATE");
 }
 

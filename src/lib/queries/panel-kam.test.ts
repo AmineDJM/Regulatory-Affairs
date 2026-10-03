@@ -96,6 +96,9 @@ suite("Le panel du KAM — une définition, tous ses lecteurs (§118.179)", () =
       prisma.medicalInstitutionService.create({ data: { institutionId: restreint, name: "Pneumologie" }, select: { id: true } }),
     ]);
     svcChoisi = s1.id; svcAutre = s2.id;
+    // Un KAM affecté à un secteur est un KAM de SA BU (§118.184 — S15) : le panel ne compte que les
+    // secteurs de la BU où il est rattaché.
+    await prisma.salesRepProfile.create({ data: { repId: kam, businessUnitId: bu.id } });
 
     await Promise.all([
       prisma.salesSector.create({

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getCurrentUser } from "@/lib/session";
+import { getCurrentUser, getCurrentUserPourEcrire } from "@/lib/session";
 import { regCan, resolveRegCompanyIdFor } from "@/lib/regulatory/intelligence/access";
 import { uploadSessionStatus, abortUploadSession } from "@/lib/regulatory/intelligence/upload/session";
 
@@ -8,7 +8,8 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 async function scope(req: NextRequest): Promise<{ companyId: string } | { error: string; status: number }> {
-  const user = await getCurrentUser();
+  // L'abandon ÉCRIT : il part au nom de la vraie session, jamais de la personne visualisée (§118.184).
+  const user = req.method === "GET" ? await getCurrentUser() : await getCurrentUserPourEcrire();
   if (!user) return { error: "Non authentifié.", status: 401 };
   if (!regCan(user, "regulatory.dossier.upload")) return { error: "Non autorisé.", status: 403 };
   const companyId = await resolveRegCompanyIdFor(user.id);

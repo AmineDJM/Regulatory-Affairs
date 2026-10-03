@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getCurrentUser } from "@/lib/session";
+import { getCurrentUserPourEcrire } from "@/lib/session";
 import { userCan } from "@/lib/rbac";
 import { canAccessConversation } from "@/lib/messaging";
 import { setTyping } from "@/lib/messaging-typing";
@@ -10,7 +10,7 @@ const NO_CONTENT = new NextResponse(null, { status: 204 });
 
 /** Signale que l'utilisateur est en train d'écrire dans une conversation. */
 export async function POST(req: NextRequest) {
-  const user = await getCurrentUser();
+  const user = await getCurrentUserPourEcrire();
   if (!user || !userCan(user, "MESSAGING", "CREATE")) return NO_CONTENT;
 
   let conversationId: string | null = null;

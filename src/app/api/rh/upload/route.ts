@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { HrDocumentCategory } from "@prisma/client";
-import { getCurrentUser } from "@/lib/session";
+import { getCurrentUserPourEcrire } from "@/lib/session";
 import { userCan } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { putBlob } from "@/lib/drive-storage";
@@ -15,7 +15,7 @@ export const dynamic = "force-dynamic";
 
 /** Upload d'un document RH pour un employé (contrat, bulletin, attestation…). RH uniquement. */
 export async function POST(req: NextRequest) {
-  const user = await getCurrentUser();
+  const user = await getCurrentUserPourEcrire();
   if (!user) return NextResponse.json({ error: "Non authentifié." }, { status: 401 });
   if (!userCan(user, "RH", "UPDATE")) return NextResponse.json({ error: "Non autorisé." }, { status: 403 });
 

@@ -131,6 +131,18 @@ export function canCancel(status: LegalStatus): boolean {
 }
 
 /**
+ * RÉTABLIR un document annulé (audit 360°, L04) : l'annulation n'avait aucun retour, alors qu'elle se
+ * déclenchait jusqu'ici sur un simple geste d'abandon. Un document rétabli reprend l'état que sa date
+ * de fin lui donne — en vigueur, ou arrivé à terme —, jamais un état qu'aucune date ne dit.
+ */
+export function canRestore(status: LegalStatus): boolean {
+  return status === "CANCELLED";
+}
+export function statutRetabli(endDate: Date | null, now: Date = new Date()): "ACTIVE" | "EXPIRED" {
+  return endDate && endDate.getTime() < now.getTime() ? "EXPIRED" : "ACTIVE";
+}
+
+/**
  * Les dates d'un renouvellement, proposées à partir de l'ancien document.
  *
  * Le nouveau départ est le LENDEMAIN du terme précédent (pas le jour même : on ne veut pas deux

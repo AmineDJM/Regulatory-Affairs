@@ -463,7 +463,10 @@ suite("Matériel promotionnel — circuit 2 de bout en bout", () => {
     expect(pm.chosenAgency).toContain("Atlas");
     expect(pm.chosenAgency).toContain("Sahel");
     expect(pm.circuitState).toBe("REVIEW_MANAGER");
-  });
+    // Plafond LOCAL, mesure à côté (§118.124b) : ce cas fait moins de 300 ms seul (le fichier entier
+    // 3,4 s) et a dépassé les 20 000 ms globales sous 893 fichiers — le fichier y a pris 65 s. Un plafond
+    // répond à « est-il bloqué ? », jamais à « est-il lent ? » ; le global ne bouge pas.
+  }, 120_000);
 
   it("DIRECTION MARKETING : la directrice du demandeur valide ; le DG ensuite, au-dessus du seuil", async () => {
     ACTOR = await actorFor(u.ns2);
@@ -645,9 +648,9 @@ suite("Matériel promotionnel — circuit 2 de bout en bout", () => {
 
     // Le pharmacien OUVRE le dossier dont il instruit le visa — sans le module.
     const pharma = await actorFor(u.pharma);
-    expect(await peutOuvrirLeDossierPromo(pharma, { id: pmId, requesterId: u.cp, assistantId: u.asst })).toBe(true);
+    expect(await peutOuvrirLeDossierPromo(pharma, { id: pmId, requesterId: u.cp, assistantId: u.asst, companyId: null })).toBe(true);
     // … et les Finances, qui LISENT l'information médicale pour les bons de versement, n'y entrent pas par là.
-    expect(await peutOuvrirLeDossierPromo(await actorFor(u.dehors), { id: pmId, requesterId: u.cp, assistantId: u.asst })).toBe(false);
+    expect(await peutOuvrirLeDossierPromo(await actorFor(u.dehors), { id: pmId, requesterId: u.cp, assistantId: u.asst, companyId: null })).toBe(false);
 
     // Le chantier « paiements » ne se clôt pas sur un paiement DEMANDÉ : il faut un paiement RÉGLÉ.
     ACTOR = await actorFor(u.cp);

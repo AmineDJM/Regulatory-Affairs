@@ -8,7 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { cn, formatCurrency, formatDate } from "@/lib/utils";
 import { LEGAL_DOC_KIND, LEGAL_DOC_STATUS, LEGAL_EXPIRY_LEVEL, natureLegale } from "@/lib/labels";
-import { renewLegalDocument, cancelLegalDocument } from "@/lib/actions/legal-actions";
+import { renewLegalDocument, cancelLegalDocument, restoreLegalDocument } from "@/lib/actions/legal-actions";
 import { setInvoicePaid } from "@/lib/actions/invoice-actions";
 import { moveLegalDocuments } from "@/lib/actions/legal-folder-actions";
 import { PartagerButton } from "@/components/shared/partager-button";
@@ -334,13 +334,30 @@ export function LegalTable({
                             )}
                             <Button size="sm" variant="ghost" disabled={busy === `c:${r.id}`}
                               onClick={() => {
-                                const reason = window.prompt("Motif de l'annulation ?") ?? "";
+                                // ABANDONNER LA BOÎTE NE FAIT RIEN (audit 360°, L04) : `?? ""` annulait le
+                                // contrat sur le bouton « Annuler » de la boîte elle-même. Et un motif vide
+                                // n'en est pas un — le serveur le refuse aussi.
+                                const saisi = window.prompt("Motif de l'annulation (obligatoire) ?");
+                                if (saisi === null) return;
+                                const reason = saisi.trim();
+                                if (!reason) { window.alert("Le motif de l'annulation est obligatoire : rien n'a été annulé."); return; }
                                 const fd = new FormData(); fd.set("id", r.id); fd.set("reason", reason);
                                 void run(`c:${r.id}`, () => cancelLegalDocument(fd));
                               }}>
                               <Ban className="h-3.5 w-3.5" /> Annuler
                             </Button>
                           </>
+                        )}
+                        {/* RÉTABLIR un document annulé : l'annulation n'avait aucun retour (L04). */}
+                        {r.status === "CANCELLED" && (
+                          <Button size="sm" variant="outline" disabled={busy === `t:${r.id}`}
+                            onClick={() => {
+                              if (!window.confirm(`Rétablir « ${r.title} » ? Il reprendra l'état que sa date de fin lui donne, et ses rappels d'échéance reprendront.`)) return;
+                              const fd = new FormData(); fd.set("id", r.id);
+                              void run(`t:${r.id}`, () => restoreLegalDocument(fd));
+                            }}>
+                            {busy === `t:${r.id}` ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Undo2 className="h-3.5 w-3.5" />} Rétablir
+                          </Button>
                         )}
                       </span>
                     </td>
