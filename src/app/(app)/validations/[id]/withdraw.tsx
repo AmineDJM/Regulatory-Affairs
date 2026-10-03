@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Loader2, Trash2 } from "lucide-react";
 import { deleteMyValidationRequest } from "@/lib/actions/validation-actions";
 import { Button } from "@/components/ui/button";
+import { useRafraichir } from "@/components/shared/use-rafraichir";
 
 /**
  * RETIRER SA DEMANDE — tant que personne ne s'est prononcé.
@@ -13,10 +14,13 @@ import { Button } from "@/components/ui/button";
  * faire disparaître aurait laissé chercher « où est passé le bouton ? », alors que la vraie
  * réponse est « quelqu'un a déjà répondu, et sa réponse ne s'efface pas ».
  */
-export function WithdrawRequestButton({ id, reference, canWithdraw }: {
+export function WithdrawRequestButton({ id, reference, canWithdraw, abandon = false }: {
   id: string; reference: string; canWithdraw: boolean;
+  /** Une demande qui a un HISTORIQUE (renvoyée, ou déjà resoumise) s'abandonne : close, pas effacée. */
+  abandon?: boolean;
 }) {
   const router = useRouter();
+  const { rafraichir } = useRafraichir();
   const [busy, setBusy] = React.useState(false);
   const [err, setErr] = React.useState<string | null>(null);
 
@@ -39,17 +43,20 @@ export function WithdrawRequestButton({ id, reference, canWithdraw }: {
         className="text-destructive"
         disabled={busy}
         onClick={async () => {
-          if (!window.confirm(`Retirer la demande ${reference} ? Elle disparaîtra de la file de vos validateurs.`)) return;
+          const question = abandon
+            ? `Abandonner la demande ${reference} ? Elle sera close et restera visible, avec son historique.`
+            : `Retirer la demande ${reference} ? Elle disparaîtra de la file de vos validateurs.`;
+          if (!window.confirm(question)) return;
           setBusy(true); setErr(null);
           const fd = new FormData();
           fd.set("id", id);
           const r = await deleteMyValidationRequest(fd);
           setBusy(false);
-          if (r.ok) router.push("/validations");
+          if (r.ok) { if (abandon) rafraichir(); else router.push("/validations"); }
           else setErr(r.error ?? "Retrait impossible.");
         }}
       >
-        {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />} Retirer ma demande
+        {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />} {abandon ? "Abandonner la demande" : "Retirer ma demande"}
       </Button>
       {err && <p role="alert" className="max-w-xs text-right text-xs text-destructive">{err}</p>}
     </div>

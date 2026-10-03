@@ -6,6 +6,7 @@ import { prisma } from "@/lib/prisma";
 import { toNumber, formatCurrency, formatDate } from "@/lib/utils";
 import { onlyofficeConfigured } from "@/lib/onlyoffice";
 import { PageHeader } from "@/components/shared/page-header";
+import { VisaCentreBanniere } from "@/components/ad-pro/visa-centre-banniere";
 import { SupprimerDemandeAdPro } from "@/components/ad-pro/supprimer-demande";
 import { peutSupprimerUneDemandeAdPro } from "@/lib/queries/ad-pro-suppression";
 import { BackLink } from "@/components/shared/back-link";
@@ -120,6 +121,11 @@ export default async function ConsultingContractPage({ params }: { params: { id:
             lot que les autres — ses branches partent et reviennent avec elle. */}
         <SupprimerDemandeAdPro kind="CONSULTING_CONTRACT" id={contract.id} name={`${contract.reference} — ${contract.title}`} enabled={await peutSupprimerUneDemandeAdPro(user, "CONSULTING_CONTRACT", contract.id)} />
       </PageHeader>
+
+      {/* L'ÉTAT DU CENTRE AD & PRO (audit 360°, R07/R10) — un contrat suivi par les RH n'y passe pas. */}
+      {pole === "AD_PRO" && (
+        <VisaCentreBanniere entityType="CONSULTING_CONTRACT" entityId={contract.id} viewer={user} />
+      )}
 
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
         <div className="space-y-5 lg:col-span-2">

@@ -47,7 +47,7 @@ export type Ton = "neutral" | "info" | "success" | "warning" | "danger" | "purpl
 
 const TON_ETAPE_BC: Record<EtapeBC, Ton> = {
   HORS_CIRCUIT: "neutral", SANS_PORTE: "warning", A_VALIDER: "info", A_REVOIR: "warning",
-  REFUSE: "danger", A_SIGNER: "purple", SIGNE: "success",
+  REFUSE: "danger", A_SIGNER: "purple", A_CORRIGER: "warning", SIGNE: "success",
 };
 
 /** Une pièce Legal liée, prête à rendre — et ce que la personne peut en faire. */

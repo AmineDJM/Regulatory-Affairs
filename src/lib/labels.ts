@@ -1348,7 +1348,9 @@ export const VALIDATION_STATUS: Record<string, Display> = {
   PENDING: { label: "En attente", tone: "warning" },
   APPROVED: { label: "Validé", tone: "success" },
   REJECTED: { label: "Refusé", tone: "danger" },
-  CHANGES_REQUESTED: { label: "Modif. demandée", tone: "info" },
+  // « À corriger », comme une demande Ad & Pro renvoyée (§118.186) : depuis l'audit 360° (R08), une
+  // demande renvoyée n'est plus close — son demandeur la corrige et la resoumet.
+  CHANGES_REQUESTED: { label: "À corriger", tone: "warning" },
   CANCELLED: { label: "Annulé", tone: "neutral" },
 };
 
@@ -1356,7 +1358,7 @@ export const VALIDATION_STEP_STATE: Record<string, Display> = {
   PENDING: { label: "En attente", tone: "warning" },
   APPROVED: { label: "Validé", tone: "success" },
   REJECTED: { label: "Refusé", tone: "danger" },
-  CHANGES_REQUESTED: { label: "Modif. demandée", tone: "info" },
+  CHANGES_REQUESTED: { label: "Correction demandée", tone: "warning" },
   SKIPPED: { label: "Ignoré", tone: "neutral" },
 };
 

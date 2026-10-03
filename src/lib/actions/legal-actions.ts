@@ -847,6 +847,10 @@ export async function adresserBCAuCentre(formData: FormData): Promise<ActionResu
   revalidatePath(CHEMIN_BC_A_SIGNER);
   // SOUS LE SEUIL (§118.149) : aucun centre n'a à le voir — c'est un SUCCÈS, et la phrase dit où
   // il est parti. Le refuser ferait croire que la règle bloque un BC qu'elle laisse passer.
+  // RENVOYÉ À SON ÉMETTEUR (audit 360°, R09) : ce n'est pas un centre qui l'attend, c'est sa correction.
+  if (r.etape === "A_CORRIGER") {
+    return { ok: false, error: reserveEtapeBC("A_CORRIGER", r.porte, r.seuil) ?? "Ce bon de commande a été renvoyé à son émetteur : modifiez-le." };
+  }
   if (!r.porte) {
     if (r.etape === "A_SIGNER" || r.etape === "SIGNE") {
       return {

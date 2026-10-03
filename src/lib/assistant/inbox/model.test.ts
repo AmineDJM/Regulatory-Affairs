@@ -77,6 +77,11 @@ describe("le geste reçu du navigateur est vérifié avant d'être dispatché", 
   it("accepte les formes connues et refuse le reste", () => {
     expect(estGesteValide({ kind: "validation.decide", stepId: "s1", decision: "APPROVED" })).toBe(true);
     expect(estGesteValide({ kind: "validation.decide", stepId: "s1", decision: "YES" })).toBe(false);
+    // Le centre de paiement n'a que DEUX décisions depuis le 02/09/2026 (audit 360°, R03) : une carte
+    // qui enverrait « demander un complément » proposerait un geste que l'action refuse après le clic.
+    expect(estGesteValide({ kind: "paiement.decide", orderId: "o1", decision: "REFUSE" })).toBe(true);
+    expect(estGesteValide({ kind: "paiement.decide", orderId: "o1", decision: "REQUEST_INFO" })).toBe(false);
+    expect(estGesteValide({ kind: "paiement.decide", orderId: "o1", decision: "REQUEST_CHANGES" })).toBe(false);
     expect(estGesteValide({ kind: "mission.accord", approvalId: "a", decision: "GRANTED" })).toBe(true);
     expect(estGesteValide({ kind: "ouvrir", href: "https://ailleurs.example" })).toBe(false);
     expect(estGesteValide({ kind: "ouvrir", href: "/validations" })).toBe(true);

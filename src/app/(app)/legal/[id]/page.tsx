@@ -393,6 +393,7 @@ export default async function LegalDocumentPage({ params }: { params: { id: stri
               etape={etatBC?.etape ?? "HORS_CIRCUIT"} seuil={etatBC?.seuil ?? 0}
               validationRequise={etatBC?.validationRequise ?? true}
               signeLe={etatBC?.signeLe?.toISOString() ?? null} signePar={etatBC?.signePar?.name ?? null}
+              renvoi={etatBC?.renvoi ? { le: etatBC.renvoi.le.toISOString(), par: etatBC.renvoi.par, note: etatBC.renvoi.note } : null}
               peutSigner={peutSignerBC(user)}
             />
           )}

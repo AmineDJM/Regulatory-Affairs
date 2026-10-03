@@ -279,6 +279,10 @@ suite("Centre de validation Ad & Pro — le flux réel", () => {
    */
   it("le centre affiche le seuil FIGÉ du visa, pas le réglage du jour", async () => {
     const c = await creerContrat("seuilfige", auDessus);
+    // Un visa n'existe que sur un contrat SOUMIS (la porte se pose à la soumission) : le décor le
+    // dit, sans quoi la lentille — qui ne montre que les demandes qui attendent encore leur décision
+    // (audit 360°, lot C3) — écarterait à raison un brouillon porteur d'un visa impossible.
+    await prisma.consultingContract.update({ where: { id: c.id }, data: { status: "AWAITING_VALIDATION" } });
     const seuilDAutrefois = seuil * 3;
     expect(seuilDAutrefois, "le cas doit pouvoir discriminer").not.toBe(seuil);
 

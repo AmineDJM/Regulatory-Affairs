@@ -350,7 +350,11 @@ export async function closeConsultingContract(formData: FormData): Promise<Actio
         updatedById: user.id,
       },
     });
-    await audit(user, id, "UPDATE", `${cancel ? "Contrat annulé" : "Contrat arrivé à expiration"} — ${c.reference}`);
+    // ANNULÉ, IL N'A PLUS RIEN À FAIRE ARBITRER (audit 360°, lot C3) : la porte qui attendait le centre
+    // Ad & Pro est retirée — sans quoi le centre trancherait une demande morte. Une décision déjà
+    // RENDUE reste : c'est de l'histoire.
+    const portes = cancel ? await retirerVisaEnAttente("CONSULTING_CONTRACT", id) : 0;
+    await audit(user, id, "UPDATE", `${cancel ? "Contrat annulé" : "Contrat arrivé à expiration"} — ${c.reference}${portes ? " (sa demande au centre Ad & Pro est retirée)" : ""}`);
     revalidate(id);
     return { ok: true, id };
   } catch (err) {

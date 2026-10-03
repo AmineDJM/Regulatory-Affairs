@@ -6,6 +6,7 @@ import { prisma } from "@/lib/prisma";
 import { toNumber, formatCurrency, formatDate } from "@/lib/utils";
 import { onlyofficeConfigured } from "@/lib/onlyoffice";
 import { PageHeader } from "@/components/shared/page-header";
+import { VisaCentreBanniere } from "@/components/ad-pro/visa-centre-banniere";
 import { SupprimerDemandeAdPro } from "@/components/ad-pro/supprimer-demande";
 import { peutSupprimerUneDemandeAdPro } from "@/lib/queries/ad-pro-suppression";
 import { BackLink } from "@/components/shared/back-link";
@@ -72,6 +73,9 @@ export default async function AdProOtherDetailPage({ params }: { params: { id: s
         {/* Une nature du pôle qui n'avait AUCUNE suppression (§118.162). */}
         <SupprimerDemandeAdPro kind="AD_PRO_OTHER" id={req.id} name={`${req.reference} — ${req.title}`} enabled={await peutSupprimerUneDemandeAdPro(user, "AD_PRO_OTHER", req.id)} />
       </PageHeader>
+
+      {/* L'ÉTAT DU CENTRE AD & PRO (audit 360°, R07/R10) : en attente, refusée, ou À CORRIGER avec son motif. */}
+      <VisaCentreBanniere entityType="AD_PRO_OTHER" entityId={req.id} viewer={user} />
 
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
         <div className="space-y-5 lg:col-span-2">

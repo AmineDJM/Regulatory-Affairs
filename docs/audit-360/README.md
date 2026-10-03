@@ -84,9 +84,13 @@ qui repart, la modification après avis et le retrait d'une demande sont livrés
 de dépense. **Les postes et leurs BC, et les demandes au secrétariat, sont livrés et testés (lot C2, §118.187)** :
 le visa d'un BC rouvert quand le montant monte ou que le prestataire change, la demande de BC modifiable et
 retirable, un ordre émis annulé puis réémis, une décision revue, un poste retiré qui revient avec tout ce qui en
-dépendait, une demande au secrétariat qu'on corrige ou qu'on annule au-delà de trente minutes. Restent : les
-centres Ad & Pro, de paiement et de validations (C3), et les autres circuits — matériel promotionnel, consulting,
-autre demande, demande de paiement, recrutement, plan de tournée validé, pièce Legal révisée (C4).
+dépendait, une demande au secrétariat qu'on corrige ou qu'on annule au-delà de trente minutes. **Les centres
+sont livrés et testés (lot C3, §118.188)** : au centre de validations, « à corriger » puis resoumission de la
+même demande, qui reprend à l'étape qui l'a renvoyée ; au centre Ad & Pro, renvoyer pour correction, réexaminer
+un refus, resoumettre avec un montant corrigé ; à la signature des BC, « Renvoyer à l'émetteur » ; au centre de
+paiement, la prose dit enfin les deux issues décidées le 02/09 (rétablir la révision, R03, reste une décision de
+la Direction). Restent les autres circuits — matériel promotionnel, consulting, autre demande, demande de
+paiement, recrutement, plan de tournée validé, pièce Legal révisée (C4).
 
 Constat d'ensemble (rapports 17, 18, 01, 03, 14) : **la plateforme sait refuser, rarement faire corriger.**
 

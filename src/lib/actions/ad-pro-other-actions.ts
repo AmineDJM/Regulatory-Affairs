@@ -4,7 +4,7 @@ import type { AdProOtherStatus } from "@prisma/client";
 import { revalidatePath } from "next/cache";
 import { requireUser } from "@/lib/session";
 import { userCan, hasGlobalView, type SessionUser } from "@/lib/rbac";
-import { poserVisaAdPro, blocageCentreAdPro } from "@/lib/ad-pro/visa";
+import { poserVisaAdPro, blocageCentreAdPro, retirerVisaEnAttente } from "@/lib/ad-pro/visa";
 import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
 import { notifyRoles, notifyUser } from "@/lib/notify";
@@ -178,7 +178,9 @@ export async function closeAdProOtherRequest(formData: FormData): Promise<Action
       where: { id },
       data: { status: (cancel ? "CANCELLED" : "DONE") as AdProOtherStatus, updatedById: user.id },
     });
-    await audit(user, id, "UPDATE", `${cancel ? "Demande annulée" : "Demande terminée"} — ${req.reference}`);
+    // ANNULÉE, ELLE N'A PLUS RIEN À FAIRE ARBITRER (audit 360°, lot C3) — la même règle qu'au consulting.
+    const portes = cancel ? await retirerVisaEnAttente("AD_PRO_OTHER", id) : 0;
+    await audit(user, id, "UPDATE", `${cancel ? "Demande annulée" : "Demande terminée"} — ${req.reference}${portes ? " (sa demande au centre Ad & Pro est retirée)" : ""}`);
     revalidate(id);
     return { ok: true, id };
   } catch (err) {

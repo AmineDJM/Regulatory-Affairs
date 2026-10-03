@@ -1,6 +1,7 @@
 import type { EntityType } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { getAppSettings } from "@/lib/settings";
+import { toNumber } from "@/lib/utils";
 import { porteDgRequise } from "@/lib/seuils/ad-pro";
 import { type EtatVisa, visaAutoriseAAvancer, motifBlocageVisa } from "./centre";
 
@@ -92,7 +93,41 @@ export async function lireVisaAdPro(
     .findUnique({ where: { entityType_entityId: { entityType, entityId } }, select: { status: true } })
     .catch(() => null);
   if (!v) return null;
-  return v.status === "APPROVED" || v.status === "REFUSED" ? v.status : "PENDING";
+  return lireEtatVisa(v.status);
+}
+
+/** La lecture d'un statut de visa — un statut inconnu ATTEND, le sens sûr (§118.16). */
+export function lireEtatVisa(status: string): EtatVisa {
+  return status === "APPROVED" || status === "REFUSED" || status === "CHANGES_REQUESTED" ? status : "PENDING";
+}
+
+/** Le visa tel que la FICHE le montre : l'état, le motif, qui et quand. `null` = aucune porte. */
+export async function lireVisaDetail(
+  entityType: EntityType,
+  entityId: string,
+): Promise<{ etat: EtatVisa; note: string | null; decidedAt: Date | null; decideur: string | null } | null> {
+  const v = await prisma.adProGateVisa
+    .findUnique({
+      where: { entityType_entityId: { entityType, entityId } },
+      select: { status: true, note: true, decidedAt: true, decidedBy: { select: { name: true } } },
+    })
+    .catch(() => null);
+  if (!v) return null;
+  return { etat: lireEtatVisa(v.status), note: v.note, decidedAt: v.decidedAt, decideur: v.decidedBy?.name ?? null };
+}
+
+/**
+ * LE MONTANT QUE LE SEUIL COMPARE, relu sur la fiche — à la resoumission, la demande corrigée peut
+ * avoir changé de montant, et c'est ce montant-là que le centre doit voir (§118.187 : un accord ne
+ * couvre pas plus que ce qu'il a vu). `null` = non renseigné, ou une nature sans visa.
+ */
+export async function montantPourLeVisa(entityType: EntityType, entityId: string): Promise<number | null> {
+  const brut = entityType === "CONSULTING_CONTRACT"
+    ? (await prisma.consultingContract.findUnique({ where: { id: entityId }, select: { amount: true } }).catch(() => null))?.amount
+    : entityType === "AD_PRO_OTHER"
+      ? (await prisma.adProOtherRequest.findUnique({ where: { id: entityId }, select: { amount: true } }).catch(() => null))?.amount
+      : null;
+  return brut == null ? null : toNumber(brut);
 }
 
 /**

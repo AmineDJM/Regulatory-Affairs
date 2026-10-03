@@ -220,7 +220,7 @@ describe("gesteAiguillage avec le seuil — ce qui attend s'efface, ce qui est d
 });
 
 describe("etapeBC — une seule lecture de « où en est ce BC », pour la file, la fiche et la signature", () => {
-  const e = (a: Partial<Parameters<typeof etapeBC>[0]>) => etapeBC({ porte: null, validationRequise: true, signe: false, dansLeCircuit: true, ...a });
+  const e = (a: Partial<Parameters<typeof etapeBC>[0]>) => etapeBC({ porte: null, validationRequise: true, signe: false, dansLeCircuit: true, renvoye: false, ...a });
   it("la SIGNATURE l'emporte sur tout", () => {
     expect(e({ signe: true, porte: porte({ etat: "EN_ATTENTE" }) })).toBe("SIGNE");
   });
@@ -237,6 +237,15 @@ describe("etapeBC — une seule lecture de « où en est ce BC », pour la file,
     expect(e({ validationRequise: false })).toBe("A_SIGNER");
     expect(e({ validationRequise: true })).toBe("SANS_PORTE");
     expect(e({ dansLeCircuit: false, validationRequise: false })).toBe("HORS_CIRCUIT");
+  });
+  it("RENVOYÉ à son émetteur (R09) : ce qui serait « à signer » attend sa correction — et rien d'autre ne change", () => {
+    expect(e({ renvoye: true, porte: porte({ etat: "VALIDE" }) })).toBe("A_CORRIGER");
+    expect(e({ renvoye: true, validationRequise: false })).toBe("A_CORRIGER");
+    expect(e({ renvoye: true, porte: porte({ etat: "EN_ATTENTE" }) }), "une porte qui attend garde la main").toBe("A_VALIDER");
+    expect(e({ renvoye: true, porte: porte({ etat: "REFUSE" }) })).toBe("REFUSE");
+    expect(e({ renvoye: true, signe: true }), "la signature l'emporte").toBe("SIGNE");
+    expect(e({ renvoye: true, dansLeCircuit: false, validationRequise: false })).toBe("HORS_CIRCUIT");
+    expect(e({ renvoye: true, validationRequise: true }), "au-dessus du seuil sans porte, c'est le centre qu'il faut d'abord").toBe("SANS_PORTE");
   });
 });
 
@@ -259,6 +268,15 @@ describe("les phrases de l'étape — ce qu'on lit avant d'envoyer, ce qu'on lit
     expect(r).toMatch(/signature des Finances/);
     // Sans étape (appelant d'avant la règle), la porte seule parle — comme avant.
     expect(reserveDeLAiguillage({ porte: porte({ etat: "EN_ATTENTE" }) })).toBe(reserveBC(porte({ etat: "EN_ATTENTE" })));
+  });
+  it("un BC RENVOYÉ dit qu'il ne part pas, et le geste qui le rend à la signature (R09)", () => {
+    const r = reserveEtapeBC("A_CORRIGER", null, 0) ?? "";
+    expect(r).toMatch(/modifiez-le/);
+    expect(r).toMatch(/Ne l'envoyez pas au fournisseur/);
+    expect(motifNonSignable("A_CORRIGER", null)).toMatch(/renvoyé à son émetteur/);
+    const c = chantierBCClos([{ reference: "BC-7", porte: porte({ etat: "VALIDE" }), etape: "A_CORRIGER" }]);
+    expect(c.ok, "un BC renvoyé n'est pas signé : le chantier reste ouvert").toBe(false);
+    expect(c.ok ? "" : c.raison).toMatch(/BC-7 \(renvoyé à l'émetteur pour correction\)/);
   });
   it("motifNonSignable : seul « à signer » se signe, et chaque refus nomme ce qui le lève", () => {
     expect(motifNonSignable("A_SIGNER", null)).toBeNull();

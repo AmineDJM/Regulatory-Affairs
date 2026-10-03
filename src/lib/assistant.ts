@@ -493,9 +493,10 @@ export type AssistantActionPayload =
     }
   | {
       /**
-       * TRANCHER UN PAIEMENT AU CENTRE — autoriser, refuser, demander une révision du montant ou
-       * une argumentation. Toujours confirmé par la carte ; l'exécution repasse par l'action du
-       * centre (`decidePayment`), qui revérifie QUI siège et si la décision a encore un sens.
+       * TRANCHER UN PAIEMENT AU CENTRE — autoriser ou refuser, les deux seules décisions du centre
+       * depuis le 02/09/2026 (le schéma de l'outil le dit ; le type garde les deux autres pour les
+       * cartes d'avant, que l'action refuse). Toujours confirmé par la carte ; l'exécution repasse par
+       * l'action du centre (`decidePayment`), qui revérifie QUI siège et si la décision a encore un sens.
        */
       kind: "decide_payment";
       orderId: string;

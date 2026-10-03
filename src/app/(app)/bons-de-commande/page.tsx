@@ -83,6 +83,7 @@ export default async function BonsDeCommandePage() {
 
       <FileBonsDeCommande
         aSigner={file.aSigner}
+        renvoyes={file.renvoyes}
         signes={file.signes}
         peutSigner={peutSigner}
         refus={peutSigner ? null : REFUS_SIGNATURE_BC}

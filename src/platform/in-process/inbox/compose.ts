@@ -163,7 +163,9 @@ export async function composerInbox(user: SessionUser): Promise<VueInbox> {
       recommandation: null,
       options: [
         { id: "approuver", libelle: "Autoriser", ton: "primaire", effet: "Autorise le décaissement ; le comptable peut régler.", geste: { kind: "paiement.decide", orderId: o.id, decision: "APPROVE" } },
-        { id: "complement", libelle: "Demander un complément", ton: "neutre", effet: "Renvoie l'ordre au demandeur avec votre question.", geste: { kind: "paiement.decide", orderId: o.id, decision: "REQUEST_INFO" }, saisie: { libelle: "Ce qui manque", obligatoire: true } },
+        // « Demander un complément » (REQUEST_INFO) a quitté le centre avec la décision du 02/09/2026 :
+        // l'action le refuse (« Décision invalide »), et le proposer ici était un bouton qui échoue
+        // après le clic (audit 360°, R03 ; §118.83).
         { id: "refuser", libelle: "Refuser", ton: "danger", effet: "Refuse le décaissement ; le motif est transmis.", geste: { kind: "paiement.decide", orderId: o.id, decision: "REFUSE" }, saisie: { libelle: "Motif du refus", obligatoire: true } },
       ],
       source: { module: "Centre de paiement", libelle: o.reference, href: `/finances/centre-de-paiement?focus=${o.id}` },

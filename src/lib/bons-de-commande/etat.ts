@@ -38,6 +38,11 @@ export interface EtatBC {
   signeLe: Date | null;
   signePar: { id: string; name: string } | null;
   /**
+   * RENVOYÉ À SON ÉMETTEUR par un signataire (audit 360°, R09) — qui, quand, et ce qu'il faut corriger.
+   * `null` : aucun renvoi en cours (toute modification de la pièce l'efface).
+   */
+  renvoi: { le: Date; par: string | null; note: string | null } | null;
+  /**
    * La dernière écriture de la pièce, lue en même temps que le reste : l'action de signature la
    * rejoue comme verrou — ce qui a été relu est ce qui est signé (§104.7).
    */
@@ -53,6 +58,7 @@ export async function etatsDesBC(ids: readonly string[], opts: { seuil?: number 
     select: {
       id: true, reference: true, title: true, counterparty: true, createdById: true, amount: true,
       status: true, signedAt: true, bcCircuitAt: true, updatedAt: true, signedBy: { select: { id: true, name: true } },
+      signatureReturnedAt: true, signatureReturnNote: true, signatureReturnedBy: { select: { name: true } },
     },
   });
   if (docs.length === 0) return res;
@@ -67,10 +73,13 @@ export async function etatsDesBC(ids: readonly string[], opts: { seuil?: number 
     res.set(d.id, {
       id: d.id, reference: d.reference, title: d.title, counterparty: d.counterparty, createdById: d.createdById,
       montant, porte, validationRequise, seuil,
-      etape: etapeBC({ porte, validationRequise, signe: d.signedAt !== null, dansLeCircuit: d.bcCircuitAt !== null }),
+      etape: etapeBC({ porte, validationRequise, signe: d.signedAt !== null, dansLeCircuit: d.bcCircuitAt !== null, renvoye: d.signatureReturnedAt !== null }),
       annule: d.status === "CANCELLED",
       signeLe: d.signedAt,
       signePar: d.signedBy ? { id: d.signedBy.id, name: d.signedBy.name } : null,
+      renvoi: d.signatureReturnedAt
+        ? { le: d.signatureReturnedAt, par: d.signatureReturnedBy?.name ?? null, note: d.signatureReturnNote }
+        : null,
       majLe: d.updatedAt,
     });
   }

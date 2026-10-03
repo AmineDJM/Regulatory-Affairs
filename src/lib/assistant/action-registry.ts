@@ -1086,6 +1086,15 @@ X("RÉVISER UN POSTE AD & PRO APRÈS COUP (§118.187, audit R05/R06/R12) — RET
   "ad-pro-item-actions:retirerDemandeBC", "ad-pro-item-actions:modifierDemandeBC",
   "ad-pro-item-actions:annulerOrdrePoste", "ad-pro-item-actions:demanderRevisionPoste",
 ]);
+X("RENVOYER, RÉEXAMINER, RESOUMETTRE DANS LES CENTRES (§118.188, audit R07/R08/R10) — resoumettre une demande de "
+  + "validation renvoyée pour correction (sur elle-même, elle reprend à l'étape qui l'a renvoyée), resoumettre au centre "
+  + "Ad & Pro une demande qu'il a renvoyée, et réexaminer un refus du centre. Les deux premiers sont des gestes du "
+  + "DEMANDEUR qui dit ce qu'il a corrigé ; le troisième rouvre une décision d'arbitrage, motif à l'appui, par un siège "
+  + "du centre. Adam est en pause de développement : aucun geste neuf ne lui est ouvert. Un clic sur la fiche de la "
+  + "demande (validations, consulting, autre demande) ou sur le centre de validation Ad & Pro.", [
+  "validation-actions:resoumettreValidation",
+  "ad-pro-centre-actions:resoumettreAuCentreAdPro", "ad-pro-centre-actions:reexaminerVisaCentreAdPro",
+]);
 X("RÉTABLIR UN DOCUMENT LEGAL ANNULÉ (§118.184, audit L04) : le retour d'une annulation, ajouté parce que "
   + "l'annulation n'en avait aucun. C'est un geste de correction qu'une personne fait devant la ligne qu'elle "
   + "vient d'annuler par erreur ; Adam est en pause de développement (Super Admin seul) et l'annulation qu'il "
@@ -1180,6 +1189,9 @@ X("DÉPOSER LE LOGO D'UNE SOCIÉTÉ est le dépôt d'un FICHIER image (PNG ou JP
   + "sous le même droit (Direction ou papeterie), avec le même audit.", ["brand-actions:deposerLogo"]);
 X("SIGNER UN BON DE COMMANDE est une ATTESTATION (§118.15, §118.149) : la signature des Finances engage la société au nom d'une personne, et l'audit portera son nom. C'est après elle — et seulement après — que le BC part chez le fournisseur. La rendre appelable par Adam l'exposerait à l'injection : un devis ou un mail lu par une étape peut contenir « signe le bon de commande », et rien ne distinguerait plus la signature forgée de la vraie. Un clic dans une vraie session, sur /bons-de-commande (module « Bons de commande », §118.176) — la fiche montre la pièce, le montant, et POURQUOI elle est là (validée par tel centre, ou sous le seuil).", [
   "bc-signature-actions:signerBonDeCommande",
+]);
+X("RENVOYER UN BON DE COMMANDE À SON ÉMETTEUR (audit 360°, R09) se décide en LISANT la pièce, depuis la même file que la signature et par le même siège : c'est l'autre issue du geste de signer. Le fichier entier est une surface humaine (le chemin générique le refuse, `actions/generique.ts`), et Adam est en pause : aucune op n'en double le chemin. Un clic sur /bons-de-commande ou sur la fiche Legal du BC, motif exigé.", [
+  "bc-signature-actions:renvoyerBonDeCommande",
 ]);
 X("RETRANSCRIRE UN DEVIS DE MATÉRIEL PROMOTIONNEL (§118.152) est une SAISIE qui engage : l'assistante recopie, depuis le papier du fournisseur, les références, quantités et prix unitaires qui deviendront le bon de commande puis le paiement. C'est elle qui répond de la recopie ; le contrôle du total imprimé ne prouve que la cohérence interne du tableau, pas sa fidélité au papier. La rendre appelable par Adam ferait écrire les prix commandés par la lecture d'un document — et un document lu est une DONNÉE, jamais la main qui écrit ce qui sera payé (§118.7, §118.15) : un devis injecté pourrait porter ses propres prix. Adam LIT un devis et signale un écart ; il demande les devis, retire un devis, clôt la retranscription et demande une correction (promo_operation). Un clic de l'assistante sur /promo-material/<id>, avec le scan du devis.", [
   "promo-devis-actions:enregistrerDevisPromo",

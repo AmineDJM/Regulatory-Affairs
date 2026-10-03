@@ -276,9 +276,10 @@ describe("SURFACES HUMAINES — ouvrir une lecture ne doit pas ouvrir une porte"
     const refusees = CONTRATS_ACTIONS.filter((c) => !c.illisible && interdictionGenerique(c));
     const parSurface = refusees.filter((c) => c.fichier in SURFACES_HUMAINES);
     // Trois surfaces : le pilotage humain des missions, les garde-fous d'Adam, et — depuis
-    // §118.149 — la SIGNATURE des Finances (une action). Le plafond monte de cette action et
-    // d'elle seule : une surface qui grossit sans décision est une garde qui déborde.
-    expect(parSurface.length, "les trois surfaces comptent 20 actions au total").toBeLessThanOrEqual(20);
+    // §118.149 — la SIGNATURE des Finances. Le plafond monte de ces actions et d'elles seules : une
+    // surface qui grossit sans décision est une garde qui déborde. 21 depuis l'audit 360° (R09) :
+    // « Renvoyer à l'émetteur » est l'autre issue du même geste, par le même siège, sur la même file.
+    expect(parSurface.length, "les trois surfaces comptent 21 actions au total").toBeLessThanOrEqual(21);
     // Un refus à tort coûte plus cher que le défaut qu'on corrige (§118.27) : l'immense
     // majorité du parc descriptible doit rester appelable.
     const ouvertes = CONTRATS_ACTIONS.filter((c) => !c.illisible && !interdictionGenerique(c));

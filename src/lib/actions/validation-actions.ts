@@ -1,6 +1,5 @@
 "use server";
 
-import { randomUUID } from "crypto";
 import { revalidatePath } from "next/cache";
 import { OBJET_BC, CHEMIN_BC_A_SIGNER } from "@/lib/bons-de-commande/aiguillage";
 import { signalerSiASigner } from "@/lib/bons-de-commande/etat";
@@ -8,11 +7,11 @@ import type { Priority, UserRole, ValidationMode, ValidationStatus, ValidationSt
 import { requireUser } from "@/lib/session";
 import { userCan, hasGlobalView } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
-import { saveFile, validateUpload } from "@/lib/storage";
 import { getAppSettings } from "@/lib/settings";
 import { recordAudit } from "@/lib/audit";
 import { notifyUser } from "@/lib/notify";
-import { createValidationFromRules, createDirectValidation, notifyValidator } from "@/lib/validation";
+import { createValidationFromRules, createDirectValidation, notifyValidator, joindrePiecesValidation, reprendreEtapesRenvoyees, verifierPiecesValidation } from "@/lib/validation";
+import { issueDeLaDecision, motifExige, MOTIF_EXIGE, repriseApresCorrection, resoumissionSurPlace, type DecisionEtape } from "@/lib/validations/decision";
 import { createExpenseOrder } from "@/lib/expense-orders";
 import { actsForUser } from "@/lib/hr/stand-in-resolve";
 import { toNumber } from "@/lib/utils";
@@ -115,6 +114,13 @@ export async function createValidationRequest(
   if (!userCan(user, "VALIDATIONS", "CREATE")) return { ok: false, error: "Non autorisé." };
   const title = fdStr(formData, "title");
   if (!title) return { ok: false, error: "Indiquez l'objet à valider." };
+  // LES PIÈCES SE VÉRIFIENT AVANT LA DEMANDE : vérifiées après, un fichier trop lourd laissait une
+  // demande créée sans ses pièces, sous un message d'erreur qui faisait croire qu'elle n'existait pas.
+  const files = formData.getAll("files").filter((f): f is File => f instanceof File && f.size > 0);
+  if (files.length) {
+    const invalid = verifierPiecesValidation(files, (await getAppSettings()).maxUploadMb);
+    if (invalid) return { ok: false, error: invalid };
+  }
 
   // Validateurs choisis directement par le demandeur (validation professionnelle
   // libre, ex. l'assistante de direction). Prioritaire sur le routage par règles.
@@ -153,28 +159,9 @@ export async function createValidationRequest(
   }
   if (!res.ok) return { ok: false, error: res.error };
 
-  // Pièces jointes facultatives : versées à la demande de validation (visibles du
-  // demandeur et des validateurs via les documents de l'entité).
-  const files = formData.getAll("files").filter((f): f is File => f instanceof File && f.size > 0);
-  if (files.length) {
-    const maxMb = (await getAppSettings()).maxUploadMb;
-    for (const file of files) {
-      const invalid = validateUpload(file.name, file.size, maxMb);
-      if (invalid) return { ok: false, error: invalid };
-      const key = `VALIDATION_REQUEST/${res.requestId}/${randomUUID()}__${file.name}`;
-      try {
-        await saveFile(key, Buffer.from(await file.arrayBuffer()));
-      } catch (err) {
-        console.error("[validations] storage write failed, recording metadata only", err);
-      }
-      await prisma.document.create({
-        data: {
-          name: file.name, category: "OTHER", entityType: "VALIDATION_REQUEST", entityId: res.requestId!,
-          fileKey: key, mimeType: file.type || null, sizeBytes: file.size, confidentiality: "INTERNAL", uploadedById: user.id,
-        },
-      });
-    }
-  }
+  // Pièces jointes facultatives (vérifiées plus haut) : versées à la demande de validation, visibles
+  // du demandeur et des validateurs. Un seul écrivain avec la resoumission (`joindrePiecesValidation`).
+  if (files.length) await joindrePiecesValidation(res.requestId!, files, user.id);
 
   await recordAudit({ actorId: user.id, action: "CREATE", module: "Validations", entityType: "VALIDATION_REQUEST", entityId: res.requestId!, summary: `${res.reference} — ${title}` });
   revalidatePath("/validations");
@@ -211,6 +198,12 @@ export async function decideValidation(formData: FormData): Promise<ActionResult
     return { ok: false, error: "Décision invalide." };
   }
 
+  // REFUSER OU RENVOYER SANS DIRE POURQUOI (audit 360°, R08 et R17) laisse le demandeur deviner ce
+  // qu'il doit corriger, et l'historique muet sur ce qui a arrêté la demande. L'accord reste sans motif.
+  // `=== null` et non `!reason` : la dérivation des contrats lit un `!v` comme « champ obligatoire »,
+  // et le motif ne l'est QUE pour renvoyer ou refuser — valider sans commentaire reste possible (§118.138).
+  if (motifExige(decision as DecisionEtape) && reason === null) return { ok: false, error: MOTIF_EXIGE };
+
   const step = await prisma.validationStep.findUnique({
     where: { id: stepId },
     include: { request: { include: { steps: true } } },
@@ -228,38 +221,47 @@ export async function decideValidation(formData: FormData): Promise<ActionResult
   if (step.status !== "PENDING") return { ok: false, error: "Étape déjà traitée." };
 
   const req = step.request;
+  if (req.status === "CHANGES_REQUESTED") {
+    return { ok: false, error: "Cette demande a été renvoyée pour correction : elle reviendra vers vous quand son demandeur l'aura resoumise." };
+  }
   if (req.status !== "PENDING") return { ok: false, error: "Demande déjà clôturée." };
   if (req.mode === "SEQUENTIAL" && step.order !== req.currentOrder) return { ok: false, error: "Ce n'est pas encore votre tour." };
-  // Commentaire OPTIONNEL, quelle que soit la décision (approuver / refuser / demander une modif).
 
-  await prisma.validationStep.update({ where: { id: stepId }, data: { status: decision, reason, decidedAt: new Date() } });
-
-  let newStatus: ValidationStatus = "PENDING";
-  let advanceOrder = req.currentOrder;
-  if (decision === "REJECTED") {
-    newStatus = "REJECTED";
-  } else if (decision === "CHANGES_REQUESTED") {
-    newStatus = "CHANGES_REQUESTED";
-  } else {
-    if (req.mode === "PARALLEL") {
-      const allApproved = req.steps.filter((s) => s.id !== stepId).every((s) => s.status === "APPROVED");
-      newStatus = allApproved ? "APPROVED" : "PENDING";
-    } else {
-      const next = req.steps.find((s) => s.order === req.currentOrder + 1 && s.status === "PENDING");
-      if (next) {
-        advanceOrder = req.currentOrder + 1;
-        await notifyValidator(next.validatorId, req);
-      } else {
-        newStatus = "APPROVED";
-      }
+  // UN GESTE À LA FOIS (audit 360°, lot C3). La décision se prend SOUS LE VERROU de la demande, sur
+  // ses étapes RELUES : deux validateurs d'un circuit parallèle qui approuvaient à la même seconde
+  // voyaient chacun l'autre « en attente », aucun ne finalisait, et la demande restait en attente
+  // pour toujours sans que plus personne puisse la trancher ; un double clic sur la dernière étape
+  // émettait DEUX ordres de dépense. L'écriture de l'étape est conditionnelle (encore en attente),
+  // et seule la décision qui FINALISE ici déclenche ce qui suit.
+  const issue = await prisma.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT id FROM "ValidationRequest" WHERE id = ${req.id} FOR UPDATE`;
+    const frais = await tx.validationRequest.findUnique({
+      where: { id: req.id },
+      select: { status: true, mode: true, currentOrder: true, steps: { select: { id: true, order: true, status: true, validatorId: true } } },
+    });
+    if (!frais || frais.status !== "PENDING") {
+      return { ok: false as const, error: "Cette demande vient d'être tranchée par un autre validateur : rouvrez-la pour voir où elle en est." };
     }
-  }
-
-  const finalized = newStatus !== "PENDING";
-  await prisma.validationRequest.update({
-    where: { id: req.id },
-    data: { status: newStatus, currentOrder: advanceOrder, decidedAt: finalized ? new Date() : null },
+    if (frais.mode === "SEQUENTIAL" && step.order !== frais.currentOrder) return { ok: false as const, error: "Ce n'est pas encore votre tour." };
+    const ecrite = await tx.validationStep.updateMany({
+      where: { id: stepId, status: "PENDING" },
+      data: { status: decision, reason, decidedAt: new Date() },
+    });
+    if (ecrite.count === 0) return { ok: false as const, error: "Étape déjà traitée." };
+    const etapes = frais.steps.map((e) => (e.id === stepId ? { ...e, status: decision } : e));
+    const r = issueDeLaDecision({ mode: frais.mode, currentOrder: frais.currentOrder, steps: etapes }, stepId, decision as DecisionEtape);
+    const finalisee = r.status !== "PENDING";
+    await tx.validationRequest.update({
+      where: { id: req.id },
+      data: { status: r.status, currentOrder: r.currentOrder, decidedAt: finalisee ? new Date() : null },
+    });
+    const suivante = r.suivanteId ? etapes.find((e) => e.id === r.suivanteId) ?? null : null;
+    return { ok: true as const, status: r.status, finalisee, suivanteValidatorId: suivante?.validatorId ?? null };
   });
+  if (!issue.ok) return { ok: false, error: issue.error };
+  const newStatus: ValidationStatus = issue.status;
+  const finalized = issue.finalisee;
+  if (issue.suivanteValidatorId) await notifyValidator(issue.suivanteValidatorId, req);
 
   if (finalized && req.requesterId !== user.id) {
     // UNE DÉCISION SUR UNE PIÈCE N'EST PAS UNE DÉCISION SUR LA DEMANDE. « Validation acceptée »
@@ -274,15 +276,23 @@ export async function decideValidation(formData: FormData): Promise<ActionResult
           where: { entityType: req.entityType, entityId: req.entityId, status: "PENDING", id: { not: req.id } },
         })
       : 0;
-    const label = newStatus === "APPROVED" ? "acceptée" : newStatus === "REJECTED" ? "refusée" : "à modifier";
+    const label = newStatus === "APPROVED" ? "acceptée" : newStatus === "REJECTED" ? "refusée" : "à corriger";
+    // LE MOTIF VOYAGE AVEC LA DÉCISION, et le lien mène à LA demande (audit 360°, R08) : « à corriger »
+    // sans dire quoi, vers la liste de toutes les validations, faisait chercher deux fois.
+    const motif = reason ? ` Motif : « ${reason} ».` : "";
+    const suite = newStatus === "CHANGES_REQUESTED"
+      ? (resoumissionSurPlace(req)
+        ? " Corrigez-la puis « Resoumettre » sur la demande : elle reviendra à la même étape."
+        : " Corrigez depuis l'objet d'origine, puis renvoyez-la depuis lui.")
+      : "";
     await notifyUser({
       userId: req.requesterId,
       type: "GENERIC",
       title: onPiece ? `Pièce ${label} — ${pieceName}` : `Validation ${label}`,
       body: onPiece
-        ? `${req.reference} · cette décision porte sur cette pièce seule.${stillPending > 0 ? ` ${stillPending} autre${stillPending > 1 ? "s" : ""} pièce${stillPending > 1 ? "s" : ""} de la même demande attend${stillPending > 1 ? "ent" : ""} encore.` : " Toutes les pièces de la demande sont désormais tranchées."}`
-        : `${req.reference} — ${req.title}`,
-      link: "/validations",
+        ? `${req.reference} · cette décision porte sur cette pièce seule.${stillPending > 0 ? ` ${stillPending} autre${stillPending > 1 ? "s" : ""} pièce${stillPending > 1 ? "s" : ""} de la même demande attend${stillPending > 1 ? "ent" : ""} encore.` : " Toutes les pièces de la demande sont désormais tranchées."}${motif}${suite}`
+        : `${req.reference} — ${req.title}.${motif}${suite}`,
+      link: `/validations/${req.id}`,
     });
   }
   await recordAudit({
@@ -290,7 +300,7 @@ export async function decideValidation(formData: FormData): Promise<ActionResult
     entityType: "VALIDATION_REQUEST", entityId: req.id, field: "decision", newValue: decision,
     // Le journal DIT que la décision a été prise au titre d'un intérim. Sans cette mention, on
     // relirait « Untel a validé » sans comprendre pourquoi ce n'est pas le validateur désigné.
-    summary: `${req.reference} → ${decision}${asStandIn ? " (par l'intérimaire du validateur, congé en cours)" : ""}`,
+    summary: `${req.reference} → ${decision}${asStandIn ? " (par l'intérimaire du validateur, congé en cours)" : ""}${reason ? ` — ${reason}` : ""}`,
   });
 
   // PIÈCE JOINTE APPROUVÉE + MONTANT SAISI À LA SOUMISSION → la suite est FINANCIÈRE : un ordre
@@ -440,6 +450,11 @@ export async function clearValidationItem(formData: FormData): Promise<ActionRes
  *     soumet ferait disparaître la demande au lieu de la refuser, sans motif et sans trace ;
  *   • une demande DÉJÀ TRANCHÉE ne se retire pas. L'accord ou le refus d'un tiers est un fait :
  *     l'effacer réécrirait ce que quelqu'un a signé. On ne retire que ce qui attend encore.
+ *
+ * UNE DEMANDE QUI A UN HISTORIQUE S'ABANDONNE, ELLE NE S'EFFACE PAS (audit 360°, R08). Renvoyée pour
+ * correction, elle restait « à corriger » pour toujours si son demandeur renonçait ; resoumise, elle
+ * porte dans son fil ce qu'un validateur a demandé. L'abandon la CLÔT (annulée, visible, son fil
+ * intact) au lieu de la supprimer — seule une demande vierge, à sa première version, s'efface encore.
  */
 export async function deleteMyValidationRequest(formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
@@ -447,16 +462,43 @@ export async function deleteMyValidationRequest(formData: FormData): Promise<Act
   if (!id) return { ok: false, error: "Demande introuvable." };
   const req = await prisma.validationRequest.findUnique({
     where: { id },
-    select: { id: true, reference: true, title: true, requesterId: true, status: true, steps: { select: { status: true } } },
+    select: { id: true, reference: true, title: true, requesterId: true, status: true, version: true, entityType: true, documentId: true, steps: { select: { status: true, validatorId: true } } },
   });
   if (!req) return { ok: false, error: "Demande introuvable." };
   if (req.requesterId !== user.id && user.role !== "SUPER_ADMIN") {
     return { ok: false, error: "Seul le demandeur retire sa demande. Un validateur refuse — avec un motif, qui reste." };
   }
+  const decidee = req.steps.some((e) => e.status !== "PENDING");
+  // Une demande NÉE D'UN AUTRE CIRCUIT ne s'abandonne pas d'ici : c'est ce circuit qui la clôt en la
+  // remplaçant (audit 360°, I9) — l'abandonner ici lui ferait trouver une demande déjà close, et sa
+  // resoumission s'arrêterait sur « une nouvelle demande vient déjà d'être soumise ».
+  if (req.status === "CHANGES_REQUESTED" && !resoumissionSurPlace(req)) {
+    return { ok: false, error: "Cette demande se corrige depuis son objet d'origine : c'est lui qui la renvoie ou la clôt." };
+  }
+  if (req.status === "CHANGES_REQUESTED" || (req.status === "PENDING" && req.version > 1 && !decidee)) {
+    const close = await prisma.validationRequest.updateMany({
+      where: { id, status: req.status, version: req.version },
+      data: { status: "CANCELLED", decidedAt: new Date() },
+    });
+    if (close.count === 0) return { ok: false, error: "Cette demande vient de changer : rouvrez-la pour voir où elle en est." };
+    if (req.status === "PENDING") {
+      for (const e of req.steps) {
+        if (e.validatorId === user.id) continue;
+        await notifyUser({ userId: e.validatorId, type: "GENERIC", title: "Validation retirée", body: `${req.reference} — ${req.title} : abandonnée par son demandeur.`, link: `/validations/${id}` }).catch(() => undefined);
+      }
+    }
+    await recordAudit({
+      actorId: user.id, action: "UPDATE", module: "Validations", entityType: "VALIDATION_REQUEST", entityId: id,
+      field: "status", newValue: "CANCELLED",
+      summary: `Demande de validation abandonnée par son demandeur — ${req.reference} : ${req.title} (son historique reste)`,
+    });
+    revalidatePath("/validations");
+    revalidatePath(`/validations/${id}`);
+    return { ok: true, message: "Demande abandonnée : elle reste visible, close, avec son historique." };
+  }
   if (req.status !== "PENDING") {
     return { ok: false, error: "Cette demande a été tranchée : l'accord ou le refus d'un tiers ne s'efface pas." };
   }
-  const decidee = req.steps.some((e) => e.status !== "PENDING");
   if (decidee) {
     return { ok: false, error: "Un validateur s'est déjà prononcé sur une étape : la demande ne peut plus être retirée." };
   }
@@ -470,6 +512,107 @@ export async function deleteMyValidationRequest(formData: FormData): Promise<Act
   revalidatePath("/validations");
   revalidatePath("/mon-espace");
   return { ok: true };
+}
+
+/**
+ * RESOUMETTRE UNE DEMANDE RENVOYÉE POUR CORRECTION — sur ELLE-MÊME (audit 360°, R08).
+ *
+ * « Modification demandée » clôturait la demande : on en écrivait une autre, sans lien avec la
+ * première ni avec le motif. La demande corrigée reprend maintenant À L'ÉTAPE QUI L'A RENVOYÉE
+ * (`repriseApresCorrection`), sa version monte, et le fil garde qui a renvoyé, pourquoi et ce qui a
+ * été corrigé (`reprendreEtapesRenvoyees`). Ce que le formulaire ne porte pas ne s'écrit pas : un
+ * texte ou un montant absent de l'envoi reste ce qu'il était (§118.152c).
+ *
+ * Seul le DEMANDEUR resoumet, et seulement une demande qui se corrige sur elle-même : une demande
+ * née d'un autre circuit (un BC, une pièce du secrétariat, une déclaration) se corrige et repart de
+ * LÀ-BAS — la resoumettre ici contournerait la correction que ce circuit exige.
+ */
+export async function resoumettreValidation(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  const id = fdStr(formData, "id");
+  if (!id) return { ok: false, error: "Demande introuvable." };
+  const note = fdStr(formData, "note");
+  if (!note) return { ok: false, error: "Dites ce que vous avez corrigé : c'est la première chose que le validateur lira." };
+
+  const req = await prisma.validationRequest.findUnique({
+    where: { id },
+    select: {
+      id: true, reference: true, title: true, requesterId: true, status: true, mode: true, currentOrder: true,
+      version: true, amount: true, entityType: true, documentId: true, link: true,
+      steps: { select: { id: true, order: true, status: true, reason: true, validatorId: true, validator: { select: { name: true } } } },
+    },
+  });
+  if (!req) return { ok: false, error: "Demande introuvable." };
+  if (req.requesterId !== user.id) return { ok: false, error: "Seul le demandeur resoumet sa demande : c'est lui qui la corrige." };
+  if (!resoumissionSurPlace(req)) {
+    return { ok: false, error: `Cette demande se corrige depuis son objet d'origine${req.link ? ` (${req.link})` : ""} : c'est de là qu'elle repart.` };
+  }
+  if (req.status !== "CHANGES_REQUESTED") {
+    return { ok: false, error: req.status === "PENDING" ? "Cette demande est déjà en cours de validation." : "Cette demande a été tranchée : elle ne se resoumet plus." };
+  }
+
+  const description = formData.has("description") ? fdStr(formData, "description") : undefined;
+  const montantSaisi = formData.has("amount") ? fdNum(formData, "amount") : undefined;
+  if (montantSaisi != null && montantSaisi < 0) return { ok: false, error: "Le montant ne peut pas être négatif." };
+  const files = formData.getAll("files").filter((f): f is File => f instanceof File && f.size > 0);
+  if (files.length) {
+    const invalid = verifierPiecesValidation(files, (await getAppSettings()).maxUploadMb);
+    if (invalid) return { ok: false, error: invalid };
+  }
+
+  const avant = req.amount === null ? null : toNumber(req.amount);
+  const apres = montantSaisi === undefined ? avant : montantSaisi;
+  const reprise = repriseApresCorrection({ mode: req.mode, currentOrder: req.currentOrder, steps: req.steps }, avant, apres);
+  const renvois = req.steps.filter((e) => e.status === "CHANGES_REQUESTED");
+  const version = req.version + 1;
+  const histoire = [
+    `Resoumise après correction — version ${version}.`,
+    ...renvois.map((e) => `Renvoyée par ${e.validator?.name ?? "le validateur"} : « ${e.reason ?? "sans motif"} ».`),
+    `Ce qui a été corrigé : « ${note} ».`,
+    avant !== apres
+      ? `Montant : ${avant == null ? "non renseigné" : `${avant.toLocaleString("fr-FR")} DZD`} → ${apres == null ? "non renseigné" : `${apres.toLocaleString("fr-FR")} DZD`}${reprise.montantReleve ? " — relevé : les accords déjà donnés repartent avec la nouvelle version." : "."}`
+      : null,
+  ].filter(Boolean).join("\n");
+
+  // UN GESTE À LA FOIS : la resoumission prend le même verrou que la décision. Deux resoumissions
+  // simultanées ne montent pas deux versions ; la seconde trouve la demande déjà repartie.
+  const repartie = await prisma.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT id FROM "ValidationRequest" WHERE id = ${id} FOR UPDATE`;
+    const ecrite = await tx.validationRequest.updateMany({
+      where: { id, status: "CHANGES_REQUESTED", version: req.version },
+      data: {
+        status: "PENDING", version, currentOrder: reprise.currentOrder, decidedAt: null,
+        ...(description !== undefined ? { description } : {}),
+        ...(montantSaisi !== undefined ? { amount: montantSaisi } : {}),
+      },
+    });
+    if (ecrite.count === 0) return false;
+    await reprendreEtapesRenvoyees(tx, { requestId: id, etapes: reprise.aRouvrir, auteurId: user.id, histoire });
+    return true;
+  });
+  if (!repartie) return { ok: false, error: "Cette demande vient de changer : rouvrez-la pour voir où elle en est." };
+  if (files.length) await joindrePiecesValidation(id, files, user.id);
+
+  // QUI EST PRÉVENU : ceux dont c'est de nouveau le tour — en séquentiel, l'étape où le circuit
+  // reprend ; en parallèle, chaque étape rouverte. Les autres n'ont rien de neuf à faire.
+  const aPrevenir = req.steps.filter((e) => reprise.aRouvrir.includes(e.id) && (req.mode !== "SEQUENTIAL" || e.order === reprise.currentOrder));
+  for (const e of aPrevenir) {
+    await notifyUser({
+      userId: e.validatorId, type: "VALIDATION_REQUIRED",
+      title: "Demande resoumise après correction",
+      body: `${req.reference} — ${req.title} (version ${version}). Ce qui a été corrigé : « ${note} ».`,
+      link: `/validations/${id}`,
+    }).catch(() => undefined);
+  }
+  await recordAudit({
+    actorId: user.id, action: "UPDATE", module: "Validations", entityType: "VALIDATION_REQUEST", entityId: id,
+    field: "version", newValue: String(version),
+    summary: `${req.reference} resoumise après correction (version ${version}) — ${note}`,
+  });
+  revalidatePath("/validations");
+  revalidatePath(`/validations/${id}`);
+  revalidatePath("/mon-travail");
+  return { ok: true, id, message: `Demande resoumise (version ${version}) : elle reprend à l'étape qui l'avait renvoyée.` };
 }
 
 export async function remindValidator(formData: FormData): Promise<ActionResult> {

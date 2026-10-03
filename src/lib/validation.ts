@@ -1,5 +1,7 @@
-import type { EntityType, Priority, UserRole, ValidationRule } from "@prisma/client";
+import { randomUUID } from "crypto";
+import type { EntityType, Prisma, Priority, UserRole, ValidationRule } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { saveFile, validateUpload } from "@/lib/storage";
 import { notifyUser } from "@/lib/notify";
 import { buildRef, createWithRetry, enSerie } from "@/lib/refs";
 
@@ -251,4 +253,61 @@ export async function retirerValidationSansObjet(requestId: string): Promise<num
     data: { status: "CANCELLED", decidedAt: new Date() },
   });
   return r.count;
+}
+
+/**
+ * LES PIÈCES JOINTES D'UNE DEMANDE DE VALIDATION — un seul écrivain pour le dépôt et pour la
+ * resoumission (audit 360°, R08) : deux boucles recopiées finiraient par ne pas appliquer la même
+ * limite de taille, et c'est la seconde, la moins regardée, qui laisserait passer un fichier de trop.
+ *
+ * `verifierPiecesValidation` refuse AVANT toute écriture (rend le motif, `null` si tout passe) ;
+ * `joindrePiecesValidation` dépose. Une écriture de stockage qui échoue garde la ligne : la pièce
+ * reste nommée dans la demande, et le défaut se lit au journal du serveur.
+ */
+export function verifierPiecesValidation(files: readonly File[], maxMb: number): string | null {
+  for (const file of files) {
+    const invalide = validateUpload(file.name, file.size, maxMb);
+    if (invalide) return invalide;
+  }
+  return null;
+}
+
+export async function joindrePiecesValidation(requestId: string, files: readonly File[], auteurId: string): Promise<number> {
+  for (const file of files) {
+    const key = `VALIDATION_REQUEST/${requestId}/${randomUUID()}__${file.name}`;
+    try {
+      await saveFile(key, Buffer.from(await file.arrayBuffer()));
+    } catch (err) {
+      console.error("[validations] storage write failed, recording metadata only", err);
+    }
+    await prisma.document.create({
+      data: {
+        name: file.name, category: "OTHER", entityType: "VALIDATION_REQUEST", entityId: requestId,
+        fileKey: key, mimeType: file.type || null, sizeBytes: file.size, confidentiality: "INTERNAL", uploadedById: auteurId,
+      },
+    });
+  }
+  return files.length;
+}
+
+/**
+ * LA REPRISE D'UNE DEMANDE RENVOYÉE, côté étapes et historique (audit 360°, R08) — appelée DANS la
+ * transaction de la resoumission, sous le verrou de la demande.
+ *
+ * Les étapes qui repartent perdent leur motif ; il est donc ARCHIVÉ dans le fil de la demande au
+ * moment même où il s'efface de l'étape — pas avant (deux copies vivantes du même motif finiraient
+ * par se contredire), pas après (il n'existerait plus nulle part). Le fil garde ainsi, version par
+ * version, qui a renvoyé, pourquoi, et ce qui a été corrigé.
+ */
+export async function reprendreEtapesRenvoyees(
+  tx: Prisma.TransactionClient,
+  i: { requestId: string; etapes: readonly string[]; auteurId: string; histoire: string },
+): Promise<void> {
+  if (i.etapes.length > 0) {
+    await tx.validationStep.updateMany({
+      where: { id: { in: [...i.etapes] }, requestId: i.requestId },
+      data: { status: "PENDING", reason: null, decidedAt: null },
+    });
+  }
+  await tx.comment.create({ data: { entityType: "VALIDATION_REQUEST", entityId: i.requestId, authorId: i.auteurId, body: i.histoire } });
 }

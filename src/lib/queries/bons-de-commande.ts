@@ -81,10 +81,17 @@ export interface LigneBCFinances {
   validationRequise: boolean;
   signeLe: string | null;
   signePar: string | null;
+  /** Renvoyé à son émetteur (audit 360°, R09) : qui, quand, et ce qu'il faut corriger. */
+  renvoi: { le: string; par: string | null; note: string | null } | null;
 }
 
 export interface FileBCFinances {
   aSigner: LigneBCFinances[];
+  /**
+   * Renvoyés à leur émetteur pour correction : ils ne sont plus à signer, mais les signataires les
+   * VOIENT — un BC sorti de la file sans laisser de trace se lirait comme un BC perdu (§118.52).
+   */
+  renvoyes: LigneBCFinances[];
   signes: LigneBCFinances[];
   /** BC du circuit qui attendent encore un centre — comptés, pas listés : ils ne sont pas à signer. */
   enValidation: number;
@@ -129,11 +136,13 @@ export async function fileBonsDeCommande(user: CurrentUser, opts: { signesRecent
       fichiers: (() => { const f = fichiersEmis(d.custom); return { docx: Boolean(f.docx), pdf: Boolean(f.pdf) }; })(),
       etape: e.etape, porte: e.porte, validationRequise: e.validationRequise,
       signeLe: e.signeLe?.toISOString() ?? null, signePar: e.signePar?.name ?? null,
+      renvoi: e.renvoi ? { le: e.renvoi.le.toISOString(), par: e.renvoi.par, note: e.renvoi.note } : null,
     };
   };
   const lignesEnVol = enVol.map(ligne).filter((l): l is LigneBCFinances => l !== null);
   return {
     aSigner: lignesEnVol.filter((l) => l.etape === "A_SIGNER"),
+    renvoyes: lignesEnVol.filter((l) => l.etape === "A_CORRIGER"),
     signes: signesDocs.map(ligne).filter((l): l is LigneBCFinances => l !== null),
     enValidation: lignesEnVol.filter((l) => l.etape === "A_VALIDER" || l.etape === "A_REVOIR" || l.etape === "SANS_PORTE").length,
     seuil,

@@ -160,7 +160,7 @@ export default async function CentreDePaiementPage() {
     <div className="space-y-5">
       <PageHeader
         title="Centre de paiement"
-        description={`Tout paiement de la société est autorisé ici avant d'atteindre les Finances, quel que soit son montant — ceux à partir de ${CENTRAL_AUTH_THRESHOLD_DZD.toLocaleString("fr-FR")} DZD en tête de file. Le centre autorise, la comptabilité exécute : c'est la séparation des deux gestes qui rend le contrôle réel. Une décision n'est pas forcément « oui » ou « non » : on peut demander une révision du montant ou une argumentation, et le demandeur répond dans le même fil.`}
+        description={`Tout paiement de la société est autorisé ici avant d'atteindre les Finances, quel que soit son montant — ceux à partir de ${CENTRAL_AUTH_THRESHOLD_DZD.toLocaleString("fr-FR")} DZD en tête de file. Le centre autorise, la comptabilité exécute : c'est la séparation des deux gestes qui rend le contrôle réel. Le centre AUTORISE ou REFUSE — le montant et sa justification appartiennent à la demande et se corrigent avant d'arriver ici (décision de la Direction, 02/09/2026). Un refus dit toujours pourquoi : son motif reste dans le fil, que le demandeur lit sur sa propre ligne.`}
       />
 
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">

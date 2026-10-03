@@ -11,15 +11,19 @@ import {
   type CentralDecision, type CentralStatus,
   PAYMENT_CENTRE_REFUSAL,
 } from "@/lib/payments/authorization";
-import { fdStr, fdNum, type ActionResult } from "@/lib/actions/types";
+import { fdStr, type ActionResult } from "@/lib/actions/types";
 
 /**
  * LE CENTRE DE PAIEMENT — le PDG et le Super Admin autorisent, la comptabilité exécute.
  *
- * Quatre issues, pas deux. Un refus sec obligeait à refaire une demande depuis zéro et faisait
- * perdre la discussion ; ici le centre peut aussi demander une RÉVISION DU MONTANT ou une
- * ARGUMENTATION, le demandeur répond, et le dossier revient — autant de fois qu'il le faut. Le fil
- * reste attaché au paiement : six mois plus tard, on sait à quelles conditions il a été autorisé.
+ * DEUX ISSUES : autoriser ou refuser (décision de la Direction, 02/09/2026 — voir `isDecision`).
+ * Ce texte en annonçait quatre, et l'en-tête de l'écran promettait encore « une révision du
+ * montant ou une argumentation » qu'aucun bouton n'offrait plus : une prose qui promet un geste
+ * que le code n'a pas fait chercher ce qui n'existe pas (audit 360°, R03 ; §118.116). Un refus
+ * EXIGE son motif, qui reste dans le fil attaché au paiement : six mois plus tard, on sait à
+ * quelles conditions il a été autorisé, ou pourquoi il ne l'a pas été. Les dossiers d'avant qui
+ * portent encore « révision » ou « argumentation » se répondent et reviennent au centre
+ * (`respondToPaymentCentre`) : rien ne reste bloqué.
  *
  * Toutes les règles d'état viennent du module pur `payments/authorization` : cette action ne fait
  * que vérifier QUI agit, écrire, et prévenir.
@@ -83,16 +87,15 @@ async function suitesDuRefus(orderId: string, motif: string): Promise<void> {
  * resoumettre (`respondToPaymentCentre`) : l'ordre revient alors « en attente » et le centre
  * tranche. Rien ne reste bloqué.
  */
-function isDecision(v: string): v is CentralDecision {
+function isDecision(v: string): v is Extract<CentralDecision, "APPROVE" | "REFUSE"> {
   return v === "APPROVE" || v === "REFUSE";
 }
 
 /**
- * Le centre tranche : autoriser, refuser, demander une révision du montant, ou une argumentation.
+ * Le centre tranche : autoriser ou refuser.
  *
- * Le MOTIF est exigé partout sauf sur une autorisation sèche : refuser sans dire pourquoi, ou
- * demander « une révision » sans dire laquelle, renvoie le demandeur deviner — et le dossier
- * revient identique.
+ * Le MOTIF est exigé pour un refus : refuser sans dire pourquoi renvoie le demandeur deviner — et
+ * le dossier revient identique, par une nouvelle pièce, sans que rien ait changé.
  */
 export async function decidePayment(formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
@@ -120,14 +123,9 @@ export async function decidePayment(formData: FormData): Promise<ActionResult> {
   if (!next) {
     return {
       ok: false,
-      error: `Impossible : ce paiement est « ${CENTRAL_STATUS_LABEL[order.centralStatus as CentralStatus]} ». Un dossier tranché se rouvre par une nouvelle soumission du demandeur.`,
+      error: `Impossible : ce paiement est « ${CENTRAL_STATUS_LABEL[order.centralStatus as CentralStatus]} ». Une décision rendue ne se rejoue pas : un refus se reprend par un nouvel envoi de la pièce, corrigée.`,
     };
   }
-
-  // Le montant révisé n'est qu'une PROPOSITION : le centre autorise, il ne réécrit pas la demande.
-  // C'est au demandeur de corriger et de resoumettre — sinon l'ordre partirait aux Finances avec
-  // un montant que personne n'a validé en bas de la chaîne.
-  const proposed = decision === "REQUEST_CHANGES" ? fdNum(formData, "proposedAmount") : null;
 
   // L'ÉCHÉANCE QUE LE CENTRE IMPOSE AUX FINANCES — distincte de celle qui a été DEMANDÉE.
   //
@@ -149,7 +147,6 @@ export async function decidePayment(formData: FormData): Promise<ActionResult> {
         centralStatus: next,
         centralDecidedById: user.id,
         centralDecidedAt: new Date(),
-        ...(proposed != null ? { centralProposedAmount: proposed } : {}),
         ...(echeanceDate ? { dueDate: echeanceDate } : {}),
       },
     }),
@@ -192,10 +189,12 @@ export async function decidePayment(formData: FormData): Promise<ActionResult> {
 }
 
 /**
- * Le demandeur répond et resoumet : la balle repasse au centre.
+ * Le demandeur répond et resoumet : la balle repasse au centre — pour les dossiers D'AVANT la
+ * décision du 02/09/2026, qui portent encore « révision du montant » ou « argumentation demandée ».
+ * Le centre ne pose plus ces états ; ceux qui en portent un doivent pouvoir en sortir.
  *
- * On ne resoumet QUE si le centre a rendu la main (révision ou argumentation demandée) — sinon on
- * pourrait relancer indéfiniment un dossier qu'il n'a pas encore regardé.
+ * On ne resoumet QUE si le centre a rendu la main — sinon on pourrait relancer indéfiniment un
+ * dossier qu'il n'a pas encore regardé.
  */
 export async function respondToPaymentCentre(formData: FormData): Promise<ActionResult> {
   const user = await requireUser();

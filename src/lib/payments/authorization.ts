@@ -165,11 +165,13 @@ export const PAYMENT_CENTRE_REFUSAL =
   + "qui y ont été nommément désignées — un Super Admin peut vous y désigner depuis Administration → Accès.";
 
 /**
- * L'état qui suit une décision — et les allers-retours qu'il autorise.
+ * L'état qui suit une décision.
  *
- * Une demande de révision ou d'argumentation ne ferme rien : le demandeur corrige, resoumet, et le
- * dossier revient au centre. C'est ce va-et-vient qui manquait — un refus sec obligeait à refaire
- * une demande depuis zéro, et l'historique de la discussion était perdu.
+ * Le centre ne rend plus que DEUX décisions, autoriser ou refuser (décision de la Direction,
+ * 02/09/2026 : le montant et sa justification appartiennent à la demande, pas à l'autorisation —
+ * `isDecision` dans l'action). La règle garde les quatre transitions parce que des dossiers d'avant
+ * portent encore « révision » ou « argumentation » : leur demandeur répond et le dossier revient au
+ * centre (`applyResubmission`) — rien ne reste bloqué.
  *
  * Rend `null` si la transition n'a pas de sens (décision sur un dossier déjà clos) : l'appelant
  * doit alors refuser plutôt que d'écrire un état incohérent.
@@ -177,8 +179,9 @@ export const PAYMENT_CENTRE_REFUSAL =
 export function applyDecision(current: CentralStatus, decision: CentralDecision): CentralStatus | null {
   // On ne décide pas d'un paiement qui n'avait pas à passer par le centre.
   if (current === "NOT_REQUIRED") return null;
-  // Un dossier tranché se rouvre par une nouvelle soumission du demandeur, pas par une seconde
-  // décision : sans cette règle, deux administrateurs pourraient se contredire sans trace.
+  // Une décision rendue ne se rejoue pas — un refus se reprend par un nouvel envoi de la pièce
+  // (la facture repart, audit 360° I8) : sans cette règle, deux administrateurs pourraient se
+  // contredire sans trace.
   if (current === "APPROVED" || current === "REFUSED") return null;
 
   switch (decision) {

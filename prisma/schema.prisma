@@ -1251,6 +1251,7 @@ model User {
   taskComments            TaskComment[]              @relation("TaskCommentAuthor")
   legalDocsCreated        LegalDocument[]            @relation("LegalDocCreator")
   legalDocsSigned         LegalDocument[]            @relation("LegalDocSigner")
+  legalDocsReturned       LegalDocument[]            @relation("LegalDocSignatureReturner")
   pchTendersResponsible   PchTender[]                @relation("PchTenderResponsible")
   mailEntriesCreated      MailEntry[]                @relation("MailEntryCreator")
   mailEntriesConcerned    MailEntry[]                @relation("MailEntryConcerned")
@@ -5911,6 +5912,10 @@ model ValidationRequest {
   mode         ValidationMode   @default(SEQUENTIAL)
   status       ValidationStatus @default(PENDING)
   currentOrder Int              @default(1) // étape active en mode séquentiel
+  /// La VERSION de la demande : 1 au dépôt, +1 à chaque resoumission après un renvoi pour correction
+  /// (audit 360°, R08). Le validateur sait qu'il relit une demande corrigée ; l'historique des motifs
+  /// et des corrections vit dans le fil de la demande (`Comment`, écrit à la resoumission).
+  version      Int              @default(1)
   deadline     DateTime?
   decidedAt    DateTime?
   createdAt    DateTime         @default(now())
@@ -11578,6 +11583,14 @@ model LegalDocument {
   /// Nul pour une date de signature reprise d'un papier (contrats du PCH).
   signedById        String?
   signedBy          User?                 @relation("LegalDocSigner", fields: [signedById], references: [id], onDelete: SetNull)
+  /// LA SIGNATURE RENVOYÉE À L'ÉMETTEUR (audit 360°, R09) : un signataire qui ne peut pas signer le
+  /// BC tel quel le renvoie avec ce qu'il faut corriger — il quitte la file des signataires. TOUTE
+  /// modification de la pièce efface ces trois champs (`aiguillerBC`, `modifie`) : le BC revient à
+  /// la signature, ou à son centre si son montant l'y renvoie. Les trois vont ensemble.
+  signatureReturnedAt DateTime?
+  signatureReturnedById String?
+  signatureReturnedBy User? @relation("LegalDocSignatureReturner", fields: [signatureReturnedById], references: [id], onDelete: SetNull)
+  signatureReturnNote String?
   /// ENTRÉE D'UN BC DANS LE CIRCUIT « centre → signature des Finances » (§118.149). Posée par
   /// l'aiguillage la première fois qu'il lit la pièce sous cette règle. Nulle = BC d'avant la
   /// règle, jamais touché depuis : il n'est présumé ni à valider ni à signer — sans ce marqueur,

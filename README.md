@@ -818,10 +818,13 @@ versement — sans attendre qu'un événement les lui envoie ; la nature choisie
 
 ### Ordres de dépense — aller-retour comptable ↔ Direction
 
-Direction valide → **ordre de dépense** → le **comptable règle**. Le comptable peut **demander une révision**
-(manque de fonds) → l'ordre remonte à la Direction qui **ajuste le montant** ou **refuse**. Au règlement, la
-dépense est **attribuée automatiquement** à la **catégorie budgétaire du module** d'origine et une
-**FinanceTransaction** (sortie) met à jour la trésorerie.
+Le centre de paiement **autorise** → **ordre de dépense** → le **comptable règle**. La « révision demandée
+par le comptable » a été retirée aux Finances : plus rien ne produit `REVISION_REQUESTED`, que seuls des ordres
+anciens portent encore (`test-center/state-machines/registry.ts`) — un désaccord sur le montant se dit AVANT,
+au centre de paiement, qui autorise ou refuse avec son motif. Un ordre non réglé dont la source est retirée,
+refusée ou annulée est annulé avec elle (`payments/annulation.ts`). Au règlement, la dépense est **attribuée
+automatiquement** à la **catégorie budgétaire du module** d'origine et une **FinanceTransaction** (sortie) met
+à jour la trésorerie.
 
 ### Centre de validation (agrégation + configurable)
 
@@ -834,8 +837,20 @@ Finances, information médicale…) — visible des **validateurs**, pas du dema
 tout validateur assigné voit la demande **complète et ses pièces** (aperçu sur place), même le 2ᵉ d'un circuit
 séquentiel **avant son tour** (badge « En attente de votre tour »). La Direction/Super Admin **supervise** toutes
 les demandes en cours (`getSupervisedValidations`). Deux niveaux de décision :
-- **Globale** — `decideValidation` (`ValidationDecision`) : Valider / Modifier / Refuser + commentaire **optionnel** ;
-  fait **avancer le circuit** (séquentiel → validateur suivant ; sinon clôture + notifie le demandeur).
+- **Globale** — `decideValidation` (`ValidationDecision`) : **Valider** / **Renvoyer pour correction** / **Refuser** —
+  le **motif est obligatoire** pour renvoyer et pour refuser (audit 360°, R08 et R17). Fait **avancer le circuit**
+  (séquentiel → validateur suivant ; parallèle → validée quand toutes les étapes le sont), sous le **verrou de la
+  demande** et sur ses étapes **relues** : deux accords simultanés d'un circuit parallèle ne la laissent plus en
+  attente pour toujours, et un double clic ne décide plus deux fois (§118.188).
+- **Renvoyée pour correction** → statut **« À corriger »** : le demandeur corrige (texte, montant, pièces), dit ce
+  qu'il a corrigé et **resoumet la même demande** (`resoumettreValidation`, version + 1) ; elle reprend **à l'étape
+  qui l'a renvoyée**, l'accord d'avant restant acquis — sauf si le montant **monte**, et alors toutes les étapes
+  déjà validées repartent (`validations/decision.ts`). Motif du renvoi et correction s'écrivent au fil de la
+  demande. Une demande née d'un autre circuit (pièce du secrétariat, BC, information médicale) se corrige **depuis
+  son objet d'origine**. Abandonner une demande renvoyée la clôt (**Annulée**) sans effacer l'historique.
+- **Qui lit une demande et ses pièces** : le demandeur, les validateurs et leur intérimaire ; seul le demandeur en
+  ajoute (`lecteurDeLaDemandeDeValidation`, lue par la fiche ET par `canAccessEntity` — les pièces s'ouvraient
+  auparavant à tout porteur du module).
 - **Par élément** — `reviewValidationItem` / `clearValidationItem` (`ValidationItemDecision`, `itemKey` = `"MESSAGE"`
   ou id de pièce ; `ItemReview` + `ValidationAttachments`) : le validateur approuve / demande une révision / refuse
   **le message ET chaque pièce jointe séparément**, commentaire **optionnel**. Ce retour détaillé remonte au
@@ -1098,6 +1113,16 @@ sans que personne en haut l'ait vu. Ces deux-là reçoivent un **VISA** (`AdProG
 `FORME_PORTE: Record<AdProKind, FormePorte>` fait qu'une huitième nature **ne compilera pas** tant
 que personne n'aura dit quelle porte la garde.
 
+**TROIS ISSUES, ET LE RÉEXAMEN** (audit 360°, R07/R10, §118.188). Sur un visa, le centre **valide**,
+**renvoie pour correction** (ce qu'il faut corriger est obligatoire) ou **refuse** (motif obligatoire),
+par une écriture conditionnelle — deux sièges qui tranchent à la même seconde : une seule décision. Un
+refus se **réexamine** par un siège, motif à l'appui (`reexaminerVisaCentreAdPro`). Un consulting ou une
+« autre demande » renvoyé se **resoumet au centre** depuis sa fiche avec son **montant corrigé**
+(`resoumettreAuCentreAdPro` ; la fiche et l'action lisent `peutResoumettreAuCentre`) — corrigé sous le
+seuil, la porte est retirée. Un BC du registre Legal renvoyé est « à revoir » et se lève en le modifiant.
+Seule une demande qui **attend encore** sa décision est montrée, tranchée, réexaminée ou resoumise
+(`ATTEND_ENCORE`) ; annuler un consulting ou une « autre demande » retire sa porte en attente.
+
 **LE CENTRE EST UNE LENTILLE, PAS UNE SECONDE AUTORISATION.** La forme du centre de paiement — une
 couche d'autorisation centrale de plus — ferait valider le DG **DEUX FOIS** pour les cinq natures
 qui portent déjà l'étape `dg`. Le centre montre donc les **trois** formes de porte au même endroit,
@@ -1188,11 +1213,13 @@ Général n'y est délibérément pas. **Un centre par entité** : autoriser un 
 paiement de Pharmagène sont deux gestes comptablement distincts, et une file unique ferait perdre de
 vue ce que chaque société engage.
 
-**Quatre issues, pas deux.** Un refus sec oblige à tout refaire et perd la discussion. Le centre
-peut **autoriser**, **refuser**, **demander une révision du montant** (avec le montant qu'il
-propose — une proposition, jamais une réécriture : c'est au demandeur de corriger) ou **demander une
-argumentation**. Le demandeur répond **dans le même fil** et resoumet ; autant d'allers-retours
-qu'il en faut, tous horodatés et nominatifs.
+**Deux issues : autoriser ou refuser** (décision de la Direction, 02/09/2026). Le montant et sa
+justification appartiennent à la DEMANDE : ils se corrigent avant d'arriver au centre, qui autorise ou
+refuse — un refus exige son motif, qui reste dans le fil attaché au paiement et que le demandeur lit sur sa
+ligne et sur la fiche de sa demande de paiement (audit 360°, R20). Les dossiers d'avant qui portent encore
+« révision du montant » ou « argumentation demandée » se répondent et reviennent au centre
+(`respondToPaymentCentre`). L'audit 360° (R03) recommande de rétablir « Demander une révision » : c'est une
+décision de la Direction, rapportée.
 
 **Ce que voient les Finances** : rien, tant que le centre n'a pas tranché. Un paiement `AWAITING`,
 `CHANGES_REQUESTED` ou `INFO_REQUESTED` **n'apparaît pas** dans leur file — sinon le comptable
@@ -1361,7 +1388,12 @@ signer de leur part. Si un BC se retrouve là-bas, c'est qu'il doit être signé
   montant. Distinct du seuil des DEMANDES (celui du DG) : l'un dit qui arbitre une opération, l'autre
   quelle pièce doit être validée avant d'engager la société.
 - **L'ÉTAPE DE BOUT EN BOUT** (`etapeBC`, une seule lecture pour la file, la fiche, l'action et la
-  phrase) : à valider → à revoir / refusé → **à signer** → **signé**. Un BC d'avant le circuit
+  phrase) : à valider → à revoir / refusé → **à signer** → (**renvoyé à l'émetteur**) → **signé**.
+- **RENVOYER À L'ÉMETTEUR** (`renvoyerBonDeCommande`, audit 360°, R09) : l'autre issue de la signature, par le
+  même siège, motif obligatoire. Le BC quitte la file « À signer » (une carte « Renvoyés à l'émetteur » garde ce
+  qui a été demandé), son émetteur est prévenu, et **toute modification** de la pièce le rend à la signature —
+  ou d'abord à son centre si son montant monte (`aiguillerBC`, `modifie`). Le renvoi est un fait de la pièce
+  (`LegalDocument.signatureReturnedAt/ById/Note`, migration `20261228090000_bc_signature_renvoyee`). Un BC d'avant le circuit
   (`bcCircuitAt` nul) n'est présumé ni à valider ni à signer : fixer un seuil ne fait pas tomber
   l'historique dans la file des Finances ; « Adresser au centre » l'y fait entrer.
 - **FINANCES › BONS DE COMMANDE** (`/finances/bons-de-commande`) ne contient QUE des BC à signer —
@@ -4597,6 +4629,7 @@ entité) sont éligibles. Supprimer une gamme **ne supprime aucun produit** (`SE
 | **Audit 360° — lot B, les impasses** | Facture d'un ordre : `lib/finance/facture-ordre.ts` (`ordresAvecFacture`, `ordreAFacture` — règlement, colonne « Facture », intelligence financière) ; paiement qui suit sa demande : `lib/payments/annulation.ts` (`annulerOrdreNonRegle`, écriture conditionnelle) ; facture refusée renvoyable : `ordreClos` et `cleEnvoiAuReglement` (`lib/finances/settlement.ts`) ; information médicale : `canRequestDecision` / `declareStage` (`lib/medical-info/declare-decision.ts`), `clorePrecedente` (`medical-info-actions.ts`), `canViewDeclaration` (Finances) ; bureau du secrétariat `getRequestList` (ouvertes en entier + totaux, `lib/queries/admin-requests.ts`) ; passeport du sujet `lib/ad-pro/passeport-acces.ts` ; « À arbitrer » et « En intérim » dans `lib/queries/action-center.ts` ; pièces de l'arbitre `accesAuxPiecesLegalDetaille` (`lib/entity-access.ts`, `horsFiche` → titre sans lien dans `components/shared/linked-records.tsx`) ; portée du sponsoring `scopeSponsoring` (`lib/rbac.ts`) ; lignes d'achat `lireLignesDAchat` (`lib/general-means/purchase-request.ts`) + `components/purchase/purchase-lines.tsx` ; intérim `auNomDeQui` (`lib/hr/stand-in-resolve.ts`), lu par `leaveDecider`, `getLeavesToDecide`, `deciderFor` (formations), `decideApproval`/`getApprovals`/`clauseDemandeLisible`, `accesAuPlan` (`agitPour`), `getPendingValidations`, `droitSurLEtape` (`validation-actions.ts`) ; revue SFE `snapshotMonth` (clôture conditionnelle, `lib/sfe-sweep.ts`) ; PCH : produit canonique du lot (`matchOurProduct`) et suppression par `supprimerReversible`. Bancs : `payments/ordres-fermes-flow.test.ts`, `actions/medical-info-reprise.test.ts`, `actions/assistante-bureau-flow.test.ts`, `ad-pro/direction-marketing-flow.test.ts`, `ad-pro/sponsoring-kam-flow.test.ts`, `actions/formations-decision-flow.test.ts`, `actions/mon-equipe-flow.test.ts`, `sfe-sweep.test.ts`, `pch/lot-produit-corbeille.test.ts`, `components/purchase/purchase-lines.test.ts`, `hr/interim-decisions-flow.test.ts`. |
 | **Audit 360° — lot C1, faire corriger** | Règles pures `lib/workflow/renvoi.ts` (`refusDuRenvoi`, `etapeDeReprise`, `statutLegacyALEtape`, `motifVisible`, `peutResoumettre`, `auteursDAvis`) ; moteur `lib/workflow/engine.ts` : geste `RETURN` (`appliquerLeGeste`), `resubmitWorkflowInstance`, `apresModificationDeLaDemande`, `retirerDemande`, `fermerInstance` (arguments partagés `clotureDuCircuit`/`evenementDeCloture`), `relancerCycle` (`preparer` sous la prise), `reopenInstance` (étape qui tranche, `rolesPrevenus`), écriture commune `projeterStatut` ; **un geste à la fois** : `WorkflowInstance.claimedAt` (`argsPrise`, `argsRendre`, `prendreLeCircuitEnAttendant`, migration `20261225090100_circuit_pris_le_temps_d_un_geste`) ; statut `RETURNED` (migration `20261225090000_demande_renvoyee_pour_correction`, `events/statut.ts`, `ad-pro/unified.ts`, libellés) ; actions `resoumettreDemande`, `retirerDemandeAdPro` (`workflow-actions.ts`), `cancelCongressRequest` (motif), `submitEventForApproval` (relance), `sponsoringAppeal` ; vue `getWorkflowForEntity` (`motif`, `peutResoumettre`, `peutRetirer`) et `components/workflow/workflow-panel.tsx` ; Mon espace « À corriger » (`lib/queries/action-center.ts`). Bancs : `workflow/renvoi.test.ts`, `workflow/renvoi-flow.test.ts` (le banc possède ses circuits : copies privées semées par `stepCreate`). |
 | **Audit 360° — lot C2, réviser un poste et une demande au secrétariat** | Règle pure `lib/ad-pro/bc-poste.ts` (`gesteVisaPoste` : ROUVRIR / SOUS_LE_SEUIL / RIEN, `memePrestataire`) et empreinte du visa `AdProItem.orderVisaAmount` / `orderVisaSupplier` (migration `20261226090000_poste_visa_empreinte`) ; lecture partagée `lib/ad-pro/bc-etablis.ts` (`bcEtablisDesPostes`, `refusBcEtabli`) ; actions `ad-pro-item-actions.ts` : `retirerDemandeBC`, `modifierDemandeBC`, `annulerOrdrePoste`, `demanderRevisionPoste`, visa et émission conditionnels (`approveAdProItemOrder` : `montantVu` / `prestataireVu`), dernier rempart dans `emitItemExpenseOrder`, retrait réversible (`AD_PRO_ITEM` au registre, `lot: true`, `LIENS_DIRECTS` `AdProItem.expenseOrderId`) ; secrétariat : `lib/secretariat/porte-demandeur.ts` (PUR : `porteDuDemandeur`, `estDiscrete`, `refusDeModification`, `changementsDeLaDemande`, `suitLaDemandeDeBcDuPoste`), `lib/secretariat/annulation.ts` (`annulerDemandeSecretariat`, `prevenirLeSecretariat`), `admin-request-actions.ts` (`editOwnRequest`, `deleteOwnRequest`, écritures conditionnelles `OUVERTE`), `validation-actions.ts`, `lib/validation.ts` (`retirerValidationSansObjet` : la compensation d'une validation née après une annulation) ; écrans `components/ad-pro/items-panel.tsx`, `centre-ad-pro/centre-board.tsx`, `demandes/[id]/requester-window.tsx`. Bancs : `ad-pro/bc-poste.test.ts`, `ad-pro/postes-revision-flow.test.ts`, `ad-pro/bc-poste-points-d-appel.test.ts`, `secretariat/porte-demandeur.test.ts`, `secretariat/demandeur-flow.test.ts`, `e2e/postes-revision.spec.ts`. |
+| **Audit 360° — lot C3, les centres font corriger** | Validations : règle pure `lib/validations/decision.ts` (`motifExige`, `issueDeLaDecision`, `repriseApresCorrection`, `resoumissionSurPlace`), `ValidationRequest.version` (migration `20261227090000_validation_version`), `validation-actions.ts` (`decideValidation` sous verrou `FOR UPDATE`, `resoumettreValidation`, `deleteMyValidationRequest` qui abandonne), `lib/validation.ts` (`reprendreEtapesRenvoyees`, `verifierPiecesValidation`, `joindrePiecesValidation`), `entity-access.ts` (`lecteurDeLaDemandeDeValidation`), écrans `validations/[id]/{page,resubmit,withdraw}.tsx`, `validations/validation-decision.tsx`. Centre Ad & Pro : `ad-pro-centre-actions.ts` (`deciderVisaCentreAdPro` à trois issues, `reexaminerVisaCentreAdPro`, `resoumettreAuCentreAdPro`), `queries/ad-pro-centre.ts` (`visasTranchesCentreAdPro`, `ATTEND_ENCORE`, `demandeAttendLeCentre`, `peutResoumettreAuCentre`, `demandeurDuVisa`), `ad-pro/visa.ts` (`lireVisaDetail`, `montantPourLeVisa`), `components/ad-pro/{visa-centre-banniere,resoumettre-au-centre}.tsx`. Bons de commande : `bc-signature-actions.ts` (`renvoyerBonDeCommande`), étape `A_CORRIGER` (`bons-de-commande/regle.ts`, `etat.ts`, `aiguillage.ts`), `LegalDocument.signatureReturnedAt/ById/Note` (migration `20261228090000_bc_signature_renvoyee`), écrans `bons-de-commande/file-bc.tsx`, `legal/[id]/bc-gate.tsx`. Centre de paiement : prose et garde (`payment-centre-actions.ts`, `payments/authorization.ts`, `centre-de-paiement/page.tsx`, boîte de décision `platform/in-process/inbox/compose.ts`), état du centre sur `validations/paiements/[id]/page.tsx`. Bancs : `validations/decision.test.ts`, `validations/renvoi-flow.test.ts`, `actions/ad-pro-centre-renvoi-flow.test.ts`, `bons-de-commande/signature-renvoi-flow.test.ts`, `payments/centre-deux-issues.test.ts`, `e2e/centres-renvoi.spec.ts`. |
 | **Regulatory — les trois champs du Super Admin** | Module PUR `lib/regulatory/structural-fields.ts` (`STRUCTURAL_FIELDS`, `canSetStructural`, `structuralChanges`, `structuralRefusal`, `structuralNotice`) + `structural-fields.test.ts` (17 tests). Verrou posé sur les **quatre** portes de `lib/actions/regulatory-actions.ts` : `updateRegulatoryProduct` (helpers `guardStructural` / `notifyCarrierOfStructural`), `setRegulatoryResponsible`, `setRegulatoryClassification` (partie `companyId`) et `setVariationStatus` à « OBTENUE » (porte dérobée du statut de fabrication). Côté écran : `LockedField` dans `app/(app)/regulatory/edit-product.tsx`, prop `canSetStructural` de `regulatory-table.tsx`. |
 | **Regulatory — porter un dossier ouvre le module** | Module PUR `lib/regulatory/assignment.ts` (`carrierAccess`, `assignmentNotice`, `assignmentWarning`) + `assignment.test.ts` (13 tests) ; accès implicite résolu dans `getAccess` (`lib/rbac.ts`) ; exception au filtre de gamme dans `lib/queries/regulatory-rows.ts` (`NAMED_ON_DOSSIER`). |
 | **Regulatory — verrou (cadenas)** | `RegulatoryProduct.isLocked` ; `lib/rbac.ts` → `lockGate` (dans `scopeRegulatory`) + `regulatoryLockWhere` pour les lectures hors portée (`queries/stock.ts`, `actions/pch-tender-line-actions.ts`, `admin/users/[id]`, portail fournisseur) ; `setRegulatoryLock` / `unlockAllRegulatory` ; cadenas et bandeau dans `app/(app)/regulatory/regulatory-table.tsx`. Tests dans `rbac.test.ts`. |
@@ -6561,11 +6594,62 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 
 ## 🧾 Journal des évolutions récentes
 
+### AUDIT 360° — LOT C3 : LES TROIS CENTRES SAVENT FAIRE CORRIGER (2026-10)
+
+**Demande** (dirigeant, 02/10). Corriger tous les constats de l'audit 360° ; C3 porte la règle « valider /
+renvoyer pour correction / refuser » sur les **centres** : centre de validations, centre de validation Ad & Pro,
+signature des bons de commande, et la prose du centre de paiement (rapport 18 : R03, R08, R09, R10, R20 ;
+rapport 17 : R07).
+
+**Ce qui change — centre de validations.**
+- **« Modification demandée » devient « À corriger », et la demande se RESOUMET sur elle-même.** Le demandeur
+  corrige le texte, le montant, ajoute des pièces, dit ce qu'il a corrigé (obligatoire) ; la demande reprend
+  **à l'étape qui l'a renvoyée** — l'accord donné avant reste acquis, sauf si le montant monte : alors toutes les
+  étapes déjà validées repartent. La fiche montre la version et l'historique (motif du renvoi, correction).
+- **Le motif est obligatoire** pour renvoyer et pour refuser (pas pour valider).
+- **Abandonner** une demande renvoyée la clôt (« Annulée ») sans effacer ce que les validateurs ont dit.
+- **Une demande née d'un autre circuit** (pièce du secrétariat, BC, information médicale) se corrige depuis
+  son objet d'origine, pas d'ici.
+- **Un geste à la fois** : deux validateurs d'un circuit parallèle qui approuvaient à la même seconde
+  laissaient la demande en attente pour toujours ; un double clic sur la dernière étape décidait deux fois.
+  Corrigé (verrou de la demande, écriture conditionnelle, étapes relues).
+- **Les pièces d'une demande ne s'ouvrent plus à tout porteur du module** : seuls le demandeur, les
+  validateurs et leur intérimaire les lisent ; seul le demandeur en ajoute.
+
+**Ce qui change — centre de validation Ad & Pro.**
+- **Trois issues** : valider, **renvoyer pour correction** (ce qu'il faut corriger est obligatoire), refuser
+  (motif obligatoire). Un refus se **réexamine** par un siège, motif à l'appui.
+- **Consulting et « autres demandes »** : la fiche dit l'état du centre (en attente, autorisée, refusée,
+  à corriger) ; une demande renvoyée se **resoumet au centre** depuis sa fiche, **avec son montant corrigé**
+  (ces deux natures n'ont pas encore d'écran d'édition) — corrigée sous le seuil, elle ne repasse pas par le
+  centre et poursuit son circuit.
+- **Un BC du registre Legal renvoyé** est « à revoir » : sa modification dans Legal le renvoie au centre.
+- **Deux sièges qui tranchent à la même seconde** : une seule décision compte.
+- **Une demande annulée** pendant qu'elle attendait le centre n'y reste plus : sa porte est retirée, et un
+  refus ne se réexamine pas sur une demande close.
+
+**Ce qui change — bons de commande.**
+- **« Renvoyer à l'émetteur »** (motif obligatoire), à côté de « Signer », dans le module Bons de commande et
+  sur la fiche Legal du BC : le BC quitte la file « À signer » (une carte « Renvoyés à l'émetteur » garde ce
+  qui a été demandé), son émetteur est prévenu, et **toute modification** de la pièce le rend à la signature —
+  ou d'abord à son centre si son montant monte.
+
+**Ce qui change — centre de paiement.**
+- **La décision de la Direction du 02/09 (deux issues : autoriser, refuser) reste** ; l'écran, la
+  documentation et la boîte de décision promettaient encore « une révision du montant ou une argumentation » :
+  corrigé partout. La fiche d'une demande de paiement dit maintenant où en est son autorisation au centre,
+  qui a tranché, et le motif d'un refus.
+
+**À décider par la Direction.** L'audit recommande de rétablir « Demander une révision » au centre de
+paiement (R03) : c'est votre décision du 02/09, elle n'a pas été changée.
+
+**Migrations** : `20261227090000_validation_version`, `20261228090000_bc_signature_renvoyee` (idempotentes).
+
 ### AUDIT 360° — LOT C2 : LES POSTES ET LE SECRÉTARIAT NE SE FIGENT PLUS (2026-10)
 
 **Demande** (dirigeant, 02/10). Corriger tous les constats de l'audit 360° ; C2 porte la règle « valider /
 renvoyer pour correction / refuser » sur les **postes** d'une demande Ad & Pro (et leurs bons de commande) et
-sur les **demandes au secrétariat** (rapport 17, R05 à R11 ; rapport 18, R08).
+sur les **demandes au secrétariat** (rapport 17 : R05, R06 et R08 à R12 — le R07, le centre Ad & Pro, relève du lot C3).
 
 **Ce qui change — postes Ad & Pro.**
 - **Le visa d'un BC ne couvre que ce qu'il a vu.** Le centre de validation Ad & Pro retient le montant et le
