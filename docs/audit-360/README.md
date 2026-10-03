@@ -109,7 +109,11 @@ gardée, qui archive). **Le recrutement est livré et testé (lot C4d1, §118.19
 si le besoin pesé a été relevé —, rouvrir une demande refusée (à la marche qui a refusé) ou close sans recrutement,
 annuler une embauche avant sa fiche, les motifs exigés côté serveur, une décision illisible qui n'est plus un
 accord, et un geste à la fois sur chaque écriture d'étape ; « Mon espace » liste les recrutements et les demandes
-de paiement renvoyés. Restent le plan de tournée validé et la pièce Legal révisée (C4d2).
+de paiement renvoyés. **Le plan de tournée est livré et testé (lot C4d2a, §118.193)** : un plan validé se
+révise (motif exigé, il repasse en validation, le passé reste), une visite se dit non tenue depuis « Ma journée »
+(motif, même fenêtre de 48 h — la phrase du verrou ne promet plus une régularisation que rien ne permettait),
+décision, soumission, escalade et grille écrivent sous la condition de l'état lu, et « Mon espace » liste les
+plans à resoumettre. Restent la pièce Legal révisée et l'avoir (C4d2b).
 
 Constat d'ensemble (rapports 17, 18, 01, 03, 14) : **la plateforme sait refuser, rarement faire corriger.**
 

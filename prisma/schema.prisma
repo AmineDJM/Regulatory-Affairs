@@ -4185,6 +4185,12 @@ model MedicalVisit {
   /// LES SUPPORTS NUMÉRIQUES présentés pendant la visite — une utilisation, sans quantité.
   supportsNumeriques MedicalVisitSupportNumerique[]
 
+  /// POURQUOI LA VISITE N'A PAS EU LIEU (§118.193 — audit 360°, M5 du KAM) : posé avec `POSTPONED` / `CANCELLED`
+  /// par `direVisiteNonTenue`, dans la fenêtre de 48 h. Identifiant sans relation, comme les marques de renvoi.
+  notHeldReason String?
+  notHeldAt     DateTime?
+  notHeldById   String?
+
   @@index([delegateId])
   @@index([doctorId])
   @@index([status])
@@ -10331,6 +10337,9 @@ enum TourPlanStatus {
   ESCALATED
   APPROVED
   REJECTED
+  /// UN PLAN VALIDÉ ROUVERT POUR RÉVISION (§118.193 — audit 360°, R13) : il se modifie, puis se resoumet. Ni un
+  /// brouillon (son échéance d'origine est passée), ni un rejet (personne ne l'a refusé).
+  REVISION
 }
 
 /// D'OÙ VIENT UNE VISITE — et les trois cas sont dans la demande.
@@ -10392,8 +10401,18 @@ model TourPlan {
   decidedBy        User?     @relation("TourPlanDecidedBy", fields: [decidedById], references: [id], onDelete: SetNull)
   /// LES COMMENTAIRES DE RECTIFICATION. Un rejet sans motif ne se corrige pas — il se subit.
   rejectionComment String?
-  /// 48 H POUR RESOUMETTRE, à partir du rejet.
+  /// 48 H POUR RESOUMETTRE, à partir du rejet — ou de la demande de révision.
   resubmitDueAt    DateTime?
+
+  /// LA RÉVISION D'UN PLAN VALIDÉ (§118.193) : pourquoi, qui, quand — lue par le validateur quand le plan lui
+  /// revient, effacée par sa décision. `revisionById` est un identifiant sans relation, la convention des marques
+  /// de renvoi (§118.192).
+  revisionNote          String?
+  revisionRequestedAt   DateTime?
+  revisionRequestedById String?
+  /// Combien de fois le plan a été rouvert après validation. Au-dessus de zéro, il a été validé au moins une fois :
+  /// ses visites passées ne se retirent plus (`retraitInterditApresRevision`).
+  revisionCount         Int       @default(0)
 
   createdById String?
   createdAt   DateTime @default(now())

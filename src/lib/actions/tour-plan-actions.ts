@@ -11,7 +11,7 @@ import { notifyUser } from "@/lib/notify";
 import { fdStr, fdDate, type ActionResult } from "@/lib/actions/types";
 import {
   bloquantsDeSoumission, echeanceDeSoumission, escaladeDuPlan, estGranularite,
-  estJourOuvrePourTournee, gestesPossibles, limiteResoumission, periodeDe, reviseurDuPlan,
+  estJourOuvrePourTournee, gestesPossibles, limiteResoumission, periodeDe, retraitInterditApresRevision, reviseurDuPlan,
   type Granularite, type StatutPlan, accesAuPlan,
 } from "@/lib/sfe/tournee";
 import { lireReglageTournee } from "@/lib/sfe/tournee-reglage";
@@ -37,6 +37,15 @@ import { loadPanelPlanifiable } from "@/lib/queries/tour-schedule";
 const MODULE = "MEDICAL" as const;
 const PATH_TOURNEE = "/medical/plan-de-tournee";
 const PATH_JOURNEE = "/medical/ma-journee";
+
+/**
+ * UN GESTE À LA FOIS SUR UN PLAN (§118.193 — audit 360°, R13). Chaque écriture d'état exige l'état qu'elle a
+ * LU : deux décisions croisées (valider et rejeter, valider et escalader), une soumission pendant une
+ * modification de la grille, deux enregistrements de la grille dans deux onglets — la seconde écriture
+ * écrasait la première en silence, et un plan validé pouvait l'être sur une grille que personne n'avait vue.
+ */
+const DEJA_CHANGE = "Ce plan vient de changer — un autre geste est passé avant le vôtre : rouvrez-le pour voir où il en est.";
+class EtatChange extends Error {}
 
 /**
  * QUI PEUT ÉCRIRE LE PLAN DE CE KAM : lui-même, le superviseur de sa BU, ou une vue globale.
@@ -118,14 +127,17 @@ export async function planifierVisites(formData: FormData): Promise<ActionResult
   if (!planId) return { ok: false, error: "Plan introuvable." };
   const plan = await prisma.tourPlan.findUnique({
     where: { id: planId },
-    select: { id: true, repId: true, status: true, periodStart: true, periodEnd: true },
+    select: { id: true, repId: true, status: true, periodStart: true, periodEnd: true, updatedAt: true, revisionCount: true },
   });
   if (!plan) return { ok: false, error: "Plan introuvable." };
   if (!(await peutEcrirePourLeKam(user, plan.repId))) return { ok: false, error: "Ce plan n'est pas dans votre périmètre." };
   if (!gestesPossibles(plan.status as StatutPlan).modifiable) {
+    // LE REFUS NOMME LE GESTE QUI EXISTE (§118.30) : un plan validé se RÉVISE, il ne se réécrit pas sous les pieds du KAM.
     return {
       ok: false,
-      error: "Ce plan n'est plus modifiable : il est soumis, escaladé ou validé. Un plan validé porte la tournée que le KAM a déjà commencée — la changer sous ses pieds est exactement ce qu'un plan doit empêcher.",
+      error: plan.status === "APPROVED"
+        ? "Ce plan est validé : il ne se modifie pas en direct — sa tournée a commencé. « Demander une révision » le rouvre, motif à l'appui : il repassera en validation, et ce qui a déjà eu lieu restera."
+        : "Ce plan attend la décision de son validateur : il ne se modifie qu'une fois rejeté, ou validé puis rouvert en révision.",
     };
   }
 
@@ -174,6 +186,18 @@ export async function planifierVisites(formData: FormData): Promise<ActionResult
   const aRetirer = existantes.filter((v) => v.status === "PLANNED" && !voulues.has(cle(v.date, v.doctorId)));
   const aCreer = paires.filter((p) => !deja.has(cle(p.jour, p.doctorId)));
 
+  // UNE RÉVISION ROUVRE L'AVENIR, PAS LE PASSÉ (§118.193). Sur un plan déjà validé, une visite dont l'heure est
+  // passée ne se retire pas : elle se rapporte, ou se dit reportée ou annulée — la retirer effacerait une visite
+  // perdue du taux « visitées / planifiées ».
+  const maintenant = new Date();
+  const passees = aRetirer.filter((v) => retraitInterditApresRevision(v, plan.revisionCount > 0, maintenant));
+  if (passees.length > 0) {
+    return {
+      ok: false,
+      error: `${passees.length} visite(s) déjà passée(s) ne se retirent pas d'un plan validé : elles se rapportent, ou se disent reportées ou annulées, depuis « Ma journée » dans leurs 48 h — passé ce délai, elles restent comptées comme non rapportées. La révision ne change que l'avenir de la tournée.`,
+    };
+  }
+
   // LE PANEL DU KAM, ET LUI SEUL (§118.172). L'écran ne propose que les praticiens de ses secteurs
   // et ceux qui lui sont rattachés ; l'action relit la MÊME liste (`loadPanelPlanifiable`) — deux
   // lectures du territoire finiraient par répondre différemment (§118.5). Sans elle, une requête
@@ -194,18 +218,38 @@ export async function planifierVisites(formData: FormData): Promise<ActionResult
     }
   }
 
-  await prisma.$transaction(async (tx) => {
-    if (aRetirer.length > 0) await tx.medicalVisit.deleteMany({ where: { id: { in: aRetirer.map((v) => v.id) } } });
-    if (aCreer.length > 0) {
-      await tx.medicalVisit.createMany({
-        data: aCreer.map((p) => ({
-          date: p.jour, doctorId: p.doctorId, delegateId: plan.repId,
-          status: "PLANNED" as const, origin: "PLAN" as const,
-          tourPlanId: plan.id, createdById: user.id,
-        })),
+  try {
+    await prisma.$transaction(async (tx) => {
+      // LE PLAN QU'ON A LU, ET LUI SEUL : une soumission passée entre-temps, ou un autre enregistrement de la
+      // grille (un second onglet), et cette sélection n'est plus celle que l'on croit remplacer.
+      const encore = await tx.tourPlan.updateMany({
+        where: { id: plan.id, status: plan.status, updatedAt: plan.updatedAt },
+        // C'est CE changement d'`updatedAt` qui fait perdre l'autre onglet. Prisma le pose aussi de lui-même sur
+        // un `updateMany` (mesuré : un `updateMany` qui ne réécrit que le statut change `updatedAt`) — la valeur
+        // explicite dit l'intention, et la garde ne dépend pas de ce comportement de bibliothèque.
+        data: { updatedAt: maintenant },
       });
-    }
-  });
+      if (encore.count === 0) throw new EtatChange();
+      // « Une visite rapportée reste, quoi qu'il arrive » — y compris celle rapportée PENDANT cet enregistrement,
+      // dans un autre onglet : le retrait n'emporte que ce qui est encore planifié, et tout ou rien.
+      if (aRetirer.length > 0) {
+        const retirees = await tx.medicalVisit.deleteMany({ where: { id: { in: aRetirer.map((v) => v.id) }, status: "PLANNED" } });
+        if (retirees.count !== aRetirer.length) throw new EtatChange();
+      }
+      if (aCreer.length > 0) {
+        await tx.medicalVisit.createMany({
+          data: aCreer.map((p) => ({
+            date: p.jour, doctorId: p.doctorId, delegateId: plan.repId,
+            status: "PLANNED" as const, origin: "PLAN" as const,
+            tourPlanId: plan.id, createdById: user.id,
+          })),
+        });
+      }
+    });
+  } catch (e) {
+    if (e instanceof EtatChange) return { ok: false, error: DEJA_CHANGE };
+    throw e;
+  }
 
   await recordAudit({
     actorId: user.id, action: "UPDATE", module: "Promotion médicale",
@@ -245,7 +289,7 @@ export async function soumettrePlanTournee(formData: FormData): Promise<ActionRe
   const plan = await prisma.tourPlan.findUnique({
     where: { id: planId },
     select: {
-      id: true, repId: true, status: true, periodStart: true, periodEnd: true,
+      id: true, repId: true, status: true, periodStart: true, periodEnd: true, revisionNote: true,
       rep: { select: { name: true } },
       visits: { select: { id: true, date: true } },
     },
@@ -281,15 +325,19 @@ export async function soumettrePlanTournee(formData: FormData): Promise<ActionRe
     };
   }
 
-  await prisma.tourPlan.update({
-    where: { id: plan.id },
+  // L'ÉTAT LU, ET LUI SEUL (§118.193) : une grille enregistrée ou une décision passée entre-temps, et l'on
+  // soumettrait autre chose que ce que la vérification ci-dessus a compté.
+  const soumis = await prisma.tourPlan.updateMany({
+    where: { id: plan.id, status: plan.status },
     data: {
       status: "SUBMITTED", submittedAt: new Date(), reviewerId: reviseur.id,
-      // La décision précédente s'effface : ce qui repart en validation n'est plus rejeté.
+      // La décision précédente s'efface : ce qui repart en validation n'est plus rejeté. Le MOTIF d'une
+      // révision, lui, reste jusqu'à la décision : c'est ce que le validateur doit lire pour juger.
       rejectionComment: null, resubmitDueAt: null, decidedAt: null, decidedById: null,
       escalatedToId: null, escalatedAt: null,
     },
   });
+  if (soumis.count === 0) return { ok: false, error: DEJA_CHANGE };
   await recordAudit({
     actorId: user.id, action: "UPDATE", module: "Promotion médicale",
     entityType: "TOUR_PLAN", entityId: plan.id,
@@ -298,7 +346,7 @@ export async function soumettrePlanTournee(formData: FormData): Promise<ActionRe
   await notifyUser({
     userId: reviseur.id, type: "MEDICAL_TOUR",
     title: `Plan de tournée à valider — ${plan.rep.name}`,
-    body: `${plan.visits.length} visite(s) du ${periodeLisible(plan.periodStart, plan.periodEnd)}. Validez-le, rejetez-le avec vos commentaires, ou demandez l'avis de votre N+1.`,
+    body: `${plan.revisionNote ? `Plan validé, révisé : « ${plan.revisionNote} ». ` : ""}${plan.visits.length} visite(s) du ${periodeLisible(plan.periodStart, plan.periodEnd)}. Validez-le, rejetez-le avec vos commentaires, ou demandez l'avis de votre N+1.`,
     link: lienDuPlan(plan.id),
   });
   revalidatePath(PATH_TOURNEE);
@@ -349,10 +397,11 @@ export async function escaladerPlanTournee(formData: FormData): Promise<ActionRe
         + "Tranchez-le, ou faites compléter l'organigramme (Ressources humaines › Organigramme).",
     };
   }
-  await prisma.tourPlan.update({
-    where: { id: plan.id },
+  const escalade = await prisma.tourPlan.updateMany({
+    where: { id: plan.id, status: "SUBMITTED", reviewerId: plan.reviewerId, escalatedToId: null },
     data: { status: "ESCALATED", escalatedToId: cible, escalatedAt: new Date() },
   });
+  if (escalade.count === 0) return { ok: false, error: DEJA_CHANGE };
   await recordAudit({
     actorId: user.id, action: "UPDATE", module: "Promotion médicale",
     entityType: "TOUR_PLAN", entityId: plan.id, summary: "Plan de tournée escaladé au N+2",
@@ -402,17 +451,23 @@ export async function deciderPlanTournee(formData: FormData): Promise<ActionResu
   }
 
   const commentaire = fdStr(formData, "comment");
-  if (decision === "REJECT" && !commentaire) {
+  // `=== null`, jamais `!commentaire` : la dérivation des contrats lit une négation comme une obligation, et un
+  // plan ne se validerait plus sans commentaire depuis le chemin générique (§118.138).
+  if (decision === "REJECT" && commentaire === null) {
     return { ok: false, error: "Un rejet sans commentaire de rectification ne se corrige pas — dites ce qui doit changer." };
   }
 
   const maintenant = new Date();
-  await prisma.tourPlan.update({
-    where: { id: plan.id },
+  // QUI TRANCHE A ÉTÉ LU AVEC L'ÉTAT : une escalade passée entre-temps donne la main au N+2, et la décision du
+  // validateur arriverait sur un plan qui n'est plus chez lui. La révision se clôt avec la décision.
+  const finRevision = { revisionNote: null, revisionRequestedAt: null, revisionRequestedById: null };
+  const decide = await prisma.tourPlan.updateMany({
+    where: { id: plan.id, status: plan.status, reviewerId: plan.reviewerId, escalatedToId: plan.escalatedToId },
     data: decision === "APPROVE"
-      ? { status: "APPROVED", decidedAt: maintenant, decidedById: user.id, rejectionComment: null, resubmitDueAt: null }
-      : { status: "REJECTED", decidedAt: maintenant, decidedById: user.id, rejectionComment: commentaire, resubmitDueAt: limiteResoumission(maintenant) },
+      ? { status: "APPROVED", decidedAt: maintenant, decidedById: user.id, rejectionComment: null, resubmitDueAt: null, ...finRevision }
+      : { status: "REJECTED", decidedAt: maintenant, decidedById: user.id, rejectionComment: commentaire, resubmitDueAt: limiteResoumission(maintenant), ...finRevision },
   });
+  if (decide.count === 0) return { ok: false, error: DEJA_CHANGE };
   await recordAudit({
     actorId: user.id, action: "UPDATE", module: "Promotion médicale",
     entityType: "TOUR_PLAN", entityId: plan.id,
@@ -429,5 +484,93 @@ export async function deciderPlanTournee(formData: FormData): Promise<ActionResu
   });
   revalidatePath(PATH_TOURNEE);
   revalidatePath(PATH_JOURNEE);
+  return { ok: true, id: plan.id };
+}
+
+/**
+ * DEMANDER UNE RÉVISION D'UN PLAN VALIDÉ (§118.193 — audit 360°, R13).
+ *
+ * Un plan validé ne se réécrivait plus : un médecin absent toute la semaine, une réunion imposée, un congrès —
+ * la tournée changeait sur le terrain et le plan restait faux jusqu'à la fin de la période, ou le KAM ne pouvait
+ * rien en dire. La révision le ROUVRE, motif à l'appui : il repasse « En révision », se modifie, et se resoumet
+ * à la validation — un accord ne couvre pas plus que ce qu'il a vu (§118.187). Ce qui a déjà eu lieu reste
+ * (`retraitInterditApresRevision`), et le délai de resoumission est celui d'un rejet (48 h).
+ *
+ * Qui peut : quiconque peut écrire ce plan — le KAM, le superviseur de sa BU, la Direction (`peutEcrirePourLeKam`,
+ * la même règle que la grille). La personne qui a validé est prévenue quand c'est le KAM qui rouvre ; le KAM est
+ * prévenu quand c'est quelqu'un d'autre — on ne rouvre pas la tournée de quelqu'un sans le lui dire.
+ */
+export async function demanderRevisionPlanTournee(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  if (!userCan(user, MODULE, "CREATE")) return { ok: false, error: "Non autorisé." };
+  const planId = fdStr(formData, "planId");
+  if (!planId) return { ok: false, error: "Plan introuvable." };
+  const plan = await prisma.tourPlan.findUnique({
+    where: { id: planId },
+    select: {
+      id: true, repId: true, status: true, reviewerId: true, decidedById: true, periodStart: true, periodEnd: true,
+      rep: { select: { name: true } },
+    },
+  });
+  if (!plan) return { ok: false, error: "Plan introuvable." };
+  if (!(await peutEcrirePourLeKam(user, plan.repId))) return { ok: false, error: "Ce plan n'est pas dans votre périmètre." };
+  // L'ÉTAT D'ABORD, LE MOTIF ENSUITE (§118.18) : demander pourquoi avant de dire que rien ne se rouvre d'ici
+  // ferait écrire un motif pour rien.
+  if (!gestesPossibles(plan.status as StatutPlan).revisable) {
+    return {
+      ok: false,
+      error: plan.status === "SUBMITTED" || plan.status === "ESCALATED"
+        ? "Ce plan attend la décision de son validateur : il ne se révise qu'une fois validé."
+        : "Ce plan n'est pas validé : il se modifie déjà — changez ses visites, puis soumettez-le.",
+    };
+  }
+  const note = fdStr(formData, "note");
+  if (!note) return { ok: false, error: "Dites ce qui change dans la tournée : c'est ce que lira la personne qui l'a validée." };
+
+  const maintenant = new Date();
+  const limite = limiteResoumission(maintenant);
+  const rouvert = await prisma.tourPlan.updateMany({
+    where: { id: plan.id, status: "APPROVED" },
+    data: {
+      status: "REVISION", revisionNote: note, revisionRequestedAt: maintenant, revisionRequestedById: user.id,
+      revisionCount: { increment: 1 }, resubmitDueAt: limite,
+    },
+  });
+  if (rouvert.count === 0) return { ok: false, error: DEJA_CHANGE };
+
+  await recordAudit({
+    actorId: user.id, action: "UPDATE", module: "Promotion médicale",
+    entityType: "TOUR_PLAN", entityId: plan.id,
+    summary: `Plan de tournée validé rouvert pour révision — ${note}`,
+  });
+  const periode = periodeLisible(plan.periodStart, plan.periodEnd);
+  const avant = limite.toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short", timeZone: "Africa/Algiers" });
+  const validateur = plan.decidedById ?? plan.reviewerId;
+  if (user.id === plan.repId) {
+    if (validateur && validateur !== user.id) {
+      await notifyUser({
+        userId: validateur, type: "MEDICAL_TOUR",
+        title: `Plan de tournée rouvert pour révision — ${plan.rep.name}`,
+        body: `Le plan du ${periode}, que vous aviez validé, est en révision : « ${note} ». Il vous reviendra en validation.`,
+        link: lienDuPlan(plan.id),
+      });
+    }
+  } else {
+    await notifyUser({
+      userId: plan.repId, type: "MEDICAL_TOUR",
+      title: "Votre plan de tournée est rouvert pour révision",
+      body: `Plan du ${periode} : « ${note} ».\n\nÀ resoumettre avant le ${avant} — les visites déjà passées restent au plan.`,
+      link: lienDuPlan(plan.id),
+    });
+    if (validateur && validateur !== user.id && validateur !== plan.repId) {
+      await notifyUser({
+        userId: validateur, type: "MEDICAL_TOUR",
+        title: `Plan de tournée rouvert pour révision — ${plan.rep.name}`,
+        body: `Le plan du ${periode}, que vous aviez validé, est en révision : « ${note} ». Il vous reviendra en validation.`,
+        link: lienDuPlan(plan.id),
+      });
+    }
+  }
+  revalidatePath(PATH_TOURNEE);
   return { ok: true, id: plan.id };
 }

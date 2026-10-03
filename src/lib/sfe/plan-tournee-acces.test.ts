@@ -210,11 +210,24 @@ describe("Plan de tournée — les points d'appel de la règle (§118.49)", () =
   it("les actions d'escalade et de décision lisent la même règle", () => {
     const actions = src("src/lib/actions/tour-plan-actions.ts");
     expect((actions.match(/accesAuPlan\(/g) ?? []).length).toBe(2);
-    expect((actions.match(/notifyUser\(/g) ?? []).length).toBe(3);
+    // Trois pour le circuit (soumettre, escalader, décider), trois pour la révision d'un plan validé (§118.193) :
+    // la personne qui l'a validée quand le KAM rouvre ; le KAM, et le validateur s'il n'est pas l'auteur, sinon.
+    expect((actions.match(/notifyUser\(/g) ?? []).length).toBe(6);
   });
   it("le validateur voit les visites qu'il valide — la lecture jour par jour existe hors édition", () => {
     const ecran = src("src/app/(app)/medical/plan-de-tournee/planificateur.tsx");
     expect(ecran).toContain("Visites prévues");
     expect(ecran).toMatch(/visitesParJour\.map/);
+  });
+  it("« à resoumettre » se lit sur la même règle dans l'en-tête du plan et dans la liste des plans — la révision comprise (§118.193)", () => {
+    const sansCommentaires = (t: string) => t.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\{\/\*[\s\S]*?\*\/\}/g, "").replace(/^\s*\/\/.*$/gm, "");
+    const ecran = sansCommentaires(src("src/app/(app)/medical/plan-de-tournee/planificateur.tsx"));
+    const page = sansCommentaires(src("src/app/(app)/medical/plan-de-tournee/page.tsx"));
+    expect(ecran).toMatch(/aResoumettre\(status\) \? "resoumettre" : "soumettre"/);
+    expect(page).toMatch(/aResoumettre\(p\.status as StatutPlan\) \? "resoumettre" : "soumettre"/);
+    // La liste montre l'échéance de tout plan à soumettre — un plan en révision compris.
+    expect(page).toMatch(/gestesPossibles\(p\.status as StatutPlan\)\.soumettable && \(\(\) => \{/);
+    // Aucune comparaison écrite à la main ne revient à côté.
+    for (const t of [ecran, page]) expect(t).not.toMatch(/=== "REJECTED" \? "resoumettre"/);
   });
 });

@@ -165,9 +165,14 @@ suite("Visite faite — la fenêtre de 48 h et la gamme tiennent à TOUTES les p
     expect(r2.ok).toBe(false);
     expect(r2.ok ? null : r2.error).toMatch(/déjà rapportée/);
 
-    // Le témoin : reporter une visite planifiée reste possible.
+    // REPORTÉE OU ANNULÉE SE DIT PAR SA PORTE (§118.193) : `direVisiteNonTenue` tient le motif et la fenêtre de 48 h.
+    // Ici, rien ne les tiendrait — dire « annulée » une semaine après effacerait une visite perdue du taux.
     const r3 = await updateVisit(form({ id: planifiee.id, status: "POSTPONED" }));
-    expect(r3.ok, r3.ok ? "" : r3.error).toBe(true);
-    expect((await prisma.medicalVisit.findUniqueOrThrow({ where: { id: planifiee.id } })).status).toBe("POSTPONED");
+    expect(r3.ok).toBe(false);
+    expect(r3.ok ? null : r3.error).toMatch(/depuis « Ma journée »/);
+    expect((await prisma.medicalVisit.findUniqueOrThrow({ where: { id: planifiee.id } })).status).toBe("PLANNED");
+    // Le témoin : planifier (l'objectif d'une visite hors plan) reste possible ici.
+    const r4 = await updateVisit(form({ id: planifiee.id, objective: "Présenter la nouvelle étude" }));
+    expect(r4.ok, r4.ok ? "" : r4.error).toBe(true);
   });
 });

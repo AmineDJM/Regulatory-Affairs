@@ -216,7 +216,7 @@ export async function getActionCenter(user: SessionUser) {
   // Un contrat de consulting RENVOYÉ est un brouillon qui porte son renvoi (audit 360°, lot C4a) — dans
   // les pôles que la personne lit : un contrat passé aux RH ne s'ouvre plus pour qui n'a pas les RH.
   const polesDuPorteur = polesLisibles((m) => userCan(user, m, "VIEW"));
-  const [spoR, ciR, cnR, evR, coR, payR, recR] = await Promise.all([
+  const [spoR, ciR, cnR, evR, coR, payR, recR, planR] = await Promise.all([
     prisma.sponsoringRequest.findMany({ where: { requesterId: user.id, status: "RETURNED" }, select: { id: true, reference: true, institution: true }, orderBy: { updatedAt: "asc" }, take: PLAFOND_A_CORRIGER + 1 }),
     prisma.congressInternational.findMany({ where: { requesterId: user.id, requestStatus: "RETURNED" }, select: { id: true, name: true }, orderBy: { updatedAt: "asc" }, take: PLAFOND_A_CORRIGER + 1 }),
     prisma.congressNational.findMany({ where: { requesterId: user.id, requestStatus: "RETURNED" }, select: { id: true, name: true }, orderBy: { updatedAt: "asc" }, take: PLAFOND_A_CORRIGER + 1 }),
@@ -239,6 +239,15 @@ export async function getActionCenter(user: SessionUser) {
           select: { id: true, reference: true, position: true, returnNote: true }, orderBy: { returnedAt: "asc" }, take: PLAFOND_A_CORRIGER + 1,
         })
       : Promise.resolve([] as { id: string; reference: string; position: string; returnNote: string | null }[]),
+    // UN PLAN DE TOURNÉE REJETÉ OU ROUVERT POUR RÉVISION (§118.193) : 48 h pour le resoumettre, et rien ne le
+    // rappelait hors de la page du plan — c'est précisément le délai qu'on rate.
+    userCan(user, "MEDICAL", "VIEW")
+      ? prisma.tourPlan.findMany({
+          where: { repId: user.id, status: { in: ["REJECTED", "REVISION"] } },
+          select: { id: true, periodStart: true, periodEnd: true, status: true, rejectionComment: true, revisionNote: true, resubmitDueAt: true },
+          orderBy: { resubmitDueAt: "asc" }, take: PLAFOND_A_CORRIGER + 1,
+        })
+      : Promise.resolve([] as { id: string; periodStart: Date; periodEnd: Date; status: string; rejectionComment: string | null; revisionNote: string | null; resubmitDueAt: Date | null }[]),
   ]);
   const aCorriger = [
     ...spoR.map((r) => ({ type: "SPONSORING", id: r.id, titre: `${r.reference} — ${r.institution}`, nature: "Sponsoring", href: `/sponsoring/${r.id}` })),
@@ -252,6 +261,12 @@ export async function getActionCenter(user: SessionUser) {
   const renvoisRecrutement = new Map(recR.map((r) => [r.id, r.returnNote]));
   aCorriger.push(...payR.map((r) => ({ type: "PAYMENT_REQUEST", id: r.id, titre: `${r.reference} — ${r.title}`, nature: "Demande de paiement", href: `/validations/paiements/${r.id}` })));
   aCorriger.push(...recR.map((r) => ({ type: "RECRUITMENT_REQUEST", id: r.id, titre: `${r.reference} — ${r.position}`, nature: "Recrutement", href: `/recrutement/${r.id}` })));
+  const plansACorriger = new Map(planR.map((r) => [r.id, r]));
+  const jour = (d: Date) => d.toLocaleDateString("fr-FR", { timeZone: "Africa/Algiers" });
+  aCorriger.push(...planR.map((r) => ({
+    type: "TOUR_PLAN", id: r.id, titre: `Plan de tournée du ${jour(r.periodStart)} au ${jour(r.periodEnd)}`,
+    nature: "Plan de tournée", href: `/medical/plan-de-tournee?plan=${r.id}`,
+  })));
   if (aCorriger.length > 0) {
     const renvois = await prisma.workflowStepEvent.findMany({
       where: { action: "RETURN", instance: { status: "RETURNED", entityId: { in: aCorriger.map((d) => d.id) } } },
@@ -268,20 +283,24 @@ export async function getActionCenter(user: SessionUser) {
       const r = dernier.get(`${d.type}:${d.id}`);
       const noteContrat = d.type === "CONSULTING_CONTRACT" ? renvoisContrats.get(d.id) ?? null
         : d.type === "RECRUITMENT_REQUEST" ? renvoisRecrutement.get(d.id) ?? null : null;
+      const plan = d.type === "TOUR_PLAN" ? plansACorriger.get(d.id) ?? null : null;
       items.push({
         key: `corriger-${d.type}-${d.id}`, title: `À corriger — ${d.titre}`,
         subtitle: r ? `${r.stepTitle}${r.note ? ` : ${apercu(r.note)}` : ""}`
           : noteContrat ? `Renvoyé pour correction : ${apercu(noteContrat)}`
-            : d.type === "PAYMENT_REQUEST" ? "Renvoyée par les Finances : corrigez-la, ou remplacez les pièces signalées, puis renvoyez-la." : d.nature,
+            : plan ? (plan.status === "REVISION"
+              ? `En révision${plan.revisionNote ? ` : ${apercu(plan.revisionNote)}` : ""} — à resoumettre.`
+              : `Rejeté${plan.rejectionComment ? ` : ${apercu(plan.rejectionComment)}` : ""} — à corriger et resoumettre.`)
+              : d.type === "PAYMENT_REQUEST" ? "Renvoyée par les Finances : corrigez-la, ou remplacez les pièces signalées, puis renvoyez-la." : d.nature,
         module: d.nature, href: d.href, kind: "request", priority: null,
-        deadline: null, owner: "", statusLabel: "À corriger", statusTone: "warning",
+        deadline: plan?.resubmitDueAt?.toISOString() ?? null, owner: "", statusLabel: "À corriger", statusTone: "warning",
       });
     }
     // Au-delà du plafond, on le DIT (§118.60) — une liste coupée se lirait comme complète.
-    if (aCorriger.length > PLAFOND_A_CORRIGER || [spoR, ciR, cnR, evR, coR, payR, recR].some((l) => l.length > PLAFOND_A_CORRIGER)) {
+    if (aCorriger.length > PLAFOND_A_CORRIGER || [spoR, ciR, cnR, evR, coR, payR, recR, planR].some((l) => l.length > PLAFOND_A_CORRIGER)) {
       items.push({
         key: "corriger-reste", title: "D'autres demandes vous attendent pour correction",
-        subtitle: "Les listes « Ad & Pro », « Demandes de paiement » et « Recrutement » les montrent toutes (état « À corriger »).",
+        subtitle: "Les listes « Ad & Pro », « Demandes de paiement », « Recrutement » et « Plan de tournée » les montrent toutes (état « À corriger »).",
         module: "Ad & Pro", href: "/ad-pro", kind: "request", priority: null,
         deadline: null, owner: "", statusLabel: "À corriger", statusTone: "warning",
       });

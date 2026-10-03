@@ -55,8 +55,11 @@ const APPEL_NU = /\brouter\.refresh\(\)/g;
  * relance, la demande d'une pièce) et les gestes du secrétariat suivent leur rafraîchissement : la
  * correction d'une demande s'ouvre sur un instantané, et l'ouvrir sur l'état d'avant réécrirait
  * l'ancien montant par-dessus le nouveau.
+ * Ramené à 341 au §118.193 — le planificateur de tournée (demander une révision s'ouvre sur l'état
+ * qu'il montre) et l'emploi du temps de « Ma journée » (« N'a pas eu lieu » sur une visite que l'état
+ * d'avant montrerait encore à faire) suivent leur rafraîchissement.
  */
-const PLAFOND_APPELS_NUS = 343;
+const PLAFOND_APPELS_NUS = 341;
 
 describe("le rafraîchissement suivi", () => {
   const parc = fichiers(SRC).map((f) => ({ f, src: sansCommentaires(readFileSync(f, "utf8")) }));
@@ -88,6 +91,10 @@ describe("le rafraîchissement suivi", () => {
       // §118.190 : la carte du circuit d'un dossier promotionnel — un renvoi parti, l'état d'avant
       // offrirait encore « Renvoyer », que l'action refuserait.
       "src/app/(app)/promo-material/[id]/circuit-card.tsx",
+      // §118.193 : le planificateur — rouvrir un plan validé puis le rouvrir encore sur l'état d'avant ; l'emploi
+      // du temps — dire une visite non tenue, puis la rapporter sur l'état d'avant.
+      "src/app/(app)/medical/plan-de-tournee/planificateur.tsx",
+      "src/app/(app)/medical/ma-journee/emploi-du-temps.tsx",
     ];
     for (const e of ecrans) {
       const src = sansCommentaires(readFileSync(join(process.cwd(), e), "utf8"));

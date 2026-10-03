@@ -15,7 +15,7 @@ import { fdStr, fdDate, fdCase, type ActionResult } from "@/lib/actions/types";
 import { canonicalWilaya } from "@/lib/medical/wilaya";
 import { sousVerrous } from "@/lib/promo/stock-ecriture";
 import { dejaDansLaVisite, ecrireRemises, lireMaterielRemis, motifDeRemise, phraseMateriel, RefusRemise, toucheLeStock, verrousDuRapport } from "@/lib/promo/remises-visite";
-import { fenetreRapport, refusVisiteHorsDelai } from "@/lib/sfe/tournee";
+import { fenetreRapport, gestesPossibles, refusVisiteHorsDelai, retraitInterditApresRevision, type StatutPlan } from "@/lib/sfe/tournee";
 import { produitsDeLaBu, refusProduitsHorsBu } from "@/lib/sfe/produits-bu";
 
 const SECTORS: MedicalSector[] = ["HOSPITAL", "LIBERAL", "BOTH"];
@@ -497,10 +497,31 @@ export async function deleteVisit(formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
   const id = fdStr(formData, "id");
   if (!id) return { ok: false, error: "Identifiant manquant." };
-  const visit = await prisma.medicalVisit.findUnique({ where: { id }, select: { delegateId: true, doctor: { select: { name: true } } } });
+  const visit = await prisma.medicalVisit.findUnique({
+    where: { id },
+    select: { delegateId: true, status: true, date: true, tourPlanId: true, doctor: { select: { name: true } } },
+  });
   if (!visit) return { ok: false, error: "Visite introuvable." };
   if (!userCan(user, "MEDICAL", "DELETE") && visit.delegateId !== user.id) return { ok: false, error: "Non autorisé." };
-  await prisma.medicalVisit.delete({ where: { id } });
+  // CE QUI A EU LIEU NE S'EFFACE PAS (§118.193). Une visite rapportée porte un compte rendu et, souvent, du matériel
+  // remis : la supprimer effaçait un fait et laissait des remises sans visite. Et une visite d'un plan soumis ou
+  // validé ne sort pas du plan par cette porte — le plan se révise ; d'un plan déjà validé, une visite passée ne
+  // sort pas du tout (`retraitInterditApresRevision`, la même règle que la grille).
+  if (visit.status === "COMPLETED") {
+    return { ok: false, error: "Une visite rapportée ne se supprime pas : son compte rendu et le matériel remis restent au registre." };
+  }
+  if (visit.tourPlanId) {
+    const plan = await prisma.tourPlan.findUnique({ where: { id: visit.tourPlanId }, select: { status: true, revisionCount: true } });
+    if (plan && !gestesPossibles(plan.status as StatutPlan).modifiable) {
+      return { ok: false, error: "Cette visite appartient à un plan de tournée soumis ou validé : elle sort du plan par le plan — « Demander une révision » s'il est validé." };
+    }
+    if (plan && retraitInterditApresRevision(visit, plan.revisionCount > 0, new Date())) {
+      return { ok: false, error: "Cette visite passée appartient à un plan déjà validé : elle reste au plan — rapportée, ou dite reportée ou annulée depuis « Ma journée » dans ses 48 h." };
+    }
+  }
+  // Tout ou rien : un rapport saisi entre la lecture et la suppression l'emporte.
+  const retiree = await prisma.medicalVisit.deleteMany({ where: { id, status: visit.status } });
+  if (retiree.count === 0) return { ok: false, error: "Cette visite vient de changer — rouvrez-la pour voir où elle en est." };
   await recordAudit({ actorId: user.id, action: "DELETE", module: "Promotion médicale", entityType: "VISIT", entityId: id, summary: `Visite supprimée — ${visit.doctor?.name ?? ""}` });
   revalidatePath("/medical");
   return { ok: true };
@@ -834,28 +855,58 @@ export async function updateVisit(formData: FormData): Promise<ActionResult> {
     return { ok: false, error: "Cette visite est déjà rapportée : elle se corrige depuis son rapport, dans les 48 h (« Ma journée » ou le plan de tournée)." };
   }
   if (status === "COMPLETED") return { ok: false, error: REFUS_VISITE_FAITE_HORS_PORTE };
+  // UNE VISITE SE DIT NON TENUE PAR SA PORTE (§118.193 — audit 360°, M5 du KAM) : `direVisiteNonTenue` tient le
+  // motif et la fenêtre de 48 h. Ici, rien ne les tenait — dire « annulée » une semaine après effaçait une visite
+  // perdue du taux, sans un mot. Deux portes pour le même fait, et c'est la plus lâche qui gagne (§118.71).
+  if ((status === "POSTPONED" || status === "CANCELLED") && status !== before.status) {
+    return {
+      ok: false,
+      error: "Une visite se dit reportée ou annulée depuis « Ma journée » : c'est là que s'appliquent le motif et la fenêtre de 48 h.",
+    };
+  }
   const has = (k: string) => formData.has(k);
+  // UNE VISITE D'UN PLAN QUI NE SE MODIFIE PLUS ne change ni de jour, ni de praticien, ni de KAM ici : le validateur
+  // a validé CETTE tournée. Le plan se révise (« Demander une révision », §118.193) — sinon cette porte réécrivait
+  // un plan validé dans son dos.
+  if (before.tourPlanId && (has("date") || has("doctorId") || has("delegateId"))) {
+    const plan = await prisma.tourPlan.findUnique({ where: { id: before.tourPlanId }, select: { status: true } });
+    if (plan && !gestesPossibles(plan.status as StatutPlan).modifiable) {
+      return {
+        ok: false,
+        error: "Cette visite appartient à un plan de tournée soumis ou validé : son jour et son praticien changent par le plan — « Demander une révision » s'il est validé.",
+      };
+    }
+  }
   const doctorId = fdStr(formData, "doctorId");
   const delegateId = fdStr(formData, "delegateId");
 
-  await prisma.medicalVisit.update({
-    where: { id },
-    data: {
-      status,
-      updatedById: user.id,
-      // Champs de la ligne (édition complète) — seulement si soumis.
-      ...(has("date") ? { date: fdDate(formData, "date") ?? before.date } : {}),
-      ...(has("region") ? { region: fdStr(formData, "region") } : {}),
-      ...(has("objective") ? { objective: fdStr(formData, "objective") } : {}),
-      ...(has("presentedProducts") ? { presentedProducts: fdStr(formData, "presentedProducts") } : {}),
-      ...(has("doctorId") ? { doctor: doctorId ? { connect: { id: doctorId } } : { disconnect: true } } : {}),
-      ...(has("delegateId") ? { delegate: delegateId ? { connect: { id: delegateId } } : { disconnect: true } } : {}),
-      // Compte rendu — seulement si soumis.
-      ...(has("report") ? { report: fdStr(formData, "report") } : {}),
-      ...(has("doctorFeedback") ? { doctorFeedback: fdStr(formData, "doctorFeedback") } : {}),
-      ...(has("followUpActions") ? { followUpActions: fdStr(formData, "followUpActions") } : {}),
-    },
+  // UN GESTE À LA FOIS (§118.193) : cette écriture réécrit le statut LU — un rapport saisi entre la lecture et
+  // l'écriture (un autre onglet, « Ma journée ») était ramené à « planifiée », et la visite faite redevenait à
+  // faire, sans un mot. La condition sur le statut lu l'arrête : le rapport l'emporte.
+  const changee = await prisma.$transaction(async (tx) => {
+    const encore = await tx.medicalVisit.updateMany({ where: { id, status: before.status }, data: { updatedById: user.id } });
+    if (encore.count === 0) return true;
+    await tx.medicalVisit.update({
+      where: { id },
+      data: {
+        status,
+        updatedById: user.id,
+        // Champs de la ligne (édition complète) — seulement si soumis.
+        ...(has("date") ? { date: fdDate(formData, "date") ?? before.date } : {}),
+        ...(has("region") ? { region: fdStr(formData, "region") } : {}),
+        ...(has("objective") ? { objective: fdStr(formData, "objective") } : {}),
+        ...(has("presentedProducts") ? { presentedProducts: fdStr(formData, "presentedProducts") } : {}),
+        ...(has("doctorId") ? { doctor: doctorId ? { connect: { id: doctorId } } : { disconnect: true } } : {}),
+        ...(has("delegateId") ? { delegate: delegateId ? { connect: { id: delegateId } } : { disconnect: true } } : {}),
+        // Compte rendu — seulement si soumis.
+        ...(has("report") ? { report: fdStr(formData, "report") } : {}),
+        ...(has("doctorFeedback") ? { doctorFeedback: fdStr(formData, "doctorFeedback") } : {}),
+        ...(has("followUpActions") ? { followUpActions: fdStr(formData, "followUpActions") } : {}),
+      },
+    });
+    return false;
   });
+  if (changee) return { ok: false, error: "Cette visite vient de changer — rouvrez-la pour voir où elle en est." };
   await recordAudit({
     actorId: user.id, action: "UPDATE", module: "Promotion médicale",
     entityType: "VISIT", entityId: id, summary: "Visite modifiée",

@@ -618,6 +618,10 @@ export const MEDICAL_OPS_IMPL: Record<string, OpImpl> = {
       const status = enumIn(opStr(input, "status"), VISIT_STATUS_FR);
       if (status && typeof status === "object") return status;
       if (status === "COMPLETED") return { error: REFUS_FAITE_PAR_LOG_VISIT };
+      // Reportée ou annulée se dit depuis « Ma journée » (motif, fenêtre de 48 h — §118.193) : l'action le refuse.
+      if (status === "POSTPONED" || status === "CANCELLED") {
+        return { error: "Une visite se dit reportée ou annulée depuis « Ma journée » : c'est là que s'appliquent le motif et la fenêtre de 48 h." };
+      }
       // L'action n'écrit QUE les champs soumis : rien à rejouer, on n'envoie que le demandé.
       const updates = fieldsOf([
         ["Statut", status ? VISIT_STATUS_FR.find(([c]) => c === status)?.[1] ?? null : null],
@@ -627,7 +631,7 @@ export const MEDICAL_OPS_IMPL: Record<string, OpImpl> = {
         ["Objectif", opStr(input, "notes") || null],
         ["Produits présentés", opStr(input, "products") || null],
       ]);
-      if (updates.length === 0) return { error: "Rien à changer : donnez status (planifiée/réalisée/annulée/reportée), report, feedback, followUp, notes ou products." };
+      if (updates.length === 0) return { error: "Rien à changer : donnez report, feedback, followUp, notes ou products." };
       return {
         title: `Visite chez ${visit.doctorName} du ${day(visit.date)}`,
         fields: [{ label: "Visite", value: `${visit.doctorName} — ${day(visit.date)}` }, ...updates],

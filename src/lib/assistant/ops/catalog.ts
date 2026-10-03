@@ -2622,7 +2622,7 @@ export const OPS_CATALOG: OpMeta[] = [
     uiLabel: "Mettre à jour une visite planifiée",
     aliases: ["reporte la visite", "annule la visite", "déplace la visite"],
     risk: "NORMAL",
-    summary: "Met à jour une visite PLANIFIÉE : statut (planifiée / annulée / reportée), objectif, notes — SEULS les champs donnés bougent. Une visite faite s'enregistre par log_visit ou le rapport de la visite planifiée ; une visite déjà rapportée se corrige depuis son rapport, dans les 48 h.",
+    summary: "Met à jour une visite PLANIFIÉE : objectif, notes, compte rendu — SEULS les champs donnés bougent. Une visite reportée ou annulée se dit depuis « Ma journée » (motif, fenêtre de 48 h). Une visite faite s'enregistre par log_visit ou le rapport de la visite planifiée ; une visite déjà rapportée se corrige depuis son rapport, dans les 48 h.",
     gate: (u) => userCan(u, "MEDICAL", "UPDATE") || userCan(u, "MEDICAL", "CREATE"),
     gateNote: "le délégué de la visite, ou le droit Modifier (revérifié par l'action)",
     covers: ["medical-actions:updateVisit"],

@@ -1464,6 +1464,14 @@ X("LA GRILLE DU PLAN DE TOURNÉE : l'action REMPLACE la sélection complète jou
   + "(`open_tour_plan`), soumettre (`submit_tour_plan`), escalader (`escalate_tour_plan`).", [
   "tour-plan-actions:planifierVisites",
 ]);
+X("RÉVISER UN PLAN VALIDÉ, DIRE QU'UNE VISITE N'A PAS EU LIEU (audit 360°, lot C4d2a, §118.193) — rouvrir un plan "
+  + "de tournée validé retire un accord donné et rend au KAM une tournée à refaire valider ; dire qu'une visite est "
+  + "reportée ou annulée affirme ce qui s'est passé sur le terrain et la sort du dénominateur. Ce sont des faits qu'une "
+  + "personne signe de son nom, motif à l'appui (§118.15). Adam est en pause de développement : aucun geste neuf ne lui "
+  + "est ouvert. Un clic sur le plan de tournée, ou sur la ligne de « Ma journée ».", [
+  "tour-plan-actions:demanderRevisionPlanTournee",
+  "tour-visit-actions:direVisiteNonTenue",
+]);
 
 X("LA FICHE DE COACHING est une ATTESTATION (§118.15, §118.157) : le manager y écrit ce qu'il a OBSERVÉ pendant une "
   + "tournée en double — tel niveau de maîtrise sur tel axe, tels points forts, tels points à améliorer — et la fiche "

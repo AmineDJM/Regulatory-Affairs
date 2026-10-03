@@ -1,14 +1,14 @@
 "use client";
 
 import * as React from "react";
-import { useRouter } from "next/navigation";
 import {
-  AlertTriangle, ArrowUpRight, Check, Clock, Loader2, MapPin, Send, Users, X,
+  AlertTriangle, ArrowUpRight, Check, Clock, Loader2, MapPin, RotateCcw, Send, Users, X,
 } from "lucide-react";
 import {
-  planifierVisites, soumettrePlanTournee, escaladerPlanTournee, deciderPlanTournee,
+  planifierVisites, soumettrePlanTournee, escaladerPlanTournee, deciderPlanTournee, demanderRevisionPlanTournee,
 } from "@/lib/actions/tour-plan-actions";
-import { STATUT_PLAN_LABELS, gestesPossibles, type StatutPlan } from "@/lib/sfe/tournee";
+import { useRafraichir } from "@/components/shared/use-rafraichir";
+import { STATUT_PLAN_LABELS, aResoumettre, gestesPossibles, type StatutPlan } from "@/lib/sfe/tournee";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input, Label, Select, Textarea } from "@/components/ui/input";
@@ -47,7 +47,8 @@ export interface PraticienVue {
 export function Planificateur({
   planId, repName, status, periodStart, periodEnd, joursOuvres, submittedAt, retard,
   reviewerName, escalatedToName, rejectionComment, resubmitDueAt,
-  praticiens, pairesInitiales, pairesAcquises, jeSuisLeKam, jePeuxDecider, jePeuxEscalader,
+  praticiens, pairesInitiales, pairesAcquises, pairesNonTenues, pairesPassees, jeSuisLeKam, jePeuxDecider, jePeuxEscalader,
+  revisionNote, revisionPar, revisionLe, jePeuxDemanderRevision,
 }: {
   planId: string;
   repName: string;
@@ -68,13 +69,26 @@ export function Planificateur({
   praticiens: PraticienVue[];
   pairesInitiales: string[];
   pairesAcquises: string[];
+  /** Parmi les acquises, celles DITES non tenues (reportées, annulées) — le reste est rapporté. */
+  pairesNonTenues: string[];
+  /** Les visites passées d'un plan déjà validé : une révision ne les retire pas (§118.193). */
+  pairesPassees: string[];
   jeSuisLeKam: boolean;
   jePeuxDecider: boolean;
   jePeuxEscalader: boolean;
+  /** La révision en cours d'un plan validé — son motif, qui, quand. */
+  revisionNote: string | null;
+  revisionPar: string | null;
+  revisionLe: string | null;
+  /** Peut-il ÉCRIRE ce plan (le KAM, le superviseur de sa BU, la Direction) ? La même règle que l'action. */
+  jePeuxDemanderRevision: boolean;
 }) {
-  const router = useRouter();
+  // LE RAFRAÎCHISSEMENT SUIVI (§118.172) : les gestes restent fermés tant que l'écran montre l'état d'avant.
+  const { enCours, rafraichir } = useRafraichir();
   const gestes = gestesPossibles(status);
   const acquises = React.useMemo(() => new Set(pairesAcquises), [pairesAcquises]);
+  const nonTenues = React.useMemo(() => new Set(pairesNonTenues), [pairesNonTenues]);
+  const passees = React.useMemo(() => new Set(pairesPassees), [pairesPassees]);
 
   const [paires, setPaires] = React.useState<Set<string>>(() => new Set(pairesInitiales));
   const [jour, setJour] = React.useState(joursOuvres[0] ?? "");
@@ -85,6 +99,9 @@ export function Planificateur({
   const [err, setErr] = React.useState<string | null>(null);
   const [rejet, setRejet] = React.useState(false);
   const [sale, setSale] = React.useState(false);
+  const [revision, setRevision] = React.useState(false);
+  const [motifRevision, setMotifRevision] = React.useState("");
+  const occupe = busy || enCours;
 
   // LA WILAYA, pas la ville : la ville a quitté les annuaires (texte libre tapé de trois façons
   // pour le même endroit) ; la wilaya est une liste fermée, donc un filtre qui ne ment pas.
@@ -109,8 +126,9 @@ export function Planificateur({
 
   const basculer = (j: string, id: string) => {
     const k = cle(j, id);
-    // UNE VISITE DÉJÀ RAPPORTÉE NE SE DÉPLANIFIE PAS : elle a eu lieu.
-    if (acquises.has(k)) return;
+    // UNE VISITE DÉJÀ RAPPORTÉE NE SE DÉPLANIFIE PAS : elle a eu lieu. Celle d'un plan déjà validé dont l'heure
+    // est passée non plus : la révision ne change que l'avenir (§118.193).
+    if (acquises.has(k) || passees.has(k)) return;
     setPaires((s) => {
       const n = new Set(s);
       if (n.has(k)) n.delete(k); else n.add(k);
@@ -124,7 +142,7 @@ export function Planificateur({
     const r = await action(fd);
     setBusy(false);
     if (!r.ok) { setErr(r.error ?? "Action impossible."); return false; }
-    router.refresh();
+    rafraichir();
     return true;
   };
 
@@ -139,7 +157,7 @@ export function Planificateur({
     new Date(`${j}T09:00:00`).toLocaleDateString("fr-FR", { weekday: "short", day: "2-digit", month: "2-digit" });
 
   const tonStatut = status === "APPROVED" ? "success" : status === "REJECTED" ? "danger"
-    : status === "SUBMITTED" || status === "ESCALATED" ? "warning" : "neutral";
+    : status === "SUBMITTED" || status === "ESCALATED" || status === "REVISION" ? "warning" : "neutral";
 
 
   // Les visites du plan, groupées par jour, pour la lecture du validateur — les noms viennent du panel
@@ -175,7 +193,7 @@ export function Planificateur({
                   En retard de {retard.jours} j — échéance dépassée le {new Date(retard.echeance).toLocaleDateString("fr-FR")}
                 </span>
               )
-              : `À ${status === "REJECTED" ? "resoumettre" : "soumettre"} avant le ${new Date(retard.echeance).toLocaleDateString("fr-FR")}`}
+              : `À ${aResoumettre(status) ? "resoumettre" : "soumettre"} avant le ${new Date(retard.echeance).toLocaleDateString("fr-FR")}`}
         </span>
         <span className="w-full text-xs text-muted-foreground">
           <strong className="text-foreground tabular-nums">{paires.size}</strong> visite(s) planifiée(s)
@@ -198,7 +216,61 @@ export function Planificateur({
         </div>
       )}
 
+      {/* LA RÉVISION D'UN PLAN VALIDÉ PORTE SON MOTIF, QUI, QUAND, ET SON DÉLAI (§118.193). Le validateur la lit
+          aussi une fois le plan resoumis : c'est ce qu'il doit juger. */}
+      {revisionNote && (status === "REVISION" || status === "SUBMITTED" || status === "ESCALATED") && (
+        <div className="rounded-lg border border-warning/40 bg-warning/10 p-3 text-sm">
+          <p className="font-medium">
+            {status === "REVISION" ? "Plan validé, rouvert pour révision — à modifier puis resoumettre." : "Plan validé puis révisé — voici pourquoi."}
+          </p>
+          <p className="mt-1 whitespace-pre-wrap">« {revisionNote} »</p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            {revisionPar ? `Demandée par ${revisionPar}` : "Demandée"}
+            {revisionLe ? ` le ${new Date(revisionLe).toLocaleDateString("fr-FR")}` : ""}
+            {status === "REVISION" && resubmitDueAt
+              ? ` · à resoumettre avant le ${new Date(resubmitDueAt).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" })} — les visites déjà passées restent au plan.`
+              : "."}
+          </p>
+        </div>
+      )}
+
       {err && <p className="rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">{err}</p>}
+
+      {/* ── DEMANDER UNE RÉVISION (§118.193) — un plan validé ne se réécrit pas sous les pieds du KAM : il se
+          rouvre, motif à l'appui, et repasse en validation. ─────────────────────────────────────── */}
+      {gestes.revisable && jePeuxDemanderRevision && (
+        <div className="space-y-2 rounded-xl border border-border p-3">
+          {!revision ? (
+            <div className="flex flex-wrap items-center gap-2">
+              <p className="mr-auto text-sm text-muted-foreground">La tournée a changé sur le terrain ? Le plan se révise, et repasse en validation.</p>
+              <Button variant="outline" size="sm" disabled={occupe} onClick={() => { setErr(null); setRevision(true); }}>
+                <RotateCcw className="h-4 w-4" /> Demander une révision
+              </Button>
+            </div>
+          ) : (
+            <form
+              className="space-y-2"
+              action={async (fd) => {
+                fd.set("planId", planId);
+                if (await run(demanderRevisionPlanTournee, fd)) { setRevision(false); setMotifRevision(""); }
+              }}
+            >
+              <Label htmlFor="revision-note">Ce qui change dans la tournée</Label>
+              <Textarea id="revision-note" name="note" rows={3} value={motifRevision} onChange={(e) => setMotifRevision(e.target.value)}
+                placeholder="Le Dr Amrani est en congé la semaine du 18 ; je reporte ses visites et ajoute le CHU de Blida." />
+              <p className="text-xs text-muted-foreground">
+                Le plan repassera « En révision » : vous le modifiez, puis vous le resoumettez (48 h). Les visites déjà passées restent au plan.
+              </p>
+              <div className="flex justify-end gap-2">
+                <Button type="button" variant="ghost" size="sm" disabled={occupe} onClick={() => { setRevision(false); setMotifRevision(""); }}>Annuler</Button>
+                <Button type="submit" size="sm" disabled={occupe || motifRevision.trim().length === 0}>
+                  {occupe && <Loader2 className="h-4 w-4 animate-spin" />} Rouvrir pour révision
+                </Button>
+              </div>
+            </form>
+          )}
+        </div>
+      )}
 
       {/* ── LA DÉCISION DU VALIDATEUR ───────────────────────────────────────── */}
       {(jePeuxDecider || jePeuxEscalader) && gestes.decidable && (
@@ -208,7 +280,7 @@ export function Planificateur({
           </p>
           {jePeuxEscalader && gestes.escaladable && (
             <Button
-              variant="outline" size="sm" disabled={busy}
+              variant="outline" size="sm" disabled={occupe}
               onClick={() => { const fd = new FormData(); fd.set("planId", planId); void run(escaladerPlanTournee, fd); }}
             >
               <ArrowUpRight className="h-4 w-4" /> Demander à mon N+1
@@ -216,11 +288,11 @@ export function Planificateur({
           )}
           {jePeuxDecider && (
             <>
-              <Button variant="outline" size="sm" disabled={busy} onClick={() => { setErr(null); setRejet(true); }}>
+              <Button variant="outline" size="sm" disabled={occupe} onClick={() => { setErr(null); setRejet(true); }}>
                 <X className="h-4 w-4" /> Rejeter
               </Button>
               <Button
-                size="sm" disabled={busy}
+                size="sm" disabled={occupe}
                 onClick={() => {
                   const fd = new FormData();
                   fd.set("planId", planId); fd.set("decision", "APPROVE");
@@ -308,7 +380,9 @@ export function Planificateur({
                 )}
                 {visibles.map((p) => {
                   const k = cle(jour, p.id);
-                  const fige = acquises.has(k);
+                  const rapportee = acquises.has(k);
+                  const passee = !rapportee && passees.has(k);
+                  const fige = rapportee || passee;
                   return (
                     <label
                       key={p.id}
@@ -332,7 +406,10 @@ export function Planificateur({
                           </span>
                         )}
                         {p.secteur && <Badge tone="neutral" dot={false}>{p.secteur}</Badge>}
-                        {fige && <span className="text-xs text-success">déjà rapportée</span>}
+                        {rapportee && (nonTenues.has(k)
+                          ? <span className="text-xs text-muted-foreground">dite non tenue</span>
+                          : <span className="text-xs text-success">déjà rapportée</span>)}
+                        {passee && <span className="text-xs text-muted-foreground">passée — reste au plan</span>}
                       </span>
                     </label>
                   );
@@ -343,11 +420,11 @@ export function Planificateur({
 
           <div className="flex flex-wrap items-center justify-end gap-2">
             {sale && <span className="mr-auto text-xs text-warning">Modifications non enregistrées.</span>}
-            <Button variant="outline" onClick={() => void enregistrer()} disabled={busy || !sale}>
-              {busy && <Loader2 className="h-4 w-4 animate-spin" />} Enregistrer le plan
+            <Button variant="outline" onClick={() => void enregistrer()} disabled={occupe || !sale}>
+              {occupe && <Loader2 className="h-4 w-4 animate-spin" />} Enregistrer le plan
             </Button>
             <Button
-              disabled={busy || sale || paires.size === 0}
+              disabled={occupe || sale || paires.size === 0}
               onClick={() => { const fd = new FormData(); fd.set("planId", planId); void run(soumettrePlanTournee, fd); }}
             >
               <Send className="h-4 w-4" /> Soumettre à validation
@@ -386,7 +463,9 @@ export function Planificateur({
           <p className="rounded-lg border border-border bg-secondary/40 p-3 text-sm text-muted-foreground">
             {gestes.modifiable
               ? "Seul le KAM (ou le superviseur de sa BU) modifie ce plan."
-              : `Un plan « ${STATUT_PLAN_LABELS[status]} » ne se modifie plus : les visites sont parties chez le KAM, et changer sa tournée sous ses pieds est ce qu'un plan validé doit empêcher.`}
+              : gestes.revisable
+                ? "Un plan validé ne se modifie pas en direct : sa tournée a commencé. « Demander une révision » le rouvre, motif à l'appui — il repasse en validation, et ce qui a déjà eu lieu reste."
+                : `Un plan « ${STATUT_PLAN_LABELS[status]} » attend la décision de son validateur : il ne se modifie qu'une fois rejeté, ou validé puis rouvert en révision.`}
           </p>
         </>
       )}
@@ -408,9 +487,9 @@ export function Planificateur({
           </div>
           {err && <p className="text-sm text-destructive">{err}</p>}
           <div className="flex justify-end gap-2">
-            <Button type="button" variant="ghost" onClick={() => setRejet(false)} disabled={busy}>Annuler</Button>
-            <Button type="submit" variant="destructive" disabled={busy}>
-              {busy && <Loader2 className="h-4 w-4 animate-spin" />} Rejeter
+            <Button type="button" variant="ghost" onClick={() => setRejet(false)} disabled={occupe}>Annuler</Button>
+            <Button type="submit" variant="destructive" disabled={occupe}>
+              {occupe && <Loader2 className="h-4 w-4 animate-spin" />} Rejeter
             </Button>
           </div>
         </form>

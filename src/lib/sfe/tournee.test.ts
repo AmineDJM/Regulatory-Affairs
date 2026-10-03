@@ -5,6 +5,7 @@ import {
   VUE_LABELS, VUES, avancementTournee, bloquantsDeSoumission, debutDeSemaine, echeanceDeSoumission,
   enRetardDeSoumission, estGranularite, estVue, etatVisite, fenetreDeVue, fenetreRapport,
   gestesPossibles, limiteResoumission, periodeDe, periodeSuivante, reglageDepuisJson, retardDeSoumission,
+  retraitInterditApresRevision, STATUTS_PLAN, aResoumettre,
   type EtatVisite, type VisiteComptable,
 } from "./tournee";
 import { estJourOuvre } from "@/lib/sfe-day";
@@ -321,5 +322,47 @@ describe("ce qui manque pour soumettre — dit EN UNE FOIS", () => {
 
   it("un plan complet ne rend AUCUN bloquant", () => {
     expect(bloquantsDeSoumission({ statut: "DRAFT", nbVisites: 12, nbHorsJoursOuvres: 0, nbHorsPeriode: 0 })).toEqual([]);
+  });
+});
+
+describe("la révision d'un plan validé (§118.193 — audit 360°, R13)", () => {
+  it("SEUL un plan VALIDÉ se révise ; un plan en révision se modifie et se resoumet, sans se décider", () => {
+    for (const statut of STATUTS_PLAN) {
+      expect(gestesPossibles(statut).revisable, statut).toBe(statut === "APPROVED");
+    }
+    expect(gestesPossibles("REVISION")).toMatchObject({ modifiable: true, soumettable: true, decidable: false, escaladable: false });
+    // Un plan validé ne se MODIFIE pas en direct : il se révise.
+    expect(gestesPossibles("APPROVED")).toMatchObject({ modifiable: false, soumettable: false });
+    expect(STATUT_PLAN_LABELS.REVISION).toBe("En révision — à resoumettre");
+    // « À resoumettre » se dit d'un plan rejeté ET d'un plan en révision, et de rien d'autre.
+    for (const statut of STATUTS_PLAN) {
+      expect(aResoumettre(statut), statut).toBe(statut === "REJECTED" || statut === "REVISION");
+    }
+  });
+
+  it("un plan EN RÉVISION se juge sur sa RESOUMISSION — jamais sur l'échéance d'origine, passée depuis longtemps", () => {
+    const echeance = d("2026-09-01T00:00:00");
+    const resoumission = d("2026-09-22T12:00:00");
+    const maintenant = d("2026-09-21T09:00:00");
+    const enRevision = retardDeSoumission({ statut: "REVISION", echeance, resoumissionAvant: resoumission, maintenant });
+    expect(enRevision).toMatchObject({ enRetard: false, jours: 0 });
+    expect(enRevision.echeance).toEqual(resoumission);
+    // Le témoin : un brouillon aux mêmes dates est en retard de trois semaines — c'est ce qu'aurait affiché
+    // un plan rouvert en « brouillon ».
+    expect(retardDeSoumission({ statut: "DRAFT", echeance, resoumissionAvant: resoumission, maintenant }).enRetard).toBe(true);
+    // Et passé sa resoumission, le plan en révision EST en retard.
+    expect(retardDeSoumission({ statut: "REVISION", echeance, resoumissionAvant: resoumission, maintenant: d("2026-09-23T09:00:00") }).enRetard).toBe(true);
+  });
+
+  it("une révision rouvre l'AVENIR, pas le passé : une visite planifiée passée d'un plan déjà validé ne se retire pas", () => {
+    const maintenant = d("2026-09-21T10:00:00");
+    const passee = { date: d("2026-09-21T09:00:00"), status: "PLANNED" };
+    const avenir = { date: d("2026-09-22T09:00:00"), status: "PLANNED" };
+    expect(retraitInterditApresRevision(passee, true, maintenant)).toBe(true);
+    expect(retraitInterditApresRevision(avenir, true, maintenant)).toBe(false);
+    // Un plan jamais validé n'est pas concerné : rien de ce qu'il porte n'a été accordé.
+    expect(retraitInterditApresRevision(passee, false, maintenant)).toBe(false);
+    // Ce qui n'est plus planifié (rapporté, dit non tenu) relève d'une autre règle : il ne se retire jamais.
+    expect(retraitInterditApresRevision({ ...passee, status: "COMPLETED" }, true, maintenant)).toBe(false);
   });
 });

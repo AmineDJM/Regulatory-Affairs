@@ -297,7 +297,8 @@ suite("Plan de tournée — écran, validation, rapport, dénominateur", () => {
     ACTEUR = await acteur(kamId, "MEDICAL_DELEGATE");
     const r = await planifierVisites(fd({ planId, visite: [] }));
     expect(r.ok).toBe(false);
-    expect(r.ok === false ? r.error : "").toContain("n'est plus modifiable");
+    // Le refus dit pourquoi ET quand il redeviendra modifiable (§118.193) : rejeté, ou validé puis rouvert.
+    expect(r.ok === false ? r.error : "").toContain("attend la décision de son validateur");
   });
 
   it("SEUL le validateur désigné tranche — pas quiconque a le module", async () => {

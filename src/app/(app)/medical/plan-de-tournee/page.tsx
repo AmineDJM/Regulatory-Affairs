@@ -13,11 +13,12 @@ import { MEDICAL_TABS } from "@/lib/labels";
 import { Badge } from "@/components/ui/badge";
 import { loadPanelPlanifiable, loadPlanTournee } from "@/lib/queries/tour-schedule";
 import {
-  GRANULARITE_LABELS, STATUT_PLAN_LABELS, accesAuPlan, estJourOuvrePourTournee, periodeSuivante, retardDeSoumission,
-  type StatutPlan,
+  GRANULARITE_LABELS, STATUT_PLAN_LABELS, aResoumettre, accesAuPlan, estJourOuvrePourTournee, gestesPossibles, periodeSuivante,
+  retardDeSoumission, type StatutPlan,
 } from "@/lib/sfe/tournee";
 import { lireReglageTournee } from "@/lib/sfe/tournee-reglage";
 import { isManagerOfUser } from "@/lib/departments";
+import { canEditRep } from "@/lib/sfe";
 import { OuvrirPlan } from "./ouvrir-plan";
 import { Planificateur } from "./planificateur";
 
@@ -107,6 +108,10 @@ export default async function PlanDeTourneePage({ searchParams }: { searchParams
     : null;
   if (plan && !acces?.voir) notFound();
   const panel = plan ? await loadPanelPlanifiable(plan.repId) : [];
+  // QUI PEUT ÉCRIRE CE PLAN — donc le rouvrir pour révision (§118.193) : la même règle que l'action
+  // (`peutEcrirePourLeKam` : le KAM, le superviseur de sa BU, la Direction). Un bouton offert à qui l'action
+  // refuse fait chercher une panne qui n'existe pas (§118.83).
+  const jePeuxEcrire = plan ? plan.repId === user.id || (await canEditRep(user, plan.repId)) : false;
 
   // LES JOURS OUVRÉS DE LA PÉRIODE — la semaine ouvrée algérienne (dimanche → jeudi). Proposer
   // un vendredi ferait planifier un jour où personne ne sort, et la soumission le refuserait.
@@ -151,6 +156,12 @@ export default async function PlanDeTourneePage({ searchParams }: { searchParams
             praticiens={panel}
             pairesInitiales={plan.paires}
             pairesAcquises={plan.pairesAcquises}
+            pairesNonTenues={plan.pairesNonTenues}
+            pairesPassees={plan.pairesPassees}
+            revisionNote={plan.revisionNote}
+            revisionPar={plan.revisionPar}
+            revisionLe={plan.revisionLe?.toISOString() ?? null}
+            jePeuxDemanderRevision={jePeuxEcrire}
             jeSuisLeKam={plan.repId === user.id}
             // QUI TRANCHE : le validateur tant que le plan est chez lui, le N+2 dès qu'il est
             // escaladé. L'action le revérifie — l'écran ne fait que ne pas proposer l'impossible.
@@ -218,7 +229,7 @@ export default async function PlanDeTourneePage({ searchParams }: { searchParams
                     <span className="text-xs text-muted-foreground">{p._count.visits} visite(s)</span>
                     {/* L'ÉCHÉANCE SE LIT — avant comme après son passage. « À soumettre avant le »
                         affiché sur un plan en retard de vingt jours est une date décorative. */}
-                    {(p.status === "DRAFT" || p.status === "REJECTED") && (() => {
+                    {gestesPossibles(p.status as StatutPlan).soumettable && (() => {
                       const r = retardDe(p);
                       return r.enRetard ? (
                         <span className="text-xs font-medium text-destructive">
@@ -226,7 +237,7 @@ export default async function PlanDeTourneePage({ searchParams }: { searchParams
                         </span>
                       ) : (
                         <span className="text-xs text-muted-foreground">
-                          à {p.status === "REJECTED" ? "resoumettre" : "soumettre"} avant le {r.echeance.toLocaleDateString("fr-FR")}
+                          à {aResoumettre(p.status as StatutPlan) ? "resoumettre" : "soumettre"} avant le {r.echeance.toLocaleDateString("fr-FR")}
                         </span>
                       );
                     })()}

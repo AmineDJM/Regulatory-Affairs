@@ -3,7 +3,7 @@ import { lienCouvre, type LienCouverture } from "@/lib/annuaires/services";
 import { clausePanelDuKam, type SessionUser } from "@/lib/rbac";
 import {
   avancementTournee, echeanceDeSoumission, etatVisite, fenetreDeVue, fenetreRapport, periodeDe,
-  retardDeSoumission,
+  retardDeSoumission, retraitInterditApresRevision,
   type AvancementTournee, type EtatVisite, type RetardDeSoumission, type StatutPlan, type VueTournee,
 } from "@/lib/sfe/tournee";
 import { lireReglageTournee } from "@/lib/sfe/tournee-reglage";
@@ -53,6 +53,8 @@ export interface LigneEmploiDuTemps {
   heuresRestantes: number;
   /** Un rapport VOCAL est rattaché. */
   vocal: boolean;
+  /** Pourquoi elle n'a pas eu lieu, quand elle est dite reportée ou annulée (§118.193). */
+  motifNonTenue: string | null;
 }
 
 export interface ProduitDeLaGamme {
@@ -113,7 +115,7 @@ export async function loadEmploiDuTemps(
       orderBy: [{ date: "asc" }],
       select: {
         id: true, date: true, status: true, origin: true, objective: true, report: true, doctorId: true,
-        tourPlanId: true, followUpActions: true,
+        tourPlanId: true, followUpActions: true, notHeldReason: true,
         doctor: { select: { name: true, institution: true, wilaya: true, specialty: true } },
         productLinks: { select: { productId: true, product: { select: { canonicalName: true } } } },
         messageLinks: { select: { messageId: true, message: { select: { title: true } } } },
@@ -176,6 +178,7 @@ export async function loadEmploiDuTemps(
       remises: remises.get(v.id) ?? RIEN,
       heuresRestantes: f.heuresRestantes,
       vocal: v.fieldReports.length > 0,
+      motifNonTenue: v.notHeldReason,
     };
   });
 
@@ -230,6 +233,17 @@ export interface PlanTourneeVue {
   paires: string[];
   /** Les visites du plan DÉJÀ rapportées : elles ne se déplanifient pas. */
   pairesAcquises: string[];
+  /**
+   * Les visites PASSÉES d'un plan déjà validé, non rapportées (§118.193) : une révision rouvre l'avenir du plan,
+   * pas son passé — elles restent au plan (`retraitInterditApresRevision`, la même règle que l'action).
+   */
+  pairesPassees: string[];
+  /** Parmi les acquises, celles DITES non tenues (reportées, annulées) : l'écran ne les dit pas « rapportées ». */
+  pairesNonTenues: string[];
+  /** La révision en cours d'un plan validé — son motif, qui l'a demandée, quand. */
+  revisionNote: string | null;
+  revisionPar: string | null;
+  revisionLe: Date | null;
   avancement: AvancementTournee;
 }
 
@@ -295,6 +309,7 @@ export async function loadPlanTournee(planId: string, maintenant: Date = new Dat
       id: true, repId: true, periodStart: true, periodEnd: true, granularity: true, status: true,
       submissionDueAt: true, submittedAt: true, rejectionComment: true, resubmitDueAt: true,
       reviewerId: true, escalatedToId: true,
+      revisionNote: true, revisionRequestedAt: true, revisionRequestedById: true, revisionCount: true,
       rep: { select: { name: true } },
       reviewer: { select: { name: true } },
       escalatedTo: { select: { name: true } },
@@ -303,6 +318,12 @@ export async function loadPlanTournee(planId: string, maintenant: Date = new Dat
   });
   if (!p) return null;
   const acquises = p.visits.filter((v) => v.status !== "PLANNED");
+  const passees = p.visits.filter((v) => retraitInterditApresRevision(v, p.revisionCount > 0, maintenant));
+  // `revisionRequestedById` est un identifiant sans relation (la convention des marques de renvoi, §118.192) :
+  // le nom se lit à part, et seulement quand une révision est en cours.
+  const revisionPar = p.revisionRequestedById
+    ? (await prisma.user.findUnique({ where: { id: p.revisionRequestedById }, select: { name: true } }))?.name ?? null
+    : null;
   return {
     id: p.id, repId: p.repId, repName: p.rep.name,
     periodStart: p.periodStart, periodEnd: p.periodEnd,
@@ -318,6 +339,11 @@ export async function loadPlanTournee(planId: string, maintenant: Date = new Dat
     }),
     paires: p.visits.filter((v) => v.doctorId).map((v) => clePaire(v.date, v.doctorId!)),
     pairesAcquises: acquises.filter((v) => v.doctorId).map((v) => clePaire(v.date, v.doctorId!)),
+    pairesPassees: passees.filter((v) => v.doctorId).map((v) => clePaire(v.date, v.doctorId!)),
+    pairesNonTenues: acquises.filter((v) => v.doctorId && (v.status === "CANCELLED" || v.status === "POSTPONED")).map((v) => clePaire(v.date, v.doctorId!)),
+    revisionNote: p.revisionNote,
+    revisionPar,
+    revisionLe: p.revisionRequestedAt,
     avancement: avancementTournee(p.visits.map((v) => ({
       etat: etatVisite({ statut: v.status, date: v.date, rapportFait: Boolean(v.report), maintenant }),
       imprevue: v.tourPlanId === null,
