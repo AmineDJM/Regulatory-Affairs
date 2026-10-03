@@ -104,7 +104,10 @@ const DECIDED_STATUS: Record<AdProKind, readonly string[]> = {
  */
 export function isAdProDecided(kind: AdProKind, status: string, circuitState?: string | null): boolean {
   if (kind === "PROMO_MATERIAL" && circuitState) {
-    return etatAdProDuDossier({ status, circuitState, circuitVersion: null }) !== "AWAITING";
+    // Un dossier RENVOYÉ pour correction n'est pas tranché : il est chez son demandeur, qui doit
+    // justement pouvoir le corriger (§118.190). La marque ne change rien à cette question — on la
+    // tait, et seules les issues réelles (refusé, validé jusqu'au bout, terminé) ferment la porte.
+    return etatAdProDuDossier({ status, circuitState, circuitVersion: null, returnedAt: null }) !== "AWAITING";
   }
   return DECIDED_STATUS[kind].includes(status);
 }

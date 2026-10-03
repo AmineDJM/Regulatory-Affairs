@@ -732,13 +732,23 @@ suite("Matériel promotionnel — circuit 2 de bout en bout", () => {
     expect(await prisma.comment.count({ where: { entityType: "PROMO_MATERIAL", entityId: kamPmId, body: { contains: "12 DZD" } } })).toBe(1);
   });
 
-  it("REFUSER : motif obligatoire, et le refus arrête le circuit", async () => {
+  it("REFUSER : le demandeur n'arrête pas son propre dossier par un refus (il l'annule) ; la Direction Marketing refuse, motif obligatoire, et le refus arrête le circuit", async () => {
     ACTOR = await actorFor(u.asst);
     const ligne = await prisma.promoQuoteLine.findFirstOrThrow({ where: { quote: { promoMaterialId: kamPmId } }, include: { quote: true } });
     const fix = form({ promoMaterialId: kamPmId, quoteId: ligne.quoteId, supplierId: fourA, ligneReference: ["Carnet A5"], ligneQuantite: ["500"], lignePrix: ["12"], ligneAction: ["IMPRESSION"] });
     expect((await enregistrerDevisPromo(fix)).ok).toBe(true);
     expect((await terminerRetranscriptionPromo(form({ promoMaterialId: kamPmId }))).ok).toBe(true);
     ACTOR = await actorFor(u.kam);
+    // §118.190 : à son propre choix des lignes, « refuser » tuait la demande au lieu de redemander des
+    // devis — le refus le DIT, sans même demander de motif (l'état d'abord, §118.18).
+    const propre = await refusePromoStep(form({ id: kamPmId, reason: "Budget réaffecté" }));
+    expect(propre.ok ? "" : propre.error).toMatch(/C'est votre propre demande .*Redemander des devis/);
+    expect((await etatDe(kamPmId)).circuitState).toBe("REVIEW_REQUESTER");
+    const retenue = await prisma.promoQuoteLine.findFirstOrThrow({ where: { quote: { promoMaterialId: kamPmId } }, select: { id: true } });
+    const choix = await choisirLignesPromo(form({ promoMaterialId: kamPmId, lineIds: [retenue.id], valider: "1" }));
+    expect(choix.ok, choix.ok ? "" : choix.error).toBe(true);
+    expect((await etatDe(kamPmId)).circuitState).toBe("REVIEW_MANAGER");
+    ACTOR = await actorFor(u.dir);
     expect((await refusePromoStep(form({ id: kamPmId }))).ok).toBe(false);
     const r = await refusePromoStep(form({ id: kamPmId, reason: "Budget réaffecté" }));
     expect(r.ok, r.ok ? "" : r.error).toBe(true);

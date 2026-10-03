@@ -27,12 +27,16 @@
 
 import { PROMO_MATERIAL_STATUS, type BadgeTone } from "@/lib/labels";
 import { libelleEtape, PROMO_STEPS, type PromoState } from "@/lib/promo-material/circuit";
-import { adProState, type AdProState } from "@/lib/ad-pro/unified";
+import { adProState, AD_PRO_STATE, type AdProState } from "@/lib/ad-pro/unified";
+import { attendSaCorrection } from "@/lib/promo-material/renvoi";
 
 export interface DossierPromoStatut {
   status: string;
   circuitState: string | null;
   circuitVersion: number | null;
+  /** La marque du renvoi pour correction (§118.190) — OBLIGATOIRE : un lecteur qui l'oublierait
+   *  montrerait « Validation de la demande » sur un dossier que personne n'a à valider. */
+  returnedAt: Date | string | null;
 }
 
 export interface StatutPromo {
@@ -59,6 +63,9 @@ export function statutDuDossier(pm: DossierPromoStatut): StatutPromo {
     const annule = PROMO_MATERIAL_STATUS.CANCELLED as { label: string; tone: BadgeTone } | undefined;
     return { libelle: annule?.label ?? "Annulé", ton: annule?.tone ?? "neutral" };
   }
+  // CHEZ SON DEMANDEUR, POUR CORRECTION (audit 360°, R05) : ni « en validation » — personne ne
+  // valide —, ni refusé. Le même libellé et le même ton que la liste unifiée Ad & Pro (§118.5).
+  if (attendSaCorrection(pm)) return { libelle: AD_PRO_STATE.RETURNED.label, ton: AD_PRO_STATE.RETURNED.tone };
   const etat = etatDuCircuit(pm);
   if (etat) {
     const libelle = libelleEtape(etat, pm.circuitVersion === 2 ? 2 : 1);
@@ -75,6 +82,7 @@ export function statutDuDossier(pm: DossierPromoStatut): StatutPromo {
  * (toutes ses validations obtenues : « validée »), sinon en attente d'une décision.
  */
 export function etatAdProDuDossier(pm: DossierPromoStatut): AdProState {
+  if (pm.status !== "CANCELLED" && attendSaCorrection(pm)) return "RETURNED";
   const etat = etatDuCircuit(pm);
   if (!etat) return adProState(pm.status);
   if (etat === "REFUSED") return "REFUSED";

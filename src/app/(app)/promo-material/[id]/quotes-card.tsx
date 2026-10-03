@@ -2,9 +2,10 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { AlertCircle, CheckCircle2, FileText, Loader2, Pencil, Plus, Send, Trash2, Undo2 } from "lucide-react";
+import { AlertCircle, CheckCircle2, FileText, Loader2, Pencil, Plus, RotateCcw, Send, Trash2, Undo2 } from "lucide-react";
 import {
   enregistrerDevisPromo, supprimerDevisPromo, terminerRetranscriptionPromo, choisirLignesPromo, demanderCorrectionDevisPromo,
+  redemanderDevisPromo,
 } from "@/lib/actions/promo-devis-actions";
 import { totauxDeLaSelection, totauxDuDevis, totalLigneHT, ecartDeRetranscription, formatDzd, type DevisLu } from "@/lib/promo-material/devis";
 import { ACTIONS, ACTION_LABEL, type PromoAction } from "@/lib/promo-material/actions-fournisseur";
@@ -197,6 +198,8 @@ export function PromoQuotesCard({ id, quotes, articles, canTranscribe, canSelect
   const [edition, setEdition] = React.useState<string | "nouveau" | null>(null);
   const [choisies, setChoisies] = React.useState<Set<string>>(() => new Set(quotes.flatMap((q) => q.lines.filter((l) => l.selected).map((l) => l.id))));
   const [correction, setCorrection] = React.useState(false);
+  const [redemande, setRedemande] = React.useState(false);
+  const [cherche, setCherche] = React.useState("");
 
   // Le montant RETENU, calculé à mesure — avec la sélection de l'écran, pas celle de la base.
   const affiches: DevisLu[] = quotes.map((q) => ({ ...q, lines: q.lines.map((l) => ({ ...l, selected: canSelect ? choisies.has(l.id) : l.selected })) }));
@@ -379,14 +382,25 @@ export function PromoQuotesCard({ id, quotes, articles, canTranscribe, canSelect
           <p className="text-xs text-muted-foreground">
             Votre choix part ensuite à la Direction Marketing{auDg ? ", puis au Directeur Général (au-dessus du seuil)" : ""}. Les bons de commande seront générés d&apos;après ces lignes, un par fournisseur.
           </p>
-          {!correction ? (
+          {!correction && !redemande ? (
             <div className="flex flex-wrap gap-2">
               <Button size="sm" variant="success" onClick={() => envoyerChoix(true)} disabled={saving || selection.lignes === 0}>
                 {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />} Valider ma sélection
               </Button>
               <Button size="sm" variant="outline" onClick={() => envoyerChoix(false)} disabled={saving}>Enregistrer sans valider</Button>
               <Button size="sm" variant="ghost" onClick={() => setCorrection(true)} disabled={saving}><Undo2 className="h-4 w-4" /> Demander une correction</Button>
+              <Button size="sm" variant="ghost" onClick={() => setRedemande(true)} disabled={saving}><RotateCcw className="h-4 w-4" /> Redemander des devis</Button>
             </div>
+          ) : redemande ? (
+            <form action={(f: FormData) => { f.set("promoMaterialId", id); run(() => redemanderDevisPromo(f), () => { setRedemande(false); setCherche(""); }); }} className="space-y-2">
+              <Label htmlFor="promo-redemande">Ce que vous cherchez</Label>
+              <Textarea id="promo-redemande" name="note" value={cherche} onChange={(e) => setCherche(e.target.value)} className="min-h-[50px]" placeholder="Ex. d'autres imprimeurs, 2 000 exemplaires au lieu de 5 000, livraison avant le 15." />
+              <p className="text-xs text-muted-foreground">Une nouvelle demande part à l&apos;assistante ; les devis déjà reçus restent, pour comparer.</p>
+              <div className="flex gap-2">
+                <Button type="submit" size="sm" disabled={saving || !cherche.trim()}>Envoyer la demande</Button>
+                <Button type="button" size="sm" variant="ghost" onClick={() => setRedemande(false)} disabled={saving}>Annuler</Button>
+              </div>
+            </form>
           ) : (
             <form action={(f: FormData) => { f.set("promoMaterialId", id); run(() => demanderCorrectionDevisPromo(f), () => setCorrection(false)); }} className="space-y-2">
               <Label htmlFor="promo-correction">Ce qui est à corriger dans la retranscription</Label>

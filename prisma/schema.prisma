@@ -6538,6 +6538,16 @@ model PromoMaterial {
   /// Les chantiers parallèles déjà clos (`PURCHASE_ORDER`, `PAYMENT`, `AD_VISA`), séparés par des
   /// virgules. Le dossier n'est terminé que lorsque les trois y figurent.
   tracksDone   String?
+  /// LE RENVOI POUR CORRECTION (audit 360°, lot C4b, R05) — la troisième issue, entre valider et
+  /// refuser. À la validation de la demande, le dossier RESTE à son étape et cette marque dit que la
+  /// balle est chez le demandeur ; renvoyé depuis une validation du choix, il repart au choix des
+  /// lignes et la marque y porte le motif jusqu'à ce que le demandeur revalide. Voir
+  /// `src/lib/promo-material/renvoi.ts`.
+  returnedAt   DateTime?
+  returnedById String?
+  returnNote   String?
+  /// L'étape qui a renvoyé (`REVIEW_REQUEST`, `REVIEW_MANAGER`, `REVIEW_DG`…) — l'écran le dit.
+  returnedFrom String?
 
   /// LA VERSION DU CIRCUIT (§118.152). 1 = le circuit court d'origine — les dossiers déjà en vol
   /// gardent la chaîne qui leur avait été PROMISE (§118.142) ; 2 = la demande validée, les devis
@@ -7136,6 +7146,11 @@ model PromoStockComptage {
   annuleLe     DateTime?
   annuleParId  String?
   annuleMotif  String?
+  /// LA DERNIÈRE CORRECTION D'UNE SAISIE (audit 360°, R19) : qui, quand, pourquoi. Les écarts
+  /// corrigés vivent au registre (mouvements portant ce comptage) ; ceci les dit à l'écran.
+  corrigeLe    DateTime?
+  corrigeParId String?
+  corrigeMotif String?
   createdAt    DateTime                      @default(now())
   updatedAt    DateTime                      @updatedAt
   lignes       PromoStockComptageLigne[]

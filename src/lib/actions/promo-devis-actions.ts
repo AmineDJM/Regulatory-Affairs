@@ -17,6 +17,8 @@ import { manquesDeRetranscription, totauxDeLaSelection, formatDzd } from "@/lib/
 import { demandeLesDevis, retranscritLesDevis, choisitLesLignes } from "@/lib/promo-material/circuit";
 import { devisDuDossier, devisLu } from "@/lib/queries/promo-circuit";
 import { validatePromoStep } from "@/lib/actions/promo-circuit-actions";
+import { ecrireAuFil } from "@/lib/ad-pro/fil";
+import { rouvrirDemandeAuSecretariat } from "@/lib/promo-material/demande-secretariat";
 import { ACTION_LABEL, estAction, type PromoAction } from "@/lib/promo-material/actions-fournisseur";
 
 /**
@@ -86,30 +88,15 @@ async function prochaineReferenceDemande(): Promise<string> {
   return buildRef("DEM", year, rows.map((r) => r.reference));
 }
 
-// ───────────────────────── 1. Le demandeur demande les devis ─────────────────────────
-
 /**
- * DEMANDER LES DEVIS AU SECRÉTARIAT — une demande administrative, liée au dossier.
- *
- * Le LIEN CANONIQUE (`linkedEntityType` / `linkedEntityId`) est posé : c'est lui que l'écran du
- * secrétariat lit pour savoir que la dépense vient d'Ad & Pro et ne doit pas être imputée une
- * seconde fois à un département (§118.146). L'assistante nommée est prévenue ; à défaut, toutes
- * les assistantes de direction — personne ne doit apprendre qu'on attendait d'elle un devis.
- *
- * La transition est CONDITIONNELLE (`updateMany` sur l'état lu) : deux clics simultanés ne font
- * pas deux demandes au secrétariat.
+ * OUVRIR UNE DEMANDE DE DEVIS AU SECRÉTARIAT — la première (`demanderDevisPromo`) ou une nouvelle
+ * (`redemanderDevisPromo`, audit 360°, R06). Une seule rédaction de la demande : deux copies finiraient
+ * par dire à l'assistante deux choses différentes du même dossier (§118.5). Rien ne bascule ici : la
+ * bascule est conditionnelle, chez l'appelant, APRÈS la création (§118.107).
  */
-export async function demanderDevisPromo(formData: FormData): Promise<ActionResult> {
-  const user = await requireUser();
-  const pm = await chargerDossier(fdStr(formData, "promoMaterialId"));
-  if (!pm) return { ok: false, error: "Dossier introuvable." };
-  const v = refusVersion(pm);
-  if (v) return { ok: false, error: v };
-  if (!pilote(user, pm)) return { ok: false, error: "Seul le demandeur (ou la Direction) demande les devis de ce dossier." };
-  if (pm.circuitState === "REVIEW_REQUEST") return { ok: false, error: "La demande n'est pas encore validée : les devis se demandent une fois la demande acceptée." };
-  if (pm.circuitState !== "QUOTE_TO_REQUEST") return { ok: false, error: "Les devis de ce dossier sont déjà demandés." };
-  const note = fdStr(formData, "note");
-
+async function ouvrirDemandeDeDevis(
+  user: SessionUser, pm: Dossier, note: string | null, relance: boolean,
+): Promise<{ ok: true; demande: { id: string; reference: string } } | { ok: false; error: string }> {
   // LES ARTICLES D'ABORD (§118.165) : « pour que l'assistante sache clairement quels devis
   // chercher ». Une demande de devis sans article ferait chercher l'assistante dans un brief en
   // prose — exactement ce que la liste piochée dans le catalogue remplace. Le refus nomme le geste,
@@ -156,9 +143,10 @@ export async function demanderDevisPromo(formData: FormData): Promise<ActionResu
     data: {
       reference: await prochaineReferenceDemande(),
       type: "QUOTE",
-      title: `Devis — matériel promotionnel ${pm.reference} : ${pm.title}`,
+      title: `${relance ? "Nouveaux devis" : "Devis"} — matériel promotionnel ${pm.reference} : ${pm.title}`,
       description: [
         note,
+        relance ? "NOUVELLE DEMANDE de devis : les devis déjà retranscrits restent sur la fiche du dossier — cherchez ce qui est demandé ci-dessus, puis retranscrivez les nouveaux." : null,
         `Articles à faire chiffrer :\n${listeArticles}`,
         `Dossier ${pm.reference}. Recevez les devis des agences, puis retranscrivez-les ligne à ligne sur la fiche du dossier (référence, unité, quantité, prix unitaire, action, article demandé), avec le scan de chaque devis.`,
         pm.description ? `Brief : ${pm.description}` : null,
@@ -173,6 +161,36 @@ export async function demanderDevisPromo(formData: FormData): Promise<ActionResu
     },
     select: { id: true, reference: true },
   }));
+  return { ok: true, demande };
+}
+
+// ───────────────────────── 1. Le demandeur demande les devis ─────────────────────────
+
+/**
+ * DEMANDER LES DEVIS AU SECRÉTARIAT — une demande administrative, liée au dossier.
+ *
+ * Le LIEN CANONIQUE (`linkedEntityType` / `linkedEntityId`) est posé : c'est lui que l'écran du
+ * secrétariat lit pour savoir que la dépense vient d'Ad & Pro et ne doit pas être imputée une
+ * seconde fois à un département (§118.146). L'assistante nommée est prévenue ; à défaut, toutes
+ * les assistantes de direction — personne ne doit apprendre qu'on attendait d'elle un devis.
+ *
+ * La transition est CONDITIONNELLE (`updateMany` sur l'état lu) : deux clics simultanés ne font
+ * pas deux demandes au secrétariat.
+ */
+export async function demanderDevisPromo(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  const pm = await chargerDossier(fdStr(formData, "promoMaterialId"));
+  if (!pm) return { ok: false, error: "Dossier introuvable." };
+  const v = refusVersion(pm);
+  if (v) return { ok: false, error: v };
+  if (!pilote(user, pm)) return { ok: false, error: "Seul le demandeur (ou la Direction) demande les devis de ce dossier." };
+  if (pm.circuitState === "REVIEW_REQUEST") return { ok: false, error: "La demande n'est pas encore validée : les devis se demandent une fois la demande acceptée." };
+  if (pm.circuitState !== "QUOTE_TO_REQUEST") return { ok: false, error: "Les devis de ce dossier sont déjà demandés." };
+  const note = fdStr(formData, "note");
+
+  const ouverte = await ouvrirDemandeDeDevis(user, pm, note, false);
+  if (!ouverte.ok) return { ok: false, error: ouverte.error };
+  const demande = ouverte.demande;
   const bascule = await prisma.promoMaterial.updateMany({
     where: { id: pm.id, circuitState: "QUOTE_TO_REQUEST" },
     data: { circuitState: "QUOTE_REQUESTED", quotesRequestedAt: new Date(), quotesRequestedById: user.id, adminRequestId: demande.id, updatedById: user.id },
@@ -421,6 +439,47 @@ export async function choisirLignesPromo(formData: FormData): Promise<ActionResu
 }
 
 /**
+ * REDEMANDER DES DEVIS (audit 360°, R06) — au choix des lignes, quand aucun devis ne convient.
+ *
+ * « Une seule demande de devis » laissait le demandeur entre retenir une ligne qui ne lui va pas et
+ * tuer son propre dossier. Une NOUVELLE demande part au secrétariat (les devis déjà retranscrits
+ * restent : on compare au lieu de recommencer), le dossier repart à la retranscription, et la
+ * sélection est gardée — les lignes existantes ne changent pas. Ce qu'on cherche est exigé : sans
+ * cela, l'assistante rapporterait les mêmes devis. Bascule conditionnelle APRÈS la création ; un
+ * double clic perd la course, et sa demande en trop est retirée — personne ne l'a vue.
+ */
+export async function redemanderDevisPromo(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  const pm = await chargerDossier(fdStr(formData, "promoMaterialId"));
+  if (!pm) return { ok: false, error: "Dossier introuvable." };
+  const v = refusVersion(pm);
+  if (v) return { ok: false, error: v };
+  if (!choisitLesLignes(acteur(user), pm)) return { ok: false, error: "Redemander des devis revient au demandeur." };
+  if (pm.circuitState !== "REVIEW_REQUESTER") return { ok: false, error: "Les devis se redemandent au moment de choisir les lignes : ce dossier n'en est pas là." };
+  const note = fdStr(formData, "note");
+  if (note === null) return { ok: false, error: "Dites ce que vous cherchez — d'autres agences, d'autres quantités, un délai : l'assistante rapporterait sinon les mêmes devis." };
+
+  const ouverte = await ouvrirDemandeDeDevis(user, pm, note, true);
+  if (!ouverte.ok) return { ok: false, error: ouverte.error };
+  const bascule = await prisma.promoMaterial.updateMany({
+    where: { id: pm.id, circuitState: "REVIEW_REQUESTER" },
+    data: { circuitState: "QUOTE_REQUESTED", adminRequestId: ouverte.demande.id, updatedById: user.id },
+  });
+  if (bascule.count === 0) {
+    await prisma.administrativeRequest.delete({ where: { id: ouverte.demande.id } }).catch(() => {});
+    return { ok: false, error: "Ce dossier vient de changer d'étape — rechargez la fiche." };
+  }
+  await ecrireAuFil({ entityType: "PROMO_MATERIAL", entityId: pm.id, authorId: user.id, body: `Nouveaux devis demandés (${ouverte.demande.reference}) : ${note}` });
+  const avis = { type: "ASSIGNMENT" as const, title: "Matériel promotionnel — nouveaux devis à demander et à retranscrire", body: `${pm.reference} — ${note.slice(0, 200)}`, link: chemin(pm.id) };
+  if (pm.assistantId) await notifyUser({ userId: pm.assistantId, ...avis });
+  else await notifyRoles(["DIRECTION_ASSISTANT"], avis);
+  await audit(user, pm.id, `Nouveaux devis demandés au secrétariat (${ouverte.demande.reference}) — ${note.slice(0, 200)}`);
+  revalidatePath(chemin(pm.id));
+  revalidatePath("/demandes");
+  return { ok: true, id: ouverte.demande.id, message: `Nouveaux devis demandés au secrétariat (${ouverte.demande.reference}) — les devis déjà reçus restent sur la fiche.` };
+}
+
+/**
  * DEMANDER UNE CORRECTION DE LA RETRANSCRIPTION — le dossier revient à l'assistante, avec le motif.
  *
  * Un prix mal recopié se voit au moment du choix : le demandeur le signale au lieu de retenir
@@ -445,6 +504,9 @@ export async function demanderCorrectionDevisPromo(formData: FormData): Promise<
   if (bascule.count === 0) return { ok: false, error: "Ce dossier vient de changer d'étape." };
   await prisma.promoQuoteLine.updateMany({ where: { quote: { promoMaterialId: pm.id } }, data: { selected: false } });
   await prisma.comment.create({ data: { entityType: "PROMO_MATERIAL", entityId: pm.id, body: `Correction de la retranscription demandée : ${motif}`, authorId: user.id } });
+  // LA DEMANDE AU SECRÉTARIAT SE ROUVRE (audit 360°, R07) : la retranscription l'avait close, et une
+  // demande close ne figure plus dans « à traiter » — l'assistante, prévenue, ne voyait rien à faire.
+  await rouvrirDemandeAuSecretariat(user.id, pm.id, `Correction de la retranscription demandée par le demandeur : ${motif}`);
   const avis = { type: "ASSIGNMENT" as const, title: "Matériel promotionnel — retranscription à corriger", body: `${pm.reference} — ${motif.slice(0, 200)}`, link: chemin(pm.id) };
   if (pm.assistantId) await notifyUser({ userId: pm.assistantId, ...avis });
   else await notifyRoles(["DIRECTION_ASSISTANT"], avis);

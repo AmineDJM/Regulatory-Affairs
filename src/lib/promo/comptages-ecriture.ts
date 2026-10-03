@@ -107,3 +107,93 @@ export async function enregistrerSaisieComptage(c: {
     throw e;
   }
 }
+
+export interface LigneCorrigee {
+  itemId: string;
+  libelle: string;
+  avant: number;
+  apres: number;
+}
+
+/**
+ * CORRIGER UN COMPTAGE SAISI (audit 360°, lot C4b, R19) — par contre-correction, jamais en réécrivant
+ * l'histoire.
+ *
+ * « 40 » tapé pour « 14 » : la seule issue était d'annuler le comptage puis d'en redemander un, et
+ * l'écart faux restait au registre entre les deux. La correction porte sur ce qui a été COMPTÉ, pas
+ * sur le solde : l'écart entre le nouveau compte et l'ancien s'applique au solde ACTUEL — des sorties
+ * ont pu avoir lieu depuis la saisie, et elles restent vraies. Chaque mouvement porte le comptage et
+ * le motif ; la ligne du comptage dit le nouveau compte et son écart.
+ *
+ * Un comptage PLUS RÉCENT du même détenteur qui a recompté l'article fait foi : corriger l'ancien
+ * effacerait une vérité constatée après lui. Refusé, en le nommant — et lu SOUS le verrou des
+ * articles, que la saisie d'un comptage prend aussi : une saisie qui passerait entre la question et
+ * la correction serait sinon effacée par elle.
+ *
+ * Tout ou rien, sous le verrou de chaque article. La ligne est relue sous ce verrou, donc deux
+ * corrections croisées s'appliquent l'une APRÈS l'autre, la seconde à partir de ce que la première a
+ * écrit — jamais deux fois le même écart.
+ */
+export async function corrigerSaisieComptage(c: {
+  comptageId: string;
+  holderId: string | null;
+  saisiLe: Date;
+  corrections: readonly { itemId: string; compte: number }[];
+  libelles: ReadonlyMap<string, string>;
+  auteurId: string;
+  /** La raison telle que la personne l'a écrite : la fiche la montre, le registre la préfixe. */
+  motif: string;
+  maintenant: Date;
+}): Promise<{ ok: true; lignes: LigneCorrigee[] } | { ok: false; refus: string }> {
+  const ids = c.corrections.map((l) => l.itemId);
+  try {
+    const lignes = await sousVerrous(ids, async (tx, verrouilles) => {
+      const plusRecent = await tx.promoStockComptageLigne.findFirst({
+        where: { itemId: { in: ids }, comptageId: { not: c.comptageId }, comptage: { holderId: c.holderId, statut: "SAISI", saisiLe: { gt: c.saisiLe } } },
+        select: { itemId: true, comptage: { select: { saisiLe: true } } },
+        orderBy: { comptage: { saisiLe: "desc" } },
+      });
+      if (plusRecent) {
+        const jour = plusRecent.comptage.saisiLe ? plusRecent.comptage.saisiLe.toLocaleDateString("fr-FR") : "depuis";
+        throw new RefusComptage(`« ${c.libelles.get(plusRecent.itemId) ?? "Article"} » a été recompté le ${jour} : c'est ce comptage plus récent qui fait foi — corrigez-le plutôt que celui-ci.`);
+      }
+      const resultat: LigneCorrigee[] = [];
+      for (const l of c.corrections) {
+        const libelle = c.libelles.get(l.itemId) ?? "Article";
+        if (!verrouilles.has(l.itemId)) throw new RefusComptage(`« ${libelle} » vient d'être supprimé : rechargez la page.`);
+        const ligne = await tx.promoStockComptageLigne.findUnique({
+          where: { comptageId_itemId: { comptageId: c.comptageId, itemId: l.itemId } },
+          select: { id: true, compte: true, ecart: true },
+        });
+        if (!ligne) throw new RefusComptage(`« ${libelle} » ne faisait pas partie de ce comptage.`);
+        const avant = r3(Number(ligne.compte));
+        const delta = r3(l.compte - avant);
+        if (delta === 0) continue;
+        const solde = await soldeDe(tx, l.itemId, c.holderId);
+        const cible = r3(solde + delta);
+        if (cible < 0) {
+          throw new RefusComptage(`« ${libelle} » : la correction ferait passer le solde sous zéro (${solde} en main aujourd'hui, ${-delta} à retirer) — des sorties ont eu lieu depuis le comptage.`);
+        }
+        const r = await corrigerAuCompte(tx, l.itemId, {
+          holderId: c.holderId, compte: cible, motif: `Correction du comptage — ${c.motif}`, auteurId: c.auteurId, maintenant: c.maintenant, comptageId: c.comptageId,
+        });
+        if (!r.ok) throw new RefusComptage(`« ${libelle} » : ${r.refus}`);
+        await tx.promoStockComptageLigne.update({
+          where: { id: ligne.id },
+          data: { compte: l.compte, ecart: r3(Number(ligne.ecart) + delta) },
+        });
+        resultat.push({ itemId: l.itemId, libelle, avant, apres: l.compte });
+      }
+      if (resultat.length === 0) throw new RefusComptage("Rien à corriger : les nombres saisis sont ceux du comptage.");
+      await tx.promoStockComptage.update({
+        where: { id: c.comptageId },
+        data: { corrigeLe: c.maintenant, corrigeParId: c.auteurId, corrigeMotif: c.motif },
+      });
+      return resultat;
+    });
+    return { ok: true, lignes };
+  } catch (e) {
+    if (e instanceof RefusComptage) return { ok: false, refus: e.message };
+    throw e;
+  }
+}

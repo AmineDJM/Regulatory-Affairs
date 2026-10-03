@@ -113,10 +113,10 @@ suite("Matériel promotionnel — annuler avec un motif, « Annulé » et non «
     const d = await lire(id);
     expect(d).toMatchObject({ status: "CANCELLED", circuitState: "REFUSED" });
     expect((await fil(id)).map((l) => l.body)).toContain("Dossier annulé — Le congrès est reporté à 2027.");
-    const affiche = statutDuDossier({ status: d.status, circuitState: d.circuitState, circuitVersion: d.circuitVersion });
+    const affiche = statutDuDossier({ status: d.status, circuitState: d.circuitState, circuitVersion: d.circuitVersion, returnedAt: null });
     expect(affiche.libelle, "un dossier annulé par son demandeur n'a pas été refusé par la Direction").toBe("Annulé");
     // Le TÉMOIN : un dossier que le circuit a réellement refusé se lit toujours « Refusé ».
-    const refuse = statutDuDossier({ status: "PROSPECTION_REQUESTED", circuitState: "REFUSED", circuitVersion: 2 });
+    const refuse = statutDuDossier({ status: "PROSPECTION_REQUESTED", circuitState: "REFUSED", circuitVersion: 2, returnedAt: null });
     expect(refuse.libelle).not.toBe("Annulé");
     expect(refuse.ton).toBe("danger");
   });

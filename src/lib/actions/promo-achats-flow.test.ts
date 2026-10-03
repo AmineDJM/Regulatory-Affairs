@@ -325,7 +325,7 @@ suite("Matériel promotionnel — achats piochés dans le catalogue, facture lig
     ]);
   }, 60_000);
 
-  it("UNE FOIS LES DEVIS DEMANDÉS, la liste ne bouge plus — l'assistante fait chiffrer ce qui a été demandé", async () => {
+  it("UNE FOIS LES DEVIS DEMANDÉS, la liste bouge encore — et l'assistante est prévenue de chaque changement (§118.190)", async () => {
     await comme("dir");
     const v = await validatePromoStep(form({ id: pmId }));
     expect(v.ok, v.ok ? "" : v.error).toBe(true);
@@ -352,10 +352,16 @@ suite("Matériel promotionnel — achats piochés dans le catalogue, facture lig
     await comme("cp");
     const r = await demanderDevisPromo(form({ promoMaterialId: pmId }));
     expect(r.ok, r.ok ? "" : r.error).toBe(true);
+    // La règle d'avant figeait la liste dès les devis demandés : l'article oublié n'était jamais chiffré,
+    // ou l'était hors de la liste. Elle bouge maintenant tant que le choix n'est pas en validation, et
+    // l'assistante, qui cherche les devis, est prévenue de CHAQUE changement — ajouté puis retiré ici,
+    // la liste revient à ce qui a été demandé pour la suite du banc.
     const ajout = await enregistrerArticleDemandePromo(form({ promoMaterialId: pmId, catalogueId: catBloc, quantite: "20", actions: ["IMPRESSION"] }));
-    expect(ajout.ok ? "" : ajout.error).toMatch(/devis sont déjà demandés/);
-    const retrait = await retirerArticleDemandePromo(form({ promoMaterialId: pmId, requestItemId: art.stylo }));
-    expect(retrait.ok ? "" : retrait.error).toMatch(/devis sont déjà demandés/);
+    expect(ajout.ok, ajout.ok ? "" : ajout.error).toBe(true);
+    expect(ajout.message).toMatch(/L'assistante en est prévenue\.$/);
+    const retrait = await retirerArticleDemandePromo(form({ promoMaterialId: pmId, requestItemId: ajout.id! }));
+    expect(retrait.ok, retrait.ok ? "" : retrait.error).toBe(true);
+    expect(await prisma.notification.count({ where: { userId: u.asst!, link: `/promo-material/${pmId}`, title: { startsWith: "Matériel promotionnel — un article demandé" } } })).toBe(2);
     expect(await prisma.promoRequestItem.count({ where: { promoMaterialId: pmId } })).toBe(3);
   });
 

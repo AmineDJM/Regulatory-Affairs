@@ -17,7 +17,7 @@ import {
   peutGererRecurrence, peutProposerRefonte, peutSaisirComptage, prochaineEcheanceComptage, resumeEcarts,
   CIBLES_COMPTAGE, FREQUENCES_COMPTAGE, FREQUENCE_COMPTAGE_LABEL, type CibleComptage, type FrequenceComptage,
 } from "@/lib/promo/comptages";
-import { articlesDuComptage, enregistrerSaisieComptage } from "@/lib/promo/comptages-ecriture";
+import { articlesDuComptage, enregistrerSaisieComptage, corrigerSaisieComptage } from "@/lib/promo/comptages-ecriture";
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
@@ -246,6 +246,64 @@ export async function annulerComptage(formData: FormData): Promise<ActionResult>
   await prevenirDetenteur(c.holderId, "Comptage annulé", `Le comptage qui vous était demandé est annulé par ${await nomDe(user.id)} : « ${motif} ». Vous n'avez rien à saisir.`, user.id);
   await recordAudit({ actorId: user.id, action: "UPDATE", module: MODULE, entityId: comptageId, summary: `Comptage annulé — ${motif}` });
   return reussi(comptageId, "Comptage annulé ; la personne en est prévenue.");
+}
+
+// ─────────────────────────────── CORRIGER UN COMPTAGE SAISI ───────────────────────────────
+
+/**
+ * CORRIGER UN COMPTAGE SAISI (audit 360°, lot C4b, R19) — « 40 » tapé pour « 14 ».
+ *
+ * Seule voie jusqu'ici : annuler, puis redemander un comptage, l'écart faux restant au registre entre
+ * les deux. Celui qui a compté corrige ce qu'il a compté — c'est la même attestation que la saisie
+ * (`peutSaisirComptage`), jamais le Super Admin à sa place (§118.164b). Le motif est exigé, après les
+ * refus d'état (§118.18). L'écriture est la contre-correction de `corrigerSaisieComptage`.
+ */
+export async function corrigerComptage(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  const f = await faitsStock(user);
+  const comptageId = fdStr(formData, "comptageId");
+  if (!comptageId) return { ok: false, error: "Comptage non précisé." };
+  const c = await prisma.promoStockComptage.findUnique({
+    where: { id: comptageId },
+    select: { id: true, holderId: true, famille: true, demandeurId: true, statut: true, saisiLe: true },
+  });
+  if (!c) return { ok: false, error: "Comptage introuvable." };
+  if (!peutSaisirComptage(f, c.holderId)) return { ok: false, error: REFUS_COMPTAGE.saisir };
+  if (c.statut !== "SAISI" || !c.saisiLe) {
+    return { ok: false, error: c.statut === "DEMANDE" ? "Ce comptage n'est pas encore saisi : saisissez-le, il n'y a rien à corriger." : "Ce comptage a été annulé : il n'y a rien à corriger." };
+  }
+  const ids = formData.getAll("itemId").map(String);
+  const comptes = formData.getAll("compte").map(String);
+  if (ids.length === 0 || ids.length !== comptes.length) return { ok: false, error: "Correction incomplète : chaque article corrigé doit avoir sa quantité. Rechargez la page." };
+  const vus = new Set<string>();
+  const corrections: { itemId: string; compte: number }[] = [];
+  for (let i = 0; i < ids.length; i += 1) {
+    const brut = (comptes[i] ?? "").replace(/\s/g, "").replace(",", ".");
+    const n = brut === "" ? NaN : Number(brut);
+    if (!Number.isFinite(n) || n < 0) return { ok: false, error: `Ligne ${i + 1} : la quantité comptée doit être un nombre positif ou nul.` };
+    if (vus.has(ids[i])) return { ok: false, error: `Ligne ${i + 1} : cet article figure deux fois dans la correction.` };
+    vus.add(ids[i]);
+    corrections.push({ itemId: ids[i], compte: Math.round(n * 1000) / 1000 });
+  }
+  const motif = fdStr(formData, "motif");
+  if (motif === null) return { ok: false, error: "Dites pourquoi vous corrigez ce comptage : la personne qui l'a demandé en est prévenue, et l'écart corrigé porte ce motif au registre." };
+
+  const { libelles } = await articlesDuComptage(user.id, c.holderId, c.famille as PromoFamille | null);
+  const r = await corrigerSaisieComptage({
+    comptageId, holderId: c.holderId, saisiLe: c.saisiLe, corrections, libelles,
+    auteurId: user.id, motif, maintenant: new Date(),
+  });
+  if (!r.ok) return { ok: false, error: r.refus };
+  const resume = r.lignes.map((l) => `${l.libelle} : ${l.avant} → ${l.apres}`).join(" ; ");
+  if (c.demandeurId !== user.id) {
+    await notifyUser({
+      userId: c.demandeurId, type: "GENERIC", title: "Comptage corrigé",
+      body: `${await nomDe(user.id)} a corrigé ${c.holderId === null ? "le comptage du magasin central" : "son comptage"} : ${resume} — « ${motif} ».`,
+      link: LIEN,
+    });
+  }
+  await recordAudit({ actorId: user.id, action: "UPDATE", module: MODULE, entityId: comptageId, summary: `Comptage corrigé — ${resume} — ${motif}` });
+  return reussi(comptageId, `Comptage corrigé — ${resume}.`);
 }
 
 // ─────────────────────────────── LES RÉCURRENCES ───────────────────────────────

@@ -7,6 +7,8 @@ import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
 import { hasGlobalView, type SessionUser } from "@/lib/rbac";
 import { fdStr, type ActionResult } from "@/lib/actions/types";
+import { notifyUser, notifyRoles } from "@/lib/notify";
+import { rouvrirDemandeAuSecretariat } from "@/lib/promo-material/demande-secretariat";
 import { parseQuantity } from "@/lib/promo/stock";
 import { demandeLesDevis } from "@/lib/promo-material/circuit";
 import { libelleArticleDemande, validerArticleDemande, type FamillePromo } from "@/lib/promo-material/achats";
@@ -33,17 +35,33 @@ import { libelleArticleDemande, validerArticleDemande, type FamillePromo } from 
 const PATH = "/promo-material";
 const chemin = (id: string) => `${PATH}/${id}`;
 
-/** Les étapes où la liste des articles se compose encore. */
-const ETATS_COMPOSABLES = new Set(["REVIEW_REQUEST", "QUOTE_TO_REQUEST"]);
+/**
+ * Les étapes où la liste des articles se compose encore. Jusqu'à l'audit 360° (R06), la liste se
+ * figeait dès les devis demandés — « dites-le sur la discussion » : l'article oublié n'était jamais
+ * chiffré, ou l'était hors de la liste. Elle se modifie maintenant tant que le CHOIX n'est pas parti
+ * en validation, et l'assistante est prévenue de chaque changement qui la concerne (§118.190).
+ */
+const ETATS_COMPOSABLES = new Set(["REVIEW_REQUEST", "QUOTE_TO_REQUEST", "QUOTE_REQUESTED", "REVIEW_REQUESTER"]);
+/** Les étapes où l'assistante cherche ou a cherché les devis : un changement la concerne. */
+const ETATS_ASSISTANTE = new Set(["QUOTE_REQUESTED", "REVIEW_REQUESTER"]);
 
-type Dossier = { id: string; reference: string; title: string; circuitVersion: number; circuitState: string | null; requesterId: string | null };
+type Dossier = { id: string; reference: string; title: string; circuitVersion: number; circuitState: string | null; requesterId: string | null; assistantId: string | null };
 
 async function chargerDossier(id: string | null): Promise<Dossier | null> {
   if (!id) return null;
   return prisma.promoMaterial.findUnique({
     where: { id },
-    select: { id: true, reference: true, title: true, circuitVersion: true, circuitState: true, requesterId: true },
+    select: { id: true, reference: true, title: true, circuitVersion: true, circuitState: true, requesterId: true, assistantId: true },
   });
+}
+
+class RefusComposition extends Error {}
+
+/** Prévenir l'assistante d'un changement de la liste — la nommée, sinon le secrétariat. */
+async function prevenirAssistante(pm: Dossier, title: string, body: string): Promise<void> {
+  const avis = { type: "ASSIGNMENT" as const, title, body: `${pm.reference} — ${body.slice(0, 200)}`, link: chemin(pm.id) };
+  if (pm.assistantId) await notifyUser({ userId: pm.assistantId, ...avis });
+  else await notifyRoles(["DIRECTION_ASSISTANT"], avis);
 }
 
 const acteur = (user: SessionUser) => ({ id: user.id, role: user.role, secondaryRole: user.secondaryRole, vueGlobale: hasGlobalView(user.role) });
@@ -54,7 +72,9 @@ function refusComposition(user: SessionUser, pm: Dossier | null): string | null 
   if (pm.circuitVersion !== 2) return "Ce dossier suit l'ancien circuit : sa demande ne se compose pas depuis le catalogue.";
   if (!demandeLesDevis(acteur(user), pm)) return "Seul le demandeur (ou la Direction) compose la liste des articles de ce dossier.";
   if (!ETATS_COMPOSABLES.has(pm.circuitState ?? "")) {
-    return "Les devis sont déjà demandés : la liste des articles ne se modifie plus — l'assistante fait chiffrer ce qui a été demandé. Si un article change, dites-le sur la discussion du dossier.";
+    return pm.circuitState === "REVIEW_MANAGER" || pm.circuitState === "REVIEW_DG"
+      ? "Votre choix est en validation : la liste des articles se modifie si la validation vous le renvoie pour correction."
+      : "Les validations sont obtenues : la liste des articles ne se modifie plus — les bons de commande en découlent.";
   }
   return null;
 }
@@ -114,28 +134,49 @@ export async function enregistrerArticleDemandePromo(formData: FormData): Promis
     updatedById: user.id,
   };
   const produits = v.article.produitIds.map((productId) => ({ productId }));
-  const article = await prisma.$transaction(async (tx) => {
-    if (existant) {
-      await tx.promoRequestItemProduct.deleteMany({ where: { itemId: existant.id } });
-      return tx.promoRequestItem.update({ where: { id: existant.id }, data: { ...donnees, produits: { create: produits } }, select: { id: true } });
-    }
-    const rang = await tx.promoRequestItem.count({ where: { promoMaterialId: pm.id } });
-    return tx.promoRequestItem.create({
-      data: { ...donnees, promoMaterialId: pm.id, position: rang, createdById: user.id, produits: { create: produits } },
-      select: { id: true },
+  // CONDITIONNELLE SUR L'ÉTAPE LUE : un article ajouté pendant que les devis partent, ou pendant que la
+  // retranscription se termine, serait chiffré par personne. Au choix des lignes, un article ajouté ou
+  // corrigé RENVOIE le dossier à la retranscription — il faut le faire chiffrer (§118.190).
+  const versRetranscription = pm.circuitState === "REVIEW_REQUESTER";
+  let article: { id: string };
+  try {
+    article = await prisma.$transaction(async (tx) => {
+      const pris = await tx.promoMaterial.updateMany({
+        where: { id: pm.id, circuitState: pm.circuitState },
+        data: { updatedById: user.id, ...(versRetranscription ? { circuitState: "QUOTE_REQUESTED" } : {}) },
+      });
+      if (pris.count === 0) throw new RefusComposition("Ce dossier vient de changer d'étape — rechargez la fiche.");
+      if (existant) {
+        await tx.promoRequestItemProduct.deleteMany({ where: { itemId: existant.id } });
+        return tx.promoRequestItem.update({ where: { id: existant.id }, data: { ...donnees, produits: { create: produits } }, select: { id: true } });
+      }
+      const rang = await tx.promoRequestItem.count({ where: { promoMaterialId: pm.id } });
+      return tx.promoRequestItem.create({
+        data: { ...donnees, promoMaterialId: pm.id, position: rang, createdById: user.id, produits: { create: produits } },
+        select: { id: true },
+      });
     });
-  });
+  } catch (e) {
+    if (e instanceof RefusComposition) return { ok: false, error: e.message };
+    throw e;
+  }
 
   const nomsProduits = v.article.produitIds.length
     ? (await prisma.product.findMany({ where: { id: { in: v.article.produitIds } }, select: { id: true, canonicalName: true } })).map((p) => ({ id: p.id, nom: p.canonicalName }))
     : [];
   const libelle = libelleArticleDemande({ reference: catalogue!.reference, nom: catalogue!.nom, produits: nomsProduits, quantite: v.article.quantite, unite: catalogue!.unite });
-  await audit(user, pm.id, `Article demandé ${existant ? "corrigé" : "ajouté"} — ${libelle}`);
+  await audit(user, pm.id, `Article demandé ${existant ? "corrigé" : "ajouté"} — ${libelle}${versRetranscription ? " (retour à la retranscription)" : ""}`);
+  if (ETATS_ASSISTANTE.has(pm.circuitState ?? "")) {
+    const raison = `Article ${existant ? "corrigé" : "ajouté"} par le demandeur : ${libelle} — à faire chiffrer.`;
+    if (versRetranscription) await rouvrirDemandeAuSecretariat(user.id, pm.id, raison);
+    await prevenirAssistante(pm, "Matériel promotionnel — un article demandé a changé", raison);
+  }
   revalidatePath(chemin(pm.id));
-  return { ok: true, id: article.id, message: `${existant ? "Article corrigé" : "Article ajouté à la demande"} : ${libelle}.` };
+  const suite = versRetranscription ? " Le dossier revient à l'assistante pour le faire chiffrer." : ETATS_ASSISTANTE.has(pm.circuitState ?? "") ? " L'assistante en est prévenue." : "";
+  return { ok: true, id: article.id, message: `${existant ? "Article corrigé" : "Article ajouté à la demande"} : ${libelle}.${suite}` };
 }
 
-/** RETIRER UN ARTICLE DEMANDÉ — tant que les devis ne sont pas demandés. */
+/** RETIRER UN ARTICLE DEMANDÉ — tant que le choix n'est pas parti en validation (§118.190). */
 export async function retirerArticleDemandePromo(formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
   const pm = await chargerDossier(fdStr(formData, "promoMaterialId"));
@@ -149,8 +190,26 @@ export async function retirerArticleDemandePromo(formData: FormData): Promise<Ac
       })
     : null;
   if (!article) return { ok: false, error: "Cet article n'appartient pas à ce dossier." };
-  await prisma.promoRequestItem.delete({ where: { id: article.id } });
-  await audit(user, pm.id, `Article demandé retiré — ${article.catalogue.reference} ${article.catalogue.nom}`);
+  try {
+    await prisma.$transaction(async (tx) => {
+      const pris = await tx.promoMaterial.updateMany({ where: { id: pm.id, circuitState: pm.circuitState }, data: { updatedById: user.id } });
+      if (pris.count === 0) throw new RefusComposition("Ce dossier vient de changer d'étape — rechargez la fiche.");
+      await tx.promoRequestItem.delete({ where: { id: article.id } });
+    });
+  } catch (e) {
+    if (e instanceof RefusComposition) return { ok: false, error: e.message };
+    throw e;
+  }
+  const nom = `${article.catalogue.reference} ${article.catalogue.nom}`;
+  await audit(user, pm.id, `Article demandé retiré — ${nom}`);
+  if (pm.circuitState === "QUOTE_REQUESTED") await prevenirAssistante(pm, "Matériel promotionnel — un article demandé a été retiré", `${nom} retiré par le demandeur : ne plus le faire chiffrer.`);
   revalidatePath(chemin(pm.id));
-  return { ok: true, message: `${article.catalogue.reference} ${article.catalogue.nom} retiré de la demande.` };
+  // Au choix des lignes, les lignes de devis qui chiffraient l'article RESTENT (rattachées à rien) :
+  // les décocher à sa place serait deviner ce qu'il veut retenir (§118.34) — on le lui dit.
+  return {
+    ok: true,
+    message: pm.circuitState === "REVIEW_REQUESTER"
+      ? `${nom} retiré de la demande. Les lignes de devis qui le chiffraient restent : ne les retenez pas si vous n'en voulez plus.`
+      : `${nom} retiré de la demande.`,
+  };
 }

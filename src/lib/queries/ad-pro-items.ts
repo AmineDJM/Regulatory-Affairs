@@ -91,7 +91,7 @@ export async function loadAdProItems(parent: AdProParent, parentId: string): Pro
 
   const [promoRows, orderRows, demandeRows, docRows, lignesParPoste, bcLegalParPoste] = await Promise.all([
     promoIds.length
-      ? prisma.promoMaterial.findMany({ where: { id: { in: promoIds } }, select: { id: true, reference: true, title: true, status: true, circuitState: true, circuitVersion: true } })
+      ? prisma.promoMaterial.findMany({ where: { id: { in: promoIds } }, select: { id: true, reference: true, title: true, status: true, circuitState: true, circuitVersion: true, returnedAt: true } })
       : Promise.resolve([]),
     orderIds.length
       ? prisma.expenseOrder.findMany({ where: { id: { in: orderIds } }, select: { id: true, reference: true, status: true } })

@@ -317,6 +317,10 @@ export interface ComptageVue {
   saisiLe: string | null;
   saisiParId: string | null;
   annuleMotif: string | null;
+  /** La dernière correction de la saisie (§118.190, R19). */
+  corrigeLe: string | null;
+  corrigeParId: string | null;
+  corrigeMotif: string | null;
   lignes: { itemId: string; libelle: string; attendu: number; compte: number; ecart: number }[];
 }
 
@@ -694,7 +698,7 @@ export async function chargerPageStock(user: SessionUser, maintenant = new Date(
       take: 300,
       select: {
         id: true, holderId: true, famille: true, demandeurId: true, recurrenceId: true, statut: true, echeance: true,
-        note: true, createdAt: true, saisiLe: true, saisiParId: true, annuleMotif: true,
+        note: true, createdAt: true, saisiLe: true, saisiParId: true, annuleMotif: true, corrigeLe: true, corrigeParId: true, corrigeMotif: true,
         lignes: { select: { itemId: true, attendu: true, compte: true, ecart: true } },
       },
     }),
@@ -723,6 +727,7 @@ export async function chargerPageStock(user: SessionUser, maintenant = new Date(
       enRetard: c.statut === "DEMANDE" && comptageEnRetard(c.echeance, maintenant),
       note: c.note, createdAt: c.createdAt.toISOString(), saisiLe: c.saisiLe?.toISOString() ?? null,
       saisiParId: c.saisiParId, annuleMotif: c.annuleMotif,
+      corrigeLe: c.corrigeLe ? c.corrigeLe.toISOString() : null, corrigeParId: c.corrigeParId, corrigeMotif: c.corrigeMotif,
       lignes: c.lignes
         .map((l) => ({ itemId: l.itemId, libelle: libelleDe.get(l.itemId) ?? "Article", attendu: num(l.attendu), compte: num(l.compte), ecart: num(l.ecart) }))
         .sort((a, b) => Math.abs(b.ecart) - Math.abs(a.ecart) || a.libelle.localeCompare(b.libelle, "fr")),

@@ -26,10 +26,12 @@ import type { ActionResult } from "@/lib/actions/types";
 
 const nombre = (n: number) => n.toLocaleString("fr-FR", { maximumFractionDigits: 3 });
 
-export function PromoArticlesCard({ id, articles, canEdit, options }: {
+export function PromoArticlesCard({ id, articles, canEdit, options, avertissement }: {
   id: string;
   articles: ArticleDemandeLu[];
   canEdit: boolean;
+  /** Ce qu'un changement de la liste entraîne à l'étape du dossier (§118.190) — dit AVANT le clic. */
+  avertissement?: string | null;
   /** Le catalogue actif et les produits — chargés seulement quand la personne peut composer. */
   options: { catalogue: OptionCatalogue[]; produits: { id: string; nom: string }[] } | null;
 }) {
@@ -133,6 +135,7 @@ export function PromoArticlesCard({ id, articles, canEdit, options }: {
       {err && <div className="flex items-start gap-2 rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive"><AlertCircle className="mt-0.5 h-4 w-4 shrink-0" /> <span>{err}</span></div>}
       {msg && <div className="flex items-start gap-2 rounded-lg bg-emerald-500/10 px-3 py-2 text-sm text-emerald-700 dark:text-emerald-400"><CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" /> <span>{msg}</span></div>}
 
+      {canEdit && avertissement && <p className="text-xs text-muted-foreground">{avertissement}</p>}
       {canEdit && (
         <Button size="sm" variant="outline" disabled={saving} onClick={() => setEdition("nouveau")}><Plus className="h-4 w-4" /> Ajouter un article du catalogue</Button>
       )}

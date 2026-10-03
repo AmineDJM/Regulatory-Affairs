@@ -62,7 +62,7 @@ export async function getAdProRequests(user: SessionUser): Promise<AdProRequest[
           // matériel promotionnel en « lignes assignées » ne voit que SES dossiers dans l'écran du
           // module — la liste unifiée ne doit pas lui montrer ceux des autres.
           where: { AND: [scope, scopePromoMaterial(user)] }, orderBy: { createdAt: "desc" }, take: LIMIT,
-          select: { id: true, reference: true, title: true, status: true, circuitState: true, circuitVersion: true, createdAt: true, chosenAmount: true, amount: true, chosenAgency: true, requesterId: true },
+          select: { id: true, reference: true, title: true, status: true, circuitState: true, circuitVersion: true, returnedAt: true, createdAt: true, chosenAmount: true, amount: true, chosenAgency: true, requesterId: true },
         }).catch(() => [])
       : [],
     can("CONSULTING")

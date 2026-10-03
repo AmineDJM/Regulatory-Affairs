@@ -8,10 +8,12 @@ import { ROLE_DIRECTION_MARKETING } from "@/lib/personnes/roles-vente";
 import { notifyUser, notifyRoles } from "@/lib/notify";
 import {
   initialStep, nextStep, canValidate, tracksOpen, allTracksDone, pendingTracks, type PromoStep,
-  libelleEtape, libelleChantier, PROMO_TRACKS, piloteLExecution,
+  libelleEtape, libelleChantier, PROMO_TRACKS, piloteLExecution, demandeLesDevis,
   type PromoState, type PromoTrack, type VersionCircuit,
 } from "@/lib/promo-material/circuit";
 import { promoManagerOf } from "@/lib/queries/promo-material";
+import { etatApresRenvoi, attendSaCorrection, refusParLeDemandeur, REFUS_EN_CORRECTION } from "@/lib/promo-material/renvoi";
+import { ecrireAuFil } from "@/lib/ad-pro/fil";
 import {
   contexteDuDossier, validateursDeLaDemande, validateursMarketing, devisDuDossier, devisLu,
 } from "@/lib/queries/promo-circuit";
@@ -222,7 +224,7 @@ export async function markQuoteReceived(formData: FormData): Promise<ActionResul
 const SELECT_ETAPE = {
   id: true, title: true, reference: true, circuitState: true, circuitVersion: true,
   requesterId: true, managerId: true, requestValidatorId: true, requestValidation: true, marketingValidatorId: true,
-  chosenAmount: true, amount: true,
+  chosenAmount: true, amount: true, returnedAt: true, returnNote: true,
 } as const;
 
 /**
@@ -264,6 +266,8 @@ export async function validatePromoStep(formData: FormData): Promise<ActionResul
 
   const state = item.circuitState as PromoState;
   const version: VersionCircuit = item.circuitVersion === 2 ? 2 : 1;
+  // RENVOYÉE pour correction à la validation de la demande : la balle est chez le demandeur (§118.190).
+  if (state === "REVIEW_REQUEST" && attendSaCorrection(item)) return { ok: false, error: REFUS_EN_CORRECTION };
   if (!canValidate(user, state, await validateursDeLEtape(item, user.secondaryRole))) {
     return { ok: false, error: `Cette étape ne vous revient pas — elle attend : ${libelleEtape(state, version)}.` };
   }
@@ -283,9 +287,15 @@ export async function validatePromoStep(formData: FormData): Promise<ActionResul
   const next = nextStep(state as PromoStep, ctx);
   if (!next) return { ok: false, error: "Ce dossier est au bout de son circuit." };
 
+  // AVANCER RÉPOND AU RENVOI (§118.190) : le choix revalidé, la marque et son motif s'effacent — ils
+  // restent au fil et au journal. Une avance qui les laisserait ferait relire « À corriger » à
+  // chaque étape suivante, sur un dossier que plus personne n'a à corriger.
   const avance = await prisma.promoMaterial.updateMany({
     where: { id, circuitState: state },
-    data: { circuitState: next, updatedById: user.id, ...(fige ?? {}) },
+    data: {
+      circuitState: next, updatedById: user.id, ...(fige ?? {}),
+      returnedAt: null, returnedById: null, returnNote: null, returnedFrom: null,
+    },
   });
   if (avance.count === 0) return { ok: false, error: "Ce dossier vient de changer d'étape — rechargez la fiche." };
   await recordAudit({
@@ -337,17 +347,23 @@ export async function validatePromoStep(formData: FormData): Promise<ActionResul
 export async function refusePromoStep(formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
   const id = fdStr(formData, "id");
-  const reason = (fdStr(formData, "reason") ?? "").trim();
   if (!id) return { ok: false, error: "Dossier introuvable." };
-  if (!reason) return { ok: false, error: "Dites pourquoi : un refus sans motif fait recommencer à l'identique." };
 
+  // L'ÉTAT D'ABORD, LE MOTIF ENSUITE (§118.18, §118.189) : on ne demande pas pourquoi refuser ce
+  // qui ne se refuse pas d'ici — la personne écrirait son motif pour apprendre ensuite que rien ne
+  // pouvait partir.
   const item = await prisma.promoMaterial.findUnique({ where: { id }, select: SELECT_ETAPE });
   if (!item || !item.circuitState) return { ok: false, error: "Le circuit n'est pas lancé sur ce dossier." };
   const state = item.circuitState as PromoState;
   const version: VersionCircuit = item.circuitVersion === 2 ? 2 : 1;
+  const propre = refusParLeDemandeur(user, item);
+  if (propre) return { ok: false, error: propre };
+  if (state === "REVIEW_REQUEST" && attendSaCorrection(item)) return { ok: false, error: REFUS_EN_CORRECTION };
   if (!canValidate(user, state, await validateursDeLEtape(item, user.secondaryRole))) {
     return { ok: false, error: "Cette étape ne vous revient pas." };
   }
+  const reason = (fdStr(formData, "reason") ?? "").trim();
+  if (!reason) return { ok: false, error: "Dites pourquoi : un refus sans motif fait recommencer à l'identique." };
 
   const refus = await prisma.promoMaterial.updateMany({ where: { id, circuitState: state }, data: { circuitState: "REFUSED", updatedById: user.id } });
   if (refus.count === 0) return { ok: false, error: "Ce dossier vient de changer d'étape — rechargez la fiche." };
@@ -361,6 +377,111 @@ export async function refusePromoStep(formData: FormData): Promise<ActionResult>
   }
   revalidatePath(path(id));
   return { ok: true, message: "Refus enregistré." };
+}
+
+/**
+ * RENVOYER LE DOSSIER POUR CORRECTION (audit 360°, lot C4b, R05) — la troisième issue, entre valider
+ * et refuser. Ouverte là où le refus l'est (`canValidate`), à une étape qu'un AUTRE que le demandeur
+ * tranche (`renvoiPossible`) ; le motif est exigé, APRÈS les refus d'état (§118.18).
+ *
+ * La validation de la DEMANDE se corrige sur place (la marque dit que la balle a changé de camp) ; une
+ * validation du CHOIX renvoie au choix des lignes, et revalider repasse par toutes les validations —
+ * un accord ne couvre pas plus que ce qu'il a vu (§118.187).
+ *
+ * L'écriture est CONDITIONNELLE sur l'étape lue (et, à l'étape 0, sur l'absence de marque) : deux
+ * validateurs qui renvoient ensemble n'écrivent qu'un motif, et un renvoi croisé avec une validation
+ * n'en garde qu'un — c'est la condition, pas l'ordre des clics, qui tranche.
+ */
+export async function renvoyerPromoStep(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  const id = fdStr(formData, "id");
+  if (!id) return { ok: false, error: "Dossier introuvable." };
+  const item = await prisma.promoMaterial.findUnique({ where: { id }, select: SELECT_ETAPE });
+  if (!item || !item.circuitState) return { ok: false, error: "Le circuit n'est pas lancé sur ce dossier." };
+  const state = item.circuitState as PromoState;
+  const version: VersionCircuit = item.circuitVersion === 2 ? 2 : 1;
+  if (state === "REVIEW_REQUEST" && attendSaCorrection(item)) return { ok: false, error: REFUS_EN_CORRECTION };
+  const cible = etatApresRenvoi(state);
+  if (!cible) {
+    return { ok: false, error: `L'étape « ${libelleEtape(state, version)} » ne se renvoie pas : seule une validation tranchée par quelqu'un d'autre que le demandeur se renvoie pour correction.` };
+  }
+  if (!canValidate(user, state, await validateursDeLEtape(item, user.secondaryRole))) {
+    return { ok: false, error: "Cette étape ne vous revient pas." };
+  }
+  const motif = fdStr(formData, "motif");
+  if (motif === null) return { ok: false, error: "Dites ce qu'il faut corriger : un renvoi sans motif fait deviner le demandeur." };
+
+  const renvoi = await prisma.promoMaterial.updateMany({
+    where: { id, circuitState: state, ...(state === "REVIEW_REQUEST" ? { returnedAt: null } : {}) },
+    data: { circuitState: cible, returnedAt: new Date(), returnedById: user.id, returnNote: motif, returnedFrom: state, updatedById: user.id },
+  });
+  if (renvoi.count === 0) return { ok: false, error: "Ce dossier vient de changer d'étape — rechargez la fiche." };
+  await ecrireAuFil({
+    entityType: "PROMO_MATERIAL", entityId: id, authorId: user.id,
+    body: `Renvoyé pour correction à l'étape « ${libelleEtape(state, version)} » : ${motif}`,
+  });
+  await recordAudit({
+    actorId: user.id, action: "UPDATE", module: "Matériel promotionnel",
+    entityType: "PROMO_MATERIAL", entityId: id,
+    summary: `Renvoyé pour correction à l'étape « ${libelleEtape(state, version)} » — ${motif.slice(0, 200)}`,
+  });
+  if (item.requesterId && item.requesterId !== user.id) {
+    await notifyUser({
+      userId: item.requesterId, type: "GENERIC", title: "Matériel promotionnel — à corriger",
+      body: `${item.reference} — ${motif.slice(0, 200)}`, link: path(id),
+    });
+  }
+  revalidatePath(path(id));
+  return {
+    ok: true,
+    message: cible === "REVIEW_REQUEST"
+      ? "Renvoyé au demandeur : il corrige sa demande, puis vous la resoumet."
+      : "Renvoyé au demandeur : il refait son choix de lignes, qui repassera par les validations.",
+  };
+}
+
+/**
+ * RESOUMETTRE LA DEMANDE CORRIGÉE (étape 0 du circuit 2, §118.190) — au validateur qui l'a renvoyée.
+ *
+ * Son demandeur seul (ou la Direction en suppléance, `demandeLesDevis`), en disant ce qui a changé :
+ * sans cela, le validateur relirait tout pour trouver la différence. La marque s'efface ; le renvoi et
+ * la correction vont au fil, où ils restent. L'écriture est conditionnelle : deux resoumissions
+ * simultanées n'en font qu'une.
+ */
+export async function resoumettrePromoDemande(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  const id = fdStr(formData, "id");
+  if (!id) return { ok: false, error: "Dossier introuvable." };
+  const item = await prisma.promoMaterial.findUnique({ where: { id }, select: { ...SELECT_ETAPE, returnedFrom: true } });
+  if (!item || !item.circuitState) return { ok: false, error: "Le circuit n'est pas lancé sur ce dossier." };
+  if (!demandeLesDevis({ id: user.id, role: user.role, secondaryRole: user.secondaryRole, vueGlobale: hasGlobalView(user.role) }, item)) {
+    return { ok: false, error: "Seul le demandeur (ou la Direction) resoumet ce dossier." };
+  }
+  if (item.circuitState !== "REVIEW_REQUEST" || !attendSaCorrection(item)) {
+    return { ok: false, error: "Ce dossier n'est pas à corriger : il n'y a rien à resoumettre." };
+  }
+  const correction = fdStr(formData, "note");
+  if (correction === null) return { ok: false, error: "Dites ce qui a changé : le validateur relirait sinon toute la demande pour le trouver." };
+
+  const reprise = await prisma.promoMaterial.updateMany({
+    where: { id, circuitState: "REVIEW_REQUEST", returnedAt: { not: null } },
+    data: { returnedAt: null, returnedById: null, returnNote: null, returnedFrom: null, updatedById: user.id },
+  });
+  if (reprise.count === 0) return { ok: false, error: "Ce dossier vient de changer : rouvrez sa fiche." };
+  const quand = item.returnedAt ? new Date(item.returnedAt).toLocaleDateString("fr-FR") : null;
+  await ecrireAuFil({
+    entityType: "PROMO_MATERIAL", entityId: id, authorId: user.id,
+    body: `Resoumis après correction.${quand ? ` Le renvoi du ${quand} demandait : « ${item.returnNote ?? ""} ».` : ""} Ce qui a changé : ${correction}`,
+  });
+  await recordAudit({
+    actorId: user.id, action: "UPDATE", module: "Matériel promotionnel",
+    entityType: "PROMO_MATERIAL", entityId: id, summary: `Resoumis après correction — ${correction.slice(0, 200)}`,
+  });
+  const avis = { type: "VALIDATION_REQUIRED" as const, title: "Matériel promotionnel — demande corrigée, à valider", body: `${item.reference} — ${correction.slice(0, 200)}`, link: path(id) };
+  if (item.requestValidatorId) await notifyUser({ userId: item.requestValidatorId, ...avis });
+  else await notifyRoles(["DIRECTION"], avis);
+  revalidatePath(path(id));
+  return { ok: true, message: "Demande resoumise : elle revient à la personne qui l'a renvoyée." };
 }
 
 /**

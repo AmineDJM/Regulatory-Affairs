@@ -374,10 +374,14 @@ export type TourPromo = "VALIDATION" | "GESTE";
 export function tourDe(
   u: Acteur,
   state: PromoState,
-  pm: { requesterId: string | null; assistantId: string | null },
+  pm: { requesterId: string | null; assistantId: string | null; returnedAt: Date | string | null },
   validateurs: ValidateursDuDossier,
   version: VersionCircuit,
 ): TourPromo | null {
+  // RENVOYÉE POUR CORRECTION à la validation de la demande (§118.190) : l'étape n'a pas changé, la
+  // balle si — elle est chez le demandeur, qui corrige puis resoumet ; le validateur n'a rien à
+  // trancher tant que la correction n'est pas revenue (son geste serait refusé).
+  if (state === "REVIEW_REQUEST" && pm.returnedAt) return u.id === pm.requesterId ? "GESTE" : null;
   switch (state) {
     case "QUOTE_TO_REQUEST":
       return u.id === pm.requesterId ? "GESTE" : null;

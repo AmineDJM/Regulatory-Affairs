@@ -128,7 +128,13 @@ describe("LE REFUS FAIT LA DÉCOUVERTE — un outil au lieu de trois", () => {
   });
 
   it("une phrase qui désigne MIEUX un geste refusé le met DEVANT, avec sa raison et son écran", async () => {
-    const q = "annuler la demande de matériel";
+    // « annuler la demande de matériel » recouvre AUTANT `resoumettrePromoDemande` (§118.190 : « demande »
+    // et le module « Matériel promotionnel ») que `annulerDemande` (« annuler », « demande ») — deux
+    // gestes refusés à égalité, départagés par l'ordre alphabétique. Ce cas éprouve le MÉCANISME (la
+    // refusée qui désigne le mieux passe devant), pas un départage lexical : un départage par le verbe a
+    // été essayé et mesuré PIRE (« changer le rôle d'un utilisateur » désignait alors « changer la
+    // priorité d'une mission »). La phrase nomme donc l'objet sans ambiguïté.
+    const q = "annuler la demande de stock";
     const { ouvertes, refusees } = correspondances(q);
     expect(ouvertes.length, "prémisse : des ouvertes existent").toBeGreaterThan(0);
     expect(refusees[0]?.contrat.id, "prémisse : la meilleure correspondance est le geste refusé").toBe("promo-stock-actions:annulerDemande");

@@ -93,9 +93,13 @@ la Direction). **Le consulting et l'« autre demande » sont livrés et testés 
 la même porte que les autres natures, un contrat renvoyé pour correction puis resoumis à la personne qui l'a
 demandé, une « autre demande » refusée resoumise, la porte du centre qui suit le montant corrigé, un contrat
 prolongé, des motifs exigés — après les refus d'état — pour annuler, refuser ou renoncer, les boutons Legal des
-Finances acceptés, un dossier promotionnel annulé qui ne se lit plus « Refusé ». Restent le matériel
-promotionnel et le comptage (C4b), la demande de paiement, le secrétariat et le recrutement (C4c), le plan de
-tournée validé et la pièce Legal révisée (C4d).
+Finances acceptés, un dossier promotionnel annulé qui ne se lit plus « Refusé ». **Le matériel promotionnel et
+le comptage sont livrés et testés (lot C4b, §118.190)** : un dossier renvoyé pour correction — la demande à son
+étape, chez son demandeur ; le choix des lignes, qui repasse par toutes les validations — puis resoumis en disant
+ce qui a changé ; le demandeur qui redemande des devis au lieu de refuser sa propre demande ; la liste des
+articles modifiable jusqu'à la validation du choix, l'assistante prévenue et la demande au secrétariat rouverte ;
+un comptage saisi corrigé par contre-correction sur le solde du jour. Restent la demande de paiement, le
+secrétariat et le recrutement (C4c), le plan de tournée validé et la pièce Legal révisée (C4d).
 
 Constat d'ensemble (rapports 17, 18, 01, 03, 14) : **la plateforme sait refuser, rarement faire corriger.**
 

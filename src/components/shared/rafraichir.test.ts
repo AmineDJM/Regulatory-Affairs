@@ -49,8 +49,10 @@ const APPEL_NU = /\brouter\.refresh\(\)/g;
  * retirer) suit son rafraîchissement : un second clic sur l'état d'avant renverrait deux fois.
  * Ramené à 348 au §118.187 — l'encart du demandeur au secrétariat ouvre « Corriger » sur un instantané :
  * ouvert avant la fin du rafraîchissement, il réécrirait la demande d'avant.
+ * Ramené à 347 au §118.190 — la carte du circuit d'un dossier promotionnel (valider, renvoyer, refuser,
+ * resoumettre) suit son rafraîchissement : renvoyer sur l'état d'avant partirait une seconde fois.
  */
-const PLAFOND_APPELS_NUS = 348;
+const PLAFOND_APPELS_NUS = 347;
 
 describe("le rafraîchissement suivi", () => {
   const parc = fichiers(SRC).map((f) => ({ f, src: sansCommentaires(readFileSync(f, "utf8")) }));
@@ -79,6 +81,9 @@ describe("le rafraîchissement suivi", () => {
       // §118.187 : « Corriger ma demande » s'ouvre sur l'état qu'il montre — corrigée puis rouverte trop tôt,
       // elle réécrirait la version d'avant.
       "src/app/(app)/demandes/[id]/requester-window.tsx",
+      // §118.190 : la carte du circuit d'un dossier promotionnel — un renvoi parti, l'état d'avant
+      // offrirait encore « Renvoyer », que l'action refuserait.
+      "src/app/(app)/promo-material/[id]/circuit-card.tsx",
     ];
     for (const e of ecrans) {
       const src = sansCommentaires(readFileSync(join(process.cwd(), e), "utf8"));

@@ -35,6 +35,7 @@ import {
   libelleChantier, demandeLesDevis, retranscritLesDevis, choisitLesLignes, piloteLExecution,
   type PromoState, type PromoStep, type PromoTrack, type VersionCircuit,
 } from "@/lib/promo-material/circuit";
+import { attendSaCorrection, etatApresRenvoi, refusParLeDemandeur } from "@/lib/promo-material/renvoi";
 import { PromoActionPanel } from "./promo-panels";
 import { PromoCircuitCard, type ChantierAffiche } from "./circuit-card";
 import { PromoQuotesCard, type DevisAffiche } from "./quotes-card";
@@ -170,6 +171,19 @@ export default async function PromoMaterialDetailPage({ params }: { params: { id
     if (circuitState === "REVIEW_MANAGER") return marketing ? await nomsDe(marketing) : "la Direction Marketing";
     return null;
   })();
+  // LE RENVOI POUR CORRECTION (§118.190) — lu par les MÊMES règles que les actions : un bouton offert
+  // à qui l'action refuserait ferait chercher une panne qui n'existe pas (§118.83).
+  const marque = { circuitState, returnedAt: pm.returnedAt };
+  const enCorrectionALaDemande = circuitState === "REVIEW_REQUEST" && attendSaCorrection(marque);
+  const peutTrancher = circuitState ? canValidate(user, circuitState, {
+    requesterId: pm.requesterId, managerId: pm.managerId, requestValidatorId: pm.requestValidatorId,
+    validateursMarketing: marketing, secondaryRole: user.secondaryRole,
+  }) && !enCorrectionALaDemande : false;
+  const renvoi = attendSaCorrection(marque) && pm.returnedAt ? {
+    depuis: pm.returnedFrom ? libelleEtape(pm.returnedFrom as PromoState, version) : (circuitState ? libelleEtape(circuitState, version) : "—"),
+    quand: new Date(pm.returnedAt).toLocaleDateString("fr-FR"),
+    motif: pm.returnNote ?? "",
+  } : null;
   const attente = circuitState ? waitingOn(circuitState, tracksDone, version) : "—";
   const circuitProgress = circuitState ? progress(circuitState, tracksDone, ctx ?? undefined) : { step: 0, total: 1 };
   const circuitProps = {
@@ -179,15 +193,16 @@ export default async function PromoMaterialDetailPage({ params }: { params: { id
     showFull: seesFullCircuit(user),
     etapes: ctx ? etapesDuDossier(ctx).map((st: PromoStep) => ({ key: st, label: libelleCourt(st, version) })) : [],
     stateLabel: circuitState ? libelleEtape(circuitState, version) : "—",
-    canAct: circuitState ? canValidate(user, circuitState, {
-      requesterId: pm.requesterId, managerId: pm.managerId, requestValidatorId: pm.requestValidatorId,
-      validateursMarketing: marketing, secondaryRole: user.secondaryRole,
-    }) : false,
+    canAct: peutTrancher,
     validerIci: !(version === 2 && circuitState === "REVIEW_REQUESTER"),
     canConfirmQuote: flags.isMarketing || flags.isAssistant || isDirection || user.role === "SUPER_ADMIN",
     canStart: !circuitState && (user.id === pm.requesterId || isDirection),
     canRequestQuotes: v2 && circuitState === "QUOTE_TO_REQUEST" && demandeLesDevis(acteur, pm),
     canDrive: piloteLExecution(acteur, pm),
+    renvoi,
+    canRenvoyer: peutTrancher && circuitState !== null && etatApresRenvoi(circuitState) !== null,
+    canRefuser: peutTrancher && refusParLeDemandeur(user, pm) === null,
+    canResoumettre: v2 && enCorrectionALaDemande && demandeLesDevis(acteur, pm),
     chantiers,
     waitingLabel: nomsAttendus ? `${attente} — ${nomsAttendus}` : attente,
     progressStep: circuitProgress.step,
@@ -197,7 +212,8 @@ export default async function PromoMaterialDetailPage({ params }: { params: { id
   // LES ARTICLES DEMANDÉS (circuit 2, §118.165) — la demande piochée dans le catalogue. Le demandeur
   // (ou la Direction) la compose tant que les devis ne sont pas demandés — la règle de l'action.
   const articles = v2 ? await articlesDemandesDuDossier(pm.id) : [];
-  const canEditArticles = v2 && (circuitState === "REVIEW_REQUEST" || circuitState === "QUOTE_TO_REQUEST") && demandeLesDevis(acteur, pm);
+  // Jusqu'au départ du choix en validation (§118.190) — la règle de `refusComposition`, lue telle quelle.
+  const canEditArticles = v2 && (circuitState === "REVIEW_REQUEST" || circuitState === "QUOTE_TO_REQUEST" || circuitState === "QUOTE_REQUESTED" || circuitState === "REVIEW_REQUESTER") && demandeLesDevis(acteur, pm);
   const canReceive = v2 && circuitState === "IN_EXECUTION" && peutReceptionner({ id: user.id, role: user.role }, pm);
 
   // LES DEVIS (circuit 2) — le tableau interne, dès que les devis sont demandés.
@@ -306,7 +322,12 @@ export default async function PromoMaterialDetailPage({ params }: { params: { id
         <Card>
           <CardHeader><CardTitle className="flex items-center gap-2 text-base"><ListChecks className="h-4 w-4" /> Articles demandés</CardTitle></CardHeader>
           <CardContent>
-            <PromoArticlesCard id={pm.id} articles={articles} canEdit={canEditArticles} options={canEditArticles ? optionsCatalogue : null} />
+            <PromoArticlesCard
+              id={pm.id} articles={articles} canEdit={canEditArticles} options={canEditArticles ? optionsCatalogue : null}
+              avertissement={circuitState === "REVIEW_REQUESTER"
+                ? "Ajouter ou corriger un article renvoie le dossier à l'assistante, pour le faire chiffrer."
+                : circuitState === "QUOTE_REQUESTED" ? "L'assistante cherche les devis : elle est prévenue de chaque changement." : null}
+            />
           </CardContent>
         </Card>
       )}

@@ -43,7 +43,7 @@ export async function getCareDossier(scope: "NATIONAL" | "INTERNATIONAL", reques
   // Le matériel promotionnel rattaché à des cases, en UNE requête.
   const promoIds = rows.flatMap((r) => r.cells.map((c) => c.promoMaterialId)).filter((x): x is string => Boolean(x));
   const promos = promoIds.length
-    ? await prisma.promoMaterial.findMany({ where: { id: { in: [...new Set(promoIds)] } }, select: { id: true, reference: true, title: true, status: true, circuitState: true, circuitVersion: true } })
+    ? await prisma.promoMaterial.findMany({ where: { id: { in: [...new Set(promoIds)] } }, select: { id: true, reference: true, title: true, status: true, circuitState: true, circuitVersion: true, returnedAt: true } })
     : [];
   const promoById = new Map(promos.map((p) => [p.id, { reference: p.reference, title: p.title, status: statutDuDossier(p).libelle }]));
 

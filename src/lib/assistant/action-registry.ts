@@ -1103,6 +1103,15 @@ X("RESOUMETTRE UNE « AUTRE DEMANDE » REFUSÉE ET PROLONGER UN CONTRAT DE CONSU
   "ad-pro-other-actions:resoumettreAdProOtherRequest",
   "consulting-actions:prolongerConsultingContract",
 ]);
+X("RENVOYER, RESOUMETTRE, REDEMANDER — LE MATÉRIEL PROMOTIONNEL SE CORRIGE (audit 360°, lot C4b, §118.190). RENVOYER un "
+  + "dossier pour correction est une issue de VALIDATION, au même titre que valider et refuser : elle se tranche par la "
+  + "personne que l'étape désigne, devant le dossier ; RESOUMETTRE la demande corrigée et REDEMANDER des devis sont des "
+  + "gestes du DEMANDEUR qui disent ce qui a changé ou ce qu'il cherche ; CORRIGER UN COMPTAGE est l'attestation de celui "
+  + "qui a compté, comme sa saisie (§118.15). Adam est en pause de développement : aucun geste neuf ne lui est ouvert. "
+  + "Un clic sur /promo-material/<id> ou sur Sales & Marketing › Stock promotionnel, onglet « Comptages ».", [
+  "promo-circuit-actions:renvoyerPromoStep", "promo-circuit-actions:resoumettrePromoDemande",
+  "promo-devis-actions:redemanderDevisPromo", "promo-comptage-actions:corrigerComptage",
+]);
 X("RÉTABLIR UN DOCUMENT LEGAL ANNULÉ (§118.184, audit L04) : le retour d'une annulation, ajouté parce que "
   + "l'annulation n'en avait aucun. C'est un geste de correction qu'une personne fait devant la ligne qu'elle "
   + "vient d'annuler par erreur ; Adam est en pause de développement (Super Admin seul) et l'annulation qu'il "

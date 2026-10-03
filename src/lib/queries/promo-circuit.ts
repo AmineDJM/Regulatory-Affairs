@@ -157,7 +157,7 @@ export async function dossiersPromoAMonTour(user: SessionUser): Promise<DossierP
   const rows = await prisma.promoMaterial.findMany({
     where: { circuitState: { in: [...ETATS_EN_ATTENTE] } },
     select: {
-      id: true, reference: true, title: true, circuitState: true, circuitVersion: true,
+      id: true, reference: true, title: true, circuitState: true, circuitVersion: true, returnedAt: true,
       requesterId: true, assistantId: true, managerId: true, requestValidatorId: true, marketingValidatorId: true,
     },
     // Le plus ancien d'abord : c'est lui qui bloque quelqu'un depuis le plus longtemps.
@@ -190,7 +190,7 @@ export async function dossiersPromoAMonTour(user: SessionUser): Promise<DossierP
       : null;
     const tour = tourDe(
       acteur, etat,
-      { requesterId: r.requesterId, assistantId: r.assistantId },
+      { requesterId: r.requesterId, assistantId: r.assistantId, returnedAt: r.returnedAt },
       { requesterId: r.requesterId, managerId: r.managerId, requestValidatorId: r.requestValidatorId, validateursMarketing: marketing },
       version,
     );
