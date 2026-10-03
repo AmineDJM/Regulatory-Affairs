@@ -4,8 +4,9 @@ import { randomUUID } from "crypto";
 import { revalidatePath } from "next/cache";
 import type { UserRole } from "@prisma/client";
 import { requireUser } from "@/lib/session";
-import { userCan, hasGlobalView, type SessionUser } from "@/lib/rbac";
+import { userCan, hasGlobalView, isTopManagement, type SessionUser } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
+import { auNomDeQui } from "@/lib/hr/stand-in-resolve";
 import { recordAudit } from "@/lib/audit";
 import { notifyUser, notifyRoles } from "@/lib/notify";
 import { getAppSettings } from "@/lib/settings";
@@ -203,12 +204,19 @@ export async function createHrTraining(_prev: ActionResult | undefined, formData
 
 /** Le pouvoir de trancher de cette personne sur CETTE formation. */
 async function deciderFor(user: SessionUser, training: { managerId: string | null; requesterId: string | null }) {
-  const isDg = hasGlobalView(user);
+  // LA MARCHE « DG » EST CELLE DE LA DIRECTION GÉNÉRALE — et le Directeur Général en fait partie
+  // (audit 360°, I12). `hasGlobalView` l'exclut délibérément : le rôle qui porte le nom de l'étape
+  // ne pouvait pas la signer. Le congé a payé ce défaut avant la formation et l'a fermé par
+  // `isTopManagement` (`hr/leave-core.ts`) : les deux circuits lisent désormais le même sommet.
+  const isDg = isTopManagement(user);
   const isHr = isHrOf(user);
+  // LE N+1, OU SON INTÉRIMAIRE (§118.185 — audit 360°, I18) — la même lecture que le congé. La
+  // règle « on ne tranche pas sa propre demande » reste celle de `canDecideChain`.
+  const { ids } = await auNomDeQui(user.id);
   let isManager = false;
   if (training.managerId) {
     const mgr = await prisma.employee.findUnique({ where: { id: training.managerId }, select: { userId: true } });
-    isManager = mgr?.userId === user.id;
+    isManager = Boolean(mgr?.userId && ids.has(mgr.userId));
   }
   if (!isManager && training.requesterId) {
     // Le N+1 enregistré peut avoir changé : on accepte toute personne au-dessus dans la chaîne
@@ -216,7 +224,7 @@ async function deciderFor(user: SessionUser, training: { managerId: string | nul
     const emp = await prisma.employee.findUnique({ where: { userId: training.requesterId }, select: { id: true } });
     if (emp) {
       const chain = await getManagementChain(emp.id).catch(() => []);
-      isManager = chain.some((m) => m.userId === user.id);
+      isManager = chain.some((m) => Boolean(m.userId && ids.has(m.userId)));
     }
   }
   return { id: user.id, isManager, isHr, isDg };

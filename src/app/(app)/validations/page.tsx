@@ -357,6 +357,8 @@ function PendingValidationCard({ v, actionable, focused = false }: { v: PendingV
             {v.objectType && <Badge tone="neutral" dot={false}>{v.objectType}</Badge>}
             <StatusBadge map={PRIORITY} value={v.priority} dot={false} />
             {v.amount !== null && <span className="text-sm font-semibold">{formatCurrency(v.amount)}</span>}
+            {/* En intérim, on tranche AU NOM de l'absent : la carte le dit avant le bouton (I18). */}
+            {v.pourLeCompteDe && <Badge tone="info" dot={false}>Intérim pour {v.pourLeCompteDe}</Badge>}
           </div>
           <p className="font-medium">{v.title}</p>
           {v.description && <p className="text-sm text-muted-foreground">{v.description}</p>}

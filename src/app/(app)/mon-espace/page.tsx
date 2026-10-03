@@ -354,7 +354,7 @@ export default async function MonEspacePage() {
       )}
 
       {leavesToDecide.length > 0 && (
-        <section className="space-y-3">
+        <section id="conges-a-signer" className="scroll-mt-20 space-y-3">
           <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
             Congés qui attendent votre signature
           </h2>

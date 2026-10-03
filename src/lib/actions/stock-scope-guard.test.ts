@@ -49,10 +49,9 @@ suite("Périmètre des stocks", () => {
       prisma.user.create({ data: { name: `${TAG}ops`, email: `${TAG}ops@t.dz`, role: "OPERATIONS_DIRECTOR", passwordHash: "x" } }),
     ]);
     kamId = kam.id; opsId = ops.id;
-    // Le KAM reçoit le module STOCKS en écriture : c'est bien son métier de relever le terrain.
-    await prisma.userAccess.create({
-      data: { userId: kamId, module: "STOCKS", canView: true, canCreate: true, canUpdate: true, scope: "ALL" },
-    });
+    // Le KAM a le module STOCKS par la MATRICE (§118.185 — audit 360°, I5). Le banc le lui donnait
+    // à la main (`userAccess` posé ici), et c'est ce qui cachait qu'aucun KAM réel ne pouvait relever
+    // un stock : le cas passait, le produit refusait. Rien n'est plus posé à la main.
     const [produit, autre] = await Promise.all([
       prisma.regulatoryProduct.create({ data: { reference: `${TAG}-PRD`, dci: `${TAG} Amlodipine`, brandName: `${TAG} Cardiomax` } }),
       prisma.regulatoryProduct.create({ data: { reference: `${TAG}-PRD-2`, dci: `${TAG} Nivolumab`, brandName: `${TAG} Nivolex` } }),

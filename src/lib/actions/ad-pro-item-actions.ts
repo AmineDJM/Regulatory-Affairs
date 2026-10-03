@@ -1069,6 +1069,46 @@ async function nextAdminRequestRef(): Promise<string> {
   return buildRef("DEM", year, rows.map((r) => r.reference));
 }
 
+/**
+ * LE TRAVAIL DE L'ASSISTANTE POUR UN BC — une demande au bureau du secrétariat (audit 360°, I10).
+ *
+ * Une seule par poste tant qu'elle est ouverte : un BC redemandé après un refus ne lui fait pas
+ * deux demandes pour la même pièce — la demande ouverte reçoit le nouveau message. Rend
+ * l'identifiant, ou `null` si la création a échoué (le geste du demandeur ne tombe pas pour autant :
+ * la notification part quand même, vers le bureau).
+ */
+async function travailBcAssistante(i: {
+  itemId: string; demandeurId: string; note: string | null; titre: string; contexte: (string | null)[]; companyId: string | null;
+}): Promise<string | null> {
+  const description = [i.note, ...i.contexte].filter(Boolean).join("\n");
+  try {
+    const ouverte = await prisma.administrativeRequest.findFirst({
+      where: {
+        linkedEntityType: "AD_PRO_ITEM", linkedEntityId: i.itemId, deletedAt: null, type: "OTHER",
+        title: { startsWith: "Bon de commande à établir" }, status: { notIn: ["DONE", "CANCELLED"] },
+      },
+      select: { id: true },
+    });
+    if (ouverte) {
+      await prisma.administrativeRequest.update({ where: { id: ouverte.id }, data: { description } });
+      return ouverte.id;
+    }
+    const r = await createWithRetry(async () => prisma.administrativeRequest.create({
+      data: {
+        reference: await nextAdminRequestRef(),
+        type: "OTHER", title: i.titre, description, priority: "HIGH",
+        requesterId: i.demandeurId, companyId: i.companyId, status: "NEW",
+        linkedEntityType: "AD_PRO_ITEM", linkedEntityId: i.itemId,
+      },
+      select: { id: true },
+    }));
+    return r.id;
+  } catch (err) {
+    console.error("[ad-pro-item] demande « BC à établir » impossible", err);
+    return null;
+  }
+}
+
 // ───────────────────────── Bon de commande : demande → centre Ad & Pro → Finances ─────────────────────────
 
 /** DEMANDE d'émission du bon de commande d'un poste accordé (première marche du circuit). */
@@ -1130,15 +1170,30 @@ export async function requestAdProItemOrder(_prev: ActionResult | undefined, for
     }).catch(() => undefined);
   }
   // L'ASSISTANTE DE DIRECTION ÉTABLIT LE BON DE COMMANDE — « demander l'établissement d'un BC
-  // qui arrivera à l'assistante de direction pour chaque poste ». Elle n'était prévenue de rien :
-  // la demande partait au visa, et l'assistante apprenait après coup qu'il fallait rédiger la
-  // pièce. On AJOUTE un destinataire, on ne retire aucune garde — le visa du centre reste ce qui
-  // engage, et c'est un geste distinct de l'établissement du document.
+  // qui ARRIVERA à l'assistante de direction pour chaque poste ». Une notification ne suffisait
+  // pas (audit 360°, I10) : son lien menait à la fiche de l'opération, gardée par un module que son
+  // rôle n'a pas, et le message du demandeur ne lui parvenait nulle part. Le travail ARRIVE donc
+  // dans son bureau, comme une demande qu'elle peut ouvrir, prendre et terminer.
+  //
+  // Ce n'est PAS un second circuit du BC (§118.146) : l'état du bon de commande — demandé, visé,
+  // émis — reste sur le POSTE (`orderStage`), et cette demande ne le lit ni ne l'écrit. Elle porte
+  // le geste de l'assistante (rédiger la pièce), avec ce qu'il lui faut pour le faire.
+  const travail = await travailBcAssistante({
+    itemId: item.id, demandeurId: user.id, note,
+    titre: `Bon de commande à établir — ${ITEM_KIND_LABELS[item.kind]} : ${item.label}`,
+    contexte: [
+      `Poste de l'opération ${info?.ref ?? ""}.`,
+      item.supplier ? `Prestataire : ${item.supplier}.` : null,
+      `Montant accordé : ${montantAccorde.toLocaleString("fr-FR")} DZD.`,
+      sousLeSeuil ? `Sous le seuil des bons de commande : il part directement aux Finances.` : `Au-dessus du seuil : il est en validation au centre Ad & Pro.`,
+    ],
+    companyId: info?.companyId ?? (await moneyEntityOf(info?.requesterId ?? user.id)),
+  });
   await notifyRoles(["DIRECTION_ASSISTANT"], {
     type: "ASSIGNMENT",
     title: "Bon de commande à établir",
-    body: cible,
-    link: `${PARENTS[owner.parent].path}/${owner.id}`,
+    body: note ? `${cible} — « ${note.slice(0, 160)} »` : cible,
+    link: travail ? `/demandes/${travail}` : "/demandes",
   }).catch(() => undefined);
   await audit(user, owner.parent, owner.id, "UPDATE", sousLeSeuil
     ? `Émission du bon de commande demandée pour le poste « ${item.label} » — ${motifSousLeSeuil(seuilBC)}`
@@ -1596,11 +1651,18 @@ export async function demanderReservation(formData: FormData): Promise<ActionRes
 
   const voyageurs = await prisma.adProVoyageur.findMany({ where: { itemId: id }, orderBy: [{ position: "asc" }, { createdAt: "asc" }] });
   if (voyageurs.length === 0) return { ok: false, error: "Ajoutez au moins un voyageur (son nom suffit) avant de demander la réservation." };
-  const passeports = new Set((await prisma.document.findMany({
+  const piecesPasseport = await prisma.document.findMany({
     where: { entityType: "AD_PRO_ITEM", entityId: id, stepKey: { in: voyageurs.map((v) => v.id) } },
-    select: { stepKey: true },
-  })).map((d) => d.stepKey));
+    select: { id: true, stepKey: true },
+    orderBy: { createdAt: "asc" },
+  });
+  const passeports = new Set(piecesPasseport.map((d) => d.stepKey));
   const lignes = voyageurs.map((v) => ligneVoyageur({ ...voyageurLu(v), passeport: passeports.has(v.id) }));
+  // LE PASSEPORT, PAS SEULEMENT SA MENTION (audit 360°, I10) : « passeport joint » sans lien obligeait
+  // l'assistante à le chercher là où elle n'entre pas. Le lien s'ouvre aux personnes du sujet
+  // (`peutLirePasseportDuSujet`), et à elles seules parmi celles qui n'ont pas l'opération.
+  const nomDuVoyageur = new Map(voyageurs.map((v) => [v.id, v.nom]));
+  const liensPasseport = piecesPasseport.map((d) => `• ${nomDuVoyageur.get(d.stepKey ?? "") ?? "voyageur"} — /api/documents/${d.id}`);
 
   const info = await PARENTS[owner.parent].load(owner.id);
   if (!info) return { ok: false, error: "Opération introuvable." };
@@ -1612,7 +1674,8 @@ export async function demanderReservation(formData: FormData): Promise<ActionRes
     etat,
     `Voyageurs (${voyageurs.length}) :`,
     ...lignes,
-    `Fiche : ${PARENTS[owner.parent].path}/${owner.id}`,
+    ...(liensPasseport.length ? ["Passeports :", ...liensPasseport] : []),
+    `Fiche de l'opération (demandeur) : ${PARENTS[owner.parent].path}/${owner.id}`,
   ].join("\n");
 
   const poste = await prisma.adProItem.findUnique({ where: { id }, select: { reservationDossierId: true } });

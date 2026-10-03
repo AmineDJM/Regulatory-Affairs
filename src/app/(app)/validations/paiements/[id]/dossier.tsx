@@ -53,7 +53,7 @@ export interface EventView {
   at: string;
 }
 
-type Runner = (fd: FormData) => Promise<{ ok: boolean; error?: string }>;
+type Runner = (fd: FormData) => Promise<{ ok: boolean; error?: string; message?: string }>;
 
 /**
  * RELANCER, OU SIGNALER UNE URGENCE — les deux gestes du demandeur quand la balle n'est plus
@@ -178,17 +178,20 @@ export function PaymentDossier({
   const router = useRouter();
   const [busy, setBusy] = React.useState<string | null>(null);
   const [err, setErr] = React.useState<string | null>(null);
+  // Ce que le geste a ENTRAÎNÉ (§118.185) : un refus ou un retrait annule aussi l'ordre de dépense non réglé.
+  const [info, setInfo] = React.useState<string | null>(null);
   const [note, setNote] = React.useState("");
   const [message, setMessage] = React.useState("");
 
   const run = async (key: string, fn: Runner, fields: Record<string, string>, files?: Record<string, File>) => {
-    setBusy(key); setErr(null);
+    setBusy(key); setErr(null); setInfo(null);
     const fd = new FormData();
     for (const [k, v] of Object.entries(fields)) fd.set(k, v);
     for (const [k, f] of Object.entries(files ?? {})) fd.set(k, f);
     const r = await fn(fd);
     setBusy(null);
     if (!r.ok) { setErr(r.error ?? "L'opération a échoué."); return false; }
+    if (r.message) setInfo(r.message);
     setNote(""); setMessage("");
     router.refresh();
     return true;
@@ -359,6 +362,7 @@ export function PaymentDossier({
       )}
 
       {err && <p className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">{err}</p>}
+      {info && <p role="status" className="rounded-lg bg-muted px-3 py-2 text-sm">{info}</p>}
     </div>
   );
 }

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/session";
 import { canAccessEntity } from "@/lib/entity-access";
+import { peutLirePasseportDuSujet } from "@/lib/ad-pro/passeport-acces";
 import { readFileByKey } from "@/lib/storage";
 import { recordAudit } from "@/lib/audit";
 import { prisma } from "@/lib/prisma";
@@ -16,7 +17,10 @@ export async function GET(
   const doc = await prisma.document.findUnique({ where: { id: params.id } });
   if (!doc) return NextResponse.json({ error: "Introuvable" }, { status: 404 });
 
-  const allowed = await canAccessEntity(user, doc.entityType, doc.entityId, "VIEW");
+  // Le passeport d'un voyageur s'ouvre aussi à qui réserve son billet (audit 360°, I10) — une porte
+  // ÉTROITE, à la pièce près : voir `peutLirePasseportDuSujet`.
+  const allowed = (await canAccessEntity(user, doc.entityType, doc.entityId, "VIEW"))
+    || (await peutLirePasseportDuSujet(user.id, doc));
   if (!allowed) return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
 
   if (!doc.fileKey) {

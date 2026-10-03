@@ -27,7 +27,9 @@ describe("Registre des suppressions — le refus et la réserve", () => {
     // pôle qui n'avaient AUCUNE suppression (§118.162).
     // 30 → 32 : l'article du catalogue promotionnel et l'article de stock (§118.164) — deux types
     // qui REFUSENT quand ils ont servi : on les archive, on n'efface pas une histoire.
-    expect(DELETABLE_KINDS).toHaveLength(32);
+    // 32 → 33 : l'appel d'offres PCH (§118.185, I17) — supprimé d'un seul `delete`, sans
+    // corbeille, il emportait ses lots, ses bons et ses livraisons sans retour possible.
+    expect(DELETABLE_KINDS).toHaveLength(33);
   });
 
   it("le catalogue et le stock promotionnels refusent AVANT le clic, sans réserve", () => {
@@ -51,7 +53,9 @@ describe("Registre des suppressions — le refus et la réserve", () => {
   it("les autres types ne refusent rien et ne réservent rien — l'ajout n'a rien changé chez eux", () => {
     const AVEC_REFUS: readonly string[] = ["CONVERSATION", "NOTIFICATION", "PROMO_CATALOGUE", "PROMO_STOCK_ITEM"];
     const anciens = DELETABLE_KINDS.filter((k) => !AVEC_REFUS.includes(k));
-    expect(anciens).toHaveLength(28);
+    // 28 → 29 : l'appel d'offres PCH ne refuse ni ne réserve rien lui-même — c'est le LOT qui
+    // refuse une facture réglée ou une pièce signée parmi ses branches (`faitIrreversible`).
+    expect(anciens).toHaveLength(29);
     for (const k of anciens) {
       expect(DELETE_REGISTRY[k].refuse, `${k} ne refusait rien avant ce lot`).toBeUndefined();
       expect(DELETE_REGISTRY[k].reserve, `${k} n'annonçait aucune réserve avant ce lot`).toBeUndefined();

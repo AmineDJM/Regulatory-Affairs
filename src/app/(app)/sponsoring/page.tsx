@@ -41,7 +41,7 @@ export default async function SponsoringPage() {
 
   // Cloisonnement par entité : la vue « Adventum » ne montre que les demandes d'Adventum.
   const requests = await prisma.sponsoringRequest.findMany({
-    where: await clauseSponsoringsVisibles(user.id),
+    where: await clauseSponsoringsVisibles(user),
     orderBy: { requestDate: "desc" },
     include: { requester: { select: { name: true } } },
   });

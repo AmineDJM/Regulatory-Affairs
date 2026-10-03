@@ -167,7 +167,7 @@ suite("les demandes au secrétariat arrivent dans le bureau cloisonné", () => {
     expect(r.ok, r.ok ? "" : r.error).toBe(true);
     const dem = await prisma.administrativeRequest.findUniqueOrThrow({ where: { id: (r as { id: string }).id }, select: { id: true, companyId: true } });
     expect(dem.companyId).toBe(societeC);
-    expect((await getRequestList(await acteur(u.asst), {})).map((x) => x.id)).toContain(dem.id);
+    expect((await getRequestList(await acteur(u.asst), {})).rows.map((x) => x.id)).toContain(dem.id);
   });
 
   it("la pièce d'un poste d'une opération de D : la société de l'OPÉRATION, pas celle de son demandeur", async () => {
@@ -193,7 +193,7 @@ suite("les demandes au secrétariat arrivent dans le bureau cloisonné", () => {
     const lot = await prisma.administrativeRequest.findMany({ where: { requesterId: u.kam, title: { startsWith: TAG } }, select: { id: true, companyId: true } });
     expect(lot).toHaveLength(2);
     for (const d of lot) expect(d.companyId).toBe(societeC);
-    const miens = (await getRequestList(await acteur(u.kam), {})).map((x) => x.id);
+    const miens = (await getRequestList(await acteur(u.kam), {})).rows.map((x) => x.id);
     for (const d of lot) expect(miens, "l'auteur retrouve ses propres demandes").toContain(d.id);
   });
 });

@@ -32,7 +32,10 @@ export interface RequestRow {
 const cellInput = "h-8 w-full rounded-md border border-input bg-card px-2 text-xs font-normal normal-case tracking-normal outline-none focus:ring-1 focus:ring-ring";
 const EMPTY = { reference: "", title: "", type: "", priority: "", status: "", deadlineMonth: "", assignee: "" };
 
-export function RequestsTable({ rows }: { rows: RequestRow[] }) {
+/** Ce que le serveur a chargé, et ce qu'il a laissé — pour que la liste ne se lise jamais comme exhaustive à tort. */
+export interface TotauxDemandes { ouvertes: number; terminees: number; terminesMontrees: number; coupe: boolean }
+
+export function RequestsTable({ rows, totaux }: { rows: RequestRow[]; totaux?: TotauxDemandes }) {
   const [f, setF] = React.useState({ ...EMPTY });
   const set = (k: keyof typeof f) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
     setF((p) => ({ ...p, [k]: e.target.value }));
@@ -54,6 +57,12 @@ export function RequestsTable({ rows }: { rows: RequestRow[] }) {
     <div className="space-y-2">
       <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
         <span>{shown.length} / {rows.length} demande{rows.length > 1 ? "s" : ""}</span>
+        {totaux && (
+          <span>
+            · {totaux.ouvertes} ouverte{totaux.ouvertes > 1 ? "s" : ""}{totaux.coupe ? " (les plus récentes seulement — affinez par statut ou par type)" : ", toutes chargées"}
+            {totaux.terminees > totaux.terminesMontrees ? ` · les ${totaux.terminesMontrees} dernières terminées sur ${totaux.terminees}` : ""}
+          </span>
+        )}
         {active && (
           <button type="button" onClick={() => setF({ ...EMPTY })}
             className="inline-flex items-center gap-1 rounded-md border border-input px-2 py-1 font-medium hover:bg-secondary">

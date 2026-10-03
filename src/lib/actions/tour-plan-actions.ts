@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { requireUser } from "@/lib/session";
 import { userCan, hasGlobalView } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
+import { standInForUserIds } from "@/lib/hr/stand-in-resolve";
 import { recordAudit } from "@/lib/audit";
 import { getManagerOfUser } from "@/lib/departments";
 import { notifyUser } from "@/lib/notify";
@@ -330,6 +331,7 @@ export async function escaladerPlanTournee(formData: FormData): Promise<ActionRe
   const acces = accesAuPlan({
     userId: user.id, vueGlobale: hasGlobalView(user), repId: plan.repId,
     reviewerId: plan.reviewerId, escalatedToId: plan.escalatedToId, statut: plan.status as StatutPlan, chaineDuKam: [],
+    agitPour: await standInForUserIds(user.id),
   });
   if (!acces.escalader) {
     return { ok: false, error: "Seul le validateur désigné peut demander une validation à son N+1." };
@@ -393,6 +395,7 @@ export async function deciderPlanTournee(formData: FormData): Promise<ActionResu
   const acces = accesAuPlan({
     userId: user.id, vueGlobale: hasGlobalView(user), repId: plan.repId,
     reviewerId: plan.reviewerId, escalatedToId: plan.escalatedToId, statut: plan.status as StatutPlan, chaineDuKam: [],
+    agitPour: await standInForUserIds(user.id),
   });
   if (!acces.decider) {
     return { ok: false, error: "Seule la personne à qui ce plan est soumis peut le trancher." };

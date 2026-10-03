@@ -1,7 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { getManagerOfUser } from "@/lib/departments";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
-import { purchaseStage, summarize, type PurchaseLine } from "@/lib/general-means/purchase-request";
+import { lireLignesDAchat, purchaseStage, summarize } from "@/lib/general-means/purchase-request";
 import { PurchaseRequestForm } from "./purchase-request-form";
 import { MyPurchaseRequests, type MyPurchaseRow } from "./my-purchase-requests";
 import type { CatalogArticle } from "@/app/(app)/moyens-generaux/receipt-lines";
@@ -40,7 +40,7 @@ export async function PurchaseSection({
 
   const rows: MyPurchaseRow[] = requests.map((r) => {
     const fields = (r.fields as Record<string, unknown> | null) ?? {};
-    const lines = Array.isArray(fields.purchaseLines) ? (fields.purchaseLines as PurchaseLine[]) : [];
+    const lines = lireLignesDAchat(fields);
     const approval = r.approvals[0] ?? null;
     const stage = purchaseStage(r.status, approval);
     return {

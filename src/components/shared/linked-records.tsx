@@ -321,7 +321,7 @@ function LignePieceRow({ l }: { l: LignePiece }) {
   const aPlateforme = Boolean(plateforme?.pdf || plateforme?.docx);
   return (
     <li className="py-1.5">
-      <EnTete href={`/legal/${l.id}`} titre={l.titre} reference={l.reference} meta={l.meta} badge={l.badge} />
+      <EnTete href={l.fiche ? `/legal/${l.id}` : null} titre={l.titre} reference={l.reference} meta={l.meta} badge={l.badge} />
       {aPlateforme && (
         <p className="mt-1 flex flex-wrap items-center gap-2 pl-3 text-[0.6875rem] text-muted-foreground">
           Version plateforme :
@@ -348,7 +348,8 @@ function LignePieceRow({ l }: { l: LignePiece }) {
 function LigneCourrierRow({ c }: { c: LigneCourrier }) {
   return (
     <li className="py-1.5">
-      <EnTete href={`/courriers/${c.id}`} titre={c.titre} reference={c.reference} meta={c.meta} badge={c.badge} />
+      {/* Sans le module Courriers, la fiche du courrier est refusée : le titre se lit sans lien. */}
+      <EnTete href={c.documents !== null ? `/courriers/${c.id}` : null} titre={c.titre} reference={c.reference} meta={c.meta} badge={c.badge} />
       {c.documents && (
         c.documents.length > 0 ? (
           <div className="mt-1.5 border-l-2 border-border pl-3">
@@ -363,14 +364,19 @@ function LigneCourrierRow({ c }: { c: LigneCourrier }) {
 }
 
 function EnTete({ href, titre, reference, meta, badge }: {
-  href: string; titre: string; reference: string | null; meta: string; badge: { label: string; tone: Ton } | null;
+  /** `null` : la fiche ne s'ouvre pas à la personne — le titre se lit, il ne mène nulle part. */
+  href: string | null; titre: string; reference: string | null; meta: string; badge: { label: string; tone: Ton } | null;
 }) {
   return (
     <div className="flex items-center justify-between gap-2">
       <span className="min-w-0">
-        <Link href={href} className="inline-flex min-w-0 items-center gap-1 font-medium hover:underline">
-          <span className="truncate">{titre}</span> <ExternalLink className="h-3 w-3 shrink-0 text-muted-foreground" />
-        </Link>
+        {href ? (
+          <Link href={href} className="inline-flex min-w-0 items-center gap-1 font-medium hover:underline">
+            <span className="truncate">{titre}</span> <ExternalLink className="h-3 w-3 shrink-0 text-muted-foreground" />
+          </Link>
+        ) : (
+          <span className="block truncate font-medium">{titre}</span>
+        )}
         <span className="block truncate text-[0.6875rem] text-muted-foreground">
           {[reference, meta].filter(Boolean).join(" · ") || "—"}
         </span>

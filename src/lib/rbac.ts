@@ -284,7 +284,18 @@ export const PERMISSIONS: Record<UserRole, RoleMatrix> = {
   MEDICAL_DELEGATE: { WORKSPACE: WORKSPACE_USER, FEEDBACK: FEEDBACK_USER, MESSAGING: MESSAGING_USER, VALIDATIONS: VALIDATION_USER, DRIVE: DRIVE_USER, ADMIN_REQUESTS: REQUEST_USER, MEDICAL: CONTRIBUTE, FIELD_REPORTS: CONTRIBUTE, SALES_PLANNING: READ, EVENTS: CONTRIBUTE, CONGRESS_NATIONAL: CONTRIBUTE, CONGRESS_INTERNATIONAL: CONTRIBUTE, PROMO_MATERIAL: CONTRIBUTE, DIRECTIVES: DIRECTIVES_USER, SUPPORT: SUPPORT_USER, DOSSIERS: DOSSIERS_USER, NOTIFICATIONS: ["VIEW"],
     // SON stock promotionnel (§118.164) : confirmer ses réceptions, rendre, transférer à un collègue,
     // déclarer une perte, demander du matériel. Portée ASSIGNÉE : il ne voit que le sien.
-    PROMO_STOCK: CONTRIBUTE },
+    PROMO_STOCK: CONTRIBUTE,
+    // SON SPONSORING (§118.185 — audit 360°, I4). La décision du 28/09 fait passer « le sponsoring
+    // d'un KAM » par le National Sales puis la Direction des opérations (§118.156) — et le KAM n'avait
+    // pas le module : la règle était écrite pour une demande que personne ne pouvait déposer. Même
+    // raisonnement que le matériel promotionnel (§118.153) : CONTRIBUTE (il demande, il ne tranche
+    // rien) et portée ASSIGNÉE (`scopeSponsoring`) — il ne voit que SES demandes.
+    SPONSORING: CONTRIBUTE,
+    // LE RELEVÉ DES STOCKS HOSPITALIERS (§118.185 — audit 360°, I5). L'écran a été conçu pour lui
+    // (§118.134 : les hôpitaux de SES secteurs, les produits de SA BU) et le rôle n'avait pas le
+    // module — le banc le lui donnait à la main. La portée se calcule sur les faits (secteur, BU,
+    // chaîne d'approvisionnement), pas sur le module : l'ouvrir ne lui montre rien d'autre.
+    STOCKS: CONTRIBUTE },
   // National Sales : **toutes les capacités du délégué médical** (créer des demandes
   // de sponsoring / congrès / événements, terrain, annuaire) PLUS l'**approbation
   // préliminaire** de ces demandes avec choix du référent Direction Marketing. Volontairement
@@ -303,6 +314,8 @@ export const PERMISSIONS: Record<UserRole, RoleMatrix> = {
   // qu'aucune étape ne lui demande de lire. Le geste qui retourne cette décision : le retirer
   // de la carte `assigned` pour la clé PROMO_MATERIAL.
   NATIONAL_SALES: { WORKSPACE: WORKSPACE_USER, FEEDBACK: FEEDBACK_USER, MESSAGING: MESSAGING_USER, VALIDATIONS: VALIDATION_USER, DRIVE: DRIVE_USER, ADMIN_REQUESTS: REQUEST_USER, MEDICAL: CONTRIBUTE, FIELD_REPORTS: CONTRIBUTE, SALES_PLANNING: READ, EVENTS: CONTRIBUTE, CONGRESS_NATIONAL: CONTRIBUTE, CONGRESS_INTERNATIONAL: CONTRIBUTE, SPONSORING: CONTRIBUTE, PROMO_MATERIAL: CONTRIBUTE, CONSULTING: CONTRIBUTE, AD_PRO_OTHER: CONTRIBUTE, DIRECTIVES: DIRECTIVES_USER, SUPPORT: SUPPORT_USER, DOSSIERS: DOSSIERS_USER, NOTIFICATIONS: ["VIEW"],
+    // Les stocks hospitaliers de TOUTE SA BU (§118.134 ; audit 360°, I5) — même raison que le KAM.
+    STOCKS: CONTRIBUTE,
     // Son stock et celui des KAM de ses gammes (§118.164) — il les VOIT ; la gestion des équipes est
     // au directeur des opérations.
     PROMO_STOCK: CONTRIBUTE },
@@ -338,6 +351,13 @@ export const PERMISSIONS: Record<UserRole, RoleMatrix> = {
     // cette entrée laisse les articles à la Direction, au Directeur Général et au Super Admin, et
     // la console d'accès les ouvre ensuite nommément à qui les rédige.
     SITE_WEB: MANAGE,
+    // LA FORCE DE VENTE EN LECTURE (§118.185 — audit 360°, I11). Les messages pré-définis — que les
+    // rapports terrain EXIGENT, et dont l'écran s'intitule « Messages Direction Marketing » — vivent
+    // sous ce module ; la Direction Marketing ne pouvait pas même les lire, et le lien « Business
+    // units » de son budget menait à une page fermée. LECTURE seulement : écrire les messages reste
+    // une liste de rôles que le Super Admin pose (Administration › Réglages), et rien de la force de
+    // vente ne se modifie d'ici.
+    SALES_PLANNING: READ,
   },
   BUSINESS_DEVELOPMENT_MANAGER: {
     WORKSPACE: WORKSPACE_USER, FEEDBACK: FEEDBACK_USER, MESSAGING: MESSAGING_USER, VALIDATIONS: VALIDATION_USER, DRIVE: DRIVE_USER, ADMIN_REQUESTS: REQUEST_USER, BUSINESS_DEVELOPMENT: MANAGE, PRODUCT_EXPLORER: MANAGE, DOCUMENTS: CONTRIBUTE, DIRECTIVES: DIRECTIVES_USER, SUPPORT: SUPPORT_USER, DOSSIERS: DOSSIERS_USER, NOTIFICATIONS: ["VIEW"],
@@ -705,6 +725,9 @@ export function defaultScope(role: UserRole, module: Module): AccessScope {
     // les autres porteurs du module (Direction, Direction Marketing, directeur des opérations,
     // Finances) ont la vue globale. La console élargit ou resserre personne par personne.
     PROMO_STOCK: ["MEDICAL_DELEGATE", "NATIONAL_SALES", "MEDICAL_PROMOTION_MANAGER"],
+    // Sponsoring (audit 360°, I4) : le délégué DEMANDE et ne voit que ses demandes ; le National
+    // Sales, absent, les voit toutes — c'est lui qui en instruit l'étape préliminaire.
+    SPONSORING: ["MEDICAL_DELEGATE"],
   };
   return assigned[module]?.includes(role) ? "ASSIGNED" : "ALL";
 }
@@ -1440,6 +1463,18 @@ export function scopeCongressIntl(user: SessionUser): Prisma.CongressInternation
 /** Congrès / événements nationaux : même logique. */
 export function scopeCongressNational(user: SessionUser): Prisma.CongressNationalWhereInput {
   const m = user.access.modules.get("CONGRESS_NATIONAL");
+  if (!m) return { id: "__none__" };
+  if (m.scope === "ALL") return {};
+  return { OR: [{ requesterId: user.id }, { productManagerId: user.id }] };
+}
+
+/**
+ * SPONSORING (§118.185 — audit 360°, I4) : jusqu'ici, qui avait le module voyait tout — aucun rôle
+ * n'avait de portée par ligne. Le délégué médical reçoit le module pour déposer SA demande : sa
+ * portée ASSIGNÉE se lit ici, une fois, par la liste, la fiche, la recherche et la porte des pièces.
+ */
+export function scopeSponsoring(user: SessionUser): Prisma.SponsoringRequestWhereInput {
+  const m = user.access.modules.get("SPONSORING");
   if (!m) return { id: "__none__" };
   if (m.scope === "ALL") return {};
   return { OR: [{ requesterId: user.id }, { productManagerId: user.id }] };

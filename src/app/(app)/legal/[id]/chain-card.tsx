@@ -7,6 +7,7 @@ import { natureLegale } from "@/lib/labels";
 import { delayDays, delayLabel, missingKinds, amountDrift, CHAIN_KIND_LABEL } from "@/lib/legal/chain";
 import type { ChainLink, ChainSettlement } from "@/lib/queries/legal-chain";
 import { SendToSettlementButton } from "./send-to-settlement";
+import { ordreClos } from "@/lib/finances/settlement";
 
 /**
  * LA CHAÎNE DU DOSSIER D'ACHAT — devis → bon de commande → facture → règlement, d'un seul écran.
@@ -141,10 +142,11 @@ export function LegalChainCard({
         )}
 
         {/* La facture part au règlement D'ICI — et passe par le centre de paiement. */}
-        {canSettle && current?.kind === "INVOICE" && !settlement && (
+        {/* Un ordre REFUSÉ par le centre, ou annulé, ne paiera jamais : la facture repart (§118.185). */}
+        {canSettle && current?.kind === "INVOICE" && (!settlement || ordreClos(settlement)) && (
           settleBlocked
             ? <p className="rounded-lg bg-warning/10 px-3 py-2 text-xs text-foreground">{settleBlocked}</p>
-            : <SendToSettlementButton id={current.id} amount={current.amount} />
+            : <SendToSettlementButton id={current.id} amount={current.amount} renvoi={Boolean(settlement)} />
         )}
       </CardContent>
     </Card>

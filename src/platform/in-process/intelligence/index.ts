@@ -20,6 +20,7 @@
  */
 
 import { prisma } from "@/lib/prisma";
+import { ordresAvecFacture } from "@/lib/finance/facture-ordre";
 import { userCan, type SessionUser } from "@/lib/rbac";
 import { companyScopedWhere } from "@/lib/company";
 import { legalReaderWhere } from "@/lib/lecteurs/legal";
@@ -255,7 +256,7 @@ export async function signauxFinance(user: SessionUser, opts: { horizonJours?: n
       const [ordres, demandes, facturesSansBc, bcSansFacture, facturesChainees] = await Promise.all([
         prisma.expenseOrder.findMany({
           where: await companyScopedWhere(user.id, { status: { not: "CANCELLED" as const }, OR: [{ requiresInvoice: true }, { dueDate: { lte: new Date(now.getTime() + horizon * 86_400_000) } }] }),
-          select: { id: true, reference: true, label: true, amount: true, status: true, requiresInvoice: true, paidDate: true, dueDate: true, deadlineNature: true },
+          select: { id: true, reference: true, label: true, amount: true, status: true, requiresInvoice: true, paidDate: true, dueDate: true, deadlineNature: true, sourceType: true, sourceId: true },
           orderBy: [{ dueDate: "asc" }], take: 300,
         }),
         prisma.paymentRequest.findMany({
@@ -277,8 +278,9 @@ export async function signauxFinance(user: SessionUser, opts: { horizonJours?: n
         }),
       ]);
       portee.ordresDeDepense = ordres.length; portee.demandesDePaiement = demandes.length; portee.facturesChainees = facturesChainees.length;
-      const ids = ordres.filter((o) => o.requiresInvoice).map((o) => o.id);
-      const liees = ids.length ? new Set((await prisma.legalDocument.findMany({ where: { kind: "INVOICE", expenseOrderId: { in: ids } }, select: { expenseOrderId: true } })).map((l) => l.expenseOrderId)) : new Set<string | null>();
+      // La MÊME règle que le règlement (`finance/facture-ordre.ts`, §118.185) : ce signal ne lisait que
+      // le registre Legal et criait « justificatif manquant » sur un ordre dont la facture était jointe.
+      const liees = await ordresAvecFacture(ordres.filter((o) => o.requiresInvoice));
       signaux.push(...justificatifsManquants(ordres.filter((o) => o.requiresInvoice).map((o) => ({
         id: o.id, reference: o.reference, libelle: o.label, montant: toNumber(o.amount), statut: o.status, factureExigee: true, factureLiee: liees.has(o.id), regleLe: o.paidDate,
       }))));

@@ -7,6 +7,7 @@ import { userCan, hasGlobalView } from "@/lib/rbac";
 import { ENTITY_MODULE, moduleDeLEntite } from "@/lib/entity-access";
 import { pickAutoCategory } from "@/lib/budget/auto-category";
 import { prisma } from "@/lib/prisma";
+import { ordreAFacture } from "@/lib/finance/facture-ordre";
 import { nextFinanceRef } from "@/lib/finance/next-ref";
 import { recordAudit } from "@/lib/audit";
 import { notifyUser, notifyRoles } from "@/lib/notify";
@@ -70,19 +71,12 @@ export async function settleExpenseOrder(formData: FormData): Promise<ActionResu
     return { ok: false, error: blockedReason(order.centralStatus as CentralStatus) ?? "Ce paiement n'est pas autorisé." };
   }
 
-  // Facture obligatoire pour les dépenses événementielles : joindre la facture
-  // (à l'ordre ou au dossier source) avant de régler, sinon la demander.
-  if (order.requiresInvoice) {
-    const invoice = await prisma.document.count({
-      where: {
-        category: "INVOICE",
-        OR: [
-          { entityType: "EXPENSE_ORDER", entityId: order.id },
-          ...(order.sourceType && order.sourceId ? [{ entityType: order.sourceType, entityId: order.sourceId }] : []),
-        ],
-      },
-    });
-    if (invoice === 0) return { ok: false, error: "Facture obligatoire : joignez la facture à l'ordre (ou au dossier source) avant de régler, ou demandez-la au demandeur." };
+  // Facture obligatoire pour les dépenses événementielles : la facture doit être là avant de
+  // régler — à l'ordre, au dossier source, au poste, au dossier compagnon ou au registre Legal. La
+  // règle vit dans `finance/facture-ordre.ts`, lue aussi par l'écran et par l'intelligence
+  // financière (§118.185, audit 360° I6) : trois écritures de la même question divergeaient.
+  if (order.requiresInvoice && !(await ordreAFacture({ id: order.id, sourceType: order.sourceType, sourceId: order.sourceId }))) {
+    return { ok: false, error: "Facture obligatoire : joignez la facture à l'ordre, à son dossier ou à la fiche d'origine (ou enregistrez-la dans Legal) avant de régler, ou demandez-la au demandeur." };
   }
 
   // ── UNE REMISE DE CAISSE D'AVANCE N'EST PAS UNE DÉPENSE (§118.176) ─────────────────────────

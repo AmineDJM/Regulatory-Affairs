@@ -414,6 +414,8 @@ async function enrichLineById(id: string): Promise<boolean> {
       refPriceSource: price ? `Réception PCH 2025 — ${price.label}${price.date ? ` (${price.date})` : ""}` : line.refPriceSource,
       haveProduct: ours ? true : line.haveProduct,
       ourProductId: ours?.id ?? line.ourProductId,
+      // Une désignation déjà posée (à la main, ou par un enrichissement d'avant) n'est jamais remplacée.
+      ...(line.productId == null && ours?.productId ? { productId: ours.productId } : {}),
       ourProduct: ours?.label ?? line.ourProduct,
       registeredOurs: ours ? true : line.registeredOurs,
       suppliersInfo: line.suppliersInfo || (best ? `${best.manufacturers} fabricant(s) / ${best.importers} importateur(s)${nom.origins ? ` · nomenclature : ${nom.origins}` : ""}` : nom.origins ? `Nomenclature : ${nom.origins}` : null),
@@ -474,15 +476,23 @@ function parseBoxSize(cond: string | null | undefined): number | null {
 /** Rapproche le produit de NOTRE catalogue Regulatory (dci + dosage), renvoie {id,label} si trouvé.
  *  Les dossiers VERROUILLÉS sont exclus : l'analyse d'un appel d'offres est lue par toute
  *  l'équipe, et y voir « notre produit » révélerait le portefeuille confidentiel. */
-async function matchOurProduct(dci: string, dosage: string | null): Promise<{ id: string; label: string } | null> {
+async function matchOurProduct(dci: string, dosage: string | null): Promise<{ id: string; label: string; productId: string | null } | null> {
   const qt = queryTokens(normText([dci, dosage].filter(Boolean).join(" ")));
   if (!qt.length) return null;
-  const products = await prisma.regulatoryProduct.findMany({ where: { isLocked: false }, select: { id: true, dci: true, brandName: true, dosage: true, dosageUnit: true, reference: true }, take: 2000 });
-  const hit = products.find((p) => {
+  const products = await prisma.regulatoryProduct.findMany({ where: { isLocked: false }, select: { id: true, dci: true, brandName: true, dosage: true, dosageUnit: true, reference: true, productId: true }, take: 2000 });
+  const hits = products.filter((p) => {
     const hay = normText(`${p.dci} ${p.brandName ?? ""} ${p.dosage ?? ""} ${p.dosageUnit ?? ""}`);
     return allTokensIn(hay, qt);
   });
-  return hit ? { id: hit.id, label: `${hit.brandName || hit.dci} · ${hit.reference}` } : null;
+  const hit = hits[0];
+  if (!hit) return null;
+  // LE PRODUIT CANONIQUE, ET SEULEMENT À COUP SÛR (audit 360°, I17 ; §118.178) : le lot n'en recevait
+  // jamais, donc la réserve « un produit, un AO » ne s'affichait jamais. On le pose quand TOUS les
+  // dossiers reconnus désignent le MÊME produit canonique — deux produits possibles n'en désignent
+  // aucun (§118.34) : choisir le premier rattacherait le lot au mauvais médicament, en silence.
+  const canoniques = new Set(hits.map((h) => h.productId));
+  const productId = canoniques.size === 1 ? hit.productId : null;
+  return { id: hit.id, label: `${hit.brandName || hit.dci} · ${hit.reference}`, productId };
 }
 
 // ─────────────────────── Logistique : dates d'arrivée d'un bon de commande ───────────────────────

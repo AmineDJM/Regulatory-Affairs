@@ -30,6 +30,28 @@ export interface PurchaseLine {
   unitPrice: number | null;
 }
 
+/**
+ * LES LIGNES D'UNE DEMANDE, RELUES DEPUIS SES CHAMPS — une lecture, pour la fiche, la carte de
+ * validation et « Mes demandes » (§118.185 — audit 360°, I14).
+ *
+ * Les lignes voyagent dans `fields.purchaseLines` (du JSON) : la fiche n'affichait que les champs
+ * DÉCLARÉS du type, et la carte de validation un titre coupé « (+2) ». Le N+1 validait à l'aveugle
+ * et l'assistante ne savait pas quoi acheter. Ce qui ne se lit pas à coup sûr (un champ qui n'est
+ * pas une liste, une ligne sans libellé) est écarté, jamais deviné.
+ */
+export function lireLignesDAchat(fields: unknown): PurchaseLine[] {
+  const brut = fields && typeof fields === "object" ? (fields as Record<string, unknown>).purchaseLines : null;
+  if (!Array.isArray(brut)) return [];
+  return cleanLines(brut
+    .filter((l): l is Record<string, unknown> => Boolean(l) && typeof l === "object")
+    .map((l) => ({
+      articleId: typeof l.articleId === "string" ? l.articleId : null,
+      label: typeof l.label === "string" ? l.label : "",
+      quantity: typeof l.quantity === "number" ? l.quantity : Number(l.quantity),
+      unitPrice: typeof l.unitPrice === "number" ? l.unitPrice : null,
+    })));
+}
+
 /** Nettoie la saisie : on jette les lignes vides plutôt que d'enregistrer du bruit. */
 export function cleanLines(lines: PurchaseLine[]): PurchaseLine[] {
   return lines

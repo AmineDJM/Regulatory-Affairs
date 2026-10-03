@@ -52,26 +52,28 @@ en charge se chargent par leur identifiant seul (relevé de la phase 0).
 
 ## 2. Impasses : un geste attendu que personne ne peut faire
 
+**État au 3 octobre** : I1 à I3 corrigés avec le lot A ; I4 à I18 corrigés et testés (lot B, `CLAUDE.md` §118.185). Reste ouvert : la file des approbations du secrétariat n'est pas cloisonnée par société pour qui valide le module ; l'écran Validations ne liste pas encore les arbitrages Ad & Pro (Mon espace oui) ; les notifications de l'étape Direction Marketing partent à tout le rôle, sans filtre de gamme ; la file des congés à signer lit les 200 congés en attente de toute la base avant de filtrer ; les étapes adressées à un rôle ne se délèguent pas par l'intérim (décision).
+
 | # | Constat | |
 |---|---|---|
 | I1 | **Plan de tournée escaladé** : le N+2 le voit « à décider » mais **n'a aucun bouton** s'il n'a pas la vue globale (`plan-de-tournee/page.tsx:130-134`) — le plan reste bloqué | corrigé (lot A, avec S1) |
 | I2 | Le **circuit du plan de tournée n'envoie AUCUNE notification** (soumission, escalade, validation, **rejet** dont les 48 h courent) (`tour-plan-actions.ts` : 0 notification) | corrigé (lot A, avec S1) |
 | I3 | Le **réviseur valide un plan sans voir les visites** (la grille jour × médecin n'est rendue qu'au KAM) (`planificateur.tsx:191-225`) | corrigé (lot A, avec S1) |
-| I4 | Le **KAM ne peut pas créer de sponsoring** (le rôle n'a pas le module), alors que la décision du 28/09 fait passer « le sponsoring d'un KAM » par le National Sales (`rbac.ts:284`) | ✔ |
-| I5 | **KAM et National Sales n'ont pas le module Stocks**, alors que l'écran des stocks hospitaliers est conçu pour eux (`rbac.ts:284,305`) | ✔ |
-| I6 | **« Facture obligatoire »** ne voit que les fichiers joints à l'ordre ou à la fiche source — pas les **factures rangées dans Legal** ni sur les postes : les ordres des postes / congrès / sponsorings peuvent devenir **impayables** (`expense-actions.ts:72-84`) | ✔ (règle) |
-| I7 | **Ordre fantôme** : retirer ou refuser une demande de paiement, ou annuler une facture Legal, laisse l'ordre de dépense **ouvert et payable** au centre de paiement (`payment-request-actions.ts:270-282, 735-760`) | ○ |
-| I8 | **Facture refusée au centre** : bloquée pour toujours (« déjà partie au règlement ») (`settlement.ts:236`, `authorization.ts:182`) | ○ |
-| I9 | **Information médicale** : un dossier sur lequel un validateur clique « Modification » ne peut plus jamais être resoumis ; les **Finances** notifiées « quittance à remettre » tombent sur une **page introuvable** (`declare-decision.ts:87-90`, `queries/medical-info.ts:52-58`) | ○ |
-| I10 | **Assistante de direction** : la notification « Bon de commande à établir » mène à une page qu'elle ne peut pas ouvrir ; le **passeport** annoncé dans le sujet de réservation lui est **refusé** ; son bureau ne charge que **200 demandes** ; les nouvelles demandes sans responsable **ne lui sont pas signalées** | ○ |
-| I11 | **Direction Marketing** : ne peut pas ouvrir les **messages pré-définis** qu'elle doit écrire ; ses **arbitrages** (événements, consulting, autres, matériel) n'apparaissent ni dans Mon espace ni dans les validations ; ne peut ouvrir ni devis, ni BC, ni factures des demandes qu'elle arbitre | ○ |
-| I12 | **Formations** : le N+1 « responsable de département » n'a jamais le bouton de décision ; l'étape « DG » est fermée au DG lui-même | ○ |
-| I13 | **Mon Équipe** : « Traiter » un congé mène à une page RH refusée ; « Traiter » un achat déjà passé aux Finances donne une 404 | ○ |
-| I14 | **Demande d'achat** : ses **lignes n'apparaissent nulle part** (ni pour le N+1 qui valide, ni pour l'assistante qui achète) (`demandes/[id]/page.tsx:105-107`) | ○ |
-| I15 | **Regulatory** : chaque modification de la fiche **efface la « Date cible de dépôt »** (le formulaire n'a pas le champ, l'action écrit `null`) (`regulatory-actions.ts:513`, `edit-product.tsx:157`) | ✔ |
-| I16 | **Revue mensuelle SFE** renvoyée **chaque minute** toute la journée du 1er (`sfe-sweep.ts:148,178`) | ○ |
-| I17 | **PCH** : le produit canonique d'un lot n'est jamais renseigné → la réserve « un produit, un AO » ne s'affiche jamais ; **supprimer un AO** efface en cascade lots, BC, livraisons, **sans corbeille** | ○ |
-| I18 | **Délégation (intérim)** : le panneau promet de « trancher les validations qui vous sont adressées », mais l'intérimaire n'est reconnu que sur les validations génériques — congés, formations, achats, plans de tournée restent bloqués | ○ |
+| I4 | Le **KAM ne peut pas créer de sponsoring** (le rôle n'a pas le module), alors que la décision du 28/09 fait passer « le sponsoring d'un KAM » par le National Sales (`rbac.ts:284`) | corrigé (lot B) |
+| I5 | **KAM et National Sales n'ont pas le module Stocks**, alors que l'écran des stocks hospitaliers est conçu pour eux (`rbac.ts:284,305`) | corrigé (lot B) |
+| I6 | **« Facture obligatoire »** ne voit que les fichiers joints à l'ordre ou à la fiche source — pas les **factures rangées dans Legal** ni sur les postes : les ordres des postes / congrès / sponsorings peuvent devenir **impayables** (`expense-actions.ts:72-84`) | corrigé (lot B) |
+| I7 | **Ordre fantôme** : retirer ou refuser une demande de paiement, ou annuler une facture Legal, laisse l'ordre de dépense **ouvert et payable** au centre de paiement (`payment-request-actions.ts:270-282, 735-760`) | corrigé (lot B) |
+| I8 | **Facture refusée au centre** : bloquée pour toujours (« déjà partie au règlement ») (`settlement.ts:236`, `authorization.ts:182`) | corrigé (lot B) |
+| I9 | **Information médicale** : un dossier sur lequel un validateur clique « Modification » ne peut plus jamais être resoumis ; les **Finances** notifiées « quittance à remettre » tombent sur une **page introuvable** (`declare-decision.ts:87-90`, `queries/medical-info.ts:52-58`) | corrigé (lot B) |
+| I10 | **Assistante de direction** : la notification « Bon de commande à établir » mène à une page qu'elle ne peut pas ouvrir ; le **passeport** annoncé dans le sujet de réservation lui est **refusé** ; son bureau ne charge que **200 demandes** ; les nouvelles demandes sans responsable **ne lui sont pas signalées** | corrigé (lot B) |
+| I11 | **Direction Marketing** : ne peut pas ouvrir les **messages pré-définis** qu'elle doit écrire ; ses **arbitrages** (événements, consulting, autres, matériel) n'apparaissent ni dans Mon espace ni dans les validations ; ne peut ouvrir ni devis, ni BC, ni factures des demandes qu'elle arbitre | corrigé (lot B) |
+| I12 | **Formations** : le N+1 « responsable de département » n'a jamais le bouton de décision ; l'étape « DG » est fermée au DG lui-même | corrigé (lot B) |
+| I13 | **Mon Équipe** : « Traiter » un congé mène à une page RH refusée ; « Traiter » un achat déjà passé aux Finances donne une 404 | corrigé (lot B) |
+| I14 | **Demande d'achat** : ses **lignes n'apparaissent nulle part** (ni pour le N+1 qui valide, ni pour l'assistante qui achète) (`demandes/[id]/page.tsx:105-107`) | corrigé (lot B) |
+| I15 | **Regulatory** : chaque modification de la fiche **efface la « Date cible de dépôt »** (le formulaire n'a pas le champ, l'action écrit `null`) (`regulatory-actions.ts:513`, `edit-product.tsx:157`) | corrigé (lot B) |
+| I16 | **Revue mensuelle SFE** renvoyée **chaque minute** toute la journée du 1er (`sfe-sweep.ts:148,178`) | corrigé (lot B) |
+| I17 | **PCH** : le produit canonique d'un lot n'est jamais renseigné → la réserve « un produit, un AO » ne s'affiche jamais ; **supprimer un AO** efface en cascade lots, BC, livraisons, **sans corbeille** | corrigé (lot B) |
+| I18 | **Délégation (intérim)** : le panneau promet de « trancher les validations qui vous sont adressées », mais l'intérimaire n'est reconnu que sur les validations génériques — congés, formations, achats, plans de tournée restent bloqués | corrigé (lot B) |
 
 ## 3. Révisions — « ne pas être figé »
 

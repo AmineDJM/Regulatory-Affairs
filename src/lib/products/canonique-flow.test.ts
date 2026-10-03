@@ -65,7 +65,6 @@ suite("le produit canonique, branché aux portes qui créent et corrigent les do
   const dossiers: string[] = [];
   const promos: string[] = [];
   const bds: string[] = [];
-  let bdRangeId = "";
 
   /** Un dossier COMPLET par défaut ; chaque cas retire ou change ce qu'il éprouve. */
   const identite = (dci: string, extra: Record<string, string> = {}) => ({
@@ -94,8 +93,6 @@ suite("le produit canonique, branché aux portes qui créent et corrigent les do
     ]);
     adminId = a.id; assistId = b.id; opsId = o.id;
     SA = await actorFor(adminId, "SUPER_ADMIN");
-    const range = await prisma.bdRange.create({ data: { name: `${TAG} gamme BD` } as never, select: { id: true } }).catch(() => null);
-    bdRangeId = range?.id ?? "";
   });
 
   afterAll(async () => {
@@ -104,7 +101,6 @@ suite("le produit canonique, branché aux portes qui créent et corrigent les do
     const parTag = (await prisma.product.findMany({ where: { dci: { startsWith: TAG } }, select: { id: true } })).map((p) => p.id);
     await prisma.promoProduct.deleteMany({ where: { id: { in: promos } } }).catch(() => {});
     await prisma.bdProduct.deleteMany({ where: { id: { in: bds } } }).catch(() => {});
-    if (bdRangeId) await prisma.bdRange.delete({ where: { id: bdRangeId } }).catch(() => {});
     await prisma.regulatoryProduct.deleteMany({ where: { id: { in: dossiers } } }).catch(() => {});
     await prisma.product.deleteMany({ where: { id: { in: [...new Set([...produits, ...parTag])] } } }).catch(() => {});
     await prisma.auditLog.deleteMany({ where: { actorId: { in: [adminId, assistId, opsId] } } }).catch(() => {});
@@ -428,5 +424,27 @@ suite("le produit canonique, branché aux portes qui créent et corrigent les do
     const ok = await rattacherDossierCanonique(fd({ id: r.id }));
     expect(ok.ok, ok.error).toBe(true);
     expect((await prisma.regulatoryProduct.findUniqueOrThrow({ where: { id: r.id }, select: { productId: true } })).productId).not.toBeNull();
+  });
+
+  it("une modification qui ne porte PAS les dates cibles les garde — envoyée vide, elle les efface (§118.185, I15)", async () => {
+    // Le formulaire de modification n'a pas de « date cible de dépôt » : elle se règle par la
+    // supervision. Chaque enregistrement l'effaçait — le champ absent était lu comme vide.
+    const r = await creer(identite(mol("IOTA"), { targetDate: "2027-03-01", targetSubmissionDate: "2027-01-15" }));
+    const dates = () => prisma.regulatoryProduct.findUniqueOrThrow({ where: { id: r.id! }, select: { targetDate: true, targetSubmissionDate: true } });
+    const avant = await dates();
+    expect(avant.targetDate, "prémisse : la date cible est posée à la création").not.toBeNull();
+    expect(avant.targetSubmissionDate, "prémisse : la date de dépôt est posée à la création").not.toBeNull();
+    ACTOR = SA;
+    const u = await updateRegulatoryProduct(undefined, fd({ id: r.id!, ...identite(mol("IOTA"), { comments: "corrigé" }) }));
+    expect(u.ok, u.error).toBe(true);
+    const apres = await dates();
+    expect(apres.targetDate?.toISOString()).toBe(avant.targetDate?.toISOString());
+    expect(apres.targetSubmissionDate?.toISOString()).toBe(avant.targetSubmissionDate?.toISOString());
+    // Le témoin : un champ ENVOYÉ vide efface — sans lui, une garde qui ne touche jamais aux dates passerait.
+    const v = await updateRegulatoryProduct(undefined, fd({ id: r.id!, ...identite(mol("IOTA")), targetSubmissionDate: "" }));
+    expect(v.ok, v.error).toBe(true);
+    const vide = await dates();
+    expect(vide.targetSubmissionDate).toBeNull();
+    expect(vide.targetDate?.toISOString()).toBe(avant.targetDate?.toISOString());
   });
 });

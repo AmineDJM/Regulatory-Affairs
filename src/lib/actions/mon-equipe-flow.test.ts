@@ -85,6 +85,7 @@ suite("Mon Équipe montre tout l'arbre, et n'ouvre les indicateurs qu'à qui enc
   afterAll(async () => {
     if (visitId) await prisma.medicalVisit.deleteMany({ where: { id: visitId } }).catch(() => {});
     await prisma.leaveRequest.deleteMany({ where: { employeeId: { in: Object.values(emps) } } }).catch(() => {});
+    await prisma.administrativeRequest.deleteMany({ where: { reference: { startsWith: TAG } } }).catch(() => {});
     await prisma.employee.deleteMany({ where: { id: { in: Object.values(emps) } } }).catch(() => {});
     await prisma.user.deleteMany({ where: { email: { startsWith: TAG } } }).catch(() => {});
   }, 120_000);
@@ -168,5 +169,35 @@ suite("Mon Équipe montre tout l'arbre, et n'ouvre les indicateurs qu'à qui enc
     expect(inconnu.ok).toBe(false);
     expect(horsEquipe.ok).toBe(false);
     expect(inconnu.ok === false && horsEquipe.ok === false && inconnu.error === horsEquipe.error).toBe(true);
+  });
+  it("UN ACHAT QUI ATTEND QUELQU'UN D'AUTRE ne remonte pas — celui qui attend MA validation, si (§118.185, I13)", async () => {
+    // Une demande passée à l'étape suivante garde une approbation EN ATTENTE au nom du validateur
+    // suivant : la lire comme « en attente » tout court la laissait dans ma file, et « Traiter »
+    // menait à une page qui me refusait. La file lit l'approbation qui est À MOI.
+    const achat = async (suffixe: string, validatorId: string) => {
+      const r = await prisma.administrativeRequest.create({
+        data: { reference: `${TAG}-ACH-${suffixe}`, title: `${TAG} achat ${suffixe}`, type: "PURCHASE", status: "IN_PROGRESS", requesterId: users.delegue, createdById: users.delegue },
+        select: { id: true },
+      });
+      await prisma.adminApproval.create({ data: { requestId: r.id, requestedById: users.delegue, validatorId, status: "PENDING" } });
+      return r.id;
+    };
+    const chezUnAutre = await achat("AUTRE", users.dg);
+    const chezMoi = await achat("MOI", users.dir);
+    const dir = await actorFor(users.dir, "MEDICAL_PROMOTION_MANAGER");
+    const { pending } = await getMyTeam(dir);
+    const ids = pending.filter((p) => p.kind === "PURCHASE").map((p) => p.id);
+    expect(ids).toContain(`purchase-${chezMoi}`);
+    expect(ids).not.toContain(`purchase-${chezUnAutre}`);
+  });
+
+  it("LE CONGÉ MÈNE À MON ESPACE, au bloc qui le signe — et ce bloc existe à cette adresse", async () => {
+    // `/rh/conges` est l'écran des RH : un N+1 sans le module y était refusé.
+    const dir = await actorFor(users.dir, "MEDICAL_PROMOTION_MANAGER");
+    const conge = (await getMyTeam(dir)).pending.find((p) => p.kind === "LEAVE" && p.who.includes("delegue"));
+    expect(conge?.href).toBe("/mon-espace#conges-a-signer");
+    // Le point d'arrivée : une ancre qu'aucun élément ne porte ferait arriver en haut de page.
+    const { readFileSync } = await import("node:fs");
+    expect(readFileSync("src/app/(app)/mon-espace/page.tsx", "utf8")).toMatch(/<section id="conges-a-signer"/);
   });
 });

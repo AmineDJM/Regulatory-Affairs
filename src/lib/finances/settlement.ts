@@ -229,11 +229,19 @@ export function canSendToSettlement(input: {
    * la porte existe pour fermer. `null` (pas de BC amont, ou BC d'avant la règle) ne bloque rien.
    */
   bc?: { porte: PorteBC | null; reference: string | null } | null;
+  /**
+   * L'ORDRE DÉJÀ LIÉ, quand il y en a un (§118.185, audit 360° I8). Une facture que le centre de
+   * paiement a REFUSÉE, ou dont l'ordre a été ANNULÉ, restait « déjà partie au règlement » pour
+   * toujours : ni payable, ni renvoyable. Un ordre refusé ou annulé ne paiera jamais — la facture
+   * peut repartir, et le nouvel envoi remplace l'ancien lien. Sans ce fait (`undefined`), la règle
+   * reste celle d'avant : un lien bloque.
+   */
+  ordreLie?: { status: string; centralStatus: string } | null;
 }): SettlementCheck {
   if (input.kind !== "INVOICE") {
     return { ok: false, error: "Seul un document de nature « facture » s'envoie au règlement." };
   }
-  if (input.expenseOrderId) return { ok: false, error: "Cette facture est déjà partie au règlement." };
+  if (input.expenseOrderId && !ordreClos(input.ordreLie)) return { ok: false, error: "Cette facture est déjà partie au règlement." };
   if (input.paidDate) {
     return {
       ok: false,
@@ -244,6 +252,21 @@ export function canSendToSettlement(input: {
   const bloque = input.bc ? blocageParLeBC(input.bc.porte, input.bc.reference) : null;
   if (bloque) return { ok: false, error: bloque };
   return { ok: true };
+}
+
+/**
+ * LA CLÉ D'ENVOI D'UNE FACTURE — une seule, lue par les deux portes qui l'envoient au règlement (la
+ * fiche Legal et le dossier du matériel promotionnel) : deux clés pour la même pièce laisseraient
+ * deux clics simultanés, un sur chaque écran, ouvrir deux ordres (§118.185).
+ */
+export function cleEnvoiAuReglement(invoiceId: string | null): string {
+  return `reglement-facture:${invoiceId ?? ""}`;
+}
+
+/** Un ordre qui ne paiera jamais : annulé, ou refusé par le centre de paiement. */
+export function ordreClos(ordre: { status: string; centralStatus: string } | null | undefined): boolean {
+  if (!ordre) return false;
+  return ordre.status === "CANCELLED" || ordre.centralStatus === "REFUSED";
 }
 
 /**

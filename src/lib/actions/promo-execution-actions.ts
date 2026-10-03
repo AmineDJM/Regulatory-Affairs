@@ -15,7 +15,8 @@ import { createMedicalInfoDeclaration } from "@/lib/medical-info";
 import { aiguillerBC, porteDuBC } from "@/lib/bons-de-commande/aiguillage";
 import { etatDuBC, etatsDesBC } from "@/lib/bons-de-commande/etat";
 import { canCancel } from "@/lib/legal/lifecycle";
-import { canSendToSettlement } from "@/lib/finances/settlement";
+import { canSendToSettlement, cleEnvoiAuReglement, ordreClos } from "@/lib/finances/settlement";
+import { annulerOrdreNonRegle } from "@/lib/payments/annulation";
 import { getAppSettings } from "@/lib/settings";
 import { enSerie } from "@/lib/refs";
 import { emettreDocumentDrive, reviserDocumentDrive } from "@/platform/in-process/artifact/factory";
@@ -525,7 +526,7 @@ export async function receptionnerLigneFacturePromo(formData: FormData): Promise
   const brut = await ligneDuDossier(pm, fdStr(formData, "ligneId"));
   if (!brut) return { ok: false, error: "Cette ligne n'appartient pas à une facture de ce dossier." };
   const facture = brut.facture.legalDocument;
-  if (facture.expenseOrderId || facture.paidDate) return { ok: false, error: "Le paiement de cette facture est déjà demandé : sa réception est close." };
+  if (await paiementEnCours(facture)) return { ok: false, error: "Le paiement de cette facture est déjà demandé : sa réception est close." };
   const ligne = ligneFactureLue(brut);
   const brutQ = fdStr(formData, "quantiteRecue");
   const q = brutQ ? parseQuantity(brutQ) : null;
@@ -663,7 +664,7 @@ export async function annulerReceptionLigneFacturePromo(formData: FormData): Pro
   const brut = await ligneDuDossier(pm, fdStr(formData, "ligneId"));
   if (!brut) return { ok: false, error: "Cette ligne n'appartient pas à une facture de ce dossier." };
   const facture = brut.facture.legalDocument;
-  if (facture.expenseOrderId || facture.paidDate) return { ok: false, error: "Le paiement de cette facture est déjà demandé : sa réception ne se défait plus." };
+  if (await paiementEnCours(facture)) return { ok: false, error: "Le paiement de cette facture est déjà demandé : sa réception ne se défait plus." };
   if (brut.quantiteRecue == null) return { ok: false, error: `« ${brut.designation} » n'est pas réceptionnée.` };
   const motif = fdStr(formData, "motif");
   const remise = { quantiteRecue: null, recueLe: null, recueParId: null, stockItemId: null, stockLotId: null };
@@ -705,11 +706,16 @@ export async function annulerFacturePromo(formData: FormData): Promise<ActionRes
   if (!motif) return { ok: false, error: "Dites pourquoi cette facture est annulée : elle reste au registre, avec ce motif." };
   const facture = await factureDuDossier(pm, fdStr(formData, "invoiceId"));
   if (!facture) return { ok: false, error: "Cette facture n'appartient pas à ce dossier." };
-  if (facture.expenseOrderId || facture.paidDate) return { ok: false, error: "Le paiement de cette facture est déjà demandé : elle ne s'annule plus d'ici." };
+  if (await paiementEnCours(facture)) return { ok: false, error: "Le paiement de cette facture est déjà demandé : elle ne s'annule plus d'ici." };
   const recues = await prisma.promoFactureLigne.count({ where: { facture: { legalDocumentId: facture.id }, quantiteRecue: { not: null } } });
   if (recues > 0) return { ok: false, error: `${recues} ligne(s) de cette facture sont réceptionnées : annulez d'abord leur réception (ce qui est entré au stock y est physiquement).` };
   const doc = await prisma.legalDocument.findUnique({ where: { id: facture.id }, select: { status: true } });
   if (!doc || !canCancel(doc.status)) return { ok: false, error: "Cette facture ne peut plus être annulée." };
+  // Un ordre REFUSÉ par le centre reste « en attente » côté statut : il se ferme avec sa facture.
+  if (facture.expenseOrderId) {
+    const fermeture = await annulerOrdreNonRegle(facture.expenseOrderId, { acteurId: user.id, motif: `facture ${facture.reference ?? ""} annulée — ${motif.slice(0, 120)}` });
+    if (!fermeture.ok) return { ok: false, error: fermeture.error };
+  }
   await prisma.legalDocument.update({
     where: { id: facture.id },
     data: { status: "CANCELLED", cancelledAt: new Date(), cancelReason: motif, updatedById: user.id },
@@ -722,6 +728,18 @@ export async function annulerFacturePromo(formData: FormData): Promise<ActionRes
 const FORMALITES = ["AD_VISA", "MIP"] as const;
 type Formalite = (typeof FORMALITES)[number];
 const LIBELLE_FORMALITE: Record<Formalite, string> = { AD_VISA: "demande de visa publicitaire", MIP: "déclaration au ministère" };
+
+/**
+ * LE PAIEMENT DE CETTE FACTURE EST-IL EN COURS ? Réglée en direct, ou partie au circuit sur un ordre
+ * qui peut encore payer. Un ordre REFUSÉ par le centre ou ANNULÉ ne paiera jamais (§118.185, audit
+ * 360° I8) : la facture redevient corrigeable, annulable et renvoyable — sinon elle restait figée.
+ */
+async function paiementEnCours(facture: { expenseOrderId: string | null; paidDate: Date | null }): Promise<boolean> {
+  if (facture.paidDate) return true;
+  if (!facture.expenseOrderId) return false;
+  const ordre = await prisma.expenseOrder.findUnique({ where: { id: facture.expenseOrderId }, select: { status: true, centralStatus: true } });
+  return !ordreClos(ordre);
+}
 
 /** La facture de CE dossier, et le BC dont elle découle. */
 async function factureDuDossier(pm: Dossier, invoiceId: string | null) {
@@ -758,7 +776,8 @@ export async function demanderPaiementFacturePromo(formData: FormData): Promise<
   const invoiceId = fdStr(formData, "invoiceId");
   // SÉRIALISÉ PAR FACTURE : deux clics simultanés liraient tous deux « aucun ordre » et feraient
   // naître deux ordres de dépense pour la même facture — le même dinar demandé deux fois.
-  return enSerie(`promo-paiement:${invoiceId ?? ""}`, async (): Promise<ActionResult> => {
+  // La clé est celle de la fiche Legal, qui envoie la MÊME pièce par l'autre porte (§118.185).
+  return enSerie(cleEnvoiAuReglement(invoiceId), async (): Promise<ActionResult> => {
     const facture = await factureDuDossier(pm, invoiceId);
     if (!facture) return { ok: false, error: "Cette facture n'appartient pas à ce dossier." };
     const bc = facture.chainFrom ? await etatDuBC(facture.chainFrom.id) : null;
@@ -787,11 +806,21 @@ export async function demanderPaiementFacturePromo(formData: FormData): Promise<
       renoncer = v.renoncer;
       partiel = !v.complet;
     }
+    // L'ORDRE DÉJÀ LIÉ (§118.185, audit 360° I8) : refusé par le centre ou annulé, il ne paiera
+    // jamais — la facture repart, et l'ancien ordre est fermé pour qu'aucune décision tardive du
+    // centre ne rende payables deux ordres pour la même facture.
+    const ordreLie = facture.expenseOrderId
+      ? await prisma.expenseOrder.findUnique({ where: { id: facture.expenseOrderId }, select: { status: true, centralStatus: true } })
+      : null;
     const envoi = canSendToSettlement({
       kind: facture.kind, amount: montant || null, paidDate: facture.paidDate, expenseOrderId: facture.expenseOrderId,
-      bc: { porte: await porteDuBC(bc.id), reference: bc.reference },
+      bc: { porte: await porteDuBC(bc.id), reference: bc.reference }, ordreLie,
     });
     if (!envoi.ok) return { ok: false, error: envoi.error };
+    if (ordreLie) {
+      const fermeture = await annulerOrdreNonRegle(facture.expenseOrderId, { acteurId: user.id, motif: `remplacé par un nouvel envoi de la facture ${facture.reference ?? ""}` });
+      if (!fermeture.ok) return { ok: false, error: fermeture.error };
+    }
     if (renoncer.length) {
       // Écrit AVANT l'ordre : un renoncement confirmé ne dépend pas de la suite. Conditionnel : une
       // ligne déjà renoncée ne l'est pas deux fois (la date et l'auteur restent ceux du premier geste).

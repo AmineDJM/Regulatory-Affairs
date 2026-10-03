@@ -4,6 +4,7 @@ import { ArrowRight, CalendarRange } from "lucide-react";
 import { requireModule } from "@/lib/session";
 import { userCan, hasGlobalView } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
+import { standInForUserIds } from "@/lib/hr/stand-in-resolve";
 import { getAppSettings } from "@/lib/settings";
 import { PageHeader } from "@/components/shared/page-header";
 import { ModuleTabs } from "@/components/shared/module-tabs";
@@ -48,7 +49,8 @@ export default async function PlanDeTourneePage({ searchParams }: { searchParams
   const retardDe = (p: { status: string; submissionDueAt: Date; resubmitDueAt: Date | null }) =>
     retardDeSoumission({ statut: p.status as StatutPlan, echeance: p.submissionDueAt, resoumissionAvant: p.resubmitDueAt, maintenant });
 
-  // ── CE QUI M'ATTEND, MOI ────────────────────────────────────────────────────────────────
+  // ── CE QUI M'ATTEND, MOI — et l'absent que je remplace (I18) ──────────────────────────────
+  const agitPour = await standInForUserIds(user.id);
   const [mesPlans, aDecider] = await Promise.all([
     prisma.tourPlan.findMany({
       where: { repId: user.id },
@@ -64,6 +66,13 @@ export default async function PlanDeTourneePage({ searchParams }: { searchParams
         OR: [
           { reviewerId: user.id, status: "SUBMITTED" },
           { escalatedToId: user.id, status: "ESCALATED" },
+          // L'INTÉRIMAIRE voit ce qui attend l'absent — jamais son propre plan (`accesAuPlan` le refuse).
+          ...(agitPour.length
+            ? [
+                { reviewerId: { in: agitPour }, status: "SUBMITTED" as const, repId: { not: user.id } },
+                { escalatedToId: { in: agitPour }, status: "ESCALATED" as const, repId: { not: user.id } },
+              ]
+            : []),
           // UNE VUE GLOBALE VOIT TOUT CE QUI ATTEND : sans cette branche, un plan dont le
           // validateur a quitté l'entreprise n'apparaîtrait sur aucun écran et resterait soumis
           // pour toujours — le KAM attendant une décision que personne ne sait devoir prendre.
@@ -93,6 +102,7 @@ export default async function PlanDeTourneePage({ searchParams }: { searchParams
       chaineDuKam: plan.repId === user.id || plan.reviewerId === user.id || plan.escalatedToId === user.id || hasGlobalView(user)
         ? []
         : (await isManagerOfUser(user.id, plan.repId)) ? [user.id] : [],
+      agitPour,
     })
     : null;
   if (plan && !acces?.voir) notFound();

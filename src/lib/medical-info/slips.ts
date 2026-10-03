@@ -44,6 +44,8 @@ export type SlipsLotStage =
 export function slipsLotStage(i: { validationId: string | null; validationStatus: string | null }): SlipsLotStage {
   if (!i.validationId) return "A_DEMANDER";
   switch (i.validationStatus) {
+    // ANNULÉE : plus de demande — la lire « en validation » figeait le lot à vie (audit 360°, I9).
+    case "CANCELLED": return "A_DEMANDER";
     case "REJECTED": return "VALIDATION_REFUSEE";
     case "CHANGES_REQUESTED": return "VALIDATION_A_REVOIR";
     case "APPROVED": return "QUITTANCE_A_DEMANDER";
@@ -161,7 +163,9 @@ export function slipsSummary(slips: readonly SlipLike[]): SlipsSummary {
  * en retirer un laisserait une signature portant sur autre chose que ce qui existe.
  */
 export function canEditSlips(lotStage: SlipsLotStage): boolean {
-  return lotStage === "A_DEMANDER" || lotStage === "VALIDATION_REFUSEE";
+  // À REVOIR se corrige ICI et se resoumet (audit 360°, I9) : la demande de validation n'a aucun
+  // geste de reprise, et la resoumission clôt la précédente.
+  return lotStage === "A_DEMANDER" || lotStage === "VALIDATION_REFUSEE" || lotStage === "VALIDATION_A_REVOIR";
 }
 
 /**
@@ -187,7 +191,7 @@ export function slipsMessage(lotStage: SlipsLotStage, s: SlipsSummary): string {
     case "EN_VALIDATION":
       return "Le dépôt des bons est en validation : votre responsable, la Direction Marketing, puis le centre de validations. Rien à faire tant qu'ils n'ont pas signé.";
     case "VALIDATION_A_REVOIR":
-      return "Un validateur demande une modification : lisez son commentaire dans la demande de validation et reprenez-la là-bas.";
+      return "Un validateur demande une modification : lisez son commentaire dans la demande de validation, corrigez la liste des matériels et redemandez ici — la demande précédente sera close.";
     case "VALIDATION_REFUSEE":
       return "Le dépôt de ces bons a été refusé. Lisez le motif, corrigez la liste des matériels, puis redemandez.";
     default:

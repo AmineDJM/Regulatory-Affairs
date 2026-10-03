@@ -15,6 +15,7 @@ import { moneyEntityOf, getMyCompanies } from "@/lib/company";
 import { resolveMoneyEntity, checkMoneyEntity } from "@/lib/finance/money-entity";
 import { persistUploadedDocument } from "@/lib/documents";
 import { createExpenseOrder, SERIE_DEMANDES_PAIEMENT } from "@/lib/expense-orders";
+import { annulerOrdreNonRegle } from "@/lib/payments/annulation";
 import { toNumber } from "@/lib/utils";
 import { fdStr, fdNum, type ActionResult } from "@/lib/actions/types";
 import {
@@ -600,6 +601,16 @@ export async function decidePaymentRequest(formData: FormData): Promise<ActionRe
       if (!check.ok) return { ok: false, error: check.reason ?? "Bon à payer impossible." };
     }
 
+    // UN REFUS FERME LE PAIEMENT (§118.185, audit 360° I7). L'ordre de dépense est né à la soumission
+    // et attend au centre : refuser le dossier en le laissant ouvert, c'était dire « refusé » ici et
+    // le payer là-bas. Il est annulé AVANT le refus — et s'il est déjà réglé, rien n'est refusé.
+    let ordreAnnule: string | null = null;
+    if (move === "REJECT") {
+      const annulation = await annulerOrdreNonRegle(req.expenseOrderId, { acteurId: user.id, motif: `demande de paiement ${req.reference} refusée par les Finances` });
+      if (!annulation.ok) return { ok: false, error: annulation.error };
+      if (annulation.annule) ordreAnnule = annulation.reference;
+    }
+
     await prisma.paymentRequest.update({
       where: { id },
       data: {
@@ -652,7 +663,9 @@ export async function decidePaymentRequest(formData: FormData): Promise<ActionRe
       entityType: "PAYMENT_REQUEST", entityId: id, summary: `${move} — ${req.reference}`,
     });
     revalidate(id);
-    return { ok: true, id };
+    return ordreAnnule
+      ? { ok: true, id, message: `Demande refusée — l'ordre de dépense ${ordreAnnule} est annulé : il ne sera pas payé.` }
+      : { ok: true, id };
   } catch (err) {
     console.error("[payment] decidePaymentRequest failed", err);
     return { ok: false, error: "La décision n'a pas pu être enregistrée." };
@@ -748,11 +761,19 @@ export async function cancelPaymentRequest(formData: FormData): Promise<ActionRe
     }
     if (!nextPaymentStatus(req.status, "CANCEL")) return { ok: false, error: "Ce dossier est déjà clos." };
 
+    // RETIRER SA DEMANDE RETIRE SON PAIEMENT (§118.185, audit 360° I7) : l'ordre né à la soumission
+    // attend au centre ; le laisser ouvert, c'était un dossier « annulé » au-dessus d'un paiement qui
+    // part quand même. Déjà réglé, la demande ne se retire plus — et rien n'est touché.
+    const annulation = await annulerOrdreNonRegle(req.expenseOrderId, { acteurId: user.id, motif: `demande de paiement ${req.reference} retirée par son demandeur` });
+    if (!annulation.ok) return { ok: false, error: annulation.error };
+
     await prisma.paymentRequest.update({ where: { id }, data: { status: "CANCELLED" } });
     await trace(id, user.id, "CANCEL", fdStr(formData, "note"));
-    if (isWithFinance(req.status)) await alertFinance(req, "Demande de paiement retirée");
+    if (isWithFinance(req.status) || annulation.annule) await alertFinance(req, "Demande de paiement retirée");
     revalidate(id);
-    return { ok: true, id };
+    return annulation.annule
+      ? { ok: true, id, message: `Demande retirée — l'ordre de dépense ${annulation.reference ?? ""} est annulé : il ne sera pas payé.` }
+      : { ok: true, id };
   } catch (err) {
     console.error("[payment] cancelPaymentRequest failed", err);
     return { ok: false, error: "L'opération a échoué." };

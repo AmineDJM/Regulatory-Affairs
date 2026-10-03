@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowLeft, Gavel } from "lucide-react";
 import { requireModule } from "@/lib/session";
-import { userCan, hasGlobalView, hasRole } from "@/lib/rbac";
+import { userCan, hasGlobalView, hasRole, scopeSponsoring } from "@/lib/rbac";
 import { canAccessEntity } from "@/lib/entity-access";
 import { getEntityMissions } from "@/lib/queries/missions";
 import { getWorkflowForEntity } from "@/lib/queries/workflow";
@@ -46,8 +46,10 @@ import { ClosurePanel } from "./closure-panel";
 
 export default async function SponsoringDetailPage({ params }: { params: { id: string } }) {
   const user = await requireModule("SPONSORING");
-  const req = await prisma.sponsoringRequest.findUnique({
-    where: { id: params.id },
+  // LA PORTÉE PAR LIGNE (§118.185, I4) : un délégué n'ouvre que SES demandes — la même phrase
+  // qu'une demande inexistante, pour ne pas confirmer qu'un identifiant deviné existe.
+  const req = await prisma.sponsoringRequest.findFirst({
+    where: { AND: [{ id: params.id }, scopeSponsoring(user)] },
     include: { requester: { select: { name: true } } },
   });
   if (!req) notFound();

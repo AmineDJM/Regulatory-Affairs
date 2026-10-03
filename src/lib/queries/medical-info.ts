@@ -38,6 +38,8 @@ export async function getDeclaration(id: string) {
         include: { targetUser: { select: { id: true, name: true } } },
         orderBy: { createdAt: "asc" },
       },
+      // Ce que la règle de visibilité lit pour les Finances (audit 360°, I9) : un bon parti au paiement.
+      slips: { select: { requestId: true } },
     },
   });
 }
@@ -49,8 +51,16 @@ export type DeclarationDetail = NonNullable<Awaited<ReturnType<typeof getDeclara
  * Direction / un admin (accès au module), ou tout utilisateur sollicité pour une
  * pièce sur cette déclaration (afin qu'il puisse la déposer).
  */
-export function canViewDeclaration(user: SessionUser, decl: { pharmacistId: string | null; requests: { targetUserId: string | null }[] }): boolean {
+export function canViewDeclaration(
+  user: SessionUser,
+  decl: { pharmacistId: string | null; requests: { targetUserId: string | null }[]; slips?: { requestId: string | null }[] },
+): boolean {
   if (hasGlobalView(user.role)) return true;
+  // LES FINANCES, DÈS QU'UN BON EST PARTI AU PAIEMENT (audit 360°, I9). Elles règlent la quittance,
+  // puis la REMETTENT au bureau du pharmacien — et la notification « à remettre » les envoyait sur
+  // cette fiche, qui leur répondait « introuvable ». La porte s'ouvre sur le FAIT qui les concerne
+  // (un bon dont le paiement a été demandé), pas sur tout le registre de l'information médicale.
+  if (userCan(user, "FINANCES", "UPDATE") && (decl.slips ?? []).some((s) => s.requestId)) return true;
   if (userCan(user, "MEDICAL_INFO", "VIEW") && (decl.pharmacistId === user.id || user.role === "MEDICAL_INFO_PHARMACIST")) return true;
   if (decl.requests.some((r) => r.targetUserId === user.id)) return true;
   // Accès module avec portée ALL (ex. configuré par un admin) — ce que ce commentaire annonçait depuis

@@ -2,6 +2,7 @@ import { randomUUID } from "crypto";
 import { revalidatePath } from "next/cache";
 import type { LeaveType, UserRole, HrRequestType } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { auNomDeQui } from "@/lib/hr/stand-in-resolve";
 import { userCan, isTopManagement, type SessionUser } from "@/lib/rbac";
 import { recordAudit } from "@/lib/audit";
 import { notifyUser, notifyRoles } from "@/lib/notify";
@@ -167,16 +168,20 @@ export async function leaveDecider(
   const isDg = isTopManagement(user);
   const isHr = userCan(user, "RH", "VALIDATE");
 
+  // LE N+1, OU SON INTÉRIMAIRE (§118.185 — audit 360°, I18) : la marche du responsable est
+  // adressée à une PERSONNE, et c'est précisément ce que l'intérim remplace. La règle « on ne
+  // signe pas son propre congé » reste celle de `canDecideLeave` (le demandeur contre `id`).
+  const { ids } = await auNomDeQui(user.id);
   let isManager = false;
   if (leave.managerId) {
     const mgr = await prisma.employee.findUnique({ where: { id: leave.managerId }, select: { userId: true } });
-    isManager = mgr?.userId === user.id;
+    isManager = Boolean(mgr?.userId && ids.has(mgr.userId));
   }
   // Le N+1 enregistré à la soumission peut avoir changé (mutation, départ) : on accepte aussi
   // toute personne au-dessus dans la chaîne ACTUELLE, sinon la demande reste orpheline.
   if (!isManager) {
     const chain = await getManagementChain(leave.employeeId).catch(() => []);
-    isManager = chain.some((m) => m.userId === user.id);
+    isManager = chain.some((m) => Boolean(m.userId && ids.has(m.userId)));
   }
   return { id: user.id, isManager, isHr, isDg };
 }

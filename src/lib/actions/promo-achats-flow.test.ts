@@ -699,4 +699,24 @@ suite("Matériel promotionnel — achats piochés dans le catalogue, facture lig
     expect(r.ok, r.ok ? "" : r.error).toBe(true);
     expect(Number((await prisma.expenseOrder.findFirstOrThrow({ where: { sourceType: "LEGAL_DOCUMENT", sourceId: ancienne.id } })).amount)).toBe(20_000);
   });
+  it("UNE FACTURE REFUSÉE AU CENTRE se renvoie et s'annule depuis le dossier ; celle dont l'ordre attend, non (§118.185, I8)", async () => {
+    await comme("cp");
+    const ancienne = await prisma.legalDocument.findFirstOrThrow({ where: { reference: "IA-ANCIENNE", sourceId: pmId }, select: { id: true, expenseOrderId: true } });
+    // Le témoin : l'ordre ATTEND le centre — la facture ne repart pas, et ne s'annule pas d'ici.
+    const doublon = await demanderPaiementFacturePromo(form({ promoMaterialId: pmId, invoiceId: ancienne.id, formalite: "AD_VISA" }));
+    expect(doublon.ok ? "" : doublon.error).toMatch(/déjà partie au règlement/);
+    expect((await annulerFacturePromo(form({ promoMaterialId: pmId, invoiceId: ancienne.id, motif: "x" }))).error).toMatch(/paiement de cette facture est déjà demandé/);
+    // Le centre REFUSE : l'ordre ne paiera jamais — la facture repart, et l'ancien ordre est fermé.
+    await prisma.expenseOrder.update({ where: { id: ancienne.expenseOrderId! }, data: { centralStatus: "REFUSED" } });
+    const r = await demanderPaiementFacturePromo(form({ promoMaterialId: pmId, invoiceId: ancienne.id, formalite: "AD_VISA" }));
+    expect(r.ok, r.ok ? "" : r.error).toBe(true);
+    expect((await prisma.expenseOrder.findUniqueOrThrow({ where: { id: ancienne.expenseOrderId! } })).status).toBe("CANCELLED");
+    const nouvelOrdre = (await prisma.legalDocument.findUniqueOrThrow({ where: { id: ancienne.id }, select: { expenseOrderId: true } })).expenseOrderId!;
+    expect(nouvelOrdre).not.toBe(ancienne.expenseOrderId);
+    // Refusé à son tour : la facture s'annule d'ici, et emporte l'ordre refusé.
+    await prisma.expenseOrder.update({ where: { id: nouvelOrdre }, data: { centralStatus: "REFUSED" } });
+    const a = await annulerFacturePromo(form({ promoMaterialId: pmId, invoiceId: ancienne.id, motif: "fournisseur changé" }));
+    expect(a.ok, a.ok ? "" : a.error).toBe(true);
+    expect((await prisma.expenseOrder.findUniqueOrThrow({ where: { id: nouvelOrdre } })).status).toBe("CANCELLED");
+  }, 60_000);
 });

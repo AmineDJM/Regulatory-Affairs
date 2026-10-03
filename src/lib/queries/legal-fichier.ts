@@ -14,7 +14,8 @@ import { fichiersEmis, type FormatFichierEmis } from "@/lib/legal/fichiers-emis"
  *     seules factures et bons de commande pour les Finances, les seuls bons de commande pour le
  *     module « Bons de commande », §118.176), la société, les lecteurs désignés ;
  *   • celle de l'ENREGISTREMENT (`canAccessEntity`), qui ouvre en lecture les pièces nées d'un
- *     dossier de matériel promotionnel à ceux qui ouvrent le dossier.
+ *     dossier de matériel promotionnel à ceux qui ouvrent le dossier, et les devis, bons de
+ *     commande et factures d'une demande Ad & Pro à qui la TRANCHE (§118.185).
  * Aucune troisième règle : le fichier suit la pièce, et une pièce que la fiche refuse, son fichier
  * le refuse aussi.
  */

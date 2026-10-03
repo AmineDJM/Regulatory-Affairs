@@ -4594,6 +4594,7 @@ entité) sont éligibles. Supprimer une gamme **ne supprime aucun produit** (`SE
 | **Panel du KAM, spécialités, types d'audit (graphe AMD, phase 1B)** | Panel : `clausePanelDuKam` dans `lib/rbac.ts` (lue par `scopeMedicalDoctors`, donc `canAccessEntity` DOCTOR), `lib/queries/panel-kam.ts` (`panelsDesKams` pour le cockpit, `kamsQuiCouvrent` pour l'alerte KOL), lecteurs `queries/tour-schedule.ts` (`loadPanelPlanifiable`), `queries/my-field-day.ts`, `queries/team-kpis.ts`, `queries/sfe-cockpit.ts`, `adventum/risks.ts` (`suiviDuKol`) ; banc `queries/panel-kam.test.ts` (acteurs sans vue globale). Spécialités : module PUR `lib/annuaires/specialites.ts` (`cleDeSpecialite`, `indexerSpecialites`, `ecritureDeSpecialite`, `lienDeSpecialiteValide` — un lien ne vaut que si le texte le désigne), chargeur `lib/queries/specialites.ts`, actions `medical-actions.ts` (création / renommage / retrait / `fusionnerSpecialite` / `rattacherLibelleSpecialite`, fiche praticien) et `medical-directory-actions.ts` (cellule, ajout de ligne, import, `rattacherSpecialitesParNom`), écran `app/(app)/annuaires/specialites/` ; banc `actions/specialites-flow.test.ts`. Types d'audit : `EntityType` + `BUSINESS_UNIT`, `TOUR_PLAN`, `SALES_SECTOR`, `INSTITUTION`, `SPECIALTY` (migrations `20261222090000_audit_types_graphe`, `20261222090100_audit_plans_de_tournee`), refusés comme portes par `canAccessEntity` ; banc `actions/audit-types-graphe.test.ts`. |
 | **Spécialités d'une BU (graphe AMD, phase 2)** | Modèle `BusinessUnitSpecialty` (BU × spécialité, `principale` ; index PARTIEL « une principale par BU » dans la migration `20261223090000_bu_specialites`, `onDelete: Restrict` côté référentiel) ; écrivain `lib/sfe/specialites-bu.ts` (`specialitesDemandees`, `ecrireSpecialitesBu`, `resumeSpecialitesBu` — dans un module que la dérivation des contrats LIT) ; actions `createBusinessUnit` (avec ses spécialités) et `enregistrerSpecialitesBu` (`lib/actions/sales-planning-actions.ts`, en série par BU) ; écran `app/(app)/planning/business-units/` (`choix-specialites.tsx`, section `SpecialitesDeLaBu` de `bu-manager.tsx`) ; étape « Choisir les spécialités » dans `lib/sfe-setup.ts` ; référentiel : retrait refusé et fusion qui fait suivre les BU (`medical-actions.ts`), usage par BU dans `lib/queries/specialites.ts` ; bancs `actions/bu-specialites-flow.test.ts` (acteur sans vue globale) et navigateur `e2e/bu-specialites.spec.ts`. |
 | **Audit 360° — lot A, sécurité et confidentialité** | Fiches à la même règle que leurs listes : `lib/queries/regulatory-visibilite.ts` (`clauseRegulatoryVisible(user, "liste" | "fiche")`), `lib/queries/visibilite-listes.ts` (`clauseMarchesPchVisibles`, `clauseBonsDeCommandePchVisibles`, `clauseFormationsVisibles`), `lib/queries/admin-requests.ts` (`clauseDemandeLisible`), `lib/queries/medical-info.ts` (`canViewDeclaration`), branches de `lib/entity-access.ts` ; porte du marché PCH lue en base `lib/pch/porte-marche.ts` ; règle d'édition d'un événement `lib/events/modification.ts` ; confidentialité RH `lib/hr/confidentialite.ts` et compte qui suit la fiche `lib/hr/depart.ts` ; administration déléguée `lib/admin/garde-comptes.ts` ; « Vue exacte » : `getCurrentUserPourEcrire` (`lib/session.ts`), exigée de chaque route d'API qui écrit ; pilotage `lib/queries/sfe-effort.ts` ; secteurs d'un KAM bornés à sa BU (`clausePanelDuKam` dans `lib/rbac.ts`, `saveRepProfile`/`deleteRepProfile`/`ecrireSecteur` dans `sales-planning-actions.ts`) ; type `TRAINING` (migrations `20261224090000_entity_type_formation`, `20261224090100_formations_pieces_requalifiees`). Bancs : `entity-access-fiches.test.ts`, `pch/pch-entite.test.ts`, `queries/demande-declaration-acces.test.ts`, `hr/confidentialite.test.ts`, `hr/depart.test.ts`, `queries/formations-visibles.test.ts`, `legal/legal-restreint.test.ts`, `session-vue-exacte.test.ts`, `admin/garde-comptes.test.ts`, `actions/ad-pro-edition-portee.test.ts`, `sfe/plan-tournee-acces.test.ts`, `queries/sfe-effort.test.ts`, `sfe/kam-bu.test.ts`. |
+| **Audit 360° — lot B, les impasses** | Facture d'un ordre : `lib/finance/facture-ordre.ts` (`ordresAvecFacture`, `ordreAFacture` — règlement, colonne « Facture », intelligence financière) ; paiement qui suit sa demande : `lib/payments/annulation.ts` (`annulerOrdreNonRegle`, écriture conditionnelle) ; facture refusée renvoyable : `ordreClos` et `cleEnvoiAuReglement` (`lib/finances/settlement.ts`) ; information médicale : `canRequestDecision` / `declareStage` (`lib/medical-info/declare-decision.ts`), `clorePrecedente` (`medical-info-actions.ts`), `canViewDeclaration` (Finances) ; bureau du secrétariat `getRequestList` (ouvertes en entier + totaux, `lib/queries/admin-requests.ts`) ; passeport du sujet `lib/ad-pro/passeport-acces.ts` ; « À arbitrer » et « En intérim » dans `lib/queries/action-center.ts` ; pièces de l'arbitre `accesAuxPiecesLegalDetaille` (`lib/entity-access.ts`, `horsFiche` → titre sans lien dans `components/shared/linked-records.tsx`) ; portée du sponsoring `scopeSponsoring` (`lib/rbac.ts`) ; lignes d'achat `lireLignesDAchat` (`lib/general-means/purchase-request.ts`) + `components/purchase/purchase-lines.tsx` ; intérim `auNomDeQui` (`lib/hr/stand-in-resolve.ts`), lu par `leaveDecider`, `getLeavesToDecide`, `deciderFor` (formations), `decideApproval`/`getApprovals`/`clauseDemandeLisible`, `accesAuPlan` (`agitPour`), `getPendingValidations`, `droitSurLEtape` (`validation-actions.ts`) ; revue SFE `snapshotMonth` (clôture conditionnelle, `lib/sfe-sweep.ts`) ; PCH : produit canonique du lot (`matchOurProduct`) et suppression par `supprimerReversible`. Bancs : `payments/ordres-fermes-flow.test.ts`, `actions/medical-info-reprise.test.ts`, `actions/assistante-bureau-flow.test.ts`, `ad-pro/direction-marketing-flow.test.ts`, `ad-pro/sponsoring-kam-flow.test.ts`, `actions/formations-decision-flow.test.ts`, `actions/mon-equipe-flow.test.ts`, `sfe-sweep.test.ts`, `pch/lot-produit-corbeille.test.ts`, `components/purchase/purchase-lines.test.ts`, `hr/interim-decisions-flow.test.ts`. |
 | **Regulatory — les trois champs du Super Admin** | Module PUR `lib/regulatory/structural-fields.ts` (`STRUCTURAL_FIELDS`, `canSetStructural`, `structuralChanges`, `structuralRefusal`, `structuralNotice`) + `structural-fields.test.ts` (17 tests). Verrou posé sur les **quatre** portes de `lib/actions/regulatory-actions.ts` : `updateRegulatoryProduct` (helpers `guardStructural` / `notifyCarrierOfStructural`), `setRegulatoryResponsible`, `setRegulatoryClassification` (partie `companyId`) et `setVariationStatus` à « OBTENUE » (porte dérobée du statut de fabrication). Côté écran : `LockedField` dans `app/(app)/regulatory/edit-product.tsx`, prop `canSetStructural` de `regulatory-table.tsx`. |
 | **Regulatory — porter un dossier ouvre le module** | Module PUR `lib/regulatory/assignment.ts` (`carrierAccess`, `assignmentNotice`, `assignmentWarning`) + `assignment.test.ts` (13 tests) ; accès implicite résolu dans `getAccess` (`lib/rbac.ts`) ; exception au filtre de gamme dans `lib/queries/regulatory-rows.ts` (`NAMED_ON_DOSSIER`). |
 | **Regulatory — verrou (cadenas)** | `RegulatoryProduct.isLocked` ; `lib/rbac.ts` → `lockGate` (dans `scopeRegulatory`) + `regulatoryLockWhere` pour les lectures hors portée (`queries/stock.ts`, `actions/pch-tender-line-actions.ts`, `admin/users/[id]`, portail fournisseur) ; `setRegulatoryLock` / `unlockAllRegulatory` ; cadenas et bandeau dans `app/(app)/regulatory/regulatory-table.tsx`. Tests dans `rbac.test.ts`. |
@@ -6557,6 +6558,53 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 ---
 
 ## 🧾 Journal des évolutions récentes
+
+### AUDIT 360° — LOT B : LES IMPASSES (2026-10)
+
+**Demande** (dirigeant, 02/10). Corriger tous les constats de l'audit 360° ; après le lot A (sécurité), les
+dix-huit « impasses » — un geste attendu que personne ne pouvait faire (`docs/audit-360/README.md`, I1 à I18 ;
+I1 à I3 corrigés avec le lot A).
+
+**Ce qui change.**
+- **Paiements et factures.** « Facture obligatoire » voit enfin la facture où qu'elle soit rangée (registre
+  Legal, poste, dossier compagnon et ses pièces) ; l'écran, le règlement et l'intelligence financière lisent la
+  même règle. Retirer ou voir refuser une demande de paiement, ou annuler sa facture, **annule l'ordre de
+  dépense** s'il n'est pas réglé (et refuse sinon, en le disant). Une facture refusée au centre de paiement
+  **peut repartir** au règlement.
+- **Information médicale.** Après « Modification », le pharmacien **resoumet** sa lecture ; la demande
+  précédente est close. Une validation retirée ne laisse plus le dossier « en validation » à vie. Les Finances
+  ouvrent la fiche dès qu'un bon est parti au paiement, et y remettent la quittance.
+- **Assistante de direction.** Son bureau charge **toutes les demandes ouvertes** (et les dernières terminées),
+  avec les totaux réels ; une demande sans responsable, ou validée sans responsable, lui est **signalée** et
+  apparaît « à prendre en charge » dans Mon espace ; la demande d'émission d'un bon de commande mène à une page
+  qu'elle peut ouvrir ; le **passeport** d'un voyageur s'ouvre aux personnes du sujet de réservation (et rien
+  d'autre du poste).
+- **Direction Marketing.** Elle lit les **messages pré-définis** (l'écriture reste une liste que le Super Admin
+  coche dans Administration › Réglages) ; tout ce qui attend **son étape** — sponsoring, événement, congrès,
+  consulting, autre demande — apparaît dans Mon espace, sous « À arbitrer » ; elle **ouvre en lecture les devis,
+  bons de commande et factures** des demandes qu'elle tranche (pas les conventions ni les contrats ; jamais une
+  pièce restreinte à d'autres lecteurs). Le titre d'une pièce dont la fiche Legal ne s'ouvre pas n'est plus un
+  lien vers une page refusée.
+- **KAM et National Sales.** Le KAM **dépose ses sponsorings** (il ne voit que les siens) ; KAM et National Sales
+  ont le module **Stocks** que leur écran supposait.
+- **Formations, Mon Équipe, Regulatory, PCH, force de vente.** Le responsable de département tranche la marche
+  N+1 d'une formation et le Directeur Général la marche DG ; « Traiter » dans Mon Équipe mène où l'on peut agir ;
+  la date cible de dépôt d'un dossier réglementaire ne s'efface plus à chaque modification ; un lot PCH reçoit
+  son produit canonique quand il n'y en a qu'un possible, et supprimer un appel d'offres passe par la corbeille ;
+  la revue mensuelle de la force de vente ne part plus qu'**une fois**.
+- **Demandes d'achat.** Leurs **articles** apparaissent sur la fiche (table, prix indicatifs, total) et sur la
+  carte de validation (la liste entière).
+- **Intérim.** L'intérimaire validé par les RH **tranche ce qui attend l'absent** en personne — congés,
+  formations, achats, plans de tournée, validations — le voit dans ses listes (« Intérim pour … ») et dans Mon
+  espace ; **jamais sa propre demande** ; l'intérim s'éteint avec le congé.
+
+**À faire de votre côté.** Si la Direction Marketing doit **écrire** les messages pré-définis : Super Admin →
+Administration › Réglages → « Messages Direction Marketing », cocher son rôle.
+
+**Ce qui reste.** La file des approbations du secrétariat n'est pas cloisonnée par société pour qui valide le
+module ; l'écran Validations ne liste pas encore les arbitrages Ad & Pro (Mon espace oui) ; les notifications de
+l'étape Direction Marketing partent à tout le rôle (pas de filtre de gamme) ; les étapes adressées à un rôle
+(RH, Direction) ne se délèguent pas par l'intérim.
 
 ### AUDIT 360° — LOT A : SÉCURITÉ ET CONFIDENTIALITÉ (2026-10)
 

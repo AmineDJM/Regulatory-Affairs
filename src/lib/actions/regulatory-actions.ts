@@ -510,8 +510,11 @@ export async function updateRegulatoryProduct(
       // vient de fermer — l'en-tête disant une chose, les étapes une autre.
       status: before.status,
       priority: (str(formData, "priority") as Priority) ?? before.priority,
-      targetSubmissionDate: targetSubmissionDateRaw ? new Date(targetSubmissionDateRaw) : null,
-      targetDate: targetDateRaw ? new Date(targetDateRaw) : null,
+      // CE QUE LE FORMULAIRE NE PORTE PAS NE S'ÉCRIT PAS (§118.152c, audit 360° I15) : la fiche de
+      // modification n'a pas de « date cible de dépôt » — elle se règle par la supervision — et chaque
+      // enregistrement l'effaçait. Une date ABSENTE garde sa valeur ; une date envoyée VIDE l'efface.
+      ...(formData.has("targetSubmissionDate") ? { targetSubmissionDate: targetSubmissionDateRaw ? new Date(targetSubmissionDateRaw) : null } : {}),
+      ...(formData.has("targetDate") ? { targetDate: targetDateRaw ? new Date(targetDateRaw) : null } : {}),
       comments: str(formData, "comments"),
       deHolder: str(formData, "deHolder"),
       manufacturer,

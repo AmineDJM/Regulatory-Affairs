@@ -216,7 +216,7 @@ suite("Recherche globale — le périmètre de chaque écran, et rien d'autre", 
     // L'écran des événements, des prises en charge, du secrétariat et des marchés : une liste qui
     // montrerait une ligne que la recherche cache (ou l'inverse) serait la divergence qu'on ferme.
     const [events, intl, demandes, marches] = await Promise.all([
-      getEvents(gm), getCongressList("INTL", u), getRequestList(u, {}), getPchTenders(gm),
+      getEvents(gm), getCongressList("INTL", u), getRequestList(u, {}).then((l) => l.rows), getPchTenders(gm),
     ]);
     const dans = (liste: { id: string }[], l: { a: string; b: string; n: string }) =>
       liste.map((x) => x.id).filter((id) => [l.a, l.b, l.n].includes(id)).sort();

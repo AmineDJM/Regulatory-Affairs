@@ -1,5 +1,6 @@
 import type { EntityType, Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { auNomDeQui } from "@/lib/hr/stand-in-resolve";
 import { toNumber } from "@/lib/utils";
 import { hasGlobalView, hasRole, userCan, type SessionUser } from "@/lib/rbac";
 import type { DocItem } from "@/components/documents/document-list";
@@ -29,6 +30,8 @@ export interface PendingValidationItem {
   /** Mes verdicts GRANULAIRES déjà posés (message + pièces), pour réafficher l'état.
    *  itemKey = "MESSAGE" ou l'id d'un document. */
   itemDecisions: { itemKey: string; decision: string; comment: string }[];
+  /** En intérim : le nom de l'absent à qui l'étape est adressée ; `null` quand elle est à moi (I18). */
+  pourLeCompteDe: string | null;
 }
 
 export interface MyValidationStep {
@@ -70,8 +73,19 @@ export interface MyValidationItem {
  * indique si la décision est déjà possible. Les « actionnables » sont renvoyées en tête.
  */
 export async function getPendingValidations(userId: string): Promise<PendingValidationItem[]> {
+  // LES ÉTAPES DES ABSENTS QUE JE REMPLACE (I18) : la porte de décision acceptait l'intérimaire,
+  // la liste ne lui montrait rien — il fallait connaître l'identifiant de l'étape. Jamais celles
+  // de mes propres demandes : l'intérim ne fait pas s'approuver soi-même.
+  const auNom = await auNomDeQui(userId);
+  const absents = auNom.absents.map((a) => a.userId);
   const steps = await prisma.validationStep.findMany({
-    where: { validatorId: userId, status: "PENDING", request: { status: "PENDING" } },
+    where: {
+      status: "PENDING", request: { status: "PENDING" },
+      OR: [
+        { validatorId: userId },
+        ...(absents.length ? [{ validatorId: { in: absents }, request: { status: "PENDING" as const, requesterId: { not: userId } } }] : []),
+      ],
+    },
     include: {
       request: { include: { requester: { select: { name: true } } } },
       itemDecisions: { select: { itemKey: true, decision: true, comment: true } },
@@ -136,6 +150,7 @@ export async function getPendingValidations(userId: string): Promise<PendingVali
         documents: [...own, ...linked],
         actionable: isActionable(s),
         itemDecisions: s.itemDecisions.map((d) => ({ itemKey: d.itemKey, decision: d.decision, comment: d.comment ?? "" })),
+        pourLeCompteDe: auNom.nomDe(s.validatorId),
       };
     })
     // Les demandes à traiter maintenant d'abord, puis celles à venir.

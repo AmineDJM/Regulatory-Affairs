@@ -31,7 +31,7 @@ import { accesAuPlan, periodeSuivante, type StatutPlan } from "@/lib/sfe/tournee
 
 const base = {
   repId: "kam", reviewerId: "sup", escalatedToId: null as string | null, vueGlobale: false,
-  chaineDuKam: [] as string[],
+  chaineDuKam: [] as string[], agitPour: [] as string[],
 };
 const regle = (userId: string, statut: StatutPlan, extra: Partial<typeof base> = {}) =>
   accesAuPlan({ ...base, ...extra, userId, statut });
@@ -55,6 +55,17 @@ describe("accesAuPlan — la règle unique de l'écran et des actions", () => {
   it("un collègue avec le module ne voit rien ; un manager de la chaîne voit sans trancher", () => {
     expect(regle("collegue", "SUBMITTED")).toEqual({ voir: false, decider: false, escalader: false });
     expect(regle("manager", "SUBMITTED", { chaineDuKam: ["manager"] })).toEqual({ voir: true, decider: false, escalader: false });
+  });
+
+  it("L'INTÉRIMAIRE du réviseur voit, tranche et escalade — et jamais son propre plan (§118.185, I18)", () => {
+    expect(regle("interim", "SUBMITTED", { agitPour: ["sup"] })).toEqual({ voir: true, decider: true, escalader: true });
+    // Celui du N+2 tranche le plan escaladé ; celui du réviseur ne le tranche plus.
+    expect(regle("interim2", "ESCALATED", { escalatedToId: "n2", agitPour: ["n2"] }).decider).toBe(true);
+    expect(regle("interim", "ESCALATED", { escalatedToId: "n2", agitPour: ["sup"] }).decider).toBe(false);
+    // Le KAM qui remplace son propre réviseur ne s'approuve pas.
+    expect(regle("kam", "SUBMITTED", { agitPour: ["sup"] })).toMatchObject({ decider: false, escalader: false });
+    // Le témoin : sans intérim, la même personne ne voit rien.
+    expect(regle("interim", "SUBMITTED")).toEqual({ voir: false, decider: false, escalader: false });
   });
 
   it("une vue globale voit et tranche ce qui attend ; rien ne se tranche hors des états décidables", () => {

@@ -1,6 +1,7 @@
 import { requireModule } from "@/lib/session";
 import { userCan } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
+import { ordresAvecFacture } from "@/lib/finance/facture-ordre";
 import { companyScopedWhere } from "@/lib/company";
 import { toNumber, formatCurrency } from "@/lib/utils";
 import { PageHeader } from "@/components/shared/page-header";
@@ -62,21 +63,14 @@ export default async function PaiementsAFairePage({ searchParams }: { searchPara
     take: 300,
   })).filter((o) => visibleToFinance(o.centralStatus as CentralStatus));
 
-  // Présence d'une facture (catégorie INVOICE) sur l'ordre ou son dossier source.
+  // La facture de chaque ordre — par la MÊME règle que le règlement (`finance/facture-ordre.ts`,
+  // §118.185) : la colonne disait « facture jointe » là où le règlement refusait, et inversement.
   const orderIds = orders.map((o) => o.id);
+  const avecFacture = await ordresAvecFacture(orders.filter((o) => o.requiresInvoice));
   const sourceFilters = orders
     .filter((o) => o.sourceType && o.sourceId)
     .map((o) => ({ entityType: o.sourceType!, entityId: o.sourceId! }));
-  const invoiceDocs = await prisma.document.findMany({
-    where: {
-      category: "INVOICE",
-      OR: [{ entityType: "EXPENSE_ORDER", entityId: { in: orderIds } }, ...sourceFilters],
-    },
-    select: { entityType: true, entityId: true },
-  });
-  const invoiceSet = new Set(invoiceDocs.map((d) => `${d.entityType}:${d.entityId}`));
-  const hasInvoice = (o: (typeof orders)[number]) =>
-    invoiceSet.has(`EXPENSE_ORDER:${o.id}`) || Boolean(o.sourceType && o.sourceId && invoiceSet.has(`${o.sourceType}:${o.sourceId}`));
+  const hasInvoice = (o: (typeof orders)[number]) => avecFacture.has(o.id);
 
   // LE DOSSIER DE CHAQUE ORDRE — de TOUS les ordres, désormais. La règle testait `sourceType ===
   // "PAYMENT_REQUEST"` et ne reconnaissait donc qu'un circuit sur treize : un matériel

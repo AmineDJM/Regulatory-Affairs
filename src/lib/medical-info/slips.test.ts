@@ -72,6 +72,10 @@ describe("l'état du lot", () => {
   it("UN ÉTAT INCONNU NE DÉVERROUILLE RIEN — il reste « en validation »", () => {
     expect(slipsLotStage({ validationId: "v", validationStatus: "?" })).toBe("EN_VALIDATION");
   });
+
+  it("UNE DEMANDE ANNULÉE n'en est plus une : le lot redevient à faire valider (audit 360°, I9)", () => {
+    expect(slipsLotStage({ validationId: "v", validationStatus: "CANCELLED" })).toBe("A_DEMANDER");
+  });
 });
 
 describe("le lot de bons", () => {
@@ -80,6 +84,8 @@ describe("le lot de bons", () => {
     // passer ; en retirer un laisserait une signature portant sur autre chose que ce qui existe.
     expect(canEditSlips("A_DEMANDER")).toBe(true);
     expect(canEditSlips("VALIDATION_REFUSEE")).toBe(true);
+    // « À revoir » se corrige ici puis se redemande : la validation n'a aucun geste de reprise (I9).
+    expect(canEditSlips("VALIDATION_A_REVOIR")).toBe(true);
     expect(canEditSlips("EN_VALIDATION")).toBe(false);
     expect(canEditSlips("QUITTANCE_A_DEMANDER")).toBe(false);
   });

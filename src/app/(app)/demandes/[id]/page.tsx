@@ -31,6 +31,9 @@ import { PromoActionPanel } from "../../promo-material/[id]/promo-panels";
 import { BackLink } from "@/components/shared/back-link";
 import { siegeAuCentreAdPro } from "@/lib/ad-pro/centre";
 import { statutDuDossier } from "@/lib/promo-material/statut";
+import { lireLignesDAchat } from "@/lib/general-means/purchase-request";
+import { auNomDeQui } from "@/lib/hr/stand-in-resolve";
+import { PurchaseLines } from "@/components/purchase/purchase-lines";
 
 const REQ_DOC_CATEGORIES = ["QUOTE", "INVOICE", "REQUEST_LETTER", "CONVENTION", "SUPPORTING_DOC", "PHOTO", "OTHER"];
 
@@ -74,6 +77,8 @@ export default async function RequestDetailPage({ params }: { params: { id: stri
   const isSecretary = user.role === "DIRECTION_ASSISTANT";
   const canManage = hasGlobalView(user.role) || userCan(user, "ADMIN_REQUESTS", "UPDATE") || req.assignedToId === user.id || isSecretary;
   const canValidate = userCan(user, "ADMIN_REQUESTS", "VALIDATE") || hasGlobalView(user.role);
+  // L'INTÉRIMAIRE tranche l'approbation adressée à l'absent — la même règle que l'action (I18).
+  const auNomInterim = await auNomDeQui(user.id);
   const canUpload = userCan(user, "ADMIN_REQUESTS", "UPLOAD") || isSecretary;
 
   const [documents, comments, history, users, financeUsers, linkedValidations, siblings] = await Promise.all([
@@ -104,6 +109,9 @@ export default async function RequestDetailPage({ params }: { params: { id: stri
   const labels = fieldLabels(req.type);
   const fields = (req.fields as Record<string, unknown> | null) ?? {};
   const fieldEntries = Object.entries(labels).filter(([k]) => fields[k] !== undefined && fields[k] !== "");
+  // LES ARTICLES D'UNE DEMANDE D'ACHAT vivent dans `fields.purchaseLines`, hors des champs déclarés
+  // du type : sans ce bloc, ni le N+1 qui valide ni l'assistante qui achète ne les voyaient (I14).
+  const lignesAchat = req.type === "PURCHASE" ? lireLignesDAchat(fields) : [];
   const docItems: DocItem[] = documents.map((d) => ({ id: d.id, name: d.name, category: d.category, version: d.version, sizeBytes: d.sizeBytes, confidentiality: d.confidentiality, uploadedBy: d.uploadedBy?.name ?? null, createdAt: d.createdAt.toISOString(), hasFile: Boolean(d.fileKey) }));
   const commentItems: CommentItem[] = comments.map((c) => ({ id: c.id, author: c.author?.name ?? "Utilisateur", authorId: c.authorId, body: c.body, createdAt: c.createdAt.toISOString(), editedAt: c.editedAt?.toISOString() ?? null }));
 
@@ -151,6 +159,13 @@ export default async function RequestDetailPage({ params }: { params: { id: stri
               )}
             </CardContent>
           </Card>
+
+          {lignesAchat.length > 0 && (
+            <Card>
+              <CardHeader><CardTitle>Articles demandés ({lignesAchat.length})</CardTitle></CardHeader>
+              <CardContent><PurchaseLines lines={lignesAchat} /></CardContent>
+            </Card>
+          )}
 
           {user.id === req.requesterId && req.status === "NEW" && !req.processingStartedAt && (
             <RequesterWindow
@@ -286,7 +301,8 @@ export default async function RequestDetailPage({ params }: { params: { id: stri
                   </div>
                   <p className="text-xs text-muted-foreground">Validateur : {a.validator?.name ?? "—"}</p>
                   {a.comment && <p className="text-xs">{a.comment}</p>}
-                  {a.status === "PENDING" && (canValidate || a.validatorId === user.id) && <ApprovalButtons approvalId={a.id} />}
+                  {a.status === "PENDING" && (canValidate || a.validatorId === user.id
+                    || (req.requesterId !== user.id && auNomInterim.nomDe(a.validatorId) !== null)) && <ApprovalButtons approvalId={a.id} />}
                 </div>
               ))}
             </CardContent>

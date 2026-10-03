@@ -98,12 +98,16 @@ export function LegalTable({
   const unpaidCount = rows.filter(impayee).length;
   const shownInvoiceTotal = shown.filter(impayee).reduce((a, r) => a + (r.amount ?? 0), 0);
 
-  const run = async (key: string, fn: () => Promise<{ ok: boolean; error?: string }>) => {
+  const run = async (key: string, fn: () => Promise<{ ok: boolean; error?: string; message?: string }>) => {
     setBusy(key);
     const r = await fn();
     setBusy(null);
-    if (r.ok) router.refresh();
-    else window.alert(r.error ?? "Échec.");
+    if (r.ok) {
+      // Ce que le geste a ENTRAÎNÉ se dit (§118.185) : annuler une facture partie au règlement annule
+      // aussi son ordre de dépense — le taire laisserait croire que le paiement attend toujours.
+      if (r.message) window.alert(r.message);
+      router.refresh();
+    } else window.alert(r.error ?? "Échec.");
   };
 
   return (

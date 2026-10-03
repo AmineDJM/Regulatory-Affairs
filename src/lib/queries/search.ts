@@ -74,7 +74,7 @@ export async function globalSearch(user: SessionUser, q: string, perGroup = 6): 
       ? prisma.regulatoryDossier.findMany({ where: { AND: [{ companyId: ctdCompanyId }, ...(match(["reference", "title"]) as Prisma.RegulatoryDossierWhereInput[])] }, take, select: { id: true, reference: true, title: true } })
       : [],
     userCan(user, "SPONSORING", "VIEW")
-      ? prisma.sponsoringRequest.findMany({ where: { AND: [await clauseSponsoringsVisibles(user.id), ...(match(["institution", "reference", "doctor"]) as Prisma.SponsoringRequestWhereInput[])] }, take, select: { id: true, institution: true, reference: true } })
+      ? prisma.sponsoringRequest.findMany({ where: { AND: [await clauseSponsoringsVisibles(user), ...(match(["institution", "reference", "doctor"]) as Prisma.SponsoringRequestWhereInput[])] }, take, select: { id: true, institution: true, reference: true } })
       : [],
     userCan(user, "FINANCES", "VIEW")
       ? prisma.financeTransaction.findMany({ where: { AND: [await clauseEcrituresVisibles(user.id), ...(match(["label", "reference", "counterparty"]) as Prisma.FinanceTransactionWhereInput[])] }, take, select: { id: true, label: true, reference: true } })

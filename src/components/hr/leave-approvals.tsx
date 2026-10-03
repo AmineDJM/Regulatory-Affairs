@@ -26,6 +26,8 @@ export interface PendingLeave {
   previousStageLabel?: string | null;
   /** La fiche complète (nom, fonction, recrutement, direction, téléphone, intérim, reprise). */
   sheet?: { label: string; value: string }[];
+  /** En intérim : le N+1 absent au nom de qui l'on signe (I18). */
+  pourLeCompteDe?: string | null;
 }
 
 const STAGE_SHORT: Record<LeaveStage, string> = {
@@ -98,6 +100,7 @@ function DecisionRow({ leave, canManage }: { leave: PendingLeave; canManage: boo
       </TableCell>
       <TableCell label="Étape">
         <Badge tone="warning" dot={false}>{STAGE_SHORT[leave.stage]}</Badge>
+        {leave.pourLeCompteDe && <Badge tone="info" dot={false} className="mt-1">Intérim pour {leave.pourLeCompteDe}</Badge>}
       </TableCell>
       <TableCell label="Décision">
         <div className="flex flex-col items-stretch gap-1.5 md:items-end">

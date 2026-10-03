@@ -182,6 +182,26 @@ export async function createValidationRequest(
   return { ok: true, id: res.requestId };
 }
 
+/**
+ * QUI PEUT TRANCHER CETTE ÉTAPE — son validateur, le Super Admin, ou l'INTÉRIMAIRE de l'absent
+ * (§118.185 — audit 360°, I18). Les trois gestes d'une étape (décider, juger une pièce, retirer
+ * ce jugement) lisent cette fonction : l'intérimaire voyait l'étape, pouvait la décider, et se
+ * voyait refuser le jugement de ses pièces — un bouton offert puis retiré (§118.83).
+ *
+ * L'intérim ne fait JAMAIS trancher sa propre demande : remplacer son N+1 ne donne pas le droit
+ * de s'approuver soi-même. La règle « on ne décide pas pour soi » vaut ici comme partout.
+ */
+async function droitSurLEtape(
+  user: { id: string; role: string },
+  validatorId: string,
+  requesterId: string | null,
+): Promise<"VALIDATEUR" | "SUPER_ADMIN" | "INTERIM" | null> {
+  if (validatorId === user.id) return "VALIDATEUR";
+  if (user.role === "SUPER_ADMIN") return "SUPER_ADMIN";
+  if (requesterId !== user.id && (await actsForUser(user.id, validatorId))) return "INTERIM";
+  return null;
+}
+
 export async function decideValidation(formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
   const stepId = fdStr(formData, "stepId");
@@ -196,17 +216,15 @@ export async function decideValidation(formData: FormData): Promise<ActionResult
     include: { request: { include: { steps: true } } },
   });
   if (!step) return { ok: false, error: "Étape introuvable." };
-  const isSuper = user.role === "SUPER_ADMIN";
   // L'INTÉRIMAIRE D'UN CONGÉ décide à la place de l'absent. C'est tout l'objet de l'intérim :
   // sans cela, les validations s'empilent trois semaines et l'on découvre au retour qu'une
   // demande attendait depuis quinze jours. La délégation est validée par les RH et s'éteint
-  // seule à la fin du congé — voir `lib/hr/stand-in.ts`.
-  const asStandIn = step.validatorId !== user.id && !isSuper
-    ? await actsForUser(user.id, step.validatorId)
-    : false;
-  if (step.validatorId !== user.id && !isSuper && !asStandIn) {
+  // seule à la fin du congé — voir `lib/hr/stand-in.ts`. Jamais sur sa propre demande (I18).
+  const droit = await droitSurLEtape(user, step.validatorId, step.request.requesterId);
+  if (!droit) {
     return { ok: false, error: "Vous n'êtes pas le validateur de cette étape." };
   }
+  const asStandIn = droit === "INTERIM";
   if (step.status !== "PENDING") return { ok: false, error: "Étape déjà traitée." };
 
   const req = step.request;
@@ -350,11 +368,13 @@ export async function reviewValidationItem(formData: FormData): Promise<ActionRe
   }
   const step = await prisma.validationStep.findUnique({
     where: { id: stepId },
-    include: { request: { select: { status: true, mode: true, currentOrder: true } } },
+    include: { request: { select: { status: true, mode: true, currentOrder: true, requesterId: true } } },
   });
   if (!step) return { ok: false, error: "Étape introuvable." };
   const isSuper = user.role === "SUPER_ADMIN";
-  if (step.validatorId !== user.id && !isSuper) return { ok: false, error: "Vous n'êtes pas le validateur de cette étape." };
+  if (!(await droitSurLEtape(user, step.validatorId, step.request.requesterId))) {
+    return { ok: false, error: "Vous n'êtes pas le validateur de cette étape." };
+  }
   if (step.status !== "PENDING") return { ok: false, error: "Étape déjà traitée." };
   if (step.request.status !== "PENDING") return { ok: false, error: "Demande déjà clôturée." };
   if (step.request.mode === "SEQUENTIAL" && step.order !== step.request.currentOrder && !isSuper) {
@@ -383,9 +403,11 @@ export async function clearValidationItem(formData: FormData): Promise<ActionRes
   const stepId = fdStr(formData, "stepId");
   const itemKey = fdStr(formData, "itemKey");
   if (!stepId || !itemKey) return { ok: false, error: "Paramètres manquants." };
-  const step = await prisma.validationStep.findUnique({ where: { id: stepId }, select: { validatorId: true, status: true } });
+  const step = await prisma.validationStep.findUnique({
+    where: { id: stepId }, select: { validatorId: true, status: true, request: { select: { requesterId: true } } },
+  });
   if (!step) return { ok: false, error: "Étape introuvable." };
-  if (step.validatorId !== user.id && user.role !== "SUPER_ADMIN") return { ok: false, error: "Non autorisé." };
+  if (!(await droitSurLEtape(user, step.validatorId, step.request.requesterId))) return { ok: false, error: "Non autorisé." };
   if (step.status !== "PENDING") return { ok: false, error: "Étape déjà traitée." };
   await prisma.validationItemDecision.deleteMany({ where: { stepId, itemKey } });
   revalidatePath("/validations");

@@ -420,18 +420,27 @@ export interface FaitsAccesPlan {
   statut: StatutPlan;
   /** Les managers du KAM à l'organigramme, du N+1 vers le haut. */
   chaineDuKam: readonly string[];
+  /**
+   * Les absents que la personne REMPLACE aujourd'hui (§118.185 — audit 360°, I18) : le réviseur et
+   * le N+2 sont des personnes nommées, et c'est précisément ce que l'intérim remplace. Obligatoire,
+   * jamais un défaut : un appelant qui l'oublierait referait, sans le savoir, le plan bloqué trois
+   * semaines chez l'absent (§118.127b).
+   */
+  agitPour: readonly string[];
 }
 
 export function accesAuPlan(f: FaitsAccesPlan): { voir: boolean; decider: boolean; escalader: boolean } {
   const gestes = gestesPossibles(f.statut);
   const estLeKam = f.userId === f.repId;
+  const moi = (id: string | null): boolean => Boolean(id) && (id === f.userId || f.agitPour.includes(id as string));
   // Qui tranche : le validateur tant que le plan est chez lui, le N+2 dès qu'il est escaladé — jamais
-  // les deux (la dernière écriture gagnerait en silence), et jamais le KAM sur son propre plan.
+  // les deux (la dernière écriture gagnerait en silence), et jamais le KAM sur son propre plan, même
+  // quand il remplace son propre réviseur.
   const decideur = f.statut === "ESCALATED" ? f.escalatedToId : f.reviewerId;
-  const decider = gestes.decidable && !estLeKam && (decideur === f.userId || f.vueGlobale);
-  const escalader = gestes.escaladable && !estLeKam && (f.reviewerId === f.userId || f.vueGlobale);
+  const decider = gestes.decidable && !estLeKam && (moi(decideur) || f.vueGlobale);
+  const escalader = gestes.escaladable && !estLeKam && (moi(f.reviewerId) || f.vueGlobale);
   const voir = estLeKam || f.vueGlobale
-    || f.reviewerId === f.userId || f.escalatedToId === f.userId
+    || moi(f.reviewerId) || moi(f.escalatedToId)
     || f.chaineDuKam.includes(f.userId);
   return { voir, decider, escalader };
 }

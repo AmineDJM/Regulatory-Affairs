@@ -88,7 +88,7 @@ export function EditTenderButton({ tender, canDelete, users = [], businessUnits 
           {err && <div className="flex items-center gap-2 rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive"><AlertCircle className="h-4 w-4" /> {err}</div>}
           <div className="flex items-center justify-between pt-1">
             {canDelete ? (
-              <Button type="button" variant="ghost" className="text-destructive" onClick={() => { if (window.confirm("Supprimer cet appel d'offres et ses bons de commande ?")) { const fd = new FormData(); fd.set("id", t.id); deleteTender(fd).then((r) => { if (r.ok) router.push("/pch"); else window.alert(r.error); }); } }}>
+              <Button type="button" variant="ghost" className="text-destructive" onClick={() => { if (window.confirm("Supprimer cet appel d'offres ? Il part à la corbeille avec ses lots, ses bons de commande et leurs livraisons — le Super Admin peut tout restaurer.")) { const fd = new FormData(); fd.set("id", t.id); deleteTender(fd).then((r) => { if (r.ok) router.push("/pch"); else window.alert(r.error); }); } }}>
                 <Trash2 className="h-4 w-4" /> Supprimer
               </Button>
             ) : <span />}

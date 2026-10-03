@@ -20,7 +20,9 @@ import { normalizeReaderIds, canManageLegalReaders } from "@/lib/lecteurs/legal"
 import { resolveDriveAccess, canViewDrive } from "@/lib/drive";
 import { legalWriteAllowed } from "@/lib/legal/invoices";
 import { syncInvoiceSettlement } from "@/lib/finance/settle-invoice";
-import { invoiceDirection, canSendToSettlement, canMarkPaidDirectly } from "@/lib/finances/settlement";
+import { invoiceDirection, canSendToSettlement, canMarkPaidDirectly, cleEnvoiAuReglement } from "@/lib/finances/settlement";
+import { enSerie } from "@/lib/refs";
+import { annulerOrdreNonRegle } from "@/lib/payments/annulation";
 import type { CurrentUser } from "@/lib/session";
 import { aiguillerBC, retirerPortesEnAttente, porteDuBC, CHEMIN_BC_A_SIGNER, type ResultatAiguillage } from "@/lib/bons-de-commande/aiguillage";
 import { MENU_BONS_DE_COMMANDE } from "@/lib/chemins/bons-de-commande";
@@ -557,9 +559,29 @@ export async function cancelLegalDocument(formData: FormData): Promise<ActionRes
   if (!reason) return { ok: false, error: "Le motif de l'annulation est obligatoire." };
   if (!(await canAccessEntity(user, "LEGAL_DOCUMENT", id, "UPDATE"))) return { ok: false, error: "Document introuvable." };
 
-  const doc = await prisma.legalDocument.findUnique({ where: { id }, select: { title: true, status: true, kind: true } });
+  const doc = await prisma.legalDocument.findUnique({ where: { id }, select: { title: true, status: true, kind: true, expenseOrderId: true } });
   if (!doc) return { ok: false, error: "Document introuvable." };
   if (!canCancel(doc.status)) return { ok: false, error: "Ce document ne peut plus être annulé." };
+
+  // UNE FACTURE DONT DU MATÉRIEL EST ENTRÉ AU STOCK NE S'ANNULE PAS D'ICI : le dossier du matériel
+  // promotionnel le refuse déjà (« annulez d'abord leur réception ») ; l'annuler depuis Legal laissait
+  // au magasin des unités entrées sur une facture qui n'existe plus (§118.71 — une porte gardée à côté
+  // d'une porte ouverte).
+  if (doc.kind === "INVOICE") {
+    const recues = await prisma.promoFactureLigne.count({ where: { facture: { legalDocumentId: id }, quantiteRecue: { not: null } } });
+    if (recues > 0) {
+      return { ok: false, error: `${recues} ligne(s) de cette facture sont réceptionnées au stock promotionnel : annulez d'abord leur réception depuis le dossier du matériel (ce qui est entré au magasin y est physiquement).` };
+    }
+  }
+  // UNE FACTURE PARTIE AU RÈGLEMENT EMPORTE SON ORDRE (§118.185, audit 360° I7) : l'annuler en
+  // laissant l'ordre ouvert, c'était une facture « annulée » au-dessus d'un paiement qui part quand
+  // même. L'ordre non réglé est annulé d'abord ; réglé, la facture ne s'annule pas — rien n'est touché.
+  let ordreAnnule: string | null = null;
+  if (doc.kind === "INVOICE" && doc.expenseOrderId) {
+    const annulation = await annulerOrdreNonRegle(doc.expenseOrderId, { acteurId: user.id, motif: `facture « ${doc.title} » annulée — ${reason}` });
+    if (!annulation.ok) return { ok: false, error: annulation.error };
+    if (annulation.annule) ordreAnnule = annulation.reference;
+  }
 
   await prisma.legalDocument.update({
     where: { id },
@@ -580,7 +602,9 @@ export async function cancelLegalDocument(formData: FormData): Promise<ActionRes
   if (doc.kind === "PURCHASE_ORDER") await aiguillerBC(id, { acteurId: user.id });
   revalidatePath("/legal");
   revalidatePath(`/legal/${id}`);
-  return { ok: true };
+  return ordreAnnule
+    ? { ok: true, message: `Facture annulée — l'ordre de dépense ${ordreAnnule} est annulé avec elle : il ne sera pas payé.` }
+    : { ok: true };
 }
 
 /**
@@ -716,47 +740,72 @@ export async function sendLegalInvoiceToSettlement(formData: FormData): Promise<
   }
   const id = fdStr(formData, "id");
   if (!id) return { ok: false, error: "Document introuvable." };
+  // LA PORTE DE LA PIÈCE (§118.185, trouvé en réparant I8) : le droit de module suffisait — un
+  // identifiant envoyait au paiement la facture d'une autre société, ou une pièce restreinte à
+  // ses lecteurs désignés. Hors de la porte, elle est introuvable, comme si elle n'existait pas.
+  if (!(await canAccessEntity(user, "LEGAL_DOCUMENT", id, "VIEW"))) return { ok: false, error: "Document introuvable." };
 
-  const doc = await prisma.legalDocument.findUnique({
-    where: { id },
-    select: {
-      id: true, title: true, reference: true, kind: true, amount: true, counterparty: true,
-      endDate: true, expenseOrderId: true, paidDate: true,
-      chainFrom: { select: { id: true, kind: true, reference: true } },
-    },
-  });
-  if (!doc) return { ok: false, error: "Document introuvable." };
-  const amount = doc.amount ? Number(doc.amount) : 0;
-  // LE BC AMONT, s'il y en a un : sa porte est lue par le même lecteur que la fiche et le centre.
-  const bcAmont = doc.chainFrom?.kind === "PURCHASE_ORDER"
-    ? { porte: await porteDuBC(doc.chainFrom.id), reference: doc.chainFrom.reference }
-    : null;
-  // LE MÊME DINAR NE SORT PAS DEUX FOIS : une facture déjà soldée en direct n'a plus rien à
-  // envoyer au centre de paiement. La règle est un module pur, partagé avec l'écriture directe.
-  const envoi = canSendToSettlement({
-    kind: doc.kind, amount: amount || null, paidDate: doc.paidDate, expenseOrderId: doc.expenseOrderId,
-    bc: bcAmont,
-  });
-  if (!envoi.ok) return { ok: false, error: envoi.error };
+  // UN ENVOI À LA FOIS PAR FACTURE — la même clé que le dossier du matériel promotionnel, qui envoie
+  // la même pièce par l'autre porte : deux clics, ou deux écrans, ne font pas deux ordres.
+  return enSerie(cleEnvoiAuReglement(id), async (): Promise<ActionResult> => {
+    const doc = await prisma.legalDocument.findUnique({
+      where: { id },
+      select: {
+        id: true, title: true, reference: true, kind: true, amount: true, counterparty: true,
+        endDate: true, expenseOrderId: true, paidDate: true,
+        chainFrom: { select: { id: true, kind: true, reference: true } },
+      },
+    });
+    if (!doc) return { ok: false, error: "Document introuvable." };
+    const amount = doc.amount ? Number(doc.amount) : 0;
+    // LE BC AMONT, s'il y en a un : sa porte est lue par le même lecteur que la fiche et le centre.
+    const bcAmont = doc.chainFrom?.kind === "PURCHASE_ORDER"
+      ? { porte: await porteDuBC(doc.chainFrom.id), reference: doc.chainFrom.reference }
+      : null;
+    // L'ORDRE DÉJÀ LIÉ : refusé par le centre ou annulé, il ne paiera jamais — la facture repart (I8).
+    const ordreLie = doc.expenseOrderId
+      ? await prisma.expenseOrder.findUnique({ where: { id: doc.expenseOrderId }, select: { status: true, centralStatus: true, reference: true } })
+      : null;
+    // LE MÊME DINAR NE SORT PAS DEUX FOIS : une facture déjà soldée en direct n'a plus rien à
+    // envoyer au centre de paiement. La règle est un module pur, partagé avec l'écriture directe.
+    const envoi = canSendToSettlement({
+      kind: doc.kind, amount: amount || null, paidDate: doc.paidDate, expenseOrderId: doc.expenseOrderId,
+      bc: bcAmont, ordreLie,
+    });
+    if (!envoi.ok) return { ok: false, error: envoi.error };
+    // Un ordre REFUSÉ reste « en attente » côté statut : on le ferme avant d'en ouvrir un second, pour
+    // qu'aucune décision tardive du centre ne puisse rendre payables deux ordres pour une facture.
+    if (ordreLie) {
+      const fermeture = await annulerOrdreNonRegle(doc.expenseOrderId, { acteurId: user.id, motif: `remplacé par un nouvel envoi de la facture « ${doc.title} »` });
+      if (!fermeture.ok) return { ok: false, error: fermeture.error };
+    }
 
-  const order = await createExpenseOrder({
-    label: `${doc.reference ? `${doc.reference} — ` : ""}${doc.title}`,
-    amount,
-    category: "FOURNISSEUR",
-    beneficiary: doc.counterparty,
-    sourceType: "LEGAL_DOCUMENT",
-    sourceId: doc.id,
-    requestedById: user.id,
-    dueDate: doc.endDate,
+    const order = await createExpenseOrder({
+      label: `${doc.reference ? `${doc.reference} — ` : ""}${doc.title}`,
+      amount,
+      category: "FOURNISSEUR",
+      beneficiary: doc.counterparty,
+      sourceType: "LEGAL_DOCUMENT",
+      sourceId: doc.id,
+      requestedById: user.id,
+      dueDate: doc.endDate,
+    });
+    await prisma.legalDocument.update({ where: { id }, data: { expenseOrderId: order.id, updatedById: user.id } });
+    await recordAudit({
+      actorId: user.id, action: "UPDATE", module: "Legal",
+      entityType: "LEGAL_DOCUMENT", entityId: id,
+      summary: ordreLie
+        ? `Facture « ${doc.title} » renvoyée au règlement (${amount.toLocaleString("fr-FR")} DZD) — l'ordre ${ordreLie.reference} ne paiera pas`
+        : `Facture « ${doc.title} » envoyée au règlement (${amount.toLocaleString("fr-FR")} DZD)`,
+    });
+    revalidatePath(`/legal/${id}`);
+    return {
+      ok: true,
+      message: ordreLie
+        ? `Facture renvoyée au règlement — l'ordre ${ordreLie.reference} ne paiera pas ; le nouveau suit le circuit du centre de paiement.`
+        : "Facture envoyée au règlement — elle suit désormais le circuit du centre de paiement.",
+    };
   });
-  await prisma.legalDocument.update({ where: { id }, data: { expenseOrderId: order.id, updatedById: user.id } });
-  await recordAudit({
-    actorId: user.id, action: "UPDATE", module: "Legal",
-    entityType: "LEGAL_DOCUMENT", entityId: id,
-    summary: `Facture « ${doc.title} » envoyée au règlement (${amount.toLocaleString("fr-FR")} DZD)`,
-  });
-  revalidatePath(`/legal/${id}`);
-  return { ok: true, message: "Facture envoyée au règlement — elle suit désormais le circuit du centre de paiement." };
 }
 
 /**

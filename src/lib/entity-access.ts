@@ -5,6 +5,9 @@ import { legalKindVisible, legalReaderWhere, legalViewScope, legalWriteAllowed }
 import { canSee as canSeeTask, canAttach as canAttachTask } from "@/lib/tasks/request-flow";
 import { recruitmentViewer } from "@/lib/recruitment/access";
 import { isOwnBusiness } from "@/lib/ad-pro/attachments";
+import { TYPES_ENTITE_AD_PRO } from "@/lib/ad-pro/unified";
+import { sectionDeLaNature, type SectionPieces } from "@/lib/ad-pro/doc-categories";
+import { porteLeRoleQuiTranche } from "@/lib/personnes/referents-gamme";
 import { parentDuPoste, PARENT_ENTITE } from "@/lib/ad-pro-items";
 import { MODULE_DU_POLE, poleDe } from "@/lib/lecteurs/consulting";
 import { annuaireDuPraticien } from "@/lib/annuaires/acces";
@@ -18,7 +21,7 @@ import { isManagerOfUser } from "@/lib/departments";
 import { canViewDeclaration } from "@/lib/queries/medical-info";
 import {
   userCan, hasGlobalView, scopeMedicalDoctors, scopeMedicalVisits, scopeSales, scopeBusinessDevelopment, scopeSupport, scopeDossiers, type Action, type Module, type SessionUser,
-  annuaireOuvertParConsole, scopeCongressIntl, scopeCongressNational, scopePromoMaterial,
+  annuaireOuvertParConsole, scopeCongressIntl, scopeCongressNational, scopePromoMaterial, scopeSponsoring,
 } from "@/lib/rbac";
 
 /** Maps a polymorphic entity type to its owning module. */
@@ -258,6 +261,10 @@ async function dansLaPorteeAdPro(user: SessionUser, entityType: EntityType, enti
       return (await prisma.congressNational.count({ where: { AND: [{ id: entityId }, scopeCongressNational(user)] } })) > 0;
     case "PROMO_MATERIAL":
       return (await prisma.promoMaterial.count({ where: { AND: [{ id: entityId }, scopePromoMaterial(user)] } })) > 0;
+    // Le sponsoring (§118.185, I4) : le délégué y entre pour SES demandes — sans ce cas, le module
+    // reçu pour déposer la sienne lui ouvrait, par identifiant, celles de tous ses collègues.
+    case "SPONSORING":
+      return (await prisma.sponsoringRequest.count({ where: { AND: [{ id: entityId }, scopeSponsoring(user)] } })) > 0;
     default:
       return true;
   }
@@ -296,16 +303,53 @@ async function dansLaPorteeAdPro(user: SessionUser, entityType: EntityType, enti
  *    demandeur qui a déposé la facture, l'assistante qui suit le dossier, le pharmacien qui
  *    instruit la demande de visa. Ce n'est pas une porte vers les contrats : seules les pièces
  *    nées de CE dossier passent, et les droits d'écriture restent ceux de Legal.
+ *  • En LECTURE seulement, pour qui TRANCHE une demande Ad & Pro sans avoir Legal (§118.185 —
+ *    audit 360°, DM-07) : les DEVIS, BONS DE COMMANDE et FACTURES nés d'une demande qu'elle peut
+ *    ouvrir. La Direction Marketing fixe le budget, choisit la catégorie et clôture — sans pouvoir
+ *    ouvrir les pièces qui chiffrent ce qu'elle arbitre, elle tranchait à l'aveugle ou sortait de
+ *    la plateforme. Trois bornes, et chacune a son cas : la CHAÎNE D'ACHAT seulement (une
+ *    convention d'orateur ou un contrat restent derrière Legal — un honoraire nominatif n'est pas
+ *    une pièce d'arbitrage) ; une demande qu'elle OUVRE (la porte de la fiche — et pour qui
+ *    tranche, la société du demandeur n'est pas une frontière, §118.184 : borner les pièces à SA
+ *    société lui ferait trancher une demande dont elle ne peut pas lire les devis) ; les LECTEURS
+ *    DÉSIGNÉS, comme partout — un devis restreint le reste. Le matériel
+ *    promotionnel a sa propre règle, plus étroite (la directrice du dossier, lue sur
+ *    l'organigramme) : il n'entre pas ici. Un contrat de consulting passé aux RH non plus (§118.150).
+ *
+ * ── CE QUE LA FICHE LEGAL N'OUVRE PAS ───────────────────────────────────────────────────────
+ *
+ * Les deux exceptions ouvrent la LECTURE DES FICHIERS d'une pièce, pas sa fiche `/legal/[id]`,
+ * qui reste derrière les trois portes du registre. `accesAuxPiecesLegalDetaille` le dit pièce par
+ * pièce (`horsFiche`) : un titre qui mène à une page refusée est un geste offert puis retiré
+ * (§118.83), et l'écran le rend sans lien.
  */
 export async function accesAuxPiecesLegal(
   user: SessionUser,
   ids: readonly string[],
   actions: readonly Action[],
 ): Promise<Map<Action, Set<string>>> {
-  const res = new Map<Action, Set<string>>(actions.map((a) => [a, new Set<string>()]));
-  const uniques = [...new Set(ids.filter(Boolean))];
-  if (uniques.length === 0 || actions.length === 0) return res;
+  return (await accesAuxPiecesLegalDetaille(user, ids, actions)).droits;
+}
 
+/** Les sources Ad & Pro dont l'arbitre lit la chaîne d'achat — le registre, sans le matériel. */
+const SOURCES_ARBITREES: readonly EntityType[] = [...TYPES_ENTITE_AD_PRO]
+  .filter((t) => t !== "PROMO_MATERIAL") as EntityType[];
+/** Les sections de pièces que l'arbitre lit : la chaîne d'achat, jamais les engagements. */
+const SECTIONS_ARBITREES: ReadonlySet<SectionPieces> = new Set<SectionPieces>(["QUOTE", "PURCHASE_ORDER", "INVOICE"]);
+
+export async function accesAuxPiecesLegalDetaille(
+  user: SessionUser,
+  ids: readonly string[],
+  actions: readonly Action[],
+): Promise<{ droits: Map<Action, Set<string>>; horsFiche: Set<string> }> {
+  const res = new Map<Action, Set<string>>(actions.map((a) => [a, new Set<string>()]));
+  const horsFiche = new Set<string>();
+  const uniques = [...new Set(ids.filter(Boolean))];
+  if (uniques.length === 0 || actions.length === 0) return { droits: res, horsFiche };
+  const readerScope = legalReaderWhere({ viewerId: user.id, isSuperAdmin: user.role === "SUPER_ADMIN" });
+
+  // ─── LES EXCEPTIONS DE LECTURE — collectées à part : elles n'ouvrent pas la fiche Legal ─────
+  const parException = new Set<string>();
   if (actions.includes("VIEW") && !userCan(user, "LEGAL", "VIEW")) {
     const pieces = await prisma.legalDocument.findMany({
       where: { id: { in: uniques }, sourceType: "PROMO_MATERIAL", sourceId: { not: null } },
@@ -318,7 +362,39 @@ export async function accesAuxPiecesLegal(
       });
       const ouverts = new Set<string>();
       for (const pm of dossiers) if (await peutOuvrirLeDossierPromo(user, pm)) ouverts.add(pm.id);
-      for (const p of pieces) if (p.sourceId && ouverts.has(p.sourceId)) res.get("VIEW")!.add(p.id);
+      for (const p of pieces) if (p.sourceId && ouverts.has(p.sourceId)) parException.add(p.id);
+    }
+
+    if (porteLeRoleQuiTranche(user)) {
+      // La société de la PIÈCE n'est pas relue : c'est la porte de la FICHE qui décide, plus bas.
+      const achats = (await prisma.legalDocument.findMany({
+        where: {
+          AND: [
+            { id: { in: uniques }, sourceType: { in: [...SOURCES_ARBITREES] }, sourceId: { not: null } },
+            ...(readerScope ? [readerScope] : []),
+          ],
+        },
+        select: { id: true, kind: true, sourceType: true, sourceId: true },
+      })).filter((p) => SECTIONS_ARBITREES.has(sectionDeLaNature(String(p.kind))));
+      if (achats.length > 0) {
+        // Un contrat de consulting passé aux RH n'est plus une demande Ad & Pro : son arbitre
+        // n'est pas la Direction Marketing, et ses pièces ne passent pas par ici (§118.150).
+        const contrats = [...new Set(achats.filter((p) => p.sourceType === "CONSULTING_CONTRACT").map((p) => p.sourceId as string))];
+        const horsAdPro = new Set(contrats.length
+          ? (await prisma.consultingContract.findMany({ where: { id: { in: contrats } }, select: { id: true, pole: true } }))
+              .filter((c) => poleDe(c.pole) !== "AD_PRO").map((c) => c.id)
+          : []);
+        // LA PORTE DE LA FICHE, une fois par demande — une fiche porte presque toujours toutes les
+        // pièces affichées, donc un seul appel en pratique.
+        const sources = new Map<string, { type: EntityType; id: string }>();
+        for (const p of achats) {
+          if (p.sourceType === "CONSULTING_CONTRACT" && horsAdPro.has(p.sourceId as string)) continue;
+          sources.set(`${p.sourceType}:${p.sourceId}`, { type: p.sourceType as EntityType, id: p.sourceId as string });
+        }
+        const ouvertes = new Set<string>();
+        for (const [cle, s] of sources) if (await canAccessEntity(user, s.type, s.id, "VIEW")) ouvertes.add(cle);
+        for (const p of achats) if (ouvertes.has(`${p.sourceType}:${p.sourceId}`)) parException.add(p.id);
+      }
     }
   }
 
@@ -340,16 +416,21 @@ export async function accesAuxPiecesLegal(
     userCan(user, "LEGAL", a)
     || (a === "VIEW" && portee !== "NONE")
     || (GESTES_D_ECRITURE_DE_PIECE.includes(a) && financesEcrivent));
-  if (candidates.length === 0) return res;
-  const readerScope = legalReaderWhere({ viewerId: user.id, isSuperAdmin: user.role === "SUPER_ADMIN" });
-  const dansLaPortee = await prisma.legalDocument.findMany({
-    where: await companyScopedWhere(user.id, {
-      AND: [{ id: { in: uniques } }, ...(readerScope ? [readerScope] : [])],
-    }),
-    select: { id: true, kind: true },
-  });
-  for (const d of dansLaPortee) for (const a of candidates) if (permis(a, String(d.kind))) res.get(a)!.add(d.id);
-  return res;
+  if (candidates.length > 0) {
+    const dansLaPortee = await prisma.legalDocument.findMany({
+      where: await companyScopedWhere(user.id, {
+        AND: [{ id: { in: uniques } }, ...(readerScope ? [readerScope] : [])],
+      }),
+      select: { id: true, kind: true },
+    });
+    for (const d of dansLaPortee) for (const a of candidates) if (permis(a, String(d.kind))) res.get(a)!.add(d.id);
+  }
+  // Ce que seule une exception ouvre se LIT ici, mais sa fiche Legal reste fermée.
+  if (parException.size > 0) {
+    const vue = res.get("VIEW")!;
+    for (const id of parException) if (!vue.has(id)) { horsFiche.add(id); vue.add(id); }
+  }
+  return { droits: res, horsFiche };
 }
 
 /** Les gestes sur les fichiers d'une pièce que la fiche offre à qui peut l'écrire. */
@@ -391,7 +472,7 @@ export async function canAccessEntity(
   if (entityType === "MEDICAL_INFO_DECLARATION") {
     const decl = await prisma.medicalInfoDeclaration.findUnique({
       where: { id: entityId },
-      select: { pharmacistId: true, requests: { select: { targetUserId: true } } },
+      select: { pharmacistId: true, requests: { select: { targetUserId: true } }, slips: { select: { requestId: true } } },
     });
     if (!decl || !canViewDeclaration(user, decl)) return false;
     if (action === "VIEW") return true;
@@ -796,7 +877,8 @@ export async function canAccessEntity(
     case "CONGRESS_INTERNATIONAL":
     case "CONGRESS_NATIONAL":
     case "PROMO_MATERIAL":
-      // Sans ces trois cas, le `default` ci-dessous ouvrait tout dossier à qui avait le module.
+    case "SPONSORING":
+      // Sans ces cas, le `default` ci-dessous ouvrait tout dossier à qui avait le module.
       return dansLaPorteeAdPro(user, entityType, entityId);
     case "RECRUITMENT_CANDIDATE": {
       // Le CV suit sa DEMANDE : les mêmes personnes, ni plus ni moins.

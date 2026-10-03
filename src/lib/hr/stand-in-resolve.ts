@@ -80,6 +80,43 @@ export async function actsForUser(viewerId: string, absenteeUserId: string, now:
   return active.some((a) => a.absenteeUserId === absenteeUserId);
 }
 
+/**
+ * AU NOM DE QUI CETTE PERSONNE DÉCIDE AUJOURD'HUI — elle-même, puis chaque absent qu'elle remplace
+ * (§118.185 — audit 360°, I18).
+ *
+ * Le panneau d'intérim promet de « trancher les validations qui vous sont adressées » ; seules les
+ * validations génériques le tenaient — congés, formations, achats et plans de tournée restaient
+ * bloqués trois semaines chez l'absent. Ces portes reconnaissent désormais un VALIDATEUR NOMMÉ
+ * (le N+1, le réviseur, le validateur d'une demande) par cette lecture, la même pour toutes :
+ * une porte qui la recopierait finirait par ne plus dire la même chose (§118.5).
+ *
+ * Ce qu'elle ne fait PAS, et c'est la moitié qui compte : elle ne prête aucun RÔLE (une étape
+ * adressée à la Direction ou aux RH le reste — ce qui est délégué de ces métiers passe par les
+ * modules prêtés, `delegationsFor`), et elle ne fait jamais trancher sa PROPRE demande : chaque
+ * porte garde son refus « on ne décide pas pour soi-même », que l'intérim ne lève pas.
+ */
+export interface AuNomDe {
+  /** La personne elle-même, puis chaque absent qu'elle remplace aujourd'hui. */
+  ids: ReadonlySet<string>;
+  /** Les seuls absents — vide hors intérim. */
+  absents: readonly { userId: string; nom: string; jusquau: Date }[];
+  /** Le nom de l'absent pour qui l'on agit sur ce validateur ; `null` si c'est soi, ou personne. */
+  nomDe(validateurId: string | null | undefined): string | null;
+}
+
+export async function auNomDeQui(viewerId: string, now: Date = new Date()): Promise<AuNomDe> {
+  const actifs = await activeStandInsFor(viewerId, now);
+  const absents = actifs
+    .filter((a) => a.absenteeUserId !== viewerId)
+    .map((a) => ({ userId: a.absenteeUserId, nom: a.absenteeName, jusquau: a.endDate }));
+  const noms = new Map(absents.map((a) => [a.userId, a.nom]));
+  return {
+    ids: new Set([viewerId, ...absents.map((a) => a.userId)]),
+    absents,
+    nomDe: (id) => (id && id !== viewerId ? noms.get(id) ?? null : null),
+  };
+}
+
 /** Les comptes qu'une personne remplace aujourd'hui — pour élargir une requête de liste. */
 export async function standInForUserIds(viewerId: string, now: Date = new Date()): Promise<string[]> {
   return (await activeStandInsFor(viewerId, now)).map((a) => a.absenteeUserId);

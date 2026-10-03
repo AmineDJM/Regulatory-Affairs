@@ -146,11 +146,13 @@ export async function getMyTeam(user: SessionUser): Promise<MyTeam> {
       },
       orderBy: { startDate: "asc" },
     }),
-    // Les demandes d'achat de mon équipe qui attendent MA validation.
+    // Les demandes d'achat de mon équipe qui attendent MA validation — la MIENNE, pas une autre
+    // (audit 360°, I13) : une demande passée à l'étape suivante gardait une approbation en attente
+    // au nom de quelqu'un d'autre, restait listée ici, et « Traiter » menait à une page refusée.
     prisma.administrativeRequest.findMany({
       where: {
         type: "PURCHASE", deletedAt: null, requesterId: { in: userIds },
-        approvals: { some: { status: "PENDING" } },
+        approvals: { some: { status: "PENDING", validatorId: user.id } },
       },
       select: {
         id: true, reference: true, title: true, requesterId: true, createdAt: true, fields: true,
@@ -180,7 +182,9 @@ export async function getMyTeam(user: SessionUser): Promise<MyTeam> {
       amount: null,
       createdAt: c.createdAt.toISOString(),
       deadline: c.startDate.toISOString(),
-      href: `/rh/conges`,
+      // Le congé se signe dans MON ESPACE, où chaque encadrant a le bloc « Congés qui attendent
+      // votre signature » — `/rh/conges` est l'écran des RH, refusé à un N+1 sans le module (I13).
+      href: `/mon-espace#conges-a-signer`,
     })),
     ...achats.map((a) => {
       const champs = (a.fields as Record<string, unknown> | null) ?? {};

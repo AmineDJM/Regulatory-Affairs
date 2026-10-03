@@ -1,8 +1,9 @@
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { standInForUserIds } from "@/lib/hr/stand-in-resolve";
 import { companyScopedWhere, ficheScopedWhere, platformScope } from "@/lib/company";
 import {
-  hasGlobalView, scopeAdminRequests, scopeCongressIntl, scopeCongressNational, scopeSales, userCan, type SessionUser,
+  hasGlobalView, scopeAdminRequests, scopeCongressIntl, scopeCongressNational, scopeSales, scopeSponsoring, userCan, type SessionUser,
 } from "@/lib/rbac";
 import { legalReaderWhere, legalViewScope, PURCHASE_CHAIN_KINDS, type LegalViewScope } from "@/lib/lecteurs/legal";
 
@@ -41,9 +42,12 @@ import { legalReaderWhere, legalViewScope, PURCHASE_CHAIN_KINDS, type LegalViewS
  * ═══════════════════════════════════════════════════════════════════════════════════════════
  */
 
-/** `/sponsoring` — l'entité au sens strict ; le sponsoring n'a pas de portée par ligne. */
-export async function clauseSponsoringsVisibles(userId: string): Promise<Prisma.SponsoringRequestWhereInput> {
-  return (await platformScope(userId)) as Prisma.SponsoringRequestWhereInput;
+/**
+ * `/sponsoring` — l'entité au sens strict, et la portée par ligne du délégué (§118.185, I4) : il
+ * dépose SES demandes et ne voit qu'elles. Composées en `AND` (§118.133), jamais étalées.
+ */
+export async function clauseSponsoringsVisibles(user: SessionUser): Promise<Prisma.SponsoringRequestWhereInput> {
+  return { AND: [scopeSponsoring(user), (await platformScope(user.id)) as Prisma.SponsoringRequestWhereInput] };
 }
 
 /**
@@ -61,11 +65,23 @@ export async function clauseFormationsVisibles(user: SessionUser): Promise<Prism
   const rh = userCan(user, "RH", "VALIDATE") || userCan(user, "RH", "UPDATE");
   if (rh || hasGlobalView(user)) return (await platformScope(user.id)) as Prisma.TrainingWhereInput;
   const moi = await prisma.employee.findUnique({ where: { userId: user.id }, select: { id: true } });
+  // L'INTÉRIMAIRE (I18) voit ce qui attend la marche du N+1 qu'il remplace — et cela seulement :
+  // l'historique des formations de l'équipe de l'absent n'est pas l'objet d'un intérim.
+  const absents = await standInForUserIds(user.id);
+  const fichesAbsents = absents.length
+    ? (await prisma.employee.findMany({ where: { userId: { in: absents } }, select: { id: true } })).map((e) => e.id)
+    : [];
   return {
     OR: [
       { requesterId: user.id },
       { participants: { some: { userId: user.id } } },
       ...(moi ? [{ managerId: moi.id }, { requester: { employee: { managerId: moi.id } } }] : []),
+      ...(fichesAbsents.length
+        ? [{
+            status: "PENDING" as const, stage: "MANAGER" as const,
+            OR: [{ managerId: { in: fichesAbsents } }, { requester: { employee: { managerId: { in: fichesAbsents } } } }],
+          }]
+        : []),
     ],
   };
 }

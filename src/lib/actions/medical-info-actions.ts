@@ -209,6 +209,33 @@ export async function recordAuthorityDeclaration(formData: FormData): Promise<Ac
 // ═══════════════════════════════════════════════════════════════════════════════════════════
 
 /**
+ * CLORE LA DEMANDE « À REVOIR » QU'UNE RESOUMISSION REMPLACE (audit 360°, I9).
+ *
+ * L'écriture est CONDITIONNELLE : seule une demande encore à revoir se clôt. Deux resoumissions
+ * simultanées lisent toutes deux « à revoir » ; la première clôt et poursuit, la seconde trouve la
+ * demande déjà close et s'arrête — sans quoi deux demandes vivraient pour une seule question, ce
+ * que la règle d'avant existait pour empêcher. Non exportée : une fonction qui reçoit un acteur
+ * en argument n'a pas sa place parmi les points d'entrée d'un fichier « use server » (§118.153).
+ */
+async function clorePrecedente(validationId: string | null, acteurId: string, reference: string): Promise<{ ok: true } | { ok: false; error: string }> {
+  if (!validationId) return { ok: true };
+  const r = await prisma.validationRequest.updateMany({
+    where: { id: validationId, status: "CHANGES_REQUESTED" },
+    data: { status: "CANCELLED" },
+  });
+  if (r.count !== 1) {
+    return { ok: false, error: "Une nouvelle demande vient déjà d'être soumise pour ce dossier — rechargez la page." };
+  }
+  await recordAudit({
+    actorId: acteurId, action: "UPDATE", module: "Validations",
+    entityType: "VALIDATION_REQUEST", entityId: validationId,
+    field: "status", newValue: "CANCELLED",
+    summary: `Demande à revoir close par sa resoumission (${reference})`,
+  });
+  return { ok: true };
+}
+
+/**
  * LE PHARMACIEN SOUMET SA LECTURE : ce dossier se déclare au ministère, ou il ne se déclare pas.
  *
  * Une prise en charge, un sponsoring, un événement n'appellent AUCUN versement — c'était le
@@ -250,6 +277,11 @@ export async function requestDeclareDecision(_prev: ActionResult | undefined, fo
   const validateurs = await declarationValidators(user.id, decl.sourceType, decl.sourceId);
   if (validateurs.validatorIds.length === 0) {
     return { ok: false, error: "Aucun signataire disponible (responsable, Direction Marketing, Directeur Général) : la demande n'aurait personne à qui aller." };
+  }
+  // UNE DEMANDE À REVOIR SE RESOUMET ICI, ET LA PRÉCÉDENTE SE CLÔT (audit 360°, I9).
+  if (declareStage(etat.declare) === "A_REVOIR") {
+    const close = await clorePrecedente(decl.declareValidationId, user.id, decl.reference);
+    if (!close.ok) return close;
   }
 
   const res = await createDirectValidation({
@@ -395,6 +427,11 @@ export async function requestSlipsValidation(_prev: ActionResult | undefined, fo
   const validateurs = await declarationValidators(user.id, decl.sourceType, decl.sourceId);
   if (validateurs.validatorIds.length === 0) {
     return { ok: false, error: "Aucun signataire disponible (responsable, Direction Marketing, Directeur Général) : la demande n'aurait personne à qui aller." };
+  }
+  // Le dépôt À REVOIR se resoumet ici, et la demande précédente se clôt (audit 360°, I9).
+  if (etat.lot === "VALIDATION_A_REVOIR") {
+    const close = await clorePrecedente(decl.bvValidationId, user.id, decl.reference);
+    if (!close.ok) return close;
   }
 
   const res = await createDirectValidation({

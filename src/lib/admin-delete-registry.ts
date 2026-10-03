@@ -49,7 +49,8 @@ export type DeletableKind =
   | "CONSULTING_CONTRACT"
   | "AD_PRO_OTHER"
   | "PROMO_CATALOGUE"
-  | "PROMO_STOCK_ITEM";
+  | "PROMO_STOCK_ITEM"
+  | "PCH_TENDER";
 
 export interface KindSpec {
   label: string; // libellé du type (« dossier réglementaire »)
@@ -612,6 +613,25 @@ export const DELETE_REGISTRY: Record<DeletableKind, KindSpec> = {
     },
     async remove(id) {
       await prisma.congressNational.delete({ where: { id } });
+    },
+  },
+  PCH_TENDER: {
+    label: "appel d'offres",
+    module: "PCH",
+    redirect: "/pch",
+    model: "pchTender",
+    entityType: "PCH_TENDER",
+    // Ses lots, ses bons de commande, leurs lignes et leurs livraisons partaient en CASCADE, sans
+    // corbeille (audit 360°, I17) : un clic effaçait des mois de suivi de marché. Le lot les instantane
+    // tous, et tout revient ensemble à la restauration (§118.162) ; ce qui a quitté l'ERP refuse.
+    lot: true,
+    searchFields: ["reference", "title"],
+    async describe(id) {
+      const r = await prisma.pchTender.findUnique({ where: { id }, select: { title: true, reference: true } });
+      return r ? `${r.reference}${r.title ? ` — ${r.title}` : ""}` : null;
+    },
+    async remove(id) {
+      await prisma.pchTender.delete({ where: { id } });
     },
   },
   VALIDATION_REQUEST: {

@@ -7,6 +7,7 @@ import type { AdminRequestType, AdminRequestStatus, Priority, AdminApprovalStatu
 import { requireUser } from "@/lib/session";
 import { userCan, hasGlobalView, type SessionUser } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
+import { actsForUser } from "@/lib/hr/stand-in-resolve";
 import { journaliserDemandeAchat } from "@/lib/general-means/purchase-journal";
 import { companyIdForNew } from "@/lib/company";
 import { saveFile, validateUpload } from "@/lib/storage";
@@ -15,7 +16,7 @@ import { algiersInputToUtc, formatAlgiers } from "@/lib/calendar-tz";
 import { archiveProcessedRequest } from "@/lib/archive";
 import { ADMIN_REQUEST_TYPE } from "@/lib/labels";
 import { recordAudit } from "@/lib/audit";
-import { notifyUser } from "@/lib/notify";
+import { notifyUser, notifyRoles } from "@/lib/notify";
 import { createExpenseOrder } from "@/lib/expense-orders";
 import { createDirectValidation } from "@/lib/validation";
 import { buildRef, createWithRetry } from "@/lib/refs";
@@ -148,6 +149,11 @@ export async function createRequest(
 
   if (created.assignedToId && created.assignedToId !== user.id) {
     await notifyUser({ userId: created.assignedToId, type: "ASSIGNMENT", title: "Nouvelle demande administrative", body: `${created.reference} — ${title}`, link: `/demandes/${created.id}` });
+  } else if (!created.assignedToId) {
+    // SANS RESPONSABLE, LE SECRÉTARIAT EST PRÉVENU (audit 360°, I10). Le formulaire propose
+    // « — (l'assistante) » par défaut : la demande lui revient, et personne ne le lui disait — elle
+    // devait ouvrir le bureau pour découvrir son travail.
+    await notifyRoles(["DIRECTION_ASSISTANT"], { type: "ASSIGNMENT", title: "Nouvelle demande au secrétariat", body: `${created.reference} — ${title}`, link: `/demandes/${created.id}` }).catch(() => undefined);
   }
   await recordAudit({ actorId: user.id, action: "CREATE", module: "Demandes administratives", entityType: "ADMIN_REQUEST", entityId: created.id, summary: `Demande ${created.reference} — ${title}` });
   revalidatePath("/demandes");
@@ -229,7 +235,10 @@ export async function decideApproval(formData: FormData): Promise<ActionResult> 
   if (!approvalId || !decision || decision === "PENDING") return { ok: false, error: "Décision invalide." };
   const approval = await prisma.adminApproval.findUnique({ where: { id: approvalId }, include: { request: { select: { id: true, title: true, requesterId: true, assignedToId: true, reference: true, fields: true } } } });
   if (!approval) return { ok: false, error: "Validation introuvable." };
-  const allowed = approval.validatorId === user.id || userCan(user, "ADMIN_REQUESTS", "VALIDATE") || hasGlobalView(user.role);
+  // LE VALIDATEUR NOMMÉ, OU SON INTÉRIMAIRE (§118.185 — audit 360°, I18) — jamais sur sa propre
+  // demande : remplacer son directeur ne donne pas le droit de s'approuver un achat.
+  const allowed = approval.validatorId === user.id || userCan(user, "ADMIN_REQUESTS", "VALIDATE") || hasGlobalView(user.role)
+    || (approval.validatorId !== null && approval.request.requesterId !== user.id && (await actsForUser(user.id, approval.validatorId)));
   if (!allowed) return DENIED;
   if (approval.status !== "PENDING") return { ok: false, error: "Déjà traité." };
 
@@ -256,6 +265,11 @@ export async function decideApproval(formData: FormData): Promise<ActionResult> 
 
   for (const uid of [req.assignedToId, req.requesterId]) {
     if (uid && uid !== user.id) await notifyUser({ userId: uid, type: "GENERIC", title: `Validation : ${decision === "APPROVED" ? "acceptée" : decision === "REJECTED" ? "refusée" : "modif. demandée"}`, body: req.reference, link: `/demandes/${req.id}` });
+  }
+  // UNE DEMANDE VALIDÉE SANS RESPONSABLE REVIENT AU SECRÉTARIAT (audit 360°, I10) : le N+1 disait
+  // oui, et personne au bureau ne l'apprenait — l'achat attendait qu'on tombe dessus.
+  if (decision === "APPROVED" && !req.assignedToId) {
+    await notifyRoles(["DIRECTION_ASSISTANT"], { type: "ASSIGNMENT", title: "Demande validée — à traiter", body: `${req.reference} — ${req.title}`, link: `/demandes/${req.id}` }).catch(() => undefined);
   }
   await recordAudit({ actorId: user.id, action: decision === "REJECTED" ? "REFUSE" : "VALIDATE", module: "Demandes administratives", entityType: "ADMIN_REQUEST", entityId: req.id, summary: `Validation ${decision}` });
   // LE JOURNAL DES ACHATS suit la décision, pas seulement le dépôt : « qui a dit oui » est la

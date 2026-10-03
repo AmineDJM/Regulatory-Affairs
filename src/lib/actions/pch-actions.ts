@@ -5,6 +5,7 @@ import type { PchTenderStatus, PchOrderStatus } from "@prisma/client";
 import { requireUser } from "@/lib/session";
 import { userCan } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
+import { supprimerReversible } from "@/lib/suppression/coeur";
 import { buildRef } from "@/lib/refs";
 import { recordAudit } from "@/lib/audit";
 import { refreshLinkLabels } from "@/lib/links/store";
@@ -177,8 +178,11 @@ export async function deleteTender(formData: FormData): Promise<ActionResult> {
   const id = fdStr(formData, "id");
   if (!id) return { ok: false, error: "Identifiant manquant." };
   if (!(await peutAgirSurLeMarche(user, id, "DELETE"))) return { ok: false, error: "Appel d'offres introuvable." };
-  await prisma.pchTender.delete({ where: { id } }); // cascade → bons de commande
-  await recordAudit({ actorId: user.id, action: "DELETE", module: "PCH", summary: "Appel d'offres supprimé" });
+  // À LA CORBEILLE, AVEC SES BRANCHES (audit 360°, I17) : la suppression partait en cascade — lots,
+  // bons, livraisons — sans instantané ni retour. Le cœur réversible (§118.162) instantane tout le
+  // lot, l'audite, refuse ce qui a quitté l'ERP, et le Super Admin peut tout restaurer d'un geste.
+  const r = await supprimerReversible("PCH_TENDER", id, user.id, "Appel d'offres supprimé (corbeille)");
+  if (!r.ok) return { ok: false, error: r.error ?? "Suppression impossible." };
   revalidatePath("/pch");
   return { ok: true };
 }

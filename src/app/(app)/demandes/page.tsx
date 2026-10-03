@@ -50,7 +50,7 @@ export default async function DemandesPage({ searchParams }: { searchParams: { s
 
   const catalogRows = supplyCatalog.map((a) => ({ ...a, estimatedPrice: a.estimatedPrice != null ? toNumber(a.estimatedPrice) : null }));
 
-  const rows: RequestRow[] = list.map((r) => ({
+  const rows: RequestRow[] = list.rows.map((r) => ({
     id: r.id,
     reference: r.reference,
     title: r.title,
@@ -75,7 +75,7 @@ export default async function DemandesPage({ searchParams }: { searchParams: { s
       {rows.length === 0 ? (
         <EmptyState icon="ClipboardList" title="Aucune demande" description="Créez une nouvelle demande administrative." />
       ) : (
-        <RequestsTable rows={rows} />
+        <RequestsTable rows={rows} totaux={{ ouvertes: list.ouvertes, terminees: list.terminees, terminesMontrees: list.terminesMontrees, coupe: list.coupe }} />
       )}
     </div>
   );

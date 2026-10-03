@@ -160,6 +160,11 @@ export const ENTITE_DU_MODELE: Readonly<Record<string, EntityType>> = {
   FinanceTransaction: "FINANCE_TRANSACTION",
   // Une formation (§118.184) : ses pièces s'écrivaient sous DOSSIER, donc ne la suivaient pas.
   Training: "TRAINING",
+  // Un appel d'offres PCH (§118.185, I17) et ses bons de commande : leurs pièces jointes, leurs
+  // factures (`sourceType = PCH_ORDER`), leurs courriers et leurs liens partent avec eux — une
+  // facture RÉGLÉE bloque la suppression (`faitIrreversible`), elle ne la suit pas en silence.
+  PchTender: "PCH_TENDER",
+  PchOrder: "PCH_ORDER",
 };
 
 /**
@@ -310,6 +315,18 @@ export const LIBELLE_DU_MODELE: Readonly<Record<string, [string, string]>> = {
   SalaryAdvance: ["avance sur salaire", "avances sur salaire"],
   PayrollEntry: ["bulletin de paie", "bulletins de paie"],
   PayrollWire: ["virement de paie", "virements de paie"],
+  // Un appel d'offres PCH (§118.185, I17) : ce qui part avec lui…
+  PchTenderLine: ["lot du marché", "lots du marché"],
+  PchTenderLineBusinessUnit: ["affectation d'un lot à une BU", "affectations de lots à des BU"],
+  PchSubmission: ["version de soumission", "versions de soumission"],
+  PchOrder: ["bon de commande du marché", "bons de commande du marché"],
+  PchOrderLine: ["ligne de bon de commande", "lignes de bon de commande"],
+  PchDelivery: ["livraison", "livraisons"],
+  PchDeliveryLine: ["ligne de livraison", "lignes de livraison"],
+  // …et ce qui RESTE en perdant son lien avec lui : une vente déjà faite, un mouvement de stock
+  // déjà passé — le stock ne bouge pas quand on supprime un marché.
+  Sale: ["vente", "ventes"],
+  StockMovement: ["mouvement de stock", "mouvements de stock"],
 };
 
 export function libelleDe(modele: string, n: number): string {

@@ -3,6 +3,7 @@ import { clauseSalariesVisibles } from "@/lib/queries/visibilite-listes";
 import { userCan, hasGlobalView, isTopManagement, type SessionUser } from "@/lib/rbac";
 import { canDecideLeave, type LeaveStage } from "@/lib/leave-workflow";
 import { buildLeaveSheet } from "@/lib/hr/leave-sheet";
+import { auNomDeQui } from "@/lib/hr/stand-in-resolve";
 import { toNumber } from "@/lib/utils";
 import { basisLabel } from "@/lib/hr/payroll-cost";
 import { employeeCosts, workforceMass, massByCompany, massProvenance, massIsIncomplete } from "@/lib/hr/workforce-mass";
@@ -366,6 +367,8 @@ export interface LeaveToDecide {
    * ce qui faisait décrocher le téléphone à chacune des trois marches.
    */
   sheet: { label: string; value: string }[];
+  /** En intérim : le N+1 absent au nom de qui l'on signe ; `null` quand la marche est à moi (I18). */
+  pourLeCompteDe: string | null;
 }
 
 /**
@@ -417,10 +420,13 @@ export async function getLeavesToDecide(user: SessionUser): Promise<LeaveToDecid
   // dire la même chose, sinon la demande apparaît à quelqu'un qui ne peut pas la signer
   // (ou l'inverse, plus grave : elle disparaît de la file de celui qui le peut).
   const isDg = isTopManagement(user);
+  // LE N+1, OU SON INTÉRIMAIRE — la même lecture que `leaveDecider` (I18).
+  const auNom = await auNomDeQui(user.id);
 
   const out: LeaveToDecide[] = [];
   for (const l of pending) {
-    const isManager = l.managerId ? managerUserById.get(l.managerId) === user.id : false;
+    const managerUserId = l.managerId ? managerUserById.get(l.managerId) ?? null : null;
+    const isManager = Boolean(managerUserId && auNom.ids.has(managerUserId));
     const allowed = canDecideLeave(
       { status: l.status, stage: l.stage as LeaveStage, requesterUserId: l.employee.userId },
       { id: user.id, isManager, isHr, isDg },
@@ -462,6 +468,8 @@ export async function getLeavesToDecide(user: SessionUser): Promise<LeaveToDecid
           standInStatus: l.standInStatus,
         },
       ),
+      // La marche du N+1 tranchée par son intérimaire se signe AU NOM de l'absent — l'écran le dit.
+      pourLeCompteDe: l.stage === "MANAGER" && isManager && managerUserId !== user.id ? auNom.nomDe(managerUserId) : null,
     });
   }
   return out;

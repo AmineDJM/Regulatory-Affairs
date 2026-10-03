@@ -3,7 +3,7 @@ import { businessUnitDuDemandeur } from "@/lib/ad-pro/business-unit-auto";
 import { AVAILABLE_PRODUCT_STATUSES } from "@/lib/ad-pro/pickers";
 import { platformScope, getMyCompanies, companyOptions } from "@/lib/company";
 import { toNumber } from "@/lib/utils";
-import { userCan, scopeCongressIntl, scopeCongressNational, scopePromoMaterial, type SessionUser } from "@/lib/rbac";
+import { userCan, scopeCongressIntl, scopeCongressNational, scopePromoMaterial, scopeSponsoring, type SessionUser } from "@/lib/rbac";
 import { adProState, sortAdPro, type AdProKind, type AdProRequest } from "@/lib/ad-pro/unified";
 import { natureDesigneMedecinsEtProduits, type AdProCreateData } from "@/lib/ad-pro/create-fields";
 import { optionsDesArticlesDemandes } from "@/lib/queries/promo-achats";
@@ -31,7 +31,7 @@ export async function getAdProRequests(user: SessionUser): Promise<AdProRequest[
   const [sponsorings, intl, national, events, promo, consulting, other] = await Promise.all([
     can("SPONSORING")
       ? prisma.sponsoringRequest.findMany({
-          where: scope, orderBy: { createdAt: "desc" }, take: LIMIT,
+          where: { AND: [scope, scopeSponsoring(user)] }, orderBy: { createdAt: "desc" }, take: LIMIT,
           select: {
             id: true, reference: true, institution: true, doctor: true, type: true,
             status: true, createdAt: true, amountRequested: true, requesterId: true,

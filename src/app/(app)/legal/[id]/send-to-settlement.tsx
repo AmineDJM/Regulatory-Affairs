@@ -18,7 +18,11 @@ import { formatCurrency } from "@/lib/utils";
  * Finances. Elle ne le fait pas, et la personne attendait un règlement qui attendait, lui, le
  * centre (§118.148).
  */
-export function SendToSettlementButton({ id, amount }: { id: string; amount: number | null }) {
+/**
+ * `renvoi` : l'ordre précédent a été refusé par le centre, ou annulé — il ne paiera jamais, et la
+ * facture repart (§118.185, audit 360° I8). Le bouton le dit, pour qu'on sache qu'on ne double rien.
+ */
+export function SendToSettlementButton({ id, amount, renvoi = false }: { id: string; amount: number | null; renvoi?: boolean }) {
   const router = useRouter();
   const [confirm, setConfirm] = React.useState(false);
   const [busy, setBusy] = React.useState(false);
@@ -42,12 +46,12 @@ export function SendToSettlementButton({ id, amount }: { id: string; amount: num
       )}
       {!confirm ? (
         <Button size="sm" variant="primary" onClick={() => setConfirm(true)}>
-          <Send className="h-4 w-4" /> Envoyer au règlement
+          <Send className="h-4 w-4" /> {renvoi ? "Renvoyer au règlement" : "Envoyer au règlement"}
         </Button>
       ) : (
         <div className="flex flex-wrap items-center gap-2 text-sm">
           <span className="text-muted-foreground">
-            Envoyer {amount != null ? formatCurrency(amount) : "cette facture"} au règlement ? Le centre de paiement l&apos;autorisera avant que les Finances ne la règlent.
+            {renvoi ? "Renvoyer" : "Envoyer"} {amount != null ? formatCurrency(amount) : "cette facture"} au règlement ? Le centre de paiement l&apos;autorisera avant que les Finances ne la règlent.{renvoi ? " L’ordre précédent ne paiera pas." : ""}
           </span>
           <Button size="sm" onClick={run} disabled={busy}>
             {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />} Confirmer
