@@ -606,6 +606,10 @@ suite("Matériel promotionnel — achats piochés dans le catalogue, facture lig
     await comme("asst");
     expect((await annulerReceptionLigneFacturePromo(form({ promoMaterialId: pmId, ligneId: stylo.id }))).ok, "l'assistante ne défait pas l'attestation du demandeur").toBe(false);
     await comme("cp");
+    // SANS MOTIF, rien ne se défait (audit 360°, R17) — et la ligne reste reçue, son entrée au magasin intacte.
+    const muet = await annulerReceptionLigneFacturePromo(form({ promoMaterialId: pmId, ligneId: stylo.id }));
+    expect(muet.ok ? "" : muet.error).toMatch(/Dites pourquoi cette réception est annulée/);
+    expect(await prisma.promoStockMovement.count({ where: { lotId: stylo.stockLotId!, kind: "REVERSAL" } })).toBe(0);
     const ok = await annulerReceptionLigneFacturePromo(form({ promoMaterialId: pmId, ligneId: stylo.id, motif: "carton compté deux fois" }));
     expect(ok.ok, ok.ok ? "" : ok.error).toBe(true);
     expect(await magasin(catStylo)).toBe(0);
@@ -624,6 +628,13 @@ suite("Matériel promotionnel — achats piochés dans le catalogue, facture lig
     const attente = await demanderPaiementFacturePromo(form({ promoMaterialId: pmId, invoiceId: factureB1, formalite: "AD_VISA" }));
     expect(attente.ok).toBe(false);
     expect(attente.ok ? "" : attente.error).toMatch(/« Fiche posologique Nivolex » \(3\s900 reçues sur 4\s000\).*ne pourra pas être fait ultérieurement/s);
+    expect(await prisma.expenseOrder.count({ where: { sourceType: "LEGAL_DOCUMENT", sourceId: factureB1 } })).toBe(0);
+
+    // RENONCER SANS DIRE POURQUOI ne part pas — et rien n'est écrit : ni ligne renoncée, ni ordre (§118.18 :
+    // le motif est demandé APRÈS les refus structurels, AVANT tout effet).
+    const sansMotif = await demanderPaiementFacturePromo(form({ promoMaterialId: pmId, invoiceId: factureB1, formalite: "AD_VISA", confirmeRenoncement: "1" }));
+    expect(sansMotif.ok ? "" : sansMotif.error).toMatch(/Dites pourquoi vous renoncez aux lignes non reçues/);
+    expect(await prisma.promoFactureLigne.count({ where: { facture: { legalDocumentId: factureB1 }, renonce: true } })).toBe(0);
     expect(await prisma.expenseOrder.count({ where: { sourceType: "LEGAL_DOCUMENT", sourceId: factureB1 } })).toBe(0);
 
     const r = await demanderPaiementFacturePromo(form({ promoMaterialId: pmId, invoiceId: factureB1, formalite: "AD_VISA", confirmeRenoncement: "1", motifRenoncement: "Carton abîmé à la livraison" }));
@@ -671,8 +682,9 @@ suite("Matériel promotionnel — achats piochés dans le catalogue, facture lig
     expect((await annulerFacturePromo(form({ promoMaterialId: pmId, invoiceId: factureB2 }))).error).toMatch(/Dites pourquoi/);
     const l = (await lignesDe(factureB2))[0]!;
     expect((await receptionnerLigneFacturePromo(form({ promoMaterialId: pmId, ligneId: l.id }))).ok).toBe(true);
-    expect((await annulerFacturePromo(form({ promoMaterialId: pmId, invoiceId: factureB2, motif: "facture refaite" }))).error).toMatch(/réceptionnées : annulez d'abord leur réception/);
-    expect((await annulerReceptionLigneFacturePromo(form({ promoMaterialId: pmId, ligneId: l.id }))).ok).toBe(true);
+    // SANS motif ici, exprès : l'état d'abord (§118.18) — une facture qui ne s'annule pas d'ici ne demande pas pourquoi.
+    expect((await annulerFacturePromo(form({ promoMaterialId: pmId, invoiceId: factureB2 }))).error).toMatch(/réceptionnées : annulez d'abord leur réception/);
+    expect((await annulerReceptionLigneFacturePromo(form({ promoMaterialId: pmId, ligneId: l.id, motif: "coche erronée" }))).ok).toBe(true);
     const r = await annulerFacturePromo(form({ promoMaterialId: pmId, invoiceId: factureB2, motif: "facture refaite" }));
     expect(r.ok, r.ok ? "" : r.error).toBe(true);
     const doc = await prisma.legalDocument.findUniqueOrThrow({ where: { id: factureB2 }, select: { status: true, cancelReason: true } });

@@ -222,7 +222,7 @@ suite("Centre Ad & Pro — renvoyer, resoumettre, réexaminer (flux réel)", () 
     const id = await creerEtSoumettre("annule", auDessus);
     expect((await decider(pdgId, "GENERAL_MANAGER", "CONSULTING_CONTRACT", id, "RENVOYER", "À revoir.")).ok).toBe(true);
     ACTOR = await actorFor(porteurId, "PRODUCT_MANAGER");
-    expect((await closeConsultingContract(form({ id, cancel: "1" }))).ok).toBe(true);
+    expect((await closeConsultingContract(form({ id, cancel: "1", note: "Projet abandonné." }))).ok).toBe(true);
     const r = await resoumettre(porteurId, "PRODUCT_MANAGER", "CONSULTING_CONTRACT", id, { note: "Finalement si.", amount: String(auDessus * 2) });
     expect(r.ok).toBe(false);
     expect(r.error).toMatch(/n'attend plus de décision/);
@@ -233,7 +233,7 @@ suite("Centre Ad & Pro — renvoyer, resoumettre, réexaminer (flux réel)", () 
   it("annulée pendant qu'elle attendait le centre : sa porte est RETIRÉE, et une porte d'avant ne se tranche plus", async () => {
     const id = await creerEtSoumettre("morte", auDessus);
     ACTOR = await actorFor(porteurId, "PRODUCT_MANAGER");
-    expect((await closeConsultingContract(form({ id, cancel: "1" }))).ok).toBe(true);
+    expect((await closeConsultingContract(form({ id, cancel: "1", note: "Projet abandonné." }))).ok).toBe(true);
     expect(await lireVisaAdPro("CONSULTING_CONTRACT", id), "l'annulation retire la porte en attente").toBeNull();
 
     // Une porte qu'une annulation d'AVANT ce lot a laissée — l'état exact d'une base de production.
@@ -280,7 +280,7 @@ suite("Centre Ad & Pro — renvoyer, resoumettre, réexaminer (flux réel)", () 
     const autre = await createAdProOtherRequest(undefined, form({ title: `${TAG} autre annulée`, description: "Finalement non.", amount: String(auDessus) }));
     expect(autre.ok, autre.error).toBe(true);
     expect(await lireVisaAdPro("AD_PRO_OTHER", autre.id!)).toBe("PENDING");
-    expect((await closeAdProOtherRequest(form({ id: autre.id!, cancel: "1" }))).ok).toBe(true);
+    expect((await closeAdProOtherRequest(form({ id: autre.id!, cancel: "1", note: "Finalement non." }))).ok).toBe(true);
     expect(await lireVisaAdPro("AD_PRO_OTHER", autre.id!), "le centre ne trancherait plus qu'une demande morte").toBeNull();
   });
 
@@ -309,7 +309,7 @@ suite("Centre Ad & Pro — renvoyer, resoumettre, réexaminer (flux réel)", () 
     const morte = await creerEtSoumettre("reexammorte", auDessus);
     expect((await decider(pdgId, "GENERAL_MANAGER", "CONSULTING_CONTRACT", morte, "REFUSER", "Non.")).ok).toBe(true);
     ACTOR = await actorFor(porteurId, "PRODUCT_MANAGER");
-    expect((await closeConsultingContract(form({ id: morte, cancel: "1" }))).ok).toBe(true);
+    expect((await closeConsultingContract(form({ id: morte, cancel: "1", note: "Projet abandonné." }))).ok).toBe(true);
     ACTOR = await actorFor(pdgId, "GENERAL_MANAGER");
     const r = await reexaminerVisaCentreAdPro(form({ entityType: "CONSULTING_CONTRACT", entityId: morte, note: "On revoit." }));
     expect(r.ok).toBe(false);

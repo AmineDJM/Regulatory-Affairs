@@ -666,7 +666,10 @@ export async function annulerReceptionLigneFacturePromo(formData: FormData): Pro
   const facture = brut.facture.legalDocument;
   if (await paiementEnCours(facture)) return { ok: false, error: "Le paiement de cette facture est déjà demandé : sa réception ne se défait plus." };
   if (brut.quantiteRecue == null) return { ok: false, error: `« ${brut.designation} » n'est pas réceptionnée.` };
+  // DÉFAIRE UNE RÉCEPTION DIT POURQUOI (audit 360°, R17) : son entrée au magasin est contre-passée, et le
+  // journal doit dire si c'était une erreur de saisie ou une marchandise renvoyée.
   const motif = fdStr(formData, "motif");
+  if (!motif) return { ok: false, error: "Dites pourquoi cette réception est annulée : erreur de saisie, marchandise renvoyée…" };
   const remise = { quantiteRecue: null, recueLe: null, recueParId: null, stockItemId: null, stockLotId: null };
 
   if (brut.stockLotId && brut.stockItemId) {
@@ -674,7 +677,7 @@ export async function annulerReceptionLigneFacturePromo(formData: FormData): Pro
     if (!entree) return { ok: false, error: "L'entrée au stock de cette ligne est introuvable." };
     const lotId = brut.stockLotId;
     const r = await sousVerrou(brut.stockItemId, async (tx) => {
-      const a = await annulerMouvementEcrit(tx, entree.id, user.id, motif ?? `Réception annulée (${pm.reference})`);
+      const a = await annulerMouvementEcrit(tx, entree.id, user.id, motif);
       if (!a.ok) return { refus: a.refus };
       const maj = await tx.promoFactureLigne.updateMany({ where: { id: brut.id, stockLotId: lotId }, data: remise });
       if (maj.count === 0) throw new Error("La ligne a changé pendant l'annulation.");
@@ -684,7 +687,7 @@ export async function annulerReceptionLigneFacturePromo(formData: FormData): Pro
   } else {
     await prisma.promoFactureLigne.update({ where: { id: brut.id }, data: remise });
   }
-  await audit(user, pm.id, `Réception annulée — « ${brut.designation} » (facture ${facture.reference ?? ""})${motif ? ` — ${motif.slice(0, 200)}` : ""}`);
+  await audit(user, pm.id, `Réception annulée — « ${brut.designation} » (facture ${facture.reference ?? ""}) — ${motif.slice(0, 200)}`);
   revalidatePath(chemin(pm.id));
   revalidatePath(CHEMIN_STOCK_PROMO);
   return { ok: true, message: `Réception de « ${brut.designation} » annulée${brut.stockLotId ? " — son entrée au magasin est contre-passée" : ""}.` };
@@ -702,8 +705,6 @@ export async function annulerFacturePromo(formData: FormData): Promise<ActionRes
   const pm = await chargerDossier(fdStr(formData, "promoMaterialId"));
   const refus = refusExecution(user, pm);
   if (refus || !pm) return { ok: false, error: refus ?? "Dossier introuvable." };
-  const motif = fdStr(formData, "motif");
-  if (!motif) return { ok: false, error: "Dites pourquoi cette facture est annulée : elle reste au registre, avec ce motif." };
   const facture = await factureDuDossier(pm, fdStr(formData, "invoiceId"));
   if (!facture) return { ok: false, error: "Cette facture n'appartient pas à ce dossier." };
   if (await paiementEnCours(facture)) return { ok: false, error: "Le paiement de cette facture est déjà demandé : elle ne s'annule plus d'ici." };
@@ -711,6 +712,10 @@ export async function annulerFacturePromo(formData: FormData): Promise<ActionRes
   if (recues > 0) return { ok: false, error: `${recues} ligne(s) de cette facture sont réceptionnées : annulez d'abord leur réception (ce qui est entré au stock y est physiquement).` };
   const doc = await prisma.legalDocument.findUnique({ where: { id: facture.id }, select: { status: true } });
   if (!doc || !canCancel(doc.status)) return { ok: false, error: "Cette facture ne peut plus être annulée." };
+  // Le motif APRÈS les refus ci-dessus : on ne demande pas pourquoi annuler une facture qui ne
+  // s'annule pas d'ici (§118.18).
+  const motif = fdStr(formData, "motif");
+  if (!motif) return { ok: false, error: "Dites pourquoi cette facture est annulée : elle reste au registre, avec ce motif." };
   // Un ordre REFUSÉ par le centre reste « en attente » côté statut : il se ferme avec sa facture.
   if (facture.expenseOrderId) {
     const fermeture = await annulerOrdreNonRegle(facture.expenseOrderId, { acteurId: user.id, motif: `facture ${facture.reference ?? ""} annulée — ${motif.slice(0, 120)}` });
@@ -817,6 +822,14 @@ export async function demanderPaiementFacturePromo(formData: FormData): Promise<
       bc: { porte: await porteDuBC(bc.id), reference: bc.reference }, ordreLie,
     });
     if (!envoi.ok) return { ok: false, error: envoi.error };
+    // RENONCER EST DÉFINITIF (« un paiement pour cette ligne ne pourra pas être fait ultérieurement ») :
+    // il dit pourquoi (audit 360°, R17) — APRÈS les refus ci-dessus (on ne demande pas pourquoi renoncer
+    // pour une facture qui ne partira pas, §118.18) et AVANT tout effet. `=== null` : un paiement complet
+    // n'a rien à expliquer, et la dérivation ne doit pas rendre le motif obligatoire pour lui (§118.138).
+    const motifRenoncement = fdStr(formData, "motifRenoncement");
+    if (renoncer.length > 0 && motifRenoncement === null) {
+      return { ok: false, error: "Dites pourquoi vous renoncez aux lignes non reçues : ce renoncement est définitif." };
+    }
     if (ordreLie) {
       const fermeture = await annulerOrdreNonRegle(facture.expenseOrderId, { acteurId: user.id, motif: `remplacé par un nouvel envoi de la facture ${facture.reference ?? ""}` });
       if (!fermeture.ok) return { ok: false, error: fermeture.error };
@@ -826,7 +839,7 @@ export async function demanderPaiementFacturePromo(formData: FormData): Promise<
       // ligne déjà renoncée ne l'est pas deux fois (la date et l'auteur restent ceux du premier geste).
       await prisma.promoFactureLigne.updateMany({
         where: { id: { in: renoncer }, renonce: false },
-        data: { renonce: true, renonceMotif: fdStr(formData, "motifRenoncement"), renonceLe: new Date(), renonceParId: user.id },
+        data: { renonce: true, renonceMotif: motifRenoncement, renonceLe: new Date(), renonceParId: user.id },
       });
     }
 

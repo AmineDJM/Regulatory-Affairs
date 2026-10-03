@@ -7,6 +7,7 @@ import { dossiersPromoAMonTour } from "@/lib/queries/promo-circuit";
 import { clauseDemandesSecretariatVisibles } from "@/lib/queries/visibilite-listes";
 import { libelleEtape } from "@/lib/promo-material/circuit";
 import { toNumber, formatCurrency } from "@/lib/utils";
+import { polesLisibles } from "@/lib/lecteurs/consulting";
 import type { PromoMaterialStatus } from "@prisma/client";
 import {
   type BadgeTone, TASK_STATUS, ADMIN_REQUEST_STATUS, REGULATORY_STATUS, EXPENSE_ORDER_STATUS, LEAVE_STATUS, CONGRESS_REQUEST_STATUS, MEDICAL_INFO_STATUS, PROMO_MATERIAL_STATUS, DIRECTIVE_STATUS, SUPPORT_STATUS, DOSSIER_STATUS,
@@ -212,11 +213,20 @@ export async function getActionCenter(user: SessionUser) {
   // se perd, et la demande attendait — chez lui, sans qu'aucun écran ne le lui rappelle. Le statut
   // projeté (« RETURNED ») suffit à la trouver ; le dernier renvoi donne l'étape et le motif.
   const PLAFOND_A_CORRIGER = 30;
-  const [spoR, ciR, cnR, evR] = await Promise.all([
+  // Un contrat de consulting RENVOYÉ est un brouillon qui porte son renvoi (audit 360°, lot C4a) — dans
+  // les pôles que la personne lit : un contrat passé aux RH ne s'ouvre plus pour qui n'a pas les RH.
+  const polesDuPorteur = polesLisibles((m) => userCan(user, m, "VIEW"));
+  const [spoR, ciR, cnR, evR, coR] = await Promise.all([
     prisma.sponsoringRequest.findMany({ where: { requesterId: user.id, status: "RETURNED" }, select: { id: true, reference: true, institution: true }, orderBy: { updatedAt: "asc" }, take: PLAFOND_A_CORRIGER + 1 }),
     prisma.congressInternational.findMany({ where: { requesterId: user.id, requestStatus: "RETURNED" }, select: { id: true, name: true }, orderBy: { updatedAt: "asc" }, take: PLAFOND_A_CORRIGER + 1 }),
     prisma.congressNational.findMany({ where: { requesterId: user.id, requestStatus: "RETURNED" }, select: { id: true, name: true }, orderBy: { updatedAt: "asc" }, take: PLAFOND_A_CORRIGER + 1 }),
     prisma.event.findMany({ where: { requesterId: user.id, requestStatus: "RETURNED" }, select: { id: true, name: true }, orderBy: { updatedAt: "asc" }, take: PLAFOND_A_CORRIGER + 1 }),
+    polesDuPorteur.length
+      ? prisma.consultingContract.findMany({
+          where: { requesterId: user.id, status: "DRAFT", returnedAt: { not: null }, pole: { in: polesDuPorteur } },
+          select: { id: true, reference: true, title: true, returnNote: true }, orderBy: { returnedAt: "asc" }, take: PLAFOND_A_CORRIGER + 1,
+        })
+      : Promise.resolve([] as { id: string; reference: string; title: string; returnNote: string | null }[]),
   ]);
   const aCorriger = [
     ...spoR.map((r) => ({ type: "SPONSORING", id: r.id, titre: `${r.reference} — ${r.institution}`, nature: "Sponsoring", href: `/sponsoring/${r.id}` })),
@@ -224,6 +234,9 @@ export async function getActionCenter(user: SessionUser) {
     ...cnR.map((r) => ({ type: "CONGRESS_NATIONAL", id: r.id, titre: r.name, nature: "Prise en charge nationale", href: `/congress-national/${r.id}` })),
     ...evR.map((r) => ({ type: "EVENT", id: r.id, titre: r.name, nature: "Événement", href: `/events/${r.id}` })),
   ];
+  // Le renvoi d'un contrat vit SUR le contrat (`returnNote`), pas dans le journal du moteur Ad & Pro.
+  const renvoisContrats = new Map(coR.map((r) => [r.id, r.returnNote]));
+  aCorriger.push(...coR.map((r) => ({ type: "CONSULTING_CONTRACT", id: r.id, titre: `${r.reference} — ${r.title}`, nature: "Consulting", href: `/consulting/${r.id}` })));
   if (aCorriger.length > 0) {
     const renvois = await prisma.workflowStepEvent.findMany({
       where: { action: "RETURN", instance: { status: "RETURNED", entityId: { in: aCorriger.map((d) => d.id) } } },
@@ -238,15 +251,16 @@ export async function getActionCenter(user: SessionUser) {
     const apercu = (t: string) => (t.length > 140 ? `${t.slice(0, 140)}…` : t);
     for (const d of aCorriger.slice(0, PLAFOND_A_CORRIGER)) {
       const r = dernier.get(`${d.type}:${d.id}`);
+      const noteContrat = d.type === "CONSULTING_CONTRACT" ? renvoisContrats.get(d.id) ?? null : null;
       items.push({
         key: `corriger-${d.type}-${d.id}`, title: `À corriger — ${d.titre}`,
-        subtitle: r ? `${r.stepTitle}${r.note ? ` : ${apercu(r.note)}` : ""}` : d.nature,
+        subtitle: r ? `${r.stepTitle}${r.note ? ` : ${apercu(r.note)}` : ""}` : noteContrat ? `Renvoyé pour correction : ${apercu(noteContrat)}` : d.nature,
         module: d.nature, href: d.href, kind: "request", priority: null,
         deadline: null, owner: "", statusLabel: "À corriger", statusTone: "warning",
       });
     }
     // Au-delà du plafond, on le DIT (§118.60) — une liste coupée se lirait comme complète.
-    if (aCorriger.length > PLAFOND_A_CORRIGER || [spoR, ciR, cnR, evR].some((l) => l.length > PLAFOND_A_CORRIGER)) {
+    if (aCorriger.length > PLAFOND_A_CORRIGER || [spoR, ciR, cnR, evR, coR].some((l) => l.length > PLAFOND_A_CORRIGER)) {
       items.push({
         key: "corriger-reste", title: "D'autres demandes vous attendent pour correction",
         subtitle: "La liste « Ad & Pro » les montre toutes (état « À corriger »).",

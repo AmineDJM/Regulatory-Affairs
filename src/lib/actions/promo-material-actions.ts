@@ -4,6 +4,7 @@ import { Prisma } from "@prisma/client";
 import { revalidatePath } from "next/cache";
 import { requireUser } from "@/lib/session";
 import { userCan, hasGlobalView, type SessionUser } from "@/lib/rbac";
+import { ecrireAuFil } from "@/lib/ad-pro/fil";
 import { prisma } from "@/lib/prisma";
 import { canAccessEntity } from "@/lib/entity-access";
 import { recordAudit } from "@/lib/audit";
@@ -696,16 +697,26 @@ export async function cancelPromoMaterial(formData: FormData): Promise<ActionRes
     const bcs = await prisma.promoQuote.count({ where: { promoMaterialId: id, purchaseOrderId: { not: null } } });
     if (bcs > 0) return { ok: false, error: `${bcs} bon${bcs > 1 ? "s" : ""} de commande ${bcs > 1 ? "ont été générés" : "a été généré"} pour ce dossier : supprimez-${bcs > 1 ? "les" : "le"} d'abord depuis la carte « Exécution », sans quoi une commande resterait engagée sur un dossier annulé.` };
   }
+  // UNE ANNULATION EST DÉFINITIVE ET DIT POURQUOI (audit 360°, R17/R18) : sans motif, le dossier affichait
+  // « Refusé » sans qu'on sache ni qui ni pourquoi — le demandeur croyait à un refus de la Direction.
+  // Demandé APRÈS les refus ci-dessus : on ne demande pas pourquoi annuler ce qui ne s'annule pas (§118.18).
+  const motif = fdStr(formData, "motif");
+  if (!motif) return { ok: false, error: "Dites pourquoi ce dossier est annulé : l'annulation est définitive." };
 
   // L'ANNULATION ARRÊTE AUSSI LE CIRCUIT. Sans cette ligne, un dossier annulé restait sur son étape
   // de circuit — la fiche l'affichait en attente d'un validateur, et ce validateur pouvait encore
   // le faire avancer. L'état terminal du circuit est le seul que toutes ses actions refusent.
-  await prisma.promoMaterial.update({
-    where: { id },
+  // CONDITIONNELLE sur l'état LU : deux annulations à la même seconde n'écrivent pas deux motifs au fil ni
+  // deux notifications, et un dossier que le circuit vient de clore ne se rouvre pas en « annulé ».
+  const ecrite = await prisma.promoMaterial.updateMany({
+    where: { id, status: pm.status, circuitState: pm.circuitState },
     data: { status: "CANCELLED", ...(pm.circuitState ? { circuitState: "REFUSED" } : {}), updatedById: user.id },
   });
+  if (ecrite.count === 0) return { ok: false, error: "Ce dossier vient de changer d'état : rouvrez sa fiche." };
   if (pm.adminRequestId) await prisma.administrativeRequest.update({ where: { id: pm.adminRequestId }, data: { status: "CANCELLED" } }).catch(() => {});
-  await audit(user, id, "UPDATE", "Dossier annulé");
+  await ecrireAuFil({ entityType: "PROMO_MATERIAL", entityId: id, authorId: user.id, body: `Dossier annulé — ${motif}` });
+  if (pm.requesterId && pm.requesterId !== user.id) await notifyRequester(pm, `Dossier annulé : ${motif.slice(0, 120)}`);
+  await audit(user, id, "UPDATE", `Dossier annulé — ${motif.slice(0, 200)}`);
   revalidate(id);
   return { ok: true };
 }

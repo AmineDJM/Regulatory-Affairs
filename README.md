@@ -1121,7 +1121,11 @@ refus se **réexamine** par un siège, motif à l'appui (`reexaminerVisaCentreAd
 (`resoumettreAuCentreAdPro` ; la fiche et l'action lisent `peutResoumettreAuCentre`) — corrigé sous le
 seuil, la porte est retirée. Un BC du registre Legal renvoyé est « à revoir » et se lève en le modifiant.
 Seule une demande qui **attend encore** sa décision est montrée, tranchée, réexaminée ou resoumise
-(`ATTEND_ENCORE`) ; annuler un consulting ou une « autre demande » retire sa porte en attente.
+(`ATTEND_ENCORE`) ; annuler un consulting ou une « autre demande » retire sa porte en attente. **La porte suit
+aussi le montant quand ces deux natures sont CORRIGÉES ou resoumises à leur décideur** (lot C4a, §118.189,
+`ajusterVisaAuMontant`) : elle s'ouvre au-dessus du seuil, se met à jour ou se retire en dessous, une autorisation
+se rouvre si le montant la dépasse, et une demande resoumise sous un refus du centre est annoncée au centre — pas
+au décideur que ce refus bloque.
 
 **LE CENTRE EST UNE LENTILLE, PAS UNE SECONDE AUTORISATION.** La forme du centre de paiement — une
 couche d'autorisation centrale de plus — ferait valider le DG **DEUX FOIS** pour les cinq natures
@@ -4662,6 +4666,7 @@ entité) sont éligibles. Supprimer une gamme **ne supprime aucun produit** (`SE
 | **Bons de commande — un centre de validation pour chacun (§118.148)** | Règle PURE `lib/bons-de-commande/regle.ts` (socle : `centreDeLOrigine`, `etatDepuisValidation/Visa/Poste`, `gesteAiguillage` POSER/TRANSFERER/ROUVRIR/ACTUALISER/RIEN, `blocageParLeBC`, `reserveBC`, `chantierBCClos`) ; aiguillage `lib/bons-de-commande/aiguillage.ts` (`aiguillerBC` — ne lève jamais, `porteDuBC`, `portesDesBC`, `retirerPortesEnAttente`) appelé par toute création/modification/annulation/suppression d'un BC (Legal, renouvellement, secrétariat, fabrique, rattachement Ad & Pro) ; `adresserBCAuCentre` + op `legal_operation/submit_purchase_order` ; fiche `app/(app)/legal/[id]/bc-gate.tsx` ; lentille du centre Ad & Pro (`BC_POSTE` / `BC_LEGAL` / `BC_PROMO`) ; migrations `20261127090000_bc_par_les_centres`, `20261127091000_rallonge_caisse_ecriture`. Bancs : `regle.test.ts` (27), `aiguillage-flow.test.ts` (13, vrais points d'entrée). |
 | **Centre de validation Ad & Pro** | **Règle du seuil au SOCLE** `lib/seuils/ad-pro.ts` (`porteDgRequise`, `motifPorteDg` — zéro import, parce que `tasks` et `adpro` sont deux domaines qui n'ont pas le droit de se parler : **c'est exactement pourquoi la règle était écrite DEUX fois**, `dgRequis` dans `workflow/parcours.ts` et la même arithmétique recopiée dans `promo-material/circuit.ts`) + `seuils/ad-pro.test.ts` ; module PUR `lib/ad-pro/centre.ts` (`siegeAuCentreAdPro`, `REFUS_CENTRE_AD_PRO`, **`FORME_PORTE: Record<AdProKind, FormePorte>`** — `ETAPE_CIRCUIT` / `ETAPE_PROMO` / `VISA_CENTRE`, exhaustif par le typecheck —, `NATURES_A_VISA` DÉRIVÉ, `visaAutoriseAAvancer`, `motifBlocageVisa`, `trierCentre`, `compteursCentre` avec **`sansMontant`**) + `ad-pro/centre.test.ts` (14 tests) ; **`AdProGateVisa`** (`@@unique([entityType, entityId])`, `threshold` FIGÉ §118.41) ; `lib/ad-pro/visa.ts` (`poserVisaAdPro` idempotente et qui ne RÉOUVRE jamais un visa tranché, `blocageCentreAdPro`) ; lecteur UNIQUE `lib/queries/ad-pro-centre.ts` ; portes posées dans `consulting-actions.ts` (soumission) et `ad-pro-other-actions.ts` (création) ; `lib/actions/ad-pro-centre-actions.ts` ; seuil réglable depuis les DEUX écrans par la MÊME action (`settings-actions.ts:setAdProDgThreshold`) ; `app/(app)/centre-ad-pro/` ; op de conversation `adpro_operation/decide_gate_visa` ; banc de bout en bout `lib/actions/ad-pro-centre-flow.test.ts` (12 tests, vrais points d'entrée). Migration `20261117090000_centre_validation_ad_pro`. |
 | **Consulting — pôle Ad & Pro / RH (§118.150)** | Module PUR au SOCLE `lib/lecteurs/consulting.ts` (`POLES_CONSULTING`, **`MODULE_DU_POLE`** — la seule traduction pôle → module, `LIBELLE_POLE`, `CHEMIN_LISTE_POLE`, `poleDe`, `poleOppose`, `transfertAutorise` — MODIFIER les deux modules —, `refusTransfert`, `polesLisibles`) + `consulting.test.ts` ; `ConsultingContract.pole` (migration `20261128100000_consulting_pole`, idempotente, **aucune ligne ne change de pôle**) ; action `consulting-actions.ts:transfererConsulting` (garde nommée `peutSurLeContrat`, visa en attente retiré par `ad-pro/visa.ts:retirerVisaEnAttente`, BC en attente relus par `bons-de-commande/aiguillage.ts:reaiguillerLesBCDe`) ; garde par enregistrement `entity-access.ts:moduleDeLEntite` / `modulesDesEntites` (lot) ; registre `api/registry/entities.ts` (portée par pôle + **`lisiblePar`**, lu par `canReadEntity`) ; centre voulu d'un BC `aiguillage.ts:centreVouluDuBC` (aiguillage ET fiche Legal) ; liste commune `components/consulting/contracts-table.tsx` montée par `/consulting` (pôle Ad & Pro) et `/rh/consultants` (pôle RH) ; fiche commune `/consulting/[id]` (porte du pôle AVANT tout chargement) + `transfer-panel.tsx` ; `ad-pro/unified.ts:dejaPorteParSaFiche` (secrétariat, page ET action) ; op `consulting_operation/transfer_contract`, désignation par `resoudreCible` (sous la portée). Bancs : `consulting-transfert-flow.test.ts` (16, vrais points d'entrée, acteurs sans vue globale), cliquet `lecteurs/consulting-cliquet.test.ts` (toute LISTE de contrats nomme le pôle), navigateur `e2e/consulting-pole.spec.ts` (5, build de production). |
+| **Consulting et « autre demande » — corriger, renvoyer, resoumettre (§118.189)** | Porte de correction COMMUNE au pôle `ad-pro-edit.ts` (liste blanche des deux natures, **`requis`** — un champ obligatoire ne se vide pas —, `DECIDED_STATUS`) + `actions/ad-pro-edit-actions.ts` (`moduleDe` par pôle, menus revérifiés côté serveur, période cohérente, `attendLeCentre`) ; machine à états `ad-pro/consulting.ts` (geste **`RETURN`**) ; `consulting-actions.ts` (`decideConsultingContract` VALIDER / RENVOYER / REFUSER — l'état d'abord, le motif ensuite —, `requestConsultingValidation` qui resoumet, efface le renvoi, le met au fil et **garde le validateur**, **`prolongerConsultingContract`**, clôture conditionnelle et motivée) ; `ad-pro-other-actions.ts` (**`resoumettreAdProOtherRequest`**, décision et clôture motivées et conditionnelles) ; porte du centre `ad-pro/visa.ts:ajusterVisaAuMontant` + `phraseGesteVisa` ; fil `ad-pro/fil.ts` ; « À corriger » `queries/ad-pro.ts` + `queries/action-center.ts` ; motif d'annulation d'un mouvement chez l'écrivain unique `promo/stock-ecriture.ts:MOTIF_ANNULATION_MOUVEMENT` ; Legal des Finances `legal-actions.ts` (la porte de la fiche est la règle d'écriture) + `legal/legal-table.tsx` ; dossier promo annulé `promo-material/statut.ts`. Bancs : `consulting-correction-flow.test.ts`, `ad-pro-other-correction-flow.test.ts`, `legal-finances-gestes.test.ts`, `promo-annulation-flow.test.ts` (vrais points d'entrée, acteurs sans vue globale, barrières de concurrence), navigateur `e2e/correction-c4a.spec.ts`. Migration `20261229090000_consulting_renvoi`. |
 | **Matériel promo — circuit court** | Module PUR `lib/promo-material/circuit.ts` (`PROMO_STEPS` (7), `PROMO_TRACKS` (`PURCHASE_ORDER`/`PAYMENT`/`AD_VISA`), `initialStep` — saute la demande de devis si le devis est déjà là —, `canValidate` (N+1 réel : `Employee.managerId`, à défaut `departmentRef.head`), **`seesFullCircuit`** (Super Admin + PDG **uniquement**), `tracksOpen`, `allTracksDone`, `pendingTracks`, `progress`, `waitingOn`) + `circuit.test.ts` (23 tests) ; `lib/actions/promo-circuit-actions.ts`. |
 | **Rejeu de session (support)** | Module PUR `lib/replay/capture.ts` (`FORBIDDEN_FIELD` — mot de passe / secret / jeton / IBAN / RIB / CVV / carte —, `FORBIDDEN_INPUT_TYPE` — `password`, `hidden` —, `fieldIsRecordable`, `isSensitiveLabel`, `cleanLabel`, `scrubDetail`, **`makeEvent` : la porte d'entrée UNIQUE**, `coalesce`, `describeEvent`, `stamp`, `firstErrorIndex`) + `capture.test.ts` (20 tests) ; modèle `SessionEvent` ; `components/layout/session-recorder.tsx` (monté dans `app/(app)/layout.tsx`, `sendBeacon`, **ne lit jamais `.value`**) ; `app/api/replay/route.ts` (**re-masque côté serveur**, 204 systématique, lot plafonné à 200) ; `app/(app)/admin/replay/{page,replay-viewer}.tsx` (**`SUPER_ADMIN` seul**). |
 | **Courriers — dossiers & pièces multiples** | Modèles `MailFolder` (arbre, `MailEntry.folderId` en `ON DELETE SET NULL`) et `MailEntryPiece` (intitulé + **destinataire propre** + fichier téléversé **ou** nœud Drive référencé) ; `lib/actions/mail-folder-actions.ts`, `lib/actions/mail-piece-actions.ts` ; `app/(app)/courriers/mail-folder-bar.tsx`, `app/(app)/courriers/[id]/mail-pieces.tsx`. |
@@ -6593,6 +6598,37 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 ---
 
 ## 🧾 Journal des évolutions récentes
+
+### AUDIT 360° — LOT C4a : LE CONSULTING ET L'« AUTRE DEMANDE » SE CORRIGENT (2026-10)
+
+Rapport 17 de l'audit (R11, R13, R14, R16, R17, R18). Doctrine : `CLAUDE.md` §118.189.
+
+- **Corriger** un contrat de consulting ou une « autre demande » : la même porte que les cinq autres natures du
+  pôle (`updateAdProRequest`, `ad-pro-edit.ts`) — champs **obligatoires** déclarés (`requis`) et **menus**
+  revérifiés côté serveur, période cohérente, historique qui dit les **libellés** (« Rythme : Forfait unique →
+  Mensuel »). Un contrat RH se corrige par le module RH (`MODULE_DU_POLE`). Un contrat actif, une demande tranchée
+  ne se corrigent plus en silence.
+- **Renvoyer pour correction** un contrat (`decideConsultingContract`, décision `RENVOYER`, motif obligatoire) : il
+  revient en brouillon chez son porteur (`returnedAt`, `returnedById`, `returnNote` — migration
+  `20261229090000_consulting_renvoi`), « À corriger » dans la liste Ad & Pro et dans Mon espace ; la fiche montre
+  le motif. **Resoumis**, le renvoi s'efface et va au fil, et le **validateur qui l'a demandé** reste désigné
+  (présélectionné à l'écran, gardé par l'action quand le formulaire ne le porte pas).
+- **Resoumettre** une « autre demande » refusée (`resoumettreAdProOtherRequest`) : son demandeur seul, en disant ce
+  qui a changé ; description et montant se corrigent au passage ; le refus et la correction vont au fil.
+- **La porte du centre Ad & Pro suit le montant corrigé** (`ad-pro/visa.ts:ajusterVisaAuMontant`) : elle s'ouvre
+  au-dessus du seuil, se met à jour ou se retire en dessous, et une autorisation se **rouvre** si le montant la
+  dépasse ; resoumise sous un refus du centre, la demande va au **centre** (seul un siège réexamine), pas au
+  validateur qu'il bloque. La phrase de ce qui s'est passé est dite à l'écran (`phraseGesteVisa`).
+- **Prolonger** un contrat en cours (`prolongerConsultingContract`) : qui peut le valider, une fin qui suit
+  l'actuelle, ce qui la fonde ; au fil, et le porteur prévenu.
+- **Motifs exigés** pour annuler un contrat, une « autre demande », un dossier promotionnel, une facture promo, une
+  pièce Legal, un mouvement de stock, une réception, et pour renoncer à des lignes au paiement — **toujours après**
+  les refus d'état : on ne demande pas pourquoi annuler ce qui ne s'annule pas d'ici.
+- **Les Finances** annulent, rétablissent et renouvellent leurs factures et bons de commande depuis la liste Legal
+  (la porte de la fiche est la règle d'écriture par nature) ; un contrat leur reste fermé.
+- **Annulé n'est pas refusé** : un dossier promotionnel annulé s'affiche « Annulé ».
+- Clôtures conditionnelles (contrat, « autre demande », dossier promotionnel) : deux annulations simultanées n'en
+  écrivent qu'une.
 
 ### AUDIT 360° — LOT C3 : LES TROIS CENTRES SAVENT FAIRE CORRIGER (2026-10)
 

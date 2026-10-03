@@ -1095,6 +1095,14 @@ X("RENVOYER, RÉEXAMINER, RESOUMETTRE DANS LES CENTRES (§118.188, audit R07/R08
   "validation-actions:resoumettreValidation",
   "ad-pro-centre-actions:resoumettreAuCentreAdPro", "ad-pro-centre-actions:reexaminerVisaCentreAdPro",
 ]);
+X("RESOUMETTRE UNE « AUTRE DEMANDE » REFUSÉE ET PROLONGER UN CONTRAT DE CONSULTING (audit 360°, lot C4a) — la "
+  + "resoumission est le geste du DEMANDEUR qui dit ce qui a changé depuis le refus (elle peut corriger la description "
+  + "et le montant, que le centre Ad & Pro relit) ; la prolongation engage la société sur un terme plus long et "
+  + "revient à qui peut valider le contrat, avec ce qui la fonde (l'avenant). Adam est en pause de développement : "
+  + "aucun geste neuf ne lui est ouvert. Un clic sur la fiche de la demande ou du contrat.", [
+  "ad-pro-other-actions:resoumettreAdProOtherRequest",
+  "consulting-actions:prolongerConsultingContract",
+]);
 X("RÉTABLIR UN DOCUMENT LEGAL ANNULÉ (§118.184, audit L04) : le retour d'une annulation, ajouté parce que "
   + "l'annulation n'en avait aucun. C'est un geste de correction qu'une personne fait devant la ligne qu'elle "
   + "vient d'annuler par erreur ; Adam est en pause de développement (Super Admin seul) et l'annulation qu'il "

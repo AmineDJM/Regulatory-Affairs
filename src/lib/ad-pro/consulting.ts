@@ -23,6 +23,12 @@ export type ConsultingMove =
   | "APPROVE"
   /** Le validateur refuse : la relation ne commence pas. */
   | "REFUSE"
+  /**
+   * Le validateur RENVOIE pour correction (audit 360°, lot C4a) : le contrat revient en brouillon chez
+   * son porteur, qui le corrige et le resoumet. Sans ce geste, un contrat mal saisi n'avait qu'une
+   * issue — le refus, c'est-à-dire l'annulation pour toujours.
+   */
+  | "RETURN"
   /** Le terme est atteint. */
   | "EXPIRE"
   /** On rompt en cours de route. */
@@ -36,7 +42,7 @@ const MOVES: Record<ConsultingState, Partial<Record<ConsultingMove, ConsultingSt
   DRAFT: { SUBMIT: "AWAITING_VALIDATION", CANCEL: "CANCELLED" },
   // Un contrat en attente peut encore être retiré par son porteur — mais pas « expirer » :
   // rien n'a commencé.
-  AWAITING_VALIDATION: { APPROVE: "ACTIVE", REFUSE: "CANCELLED", CANCEL: "CANCELLED" },
+  AWAITING_VALIDATION: { APPROVE: "ACTIVE", REFUSE: "CANCELLED", RETURN: "DRAFT", CANCEL: "CANCELLED" },
   ACTIVE: { EXPIRE: "EXPIRED", CANCEL: "CANCELLED" },
   // Une fin est une fin. Rouvrir un contrat clos effacerait la date à laquelle il s'est terminé —
   // celle qu'on cherche justement quand on se demande jusqu'à quand on a travaillé ensemble.

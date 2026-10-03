@@ -526,8 +526,11 @@ suite("Matériel promotionnel — circuit 2 de bout en bout", () => {
     expect(await prisma.legalDocument.count({ where: { sourceType: "PROMO_MATERIAL", sourceId: pmId, kind: "PURCHASE_ORDER" } })).toBe(2);
 
     ACTOR = await actorFor(u.cp);
-    const annul = await cancelPromoMaterial(form({ id: pmId }));
+    // AVEC un motif : sans lui, le refus viendrait du motif manquant et ce cas passerait pour la mauvaise
+    // raison (§118.111) — c'est bien les BC générés qui doivent l'arrêter.
+    const annul = await cancelPromoMaterial(form({ id: pmId, motif: "Projet abandonné." }));
     expect(annul.ok, "un dossier avec des BC générés ne s'annule pas en laissant les commandes vivantes").toBe(false);
+    expect(annul.error).toMatch(/de commande ont été générés pour ce dossier/);
   }, 120_000);
 
   it("LE FICHIER DU BC s'ouvre sous la porte de la PIÈCE : le demandeur et les Finances le lisent, pas un tiers", async () => {

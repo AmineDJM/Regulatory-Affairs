@@ -397,7 +397,14 @@ function Facture({ id, f, agir, canReceive, options }: {
                     {receptionOuverte && l.etat === "EN_ATTENTE" && <div className="mt-1"><ReceptionLigne id={id} l={l} options={options} run={run} saving={saving} /></div>}
                     {receptionOuverte && l.quantiteRecue != null && (
                       <Button size="sm" variant="ghost" className="mt-1" disabled={saving}
-                        onClick={() => { if (confirm(`Annuler la réception de « ${l.designation} » ?${l.entree ? " Son entrée au magasin sera contre-passée." : ""}`)) { const fd = new FormData(); fd.set("promoMaterialId", id); fd.set("ligneId", l.id); run(() => annulerReceptionLigneFacturePromo(fd)); } }}>
+                        onClick={() => {
+                          // UN MOTIF, pas une simple confirmation (audit 360°, R17) : le journal doit dire si
+                          // c'était une erreur de saisie ou une marchandise renvoyée. Abandonner la boîte ne fait rien.
+                          const motif = window.prompt(`Pourquoi annuler la réception de « ${l.designation} » ?${l.entree ? " Son entrée au magasin sera contre-passée." : ""} (obligatoire)`);
+                          if (motif === null || !motif.trim()) return;
+                          const fd = new FormData(); fd.set("promoMaterialId", id); fd.set("ligneId", l.id); fd.set("motif", motif.trim());
+                          run(() => annulerReceptionLigneFacturePromo(fd));
+                        }}>
                         <Undo2 className="h-3.5 w-3.5" /> Annuler la réception
                       </Button>
                     )}
@@ -427,7 +434,7 @@ function Facture({ id, f, agir, canReceive, options }: {
       {agir && !f.paiementDemande && (
         <form className="flex flex-wrap items-center gap-2" action={demanderPaiement}>
           <ChoixFormalite name="formalite" />
-          {enAttente.length > 0 && <Input name="motifRenoncement" placeholder="Motif (facultatif) — ligne non livrée" className="w-64" />}
+          {enAttente.length > 0 && <Input name="motifRenoncement" required aria-label="Motif du renoncement" placeholder="Motif (obligatoire) — ligne non livrée" className="w-64" />}
           <Button type="submit" size="sm" variant={enAttente.length > 0 ? "outline" : "primary"} disabled={saving}>
             {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
             {enAttente.length > 0 ? " Demander le paiement malgré tout" : " Demander le paiement"}

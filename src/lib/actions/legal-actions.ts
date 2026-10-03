@@ -474,7 +474,6 @@ export async function attachDriveNodeToLegal(input: {
  */
 export async function renewLegalDocument(formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
-  if (!userCan(user, "LEGAL", "CREATE")) return { ok: false, error: "Non autorisé." };
   const id = fdStr(formData, "id");
   if (!id) return { ok: false, error: "Document introuvable." };
 
@@ -484,6 +483,10 @@ export async function renewLegalDocument(formData: FormData): Promise<ActionResu
   if (!(await canAccessEntity(user, "LEGAL_DOCUMENT", id, "UPDATE"))) return { ok: false, error: "Document introuvable." };
   const previous = await prisma.legalDocument.findUnique({ where: { id }, include: { readers: { select: { userId: true } } } });
   if (!previous) return { ok: false, error: "Document introuvable." };
+  // LA MÊME PORTE QUE LA CRÉATION (audit 360°, R16) : renouveler, c'est créer la suite. Le droit de
+  // créer dans Legal seul refusait aux Finances le renouvellement d'un bon de commande qu'elles
+  // écrivent par ailleurs — le bouton s'affichait, l'action refusait.
+  if (!peutEcrire(user, "CREATE", previous.kind)) return { ok: false, error: "Non autorisé." };
   if (!canRenew(previous.status)) {
     return { ok: false, error: "Ce document ne peut plus être renouvelé (déjà renouvelé ou annulé)." };
   }
@@ -550,17 +553,16 @@ export async function renewLegalDocument(formData: FormData): Promise<ActionResu
 /** ANNULER avant terme — le document reste, avec son motif ; il ne rappelle plus. */
 export async function cancelLegalDocument(formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
-  if (!userCan(user, "LEGAL", "UPDATE")) return { ok: false, error: "Non autorisé." };
   const id = fdStr(formData, "id");
   if (!id) return { ok: false, error: "Document introuvable." };
-  // UN MOTIF, toujours (audit 360°, L04) : l'annulation partait sans, et même sur le bouton « Annuler »
-  // de la boîte qui le demandait. Un contrat annulé ne rappelle plus son échéance — on doit savoir pourquoi.
-  const reason = fdStr(formData, "reason");
-  if (!reason) return { ok: false, error: "Le motif de l'annulation est obligatoire." };
   if (!(await canAccessEntity(user, "LEGAL_DOCUMENT", id, "UPDATE"))) return { ok: false, error: "Document introuvable." };
 
   const doc = await prisma.legalDocument.findUnique({ where: { id }, select: { title: true, status: true, kind: true, expenseOrderId: true } });
   if (!doc) return { ok: false, error: "Document introuvable." };
+  // ANNULER UNE PIÈCE, C'EST LA MODIFIER (audit 360°, R16) — et la porte de la fiche, juste au-dessus, EST
+  // cette règle : `accesAuxPiecesLegal` juge UPDATE par `legalWriteAllowed`, donc les Finances qui écrivent
+  // factures et bons de commande passent, et un contrat leur reste fermé. Le droit Legal seul, qu'on lisait
+  // ici, les refusait sous un bouton offert ; un second contrôle redirait la porte (§118.5).
   if (!canCancel(doc.status)) return { ok: false, error: "Ce document ne peut plus être annulé." };
 
   // UNE FACTURE DONT DU MATÉRIEL EST ENTRÉ AU STOCK NE S'ANNULE PAS D'ICI : le dossier du matériel
@@ -573,6 +575,12 @@ export async function cancelLegalDocument(formData: FormData): Promise<ActionRes
       return { ok: false, error: `${recues} ligne(s) de cette facture sont réceptionnées au stock promotionnel : annulez d'abord leur réception depuis le dossier du matériel (ce qui est entré au magasin y est physiquement).` };
     }
   }
+  // UN MOTIF, toujours (audit 360°, L04) : l'annulation partait sans, et même sur le bouton « Annuler »
+  // de la boîte qui le demandait. Un contrat annulé ne rappelle plus son échéance — on doit savoir pourquoi.
+  // Demandé APRÈS les refus ci-dessus et AVANT tout effet : on ne demande pas pourquoi annuler une pièce
+  // qui ne s'annule pas d'ici (§118.18).
+  const reason = fdStr(formData, "reason");
+  if (!reason) return { ok: false, error: "Le motif de l'annulation est obligatoire." };
   // UNE FACTURE PARTIE AU RÈGLEMENT EMPORTE SON ORDRE (§118.185, audit 360° I7) : l'annuler en
   // laissant l'ordre ouvert, c'était une facture « annulée » au-dessus d'un paiement qui part quand
   // même. L'ordre non réglé est annulé d'abord ; réglé, la facture ne s'annule pas — rien n'est touché.
@@ -614,12 +622,13 @@ export async function cancelLegalDocument(formData: FormData): Promise<ActionRes
  */
 export async function restoreLegalDocument(formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
-  if (!userCan(user, "LEGAL", "UPDATE")) return { ok: false, error: "Non autorisé." };
   const id = fdStr(formData, "id");
   if (!id) return { ok: false, error: "Document introuvable." };
   if (!(await canAccessEntity(user, "LEGAL_DOCUMENT", id, "UPDATE"))) return { ok: false, error: "Document introuvable." };
   const doc = await prisma.legalDocument.findUnique({ where: { id }, select: { title: true, status: true, kind: true, endDate: true, cancelReason: true } });
   if (!doc) return { ok: false, error: "Document introuvable." };
+  // La porte de l'annulation, à l'envers (audit 360°, R16) : qui peut annuler cette pièce la rétablit — la
+  // porte de la fiche ci-dessus est la règle d'écriture, Finances comprises.
   if (!canRestore(doc.status)) return { ok: false, error: "Seul un document annulé se rétablit." };
   const statut = statutRetabli(doc.endDate);
   // Écriture CONDITIONNELLE : deux clics simultanés ne rétablissent pas deux fois.

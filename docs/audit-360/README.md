@@ -89,8 +89,13 @@ sont livrés et testés (lot C3, §118.188)** : au centre de validations, « à 
 même demande, qui reprend à l'étape qui l'a renvoyée ; au centre Ad & Pro, renvoyer pour correction, réexaminer
 un refus, resoumettre avec un montant corrigé ; à la signature des BC, « Renvoyer à l'émetteur » ; au centre de
 paiement, la prose dit enfin les deux issues décidées le 02/09 (rétablir la révision, R03, reste une décision de
-la Direction). Restent les autres circuits — matériel promotionnel, consulting, autre demande, demande de
-paiement, recrutement, plan de tournée validé, pièce Legal révisée (C4).
+la Direction). **Le consulting et l'« autre demande » sont livrés et testés (lot C4a, §118.189)** : corrigés par
+la même porte que les autres natures, un contrat renvoyé pour correction puis resoumis à la personne qui l'a
+demandé, une « autre demande » refusée resoumise, la porte du centre qui suit le montant corrigé, un contrat
+prolongé, des motifs exigés — après les refus d'état — pour annuler, refuser ou renoncer, les boutons Legal des
+Finances acceptés, un dossier promotionnel annulé qui ne se lit plus « Refusé ». Restent le matériel
+promotionnel et le comptage (C4b), la demande de paiement, le secrétariat et le recrutement (C4c), le plan de
+tournée validé et la pièce Legal révisée (C4d).
 
 Constat d'ensemble (rapports 17, 18, 01, 03, 14) : **la plateforme sait refuser, rarement faire corriger.**
 

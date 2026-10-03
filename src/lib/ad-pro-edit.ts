@@ -20,10 +20,13 @@
  *      liste blanche ne se trompe pas quand un champ nouveau apparaît dans le modèle.
  */
 
-import { SPONSORING_TYPES, PRIORITY, NATIONAL_EVENT_TYPE, EVENT_TYPE, EVENT_FORMAT } from "@/lib/labels";
+import { SPONSORING_TYPES, PRIORITY, NATIONAL_EVENT_TYPE, EVENT_TYPE, EVENT_FORMAT, CONSULTING_BILLING_OPTIONS } from "@/lib/labels";
 import { etatAdProDuDossier } from "@/lib/promo-material/statut";
 
-export type AdProKind = "SPONSORING" | "CONGRESS_NATIONAL" | "CONGRESS_INTERNATIONAL" | "PROMO_MATERIAL" | "EVENT";
+// LE CONSULTING ET LES « AUTRES DEMANDES » (audit 360°, R11 et rapport 17 R13/R14) : absents de cette
+// liste, ils ne se corrigeaient jamais — même en brouillon —, et la seule issue d'un montant mal tapé
+// était le refus, donc l'annulation. Ils entrent par la MÊME porte que les cinq autres natures.
+export type AdProKind = "SPONSORING" | "CONGRESS_NATIONAL" | "CONGRESS_INTERNATIONAL" | "PROMO_MATERIAL" | "EVENT" | "CONSULTING_CONTRACT" | "AD_PRO_OTHER";
 
 /** Ce qu'on sait de la personne qui veut modifier. */
 export interface AdProEditor {
@@ -81,6 +84,13 @@ const DECIDED_STATUS: Record<AdProKind, readonly string[]> = {
   // le montant après coup ferait diverger la pièce et le dossier.
   PROMO_MATERIAL: ["AGENCY_CHOSEN", "BC_FINANCE_REVIEW", "BC_VALIDATED", "BC_SENT", "PAYMENT_INITIATED", "PAYMENT_DONE", "MATERIAL_PRODUCED", "CONFORMITY_REVIEW", "COMPLETED", "CANCELLED"],
   EVENT: ["APPROVED", "REJECTED", "COMPLETED", "CANCELLED"],
+  // Un contrat ACTIF engage déjà les deux parties : ses termes font foi tels qu'ils ont été validés
+  // (`isContractEditable` ne garde ouverts que ses tâches et ses pièces). Un contrat RENVOYÉ pour
+  // correction redevient un brouillon : il se corrige de nouveau.
+  CONSULTING_CONTRACT: ["ACTIVE", "EXPIRED", "CANCELLED"],
+  // Refusée, une « autre demande » se RESOUMET (avec ce qui a changé) : elle ne se corrige pas en
+  // silence sous une décision qui la refuse.
+  AD_PRO_OTHER: ["APPROVED", "REFUSED", "DONE", "CANCELLED"],
 };
 
 /**
@@ -114,6 +124,12 @@ export interface EditableField {
    * les compteurs par type ne veulent alors plus rien dire.
    */
   options?: readonly { value: string; label: string }[];
+  /**
+   * Champ qu'une correction ne peut pas VIDER — la phrase est le refus, écrit une fois. Avant, seul
+   * l'intitulé était gardé, par un nom de colonne deviné (« institution » ou « name ») : l'intitulé
+   * d'un dossier de matériel promotionnel, qui s'appelle « title », pouvait donc s'effacer.
+   */
+  requis?: string;
 }
 
 const mapOptions = (m: Record<string, string | { label: string }>) =>
@@ -121,7 +137,7 @@ const mapOptions = (m: Record<string, string | { label: string }>) =>
 
 export const EDITABLE_FIELDS: Record<AdProKind, readonly EditableField[]> = {
   SPONSORING: [
-    { key: "institution", label: "Institution / service / association", type: "text" },
+    { key: "institution", label: "Institution / service / association", type: "text", requis: "L'institution est obligatoire." },
     { key: "type", label: "Type de sponsoring", type: "select", options: SPONSORING_TYPES.map((t) => ({ value: t, label: t })) },
     { key: "doctor", label: "Médecin concerné", type: "text" },
     { key: "specialty", label: "Spécialité", type: "text" },
@@ -133,7 +149,7 @@ export const EDITABLE_FIELDS: Record<AdProKind, readonly EditableField[]> = {
     { key: "comments", label: "Appréciation / recommandation", type: "textarea" },
   ],
   CONGRESS_NATIONAL: [
-    { key: "name", label: "Événement", type: "text" },
+    { key: "name", label: "Événement", type: "text", requis: "Le nom de l'événement est obligatoire." },
     { key: "eventType", label: "Type d'événement", type: "select", options: mapOptions(NATIONAL_EVENT_TYPE) },
     { key: "hostInstitution", label: "Établissement / association hôte", type: "text" },
     { key: "country", label: "Pays", type: "text" },
@@ -146,7 +162,7 @@ export const EDITABLE_FIELDS: Record<AdProKind, readonly EditableField[]> = {
     { key: "presentDelegates", label: "Délégués présents", type: "textarea" },
   ],
   CONGRESS_INTERNATIONAL: [
-    { key: "name", label: "Événement", type: "text" },
+    { key: "name", label: "Événement", type: "text", requis: "Le nom de l'événement est obligatoire." },
     { key: "country", label: "Pays", type: "text" },
     { key: "city", label: "Ville", type: "text" },
     { key: "startDate", label: "Date de début", type: "date" },
@@ -158,12 +174,12 @@ export const EDITABLE_FIELDS: Record<AdProKind, readonly EditableField[]> = {
     { key: "participants", label: "Participants Adventum", type: "textarea" },
   ],
   PROMO_MATERIAL: [
-    { key: "title", label: "Intitulé du matériel", type: "text" },
+    { key: "title", label: "Intitulé du matériel", type: "text", requis: "L'intitulé du matériel est obligatoire." },
     { key: "description", label: "Description / besoin", type: "textarea" },
     { key: "amount", label: "Budget global", type: "number" },
   ],
   EVENT: [
-    { key: "name", label: "Nom de l'événement", type: "text" },
+    { key: "name", label: "Nom de l'événement", type: "text", requis: "Le nom de l'événement est obligatoire." },
     { key: "type", label: "Type", type: "select", options: mapOptions(EVENT_TYPE) },
     { key: "format", label: "Format", type: "select", options: mapOptions(EVENT_FORMAT) },
     { key: "location", label: "Lieu", type: "text" },
@@ -175,6 +191,24 @@ export const EDITABLE_FIELDS: Record<AdProKind, readonly EditableField[]> = {
     { key: "products", label: "Produits promus", type: "text" },
     { key: "estimatedBudget", label: "Budget estimé", type: "number" },
     { key: "description", label: "Description", type: "textarea" },
+  ],
+  CONSULTING_CONTRACT: [
+    { key: "title", label: "Intitulé du contrat", type: "text", requis: "L'intitulé du contrat est obligatoire." },
+    { key: "counterparty", label: "Consultant / cabinet", type: "text", requis: "Indiquez le consultant ou le cabinet — un contrat a deux parties." },
+    { key: "counterpartyContact", label: "Contact", type: "text" },
+    { key: "startDate", label: "Début", type: "date" },
+    { key: "endDate", label: "Fin", type: "date" },
+    { key: "amount", label: "Rémunération (DZD)", type: "number" },
+    { key: "billing", label: "Rythme", type: "select", options: CONSULTING_BILLING_OPTIONS, requis: "Choisissez le rythme de la rémunération." },
+    { key: "scope", label: "Objet de la mission", type: "textarea" },
+    { key: "paymentTerms", label: "Modalités de paiement", type: "textarea" },
+    { key: "notes", label: "Notes internes", type: "textarea" },
+  ],
+  AD_PRO_OTHER: [
+    { key: "title", label: "Objet de la demande", type: "text", requis: "L'objet de la demande est obligatoire." },
+    { key: "description", label: "Description", type: "textarea", requis: "Décrivez la demande — c'est sur cette description que la décision se prendra." },
+    { key: "beneficiary", label: "Pour qui / avec qui", type: "text" },
+    { key: "amount", label: "Montant (DZD)", type: "number" },
   ],
 };
 
@@ -199,7 +233,9 @@ export function describeChanges(
     const a = normalize(before[f.key]);
     const b = normalize(after[f.key]);
     if (a === b) continue;
-    out.push(`${f.label} : ${a || "—"} → ${b || "—"}`);
+    // Un menu se raconte par ses LIBELLÉS : « Rythme : MONTHLY → ONE_OFF » n'apprend rien à personne.
+    const dit = (v: string) => (f.options?.find((o) => o.value === v)?.label ?? v) || "—";
+    out.push(`${f.label} : ${dit(a)} → ${dit(b)}`);
   }
   return out;
 }

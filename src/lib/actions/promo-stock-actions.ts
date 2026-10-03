@@ -525,6 +525,8 @@ export async function annulerMouvement(formData: FormData): Promise<ActionResult
   if (!mouvementId) return { ok: false, error: "Mouvement introuvable." };
   const m = await prisma.promoStockMovement.findUnique({ where: { id: mouvementId }, select: { itemId: true } });
   if (!m || !(await articleDansMonPerimetre(user.id, m.itemId))) return { ok: false, error: "Mouvement introuvable." };
+  // Le motif est exigé par l'ÉCRIVAIN, après ses refus structurels (déjà annulé, réservation, remise
+  // de visite, lot creusé) : on ne demande pas pourquoi annuler ce qui ne s'annule pas d'ici (§118.18).
   const motif = fdStr(formData, "motif");
   const r = await sousVerrou(m.itemId, (tx) => annulerMouvementEcrit(tx, mouvementId, user.id, motif));
   if (refus(r)) return { ok: false, error: r.refus };

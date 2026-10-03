@@ -15,6 +15,12 @@ describe("Le cycle de vie d'un contrat", () => {
     expect(nextConsultingStatus("AWAITING_VALIDATION", "REFUSE")).toBe("CANCELLED");
   });
 
+  it("un RENVOI le rend à son porteur, en brouillon — et seul un contrat soumis se renvoie (audit 360°, lot C4a)", () => {
+    expect(nextConsultingStatus("AWAITING_VALIDATION", "RETURN")).toBe("DRAFT");
+    // Renvoyer un brouillon, un contrat actif ou clos n'a pas de sens : personne n'attend de décision.
+    for (const s of ["DRAFT", "ACTIVE", "EXPIRED", "CANCELLED"]) expect(nextConsultingStatus(s, "RETURN"), s).toBeNull();
+  });
+
   it("on n'active pas un contrat qui n'a pas été soumis", () => {
     // Sans cela, le bouton « Valider » d'un brouillon ferait entrer en vigueur un contrat que
     // personne n'a relu.

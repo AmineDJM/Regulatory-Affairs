@@ -245,15 +245,19 @@ export function PromoActionPanel(props: Props) {
 function CancelButton({ id }: { id: string }) {
   const { saving, err, run } = useRun();
   const [confirm, setConfirm] = React.useState(false);
+  const [motif, setMotif] = React.useState("");
   return (
     <div className="space-y-2">
       <Err msg={err} />
       {!confirm ? (
         <button onClick={() => setConfirm(true)} className="text-xs text-muted-foreground hover:text-destructive">Annuler ce dossier</button>
       ) : (
-        <div className="flex items-center gap-2 text-sm">
+        // Le MOTIF est exigé (audit 360°, R17/R18) : l'annulation est définitive, et le demandeur doit
+        // pouvoir lire pourquoi — sans lui, il croyait à un refus.
+        <div className="flex flex-wrap items-center gap-2 text-sm">
           <span className="text-muted-foreground">Annuler le dossier ?</span>
-          <Button size="sm" variant="destructive" onClick={() => { const f = new FormData(); f.set("id", id); run(() => cancelPromoMaterial(f)); }} disabled={saving}>{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <XCircle className="h-4 w-4" />} Confirmer</Button>
+          <Input value={motif} onChange={(e) => setMotif(e.target.value)} aria-label="Motif de l'annulation" placeholder="Pourquoi (obligatoire)" className="min-w-0 flex-1" />
+          <Button size="sm" variant="destructive" onClick={() => { const f = new FormData(); f.set("id", id); f.set("motif", motif.trim()); run(() => cancelPromoMaterial(f)); }} disabled={saving || !motif.trim()}>{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <XCircle className="h-4 w-4" />} Confirmer</Button>
           <Button size="sm" variant="ghost" onClick={() => setConfirm(false)} disabled={saving}>Non</Button>
         </div>
       )}

@@ -20,6 +20,9 @@ import type { DocItem } from "@/components/documents/document-list";
 import { AD_PRO_OTHER_STATUS } from "@/lib/labels";
 import { OtherDecisionPanel } from "./decision-panel";
 import { AdProDiscussionCard } from "@/components/ad-pro/discussion-card";
+import { AdProEditButton } from "@/components/ad-pro/edit-request-button";
+import { canEditAdProRequest, isAdProDecided } from "@/lib/ad-pro-edit";
+import { adProEditValues } from "@/lib/queries/ad-pro-edit";
 
 export const dynamic = "force-dynamic";
 
@@ -58,6 +61,14 @@ export default async function AdProOtherDetailPage({ params }: { params: { id: s
   const open = req.status !== "DONE" && req.status !== "CANCELLED";
   const canUpload = (userCan(user, "AD_PRO_OTHER", "UPLOAD") || mine) && open;
   const ctxPieces = await contextePiecesLiees(user, "AD_PRO_OTHER");
+  // CORRIGER LA DEMANDE (audit 360°, rapport 17 R14) — la MÊME règle que les autres natures du pôle :
+  // son demandeur et qui tranche tant qu'elle attend sa décision, la vue globale toujours.
+  const demandeDecidee = isAdProDecided("AD_PRO_OTHER", req.status);
+  const canEditRequest = canEditAdProRequest(
+    { id: user.id, hasGlobalView: hasGlobalView(user.role), canManage: mayDecide },
+    { requesterId: req.requesterId, decided: demandeDecidee },
+  );
+  const editValues = canEditRequest ? await adProEditValues("AD_PRO_OTHER", req.id) : null;
 
   const docItems: DocItem[] = documents.map((d) => ({
     id: d.id, name: d.name, category: d.category, version: d.version, sizeBytes: d.sizeBytes,
@@ -70,6 +81,7 @@ export default async function AdProOtherDetailPage({ params }: { params: { id: s
       <BackLink href="/ad-pro/autres"><ArrowLeft className="h-4 w-4" /> Autres demandes</BackLink>
       <PageHeader title={req.title} description={`Réf. ${req.reference}`}>
         <StatusBadge map={AD_PRO_OTHER_STATUS} value={req.status} />
+        {editValues && <AdProEditButton kind="AD_PRO_OTHER" id={req.id} decided={demandeDecidee} values={editValues} />}
         {/* Une nature du pôle qui n'avait AUCUNE suppression (§118.162). */}
         <SupprimerDemandeAdPro kind="AD_PRO_OTHER" id={req.id} name={`${req.reference} — ${req.title}`} enabled={await peutSupprimerUneDemandeAdPro(user, "AD_PRO_OTHER", req.id)} />
       </PageHeader>
@@ -128,6 +140,9 @@ export default async function AdProOtherDetailPage({ params }: { params: { id: s
           status={req.status}
           canDecide={mayDecide && req.status === "AWAITING_DECISION"}
           canClose={(mine || mayDecide) && open && req.status !== "AWAITING_DECISION"}
+          canResubmit={mine && req.status === "REFUSED"}
+          description={req.description ?? ""}
+          amount={req.amount != null ? toNumber(req.amount) : null}
         />
       </div>
           {/* LA SECTION DISCUSSION — le fil CANONIQUE, monté sur les sept natures du pôle. */}

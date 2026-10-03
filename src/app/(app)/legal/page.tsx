@@ -271,6 +271,10 @@ export default async function LegalPage({ searchParams }: { searchParams?: { ech
           servis — les fameux bons de commande « disparus ». */}
       <LegalTable
         rows={rows} canEdit={canEdit} watchByDefault={searchParams?.echeances === "1"}
+        droitsEcriture={{
+          legal: { creer: userCan(user, "LEGAL", "CREATE"), modifier: userCan(user, "LEGAL", "UPDATE") },
+          finances: { creer: userCan(user, "FINANCES", "CREATE"), modifier: userCan(user, "FINANCES", "UPDATE") },
+        }}
         initialKind={nature}
         scope={legalListScope({
           folderId: openFolderId,

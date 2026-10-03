@@ -11063,6 +11063,13 @@ model ConsultingContract {
   validatedAt   DateTime?
   decisionNote  String?
   cancelledAt   DateTime?
+  /// RENVOYÉ POUR CORRECTION (audit 360°, lot C4a) : le validateur rend le contrat à son porteur, qui
+  /// le corrige et le resoumet. Effacé à la resoumission — l'historique reste au journal et dans la
+  /// discussion de la fiche. Sans lui, la seule issue d'un contrat mal saisi était le refus, donc
+  /// l'annulation définitive.
+  returnedAt    DateTime?
+  returnedById  String?
+  returnNote    String?
 
   notes String?
   tasks ConsultingTask[]

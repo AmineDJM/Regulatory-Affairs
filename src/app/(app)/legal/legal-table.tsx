@@ -13,6 +13,7 @@ import { setInvoicePaid } from "@/lib/actions/invoice-actions";
 import { moveLegalDocuments } from "@/lib/actions/legal-folder-actions";
 import { PartagerButton } from "@/components/shared/partager-button";
 import { invoiceSettlementState, INVOICE_SETTLEMENT, isInvoice } from "@/lib/labels";
+import { legalWriteAllowed } from "@/lib/lecteurs/legal";
 import {
   EMPTY_FILTERS, URGENT_EXPIRY,
   initialLegalListState, syncLegalListState, visibleLegalRows, hasActiveFilter, describeActiveFilters,
@@ -39,10 +40,16 @@ const cellInput = "h-8 w-full rounded-md border border-input bg-card px-2 text-x
 const URGENT = URGENT_EXPIRY;
 
 export function LegalTable({
-  rows, canEdit, watchByDefault = false, folders = [], currentFolderId = null, scope, initialKind = "",
+  rows, canEdit, droitsEcriture, watchByDefault = false, folders = [], currentFolderId = null, scope, initialKind = "",
 }: {
   rows: LegalRow[];
   canEdit: boolean;
+  /**
+   * LES DROITS QUI DÉCIDENT DES GESTES DE LIGNE (audit 360°, R16) — les mêmes que lisent les actions
+   * (`legalWriteAllowed`) : « Renouveler », « Annuler », « Rétablir » étaient offerts aux Finances sur
+   * des pièces que l'action leur refusait. Un bouton qu'une action refuse fait chercher une panne.
+   */
+  droitsEcriture: { legal: { creer: boolean; modifier: boolean }; finances: { creer: boolean; modifier: boolean } };
   watchByDefault?: boolean;
   /**
    * La NATURE demandée par l'URL (`?nature=INVOICE`). Elle se pose comme un filtre de colonne
@@ -63,6 +70,8 @@ export function LegalTable({
    */
   scope: string;
 }) {
+  const peutSurLaPiece = (verbe: "creer" | "modifier", kind: string) =>
+    legalWriteAllowed({ onLegal: droitsEcriture.legal[verbe], onFinances: droitsEcriture.finances[verbe], kind });
   const router = useRouter();
   const [state, setState] = React.useState(() => initialLegalListState(scope, watchByDefault, initialKind));
   const [busy, setBusy] = React.useState<string | null>(null);
@@ -330,13 +339,13 @@ export function LegalTable({
                             {/* Une facture ne se RENOUVELLE pas : on n'en réémet pas une pour la
                                 période suivante, on en reçoit une autre. L'annulation, elle,
                                 vaut pour toutes les natures. */}
-                            {!isInvoice(r.kind) && (
+                            {!isInvoice(r.kind) && peutSurLaPiece("creer", r.kind) && (
                               <Button size="sm" variant="outline" disabled={busy === `r:${r.id}`}
                                 onClick={() => { const fd = new FormData(); fd.set("id", r.id); void run(`r:${r.id}`, () => renewLegalDocument(fd)); }}>
                                 {busy === `r:${r.id}` ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />} Renouveler
                               </Button>
                             )}
-                            <Button size="sm" variant="ghost" disabled={busy === `c:${r.id}`}
+                            {peutSurLaPiece("modifier", r.kind) && <Button size="sm" variant="ghost" disabled={busy === `c:${r.id}`}
                               onClick={() => {
                                 // ABANDONNER LA BOÎTE NE FAIT RIEN (audit 360°, L04) : `?? ""` annulait le
                                 // contrat sur le bouton « Annuler » de la boîte elle-même. Et un motif vide
@@ -349,11 +358,11 @@ export function LegalTable({
                                 void run(`c:${r.id}`, () => cancelLegalDocument(fd));
                               }}>
                               <Ban className="h-3.5 w-3.5" /> Annuler
-                            </Button>
+                            </Button>}
                           </>
                         )}
                         {/* RÉTABLIR un document annulé : l'annulation n'avait aucun retour (L04). */}
-                        {r.status === "CANCELLED" && (
+                        {r.status === "CANCELLED" && peutSurLaPiece("modifier", r.kind) && (
                           <Button size="sm" variant="outline" disabled={busy === `t:${r.id}`}
                             onClick={() => {
                               if (!window.confirm(`Rétablir « ${r.title} » ? Il reprendra l'état que sa date de fin lui donne, et ses rappels d'échéance reprendront.`)) return;
