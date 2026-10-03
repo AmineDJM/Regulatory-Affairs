@@ -1944,7 +1944,8 @@ clôture) · `RecruitmentApproval` (`order`, `approverId`, `status`, `reason`, `
 Enums `RecruitmentStage` · `RecruitmentApprovalState` · `RecruitmentCandidateStatus` ; `ContractType.CONSULTING`.
 
 **Étapes** : `CHAIN` → `HR_REVIEW` ⇄ `INFO_REQUESTED` → `SOURCING` → `ONBOARDING` → `CLOSED`
-(`REJECTED` / `CANCELLED` en sortie). Le **pipeline des candidats** est porté par les CANDIDATS
+(`REJECTED` / `CANCELLED` en sortie ; `RETURNED` — « À corriger » — quand la chaîne ou les RH la renvoient à son
+demandeur). Le **pipeline des candidats** est porté par les CANDIDATS
 (`RECEIVED` → `SHORTLISTED` → `SELECTED` → `INTERVIEWED` → `HIRED` / `DECLINED`), pas par la demande :
 plusieurs personnes avancent en parallèle à des vitesses différentes, et une demande qui porterait un seul état
 « en entretien » ne saurait pas dire de qui elle parle.
@@ -1958,7 +1959,7 @@ obtiennent le module entier (portée `ALL`).
 route changerait sinon les validateurs d'une demande déjà partie. Le demandeur est écarté de sa propre chaîne.
 La direction générale (`isTopManagement`) peut trancher à n'importe quelle marche ; les marches d'en dessous
 passent alors en **`SKIPPED`**, jamais en `APPROVED` — et la fiche écrit « n'a pas été consulté ». Un refus
-clôt tout, à n'importe quelle marche.
+clôt la chaîne, à n'importe quelle marche — et se rouvre, motif à l'appui (voir plus bas).
 
 **Les RH** : `askRecruitmentInfo` renvoie la demande en `INFO_REQUESTED` (elle **quitte leur file** tant que la
 réponse n'est pas venue, sinon ils rouvriraient chaque jour un dossier inchangé) ; `answerRecruitmentInfo` ne
@@ -1973,6 +1974,14 @@ au demandeur** ; la **sélection à la direction générale**, et `canSelectCand
 entité, contrat, dates, borne basse de la fourchette) et depuis le candidat. **`needsOnboarding(contract)` est
 faux pour un CONSULTING** : la demande se clôt sans fiche — un consultant est un intervenant externe, et
 l'inscrire à l'effectif fausserait la masse salariale, les congés et l'organigramme.
+
+**Corriger, rouvrir, annuler l'embauche (audit 360°, R14 — §118.192).** Un refus n'est plus terminal : la
+demande se **renvoie pour correction** (étape `RETURNED`, motif exigé, par qui peut trancher la marche ou par
+les RH), son demandeur la **corrige et la renvoie** sur un formulaire pré-rempli (« ce qui a changé » exigé) —
+elle revient à la même marche, ou repart de la première si le besoin pesé a été relevé (`changementsMateriels`) —,
+les RH ou le sommet la **rouvrent** (`reouverture` : la marche qui a refusé, les RH, ou le poste rouvert) et
+**annulent une embauche** avant sa fiche. Chaque écriture d'étape est conditionnelle sur l'étape lue ; l'histoire
+va au fil de la demande (« Historique de la demande »).
 
 **Accès** : `recruitmentViewer` / `recruitmentScope` (`lib/recruitment/access.ts`) — la même règle pour la liste
 et pour la fiche. Un CV et une fourchette de rémunération sont des **données personnelles** : avoir le module ne
@@ -4688,6 +4697,7 @@ entité) sont éligibles. Supprimer une gamme **ne supprime aucun produit** (`SE
 | **Consulting et « autre demande » — corriger, renvoyer, resoumettre (§118.189)** | Porte de correction COMMUNE au pôle `ad-pro-edit.ts` (liste blanche des deux natures, **`requis`** — un champ obligatoire ne se vide pas —, `DECIDED_STATUS`) + `actions/ad-pro-edit-actions.ts` (`moduleDe` par pôle, menus revérifiés côté serveur, période cohérente, `attendLeCentre`) ; machine à états `ad-pro/consulting.ts` (geste **`RETURN`**) ; `consulting-actions.ts` (`decideConsultingContract` VALIDER / RENVOYER / REFUSER — l'état d'abord, le motif ensuite —, `requestConsultingValidation` qui resoumet, efface le renvoi, le met au fil et **garde le validateur**, **`prolongerConsultingContract`**, clôture conditionnelle et motivée) ; `ad-pro-other-actions.ts` (**`resoumettreAdProOtherRequest`**, décision et clôture motivées et conditionnelles) ; porte du centre `ad-pro/visa.ts:ajusterVisaAuMontant` + `phraseGesteVisa` ; fil `ad-pro/fil.ts` ; « À corriger » `queries/ad-pro.ts` + `queries/action-center.ts` ; motif d'annulation d'un mouvement chez l'écrivain unique `promo/stock-ecriture.ts:MOTIF_ANNULATION_MOUVEMENT` ; Legal des Finances `legal-actions.ts` (la porte de la fiche est la règle d'écriture) + `legal/legal-table.tsx` ; dossier promo annulé `promo-material/statut.ts`. Bancs : `consulting-correction-flow.test.ts`, `ad-pro-other-correction-flow.test.ts`, `legal-finances-gestes.test.ts`, `promo-annulation-flow.test.ts` (vrais points d'entrée, acteurs sans vue globale, barrières de concurrence), navigateur `e2e/correction-c4a.spec.ts`. Migration `20261229090000_consulting_renvoi`. |
 | **Matériel promotionnel et comptage — renvoyer, resoumettre, redemander, corriger (§118.190)** | Règle pure `lib/promo-material/renvoi.ts` (`renvoiPossible`, `etatApresRenvoi`, `attendSaCorrection`, `REFUS_EN_CORRECTION`, `refusParLeDemandeur`) ; « À corriger » `promo-material/statut.ts` (`statutDuDossier`, `etatAdProDuDossier`) et le tour `promo-material/circuit.ts:tourDe` ; marque `PromoMaterial.returnedAt/ById/Note/From` et `PromoStockComptage.corrigeLe/ParId/Motif` (migration `20261230090000_promo_renvoi_comptage_corrige`) ; actions `promo-circuit-actions.ts` (`renvoyerPromoStep`, `resoumettrePromoDemande`, gardes d'état d'abord dans `validatePromoStep` et `refusePromoStep`), `promo-devis-actions.ts` (`redemanderDevisPromo` — la demande d'abord, la bascule ensuite —, `demanderCorrectionDevisPromo` qui rouvre), `promo-demande-actions.ts` (liste des articles jusqu'à la validation du choix, écriture conditionnelle, assistante prévenue) ; réouverture `promo-material/demande-secretariat.ts:rouvrirDemandeAuSecretariat` ; comptage `promo/comptages-ecriture.ts:corrigerSaisieComptage` (contre-correction sous verrou) + `promo-comptage-actions.ts:corrigerComptage` ; écrans `promo-material/[id]/{circuit-card,quotes-card,articles-card,page}.tsx`, `stock-promotionnel/stock-comptages.tsx` (`FormulaireCorrection`). Bancs : `promo-material/renvoi.test.ts`, `promo-material/tour.test.ts`, `actions/promo-renvoi-flow.test.ts`, `actions/promo-comptage-correction-flow.test.ts` (vrais points d'entrée, acteurs sans vue globale, témoins forcés), navigateur `e2e/correction-c4b.spec.ts` et `e2e/stock-promo-comptages.spec.ts`. |
 | **Demande de paiement corrigeable, centre « lu », gestes nommés du secrétariat (§118.191)** | Règles pures `lib/finance/correction-demande.ts` (`refusDeCorrection`, `refusDuChamp`, `ecartsDeCorrection`, `phraseDeCorrection`), `lib/payments/authorization.ts` (`statutApresRevision`, `memeBeneficiaire`), `lib/finance/payment-request.ts` (`statusFromPieces` — un brouillon ne change pas de camp —, `refusDeRemplacement`, `piecesEnVigueur`), `lib/secretariat/statut-manuel.ts` (`STATUTS_MANUELS`, `refusDuStatutManuel`, `refusDeReouverture`) ; réviseur unique `lib/payments/revision-ordre.ts` (`reviserOrdreNonRegle` conditionnel et relu, `apresRevisionOrdre`) appelé par `payment-request-actions.ts:corrigerDemandePaiement` et `congress-request-actions.ts:updateGrantedBudget` (+ `medical-info.ts:repercuterMontantSurDeclaration`) ; centre `payment-centre-actions.ts:decidePayment` (`montantVu`, `beneficiaireVu`, écriture conditionnelle) ; secrétariat `admin-request-actions.ts` (`updateRequestStatus`, `rouvrirDemande`, `annulerDemandeAuSecretariat`, archive dans `finishRequest`, `restoreRequest`) ; écrans `validations/paiements/[id]/{dossier,page}.tsx` (`CorrigerDemande`), `centre-de-paiement/centre-board.tsx`, `demandes/[id]/{request-actions,page}.tsx`. Bancs : `finance/correction-demande.test.ts`, `secretariat/statut-manuel.test.ts`, `payments/authorization.test.ts`, `finance/payment-request.test.ts`, `actions/payment-correction-flow.test.ts` et `actions/secretariat-gestes-flow.test.ts` (vrais points d'entrée, acteurs sans vue globale, témoins forcés), `payments/centre-portes-flow.test.ts`, `payments/centre-ecrivains.test.ts`, navigateur `e2e/correction-c4c.spec.ts`. |
+| **Recrutement — renvoyer, corriger, rouvrir, annuler l'embauche, un geste à la fois (§118.192)** | Règles pures `lib/recruitment/request-flow.ts` (étape `RETURNED`, `abilities` + `returnForCorrection` / `correct` / `reopen` / `cancelHire`, `marchesChangees`, `changementsMateriels`, `reouverture`) ; actions `recruitment-actions.ts` (`renvoyerDemandeRecrutement`, `resoumettreDemandeRecrutement`, `rouvrirDemandeRecrutement`, `annulerEmbaucheRecrutement` ; `decideRecruitmentStep` et `closeRecruitmentRequest` aux décisions lisibles et motifs exigés ; toutes les écritures d'étape conditionnelles) ; « À corriger » `queries/action-center.ts` ; écrans `recrutement/[id]/{page,panels}.tsx` (`CorrigerDemandePanel`, `RouvrirPanel`, historique) ; migration `20261231090000_recrutement_renvoi`. Bancs : `recruitment/request-flow.test.ts`, `actions/recruitment-correction-flow.test.ts` (vrais points d'entrée, RH sans vue globale, 17 courses forcées), cliquet `recruitment/etape-conditionnelle.test.ts`, `site-web/recrutement.test.ts`, navigateur `e2e/correction-c4d1.spec.ts`. |
 | **Matériel promo — circuit court** | Module PUR `lib/promo-material/circuit.ts` (`PROMO_STEPS` (7), `PROMO_TRACKS` (`PURCHASE_ORDER`/`PAYMENT`/`AD_VISA`), `initialStep` — saute la demande de devis si le devis est déjà là —, `canValidate` (N+1 réel : `Employee.managerId`, à défaut `departmentRef.head`), **`seesFullCircuit`** (Super Admin + PDG **uniquement**), `tracksOpen`, `allTracksDone`, `pendingTracks`, `progress`, `waitingOn`) + `circuit.test.ts` (23 tests) ; `lib/actions/promo-circuit-actions.ts`. |
 | **Rejeu de session (support)** | Module PUR `lib/replay/capture.ts` (`FORBIDDEN_FIELD` — mot de passe / secret / jeton / IBAN / RIB / CVV / carte —, `FORBIDDEN_INPUT_TYPE` — `password`, `hidden` —, `fieldIsRecordable`, `isSensitiveLabel`, `cleanLabel`, `scrubDetail`, **`makeEvent` : la porte d'entrée UNIQUE**, `coalesce`, `describeEvent`, `stamp`, `firstErrorIndex`) + `capture.test.ts` (20 tests) ; modèle `SessionEvent` ; `components/layout/session-recorder.tsx` (monté dans `app/(app)/layout.tsx`, `sendBeacon`, **ne lit jamais `.value`**) ; `app/api/replay/route.ts` (**re-masque côté serveur**, 204 systématique, lot plafonné à 200) ; `app/(app)/admin/replay/{page,replay-viewer}.tsx` (**`SUPER_ADMIN` seul**). |
 | **Courriers — dossiers & pièces multiples** | Modèles `MailFolder` (arbre, `MailEntry.folderId` en `ON DELETE SET NULL`) et `MailEntryPiece` (intitulé + **destinataire propre** + fichier téléversé **ou** nœud Drive référencé) ; `lib/actions/mail-folder-actions.ts`, `lib/actions/mail-piece-actions.ts` ; `app/(app)/courriers/mail-folder-bar.tsx`, `app/(app)/courriers/[id]/mail-pieces.tsx`. |
@@ -6619,6 +6629,33 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 ---
 
 ## 🧾 Journal des évolutions récentes
+
+### AUDIT 360° — LOT C4d1 : LE RECRUTEMENT SE CORRIGE, SE ROUVRE, ET UN GESTE À LA FOIS (2026-10)
+
+Rapport 18 de l'audit (R14). Doctrine : `CLAUDE.md` §118.192. Le plan de tournée (R13) et la pièce Legal (R15)
+passent au lot C4d2.
+
+- **Renvoyer pour correction** (`renvoyerDemandeRecrutement`, bouton « Renvoyer pour correction » à côté de
+  Valider et Refuser) : la troisième issue, ouverte à qui peut trancher la marche active, et aux RH quand la
+  demande est chez eux ; motif exigé. La demande passe à l'étape neuve **« À corriger »** (`RETURNED`), garde
+  d'où elle vient (`returnedFrom`), et personne ne tranche en attendant.
+- **Corriger et renvoyer** (`resoumettreDemandeRecrutement`, panneau du demandeur, formulaire **pré-rempli**) :
+  « ce qui a changé » exigé ; ce que le formulaire ne porte pas ne s'écrit pas. Une correction qui ne touche rien
+  de ce que les validateurs ont pesé revient à la **même** marche (ou aux RH) ; une correction **matérielle** —
+  autre poste, autre contrat, plus de postes, rémunération relevée ou plafond retiré, contrat plus long — fait
+  **repartir la chaîne de sa première marche** (`changementsMateriels`). Une demande renvoyée se **retire** aussi.
+- **Rouvrir** (`rouvrirDemandeRecrutement`, RH ou sommet, motif) : refusée dans la chaîne → à la marche qui a
+  refusé, et à elle seule ; refusée par les RH → chez les RH ; close sans recrutement → poste rouvert ; retirée
+  par son auteur ou close après un recrutement → non, et le refus dit le geste qui reste (`reouverture`).
+- **Annuler l'embauche** (`annulerEmbaucheRecrutement`, RH ou sommet, motif) avant la fiche employé : le
+  candidat redevient retenu, le poste se rouvre.
+- **Motifs exigés côté serveur** (refus dans la chaîne, refus et clôture sans suite par les RH) — l'écran les
+  exigeait, pas l'action ; et une **décision illisible** n'est plus un accord (`« REJECTED », sinon APPROVED`).
+- **Un geste à la fois** : les treize écritures d'étape sont conditionnelles sur l'étape lue (cliquet
+  `recruitment/etape-conditionnelle.test.ts`), et les marches s'apparient par leur **rang** (`marchesChangees`).
+- **Historique de la demande** sur la fiche (refus, renvois, corrections, réouvertures, embauches annulées).
+- **Mon espace › À corriger** liste désormais les recrutements renvoyés et les demandes de paiement renvoyées
+  par les Finances.
 
 ### AUDIT 360° — LOT C4c : LA DEMANDE DE PAIEMENT SE CORRIGE, LE SECRÉTARIAT A DES GESTES NOMMÉS (2026-10)
 

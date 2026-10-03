@@ -104,7 +104,12 @@ objet, échéance ; l'entité et l'urgence au brouillon), son ordre qui suit au 
 hausse ou un autre bénéficiaire rouvre l'autorisation —, le centre qui décide sur ce qu'il a lu, des pièces
 remplaçables chez le demandeur sans être déclarées acceptées ; au secrétariat, des gestes nommés à la place du
 menu libre (bloquer et rouvrir avec leur motif, annuler par l'annulation commune, terminer par la seule porte
-gardée, qui archive). Restent le recrutement, le plan de tournée validé et la pièce Legal révisée (C4d).
+gardée, qui archive). **Le recrutement est livré et testé (lot C4d1, §118.192)** : renvoyer pour correction
+(étape « À corriger »), corriger et renvoyer sur un formulaire pré-rempli — la chaîne repart de sa première marche
+si le besoin pesé a été relevé —, rouvrir une demande refusée (à la marche qui a refusé) ou close sans recrutement,
+annuler une embauche avant sa fiche, les motifs exigés côté serveur, une décision illisible qui n'est plus un
+accord, et un geste à la fois sur chaque écriture d'étape ; « Mon espace » liste les recrutements et les demandes
+de paiement renvoyés. Restent le plan de tournée validé et la pièce Legal révisée (C4d2).
 
 Constat d'ensemble (rapports 17, 18, 01, 03, 14) : **la plateforme sait refuser, rarement faire corriger.**
 

@@ -48,7 +48,9 @@ describe("Recrutement → offre du site", () => {
     const ecritures: { fonction: string; index: number }[] = [];
     const manquantes: string[] = [];
     for (const f of fonctionsExportees(RECRUTEMENT)) {
-      const appels = [...f.corps.matchAll(/prisma\.recruitmentRequest\.(update|updateMany)\s*\(/g)];
+      // `tx.` aussi (§118.192) : une écriture d'étape faite DANS une transaction reste une écriture d'étape —
+      // ne lire que `prisma.` aurait rendu ce cliquet aveugle aux gestes devenus conditionnels.
+      const appels = [...f.corps.matchAll(/(?:prisma|tx)\.recruitmentRequest\.(update|updateMany)\s*\(/g)];
       const syncs = [...f.corps.matchAll(/synchroniserOffreDeLaDemande\s*\(/g)].map((m) => m.index!);
       for (const a of appels) {
         const args = argumentsDe(f.corps, a.index! + a[0].length - 1);
@@ -58,8 +60,9 @@ describe("Recrutement → offre du site", () => {
       }
     }
     // PLANCHER : un parcours cassé (renommage, découpage du fichier) rendrait ce cliquet vert en ne
-    // trouvant RIEN (§118.17). Mesuré : 9 écritures d'étape dans 8 actions.
-    expect(ecritures.length, "aucune écriture d'étape trouvée : le cliquet ne lit plus la bonne forme").toBeGreaterThanOrEqual(9);
+    // trouvant RIEN (§118.17). Mesuré : 9 écritures d'étape dans 8 actions ; 13 dans 13 au §118.192 (renvoyer,
+    // corriger, rouvrir, annuler l'embauche, et l'intégration d'un salarié comme d'un consultant).
+    expect(ecritures.length, "aucune écriture d'étape trouvée : le cliquet ne lit plus la bonne forme").toBeGreaterThanOrEqual(13);
     expect(manquantes, `écritures d'étape sans resynchronisation de l'offre du site : ${manquantes.join(", ")}`).toEqual([]);
   });
 

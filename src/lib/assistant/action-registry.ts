@@ -1126,6 +1126,15 @@ X("ROUVRIR ET ANNULER UNE DEMANDE AU SECRÉTARIAT (audit 360°, lot C4c, §118.1
   + "/demandes/<id> › « Rouvrir… » ou « Annuler la demande… ».", [
   "admin-request-actions:rouvrirDemande", "admin-request-actions:annulerDemandeAuSecretariat",
 ]);
+X("RENVOYER, CORRIGER, ROUVRIR UN RECRUTEMENT, ANNULER UNE EMBAUCHE (audit 360°, lot C4d1, §118.192) — renvoyer une "
+  + "demande pour correction (qui peut trancher la marche, ou les RH), la corriger et la renvoyer (son demandeur, qui dit "
+  + "ce qui a changé ; une correction matérielle fait repartir la chaîne), rouvrir une demande refusée ou close sans "
+  + "recrutement (les RH ou le sommet, motif à l'appui), annuler une embauche avant sa fiche employé. Ce sont des "
+  + "DÉCISIONS sur un engagement pluriannuel et des données personnelles, prises par une personne qui dit pourquoi. Adam "
+  + "est en pause de développement : aucun geste neuf ne lui est ouvert. Un clic sur /recrutement/<id>.", [
+  "recruitment-actions:renvoyerDemandeRecrutement", "recruitment-actions:resoumettreDemandeRecrutement",
+  "recruitment-actions:rouvrirDemandeRecrutement", "recruitment-actions:annulerEmbaucheRecrutement",
+]);
 X("RÉTABLIR UN DOCUMENT LEGAL ANNULÉ (§118.184, audit L04) : le retour d'une annulation, ajouté parce que "
   + "l'annulation n'en avait aucun. C'est un geste de correction qu'une personne fait devant la ligne qu'elle "
   + "vient d'annuler par erreur ; Adam est en pause de développement (Super Admin seul) et l'annulation qu'il "

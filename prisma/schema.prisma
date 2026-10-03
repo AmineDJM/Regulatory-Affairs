@@ -1864,6 +1864,9 @@ enum RecruitmentStage {
   CLOSED
   REJECTED
   CANCELLED
+  /// Renvoyée pour correction (audit 360°, lot C4d1, §118.192) : la balle est chez le demandeur, qui
+  /// corrige et renvoie ; voir `returnedFrom`.
+  RETURNED
 }
 
 enum RecruitmentApprovalState {
@@ -1914,6 +1917,13 @@ model RecruitmentRequest {
   /// Décision finale des RH / de la direction, en clair, quand la demande se clôt.
   closingNote String?
   closedAt    DateTime?
+  /// LE RENVOI POUR CORRECTION (audit 360°, lot C4d1, R14 — §118.192). Qui a renvoyé, quand, pourquoi, et
+  /// D'OÙ (`CHAIN` ou `HR_REVIEW`) : une correction qui ne touche rien de ce que les validateurs ont pesé
+  /// revient là ; une correction matérielle fait repartir la chaîne. L'histoire va au fil de la demande.
+  returnedFrom RecruitmentStage?
+  returnedAt   DateTime?
+  returnedById String?
+  returnNote   String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
