@@ -204,7 +204,8 @@ suite("la fabrique de documents — émission, registre, Drive, reprise, révisi
     expect(f.version).toBe(2);
     expect(f.historique.at(-1)).toMatchObject({ version: 2, resume: "v2 — quantités doublées" });
     // La version 1 reste ouvrable — le Drive est un historique.
-    expect((await modeleDrive(devis.docx.nodeId, 1)).paragraphs[0].text).toBe(`DEVIS : N° ${devis.reference}`);
+    // Le titre « DEVIS » est centré sous l'en-tête (Direction, 10/2026) : il précède la ligne « DEVIS : N° … ».
+    expect((await modeleDrive(devis.docx.nodeId, 1)).paragraphs.slice(0, 2).map((x) => x.text)).toEqual(["DEVIS", `DEVIS : N° ${devis.reference}`]);
 
     const facture = await prisma.legalDocument.findFirst({ where: { companyId, kind: "INVOICE" }, select: { id: true } });
     const refus = await reviserDocumentDrive(user, { legalDocumentId: facture!.id, modifications: { notes: "x" } });

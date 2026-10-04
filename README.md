@@ -3290,7 +3290,9 @@ fichiers dérivés des MÊMES données, cohérents chiffre par chiffre — ou au
   `012/DG/2026` — les formes exactes des deux pièces de référence. Le motif se règle PAR NATURE dans le profil
   documentaire (`settings.numerotation` ; outil `document_profile`, ou le panneau « Numérotation » du composeur pour
   ceux qui tiennent la papeterie) ; un motif sans compteur `{n}` est refusé. Le compteur, lui, ne change pas :
-  société × nature × année.
+  société × nature × année. Le **premier numéro** de la série se règle par nature et par année
+  (`settings.numerotationDepart`, même panneau : « Premier numéro de 2026 : 32 » donne `032/DG/2026`) : c'est un
+  **plancher** — le numéro attribué vaut `max(dernier + 1, départ)`, le compteur ne recule jamais (§118.203).
 - **La mise en page est du code, et c'est celle des pièces de la maison** (`build.ts` → `word.ts`). Deux modèles,
   relevés sur deux pièces réelles fournies par la Direction. La **FACTURE** (modèle Pharmagène) : émetteur et
   « Facture » face à face avec numéro de client, numéro et date ; bande « Facturer à : » ; bloc client et RC / NIF /
@@ -3346,7 +3348,7 @@ fichiers dérivés des MÊMES données, cohérents chiffre par chiffre — ou au
 - **Le profil documentaire d'une société** (`CompanyDocumentProfile`, outil `document_profile`) : préfixes de
   numérotation (DEV / BC / FA par défaut ; l'avoir prend `AV`, que le profil ne règle pas), TVA par défaut, conditions de paiement, validité des devis (30 jours),
   mention de pied, papier en-tête désigné, signataire. Lu par qui voit la société ; réglé par ceux qui tiennent la
-  papeterie (`canManageLetterheads`). L'identité légale vient de la carte Legal, la couleur d'accent de la société.
+  papeterie (`canManageLetterheads`). L'identité légale vient de la carte Legal, l'accent de la charte (marque, sinon le bleu canard de la maison).
 - **Le dossier à trois formats** (`canonical.ts`, `dossier.ts`, outil `dossier_build`) : des données canoniques
   (sections, tableaux à colonnes typées et formules de ligne `[qte]*[pu]*(1+{TVA})` dans une grammaire VÉRIFIABLE —
   + - * / parenthèses, colonnes, paramètres — chiffres clés, paramètres nommés) dérivent un classeur
@@ -5087,7 +5089,7 @@ d'elle-même : couleur d'accent et secondaire, polices des titres et du texte, l
 telles qu'elle veut les imprimer, mentions légales de pied de page, qui signe quoi (par type de
 pièce). Le profil documentaire (préfixes, TVA, validité, papier en-tête, signataire) en était la
 fondation ; la marque vit dans son `settings.marque` — prévu « extensible sans migration » — et
-la **charte effective** tranche : marque > pastille de la société > défauts de la maison, avec
+la **charte effective** tranche : marque > bleu canard de la maison (`#087084` ; la pastille de la société — une couleur d'écran — ne colore plus aucune pièce, §118.203), avec
 les alertes de contraste WCAG calculées (un accent trop pâle sur blanc, un texte illisible dans
 un en-tête de tableau).
 
@@ -15341,6 +15343,29 @@ Parité UI↔Chief : **10,1 % → 22,8 %** (natives 106, couvertes 30, trous ass
   jointes (plus de téléchargement automatique au clic).
 - **Information médicale** — le PRIM **visualise les pièces de l'événement source**, **upload** de la déclaration
   (non obligatoire), affichage du **demandeur**.
+
+### BC et factures — titre centré, bleu canard, premier numéro, taxes, Excel, aperçu (2026-10)
+
+Ajustements de la Direction sur les bons de commande et les factures (§118.203) :
+
+- **Titre** « BON DE COMMANDE » (« DEVIS » pour un devis), centré, en gras, à l'accent, sous l'en-tête et avant « B.C : N° … ».
+- **Bleu canard** `#087084` (R 8, V 112, B 132) à la place du rouge : accent par défaut du Word, du PDF et du classeur Excel.
+  La charte tranche *marque > bleu canard* ; **la pastille de la société** (`Company.color`, une couleur d'écran) **ne colore plus
+  aucune pièce**. Une pièce déjà émise garde sa couleur (un document émis ne se repeint pas) ; une **révision** repeint l'accent
+  d'après la charte du jour. Un accent rouge réglé dans **Administration › Marque** l'emporte encore : il se change là.
+- **Premier numéro de la série** : Legal › Composer un bon de commande › Numérotation › « Premier numéro de 2026 » (par nature et par
+  année). C'est un **plancher** : le numéro attribué vaut `max(dernier + 1, départ)`, le compteur ne recule jamais, une autre année
+  repart à 001. La migration `20270105090000` pose 32 pour 2026 sur les profils dont le motif des BC porte `/DG/` (le BC
+  `032/DG/2026` est donc le premier) ; une société sans motif règle motif et premier numéro ensemble.
+- **Taxes supplémentaires** : une ligne « libellé + taux » toujours visible (composeur, génération et modification du BC d'un
+  dossier promotionnel) ; « Taxe Pub 2 % » en un clic ; calculée sur le HT, **hors base de TVA**.
+- **Aperçu avant impression** : le PDF à blanc dans la page, avec le numéro prévu — aucun numéro consommé, rien d'écrit.
+- **Générer sur Excel** : la pièce rendue en classeur à formules vivantes (fiche Legal, résultat du composeur, ligne du BC d'un
+  dossier promotionnel) ; comparé au centime au calcul du Word, non livré s'il s'en écarte ; même porte que le Word. La somme en
+  lettres est un texte arrêté à l'émission (le classeur le dit).
+- **Devis déposés → devis de la plateforme** : déjà en place (lecture par Luna, tableau par devis, validation d'un devis entier ou de
+  lignes de plusieurs devis, génération des BC d'après ce qui est validé, BC modifiable en natif, révisions). Un scan par
+  « Retranscrire un devis ».
 
 ---
 

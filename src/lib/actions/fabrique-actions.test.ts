@@ -187,6 +187,17 @@ suite("fabrique-actions — le bouton « Composer une pièce » des Finances", (
     expect(a.ok, a.ok ? "" : a.error).toBe(true);
     if (a.ok) { expect(a.motif).toBe("{n:3}/DG/{aaaa}"); expect(a.numeroProchain).toBe(`032/DG/${ANNEE}`); }
 
+    // LES DEUX D'UN COUP — un seul envoi du panneau, deux réglages : le motif ne se perd pas derrière le départ.
+    ACTOR = assistante;
+    const ensemble = await reglerNumerotationPieces(undefined, form({ ...BC, motif: "{n:4}/DG/{aaaa}", depart: "7", annee: String(ANNEE) }));
+    expect(ensemble.ok, ensemble.ok ? "" : ensemble.error).toBe(true);
+    expect(ensemble.message).toContain("Motif enregistré : {n:4}/DG/{aaaa}");
+    expect(ensemble.message).toContain(`Premier numéro de ${ANNEE} : 7`);
+    ACTOR = finance;
+    const b = await previsualiserPieceCommerciale(undefined, BON_DE_COMMANDE());
+    expect(b.ok, b.ok ? "" : b.error).toBe(true);
+    if (b.ok) { expect(b.motif).toBe("{n:4}/DG/{aaaa}"); expect(b.numeroProchain).toBe(`0007/DG/${ANNEE}`); }
+
     // On remet la série à son défaut : les cas suivants comptent leurs numéros depuis le compteur.
     ACTOR = assistante;
     const retire = await reglerNumerotationPieces(undefined, form({ ...BC, depart: "", annee: String(ANNEE), motif: "" }));
@@ -232,6 +243,8 @@ suite("fabrique-actions — le bouton « Composer une pièce » des Finances", (
     sansTiers.set("tiersNom", "");
     const refus = await apercuAvantImpressionPiece(undefined, sansTiers);
     expect(refus.ok).toBe(false);
+    // Le refus NOMME ce qui bloque (c'est la phrase qu'on lit) — pas seulement « le rendu n'est pas possible ».
+    if (!refus.ok) expect(refus.error).toMatch(/L'aperçu n'est pas possible : /);
     // Et qui ne peut pas émettre n'obtient pas non plus de PDF : même porte que l'aperçu des totaux.
     ACTOR = employe;
     const sansDroit = await apercuAvantImpressionPiece(undefined, BON_DE_COMMANDE());

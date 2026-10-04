@@ -158,6 +158,31 @@ suite("le plancher de numérotation, sur une vraie base", () => {
     expect(await prochain()).toBe(`052/DG/${ANNEE}`);
   }, 60_000);
 
+  it("le motif ET le premier numéro réglés dans le MÊME enregistrement tiennent tous les deux — le geste d'une société qui n'a encore ni l'un ni l'autre", async () => {
+    // Le panneau de numérotation envoie les deux champs d'un seul geste. Chacun s'écrit dans `settings` : le second ne doit pas
+    // repartir de ce que la base portait AVANT le premier — il perdrait le motif qu'on vient de régler, et la pièce partirait
+    // sous la numérotation par défaut sans un mot (BC-2026-0001 au lieu de 0007/DG/2026).
+    const NOUVEAU = "{n:4}/DG/{aaaa}";
+    const r = await definirProfilDocumentaire(user, {
+      societe: companyId, numerotation: { BON_DE_COMMANDE: NOUVEAU }, numerotationDepart: { BON_DE_COMMANDE: { annee: ANNEE, numero: 7 } },
+    });
+    expect(r.ok).toBe(true);
+    const lu = await profilDocumentaire(user, companyId);
+    expect(lu.ok && lu.profil.reglages.numerotation.BON_DE_COMMANDE).toBe(NOUVEAU);
+    expect(lu.ok && lu.profil.reglages.numerotationDepart.BON_DE_COMMANDE?.[String(ANNEE)]).toBe(7);
+    // Le plancher (7) est sous le compteur (déjà à 51) : il ne recule pas — et le NOUVEAU motif s'applique.
+    expect(await prochain()).toBe(`0052/DG/${ANNEE}`);
+    // Et dans l'autre sens : un nouveau motif ET le retrait du départ, d'un seul geste.
+    const retour = await definirProfilDocumentaire(user, {
+      societe: companyId, numerotation: { BON_DE_COMMANDE: MOTIF }, numerotationDepart: { BON_DE_COMMANDE: { annee: ANNEE, numero: null } },
+    });
+    expect(retour.ok).toBe(true);
+    const apres = await profilDocumentaire(user, companyId);
+    expect(apres.ok && apres.profil.reglages.numerotation.BON_DE_COMMANDE).toBe(MOTIF);
+    expect(apres.ok && apres.profil.reglages.numerotationDepart).toEqual({});
+    expect(await prochain()).toBe(`052/DG/${ANNEE}`);
+  }, 60_000);
+
   it("dix émissions parallèles à partir de 100 : dix numéros CONSÉCUTIFS, sans trou ni doublon", async () => {
     await definirProfilDocumentaire(user, { societe: companyId, numerotationDepart: { BON_DE_COMMANDE: { annee: ANNEE, numero: 100 } } });
     const refs = await Promise.all(Array.from({ length: 10 }, (_, i) => emettre({ tiers: { nom: `${TAG} Parallèle ${i}` } })));

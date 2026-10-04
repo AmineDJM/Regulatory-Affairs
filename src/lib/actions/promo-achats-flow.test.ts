@@ -669,21 +669,23 @@ suite("Matériel promotionnel — achats piochés dans le catalogue, facture lig
 
   it("LIRE LA FACTURE (lot D2-F) : la lecture ne s'écrit nulle part, et un dépôt qui la désigne exige qu'elle existe pour CE fichier", async () => {
     await comme("cp");
-    const avant = await prisma.promoFacture.count({ where: { legalDocument: { chainFromId: { not: null } } } });
+    // Le juge compte les factures des devis de CE dossier : un compte sur toute la base partagée mesure le voisinage — un autre
+    // fichier de la suite qui nettoie ses factures pendant la lecture suffisait à le faire tomber (3 → 2), sans rien défaire ici.
+    const avant = await prisma.promoFacture.count({ where: { quote: { promoMaterialId: pmId } } });
     expect((await lireFacturePromo(form({ promoMaterialId: pmId, quoteId: quoteB }))).error).toMatch(/Choisissez le fichier/);
     const lu = form({ promoMaterialId: pmId, quoteId: quoteB });
     lu.set("file", pdf("f3.pdf"));
     const r = await lireFacturePromo(lu);
     expect(r.ok, r.ok ? "" : r.error).toBe(true);
     expect(r.lecture?.lectureId).toBeTruthy();
-    expect(await prisma.promoFacture.count({ where: { legalDocument: { chainFromId: { not: null } } } }), "lire n'écrit aucune facture").toBe(avant);
+    expect(await prisma.promoFacture.count({ where: { quote: { promoMaterialId: pmId } } }), "lire n'écrit aucune facture").toBe(avant);
     const forge = form({ promoMaterialId: pmId, quoteId: quoteB, reference: "IA-F3", amount: "1", lectureId: "inexistante", totalVerifie: "on" });
     forge.set("file", pdf("f3.pdf"));
     expect((await deposerFacturePromo(forge)).error).toMatch(/lecture désignée n'existe pas/);
     const sansTotal = form({ promoMaterialId: pmId, quoteId: quoteB, reference: "IA-F3", amount: "1", lectureId: r.lecture!.lectureId });
     sansTotal.set("file", pdf("f3.pdf"));
     expect((await deposerFacturePromo(sansTotal)).error).toMatch(/total vérifié/);
-    expect(await prisma.promoFacture.count({ where: { legalDocument: { chainFromId: { not: null } } } }), "un refus n'écrit rien").toBe(avant);
+    expect(await prisma.promoFacture.count({ where: { quote: { promoMaterialId: pmId } } }), "un refus n'écrit rien").toBe(avant);
     // CONFIRMÉE : la ligne saisie à la main, le total coché — la facture s'inscrit ET porte sa confirmation.
     const fiche = (await devisB()).lignesBC.find((l) => l.designation.startsWith("Fiche"))!;
     const conf = form({ promoMaterialId: pmId, quoteId: quoteB, reference: "IA-F3", amount: "2380", lectureId: r.lecture!.lectureId, totalVerifie: "on",
