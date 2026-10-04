@@ -54,7 +54,7 @@ import { deleteFileByKey } from "@/lib/storage";
 import { remplacerLecteurInterrupteurIaPourTests } from "@/lib/ai-settings";
 import { createPromoMaterial } from "./promo-material-actions";
 import { validatePromoStep } from "./promo-circuit-actions";
-import { demanderDevisPromo, enregistrerDevisPromo, lireScanDevisPromo, terminerRetranscriptionPromo } from "./promo-devis-actions";
+import { enregistrerDevisPromo, lireScanDevisPromo, terminerRetranscriptionPromo } from "./promo-devis-actions";
 import { PHRASE_LECTURE_DISPARUE } from "@/lib/pieces-lues/service";
 import { empreinteDe, VERSION_LECTEUR } from "@/lib/pieces-lues/lecture-fichier";
 import type { LectureDevisPromo } from "@/lib/pieces-lues/prerempli-devis-promo";
@@ -209,8 +209,8 @@ suite("Matériel promotionnel — le devis lu sur son scan, proposé puis confir
     const id = r.id!;
     await comme("dir");
     reussi(await validatePromoStep(form({ id })), "valider la demande");
-    await comme("cp");
-    reussi(await demanderDevisPromo(form({ promoMaterialId: id })), "demander les devis");
+    // LA DEMANDE DE DEVIS PART D'ELLE-MÊME à la validation de la demande (§118.204) : plus de geste « demander les devis ».
+    if ((await prisma.promoMaterial.findUniqueOrThrow({ where: { id }, select: { circuitState: true } })).circuitState !== "QUOTE_REQUESTED") throw new Error("la demande de devis n'est pas partie d'elle-même à la validation");
     return id;
   }
   const articleDe = async (id: string) => (await prisma.promoRequestItem.findFirstOrThrow({ where: { promoMaterialId: id } })).id;

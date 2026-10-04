@@ -13,7 +13,7 @@ import { validateDocumentUpload } from "@/lib/storage";
 import { createExpenseOrder } from "@/lib/expense-orders";
 import { createMedicalInfoDeclaration } from "@/lib/medical-info";
 import { aiguillerBC, porteDuBC } from "@/lib/bons-de-commande/aiguillage";
-import { etatDuBC, etatsDesBC } from "@/lib/bons-de-commande/etat";
+import { etatDuBC } from "@/lib/bons-de-commande/etat";
 import { canCancel } from "@/lib/legal/lifecycle";
 import { canSendToSettlement, cleEnvoiAuReglement, ordreClos } from "@/lib/finances/settlement";
 import { annulerOrdreNonRegle } from "@/lib/payments/annulation";
@@ -23,9 +23,10 @@ import { annuaireDeLecture, consignerConfirmation, exigerLectureConfirmee, propo
 import { empreinteDe } from "@/lib/pieces-lues/lecture-fichier";
 import { lignesProposeesFacturePromo, preremplirFacturePromo, type PrerempliFacturePromo } from "@/lib/pieces-lues/prerempli-facture-promo";
 import { fdCase } from "@/lib/actions/types";
-import { emettreDocumentDrive, reviserDocumentDrive } from "@/platform/in-process/artifact/factory";
+import { reviserDocumentDrive } from "@/platform/in-process/artifact/factory";
+import { genererLesBonsDeCommande } from "@/lib/actions/promo-automatismes";
 import { devisDuDossier, devisLu } from "@/lib/queries/promo-circuit";
-import { lignesDuBonDeCommande, formatDzd } from "@/lib/promo-material/devis";
+import { formatDzd } from "@/lib/promo-material/devis";
 import { piloteLExecution } from "@/lib/promo-material/circuit";
 import { fdStr, fdNum, fdDate, type ActionResult } from "@/lib/actions/types";
 import {
@@ -108,23 +109,6 @@ async function audit(user: SessionUser, id: string, summary: string) {
   await recordAudit({ actorId: user.id, action: "UPDATE", module: "Matériel promotionnel", entityType: "PROMO_MATERIAL", entityId: id, summary });
 }
 
-/**
- * LA SOCIÉTÉ QUI COMMANDE — celle du dossier ; à défaut, celle où travaille son DEMANDEUR (sa
- * fiche salarié, puis son département). Jamais celle de la personne qui clique, ni celle d'un
- * sélecteur d'affichage : l'assistante qui génère les BC d'un demandeur de Pharmagène ne les
- * émet pas au nom de sa propre société, et deux pilotes du même dossier doivent produire le même
- * BC. `null` quand rien ne se lit à coup sûr — on ne devine pas une société qui s'engage.
- */
-async function societeDuDossier(pm: Dossier): Promise<string | null> {
-  if (pm.companyId) return pm.companyId;
-  if (!pm.requesterId) return null;
-  const e = await prisma.employee.findFirst({
-    where: { userId: pm.requesterId },
-    select: { companyId: true, departmentRef: { select: { companyId: true } } },
-  });
-  return e?.companyId ?? e?.departmentRef?.companyId ?? null;
-}
-
 /** Le devis de ce dossier, et son BC s'il en a un d'actif. */
 async function devisEtBC(pm: Dossier, quoteId: string | null) {
   if (!quoteId) return null;
@@ -157,12 +141,11 @@ function lireTaxeSupplementaire(formData: FormData): { ok: true; taxe: { libelle
 // ───────────────────────── 1. Générer les bons de commande ─────────────────────────
 
 /**
- * GÉNÉRER LES BONS DE COMMANDE — un par devis dont une ligne est retenue, et qui n'en a pas.
- *
- * Idempotent : un devis qui a déjà son BC actif n'en reçoit pas un second, et la fabrique rend
- * une pièce identique au lieu d'en émettre une autre. Sérialisé par dossier (`enSerie`) : deux
- * clics simultanés ne font pas deux BC pour le même devis. Chaque devis est isolé : l'échec de
- * l'un (fournisseur sans identité, société que le pilote ne peut pas voir) est DIT sans empêcher les autres.
+ * GÉNÉRER LES BONS DE COMMANDE — le REPLI (§118.204). La génération part d'elle-même quand la dernière
+ * validation du choix tombe (`validatePromoStep` → `genererLesBonsDeCommande`) ; ce geste reste pour
+ * ce qu'elle n'a pas pu émettre (un fournisseur sans identité, une société que le validateur ne voit pas),
+ * et pour régler la livraison ou la taxe avant d'émettre. Le cœur est UN (`promo-automatismes.ts`) : deux
+ * générations finiraient par composer deux BC différents du même devis (§118.5).
  */
 export async function genererBonsDeCommandePromo(formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
@@ -174,78 +157,8 @@ export async function genererBonsDeCommandePromo(formData: FormData): Promise<Ac
   // LA CASE « TAXE SUPPLÉMENTAIRE » (Direction, 10/2026) : vide = celle de chaque devis ; « 0 » = aucune ; sinon pour tous les BC générés.
   const taxeSaisie = lireTaxeSupplementaire(formData);
   if (!taxeSaisie.ok) return { ok: false, error: taxeSaisie.error };
-
-  const societe = await societeDuDossier(pm);
-  if (!societe) {
-    return { ok: false, error: "La société qui commande est introuvable : le dossier n'en nomme aucune, et la fiche salarié de son demandeur non plus. Renseignez la société du demandeur (RH › fiche salarié), puis relancez." };
-  }
-
-  return enSerie(`promo-bc:${pm.id}`, async () => {
-    // LE DOSSIER SE RELIT DANS LA FILE (vague « restes ») : l'annulation y passe aussi
-    // (`cancelPromoMaterial`), et une génération mise en file AVANT elle — sur un dossier encore en
-    // exécution — passait quand même, une fois l'annulation écrite : un BC vivant sur un dossier annulé.
-    const refusDansLaFile = refusExecution(user, await chargerDossier(pm.id));
-    if (refusDansLaFile) return { ok: false, error: refusDansLaFile };
-    const devis = await devisDuDossier(pm.id);
-    const etats = await etatsDesBC(devis.map((d) => d.purchaseOrderId).filter((x): x is string => Boolean(x)));
-    const actifs = new Set(devis.filter((d) => {
-      const e = d.purchaseOrderId ? etats.get(d.purchaseOrderId) : undefined;
-      return e && !e.annule;
-    }).map((d) => d.id));
-    const aGenerer = devis.filter((d) => d.lines.some((l) => l.selected) && !actifs.has(d.id));
-    if (aGenerer.length === 0) {
-      return { ok: true, message: "Chaque devis retenu a déjà son bon de commande — rien de nouveau à générer." };
-    }
-    const fournisseurs = await prisma.companyContact.findMany({
-      where: { id: { in: aGenerer.map((d) => d.supplierId).filter((x): x is string => Boolean(x)) } },
-      select: { id: true, name: true, address: true, city: true, wilaya: true, rc: true, nif: true, rib: true, phone: true, email: true },
-    });
-    const parId = new Map(fournisseurs.map((f) => [f.id, f]));
-
-    const emis: string[] = [];
-    const echecs: string[] = [];
-    const reserves: string[] = [];
-    for (const brut of aGenerer) {
-      const d = devisLu(brut);
-      const f = brut.supplierId ? parId.get(brut.supplierId) : undefined;
-      if (!f) { echecs.push(`${d.supplierName} : fournisseur absent de l'annuaire — faites corriger le devis`); continue; }
-      const adresse = [f.address, [f.city, f.wilaya].filter(Boolean).join(", ")].filter((x) => x && x.trim()).join("\n") || null;
-      const r = await emettreDocumentDrive(user, {
-        type: "BON_DE_COMMANDE",
-        societe,
-        tiers: { nom: f.name, adresse, rc: f.rc, nif: f.nif, rib: f.rib, telephone: f.phone, email: f.email },
-        lignes: lignesDuBonDeCommande(d),
-        tvaDefaut: d.tvaRate / 100,
-        taxes: taxeSaisie.taxe !== undefined
-          ? (taxeSaisie.taxe ? [taxeSaisie.taxe] : null)
-          : d.extraTaxRate ? [{ libelle: d.extraTaxLabel ?? "Taxe additionnelle", taux: d.extraTaxRate / 100 }] : null,
-        referenceAmont: d.reference,
-        referenceAmontDate: brut.quoteDate ? brut.quoteDate.toISOString().slice(0, 10) : null,
-        objet: `Matériel promotionnel ${pm.reference} — ${pm.title}`,
-        livraison: livraison.adresse || livraison.delai ? livraison : null,
-        notes,
-        dossier: `Matériel promotionnel/${pm.reference}`,
-      }, {
-        source: { type: "PROMO_MATERIAL", id: pm.id },
-        delegation: `${pm.reference} — dossier de matériel promotionnel validé (demande, Direction Marketing, seuil du DG), bon de commande composé d'après les lignes retenues`,
-      });
-      if (!r.ok) { echecs.push(`${d.supplierName} : ${r.motif}`); continue; }
-      await prisma.promoQuote.update({ where: { id: d.id }, data: { purchaseOrderId: r.legalDocumentId, purchaseOrderSentAt: null, purchaseOrderSentById: null } });
-      emis.push(`${r.reference} (${d.supplierName}, ${formatDzd(r.totaux.totalTtc)} TTC)`);
-      if (r.reserveBonDeCommande) reserves.push(r.reserveBonDeCommande);
-    }
-    if (emis.length) await audit(user, pm.id, `Bons de commande générés : ${emis.join(" ; ")}`);
-    revalidatePath(chemin(pm.id));
-    revalidatePath(CHEMIN_BONS_DE_COMMANDE);
-    if (emis.length === 0) return { ok: false, error: `Aucun bon de commande n'a pu être généré — ${echecs.join(" ; ")}.` };
-    const suite = [...new Set(reserves)].join(" ");
-    return {
-      ok: true,
-      message: `${emis.length} bon${emis.length > 1 ? "s" : ""} de commande généré${emis.length > 1 ? "s" : ""} : ${emis.join(" ; ")}.`
-        + (echecs.length ? ` Non générés : ${echecs.join(" ; ")}.` : "")
-        + (suite ? ` ${suite}` : ""),
-    };
-  });
+  const r = await genererLesBonsDeCommande(user, pm.id, { livraison, notes, taxe: taxeSaisie.taxe, automatique: false });
+  return r.ok ? { ok: true, message: r.message } : { ok: false, error: r.error };
 }
 
 // ───────────────────────── 2. Modifier, supprimer, envoyer un BC ─────────────────────────

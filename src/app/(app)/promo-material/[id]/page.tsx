@@ -12,6 +12,10 @@ import {
 import { executionDuDossier, verdictDuChantierPromo } from "@/lib/queries/promo-execution";
 import { listPartyOptions } from "@/lib/queries/company-contacts";
 import { manquesDeRetranscription } from "@/lib/promo-material/devis";
+import { refusDeRangement } from "@/lib/promo-material/rangement";
+import { texteDemandeDeDevis } from "@/lib/promo-material/texte-demande-devis";
+import { ACTION_LABEL } from "@/lib/promo-material/actions-fournisseur";
+import { libellesPromusDeLArticle } from "@/lib/promo-material/achats";
 import { toNumber, formatCurrency, formatDate, formatDateTime } from "@/lib/utils";
 import { PageHeader } from "@/components/shared/page-header";
 import { AdProEditButton } from "@/components/ad-pro/edit-request-button";
@@ -21,7 +25,7 @@ import { StatusBadge } from "@/components/shared/status-badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import type { DocItem } from "@/components/documents/document-list";
 import { DocumentUpload } from "@/components/documents/document-upload";
-import { PROMO_MATERIAL_DOC_CATEGORIES, categoriesDuDepotDeLaDemande } from "@/lib/ad-pro/doc-categories";
+import { PROMO_MATERIAL_DOC_CATEGORIES, categoriesDuDepotDeLaDemande, natureDeLaCategorie } from "@/lib/ad-pro/doc-categories";
 import { contextePiecesLiees } from "@/lib/ad-pro/pieces-liees";
 import { LinkedRecords } from "@/components/shared/linked-records";
 import { canAttachToAdPro, attachHint } from "@/lib/ad-pro/attachments";
@@ -197,7 +201,6 @@ export default async function PromoMaterialDetailPage({ params }: { params: { id
     validerIci: !(version === 2 && circuitState === "REVIEW_REQUESTER"),
     canConfirmQuote: flags.isMarketing || flags.isAssistant || isDirection || user.role === "SUPER_ADMIN",
     canStart: !circuitState && (user.id === pm.requesterId || isDirection),
-    canRequestQuotes: v2 && circuitState === "QUOTE_TO_REQUEST" && demandeLesDevis(acteur, pm),
     canDrive: piloteLExecution(acteur, pm),
     renvoi,
     canRenvoyer: peutTrancher && circuitState !== null && etatApresRenvoi(circuitState) !== null,
@@ -213,6 +216,18 @@ export default async function PromoMaterialDetailPage({ params }: { params: { id
   // (ou la Direction) la compose tant que les devis ne sont pas demandés — la règle de l'action.
   const articles = v2 ? await articlesDemandesDuDossier(pm.id) : [];
   // Jusqu'au départ du choix en validation (§118.190) — la règle de `refusComposition`, lue telle quelle.
+  // L'APERÇU DE LA DEMANDE DE DEVIS (§118.204) — ce que l'assistante recevra, tant qu'elle n'est pas partie ;
+  // et, sur « devis à demander » (l'envoi automatique n'a pas pu partir, ou dossier d'avant), le geste qui l'envoie.
+  const avantEnvoi = v2 && (circuitState === "REVIEW_REQUEST" || circuitState === "QUOTE_TO_REQUEST");
+  const apercuDevis = avantEnvoi
+    ? texteDemandeDeDevis({
+        reference: pm.reference, titre: pm.title, brief: pm.description, precisions: pm.precisionsDevis, relance: false,
+        articles: articles.map((a) => ({ reference: a.reference, nom: a.nom, quantite: a.quantite, unite: a.unite, actions: a.actions.map((x) => ACTION_LABEL[x]), promus: libellesPromusDeLArticle(a), commentaire: a.commentaire })),
+      })
+    : null;
+  const envoiDevis = apercuDevis
+    ? { apercu: apercuDevis, precisions: pm.precisionsDevis, peutEnvoyer: circuitState === "QUOTE_TO_REQUEST" && demandeLesDevis(acteur, pm), attendValidation: circuitState === "REVIEW_REQUEST" }
+    : null;
   const canEditArticles = v2 && (circuitState === "REVIEW_REQUEST" || circuitState === "QUOTE_TO_REQUEST" || circuitState === "QUOTE_REQUESTED" || circuitState === "REVIEW_REQUESTER") && demandeLesDevis(acteur, pm);
   const canReceive = v2 && circuitState === "IN_EXECUTION" && peutReceptionner({ id: user.id, role: user.role }, pm);
 
@@ -230,8 +245,22 @@ export default async function PromoMaterialDetailPage({ params }: { params: { id
     documentName: d.documentId ? nomsScans.get(d.documentId) ?? null : null,
   }));
   const canTranscribe = v2 && circuitState === "QUOTE_REQUESTED" && retranscritLesDevis(acteur, pm);
+  // LES FICHIERS « DEVIS » DÉPOSÉS SANS FICHE (§118.204) — ceux qu'aucun devis du circuit ne désigne. Ils se
+  // RANGENT comme devis d'une agence (« Ranger comme devis de… »), dans la carte « Devis » : plus de « Créer sa
+  // fiche » sur un dossier de matériel promotionnel. Les scans déjà rangés ne se montrent qu'une fois — sur la
+  // ligne de leur devis.
+  const scansRanges = new Set(v2
+    ? (await prisma.promoQuote.findMany({ where: { promoMaterialId: pm.id }, select: { documentId: true } })).map((q) => q.documentId).filter((x): x is string => Boolean(x))
+    : []);
+  const devisARanger = v2 ? docItems.filter((d) => natureDeLaCategorie(d.category) === "QUOTE" && !scansRanges.has(d.id)) : [];
+  const rangementRefuse = refusDeRangement(circuitState);
+  const peutRanger = v2 && rangementRefuse === null && retranscritLesDevis(acteur, pm);
+  // Ce que montre « Pièces liées » : sans les scans rangés, et sans les devis à ranger quand la carte « Devis » les porte.
+  const piecesLiees = v2
+    ? docItems.filter((d) => !scansRanges.has(d.id) && !(montrerDevis && devisARanger.some((x) => x.id === d.id)))
+    : docItems;
   const canSelect = v2 && circuitState === "REVIEW_REQUESTER" && choisitLesLignes(acteur, pm);
-  const parties = canTranscribe ? await listPartyOptions(user.id, { includeIds: devis.map((d) => d.supplierId).filter((x): x is string => Boolean(x)) }) : undefined;
+  const parties = canTranscribe || peutRanger ? await listPartyOptions(user.id, { includeIds: devis.map((d) => d.supplierId).filter((x): x is string => Boolean(x)) }) : undefined;
 
   // L'EXÉCUTION — une ligne par devis RETENU, avec son BC, ses factures et leur fichier.
   const facturesIds = execution.flatMap((e) => e.factures.map((f) => f.id));
@@ -323,7 +352,7 @@ export default async function PromoMaterialDetailPage({ params }: { params: { id
           <CardHeader><CardTitle className="flex items-center gap-2 text-base"><ListChecks className="h-4 w-4" /> Articles demandés</CardTitle></CardHeader>
           <CardContent>
             <PromoArticlesCard
-              id={pm.id} articles={articles} canEdit={canEditArticles} options={canEditArticles ? optionsCatalogue : null}
+              id={pm.id} articles={articles} canEdit={canEditArticles} options={canEditArticles ? optionsCatalogue : null} envoiDevis={envoiDevis}
               avertissement={circuitState === "REVIEW_REQUESTER"
                 ? "Ajouter ou corriger un article renvoie le dossier à l'assistante, pour le faire chiffrer."
                 : circuitState === "QUOTE_REQUESTED" ? "L'assistante cherche les devis : elle est prévenue de chaque changement." : null}
@@ -336,13 +365,15 @@ export default async function PromoMaterialDetailPage({ params }: { params: { id
           les autres lisent. Il apparaît dès que les devis sont demandés. */}
       {montrerDevis && (
         <Card>
-          <CardHeader><CardTitle className="flex items-center gap-2 text-base"><ClipboardList className="h-4 w-4" /> Devis retranscrits</CardTitle></CardHeader>
+          <CardHeader><CardTitle className="flex items-center gap-2 text-base"><ClipboardList className="h-4 w-4" /> Devis</CardTitle></CardHeader>
           <CardContent>
             <PromoQuotesCard
               id={pm.id} quotes={devis} articles={articles} canTranscribe={canTranscribe} canSelect={canSelect}
               manques={canTranscribe ? manquesDeRetranscription(devis) : []}
               parties={parties} canCreateContact={userCan(user, "GENERAL_MEANS", "CREATE")}
               seuilDg={ctx?.seuilDg ?? null}
+              aRanger={devisARanger.map((d) => ({ id: d.id, nom: d.name, deposePar: d.uploadedBy, le: d.createdAt }))}
+              peutRanger={peutRanger} refusRangement={rangementRefuse}
             />
           </CardContent>
         </Card>
@@ -406,7 +437,7 @@ export default async function PromoMaterialDetailPage({ params }: { params: { id
             acces={ctxPieces.acces} candidatsLegal={ctxPieces.candidatsLegal}
             piecesDeLaDemande={{
               titre: v2 ? "Pièces du dossier (maquettes, BAT, matériel, visa…)" : "Pièces du dossier (matériel, visa, bordereau, quittance…)",
-              documents: docItems,
+              documents: piecesLiees,
               televerseur: canUpload
                 ? <DocumentUpload entityType="PROMO_MATERIAL" entityId={pm.id} categories={categoriesDuDepotDeLaDemande(PROMO_MATERIAL_DOC_CATEGORIES)} />
                 : undefined,
@@ -414,7 +445,12 @@ export default async function PromoMaterialDetailPage({ params }: { params: { id
               // AU CIRCUIT 2, un fichier « devis » du dossier est le SCAN d'un devis retranscrit :
               // sa version plateforme est la ligne du tableau « Devis retranscrits », pas une fiche
               // à créer — le dire, au lieu de le présenter comme une pièce orpheline.
-              noteLibres: v2 ? "Scans joints aux devis retranscrits — leur version plateforme est le tableau « Devis retranscrits »." : undefined,
+              // PLUS DE « CRÉER SA FICHE » SUR UN DOSSIER DE MATÉRIEL PROMOTIONNEL (§118.204) — la note est
+              // TOUJOURS posée, ancien circuit compris : c'est elle qui retire le bouton. Au circuit 2, un devis
+              // déposé ici se range comme devis d'une agence dès que les devis sont demandés (carte « Devis »).
+              noteLibres: v2
+                ? (rangementRefuse ? `Devis déposés sur la demande, à ranger comme devis d'une agence. ${rangementRefuse}` : "Pièces déposées sur la demande.")
+                : "Pièces de l'ancien circuit, déposées sur le dossier.",
               canDelete, canRename: canUpload, canEdit: onlyofficeConfigured() && canUpload,
               path: `/promo-material/${pm.id}`,
             }}

@@ -12,7 +12,7 @@ import { getAppSettings } from "@/lib/settings";
 import { createPromoMaterial } from "./promo-material-actions";
 import { validatePromoStep, refusePromoStep, renvoyerPromoStep, resoumettrePromoDemande } from "./promo-circuit-actions";
 import {
-  demanderDevisPromo, enregistrerDevisPromo, terminerRetranscriptionPromo, choisirLignesPromo, demanderCorrectionDevisPromo, redemanderDevisPromo,
+  enregistrerDevisPromo, terminerRetranscriptionPromo, choisirLignesPromo, demanderCorrectionDevisPromo, redemanderDevisPromo,
 } from "./promo-devis-actions";
 import { enregistrerArticleDemandePromo, retirerArticleDemandePromo } from "./promo-demande-actions";
 import { REFUS_EN_CORRECTION } from "@/lib/promo-material/renvoi";
@@ -155,8 +155,8 @@ suite("Matériel promotionnel — renvoyer, resoumettre, redemander des devis (l
   async function jusquAuChoix(id: string): Promise<void> {
     await comme("dir");
     reussi(await validatePromoStep(form({ id })), "valider la demande");
-    await comme("cp");
-    reussi(await demanderDevisPromo(form({ promoMaterialId: id, note: "Deux imprimeurs au moins" })), "demander les devis");
+    // LA DEMANDE DE DEVIS PART D'ELLE-MÊME à la validation de la demande (§118.204) : plus de geste « demander les devis ».
+    if ((await prisma.promoMaterial.findUniqueOrThrow({ where: { id }, select: { circuitState: true } })).circuitState !== "QUOTE_REQUESTED") throw new Error("la demande de devis n'est pas partie d'elle-même à la validation");
     await retranscrire(id, fourA, "A-1", "100");
     await comme("asst");
     reussi(await terminerRetranscriptionPromo(form({ promoMaterialId: id })), "terminer la retranscription");
@@ -276,7 +276,8 @@ suite("Matériel promotionnel — renvoyer, resoumettre, redemander des devis (l
     // La directrice tranche de nouveau — et l'étape suivante ne se renvoie pas : c'est le demandeur qui l'a.
     await comme("dir");
     reussi(await validatePromoStep(form({ id })), "revalider");
-    expect((await dossier(id)).circuitState).toBe("QUOTE_TO_REQUEST");
+    // Revalidée, la demande de devis part d'elle-même (§118.204).
+    expect((await dossier(id)).circuitState).toBe("QUOTE_REQUESTED");
     expect(err(await renvoyerPromoStep(form({ id, motif: "x" })))).toMatch(/ne se renvoie pas/);
     await comme("cp");
     expect(err(await resoumettrePromoDemande(form({ id, note: "x" })))).toBe("Ce dossier n'est pas à corriger : il n'y a rien à resoumettre.");

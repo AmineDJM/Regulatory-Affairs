@@ -15,7 +15,7 @@ import { CONTRAT_PAR_ID } from "@/lib/actions/contrat.genere";
  * ═══════════════════════════════════════════════════════════════════════════════════════════
  */
 
-const vide: LigneDemandeSaisie = { catalogueId: "", quantite: "", actions: [], produitIds: [], commentaire: "" };
+const vide: LigneDemandeSaisie = { catalogueId: "", quantite: "", actions: [], produitIds: [], autre: "", commentaire: "" };
 
 describe("lireLignesDemande — lire, jamais deviner", () => {
   it("un champ absent ou blanc ne porte aucune ligne (c'est l'action qui dira qu'il en faut une)", () => {
@@ -50,10 +50,10 @@ describe("lireLignesDemande — lire, jamais deviner", () => {
       ok: true,
       lignes: [
         // Le commentaire n'est PAS rogné : c'est une phrase de la personne, telle qu'elle l'a écrite.
-        { catalogueId: "cat-1", quantite: "500", actions: ["IMPRESSION", "CONCEPTION"], produitIds: ["p1", "p2"], commentaire: "  A5, recto-verso  " },
+        { catalogueId: "cat-1", quantite: "500", actions: ["IMPRESSION", "CONCEPTION"], produitIds: ["p1", "p2"], autre: "", commentaire: "  A5, recto-verso  " },
         // Une liste qui n'en est pas une ne devient pas une liste d'un élément : elle est VIDE, et la
         // règle de la ligne dira qu'il manque une action — au lieu de la deviner.
-        { catalogueId: "cat-2", quantite: "1 000", actions: [], produitIds: [], commentaire: "" },
+        { catalogueId: "cat-2", quantite: "1 000", actions: [], produitIds: [], autre: "", commentaire: "" },
       ],
     });
   });
@@ -100,15 +100,16 @@ describe("ce que la demande ne porte PLUS (décision du 01/10) — lu sur les fa
     const contrat = CONTRAT_PAR_ID.get("promo-material-actions:createPromoMaterial");
     expect(contrat, "prémisse : l'action est décrite").toBeDefined();
     const champs = (contrat!.champs ?? []).map((c) => c.nom).sort();
-    expect(champs).toEqual(["description", "lignes", "title"]);
+    // Les PRÉCISIONS pour l'assistante (§118.204) entrent : elles partent avec la demande de devis, saisies dans « Articles demandés ».
+    expect(champs).toEqual(["description", "lignes", "precisionsDevis", "title"]);
     for (const r of RETIRES) expect(champs, r).not.toContain(r);
   });
 
-  it("le FORMULAIRE n'envoie que le titre, le brief et les lignes", () => {
+  it("le FORMULAIRE n'envoie que le titre, le brief, les précisions et les lignes", () => {
     const src = sansCommentaires(readFileSync(path.join(process.cwd(), "src/components/ad-pro/demande-materiel-form.tsx"), "utf8"));
     // PRÉMISSE : la lecture voit bien les clés qu'il envoie — sans cela, l'absence ci-dessous ne
     // prouverait rien (un fichier vide ne contiendrait aucune clé retirée non plus).
-    expect(src).toMatch(/\["title", "description"\]/);
+    expect(src).toMatch(/\["title", "description", "precisionsDevis"\]/);
     expect(src).toMatch(/fd\.set\("lignes", JSON\.stringify\(envoi\)\)/);
     for (const r of RETIRES) expect(src, `le formulaire envoie encore « ${r} »`).not.toMatch(new RegExp(`["'\`]${r}["'\`]`));
   });

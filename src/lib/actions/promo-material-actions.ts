@@ -19,6 +19,9 @@ import { fdStr, fdNum, type ActionResult } from "@/lib/actions/types";
 import { parseQuantity } from "@/lib/promo/stock";
 import { validerArticleDemande, type ArticleDemandeValide, type FamillePromo } from "@/lib/promo-material/achats";
 import { lireLignesDemande, ligneVide, REFUS_SANS_LIGNE } from "@/lib/promo-material/lignes-demande";
+import { aucunPromu, designeUnProduit, type PromusChoisis } from "@/lib/promo-material/promus";
+import { resoudrePromus } from "@/lib/queries/promo-promus";
+import { envoyerDemandeDeDevis } from "@/lib/actions/promo-automatismes";
 import { siegeAuCentreAdPro, REFUS_BC_CENTRE_AD_PRO } from "@/lib/ad-pro/centre";
 import { getAppSettings } from "@/lib/settings";
 import { moneyEntityOf } from "@/lib/company";
@@ -193,9 +196,9 @@ async function ordreNonRegle(orderId: string | null): Promise<string | null> {
  * `managerId` : un organigramme qui change ne transfère pas une validation en attente à quelqu'un
  * qui n'a rien suivi.
  *
- * Aucun devis n'est demandé ici : c'est le demandeur qui les demande, une fois la demande validée
- * (`demanderDevisPromo`). Demander des devis sur une demande que personne n'a encore acceptée
- * ferait travailler le secrétariat et les agences pour rien.
+ * LA DEMANDE DE DEVIS PART D'ELLE-MÊME (§118.204) : ici quand la demande n'a pas de validation, sinon à
+ * sa validation (`validatePromoStep`). Demander des devis sur une demande que personne n'a encore acceptée
+ * ferait travailler le secrétariat et les agences pour rien — la règle reste, seul le clic disparaît.
  */
 export async function createPromoMaterial(_prev: ActionResult | undefined, formData: FormData): Promise<ActionResult> {
   try {
@@ -225,26 +228,28 @@ export async function createPromoMaterial(_prev: ActionResult | undefined, formD
         })
       : [];
     const parId = new Map(catalogue.map((c) => [c.id, c]));
-    const lignes: (ArticleDemandeValide & { catalogueId: string })[] = [];
-    saisies.forEach((s, i) => {
+    const lignes: (ArticleDemandeValide & { catalogueId: string; promus: PromusChoisis; canoniques: string[] })[] = [];
+    for (const [i, s] of saisies.entries()) {
       const c = parId.get(s.catalogueId) ?? null;
       const quantite = s.quantite ? parseQuantity(s.quantite) : null;
+      // CE QUE LA LIGNE PROMEUT (§118.204) — la société, une gamme, des produits des BU, « Autre ».
+      const promus = await resoudrePromus(s.produitIds, s.autre);
+      if (!promus.ok) { manques.push(`Ligne ${i + 1} : ${promus.error}`); continue; }
       const v = validerArticleDemande({
         catalogue: c ? { ...c, famille: c.famille as FamillePromo } : null,
-        produitIds: s.produitIds,
+        // Un article « par produit » exige un PRODUIT désigné — d'une BU, ou écrit dans « Autre ».
+        produitIds: designeUnProduit(promus.promus) ? ["produit"] : [],
         quantite,
         quantiteIllisible: Boolean(s.quantite) && quantite == null,
         actions: s.actions,
         commentaire: s.commentaire || null,
       });
-      if (v.ok && c) lignes.push({ ...v.article, catalogueId: c.id });
+      if (v.ok && c) lignes.push({ ...v.article, catalogueId: c.id, promus: promus.promus, canoniques: promus.canoniques });
       else if (!v.ok) manques.push(`Ligne ${i + 1} : ${v.error}`);
-    });
-    if (manques.length || !title) return { ok: false, error: manques.join(" ") };
-    const produitIds = [...new Set(lignes.flatMap((l) => l.produitIds))];
-    if (produitIds.length && (await prisma.product.count({ where: { id: { in: produitIds } } })) !== produitIds.length) {
-      return { ok: false, error: "Un des produits choisis est introuvable : rechargez le formulaire." };
     }
+    if (manques.length || !title) return { ok: false, error: manques.join(" ") };
+    // LES PRÉCISIONS POUR L'ASSISTANTE — saisies dans « Articles demandés », envoyées avec la demande de devis.
+    const precisionsDevis = fdStr(formData, "precisionsDevis");
 
     // CE QUE LA DEMANDE NE PORTE PLUS (décision du 01/10). La GAMME : « pas du tout pertinent
     // ici » — le matériel se demande par article du catalogue, pas par Business Unit. Le BUDGET
@@ -268,6 +273,7 @@ export async function createPromoMaterial(_prev: ActionResult | undefined, formD
         title,
         description,
         companyId: companyId || null,
+        precisionsDevis,
         status: "PROSPECTION_REQUESTED",
         circuitState,
         circuitVersion: 2,
@@ -287,9 +293,10 @@ export async function createPromoMaterial(_prev: ActionResult | undefined, formD
             quantite: l.quantite != null ? new Prisma.Decimal(l.quantite) : null,
             actions: l.actions,
             commentaire: l.commentaire,
+            promus: aucunPromu(l.promus) ? Prisma.DbNull : (l.promus as unknown as Prisma.InputJsonValue),
             createdById: user.id,
             updatedById: user.id,
-            produits: { create: l.produitIds.map((productId) => ({ productId })) },
+            produits: { create: l.canoniques.map((productId) => ({ productId })) },
           })),
         },
       },
@@ -300,8 +307,22 @@ export async function createPromoMaterial(_prev: ActionResult | undefined, formD
     if (figes.validateur.kind === "PERSONNE") await notifyUser({ userId: figes.validateur.userId, ...avis });
     else if (figes.validateur.kind === "PLAFOND") await notifyRoles(["DIRECTION"], avis);
     await audit(user, pm.id, "CREATE", `Matériel promotionnel créé — ${pm.reference}, ${lignes.length} ligne(s) demandée(s). ${figes.validateur.motif} Étape : ${libelleEtape(circuitState, 2)}.`);
+    // LA DEMANDE DE DEVIS PART D'ELLE-MÊME (§118.204) — tout de suite quand la demande n'a pas de validation,
+    // sinon quand la validation tombe (`validatePromoStep`). Un envoi qui échoue ne défait pas la création :
+    // le dossier reste sur « devis à demander », et la rubrique « Articles demandés » offre l'envoi.
+    let suite = figes.validateur.kind !== "AUCUNE" ? " La demande de devis partira au secrétariat dès qu'elle sera validée." : "";
+    if (circuitState === "QUOTE_TO_REQUEST") {
+      const envoi = await envoyerDemandeDeDevis(user.id, pm.id);
+      if (envoi.ok) {
+        if (envoi.assistantId) await notifyUser({ userId: envoi.assistantId, ...envoi.avis });
+        else await notifyRoles(["DIRECTION_ASSISTANT"], envoi.avis);
+        suite = ` Demande de devis envoyée au secrétariat (${envoi.demande.reference}).`;
+      } else {
+        suite = ` La demande de devis n'est pas partie : ${envoi.error} Envoyez-la depuis « Articles demandés ».`;
+      }
+    }
     revalidate(pm.id);
-    return { ok: true, id: pm.id };
+    return { ok: true, id: pm.id, message: `Demande ${pm.reference} enregistrée.${suite}` };
   } catch (err) {
     console.error("[promo] createPromoMaterial failed", err);
     return { ok: false, error: "La demande n'a pas pu être créée. Réessayez dans un instant." };

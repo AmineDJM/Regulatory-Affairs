@@ -5,14 +5,14 @@ import { useRouter } from "next/navigation";
 import { AlertCircle, CheckCircle2, FileText, Loader2, Pencil, Plus, RotateCcw, ScanText, Send, Trash2, Undo2 } from "lucide-react";
 import {
   enregistrerDevisPromo, supprimerDevisPromo, terminerRetranscriptionPromo, choisirLignesPromo, demanderCorrectionDevisPromo,
-  redemanderDevisPromo, lireScanDevisPromo,
+  redemanderDevisPromo, lireScanDevisPromo, rangerDevisPromo,
 } from "@/lib/actions/promo-devis-actions";
 import type { LectureDevisPromo, LignePreremplie } from "@/lib/pieces-lues/prerempli-devis-promo";
 import { LigneLue } from "@/components/pieces/ligne-lue";
 import { NoteDeLecture } from "@/components/pieces/note-de-lecture";
 import { totauxDeLaSelection, totauxDuDevis, totalLigneHT, ecartDeRetranscription, formatDzd, type DevisLu } from "@/lib/promo-material/devis";
 import { ACTIONS, ACTION_LABEL, type PromoAction } from "@/lib/promo-material/actions-fournisseur";
-import { libelleArticleDemande, rapprocher, type ArticleDemandeLu } from "@/lib/promo-material/achats";
+import { libelleArticleDemande, libellesPromusDeLArticle, rapprocher, type ArticleDemandeLu } from "@/lib/promo-material/achats";
 import type { PartyOption } from "@/lib/contacts/parties";
 import { PartyPicker } from "@/components/directory/party-picker";
 import { Button } from "@/components/ui/button";
@@ -61,6 +61,12 @@ interface Props {
   canCreateContact: boolean;
   /** Le seuil du DG, pour dire au demandeur si son choix passera par le Directeur Général. */
   seuilDg: number | null;
+  /** Les fichiers « devis » déposés sur la demande SANS devis du circuit (§118.204) — à ranger. */
+  aRanger?: { id: string; nom: string; deposePar: string | null; le: string }[];
+  /** Tranché au serveur (`refusDeRangement` + qui retranscrit) : la personne peut-elle les ranger ICI ? */
+  peutRanger?: boolean;
+  /** Pourquoi pas à cette étape — la phrase même de l'action. */
+  refusRangement?: string | null;
 }
 
 function useRun() {
@@ -343,7 +349,7 @@ function EditeurDevis({ id, devis, articles, parties, canCreateContact, onDone }
 
 // ───────────────────────── La carte ─────────────────────────
 
-export function PromoQuotesCard({ id, quotes, articles, canTranscribe, canSelect, manques, parties, canCreateContact, seuilDg }: Props) {
+export function PromoQuotesCard({ id, quotes, articles, canTranscribe, canSelect, manques, parties, canCreateContact, seuilDg, aRanger = [], peutRanger = false, refusRangement = null }: Props) {
   const { saving, err, msg, run } = useRun();
   const [edition, setEdition] = React.useState<string | "nouveau" | null>(null);
   const [choisies, setChoisies] = React.useState<Set<string>>(() => new Set(quotes.flatMap((q) => q.lines.filter((l) => l.selected).map((l) => l.id))));
@@ -362,12 +368,48 @@ export function PromoQuotesCard({ id, quotes, articles, canTranscribe, canSelect
     run(() => choisirLignesPromo(f));
   };
   const auDg = seuilDg != null && seuilDg > 0 && selection.lignes > 0 && selection.ttc > seuilDg;
-  const nomArticle = new Map(articles.map((a) => [a.id, `${a.reference} ${a.nom}${a.produits.length ? ` — ${a.produits.map((p) => p.nom).join(", ")}` : ""}`]));
+  const nomArticle = new Map(articles.map((a) => { const promus = libellesPromusDeLArticle(a); return [a.id, `${a.reference} ${a.nom}${promus.length ? ` — ${promus.join(", ")}` : ""}`]; }));
   // LE RAPPROCHEMENT — calculé par le module pur, avec la sélection de l'écran (§118.165).
   const rapprochement = articles.length > 0 && quotes.length > 0 ? rapprocher(articles, affiches) : null;
 
   return (
     <div className="space-y-4">
+      {/* LES DEVIS DÉPOSÉS SANS FOURNISSEUR (§118.204) — « les fiches doivent être automatiques » : un fichier
+          « devis » de la demande devient un devis du circuit d'un geste, l'agence choisie dans l'annuaire. Le
+          fichier n'est pas retéléversé : le devis le DÉSIGNE. Plus de « Créer sa fiche » ici. */}
+      {aRanger.length > 0 && (
+        <div className="space-y-2 rounded-lg border border-amber-500/40 bg-amber-500/5 p-3">
+          <p className="text-sm font-medium">Devis déposés sans fournisseur ({aRanger.length})</p>
+          <p className="text-xs text-muted-foreground">
+            {peutRanger
+              ? "Choisissez l'agence à qui appartient chaque devis : il entre dans le tableau sans être téléversé une seconde fois, puis ses lignes se retranscrivent (« Corriger »)."
+              : refusRangement ?? "L'assistante de direction (ou la Direction) les range comme devis d'une agence."}
+          </p>
+          <ul className="space-y-2">
+            {aRanger.map((d) => (
+              <li key={d.id} className="space-y-1.5 rounded-md border border-border bg-background p-2">
+                <p className="flex flex-wrap items-center gap-2 text-sm">
+                  <FileText className="h-4 w-4 shrink-0 text-muted-foreground" />
+                  <a className="font-medium hover:underline" href={`/api/documents/${d.id}`} target="_blank" rel="noreferrer">{d.nom}</a>
+                  <span className="text-xs text-muted-foreground">{d.deposePar ? `déposé par ${d.deposePar}, ` : ""}le {new Date(d.le).toLocaleDateString("fr-FR")}</span>
+                </p>
+                {peutRanger && (
+                  <form
+                    className="flex flex-wrap items-end gap-2"
+                    action={(f: FormData) => { f.set("promoMaterialId", id); f.set("documentId", d.id); run(() => rangerDevisPromo(f)); }}
+                  >
+                    <div className="min-w-[14rem] flex-1">
+                      <PartyPicker name="supplierId" arity={1} options={parties} canCreate={canCreateContact} placeholder="L'agence ou le partenaire de ce devis" />
+                    </div>
+                    <Button type="submit" size="sm" disabled={saving}>{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />} Ranger comme devis de cette agence</Button>
+                  </form>
+                )}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
       {quotes.length === 0 && !canTranscribe && (
         <p className="text-sm text-muted-foreground">Aucun devis retranscrit pour l&apos;instant.</p>
       )}
@@ -512,7 +554,7 @@ export function PromoQuotesCard({ id, quotes, articles, canTranscribe, canSelect
       {canTranscribe && edition === null && (
         <div className="space-y-2">
           <div className="flex flex-wrap gap-2">
-            <Button size="sm" variant="outline" onClick={() => setEdition("nouveau")} disabled={saving}><Plus className="h-4 w-4" /> Retranscrire un devis</Button>
+            <Button size="sm" variant="outline" onClick={() => setEdition("nouveau")} disabled={saving}><Plus className="h-4 w-4" /> Déposer un devis</Button>
             <Button size="sm" onClick={() => { const f = new FormData(); f.set("promoMaterialId", id); run(() => terminerRetranscriptionPromo(f)); }} disabled={saving || manques.length > 0}>
               {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />} Retranscription terminée
             </Button>

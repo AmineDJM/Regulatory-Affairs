@@ -14,6 +14,7 @@ import {
 import { promoManagerOf } from "@/lib/queries/promo-material";
 import { etatApresRenvoi, attendSaCorrection, refusParLeDemandeur, REFUS_EN_CORRECTION } from "@/lib/promo-material/renvoi";
 import { ecrireAuFil } from "@/lib/ad-pro/fil";
+import { envoyerDemandeDeDevis, genererLesBonsDeCommande } from "@/lib/actions/promo-automatismes";
 import {
   contexteDuDossier, validateursDeLaDemande, validateursMarketing, devisLu, SELECT_DEVIS,
 } from "@/lib/queries/promo-circuit";
@@ -357,10 +358,40 @@ export async function validatePromoStep(formData: FormData): Promise<ActionResul
     summary: `${libelleEtape(state, version)} — validé${fige ? ` (montant retenu ${formatDzd(fige.chosenAmount)} TTC — ${fige.chosenAgency})` : ""}. Étape suivante : ${libelleEtape(next, version)}`,
   });
 
+  // LES AUTOMATISMES (§118.204) — la demande de devis part quand la demande est validée, et les bons de
+  // commande sont générés quand la DERNIÈRE validation du choix tombe. Après l'avance, jamais avant : un
+  // automatisme qui échoue ne retire pas la validation qu'on vient de donner, il le DIT, et le repli (la
+  // rubrique « Articles demandés », la carte « Exécution ») reste là pour le rattraper.
+  let suiteAuto: string | null = null;
+  let devisPartis = false;
+  if (version === 2 && next === "QUOTE_TO_REQUEST") {
+    const envoi = await envoyerDemandeDeDevis(user.id, id);
+    if (envoi.ok) {
+      devisPartis = true;
+      if (envoi.assistantId) await notifyUser({ userId: envoi.assistantId, ...envoi.avis });
+      else await notifyRoles(["DIRECTION_ASSISTANT"], envoi.avis);
+      suiteAuto = `La demande de devis est partie au secrétariat (${envoi.demande.reference}).`;
+    } else {
+      suiteAuto = `La demande de devis n'est pas partie d'elle-même : ${envoi.error} Le demandeur l'envoie depuis « Articles demandés ».`;
+    }
+  }
+  let bilanBC: Awaited<ReturnType<typeof genererLesBonsDeCommande>> | null = null;
+  if (version === 2 && next === "IN_EXECUTION") {
+    bilanBC = await genererLesBonsDeCommande(user, id, { livraison: { adresse: null, delai: null }, notes: null, taxe: undefined, automatique: true });
+    suiteAuto = bilanBC.ok
+      ? bilanBC.message
+      : `Les bons de commande n'ont pas pu être générés automatiquement : ${bilanBC.error} Ils se génèrent depuis la carte « Exécution ».`;
+  }
+
   // On prévient CELUI QUI DOIT AGIR ENSUITE, pas tout le monde.
   const avis = { type: "VALIDATION_REQUIRED" as const, body: `${item.reference} — ${item.title}`, link: path(id) };
   if (next === "QUOTE_TO_REQUEST" && item.requesterId) {
-    await notifyUser({ userId: item.requesterId, ...avis, type: "GENERIC", title: "Demande validée — demandez les devis au secrétariat" });
+    await notifyUser({
+      userId: item.requesterId, ...avis, type: "GENERIC",
+      title: devisPartis
+        ? "Demande validée — la demande de devis est partie au secrétariat"
+        : "Demande validée — envoyez la demande de devis depuis « Articles demandés »",
+    });
   } else if (next === "REVIEW_MANAGER") {
     // UNE PERSONNE quand on la sait (la directrice du demandeur, ou les cheffes) ; sinon le RÔLE.
     const nommees = version === 2 ? await validateursMarketing(item) : null;
@@ -379,9 +410,9 @@ export async function validatePromoStep(formData: FormData): Promise<ActionResul
     // Les TROIS chantiers s'ouvrent d'un coup : c'est le moment où le circuit cesse d'être une file.
     await notifyUser({
       userId: item.requesterId, type: "GENERIC",
-      title: "Validations obtenues — vous pouvez lancer",
+      title: version === 2 && bilanBC?.ok ? "Validations obtenues — bons de commande générés" : "Validations obtenues — vous pouvez lancer",
       body: version === 2
-        ? `${item.reference} — générez les bons de commande : la plateforme les compose d'après les lignes validées.`
+        ? `${item.reference} — ${suiteAuto ?? "les bons de commande se génèrent depuis la carte « Exécution »."}`
         : `${item.reference} — bon de commande, demande de paiement et demande de visa peuvent partir en parallèle.`,
       link: path(id),
     });
@@ -391,8 +422,8 @@ export async function validatePromoStep(formData: FormData): Promise<ActionResul
   return {
     ok: true,
     message: `Validé. ${next === "IN_EXECUTION"
-      ? (version === 2 ? "Les validations sont obtenues : générez les bons de commande." : "Les trois chantiers sont ouverts.")
-      : `Au tour de : ${libelleEtape(next, version)}.`}`,
+      ? (version === 2 ? `Les validations sont obtenues. ${suiteAuto ?? ""}`.trim() : "Les trois chantiers sont ouverts.")
+      : suiteAuto ?? `Au tour de : ${libelleEtape(next, version)}.`}`,
   };
 }
 

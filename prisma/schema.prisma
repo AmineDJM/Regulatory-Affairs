@@ -6727,6 +6727,9 @@ model PromoMaterial {
   /// Quand, et par qui, les devis ont été demandés au secrétariat.
   quotesRequestedAt    DateTime?
   quotesRequestedById  String?
+  /// Les précisions du demandeur pour l'assistante de direction (§118.204) — saisies dans « Articles
+  /// demandés » à la création, envoyées avec la demande de devis quand elle part.
+  precisionsDevis      String?
   /// Les devis RETRANSCRITS par l'assistante de direction — un par agence ou partenaire.
   quotes               PromoQuote[]
   /// LES ARTICLES DEMANDÉS (§118.165) — ce que le demandeur veut faire faire, pioché dans le
@@ -6856,6 +6859,10 @@ model PromoRequestItem {
   /// Ce qu'on attend du fournisseur — au moins une action.
   actions         PromoAction[]             @default([])
   commentaire     String?
+  /// CE QUE LA LIGNE PROMEUT (§118.204), lisible tel quel : { societe, gammes:[{id,nom}], produits:[{id,nom}],
+  /// autre }. Les produits sont ceux des Business Units ; `produits` (ci-dessous) garde le lien CANONIQUE
+  /// quand il existe, pour le stock. Nul : ligne d'avant (ses produits canoniques font foi).
+  promus          Json?
   produits        PromoRequestItemProduct[]
   lignesDevis     PromoQuoteLine[]
   lignesFacture   PromoFactureLigne[]

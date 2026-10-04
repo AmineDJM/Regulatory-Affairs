@@ -367,7 +367,7 @@ suite("Recrutement — renvoyer, corriger, rouvrir, annuler l'embauche, un geste
     const r = await pendantLaLecture("RecruitmentRequest", () => cancelRecruitmentRequest(form({ id })), async (tx) => {
       await tx.recruitmentApproval.updateMany({ where: { requestId: id, order: 1 }, data: { status: "APPROVED", decidedAt: new Date() } });
     });
-    expect(r.ok, err(r)).toBe(true);
+    expect(r.ok, err(r) ?? "").toBe(true);
     expect((await lire(id)).stage).toBe("CANCELLED");
   });
 

@@ -69,15 +69,28 @@ export interface ArticleDemandeLu {
   nom: string;
   famille: FamillePromo;
   unite: string;
+  /** Les produits CANONIQUES liés — ceux que le stock lit à la réception. */
   produits: { id: string; nom: string }[];
+  /**
+   * CE QUE LA LIGNE PROMEUT, en libellés lisibles (§118.204) : « Société en général », « Gamme … »,
+   * les produits des Business Units, « Autre : … ». Absent : ligne d'avant, ses produits canoniques font foi.
+   */
+  promus?: string[];
+  /** Le choix tel que le sélecteur le présélectionne à la correction (codes et saisie « Autre »). */
+  choixPromus?: { codes: string[]; autre: string | null };
   quantite: number | null;
   actions: PromoAction[];
   commentaire: string | null;
 }
 
+/** Ce qu'une ligne promeut, en libellés — les promus quand ils existent, sinon les produits canoniques (ligne d'avant). */
+export function libellesPromusDeLArticle(a: Pick<ArticleDemandeLu, "produits" | "promus">): string[] {
+  return a.promus && a.promus.length ? a.promus : a.produits.map((p) => p.nom).filter(Boolean);
+}
+
 /** « CAT-0042 Fiche posologique — Nivolex · 5 000 pièces » — ce qu'on lit dans un menu ou une phrase. */
-export function libelleArticleDemande(a: Pick<ArticleDemandeLu, "reference" | "nom" | "produits" | "quantite" | "unite">): string {
-  const produits = a.produits.map((p) => p.nom).filter(Boolean);
+export function libelleArticleDemande(a: Pick<ArticleDemandeLu, "reference" | "nom" | "produits" | "promus" | "quantite" | "unite">): string {
+  const produits = libellesPromusDeLArticle(a);
   const base = `${a.reference} ${a.nom}${produits.length ? ` — ${produits.join(", ")}` : ""}`;
   return a.quantite != null ? `${base} · ${nombre(a.quantite)} ${a.unite}` : base;
 }

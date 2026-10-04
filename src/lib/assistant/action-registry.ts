@@ -1134,6 +1134,13 @@ X("RENVOYER, RESOUMETTRE, REDEMANDER — LE MATÉRIEL PROMOTIONNEL SE CORRIGE (a
   "promo-circuit-actions:renvoyerPromoStep", "promo-circuit-actions:resoumettrePromoDemande",
   "promo-devis-actions:redemanderDevisPromo", "promo-comptage-actions:corrigerComptage",
 ]);
+X("RANGER UN DEVIS DÉPOSÉ COMME DEVIS D'UNE AGENCE (§118.204) — un fichier « devis » posé sur une demande de matériel "
+  + "promotionnel devient un devis du circuit, rattaché à l'agence que la personne choisit dans l'annuaire. C'est un geste "
+  + "de RETRANSCRIPTION (l'assistante de direction, ou la Direction), devant le fichier : dire à qui appartient un devis "
+  + "engage le bon de commande qui en sortira. Adam est en pause de développement : aucun geste neuf ne lui est ouvert. "
+  + "Un clic sur /promo-material/<id> › carte « Devis » › « Ranger comme devis de cette agence ».", [
+  "promo-devis-actions:rangerDevisPromo",
+]);
 X("CORRIGER SA DEMANDE DE PAIEMENT (audit 360°, lot C4c, §118.191) — l'objet, le bénéficiaire, le montant, le "
   + "contexte et l'échéance, tant que le dossier est chez le demandeur (brouillon, ou renvoyé par les Finances). C'est le "
   + "geste du DEMANDEUR, qui dit après transmission ce qui a changé ; il fait suivre l'ordre de dépense et peut rouvrir "

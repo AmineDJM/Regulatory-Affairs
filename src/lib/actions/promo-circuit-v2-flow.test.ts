@@ -349,27 +349,31 @@ suite("Matériel promotionnel — circuit 2 de bout en bout", () => {
     expect(await prisma.notification.count({ where: { userId: u.dir, link: `/promo-material/${pmId}` } })).toBe(1);
   });
 
-  it("VALIDER LA DEMANDE : ni le demandeur, ni un tiers — la directrice figée", async () => {
+  it("VALIDER LA DEMANDE : ni le demandeur, ni un tiers — la directrice figée ; un envoi automatique qui ne peut pas partir le DIT", async () => {
     ACTOR = await actorFor(u.cp);
     expect((await validatePromoStep(form({ id: pmId }))).ok).toBe(false);
     ACTOR = await actorFor(u.dehors);
     expect((await validatePromoStep(form({ id: pmId }))).ok).toBe(false);
-    ACTOR = await actorFor(u.dir);
-    const r = await validatePromoStep(form({ id: pmId }));
-    expect(r.ok, r.ok ? "" : r.error).toBe(true);
-    expect((await etatDe(pmId)).circuitState).toBe("QUOTE_TO_REQUEST");
-  });
-
-  it("DEMANDER LES DEVIS : le demandeur, une fois les articles posés ; la demande au secrétariat porte le lien canonique", async () => {
-    ACTOR = await actorFor(u.asst);
-    expect((await demanderDevisPromo(form({ promoMaterialId: pmId }))).ok, "l'assistante ne demande pas à la place du demandeur").toBe(false);
+    // §118.165 : sans article demandé, l'assistante ne saurait pas quels devis chercher. La demande NAÎT avec
+    // ses lignes (§118.171) ; ce garde-fou reste atteignable si le demandeur retire la dernière ligne avant la
+    // validation — la demande de devis, qui part d'elle-même à la validation (§118.204), ne part alors PAS.
     ACTOR = await actorFor(u.cp);
-    // §118.165 : sans article demandé, l'assistante ne saurait pas quels devis chercher. La demande
-    // NAÎT avec ses lignes (§118.171) ; ce garde-fou-ci reste atteignable si l'on retire la
-    // dernière ligne sur la fiche — on le joue ainsi, puis on la remet.
     const premiere = await prisma.promoRequestItem.findFirstOrThrow({ where: { promoMaterialId: pmId }, select: { id: true } });
     const retrait = await retirerArticleDemandePromo(form({ promoMaterialId: pmId, requestItemId: premiere.id }));
     expect(retrait.ok, retrait.ok ? "" : retrait.error).toBe(true);
+    ACTOR = await actorFor(u.dir);
+    const r = await validatePromoStep(form({ id: pmId }));
+    expect(r.ok, r.ok ? "" : r.error).toBe(true);
+    expect(r.message).toMatch(/n'est pas partie d'elle-même.*articles à faire chiffrer/s);
+    expect((await etatDe(pmId)).circuitState).toBe("QUOTE_TO_REQUEST");
+    expect(await prisma.administrativeRequest.count({ where: { linkedEntityType: "PROMO_MATERIAL", linkedEntityId: pmId } })).toBe(0);
+    expect(await prisma.notification.count({ where: { userId: u.cp, title: "Demande validée — envoyez la demande de devis depuis « Articles demandés »" } })).toBe(1);
+  });
+
+  it("ENVOYER LA DEMANDE DE DEVIS (le repli) : le demandeur, une fois les articles posés ; la demande au secrétariat porte le lien canonique", async () => {
+    ACTOR = await actorFor(u.asst);
+    expect((await demanderDevisPromo(form({ promoMaterialId: pmId }))).ok, "l'assistante n'envoie pas à la place du demandeur").toBe(false);
+    ACTOR = await actorFor(u.cp);
     const sansArticle = await demanderDevisPromo(form({ promoMaterialId: pmId }));
     expect(sansArticle.ok).toBe(false);
     expect(sansArticle.ok ? "" : sansArticle.error).toMatch(/articles à faire chiffrer/);

@@ -1,15 +1,12 @@
 "use server";
 
-import { MENU_CATALOGUE_PROMO } from "@/lib/chemins/stock-promo";
 import { revalidatePath } from "next/cache";
 import { Prisma } from "@prisma/client";
 import { requireUser } from "@/lib/session";
-import { moneyEntityOf } from "@/lib/company";
 import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
 import { notifyUser, notifyRoles } from "@/lib/notify";
 import { hasGlobalView, type SessionUser } from "@/lib/rbac";
-import { buildRef, createWithRetry } from "@/lib/refs";
 import { persistUploadedDocument } from "@/lib/documents";
 import { deleteFileByKey, readFileByKey, validateDocumentUpload } from "@/lib/storage";
 import { getAppSettings } from "@/lib/settings";
@@ -27,7 +24,10 @@ import { devisLu, SELECT_DEVIS } from "@/lib/queries/promo-circuit";
 import { validatePromoStep } from "@/lib/actions/promo-circuit-actions";
 import { ecrireAuFil } from "@/lib/ad-pro/fil";
 import { rouvrirDemandeAuSecretariat, fermerDemandeAuSecretariat } from "@/lib/promo-material/demande-secretariat";
-import { ACTION_LABEL, estAction, type PromoAction } from "@/lib/promo-material/actions-fournisseur";
+import { estAction, type PromoAction } from "@/lib/promo-material/actions-fournisseur";
+import { envoyerDemandeDeDevis, ouvrirDemandeDeDevis } from "@/lib/actions/promo-automatismes";
+import { natureDeLaCategorie } from "@/lib/ad-pro/doc-categories";
+import { refusDeRangement } from "@/lib/promo-material/rangement";
 
 /**
  * LES DEVIS DU MATÉRIEL PROMOTIONNEL — demande, retranscription, choix des lignes (§118.152).
@@ -141,101 +141,14 @@ async function octetsDuScan(pmId: string, documentId: string): Promise<Buffer | 
   return readFileByKey(doc.fileKey).catch(() => null);
 }
 
-/** La référence d'une demande au secrétariat — la même série que les demandes de devis des postes. */
-async function prochaineReferenceDemande(): Promise<string> {
-  const year = new Date().getFullYear();
-  const rows = await prisma.administrativeRequest.findMany({ where: { reference: { startsWith: `DEM-${year}-` } }, select: { reference: true } });
-  return buildRef("DEM", year, rows.map((r) => r.reference));
-}
-
-/**
- * OUVRIR UNE DEMANDE DE DEVIS AU SECRÉTARIAT — la première (`demanderDevisPromo`) ou une nouvelle
- * (`redemanderDevisPromo`, audit 360°, R06). Une seule rédaction de la demande : deux copies finiraient
- * par dire à l'assistante deux choses différentes du même dossier (§118.5). Rien ne bascule ici : la
- * bascule est conditionnelle, chez l'appelant, APRÈS la création (§118.107).
- */
-async function ouvrirDemandeDeDevis(
-  user: SessionUser, pm: Dossier, note: string | null, relance: boolean,
-): Promise<{ ok: true; demande: { id: string; reference: string } } | { ok: false; error: string }> {
-  // LES ARTICLES D'ABORD (§118.165) : « pour que l'assistante sache clairement quels devis
-  // chercher ». Une demande de devis sans article ferait chercher l'assistante dans un brief en
-  // prose — exactement ce que la liste piochée dans le catalogue remplace. Le refus nomme le geste,
-  // et le cas où le catalogue ne contient pas encore l'article (seul le Super Admin l'y ajoute).
-  const articles = await prisma.promoRequestItem.findMany({
-    where: { promoMaterialId: pm.id },
-    orderBy: [{ position: "asc" }, { createdAt: "asc" }],
-    select: {
-      quantite: true, actions: true, commentaire: true,
-      catalogue: { select: { reference: true, nom: true, unite: true } },
-      produits: { select: { product: { select: { canonicalName: true } } } },
-    },
-  });
-  if (articles.length === 0) {
-    const catalogueVide = (await prisma.promoCatalogueArticle.count({ where: { actif: true } })) === 0;
-    return {
-      ok: false,
-      error: catalogueVide
-        ? `Composez d'abord la liste des articles à faire chiffrer — mais le catalogue est encore vide : demandez au Super Admin d'y ajouter vos supports (${MENU_CATALOGUE_PROMO}).`
-        : "Composez d'abord la liste des articles à faire chiffrer (« Articles demandés », piochés dans le catalogue) : c'est elle qui dit à l'assistante quels devis chercher.",
-    };
-  }
-  const listeArticles = articles.map((a, i) => {
-    const produits = a.produits.map((p) => p.product.canonicalName).join(", ");
-    const quantite = a.quantite != null ? ` · ${Number(a.quantite).toLocaleString("fr-FR")} ${a.catalogue.unite}` : "";
-    const actions = a.actions.filter(estAction).map((x) => ACTION_LABEL[x as PromoAction].toLowerCase()).join(", ");
-    return `${i + 1}. ${a.catalogue.reference} ${a.catalogue.nom}${produits ? ` — ${produits}` : ""}${quantite} (${actions})${a.commentaire ? ` — ${a.commentaire}` : ""}`;
-  }).join("\n");
-
-  // LA SOCIÉTÉ DE LA DEMANDE — celle du dossier, sinon celle où TRAVAILLE le demandeur. Un dossier
-  // né avant que la création porte son entité a `companyId` nul ; sa demande au secrétariat
-  // héritait de ce nul, et une ligne sans société n'apparaît dans AUCUNE vue cloisonnée
-  // (`platformScopeWhere`) : l'assistante ne la voyait pas dans son bureau, alors qu'elle avait
-  // été prévenue et que le dossier affichait « devis demandés » (§118.154). La société de la
-  // PERSONNE et non celle de l'écran (`moneyEntityOf`) : un devis engage une dépense.
-  const societe = pm.companyId ?? (await moneyEntityOf(pm.requesterId ?? user.id));
-
-  // LA DEMANDE AU SECRÉTARIAT D'ABORD, LA BASCULE ENSUITE. Dans l'ordre inverse, une création qui
-  // échoue (collision de référence épuisée, base indisponible) laissait le dossier sur « devis
-  // demandés » sans aucune demande ni personne prévenue : une étape que personne ne peut faire
-  // avancer, sans une ligne d'échec (§118.107). Ici, un double clic perd la course à la bascule
-  // et sa demande en trop est retirée — elle n'a été vue de personne.
-  const demande = await createWithRetry(async () => prisma.administrativeRequest.create({
-    data: {
-      reference: await prochaineReferenceDemande(),
-      type: "QUOTE",
-      title: `${relance ? "Nouveaux devis" : "Devis"} — matériel promotionnel ${pm.reference} : ${pm.title}`,
-      description: [
-        note,
-        relance ? "NOUVELLE DEMANDE de devis : les devis déjà retranscrits restent sur la fiche du dossier — cherchez ce qui est demandé ci-dessus, puis retranscrivez les nouveaux." : null,
-        `Articles à faire chiffrer :\n${listeArticles}`,
-        `Dossier ${pm.reference}. Recevez les devis des agences, puis retranscrivez-les ligne à ligne sur la fiche du dossier (référence, unité, quantité, prix unitaire, action, article demandé), avec le scan de chaque devis.`,
-        pm.description ? `Brief : ${pm.description}` : null,
-      ].filter(Boolean).join("\n"),
-      priority: "HIGH",
-      status: "NEW",
-      requesterId: pm.requesterId ?? user.id,
-      assignedToId: pm.assistantId,
-      companyId: societe,
-      linkedEntityType: "PROMO_MATERIAL",
-      linkedEntityId: pm.id,
-    },
-    select: { id: true, reference: true },
-  }));
-  return { ok: true, demande };
-}
-
 // ───────────────────────── 1. Le demandeur demande les devis ─────────────────────────
 
 /**
- * DEMANDER LES DEVIS AU SECRÉTARIAT — une demande administrative, liée au dossier.
- *
- * Le LIEN CANONIQUE (`linkedEntityType` / `linkedEntityId`) est posé : c'est lui que l'écran du
- * secrétariat lit pour savoir que la dépense vient d'Ad & Pro et ne doit pas être imputée une
- * seconde fois à un département (§118.146). L'assistante nommée est prévenue ; à défaut, toutes
- * les assistantes de direction — personne ne doit apprendre qu'on attendait d'elle un devis.
- *
- * La transition est CONDITIONNELLE (`updateMany` sur l'état lu) : deux clics simultanés ne font
- * pas deux demandes au secrétariat.
+ * ENVOYER LA DEMANDE DE DEVIS — le REPLI (§118.204). La demande de devis part d'elle-même quand le
+ * dossier arrive sur « devis à demander » (à la création, ou à la validation de la demande —
+ * `envoyerDemandeDeDevis`). Ce geste reste dans la rubrique « Articles demandés » pour un dossier qui y
+ * est resté (un envoi automatique qui n'a pas pu partir, un dossier d'avant) : c'est le même envoi, la
+ * même demande, le même aperçu. Le demandeur (ou la Direction) seulement.
  */
 export async function demanderDevisPromo(formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
@@ -243,30 +156,13 @@ export async function demanderDevisPromo(formData: FormData): Promise<ActionResu
   if (!pm) return { ok: false, error: "Dossier introuvable." };
   const v = refusVersion(pm);
   if (v) return { ok: false, error: v };
-  if (!pilote(user, pm)) return { ok: false, error: "Seul le demandeur (ou la Direction) demande les devis de ce dossier." };
-  if (pm.circuitState === "REVIEW_REQUEST") return { ok: false, error: "La demande n'est pas encore validée : les devis se demandent une fois la demande acceptée." };
-  if (pm.circuitState !== "QUOTE_TO_REQUEST") return { ok: false, error: "Les devis de ce dossier sont déjà demandés." };
+  if (!pilote(user, pm)) return { ok: false, error: "Seul le demandeur (ou la Direction) envoie la demande de devis de ce dossier." };
   const note = fdStr(formData, "note");
-
-  const ouverte = await ouvrirDemandeDeDevis(user, pm, note, false);
-  if (!ouverte.ok) return { ok: false, error: ouverte.error };
-  const demande = ouverte.demande;
-  const bascule = await prisma.promoMaterial.updateMany({
-    where: { id: pm.id, circuitState: "QUOTE_TO_REQUEST" },
-    data: { circuitState: "QUOTE_REQUESTED", quotesRequestedAt: new Date(), quotesRequestedById: user.id, adminRequestId: demande.id, updatedById: user.id },
-  });
-  if (bascule.count === 0) {
-    await prisma.administrativeRequest.delete({ where: { id: demande.id } }).catch(() => {});
-    return { ok: false, error: "Les devis de ce dossier viennent d'être demandés." };
-  }
-
-  const avis = { type: "ASSIGNMENT" as const, title: "Matériel promotionnel — devis à demander et à retranscrire", body: `${pm.reference} — ${pm.title}`, link: chemin(pm.id) };
-  if (pm.assistantId) await notifyUser({ userId: pm.assistantId, ...avis });
-  else await notifyRoles(["DIRECTION_ASSISTANT"], avis);
-  await audit(user, pm.id, `Devis demandés au secrétariat (${demande.reference})${note ? ` — ${note.slice(0, 200)}` : ""}`);
-  revalidatePath(chemin(pm.id));
-  revalidatePath("/demandes");
-  return { ok: true, id: demande.id, message: `Devis demandés au secrétariat (${demande.reference}).` };
+  const r = await envoyerDemandeDeDevis(user.id, pm.id, note);
+  if (!r.ok) return { ok: false, error: r.error };
+  if (r.assistantId) await notifyUser({ userId: r.assistantId, ...r.avis });
+  else await notifyRoles(["DIRECTION_ASSISTANT"], r.avis);
+  return { ok: true, id: r.demande.id, message: `Demande de devis envoyée au secrétariat (${r.demande.reference}).` };
 }
 
 // ───────────────────────── 2. L'assistante retranscrit ─────────────────────────
@@ -644,6 +540,69 @@ export async function terminerRetranscriptionPromo(formData: FormData): Promise<
   return { ok: true, message: `Retranscription terminée — ${devis.length} devis sont au choix du demandeur.` };
 }
 
+/**
+ * RANGER COMME DEVIS DE <AGENCE> (§118.204) — un fichier « devis » déposé sur la demande SANS fiche devient
+ * un devis du circuit, rattaché à l'agence choisie dans l'annuaire. « Les fiches doivent être automatiques » :
+ * un devis du dossier est une ligne du tableau « Devis », pas un fichier qui attend qu'on lui crée une fiche
+ * au registre Legal (« Créer sa fiche », retiré du matériel promotionnel). Le fichier n'est NI copié NI
+ * retéléversé : il est déjà une pièce du dossier, là où vivent les scans des devis — le devis le DÉSIGNE
+ * (`documentId`), exactement comme un scan joint à la retranscription.
+ *
+ * Le fournisseur est OBLIGATOIRE : c'est lui qui donne son adresse, son RC et son NIF au bon de commande. Les
+ * lignes se retranscrivent ensuite (« Corriger » sur la ligne du devis) — la fin de la retranscription les
+ * exige. Écriture CONDITIONNELLE sur « devis demandés », sous le verrou du dossier : deux clics ne rangent
+ * pas deux fois le même fichier.
+ */
+export async function rangerDevisPromo(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  const pm = await chargerDossier(fdStr(formData, "promoMaterialId"));
+  if (!pm) return { ok: false, error: "Dossier introuvable." };
+  const v = refusVersion(pm);
+  if (v) return { ok: false, error: v };
+  if (!retranscrit(user, pm)) return { ok: false, error: "Ranger un devis déposé revient à qui retranscrit les devis : l'assistante de direction (ou la Direction)." };
+  const etape = refusDeRangement(pm.circuitState);
+  if (etape) return { ok: false, error: etape };
+  const documentId = fdStr(formData, "documentId");
+  if (!documentId) return { ok: false, error: "Choisissez le fichier à ranger." };
+  const supplierId = fdStr(formData, "supplierId");
+  if (!supplierId) return { ok: false, error: "Choisissez dans l'annuaire l'agence (ou le partenaire) à qui appartient ce devis : c'est elle qui donnera son adresse, son RC et son NIF au bon de commande." };
+  const parties = await resolveParties(user.id, [supplierId]);
+  if (!parties.ok) return { ok: false, error: parties.error };
+  const doc = await prisma.document.findFirst({ where: { id: documentId, entityType: "PROMO_MATERIAL", entityId: pm.id }, select: { id: true, name: true, category: true } });
+  if (!doc) return { ok: false, error: "Ce fichier n'est pas une pièce de ce dossier." };
+  if (natureDeLaCategorie(doc.category) !== "QUOTE") return { ok: false, error: `« ${doc.name} » n'a pas été déposé comme devis : seul un fichier « Devis » se range comme devis.` };
+
+  let devis: { id: string };
+  try {
+    devis = await prisma.$transaction(async (tx) => {
+      // L'ÉTAPE D'ABORD, SOUS LE VERROU DU DOSSIER — la même première écriture que la retranscription.
+      const ouverte = await tx.promoMaterial.updateMany({
+        where: { id: pm.id, circuitVersion: 2, circuitState: "QUOTE_REQUESTED" },
+        data: { updatedById: user.id },
+      });
+      if (ouverte.count === 0) throw new RefusDevis(ETAPE_CHANGEE);
+      // RELU SOUS LE VERROU : un second clic, ou une retranscription qui vient de joindre ce scan.
+      if ((await tx.promoQuote.count({ where: { promoMaterialId: pm.id, documentId: doc.id } })) > 0) {
+        throw new RefusDevis(`« ${doc.name} » est déjà le scan d'un devis de ce dossier — rechargez la fiche.`);
+      }
+      if ((await tx.document.count({ where: { id: doc.id, entityType: "PROMO_MATERIAL", entityId: pm.id } })) === 0) {
+        throw new RefusDevis(`« ${doc.name} » vient d'être retiré du dossier — rechargez la fiche.`);
+      }
+      const rang = await tx.promoQuote.count({ where: { promoMaterialId: pm.id } });
+      return tx.promoQuote.create({
+        data: { promoMaterialId: pm.id, position: rang, supplierId, supplierName: parties.text, documentId: doc.id, createdById: user.id },
+        select: { id: true },
+      });
+    }, { timeout: 15_000, maxWait: 15_000 });
+  } catch (e) {
+    if (e instanceof RefusDevis) return { ok: false, error: e.message };
+    throw e;
+  }
+  await audit(user, pm.id, `Devis de ${parties.text} rangé depuis le fichier « ${doc.name} » (à retranscrire)`);
+  revalidatePath(chemin(pm.id));
+  return { ok: true, id: devis.id, message: `« ${doc.name} » est rangé comme devis de ${parties.text} — retranscrivez ses lignes (« Corriger » sur sa ligne) avant de terminer la retranscription.` };
+}
+
 // ───────────────────────── 3. Le demandeur choisit ─────────────────────────
 
 /**
@@ -745,7 +704,7 @@ export async function redemanderDevisPromo(formData: FormData): Promise<ActionRe
   const note = fdStr(formData, "note");
   if (note === null) return { ok: false, error: "Dites ce que vous cherchez — d'autres agences, d'autres quantités, un délai : l'assistante rapporterait sinon les mêmes devis." };
 
-  const ouverte = await ouvrirDemandeDeDevis(user, pm, note, true);
+  const ouverte = await ouvrirDemandeDeDevis(user.id, pm, note, true);
   if (!ouverte.ok) return { ok: false, error: ouverte.error };
   const bascule = await prisma.promoMaterial.updateMany({
     where: { id: pm.id, circuitState: "REVIEW_REQUESTER" },

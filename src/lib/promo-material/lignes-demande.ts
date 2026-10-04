@@ -23,7 +23,10 @@ export interface LigneDemandeSaisie {
   catalogueId: string;
   quantite: string;
   actions: string[];
+  /** Les CODES des produits promus (§118.204) : « societe », « gamme:… », « bu:… » — ou un produit canonique (ligne d'avant). */
   produitIds: string[];
+  /** « Autre » — un produit promu écrit en clair, quand il n'est dans aucune liste. */
+  autre: string;
   commentaire: string;
 }
 
@@ -59,6 +62,7 @@ export function lireLignesDemande(brut: string | null | undefined): { ok: true; 
         quantite: texte(o.quantite).trim(),
         actions: textes(o.actions),
         produitIds: textes(o.produitIds),
+        autre: texte(o.autre).trim(),
         commentaire: texte(o.commentaire),
       };
     }),
@@ -72,7 +76,7 @@ export function lireLignesDemande(brut: string | null | undefined): { ok: true; 
  * une ligne vide, et le refus le dira.
  */
 export function ligneVide(l: LigneDemandeSaisie): boolean {
-  return !l.catalogueId && !l.quantite && l.actions.length === 0 && l.produitIds.length === 0 && !l.commentaire.trim();
+  return !l.catalogueId && !l.quantite && l.actions.length === 0 && l.produitIds.length === 0 && !l.autre && !l.commentaire.trim();
 }
 
 /** Le refus quand il ne reste aucune ligne — il dit à quoi sert une ligne, pas seulement qu'il en manque. */

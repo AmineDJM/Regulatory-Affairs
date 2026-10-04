@@ -470,7 +470,7 @@ export function progress(state: PromoState, done: readonly PromoTrack[], ctx?: C
 export function waitingOn(state: PromoState, done: readonly PromoTrack[], version: VersionCircuit = 1): string {
   if (state === "REFUSED") return "Dossier refusé";
   if (state === "COMPLETED") return "Rien — dossier terminé";
-  if (state === "QUOTE_TO_REQUEST") return "Le demandeur — il doit demander les devis au secrétariat";
+  if (state === "QUOTE_TO_REQUEST") return "Le demandeur — la demande de devis n'est pas partie : il l'envoie depuis « Articles demandés »";
   if (state === "QUOTE_REQUESTED") return version === 2 ? "L'assistante de direction — retranscription des devis" : "Le devis de l'agence";
   if (state === "IN_EXECUTION") {
     const rest = pendingTracks(done);

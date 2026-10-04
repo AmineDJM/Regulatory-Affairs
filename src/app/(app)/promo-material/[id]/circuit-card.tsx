@@ -1,12 +1,11 @@
 "use client";
 
 import * as React from "react";
-import { Loader2, AlertCircle, BadgeCheck, CheckCircle2, Circle, FileCheck2, Rocket, Send, XCircle, Undo2, RotateCcw } from "lucide-react";
+import { Loader2, AlertCircle, BadgeCheck, CheckCircle2, Circle, FileCheck2, Rocket, XCircle, Undo2, RotateCcw } from "lucide-react";
 import {
   startPromoCircuit, markQuoteReceived, validatePromoStep, refusePromoStep, completePromoTrack,
   renvoyerPromoStep, resoumettrePromoDemande,
 } from "@/lib/actions/promo-circuit-actions";
-import { demanderDevisPromo } from "@/lib/actions/promo-devis-actions";
 import type { PromoTrack } from "@/lib/promo-material/circuit";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -57,7 +56,6 @@ interface Props {
   /** Peut basculer un dossier d'avant la réforme sur le circuit actuel. */
   canStart: boolean;
   /** (circuit 2) Peut demander les devis au secrétariat — le demandeur, à l'étape « devis à demander ». */
-  canRequestQuotes: boolean;
   /** Peut clore un chantier (pilote de l'exécution). */
   canDrive: boolean;
   /** Le renvoi pour correction en cours (§118.190) — affiché à tous, pour que personne ne cherche
@@ -197,20 +195,9 @@ export function PromoCircuitCard(p: Props) {
       <Err msg={err} />
       <Ok msg={msg} />
 
-      {/* CIRCUIT 2 — le demandeur demande les devis au secrétariat, une fois la demande validée. */}
-      {p.state === "QUOTE_TO_REQUEST" && p.canRequestQuotes && (
-        <form
-          action={(f: FormData) => { f.set("promoMaterialId", p.id); run(() => demanderDevisPromo(f)); }}
-          className="space-y-2 rounded-lg border border-primary/30 bg-primary/5 p-3"
-        >
-          <Label htmlFor="promo-quote-note">Précisions pour le secrétariat (facultatif)</Label>
-          <Textarea id="promo-quote-note" name="note" className="min-h-[60px]" placeholder="Agences à consulter, quantités, délai souhaité…" />
-          <Button type="submit" size="sm" disabled={saving}>
-            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />} Demander les devis à l&apos;assistante de direction
-          </Button>
-        </form>
-      )}
-
+      {/* CIRCUIT 2 — LA DEMANDE DE DEVIS PART D'ELLE-MÊME (§118.204) : à la création, ou à la validation de
+          la demande. Son aperçu, ses précisions et, au besoin, son envoi vivent dans « Articles demandés » —
+          plus de bouton « Demander les devis » ni de champ de précisions séparé ici. */}
       {/* CIRCUIT 1 — le devis est déposé comme pièce, puis confirmé. */}
       {p.version === 1 && p.state === "QUOTE_REQUESTED" && p.canConfirmQuote && (
         <div className="flex flex-wrap items-center gap-2">

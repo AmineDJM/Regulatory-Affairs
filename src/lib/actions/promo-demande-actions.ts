@@ -12,6 +12,8 @@ import { rouvrirDemandeAuSecretariat } from "@/lib/promo-material/demande-secret
 import { parseQuantity } from "@/lib/promo/stock";
 import { demandeLesDevis } from "@/lib/promo-material/circuit";
 import { libelleArticleDemande, validerArticleDemande, type FamillePromo } from "@/lib/promo-material/achats";
+import { aucunPromu, designeUnProduit, libellesPromus, lirePromusStockes } from "@/lib/promo-material/promus";
+import { resoudrePromus } from "@/lib/queries/promo-promus";
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
@@ -98,7 +100,7 @@ export async function enregistrerArticleDemandePromo(formData: FormData): Promis
 
   const requestItemId = fdStr(formData, "requestItemId");
   const existant = requestItemId
-    ? await prisma.promoRequestItem.findFirst({ where: { id: requestItemId, promoMaterialId: pm.id }, select: { id: true } })
+    ? await prisma.promoRequestItem.findFirst({ where: { id: requestItemId, promoMaterialId: pm.id }, select: { id: true, promus: true } })
     : null;
   if (requestItemId && !existant) return { ok: false, error: "Cet article n'appartient pas à ce dossier." };
 
@@ -109,40 +111,40 @@ export async function enregistrerArticleDemandePromo(formData: FormData): Promis
         select: { id: true, reference: true, nom: true, famille: true, unite: true, exigeProduit: true, actif: true },
       })
     : null;
-  const produitIds = formData.getAll("produitIds").map(String).filter(Boolean);
+  // CE QUE LA LIGNE PROMEUT (§118.204) — les codes du sélecteur, et « Autre » en clair. « Autre » que le
+  // formulaire ne porte pas garde sa valeur (§118.152c) : une correction faite sans lui ne l'efface pas.
+  const autre = formData.has("autre") ? fdStr(formData, "autre") : lirePromusStockes(existant?.promus ?? null)?.autre ?? null;
+  const promus = await resoudrePromus(formData.getAll("produitIds").map(String).filter(Boolean), autre);
+  if (!promus.ok) return { ok: false, error: promus.error };
   const brutQuantite = fdStr(formData, "quantite");
   const quantite = brutQuantite ? parseQuantity(brutQuantite) : null;
   const v = validerArticleDemande({
     catalogue: catalogue ? { ...catalogue, famille: catalogue.famille as FamillePromo } : null,
-    produitIds,
+    // Un article « par produit » exige un PRODUIT désigné — d'une BU, ou écrit dans « Autre ».
+    produitIds: designeUnProduit(promus.promus) ? ["produit"] : [],
     quantite,
     quantiteIllisible: Boolean(brutQuantite) && quantite == null,
     actions: formData.getAll("actions").map(String).filter(Boolean),
     commentaire: fdStr(formData, "commentaire"),
   });
   if (!v.ok) return { ok: false, error: v.error };
-  if (v.article.produitIds.length) {
-    const trouves = await prisma.product.count({ where: { id: { in: v.article.produitIds } } });
-    if (trouves !== v.article.produitIds.length) return { ok: false, error: "Un des produits choisis est introuvable." };
-  }
 
   const donnees = {
     catalogueId: catalogue!.id,
     quantite: v.article.quantite != null ? new Prisma.Decimal(v.article.quantite) : null,
     actions: v.article.actions,
     commentaire: v.article.commentaire,
+    promus: aucunPromu(promus.promus) ? Prisma.DbNull : (promus.promus as unknown as Prisma.InputJsonValue),
     updatedById: user.id,
   };
-  const produits = v.article.produitIds.map((productId) => ({ productId }));
+  // Le lien CANONIQUE (le stock le lit à la réception) : celui des produits de BU qui en ont un.
+  const produits = promus.canoniques.map((productId) => ({ productId }));
   // CONDITIONNELLE SUR L'ÉTAPE LUE : un article ajouté pendant que les devis partent, ou pendant que la
   // retranscription se termine, serait chiffré par personne. Au choix des lignes, un article ajouté ou
   // corrigé RENVOIE le dossier à la retranscription — il faut le faire chiffrer (§118.190).
   const versRetranscription = pm.circuitState === "REVIEW_REQUESTER";
   // Le LIBELLÉ avant la transaction : la raison de la réouverture s'y écrit (lot D1b).
-  const nomsProduits = v.article.produitIds.length
-    ? (await prisma.product.findMany({ where: { id: { in: v.article.produitIds } }, select: { id: true, canonicalName: true } })).map((p) => ({ id: p.id, nom: p.canonicalName }))
-    : [];
-  const libelle = libelleArticleDemande({ reference: catalogue!.reference, nom: catalogue!.nom, produits: nomsProduits, quantite: v.article.quantite, unite: catalogue!.unite });
+  const libelle = libelleArticleDemande({ reference: catalogue!.reference, nom: catalogue!.nom, produits: [], promus: libellesPromus(promus.promus), quantite: v.article.quantite, unite: catalogue!.unite });
   const raison = `Article ${existant ? "corrigé" : "ajouté"} par le demandeur : ${libelle} — à faire chiffrer.`;
   let article: { id: string };
   try {

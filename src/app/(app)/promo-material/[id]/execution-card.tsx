@@ -616,7 +616,9 @@ export function PromoExecutionCard({ id, executions, canPilot, canReceive, ouver
       {canPilot && ouvert && aGenerer > 0 && (
         <div className="space-y-2 rounded-lg border border-primary/30 bg-primary/5 p-3">
           <p className="text-sm">
-            <strong>{aGenerer}</strong> bon{aGenerer > 1 ? "s" : ""} de commande à générer — un par fournisseur, composé{aGenerer > 1 ? "s" : ""} par la plateforme d&apos;après les lignes validées (chacune avec son action : conception, impression…), sur le papier en-tête de la société.
+            {/* LES BC SE GÉNÈRENT D'EUX-MÊMES à la dernière validation (§118.204) : ce cadre n'apparaît que pour
+                ce que la génération automatique n'a pas pu émettre — le geste de repli, avec livraison et taxe. */}
+            <strong>{aGenerer}</strong> bon{aGenerer > 1 ? "s" : ""} de commande n&apos;{aGenerer > 1 ? "ont" : "a"} pas pu être généré{aGenerer > 1 ? "s" : ""} automatiquement à la dernière validation — un par fournisseur, composé{aGenerer > 1 ? "s" : ""} par la plateforme d&apos;après les lignes validées. Relancez la génération (le message dira ce qui bloque).
           </p>
           <form className="space-y-2" action={(f: FormData) => { f.set("promoMaterialId", id); run(() => genererBonsDeCommandePromo(f)); }}>
             {/* LA CASE DES TAXES SUPPLÉMENTAIRES, toujours visible : « Taxe Pub 2 % » sur le HT, hors base de TVA. Vide = celle de chaque devis ; 0 = aucune. */}
@@ -633,7 +635,7 @@ export function PromoExecutionCard({ id, executions, canPilot, canReceive, ouver
               </div>
             )}
             <div className="flex flex-wrap gap-2">
-              <Button type="submit" size="sm" disabled={saving}>{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Wand2 className="h-4 w-4" />} Générer les bons de commande</Button>
+              <Button type="submit" size="sm" disabled={saving}>{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Wand2 className="h-4 w-4" />} Générer les bons de commande manquants</Button>
               {!options && <Button type="button" size="sm" variant="ghost" onClick={() => setOptions(true)}>Livraison et notes…</Button>}
             </div>
           </form>

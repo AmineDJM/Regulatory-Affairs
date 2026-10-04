@@ -7,6 +7,8 @@ import { persistUploadedDocument } from "@/lib/documents";
 import { mirrorRegulatoryUpload } from "@/lib/regulatory-drive-mirror";
 import { mirrorDocumentsToDrive } from "@/lib/drive/document-mirror";
 import { shouldMirrorToDrive } from "@/lib/drive/mirror-path";
+import { prisma } from "@/lib/prisma";
+import { refusDevisLibre } from "@/lib/promo-material/rangement";
 
 /**
  * Téléversement de documents **en lot** (fichiers ET dossiers) pour un objet métier :
@@ -32,6 +34,13 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Vous n'êtes pas autorisé à téléverser ici." }, { status: 403 });
   }
   if (files.length === 0) return NextResponse.json({ error: "Aucun fichier." }, { status: 400 });
+  // UN DEVIS DU MATÉRIEL PROMOTIONNEL N'EST PAS UN FICHIER LIBRE (§118.204) : au circuit 2, un devis se
+  // dépose avec SON fournisseur et devient un devis du circuit — un fichier « Devis » posé ici attendrait
+  // qu'on lui crée une fiche, et c'est ce que la Direction a retiré.
+  if (entityType === "PROMO_MATERIAL" && category === "QUOTE") {
+    const refus = refusDevisLibre(await prisma.promoMaterial.findUnique({ where: { id: entityId }, select: { circuitVersion: true } }));
+    if (refus) return NextResponse.json({ error: refus }, { status: 400 });
+  }
 
   // Une seule lecture des réglages pour tout le lot (repli généreux si la lecture échoue).
   const maxUploadMb = await getAppSettings().then((s) => s.maxUploadMb).catch(() => 200);

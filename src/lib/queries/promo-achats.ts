@@ -2,6 +2,8 @@ import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { estAction, type PromoAction } from "@/lib/promo-material/actions-fournisseur";
 import type { ArticleDemandeLu, FamillePromo, LigneFactureLue, OptionCatalogue } from "@/lib/promo-material/achats";
+import { codesPromus, libellesPromus, lirePromusStockes } from "@/lib/promo-material/promus";
+import { optionsPromus } from "@/lib/queries/promo-promus";
 
 /**
  * LE CHARGEUR DES ACHATS DU MATÉRIEL PROMOTIONNEL (§118.165) — ce que la règle pure ne lit pas.
@@ -15,7 +17,7 @@ const num = (v: Prisma.Decimal | number | null | undefined): number | null => (v
 const actions = (xs: readonly string[]): PromoAction[] => xs.filter(estAction);
 
 export const SELECT_ARTICLE_DEMANDE = {
-  id: true, position: true, catalogueId: true, quantite: true, actions: true, commentaire: true,
+  id: true, position: true, catalogueId: true, quantite: true, actions: true, commentaire: true, promus: true,
   catalogue: { select: { reference: true, nom: true, famille: true, unite: true } },
   produits: { select: { product: { select: { id: true, canonicalName: true } } } },
 } satisfies Prisma.PromoRequestItemSelect;
@@ -23,7 +25,9 @@ export const SELECT_ARTICLE_DEMANDE = {
 type ArticleBrut = Prisma.PromoRequestItemGetPayload<{ select: typeof SELECT_ARTICLE_DEMANDE }>;
 
 export function articleDemandeLu(a: ArticleBrut): ArticleDemandeLu {
+  const promus = lirePromusStockes(a.promus);
   return {
+    ...(promus ? { promus: libellesPromus(promus), choixPromus: { codes: codesPromus(promus), autre: promus.autre } } : {}),
     id: a.id, position: a.position, catalogueId: a.catalogueId,
     reference: a.catalogue.reference, nom: a.catalogue.nom, famille: a.catalogue.famille as FamillePromo, unite: a.catalogue.unite,
     produits: a.produits.map((p) => ({ id: p.product.id, nom: p.product.canonicalName })).sort((x, y) => x.nom.localeCompare(y.nom, "fr")),
@@ -45,7 +49,7 @@ export async function articlesDemandesDuDossier(promoMaterialId: string): Promis
 export type { OptionCatalogue } from "@/lib/promo-material/achats";
 
 /**
- * CE QUE LE FORMULAIRE D'UN ARTICLE DEMANDÉ PROPOSE — le catalogue ACTIF et les produits actifs.
+ * CE QUE LE FORMULAIRE D'UN ARTICLE DEMANDÉ PROPOSE — le catalogue ACTIF et ce qu'une ligne peut promouvoir.
  *
  * Pas de garde du module « Catalogue » ici : le demandeur PIOCHE dans le catalogue pour composer
  * sa demande ; le module règle qui consulte et tient le catalogue lui-même (son écran), pas qui
@@ -59,11 +63,13 @@ export async function optionsDesArticlesDemandes(): Promise<{ catalogue: OptionC
       select: { id: true, reference: true, nom: true, famille: true, unite: true, exigeProduit: true },
       orderBy: { reference: "asc" },
     }),
-    prisma.product.findMany({ where: { isActive: true }, select: { id: true, canonicalName: true }, orderBy: { canonicalName: "asc" } }),
+    // LES PRODUITS PROMUS (§118.204) — la société, les gammes et les produits des Business Units, sous
+    // leurs CODES : la liste lisait `Product` (canonique), vide en production, et affichait « Aucun produit ».
+    optionsPromus(),
   ]);
   return {
     catalogue: catalogue.map((c) => ({ ...c, famille: c.famille as FamillePromo })),
-    produits: produits.map((p) => ({ id: p.id, nom: p.canonicalName })),
+    produits,
   };
 }
 

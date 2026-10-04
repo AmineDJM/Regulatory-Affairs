@@ -245,7 +245,8 @@ describe("le circuit 2 — ses étapes, et qui fait quoi", () => {
     const c = ctx();
     expect(progress("REVIEW_MANAGER", [], c)).toEqual({ step: 5, total: 7 });
     expect(waitingOn("QUOTE_REQUESTED", [], 2)).toMatch(/assistante de direction/);
-    expect(waitingOn("QUOTE_TO_REQUEST", [], 2)).toMatch(/demander les devis/);
+    // La demande de devis part d'elle-même (§118.204) ; si elle est restée, c'est le demandeur qui l'envoie, d'« Articles demandés ».
+    expect(waitingOn("QUOTE_TO_REQUEST", [], 2)).toMatch(/demande de devis n'est pas partie.*Articles demandés/);
     expect(libelleEtape("REVIEW_REQUESTER", 2)).toMatch(/lignes/);
     expect(libelleEtape("REVIEW_REQUESTER", 1)).toBe("Validation du demandeur");
     expect(libelleCourt("QUOTE_REQUESTED", 2)).toBe("Retranscription des devis");

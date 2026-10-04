@@ -14,7 +14,7 @@ import { deleteFileByKey } from "@/lib/storage";
 import { createPromoMaterial } from "./promo-material-actions";
 import { completePromoTrack, validatePromoStep } from "./promo-circuit-actions";
 import {
-  choisirLignesPromo, demanderCorrectionDevisPromo, demanderDevisPromo, enregistrerDevisPromo, supprimerDevisPromo, terminerRetranscriptionPromo,
+  choisirLignesPromo, demanderCorrectionDevisPromo, enregistrerDevisPromo, supprimerDevisPromo, terminerRetranscriptionPromo,
 } from "./promo-devis-actions";
 import { enregistrerArticleDemandePromo } from "./promo-demande-actions";
 import { formatDzd } from "@/lib/promo-material/devis";
@@ -165,8 +165,8 @@ suite("Matériel promotionnel — la retranscription sous course, et le total im
     const id = r.id!;
     await comme("dir");
     reussi(await validatePromoStep(form({ id })), "valider la demande");
-    await comme("cp");
-    reussi(await demanderDevisPromo(form({ promoMaterialId: id })), "demander les devis");
+    // LA DEMANDE DE DEVIS PART D'ELLE-MÊME à la validation de la demande (§118.204) : plus de geste « demander les devis ».
+    if ((await prisma.promoMaterial.findUniqueOrThrow({ where: { id }, select: { circuitState: true } })).circuitState !== "QUOTE_REQUESTED") throw new Error("la demande de devis n'est pas partie d'elle-même à la validation");
     return id;
   }
   const articleDe = async (id: string) => (await prisma.promoRequestItem.findFirstOrThrow({ where: { promoMaterialId: id } })).id;
