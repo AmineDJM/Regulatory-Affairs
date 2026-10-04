@@ -1096,6 +1096,18 @@ X("LES PIÈCES D'ACHAT D'UN POSTE (§118.204) — déposer un devis ou une factu
   // proposition et la demande de BC qui en découle se font devant la carte du poste.
   "ad-pro-item-actions:ajouterDevisVoyageur", "ad-pro-item-actions:validerDevisVoyageur", "ad-pro-item-actions:demanderBCBilletterie",
 ]);
+X("PRISES EN CHARGE — PROFESSIONNELS PROPOSÉS ET LEURS PIÈCES (§118.205) : créer le profil d'un professionnel, "
+  + "demander ses pièces (passeport, visa, informations de voyage) et les déposer. Chacun touche à une identité ou "
+  + "dépose un FICHIER devant la fiche de la demande. Adam est en pause de développement : aucun geste neuf ne lui est ouvert.", [
+  "care-actions:creerProfilProfessionnel", "care-actions:demanderPiecesPriseEnCharge", "care-actions:deposerPiecePriseEnCharge",
+]);
+X("ANNULER SA DEMANDE TANT QU'ELLE N'EST PAS EXÉCUTÉE (décision du 04/10) — rallonges de budget et de caisse, "
+  + "document RH, ordre de mission, tâche demandée, formation. Des gestes qui RÉDUISENT, mais Adam est en pause de "
+  + "développement : aucun geste neuf ne lui est ouvert. Un clic du demandeur sur sa demande.", [
+  "department-budget-actions:annulerDemandeBudgetDepartement", "hr-document-actions:annulerDemandeRh",
+  "mission-actions:retirerDemandeOrdreMission", "petty-cash-actions:annulerRallongeCaisse",
+  "task-actions:annulerDemandeTache", "training-actions:annulerFormation",
+]);
 X("RENVOYER, RÉEXAMINER, RESOUMETTRE DANS LES CENTRES (§118.188, audit R07/R08/R10) — resoumettre une demande de "
   + "validation renvoyée pour correction (sur elle-même, elle reprend à l'étape qui l'a renvoyée), resoumettre au centre "
   + "Ad & Pro une demande qu'il a renvoyée, et réexaminer un refus du centre. Les deux premiers sont des gestes du "

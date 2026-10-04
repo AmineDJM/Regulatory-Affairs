@@ -1353,7 +1353,9 @@ export async function decideAdProItem(_prev: ActionResult | undefined, formData:
   // Direction des opérations au premier temps se revoit par ELLE — l'accorder de la Direction Marketing
   // sauterait le premier temps.
   const opsRevoit = argent && temps === null && item.status === "REJECTED" && !item.opsDecidedAt;
-  if (argent && temps === null && (item.status === "DRAFT" || item.status === "REVISION")) {
+  // Refuser un brouillon reste possible (une demande refusée fait le ménage de ses postes) : seul
+  // l'ACCORD exige les deux temps.
+  if (argent && temps === null && decision === "APPROVED" && (item.status === "DRAFT" || item.status === "REVISION")) {
     return { ok: false, error: "Ce poste n'est pas soumis à la validation : le demandeur le soumet d'abord." };
   }
   if (!argent) {

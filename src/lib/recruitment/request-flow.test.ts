@@ -164,11 +164,12 @@ describe("abilities — l'écran et le serveur posent la MÊME question", () => 
     expect(abilities("ONBOARDING", actor({ isRequester: true }), { hasHire: true }).onboard).toBe(false);
   });
 
-  it("on retire sa demande tant que PERSONNE n'a tranché", () => {
+  it("on retire sa demande tant que l'embauche n'est pas faite (décision du 04/10)", () => {
     expect(abilities("CHAIN", actor({ isRequester: true }), { chainUntouched: true }).cancel).toBe(true);
-    // Après une première décision, la retirer effacerait un avis déjà donné.
-    expect(abilities("CHAIN", actor({ isRequester: true }), { chainUntouched: false }).cancel).toBe(false);
-    expect(abilities("SOURCING", actor({ isRequester: true }), { chainUntouched: true }).cancel).toBe(false);
+    // Un avis déjà donné n'empêche plus le retrait : les personnes engagées dans la chaîne sont prévenues.
+    expect(abilities("CHAIN", actor({ isRequester: true }), { chainUntouched: false }).cancel).toBe(true);
+    expect(abilities("SOURCING", actor({ isRequester: true }), { chainUntouched: true }).cancel).toBe(true);
+    expect(abilities("ONBOARDING", actor({ isRequester: true }), { chainUntouched: true }).cancel).toBe(false);
   });
 
   it("une demande close ne permet plus RIEN, pas même au PDG — sauf d'être ROUVERTE, motif à l'appui (§118.192)", () => {

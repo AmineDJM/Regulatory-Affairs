@@ -119,8 +119,9 @@ describe("canWithdraw — on retire tant que personne n'a décidé", () => {
 
   // Après la décision, la retirer effacerait une trace : on ne saurait plus pourquoi un achat
   // a été lancé.
-  it("non une fois tranchée", () => {
-    for (const s of ["APPROVED", "REJECTED", "DONE", "CANCELLED"] as const) {
+  it("validée mais pas encore achetée : elle se retire encore (04/10) ; refusée, faite ou annulée : non", () => {
+    expect(canWithdraw("APPROVED")).toBe(true);
+    for (const s of ["REJECTED", "DONE", "CANCELLED"] as const) {
       expect(canWithdraw(s), s).toBe(false);
     }
   });

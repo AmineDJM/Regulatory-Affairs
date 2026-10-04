@@ -361,14 +361,14 @@ suite("Recrutement — renvoyer, corriger, rouvrir, annuler l'embauche, un geste
     expect(apres.approvals[0]!.status, "la transaction a défait la marche écrite").toBe("PENDING");
   });
 
-  it("TÉMOIN : le N+1 valide PENDANT le retrait — la demande validée ne devient pas « retirée »", async () => {
+  it("le N+1 valide PENDANT le retrait — la demande, encore dans sa chaîne, se retire quand même (04/10 : un avis n'est pas une embauche)", async () => {
     const id = await demande();
     await comme("dem");
     const r = await pendantLaLecture("RecruitmentRequest", () => cancelRecruitmentRequest(form({ id })), async (tx) => {
       await tx.recruitmentApproval.updateMany({ where: { requestId: id, order: 1 }, data: { status: "APPROVED", decidedAt: new Date() } });
     });
-    expect(err(r)).toMatch(DEJA);
-    expect((await lire(id)).stage).toBe("CHAIN");
+    expect(r.ok, err(r)).toBe(true);
+    expect((await lire(id)).stage).toBe("CANCELLED");
   });
 
   it("TÉMOIN : la demande renvoyée est corrigée PENDANT son retrait — le retrait ne retire pas la demande repartie", async () => {

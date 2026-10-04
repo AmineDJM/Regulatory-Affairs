@@ -74,7 +74,9 @@ import { ACTION_CLASSIFICATION } from "@/lib/assistant/action-registry";
  * elle a quitté le fichier « use server » pour un module serveur ordinaire. Le plafond suit le
  * chiffre MESURÉ — laissé à 24, il ne pourrait plus signaler la première illisible neuve.
  */
-const PLAFOND_ILLISIBLES = 23;
+// 24 (§118.205) : `addCongressBeneficiary` est devenue un relais qui bâtit le formulaire de l'écrivain du
+// dossier de prise en charge (une seule liste, 04/10) — illisible au chemin générique, couverte par son op.
+const PLAFOND_ILLISIBLES = 24;
 
 describe("CONTRAT D'ACTION — la dérivation LIT la source, elle ne l'invente pas", () => {
   // Une source ÉCRITE ICI : c'est le seul endroit où je connais la vérité indépendamment du

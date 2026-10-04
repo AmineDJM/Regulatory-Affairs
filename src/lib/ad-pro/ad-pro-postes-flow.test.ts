@@ -492,8 +492,8 @@ suite("Ad & Pro — postes simplifiés : répartition, gestes, voyageurs, suppre
     expect(sujet.createdById).toBe(nsId);
     // Ce qu'elle lit : chaque voyageur, ce qu'on sait, ce qui MANQUE, et l'état du poste.
     const d = sujet.description ?? "";
-    expect(d).toContain("Dr Amel Haddad — trajet à confirmer — aller à confirmer, retour à confirmer (manque : date de départ, trajet, passeport)");
-    expect(d).toContain("Dr Yacine Ouali — Alger → Paris — aller 03/11/2026, retour 07/11/2026 — passeport joint — Vol du matin");
+    expect(d).toContain("Dr Amel Haddad — trajet à confirmer — aller à confirmer, retour à confirmer (manque : date de départ, trajet, mode de transport, passeport)");
+    expect(d).toContain("Dr Yacine Ouali — Alger → Paris — aller 03/11/2026, retour 07/11/2026 — passeport joint (manque : mode de transport) — Vol du matin");
     expect(d).toMatch(/Poste pas encore accordé/);
     expect((await prisma.adProItem.findUniqueOrThrow({ where: { id: billetterie } })).reservationDossierId).toBe(sujetId);
     // PRÉVENUE — le lien CAUSAL, pas un compte global (§118.92).
