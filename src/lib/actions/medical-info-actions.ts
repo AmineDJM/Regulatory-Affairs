@@ -15,6 +15,7 @@ import { getDeclaration, canViewDeclaration } from "@/lib/queries/medical-info";
 import { archiveProcessedRequest } from "@/lib/archive";
 import { formatAlgiers } from "@/lib/calendar-tz";
 import { fdStr, type ActionResult } from "@/lib/actions/types";
+import { refusAnnulationPieceInfoMed } from "@/lib/annulations/regles";
 import { createPaymentRequest } from "@/lib/actions/payment-request-actions";
 import { circuitOfDeclaration, isOpenableDeclarationKind, DECLARATION_KIND_LABEL } from "@/lib/medical-info/circuits";
 import {
@@ -115,14 +116,26 @@ export async function requestDocument(formData: FormData): Promise<ActionResult>
 
 export async function cancelDocRequest(formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
-  if (!canManage(user)) return { ok: false, error: "Non autorisé." };
   const id = fdStr(formData, "id");
   if (!id) return { ok: false, error: "Identifiant manquant." };
-  const r = await prisma.medicalInfoDocRequest.findUnique({ where: { id } });
+  const r = await prisma.medicalInfoDocRequest.findUnique({ where: { id }, include: { declaration: { select: { reference: true } } } });
   if (!r) return { ok: false, error: "Demande introuvable." };
-  if (r.status === "FULFILLED") return { ok: false, error: "Pièce déjà déposée — suppression impossible." };
-  await prisma.medicalInfoDocRequest.delete({ where: { id } });
+  // LE DEMANDEUR ANNULE SA DEMANDE TANT QU'ELLE N'EST PAS EXÉCUTÉE (décision du 04/10) — la pièce n'est
+  // pas encore déposée. Pas seulement un gestionnaire du module : celui qui l'a demandée aussi.
+  const refus = refusAnnulationPieceInfoMed(r, { userId: user.id, gestionnaire: canManage(user) });
+  if (refus) return { ok: false, error: refus };
+  // UN GESTE À LA FOIS : un dépôt passé entre la lecture et le clic l'emporte.
+  const pris = await prisma.medicalInfoDocRequest.deleteMany({ where: { id, status: "PENDING" } });
+  if (pris.count === 0) return { ok: false, error: "La pièce vient d'être déposée — rechargez la page." };
   await refreshStatus(r.declarationId);
+  // La personne sollicitée est prévenue : sans un mot, elle chercherait encore une pièce que plus personne n'attend.
+  if (r.targetUserId && r.targetUserId !== user.id) {
+    await notifyUser({ userId: r.targetUserId, type: "GENERIC", title: "Information médicale — pièce plus demandée", body: `${r.declaration.reference} — ${r.label} : la demande est annulée.`, link: `${PATH}/${r.declarationId}` }).catch(() => undefined);
+  }
+  await recordAudit({
+    actorId: user.id, action: "DELETE", module: "Information médicale", entityType: "MEDICAL_INFO_DECLARATION", entityId: r.declarationId,
+    summary: `Demande de pièce annulée — ${r.declaration.reference} : ${r.label}`,
+  });
   revalidate(r.declarationId);
   return { ok: true };
 }

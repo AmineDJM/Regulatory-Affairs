@@ -116,7 +116,7 @@ async function deposer(nature: Nature, qui: string, budget: number, definitionId
     const soumis = await submitEventForApproval(fd({ id }));
     expect(soumis.ok, soumis.ok ? "" : soumis.error).toBe(true);
   } else {
-    const cree = await createCongressRequest(undefined, fd({ type: nature, name: `${TAG}${nature}-${qui}-${budget}`, estimatedBudget: String(budget) }));
+    const cree = await createCongressRequest(undefined, fd({ type: nature, name: `${TAG}${nature}-${qui}-${budget}`, estimatedBudget: String(budget), date: "2026-11-02", startDate: "2026-11-02", endDate: "2026-11-04" }));
     expect(cree.ok, cree.ok ? "" : cree.error).toBe(true);
     id = cree.ok ? cree.id! : "";
   }

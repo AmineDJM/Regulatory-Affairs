@@ -385,6 +385,31 @@ export interface RecruitmentAbilities {
   cancelHire: boolean;
 }
 
+/** Les étapes d'une demande pas encore exécutée — elle se retire (décision du 04/10). */
+export const ETAPES_RETIRABLES: ReadonlySet<RecruitmentStage> = new Set<RecruitmentStage>([
+  "CHAIN", "HR_REVIEW", "INFO_REQUESTED", "SOURCING", "RETURNED",
+]);
+
+/**
+ * QUI A DÉJÀ LA DEMANDE ENTRE LES MAINS — et doit apprendre qu'elle est retirée : les marches qui se
+ * sont prononcées et la marche active ; jamais celles que la demande n'a pas atteintes (du bruit sur
+ * une demande qu'elles n'ont jamais vue, §118.32), jamais l'auteur du retrait. Les RH, elles, sont
+ * prévenues dès que la demande les a atteintes.
+ */
+export function prevenusAuRetrait(
+  stage: RecruitmentStage,
+  marches: { order: number; approverId: string; status: string }[],
+  auteurId: string,
+): { approbateurs: string[]; rh: boolean } {
+  const triees = [...marches].sort((a, b) => a.order - b.order);
+  const active = stage === "CHAIN" ? triees.find((m) => m.status === "PENDING") : undefined;
+  const approbateurs = triees
+    .filter((m) => m.status !== "PENDING" || m === active)
+    .map((m) => m.approverId)
+    .filter((id) => id !== auteurId);
+  return { approbateurs: [...new Set(approbateurs)], rh: stage === "HR_REVIEW" || stage === "INFO_REQUESTED" || stage === "SOURCING" };
+}
+
 export function abilities(
   stage: RecruitmentStage,
   actor: RecruitmentActor,
@@ -429,11 +454,10 @@ export function abilities(
     interview: sourcing && (hr || actor.isRequester),
     hire: sourcing && actor.isTop,
     onboard: hr && stage === "ONBOARDING" && (opts.hasHire ?? true),
-    // On retire sa demande tant que personne n'a tranché ; après, elle appartient au circuit et
-    // l'effacer ferait disparaître une décision déjà prise.
-    // Renvoyée, la balle est à son auteur : il la corrige — ou la retire. Lui refuser ce second geste
-    // laisserait pour toujours, chez lui, une demande qu'il ne veut plus porter.
-    cancel: ((stage === "CHAIN" && (opts.chainUntouched ?? false)) || stage === "RETURNED") && (actor.isRequester || actor.isTop),
+    // On retire sa demande TANT QU'ELLE N'EST PAS EXÉCUTÉE (décision de la Direction, 04/10) : jusqu'au
+    // recrutement prononcé (ONBOARDING) — même si la chaîne a commencé à dire oui, même en sourcing.
+    // Le retrait CLÔT (étape CANCELLED, ses accords restent au fil), il n'efface rien.
+    cancel: ETAPES_RETIRABLES.has(stage) && (actor.isRequester || actor.isTop),
     // Renvoyer est un refus ADOUCI : ouvert à qui peut trancher, là où il le peut (§118.186).
     returnForCorrection: (stage === "CHAIN" && opts.peutTrancherLaMarche === true) || (stage === "HR_REVIEW" && hr),
     correct: stage === "RETURNED" && (actor.isRequester || actor.isTop),

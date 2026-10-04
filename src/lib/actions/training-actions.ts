@@ -4,7 +4,7 @@ import { randomUUID } from "crypto";
 import { revalidatePath } from "next/cache";
 import type { UserRole } from "@prisma/client";
 import { requireUser } from "@/lib/session";
-import { userCan, hasGlobalView, isTopManagement, type SessionUser } from "@/lib/rbac";
+import { userCan, hasGlobalView, isTopManagement, rolesWithModule, type SessionUser } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { auNomDeQui } from "@/lib/hr/stand-in-resolve";
 import { recordAudit } from "@/lib/audit";
@@ -22,6 +22,7 @@ import {
   type TrainingAttendance,
 } from "@/lib/training";
 import { fdStr, fdNum, fdDate, type ActionResult } from "@/lib/actions/types";
+import { refusAnnulationFormation } from "@/lib/annulations/regles";
 
 const PATH = "/formations";
 
@@ -415,4 +416,51 @@ export async function respondToTrainingInvitation(formData: FormData): Promise<A
   }
   await revalidateTraining(participant.training.id);
   return { ok: true };
+}
+
+/**
+ * ANNULER SA FORMATION (décision de la Direction, 04/10) — le demandeur la retire tant qu'elle n'a
+ * pas eu lieu : en circuit, ou accordée mais pas encore suivie. Elle se CLÔT (`CANCELLED`) ; celui
+ * chez qui elle attend (N+1, RH, direction) ou ceux qui l'organisent (accordée) sont prévenus.
+ * Écriture conditionnelle sur l'état ET la marche lus : une décision croisée l'emporte, sans double effet.
+ */
+export async function annulerFormation(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  const id = fdStr(formData, "id");
+  if (!id) return { ok: false, error: "Formation introuvable." };
+  const motif = fdStr(formData, "motif");
+  const training = await prisma.training.findUnique({
+    where: { id },
+    select: { id: true, reference: true, title: true, status: true, stage: true, requesterId: true, managerId: true },
+  });
+  if (!training) return { ok: false, error: "Formation introuvable." };
+  if (training.requesterId !== user.id) return { ok: false, error: "Seul le salarié qui a demandé cette formation l'annule." };
+  const refus = refusAnnulationFormation(training.status);
+  if (refus) return { ok: false, error: refus };
+
+  const pris = await prisma.training.updateMany({
+    where: { id, status: training.status, stage: training.stage },
+    data: { status: "CANCELLED" },
+  });
+  if (pris.count === 0) {
+    const apres = await prisma.training.findUnique({ where: { id }, select: { status: true } });
+    return { ok: false, error: (apres && refusAnnulationFormation(apres.status)) ?? "Cette formation vient d'être tranchée — rechargez la page." };
+  }
+  const corps = `${training.reference} — ${training.title} : annulée par son demandeur${motif ? ` (${motif})` : ""}.`;
+  if (training.status === "PENDING" && training.stage === "MANAGER" && training.managerId) {
+    const chef = await prisma.employee.findUnique({ where: { id: training.managerId }, select: { userId: true } });
+    if (chef?.userId && chef.userId !== user.id) {
+      await notifyUser({ userId: chef.userId, type: "GENERIC", title: "Formation annulée", body: corps, link: PATH }).catch(() => undefined);
+    }
+  } else {
+    const roles = (training.status === "APPROVED" ? ["DIRECTION", "SUPER_ADMIN", ...rolesWithModule("RH", "UPDATE")] : chainNotifyRoles(training.stage as ChainStage)) as UserRole[];
+    if (roles.length) await notifyRoles([...new Set(roles)], { type: "GENERIC", title: "Formation annulée", body: corps, link: PATH }).catch(() => undefined);
+  }
+  await recordAudit({
+    actorId: user.id, action: "UPDATE", module: "Ressources humaines", entityType: "TRAINING", entityId: id,
+    field: "status", oldValue: training.status, newValue: "CANCELLED",
+    summary: `Formation ${training.reference} annulée par son demandeur${motif ? ` — ${motif}` : ""}`,
+  });
+  await revalidateTraining(id);
+  return { ok: true, id, message: "Formation annulée — les personnes qui l'avaient en main sont prévenues." };
 }

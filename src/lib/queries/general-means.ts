@@ -1,3 +1,4 @@
+import { refusAnnulationRallonge } from "@/lib/annulations/regles";
 import { prisma } from "@/lib/prisma";
 import { toNumber } from "@/lib/utils";
 import { userCan, hasGlobalView, type SessionUser } from "@/lib/rbac";
@@ -98,10 +99,12 @@ export interface GeneralMeansTopUp {
   amountRequested: number;
   amountGranted: number | null;
   reason: string | null;
-  status: "PENDING" | "APPROVED" | "REJECTED";
+  status: "PENDING" | "APPROVED" | "REJECTED" | "CANCELLED";
   requester: string;
   createdAt: string;
   decisionNote: string | null;
+  /** Celle qui l'a demandée peut la retirer tant qu'elle n'est pas tranchée (décision du 04/10). */
+  canCancel: boolean;
 }
 
 export interface GeneralMeansView {
@@ -478,10 +481,11 @@ export async function getGeneralMeans(
       amountRequested: toNumber(t.amountRequested),
       amountGranted: t.amountGranted === null ? null : toNumber(t.amountGranted),
       reason: t.reason,
-      status: t.status as "PENDING" | "APPROVED" | "REJECTED",
+      status: t.status as "PENDING" | "APPROVED" | "REJECTED" | "CANCELLED",
       requester: t.requestedBy?.name ?? "",
       createdAt: t.createdAt.toISOString(),
       decisionNote: t.decisionNote,
+      canCancel: t.requestedById === user.id && refusAnnulationRallonge(t.status) === null,
     })),
     history: closedRows.map(readable),
     expenses: allExpenses,

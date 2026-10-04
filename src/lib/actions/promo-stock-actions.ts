@@ -660,6 +660,9 @@ export async function annulerDemande(formData: FormData): Promise<ActionResult> 
   if (!peutAnnulerDemande(f, d.demandeurId)) return { ok: false, error: "Seul son auteur annule une demande ; le magasin, lui, la refuse avec un motif." };
   const maj = await prisma.promoStockRequest.updateMany({ where: { id: demandeId, statut: "OUVERTE" }, data: { statut: "ANNULEE", decideParId: user.id, decideLe: new Date() } });
   if (maj.count === 0) return { ok: false, error: "Cette demande n'est plus ouverte." };
+  // LE MAGASIN EST PRÉVENU (décision du 04/10) : c'est lui qui l'aurait servie — sans un mot, il
+  // préparerait une dotation pour une demande retirée.
+  await prevenir(await gestionnairesDuMagasin(), "Demande de matériel annulée", `${user.name} a annulé sa demande de matériel promotionnel : il n'y a plus rien à servir.`, user.id);
   await recordAudit({ actorId: user.id, action: "UPDATE", module: MODULE, entityId: d.itemId, summary: "Demande de matériel annulée" });
   return reussi(demandeId);
 }

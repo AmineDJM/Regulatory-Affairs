@@ -79,6 +79,35 @@ export async function loadAdProItems(parent: AdProParent, parentId: string): Pro
     l.push({ id: d.id, name: d.name, hasFile: Boolean(d.fileKey) });
     passeportsDe.set(d.stepKey, l);
   }
+  // LE DEVIS DE CHAQUE VOYAGEUR (§118.205) : un devis du poste marqué pour lui, et son premier fichier.
+  const liensDevis = voyageurRows.length
+    ? await prisma.adProVoyageurDevis.findMany({
+        where: { voyageurId: { in: voyageurRows.map((v) => v.id) } },
+        orderBy: { createdAt: "asc" },
+        select: {
+          voyageurId: true, retenuLe: true,
+          piece: { select: { legalDocument: { select: { id: true, title: true, reference: true, amount: true, status: true, cancelledAt: true } } } },
+        },
+      })
+    : [];
+  const fichiersDevis = liensDevis.length
+    ? await prisma.document.findMany({
+        where: { entityType: "LEGAL_DOCUMENT", entityId: { in: liensDevis.map((l) => l.piece.legalDocument.id) } },
+        select: { id: true, name: true, entityId: true, fileKey: true }, orderBy: { createdAt: "asc" },
+      })
+    : [];
+  const fichierDe = new Map<string, { id: string; name: string; hasFile: boolean }>();
+  for (const f of fichiersDevis) if (!fichierDe.has(f.entityId)) fichierDe.set(f.entityId, { id: f.id, name: f.name, hasFile: Boolean(f.fileKey) });
+  const devisDe = new Map<string, VoyageurVue["devis"]>();
+  for (const l of liensDevis) {
+    const d = l.piece.legalDocument;
+    const liste = devisDe.get(l.voyageurId) ?? [];
+    liste.push({
+      id: d.id, titre: d.title, reference: d.reference, montant: d.amount != null ? toNumber(d.amount) : null,
+      retenu: l.retenuLe != null, annule: d.status === "CANCELLED" || d.cancelledAt != null, fichier: fichierDe.get(d.id) ?? null,
+    });
+    devisDe.set(l.voyageurId, liste);
+  }
   const iso = (d: Date | null) => (d ? d.toISOString().slice(0, 10) : null);
   const voyageursDe = new Map<string, VoyageurVue[]>();
   for (const v of voyageurRows) {
@@ -86,6 +115,7 @@ export async function loadAdProItems(parent: AdProParent, parentId: string): Pro
     l.push({
       id: v.id, nom: v.nom, villeDepart: v.villeDepart, villeArrivee: v.villeArrivee,
       dateDepart: iso(v.dateDepart), dateRetour: iso(v.dateRetour), notes: v.notes, passeports: passeportsDe.get(v.id) ?? [],
+      trajet: v.trajet, transport: v.transport, devis: devisDe.get(v.id) ?? [],
     });
     voyageursDe.set(v.itemId, l);
   }

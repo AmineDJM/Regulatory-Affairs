@@ -16,7 +16,7 @@ import {
   type TrainingAttendance, type TrainingParticipantState, type TrainingStatus, type ParticipantCounts,
 } from "@/lib/training";
 import {
-  requestTraining, createHrTraining, decideTraining, inviteTrainingParticipants, respondToTrainingInvitation,
+  requestTraining, createHrTraining, decideTraining, inviteTrainingParticipants, respondToTrainingInvitation, annulerFormation,
 } from "@/lib/actions/training-actions";
 
 export interface TrainingParticipantRow {
@@ -48,6 +48,8 @@ export interface TrainingRow {
   documents: { id: string; name: string }[];
   /** Résolu côté serveur : un bouton affiché par erreur est une promesse que le serveur refusera. */
   canDecide: boolean;
+  /** Le demandeur peut l'annuler (décision du 04/10) — même règle que l'action (`refusAnnulationFormation`). */
+  canCancel?: boolean;
   myParticipation: TrainingParticipantRow | null;
 }
 
@@ -308,6 +310,19 @@ export function TrainingBoard({
                           </button>
                         </div>
                       </div>
+                    )}
+
+                    {/* ANNULER SA DEMANDE (décision du 04/10) — tant qu'elle n'a pas eu lieu. */}
+                    {t.canCancel && (
+                      <button type="button" disabled={busy === `ann:${t.id}`} onClick={() => {
+                        const motif = window.prompt("Annuler cette formation ? Les personnes qui l'ont en main en seront prévenues. Motif (facultatif) :", "");
+                        if (motif === null) return;
+                        const fd = new FormData();
+                        fd.set("id", t.id); if (motif.trim()) fd.set("motif", motif.trim());
+                        void run(`ann:${t.id}`, () => annulerFormation(fd), "Formation annulée.");
+                      }} className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-xs text-muted-foreground hover:bg-destructive/10 hover:text-destructive disabled:opacity-50">
+                        Annuler ma demande
+                      </button>
                     )}
 
                     {/* PARTICIPANTS — convoqués et volontaires, avec leurs réponses. */}

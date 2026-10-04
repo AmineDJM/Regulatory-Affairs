@@ -802,6 +802,7 @@ export const HR_REQUEST_STATUS: Record<string, Display> = {
   DELIVERED: { label: "Remise", tone: "neutral" },
   APPROVED: { label: "Accordée", tone: "success" },
   REJECTED: { label: "Refusée", tone: "danger" },
+  CANCELLED: { label: "Annulée", tone: "neutral" },
 };
 
 export const LEAVE_TYPE: Record<string, string> = {

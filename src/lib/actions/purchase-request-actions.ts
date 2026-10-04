@@ -13,6 +13,7 @@ import {
   cleanLines, estimatedTotal, summarize, purchaseStage, canWithdraw, type PurchaseLine,
 } from "@/lib/general-means/purchase-request";
 import { journaliserDemandeAchat } from "@/lib/general-means/purchase-journal";
+import { annulerDemandeSecretariat } from "@/lib/secretariat/annulation";
 import { fdStr, type ActionResult } from "@/lib/actions/types";
 
 /**
@@ -182,7 +183,33 @@ export async function withdrawPurchaseRequest(formData: FormData): Promise<Actio
   const lue = req.approvals[0] ?? null;
   const stage = purchaseStage(req.status, lue);
   if (!canWithdraw(stage)) {
-    return { ok: false, error: "Votre directeur a déjà tranché : la demande ne peut plus être retirée." };
+    return {
+      ok: false,
+      error: stage === "DONE" ? "L'achat est déjà effectué : la demande ne se retire plus."
+        : stage === "REJECTED" ? "Votre directeur a refusé cette demande : il n'y a plus rien à retirer."
+        : "Cette demande est déjà annulée.",
+    };
+  }
+
+  // VALIDÉE MAIS PAS EXÉCUTÉE (décision du 04/10) : le retrait passe par l'ANNULATION COMMUNE d'une
+  // demande au secrétariat — un paiement réglé refuse avant toute écriture, la demande se clôt sous
+  // condition, puis ses approbations et ses ordres non réglés partent, et le secrétariat est prévenu.
+  if (stage === "APPROVED") {
+    const motif = fdStr(formData, "motif") ?? "achat retiré après la validation du directeur";
+    const res = await annulerDemandeSecretariat(id, { acteurId: user.id, motif, cause: "par son demandeur" });
+    if (!res.ok) return { ok: false, error: res.error };
+    if (!res.annulee) return { ok: false, error: "Cette demande vient de changer — rechargez la page pour voir où elle en est." };
+    if (req.validatorId && req.validatorId !== user.id) {
+      await notifyUser({ userId: req.validatorId, type: "GENERIC", title: "Demande d'achat retirée", body: `${req.reference} — retirée après votre validation : ${motif}`, link: `/demandes/${id}` }).catch(() => undefined);
+    }
+    await journaliserDemandeAchat({ requestId: id, event: "WITHDRAWN", actorId: user.id });
+    revalidatePath(PATH);
+    revalidatePath("/demandes");
+    revalidatePath("/demandes/approvals");
+    return {
+      ok: true,
+      message: res.reserve ?? (res.ordresAnnules.length ? `Demande retirée — paiement(s) annulé(s) : ${res.ordresAnnules.join(", ")}.` : "Demande retirée — le secrétariat est prévenu."),
+    };
   }
 
   // SOUS CONDITION DE CE QUI A ÉTÉ LU (lot E5). Le retrait écrivait « annulée » sans condition : le directeur qui

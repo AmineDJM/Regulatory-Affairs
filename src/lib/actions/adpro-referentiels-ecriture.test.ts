@@ -13,7 +13,7 @@ import { createCongressRequest } from "./congress-request-actions";
 import { getAdProCreateData } from "@/lib/queries/ad-pro";
 import { getCongressDetail } from "@/lib/queries/congress";
 import { AD_PRO_KINDS } from "@/lib/ad-pro/unified";
-import { natureDesigneMedecinsEtProduits } from "@/lib/ad-pro/create-fields";
+import { natureDesigneMedecins, natureDesigneMedecinsEtProduits } from "@/lib/ad-pro/create-fields";
 import { AVAILABLE_PRODUCT_STATUSES } from "@/lib/ad-pro/pickers";
 import { CHAMPS_MEDECINS, CHAMPS_PRODUITS, MULTI_SEP } from "@/lib/ad-pro/pickers";
 
@@ -144,60 +144,54 @@ suite("Ad & Pro — praticiens, produits et gamme écrits par les vraies actions
     expect(a.product).toBe("Produit hors référentiel");
   });
 
-  it("PRISE EN CHARGE INTERNATIONALE : les produits vont dans `products`, la gamme est écrite", async () => {
+  /*
+   * LES PRISES EN CHARGE, DÉCISION DE LA DIRECTION DU 04/10/2026 : ni spécialité ni produits promus
+   * (ni pays au national), l'événement daté par son DÉBUT et sa FIN, et les médecins deviennent les
+   * PROFESSIONNELS PROPOSÉS — une ligne `CareBeneficiary` chacun, la même liste que la fiche.
+   */
+  const docDuBanc = async () => (await prisma.medicalDoctor.findFirstOrThrow({ where: { name: `${TAG}Dr Test` } })).id;
+
+  it("PRISE EN CHARGE INTERNATIONALE : la gamme est écrite, les médecins deviennent des PROPOSITIONS, ni produit ni spécialité", async () => {
     const fd = new FormData();
     fd.set("type", "INTL");
     fd.set("name", `${TAG}ECCMID`);
     fd.set("businessUnitId", gammeId);
+    fd.set("startDate", "2026-11-02");
+    fd.set("endDate", "2026-11-05");
+    // FORGÉS : le formulaire ne les porte plus — l'action ne doit pas les écrire (§118.152c).
     fd.set("specialty", "Infectiologie");
     fd.append(CHAMPS_PRODUITS.coches, "Nivolex (nivolumab)");
-    fd.append("invitedDoctorIds", "doc-1");
+    fd.append("invitedDoctorIds", await docDuBanc());
     const r = await createCongressRequest(undefined, fd);
     expect(r.ok, r.ok === false ? r.error : "").toBe(true);
-    const c = await prisma.congressInternational.findFirstOrThrow({ where: { name: { startsWith: TAG } } });
-    expect(c.products).toBe("Nivolex (nivolumab)");
-    // Le champ de gamme MANQUAIT sur ce formulaire alors que l'action le lisait déjà : les deux
-    // prises en charge sortaient sans gamme, et leur dépense n'était rattachable à rien.
+    const c = await prisma.congressInternational.findFirstOrThrow({
+      where: { name: `${TAG}ECCMID` }, include: { careBeneficiaries: true },
+    });
+    expect(c.products).toBeNull();
+    expect(c.specialty).toBeNull();
     expect(c.businessUnitId).toBe(gammeId);
-    // Les médecins gardent leur mécanisme par RÉFÉRENCES — strictement mieux qu'un libellé.
-    expect(c.invitedDoctorIds).toEqual(["doc-1"]);
+    expect(c.endDate?.toISOString().slice(0, 10)).toBe("2026-11-05");
+    // LA SOURCE UNIQUE : la ligne de la fiche, en PROPOSITION ; la colonne d'avant n'est plus écrite.
+    expect(c.careBeneficiaries.map((b) => [b.doctorId, b.status])).toEqual([[await docDuBanc(), "PROPOSED"]]);
+    expect(c.invitedDoctorIds).toEqual([]);
   });
 
-  it("LA FICHE RELIT les produits — sur les deux prises en charge", async () => {
-    /*
-     * UNE COLONNE QUE RIEN NE MONTRE EST DU CODE MORT (§118.14, §118.50), et c'est l'état où
-     * `CongressInternational.products` a vécu depuis toujours : ni écrite, ni affichée.
-     *
-     * CE CAS EXISTE PARCE QU'UN SABOTAGE EST PASSÉ AU VERT. En faisant rendre `""` au lecteur de
-     * la fiche, mes huit autres cas restaient tous verts : ils prouvaient l'ÉCRITURE et rien de
-     * la RELECTURE. « Un sabotage qui passe ne dit pas que le code est bon, il dit que je ne
-     * teste pas ce que je crois » (§118.111). Le demandeur aurait coché trois produits et ne les
-     * aurait jamais revus.
-     *
-     * On passe par la VRAIE lecture, avec sa portée (`scopeCongressIntl`) : un accesseur privilégié
-     * montrerait une ligne que la personne n'a pas le droit de voir (§118.81).
-     */
-    // CE CAS PORTE SON PROPRE DÉCOR : lire celui d'un cas voisin ferait dépendre le verdict de
-    // l'ORDRE d'exécution, et c'est ainsi qu'on mesure le voisinage au lieu du produit (§118.92).
-    const acteur = { id: demandeurId, role: "PRODUCT_MANAGER", access: (ACTOR as NonNullable<typeof ACTOR>).access } as never;
-    const poser = async (type: "INTL" | "NATIONAL", nom: string, produit: string) => {
-      const fd = new FormData();
-      fd.set("type", type);
-      fd.set("name", nom);
-      fd.set("businessUnitId", gammeId);
-      fd.append(CHAMPS_PRODUITS.coches, produit);
-      const r = await createCongressRequest(undefined, fd);
-      expect(r.ok, r.ok === false ? r.error : "").toBe(true);
-      return r.ok ? r.id! : "";
-    };
-    const idIntl = await poser("INTL", `${TAG}RelectureIntl`, "Nivolex (nivolumab)");
-    const vueIntl = await getCongressDetail("INTL", acteur, idIntl);
-    expect(vueIntl?.products, "la fiche internationale doit rendre les produits").toBe("Nivolex (nivolumab)");
-    const idNat = await poser("NATIONAL", `${TAG}RelectureNat`, "Trastuzex (trastuzumab)");
-    const vueNat = await getCongressDetail("NATIONAL", acteur, idNat);
-    // L'AUTRE MOITIÉ : le national porte la colonne sous un AUTRE nom. Sans ce second cas, un
-    // lecteur qui n'interrogerait que `products` passerait pour correct.
-    expect(vueNat?.products, "la fiche nationale doit rendre les produits").toBe("Trastuzex (trastuzumab)");
+  it("CE QUI MANQUE SE NOMME EN UNE FOIS, une fin avant le début est refusée, un professionnel inconnu aussi", async () => {
+    const base = () => { const fd = new FormData(); fd.set("type", "NATIONAL"); fd.set("businessUnitId", gammeId); return fd; };
+    const vide = await createCongressRequest(undefined, base());
+    expect(vide.ok === false && vide.error).toBe("À renseigner : le nom de l'événement, la date de début, la date de fin.");
+    const sansFin = base(); sansFin.set("name", `${TAG}SansFin`); sansFin.set("date", "2026-11-02");
+    const r1 = await createCongressRequest(undefined, sansFin);
+    expect(r1.ok === false && r1.error).toBe("À renseigner : la date de fin.");
+    const aLEnvers = base(); aLEnvers.set("name", `${TAG}Envers`); aLEnvers.set("date", "2026-11-05"); aLEnvers.set("endDate", "2026-11-02");
+    const r2 = await createCongressRequest(undefined, aLEnvers);
+    expect(r2.ok === false && r2.error).toBe("La date de fin ne peut pas précéder la date de début.");
+    const inconnu = base(); inconnu.set("name", `${TAG}Inconnu`); inconnu.set("date", "2026-11-02"); inconnu.set("endDate", "2026-11-03");
+    inconnu.append("invitedDoctorIds", "doc-inexistant");
+    const r3 = await createCongressRequest(undefined, inconnu);
+    expect(r3.ok).toBe(false);
+    // Aucun des quatre refus n'a créé de demande.
+    expect(await prisma.congressNational.count({ where: { name: { in: [`${TAG}SansFin`, `${TAG}Envers`, `${TAG}Inconnu`] } } })).toBe(0);
   });
 
   it("LE CHARGEUR sert les référentiels aux SIX natures, et à aucune autre", async () => {
@@ -215,29 +209,33 @@ suite("Ad & Pro — praticiens, produits et gamme écrits par les vraies actions
      */
     for (const k of AD_PRO_KINDS) {
       const d = await getAdProCreateData(demandeurId, [k.kind]);
-      const attendu = natureDesigneMedecinsEtProduits(k.kind);
-      expect(d.doctors.some((x) => x.name.startsWith(TAG)), `${k.kind} : médecins`).toBe(attendu);
-      expect(d.products.some((x) => (x.brandName ?? "").startsWith(TAG)), `${k.kind} : produits`).toBe(attendu);
+      // Les PRISES EN CHARGE ont des médecins (les professionnels proposés) et plus de produit.
+      expect(d.doctors.some((x) => x.name.startsWith(TAG)), `${k.kind} : médecins`).toBe(natureDesigneMedecins(k.kind));
+      expect(d.products.some((x) => (x.brandName ?? "").startsWith(TAG)), `${k.kind} : produits`).toBe(natureDesigneMedecinsEtProduits(k.kind));
     }
     // LA PRÉMISSE : sans elle, « 0 partout » rendrait chaque comparaison vraie pour la mauvaise
     // raison, et le matériel promotionnel passerait pour correctement exclu.
-    const promo = AD_PRO_KINDS.filter((k) => !natureDesigneMedecinsEtProduits(k.kind));
+    const promo = AD_PRO_KINDS.filter((k) => !natureDesigneMedecins(k.kind));
     expect(promo.map((k) => k.kind)).toEqual(["PROMO_MATERIAL"]);
   });
 
-  it("PRISE EN CHARGE NATIONALE : les produits vont dans `promotedProducts`", async () => {
-    // DEUX NOMS DE COLONNE POUR LE MÊME FAIT, sur deux modèles frères. Ce qui le ferait tomber :
-    // écrire `products` des deux côtés — le typecheck l'attrape ici, et en production la colonne
-    // du national resterait vide en silence.
+  it("PRISE EN CHARGE NATIONALE : ni pays, ni spécialité, ni produits — et la fiche rend le début ET la fin", async () => {
     const fd = new FormData();
     fd.set("type", "NATIONAL");
     fd.set("name", `${TAG}JNCardio`);
     fd.set("businessUnitId", gammeId);
+    fd.set("date", "2026-12-01");
+    fd.set("endDate", "2026-12-03");
+    fd.set("country", "Tunisie");
+    fd.set("specialty", "Cardiologie");
     fd.append(CHAMPS_PRODUITS.coches, "Trastuzex (trastuzumab)");
     const r = await createCongressRequest(undefined, fd);
     expect(r.ok, r.ok === false ? r.error : "").toBe(true);
-    const c = await prisma.congressNational.findFirstOrThrow({ where: { name: { startsWith: TAG } } });
-    expect(c.promotedProducts).toBe("Trastuzex (trastuzumab)");
+    const c = await prisma.congressNational.findFirstOrThrow({ where: { name: `${TAG}JNCardio` } });
+    expect([c.country, c.specialty, c.promotedProducts]).toEqual([null, null, null]);
     expect(c.businessUnitId).toBe(gammeId);
+    const acteur = { id: demandeurId, role: "PRODUCT_MANAGER", access: (ACTOR as NonNullable<typeof ACTOR>).access } as never;
+    const vue = await getCongressDetail("NATIONAL", acteur, c.id);
+    expect([vue?.date?.slice(0, 10), vue?.endDate?.slice(0, 10)]).toEqual(["2026-12-01", "2026-12-03"]);
   });
 });

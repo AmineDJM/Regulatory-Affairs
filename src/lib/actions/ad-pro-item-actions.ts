@@ -2393,7 +2393,7 @@ async function chargerVoyageur(id: string, user: SessionUser) {
 }
 
 /** La ligne d'un voyageur telle qu'il est en base — ce que `changementsVoyageur` compare. */
-const voyageurLu = (v: Omit<VoyageurLu, never>): VoyageurLu => ({
+const voyageurLu = (v: VoyageurLu): VoyageurLu => ({
   nom: v.nom, villeDepart: v.villeDepart, villeArrivee: v.villeArrivee, dateDepart: v.dateDepart, dateRetour: v.dateRetour, notes: v.notes,
   trajet: v.trajet, transport: v.transport,
 });
@@ -2492,11 +2492,13 @@ export async function retirerVoyageur(formData: FormData): Promise<ActionResult>
   if (!found) return { ok: false, error: "Voyageur introuvable." };
   const { voyageur: v, item, owner } = found;
   if (!canEditItems(user, owner.parent)) return { ok: false, error: "Non autorisé." };
+  // SES DEVIS RESTENT DES DEVIS DU POSTE (§118.205) : seul le lien « pour ce voyageur » part avec lui.
+  const devis = await prisma.adProVoyageurDevis.count({ where: { voyageurId: id } });
   await prisma.adProVoyageur.delete({ where: { id } });
   const sujet = await signalerAuSujet(item, user.id, `voyageur retiré : ${v.nom}.`);
   await audit(user, owner.parent, owner.id, "UPDATE", `Voyageur « ${v.nom} » retiré du poste « ${item.label} ».`);
   revalidate(owner.parent, owner.id);
-  return { ok: true, message: `Voyageur retiré.${sujet}` };
+  return { ok: true, message: `Voyageur retiré.${devis > 0 ? ` Son devis reste sur le poste (case « Devis / pro forma »).` : ""}${sujet}` };
 }
 
 /**
@@ -2587,4 +2589,173 @@ export async function demanderReservation(formData: FormData): Promise<ActionRes
   revalidate(owner.parent, owner.id);
   revalidatePath("/dossiers");
   return { ok: true, id: sujet.id, message: `Demande de réservation envoyée — sujet ${sujet.reference} ouvert pour l'assistante de direction.` };
+}
+
+// ───────────────────── Billetterie : le devis de chaque voyageur, puis le BC (§118.205) ─────────────────────
+//
+// « Pour chaque voyageur, on met le devis ou pro forma de l'agence ; si le demandeur valide une des pro
+// forma ou un des devis, alors on demande à établir un BC, ensuite ça suit le process jusqu'à demander
+// la facture » (Direction, 04/10). Pas de second circuit de pièces : le devis d'un voyageur EST un devis
+// du poste (`ajouterDevisPoste`), et `AdProVoyageurDevis` dit seulement pour QUI il a été déposé et s'il
+// est la proposition retenue. Le BC passe par la porte du poste (`requestAdProItemOrder`), inchangée.
+
+/** Le prisma d'une contrainte d'unicité violée — l'index partiel « un retenu par voyageur ». */
+const estConflitUnicite = (e: unknown) => typeof e === "object" && e !== null && (e as { code?: string }).code === "P2002";
+
+/** Le BC a été demandé pendant la validation : la transaction se défait. */
+class ChoixPerdu extends Error {}
+
+/** Les étapes du BC où le choix d'un devis compte encore : il n'est ni demandé, ni établi. */
+const BC_PAS_ENCORE_DEMANDE: AdProItemOrderStage[] = ["NONE", "REFUSED"];
+
+/**
+ * DÉPOSER LE DEVIS OU LA PRO FORMA DE L'AGENCE POUR UN VOYAGEUR. Délègue à `ajouterDevisPoste` (le même
+ * fichier exigé, les mêmes refus, la pièce au registre Legal), sans devis commun : celui-ci ne couvre que
+ * son poste. Puis le lien « pour ce voyageur ». Si le voyageur a été retiré entre-temps, le devis reste
+ * un devis du poste, et la phrase le dit.
+ */
+export async function ajouterDevisVoyageur(_prev: ActionResult | undefined, formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  const voyageurId = fdStr(formData, "voyageurId");
+  if (!voyageurId) return { ok: false, error: "Voyageur non précisé." };
+  const found = await chargerVoyageur(voyageurId, user);
+  if (!found) return { ok: false, error: "Voyageur introuvable." };
+  const { voyageur: v, item, owner } = found;
+  if (!canEditItems(user, owner.parent)) return { ok: false, error: "Non autorisé." };
+  formData.delete("autresPostes");
+  formData.set("id", item.id);
+  const depose = await ajouterDevisPoste(undefined, formData);
+  if (!depose.ok || !depose.id) return depose;
+  const piece = await prisma.adProItemPiece.findUnique({
+    where: { itemId_legalDocumentId: { itemId: item.id, legalDocumentId: depose.id } }, select: { id: true },
+  });
+  const lie = piece
+    ? await prisma.adProVoyageurDevis.create({ data: { voyageurId, pieceId: piece.id, createdById: user.id }, select: { id: true } }).catch(() => null)
+    : null;
+  revalidate(owner.parent, owner.id);
+  if (!lie) {
+    return { ok: false, error: `Le devis est déposé sur le poste, mais ${v.nom} vient d'être retiré des voyageurs : il reste un devis du poste.` };
+  }
+  await audit(user, owner.parent, owner.id, "UPDATE", `Devis déposé pour le voyageur « ${v.nom} » du poste « ${item.label} ».`);
+  return { ok: true, id: depose.id, message: `${depose.message ?? "Devis déposé."} Pour ${v.nom} — validez-le quand il convient.` };
+}
+
+/** La phrase du dépassement, sur l'ensemble des devis retenus du poste (tous voyageurs). */
+async function depassementDuPoste(itemId: string, accorde: unknown): Promise<string | null> {
+  const retenus = await prisma.adProVoyageurDevis.findMany({
+    where: { retenuLe: { not: null }, voyageur: { itemId }, piece: { legalDocument: { status: { not: "CANCELLED" }, cancelledAt: null } } },
+    select: { piece: { select: { legalDocument: { select: { amount: true } } } } },
+  });
+  return depassementDevisRetenus(
+    retenus.map((r) => (r.piece.legalDocument.amount != null ? toNumber(r.piece.legalDocument.amount) : null)),
+    accorde != null ? toNumber(accorde) : null,
+  );
+}
+
+/**
+ * VALIDER UNE PROPOSITION D'UN VOYAGEUR — le demandeur en choisit une, les autres sont écartées. Choisir
+ * un autre devis ensuite REMPLACE le choix, tant que le BC n'est pas demandé : après, le choix est ce que
+ * le BC couvre, et il ne change plus d'ici.
+ *
+ * DEUX VALIDATIONS CROISÉES N'EN POSENT QU'UNE : la ligne du voyageur est verrouillée, le choix actuel
+ * relu dessous et comparé à celui que la personne a VU (`retenuVu`) — le second geste trouve le choix
+ * changé et le dit. L'écriture reste conditionnelle (devis encore libre, BC pas encore demandé), et l'index
+ * partiel de la base n'admet qu'un retenu par voyageur. Un dépassement du montant accordé se DIT, sans bloquer.
+ */
+export async function validerDevisVoyageur(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  const voyageurId = fdStr(formData, "voyageurId");
+  const devisId = fdStr(formData, "devisId");
+  if (!voyageurId || !devisId) return { ok: false, error: "Voyageur ou devis non précisés." };
+  const found = await chargerVoyageur(voyageurId, user);
+  if (!found) return { ok: false, error: "Voyageur introuvable." };
+  const { voyageur: v, item, owner } = found;
+  if (!canEditItems(user, owner.parent)) return { ok: false, error: "Non autorisé." };
+  if (item.status === "REJECTED") return { ok: false, error: "Ce poste a été refusé : on n'y retient plus de devis." };
+  if (!BC_PAS_ENCORE_DEMANDE.includes(item.orderStage)) {
+    return { ok: false, error: "Le bon de commande de ce poste est déjà demandé : le devis retenu est celui qu'il couvre, il ne change plus d'ici." };
+  }
+  const lien = await prisma.adProVoyageurDevis.findFirst({
+    where: { voyageurId, piece: { itemId: item.id, legalDocumentId: devisId } },
+    select: { id: true, retenuLe: true, piece: { select: { legalDocument: { select: { status: true, cancelledAt: true } } } } },
+  });
+  if (!lien) return { ok: false, error: `Ce devis n'est pas une proposition déposée pour ${v.nom}.` };
+  const doc = lien.piece.legalDocument;
+  if (doc.status === "CANCELLED" || doc.cancelledAt) return { ok: false, error: "Ce devis a été annulé au registre : il ne se retient plus." };
+  if (lien.retenuLe) return { ok: true, id: devisId, message: `Ce devis est déjà celui retenu pour ${v.nom}.` };
+  // CE QUE LA PERSONNE A VU RETENU (§118.187) : changer de devis ne remplace QUE ce choix-là.
+  const retenuVu = fdStr(formData, "retenuVu");
+
+  let issue: "POSE" | "DEJA" | "CHANGE" | "BC";
+  try {
+    issue = await prisma.$transaction(async (tx) => {
+      // UN GESTE À LA FOIS PAR VOYAGEUR : la ligne du voyageur est verrouillée, le choix actuel RELU dessous.
+      await tx.$queryRaw`SELECT id FROM "AdProVoyageur" WHERE id = ${voyageurId} FOR UPDATE`;
+      const actuel = await tx.adProVoyageurDevis.findFirst({
+        where: { voyageurId, retenuLe: { not: null } }, select: { id: true, piece: { select: { legalDocumentId: true } } },
+      });
+      if (actuel?.piece.legalDocumentId === devisId) return "DEJA" as const;
+      if ((actuel?.piece.legalDocumentId ?? null) !== retenuVu) return "CHANGE" as const;
+      if (actuel) await tx.adProVoyageurDevis.update({ where: { id: actuel.id }, data: { retenuLe: null, retenuParId: null } });
+      const pose = await tx.adProVoyageurDevis.updateMany({
+        where: { id: lien.id, retenuLe: null, piece: { item: { orderStage: { in: BC_PAS_ENCORE_DEMANDE } } } },
+        data: { retenuLe: new Date(), retenuParId: user.id },
+      });
+      // Le BC vient d'être demandé : on défait le retrait de l'ancien choix avec le reste.
+      if (pose.count === 0) throw new ChoixPerdu();
+      return "POSE" as const;
+    });
+  } catch (e) {
+    if (e instanceof ChoixPerdu) issue = "BC";
+    // L'INDEX PARTIEL de la base, second filet : deux retenus pour un voyageur n'existent jamais.
+    else if (estConflitUnicite(e)) issue = "CHANGE";
+    else throw e;
+  }
+  if (issue === "DEJA") return { ok: true, id: devisId, message: `Ce devis est déjà celui retenu pour ${v.nom}.` };
+  if (issue === "CHANGE") return { ok: false, error: `Le devis retenu pour ${v.nom} vient de changer : rouvrez la fiche.` };
+  if (issue === "BC") return { ok: false, error: "Le bon de commande de ce poste vient d'être demandé : le devis retenu ne change plus d'ici." };
+  const depasse = await depassementDuPoste(item.id, item.amountGranted);
+  await audit(user, owner.parent, owner.id, "UPDATE", `Devis retenu pour le voyageur « ${v.nom} » du poste « ${item.label} ».`);
+  revalidate(owner.parent, owner.id);
+  return { ok: true, id: devisId, message: `Devis retenu pour ${v.nom} — les autres propositions sont écartées.${depasse ? ` ${depasse}` : ""}` };
+}
+
+/**
+ * DEMANDER LE BC D'UNE BILLETTERIE — d'après les propositions RETENUES. Exige au moins un devis retenu,
+ * écrit la liste dans la demande (l'assistante sait quelles propositions établir), puis passe par la
+ * porte du poste (`requestAdProItemOrder`) : mêmes gardes (poste accordé, budget), même chaîne ensuite
+ * jusqu'à la facture. Le montant accordé ne bouge pas ; un dépassement se dit.
+ */
+export async function demanderBCBilletterie(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  const id = fdStr(formData, "id");
+  if (!id) return { ok: false, error: "Poste non précisé." };
+  const found = await loadItem(id, user);
+  if (!found) return { ok: false, error: "Poste introuvable." };
+  const { item, owner } = found;
+  if (!canEditItems(user, owner.parent)) return { ok: false, error: "Non autorisé." };
+  if (!porteDesVoyageurs(item.kind)) return { ok: false, error: "Seul un poste « billetterie » demande son BC d'après les devis de ses voyageurs." };
+  const [retenus, total] = await Promise.all([
+    prisma.adProVoyageurDevis.findMany({
+      where: { retenuLe: { not: null }, voyageur: { itemId: id }, piece: { legalDocument: { status: { not: "CANCELLED" }, cancelledAt: null } } },
+      select: { voyageur: { select: { nom: true, position: true } }, piece: { select: { legalDocument: { select: { title: true, reference: true, amount: true } } } } },
+    }),
+    prisma.adProVoyageur.count({ where: { itemId: id } }),
+  ]);
+  if (retenus.length === 0) {
+    return { ok: false, error: "Validez d'abord le devis d'au moins un voyageur : le bon de commande s'établit d'après les propositions retenues." };
+  }
+  retenus.sort((a, b) => a.voyageur.position - b.voyageur.position);
+  const liste = retenus.map((r) => {
+    const d = r.piece.legalDocument;
+    return `• ${r.voyageur.nom} — ${d.reference ?? d.title}${d.amount != null ? ` (${toNumber(d.amount).toLocaleString("fr-FR")} DZD)` : ""}`;
+  }).join("\n");
+  const sansDevis = total - retenus.length;
+  const note = [fdStr(formData, "note"), `Devis retenus (${retenus.length}/${total} voyageur(s)) :\n${liste}`].filter(Boolean).join("\n\n");
+  formData.set("note", note);
+  const r = await requestAdProItemOrder(undefined, formData);
+  if (!r.ok) return r;
+  const depasse = await depassementDuPoste(id, item.amountGranted);
+  const reste = sansDevis > 0 ? ` ${sansDevis} voyageur(s) sans devis retenu ne sont pas dans cette demande.` : "";
+  return { ...r, message: `${r.message ?? "Bon de commande demandé."}${reste}${depasse ? ` ${depasse}` : ""}` };
 }

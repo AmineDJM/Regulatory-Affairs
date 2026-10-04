@@ -12,6 +12,7 @@ import { visibleTabs } from "@/lib/nav-tabs";
 import { ModuleTabs } from "@/components/shared/module-tabs";
 import { formatDate, formatDateTime, formatMonth, formatCurrency } from "@/lib/utils";
 import { NewRequestButton, CancelRequestButton } from "./request-controls";
+import { refusAnnulationDemandeRh } from "@/lib/annulations/regles";
 import { LeaveRequestButton } from "@/components/hr/leave-request-button";
 import { leaveFormContext } from "@/lib/hr/leave-form-context";
 import { MyLeaves } from "@/components/hr/my-leaves";
@@ -229,7 +230,7 @@ export default async function MonDossierPage() {
                         <Download className="h-4 w-4" /> Document
                       </a>
                     )}
-                    {r.status === "PENDING" && <CancelRequestButton id={r.id} />}
+                    {refusAnnulationDemandeRh(r.status) === null && <CancelRequestButton id={r.id} />}
                   </div>
                   {r.type === "HR_INTERVIEW" && r.status !== "REJECTED" && (
                     <MeetingControls

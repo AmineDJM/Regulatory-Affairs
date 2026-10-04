@@ -958,6 +958,11 @@ function PosteCarte({ item, parent, parentId, regard, freres, assistantes, budge
           peutReserver={item.status !== "REJECTED"}
           busy={busy}
           run={run}
+          // §118.205 : la somme des devis retenus se compare au montant accordé (sans le changer), et le BC
+          // se demande d'ici d'après eux dès que le poste en est là (`prochainPas`).
+          montantAccorde={item.amountGranted}
+          bcPossible={pas.geste?.cle === "DEMANDER_BC" && item.orderStage !== "REQUESTED" && item.orderStage !== "DIRECTION_OK"}
+          assistantes={assistantes}
         />
       )}
 

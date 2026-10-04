@@ -16,7 +16,7 @@ import { cashWarning } from "@/lib/general-means/continuous-cash";
 import { ETAT_REMISE_LABEL, remiseEnAttente } from "@/lib/general-means/remise-centre";
 import {
   allotPettyCash, confirmPettyCashReceipt, requestPettyCashTopUp, closePettyCash,
-  decidePettyCashTopUp, setPettyCashPlan,
+  decidePettyCashTopUp, setPettyCashPlan, annulerRallongeCaisse,
 } from "@/lib/actions/petty-cash-actions";
 import type { GeneralMeansView, GeneralMeansRemittance } from "@/lib/queries/general-means";
 
@@ -356,10 +356,24 @@ export function CashPanel({ view, people }: { view: GeneralMeansView; people: { 
                         <ThumbsDown className="h-3.5 w-3.5" /> Refuser
                       </button>
                     </span>
-                  ) : <Badge tone="warning" dot={false}>En attente des RH</Badge>
+                  ) : (
+                    <span className="flex flex-wrap items-center gap-1.5">
+                      <Badge tone="warning" dot={false}>En attente des RH</Badge>
+                      {/* RETIRER SA DEMANDE (décision du 04/10) — tant qu'elle n'est pas tranchée. */}
+                      {t.canCancel && (
+                        <button type="button" disabled={busy === `top:${t.id}`} onClick={() => {
+                          if (!window.confirm("Retirer cette demande de rallonge ? Les RH en seront prévenues.")) return;
+                          const fd = new FormData(); fd.set("id", t.id);
+                          void run(`top:${t.id}`, () => annulerRallongeCaisse(fd), "Demande de rallonge retirée.");
+                        }} className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-xs text-muted-foreground hover:bg-destructive/10 hover:text-destructive disabled:opacity-50">
+                          Retirer
+                        </button>
+                      )}
+                    </span>
+                  )
                 ) : (
-                  <Badge tone={t.status === "APPROVED" ? "success" : "danger"} dot={false}>
-                    {t.status === "APPROVED" ? `Accordée — ${formatCurrency(t.amountGranted ?? 0)}` : "Refusée"}
+                  <Badge tone={t.status === "APPROVED" ? "success" : t.status === "CANCELLED" ? "neutral" : "danger"} dot={false}>
+                    {t.status === "APPROVED" ? `Accordée — ${formatCurrency(t.amountGranted ?? 0)}` : t.status === "CANCELLED" ? "Retirée" : "Refusée"}
                   </Badge>
                 )}
               </li>

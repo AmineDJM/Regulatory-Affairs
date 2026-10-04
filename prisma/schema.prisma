@@ -2853,6 +2853,7 @@ enum PettyCashTopUpStatus {
   PENDING
   APPROVED
   REJECTED
+  CANCELLED /// retirée par la détentrice avant la décision (décision du 04/10)
 }
 
 model PettyCashTopUpRequest {
@@ -3006,6 +3007,7 @@ enum DeptBudgetRequestStatus {
   PENDING
   APPROVED
   REJECTED
+  CANCELLED /// retirée par son demandeur avant la décision (décision du 04/10)
 }
 
 model BudgetExpenseLine {
@@ -5051,6 +5053,7 @@ enum HrRequestStatus {
   DELIVERED // remise à l'employé
   APPROVED // accordée (congé / absence / autorisation — décision, pas un document)
   REJECTED
+  CANCELLED // retirée par le salarié avant d'être traitée (décision du 04/10)
 }
 
 model Employee {

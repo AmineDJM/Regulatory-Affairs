@@ -1,3 +1,4 @@
+import { refusAnnulationPieceInfoMed } from "@/lib/annulations/regles";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowLeft, ExternalLink, FileText, ShieldPlus, CheckCircle2, Clock, HandCoins } from "lucide-react";
@@ -210,7 +211,7 @@ export default async function DeclarationDetailPage({ params }: { params: { id: 
                           </div>
                           <div className="flex shrink-0 items-center gap-2">
                             <StatusBadge map={DOC_REQUEST_STATUS} value={r.status} dot={false} />
-                            {canManage && r.status === "PENDING" && <CancelRequestButton id={r.id} />}
+                            {refusAnnulationPieceInfoMed(r, { userId: user.id, gestionnaire: canManage }) === null && <CancelRequestButton id={r.id} />}
                           </div>
                         </div>
                         {r.note && <p className="mt-1 text-xs text-muted-foreground">Note : {r.note}</p>}

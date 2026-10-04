@@ -20,6 +20,7 @@ import { createExpenseOrder } from "@/lib/expense-orders";
 import { ordreDeRemise } from "@/lib/general-means/remettre";
 import { etatRemise, refusConfirmationRemise } from "@/lib/general-means/remise-centre";
 import { fdStr, fdNum, fdCase, type ActionResult } from "@/lib/actions/types";
+import { refusAnnulationRallonge } from "@/lib/annulations/regles";
 import { readReceipt, saveReceiptLines } from "@/lib/general-means/expense-lines";
 import { allowedGeneralMeansCategoryIds, keepAllowedCategory } from "@/lib/general-means/budget-targets";
 
@@ -373,6 +374,40 @@ export async function requestPettyCashTopUp(formData: FormData): Promise<ActionR
   });
   revalidatePath(PATH);
   return { ok: true };
+}
+
+/**
+ * RETIRER SA DEMANDE DE RALLONGE (décision de la Direction, 04/10) — tant que les RH ne l'ont pas
+ * tranchée. Elle se clôt (`CANCELLED`) par une écriture conditionnelle : une décision croisée
+ * l'emporte, et deux clics ne retirent qu'une fois. Ceux qui tranchent sont prévenus.
+ */
+export async function annulerRallongeCaisse(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  const id = fdStr(formData, "id");
+  if (!id) return { ok: false, error: "Demande introuvable." };
+  const req = await prisma.pettyCashTopUpRequest.findUnique({
+    where: { id },
+    select: { id: true, status: true, requestedById: true, amountRequested: true, allotment: { select: { departmentId: true, department: { select: { name: true } } } } },
+  });
+  if (!req) return { ok: false, error: "Demande introuvable." };
+  if (req.requestedById !== user.id) return { ok: false, error: "Seule la personne qui a demandé la rallonge la retire." };
+  const refus = refusAnnulationRallonge(req.status);
+  if (refus) return { ok: false, error: refus };
+  const pris = await prisma.pettyCashTopUpRequest.updateMany({ where: { id, status: "PENDING" }, data: { status: "CANCELLED" } });
+  if (pris.count === 0) return { ok: false, error: "Cette demande vient d'être tranchée — rechargez la page." };
+  await notifyRoles(["SUPER_ADMIN", "DIRECTION"], {
+    type: "GENERIC",
+    title: "Rallonge de caisse retirée",
+    body: `${req.allotment.department.name} : la demande de +${toNumber(req.amountRequested)} DZD est retirée par ${user.name} — il n'y a plus rien à trancher.`,
+    link: PATH,
+  }).catch(() => undefined);
+  await recordAudit({
+    actorId: user.id, action: "UPDATE", module: "Budgets", entityType: "BUDGET", entityId: req.allotment.departmentId,
+    field: "status", oldValue: "PENDING", newValue: "CANCELLED",
+    summary: `Rallonge de caisse retirée par sa demandeuse : +${toNumber(req.amountRequested)} DZD`,
+  });
+  revalidatePath(PATH);
+  return { ok: true, message: "Demande de rallonge retirée." };
 }
 
 /**

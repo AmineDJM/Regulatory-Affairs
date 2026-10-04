@@ -1,3 +1,4 @@
+import { refusAnnulationRallonge } from "@/lib/annulations/regles";
 import { prisma } from "@/lib/prisma";
 import { myCompanyScope } from "@/lib/company";
 import { toNumber } from "@/lib/utils";
@@ -190,10 +191,12 @@ export interface DeptBudgetRequestRow {
   kind: DeptBudgetKind;
   amount: number;
   reason: string | null;
-  status: "PENDING" | "APPROVED" | "REJECTED";
+  status: "PENDING" | "APPROVED" | "REJECTED" | "CANCELLED";
   requester: string;
   createdAt: string;
   decisionNote: string | null;
+  /** Son demandeur peut la retirer tant qu'elle n'est pas tranchée (décision du 04/10). */
+  canCancel: boolean;
 }
 
 /**
@@ -244,10 +247,11 @@ export async function getDepartmentBudgetRequests(
       kind: r.kind as DeptBudgetKind,
       amount: toNumber(r.amount),
       reason: r.reason,
-      status: r.status as "PENDING" | "APPROVED" | "REJECTED",
+      status: r.status as "PENDING" | "APPROVED" | "REJECTED" | "CANCELLED",
       requester: r.requestedBy?.name ?? "",
       createdAt: r.createdAt.toISOString(),
       decisionNote: r.decisionNote,
+      canCancel: r.requestedById === viewer.id && refusAnnulationRallonge(r.status) === null,
     }));
 }
 

@@ -16,7 +16,7 @@ import { fdStr, fdNum, fdDate, type ActionResult } from "@/lib/actions/types";
 import { recruitmentViewer } from "@/lib/recruitment/access";
 import { ecrireAuFil } from "@/lib/ad-pro/fil";
 import {
-  abilities, applyChainDecision, canDecideStep, canSelectCandidate, currentStep,
+  abilities, ETAPES_RETIRABLES, prevenusAuRetrait, applyChainDecision, canDecideStep, canSelectCandidate, currentStep,
   needsOnboarding, summarize, validateDraft, CONTRACT_LABEL,
   marchesChangees, changementsMateriels, reouverture, STAGE_LABEL,
   type ChainStep, type RecruitmentContract, type RecruitmentStage,
@@ -265,7 +265,11 @@ export async function decideRecruitmentStep(formData: FormData): Promise<ActionR
   return { ok: true, message: decision === "APPROVED" ? "Validée." : "Refusée." };
 }
 
-/** Retirer sa demande — tant que personne n'a tranché, ou quand elle lui a été renvoyée pour correction. */
+/**
+ * Retirer sa demande — tant qu'elle n'est pas EXÉCUTÉE, c'est-à-dire tant qu'aucun recrutement n'est
+ * prononcé (décision de la Direction, 04/10 ; règle `ETAPES_RETIRABLES`, lue aussi par la fiche). Les
+ * personnes déjà engagées dans la chaîne sont prévenues, l'offre du site repasse en brouillon.
+ */
 export async function cancelRecruitmentRequest(formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
   const id = fdStr(formData, "id");
@@ -275,32 +279,47 @@ export async function cancelRecruitmentRequest(formData: FormData): Promise<Acti
 
   const req = await prisma.recruitmentRequest.findUnique({
     where: { id },
-    select: { reference: true, stage: true, approvals: { select: { status: true } } },
+    select: { reference: true, position: true, stage: true, approvals: { select: { status: true, order: true, approverId: true } } },
   });
   if (!req) return { ok: false, error: "Demande introuvable." };
-  const untouched = req.approvals.every((a) => a.status === "PENDING");
-  if (!abilities(req.stage, viewer, { chainUntouched: untouched }).cancel) {
-    return { ok: false, error: "Un validateur s'est déjà prononcé : la demande ne peut plus être retirée." };
+  if (!abilities(req.stage, viewer).cancel) {
+    return {
+      ok: false,
+      error: ETAPES_RETIRABLES.has(req.stage)
+        ? "Seul le demandeur (ou la direction) retire cette demande."
+        : "Cette demande n'est plus en cours : un recrutement a été prononcé, ou elle est déjà close — elle ne se retire plus.",
+    };
   }
 
-  // Conditionnelle sur ce qui a été LU : un N+1 qui valide pendant le retrait ferait sinon d'une demande
-  // validée une demande « retirée », sa décision perdue en silence.
+  // Conditionnelle sur l'étape LUE : un passage d'étape concurrent (une marche qui avance, les RH qui
+  // ouvrent le sourcing, un recrutement prononcé) fait refuser le retrait au lieu de l'écraser.
+  const motif = fdStr(formData, "reason");
   const retiree = await prisma.recruitmentRequest.updateMany({
-    where: { id, stage: req.stage, ...(req.stage === "CHAIN" ? { approvals: { every: { status: "PENDING" } } } : {}) },
-    data: { stage: "CANCELLED", closedAt: new Date(), closingNote: fdStr(formData, "reason") },
+    where: { id, stage: req.stage },
+    data: { stage: "CANCELLED", closedAt: new Date(), closingNote: motif },
   });
   if (retiree.count === 0) return { ok: false, error: DEJA_CHANGE };
   // L'offre publiée sur le site suit l'étape du poste (§118.158) : ouverte, elle est en ligne ;
   // pourvue, close, refusée ou annulée, elle repasse en brouillon — tout de suite.
   await synchroniserOffreDeLaDemande(id, user.id);
+
+  const prevenus = prevenusAuRetrait(req.stage, req.approvals, user.id);
+  const corps = `${req.reference} — ${req.position} : retirée par son demandeur${motif ? ` (${motif})` : ""}. Il n'y a plus rien à traiter.`;
+  for (const approverId of prevenus.approbateurs) {
+    await notifyUser({ userId: approverId, type: "GENERIC", title: "Demande de recrutement retirée", body: corps, link: `/recrutement/${id}` }).catch(() => undefined);
+  }
+  if (prevenus.rh) {
+    await notifyRoles(rolesWithModule("RH", "UPDATE"), { type: "GENERIC", title: "Demande de recrutement retirée", body: corps, link: `/recrutement/${id}` }).catch(() => undefined);
+  }
   await recordAudit({
     actorId: user.id, action: "UPDATE", module: "Recrutement",
     entityType: "RECRUITMENT_REQUEST", entityId: id,
-    summary: `${req.reference} — demande retirée par son auteur`,
+    field: "stage", oldValue: req.stage, newValue: "CANCELLED",
+    summary: `${req.reference} — demande retirée par son auteur${motif ? ` · ${motif}` : ""}`,
   });
   revalidatePath("/recrutement");
   revalidatePath(`/recrutement/${id}`);
-  return { ok: true, message: "Demande retirée." };
+  return { ok: true, message: "Demande retirée — les personnes qui l'avaient en main sont prévenues." };
 }
 
 // ───────────────────────────── Les RH : précisions, ouverture, refus ─────────────────────────────

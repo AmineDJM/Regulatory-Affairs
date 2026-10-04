@@ -8,6 +8,7 @@ import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
 import { notifyUser } from "@/lib/notify";
 import { fdStr, type ActionResult } from "@/lib/actions/types";
+import { refusRetraitOrdreMission } from "@/lib/annulations/regles";
 
 // Entités pouvant recevoir des accompagnants / délégués de référence.
 const PARENT_TYPES: EntityType[] = ["CONGRESS_INTERNATIONAL", "CONGRESS_NATIONAL", "EVENT", "SPONSORING"];
@@ -106,6 +107,36 @@ export async function requestMissionOrder(formData: FormData): Promise<ActionRes
   revalidatePath(parentPath(a.entityType, a.entityId));
   revalidatePath("/missions");
   return { ok: true };
+}
+
+/**
+ * RETIRER SA DEMANDE D'ORDRE DE MISSION (décision de la Direction, 04/10) — la personne assignée
+ * la retire tant que l'ordre n'est pas émis. Écriture conditionnelle sur `REQUESTED` : un ordre émis
+ * pendant le clic ne redevient pas « aucun ». Celui qui devait l'émettre est prévenu.
+ */
+export async function retirerDemandeOrdreMission(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  const id = fdStr(formData, "id");
+  if (!id) return { ok: false, error: "Identifiant manquant." };
+  const a = await prisma.missionAssignment.findUnique({ where: { id } });
+  if (!a) return { ok: false, error: "Assignation introuvable." };
+  if (a.userId !== user.id) return { ok: false, error: "Seule la personne assignée retire sa demande d'ordre de mission." };
+  const refus = refusRetraitOrdreMission(a.orderStatus);
+  if (refus) return { ok: false, error: refus };
+  const pris = await prisma.missionAssignment.updateMany({ where: { id, orderStatus: "REQUESTED" }, data: { orderStatus: "NONE", requestedAt: null } });
+  if (pris.count === 0) return { ok: false, error: "L'ordre de mission vient d'être émis — rechargez la page." };
+  const label = await parentLabel(a.entityType, a.entityId);
+  if (a.createdById && a.createdById !== user.id) {
+    await notifyUser({ userId: a.createdById, type: "GENERIC", title: "Demande d'ordre de mission retirée", body: `${user.name} — ${label} : plus d'ordre à émettre.`, link: parentPath(a.entityType, a.entityId) }).catch(() => undefined);
+  }
+  await recordAudit({
+    actorId: user.id, action: "UPDATE", module: "Congrès", entityType: "MISSION_ASSIGNMENT", entityId: id,
+    field: "orderStatus", oldValue: "REQUESTED", newValue: "NONE",
+    summary: `Demande d'ordre de mission retirée — ${label}`,
+  });
+  revalidatePath(parentPath(a.entityType, a.entityId));
+  revalidatePath("/missions");
+  return { ok: true, message: "Demande d'ordre de mission retirée." };
 }
 
 /**

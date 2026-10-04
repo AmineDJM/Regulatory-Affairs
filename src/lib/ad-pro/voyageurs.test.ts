@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   lireVoyageur, manquesPourReserver, ligneVoyageur, changementsVoyageur, porteDesVoyageurs, NATURES_A_VOYAGEURS,
+  prochainGesteVoyageur, depassementDevisRetenus,
   type SaisieVoyageur, type VoyageurLu,
 } from "@/lib/ad-pro/voyageurs";
 
@@ -12,7 +13,7 @@ const saisie = (s: Partial<SaisieVoyageur> = {}): SaisieVoyageur => ({
   nom: "Dr Amel Haddad", villeDepart: null, villeArrivee: null, dateDepart: null, dateRetour: null, notes: null, ...s,
 });
 const lu = (v: Partial<VoyageurLu> = {}): VoyageurLu => ({
-  nom: "Dr Amel Haddad", villeDepart: "Alger", villeArrivee: "Paris", dateDepart: new Date("2026-11-12T00:00:00Z"), dateRetour: null, notes: null, ...v,
+  nom: "Dr Amel Haddad", villeDepart: "Alger", villeArrivee: "Paris", dateDepart: new Date("2026-11-12T00:00:00Z"), dateRetour: null, notes: null, trajet: "ALLER_RETOUR", transport: null, ...v,
 });
 
 describe("un voyageur de la billetterie", () => {
@@ -62,5 +63,53 @@ describe("un voyageur de la billetterie", () => {
       .toEqual(["aller : 12/11/2026 → 14/11/2026", "retour : à confirmer → 20/11/2026"]);
     expect(changementsVoyageur(lu(), lu({ villeArrivee: "Lyon" }))).toEqual(["trajet : Alger → Paris devient Alger → Lyon"]);
     expect(changementsVoyageur(lu({ notes: "Classe éco" }), lu())).toEqual(["précisions : retirées"]);
+  });
+});
+
+describe("trajet, transport, devis par voyageur (§118.205)", () => {
+  it("en ALLER SIMPLE la date de retour est vidée et jamais exigée — même illisible", () => {
+    const r = lireVoyageur(saisie({ trajet: "ALLER_SIMPLE", dateDepart: "2026-11-12", dateRetour: "pas une date" }));
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.voyageur).toMatchObject({ trajet: "ALLER_SIMPLE", dateRetour: null });
+    // Témoin : en aller-retour, la même date illisible est refusée.
+    expect(lireVoyageur(saisie({ trajet: "ALLER_RETOUR", dateRetour: "pas une date" })).ok).toBe(false);
+  });
+
+  it("un trajet ou un mode inconnus sont refusés, jamais devinés ; vides, ils valent aller-retour et « à préciser »", () => {
+    const r = lireVoyageur(saisie({ trajet: "ALLER_TOUT_COURT", transport: "FUSEE" }));
+    expect(r.ok).toBe(false);
+    if (!r.ok) { expect(r.error).toMatch(/trajet reconnu/); expect(r.error).toMatch(/mode de transport reconnu/); }
+    const v = lireVoyageur(saisie({ transport: "TRAIN" }));
+    expect(v.ok && v.voyageur).toMatchObject({ trajet: "ALLER_RETOUR", transport: "TRAIN" });
+    const vide = lireVoyageur(saisie());
+    expect(vide.ok && vide.voyageur).toMatchObject({ trajet: "ALLER_RETOUR", transport: null });
+  });
+
+  it("la ligne de l'assistante dit l'aller simple et le mode ; un changement de trajet se dit", () => {
+    const l = ligneVoyageur({ ...lu({ trajet: "ALLER_SIMPLE", transport: "BUS" }), passeport: true });
+    expect(l).toMatch(/aller simple 12\/11\/2026/);
+    expect(l).not.toMatch(/retour/);
+    expect(l).toMatch(/— bus —/);
+    expect(changementsVoyageur(lu(), lu({ trajet: "ALLER_SIMPLE", transport: "TAXI" }))).toEqual([
+      "trajet : aller-retour → aller simple", "transport : — → taxi",
+    ]);
+    expect(manquesPourReserver({ ...lu({ transport: null }), passeport: true })).toContain("mode de transport");
+  });
+
+  it("UN seul geste visible, dans l'ordre : passeport, puis devis, puis valider ; rien une fois retenu", () => {
+    expect(prochainGesteVoyageur({ passeport: false, devis: [] }, true)).toBe("PASSEPORT");
+    expect(prochainGesteVoyageur({ passeport: true, devis: [] }, true)).toBe("DEVIS");
+    // Un devis ANNULÉ au registre ne compte pas : on en redemande un.
+    expect(prochainGesteVoyageur({ passeport: true, devis: [{ montant: 10, retenu: false, annule: true }] }, true)).toBe("DEVIS");
+    expect(prochainGesteVoyageur({ passeport: true, devis: [{ montant: 10, retenu: false }] }, true)).toBe("VALIDER");
+    expect(prochainGesteVoyageur({ passeport: true, devis: [{ montant: 10, retenu: true }, { montant: 9, retenu: false }] }, true)).toBeNull();
+    expect(prochainGesteVoyageur({ passeport: false, devis: [] }, false)).toBeNull();
+  });
+
+  it("un dépassement du montant accordé se DIT, au centime ; égalité, inconnu ou montant manquant : rien", () => {
+    expect(depassementDevisRetenus([60000, 50000.01], 110000)?.replace(/\s/g, " ")).toMatch(/110 000,01 DZD.*110 000 DZD.*\+0,01 DZD/);
+    expect(depassementDevisRetenus([60000, 50000], 110000)).toBeNull();
+    expect(depassementDevisRetenus([60000, null], 1)).toBeNull();
+    expect(depassementDevisRetenus([60000], null)).toBeNull();
   });
 });

@@ -14,6 +14,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { formatCurrency } from "@/lib/utils";
 import { countParticipants, type TrainingAttendance, type TrainingParticipantState } from "@/lib/training";
 import { TrainingBoard, type TrainingRow } from "./training-board";
+import { refusAnnulationFormation } from "@/lib/annulations/regles";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Formations — AMD Internal OS" };
@@ -114,6 +115,7 @@ export default async function FormationsPage() {
       participants,
       documents: docsByTraining.get(t.id) ?? [],
       canDecide,
+      canCancel: t.requesterId === user.id && refusAnnulationFormation(t.status) === null,
       myParticipation: participants.find((p) => p.userId === user.id) ?? null,
     };
   });

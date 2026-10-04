@@ -19,7 +19,15 @@ quand le lot est vérifié et documenté (README + CLAUDE.md §118.204+).
 - Moyens généraux : seulement le catalogue (la caisse n'a plus d'écran — à arbitrer).
 - Paie : masse mensuelle/annuelle par entité + rattachement des sans-entité ; Comptabilité : paie au mois de paie + période.
 
-## En cours au moment du commit (agents)
+## Arrêtés en plein travail (limite de session, 04/10 ~19h UTC) — PARTIELS, dans l'arbre, NON vérifiés
+- Annuler sa demande : `src/lib/annulations/`, migration `20270107140000_annuler_sa_demande`, actions RH/formation/
+  rallonges/missions/achats/info médicale/magasin/doc-request modifiées (agent coupé à « canCancel row/button/action »).
+- Voyageurs : `voyageurs-bloc.tsx`, actions voyageurs, `voyageurs-devis-flow.test.ts` (coupé à « modifier les actions voyageur »).
+- Prises en charge : `prise-en-charge-professionnels-flow.test.ts`, `care.test.ts`, `referentiels.test.ts` (coupé pendant les tests).
+- Matériel promotionnel : travail du worktree sauvé dans `docs/wip/materiel-promo.patch` (non appliqué ; coupé à
+  « convertir articles-card à useRafraichir ») — `git apply --check docs/wip/materiel-promo.patch` puis appliquer.
+
+## Demandes d'origine (pour reprendre)
 - Annuler sa demande tant qu'elle n'est pas exécutée (12 natures).
 - Voyageurs : passeport, aller simple/aller-retour, mode de transport, devis par voyageur → BC → facture.
 - Prises en charge nationales/internationales : professionnels proposés, formulaire simplifié, suivi pièces/visa.

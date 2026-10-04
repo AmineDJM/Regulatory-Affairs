@@ -9,7 +9,7 @@ import { recordAudit } from "@/lib/audit";
 import { notifyUser } from "@/lib/notify";
 import { buildRef, createWithRetry } from "@/lib/refs";
 import { fdStr, type ActionResult } from "@/lib/actions/types";
-import { nextDocRequestStatus, canSubmit, canDecide, canCancel } from "@/lib/doc-request";
+import { nextDocRequestStatus, canSubmit, canDecide, refusAnnulationPiece, STATUTS_PIECE_ANNULABLES } from "@/lib/doc-request";
 import { companyIdForNew } from "@/lib/company";
 import { pieceKindOf, legalKindOfPiece, legalTitleFromPiece, PIECE_KIND_LABEL } from "@/lib/legal/from-piece";
 import { aiguillerBC } from "@/lib/bons-de-commande/aiguillage";
@@ -280,10 +280,22 @@ export async function cancelDocumentRequest(formData: FormData): Promise<ActionR
     if (!id) return { ok: false, error: "Demande introuvable." };
     const req = await prisma.documentRequest.findUnique({ where: { id } });
     if (!req) return { ok: false, error: "Demande introuvable." };
-    if (!canCancel(req, user.id) && !hasGlobalView(user.role)) return { ok: false, error: "Annulation réservée à la personne qui a demandé." };
+    const refus = refusAnnulationPiece(req, user.id, hasGlobalView(user.role));
+    if (refus) return { ok: false, error: refus };
 
-    await prisma.documentRequest.update({
-      where: { id }, data: { status: "CANCELLED", closedAt: new Date(), closedById: user.id },
+    // UN GESTE À LA FOIS : un dépôt passé entre la lecture et le clic l'emporte (la pièce déposée vaut
+    // exécution), et deux clics n'annulent qu'une fois.
+    const pris = await prisma.documentRequest.updateMany({
+      where: { id, status: { in: [...STATUTS_PIECE_ANNULABLES] } },
+      data: { status: "CANCELLED", closedAt: new Date(), closedById: user.id },
+    });
+    if (pris.count === 0) {
+      const apres = await prisma.documentRequest.findUnique({ where: { id }, select: { status: true, askedById: true } });
+      return { ok: false, error: (apres && refusAnnulationPiece(apres, user.id, hasGlobalView(user.role))) ?? "Cette demande vient de changer — rechargez la page." };
+    }
+    await recordAudit({
+      actorId: user.id, action: "UPDATE", module: "Pièces demandées", entityType: "DOCUMENT_REQUEST", entityId: id,
+      field: "status", oldValue: req.status, newValue: "CANCELLED", summary: `Demande de pièce ${req.reference} annulée — ${req.label}`,
     });
     await notifyUser({
       userId: req.askedToId, type: "GENERIC",

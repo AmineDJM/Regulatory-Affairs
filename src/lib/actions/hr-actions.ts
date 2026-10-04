@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import type { ContractType, LeaveType, LeaveStatus, UserRole } from "@prisma/client";
 import { requireUser } from "@/lib/session";
-import { userCan } from "@/lib/rbac";
+import { userCan, rolesWithModule } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { recordAudit, recordFieldChanges } from "@/lib/audit";
 import { createExpenseOrder } from "@/lib/expense-orders";
@@ -472,14 +472,37 @@ export async function cancelLeave(formData: FormData): Promise<ActionResult> {
   // congé qu'il n'a pas pris.
   const refund = leave.status === "APPROVED" && leave.type === "ANNUAL" ? Number(leave.days) : 0;
 
-  await prisma.leaveRequest.update({
-    where: { id },
-    // Le circuit s'arrête là : une demande retirée ne doit plus apparaître dans la file
-    // d'aucune des trois marches.
-    data: { status: "CANCELLED", stage: "DONE", decidedById: user.id, decidedAt: new Date() },
+  // UN GESTE À LA FOIS : l'annulation s'écrit sur l'état ET la marche lus — une décision croisée
+  // l'emporte, et deux clics ne recréditent pas deux fois. Le recrédit suit dans la même transaction.
+  const annule = await prisma.$transaction(async (tx) => {
+    const r = await tx.leaveRequest.updateMany({
+      where: { id, status: leave.status, stage: leave.stage },
+      // Le circuit s'arrête là : une demande retirée ne doit plus apparaître dans la file
+      // d'aucune des trois marches.
+      data: { status: "CANCELLED", stage: "DONE", decidedById: user.id, decidedAt: new Date() },
+    });
+    if (r.count === 1 && refund > 0) {
+      await tx.employee.update({ where: { id: leave.employeeId }, data: { leaveBalanceDays: { increment: refund } } });
+    }
+    return r.count === 1;
   });
-  if (refund > 0) {
-    await prisma.employee.update({ where: { id: leave.employeeId }, data: { leaveBalanceDays: { increment: refund } } });
+  if (!annule) return { ok: false, error: "Cette demande vient d'être tranchée — rechargez la page." };
+
+  // CEUX QUI DEVAIENT LA TRAITER SONT PRÉVENUS (décision du 04/10) : la marche où elle attendait quand le
+  // salarié la retire ; le salarié quand ce sont les RH qui l'annulent.
+  const periodeAnnulee = `${leave.employee.fullName} — congé de ${Number(leave.days)} j : demande annulée${isOwner ? " par le salarié" : " par les RH"}.`;
+  if (isOwner && leave.status === "PENDING") {
+    if (leave.stage === "MANAGER" && leave.managerId) {
+      const chef = await prisma.employee.findUnique({ where: { id: leave.managerId }, select: { userId: true } });
+      if (chef?.userId && chef.userId !== user.id) {
+        await notifyUser({ userId: chef.userId, type: "GENERIC", title: "Demande de congé annulée", body: periodeAnnulee, link: "/mon-espace" }).catch(() => undefined);
+      }
+    } else {
+      const roles = stageNotifyRoles(leave.stage as LeaveStage) as UserRole[];
+      if (roles.length) await notifyRoles(roles, { type: "GENERIC", title: "Demande de congé annulée", body: periodeAnnulee, link: "/rh" }).catch(() => undefined);
+    }
+  } else if (!isOwner && leave.employee.userId) {
+    await notifyUser({ userId: leave.employee.userId, type: "GENERIC", title: "Demande de congé annulée", body: periodeAnnulee, link: "/mon-espace" }).catch(() => undefined);
   }
   await recordAudit({
     actorId: user.id, action: "UPDATE", module: "Ressources humaines", entityType: "LEAVE_REQUEST",
@@ -598,10 +621,13 @@ export async function decideAdvance(formData: FormData): Promise<ActionResult> {
   if (!adv) return { ok: false, error: "Demande introuvable." };
   if (adv.status !== "PENDING") return { ok: false, error: "Cette demande a déjà été traitée." };
 
-  await prisma.salaryAdvance.update({
-    where: { id },
+  // UN GESTE À LA FOIS : la décision ne s'écrit que sur une avance ENCORE en attente — un retrait par
+  // le salarié (décision du 04/10) ou une décision croisée l'emportent, sans ordre de dépense en double.
+  const pris = await prisma.salaryAdvance.updateMany({
+    where: { id, status: "PENDING" },
     data: { status: decision, decidedById: user.id, decidedAt: new Date(), decisionNote: fdStr(formData, "note") },
   });
+  if (pris.count === 0) return { ok: false, error: "Cette demande vient d'être traitée ou retirée — rechargez la page." };
   if (adv.employee.userId) {
     await prisma.notification.create({
       data: {
@@ -648,10 +674,20 @@ export async function cancelAdvance(formData: FormData): Promise<ActionResult> {
   if (!isOwner && !isRh) return { ok: false, error: "Non autorisé." };
   if (adv.status !== "PENDING") return { ok: false, error: "Seule une demande en attente peut être annulée." };
 
-  await prisma.salaryAdvance.update({ where: { id }, data: { status: "CANCELLED" } });
+  // Conditionnelle : une décision des RH passée entre-temps l'emporte, et deux clics n'annulent qu'une fois.
+  const pris = await prisma.salaryAdvance.updateMany({ where: { id, status: "PENDING" }, data: { status: "CANCELLED" } });
+  if (pris.count === 0) return { ok: false, error: "Cette demande vient d'être traitée — rechargez la page." };
+  // CEUX QUI DEVAIENT LA TRAITER SONT PRÉVENUS (décision du 04/10) : les RH quand le salarié la retire,
+  // le salarié quand ce sont les RH.
+  const corpsAvance = `${adv.employee.fullName} — avance de ${Number(adv.amount)} DZD : demande annulée${isOwner ? " par le salarié" : " par les RH"}.`;
+  if (isOwner) {
+    await notifyRoles(rolesWithModule("RH", "VALIDATE"), { type: "GENERIC", title: "Avance sur salaire annulée", body: corpsAvance, link: "/rh" }).catch(() => undefined);
+  } else if (adv.employee.userId) {
+    await notifyUser({ userId: adv.employee.userId, type: "GENERIC", title: "Avance sur salaire annulée", body: corpsAvance, link: "/mon-espace" }).catch(() => undefined);
+  }
   await recordAudit({
     actorId: user.id, action: "UPDATE", module: "Ressources humaines", entityType: "SALARY_ADVANCE",
-    entityId: id, field: "status", newValue: "CANCELLED", summary: "Avance annulée",
+    entityId: id, field: "status", oldValue: "PENDING", newValue: "CANCELLED", summary: `Avance annulée — ${adv.employee.fullName}`,
   });
   revalidatePath("/rh");
   revalidatePath("/mon-espace");

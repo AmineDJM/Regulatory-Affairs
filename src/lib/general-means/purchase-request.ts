@@ -152,7 +152,10 @@ export const STAGE_TONE: Record<PurchaseStage, "neutral" | "info" | "success" | 
  * « à modifier » se retire aussi : c'est, aujourd'hui, le geste qui la fait repartir corrigée (la redéposer).
  */
 export function canWithdraw(stage: PurchaseStage): boolean {
-  return stage === "PENDING" || stage === "CHANGES_REQUESTED";
+  // DÉCISION DE LA DIRECTION (04/10) : on annule sa demande tant que l'autre ne l'a pas exécutée. Une
+  // demande VALIDÉE n'est pas encore un achat fait : elle se retire jusqu'à « Achat effectué », et ce qui
+  // en dépend (approbations, paiement non réglé) part avec elle par l'annulation commune.
+  return stage === "PENDING" || stage === "CHANGES_REQUESTED" || stage === "APPROVED";
 }
 
 /**

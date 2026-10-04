@@ -71,10 +71,27 @@ export function canDecide(req: DocRequestActor, userId: string): boolean {
   return req.askedById === userId && nextDocRequestStatus(req.status, "ACCEPT") !== null;
 }
 
-/** Annuler : celui qui a demandé, tant que ce n'est pas clos. */
-export function canCancel(req: DocRequestActor, userId: string): boolean {
-  return req.askedById === userId && nextDocRequestStatus(req.status, "CANCEL") !== null;
+/**
+ * POURQUOI LA DEMANDE NE S'ANNULE PAS — `null` si elle s'annule (décision de la Direction, 04/10 :
+ * « on annule sa demande tant que l'autre ne l'a pas exécutée »). Le DÉPÔT de la pièce par la personne
+ * sollicitée VAUT exécution : une pièce déposée se juge — on l'accepte ou on la refuse —, elle ne
+ * s'annule plus sous les yeux de celle qui vient de la fournir. Refusée (`DECLINED`), la balle revient
+ * à la personne sollicitée et la demande s'annule de nouveau.
+ */
+export function refusAnnulationPiece(req: DocRequestActor, userId: string, vueGlobale = false): string | null {
+  if (req.status === "SUBMITTED") return "La pièce est déposée : refusez-la ou acceptez-la — la demande ne s'annule plus.";
+  if (nextDocRequestStatus(req.status, "CANCEL") === null) return "Cette demande est close : elle ne s'annule plus.";
+  if (req.askedById !== userId && !vueGlobale) return "Annulation réservée à la personne qui a demandé.";
+  return null;
 }
+
+/** Annuler : celui qui a demandé, tant que la pièce n'est ni déposée ni close. */
+export function canCancel(req: DocRequestActor, userId: string): boolean {
+  return refusAnnulationPiece(req, userId) === null;
+}
+
+/** Les états d'où une annulation s'écrit — l'écriture conditionnelle les relit. */
+export const STATUTS_PIECE_ANNULABLES = ["PENDING", "DECLINED"] as const;
 
 /** Une demande encore vivante — c'est ce qui bloque un dossier, et ce qu'il faut compter. */
 export function isOutstanding(status: string): boolean {
