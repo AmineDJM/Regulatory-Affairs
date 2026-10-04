@@ -70,6 +70,19 @@ export interface IngestResult {
   jobsQueued: number;
 }
 
+/**
+ * UN FICHIER LU JUSQU'AU BOUT, SANS TEXTE, ET SANS LECTURE VISUELLE À ATTENDRE : « sans texte
+ * lisible » (`EMPTY`), un état honnête — ni « reçu » (comme si rien n'avait été tenté), ni « en
+ * échec » (ce n'est pas une panne). Trois conditions, toutes nécessaires : un moyen d'extraction
+ * déclaré (le contenu a été LU), ce moyen n'est pas `metadata` (un objet structuré se retrouve
+ * par ses champs), et aucune vision n'est demandée (sinon le texte peut encore venir).
+ */
+export function sansTexteDefinitif(input: Pick<IngestInput, "extractedBy" | "deepJobs">): boolean {
+  return Boolean(input.extractedBy)
+    && input.extractedBy !== "metadata"
+    && !(input.deepJobs ?? []).includes("vision");
+}
+
 /** Le texte principal stocké sur l'élément — assez pour retrouver et citer, pas pour tout relire. */
 const TEXT_CAP = 40_000;
 
@@ -126,7 +139,7 @@ export async function ingestFast(input: IngestInput): Promise<IngestResult | nul
       effectiveDate: input.effectiveDate ?? null,
       // INDEXED plutôt que READY : le texte est cherchable, les relations ne le sont pas encore.
       // Annoncer READY ici ferait promettre un lien qui n'existe pas.
-      stage: text ? "INDEXED" : "RECEIVED",
+      stage: text ? "INDEXED" : sansTexteDefinitif(input) ? "EMPTY" : "RECEIVED",
       error: null,
     };
 

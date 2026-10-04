@@ -2,13 +2,15 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { classifyDocument, DOC_KIND_LABEL } from "@/platform/doc-kind";
 import { lunaEmbed, callLuna, lunaConfigured, EMBED_DIMS } from "@/lib/openai-luna";
-import { type KnowledgeMeta } from "./contract";
-import { setStage } from "./ingest";
+import { normaliserMoyen, type KnowledgeChunkDraft, type KnowledgeMeta } from "./contract";
+import { setStage, replaceChunks } from "./ingest";
+import { chunkText } from "./chunk";
+import { PanneTemporaire, estPanneTemporaire } from "./panne";
 import { documentDateOf, detectLanguage, extractDates, extractAmounts } from "./facts";
 import { fold } from "./text";
 import { linkEntitiesForItem } from "./entities/link";
 import { decideRoute } from "./route";
-import { driveBytes } from "./sources/drive";
+import { lireOctetsDrive } from "./sources/drive";
 import { rasterizePages } from "@/lib/storage/raster";
 
 /**
@@ -96,6 +98,21 @@ export async function stageEntities(itemId: string): Promise<boolean> {
   const r = await linkEntitiesForItem(itemId);
   // `READY` même sans aucun lien écrit : un document qui ne cite aucune entité connue est
   // complètement traité, pas en panne. Le retenir en `CLASSIFIED` le ferait passer pour bloqué.
+  //
+  // MAIS PAS SANS TEXTE. « Recherchable et relié » sur un fichier dont on n'a tiré aucune ligne
+  // était faux : l'étage passait l'élément `READY` avant même que la lecture visuelle ait eu lieu,
+  // et l'écran comptait parmi les retrouvables des scans que personne n'avait lus. Un objet
+  // STRUCTURÉ (`metadata`) reste retrouvable par ses champs ; un fichier sans texte attend sa
+  // lecture visuelle, ou devient « sans texte lisible » s'il n'y en a pas à attendre.
+  const item = await prisma.knowledgeItem.findUnique({
+    where: { id: itemId },
+    select: { text: true, extractedBy: true },
+  });
+  if (!item) return false;
+  if (!item.text && item.extractedBy !== "metadata") {
+    if (normaliserMoyen(item.extractedBy) !== "luna") await setStage(itemId, "EMPTY");
+    return r.mentions > 0;
+  }
   await setStage(itemId, "READY");
   if (r.written) {
     console.info("[knowledge] linked", { itemId, ...r });
@@ -115,10 +132,13 @@ const EMBED_BATCH = 32;
  * JSONB et le cosinus se calcule en mémoire, exactement comme le corpus CTD et l'index Drive. Le
  * jour où l'extension sera là, seule la colonne et la requête de rapprochement changeront.
  *
- * Sans clé OpenAI, cet étage rend `false` et la recherche reste lexicale : dégradée, pas cassée.
+ * Sans clé, cet étage ATTEND (`PanneTemporaire`) et la recherche reste lexicale : dégradée, pas
+ * cassée. Il rendait `false` autrefois — le travail était alors marqué TERMINÉ, et sa clé de
+ * dédoublonnage interdisait à jamais de le reprendre : la clé posée plus tard, ces documents ne
+ * se vectorisaient plus jamais. C'est une des deux raisons du « 6 % vectorisés ».
  */
 export async function stageEmbed(itemId: string): Promise<boolean> {
-  if (!lunaConfigured()) return false;
+  if (!lunaConfigured()) throw new PanneTemporaire("Vectorisation en attente : la clé du fournisseur n'est pas configurée.");
 
   const chunks = await prisma.knowledgeChunk.findMany({
     where: { itemId, embedding: { equals: Prisma.DbNull } },
@@ -129,9 +149,10 @@ export async function stageEmbed(itemId: string): Promise<boolean> {
   if (!chunks.length) return false;
 
   const vectors = await lunaEmbed(chunks.map((c) => c.text), EMBED_DIMS);
-  // `null` = service indisponible ou refus. On LÈVE, pour que la file réessaie avec son attente
-  // croissante : c'est exactement le cas où un réessai a un sens.
-  if (!vectors) throw new Error("embeddings indisponibles");
+  // `null` = interrupteur coupé, fournisseur indisponible ou réseau. C'est une PANNE TEMPORAIRE :
+  // le travail attend sans consommer d'essai. L'ancienne règle (« erreur », quatre essais, puis
+  // boîte morte et document passé en échec) faisait d'une coupure de cinq minutes une perte.
+  if (!vectors) throw new PanneTemporaire("Vectorisation indisponible (interrupteur, fournisseur ou réseau).");
 
   await Promise.all(
     chunks.map((c, i) =>
@@ -212,8 +233,21 @@ const VISION_SYSTEM =
 /** Au-delà, ce n'est plus un rattrapage de pages : c'est une analyse, et elle a son propre lot. */
 const VISION_MAX_PAGES = 8;
 
+/**
+ * SANS TEXTE LISIBLE — l'issue honnête d'un fichier dont on n'a rien pu tirer. Seulement quand
+ * l'élément n'a AUCUN texte : un document hybride garde ce que le parseur avait lu, et un
+ * élément déjà retrouvable ne recule pas (`advances`).
+ */
+async function sansTexte(item: { id: string; text: string | null }, raison: string): Promise<void> {
+  if ((item.text ?? "").trim()) return;
+  await setStage(item.id, "EMPTY", raison);
+}
+
 export async function stageVision(itemId: string): Promise<boolean> {
-  if (!lunaConfigured()) return false;
+  // Sans clé, l'étage ATTEND. Il rendait `false`, le travail était marqué terminé, et sa clé de
+  // dédoublonnage interdisait à jamais de le reprendre : ces scans restaient « Luna — vision »
+  // sans que Luna les ait jamais lus.
+  if (!lunaConfigured()) throw new PanneTemporaire("Lecture visuelle en attente : la clé du fournisseur n'est pas configurée.");
 
   const item = await prisma.knowledgeItem.findUnique({
     where: { id: itemId },
@@ -224,8 +258,15 @@ export async function stageVision(itemId: string): Promise<boolean> {
   // regarder — et prétendre le contraire ferait tourner cet étage pour rien à chaque passage.
   if (item.sourceType !== "drive_file" && item.sourceType !== "attachment") return false;
 
-  const src = await driveBytes(item.sourceId);
-  if (!src) return false;
+  const octets = await lireOctetsDrive(item.sourceId.split("#")[0]);
+  if (!octets.ok) {
+    // Trois raisons, trois issues : rien à lire (nœud parti), lu « sans texte » (au-delà de la
+    // borne), ou un VRAI défaut du stockage — qui doit se voir en boîte morte sous ce nom-là.
+    if (octets.raison === "stockage") throw new Error("Fichier introuvable dans le stockage (version ou contenu absent).");
+    if (octets.raison === "trop_gros") await sansTexte(item, "Fichier au-delà de la taille lue par l'indexation (8 Mo).");
+    return false;
+  }
+  const src = octets;
 
   // On REDÉCIDE ici plutôt que de relire une décision prise à l'ingestion : entre les deux, le
   // texte a pu être réparé par un autre étage. Redécider rend l'étage idempotent et évite de
@@ -256,8 +297,11 @@ export async function stageVision(itemId: string): Promise<boolean> {
     for (const r of rendered) { images.push({ buffer: r.png, mime: "image/png" }); rangs.push(r.page); }
   }
   // Rien à regarder — un PDF vide ou une rastérisation entièrement en échec. On ne relance pas :
-  // ce n'est pas une panne, c'est un document dont on ne peut rien tirer.
-  if (images.length === 0) return false;
+  // ce n'est pas une panne, c'est un document dont on ne peut rien tirer — et on le DIT.
+  if (images.length === 0) {
+    await sansTexte(item, "Aucune page n'a pu être rendue pour la lecture visuelle.");
+    return false;
+  }
 
   const reply = await callLuna<{ pages?: { page?: number; texte?: string }[]; confiance?: number }>({
     system: VISION_SYSTEM,
@@ -269,13 +313,23 @@ export async function stageVision(itemId: string): Promise<boolean> {
     jsonSchema: VISION_SCHEMA,
     maxOutputTokens: 8000,
   });
-  if (!reply.ok || !reply.data) return false;
+  if (!reply.ok) {
+    // Fournisseur, clé, interrupteur, réseau : le travail ATTEND. Un refus argumenté (format,
+    // requête) est un défaut du document, et il compte ses essais.
+    const motif = reply.error ?? "Lecture visuelle impossible.";
+    if (!reply.configured || estPanneTemporaire(motif)) throw new PanneTemporaire(motif);
+    throw new Error(`Lecture visuelle refusée : ${motif}`);
+  }
+  if (!reply.data) throw new Error("Lecture visuelle : réponse inexploitable (JSON illisible).");
 
   const lues = (reply.data.pages ?? [])
     .map((p, i) => ({ page: Number(p?.page) || rangs[i] || i + 1, texte: (p?.texte ?? "").trim() }))
     .filter((p) => p.texte.length > 0)
     .sort((a, b) => a.page - b.page);
-  if (lues.length === 0) return false;
+  if (lues.length === 0) {
+    await sansTexte(item, "La lecture visuelle n'a trouvé aucun texte sur les pages regardées.");
+    return true; // un modèle a regardé : c'est un travail fait, dont l'issue est « sans texte »
+  }
 
   const ajout = lues.map((p) => `[page ${p.page}]\n${p.texte}`).join("\n\n");
   const base = (item.text ?? "").trim();
@@ -291,10 +345,40 @@ export async function stageVision(itemId: string): Promise<boolean> {
       // `extractedBy` dit D'OÙ vient le texte. Sans lui, on ne saurait plus distinguer ce que le
       // fichier contenait de ce qu'un modèle a cru y lire — et §23 exige de pouvoir répondre
       // « d'où vient cette information ? ».
-      extractedBy: base ? "hybride" : "luna_vision",
+      // Le vocabulaire est FERMÉ (`ExtractedBy`) : on écrivait « hybride » et « luna_vision »,
+      // deux écritures de plus pour le même moyen, que l'écran montrait sans libellé.
+      extractedBy: base ? "hybrid" : "luna",
       ...(confiance !== null ? { confidence: confiance } : {}),
     },
   });
+
+  // CE QUI A ÉTÉ LU DOIT SE RETROUVER. Le texte lu n'était écrit que sur l'élément : aucun
+  // morceau, donc aucune recherche par le contenu (elle cherche dans les morceaux), aucune
+  // relation, aucun vecteur. On AJOUTE les pages lues aux morceaux existants (le découpage natif
+  // d'un document hybride reste tel quel), puis on demande les étages qui suivent — une seule fois
+  // par lecture visuelle (clé `:vision`).
+  const existants = await prisma.knowledgeChunk.findMany({
+    where: { itemId },
+    orderBy: { ord: "asc" },
+    select: { kind: true, ord: true, label: true, locator: true, text: true },
+  });
+  const pages: KnowledgeChunkDraft[] = lues.flatMap((p) =>
+    chunkText(p.texte).map((c) => ({
+      ...c,
+      kind: "page" as const,
+      label: `Page ${p.page} (lecture visuelle)`,
+      locator: String(p.page),
+    })),
+  );
+  await replaceChunks(itemId, [
+    ...existants.map((c) => ({ kind: c.kind as KnowledgeChunkDraft["kind"], ord: c.ord, label: c.label, locator: c.locator, text: c.text })),
+    ...pages.map((c, i) => ({ ...c, ord: existants.length + i })),
+  ]);
+  await setStage(itemId, "INDEXED");
+  const { enqueueAll } = await import("./queue");
+  await enqueueAll(
+    (["classify", "entities", "embed"] as const).map((kind) => ({ kind, itemId, dedupeKey: `${kind}:${itemId}:vision` })),
+  );
   return true;
 }
 
@@ -334,7 +418,7 @@ const SUMMARY_SCHEMA = {
  * complète est un résumé qui invente, et il finirait cité comme un fait de l'entreprise.
  */
 export async function stageEnrich(itemId: string): Promise<boolean> {
-  if (!lunaConfigured()) return false;
+  if (!lunaConfigured()) throw new PanneTemporaire("Résumé en attente : la clé du fournisseur n'est pas configurée.");
 
   const item = await prisma.knowledgeItem.findUnique({
     where: { id: itemId },
@@ -354,7 +438,11 @@ export async function stageEnrich(itemId: string): Promise<boolean> {
     maxOutputTokens: 600,
   });
 
-  // Non configuré ou refus : ce n'est pas un échec à réessayer indéfiniment.
+  // Une panne de l'environnement (clé, interrupteur, fournisseur, réseau) ATTEND — elle ne
+  // condamne pas le résumé. Un refus argumenté, lui, n'est pas un échec à réessayer indéfiniment.
+  if (!res.ok && (!res.configured || estPanneTemporaire(res.error ?? ""))) {
+    throw new PanneTemporaire(res.error ?? "Résumé indisponible (fournisseur).");
+  }
   if (!res.ok || !res.data?.resume) return false;
 
   await prisma.knowledgeItem.update({

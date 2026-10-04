@@ -1581,6 +1581,13 @@ X("L'ENTRETIEN DE L'INTÉGRATION AU SITE (§118.158) — relancer un envoi, vér
   "site-web-actions:rapprocherSiteMaintenant",
   "site-web-actions:leverBlocageSite",
 ]);
+X("RELANCER LA BOÎTE MORTE DE LA COUCHE DE CONNAISSANCE remet en file des travaux qui APPELLENT DES MODÈLES "
+  + "facturés (vecteurs, lectures visuelles) et que la file avait abandonnés : c'est une décision d'exploitation, prise "
+  + "devant l'écran qui montre chaque cause, ses exemples et son caractère temporaire ou non. Offerte à Adam, une "
+  + "relance « de tout » pourrait partir sans que personne ait lu pourquoi ces travaux étaient morts. Adam est par "
+  + "ailleurs en pause. Un clic du Super Admin sur /admin/connaissance.", [
+  "knowledge-actions:relancerBoiteMorte",
+]);
 X("LA CLÉ DE LIAISON AU SITE PUBLIC (§118.159) est l'IDENTIFIANT qui donne le droit d'y publier. La générer ou "
   + "l'abandonner, c'est créer ou retirer un identifiant — exactement ce que §118.6 interdit structurellement à un "
   + "agent, quelle que soit la personne qui le demande. Et le bloc généré se colle ensuite dans l'hébergeur du site : "
