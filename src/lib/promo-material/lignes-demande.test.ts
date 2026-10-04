@@ -93,23 +93,24 @@ describe("ligneVide — un reste de formulaire s'écarte, une ligne incomplète 
 const sansCommentaires = (src: string) => src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:"'`])\/\/.*$/gm, "$1");
 // Le « type de matériel » s'ajoute à la liste au §118.173 : le catalogue EST la liste des supports,
 // et chaque ligne en désigne un — un type choisi à côté redisait la même chose, et pouvait la contredire.
-const RETIRES = ["businessUnitId", "amount", "assistantId", "companyId", "materialType"] as const;
+// Les « précisions pour le secrétariat » quittent la demande (§118.204, Direction 04/10) : la demande de
+// devis part d'elle-même, et ce qu'on attend se dit ligne par ligne (« Précision » de chaque article).
+const RETIRES = ["businessUnitId", "amount", "assistantId", "companyId", "materialType", "precisionsDevis"] as const;
 
 describe("ce que la demande ne porte PLUS (décision du 01/10) — lu sur les faits, pas sur une liste", () => {
   it("l'ACTION ne lit ni gamme, ni budget, ni assistante, ni entité — et lit `lignes` (contrat dérivé de sa source)", () => {
     const contrat = CONTRAT_PAR_ID.get("promo-material-actions:createPromoMaterial");
     expect(contrat, "prémisse : l'action est décrite").toBeDefined();
     const champs = (contrat!.champs ?? []).map((c) => c.nom).sort();
-    // Les PRÉCISIONS pour l'assistante (§118.204) entrent : elles partent avec la demande de devis, saisies dans « Articles demandés ».
-    expect(champs).toEqual(["description", "lignes", "precisionsDevis", "title"]);
+    expect(champs).toEqual(["description", "lignes", "title"]);
     for (const r of RETIRES) expect(champs, r).not.toContain(r);
   });
 
-  it("le FORMULAIRE n'envoie que le titre, le brief, les précisions et les lignes", () => {
+  it("le FORMULAIRE n'envoie que le titre, le brief et les lignes", () => {
     const src = sansCommentaires(readFileSync(path.join(process.cwd(), "src/components/ad-pro/demande-materiel-form.tsx"), "utf8"));
     // PRÉMISSE : la lecture voit bien les clés qu'il envoie — sans cela, l'absence ci-dessous ne
     // prouverait rien (un fichier vide ne contiendrait aucune clé retirée non plus).
-    expect(src).toMatch(/\["title", "description", "precisionsDevis"\]/);
+    expect(src).toMatch(/\["title", "description"\]/);
     expect(src).toMatch(/fd\.set\("lignes", JSON\.stringify\(envoi\)\)/);
     for (const r of RETIRES) expect(src, `le formulaire envoie encore « ${r} »`).not.toMatch(new RegExp(`["'\`]${r}["'\`]`));
   });

@@ -21,7 +21,7 @@ import { validerArticleDemande, type ArticleDemandeValide, type FamillePromo } f
 import { lireLignesDemande, ligneVide, REFUS_SANS_LIGNE } from "@/lib/promo-material/lignes-demande";
 import { aucunPromu, designeUnProduit, type PromusChoisis } from "@/lib/promo-material/promus";
 import { resoudrePromus } from "@/lib/queries/promo-promus";
-import { envoyerDemandeDeDevis } from "@/lib/actions/promo-automatismes";
+import { envoyerDemandeDeDevis } from "@/lib/promo-automatismes";
 import { siegeAuCentreAdPro, REFUS_BC_CENTRE_AD_PRO } from "@/lib/ad-pro/centre";
 import { getAppSettings } from "@/lib/settings";
 import { moneyEntityOf } from "@/lib/company";
@@ -248,8 +248,6 @@ export async function createPromoMaterial(_prev: ActionResult | undefined, formD
       else if (!v.ok) manques.push(`Ligne ${i + 1} : ${v.error}`);
     }
     if (manques.length || !title) return { ok: false, error: manques.join(" ") };
-    // LES PRÉCISIONS POUR L'ASSISTANTE — saisies dans « Articles demandés », envoyées avec la demande de devis.
-    const precisionsDevis = fdStr(formData, "precisionsDevis");
 
     // CE QUE LA DEMANDE NE PORTE PLUS (décision du 01/10). La GAMME : « pas du tout pertinent
     // ici » — le matériel se demande par article du catalogue, pas par Business Unit. Le BUDGET
@@ -273,7 +271,6 @@ export async function createPromoMaterial(_prev: ActionResult | undefined, formD
         title,
         description,
         companyId: companyId || null,
-        precisionsDevis,
         status: "PROSPECTION_REQUESTED",
         circuitState,
         circuitVersion: 2,

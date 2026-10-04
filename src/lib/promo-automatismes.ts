@@ -31,7 +31,9 @@ import { texteDemandeDeDevis } from "@/lib/promo-material/texte-demande-devis";
  *   • LES BONS DE COMMANDE, quand la DERNIÈRE validation du choix tombe (Direction Marketing, puis le
  *     Directeur Général au-dessus du seuil) : aucune validation n'est retirée, la génération vient après.
  *
- * Hors d'un fichier « use server » : ces fonctions reçoivent l'auteur en argument. Exportées d'un tel
+ * Hors d'un fichier « use server », et hors de `src/lib/actions/` : ce ne sont pas des actions d'écran — le
+ * contrat d'action et la parité d'Adam les auraient comptées, et le chemin générique aurait pu les appeler.
+ * Ces fonctions reçoivent l'auteur en argument. Exportées d'un tel
  * fichier, elles seraient des points d'entrée publics où l'on agirait au nom de n'importe qui (§118.153).
  * Chacune garde ses portes d'ÉTAT (version, étape lue, écriture conditionnelle) : ce sont les APPELANTS
  * qui disent qui a le droit de les déclencher.
@@ -262,7 +264,14 @@ export async function genererLesBonsDeCommande(user: CurrentUser, promoMaterialI
         delegation: `${pm.reference} — dossier de matériel promotionnel validé (demande, Direction Marketing, seuil du DG), bon de commande composé d'après les lignes retenues${o.automatique ? ", généré automatiquement à la dernière validation" : ""}`,
       });
       if (!r.ok) { echecs.push(`${d.supplierName} : ${r.motif}`); continue; }
-      await prisma.promoQuote.update({ where: { id: d.id }, data: { purchaseOrderId: r.legalDocumentId, purchaseOrderSentAt: null, purchaseOrderSentById: null } });
+      // LE LIEN S'ÉCRIT SUR CE QUI A ÉTÉ LU (§118.204) : le dossier encore en exécution, le devis encore sur le BC
+      // (ou l'absence de BC) que la génération a lu. Une écriture par le seul identifiant recoudrait le devis à ce
+      // BC par-dessus un autre lien posé entre-temps, ou sur un dossier sorti de l'exécution.
+      const lie = await prisma.promoQuote.updateMany({
+        where: { id: d.id, purchaseOrderId: brut.purchaseOrderId ?? null, promoMaterial: { circuitVersion: 2, circuitState: "IN_EXECUTION" } },
+        data: { purchaseOrderId: r.legalDocumentId, purchaseOrderSentAt: null, purchaseOrderSentById: null },
+      });
+      if (lie.count === 0) { echecs.push(`${d.supplierName} : ${r.reference} émis, mais le devis ou le dossier a changé pendant la génération — rechargez la fiche`); continue; }
       emis.push(`${r.reference} (${d.supplierName}, ${formatDzd(r.totaux.totalTtc)} TTC)`);
       if (r.reserveBonDeCommande) reserves.push(r.reserveBonDeCommande);
     }

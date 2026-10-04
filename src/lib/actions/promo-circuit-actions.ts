@@ -14,7 +14,7 @@ import {
 import { promoManagerOf } from "@/lib/queries/promo-material";
 import { etatApresRenvoi, attendSaCorrection, refusParLeDemandeur, REFUS_EN_CORRECTION } from "@/lib/promo-material/renvoi";
 import { ecrireAuFil } from "@/lib/ad-pro/fil";
-import { envoyerDemandeDeDevis, genererLesBonsDeCommande } from "@/lib/actions/promo-automatismes";
+import { envoyerDemandeDeDevis, genererLesBonsDeCommande } from "@/lib/promo-automatismes";
 import {
   contexteDuDossier, validateursDeLaDemande, validateursMarketing, devisLu, SELECT_DEVIS,
 } from "@/lib/queries/promo-circuit";

@@ -25,7 +25,7 @@ import { validatePromoStep } from "@/lib/actions/promo-circuit-actions";
 import { ecrireAuFil } from "@/lib/ad-pro/fil";
 import { rouvrirDemandeAuSecretariat, fermerDemandeAuSecretariat } from "@/lib/promo-material/demande-secretariat";
 import { estAction, type PromoAction } from "@/lib/promo-material/actions-fournisseur";
-import { envoyerDemandeDeDevis, ouvrirDemandeDeDevis } from "@/lib/actions/promo-automatismes";
+import { envoyerDemandeDeDevis, ouvrirDemandeDeDevis } from "@/lib/promo-automatismes";
 import { natureDeLaCategorie } from "@/lib/ad-pro/doc-categories";
 import { refusDeRangement } from "@/lib/promo-material/rangement";
 

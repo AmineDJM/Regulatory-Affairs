@@ -345,13 +345,22 @@ suite("Matériel promotionnel — achats piochés dans le catalogue, facture lig
     const refVide = (await prisma.promoMaterial.findUniqueOrThrow({ where: { id: vide.id! }, select: { reference: true } })).reference;
     const sansArticle = await DOMAIN_TOOLS.promo_operation.ops.request_promo_quotes.impl.propose({ reference: refVide }, cp);
     expect("error" in sansArticle && sansArticle.error).toMatch(/aucun article demandé.*catalogue/);
-    const carte = await DOMAIN_TOOLS.promo_operation.ops.request_promo_quotes.impl.propose({ reference }, cp);
-    if ("error" in carte) throw new Error(carte.error);
-    expect(carte.fields.find((f) => f.label === "Articles à faire chiffrer")?.value).toMatch(new RegExp(`${TAG}-FICHE.*${TAG}-STYLO.*${TAG}-EADV`));
+    // SANS ARTICLE, LA DEMANDE DE DEVIS AUTOMATIQUE N'EST PAS PARTIE (§118.204) : le dossier reste sur « devis à
+    // demander », et c'est le seul cas où la carte (et le geste de repli) servent encore.
+    expect((await prisma.promoMaterial.findUniqueOrThrow({ where: { id: vide.id! }, select: { circuitState: true } })).circuitState).toBe("QUOTE_TO_REQUEST");
 
+    // LA DEMANDE DE DEVIS EST PARTIE D'ELLE-MÊME À LA VALIDATION (§118.204) — sans geste du demandeur, avec
+    // les articles de la liste, dans la rédaction que l'aperçu montrait.
+    const envoye = await prisma.promoMaterial.findUniqueOrThrow({ where: { id: pmId }, select: { circuitState: true, adminRequestId: true } });
+    expect(envoye.circuitState).toBe("QUOTE_REQUESTED");
+    const demandeAuto = await prisma.administrativeRequest.findUniqueOrThrow({ where: { id: envoye.adminRequestId! }, select: { type: true, description: true, linkedEntityId: true } });
+    expect(demandeAuto.type).toBe("QUOTE");
+    expect(demandeAuto.linkedEntityId).toBe(pmId);
+    expect(demandeAuto.description).toMatch(new RegExp(`${TAG}-FICHE[\\s\\S]*${TAG}-STYLO[\\s\\S]*${TAG}-EADV`));
+    // Le geste de repli refuse alors, en le DISANT : la demande ne repart pas une seconde fois.
     await comme("cp");
     const r = await demanderDevisPromo(form({ promoMaterialId: pmId }));
-    expect(r.ok, r.ok ? "" : r.error).toBe(true);
+    expect(r.ok ? "" : r.error).toMatch(/déjà partie/);
     // La règle d'avant figeait la liste dès les devis demandés : l'article oublié n'était jamais chiffré,
     // ou l'était hors de la liste. Elle bouge maintenant tant que le choix n'est pas en validation, et
     // l'assistante, qui cherche les devis, est prévenue de CHAQUE changement — ajouté puis retiré ici,

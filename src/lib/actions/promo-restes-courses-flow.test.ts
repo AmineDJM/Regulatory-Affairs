@@ -393,9 +393,17 @@ suite("Matériel promotionnel — les restes : annulation commune, file des BC, 
     expect(reprise.corps).not.toMatch(/Recurrence\.update\(/);
     expect(reprise.corps).toMatch(/where: \{ id: r\.id, actif: false \}/);
 
+    // LA GÉNÉRATION EST UNE (§118.204) : le geste de repli et la génération automatique à la dernière
+    // validation passent par `genererLesBonsDeCommande` — c'est là que le dossier se relit DANS la file, et
+    // que le lien devis → BC s'écrit sur ce qui a été lu, jamais par le seul identifiant du devis.
     const generation = decouperActions("promo-execution-actions.ts", source("promo-execution-actions.ts")).find((a) => a.fonction === "genererBonsDeCommandePromo")!;
-    const dansLaFile = generation.corps.slice(generation.corps.indexOf("enSerie("));
-    expect(dansLaFile, "le dossier se relit DANS la file").toMatch(/refusExecution\(user, await chargerDossier\(pm\.id\)\)/);
+    expect(generation.corps).toMatch(/genererLesBonsDeCommande\(user, pm\.id,/);
+    const coeur = sansCommentaires(readFileSync(join(process.cwd(), "src/lib/promo-automatismes.ts"), "utf8"));
+    const dansLaFile = coeur.slice(coeur.indexOf("enSerie(`promo-bc:"));
+    expect(dansLaFile, "prémisse : la génération passe par la file").not.toBe(coeur);
+    expect(dansLaFile, "le dossier se relit DANS la file").toMatch(/promoMaterial\.findUnique\([\s\S]*?refusEtatGeneration\(pm\)/);
+    expect(coeur.match(/\bpromoQuote\.update\(/g), "un devis recousu à son BC par son seul identifiant").toBeNull();
+    expect(dansLaFile).toMatch(/promoQuote\.updateMany\(\{\s*where: \{ id: d\.id, purchaseOrderId: brut\.purchaseOrderId \?\? null, promoMaterial: \{ circuitVersion: 2, circuitState: "IN_EXECUTION" \}/);
   });
 
   it("DEUX « DEVIS DÉPOSÉS » CROISÉS : une seule marche s'écrit, l'autre dit que le dossier a changé — un seul avis au demandeur", async () => {

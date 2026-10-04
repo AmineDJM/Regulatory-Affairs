@@ -24,7 +24,7 @@ import { empreinteDe } from "@/lib/pieces-lues/lecture-fichier";
 import { lignesProposeesFacturePromo, preremplirFacturePromo, type PrerempliFacturePromo } from "@/lib/pieces-lues/prerempli-facture-promo";
 import { fdCase } from "@/lib/actions/types";
 import { reviserDocumentDrive } from "@/platform/in-process/artifact/factory";
-import { genererLesBonsDeCommande } from "@/lib/actions/promo-automatismes";
+import { genererLesBonsDeCommande } from "@/lib/promo-automatismes";
 import { devisDuDossier, devisLu } from "@/lib/queries/promo-circuit";
 import { formatDzd } from "@/lib/promo-material/devis";
 import { piloteLExecution } from "@/lib/promo-material/circuit";
@@ -144,7 +144,7 @@ function lireTaxeSupplementaire(formData: FormData): { ok: true; taxe: { libelle
  * GÉNÉRER LES BONS DE COMMANDE — le REPLI (§118.204). La génération part d'elle-même quand la dernière
  * validation du choix tombe (`validatePromoStep` → `genererLesBonsDeCommande`) ; ce geste reste pour
  * ce qu'elle n'a pas pu émettre (un fournisseur sans identité, une société que le validateur ne voit pas),
- * et pour régler la livraison ou la taxe avant d'émettre. Le cœur est UN (`promo-automatismes.ts`) : deux
+ * et pour régler la livraison ou la taxe avant d'émettre. Le cœur est UN (`lib/promo-automatismes.ts`) : deux
  * générations finiraient par composer deux BC différents du même devis (§118.5).
  */
 export async function genererBonsDeCommandePromo(formData: FormData): Promise<ActionResult> {
