@@ -4,6 +4,7 @@ import { platformScope } from "@/lib/company";
 import { toNumber } from "@/lib/utils";
 import { canViewEnvelope, type SessionUser } from "@/lib/rbac";
 import { generalMeansConsumption } from "@/lib/queries/budget-general-means";
+import { getAppSettings } from "@/lib/settings";
 
 /** Une enveloppe est visible d'un non-gestionnaire seulement si l'admin lui a ouvert la
  *  visualisation (rôle/personne) ou lui a délégué la gestion — sinon invisible (strict). */
@@ -66,9 +67,9 @@ export interface AttributedTx {
   status: string;
   categoryId: string;
   categoryName: string;
-  /** Moyens généraux seulement : où la dépense se corrige. `null` aujourd'hui pour toutes — l'écran
-   *  des moyens généraux ne montre plus que le catalogue d'articles (04/10), et un « Voir la
-   *  dépense » qui mène là où elle n'est pas fait chercher ce qui n'y est pas (§118.170). */
+  /** Moyens généraux seulement : où la dépense se corrige. `null` quand elle n'est pas au SERVICE —
+   *  l'écran des moyens généraux ne montre plus que lui (§118.170), et un « Voir la dépense » qui
+   *  mène là où elle n'est pas fait chercher ce qui n'y est pas. */
   lien?: string | null;
 }
 
@@ -324,7 +325,7 @@ export async function getBudgetOverview(
   // affichait la consommation de l'entreprise entière — d'où les « 42 millions consommés »
   // impossibles. Chaque enveloppe ne compte QUE ses propres catégories ; le non-imputé a sa
   // propre alerte (« à imputer »), il ne doit jamais peser dans une enveloppe qui ne l'a pas reçu.
-  const [sums, expenseSums, generalMeans] = await Promise.all([
+  const [sums, expenseSums, generalMeans, reglages] = await Promise.all([
     catIds.length
       ? prisma.financeTransaction.groupBy({
           by: ["budgetCategoryId", "status"],
@@ -343,6 +344,7 @@ export async function getBudgetOverview(
     // Les achats des moyens généraux, classés par ceux qui les font — c'est ce qui remplit
     // l'enveloppe « Moyens généraux » sans double saisie.
     generalMeansConsumption(catIds, from, to),
+    getAppSettings(),
   ]);
 
   const consumedByCat = new Map<string | null, number>();
@@ -461,10 +463,7 @@ export async function getBudgetOverview(
       date: r.date.toISOString(), label: r.label, amount: r.amount,
       counterparty: r.department || null, status: "SETTLED",
       categoryId: r.categoryId, categoryName: catNameById.get(r.categoryId) ?? "—",
-      // Aucun écran ne montre plus le détail d'une dépense des moyens généraux (décision du 04/10 :
-      // l'écran ne garde que le catalogue d'articles) — un « Voir la dépense » mènerait là où elle
-      // n'est pas (§118.83).
-      lien: null,
+      lien: r.departmentId === reglages.generalMeansDepartmentId ? "/moyens-generaux" : null,
     })),
   ].sort((a, b) => b.date.localeCompare(a.date));
 

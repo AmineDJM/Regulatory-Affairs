@@ -159,6 +159,10 @@ describe("une entrée de menu porte le MÊME module que sa page", () => {
     const mg = NAVIGATION.find((n) => n.href === "/moyens-generaux")!;
     expect(mg.module).toBe("GENERAL_MEANS");
     expect(mg.match ?? []).not.toContain("/moyens-generaux/annuaire");
+    // EN-TÊTE / HAUT DU MODULE (04/10) : aucun sous-menu ni onglet — le seul geste du haut de la page est
+    // le catalogue d'articles (bouton de la page). Les autres onglets/sous-menus ne reviennent pas.
+    expect(mg.tabs ?? [], "le module n'a pas d'onglets").toEqual([]);
+    expect(mg.children ?? [], "le module n'a pas de sous-menus").toEqual([]);
     const espace = NAVIGATION.find((n) => n.href === "/mon-espace")!;
     expect(espace.match).toContain("/mon-espace/annuaire");
     expect((espace.tabs ?? []).map((t) => t.href)).toContain("/mon-espace/annuaire");
