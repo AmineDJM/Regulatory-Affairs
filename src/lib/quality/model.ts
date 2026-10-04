@@ -126,6 +126,86 @@ export function cleSociete(nom: string | null | undefined): string {
   return plierTexte(nom).replace(FORMES_JURIDIQUES, " ").replace(/[^a-z0-9]+/g, " ").replace(/\s+/g, " ").trim();
 }
 
+// ─────────────────────────────── Factures : qui a numéroté la pièce ───────────────────────────────
+
+/** Une facture telle que la règle des doublons la lit pour savoir QUI l'a numérotée. */
+export interface EmetteurFacture {
+  reference: string | null;
+  direction: string | null;
+  companyId: string | null;
+  counterpartyIds: readonly string[];
+  counterparty: string | null;
+}
+
+/**
+ * LA MÊME RÉFÉRENCE N'EST UN DOUBLON QUE CHEZ LE MÊME ÉMETTEUR (§118.196 — audit 360°, rapport 19). Chaque fournisseur
+ * numérote ses factures depuis 1, et chaque société du groupe a sa propre série : « FA-2026-001 » chez deux
+ * fournisseurs, ou émise par deux sociétés, ce sont deux factures — la règle les dénonçait « quasi certain ». Le groupe
+ * ne réunit donc que ce qui PEUT être la même pièce : une facture ÉMISE se compare aux factures de la même société, une
+ * facture REÇUE aux factures reçues (sans sens, une facture est reçue : c'est la saisie à la main d'une pièce de
+ * fournisseur). `null` sans référence lisible.
+ */
+export function groupeReferenceFacture(f: EmetteurFacture): string | null {
+  const ref = plierTexte(f.reference).replace(/\s+/g, "");
+  if (!ref) return null;
+  return f.direction === "IN" ? `IN|${f.companyId ?? "?"}|${ref}` : `OUT|${ref}`;
+}
+
+export type MemeEmetteur = "OUI" | "NON" | "INCONNU";
+
+/**
+ * Deux factures du même groupe viennent-elles du même émetteur ? Une facture émise : oui, le groupe est celui de sa
+ * société. Une facture reçue : la partie de l'annuaire d'abord, le nom plié ensuite — et quand rien ne dit qui a émis
+ * l'une des deux, on ne devine pas : INCONNU, et le constat dit « à vérifier » au lieu de « quasi certain ».
+ */
+export function memeEmetteur(a: EmetteurFacture, b: EmetteurFacture): MemeEmetteur {
+  if (a.direction === "IN" && b.direction === "IN") return "OUI";
+  const ids = new Set(a.counterpartyIds);
+  if (b.counterpartyIds.some((x) => ids.has(x))) return "OUI";
+  const na = cleSociete(a.counterparty);
+  const nb = cleSociete(b.counterparty);
+  if (na && nb) return na === nb ? "OUI" : "NON";
+  if (a.counterpartyIds.length > 0 && b.counterpartyIds.length > 0) return "NON";
+  return "INCONNU";
+}
+
+/**
+ * LA DÉCISION, pure : dans un groupe de même référence, les jumelles de chaque facture — CERTAINES (même émetteur)
+ * ou INCERTAINES (rien ne dit qui a émis l'une des deux). Une facture sans jumelle d'aucune sorte n'est pas un doublon :
+ * deux fournisseurs qui numérotent pareil ne font qu'un hasard de numérotation.
+ */
+export function jumellesDeReference<T extends EmetteurFacture & { id: string }>(g: readonly T[]): { facture: T; certain: boolean; lot: T[] }[] {
+  const out: { facture: T; certain: boolean; lot: T[] }[] = [];
+  for (const x of g) {
+    const autres = g.filter((y) => y.id !== x.id);
+    const memes = autres.filter((y) => memeEmetteur(x, y) === "OUI");
+    const incertains = autres.filter((y) => memeEmetteur(x, y) === "INCONNU");
+    if (memes.length === 0 && incertains.length === 0) continue;
+    const certain = memes.length > 0;
+    out.push({ facture: x, certain, lot: [x, ...(certain ? memes : incertains)] });
+  }
+  return out;
+}
+
+/**
+ * LE CUMUL D'UNE PIÈCE AMONT, pur (§118.196) : les factures d'un bon de commande (ou d'un devis), dans l'ordre de leur
+ * date, leurs montants NETS de leurs avoirs ; rend la première qui fait dépasser ce que la pièce engage de plus de
+ * `tolerancePct` — ou `null`. Facturer MOINS n'est pas une contradiction : c'est une livraison qui n'est pas finie.
+ */
+export function depassementDuCumul<T extends { id: string; net: number; quand: number }>(
+  factures: readonly T[], base: number, tolerancePct = 1,
+): { facture: T; rang: number; cumul: number; ecartPct: number } | null {
+  let cumul = 0;
+  const triees = [...factures].sort((a, b) => a.quand - b.quand);
+  for (const [rang, f] of triees.entries()) {
+    cumul = Math.round((cumul + f.net) * 100) / 100;
+    if (cumul <= base) continue;
+    const ecartPct = base === 0 ? 100 : ((cumul - base) / Math.abs(base)) * 100;
+    if (ecartPct > tolerancePct) return { facture: f, rang, cumul, ecartPct };
+  }
+  return null;
+}
+
 /** « Cherif Raihana » et « Raihana Cherif » sont la même clé : les mots triés. */
 export function clePersonne(nom: string | null | undefined): string {
   return plierTexte(nom).replace(/[^a-z0-9 ]+/g, " ").split(" ").filter(Boolean).sort().join(" ");
