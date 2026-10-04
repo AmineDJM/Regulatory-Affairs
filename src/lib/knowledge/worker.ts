@@ -33,11 +33,15 @@ import { stageClassify, stageEntities, stageEmbed, stageEnrich, stageVision } fr
  *
  * ── CE QUI EST BRANCHÉ, ET CE QUI NE L'EST PAS ───────────────────────────────────────────
  *
- * `parse`, `classify`, `entities`, `embed` et `enrich` font un vrai travail (voir `stages.ts`).
- * `vision` reste marqué TERMINÉ SANS TRAVAIL : la rastérisation des pages n'existe pas encore
- * dans cette couche, et un étage qui échouerait en boucle remplirait la boîte morte de faux
- * problèmes — ce qui masquerait les VRAIES pannes. La distinction « rien à faire » / « fait »
- * est justement là pour que cet écart se voie dans l'observabilité au lieu de se deviner.
+ * Les six étages font un vrai travail (voir `stages.ts`). `enrich` existe mais aucune source ne
+ * le demande encore : le déclencher est une décision de coût, et l'écran le dit.
+ *
+ * ── PANNE TEMPORAIRE ≠ ÉCHEC (voir `panne.ts`) ───────────────────────────────────────────
+ *
+ * Sans modèle disponible (clé absente, interrupteur coupé), les travaux qui l'appellent ne sont
+ * pas réclamés ; une panne du fournisseur fait ATTENDRE un travail sans consommer d'essai. Seul un
+ * défaut du document finit en boîte morte — et la mort d'un enrichissement ne fait plus reculer
+ * l'étape du document : il reste retrouvable par son texte, ce qui est le service rendu.
  * ═══════════════════════════════════════════════════════════════════════════════════════════
  */
 
