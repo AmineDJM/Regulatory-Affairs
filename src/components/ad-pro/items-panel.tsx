@@ -85,6 +85,11 @@ export interface ItemRow {
    * les laisserait sans porte. L'écran ne propose donc pas ces gestes ; il dit pourquoi (§118.83).
    */
   bcEtablis: string[];
+  /**
+   * Ce qui empêche « Annuler la demande de BC » (constat 36) : un BC signé par les Finances, ou une facture
+   * qui en découle. `null` : le geste unique annule le BC non signé au registre, puis retire la demande.
+   */
+  refusAnnulationBc: string | null;
   /** Combien de pièces jointes le poste porte — le détail se déplie à la demande. */
   documentCount: number;
   /** Émission du bon de commande : demande → visa du centre (au-dessus du seuil) → Finances. */
@@ -527,9 +532,12 @@ function PosteCarte({ item, parent, parentId, regard, freres, assistantes, budge
   const bcEnCours = (item.orderStage === "REQUESTED" || item.orderStage === "DIRECTION_OK") && !item.expenseOrderId;
   const bcLegal = bcEnCours && item.bcEtablis.length > 0;
   const toucheBC = regard.canEdit || regard.canAllocate;
+  // UN GESTE UNIQUE (constat 36) : un BC établi mais NON signé s'annule avec la demande ; signé, ou suivi
+  // d'une facture, la demande est exécutée — la carte ne propose plus le geste et dit pourquoi.
+  const bcAnnulable = bcEnCours && !item.refusAnnulationBc;
   if (bcEnCours && toucheBC) {
     entrees.push({ cle: "modifier-bc", libelle: "Modifier la demande de BC", icone: <Pencil className="h-3.5 w-3.5" />, faire: () => setPanneau("MODIFIER_BC") });
-    if (!bcLegal) entrees.push({ cle: "retirer-bc", libelle: "Retirer la demande de BC", icone: <Undo2 className="h-3.5 w-3.5" />, faire: () => setPanneau("RETIRER_BC") });
+    if (bcAnnulable) entrees.push({ cle: "retirer-bc", libelle: "Annuler la demande de BC", icone: <Undo2 className="h-3.5 w-3.5" />, danger: bcLegal, faire: () => setPanneau("RETIRER_BC") });
   }
   // L'ORDRE ÉMIS S'ANNULE TANT QU'IL N'EST PAS RÉGLÉ (audit R06) — les Finances ou qui tranche.
   const ordreAnnulable = Boolean(item.expenseOrderId) && ["PENDING", "REVISION_REQUESTED"].includes(item.expenseOrder?.status ?? "");
@@ -688,8 +696,10 @@ function PosteCarte({ item, parent, parentId, regard, freres, assistantes, budge
           le retrait de la demande de BC (§118.83). */}
       {bcLegal && (
         <p className="text-xs text-muted-foreground">
-          BC établi dans Legal : {item.bcEtablis.join(", ")} — il lit sa validation sur ce poste. Pour retirer la demande, la refuser
-          ou la rendre à la Direction, annulez-le d&apos;abord dans Legal.
+          BC établi dans Legal : {item.bcEtablis.join(", ")} — il lit sa validation sur ce poste.{" "}
+          {item.refusAnnulationBc
+            ? item.refusAnnulationBc
+            : "« Annuler la demande de BC » l'annule au registre avec la demande ; pour refuser ou rendre le poste à la Direction, annulez d'abord la demande."}
         </p>
       )}
 
@@ -733,12 +743,14 @@ function PosteCarte({ item, parent, parentId, regard, freres, assistantes, budge
           }
         />
       )}
-      {panneau === "RETIRER_BC" && bcEnCours && toucheBC && (
+      {panneau === "RETIRER_BC" && bcAnnulable && toucheBC && (
         <GesteAvecMotif
-          titre="Retirer la demande de bon de commande"
-          aide="Le motif reste à l'historique ; la demande à l'assistante se ferme avec, et les Finances sont prévenues si le centre l'avait visée."
-          bouton="Retirer la demande" danger busy={busy === `por:${item.id}`} onCancel={fermer}
-          onSend={(motif) => void run(`por:${item.id}`, () => retirerDemandeBC(undefined, fdOf({ motif })), "Demande de bon de commande retirée.").then(fermer)}
+          titre="Annuler la demande de bon de commande"
+          aide={bcLegal
+            ? `Le bon de commande ${item.bcEtablis.join(", ")} n'est pas signé : il est annulé au registre avec la demande. Le motif reste à l'historique, l'assistante et les Finances sont prévenues.`
+            : "Le motif reste à l'historique ; la demande à l'assistante se ferme avec, et les Finances sont prévenues si le centre l'avait visée."}
+          bouton="Annuler la demande" danger busy={busy === `por:${item.id}`} onCancel={fermer}
+          onSend={(motif) => void run(`por:${item.id}`, () => retirerDemandeBC(undefined, fdOf({ motif })), "Demande de bon de commande annulée.").then(fermer)}
         />
       )}
       {panneau === "ANNULER_ORDRE" && ordreAnnulable && regard.canEmettre && (
@@ -1168,7 +1180,8 @@ function BoiteDecision({ item, mode, budgetOptions, busy, run, fdOf, onCancel, r
       )}
       {accordSeul && (
         <p className="text-xs text-amber-700 dark:text-amber-400">
-          Un bon de commande est déjà établi dans Legal ({item.bcEtablis.join(", ")}) : pour refuser ou renvoyer ce poste, annulez-le d&apos;abord dans Legal.
+          Un bon de commande est déjà établi dans Legal ({item.bcEtablis.join(", ")}) : pour refuser ou renvoyer ce poste, annulez d&apos;abord la demande de BC
+          {item.refusAnnulationBc ? ` — ${item.refusAnnulationBc}` : " (« Annuler la demande de BC » l'annule avec elle)."}
         </p>
       )}
       {marketing && offrir("APPROVED") && (

@@ -14,7 +14,7 @@ import { NATURES_PIECE_SECRETARIAT, PIECE_SECRETARIAT, estDemandeBcAEtablir, typ
 import { statutDuDossier } from "@/lib/promo-material/statut";
 import { porteDesVoyageurs } from "@/lib/ad-pro/voyageurs";
 import { splitMulti } from "@/lib/ad-pro/pickers";
-import { bcEtablisDesPostes } from "@/lib/ad-pro/bc-etablis";
+import { bcVivantsDesPostes, refusAnnulationBcDuPoste } from "@/lib/ad-pro/bc-etablis";
 import type { VoyageurVue } from "@/components/ad-pro/voyageurs-bloc";
 import { piecesDesPostes, demandesBCDesPostes, assistantesDeDirection } from "@/lib/ad-pro/pieces-poste";
 import { droitsValidation, estDirectionMarketingPoste, type DroitsValidation } from "@/lib/ad-pro/validation-poste";
@@ -146,7 +146,7 @@ export async function loadAdProItems(parent: AdProParent, parentId: string): Pro
     // LE MATÉRIEL DU STOCK des postes qui en portent (§118.167) — en lot, comme le reste.
     lignesStockParPoste(itemIds),
     // LES BC DÉJÀ ÉTABLIS DANS LEGAL (§118.187) : la même lecture que les actions qui les refusent.
-    bcEtablisDesPostes(itemIds),
+    bcVivantsDesPostes(itemIds),
   ]);
   // LA CHAÎNE D'ACHAT DE CHAQUE POSTE (§118.204) — devis, BC, factures — et la demande de BC chez
   // l'assistante. En lot, comme le reste.
@@ -195,7 +195,10 @@ export async function loadAdProItems(parent: AdProParent, parentId: string): Pro
     budgetCategoryLabel: i.budgetCategory ? `${i.budgetCategory.envelope.name} › ${i.budgetCategory.name}` : null,
     demandes: demandesParPoste.get(i.id) ?? [],
     travauxBc: travauxBcParPoste.get(i.id) ?? [],
-    bcEtablis: bcLegalParPoste.get(i.id) ?? [],
+    bcEtablis: [...new Set((bcLegalParPoste.get(i.id) ?? []).map((b) => b.nom))],
+    // CE QUI EMPÊCHE « Annuler la demande de BC » (constat 36) — la règle de l'action, lue ici pour que la
+    // carte n'offre pas un geste que l'action refuserait (§118.83).
+    refusAnnulationBc: refusAnnulationBcDuPoste(bcLegalParPoste.get(i.id) ?? []),
     documentCount: docsParPoste.get(i.id) ?? 0,
     lignesStock: lignesParPoste.get(i.id) ?? [],
     repartitionId: i.repartitionId,

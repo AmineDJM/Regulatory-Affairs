@@ -51,7 +51,8 @@ import { annulerOrdreNonRegle } from "@/lib/payments/annulation";
 import { annulerDemandeSecretariat, prevenirLeSecretariat } from "@/lib/secretariat/annulation";
 import { supprimerReversible } from "@/lib/suppression/coeur";
 import { apercuSuppression } from "@/lib/admin-delete-registry";
-import { bcEtablisDuPoste, refusBcEtabli } from "@/lib/ad-pro/bc-etablis";
+import { bcEtablisDuPoste, bcVivantsDesPostes, refusAnnulationBcDuPoste, refusBcEtabli } from "@/lib/ad-pro/bc-etablis";
+import { aiguillerBC } from "@/lib/bons-de-commande/aiguillage";
 import {
   droitsValidation, tempsEnAttente, rolesAPrevenir, opsFranchiALaSoumission, libelleTemps,
   type DroitsValidation, type Porteur,
@@ -1967,6 +1968,9 @@ export async function approveAdProItemOrder(_prev: ActionResult | undefined, for
 
 // ───────────────────── Corriger le bon de commande d'un poste (§118.187, audit R06, R12) ─────────────────────
 
+/** Un refus levé DANS une transaction pour l'annuler entière, rattrapé à sa sortie pour devenir une phrase. */
+class RefusPoste extends Error {}
+
 /** Qui touche à la demande de BC d'un poste : qui décrit les postes, ou qui les arbitre. */
 function peutToucherDemandeBC(user: SessionUser, parent: AdProParent): boolean {
   return canEditItems(user, parent) || canAllocate(user, parent);
@@ -1981,8 +1985,6 @@ export async function retirerDemandeBC(_prev: ActionResult | undefined, formData
   const user = await requireUser();
   const id = fdStr(formData, "id");
   if (!id) return { ok: false, error: "Poste non précisé." };
-  const motif = fdStr(formData, "motif");
-  if (!motif) return { ok: false, error: "Dites pourquoi vous retirez la demande : le motif reste à l'historique, et l'assistante le lit." };
   const found = await loadItem(id, user);
   if (!found) return { ok: false, error: "Poste introuvable." };
   const { item, owner } = found;
@@ -1993,20 +1995,58 @@ export async function retirerDemandeBC(_prev: ActionResult | undefined, formData
   if (item.orderStage !== "REQUESTED" && item.orderStage !== "DIRECTION_OK") {
     return { ok: false, error: "Aucune demande de bon de commande n'est en cours sur ce poste." };
   }
-  const bcs = await bcEtablisDuPoste(id);
-  if (bcs.length > 0) return { ok: false, error: refusBcEtabli(bcs, "retirez la demande") };
+  // UN GESTE UNIQUE (audit du 04/10, constat 36) : le BC établi par l'assistante mais NON signé n'engage
+  // encore personne — il s'annule au registre AVEC la demande. Signé par les Finances, ou suivi d'une
+  // facture, la demande est exécutée : le refus le nomme (la même règle que la carte, §118.83). Tout ce
+  // qui refuse passe AVANT le motif (§118.18).
+  const bcs = (await bcVivantsDesPostes([id])).get(id) ?? [];
+  const refusBc = refusAnnulationBcDuPoste(bcs);
+  if (refusBc) return { ok: false, error: refusBc };
+  const motif = fdStr(formData, "motif");
+  if (!motif) return { ok: false, error: "Dites pourquoi vous annulez la demande : le motif reste à l'historique, et l'assistante le lit." };
 
-  const r = await prisma.adProItem.updateMany({
-    where: { id, orderStage: { in: ["REQUESTED", "DIRECTION_OK"] }, expenseOrderId: null },
-    data: {
-      orderStage: "NONE", orderDirectionAt: null, orderDirectionById: null,
-      orderVisaAmount: null, orderVisaSupplier: null, orderDecisionNote: null, updatedById: user.id,
-    },
-  });
-  if (r.count === 0) return { ok: false, error: "Cette demande vient de changer (visée, émise ou déjà retirée) : rouvrez la fiche." };
+  // TOUT OU RIEN, SOUS CONDITION : chaque BC n'est annulé que s'il n'a pas été signé (ni touché) depuis la
+  // lecture — la signature des Finances écrit sur `updatedAt` lu, et cette annulation le change : des deux
+  // gestes simultanés, un seul passe. Le poste revient sans demande de BC dans la même transaction.
+  const changee = "Cette demande vient de changer (visée, émise, signée ou déjà annulée) : rouvrez la fiche.";
+  const annules: string[] = [];
+  try {
+    await prisma.$transaction(async (tx) => {
+      for (const bc of bcs) {
+        const a = await tx.legalDocument.updateMany({
+          where: { id: bc.id, kind: "PURCHASE_ORDER", status: { not: "CANCELLED" }, signedAt: null, signedById: null },
+          data: { status: "CANCELLED", cancelledAt: new Date(), cancelReason: `demande de bon de commande du poste « ${item.label} » annulée — ${motif}`, updatedById: user.id },
+        });
+        if (a.count === 0) throw new RefusPoste(changee);
+        const facture = await tx.legalDocument.count({ where: { chainFromId: bc.id, kind: "INVOICE", status: { not: "CANCELLED" } } });
+        if (facture > 0) throw new RefusPoste(changee);
+        annules.push(bc.nom);
+      }
+      const r = await tx.adProItem.updateMany({
+        where: { id, orderStage: { in: ["REQUESTED", "DIRECTION_OK"] }, expenseOrderId: null },
+        data: {
+          orderStage: "NONE", orderDirectionAt: null, orderDirectionById: null,
+          orderVisaAmount: null, orderVisaSupplier: null, orderDecisionNote: null, updatedById: user.id,
+        },
+      });
+      if (r.count === 0) throw new RefusPoste(changee);
+    });
+  } catch (e) {
+    if (e instanceof RefusPoste) return { ok: false, error: e.message };
+    throw e;
+  }
+  // Un BC annulé n'a plus rien à faire valider : sa porte en attente quitte le centre — et son journal le dit.
+  for (const bc of bcs) {
+    await recordAudit({
+      actorId: user.id, action: "UPDATE", module: "Legal", entityType: "LEGAL_DOCUMENT", entityId: bc.id,
+      field: "status", newValue: "CANCELLED", summary: `Bon de commande ${bc.nom} annulé avec la demande du poste « ${item.label} » — ${motif}`,
+    });
+    await aiguillerBC(bc.id, { acteurId: user.id }).catch(() => undefined);
+  }
+  if (bcs.length > 0) { revalidatePath("/legal"); revalidatePath(CHEMIN_BC_A_SIGNER); }
 
   const info = await PARENTS[owner.parent].load(owner.id);
-  const closes = await cloreDemandesSecretariat(id, `la demande de bon de commande du poste « ${item.label} » a été retirée — ${motif}`, user, "BC_A_ETABLIR");
+  const closes = await cloreDemandesSecretariat(id, `la demande de bon de commande du poste « ${item.label} » a été annulée — ${motif}`, user, "BC_A_ETABLIR");
   // Les Finances avaient reçu « à émettre » : sans ce message, elles chercheraient un BC qui n'existe plus.
   if (item.orderStage === "DIRECTION_OK") {
     await notifyRoles(FINANCES_BC, {
@@ -2014,10 +2054,18 @@ export async function retirerDemandeBC(_prev: ActionResult | undefined, formData
       body: `${info?.ref ?? ""} — « ${item.label} » : ${motif}`, link: `${PARENTS[owner.parent].path}/${owner.id}`,
     }).catch(() => undefined);
   }
-  await audit(user, owner.parent, owner.id, "UPDATE", `Demande de bon de commande RETIRÉE pour le poste « ${item.label} » — ${motif}`);
+  // LE DEMANDEUR, quand c'est quelqu'un d'autre qui annule (qui tranche) : c'est sa demande qui s'arrête.
+  if (item.orderRequestedById && item.orderRequestedById !== user.id) {
+    await notifyUser({
+      userId: item.orderRequestedById, type: "GENERIC", title: "Demande de bon de commande annulée",
+      body: `${info?.ref ?? ""} — « ${item.label} »${annules.length ? ` (BC ${annules.join(", ")} annulé)` : ""} : ${motif}`,
+      link: `${PARENTS[owner.parent].path}/${owner.id}`,
+    }).catch(() => undefined);
+  }
+  await audit(user, owner.parent, owner.id, "UPDATE", `Demande de bon de commande ANNULÉE pour le poste « ${item.label} »${annules.length ? ` — BC ${annules.join(", ")} annulé au registre` : ""} — ${motif}`);
   revalidate(owner.parent, owner.id);
   revalidatePath("/centre-ad-pro");
-  return { ok: true, id, message: `Demande de bon de commande retirée.${phraseDemandesCloses(closes)}` };
+  return { ok: true, id, message: `Demande de bon de commande annulée${annules.length ? ` — le bon de commande ${annules.join(", ")}, non signé, est annulé au registre` : ""}.${phraseDemandesCloses(closes)}` };
 }
 
 /**

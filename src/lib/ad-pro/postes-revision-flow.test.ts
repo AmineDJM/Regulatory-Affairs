@@ -504,36 +504,95 @@ suite("Ad & Pro — réviser un poste : visa, demande de BC, ordre, décision, r
     // Elle l'APPREND, motif compris — par le lien causal (sa demande de pièce), pas un compte de titres.
     const avis = await prisma.notification.findFirstOrThrow({ where: { userId: astId, link: `/pieces/${apres.id}`, createdAt: { gte: t0 } }, select: { title: true, body: true } });
     expect(avis.title).toBe("Demande de pièce annulée");
-    expect(avis.body).toMatch(/la demande de bon de commande du poste .* a été retirée — Le devis est caduc\./);
+    expect(avis.body).toMatch(/la demande de bon de commande du poste .* a été annulée — Le devis est caduc\./);
     // Et une nouvelle demande repart : un poste n'est pas figé par un retrait.
     ok(await demanderBC(id, "Nouveau devis DV-31."));
     expect((await etat(id)).orderStage).toBe("REQUESTED");
     expect((await travauxBc(id)).filter((d) => d.status === "PENDING"), "une demande NEUVE, la close reste close").toHaveLength(1);
   });
 
-  it("RETIRER est REFUSÉ quand un BC est déjà établi dans Legal — il lit sa validation sur ce poste", async () => {
+  it("ANNULER LA DEMANDE DE BC — geste unique (constat 36) : le BC établi NON signé part au registre avec la demande", async () => {
     SEUIL = 500_000;
     const id = await posteAccorde("Plaquettes", 600_000);
     ok(await demanderBC(id));
     ok(await viser(id));
     // Le BC établi par la VRAIE chaîne : déposé par l'assistante, accepté par le demandeur (§118.204).
     const pieceId = await bcEtabli(id);
-    const piece = { id: pieceId };
-    await comme("kam");
-    const r = await retirerDemandeBC(undefined, fd({ id, motif: "x" }));
-    expect(r.ok).toBe(false);
-    expect(r.error).toMatch(/Un bon de commande a déjà été établi pour ce poste \(.+\).*annulez-le d'abord dans Legal/);
-    expect((await etat(id)).orderStage, "le BC Legal aurait perdu sa porte").toBe("DIRECTION_OK");
-    // La même règle tient pour « revoir la décision » et « demander une révision ».
+    // Tant que le BC vit, revoir la décision et rendre le poste restent refusés — et le refus nomme le geste.
     await comme("pm");
     const revoir = await decideAdProItem(undefined, fd({ id, decision: "REVISION", note: "À revoir" }));
     expect(revoir.ok).toBe(false);
-    expect(revoir.error).toMatch(/annulez-le d'abord dans Legal/);
+    expect(revoir.error).toMatch(/Annuler la demande de BC/);
     await comme("kam");
     expect((await demanderRevisionPoste(undefined, fd({ id, motif: "x" }))).ok).toBe(false);
-    // Le BC annulé dans Legal, le retrait passe.
-    await prisma.legalDocument.update({ where: { id: piece.id }, data: { status: "CANCELLED" } });
-    ok(await retirerDemandeBC(undefined, fd({ id, motif: "BC annulé dans Legal." })));
+    // Le motif est exigé — APRÈS l'état : ici rien ne refuse, on demande pourquoi.
+    const sans = await retirerDemandeBC(undefined, fd({ id }));
+    expect(sans.ok).toBe(false);
+    expect(sans.error).toMatch(/Dites pourquoi/);
+    // QUI TRANCHE annule : le demandeur (le délégué) est prévenu, c'est sa demande qui s'arrête.
+    await comme("pm");
+    const t0 = new Date();
+    const r = await retirerDemandeBC(undefined, fd({ id, motif: "Le prestataire a changé." }));
+    ok(r);
+    expect(r.message ?? "").toMatch(/non signé, est annulé au registre/);
+    const doc = await prisma.legalDocument.findUniqueOrThrow({ where: { id: pieceId }, select: { status: true, cancelReason: true, cancelledAt: true } });
+    expect(doc.status, "le BC part avec la demande").toBe("CANCELLED");
+    expect(doc.cancelReason ?? "").toMatch(/Le prestataire a changé\./);
+    expect(doc.cancelledAt).not.toBeNull();
+    expect((await etat(id)).orderStage, "le poste revient sans demande de BC").toBe("NONE");
+    expect(await prisma.notification.count({ where: { userId: kamId, title: "Demande de bon de commande annulée", createdAt: { gte: t0 } } })).toBe(1);
+    expect(await prisma.auditLog.count({ where: { entityType: "LEGAL_DOCUMENT", entityId: pieceId, createdAt: { gte: t0 }, summary: { contains: "annulé avec la demande" } } })).toBe(1);
+    // Rien ne retient plus le poste : une nouvelle demande de BC repart.
+    ok(await demanderBC(id, "Nouveau prestataire, devis DV-77."));
+    expect((await etat(id)).orderStage).toBe("REQUESTED");
+  });
+
+  it("ANNULER LA DEMANDE DE BC : un BC SIGNÉ par les Finances refuse — AVANT le motif, en le nommant, et rien n'est touché", async () => {
+    SEUIL = 500_000;
+    const id = await posteAccorde("Kakémonos", 600_000);
+    ok(await demanderBC(id));
+    ok(await viser(id));
+    const pieceId = await bcSigne(id);
+    await comme("kam");
+    const r = await retirerDemandeBC(undefined, fd({ id }));
+    expect(r.ok).toBe(false);
+    expect(r.error, "l'état refuse avant qu'on demande pourquoi").toMatch(/est signé par les Finances/);
+    expect((await prisma.legalDocument.findUniqueOrThrow({ where: { id: pieceId }, select: { status: true } })).status).not.toBe("CANCELLED");
+    expect((await etat(id)).orderStage).toBe("DIRECTION_OK");
+  });
+
+  it("ANNULER LA DEMANDE DE BC pendant que les Finances SIGNENT : la signature gagne, rien n'est annulé (course forcée)", async () => {
+    SEUIL = 500_000;
+    const id = await posteAccorde("Course signature", 600_000);
+    ok(await demanderBC(id));
+    ok(await viser(id));
+    const pieceId = await bcEtabli(id);
+    await comme("kam");
+    let geste!: Promise<Awaited<ReturnType<typeof retirerDemandeBC>>>;
+    await prisma.$transaction(async (tx) => {
+      // Les écritures du registre attendent, ses lectures passent : l'annulation lit un BC NON signé, puis
+      // bute sur le verrou ; le détenteur signe le BC (il peut écrire), puis relâche.
+      await tx.$executeRawUnsafe(`LOCK TABLE "LegalDocument" IN SHARE MODE`);
+      geste = retirerDemandeBC(undefined, fd({ id, motif: "Course." }));
+      geste.catch(() => undefined);
+      const debut = Date.now();
+      for (;;) {
+        await tx.$executeRawUnsafe("SELECT pg_stat_clear_snapshot()");
+        const [{ n }] = await tx.$queryRaw<{ n: number }[]>`
+          SELECT count(*)::int AS n FROM pg_stat_activity
+          WHERE datname = current_database() AND pid <> pg_backend_pid()
+            AND wait_event_type = 'Lock' AND query ILIKE ANY(${["%LegalDocument%"]}::text[])`;
+        if (n >= 1) break;
+        if (Date.now() - debut > 10_000) throw new Error("le geste n'a pas atteint la barrière");
+        await new Promise((res) => setTimeout(res, 25));
+      }
+      await tx.legalDocument.update({ where: { id: pieceId }, data: { signedAt: new Date(), signedById: finId } });
+    }, { timeout: 20_000 });
+    const r = await geste;
+    expect(r.ok, JSON.stringify(r)).toBe(false);
+    expect(r.error).toMatch(/vient de changer/);
+    expect((await prisma.legalDocument.findUniqueOrThrow({ where: { id: pieceId }, select: { status: true } })).status, "le BC signé reste").not.toBe("CANCELLED");
+    expect((await etat(id)).orderStage, "tout ou rien : le poste garde sa demande").toBe("DIRECTION_OK");
   });
 
   it("MODIFIER LA DEMANDE DE BC : le message change, et le « BC à établir » de l'assistante avec lui", async () => {
