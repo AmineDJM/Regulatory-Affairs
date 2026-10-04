@@ -654,14 +654,14 @@ suite("Ad & Pro — réviser un poste : visa, demande de BC, ordre, décision, r
   });
 
   /**
-   * DÉFAUT NOMMÉ (§118.204, NON réparé) : un sponsoring direct dont le paiement est
-   * demandé (facture rattachée, ordre en attente) ET qui porte une demande au secrétariat ouverte ne se
-   * retire plus — la corbeille refuse (« la demande dépend d'une de ses propres branches — ordre de
-   * recréation impossible »). Vider le raccourci `adminRequestId` du poste ne suffit pas : une autre boucle
-   * subsiste entre la demande au secrétariat, l'ordre et son dossier compagnon. `it.fails` : réparé, ce cas
-   * passe — retirer alors `.fails`.
+   * DÉFAUT RÉPARÉ (audit du 04/10, constat 20 — nommé en §118.204) : un sponsoring direct dont le paiement
+   * est demandé ET qui porte une demande au secrétariat ouverte ne se retirait plus — « la demande dépend
+   * d'une de ses propres branches ». Mesuré : la SEULE dépendance de la tête vers le lot était
+   * `AdProItem.adminRequestId` → la demande au secrétariat que le couple `linkedEntityType` emporte (la
+   * « seconde boucle » supposée n'existait pas). Colonne facultative : le lot DIFFÈRE ce lien — la tête
+   * renaît sans lui, la demande renaît, puis le lien est rétabli (`liensTete`, `lot.ts`).
    */
-  it.fails("DÉFAUT — RETIRER un poste payé qui a une demande au secrétariat ouverte : elle part avec lui, l'assistante l'apprend, tout revient", async () => {
+  it("RETIRER un poste payé qui a une demande au secrétariat ouverte : elle part avec lui, l'assistante l'apprend, tout revient", async () => {
     SEUIL = 500_000;
     // Un SPONSORING DIRECT (§118.204) : payé sur facture, sans BC — le seul poste dont l'ordre peut
     // exister sans BC signé, donc le seul qui se retire avec un ordre en attente (un BC signé bloque).
