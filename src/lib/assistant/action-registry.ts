@@ -1479,6 +1479,12 @@ X("RÉVISER UN PLAN VALIDÉ, DIRE QU'UNE VISITE N'A PAS EU LIEU (audit 360°, lo
   "tour-visit-actions:direVisiteNonTenue",
 ]);
 
+X("L'APERÇU AVANT IMPRESSION du composeur (Direction, 10/2026, §118.203) — le PDF de la pièce à blanc, avant de l'émettre : un "
+  + "rendu d'écran, qui n'écrit rien et ne consomme aucun numéro. La conversation a son propre aperçu (`document_build`, "
+  + "sans émettre) ; l'image d'une page n'est pas un geste qu'un modèle ait à demander. Un bouton du composeur.", [
+  "fabrique-actions:apercuAvantImpressionPiece",
+]);
+
 X("RÉVISER UNE PIÈCE ÉMISE depuis sa fiche (audit 360°, lot C4d2b1, §118.194) — une nouvelle version d'un devis ou "
   + "d'un bon de commande réécrit un engagement et son fichier : un BC relevé retourne à son centre et perd la signature "
   + "des Finances. Le geste se fait devant les lignes de la version affichée, motif à l'appui. Adam est en pause de "

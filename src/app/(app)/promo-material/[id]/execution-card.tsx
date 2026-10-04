@@ -538,6 +538,7 @@ function LigneExecution({ id, e, canPilot, canReceive, ouvert, options }: {
         <div className="flex flex-wrap items-center gap-2">
           {bc.pdf && <a className={lien} href={lienFichierEmis(bc.id, "pdf")} target="_blank" rel="noreferrer"><FileText className="h-3.5 w-3.5" /> PDF</a>}
           {bc.docx && <a className={lien} href={lienFichierEmis(bc.id, "docx", true)}><FileText className="h-3.5 w-3.5" /> Word</a>}
+          <a className={lien} href={lienFichierEmis(bc.id, "xlsx", true)} aria-label="Générer ce bon de commande sur Excel"><FileText className="h-3.5 w-3.5" /> Excel</a>
           {bc.montant != null && <span className="text-xs text-muted-foreground">{formatDzd(bc.montant)} TTC</span>}
           {e.envoyeLe
             ? <Badge tone="success">Envoyé le {new Date(e.envoyeLe).toLocaleDateString("fr-FR")}</Badge>
@@ -561,6 +562,10 @@ function LigneExecution({ id, e, canPilot, canReceive, ouvert, options }: {
             <div><Label htmlFor={`bc-del-${e.quoteId}`}>Délai de livraison</Label><Input id={`bc-del-${e.quoteId}`} name="livraisonDelai" placeholder="15 jours" /></div>
             <div><Label htmlFor={`bc-cn-${e.quoteId}`}>Interlocuteur</Label><Input id={`bc-cn-${e.quoteId}`} name="contactNom" /></div>
             <div><Label htmlFor={`bc-ct-${e.quoteId}`}>Téléphone</Label><Input id={`bc-ct-${e.quoteId}`} name="contactTelephone" /></div>
+          </div>
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+            <div><Label htmlFor={`bc-taxe-${e.quoteId}`}>Taxe supplémentaire (libellé)</Label><Input id={`bc-taxe-${e.quoteId}`} name="extraTaxLabel" placeholder="Taxe Pub" /></div>
+            <div><Label htmlFor={`bc-taux-${e.quoteId}`}>Taux (%) — 0 la retire</Label><Input id={`bc-taux-${e.quoteId}`} name="extraTaxRate" inputMode="decimal" placeholder="2" /></div>
           </div>
           <div><Label htmlFor={`bc-notes-${e.quoteId}`}>Notes</Label><Textarea id={`bc-notes-${e.quoteId}`} name="notes" className="min-h-[50px]" /></div>
           <div><Label htmlFor={`bc-motif-${e.quoteId}`}>Motif de la modification</Label><Input id={`bc-motif-${e.quoteId}`} name="motif" /></div>
@@ -614,6 +619,12 @@ export function PromoExecutionCard({ id, executions, canPilot, canReceive, ouver
             <strong>{aGenerer}</strong> bon{aGenerer > 1 ? "s" : ""} de commande à générer — un par fournisseur, composé{aGenerer > 1 ? "s" : ""} par la plateforme d&apos;après les lignes validées (chacune avec son action : conception, impression…), sur le papier en-tête de la société.
           </p>
           <form className="space-y-2" action={(f: FormData) => { f.set("promoMaterialId", id); run(() => genererBonsDeCommandePromo(f)); }}>
+            {/* LA CASE DES TAXES SUPPLÉMENTAIRES, toujours visible : « Taxe Pub 2 % » sur le HT, hors base de TVA. Vide = celle de chaque devis ; 0 = aucune. */}
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_9rem]">
+              <div><Label htmlFor="gen-taxe">Taxe supplémentaire (libellé)</Label><Input id="gen-taxe" name="extraTaxLabel" placeholder="Taxe Pub" /></div>
+              <div><Label htmlFor="gen-taux">Taux (%)</Label><Input id="gen-taux" name="extraTaxRate" inputMode="decimal" placeholder="2" /></div>
+              <p className="text-xs text-muted-foreground sm:col-span-2">Calculée sur le HT, hors base de TVA. Vide : on garde celle de chaque devis ; 0 : aucune.</p>
+            </div>
             {options && (
               <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                 <div><Label htmlFor="gen-adr">Adresse de livraison</Label><Input id="gen-adr" name="livraisonAdresse" /></div>

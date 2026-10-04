@@ -407,6 +407,12 @@ export default async function LegalDocumentPage({ params }: { params: { id: stri
                         <Paperclip className="h-3.5 w-3.5" /> Word
                       </a>
                     )}
+                    {/* « Générer le BC sur Excel » : la pièce RENDUE en classeur à formules, à la demande, sous la même porte. */}
+                    {emise && (
+                      <a href={lienFichierEmis(doc.id, "xlsx", true)} className="inline-flex items-center gap-1 font-medium text-primary hover:underline" aria-label={`Générer ${emise.numero} sur Excel`}>
+                        <Paperclip className="h-3.5 w-3.5" /> Excel
+                      </a>
+                    )}
                     {emise && <span className="text-xs text-muted-foreground">Version {emise.version}</span>}
                   </div>
                   {/* CE QUI CORRIGE UNE PIÈCE ÉMISE, À L'ENDROIT OÙ ON LA REGARDE (§118.194) : la révision pour un

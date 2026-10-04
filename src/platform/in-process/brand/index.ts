@@ -57,14 +57,14 @@ export async function marqueDe(user: CurrentUser, societe?: string | null): Prom
   if (!r.ok) return r;
   const s = r.societe;
   const marque = lireMarque(await reglagesDe(s.id));
-  const charte = charteDe(marque, s.color);
+  const charte = charteDe(marque);
   return { ok: true, lue: { societe: { id: s.id, nom: s.name, couleur: s.color }, marque, charte, resume: resumerMarque(marque, charte), modifiable: peutReglerMarque(user) } };
 }
 
 /** La marque et la charte par IDENTIFIANT de société — pour la fabrique, qui a déjà résolu la société. */
-export async function marqueEtCharte(companyId: string, couleurSociete: string | null): Promise<{ marque: Marque; charte: Charte }> {
+export async function marqueEtCharte(companyId: string): Promise<{ marque: Marque; charte: Charte }> {
   const marque = lireMarque(await reglagesDe(companyId));
-  return { marque, charte: charteDe(marque, couleurSociete) };
+  return { marque, charte: charteDe(marque) };
 }
 
 /** RÉGLER la marque — modification partielle, refus nommés, audit au nom de la personne. */

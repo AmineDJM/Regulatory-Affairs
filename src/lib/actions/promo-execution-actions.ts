@@ -137,6 +137,23 @@ async function devisEtBC(pm: Dossier, quoteId: string | null) {
   return { devis, bc: etat && !etat.annule ? etat : null };
 }
 
+/**
+ * LA TAXE SUPPLÉMENTAIRE saisie sur le formulaire — « Taxe Pub 2 % », calculée sur le HT et hors base de TVA.
+ * Trois issues, et la différence compte : `undefined` = le formulaire n'en dit RIEN (la valeur d'origine reste, §118.152c) ;
+ * `null` = « 0 » : aucune taxe, explicitement ; sinon la taxe. Un taux hors de 0–100 est refusé en le nommant.
+ */
+function lireTaxeSupplementaire(formData: FormData): { ok: true; taxe: { libelle: string; taux: number } | null | undefined; libelleSaisi: string | undefined } | { ok: false; error: string } {
+  const libelleSaisi = fdStr(formData, "extraTaxLabel") ?? undefined;
+  const brut = (fdStr(formData, "extraTaxRate") ?? "").replace(",", ".").trim();
+  if (brut === "") return { ok: true, taxe: undefined, libelleSaisi };
+  const pourcent = Number(brut);
+  if (!Number.isFinite(pourcent) || pourcent < 0 || pourcent > 100) {
+    return { ok: false, error: `La taxe supplémentaire s'exprime en pour cent, entre 0 et 100 (« ${brut} » ne se lit pas) — 0 pour n'en mettre aucune, vide pour garder celle du devis.` };
+  }
+  if (pourcent === 0) return { ok: true, taxe: null, libelleSaisi };
+  return { ok: true, taxe: { libelle: libelleSaisi ?? "Taxe additionnelle", taux: pourcent / 100 }, libelleSaisi };
+}
+
 // ───────────────────────── 1. Générer les bons de commande ─────────────────────────
 
 /**
@@ -154,6 +171,9 @@ export async function genererBonsDeCommandePromo(formData: FormData): Promise<Ac
   if (refus || !pm) return { ok: false, error: refus ?? "Dossier introuvable." };
   const livraison = { adresse: fdStr(formData, "livraisonAdresse"), delai: fdStr(formData, "livraisonDelai") };
   const notes = fdStr(formData, "notes");
+  // LA CASE « TAXE SUPPLÉMENTAIRE » (Direction, 10/2026) : vide = celle de chaque devis ; « 0 » = aucune ; sinon pour tous les BC générés.
+  const taxeSaisie = lireTaxeSupplementaire(formData);
+  if (!taxeSaisie.ok) return { ok: false, error: taxeSaisie.error };
 
   const societe = await societeDuDossier(pm);
   if (!societe) {
@@ -196,7 +216,9 @@ export async function genererBonsDeCommandePromo(formData: FormData): Promise<Ac
         tiers: { nom: f.name, adresse, rc: f.rc, nif: f.nif, rib: f.rib, telephone: f.phone, email: f.email },
         lignes: lignesDuBonDeCommande(d),
         tvaDefaut: d.tvaRate / 100,
-        taxes: d.extraTaxRate ? [{ libelle: d.extraTaxLabel ?? "Taxe additionnelle", taux: d.extraTaxRate / 100 }] : null,
+        taxes: taxeSaisie.taxe !== undefined
+          ? (taxeSaisie.taxe ? [taxeSaisie.taxe] : null)
+          : d.extraTaxRate ? [{ libelle: d.extraTaxLabel ?? "Taxe additionnelle", taux: d.extraTaxRate / 100 }] : null,
         referenceAmont: d.reference,
         referenceAmontDate: brut.quoteDate ? brut.quoteDate.toISOString().slice(0, 10) : null,
         objet: `Matériel promotionnel ${pm.reference} — ${pm.title}`,
@@ -229,7 +251,7 @@ export async function genererBonsDeCommandePromo(formData: FormData): Promise<Ac
 // ───────────────────────── 2. Modifier, supprimer, envoyer un BC ─────────────────────────
 
 /**
- * MODIFIER UN BON DE COMMANDE GÉNÉRÉ — livraison, délai, interlocuteur, notes.
+ * MODIFIER UN BON DE COMMANDE GÉNÉRÉ — livraison, délai, interlocuteur, notes, taxe supplémentaire.
  *
  * Même numéro, nouvelle version du même fichier (la fabrique). Les LIGNES ne se modifient pas ici :
  * elles sont ce qui a été validé, et un BC qui s'en écarterait engagerait la société sur ce que
@@ -257,6 +279,21 @@ export async function modifierBonDeCommandePromo(formData: FormData): Promise<Ac
   const contactNom = saisi("contactNom");
   const contactTelephone = saisi("contactTelephone");
   const notes = saisi("notes");
+  // LA TAXE SUPPLÉMENTAIRE se corrige aussi : un taux la change, « 0 » la retire, vide la garde — et sans libellé
+  // nouveau, le libellé de la pièce reste (« Taxe Pub » ne devient pas « Taxe additionnelle » parce qu'on change le taux).
+  const taxeSaisie = lireTaxeSupplementaire(formData);
+  if (!taxeSaisie.ok) return { ok: false, error: taxeSaisie.error };
+  let taxes: { libelle: string; taux: number }[] | undefined;
+  if (taxeSaisie.taxe === null) taxes = [];
+  else if (taxeSaisie.taxe) {
+    let libelle = taxeSaisie.taxe.libelle;
+    if (taxeSaisie.libelleSaisi === undefined) {
+      const piece = await prisma.legalDocument.findUnique({ where: { id: lu.bc.id }, select: { custom: true } });
+      const anciennes = (piece?.custom as { fabrique?: { spec?: { taxes?: { libelle?: string }[] | null } } } | null)?.fabrique?.spec?.taxes;
+      if (anciennes?.[0]?.libelle) libelle = anciennes[0].libelle;
+    }
+    taxes = [{ libelle, taux: taxeSaisie.taxe.taux }];
+  }
   const modifications = {
     ...(adresse !== undefined || delai !== undefined
       ? { livraison: { ...(adresse !== undefined ? { adresse } : {}), ...(delai !== undefined ? { delai } : {}) } }
@@ -265,6 +302,7 @@ export async function modifierBonDeCommandePromo(formData: FormData): Promise<Ac
       ? { contact: { ...(contactNom !== undefined ? { nom: contactNom } : {}), ...(contactTelephone !== undefined ? { telephone: contactTelephone } : {}) } }
       : {}),
     ...(notes !== undefined ? { notes } : {}),
+    ...(taxes !== undefined ? { taxes } : {}),
   };
   if (Object.keys(modifications).length === 0) {
     return { ok: false, error: "Rien à modifier : renseignez au moins un champ — ceux laissés vides gardent leur valeur." };
@@ -274,7 +312,7 @@ export async function modifierBonDeCommandePromo(formData: FormData): Promise<Ac
     legalDocumentId: lu.bc.id,
     modifications,
     motif: fdStr(formData, "motif") ?? "modification par le demandeur",
-  }, { delegation: `${pm.reference} — bon de commande du dossier, modifié par ses pilotes (livraison, contact, notes)` });
+  }, { delegation: `${pm.reference} — bon de commande du dossier, modifié par ses pilotes (livraison, contact, notes, taxe supplémentaire)` });
   if (!r.ok) return { ok: false, error: r.motif };
   await prisma.promoQuote.update({ where: { id: lu.devis.id }, data: { purchaseOrderSentAt: null, purchaseOrderSentById: null } });
   await audit(user, pm.id, `Bon de commande ${r.reference} modifié (v${r.version})`);

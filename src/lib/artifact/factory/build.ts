@@ -48,7 +48,7 @@ import { adaptateurDocx } from "@/lib/artifact/adapters/docx/adapter";
 import { controlerAvantLivraison, type ControleLivraison } from "@/lib/artifact/qa/checks";
 import type { DocxModel } from "@/lib/artifact/object-model/model";
 import {
-  ajouterJours, calculerTotaux, formaterDateFr, formaterDzd, formaterMontant, formaterQuantite, formaterTaux,
+  ACCENT_MAISON, ajouterJours, calculerTotaux, formaterDateFr, formaterDzd, formaterMontant, formaterQuantite, formaterTaux,
   LIBELLE_MODE, LIBELLE_TYPE, estPieceFiscale, verifierSpecCommerciale,
   type LigneCalculee, type PartieCommerciale, type SpecDocumentCommercial, type TotauxCommerciaux,
 } from "@/lib/artifact/factory/commercial";
@@ -77,8 +77,8 @@ const cap = (s: string): string => (s ? s[0].toUpperCase() + s.slice(1) : s);
 const present = (v: string | null | undefined): v is string => !!v && v.trim() !== "";
 const lignesDe = (s: string): string[] => s.split(/\r?\n/).map((x) => x.trim()).filter(Boolean);
 
-/** La couleur d'accent de la pièce : celle de la charte de la société, sinon le bleu de la maison. */
-const accentDe = (spec: SpecDocumentCommercial): string => (spec.couleur ?? "0B2545").replace(/^#/, "");
+/** La couleur d'accent de la pièce : celle de la charte de la société, sinon le bleu canard de la maison (R 8, V 112, B 132). */
+const accentDe = (spec: SpecDocumentCommercial): string => (spec.couleur ?? ACCENT_MAISON).replace(/^#/, "");
 
 /** « 145 000,00 DZD », ou « Offert » quand le prix est nul — c'est ainsi que la société l'écrit. */
 const montantOuOffert = (montant: number, prixUnitaire: number, avecDevise: boolean): string =>
@@ -306,6 +306,9 @@ function blocsCommande(spec: SpecDocumentCommercial, t: TotauxCommerciaux): stri
   const e = spec.emetteur;
   const c = spec.tiers;
   const blocs: string[] = [];
+
+  // 0 — LE TITRE, AU CENTRE, sous l'en-tête (décision de la Direction, 10/2026) : « BON DE COMMANDE » — ou « DEVIS ».
+  blocs.push(paragraphe(estDevis ? "DEVIS" : "BON DE COMMANDE", { alignement: "center", gras: true, taillePt: 16, couleur: accent, avantPt: 4, apresPt: 8 }));
 
   // 1 — « B.C : N° 012/DG/2026 ».
   blocs.push(paragraphe([{ texte: estDevis ? "DEVIS" : "B.C", gras: true, couleur: accent }, { texte: ` : N° ${spec.numero}` }], { taillePt: 10.5, apresPt: 12 }));

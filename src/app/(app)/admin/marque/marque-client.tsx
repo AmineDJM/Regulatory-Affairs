@@ -41,7 +41,7 @@ export function FormulaireMarque({ companyId, marque }: { companyId: string; mar
           Couleur d&apos;accent
           <span className="flex items-center gap-2">
             <input type="color" name="couleurAccent" defaultValue={marque.couleurs.accent ? `#${marque.couleurs.accent}` : "#0B2545"} className="h-9 w-12 rounded-md border bg-background" data-testid="marque-accent" aria-label="Couleur d'accent" />
-            <span className="text-sm text-foreground">{marque.couleurs.accent ? `#${marque.couleurs.accent}` : "non réglée (pastille de la société)"}</span>
+            <span className="text-sm text-foreground">{marque.couleurs.accent ? `#${marque.couleurs.accent}` : "non réglée (bleu canard de la maison)"}</span>
             <label className="ml-auto flex items-center gap-1 text-xs"><input type="checkbox" name="effacer_couleurAccent" /> effacer</label>
           </span>
         </label>

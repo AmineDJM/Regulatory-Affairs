@@ -49,7 +49,7 @@ import { construireDocumentCommercial } from "@/lib/artifact/factory/build";
 import { empreinteDocument } from "@/lib/artifact/factory/empreinte";
 import {
   ajouterJours, formaterDzd, formaterNumero, LIBELLE_TYPE, NATURE_LEGALE, PREFIXE_DEFAUT, TAUX_TVA_ADMIS, titreDocument,
-  TYPES_DOCUMENT, validerMotifNumero, verifierSpecCommerciale,
+  TYPES_DOCUMENT, validerMotifNumero, verifierSpecCommerciale, departDe, prochaineSequence, validerDepart, PLURIEL_TYPE, type DepartsNumerotation,
   type LigneCommerciale, type ModePaiement, type PartieCommerciale, type SpecDocumentCommercial, type TaxeAdditionnelle, type TotauxCommerciaux, type TypeDocumentCommercial,
 } from "@/lib/artifact/factory/commercial";
 import { construireDossier } from "@/lib/artifact/factory/dossier";
@@ -100,6 +100,11 @@ export interface ReglagesDocumentaires {
    * `{prefixe}-{aaaa}-{n:4}`. Vit dans `settings.numerotation` du profil (extensible sans migration).
    */
   numerotation: Partial<Record<TypeDocumentCommercial, string>>;
+  /**
+   * LE PREMIER NUMÉRO DE LA SÉRIE, par nature puis par année (`settings.numerotationDepart`) : un PLANCHER du compteur
+   * — « commencer à 032/DG/2026 » — qui ne le fait jamais reculer. Vide = la série commence à 1.
+   */
+  numerotationDepart: DepartsNumerotation;
   /** Vrai si un profil a été enregistré ; faux = ce sont les défauts du code. */
   existe: boolean;
 }
@@ -129,7 +134,7 @@ export interface Habillage {
 
 const REGLAGES_DEFAUT: ReglagesDocumentaires = {
   quotePrefix: "DEV", orderPrefix: "BC", invoicePrefix: "FA", vatRate: 0.19, paymentTerms: null, quoteValidityDays: 30,
-  footerNote: null, letterheadId: null, signatoryName: null, signatoryTitle: null, numerotation: {}, existe: false,
+  footerNote: null, letterheadId: null, signatoryName: null, signatoryTitle: null, numerotation: {}, numerotationDepart: {}, existe: false,
 };
 
 /** Les motifs de numérotation lus dans `settings.numerotation` — seuls les motifs VALIDES comptent. */
@@ -141,6 +146,24 @@ function lireNumerotation(settings: Prisma.JsonValue | null | undefined): Partia
   for (const type of TYPES_DOCUMENT) {
     const v = (brut as Record<string, unknown>)[type];
     if (typeof v === "string" && v.trim() && !validerMotifNumero(v)) out[type] = v.trim();
+  }
+  return out;
+}
+
+/** Les départs de numérotation lus dans `settings.numerotationDepart` — seuls les entiers valides comptent. */
+function lireNumerotationDepart(settings: Prisma.JsonValue | null | undefined): DepartsNumerotation {
+  if (!settings || typeof settings !== "object" || Array.isArray(settings)) return {};
+  const brut = (settings as Record<string, unknown>).numerotationDepart;
+  if (!brut || typeof brut !== "object" || Array.isArray(brut)) return {};
+  const out: DepartsNumerotation = {};
+  for (const type of TYPES_DOCUMENT) {
+    const parAnnee = (brut as Record<string, unknown>)[type];
+    if (!parAnnee || typeof parAnnee !== "object" || Array.isArray(parAnnee)) continue;
+    const valides: Record<string, number> = {};
+    for (const [annee, n] of Object.entries(parAnnee as Record<string, unknown>)) {
+      if (/^\d{4}$/.test(annee) && typeof n === "number" && !validerDepart(Number(annee), n)) valides[annee] = n;
+    }
+    if (Object.keys(valides).length) out[type] = valides;
   }
   return out;
 }
@@ -246,7 +269,7 @@ export async function profilDocumentaire(user: CurrentUser, societe?: string | n
     ? {
       quotePrefix: profil.quotePrefix, orderPrefix: profil.orderPrefix, invoicePrefix: profil.invoicePrefix, vatRate: Number(profil.vatRate),
       paymentTerms: profil.paymentTerms, quoteValidityDays: profil.quoteValidityDays, footerNote: profil.footerNote, letterheadId: profil.letterheadId,
-      signatoryName: profil.signatoryName, signatoryTitle: profil.signatoryTitle, numerotation: lireNumerotation(profil.settings), existe: true,
+      signatoryName: profil.signatoryName, signatoryTitle: profil.signatoryTitle, numerotation: lireNumerotation(profil.settings), numerotationDepart: lireNumerotationDepart(profil.settings), existe: true,
     }
     // UNE COPIE, jamais la constante : les standards enseignés ci-dessous ÉCRIVENT dans `reglages`.
     // Sans copie, la première société qui appliquait « 60 jours » le laissait dans les défauts du
@@ -287,9 +310,9 @@ export async function profilDocumentaire(user: CurrentUser, societe?: string | n
   const papier = choisi ?? designe ?? letterheadsFor(entetes, "word", s.id).find((l) => l.companyId === s.id || l.companyId === null) ?? null;
   const papierOctets = papier ? await getBlob(papier.blobId) : null;
   // LA MARQUE (§26) : lue dans `settings.marque` du profil ; la charte effective tranche marque >
-  // pastille de la société > défauts. Le logo n'est chargé que s'il servira : sans papier en-tête.
+  // bleu canard de la maison (la pastille de l'entité colore les écrans, pas les pièces). Le logo n'est chargé que s'il servira : sans papier en-tête.
   const marque = lireMarque(profil?.settings);
-  const charte = charteDe(marque, s.color);
+  const charte = charteDe(marque);
   let logo: Habillage["logo"] = null;
   if (marque.logo && !(papierOctets && papierOctets.length > 0)) {
     const octets = await getBlob(marque.logo.blobId).catch(() => null);
@@ -341,6 +364,8 @@ export interface ModificationsProfil {
   signatoryTitle?: string | null;
   /** Le motif du numéro par nature ; `null` efface (retour au défaut). Voir `MOTIF_NUMERO_DEFAUT`. */
   numerotation?: Partial<Record<TypeDocumentCommercial, string | null>>;
+  /** Le premier numéro de l'année pour une nature : `{ annee: 2026, numero: 32 }` ; `numero: null` retire le départ de cette année. */
+  numerotationDepart?: Partial<Record<TypeDocumentCommercial, { annee: number; numero: number | null }>>;
 }
 
 /** DÉFINIT (ou corrige) le profil documentaire d'une société — les tenants de la papeterie seulement. */
@@ -385,7 +410,7 @@ export async function definirProfilDocumentaire(
       const v = opts.numerotation[type];
       if (v === undefined || v === null || v.trim() === "") continue;
       const refus = validerMotifNumero(v);
-      if (refus) return echec("MISSING_INPUT", `Motif de numérotation des ${LIBELLE_TYPE[type].toLowerCase()}s refusé : ${refus}`);
+      if (refus) return echec("MISSING_INPUT", `Motif de numérotation des ${PLURIEL_TYPE[type]} refusé : ${refus}`);
     }
     const actuel = await prisma.companyDocumentProfile.findUnique({ where: { companyId: s.id }, select: { settings: true } });
     const settings = actuel?.settings && typeof actuel.settings === "object" && !Array.isArray(actuel.settings) ? { ...(actuel.settings as Record<string, unknown>) } : {};
@@ -396,6 +421,29 @@ export async function definirProfilDocumentaire(
       if (v === null || v.trim() === "") delete numerotation[type]; else numerotation[type] = v.trim();
     }
     settings.numerotation = numerotation;
+    data.settings = settings as Prisma.InputJsonValue;
+  }
+  if (opts.numerotationDepart !== undefined && opts.numerotationDepart !== null) {
+    // Le départ se vérifie AVANT d'écrire, et NOMME ce qu'il refuse : un « 0 » ou un « 032 » mal lu ne devient pas un plancher.
+    for (const type of TYPES_DOCUMENT) {
+      const d = opts.numerotationDepart[type];
+      if (!d || d.numero === null) continue;
+      const refus = validerDepart(d.annee, d.numero);
+      if (refus) return echec("MISSING_INPUT", `Départ de numérotation des ${PLURIEL_TYPE[type]} refusé : ${refus}`);
+    }
+    const dejaLu = (data.settings as Record<string, unknown> | undefined)
+      ?? (await prisma.companyDocumentProfile.findUnique({ where: { companyId: s.id }, select: { settings: true } }))?.settings;
+    const settings = dejaLu && typeof dejaLu === "object" && !Array.isArray(dejaLu) ? { ...(dejaLu as Record<string, unknown>) } : {};
+    const departs: Record<string, Record<string, number>> = {};
+    for (const [type, parAnnee] of Object.entries(lireNumerotationDepart(settings as Prisma.JsonValue))) departs[type] = { ...(parAnnee as Record<string, number>) };
+    for (const type of TYPES_DOCUMENT) {
+      const d = opts.numerotationDepart[type];
+      if (!d) continue;
+      const annee = String(d.annee);
+      if (d.numero === null) { if (departs[type]) delete departs[type][annee]; if (departs[type] && !Object.keys(departs[type]).length) delete departs[type]; continue; }
+      departs[type] = { ...(departs[type] ?? {}), [annee]: d.numero };
+    }
+    settings.numerotationDepart = departs;
     data.settings = settings as Prisma.InputJsonValue;
   }
   await prisma.companyDocumentProfile.upsert({
@@ -598,7 +646,7 @@ function specDepuisDemande(d: DemandeDocument, p: ProfilDocumentaire): Omit<Spec
     notes: d.notes ?? null,
     // LA MARQUE tranche : le signataire du type de pièce, sinon celui par défaut, sinon celui du
     // profil ; les mentions choisies par la société s'ajoutent à la note de pied ; l'accent est
-    // celui de la charte (marque > pastille > défaut).
+    // celui de la charte (marque > bleu canard de la maison).
     signataire: signatairePour(p.marque, d.type === "AVOIR" ? "FACTURE" : d.type, p.reglages.signatoryName ? { nom: p.reglages.signatoryName, qualite: p.reglages.signatoryTitle } : null),
     piedDePage: [...(p.reglages.footerNote ? [p.reglages.footerNote] : []), ...mentionsDe(p.marque, p.identite)].filter(Boolean).length
       ? [...(p.reglages.footerNote ? [p.reglages.footerNote] : []), ...mentionsDe(p.marque, p.identite)]
@@ -618,12 +666,14 @@ function echeanceLegale(spec: Omit<SpecDocumentCommercial, "numero">): Date | nu
 }
 
 /** Le compteur avance ATOMIQUEMENT : deux émissions parallèles ne peuvent pas lire le même `last`. */
-async function attribuerNumero(tx: Prisma.TransactionClient, companyId: string, kind: string, year: number): Promise<number> {
+async function attribuerNumero(tx: Prisma.TransactionClient, companyId: string, kind: string, year: number, depart: number): Promise<number> {
+  // LE DÉPART EST UN PLANCHER (`departDe`) : la première ligne de la série vaut le départ, les suivantes
+  // `max(dernier + 1, départ)` — un départ plus bas que le compteur ne le fait jamais reculer.
   const rows = await tx.$queryRaw<{ last: number }[]>`
     INSERT INTO "DocumentSequence" ("id", "companyId", "kind", "year", "last", "updatedAt")
-    VALUES (${randomUUID()}, ${companyId}, ${kind}, ${year}, 1, now())
+    VALUES (${randomUUID()}, ${companyId}, ${kind}, ${year}, ${depart}::int, now())
     ON CONFLICT ("companyId", "kind", "year")
-    DO UPDATE SET "last" = "DocumentSequence"."last" + 1, "updatedAt" = now()
+    DO UPDATE SET "last" = GREATEST("DocumentSequence"."last" + 1, ${depart}::int), "updatedAt" = now()
     RETURNING "last"`;
   return Number(rows[0].last);
 }
@@ -866,7 +916,7 @@ export async function emettreDocumentDrive(user: CurrentUser, demande: DemandeDo
       const refus = refusPlafondAvoir(facture.numero, totaux.totalTtc, resteACrediter(facture.ttc, await montantsDesAvoirsActifs(facture.id, tx)));
       if (refus) throw new PlafondAvoirDepasse(refus);
     }
-    const seq = await attribuerNumero(tx, profil.societe.id, kind, annee);
+    const seq = await attribuerNumero(tx, profil.societe.id, kind, annee, departDe(profil.reglages.numerotationDepart, type, annee));
     const numero = formaterNumero(prefixe, annee, seq, profil.reglages.numerotation[type] ?? null);
     const fabrique: Fabrique = {
       version: 1, etat: "EN_COURS", type, empreinte, societeId: profil.societe.id, numero,
@@ -972,6 +1022,14 @@ export interface ApercuDocument {
   peutEmettre: boolean;
   /** Vrai quand le PDF sera imprimé par l'éditeur Office ; faux = rendu du serveur. */
   pdfParEditeur: boolean;
+  /**
+   * L'APERÇU AVANT IMPRESSION (Direction, 10/2026) — le PDF de la pièce telle qu'elle sera composée, numéro PRÉVU compris,
+   * rendu par le serveur à blanc : aucun numéro consommé, aucune ligne écrite, aucun fichier au Drive. Présent seulement
+   * quand on le demande (`avecPdf`) : l'aperçu des totaux suit la frappe, le rendu d'une page non.
+   */
+  pdf?: { octets: Buffer; pages: number } | null;
+  /** Pourquoi le rendu n'a pas pu être produit, quand il était demandé. */
+  pdfErreur?: string;
 }
 
 /**
@@ -981,7 +1039,7 @@ export interface ApercuDocument {
  * qui bloquerait. Deux compositions (une pour l'aperçu, une pour l'émission) finiraient par
  * diverger sur un arrondi (§118.5) ; il n'y en a qu'une.
  */
-export async function previsualiserDocument(user: CurrentUser, demande: DemandeDocument): Promise<ApercuDocument | EchecFabrique> {
+export async function previsualiserDocument(user: CurrentUser, demande: DemandeDocument, opts: { avecPdf?: boolean } = {}): Promise<ApercuDocument | EchecFabrique> {
   const type = demande.type;
   if (!TYPES_DOCUMENT.includes(type)) return echec("MISSING_INPUT", `Type de document inconnu : « ${String(type)} » (${TYPES_DOCUMENT.join(", ")}).`);
   if (!peutEcrire(user, "CREATE", type)) {
@@ -1009,7 +1067,7 @@ export async function previsualiserDocument(user: CurrentUser, demande: DemandeD
   const motif = profil.reglages.numerotation[type] ?? null;
   const anneeSure = Number.isFinite(annee) ? annee : new Date().getUTCFullYear();
   const seq = await prisma.documentSequence.findUnique({ where: { companyId_kind_year: { companyId: profil.societe.id, kind, year: anneeSure } }, select: { last: true } });
-  const numeroProchain = formaterNumero(prefixe, anneeSure, (seq?.last ?? 0) + 1, motif);
+  const numeroProchain = formaterNumero(prefixe, anneeSure, prochaineSequence(seq?.last ?? 0, departDe(profil.reglages.numerotationDepart, type, anneeSure)), motif);
   const spec: SpecDocumentCommercial = { ...base, numero: numeroProchain };
   const commun = { ok: true as const, societe: { id: profil.societe.id, nom: profil.societe.nom }, numeroProchain, motif, papierEnTete: profil.papierEnTete, identiteIncomplete: profil.identiteIncomplete, spec, pdfParEditeur: convertConfigured() };
   // LA PIÈCE AMONT SE JUGE DÈS L'APERÇU (lot D1c — F1) : l'écran ne propose pas d'émettre ce que l'émission refusera.
@@ -1021,7 +1079,12 @@ export async function previsualiserDocument(user: CurrentUser, demande: DemandeD
   const essai = await construireDocumentCommercial(spec, habillage);
   const plafond = facture && essai.totaux ? refusPlafondAvoir(facture.numero, essai.totaux.totalTtc, resteACrediter(facture.ttc, facture.avoirs)) : null;
   const bloquants = [...essai.verification.bloquants, ...(plafond ? [plafond] : []), ...motifAmont];
-  return { ...commun, totaux: essai.totaux, bloquants, avertissements: [...essai.verification.avertissements, ...manquesDIdentite(profil)], peutEmettre: essai.verification.ok && !plafond && !refusAmont };
+  // L'APERÇU AVANT IMPRESSION : le MÊME fichier que l'émission composerait, rendu en PDF par le serveur — jamais écrit.
+  const rendu = opts.avecPdf && essai.verification.ok ? await docxToPdf(essai.octets) : null;
+  return {
+    ...commun, totaux: essai.totaux, bloquants, avertissements: [...essai.verification.avertissements, ...manquesDIdentite(profil)], peutEmettre: essai.verification.ok && !plafond && !refusAmont,
+    ...(opts.avecPdf ? (rendu && rendu.ok ? { pdf: { octets: rendu.pdf, pages: rendu.pages } } : { pdf: null, pdfErreur: rendu && !rendu.ok ? rendu.error : "Le rendu n'est pas possible tant que la pièce est refusée." }) : {}),
+  };
 }
 
 // ─────────────────────────── La révision ───────────────────────────
@@ -1082,6 +1145,10 @@ export async function reviserDocumentDrive(
     const spec: SpecDocumentCommercial = {
       ...f.spec,
       emetteur: p.profil.identite,
+      // LA CHARTE D'AUJOURD'HUI : une pièce révisée prend l'accent courant de la société (marque, sinon le bleu canard de la
+      // maison) — l'ancien rouge d'une pièce émise avant la décision de la Direction ne survit pas à sa révision. Les pièces
+      // NON révisées gardent leur couleur d'émission : un document émis ne se repeint pas.
+      couleur: p.profil.societe.couleur,
       tiers: m.tiers ? { ...f.spec.tiers, ...m.tiers, nom: (m.tiers.nom ?? f.spec.tiers.nom).trim() } : f.spec.tiers,
       lignes: m.lignes ? m.lignes.map((l) => ({ ...l, designation: String(l.designation ?? "").trim(), ...(l.section ? { section: true, quantite: 0, prixUnitaire: 0 } : {}) })) : f.spec.lignes,
       echeance: m.echeance !== undefined ? m.echeance : f.spec.echeance,
@@ -1203,7 +1270,7 @@ export async function construireDossierDrive(
     papier = p.papierOctets;
     habillage = p.habillage;
     manques.push(...manquesDIdentite(p.profil));
-    // La charte de la société (marque > pastille) colore le dossier ; une couleur demandée
+    // La charte de la société (marque > bleu canard) colore le dossier ; une couleur demandée
     // explicitement dans les données canoniques garde la main.
     canon = { ...canon, societe: { nom: p.profil.identite.nom, couleur: canon.societe?.couleur ?? p.profil.societe.couleur } };
   }

@@ -4,7 +4,8 @@ import { companyScopedWhere } from "@/lib/company";
 import { legalReaderWhere } from "@/lib/lecteurs/legal";
 import { legalViewScope, legalKindVisible } from "@/lib/legal/invoices";
 import { canAccessEntity } from "@/lib/entity-access";
-import { fichiersEmis, type FormatFichierEmis } from "@/lib/legal/fichiers-emis";
+import { fichiersEmis, type FormatNoeud } from "@/lib/legal/fichiers-emis";
+import type { SpecDocumentCommercial } from "@/lib/artifact/factory/commercial";
 
 /**
  * QUI PEUT LIRE CETTE PIÈCE LEGAL ? — la porte de la FICHE, rejouée pour son fichier (§118.152).
@@ -43,11 +44,28 @@ export async function peutLireLaPieceLegale(user: SessionUser, doc: { id: string
  * rattaché à la main garde la porte du Drive. Un refus et une absence rendent la même chose —
  * dire qu'une pièce existe, c'est déjà en dire trop.
  */
-export async function fichierEmisDeLaPiece(user: SessionUser, legalDocumentId: string, format: FormatFichierEmis): Promise<{ nodeId: string } | null> {
+export async function fichierEmisDeLaPiece(user: SessionUser, legalDocumentId: string, format: FormatNoeud): Promise<{ nodeId: string } | null> {
   const doc = await prisma.legalDocument.findUnique({ where: { id: legalDocumentId }, select: { id: true, kind: true, custom: true } });
   if (!doc) return null;
   const nodeId = fichiersEmis(doc.custom)[format];
   if (!nodeId) return null;
   if (!(await peutLireLaPieceLegale(user, doc))) return null;
   return { nodeId };
+}
+
+/**
+ * LA SPÉCIFICATION D'UNE PIÈCE ÉMISE, pour qui peut lire la pièce — de quoi RENDRE son classeur Excel à la demande
+ * (« générer le BC sur Excel »). Même porte que le fichier Word ou PDF (`peutLireLaPieceLegale`) : le classeur dit
+ * exactement ce que dit la pièce, il ne publie rien de plus. `null` — refus comme absence — pour une pièce que la
+ * fabrique n'a pas émise (un fichier déposé à la main n'a pas de spécification), ou que la personne ne lit pas.
+ */
+export async function specDeLaPieceEmise(user: SessionUser, legalDocumentId: string): Promise<SpecDocumentCommercial | null> {
+  const doc = await prisma.legalDocument.findUnique({ where: { id: legalDocumentId }, select: { id: true, kind: true, custom: true } });
+  if (!doc) return null;
+  const spec = (doc.custom as { fabrique?: { spec?: unknown } } | null | undefined)?.fabrique?.spec;
+  if (!spec || typeof spec !== "object" || Array.isArray(spec)) return null;
+  const s = spec as Partial<SpecDocumentCommercial>;
+  if (typeof s.numero !== "string" || !Array.isArray(s.lignes) || !s.tiers || !s.emetteur) return null;
+  if (!(await peutLireLaPieceLegale(user, doc))) return null;
+  return s as SpecDocumentCommercial;
 }

@@ -188,6 +188,25 @@ export async function previsualiserPieceCommerciale(_prev: ApercuPiece | { ok: f
   };
 }
 
+export type ApercuImpression = { ok: true; pdfBase64: string; pages: number; numeroProchain: string } | { ok: false; error: string };
+
+/**
+ * L'APERÇU AVANT IMPRESSION (Direction, 10/2026) — la pièce telle qu'elle sera imprimée, en PDF, AVANT de l'émettre :
+ * la même composition que l'émission, rendue par le serveur à blanc. Elle porte le numéro PRÉVU (celui que la prochaine
+ * émission recevra si personne n'émet entre-temps) ; rien n'est écrit, aucun numéro n'est consommé, aucun fichier ne
+ * va au Drive. Refusée tant que la pièce l'est (règles, identité de l'émetteur) : on ne montre pas ce qu'on ne livrerait pas.
+ */
+export async function apercuAvantImpressionPiece(_prev: ApercuImpression | undefined, formData: FormData): Promise<ApercuImpression> {
+  const user = await requireUser();
+  const lu = lireDemande(formData, lireLignes(formData));
+  if (!lu.ok) return lu;
+  const r = await previsualiserDocument(user, lu.demande, { avecPdf: true });
+  if (!r.ok) return { ok: false, error: r.motif };
+  if (r.bloquants.length > 0) return { ok: false, error: `L'aperçu n'est pas possible : ${r.bloquants.slice(0, 3).join(" ; ")}` };
+  if (!r.pdf) return { ok: false, error: r.pdfErreur ?? "Le rendu de l'aperçu n'a pas pu être produit." };
+  return { ok: true, pdfBase64: r.pdf.octets.toString("base64"), pages: r.pdf.pages, numeroProchain: r.numeroProchain };
+}
+
 export interface ResultatEmission extends ActionResult {
   reference?: string;
   legalDocumentId?: string;
@@ -333,17 +352,44 @@ function formaterTtc(n: number): string {
 }
 
 /**
- * RÈGLE le motif de numérotation d'une nature de pièce pour une société (« {n:3}/FS/{aa} ») —
- * ceux qui tiennent la papeterie seulement, comme le reste du profil documentaire.
+ * RÈGLE la numérotation d'une nature de pièce pour une société — le motif (« {n:3}/FS/{aa} ») et/ou le PREMIER
+ * NUMÉRO de l'année (« commencer à 032/DG/2026 »). Ceux qui tiennent la papeterie seulement, comme le reste du profil.
+ *
+ * Ce que le formulaire ne porte pas ne s'écrit pas (§118.152c) : sans clé `motif`, le motif reste ; sans clé `depart`,
+ * le départ reste. Le départ est un PLANCHER du compteur, jamais un recul : le message dit le prochain numéro réel.
  */
 export async function reglerNumerotationPieces(_prev: ActionResult | undefined, formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
   const type = (fdStr(formData, "type") ?? "") as TypeDocumentCommercial;
   if (!TYPES_DOCUMENT.includes(type)) return { ok: false, error: "Nature de pièce inconnue." };
-  const motif = texte(formData, "motif");
-  const r = await definirProfilDocumentaire(user, { societe: texte(formData, "societe"), numerotation: { [type]: motif } });
+  const motifSaisi = formData.has("motif");
+  const departSaisi = formData.has("depart");
+  if (!motifSaisi && !departSaisi) return { ok: false, error: "Rien à régler : renseignez le motif et/ou le premier numéro de l'année." };
+  let depart: { annee: number; numero: number | null } | undefined;
+  if (departSaisi) {
+    const brut = (fdStr(formData, "depart") ?? "").trim();
+    const annee = Number(fdStr(formData, "annee") ?? new Date().getUTCFullYear());
+    if (brut === "") depart = { annee, numero: null };
+    else {
+      const numero = Number(brut);
+      if (!/^\d+$/.test(brut)) return { ok: false, error: `Le premier numéro est un entier (« ${brut} » ne se lit pas) : 32 pour commencer à 032.` };
+      depart = { annee, numero };
+    }
+  }
+  const r = await definirProfilDocumentaire(user, {
+    societe: texte(formData, "societe"),
+    ...(motifSaisi ? { numerotation: { [type]: texte(formData, "motif") } } : {}),
+    ...(depart ? { numerotationDepart: { [type]: depart } } : {}),
+  });
   if (!r.ok) return { ok: false, error: r.motif };
   revalidatePath("/legal");
   const applique = r.profil.reglages.numerotation[type];
-  return { ok: true, message: applique ? `Motif enregistré : ${applique}.` : "Motif effacé : retour à la numérotation par défaut." };
+  const parts: string[] = [];
+  if (motifSaisi) parts.push(applique ? `Motif enregistré : ${applique}.` : "Motif effacé : retour à la numérotation par défaut.");
+  if (depart) {
+    parts.push(depart.numero === null
+      ? `Départ ${depart.annee} retiré : la série reprend son compteur.`
+      : `Premier numéro de ${depart.annee} : ${depart.numero}. Le compteur ne recule jamais — s'il est déjà plus loin, la série continue.`);
+  }
+  return { ok: true, message: parts.join(" ") };
 }

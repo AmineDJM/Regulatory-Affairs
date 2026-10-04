@@ -23,7 +23,7 @@ import {
 } from "./promo-devis-actions";
 import {
   genererBonsDeCommandePromo, marquerBonDeCommandeEnvoye, deposerFacturePromo, demanderPaiementFacturePromo,
-  annulerBonDeCommandePromo, receptionnerLigneFacturePromo,
+  annulerBonDeCommandePromo, receptionnerLigneFacturePromo, modifierBonDeCommandePromo,
 } from "./promo-execution-actions";
 import { enregistrerArticleDemandePromo, retirerArticleDemandePromo } from "./promo-demande-actions";
 import { REFUS_SANS_LIGNE } from "@/lib/promo-material/lignes-demande";
@@ -36,7 +36,9 @@ import { executionDuDossier } from "@/lib/queries/promo-execution";
 import { emettreDocumentDrive } from "@/platform/in-process/artifact/factory";
 import { portsArtefact } from "@/platform/in-process/artifact/ports";
 import { designerDossierPromo } from "@/platform/in-process/promo";
-import { fichierEmisDeLaPiece } from "@/lib/queries/legal-fichier";
+import { fichierEmisDeLaPiece, specDeLaPieceEmise } from "@/lib/queries/legal-fichier";
+import { construireXlsxCommercial } from "@/lib/artifact/factory/xlsx";
+import { calculerTotaux, type SpecDocumentCommercial } from "@/lib/artifact/factory/commercial";
 import { fichiersEmis } from "@/lib/legal/fichiers-emis";
 import { etatDuBC } from "@/lib/bons-de-commande/etat";
 
@@ -533,6 +535,48 @@ suite("Matériel promotionnel — circuit 2 de bout en bout", () => {
     expect(annul.error).toMatch(/de commande ont été générés pour ce dossier/);
   }, 120_000);
 
+  it("LA CASE « TAXE SUPPLÉMENTAIRE » (Direction, 10/2026) : un taux la pose, le libellé reste quand on ne change que le taux, 0 la retire, vide la garde — un taux illisible refuse sans rien écrire", async () => {
+    ACTOR = await actorFor(u.asst);
+    const devis = await prisma.promoQuote.findFirstOrThrow({ where: { promoMaterialId: pmId, purchaseOrderId: { not: null } }, orderBy: { createdAt: "asc" }, select: { id: true, purchaseOrderId: true } });
+    const piece = () => prisma.legalDocument.findUniqueOrThrow({ where: { id: devis.purchaseOrderId! }, select: { amount: true, custom: true } });
+    const specDe = async () => ((await piece()).custom as unknown as { fabrique: { spec: SpecDocumentCommercial } }).fabrique.spec;
+    const avant = Number((await piece()).amount);
+    expect((await specDe()).taxes ?? []).toEqual([]);
+    const base = { promoMaterialId: pmId, quoteId: devis.id };
+
+    // Un taux illisible ou hors de 0–100 est refusé EN LE NOMMANT, et rien n'est écrit.
+    for (const mauvais of ["abc", "101", "-2"]) {
+      const r = await modifierBonDeCommandePromo(form({ ...base, extraTaxRate: mauvais }));
+      expect(r.ok, `« ${mauvais} » doit être refusé`).toBe(false);
+      expect(r.error).toMatch(/pour cent/);
+    }
+    expect(Number((await piece()).amount)).toBe(avant);
+
+    // POSÉE : « Taxe Pub 2 % » — le total suit, calculé par la fabrique (sur le HT, hors base de TVA).
+    const pose = await modifierBonDeCommandePromo(form({ ...base, extraTaxLabel: "Taxe Pub", extraTaxRate: "2", motif: "Taxe Pub demandée" }));
+    expect(pose.ok, pose.ok ? "" : pose.error).toBe(true);
+    expect((await specDe()).taxes).toEqual([{ libelle: "Taxe Pub", taux: 0.02 }]);
+    const apresPose = Number((await piece()).amount);
+    expect(apresPose).toBe(calculerTotaux(await specDe()).totalTtc);
+    expect(apresPose).toBeGreaterThan(avant);
+
+    // LE TAUX SEUL, avec une virgule : le libellé de la pièce reste « Taxe Pub » (il ne devient pas « Taxe additionnelle »).
+    const taux = await modifierBonDeCommandePromo(form({ ...base, extraTaxRate: "3,5" }));
+    expect(taux.ok, taux.ok ? "" : taux.error).toBe(true);
+    expect((await specDe()).taxes).toEqual([{ libelle: "Taxe Pub", taux: 0.035 }]);
+
+    // VIDE : la taxe est gardée — une modification des notes seules ne la touche pas.
+    const notes = await modifierBonDeCommandePromo(form({ ...base, notes: "À livrer avant la fin du mois", extraTaxRate: "" }));
+    expect(notes.ok, notes.ok ? "" : notes.error).toBe(true);
+    expect((await specDe()).taxes).toEqual([{ libelle: "Taxe Pub", taux: 0.035 }]);
+
+    // 0 : aucune taxe — le total revient exactement à celui d'avant la taxe.
+    const retire = await modifierBonDeCommandePromo(form({ ...base, extraTaxRate: "0" }));
+    expect(retire.ok, retire.ok ? "" : retire.error).toBe(true);
+    expect((await specDe()).taxes ?? []).toEqual([]);
+    expect(Number((await piece()).amount)).toBe(avant);
+  }, 120_000);
+
   it("LE FICHIER DU BC s'ouvre sous la porte de la PIÈCE : le demandeur et les Finances le lisent, pas un tiers", async () => {
     const bc = await prisma.legalDocument.findFirstOrThrow({ where: { sourceType: "PROMO_MATERIAL", sourceId: pmId, kind: "PURCHASE_ORDER" }, select: { id: true, custom: true } });
     const f = fichiersEmis(bc.custom);
@@ -543,6 +587,17 @@ suite("Matériel promotionnel — circuit 2 de bout en bout", () => {
     expect(await fichierEmisDeLaPiece(cp, bc.id, "docx")).toEqual({ nodeId: f.docx });
     expect(await fichierEmisDeLaPiece(await actorFor(u.fin), bc.id, "docx")).toEqual({ nodeId: f.docx });
     expect(await fichierEmisDeLaPiece(await actorFor(u.dehors), bc.id, "docx")).toBeNull();
+    // LE CLASSEUR EXCEL (« générer le BC sur Excel ») : même porte que le Word — la spécification se lit pour qui lit la pièce, pas pour un tiers —,
+    // et le classeur retombe, au centime, sur le montant de la pièce au registre.
+    const spec = await specDeLaPieceEmise(cp, bc.id);
+    expect(spec, "le demandeur lit la spécification de la pièce de son dossier").not.toBeNull();
+    expect(await specDeLaPieceEmise(await actorFor(u.fin), bc.id)).not.toBeNull();
+    expect(await specDeLaPieceEmise(await actorFor(u.dehors), bc.id)).toBeNull();
+    const classeur = await construireXlsxCommercial(spec!);
+    expect(classeur.verification.bloquants).toEqual([]);
+    expect(classeur.verification.ok).toBe(true);
+    const registre = await prisma.legalDocument.findUniqueOrThrow({ where: { id: bc.id }, select: { amount: true } });
+    expect(calculerTotaux(spec!).totalTtc).toBe(Number(registre.amount));
   });
 
   it("CENTRE puis SIGNATURE : pas d'envoi ni de facture avant la signature des Finances", async () => {

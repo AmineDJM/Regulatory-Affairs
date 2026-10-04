@@ -39,6 +39,12 @@ export const LIBELLE_TYPE: Record<TypeDocumentCommercial, string> = {
   AVOIR: "Avoir",
 };
 
+/** Le pluriel, écrit : « des bons de commande » — jamais « des bon de commandes », que le suffixe `s` collé au libellé produisait. */
+export const PLURIEL_TYPE: Record<TypeDocumentCommercial, string> = { DEVIS: "devis", BON_DE_COMMANDE: "bons de commande", FACTURE: "factures", AVOIR: "avoirs" };
+
+/** LE BLEU CANARD DE LA MAISON (R 8, V 112, B 132) — l'accent d'une pièce quand la marque de la société n'en règle pas un autre. */
+export const ACCENT_MAISON = "087084";
+
 /** Le préfixe de numérotation par défaut — le profil documentaire d'une société peut le changer. */
 export const PREFIXE_DEFAUT: Record<TypeDocumentCommercial, string> = { DEVIS: "DEV", BON_DE_COMMANDE: "BC", FACTURE: "FA", AVOIR: "AV" };
 
@@ -332,6 +338,34 @@ export function formaterNumero(prefixe: string, annee: number, sequence: number,
     if (jeton === "prefixe") return prefixe.trim().toUpperCase();
     return String(sequence).padStart(largeur ? Number(largeur) : 0, "0");
   });
+}
+
+/**
+ * LE PREMIER NUMÉRO D'UNE SÉRIE — « commencer le référencement à partir du BC N° 032/DG/2026 » (Direction, 10/2026).
+ *
+ * Le compteur est par société, nature et ANNÉE ; le départ l'est aussi (`settings.numerotationDepart`, par nature
+ * puis par année : 032 en 2026 ne dit rien de 2027, qui repart à 001). C'est un PLANCHER, pas un réglage du compteur :
+ * le numéro attribué est `max(dernier + 1, départ)` — un départ plus bas que le compteur ne recule jamais, et un
+ * numéro déjà attribué ne l'est jamais deux fois (§118.195 : la numérotation est continue par construction).
+ */
+export type DepartsNumerotation = Partial<Record<TypeDocumentCommercial, Record<string, number>>>;
+
+export const DEPART_MAX = 99_999;
+
+/** Le départ de la série (nature, année) : 1 quand rien n'est réglé. */
+export function departDe(departs: DepartsNumerotation | null | undefined, type: TypeDocumentCommercial, annee: number): number {
+  const v = departs?.[type]?.[String(annee)];
+  return typeof v === "number" && Number.isInteger(v) && v >= 1 && v <= DEPART_MAX ? v : 1;
+}
+
+/** Le numéro d'ordre que le compteur attribuera après `dernier` : jamais en dessous du départ. */
+export const prochaineSequence = (dernier: number, depart: number): number => Math.max(dernier + 1, depart);
+
+/** Ce qui rend un départ inacceptable, en clair — ou `null`. */
+export function validerDepart(annee: number, numero: number): string | null {
+  if (!Number.isInteger(annee) || annee < 2000 || annee > 2100) return "L'année du départ de numérotation va de 2000 à 2100.";
+  if (!Number.isInteger(numero) || numero < 1 || numero > DEPART_MAX) return `Le premier numéro est un entier de 1 à ${DEPART_MAX}.`;
+  return null;
 }
 
 // ─────────────────────────── La validité ───────────────────────────

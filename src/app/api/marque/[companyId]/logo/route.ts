@@ -13,7 +13,7 @@ export async function GET(_req: NextRequest, { params }: { params: { companyId: 
   if (!user) return new NextResponse(null, { status: 401 });
   const mienne = (await getMyCompanies(user.id)).find((c) => c.id === params.companyId);
   if (!mienne) return new NextResponse(null, { status: 403 });
-  const { marque } = await marqueEtCharte(mienne.id, mienne.color);
+  const { marque } = await marqueEtCharte(mienne.id);
   const logo = await logoOctets(marque);
   if (!logo) return new NextResponse(null, { status: 404 });
   return new NextResponse(new Uint8Array(logo.octets), {

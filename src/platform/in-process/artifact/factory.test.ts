@@ -439,7 +439,7 @@ describe("une pièce qui ne porte pas la charte de la société le DIT", () => {
     societe: { id: "s1", nom: "Adventum Pharma", couleur: "#0f766e" },
     identite: { nom: "Adventum Pharma" },
     identiteIncomplete: ["siège social", "RC", "NIF"],
-    reglages: { quotePrefix: "DEV", orderPrefix: "BC", invoicePrefix: "FA", vatRate: 0.19, paymentTerms: "", quoteValidityDays: 30, footerNote: null, letterheadId: null, signatoryName: null, signatoryTitle: null, numerotation: {}, existe: false },
+    reglages: { quotePrefix: "DEV", orderPrefix: "BC", invoicePrefix: "FA", vatRate: 0.19, paymentTerms: "", quoteValidityDays: 30, footerNote: null, letterheadId: null, signatoryName: null, signatoryTitle: null, numerotation: {}, numerotationDepart: {}, existe: false },
     papierEnTete: null,
     reglesAppliquees: [],
     marque: { logo: null } as ProfilDocumentaire["marque"],

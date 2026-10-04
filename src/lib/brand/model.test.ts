@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { MARQUE_VIDE, charteDe, contraste, lireMarque, mentionsDe, normaliserHex, resumerMarque, signatairePour, texteSur, validerMarque } from "./model";
+import { ACCENT_DEFAUT, MARQUE_VIDE, charteDe, contraste, lireMarque, mentionsDe, normaliserHex, resumerMarque, signatairePour, texteSur, validerMarque } from "./model";
 
 /**
  * LE REGISTRE DE MARQUE, le vocabulaire pur : une modification partielle s'applique champ par
@@ -20,13 +20,14 @@ describe("couleurs et contraste", () => {
     expect(texteSur("0B2545")).toBe("FFFFFF");
     expect(texteSur("FFEE88")).toBe("000000");
   });
-  it("la charte : marque > pastille de la société > défaut, avec l'alerte quand l'accent est trop clair", () => {
-    expect(charteDe(MARQUE_VIDE, "#2563eb")).toMatchObject({ accent: "2563EB", origineAccent: "societe", policeTitres: "Calibri" });
-    expect(charteDe(MARQUE_VIDE, null)).toMatchObject({ accent: "0B2545", origineAccent: "defaut" });
+  it("la charte : marque > bleu canard de la maison — la pastille de l'entité ne colore pas les pièces, avec l'alerte quand l'accent est trop clair", () => {
+    // R 8, V 112, B 132 : le bleu canard est le défaut de la maison (Direction, 10/2026 : « remplacer le rouge »).
+    expect(ACCENT_DEFAUT).toBe("087084");
+    expect(charteDe(MARQUE_VIDE)).toMatchObject({ accent: "087084", origineAccent: "defaut", policeTitres: "Calibri", alertes: [] });
     const { marque } = validerMarque(MARQUE_VIDE, { couleurAccent: "#0B6E4F", policeTitres: "Georgia" });
-    expect(charteDe(marque, "#2563eb")).toMatchObject({ accent: "0B6E4F", origineAccent: "marque", policeTitres: "Georgia", policeTexte: "Calibri", alertes: [] });
+    expect(charteDe(marque)).toMatchObject({ accent: "0B6E4F", origineAccent: "marque", policeTitres: "Georgia", policeTexte: "Calibri", alertes: [] });
     const pale = validerMarque(MARQUE_VIDE, { couleurAccent: "#FFEE88" }).marque;
-    expect(charteDe(pale, null).alertes.join(" ")).toMatch(/trop clair/);
+    expect(charteDe(pale).alertes.join(" ")).toMatch(/trop clair/);
   });
 });
 
@@ -93,7 +94,7 @@ describe("lecture, mentions, signataires, résumé", () => {
   });
   it("le résumé dit l'origine de l'accent, les polices, le logo, les signataires et les alertes", () => {
     const m = validerMarque(MARQUE_VIDE, { couleurAccent: "#FFEE88", signataire: { nom: "DG" } }).marque;
-    const r = resumerMarque(m, charteDe(m, null));
+    const r = resumerMarque(m, charteDe(m));
     expect(r).toMatch(/accent FFEE88 \(registre de marque\)/);
     expect(r).toMatch(/aucun logo déposé/);
     expect(r).toMatch(/signataire DG/);

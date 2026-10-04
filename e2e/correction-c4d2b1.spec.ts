@@ -98,13 +98,36 @@ test("COMPOSER — les Finances émettent un bon de commande depuis « Bons de c
   await page.getByRole("button", { name: "Composer un bon de commande" }).click();
   await page.locator("#cp-societe").selectOption(companyId);
   await page.locator("#cp-tiers-nom").fill(FOURNISSEUR);
+  // LA CASE DES TAXES SUPPLÉMENTAIRES est là AVANT toute saisie (Direction, 10/2026) — pas derrière un bouton à deviner.
+  await expect(page.getByLabel("Libellé de la taxe")).toBeVisible();
+  await expect(page.getByLabel("Taux de la taxe en %")).toBeVisible();
   await page.getByLabel("Désignation 1").fill("Fiches posologiques — impression quadri");
   await page.getByLabel("Quantité").first().fill("100");
   await page.getByLabel("Prix unitaire HT").first().fill("250");
+  await page.getByLabel("Libellé de la taxe").fill("Taxe Pub");
+  await page.getByLabel("Taux de la taxe en %").fill("2");
+  // L'aperçu des totaux montre la taxe, calculée par la fabrique (25 000 HT → 500).
+  await expect(page.getByText(/Taxe Pub 2\s*%/)).toBeVisible({ timeout: 30_000 });
+  // L'APERÇU AVANT IMPRESSION : le PDF à blanc, dans la page — rien n'est émis ni numéroté.
+  const apercu = page.getByRole("button", { name: "Aperçu avant impression" });
+  await expect(apercu).toBeEnabled({ timeout: 30_000 });
+  await apercu.click();
+  await expect(page.locator('object[type="application/pdf"]')).toBeVisible({ timeout: 60_000 });
+  await expect(page.getByText(/Aperçu : \d+ pages? · numéro prévu/)).toBeVisible();
+  expect(await prisma.legalDocument.count({ where: { companyId, kind: "PURCHASE_ORDER" } }), "l'aperçu n'émet rien").toBe(0);
   const emettre = page.getByRole("button", { name: "Émettre le bon de commande" });
   await expect(emettre).toBeEnabled({ timeout: 30_000 });
   await emettre.click();
   await expect(page.getByText("Pièce émise.")).toBeVisible({ timeout: 60_000 });
+  // « GÉNÉRER SUR EXCEL » : le même BC en classeur à formules — le lien existe, et ce qu'il sert est un vrai .xlsx.
+  const excel = page.getByRole("link", { name: "Générer sur Excel" });
+  await expect(excel).toBeVisible();
+  const href = await excel.getAttribute("href");
+  expect(href).toMatch(/\/api\/legal\/.+\/fichier\?format=xlsx&dl=1$/);
+  const rep = await page.request.get(href!);
+  expect(rep.status()).toBe(200);
+  expect(rep.headers()["content-type"]).toContain("spreadsheetml.sheet");
+  expect((await rep.body()).subarray(0, 2).toString()).toBe("PK");
   const doc = await prisma.legalDocument.findFirstOrThrow({ where: { companyId, kind: "PURCHASE_ORDER" }, select: { id: true } });
   pieceId = doc.id;
 });
@@ -114,6 +137,8 @@ test("RÉVISER — la version 2 ne part qu'une fois ce qui change écrit, et la 
   await login(page, EMAIL_FIN);
   await aller(page, `/legal/${pieceId}`);
   await expect(page.getByText("Version 1", { exact: true })).toBeVisible({ timeout: 30_000 });
+  // La fiche offre aussi « Excel » : la pièce rendue en classeur, sous la porte de la pièce.
+  await expect(page.getByRole("link", { name: /Générer .* sur Excel/ })).toBeVisible();
   await page.getByRole("button", { name: "Réviser la pièce" }).click();
   const envoyer = page.getByRole("button", { name: "Émettre la version 2" });
   // Sans motif, le geste n'est pas offert : c'est ce que retiendra l'historique de la pièce.

@@ -3,7 +3,8 @@ import { getCurrentUser } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
 import { getBlob } from "@/lib/drive-storage";
 import { recordAudit } from "@/lib/audit";
-import { fichierEmisDeLaPiece } from "@/lib/queries/legal-fichier";
+import { fichierEmisDeLaPiece, specDeLaPieceEmise } from "@/lib/queries/legal-fichier";
+import { construireXlsxCommercial } from "@/lib/artifact/factory/xlsx";
 
 /**
  * LE FICHIER ÉMIS D'UNE PIÈCE LEGAL (Word ou PDF de la fabrique), sous la porte de la PIÈCE.
@@ -12,12 +13,34 @@ import { fichierEmisDeLaPiece } from "@/lib/queries/legal-fichier";
  * personnel de celui qui l'a émis : les Finances qui le signent, le centre qui le valide, le
  * demandeur qui l'envoie à son fournisseur recevaient un 403. Ici, qui lit la pièce lit son
  * fichier (`fichierEmisDeLaPiece`), et rien de plus : un refus et une absence rendent 404.
- * `?format=pdf|docx` (PDF par défaut), `?dl=1` force le téléchargement — et le trace.
+ * `?format=pdf|docx|xlsx` (PDF par défaut), `?dl=1` force le téléchargement — et le trace.
+ *
+ * `xlsx` n'est PAS un fichier du Drive : c'est la pièce RENDUE en classeur à formules, à la demande, depuis sa
+ * spécification (« générer le BC sur Excel »), sous la même porte et avec le même contrôle au centime que le Word.
+ * Un classeur qui ne retombe pas sur les totaux de la pièce n'est pas livré (422, les raisons dites).
  */
 export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
   const user = await getCurrentUser();
   if (!user) return new NextResponse(null, { status: 401 });
-  const format = req.nextUrl.searchParams.get("format") === "docx" ? "docx" : "pdf";
+  const demande = req.nextUrl.searchParams.get("format");
+  const format = demande === "docx" || demande === "xlsx" ? demande : "pdf";
+  if (format === "xlsx") {
+    const spec = await specDeLaPieceEmise(user, params.id);
+    if (!spec) return new NextResponse(null, { status: 404 });
+    const classeur = await construireXlsxCommercial(spec);
+    if (!classeur.verification.ok) return NextResponse.json({ error: `Le classeur n'a pas pu être produit : ${classeur.verification.bloquants.slice(0, 3).join(" ; ")}` }, { status: 422 });
+    if (req.nextUrl.searchParams.get("dl") === "1") {
+      await recordAudit({ actorId: user.id, action: "EXPORT", module: "Legal", entityType: "LEGAL_DOCUMENT", entityId: params.id, summary: `Export Excel de la pièce « ${spec.numero} »` });
+    }
+    return new NextResponse(new Uint8Array(classeur.octets), {
+      headers: {
+        "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "Content-Disposition": `attachment; filename*=UTF-8''${encodeURIComponent(classeur.nom)}`,
+        "Content-Length": String(classeur.octets.length),
+        "Cache-Control": "private, no-store",
+      },
+    });
+  }
   const fichier = await fichierEmisDeLaPiece(user, params.id, format);
   if (!fichier) return new NextResponse(null, { status: 404 });
 
