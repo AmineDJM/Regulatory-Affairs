@@ -346,23 +346,29 @@ test("CENTRE : la paie s'autorise comme tout paiement — et le solde de trésor
   await expect(page.getByText(LIBELLE_PAIE).first()).toBeVisible();
 });
 
-test("MOYENS GÉNÉRAUX : l'écran ne garde que le catalogue d'articles — plus de caisse, plus de remise (décision du 04/10)", async ({ page }) => {
-  // La remise de caisse au centre de paiement reste éprouvée par l'ACTION (`centre-paie-caisse-flow.test.ts`) :
-  // c'est l'ÉCRAN qui ne la propose plus. Ce parcours tient la règle du jour, pour le Super Admin comme
-  // pour la détentrice d'une caisse — sans quoi une caisse ouverte se verrait encore par une porte.
+test("CAISSE D'AVANCE : la remise part au centre — la détentrice ne confirme rien avant le versement", async ({ page }) => {
   await login(page, SA_EMAIL);
   await aller(page, "/moyens-generaux");
-  await expect(page.getByRole("heading", { name: "Moyens généraux — Catalogue d'articles" })).toBeVisible();
-  // Le témoin : le catalogue est bien LÀ (le formulaire d'ajout), donc les absences ci-dessous ne
-  // viennent pas d'une page vide.
-  await expect(page.getByText("Nouvel article")).toBeVisible();
-  for (const retire of ["Remettre une somme en caisse", "Caisse d'avance", "Changer de service…", "Annuaire de l'entreprise", "Budgets par département"]) {
-    await expect(page.getByText(retire, { exact: true }), `l'écran montre encore « ${retire} »`).toHaveCount(0);
-  }
+  // Le service n'a AUCUNE caisse ouverte (sa seule remise est soldée) : l'écran propose la remise
+  // d'emblée, sans bouton intermédiaire.
+  const formulaire = page.locator("form").filter({ hasText: "Remettre une somme en caisse" });
+  await expect(formulaire).toBeVisible();
+  await formulaire.locator('input[name="amount"]').fill("24000");
+  await formulaire.locator('select[name="holderId"]').selectOption({ label: `${P} Assistante caisse` });
+  await formulaire.getByRole("button", { name: "Envoyer au centre de paiement" }).click();
+  // La phrase porte la RÉFÉRENCE de l'ordre : c'est ce qu'on suit ensuite au centre de paiement.
+  await expect(page.getByText(/Remise de 24[\s  ]000 DZD envoyée au centre de paiement \(/)).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByText(/en attente du centre de paiement/i).first()).toBeVisible({ timeout: 15_000 });
+
+  const remise = await prisma.pettyCashAllotment.findFirstOrThrow({ where: { departmentId: deptId, status: "ALLOTTED" }, include: { expenseOrder: true } });
+  expect(remise.transactionId, "écrire la sortie avant l'autorisation, c'est inscrire un décaissement que personne n'a autorisé").toBeNull();
+  expect(remise.expenseOrder?.centralStatus).toBe("AWAITING");
+  expect(remise.expenseOrder?.companyId).toBe(companyId);
 
   await page.context().clearCookies();
   await login(page, CAISSE_EMAIL);
   await aller(page, "/moyens-generaux");
+  await expect(page.getByText(/en attente du centre de paiement/i).first()).toBeVisible();
   await expect(page.getByRole("button", { name: /J'ai reçu la somme/ })).toHaveCount(0);
-  await capture(page, "f4-moyens-generaux-catalogue");
+  await capture(page, "f4-caisse-en-attente");
 });

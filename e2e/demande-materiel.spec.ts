@@ -125,16 +125,26 @@ test("Stock promotionnel : une entrée À PART du menu Sales & Marketing — ses
   await expect(page).toHaveURL(/\/stock-promotionnel\?vue=moi$/);
 });
 
-test("Moyens généraux : sans service ni département, le Super Admin arrive sur le CATALOGUE — plus d'impasse, plus de choix de service (04/10)", async ({ page }) => {
+test("Moyens généraux : sans service ni département, le Super Admin DÉSIGNE — puis change — sans voir d'autre caisse", async ({ page }) => {
+  page.on("dialog", (d) => d.accept());
   await login(page, SA_EMAIL);
   await aller(page, "/moyens-generaux");
-  // L'IMPASSE D'AVANT (« aucun service désigné ») n'existe plus : l'écran ne dépend plus d'aucun service.
-  await expect(page.getByRole("heading", { name: "Moyens généraux — Catalogue d'articles" })).toBeVisible();
-  await expect(page.getByText("Aucun service des moyens généraux n'est désigné")).toHaveCount(0);
-  await expect(page.getByRole("button", { name: "Changer de service…" })).toHaveCount(0);
+  // L'IMPASSE D'AVANT : « Aucun département rattaché à votre compte », sans geste possible.
+  await expect(page.getByText("Aucun service des moyens généraux n'est désigné")).toBeVisible();
+  const choix = page.getByLabel("Département qui tient les moyens généraux");
+  await choix.selectOption(deptA);
+  await page.getByRole("button", { name: "Désigner" }).click();
+  await expect(page.getByRole("heading", { name: `Moyens généraux — ${DEPT_A}` })).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByText("Service des moyens généraux de la société")).toBeVisible();
+  // PLUS DE SÉLECTEUR DE DÉPARTEMENTS : la liste n'existe que derrière « Changer de service… », et
+  // elle DÉSIGNE — elle n'ouvre la caisse d'aucun autre département.
+  await expect(page.getByLabel("Département qui tient les moyens généraux")).toHaveCount(0);
   expect(await page.locator('a[href*="dept="]').count(), "un lien ?dept= ouvrirait la caisse d'un autre département").toBe(0);
-  // L'écran n'écrit pas le réglage : il reste ce que le décor a posé.
-  expect((await prisma.appSetting.findUnique({ where: { id: "global" } }))?.generalMeansDepartmentId).toBeNull();
+  await page.getByRole("button", { name: "Changer de service…" }).click();
+  await page.getByLabel("Département qui tient les moyens généraux").selectOption(deptB);
+  await page.getByRole("button", { name: "Désigner" }).click();
+  await expect(page.getByRole("heading", { name: `Moyens généraux — ${DEPT_B}` })).toBeVisible({ timeout: 20_000 });
+  expect((await prisma.appSetting.findUnique({ where: { id: "global" } }))?.generalMeansDepartmentId).toBe(deptB);
 });
 
 test("Matériel promotionnel : la demande se compose de LIGNES dès sa création — sans budget, assistante, gamme ni entité", async ({ page }) => {
