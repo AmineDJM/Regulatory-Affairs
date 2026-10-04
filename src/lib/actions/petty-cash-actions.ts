@@ -16,9 +16,8 @@ import {
 import { continuousCash, canSpendFromFund } from "@/lib/general-means/continuous-cash";
 import { openRemittances } from "@/lib/queries/general-means";
 import { toNumber } from "@/lib/utils";
-import { nextFinanceRef } from "@/lib/finance/next-ref";
-import { compteDeLEcriture } from "@/lib/finance/comptes";
 import { createExpenseOrder } from "@/lib/expense-orders";
+import { ordreDeRemise } from "@/lib/general-means/remettre";
 import { etatRemise, refusConfirmationRemise } from "@/lib/general-means/remise-centre";
 import { fdStr, fdNum, fdCase, type ActionResult } from "@/lib/actions/types";
 import { readReceipt, saveReceiptLines } from "@/lib/general-means/expense-lines";
@@ -97,23 +96,12 @@ export async function allotPettyCash(formData: FormData): Promise<ActionResult> 
   // L'ordre porte l'entité du DÉPARTEMENT : c'est elle qui engage la dépense, pas celle de la
   // personne qui clique.
   const remise = await prisma.pettyCashAllotment.create({
-    data: {
-      departmentId, period, amount, holderId: holder, note: fdStr(formData, "note"),
-      createdById: user.id,
-    },
+    data: { departmentId, period, amount, holderId: holder, note: fdStr(formData, "note"), createdById: user.id },
     select: { id: true },
   });
   let ordre: { id: string; reference: string };
   try {
-    ordre = await createExpenseOrder({
-      label: `Caisse d'avance — ${department.name} (${periodLabel(period)})`,
-      amount,
-      category: "AUTRE",
-      beneficiary: holderName ?? "Caisse d'avance",
-      requestedById: user.id,
-      companyId: department.companyId,
-      notes: `Remise en caisse d'avance${holderName ? ` à ${holderName}` : ""} — ${department.name}, ${periodLabel(period)}. Un achat payé sur la caisse s'impute ensuite à son budget : la remise elle-même ne se classe pas.`,
-    });
+    ordre = await createExpenseOrder(ordreDeRemise({ departement: department, periode: periodLabel(period), amount, holderName, createdById: user.id, nature: "REMISE" }));
   } catch (e) {
     // RIEN N'EST PARTI : une remise sans ordre ne serait ni autorisable ni confirmable.
     await prisma.pettyCashAllotment.delete({ where: { id: remise.id } }).catch(() => undefined);
@@ -415,58 +403,54 @@ export async function decidePettyCashTopUp(formData: FormData): Promise<ActionRe
   if (granted < 0) return { ok: false, error: "Un montant ne peut pas être négatif." };
   const note = fdStr(formData, "note");
 
-  await prisma.pettyCashTopUpRequest.update({
-    where: { id },
+  // UNE DÉCISION À LA FOIS : la demande se tranche sur l'état LU — deux accords croisés
+  // n'enverraient pas deux rallonges au centre.
+  const pris = await prisma.pettyCashTopUpRequest.updateMany({
+    where: { id, status: "PENDING" },
     data: {
       status: decision,
       amountGranted: decision === "APPROVED" ? granted : null,
       decidedById: user.id, decidedAt: new Date(), decisionNote: note,
     },
   });
+  if (pris.count === 0) return { ok: false, error: "Cette demande vient d'être tranchée." };
 
+  let reference: string | null = null;
   if (decision === "APPROVED" && granted > 0) {
-    // La rallonge s'AJOUTE au fonds du mois : deux caisses simultanées rendraient le solde
-    // indécidable — laquelle vide-t-on ?
-    await prisma.pettyCashAllotment.update({
-      where: { id: req.allotmentId },
-      data: { amount: { increment: granted } },
-    });
-
-    // ── ET ELLE S'ÉCRIT AU LIVRE, COMME LA REMISE (§118.148) ──────────────────────────────
+    // ── LA RALLONGE PASSE PAR LE CENTRE DE PAIEMENT (§118.202) ─────────────────────────────
     //
-    // L'argent quitte la banque pour la caisse exactement comme à la remise ; la remise écrivait
-    // sa sortie, la rallonge non — le fond grossissait et le livre ignorait le décaissement.
-    // Même écriture, même best-effort : l'argent prime, et une écriture manquante se voit au
-    // contrôle du livre plutôt que de bloquer une caisse vide.
-    const holderName = req.allotment.holderId
-      ? (await prisma.user.findUnique({ where: { id: req.allotment.holderId }, select: { name: true } }))?.name ?? null
-      : null;
-    const tx = await prisma.financeTransaction
-      .create({
-        data: {
-          reference: await nextFinanceRef(),
-          date: new Date(),
-          direction: "OUT",
-          category: "AUTRE",
-          label: `Rallonge de caisse d'avance — ${req.allotment.department.name} (${periodLabel(req.allotment.period)})`,
-          amount: granted,
-          method: "CASH",
-          account: "Caisse",
-          counterparty: holderName,
-          status: "SETTLED",
-          companyId: req.allotment.department.companyId,
-          treasuryAccountId: await compteDeLEcriture({ compte: "Caisse", societeId: req.allotment.department.companyId }),
-          createdById: user.id,
-        },
+    // « La rallonge de caisse doit passer dans le centre de paiement » (la Direction, 04/10/2026).
+    // Accordée, elle devient une REMISE comme les autres : son ordre attend le centre, elle rejoint
+    // le fond une fois versée, et la détentrice confirme alors sa réception. Elle ne s'écrit plus
+    // au livre ici : c'est le règlement de l'ordre qui le fait, là où l'argent quitte la banque.
+    const holder = req.allotment.holderId ?? req.requestedById;
+    const holderName = holder ? (await prisma.user.findUnique({ where: { id: holder }, select: { name: true } }))?.name ?? null : null;
+    let ordre: { id: string; reference: string } | null = null;
+    if (holder) {
+      const remise = await prisma.pettyCashAllotment.create({
+        data: { departmentId: req.allotment.departmentId, period: req.allotment.period, amount: granted, holderId: holder, note: note ?? "Rallonge accordée sur demande", createdById: user.id },
         select: { id: true },
-      })
-      .catch((e) => {
-        console.error("[petty-cash] écriture de la rallonge non passée", e);
-        return null;
       });
-    if (tx) {
-      await prisma.pettyCashTopUpRequest.update({ where: { id }, data: { transactionId: tx.id } }).catch(() => undefined);
+      try {
+        ordre = await createExpenseOrder(ordreDeRemise({
+          departement: req.allotment.department, periode: periodLabel(req.allotment.period), amount: granted, holderName, createdById: user.id, nature: "RALLONGE",
+        }));
+        await prisma.pettyCashAllotment.update({ where: { id: remise.id }, data: { expenseOrderId: ordre.id } });
+      } catch (e) {
+        await prisma.pettyCashAllotment.delete({ where: { id: remise.id } }).catch(() => undefined);
+        console.error("[petty-cash] ordre de la rallonge non créé", e);
+        ordre = null;
+      }
     }
+    if (!ordre) {
+      // L'accord n'a pas pu partir : la demande redevient à trancher — rien n'a quitté la banque.
+      await prisma.pettyCashTopUpRequest.updateMany({
+        where: { id, status: "APPROVED", decidedById: user.id },
+        data: { status: "PENDING", amountGranted: null, decidedById: null, decidedAt: null, decisionNote: null },
+      });
+      return { ok: false, error: "La rallonge n'a pas pu partir au centre de paiement — la demande reste à trancher, réessayez." };
+    }
+    reference = ordre.reference;
   }
 
   if (req.requestedById) {
@@ -474,7 +458,7 @@ export async function decidePettyCashTopUp(formData: FormData): Promise<ActionRe
       userId: req.requestedById, type: "GENERIC",
       title: decision === "APPROVED" ? "Rallonge accordée" : "Rallonge refusée",
       body: decision === "APPROVED"
-        ? `${granted} DZD ajoutés à la caisse d'avance${note ? ` — ${note}` : ""}`
+        ? `${granted} DZD accordés, envoyés au centre de paiement${reference ? ` (${reference})` : ""} : ils rejoindront la caisse une fois versés${note ? ` — ${note}` : ""}`
         : `Demande refusée${note ? ` — ${note}` : ""}`,
       link: PATH,
     });
@@ -482,10 +466,11 @@ export async function decidePettyCashTopUp(formData: FormData): Promise<ActionRe
   await recordAudit({
     actorId: user.id, action: decision === "APPROVED" ? "VALIDATE" : "REFUSE", module: "Budgets",
     entityType: "BUDGET", entityId: req.allotment.departmentId,
-    summary: `Rallonge de caisse ${decision === "APPROVED" ? `accordée (${granted} DZD)` : "refusée"} — ${req.allotment.department.name}`,
+    summary: `Rallonge de caisse ${decision === "APPROVED" ? `accordée (${granted} DZD${reference ? `, envoyée au centre de paiement : ${reference}` : ""})` : "refusée"} — ${req.allotment.department.name}`,
   });
   revalidatePath(PATH);
-  return { ok: true };
+  revalidatePath("/centre-de-paiement");
+  return { ok: true, message: reference ? `Rallonge accordée et envoyée au centre de paiement (${reference}) : elle rejoindra la caisse une fois autorisée et versée.` : undefined };
 }
 
 /**

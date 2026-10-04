@@ -254,6 +254,58 @@ export async function getActionCenter(user: SessionUser) {
     });
   }
 
+  // (b bis) LES POSTES AD & PRO SOUMIS — à ceux qui les décident (§118.202). La porte de la décision
+  // (`canAllocate`) laisse décider la vue globale ET tout rôle qui VALIDE le module de la demande ;
+  // la notification ne suffit pas : un poste soumis AVANT qu'elle atteigne la bonne personne
+  // (le billet hors budget d'un congrès, §118.200) restait invisible ailleurs que sur sa fiche.
+  // La file lit la MÊME règle que la porte, donc elle montre aussi les demandes déjà en cours.
+  {
+    const PARENTS_POSTE = [
+      { colonne: "sponsoringId", module: "SPONSORING", type: "SPONSORING", path: "/sponsoring" },
+      { colonne: "congressNationalId", module: "CONGRESS_NATIONAL", type: "CONGRESS_NATIONAL", path: "/congress-national" },
+      { colonne: "congressInternationalId", module: "CONGRESS_INTERNATIONAL", type: "CONGRESS_INTERNATIONAL", path: "/congress-international" },
+      { colonne: "eventId", module: "EVENTS", type: "EVENT", path: "/events" },
+    ] as const;
+    const decides = PARENTS_POSTE.filter((p) => hasGlobalView(user.role) || userCan(user, p.module, "VALIDATE"));
+    if (decides.length > 0) {
+      const postes = await prisma.adProItem.findMany({
+        where: { status: "PENDING", OR: decides.map((p) => ({ [p.colonne]: { not: null } })) },
+        select: {
+          id: true, label: true, amountEstimated: true, budgetKind: true, addedAfterDecision: true, submittedAt: true, createdAt: true,
+          sponsoringId: true, congressNationalId: true, congressInternationalId: true, eventId: true,
+        },
+        orderBy: [{ submittedAt: "asc" }, { createdAt: "asc" }],
+        take: PLAFOND_DECISIONS * 2,
+      });
+      const lisibles: { p: (typeof postes)[number]; parent: (typeof PARENTS_POSTE)[number]; parentId: string }[] = [];
+      for (const p of postes) {
+        const parent = decides.find((d) => p[d.colonne]);
+        const parentId = parent ? p[parent.colonne] : null;
+        if (!parent || !parentId) continue;
+        // La fiche doit s'ouvrir : une ligne qui mène à une page refusée n'est pas un geste.
+        if (await canAccessEntity(user, parent.type, parentId, "VIEW")) lisibles.push({ p, parent, parentId });
+        if (lisibles.length >= PLAFOND_DECISIONS) break;
+      }
+      for (const { p, parent, parentId } of lisibles) {
+        const montant = p.amountEstimated != null ? ` · ${formatCurrency(toNumber(p.amountEstimated))}` : "";
+        const hors = p.budgetKind === "ADDITIONAL" ? "hors budget" : p.addedAfterDecision ? "ajouté après la décision" : null;
+        items.push({
+          key: `poste-${p.id}`, objet: `AD_PRO_ITEM:${p.id}`, title: p.label,
+          subtitle: [hors, `poste à décider${montant}`].filter(Boolean).join(" · "),
+          module: "Ad & Pro", href: `${parent.path}/${parentId}`, kind: "validation", priority: null, deadline: null,
+          depuis: (p.submittedAt ?? p.createdAt).toISOString(), owner: "", statusLabel: "À décider", statusTone: "warning",
+        });
+      }
+      if (postes.length > lisibles.length && lisibles.length >= PLAFOND_DECISIONS) {
+        items.push({
+          key: "poste-reste", objet: `${PREFIXE_RESTE}postes`, title: "D'autres postes Ad & Pro attendent votre décision",
+          subtitle: "Les plus anciens sont listés ci-dessus", module: "Ad & Pro", href: "/ad-pro",
+          kind: "validation", priority: null, deadline: null, depuis: null, owner: "", statusLabel: "À décider", statusTone: "warning",
+        });
+      }
+    }
+  }
+
   // (c) LES PLANS DE TOURNÉE — depuis la soumission, ou depuis l'escalade quand le plan est chez le N+2.
   for (const p of plans.slice(0, PLAFOND_DECISIONS)) {
     const escalade = p.status === "ESCALATED";

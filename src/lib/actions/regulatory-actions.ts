@@ -1083,6 +1083,20 @@ export async function requestBV(formData: FormData): Promise<ActionResult> {
   const dueRaw = str(formData, "dueDate");
   const note = str(formData, "note");
 
+  // LES PIÈCES SE JUGENT AVANT L'ORDRE (§118.202) : un fichier refusé après la création laissait un
+  // ordre au centre de paiement — sans pièce, et qu'une seconde tentative doublait.
+  const files = [...formData.getAll("files"), formData.get("file")]
+    .filter((f): f is File => f instanceof File && f.size > 0);
+  if (files.length > 0) {
+    const maxMb = (await getAppSettings()).maxUploadMb;
+    for (const file of files) {
+      const err = validateUpload(file.name, file.size, maxMb);
+      if (err) return { ok: false, error: err };
+    }
+  }
+
+  // L'ORDRE NAÎT EN ATTENTE DU CENTRE DE PAIEMENT (`initialCentralStatus`, aucune exemption de
+  // module) ; les Finances ne le voient qu'une fois autorisé. Son entité est celle du DOSSIER.
   const order = await createExpenseOrder({
     label: `${bvType} — ${product.reference} ${product.dci}`,
     amount,
@@ -1098,14 +1112,7 @@ export async function requestBV(formData: FormData): Promise<ActionResult> {
   // JUSTIFICATIFS — UNE OU PLUSIEURS PIÈCES. Un BV arrive rarement seul : proforma, courrier
   // de l'agence, calcul du montant. N'en accepter qu'une obligeait à choisir laquelle compte,
   // puis à déposer le reste ailleurs — c'est-à-dire nulle part.
-  const files = [...formData.getAll("files"), formData.get("file")]
-    .filter((f): f is File => f instanceof File && f.size > 0);
   if (files.length > 0) {
-    const maxMb = (await getAppSettings()).maxUploadMb;
-    for (const file of files) {
-      const err = validateUpload(file.name, file.size, maxMb);
-      if (err) return { ok: false, error: err };
-    }
     for (const file of files) {
       const key = `EXPENSE_ORDER/${order.id}/${randomUUID()}__${file.name}`;
       try {
@@ -1141,7 +1148,8 @@ export async function requestBV(formData: FormData): Promise<ActionResult> {
 
   revalidatePath(`/regulatory/${productId}`);
   revalidatePath("/finances");
-  return { ok: true };
+  revalidatePath("/centre-de-paiement");
+  return { ok: true, message: `Demande de ${bvType} envoyée au centre de paiement (${order.reference}) : les Finances la régleront une fois autorisée.` };
 }
 
 /** Coche / décoche un document de la checklist de présoumission (avec note facultative). */

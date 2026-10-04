@@ -51,7 +51,7 @@ describe("PAYMENT_PATHS — le registre qu'on relit avant d'ajouter un geste d'a
     // registre doit le dire), soit un nouveau décaissement échappe au centre sans décision.
     // Le 01/10/2026 la Direction a fait passer la paie et la remise mensuelle par le centre
     // (§118.176) : seule la rallonge, qu'elle n'a pas nommée, reste dehors.
-    expect(horsCentre().map((p) => p.key).sort()).toEqual(["petty-cash-top-up"]);
+    expect(horsCentre().map((p) => p.key).sort(), "la rallonge passe par le centre depuis le 04/10/2026 : plus aucune exception").toEqual([]);
     for (const p of horsCentre()) expect(p.centreWhy, p.key).toMatch(/Direction/);
   });
 
@@ -82,8 +82,9 @@ describe("PAYMENT_PATHS — le registre qu'on relit avant d'ajouter un geste d'a
     }
   });
 
-  it("la rallonge de caisse s'écrit au livre comme la remise qu'elle complète", () => {
+  it("la rallonge de caisse passe par le centre et s'écrit au livre au versement, comme la remise", () => {
     expect(paymentPath("petty-cash-top-up")?.settles).toBe(true);
+    expect(paymentPath("petty-cash-top-up")?.centre).toBe("AUTORISE");
   });
 });
 

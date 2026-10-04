@@ -121,11 +121,10 @@ export const PAYMENT_PATHS: PaymentPath[] = [
     centreWhy: "« La caisse donnée mensuellement aux moyens généraux doit passer par le centre de paiement et attendre la validation » (la Direction, 01/10/2026) : la remise naît avec son ordre, en attente du centre, et la détentrice ne confirme sa réception qu'une fois l'ordre réglé.",
   },
   {
-    key: "petty-cash-top-up", label: "Rallonge de caisse d'avance accordée", module: "Moyens généraux",
-    settles: true, why: "La rallonge quitte la banque comme la remise : même écriture, au moment où elle est accordée.",
-    centre: "HORS_CENTRE",
-    centreWhy: "Accordée par les RH sans ordre de dépense. La Direction a fait passer la paie et la remise mensuelle par le centre sans nommer la rallonge : elle reste l'exception, en attendant qu'on la tranche.",
-    decision: "Assumée par la Direction le 28/09/2026 (« garder les trois exceptions ») ; le 01/10/2026 elle a fait passer la paie et la remise mensuelle par le centre, sans nommer la rallonge — qui reste donc hors centre.",
+    key: "petty-cash-top-up", label: "Rallonge de caisse d'avance accordée", module: "Moyens généraux → centre de paiement → Finances",
+    settles: true, why: "Accordée, la rallonge devient une remise : son écriture se pose au VERSEMENT, au règlement de son ordre — comme la remise mensuelle, par le même écrivain (`general-means/remettre.ts` pour la rédaction de l'ordre).",
+    centre: "AUTORISE",
+    centreWhy: "« La rallonge de caisse doit passer dans le centre de paiement » (la Direction, 04/10/2026) : l'accord crée un ordre en attente du centre, et la détentrice ne confirme sa réception qu'une fois l'ordre réglé.",
   },
   {
     key: "petty-cash-expense", label: "Achat payé sur la caisse d'avance", module: "Moyens généraux",
@@ -150,8 +149,8 @@ export function nonSettlingPaths(): PaymentPath[] {
  * LES EXCEPTIONS À « TOUS LES PAIEMENTS PAR LE CENTRE » — ASSUMÉES par la Direction.
  *
  * Le 28/09/2026 elle avait gardé trois exceptions (paie, remise et rallonge de caisse d'avance) ;
- * le 01/10/2026 elle a fait passer la paie et la remise mensuelle par le centre. Reste la rallonge,
- * qu'elle n'a pas nommée. Les lister n'était pas les autoriser ; c'est la DÉCISION écrite sur
+ * le 01/10/2026 elle a fait passer la paie et la remise mensuelle par le centre, et le 04/10/2026 la
+ * rallonge. Il n'en reste aucune. Les lister n'était pas les autoriser ; c'est la DÉCISION écrite sur
  * chacune qui les autorise, et un chemin qui changerait de camp sans décision ferait tomber le banc.
  */
 export function horsCentre(): PaymentPath[] {

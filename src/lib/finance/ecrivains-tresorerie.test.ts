@@ -71,7 +71,9 @@ describe("Cliquet — toute écriture de trésorerie fige son compte", () => {
     // budget », qui écrivait une écriture par salarié hors du centre, n'existe plus ; et « régler la
     // paie » d'un bulletin côté Finances non plus — il sortait l'argent du livre sans le centre.
     // Trois écrivains de moins, et trois décaissements de plus que le centre voit passer.
-    expect(creations().length).toBeGreaterThanOrEqual(6);
+    // 6 → 5 (§118.202) : la rallonge de caisse n'écrit plus à l'accord — elle devient une remise,
+    // et son écriture se pose au règlement de son ordre, par le centre.
+    expect(creations().length).toBeGreaterThanOrEqual(5);
   });
 
   it("chaque création d'écriture écrit `treasuryAccountId` — le refus nomme le fichier", () => {

@@ -198,7 +198,7 @@ suite("les portes du centre, par leurs vrais points d'entrée", () => {
   }, 60_000);
 
   // ── 3. LA RALLONGE DE CAISSE S'ÉCRIT AU LIVRE ────────────────────────────────────────────────
-  it("`decidePettyCashTopUp` : une rallonge accordée sort au livre, liée à la demande ; refusée, rien", async () => {
+  it("`decidePettyCashTopUp` : une rallonge accordée part au CENTRE (une remise et son ordre en attente), rien au livre ; une seule fois ; refusée, rien", async () => {
     ACTEUR = sa;
     const dept = await prisma.department.create({ data: { name: `${TAG}Moyens généraux`, code: `${TAG}MG` }, select: { id: true } });
     const caisse = await prisma.pettyCashAllotment.create({
@@ -209,24 +209,69 @@ suite("les portes du centre, par leurs vrais points d'entrée", () => {
       prisma.pettyCashTopUpRequest.create({ data: { allotmentId: caisse.id, amountRequested: 20_000, reason: `${TAG}rallonge`, requestedById: autreId }, select: { id: true } }),
       prisma.pettyCashTopUpRequest.create({ data: { allotmentId: caisse.id, amountRequested: 5_000, reason: `${TAG}rallonge refusée`, requestedById: autreId }, select: { id: true } }),
     ]);
+    const livreAvant = await prisma.financeTransaction.count({ where: { createdById: saId } });
 
     const r = await decidePettyCashTopUp(fd({ id: accordee.id, decision: "APPROVED", amountGranted: "15000" }));
     expect(r.ok, r.ok ? "" : r.error).toBe(true);
-    const lue = await prisma.pettyCashTopUpRequest.findUnique({ where: { id: accordee.id }, select: { transactionId: true } });
-    expect(lue?.transactionId, "la rallonge doit être liée à son écriture").toBeTruthy();
-    const ecriture = await prisma.financeTransaction.findUnique({ where: { id: lue!.transactionId! }, select: { direction: true, amount: true, label: true, method: true } });
-    expect(ecriture?.direction).toBe("OUT");
-    expect(Number(ecriture?.amount)).toBe(15_000);
-    expect(ecriture?.label).toContain(`${TAG}Moyens généraux`);
+    expect(await prisma.financeTransaction.count({ where: { createdById: saId } }), "rien au livre avant le versement").toBe(livreAvant);
+    expect(Number((await prisma.pettyCashAllotment.findUnique({ where: { id: caisse.id }, select: { amount: true } }))?.amount), "le fond d'origine n'est pas gonflé avant le versement").toBe(50_000);
+    const remises = await prisma.pettyCashAllotment.findMany({ where: { departmentId: dept.id, id: { not: caisse.id } }, select: { amount: true, holderId: true, expenseOrderId: true } });
+    expect(remises).toHaveLength(1);
+    expect(Number(remises[0]!.amount)).toBe(15_000);
+    expect(remises[0]!.holderId).toBe(autreId);
+    const ordre = await prisma.expenseOrder.findUnique({ where: { id: remises[0]!.expenseOrderId! }, select: { centralStatus: true, amount: true, label: true } });
+    expect(ordre?.centralStatus, "l'ordre attend le centre").toBe("AWAITING");
+    expect(Number(ordre?.amount)).toBe(15_000);
+    expect(ordre?.label).toContain("Rallonge");
 
-    // TÉMOIN : une rallonge REFUSÉE n'écrit rien — l'argent n'a pas bougé.
-    const avant = await prisma.financeTransaction.count({ where: { createdById: saId } });
+    // UNE SEULE FOIS : le même accord rejoué ne crée ni seconde remise ni second ordre.
+    expect((await decidePettyCashTopUp(fd({ id: accordee.id, decision: "APPROVED", amountGranted: "15000" }))).ok).toBe(false);
+    expect(await prisma.pettyCashAllotment.count({ where: { departmentId: dept.id } })).toBe(2);
+
+    // TÉMOIN : une rallonge REFUSÉE ne crée rien.
     const non = await decidePettyCashTopUp(fd({ id: refusee.id, decision: "REJECTED" }));
     expect(non.ok, non.ok ? "" : non.error).toBe(true);
-    expect(await prisma.financeTransaction.count({ where: { createdById: saId } })).toBe(avant);
-    const refuseeLue = await prisma.pettyCashTopUpRequest.findUnique({ where: { id: refusee.id }, select: { transactionId: true } });
-    expect(refuseeLue?.transactionId).toBeNull();
+    expect(await prisma.pettyCashAllotment.count({ where: { departmentId: dept.id } })).toBe(2);
+    expect(await prisma.financeTransaction.count({ where: { createdById: saId } })).toBe(livreAvant);
+    await prisma.expenseOrder.delete({ where: { id: remises[0]!.expenseOrderId! } }).catch(() => undefined);
   }, 60_000);
+
+  it("`decidePettyCashTopUp` : deux accords SIMULTANÉS n'envoient qu'une rallonge au centre (course forcée)", async () => {
+    ACTEUR = sa;
+    const dept = await prisma.department.create({ data: { name: `${TAG}MG course`, code: `${TAG}MGC` }, select: { id: true } });
+    const caisse = await prisma.pettyCashAllotment.create({ data: { departmentId: dept.id, period: "2026-09", amount: 10_000, holderId: autreId }, select: { id: true } });
+    const dem = await prisma.pettyCashTopUpRequest.create({ data: { allotmentId: caisse.id, amountRequested: 7_000, reason: `${TAG}course`, requestedById: autreId }, select: { id: true } });
+    // Le banc tient la ligne de la demande : les deux accords LISENT « en attente » (une lecture
+    // ne se bloque pas), puis attendent tous deux à l'écriture ; relâchés, un seul doit passer.
+    let liberer!: () => void; const libere = new Promise<void>((r) => { liberer = r; });
+    let signaler!: (pid: number) => void; const acquis = new Promise<number>((r) => { signaler = r; });
+    const tenu = prisma.$transaction(async (tx) => {
+      await tx.$executeRawUnsafe(`SELECT 1 FROM "PettyCashTopUpRequest" WHERE id = $1 FOR UPDATE`, dem.id);
+      const [{ pid }] = await tx.$queryRaw<{ pid: number }[]>`SELECT pg_backend_pid() AS pid`;
+      signaler(pid); await libere;
+    }, { timeout: 120_000, maxWait: 30_000 });
+    const pid = await acquis;
+    const gestes = [1, 2].map(() => decidePettyCashTopUp(fd({ id: dem.id, decision: "APPROVED", amountGranted: "7000" })));
+    const debut = Date.now();
+    for (;;) {
+      // Le second accord attend derrière le PREMIER (verrou de tuple), pas derrière le banc : on
+      // compte toute la chaîne d'attente qui remonte au banc.
+      const r = await prisma.$queryRaw<{ n: number }[]>`
+        WITH RECURSIVE chaine(pid) AS (
+          SELECT ${pid}::int4
+          UNION SELECT a.pid FROM pg_stat_activity a, chaine c WHERE c.pid = ANY(pg_blocking_pids(a.pid))
+        ) SELECT (count(*) - 1)::int AS n FROM chaine`;
+      if ((r[0]?.n ?? 0) >= 2) break;
+      if (Date.now() - debut > 60_000) throw new Error("barrière non atteinte : les deux accords ne se sont pas bloqués");
+      await new Promise((ok) => setTimeout(ok, 25));
+    }
+    liberer(); await tenu;
+    const res = await Promise.all(gestes);
+    expect(res.filter((r) => r.ok)).toHaveLength(1);
+    const remises = await prisma.pettyCashAllotment.findMany({ where: { departmentId: dept.id, id: { not: caisse.id } }, select: { expenseOrderId: true } });
+    expect(remises, "une seule rallonge part au centre").toHaveLength(1);
+    await prisma.expenseOrder.deleteMany({ where: { id: { in: remises.map((x) => x.expenseOrderId!).filter(Boolean) } } }).catch(() => undefined);
+  }, 120_000);
 
   // ── 4. LE CHANTIER « PAIEMENT » NE SE CLÔT QUE SUR UN PAIEMENT RÉGLÉ ─────────────────────────
   it("`completePromoTrack(PAYMENT)` : refusé sans règlement, refusé tant que l'ordre attend le centre, clos une fois payé", async () => {

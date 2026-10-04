@@ -8,6 +8,7 @@ vi.mock("@/lib/session", () => ({ requireUser: async () => ACTOR }));
 import { prisma } from "@/lib/prisma";
 import { getAccess, userCan, type SessionUser } from "@/lib/rbac";
 import { addAdProItem, submitAdProItem } from "@/lib/actions/ad-pro-item-actions";
+import { getActionCenter } from "@/lib/queries/action-center";
 
 let dbOk = false;
 try { await prisma.$queryRaw`SELECT 1`; dbOk = true; } catch { dbOk = false; }
@@ -75,5 +76,12 @@ suite("Postes Ad & Pro — ceux qui décident sont prévenus (validation et lect
     const s = await submitAdProItem(undefined, fd({ id: r.ok ? r.id! : "" }));
     expect(s.ok, JSON.stringify(s)).toBe(true);
     expect(await recues("VALIDATION_REQUIRED")).toBe(1);
+    // LA FILE DE CELLE QUI DÉCIDE le porte aussi — y compris pour un poste soumis avant que la
+    // notification l'atteigne (§118.202) ; celle du demandeur, non (témoin).
+    const cle = `poste-${r.ok ? r.id! : ""}`;
+    const dm = (await getActionCenter(await acteur(u.dm, "PRODUCT_MANAGER") as unknown as SessionUser)).items;
+    expect(dm.find((i) => i.key === cle)?.href, "la Direction Marketing voit le poste à décider").toBe(`/congress-national/${congres}`);
+    const kam = (await getActionCenter(await acteur(u.kam, "MEDICAL_DELEGATE") as unknown as SessionUser)).items;
+    expect(kam.some((i) => i.key === cle), "le demandeur ne le décide pas").toBe(false);
   });
 });
