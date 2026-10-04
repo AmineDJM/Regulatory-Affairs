@@ -365,6 +365,11 @@ suite("Renvoyer pour correction, resoumettre, retirer, faire appel, relancer —
     const intrus = await retirerDemandeAdPro(fd({ entityType: "EVENT", entityId: ev.id, motif: "pas à moi" }));
     expect(intrus.ok).toBe(false);
     expect(intrus.ok ? "" : intrus.error).toMatch(/Seuls le demandeur et qui tranche ce module retirent une demande/);
+    // UN SEUL CHEMIN (audit du 04/10, constat 23) : l'annulation d'un congrès / événement DÉLÈGUE au retrait
+    // commun — le même refus, mot pour mot. Elle avait sa propre règle (« Non autorisé. »), et pas la porte
+    // de la fiche.
+    const parLAutrePorte = await cancelCongressRequest(fd({ type: "EVENT", id: ev.id, motif: "pas à moi" }));
+    expect(parLAutrePorte.ok ? "" : parLAutrePorte.error).toMatch(/Seuls le demandeur et qui tranche ce module retirent une demande/);
     expect((await instanceDe("EVENT", ev.id)).status, "rien n'est fermé sur un refus").toBe("IN_PROGRESS");
     await comme("kam");
     expect((await retirerDemandeAdPro(fd({ entityType: "EVENT", entityId: ev.id, motif: "Reporté" }))).ok, "son demandeur, lui, la retire").toBe(true);

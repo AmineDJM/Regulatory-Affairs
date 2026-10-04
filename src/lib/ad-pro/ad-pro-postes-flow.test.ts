@@ -11,7 +11,7 @@ import { canAccessEntity } from "@/lib/entity-access";
 import { createSponsoring } from "@/lib/actions/sponsoring-actions";
 import {
   addAdProItem, repartirPoste, submitAdProItem, decideAdProItem, requestAdProItemOrder,
-  ajouterVoyageur, modifierVoyageur, retirerVoyageur, demanderReservation,
+  ajouterVoyageur, modifierVoyageur, retirerVoyageur, demanderReservation, retirerReservation,
 } from "@/lib/actions/ad-pro-item-actions";
 import { supprimerDemandeAdPro, apercuDeSuppression, restoreDeletedRecord } from "@/lib/actions/admin-delete-actions";
 import { createLegalDocument, updateLegalDocument } from "@/lib/actions/legal-actions";
@@ -545,6 +545,57 @@ suite("Ad & Pro — postes simplifiés : répartition, gestes, voyageurs, suppre
     expect(await prisma.document.count({ where: { entityType: "AD_PRO_ITEM", entityId: billetterie, stepKey: yacine } }), "une pièce jointe ne s'efface pas en silence").toBe(1);
     const dernier = await prisma.dossierMessage.findFirstOrThrow({ where: { dossierId: sujetId }, orderBy: { createdAt: "desc" } });
     expect(dernier.body).toContain("voyageur retiré : Dr Yacine Ouali.");
+  });
+
+  it("RETIRER LA DEMANDE DE RÉSERVATION (constat 37) : motif exigé, le sujet se clôt, l'assistante le lit — et une nouvelle demande rouvre un sujet", async () => {
+    ACTOR = await acteur(nsId, "NATIONAL_SALES");
+    const sansMotif = await retirerReservation(fd({ id: billetterie }));
+    expect(sansMotif.ok === false ? sansMotif.error : "retiré").toMatch(/Dites pourquoi/);
+    expect((await prisma.dossier.findUniqueOrThrow({ where: { id: sujetId } })).status, "un refus ne touche à rien").not.toBe("ARCHIVED");
+    const avis = await prisma.notification.count({ where: { userId: asstId, link: `/dossiers/${sujetId}` } });
+    const r = await retirerReservation(fd({ id: billetterie, motif: "Le congrès passe en visio." }));
+    expect(r.ok, r.ok === false ? r.error : "").toBe(true);
+    expect((await prisma.dossier.findUniqueOrThrow({ where: { id: sujetId } })).status, "le sujet est clos").toBe("ARCHIVED");
+    expect((await prisma.adProItem.findUniqueOrThrow({ where: { id: billetterie } })).reservationDossierId, "le poste lâche son sujet").toBeNull();
+    const dernier = await prisma.dossierMessage.findFirstOrThrow({ where: { dossierId: sujetId }, orderBy: { createdAt: "desc" } });
+    expect(dernier.body).toMatch(/Demande de réservation RETIRÉE .* Le congrès passe en visio\./);
+    expect(await prisma.notification.count({ where: { userId: asstId, link: `/dossiers/${sujetId}` } }), "l'assistante est prévenue par le sujet").toBe(avis + 1);
+    expect(await prisma.adProVoyageur.count({ where: { itemId: billetterie } }), "les voyageurs restent").toBeGreaterThan(0);
+    const encore = await retirerReservation(fd({ id: billetterie, motif: "x" }));
+    expect(encore.ok === false ? encore.error : "retiré").toMatch(/Aucune demande de réservation/);
+    // Une NOUVELLE demande ouvre un nouveau sujet — l'ancien, clos, ne se rouvre pas en silence.
+    const nouvelle = await demanderReservation(fd({ id: billetterie }));
+    expect(nouvelle.ok, nouvelle.ok === false ? nouvelle.error : "").toBe(true);
+    expect(nouvelle.ok ? nouvelle.id : sujetId).not.toBe(sujetId);
+    sujetId = nouvelle.ok ? nouvelle.id! : sujetId;
+  });
+
+  it("RETIRER LA RÉSERVATION : traitée (sujet clos) elle ne se retire plus — AVANT le motif ; et une clôture pendant le retrait gagne (course forcée)", async () => {
+    ACTOR = await acteur(nsId, "NATIONAL_SALES");
+    // LA COURSE : l'assistante clôt le sujet pendant que le retrait attend sa ligne.
+    let geste!: Promise<Awaited<ReturnType<typeof retirerReservation>>>;
+    await prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM "Dossier" WHERE id = ${sujetId} FOR UPDATE`;
+      geste = retirerReservation(fd({ id: billetterie, motif: "Course." }));
+      geste.catch(() => undefined);
+      const debut = Date.now();
+      for (;;) {
+        await tx.$executeRawUnsafe("SELECT pg_stat_clear_snapshot()");
+        const [{ n }] = await tx.$queryRaw<{ n: number }[]>`
+          SELECT count(*)::int AS n FROM pg_stat_activity WHERE datname = current_database() AND pg_backend_pid() = ANY(pg_blocking_pids(pid))`;
+        if (n >= 1) break;
+        if (Date.now() - debut > 15_000) throw new Error("le retrait n'a pas atteint la barrière");
+        await new Promise((res) => setTimeout(res, 25));
+      }
+      await tx.dossier.update({ where: { id: sujetId }, data: { status: "DONE" } });
+    }, { timeout: 30_000 });
+    const r = await geste;
+    expect(r.ok === false ? r.error : "retiré").toMatch(/vient de changer/);
+    expect((await prisma.adProItem.findUniqueOrThrow({ where: { id: billetterie } })).reservationDossierId, "tout ou rien : le poste garde son sujet").toBe(sujetId);
+    expect((await prisma.dossier.findUniqueOrThrow({ where: { id: sujetId } })).status).toBe("DONE");
+    // Désormais TRAITÉE : le refus vient avant le motif, et le nomme.
+    const traitee = await retirerReservation(fd({ id: billetterie }));
+    expect(traitee.ok === false ? traitee.error : "retiré").toMatch(/La réservation est traitée/);
   });
 
   it("UN POSTE REFUSÉ ne se réserve pas", async () => {

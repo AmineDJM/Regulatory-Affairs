@@ -6,7 +6,7 @@ import { prisma } from "@/lib/prisma";
  *
  * Le BC qu'une assistante établit pour un poste naît d'une demande de pièce (`DocumentRequest`,
  * `entityType = AD_PRO_ITEM`) et lit sa validation SUR LE POSTE (`portesDesBC`, `source: "POSTE"`).
- * Retirer la demande de BC, revoir la décision du poste ou le rendre à la Direction le laisserait
+ * Annuler la demande de BC (pour un BC SIGNÉ ou facturé), revoir la décision du poste ou le rendre à la Direction le laisserait
  * SANS porte — et la facture d'un BC sans porte part au règlement (`blocageParLeBC(null)`). Ces trois
  * gestes refusent donc tant qu'il en existe un, non annulé, et le refus le NOMME.
  *

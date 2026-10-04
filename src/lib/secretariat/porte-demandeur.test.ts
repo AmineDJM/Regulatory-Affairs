@@ -94,6 +94,6 @@ describe("la demande « BC à établir » suit son poste", () => {
   });
   it("le refus nomme le geste du poste qui la met à jour ou la ferme", () => {
     expect(refusDemandeDeBcDuPoste("corriger")).toMatch(/« Modifier la demande de BC »/);
-    expect(refusDemandeDeBcDuPoste("annuler")).toMatch(/« Retirer la demande de BC »/);
+    expect(refusDemandeDeBcDuPoste("annuler")).toMatch(/« Annuler la demande de BC »/);
   });
 });

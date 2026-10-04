@@ -556,7 +556,7 @@ suite("Secrétariat — le demandeur corrige, annule, et sa parole arrive à que
     expect(e.error).toMatch(/« Modifier la demande de BC »/);
     const d = await deleteOwnRequest(fd({ id: r.id, motif: "x" }));
     expect(d.ok).toBe(false);
-    expect(d.error).toMatch(/« Retirer la demande de BC »/);
+    expect(d.error).toMatch(/« Annuler la demande de BC »/);
     expect((await prisma.administrativeRequest.findUniqueOrThrow({ where: { id: r.id }, select: { status: true } })).status).toBe("NEW");
   });
 });

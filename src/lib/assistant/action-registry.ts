@@ -1086,6 +1086,12 @@ X("RÉVISER UN POSTE AD & PRO APRÈS COUP (§118.187, audit R05/R06/R12) — RET
   "ad-pro-item-actions:retirerDemandeBC", "ad-pro-item-actions:modifierDemandeBC",
   "ad-pro-item-actions:annulerOrdrePoste", "ad-pro-item-actions:demanderRevisionPoste",
 ]);
+X("ANNULER SA DEMANDE TANT QU'ELLE N'EST PAS EXÉCUTÉE (audit du 04/10, constats 35 et 37) — retirer la demande de "
+  + "devis d'un dossier de matériel promotionnel (le dossier recule à l'étape d'avant), retirer la demande de réservation "
+  + "des billets d'un poste (son sujet se clôt). Deux gestes du DEMANDEUR, motif à l'appui, qu'une assistante lira. Adam est "
+  + "en pause de développement : aucun geste neuf ne lui est ouvert. Un clic sur la fiche du dossier, ou sur la carte du poste.", [
+  "promo-devis-actions:retirerDemandeDevisPromo", "ad-pro-item-actions:retirerReservation",
+]);
 X("LES PIÈCES D'ACHAT D'UN POSTE (§118.204) — déposer un devis ou une facture pro forma (commun à plusieurs postes), "
   + "le retirer d'un poste où il a été mal placé, et déposer la FACTURE qui demande le paiement. Chacun dépose un "
   + "FICHIER que la personne a sous la main (une carte de confirmation ne transporte pas un fichier), et le dernier "

@@ -772,7 +772,7 @@ export async function updateAdProItem(_prev: ActionResult | undefined, formData:
   // d'abord, puis se réémet — sinon l'ordre et le poste diraient deux bénéficiaires.
   const bcEnCours = item.orderStage === "REQUESTED" || item.orderStage === "DIRECTION_OK";
   if (wantsAllocate && amountGranted == null && bcEnCours) {
-    return { ok: false, error: "Une demande de bon de commande est en cours sur ce montant : retirez-la d'abord (« Retirer la demande de BC »), puis retirez le montant." };
+    return { ok: false, error: "Une demande de bon de commande est en cours sur ce montant : retirez-la d'abord (« Annuler la demande de BC »), puis retirez le montant." };
   }
   const nouveauFournisseur = formData.has("supplier") ? fdStr(formData, "supplier") : item.supplier;
   if (item.expenseOrderId && !memePrestataire(nouveauFournisseur, item.supplier)) {

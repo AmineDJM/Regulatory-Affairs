@@ -79,7 +79,7 @@ export function suitLaDemandeDeBcDuPoste(req: { linkedEntityType: EntityType | n
 export function refusDemandeDeBcDuPoste(geste: "corriger" | "annuler"): string {
   return geste === "corriger"
     ? "Cette demande suit la demande de bon de commande d'un poste Ad & Pro : corrigez-la depuis le poste (« Modifier la demande de BC »), elle se mettra à jour avec."
-    : "Cette demande suit la demande de bon de commande d'un poste Ad & Pro : retirez-la depuis le poste (« Retirer la demande de BC »), elle se fermera avec.";
+    : "Cette demande suit la demande de bon de commande d'un poste Ad & Pro : retirez-la depuis le poste (« Annuler la demande de BC »), elle se fermera avec.";
 }
 
 /** Ce qui interdit de MODIFIER (l'annulation, elle, reste ouverte : c'est un geste qui réduit). */
