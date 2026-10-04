@@ -261,6 +261,3 @@ export function refusRetraitReservation(r: { sujet: string | null; orderStage: s
   }
   return null;
 }
-
-/** Les états d'un sujet de réservation encore VIVANT — l'écriture conditionnelle les relit. */
-export const SUJET_RESERVATION_VIVANT = ["OPEN", "IN_PROGRESS", "ON_HOLD"] as const;

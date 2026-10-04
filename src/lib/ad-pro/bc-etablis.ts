@@ -1,3 +1,4 @@
+import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 
 /**
@@ -109,4 +110,20 @@ export async function bcEtablisDuPoste(itemId: string): Promise<string[]> {
 export function refusBcEtabli(bcs: readonly string[], ensuite: string): string {
   return `Un bon de commande a déjà été établi pour ce poste (${bcs.join(", ")}) et il lit sa validation sur ce poste : `
     + `annulez d'abord la demande de BC (« Annuler la demande de BC » l'annule avec elle tant qu'il n'est pas signé), puis ${ensuite}.`;
+}
+
+/**
+ * ANNULER UN BC NON SIGNÉ, DANS LA TRANSACTION DE L'APPELANT (constat 36) — `false` si la condition a perdu :
+ * signé entre la lecture et l'écriture (la signature écrit sur l'`updatedAt` lu, cette annulation le change :
+ * des deux gestes, un seul passe), déjà annulé, ou une facture née entre-temps. Hors de l'action : la
+ * dérivation des contrats désigne l'objet d'une action par ce que SON corps écrit (§118.150g).
+ */
+export async function annulerBcNonSigne(tx: Prisma.TransactionClient, bcId: string, raison: string, acteurId: string): Promise<boolean> {
+  const a = await tx.legalDocument.updateMany({
+    where: { id: bcId, kind: "PURCHASE_ORDER", status: { not: "CANCELLED" }, signedAt: null, signedById: null },
+    data: { status: "CANCELLED", cancelledAt: new Date(), cancelReason: raison, updatedById: acteurId },
+  });
+  if (a.count === 0) return false;
+  const facture = await tx.legalDocument.count({ where: { chainFromId: bcId, kind: "INVOICE", status: { not: "CANCELLED" } } });
+  return facture === 0;
 }

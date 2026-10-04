@@ -43,16 +43,16 @@ import {
 import { validateAttachments } from "@/lib/attach-files";
 import { attachFormFiles } from "@/lib/documents";
 import {
-  lireVoyageur, ligneVoyageur, changementsVoyageur, porteDesVoyageurs, depassementDevisRetenus, refusRetraitReservation, SUJET_RESERVATION_VIVANT,
+  lireVoyageur, ligneVoyageur, changementsVoyageur, porteDesVoyageurs, depassementDevisRetenus, refusRetraitReservation,
   type SaisieVoyageur, type VoyageurLu,
 } from "@/lib/ad-pro/voyageurs";
-import { createDossierRecord, ecrireDansLeSujet } from "@/lib/dossiers-core";
+import { cloreSujetVivant, createDossierRecord, ecrireDansLeSujet } from "@/lib/dossiers-core";
 import { gesteVisaPoste, memePrestataire, type EtatBcPoste, type GesteVisaPoste } from "@/lib/ad-pro/bc-poste";
 import { annulerOrdreNonRegle } from "@/lib/payments/annulation";
 import { annulerDemandeSecretariat, prevenirLeSecretariat } from "@/lib/secretariat/annulation";
 import { supprimerReversible } from "@/lib/suppression/coeur";
 import { apercuSuppression } from "@/lib/admin-delete-registry";
-import { bcEtablisDuPoste, bcVivantsDesPostes, refusAnnulationBcDuPoste, refusBcEtabli } from "@/lib/ad-pro/bc-etablis";
+import { annulerBcNonSigne, bcEtablisDuPoste, bcVivantsDesPostes, refusAnnulationBcDuPoste, refusBcEtabli } from "@/lib/ad-pro/bc-etablis";
 import { aiguillerBC } from "@/lib/bons-de-commande/aiguillage";
 import {
   droitsValidation, tempsEnAttente, rolesAPrevenir, opsFranchiALaSoumission, libelleTemps,
@@ -2014,13 +2014,8 @@ export async function retirerDemandeBC(_prev: ActionResult | undefined, formData
   try {
     await prisma.$transaction(async (tx) => {
       for (const bc of bcs) {
-        const a = await tx.legalDocument.updateMany({
-          where: { id: bc.id, kind: "PURCHASE_ORDER", status: { not: "CANCELLED" }, signedAt: null, signedById: null },
-          data: { status: "CANCELLED", cancelledAt: new Date(), cancelReason: `demande de bon de commande du poste « ${item.label} » annulée — ${motif}`, updatedById: user.id },
-        });
-        if (a.count === 0) throw new RefusPoste(changee);
-        const facture = await tx.legalDocument.count({ where: { chainFromId: bc.id, kind: "INVOICE", status: { not: "CANCELLED" } } });
-        if (facture > 0) throw new RefusPoste(changee);
+        const annule = await annulerBcNonSigne(tx, bc.id, `demande de bon de commande du poste « ${item.label} » annulée — ${motif}`, user.id);
+        if (!annule) throw new RefusPoste(changee);
         annules.push(bc.nom);
       }
       const r = await tx.adProItem.updateMany({
@@ -2701,8 +2696,7 @@ export async function retirerReservation(formData: FormData): Promise<ActionResu
   const changee = "La réservation vient de changer (traitée, ou un bon de commande demandé) : rouvrez la fiche.";
   try {
     await prisma.$transaction(async (tx) => {
-      const clos = await tx.dossier.updateMany({ where: { id: sujet.id, status: { in: [...SUJET_RESERVATION_VIVANT] } }, data: { status: "ARCHIVED" } });
-      if (clos.count === 0) throw new RefusPoste(changee);
+      if (!(await cloreSujetVivant(tx, sujet.id))) throw new RefusPoste(changee);
       const lache = await tx.adProItem.updateMany({
         where: { id, reservationDossierId: sujet.id, orderStage: { in: ["NONE", "REFUSED"] } },
         data: { reservationDossierId: null, updatedById: user.id },
