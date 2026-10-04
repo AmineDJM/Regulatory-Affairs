@@ -6,6 +6,7 @@ import { requireUser } from "@/lib/session";
 import { userCan } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
+import { supprimerReversible } from "@/lib/suppression/coeur";
 import { fdStr, fdNum, fdCase, type ActionResult } from "@/lib/actions/types";
 import { unitFromBoxPrice } from "@/lib/pch/box-economics";
 import { allocationChange, allocationSummary, portfolioName } from "@/lib/pch/bu-allocation";
@@ -23,11 +24,12 @@ import { ligneChangee, phraseDeLExtraction, phraseDocumentIlisible, resumeAuditL
 
 const MODULE = "PCH" as const;
 const int = (fd: FormData, key: string): number | null => { const n = fdNum(fd, key); return n == null ? null : Math.max(0, Math.round(n)); };
-function parseLineStatus(v: string | null): PchLineStatus {
+/** Le statut d'un lot, lu à coup sûr — `null` sur une valeur qu'on ne reconnaît pas, jamais « À étudier » par défaut. */
+function statutDeLigne(v: string): PchLineStatus | null {
   return v === "PENDING" || v === "QUOTED" || v === "SUBMITTED" || v === "WON" || v === "LOST"
     || v === "UNSUCCESSFUL" || v === "CANCELLED"
     ? v
-    : "PENDING";
+    : null;
 }
 
 // ─────────────────────────── Lignes de l'appel d'offres ───────────────────────────
@@ -48,39 +50,10 @@ export async function updateTenderLine(formData: FormData): Promise<ActionResult
   const id = fdStr(formData, "id");
   const tenderId = fdStr(formData, "tenderId");
   if (!id || !(await peutAgirSurLeMarche(user, await marcheDeLaLigne(id), "UPDATE"))) return { ok: false, error: "Ligne introuvable." };
-  const unitsPerBox = int(formData, "unitsPerBox");
-  const boxPrice = fdNum(formData, "boxPriceDzd");
-  const data = {
-    designation: fdStr(formData, "designation") ?? undefined,
-    dci: fdStr(formData, "dci"),
-    dosage: fdStr(formData, "dosage"),
-    form: fdStr(formData, "form"),
-    quantityUnits: int(formData, "quantityUnits") ?? 0,
-    unitsPerBox: unitsPerBox,
-    unitLabel: fdStr(formData, "unitLabel"),
-    haveProduct: fdStr(formData, "haveProduct") === "on",
-    // ── LA BOÎTE EST LA SOURCE, L'UNITÉ SA PROJECTION ───────────────────────────────────
-    //
-    // Le prix réellement négocié est celui de la BOÎTE : c'est lui qui figure sur l'offre.
-    // Le prix unitaire — dont vit toute la chaîne aval, qui compte en unités parce que le
-    // marché compte en unités — s'en DÉDUIT ici, au seul endroit où il s'écrit. Le stocker
-    // comme source ferait de 1 000 DZD la boîte de 30 un prix à 999,90 au retour.
-    //
-    // Une ligne chiffrée à l'unité, sans prix de boîte, garde son prix tel quel : les lignes
-    // anciennes ne sont pas réécrites.
-    boxPriceDzd: boxPrice,
-    boxCostDzd: fdNum(formData, "boxCostDzd"),
-    unitPriceDzd: boxPrice != null
-      ? unitFromBoxPrice(boxPrice, unitsPerBox) ?? fdNum(formData, "unitPriceDzd")
-      : fdNum(formData, "unitPriceDzd"),
-    suppliersInfo: fdStr(formData, "suppliersInfo"),
-    status: parseLineStatus(fdStr(formData, "status")),
-    awardedUnitPriceDzd: fdNum(formData, "awardedUnitPriceDzd"),
-    // L'attribution PARTIELLE : la quantité gagnée quand elle diffère de la soumise.
-    awardedQuantityUnits: int(formData, "awardedQuantityUnits"),
-    submittedQuantityUnits: int(formData, "submittedQuantityUnits"),
-    note: fdStr(formData, "note"),
-  };
+  // UN STATUT ILLISIBLE N'EST PAS « À ÉTUDIER » (§118.192a) : il rendait un lot gagné à l'étude, sans un mot.
+  const statutLu = fdStr(formData, "status");
+  const statut = statutLu === null ? undefined : statutDeLigne(statutLu);
+  if (statut === null) return { ok: false, error: `Statut de lot inconnu (« ${statutLu} ») : rien n'a été enregistré.` };
   // UNE PERSONNE A-T-ELLE CHANGÉ QUELQUE CHOSE ? (audit 360°, lot D1c — F2) Une ligne qu'une personne a
   // modifiée n'est plus remplacée par la lecture suivante du document (`lib/pch/extraction.ts`). L'écran
   // enregistre à chaque sortie de champ, même sans rien changer : `modifieeLe` ne se pose que sur une VRAIE
@@ -95,6 +68,48 @@ export async function updateTenderLine(formData: FormData): Promise<ActionResult
     },
   });
   if (!avant) return { ok: false, error: "Ligne introuvable." };
+  // CE QUE LE FORMULAIRE NE PORTE PAS NE S'ÉCRIT PAS (§118.152c — vague « restes »). Chaque champ s'écrivait à
+  // chaque appel, présent ou non : un formulaire qui ne portait que la quantité remettait le statut à « À
+  // étudier », effaçait la DCI, les prix de boîte et la quantité attribuée — c'est ce que faisait la carte d'Adam,
+  // qui ne rejoue ni la boîte ni les quantités soumise et attribuée. Chaque clé est testée EN LITTÉRAL (la
+  // dérivation des contrats les lit) ; `undefined` laisse la colonne telle quelle, une valeur vide la vide. La
+  // case « Nous l'avons » se lit par `fdCase` : « on », « off », ou rien — et rien ne change rien (§118.172).
+  const prixBoite = formData.has("boxPriceDzd") ? fdNum(formData, "boxPriceDzd") : undefined;
+  const parBoite = formData.has("unitsPerBox") ? int(formData, "unitsPerBox") : undefined;
+  const prixUnitaire = formData.has("unitPriceDzd") ? fdNum(formData, "unitPriceDzd") : undefined;
+  const data = {
+    designation: fdStr(formData, "designation") ?? undefined,
+    dci: formData.has("dci") ? fdStr(formData, "dci") : undefined,
+    dosage: formData.has("dosage") ? fdStr(formData, "dosage") : undefined,
+    form: formData.has("form") ? fdStr(formData, "form") : undefined,
+    quantityUnits: formData.has("quantityUnits") ? (int(formData, "quantityUnits") ?? 0) : undefined,
+    unitsPerBox: parBoite,
+    unitLabel: formData.has("unitLabel") ? fdStr(formData, "unitLabel") : undefined,
+    haveProduct: fdCase(formData, "haveProduct"),
+    // ── LA BOÎTE EST LA SOURCE, L'UNITÉ SA PROJECTION ───────────────────────────────────
+    //
+    // Le prix réellement négocié est celui de la BOÎTE : c'est lui qui figure sur l'offre.
+    // Le prix unitaire — dont vit toute la chaîne aval, qui compte en unités parce que le
+    // marché compte en unités — s'en DÉDUIT ici, au seul endroit où il s'écrit. Le stocker
+    // comme source ferait de 1 000 DZD la boîte de 30 un prix à 999,90 au retour. La
+    // projection lit le conditionnement EN VIGUEUR : celui du formulaire, sinon celui de la
+    // ligne — un formulaire qui ne porte que la boîte ne la divise pas par « rien ».
+    //
+    // Une ligne chiffrée à l'unité, sans prix de boîte, garde son prix tel quel : les lignes
+    // anciennes ne sont pas réécrites.
+    boxPriceDzd: prixBoite,
+    boxCostDzd: formData.has("boxCostDzd") ? fdNum(formData, "boxCostDzd") : undefined,
+    unitPriceDzd: prixBoite != null
+      ? unitFromBoxPrice(prixBoite, parBoite !== undefined ? parBoite : avant.unitsPerBox) ?? prixUnitaire
+      : prixUnitaire,
+    suppliersInfo: formData.has("suppliersInfo") ? fdStr(formData, "suppliersInfo") : undefined,
+    status: statut,
+    awardedUnitPriceDzd: formData.has("awardedUnitPriceDzd") ? fdNum(formData, "awardedUnitPriceDzd") : undefined,
+    // L'attribution PARTIELLE : la quantité gagnée quand elle diffère de la soumise.
+    awardedQuantityUnits: formData.has("awardedQuantityUnits") ? int(formData, "awardedQuantityUnits") : undefined,
+    submittedQuantityUnits: formData.has("submittedQuantityUnits") ? int(formData, "submittedQuantityUnits") : undefined,
+    note: formData.has("note") ? fdStr(formData, "note") : undefined,
+  };
   await prisma.pchTenderLine.update({
     where: { id },
     data: { ...data, ...(ligneChangee(avant, data) ? { modifieeLe: new Date() } : {}) },
@@ -213,10 +228,28 @@ export async function deleteTenderLine(formData: FormData): Promise<ActionResult
   const user = await requireUser();
   if (!userCan(user, MODULE, "UPDATE")) return { ok: false, error: "Non autorisé." };
   const id = fdStr(formData, "id");
-  const tenderId = fdStr(formData, "tenderId");
   if (!id || !(await peutAgirSurLeMarche(user, await marcheDeLaLigne(id), "UPDATE"))) return { ok: false, error: "Ligne introuvable." };
-  await prisma.pchTenderLine.delete({ where: { id } });
-  if (tenderId) revalidatePath(`/pch/${tenderId}`);
+  const ligne = await prisma.pchTenderLine.findUnique({
+    where: { id },
+    select: { designation: true, tenderId: true, tender: { select: { reference: true } } },
+  });
+  if (!ligne) return { ok: false, error: "Ligne introuvable." };
+  // À LA CORBEILLE, PAR LE CŒUR RÉVERSIBLE (vague « restes »). Un lot partait d'un seul `delete` : sans
+  // instantané, sans journal, avec ses affectations à des BU en cascade — et un bon de commande né de lui
+  // gardait un `lineId` vers rien. Le cœur (§118.162) instantane la ligne et ses branches, refuse ce qui en
+  // découle (bon de commande, ligne de contrat, vente sous marché, répartition Ad & Pro — la règle vit au
+  // registre, `PCH_TENDER_LINE.refuse`, une seule copie pour l'écran, le bouton rouge et Adam), et le Super
+  // Admin restaure d'un geste.
+  const r = await supprimerReversible("PCH_TENDER_LINE", id, user.id,
+    `Lot « ${ligne.designation} » retiré de l'appel d'offres ${ligne.tender.reference} (corbeille)`);
+  if (!r.ok) return { ok: false, error: r.error ?? "Suppression impossible." };
+  // L'historique du MARCHÉ le dit aussi : le journal du cœur désigne la ligne disparue, qu'aucun écran ne relit
+  // plus par son identifiant (§118.181).
+  await recordAudit({
+    actorId: user.id, action: "UPDATE", module: "PCH", entityType: "PCH_TENDER", entityId: ligne.tenderId,
+    summary: `Lot « ${ligne.designation} » retiré du marché — à la corbeille, restaurable par le Super Admin`,
+  });
+  revalidatePath(`/pch/${ligne.tenderId}`);
   return { ok: true };
 }
 

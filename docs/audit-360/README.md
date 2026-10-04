@@ -160,8 +160,10 @@ l'interrupteur général de l'IA est lu par `lib/ai.ts`, l'OCR, le client Luna e
 les mineurs de F8 sont corrigés. **F1 et F2 sont livrés à leur tour (§118.197)** : le compositeur chaîne un BC à
 son devis ; la lecture d'un AO PCH est tracée (texte natif d'abord, coupe dite, fichier gardé, relecture qui ne
 remplace que les lignes que personne n'a touchées). Restent : F4 (plafond « factures ≤ BC » au règlement pour tous
-les BC — décision de la Direction), et l'extraction elle-même (lot D2, en cours : lecture locale gratuite, lignes par
-l'IA désactivées par défaut, confirmation ligne à ligne par une personne).
+les BC — décision de la Direction), et l'extraction elle-même (lot D2, en cours — **ses fondations sont posées
+(§118.198)** : lecteur commun qui dit ce qu'il a fait et lit en local seulement sur demande, lecture unique par
+empreinte des octets, règles pures de lecture et de contrôle en centimes, lignes par l'IA coupées par défaut ; le
+service, la confirmation ligne à ligne et les écrans suivent — rien de cela n'est encore branché à un écran).
 
 - **Aucun des 12 points d'upload n'extrait les données** : le fichier est stocké, les montants sont
   **retapés** (l'assistante recopie les devis du matériel promotionnel à la main ; une facture classée

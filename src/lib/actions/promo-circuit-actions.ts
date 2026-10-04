@@ -215,7 +215,14 @@ export async function markQuoteReceived(formData: FormData): Promise<ActionResul
     return { ok: false, error: "Déposez d'abord le devis dans les documents du dossier — confirmer sans pièce n'avance à rien." };
   }
 
-  await prisma.promoMaterial.update({ where: { id }, data: { circuitState: "REVIEW_REQUESTER", updatedById: user.id } });
+  // CONDITIONNELLE sur l'étape et la version LUES (vague « restes ») : deux confirmations croisées
+  // n'écrivent pas deux fois « devis reçu » ni ne préviennent deux fois le demandeur, et un dossier
+  // refusé, annulé ou basculé entre-temps ne repasse pas « au tour du demandeur ».
+  const ecrite = await prisma.promoMaterial.updateMany({
+    where: { id, circuitState: "QUOTE_REQUESTED", circuitVersion: item.circuitVersion },
+    data: { circuitState: "REVIEW_REQUESTER", updatedById: user.id },
+  });
+  if (ecrite.count === 0) return { ok: false, error: ETAPE_CHANGEE };
   await recordAudit({
     actorId: user.id, action: "UPDATE", module: "Matériel promotionnel",
     entityType: "PROMO_MATERIAL", entityId: id,

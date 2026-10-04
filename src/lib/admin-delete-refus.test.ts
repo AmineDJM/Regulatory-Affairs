@@ -31,7 +31,9 @@ describe("Registre des suppressions — le refus et la réserve", () => {
     // corbeille, il emportait ses lots, ses bons et ses livraisons sans retour possible.
     // 33 → 34 : le poste d'une demande Ad & Pro (§118.187, R11) — « Retirer le poste » l'effaçait
     // définitivement, avec l'historique de ses décisions en cascade.
-    expect(DELETABLE_KINDS).toHaveLength(34);
+    // 34 → 35 : le lot d'un appel d'offres PCH (vague « restes ») — un seul `delete`, sans corbeille ni
+    // journal ; il part en lot avec ses affectations à des BU, et REFUSE quand quelque chose en découle.
+    expect(DELETABLE_KINDS).toHaveLength(35);
   });
 
   it("le poste Ad & Pro part EN LOT et ne refuse rien lui-même — c'est le lot qui refuse ce qui a quitté l'ERP", () => {
@@ -62,7 +64,7 @@ describe("Registre des suppressions — le refus et la réserve", () => {
   });
 
   it("les autres types ne refusent rien et ne réservent rien — l'ajout n'a rien changé chez eux", () => {
-    const AVEC_REFUS: readonly string[] = ["CONVERSATION", "NOTIFICATION", "PROMO_CATALOGUE", "PROMO_STOCK_ITEM"];
+    const AVEC_REFUS: readonly string[] = ["CONVERSATION", "NOTIFICATION", "PROMO_CATALOGUE", "PROMO_STOCK_ITEM", "PCH_TENDER_LINE"];
     const anciens = DELETABLE_KINDS.filter((k) => !AVEC_REFUS.includes(k));
     // 28 → 29 : l'appel d'offres PCH ne refuse ni ne réserve rien lui-même — c'est le LOT qui
     // refuse une facture réglée ou une pièce signée parmi ses branches (`faitIrreversible`).

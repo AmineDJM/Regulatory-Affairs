@@ -484,15 +484,22 @@ async function declarationValidators(requesterId: string, sourceType: string, so
   const [manager, productManagerId, sieges] = await Promise.all([
     getManagerOfUser(requesterId).catch(() => null),
     productManagerOfSource(sourceType, sourceId),
+    // LE PLUS ANCIEN siège, et jamais le demandeur (vague « restes ») — la règle du centre (§118.148h), que
+    // l'aiguillage des bons de commande lit déjà. Sans ordre, Postgres rendait les sièges dans l'ordre PHYSIQUE
+    // de la table : un compte neuf logé avant le siège désigné devenait « le centre » ; s'il était le demandeur,
+    // `bvChain` l'écartait à raison et la demande partait en annonçant « aucun Directeur Général ni Super Admin
+    // actif » — alors qu'un autre siège existait. Le demandeur écarté AVANT de choisir, c'est un autre siège qui
+    // signe ; s'il est le SEUL siège, la marche manque et la demande le dit (`bvChainNote`), comme avant.
     prisma.user.findMany({
       where: { isActive: true, role: { in: ["GENERAL_MANAGER", "SUPER_ADMIN"] } },
       select: { id: true, role: true },
+      orderBy: { createdAt: "asc" },
     }),
   ]);
   return bvChain({
     managerUserId: manager?.userId ?? null,
     productManagerUserId: productManagerId,
-    centreUserId: centreValidatorFrom(sieges),
+    centreUserId: centreValidatorFrom(sieges.filter((s) => s.id !== requesterId)),
     requesterId,
   });
 }

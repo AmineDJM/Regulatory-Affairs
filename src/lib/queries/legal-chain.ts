@@ -7,6 +7,7 @@ import { chainOf, type ChainDoc } from "@/lib/legal/chain";
 import type { SessionUser } from "@/lib/rbac";
 import { legalKindVisible } from "@/lib/lecteurs/legal";
 import { perimetreLegal } from "@/lib/queries/visibilite-listes";
+import { accesAuxPiecesLegalDetaille } from "@/lib/entity-access";
 import type { AmontComposable } from "@/components/pieces/composer-piece";
 
 /**
@@ -26,12 +27,25 @@ export interface ChainValidator {
 export interface ChainLink {
   id: string;
   kind: string;
+  /** Le titre — le libellé NEUTRE `MAILLON_HORS_PERIMETRE` pour un maillon que la personne ne lit pas. */
   title: string;
   reference: string | null;
   amount: number | null;
   date: string | null; // startDate, à défaut createdAt — la date qui fait foi pour les délais
   isCurrent: boolean;
   validators: ChainValidator[];
+  /**
+   * La personne peut-elle LIRE ce maillon ? Faux : il garde sa PLACE et sa NATURE — sans elles la chaîne
+   * mentirait (« Manque encore : Devis » sur un devis qui existe, une seconde facture saisie pour une
+   * première restreinte) —, mais ni titre, ni référence, ni montant, ni date, ni validateurs.
+   */
+  lisible: boolean;
+  /**
+   * Sa fiche `/legal/[id]` s'ouvre-t-elle pour elle ? Faux pour un maillon illisible, ET pour un maillon
+   * que seule une exception de lecture ouvre (`horsFiche`, §118.185) : un titre qui mène à une page
+   * refusée est un geste offert puis retiré (§118.83) — il se rend sans lien.
+   */
+  ouvrable: boolean;
 }
 
 export interface ChainSettlement {
@@ -44,7 +58,17 @@ export interface ChainSettlement {
 
 const MAX_HOPS = 10;
 
-export async function loadLegalChain(docId: string): Promise<{ links: ChainLink[]; settlement: ChainSettlement | null }> {
+/** Ce qu'on dit d'une pièce qu'on ne peut pas lire — UNE formule, pour le menu « Fait suite à » et pour la chaîne. */
+const HORS_PERIMETRE = "hors de votre périmètre";
+
+/**
+ * Le libellé d'un maillon de la chaîne que la personne ne peut pas lire (vague « restes »). Le menu « Fait
+ * suite à » a le sien (`AMONT_HORS_PERIMETRE`, §118.168), mais il dit « amont actuelle » — faux d'une facture
+ * qui SUIT la pièce regardée. Même fragment, donc même ton : deux rédactions finiraient par diverger (§118.5).
+ */
+export const MAILLON_HORS_PERIMETRE = `Pièce ${HORS_PERIMETRE}`;
+
+export async function loadLegalChain(docId: string, user: SessionUser): Promise<{ links: ChainLink[]; settlement: ChainSettlement | null }> {
   type Row = {
     id: string; kind: string; title: string; reference: string | null;
     amount: unknown; startDate: Date | null; createdAt: Date; chainFromId: string | null; expenseOrderId: string | null;
@@ -85,10 +109,21 @@ export async function loadLegalChain(docId: string): Promise<{ links: ChainLink[
   const ordered = chainOf(docs, docId);
   if (ordered.length === 0) return { links: [], settlement: null };
 
-  // LES VALIDATEURS de chaque maillon : les étapes des demandes de validation qui le visent.
+  // QUI LIT QUOI (vague « restes »). Chaque maillon montrait son titre, sa référence, son montant et ses
+  // validateurs sans relire le droit de le lire : sur la fiche d'un bon de commande, les Finances — qui ne
+  // lisent pas les devis — lisaient le titre et le montant du devis ; une facture restreinte à ses lecteurs
+  // désignés exposait les siens sur la fiche de la pièce voisine. Le droit se lit par LA porte unique des
+  // pièces (`accesAuxPiecesLegalDetaille`, en lot) : la même que la fiche, ses fichiers et les pièces liées
+  // d'une demande — une seconde écriture de la règle finirait par diverger d'elle (§118.5).
   const ids = ordered.map((d) => d.id);
-  const validations = await prisma.validationRequest.findMany({
-    where: { entityType: "LEGAL_DOCUMENT", entityId: { in: ids } },
+  const { droits, horsFiche } = await accesAuxPiecesLegalDetaille(user, ids, ["VIEW"]);
+  const lisibles = droits.get("VIEW") ?? new Set<string>();
+
+  // LES VALIDATEURS de chaque maillon LISIBLE : les étapes des demandes de validation qui le visent. Qui a
+  // signé une pièce qu'on ne peut pas lire ne se dit pas non plus.
+  const idsLisibles = ids.filter((i) => lisibles.has(i));
+  const validations = idsLisibles.length === 0 ? [] : await prisma.validationRequest.findMany({
+    where: { entityType: "LEGAL_DOCUMENT", entityId: { in: idsLisibles } },
     select: {
       entityId: true,
       steps: {
@@ -109,17 +144,28 @@ export async function loadLegalChain(docId: string): Promise<{ links: ChainLink[
 
   const links: ChainLink[] = ordered.map((d) => {
     const row = byId.get(d.id)!;
+    // UN MAILLON ILLISIBLE GARDE SA PLACE, sans rien de ce qu'il porte : son montant ferait lire l'écart
+    // devis → facture (donc le montant du devis), sa date le délai qui le sépare de ses voisins.
+    if (!lisibles.has(row.id)) {
+      return {
+        id: row.id, kind: row.kind, title: MAILLON_HORS_PERIMETRE, reference: null, amount: null, date: null,
+        isCurrent: row.id === docId, validators: [], lisible: false, ouvrable: false,
+      };
+    }
     return {
       id: row.id, kind: row.kind, title: row.title, reference: row.reference,
       amount: row.amount != null ? toNumber(row.amount as never) : null,
       date: (row.startDate ?? row.createdAt).toISOString(),
       isCurrent: row.id === docId,
       validators: validatorsOf.get(row.id) ?? [],
+      lisible: true,
+      ouvrable: !horsFiche.has(row.id),
     };
   });
 
-  // LE RÈGLEMENT — l'ordre de dépense de la facture du fil (le dernier maillon qui en a un).
-  const invoice = [...ordered].reverse().map((d) => byId.get(d.id)!).find((r) => r.expenseOrderId);
+  // LE RÈGLEMENT — l'ordre de dépense de la facture du fil (le dernier maillon LISIBLE qui en a un) : le
+  // règlement d'une facture qu'on ne peut pas lire dirait son montant.
+  const invoice = [...ordered].reverse().map((d) => byId.get(d.id)!).find((r) => r.expenseOrderId && lisibles.has(r.id));
   let settlement: ChainSettlement | null = null;
   if (invoice?.expenseOrderId) {
     const order = await prisma.expenseOrder.findUnique({
@@ -143,7 +189,7 @@ export const AMONT_PROPOSEES = 100;
 export interface OptionAmont { value: string; label: string }
 
 /** Le libellé d'une pièce amont qu'on ne peut pas lire : garder le lien n'en révèle pas le titre. */
-export const AMONT_HORS_PERIMETRE = "Pièce amont actuelle (hors de votre périmètre)";
+export const AMONT_HORS_PERIMETRE = `Pièce amont actuelle (${HORS_PERIMETRE})`;
 
 /** Le libellé d'une pièce amont dans un menu — un seul, pour la fiche Legal et pour le compositeur. */
 const libelleAmont = (r: { kind: string; reference: string | null; title: string }): string =>

@@ -97,7 +97,7 @@ export async function peutRecevoirDuStock(userId: string, geste = "confirmer la 
   if (!u || !u.isActive) return { ok: false, error: "Destinataire introuvable ou inactif." };
   const acces = await getAccess(u.id, u.role);
   if (u.role !== "SUPER_ADMIN" && !acces.modules.get("PROMO_STOCK")?.actions.has("VIEW")) {
-    return { ok: false, error: `${u.name} n'a pas accès au stock promotionnel : il ne pourrait pas ${geste}. Un Super Admin lui ouvre le module dans Administration › Accès.` };
+    return { ok: false, error: `${u.name} n'a pas accès au stock promotionnel, donc ne pourrait pas ${geste}. Un Super Admin lui ouvre le module dans Administration › Accès.` };
   }
   return { ok: true, nom: u.name };
 }

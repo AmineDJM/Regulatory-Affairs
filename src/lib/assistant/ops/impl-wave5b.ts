@@ -661,11 +661,20 @@ export const PROMO_OPS_IMPL: Record<string, OpImpl> = {
     async propose(input, user): Promise<OpProposalDraft | { error: string }> {
       const pm = await resolvePromo(user, opStr(input, "reference") || opStr(input, "label"));
       if ("error" in pm) return pm;
+      // LE MOTIF EST EXIGÉ PAR L'ACTION DEPUIS LE LOT C4a (§118.189) : la carte ne l'envoyait pas, et chaque
+      // annulation confirmée était refusée APRÈS le clic (§118.83). Elle le demande donc AVANT la carte.
+      const motif = opStr(input, "note");
+      if (!motif) return { error: "Donnez le motif de l'annulation (champ « note ») — l'annulation est définitive, et le motif va au fil du dossier." };
       return {
         title: `ANNULER le dossier ${pm.reference}`,
-        fields: [{ label: "Dossier", value: `${pm.reference} — ${pm.title}` }],
-        warnings: ["Le dossier passe ANNULÉ (état terminal) — la demande administrative liée est annulée aussi ; un dossier réglé ne s'annule plus."],
-        args: { id: pm.id },
+        fields: [{ label: "Dossier", value: `${pm.reference} — ${pm.title}` }, { label: "Motif", value: motif }],
+        // Ce que l'action FAIT, pas ce qu'on aurait aimé qu'elle fasse (vague « restes ») : une demande au
+        // secrétariat dont le paiement est réglé reste ouverte, un ordre réglé reste réglé.
+        warnings: [
+          "Le dossier passe ANNULÉ (définitif). Ses demandes encore ouvertes au secrétariat sont annulées avec lui, sauf celle dont le paiement est déjà réglé, qui reste ouverte ; un ordre qui attendait le centre de paiement est annulé, un ordre réglé reste réglé.",
+          "Refusé si un bon de commande a été généré pour ce dossier, ou s'il est déjà clos.",
+        ],
+        args: { id: pm.id, motif },
         successMessage: `Dossier ${pm.reference} annulé.`,
         revalidate: ["/promo-material"],
       };

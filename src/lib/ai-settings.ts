@@ -23,7 +23,12 @@ export type AiFeature =
   /** Session vocale speech-to-speech temps réel (API Realtime) — journalisée par session. */
   | "voice_realtime"
   /** « Rédiger avec l'IA » — un article de blog ou une offre d'emploi du site public (§118.160). */
-  | "site_web";
+  | "site_web"
+  /**
+   * La lecture des LIGNES d'une pièce commerciale déposée (devis, BC, facture) par un modèle — lot D2,
+   * `lecture-pieces-ia.ts`. COUPÉE par défaut : elle a un coût, et la lecture locale suffit à proposer.
+   */
+  | "lecture_pieces";
 
 export interface AiSettingsView {
   masterEnabled: boolean;
@@ -34,6 +39,7 @@ export interface AiSettingsView {
   fieldReportAiEnabled: boolean;
   voiceTranscriptEnabled: boolean;
   siteWebAiEnabled: boolean;
+  lecturePiecesEnabled: boolean;
 }
 
 const DEFAULTS: AiSettingsView = {
@@ -45,6 +51,10 @@ const DEFAULTS: AiSettingsView = {
   fieldReportAiEnabled: true,
   voiceTranscriptEnabled: true,
   siteWebAiEnabled: true,
+  // COUPÉE PAR DÉFAUT — le même défaut que sa colonne (`@default(false)`, migration
+  // `20270104090000_lecture_pieces`) : sans ligne, ou base injoignable, aucune pièce ne part chez un
+  // fournisseur. L'activer est une décision de la Direction, prise sur l'écran, pas un défaut du code.
+  lecturePiecesEnabled: false,
 };
 
 /** Quelle bascule gouverne quelle fonction. */
@@ -59,6 +69,7 @@ const FEATURE_KEY: Record<AiFeature, keyof AiSettingsView> = {
   // La session temps réel suit la MÊME bascule que l'assistant : couper l'assistant coupe la voix.
   voice_realtime: "assistantEnabled",
   site_web: "siteWebAiEnabled",
+  lecture_pieces: "lecturePiecesEnabled",
 };
 
 /**
@@ -80,6 +91,7 @@ export async function getAiSettings(): Promise<AiSettingsView> {
       fieldReportAiEnabled: row.fieldReportAiEnabled,
       voiceTranscriptEnabled: row.voiceTranscriptEnabled,
       siteWebAiEnabled: row.siteWebAiEnabled,
+      lecturePiecesEnabled: row.lecturePiecesEnabled,
     };
   } catch {
     return DEFAULTS;
@@ -126,7 +138,9 @@ export async function aiFeatureEnabled(feature: AiFeature): Promise<boolean> {
  *
  * Les modules qui appellent la passerelle (`models/gateway`) sans passer par `lib/ai.ts` — la
  * boucle d'Adam, la recherche web, le raisonneur des missions — ne sont tenus que par leur propre
- * bascule quand ils en lisent une (Adam est réservé au Super Admin et a ses interrupteurs). Le client
+ * bascule quand ils en lisent une (Adam est réservé au Super Admin et a ses interrupteurs). La
+ * lecture des lignes d'une pièce commerciale (`lecture-pieces-ia.ts`) passe elle aussi par la
+ * passerelle, et lit `interrupteurIaCoupe()` explicitement, AVANT sa bascule et sa clé. Le client
  * Luna de l'intelligence réglementaire (`callLuna`, `submitBatch`, `lunaEmbed`) et la transcription
  * des médias du Drive (`media/stt.ts`) lisent l'interrupteur depuis le lot D1 (§118.196) ; lire l'état
  * d'un lot déjà déposé reste ouvert, exprès. La sonde de santé (`aiSelfTest`) aussi : son commentaire

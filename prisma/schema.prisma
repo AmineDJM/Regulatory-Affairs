@@ -7845,6 +7845,9 @@ model AiSetting {
   fieldReportAiEnabled   Boolean  @default(true) // analyse IA des rapports terrain
   voiceTranscriptEnabled Boolean  @default(true) // transcription vocale (Whisper)
   siteWebAiEnabled       Boolean  @default(true) // « Rédiger avec l'IA » — articles et offres du site (§118.160)
+  /// Lecture des LIGNES d'une pièce commerciale par un modèle (lot D2). COUPÉE par défaut : elle a un coût, et la
+  /// lecture locale (texte natif, OCR sur ce serveur, en-têtes et totaux repérés) suffit à proposer sans rien envoyer.
+  lecturePiecesEnabled   Boolean  @default(false)
   updatedAt              DateTime @updatedAt
   updatedById            String?
 }
@@ -14118,4 +14121,63 @@ enum AdProStockLineStatut {
   DEMANDEE
   RESERVEE
   CONFIRMEE
+}
+
+/// UNE LECTURE DE PIÈCE COMMERCIALE (devis, BC, facture) — une PROPOSITION, jamais un prix de la société (lot D2,
+/// §118.152 i). Une ligne par empreinte SHA-256 des octets et version du lecteur : la même pièce n'est lue — et payée —
+/// qu'une fois, sous n'importe quel nom. On RÉSERVE avant de lire (`EN_COURS`), le gagnant lit, les autres attendent.
+/// Le texte lu est SCELLÉ (`sealSecret`) : une pièce peut porter des coordonnées bancaires.
+model LecturePiece {
+  id               String                     @id @default(cuid())
+  empreinte        String
+  versionLecteur   Int
+  /// EN_COURS | LUE | ECHOUEE — vocabulaire fermé côté code.
+  etat             String                     @default("EN_COURS")
+  extension        String
+  taille           Int
+  methode          String?
+  moteur           String?
+  confiance        Int?
+  aRelire          Boolean                    @default(false)
+  ocrTente         Boolean                    @default(false)
+  ocrEchoue        Boolean                    @default(false)
+  pagesLues        Int?
+  pagesTotal       Int?
+  caracteres       Int                        @default(0)
+  tronque          Boolean                    @default(false)
+  texteScelle      String?
+  /// En-têtes et totaux repérés de façon DÉTERMINISTE (`pieces-lues/entetes.ts`), chacun avec son extrait.
+  entetes          Json?
+  /// Les lignes lues par le modèle, RELUES par `pieces-lues/structure.ts` — `null` tant qu'aucun modèle n'a lu.
+  structure        Json?
+  structureePar    String?
+  /// Pourquoi il n'y a pas de lignes : DESACTIVEE, IA_COUPEE, NON_CONFIGUREE, CONFIDENTIELLE, OCR_ECHOUE, TEXTE_ILLISIBLE.
+  raisonSansLignes String?
+  creeParId        String?
+  createdAt        DateTime                   @default(now())
+  updatedAt        DateTime                   @updatedAt
+  confirmations    LecturePieceConfirmation[]
+
+  @@unique([empreinte, versionLecteur])
+  @@index([etat, updatedAt])
+}
+
+/// QUI A CONFIRMÉ QUOI — l'attestation qu'une personne a relu, ligne à ligne, ce qu'une lecture proposait, écrite DANS
+/// la transaction de l'écriture métier (le devis, la facture, la pièce Legal). `cibleType` : PROMO_QUOTE,
+/// PROMO_FACTURE, LEGAL_DOCUMENT (vocabulaire fermé côté code). `RESTRICT` : une lecture qu'une confirmation désigne
+/// ne se purge pas.
+model LecturePieceConfirmation {
+  id             String       @id @default(cuid())
+  lectureId      String
+  lecture        LecturePiece @relation(fields: [lectureId], references: [id], onDelete: Restrict)
+  cibleType      String
+  cibleId        String
+  confirmeeParId String
+  confirmeeLe    DateTime     @default(now())
+  /// Verdict par ligne : CONFIRMEE, CORRIGEE, AJOUTEE, ECARTEE (prix comparés au centime).
+  lignes         Json
+  controle       Json?
+
+  @@index([cibleType, cibleId])
+  @@index([lectureId])
 }

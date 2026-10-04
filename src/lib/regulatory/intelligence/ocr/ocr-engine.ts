@@ -23,6 +23,9 @@ import { interrupteurIaCoupe } from "@/lib/ai-settings";
  *
  * Interrupteur général de l'IA coupé (Administration › Contrôle de l'IA) : Tesseract seul, quel
  * que soit `REG_OCR_ENGINE`, et pas de secours vision — aucun document ne quitte le serveur.
+ *
+ * Lecture LOCALE demandée par l'appelant (`cloud: false`, lot D2) : la même chose, pour CET appel
+ * seulement — ni Mistral, ni secours vision, et l'interrupteur n'est même pas lu, puisque rien ne sort.
  */
 
 export interface OcrPage {
@@ -140,12 +143,20 @@ async function createOcrWorker(langs: string[]): Promise<{ worker: Worker; versi
  * les transcrit (tracé au registre des coûts, plafonné par le budget du dossier, mis en cache).
  * C'est ce qui fait la différence entre « scan illisible → revue humaine » et un texte exploitable.
  */
-export async function ocrDocument(input: { ext: string; buffer: Buffer; langs?: string[]; maxPages?: number; aiRescue?: RescueContext }): Promise<OcrResult> {
+export async function ocrDocument(input: { ext: string; buffer: Buffer; langs?: string[]; maxPages?: number; aiRescue?: RescueContext; cloud?: boolean }): Promise<OcrResult> {
   const ext = input.ext.toLowerCase();
   if (!canOcr(ext)) throw new Error(`OCR non supporté pour « ${ext} ».`);
 
   const engine = (process.env.REG_OCR_ENGINE ?? "auto").trim().toLowerCase();
-  const mistralConfigure = engine !== "tesseract" && mistralOcrConfigured();
+  /**
+   * `cloud: false` — UNE LECTURE GRATUITE ET LOCALE, PAR APPEL (lot D2). Sans elle, une lecture
+   * censée ne rien coûter partait chez Mistral dès que la clé existait — facturée au PDF entier, et
+   * le document sorti du serveur. Comme l'interrupteur, elle l'emporte sur un moteur FORCÉ : c'est
+   * une décision explicite de l'appelant, pas une dégradation silencieuse après un échec.
+   */
+  const cloudPermis = input.cloud !== false;
+  const secoursDemande = cloudPermis && Boolean(input.aiRescue);
+  const mistralConfigure = cloudPermis && engine !== "tesseract" && mistralOcrConfigured();
   /**
    * L'INTERRUPTEUR GÉNÉRAL DE L'IA COUPE LE CLOUD, PAS LA LECTURE (audit 360°, rapport 19, F3).
    *
@@ -163,7 +174,7 @@ export async function ocrDocument(input: { ext: string; buffer: Buffer; langs?: 
    * L'interrupteur n'est lu que s'il peut changer quelque chose (un moteur cloud configuré, ou un
    * secours vision demandé) : un OCR purement local ne paie pas une lecture de base pour rien.
    */
-  const iaCoupee = (mistralConfigure || Boolean(input.aiRescue)) ? await interrupteurIaCoupe() : false;
+  const iaCoupee = (mistralConfigure || secoursDemande) ? await interrupteurIaCoupe() : false;
   if (mistralConfigure && iaCoupee) {
     console.warn("[reg-ocr] IA coupée par l'interrupteur général → OCR local Tesseract (aucun document envoyé à Mistral).");
   }
@@ -184,7 +195,7 @@ export async function ocrDocument(input: { ext: string; buffer: Buffer; langs?: 
   if (!base) base = await ocrWithTesseract(input, ext);
   // Le secours vision envoie les pages EN IMAGE à un modèle multimodal : coupé, il ne part pas, et
   // les pages douteuses restent signalées pour revue humaine — ce qu'elles étaient avant lui.
-  return input.aiRescue && !iaCoupee ? applyAiRescue({ ext, buffer: input.buffer }, base, input.aiRescue) : base;
+  return secoursDemande && input.aiRescue && !iaCoupee ? applyAiRescue({ ext, buffer: input.buffer }, base, input.aiRescue) : base;
 }
 
 /** OCR auto-hébergé : rastérisation mupdf + pré-traitement sharp + reconnaissance Tesseract. */

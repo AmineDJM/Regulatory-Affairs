@@ -188,7 +188,7 @@ export default async function LegalDocumentPage({ params }: { params: { id: stri
       userId: user.id, readerScope: perimetre.where ?? { id: { in: [] } }, docId: doc.id, actuelId: doc.chainFromId,
     })),
     // La chaîne complète : maillons, validateurs de chacun, règlement au bout.
-    loadLegalChain(doc.id),
+    loadLegalChain(doc.id, user),
   ]);
   const folderOptions = flattenFolders(buildFolderTree(folderRows)).map((n) => ({ value: n.id, label: indentedLabel(n) }));
   const chainCandidates = chainDocs;

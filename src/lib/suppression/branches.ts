@@ -128,6 +128,8 @@ export const REFERENTS: readonly Referent[] = [
     raison: "un lien de l'index de connaissance : un index, pas une branche." },
   { modele: "AssistantReminder", champType: "watchType", champId: "watchId", conduite: "HISTOIRE",
     raison: "un rappel interne d'Adam : comme ses surveillances, il constate lui-même que sa cible a disparu." },
+  { modele: "LecturePieceConfirmation", champType: "cibleType", champId: "cibleId", conduite: "HISTOIRE",
+    raison: "une ATTESTATION (lot D2) : une personne a relu, ligne à ligne, ce qu'une lecture proposait — l'audit porte son nom. On ne réécrit pas le passé : elle reste quand la pièce part, et une pièce restaurée la retrouve par son identifiant." },
 ];
 
 /**

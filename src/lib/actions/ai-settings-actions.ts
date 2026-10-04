@@ -27,6 +27,7 @@ export async function updateAiSettings(formData: FormData): Promise<ActionResult
     fieldReportAiEnabled: fdBool(formData, "fieldReportAiEnabled"),
     voiceTranscriptEnabled: fdBool(formData, "voiceTranscriptEnabled"),
     siteWebAiEnabled: fdBool(formData, "siteWebAiEnabled"),
+    lecturePiecesEnabled: fdBool(formData, "lecturePiecesEnabled"),
     updatedById: admin.id,
   };
 

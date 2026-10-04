@@ -220,7 +220,7 @@ suite("Stock promotionnel, étape 5 — comptages, récurrences, alertes, tablea
     expect(await demanderComptage(form({ cible: "PERSONNE", holderId: ids.k3!, famille: "" }))).toEqual({ ok: false, error: REFUS_COMPTAGE.demander });
     const sansModule = await demanderComptage(form({ cible: "PERSONNE", holderId: ids.sm!, famille: "" }));
     expect(sansModule.ok).toBe(false);
-    expect(sansModule.error).toMatch(/n'a pas accès au stock promotionnel : il ne pourrait pas saisir son comptage/);
+    expect(sansModule.error).toMatch(/n'a pas accès au stock promotionnel, donc ne pourrait pas saisir son comptage/);
     const passe = await demanderComptage(form({ cible: "PERSONNE", holderId: ids.k1!, famille: "", echeance: ymd(new Date(Date.now() - 3 * JOUR)) }));
     expect(passe.ok, "une échéance passée n'est pas une échéance").toBe(false);
 

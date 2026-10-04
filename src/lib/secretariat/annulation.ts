@@ -23,9 +23,10 @@ import { annulerOrdreNonRegle } from "@/lib/payments/annulation";
  *   2. la demande passe ANNULÉE par une écriture CONDITIONNELLE — terminée ou annulée entre-temps, elle
  *      n'est pas rouverte pour être annulée, et l'appelant le lit (`annulee: false`) ;
  *   3. alors seulement ce qui en dépend : validations retirées (leurs validateurs prévenus), approbations
- *      en attente retirées (comme au retrait d'une demande d'achat), ordres non réglés annulés par la
- *      porte unique (`annulerOrdreNonRegle`, conditionnelle). Un ordre réglé ENTRE la lecture et
- *      l'annulation n'est pas défait : la réserve le DIT au lieu de se taire ;
+ *      en attente retirées (comme au retrait d'une demande d'achat), ordres non réglés — RELUS ici, après
+ *      l'écriture conditionnelle, jamais repris de la lecture du point 1 — annulés par la porte unique
+ *      (`annulerOrdreNonRegle`, conditionnelle). Un ordre réglé ENTRE la lecture et l'annulation n'est
+ *      pas défait : la réserve le DIT au lieu de se taire ;
  *   4. la trace : le motif dans la discussion de la demande, et le secrétariat prévenu (le responsable
  *      désigné, sinon chaque assistante de direction — jamais l'auteur du geste).
  *
@@ -69,12 +70,12 @@ export async function annulerDemandeSecretariat(
   });
   if (!d || d.deletedAt) return { ok: false, error: "Demande introuvable." };
 
-  // 1. L'argent parti refuse, avant toute écriture.
-  const ordres = await prisma.expenseOrder.findMany({
-    where: { sourceType: "ADMIN_REQUEST", sourceId: id, status: { not: "CANCELLED" } },
-    select: { id: true, reference: true, status: true },
+  // 1. L'argent parti refuse, avant toute écriture. Cette lecture ne sert QU'À refuser : la liste des
+  //    ordres à annuler se relit au point 3, après l'écriture conditionnelle (voir plus bas).
+  const regle = await prisma.expenseOrder.findFirst({
+    where: { sourceType: "ADMIN_REQUEST", sourceId: id, status: "PAID" },
+    select: { reference: true },
   });
-  const regle = ordres.find((o) => o.status === "PAID");
   if (regle) {
     return {
       ok: false,
@@ -120,6 +121,19 @@ export async function annulerDemandeSecretariat(
       }).catch(() => undefined);
     }
   }
+  // LES ORDRES SE RELISENT ICI, APRÈS L'ÉCRITURE CONDITIONNELLE (vague « restes »). Lus au point 1, ils
+  // laissaient passer l'ordre qu'une décision émettait ENTRE cette lecture et l'annulation — une pièce
+  // validée, une approbation tranchée à la même seconde : la demande partait « annulée » et son paiement
+  // restait payable au centre, sans un mot (§118.5 : deux vérités sur le même paiement). Relus après la
+  // demande close, ses validations et ses approbations retirées, ils couvrent tout ordre né avant la
+  // clôture. Celui qu'une approbation émettrait encore APRÈS est rattrapé par la compensation de
+  // `decideApproval`, qui relit la demande et annule l'ordre qu'elle vient d'émettre. Reste un trou,
+  // NOMMÉ et hors de ce fichier : une pièce validée émet son ordre sans relire la demande
+  // (`decideValidation`) — né après cette relecture, il n'est rattrapé par personne.
+  const ordres = await prisma.expenseOrder.findMany({
+    where: { sourceType: "ADMIN_REQUEST", sourceId: id, status: { not: "CANCELLED" } },
+    select: { id: true },
+  });
   const ordresAnnules: string[] = [];
   let reserve: string | null = null;
   for (const o of ordres) {

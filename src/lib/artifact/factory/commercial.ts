@@ -203,7 +203,14 @@ export function arrondirCentimes(x: number): number {
 
 const fraction = (v: number | null | undefined): number => (typeof v === "number" && Number.isFinite(v) ? v : 0);
 
-export function calculerTotaux(spec: SpecDocumentCommercial): TotauxCommerciaux {
+/**
+ * Ce que le calcul LIT d'une pièce — et rien d'autre. Une spécification complète s'y passe telle
+ * quelle ; le contrôle d'une pièce LUE (`pieces-lues/controle.ts`) n'a que ses lignes, ses taux et
+ * son mode de paiement, et passe par la MÊME arithmétique au lieu d'en écrire une seconde (§118.5).
+ */
+export type BaseDeCalcul = Pick<SpecDocumentCommercial, "lignes" | "tvaDefaut" | "remiseGlobale" | "taxes" | "modePaiement">;
+
+export function calculerTotaux(spec: BaseDeCalcul): TotauxCommerciaux {
   const tauxDefaut = spec.tvaDefaut === null || spec.tvaDefaut === undefined ? TVA_NORMALE : spec.tvaDefaut;
   let rang = 0;
   const lignes: LigneCalculee[] = spec.lignes.map((l) => {

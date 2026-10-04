@@ -232,7 +232,7 @@ function LineCard({ tenderId, line, canEdit, busy, run, reserve }: { tenderId: s
     fd.set("id", line.id); fd.set("tenderId", tenderId);
     fd.set("designation", s.designation); fd.set("dci", s.dci); fd.set("dosage", s.dosage); fd.set("form", s.form);
     fd.set("quantityUnits", s.quantityUnits); fd.set("unitsPerBox", s.unitsPerBox); fd.set("unitLabel", s.unitLabel);
-    if (s.haveProduct) fd.set("haveProduct", "on");
+    fd.set("haveProduct", s.haveProduct ? "on" : "off");
     fd.set("unitPriceDzd", s.unitPriceDzd); fd.set("status", s.status); fd.set("awardedUnitPriceDzd", s.awardedUnitPriceDzd);
     fd.set("boxPriceDzd", s.boxPriceDzd); fd.set("boxCostDzd", s.boxCostDzd);
     fd.set("awardedQuantityUnits", s.awardedQuantityUnits); fd.set("submittedQuantityUnits", s.submittedQuantityUnits);

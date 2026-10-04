@@ -66,7 +66,7 @@ const PATH = "/promo-material";
 const chemin = (id: string) => `${PATH}/${id}`;
 
 type Dossier = {
-  id: string; reference: string; title: string; circuitVersion: number; circuitState: string | null;
+  id: string; reference: string; title: string; status: string; circuitVersion: number; circuitState: string | null;
   requesterId: string | null; companyId: string | null;
 };
 
@@ -74,7 +74,7 @@ async function chargerDossier(id: string | null): Promise<Dossier | null> {
   if (!id) return null;
   return prisma.promoMaterial.findUnique({
     where: { id },
-    select: { id: true, reference: true, title: true, circuitVersion: true, circuitState: true, requesterId: true, companyId: true },
+    select: { id: true, reference: true, title: true, status: true, circuitVersion: true, circuitState: true, requesterId: true, companyId: true },
   });
 }
 
@@ -89,6 +89,10 @@ function refusExecution(user: SessionUser, pm: Dossier | null): string | null {
   if (pm.circuitVersion !== 2) return "Ce dossier suit l'ancien circuit : ses bons de commande se créent depuis « Pièces liées ».";
   if (!pilote(user, pm)) return "Seuls le demandeur, l'assistante de direction et la Direction pilotent l'exécution de ce dossier.";
   if (pm.circuitState !== "IN_EXECUTION") {
+    // UN DOSSIER CLOS SE DIT CLOS : annulé ou refusé, « une fois les validations obtenues » promettait
+    // une suite qui n'existe plus.
+    if (pm.status === "CANCELLED") return "Ce dossier a été annulé : plus rien ne s'y génère ni ne s'y facture.";
+    if (pm.circuitState === "REFUSED") return "Ce dossier a été refusé : plus rien ne s'y génère ni ne s'y facture.";
     return pm.circuitState === "COMPLETED"
       ? "Ce dossier est terminé."
       : "Les bons de commande se génèrent une fois TOUTES les validations obtenues (demandeur, Direction Marketing, et Directeur Général au-dessus du seuil).";
@@ -153,6 +157,11 @@ export async function genererBonsDeCommandePromo(formData: FormData): Promise<Ac
   }
 
   return enSerie(`promo-bc:${pm.id}`, async () => {
+    // LE DOSSIER SE RELIT DANS LA FILE (vague « restes ») : l'annulation y passe aussi
+    // (`cancelPromoMaterial`), et une génération mise en file AVANT elle — sur un dossier encore en
+    // exécution — passait quand même, une fois l'annulation écrite : un BC vivant sur un dossier annulé.
+    const refusDansLaFile = refusExecution(user, await chargerDossier(pm.id));
+    if (refusDansLaFile) return { ok: false, error: refusDansLaFile };
     const devis = await devisDuDossier(pm.id);
     const etats = await etatsDesBC(devis.map((d) => d.purchaseOrderId).filter((x): x is string => Boolean(x)));
     const actifs = new Set(devis.filter((d) => {
