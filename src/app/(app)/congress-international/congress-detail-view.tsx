@@ -8,7 +8,6 @@ import { formatCurrency, formatDate } from "@/lib/utils";
 import type { CongressDetail } from "@/lib/queries/congress";
 import { WorkflowPanel } from "@/components/workflow/workflow-panel";
 import type { WorkflowView } from "@/lib/queries/workflow";
-import { BeneficiariesCard } from "./beneficiaries-card";
 import { ThirdPartyInvolveButton } from "@/components/shared/third-party-involve";
 import { InvolvementConversations } from "@/components/ad-pro/involvement-conversations";
 import type { InvolvementThread } from "@/lib/queries/involvement";
@@ -51,13 +50,11 @@ export function CongressDetailView({
           <CardHeader><CardTitle>Informations</CardTitle></CardHeader>
           <CardContent className="grid grid-cols-2 gap-x-6 gap-y-3 text-sm sm:grid-cols-3">
             {d.eventType && <Info label="Type" value={NATIONAL_EVENT_TYPE[d.eventType] ?? d.eventType} />}
-            <Info label="Spécialité / thème" value={d.specialty} />
-            {/* LES PRODUITS PROMUS : le demandeur les choisit dans le référentiel, donc la fiche
-                les rend — sans quoi il coche et ne revoit rien (§118.50). */}
-            <Info label="Produit(s) concerné(s)" value={d.products} />
+            {/* Ni spécialité ni produits promus sur une prise en charge (décision du 04/10/2026) :
+                ils ne se saisissent plus, la fiche ne les montre plus — ils restent en base. */}
             <Info label="Lieu" value={d.location} />
-            <Info label="Date" value={d.date ? formatDate(d.date) : null} />
-            {d.endDate && <Info label="Date fin" value={formatDate(d.endDate)} />}
+            <Info label="Date de début" value={d.date ? formatDate(d.date) : null} />
+            <Info label="Date de fin" value={d.endDate ? formatDate(d.endDate) : null} />
             <Info label="Demandeur" value={d.requester} />
           </CardContent>
         </Card>
@@ -104,13 +101,10 @@ export function CongressDetailView({
             pièces de la prise en charge gardent un emplacement NOMMÉ dans « Engagements,
             factures et courriers liés », que les deux écrans montent en bas de page. */}
 
-        <BeneficiariesCard
-          entityType={entityType}
-          entityId={entityId}
-          beneficiaries={d.beneficiaries}
-          idDocCount={documents.filter((doc) => doc.category === "ID_DOCUMENT").length}
-          canManage={canUpload}
-        />
+        {/* UNE SEULE LISTE DE PERSONNES PRISES EN CHARGE (décision du 04/10/2026) : les
+            « Professionnels proposés pour la prise en charge », en haut de la fiche, avec leurs
+            pièces. Le bloc « Personnes prises en charge » d'ici et la carte « Médecins invités »
+            disaient la même chose depuis deux autres stockages, sans se voir (§118.5). */}
         <MissionAssignmentsCard
           entityType={entityType}
           entityId={entityId}
@@ -120,21 +114,6 @@ export function CongressDetailView({
           currentUserId={currentUserId}
           path={path}
         />
-        <Card>
-          <CardHeader className="flex-row items-center justify-between"><CardTitle>Médecins invités</CardTitle><Badge tone="neutral" dot={false}>{d.doctors.length}</Badge></CardHeader>
-          <CardContent>
-            {d.doctors.length === 0 ? <p className="text-sm text-muted-foreground">Aucun.</p> : (
-              <ul className="space-y-2">
-                {d.doctors.map((doc) => (
-                  <li key={doc.id} className="text-sm">
-                    <p className="font-medium">{doc.name}</p>
-                    <p className="text-xs text-muted-foreground">{[doc.specialty, doc.institution].filter(Boolean).join(" · ")}</p>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </CardContent>
-        </Card>
         <Card>
           <CardHeader className="flex-row items-center justify-between"><CardTitle>Participants Adventum</CardTitle><Badge tone="neutral" dot={false}>{d.participants.length}</Badge></CardHeader>
           <CardContent>

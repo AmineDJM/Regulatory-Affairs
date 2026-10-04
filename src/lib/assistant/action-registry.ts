@@ -831,7 +831,7 @@ G("Legal avancé (édition, dossiers, rattachements Drive, règlement de facture
 // catalogue. Le mettre dans ce bloc l'écraserait en GAP le temps de la lecture, pour rien.
 G("Ad&Pro (postes, décisions, transferts, consulting)", [
   "ad-pro-edit-actions:updateAdProRequest", "ad-pro-item-actions:addAdProItem", "ad-pro-item-actions:updateAdProItem",
-  "ad-pro-item-actions:deleteAdProItem", "ad-pro-item-actions:emitItemExpenseOrder",
+  "ad-pro-item-actions:deleteAdProItem",
   "ad-pro-item-actions:linkPromoMaterial",
   "ad-pro-item-actions:submitAdProItem", "ad-pro-item-actions:decideAdProItem", "ad-pro-item-actions:setAdProItemBudget",
   "ad-pro-item-actions:demanderPieceSecretariat", "ad-pro-item-actions:requestAdProItemOrder",
@@ -1086,6 +1086,13 @@ X("RÉVISER UN POSTE AD & PRO APRÈS COUP (§118.187, audit R05/R06/R12) — RET
   "ad-pro-item-actions:retirerDemandeBC", "ad-pro-item-actions:modifierDemandeBC",
   "ad-pro-item-actions:annulerOrdrePoste", "ad-pro-item-actions:demanderRevisionPoste",
 ]);
+X("LES PIÈCES D'ACHAT D'UN POSTE (§118.204) — déposer un devis ou une facture pro forma (commun à plusieurs postes), "
+  + "le retirer d'un poste où il a été mal placé, et déposer la FACTURE qui demande le paiement. Chacun dépose un "
+  + "FICHIER que la personne a sous la main (une carte de confirmation ne transporte pas un fichier), et le dernier "
+  + "ouvre un ordre de dépense au centre de paiement. Adam est en pause de développement : aucun geste neuf ne lui est "
+  + "ouvert. Un clic sur la carte du poste, fiche de la demande.", [
+  "ad-pro-item-actions:ajouterDevisPoste", "ad-pro-item-actions:retirerDevisDuPoste", "ad-pro-item-actions:demanderPaiementPoste",
+]);
 X("RENVOYER, RÉEXAMINER, RESOUMETTRE DANS LES CENTRES (§118.188, audit R07/R08/R10) — resoumettre une demande de "
   + "validation renvoyée pour correction (sur elle-même, elle reprend à l'étape qui l'a renvoyée), resoumettre au centre "
   + "Ad & Pro une demande qu'il a renvoyée, et réexaminer un refus du centre. Les deux premiers sont des gestes du "
@@ -1242,6 +1249,9 @@ X("LIRE LE SCAN D'UN DEVIS DE MATÉRIEL PROMOTIONNEL (lot D2-E) PROPOSE ce que l
 X("LIRE LA FACTURE D'UN BON DE COMMANDE PROMOTIONNEL (lot D2-F) PROPOSE les lignes facturées rapprochées des lignes du BC, la référence et le total imprimé, et n'écrit RIEN : le dépôt reste un geste d'écran (`deposerFacturePromo`), chaque ligne lue cochée « vérifiée » devant le papier avant d'être enregistrée. Adam est en pause de développement : aucun geste neuf ne lui est ouvert. Un clic sur /promo-material/<id>, dans « Déposer la facture ».", [
   "promo-execution-actions:lireFacturePromo",
 ]);
+X("LUNA CONSEILLE OÙ RANGER UNE PIÈCE déposée sur une demande Ad & Pro : un avis CONSULTATIF, qui n'écrit rien et ne déplace aucune pièce — la carte de confirmation d'Adam n'aurait aucun objet à confirmer. Le conseil se lit à l'écran, sous la pièce qu'on vient de déposer ; c'est la personne qui range. Adam est en pause de développement : aucun geste neuf ne lui est ouvert.", [
+  "ad-pro-conseil-actions:conseillerPiece",
+]);
 X("PURGE IRRÉVERSIBLE DE LA FILE DES RÈGLEMENTS. Vider l'historique efface des ordres de dépense en bloc ; le geste n'a pas d'annulation et ne se discute pas — il se décide devant l'écran, en voyant combien de lignes partent. Le rendre appelable par Adam l'exposerait à l'injection : un document lu par une étape pourrait contenir « vide l'historique des règlements ». Les écritures de trésorerie survivent, mais ce n'est pas une raison pour donner la commande à un modèle. Un clic du Super Admin sur /finances/paiements-a-faire.", [
   "expense-actions:purgeSettledExpenseOrders",
 ]);
@@ -1315,6 +1325,9 @@ X("LE CATALOGUE DES PRODUITS CANONIQUES (§118.178) — rattacher un dossier à 
 ]);
 X("LES SPÉCIALITÉS D'UNE BUSINESS UNIT (§118.183) — l'ensemble des spécialités qu'une BU vise, et sa principale — sont un geste d'écran neuf, et Adam est en pause de développement : aucun geste neuf ne lui est ouvert. L'ensemble se REMPLACE d'un geste (décocher retire), ce qui se décide devant la liste du référentiel. Tout se fait sur Force de vente › Business Units, dans la carte de la BU ou à sa création.", [
   "sales-planning-actions:enregistrerSpecialitesBu",
+]);
+X("LE TERRITOIRE D'UN KAM (04/10/2026) — dans une BU hospitalière, les établissements de l'annuaire qu'un KAM couvre, et pour chacun tous ses services ou certains — est un geste d'écran neuf, et Adam est en pause de développement : aucun geste neuf ne lui est ouvert. Il se décide DEVANT l'annuaire et ses services, cases à cocher sous les yeux, et il REMPLACE la sélection (décocher retire) : c'est le panel de médecins d'une personne qu'on change. Tout se fait sur Force de vente › Business Units, ligne du KAM, bouton « Territoire ».", [
+  "sales-planning-actions:enregistrerTerritoireKam",
 ]);
 X("LE RÉFÉRENTIEL DES SPÉCIALITÉS (§118.180) — fusionner deux spécialités, rattacher un libellé hérité à une spécialité, rattacher en lot les fiches dont la spécialité est écrite sans lien — sont des gestes d'écran neufs, et Adam est en pause de développement : aucun geste neuf ne lui est ouvert. La fusion change, de plus, la spécialité de fiches que la personne ne voit peut-être pas : c'est une décision de STRUCTURE, prise devant l'écran qui en montre l'effet. Tout se fait sur Annuaires › Spécialités et dans la feuille des praticiens (« Rattacher les spécialités »).", [
   "medical-actions:fusionnerSpecialite",
@@ -1581,6 +1594,13 @@ X("ENVOYER LA PAIE AU CENTRE DE PAIEMENT (§118.176) — « un bouton pour toute
   + "confier à un modèle ferait écrire par lui le montant que la banque versera, sur la foi d'un calcul qu'aucune "
   + "personne n'a relu ; et Adam est de plus en pause de développement. Un clic sur RH › Paie.", [
   "payroll-hr-actions:envoyerPaieAuCentre",
+]);
+X("RATTACHER À UNE ENTITÉ LES SALARIÉS QUI N'EN ONT PAS, depuis l'écran de la paie (Direction, 04/10/2026). Le geste "
+  + "écrit la société de la FICHE SALARIÉ, que toute sa paie suit : il décide quelle société porte sa masse salariale "
+  + "et d'où sa paie partira au centre de paiement — une décision RH qui se prend devant la liste des salariés et de "
+  + "ce qu'ils pèsent, et qu'un document lu par une étape ne doit pas pouvoir prendre. Adam est de plus en pause de "
+  + "développement. Un clic sur RH › Paie.", [
+  "payroll-hr-actions:rattacherSalariesAEntite",
 ]);
 
 // ── RECLASSIFICATION AUTOMATIQUE PAR LE CATALOGUE D'OPS (après tous les blocs ci-dessus). ──

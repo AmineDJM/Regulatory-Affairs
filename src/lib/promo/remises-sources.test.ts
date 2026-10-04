@@ -16,8 +16,9 @@ import { join, relative } from "node:path";
  * Ce banc tient la chaîne entière, sur la SOURCE (§118.17), sans ses commentaires (§118.79d) :
  *   • TOURNÉES — le seul mouvement « remis à un médecin » (`DISTRIBUTION`) s'écrit dans
  *     `remettreAuMedecin`, qui n'est appelé que par le module des remises de visite, lui-même
- *     appelé par les TROIS portes d'une visite faite : le rapport d'une visite planifiée, la visite
- *     imprévue, la saisie rapide de « Ma journée » ;
+ *     appelé par les QUATRE portes d'une visite faite : le rapport d'une visite planifiée, la visite
+ *     imprévue, la saisie rapide de « Ma journée », et le compte rendu de visite du module Rapports
+ *     terrain (§118.204 — un rapport terrain est un compte rendu de visite, pas une cinquième voie) ;
  *   • OPÉRATIONS AD & PRO — la réservation pour un événement (`RESERVATION_OUT`) et son retour
  *     (`RESERVATION_BACK`) ne s'écrivent que dans leurs deux fonctions, appelées par les seules
  *     actions des postes Ad & Pro.
@@ -78,8 +79,11 @@ describe("Remis aux médecins : les tournées", () => {
     expect(appelants("remettreAuMedecin")).toEqual(["src/lib/promo/remises-visite.ts"]);
   });
 
-  it("et ce module n'est appelé que par les TROIS portes d'une visite faite", () => {
-    expect(appelants("ecrireRemises")).toEqual(["src/lib/actions/medical-actions.ts", "src/lib/actions/tour-visit-actions.ts"]);
+  it("et ce module n'est appelé que par les QUATRE portes d'une visite faite", () => {
+    expect(appelants("ecrireRemises")).toEqual([
+      "src/lib/actions/field-report-actions.ts", "src/lib/actions/medical-actions.ts", "src/lib/actions/tour-visit-actions.ts",
+    ]);
+    expect(fonctionsContenant("src/lib/actions/field-report-actions.ts", /\becrireRemises\(/)).toEqual(["submitFieldReport"]);
     expect(fonctionsContenant("src/lib/actions/tour-visit-actions.ts", /\becrireRemises\(/)).toEqual(["ajouterVisiteImprevue", "rapporterVisite"]);
     expect(fonctionsContenant("src/lib/actions/medical-actions.ts", /\becrireRemises\(/)).toEqual(["logVisit"]);
   });

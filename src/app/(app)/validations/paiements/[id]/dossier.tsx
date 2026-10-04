@@ -163,6 +163,7 @@ function NudgePanel({ id, onDone }: { id: string; onDone: () => void }) {
 export function PaymentDossier({
   id, reference, status, isRequester, isFinance, pieces, events, people, canApproveNow, approveBlocker, resubmitBlocker,
   entityType, paymentMethodStated, contact, isCompanion = false, orderReference = null, withFinance = false, correction,
+  refusRetrait = null,
 }: {
   id: string;
   reference: string;
@@ -194,6 +195,12 @@ export function PaymentDossier({
    * `null` ; et ce qu'elle porte aujourd'hui. La règle est `refusDeCorrection`, la même que l'action.
    */
   correction: CorrectionView;
+  /**
+   * RETIRER LA DEMANDE (décision du 04/10) — la raison pour laquelle elle ne se retire pas, ou `null`.
+   * La règle est `refusDeRetrait`, la même que l'action : une demande APPROUVÉE se retire encore tant
+   * que son ordre n'est pas réglé.
+   */
+  refusRetrait?: string | null;
 }) {
   // Rafraîchir SANS laisser rouvrir une fiche périmée (§118.172) : la correction s'ouvre sur un
   // instantané de la demande, et ses gestes restent fermés tant que les données d'après ne sont pas là.
@@ -325,6 +332,20 @@ export function PaymentDossier({
           ni trace, ni preuve qu'elle a eu lieu. */}
       {isRequester && withFinance && <NudgePanel id={id} onDone={rafraichir} />}
 
+      {/* ───────────── RETIRER UNE DEMANDE APPROUVÉE (décision du 04/10) ─────────────
+          Le bon à payer n'est pas le règlement : tant que l'argent n'est pas parti, le demandeur
+          retire encore sa demande, et l'ordre est annulé. Les gestes de décision ne s'affichent pas ici. */}
+      {!open && isRequester && refusRetrait === null && (
+        <section className="surface space-y-3 p-4">
+          <h2 className="text-sm font-semibold">Retirer la demande</h2>
+          <p className="text-xs text-muted-foreground">Le paiement n&apos;est pas encore réglé : le retirer annule l&apos;ordre de dépense, et les Finances sont prévenues.</p>
+          <Textarea value={note} onChange={(e) => setNote(e.target.value)} rows={2} placeholder="Motif (facultatif)" />
+          <Button variant="outline" className="text-muted-foreground" disabled={busy !== null} onClick={() => void run("cancel", cancelPaymentRequest, { id, note })}>
+            Retirer la demande
+          </Button>
+        </section>
+      )}
+
       {/* ───────────── Les gestes ───────────── */}
       {open && !isCompanion && (isRequester || isFinance) && (
         <section className="surface space-y-3 p-4">
@@ -380,7 +401,7 @@ export function PaymentDossier({
                 </Button>
               </>
             )}
-            {isRequester && (
+            {isRequester && refusRetrait === null && (
               <Button variant="outline" className="text-muted-foreground" disabled={busy !== null} onClick={() => void run("cancel", cancelPaymentRequest, { id, note })}>
                 Retirer la demande
               </Button>

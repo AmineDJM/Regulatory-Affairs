@@ -7,7 +7,7 @@ import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
 import { apresModificationDeLaDemande } from "@/lib/workflow/engine";
 import {
-  canEditAdProRequest, isAdProDecided, editableField, describeChanges,
+  canEditAdProRequest, isAdProDecided, editableField, describeChanges, PERIODE_DE_LA_DEMANDE,
   type AdProKind,
 } from "@/lib/ad-pro-edit";
 import { fdStr, type ActionResult } from "@/lib/actions/types";
@@ -194,9 +194,10 @@ export async function updateAdProRequest(formData: FormData): Promise<ActionResu
   }
   // Les deux bouts d'une période se lisent ENSEMBLE : corriger la seule fin avant le début enregistrait
   // un contrat qui se termine avant d'avoir commencé.
-  if (kind === "CONSULTING_CONTRACT" && ("startDate" in data || "endDate" in data)) {
-    const debut = ("startDate" in data ? data.startDate : before.startDate) as Date | null;
-    const fin = ("endDate" in data ? data.endDate : before.endDate) as Date | null;
+  const periode = PERIODE_DE_LA_DEMANDE[kind];
+  if (periode && (periode.debut in data || periode.fin in data)) {
+    const debut = (periode.debut in data ? data[periode.debut] : before[periode.debut]) as Date | null;
+    const fin = (periode.fin in data ? data[periode.fin] : before[periode.fin]) as Date | null;
     if (debut && fin && fin < debut) return { ok: false, error: "La date de fin ne peut pas précéder la date de début." };
   }
 

@@ -28,7 +28,12 @@ export type AiFeature =
    * La lecture des LIGNES d'une pièce commerciale déposée (devis, BC, facture) par un modèle — lot D2,
    * `lecture-pieces-ia.ts`. COUPÉE par défaut : elle a un coût, et la lecture locale suffit à proposer.
    */
-  | "lecture_pieces";
+  | "lecture_pieces"
+  /**
+   * LUNA CONSEILLE OÙ RANGER UNE PIÈCE déposée sur une demande Ad & Pro (`conseil-pieces-ia.ts`) :
+   * consultatif, sans aucune écriture — ALLUMÉ par défaut.
+   */
+  | "conseil_pieces";
 
 export interface AiSettingsView {
   masterEnabled: boolean;
@@ -40,6 +45,7 @@ export interface AiSettingsView {
   voiceTranscriptEnabled: boolean;
   siteWebAiEnabled: boolean;
   lecturePiecesEnabled: boolean;
+  conseilPiecesEnabled: boolean;
 }
 
 const DEFAULTS: AiSettingsView = {
@@ -55,6 +61,9 @@ const DEFAULTS: AiSettingsView = {
   // `20270104090000_lecture_pieces`) : sans ligne, ou base injoignable, aucune pièce ne part chez un
   // fournisseur. L'activer est une décision de la Direction, prise sur l'écran, pas un défaut du code.
   lecturePiecesEnabled: false,
+  // Le conseil de rangement n'écrit rien et ne fait que conseiller : allumé, comme sa colonne
+  // (`@default(true)`, migration `20270106100000_conseil_pieces`).
+  conseilPiecesEnabled: true,
 };
 
 /** Quelle bascule gouverne quelle fonction. */
@@ -70,6 +79,7 @@ const FEATURE_KEY: Record<AiFeature, keyof AiSettingsView> = {
   voice_realtime: "assistantEnabled",
   site_web: "siteWebAiEnabled",
   lecture_pieces: "lecturePiecesEnabled",
+  conseil_pieces: "conseilPiecesEnabled",
 };
 
 /**
@@ -92,6 +102,7 @@ export async function getAiSettings(): Promise<AiSettingsView> {
       voiceTranscriptEnabled: row.voiceTranscriptEnabled,
       siteWebAiEnabled: row.siteWebAiEnabled,
       lecturePiecesEnabled: row.lecturePiecesEnabled,
+      conseilPiecesEnabled: row.conseilPiecesEnabled,
     };
   } catch {
     return DEFAULTS;

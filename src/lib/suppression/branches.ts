@@ -270,6 +270,7 @@ export const LIBELLE_DU_MODELE: Readonly<Record<string, [string, string]>> = {
   AdProStockLine: ["article du stock demandé", "articles du stock demandés"],
   // Les voyageurs d'un poste de billetterie (§118.175) : ils partent avec leur poste, et reviennent avec lui.
   AdProVoyageur: ["voyageur", "voyageurs"],
+  AdProItemPiece: ["pièce de poste", "pièces de poste"],
   // Les achats du matériel promotionnel (§118.165) : ce qu'une demande pioche dans le catalogue,
   // et les factures reçues ligne à ligne.
   PromoRequestItem: ["article demandé", "articles demandés"],

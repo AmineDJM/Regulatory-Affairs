@@ -1,4 +1,6 @@
 import type { AdProItemKind, AdProItemOrderStage, AdProItemStatus } from "@prisma/client";
+import type { EtapeBC } from "@/lib/bons-de-commande/regle";
+import type { DroitsValidation } from "@/lib/ad-pro/validation-poste";
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
@@ -28,7 +30,7 @@ import type { AdProItemKind, AdProItemOrderStage, AdProItemStatus } from "@prism
  * ═══════════════════════════════════════════════════════════════════════════════════════════
  */
 
-export type CleEtape = "CHIFFRE" | "DIRECTION" | "BUDGET" | "BC" | "PAIEMENT";
+export type CleEtape = "CHIFFRE" | "OPERATIONS" | "MARKETING" | "BC" | "FACTURE" | "PAIEMENT";
 export type EtatEtape = "FAIT" | "EN_COURS" | "A_VENIR" | "REFUSE";
 
 export interface Etape {
@@ -36,6 +38,12 @@ export interface Etape {
   libelle: string;
   etat: EtatEtape;
 }
+
+/**
+ * OÙ EN EST LA DEMANDE DE BC CHEZ L'ASSISTANTE (§118.204) — la demande de pièce qu'elle a reçue.
+ * `CHEZ_ASSISTANTE` : elle l'établit ; `DEPOSE` : elle l'a déposé, le demandeur le vérifie.
+ */
+export type EtatDemandeBC = "AUCUNE" | "CHEZ_ASSISTANTE" | "DEPOSE";
 
 /** Ce qu'un poste porte — les colonnes qui décident de son étape. */
 export interface FaitsPoste {
@@ -51,31 +59,48 @@ export interface FaitsPoste {
   /** Combien d'articles du magasin un poste « Matériel du stock » liste (§118.167). */
   lignesStock: number;
   /**
-   * Le BC est passé aux Finances SOUS le seuil, sans visa d'aucun centre (§118.149). Il porte le
-   * même `DIRECTION_OK` qu'un BC visé — et la phrase ne doit pas dire « validé » à sa place.
+   * Le BC est passé SOUS le seuil, sans visa d'aucun centre (§118.149). Il porte le même
+   * `DIRECTION_OK` qu'un BC visé — et la phrase ne doit pas dire « validé » à sa place.
    */
   orderSansCentre?: boolean;
+  /** Le premier temps de la validation (Direction des opérations), §118.204. */
+  opsDecidedAt?: string | null;
+  /** La demande de pièce « bon de commande » envoyée à l'assistante, §118.204. */
+  demandeBC?: EtatDemandeBC;
+  /** L'étape du bon de commande du poste au registre Legal (signature des Finances), ou `null`. */
+  bc?: EtapeBC | null;
+  /** Combien de factures (non annulées) le poste porte. */
+  factures?: number;
 }
 
 /** Ce que la personne qui regarde peut faire — calculé au serveur, jamais deviné ici. */
 export interface RegardPoste {
-  /** Décrire, chiffrer, soumettre, répartir, demander le BC. */
+  /** Décrire, chiffrer, soumettre, répartir, demander le BC, déposer la facture. */
   canEdit: boolean;
-  /** Décider du poste, choisir son budget (la Direction). */
+  /**
+   * Arbitrer un poste « Matériel du stock » (sa décision unique), affecter un montant hors du
+   * circuit, revoir une décision. Les postes d'ARGENT, eux, se valident en deux temps (`validation`).
+   */
   canAllocate: boolean;
   /** Viser un bon de commande (siège au centre de validation Ad & Pro). */
   canViserBC: boolean;
-  /** Émettre (les Finances, ou la Direction pour un versement sans BC — `emitItemExpenseOrder`). */
+  /** Annuler un ordre émis non réglé (les Finances, ou qui arbitre). */
   canEmettre: boolean;
   /** Demande clôturée : on n'arbitre plus, on exécute encore (§118.151). */
   fige: boolean;
   /** L'opération est accordée — sans quoi aucun ordre de dépense ne part (`canEmitOrder`). */
   operationDecidee: boolean;
+  /** Les deux temps de la validation d'un poste d'argent (§118.204). */
+  validation?: DroitsValidation;
+  /** La demande a été déposée par la Direction Marketing : son second temps revient à la Direction des opérations. */
+  secondTempsParOperations?: boolean;
+  /** La personne qui regarde a demandé le BC : c'est elle qui vérifie la pièce déposée. */
+  verifieLeBC?: boolean;
 }
 
 export type CleGeste =
-  | "REPARTIR" | "CHIFFRER" | "SOUMETTRE" | "DECIDER" | "MONTANT" | "BUDGET"
-  | "DEMANDER_BC" | "VISER_BC" | "EMETTRE_BC" | "EMETTRE_DIRECT";
+  | "REPARTIR" | "CHIFFRER" | "SOUMETTRE" | "VALIDER_OPS" | "DECIDER" | "MONTANT" | "BUDGET"
+  | "DEMANDER_BC" | "VISER_BC" | "VERIFIER_BC" | "DEMANDER_PAIEMENT";
 
 export interface Geste {
   cle: CleGeste;
@@ -105,11 +130,18 @@ export function faitsDuPoste(r: {
   expenseOrder: { status: string } | null;
   lignesStock: readonly unknown[];
   orderSansCentre?: boolean;
+  opsDecidedAt?: string | null;
+  /** La demande de BC ouverte chez l'assistante (`DemandeBCDuPoste`), s'il y en a une. */
+  demandeBC?: { etat: EtatDemandeBC } | null;
+  /** La chaîne d'achat du poste (`PiecesDuPoste`). */
+  pieces?: { bc: { etape: EtapeBC | null } | null; factures: readonly unknown[] };
 }): FaitsPoste {
   return {
     kind: r.kind, status: r.status, amountEstimated: r.amountEstimated, amountGranted: r.amountGranted,
     budgetCategoryId: r.budgetCategoryId, orderStage: r.orderStage, expenseOrderId: r.expenseOrderId,
     expenseOrderStatus: r.expenseOrder?.status ?? null, lignesStock: r.lignesStock.length, orderSansCentre: r.orderSansCentre,
+    opsDecidedAt: r.opsDecidedAt ?? null, demandeBC: r.demandeBC?.etat ?? "AUCUNE",
+    bc: r.pieces?.bc ? (r.pieces.bc.etape ?? "HORS_CIRCUIT") : null, factures: r.pieces?.factures.length ?? 0,
   };
 }
 
@@ -121,44 +153,74 @@ const chiffre = (p: FaitsPoste) => positif(p.amountGranted ?? p.amountEstimated)
 
 /**
  * Un poste dont l'argent part SANS bon de commande : le versement à l'association d'un
- * sponsoring direct (§118.151). Les autres paient un fournisseur, donc passent par un BC.
+ * sponsoring direct (§118.151). « Si c'est un sponsoring direct, on n'a pas besoin d'émettre un bon
+ * de commande : facture pro forma facultative, facture obligatoire » (Direction, 04/10, §118.204).
  */
 export const VERSEMENT_SANS_BC: readonly AdProItemKind[] = ["ASSOCIATION_SUPPORT"];
 
-/** La frise d'un poste d'argent. Un poste « Matériel du stock » n'en a pas : il a son propre bloc. */
+/** Le BC du poste est-il signé — la condition pour déposer la facture d'un poste qui en a un (§118.204) ? */
+export const bcSigne = (p: FaitsPoste) => p.bc === "SIGNE";
+
+/**
+ * LA FRISE D'UN POSTE D'ARGENT — chiffré → Direction des opérations → Direction Marketing (budget) →
+ * bon de commande → facture → paiement. Un poste « Matériel du stock » n'en a pas : il a son bloc.
+ */
 export function etapesDuPoste(p: FaitsPoste): Etape[] {
   if (p.kind === "STOCK_MATERIAL") return [];
   const accorde = p.status === "APPROVED";
+  const opsFait = Boolean(p.opsDecidedAt) || accorde;
   const paye = p.expenseOrderStatus === "PAID";
   const sansBC = VERSEMENT_SANS_BC.includes(p.kind);
+  const factures = p.factures ?? 0;
   const etapes: Etape[] = [
     { cle: "CHIFFRE", libelle: "Chiffré", etat: chiffre(p) ? "FAIT" : "EN_COURS" },
     {
-      cle: "DIRECTION", libelle: "Direction",
-      etat: accorde ? "FAIT"
+      cle: "OPERATIONS", libelle: "Direction des opérations",
+      etat: opsFait ? "FAIT"
         : p.status === "REJECTED" ? "REFUSE"
         : p.status === "PENDING" ? "EN_COURS"
         : "A_VENIR",
     },
-    { cle: "BUDGET", libelle: "Budget", etat: p.budgetCategoryId ? "FAIT" : accorde ? "EN_COURS" : "A_VENIR" },
+    {
+      cle: "MARKETING", libelle: "Direction Marketing · budget",
+      etat: accorde && p.budgetCategoryId ? "FAIT"
+        : p.status === "REJECTED" && p.opsDecidedAt ? "REFUSE"
+        : (p.status === "PENDING" && p.opsDecidedAt) || accorde ? "EN_COURS"
+        : "A_VENIR",
+    },
   ];
-  // Un versement sans BC qui en a quand même un (poste d'avant cette règle, ou BC demandé à la
-  // main) MONTRE son BC : taire une étape qui a eu lieu ferait mentir la frise.
-  if (!sansBC || p.orderStage !== "NONE") {
+  // Un versement sans BC qui en a quand même un (poste d'avant cette règle) MONTRE son BC : taire une
+  // étape qui a eu lieu ferait mentir la frise.
+  if (!sansBC || p.orderStage !== "NONE" || p.bc) {
     etapes.push({
       cle: "BC", libelle: "Bon de commande",
-      etat: p.orderStage === "ISSUED" || p.expenseOrderId ? "FAIT"
-        : p.orderStage === "REFUSED" ? "REFUSE"
-        : p.orderStage === "REQUESTED" || p.orderStage === "DIRECTION_OK" ? "EN_COURS"
+      etat: bcSigne(p) || (p.expenseOrderId && !p.bc) ? "FAIT"
+        : p.orderStage === "REFUSED" || p.bc === "REFUSE" ? "REFUSE"
+        : p.bc || p.orderStage === "REQUESTED" || p.orderStage === "DIRECTION_OK" ? "EN_COURS"
         : accorde && p.budgetCategoryId ? "EN_COURS" : "A_VENIR",
     });
   }
+  const factureOuverte = accorde && p.budgetCategoryId && (sansBC ? true : bcSigne(p));
+  etapes.push({
+    cle: "FACTURE", libelle: "Facture",
+    etat: factures > 0 ? "FAIT" : factureOuverte || p.expenseOrderId ? "EN_COURS" : "A_VENIR",
+  });
   etapes.push({
     cle: "PAIEMENT", libelle: "Paiement",
-    etat: paye ? "FAIT" : p.expenseOrderId ? "EN_COURS" : sansBC && accorde && p.budgetCategoryId ? "EN_COURS" : "A_VENIR",
+    etat: paye ? "FAIT" : p.expenseOrderId ? "EN_COURS" : "A_VENIR",
   });
   return etapes;
 }
+
+/** Ce que la carte dit d'un BC au registre qui n'est pas encore signé. */
+const ATTENTE_BC: Partial<Record<EtapeBC, string>> = {
+  A_VALIDER: "Bon de commande au centre de validation Ad & Pro.",
+  A_REVOIR: "Bon de commande à revoir au centre de validation Ad & Pro.",
+  A_SIGNER: "Bon de commande à signer par les Finances.",
+  A_CORRIGER: "Bon de commande renvoyé à l'émetteur par les Finances — à corriger.",
+  REFUSE: "Bon de commande refusé : demandez-en un autre.",
+  SANS_PORTE: "Bon de commande à adresser au centre de validation.",
+};
 
 /**
  * LE PROCHAIN GESTE — un seul, celui de la personne qui regarde ; sinon ce qu'on attend.
@@ -169,10 +231,11 @@ export function etapesDuPoste(p: FaitsPoste): Etape[] {
 export function prochainPas(p: FaitsPoste, r: RegardPoste): ProchainPas {
   const editer = r.canEdit && !r.fige;
   const arbitrer = r.canAllocate && !r.fige;
+  const droits = r.validation ?? { operations: false, marketing: false };
+  const qui2 = r.secondTempsParOperations ? "la Direction des opérations" : "la Direction Marketing";
 
-  // LE MATÉRIEL DU STOCK (§118.167) suit le même ACCORD que l'argent — soumettre, décider —, mais
-  // pas sa suite : il n'a ni budget, ni bon de commande, ni paiement. Une fois accordé, c'est son
-  // propre bloc qui le confirme après l'événement.
+  // LE MATÉRIEL DU STOCK (§118.167) suit un ACCORD unique — soumettre, décider —, mais pas la suite
+  // de l'argent : ni budget, ni bon de commande, ni paiement. Une fois accordé, son bloc le confirme.
   if (p.kind === "STOCK_MATERIAL") {
     if (STATUTS_EDITABLES.includes(p.status)) {
       if (!editer) return { geste: null, attente: "Le demandeur liste le matériel du magasin et le soumet à la Direction." };
@@ -200,51 +263,77 @@ export function prochainPas(p: FaitsPoste, r: RegardPoste): ProchainPas {
     if (!editer) {
       return {
         geste: null,
-        attente: p.status === "REVISION" ? "Budget à revoir par le demandeur."
-          : p.status === "REJECTED" ? "Refusé par la Direction — le demandeur peut le corriger et le resoumettre."
-          : "Brouillon — le demandeur le chiffre et le soumet à la Direction.",
+        attente: p.status === "REVISION" ? "À revoir par le demandeur."
+          : p.status === "REJECTED" ? "Refusé — le demandeur peut le corriger et le resoumettre."
+          : "Brouillon — le demandeur le chiffre et le soumet pour validation.",
       };
     }
     if (!chiffre(p)) return { geste: { cle: "CHIFFRER", libelle: "Chiffrer le poste" }, attente: null };
-    return { geste: { cle: "SOUMETTRE", libelle: p.status === "DRAFT" ? "Soumettre à la Direction" : "Resoumettre à la Direction" }, attente: null };
+    return { geste: { cle: "SOUMETTRE", libelle: p.status === "DRAFT" ? "Soumettre pour validation" : "Resoumettre pour validation" }, attente: null };
   }
 
+  // ── LA VALIDATION EN DEUX TEMPS (§118.204) ─────────────────────────────────────────────
   if (p.status === "PENDING") {
-    return arbitrer
-      ? { geste: { cle: "DECIDER", libelle: "Décider de ce poste" }, attente: null }
-      : { geste: null, attente: "En attente de la décision de la Direction." };
+    if (!p.opsDecidedAt) {
+      return droits.operations && !r.fige
+        ? { geste: { cle: "VALIDER_OPS", libelle: "Valider (Direction des opérations)" }, attente: null }
+        : { geste: null, attente: "En attente de la validation de la Direction des opérations." };
+    }
+    return droits.marketing && !r.fige
+      ? { geste: { cle: "DECIDER", libelle: "Valider et choisir le budget" }, attente: null }
+      : { geste: null, attente: `Validé par la Direction des opérations — en attente de ${qui2} (montant et budget).` };
   }
 
   // ── ACCORDÉ ────────────────────────────────────────────────────────────────────────────
   if (p.expenseOrderId) {
-    return { geste: null, attente: p.expenseOrderStatus === "PAID" ? null : "Ordre de dépense émis — au centre de paiement." };
+    return { geste: null, attente: p.expenseOrderStatus === "PAID" ? null : "Paiement demandé — au centre de paiement." };
   }
   if (p.orderStage === "ISSUED") return { geste: null, attente: null };
-  if (p.orderStage === "REQUESTED") {
-    return r.canViserBC
-      ? { geste: { cle: "VISER_BC", libelle: "Valider le bon de commande" }, attente: null }
-      : { geste: null, attente: "Bon de commande au centre de validation Ad & Pro." };
-  }
-  if (p.orderStage === "DIRECTION_OK") {
-    return r.canEmettre
-      ? { geste: { cle: "EMETTRE_BC", libelle: "Émettre le bon de commande" }, attente: null }
-      : { geste: null, attente: p.orderSansCentre ? "BC sous le seuil — en attente des Finances." : "Bon de commande validé — en attente des Finances." };
-  }
+  // Un poste accordé d'AVANT la validation en deux temps peut n'avoir ni montant ni budget.
   if (!positif(p.amountGranted)) {
-    return arbitrer
+    return droits.marketing && !r.fige
       ? { geste: { cle: "MONTANT", libelle: "Affecter le montant accordé" }, attente: null }
-      : { geste: null, attente: "La Direction affecte le montant accordé à ce poste." };
+      : { geste: null, attente: `${capitale(qui2)} affecte le montant accordé à ce poste.` };
   }
   if (!p.budgetCategoryId) {
-    return arbitrer
+    return droits.marketing && !r.fige
       ? { geste: { cle: "BUDGET", libelle: "Choisir le budget" }, attente: null }
-      : { geste: null, attente: "La Direction choisit le budget qui porte ce poste." };
+      : { geste: null, attente: `${capitale(qui2)} choisit le budget qui porte ce poste.` };
   }
-  if (VERSEMENT_SANS_BC.includes(p.kind)) {
-    if (!r.operationDecidee) return { geste: null, attente: "L'ordre de dépense partira quand l'opération sera accordée." };
-    return r.canEmettre
-      ? { geste: { cle: "EMETTRE_DIRECT", libelle: "Émettre l'ordre de dépense" }, attente: null }
-      : { geste: null, attente: "Les Finances émettent l'ordre de dépense." };
+  const payer: ProchainPas = r.canEdit
+    ? { geste: { cle: "DEMANDER_PAIEMENT", libelle: "Déposer la facture et demander le paiement" }, attente: null }
+    : { geste: null, attente: "Le demandeur dépose la facture pour demander le paiement." };
+
+  // SPONSORING DIRECT : pas de bon de commande. Pro forma facultative, facture obligatoire.
+  if (VERSEMENT_SANS_BC.includes(p.kind) && p.orderStage === "NONE" && !p.bc) {
+    if (!r.operationDecidee) return { geste: null, attente: "La facture se déposera quand l'opération sera accordée." };
+    return payer;
+  }
+
+  // ── LE BON DE COMMANDE : demande → (centre) → assistante → vérification → signature Finances ──
+  if (p.bc === "SIGNE") return payer;
+  if (p.bc) return { geste: null, attente: ATTENTE_BC[p.bc] ?? "Bon de commande en cours au registre." };
+  // DEMANDÉ : l'assistante l'établit pendant que, au-dessus du seuil, le centre le vise en parallèle.
+  if (p.orderStage === "REQUESTED" || p.orderStage === "DIRECTION_OK") {
+    if (p.orderStage === "REQUESTED" && r.canViserBC) return { geste: { cle: "VISER_BC", libelle: "Valider le bon de commande" }, attente: null };
+    if (p.demandeBC === "DEPOSE") {
+      return r.verifieLeBC
+        ? { geste: { cle: "VERIFIER_BC", libelle: "Vérifier le bon de commande déposé" }, attente: null }
+        : { geste: null, attente: "Bon de commande déposé par l'assistante — le demandeur le vérifie." };
+    }
+    // UNE DEMANDE D'AVANT LA RÈGLE (§118.204) : demandée au secrétariat, elle ne reviendrait jamais sur
+    // le poste. L'action accepte de l'envoyer à l'assistante ; la carte doit le proposer.
+    if (p.demandeBC === "AUCUNE") {
+      return r.canEdit
+        ? { geste: { cle: "DEMANDER_BC", libelle: "Envoyer la demande de BC à l'assistante" }, attente: null }
+        : { geste: null, attente: "Le demandeur envoie la demande de bon de commande à l'assistante de direction." };
+    }
+    return {
+      geste: null,
+      attente: p.orderStage === "REQUESTED"
+        ? "L'assistante de direction établit le bon de commande — le centre de validation Ad & Pro le vise en parallèle."
+        : "L'assistante de direction établit le bon de commande.",
+    };
   }
   // Bon de commande à demander (ou à redemander après un refus du centre). Cette demande reste un
   // geste d'EXÉCUTION : elle s'offre encore sur une demande clôturée (§118.151).
@@ -252,6 +341,8 @@ export function prochainPas(p: FaitsPoste, r: RegardPoste): ProchainPas {
     ? { geste: { cle: "DEMANDER_BC", libelle: p.orderStage === "REFUSED" ? "Redemander l'émission du BC" : "Demander l'émission du BC" }, attente: null }
     : { geste: null, attente: "Le demandeur demande l'émission du bon de commande." };
 }
+
+const capitale = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 
 /**
  * LES POSTES REGROUPÉS PAR RÉPARTITION — dans l'ordre où ils apparaissent. Un poste né d'une

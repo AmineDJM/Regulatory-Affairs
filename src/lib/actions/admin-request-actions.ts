@@ -1,5 +1,6 @@
 "use server";
 
+import { refusDuRetraitValidation, validateursSollicites } from "@/lib/validations/retrait";
 import { randomUUID } from "crypto";
 import { revalidatePath } from "next/cache";
 import { FinanceCategory } from "@prisma/client";
@@ -1232,26 +1233,31 @@ export async function cancelAttachmentValidation(formData: FormData): Promise<{ 
     where: { id: validationId, entityType: "ADMIN_REQUEST", documentId: { not: null } },
     select: {
       id: true, reference: true, title: true, status: true, requesterId: true, entityId: true,
-      steps: { select: { validatorId: true, status: true } },
+      version: true, mode: true, currentOrder: true,
+      steps: { select: { validatorId: true, status: true, order: true } },
     },
   });
   if (!val) return { ok: false, error: "Validation introuvable." };
-  if (val.status !== "PENDING") return { ok: false, error: "Cette validation est déjà clôturée." };
+  // LA MÊME RÈGLE QUE LA FICHE D'UNE VALIDATION (`validations/retrait.ts`, décision du 04/10) : on
+  // retire tant que ce n'est pas tranché. Une validation de pièce renvoyée se corrige depuis la pièce
+  // (elle n'est pas « sur place ») : elle ne se retire qu'en attente.
+  const refusRetrait = refusDuRetraitValidation({ status: val.status, version: val.version, surPlace: false, steps: val.steps });
+  if (refusRetrait) return { ok: false, error: val.status === "PENDING" ? refusRetrait : "Cette validation est déjà clôturée." };
 
   const isSecretary = user.role === "DIRECTION_ASSISTANT";
   const allowed = hasGlobalView(user.role) || isSecretary || userCan(user, "ADMIN_REQUESTS", "UPDATE") || val.requesterId === user.id;
   if (!allowed) return { ok: false, error: "Non autorisé." };
 
-  await prisma.validationRequest.update({ where: { id: val.id }, data: { status: "CANCELLED", decidedAt: new Date() } });
+  // UN GESTE À LA FOIS : la clôture exige la demande encore en attente.
+  const close = await prisma.validationRequest.updateMany({ where: { id: val.id, status: "PENDING" }, data: { status: "CANCELLED", decidedAt: new Date() } });
+  if (close.count === 0) return { ok: false, error: "Cette validation vient d'être tranchée ou retirée — rechargez la page." };
 
-  // Prévenir ceux qui l'avaient encore dans leur file — sinon ils chercheraient une demande disparue.
-  for (const s of val.steps) {
-    if (s.status === "PENDING" && s.validatorId !== user.id) {
-      await notifyUser({
-        userId: s.validatorId, type: "GENERIC", title: "Validation retirée",
-        body: `${val.reference} — ${val.title}`, link: val.entityId ? `/demandes/${val.entityId}` : "/validations",
-      });
-    }
+  // Prévenir ceux qui l'ont déjà eue entre les mains — sinon ils chercheraient une demande disparue.
+  for (const v of validateursSollicites(val, user.id)) {
+    await notifyUser({
+      userId: v, type: "GENERIC", title: "Validation retirée",
+      body: `${val.reference} — ${val.title}`, link: val.entityId ? `/demandes/${val.entityId}` : "/validations",
+    });
   }
   await recordAudit({
     actorId: user.id, action: "UPDATE", module: "Demandes administratives", entityType: "ADMIN_REQUEST", entityId: val.entityId ?? val.id,

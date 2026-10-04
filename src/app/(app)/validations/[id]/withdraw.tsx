@@ -28,7 +28,7 @@ export function WithdrawRequestButton({ id, reference, canWithdraw, abandon = fa
     return (
       <span
         className="text-xs text-muted-foreground"
-        title="Un validateur s'est déjà prononcé : l'accord ou le refus d'un tiers ne s'efface pas."
+        title="La demande est tranchée : l'accord ou le refus d'un tiers ne s'efface pas."
       >
         Retrait impossible — déjà tranchée
       </span>
@@ -44,7 +44,7 @@ export function WithdrawRequestButton({ id, reference, canWithdraw, abandon = fa
         disabled={busy}
         onClick={async () => {
           const question = abandon
-            ? `Abandonner la demande ${reference} ? Elle sera close et restera visible, avec son historique.`
+            ? `Retirer la demande ${reference} ? Elle sera close et restera visible, avec son historique ; les validateurs déjà sollicités sont prévenus.`
             : `Retirer la demande ${reference} ? Elle disparaîtra de la file de vos validateurs.`;
           if (!window.confirm(question)) return;
           setBusy(true); setErr(null);
@@ -56,7 +56,7 @@ export function WithdrawRequestButton({ id, reference, canWithdraw, abandon = fa
           else setErr(r.error ?? "Retrait impossible.");
         }}
       >
-        {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />} {abandon ? "Abandonner la demande" : "Retirer ma demande"}
+        {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />} Retirer ma demande
       </Button>
       {err && <p role="alert" className="max-w-xs text-right text-xs text-destructive">{err}</p>}
     </div>

@@ -141,16 +141,24 @@ export function businessUnitField(
  *    dit ; les médecins cochés à la création sont les praticiens INVITÉS, pas les bénéficiaires.
  *    Les exiger bloquerait une création parfaitement légitime.
  *
+ *  · { medecinsSeuls } — la nature désigne des PRATICIENS et pas de produit, avec la raison. Les
+ *    deux prises en charge depuis la décision du 04/10/2026.
+ *
  *  · { sans } — la nature ne désigne NI praticien NI produit, avec la raison à côté. Une
  *    exception qui se compte, jamais un trou.
  */
-export type ExigenceReferentiels = "OBLIGATOIRE" | "FACULTATIF" | { sans: string };
+export type ExigenceReferentiels = "OBLIGATOIRE" | "FACULTATIF" | { medecinsSeuls: string } | { sans: string };
+
+const PRISE_EN_CHARGE_SANS_PRODUIT =
+  "Une prise en charge emmène des PROFESSIONNELS à un événement : la Direction a retiré la spécialité "
+  + "et les produits promus de sa saisie (04/10/2026). Ses médecins sont les professionnels proposés, "
+  + "facultatifs à la création : la liste se complète sur la fiche.";
 
 export const REFERENTIELS_PAR_NATURE: Record<AdProKind, ExigenceReferentiels> = {
   SPONSORING: "OBLIGATOIRE",
   EVENT: "OBLIGATOIRE",
-  CONGRESS_INTERNATIONAL: "FACULTATIF",
-  CONGRESS_NATIONAL: "FACULTATIF",
+  CONGRESS_INTERNATIONAL: { medecinsSeuls: PRISE_EN_CHARGE_SANS_PRODUIT },
+  CONGRESS_NATIONAL: { medecinsSeuls: PRISE_EN_CHARGE_SANS_PRODUIT },
   CONSULTING: "FACULTATIF",
   OTHER: "FACULTATIF",
   PROMO_MATERIAL: {
@@ -162,6 +170,12 @@ export const REFERENTIELS_PAR_NATURE: Record<AdProKind, ExigenceReferentiels> = 
 /** La nature propose-t-elle les deux référentiels ? Lu par le chargeur, qui ne lit que l'utile. */
 export function natureDesigneMedecinsEtProduits(kind: AdProKind): boolean {
   return typeof REFERENTIELS_PAR_NATURE[kind] === "string";
+}
+
+/** La nature désigne-t-elle des PRATICIENS (avec ou sans produit) ? */
+export function natureDesigneMedecins(kind: AdProKind): boolean {
+  const e = REFERENTIELS_PAR_NATURE[kind];
+  return typeof e === "string" || "medecinsSeuls" in e;
 }
 
 /**

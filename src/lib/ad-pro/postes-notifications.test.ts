@@ -7,7 +7,7 @@ vi.mock("@/lib/session", () => ({ requireUser: async () => ACTOR }));
 
 import { prisma } from "@/lib/prisma";
 import { getAccess, userCan, type SessionUser } from "@/lib/rbac";
-import { addAdProItem, submitAdProItem } from "@/lib/actions/ad-pro-item-actions";
+import { addAdProItem, submitAdProItem, decideAdProItem } from "@/lib/actions/ad-pro-item-actions";
 import { getActionCenter } from "@/lib/queries/action-center";
 
 let dbOk = false;
@@ -34,8 +34,8 @@ const fd = (c: Record<string, string>) => { const f = new FormData(); for (const
 suite("Postes Ad & Pro — ceux qui décident sont prévenus (validation et lecture)", () => {
   const u: Record<string, string> = {};
   let congres = "";
-  const recues = (type: "GENERIC" | "VALIDATION_REQUIRED") => prisma.notification.count({
-    where: { userId: u.dm, type, link: { contains: congres }, createdAt: { gte: DEBUT } },
+  const recues = (type: "GENERIC" | "VALIDATION_REQUIRED", qui: "dm" | "ops" = "dm") => prisma.notification.count({
+    where: { userId: u[qui], type, link: { contains: congres }, createdAt: { gte: DEBUT } },
   });
 
   beforeAll(async () => {
@@ -45,6 +45,8 @@ suite("Postes Ad & Pro — ceux qui décident sont prévenus (validation et lect
     };
     await mk("kam", "MEDICAL_DELEGATE");
     await mk("dm", "PRODUCT_MANAGER");
+    // LA DIRECTION DES OPÉRATIONS tient le PREMIER temps de la validation (§118.204).
+    await mk("ops", "DIRECTION");
     congres = (await prisma.congressNational.create({ data: { name: `${RUN} Congrès de Batna`, requesterId: u.kam } })).id;
   });
   afterAll(nettoyer);
@@ -75,13 +77,23 @@ suite("Postes Ad & Pro — ceux qui décident sont prévenus (validation et lect
     expect(await recues("GENERIC")).toBe(1);
     const s = await submitAdProItem(undefined, fd({ id: r.ok ? r.id! : "" }));
     expect(s.ok, JSON.stringify(s)).toBe(true);
-    expect(await recues("VALIDATION_REQUIRED")).toBe(1);
-    // LA FILE DE CELLE QUI DÉCIDE le porte aussi — y compris pour un poste soumis avant que la
-    // notification l'atteigne (§118.202) ; celle du demandeur, non (témoin).
+    // DEUX TEMPS (§118.204) : la soumission demande la validation à la Direction des opérations — la
+    // Direction Marketing n'est pas encore sollicitée (elle sait le poste ajouté, en lecture).
+    expect(await recues("VALIDATION_REQUIRED", "ops"), "la Direction des opérations est sollicitée").toBe(1);
+    expect(await recues("VALIDATION_REQUIRED"), "la Direction Marketing pas encore").toBe(0);
     const cle = `poste-${r.ok ? r.id! : ""}`;
-    const dm = (await getActionCenter(await acteur(u.dm, "PRODUCT_MANAGER") as unknown as SessionUser)).items;
-    expect(dm.find((i) => i.key === cle)?.href, "la Direction Marketing voit le poste à décider").toBe(`/congress-national/${congres}`);
-    const kam = (await getActionCenter(await acteur(u.kam, "MEDICAL_DELEGATE") as unknown as SessionUser)).items;
-    expect(kam.some((i) => i.key === cle), "le demandeur ne le décide pas").toBe(false);
+    const file = async (k: "dm" | "ops" | "kam", role: SessionUser["role"]) =>
+      (await getActionCenter(await acteur(u[k], role) as unknown as SessionUser)).items;
+    expect((await file("ops", "DIRECTION")).find((i) => i.key === cle)?.href, "la Direction des opérations voit le poste à valider").toBe(`/congress-national/${congres}`);
+    expect((await file("dm", "PRODUCT_MANAGER")).some((i) => i.key === cle), "la Direction Marketing ne voit pas un temps qui n'est pas le sien").toBe(false);
+    expect((await file("kam", "MEDICAL_DELEGATE")).some((i) => i.key === cle), "le demandeur ne le décide pas").toBe(false);
+
+    // Le premier temps validé : c'est AU TOUR de la Direction Marketing — prévenue, et sa file le porte.
+    ACTOR = await acteur(u.ops, "DIRECTION");
+    const v = await decideAdProItem(undefined, fd({ id: r.ok ? r.id! : "", decision: "APPROVED" }));
+    expect(v.ok, JSON.stringify(v)).toBe(true);
+    expect(await recues("VALIDATION_REQUIRED"), "la Direction Marketing est sollicitée").toBe(1);
+    expect((await file("dm", "PRODUCT_MANAGER")).find((i) => i.key === cle)?.href, "la Direction Marketing voit le poste à décider").toBe(`/congress-national/${congres}`);
+    expect((await file("ops", "DIRECTION")).some((i) => i.key === cle), "la Direction des opérations n'a plus rien à faire").toBe(false);
   });
 });

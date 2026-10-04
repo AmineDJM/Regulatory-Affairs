@@ -353,11 +353,16 @@ export async function renvoyer(tx: Tx, transfertId: string, r: {
  * périmé ne se remet pas, il se déclare détruit). Chaque tranche porte la visite et le médecin :
  * c'est ce qui fait l'historique « ce que ce médecin a reçu », et ce qu'une correction contre-passe.
  * L'appelant tient le verrou de l'article.
+ *
+ * L'ANCRE est la visite, ou — pour un compte rendu de visite (rapport terrain) qu'aucune visite ne
+ * porte — le rapport lui-même (§118.204). Jamais les deux : c'est l'ancre qu'une correction relit.
  */
+export type AncreRemise = { visitId: string } | { fieldReportId: string };
+
 export async function remettreAuMedecin(tx: Tx, itemId: string, r: {
   holderId: string;
   quantite: number;
-  visitId: string;
+  ancre: AncreRemise;
   doctorId: string | null;
   motif: string | null;
   auteurId: string;
@@ -370,7 +375,7 @@ export async function remettreAuMedecin(tx: Tx, itemId: string, r: {
     await tx.promoStockMovement.create({
       data: {
         itemId, lotId: t.lotId, holderId: r.holderId, kind: "DISTRIBUTION", delta: -t.quantite,
-        visitId: r.visitId, doctorId: r.doctorId, reason: r.motif, occurredAt: r.maintenant, createdById: r.auteurId,
+        ...r.ancre, doctorId: r.doctorId, reason: r.motif, occurredAt: r.maintenant, createdById: r.auteurId,
       },
     });
   }
@@ -384,10 +389,10 @@ export async function remettreAuMedecin(tx: Tx, itemId: string, r: {
  * médecin garde la trace de la remise ET de sa correction. Rend la quantité reprise.
  * L'appelant tient le verrou de l'article.
  */
-export async function reprendreRemisesDeLaVisite(tx: Tx, visitId: string, itemId: string, auteurId: string, motif: string | null):
+export async function reprendreRemisesDeLaVisite(tx: Tx, ancre: AncreRemise, itemId: string, auteurId: string, motif: string | null):
   Promise<number> {
   const actives = await tx.promoStockMovement.findMany({
-    where: { visitId, itemId, kind: "DISTRIBUTION", annulation: { is: null } },
+    where: { ...ancre, itemId, kind: "DISTRIBUTION", annulation: { is: null } },
     select: { id: true, lotId: true, holderId: true, delta: true, doctorId: true },
   });
   let reprise = 0;
@@ -396,7 +401,7 @@ export async function reprendreRemisesDeLaVisite(tx: Tx, visitId: string, itemId
     await tx.promoStockMovement.create({
       data: {
         itemId, lotId: m.lotId, holderId: m.holderId, kind: "REVERSAL", delta: inverse,
-        annuleId: m.id, visitId, doctorId: m.doctorId, reason: motif, createdById: auteurId,
+        annuleId: m.id, ...ancre, doctorId: m.doctorId, reason: motif, createdById: auteurId,
       },
     });
     reprise = r3(reprise + inverse);

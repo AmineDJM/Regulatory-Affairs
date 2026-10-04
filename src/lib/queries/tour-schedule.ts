@@ -7,6 +7,7 @@ import {
   type AvancementTournee, type EtatVisite, type RetardDeSoumission, type StatutPlan, type VueTournee,
 } from "@/lib/sfe/tournee";
 import { lireReglageTournee } from "@/lib/sfe/tournee-reglage";
+import { diagnosticPanelVide, type CausePanelVide } from "@/lib/sfe/panel-diagnostic";
 import { remisesDesVisites, type RemisesDeVisite } from "@/lib/queries/promo-remises";
 
 /**
@@ -286,15 +287,76 @@ export async function loadPanelPlanifiable(repId: string): Promise<PraticienPlan
     select: {
       id: true, name: true, specialty: true, institution: true, wilaya: true, potential: true,
       institutionId: true, serviceId: true,
+      institutionRef: { select: { wilaya: true } },
     },
   });
   return praticiens.map((d) => ({
     id: d.id, name: d.name, specialty: d.specialty, institution: d.institution,
-    wilaya: d.wilaya, potential: d.potential ? String(d.potential) : null,
+    // LA WILAYA DE LA FICHE, sinon celle de son ÉTABLISSEMENT (04/10/2026) : le panel d'un KAM vient de
+    // ses établissements, et une fiche sans wilaya saisie restait hors du menu « Wilaya où je serai »
+    // alors que l'hôpital qui l'amène en a une.
+    wilaya: d.wilaya ?? d.institutionRef?.wilaya ?? null, potential: d.potential ? String(d.potential) : null,
     // LE SECTEUR qui l'amène — la MÊME règle que la clause (`lienCouvre`), pour qu'un praticien
     // venu par un service ne soit pas étiqueté du secteur qui ne couvre pas ce service.
     secteur: liens.find((l) => lienCouvre(l, d))?.secteur ?? null,
   }));
+}
+
+/**
+ * POURQUOI CE PANEL EST VIDE — les faits que lit `diagnosticPanelVide` (04/10/2026).
+ *
+ * Lus par la MÊME règle que le panel : la BU du KAM (`SalesRepProfile`), ses secteurs (actifs ou non,
+ * dans sa BU ou non — `clausePanelDuKam` ne compte que les actifs de SA BU, §118.184), les praticiens
+ * rattachés par identifiant aux établissements couverts, et les fiches d'avant le lien dont seul le
+ * TEXTE d'établissement porte le nom d'un établissement couvert. Appelé seulement quand le panel est
+ * vide : un écran normal ne paie pas ces lectures.
+ */
+export async function diagnostiquerPanelVide(repId: string): Promise<{ cause: CausePanelVide; phrase: string }> {
+  const [profil, affectations] = await Promise.all([
+    prisma.salesRepProfile.findUnique({ where: { repId }, select: { businessUnitId: true, region: true, businessUnit: { select: { name: true } } } }),
+    prisma.salesSectorRep.findMany({
+      where: { repId },
+      select: {
+        sector: {
+          select: {
+            name: true, isActive: true, businessUnitId: true, businessUnit: { select: { name: true } },
+            institutions: {
+              select: { institutionId: true, tousLesServices: true, services: { select: { serviceId: true } }, institution: { select: { name: true } } },
+            },
+          },
+        },
+      },
+    }),
+  ]);
+  const buId = profil?.businessUnitId ?? null;
+  const secteurs = affectations.map((a) => a.sector);
+  const vivants = secteurs.filter((s) => s.isActive && s.businessUnitId === buId);
+  const liens = vivants.flatMap((s) => s.institutions);
+  const etabIds = [...new Set(liens.map((l) => l.institutionId))];
+  const [rattaches, enTexte] = etabIds.length
+    ? await Promise.all([
+      prisma.medicalDoctor.findMany({ where: { institutionId: { in: etabIds } }, select: { institutionId: true, serviceId: true } }),
+      prisma.medicalDoctor.count({
+        where: {
+          institutionId: null,
+          OR: [...new Set(liens.map((l) => l.institution.name))].map((nom) => ({ institution: { equals: nom, mode: "insensitive" as const } })),
+        },
+      }),
+    ])
+    : [[] as { institutionId: string | null; serviceId: string | null }[], 0];
+  const couvre = (d: { institutionId: string | null; serviceId: string | null }) => liens.some((l) => lienCouvre(
+    { institutionId: l.institutionId, tousLesServices: l.tousLesServices, serviceIds: l.services.map((x) => x.serviceId) }, d,
+  ));
+  return diagnosticPanelVide({
+    bu: profil?.businessUnit?.name ?? null,
+    secteurTexte: profil?.region ?? null,
+    secteurs: secteurs.map((s) => ({
+      nom: s.name, bu: s.businessUnit.name, dansSaBu: s.businessUnitId === buId, actif: s.isActive, etablissements: s.institutions.length,
+    })),
+    praticiensRattaches: rattaches.length,
+    horsServicesChoisis: rattaches.filter((d) => !couvre(d)).length,
+    praticiensEnTexte: enTexte,
+  });
 }
 
 /** La clé d'une paire jour × praticien, telle que l'écran l'envoie et que l'action la relit. */

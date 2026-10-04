@@ -14,6 +14,7 @@ import { formatCurrency, formatDate, formatDateTime, toNumber } from "@/lib/util
 import { WithdrawRequestButton } from "./withdraw";
 import { lecteurDeLaDemandeDeValidation } from "@/lib/entity-access";
 import { resoumissionSurPlace } from "@/lib/validations/decision";
+import { refusDuRetraitValidation, retraitEfface } from "@/lib/validations/retrait";
 import { ResubmitValidation } from "./resubmit";
 
 export const dynamic = "force-dynamic";
@@ -80,8 +81,10 @@ export default async function ValidationRequestPage({ params }: { params: { id: 
   // un fait, il ne s'efface pas. L'action revérifie — ceci n'est que l'affichage.
   // Une demande RENVOYÉE s'abandonne aussi (elle reste visible, close) — quand elle se corrige sur
   // elle-même : née d'un autre circuit, c'est ce circuit qui la clôt.
-  const vierge = (req.status === "PENDING" && req.steps.every((e) => e.status === "PENDING"))
-    || (req.status === "CHANGES_REQUESTED" && resoumissionSurPlace(req));
+  // RETIRER TANT QUE CE N'EST PAS TRANCHÉ (décision du 04/10) — la même règle que l'action
+  // (`validations/retrait.ts`) : une étape déjà validée ne bloque plus le retrait, elle reste au fil.
+  const vueRetrait = { status: req.status, version: req.version, surPlace, steps: req.steps };
+  const retirable = refusDuRetraitValidation(vueRetrait) === null;
 
   return (
     <div className="space-y-5">
@@ -91,7 +94,7 @@ export default async function ValidationRequestPage({ params }: { params: { id: 
 
       <PageHeader title={req.title} description={`${req.reference} · ${req.module}`}>
         {(estDemandeur || user.role === "SUPER_ADMIN") && (
-          <WithdrawRequestButton id={req.id} reference={req.reference} canWithdraw={vierge} abandon={req.status === "CHANGES_REQUESTED" || req.version > 1} />
+          <WithdrawRequestButton id={req.id} reference={req.reference} canWithdraw={retirable} abandon={!retraitEfface(vueRetrait)} />
         )}
       </PageHeader>
 

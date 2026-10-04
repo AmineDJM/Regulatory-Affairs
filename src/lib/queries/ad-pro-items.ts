@@ -16,6 +16,8 @@ import { porteDesVoyageurs } from "@/lib/ad-pro/voyageurs";
 import { splitMulti } from "@/lib/ad-pro/pickers";
 import { bcEtablisDesPostes } from "@/lib/ad-pro/bc-etablis";
 import type { VoyageurVue } from "@/components/ad-pro/voyageurs-bloc";
+import { piecesDesPostes, demandesBCDesPostes, assistantesDeDirection } from "@/lib/ad-pro/pieces-poste";
+import { droitsValidation, estDirectionMarketingPoste, type DroitsValidation } from "@/lib/ad-pro/validation-poste";
 
 /**
  * CHARGEMENT DES POSTES D'UNE OPÉRATION AD & PRO — un seul endroit pour les quatre modules.
@@ -116,6 +118,9 @@ export async function loadAdProItems(parent: AdProParent, parentId: string): Pro
     // LES BC DÉJÀ ÉTABLIS DANS LEGAL (§118.187) : la même lecture que les actions qui les refusent.
     bcEtablisDesPostes(itemIds),
   ]);
+  // LA CHAÎNE D'ACHAT DE CHAQUE POSTE (§118.204) — devis, BC, factures — et la demande de BC chez
+  // l'assistante. En lot, comme le reste.
+  const [piecesParPoste, demandeBcParPoste] = await Promise.all([piecesDesPostes(itemIds), demandesBCDesPostes(itemIds)]);
   const natureDuType = new Map<string, NaturePieceSecretariat>(
     NATURES_PIECE_SECRETARIAT.map((n) => [String(PIECE_SECRETARIAT[n].type), n]),
   );
@@ -168,6 +173,10 @@ export async function loadAdProItems(parent: AdProParent, parentId: string): Pro
     voyageurs: voyageursDe.get(i.id) ?? [],
     nomsSuggeres: porteDesVoyageurs(i.kind) ? nomsSuggeres : [],
     orderStage: i.orderStage,
+    opsDecidedAt: i.opsDecidedAt?.toISOString() ?? null,
+    opsDecisionNote: i.opsDecisionNote,
+    pieces: piecesParPoste.get(i.id) ?? { devis: [], bc: null, factures: [] },
+    demandeBC: demandeBcParPoste.get(i.id) ?? null,
     // SOUS LE SEUIL (§118.149) : le BC est passé aux Finances sans qu'aucun centre le vise — seul
     // le visa du centre pose `orderDirectionAt`. La fiche ne doit pas dire « validé par le centre ».
     orderSansCentre: i.orderStage === "DIRECTION_OK" && i.orderDirectionAt === null,
@@ -362,5 +371,39 @@ export async function contexteMaterielStock(
       gereLeMagasin: gestionnaires.includes(user.id),
       decideLesPostes,
     }),
+  };
+}
+
+/**
+ * LE CONTEXTE DES POSTES POUR LA PERSONNE QUI REGARDE (§118.204) — ce qu'elle tranche (Direction des
+ * opérations, puis Direction Marketing : la même règle que l'action, `droitsValidation`), et les
+ * assistantes de direction à qui un bon de commande peut être demandé. Calculé au SERVEUR : l'écran ne
+ * recompose jamais une règle de droit (§118.164c).
+ */
+export interface ContextePostes {
+  validation: DroitsValidation;
+  assistantes: { id: string; name: string }[];
+  /** Pour savoir si c'est elle qui vérifie le BC déposé (`demandeBC.askedById`). */
+  userId: string;
+  /** La demande vient de la Direction Marketing : le second temps revient à la Direction des opérations. */
+  secondTempsParOperations: boolean;
+}
+
+const DEMANDEUR_DE: Record<AdProParent, (id: string) => Promise<string | null>> = {
+  SPONSORING: async (id) => (await prisma.sponsoringRequest.findUnique({ where: { id }, select: { requesterId: true } }))?.requesterId ?? null,
+  CONGRESS_NATIONAL: async (id) => (await prisma.congressNational.findUnique({ where: { id }, select: { requesterId: true } }))?.requesterId ?? null,
+  CONGRESS_INTERNATIONAL: async (id) => (await prisma.congressInternational.findUnique({ where: { id }, select: { requesterId: true } }))?.requesterId ?? null,
+  EVENT: async (id) => (await prisma.event.findUnique({ where: { id }, select: { requesterId: true } }))?.requesterId ?? null,
+};
+
+export async function contextePostes(user: SessionUser, parent: AdProParent, parentId: string): Promise<ContextePostes> {
+  const requesterId = await DEMANDEUR_DE[parent](parentId);
+  const demandeur = requesterId ? await prisma.user.findUnique({ where: { id: requesterId }, select: { role: true, secondaryRole: true } }) : null;
+  const moi = await prisma.user.findUnique({ where: { id: user.id }, select: { role: true, secondaryRole: true } });
+  return {
+    validation: droitsValidation(moi ?? { role: user.role }, demandeur),
+    assistantes: await assistantesDeDirection(),
+    userId: user.id,
+    secondTempsParOperations: estDirectionMarketingPoste(demandeur),
   };
 }

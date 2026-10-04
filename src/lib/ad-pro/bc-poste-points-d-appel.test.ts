@@ -70,8 +70,8 @@ describe("Le visa d'un BC de poste — appelé là où le montant ou le prestata
     }
   });
 
-  it("l'émission est le DERNIER REMPART : elle compare à l'empreinte avant de prendre le poste", () => {
-    const c = corps(src, "emitItemExpenseOrder");
+  it("la demande de paiement est le DERNIER REMPART : elle compare à l'empreinte avant de prendre le poste", () => {
+    const c = corps(src, "demanderPaiementPoste");
     const iRegle = c.indexOf("gesteVisaPoste(");
     const iPrise = c.indexOf('data: { orderStage: "ISSUED"');
     expect(iRegle, "l'émission doit appeler la règle du visa").toBeGreaterThan(-1);

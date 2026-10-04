@@ -26,7 +26,7 @@ export async function getCareDossier(scope: "NATIONAL" | "INTERNATIONAL", reques
         requesterOpinion: true, requesterNote: true, status: true, decisionNote: true,
         cells: {
           orderBy: [{ position: "asc" }, { createdAt: "asc" }],
-          select: { id: true, kind: true, serviceKind: true, label: true, notes: true, status: true, amountDzd: true, expenseOrderId: true, promoMaterialId: true },
+          select: { id: true, kind: true, serviceKind: true, label: true, notes: true, status: true, amountDzd: true, expenseOrderId: true, promoMaterialId: true, documentId: true },
         },
       },
     }),
@@ -72,6 +72,7 @@ export async function getCareDossier(scope: "NATIONAL" | "INTERNATIONAL", reques
           amountDzd: c.amountDzd != null ? toNumber(c.amountDzd) : null,
           expenseOrderId: c.expenseOrderId,
           promoMaterialId: c.promoMaterialId,
+          documentId: c.documentId,
           promoMaterial: c.promoMaterialId ? promoById.get(c.promoMaterialId) ?? null : null,
         })),
       };

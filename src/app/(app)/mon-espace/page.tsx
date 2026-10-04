@@ -28,6 +28,7 @@ import { getMyMissions } from "@/lib/queries/missions";
 import { isOutstanding, isLate } from "@/lib/doc-request";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { PIECE_REQUEST_STATUS } from "@/lib/labels";
+import { refusAnnulationDemande } from "@/lib/tasks/request-flow";
 import { MyAdvances, type AdvanceItem } from "./my-advances";
 import { MyPortfolioCard } from "@/components/planning/my-portfolio-card";
 import { getMyPortfolio } from "@/lib/queries/portfolio";
@@ -91,7 +92,10 @@ export default async function MonEspacePage() {
     assignedToId: t.assignedToId, createdById: t.createdById, participantIds: t.participantIds,
     lastNudgeAt: t.lastNudgeAt ? t.lastNudgeAt.toISOString() : null, nudgeCount: t.nudgeCount,
     // Supprimer = retirer SA saisie : le créateur (ou l'admin). Une tâche reçue se REFUSE.
-    canDelete: t.createdById === user.id || user.role === "SUPER_ADMIN",
+    // UNE DEMANDE OUVERTE CHEZ QUELQU'UN D'AUTRE S'ANNULE, elle ne s'efface pas (décision du 04/10) :
+    // la même règle que l'action (`refusAnnulationDemande`).
+    canCancelRequest: refusAnnulationDemande(t, user.id) === null,
+    canDelete: user.role === "SUPER_ADMIN" || (t.createdById === user.id && refusAnnulationDemande(t, user.id) !== null),
   });
   const myTasks: TaskItem[] = data.myTasks.map(toItem);
   // Ce que J'AI demandé à quelqu'un, séparé de ce que j'ai simplement délégué : le premier

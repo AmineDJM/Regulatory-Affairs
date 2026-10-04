@@ -18,7 +18,7 @@ import { entityHref } from "@/lib/entity-href";
 import { existingEntityIds } from "@/lib/entity-exists";
 import { deadlineNatureLabel, deadlineNatureOf } from "@/lib/finance/deadline-nature";
 import { PaymentDossier, type PieceView, type EventView } from "./dossier";
-import { refusDeCorrection } from "@/lib/finance/correction-demande";
+import { refusDeCorrection, refusDeRetrait } from "@/lib/finance/correction-demande";
 import { getMyCompanies } from "@/lib/company";
 import { AskChief } from "@/components/shared/ask-chief";
 import { realtimeVoiceConfigured, canUseRealtimeVoice } from "@/lib/assistant/voice-realtime";
@@ -291,6 +291,7 @@ export default async function PaymentRequestPage({ params }: { params: { id: str
         isCompanion={companion}
         orderReference={order?.reference ?? null}
         withFinance={isWithFinance(req.status)}
+        refusRetrait={refusDeRetrait({ status: req.status, compagnon: companion, ordre: order ? { status: order.status } : null })}
         correction={{
           refus: refusCorrection,
           valeurs: {

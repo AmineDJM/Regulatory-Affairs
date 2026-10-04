@@ -11,7 +11,7 @@ import { ModuleTabs } from "@/components/shared/module-tabs";
 import { visibleTabs } from "@/lib/nav-tabs";
 import { MEDICAL_TABS } from "@/lib/labels";
 import { Badge } from "@/components/ui/badge";
-import { loadPanelPlanifiable, loadPlanTournee } from "@/lib/queries/tour-schedule";
+import { diagnostiquerPanelVide, loadPanelPlanifiable, loadPlanTournee } from "@/lib/queries/tour-schedule";
 import {
   GRANULARITE_LABELS, STATUT_PLAN_LABELS, aResoumettre, accesAuPlan, clausePlansADecider, estJourOuvrePourTournee, gestesPossibles, periodeSuivante,
   retardDeSoumission, type StatutPlan,
@@ -102,6 +102,9 @@ export default async function PlanDeTourneePage({ searchParams }: { searchParams
     : null;
   if (plan && !acces?.voir) notFound();
   const panel = plan ? await loadPanelPlanifiable(plan.repId) : [];
+  // UN PANEL VIDE DIT SA VRAIE CAUSE (04/10/2026) : « demandez un secteur » à une KAM qui en a un fait
+  // chercher au mauvais endroit — la panne était souvent des fiches jamais rattachées à l'établissement.
+  const panelVide = plan && panel.length === 0 ? (await diagnostiquerPanelVide(plan.repId)).phrase : null;
   // QUI PEUT ÉCRIRE CE PLAN — donc le rouvrir pour révision (§118.193) : la même règle que l'action
   // (`peutEcrirePourLeKam` : le KAM, le superviseur de sa BU, la Direction). Un bouton offert à qui l'action
   // refuse fait chercher une panne qui n'existe pas (§118.83).
@@ -148,6 +151,7 @@ export default async function PlanDeTourneePage({ searchParams }: { searchParams
             rejectionComment={plan.rejectionComment}
             resubmitDueAt={plan.resubmitDueAt?.toISOString() ?? null}
             praticiens={panel}
+            panelVide={panelVide}
             pairesInitiales={plan.paires}
             pairesAcquises={plan.pairesAcquises}
             pairesNonTenues={plan.pairesNonTenues}

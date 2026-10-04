@@ -11,7 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { formatCurrency } from "@/lib/utils";
 import {
-  careProgress, financeReadiness, quoteSummary,
+  careProgress, financeReadiness, quoteSummary, piecesDuProfessionnel, ETAT_PIECE_LABELS,
   BENEFICIARY_STATUS_LABELS, CELL_STATUS_LABELS, OPINION_LABELS,
   QUOTE_STATUS_LABELS, SERVICE_KINDS, SERVICE_KIND_LABELS,
 } from "@/lib/care";
@@ -20,7 +20,10 @@ import {
   addCareCell, setCareCellStatus, removeCareCell,
   createCareQuote, decideCareQuote, requestCareQuotes, sendCareToFinance,
   linkCareCellPromoMaterial,
+  demanderPiecesPriseEnCharge, deposerPiecePriseEnCharge,
 } from "@/lib/actions/care-actions";
+import { listBeneficiaryRefs } from "@/lib/actions/congress-beneficiary-actions";
+import { filtrerAnnuaire, PLAFOND_MENU } from "@/components/care/filtrer-annuaire";
 
 export interface CellRow {
   id: string;
@@ -32,6 +35,8 @@ export interface CellRow {
   amountDzd: number | null;
   expenseOrderId: string | null;
   promoMaterialId: string | null;
+  /** La pièce déposée (document de la demande) — pour une case PIÈCE. */
+  documentId: string | null;
   /** Résolu côté serveur — le matériel garde son circuit, on n'en montre que l'avancement. */
   promoMaterial: { reference: string; title: string; status: string } | null;
 }
@@ -132,7 +137,7 @@ export function CarePanel({
     <div className="space-y-5">
       {/* ── Vue d'ensemble ── */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <Figure label="Personnes proposées" value={String(beneficiaries.length)} />
+        <Figure label="Professionnels proposés" value={String(beneficiaries.length)} />
         <Figure label="Accordées" value={String(approved.length)} tone={approved.length > 0 ? "success" : undefined} />
         <Figure label="Devis acceptés" value={formatCurrency(qs.acceptedDzd)} hint={`${qs.accepted} devis`} />
         <Figure
@@ -153,8 +158,8 @@ export function CarePanel({
       {/* ── Les personnes ── */}
       {beneficiaries.length === 0 ? (
         <p className="rounded-xl border border-dashed border-border p-4 text-sm text-muted-foreground">
-          Aucune personne. Ajoutez qui vous souhaitez prendre en charge — depuis l&apos;annuaire, ou
-          en saisissant son profil si elle n&apos;y figure pas encore.
+          Aucun professionnel proposé. Choisissez-les dans l&apos;annuaire, créez le profil d&apos;un
+          médecin qui n&apos;y figure pas encore, ou saisissez une personne libre.
         </p>
       ) : (
         <ul className="space-y-3">
@@ -234,11 +239,13 @@ export function CarePanel({
                     {progress.complete && <Badge tone="success" dot={false}>complet</Badge>}
                   </div>
 
-                  {b.cells.length === 0 ? (
-                    <p className="mt-1 text-xs text-muted-foreground">Rien de demandé pour l&apos;instant.</p>
+                  {/* LES PIÈCES se suivent dans la liste « Pièces des professionnels » plus bas — une
+                      seule place pour elles ; ici, ce qu'il faut ACHETER pour cette personne. */}
+                  {b.cells.filter((c) => c.kind === "SERVICE").length === 0 ? (
+                    <p className="mt-1 text-xs text-muted-foreground">Rien à acheter pour l&apos;instant — les pièces se suivent plus bas.</p>
                   ) : (
                     <ul className="mt-1.5 divide-y divide-border">
-                      {b.cells.map((c) => (
+                      {b.cells.filter((c) => c.kind === "SERVICE").map((c) => (
                         <li key={c.id} className="flex flex-wrap items-center gap-2 py-1.5 text-sm">
                           <Badge tone={c.kind === "DOCUMENT" ? "info" : "purple"} dot={false}>
                             {c.kind === "DOCUMENT" ? "Pièce" : SERVICE_KIND_LABELS[c.serviceKind ?? "OTHER"]}
@@ -340,10 +347,16 @@ export function CarePanel({
           />
         ) : (
           <Button size="sm" variant="outline" onClick={() => setAdding(true)}>
-            <UserPlus className="h-4 w-4" /> Ajouter une personne
+            <UserPlus className="h-4 w-4" /> Proposer un professionnel
           </Button>
         )
       )}
+
+      {/* ── Les pièces de chaque professionnel ── */}
+      <PiecesDesProfessionnels
+        scope={scope} requestId={requestId} beneficiaries={beneficiaries} canEdit={canEdit} busy={busy}
+        run={run}
+      />
 
       {/* ── Devis ── */}
       {(quotes.length > 0 || toQuote.length > 0) && (
@@ -456,50 +469,85 @@ export function CarePanel({
   );
 }
 
-/** Ajouter une personne : depuis l'annuaire, ou en saisissant son profil. */
+/**
+ * PROPOSER UN PROFESSIONNEL — un menu déroulant AVEC RECHERCHE sur l'annuaire, la création d'un profil
+ * de médecin, ou une personne libre (décision du 04/10/2026). Les trois écrivent la MÊME ligne
+ * (`addCareBeneficiary`) : il n'y a plus de second bloc « Personnes prises en charge ».
+ */
 function AddBeneficiaryForm({ scope, requestId, directory, busy, onCancel, onSubmit }: {
   scope: string; requestId: string; directory: Props["directory"]; busy: boolean;
   onCancel: () => void; onSubmit: (fd: FormData) => void;
 }) {
-  const [mode, setMode] = React.useState<"directory" | "free">("directory");
+  const [mode, setMode] = React.useState<"directory" | "new" | "free">("directory");
+  const [q, setQ] = React.useState("");
+  const [refs, setRefs] = React.useState<{ specialties: { id: string; name: string }[]; institutions: { id: string; name: string; wilaya: string | null }[] } | null>(null);
+  React.useEffect(() => {
+    if (mode !== "new" || refs) return;
+    listBeneficiaryRefs().then((r) => setRefs({ specialties: r.specialties, institutions: r.institutions })).catch(() => setRefs({ specialties: [], institutions: [] }));
+  }, [mode, refs]);
+  const filtres = filtrerAnnuaire(directory, q);
+  const champ = "mt-1 w-full rounded-lg border border-border bg-background px-2.5 py-2 text-sm outline-none focus:border-primary/60";
   return (
     <form onSubmit={(e) => { e.preventDefault(); onSubmit(new FormData(e.currentTarget)); }} className="space-y-2 rounded-xl border border-border p-3">
       <input type="hidden" name="scope" value={scope} />
       <input type="hidden" name="requestId" value={requestId} />
+      {mode === "new" && <input type="hidden" name="createDoctor" value="on" />}
 
-      <div className="flex gap-2">
-        {(["directory", "free"] as const).map((m) => (
+      <div className="flex flex-wrap gap-2">
+        {(["directory", "new", "free"] as const).map((m) => (
           <button
             key={m} type="button" onClick={() => setMode(m)}
             className={`rounded-lg border px-2.5 py-1 text-xs transition ${mode === m ? "border-primary bg-primary/10 font-medium" : "border-border text-muted-foreground hover:bg-secondary"}`}
           >
-            {m === "directory" ? "Depuis l'annuaire" : "Nouveau profil"}
+            {m === "directory" ? "Depuis l'annuaire" : m === "new" ? "Nouveau médecin" : "Personne libre"}
           </button>
         ))}
       </div>
 
-      {mode === "directory" ? (
-        <label className="block text-xs">
-          Personne
-          <select name="doctorId" required className="mt-1 w-full rounded-lg border border-border bg-background px-2.5 py-2 text-sm outline-none focus:border-primary/60">
-            <option value="">Choisir…</option>
-            {directory.map((d) => (
-              <option key={d.id} value={d.id}>{d.name}{d.specialty ? ` — ${d.specialty}` : ""}{d.institution ? ` (${d.institution})` : ""}</option>
-            ))}
-          </select>
-        </label>
-      ) : (
-        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-          <label className="text-xs">Prénom<input name="firstName" className="mt-1 w-full rounded-lg border border-border bg-background px-2.5 py-2 text-sm outline-none focus:border-primary/60" /></label>
-          <label className="text-xs">Nom<input name="lastName" required className="mt-1 w-full rounded-lg border border-border bg-background px-2.5 py-2 text-sm outline-none focus:border-primary/60" /></label>
-          <label className="text-xs">Poste<input name="jobTitle" placeholder="Chef de service…" className="mt-1 w-full rounded-lg border border-border bg-background px-2.5 py-2 text-sm outline-none focus:border-primary/60" /></label>
-          <label className="text-xs">Établissement<input name="institution" placeholder="CHU Mustapha…" className="mt-1 w-full rounded-lg border border-border bg-background px-2.5 py-2 text-sm outline-none focus:border-primary/60" /></label>
+      {mode === "directory" && (
+        <div className="space-y-1.5">
+          <label className="block text-xs">
+            Rechercher un praticien
+            <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Nom, spécialité, établissement…" className={champ} />
+          </label>
+          <label className="block text-xs">
+            Praticien
+            <select name="doctorId" required className={champ}>
+              <option value="">{filtres.length ? "Choisir…" : "Aucun praticien ne correspond"}</option>
+              {filtres.map((d) => (
+                <option key={d.id} value={d.id}>{d.name}{d.specialty ? ` — ${d.specialty}` : ""}{d.institution ? ` (${d.institution})` : ""}</option>
+              ))}
+            </select>
+          </label>
+          {filtres.length >= PLAFOND_MENU && <p className="text-[0.6875rem] text-muted-foreground">Les {PLAFOND_MENU} premiers résultats seulement — précisez la recherche.</p>}
         </div>
       )}
+      {mode === "new" && (
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+          <label className="text-xs sm:col-span-2">Nom du médecin<input name="doctorName" required placeholder="Dr …" className={champ} /></label>
+          <label className="text-xs">Spécialité
+            <select name="specialtyId" defaultValue="" className={champ}><option value="">—</option>{(refs?.specialties ?? []).map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}</select>
+          </label>
+          <label className="text-xs">Secteur
+            <select name="sector" defaultValue="" className={champ}><option value="">—</option><option value="HOSPITAL">Hospitalier</option><option value="LIBERAL">Libéral</option><option value="BOTH">Les deux</option></select>
+          </label>
+          <label className="text-xs sm:col-span-2">Établissement
+            <select name="institutionId" defaultValue="" className={champ}><option value="">—</option>{(refs?.institutions ?? []).map((x) => <option key={x.id} value={x.id}>{x.name}{x.wilaya ? ` · ${x.wilaya}` : ""}</option>)}</select>
+          </label>
+        </div>
+      )}
+      {mode === "free" && (
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+          <label className="text-xs">Prénom<input name="firstName" className={champ} /></label>
+          <label className="text-xs">Nom<input name="lastName" required className={champ} /></label>
+          <label className="text-xs sm:col-span-2">Établissement<input name="institution" placeholder="CHU Mustapha…" className={champ} /></label>
+        </div>
+      )}
+      <label className="block text-xs">Qualité<input name="jobTitle" placeholder="Orateur, invité, chef de service…" className={champ} /></label>
 
       <div className="flex gap-2">
         <Button size="sm" type="submit" disabled={busy}>
-          {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <UserPlus className="h-4 w-4" />} Ajouter
+          {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <UserPlus className="h-4 w-4" />} {mode === "new" ? "Créer et proposer" : "Proposer"}
         </Button>
         <Button size="sm" type="button" variant="outline" onClick={onCancel}>Annuler</Button>
       </div>
@@ -592,6 +640,101 @@ function QuoteForm({ scope, requestId, cells, busy, onCancel, onSubmit }: {
         <Button size="sm" type="button" variant="outline" onClick={onCancel}>Annuler</Button>
       </div>
     </form>
+  );
+}
+
+/**
+ * LES PIÈCES DE CHAQUE PROFESSIONNEL — une liste compacte, une ligne par personne proposée ou
+ * accordée : chaque pièce attendue (national : passeport ; international : passeport, visa,
+ * informations de voyage) avec son état — manquante, demandée, reçue —, le dépôt du fichier sur SA
+ * pièce, et la demande des pièces en un clic. Ce que l'ancien bloc « Personnes prises en charge »
+ * comptait en vrac (« Pièces d'identité reçues 0/— ») se lit ici par personne et par pièce.
+ */
+function PiecesDesProfessionnels({ scope, requestId, beneficiaries, canEdit, busy, run }: {
+  scope: "NATIONAL" | "INTERNATIONAL"; requestId: string; beneficiaries: BeneficiaryRow[]; canEdit: boolean;
+  busy: string | null;
+  run: (key: string, fn: () => Promise<{ ok: boolean; error?: string; message?: string }>, okText?: string) => Promise<unknown>;
+}) {
+  const vivants = beneficiaries.filter((b) => b.status === "PROPOSED" || b.status === "APPROVED");
+  if (vivants.length === 0) return null;
+  const lignes = vivants.map((b) => ({ b, pieces: piecesDuProfessionnel(scope, b.cells) }));
+  const attendues = lignes.reduce((n, l) => n + l.pieces.filter((p) => p.etat !== "SANS_OBJET").length, 0);
+  const recues = lignes.reduce((n, l) => n + l.pieces.filter((p) => p.etat === "RECUE").length, 0);
+  return (
+    <section className="space-y-2 border-t border-border pt-4" aria-label="Pièces des professionnels">
+      <div className="flex flex-wrap items-center gap-2">
+        <FileText className="h-4 w-4 text-primary" />
+        <h3 className="text-sm font-semibold">Pièces des professionnels</h3>
+        <span className="text-xs text-muted-foreground">{recues}/{attendues} reçue{recues > 1 ? "s" : ""}</span>
+        {canEdit && (
+          <Button
+            size="sm" variant="outline" className="ml-auto" disabled={busy === "pieces"}
+            onClick={() => {
+              const fd = new FormData();
+              fd.set("scope", scope);
+              fd.set("requestId", requestId);
+              void run("pieces", () => demanderPiecesPriseEnCharge(undefined, fd));
+            }}
+          >
+            {busy === "pieces" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />} Demander les pièces
+          </Button>
+        )}
+      </div>
+      <ul className="divide-y divide-border rounded-xl border border-border">
+        {lignes.map(({ b, pieces }) => (
+          <li key={b.id} className="flex flex-col gap-1.5 px-2.5 py-2 text-sm sm:flex-row sm:items-start">
+            <span className="min-w-0 font-medium sm:w-48 sm:shrink-0">{b.name}</span>
+            <ul className="flex min-w-0 flex-1 flex-wrap gap-1.5">
+              {pieces.map((p) => (
+                <li key={p.cellId ?? p.label} className="inline-flex flex-wrap items-center gap-1 rounded-lg border border-border px-1.5 py-0.5 text-xs">
+                  <span>{p.label}</span>
+                  <Badge tone={p.etat === "RECUE" ? "success" : p.etat === "SANS_OBJET" ? "neutral" : p.etat === "DEMANDEE" ? "warning" : "danger"} dot={false}>
+                    {ETAT_PIECE_LABELS[p.etat]}
+                  </Badge>
+                  {p.documentId && <a href={`/api/documents/${p.documentId}`} target="_blank" rel="noreferrer" className="text-primary hover:underline">voir</a>}
+                  {canEdit && p.cellId && (p.etat === "DEMANDEE" || p.etat === "RECUE") && (
+                    <label className="cursor-pointer text-primary hover:underline">
+                      {busy === `dep:${p.cellId}` ? "envoi…" : p.etat === "RECUE" ? "remplacer" : "déposer"}
+                      <input
+                        type="file" className="sr-only" aria-label={`Déposer « ${p.label} » de ${b.name}`}
+                        onChange={(e) => {
+                          const f = e.target.files?.[0];
+                          if (!f || !p.cellId) return;
+                          const fd = new FormData();
+                          fd.set("cellId", p.cellId);
+                          fd.set("file", f);
+                          e.target.value = "";
+                          void run(`dep:${p.cellId}`, () => deposerPiecePriseEnCharge(undefined, fd));
+                        }}
+                      />
+                    </label>
+                  )}
+                  {canEdit && p.cellId && (
+                    <select
+                      value=""
+                      onChange={(e) => {
+                        if (!e.target.value || !p.cellId) return;
+                        const fd = new FormData();
+                        fd.set("id", p.cellId);
+                        fd.set("status", e.target.value);
+                        void run(`cs:${p.cellId}`, () => setCareCellStatus(undefined, fd), "État mis à jour.");
+                      }}
+                      aria-label={`Changer l'état de « ${p.label} » de ${b.name}`}
+                      className="rounded border border-border bg-background px-1 py-0.5 text-[0.6875rem] outline-none"
+                    >
+                      <option value="">…</option>
+                      {(["REQUESTED", "PROVIDED", "SETTLED", "WAIVED"] as CareCellStatus[]).map((s) => (
+                        <option key={s} value={s}>{CELL_STATUS_LABELS[s]}</option>
+                      ))}
+                    </select>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }
 

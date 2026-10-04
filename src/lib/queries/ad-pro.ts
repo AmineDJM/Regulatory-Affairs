@@ -5,7 +5,7 @@ import { platformScope, getMyCompanies, companyOptions } from "@/lib/company";
 import { toNumber } from "@/lib/utils";
 import { userCan, scopeCongressIntl, scopeCongressNational, scopePromoMaterial, scopeSponsoring, type SessionUser } from "@/lib/rbac";
 import { adProState, sortAdPro, type AdProKind, type AdProRequest } from "@/lib/ad-pro/unified";
-import { natureDesigneMedecinsEtProduits, type AdProCreateData } from "@/lib/ad-pro/create-fields";
+import { natureDesigneMedecins, natureDesigneMedecinsEtProduits, type AdProCreateData } from "@/lib/ad-pro/create-fields";
 import { optionsDesArticlesDemandes } from "@/lib/queries/promo-achats";
 import { etatAdProDuDossier } from "@/lib/promo-material/statut";
 
@@ -192,7 +192,9 @@ export async function getAdProCreateData(userId: string, kinds: readonly AdProKi
    * le droit d'être promu — ce n'est pas une maladresse d'écran, c'est une faute réglementaire.
    */
   const needsReferentiels = kinds.some((k) => natureDesigneMedecinsEtProduits(k));
-  const needsDoctors = needsReferentiels;
+  // Les PRISES EN CHARGE proposent des praticiens sans produit (04/10/2026) : le médecin et le
+  // produit ne se chargent plus ensemble.
+  const needsDoctors = kinds.some((k) => natureDesigneMedecins(k));
   const needsProducts = needsReferentiels;
   const needsPeople = kinds.length > 0;
 

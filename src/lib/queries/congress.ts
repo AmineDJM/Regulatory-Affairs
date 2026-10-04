@@ -33,8 +33,8 @@ export async function getCongressList(type: CongressType, user: SessionUser): Pr
   // Cloisonnement par entité : la vue « Adventum » ne montre que les demandes d'Adventum.
   const items =
     type === "INTL"
-      ? await prisma.congressInternational.findMany({ where: await clauseCongresInternationauxVisibles(user), orderBy: [{ createdAt: "desc" }] })
-      : await prisma.congressNational.findMany({ where: await clauseCongresNationauxVisibles(user), orderBy: [{ createdAt: "desc" }] });
+      ? await prisma.congressInternational.findMany({ where: await clauseCongresInternationauxVisibles(user), orderBy: [{ createdAt: "desc" }], include: { _count: { select: { careBeneficiaries: true } } } })
+      : await prisma.congressNational.findMany({ where: await clauseCongresNationauxVisibles(user), orderBy: [{ createdAt: "desc" }], include: { _count: { select: { careBeneficiaries: true } } } });
 
   const names = await userNameMap(items.map((c) => c.requesterId ?? "").filter(Boolean));
 
@@ -45,14 +45,18 @@ export async function getCongressList(type: CongressType, user: SessionUser): Pr
       ? [(c as { country?: string | null }).country, (c as { city?: string | null }).city].filter(Boolean).join(", ")
       : [(c as { city?: string | null }).city, (c as { hostInstitution?: string | null }).hostInstitution].filter(Boolean).join(" · "),
     date: (type === "INTL" ? (c as { startDate?: Date | null }).startDate : (c as { date?: Date | null }).date)?.toISOString() ?? null,
-    specialty: c.specialty ?? "",
+    // La spécialité n'est plus SAISIE sur une prise en charge (décision du 04/10/2026) : la liste ne
+    // l'affiche plus. La colonne reste en base pour les demandes d'avant.
+    specialty: "",
     eventType: (c as { eventType?: string }).eventType ?? null,
     requestStatus: c.requestStatus,
     estimatedBudget: dec(c.estimatedBudget),
     productManagerBudget: dec(c.productManagerBudget),
     requester: c.requesterId ? names.get(c.requesterId) ?? "" : "",
     participantCount: c.participantIds.length,
-    doctorCount: c.invitedDoctorIds.length,
+    // LES PROFESSIONNELS PROPOSÉS — la source UNIQUE (`CareBeneficiary`). `invitedDoctorIds` n'est plus
+    // écrit par l'écran ; la migration du 04/10 y a repris ce qu'il portait.
+    doctorCount: c._count.careBeneficiaries,
   }));
 }
 
@@ -64,9 +68,6 @@ export async function getCongressDetail(type: CongressType, user: SessionUser, i
   if (!c) return null;
 
   const names = await userNameMap([c.requesterId, c.productManagerId, c.preliminaryById, c.finalById].filter((x): x is string => Boolean(x)));
-  const doctors = c.invitedDoctorIds.length
-    ? await prisma.medicalDoctor.findMany({ where: { id: { in: c.invitedDoctorIds } }, select: { id: true, name: true, specialty: true, institution: true } })
-    : [];
   const participants = c.participantIds.length
     ? await prisma.user.findMany({ where: { id: { in: c.participantIds } }, select: { id: true, name: true, title: true } })
     : [];
@@ -96,7 +97,9 @@ export async function getCongressDetail(type: CongressType, user: SessionUser, i
       ? [(c as { country?: string | null }).country, (c as { city?: string | null }).city].filter(Boolean).join(", ")
       : [(c as { city?: string | null }).city, (c as { hostInstitution?: string | null }).hostInstitution].filter(Boolean).join(" · "),
     date: (type === "INTL" ? (c as { startDate?: Date | null }).startDate : (c as { date?: Date | null }).date)?.toISOString() ?? null,
-    endDate: type === "INTL" ? (c as { endDate?: Date | null }).endDate?.toISOString() ?? null : null,
+    // LA FIN DE L'ÉVÉNEMENT, des deux côtés désormais : une prise en charge nationale se tient sur
+    // plusieurs jours aussi (décision du 04/10/2026 — `CongressNational.endDate`).
+    endDate: (c as { endDate?: Date | null }).endDate?.toISOString() ?? null,
     eventType: (c as { eventType?: string }).eventType ?? null,
     requestStatus: c.requestStatus,
     estimatedBudget: dec(c.estimatedBudget),
@@ -114,12 +117,8 @@ export async function getCongressDetail(type: CongressType, user: SessionUser, i
     productManagerId: c.productManagerId,
     preliminaryBy: c.preliminaryById ? names.get(c.preliminaryById) ?? "" : "",
     finalBy: c.finalById ? names.get(c.finalById) ?? "" : "",
-    doctors: doctors.map((d) => ({ id: d.id, name: d.name, specialty: d.specialty ?? "", institution: d.institution ?? "" })),
     participants: participants.map((p) => ({ id: p.id, name: p.name, title: p.title ?? "" })),
     expenseOrder: expenseOrder ? { reference: expenseOrder.reference, status: expenseOrder.status, amount: toNumber(expenseOrder.amount) } : null,
-    beneficiaries: (Array.isArray((c as { beneficiaries?: unknown }).beneficiaries)
-      ? ((c as { beneficiaries?: unknown }).beneficiaries as { id: string; name: string; role?: string; doctorId?: string; institution?: string }[])
-      : []),
     createdAt: c.createdAt.toISOString(),
   };
 }

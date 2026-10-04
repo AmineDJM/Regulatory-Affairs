@@ -12,7 +12,7 @@ import { enSerie } from "@/lib/refs";
 import { formatMonth } from "@/lib/utils";
 import { fdStr, fdNum, type ActionResult } from "@/lib/actions/types";
 import { createExpenseOrder } from "@/lib/expense-orders";
-import { getMyCompanies } from "@/lib/company";
+import { getMyCompanies, entitePermisePourFiche } from "@/lib/company";
 import { getBudgetCategoryOptions } from "@/lib/queries/budget";
 import { entryCost } from "@/lib/hr/payroll-cost";
 import {
@@ -20,6 +20,7 @@ import {
   noteVirementPaie, moisDeLaPaie, deMois, ETAT_VIREMENT_LABEL, SOMME_A_VIRER_MANQUANTE, saisiAvantLeCentre, type VirementDuMois,
 } from "@/lib/hr/virement-paie";
 import { instantDuCentreDePaie } from "@/lib/hr/paie-centre";
+import { decisionRattachement, phraseRattachement, type SalaireParti } from "@/lib/hr/rattachement-paie";
 import { validateAmounts, resolvedGross, amendImpact, canAmend } from "@/lib/hr/payroll-amend";
 import { docxToPdf, isConvertibleWord, pdfFileName } from "@/lib/payslip/to-pdf";
 import { MIME_DOCX } from "@/lib/artifact/adapters/docx/adapter";
@@ -356,6 +357,131 @@ export async function envoyerPaieAuCentre(formData: FormData): Promise<ActionRes
         : `La paie ${deMois(libelleMois)} de ${nomEntite} est envoyée au centre de paiement (${ordre.reference}). Elle sera virée une fois autorisée ; les salariés seront prévenus au virement.`,
     };
   });
+}
+
+/** Au-delà, le lot se fait en plusieurs fois — limite opérationnelle, pas d'architecture. */
+const RATTACHEMENT_MAX = 200;
+
+/**
+ * RATTACHER À UNE ENTITÉ DES SALARIÉS QUI N'EN ONT PAS — depuis l'écran de la paie, un salarié ou
+ * tous d'un geste (Direction, 04/10/2026). Écrit la société de la FICHE SALARIÉ : c'est elle que
+ * la paie lit (voir `hr/rattachement-paie.ts`, et pourquoi on n'écrit rien sur les lignes).
+ *
+ * La garde est celle de l'écran de la paie (RH qui écrit) ; l'entité visée est l'une de celles
+ * que le menu propose (`getMyCompanies`) ; l'écriture est CONDITIONNELLE (« encore sans entité ») :
+ * un salarié rattaché entre-temps par quelqu'un d'autre garde SON entité et la phrase le nomme. Un
+ * salaire déjà parti au nom d'une autre entité REFUSE tout le lot, en le nommant.
+ */
+export async function rattacherSalariesAEntite(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  if (!canRunPayroll(user)) return { ok: false, error: "Réservé aux RH." };
+  const companyId = fdStr(formData, "companyId");
+  if (!companyId) return { ok: false, error: "Choisissez l'entité à laquelle rattacher." };
+  const ids = [...new Set(formData.getAll("employeeIds").map((v) => String(v).trim()).filter(Boolean))];
+  if (ids.length === 0) return { ok: false, error: "Aucun salarié à rattacher." };
+  if (ids.length > RATTACHEMENT_MAX) {
+    return { ok: false, error: `${ids.length} salariés d'un coup : au-delà de ${RATTACHEMENT_MAX}, rattachez-les en plusieurs fois.` };
+  }
+
+  const entite = (await getMyCompanies(user.id)).find((c) => c.id === companyId);
+  if (!entite) return { ok: false, error: "Cette entité ne vous est pas ouverte : on n'y rattache pas un salarié d'ici." };
+  const nomCible = entite.shortName || entite.name;
+
+  const fiches = await prisma.employee.findMany({
+    where: { id: { in: ids } },
+    select: { id: true, fullName: true, companyId: true },
+  });
+  if (fiches.length !== ids.length) return { ok: false, error: "Salarié introuvable — rechargez la page." };
+  // LA PORTE DE LA FICHE (celle de `updateEmployee`) : la fiche d'une société qu'on ne voit pas reste introuvable.
+  for (const f of fiches) {
+    if (!(await entitePermisePourFiche(user.id, f.companyId))) return { ok: false, error: "Salarié introuvable — rechargez la page." };
+  }
+  const dejaRattaches = fiches.filter((f) => f.companyId !== null);
+  const aRattacher = fiches.filter((f) => f.companyId === null);
+  if (aRattacher.length === 0) {
+    return { ok: false, error: `${dejaRattaches.length > 1 ? "Ces salariés ont" : "Ce salarié a"} déjà une entité — rien à rattacher. Rechargez la page.` };
+  }
+
+  // CE QUI EST DÉJÀ PARTI — lu sur chaque salaire payé, par la MÊME règle que l'écran et l'envoi.
+  const depuisLeCentre = await instantDuCentreDePaie();
+  const lignes = await prisma.payrollEntry.findMany({
+    where: { employeeId: { in: aRattacher.map((f) => f.id) }, status: "PAID" },
+    select: {
+      employeeId: true, year: true, month: true, status: true, transactionId: true, budgetTransferredAt: true,
+      paidDate: true, createdAt: true,
+      payrollWire: { select: { companyId: true, paidAt: true, expenseOrder: { select: { reference: true, status: true, centralStatus: true } } } },
+    },
+  });
+  const idsEcritures = lignes.map((l) => l.transactionId).filter((v): v is string => Boolean(v));
+  const ecritures = idsEcritures.length
+    ? await prisma.financeTransaction.findMany({ where: { id: { in: idsEcritures } }, select: { id: true, companyId: true, reference: true } })
+    : [];
+  const ecritureParId = new Map(ecritures.map((e) => [e.id, e]));
+  const partisParSalarie = new Map<string, SalaireParti[]>();
+  const saisisParSalarie = new Map<string, number>();
+  for (const l of lignes) {
+    const virement = l.payrollWire ? etatVirement({ paidAt: l.payrollWire.paidAt, ordre: l.payrollWire.expenseOrder }) : null;
+    const etat = etatSalaire({
+      status: l.status, transactionId: l.transactionId, budgetTransferredAt: l.budgetTransferredAt,
+      virement, avantLeCentre: saisiAvantLeCentre(l, depuisLeCentre),
+    });
+    if (etat === "SAISI") { saisisParSalarie.set(l.employeeId, (saisisParSalarie.get(l.employeeId) ?? 0) + 1); continue; }
+    if (etat !== "ENVOYE" && etat !== "VIRE") continue;
+    let parti: SalaireParti;
+    if (l.payrollWire && virement && virementCouvre(virement)) {
+      parti = { year: l.year, month: l.month, companyId: l.payrollWire.companyId, reference: l.payrollWire.expenseOrder?.reference ?? null };
+    } else if (l.transactionId) {
+      const e = ecritureParId.get(l.transactionId);
+      parti = { year: l.year, month: l.month, companyId: e?.companyId ?? null, reference: e?.reference ?? null };
+    } else {
+      parti = { year: l.year, month: l.month, companyId: null, reference: null };
+    }
+    partisParSalarie.set(l.employeeId, [...(partisParSalarie.get(l.employeeId) ?? []), parti]);
+  }
+  const societes = await prisma.company.findMany({ select: { id: true, name: true, shortName: true } });
+  const nomDe = new Map(societes.map((c) => [c.id, c.shortName || c.name]));
+  const decision = decisionRattachement(
+    aRattacher.map((f) => ({ id: f.id, nom: f.fullName, salairesPartis: partisParSalarie.get(f.id) ?? [] })),
+    { id: companyId, nom: nomCible },
+    (id) => nomDe.get(id) ?? "une entité supprimée",
+  );
+  if (!decision.ok) return { ok: false, error: decision.refus };
+
+  // L'ÉCRITURE CONDITIONNELLE, salarié par salarié : on sait ainsi lesquels ont réellement bougé.
+  const rattaches = await prisma.$transaction(async (tx) => {
+    const faits: { id: string; nom: string }[] = [];
+    for (const f of aRattacher) {
+      const r = await tx.employee.updateMany({ where: { id: f.id, companyId: null }, data: { companyId } });
+      if (r.count === 1) faits.push({ id: f.id, nom: f.fullName });
+    }
+    return faits;
+  });
+  if (rattaches.length === 0) {
+    return { ok: false, error: "Rattachés entre-temps par quelqu'un d'autre — rien n'a été modifié ici. Rechargez la page." };
+  }
+  const bouges = new Set(rattaches.map((r) => r.id));
+  const ancienCircuit = aRattacher
+    .filter((f) => bouges.has(f.id))
+    .reduce((a, f) => a + (partisParSalarie.get(f.id) ?? []).filter((p) => p.companyId === null).length, 0);
+  for (const r of rattaches) {
+    await recordAudit({
+      actorId: user.id, action: "UPDATE", module: "Ressources humaines", entityType: "EMPLOYEE", entityId: r.id,
+      field: "companyId", oldValue: null, newValue: companyId,
+      summary: `Fiche de ${r.nom} rattachée à ${nomCible} depuis l'écran de la paie (elle n'avait pas d'entité)`,
+    });
+  }
+  revalidatePath(PATH);
+  revalidatePath("/rh");
+  return {
+    ok: true,
+    message: phraseRattachement({
+      noms: rattaches.map((r) => r.nom),
+      cible: nomCible,
+      saisis: rattaches.reduce((a, r) => a + (saisisParSalarie.get(r.id) ?? 0), 0),
+      ancienCircuit,
+      dejaRattaches: fiches.filter((f) => !bouges.has(f.id)).map((f) => f.fullName),
+    }),
+  };
 }
 
 /**

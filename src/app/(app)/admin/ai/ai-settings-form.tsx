@@ -16,6 +16,7 @@ export interface AiSettings {
   voiceTranscriptEnabled: boolean;
   siteWebAiEnabled: boolean;
   lecturePiecesEnabled: boolean;
+  conseilPiecesEnabled: boolean;
 }
 
 type FeatureKey = Exclude<keyof AiSettings, "masterEnabled">;
@@ -29,6 +30,7 @@ const FEATURES: { key: FeatureKey; label: string; desc: string }[] = [
   { key: "voiceTranscriptEnabled", label: "Transcription vocale (Whisper)", desc: "Dictée → texte des rapports terrain (OpenAI)." },
   { key: "siteWebAiEnabled", label: "Rédaction du site (articles et offres)", desc: "« Rédiger avec l'IA » : un brouillon d'article ou d'offre d'emploi, relu et publié par une personne." },
   { key: "lecturePiecesEnabled", label: "Lecture des pièces commerciales (lignes par l'IA)", desc: "Devis, bons de commande et factures déposés : l'IA propose les lignes, une personne les confirme une à une. Chaque pièce lue est un appel payant au fournisseur d'IA, une seule fois par fichier ; une pièce confidentielle n'est jamais envoyée. Coupée (le réglage par défaut), la lecture locale — texte du fichier, OCR sur ce serveur, en-tête et totaux — continue sans rien envoyer ni rien coûter." },
+  { key: "conseilPiecesEnabled", label: "Luna — conseil de rangement des pièces Ad & Pro", desc: "Après un dépôt sur une demande Ad & Pro, Luna lit la pièce et dit si elle est au bon endroit (Détails de la demande, ou la bonne case du bon poste) ; sinon il conseille où la mettre. Il n'écrit ni ne déplace rien. Chaque pièce lue est un appel au fournisseur d'IA ; une pièce confidentielle n'est jamais envoyée." },
 ];
 
 function Toggle({ checked, onClick, disabled }: { checked: boolean; onClick: () => void; disabled?: boolean }) {

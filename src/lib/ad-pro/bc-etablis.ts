@@ -25,10 +25,20 @@ export async function bcEtablisDesPostes(itemIds: readonly string[]): Promise<Ma
   const res = new Map<string, string[]>();
   const ids = [...new Set(itemIds.filter(Boolean))];
   if (ids.length === 0) return res;
-  const demandes = await prisma.documentRequest.findMany({
-    where: { entityType: "AD_PRO_ITEM", entityId: { in: ids }, legalDocumentId: { not: null } },
-    select: { entityId: true, legalDocumentId: true },
-  });
+  // DEUX CHEMINS, UNE LECTURE (§118.204) : le BC classé depuis une demande de pièce ET le BC rattaché
+  // au poste (`AdProItemPiece`) — celui que la carte montre. N'en lire qu'un ferait dire « pas de BC »
+  // ici quand la carte en montre un.
+  const [parDemande, parLien] = await Promise.all([
+    prisma.documentRequest.findMany({
+      where: { entityType: "AD_PRO_ITEM", entityId: { in: ids }, legalDocumentId: { not: null } },
+      select: { entityId: true, legalDocumentId: true },
+    }),
+    prisma.adProItemPiece.findMany({
+      where: { itemId: { in: ids }, nature: "BON_DE_COMMANDE" },
+      select: { itemId: true, legalDocumentId: true },
+    }),
+  ]);
+  const demandes = [...parDemande, ...parLien.map((l) => ({ entityId: l.itemId, legalDocumentId: l.legalDocumentId }))];
   const docIds = [...new Set(demandes.map((d) => d.legalDocumentId).filter((x): x is string => Boolean(x)))];
   if (docIds.length === 0) return res;
   const docs = await prisma.legalDocument.findMany({

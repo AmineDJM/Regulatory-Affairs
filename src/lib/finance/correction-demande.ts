@@ -147,3 +147,36 @@ export function phraseDeCorrection(ecarts: readonly Ecart[], motif: string | nul
   const quoi = ecarts.map((e) => `${e.libelle} : ${e.avant} → ${e.apres}`).join(" ; ");
   return motif ? `Demande corrigée — ${quoi}. Ce qui a changé : ${motif}` : `Demande corrigée — ${quoi}.`;
 }
+
+/**
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ * RETIRER SA DEMANDE DE PAIEMENT TANT QUE L'ARGENT N'EST PAS PARTI (décision de la Direction, 04/10).
+ *
+ * « On peut annuler sa demande tant qu'elle n'a pas été exécutée par l'autre. » Pour un paiement,
+ * l'exécution est le RÈGLEMENT, pas le bon à payer : une demande APPROUVÉE dont l'ordre n'est pas
+ * réglé se retire encore — son ordre est annulé par l'écrivain commun (`annulerOrdreNonRegle`), et
+ * le centre n'a plus rien à autoriser. Avant, `APPROVED` n'avait aucune transition : le demandeur
+ * qui apprenait que la facture était fausse ne pouvait plus rien, et l'ordre partait.
+ *
+ * Une règle, deux lecteurs : l'action et le bouton de la fiche (§118.83).
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ */
+export interface EtatPourRetrait {
+  status: string;
+  compagnon: boolean;
+  ordre?: { status: string } | null;
+}
+
+export const REFUS_RETRAIT_COMPAGNON =
+  "Ce dossier accompagne un ordre de dépense : le retirer n'annulerait pas le paiement. Passez par le circuit d'origine.";
+
+/** Pourquoi la demande ne se retire PAS — `null` si elle se retire. */
+export function refusDeRetrait(e: EtatPourRetrait): string | null {
+  if (e.compagnon) return REFUS_RETRAIT_COMPAGNON;
+  if (e.status === "CANCELLED") return "Cette demande est déjà retirée.";
+  if (e.status === "REJECTED") return "Cette demande a été refusée : il n'y a plus rien à retirer.";
+  if (e.ordre?.status === "PAID") {
+    return "Ce paiement est déjà réglé : l'argent est parti, la demande ne se retire plus. Si ce règlement est une erreur, voyez les Finances.";
+  }
+  return null;
+}

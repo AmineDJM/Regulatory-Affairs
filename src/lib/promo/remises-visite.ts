@@ -4,14 +4,17 @@ import {
   type GesteDeRemise,
 } from "@/lib/promo/remises";
 import { etatValidite, libelleArticleStock } from "@/lib/promo/stock";
-import { remettreAuMedecin, reprendreRemisesDeLaVisite, type Tx } from "@/lib/promo/stock-ecriture";
+import { remettreAuMedecin, reprendreRemisesDeLaVisite, type AncreRemise, type Tx } from "@/lib/promo/stock-ecriture";
+
+export type { AncreRemise };
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
- * LE MATÉRIEL REMIS EN VISITE, CÔTÉ SERVEUR (§118.166) — un seul endroit pour les trois portes
- * qui enregistrent une visite faite : le rapport d'une visite planifiée, la visite imprévue, et la
- * saisie rapide de « Ma journée ». Trois copies auraient fini par ne pas remettre pareil — et le
- * symptôme serait un stock juste ou faux selon le bouton qu'un délégué a pris (§118.5, §118.71).
+ * LE MATÉRIEL REMIS EN VISITE, CÔTÉ SERVEUR (§118.166) — un seul endroit pour les QUATRE portes
+ * qui enregistrent une visite faite : le rapport d'une visite planifiée, la visite imprévue, la
+ * saisie rapide de « Ma journée », et le compte rendu de visite du module Rapports terrain
+ * (§118.204). Quatre copies auraient fini par ne pas remettre pareil — et le symptôme serait un
+ * stock juste ou faux selon le bouton qu'un délégué a pris (§118.5, §118.71).
  *
  * L'ordre est toujours le même : LIRE et vérifier hors transaction (tout ce qui ne va pas, en une
  * fois), puis ÉCRIRE sous le verrou de chaque article, dans la transaction de la visite. Le SOLDE
@@ -103,6 +106,16 @@ export async function lireMaterielRemis(formData: FormData, deja: DejaDansLaVisi
   return { ok: true, materiel: { remises: lues.remises, numeriques, libelles: new Map(articles.map((a) => [a.id, libelleDe(a)])) } };
 }
 
+/**
+ * CE QU'UN COMPTE RENDU DE VISITE (rapport terrain) PORTE DÉJÀ (§118.204). Il n'a pas de supports
+ * numériques : une présentation se rattache à une VISITE (`MedicalVisitSupportNumerique`), et le
+ * compte rendu qui n'en a pas ne les propose pas.
+ */
+export async function dejaDansLeRapport(fieldReportId: string): Promise<DejaDansLaVisite> {
+  const ms = await prisma.promoStockMovement.findMany({ where: { fieldReportId, kind: "DISTRIBUTION" }, select: { itemId: true }, distinct: ["itemId"] });
+  return { remis: ms.map((m) => m.itemId), presentes: [] };
+}
+
 /** LES ARTICLES À VERROUILLER : ce qu'on remet, et ce que la visite avait déjà remis. */
 export function verrousDuRapport(m: MaterielLu, deja: DejaDansLaVisite): string[] {
   return [...new Set([...m.remises.map((r) => r.itemId), ...deja.remis])];
@@ -115,10 +128,10 @@ export function verrousDuRapport(m: MaterielLu, deja: DejaDansLaVisite): string[
  * remis ; un rapport renvoyé à l'identique n'écrit rien. Rend les gestes écrits.
  */
 export async function ecrireRemises(tx: Tx, m: MaterielLu, verrouilles: ReadonlyMap<string, unknown>, c: {
-  visitId: string; doctorId: string | null; detenteurId: string; auteurId: string; maintenant: Date; motif: string;
+  ancre: AncreRemise; doctorId: string | null; detenteurId: string; auteurId: string; maintenant: Date; motif: string;
 }): Promise<GesteDeRemise[]> {
   const mouvements = await tx.promoStockMovement.findMany({
-    where: { visitId: c.visitId, kind: { in: ["DISTRIBUTION", "REVERSAL"] } },
+    where: { ...c.ancre, kind: { in: ["DISTRIBUTION", "REVERSAL"] } },
     select: { id: true, itemId: true, kind: true, delta: true, annuleId: true },
   });
   const avant = remisNetParArticle(mouvements.map((x) => ({ ...x, delta: Number(x.delta) })));
@@ -132,20 +145,24 @@ export async function ecrireRemises(tx: Tx, m: MaterielLu, verrouilles: Readonly
   }
   for (const g of gestes) {
     if (g.geste === "REPRENDRE" || g.geste === "REMPLACER") {
-      await reprendreRemisesDeLaVisite(tx, c.visitId, g.itemId, c.auteurId, "Rapport de visite corrigé");
+      await reprendreRemisesDeLaVisite(tx, c.ancre, g.itemId, c.auteurId, "Rapport de visite corrigé");
     }
     if (g.geste === "REMETTRE" || g.geste === "REMPLACER") {
       const r = await remettreAuMedecin(tx, g.itemId, {
-        holderId: c.detenteurId, quantite: g.apres, visitId: c.visitId, doctorId: c.doctorId,
+        holderId: c.detenteurId, quantite: g.apres, ancre: c.ancre, doctorId: c.doctorId,
         motif: c.motif, auteurId: c.auteurId, maintenant: c.maintenant,
       });
       if (!r.ok) throw new RefusRemise(refusRemise(m.libelles.get(g.itemId) ?? "Article", g.apres, r.refus));
     }
   }
-  // LES PRÉSENTATIONS NUMÉRIQUES sont un ensemble par visite : remplacées, jamais cumulées.
-  await tx.medicalVisitSupportNumerique.deleteMany({ where: { visitId: c.visitId } });
-  if (m.numeriques.length) {
-    await tx.medicalVisitSupportNumerique.createMany({ data: m.numeriques.map((itemId) => ({ visitId: c.visitId, itemId })), skipDuplicates: true });
+  // LES PRÉSENTATIONS NUMÉRIQUES sont un ensemble par visite : remplacées, jamais cumulées. Un
+  // compte rendu sans visite n'en porte pas — l'appelant refuse un support coché (§118.204).
+  if ("visitId" in c.ancre) {
+    const visitId = c.ancre.visitId;
+    await tx.medicalVisitSupportNumerique.deleteMany({ where: { visitId } });
+    if (m.numeriques.length) {
+      await tx.medicalVisitSupportNumerique.createMany({ data: m.numeriques.map((itemId) => ({ visitId, itemId })), skipDuplicates: true });
+    }
   }
   return gestes;
 }
@@ -167,4 +184,26 @@ export function phraseMateriel(m: MaterielLu): string {
 /** Une visite touche-t-elle le stock (pour revalider l'écran du stock) ? */
 export function toucheLeStock(m: MaterielLu, deja: DejaDansLaVisite): boolean {
   return m.remises.length > 0 || deja.remis.length > 0;
+}
+
+/**
+ * LE FORMULAIRE PORTE-T-IL DU MATÉRIEL ? (une quantité non nulle, ou un support coché). Lu ici,
+ * avec les autres champs du bloc, pour que les noms du bloc ne vivent qu'à un endroit.
+ */
+export function formulairePorteDuMateriel(formData: FormData): { materiel: boolean; numerique: boolean } {
+  const numerique = formData.getAll("numeriqueItemId").some((v) => String(v).trim() !== "");
+  return { materiel: numerique || formData.getAll("materielQuantite").some((q) => Number(q) > 0), numerique };
+}
+
+/**
+ * UN COMPTE RENDU QUI PORTE DES REMISES NE SE SUPPRIME PAS (§118.204) — comme une visite rapportée
+ * (§118.193d) : ses remises, et leurs corrections, restent au registre du stock, et le compte rendu
+ * est ce qui les justifie. Lu par l'action de suppression ET par la corbeille du Super Admin : deux
+ * portes, une règle (§118.71). Rend la phrase du refus, ou `null`.
+ */
+export async function refusSuppressionRapport(fieldReportId: string): Promise<string | null> {
+  const n = await prisma.promoStockMovement.count({ where: { fieldReportId } });
+  return n > 0
+    ? "Ce compte rendu porte du matériel remis : ses remises restent au registre du stock, et c'est lui qui les justifie — il ne se supprime pas. Une remise saisie par erreur se corrige dans le compte rendu (« Corriger / renvoyer », quantité à 0)."
+    : null;
 }

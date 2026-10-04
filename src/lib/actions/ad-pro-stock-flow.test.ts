@@ -11,7 +11,7 @@ import { getAccess, hasGlobalView, userCan, type SessionUser } from "@/lib/rbac"
 import { canAccessEntity } from "@/lib/entity-access";
 import {
   addAdProItem, ajouterArticleStockAuPoste, confirmerMaterielStock, decideAdProItem, deleteAdProItem, submitAdProItem,
-  updateAdProItem, setAdProItemBudget, requestAdProItemOrder, demanderPieceSecretariat, linkPromoMaterial, emitItemExpenseOrder,
+  updateAdProItem, setAdProItemBudget, requestAdProItemOrder, demanderPieceSecretariat, linkPromoMaterial, demanderPaiementPoste, ajouterDevisPoste,
 } from "./ad-pro-item-actions";
 import { cloturerSponsoring } from "./sponsoring-actions";
 import { transferAdProRequest } from "./ad-pro-transfer-actions";
@@ -238,14 +238,26 @@ suite("Matériel du stock d'un événement — réserver à l'accord, confirmer 
   });
 
   it("LES GESTES D'ARGENT sont refusés sur un poste de stock — et sa nature ne se perd pas avec des lignes", async () => {
+    // LES PIÈCES ET LE PAIEMENT DE §118.204 sont des gestes d'argent comme les autres : un poste de
+    // stock n'a ni devis, ni facture. Joints AVEC un fichier, pour que le refus ne puisse venir que de
+    // la nature du poste — sans pièce, ils refuseraient pour une autre raison.
+    const avecFichier = (champs: Record<string, string>) => {
+      const f = form(champs);
+      f.append("attachment", new File([new Uint8Array([0x25, 0x50, 0x44, 0x46, 0x2d, 0x31])], "piece.pdf", { type: "application/pdf" }));
+      return f;
+    };
     await comme("dir");
     const refus = [
-      await setAdProItemBudget(undefined, form({ id: poste1, budgetCategoryId: "x" })),
       await requestAdProItemOrder(undefined, form({ id: poste1 })),
       await demanderPieceSecretariat(undefined, form({ id: poste1, nature: "DEVIS" })),
       await linkPromoMaterial(undefined, form({ id: poste1, promoMaterialId: "x" })),
-      await emitItemExpenseOrder(undefined, form({ id: poste1 })),
+      await demanderPaiementPoste(undefined, avecFichier({ id: poste1, montant: "1000" })),
+      await ajouterDevisPoste(undefined, avecFichier({ id: poste1, montant: "1000" })),
     ];
+    // Le budget se choisit par qui tient le SECOND temps (§118.204) — la Direction Marketing ici : c'est
+    // elle qu'on fait essayer, sans quoi le refus viendrait du droit et non de la nature du poste.
+    await comme("dm");
+    refus.push(await setAdProItemBudget(undefined, form({ id: poste1, budgetCategoryId: "x" })));
     for (const r of refus) {
       expect(r.ok).toBe(false);
       expect(r.ok ? "" : r.error).toMatch(/« Matériel du stock » n'engage pas d'argent/);

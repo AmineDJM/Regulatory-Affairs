@@ -105,15 +105,16 @@ suite("Moyens généraux — le service, et lui seul", () => {
     expect(await resolveGeneralMeansDepartment(await acteur(u.sa))).toBeNull();
   });
 
-  it("3. le budget compte TOUTES les dépenses ; « Voir la dépense » ne mène que vers celles que l'écran montre", async () => {
+  it("3. le budget compte TOUTES les dépenses ; « Voir la dépense » ne mène plus nulle part — aucun écran ne les montre (04/10)", async () => {
     SERVICE = dService;
     const vue = await getBudgetOverview(await acteur(u.sa), envelopeId);
     expect(vue, "prémisse : le Super Admin ouvre l'enveloppe").not.toBeNull();
     const mg = vue!.attributed.transactions.filter((t) => t.kind === "GENERAL_MEANS" && [depService, depAutre].includes(t.id));
     // Rien n'est retiré du budget : la dépense d'un autre département y est toujours COMPTÉE…
     expect(mg.map((t) => [t.id, t.amount]).sort()).toEqual([[depAutre, 3_500], [depService, 12_000]].sort());
-    // … mais seule celle du service a un lien : l'écran des moyens généraux ne montre plus que lui.
-    expect(mg.find((t) => t.id === depService)?.lien).toBe("/moyens-generaux");
+    // … mais AUCUNE n'a de lien : l'écran des moyens généraux ne garde que le catalogue d'articles
+    // (décision du 04/10). Celle du SERVICE est le témoin — c'est elle qui avait un lien hier.
+    expect(mg.find((t) => t.id === depService)?.lien).toBeNull();
     expect(mg.find((t) => t.id === depAutre)?.lien).toBeNull();
   });
 });
@@ -121,27 +122,27 @@ suite("Moyens généraux — le service, et lui seul", () => {
 /** La source sans ses commentaires — un cliquet ne s'accroche pas à la prose qui le décrit (§118.79d). */
 const sansCommentaires = (src: string) => src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:"'`])\/\/.*$/gm, "$1");
 
-describe("Moyens généraux — plus aucune porte vers les autres départements à l'écran", () => {
-  it("la page ne lit plus `?dept=` et ne monte plus de sélecteur de départements", () => {
-    const page = sansCommentaires(readFileSync(path.join(RACINE, "src/app/(app)/moyens-generaux/page.tsx"), "utf8"));
-    // PRÉMISSE : on lit bien la page qui résout le service — sans quoi l'absence ne prouverait rien.
-    expect(page).toMatch(/resolveGeneralMeansDepartment\(user\)/);
-    expect(page, "la page lit encore ?dept=").not.toMatch(/searchParams[^;]*\bdept\b|\.dept\b/);
-    expect(page).not.toMatch(/DepartmentSwitcher/);
+describe("Moyens généraux — l'écran ne garde QUE le catalogue d'articles (décision du 04/10)", () => {
+  // « Ne laisse que le catalogue d'articles, enlève le reste. » La caisse, les dépenses, le choix du
+  // service, l'annuaire et les budgets par département quittent l'ÉCRAN (aucune action serveur
+  // n'est retirée). La décision du 01/10 (§118.170 : « Changer de service… » sur l'écran) est donc
+  // RETOURNÉE par la Direction : le banc tient la règle du jour, dans les deux sens.
+  const page = () => sansCommentaires(readFileSync(path.join(RACINE, "src/app/(app)/moyens-generaux/page.tsx"), "utf8"));
+
+  it("la page monte le catalogue — le MÊME composant que le Bureau du secrétariat — sous son titre", () => {
+    const p = page();
+    // PRÉMISSE : on lit bien la page du module — sans quoi les absences ci-dessous ne prouveraient rien.
+    expect(p).toMatch(/export default async function MoyensGenerauxPage/);
+    expect(p).toMatch(/<CatalogueArticles articles=\{lignes\} peutModifier=\{peutModifier\} \/>/);
+    expect(p).toMatch(/title="Moyens généraux — Catalogue d'articles"/);
   });
 
-  it("le Super Admin garde de quoi DÉSIGNER le service — sur l'écran du service ET sur l'écran vide, sinon le réglage n'a plus d'écrivain", () => {
-    // Le seul geste qui écrit le réglage vivait sur l'écran d'un AUTRE département (« En faire le
-    // service »), que plus personne ne peut ouvrir d'ici. Sans ces deux points d'appel, le service
-    // ne se changerait plus jamais, et un Super Admin sans département resterait devant un écran
-    // vide sans issue (§118.131, §118.63). Le POINT D'APPEL, pas le corps du composant (§118.49).
-    const page = sansCommentaires(readFileSync(path.join(RACINE, "src/app/(app)/moyens-generaux/page.tsx"), "utf8"));
-    expect(page.match(/<ChangerDeService departements=\{departements\}/g) ?? []).toHaveLength(2);
-    expect(page, "l'écran vide du Super Admin propose la désignation ouverte d'office").toMatch(/<ChangerDeService departements=\{departements\} actuel=\{null\} ouvertParDefaut \/>/);
-    expect(page, "l'écran du service la propose, fermée, à côté de l'état du réglage").toMatch(/<ChangerDeService departements=\{departements\} actuel=\{serviceCourant\} \/>/);
-    // La liste des départements n'est chargée que pour le Super Admin : elle n'ouvre la caisse
-    // d'aucun d'eux, mais rien ne justifie de la servir à qui ne peut rien en faire.
-    expect(page).toMatch(/const departements = pilote\s*\?/);
+  it("et plus rien d'autre : ni caisse, ni dépenses, ni service, ni annuaire, ni budgets par département", () => {
+    const p = page();
+    for (const retire of [/CashPanel/, /ExpensePanel/, /ExpenseTable/, /ServiceSwitch/, /ChangerDeService/, /resolveGeneralMeansDepartment/,
+      /mon-espace\/annuaire/, /budgets\/departements/, /La caisse à deux horizons/, /searchParams/]) {
+      expect(p, `la page porte encore ${retire}`).not.toMatch(retire);
+    }
   });
 
   it("le sélecteur n'existe plus, et personne ne l'importe (une porte cachée vers ce qu'on a retiré de l'écran)", () => {

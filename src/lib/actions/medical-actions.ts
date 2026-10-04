@@ -768,7 +768,7 @@ export async function logVisit(
       // lendemain le reproposerait en tête, et l'écran perdrait la confiance du terrain.
       await tx.medicalDoctor.update({ where: { id: doctorId }, data: { lastVisit: date } });
       await ecrireRemises(tx, lu.materiel, verrouilles, {
-        visitId: v.id, doctorId, detenteurId: user.id, auteurId: user.id, maintenant: now, motif: motifDeRemise(date, doctor.name),
+        ancre: { visitId: v.id }, doctorId, detenteurId: user.id, auteurId: user.id, maintenant: now, motif: motifDeRemise(date, doctor.name),
       });
       return v;
     });

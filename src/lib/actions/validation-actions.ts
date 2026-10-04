@@ -12,6 +12,7 @@ import { recordAudit } from "@/lib/audit";
 import { notifyUser } from "@/lib/notify";
 import { createValidationFromRules, createDirectValidation, notifyValidator, joindrePiecesValidation, reprendreEtapesRenvoyees, verifierPiecesValidation } from "@/lib/validation";
 import { issueDeLaDecision, motifExige, MOTIF_EXIGE, repriseApresCorrection, resoumissionSurPlace, type DecisionEtape } from "@/lib/validations/decision";
+import { refusDuRetraitValidation, retraitEfface, validateursSollicites } from "@/lib/validations/retrait";
 import { createExpenseOrder } from "@/lib/expense-orders";
 import { annulerOrdreNonRegle } from "@/lib/payments/annulation";
 import { actsForUser } from "@/lib/hr/stand-in-resolve";
@@ -505,48 +506,54 @@ export async function deleteMyValidationRequest(formData: FormData): Promise<Act
   if (!id) return { ok: false, error: "Demande introuvable." };
   const req = await prisma.validationRequest.findUnique({
     where: { id },
-    select: { id: true, reference: true, title: true, requesterId: true, status: true, version: true, entityType: true, documentId: true, steps: { select: { status: true, validatorId: true } } },
+    select: {
+      id: true, reference: true, title: true, requesterId: true, status: true, version: true, entityType: true, documentId: true,
+      mode: true, currentOrder: true, steps: { select: { status: true, validatorId: true, order: true } },
+    },
   });
   if (!req) return { ok: false, error: "Demande introuvable." };
   if (req.requesterId !== user.id && user.role !== "SUPER_ADMIN") {
     return { ok: false, error: "Seul le demandeur retire sa demande. Un validateur refuse — avec un motif, qui reste." };
   }
-  const decidee = req.steps.some((e) => e.status !== "PENDING");
-  // Une demande NÉE D'UN AUTRE CIRCUIT ne s'abandonne pas d'ici : c'est ce circuit qui la clôt en la
-  // remplaçant (audit 360°, I9) — l'abandonner ici lui ferait trouver une demande déjà close, et sa
-  // resoumission s'arrêterait sur « une nouvelle demande vient déjà d'être soumise ».
-  if (req.status === "CHANGES_REQUESTED" && !resoumissionSurPlace(req)) {
-    return { ok: false, error: "Cette demande se corrige depuis son objet d'origine : c'est lui qui la renvoie ou la clôt." };
-  }
-  if (req.status === "CHANGES_REQUESTED" || (req.status === "PENDING" && req.version > 1 && !decidee)) {
+  // UNE RÈGLE, DEUX APPELANTS (`validations/retrait.ts`, décision du 04/10) : la demande se retire
+  // tant qu'elle n'est pas TRANCHÉE — même si une étape a déjà dit oui. Une demande née d'un autre
+  // circuit et renvoyée se corrige là-bas (audit 360°, I9).
+  const vue = { status: req.status, version: req.version, surPlace: resoumissionSurPlace(req), steps: req.steps };
+  const refus = refusDuRetraitValidation(vue);
+  if (refus) return { ok: false, error: refus };
+
+  if (!retraitEfface(vue)) {
+    // UN GESTE À LA FOIS : la clôture exige l'état et la version lus — une décision passée entre la
+    // lecture et le clic ne se fait pas effacer, et deux clics ne closent qu'une fois.
     const close = await prisma.validationRequest.updateMany({
       where: { id, status: req.status, version: req.version },
       data: { status: "CANCELLED", decidedAt: new Date() },
     });
     if (close.count === 0) return { ok: false, error: "Cette demande vient de changer : rouvrez-la pour voir où elle en est." };
     if (req.status === "PENDING") {
-      for (const e of req.steps) {
-        if (e.validatorId === user.id) continue;
-        await notifyUser({ userId: e.validatorId, type: "GENERIC", title: "Validation retirée", body: `${req.reference} — ${req.title} : abandonnée par son demandeur.`, link: `/validations/${id}` }).catch(() => undefined);
+      for (const v of validateursSollicites(req, user.id)) {
+        await notifyUser({ userId: v, type: "GENERIC", title: "Validation retirée", body: `${req.reference} — ${req.title} : retirée par son demandeur, il n'y a plus rien à trancher.`, link: `/validations/${id}` }).catch(() => undefined);
       }
     }
     await recordAudit({
       actorId: user.id, action: "UPDATE", module: "Validations", entityType: "VALIDATION_REQUEST", entityId: id,
-      field: "status", newValue: "CANCELLED",
-      summary: `Demande de validation abandonnée par son demandeur — ${req.reference} : ${req.title} (son historique reste)`,
+      field: "status", oldValue: req.status, newValue: "CANCELLED",
+      summary: `Demande de validation retirée par son demandeur — ${req.reference} : ${req.title} (son historique reste)`,
     });
     revalidatePath("/validations");
     revalidatePath(`/validations/${id}`);
-    return { ok: true, message: "Demande abandonnée : elle reste visible, close, avec son historique." };
-  }
-  if (req.status !== "PENDING") {
-    return { ok: false, error: "Cette demande a été tranchée : l'accord ou le refus d'un tiers ne s'efface pas." };
-  }
-  if (decidee) {
-    return { ok: false, error: "Un validateur s'est déjà prononcé sur une étape : la demande ne peut plus être retirée." };
+    return { ok: true, message: "Demande retirée : elle reste visible, close, avec son historique — les validateurs sollicités sont prévenus." };
   }
 
-  await prisma.validationRequest.delete({ where: { id } });
+  // VIERGE : personne ne s'est prononcé, elle s'efface. La suppression exige qu'elle le soit
+  // ENCORE (une étape tranchée entre-temps l'interdit) : écriture conditionnelle.
+  const efface = await prisma.validationRequest.deleteMany({
+    where: { id, status: "PENDING", version: req.version, steps: { every: { status: "PENDING" } } },
+  });
+  if (efface.count === 0) return { ok: false, error: "Cette demande vient de changer : rouvrez-la pour voir où elle en est." };
+  for (const v of validateursSollicites(req, user.id)) {
+    await notifyUser({ userId: v, type: "GENERIC", title: "Validation retirée", body: `${req.reference} — ${req.title} : retirée par son demandeur.`, link: "/validations" }).catch(() => undefined);
+  }
   await recordAudit({
     actorId: user.id, action: "DELETE", module: "Validations",
     entityType: "VALIDATION_REQUEST", entityId: id,

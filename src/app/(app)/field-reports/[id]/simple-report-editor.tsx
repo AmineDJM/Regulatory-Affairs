@@ -11,12 +11,29 @@ import { formatBytes } from "../../messages/format";
 import { submitFieldReport, reopenFieldReport, deleteFieldReportAttachment } from "@/lib/actions/field-report-actions";
 import type { FieldReportDetail } from "@/lib/queries/field-reports";
 import { DoctorPicker } from "./doctor-picker";
+import { BlocMaterielRemis, type RemisesInitiales } from "../../medical/ma-journee/materiel-remis";
+import type { StockPourVisite } from "@/lib/queries/promo-remises";
+
+/** Le matériel du compte rendu : le stock en main du KAM, et ce que ce compte rendu a déjà remis. */
+export interface MaterielDuRapport { stock: StockPourVisite; initial: RemisesInitiales }
+
+const AUCUN_PRODUIT: ReadonlySet<string> = new Set();
 
 /**
  * Vue **délégué** simple : un seul compte rendu (synthèse) — on parle (ou on écrit) —
  * + médecin(s), établissement, spécialité, date, pièces jointes. On envoie.
+ *
+ * Et le MATÉRIEL REMIS (§118.204) : le même bloc que les trois autres portes d'une visite faite,
+ * lu et vérifié par le même module côté serveur. Un compte rendu rattaché à une visite de l'emploi
+ * du temps n'en porte pas — la visite le porte — et l'écran le dit au lieu de proposer un geste
+ * que l'action refuserait (§118.83).
  */
-export function SimpleReportEditor({ detail, doctors }: { detail: FieldReportDetail; doctors: { id: string; name: string }[] }) {
+export function SimpleReportEditor({ detail, doctors, materiel, rattacheAUneVisite }: {
+  detail: FieldReportDetail;
+  doctors: { id: string; name: string }[];
+  materiel: MaterielDuRapport | null;
+  rattacheAUneVisite: boolean;
+}) {
   const router = useRouter();
   const sent = detail.status === "VALIDATED";
 
@@ -33,6 +50,7 @@ export function SimpleReportEditor({ detail, doctors }: { detail: FieldReportDet
   const mr = React.useRef<MediaRecorder | null>(null);
   const chunks = React.useRef<Blob[]>([]);
   const fileRef = React.useRef<HTMLInputElement>(null);
+  const materielRef = React.useRef<HTMLFormElement>(null);
 
   const startRec = async () => {
     setMsg(null);
@@ -72,6 +90,8 @@ export function SimpleReportEditor({ detail, doctors }: { detail: FieldReportDet
     f.set("id", detail.id); f.set("summary", summary); f.set("visitDate", visitDate);
     f.set("doctorIds", doctorIds.join(",")); f.set("doctorName", doctorName);
     f.set("institution", institution); f.set("specialty", specialty);
+    // Les champs du bloc « Matériel remis » (mêmes noms que dans « Ma journée »).
+    if (materielRef.current) for (const [k, v] of new FormData(materielRef.current)) f.append(k, v);
     const r = await submitFieldReport(f);
     setSending(false);
     if (r.ok) router.push("/field-reports"); else setMsg(r.error ?? "Envoi impossible.");
@@ -97,6 +117,16 @@ export function SimpleReportEditor({ detail, doctors }: { detail: FieldReportDet
           <Label>Compte rendu (synthèse)</Label>
           <p className="mt-1 whitespace-pre-wrap rounded-lg border border-border bg-secondary/30 p-3 text-sm">{detail.summary || detail.transcript || "—"}</p>
         </div>
+        {materiel && materiel.initial.materiel.length > 0 && (
+          <div>
+            <Label>Matériel remis</Label>
+            <ul className="mt-1 space-y-0.5 text-sm">
+              {materiel.initial.materiel.map((m) => (
+                <li key={m.itemId}>{m.libelle} — {m.quantite.toLocaleString("fr-FR", { maximumFractionDigits: 3 })}</li>
+              ))}
+            </ul>
+          </div>
+        )}
         <Attachments detail={detail} readOnly />
       </div>
     );
@@ -135,6 +165,16 @@ export function SimpleReportEditor({ detail, doctors }: { detail: FieldReportDet
           <Input value={institution} onChange={(e) => setInstitution(e.target.value)} placeholder="Ex. CHU Mustapha, Clinique El Azhar…" />
         </div>
       </div>
+
+      {materiel ? (
+        <form ref={materielRef} onSubmit={(e) => e.preventDefault()}>
+          <BlocMaterielRemis stock={materiel.stock} produitsCoches={AUCUN_PRODUIT} initial={materiel.initial} />
+        </form>
+      ) : rattacheAUneVisite ? (
+        <p className="rounded-lg border border-dashed border-border p-2.5 text-xs text-muted-foreground">
+          Ce compte rendu raconte une visite de votre emploi du temps : le matériel remis se déclare dans le rapport de cette visite (Promotion médicale › Ma journée).
+        </p>
+      ) : null}
 
       <div className="space-y-2">
         <div className="flex items-center justify-between">

@@ -28,13 +28,12 @@ import { AdProEditButton } from "@/components/ad-pro/edit-request-button";
 import { canEditAdProRequest, isAdProDecided } from "@/lib/ad-pro-edit";
 import { adProEditValues } from "@/lib/queries/ad-pro-edit";
 import { AdProItemsPanel } from "@/components/ad-pro/items-panel";
-import { loadAdProItems, adProBudgetOptions, contexteMaterielStock } from "@/lib/queries/ad-pro-items";
+import { loadAdProItems, adProBudgetOptions, contexteMaterielStock, contextePostes } from "@/lib/queries/ad-pro-items";
+import { CarteDetailsDemande } from "@/components/ad-pro/pieces-jointes-demande";
+import { EspaceDiscussion } from "@/components/ad-pro/espace-discussion";
 import { promoMaterialOptions } from "@/lib/actions/ad-pro-item-actions";
 import { toNumber } from "@/lib/utils";
 import { onlyofficeConfigured } from "@/lib/onlyoffice";
-import { DocumentUpload } from "@/components/documents/document-upload";
-import { LinkedRecords } from "@/components/shared/linked-records";
-import { contextePiecesLiees } from "@/lib/ad-pro/pieces-liees";
 import { AD_PRO_DOC_CATEGORIES, categoriesDuDepotDeLaDemande } from "@/lib/ad-pro/doc-categories";
 import { getAdProCreateData } from "@/lib/queries/ad-pro";
 import { canAttachToAdPro, attachHint } from "@/lib/ad-pro/attachments";
@@ -72,11 +71,12 @@ export default async function EventDetailPage({ params }: { params: { id: string
   // obligatoires (`champsManquants` est lu par les deux actions) : sans les menus, la personne
   // devrait ressaisir en texte libre ce qu'elle avait choisi dans l'annuaire — et l'action la
   // refuserait pour un champ qu'elle ne sait plus proposer.
-  const [items, promoOptions, budgetOptions, adPro] = await Promise.all([
+  const [items, promoOptions, budgetOptions, adPro, contexte] = await Promise.all([
     loadAdProItems("EVENT", e.id),
     promoMaterialOptions(),
     adProBudgetOptions(user),
     canManage ? getAdProCreateData(user.id, ["EVENT"]) : Promise.resolve(null),
+    contextePostes(user, "EVENT", e.id),
   ]);
   const canAllocateItems = hasGlobalView(user) || userCan(user, "EVENTS", "VALIDATE");
   // LE MAGASIN où un poste « Matériel du stock » pioche, et qui confirme après l'événement (§118.167).
@@ -95,9 +95,6 @@ export default async function EventDetailPage({ params }: { params: { id: string
     prisma.document.findMany({ where: { entityType: "EVENT", entityId: e.id }, include: { uploadedBy: { select: { name: true } } }, orderBy: { createdAt: "desc" } }),
     getInvolvementThreads("EVENT", e.id),
   ]);
-  // Les droits sur les pièces des engagements/factures/courriers liés + les documents Legal
-  // rattachables. Une seule règle pour les trois écrans Ad & Pro (`ad-pro/pieces-liees.ts`).
-  const ctxPieces = await contextePiecesLiees(user, "EVENTS");
   const docItems: DocItem[] = documents.map((d) => ({
     id: d.id, name: d.name, category: d.category, version: d.version, sizeBytes: d.sizeBytes,
     confidentiality: d.confidentiality, uploadedBy: d.uploadedBy?.name ?? null,
@@ -144,9 +141,20 @@ export default async function EventDetailPage({ params }: { params: { id: string
       </PageHeader>
 
       <div className="grid gap-5">
-        <Card>
-          <CardHeader><CardTitle>Informations</CardTitle></CardHeader>
-          <CardContent className="grid grid-cols-2 gap-x-6 gap-y-3 text-sm sm:grid-cols-3">
+        {/* LES INFORMATIONS ET LES PIÈCES JOINTES DE L'ÉVÉNEMENT — convention, programme, photos… :
+            « + Pièce jointe » en haut à droite. La chaîne d'achat vit sur chaque poste. */}
+        <CarteDetailsDemande
+          titre="Informations"
+          contentClassName="grid grid-cols-2 gap-x-6 gap-y-3 text-sm sm:grid-cols-3"
+          pieces={{
+            entityType: "EVENT", entityId: e.id, documents: docItems,
+            peutDeposer: canUploadDocs, motif: uploadHint,
+            categories: categoriesDuDepotDeLaDemande(AD_PRO_DOC_CATEGORIES),
+            canDelete: userCan(user, "EVENTS", "DELETE") || hasGlobalView(user),
+            canRename: canUploadDocs, canEdit: onlyofficeConfigured() && canUploadDocs,
+            path: `/events/${e.id}`,
+          }}
+        >
             <Info label="Dates" value={[e.startDate && formatDate(e.startDate), e.endDate && formatDate(e.endDate)].filter(Boolean).join(" → ") || "—"} />
             <Info label="Lieu" value={[e.location, e.city, e.country].filter(Boolean).join(", ")} />
             <Info label="Spécialité" value={e.specialty} />
@@ -156,34 +164,9 @@ export default async function EventDetailPage({ params }: { params: { id: string
             <Info label="Responsable" value={e.responsibleName} />
             {e.meetingLink && <div className="col-span-full"><a href={e.meetingLink} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 text-sm font-medium text-primary hover:underline"><Video className="h-4 w-4" /> Lien de connexion (webinar)</a></div>}
             {e.description && <div className="col-span-full"><p className="text-xs text-muted-foreground">Description</p><p className="whitespace-pre-wrap">{e.description}</p></div>}
-          </CardContent>
-        </Card>
+        </CarteDetailsDemande>
 
       </div>
-
-      {/* Le bloc « Documents » générique a disparu : les pièces vivent avec l'engagement, la
-          facture ou le courrier qu'elles justifient — le même fichier n'existe plus à deux
-          endroits qui s'ignorent — et la pièce de l'événement lui-même garde un emplacement
-          nommé dans « Engagements, factures et courriers liés ». */}
-      {/* CE QUI EN DÉCOULE : engagement, facture, courrier. Le mécanisme connaissait déjà ce type
-          de dossier ; il ne manquait que le bloc — et l'on ne pouvait donc RIEN rattacher à un
-          événement. Créés d'ici, ils gardent le lien : c'est le seul moment où l'on sait de quoi
-          ils viennent, et le seul où le rattachement ne coûte rien. */}
-      <LinkedRecords
-        entityType="EVENT" entityId={e.id} reference={e.name} canCreate={canUploadDocs}
-        acces={ctxPieces.acces} candidatsLegal={ctxPieces.candidatsLegal}
-        piecesDeLaDemande={{
-          titre: "Pièces de l'événement (convention, programme, photos…)",
-          documents: docItems,
-          televerseur: canUploadDocs ? <DocumentUpload entityType="EVENT" entityId={e.id} categories={categoriesDuDepotDeLaDemande(AD_PRO_DOC_CATEGORIES)} /> : undefined,
-          motif: uploadHint,
-          canDelete: userCan(user, "EVENTS", "DELETE") || hasGlobalView(user),
-          canRename: canUploadDocs,
-          canEdit: onlyofficeConfigured() && canUploadDocs,
-          path: `/events/${e.id}`,
-        }}
-      />
-
 
       {/* LE BLOC « SUIVI DE VALIDATION » A ÉTÉ RETIRÉ (demande de la Direction, 09/2026).
           Il montrait une frise « Brouillon → En attente → Validé » dérivée de `Event.status`,
@@ -234,6 +217,7 @@ export default async function EventDetailPage({ params }: { params: { id: string
             materiel={materielStock}
             canIssueOrder={userCan(user, "FINANCES", "UPDATE") || userCan(user, "FINANCES", "VALIDATE")}
             canViserBC={siegeAuCentreAdPro(user)}
+            contexte={contexte}
           />
         </CardContent>
       </Card>
@@ -247,8 +231,6 @@ export default async function EventDetailPage({ params }: { params: { id: string
         </Card>
       )}
 
-      <InvolvementConversations threads={involvementThreads} currentUserId={user.id} canManage={hasGlobalView(user)} />
-
       <MissionAssignmentsCard
         entityType="EVENT"
         entityId={e.id}
@@ -259,9 +241,13 @@ export default async function EventDetailPage({ params }: { params: { id: string
         path={`/events/${e.id}`}
       />
 
-          {/* LA SECTION DISCUSSION — le fil CANONIQUE, monté sur les sept natures du pôle. */}
-      <AdProDiscussionCard entityType="EVENT" entityId={e.id} user={user} />
-</div>
+      {/* LA SECTION DISCUSSION — le fil CANONIQUE de la demande et les échanges avec les personnes
+          impliquées : un seul espace. */}
+      <EspaceDiscussion>
+        <AdProDiscussionCard entityType="EVENT" entityId={e.id} user={user} />
+        <InvolvementConversations threads={involvementThreads} currentUserId={user.id} canManage={hasGlobalView(user)} />
+      </EspaceDiscussion>
+    </div>
   );
 }
 

@@ -1,12 +1,12 @@
 import { describe, it, expect } from "vitest";
 import {
   CHANNELS, CHANNEL_LABELS, buSetupComplete, buSetupProgress, buSetupSteps,
-  channelCovers, channelLabel, isChannel, nextBuStep,
+  channelCovers, channelLabel, estBuHospitaliere, isChannel, nextBuStep,
 } from "./sfe-setup";
 
 const vide = {
   supervisorId: null, channel: "BOTH", repCount: 0, productCount: 0,
-  sectorCount: 0, sectorsWithoutInstitution: 0, repsWithSector: 0,
+  kamsActifs: 0, kamsSansTerritoire: [] as string[],
   referentCount: 0, referentsSansRole: 0, specialtyCount: 0,
 };
 
@@ -17,8 +17,8 @@ describe("le montage d'une BU — l'ordre, et ce qui manque", () => {
     expect(buSetupComplete(vide)).toBe(false);
   });
 
-  it("l'ordre est celui du montage : superviseur → terrain → spécialités → KAM → secteurs → référents → produits", () => {
-    expect(buSetupSteps(vide).map((s) => s.key)).toEqual(["SUPERVISEUR", "CANAL", "SPECIALITES", "KAM", "SECTEURS", "REFERENTS", "PRODUITS"]);
+  it("l'ordre est celui du montage : superviseur → terrain → spécialités → KAM → territoires → référents → produits", () => {
+    expect(buSetupSteps(vide).map((s) => s.key)).toEqual(["SUPERVISEUR", "CANAL", "SPECIALITES", "KAM", "TERRITOIRES", "REFERENTS", "PRODUITS"]);
   });
 
   it("LES SPÉCIALITÉS (§118.183) : au moins une — la principale n'est PAS exigée", () => {
@@ -49,7 +49,7 @@ describe("le montage d'une BU — l'ordre, et ce qui manque", () => {
   it("une BU complète ne réclame plus rien", () => {
     const pleine = {
       supervisorId: "u1", channel: "HOSPITAL", repCount: 4, productCount: 3,
-      sectorCount: 2, sectorsWithoutInstitution: 0, repsWithSector: 4, referentCount: 1, referentsSansRole: 0,
+      kamsActifs: 4, kamsSansTerritoire: [], referentCount: 1, referentsSansRole: 0,
       specialtyCount: 3,
     };
     expect(nextBuStep(pleine)).toBeNull();
@@ -85,50 +85,55 @@ describe("le montage d'une BU — l'ordre, et ce qui manque", () => {
 });
 
 /**
- * LES SECTEURS — trois pannes distinctes derrière « la BU a des secteurs », et le cas qui
- * ferait tomber chaque assertion est nommé à côté d'elle.
+ * LES TERRITOIRES DES KAM (04/10/2026) — dans une BU hospitalière, chacun choisit sur sa ligne les
+ * établissements qu'il couvre. Le cas qui ferait tomber chaque assertion est nommé à côté d'elle.
  */
-describe("les secteurs d'une BU — un KAM sans territoire a un panel VIDE", () => {
-  // Une BU AU STADE des secteurs : supervisée, avec ses spécialités (§118.183) et ses produits.
-  const secteur = (o: Partial<typeof vide>) => ({ ...vide, supervisorId: "u1", productCount: 2, specialtyCount: 1, ...o });
-  const etape = (o: Partial<typeof vide>) => buSetupSteps(secteur(o)).find((s) => s.key === "SECTEURS")!;
+describe("les territoires des KAM — un KAM sans territoire a un panel VIDE", () => {
+  // Une BU AU STADE des territoires : supervisée, avec ses spécialités (§118.183) et ses produits.
+  const bu = (o: Partial<typeof vide>) => ({ ...vide, supervisorId: "u1", productCount: 2, specialtyCount: 1, channel: "HOSPITAL", ...o });
+  const etape = (o: Partial<typeof vide>) => buSetupSteps(bu(o)).find((s) => s.key === "TERRITOIRES")!;
 
-  it("aucun secteur : l'étape n'est pas franchie, et la raison le DIT", () => {
-    const e = etape({ repCount: 3 });
+  it("une BU hospitalière, ou « les deux » — jamais une BU de ville, ni une valeur inconnue", () => {
+    expect(estBuHospitaliere("HOSPITAL")).toBe(true);
+    expect(estBuHospitaliere("BOTH")).toBe(true);
+    expect(estBuHospitaliere("RETAIL")).toBe(false);
+    expect(estBuHospitaliere("AUTRE")).toBe(false);
+  });
+
+  it("des KAM actifs SANS territoire : l'étape n'est pas franchie, et la raison les NOMME", () => {
+    const e = etape({ repCount: 3, kamsActifs: 3, kamsSansTerritoire: ["Leila Sahridj", "Amel Haddad"] });
     expect(e.done).toBe(false);
-    expect(e.why).toContain("panel est vide");
+    expect(e.why).toContain("Leila Sahridj, Amel Haddad");
+    expect(e.why).toContain("« Territoire »");
+    expect(e.label).toBe("Choisir les territoires des KAM");
   });
 
-  it("UN SECTEUR VIDE compte pour rien — un nom de territoire sans territoire", () => {
-    // Ce cas est celui qui ferait passer une garde écrite « sectorCount > 0 » : deux secteurs
-    // existent, l'un ne contient aucun établissement, et le KAM qu'on y affecte ne voit rien.
-    const e = etape({ repCount: 2, sectorCount: 2, sectorsWithoutInstitution: 1, repsWithSector: 2, referentCount: 1, referentsSansRole: 0 });
-    expect(e.done).toBe(false);
-    expect(e.why).toContain("1 secteur ne contient aucun établissement");
+  it("au-delà de trois noms, la raison COMPTE le reste au lieu de l'avaler", () => {
+    const e = etape({ repCount: 5, kamsActifs: 5, kamsSansTerritoire: ["A", "B", "C", "D", "E"] });
+    expect(e.why).toContain("A, B, C et 2 autre(s)");
   });
 
-  it("UN KAM SANS SECTEUR fait tomber l'étape, même si la BU a des secteurs pleins", () => {
-    // Le cas qui trompe : la BU a l'air montée, quatre personnes ne voient aucun médecin.
-    const e = etape({ repCount: 5, sectorCount: 1, sectorsWithoutInstitution: 0, repsWithSector: 1, referentCount: 1, referentsSansRole: 0 });
-    expect(e.done).toBe(false);
-    expect(e.why).toContain("4 KAM sur 5");
+  it("tous les KAM actifs ont un territoire : l'étape est franchie — « les deux » compris", () => {
+    expect(etape({ repCount: 2, kamsActifs: 2 }).done).toBe(true);
+    expect(etape({ repCount: 2, kamsActifs: 2, channel: "BOTH" }).done).toBe(true);
+    expect(etape({ repCount: 2, kamsActifs: 2, channel: "BOTH", kamsSansTerritoire: ["X"] }).done).toBe(false);
   });
 
-  it("tous les KAM couverts par des secteurs pleins : l'étape est franchie", () => {
-    const e = etape({ repCount: 2, sectorCount: 1, sectorsWithoutInstitution: 0, repsWithSector: 2, referentCount: 1, referentsSansRole: 0 });
-    expect(e.done).toBe(true);
-  });
-
-  it("une BU SANS KAM n'a rien de couvert — la jauge ne s'en félicite pas", () => {
-    // Sans cette ligne, `sectorsWithoutInstitution === 0 && repsWithSector >= repCount` serait
-    // VRAI sur une BU vide (0 >= 0), et la jauge annoncerait un territoire couvert qui n'existe
-    // pas. L'étape KAM reste celle qu'on réclame.
+  it("aucun KAM ACTIF n'a rien de couvert — la jauge ne s'en félicite pas", () => {
+    // Sans `kamsActifs > 0`, une liste « sans territoire » VIDE franchirait l'étape sur une BU vide.
     expect(etape({ repCount: 0 }).done).toBe(false);
-    expect(nextBuStep(secteur({ repCount: 0 }))?.key).toBe("KAM");
+    expect(etape({ repCount: 2, kamsActifs: 0 }).done).toBe(false);
+    expect(nextBuStep(bu({ repCount: 0 }))?.key).toBe("KAM");
   });
 
-  it("le secteur devient l'étape réclamée dès que les KAM sont là", () => {
-    expect(nextBuStep(secteur({ repCount: 3 }))?.key).toBe("SECTEURS");
+  it("une BU DE VILLE n'exige pas de territoire, et sa raison le DIT", () => {
+    const e = etape({ channel: "RETAIL", repCount: 2, kamsActifs: 2, kamsSansTerritoire: ["X", "Y"] });
+    expect(e.done).toBe(true);
+    expect(e.why).toContain("n'est pas exigée");
+  });
+
+  it("le territoire devient l'étape réclamée dès que les KAM sont là", () => {
+    expect(nextBuStep(bu({ repCount: 3, kamsActifs: 3, kamsSansTerritoire: ["X"] }))?.key).toBe("TERRITOIRES");
   });
 });
 

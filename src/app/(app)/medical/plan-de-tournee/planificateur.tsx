@@ -47,7 +47,7 @@ export interface PraticienVue {
 export function Planificateur({
   planId, repName, status, periodStart, periodEnd, joursOuvres, submittedAt, retard,
   reviewerName, escalatedToName, rejectionComment, resubmitDueAt,
-  praticiens, pairesInitiales, pairesAcquises, pairesNonTenues, pairesPassees, jeSuisLeKam, jePeuxDecider, jePeuxEscalader,
+  praticiens, panelVide, pairesInitiales, pairesAcquises, pairesNonTenues, pairesPassees, jeSuisLeKam, jePeuxDecider, jePeuxEscalader,
   revisionNote, revisionPar, revisionLe, jePeuxDemanderRevision,
 }: {
   planId: string;
@@ -67,6 +67,8 @@ export function Planificateur({
   rejectionComment: string | null;
   resubmitDueAt: string | null;
   praticiens: PraticienVue[];
+  /** La VRAIE cause d'un panel vide (`diagnosticPanelVide`), ou null quand le panel ne l'est pas. */
+  panelVide?: string | null;
   pairesInitiales: string[];
   pairesAcquises: string[];
   /** Parmi les acquises, celles DITES non tenues (reportées, annulées) — le reste est rapporté. */
@@ -337,8 +339,9 @@ export function Planificateur({
           <div className="flex flex-wrap items-end gap-2">
             <div className="min-w-40">
               <Label htmlFor="plan-wilaya">Wilaya où je serai</Label>
-              <Select id="plan-wilaya" value={wilaya} onChange={(e) => setWilaya(e.target.value)}>
-                <option value="">Toutes les wilayas</option>
+              {/* Le menu se nourrit du panel : vide, il le DIT au lieu d'un « Toutes les wilayas » sans rien. */}
+              <Select id="plan-wilaya" value={wilaya} onChange={(e) => setWilaya(e.target.value)} disabled={praticiens.length === 0}>
+                <option value="">{praticiens.length === 0 ? "Aucune wilaya — panel vide" : "Toutes les wilayas"}</option>
                 {wilayas.map((v) => <option key={v} value={v}>{v}</option>)}
               </Select>
             </div>
@@ -367,9 +370,8 @@ export function Planificateur({
             </div>
             {praticiens.length === 0 ? (
               <p className="rounded-lg border border-warning/40 bg-warning/10 p-3 text-sm">
-                <strong>Votre panel est vide.</strong> Un plan de tournée se construit sur vos secteurs (les
-                établissements qu&apos;ils couvrent) et sur les praticiens qui vous sont rattachés. Demandez au
-                superviseur de votre BU de vous affecter un secteur (Force de vente › Business Units).
+                <strong>Votre panel est vide.</strong>{" "}
+                {panelVide ?? "Un plan de tournée se construit sur votre territoire (les établissements qu'il couvre) et sur les praticiens qui vous sont rattachés."}
               </p>
             ) : (
               <div className="max-h-80 divide-y divide-border overflow-y-auto rounded-xl border border-border">

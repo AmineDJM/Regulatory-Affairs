@@ -114,11 +114,11 @@ describe("les SIX gestes de poste lisent la clôture — une porte gardée à c�
     });
   }
 
-  it("L'ÉMISSION d'un BC n'est PAS gardée par la clôture — l'exécution continue après la validation finale", () => {
+  it("La DEMANDE DE PAIEMENT d'un poste n'est PAS gardée par la clôture — l'exécution continue après la validation finale", () => {
     // L'autre moitié : arrêter les MONTANTS n'est pas arrêter les PAIEMENTS. Un poste accordé
     // dont l'ordre n'était pas parti doit pouvoir partir ; le garder ici laisserait le
     // fournisseur impayé derrière une demande « clôturée ».
-    expect(corps(actions, "emitItemExpenseOrder")).not.toMatch(/refusSiClos|refusPostesClos/);
+    expect(corps(actions, "demanderPaiementPoste")).not.toMatch(/refusSiClos|refusPostesClos/);
   });
 });
 

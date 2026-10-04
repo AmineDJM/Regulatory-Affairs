@@ -203,7 +203,7 @@ export async function rapporterVisite(formData: FormData): Promise<ActionResult>
         }
       }
       await ecrireRemises(tx, lu.materiel, verrouilles, {
-        visitId: visite.id, doctorId: visite.doctorId, detenteurId, auteurId: user.id, maintenant,
+        ancre: { visitId: visite.id }, doctorId: visite.doctorId, detenteurId, auteurId: user.id, maintenant,
         motif: motifDeRemise(visite.date, visite.doctor?.name ?? null),
       });
     });
@@ -306,7 +306,7 @@ export async function ajouterVisiteImprevue(formData: FormData): Promise<ActionR
         });
       }
       await ecrireRemises(tx, lu.materiel, verrouilles, {
-        visitId: v.id, doctorId, detenteurId: user.id, auteurId: user.id, maintenant, motif: motifDeRemise(date, doctor.name),
+        ancre: { visitId: v.id }, doctorId, detenteurId: user.id, auteurId: user.id, maintenant, motif: motifDeRemise(date, doctor.name),
       });
       return v.id;
     });

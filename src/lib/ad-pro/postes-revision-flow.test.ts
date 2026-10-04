@@ -19,10 +19,13 @@ import { prisma } from "@/lib/prisma";
 import { getAccess, hasGlobalView, userCan, type SessionUser } from "@/lib/rbac";
 import { siegeAuCentreAdPro } from "@/lib/ad-pro/centre";
 import {
-  addAdProItem, submitAdProItem, decideAdProItem, setAdProItemBudget, updateAdProItem, requestAdProItemOrder,
-  approveAdProItemOrder, emitItemExpenseOrder, deleteAdProItem, demanderPieceSecretariat,
+  addAdProItem, submitAdProItem, decideAdProItem, updateAdProItem, requestAdProItemOrder,
+  approveAdProItemOrder, demanderPaiementPoste, deleteAdProItem, demanderPieceSecretariat,
   retirerDemandeBC, modifierDemandeBC, annulerOrdrePoste, demanderRevisionPoste,
 } from "@/lib/actions/ad-pro-item-actions";
+import { submitDocumentRequest, decideDocumentRequest } from "@/lib/actions/document-request-actions";
+import { signerBonDeCommande } from "@/lib/actions/bc-signature-actions";
+import { persistUploadedDocument } from "@/lib/documents";
 import { restoreDeletedRecord, superAdminDelete } from "@/lib/actions/admin-delete-actions";
 import type { Prisma } from "@prisma/client";
 
@@ -58,16 +61,19 @@ const fd = (champs: Record<string, string>) => {
  * ═══════════════════════════════════════════════════════════════════════════════════════════
  */
 suite("Ad & Pro — réviser un poste : visa, demande de BC, ordre, décision, retrait", () => {
-  let kamId = "", pmId = "", gmId = "", saId = "", astId = "", eventId = "", catId = "";
+  let kamId = "", pmId = "", gmId = "", saId = "", astId = "", opsId = "", finId = "", eventId = "", catId = "";
   const postes: string[] = [];
 
   beforeAll(async () => {
     const mk = (n: string, role: SessionUser["role"]) =>
       prisma.user.create({ data: { name: `${TAG}${n}`, email: `${RUN}${n}@t.dz`, role, passwordHash: "x" } });
-    const [kam, pm, gm, sa, ast] = await Promise.all([
+    // §118.204 : la Direction des opérations tient le PREMIER temps de la validation ; l'assistante
+    // établit le BC ; un gestionnaire budgétaire des Finances le SIGNE (pas un Super Admin, §118.104).
+    const [kam, pm, gm, sa, ast, ops, fin] = await Promise.all([
       mk("kam", "MEDICAL_DELEGATE"), mk("pm", "PRODUCT_MANAGER"), mk("gm", "GENERAL_MANAGER"), mk("sa", "SUPER_ADMIN"), mk("ast", "DIRECTION_ASSISTANT"),
+      mk("ops", "DIRECTION"), mk("fin", "FINANCE_BUDGET_MANAGER"),
     ]);
-    kamId = kam.id; pmId = pm.id; gmId = gm.id; saId = sa.id; astId = ast.id;
+    kamId = kam.id; pmId = pm.id; gmId = gm.id; saId = sa.id; astId = ast.id; opsId = ops.id; finId = fin.id;
     // UN ÉVÉNEMENT SANS CIRCUIT DE FINANCEMENT, validé : ses postes ne dépendent d'aucune décision absente.
     eventId = (await prisma.event.create({
       data: { name: `${TAG}Journée cardiologie`, requesterId: kamId, status: "VALIDATED", startDate: new Date("2026-12-04") },
@@ -81,7 +87,7 @@ suite("Ad & Pro — réviser un poste : visa, demande de BC, ordre, décision, r
   });
 
   afterAll(async () => {
-    const comptes = [kamId, pmId, gmId, saId, astId].filter(Boolean);
+    const comptes = [kamId, pmId, gmId, saId, astId, opsId, finId].filter(Boolean);
     const tousPostes = await prisma.adProItem.findMany({ where: { OR: [{ eventId }, { id: { in: postes } }] }, select: { id: true } }).catch(() => []);
     const idsPostes = [...new Set([...postes, ...tousPostes.map((p) => p.id)])];
     await prisma.notification.deleteMany({ where: { userId: { in: comptes } } }).catch(() => {});
@@ -90,7 +96,16 @@ suite("Ad & Pro — réviser un poste : visa, demande de BC, ordre, décision, r
     await prisma.administrativeRequest.deleteMany({ where: { id: { in: demandes.map((d) => d.id) } } }).catch(() => {});
     const pieces = await prisma.documentRequest.findMany({ where: { entityType: "AD_PRO_ITEM", entityId: { in: idsPostes } }, select: { legalDocumentId: true } }).catch(() => []);
     await prisma.documentRequest.deleteMany({ where: { entityType: "AD_PRO_ITEM", entityId: { in: idsPostes } } }).catch(() => {});
-    await prisma.legalDocument.deleteMany({ where: { id: { in: pieces.map((p) => p.legalDocumentId).filter((x): x is string => Boolean(x)) } } }).catch(() => {});
+    // Les pièces du registre : BC nés des demandes de pièce, factures déposées sur les postes.
+    const liees = await prisma.adProItemPiece.findMany({ where: { itemId: { in: idsPostes } }, select: { legalDocumentId: true } }).catch(() => []);
+    const docs = [...new Set([...pieces.map((p) => p.legalDocumentId), ...liees.map((l) => l.legalDocumentId)].filter((x): x is string => Boolean(x)))];
+    const factures = await prisma.legalDocument.findMany({ where: { sourceId: eventId }, select: { id: true } }).catch(() => []);
+    const tousDocs = [...new Set([...docs, ...factures.map((f) => f.id)])];
+    await prisma.adProItemPiece.deleteMany({ where: { legalDocumentId: { in: tousDocs } } }).catch(() => {});
+    await prisma.document.deleteMany({ where: { entityId: { in: tousDocs } } }).catch(() => {});
+    await prisma.adProGateVisa.deleteMany({ where: { entityId: { in: tousDocs } } }).catch(() => {});
+    await prisma.auditLog.deleteMany({ where: { entityId: { in: tousDocs } } }).catch(() => {});
+    await prisma.legalDocument.deleteMany({ where: { id: { in: tousDocs } } }).catch(() => {});
     await prisma.adProItem.updateMany({ where: { id: { in: idsPostes } }, data: { expenseOrderId: null } }).catch(() => {});
     const ordres = await prisma.expenseOrder.findMany({ where: { sourceId: eventId }, select: { id: true } }).catch(() => []);
     await prisma.paymentRequest.deleteMany({ where: { expenseOrderId: { in: ordres.map((o) => o.id) } } }).catch(() => {});
@@ -105,30 +120,73 @@ suite("Ad & Pro — réviser un poste : visa, demande de BC, ordre, décision, r
     await prisma.$disconnect().catch(() => {});
   });
 
-  const comme = async (qui: "kam" | "pm" | "gm" | "sa") => {
+  const comme = async (qui: "kam" | "pm" | "gm" | "sa" | "ops" | "ast" | "fin") => {
     ACTOR = qui === "kam" ? await acteur(kamId, "MEDICAL_DELEGATE")
       : qui === "pm" ? await acteur(pmId, "PRODUCT_MANAGER")
         : qui === "gm" ? await acteur(gmId, "GENERAL_MANAGER")
-          : await acteur(saId, "SUPER_ADMIN");
+          : qui === "ops" ? await acteur(opsId, "DIRECTION")
+            : qui === "ast" ? await acteur(astId, "DIRECTION_ASSISTANT")
+              : qui === "fin" ? await acteur(finId, "FINANCE_BUDGET_MANAGER")
+                : await acteur(saId, "SUPER_ADMIN");
   };
+  const pdf = (nom: string) => new File([new Uint8Array([0x25, 0x50, 0x44, 0x46, 0x2d, 0x31])], nom, { type: "application/pdf" });
   const ok = (r: { ok: boolean; error?: string }) => expect(r.ok, r.error ?? "").toBe(true);
 
-  /** Un poste ACCORDÉ et imputé, par les gestes de l'écran : décrit, soumis, accordé, imputé. */
-  async function posteAccorde(label: string, montant: number, fournisseur = "Imprimerie Alpha"): Promise<string> {
+  /**
+   * Un poste ACCORDÉ et imputé, par les gestes de l'écran (§118.204) : décrit, soumis, validé par la
+   * Direction des opérations, puis accordé par la Direction Marketing qui choisit le budget.
+   */
+  async function posteAccorde(label: string, montant: number, fournisseur = "Imprimerie Alpha", kind = "PRINTING"): Promise<string> {
     await comme("kam");
-    const a = await addAdProItem(undefined, fd({ parent: "EVENT", parentId: eventId, kind: "PRINTING", label: `${TAG}${label}`, amountEstimated: String(montant), supplier: fournisseur }));
+    const a = await addAdProItem(undefined, fd({ parent: "EVENT", parentId: eventId, kind, label: `${TAG}${label}`, amountEstimated: String(montant), supplier: fournisseur }));
     ok(a);
     const id = a.id!;
     postes.push(id);
     ok(await submitAdProItem(undefined, fd({ id })));
+    await comme("ops");
+    ok(await decideAdProItem(undefined, fd({ id, decision: "APPROVED" })));
     await comme("pm");
-    ok(await decideAdProItem(undefined, fd({ id, decision: "APPROVED", amountGranted: String(montant) })));
-    ok(await setAdProItemBudget(undefined, fd({ id, budgetCategoryId: catId })));
+    ok(await decideAdProItem(undefined, fd({ id, decision: "APPROVED", amountGranted: String(montant), budgetCategoryId: catId })));
     return id;
   }
   async function demanderBC(id: string, note = "Réf. devis DV-12, 2 000 brochures.") {
     await comme("kam");
-    return requestAdProItemOrder(undefined, fd({ id, note }));
+    return requestAdProItemOrder(undefined, fd({ id, note, assistantId: astId }));
+  }
+  /**
+   * LE BC ÉTABLI PAR LA VRAIE CHAÎNE (§118.204) : l'assistante dépose la pièce sur SA demande de pièce,
+   * le demandeur l'accepte, et `classerDansLegal` la range au registre puis la RATTACHE au poste.
+   * Rend l'identifiant de la pièce Legal — lu sur le lien du poste, jamais deviné.
+   */
+  async function bcEtabli(id: string): Promise<string> {
+    const dr = await prisma.documentRequest.findFirstOrThrow({
+      where: { entityType: "AD_PRO_ITEM", entityId: id, kind: "PURCHASE_ORDER", status: { in: ["PENDING", "DECLINED"] } },
+      orderBy: { createdAt: "desc" }, select: { id: true },
+    });
+    const depot = await persistUploadedDocument(astId, {
+      entityType: "DOCUMENT_REQUEST", entityId: dr.id, category: "OTHER", confidentiality: "INTERNAL", stepKey: null, file: pdf(`${TAG}bc.pdf`), maxUploadMb: 20,
+    });
+    expect(depot.ok, depot.error).toBe(true);
+    await comme("ast");
+    ok(await submitDocumentRequest(fd({ id: dr.id })));
+    await comme("kam");
+    ok(await decideDocumentRequest(fd({ id: dr.id, accept: "1" })));
+    const lien = await prisma.adProItemPiece.findFirstOrThrow({ where: { itemId: id, nature: "BON_DE_COMMANDE" }, orderBy: { createdAt: "desc" }, select: { legalDocumentId: true } });
+    return lien.legalDocumentId;
+  }
+  /** …puis SIGNÉ par les Finances : la seule porte qui ouvre le paiement d'un poste à BC. */
+  async function bcSigne(id: string): Promise<string> {
+    const doc = await bcEtabli(id);
+    await comme("fin");
+    ok(await signerBonDeCommande(fd({ id: doc })));
+    return doc;
+  }
+  /** La facture déposée par le demandeur, qui demande le paiement (`demanderPaiementPoste`). */
+  async function payer(id: string, montant = "600000") {
+    await comme("kam");
+    const f = fd({ id, montant, reference: `${TAG}FA` });
+    f.append("attachment", pdf(`${TAG}facture.pdf`));
+    return demanderPaiementPoste(undefined, f);
   }
   async function viser(id: string, extra: Record<string, string> = {}) {
     await comme("gm");
@@ -141,9 +199,11 @@ suite("Ad & Pro — réviser un poste : visa, demande de BC, ordre, décision, r
       expenseOrderId: true, amountGranted: true, orderNote: true, orderDecisionNote: true,
     },
   });
-  const travauxBc = (id: string) => prisma.administrativeRequest.findMany({
-    where: { linkedEntityType: "AD_PRO_ITEM", linkedEntityId: id, title: { startsWith: "Bon de commande à établir" } },
-    select: { id: true, status: true, description: true },
+  /** La demande de pièce « bon de commande » envoyée à l'assistante (§118.204) — le « BC à établir ». */
+  const travauxBc = (id: string) => prisma.documentRequest.findMany({
+    where: { entityType: "AD_PRO_ITEM", entityId: id, kind: "PURCHASE_ORDER" },
+    orderBy: { createdAt: "asc" },
+    select: { id: true, status: true, note: true },
   });
 
   /** Deux gestes forcés à se croiser : les écritures du poste attendent, les lectures passent (§118.164e). */
@@ -278,36 +338,38 @@ suite("Ad & Pro — réviser un poste : visa, demande de BC, ordre, décision, r
     expect((await etat(id)).orderStage).toBe("REQUESTED");
   });
 
-  it("LE DERNIER REMPART : un montant changé par un chemin que rien n'a surveillé — l'émission refuse et rouvre le visa", async () => {
+  it("LE DERNIER REMPART : un montant changé par un chemin que rien n'a surveillé — la demande de paiement refuse et rouvre le visa", async () => {
     SEUIL = 500_000;
     const id = await posteAccorde("Catalogues", 600_000);
     ok(await demanderBC(id));
     ok(await viser(id));
+    await bcSigne(id);
     // Décor : un écrivain qui ne passe pas par l'action (une correction en base, un import) relève le montant.
     await prisma.adProItem.update({ where: { id }, data: { amountGranted: 950_000 } });
-    await comme("pm");
-    const r = await emitItemExpenseOrder(undefined, fd({ id }));
+    const r = await payer(id);
     expect(r.ok).toBe(false);
-    expect(r.error).toMatch(/Émission refusée — Le visa du bon de commande est rouvert : Montant relevé de 600\s000 DZD à 950\s000 DZD/);
+    expect(r.error).toMatch(/Paiement refusé — Le visa du bon de commande est rouvert : Montant relevé de 600\s000 DZD à 950\s000 DZD/);
     const e = await etat(id);
     expect(e.orderStage).toBe("REQUESTED");
     expect(e.expenseOrderId, "aucun ordre n'est parti").toBeNull();
     expect(await prisma.expenseOrder.count({ where: { sourceId: eventId, label: { contains: "Catalogues" } } })).toBe(0);
+    expect(await prisma.adProItemPiece.count({ where: { itemId: id, nature: "FACTURE" } }), "et aucune facture n'est rattachée").toBe(0);
   });
 
-  it("UNE ÉMISSION EN COURS (la prise posée, l'ordre pas encore rattaché) : un second clic ne crée pas un second ordre", async () => {
+  it("UNE DEMANDE DE PAIEMENT EN COURS (la prise posée, l'ordre pas encore rattaché) : un second clic ne crée pas un second ordre", async () => {
     SEUIL = 500_000;
     const id = await posteAccorde("Prise", 600_000);
     ok(await demanderBC(id));
     ok(await viser(id));
-    // Décor : la prise d'une première émission est posée, son ordre n'est pas (encore) rattaché — le cas
-    // d'un ordre né sans pouvoir être rattaché, où la prise RESTE exprès. Sans le refus, ce second clic
-    // relirait « émis, sans ordre » et la prise conditionnelle (sur l'étape lue) le laisserait passer.
+    await bcSigne(id);
+    // Décor : la prise d'une première demande de paiement est posée, son ordre n'est pas (encore)
+    // rattaché — le cas d'un ordre né sans pouvoir être rattaché, où la prise RESTE exprès. Sans le
+    // refus, ce second clic relirait « émis, sans ordre » et la prise conditionnelle (sur l'étape lue)
+    // le laisserait passer.
     await prisma.adProItem.update({ where: { id }, data: { orderStage: "ISSUED" } });
-    await comme("pm");
-    const r = await emitItemExpenseOrder(undefined, fd({ id }));
+    const r = await payer(id);
     expect(r.ok).toBe(false);
-    expect(r.error).toMatch(/déjà en cours d'émission/);
+    expect(r.error).toMatch(/demande de paiement est déjà en cours/);
     expect(await prisma.expenseOrder.count({ where: { sourceId: eventId, label: { contains: "Prise" } } })).toBe(0);
   });
 
@@ -385,22 +447,28 @@ suite("Ad & Pro — réviser un poste : visa, demande de BC, ordre, décision, r
       (tx) => tx.adProItem.update({ where: { id: decision }, data: { orderStage: "ISSUED" } }),
     );
     expect(v4.ok, JSON.stringify(v4)).toBe(false);
-    expect(v4.error).toMatch(/vient d'être émis/);
+    expect(v4.error).toMatch(/vient de changer/);
     expect((await etat(decision)).status).toBe("APPROVED");
   });
 
-  it("DEUX ÉMISSIONS SIMULTANÉES : un seul ordre de dépense", async () => {
+  it("DEUX DEMANDES DE PAIEMENT SIMULTANÉES : un seul ordre de dépense, une seule facture", async () => {
     SEUIL = 500_000;
     const id = await posteAccorde("Goodies", 600_000);
     ok(await demanderBC(id));
     ok(await viser(id));
-    const pm = await acteur(pmId, "PRODUCT_MANAGER");
-    ACTOR = pm;
-    const [a, b] = await sousBarriere(() => [emitItemExpenseOrder(undefined, fd({ id })), emitItemExpenseOrder(undefined, fd({ id }))]);
+    await bcSigne(id);
+    ACTOR = await acteur(kamId, "MEDICAL_DELEGATE");
+    const unePaie = () => {
+      const f = fd({ id, montant: "600000" });
+      f.append("attachment", pdf(`${TAG}facture.pdf`));
+      return demanderPaiementPoste(undefined, f);
+    };
+    const [a, b] = await sousBarriere(() => [unePaie(), unePaie()]);
     expect([a.ok, b.ok].filter(Boolean), JSON.stringify([a, b])).toHaveLength(1);
     const perdant = a.ok ? b : a;
-    expect(perdant.error).toMatch(/vient de changer|déjà en cours d'émission|déjà été émis/);
-    expect(await prisma.expenseOrder.count({ where: { sourceId: eventId, label: { contains: "Goodies" } } }), "avant : deux ordres pour le même poste").toBe(1);
+    expect(perdant.error).toMatch(/vient de changer|déjà en cours|déjà été demandé/);
+    expect(await prisma.expenseOrder.count({ where: { sourceId: eventId, label: { contains: "Goodies" } } }), "deux ordres pour le même poste").toBe(1);
+    expect(await prisma.adProItemPiece.count({ where: { itemId: id, nature: "FACTURE" } }), "le perdant n'a rien déposé").toBe(1);
   });
 
   it("DEUX DEMANDES DE BC SIMULTANÉES : une seule passe, un seul « BC à établir »", async () => {
@@ -409,8 +477,8 @@ suite("Ad & Pro — réviser un poste : visa, demande de BC, ordre, décision, r
     const kam = await acteur(kamId, "MEDICAL_DELEGATE");
     ACTOR = kam;
     const [a, b] = await sousBarriere(() => [
-      requestAdProItemOrder(undefined, fd({ id, note: "Premier envoi" })),
-      requestAdProItemOrder(undefined, fd({ id, note: "Second envoi" })),
+      requestAdProItemOrder(undefined, fd({ id, note: "Premier envoi", assistantId: astId })),
+      requestAdProItemOrder(undefined, fd({ id, note: "Second envoi", assistantId: astId })),
     ]);
     expect([a.ok, b.ok].filter(Boolean), JSON.stringify([a, b])).toHaveLength(1);
     expect((await travauxBc(id)).filter((d) => d.status !== "CANCELLED")).toHaveLength(1);
@@ -421,8 +489,9 @@ suite("Ad & Pro — réviser un poste : visa, demande de BC, ordre, décision, r
     const id = await posteAccorde("Flyers", 600_000);
     ok(await demanderBC(id));
     const [travail] = await travauxBc(id);
-    expect(travail.status).toBe("NEW");
+    expect(travail.status).toBe("PENDING");
     await comme("kam");
+    const t0 = new Date();
     const sans = await retirerDemandeBC(undefined, fd({ id }));
     expect(sans.ok).toBe(false);
     expect(sans.error).toMatch(/Dites pourquoi/);
@@ -432,11 +501,14 @@ suite("Ad & Pro — réviser un poste : visa, demande de BC, ordre, décision, r
     expect(e.orderVisaAmount).toBeNull();
     const [apres] = await travauxBc(id);
     expect(apres.status, "l'assistante ne cherche plus un BC qui n'existe plus").toBe("CANCELLED");
-    const c = await prisma.comment.findFirstOrThrow({ where: { entityType: "ADMIN_REQUEST", entityId: apres.id }, select: { body: true } });
-    expect(c.body).toMatch(/Demande annulée avec son poste : la demande de bon de commande du poste .* a été retirée — Le devis est caduc\./);
+    // Elle l'APPREND, motif compris — par le lien causal (sa demande de pièce), pas un compte de titres.
+    const avis = await prisma.notification.findFirstOrThrow({ where: { userId: astId, link: `/pieces/${apres.id}`, createdAt: { gte: t0 } }, select: { title: true, body: true } });
+    expect(avis.title).toBe("Demande de pièce annulée");
+    expect(avis.body).toMatch(/la demande de bon de commande du poste .* a été retirée — Le devis est caduc\./);
     // Et une nouvelle demande repart : un poste n'est pas figé par un retrait.
     ok(await demanderBC(id, "Nouveau devis DV-31."));
     expect((await etat(id)).orderStage).toBe("REQUESTED");
+    expect((await travauxBc(id)).filter((d) => d.status === "PENDING"), "une demande NEUVE, la close reste close").toHaveLength(1);
   });
 
   it("RETIRER est REFUSÉ quand un BC est déjà établi dans Legal — il lit sa validation sur ce poste", async () => {
@@ -444,14 +516,13 @@ suite("Ad & Pro — réviser un poste : visa, demande de BC, ordre, décision, r
     const id = await posteAccorde("Plaquettes", 600_000);
     ok(await demanderBC(id));
     ok(await viser(id));
-    const piece = await prisma.legalDocument.create({ data: { title: `${TAG}BC Plaquettes`, kind: "PURCHASE_ORDER", reference: `${RUN.slice(-6)}-BC1` }, select: { id: true } });
-    await prisma.documentRequest.create({
-      data: { reference: `${RUN.slice(-10)}-P1`, entityType: "AD_PRO_ITEM", entityId: id, label: "BC", kind: "PURCHASE_ORDER", legalDocumentId: piece.id, askedById: kamId, askedToId: pmId },
-    });
+    // Le BC établi par la VRAIE chaîne : déposé par l'assistante, accepté par le demandeur (§118.204).
+    const pieceId = await bcEtabli(id);
+    const piece = { id: pieceId };
     await comme("kam");
     const r = await retirerDemandeBC(undefined, fd({ id, motif: "x" }));
     expect(r.ok).toBe(false);
-    expect(r.error).toMatch(new RegExp(`Un bon de commande a déjà été établi pour ce poste \\(${RUN.slice(-6)}-BC1\\).*annulez-le d'abord dans Legal`));
+    expect(r.error).toMatch(/Un bon de commande a déjà été établi pour ce poste \(.+\).*annulez-le d'abord dans Legal/);
     expect((await etat(id)).orderStage, "le BC Legal aurait perdu sa porte").toBe("DIRECTION_OK");
     // La même règle tient pour « revoir la décision » et « demander une révision ».
     await comme("pm");
@@ -474,7 +545,7 @@ suite("Ad & Pro — réviser un poste : visa, demande de BC, ordre, décision, r
     ok(await modifierDemandeBC(undefined, fd({ id, note: "Réf. corrigée DV-44, 500 badges." })));
     expect((await etat(id)).orderNote).toBe("Réf. corrigée DV-44, 500 badges.");
     const [travail] = await travauxBc(id);
-    expect(travail.description ?? "").toMatch(/^Réf\. corrigée DV-44, 500 badges\./);
+    expect(travail.note ?? "").toMatch(/^Réf\. corrigée DV-44, 500 badges\./);
     expect((await travauxBc(id)).length, "la demande ouverte est mise à jour, pas doublée").toBe(1);
   });
 
@@ -483,8 +554,8 @@ suite("Ad & Pro — réviser un poste : visa, demande de BC, ordre, décision, r
     const id = await posteAccorde("Sacs", 600_000);
     ok(await demanderBC(id));
     ok(await viser(id));
-    await comme("pm");
-    const em = await emitItemExpenseOrder(undefined, fd({ id }));
+    await bcSigne(id);
+    const em = await payer(id);
     ok(em);
     const premier = em.id!;
     await comme("kam");
@@ -497,11 +568,12 @@ suite("Ad & Pro — réviser un poste : visa, demande de BC, ordre, décision, r
     expect((await prisma.expenseOrder.findUniqueOrThrow({ where: { id: premier }, select: { status: true } })).status).toBe("CANCELLED");
     const e = await etat(id);
     expect(e.expenseOrderId).toBeNull();
-    expect(e.orderStage, "le visa du centre tient : le poste se réémet").toBe("DIRECTION_OK");
-    const re = await emitItemExpenseOrder(undefined, fd({ id }));
+    expect(e.orderStage, "le visa du centre tient : le paiement se redemande").toBe("DIRECTION_OK");
+    const re = await payer(id);
     ok(re);
     expect(re.id).not.toBe(premier);
     await prisma.expenseOrder.update({ where: { id: re.id! }, data: { status: "PAID" } });
+    await comme("pm");
     const regle = await annulerOrdrePoste(undefined, fd({ id, motif: "Trop tard" }));
     expect(regle.ok).toBe(false);
     expect(regle.error).toMatch(/déjà réglé/);
@@ -555,15 +627,50 @@ suite("Ad & Pro — réviser un poste : visa, demande de BC, ordre, décision, r
 
   it("RETIRER LE POSTE : l'ordre non réglé s'annule, le poste part à la CORBEILLE avec ses décisions, et revient", async () => {
     SEUIL = 500_000;
-    const id = await posteAccorde("Navettes", 600_000);
-    ok(await demanderBC(id));
-    ok(await viser(id));
-    await comme("pm");
-    const em = await emitItemExpenseOrder(undefined, fd({ id }));
+    // Un SPONSORING DIRECT (§118.204) : payé sur facture, sans BC — le seul poste dont l'ordre peut
+    // exister sans BC signé, donc le seul qui se retire avec un ordre en attente (un BC signé bloque).
+    const id = await posteAccorde("Navettes", 600_000, "Association Alpha", "ASSOCIATION_SUPPORT");
+    const em = await payer(id);
     ok(em);
+    await comme("pm");
     const decisionsAvant = await prisma.adProItemDecision.count({ where: { itemId: id } });
-    const [travail] = await travauxBc(id);
-    expect(travail?.status, "PRÉMISSE : un « BC à établir » ouvert travaille pour ce poste").toBe("NEW");
+    const r = await deleteAdProItem(undefined, fd({ id }));
+    ok(r);
+    expect(r.message ?? "").toMatch(/restaurable depuis la corbeille/);
+    expect(await prisma.adProItem.count({ where: { id } }), "parti").toBe(0);
+    expect((await prisma.expenseOrder.findUniqueOrThrow({ where: { id: em.id! }, select: { status: true } })).status).toBe("CANCELLED");
+    expect(await prisma.adProItemPiece.count({ where: { itemId: id } }), "le lien vers la facture part avec le poste").toBe(0);
+    const rec = await prisma.deletedRecord.findFirstOrThrow({ where: { sourceId: id, kind: "AD_PRO_ITEM" }, select: { id: true } });
+    await comme("sa");
+    ok(await restoreDeletedRecord(fd({ id: rec.id })));
+    const revenu = await etat(id);
+    expect(revenu.status, "il revient tel qu'il était").toBe("APPROVED");
+    expect(revenu.expenseOrderId, "sans l'ordre annulé : sinon « émis » pour toujours, impossible à réémettre").toBeNull();
+    expect(revenu.orderStage, "sans BC demandé, il revient sans étape de BC").toBe("NONE");
+    expect(await prisma.adProItemDecision.count({ where: { itemId: id } }), "l'historique revient avec lui").toBe(decisionsAvant);
+    expect(await prisma.adProItemPiece.count({ where: { itemId: id, nature: "FACTURE" } }), "sa facture revient sur lui").toBe(1);
+  });
+
+  /**
+   * DÉFAUT RÉPARÉ (§118.204) : un sponsoring direct dont le paiement est
+   * demandé (facture rattachée, ordre en attente) ET qui porte une demande au secrétariat ouverte ne se
+   * retire plus — la corbeille refuse (« la demande dépend d'une de ses propres branches — ordre de
+   * recréation impossible ») : le raccourci `adminRequestId` du poste désignait une branche du lot.
+   */
+  it("RETIRER un poste payé qui a une demande au secrétariat ouverte : elle part avec lui, l'assistante l'apprend, tout revient", async () => {
+    SEUIL = 500_000;
+    // Un SPONSORING DIRECT (§118.204) : payé sur facture, sans BC — le seul poste dont l'ordre peut
+    // exister sans BC signé, donc le seul qui se retire avec un ordre en attente (un BC signé bloque).
+    const id = await posteAccorde("Navettes", 600_000, "Association Alpha", "ASSOCIATION_SUPPORT");
+    await comme("kam");
+    ok(await demanderPieceSecretariat(undefined, fd({ id, nature: "DEVIS", note: "Pro forma de l'association." })));
+    const em = await payer(id);
+    ok(em);
+    await comme("pm");
+    const decisionsAvant = await prisma.adProItemDecision.count({ where: { itemId: id } });
+    const demandesDe = () => prisma.administrativeRequest.findMany({ where: { linkedEntityType: "AD_PRO_ITEM", linkedEntityId: id }, select: { id: true, status: true } });
+    const [travail] = await demandesDe();
+    expect(travail?.status, "PRÉMISSE : une demande au secrétariat ouverte travaille pour ce poste").toBe("NEW");
     const t0 = new Date();
     const r = await deleteAdProItem(undefined, fd({ id }));
     ok(r);
@@ -572,7 +679,8 @@ suite("Ad & Pro — réviser un poste : visa, demande de BC, ordre, décision, r
     expect(await prisma.adProItem.count({ where: { id } }), "parti").toBe(0);
     expect((await prisma.expenseOrder.findUniqueOrThrow({ where: { id: em.id! }, select: { status: true } })).status).toBe("CANCELLED");
     // LA DEMANDE AU SECRÉTARIAT PART AVEC LE POSTE (le lot l'emporte) — et l'assistante l'apprend.
-    expect(await travauxBc(id), "elle a quitté la liste de l'assistante").toHaveLength(0);
+    expect(await demandesDe(), "elle a quitté la liste de l'assistante").toHaveLength(0);
+    expect(await prisma.adProItemPiece.count({ where: { itemId: id } }), "le lien vers la facture part avec le poste").toBe(0);
     expect(await prisma.notification.count({ where: { userId: astId, title: "Demande au secrétariat retirée avec son poste", createdAt: { gte: t0 } } })).toBe(1);
     const rec = await prisma.deletedRecord.findFirstOrThrow({ where: { sourceId: id, kind: "AD_PRO_ITEM" }, select: { id: true } });
     await comme("sa");
@@ -580,24 +688,24 @@ suite("Ad & Pro — réviser un poste : visa, demande de BC, ordre, décision, r
     const revenu = await etat(id);
     expect(revenu.status, "il revient tel qu'il était").toBe("APPROVED");
     expect(revenu.expenseOrderId, "sans l'ordre annulé : sinon « émis » pour toujours, impossible à réémettre").toBeNull();
-    expect(revenu.orderStage).toBe("DIRECTION_OK");
+    expect(revenu.orderStage, "sans BC demandé, il revient sans étape de BC").toBe("NONE");
     expect(await prisma.adProItemDecision.count({ where: { itemId: id } }), "l'historique revient avec lui").toBe(decisionsAvant);
+    expect(await prisma.adProItemPiece.count({ where: { itemId: id, nature: "FACTURE" } }), "sa facture revient sur lui").toBe(1);
     // Et la demande revient TELLE QU'ELLE ÉTAIT : la clore d'abord ferait revenir un poste dont la demande
-    // de BC vit encore, avec un « BC à établir » annulé.
-    const [revenue] = await travauxBc(id);
+    // vit encore, annulée.
+    const [revenue] = await demandesDe();
     expect(revenue?.id).toBe(travail.id);
     expect(revenue?.status).toBe("NEW");
   });
 
   it("UN ORDRE RÉGLÉ : le poste ne se retire pas, et rien n'est touché", async () => {
     SEUIL = 500_000;
-    const id = await posteAccorde("Réglé", 600_000);
-    ok(await demanderBC(id));
-    ok(await viser(id));
-    await comme("pm");
-    const em = await emitItemExpenseOrder(undefined, fd({ id }));
+    const id = await posteAccorde("Réglé", 600_000, "Association Alpha", "ASSOCIATION_SUPPORT");
+    const em = await payer(id);
     ok(em);
+    // Décor : le centre de paiement a réglé l'ordre — un écrivain étranger à ce banc.
     await prisma.expenseOrder.update({ where: { id: em.id! }, data: { status: "PAID" } });
+    await comme("pm");
     const r = await deleteAdProItem(undefined, fd({ id }));
     expect(r.ok).toBe(false);
     expect(await prisma.adProItem.count({ where: { id } })).toBe(1);
@@ -615,19 +723,12 @@ suite("Ad & Pro — réviser un poste : visa, demande de BC, ordre, décision, r
     const id = await posteAccorde("Signé", 600_000);
     ok(await demanderBC(id));
     ok(await viser(id));
-    await comme("pm");
-    const em = await emitItemExpenseOrder(undefined, fd({ id }));
+    // Le BC établi pour ce poste, SIGNÉ par les Finances (§118.149), puis la facture qui en demande le
+    // paiement — la vraie chaîne de §118.204.
+    await bcSigne(id);
+    const em = await payer(id);
     ok(em);
-    // Décor : le BC établi dans Legal pour ce poste a été SIGNÉ par les Finances (§118.149).
-    const demande = await prisma.documentRequest.create({
-      data: { reference: `${RUN.slice(-10)}-S1`, entityType: "AD_PRO_ITEM", entityId: id, label: "BC", kind: "PURCHASE_ORDER", askedById: kamId, askedToId: pmId },
-      select: { id: true },
-    });
-    const piece = await prisma.legalDocument.create({
-      data: { title: `${TAG}BC signé`, kind: "PURCHASE_ORDER", reference: `${RUN.slice(-6)}-BCS`, sourceType: "DOCUMENT_REQUEST", sourceId: demande.id, signedById: saId, signedAt: new Date() },
-      select: { id: true },
-    });
-    await prisma.documentRequest.update({ where: { id: demande.id }, data: { legalDocumentId: piece.id } });
+    await comme("pm");
     const r = await deleteAdProItem(undefined, fd({ id }));
     expect(r.ok).toBe(false);
     expect(r.error).toMatch(/signée par les Finances/);
@@ -639,24 +740,21 @@ suite("Ad & Pro — réviser un poste : visa, demande de BC, ordre, décision, r
 
   it("LA CORBEILLE DU SUPER ADMIN emporte l'ordre NON RÉGLÉ du poste, et le rend avec lui — rien ne reste payable pour un poste disparu", async () => {
     SEUIL = 500_000;
-    const id = await posteAccorde("Corbeille", 600_000);
-    ok(await demanderBC(id));
-    ok(await viser(id));
-    await comme("pm");
-    const em = await emitItemExpenseOrder(undefined, fd({ id }));
+    const id = await posteAccorde("Corbeille", 600_000, "Association Alpha", "ASSOCIATION_SUPPORT");
+    const em = await payer(id);
     ok(em);
     await comme("sa");
     ok(await superAdminDelete(fd({ kind: "AD_PRO_ITEM", id })));
     expect(await prisma.adProItem.count({ where: { id } })).toBe(0);
     expect(await prisma.expenseOrder.count({ where: { id: em.id! } }), "avant : l'ordre restait payable au centre de paiement").toBe(0);
-    expect(await travauxBc(id), "le « BC à établir » part aussi").toHaveLength(0);
+    expect(await prisma.adProItemPiece.count({ where: { itemId: id } }), "le lien vers sa facture part aussi").toBe(0);
     const rec = await prisma.deletedRecord.findFirstOrThrow({ where: { sourceId: id, kind: "AD_PRO_ITEM" }, select: { id: true } });
     ok(await restoreDeletedRecord(fd({ id: rec.id })));
     const revenu = await etat(id);
     expect(revenu.expenseOrderId, "l'ordre revient avec son poste").toBe(em.id);
     expect(revenu.orderStage).toBe("ISSUED");
     expect((await prisma.expenseOrder.findUniqueOrThrow({ where: { id: em.id! }, select: { status: true } })).status).toBe("PENDING");
-    expect(await travauxBc(id)).toHaveLength(1);
+    expect(await prisma.adProItemPiece.count({ where: { itemId: id, nature: "FACTURE" } }), "et sa facture avec lui").toBe(1);
   });
 
   it("UNE DEMANDE REFUSÉE ne fait plus partir ses postes — mais les refuser reste possible", async () => {

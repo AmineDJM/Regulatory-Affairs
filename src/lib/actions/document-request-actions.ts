@@ -14,6 +14,7 @@ import { companyIdForNew } from "@/lib/company";
 import { pieceKindOf, legalKindOfPiece, legalTitleFromPiece, PIECE_KIND_LABEL } from "@/lib/legal/from-piece";
 import { aiguillerBC } from "@/lib/bons-de-commande/aiguillage";
 import { reserveDeLAiguillage } from "@/lib/bons-de-commande/regle";
+import { natureDePiece, rattacherPieceAuPoste, societeDuPoste } from "@/lib/ad-pro/pieces-poste";
 
 const PATH = "/pieces";
 
@@ -151,7 +152,7 @@ export async function submitDocumentRequest(formData: FormData): Promise<ActionR
  * déposée et acceptée ; ce qui manque est son entrée au registre, et elle se rattrape.
  */
 async function classerDansLegal(
-  req: { id: string; reference: string; label: string; kind: string; legalDocumentId: string | null; askedById: string; askedToId: string },
+  req: { id: string; reference: string; label: string; kind: string; legalDocumentId: string | null; askedById: string; askedToId: string; entityType: string; entityId: string },
   actorId: string,
 ): Promise<{ id: string; kindLabel: string; reserve: string | null } | null> {
   const legalKind = legalKindOfPiece(req.kind);
@@ -163,7 +164,9 @@ async function classerDansLegal(
       data: {
         title: legalTitleFromPiece(req.label, req.reference),
         kind: legalKind as LegalDocKind,
-        companyId: await companyIdForNew(actorId),
+        // Une pièce d'achat d'un POSTE prend la société de SA demande (§118.204), comme son devis et sa
+        // facture ; sinon celle de qui l'accepte.
+        companyId: (req.entityType === "AD_PRO_ITEM" ? await societeDuPoste(req.entityId) : null) ?? await companyIdForNew(actorId),
         sourceType: "DOCUMENT_REQUEST",
         sourceId: req.id,
         createdById: actorId,
@@ -174,13 +177,23 @@ async function classerDansLegal(
       },
       select: { id: true },
     });
-    // LES LECTEURS SUIVENT — sans quoi classer une facture l'exposerait à tout le module.
-    await prisma.legalDocumentReader.createMany({
-      data: [...new Set([req.askedById, req.askedToId, actorId])].map((userId) => ({
-        documentId: doc.id, userId, grantedById: actorId,
-      })),
-      skipDuplicates: true,
-    });
+    // UNE PIÈCE D'ACHAT DEMANDÉE POUR UN POSTE AD & PRO (§118.204) rejoint SON poste, et elle n'est PAS
+    // restreinte : c'est la chaîne d'achat d'une demande du pôle, que les Finances signent puis règlent.
+    // La restreindre au demandeur et à l'assistante la cachait à la file de signature (qui lit les
+    // lecteurs), et le BC restait « à signer » chez personne. Ceux qui voient la demande la voient sur
+    // le poste (`accesAuxPiecesLegal`, exception des postes).
+    const natureDuPoste = req.entityType === "AD_PRO_ITEM" ? natureDePiece(legalKind) : null;
+    if (natureDuPoste) {
+      await rattacherPieceAuPoste({ itemId: req.entityId, legalDocumentId: doc.id, nature: natureDuPoste, acteurId: actorId });
+    } else {
+      // LES LECTEURS SUIVENT — sans quoi classer une facture l'exposerait à tout le module.
+      await prisma.legalDocumentReader.createMany({
+        data: [...new Set([req.askedById, req.askedToId, actorId])].map((userId) => ({
+          documentId: doc.id, userId, grantedById: actorId,
+        })),
+        skipDuplicates: true,
+      });
+    }
     // LE FICHIER DÉMÉNAGE, il n'est pas recopié.
     await prisma.document.updateMany({
       where: { entityType: "DOCUMENT_REQUEST", entityId: req.id },

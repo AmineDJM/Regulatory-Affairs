@@ -126,6 +126,8 @@ suite("Seuil des bons de commande et signature des Finances — le flux réel", 
     await prisma.legalDocumentReader.deleteMany({ where: { documentId: { in: docs } } }).catch(() => {});
     await prisma.legalDocument.deleteMany({ where: { id: { in: docs } } }).catch(() => {});
     await prisma.companyContact.deleteMany({ where: { name: { startsWith: TAG } } }).catch(() => {});
+    const postes = (await prisma.adProItem.findMany({ where: { label: { startsWith: TAG } }, select: { id: true } }).catch(() => [])).map((p) => p.id);
+    await prisma.documentRequest.deleteMany({ where: { entityType: "AD_PRO_ITEM", entityId: { in: postes } } }).catch(() => {});
     await prisma.adProItem.deleteMany({ where: { label: { startsWith: TAG } } }).catch(() => {});
     await prisma.event.deleteMany({ where: { name: { startsWith: TAG } } }).catch(() => {});
     await prisma.budgetCategoryLine.deleteMany({ where: { name: { startsWith: TAG } } }).catch(() => {});
@@ -311,7 +313,9 @@ suite("Seuil des bons de commande et signature des Finances — le flux réel", 
       select: { id: true },
     });
     ACTOR = await actorFor(kamId, "MEDICAL_DELEGATE");
-    const r = await requestAdProItemOrder(undefined, form({ id: poste.id, note: `${TAG}80 couverts` }));
+    // L'assistante qui établira le BC est NOMMÉE (§118.204) : la base est partagée, et le choix
+    // automatique « la seule assistante active » dépend des bancs voisins.
+    const r = await requestAdProItemOrder(undefined, form({ id: poste.id, note: `${TAG}80 couverts`, assistantId: legalId }));
     expect(r.ok, r.ok === false ? r.error : "").toBe(true);
     expect(r.ok ? r.message ?? "" : "").toMatch(/Sous le seuil/);
     const apres = await prisma.adProItem.findUniqueOrThrow({

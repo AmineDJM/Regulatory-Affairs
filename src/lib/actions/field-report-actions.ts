@@ -11,6 +11,14 @@ import { analyzeFieldReport, aiModelCheap } from "@/lib/ai";
 import { aiFeatureEnabled, logAiUsage } from "@/lib/ai-settings";
 import type { CurrentUser } from "@/lib/session";
 import { fdStr, fdDate, type ActionResult } from "@/lib/actions/types";
+import { sousVerrous } from "@/lib/promo/stock-ecriture";
+import {
+  dejaDansLeRapport, ecrireRemises, formulairePorteDuMateriel, lireMaterielRemis, motifDeRemise, phraseMateriel, RefusRemise,
+  refusSuppressionRapport, toucheLeStock, verrousDuRapport,
+} from "@/lib/promo/remises-visite";
+import { remisesDuRapport } from "@/lib/queries/promo-remises";
+import { fenetreRapport } from "@/lib/sfe/tournee";
+import { CHEMIN_STOCK_PROMO } from "@/lib/chemins/stock-promo";
 
 /** Un manager / la Direction **gère** tous les rapports ; un délégué les siens. */
 function managesReports(user: CurrentUser): boolean {
@@ -154,26 +162,105 @@ export async function submitFieldReport(formData: FormData): Promise<ActionResul
   const summary = fdStr(formData, "summary");
   if (!summary) return { ok: false, error: "Dictez ou saisissez d'abord votre compte rendu." };
   const doctorIds = parseIds(formData, "doctorIds");
+  const rapport = await prisma.fieldReport.findUnique({ where: { id }, select: { delegateId: true, visitId: true, visitDate: true } });
+  if (!rapport) return { ok: false, error: "Rapport introuvable." };
+  const visitDate = fdDate(formData, "visitDate") ?? rapport.visitDate;
+  const doctorName = fdStr(formData, "doctorName");
 
-  await prisma.fieldReport.update({
-    where: { id },
-    data: {
-      summary,
-      transcript: summary,
-      visitDate: fdDate(formData, "visitDate") ?? undefined,
-      doctorIds,
-      doctorId: doctorIds[0] ?? null,
-      doctorName: fdStr(formData, "doctorName"),
-      institution: fdStr(formData, "institution"),
-      specialty: fdStr(formData, "specialty"),
-      status: "VALIDATED",
-      validatedAt: new Date(),
-    },
-  });
-  await recordAudit({ actorId: user.id, action: "VALIDATE", module: "Rapports terrain", summary: "Compte rendu de visite envoyé" });
+  // ── LE MATÉRIEL REMIS (§118.204) — la QUATRIÈME porte d'une visite faite, par le MÊME module ───
+  // Un compte rendu RATTACHÉ à une visite (dicté depuis « Ma journée ») ne porte pas de remises : la
+  // visite les porte déjà, et son rapport les corrige dans ses 48 h. Deux portes vers la même ancre
+  // diraient deux choses (§118.5) — on nomme celle qui sait.
+  const maintenant = new Date();
+  const saisi = formulairePorteDuMateriel(formData);
+  if (rapport.visitId && saisi.materiel) {
+    return { ok: false, error: "Ce compte rendu raconte une visite de votre emploi du temps : le matériel remis se déclare dans le rapport de cette visite (Promotion médicale › Ma journée), dans ses 48 h." };
+  }
+  // Un support numérique se PRÉSENTE lors d'une visite : un compte rendu sans visite n'en porte pas.
+  if (saisi.numerique) {
+    return { ok: false, error: "Un support numérique se présente lors d'une visite : déclarez-le dans « Ma journée » (rapport de la visite ou visite imprévue)." };
+  }
+  const deja = rapport.visitId ? { remis: [], presentes: [] } : await dejaDansLeRapport(id);
+  const lu = await lireMaterielRemis(formData, deja, maintenant);
+  if (!lu.ok) return { ok: false, error: lu.error };
+  const remet = lu.materiel.remises.length > 0;
+
+  // À QUI : une remise se rattache à un médecin de l'ANNUAIRE. Un nom tapé à la main ne désigne
+  // personne, et le stock du KAM sortirait vers un praticien que rien ne permet de retrouver. Un seul
+  // médecin → la remise porte son nom ; plusieurs → elle reste au compte rendu, sans médecin désigné
+  // (choisir le premier serait l'attribuer à quelqu'un à la place du KAM, §118.34).
+  // Dans l'ORDRE du compte rendu : une lecture `in` rend l'ordre du disque, et le motif écrit au
+  // registre changerait d'un envoi à l'autre pour les mêmes médecins.
+  const medecins = doctorIds.length
+    ? (await prisma.medicalDoctor.findMany({ where: { id: { in: doctorIds } }, select: { id: true, name: true } }))
+        .sort((a, b) => doctorIds.indexOf(a.id) - doctorIds.indexOf(b.id))
+    : [];
+  if (remet && medecins.length === 0) {
+    return {
+      ok: false,
+      error: doctorName
+        ? `Le matériel remis se rattache à un médecin de l'annuaire : « ${doctorName} » n'y est pas — ajoutez-le (Annuaires › Médecins) puis choisissez-le dans la liste.`
+        : "Le matériel remis se rattache à un médecin de l'annuaire : choisissez-le dans la liste « Médecin(s) — annuaire ».",
+    };
+  }
+  // QUAND : la règle des trois autres portes. Une visite à venir ne remet rien ; et le matériel
+  // d'une visite se déclare dans ses 48 h — seulement si le matériel CHANGE : renvoyer un compte
+  // rendu corrigé dans son texte ne doit pas exiger de retirer une remise faite à temps.
+  const changeLeStock = await materielChange(id, deja, lu.materiel.remises);
+  if (changeLeStock && visitDate.getTime() > maintenant.getTime() + 86_400_000) {
+    return { ok: false, error: "Une visite à venir ne remet rien : le matériel se déclare une fois la visite faite." };
+  }
+  if (changeLeStock && !fenetreRapport(visitDate, maintenant).ouvert) {
+    return { ok: false, error: `Le matériel remis se déclare dans les 48 h de la visite (comme dans « Ma journée ») : celle du ${visitDate.toLocaleDateString("fr-FR")} est passée. Rien n'est enregistré — renvoyez le compte rendu sans changer le matériel.` };
+  }
+  // C'EST LA VOITURE DU KAM QUI SE VIDE — même quand un superviseur envoie le compte rendu à sa place.
+  const detenteurId = rapport.delegateId ?? user.id;
+  const medecin = medecins.length === 1 ? medecins[0] : null;
+
+  try {
+    await sousVerrous(verrousDuRapport(lu.materiel, deja), async (tx, verrouilles) => {
+      await tx.fieldReport.update({
+        where: { id },
+        data: {
+          summary,
+          transcript: summary,
+          visitDate,
+          doctorIds,
+          doctorId: doctorIds[0] ?? null,
+          doctorName,
+          institution: fdStr(formData, "institution"),
+          specialty: fdStr(formData, "specialty"),
+          status: "VALIDATED",
+          validatedAt: maintenant,
+        },
+      });
+      if (!rapport.visitId) {
+        await ecrireRemises(tx, lu.materiel, verrouilles, {
+          ancre: { fieldReportId: id }, doctorId: medecin?.id ?? null, detenteurId, auteurId: user.id, maintenant,
+          motif: motifDeRemise(visitDate, medecin?.name ?? (medecins.length > 1 ? medecins.map((m) => m.name).join(", ") : null)),
+        });
+      }
+    });
+  } catch (e) {
+    if (e instanceof RefusRemise) return { ok: false, error: e.message };
+    throw e;
+  }
+  await recordAudit({ actorId: user.id, action: "VALIDATE", module: "Rapports terrain", summary: `Compte rendu de visite envoyé${phraseMateriel(lu.materiel)}` });
   revalidatePath(`/field-reports/${id}`);
   revalidatePath("/field-reports");
+  if (toucheLeStock(lu.materiel, deja)) revalidatePath(CHEMIN_STOCK_PROMO);
   return { ok: true };
+}
+
+/** Le matériel saisi change-t-il ce que le compte rendu a déjà remis ? (net, par article) */
+async function materielChange(fieldReportId: string, deja: { remis: string[] }, voulu: { itemId: string; quantite: number }[]): Promise<boolean> {
+  if (deja.remis.length === 0) return voulu.length > 0;
+  const avant = await remisesDuRapport(fieldReportId);
+  const a = new Map(avant.materiel.map((m) => [m.itemId, m.quantite]));
+  const b = new Map(voulu.map((m) => [m.itemId, m.quantite]));
+  if (a.size !== b.size) return true;
+  for (const [k, v] of b) if (a.get(k) !== v) return true;
+  return false;
 }
 
 export async function validateFieldReport(formData: FormData): Promise<ActionResult> {
@@ -203,6 +290,8 @@ export async function deleteFieldReport(formData: FormData): Promise<ActionResul
   const id = fdStr(formData, "id");
   if (!id) return { ok: false, error: "Rapport introuvable." };
   if (!(await canEdit(user, id))) return { ok: false, error: "Non autorisé." };
+  const refus = await refusSuppressionRapport(id);
+  if (refus) return { ok: false, error: refus };
   const atts = await prisma.fieldReportAttachment.findMany({ where: { reportId: id }, select: { blobId: true } });
   const report = await prisma.fieldReport.findUnique({ where: { id }, select: { audioBlobId: true } });
   await prisma.fieldReport.delete({ where: { id } });

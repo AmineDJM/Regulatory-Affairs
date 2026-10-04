@@ -19,7 +19,10 @@ import { getInvolvementThreads } from "@/lib/queries/involvement";
 import { toNumber } from "@/lib/utils";
 import { promoMaterialOptions } from "@/lib/actions/ad-pro-item-actions";
 import { AdProItemsPanel } from "@/components/ad-pro/items-panel";
-import { loadAdProItems, adProBudgetOptions, contexteMaterielStock } from "@/lib/queries/ad-pro-items";
+import { loadAdProItems, adProBudgetOptions, contexteMaterielStock, contextePostes } from "@/lib/queries/ad-pro-items";
+import { CarteDetailsDemande } from "@/components/ad-pro/pieces-jointes-demande";
+import { EspaceDiscussion } from "@/components/ad-pro/espace-discussion";
+import { InvolvementConversations } from "@/components/ad-pro/involvement-conversations";
 import { CarePanel } from "@/components/care/care-panel";
 import { getCareDossier } from "@/lib/queries/care";
 import { careDirectoryOptions, carePromoOptions } from "@/lib/actions/care-actions";
@@ -29,10 +32,7 @@ import { AdProEditButton } from "@/components/ad-pro/edit-request-button";
 import { canEditAdProRequest, isAdProDecided } from "@/lib/ad-pro-edit";
 import { adProEditValues } from "@/lib/queries/ad-pro-edit";
 import { BackLink } from "@/components/shared/back-link";
-import { LinkedRecords } from "@/components/shared/linked-records";
 import { AdProDiscussionCard } from "@/components/ad-pro/discussion-card";
-import { contextePiecesLiees } from "@/lib/ad-pro/pieces-liees";
-import { DocumentUpload } from "@/components/documents/document-upload";
 import { onlyofficeConfigured } from "@/lib/onlyoffice";
 import { AD_PRO_DOC_CATEGORIES, categoriesDuDepotDeLaDemande } from "@/lib/ad-pro/doc-categories";
 import { canAttachToAdPro } from "@/lib/ad-pro/attachments";
@@ -64,7 +64,6 @@ export default async function CongressNatDetailPage({ params }: { params: { id: 
     include: { uploadedBy: { select: { name: true } } },
     orderBy: { createdAt: "desc" },
   });
-  const ctxPieces = await contextePiecesLiees(user, "CONGRESS_NATIONAL");
   const docItems: DocItem[] = docs.map((dc) => ({
     id: dc.id, name: dc.name, category: dc.category, version: dc.version, sizeBytes: dc.sizeBytes,
     confidentiality: dc.confidentiality, uploadedBy: dc.uploadedBy?.name ?? null, createdAt: dc.createdAt.toISOString(), hasFile: Boolean(dc.fileKey),
@@ -83,10 +82,12 @@ export default async function CongressNatDetailPage({ params }: { params: { id: 
     where: { id: detail.id },
     select: { finalAmount: true, requestStatus: true, hasBooth: true, hasSymposium: true },
   });
-  const [items, promoOptions, budgetOptions] = await Promise.all([
+  const [items, promoOptions, budgetOptions, contexte, involvementThreads] = await Promise.all([
     loadAdProItems("CONGRESS_NATIONAL", detail.id),
     promoMaterialOptions(),
     adProBudgetOptions(user),
+    contextePostes(user, "CONGRESS_NATIONAL", detail.id),
+    getInvolvementThreads("CONGRESS_NATIONAL", detail.id),
   ]);
   // L'enveloppe d'un congrès, c'est le montant accordé par la Direction à la décision définitive.
   const canAllocate = hasGlobalView(user) || userCan(user, "CONGRESS_NATIONAL", "VALIDATE");
@@ -118,10 +119,22 @@ export default async function CongressNatDetailPage({ params }: { params: { id: 
         {hasGlobalView(user) && <AdProTransferButton from="CONGRESS_NATIONAL" sourceId={detail.id} title={detail.name} />}
         <SupprimerDemandeAdPro kind="CONGRESS_NATIONAL" id={detail.id} name={detail.name} enabled={await peutSupprimerUneDemandeAdPro(user, "CONGRESS_NATIONAL", detail.id)} />
       </PageHeader>
-      {/* Les personnes prises en charge — le cœur de la demande. Avant le reste : c'est la
+      {/* LES PIÈCES JOINTES DE LA DEMANDE — lettre de demande, programme, pièces d'identité… : « + Pièce
+          jointe » en haut à droite. La chaîne d'achat (devis → BC → facture) vit sur chaque poste. */}
+      <CarteDetailsDemande
+        titre="Pièces jointes de la demande"
+        pieces={{
+          entityType: "CONGRESS_NATIONAL", entityId: detail.id, documents: docItems,
+          peutDeposer: canUpload, categories: categoriesDuDepotDeLaDemande(AD_PRO_DOC_CATEGORIES),
+          canDelete, canRename: canUpload, canEdit: onlyofficeConfigured() && canUpload,
+          path: `/congress-national/${detail.id}`,
+        }}
+      />
+      {/* LES PROFESSIONNELS PROPOSÉS POUR LA PRISE EN CHARGE — la seule liste de qui est pris en
+          charge (décision du 04/10/2026), et leurs pièces juste dessous. Avant le reste : c'est la
           question qu'on se pose en ouvrant l'écran. */}
       <Card>
-        <CardHeader><CardTitle>Personnes prises en charge</CardTitle></CardHeader>
+        <CardHeader><CardTitle>Professionnels proposés pour la prise en charge</CardTitle></CardHeader>
         <CardContent>
           <CarePanel
             scope="NATIONAL"
@@ -143,7 +156,7 @@ export default async function CongressNatDetailPage({ params }: { params: { id: 
         canUpload={canUpload} canDelete={canDelete} path={`/congress-national/${detail.id}`}
         missions={missions} missionUsers={missionUsers} canManageMissions={canManageMissions}
         currentUserId={user.id}
-        involvementThreads={await getInvolvementThreads("CONGRESS_NATIONAL", detail.id)}
+        involvementThreads={[]}
         canModerate={hasGlobalView(user)}
         itemsPanel={
           <AdProItemsPanel
@@ -164,29 +177,17 @@ export default async function CongressNatDetailPage({ params }: { params: { id: 
             materiel={materielStock}
             canIssueOrder={userCan(user, "FINANCES", "UPDATE") || userCan(user, "FINANCES", "VALIDATE")}
             canViserBC={siegeAuCentreAdPro(user)}
+            contexte={contexte}
           />
         }
       />
-      {/* CE QUI EN DÉCOULE : engagement, facture, courrier. Le mécanisme connaissait déjà ce
-          type de dossier ; il ne manquait que le bloc — et l'on ne pouvait donc RIEN rattacher à
-          un congrès ou à un événement. Créés d'ici, ils gardent le lien : c'est le seul moment où
-          l'on sait de quoi ils viennent, et le seul où le rattachement ne coûte rien. */}
-      <LinkedRecords
-        entityType="CONGRESS_NATIONAL" entityId={detail.id} reference={detail.name} canCreate={canUpload}
-        acces={ctxPieces.acces} candidatsLegal={ctxPieces.candidatsLegal}
-        piecesDeLaDemande={{
-          titre: "Pièces de la prise en charge (demande, programme, pièces d'identité…)",
-          documents: docItems,
-          televerseur: canUpload
-            ? <DocumentUpload entityType="CONGRESS_NATIONAL" entityId={detail.id} categories={categoriesDuDepotDeLaDemande(AD_PRO_DOC_CATEGORIES)} />
-            : undefined,
-          canDelete, canRename: canUpload, canEdit: onlyofficeConfigured() && canUpload,
-          path: `/congress-national/${detail.id}`,
-        }}
-      />
 
-      {/* LA SECTION DISCUSSION — le fil CANONIQUE, monté sur les sept natures du pôle. */}
-      <AdProDiscussionCard entityType="CONGRESS_NATIONAL" entityId={detail.id} user={user} />
+      {/* LA SECTION DISCUSSION — le fil CANONIQUE de la demande et les échanges avec les personnes
+          impliquées : un seul espace (la vue détaillée ne les rend plus à part). */}
+      <EspaceDiscussion>
+        <AdProDiscussionCard entityType="CONGRESS_NATIONAL" entityId={detail.id} user={user} />
+        <InvolvementConversations threads={involvementThreads} currentUserId={user.id} canManage={hasGlobalView(user)} />
+      </EspaceDiscussion>
 
     </div>
   );

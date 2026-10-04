@@ -18,7 +18,7 @@ import { createExpenseOrder, SERIE_DEMANDES_PAIEMENT } from "@/lib/expense-order
 import { annulerOrdreNonRegle } from "@/lib/payments/annulation";
 import { reviserOrdreNonRegle, apresRevisionOrdre, type ResultatRevision } from "@/lib/payments/revision-ordre";
 import {
-  refusDeCorrection, refusDuChamp, ecartsDeCorrection, phraseDeCorrection, type ValeursDemande,
+  refusDeCorrection, refusDeRetrait, refusDuChamp, ecartsDeCorrection, phraseDeCorrection, type ValeursDemande,
 } from "@/lib/finance/correction-demande";
 import { toNumber } from "@/lib/utils";
 import { fdStr, fdNum, type ActionResult } from "@/lib/actions/types";
@@ -951,7 +951,11 @@ export async function nudgePaymentRequest(formData: FormData): Promise<ActionRes
   }
 }
 
-/** Le demandeur retire son dossier. */
+/**
+ * Le demandeur retire son dossier — y compris APPROUVÉ, tant que l'ordre n'est pas réglé (décision
+ * de la Direction du 04/10 : on annule sa demande tant que l'autre ne l'a pas exécutée ; pour un
+ * paiement, l'exécution est le règlement). La règle est `refusDeRetrait`, lue aussi par la fiche.
+ */
 export async function cancelPaymentRequest(formData: FormData): Promise<ActionResult> {
   try {
     const user = await requireUser();
@@ -960,23 +964,32 @@ export async function cancelPaymentRequest(formData: FormData): Promise<ActionRe
     const req = await prisma.paymentRequest.findUnique({ where: { id } });
     if (!req) return { ok: false, error: "Demande introuvable." };
     if (!isRequester(user, req)) return { ok: false, error: "Seul le demandeur retire sa demande." };
-    // RETIRER UN COMPAGNON NE RETIRERAIT RIEN. L'ordre de dépense, lui, resterait à régler : le
-    // dossier afficherait « annulée » sous un paiement qui part quand même. Une dépense se retire
-    // là où elle a été décidée, pas dans le dossier qui la documente.
-    if (isCompanionDossier(req.origin)) {
-      return { ok: false, error: "Ce dossier accompagne un ordre de dépense : le retirer n'annulerait pas le paiement. Passez par le circuit d'origine." };
-    }
-    if (!nextPaymentStatus(req.status, "CANCEL")) return { ok: false, error: "Ce dossier est déjà clos." };
+    const ordre = req.expenseOrderId
+      ? await prisma.expenseOrder.findUnique({ where: { id: req.expenseOrderId }, select: { status: true } })
+      : null;
+    // RETIRER UN COMPAGNON NE RETIRERAIT RIEN : une dépense se retire là où elle a été décidée.
+    const refus = refusDeRetrait({ status: req.status, compagnon: isCompanionDossier(req.origin), ordre });
+    if (refus) return { ok: false, error: refus };
 
-    // RETIRER SA DEMANDE RETIRE SON PAIEMENT (§118.185, audit 360° I7) : l'ordre né à la soumission
-    // attend au centre ; le laisser ouvert, c'était un dossier « annulé » au-dessus d'un paiement qui
-    // part quand même. Déjà réglé, la demande ne se retire plus — et rien n'est touché.
+    // RETIRER SA DEMANDE RETIRE SON PAIEMENT (§118.185, audit 360° I7). Déjà réglé entre la lecture
+    // et ici : l'écrivain commun refuse sans rien toucher.
     const annulation = await annulerOrdreNonRegle(req.expenseOrderId, { acteurId: user.id, motif: `demande de paiement ${req.reference} retirée par son demandeur` });
     if (!annulation.ok) return { ok: false, error: annulation.error };
 
-    await prisma.paymentRequest.update({ where: { id }, data: { status: "CANCELLED" } });
+    // UN GESTE À LA FOIS : l'écriture exige un dossier encore vivant. Deux clics → un seul retrait ;
+    // un refus des Finances passé entre-temps a déjà annulé l'ordre, et le dossier reste refusé.
+    const pris = await prisma.paymentRequest.updateMany({
+      where: { id, status: { notIn: ["CANCELLED", "REJECTED"] } },
+      data: { status: "CANCELLED" },
+    });
+    if (pris.count === 0) return { ok: false, error: "Cette demande vient d'être close — rechargez la fiche." };
     await trace(id, user.id, "CANCEL", fdStr(formData, "note"));
-    if (isWithFinance(req.status) || annulation.annule) await alertFinance(req, "Demande de paiement retirée");
+    await recordAudit({
+      actorId: user.id, action: "UPDATE", module: "Demandes de paiement",
+      entityType: "PAYMENT_REQUEST", entityId: id, field: "status", oldValue: req.status, newValue: "CANCELLED",
+      summary: `Demande de paiement ${req.reference} retirée par son demandeur`,
+    });
+    if (isWithFinance(req.status) || req.status === "APPROVED" || annulation.annule) await alertFinance(req, "Demande de paiement retirée");
     revalidate(id);
     return annulation.annule
       ? { ok: true, id, message: `Demande retirée — l'ordre de dépense ${annulation.reference ?? ""} est annulé : il ne sera pas payé.` }

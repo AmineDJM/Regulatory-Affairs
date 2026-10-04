@@ -18,7 +18,6 @@ import { retirerDemande } from "@/lib/workflow/engine";
 import { referentAInscrire } from "@/lib/ad-pro/referent-de-la-gamme";
 import { fdStr, fdNum, fdDate, type ActionResult } from "@/lib/actions/types";
 import { attachFiles } from "@/lib/attach-files";
-import { readMultiField } from "@/lib/ad-pro/pickers";
 
 // Le **même** circuit de prise en charge sert les prises en charge internationales/nationaux
 // ET les événements (module Events) : on paramètre tout par `type`.
@@ -58,8 +57,29 @@ export async function createCongressRequest(
   const user = await requireUser();
   const t = typeOf(formData);
   if (!userCan(user, moduleFor(t), "CREATE")) return { ok: false, error: "Non autorisé." };
+  /*
+   * CE QUE LA DEMANDE EXIGE, NOMMÉ EN UNE FOIS (décision du 04/10/2026) : le nom, et l'événement par
+   * son DÉBUT et sa FIN — deux dates, des deux côtés. Un refus par champ ferait ressaisir le
+   * formulaire trois fois (§118.18). Le nom garde sa garde à part, plus bas : c'est elle que la
+   * dérivation des contrats lit (§118.142).
+   */
   const name = fdStr(formData, "name");
+  const debut = t === "INTL" ? fdDate(formData, "startDate") : fdDate(formData, "date");
+  const fin = fdDate(formData, "endDate");
+  const manque = [name ? null : "le nom de l'événement", debut ? null : "la date de début", fin ? null : "la date de fin"]
+    .filter((x): x is string => x !== null);
+  if (manque.length > 1) return { ok: false, error: `À renseigner : ${manque.join(", ")}.` };
   if (!name) return { ok: false, error: "Le nom de l'événement est obligatoire." };
+  if (manque.length > 0) return { ok: false, error: `À renseigner : ${manque.join(", ")}.` };
+  if (debut && fin && fin < debut) return { ok: false, error: "La date de fin ne peut pas précéder la date de début." };
+
+  // LES PROFESSIONNELS PROPOSÉS, vérifiés AVANT la création : un identifiant qui ne désigne aucun
+  // praticien de l'annuaire est refusé, au lieu de créer une demande amputée en silence.
+  const proposes = [...new Set(fdList(formData, "invitedDoctorIds"))];
+  if (proposes.length > 0) {
+    const connus = await prisma.medicalDoctor.count({ where: { id: { in: proposes } } });
+    if (connus !== proposes.length) return { ok: false, error: "Un professionnel proposé est introuvable dans l'annuaire — rechargez le formulaire." };
+  }
 
   const eventType: NationalEventType = EVENT_TYPES.includes(fdStr(formData, "eventType") as NationalEventType)
     ? (fdStr(formData, "eventType") as NationalEventType)
@@ -85,31 +105,19 @@ export async function createCongressRequest(
   const now = new Date();
 
   /*
-   * LES PRODUITS CONCERNÉS — le champ manquait, et la colonne existait des deux côtés.
+   * NI SPÉCIALITÉ NI PRODUITS NI PAYS (national) sur une prise en charge — décision de la Direction
+   * du 04/10/2026. Ce que le formulaire ne porte plus ne s'écrit plus (§118.152c) ; les colonnes
+   * restent en base pour les demandes d'avant.
    *
-   * Décision de la Direction (22/09/2026) : on doit pouvoir sélectionner un ou plusieurs
-   * produits sur toutes les natures Ad & Pro hors matériel promotionnel. Mesuré avant d'écrire :
-   * `CongressInternational.products` et `CongressNational.promotedProducts` existent depuis
-   * toujours, aucun formulaire ne les envoyait, et `products` n'avait AUCUN lecteur — le §118.14
-   * dans sa forme la plus nue.
-   *
-   * DEUX NOMS DE COLONNE POUR LE MÊME FAIT, sur deux modèles frères : on ne renomme pas (une
-   * colonne a des lecteurs, et l'empreinte dépasserait la demande, §118.16) — on écrit celle que
-   * chaque branche porte, à l'endroit où la création branche DÉJÀ par modèle.
-   *
-   * LES MÉDECINS, EUX, NE CHANGENT PAS DE MÉCANISME : `invitedDoctorIds` porte de vraies
-   * RÉFÉRENCES que la fiche résout en lignes d'annuaire (`queries/congress.ts`). Les remplacer
-   * par un libellé joint serait perdre une référence pour gagner une uniformité — exactement
-   * l'échange que ce dépôt refuse.
+   * LES MÉDECINS deviennent les « professionnels proposés pour la prise en charge » : une ligne
+   * `CareBeneficiary` par praticien choisi, la MÊME liste que celle de la fiche (une seule source de
+   * vérité). `invitedDoctorIds` n'est plus écrit ; la migration du 04/10 y a repris ce qu'il portait.
    */
-  const produits = readMultiField(formData.getAll("productIds").map(String), fdStr(formData, "product"));
 
   const common = {
     name,
     eventType,
-    specialty: fdStr(formData, "specialty"),
     estimatedBudget: fdNum(formData, "estimatedBudget"),
-    invitedDoctorIds: fdList(formData, "invitedDoctorIds"),
     participantIds: fdList(formData, "participantIds"),
     requesterId: user.id,
     requestStatus: init.status as CongressRequestStatus,
@@ -146,9 +154,8 @@ export async function createCongressRequest(
             // La ville vient du référentiel des wilayas ; une saisie ancienne reprend sa forme
             // officielle, et ce qu'on ne sait pas rattacher est conservé tel quel.
             city: normalizeCity(fdStr(formData, "city")),
-            products: produits,
-            startDate: fdDate(formData, "startDate"),
-            endDate: fdDate(formData, "endDate"),
+            startDate: debut,
+            endDate: fin,
           },
         })
       : await prisma.congressNational.create({
@@ -156,19 +163,23 @@ export async function createCongressRequest(
       // LA GAMME QUI PORTE LA DEMANDE — c'est SON budget Ad&Pro qui est engagé.
       businessUnitId: gammeDeLaDemande,
             ...common,
-            // Une prise en charge « nationale » peut se tenir hors d'Algérie : le pays reste
-            // demandé des deux côtés, simplement facultatif.
-            country: fdStr(formData, "country"),
             // La ville vient du référentiel des wilayas ; une saisie ancienne reprend sa forme
             // officielle, et ce qu'on ne sait pas rattacher est conservé tel quel.
             city: normalizeCity(fdStr(formData, "city")),
             hostInstitution: fdStr(formData, "hostInstitution"),
-            // Le modèle national nomme cette colonne `promotedProducts` — voir le commentaire
-            // ci-dessus : deux noms, un seul fait, aucun renommage.
-            promotedProducts: produits,
-            date: fdDate(formData, "date"),
+            date: debut,
+            endDate: fin,
           },
         });
+
+  if (proposes.length > 0) {
+    await prisma.careBeneficiary.createMany({
+      data: proposes.map((doctorId, i) => ({
+        ...(t === "INTL" ? { congressInternationalId: created.id } : { congressNationalId: created.id }),
+        doctorId, position: i + 1, createdById: user.id, updatedById: user.id,
+      })),
+    });
+  }
 
   // Les demandes du médecin, jointes DÈS la création — la pièce que tout le circuit va lire.
   const attached = await attachFiles({

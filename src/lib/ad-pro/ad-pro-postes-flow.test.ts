@@ -10,13 +10,13 @@ import { getAccess, userCan, type SessionUser } from "@/lib/rbac";
 import { canAccessEntity } from "@/lib/entity-access";
 import { createSponsoring } from "@/lib/actions/sponsoring-actions";
 import {
-  addAdProItem, repartirPoste, submitAdProItem, decideAdProItem, setAdProItemBudget, requestAdProItemOrder,
+  addAdProItem, repartirPoste, submitAdProItem, decideAdProItem, requestAdProItemOrder,
   ajouterVoyageur, modifierVoyageur, retirerVoyageur, demanderReservation,
 } from "@/lib/actions/ad-pro-item-actions";
 import { supprimerDemandeAdPro, apercuDeSuppression, restoreDeletedRecord } from "@/lib/actions/admin-delete-actions";
 import { createLegalDocument, updateLegalDocument } from "@/lib/actions/legal-actions";
 import { peutSupprimerUneDemandeAdPro } from "@/lib/queries/ad-pro-suppression";
-import { loadAdProItems } from "@/lib/queries/ad-pro-items";
+import { loadAdProItems, contextePostes } from "@/lib/queries/ad-pro-items";
 import { getInvolvementThreads } from "@/lib/queries/involvement";
 import { persistUploadedDocument } from "@/lib/documents";
 import { REFUS_INDIRECT_NON_REPARTI } from "@/lib/ad-pro-items";
@@ -129,6 +129,7 @@ suite("Ad & Pro — postes simplifiés : répartition, gestes, voyageurs, suppre
     await prisma.document.deleteMany({ where: { OR: [{ entityId: { in: ids } }, { name: { startsWith: TAG } }] } }).catch(() => {});
     const postes = await prisma.adProItem.findMany({ where: { sponsoringId: { in: ids } }, select: { id: true } }).catch(() => []);
     await prisma.document.deleteMany({ where: { entityId: { in: postes.map((p) => p.id) } } }).catch(() => {});
+    await prisma.documentRequest.deleteMany({ where: { entityType: "AD_PRO_ITEM", entityId: { in: postes.map((p) => p.id) } } }).catch(() => {});
     await prisma.workflowStepEvent.deleteMany({ where: { instance: { entityId: { in: ids } } } }).catch(() => {});
     await prisma.workflowInstance.deleteMany({ where: { entityId: { in: ids } } }).catch(() => {});
     await prisma.auditLog.deleteMany({ where: { entityId: { in: ids } } }).catch(() => {});
@@ -243,12 +244,26 @@ suite("Ad & Pro — postes simplifiés : répartition, gestes, voyageurs, suppre
     ACTOR = await acteur(nsId, "NATIONAL_SALES");
     const sub = await submitAdProItem(undefined, fd({ id: posteOrigine }));
     expect(sub.ok === false ? sub.error : "soumis").toBe(REFUS_INDIRECT_NON_REPARTI);
-    ACTOR = await acteur(dirId, "DIRECTION");
-    const dec = await decideAdProItem(undefined, fd({ id: posteOrigine, decision: "APPROVED" }));
-    expect(dec.ok === false ? dec.error : "accordé").toBe(REFUS_INDIRECT_NON_REPARTI);
-    // Refuser, lui, reste possible — il ne paie rien. Prouvé ici sans l'écrire : l'action refuse
-    // AVANT d'écrire, donc le statut n'a pas bougé.
+    // Ni la Direction des opérations ni la Direction Marketing ne l'accordent (§118.204) — l'action
+    // refuse AVANT d'écrire, donc le statut n'a pas bougé.
+    for (const [id, role] of [[dirId, "DIRECTION"], [pmChefId, "PRODUCT_MANAGER"]] as const) {
+      ACTOR = await acteur(id, role);
+      const dec = await decideAdProItem(undefined, fd({ id: posteOrigine, decision: "APPROVED", budgetCategoryId: catId }));
+      expect(dec.ok, `${role} ne doit pas accorder un sponsoring indirect non réparti`).toBe(false);
+    }
     expect((await prisma.adProItem.findUniqueOrThrow({ where: { id: posteOrigine } })).status).toBe("DRAFT");
+    // LE CAS RÉEL où la garde de la répartition est seule à parler : un sponsoring indirect d'AVANT,
+    // en attente du second temps (la migration de §118.204 réputé fait le premier temps des postes
+    // déjà soumis). DÉCOR, nommé : c'est cet état hérité qu'on éprouve, pas son histoire.
+    const herite = await prisma.adProItem.create({ data: {
+      sponsoringId: spoA, kind: "INDIRECT_SUPPORT", label: `${TAG}Indirect hérité`, status: "PENDING",
+      amountEstimated: 100_000, opsDecidedAt: new Date(), position: 49,
+    } });
+    ACTOR = await acteur(pmChefId, "PRODUCT_MANAGER");
+    const dec = await decideAdProItem(undefined, fd({ id: herite.id, decision: "APPROVED", budgetCategoryId: catId }));
+    expect(dec.ok === false ? dec.error : "accordé").toBe(REFUS_INDIRECT_NON_REPARTI);
+    expect((await prisma.adProItem.findUniqueOrThrow({ where: { id: herite.id } })).status).toBe("PENDING");
+    await prisma.adProItem.delete({ where: { id: herite.id } });
 
     const pas = prochainPas(faitsDuPoste(await ligne(spoA, posteOrigine)), REGARD_DEMANDEUR);
     expect(pas.geste?.cle).toBe("REPARTIR");
@@ -368,33 +383,47 @@ suite("Ad & Pro — postes simplifiés : répartition, gestes, voyageurs, suppre
      */
     const rejouer: Record<CleGeste, (() => Promise<{ ok: boolean; error?: string }>) | null> = {
       SOUMETTRE: async () => { ACTOR = await acteur(nsId, "NATIONAL_SALES"); return submitAdProItem(undefined, fd({ id: hotellerie })); },
-      DECIDER: async () => { ACTOR = await acteur(dirId, "DIRECTION"); return decideAdProItem(undefined, fd({ id: hotellerie, decision: "APPROVED", amountGranted: "450000" })); },
-      BUDGET: async () => { ACTOR = await acteur(dirId, "DIRECTION"); return setAdProItemBudget(undefined, fd({ id: hotellerie, budgetCategoryId: catId })); },
-      DEMANDER_BC: async () => { ACTOR = await acteur(nsId, "NATIONAL_SALES"); return requestAdProItemOrder(undefined, fd({ id: hotellerie, note: "Hôtel Sofitel — 12 chambres, 3 nuits." })); },
-      REPARTIR: null, CHIFFRER: null, MONTANT: null, VISER_BC: null, EMETTRE_BC: null, EMETTRE_DIRECT: null,
+      VALIDER_OPS: async () => { ACTOR = await acteur(dirId, "DIRECTION"); return decideAdProItem(undefined, fd({ id: hotellerie, decision: "APPROVED" })); },
+      DECIDER: async () => {
+        ACTOR = await acteur(pmChefId, "PRODUCT_MANAGER");
+        return decideAdProItem(undefined, fd({ id: hotellerie, decision: "APPROVED", amountGranted: "450000", budgetCategoryId: catId }));
+      },
+      DEMANDER_BC: async () => {
+        ACTOR = await acteur(nsId, "NATIONAL_SALES");
+        return requestAdProItemOrder(undefined, fd({ id: hotellerie, note: "Hôtel Sofitel — 12 chambres, 3 nuits.", assistantId: asstId }));
+      },
+      REPARTIR: null, CHIFFRER: null, MONTANT: null, BUDGET: null, VISER_BC: null, VERIFIER_BC: null, DEMANDER_PAIEMENT: null,
     };
+    // Le regard de chacun est celui que le SERVEUR calcule pour l'écran (`contextePostes`) — recomposé
+    // ici à la main, il pourrait proposer un geste que l'écran ne propose pas (§118.120).
+    const regardDe = async (id: string, role: SessionUser["role"], base: RegardPoste): Promise<RegardPoste> => {
+      const ctx = await contextePostes(await acteur(id, role), "SPONSORING", spoA);
+      return { ...base, validation: ctx.validation };
+    };
+    const regards = [
+      await regardDe(nsId, "NATIONAL_SALES", REGARD_DEMANDEUR),
+      await regardDe(dirId, "DIRECTION", REGARD_DIRECTION),
+      await regardDe(pmChefId, "PRODUCT_MANAGER", REGARD_DIRECTION),
+    ];
     const suivis: CleGeste[] = [];
-    for (let tour = 0; tour < 6; tour += 1) {
-      const row = await ligne(spoA, hotellerie);
-      const faits = faitsDuPoste(row);
-      // Le regard de la personne dont c'est le tour : la Direction décide et impute, le demandeur
-      // soumet et demande le BC.
-      const pasDemandeur = prochainPas(faits, REGARD_DEMANDEUR);
-      const pasDirection = prochainPas(faits, REGARD_DIRECTION);
-      const geste = pasDemandeur.geste?.cle ?? pasDirection.geste?.cle ?? null;
+    for (let tour = 0; tour < 8; tour += 1) {
+      const faits = faitsDuPoste(await ligne(spoA, hotellerie));
+      const geste = regards.map((r) => prochainPas(faits, r).geste?.cle ?? null).find(Boolean) ?? null;
       if (!geste || !rejouer[geste]) break;
       const r = await rejouer[geste]!();
       expect(r.ok, `le geste « ${geste} » est proposé et l'action le refuse : ${r.error ?? ""}`).toBe(true);
       suivis.push(geste);
     }
-    expect(suivis).toEqual(["SOUMETTRE", "DECIDER", "BUDGET", "DEMANDER_BC"]);
-    // Le BC est parti : au centre (au-dessus du seuil) ou aux Finances (en deçà). Dans les deux cas
-    // l'écran DIT qui on attend — jamais un geste du demandeur.
+    expect(suivis).toEqual(["SOUMETTRE", "VALIDER_OPS", "DECIDER", "DEMANDER_BC"]);
+    // Le BC est demandé : au centre (au-dessus du seuil), et chez l'assistante. L'écran DIT qui on
+    // attend — jamais un geste du demandeur.
     const row = await ligne(spoA, hotellerie);
     expect(["REQUESTED", "DIRECTION_OK"]).toContain(row.orderStage);
+    expect(row.budgetCategoryId, "le budget est choisi AU second temps, pas dans un geste à part").toBe(catId);
+    expect(row.demandeBC?.etat).toBe("CHEZ_ASSISTANTE");
     const fin = prochainPas(faitsDuPoste(row), REGARD_DEMANDEUR);
     expect(fin.geste).toBeNull();
-    expect(fin.attente).toMatch(/centre de validation|Finances/);
+    expect(fin.attente).toMatch(/centre de validation|assistante de direction/);
     // Le message du demandeur est GARDÉ pour l'assistante, à côté de la note de la Direction.
     expect(row.orderNote).toBe("Hôtel Sofitel — 12 chambres, 3 nuits.");
   });

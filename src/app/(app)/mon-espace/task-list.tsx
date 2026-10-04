@@ -4,7 +4,7 @@ import * as React from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Loader2, Play, Check, FolderKanban, MapPin, Navigation, Timer, X, Users, ArrowRight, MessageSquareQuote, Trash2, BellRing } from "lucide-react";
-import { updateTaskStatus, startTask, respondTaskRequest, deleteTask, relanceTaskRequest } from "@/lib/actions/task-actions";
+import { updateTaskStatus, startTask, respondTaskRequest, deleteTask, relanceTaskRequest, annulerDemandeTache } from "@/lib/actions/task-actions";
 import { createDossierFromTask } from "@/lib/actions/dossier-actions";
 import { taskActions, declineSummary, requestStage, peutRelancer } from "@/lib/tasks/request-flow";
 import { StatusBadge } from "@/components/shared/status-badge";
@@ -36,6 +36,8 @@ export interface TaskItem {
   involved?: string | null;
   /** Le lecteur peut la SUPPRIMER (il l'a créée, ou est Super Admin) — calculé côté serveur. */
   canDelete?: boolean;
+  /** Le lecteur peut ANNULER cette demande (il l'a adressée à quelqu'un, elle n'est pas exécutée). */
+  canCancelRequest?: boolean;
   // ── QUI EST QUI ────────────────────────────────────────────────────────────────────────────
   // Les identifiants du responsable, du créateur et des participants VOYAGENT avec la ligne.
   // Sans eux, `taskActions` ne peut dire ni « c'est ma tâche » ni « c'est ma demande » : elle
@@ -121,6 +123,29 @@ function CreateDossierButton({ id }: { id: string }) {
       onClick={async () => { setBusy(true); const r = await createDossierFromTask(id); if (r.ok && r.dossierId) router.push(`/dossiers/${r.dossierId}`); else setBusy(false); }}
       className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-xs font-medium text-muted-foreground hover:bg-secondary hover:text-foreground disabled:opacity-50">
       {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <FolderKanban className="h-3.5 w-3.5" />} Sujet
+    </button>
+  );
+}
+
+/**
+ * ANNULER SA DEMANDE (décision du 04/10) — à la place de la suppression pour une demande encore
+ * ouverte chez quelqu'un d'autre : elle se clôt, l'assigné est prévenu, le fil reste.
+ */
+function CancelRequestButton({ id, title }: { id: string; title: string }) {
+  const router = useRouter();
+  const [busy, setBusy] = React.useState(false);
+  return (
+    <button type="button" disabled={busy} title="Annuler cette demande — la personne en est prévenue"
+      onClick={async () => {
+        const motif = window.prompt(`Annuler la demande « ${title} » ? Motif (facultatif) :`, "");
+        if (motif === null) return;
+        setBusy(true);
+        const fd = new FormData(); fd.set("id", id); if (motif.trim()) fd.set("motif", motif.trim());
+        const r = await annulerDemandeTache(fd);
+        if (r.ok) router.refresh(); else { setBusy(false); window.alert(r.error ?? "Annulation impossible."); }
+      }}
+      className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-xs font-medium text-muted-foreground hover:bg-destructive/10 hover:text-destructive disabled:opacity-50">
+      {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <X className="h-3.5 w-3.5" />} Annuler la demande
     </button>
   );
 }
@@ -251,6 +276,7 @@ export function TaskList({
               )}
               {show("relance") && userId && <RelanceButton t={t} userId={userId} />}
               {show("dossier") && <CreateDossierButton id={t.id} />}
+              {t.canCancelRequest && !readOnly && <CancelRequestButton id={t.id} title={t.title} />}
               {t.canDelete && !readOnly && <DeleteTaskButton id={t.id} title={t.title} />}
             </div>
             )}

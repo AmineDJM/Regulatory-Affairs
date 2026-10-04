@@ -315,32 +315,55 @@ describe("les fiches Ad & Pro n'ont plus de dépôt générique — et gardent l
     }
   });
 
-  it("les SEPT écrans montent le bloc des pièces liées AVEC l'emplacement nommé et les droits", () => {
-    // LA MOITIÉ QUI COMPTE : retirer le dépôt générique SANS ceci aurait rendu invisible la
-    // demande du médecin — obligatoire à la création, et le document que tout le circuit lit.
-    for (const f of ECRANS) {
+  /**
+   * DEUX FORMES DE FICHE DEPUIS LE 04/10 (§118.204). Les natures qui portent des POSTES (sponsoring,
+   * prises en charge, événement) ont perdu le bloc « Pièces liées » : la chaîne d'achat vit SUR CHAQUE
+   * POSTE (devis → BC → facture, `AdProItemPiece`), et la demande garde ses pièces générales dans la
+   * carte des détails (« + Pièce jointe », `CarteDetailsDemande`). Les trois autres (matériel
+   * promotionnel, consulting, autre demande) n'ont pas de postes : elles gardent le bloc.
+   *
+   * La partition se LIT dans le code (qui monte le panneau des postes), et une prémisse la confronte
+   * aux colonnes du modèle `AdProItem` : écrite à la main, elle ne verrait pas une fiche qui gagne ou
+   * perd ses postes.
+   */
+  const AVEC_POSTES = () => ECRANS.filter((f) => code(f).includes("<AdProItemsPanel"));
+  const SANS_POSTES = () => ECRANS.filter((f) => !code(f).includes("<AdProItemsPanel"));
+
+  it("PRÉMISSE : les fiches à postes sont exactement les quatre parents d'un poste", () => {
+    const attendues = ["/sponsoring", "/congress-international", "/congress-national", "/events"].map((h) => `src/app/(app)${h}/[id]/page.tsx`).sort();
+    expect(AVEC_POSTES().sort()).toEqual(attendues);
+    expect(SANS_POSTES()).toHaveLength(3);
+  });
+
+  it("les fiches À POSTES n'ont plus le bloc « Pièces liées » — la demande garde ses pièces dans la carte des détails", () => {
+    // Ce qui le ferait tomber : remettre `<LinkedRecords` sur une fiche à postes. Deux domiciles pour
+    // un devis — la case du poste et le bloc de la demande —, et le jour où l'un est remplacé,
+    // l'autre ment (§118.5). L'AUTRE MOITIÉ : sans la carte des détails, la demande du médecin —
+    // obligatoire à la création — n'aurait plus aucun emplacement visible.
+    for (const f of AVEC_POSTES()) {
+      const src = code(f);
+      expect(src, `${f} monte encore le bloc des pièces liées`).not.toContain("<LinkedRecords");
+      expect(src, `${f} : les pièces générales de la demande n'ont plus d'emplacement`).toContain("<CarteDetailsDemande");
+    }
+  });
+
+  it("les fiches SANS postes montent le bloc des pièces liées AVEC l'emplacement nommé et les droits", () => {
+    for (const f of SANS_POSTES()) {
       const src = code(f);
       expect(src, `${f} : pas de bloc de pièces liées`).toContain("<LinkedRecords");
       expect(src, `${f} : les pièces de la demande n'ont pas d'emplacement nommé`).toContain("piecesDeLaDemande");
       expect(src, `${f} : les droits sur les pièces liées ne sont pas passés`).toContain("ctxPieces.acces");
       expect(src, `${f} : rien à rattacher — le bouton n'apparaîtrait jamais`).toContain("ctxPieces.candidatsLegal");
-    }
-  });
-
-  it("les droits viennent du MÊME calcul pour les sept — sept orthographes en oublieraient un", () => {
-    // C'est le défaut mesuré de `ad-pro/attachments.ts` : « chacun l'épelait à sa façon, et
-    // chaque orthographe oubliait quelqu'un, qui envoyait alors la facture par mail avec un
-    // dossier vide ».
-    for (const f of ECRANS) {
-      expect(code(f), `${f} recalcule les droits au lieu de lire le contexte partagé`).toContain("contextePiecesLiees(user,");
+      // Les droits viennent du MÊME calcul — c'est le défaut mesuré de `ad-pro/attachments.ts` :
+      // « chacun l'épelait à sa façon, et chaque orthographe oubliait quelqu'un ».
+      expect(src, `${f} recalcule les droits au lieu de lire le contexte partagé`).toContain("contextePiecesLiees(user,");
     }
   });
 
   it("TOUT écran qui monte le bloc lui passe les droits de la personne — pas seulement le pôle", () => {
     // Sans `acces`, le bloc n'a personne à qui demander : aucun fichier n'est montré, et chaque
     // bouton de création est offert à qui gère la fiche — y compris ceux que l'action Legal
-    // refuse ensuite. La demande du secrétariat montait le bloc ainsi ; réparer celle-là ne
-    // protège pas la suivante, donc on cherche TOUS les points de montage (§118.58).
+    // refuse ensuite. On cherche TOUS les points de montage (§118.58).
     const racines = ["src/app", "src/components"];
     const fichiers: string[] = [];
     const parcourir = (d: string) => {
@@ -361,24 +384,32 @@ describe("les fiches Ad & Pro n'ont plus de dépôt générique — et gardent l
       const avecAcces = (src.match(/\bacces=\{/g) ?? []).length;
       expect(avecAcces, `${f} monte le bloc sans les droits de la personne`).toBeGreaterThanOrEqual(n);
     }
-    // Le plancher : les sept fiches Ad & Pro et la demande du secrétariat. Sans lui, un parcours
-    // cassé ne trouverait AUCUN montage et ce cas passerait au vert sans rien vérifier (§118.17).
-    expect(montages).toBeGreaterThanOrEqual(8);
+    // Le plancher, MESURÉ au 04/10 : les trois fiches Ad & Pro sans postes et la demande du
+    // secrétariat. Sans lui, un parcours cassé ne trouverait AUCUN montage et ce cas passerait au
+    // vert sans rien vérifier (§118.17).
+    expect(montages).toBeGreaterThanOrEqual(4);
   });
 
-  it("le dépôt de la DEMANDE ne propose plus devis, BC, facture ni convention — ils ont leur fiche", () => {
-    // « Devis → BC → Facture, chacun avec sa version plateforme et son PDF » (30/09/2026) : un
-    // devis déposé comme simple fichier dans l'emplacement de la demande n'aurait ni fiche, ni
-    // chaîne, ni validation — la double saisie qu'on ferme. Chaque téléverseur de la fiche passe
-    // donc la liste FILTRÉE, et la liste brute ne lui est jamais donnée.
+  it("le dépôt de la DEMANDE ne propose plus devis, BC, facture ni convention — ils ont leur place", () => {
+    // « Devis → BC → Facture » vivent sur le poste (fiches à postes) ou au registre (les autres) : un
+    // devis déposé comme simple fichier dans l'emplacement de la demande n'aurait ni fiche, ni chaîne,
+    // ni validation — la double saisie qu'on ferme. Chaque téléverseur de la fiche, et chaque liste de
+    // catégories passée à la carte des détails, est la liste FILTRÉE.
     for (const f of ECRANS) {
       const src = code(f);
       const televerseurs = [...src.matchAll(/<DocumentUpload\b[^>]*>/g)].map((m) => m[0]);
-      expect(televerseurs.length, `${f} : l'emplacement de la demande n'a aucun téléverseur`).toBeGreaterThan(0);
+      const categoriesCarte = [...src.matchAll(/\bcategories:\s*([^,\n}]+)/g)].map((m) => m[1]);
+      expect(televerseurs.length + categoriesCarte.length, `${f} : l'emplacement de la demande n'a aucun dépôt`).toBeGreaterThan(0);
       for (const t of televerseurs) {
         expect(t, `${f} : un téléverseur propose encore les catégories de la chaîne`).toMatch(/categories=\{categoriesDuDepotDeLaDemande\(/);
       }
+      for (const c of categoriesCarte) {
+        expect(c, `${f} : la carte des détails reçoit la liste brute des catégories`).toMatch(/^categoriesDuDepotDeLaDemande\(/);
+      }
     }
+    // La carte, elle, ne dépose qu'avec la liste qu'on lui donne — jamais une liste à elle.
+    const carte = code("src/components/ad-pro/pieces-jointes-demande.tsx");
+    expect(carte).toMatch(/<DocumentUpload\b[^>]*categories=\{pieces\.categories\}/);
   });
 });
 

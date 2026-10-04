@@ -846,7 +846,7 @@ async function chargerTableau(c: {
     ? await Promise.all([
         prisma.promoStockMovement.groupBy({
           by: ["itemId"], _sum: { delta: true },
-          where: { itemId: { in: qIds }, occurredAt: { gte: depuis }, ...perimetre, OR: [{ kind: "DISTRIBUTION" }, { kind: "REVERSAL", visitId: { not: null } }] },
+          where: { itemId: { in: qIds }, occurredAt: { gte: depuis }, ...perimetre, OR: [{ kind: "DISTRIBUTION" }, { kind: "REVERSAL", visitId: { not: null } }, { kind: "REVERSAL", fieldReportId: { not: null } }] },
         }),
         prisma.promoStockMovement.groupBy({ by: ["itemId"], _sum: { delta: true }, where: { itemId: { in: qIds }, occurredAt: { gte: depuis }, kind: "LOSS", ...perimetre } }),
         prisma.promoStockMovement.groupBy({ by: ["itemId"], _sum: { delta: true }, where: { itemId: { in: qIds }, occurredAt: { gte: depuis }, kind: "REVERSAL", annule: { is: { kind: "LOSS" } }, ...perimetre } }),

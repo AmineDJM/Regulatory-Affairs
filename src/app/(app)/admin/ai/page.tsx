@@ -36,6 +36,7 @@ const FEATURE_LABEL: Record<AiFeature, string> = {
   voice_realtime: "Voix temps réel",
   site_web: "Rédaction du site web",
   lecture_pieces: "Lecture des pièces déposées",
+  conseil_pieces: "Luna — rangement des pièces Ad & Pro",
 };
 const libelleFonction = (f: string): string => (FEATURE_LABEL as Record<string, string>)[f] ?? f;
 

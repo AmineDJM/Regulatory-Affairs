@@ -100,22 +100,98 @@ export interface DefaultCell {
 }
 
 /**
- * Ce qu'on demande D'OFFICE à une personne dès qu'elle est accordée.
+ * LES PIÈCES ATTENDUES DE CHAQUE PROFESSIONNEL PROPOSÉ — décision de la Direction (04/10/2026).
  *
- * Volontairement minimal : une seule pièce d'identité. Tout le reste (hôtel, billet, visa)
- * s'ajoute au cas par cas — pré-remplir un tableau de dix cases qu'il faudra effacer coûte
- * plus cher que d'ajouter les deux qui servent.
+ * National : le passeport. International : le passeport, le visa et les informations de voyage.
+ * Une seule liste, lue par la demande des pièces, par leur suivi à l'écran et par l'accord d'une
+ * personne : trois copies finiraient par demander une chose et en suivre une autre (§118.5).
  *
- * La pièce dépend du périmètre : un passeport n'a aucun sens pour un événement à Alger.
+ * `reconnait` dit quelle case existante TIENT cette pièce — une case d'avant cette liste
+ * (« Copie du passeport ») vaut le passeport : la redemander ferait deux cases pour le même papier.
+ */
+export interface PieceAttendue {
+  cle: "PASSEPORT" | "VISA" | "VOYAGE";
+  label: string;
+  reconnait: RegExp;
+}
+
+const PASSEPORT: PieceAttendue = { cle: "PASSEPORT", label: "Passeport", reconnait: /passeport/i };
+const VISA: PieceAttendue = { cle: "VISA", label: "Visa", reconnait: /\bvisa\b/i };
+const VOYAGE: PieceAttendue = { cle: "VOYAGE", label: "Informations de voyage", reconnait: /voyage|itin[ée]raire|\bvols?\b/i };
+
+export function piecesAttendues(scope: "NATIONAL" | "INTERNATIONAL"): PieceAttendue[] {
+  return scope === "INTERNATIONAL" ? [PASSEPORT, VISA, VOYAGE] : [PASSEPORT];
+}
+
+/**
+ * Ce qu'on demande D'OFFICE à une personne dès qu'elle est accordée : ses pièces attendues.
+ * Le reste (hôtel, billet) s'ajoute au cas par cas — pré-remplir dix cases qu'il faudra effacer
+ * coûte plus cher que d'ajouter les deux qui servent.
  */
 export function defaultCells(scope: "NATIONAL" | "INTERNATIONAL"): DefaultCell[] {
-  return [
-    {
-      kind: "DOCUMENT",
-      serviceKind: null,
-      label: scope === "INTERNATIONAL" ? "Copie du passeport" : "Copie de la pièce d'identité",
-    },
-  ];
+  return piecesAttendues(scope).map((p) => ({ kind: "DOCUMENT" as const, serviceKind: null, label: p.label }));
+}
+
+/** L'état d'UNE pièce pour UN professionnel, dans les mots de la demande : demandée, reçue, manquante. */
+export type EtatPiece = "MANQUANTE" | "DEMANDEE" | "RECUE" | "SANS_OBJET";
+
+export const ETAT_PIECE_LABELS: Record<EtatPiece, string> = {
+  MANQUANTE: "Manquante — pas encore demandée",
+  DEMANDEE: "Demandée",
+  RECUE: "Reçue",
+  SANS_OBJET: "Sans objet",
+};
+
+export function etatDeCase(status: CareCellStatus): EtatPiece {
+  if (status === "PROVIDED" || status === "SETTLED") return "RECUE";
+  if (status === "WAIVED") return "SANS_OBJET";
+  return "DEMANDEE";
+}
+
+export interface LignePiece {
+  label: string;
+  etat: EtatPiece;
+  /** La case qui porte la pièce — absente tant que la pièce n'a pas été demandée. */
+  cellId: string | null;
+  documentId: string | null;
+}
+
+/**
+ * Les pièces d'UN professionnel : chaque pièce attendue (reconnue sur une case existante, ou
+ * « manquante »), puis les autres pièces qu'on lui a demandées à la main — rien n'est caché.
+ * Seules les cases PIÈCE comptent : « Frais de visa » est un achat, pas le visa.
+ */
+export function piecesDuProfessionnel(
+  scope: "NATIONAL" | "INTERNATIONAL",
+  cells: { id: string; kind: CareCellKind; label: string; status: CareCellStatus; documentId?: string | null }[],
+): LignePiece[] {
+  const docs = cells.filter((c) => c.kind === "DOCUMENT");
+  const prises = new Set<string>();
+  const lignes: LignePiece[] = piecesAttendues(scope).map((p) => {
+    const c = docs.find((d) => !prises.has(d.id) && p.reconnait.test(d.label));
+    if (!c) return { label: p.label, etat: "MANQUANTE" as const, cellId: null, documentId: null };
+    prises.add(c.id);
+    return { label: p.label, etat: etatDeCase(c.status), cellId: c.id, documentId: c.documentId ?? null };
+  });
+  for (const d of docs) {
+    if (!prises.has(d.id)) lignes.push({ label: d.label, etat: etatDeCase(d.status), cellId: d.id, documentId: d.documentId ?? null });
+  }
+  return lignes;
+}
+
+/** Les pièces attendues qui n'ont encore AUCUNE case : ce que « Demander les pièces » va créer. */
+export function piecesADemander(
+  scope: "NATIONAL" | "INTERNATIONAL",
+  cells: { kind: CareCellKind; label: string }[],
+): PieceAttendue[] {
+  const docs = cells.filter((c) => c.kind === "DOCUMENT");
+  const prises = new Set<number>();
+  return piecesAttendues(scope).filter((p) => {
+    const i = docs.findIndex((d, k) => !prises.has(k) && p.reconnait.test(d.label));
+    if (i < 0) return true;
+    prises.add(i);
+    return false;
+  });
 }
 
 // ───────────────────────────── Avancement ─────────────────────────────

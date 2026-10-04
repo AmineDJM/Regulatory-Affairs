@@ -612,6 +612,7 @@ export const ORG7D_OPS_IMPL: Record<string, OpImpl> = {
         ["voiceTranscriptEnabled", "Transcription vocale (Whisper)"],
         ["siteWebAiEnabled", "Rédaction du site (articles et offres)"],
         ["lecturePiecesEnabled", "Lecture des pièces commerciales (lignes par l'IA)"],
+        ["conseilPiecesEnabled", "Luna — conseil de rangement des pièces Ad & Pro"],
       ];
       const key = matchLabel(opStr(input, "feature") || opStr(input, "target"), AI_PAIRS);
       if (typeof key !== "string") return key;
@@ -630,6 +631,7 @@ export const ORG7D_OPS_IMPL: Record<string, OpImpl> = {
         siteWebAiEnabled: s?.siteWebAiEnabled ?? true,
         // Le défaut de la COLONNE, coupée (`ai-settings.ts`) : sans ligne, la lecture des pièces ne part pas.
         lecturePiecesEnabled: s?.lecturePiecesEnabled ?? false,
+        conseilPiecesEnabled: s?.conseilPiecesEnabled ?? true,
       };
       if (cur[key as keyof typeof cur] === on) return { error: `« ${label} » est déjà ${on ? "activé" : "coupé"}.` };
       const next = { ...cur, [key]: on };
@@ -649,6 +651,7 @@ export const ORG7D_OPS_IMPL: Record<string, OpImpl> = {
           voiceTranscriptEnabled: onOff(next.voiceTranscriptEnabled),
           siteWebAiEnabled: onOff(next.siteWebAiEnabled),
           lecturePiecesEnabled: onOff(next.lecturePiecesEnabled),
+          conseilPiecesEnabled: onOff(next.conseilPiecesEnabled),
         },
         successMessage: `« ${label} » ${on ? "activé" : "coupé"}.`,
       };

@@ -1,6 +1,7 @@
 import { CHEMIN_CATALOGUE_PROMO, CHEMIN_STOCK_PROMO } from "@/lib/chemins/stock-promo";
 import type { EntityType } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { refusSuppressionRapport } from "@/lib/promo/remises-visite";
 import { inventorier } from "@/lib/suppression/lot";
 import { resumeDesLiens } from "@/lib/suppression/branches";
 
@@ -335,6 +336,9 @@ export const DELETE_REGISTRY: Record<DeletableKind, KindSpec> = {
       const r = await prisma.fieldReport.findUnique({ where: { id }, select: { doctorName: true, institution: true, visitDate: true } });
       return r ? `${r.doctorName || r.institution || "Rapport"} — ${r.visitDate.toLocaleDateString("fr-FR")}` : null;
     },
+    // Le MÊME refus que l'action de suppression (§118.204) : un compte rendu qui porte du matériel
+    // remis justifie des sorties du stock, il ne passe pas à la corbeille.
+    refuse: (id) => refusSuppressionRapport(id),
     async remove(id) {
       // L'audio (blob chiffré) est conservé pour la restauration ; il n'est
       // libéré qu'à la destruction réelle depuis la corbeille.

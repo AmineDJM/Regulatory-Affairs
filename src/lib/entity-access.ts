@@ -366,6 +366,27 @@ export async function accesAuxPiecesLegalDetaille(
       for (const p of pieces) if (p.sourceId && ouverts.has(p.sourceId)) parException.add(p.id);
     }
 
+    // LES PIÈCES D'ACHAT D'UN POSTE AD & PRO (§118.204) — devis, BC, facture déposés SUR le poste. Qui
+    // voit la demande voit ses pièces : le demandeur qui a déposé le devis, la Direction qui tranche.
+    // La porte reste celle de la FICHE de la demande, une fois par demande.
+    const liens = await prisma.adProItemPiece.findMany({
+      where: { legalDocumentId: { in: uniques } },
+      select: {
+        legalDocumentId: true,
+        item: { select: { sponsoringId: true, congressNationalId: true, congressInternationalId: true, eventId: true, trainingId: true } },
+      },
+    });
+    if (liens.length > 0) {
+      const ouvertes = new Map<string, boolean>();
+      for (const l of liens) {
+        const parent = parentDuPoste(l.item);
+        if (!parent) continue;
+        const cle = `${parent.parent}:${parent.id}`;
+        if (!ouvertes.has(cle)) ouvertes.set(cle, await canAccessEntity(user, PARENT_ENTITE[parent.parent], parent.id, "VIEW"));
+        if (ouvertes.get(cle)) parException.add(l.legalDocumentId);
+      }
+    }
+
     if (porteLeRoleQuiTranche(user)) {
       // La société de la PIÈCE n'est pas relue : c'est la porte de la FICHE qui décide, plus bas.
       const achats = (await prisma.legalDocument.findMany({

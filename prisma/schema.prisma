@@ -1182,6 +1182,8 @@ model User {
   visits                  MedicalVisit[]
   /// LES SECTEURS qui lui sont affectés (KAM / délégué).
   salesSectors            SalesSectorRep[]                 @relation("SalesSectorRepUser")
+  /// SON TERRITOIRE PROPRE dans sa BU (un `SalesSector` dont il est le KAM — voir `SalesSector.repId`).
+  territoiresKam          SalesSector[]                    @relation("SalesSectorTerritoireKam")
   /// LES RÉCURRENCES de demande d'état de stock qui lui sont ADRESSÉES, et celles qu'il a POSÉES.
   stockRecurrences        StockRequestRecurrence[]         @relation("StockRecurrenceAssignee")
   stockRecurrencesCreated StockRequestRecurrence[]         @relation("StockRecurrenceAuthor")
@@ -2349,8 +2351,22 @@ model AdProItem {
   /// alors rien n'est comparé — on ne refuse pas ce qu'on ne sait pas lire.
   orderVisaAmount    Decimal?            @db.Decimal(14, 2)
   orderVisaSupplier  String?
+  /// L'ASSISTANTE DE DIRECTION qui établit le bon de commande (§118.204). Choisie à la demande
+  /// d'émission ; la demande de pièce lui part tout de suite sous le seuil, au visa du centre
+  /// au-dessus. Nulle = aucune demande d'émission en cours.
+  bcAssistantId      String?
+
+  /// LA VALIDATION EN DEUX TEMPS (§118.204) — « d'abord la Direction des opérations, puis la
+  /// Direction Marketing, qui sélectionne le budget ». Le premier temps se lit ICI, sur le poste
+  /// encore `PENDING` ; le second est la décision (`status`, `decidedAt`). Nul = la Direction des
+  /// opérations n'a pas encore validé.
+  opsDecidedAt       DateTime?
+  opsDecidedById     String?
+  opsDecisionNote    String?
 
   decisions  AdProItemDecision[]
+  /// LES PIÈCES DU POSTE au registre Legal — devis / pro forma, bon de commande, facture (§118.204).
+  pieces     AdProItemPiece[]
   /// Les articles du stock d'un poste « Matériel du stock » (§118.167).
   stockLines AdProStockLine[]
 
@@ -2403,18 +2419,83 @@ model AdProVoyageur {
   dateDepart   DateTime?
   dateRetour   DateTime?
   notes        String?
+  /// Aller simple ou aller-retour (§118.205). En aller simple, `dateRetour` est vidée.
+  trajet       AdProTrajet    @default(ALLER_RETOUR)
+  /// Le mode de transport — `null` : pas encore dit.
+  transport    AdProTransport?
   position     Int       @default(0)
   createdById  String?
   updatedById  String?
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
+  devis        AdProVoyageurDevis[]
 
   @@index([itemId])
+}
+
+enum AdProTrajet {
+  ALLER_SIMPLE
+  ALLER_RETOUR
+}
+
+enum AdProTransport {
+  AVION
+  TRAIN
+  BUS
+  TAXI
+}
+
+/// LE DEVIS OU LA PRO FORMA D'UN VOYAGEUR (§118.205). La pièce est un devis DU POSTE
+/// (`AdProItemPiece`, déposé par `ajouterDevisPoste`) : ce lien dit pour QUEL voyageur, sans second
+/// circuit de pièces. Retirer le devis du poste emporte le lien (cascade). `retenuLe` : la proposition
+/// validée par le demandeur — au plus une par voyageur (index partiel de la migration) ; les autres
+/// sont écartées par construction.
+model AdProVoyageurDevis {
+  id          String             @id @default(cuid())
+  voyageurId  String
+  voyageur    AdProVoyageur      @relation(fields: [voyageurId], references: [id], onDelete: Cascade)
+  pieceId     String             @unique
+  piece       AdProItemPiece     @relation(fields: [pieceId], references: [id], onDelete: Cascade)
+  retenuLe    DateTime?
+  retenuParId String?
+  createdById String?
+  createdAt   DateTime           @default(now())
+
+  @@index([voyageurId])
 }
 
 /// HISTORIQUE DES DÉCISIONS D'UN POSTE — « autant de fois qu'il le faut » : une demande de
 /// révision n'écrase pas la précédente, elle s'ajoute. Sans cette trace, un poste accordé au
 /// 3ᵉ tour ne dirait plus rien des deux refus qui l'ont précédé.
+/// LA NATURE D'UNE PIÈCE DE POSTE (§118.204) : la chaîne d'un achat, dans l'ordre où elle se lit.
+enum AdProPieceNature {
+  DEVIS // devis ou facture pro forma
+  BON_DE_COMMANDE
+  FACTURE
+}
+
+/// UNE PIÈCE DU REGISTRE LEGAL RATTACHÉE À UN POSTE (§118.204).
+///
+/// Un lien, jamais une copie : la pièce vit dans Legal (§17 — un seul registre), avec sa chaîne
+/// (`chainFromId`), sa signature et son règlement. Un DEVIS peut couvrir plusieurs postes (« deux,
+/// trois, quatre natures pour un seul et même devis ») : une ligne par poste couvert. Un bon de
+/// commande et une facture appartiennent à UN poste.
+model AdProItemPiece {
+  id              String           @id @default(cuid())
+  itemId          String
+  item            AdProItem        @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  legalDocumentId String
+  legalDocument   LegalDocument    @relation(fields: [legalDocumentId], references: [id], onDelete: Cascade)
+  nature          AdProPieceNature
+  createdById     String?
+  createdAt       DateTime         @default(now())
+  /// Le voyageur pour qui ce devis a été déposé (billetterie, §118.205) — `null` pour tout autre devis.
+  voyageur        AdProVoyageurDevis?
+
+  @@unique([itemId, legalDocumentId])
+  @@index([legalDocumentId])
+}
+
 model AdProItemDecision {
   id       String          @id @default(cuid())
   itemId   String
@@ -3028,6 +3109,8 @@ model CongressNational {
   city             String?
   hostInstitution  String? // hôpital / association
   date             DateTime?
+  /// Fin de l'événement (décision du 04/10/2026) — `date` en est le début.
+  endDate          DateTime?
   specialty        String?
   presentDoctors   String?
   promotedProducts String?
@@ -7050,6 +7133,11 @@ model PromoStockMovement {
   /// mouvement ; la visite en est le contexte, et sa suppression ne recrée pas les fiches.
   visitId     String?
   visit       MedicalVisit?       @relation("PromoRemiseVisite", fields: [visitId], references: [id], onDelete: SetNull)
+  /// LE COMPTE RENDU DE VISITE (rapport terrain) où ce matériel a été déclaré remis, quand aucune
+  /// visite ne le porte (§118.204). SetNull, comme la visite : le stock dit la vérité du mouvement.
+  /// L'action refuse de supprimer un rapport qui porte des remises.
+  fieldReportId String?
+  fieldReport   FieldReport?      @relation("PromoRemiseRapport", fields: [fieldReportId], references: [id], onDelete: SetNull)
   /// LE MÉDECIN qui l'a reçu — l'historique de sa fiche.
   doctorId    String?
   doctor      MedicalDoctor?      @relation("PromoRemiseMedecin", fields: [doctorId], references: [id], onDelete: SetNull)
@@ -7069,6 +7157,7 @@ model PromoStockMovement {
   @@index([itemId, holderId])
   @@index([holderId])
   @@index([lotId])
+  @@index([fieldReportId])
   @@index([transferId])
   @@index([visitId])
   @@index([doctorId])
@@ -7608,6 +7697,8 @@ model FieldReport {
   /// ajoute le lien, on ne fond pas les deux (§118.5).
   visitId String?
   visit   MedicalVisit? @relation("FieldReportVisit", fields: [visitId], references: [id], onDelete: SetNull)
+  /// Le matériel promotionnel déclaré remis dans ce compte rendu (§118.204).
+  remises PromoStockMovement[] @relation("PromoRemiseRapport")
 
   @@index([visitId])
   @@index([delegateId])
@@ -7848,6 +7939,8 @@ model AiSetting {
   /// Lecture des LIGNES d'une pièce commerciale par un modèle (lot D2). COUPÉE par défaut : elle a un coût, et la
   /// lecture locale (texte natif, OCR sur ce serveur, en-têtes et totaux repérés) suffit à proposer sans rien envoyer.
   lecturePiecesEnabled   Boolean  @default(false)
+  /// Luna CONSEILLE où ranger une pièce déposée sur une demande Ad & Pro — consultatif, aucune écriture : allumé par défaut.
+  conseilPiecesEnabled   Boolean  @default(true)
   updatedAt              DateTime @updatedAt
   updatedById            String?
 }
@@ -10309,12 +10402,24 @@ model SalesSector {
   createdById    String?
   createdAt      DateTime     @default(now())
   updatedAt      DateTime     @updatedAt
+  /// LE KAM DONT C'EST LE TERRITOIRE PROPRE (04/10/2026). Dans une BU hospitalière, le territoire
+  /// d'un KAM se choisit SUR SA LIGNE (établissements de l'annuaire, tous leurs services ou
+  /// certains) : c'est un secteur qui n'appartient qu'à lui, et qui porte aussi sa ligne
+  /// `SalesSectorRep` — la règle du panel (`clausePanelDuKam`) et la portée des stocks continuent
+  /// de lire le territoire par ce lien, sans rien changer. Nul = un secteur PARTAGÉ d'avant
+  /// (« Est », « Oranais »), repris dans les territoires propres par la migration
+  /// `20270106093000_territoire_kam` et désactivé, jamais supprimé.
+  repId          String?
+  rep            User?        @relation("SalesSectorTerritoireKam", fields: [repId], references: [id], onDelete: Cascade)
 
   institutions SalesSectorInstitution[]
   reps         SalesSectorRep[]
 
   /// Deux secteurs « Est » dans la même BU sont une erreur de saisie, pas deux territoires.
   @@unique([businessUnitId, name])
+  /// UN TERRITOIRE PROPRE PAR KAM ET PAR BU. Les secteurs partagés (repId nul) n'y entrent pas :
+  /// sous Postgres, deux NULL ne se heurtent jamais.
+  @@unique([businessUnitId, repId])
   @@index([businessUnitId])
 }
 
@@ -11756,6 +11861,8 @@ model LegalDocument {
   /// l'historique : le remplir de listes devinées aurait fermé des documents à ceux qui les
   /// utilisent, sans que personne sache lesquels.
   readers           LegalDocumentReader[]
+  /// Les postes Ad & Pro que cette pièce sert (§118.204).
+  postesAdPro       AdProItemPiece[]
   /// Dernier rappel d'échéance envoyé — évite de renotifier tous les jours.
   lastRemindedAt    DateTime?
   createdById       String?

@@ -109,6 +109,15 @@ describe("aucune fiche Ad & Pro ne laisse son téléverseur sans liste", () => {
         vus.add(t[1]);
         if (!/\bcategories=/.test(balise)) manquants.push(`${chemin} → ${t[1]}`);
       }
+      // LA CARTE DES DÉTAILS (§118.204, 04/10) : sur les fiches à postes, le dépôt de la demande passe par
+      // `CarteDetailsDemande`, dont le téléverseur prend la liste DANS l'objet `pieces` — c'est là que
+      // la liste doit être nommée, sans quoi ce cliquet ne verrait plus ces quatre fiches.
+      for (const m of texte.matchAll(/<CarteDetailsDemande[\s\S]*?pieces=\{\{([\s\S]*?)\}\}/g)) {
+        const t = m[1].match(/entityType:\s*"([A-Z_]+)"/);
+        if (!t || !AD_PRO_ENTITY_TYPES.includes(t[1])) continue;
+        vus.add(t[1]);
+        if (!/\bcategories:/.test(m[1])) manquants.push(`${chemin} → ${t[1]} (carte des détails)`);
+      }
     }
     expect(manquants, "sans liste, le menu propose « CTD complet » sur une facture de traiteur").toEqual([]);
     // LA PRÉMISSE : sans elle, un parcours cassé rendrait ce cas vert en ne trouvant RIEN
@@ -131,6 +140,11 @@ describe("aucune fiche Ad & Pro ne laisse son téléverseur sans liste", () => {
         const t = balise.match(/entityType="([A-Z_]+)"/);
         if (!t || !AD_PRO_ENTITY_TYPES.includes(t[1])) continue;
         if (/categories=\{\s*\[\s*"[A-Z_]+"/.test(balise)) fautifs.push(`${chemin} → ${t[1]}`);
+      }
+      for (const m of texte.matchAll(/<CarteDetailsDemande[\s\S]*?pieces=\{\{([\s\S]*?)\}\}/g)) {
+        const t = m[1].match(/entityType:\s*"([A-Z_]+)"/);
+        if (!t || !AD_PRO_ENTITY_TYPES.includes(t[1])) continue;
+        if (/categories:\s*\[\s*"[A-Z_]+"/.test(m[1])) fautifs.push(`${chemin} → ${t[1]} (carte des détails)`);
       }
     }
     expect(fautifs, "la liste se lit dans `ad-pro/doc-categories.ts`").toEqual([]);

@@ -12,10 +12,7 @@ import { toNumber, formatCurrency, formatDateTime } from "@/lib/utils";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { StatusBadge } from "@/components/shared/status-badge";
-import { DocumentUpload } from "@/components/documents/document-upload";
 import type { DocItem } from "@/components/documents/document-list";
-import { LinkedRecords } from "@/components/shared/linked-records";
-import { contextePiecesLiees } from "@/lib/ad-pro/pieces-liees";
 import { AD_PRO_DOC_CATEGORIES, categoriesDuDepotDeLaDemande } from "@/lib/ad-pro/doc-categories";
 import { canAttachToAdPro, attachHint } from "@/lib/ad-pro/attachments";
 import { onlyofficeConfigured } from "@/lib/onlyoffice";
@@ -29,7 +26,9 @@ import { SupprimerDemandeAdPro } from "@/components/ad-pro/supprimer-demande";
 import { peutSupprimerUneDemandeAdPro } from "@/lib/queries/ad-pro-suppression";
 import { promoMaterialOptions } from "@/lib/actions/ad-pro-item-actions";
 import { AdProItemsPanel } from "@/components/ad-pro/items-panel";
-import { loadAdProItems, adProBudgetOptions, contexteMaterielStock, postesPourCloture } from "@/lib/queries/ad-pro-items";
+import { loadAdProItems, adProBudgetOptions, contexteMaterielStock, postesPourCloture, contextePostes } from "@/lib/queries/ad-pro-items";
+import { CarteDetailsDemande } from "@/components/ad-pro/pieces-jointes-demande";
+import { EspaceDiscussion } from "@/components/ad-pro/espace-discussion";
 import { AdProTransferButton } from "@/components/ad-pro/transfer-button";
 import { AdProEditButton } from "@/components/ad-pro/edit-request-button";
 import { canEditAdProRequest, isAdProDecided } from "@/lib/ad-pro-edit";
@@ -67,7 +66,6 @@ export default async function SponsoringDetailPage({ params }: { params: { id: s
     prisma.document.findMany({ where: { entityType: "SPONSORING", entityId: req.id }, include: { uploadedBy: { select: { name: true } } }, orderBy: { createdAt: "desc" } }),
   ]);
 
-  const ctxPieces = await contextePiecesLiees(user, "SPONSORING");
   const docItems: DocItem[] = documents.map((d) => ({
     id: d.id, name: d.name, category: d.category, version: d.version, sizeBytes: d.sizeBytes,
     confidentiality: d.confidentiality, uploadedBy: d.uploadedBy?.name ?? null,
@@ -92,10 +90,11 @@ export default async function SponsoringDetailPage({ params }: { params: { id: s
 
   // Postes du sponsoring : de quoi est fait le montant, à qui va l'argent, et où en est chacun
   // dans son propre circuit de validation (chargement mutualisé — voir queries/ad-pro-items).
-  const [items, promoOptions, budgetOptions] = await Promise.all([
+  const [items, promoOptions, budgetOptions, contexte] = await Promise.all([
     loadAdProItems("SPONSORING", req.id),
     promoMaterialOptions(),
     adProBudgetOptions(user),
+    contextePostes(user, "SPONSORING", req.id),
   ]);
   // DÉCIDÉE, TARDIVE, CLÔTURÉE — la MÊME lecture que les actions sur les postes (§118.151). La page
   // portait sa propre liste, sans la tenue pré-validée : « Émettre l'ordre » disparaissait sur
@@ -178,9 +177,20 @@ export default async function SponsoringDetailPage({ params }: { params: { id: s
 
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
         <div className="space-y-5 lg:col-span-2">
-          <Card>
-            <CardHeader><CardTitle>Détails de la demande</CardTitle></CardHeader>
-            <CardContent className="grid grid-cols-2 gap-x-6 gap-y-3 text-sm sm:grid-cols-3">
+          {/* LES DÉTAILS ET LES PIÈCES JOINTES DE LA DEMANDE — la demande du médecin (obligatoire), le
+              programme, la convention… : « + Pièce jointe » en haut à droite, la liste sous les détails.
+              La chaîne d'achat (devis → BC → facture) vit sur chaque poste, plus bas. */}
+          <CarteDetailsDemande
+            titre="Détails de la demande"
+            contentClassName="grid grid-cols-2 gap-x-6 gap-y-3 text-sm sm:grid-cols-3"
+            pieces={{
+              entityType: "SPONSORING", entityId: req.id, documents: docItems,
+              peutDeposer: canUpload, motif: canUpload ? null : (uploadHint ?? null),
+              categories: categoriesDuDepotDeLaDemande(AD_PRO_DOC_CATEGORIES),
+              canDelete, canRename: canUpload, canEdit: onlyofficeConfigured() && canUpload,
+              path: `/sponsoring/${req.id}`,
+            }}
+          >
               <Info label="Type" value={req.type} />
               <Info label="Ville" value={req.city} />
               <Info label="Produit" value={req.product} />
@@ -206,8 +216,7 @@ export default async function SponsoringDetailPage({ params }: { params: { id: s
                   <p className="font-medium">{req.comments}</p>
                 </div>
               )}
-            </CardContent>
-          </Card>
+          </CarteDetailsDemande>
 
           {/* LES POSTES DE LA DEMANDE — « dans les postes on voit tous les postes relatifs à cette
               demande » (§118.151). Le premier est le sponsoring lui-même, créé avec la demande
@@ -234,6 +243,7 @@ export default async function SponsoringDetailPage({ params }: { params: { id: s
                 materiel={materielStock}
                 canIssueOrder={userCan(user, "FINANCES", "UPDATE") || userCan(user, "FINANCES", "VALIDATE")}
                 canViserBC={siegeAuCentreAdPro(user)}
+                contexte={contexte}
               />
             </CardContent>
           </Card>
@@ -283,38 +293,9 @@ export default async function SponsoringDetailPage({ params }: { params: { id: s
               </CardContent>
             </Card>
           )}
-
-          {/* CE QUI EN DÉCOULE : bon de commande, facture, courrier. Créés d'ici, ils gardent le
-              lien vers cette demande — c'est le seul moment où l'on sait de quoi ils viennent. */}
-          <LinkedRecords
-            entityType="SPONSORING" entityId={req.id} reference={req.reference} canCreate={canUpload}
-            acces={ctxPieces.acces} candidatsLegal={ctxPieces.candidatsLegal}
-            piecesDeLaDemande={{
-              // LA DEMANDE DU MÉDECIN, APPELÉE PAR SON NOM. Obligatoire à la création, et le
-              // document que tout le circuit lit — la retirer avec le bloc générique l'aurait
-              // rendue invisible sur l'écran même où elle se juge.
-              titre: "Demande(s) du médecin et pièces de la demande",
-              documents: docItems,
-              televerseur: canUpload
-                ? <DocumentUpload entityType="SPONSORING" entityId={req.id} categories={categoriesDuDepotDeLaDemande(AD_PRO_DOC_CATEGORIES)} />
-                : undefined,
-              motif: canUpload
-                ? null
-                : (uploadHint ?? null),
-              canDelete, canRename: canUpload, canEdit: onlyofficeConfigured() && canUpload,
-              path: `/sponsoring/${req.id}`,
-            }}
-          />
         </div>
 
         <div className="space-y-5">
-          {/* LE BLOC « DOCUMENTS » GÉNÉRIQUE A DISPARU. On y déposait à la main ce qui aurait dû
-              être une pièce du circuit — la facture du traiteur, le bon de commande, l'offre de
-              service — si bien que la même dépense existait DEUX fois : un fichier posé là, et
-              un engagement dans Legal, aucun des deux ne sachant que l'autre existait.
-              « Engagements, factures et courriers liés » le remplace : chaque pièce y montre SES
-              documents, et la demande du médecin — obligatoire, et le document que tout le
-              circuit lit — garde un emplacement NOMMÉ. */}
           <MissionAssignmentsCard
             entityType="SPONSORING"
             entityId={req.id}
@@ -333,10 +314,13 @@ export default async function SponsoringDetailPage({ params }: { params: { id: s
           </Card>
         </div>
       </div>
-      <InvolvementConversations threads={involvementThreads} currentUserId={user.id} canManage={hasGlobalView(user)} />
-          {/* LA SECTION DISCUSSION — le fil CANONIQUE, monté sur les sept natures du pôle. */}
-      <AdProDiscussionCard entityType="SPONSORING" entityId={req.id} user={user} />
-</div>
+      {/* LA SECTION DISCUSSION — le fil CANONIQUE de la demande et, dessous, les échanges avec les
+          personnes impliquées : un seul espace. */}
+      <EspaceDiscussion>
+        <AdProDiscussionCard entityType="SPONSORING" entityId={req.id} user={user} />
+        <InvolvementConversations threads={involvementThreads} currentUserId={user.id} canManage={hasGlobalView(user)} />
+      </EspaceDiscussion>
+    </div>
   );
 }
 

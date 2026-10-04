@@ -1,6 +1,6 @@
 "use server";
 
-import type { UserRole } from "@prisma/client";
+import { Prisma, type UserRole } from "@prisma/client";
 import { revalidatePath } from "next/cache";
 import { requireUser } from "@/lib/session";
 import { userCan, anyRoleFilter } from "@/lib/rbac";
@@ -16,6 +16,7 @@ import { DOSSIERS_PROPOSABLES_BU } from "@/lib/sfe/produits-bu";
 import { rattacherDossier } from "@/lib/products/canonique";
 import { enSerie } from "@/lib/refs";
 import { specialitesDemandees, ecrireSpecialitesBu, resumeSpecialitesBu } from "@/lib/sfe/specialites-bu";
+import { estBuHospitaliere, nomDuTerritoire } from "@/lib/sfe/territoire-kam";
 
 const MODULE = "SALES_PLANNING" as const;
 const PATH = "/planning";
@@ -477,18 +478,36 @@ export async function saveRepProfile(formData: FormData): Promise<ActionResult> 
   // affectations restaient en base, et leurs praticiens dans son panel. Retirées dans la MÊME transaction
   // que le rattachement — un KAM ne passe pas par un état où il couvre deux BU.
   const nouvelleBu = "businessUnitId" in data ? data.businessUnitId : undefined;
-  const retires = await prisma.$transaction(async (tx) => {
+  const { retires, rendu } = await prisma.$transaction(async (tx) => {
     await tx.salesRepProfile.upsert({ where: { repId }, create: { repId, ...data }, update: data });
-    if (nouvelleBu === undefined) return 0;
+    if (nouvelleBu === undefined) return { retires: 0, rendu: false };
     const r = await tx.salesSectorRep.deleteMany({
       where: { repId, ...(nouvelleBu ? { sector: { businessUnitId: { not: nouvelleBu } } } : {}) },
     });
-    return r.count;
+    // SON TERRITOIRE PROPRE LUI EST RENDU quand il revient dans une BU où il en avait un (04/10/2026).
+    // Quitter la BU lui retire l'affectation (ci-dessus) mais garde le territoire en sommeil : retiré
+    // par erreur puis rattaché, il ne doit pas perdre le choix d'établissements qu'on avait fait pour
+    // lui. Le lien se recrée dans la MÊME transaction — un KAM ne passe pas par un état où son
+    // territoire existe sans le couvrir.
+    let rendu = false;
+    if (nouvelleBu) {
+      const territoire = await tx.salesSector.findUnique({
+        where: { businessUnitId_repId: { businessUnitId: nouvelleBu, repId } },
+        select: { id: true, isActive: true },
+      });
+      if (territoire?.isActive) {
+        const c = await tx.salesSectorRep.createMany({ data: [{ sectorId: territoire.id, repId }], skipDuplicates: true });
+        rendu = c.count > 0;
+      }
+    }
+    return { retires: r.count, rendu };
   });
   revalidatePath(BU_PATH);
-  return retires > 0
-    ? { ok: true, message: `${retires} affectation(s) à un secteur de son ancienne BU lui sont retirées : son panel suit sa nouvelle BU.` }
-    : { ok: true };
+  const phrases = [
+    retires > 0 ? `${retires} affectation(s) à un secteur de son ancienne BU lui sont retirées : son panel suit sa nouvelle BU.` : null,
+    rendu ? "Son territoire dans cette BU lui est rendu, tel qu'il était." : null,
+  ].filter(Boolean);
+  return phrases.length > 0 ? { ok: true, message: phrases.join(" ") } : { ok: true };
 }
 
 export async function deleteRepProfile(formData: FormData): Promise<ActionResult> {
@@ -550,10 +569,18 @@ export async function updateSector(formData: FormData): Promise<ActionResult> {
   const name = fdStr(formData, "name");
   if (!id) return { ok: false, error: "Identifiant du secteur manquant." };
   if (!name) return { ok: false, error: "Le nom du secteur est obligatoire (« Est », « Oranais »…)." };
-  const cible = await prisma.salesSector.findUnique({ where: { id }, select: { id: true, businessUnitId: true } });
+  const cible = await prisma.salesSector.findUnique({ where: { id }, select: { id: true, businessUnitId: true, repId: true } });
   if (!cible) return { ok: false, error: "Secteur introuvable." };
+  // LE TERRITOIRE D'UN KAM N'EST PAS UN SECTEUR PARTAGÉ : il se règle sur la ligne de SON KAM, qui
+  // y est le seul affecté. Le modifier d'ici permettrait d'y affecter un autre KAM, ou de le renommer
+  // en secteur « Est » — deux vérités pour un même territoire (§118.5).
+  if (cible.repId) return { ok: false, error: REFUS_TERRITOIRE_PAR_SECTEUR };
   return ecrireSecteur(user.id, cible.id, cible.businessUnitId, name, formData);
 }
+
+/** Le remède, nommé : le territoire d'un KAM se règle sur sa ligne (§118.30). */
+const REFUS_TERRITOIRE_PAR_SECTEUR =
+  "Ce secteur est le territoire propre d'un KAM : il se règle sur sa ligne, dans « KAM de la BU » (bouton « Territoire »).";
 
 /**
  * LE CORPS COMMUN. Non exporté : un fichier `"use server"` n'exporte que des fonctions
@@ -562,17 +589,24 @@ export async function updateSector(formData: FormData): Promise<ActionResult> {
  */
 async function ecrireSecteur(
   actorId: string, sectorId: string | null, businessUnitId: string, name: string, formData: FormData,
+  /**
+   * LE TERRITOIRE PROPRE D'UN KAM (04/10/2026) : son KAM est le seul affecté (`repIds` imposé, le
+   * formulaire n'en dit rien) et la ligne porte `repId`. Le reste — établissements, couverture des
+   * services, vérifications, transaction — est le MÊME corps que pour un secteur partagé : une règle
+   * de couverture écrite deux fois divergerait au premier réglage (§118.5).
+   */
+  territoireDe?: string,
 ): Promise<ActionResult> {
   // Les identifiants sont VÉRIFIÉS en base avant d'être écrits : un lien vers un établissement
   // supprimé entre l'ouverture de l'écran et l'enregistrement partirait en violation de clé
   // étrangère — une erreur technique là où la vérité est « cet hôpital n'existe plus ».
   const institutionIds = [...new Set(formData.getAll("institutionIds").map(String).filter(Boolean))];
-  const repIds = [...new Set(formData.getAll("repIds").map(String).filter(Boolean))];
+  const repIds = territoireDe ? [territoireDe] : [...new Set(formData.getAll("repIds").map(String).filter(Boolean))];
 
-  const [institutions, reps, homonyme] = await Promise.all([
+  const [institutions, reps, homonyme, dejaCouverts] = await Promise.all([
     institutionIds.length
-      ? prisma.medicalInstitution.findMany({ where: { id: { in: institutionIds } }, select: { id: true } })
-      : Promise.resolve([] as { id: string }[]),
+      ? prisma.medicalInstitution.findMany({ where: { id: { in: institutionIds } }, select: { id: true, name: true, isActive: true } })
+      : Promise.resolve([] as { id: string; name: string; isActive: boolean }[]),
     // UN KAM DE CETTE BU (§118.184 — S15) : l'écran ne propose que les KAM rattachés à la BU ; une requête
     // forgée y affectait n'importe quel compte, qui recevait alors un territoire d'une autre équipe.
     repIds.length
@@ -584,9 +618,22 @@ async function ecrireSecteur(
       where: { businessUnitId, name: { equals: name, mode: "insensitive" }, ...(sectorId ? { id: { not: sectorId } } : {}) },
       select: { id: true },
     }),
+    // CE QUE LE SECTEUR COUVRE DÉJÀ : un établissement désactivé depuis y reste (le retirer en silence
+    // à l'enregistrement retirerait des médecins du panel sans que personne l'ait décidé).
+    sectorId
+      ? prisma.salesSectorInstitution.findMany({ where: { sectorId }, select: { institutionId: true } })
+      : Promise.resolve([] as { institutionId: string }[]),
   ]);
   if (institutions.length !== institutionIds.length) {
     return { ok: false, error: `${institutionIds.length - institutions.length} établissement(s) sélectionné(s) n'existent plus dans l'annuaire — rechargez l'écran.` };
+  }
+  // UN ÉTABLISSEMENT DÉSACTIVÉ NE S'AJOUTE PLUS — l'écran ne le propose pas ; une requête forgée,
+  // si. Il RESTE quand le secteur le couvrait déjà (§118.172).
+  const couvertsAvant = new Set(dejaCouverts.map((d) => d.institutionId));
+  const inactifsAjoutes = institutions.filter((i) => !i.isActive && !couvertsAvant.has(i.id));
+  if (inactifsAjoutes.length > 0) {
+    const noms = inactifsAjoutes.map((i) => `« ${i.name} »`).join(", ");
+    return { ok: false, error: `${noms} : désactivé dans l'annuaire, on ne l'ajoute pas à un territoire. Réactivez-le d'abord dans Annuaires › Établissements.` };
   }
   if (reps.length !== repIds.length) {
     return { ok: false, error: `${repIds.length - reps.length} KAM sélectionné(s) ne sont pas (ou plus) rattachés à cette BU — rattachez-les d'abord à la BU, ou rechargez l'écran.` };
@@ -637,7 +684,10 @@ async function ecrireSecteur(
   const ecrit = await prisma.$transaction(async (tx) => {
     const secteur = sectorId
       ? await tx.salesSector.update({ where: { id: sectorId }, data, select: { id: true } })
-      : await tx.salesSector.create({ data: { ...data, businessUnitId, createdById: actorId }, select: { id: true } });
+      : await tx.salesSector.create({
+        data: { ...data, businessUnitId, createdById: actorId, ...(territoireDe ? { repId: territoireDe } : {}) },
+        select: { id: true },
+      });
     // RETIRER CE QUI N'EST PLUS COCHÉ. Une sélection VIDE retire tout, et c'est bien ce que
     // Prisma fait : `notIn: []` a été MESURÉ — il supprime la ligne (un `NOT IN` vide est vrai
     // pour tout le monde). Une première version portait une sentinelle `["__aucun__"]` en
@@ -690,7 +740,7 @@ async function ecrireSecteur(
 
   await recordAudit({
     actorId, action: sectorId ? "UPDATE" : "CREATE", module: "Force de vente", entityType: "SALES_SECTOR", entityId: ecrit,
-    summary: `Secteur « ${name} » — ${institutionIds.length} établissement(s)${restreints && restreints.size > 0 ? ` dont ${restreints.size} limité(s) à certains services` : ""}, ${repIds.length} KAM`,
+    summary: `${territoireDe ? "Territoire" : "Secteur"} « ${name} » — ${institutionIds.length} établissement(s)${restreints && restreints.size > 0 ? ` dont ${restreints.size} limité(s) à certains services` : ""}, ${repIds.length} KAM`,
   });
   revalidatePath(BU_PATH);
   return { ok: true, id: ecrit };
@@ -707,9 +757,12 @@ export async function deleteSector(formData: FormData): Promise<ActionResult> {
   if (!id) return { ok: false, error: "Identifiant manquant." };
   const secteur = await prisma.salesSector.findUnique({
     where: { id },
-    select: { name: true, _count: { select: { reps: true } } },
+    select: { name: true, repId: true, _count: { select: { reps: true } } },
   });
   if (!secteur) return { ok: false, error: "Secteur introuvable." };
+  // Le territoire d'un KAM se VIDE depuis sa ligne (on décoche ses établissements) ; il ne se
+  // supprime pas d'ici, où rien ne dit à qui il appartient.
+  if (secteur.repId) return { ok: false, error: REFUS_TERRITOIRE_PAR_SECTEUR };
   await prisma.salesSector.delete({ where: { id } });
   await recordAudit({
     actorId: user.id, action: "DELETE", module: "Force de vente", entityType: "SALES_SECTOR", entityId: id,
@@ -720,6 +773,83 @@ export async function deleteSector(formData: FormData): Promise<ActionResult> {
   revalidatePath(BU_PATH);
   return { ok: true };
 }
+
+// ─────────────────────────── Territoire d'un KAM (BU hospitalière) ───────────────────────────
+
+/**
+ * LE TERRITOIRE D'UN KAM — choisi SUR SA LIGNE, dans « KAM de la BU » (04/10/2026).
+ *
+ * « Dans le secteur de chaque KAM, on doit pouvoir sélectionner un ou des services d'un ou de
+ * plusieurs établissements hospitaliers de l'annuaire, dans le cas où la BU est hospitalière. »
+ *
+ * Le territoire est un `SalesSector` propre au KAM (`repId`), qui porte sa ligne `SalesSectorRep` :
+ * le panel (`clausePanelDuKam`) et la portée des stocks le lisent sans changer. Le corps d'écriture
+ * est celui des secteurs (`ecrireSecteur`) : mêmes vérifications, même transaction, même règle de
+ * couverture (§118.172) — tous les services d'un établissement, ou certains ; « aucun service » est
+ * refusé en nommant l'établissement ; un service d'un autre établissement est refusé ; un
+ * établissement désactivé ne s'ajoute pas (il reste s'il y était) ; un formulaire qui ne porte pas
+ * la couverture ne la touche pas (§118.152c). La liste des établissements, elle, est toujours
+ * COMPLÈTE : décocher retire, et une sélection vide vide le territoire.
+ *
+ * Refusé : une BU de VILLE (pas d'hôpital à cocher — le secteur y reste un texte sur la ligne), un
+ * KAM qui n'est pas rattaché à cette BU (une requête forgée lui donnerait un territoire d'une autre
+ * équipe, §118.184).
+ *
+ * UN SEUL TERRITOIRE PAR KAM ET PAR BU (`@@unique([businessUnitId, repId])`). Deux premiers
+ * enregistrements simultanés en créeraient deux : ils passent un par un (`enSerie`), et le second
+ * MET À JOUR celui que le premier a créé ; entre deux processus, la contrainte d'unicité refuse le
+ * second, qui le DIT au lieu d'une erreur de base.
+ */
+export async function enregistrerTerritoireKam(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  if (!userCan(user, MODULE, "UPDATE")) return { ok: false, error: "Non autorisé." };
+  const businessUnitId = fdStr(formData, "businessUnitId");
+  const repId = fdStr(formData, "repId");
+  if (!businessUnitId) return { ok: false, error: "Le territoire doit appartenir à une Business Unit." };
+  if (!repId) return { ok: false, error: "KAM introuvable." };
+  const [bu, profil, kam] = await Promise.all([
+    prisma.businessUnit.findUnique({ where: { id: businessUnitId }, select: { id: true, channel: true } }),
+    prisma.salesRepProfile.findFirst({ where: { repId, businessUnitId }, select: { repId: true } }),
+    prisma.user.findUnique({ where: { id: repId }, select: { name: true } }),
+  ]);
+  if (!bu) return { ok: false, error: "Business Unit introuvable." };
+  if (!estBuHospitaliere(String(bu.channel))) {
+    return { ok: false, error: REFUS_BU_DE_VILLE };
+  }
+  if (!profil || !kam) {
+    return { ok: false, error: "Ce KAM n'est pas (ou plus) rattaché à cette BU — rattachez-le d'abord, ou rechargez l'écran." };
+  }
+  try {
+    return await enSerie(`territoire-kam:${businessUnitId}:${repId}`, async () => {
+      const existant = await prisma.salesSector.findUnique({
+        where: { businessUnitId_repId: { businessUnitId, repId } },
+        select: { id: true, name: true },
+      });
+      // LE NOM : celui du territoire s'il existe déjà ; sinon « Territoire — <KAM> », suffixé quand
+      // ce nom est pris dans la BU (un ancien secteur, un homonyme) — la règle de la migration.
+      let nom = existant?.name;
+      if (!nom) {
+        const base = nomDuTerritoire(kam.name, repId, false);
+        const pris = await prisma.salesSector.findFirst({
+          where: { businessUnitId, name: { equals: base, mode: "insensitive" } },
+          select: { id: true },
+        });
+        nom = nomDuTerritoire(kam.name, repId, Boolean(pris));
+      }
+      return ecrireSecteur(user.id, existant?.id ?? null, businessUnitId, nom, formData, repId);
+    });
+  } catch (e) {
+    if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") {
+      return { ok: false, error: "Le territoire de ce KAM vient d'être enregistré par ailleurs — rechargez l'écran, puis recommencez." };
+    }
+    throw e;
+  }
+}
+
+/** Le refus d'une BU de ville nomme les DEUX remèdes : rien à cocher ici, ou changer son terrain. */
+const REFUS_BU_DE_VILLE =
+  "Cette BU est une gamme de ville : il n'y a pas d'établissement à choisir — le secteur du KAM se saisit en texte sur sa ligne. "
+  + "Passez la BU en terrain « Hospitalière » ou « les deux » pour choisir des établissements.";
 
 // ─────────────────────────── Affectations (matrice KAM × produit) ───────────────────────────
 export async function saveAssignment(formData: FormData): Promise<ActionResult> {

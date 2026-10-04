@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { tempsEnAttente, peutTenir, estDirectionOperations, estDirectionMarketingPoste } from "@/lib/ad-pro/validation-poste";
 import { canAccessEntity } from "@/lib/entity-access";
 import { auNomDeQui } from "@/lib/hr/stand-in-resolve";
 import { getLeavesToDecide } from "@/lib/queries/hr";
@@ -266,17 +267,48 @@ export async function getActionCenter(user: SessionUser) {
       { colonne: "congressInternationalId", module: "CONGRESS_INTERNATIONAL", type: "CONGRESS_INTERNATIONAL", path: "/congress-international" },
       { colonne: "eventId", module: "EVENTS", type: "EVENT", path: "/events" },
     ] as const;
-    const decides = PARENTS_POSTE.filter((p) => hasGlobalView(user.role) || userCan(user, p.module, "VALIDATE"));
+    // DEUX TEMPS (§118.204) : la Direction des opérations, puis la Direction Marketing (montant et
+    // budget). La file ne montre à chacun que le temps qu'il TIENT — la règle de l'action
+    // (`peutTenir`), avec le demandeur de la demande (on n'arbitre pas sa propre demande).
+    const moi = await prisma.user.findUnique({ where: { id: user.id }, select: { role: true, secondaryRole: true } }) ?? { role: user.role };
+    const tientUnTemps = moi.role === "SUPER_ADMIN" || estDirectionOperations(moi) || estDirectionMarketingPoste(moi);
+    const decides = tientUnTemps ? PARENTS_POSTE.filter((p) => hasGlobalView(user.role) || userCan(user, p.module, "VIEW")) : [];
     if (decides.length > 0) {
-      const postes = await prisma.adProItem.findMany({
+      // PAR LOTS, filtrés au fur et à mesure (§118.60) : couper AVANT le filtre `peutTenir` faisait
+      // disparaître, sans signe, les postes d'une personne derrière 160 postes attendant quelqu'un
+      // d'autre. On lit jusqu'à avoir de quoi remplir la file, borné à 5 lots.
+      const LOT_POSTES = PLAFOND_DECISIONS * 4;
+      const lirePostes = (skip: number) => prisma.adProItem.findMany({
         where: { status: "PENDING", OR: decides.map((p) => ({ [p.colonne]: { not: null } })) },
         select: {
           id: true, label: true, amountEstimated: true, budgetKind: true, addedAfterDecision: true, submittedAt: true, createdAt: true,
+          opsDecidedAt: true, status: true,
           sponsoringId: true, congressNationalId: true, congressInternationalId: true, eventId: true,
+          sponsoring: { select: { requesterId: true } }, congressNational: { select: { requesterId: true } },
+          congressInternational: { select: { requesterId: true } }, event: { select: { requesterId: true } },
         },
         orderBy: [{ submittedAt: "asc" }, { createdAt: "asc" }],
-        take: PLAFOND_DECISIONS * 2,
+        take: LOT_POSTES, skip,
       });
+      type PosteLu = Awaited<ReturnType<typeof lirePostes>>[number];
+      const demandeurDe = (p: PosteLu) =>
+        p.sponsoring?.requesterId ?? p.congressNational?.requesterId ?? p.congressInternational?.requesterId ?? p.event?.requesterId ?? null;
+      const postes: PosteLu[] = [];
+      let restePeutEtre = false;
+      for (let lotsLus = 0; ; lotsLus += 1) {
+        const lot = await lirePostes(lotsLus * LOT_POSTES);
+        const ids = [...new Set(lot.map(demandeurDe).filter((x): x is string => Boolean(x)))];
+        const demandeurs = new Map((ids.length
+          ? await prisma.user.findMany({ where: { id: { in: ids } }, select: { id: true, role: true, secondaryRole: true } })
+          : []).map((u) => [u.id, u]));
+        for (const p of lot) {
+          const temps = tempsEnAttente(p);
+          const rid = demandeurDe(p);
+          if (temps !== null && peutTenir(temps, moi, rid ? demandeurs.get(rid) ?? null : null)) postes.push(p);
+        }
+        if (lot.length < LOT_POSTES) break;
+        if (postes.length >= PLAFOND_DECISIONS * 2 || lotsLus >= 4) { restePeutEtre = true; break; }
+      }
       const lisibles: { p: (typeof postes)[number]; parent: (typeof PARENTS_POSTE)[number]; parentId: string }[] = [];
       for (const p of postes) {
         const parent = decides.find((d) => p[d.colonne]);
@@ -291,12 +323,12 @@ export async function getActionCenter(user: SessionUser) {
         const hors = p.budgetKind === "ADDITIONAL" ? "hors budget" : p.addedAfterDecision ? "ajouté après la décision" : null;
         items.push({
           key: `poste-${p.id}`, objet: `AD_PRO_ITEM:${p.id}`, title: p.label,
-          subtitle: [hors, `poste à décider${montant}`].filter(Boolean).join(" · "),
+          subtitle: [hors, p.opsDecidedAt ? `validé par la Direction des opérations — montant et budget à décider${montant}` : `poste à valider${montant}`].filter(Boolean).join(" · "),
           module: "Ad & Pro", href: `${parent.path}/${parentId}`, kind: "validation", priority: null, deadline: null,
           depuis: (p.submittedAt ?? p.createdAt).toISOString(), owner: "", statusLabel: "À décider", statusTone: "warning",
         });
       }
-      if (postes.length > lisibles.length && lisibles.length >= PLAFOND_DECISIONS) {
+      if ((postes.length > lisibles.length && lisibles.length >= PLAFOND_DECISIONS) || (restePeutEtre && lisibles.length >= PLAFOND_DECISIONS)) {
         items.push({
           key: "poste-reste", objet: `${PREFIXE_RESTE}postes`, title: "D'autres postes Ad & Pro attendent votre décision",
           subtitle: "Les plus anciens sont listés ci-dessus", module: "Ad & Pro", href: "/ad-pro",

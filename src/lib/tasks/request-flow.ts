@@ -336,3 +336,35 @@ export function declineSummary(reason: string | null | undefined): string {
 export function submitLabel(t: TaskLike): string {
   return t.status === "DONE" ? "Mettre à jour mon travail" : "Valider mon travail";
 }
+
+/**
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ * ANNULER CE QU'ON A DEMANDÉ À QUELQU'UN (décision de la Direction, 04/10).
+ *
+ * « On annule sa demande tant que l'autre ne l'a pas exécutée. » Une tâche demandée — par le
+ * formulaire, une demande d'action, une demande d'état de stock — n'avait qu'une issue chez son
+ * demandeur : la SUPPRIMER, pièces et fil compris. La personne qui avait commencé voyait la demande
+ * disparaître sans un mot, et personne ne pouvait plus dire qu'elle avait existé. Annuler la CLÔT
+ * (`CANCELLED`), garde le fil, et prévient l'assigné.
+ *
+ * Une règle, deux lecteurs : l'action et le bouton de la liste (§118.83).
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ */
+
+/** Une tâche que CETTE personne a demandée à quelqu'un d'autre. */
+export function estDemandeAAutrui(t: TaskLike, userId: string): boolean {
+  return Boolean(t.createdById) && t.createdById === userId && Boolean(t.assignedToId) && t.assignedToId !== userId;
+}
+
+/** Les états d'une demande qui n'a pas encore été exécutée — on peut l'annuler. */
+export const STATUTS_ANNULABLES = ["REQUESTED", "TODO", "IN_PROGRESS"] as const;
+
+/** Pourquoi cette personne ne peut PAS annuler la demande — `null` si elle le peut. */
+export function refusAnnulationDemande(t: TaskLike, userId: string): string | null {
+  if (!estDemandeAAutrui(t, userId)) return "Seule la personne qui a fait la demande l'annule — et seulement quand elle l'a adressée à quelqu'un d'autre.";
+  if (t.status === "DONE") return "Cette demande a déjà été exécutée : elle ne s'annule plus.";
+  if (t.status === "CANCELLED") return "Cette demande est déjà annulée.";
+  if (t.status === "DECLINED") return "Cette demande a été refusée par son destinataire : il n'y a plus rien à annuler.";
+  if (!(STATUTS_ANNULABLES as readonly string[]).includes(t.status)) return "Cette demande ne s'annule pas dans cet état.";
+  return null;
+}

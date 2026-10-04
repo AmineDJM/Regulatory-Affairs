@@ -8,7 +8,7 @@ import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
 import {
   canRespond, canDoWork, canComment, declineSummary, peutRelancer, relanceTitre,
-  ACCEPTED_STATUS, DECLINED_STATUS,
+  ACCEPTED_STATUS, DECLINED_STATUS, refusAnnulationDemande, STATUTS_ANNULABLES,
 } from "@/lib/tasks/request-flow";
 import { createTaskRecord } from "@/lib/tasks/create-core";
 import { attachFiles, validateAttachments } from "@/lib/attach-files";
@@ -129,10 +129,15 @@ export async function deleteTask(formData: FormData): Promise<ActionResult> {
   const id = fdStr(formData, "id");
   if (!id) return { ok: false, error: "Tâche introuvable." };
 
-  const task = await prisma.task.findUnique({ where: { id }, select: { createdById: true, title: true } });
+  const task = await prisma.task.findUnique({ where: { id }, select: { createdById: true, title: true, assignedToId: true, status: true } });
   if (!task) return { ok: false, error: "Tâche introuvable." };
   if (task.createdById !== user.id && user.role !== "SUPER_ADMIN") {
     return { ok: false, error: "Seul le créateur de la tâche (ou un administrateur) peut la supprimer — refusez-la plutôt si elle vous a été demandée." };
+  }
+  // UNE DEMANDE ENCORE OUVERTE CHEZ QUELQU'UN D'AUTRE S'ANNULE, ELLE NE S'EFFACE PAS (décision du
+  // 04/10) : la supprimer ferait disparaître sans un mot ce que l'autre a peut-être commencé.
+  if (user.role !== "SUPER_ADMIN" && refusAnnulationDemande(task, user.id) === null) {
+    return { ok: false, error: "Cette demande est encore ouverte chez son destinataire : annulez-la plutôt — il en sera prévenu, et le fil reste." };
   }
 
   // Les fichiers du stockage sont libérés APRÈS la suppression en base (best-effort) : un blob
@@ -420,4 +425,56 @@ export async function relanceTaskRequest(formData: FormData): Promise<ActionResu
   revalidatePath("/mon-espace");
   revalidatePath(`/mon-espace/taches/${id}`);
   return { ok: true };
+}
+
+/**
+ * ANNULER UNE DEMANDE DE TÂCHE (décision de la Direction, 04/10) — le demandeur clôt ce qu'il a
+ * demandé tant que l'autre ne l'a pas exécuté. Motif FACULTATIF (renoncer ne se justifie pas plus
+ * que refuser), assigné prévenu, fil gardé. Écriture CONDITIONNELLE : un travail validé pendant le
+ * clic ne se fait pas annuler, et deux clics n'annulent qu'une fois.
+ */
+export async function annulerDemandeTache(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  const id = fdStr(formData, "id");
+  if (!id) return { ok: false, error: "Tâche introuvable." };
+  const motif = fdStr(formData, "motif");
+
+  const task = await prisma.task.findUnique({
+    where: { id },
+    select: { title: true, status: true, assignedToId: true, createdById: true, requestedAt: true },
+  });
+  if (!task) return { ok: false, error: "Tâche introuvable." };
+  const refus = refusAnnulationDemande(task, user.id);
+  if (refus) return { ok: false, error: refus };
+
+  const pris = await prisma.task.updateMany({
+    where: { id, createdById: user.id, status: { in: [...STATUTS_ANNULABLES] } },
+    data: { status: "CANCELLED", completedAt: null },
+  });
+  if (pris.count === 0) {
+    const apres = await prisma.task.findUnique({ where: { id }, select: { status: true, createdById: true, assignedToId: true } });
+    return { ok: false, error: (apres && refusAnnulationDemande(apres, user.id)) ?? "Cette demande vient de changer — rechargez la page." };
+  }
+
+  await prisma.taskComment.create({
+    data: { taskId: id, authorId: user.id, body: motif ? `Demande annulée par son demandeur — ${motif}` : "Demande annulée par son demandeur." },
+  }).catch(() => undefined);
+  if (task.assignedToId) {
+    await prisma.notification.create({
+      data: {
+        userId: task.assignedToId, type: "ASSIGNMENT",
+        title: "Demande annulée",
+        body: `${user.name} a annulé « ${task.title} »${motif ? ` — ${motif}` : ""}. Vous n'avez plus à la traiter.`,
+        link: `/mon-espace/taches/${id}`,
+      },
+    }).catch(() => undefined);
+  }
+  await recordAudit({
+    actorId: user.id, action: "UPDATE", module: "Espace de travail", entityType: "TASK", entityId: id,
+    field: "status", oldValue: task.status, newValue: "CANCELLED",
+    summary: `Demande « ${task.title} » annulée par son demandeur${motif ? ` — ${motif}` : ""}`,
+  });
+  revalidatePath("/mon-espace");
+  revalidatePath(`/mon-espace/taches/${id}`);
+  return { ok: true, id, message: "Demande annulée — la personne est prévenue." };
 }

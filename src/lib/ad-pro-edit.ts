@@ -151,29 +151,27 @@ export const EDITABLE_FIELDS: Record<AdProKind, readonly EditableField[]> = {
     { key: "description", label: "Description", type: "textarea" },
     { key: "comments", label: "Appréciation / recommandation", type: "textarea" },
   ],
+  // PRISES EN CHARGE (décision de la Direction, 04/10/2026) : ni pays (national), ni spécialité, ni
+  // produits promus, ni « Délégués présents ». « Médecins présents » / « Médecins invités » sont
+  // devenus les PROFESSIONNELS PROPOSÉS, une liste de la fiche (annuaire, nouveau profil, personne
+  // libre) — plus un texte libre ici. L'événement se date par son DÉBUT et sa FIN. Les colonnes
+  // retirées restent en base : une liste blanche qui ne les nomme plus ne les écrit plus (§118.152c).
   CONGRESS_NATIONAL: [
     { key: "name", label: "Événement", type: "text", requis: "Le nom de l'événement est obligatoire." },
     { key: "eventType", label: "Type d'événement", type: "select", options: mapOptions(NATIONAL_EVENT_TYPE) },
     { key: "hostInstitution", label: "Établissement / association hôte", type: "text" },
-    { key: "country", label: "Pays", type: "text" },
     { key: "city", label: "Ville", type: "text" },
-    { key: "date", label: "Date", type: "date" },
-    { key: "specialty", label: "Spécialité", type: "text" },
-    { key: "promotedProducts", label: "Produits promus", type: "text" },
+    { key: "date", label: "Date de début", type: "date", requis: "La date de début est obligatoire." },
+    { key: "endDate", label: "Date de fin", type: "date", requis: "La date de fin est obligatoire." },
     { key: "estimatedBudget", label: "Budget estimé", type: "number" },
-    { key: "presentDoctors", label: "Médecins présents", type: "textarea" },
-    { key: "presentDelegates", label: "Délégués présents", type: "textarea" },
   ],
   CONGRESS_INTERNATIONAL: [
     { key: "name", label: "Événement", type: "text", requis: "Le nom de l'événement est obligatoire." },
     { key: "country", label: "Pays", type: "text" },
     { key: "city", label: "Ville", type: "text" },
-    { key: "startDate", label: "Date de début", type: "date" },
-    { key: "endDate", label: "Date de fin", type: "date" },
-    { key: "specialty", label: "Spécialité", type: "text" },
-    { key: "products", label: "Produits promus", type: "text" },
+    { key: "startDate", label: "Date de début", type: "date", requis: "La date de début est obligatoire." },
+    { key: "endDate", label: "Date de fin", type: "date", requis: "La date de fin est obligatoire." },
     { key: "estimatedBudget", label: "Budget estimé", type: "number" },
-    { key: "invitedDoctors", label: "Médecins invités", type: "textarea" },
     { key: "participants", label: "Participants Adventum", type: "textarea" },
   ],
   PROMO_MATERIAL: [
@@ -213,6 +211,17 @@ export const EDITABLE_FIELDS: Record<AdProKind, readonly EditableField[]> = {
     { key: "beneficiary", label: "Pour qui / avec qui", type: "text" },
     { key: "amount", label: "Montant (DZD)", type: "number" },
   ],
+};
+
+/**
+ * LES DEUX BOUTS D'UNE PÉRIODE, par nature — lus ENSEMBLE par la correction : corriger la seule fin
+ * avant le début enregistrait un événement qui se termine avant d'avoir commencé. Une table, et non
+ * une condition par nature recopiée dans l'action.
+ */
+export const PERIODE_DE_LA_DEMANDE: Partial<Record<AdProKind, { debut: string; fin: string }>> = {
+  CONSULTING_CONTRACT: { debut: "startDate", fin: "endDate" },
+  CONGRESS_NATIONAL: { debut: "date", fin: "endDate" },
+  CONGRESS_INTERNATIONAL: { debut: "startDate", fin: "endDate" },
 };
 
 /** Le champ existe-t-il dans la liste blanche de ce type de demande ? */
