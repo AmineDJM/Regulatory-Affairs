@@ -2,6 +2,7 @@ import { test, expect, type Page } from "@playwright/test";
 import { PrismaClient } from "@prisma/client";
 import bcrypt from "bcryptjs";
 import { E2E } from "./global-setup";
+import { cliquerDecisif } from "./decisif";
 
 /**
  * ═════════════════════════════════════════════════════════════════
@@ -138,7 +139,7 @@ test("ÉMETTRE UN AVOIR — le geste n'est offert qu'avec un motif, et la fiche 
   // On garde la ligne de la facture et l'on n'en crédite que la part rendue.
   await page.getByLabel("Quantité de la ligne 1").fill("20");
   await page.getByLabel("Motif de l'avoir").fill(MOTIF);
-  await envoyer.click();
+  await cliquerDecisif(envoyer);
   // Les montants viennent de la fabrique (« 10 710,00 DZD »), jamais du navigateur : la phrase dit le crédit ET le net.
   await expect(page.getByText(/Avoir AV.* émis : 10\s710,00 DZD TTC crédités sur la facture .+ — net de la facture : 42\s840,00 DZD\./))
     .toBeVisible({ timeout: 60_000 });

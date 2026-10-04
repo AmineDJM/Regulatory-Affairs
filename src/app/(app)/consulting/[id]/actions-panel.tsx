@@ -9,6 +9,7 @@ import {
   requestConsultingValidation, decideConsultingContract, closeConsultingContract, prolongerConsultingContract,
   addConsultingTask, toggleConsultingTask, deleteConsultingTask,
 } from "@/lib/actions/consulting-actions";
+import { BoutonDecisif } from "@/components/ui/bouton-decisif";
 
 export interface ContractTask { id: string; label: string; dueDate: string | null; doneAt: string | null }
 
@@ -103,24 +104,24 @@ export function ConsultingActions({
             placeholder="Motif — obligatoire pour renvoyer ou refuser"
           />
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
-            <Button
+            <BoutonDecisif
               disabled={busy !== null}
               onClick={() => run("approve", decideConsultingContract, { id, decision: "VALIDER", note })}
             >
               {busy === "approve" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />} Valider
-            </Button>
-            <Button
+            </BoutonDecisif>
+            <BoutonDecisif
               variant="outline" disabled={busy !== null || !note.trim()}
               onClick={() => run("return", decideConsultingContract, { id, decision: "RENVOYER", note })}
             >
               {busy === "return" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Undo2 className="h-4 w-4" />} Renvoyer pour correction
-            </Button>
-            <Button
+            </BoutonDecisif>
+            <BoutonDecisif
               variant="outline" className="text-destructive" disabled={busy !== null || !note.trim()}
               onClick={() => run("refuse", decideConsultingContract, { id, decision: "REFUSER", note })}
             >
               {busy === "refuse" ? <Loader2 className="h-4 w-4 animate-spin" /> : <X className="h-4 w-4" />} Refuser
-            </Button>
+            </BoutonDecisif>
           </div>
         </div>
       )}
@@ -133,12 +134,12 @@ export function ConsultingActions({
           </p>
           <Input type="date" value={nouvelleFin} min={endDate ?? undefined} onChange={(e) => setNouvelleFin(e.target.value)} aria-label="Nouvelle date de fin" />
           <Input value={motifProlongation} onChange={(e) => setMotifProlongation(e.target.value)} aria-label="Ce qui fonde la prolongation" placeholder="Avenant n°…, accord du… (obligatoire)" />
-          <Button
+          <BoutonDecisif
             variant="outline" className="w-full" disabled={busy !== null || !nouvelleFin || !motifProlongation.trim()}
             onClick={() => run("prolong", prolongerConsultingContract, { id, endDate: nouvelleFin, note: motifProlongation })}
           >
             {busy === "prolong" ? <Loader2 className="h-4 w-4 animate-spin" /> : <CalendarPlus className="h-4 w-4" />} Prolonger
-          </Button>
+          </BoutonDecisif>
         </div>
       )}
 
@@ -155,19 +156,19 @@ export function ConsultingActions({
           />
           <div className="flex gap-2">
             {status === "ACTIVE" && (
-              <Button
+              <BoutonDecisif
                 variant="outline" className="flex-1" disabled={busy !== null}
                 onClick={() => run("expire", closeConsultingContract, { id, cancel: "0", note: motifAnnulation })}
               >
                 {busy === "expire" ? <Loader2 className="h-4 w-4 animate-spin" /> : <CalendarCheck className="h-4 w-4" />} Arrivé à terme
-              </Button>
+              </BoutonDecisif>
             )}
-            <Button
+            <BoutonDecisif
               variant="outline" className="flex-1 text-destructive" disabled={busy !== null || !motifAnnulation.trim()}
               onClick={() => run("cancel", closeConsultingContract, { id, cancel: "1", note: motifAnnulation })}
             >
               {busy === "cancel" ? <Loader2 className="h-4 w-4 animate-spin" /> : <X className="h-4 w-4" />} Annuler
-            </Button>
+            </BoutonDecisif>
           </div>
         </div>
       )}

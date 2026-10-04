@@ -2,6 +2,7 @@ import { test, expect, type Page } from "@playwright/test";
 import { PrismaClient } from "@prisma/client";
 import bcrypt from "bcryptjs";
 import { E2E } from "./global-setup";
+import { cliquerDecisif } from "./decisif";
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
@@ -163,7 +164,7 @@ test("POSTE : demander le BC, en corriger le message, puis le retirer avec son m
   await c.getByRole("button", { name: `Autres actions — ${P}Brochures` }).click();
   await page.getByRole("menuitem", { name: "Retirer la demande de BC" }).click();
   await c.getByRole("textbox").fill("Le devis est caduc.");
-  await c.getByRole("button", { name: "Retirer la demande" }).click();
+  await cliquerDecisif(c.getByRole("button", { name: "Retirer la demande" }));
   const apres = await attendre(() => prisma.adProItem.findUniqueOrThrow({ where: { id }, select: { orderStage: true } }), (p) => p.orderStage === "NONE", "demande retirée");
   expect(apres.orderStage).toBe("NONE");
 });
@@ -192,7 +193,7 @@ test("LE CENTRE RENVOIE CE QU'IL MONTRAIT : un montant changé après l'affichag
   await expect(ligne).toBeVisible();
   // Pendant que le Directeur Général lit la ligne, le montant change.
   await prisma.adProItem.update({ where: { id }, data: { amountGranted: 800_000 } });
-  await ligne.getByRole("button", { name: "Valider le bon de commande" }).click();
+  await cliquerDecisif(ligne.getByRole("button", { name: "Valider le bon de commande" }));
   await expect(ligne.getByText(/a changé pendant que vous lisiez \(600\s000 → 800\s000 DZD\)/)).toBeVisible();
   expect((await prisma.adProItem.findUniqueOrThrow({ where: { id }, select: { orderStage: true, orderVisaAmount: true } }))).toEqual({ orderStage: "REQUESTED", orderVisaAmount: null });
   await capture(page, "c2-centre-relire", ligne);
@@ -212,8 +213,7 @@ test("SECRÉTARIAT : supprimée dans les trente minutes, annulée au-delà — m
   // DANS LA FENÊTRE : le temps qui reste se voit, et la suppression reste douce.
   await aller(page, `/demandes/${neuve.id}`);
   await expect(page.getByText(/sans prévenir personne pendant/)).toBeVisible();
-  page.once("dialog", (d) => void d.accept());
-  await page.getByRole("button", { name: "Supprimer" }).click();
+  await cliquerDecisif(page.getByRole("button", { name: "Supprimer" }));
   await attendre(() => prisma.administrativeRequest.findUniqueOrThrow({ where: { id: neuve.id }, select: { deletedAt: true } }), (d) => d.deletedAt !== null, "suppression douce");
 
   // AU-DELÀ : l'encart reste, et l'annulation porte son motif.
@@ -223,7 +223,7 @@ test("SECRÉTARIAT : supprimée dans les trente minutes, annulée au-delà — m
   await page.getByRole("button", { name: "Annuler la demande" }).click();
   const fenetre = page.getByRole("dialog");
   await fenetre.getByRole("textbox", { name: "Pourquoi l'annulez-vous ?" }).fill("La réunion se tiendra en visio.");
-  await fenetre.getByRole("button", { name: "Annuler la demande" }).click();
+  await cliquerDecisif(fenetre.getByRole("button", { name: "Annuler la demande" }));
   const d = await attendre(
     () => prisma.administrativeRequest.findUniqueOrThrow({ where: { id: vieille.id }, select: { status: true, deletedAt: true } }),
     (x) => x.status === "CANCELLED", "annulation",

@@ -390,12 +390,8 @@ function Facture({ id, f, agir, canReceive, options }: {
   const demanderPaiement = (fd: FormData) => {
     fd.set("promoMaterialId", id); fd.set("invoiceId", f.id);
     if (enAttente.length > 0) {
-      // LA CONFIRMATION QUE LA DIRECTION A DEMANDÉE (§118.165) : renoncer est définitif.
-      const ok = confirm(
-        `${enAttente.length} ligne(s) ne sont pas reçues en entier : ${enAttente.map((l) => `« ${l.designation} »`).join(", ")}.\n\n`
-        + "Êtes-vous sûr de demander le paiement quand même ? On ne paiera que ce qui a été reçu, et un paiement pour ces lignes ne pourra pas être fait ultérieurement.",
-      );
-      if (!ok) return;
+      // LA CONFIRMATION QUE LA DIRECTION A DEMANDÉE (§118.165) : renoncer est définitif. Elle est
+      // portée par le bouton décisif (le second clic, qui nomme les lignes), plus par une fenêtre.
       fd.set("confirmeRenoncement", "1");
     }
     run(() => demanderPaiementFacturePromo(fd));
@@ -484,7 +480,8 @@ function Facture({ id, f, agir, canReceive, options }: {
         <form className="flex flex-wrap items-center gap-2" action={demanderPaiement}>
           <ChoixFormalite name="formalite" />
           {enAttente.length > 0 && <Input name="motifRenoncement" required aria-label="Motif du renoncement" placeholder="Motif (obligatoire) — ligne non livrée" className="w-64" />}
-          <BoutonDecisif type="submit" size="sm" variant={enAttente.length > 0 ? "outline" : "primary"} disabled={saving}>
+          <BoutonDecisif type="submit" size="sm" variant={enAttente.length > 0 ? "outline" : "primary"} disabled={saving}
+            confirmation={enAttente.length > 0 ? `renoncer à ${enAttente.map((l) => `« ${l.designation} »`).join(", ")} et demander le paiement` : undefined}>
             {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
             {enAttente.length > 0 ? " Demander le paiement malgré tout" : " Demander le paiement"}
           </BoutonDecisif>

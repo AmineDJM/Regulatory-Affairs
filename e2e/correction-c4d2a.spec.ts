@@ -2,6 +2,7 @@ import { test, expect, type Page } from "@playwright/test";
 import { PrismaClient } from "@prisma/client";
 import bcrypt from "bcryptjs";
 import { E2E } from "./global-setup";
+import { cliquerDecisif } from "./decisif";
 
 /**
  * ═════════════════════════════════════════════════════════════════
@@ -98,7 +99,7 @@ test("RÉVISER — le KAM rouvre son plan validé, motif à l'appui : le plan pa
   // Sans motif, le geste n'est pas offert : c'est ce que lira la personne qui a validé.
   await expect(rouvrir).toBeDisabled();
   await page.getByLabel("Ce qui change dans la tournée").fill(MOTIF_REVISION);
-  await rouvrir.click();
+  await cliquerDecisif(rouvrir);
   await expect(page.getByText("Plan validé, rouvert pour révision — à modifier puis resoumettre.")).toBeVisible({ timeout: 15_000 });
   await expect(page.getByText(`« ${MOTIF_REVISION} »`)).toBeVisible();
   // L'en-tête du plan dit « à RESOUMETTRE » : « à soumettre » se lirait comme un plan jamais envoyé.
@@ -127,7 +128,7 @@ test("NON TENUE — dans « Ma journée », le KAM dit qu'une visite de demain e
   await expect(enregistrer).toBeDisabled();
   await page.getByLabel("Annulée").check();
   await page.getByLabel("Pourquoi").fill(MOTIF_ANNULATION);
-  await enregistrer.click();
+  await cliquerDecisif(enregistrer);
   await expect(page.getByText(`« ${MOTIF_ANNULATION} »`)).toBeVisible({ timeout: 15_000 });
   const v = await prisma.medicalVisit.findUniqueOrThrow({ where: { id: visiteId }, select: { status: true, notHeldReason: true } });
   expect(v).toEqual({ status: "CANCELLED", notHeldReason: MOTIF_ANNULATION });

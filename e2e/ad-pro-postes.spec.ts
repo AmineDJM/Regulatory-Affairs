@@ -2,6 +2,7 @@ import { test, expect, type Page } from "@playwright/test";
 import { PrismaClient } from "@prisma/client";
 import bcrypt from "bcryptjs";
 import { E2E } from "./global-setup";
+import { cliquerDecisif } from "./decisif";
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
@@ -338,7 +339,7 @@ test("SUPPRESSION : la chargée de marketing ne voit pas le bouton ; la directri
   // L'APERÇU, avant le clic : les postes partent avec la demande.
   await expect(feuille.getByText(/postes/)).toBeVisible();
   await capture(page, "p6-suppression-apercu");
-  await feuille.getByRole("button", { name: "Oui, supprimer définitivement" }).click();
+  await cliquerDecisif(feuille.getByRole("button", { name: "Oui, supprimer définitivement" }));
   await expect.poll(async () => prisma.sponsoringRequest.count({ where: { id: sponsoringId } })).toBe(0);
   const rec = await prisma.deletedRecord.findFirstOrThrow({ where: { kind: "SPONSORING", sourceId: sponsoringId } });
   const chef = await prisma.user.findUniqueOrThrow({ where: { email: CHEF_EMAIL }, select: { id: true } });

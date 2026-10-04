@@ -6,6 +6,7 @@ import { Trash2, Loader2, AlertTriangle, Undo2 } from "lucide-react";
 import { superAdminDelete, apercuDeSuppression } from "@/lib/actions/admin-delete-actions";
 import { Button } from "@/components/ui/button";
 import { Sheet } from "@/components/ui/sheet";
+import { BoutonDecisif } from "@/components/ui/bouton-decisif";
 
 /**
  * Bouton « Supprimer définitivement » réservé au Super Admin (n'est rendu que si `enabled`) :
@@ -209,10 +210,10 @@ export function ConfirmationSuppression({
           <Button variant="outline" onClick={onClose} disabled={busy}>
             Annuler
           </Button>
-          <Button variant="destructive" onClick={confirmer} disabled={!armable}>
+          <BoutonDecisif variant="destructive" onClick={confirmer} disabled={!armable}>
             {busy || enLecture ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
             Oui, supprimer définitivement
-          </Button>
+          </BoutonDecisif>
         </div>
       </div>
     </Sheet>

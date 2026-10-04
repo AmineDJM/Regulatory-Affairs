@@ -7,6 +7,7 @@ import { cloturerSponsoring, rouvrirSponsoring } from "@/lib/actions/sponsoring-
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/input";
 import { formatCurrency } from "@/lib/utils";
+import { BoutonDecisif } from "@/components/ui/bouton-decisif";
 
 /**
  * LA VALIDATION FINALE ET LA CLÔTURE D'UN SPONSORING (§118.151) — l'écran du geste.
@@ -129,16 +130,14 @@ export function ClosurePanel({
       {peutAgir ? (
         <div className="space-y-2">
           <Textarea value={note} onChange={(e) => setNote(e.target.value)} className="min-h-[50px]" placeholder="Note de clôture (facultative)" />
-          <Button
+          <BoutonDecisif
             size="sm" disabled={pending || !bilan.cloturable}
             title={bilan.cloturable ? undefined : "Réglez d'abord ce qui est listé ci-dessus."}
-            onClick={() => {
-              if (!window.confirm(`Valider et clôturer ? Le montant accordé sera ${formatCurrency(bilan.total)}, et les postes seront arrêtés.`)) return;
-              agir(cloturerSponsoring, { note });
-            }}
+            confirmation={`valider et clôturer — accordé ${formatCurrency(bilan.total)}, postes arrêtés`}
+            onClick={() => { agir(cloturerSponsoring, { note }); }}
           >
             {pending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Lock className="h-4 w-4" />} Valider et clôturer
-          </Button>
+          </BoutonDecisif>
         </div>
       ) : (
         <p className="text-xs text-muted-foreground">La validation finale revient à {quiCloture} — jamais à l&apos;auteur de la demande.</p>

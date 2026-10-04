@@ -2,6 +2,7 @@ import { test, expect, type Page } from "@playwright/test";
 import { PrismaClient } from "@prisma/client";
 import bcrypt from "bcryptjs";
 import { E2E } from "./global-setup";
+import { cliquerDecisif } from "./decisif";
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
@@ -169,7 +170,7 @@ test("VALIDATIONS — le validateur RENVOIE pour correction : sans motif, le bou
   await expect(confirmer, "pas de renvoi sans motif : le demandeur ne saurait pas quoi corriger").toBeDisabled();
   await page.getByPlaceholder("Ce qu'il faut corriger (obligatoire)…").fill(MOTIF_VAL);
   await expect(confirmer).toBeEnabled();
-  await confirmer.click();
+  await cliquerDecisif(confirmer);
   await expect.poll(async () => (await prisma.validationRequest.findUniqueOrThrow({ where: { id: valId } })).status, { timeout: 15_000 })
     .toBe("CHANGES_REQUESTED");
   const etape = await prisma.validationStep.findFirstOrThrow({ where: { requestId: valId } });
@@ -207,7 +208,7 @@ test("BONS DE COMMANDE — le signataire RENVOIE le BC à son émetteur : il qui
   const confirmer = ligne.getByRole("button", { name: "Confirmer le renvoi" });
   await expect(confirmer, "pas de renvoi sans ce qu'il faut corriger").toBeDisabled();
   await ligne.getByLabel("Ce qu'il faut corriger").fill(MOTIF_BC);
-  await confirmer.click();
+  await cliquerDecisif(confirmer);
   await expect.poll(async () => (await prisma.legalDocument.findUniqueOrThrow({ where: { id: bcId } })).signatureReturnedAt, { timeout: 15_000 })
     .not.toBeNull();
   const bc = await prisma.legalDocument.findUniqueOrThrow({ where: { id: bcId } });
@@ -231,7 +232,7 @@ test("CENTRE AD & PRO — un siège RENVOIE une « autre demande » pour correct
   const renvoyer = ligne.getByRole("button", { name: "Renvoyer pour correction" });
   await expect(renvoyer, "pas de renvoi sans motif").toBeDisabled();
   await motif.fill(MOTIF_CENTRE);
-  await renvoyer.click();
+  await cliquerDecisif(renvoyer);
   await expect.poll(async () => (await prisma.adProGateVisa.findUnique({ where: { entityType_entityId: { entityType: "AD_PRO_OTHER", entityId: autreId } } }))?.status, { timeout: 15_000 })
     .toBe("CHANGES_REQUESTED");
 });

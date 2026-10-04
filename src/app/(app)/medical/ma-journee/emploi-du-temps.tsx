@@ -330,7 +330,7 @@ export function EmploiDuTemps({
             {err && <p className="text-sm text-destructive">{err}</p>}
             <div className="flex justify-end gap-2">
               <Button type="button" variant="ghost" onClick={() => setNonTenue(null)} disabled={occupe}>Annuler</Button>
-              <BoutonDecisif type="submit" disabled={occupe || motifNonTenue.trim().length === 0}>
+              <BoutonDecisif type="submit" disabled={occupe || motifNonTenue.trim().length === 0} confirmation="dire que la visite n’a pas eu lieu">
                 {occupe && <Loader2 className="h-4 w-4 animate-spin" />} Enregistrer
               </BoutonDecisif>
             </div>

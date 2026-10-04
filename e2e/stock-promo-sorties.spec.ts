@@ -2,6 +2,7 @@ import { test, expect, type Page } from "@playwright/test";
 import { PrismaClient } from "@prisma/client";
 import bcrypt from "bcryptjs";
 import { E2E } from "./global-setup";
+import { cliquerDecisif } from "./decisif";
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
@@ -360,7 +361,7 @@ test("ÉTAPE 4 — le National Sales liste le matériel d'un sponsoring, la Dire
   await login(page, DIR_EMAIL);
   await aller(page, `/sponsoring/${sponsoringId}`);
   await page.getByRole("button", { name: "Décider de ce poste" }).click();
-  await page.getByRole("button", { name: "Accorder et réserver" }).click();
+  await cliquerDecisif(page.getByRole("button", { name: "Accorder et réserver" }));
   await expect.poll(async () => (await prisma.adProStockLine.findFirstOrThrow({ where: { item: { sponsoringId } } })).statut).toBe("RESERVEE");
   expect(await solde(null, BROCHURE), "l'accord RÉSERVE : le matériel quitte le magasin").toBe(20);
 });

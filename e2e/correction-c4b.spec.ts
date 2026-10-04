@@ -2,6 +2,7 @@ import { test, expect, type Page } from "@playwright/test";
 import { PrismaClient } from "@prisma/client";
 import bcrypt from "bcryptjs";
 import { E2E } from "./global-setup";
+import { cliquerDecisif } from "./decisif";
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
@@ -129,7 +130,7 @@ test("RENVOYER — la directrice renvoie la demande pour correction : sans motif
   await expect(envoyer, "pas de renvoi sans motif : le demandeur ne saurait pas quoi corriger").toBeDisabled();
   await page.getByLabel("Ce qu'il faut corriger").fill(MOTIF);
   await expect(envoyer).toBeEnabled();
-  await envoyer.click();
+  await cliquerDecisif(envoyer);
   await expect(page.getByText("Renvoyé au demandeur : il corrige sa demande, puis vous la resoumet.")).toBeVisible({ timeout: 15_000 });
   const pm = await prisma.promoMaterial.findUniqueOrThrow({ where: { id: renvoiId } });
   expect([pm.circuitState, pm.returnNote, pm.returnedById]).toEqual(["REVIEW_REQUEST", MOTIF, dirId]);

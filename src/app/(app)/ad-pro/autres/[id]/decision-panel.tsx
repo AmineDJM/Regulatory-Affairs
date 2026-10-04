@@ -6,6 +6,7 @@ import { Loader2, Check, X, CircleCheckBig, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input, Textarea } from "@/components/ui/input";
 import { decideAdProOtherRequest, closeAdProOtherRequest, resoumettreAdProOtherRequest } from "@/lib/actions/ad-pro-other-actions";
+import { BoutonDecisif } from "@/components/ui/bouton-decisif";
 
 /**
  * TRANCHER UNE DEMANDE « AUTRE ».
@@ -59,12 +60,12 @@ export function OtherDecisionPanel({
               corrigera, puis resoumettra. L'action le revérifie. */}
           <Textarea value={note} onChange={(e) => setNote(e.target.value)} aria-label="Motif de la décision" placeholder="Motif — obligatoire pour refuser" rows={3} />
           <div className="flex gap-2">
-            <Button className="flex-1" disabled={busy !== null} onClick={() => run("ok", decideAdProOtherRequest, { id, approve: "1", note })}>
+            <BoutonDecisif className="flex-1" disabled={busy !== null} onClick={() => run("ok", decideAdProOtherRequest, { id, approve: "1", note })}>
               {busy === "ok" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />} Valider
-            </Button>
-            <Button variant="outline" className="flex-1 text-destructive" disabled={busy !== null || !note.trim()} onClick={() => run("no", decideAdProOtherRequest, { id, approve: "0", note })}>
+            </BoutonDecisif>
+            <BoutonDecisif variant="outline" className="flex-1 text-destructive" disabled={busy !== null || !note.trim()} onClick={() => run("no", decideAdProOtherRequest, { id, approve: "0", note })}>
               {busy === "no" ? <Loader2 className="h-4 w-4 animate-spin" /> : <X className="h-4 w-4" />} Refuser
-            </Button>
+            </BoutonDecisif>
           </div>
         </div>
       )}
@@ -97,13 +98,13 @@ export function OtherDecisionPanel({
           <Input value={motifAnnulation} onChange={(e) => setMotifAnnulation(e.target.value)} aria-label="Motif de l'annulation" placeholder="Motif — obligatoire pour annuler" />
           <div className="flex gap-2">
             {status === "APPROVED" && (
-              <Button variant="outline" className="flex-1" disabled={busy !== null} onClick={() => run("done", closeAdProOtherRequest, { id, cancel: "0" })}>
+              <BoutonDecisif variant="outline" className="flex-1" disabled={busy !== null} onClick={() => run("done", closeAdProOtherRequest, { id, cancel: "0" })}>
                 {busy === "done" ? <Loader2 className="h-4 w-4 animate-spin" /> : <CircleCheckBig className="h-4 w-4" />} Terminée
-              </Button>
+              </BoutonDecisif>
             )}
-            <Button variant="outline" className="flex-1 text-destructive" disabled={busy !== null || !motifAnnulation.trim()} onClick={() => run("cancel", closeAdProOtherRequest, { id, cancel: "1", note: motifAnnulation })}>
+            <BoutonDecisif variant="outline" className="flex-1 text-destructive" disabled={busy !== null || !motifAnnulation.trim()} onClick={() => run("cancel", closeAdProOtherRequest, { id, cancel: "1", note: motifAnnulation })}>
               {busy === "cancel" ? <Loader2 className="h-4 w-4 animate-spin" /> : <X className="h-4 w-4" />} Annuler
-            </Button>
+            </BoutonDecisif>
           </div>
         </div>
       )}

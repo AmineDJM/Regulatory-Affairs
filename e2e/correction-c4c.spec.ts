@@ -2,6 +2,7 @@ import { test, expect, type Page } from "@playwright/test";
 import { PrismaClient } from "@prisma/client";
 import bcrypt from "bcryptjs";
 import { E2E } from "./global-setup";
+import { cliquerDecisif } from "./decisif";
 
 /**
  * ═════════════════════════════════════════════════════════════════
@@ -163,7 +164,7 @@ test("LE CENTRE DÉCIDE SUR CE QU'IL A LU — un montant corrigé pendant la lec
   await ligne.getByRole("button", { name: "Autoriser" }).click();
   // PENDANT QUE LE SIÈGE LIT, le montant change (une seconde correction) : il a lu 560 000.
   await prisma.expenseOrder.update({ where: { id: ordreId }, data: { amount: 600_000 } });
-  await page.getByRole("dialog").getByRole("button", { name: "Autoriser le paiement" }).click();
+  await cliquerDecisif(page.getByRole("dialog").getByRole("button", { name: "Autoriser le paiement" }));
   await expect(page.getByRole("dialog").getByText(/a changé pendant que vous lisiez/)).toBeVisible({ timeout: 15_000 });
   await expect(page.getByRole("dialog")).toContainText(/560[\s  ]000 → 600[\s  ]000 DZD/);
   const apres = await prisma.expenseOrder.findUniqueOrThrow({ where: { id: ordreId }, select: { centralStatus: true } });
@@ -172,7 +173,7 @@ test("LE CENTRE DÉCIDE SUR CE QU'IL A LU — un montant corrigé pendant la lec
   // TÉMOIN : relu, le même geste passe — la garde ne refuse pas tout.
   await aller(page, "/centre-de-paiement");
   await page.locator("li").filter({ hasText: LIBELLE }).getByRole("button", { name: "Autoriser" }).first().click();
-  await page.getByRole("dialog").getByRole("button", { name: "Autoriser le paiement" }).click();
+  await cliquerDecisif(page.getByRole("dialog").getByRole("button", { name: "Autoriser le paiement" }));
   await expect(page.getByRole("dialog")).toHaveCount(0, { timeout: 15_000 });
   const autorise = await prisma.expenseOrder.findUniqueOrThrow({ where: { id: ordreId }, select: { centralStatus: true, amount: true } });
   expect([autorise.centralStatus, Number(autorise.amount)]).toEqual(["APPROVED", 600_000]);

@@ -17,6 +17,7 @@ import { settlementState, deferralNote, SETTLEMENT_LABEL, type SettlementState }
 import { deadlineNatureLabel, deadlineNatureOf, deferralWarning } from "@/lib/finance/deadline-nature";
 import { BUDGET_CLASSIFY_PROMPT } from "@/lib/finance/settle-budget";
 import type { ActionResult } from "@/lib/actions/types";
+import { BoutonDecisif } from "@/components/ui/bouton-decisif";
 
 export interface OrderRow {
   id: string;
@@ -98,14 +99,16 @@ function SubmitForm({ action, id, extra, children, className }: { action: (fd: F
   );
 }
 
-function MiniBtn({ tone = "default", children }: { tone?: "success" | "warning" | "default" | "purple"; children: React.ReactNode }) {
+function MiniBtn({ tone = "default", decisif = false, children }: { tone?: "success" | "warning" | "default" | "purple"; decisif?: boolean; children: React.ReactNode }) {
   const cls = {
     success: "border-success/30 text-success hover:bg-success/10",
     warning: "border-warning/50 text-warning hover:bg-warning/10",
     purple: "border-purple-400/40 text-purple-600 hover:bg-purple-500/10",
     default: "border-border text-foreground hover:bg-secondary",
   }[tone];
-  return <button type="submit" className={`inline-flex items-center gap-1 rounded-md border px-2 py-1 text-xs font-medium ${cls}`}>{children}</button>;
+  const classes = `inline-flex items-center gap-1 rounded-md border px-2 py-1 text-xs font-medium ${cls}`;
+  if (decisif) return <BoutonDecisif brut type="submit" className={classes}>{children}</BoutonDecisif>;
+  return <button type="submit" className={classes}>{children}</button>;
 }
 
 /**
@@ -197,7 +200,7 @@ function SettleControl({ row, budgets, comptes }: { row: OrderRow; budgets: Budg
   const [compteId, setCompteId] = React.useState(row.compteParDefautId ?? "");
 
   if (!row.needsBudget && !choisirCompte) {
-    return <SubmitForm action={settleExpenseOrder} id={row.id}><MiniBtn tone="success"><Banknote className="h-3.5 w-3.5" /> Payé</MiniBtn></SubmitForm>;
+    return <SubmitForm action={settleExpenseOrder} id={row.id}><MiniBtn tone="success" decisif><Banknote className="h-3.5 w-3.5" /> Payé</MiniBtn></SubmitForm>;
   }
   return (
     <>
@@ -254,7 +257,7 @@ function SettleControl({ row, budgets, comptes }: { row: OrderRow; budgets: Budg
           {err && <div className="flex items-center gap-2 rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive"><AlertCircle className="h-4 w-4" /> {err}</div>}
           <div className="flex justify-end gap-2">
             <Button type="button" variant="outline" disabled={saving} onClick={() => setOpen(false)}>Annuler</Button>
-            <Button type="submit" disabled={saving || (row.needsBudget && !categoryId)}>{saving && <Loader2 className="h-4 w-4 animate-spin" />} {row.needsBudget ? "Classer et régler" : "Régler"}</Button>
+            <BoutonDecisif type="submit" disabled={saving || (row.needsBudget && !categoryId)}>{saving && <Loader2 className="h-4 w-4 animate-spin" />} {row.needsBudget ? "Classer et régler" : "Régler"}</BoutonDecisif>
           </div>
         </form>
       </Sheet>

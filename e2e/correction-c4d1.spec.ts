@@ -2,6 +2,7 @@ import { test, expect, type Page } from "@playwright/test";
 import { PrismaClient } from "@prisma/client";
 import bcrypt from "bcryptjs";
 import { E2E } from "./global-setup";
+import { cliquerDecisif } from "./decisif";
 
 /**
  * ═════════════════════════════════════════════════════════════════
@@ -104,7 +105,7 @@ test("RENVOYER — le second validateur renvoie la demande à son demandeur, ave
   // Sans motif, le geste n'est pas offert : c'est ce que le demandeur lira.
   await expect(renvoyer).toBeDisabled();
   await page.getByPlaceholder("Ex. Budget non prévu cette année.").fill(MOTIF);
-  await renvoyer.click();
+  await cliquerDecisif(renvoyer);
   await expect(page.getByText(`Renvoyée pour correction par ${P} Second validateur`)).toBeVisible({ timeout: 15_000 });
   await expect(page.getByText(`« ${MOTIF} »`)).toBeVisible();
   const r = await prisma.recruitmentRequest.findUniqueOrThrow({ where: { id: renvoiId }, select: { stage: true, returnedById: true, returnedFrom: true } });
@@ -162,7 +163,7 @@ test("ANNULER L'EMBAUCHE — les RH annulent une embauche avant sa fiche : le po
   const annuler = page.getByRole("button", { name: "Annuler l'embauche" });
   await expect(annuler).toBeDisabled();
   await page.getByPlaceholder("Motif", { exact: true }).fill(DESISTEMENT);
-  await annuler.click();
+  await cliquerDecisif(annuler);
   await expect(page.getByText(`Embauche de ${P} Candidate retenue annulée — ${DESISTEMENT}`)).toBeVisible({ timeout: 15_000 });
   const r = await prisma.recruitmentRequest.findUniqueOrThrow({ where: { id: integrationId }, select: { stage: true } });
   expect(r.stage).toBe("SOURCING");

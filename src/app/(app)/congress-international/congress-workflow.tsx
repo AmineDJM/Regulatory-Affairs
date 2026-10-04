@@ -6,6 +6,7 @@ import { Check, X, Loader2 } from "lucide-react";
 import { submitProductAnalysis, finalDecision, updateGrantedBudget } from "@/lib/actions/congress-request-actions";
 import { Button } from "@/components/ui/button";
 import { Input, Select, Textarea, Label } from "@/components/ui/input";
+import { BoutonDecisif } from "@/components/ui/bouton-decisif";
 
 type Cat = { id: string; label: string; isSub: boolean };
 type Action = (fd: FormData) => Promise<{ ok: boolean; error?: string }>;
@@ -64,10 +65,10 @@ export function ProductAnalysis({ type, id }: { type: string; id: string }) {
       )}
       {err && <p className="text-xs text-destructive">{err}</p>}
       <div className="flex gap-2">
-        <Button size="sm" variant={mode === "reject" ? "destructive" : "primary"} disabled={pending || (mode === "reject" && !notes.trim())}
+        <BoutonDecisif size="sm" variant={mode === "reject" ? "destructive" : "primary"} disabled={pending || (mode === "reject" && !notes.trim())}
           onClick={() => run(base(type, id, { decision: mode === "approve" ? "APPROVE" : "REJECT", productManagerBudget: budget, productManagerNotes: notes }), submitProductAnalysis, () => setMode(null))}>
           {pending && <Loader2 className="h-4 w-4 animate-spin" />} {mode === "reject" ? "Refuser" : "Soumettre"}
-        </Button>
+        </BoutonDecisif>
         <Button size="sm" variant="ghost" onClick={() => { setMode(null); setNotes(""); setBudget(""); }}>Annuler</Button>
       </div>
     </div>
@@ -89,9 +90,9 @@ export function EditGrantedBudget({ type, id, current }: { type: string; id: str
       <p className="text-xs text-muted-foreground">Répercuté sur la déclaration d'information médicale et l'ordre de dépense (s'ils ne sont pas déjà réglés).</p>
       {err && <p className="text-xs text-destructive">{err}</p>}
       <div className="flex gap-2">
-        <Button size="sm" disabled={pending || !(Number(amount) > 0)} onClick={() => run(base(type, id, { finalAmount: amount }), updateGrantedBudget, () => setOpen(false))}>
+        <BoutonDecisif size="sm" disabled={pending || !(Number(amount) > 0)} onClick={() => run(base(type, id, { finalAmount: amount }), updateGrantedBudget, () => setOpen(false))}>
           {pending && <Loader2 className="h-4 w-4 animate-spin" />} Enregistrer
-        </Button>
+        </BoutonDecisif>
         <Button size="sm" variant="ghost" onClick={() => setOpen(false)}>Annuler</Button>
       </div>
     </div>
@@ -145,10 +146,10 @@ export function FinalDecision({ type, id, suggestedAmount, categories = [] }: { 
       <Textarea value={note} onChange={(e) => setNote(e.target.value)} placeholder={mode === "reject" ? "Motif du refus (obligatoire)…" : "Note (optionnel)…"} className="min-h-[56px]" />
       {err && <p className="text-xs text-destructive">{err}</p>}
       <div className="flex gap-2">
-        <Button size="sm" variant={mode === "reject" ? "destructive" : "primary"} disabled={pending || (mode === "reject" && !note.trim()) || (mode === "approve" && (!amountValid || !categoryValid))}
+        <BoutonDecisif size="sm" variant={mode === "reject" ? "destructive" : "primary"} disabled={pending || (mode === "reject" && !note.trim()) || (mode === "approve" && (!amountValid || !categoryValid))}
           onClick={() => run(base(type, id, { decision: mode === "approve" ? "APPROVE" : "REJECT", note, finalAmount: amount, budgetCategoryId: category }), finalDecision, () => setMode(null))}>
           {pending && <Loader2 className="h-4 w-4 animate-spin" />} Confirmer
-        </Button>
+        </BoutonDecisif>
         <Button size="sm" variant="ghost" onClick={() => { setMode(null); setNote(""); }}>Annuler</Button>
       </div>
     </div>

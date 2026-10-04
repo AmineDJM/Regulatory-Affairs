@@ -268,14 +268,14 @@ export function RequestActions({
         <form action={(fd) => { fd.set("id", requestId); return run(fd, annulerDemandeAuSecretariat, () => setAnnuler(false)); }} className="space-y-3">
           <div className="space-y-1.5"><Label htmlFor="rq-cancel">Motif de l&apos;annulation</Label><Textarea id="rq-cancel" name="motif" rows={3} required /></div>
           {err && <p className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">{err}</p>}
-          <div className="flex justify-end gap-2"><BoutonDecisif type="button" variant="outline" onClick={() => setAnnuler(false)}>Fermer</BoutonDecisif><Button type="submit" variant="destructive" disabled={busy}>{busy && <Loader2 className="h-4 w-4 animate-spin" />} Annuler la demande</Button></div>
+          <div className="flex justify-end gap-2"><Button type="button" variant="outline" onClick={() => setAnnuler(false)}>Fermer</Button><BoutonDecisif type="submit" variant="destructive" disabled={busy}>{busy && <Loader2 className="h-4 w-4 animate-spin" />} Annuler la demande</BoutonDecisif></div>
         </form>
       </Sheet>
       <Sheet open={del} onClose={() => setDel(false)} title="Supprimer la demande" width="md">
         <form action={(fd) => { fd.set("ids", requestId); return run(fd, deleteRequests, () => { setDel(false); router.push("/demandes"); }); }} className="space-y-3">
           <p className="text-xs text-muted-foreground">La suppression est <strong>tracée</strong> (qui, quand, pourquoi). La demande est archivée et masquée des listes, mais reste consultable en corbeille.</p>
           <Field label="Motif de suppression (obligatoire)"><Textarea name="reason" required placeholder="Ex. Doublon, demande annulée par le service…" /></Field>
-          <div className="flex justify-end gap-2"><BoutonDecisif type="button" variant="outline" onClick={() => setDel(false)}>Annuler</BoutonDecisif><Button type="submit" variant="destructive" disabled={busy}>{busy && <Loader2 className="h-4 w-4 animate-spin" />} Supprimer</Button></div>
+          <div className="flex justify-end gap-2"><Button type="button" variant="outline" onClick={() => setDel(false)}>Annuler</Button><BoutonDecisif type="submit" variant="destructive" disabled={busy}>{busy && <Loader2 className="h-4 w-4 animate-spin" />} Supprimer</BoutonDecisif></div>
         </form>
       </Sheet>
     </div>

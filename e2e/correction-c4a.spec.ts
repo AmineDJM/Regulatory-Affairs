@@ -2,6 +2,7 @@ import { test, expect, type Page } from "@playwright/test";
 import { PrismaClient } from "@prisma/client";
 import bcrypt from "bcryptjs";
 import { E2E } from "./global-setup";
+import { cliquerDecisif } from "./decisif";
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
@@ -132,7 +133,7 @@ test("CONSULTING — le Directeur Général RENVOIE le contrat pour correction :
   await expect(renvoyer, "pas de renvoi sans motif : le porteur ne saurait pas quoi corriger").toBeDisabled();
   await page.getByLabel("Motif de la décision").fill(MOTIF_CON);
   await expect(renvoyer).toBeEnabled();
-  await renvoyer.click();
+  await cliquerDecisif(renvoyer);
   await expect.poll(async () => (await prisma.consultingContract.findUniqueOrThrow({ where: { id: conId } })).status, { timeout: 15_000 })
     .toBe("DRAFT");
   const c = await prisma.consultingContract.findUniqueOrThrow({ where: { id: conId } });
@@ -168,7 +169,7 @@ test("« AUTRE DEMANDE » — le Directeur Général la REFUSE : sans motif, le 
   const refuser = page.getByRole("button", { name: "Refuser" });
   await expect(refuser, "un refus sans motif ne laisse au demandeur rien sur quoi corriger").toBeDisabled();
   await page.getByLabel("Motif de la décision").fill(MOTIF_AUT);
-  await refuser.click();
+  await cliquerDecisif(refuser);
   await expect.poll(async () => (await prisma.adProOtherRequest.findUniqueOrThrow({ where: { id: autId } })).status, { timeout: 15_000 })
     .toBe("REFUSED");
 });

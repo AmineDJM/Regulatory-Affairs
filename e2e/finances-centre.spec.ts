@@ -2,6 +2,7 @@ import { test, expect, type Page } from "@playwright/test";
 import { PrismaClient } from "@prisma/client";
 import bcrypt from "bcryptjs";
 import { E2E } from "./global-setup";
+import { cliquerDecisif } from "./decisif";
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
@@ -305,7 +306,7 @@ test("PAIE : la RH envoie la paie de SON entité, avec la somme des salaires à 
   await somme.fill("215 000");
   await expect(carte).toContainText(/écart \+5[\s  ]000/);
   await capture(page, "f3-paie-carte", carte);
-  await carte.getByRole("button", { name: `Envoyer la paie au centre — ${ENTITE}` }).click();
+  await cliquerDecisif(carte.getByRole("button", { name: `Envoyer la paie au centre — ${ENTITE}` }));
   await expect(carte.getByRole("status")).toContainText(`La paie ${deMoisLu} de ${ENTITE} est envoyée au centre de paiement`, { timeout: 15_000 });
   await expect(carte).toContainText("en attente du centre de paiement", { timeout: 15_000 });
   // Un seul envoi à la fois : le bouton s'est refermé, et la carte dit pourquoi.
@@ -337,7 +338,7 @@ test("CENTRE : la paie s'autorise comme tout paiement — et le solde de trésor
   // L'origine s'ouvre : la paie de l'entité, là où se lit ce qui est saisi, envoyé, viré.
   await expect(ligne.getByRole("link", { name: /Paie/ }).last()).toHaveAttribute("href", "/rh/paie");
   await ligne.getByRole("button", { name: "Autoriser" }).click();
-  await page.getByRole("dialog").getByRole("button", { name: "Autoriser le paiement" }).click();
+  await cliquerDecisif(page.getByRole("dialog").getByRole("button", { name: "Autoriser le paiement" }));
   await expect(page.getByRole("dialog")).toHaveCount(0, { timeout: 15_000 });
 
   await aller(page, "/finances/paiements-a-faire");

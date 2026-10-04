@@ -2,6 +2,7 @@ import { test, expect, type Page } from "@playwright/test";
 import { PrismaClient } from "@prisma/client";
 import bcrypt from "bcryptjs";
 import { E2E } from "./global-setup";
+import { cliquerDecisif } from "./decisif";
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
@@ -88,7 +89,7 @@ test("LA DIRECTRICE MARKETING RENVOIE pour correction — la demande passe « À
   const envoyer = page.getByRole("button", { name: "Renvoyer au demandeur" });
   await expect(envoyer, "pas de renvoi sans motif").toBeDisabled();
   await page.getByPlaceholder("Ce que le demandeur doit corriger (obligatoire)…").fill(MOTIF);
-  await envoyer.click();
+  await cliquerDecisif(envoyer);
   await expect(page.getByText("À corriger").first()).toBeVisible();
   await expect(page.getByRole("button", { name: "Approuver" }), "plus de geste de validatrice : la demande est chez son demandeur").toHaveCount(0);
   const inst = await prisma.workflowInstance.findUniqueOrThrow({ where: { entityType_entityId: { entityType: "CONGRESS_INTERNATIONAL", entityId: congresId } } });

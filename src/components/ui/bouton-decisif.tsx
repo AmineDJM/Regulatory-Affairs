@@ -138,7 +138,7 @@ export const BoutonDecisif = React.forwardRef<HTMLButtonElement, BoutonDecisifPr
           Annuler
         </button>
       )}
-      <span className="sr-only" role="status" aria-live="polite">
+      <span className="sr-only" aria-live="polite" aria-atomic="true">
         {arme ? annonceArme(libelle, delaiMs) : ""}
       </span>
     </span>
