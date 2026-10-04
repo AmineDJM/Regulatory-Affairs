@@ -193,7 +193,9 @@ export const FILE_FINANCE_OPS_IMPL: Record<string, OpImpl> = {
       fd.set("csv", csv);
       const r = await importTransactions(undefined, fd);
       if (!r.ok) return { ok: false, error: r.error ?? "Import refusé." };
-      return { ok: true, message: "Mouvements importés." };
+      // Le bilan de l'action dit ce qui est entré et ce qui a été écarté, ligne par ligne :
+      // « Mouvements importés. » sur un relevé à moitié refusé serait un faux succès.
+      return { ok: true, message: r.message ?? "Mouvements importés." };
     },
   },
 

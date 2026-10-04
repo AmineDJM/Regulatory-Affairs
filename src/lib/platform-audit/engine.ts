@@ -2,7 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { MODULES, PERMISSIONS, can, hasGlobalView, anyRoleFilter, type Module } from "@/lib/rbac";
 import { NAVIGATION, MODULE_LABELS, ROLE_LABELS } from "@/lib/labels";
 import { validateUpload, validateDriveUpload, validateDocumentUpload } from "@/lib/storage";
-import { aiConfigured, sttConfigured, aiModel } from "@/lib/ai";
+import { aiConfigured, sttConfigured, aiModel, cleModeleRequise } from "@/lib/ai";
 import type { UserRole } from "@prisma/client";
 
 /**
@@ -180,7 +180,12 @@ function probeAi(): { probes: HealthProbe[]; findings: Finding[] } {
     { key: "stt", label: "Transcription vocale", ok: stt, value: stt ? "Active" : "Désactivée" },
   ];
   const findings: Finding[] = [];
-  if (!ai) findings.push({ severity: "warning", area: "IA", title: "IA désactivée", detail: "ANTHROPIC_API_KEY absente : chatbot, analyses et ce diagnostic (partie idées) sont indisponibles.", suggestion: "Ajouter ANTHROPIC_API_KEY dans les variables d'environnement (Render)." });
+  if (!ai) {
+    // La clé à poser suit le fournisseur ACTIF du registre (§118.128) : nommer celle d'un autre
+    // fournisseur ferait ajouter une variable qui ne change rien.
+    const cle = cleModeleRequise();
+    findings.push({ severity: "warning", area: "IA", title: "IA désactivée", detail: `${cle} absente : chatbot, analyses et ce diagnostic (partie idées) sont indisponibles.`, suggestion: `Ajouter ${cle} dans les variables d'environnement (Render).` });
+  }
   return { probes, findings };
 }
 

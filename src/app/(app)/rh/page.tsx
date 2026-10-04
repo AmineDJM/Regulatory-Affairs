@@ -103,7 +103,7 @@ export default async function RhPage() {
               hint: "Téléversez le contrat (PDF ou image) : l'OCR Mistral + l'IA extraient nom, poste, type de contrat, dates, salaire de base, NIN, CNAS… Tout reste modifiable avant l'enregistrement.",
               accept: ".pdf,.png,.jpg,.jpeg,.webp,.tif,.tiff",
               disabled: !aiConfigured(),
-              disabledHint: phraseIaNonConfiguree(cleModeleRequise(), "l'analyse automatique d'un CV"),
+              disabledHint: phraseIaNonConfiguree(cleModeleRequise(), "l'analyse automatique d'un contrat de travail"),
             }} />
         )}
       </PageHeader>

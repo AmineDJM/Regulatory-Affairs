@@ -54,6 +54,8 @@ import {
 // Assainissement partagé avec la voie Luna — défini à part pour que les deux fournisseurs
 // s'en servent sans se tirer l'un l'autre dans leur graphe d'imports.
 import { sanitizeForModel } from "./ai-text";
+// L'interrupteur général de l'écran « Contrôle de l'IA » — lu ici, AVANT tout appel (voir `IA_COUPEE`).
+import { interrupteurIaCoupe, REFUS_IA_COUPEE } from "./ai-settings";
 export { sanitizeForModel };
 
 export interface AiTextResult {
@@ -62,6 +64,29 @@ export interface AiTextResult {
   text?: string;
   error?: string;
 }
+
+/**
+ * L'INTERRUPTEUR GÉNÉRAL, LU EN PREMIER PAR CHAQUE PORTE DE CE FICHIER (audit 360°, rapport 19, F3).
+ *
+ * Ce module ne le lisait pas. Le Super Admin coupait toute l'IA depuis « Contrôle de l'IA », l'écran
+ * le lui confirmait — « Toute l'IA est coupée » —, et l'analyse d'un AO PCH, d'un contrat RH, le
+ * compte rendu de réunion, le brief du matin et dix modules réglementaires appelaient le modèle
+ * quand même. Chaque porte d'ici qui parle à un fournisseur lit désormais l'interrupteur AVANT la
+ * clé et AVANT la passerelle : coupé, aucun appel ne part, aucun jeton n'est compté, rien n'est
+ * journalisé.
+ *
+ * LA FORME RENDUE est l'échec que les appelants traitent déjà — `ok: false`, la phrase dans `error` —
+ * avec `configured: true`. `configured: false` veut dire « la clé manque » partout dans ce dépôt, et
+ * des écrans y répondent en renvoyant vers les variables d'environnement (la synthèse des processus
+ * affiche alors « la clé du fournisseur … est absente », icône de clé à l'appui). Ce serait un remède
+ * FAUX — la clé est là, c'est l'interrupteur qui est coupé —, et un remède faux coûte plus qu'aucun
+ * (§118.128).
+ *
+ * Effet en production, dit d'avance : si la ligne enregistrée porte déjà l'interrupteur coupé, ces
+ * analyses s'ARRÊTENT au déploiement. C'est l'interrupteur qui fait ce que l'écran annonce ; le
+ * remède est de le rallumer, sur ce même écran.
+ */
+const IA_COUPEE = { ok: false, configured: true, error: REFUS_IA_COUPEE } as const;
 
 /**
  * LES DEUX PALIERS, exprimés en RÔLES du registre — pas en noms de modèles.
@@ -160,6 +185,9 @@ interface AskOptions {
  * protègent pas de la même chose et aucune ne coûte assez pour qu'on choisisse.
  */
 async function demander(role: ModelRole, prompt: string, opts: AskOptions): Promise<AiTextResult> {
+  // L'interrupteur AVANT la clé : coupé, la réponse vraie est « coupé », même sans clé — rallumé,
+  // la personne apprendra ensuite ce qui manque encore. Jamais l'inverse.
+  if (await interrupteurIaCoupe()) return { ...IA_COUPEE };
   if (!roleConfigured(role)) {
     const cle = bindingFor(role).provider === "anthropic" ? "ANTHROPIC_API_KEY" : "OPENAI_API_KEY";
     return { ok: false, configured: false, error: `Clé ${cle} non configurée.` };
@@ -213,6 +241,13 @@ export interface AiHealthResult {
  * Il demande huit jetons sur le rôle `bulk` : un diagnostic ne se fait pas sur le modèle cher. Le
  * plancher du fournisseur (16 chez OpenAI, `PLANCHER_SORTIE_RESPONSES`) s'applique dans
  * l'adaptateur — c'est lui qui transformait ce ping en 400, donc en fausse panne (§118.153).
+ *
+ * LA SEULE PORTE DE CE FICHIER QUI NE LIT PAS L'INTERRUPTEUR GÉNÉRAL — exprès. La sonde envoie le
+ * mot « ping » et rien d'autre : aucun document, aucune donnée. La couper sous l'interrupteur ferait
+ * échouer le test quotidien (`ai-health.ts`), qui alerterait alors les Super Admins « Chatbot IA
+ * indisponible » chaque jour où l'IA est coupée VOLONTAIREMENT — une fausse panne de plus — et
+ * ôterait à l'administrateur le bouton « Tester maintenant », c'est-à-dire le moyen de vérifier la
+ * clé AVANT de rallumer.
  */
 export async function aiSelfTest(): Promise<AiHealthResult> {
   const { model, provider } = bindingFor(ROLE_ECO);
@@ -256,6 +291,8 @@ type CallOptions = Omit<CompatOptions, "role">;
 
 /** Appel avec outils et historique multi-tours. Serveur uniquement. */
 export async function callClaude(messages: MessageClaude[], opts: CallOptions = {}): Promise<ResultatClaude> {
+  // Même porte que `demander` : la boucle agent du dossier Regulatory passe par ici.
+  if (await interrupteurIaCoupe()) return { ...IA_COUPEE };
   return appelPasserelle(messages, { ...opts, role: ROLE_QUALITE });
 }
 
@@ -265,6 +302,8 @@ export async function callClaudeStream(
   onText: (chunk: string) => void,
   opts: CallOptions = {},
 ): Promise<ResultatClaude> {
+  // Coupé : `onText` n'est jamais appelé — aucun fragment ne s'écrit à l'écran comme s'il venait du modèle.
+  if (await interrupteurIaCoupe()) return { ...IA_COUPEE };
   return fluxPasserelle(messages, onText, { ...opts, role: ROLE_QUALITE });
 }
 
@@ -284,6 +323,10 @@ export interface TranscriptionResult {
 /** Transcrit un audio en texte via l'API OpenAI Whisper (français). Serveur uniquement.
  *  Réessaie sur 429/5xx (limite de débit transitoire) ; message clair si quota dépassé. */
 export async function transcribeAudio(buffer: Buffer, filename: string, mime: string): Promise<TranscriptionResult> {
+  // Un enregistrement envoyé à Whisper est un appel d'IA comme un autre : l'interrupteur d'abord.
+  // Les trois routes qui appellent cette fonction lisent déjà leur bascule ; la porte d'ici tient
+  // pour celle qu'on ajoutera demain sans y penser.
+  if (await interrupteurIaCoupe()) return { ...IA_COUPEE };
   const key = process.env.OPENAI_API_KEY;
   if (!key) return { ok: false, configured: false, error: "Clé OPENAI_API_KEY non configurée." };
   const base = process.env.OPENAI_BASE_URL ?? "https://api.openai.com/v1";
@@ -389,7 +432,7 @@ function extractJson(text: string): FieldReportExtraction | null {
 
 /** Analyse une transcription en champs structurés (Claude). */
 export async function analyzeFieldReport(transcript: string): Promise<FieldAnalysisResult> {
-  if (!aiConfigured()) return { ok: false, configured: false, error: "Clé ANTHROPIC_API_KEY non configurée." };
+  if (!aiConfigured()) return { ok: false, configured: false, error: `Clé ${cleModeleRequise()} non configurée.` };
   // Extraction structurée mécanique → palier ÉCO (schéma Zod + ancrage en aval = sûr).
   const r = await askClaudeCheap(`Transcription :\n"""${transcript.slice(0, 8000)}"""\n\nRenvoie le JSON structuré.`, {
     system: FIELD_REPORT_SYSTEM,
@@ -433,7 +476,7 @@ export interface MeetingSummaryResult {
 
 /** Produit un compte rendu + des tâches proposées à partir d'une transcription de réunion. */
 export async function summarizeMeetingTranscript(transcript: string): Promise<MeetingSummaryResult> {
-  if (!aiConfigured()) return { ok: false, configured: false, error: "Clé ANTHROPIC_API_KEY non configurée." };
+  if (!aiConfigured()) return { ok: false, configured: false, error: `Clé ${cleModeleRequise()} non configurée.` };
   const clean = transcript.trim();
   if (!clean) return { ok: false, configured: true, error: "Transcription vide." };
   // Résumé + tâches d'une réunion = tâche mécanique → palier ÉCO.

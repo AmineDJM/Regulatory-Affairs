@@ -411,7 +411,7 @@ suite("Matériel promotionnel — circuit 2 de bout en bout", () => {
     const a = await enregistrerDevisPromo(fd);
     expect(a.ok, a.ok ? "" : a.error).toBe(true);
     const fdB = form({
-      promoMaterialId: pmId, supplierId: fourB, reference: "S-114", tvaRate: "19", extraTaxLabel: "Taxe Pub", extraTaxRate: "2",
+      promoMaterialId: pmId, supplierId: fourB, reference: "S-114", tvaRate: "19", extraTaxLabel: "Taxe Pub", extraTaxRate: "2", announcedTotal: "300000",
       ligneReference: ["Stand modulaire 3×3"], ligneQuantite: ["1"], lignePrix: ["300000"], ligneAction: ["FABRICATION"],
     });
     fdB.set("scan", pdf("devis-sahel.pdf"));
@@ -706,7 +706,7 @@ suite("Matériel promotionnel — circuit 2 de bout en bout", () => {
     const r0 = await demanderDevisPromo(form({ promoMaterialId: kamPmId }));
     expect(r0.ok, r0.ok ? "" : r0.error).toBe(true);
     ACTOR = await actorFor(u.asst);
-    const fd = form({ promoMaterialId: kamPmId, supplierId: fourA, ligneReference: ["Carnet A5"], ligneQuantite: ["500"], lignePrix: ["120"], ligneAction: ["IMPRESSION"] });
+    const fd = form({ promoMaterialId: kamPmId, supplierId: fourA, announcedTotal: "60000", ligneReference: ["Carnet A5"], ligneQuantite: ["500"], lignePrix: ["120"], ligneAction: ["IMPRESSION"] });
     fd.set("scan", pdf("devis.pdf"));
     expect((await enregistrerDevisPromo(fd)).ok).toBe(true);
     expect((await terminerRetranscriptionPromo(form({ promoMaterialId: kamPmId }))).ok).toBe(true);
@@ -735,7 +735,7 @@ suite("Matériel promotionnel — circuit 2 de bout en bout", () => {
   it("REFUSER : le demandeur n'arrête pas son propre dossier par un refus (il l'annule) ; la Direction Marketing refuse, motif obligatoire, et le refus arrête le circuit", async () => {
     ACTOR = await actorFor(u.asst);
     const ligne = await prisma.promoQuoteLine.findFirstOrThrow({ where: { quote: { promoMaterialId: kamPmId } }, include: { quote: true } });
-    const fix = form({ promoMaterialId: kamPmId, quoteId: ligne.quoteId, supplierId: fourA, ligneReference: ["Carnet A5"], ligneQuantite: ["500"], lignePrix: ["12"], ligneAction: ["IMPRESSION"] });
+    const fix = form({ promoMaterialId: kamPmId, quoteId: ligne.quoteId, supplierId: fourA, announcedTotal: "6000", ligneReference: ["Carnet A5"], ligneQuantite: ["500"], lignePrix: ["12"], ligneAction: ["IMPRESSION"] });
     expect((await enregistrerDevisPromo(fix)).ok).toBe(true);
     expect((await terminerRetranscriptionPromo(form({ promoMaterialId: kamPmId }))).ok).toBe(true);
     ACTOR = await actorFor(u.kam);

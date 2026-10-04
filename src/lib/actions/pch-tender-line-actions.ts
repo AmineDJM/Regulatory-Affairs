@@ -9,7 +9,8 @@ import { recordAudit } from "@/lib/audit";
 import { fdStr, fdNum, type ActionResult } from "@/lib/actions/types";
 import { unitFromBoxPrice } from "@/lib/pch/box-economics";
 import { allocationChange, allocationSummary, portfolioName } from "@/lib/pch/bu-allocation";
-import { askClaude, aiConfigured } from "@/lib/ai";
+import { askClaude, aiConfigured, cleModeleRequise } from "@/lib/ai";
+import { phraseIaNonConfiguree } from "@/lib/ia/cle-manquante";
 import { getRecommendations, normText, queryTokens, allTokensIn, type RecRow } from "@/lib/market/engine";
 import { pchReceptionPrice, nomenclatureMatch } from "@/lib/market/pch-lookup";
 import { analyzeMolecule, canonicalForm, type MoleculeAnalysis } from "@/lib/market/molecule";
@@ -268,7 +269,9 @@ async function extractAndSaveLines(tenderId: string, text: string, userId: strin
 export async function analyzeTenderText(formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
   if (!userCan(user, MODULE, "UPDATE")) return { ok: false, error: "Non autorisé." };
-  if (!aiConfigured()) return { ok: false, error: "IA non configurée : ajoutez la clé ANTHROPIC_API_KEY (Render)." };
+  // Le nom de la clé se lit dans le registre (§118.128) : un refus qui nomme la mauvaise clé fait
+  // poser une variable qui ne change rien.
+  if (!aiConfigured()) return { ok: false, error: phraseIaNonConfiguree(cleModeleRequise(), "l'analyse automatique d'un appel d'offres") };
   const tenderId = fdStr(formData, "tenderId");
   const text = fdStr(formData, "text");
   if (!tenderId || !(await peutAgirSurLeMarche(user, tenderId, "UPDATE"))) return { ok: false, error: "Appel d'offres introuvable." };
@@ -280,7 +283,7 @@ export async function analyzeTenderText(formData: FormData): Promise<ActionResul
 export async function analyzeTenderDocument(formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
   if (!userCan(user, MODULE, "UPDATE")) return { ok: false, error: "Non autorisé." };
-  if (!aiConfigured()) return { ok: false, error: "IA non configurée : ajoutez la clé ANTHROPIC_API_KEY (Render)." };
+  if (!aiConfigured()) return { ok: false, error: phraseIaNonConfiguree(cleModeleRequise(), "l'analyse automatique d'un appel d'offres") };
   const tenderId = fdStr(formData, "tenderId");
   const file = formData.get("file");
   if (!tenderId || !(await peutAgirSurLeMarche(user, tenderId, "UPDATE"))) return { ok: false, error: "Appel d'offres introuvable." };

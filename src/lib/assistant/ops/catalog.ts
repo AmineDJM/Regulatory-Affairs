@@ -3616,7 +3616,7 @@ export const OPS_CATALOG: OpMeta[] = [
     uiLabel: "Retranscription des devis terminée",
     aliases: ["la retranscription des devis est terminée", "les devis sont retranscrits, au demandeur de choisir"],
     risk: "NORMAL",
-    summary: "Circuit 2 — l'assistante déclare la retranscription terminée : refusé tant qu'un devis manque de fournisseur, de scan ou de lignes, ou que ses lignes ne retombent pas sur le total imprimé. Le demandeur choisit ensuite ses lignes.",
+    summary: "Circuit 2 — l'assistante déclare la retranscription terminée : refusé tant qu'un devis manque de fournisseur, de scan, de lignes ou de total imprimé, ou que ses lignes ne retombent pas sur ce total. Le demandeur choisit ensuite ses lignes.",
     gate: () => true,
     gateNote: "assistante de direction (revérifié par l'action)",
     covers: ["promo-devis-actions:terminerRetranscriptionPromo"],

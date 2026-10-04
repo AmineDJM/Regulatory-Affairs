@@ -375,7 +375,7 @@ suite("Matériel promotionnel — achats piochés dans le catalogue, facture lig
     expect(refus.ok ? "" : refus.error).toMatch(/pas demandé sur ce dossier/);
 
     const fdA = form({
-      promoMaterialId: pmId, supplierId: agence, reference: "AC-2026-09", tvaRate: "19",
+      promoMaterialId: pmId, supplierId: agence, reference: "AC-2026-09", tvaRate: "19", announcedTotal: "350000",
       ligneReference: ["Conception fiche posologique Nivolex", "Conception e-ADV Nivolex"], ligneUnite: ["forfait", "forfait"],
       ligneQuantite: ["1", "1"], lignePrix: ["150000", "200000"], ligneAction: ["CONCEPTION", "CONCEPTION"], ligneArticle: [art.fiche, art.eadv],
     });
@@ -384,7 +384,7 @@ suite("Matériel promotionnel — achats piochés dans le catalogue, facture lig
     expect(a.ok, a.ok ? "" : a.error).toBe(true);
     quoteA = a.id!;
     const fdB = form({
-      promoMaterialId: pmId, supplierId: imprimerie, reference: "IA-114", tvaRate: "19",
+      promoMaterialId: pmId, supplierId: imprimerie, reference: "IA-114", tvaRate: "19", announcedTotal: "170000",
       ligneReference: ["Fiche posologique Nivolex", "Stylo logo", "Bloc-notes logo"], ligneUnite: ["pièce", "pièce", "pièce"],
       ligneQuantite: ["5000", "1000", "200"], lignePrix: ["20", "50", "100"], ligneAction: ["IMPRESSION", "ACHAT", "IMPRESSION"],
       ligneArticle: [art.fiche, art.stylo, ""],

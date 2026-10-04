@@ -11,11 +11,13 @@ import { notifyUser, notifyRoles } from "@/lib/notify";
 import { hasGlobalView, type SessionUser } from "@/lib/rbac";
 import { buildRef, createWithRetry } from "@/lib/refs";
 import { persistUploadedDocument } from "@/lib/documents";
+import { deleteFileByKey } from "@/lib/storage";
+import { mirrorDocumentsToDrive } from "@/lib/drive/document-mirror";
 import { resolveParties } from "@/lib/queries/company-contacts";
 import { fdStr, fdNum, fdDate, type ActionResult } from "@/lib/actions/types";
-import { manquesDeRetranscription, totauxDeLaSelection, formatDzd } from "@/lib/promo-material/devis";
+import { manquesDeRetranscription, totauxDeLaSelection, formatDzd, type DevisLu } from "@/lib/promo-material/devis";
 import { demandeLesDevis, retranscritLesDevis, choisitLesLignes } from "@/lib/promo-material/circuit";
-import { devisDuDossier, devisLu } from "@/lib/queries/promo-circuit";
+import { devisDuDossier, devisLu, SELECT_DEVIS } from "@/lib/queries/promo-circuit";
 import { validatePromoStep } from "@/lib/actions/promo-circuit-actions";
 import { ecrireAuFil } from "@/lib/ad-pro/fil";
 import { rouvrirDemandeAuSecretariat } from "@/lib/promo-material/demande-secretariat";
@@ -79,6 +81,47 @@ function refusVersion(pm: Dossier): string | null {
 
 async function audit(user: SessionUser, id: string, summary: string) {
   await recordAudit({ actorId: user.id, action: "UPDATE", module: "Matériel promotionnel", entityType: "PROMO_MATERIAL", entityId: id, summary });
+}
+
+/**
+ * LE REFUS D'UNE ÉCRITURE QUI A PERDU LA COURSE — levé DANS la transaction pour l'annuler entière,
+ * rattrapé à sa sortie pour devenir une phrase. Une exception ordinaire partirait en erreur
+ * technique : la personne croirait le produit cassé, alors que le dossier a simplement avancé
+ * pendant qu'elle saisissait.
+ */
+class RefusDevis extends Error {}
+
+/** La phrase de toute écriture qui trouve le dossier passé à une autre étape entre sa lecture et son écriture. */
+const ETAPE_CHANGEE = "Ce dossier vient de changer d'étape — rechargez la fiche.";
+/** Le devis visé a disparu entre la lecture et l'écriture (retiré dans un autre onglet, par une autre assistante). */
+const DEVIS_RETIRE = "Ce devis vient d'être retiré du dossier — rechargez la fiche.";
+
+/**
+ * LE SCAN D'UN DEVIS QUI N'A PAS ÉTÉ ÉCRIT — retiré des pièces du dossier ; `false` si ce n'a pas
+ * été possible, et c'est alors la phrase du refus qui le dit.
+ *
+ * Le scan s'enregistre AVANT la transaction (une pièce qui échoue ne laisse pas un devis qui prétend
+ * l'avoir). Si l'écriture perd ensuite la course, la pièce resterait au dossier sans aucun devis qui
+ * la désigne : un fichier que personne ne retrouve à sa place, et que la seconde tentative, après
+ * rechargement, doublerait. On retire la ligne ET le binaire — `deleteFileByKey` libère la référence
+ * du blob dédupliqué : retirer la ligne seule laisserait l'octet compté pour toujours (§118.159). Le
+ * miroir Drive, lui, n'existe pas encore : il ne part qu'une fois le devis écrit.
+ */
+async function retirerScanOrphelin(userId: string, pmId: string, documentId: string): Promise<boolean> {
+  try {
+    const doc = await prisma.document.findUnique({ where: { id: documentId }, select: { name: true, fileKey: true } });
+    if (!doc) return true;
+    await prisma.document.delete({ where: { id: documentId } });
+    if (doc.fileKey) await deleteFileByKey(doc.fileKey);
+    await recordAudit({
+      actorId: userId, action: "DELETE", module: "Matériel promotionnel", entityType: "PROMO_MATERIAL", entityId: pmId,
+      summary: `Document « ${doc.name} » retiré : le devis qu'il accompagnait n'a pas été enregistré`,
+    }).catch(() => undefined);
+    return true;
+  } catch (err) {
+    console.error("[devis promo] scan orphelin non retiré", documentId, err);
+    return false;
+  }
 }
 
 /** La référence d'une demande au secrétariat — la même série que les demandes de devis des postes. */
@@ -256,6 +299,10 @@ function lireLignes(formData: FormData): { ok: true; lignes: LigneLue[] } | { ok
  * identifiant venu d'un champ caché ne se croit pas sur parole). Les lignes sont REMPLACÉES en
  * bloc, dans une transaction : une correction partielle laisserait un devis à moitié ancien.
  * Le scan, s'il est joint, devient une pièce du dossier et le devis la désigne.
+ *
+ * L'étape lue en haut ne se croit pas jusqu'à l'écriture : la transaction commence par une écriture
+ * CONDITIONNELLE sur « devis demandés », et un geste qui a perdu la course ne laisse rien derrière
+ * lui — pas même le scan qu'il venait de déposer.
  */
 export async function enregistrerDevisPromo(formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
@@ -270,7 +317,7 @@ export async function enregistrerDevisPromo(formData: FormData): Promise<ActionR
 
   const quoteId = fdStr(formData, "quoteId");
   const existant = quoteId
-    ? await prisma.promoQuote.findFirst({ where: { id: quoteId, promoMaterialId: pm.id }, select: { id: true, documentId: true, supplierId: true, supplierName: true } })
+    ? await prisma.promoQuote.findFirst({ where: { id: quoteId, promoMaterialId: pm.id }, select: { id: true, supplierId: true, supplierName: true } })
     : null;
   if (quoteId && !existant) return { ok: false, error: "Ce devis n'appartient pas à ce dossier." };
 
@@ -298,16 +345,18 @@ export async function enregistrerDevisPromo(formData: FormData): Promise<ActionR
   if (announcedTotal != null && !(announcedTotal >= 0)) return { ok: false, error: "Le total annoncé sur le devis doit être un montant positif." };
 
   // LE SCAN — enregistré AVANT d'écrire le devis : une pièce qui échoue ne laisse pas un devis
-  // qui prétend l'avoir.
-  let documentId = existant?.documentId ?? null;
+  // qui prétend l'avoir. Son MIROIR DRIVE attend, lui, que le devis soit écrit (plus bas) : parti
+  // ici, il laisserait une copie dans le Drive d'un devis que la course a refusé.
   const scan = formData.get("scan");
+  let scanDepose: { id: string; nom: string; contenu: Buffer; mime: string | null } | null = null;
   if (scan instanceof File && scan.size > 0) {
+    const contenu = Buffer.from(await scan.arrayBuffer());
     const r = await persistUploadedDocument(user.id, {
       entityType: "PROMO_MATERIAL", entityId: pm.id, category: "QUOTE", confidentiality: "INTERNAL",
-      stepKey: "devis", file: scan,
+      stepKey: "devis", file: scan, buffer: contenu, mirrorToDrive: false,
     });
     if (!r.ok || !r.documentId) return { ok: false, error: `Scan « ${scan.name} » : ${r.error ?? "téléversement impossible"}` };
-    documentId = r.documentId;
+    scanDepose = { id: r.documentId, nom: scan.name, contenu, mime: scan.type || null };
   }
 
   const donnees = {
@@ -317,24 +366,71 @@ export async function enregistrerDevisPromo(formData: FormData): Promise<ActionR
     tvaRate: new Prisma.Decimal(tvaRate),
     extraTaxLabel, extraTaxRate: extraTaxRate != null ? new Prisma.Decimal(extraTaxRate) : null,
     announcedTotal: announcedTotal != null ? new Prisma.Decimal(announcedTotal) : null,
-    documentId, note: fdStr(formData, "note"),
+    note: fdStr(formData, "note"),
   };
   const lignes = lues.lignes.map((l, i) => ({
     position: i, reference: l.reference, unit: l.unit,
     quantity: new Prisma.Decimal(l.quantity), unitPrice: new Prisma.Decimal(l.unitPrice),
     action: l.action, requestItemId: l.requestItemId,
   }));
-  const devis = await prisma.$transaction(async (tx) => {
-    if (existant) {
-      await tx.promoQuoteLine.deleteMany({ where: { quoteId: existant.id } });
-      return tx.promoQuote.update({ where: { id: existant.id }, data: { ...donnees, lines: { create: lignes } }, select: { id: true } });
-    }
-    const rang = await tx.promoQuote.count({ where: { promoMaterialId: pm.id } });
-    return tx.promoQuote.create({
-      data: { ...donnees, promoMaterialId: pm.id, position: rang, createdById: user.id, lines: { create: lignes } },
-      select: { id: true },
+  let devis: { id: string };
+  try {
+    devis = await prisma.$transaction(async (tx) => {
+      // LA RETRANSCRIPTION EST-ELLE ENCORE OUVERTE ? La PREMIÈRE écriture, conditionnelle sur l'étape.
+      // La lecture du haut a pu précéder — scan compris, qui prend du temps — la fin de la retranscription,
+      // le choix du demandeur ou une annulation : sans cette condition, une correction tardive recréait
+      // les lignes avec `selected = false` (le choix du demandeur effacé sans qu'il le sache), ou écrivait
+      // des prix dans un dossier validé ou annulé, et la génération des BC manquait le fournisseur sans un
+      // mot. Le verrou de LIGNE qu'elle prend fait aussi passer une à une les écritures de ce dossier : le
+      // rang d'un devis neuf, et les relectures ci-dessous, ne voient plus d'écriture croisée.
+      const encoreOuverte = await tx.promoMaterial.updateMany({
+        where: { id: pm.id, circuitVersion: 2, circuitState: "QUOTE_REQUESTED" },
+        data: { updatedById: user.id },
+      });
+      if (encoreOuverte.count === 0) throw new RefusDevis(ETAPE_CHANGEE);
+      // UN ARTICLE RETIRÉ ENTRE-TEMPS : le demandeur peut retirer un article pendant la retranscription
+      // (§118.190), et son retrait prend le même verrou. Relu ici, il se dit ; écrit sans relecture, la
+      // ligne visait un article disparu et la base refusait l'écriture en erreur technique.
+      if (rattaches.length) {
+        const encore = await tx.promoRequestItem.count({ where: { id: { in: rattaches }, promoMaterialId: pm.id } });
+        if (encore !== rattaches.length) throw new RefusDevis("Un article demandé auquel une ligne est rattachée vient d'être retiré du dossier — rechargez la fiche.");
+      }
+      if (existant) {
+        if ((await tx.promoQuote.count({ where: { id: existant.id, promoMaterialId: pm.id } })) === 0) throw new RefusDevis(DEVIS_RETIRE);
+        await tx.promoQuoteLine.deleteMany({ where: { quoteId: existant.id } });
+        // Sans scan joint, la pièce du devis n'est PAS réécrite : la valeur lue en haut a pu être
+        // remplacée entre-temps par une autre correction, et la réécrire détacherait son scan (§118.152c).
+        return tx.promoQuote.update({
+          where: { id: existant.id },
+          data: { ...donnees, ...(scanDepose ? { documentId: scanDepose.id } : {}), lines: { create: lignes } },
+          select: { id: true },
+        });
+      }
+      const rang = await tx.promoQuote.count({ where: { promoMaterialId: pm.id } });
+      return tx.promoQuote.create({
+        data: { ...donnees, documentId: scanDepose?.id ?? null, promoMaterialId: pm.id, position: rang, createdById: user.id, lines: { create: lignes } },
+        select: { id: true },
+      });
     });
-  });
+  } catch (e) {
+    // LA COMPENSATION : rien n'a été écrit, la pièce qu'on vient de déposer ne reste pas seule au dossier.
+    const retire = scanDepose ? await retirerScanOrphelin(user.id, pm.id, scanDepose.id) : true;
+    if (e instanceof RefusDevis) {
+      if (!scanDepose) return { ok: false, error: e.message };
+      return {
+        ok: false,
+        error: retire
+          ? `${e.message} Rien n'a été enregistré, pas même le scan joint.`
+          : `${e.message} Le devis n'a pas été enregistré, mais le scan joint (« ${scanDepose.nom} ») est resté dans les pièces du dossier : retirez-le.`,
+      };
+    }
+    throw e;
+  }
+  if (scanDepose) {
+    const s = scanDepose;
+    void mirrorDocumentsToDrive({ ownerId: user.id, entityType: "PROMO_MATERIAL", entityId: pm.id, files: [{ name: s.nom, data: s.contenu, mime: s.mime }] })
+      .catch((e) => console.error("[devis promo] miroir Drive échoué (non bloquant)", e));
+  }
   await audit(user, pm.id, `Devis ${existant ? "corrigé" : "retranscrit"} — ${parties.text}${donnees.reference ? ` n° ${donnees.reference}` : ""} (${lignes.length} ligne${lignes.length > 1 ? "s" : ""})`);
   revalidatePath(chemin(pm.id));
   return { ok: true, id: devis.id, message: `Devis de ${parties.text} ${existant ? "corrigé" : "enregistré"} (${lignes.length} ligne${lignes.length > 1 ? "s" : ""}).` };
@@ -352,7 +448,25 @@ export async function supprimerDevisPromo(formData: FormData): Promise<ActionRes
   const quoteId = fdStr(formData, "quoteId");
   const devis = quoteId ? await prisma.promoQuote.findFirst({ where: { id: quoteId, promoMaterialId: pm.id }, select: { id: true, supplierName: true } }) : null;
   if (!devis) return { ok: false, error: "Ce devis n'appartient pas à ce dossier." };
-  await prisma.promoQuote.delete({ where: { id: devis.id } });
+  try {
+    await prisma.$transaction(async (tx) => {
+      // CONDITIONNELLE SUR L'ÉTAPE, comme la retranscription : un devis retiré après la fin de la
+      // retranscription disparaissait sous les yeux du demandeur qui choisissait ses lignes — ou d'un
+      // dossier annulé, validé —, et le choix déjà fait perdait ses lignes sans que personne l'ait vu.
+      const retirable = await tx.promoMaterial.updateMany({
+        where: { id: pm.id, circuitVersion: 2, circuitState: "QUOTE_REQUESTED" },
+        data: { updatedById: user.id },
+      });
+      if (retirable.count === 0) throw new RefusDevis(ETAPE_CHANGEE);
+      // Retiré par un second clic, dans un autre onglet : le premier l'a déjà emporté — on le dit au lieu
+      // d'échouer en erreur technique sur une ligne qui n'existe plus.
+      const retire = await tx.promoQuote.deleteMany({ where: { id: devis.id, promoMaterialId: pm.id } });
+      if (retire.count === 0) throw new RefusDevis(DEVIS_RETIRE);
+    });
+  } catch (e) {
+    if (e instanceof RefusDevis) return { ok: false, error: e.message };
+    throw e;
+  }
   await audit(user, pm.id, `Devis retiré — ${devis.supplierName}`);
   revalidatePath(chemin(pm.id));
   return { ok: true, message: `Devis de ${devis.supplierName} retiré (son scan reste dans les pièces du dossier).` };
@@ -361,9 +475,9 @@ export async function supprimerDevisPromo(formData: FormData): Promise<ActionRes
 /**
  * LA RETRANSCRIPTION EST TERMINÉE — au demandeur de choisir.
  *
- * Refusée tant qu'un devis manque de fournisseur, de scan ou de lignes, ou que ses lignes ne
- * tombent pas sur le total imprimé : tout ce qui manque est dit en UNE fois (§118.18). La demande
- * au secrétariat passe « terminée » — c'est ce que l'assistante devait faire.
+ * Refusée tant qu'un devis manque de fournisseur, de scan, de total imprimé ou de lignes, ou que ses
+ * lignes ne tombent pas sur le total imprimé : tout ce qui manque est dit en UNE fois (§118.18). La
+ * demande au secrétariat passe « terminée » — c'est ce que l'assistante devait faire.
  */
 export async function terminerRetranscriptionPromo(formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
@@ -374,15 +488,34 @@ export async function terminerRetranscriptionPromo(formData: FormData): Promise<
   if (!retranscrit(user, pm)) return { ok: false, error: "La retranscription des devis revient à l'assistante de direction." };
   if (pm.circuitState !== "QUOTE_REQUESTED") return { ok: false, error: "Ce dossier n'attend pas de retranscription." };
 
-  const devis = (await devisDuDossier(pm.id)).map(devisLu);
-  const manques = manquesDeRetranscription(devis);
-  if (manques.length > 0) return { ok: false, error: `Retranscription incomplète : ${manques.join(" ; ")}.` };
-
-  const bascule = await prisma.promoMaterial.updateMany({
-    where: { id: pm.id, circuitState: "QUOTE_REQUESTED" },
-    data: { circuitState: "REVIEW_REQUESTER", updatedById: user.id },
-  });
-  if (bascule.count === 0) return { ok: false, error: "Ce dossier vient de changer d'étape." };
+  let devis: DevisLu[];
+  try {
+    devis = await prisma.$transaction(async (tx) => {
+      // LE VERROU D'ABORD, LES DEVIS ENSUITE. Lus avant le verrou, les devis pouvaient être corrigés
+      // entre le contrôle et la bascule : la fin était déclarée sur des devis qu'elle n'avait pas
+      // contrôlés — un écart avec le total imprimé passait au choix du demandeur, puis au BC. Toute
+      // écriture d'un devis prend ce même verrou en premier (`enregistrerDevisPromo`,
+      // `supprimerDevisPromo`) : une correction en cours finit avant notre lecture, une correction
+      // suivante attend notre bascule — puis la trouve et se refuse.
+      // L'ÉTAPE est relue SOUS le verrou, avant les devis — l'état d'abord, le motif ensuite (§118.18) :
+      // un dossier annulé pendant qu'on attendait ne se fait pas répondre « retranscription incomplète »,
+      // et ne repasse surtout pas au choix du demandeur.
+      const [etat] = await tx.$queryRaw<{ circuitState: string | null; circuitVersion: number }[]>`
+        SELECT "circuitState", "circuitVersion" FROM "PromoMaterial" WHERE id = ${pm.id} FOR UPDATE`;
+      if (!etat || etat.circuitVersion !== 2 || etat.circuitState !== "QUOTE_REQUESTED") throw new RefusDevis(ETAPE_CHANGEE);
+      const lus = (await tx.promoQuote.findMany({
+        where: { promoMaterialId: pm.id }, orderBy: [{ position: "asc" }, { createdAt: "asc" }], select: SELECT_DEVIS,
+      })).map(devisLu);
+      const manques = manquesDeRetranscription(lus);
+      if (manques.length > 0) throw new RefusDevis(`Retranscription incomplète : ${manques.join(" ; ")}.`);
+      // L'étape vient d'être lue sous le verrou : l'écriture ne peut plus la perdre.
+      await tx.promoMaterial.update({ where: { id: pm.id }, data: { circuitState: "REVIEW_REQUESTER", updatedById: user.id } });
+      return lus;
+    });
+  } catch (e) {
+    if (e instanceof RefusDevis) return { ok: false, error: e.message };
+    throw e;
+  }
   const demande = await prisma.promoMaterial.findUnique({ where: { id: pm.id }, select: { adminRequestId: true } });
   if (demande?.adminRequestId) {
     await prisma.administrativeRequest.update({ where: { id: demande.adminRequestId }, data: { status: "DONE" } }).catch(() => undefined);

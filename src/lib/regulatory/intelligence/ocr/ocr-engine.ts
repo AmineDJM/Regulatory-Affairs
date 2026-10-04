@@ -6,6 +6,8 @@ export { rasterizePdfStream } from "@/lib/storage/raster";
 import { ensureLangData, ocrCacheDir, defaultOcrLangs } from "./lang-data";
 import { mistralOcrConfigured, mistralOcrDocument, mistralOcrEligible } from "./mistral-ocr";
 import { applyAiRescue, type RescueContext } from "./vision-ocr";
+// L'interrupteur général de l'IA (« Contrôle de l'IA ») — voir `ocrDocument`.
+import { interrupteurIaCoupe } from "@/lib/ai-settings";
 
 /**
  * MOTEUR OCR (G13) — deux moteurs, contrat commun (`OcrResult`) :
@@ -18,6 +20,9 @@ import { applyAiRescue, type RescueContext } from "./vision-ocr";
  * automatique sur Tesseract en cas d'échec Mistral), "mistral" (forcé, pas de repli), "tesseract"
  * (forcé local). Le texte OCR est stocké SÉPARÉMENT du texte natif (méthode = "ocr"). Les pages de
  * faible confiance sont signalées pour REVUE HUMAINE (jamais présumées correctes).
+ *
+ * Interrupteur général de l'IA coupé (Administration › Contrôle de l'IA) : Tesseract seul, quel
+ * que soit `REG_OCR_ENGINE`, et pas de secours vision — aucun document ne quitte le serveur.
  */
 
 export interface OcrPage {
@@ -140,7 +145,29 @@ export async function ocrDocument(input: { ext: string; buffer: Buffer; langs?: 
   if (!canOcr(ext)) throw new Error(`OCR non supporté pour « ${ext} ».`);
 
   const engine = (process.env.REG_OCR_ENGINE ?? "auto").trim().toLowerCase();
-  const mistralUsable = engine !== "tesseract" && mistralOcrConfigured();
+  const mistralConfigure = engine !== "tesseract" && mistralOcrConfigured();
+  /**
+   * L'INTERRUPTEUR GÉNÉRAL DE L'IA COUPE LE CLOUD, PAS LA LECTURE (audit 360°, rapport 19, F3).
+   *
+   * Interrupteur coupé, l'écran promet « Toute l'IA est coupée » ; ce moteur envoyait pourtant
+   * chaque scan à Mistral — un fournisseur cloud — et chaque page douteuse au modèle vision. Coupé,
+   * le document reste ICI : Tesseract le lit sur ce serveur, et aucun octet ne part. Le résultat
+   * le dit déjà par son `engine` (« tesseract.js… », jamais « mistral… ») : ce qui est rendu nomme
+   * le moteur qui a VRAIMENT lu.
+   *
+   * Même un moteur FORCÉ (`REG_OCR_ENGINE=mistral`) cède : son « pas de repli » protège d'une
+   * dégradation SILENCIEUSE après un échec ; ici le repli est dit, et il exécute une décision
+   * explicite de l'administrateur. Une variable posée au déploiement ne l'emporte pas sur l'écran —
+   * sinon l'écran mentirait.
+   *
+   * L'interrupteur n'est lu que s'il peut changer quelque chose (un moteur cloud configuré, ou un
+   * secours vision demandé) : un OCR purement local ne paie pas une lecture de base pour rien.
+   */
+  const iaCoupee = (mistralConfigure || Boolean(input.aiRescue)) ? await interrupteurIaCoupe() : false;
+  if (mistralConfigure && iaCoupee) {
+    console.warn("[reg-ocr] IA coupée par l'interrupteur général → OCR local Tesseract (aucun document envoyé à Mistral).");
+  }
+  const mistralUsable = mistralConfigure && !iaCoupee;
   let base: OcrResult | null = null;
   if (mistralUsable && mistralOcrEligible(ext, input.buffer)) {
     try {
@@ -155,7 +182,9 @@ export async function ocrDocument(input: { ext: string; buffer: Buffer; langs?: 
     console.warn(`[reg-ocr] document hors limites Mistral (${(input.buffer.length / 1048576).toFixed(1)} Mo) → OCR local Tesseract.`);
   }
   if (!base) base = await ocrWithTesseract(input, ext);
-  return input.aiRescue ? applyAiRescue({ ext, buffer: input.buffer }, base, input.aiRescue) : base;
+  // Le secours vision envoie les pages EN IMAGE à un modèle multimodal : coupé, il ne part pas, et
+  // les pages douteuses restent signalées pour revue humaine — ce qu'elles étaient avant lui.
+  return input.aiRescue && !iaCoupee ? applyAiRescue({ ext, buffer: input.buffer }, base, input.aiRescue) : base;
 }
 
 /** OCR auto-hébergé : rastérisation mupdf + pré-traitement sharp + reconnaissance Tesseract. */

@@ -128,7 +128,7 @@ export function EmployeeForm({ employee, managerOptions, departmentOptions, user
             {analyzing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />} Analyser le contrat
           </Button>
         </div>
-        {!aiConfigured && <p className="text-xs text-amber-700">{phraseIaNonConfiguree(cleIa, "l'analyse automatique d'un CV")}</p>}
+        {!aiConfigured && <p className="text-xs text-amber-700">{phraseIaNonConfiguree(cleIa, "l'analyse automatique d'un contrat de travail")}</p>}
         {analyzeMsg && <p className={cn("text-xs", analyzeMsg.ok ? "text-success" : "text-destructive")}>{analyzeMsg.text}</p>}
       </div>
 

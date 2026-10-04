@@ -164,8 +164,9 @@ suite("Matériel promotionnel — renvoyer, resoumettre, redemander des devis (l
   async function retranscrire(id: string, fournisseur: string, reference: string, prix: string): Promise<void> {
     await comme("asst");
     const article = (await prisma.promoRequestItem.findFirstOrThrow({ where: { promoMaterialId: id, catalogueId: catCarnet } })).id;
+    // Le total HT imprimé est exigé pour terminer : celui du papier, 500 carnets au prix retranscrit.
     const fd = form({
-      promoMaterialId: id, supplierId: fournisseur, reference, tvaRate: "19",
+      promoMaterialId: id, supplierId: fournisseur, reference, tvaRate: "19", announcedTotal: String(500 * Number(prix)),
       ligneReference: ["Carnet A5"], ligneQuantite: ["500"], lignePrix: [prix], ligneAction: ["IMPRESSION"], ligneArticle: [article],
     });
     fd.set("scan", pdf(`${reference}.pdf`));

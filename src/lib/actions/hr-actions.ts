@@ -7,7 +7,8 @@ import { userCan } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { recordAudit, recordFieldChanges } from "@/lib/audit";
 import { createExpenseOrder } from "@/lib/expense-orders";
-import { askClaude, aiConfigured } from "@/lib/ai";
+import { askClaude, aiConfigured, cleModeleRequise } from "@/lib/ai";
+import { phraseIaNonConfiguree } from "@/lib/ia/cle-manquante";
 import { ocrDocument, canOcr } from "@/lib/regulatory/intelligence/ocr/ocr-engine";
 import { notifyUser, notifyRoles } from "@/lib/notify";
 import {
@@ -231,7 +232,8 @@ export async function analyzeEmployeeContract(
 ): Promise<{ ok: boolean; error?: string; values?: Record<string, string> }> {
   const user = await requireUser();
   if (!userCan(user, "RH", "CREATE")) return { ok: false, error: "Non autorisé." };
-  if (!aiConfigured()) return { ok: false, error: "IA non configurée : ajoutez la clé ANTHROPIC_API_KEY (Render)." };
+  // Le nom de la clé se lit dans le registre (§118.128), jamais de mémoire.
+  if (!aiConfigured()) return { ok: false, error: phraseIaNonConfiguree(cleModeleRequise(), "l'analyse automatique d'un contrat de travail") };
   const file = formData.get("file");
   if (!(file instanceof File) || file.size === 0) return { ok: false, error: "Choisissez le contrat de travail (PDF ou image)." };
   const ext = (file.name.split(".").pop() ?? "").toLowerCase();
@@ -380,25 +382,33 @@ export async function decideLeave(formData: FormData): Promise<ActionResult> {
     DG: { dgDecidedById: user.id, dgDecidedAt: now, dgNote: note },
   };
 
-  await prisma.leaveRequest.update({
-    where: { id },
-    data: {
-      status: next.status,
-      stage: next.stage,
-      ...(stampByStage[leave.stage] ?? {}),
-      // `decidedBy/At/Note` = la DERNIÈRE main posée sur la demande (compat historique + listes).
-      decidedById: user.id, decidedAt: now, decisionNote: note,
-    },
-  });
-
-  // Le solde ne bouge qu'au bout du circuit — et une seule fois (une seule transition
-  // porte `granted`).
-  if (next.granted && leave.type === "ANNUAL") {
-    await prisma.employee.update({
-      where: { id: leave.employeeId },
-      data: { leaveBalanceDays: { decrement: Number(leave.days) } },
+  // UN GESTE À LA FOIS (§118.196, E1) : la décision n'est écrite que sur la marche LUE, et le solde
+  // se débite dans la MÊME transaction. « Une seule transition porte `granted` » était vrai d'un
+  // circuit et faux de deux clics : deux accords finaux simultanés passaient tous les deux, et le
+  // solde du salarié se débitait DEUX fois — un congé de cinq jours en coûtait dix, sans un mot.
+  const ecrit = await prisma.$transaction(async (tx) => {
+    const r = await tx.leaveRequest.updateMany({
+      where: { id, status: "PENDING", stage: leave.stage },
+      data: {
+        status: next.status,
+        stage: next.stage,
+        ...(stampByStage[leave.stage] ?? {}),
+        // `decidedBy/At/Note` = la DERNIÈRE main posée sur la demande (compat historique + listes).
+        decidedById: user.id, decidedAt: now, decisionNote: note,
+      },
     });
-  }
+    if (r.count === 0) return false;
+    // Le solde ne bouge qu'au bout du circuit — et une seule fois : la transition qui porte
+    // `granted` n'est écrite qu'une fois, par la condition ci-dessus.
+    if (next.granted && leave.type === "ANNUAL") {
+      await tx.employee.update({
+        where: { id: leave.employeeId },
+        data: { leaveBalanceDays: { decrement: Number(leave.days) } },
+      });
+    }
+    return true;
+  });
+  if (!ecrit) return { ok: false, error: "Cette demande vient d'être tranchée par quelqu'un d'autre — rechargez la page." };
 
   const period = `${leave.startDate.toLocaleDateString("fr-FR")} → ${leave.endDate.toLocaleDateString("fr-FR")}`;
   if (next.status === "PENDING") {

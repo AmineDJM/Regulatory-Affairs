@@ -567,7 +567,7 @@ function QuoteForm({ scope, requestId, cells, busy, onCancel, onSubmit }: {
       <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
         <label className="text-xs">Fournisseur<input name="supplier" required placeholder="Agence de voyage…" className="mt-1 w-full rounded-lg border border-border bg-background px-2.5 py-2 text-sm outline-none focus:border-primary/60" /></label>
         <label className="text-xs">Référence<input name="reference" placeholder="Facultatif" className="mt-1 w-full rounded-lg border border-border bg-background px-2.5 py-2 text-sm outline-none focus:border-primary/60" /></label>
-        <label className="text-xs">Montant (DZD)<input name="amountDzd" type="number" min="0" step="1000" required className="mt-1 w-full rounded-lg border border-border bg-background px-2.5 py-2 text-sm tabular-nums outline-none focus:border-primary/60" /></label>
+        <label className="text-xs">Montant (DZD)<input name="amountDzd" type="number" min="0" step="0.01" required className="mt-1 w-full rounded-lg border border-border bg-background px-2.5 py-2 text-sm tabular-nums outline-none focus:border-primary/60" /></label>
       </div>
 
       <fieldset className="rounded-lg border border-border p-2">

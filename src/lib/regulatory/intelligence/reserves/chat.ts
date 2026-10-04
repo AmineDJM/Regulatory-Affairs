@@ -1,4 +1,5 @@
-import { askClaude, aiConfigured, type AiTextResult } from "@/lib/ai";
+import { askClaude, aiConfigured, cleModeleRequise, type AiTextResult } from "@/lib/ai";
+import { phraseIaNonConfiguree } from "@/lib/ia/cle-manquante";
 import { prisma } from "@/lib/prisma";
 import { expandQueryTerms, cleanAnswer, type ChatCitation, type ChatTurn, type DossierChatResult } from "../knowledge/dossier-chat";
 import { getDossierKnowledge, searchDossierPassages, pageForOffset } from "../knowledge/dossier-knowledge";
@@ -99,7 +100,7 @@ export async function askReserves(
   const k = version ? await getDossierKnowledge(version.id) : null;
 
   if (!configured) {
-    return { ok: true, configured, answer: "L'assistant nécessite une clé IA (ANTHROPIC_API_KEY). Les points de réserve et les sources restent affichés — aucune réponse n'est simulée.", citations };
+    return { ok: true, configured, answer: `${phraseIaNonConfiguree(cleModeleRequise(), "l'assistant des réserves")} Les points de réserve et les sources restent affichés — aucune réponse n'est simulée.`, citations };
   }
 
   const res = await aiFn(buildPrompt(q, points, citations, overviewOf(k), history), { system: SYSTEM, maxTokens: 1600, temperature: 0.2 });

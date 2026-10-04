@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
-import { askClaude, aiConfigured } from "@/lib/ai";
+import { askClaude, aiConfigured, cleModeleRequise } from "@/lib/ai";
+import { courtIaNonConfiguree } from "@/lib/ia/cle-manquante";
 import { extractLooseJson } from "../ai/json";
 import { regAudit } from "../audit";
 import { PROCEDURE_TYPE_LABELS } from "../labels";
@@ -107,7 +108,7 @@ export async function runReviewerSimulation(dossierVersionId: string, actorId: s
   if (!version) return { ok: false, configured: aiConfigured(), perspectives: [], error: "Version introuvable." };
 
   if (!aiConfigured() && aiFn === askClaude) {
-    return { ok: true, configured: false, perspectives: [], error: "IA non configurée (ANTHROPIC_API_KEY absente) — simulation indisponible, aucune donnée simulée." };
+    return { ok: true, configured: false, perspectives: [], error: `${courtIaNonConfiguree(cleModeleRequise())} — simulation indisponible, aucune donnée simulée.` };
   }
 
   const summary = await dossierSummary(dossierVersionId);

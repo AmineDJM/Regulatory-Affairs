@@ -7,8 +7,8 @@ import { userCan, hasGlobalView } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
 import { notifyUser, notifyRoles } from "@/lib/notify";
-import { getAppSettings } from "@/lib/settings";
-import { saveFile, validateUpload } from "@/lib/storage";
+import { saveFile } from "@/lib/storage";
+import { validateAttachments } from "@/lib/attach-files";
 import { normalizeAmount, normalizeYear } from "@/lib/department-budget";
 import {
   currentPeriod, periodLabel, normalizeRechargeDay, nextRechargeDate, grantedTopUpAmount,
@@ -272,6 +272,12 @@ export async function spendFromPettyCash(formData: FormData): Promise<ActionResu
   if (files.length === 0) {
     return { ok: false, error: "Scannez la facture ou le bon de paiement : une dépense sans pièce n'est qu'une affirmation." };
   }
+  // LA PIÈCE SE JUGE AVANT LA DÉPENSE — le même défaut que `addDepartmentExpense`, par sa seconde
+  // porte. Contrôlé après la création, un fichier refusé laissait la dépense en base sans pièce
+  // ni audit : sortie du fond et imputée au budget, sans rien qui la justifie, et chaque nouvel
+  // essai en ajoutait une. Même règle que toutes les pièces jointes (`validateAttachments`).
+  const pieceRefusee = await validateAttachments(files);
+  if (pieceRefusee !== null) return { ok: false, error: pieceRefusee };
 
   const year = normalizeYear(fdStr(formData, "year"));
   // Un achat payé en liquide se classe dans le budget comme les autres : c'est la même dépense,
@@ -293,10 +299,7 @@ export async function spendFromPettyCash(formData: FormData): Promise<ActionResu
   });
   if (ticket) await saveReceiptLines(created.id, ticket.lines);
 
-  const maxMb = (await getAppSettings()).maxUploadMb;
   for (const file of files) {
-    const invalid = validateUpload(file.name, file.size, maxMb);
-    if (invalid) return { ok: false, error: invalid };
     const key = `DEPARTMENT_EXPENSE/${created.id}/${randomUUID()}__${file.name}`;
     try {
       await saveFile(key, Buffer.from(await file.arrayBuffer()));

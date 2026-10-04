@@ -1144,7 +1144,7 @@ function AllocateField({ itemId, current, busy, onSave }: { itemId: string; curr
     <label className="flex items-center gap-1.5 text-sm text-muted-foreground">
       Montant accordé :
       <input
-        type="number" min="0" step="1000" value={value}
+        type="number" min="0" step="0.01" value={value}
         onChange={(e) => setValue(e.target.value)}
         onBlur={() => { if (value !== (current != null ? String(current) : "")) onSave(value); }}
         aria-label={`Montant affecté au poste ${itemId}`}
@@ -1276,7 +1276,7 @@ function AddItemForm({ parent, parentId, decided, busy, onCancel, onSubmit }: {
             </label>
             <label className="text-xs">
               Montant estimé (DZD)
-              <input name="amountEstimated" type="number" min="0" step="1000" className="mt-1 w-full rounded-lg border border-border bg-background px-2.5 py-2 text-sm tabular-nums outline-none focus:border-primary/60" />
+              <input name="amountEstimated" type="number" min="0" step="0.01" className="mt-1 w-full rounded-lg border border-border bg-background px-2.5 py-2 text-sm tabular-nums outline-none focus:border-primary/60" />
             </label>
           </>
         )}
@@ -1370,7 +1370,7 @@ function EditItemForm({ item, busy, onCancel, onSave }: {
         <label className="text-xs">Payé à<input name="supplier" defaultValue={item.supplier ?? ""} placeholder="Organisateur, agence, association…" className={champ} /></label>
         <label className="text-xs">
           Montant estimé (DZD)
-          <input name="amountEstimated" type="number" min="0" step="1000" defaultValue={item.amountEstimated ?? ""} className={`${champ} tabular-nums`} />
+          <input name="amountEstimated" type="number" min="0" step="0.01" defaultValue={item.amountEstimated ?? ""} className={`${champ} tabular-nums`} />
         </label>
       </div>
       <label className="block text-xs">Précisions<input name="notes" defaultValue={item.notes ?? ""} placeholder="Facultatif" className={champ} /></label>

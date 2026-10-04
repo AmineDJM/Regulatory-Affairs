@@ -116,9 +116,6 @@ décision, soumission, escalade et grille écrivent sous la condition de l'état
 plans à resoumettre. **La pièce Legal émise se révise depuis sa fiche (lot C4d2b1, §118.194)** : « Réviser la
 pièce » (même numéro, version suivante du Word et du PDF, motif exigé après l'état, version affichée exigée, une
 révision à la fois), une pièce dont découle une pièce active ne se révise plus (la règle vit chez la fabrique), et le
-formulaire « Modifier » ne propose ni ne réécrit plus ce que le fichier porte. Reste l'avoir (C4d2b2).
-     PAR les lignes ci-dessous (même retour à la ligne que le paragraphe) : -->
-
 formulaire « Modifier » ne propose ni ne réécrit plus ce que le fichier porte. **Une facture émise se corrige par un
 avoir (lot C4d2b2, §118.195) — R15 est livré** : « Émettre un avoir » depuis la fiche de la facture (sous son propre
 numéro, en totalité ou en partie, motif exigé ; client, TVA, remise et taxes repris de la facture), plafonné au
@@ -153,6 +150,15 @@ de montant ou de fournisseur **rouvre** les validations qui portaient sur l'anci
 
 ## 4. Extraction des devis, BC et factures (rapport 19)
 
+**État au 4 octobre — les gardes déterministes des pièces sont livrées et testées (lot D1, `CLAUDE.md`
+§118.196)** : le doublon de factures ne réunit plus que les pièces d'un même émetteur (F7) ; un BC se juge sur le
+cumul de ses factures nettes d'avoirs ; la réserve des clauses ne défait plus une révision de la fabrique ; une
+dépense des moyens généraux ne s'écrit plus avant que sa pièce soit acceptée (F5) ; le total imprimé est exigé
+pour terminer une retranscription de devis promo, dont les écritures d'étape sont conditionnelles (F6) ;
+l'interrupteur général de l'IA est lu par `lib/ai.ts`, l'OCR, le client Luna et la transcription des médias (F3) ;
+les mineurs de F8 sont corrigés. Restent : F1 (chaînage d'un BC composé), F2 (PCH), F4 (plafond « factures ≤ BC »
+au règlement pour tous les BC — décision de la Direction), et l'extraction elle-même (lot D2 et suivants).
+
 - **Aucun des 12 points d'upload n'extrait les données** : le fichier est stocké, les montants sont
   **retapés** (l'assistante recopie les devis du matériel promotionnel à la main ; une facture classée
   depuis /pieces entre dans Legal **sans montant**).
@@ -170,6 +176,11 @@ de montant ou de fournisseur **rouvre** les validations qui portaient sur l'anci
   matériel promotionnel.
 
 ## 5. Managers (rapport 16, et 04, 06, 07, 08)
+
+**État au 4 octobre — la file des congés montre ce que l'action accepte (lot E1, §118.196)** : N+1 enregistré et
+N+1 actuel, filtre dans la requête (M08) ; un congé ou une formation ne se décide qu'une fois, le solde débité dans
+la même transaction — deux accords simultanés le débitaient deux fois (N1). La suite des managers (une file de
+décisions unique, une équipe actionnable, l'intérim, les achats) est en cours.
 
 - 12 rôles sur 19 n'ont **aucun indicateur métier** ; les chiffres affichés ne mènent nulle part.
 - Un manager **ne voit ni ne réassigne** une tâche d'un membre de son équipe.

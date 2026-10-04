@@ -1,4 +1,5 @@
-import { callClaude, aiConfigured, type ClaudeMessage, type ClaudeContentBlock, type ClaudeToolDef } from "@/lib/ai";
+import { callClaude, aiConfigured, cleModeleRequise, type ClaudeMessage, type ClaudeContentBlock, type ClaudeToolDef } from "@/lib/ai";
+import { phraseIaNonConfiguree } from "@/lib/ia/cle-manquante";
 import { prisma } from "@/lib/prisma";
 import { putBlob } from "@/lib/drive-storage";
 import { buildSimplePdf, parsePdfBody } from "@/lib/pdf/simple-pdf";
@@ -317,7 +318,7 @@ export async function runDossierAgent(opts: {
   unreadable?: UnreadableAttachment[];
 }): Promise<DossierAgentResult> {
   if (!aiConfigured()) {
-    return { ok: true, configured: false, answer: "L'agent nécessite une clé IA (ANTHROPIC_API_KEY).", citations: [], files: [] };
+    return { ok: true, configured: false, answer: phraseIaNonConfiguree(cleModeleRequise(), "l'agent du dossier"), citations: [], files: [] };
   }
   const ctx: AgentContext = { dossierVersionId: opts.dossierVersionId, userId: opts.userId, citations: [], files: [] };
 

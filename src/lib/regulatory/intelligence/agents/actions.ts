@@ -3,7 +3,8 @@
 import { revalidatePath } from "next/cache";
 import { requireUser } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
-import { aiConfigured } from "@/lib/ai";
+import { aiConfigured, cleModeleRequise } from "@/lib/ai";
+import { courtIaNonConfiguree } from "@/lib/ia/cle-manquante";
 import { regCan, resolveRegCompanyIdFor } from "../access";
 import { runAgentOnVersion, applicableAgents, type AgentRunSummary } from "./orchestrator";
 
@@ -37,7 +38,7 @@ export async function runAgentAction(formData: FormData): Promise<AgentRunSummar
   if (!version) return { ok: false, agentKey, agentName: "", configured: false, abstained: false, findings: 0, error: "Aucune version." };
 
   if (!aiConfigured()) {
-    return { ok: true, agentKey, agentName: "", configured: false, abstained: true, findings: 0, message: "IA non configurée (ANTHROPIC_API_KEY absente) — agent non exécuté, aucune simulation." };
+    return { ok: true, agentKey, agentName: "", configured: false, abstained: true, findings: 0, message: `${courtIaNonConfiguree(cleModeleRequise())} — agent non exécuté, aucune simulation.` };
   }
 
   const summary = await runAgentOnVersion(version.id, agentKey);

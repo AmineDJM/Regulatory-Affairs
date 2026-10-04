@@ -7,8 +7,8 @@ import { userCan, hasGlobalView } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
 import { notifyUser, notifyRoles } from "@/lib/notify";
-import { getAppSettings } from "@/lib/settings";
-import { saveFile, validateUpload, deleteFileByKey } from "@/lib/storage";
+import { saveFile, deleteFileByKey } from "@/lib/storage";
+import { validateAttachments } from "@/lib/attach-files";
 import {
   canSetDepartmentBudget, canEditDepartmentBudget, canManageDepartmentBudgetAccess,
   canRequestDepartmentBudget, canDecideDepartmentBudgetRequest, canViewDepartmentBudget,
@@ -365,6 +365,13 @@ export async function addDepartmentExpense(formData: FormData): Promise<ActionRe
   if (files.length === 0) {
     return { ok: false, error: "Joignez la facture ou le bon de paiement : une dépense sans pièce n'est qu'une affirmation." };
   }
+  // LA PIÈCE SE JUGE AVANT LA DÉPENSE. Le contrôle (type admis, taille) se faisait APRÈS la
+  // création : un fichier refusé laissait la dépense et ses lignes en base SANS pièce et sans trace
+  // d'audit — le budget et la caisse consommés par une ligne que rien ne justifie, et la seconde
+  // tentative en créait une deuxième. Mêmes fichiers, même liste blanche, même taille maximale
+  // (`validateAttachments`, la règle de toutes les pièces jointes) : seul le MOMENT change.
+  const pieceRefusee = await validateAttachments(files);
+  if (pieceRefusee !== null) return { ok: false, error: pieceRefusee };
 
   // CLASSEMENT BUDGÉTAIRE — l'acheteur range sa dépense sans jamais ouvrir le module Budget.
   // La valeur est revérifiée contre les enveloppes réellement ouvertes aux moyens généraux.
@@ -397,10 +404,7 @@ export async function addDepartmentExpense(formData: FormData): Promise<ActionRe
   });
   if (ticket) await saveReceiptLines(created.id, ticket.lines);
 
-  const maxMb = (await getAppSettings()).maxUploadMb;
   for (const file of files) {
-    const invalid = validateUpload(file.name, file.size, maxMb);
-    if (invalid) return { ok: false, error: invalid };
     const key = `DEPARTMENT_EXPENSE/${created.id}/${randomUUID()}__${file.name}`;
     try {
       await saveFile(key, Buffer.from(await file.arrayBuffer()));

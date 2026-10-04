@@ -265,8 +265,11 @@ export async function decideTraining(formData: FormData): Promise<ActionResult> 
   // La direction peut accorder un montant différent de celui demandé.
   const granted = next.granted ? fdNum(formData, "amountGranted") : null;
 
-  await prisma.training.update({
-    where: { id },
+  // UN GESTE À LA FOIS (§118.196, E1) : la décision n'est écrite que sur la marche LUE. Deux accords
+  // croisés — ou un accord et un refus — s'appliquaient l'un après l'autre : le second réécrivait le
+  // premier en silence, et chacun prévenait le demandeur. Le perdant ne prévient personne.
+  const ecrit = await prisma.training.updateMany({
+    where: { id, status: "PENDING", stage: training.stage },
     data: {
       status: next.status === "PENDING" ? "PENDING" : next.status === "APPROVED" ? "APPROVED" : "REJECTED",
       stage: next.stage,
@@ -274,6 +277,7 @@ export async function decideTraining(formData: FormData): Promise<ActionResult> 
       ...(next.granted ? { amountGranted: granted ?? Number(training.amount) } : {}),
     },
   });
+  if (ecrit.count === 0) return { ok: false, error: "Cette demande vient d'être tranchée par quelqu'un d'autre — rechargez la page." };
 
   if (next.status === "PENDING") {
     const roles = chainNotifyRoles(next.stage) as UserRole[];

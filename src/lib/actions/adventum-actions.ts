@@ -5,7 +5,8 @@ import { requireUser } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
 import { notifyUser, notifyRoles } from "@/lib/notify";
-import { askClaude, aiConfigured, aiModel } from "@/lib/ai";
+import { askClaude, aiConfigured, aiModel, cleModeleRequise } from "@/lib/ai";
+import { phraseIaNonConfiguree } from "@/lib/ia/cle-manquante";
 import { aiFeatureEnabled, logAiUsage } from "@/lib/ai-settings";
 import { runAssistant } from "@/lib/assistant";
 import { getRisks, type AutopilotPayload } from "@/lib/adventum/risks";
@@ -71,7 +72,7 @@ export async function askBrain(question: string): Promise<{ ok: boolean; reply: 
   const t0 = Date.now();
   const r = await runAssistant(user, [{ role: "user", content: q }]);
   await logAiUsage({ feature: "brain", userId: user.id, model: aiModel(), ok: r.ok, latencyMs: Date.now() - t0, errorCode: r.ok ? null : r.error ?? "error" });
-  if (!r.configured) return { ok: false, reply: "", trace: [], error: "IA non configurée (ANTHROPIC_API_KEY)." };
+  if (!r.configured) return { ok: false, reply: "", trace: [], error: phraseIaNonConfiguree(cleModeleRequise(), "Adventum Brain") };
   const reply = r.reply || (r.proposal ? "J'ai préparé une action — confirmez-la dans le module Assistant IA." : "Pas de réponse.");
   return { ok: r.ok, reply, trace: r.trace, error: r.error };
 }
@@ -80,7 +81,7 @@ export async function askBrain(question: string): Promise<{ ok: boolean; reply: 
 export async function generateBriefing(): Promise<{ ok: boolean; text: string; error?: string }> {
   const user = await requireUser();
   if (user.role !== "SUPER_ADMIN") return { ok: false, text: "", error: "Réservé au Super Admin." };
-  if (!aiConfigured()) return { ok: false, text: "", error: "IA non configurée (ANTHROPIC_API_KEY)." };
+  if (!aiConfigured()) return { ok: false, text: "", error: phraseIaNonConfiguree(cleModeleRequise(), "le briefing de direction") };
   if (!(await aiFeatureEnabled("briefing"))) return { ok: false, text: "", error: "Adventum Brain (IA) est désactivé dans le Centre de contrôle IA." };
   const risks = await getRisks();
   const summary = risks.slice(0, 25).map((r) => `- [${r.level}] ${r.module} — ${r.title} : ${r.object}. Cause: ${r.probableCause} Reco: ${r.recommendation}`).join("\n");

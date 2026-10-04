@@ -37,6 +37,8 @@
 
 import { sanitizeForModel } from "./ai-text";
 import { mentionsUnsupportedTemperature, providerErrorMessage } from "./models/errors";
+// L'interrupteur général de « Contrôle de l'IA » : lu AVANT tout envoi de données (voir `callLuna`).
+import { interrupteurIaCoupe, REFUS_IA_COUPEE } from "./ai-settings";
 
 // Tarifs officiels (30 juillet 2026), en dollars par MILLION de jetons.
 const PRICE_INPUT_PER_M = 0.2;
@@ -189,6 +191,11 @@ export { providerErrorMessage as lunaErrorMessage } from "./models/errors";
  * dossier entier, passer par le Batch — même travail, moitié prix.
  */
 export async function callLuna<T = unknown>(input: LunaCallInput): Promise<LunaResult<T>> {
+  // L'INTERRUPTEUR AVANT LA CLÉ (§118.196). Ce client ne passe pas par `lib/ai.ts` : l'intelligence
+  // réglementaire (lecture visuelle, réserves, revue, corpus) appelait le modèle sous un interrupteur
+  // coupé pendant que l'écran affichait « Toute l'IA est coupée ». Coupé : rien ne part, rien n'est
+  // compté, et l'appelant reçoit l'échec qu'il traite déjà — `configured: true`, la clé n'est pas en cause.
+  if (await interrupteurIaCoupe()) return { ok: false, configured: true, text: "", usage: EMPTY_USAGE, error: REFUS_IA_COUPEE };
   const key = (process.env.OPENAI_API_KEY ?? "").trim();
   if (!key) return { ok: false, configured: false, text: "", usage: EMPTY_USAGE, error: "Clé OPENAI_API_KEY non configurée." };
 
@@ -306,6 +313,10 @@ export interface BatchSubmitResult {
  * c'est le mode normal d'analyse d'un dossier, qui n'a aucune raison d'être synchrone.
  */
 export async function submitBatch(requests: BatchRequest[]): Promise<BatchSubmitResult> {
+  // Un lot dépose les documents chez le fournisseur : l'interrupteur d'abord. Lire l'état d'un lot
+  // déjà déposé (`getBatchStatus`) et rapatrier sa sortie (`fetchBatchOutput`) restent ouverts,
+  // exprès : rien n'y part, et couper la lecture ferait perdre un travail déjà payé.
+  if (await interrupteurIaCoupe()) return { ok: false, error: REFUS_IA_COUPEE };
   const key = (process.env.OPENAI_API_KEY ?? "").trim();
   if (!key) return { ok: false, error: "Clé OPENAI_API_KEY non configurée." };
   if (requests.length === 0) return { ok: false, error: "Lot vide." };
@@ -451,6 +462,8 @@ export const EMBED_DIMS = 512;
  */
 export async function lunaEmbed(texts: string[], dims: number = EMBED_DIMS): Promise<number[][] | null> {
   if (!lunaConfigured() || texts.length === 0) return null;
+  // Vectoriser, c'est ENVOYER les textes : sous l'interrupteur, `null` — l'appelant reste en lexical pur.
+  if (await interrupteurIaCoupe()) return null;
   const base = (process.env.OPENAI_BASE_URL ?? "https://api.openai.com").replace(/\/$/, "");
   try {
     const res = await fetch(`${base}/v1/embeddings`, {

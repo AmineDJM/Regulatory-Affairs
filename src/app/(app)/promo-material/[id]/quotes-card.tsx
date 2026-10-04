@@ -115,7 +115,10 @@ function EditeurDevis({ id, devis, articles, parties, canCreateContact, onDone }
         <div><Label htmlFor={`dv-ref-${devis?.id ?? "n"}`}>N° du devis</Label><Input id={`dv-ref-${devis?.id ?? "n"}`} name="reference" defaultValue={devis?.reference ?? ""} placeholder="26/0576" /></div>
         <div><Label htmlFor={`dv-date-${devis?.id ?? "n"}`}>Date du devis</Label><Input id={`dv-date-${devis?.id ?? "n"}`} name="quoteDate" type="date" defaultValue={devis?.quoteDate?.slice(0, 10) ?? ""} /></div>
         <div><Label htmlFor={`dv-tva-${devis?.id ?? "n"}`}>TVA (%)</Label><Input id={`dv-tva-${devis?.id ?? "n"}`} name="tvaRate" inputMode="decimal" defaultValue={String(devis?.tvaRate ?? 19)} /></div>
-        <div><Label htmlFor={`dv-annonce-${devis?.id ?? "n"}`}>Total HT imprimé sur le devis</Label><Input id={`dv-annonce-${devis?.id ?? "n"}`} name="announcedTotal" inputMode="decimal" defaultValue={devis?.announcedTotal != null ? String(devis.announcedTotal) : ""} placeholder="pour contrôler la retranscription" /></div>
+        {/* EXIGÉ POUR TERMINER, pas pour enregistrer — comme le scan : on peut poser les lignes avant
+            d'avoir le papier sous les yeux, mais « Retranscription terminée » refuse un devis sans son
+            total imprimé, contre lequel les lignes se contrôlent à un dinar près. */}
+        <div><Label htmlFor={`dv-annonce-${devis?.id ?? "n"}`}>Total HT imprimé sur le devis *</Label><Input id={`dv-annonce-${devis?.id ?? "n"}`} name="announcedTotal" inputMode="decimal" defaultValue={devis?.announcedTotal != null ? String(devis.announcedTotal) : ""} placeholder="contrôle la retranscription" /></div>
         <div><Label htmlFor={`dv-taxel-${devis?.id ?? "n"}`}>Taxe additionnelle (libellé)</Label><Input id={`dv-taxel-${devis?.id ?? "n"}`} name="extraTaxLabel" defaultValue={devis?.extraTaxLabel ?? ""} placeholder="Taxe Pub" /></div>
         <div><Label htmlFor={`dv-taxer-${devis?.id ?? "n"}`}>Taxe additionnelle (%)</Label><Input id={`dv-taxer-${devis?.id ?? "n"}`} name="extraTaxRate" inputMode="decimal" defaultValue={devis?.extraTaxRate != null ? String(devis.extraTaxRate) : ""} placeholder="vide = aucune" /></div>
         <div className="sm:col-span-2">
@@ -237,6 +240,9 @@ export function PromoQuotesCard({ id, quotes, articles, canTranscribe, canSelect
                 <p className="text-xs text-muted-foreground">
                   {q.reference ? `Devis n° ${q.reference}` : "Devis sans numéro"}{q.quoteDate ? ` · ${new Date(q.quoteDate).toLocaleDateString("fr-FR")}` : ""} · TVA {q.tvaRate} %{q.extraTaxRate ? ` · ${q.extraTaxLabel ?? "Taxe"} ${q.extraTaxRate} %` : ""}
                   {q.documentName ? <> · <FileText className="inline h-3 w-3" /> {q.documentName}</> : <> · <span className="text-amber-600">scan manquant</span></>}
+                  {/* Dit à celle qui peut le saisir, à l'étape où il compte : sur un dossier déjà passé au
+                      choix, un « total manquant » d'avant la règle serait un bruit qu'on cesse de lire. */}
+                  {canTranscribe && q.announcedTotal == null && <> · <span className="text-amber-600">total imprimé manquant</span></>}
                 </p>
               </div>
               <div className="flex flex-wrap items-center gap-2">

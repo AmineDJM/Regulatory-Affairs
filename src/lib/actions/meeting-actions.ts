@@ -5,7 +5,8 @@ import { requireUser } from "@/lib/session";
 import { userCan } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { genSlug, genPublicToken, canManageMeeting, canViewMeeting, appBaseUrlForMeet, roomUrl } from "@/lib/meetings";
-import { summarizeMeetingTranscript } from "@/lib/ai";
+import { summarizeMeetingTranscript, cleModeleRequise } from "@/lib/ai";
+import { phraseIaNonConfiguree } from "@/lib/ia/cle-manquante";
 import { notifyUser } from "@/lib/notify";
 import { putBlob, releaseBlob } from "@/lib/drive-storage";
 import { recordAudit } from "@/lib/audit";
@@ -273,7 +274,7 @@ export async function summarizeMeeting(formData: FormData): Promise<ActionResult
   if (!transcript) return { ok: false, error: "Aucune transcription à analyser. Enregistrez l'audio ou collez le texte d'abord." };
 
   const r = await summarizeMeetingTranscript(transcript);
-  if (!r.ok || !r.data) return { ok: false, error: r.configured ? (r.error ?? "Compte rendu impossible.") : "L'IA n'est pas configurée (ANTHROPIC_API_KEY)." };
+  if (!r.ok || !r.data) return { ok: false, error: r.configured ? (r.error ?? "Compte rendu impossible.") : phraseIaNonConfiguree(cleModeleRequise(), "le compte rendu automatique") };
 
   // Annuaire des personnes connues de la réunion pour rapprocher un nom → un compte.
   const people = [full?.organizer, ...(full?.participants ?? []).map((p) => p.user)].filter(Boolean) as { id: string; name: string }[];

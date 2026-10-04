@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import type { FinanceCategory, FinanceDirection, FinanceMethod, FinanceStatus, PayrollStatus, Prisma } from "@prisma/client";
+import { FinanceCategory, FinanceMethod, type FinanceDirection, type FinanceStatus, type PayrollStatus, type Prisma } from "@prisma/client";
 import { requireUser } from "@/lib/session";
 import { userCan } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
@@ -153,51 +153,178 @@ export async function deleteTransaction(formData: FormData): Promise<ActionResul
   return { ok: true };
 }
 
+/**
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ * L'IMPORT D'UN RELEVÉ NE COMPTE QUE CE QUI EST ÉCRIT — ET DIT CE QU'IL ÉCARTE, LIGNE PAR LIGNE.
+ *
+ * Le défaut mesuré : chaque écriture s'achevait par `.catch(() => undefined); n += 1`. Une ligne
+ * que la base refusait (une date que `new Date` ne lisait pas, une catégorie ou un mode de
+ * paiement hors de l'énumération) était COMPTÉE ; l'audit annonçait « N transactions
+ * importées », l'action rendait `{ ok: true }` sans un mot, et l'écran affichait « Import
+ * réussi. » — le faux succès parfait, sur des mouvements de trésorerie. Les lignes sautées plus
+ * haut (colonnes manquantes, montant illisible) disparaissaient de la même façon.
+ *
+ * Désormais : seule une écriture qui a RÉUSSI compte ; chaque ligne écartée garde son NUMÉRO dans
+ * le texte collé et sa RAISON ; le bilan les nomme (borné, le reste compté, §118.60) ; rien
+ * d'importé est un refus, pas un succès vide.
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ */
+
+/** Le bilan d'un import : le message nomme les lignes écartées, le compte dit à l'écran s'il en reste. */
+export type ResultatImport = ActionResult & { ecartees?: number };
+
+/** Les valeurs que le relevé peut porter — lues dans l'énumération du schéma, pas recopiées. */
+const CATEGORIES_RECONNUES: readonly string[] = Object.values(FinanceCategory);
+const MODES_RECONNUS: readonly string[] = Object.values(FinanceMethod);
+const FORMATS_DATE = "attendu AAAA-MM-JJ ou JJ/MM/AAAA";
+/** Au plus huit lignes NOMMÉES dans le bilan : au-delà, le compte du reste. */
+const LIGNES_DITES = 8;
+
+type LigneReleve =
+  | {
+      ok: true;
+      date: Date; direction: FinanceDirection; category: FinanceCategory; label: string;
+      amount: number; method: FinanceMethod; account: string; counterparty: string | null;
+    }
+  | { ok: false; raison: string };
+
+interface LigneEcartee { numero: number; raison: string }
+
+/**
+ * LA DATE D'UNE LIGNE — lue à coup sûr, ou pas du tout.
+ *
+ * `new Date(texte)` lisait « 06/01/2026 » comme le 1er JUIN (l'ordre américain) et faisait de
+ * « 28/09/2026 » une date invalide que la base refusait ensuite. Deux formes seulement : celle de
+ * l'exemple (AAAA-MM-JJ) et celle d'ici (JJ/MM/AAAA). Une date qui n'existe pas (31/02) est
+ * illisible, pas « reportée » au mois suivant.
+ */
+function dateDuReleve(brut: string): Date | null {
+  const iso = /^(\d{4})-(\d{1,2})-(\d{1,2})$/.exec(brut);
+  const fr = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(brut);
+  const parties = iso ? [iso[1], iso[2], iso[3]] : fr ? [fr[3], fr[2], fr[1]] : null;
+  if (parties === null) return null;
+  const [a, m, j] = parties.map(Number);
+  const d = new Date(Date.UTC(a, m - 1, j));
+  return d.getUTCFullYear() === a && d.getUTCMonth() === m - 1 && d.getUTCDate() === j ? d : null;
+}
+
+/** Une ligne du relevé, lue colonne par colonne — ou écartée avec la raison exacte. */
+function lireLigneReleve(colonnes: string[]): LigneReleve {
+  if (colonnes.length < 5) return { ok: false, raison: `colonnes manquantes (${colonnes.length} lue${colonnes.length > 1 ? "s" : ""}, 5 au moins)` };
+  const [date, direction, category, label, amount, method, account, counterparty] = colonnes;
+  // Pas de date, pas de mouvement : l'inscrire « aujourd'hui » fabriquerait une date que le relevé
+  // ne dit pas — et le solde d'un compte ancré ne compte que les écritures POSTÉRIEURES à son
+  // ancrage (§118.176).
+  if (date === "") return { ok: false, raison: "date absente" };
+  const quand = dateDuReleve(date);
+  if (quand === null) return { ok: false, raison: `date illisible « ${date} » (${FORMATS_DATE})` };
+  if (label === "") return { ok: false, raison: "libellé absent" };
+  const montantBrut = (amount ?? "").replace(/\s/g, "").replace(",", ".");
+  const montant = Number(montantBrut);
+  // `Number("")` vaut 0 : une colonne vide devenait un mouvement de 0 DZD.
+  if (montantBrut === "") return { ok: false, raison: "montant absent" };
+  if (!Number.isFinite(montant)) return { ok: false, raison: `montant illisible « ${amount} »` };
+  // Une colonne VIDE garde le défaut annoncé ; une valeur hors de l'énumération est écartée, jamais
+  // rangée d'office ailleurs.
+  const categorie = (category || "AUTRE").toUpperCase();
+  if (!CATEGORIES_RECONNUES.includes(categorie)) return { ok: false, raison: `catégorie inconnue « ${category} »` };
+  const mode = (method || "BANK_TRANSFER").toUpperCase();
+  if (!MODES_RECONNUS.includes(mode)) return { ok: false, raison: `mode de paiement inconnu « ${method} »` };
+  const sens = (direction ?? "").toUpperCase();
+  return {
+    ok: true,
+    date: quand,
+    direction: (sens === "IN" ? "IN" : sens === "OUT" ? "OUT" : IN_CATEGORIES.includes(categorie) ? "IN" : "OUT") as FinanceDirection,
+    category: categorie as FinanceCategory,
+    label,
+    amount: Math.abs(montant),
+    method: mode as FinanceMethod,
+    account: account || "Banque",
+    counterparty: counterparty || null,
+  };
+}
+
+/** « 2 mouvements importés ; 1 ligne écartée : ligne 4 — … » — accordé, borné, et le remède dit. */
+function bilanImport(importes: number, ecartees: LigneEcartee[]): string {
+  const s = (n: number): string => (n > 1 ? "s" : "");
+  const tete = importes === 0 ? "Aucun mouvement importé" : `${importes} mouvement${s(importes)} importé${s(importes)}`;
+  const k = ecartees.length;
+  if (k === 0) return `${tete}.`;
+  const dites = ecartees.slice(0, LIGNES_DITES).map((e) => `ligne ${e.numero} — ${e.raison}`).join(" ; ");
+  const reste = k > LIGNES_DITES ? ` ; et ${k - LIGNES_DITES} autre${s(k - LIGNES_DITES)}` : "";
+  const aide: string[] = [];
+  if (ecartees.some((e) => e.raison.startsWith("catégorie inconnue"))) aide.push(`Catégories reconnues : ${CATEGORIES_RECONNUES.join(", ")}.`);
+  if (ecartees.some((e) => e.raison.startsWith("mode de paiement inconnu"))) aide.push(`Modes reconnus : ${MODES_RECONNUS.join(", ")}.`);
+  // Le texte collé contient encore les lignes passées : le réimporter tel quel les doublerait.
+  if (importes > 0) aide.push("Les lignes importées sont enregistrées : ne réimportez que les lignes corrigées.");
+  return [`${tete} ; ${k} ligne${s(k)} écartée${s(k)} : ${dites}${reste}.`, ...aide].join(" ");
+}
+
 /** CSV import: date,direction(IN/OUT),category,label,amount,method,account,counterparty */
 export async function importTransactions(
   _prev: ActionResult | undefined,
   formData: FormData,
-): Promise<ActionResult> {
+): Promise<ResultatImport> {
   const user = await requireUser();
   if (!userCan(user, "FINANCES", "CREATE")) return { ok: false, error: "Non autorisé." };
   const csv = fdStr(formData, "csv");
   if (!csv) return { ok: false, error: "Aucune donnée." };
 
-  const lines = csv.split(/\r?\n/).map((l) => l.trim()).filter(Boolean).slice(1);
+  // Chaque ligne garde son NUMÉRO dans le texte collé — l'en-tête est la ligne 1, et une ligne vide
+  // au milieu compte : c'est ce numéro que la personne cherche pour corriger une ligne écartée.
+  const nonVides = csv.split(/\r?\n/).map((texte, i) => ({ texte: texte.trim(), numero: i + 1 })).filter((l) => l.texte.length > 0);
+  const lignes = nonVides.slice(1);
+  if (lignes.length === 0) return { ok: false, error: "Aucune ligne à importer : la première ligne est l'en-tête des colonnes, et rien ne la suit." };
+  // Le séparateur se lit sur l'EN-TÊTE. Un tableur français sépare par « ; » et écrit ses
+  // décimales avec une virgule : couper AUSSI sur la virgule décalait les colonnes — « 90000,50 »
+  // devenait un montant de 90 000 et un mode de paiement « 50 ».
+  const separateur = nonVides[0].texte.includes(";") ? ";" : ",";
+
   let n = 0;
+  const ecartees: LigneEcartee[] = [];
   const year = new Date().getFullYear();
   const existingRefs = await prisma.financeTransaction.findMany({ where: { reference: { startsWith: `FIN-${year}-` } }, select: { reference: true } });
   let base = nextRefNumber(existingRefs.map((r) => r.reference)) - 1; // prochain = base+1 (dérivé du max, robuste aux trous)
   const comptes = await comptesTresorerie();
-  for (const line of lines) {
-    const c = line.split(/[;,]/).map((x) => x.trim());
-    if (c.length < 5) continue;
-    const [date, direction, category, label, amount, method, account, counterparty] = c;
-    const amt = Number((amount ?? "").replace(/\s/g, "").replace(",", "."));
-    if (!label || Number.isNaN(amt)) continue;
+  for (const { texte, numero } of lignes) {
+    const lue = lireLigneReleve(texte.split(separateur).map((x) => x.trim()));
+    if (!lue.ok) { ecartees.push({ numero, raison: lue.raison }); continue; }
     base += 1;
-    await prisma.financeTransaction.create({
-      data: {
-        reference: `FIN-${year}-${String(base).padStart(3, "0")}`,
-        date: date ? new Date(date) : new Date(),
-        direction: (direction?.toUpperCase() === "IN" ? "IN" : direction?.toUpperCase() === "OUT" ? "OUT" : (IN_CATEGORIES.includes((category ?? "").toUpperCase()) ? "IN" : "OUT")) as FinanceDirection,
-        category: ((category ?? "AUTRE").toUpperCase() as FinanceCategory),
-        label,
-        amount: Math.abs(amt),
-        method: ((method ?? "BANK_TRANSFER").toUpperCase() as FinanceMethod) ?? "BANK_TRANSFER",
-        account: account || "Banque",
-        counterparty: counterparty || null,
-        status: "SETTLED",
-        // La colonne « compte » du relevé désigne le compte par son NOM ; sinon la règle (§118.176).
-        treasuryAccountId: resoudreCompte(comptes, { compte: account || "Banque", societeId: null }),
-        createdById: user.id,
-      },
-    }).catch(() => undefined);
-    n += 1;
+    try {
+      await prisma.financeTransaction.create({
+        data: {
+          reference: `FIN-${year}-${String(base).padStart(3, "0")}`,
+          date: lue.date,
+          direction: lue.direction,
+          category: lue.category,
+          label: lue.label,
+          amount: lue.amount,
+          method: lue.method,
+          account: lue.account,
+          counterparty: lue.counterparty,
+          status: "SETTLED",
+          // La colonne « compte » du relevé désigne le compte par son NOM ; sinon la règle (§118.176).
+          treasuryAccountId: resoudreCompte(comptes, { compte: lue.account, societeId: null }),
+          createdById: user.id,
+        },
+      });
+      n += 1;
+    } catch (err) {
+      // Une ligne que la base refuse n'est PAS importée : la compter annoncerait un mouvement qui
+      // n'existe nulle part.
+      console.error(`[finances] import CSV — ligne ${numero} refusée par la base`, err);
+      ecartees.push({ numero, raison: "écriture refusée par la base" });
+    }
   }
-  await recordAudit({ actorId: user.id, action: "IMPORT", module: "Finances", summary: `${n} transactions importées` });
+  // Rien d'écrit n'est pas un succès vide : c'est un refus, qui dit pourquoi pour chaque ligne.
+  if (n === 0) return { ok: false, error: bilanImport(0, ecartees) };
+  const k = ecartees.length;
+  await recordAudit({
+    actorId: user.id, action: "IMPORT", module: "Finances",
+    summary: `Import CSV — ${n} mouvement${n > 1 ? "s" : ""} importé${n > 1 ? "s" : ""}${k > 0 ? `, ${k} ligne${k > 1 ? "s" : ""} écartée${k > 1 ? "s" : ""}` : ""}`,
+  });
   revalidatePath("/finances");
-  return { ok: true };
+  return { ok: true, message: bilanImport(n, ecartees), ecartees: k };
 }
 
 // ── Comptes de trésorerie ANCRÉS (§118.176) ──
