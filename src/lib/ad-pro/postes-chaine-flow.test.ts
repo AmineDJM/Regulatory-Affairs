@@ -46,6 +46,7 @@ import { ordreAFacture } from "@/lib/finance/facture-ordre";
 import { getActionCenter } from "@/lib/queries/action-center";
 import { persistUploadedDocument } from "@/lib/documents";
 import type { Prisma } from "@prisma/client";
+import { TITRE_BC_A_ETABLIR } from "@/lib/ad-pro/pieces-secretariat";
 
 let dbOk = false;
 try { await prisma.$queryRaw`SELECT 1`; dbOk = true; } catch { dbOk = false; }
@@ -137,6 +138,10 @@ suite("Ad & Pro — la chaîne d'un poste : deux temps, BC par l'assistante, fac
     const docs = [...new Set([...demandes.map((d) => d.legalDocumentId), ...liens.map((l) => l.legalDocumentId)].filter((x): x is string => Boolean(x)))];
     await prisma.document.deleteMany({ where: { entityId: { in: [...docs, ...demandes.map((d) => d.id), ...postes] } } }).catch(() => {});
     await prisma.adProItemPiece.deleteMany({ where: { itemId: { in: postes } } }).catch(() => {});
+    const aDemandes = (await prisma.administrativeRequest.findMany({ where: { linkedEntityType: "AD_PRO_ITEM", linkedEntityId: { in: postes } }, select: { id: true } }).catch(() => [])).map((r) => r.id);
+    await prisma.comment.deleteMany({ where: { entityType: "ADMIN_REQUEST", entityId: { in: aDemandes } } }).catch(() => {});
+    await prisma.auditLog.deleteMany({ where: { entityId: { in: aDemandes } } }).catch(() => {});
+    await prisma.administrativeRequest.deleteMany({ where: { id: { in: aDemandes } } }).catch(() => {});
     await prisma.documentRequest.deleteMany({ where: { id: { in: demandes.map((d) => d.id) } } }).catch(() => {});
     await prisma.adProGateVisa.deleteMany({ where: { entityId: { in: docs } } }).catch(() => {});
     const vIds = (await prisma.validationRequest.findMany({ where: { entityId: { in: docs } }, select: { id: true } }).catch(() => [])).map((v) => v.id);
@@ -404,9 +409,31 @@ suite("Ad & Pro — la chaîne d'un poste : deux temps, BC par l'assistante, fac
     // DÉCOR, nommé : un poste dont le BC avait été demandé au secrétariat avant §118.204, et visé.
     const id = await posteAccorde("Avant la règle", 600_000);
     await prisma.adProItem.update({ where: { id }, data: { orderStage: "DIRECTION_OK", orderRequestedAt: new Date(), orderRequestedById: u.kam, orderVisaAmount: 600_000, orderVisaSupplier: "Imprimerie Alpha", orderDirectionAt: new Date(), orderDirectionById: u.gm } });
+    // L'ANCIENNE DEMANDE AU BUREAU DU SECRÉTARIAT (constat 21) — telle que l'écrivait le circuit d'avant.
+    const ancienne = await prisma.administrativeRequest.create({
+      data: {
+        reference: `${RUN.slice(-12)}-BCA`, type: "OTHER", title: `${TITRE_BC_A_ETABLIR} — ${TAG}Avant la règle`, priority: "HIGH",
+        status: "IN_PROGRESS", requesterId: u.kam, linkedEntityType: "AD_PRO_ITEM", linkedEntityId: id,
+      },
+      select: { id: true },
+    });
+    // Témoin : une demande au secrétariat d'une AUTRE nature (un devis) du même poste reste ouverte.
+    const devis = await prisma.administrativeRequest.create({
+      data: {
+        reference: `${RUN.slice(-12)}-DEV`, type: "QUOTE", title: `${TAG}Devis — Avant la règle`, priority: "HIGH",
+        status: "NEW", requesterId: u.kam, linkedEntityType: "AD_PRO_ITEM", linkedEntityId: id,
+      },
+      select: { id: true },
+    });
     await comme("kam");
-    ok(await requestAdProItemOrder(undefined, fd({ id, assistantId: u.ast1 })));
+    const r = await requestAdProItemOrder(undefined, fd({ id, assistantId: u.ast1 }));
+    ok(r);
+    expect(r.message ?? "").toMatch(/ancienne demande « Bon de commande à établir » au secrétariat est close/);
     expect((await demandeBC(id))?.askedToId).toBe(u.ast1);
+    const a = await prisma.administrativeRequest.findUniqueOrThrow({ where: { id: ancienne.id }, select: { status: true } });
+    expect(a.status, "l'ancienne demande se clôt : la demande de pièce la remplace").toBe("CANCELLED");
+    expect(await prisma.comment.count({ where: { entityType: "ADMIN_REQUEST", entityId: ancienne.id, body: { contains: "au profit de la demande de pièce" } } }), "la trace dit par quoi elle est remplacée").toBe(1);
+    expect((await prisma.administrativeRequest.findUniqueOrThrow({ where: { id: devis.id }, select: { status: true } })).status, "le devis n'est pas un BC : il reste").toBe("NEW");
     const p = await poste(id);
     expect(p.orderStage, "le visa tient").toBe("DIRECTION_OK");
     expect(Number(p.orderVisaAmount)).toBe(600_000);

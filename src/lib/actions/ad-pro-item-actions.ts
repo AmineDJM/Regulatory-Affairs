@@ -526,6 +526,24 @@ async function appliquerGesteVisa(
 async function cloreDemandesSecretariat(
   itemId: string, motif: string, user: SessionUser, portee: "TOUTES" | "BC_A_ETABLIR",
 ): Promise<number> {
+  const { closes } = await cloreDemandesAuBureau(itemId, motif, user, portee);
+  // LA DEMANDE DE PIÈCE ENVOYÉE À L'ASSISTANTE (§118.204) suit le même sort : sans cela, elle déposerait
+  // un BC pour un poste refusé ou une demande retirée. Elle est prévenue, motif à l'appui.
+  const pieces = await annulerDemandesPiecesDuPoste(itemId, portee === "BC_A_ETABLIR" ? "BC" : "TOUTES");
+  for (const p of pieces) {
+    await notifyUser({ userId: p.askedToId, type: "GENERIC", title: "Demande de pièce annulée", body: motif, link: `/pieces/${p.id}` }).catch(() => undefined);
+  }
+  if (pieces.length > 0) revalidatePath("/pieces");
+  return closes + pieces.length;
+}
+
+/**
+ * LES DEMANDES AU BUREAU DU SECRÉTARIAT du poste (et elles seules) — par l'annulation commune. Rend le
+ * nombre de demandes closes et la réserve d'une demande qui ne s'annule pas (paiement déjà réglé).
+ */
+async function cloreDemandesAuBureau(
+  itemId: string, motif: string, user: SessionUser, portee: "TOUTES" | "BC_A_ETABLIR", cause = "avec son poste",
+): Promise<{ closes: number; reserve: string | null }> {
   const ouvertes = await prisma.administrativeRequest.findMany({
     where: {
       linkedEntityType: "AD_PRO_ITEM", linkedEntityId: itemId, deletedAt: null,
@@ -538,19 +556,14 @@ async function cloreDemandesSecretariat(
   // en attente, son paiement non réglé, la trace et l'assistante — la même chose que lorsque son
   // demandeur l'annule. Une demande dont le paiement est déjà réglé reste ouverte : elle se termine.
   let closes = 0;
+  let reserve: string | null = null;
   for (const d of ouvertes) {
-    const a = await annulerDemandeSecretariat(d.id, { acteurId: user.id, motif, cause: "avec son poste" });
+    const a = await annulerDemandeSecretariat(d.id, { acteurId: user.id, motif, cause });
     if (a.ok && a.annulee) closes += 1;
+    else if (!a.ok) reserve = a.error;
   }
   if (closes > 0) revalidatePath("/demandes");
-  // LA DEMANDE DE PIÈCE ENVOYÉE À L'ASSISTANTE (§118.204) suit le même sort : sans cela, elle déposerait
-  // un BC pour un poste refusé ou une demande retirée. Elle est prévenue, motif à l'appui.
-  const pieces = await annulerDemandesPiecesDuPoste(itemId, portee === "BC_A_ETABLIR" ? "BC" : "TOUTES");
-  for (const p of pieces) {
-    await notifyUser({ userId: p.askedToId, type: "GENERIC", title: "Demande de pièce annulée", body: motif, link: `/pieces/${p.id}` }).catch(() => undefined);
-  }
-  if (pieces.length > 0) revalidatePath("/pieces");
-  return closes + pieces.length;
+  return { closes, reserve };
 }
 
 /** « 2 demandes au secrétariat closes » — la phrase, une fois ; rien quand il n'y en avait pas. */
@@ -1773,9 +1786,22 @@ export async function requestAdProItemOrder(_prev: ActionResult | undefined, for
     const assistante = await assistanteDuBC(formData);
     if ("error" in assistante) return { ok: false, error: assistante.error };
     await envoyerDemandeBC({ item, owner, ref: demande.ref, montant: montantAccorde, assistante, demandeurId: user.id, note: note ?? item.orderNote });
-    await audit(user, owner.parent, owner.id, "UPDATE", `Demande de bon de commande envoyée à ${assistante.name} pour le poste « ${item.label} ».`);
+    // L'ANCIENNE DEMANDE « BC À ÉTABLIR » AU BUREAU DU SECRÉTARIAT (audit du 04/10, constat 21) : la
+    // demande de pièce la REMPLACE. Laissée ouverte, l'assistante avait deux demandes pour le même BC, et
+    // déposer dans l'ancienne ne revenait jamais au poste. Elle se clôt par l'annulation commune, avec la
+    // trace qui dit par quoi elle est remplacée — APRÈS l'envoi : si l'envoi échoue, l'ancienne reste.
+    const anciennes = await cloreDemandesAuBureau(
+      id, `le bon de commande se demande désormais à ${assistante.name} comme une pièce, qui reviendra sur le poste`, user, "BC_A_ETABLIR",
+      "au profit de la demande de pièce",
+    );
+    await audit(user, owner.parent, owner.id, "UPDATE", `Demande de bon de commande envoyée à ${assistante.name} pour le poste « ${item.label} »${anciennes.closes > 0 ? ` — l'ancienne demande au secrétariat est close` : ""}.`);
     revalidate(owner.parent, owner.id);
-    return { ok: true, id, message: `Demande envoyée à ${assistante.name}, qui déposera le bon de commande.` };
+    return {
+      ok: true, id,
+      message: `Demande envoyée à ${assistante.name}, qui déposera le bon de commande.`
+        + (anciennes.closes > 0 ? ` L'ancienne demande « ${TITRE_BC_A_ETABLIR} » au secrétariat est close.` : "")
+        + (anciennes.reserve ? ` Attention : ${anciennes.reserve}` : ""),
+    };
   }
 
   const check = canRequestPurchaseOrder({
