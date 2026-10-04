@@ -5,7 +5,7 @@ import type { DriveAccess } from "@prisma/client";
 import { requireUser } from "@/lib/session";
 import { userCan } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
-import { putBlob, releaseBlob, getBlob } from "@/lib/drive-storage";
+import { putBlob, releaseBlob, getBlob, retainBlob } from "@/lib/drive-storage";
 import { resolveDriveAccess, effectiveSpaceId, canCreateInSpace, canViewDrive } from "@/lib/drive";
 import { blankOffice, isOfficeKind } from "@/lib/office-templates";
 import { documentName, KIND_LABEL } from "@/lib/office/letterhead";
@@ -604,28 +604,35 @@ export async function copyNodes(formData: FormData): Promise<BulkResult> {
     if (!src || src.isTrashed) return;
     budget -= 1;
 
-    const copy = await prisma.driveNode.create({
-      data: {
-        name: src.name, type: src.type, parentId, spaceId: destSpaceId,
-        mimeType: src.mimeType, size: src.size, category: src.category,
-        // La copie APPARTIENT à celui qui colle : c'est lui qui en répond désormais, et c'est ce
-        // qui lui permet de la renommer ou de la supprimer sans redemander un droit.
-        ownerId: user.id, createdById: user.id,
-      },
-      select: { id: true },
-    });
+    const nodeData = {
+      name: src.name, type: src.type, parentId, spaceId: destSpaceId,
+      mimeType: src.mimeType, size: src.size, category: src.category,
+      // La copie APPARTIENT à celui qui colle : c'est lui qui en répond désormais, et c'est ce
+      // qui lui permet de la renommer ou de la supprimer sans redemander un droit.
+      ownerId: user.id, createdById: user.id,
+    };
 
     if (src.type === "FILE") {
       const current = await prisma.fileVersion.findFirst({
         where: { nodeId: sourceId }, orderBy: { version: "desc" },
         select: { blobId: true, size: true, mimeType: true },
       });
-      if (current) {
-        await prisma.fileVersion.create({
+      // UN DÉTENTEUR DE PLUS, COMPTÉ (audit du 04/10, constat 3). La copie partage les octets de
+      // l'original : sans prendre une référence, supprimer la copie puis l'original rendait le
+      // compteur à zéro alors qu'un détenteur restait — et le document d'origine devenait
+      // illisible. Nœud, référence et version s'écrivent ensemble, ou rien.
+      await prisma.$transaction(async (tx) => {
+        const copy = await tx.driveNode.create({ data: nodeData, select: { id: true } });
+        if (!current) return;
+        if (!(await retainBlob(current.blobId, tx))) {
+          throw new Error(`Le contenu de « ${src.name} » est introuvable : la copie n'a pas été créée.`);
+        }
+        await tx.fileVersion.create({
           data: { nodeId: copy.id, blobId: current.blobId, version: 1, size: current.size, mimeType: current.mimeType, createdById: user.id },
         });
-      }
+      });
     } else {
+      const copy = await prisma.driveNode.create({ data: nodeData, select: { id: true } });
       const children = await prisma.driveNode.findMany({
         where: { parentId: sourceId, isTrashed: false }, select: { id: true }, orderBy: { name: "asc" },
       });

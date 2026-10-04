@@ -1,7 +1,9 @@
 import crypto from "crypto";
 import { createReadStream } from "fs";
 import { readFile, stat } from "fs/promises";
+import { Prisma } from "@prisma/client";
 import { prisma } from "./prisma";
+import { sqlAucuneColonneNeLeTient, sqlBlobsCitesEnJson } from "./storage/blob-refs";
 import {
   objectStorageConfigured, putObject, putObjectStream, getObject, deleteObject, MULTIPART_THRESHOLD_BYTES,
 } from "./storage/object-storage";
@@ -33,8 +35,57 @@ export function sha256(buf: Buffer): string {
   return crypto.createHash("sha256").update(buf).digest("hex");
 }
 
-// Clé objet du contenu chiffré d'un blob (adressé par le SHA-256 du clair → déduplication naturelle).
-const blobKey = (hash: string) => `blobs/${hash.slice(0, 2)}/${hash}`;
+/**
+ * Clé objet du contenu chiffré d'un blob — UNIQUE par écriture, jamais par contenu seul.
+ *
+ * Adressée par le seul SHA-256, deux écritures concurrentes du MÊME contenu visaient la même
+ * clé, chacune avec son propre IV : la seconde arrivée écrasait l'objet de la première, dont la
+ * ligne gardait l'IV d'origine — fichier indéchiffrable. Et l'effacement d'un blob libéré
+ * supprimait l'objet que le dépôt suivant du même contenu venait d'écrire sous la même clé
+ * (audit du 04/10, constat 4). La déduplication se décide EN BASE (index unique `sha256`) ;
+ * l'objet, lui, appartient à une seule ligne. Les blobs existants gardent leur clé : elle est
+ * lue dans `storageKey`, jamais recalculée.
+ */
+const blobKey = (hash: string) => `blobs/${hash.slice(0, 2)}/${hash}-${crypto.randomBytes(6).toString("hex")}`;
+
+/** Taille maximale d'un blob : la colonne `size` est un entier 32 bits. Au-delà, on le DIT avant d'écrire. */
+export const BLOB_MAX_BYTES = 2_147_483_647;
+function refuserSiTropGros(size: number): void {
+  if (size > BLOB_MAX_BYTES) {
+    throw new Error(`Fichier trop volumineux pour le coffre chiffré (${Math.round(size / 1024 ** 2)} Mo > 2 047 Mo).`);
+  }
+}
+
+/**
+ * RÉEMPLOI ATOMIQUE d'un contenu déjà stocké. Une seule instruction : le compteur monte et la
+ * date de prise est posée sous le verrou de la ligne. Lire puis incrémenter laissait un
+ * effacement passer entre les deux — le dépôt recevait l'identifiant d'un blob effacé, et la
+ * fiche créée ensuite tombait sur une erreur de clé étrangère brute (constat 4).
+ */
+async function reemployer(hash: string): Promise<PutBlobResult | null> {
+  const rows = await prisma.$queryRaw<{ id: string; size: number }[]>`
+    UPDATE "FileBlob" SET "refCount" = "refCount" + 1, "touchedAt" = now()
+    WHERE sha256 = ${hash} RETURNING id, size`;
+  const r = rows[0];
+  return r ? { blobId: r.id, sha256: hash, size: r.size, deduplicated: true } : null;
+}
+
+/**
+ * PREND une référence de plus sur un blob existant — c'est ce que fait une COPIE de fichier.
+ *
+ * Copier un fichier du Drive pointait la nouvelle version vers le même blob sans compter ce
+ * nouveau détenteur : supprimer la copie puis l'original libérait deux fois un compteur qui
+ * valait un (audit du 04/10, constat 3). Rend `false` si le blob n'existe plus : l'appelant
+ * refuse alors au lieu de créer une version qui ne s'ouvrira jamais.
+ */
+export async function retainBlob(
+  blobId: string,
+  client: { $executeRaw: typeof prisma.$executeRaw } = prisma,
+): Promise<boolean> {
+  const n = await client.$executeRaw`
+    UPDATE "FileBlob" SET "refCount" = "refCount" + 1, "touchedAt" = now() WHERE id = ${blobId}`;
+  return n > 0;
+}
 
 // Taille d'une TRANCHE de contenu chiffré en base (défaut 16 Mo). Au-delà de cette taille, un fichier
 // est stocké en plusieurs lignes ordonnées plutôt qu'en un bytea unique — dont l'encodage hex sur le
@@ -115,21 +166,20 @@ async function createOrAdoptBlob(
     return { blobId: blob.id, sha256: hash, size, deduplicated: false };
   } catch (err) {
     if (!isUniqueSha256Violation(err)) throw err;
-    const winner = await prisma.fileBlob.findUnique({ where: { sha256: hash }, select: { id: true, size: true } });
+    const winner = await reemployer(hash);
     if (!winner) throw err;
-    await prisma.fileBlob.update({ where: { id: winner.id }, data: { refCount: { increment: 1 } } });
-    return { blobId: winner.id, sha256: hash, size: winner.size, deduplicated: true };
+    // L'objet que CETTE écriture avait poussé n'appartient à personne : la ligne gagnante a le sien.
+    const own = (data as { storageKey?: string | null }).storageKey;
+    if (own) await deleteObject(own);
+    return winner;
   }
 }
 
 /** Store bytes (encrypted, deduplicated). Increments the ref-count on reuse. */
 export async function putBlob(plain: Buffer): Promise<PutBlobResult> {
   const hash = sha256(plain);
-  const existing = await prisma.fileBlob.findUnique({ where: { sha256: hash }, select: { id: true, size: true } });
-  if (existing) {
-    await prisma.fileBlob.update({ where: { id: existing.id }, data: { refCount: { increment: 1 } } });
-    return { blobId: existing.id, sha256: hash, size: existing.size, deduplicated: true };
-  }
+  const existing = await reemployer(hash);
+  if (existing) return existing;
   const iv = crypto.randomBytes(12);
 
   // Stockage OBJET (S3/R2) si configuré → la base ne garde que les métadonnées + l'IV.
@@ -197,11 +247,9 @@ export async function sha256File(path: string): Promise<string> {
  */
 export async function putBlobFromFile(path: string, opts: { sha256?: string } = {}): Promise<PutBlobResult> {
   const hash = opts.sha256 || (await sha256File(path));
-  const existing = await prisma.fileBlob.findUnique({ where: { sha256: hash }, select: { id: true, size: true } });
-  if (existing) {
-    await prisma.fileBlob.update({ where: { id: existing.id }, data: { refCount: { increment: 1 } } });
-    return { blobId: existing.id, sha256: hash, size: existing.size, deduplicated: true };
-  }
+  const existing = await reemployer(hash);
+  if (existing) return existing;
+  refuserSiTropGros((await stat(path)).size);
 
   // Stockage OBJET — EN FLUX. Le fichier est lu par morceaux, chiffré au fil de l'eau et poussé
   // vers le bucket en plusieurs parties : le pic mémoire vaut une partie (16 Mio), qu'il s'agisse
@@ -222,16 +270,15 @@ export async function putBlobFromFile(path: string, opts: { sha256?: string } = 
     } catch (err) {
       throw storageFailure(err);
     }
-    const blob = await prisma.fileBlob.create({
-      data: { sha256: hash, size, iv, data: null, storageKey: key, refCount: 1 },
-      select: { id: true },
-    });
-    return { blobId: blob.id, sha256: hash, size, deduplicated: false };
+    return createOrAdoptBlob({ sha256: hash, size, iv, data: null, storageKey: key, refCount: 1 }, hash, size);
   }
 
   const { size } = await stat(path);
   const iv = crypto.randomBytes(12);
-  const blob = await prisma.fileBlob.create({ data: { sha256: hash, size, iv, data: null, refCount: 1 }, select: { id: true } });
+  const created = await createOrAdoptBlob({ sha256: hash, size, iv, data: null, refCount: 1 }, hash, size);
+  // Le contenu venait d'être écrit par un autre appel : ses tranches sont (ou seront) les siennes.
+  if (created.deduplicated) return created;
+  const blob = { id: created.blobId };
   try {
     const cipher = crypto.createCipheriv("aes-256-gcm", masterKey(), iv);
     let idx = 0;
@@ -275,31 +322,54 @@ export async function getBlob(blobId: string): Promise<Buffer | null> {
   return Buffer.concat([decipher.update(enc), decipher.final()]);
 }
 
-/** Decrement the ref-count; physically delete the blob (base + objet) when no longer referenced. */
+/**
+ * Rend une référence ; efface le blob (base + objet) quand plus PERSONNE ne le tient.
+ *
+ * Deux gardes, et il faut les deux (audit du 04/10, constats 2 et 4) :
+ *   • le compteur descend, et l'effacement se décide sous la condition « compteur ≤ 0 » RELUE au
+ *     moment d'effacer — un dépôt du même contenu qui l'a fait remonter entre-temps le garde ;
+ *   • aucune colonne du schéma ne doit encore le désigner — un compteur périmé (une suppression
+ *     en cascade ne décrémente rien) ne suffit plus à faire disparaître les octets d'un détenteur
+ *     vivant. Le blob reste alors, compteur à zéro, et seule la purge (qui lit aussi le JSON)
+ *     peut décider de lui.
+ */
 export async function releaseBlob(blobId: string): Promise<void> {
-  const blob = await prisma.fileBlob.findUnique({ where: { id: blobId }, select: { refCount: true, storageKey: true } });
-  if (!blob) return;
-  if (blob.refCount <= 1) {
-    await prisma.fileBlob.delete({ where: { id: blobId } }).catch(() => undefined);
-    if (blob.storageKey) await deleteObject(blob.storageKey); // ne lève jamais
-  } else {
-    await prisma.fileBlob.update({ where: { id: blobId }, data: { refCount: { decrement: 1 } } });
-  }
+  const rows = await prisma.$queryRaw<{ refCount: number }[]>`
+    UPDATE "FileBlob" SET "refCount" = GREATEST("refCount" - 1, 0) WHERE id = ${blobId} RETURNING "refCount"`;
+  if (!rows[0] || rows[0].refCount > 0) return;
+  const gone = await prisma.$queryRaw<{ storageKey: string | null }[]>(Prisma.sql`
+    DELETE FROM "FileBlob" b
+    WHERE b.id = ${blobId} AND b."refCount" <= 0 AND ${sqlAucuneColonneNeLeTient("b")}
+    RETURNING b."storageKey"`);
+  if (gone[0]?.storageKey) await deleteObject(gone[0].storageKey); // ne lève jamais
 }
 
+/** Un blob pris depuis moins de ce délai n'est jamais purgé : son détenteur s'écrit peut-être. */
+export const PURGE_DELAI_MINUTES = 60;
+
 /**
- * RAMASSE-MIETTES du stockage physique : supprime définitivement les blobs qui ne sont plus
- * référencés par AUCUNE version de fichier (Drive) NI par aucun fichier stocké (Documents, etc.).
- * C'est ce qui libère RÉELLEMENT l'espace disque de la BDD après des suppressions (les suppressions
- * en cascade laissent des blobs orphelins avec un compteur de références périmé). Renvoie le nombre
- * de blobs détruits et les octets physiques récupérés. Les tranches (FileBlobChunk) tombent en cascade.
+ * RAMASSE-MIETTES du stockage physique : efface les blobs que PERSONNE ne tient plus.
+ *
+ * « Personne » se lit dans le SCHÉMA (`storage/blob-refs.ts`) : toutes les colonnes qui
+ * désignent un blob, ET toute clé `…blobId` d'une colonne JSON (logo de marque, ligne de la
+ * corbeille). La version d'avant ne regardait que deux tables : lancée, elle aurait détruit les
+ * pièces de messagerie, les documents RH, les pièces Regulatory, les rapports terrain, le papier
+ * en-tête… (audit du 04/10, constat 2). Un blob pris depuis moins d'une heure est épargné : le
+ * dépôt qui l'a créé n'a peut-être pas encore écrit sa fiche.
+ *
+ * Elle ne se déclenche plus d'elle-même à chaque suppression : c'est un geste d'administration.
  */
 export async function purgeOrphanBlobs(): Promise<{ count: number; bytes: number }> {
-  const orphans = await prisma.$queryRaw<{ id: string; size: number; storageKey: string | null }[]>`
+  const candidats = await orphelins();
+  if (candidats.length === 0) return { count: 0, bytes: 0 };
+  const ids = candidats.map((c) => c.id);
+  // La condition est REJOUÉE au moment d'effacer : un réemploi passé entre les deux lectures a
+  // fait bouger `touchedAt`, et la ligne est épargnée.
+  const orphans = await prisma.$queryRaw<{ id: string; size: number; storageKey: string | null }[]>(Prisma.sql`
     DELETE FROM "FileBlob" b
-    WHERE NOT EXISTS (SELECT 1 FROM "FileVersion" v WHERE v."blobId" = b.id)
-      AND NOT EXISTS (SELECT 1 FROM "StoredFile" s WHERE s."blobId" = b.id)
-    RETURNING b.id, b.size, b."storageKey"`;
+    WHERE b.id = ANY(${ids}) AND b."touchedAt" < now() - make_interval(mins => ${PURGE_DELAI_MINUTES})
+      AND ${sqlAucuneColonneNeLeTient("b")}
+    RETURNING b.id, b.size, b."storageKey"`);
   let bytes = 0;
   for (const o of orphans) {
     bytes += o.size;
@@ -308,13 +378,21 @@ export async function purgeOrphanBlobs(): Promise<{ count: number; bytes: number
   return { count: orphans.length, bytes };
 }
 
-/** Octets physiques réellement récupérables par un ramasse-miettes (blobs non référencés). */
+/** Les blobs qu'aucune colonne ni aucun JSON ne tient, pris depuis plus d'une heure. */
+async function orphelins(): Promise<{ id: string; size: number }[]> {
+  const rows = await prisma.$queryRaw<{ id: string; size: number }[]>(Prisma.sql`
+    SELECT b.id, b.size FROM "FileBlob" b
+    WHERE b."touchedAt" < now() - make_interval(mins => ${PURGE_DELAI_MINUTES})
+      AND ${sqlAucuneColonneNeLeTient("b")}`);
+  if (rows.length === 0) return rows;
+  const json = sqlBlobsCitesEnJson();
+  if (!json) return rows;
+  const cites = new Set((await prisma.$queryRaw<{ id: string }[]>(json)).map((r) => r.id));
+  return rows.filter((r) => !cites.has(r.id));
+}
+
+/** Octets physiques réellement récupérables par un ramasse-miettes (blobs que personne ne tient). */
 export async function countOrphanBlobs(): Promise<{ count: number; bytes: number }> {
-  const rows = await prisma.$queryRaw<{ count: bigint; bytes: bigint | null }[]>`
-    SELECT COUNT(*)::bigint AS count, COALESCE(SUM(b.size), 0)::bigint AS bytes
-    FROM "FileBlob" b
-    WHERE NOT EXISTS (SELECT 1 FROM "FileVersion" v WHERE v."blobId" = b.id)
-      AND NOT EXISTS (SELECT 1 FROM "StoredFile" s WHERE s."blobId" = b.id)`;
-  const r = rows[0];
-  return { count: Number(r?.count ?? 0), bytes: Number(r?.bytes ?? 0) };
+  const rows = await orphelins();
+  return { count: rows.length, bytes: rows.reduce((a, r) => a + r.size, 0) };
 }

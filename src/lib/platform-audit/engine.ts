@@ -88,7 +88,7 @@ function probeUploads(): { uploads: UploadSurface[]; findings: Finding[] } {
   const maxDoc = Number(process.env.MAX_UPLOAD_MB ?? "25");
   const maxDrive = Number(process.env.MAX_DRIVE_UPLOAD_MB ?? process.env.MAX_UPLOAD_MB ?? "100");
   const surfaces: { key: string; label: string; strategy: "allowlist" | "blocklist"; maxMb: number; fn: (n: string, s: number) => string | null }[] = [
-    { key: "biz", label: "Pièces jointes métier (rapports terrain, sponsoring, congrès, RH…)", strategy: "allowlist", maxMb: maxDoc, fn: (n, s) => validateUpload(n, s, maxDoc) },
+    { key: "biz", label: "Pièces jointes métier (rapports terrain, sponsoring, congrès, RH…)", strategy: "blocklist", maxMb: maxDoc, fn: (n, s) => validateUpload(n, s, maxDoc) },
     { key: "documents", label: "Documents (dossiers, factures, CTD…)", strategy: "blocklist", maxMb: maxDoc, fn: (n, s) => validateDocumentUpload(n, s, maxDoc) },
     { key: "drive", label: "Drive (fichiers)", strategy: "blocklist", maxMb: maxDrive, fn: (n, s) => validateDriveUpload(n, s, maxDrive) },
   ];
@@ -107,7 +107,7 @@ function probeUploads(): { uploads: UploadSurface[]; findings: Finding[] } {
     findings.push({
       severity: "warning", area: "Formats",
       title: "Certains espaces refusent des formats de fichiers courants",
-      detail: `Les pièces jointes métier (allowlist stricte) refusent : ${missing.map((m) => "." + m).join(", ")}. Un utilisateur ne peut pas y déposer ces fichiers.`,
+      detail: `Les pièces jointes métier refusent : ${missing.map((m) => "." + m).join(", ")}. Un utilisateur ne peut pas y déposer ces fichiers.`,
       suggestion: "Élargir ALLOWED_EXTENSIONS dans src/lib/storage.ts (ou aligner sur la stratégie « blocklist » du Drive/Documents qui n'interdit que les exécutables).",
     });
   }

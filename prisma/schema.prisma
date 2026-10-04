@@ -5573,6 +5573,9 @@ model FileBlob {
   storageKey String? // clé objet S3/R2 du contenu chiffré (null = stocké en base) — dé-gonfle le disque BDD
   refCount   Int             @default(0)
   createdAt  DateTime        @default(now())
+  /// Dernière prise par un détenteur (création OU réemploi) : la purge des orphelins n'efface
+  /// jamais un blob touché depuis moins d'une heure — sa fiche est peut-être en train de s'écrire.
+  touchedAt  DateTime        @default(now())
   versions   FileVersion[]
   chunks     FileBlobChunk[] // gros fichiers : contenu chiffré découpé en TRANCHES ordonnées (mémoire bornée)
 }

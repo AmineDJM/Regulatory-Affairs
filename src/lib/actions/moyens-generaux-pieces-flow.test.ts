@@ -134,7 +134,7 @@ suite("moyens généraux — une pièce refusée n'écrit aucune dépense", () =
     for (const fichiers of [[exe()], [pdf(), exe()]]) {
       const r = await addDepartmentExpense(form(champs, fichiers));
       expect(r.ok, fichiers.map((f) => f.name).join(" + ")).toBe(false);
-      expect(r.error).toBe("Type de fichier non autorisé (.exe).");
+      expect(r.error).toMatch(/^« facture\.exe » : Type de fichier non autorisé \(\.exe\)/);
       expect(await depenses(label), "un refus qui laisse la dépense en base est un faux refus").toEqual([]);
     }
     const f = await fond();
@@ -171,7 +171,7 @@ suite("moyens généraux — une pièce refusée n'écrit aucune dépense", () =
     for (const fichiers of [[exe()], [pdf(), exe()]]) {
       const r = await spendFromPettyCash(form(champs, fichiers));
       expect(r.ok, fichiers.map((f) => f.name).join(" + ")).toBe(false);
-      expect(r.error).toBe("Type de fichier non autorisé (.exe).");
+      expect(r.error).toMatch(/^« facture\.exe » : Type de fichier non autorisé \(\.exe\)/);
       expect(await depenses(label), "un refus qui laisse la dépense en base est un faux refus").toEqual([]);
     }
     expect((await fond()).spent, "la caisse a payé une dépense refusée").toBe(12_000);

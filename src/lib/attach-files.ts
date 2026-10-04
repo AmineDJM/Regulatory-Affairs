@@ -1,9 +1,11 @@
 import { randomUUID } from "node:crypto";
 import type { DocumentCategory, EntityType } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { saveFile, validateUpload } from "@/lib/storage";
+import { saveFile, deleteFileByKey, validateUpload } from "@/lib/storage";
 import { getAppSettings } from "@/lib/settings";
 import { mirrorDocumentsToDrive, type MirrorFile } from "@/lib/drive/document-mirror";
+import { notifyUser } from "@/lib/notify";
+import { entityHref } from "@/lib/entity-href";
 
 /**
  * JOINDRE DES FICHIERS À UN OBJET, DÈS SA CRÉATION.
@@ -11,35 +13,41 @@ import { mirrorDocumentsToDrive, type MirrorFile } from "@/lib/drive/document-mi
  * Le même bloc était recopié dans cinq actions. Le sortir ici évite qu'une correction (limite
  * de taille, garde de type, chemin de stockage) ne soit appliquée qu'à quatre d'entre elles.
  *
- * Deux comportements assumés :
- *   • **une écriture de fichier qui échoue ne perd pas la demande** — on enregistre quand même
- *     la fiche du document, avec sa trace. Perdre un formulaire entier parce que le stockage a
- *     hoqueté serait bien pire qu'un document à re-téléverser.
- *   • **un fichier refusé arrête tout** — un fichier trop lourd ou d'un type interdit est une
- *     erreur de saisie : mieux vaut le dire tout de suite que de créer une demande incomplète.
+ * Trois règles (audit du 04/10, constats 1, 7, 8, 13) :
+ *   • **un fichier refusé se dit AVANT d'agir** — `validateAttachments` se lance avant de créer
+ *     l'objet : une demande créée puis refusée pour sa pièce se recrée au second essai, et l'on
+ *     en a deux ;
+ *   • **pas de fiche sans fichier** — une écriture qui échoue ne crée plus de document « fantôme »
+ *     qui s'affichera « indisponible » : elle est rendue, avec le nom du fichier ;
+ *   • **toutes les erreurs d'un lot sont dites**, pas la première seulement — et un fichier vide
+ *     n'est plus écarté en silence.
  */
 export interface AttachResult {
   saved: number;
-  /** Message d'erreur si un fichier a été refusé — l'appelant doit alors s'arrêter. */
+  /** Message d'erreur si un fichier a été refusé ou n'a pas pu être écrit — à afficher. */
   error?: string;
 }
 
+/** Un champ fichier laissé vide envoie un fichier SANS NOM de zéro octet : ce n'est pas une pièce. */
+const estUnePiece = (f: unknown): f is File => f instanceof File && (f.size > 0 || f.name !== "");
+
 /**
  * Contrôle les fichiers SANS rien écrire — pour les appelants qui doivent refuser une saisie
- * AVANT d'agir (une décision de workflow, par exemple : enregistrer l'avis puis refuser la
- * pièce jointe laisserait la décision prise et sa justification perdue).
+ * AVANT d'agir (une demande à créer, une décision de workflow).
  *
- * Renvoie le message d'erreur du premier fichier refusé, ou `null` si tout passe.
+ * Renvoie TOUTES les raisons de refus du lot, réunies, ou `null` si tout passe.
  */
 export async function validateAttachments(files: File[]): Promise<string | null> {
-  const list = files.filter((f) => f instanceof File && f.size > 0);
+  const list = files.filter(estUnePiece);
   if (list.length === 0) return null;
   const maxMb = (await getAppSettings()).maxUploadMb;
+  const erreurs: string[] = [];
   for (const file of list) {
+    if (file.size === 0) { erreurs.push(`« ${file.name} » est vide (0 octet).`); continue; }
     const invalid = validateUpload(file.name, file.size, maxMb);
-    if (invalid) return invalid;
+    if (invalid) erreurs.push(`« ${file.name} » : ${invalid}`);
   }
-  return null;
+  return erreurs.length > 0 ? erreurs.join(" ") : null;
 }
 
 export async function attachFiles(input: {
@@ -51,41 +59,47 @@ export async function attachFiles(input: {
   /** Rattache la pièce à une étape / une case précise (colonne `stepKey`). */
   stepKey?: string | null;
 }): Promise<AttachResult> {
-  const files = input.files.filter((f) => f instanceof File && f.size > 0);
+  const files = input.files.filter(estUnePiece);
   if (files.length === 0) return { saved: 0 };
 
-  const maxMb = (await getAppSettings()).maxUploadMb;
+  const refus = await validateAttachments(files);
+  if (refus) return { saved: 0, error: refus };
+
   let saved = 0;
   const toMirror: MirrorFile[] = [];
+  const echecs: string[] = [];
 
   for (const file of files) {
-    const invalid = validateUpload(file.name, file.size, maxMb);
-    if (invalid) return { saved, error: invalid };
-
     const key = `${input.entityType}/${input.entityId}/${randomUUID()}__${file.name}`;
-    let content: Buffer | null = null;
+    const content = Buffer.from(await file.arrayBuffer());
     try {
-      content = Buffer.from(await file.arrayBuffer());
       await saveFile(key, content);
     } catch (err) {
-      // On garde la fiche : la demande vaut mieux qu'un échec total pour un fichier.
-      console.error("[attach] écriture du fichier impossible, métadonnées conservées", key, err);
+      console.error("[attach] écriture du fichier impossible — aucune fiche créée", key, err);
+      echecs.push(`« ${file.name} » n'a pas pu être enregistré (${err instanceof Error ? err.message : "stockage indisponible"}).`);
+      continue;
     }
-    if (content) toMirror.push({ name: file.name, data: content, mime: file.type || null });
-    await prisma.document.create({
-      data: {
-        name: file.name,
-        category: input.category ?? "OTHER",
-        entityType: input.entityType,
-        entityId: input.entityId,
-        stepKey: input.stepKey ?? null,
-        fileKey: key,
-        mimeType: file.type || null,
-        sizeBytes: file.size,
-        confidentiality: "INTERNAL",
-        uploadedById: input.uploadedById,
-      },
-    });
+    try {
+      await prisma.document.create({
+        data: {
+          name: file.name,
+          category: input.category ?? "OTHER",
+          entityType: input.entityType,
+          entityId: input.entityId,
+          stepKey: input.stepKey ?? null,
+          fileKey: key,
+          mimeType: file.type || null,
+          sizeBytes: file.size,
+          confidentiality: "INTERNAL",
+          uploadedById: input.uploadedById,
+        },
+      });
+    } catch (err) {
+      await deleteFileByKey(key).catch(() => undefined);
+      echecs.push(`« ${file.name} » : fiche impossible à créer (${err instanceof Error ? err.message : "erreur"}).`);
+      continue;
+    }
+    toMirror.push({ name: file.name, data: content, mime: file.type || null });
     saved++;
   }
 
@@ -98,5 +112,14 @@ export async function attachFiles(input: {
     }).catch((e) => console.error("[attach] miroir Drive échoué (non bloquant)", e));
   }
 
-  return { saved };
+  if (echecs.length === 0) return { saved };
+  const error = `${echecs.join(" ")} Joignez ${echecs.length > 1 ? "ces fichiers" : "ce fichier"} à nouveau depuis la fiche.`;
+  // L'objet existe déjà : l'appelant ne doit pas le refaire (il en aurait deux). Le manque est donc
+  // aussi DIT dans la cloche de la personne, avec le lien de la fiche — un écran qui se ferme sur
+  // « créé » ne doit pas être la seule trace d'une pièce perdue (constat 8).
+  await notifyUser({
+    userId: input.uploadedById, type: "GENERIC", title: "Pièce jointe non enregistrée", body: error,
+    link: entityHref(input.entityType, input.entityId) ?? undefined,
+  }).catch(() => undefined);
+  return { saved, error };
 }

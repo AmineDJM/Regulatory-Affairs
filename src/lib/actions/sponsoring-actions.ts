@@ -11,7 +11,7 @@ import { businessUnitDuDemandeur } from "@/lib/ad-pro/business-unit-auto";
 import { normalizeCity } from "@/lib/geo/algeria";
 import { buildRef, createWithRetry } from "@/lib/refs";
 import { recordAudit } from "@/lib/audit";
-import { attachFiles } from "@/lib/attach-files";
+import { attachFiles, validateAttachments } from "@/lib/attach-files";
 import { notifyRoles, notifyUser } from "@/lib/notify";
 import { involveThirdParty } from "@/lib/third-party";
 import { reopenInstance } from "@/lib/workflow/engine";
@@ -161,6 +161,13 @@ export async function createSponsoring(
   const referentGamme = await referentAInscrire(gammeDeLaDemande);
   const now = new Date();
 
+  // LES PIÈCES SE JUGENT AVANT LA DEMANDE (audit du 04/10, constat 7). Refusées après, elles
+  // laissaient la demande créée : la personne corrigeait son fichier, renvoyait, et le sponsoring
+  // existait deux fois.
+  const pieces = formData.getAll("files").filter((f): f is File => f instanceof File);
+  const piecesRefusees = await validateAttachments(pieces);
+  if (piecesRefusees) return { ok: false, error: `${piecesRefusees} Aucune demande n'a été créée.` };
+
   // LA RÉFÉRENCE SE RECALCULE À CHAQUE ESSAI (§118.175). Elle se dérive du MAXIMUM existant :
   // deux dépôts à la même seconde lisaient le même, calculaient la même, et le second tombait sur
   // la contrainte d'unicité — une erreur brute, après avoir rempli le formulaire et choisi sa pièce.
@@ -252,17 +259,18 @@ export async function createSponsoring(
 
   // Les demandes du médecin, jointes DÈS la création : c'est la pièce que tout le circuit va
   // lire, et la faire ajouter « à l'écran suivant » revient à la voir manquer une fois sur deux.
+  // Les pièces ont passé le contrôle plus haut : ce qui peut encore échouer ici, c'est l'écriture.
+  // La demande EXISTE — rendre un échec ferait recréer un sponsoring au second essai. Le manque
+  // est dit (dans la réponse et dans la cloche) et la pièce se rejoint depuis la fiche.
   const attached = await attachFiles({
-    files: formData.getAll("files").filter((f): f is File => f instanceof File),
-    entityType: "SPONSORING", entityId: created.id, uploadedById: user.id, category: "REQUEST_LETTER",
+    files: pieces, entityType: "SPONSORING", entityId: created.id, uploadedById: user.id, category: "REQUEST_LETTER",
   });
-  if (attached.error) return { ok: false, error: attached.error };
 
   await recordAudit({ actorId: user.id, action: "CREATE", module: "Sponsoring", entityType: "SPONSORING", entityId: created.id, summary: `Demande ${created.reference} — ${institution} — sponsoring ${nature === "DIRECT" ? "direct" : "indirect"}, poste créé avec la demande${attached.saved > 0 ? ` (${attached.saved} pièce(s) jointe(s))` : ""}` });
   await notifyAdProCreation(init, created.id, `${created.reference} — ${institution}`);
 
   revalidatePath(PATH);
-  return { ok: true, id: created.id };
+  return { ok: true, id: created.id, ...(attached.error ? { message: `Demande créée. ${attached.error}` } : {}) };
 }
 
 /** Notifie l'acteur de l'étape de DÉPART d'un sponsoring, selon le routage à la création. */

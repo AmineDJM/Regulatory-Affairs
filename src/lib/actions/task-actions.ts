@@ -72,12 +72,14 @@ export async function createTask(
     expectedMinutes: fdNum(formData, "expectedMinutes"),
   });
 
-  if (files.length > 0) {
-    await attachFiles({ files, entityType: "TASK", entityId: created.id, uploadedById: user.id });
-  }
+  // Une écriture qui échoue n'est plus perdue en silence (audit du 04/10, constat 8) : la tâche
+  // existe — la refaire en ferait deux —, le manque est dit dans la réponse et dans la cloche.
+  const attached = files.length > 0
+    ? await attachFiles({ files, entityType: "TASK", entityId: created.id, uploadedById: user.id })
+    : { saved: 0 };
 
   revalidatePath("/mon-espace");
-  return { ok: true, id: created.id };
+  return { ok: true, id: created.id, ...(attached.error ? { message: `Tâche créée. ${attached.error}` } : {}) };
 }
 
 /**

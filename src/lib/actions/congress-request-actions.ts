@@ -17,7 +17,7 @@ import { adProInit, PRODUCT_MANAGER_ROLES } from "@/lib/workflow/origin";
 import { retirerDemandeAdPro } from "@/lib/actions/workflow-actions";
 import { referentAInscrire } from "@/lib/ad-pro/referent-de-la-gamme";
 import { fdStr, fdNum, fdDate, type ActionResult } from "@/lib/actions/types";
-import { attachFiles } from "@/lib/attach-files";
+import { attachFiles, validateAttachments } from "@/lib/attach-files";
 
 // Le **même** circuit de prise en charge sert les prises en charge internationales/nationaux
 // ET les événements (module Events) : on paramètre tout par `type`.
@@ -72,6 +72,12 @@ export async function createCongressRequest(
   if (!name) return { ok: false, error: "Le nom de l'événement est obligatoire." };
   if (manque.length > 0) return { ok: false, error: `À renseigner : ${manque.join(", ")}.` };
   if (debut && fin && fin < debut) return { ok: false, error: "La date de fin ne peut pas précéder la date de début." };
+
+  // Les pièces se jugent AVANT la demande : refusées après, elles la laissaient créée, et le
+  // second essai en faisait une seconde (audit du 04/10, constat 7 — même défaut qu'au sponsoring).
+  const pieces = formData.getAll("files").filter((f): f is File => f instanceof File);
+  const piecesRefusees = await validateAttachments(pieces);
+  if (piecesRefusees) return { ok: false, error: `${piecesRefusees} Aucune demande n'a été créée.` };
 
   // LES PROFESSIONNELS PROPOSÉS, vérifiés AVANT la création : un identifiant qui ne désigne aucun
   // praticien de l'annuaire est refusé, au lieu de créer une demande amputée en silence.
@@ -182,11 +188,11 @@ export async function createCongressRequest(
   }
 
   // Les demandes du médecin, jointes DÈS la création — la pièce que tout le circuit va lire.
+  // Ce qui peut encore échouer ici est l'écriture : la demande existe, elle n'est pas refaite —
+  // le manque est dit dans la réponse et dans la cloche.
   const attached = await attachFiles({
-    files: formData.getAll("files").filter((f): f is File => f instanceof File),
-    entityType: entityFor(t), entityId: created.id, uploadedById: user.id, category: "REQUEST_LETTER",
+    files: pieces, entityType: entityFor(t), entityId: created.id, uploadedById: user.id, category: "REQUEST_LETTER",
   });
-  if (attached.error) return { ok: false, error: attached.error };
 
   await recordAudit({ actorId: user.id, action: "CREATE", module: ML(t), entityType: entityFor(t), entityId: created.id, summary: `Prise en charge « ${name} »${attached.saved > 0 ? ` (${attached.saved} pièce(s) jointe(s))` : ""}` });
   // Notifie l'acteur de l'étape de DÉPART selon le routage à la création :
@@ -202,7 +208,7 @@ export async function createCongressRequest(
     await notifyRoles(["NATIONAL_SALES", "SUPER_ADMIN"], { type: "VALIDATION_REQUIRED", title: "Demande de congrès — à attribuer (National Sales)", body: name, link });
   }
   revalidatePath(pathFor(t));
-  return { ok: true, id: created.id };
+  return { ok: true, id: created.id, ...(attached.error ? { message: `Demande créée. ${attached.error}` } : {}) };
 }
 
 // ─────────────────── Attribution de la Direction Marketing (Direction Marketing) ───────────────────
