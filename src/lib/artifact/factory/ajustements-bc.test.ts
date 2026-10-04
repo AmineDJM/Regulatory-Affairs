@@ -69,7 +69,10 @@ describe("la case « taxe supplémentaire » du matériel promotionnel — lue p
   it("la génération lit la case et la préfère à celle du devis QUAND elle est renseignée — vide, le devis garde la sienne", () => {
     const corps = corpsDe(promo, "genererBonsDeCommandePromo");
     expect(corps).toContain("lireTaxeSupplementaire(formData)");
-    expect(corps).toMatch(/taxeSaisie\.taxe !== undefined\s*\?\s*\(taxeSaisie\.taxe \? \[taxeSaisie\.taxe\] : null\)/);
+    // La préférence vit chez l'écrivain unique des BC (manuel ET automatique) : l'action lui passe la case.
+    expect(corps).toMatch(/taxe: taxeSaisie\.taxe/);
+    const auto = lire("src/lib/promo-automatismes.ts");
+    expect(auto).toMatch(/o\.taxe !== undefined\s*\?\s*\(o\.taxe \? \[o\.taxe\] : null\)/);
   });
 
   it("la modification lit la même case : « 0 » la retire, vide la garde, le libellé stocké survit à un changement de taux seul", () => {

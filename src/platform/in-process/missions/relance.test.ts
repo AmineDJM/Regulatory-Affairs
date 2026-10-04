@@ -84,7 +84,7 @@ suite("échelle de relances — Adam relance, monte d'un cran, puis seulement pr
     const notif = await prisma.notification.findFirst({ where: { userId: ownerId }, orderBy: { createdAt: "desc" } });
     expect(notif?.title).toMatch(/^Sans réponse — /);
     expect(notif?.body).toContain("3 relance(s)");
-    const journal = await prisma.missionEvent.findMany({ where: { missionId, kind: "NUDGED" }, select: { detail: true } });
+    const journal = await prisma.missionEvent.findMany({ where: { missionId, kind: "NUDGED" }, select: { detail: true }, orderBy: { at: "asc" } });
     expect(journal.map((e) => (e.detail as { geste: string }).geste)).toEqual(["RELANCE", "RELANCE", "MANAGER", "DIRIGEANT"]);
   }, 120_000);
 
