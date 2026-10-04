@@ -15,6 +15,8 @@ interface DocumentUploadProps {
   categories?: string[]; // restreint les catégories proposées pour le module
   stepKey?: string; // rattache les documents à une étape (Regulatory)
   compact?: boolean; // version condensée (par étape)
+  /** Les identifiants des `Document` créés, fichier par fichier, une fois chacun déposé. */
+  onUploaded?: (ids: string[]) => void;
 }
 
 interface Item { id: string; file: File; path: string }
@@ -32,7 +34,7 @@ let uid = 0;
  * dans le **dossier Drive du produit** (le ZIP y reste entier et navigable). File d'attente locale
  * seulement pour la sélection.
  */
-export function DocumentUpload({ entityType, entityId, categories, stepKey, compact }: DocumentUploadProps) {
+export function DocumentUpload({ entityType, entityId, categories, stepKey, compact, onUploaded }: DocumentUploadProps) {
   const { enqueue } = useBackgroundUpload();
   const filesRef = React.useRef<HTMLInputElement>(null);
   const [items, setItems] = React.useState<Item[]>([]);
@@ -79,6 +81,12 @@ export function DocumentUpload({ entityType, entityId, categories, stepKey, comp
         fd.append("files", file, file.name);
         return { url: "/api/documents/upload", formData: fd };
       },
+      onFileDone: onUploaded
+        ? (_file, body) => {
+            const ids = Array.isArray(body.ids) ? body.ids.filter((x): x is string => typeof x === "string") : [];
+            if (ids.length > 0) onUploaded(ids);
+          }
+        : undefined,
     });
     setQueued(files.length);
     setItems([]);

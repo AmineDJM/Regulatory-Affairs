@@ -1435,6 +1435,12 @@ export interface NavTab {
    * monde). Absent = onglet visible dès que le module est autorisé.
    */
   feature?: string;
+  /**
+   * Une RÈGLE nommée qui décide de l'affichage à la place du seul `module` — la même que la page et
+   * les actions lisent (`nav-tabs.ts` la traduit). `"specialites"` : `peutGererSpecialites`, qui ouvre
+   * le référentiel aux deux directeurs des opérations même sans la Promotion médicale en écriture.
+   */
+  regle?: "specialites";
 }
 
 /** Navigation metadata: maps a sidebar entry to a module + route + icon name. */
@@ -1773,7 +1779,7 @@ export const ANNUAIRES_TABS: NavTab[] = [
   { module: "MEDICAL", label: "Établissements", href: "/annuaires/etablissements", annuaire: "ETABLISSEMENTS" },
   // LE RÉFÉRENTIEL DES SPÉCIALITÉS (§118.180) — une STRUCTURE de l'annuaire : il s'ouvre par la
   // Promotion médicale, pas par une case « Médecins » de la console (§118.147).
-  { module: "MEDICAL", label: "Spécialités", href: "/annuaires/specialites" },
+  { module: "MEDICAL", label: "Spécialités", href: "/annuaires/specialites", regle: "specialites" },
   { module: "WORKSPACE", label: "Partenaires", href: "/annuaires/partenaires", annuaire: "PARTENAIRES" },
   { module: "WORKSPACE", label: "Personnes", href: "/annuaires/personnes", annuaire: "PERSONNES" },
   { module: "DIRECTORIES", label: "Autres annuaires", href: "/annuaires/autres" },

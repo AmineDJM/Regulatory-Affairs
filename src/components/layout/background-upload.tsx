@@ -39,6 +39,11 @@ export interface EnqueueSpec {
    * échouer un envoi.
    */
   preflight?: (file: File) => Promise<boolean>;
+  /**
+   * Après le dépôt RÉUSSI d'un fichier, avec le corps de la réponse du serveur — ce qu'il a créé.
+   * Une erreur ici est avalée : l'envoi a eu lieu, un écran qui n'écoute plus ne le défait pas.
+   */
+  onFileDone?: (file: File, body: Record<string, unknown>) => void;
 }
 
 interface Ctx { enqueue: (spec: EnqueueSpec) => void }
@@ -150,6 +155,7 @@ export function BackgroundUploadProvider({ children }: { children: React.ReactNo
         }
         if (r.ok && (r.body.ok ?? true)) {
           patchFile(jobId, idx, { status: "done", progress: 100 });
+          try { spec.onFileDone?.(file, r.body); } catch { /* l'écran qui écoutait a pu disparaître */ }
           // Le serveur dit où est passé le temps. On garde le pire du lot : quand quelqu'un
           // signale « c'est lent », la réponse est déjà à l'écran.
           const t = r.body.timing as { totalMs?: number; phases?: { name: string; ms: number }[]; backend?: string; throughputMbs?: number } | undefined;

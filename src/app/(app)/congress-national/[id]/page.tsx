@@ -19,6 +19,7 @@ import { getInvolvementThreads } from "@/lib/queries/involvement";
 import { toNumber } from "@/lib/utils";
 import { promoMaterialOptions } from "@/lib/actions/ad-pro-item-actions";
 import { AdProItemsPanel } from "@/components/ad-pro/items-panel";
+import { PiecesLegalDeLaDemande } from "@/components/ad-pro/pieces-legal-demande";
 import { loadAdProItems, adProBudgetOptions, contexteMaterielStock, contextePostes } from "@/lib/queries/ad-pro-items";
 import { CarteDetailsDemande } from "@/components/ad-pro/pieces-jointes-demande";
 import { EspaceDiscussion } from "@/components/ad-pro/espace-discussion";
@@ -181,6 +182,9 @@ export default async function CongressNatDetailPage({ params }: { params: { id: 
           />
         }
       />
+
+      {/* LES PIÈCES LEGAL RATTACHÉES À LA DEMANDE ELLE-MÊME, hors postes — d'avant les postes, ou qui ne sont pas des achats. */}
+      <PiecesLegalDeLaDemande spectateur={user} entityType="CONGRESS_NATIONAL" entityId={detail.id} />
 
       {/* LA SECTION DISCUSSION — le fil CANONIQUE de la demande et les échanges avec les personnes
           impliquées : un seul espace (la vue détaillée ne les rend plus à part). */}

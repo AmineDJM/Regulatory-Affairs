@@ -1353,6 +1353,29 @@ export function annuaireOuvertParConsole(user: SessionUser, cle: AnnuaireAccorda
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
+ * LE RÉFÉRENTIEL DES SPÉCIALITÉS — qui le gère (§118.180).
+ *
+ * Décision de la Direction (04/10/2026) : « donne la gestion/création des spécialités au directeur
+ * des opérations ». Les DEUX rôles qui portent ce nom (`DIRECTION`, « Direction des opérations », et
+ * `OPERATIONS_DIRECTOR`, « Directeur des Opérations » — la lecture de `promo-material/validateurs.ts`)
+ * gèrent tout le référentiel : créer, renommer, fusionner, retirer, rattacher un libellé hérité. Le
+ * second n'a de la Promotion médicale que la LECTURE : sans cette règle, il aurait vu l'onglet sans un
+ * seul bouton. Les autres gardent ce qu'ils avaient — le droit de la Promotion médicale, geste par geste.
+ *
+ * UNE lecture pour l'onglet, la page et les cinq actions : une porte qui recopierait la règle
+ * finirait par ouvrir un bouton que l'action refuse (§118.5, §118.83). Le rôle se lit principal OU
+ * secondaire (`hasRole`), comme les autres lectures du « directeur des opérations ».
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ */
+export type GesteSpecialites = "VIEW" | "CREATE" | "UPDATE" | "DELETE";
+
+export function peutGererSpecialites(user: SessionUser, geste: GesteSpecialites): boolean {
+  if (hasRole(user, "DIRECTION") || hasRole(user, "OPERATIONS_DIRECTOR")) return true;
+  return userCan(user, "MEDICAL", geste);
+}
+
+/**
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
  * BD › PROJETS — un module à part, réglé depuis la console (§118.163).
  *
  * Décision de la Direction (30/09/2026) : « le module Projets dans Business Development : donne la

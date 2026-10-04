@@ -51,6 +51,9 @@ export async function POST(req: NextRequest) {
   const mirrorHere = isRegulatory || shouldMirrorToDrive(entityType);
   const toMirror: { name: string; data: Buffer; mime?: string }[] = [];
   let created = 0;
+  // LES IDENTIFIANTS CRÉÉS voyagent avec la réponse : l'écran qui vient de déposer peut demander
+  // à Luna où ranger la pièce (« + Pièce jointe » des détails d'une demande Ad & Pro).
+  const ids: string[] = [];
   const errors: { name: string; error: string }[] = [];
   for (const file of files) {
     // Chaque fichier est isolé : une erreur (lecture, stockage, base) devient une erreur DE CE
@@ -63,6 +66,7 @@ export async function POST(req: NextRequest) {
       const r = await persistUploadedDocument(user.id, { entityType, entityId, category, confidentiality, stepKey, file, maxUploadMb, buffer, mirrorToDrive: false });
       if (r.ok) {
         created++;
+        if (r.documentId) ids.push(r.documentId);
         if (mirrorHere) toMirror.push({ name: file.name, data: buffer, mime: file.type || undefined });
       } else {
         errors.push({ name: file.name, error: r.error ?? "Échec du téléversement." });
@@ -84,5 +88,5 @@ export async function POST(req: NextRequest) {
     void mirror.catch((e) => console.error("[documents upload] miroir Drive en arrière-plan a échoué", e));
   }
 
-  return NextResponse.json({ ok: errors.length === 0, created, errors });
+  return NextResponse.json({ ok: errors.length === 0, created, ids, errors });
 }

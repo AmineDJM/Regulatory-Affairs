@@ -4,7 +4,7 @@ import { CHEMIN_STOCK_PROMO } from "@/lib/chemins/stock-promo";
 import { revalidatePath } from "next/cache";
 import type { DoctorTitle, InfluenceLevel, InstitutionSector, InstitutionType, MedicalSector, Priority, SegmentLevel, VisitStatus } from "@prisma/client";
 import { requireUser } from "@/lib/session";
-import { userCan, peutAnnuaire, scopeMedicalDoctors } from "@/lib/rbac";
+import { userCan, peutAnnuaire, peutGererSpecialites, scopeMedicalDoctors } from "@/lib/rbac";
 import { canAccessEntity } from "@/lib/entity-access";
 import { prisma } from "@/lib/prisma";
 import { cleDEtablissement, indexerEtablissements } from "@/lib/annuaires/rattachement";
@@ -246,7 +246,7 @@ async function specialiteHomonyme(nom: string, saufId: string | null): Promise<{
 
 export async function createSpecialty(formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
-  if (!userCan(user, "MEDICAL", "CREATE")) return { ok: false, error: "Non autorisé." };
+  if (!peutGererSpecialites(user, "CREATE")) return { ok: false, error: "Non autorisé." };
   // `if (!saisi)` sur la lecture même : c'est ce que la dérivation des contrats lit comme « champ
   // OBLIGATOIRE » (§118.138) — passé par une fonction, le nom serait annoncé facultatif.
   const saisi = fdStr(formData, "name");
@@ -268,7 +268,7 @@ export async function createSpecialty(formData: FormData): Promise<ActionResult>
 
 export async function updateSpecialty(formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
-  if (!userCan(user, "MEDICAL", "UPDATE")) return { ok: false, error: "Non autorisé." };
+  if (!peutGererSpecialites(user, "UPDATE")) return { ok: false, error: "Non autorisé." };
   const id = fdStr(formData, "id");
   if (!id) return { ok: false, error: "Identifiant manquant." };
   const avant = await prisma.medicalSpecialty.findUnique({ where: { id }, select: { name: true } });
@@ -329,7 +329,7 @@ export async function updateSpecialty(formData: FormData): Promise<ActionResult>
  */
 export async function deleteSpecialty(formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
-  if (!userCan(user, "MEDICAL", "DELETE")) return { ok: false, error: "Non autorisé." };
+  if (!peutGererSpecialites(user, "DELETE")) return { ok: false, error: "Non autorisé." };
   const id = fdStr(formData, "id");
   if (!id) return { ok: false, error: "Identifiant manquant." };
   const avant = await prisma.medicalSpecialty.findUnique({ where: { id }, select: { name: true } });
@@ -376,7 +376,7 @@ export async function deleteSpecialty(formData: FormData): Promise<ActionResult>
  */
 export async function fusionnerSpecialite(formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
-  if (!userCan(user, "MEDICAL", "DELETE")) return { ok: false, error: "Non autorisé." };
+  if (!peutGererSpecialites(user, "DELETE")) return { ok: false, error: "Non autorisé." };
   const id = fdStr(formData, "id");
   const cibleId = fdStr(formData, "cibleId");
   if (!id || !cibleId) return { ok: false, error: "Choisissez la spécialité dans laquelle fusionner." };
@@ -441,7 +441,7 @@ export async function fusionnerSpecialite(formData: FormData): Promise<ActionRes
  */
 export async function rattacherLibelleSpecialite(formData: FormData): Promise<ActionResult & { rattachees?: number }> {
   const user = await requireUser();
-  if (!userCan(user, "MEDICAL", "UPDATE")) return { ok: false, error: "Non autorisé." };
+  if (!peutGererSpecialites(user, "UPDATE")) return { ok: false, error: "Non autorisé." };
   const libelle = fdStr(formData, "libelle");
   const specialtyId = fdStr(formData, "specialtyId");
   if (!libelle || !specialtyId) return { ok: false, error: "Choisissez la spécialité du référentiel à laquelle rattacher ce libellé." };

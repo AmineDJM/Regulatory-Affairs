@@ -28,6 +28,7 @@ import { AdProEditButton } from "@/components/ad-pro/edit-request-button";
 import { canEditAdProRequest, isAdProDecided } from "@/lib/ad-pro-edit";
 import { adProEditValues } from "@/lib/queries/ad-pro-edit";
 import { AdProItemsPanel } from "@/components/ad-pro/items-panel";
+import { PiecesLegalDeLaDemande } from "@/components/ad-pro/pieces-legal-demande";
 import { loadAdProItems, adProBudgetOptions, contexteMaterielStock, contextePostes } from "@/lib/queries/ad-pro-items";
 import { CarteDetailsDemande } from "@/components/ad-pro/pieces-jointes-demande";
 import { EspaceDiscussion } from "@/components/ad-pro/espace-discussion";
@@ -221,6 +222,9 @@ export default async function EventDetailPage({ params }: { params: { id: string
           />
         </CardContent>
       </Card>
+
+      {/* LES PIÈCES LEGAL RATTACHÉES À LA DEMANDE ELLE-MÊME, hors postes — d'avant les postes, ou qui ne sont pas des achats. */}
+      <PiecesLegalDeLaDemande spectateur={user} entityType="EVENT" entityId={e.id} />
 
       {e.stats.bySpecialty.length > 0 && (
         <Card>

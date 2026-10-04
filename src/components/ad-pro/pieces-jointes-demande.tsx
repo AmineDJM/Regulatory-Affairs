@@ -6,6 +6,8 @@ import type { EntityType } from "@prisma/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { DocumentUpload } from "@/components/documents/document-upload";
 import { DocumentList, type DocItem } from "@/components/documents/document-list";
+import { ConseilLuna } from "./conseil-luna";
+import { NATURES_DEMANDE_CONSEIL, type NatureDemandeConseil } from "@/lib/ad-pro/conseil-pieces";
 
 /**
  * LES PIÈCES JOINTES GÉNÉRALES D'UNE DEMANDE AD & PRO — lettre de demande du médecin, programme,
@@ -41,6 +43,18 @@ export function CarteDetailsDemande({ titre, pieces, children, contentClassName 
   contentClassName?: string;
 }) {
   const [ouvert, setOuvert] = React.useState(false);
+  // LES PIÈCES DÉPOSÉES DANS CETTE SESSION par « + Pièce jointe » : Luna lit chacune et dit si elle
+  // est au bon endroit (les détails de la demande, ou la bonne case d'un poste) — il CONSEILLE, il ne
+  // déplace rien. Un état local, jamais au rechargement : chaque montage de <ConseilLuna> appelle un
+  // modèle payant. L'interrupteur général de l'IA et la bascule du conseil sont relus au serveur, et
+  // la ligne dit pourquoi Luna se tait quand l'un ou l'autre est coupé.
+  const [deposes, setDeposes] = React.useState<string[]>([]);
+  const nature = (NATURES_DEMANDE_CONSEIL as readonly string[]).includes(pieces.entityType)
+    ? (pieces.entityType as NatureDemandeConseil)
+    : null;
+  const surDepot = React.useCallback((ids: string[]) => {
+    setDeposes((cur) => [...cur, ...ids.filter((id) => !cur.includes(id))]);
+  }, []);
   const n = pieces.documents.length;
   return (
     <Card>
@@ -58,7 +72,23 @@ export function CarteDetailsDemande({ titre, pieces, children, contentClassName 
       <CardContent className="space-y-4">
         {children && <div className={contentClassName}>{children}</div>}
         {ouvert && pieces.peutDeposer && (
-          <DocumentUpload entityType={pieces.entityType} entityId={pieces.entityId} categories={pieces.categories} />
+          <DocumentUpload
+            entityType={pieces.entityType} entityId={pieces.entityId} categories={pieces.categories}
+            onUploaded={nature ? surDepot : undefined}
+          />
+        )}
+        {nature && deposes.length > 0 && (
+          <ul className="space-y-1.5 rounded-lg border border-border/70 bg-muted/30 p-2" aria-label="Conseil de Luna sur les pièces déposées">
+            {deposes.map((id) => {
+              const doc = pieces.documents.find((d) => d.id === id);
+              return (
+                <li key={id} className="space-y-0.5">
+                  <p className="truncate text-xs font-medium">{doc?.name ?? "Pièce déposée"}</p>
+                  <ConseilLuna entityType={nature} entityId={pieces.entityId} fichierId={id} emplacement={{ type: "DETAILS" }} />
+                </li>
+              );
+            })}
+          </ul>
         )}
         <div className={children ? "border-t border-border/70 pt-3" : undefined}>
           <p className="mb-1.5 inline-flex items-center gap-1 text-xs text-muted-foreground">

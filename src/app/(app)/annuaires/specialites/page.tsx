@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { requireModule } from "@/lib/session";
-import { userCan } from "@/lib/rbac";
+import { peutGererSpecialites } from "@/lib/rbac";
 import { chargerSpecialites } from "@/lib/queries/specialites";
 import { EnTeteAnnuaires } from "../en-tete";
 import { SpecialitesTable } from "./specialites-table";
@@ -14,13 +14,13 @@ export const metadata = { title: "Annuaires — Spécialités — AMD Internal O
  * pouvait ni ajouter « Néphrologie », ni corriger « Cardiolgie », ni réunir deux doublons — et la
  * feuille de l'annuaire écrivait donc du texte que rien ne reliait.
  *
- * La porte est celle de la Promotion médicale (le module du référentiel, comme les écritures
- * existantes) : un référentiel est une STRUCTURE de l'annuaire (§118.147), il ne s'ouvre pas par
- * la case « Médecins » de la console.
+ * La porte est `peutGererSpecialites` — la Promotion médicale, ET les deux directeurs des
+ * opérations (décision du 04/10) —, la même que l'onglet et les actions : un référentiel est une
+ * STRUCTURE de l'annuaire (§118.147), il ne s'ouvre pas par la case « Médecins » de la console.
  */
 export default async function AnnuaireSpecialitesPage() {
   const user = await requireModule("DIRECTORIES");
-  if (!userCan(user, "MEDICAL", "VIEW")) redirect("/dashboard?denied=MEDICAL");
+  if (!peutGererSpecialites(user, "VIEW")) redirect("/dashboard?denied=MEDICAL");
   const donnees = await chargerSpecialites(user);
   return (
     <div className="space-y-5">
@@ -32,9 +32,9 @@ export default async function AnnuaireSpecialitesPage() {
         specialites={donnees.specialites}
         heritees={donnees.heritees}
         heriteesTotal={donnees.heriteesTotal}
-        canCreate={userCan(user, "MEDICAL", "CREATE")}
-        canEdit={userCan(user, "MEDICAL", "UPDATE")}
-        canDelete={userCan(user, "MEDICAL", "DELETE")}
+        canCreate={peutGererSpecialites(user, "CREATE")}
+        canEdit={peutGererSpecialites(user, "UPDATE")}
+        canDelete={peutGererSpecialites(user, "DELETE")}
       />
     </div>
   );

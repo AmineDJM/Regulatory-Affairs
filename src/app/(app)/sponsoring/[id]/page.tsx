@@ -26,6 +26,7 @@ import { SupprimerDemandeAdPro } from "@/components/ad-pro/supprimer-demande";
 import { peutSupprimerUneDemandeAdPro } from "@/lib/queries/ad-pro-suppression";
 import { promoMaterialOptions } from "@/lib/actions/ad-pro-item-actions";
 import { AdProItemsPanel } from "@/components/ad-pro/items-panel";
+import { PiecesLegalDeLaDemande } from "@/components/ad-pro/pieces-legal-demande";
 import { loadAdProItems, adProBudgetOptions, contexteMaterielStock, postesPourCloture, contextePostes } from "@/lib/queries/ad-pro-items";
 import { CarteDetailsDemande } from "@/components/ad-pro/pieces-jointes-demande";
 import { EspaceDiscussion } from "@/components/ad-pro/espace-discussion";
@@ -247,6 +248,9 @@ export default async function SponsoringDetailPage({ params }: { params: { id: s
               />
             </CardContent>
           </Card>
+
+          {/* LES PIÈCES LEGAL RATTACHÉES À LA DEMANDE ELLE-MÊME, hors postes — d'avant les postes, ou qui ne sont pas des achats. */}
+          <PiecesLegalDeLaDemande spectateur={user} entityType="SPONSORING" entityId={req.id} />
 
           {/* Circuit de validation configurable (piloté par le moteur — éditable dans Administration) */}
           <Card>

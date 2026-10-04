@@ -30,6 +30,7 @@ import { onlyofficeConfigured } from "@/lib/onlyoffice";
 import { AD_PRO_DOC_CATEGORIES, categoriesDuDepotDeLaDemande } from "@/lib/ad-pro/doc-categories";
 import { canAttachToAdPro } from "@/lib/ad-pro/attachments";
 import { AdProItemsPanel } from "@/components/ad-pro/items-panel";
+import { PiecesLegalDeLaDemande } from "@/components/ad-pro/pieces-legal-demande";
 import { loadAdProItems, adProBudgetOptions, contexteMaterielStock, contextePostes } from "@/lib/queries/ad-pro-items";
 import { CarteDetailsDemande } from "@/components/ad-pro/pieces-jointes-demande";
 import { EspaceDiscussion } from "@/components/ad-pro/espace-discussion";
@@ -174,6 +175,9 @@ export default async function CongressIntlDetailPage({ params }: { params: { id:
           />
         </CardContent>
       </Card>
+
+      {/* LES PIÈCES LEGAL RATTACHÉES À LA DEMANDE ELLE-MÊME, hors postes — d'avant les postes, ou qui ne sont pas des achats. */}
+      <PiecesLegalDeLaDemande spectateur={user} entityType="CONGRESS_INTERNATIONAL" entityId={detail.id} />
 
       <CongressDetailView detail={detail} workflow={workflow} canInvolveThirdParty={canInvolveThirdParty} entityType="CONGRESS_INTERNATIONAL" entityId={detail.id} documents={docItems} canUpload={canUpload} canDelete={canDelete} path={`/congress-international/${detail.id}`} missions={missions} missionUsers={missionUsers} canManageMissions={canManageMissions} currentUserId={user.id} involvementThreads={[]} canModerate={hasGlobalView(user)} />
 
