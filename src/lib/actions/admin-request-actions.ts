@@ -30,6 +30,7 @@ import {
   porteDuDemandeur, refusDeModification, changementsDeLaDemande, suitLaDemandeDeBcDuPoste, refusDemandeDeBcDuPoste, type ContenuDemande,
 } from "@/lib/secretariat/porte-demandeur";
 import { annulerDemandeSecretariat, prevenirLeSecretariat } from "@/lib/secretariat/annulation";
+import { ramenerSiPlusDeDemandeDevis } from "@/lib/promo-material/retrait-devis";
 import { refusDuStatutManuel, refusDeReouverture } from "@/lib/secretariat/statut-manuel";
 import { estDecisionDApprobation, refusSansMotif, interditSurSaPropreDemande, LIBELLE_DECISION } from "@/lib/secretariat/decision-approbation";
 import { ficheAFacture } from "@/lib/finance/facture-ordre";
@@ -255,11 +256,25 @@ export async function rouvrirDemande(formData: FormData): Promise<ActionResult> 
  * libre écrivait « annulée » et laissait tout le reste vivant. Le demandeur est prévenu : c'est sa
  * demande qui s'arrête.
  */
+/**
+ * UNE DEMANDE DE DEVIS DE MATÉRIEL PROMOTIONNEL RETIRÉE D'ICI (audit du 04/10, constat 35) : annulée par le
+ * secrétariat, par son demandeur, ou supprimée — et que plus aucune demande de devis ne vit pour ce dossier,
+ * il revient à l'étape d'avant au lieu de rester « devis demandés » pour toujours. Toutes les portes qui
+ * retirent une demande d'ici l'appellent : en oublier une rouvrirait la porte d'à côté (§118.71).
+ */
+async function apresRetraitDevisPromo(
+  req: { linkedEntityType: string | null; linkedEntityId: string | null; type: string }, auteurId: string, motif: string,
+): Promise<void> {
+  if (req.linkedEntityType !== "PROMO_MATERIAL" || !req.linkedEntityId || req.type !== "QUOTE") return;
+  const r = await ramenerSiPlusDeDemandeDevis(req.linkedEntityId, auteurId, motif);
+  if (r.ramene) revalidatePath(`/promo-material/${req.linkedEntityId}`);
+}
+
 export async function annulerDemandeAuSecretariat(formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
   const id = fdStr(formData, "id");
   if (!id) return { ok: false, error: "Demande introuvable." };
-  const req = await prisma.administrativeRequest.findUnique({ where: { id }, select: { assignedToId: true, requesterId: true, reference: true, status: true, deletedAt: true, linkedEntityType: true, type: true, title: true } });
+  const req = await prisma.administrativeRequest.findUnique({ where: { id }, select: { assignedToId: true, requesterId: true, reference: true, status: true, deletedAt: true, linkedEntityType: true, linkedEntityId: true, type: true, title: true } });
   if (!req || req.deletedAt) return { ok: false, error: "Demande introuvable." };
   if (!isManager(user, req.assignedToId)) return DENIED;
   const close = refusDemandeClose(req.status);
@@ -273,6 +288,7 @@ export async function annulerDemandeAuSecretariat(formData: FormData): Promise<A
   const a = await annulerDemandeSecretariat(id, { acteurId: user.id, motif, cause: "par le secrétariat" });
   if (!a.ok) return { ok: false, error: a.error };
   if (!a.annulee) return { ok: false, error: "Cette demande vient d'être terminée ou annulée : rouvrez-la pour voir où elle en est." };
+  await apresRetraitDevisPromo(req, user.id, motif);
   if (req.requesterId && req.requesterId !== user.id) {
     await notifyUser({ userId: req.requesterId, type: "GENERIC", title: "Demande annulée par le secrétariat", body: `${req.reference} — ${motif}`, link: `/demandes/${id}` });
   }
@@ -833,7 +849,7 @@ export async function deleteOwnRequest(formData: FormData): Promise<ActionResult
   if (!id) return { ok: false, error: "Demande introuvable." };
   const req = await prisma.administrativeRequest.findUnique({
     where: { id },
-    select: { requesterId: true, status: true, createdAt: true, processingStartedAt: true, reference: true, deletedAt: true, linkedEntityType: true, type: true, title: true },
+    select: { requesterId: true, status: true, createdAt: true, processingStartedAt: true, reference: true, deletedAt: true, linkedEntityType: true, linkedEntityId: true, type: true, title: true },
   });
   if (!req || req.deletedAt) return { ok: false, error: "Demande introuvable." };
   const porte = porteDuDemandeur(req, user.id, Date.now());
@@ -847,6 +863,7 @@ export async function deleteOwnRequest(formData: FormData): Promise<ActionResult
     });
     if (r.count === 0) return { ok: false, error: "L'assistante vient de commencer cette demande : rouvrez-la — elle s'annule désormais avec un motif." };
     await recordAudit({ actorId: user.id, action: "DELETE", module: "Bureau du secrétariat", entityType: "ADMIN_REQUEST", entityId: id, summary: `Demande ${req.reference} supprimée par le demandeur` });
+    await apresRetraitDevisPromo(req, user.id, "demande supprimée par son demandeur");
     revalidatePath("/demandes");
     revalidatePath("/demandes/assistant");
     return { ok: true };
@@ -857,6 +874,7 @@ export async function deleteOwnRequest(formData: FormData): Promise<ActionResult
   const a = await annulerDemandeSecretariat(id, { acteurId: user.id, motif, cause: "par son demandeur" });
   if (!a.ok) return { ok: false, error: a.error };
   if (!a.annulee) return { ok: false, error: "Cette demande vient d'être terminée ou annulée : rouvrez-la pour voir où elle en est." };
+  await apresRetraitDevisPromo(req, user.id, motif);
   revalidatePath(`/demandes/${id}`);
   revalidatePath("/demandes");
   revalidatePath("/demandes/assistant");
@@ -883,7 +901,7 @@ export async function deleteRequests(formData: FormData): Promise<ActionResult> 
   const reason = fdStr(formData, "reason");
   if (!reason) return { ok: false, error: "Le motif de suppression est obligatoire (traçabilité)." };
 
-  const targets = await prisma.administrativeRequest.findMany({ where: { id: { in: ids }, deletedAt: null }, select: { id: true, reference: true } });
+  const targets = await prisma.administrativeRequest.findMany({ where: { id: { in: ids }, deletedAt: null }, select: { id: true, reference: true, linkedEntityType: true, linkedEntityId: true, type: true } });
   if (targets.length === 0) return { ok: false, error: "Demande(s) introuvable(s)." };
 
   await prisma.administrativeRequest.updateMany({
@@ -892,6 +910,7 @@ export async function deleteRequests(formData: FormData): Promise<ActionResult> 
   });
   for (const t of targets) {
     await recordAudit({ actorId: user.id, action: "DELETE", module: "Bureau du secrétariat", entityType: "ADMIN_REQUEST", entityId: t.id, newValue: reason, summary: `Demande ${t.reference} supprimée — motif : ${reason}` });
+    await apresRetraitDevisPromo(t, user.id, reason);
   }
   revalidatePath("/demandes");
   revalidatePath("/demandes/assistant");

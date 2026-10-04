@@ -43,6 +43,8 @@ import { attendSaCorrection, etatApresRenvoi, refusParLeDemandeur } from "@/lib/
 import { PromoActionPanel } from "./promo-panels";
 import { PromoCircuitCard, type ChantierAffiche } from "./circuit-card";
 import { PromoQuotesCard, type DevisAffiche } from "./quotes-card";
+import { RetirerDemandeDevis } from "./retirer-demande-devis";
+import { etatRetraitDemandeDevis } from "@/lib/promo-material/retrait-devis";
 import { PromoExecutionCard, type ExecutionAffichee, type NatureAffichee } from "./execution-card";
 import { PromoArticlesCard } from "./articles-card";
 import { articlesDemandesDuDossier, optionsDesArticlesDemandes } from "@/lib/queries/promo-achats";
@@ -230,6 +232,11 @@ export default async function PromoMaterialDetailPage({ params }: { params: { id
     : null;
   const canEditArticles = v2 && (circuitState === "REVIEW_REQUEST" || circuitState === "QUOTE_TO_REQUEST" || circuitState === "QUOTE_REQUESTED" || circuitState === "REVIEW_REQUESTER") && demandeLesDevis(acteur, pm);
   const canReceive = v2 && circuitState === "IN_EXECUTION" && peutReceptionner({ id: user.id, role: user.role }, pm);
+  // RETIRER LA DEMANDE DE DEVIS (constat 35) — le demandeur (ou la Direction), tant que l'assistante n'a
+  // rien retranscrit : la règle de l'action, lue ici pour n'offrir que ce qu'elle accepte (§118.83).
+  const retraitDevis = v2 && circuitState === "QUOTE_REQUESTED" && demandeLesDevis(acteur, pm)
+    ? await etatRetraitDemandeDevis(pm.id)
+    : null;
 
   // LES DEVIS (circuit 2) — le tableau interne, dès que les devis sont demandés.
   const montrerDevis = v2 && circuitState !== "REVIEW_REQUEST" && circuitState !== "QUOTE_TO_REQUEST";
@@ -366,7 +373,8 @@ export default async function PromoMaterialDetailPage({ params }: { params: { id
       {montrerDevis && (
         <Card>
           <CardHeader><CardTitle className="flex items-center gap-2 text-base"><ClipboardList className="h-4 w-4" /> Devis</CardTitle></CardHeader>
-          <CardContent>
+          <CardContent className="space-y-3">
+            {retraitDevis && <RetirerDemandeDevis promoMaterialId={pm.id} references={retraitDevis.demandes.map((d) => d.reference)} refus={retraitDevis.refus} />}
             <PromoQuotesCard
               id={pm.id} quotes={devis} articles={articles} canTranscribe={canTranscribe} canSelect={canSelect}
               manques={canTranscribe ? manquesDeRetranscription(devis) : []}

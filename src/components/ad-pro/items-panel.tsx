@@ -109,7 +109,8 @@ export interface ItemRow {
   /** Les postes nés d'une même répartition d'un sponsoring indirect (§118.175). */
   repartitionId: string | null;
   /** Le sujet de réservation d'une billetterie, s'il a été ouvert. */
-  reservation: { id: string; reference: string } | null;
+  /** Le sujet de réservation ; `refusRetrait` : ce qui empêche de retirer la demande (`null` : elle se retire). */
+  reservation: { id: string; reference: string; refusRetrait: string | null } | null;
   /** Les voyageurs d'un poste « billetterie » — vide sinon. */
   voyageurs: VoyageurVue[];
   /** Les noms que la demande porte déjà — proposés à la saisie d'un voyageur, jamais imposés. */

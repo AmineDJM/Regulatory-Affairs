@@ -243,3 +243,24 @@ export function depassementDevisRetenus(montantsRetenus: readonly (number | null
   const f = (c: number) => (c / 100).toLocaleString("fr-FR");
   return `Les devis retenus totalisent ${f(centimes)} DZD, au-delà des ${f(accordeC)} DZD accordés au poste (+${f(centimes - accordeC)} DZD). Le montant accordé ne change pas : demandez une révision du poste si l'écart doit être couvert.`;
 }
+
+/**
+ * RETIRER LA DEMANDE DE RÉSERVATION — `null` si elle se retire, sinon la raison (audit du 04/10,
+ * constat 37 : « on annule sa demande tant que l'autre ne l'a pas exécutée »). La réservation est
+ * EXÉCUTÉE quand son sujet est clos (abouti ou archivé), ou quand le bon de commande des billets est
+ * demandé : là, l'agence est engagée, et la demande de BC s'annule d'abord par son propre geste. Une
+ * lecture pour l'action et pour la carte (§118.83).
+ */
+export function refusRetraitReservation(r: { sujet: string | null; orderStage: string }): string | null {
+  if (!r.sujet) return "Aucune demande de réservation n'est en cours pour ce poste.";
+  if (r.sujet === "DONE" || r.sujet === "ARCHIVED") {
+    return "La réservation est traitée — son sujet est clos : elle ne se retire plus. Écrivez à l'assistante de direction dans le sujet si quelque chose change.";
+  }
+  if (r.orderStage !== "NONE" && r.orderStage !== "REFUSED") {
+    return "Le bon de commande des billets est déjà demandé : la réservation est engagée. Annulez d'abord la demande de BC (« Annuler la demande de BC »), puis la réservation.";
+  }
+  return null;
+}
+
+/** Les états d'un sujet de réservation encore VIVANT — l'écriture conditionnelle les relit. */
+export const SUJET_RESERVATION_VIVANT = ["OPEN", "IN_PROGRESS", "ON_HOLD"] as const;

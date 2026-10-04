@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { DocumentUpload } from "@/components/documents/document-upload";
 import { DocumentPreview } from "@/components/documents/document-preview";
 import {
-  ajouterVoyageur, modifierVoyageur, retirerVoyageur, demanderReservation,
+  ajouterVoyageur, modifierVoyageur, retirerVoyageur, demanderReservation, retirerReservation,
   ajouterDevisVoyageur, validerDevisVoyageur, demanderBCBilletterie,
 } from "@/lib/actions/ad-pro-item-actions";
 import {
@@ -69,7 +69,8 @@ export function BlocVoyageurs({
   itemId: string;
   voyageurs: VoyageurVue[];
   nomsSuggeres: string[];
-  reservation: { id: string; reference: string } | null;
+  /** Le sujet de réservation ; `refusRetrait` : la raison qui empêche de la retirer (`null` : elle se retire). */
+  reservation: { id: string; reference: string; refusRetrait: string | null } | null;
   peutEditer: boolean;
   /** Le poste n'est pas refusé — l'action le revérifie. */
   peutReserver: boolean;
@@ -86,6 +87,9 @@ export function BlocVoyageurs({
   const [ajout, setAjout] = React.useState(false);
   const [ouvert, setOuvert] = React.useState<{ id: string; quoi: "MENU" | "EDITER" | "PASSEPORT" | "DEVIS" | "CHOIX" } | null>(null);
   const [assistanteId, setAssistanteId] = React.useState("");
+  // RETIRER LA DEMANDE DE RÉSERVATION (constat 37) — offert seulement si l'action l'accepte (§118.83).
+  const [retrait, setRetrait] = React.useState(false);
+  const [motifRetrait, setMotifRetrait] = React.useState("");
   const listeId = `noms-${itemId}`;
   const fermer = () => setOuvert(null);
   const basculer = (id: string, quoi: NonNullable<typeof ouvert>["quoi"]) =>
@@ -105,6 +109,33 @@ export function BlocVoyageurs({
           </Link>
         )}
       </div>
+      {reservation?.refusRetrait && peutEditer && (
+        <p className="text-muted-foreground">{reservation.refusRetrait}</p>
+      )}
+      {retrait && reservation && !reservation.refusRetrait && (
+        <form
+          className="space-y-2 rounded-lg border border-border p-2"
+          onSubmit={(e) => {
+            e.preventDefault();
+            const fd = new FormData();
+            fd.set("id", itemId);
+            fd.set("motif", motifRetrait);
+            void run(`resa-retrait:${itemId}`, () => retirerReservation(fd), "Demande de réservation retirée.").then(() => { setRetrait(false); setMotifRetrait(""); });
+          }}
+        >
+          <label className="block font-medium" htmlFor={`motif-resa-${itemId}`}>Pourquoi retirer la demande de réservation ?</label>
+          <textarea
+            id={`motif-resa-${itemId}`} value={motifRetrait} onChange={(e) => setMotifRetrait(e.target.value)} rows={2}
+            className="w-full rounded-lg border border-border bg-background px-2 py-1 text-xs"
+          />
+          <div className="flex flex-wrap gap-2">
+            <Button type="submit" size="sm" variant="destructive" disabled={busy !== null || motifRetrait.trim() === ""}>
+              {busy === `resa-retrait:${itemId}` ? <Loader2 className="h-4 w-4 animate-spin" /> : null} Retirer la demande
+            </Button>
+            <Button type="button" size="sm" variant="ghost" disabled={busy !== null} onClick={() => setRetrait(false)}>Annuler</Button>
+          </div>
+        </form>
+      )}
 
       {nomsSuggeres.length > 0 && (
         <datalist id={listeId}>
@@ -304,6 +335,11 @@ export function BlocVoyageurs({
               >
                 {busy === `resa:${itemId}` ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
                 {reservation ? "Mettre à jour la réservation" : "Demander la réservation"}
+              </Button>
+            )}
+            {reservation && peutEditer && !reservation.refusRetrait && !retrait && (
+              <Button size="sm" variant="outline" disabled={busy !== null} onClick={() => setRetrait(true)}>
+                Retirer la demande de réservation
               </Button>
             )}
             {bcPossible && retenus.length > 0 && (

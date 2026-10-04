@@ -12,7 +12,7 @@ import type { PostePourCloture } from "@/lib/ad-pro/cloture-sponsoring";
 import { gestionnairesDuMagasin } from "@/lib/queries/promo-stock";
 import { NATURES_PIECE_SECRETARIAT, PIECE_SECRETARIAT, estDemandeBcAEtablir, type NaturePieceSecretariat } from "@/lib/ad-pro/pieces-secretariat";
 import { statutDuDossier } from "@/lib/promo-material/statut";
-import { porteDesVoyageurs } from "@/lib/ad-pro/voyageurs";
+import { porteDesVoyageurs, refusRetraitReservation } from "@/lib/ad-pro/voyageurs";
 import { splitMulti } from "@/lib/ad-pro/pickers";
 import { bcVivantsDesPostes, refusAnnulationBcDuPoste } from "@/lib/ad-pro/bc-etablis";
 import type { VoyageurVue } from "@/components/ad-pro/voyageurs-bloc";
@@ -68,7 +68,7 @@ export async function loadAdProItems(parent: AdProParent, parentId: string): Pro
         })
       : Promise.resolve([]),
     sujetsIds.length
-      ? prisma.dossier.findMany({ where: { id: { in: sujetsIds } }, select: { id: true, reference: true } })
+      ? prisma.dossier.findMany({ where: { id: { in: sujetsIds } }, select: { id: true, reference: true, status: true } })
       : Promise.resolve([]),
     billetterie.length ? nomsDeLaDemande(parent, parentId) : Promise.resolve([] as string[]),
   ]);
@@ -119,7 +119,7 @@ export async function loadAdProItems(parent: AdProParent, parentId: string): Pro
     });
     voyageursDe.set(v.itemId, l);
   }
-  const sujetDe = new Map(sujetRows.map((d) => [d.id, { id: d.id, reference: d.reference }]));
+  const sujetDe = new Map(sujetRows.map((d) => [d.id, { id: d.id, reference: d.reference, statut: String(d.status) }]));
 
   const [promoRows, orderRows, demandeRows, docRows, lignesParPoste, bcLegalParPoste] = await Promise.all([
     promoIds.length
@@ -202,7 +202,12 @@ export async function loadAdProItems(parent: AdProParent, parentId: string): Pro
     documentCount: docsParPoste.get(i.id) ?? 0,
     lignesStock: lignesParPoste.get(i.id) ?? [],
     repartitionId: i.repartitionId,
-    reservation: i.reservationDossierId ? sujetDe.get(i.reservationDossierId) ?? null : null,
+    reservation: (() => {
+      const sujet = i.reservationDossierId ? sujetDe.get(i.reservationDossierId) ?? null : null;
+      // CE QUI EMPÊCHE DE RETIRER LA DEMANDE (constat 37) — la règle de l'action, pour que la carte
+      // n'offre pas un geste qu'elle refuserait (§118.83).
+      return sujet ? { id: sujet.id, reference: sujet.reference, refusRetrait: refusRetraitReservation({ sujet: sujet.statut, orderStage: String(i.orderStage) }) } : null;
+    })(),
     voyageurs: voyageursDe.get(i.id) ?? [],
     nomsSuggeres: porteDesVoyageurs(i.kind) ? nomsSuggeres : [],
     orderStage: i.orderStage,

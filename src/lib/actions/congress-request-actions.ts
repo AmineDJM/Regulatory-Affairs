@@ -14,7 +14,7 @@ import { createExpenseOrder } from "@/lib/expense-orders";
 import { reviserOrdreNonRegle, apresRevisionOrdre } from "@/lib/payments/revision-ordre";
 import { involveThirdParty } from "@/lib/third-party";
 import { adProInit, PRODUCT_MANAGER_ROLES } from "@/lib/workflow/origin";
-import { retirerDemande } from "@/lib/workflow/engine";
+import { retirerDemandeAdPro } from "@/lib/actions/workflow-actions";
 import { referentAInscrire } from "@/lib/ad-pro/referent-de-la-gamme";
 import { fdStr, fdNum, fdDate, type ActionResult } from "@/lib/actions/types";
 import { attachFiles } from "@/lib/attach-files";
@@ -474,29 +474,23 @@ export async function requestThirdPartyInput(formData: FormData): Promise<Action
   return { ok: true };
 }
 
+/**
+ * ANNULER UNE DEMANDE DE CONGRÈS — UN SEUL CHEMIN (audit du 04/10, constat 23). Cette action et
+ * `retirerDemandeAdPro` faisaient la même chose par deux portes : chacune vérifiait le droit à sa façon
+ * (celle-ci sans la porte de la FICHE — une demande hors portée s'annulait par son identifiant), et les
+ * deux finissaient dans `retirerDemande`. Elle ne garde que ce qui lui est propre — lire le type de
+ * congrès — et DÉLÈGUE : droit, motif, circuit et refus sont ceux du retrait commun. Son seul appelant
+ * est l'op d'Adam `cancel_congress_request` (aucun écran ne l'appelle) : elle reste pour lui.
+ */
 export async function cancelCongressRequest(formData: FormData): Promise<ActionResult> {
-  const user = await requireUser();
+  await requireUser();
   const t = typeOf(formData);
   const id = fdStr(formData, "id");
   if (!id) return { ok: false, error: "Identifiant manquant." };
-  const c = await loadCongress(t, id);
-  if (!c) return { ok: false, error: "Introuvable." };
-  const isOwner = c.requesterId === user.id;
-  if (!isOwner && !userCan(user, moduleFor(t), "VALIDATE") && !hasGlobalView(user)) return { ok: false, error: "Non autorisé." };
-  if (["APPROVED", "COMPLETED"].includes(c.requestStatus ?? "")) return { ok: false, error: "Demande déjà validée." };
-  // PAR LE MOTEUR, ET AVEC UN MOTIF (§118.186). Cette action écrivait « annulée » sur la demande et
-  // laissait son CIRCUIT ouvert : le panneau proposait encore « Approuver », et l'approuver aurait
-  // émis l'argent d'une demande que son auteur avait retirée. `retirerDemande` ferme le circuit,
-  // refuse quand un poste engage déjà la dépense, et garde le motif — obligatoire, comme tout geste
-  // définitif (R17).
+  const relais = new FormData();
+  relais.set("entityType", entityFor(t));
+  relais.set("entityId", id);
   const motif = fdStr(formData, "motif");
-  if (!motif) return { ok: false, error: "Dites pourquoi vous annulez la demande : le motif reste à l'historique." };
-  const r = await retirerDemande({
-    viewer: { id: user.id, role: user.role, secondaryRole: user.secondaryRole ?? null, name: user.name },
-    entityType: entityFor(t), entityId: id, motif,
-  });
-  if (!r.ok) return { ok: false, error: r.error };
-  revalidatePath(`${pathFor(t)}/${id}`);
-  revalidatePath(pathFor(t));
-  return { ok: true };
+  if (motif !== null) relais.set("motif", motif);
+  return retirerDemandeAdPro(relais);
 }

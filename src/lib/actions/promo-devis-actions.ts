@@ -28,6 +28,8 @@ import { estAction, type PromoAction } from "@/lib/promo-material/actions-fourni
 import { envoyerDemandeDeDevis, ouvrirDemandeDeDevis } from "@/lib/promo-automatismes";
 import { natureDeLaCategorie } from "@/lib/ad-pro/doc-categories";
 import { refusDeRangement } from "@/lib/promo-material/rangement";
+import { annulerDemandeSecretariat } from "@/lib/secretariat/annulation";
+import { etatRetraitDemandeDevis, ramenerSiPlusDeDemandeDevis } from "@/lib/promo-material/retrait-devis";
 
 /**
  * LES DEVIS DU MATÉRIEL PROMOTIONNEL — demande, retranscription, choix des lignes (§118.152).
@@ -722,6 +724,50 @@ export async function redemanderDevisPromo(formData: FormData): Promise<ActionRe
   revalidatePath(chemin(pm.id));
   revalidatePath("/demandes");
   return { ok: true, id: ouverte.demande.id, message: `Nouveaux devis demandés au secrétariat (${ouverte.demande.reference}) — les devis déjà reçus restent sur la fiche.` };
+}
+
+/**
+ * RETIRER LA DEMANDE DE DEVIS DEPUIS LE DOSSIER (audit du 04/10, constat 35) — « on annule sa demande tant
+ * que l'autre ne l'a pas exécutée ». Le demandeur (ou la Direction) la retirait seulement depuis
+ * « Demandes », et le dossier restait sur « devis demandés ». Elle se retire ici, motif à l'appui, par
+ * l'annulation COMMUNE de la demande au secrétariat (l'assistante est prévenue, la trace va à la demande),
+ * puis le dossier revient à l'étape d'avant (`ramenerSiPlusDeDemandeDevis`).
+ *
+ * EXÉCUTÉE dès que l'assistante a commencé à RETRANSCRIRE : un devis enregistré depuis la demande est du
+ * travail fait — le refus le nomme, avec les deux gestes qui restent (le retirer, ou la laisser terminer).
+ * Tout ce qui refuse passe AVANT le motif (§118.18).
+ */
+export async function retirerDemandeDevisPromo(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  const pm = await chargerDossier(fdStr(formData, "promoMaterialId"));
+  if (!pm) return { ok: false, error: "Dossier introuvable." };
+  const v = refusVersion(pm);
+  if (v) return { ok: false, error: v };
+  if (!pilote(user, pm)) return { ok: false, error: "Seul le demandeur (ou la Direction) retire la demande de devis de ce dossier." };
+  if (pm.circuitState !== "QUOTE_REQUESTED") return { ok: false, error: "Aucune demande de devis n'est en cours sur ce dossier." };
+  const { demandes, refus } = await etatRetraitDemandeDevis(pm.id);
+  if (refus) return { ok: false, error: refus };
+  const motif = fdStr(formData, "motif");
+  if (motif === null) return { ok: false, error: "Dites pourquoi vous retirez la demande de devis : c'est ce que lira l'assistante." };
+
+  const annulees: string[] = [];
+  for (const d of demandes) {
+    const a = await annulerDemandeSecretariat(d.id, { acteurId: user.id, motif, cause: "depuis son dossier" });
+    if (!a.ok) return { ok: false, error: a.error };
+    if (a.annulee) annulees.push(a.reference);
+  }
+  const retour = await ramenerSiPlusDeDemandeDevis(pm.id, user.id, motif);
+  if (annulees.length === 0 && !retour.ramene) {
+    return { ok: false, error: "Ce dossier vient de changer (demande terminée ou dossier passé à une autre étape) : rechargez la fiche." };
+  }
+  await audit(user, pm.id, `Demande de devis retirée depuis le dossier${annulees.length ? ` (${annulees.join(", ")})` : ""} — ${motif.slice(0, 200)}`);
+  revalidatePath(chemin(pm.id));
+  revalidatePath("/demandes");
+  const ou = retour.etape === "REVIEW_REQUESTER" ? "au choix des lignes — les devis déjà reçus restent" : retour.etape === "QUOTE_TO_REQUEST" ? "à « devis à demander »" : null;
+  return {
+    ok: true,
+    message: `Demande de devis retirée${annulees.length ? ` (${annulees.join(", ")})` : ""} — l'assistante est prévenue${ou ? ` ; le dossier revient ${ou}` : ""}.`,
+  };
 }
 
 /**

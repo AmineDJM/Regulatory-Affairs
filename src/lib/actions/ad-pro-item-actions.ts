@@ -43,7 +43,8 @@ import {
 import { validateAttachments } from "@/lib/attach-files";
 import { attachFormFiles } from "@/lib/documents";
 import {
-  lireVoyageur, ligneVoyageur, changementsVoyageur, porteDesVoyageurs, depassementDevisRetenus, type SaisieVoyageur, type VoyageurLu,
+  lireVoyageur, ligneVoyageur, changementsVoyageur, porteDesVoyageurs, depassementDevisRetenus, refusRetraitReservation, SUJET_RESERVATION_VIVANT,
+  type SaisieVoyageur, type VoyageurLu,
 } from "@/lib/ad-pro/voyageurs";
 import { createDossierRecord, ecrireDansLeSujet } from "@/lib/dossiers-core";
 import { gesteVisaPoste, memePrestataire, type EtatBcPoste, type GesteVisaPoste } from "@/lib/ad-pro/bc-poste";
@@ -2665,6 +2666,59 @@ export async function demanderReservation(formData: FormData): Promise<ActionRes
   revalidate(owner.parent, owner.id);
   revalidatePath("/dossiers");
   return { ok: true, id: sujet.id, message: `Demande de réservation envoyée — sujet ${sujet.reference} ouvert pour l'assistante de direction.` };
+}
+
+/**
+ * RETIRER LA DEMANDE DE RÉSERVATION des billets d'un poste (audit du 04/10, constat 37) — « on annule
+ * sa demande tant que l'autre ne l'a pas exécutée ». Rien ne la retirait : le sujet restait ouvert chez
+ * l'assistante, qui pouvait réserver des billets dont plus personne ne voulait. Exécutée quand le sujet
+ * est clos ou que le BC des billets est demandé (`refusRetraitReservation`, la règle de la carte) ; tout
+ * ce qui refuse passe AVANT le motif (§118.18).
+ *
+ * TOUT OU RIEN, SOUS CONDITION : le sujet n'est clos que s'il est encore vivant, et le poste ne lâche
+ * son sujet que s'il le porte encore et qu'aucun BC n'a été demandé entre-temps. Le motif s'écrit DANS
+ * le sujet — l'assistante (et chaque participant) est prévenue par lui. Les voyageurs restent : une
+ * nouvelle demande ouvrira un nouveau sujet avec la liste à jour.
+ */
+export async function retirerReservation(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  const id = fdStr(formData, "id");
+  if (!id) return { ok: false, error: "Poste non précisé." };
+  const found = await loadItem(id, user);
+  if (!found) return { ok: false, error: "Poste introuvable." };
+  const { item, owner } = found;
+  if (!canEditItems(user, owner.parent)) return { ok: false, error: "Non autorisé." };
+  if (!porteDesVoyageurs(item.kind)) return { ok: false, error: "Seul un poste « billetterie » se réserve." };
+  const poste = await prisma.adProItem.findUnique({ where: { id }, select: { reservationDossierId: true, orderStage: true } });
+  const sujet = poste?.reservationDossierId
+    ? await prisma.dossier.findUnique({ where: { id: poste.reservationDossierId }, select: { id: true, reference: true, status: true } })
+    : null;
+  const refus = refusRetraitReservation({ sujet: sujet ? String(sujet.status) : null, orderStage: String(poste?.orderStage ?? "NONE") });
+  if (refus || !sujet) return { ok: false, error: refus ?? "Aucune demande de réservation n'est en cours pour ce poste." };
+  const motif = fdStr(formData, "motif");
+  if (!motif) return { ok: false, error: "Dites pourquoi vous retirez la demande de réservation : c'est ce que lira l'assistante de direction." };
+
+  const changee = "La réservation vient de changer (traitée, ou un bon de commande demandé) : rouvrez la fiche.";
+  try {
+    await prisma.$transaction(async (tx) => {
+      const clos = await tx.dossier.updateMany({ where: { id: sujet.id, status: { in: [...SUJET_RESERVATION_VIVANT] } }, data: { status: "ARCHIVED" } });
+      if (clos.count === 0) throw new RefusPoste(changee);
+      const lache = await tx.adProItem.updateMany({
+        where: { id, reservationDossierId: sujet.id, orderStage: { in: ["NONE", "REFUSED"] } },
+        data: { reservationDossierId: null, updatedById: user.id },
+      });
+      if (lache.count === 0) throw new RefusPoste(changee);
+    });
+  } catch (e) {
+    if (e instanceof RefusPoste) return { ok: false, error: e.message };
+    throw e;
+  }
+  await ecrireDansLeSujet({ dossierId: sujet.id, authorId: user.id, body: `Demande de réservation RETIRÉE — « ${item.label} » : ${motif}. Ne réservez pas ces billets ; le sujet est clos.` });
+  await audit(user, owner.parent, owner.id, "UPDATE", `Réservation du poste « ${item.label} » retirée — sujet ${sujet.reference} clos : ${motif}`);
+  revalidate(owner.parent, owner.id);
+  revalidatePath("/dossiers");
+  revalidatePath(`/dossiers/${sujet.id}`);
+  return { ok: true, id, message: `Demande de réservation retirée — le sujet ${sujet.reference} est clos, l'assistante de direction est prévenue. Les voyageurs restent sur le poste.` };
 }
 
 // ───────────────────── Billetterie : le devis de chaque voyageur, puis le BC (§118.205) ─────────────────────
