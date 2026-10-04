@@ -4,7 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { toNumber } from "@/lib/utils";
 import { anyRoleFilter, hasGlobalView, hasRole, userCan, type Module, type SessionUser } from "@/lib/rbac";
 import { getBudgetCategoryOptions, type BudgetCategoryOption } from "@/lib/queries/budget";
-import { ensureInstance, getDefinition, orderedSteps, canActOnStep, stepBySlug } from "@/lib/workflow/engine";
+import { ensureInstance, getDefinition, orderedSteps, canActOnStep, stepBySlug, lectureDeLApprobation } from "@/lib/workflow/engine";
 import { estDecisionnaire, etapesNonAtteintes, ROLE_DIRECTION_MARKETING } from "@/lib/workflow/parcours";
 import { motifVisible, peutResoumettre, type MotifVisible } from "@/lib/workflow/renvoi";
 import {
@@ -240,6 +240,11 @@ export async function getWorkflowForEntity(viewer: SessionUser, entityType: Enti
   let action: WorkflowActionView | null = null;
   const current = stepBySlug(def, instance.currentSlug);
   if (instance.status === "IN_PROGRESS" && current && (await canActOnStep(viewer, current, instance, { requesterId }))) {
+    // L'ÉTAPE TELLE QUE LE MOTEUR LA JUGERA, pas seulement telle que la définition la décrit : sur
+    // la route d'un rang 2, la Direction des opérations CONCLUT et hérite le montant et la
+    // catégorie de Direction Marketing (`workflow/pouvoirs-argent.ts`). Lire `current` seul
+    // offrirait une approbation que le moteur refuse — un bouton offert puis refusé (§118.83).
+    const decide = lectureDeLApprobation(def, current, borne, ignorees).etape;
     const candidates = current.assignRole
       ? await prisma.user.findMany({ where: { ...anyRoleFilter([current.assignRole as UserRole]), isActive: true }, select: { id: true, name: true }, orderBy: { name: "asc" } })
       : [];
@@ -247,13 +252,17 @@ export async function getWorkflowForEntity(viewer: SessionUser, entityType: Enti
     const lastAmount = [...events].reverse().find((e) => e.amount != null)?.amount ?? instance.amount ?? null;
     action = {
       slug: current.slug, title: current.title, description: current.description,
-      powers: current.powers as WorkflowPower[], requireAmount: current.requireAmount, requireCategory: current.requireCategory,
+      powers: decide.powers as WorkflowPower[], requireAmount: decide.requireAmount, requireCategory: decide.requireCategory,
       requireNote: current.requireNote, assignRole: current.assignRole, assigneeCandidates: candidates,
       suggestedAmount: lastAmount != null ? toNumber(lastAmount) : null,
     };
   }
 
-  const needsCategory = stepViews.some((s) => s.requireCategory || s.powers.includes("SET_CATEGORY"));
+  // L'ACTION PROPOSÉE COMPTE AUSSI : l'étape qui conclut une route coupée hérite la catégorie sans
+  // qu'aucune étape de la route ne la porte dans la définition — sans cette ligne, le champ serait
+  // exigé et la liste des catégories, vide.
+  const needsCategory = stepViews.some((s) => s.requireCategory || s.powers.includes("SET_CATEGORY"))
+    || (action !== null && (action.requireCategory || action.powers.includes("SET_CATEGORY")));
   // Catégories restreintes aux enveloppes ACCESSIBLES au décideur (Direction) — décidées par le Super Admin.
   const budgetCategories = needsCategory && action ? await getBudgetCategoryOptions(AD_PRO_BUDGET_MODULES, viewer) : [];
   const outcome = instance.status !== "IN_PROGRESS" || instance.assigneeId ? await loadOutcome(entityType, entityId) : null;

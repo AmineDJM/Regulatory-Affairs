@@ -51,6 +51,7 @@ export default async function BonsDeCommandePage() {
             societeParDefaut={composition.societeParDefaut}
             letterheads={composition.letterheads}
             peutReglerNumerotation={composition.peutReglerNumerotation}
+            amont={composition.amont}
           />
         )}
       </PageHeader>

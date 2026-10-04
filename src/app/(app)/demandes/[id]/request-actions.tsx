@@ -112,7 +112,8 @@ export function RequestActions({
       {isPurchase && status !== "DONE" && status !== "CANCELLED" && (
         <p className="rounded-lg bg-secondary/50 px-3 py-2 text-xs text-muted-foreground">
           Flux achat : commencez le traitement → uploadez le <strong>devis</strong> de l'agence (Documents) → demandez la
-          validation des Finances → après accord, uploadez la <strong>facture finale</strong> puis cliquez « Fin de la demande ».
+          validation des Finances → après accord, joignez la <strong>facture finale</strong> (Documents, ou Pièces liées → Facture,
+          avec son PDF) puis cliquez « Fin de la demande ».
         </p>
       )}
 

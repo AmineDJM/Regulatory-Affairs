@@ -148,7 +148,9 @@ suite("La chaîne d'une facture survit à sa modification", () => {
     // Vérifier le chargeur sans son appelant ne prouverait rien : le défaut était dans l'ÉCRAN.
     const source = readFileSync(path.join(process.cwd(), "src/app/(app)/legal/[id]/page.tsx"), "utf8")
       .replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
-    expect(source).toMatch(/piecesAmontProposees\(\{[^}]*actuelId:\s*doc\.chainFromId/);
+    // Le chargeur reçoit aussi la porte de la liste (`perimetreLegal`, lot D1c) : son objet porte des accolades
+    // imbriquées, donc on cherche l'argument dans l'appel, pas jusqu'à la première accolade fermante.
+    expect(source).toMatch(/piecesAmontProposees\(\{[\s\S]{0,300}?actuelId:\s*doc\.chainFromId/);
     expect(source, "plus aucune requête de candidates écrite à la main dans l'écran").not.toMatch(/kind:\s*\{\s*in:\s*\[\s*"QUOTE",\s*"PURCHASE_ORDER"\s*\]/);
   });
 

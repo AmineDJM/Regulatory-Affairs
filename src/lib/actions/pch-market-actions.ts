@@ -267,6 +267,9 @@ export async function setLineResult(formData: FormData): Promise<ActionResult> {
       status: statusRaw as never,
       awardedQuantityUnits: statusRaw === "WON" ? awardedQty : null,
       awardedUnitPriceDzd: statusRaw === "WON" ? awardedPrice : null,
+      // Un résultat posé est un geste HUMAIN (lot D1c — F2) : la lecture suivante du document ne
+      // remplace pas une ligne qu'une personne a tranchée (`lib/pch/extraction.ts`).
+      modifieeLe: new Date(),
     },
   });
   await recordAudit({

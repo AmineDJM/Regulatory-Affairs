@@ -80,7 +80,11 @@ export async function createTask(
   return { ok: true, id: created.id };
 }
 
-/** Change a task's status. Allowed for its assignee, its creator, or a manager. */
+/**
+ * Change a task's status. Allowed for its assignee, its creator, a participant, or a global view —
+ * NOT the hierarchical manager: opening a team's tasks to its N+1 is a decision of the Direction
+ * (audit 360°, D1 — §118.196, lot E3).
+ */
 export async function updateTaskStatus(formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
   if (!userCan(user, "WORKSPACE", "UPDATE")) return { ok: false, error: "Non autorisé." };
@@ -92,7 +96,8 @@ export async function updateTaskStatus(formData: FormData): Promise<ActionResult
   const task = await prisma.task.findUnique({ where: { id }, select: { assignedToId: true, createdById: true, participantIds: true, title: true } });
   if (!task) return { ok: false, error: "Tâche introuvable." };
 
-  // Le responsable, le créateur, un PARTICIPANT (pas un simple lecteur) ou un manager peuvent agir.
+  // Le responsable, le créateur, un PARTICIPANT (pas un simple lecteur) ou une VUE GLOBALE peuvent agir — pas le
+  // N+1 hiérarchique : le lui ouvrir est une décision de la Direction (D1), pas une ligne de code.
   const allowed = task.assignedToId === user.id || task.createdById === user.id
     || task.participantIds.includes(user.id) || hasGlobalView(user.role);
   if (!allowed) return { ok: false, error: "Non autorisé." };

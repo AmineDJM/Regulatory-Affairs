@@ -154,7 +154,8 @@ export function LeaveRequestButton({
           </div>
           {colleagues.length > 0 && (
             <p className="-mt-2 text-xs text-muted-foreground">
-              L&apos;intérimaire que vous désignez est soumis à la validation des RH.
+              L&apos;intérimaire que vous désignez est soumis à la validation des RH ; vous choisirez ensuite ce que vous lui
+              déléguez (Mon dossier RH › Mes congés et absences).
             </p>
           )}
 

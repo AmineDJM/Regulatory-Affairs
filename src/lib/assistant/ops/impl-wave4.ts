@@ -592,7 +592,7 @@ export const PCH_OPS_IMPL: Record<string, OpImpl> = {
           { label: "Marché", value: tenderLabel(tender) },
           { label: "Texte", value: `${text.slice(0, 160)}${text.length > 160 ? "…" : ""} (${text.length} caractères)` },
         ],
-        warnings: ["L'IA extrait les produits demandés puis chaque ligne est ENRICHIE automatiquement (prix de référence PCH, nomenclature, notre catalogue, analyse de marché)."],
+        warnings: ["L'IA extrait les produits demandés puis chaque ligne est ENRICHIE automatiquement (prix de référence PCH, nomenclature, notre catalogue, analyse de marché) — une nouvelle lecture REMPLACE les lignes des lectures précédentes que personne n'a touchées."],
         args: { tenderId: tender.id, text },
         successMessage: `Produits extraits du texte et enrichis sur ${tender.reference}.`,
         link: `/pch/${tender.id}`, revalidate: ["/pch"],

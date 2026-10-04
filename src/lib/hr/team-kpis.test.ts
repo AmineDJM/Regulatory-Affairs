@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { jobOf, jobKpis, commonKpis, JOB_LABEL, NO_JOB_KPI_NOTE } from "./team-kpis";
+import { jobOf, jobKpis, commonKpis, avecLiens, JOB_LABEL, NO_JOB_KPI_NOTE, type TeamKpi } from "./team-kpis";
 
 describe("le métier retenu pour les indicateurs", () => {
   it("le TERRAIN rassemble ceux qui visitent, quel que soit leur grade", () => {
@@ -18,7 +18,10 @@ describe("le métier retenu pour les indicateurs", () => {
     // Des zéros qui ne veulent rien dire abîment ceux qui veulent dire quelque chose.
     expect(jobOf("FINANCE_BUDGET_MANAGER")).toBe("GENERIC");
     expect(jobKpis({ job: "GENERIC" })).toEqual([]);
-    expect(NO_JOB_KPI_NOTE).toMatch(/pas d'indicateur/);
+    // La phrase dit ce qui manque À CET ÉCRAN — pas « dans l'outil », qui serait faux pour les
+    // Finances, le Marketing ou le secrétariat, dont l'outil porte l'activité (audit 360°, M11).
+    expect(NO_JOB_KPI_NOTE).toMatch(/ne suit pas encore d'indicateur propre/);
+    expect(NO_JOB_KPI_NOTE).not.toMatch(/dans l'outil/);
   });
 
   it("un compte sans rôle connu retombe sur le générique, il ne casse pas", () => {
@@ -78,5 +81,33 @@ describe("ce que les chiffres disent", () => {
       expect(jobKpis(j).length).toBeGreaterThan(0);
       expect(jobKpis(j).length).toBeLessThanOrEqual(4);
     }
+  });
+});
+
+describe("un chiffre qui a un écran y mène (§118.196, lot E3 — M12)", () => {
+  const tous = (): TeamKpi[] => [
+    ...commonKpis({ openTasks: 1, overdueTasks: 0, leaveDaysThisYear: 1, openRequests: 1 }),
+    ...jobKpis({ job: "FIELD", counts: { visitsDone30: 1, visitsPlanned: 1, doctors: 1, visitsWithoutReport: 1 } }),
+    ...jobKpis({ job: "REGULATORY", counts: { dossiers: 1, overdue: 1, stepsInProgress: 1 } }),
+    ...jobKpis({ job: "MEDICAL_INFO", counts: { awaiting: 1, docsRequested: 1, validated30: 1 } }),
+    ...jobKpis({ job: "COORDINATION", counts: { runsDone30: 1, runsLate30: 1, runsOpen: 1 } }),
+  ];
+
+  it("CHAQUE CHIFFRE PORTE SA CLÉ — un lien s'accroche à la clé, jamais au libellé", () => {
+    const cles = tous().map((k) => k.cle);
+    expect(cles.every((c) => typeof c === "string" && c.length > 0)).toBe(true);
+    // Une clé par chiffre : deux chiffres sous la même clé recevraient le même lien.
+    expect(new Set(cles).size).toBe(cles.length);
+    expect(cles).toHaveLength(16);
+  });
+
+  it("UN LIEN NE S'AJOUTE QU'AUX CHIFFRES QUI EN ONT UN", () => {
+    const base = commonKpis({ openTasks: 4, overdueTasks: 1, leaveDaysThisYear: 3, openRequests: 0 });
+    const lies = avecLiens(base, { leaveDaysThisYear: "/rh/emp-1" });
+    expect(lies.find((k) => k.cle === "leaveDaysThisYear")?.href).toBe("/rh/emp-1");
+    // Les autres ne reçoivent RIEN — pas même une clé `href` vide, qui ferait dessiner un lien mort.
+    expect(lies.filter((k) => k.cle !== "leaveDaysThisYear").every((k) => !("href" in k))).toBe(true);
+    // Sans lien du tout, la carte est rendue telle quelle.
+    expect(avecLiens(base, {})).toEqual(base);
   });
 });

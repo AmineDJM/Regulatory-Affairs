@@ -1,7 +1,8 @@
 import { prisma } from "@/lib/prisma";
 import { clauseMarchesPchVisibles } from "@/lib/queries/visibilite-listes";
-import { toNumber } from "@/lib/utils";
+import { toNumber, formatDateTime } from "@/lib/utils";
 import { deriverNiveau, type NiveauDerive } from "@/lib/pch/market-math";
+import { phraseDeLecture } from "@/lib/pch/extraction";
 
 const dec = (v: unknown): number | null => (v === null || v === undefined ? null : toNumber(v));
 
@@ -215,5 +216,70 @@ export function pchSummary(tenders: PchTenderDTO[]) {
     totalValue: tenders.reduce((a, t) => a + (t.value ?? 0), 0),
     cautionsToDeposit: tenders.filter((t) => (t.cautionAmount ?? 0) > 0 && !t.cautionDeposited).length,
     cautionsExpiringSoon: tenders.filter((t) => t.cautionDeposited && t.cautionEnd && new Date(t.cautionEnd) > now && (new Date(t.cautionEnd).getTime() - now.getTime()) < 30 * 864e5).length,
+  };
+}
+
+/** Une lecture passée du document de l'appel d'offres, telle que l'écran la montre. */
+export interface LectureAoDTO {
+  id: string;
+  resume: string;
+}
+
+/** Les lectures montrées sous le panneau de lecture — le compte des autres voyage avec elles (§118.60). */
+export const LECTURES_AFFICHEES = 5;
+
+/**
+ * LES LECTURES DU DOCUMENT D'UN MARCHÉ (audit 360°, lot D1c — F2) — les plus récentes, avec ce qu'il en
+ * reste au tableau, ce qui n'a pas été lu (la coupe, les pages), et si le fichier gardé existe encore : la
+ * personne qui relance une lecture voit ce que la précédente a fait, et ce qu'elle remplacera.
+ */
+export async function lecturesDuMarche(tenderId: string): Promise<{ liste: LectureAoDTO[]; total: number }> {
+  const [rows, total] = await Promise.all([
+    prisma.pchTenderExtraction.findMany({
+      where: { tenderId },
+      orderBy: { createdAt: "desc" },
+      take: LECTURES_AFFICHEES,
+      select: {
+        id: true, createdAt: true, createdById: true, source: true, nomFichier: true, documentId: true,
+        methode: true, confiance: true, aRelire: true, pagesLues: true, pagesTotal: true,
+        caracteres: true, caracteresLus: true, produits: true, complementaire: true,
+        _count: { select: { lignes: true } },
+      },
+    }),
+    prisma.pchTenderExtraction.count({ where: { tenderId } }),
+  ]);
+  const auteurs = [...new Set(rows.map((r) => r.createdById).filter((x): x is string => Boolean(x)))];
+  const fichiers = rows.map((r) => r.documentId).filter((x): x is string => Boolean(x));
+  const [personnes, documents] = await Promise.all([
+    auteurs.length ? prisma.user.findMany({ where: { id: { in: auteurs } }, select: { id: true, name: true } }) : [],
+    // Un fichier gardé puis retiré des documents du marché n'est plus « gardé » : on ne promet pas un fichier absent.
+    fichiers.length
+      ? prisma.document.findMany({ where: { id: { in: fichiers }, entityType: "PCH_TENDER", entityId: tenderId }, select: { id: true } })
+      : [],
+  ]);
+  const nomDe = new Map(personnes.map((p) => [p.id, p.name]));
+  const presents = new Set(documents.map((d) => d.id));
+  return {
+    total,
+    liste: rows.map((r) => ({
+      id: r.id,
+      resume: phraseDeLecture({
+        quand: formatDateTime(r.createdAt),
+        parQui: r.createdById ? nomDe.get(r.createdById) ?? null : null,
+        source: r.source === "document" ? "document" : "texte",
+        nomFichier: r.nomFichier,
+        fichierGarde: r.documentId !== null && presents.has(r.documentId),
+        methode: r.methode === "ocr" ? "ocr" : "texte",
+        confiance: r.confiance,
+        aRelire: r.aRelire,
+        pagesLues: r.pagesLues,
+        pagesTotal: r.pagesTotal,
+        caracteres: r.caracteres,
+        caracteresLus: r.caracteresLus,
+        produits: r.produits,
+        restantes: r._count.lignes,
+        complementaire: r.complementaire,
+      }),
+    })),
   };
 }

@@ -35,6 +35,7 @@ import { Prisma, type EntityType } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import type { CurrentUser } from "@/lib/session";
 import { userCan } from "@/lib/rbac";
+import { canAccessEntity } from "@/lib/entity-access";
 import { legalWriteAllowed } from "@/lib/legal/invoices";
 import { canManageLetterheads, letterheadsFor } from "@/lib/office/letterhead";
 import { canEditCompanyId, getMyCompanies, moneyEntityOf, type CompanyLite } from "@/lib/company";
@@ -62,7 +63,7 @@ import { aiguillerBC } from "@/lib/bons-de-commande/aiguillage";
 import { enSerie } from "@/lib/refs";
 import { avalActif } from "@/lib/legal/aval";
 import { montantsDesAvoirsActifs } from "@/lib/lecteurs/avoirs-actifs";
-import { refusRevisionAval } from "@/lib/legal/piece-emise";
+import { refusRevisionAval, refusPieceAmont, phrasePieceAmontNonRattachee, PIECE_AMONT_INTROUVABLE } from "@/lib/legal/piece-emise";
 import { refusPlafondAvoir, resteACrediter } from "@/lib/lecteurs/avoir";
 import { reserveDeLAiguillage, type PorteBC } from "@/lib/bons-de-commande/regle";
 
@@ -699,7 +700,7 @@ const prefixeDe = (type: TypeDocumentCommercial, profil: ProfilDocumentaire): st
  * le numéro et la date que l'avoir imprime sont ceux de la facture qu'il corrige. Une demande qui dirait autre
  * chose créditerait un autre client, ou « corrigerait » une facture qu'elle ne nomme pas.
  */
-async function factureDeLAvoir(chainFromId: string | null | undefined, societeId: string): Promise<
+async function factureDeLAvoir(user: CurrentUser, chainFromId: string | null | undefined, societeId: string): Promise<
   {
     ok: true; id: string; numero: string; ttc: number; tiers: SpecDocumentCommercial["tiers"]; date: string; numeroClient: string | null;
     /** Ce que l'avoir calcule COMME sa facture, sauf demande contraire : un crédit au même prix doit porter la même TVA, la même remise, les mêmes taxes. */
@@ -710,7 +711,9 @@ async function factureDeLAvoir(chainFromId: string | null | undefined, societeId
   const id = (chainFromId ?? "").trim();
   if (!id) return echec("MISSING_INPUT", "Un avoir corrige UNE facture : émettez-le depuis la fiche de la facture (« Émettre un avoir »).");
   const doc = await prisma.legalDocument.findUnique({ where: { id }, select: { id: true, companyId: true, kind: true, status: true, custom: true } });
-  if (!doc) return echec("NOT_FOUND", "La facture à créditer n'existe plus.");
+  // LA FACTURE QU'ON CRÉDITE, ON LA LIT (lot D1c — F1) : un identifiant forgé désignait une facture restreinte à
+  // d'autres lecteurs, et l'avoir en imprimait le client et le numéro. Illisible, elle se dit comme absente (§118.71).
+  if (!doc || !(await canAccessEntity(user, "LEGAL_DOCUMENT", doc.id, "VIEW"))) return echec("NOT_FOUND", "La facture à créditer n'existe plus.");
   const f = fabriqueDe(doc.custom);
   if (doc.kind !== "INVOICE" || !f || f.type !== "FACTURE") {
     return echec("MISSING_INPUT", "Un avoir se rattache à une facture émise par la plateforme : cette pièce n'en est pas une — une facture déposée se corrige par la pièce que son émetteur envoie.");
@@ -721,6 +724,23 @@ async function factureDeLAvoir(chainFromId: string | null | undefined, societeId
     ok: true, id: doc.id, numero: f.numero, ttc: f.totaux?.totalTtc ?? 0, tiers: f.spec.tiers, date: f.spec.date, numeroClient: f.spec.numeroClient ?? null,
     calcul: { tvaDefaut: f.spec.tvaDefaut ?? null, remiseGlobale: f.spec.remiseGlobale ?? null, taxes: f.spec.taxes ?? null },
   };
+}
+
+/**
+ * LA PIÈCE DONT UNE ÉMISSION DÉCOULE (audit 360°, lot D1c — F1) — lue, et jugée, AVANT qu'un numéro existe. La
+ * fabrique ne vérifiait que l'existence et la société : un BC pouvait suivre une facture, un devis annulé, ou — par
+ * un identifiant forgé — un devis que la personne ne lit pas (§118.71). Lisible d'abord (sinon la phrase de
+ * l'absence : rien n'est révélé de la pièce désignée), la société, puis la nature et le statut (`refusPieceAmont`,
+ * la table que lit aussi le menu du compositeur). L'avoir a sa propre lecture (`factureDeLAvoir`).
+ */
+async function jugerPieceAmont(user: CurrentUser, type: TypeDocumentCommercial, chainFromId: string, societeId: string): Promise<EchecFabrique | null> {
+  const amont = await prisma.legalDocument.findUnique({
+    where: { id: chainFromId }, select: { id: true, companyId: true, kind: true, status: true, reference: true, title: true },
+  });
+  if (!amont || !(await canAccessEntity(user, "LEGAL_DOCUMENT", amont.id, "VIEW"))) return echec("NOT_FOUND", PIECE_AMONT_INTROUVABLE);
+  if (amont.companyId && amont.companyId !== societeId) return echec("MISSING_INPUT", "La pièce amont appartient à une autre société.");
+  const refus = refusPieceAmont(type, { kind: String(amont.kind), status: String(amont.status), nom: amont.reference?.trim() || amont.title });
+  return refus ? echec("MISSING_INPUT", refus) : null;
 }
 
 class PlafondAvoirDepasse extends Error {}
@@ -754,7 +774,7 @@ export async function emettreDocumentDrive(user: CurrentUser, demande: DemandeDo
   // L'AVOIR SE LIT SUR SA FACTURE (§118.195) : client, numéro et date d'origine viennent du lien, pas de la demande.
   let facture: { id: string; numero: string; ttc: number } | null = null;
   if (type === "AVOIR") {
-    const lu = await factureDeLAvoir(demande.chainFromId, profil.societe.id);
+    const lu = await factureDeLAvoir(user, demande.chainFromId, profil.societe.id);
     if (!lu.ok) return lu;
     facture = { id: lu.id, numero: lu.numero, ttc: lu.ttc };
     demande = {
@@ -774,10 +794,9 @@ export async function emettreDocumentDrive(user: CurrentUser, demande: DemandeDo
   // au moment d'écrire — mesuré au banc des défis : « erreur technique », aucun devis émis.
   const chainFromId = (demande.chainFromId ?? "").trim() || null;
   demande = { ...demande, chainFromId };
-  if (chainFromId) {
-    const amont = await prisma.legalDocument.findUnique({ where: { id: chainFromId }, select: { id: true, companyId: true } });
-    if (!amont) return echec("NOT_FOUND", "La pièce amont (devis / bon de commande) n'existe plus.");
-    if (amont.companyId && amont.companyId !== profil.societe.id) return echec("MISSING_INPUT", "La pièce amont appartient à une autre société.");
+  if (chainFromId && type !== "AVOIR") {
+    const refusAmont = await jugerPieceAmont(user, type, chainFromId, profil.societe.id);
+    if (refusAmont) return refusAmont;
   }
   // LA RÉPÉTITION À BLANC : tout ce qui peut bloquer bloque ICI, avant qu'un numéro existe.
   const essai = await construireDocumentCommercial(provisoire, habillage);
@@ -790,11 +809,14 @@ export async function emettreDocumentDrive(user: CurrentUser, demande: DemandeDo
   if (!demande.forcerDoublon) {
     const existant = await prisma.legalDocument.findFirst({
       where: { companyId: profil.societe.id, kind, status: { not: "CANCELLED" }, custom: { path: ["fabrique", "empreinte"], equals: empreinte } },
-      select: { id: true, reference: true, custom: true, driveNodeId: true },
+      select: { id: true, reference: true, custom: true, driveNodeId: true, chainFromId: true },
       orderBy: { createdAt: "asc" },
     });
     const f = existant ? fabriqueDe(existant.custom) : null;
     if (existant && f) {
+      // L'empreinte du doublon ne porte pas la chaîne : la pièce identique rendue peut ne pas suivre la pièce amont
+      // demandée — on le DIT, avec le geste qui la rattache, au lieu de rendre une pièce non chaînée sans un mot.
+      const avertissementAmont = phrasePieceAmontNonRattachee(f.numero, existant.chainFromId, demande.chainFromId ?? null);
       if (f.etat === "EMIS" && f.docx && existant.driveNodeId) {
         // RÉÉMETTRE UN BC, C'EST AUSSI LE RÉAIGUILLER — idempotent : une porte présente n'est pas
         // reposée, une porte ABSENTE l'est. C'est ce qui rattrape, à la reprise d'une mission, le
@@ -809,11 +831,15 @@ export async function emettreDocumentDrive(user: CurrentUser, demande: DemandeDo
           docx: { nodeId: f.docx.nodeId, nom: nomFichier(f.numero, base.tiers.nom, "docx"), version: f.docx.version },
           pdf: f.pdf ? { nodeId: f.pdf.nodeId, nom: nomFichier(f.numero, base.tiers.nom, "pdf"), pages: f.pdf.pages, methode: f.pdf.methode ?? "rendu" } : null,
           totaux: f.totaux, surPapierEnTete: f.surPapierEnTete,
-          avertissements: [`Une pièce identique existait déjà (${f.numero}) : elle est rendue, aucune nouvelle pièce n'a été émise.`, ...(reserveExistante ? [reserveExistante] : [])],
+          avertissements: [
+            `Une pièce identique existait déjà (${f.numero}) : elle est rendue, aucune nouvelle pièce n'a été émise.`,
+            ...(avertissementAmont ? [avertissementAmont] : []),
+            ...(reserveExistante ? [reserveExistante] : []),
+          ],
           reglesAppliquees: profil.reglesAppliquees, porteBC: porteExistante, reserveBonDeCommande: reserveExistante, ms: Date.now() - debut,
         };
       }
-      return terminerEmission(user, existant.id, { ...f, spec: { ...base, numero: f.numero } }, habillage, demande, profil, { repris: true, debut, avertissements: essai.verification.avertissements, delegation: opts.delegation ?? null, canal: opts.canal ?? null });
+      return terminerEmission(user, existant.id, { ...f, spec: { ...base, numero: f.numero } }, habillage, demande, profil, { repris: true, debut, avertissements: [...essai.verification.avertissements, ...(avertissementAmont ? [avertissementAmont] : [])], delegation: opts.delegation ?? null, canal: opts.canal ?? null });
     }
   }
 
@@ -968,7 +994,7 @@ export async function previsualiserDocument(user: CurrentUser, demande: DemandeD
   // L'aperçu d'un avoir lit sa facture comme l'émission : sinon il montrerait un client que l'émission remplacera.
   let facture: { numero: string; ttc: number; avoirs: number[] } | null = null;
   if (type === "AVOIR") {
-    const lu = await factureDeLAvoir(demande.chainFromId, profil.societe.id);
+    const lu = await factureDeLAvoir(user, demande.chainFromId, profil.societe.id);
     if (!lu.ok) return lu;
     facture = { numero: lu.numero, ttc: lu.ttc, avoirs: await montantsDesAvoirsActifs(lu.id) };
     demande = {
@@ -986,12 +1012,16 @@ export async function previsualiserDocument(user: CurrentUser, demande: DemandeD
   const numeroProchain = formaterNumero(prefixe, anneeSure, (seq?.last ?? 0) + 1, motif);
   const spec: SpecDocumentCommercial = { ...base, numero: numeroProchain };
   const commun = { ok: true as const, societe: { id: profil.societe.id, nom: profil.societe.nom }, numeroProchain, motif, papierEnTete: profil.papierEnTete, identiteIncomplete: profil.identiteIncomplete, spec, pdfParEditeur: convertConfigured() };
+  // LA PIÈCE AMONT SE JUGE DÈS L'APERÇU (lot D1c — F1) : l'écran ne propose pas d'émettre ce que l'émission refusera.
+  const amontId = (demande.chainFromId ?? "").trim() || null;
+  const refusAmont = amontId && type !== "AVOIR" ? await jugerPieceAmont(user, type, amontId, profil.societe.id) : null;
+  const motifAmont = refusAmont ? [refusAmont.motif] : [];
   const regles = verifierSpecCommerciale(spec);
-  if (regles.bloquants.length > 0) return { ...commun, totaux: null, bloquants: regles.bloquants, avertissements: [...regles.avertissements, ...manquesDIdentite(profil)], peutEmettre: false };
+  if (regles.bloquants.length > 0) return { ...commun, totaux: null, bloquants: [...regles.bloquants, ...motifAmont], avertissements: [...regles.avertissements, ...manquesDIdentite(profil)], peutEmettre: false };
   const essai = await construireDocumentCommercial(spec, habillage);
   const plafond = facture && essai.totaux ? refusPlafondAvoir(facture.numero, essai.totaux.totalTtc, resteACrediter(facture.ttc, facture.avoirs)) : null;
-  const bloquants = plafond ? [...essai.verification.bloquants, plafond] : essai.verification.bloquants;
-  return { ...commun, totaux: essai.totaux, bloquants, avertissements: [...essai.verification.avertissements, ...manquesDIdentite(profil)], peutEmettre: essai.verification.ok && !plafond };
+  const bloquants = [...essai.verification.bloquants, ...(plafond ? [plafond] : []), ...motifAmont];
+  return { ...commun, totaux: essai.totaux, bloquants, avertissements: [...essai.verification.avertissements, ...manquesDIdentite(profil)], peutEmettre: essai.verification.ok && !plafond && !refusAmont };
 }
 
 // ─────────────────────────── La révision ───────────────────────────

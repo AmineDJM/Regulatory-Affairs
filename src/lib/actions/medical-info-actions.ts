@@ -504,10 +504,19 @@ async function declarationValidators(requesterId: string, sourceType: string, so
  * suppose de connaître le budget accordé et ce qu'il couvre — donc d'être celui qui a instruit
  * ce dossier-là. Désigner n'importe quel titulaire du rôle ferait signer quelqu'un qui n'a pas
  * la question, ce qui est pire qu'une marche sautée : la signature existe et ne vaut rien.
+ *
+ * LE SPONSORING MANQUAIT — mesuré par la vraie porte (`requestDeclareDecision`), pas supposé. Un
+ * sponsoring porte son référent comme les trois autres natures (`createSponsoring` l'écrit depuis
+ * la configuration de la gamme, §118.144), la chaîne le promet (« sponsoring, congrès,
+ * événement », `bv-approval.ts`), et le README annonce trois signatures. Sans cette branche, la
+ * déclaration d'un sponsoring partait au seul centre, avec « aucun référent Direction Marketing sur
+ * le dossier » écrit dans la demande — une marche sautée faute d'avoir été cherchée.
  */
 async function productManagerOfSource(sourceType: string, sourceId: string): Promise<string | null> {
   const sel = { select: { productManagerId: true } } as const;
   switch (sourceType) {
+    case "SPONSORING":
+      return (await prisma.sponsoringRequest.findUnique({ where: { id: sourceId }, ...sel }))?.productManagerId ?? null;
     case "CONGRESS_INTERNATIONAL":
       return (await prisma.congressInternational.findUnique({ where: { id: sourceId }, ...sel }))?.productManagerId ?? null;
     case "CONGRESS_NATIONAL":

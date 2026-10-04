@@ -5,7 +5,7 @@ import { userCan } from "@/lib/rbac";
 import { getEnvelopes, getEnvelopesGrandTotal, getBudgetOverview } from "@/lib/queries/budget";
 import { getComptaData } from "@/lib/queries/compta";
 import { getRhData, getLeavesToDecide } from "@/lib/queries/hr";
-import { getActionCenter } from "@/lib/queries/action-center";
+import { getActionCenter, PREFIXE_CONGE } from "@/lib/queries/action-center";
 import { EXECUTIVE_TOOLS } from "@/lib/assistant/executive-tools";
 import { WATCH_TOOLS } from "@/lib/assistant/watch-tools";
 import { EXECUTIVE_READ_TOOLS } from "@/lib/assistant/executive-read-tools";
@@ -323,7 +323,9 @@ export const POWER_TOOLS: PowerTool[] = [
         getActionCenter(user),
         getLeavesToDecide(user).catch(() => []),
       ]);
-      const items = center.items.slice(0, limit).map((i) => ({
+      // Les congés du centre sont écartés : ils sont relus juste en dessous, avec leurs gestes. Depuis le lot E2
+      // le centre les porte aussi — sans ce filtre, chaque congé serait listé, et compté, deux fois.
+      const items = center.items.filter((i) => !i.objet.startsWith(PREFIXE_CONGE)).slice(0, limit).map((i) => ({
         titre: i.title, detail: i.subtitle, module: i.module, statut: i.statusLabel,
         echeance: i.deadline ? i.deadline.slice(0, 10) : null, lien: i.href,
         // LES GESTES VOYAGENT AVEC LA LIGNE. Sans eux, la file ne sait dire que « ouvre l'autre

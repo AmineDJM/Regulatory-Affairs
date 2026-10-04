@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
+import { readFileSync } from "node:fs";
 import {
-  cleanLines, estimatedTotal, summarize, seesBudget, purchaseStage, canWithdraw,
+  cleanLines, estimatedTotal, summarize, seesBudget, purchaseStage, canWithdraw, phraseDeDecision,
   STAGE_LABEL, STAGE_TONE, type PurchaseLine,
 } from "./purchase-request";
 
@@ -94,11 +95,26 @@ describe("purchaseStage — la décision prime sur le statut", () => {
   it("l'annulation l'emporte sur tout", () => {
     expect(purchaseStage("CANCELLED", { status: "APPROVED" })).toBe("CANCELLED");
   });
+
+  // UNE MODIFICATION DEMANDÉE N'EST PAS UNE ATTENTE (lot E5, M15) : elle se lisait « En attente de votre
+  // directeur » — le demandeur attendait une décision déjà prise, et la balle était à lui.
+  it("une modification demandée se lit « à modifier », plus « en attente »", () => {
+    expect(purchaseStage("IN_PROGRESS", { status: "CHANGES_REQUESTED" })).toBe("CHANGES_REQUESTED");
+    expect(purchaseStage("AWAITING_VALIDATION", { status: "CHANGES_REQUESTED" })).toBe("CHANGES_REQUESTED");
+    // L'annulation et la fin l'emportent toujours.
+    expect(purchaseStage("CANCELLED", { status: "CHANGES_REQUESTED" })).toBe("CANCELLED");
+    expect(purchaseStage("DONE", { status: "CHANGES_REQUESTED" })).toBe("DONE");
+  });
 });
 
 describe("canWithdraw — on retire tant que personne n'a décidé", () => {
   it("oui en attente", () => {
     expect(canWithdraw("PENDING")).toBe(true);
+  });
+
+  // Une demande « à modifier » se retire : c'est, aujourd'hui, le geste qui la fait repartir corrigée.
+  it("oui « à modifier »", () => {
+    expect(canWithdraw("CHANGES_REQUESTED")).toBe(true);
   });
 
   // Après la décision, la retirer effacerait une trace : on ne saurait plus pourquoi un achat
@@ -111,13 +127,52 @@ describe("canWithdraw — on retire tant que personne n'a décidé", () => {
 });
 
 describe("libellés d'étape", () => {
-  it("couvrent les cinq étapes, sans trou", () => {
-    const keys = ["APPROVED", "CANCELLED", "DONE", "PENDING", "REJECTED"];
+  it("couvrent les six étapes, sans trou", () => {
+    const keys = ["APPROVED", "CANCELLED", "CHANGES_REQUESTED", "DONE", "PENDING", "REJECTED"];
     expect(Object.keys(STAGE_LABEL).sort()).toEqual(keys);
     expect(Object.keys(STAGE_TONE).sort()).toEqual(keys);
   });
 
   it("disent QUI attend — pas « en attente » tout court", () => {
     expect(STAGE_LABEL.PENDING).toContain("directeur");
+  });
+
+  it("« à modifier » ne se lit pas comme une attente", () => {
+    expect(STAGE_LABEL.CHANGES_REQUESTED).toBe("À modifier");
+    expect(STAGE_LABEL.CHANGES_REQUESTED).not.toMatch(/attente/i);
+  });
+});
+
+describe("phraseDeDecision — ce que le demandeur lit sous sa demande (lot E5, M14 et M15)", () => {
+  it("rien tant que rien n'est tranché", () => {
+    expect(phraseDeDecision("PENDING", null)).toBeNull();
+    expect(phraseDeDecision("PENDING", { status: "PENDING", note: "x", decideurAutre: null })).toBeNull();
+  });
+
+  it("un refus dit son motif, préfixé de ce qu'il est", () => {
+    expect(phraseDeDecision("REJECTED", { status: "REJECTED", note: "Hors budget.", decideurAutre: null })).toBe("Motif du refus : Hors budget.");
+  });
+
+  it("une modification dit quoi corriger, ET le geste qui reste au demandeur", () => {
+    expect(phraseDeDecision("CHANGES_REQUESTED", { status: "CHANGES_REQUESTED", note: "Préciser la référence.", decideurAutre: null }))
+      .toBe("À modifier : Préciser la référence. — retirez la demande, puis redéposez-la corrigée");
+  });
+
+  it("un accord du validateur nommé, sans note, ne dit rien de plus que son étiquette", () => {
+    expect(phraseDeDecision("APPROVED", { status: "APPROVED", note: null, decideurAutre: null })).toBeNull();
+  });
+
+  it("une décision prise par QUELQU'UN D'AUTRE que le validateur nommé le NOMME", () => {
+    expect(phraseDeDecision("APPROVED", { status: "APPROVED", note: null, decideurAutre: "Nadia Assistante" })).toBe("Décision prise par Nadia Assistante");
+    expect(phraseDeDecision("REJECTED", { status: "REJECTED", note: "Doublon.", decideurAutre: "Karim Intérim" }))
+      .toBe("Motif du refus : Doublon. — décision prise par Karim Intérim");
+  });
+
+  // LE TÉMOIN : la fonction ne reçoit même pas `comment` — l'estimation du catalogue, que la ligne prenait pour
+  // l'avis du directeur, ne peut pas y entrer.
+  it("ne lit jamais `comment`", () => {
+    const src = readFileSync("src/lib/general-means/purchase-request.ts", "utf8").replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
+    const corps = src.slice(src.indexOf("export function phraseDeDecision"));
+    expect(corps).not.toMatch(/comment/);
   });
 });

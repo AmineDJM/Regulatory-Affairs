@@ -28,6 +28,12 @@ export interface LeaveItem {
   standInName: string | null;
   standInStatus: StandInStatus | null;
   standInModules: string[];
+  /**
+   * Le congé est TERMINÉ — calculé par le SERVEUR (`congeTermine`), l'horloge même de l'action : le
+   * calculer ici donnerait, autour de minuit, une autre réponse que celle de l'action et du rendu
+   * serveur. Un congé terminé n'a plus de place à tenir (§118.196).
+   */
+  termine?: boolean;
   standInNote: string | null;
 }
 
@@ -93,7 +99,7 @@ export function MyLeaves({ leaves, people = [], modules = [], moduleLabels = {} 
   leaves: LeaveItem[];
   /** Collègues désignables comme intérimaire. Vide = la colonne reste en lecture. */
   people?: { id: string; name: string }[];
-  /** Modules délégables (déjà filtrés par `isDelegatable`). */
+  /** Ce que la personne peut PRÊTER (`modulesPretables`) — la liste même que l'action accepte (§118.196). */
   modules?: { value: string; label: string }[];
   moduleLabels?: Record<string, string>;
 }) {
@@ -137,8 +143,8 @@ export function MyLeaves({ leaves, people = [], modules = [], moduleLabels = {} 
               <TableCell label="Intérimaire">
                 <div className="flex flex-col items-start gap-1.5">
                   <StandInBadge state={l} moduleLabels={moduleLabels} />
-                  {people.length > 0 && l.status !== "REJECTED" && l.status !== "CANCELLED" && (
-                    <StandInButton leaveId={l.id} state={l} people={people} modules={modules} />
+                  {people.length > 0 && l.status !== "REJECTED" && l.status !== "CANCELLED" && !l.termine && (
+                    <StandInButton leaveId={l.id} state={l} people={people} modules={modules} moduleLabels={moduleLabels} />
                   )}
                 </div>
               </TableCell>

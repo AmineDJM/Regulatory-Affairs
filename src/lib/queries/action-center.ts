@@ -1,6 +1,9 @@
 import { prisma } from "@/lib/prisma";
 import { canAccessEntity } from "@/lib/entity-access";
 import { auNomDeQui } from "@/lib/hr/stand-in-resolve";
+import { getLeavesToDecide } from "@/lib/queries/hr";
+import { dedoublonner, trierConges, PREFIXE_CONGE, PREFIXE_DEMANDE_ADMIN, PREFIXE_RESTE } from "@/lib/queries/mes-decisions";
+import { clausePlansADecider } from "@/lib/sfe/tournee";
 import { userCan, hasGlobalView, hasRole, scopeRegulatory, scopeDirectives, type SessionUser } from "@/lib/rbac";
 import { getPendingValidations } from "@/lib/queries/validations";
 import { dossiersPromoAMonTour } from "@/lib/queries/promo-circuit";
@@ -10,8 +13,14 @@ import { toNumber, formatCurrency } from "@/lib/utils";
 import { polesLisibles } from "@/lib/lecteurs/consulting";
 import type { PromoMaterialStatus } from "@prisma/client";
 import {
-  type BadgeTone, TASK_STATUS, ADMIN_REQUEST_STATUS, REGULATORY_STATUS, EXPENSE_ORDER_STATUS, LEAVE_STATUS, CONGRESS_REQUEST_STATUS, MEDICAL_INFO_STATUS, PROMO_MATERIAL_STATUS, DIRECTIVE_STATUS, SUPPORT_STATUS, DOSSIER_STATUS,
+  type BadgeTone, TASK_STATUS, ADMIN_REQUEST_STATUS, REGULATORY_STATUS, EXPENSE_ORDER_STATUS, CONGRESS_REQUEST_STATUS, MEDICAL_INFO_STATUS, PROMO_MATERIAL_STATUS, DIRECTIVE_STATUS, SUPPORT_STATUS, DOSSIER_STATUS,
 } from "@/lib/labels";
+
+/**
+ * Les préfixes d'identité que relisent les consommateurs du centre : l'outil de file d'Adam écarte les
+ * congés (il les relit à part), la boîte de décision garde congés et achats (elle n'a pas d'autre file pour eux).
+ */
+export { PREFIXE_CONGE, PREFIXE_DEMANDE_ADMIN };
 
 /**
  * UN GESTE QUE CETTE PERSONNE PEUT POSER SUR CETTE LIGNE, ICI ET MAINTENANT.
@@ -36,9 +45,21 @@ export interface ActionItem {
   subtitle: string;
   module: string;
   href: string;
-  kind: "validation" | "request" | "payment" | "regulatory" | "task" | "hr";
+  kind: "validation" | "request" | "payment" | "regulatory" | "task";
   priority: string | null;
   deadline: string | null;
+  /**
+   * L'IDENTITÉ DE L'OBJET (« LEAVE_REQUEST:<id> », « ADMIN_REQUEST:<id> »…) — ce qui dédoublonne
+   * (lot E2) : une demande assignée ET à valider, une prise en charge « À arbitrer » ET « Validation
+   * préliminaire » n'est montrée qu'une fois, au premier bloc (`dedoublonner`).
+   */
+  objet: string;
+  /**
+   * DEPUIS QUAND L'ÉLÉMENT ATTEND un geste (07-05, ISO) : l'arrivée à la marche, la soumission,
+   * l'escalade, le renvoi, le dépôt. `null` quand rien ne le date à coup sûr — on ne fabrique pas
+   * une ancienneté (§118.16).
+   */
+  depuis: string | null;
   owner: string;
   statusLabel: string | null;
   statusTone: BadgeTone | null;
@@ -54,6 +75,19 @@ export interface ActionNotification {
   type: string;
   createdAt: string;
 }
+
+/** Le jour civil d'Alger d'un instant — « 01/11/2026 ». */
+const jourAlger = (d: Date) => d.toLocaleDateString("fr-FR", { timeZone: "Africa/Algiers" });
+
+/** La marche où un congé attend, dite à la personne qui signe. */
+const MARCHE_CONGE: Record<string, string> = {
+  MANAGER: "marche du N+1",
+  HR: "marche des RH",
+  DG: "marche de la direction générale",
+};
+
+/** Au-delà, une ligne le dit et mène à la liste complète (§118.60). */
+const PLAFOND_DECISIONS = 40;
 
 const resolve = (map: Record<string, { label: string; tone: BadgeTone }>, v: string) => ({
   statusLabel: map[v]?.label ?? v,
@@ -98,9 +132,9 @@ export async function getActionCenter(user: SessionUser) {
   });
   for (const t of tasks) {
     items.push({
-      key: `task-${t.id}`, title: t.title, subtitle: t.module ?? "", module: "Mon espace",
+      key: `task-${t.id}`, objet: `TASK:${t.id}`, title: t.title, subtitle: t.module ?? "", module: "Mon espace",
       href: "/mon-espace", kind: "task", priority: t.priority,
-      deadline: t.dueDate?.toISOString() ?? null, owner: "", ...resolve(TASK_STATUS, t.status),
+      deadline: t.dueDate?.toISOString() ?? null, depuis: t.createdAt.toISOString(), owner: "", ...resolve(TASK_STATUS, t.status),
     });
   }
 
@@ -113,7 +147,7 @@ export async function getActionCenter(user: SessionUser) {
     for (const v of pending) {
       if (!v.actionable) continue;
       items.push({
-        key: `val-${v.stepId}`, title: v.title,
+        key: `val-${v.stepId}`, objet: `VALIDATION_REQUEST:${v.requestId}`, title: v.title,
         // En intérim, la ligne dit pour QUI l'on tranche : signer « pour soi » une étape adressée à
         // l'absent, sans le savoir, ferait porter la décision au mauvais nom dans la tête de chacun.
         subtitle: [v.pourLeCompteDe ? `Intérim pour ${v.pourLeCompteDe}` : null, v.amount !== null ? formatCurrency(v.amount) : v.objectType].filter(Boolean).join(" · "),
@@ -121,7 +155,8 @@ export async function getActionCenter(user: SessionUser) {
         // pour y rechercher la ligne qu'on vient de cliquer est un pas de trop — et c'est
         // celui qu'on ne fait pas : on repart, et la validation attend un jour de plus.
         module: "Validations", href: `/validations?focus=${v.stepId}#val-${v.stepId}`, kind: "validation", priority: v.priority,
-        deadline: v.deadline, owner: v.requester,
+        // À SON TOUR depuis : le dépôt, la décision du rang précédent, ou la resoumission (07-05).
+        deadline: v.deadline, depuis: v.depuis, owner: v.requester,
         statusLabel: "À valider",
         statusTone: "warning",
         actions: [
@@ -132,77 +167,137 @@ export async function getActionCenter(user: SessionUser) {
     }
   }
 
-  // 2b. EN INTÉRIM — CE QUI ATTEND L'ABSENT QUE JE REMPLACE (§118.185 — audit 360°, I18).
+  // 2b. CE QUI ATTEND MA DÉCISION — EN PERSONNE, OU POUR L'ABSENT QUE JE REMPLACE (lot E2 — audit
+  //     360°, N2, M09 ; §118.185, I18).
   //
-  // Les portes de décision acceptent désormais l'intérimaire ; sans ce bloc, il lui fallait deviner
-  // où chercher — quatre écrans, et une absence de trois semaines pour s'en apercevoir. Une ligne
-  // par décision, au nom de l'absent ; jamais ses propres demandes, que les portes lui refusent.
-  const auNomInterim = await auNomDeQui(user.id);
-  if (auNomInterim.absents.length > 0) {
-    const absents = auNomInterim.absents.map((a) => a.userId);
+  // Chaque file se lit avec la règle que son ACTION applique, et une seule fois :
+  //   · les CONGÉS — la file de la porte (`getLeavesToDecide` → `clauseFileConges`, lot E1) : le N+1
+  //     enregistré ou actuel, son intérimaire, les RH à leur marche, la direction générale. Le bloc
+  //     d'intérim d'avant ne lisait que la marche du N+1 et la page relisait la file à côté : le même
+  //     congé était montré deux fois, et compté une ;
+  //   · les ACHATS — l'approbation EN ATTENTE, que la décision clôt. Le `validatorId` de la demande y
+  //     reste APRÈS la décision : la lire laissait l'achat tranché « à traiter » chez le N+1 (N2) ;
+  //   · les PLANS DE TOURNÉE — le réviseur tant que le plan est soumis, le N+2 dès qu'il est escaladé,
+  //     jamais les deux (`accesAuPlan.decider`). Leur file n'existait nulle part (M09) ;
+  //   · les FORMATIONS de l'absent (intérim seulement : celles du N+1 en personne vivent sur /formations).
+  // Jamais mes propres demandes : aucune porte ne me les laisse trancher. Et le pouvoir n'est pas la file
+  // (§118.153a) : la vue globale et le droit « Valider » d'un module tranchent partout, ils ne font pas
+  // une file — la leur se lit sur l'écran de chaque module.
+  const auNom = await auNomDeQui(user.id);
+  const absents = auNom.absents.map((a) => a.userId);
+  const signataires = [...auNom.ids];
+  const pour = (nom: string | null | undefined) => `Intérim pour ${nom ?? "l'absent"}`;
+  const [conges, approbations, plans] = await Promise.all([
+    getLeavesToDecide(user),
+    prisma.adminApproval.findMany({
+      where: {
+        status: "PENDING", validatorId: { in: signataires },
+        request: { deletedAt: null, status: { not: "CANCELLED" }, OR: [{ requesterId: null }, { requesterId: { not: user.id } }] },
+      },
+      select: {
+        id: true, validatorId: true, createdAt: true,
+        request: { select: { id: true, title: true, reference: true, deadline: true, priority: true, requester: { select: { name: true } } } },
+      },
+      orderBy: { createdAt: "asc" }, take: PLAFOND_DECISIONS + 1,
+    }),
+    // La clause est celle de la page du plan (`clausePlansADecider`, à côté de la règle qu'elle projette).
+    prisma.tourPlan.findMany({
+      where: clausePlansADecider(user.id, absents),
+      select: {
+        id: true, status: true, reviewerId: true, escalatedToId: true, submittedAt: true, escalatedAt: true,
+        periodStart: true, periodEnd: true, rep: { select: { name: true } },
+      },
+      orderBy: { submittedAt: "asc" }, take: PLAFOND_DECISIONS + 1,
+    }),
+  ]);
+
+  // (a) LES CONGÉS — une ligne par demande, l'attente la plus ancienne d'abord. La page les rend dans
+  //     leur propre bloc (la fiche, les boutons) : `conges` voyage avec les lignes (§118.5). Au-delà du
+  //     plafond, une ligne le dit — elle porte l'identité d'un congé, donc la page ne la reprend pas.
+  const congesParAnciennete = trierConges(conges);
+  for (const c of congesParAnciennete.slice(0, PLAFOND_DECISIONS)) {
+    const interim = c.pourLeCompteDe !== null;
+    items.push({
+      key: interim ? `interim-leave-${c.id}` : `conge-${c.id}`, objet: `${PREFIXE_CONGE}${c.id}`,
+      title: `Congé — ${c.employee}`,
+      subtitle: [interim ? pour(c.pourLeCompteDe) : null, `${c.days} j`, MARCHE_CONGE[c.stage] ?? null].filter(Boolean).join(" · "),
+      module: "Ressources humaines", href: "/mon-espace#conges-a-signer", kind: "validation", priority: null,
+      deadline: c.startDate, depuis: c.depuis, owner: c.employee, statusLabel: "À signer", statusTone: "warning",
+    });
+  }
+  if (conges.length > PLAFOND_DECISIONS) {
+    items.push({
+      key: "conge-reste", objet: `${PREFIXE_CONGE}${PREFIXE_RESTE}`,
+      title: `${conges.length - PLAFOND_DECISIONS} autre(s) congé(s) attendent votre signature`,
+      subtitle: "Les plus anciens sont listés ci-dessus", module: "Ressources humaines", href: "/mon-espace#conges-a-signer",
+      kind: "validation", priority: null, deadline: null, depuis: null, owner: "", statusLabel: "À signer", statusTone: "warning",
+    });
+  }
+
+  // (b) LES ACHATS — depuis la demande de validation (l'approbation naît à ce moment-là).
+  for (const a of approbations.slice(0, PLAFOND_DECISIONS)) {
+    const interim = a.validatorId !== user.id;
+    items.push({
+      key: interim ? `interim-achat-${a.id}` : `approbation-${a.id}`, objet: `${PREFIXE_DEMANDE_ADMIN}${a.request.id}`,
+      title: a.request.title,
+      subtitle: [interim ? pour(auNom.nomDe(a.validatorId)) : null, a.request.reference].filter(Boolean).join(" · "),
+      module: "Demandes administratives", href: `/demandes/${a.request.id}`, kind: "validation", priority: a.request.priority,
+      deadline: a.request.deadline?.toISOString() ?? null, depuis: a.createdAt.toISOString(),
+      owner: a.request.requester?.name ?? "", statusLabel: "À valider", statusTone: "warning",
+    });
+  }
+  if (approbations.length > PLAFOND_DECISIONS) {
+    items.push({
+      key: "approbation-reste", objet: `${PREFIXE_RESTE}approbations`, title: "D'autres demandes attendent votre validation",
+      subtitle: "Les plus anciennes sont listées ci-dessus", module: "Demandes administratives", href: "/demandes/approvals",
+      kind: "validation", priority: null, deadline: null, depuis: null, owner: "", statusLabel: "À valider", statusTone: "warning",
+    });
+  }
+
+  // (c) LES PLANS DE TOURNÉE — depuis la soumission, ou depuis l'escalade quand le plan est chez le N+2.
+  for (const p of plans.slice(0, PLAFOND_DECISIONS)) {
+    const escalade = p.status === "ESCALATED";
+    const decideur = escalade ? p.escalatedToId : p.reviewerId;
+    const interim = decideur !== user.id;
+    const arrivee = escalade ? p.escalatedAt ?? p.submittedAt : p.submittedAt;
+    items.push({
+      key: interim ? `interim-plan-${p.id}` : `plan-${p.id}`, objet: `TOUR_PLAN:${p.id}`,
+      title: `Plan de tournée — ${p.rep.name}`,
+      subtitle: [interim ? pour(auNom.nomDe(decideur)) : null, `du ${jourAlger(p.periodStart)} au ${jourAlger(p.periodEnd)}`, escalade ? "escaladé au N+2" : null]
+        .filter(Boolean).join(" · "),
+      module: "Promotion médicale", href: `/medical/plan-de-tournee?plan=${p.id}`, kind: "validation", priority: null,
+      deadline: null, depuis: arrivee?.toISOString() ?? null, owner: p.rep.name, statusLabel: "À trancher", statusTone: "warning",
+    });
+  }
+  if (plans.length > PLAFOND_DECISIONS) {
+    items.push({
+      key: "plan-reste", objet: `${PREFIXE_RESTE}plans`, title: "D'autres plans de tournée attendent votre décision",
+      subtitle: "Les plus anciens sont listés ci-dessus", module: "Promotion médicale", href: "/medical/plan-de-tournee",
+      kind: "validation", priority: null, deadline: null, depuis: null, owner: "", statusLabel: "À trancher", statusTone: "warning",
+    });
+  }
+
+  // (d) LES FORMATIONS DE L'ABSENT — la marche du N+1, au nom de l'absent (I18).
+  if (absents.length > 0) {
     const fiches = await prisma.employee.findMany({ where: { userId: { in: absents } }, select: { id: true, userId: true } });
     const ficheIds = fiches.map((f) => f.id);
-    const nomDeLaFiche = new Map(fiches.map((f) => [f.id, auNomInterim.nomDe(f.userId)]));
-    const pour = (nom: string | null | undefined) => `Intérim pour ${nom ?? "l'absent"}`;
-    const [conges, achats, formations, plans] = await Promise.all([
-      ficheIds.length
-        ? prisma.leaveRequest.findMany({
-            where: { status: "PENDING", stage: "MANAGER", managerId: { in: ficheIds }, NOT: { employee: { userId: user.id } } },
-            select: { id: true, managerId: true, days: true, startDate: true, employee: { select: { fullName: true } } },
-            orderBy: { startDate: "asc" }, take: 40,
-          })
-        : [],
-      prisma.adminApproval.findMany({
-        where: { status: "PENDING", validatorId: { in: absents }, request: { deletedAt: null }, NOT: { request: { requesterId: user.id } } },
-        select: { id: true, validatorId: true, request: { select: { id: true, title: true, reference: true } } },
-        orderBy: { createdAt: "asc" }, take: 40,
-      }),
-      ficheIds.length
-        ? prisma.training.findMany({
-            where: {
-              status: "PENDING", stage: "MANAGER", NOT: { requesterId: user.id },
-              OR: [{ managerId: { in: ficheIds } }, { requester: { employee: { managerId: { in: ficheIds } } } }],
-            },
-            select: { id: true, title: true, reference: true, managerId: true },
-            orderBy: { createdAt: "asc" }, take: 40,
-          })
-        : [],
-      prisma.tourPlan.findMany({
-        where: {
-          repId: { not: user.id },
-          OR: [{ reviewerId: { in: absents }, status: "SUBMITTED" }, { escalatedToId: { in: absents }, status: "ESCALATED" }],
-        },
-        select: { id: true, reviewerId: true, escalatedToId: true, status: true, rep: { select: { name: true } } },
-        orderBy: { submittedAt: "asc" }, take: 40,
-      }),
-    ]);
-    for (const c of conges) {
-      items.push({
-        key: `interim-leave-${c.id}`, title: `Congé — ${c.employee.fullName}`, subtitle: `${pour(c.managerId ? nomDeLaFiche.get(c.managerId) : null)} · ${toNumber(c.days)} j`,
-        module: "Ressources humaines", href: "/mon-espace#conges-a-signer", kind: "validation", priority: null,
-        deadline: c.startDate.toISOString(), owner: c.employee.fullName, statusLabel: "À signer", statusTone: "warning",
-      });
-    }
-    for (const a of achats) {
-      items.push({
-        key: `interim-achat-${a.id}`, title: a.request.title, subtitle: `${pour(auNomInterim.nomDe(a.validatorId))} · ${a.request.reference}`,
-        module: "Demandes administratives", href: `/demandes/${a.request.id}`, kind: "validation", priority: null,
-        deadline: null, owner: "", statusLabel: "À valider", statusTone: "warning",
-      });
-    }
+    const nomDeLaFiche = new Map(fiches.map((f) => [f.id, auNom.nomDe(f.userId)]));
+    const formations = ficheIds.length
+      ? await prisma.training.findMany({
+          where: {
+            status: "PENDING", stage: "MANAGER", NOT: { requesterId: user.id },
+            OR: [{ managerId: { in: ficheIds } }, { requester: { employee: { managerId: { in: ficheIds } } } }],
+          },
+          select: { id: true, title: true, reference: true, managerId: true, createdAt: true },
+          orderBy: { createdAt: "asc" }, take: 40,
+        })
+      : [];
     for (const f of formations) {
       items.push({
-        key: `interim-formation-${f.id}`, title: f.title, subtitle: `${pour(f.managerId ? nomDeLaFiche.get(f.managerId) : null)} · ${f.reference}`,
+        key: `interim-formation-${f.id}`, objet: `TRAINING:${f.id}`, title: f.title, subtitle: `${pour(f.managerId ? nomDeLaFiche.get(f.managerId) : null)} · ${f.reference}`,
         module: "Formations", href: "/formations", kind: "validation", priority: null,
-        deadline: null, owner: "", statusLabel: "À trancher", statusTone: "warning",
-      });
-    }
-    for (const p of plans) {
-      const absent = p.status === "ESCALATED" ? p.escalatedToId : p.reviewerId;
-      items.push({
-        key: `interim-plan-${p.id}`, title: `Plan de tournée — ${p.rep.name}`, subtitle: pour(auNomInterim.nomDe(absent)),
-        module: "Promotion médicale", href: `/medical/plan-de-tournee?plan=${p.id}`, kind: "validation", priority: null,
-        deadline: null, owner: p.rep.name, statusLabel: "À trancher", statusTone: "warning",
+        // La marche du N+1 est la première : elle attend depuis le dépôt.
+        deadline: null, depuis: f.createdAt.toISOString(), owner: "", statusLabel: "À trancher", statusTone: "warning",
       });
     }
   }
@@ -224,9 +319,9 @@ export async function getActionCenter(user: SessionUser) {
     polesDuPorteur.length
       ? prisma.consultingContract.findMany({
           where: { requesterId: user.id, status: "DRAFT", returnedAt: { not: null }, pole: { in: polesDuPorteur } },
-          select: { id: true, reference: true, title: true, returnNote: true }, orderBy: { returnedAt: "asc" }, take: PLAFOND_A_CORRIGER + 1,
+          select: { id: true, reference: true, title: true, returnNote: true, returnedAt: true }, orderBy: { returnedAt: "asc" }, take: PLAFOND_A_CORRIGER + 1,
         })
-      : Promise.resolve([] as { id: string; reference: string; title: string; returnNote: string | null }[]),
+      : Promise.resolve([] as { id: string; reference: string; title: string; returnNote: string | null; returnedAt: Date | null }[]),
     // Une demande de PAIEMENT renvoyée par les Finances, et une demande de RECRUTEMENT renvoyée pour
     // correction (§118.192) : deux renvois qui rendaient la main sans qu'aucun écran ne la rappelle.
     prisma.paymentRequest.findMany({
@@ -236,18 +331,18 @@ export async function getActionCenter(user: SessionUser) {
     userCan(user, "RECRUITMENT", "VIEW")
       ? prisma.recruitmentRequest.findMany({
           where: { requesterId: user.id, stage: "RETURNED" },
-          select: { id: true, reference: true, position: true, returnNote: true }, orderBy: { returnedAt: "asc" }, take: PLAFOND_A_CORRIGER + 1,
+          select: { id: true, reference: true, position: true, returnNote: true, returnedAt: true }, orderBy: { returnedAt: "asc" }, take: PLAFOND_A_CORRIGER + 1,
         })
-      : Promise.resolve([] as { id: string; reference: string; position: string; returnNote: string | null }[]),
+      : Promise.resolve([] as { id: string; reference: string; position: string; returnNote: string | null; returnedAt: Date | null }[]),
     // UN PLAN DE TOURNÉE REJETÉ OU ROUVERT POUR RÉVISION (§118.193) : 48 h pour le resoumettre, et rien ne le
     // rappelait hors de la page du plan — c'est précisément le délai qu'on rate.
     userCan(user, "MEDICAL", "VIEW")
       ? prisma.tourPlan.findMany({
           where: { repId: user.id, status: { in: ["REJECTED", "REVISION"] } },
-          select: { id: true, periodStart: true, periodEnd: true, status: true, rejectionComment: true, revisionNote: true, resubmitDueAt: true },
+          select: { id: true, periodStart: true, periodEnd: true, status: true, rejectionComment: true, revisionNote: true, resubmitDueAt: true, decidedAt: true, revisionRequestedAt: true },
           orderBy: { resubmitDueAt: "asc" }, take: PLAFOND_A_CORRIGER + 1,
         })
-      : Promise.resolve([] as { id: string; periodStart: Date; periodEnd: Date; status: string; rejectionComment: string | null; revisionNote: string | null; resubmitDueAt: Date | null }[]),
+      : Promise.resolve([] as { id: string; periodStart: Date; periodEnd: Date; status: string; rejectionComment: string | null; revisionNote: string | null; resubmitDueAt: Date | null; decidedAt: Date | null; revisionRequestedAt: Date | null }[]),
   ]);
   const aCorriger = [
     ...spoR.map((r) => ({ type: "SPONSORING", id: r.id, titre: `${r.reference} — ${r.institution}`, nature: "Sponsoring", href: `/sponsoring/${r.id}` })),
@@ -262,21 +357,41 @@ export async function getActionCenter(user: SessionUser) {
   aCorriger.push(...payR.map((r) => ({ type: "PAYMENT_REQUEST", id: r.id, titre: `${r.reference} — ${r.title}`, nature: "Demande de paiement", href: `/validations/paiements/${r.id}` })));
   aCorriger.push(...recR.map((r) => ({ type: "RECRUITMENT_REQUEST", id: r.id, titre: `${r.reference} — ${r.position}`, nature: "Recrutement", href: `/recrutement/${r.id}` })));
   const plansACorriger = new Map(planR.map((r) => [r.id, r]));
-  const jour = (d: Date) => d.toLocaleDateString("fr-FR", { timeZone: "Africa/Algiers" });
   aCorriger.push(...planR.map((r) => ({
-    type: "TOUR_PLAN", id: r.id, titre: `Plan de tournée du ${jour(r.periodStart)} au ${jour(r.periodEnd)}`,
+    type: "TOUR_PLAN", id: r.id, titre: `Plan de tournée du ${jourAlger(r.periodStart)} au ${jourAlger(r.periodEnd)}`,
     nature: "Plan de tournée", href: `/medical/plan-de-tournee?plan=${r.id}`,
   })));
   if (aCorriger.length > 0) {
+    // DEPUIS LE RENVOI (07-05) : l'instant où la main est revenue au demandeur, lu là où chaque circuit
+    // l'écrit — la marque du contrat ou du recrutement, la décision ou la demande de révision du plan,
+    // la trace du dossier de paiement, l'événement de renvoi du moteur Ad & Pro.
+    const renvoyeLe = new Map<string, Date>();
+    for (const r of coR) if (r.returnedAt) renvoyeLe.set(`CONSULTING_CONTRACT:${r.id}`, r.returnedAt);
+    for (const r of recR) if (r.returnedAt) renvoyeLe.set(`RECRUITMENT_REQUEST:${r.id}`, r.returnedAt);
+    for (const r of planR) {
+      const t = r.status === "REVISION" ? r.revisionRequestedAt : r.decidedAt;
+      if (t) renvoyeLe.set(`TOUR_PLAN:${r.id}`, t);
+    }
+    if (payR.length > 0) {
+      const retours = await prisma.paymentRequestEvent.groupBy({
+        by: ["requestId"],
+        where: { requestId: { in: payR.map((r) => r.id) }, kind: { in: ["CHANGES", "REQUEST_CHANGES"] } },
+        _max: { at: true },
+      });
+      for (const r of retours) if (r._max.at) renvoyeLe.set(`PAYMENT_REQUEST:${r.requestId}`, r._max.at);
+    }
     const renvois = await prisma.workflowStepEvent.findMany({
       where: { action: "RETURN", instance: { status: "RETURNED", entityId: { in: aCorriger.map((d) => d.id) } } },
-      select: { stepTitle: true, note: true, instance: { select: { entityId: true, entityType: true } } },
+      select: { stepTitle: true, note: true, createdAt: true, instance: { select: { entityId: true, entityType: true } } },
       orderBy: { createdAt: "desc" },
     });
     const dernier = new Map<string, { stepTitle: string; note: string | null }>();
     for (const r of renvois) {
       const cle = `${r.instance.entityType}:${r.instance.entityId}`;
-      if (!dernier.has(cle)) dernier.set(cle, r);
+      if (!dernier.has(cle)) {
+        dernier.set(cle, r);
+        renvoyeLe.set(cle, r.createdAt);
+      }
     }
     const apercu = (t: string) => (t.length > 140 ? `${t.slice(0, 140)}…` : t);
     for (const d of aCorriger.slice(0, PLAFOND_A_CORRIGER)) {
@@ -285,7 +400,7 @@ export async function getActionCenter(user: SessionUser) {
         : d.type === "RECRUITMENT_REQUEST" ? renvoisRecrutement.get(d.id) ?? null : null;
       const plan = d.type === "TOUR_PLAN" ? plansACorriger.get(d.id) ?? null : null;
       items.push({
-        key: `corriger-${d.type}-${d.id}`, title: `À corriger — ${d.titre}`,
+        key: `corriger-${d.type}-${d.id}`, objet: `${d.type}:${d.id}`, title: `À corriger — ${d.titre}`,
         subtitle: r ? `${r.stepTitle}${r.note ? ` : ${apercu(r.note)}` : ""}`
           : noteContrat ? `Renvoyé pour correction : ${apercu(noteContrat)}`
             : plan ? (plan.status === "REVISION"
@@ -293,32 +408,40 @@ export async function getActionCenter(user: SessionUser) {
               : `Rejeté${plan.rejectionComment ? ` : ${apercu(plan.rejectionComment)}` : ""} — à corriger et resoumettre.`)
               : d.type === "PAYMENT_REQUEST" ? "Renvoyée par les Finances : corrigez-la, ou remplacez les pièces signalées, puis renvoyez-la." : d.nature,
         module: d.nature, href: d.href, kind: "request", priority: null,
-        deadline: plan?.resubmitDueAt?.toISOString() ?? null, owner: "", statusLabel: "À corriger", statusTone: "warning",
+        deadline: plan?.resubmitDueAt?.toISOString() ?? null, depuis: renvoyeLe.get(`${d.type}:${d.id}`)?.toISOString() ?? null,
+        owner: "", statusLabel: "À corriger", statusTone: "warning",
       });
     }
     // Au-delà du plafond, on le DIT (§118.60) — une liste coupée se lirait comme complète.
     if (aCorriger.length > PLAFOND_A_CORRIGER || [spoR, ciR, cnR, evR, coR, payR, recR, planR].some((l) => l.length > PLAFOND_A_CORRIGER)) {
       items.push({
-        key: "corriger-reste", title: "D'autres demandes vous attendent pour correction",
+        key: "corriger-reste", objet: `${PREFIXE_RESTE}corriger`, title: "D'autres demandes vous attendent pour correction",
         subtitle: "Les listes « Ad & Pro », « Demandes de paiement », « Recrutement » et « Plan de tournée » les montrent toutes (état « À corriger »).",
         module: "Ad & Pro", href: "/ad-pro", kind: "request", priority: null,
-        deadline: null, owner: "", statusLabel: "À corriger", statusTone: "warning",
+        deadline: null, depuis: null, owner: "", statusLabel: "À corriger", statusTone: "warning",
       });
     }
   }
 
-  // 3. Demandes administratives qui me sont assignées / que je dois valider
+  // 3. Demandes administratives qui me sont ASSIGNÉES — à traiter jusqu'à leur fin.
+  //
+  // N2 (lot E2) : la VALIDATION ne se lit plus ici. `validatorId` reste posé SUR LA DEMANDE après la
+  // décision, et la ligne restait « à traiter » chez le N+1 qui venait de trancher l'achat : elle vit
+  // désormais sur l'approbation EN ATTENTE (bloc 2b), que la décision clôt. Une demande effacée (la
+  // suppression traçable garde son statut) ne se traite plus non plus.
   if (userCan(user, "ADMIN_REQUESTS", "VIEW")) {
     const reqs = await prisma.administrativeRequest.findMany({
-      where: { OR: [{ assignedToId: user.id }, { validatorId: user.id }], status: { notIn: ["DONE", "CANCELLED"] } },
+      where: { assignedToId: user.id, deletedAt: null, status: { notIn: ["DONE", "CANCELLED"] } },
       include: { requester: { select: { name: true } } },
       orderBy: [{ deadline: "asc" }, { createdAt: "desc" }], take: 60,
     });
     for (const r of reqs) {
+      // Depuis son DÉPÔT : aucune date ne dit quand elle vous a été confiée, et la demande attend sa fin
+      // depuis qu'elle existe.
       items.push({
-        key: `req-${r.id}`, title: r.title, subtitle: r.reference, module: "Demandes administratives",
+        key: `req-${r.id}`, objet: `${PREFIXE_DEMANDE_ADMIN}${r.id}`, title: r.title, subtitle: r.reference, module: "Demandes administratives",
         href: `/demandes/${r.id}`, kind: "request", priority: r.priority,
-        deadline: r.deadline?.toISOString() ?? null, owner: r.requester?.name ?? "", ...resolve(ADMIN_REQUEST_STATUS, r.status),
+        deadline: r.deadline?.toISOString() ?? null, depuis: r.createdAt.toISOString(), owner: r.requester?.name ?? "", ...resolve(ADMIN_REQUEST_STATUS, r.status),
       });
     }
     // LE SECRÉTARIAT VOIT AUSSI CE QUE PERSONNE N'A PRIS (audit 360°, I10). Les demandes sans
@@ -335,9 +458,9 @@ export async function getActionCenter(user: SessionUser) {
       for (const r of libres) {
         if (vues.has(r.id)) continue;
         items.push({
-          key: `req-${r.id}`, title: r.title, subtitle: `${r.reference} · à prendre en charge`, module: "Demandes administratives",
+          key: `req-${r.id}`, objet: `${PREFIXE_DEMANDE_ADMIN}${r.id}`, title: r.title, subtitle: `${r.reference} · à prendre en charge`, module: "Demandes administratives",
           href: `/demandes/${r.id}`, kind: "request", priority: r.priority,
-          deadline: r.deadline?.toISOString() ?? null, owner: r.requester?.name ?? "", ...resolve(ADMIN_REQUEST_STATUS, r.status),
+          deadline: r.deadline?.toISOString() ?? null, depuis: r.createdAt.toISOString(), owner: r.requester?.name ?? "", ...resolve(ADMIN_REQUEST_STATUS, r.status),
         });
       }
     }
@@ -350,10 +473,13 @@ export async function getActionCenter(user: SessionUser) {
   if (hasRole(user, "FINANCE_BUDGET_MANAGER") || user.role === "SUPER_ADMIN") {
     const orders = await prisma.expenseOrder.findMany({ where: { status: "PENDING" }, orderBy: [{ dueDate: "asc" }, { createdAt: "asc" }], take: 60 });
     for (const o of orders) {
+      // Depuis l'autorisation du centre quand il y en a une — c'est elle qui le rend réglable —, sinon
+      // depuis l'émission de l'ordre.
       items.push({
-        key: `pay-${o.id}`, title: o.label, subtitle: `${o.reference} · ${formatCurrency(toNumber(o.amount))}`,
+        key: `pay-${o.id}`, objet: `EXPENSE_ORDER:${o.id}`, title: o.label, subtitle: `${o.reference} · ${formatCurrency(toNumber(o.amount))}`,
         module: "Espace comptable", href: `/finances/paiements-a-faire?focus=${o.id}#ord-${o.id}`, kind: "payment", priority: null,
-        deadline: o.dueDate?.toISOString() ?? null, owner: o.beneficiary ?? "", ...resolve(EXPENSE_ORDER_STATUS, o.status),
+        deadline: o.dueDate?.toISOString() ?? null, depuis: (o.centralDecidedAt ?? o.createdAt).toISOString(),
+        owner: o.beneficiary ?? "", ...resolve(EXPENSE_ORDER_STATUS, o.status),
       });
     }
   }
@@ -366,28 +492,17 @@ export async function getActionCenter(user: SessionUser) {
     });
     for (const p of products) {
       items.push({
-        key: `reg-${p.id}`, title: p.dci, subtitle: p.reference, module: "Regulatory",
+        key: `reg-${p.id}`, objet: `REGULATORY_PRODUCT:${p.id}`, title: p.dci, subtitle: p.reference, module: "Regulatory",
         href: `/regulatory/${p.id}`, kind: "regulatory", priority: p.priority,
-        deadline: p.targetDate?.toISOString() ?? null, owner: "", ...resolve(REGULATORY_STATUS, p.status),
+        deadline: p.targetDate?.toISOString() ?? null, depuis: null, owner: "", ...resolve(REGULATORY_STATUS, p.status),
       });
     }
   }
 
-  // 6. Demandes de congé à décider (RH)
-  if (userCan(user, "RH", "UPDATE")) {
-    const leaves = await prisma.leaveRequest.findMany({
-      where: { status: "PENDING" },
-      include: { employee: { select: { user: { select: { name: true } } } } },
-      orderBy: { startDate: "asc" }, take: 40,
-    });
-    for (const l of leaves) {
-      items.push({
-        key: `leave-${l.id}`, title: `Congé — ${l.employee?.user?.name ?? "Employé"}`, subtitle: `${Number(l.days)} j`,
-        module: "Ressources humaines", href: "/rh", kind: "hr", priority: null,
-        deadline: l.startDate.toISOString(), owner: l.employee?.user?.name ?? "", ...resolve(LEAVE_STATUS, l.status),
-      });
-    }
-  }
+  // 6. (Les congés à décider sont lus au bloc 2b, avec la règle de la porte — lot E2. Ce bloc listait
+  //    TOUS les congés en attente, à toute marche, à quiconque pouvait MODIFIER le module RH : la
+  //    direction voyait chaque congé deux fois sur « Mon espace », et les RH ceux qui attendent un N+1,
+  //    qu'elles ne tranchent pas.)
 
   // 6a. À ARBITRER — TOUTES LES NATURES AD & PRO, LUES SUR L'ÉTAPE COURANTE (audit 360°, I11).
   //
@@ -415,7 +530,7 @@ export async function getActionCenter(user: SessionUser) {
       ? await Promise.all([
           prisma.workflowInstance.findMany({
             where: surMesEtapes,
-            select: { entityType: true, entityId: true, currentSlug: true, definitionId: true },
+            select: { id: true, createdAt: true, entityType: true, entityId: true, currentSlug: true, definitionId: true },
             orderBy: { updatedAt: "asc" }, take: 40,
           }),
           prisma.workflowInstance.count({ where: surMesEtapes }),
@@ -423,13 +538,28 @@ export async function getActionCenter(user: SessionUser) {
       : [[], 0];
     const libelles = await libellesAdPro(aMoi.map((i) => ({ type: String(i.entityType), id: i.entityId })));
     const ouvrables = await Promise.all(aMoi.map((i) => canAccessEntity(user, i.entityType, i.entityId, "VIEW")));
+    // DEPUIS L'ARRIVÉE À L'ÉTAPE (07-05) : le dernier MOUVEMENT de la demande — sa création (datée de la
+    // demande, pas de l'instance ouverte parfois des jours plus tard), puis chaque passage d'étape (accord,
+    // saut, franchissement, avis, resoumission, réouverture, appel). Un COMMENTAIRE n'en déplace aucune :
+    // il ne remet pas l'ancienneté à zéro.
+    const mouvements = aMoi.length
+      ? await prisma.workflowStepEvent.groupBy({
+          by: ["instanceId"],
+          where: { instanceId: { in: aMoi.map((i) => i.id) }, action: { not: "COMMENT" } },
+          _max: { createdAt: true },
+        })
+      : [];
+    const dernierMouvement = new Map(mouvements.map((m) => [m.instanceId, m._max.createdAt]));
     aMoi.forEach((i, k) => {
       const l = libelles.get(`${i.entityType}:${i.entityId}`);
       if (!l || !ouvrables[k] || dejaListes.has(l.href)) return;
       const e = etapeDe.get(`${i.definitionId}:${i.currentSlug}`);
+      // Sans aucun mouvement journalisé (la ligne de création est écrite au mieux), l'ouverture de l'instance.
+      const mouvement = dernierMouvement.get(i.id) ?? null;
       items.push({
-        key: `arb-${i.entityType}-${i.entityId}`, title: l.titre, subtitle: `${l.nature} · ${e?.title ?? "à votre étape"}`,
-        module: "Ad & Pro", href: l.href, kind: "validation", priority: null, deadline: null, owner: l.demandeur ?? "",
+        key: `arb-${i.entityType}-${i.entityId}`, objet: `${i.entityType}:${i.entityId}`, title: l.titre, subtitle: `${l.nature} · ${e?.title ?? "à votre étape"}`,
+        module: "Ad & Pro", href: l.href, kind: "validation", priority: null, deadline: null,
+        depuis: (mouvement ?? i.createdAt).toISOString(), owner: l.demandeur ?? "",
         statusLabel: "À arbitrer", statusTone: "warning",
       });
     });
@@ -437,9 +567,9 @@ export async function getActionCenter(user: SessionUser) {
     // la liste du pôle — une coupe muette se lirait comme « rien d'autre ne m'attend ».
     if (totalAMoi > aMoi.length) {
       items.push({
-        key: "arb-reste", title: `${totalAMoi - aMoi.length} autre(s) demande(s) Ad & Pro attendent votre étape`,
+        key: "arb-reste", objet: `${PREFIXE_RESTE}arbitrer`, title: `${totalAMoi - aMoi.length} autre(s) demande(s) Ad & Pro attendent votre étape`,
         subtitle: "Les plus anciennes sont listées ci-dessus", module: "Ad & Pro", href: "/ad-pro",
-        kind: "validation", priority: null, deadline: null, owner: "", statusLabel: "À arbitrer", statusTone: "warning",
+        kind: "validation", priority: null, deadline: null, depuis: null, owner: "", statusLabel: "À arbitrer", statusTone: "warning",
       });
     }
     // Consulting et « autre demande » n'ont pas de circuit à étapes : ce qui les attend se lit sur
@@ -471,13 +601,14 @@ export async function getActionCenter(user: SessionUser) {
         select: { id: true, reference: true, title: true },
         orderBy: { updatedAt: "asc" }, take: FENETRE,
       }).catch(() => []);
+      // Non datés : aucun champ ne dit quand un contrat est entré en validation (07-05 — on ne l'invente pas).
       await lister(contrats, "CONSULTING_CONTRACT", (c) => ({
-        key: `arb-cons-${c.id}`, title: c.title, subtitle: `Consulting · ${c.reference}`, module: "Ad & Pro",
-        href: `/consulting/${c.id}`, kind: "validation", priority: null, deadline: null, owner: "",
+        key: `arb-cons-${c.id}`, objet: `CONSULTING_CONTRACT:${c.id}`, title: c.title, subtitle: `Consulting · ${c.reference}`, module: "Ad & Pro",
+        href: `/consulting/${c.id}`, kind: "validation", priority: null, deadline: null, depuis: null, owner: "",
         statusLabel: "À valider", statusTone: "warning",
       }), {
-        key: "arb-cons-reste", title: "D'autres contrats de consulting attendent votre validation", subtitle: "Les plus anciens sont listés ci-dessus",
-        module: "Ad & Pro", href: "/consulting", kind: "validation", priority: null, deadline: null, owner: "", statusLabel: "À valider", statusTone: "warning",
+        key: "arb-cons-reste", objet: `${PREFIXE_RESTE}consulting`, title: "D'autres contrats de consulting attendent votre validation", subtitle: "Les plus anciens sont listés ci-dessus",
+        module: "Ad & Pro", href: "/consulting", kind: "validation", priority: null, deadline: null, depuis: null, owner: "", statusLabel: "À valider", statusTone: "warning",
       });
     }
     if (userCan(user, "AD_PRO_OTHER", "VALIDATE")) {
@@ -487,12 +618,12 @@ export async function getActionCenter(user: SessionUser) {
         orderBy: { updatedAt: "asc" }, take: FENETRE,
       }).catch(() => []);
       await lister(autres, "AD_PRO_OTHER", (a) => ({
-        key: `arb-autre-${a.id}`, title: a.title, subtitle: `Autre demande · ${a.reference}`, module: "Ad & Pro",
-        href: `/ad-pro/autres/${a.id}`, kind: "validation", priority: null, deadline: null, owner: "",
+        key: `arb-autre-${a.id}`, objet: `AD_PRO_OTHER:${a.id}`, title: a.title, subtitle: `Autre demande · ${a.reference}`, module: "Ad & Pro",
+        href: `/ad-pro/autres/${a.id}`, kind: "validation", priority: null, deadline: null, depuis: null, owner: "",
         statusLabel: "À décider", statusTone: "warning",
       }), {
-        key: "arb-autre-reste", title: "D'autres demandes attendent votre décision", subtitle: "Les plus anciennes sont listées ci-dessus",
-        module: "Ad & Pro", href: "/ad-pro", kind: "validation", priority: null, deadline: null, owner: "", statusLabel: "À décider", statusTone: "warning",
+        key: "arb-autre-reste", objet: `${PREFIXE_RESTE}autres`, title: "D'autres demandes attendent votre décision", subtitle: "Les plus anciennes sont listées ci-dessus",
+        module: "Ad & Pro", href: "/ad-pro", kind: "validation", priority: null, deadline: null, depuis: null, owner: "", statusLabel: "À décider", statusTone: "warning",
       });
     }
   }
@@ -515,11 +646,12 @@ export async function getActionCenter(user: SessionUser) {
       ? await prisma.congressInternational.findMany({ where, orderBy: { createdAt: "desc" }, take: 30 })
       : await prisma.congressNational.findMany({ where, orderBy: { createdAt: "desc" }, take: 30 });
     for (const c of list) {
+      // Même objet que la ligne « À arbitrer » du moteur : celle-ci, plus précise, passe devant (`dedoublonner`).
       items.push({
-        key: `cong-${c.id}`, title: c.name,
+        key: `cong-${c.id}`, objet: `${cfg.module}:${c.id}`, title: c.name,
         subtitle: c.requestStatus === "PRELIMINARY_APPROVED" ? "À analyser (Direction Marketing)" : c.requestStatus === "AWAITING_FINAL" ? "Validation définitive" : "Validation préliminaire",
         module: cfg.label, href: `${cfg.href}/${c.id}`, kind: "request", priority: null,
-        deadline: null, owner: "", ...congressTone(c.requestStatus),
+        deadline: null, depuis: null, owner: "", ...congressTone(c.requestStatus),
       });
     }
   }
@@ -543,10 +675,13 @@ export async function getActionCenter(user: SessionUser) {
         })
       : [];
     for (const d of decls) {
+      // Datée à la seule étape qu'un champ date à coup sûr : la validation du pharmacien, qui la fait
+      // passer à la Direction. Les étapes d'instruction n'ont pas d'horodatage propre.
       items.push({
-        key: `mi-${d.id}`, title: d.label, subtitle: d.reference,
+        key: `mi-${d.id}`, objet: `MEDICAL_INFO_DECLARATION:${d.id}`, title: d.label, subtitle: d.reference,
         module: "Information médicale", href: `/information-medicale/${d.id}`, kind: "validation", priority: null,
-        deadline: null, owner: "", ...resolve(MEDICAL_INFO_STATUS, d.status),
+        deadline: null, depuis: d.status === "AWAITING_DIRECTION" ? d.pharmacistValidatedAt?.toISOString() ?? null : null,
+        owner: "", ...resolve(MEDICAL_INFO_STATUS, d.status),
       });
     }
   }
@@ -571,9 +706,9 @@ export async function getActionCenter(user: SessionUser) {
     const promos = await prisma.promoMaterial.findMany({ where: { circuitState: null, OR: or }, orderBy: { createdAt: "desc" }, take: 40 });
     for (const p of promos) {
       items.push({
-        key: `pm-${p.id}`, title: p.title, subtitle: p.reference,
+        key: `pm-${p.id}`, objet: `PROMO_MATERIAL:${p.id}`, title: p.title, subtitle: p.reference,
         module: "Matériel promotionnel", href: `/promo-material/${p.id}`, kind: "validation", priority: null,
-        deadline: null, owner: "", ...resolve(PROMO_MATERIAL_STATUS, p.status),
+        deadline: null, depuis: null, owner: "", ...resolve(PROMO_MATERIAL_STATUS, p.status),
       });
     }
   }
@@ -583,10 +718,10 @@ export async function getActionCenter(user: SessionUser) {
   //     faire » ; demander ou retranscrire les devis sont des gestes, qui vont dans « À traiter ».
   for (const d of await dossiersPromoAMonTour(user)) {
     items.push({
-      key: `pm-${d.id}`, title: d.title, subtitle: d.reference,
+      key: `pm-${d.id}`, objet: `PROMO_MATERIAL:${d.id}`, title: d.title, subtitle: d.reference,
       module: "Matériel promotionnel", href: `/promo-material/${d.id}`,
       kind: d.tour === "VALIDATION" ? "validation" : "request", priority: null,
-      deadline: null, owner: "", statusLabel: libelleEtape(d.etat, d.version), statusTone: "warning",
+      deadline: null, depuis: null, owner: "", statusLabel: libelleEtape(d.etat, d.version), statusTone: "warning",
     });
   }
 
@@ -598,9 +733,9 @@ export async function getActionCenter(user: SessionUser) {
   });
   for (const r of myDocReqs) {
     items.push({
-      key: `midoc-${r.id}`, title: `Pièce à déposer — ${r.label}`, subtitle: r.declaration.reference,
+      key: `midoc-${r.id}`, objet: `MEDICAL_INFO_DOC_REQUEST:${r.id}`, title: `Pièce à déposer — ${r.label}`, subtitle: r.declaration.reference,
       module: "Information médicale", href: `/information-medicale/${r.declaration.id}`, kind: "request", priority: null,
-      deadline: null, owner: "", statusLabel: "À déposer", statusTone: "warning",
+      deadline: null, depuis: r.createdAt.toISOString(), owner: "", statusLabel: "À déposer", statusTone: "warning",
     });
   }
 
@@ -616,9 +751,9 @@ export async function getActionCenter(user: SessionUser) {
     });
     for (const d of directives) {
       items.push({
-        key: `dir-${d.id}`, title: d.title, subtitle: d.reference, module: "Directives",
+        key: `dir-${d.id}`, objet: `DIRECTIVE:${d.id}`, title: d.title, subtitle: d.reference, module: "Directives",
         href: `/directives/${d.id}`, kind: "task", priority: d.priority,
-        deadline: d.dueDate?.toISOString() ?? null, owner: "", ...resolve(DIRECTIVE_STATUS, d.status),
+        deadline: d.dueDate?.toISOString() ?? null, depuis: (d.publishedAt ?? d.createdAt).toISOString(), owner: "", ...resolve(DIRECTIVE_STATUS, d.status),
       });
     }
   }
@@ -635,9 +770,9 @@ export async function getActionCenter(user: SessionUser) {
     });
     for (const r of reqs) {
       items.push({
-        key: `sup-${r.id}`, title: r.subject, subtitle: r.reference, module: "Support",
+        key: `sup-${r.id}`, objet: `SUPPORT_REQUEST:${r.id}`, title: r.subject, subtitle: r.reference, module: "Support",
         href: `/support/${r.id}`, kind: "request", priority: r.priority,
-        deadline: null, owner: r.requester?.name ?? "", ...resolve(SUPPORT_STATUS, r.status),
+        deadline: null, depuis: r.createdAt.toISOString(), owner: r.requester?.name ?? "", ...resolve(SUPPORT_STATUS, r.status),
       });
     }
   }
@@ -650,9 +785,9 @@ export async function getActionCenter(user: SessionUser) {
     });
     for (const d of dossiers) {
       items.push({
-        key: `dos-${d.id}`, title: d.title, subtitle: d.reference, module: "Dossiers",
+        key: `dos-${d.id}`, objet: `DOSSIER:${d.id}`, title: d.title, subtitle: d.reference, module: "Dossiers",
         href: `/dossiers/${d.id}`, kind: "request", priority: d.priority,
-        deadline: d.dueDate?.toISOString() ?? null, owner: "", ...resolve(DOSSIER_STATUS, d.status),
+        deadline: d.dueDate?.toISOString() ?? null, depuis: null, owner: "", ...resolve(DOSSIER_STATUS, d.status),
       });
     }
   }
@@ -667,13 +802,17 @@ export async function getActionCenter(user: SessionUser) {
   const isOverdue = (i: ActionItem) => i.deadline !== null && new Date(i.deadline) < now;
   const isUrgent = (i: ActionItem) => i.priority === "HIGH" || i.priority === "CRITICAL";
 
+  // UNE LIGNE PAR OBJET (lot E2) — et les compteurs comptent ce qui reste, pas ce qui a été lu.
+  const uniques = dedoublonner(items);
   const stats = {
-    todo: items.length,
-    urgent: items.filter(isUrgent).length,
-    overdue: items.filter(isOverdue).length,
-    validations: items.filter((i) => i.kind === "validation").length,
+    todo: uniques.length,
+    urgent: uniques.filter(isUrgent).length,
+    overdue: uniques.filter(isOverdue).length,
+    validations: uniques.filter((i) => i.kind === "validation").length,
     unread: notifications.length,
   };
 
-  return { items, notifications, stats };
+  // `conges` voyage avec les lignes : la page rend ces congés dans leur bloc (fiche, boutons) — les
+  // relire là-bas en ferait une seconde lecture, qui finirait par diverger de celle-ci (§118.5).
+  return { items: uniques, notifications, stats, conges };
 }

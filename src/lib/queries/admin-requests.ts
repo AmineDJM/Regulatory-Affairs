@@ -1,8 +1,9 @@
 import type { Prisma, AdminRequestStatus, AdminRequestType } from "@prisma/client";
-import { scopeAdminRequests, hasGlobalView, userCan, type SessionUser } from "@/lib/rbac";
+import { scopeAdminRequests, hasGlobalView, isTopManagement, userCan, type SessionUser } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { auNomDeQui, standInForUserIds } from "@/lib/hr/stand-in-resolve";
 import { clauseDemandesSecretariatVisibles } from "@/lib/queries/visibilite-listes";
+import { interditSurSaPropreDemande } from "@/lib/secretariat/decision-approbation";
 
 const REQ_INCLUDE = {
   requester: { select: { name: true } },
@@ -104,13 +105,23 @@ export async function getApprovals(user: SessionUser) {
   // ses propres demandes, que la porte de décision lui refuserait.
   const auNom = manager ? null : await auNomDeQui(user.id);
   const absents = auNom?.absents.map((a) => a.userId) ?? [];
+  // ON NE TRANCHE PAS SA PROPRE DEMANDE (lot E5) — la règle de l'action (`interditSurSaPropreDemande`) : la liste
+  // ne la propose plus, pour ne pas offrir un bouton que l'action refuserait (§118.83). Le sommet garde la main.
+  const pasLaSienne: Prisma.AdminApprovalWhereInput = interditSurSaPropreDemande({ estDemandeur: true, sommet: isTopManagement(user) })
+    ? { NOT: { request: { requesterId: user.id } } }
+    : {};
   const where: Prisma.AdminApprovalWhereInput = manager
-    ? { status: "PENDING" }
+    ? { AND: [{ status: "PENDING" }, pasLaSienne] }
     : {
-        status: "PENDING",
-        OR: [
-          { validatorId: user.id },
-          ...(absents.length ? [{ validatorId: { in: absents }, NOT: { request: { requesterId: user.id } } }] : []),
+        AND: [
+          { status: "PENDING" },
+          {
+            OR: [
+              { validatorId: user.id },
+              ...(absents.length ? [{ validatorId: { in: absents }, NOT: { request: { requesterId: user.id } } }] : []),
+            ],
+          },
+          pasLaSienne,
         ],
       };
   const lignes = await prisma.adminApproval.findMany({

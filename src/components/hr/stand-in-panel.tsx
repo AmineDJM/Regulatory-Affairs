@@ -60,17 +60,24 @@ export function StandInBadge({ state, moduleLabels }: { state: StandInState; mod
 
 /** Le geste de l'ABSENT : choisir qui le remplace, et sur quoi. */
 export function StandInButton({
-  leaveId, state, people, modules,
+  leaveId, state, people, modules, moduleLabels = {},
 }: {
   leaveId: string;
   state: StandInState;
   people: StandInPerson[];
+  /** Ce que la personne peut prêter (`modulesPretables`) — la liste même que l'action accepte. */
   modules: StandInModule[];
+  moduleLabels?: Record<string, string>;
 }) {
   const router = useRouter();
   const [open, setOpen] = React.useState(false);
   const [who, setWho] = React.useState(state.standInId ?? "");
-  const [picked, setPicked] = React.useState<string[]>(state.standInModules);
+  // CE QUI A ÉTÉ CHOISI SOUS UNE LISTE PLUS LARGE (un module qu'on ne détient plus, un module retiré de
+  // la plateforme) ne repart pas en silence : invisible ici, il serait refusé par l'action sans pouvoir
+  // être décoché (§118.196). Il est dit, juste au-dessus des cases.
+  const proposes = new Set(modules.map((m) => m.value));
+  const [picked, setPicked] = React.useState<string[]>(() => state.standInModules.filter((m) => proposes.has(m)));
+  const plusProposes = state.standInModules.filter((m) => !proposes.has(m));
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
 
@@ -101,7 +108,7 @@ export function StandInButton({
       <Sheet
         open={open} onClose={() => setOpen(false)} width="md"
         title="Intérimaire pendant votre congé"
-        description="La personne que vous désignez pourra, PENDANT VOTRE ABSENCE SEULEMENT, ouvrir les modules choisis et trancher les validations qui vous sont adressées. Les RH valident ce choix ; la délégation s'arrête d'elle-même au dernier jour du congé."
+        description="La personne que vous désignez pourra, PENDANT VOTRE ABSENCE SEULEMENT, ouvrir les modules choisis et trancher les validations qui vous sont adressées — sauf, à ce jour, les étapes du recrutement, du matériel promotionnel et des circuits Ad & Pro qui vous sont adressées nommément. Les RH valident ce choix ; la délégation s'arrête d'elle-même au dernier jour du congé."
       >
         <div className="space-y-4">
           <div className="space-y-1">
@@ -115,10 +122,21 @@ export function StandInButton({
           <div className="space-y-1">
             <Label className="text-xs">Ce que vous déléguez</Label>
             <p className="text-xs text-muted-foreground">
-              Jamais tout votre compte : votre Drive, votre messagerie et votre espace personnel
-              restent à vous. Votre intérimaire ne reçoit pas non plus plus de droits que vous
-              n&apos;en avez vous-même.
+              Seuls les modules que vous détenez vous-même sont proposés : votre intérimaire ne reçoit
+              jamais plus que ce que vous avez, ni la suppression. Votre Drive, votre messagerie et votre
+              espace personnel restent à vous.
             </p>
+            {plusProposes.length > 0 && (
+              <p className="text-xs text-warning">
+                {plusProposes.map((m) => `« ${moduleLabels[m] ?? m} »`).join(", ")}{" "}
+                {plusProposes.length > 1
+                  ? "ne sont plus proposés (vous ne les détenez pas, ou plus) : ils ne seront pas redemandés."
+                  : "n'est plus proposé (vous ne le détenez pas, ou plus) : il ne sera pas redemandé."}
+              </p>
+            )}
+            {modules.length === 0 && (
+              <p className="text-xs text-muted-foreground">Vous ne détenez aucun module qui se prête.</p>
+            )}
             <div className="grid grid-cols-1 gap-1.5 pt-1 sm:grid-cols-2">
               {modules.map((m) => (
                 <label key={m.value} className="flex items-center gap-2 rounded-md border border-border px-2 py-1.5 text-sm">

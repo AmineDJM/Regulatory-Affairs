@@ -1,9 +1,13 @@
-import type { Prisma } from "@prisma/client";
+import type { LegalDocKind, Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { toNumber } from "@/lib/utils";
 import { companyScopedWhere } from "@/lib/company";
 import { natureLegale } from "@/lib/labels";
 import { chainOf, type ChainDoc } from "@/lib/legal/chain";
+import type { SessionUser } from "@/lib/rbac";
+import { legalKindVisible } from "@/lib/lecteurs/legal";
+import { perimetreLegal } from "@/lib/queries/visibilite-listes";
+import type { AmontComposable } from "@/components/pieces/composer-piece";
 
 /**
  * CHARGER LA CHAÎNE D'ACHAT d'un document — les maillons, leurs validateurs, le règlement.
@@ -141,6 +145,10 @@ export interface OptionAmont { value: string; label: string }
 /** Le libellé d'une pièce amont qu'on ne peut pas lire : garder le lien n'en révèle pas le titre. */
 export const AMONT_HORS_PERIMETRE = "Pièce amont actuelle (hors de votre périmètre)";
 
+/** Le libellé d'une pièce amont dans un menu — un seul, pour la fiche Legal et pour le compositeur. */
+const libelleAmont = (r: { kind: string; reference: string | null; title: string }): string =>
+  `${natureLegale(r.kind)} — ${r.reference ? `${r.reference} · ` : ""}${r.title}`;
+
 /**
  * LES PIÈCES AMONT PROPOSÉES au menu « Fait suite à » — et, à la modification, la pièce ACTUELLE
  * toujours, en tête (§118.168).
@@ -180,9 +188,35 @@ export async function piecesAmontProposees(opts: {
       ? prisma.legalDocument.findFirst({ where: await portee({ id: opts.actuelId }), select })
       : Promise.resolve(null),
   ]);
-  const libelle = (r: { kind: string; reference: string | null; title: string }) =>
-    `${natureLegale(r.kind)} — ${r.reference ? `${r.reference} · ` : ""}${r.title}`;
-  const options = recentes.map((r) => ({ value: r.id, label: libelle(r) }));
+  const options = recentes.map((r) => ({ value: r.id, label: libelleAmont(r) }));
   if (!opts.actuelId || options.some((o) => o.value === opts.actuelId)) return options;
-  return [{ value: opts.actuelId, label: actuelle ? libelle(actuelle) : AMONT_HORS_PERIMETRE }, ...options];
+  return [{ value: opts.actuelId, label: actuelle ? libelleAmont(actuelle) : AMONT_HORS_PERIMETRE }, ...options];
+}
+
+/**
+ * LES PIÈCES AMONT DU COMPOSITEUR (audit 360°, lot D1c — F1) — par LA porte de la liste Legal (`perimetreLegal` :
+ * société de l'en-tête, lecteurs désignés, natures ouvertes), sans les annulées, par nature, les plus récentes
+ * d'abord (la coupe est DITE, §118.60). Une nature que la personne ne lit pas n'est pas interrogée : elle est
+ * NOMMÉE, pour que l'écran dise pourquoi le menu est vide — les Finances ne lisent pas les devis, et un menu muet
+ * leur ferait chercher un devis qui existe.
+ */
+export async function piecesAmontComposables(user: SessionUser, natures: readonly string[]): Promise<AmontComposable> {
+  const { portee, where } = await perimetreLegal(user);
+  const lisibles = where ? natures.filter((k) => legalKindVisible(portee, k)) : [];
+  const fermees = natures.filter((k) => !lisibles.includes(k));
+  const parNature = await Promise.all(lisibles.map((kind) => prisma.legalDocument.findMany({
+    where: { AND: [where ?? {}, { kind: kind as LegalDocKind, status: { not: "CANCELLED" } }] },
+    select: { id: true, kind: true, reference: true, title: true, companyId: true },
+    orderBy: { createdAt: "desc" },
+    take: AMONT_PROPOSEES + 1,
+  })));
+  const options: AmontComposable["options"] = [];
+  const tronquees: string[] = [];
+  parNature.forEach((rows, i) => {
+    if (rows.length > AMONT_PROPOSEES) tronquees.push(lisibles[i]);
+    for (const r of rows.slice(0, AMONT_PROPOSEES)) {
+      options.push({ value: r.id, label: libelleAmont(r), kind: String(r.kind), companyId: r.companyId });
+    }
+  });
+  return { options, tronquees, fermees, limite: AMONT_PROPOSEES };
 }

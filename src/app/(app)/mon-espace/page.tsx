@@ -3,7 +3,7 @@ import { ArrowRight } from "lucide-react";
 import { requireModule } from "@/lib/session";
 import { accessibleModules, userCan } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
-import { getMyWorkspace, getLeavesToDecide } from "@/lib/queries/hr";
+import { getMyWorkspace } from "@/lib/queries/hr";
 import { PageHeader } from "@/components/shared/page-header";
 import { KpiCard } from "@/components/shared/kpi-card";
 import { Card, CardContent } from "@/components/ui/card";
@@ -13,6 +13,8 @@ import { ModuleTabs } from "@/components/shared/module-tabs";
 import { visibleTabs } from "@/lib/nav-tabs";
 import { createTask } from "@/lib/actions/task-actions";
 import { getActionCenter, type ActionItem } from "@/lib/queries/action-center";
+import { sectionsMonEspace } from "@/lib/queries/mes-decisions";
+import { depuisLisible } from "@/lib/calendar-tz";
 import { Badge } from "@/components/ui/badge";
 import { formatDate, daysUntil } from "@/lib/utils";
 import { ROLE_LABELS, PRIORITY, WORKSPACE_TABS, MODULE_LABELS } from "@/lib/labels";
@@ -110,8 +112,9 @@ export default async function MonEspacePage() {
   // historique se lisent dans « Mon dossier RH », et là seulement. Rester ici, c'était deux
   // écrans pour le même objet. Ce qui RESTE dans l'espace : signer les congés des autres (le
   // rôle de N+1 est du travail, pas « mes congés »).
-  const [leavesToDecide, { items: actionItems }, missions, pieces] = await Promise.all([
-    getLeavesToDecide(user),
+  // Les congés à signer arrivent AVEC le centre d'actions (lot E2) : une lecture de la file, celle de la
+  // porte. La relire ici en faisait une seconde — et le congé d'un intérim s'affichait deux fois.
+  const [centre, missions, pieces] = await Promise.all([
     // « MON TRAVAIL » A FONDU ICI : ce qui attend une signature se lit en tête de son espace,
     // au lieu d'un second écran qu'on ouvrait — ou pas.
     getActionCenter(user),
@@ -127,10 +130,13 @@ export default async function MonEspacePage() {
   // Ce que JE dois déposer (l'action), et ce que J'attends (le suivi, en résumé).
   const piecesADeposer = pieces.filter((r) => r.askedToId === user.id && isOutstanding(r.status));
   const piecesEnAttente = pieces.filter((r) => r.askedById === user.id && isOutstanding(r.status)).length;
-  const validations = actionItems.filter((i) => i.kind === "validation" || i.kind === "payment");
-  // Les TÂCHES du centre d'action ne sont pas reprises : elles ont déjà leurs sections ici,
-  // plus riches. Les répéter ferait lire deux fois la même to-do.
-  const toHandle = actionItems.filter((i) => i.kind === "request" || i.kind === "regulatory" || i.kind === "hr");
+  // CE QUI ATTEND MA DÉCISION — une ligne par objet, l'attente la plus ancienne d'abord (lot E2). Les
+  // validations et les congés à signer sont deux blocs, et « À valider » compte EXACTEMENT leurs lignes
+  // (§118.51) : il ignorait les congés du bloc des signatures et comptait ceux de l'intérim, montrés deux
+  // fois. Les TÂCHES du centre ne sont pas reprises : elles ont leurs sections ici, plus riches.
+  const { decisions, conges: congesASigner, aTraiter, aValider } = sectionsMonEspace(centre.items, centre.conges);
+  // Un seul instant pour toute la page : deux blocs ne disent pas « depuis hier » et « depuis 2 j » du même moment.
+  const maintenant = new Date();
   const myAdvances: AdvanceItem[] = data.myAdvances.map((a) => ({
     id: a.id, amount: Number(a.amount), reason: a.reason, status: a.status, createdAt: a.createdAt.toISOString(),
   }));
@@ -199,24 +205,41 @@ export default async function MonEspacePage() {
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
         <KpiCard label="Tâches ouvertes" value={data.stats.openTasks} icon="ListTodo" />
         <KpiCard label="En retard" value={data.stats.overdue} icon="AlarmClock" tone={data.stats.overdue > 0 ? "danger" : "default"} />
-        <KpiCard label="À valider" value={validations.length} icon="CheckCheck" tone={validations.length > 0 ? "warning" : "default"} />
+        <KpiCard label="À valider" value={aValider} icon="CheckCheck" tone={aValider > 0 ? "warning" : "default"}
+          hint={congesASigner.length > 0 ? `dont ${congesASigner.length} congé${congesASigner.length > 1 ? "s" : ""} à signer` : undefined} />
         <KpiCard label="Pièces à déposer" value={piecesADeposer.length} icon="Paperclip" tone={piecesADeposer.length > 0 ? "warning" : "default"} />
       </div>
 
       {/* CE QUI ATTEND MA SIGNATURE — en tête, parce que c'est ce qui bloque quelqu'un d'autre.
           Validations et paiements sont un seul bloc : un paiement à régler n'est rien d'autre
           qu'une validation qui porte un montant. */}
-      {validations.length > 0 && (
+      {decisions.length > 0 && (
         <ActionSection
-          title={`Validations à faire (${validations.length})`}
-          items={validations}
+          title={`Validations à faire (${decisions.length})`}
+          items={decisions}
           cta="/validations"
           ctaLabel="Toutes mes validations"
+          maintenant={maintenant}
         />
       )}
 
-      {toHandle.length > 0 && (
-        <ActionSection title={`Demandes & dossiers à traiter (${toHandle.length})`} items={toHandle} />
+      {/* LES CONGÉS À SIGNER — juste sous les validations : ce sont des décisions, et « À valider » les
+          compte. Ce bloc porte la fiche et les boutons ; la liste au-dessus ne les reprend pas (lot E2). */}
+      {congesASigner.length > 0 && (
+        <section id="conges-a-signer" className="scroll-mt-20 space-y-3">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+            Congés qui attendent votre signature ({congesASigner.length})
+          </h2>
+          <p className="text-xs text-muted-foreground">
+            Circuit <strong>responsable (N+1) → ressources humaines → direction générale</strong>.
+            Approuver fait monter d&apos;une marche ; refuser arrête le circuit.
+          </p>
+          <LeaveApprovals leaves={congesASigner} maintenant={maintenant.toISOString()} />
+        </section>
+      )}
+
+      {aTraiter.length > 0 && (
+        <ActionSection title={`Demandes & dossiers à traiter (${aTraiter.length})`} items={aTraiter} maintenant={maintenant} />
       )}
 
       {requestedTasks.length > 0 && (
@@ -353,19 +376,6 @@ export default async function MonEspacePage() {
         </section>
       )}
 
-      {leavesToDecide.length > 0 && (
-        <section id="conges-a-signer" className="scroll-mt-20 space-y-3">
-          <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-            Congés qui attendent votre signature
-          </h2>
-          <p className="text-xs text-muted-foreground">
-            Circuit <strong>responsable (N+1) → ressources humaines → direction générale</strong>.
-            Approuver fait monter d&apos;une marche ; refuser arrête le circuit.
-          </p>
-          <LeaveApprovals leaves={leavesToDecide} />
-        </section>
-      )}
-
       {/* L'AVANCE SUR SALAIRE NE SE DEMANDE PLUS ICI. L'historique reste tant qu'il y en a
           un — effacer l'écran effacerait la trace de ce que la personne a demandé et
           reçu — mais rien ne se crée depuis cet espace. Les congés, eux, vivent ENTIÈREMENT
@@ -388,7 +398,7 @@ export default async function MonEspacePage() {
  * pas sur l'écran du module : arriver sur une liste pour y rechercher ce qu'on venait de
  * cliquer est un pas de trop, et c'est celui qu'on ne fait pas.
  */
-function ActionSection({ title, items, cta, ctaLabel }: { title: string; items: ActionItem[]; cta?: string; ctaLabel?: string }) {
+function ActionSection({ title, items, cta, ctaLabel, maintenant }: { title: string; items: ActionItem[]; cta?: string; ctaLabel?: string; maintenant: Date }) {
   return (
     <section className="space-y-3">
       <div className="flex items-center justify-between">
@@ -398,7 +408,7 @@ function ActionSection({ title, items, cta, ctaLabel }: { title: string; items: 
       <Card>
         <CardContent className="p-0">
           <ul className="divide-y divide-border">
-            {items.map((i) => <ActionRow key={i.key} item={i} />)}
+            {items.map((i) => <ActionRow key={i.key} item={i} maintenant={maintenant} />)}
           </ul>
         </CardContent>
       </Card>
@@ -406,8 +416,11 @@ function ActionSection({ title, items, cta, ctaLabel }: { title: string; items: 
   );
 }
 
-function ActionRow({ item }: { item: ActionItem }) {
+function ActionRow({ item, maintenant }: { item: ActionItem; maintenant: Date }) {
   const d = item.deadline ? daysUntil(item.deadline) : null;
+  // DEPUIS QUAND ÇA ATTEND (07-05) — l'échéance dit quand c'est dû, pas depuis quand quelqu'un est bloqué.
+  // Une ligne que rien ne date ne dit rien : on n'invente pas une ancienneté (§118.16).
+  const attente = depuisLisible(item.depuis, maintenant);
   const overdue = d !== null && d < 0;
   const prio = item.priority ? PRIORITY[item.priority] : null;
   return (
@@ -425,7 +438,10 @@ function ActionRow({ item }: { item: ActionItem }) {
             {item.owner ? ` · ${item.owner}` : ""}
           </p>
         </div>
-        <div className="flex shrink-0 items-center gap-3">
+        <div className="flex shrink-0 flex-wrap items-center gap-3">
+          {attente && item.depuis && (
+            <span className="text-xs text-muted-foreground" title={formatDate(item.depuis)}>En attente {attente}</span>
+          )}
           {item.deadline && (
             <span className={`text-xs ${overdue ? "font-medium text-destructive" : "text-muted-foreground"}`}>
               {formatDate(item.deadline)}{overdue ? " · en retard" : d === 0 ? " · aujourd'hui" : ""}

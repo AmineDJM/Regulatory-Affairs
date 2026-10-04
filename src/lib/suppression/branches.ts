@@ -323,6 +323,7 @@ export const LIBELLE_DU_MODELE: Readonly<Record<string, [string, string]>> = {
   // Un appel d'offres PCH (§118.185, I17) : ce qui part avec lui…
   PchTenderLine: ["lot du marché", "lots du marché"],
   PchTenderLineBusinessUnit: ["affectation d'un lot à une BU", "affectations de lots à des BU"],
+  PchTenderExtraction: ["lecture du document du marché", "lectures du document du marché"],
   PchSubmission: ["version de soumission", "versions de soumission"],
   PchOrder: ["bon de commande du marché", "bons de commande du marché"],
   PchOrderLine: ["ligne de bon de commande", "lignes de bon de commande"],

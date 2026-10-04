@@ -121,6 +121,9 @@ export const ADMIN_REQUEST_OPS_IMPL: Record<string, OpImpl> = {
         orderBy: { createdAt: "desc" }, take: 3,
       });
       if (approvals.length === 0) return { error: `${req.reference} n'a aucune validation en attente.` };
+      // L'action exige le motif d'un refus ou d'une demande de modification (lot E5, M15) : une carte sans lui
+      // serait refusée après le clic (§118.83).
+      if (m !== "APPROVED" && !opStr(input, "note")) return { error: "Un refus ou une demande de modification se motive (champ « note ») : c'est ce que lira le demandeur." };
       const pick = approvals[0];
       void user;
       return {
@@ -489,7 +492,7 @@ export const ADMIN_REQUEST_OPS_IMPL: Record<string, OpImpl> = {
           ["Montant réel", amount ? dzd(Number(amount)) : null],
         ]),
         warnings: cur?.type === "PURCHASE"
-          ? ["Pour un ACHAT : la facture finale (catégorie « Facture ») doit être déposée, et l'IMPUTATION aux moyens généraux (département + montant réel) est exigée — sauf demande déjà imputée ou issue d'Ad & Pro (déjà portée par son budget)."]
+          ? ["Pour un ACHAT : la facture finale doit être jointe — fichier « Facture » sur la demande, facture au registre (Pièces liées → Facture, ou qui suit un bon de commande de la demande) avec son PDF, ou facture de l'un de ses ordres —, et l'IMPUTATION aux moyens généraux (département + montant réel) est exigée — sauf demande déjà imputée ou issue d'Ad & Pro (déjà portée par son budget)."]
           : ["Clôt la demande (statut Terminée, horodaté)."],
         args: { id: req.id, budgetDepartmentId: departmentId, budgetAmount: amount || null, budgetNote: opStr(input, "note") || null },
         successMessage: `${req.reference} terminée.`,

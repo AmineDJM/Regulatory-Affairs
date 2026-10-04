@@ -9,16 +9,31 @@
  * la Direction Marketing. » Plus : « on n'a pas besoin d'un référent Direction Marketing, ça va
  * direct chez le directeur/directrice du département marketing. »
  *
- * TROIS BRANCHES, et ce qui les distingue est UN SEUL filtre avant la décision — celui qui se
- * trouve juste au-dessus du demandeur :
+ * TROIS BRANCHES DANS LA PHRASE, et ce qui les distingue est UN SEUL filtre avant la décision —
+ * celui qui se trouve juste au-dessus du demandeur. Le code en porte davantage ; les voici dans
+ * l'ordre de la colonne vertébrale (préliminaire → porte du DG → Direction des opérations →
+ * Direction Marketing), telles que `parcoursAdPro` les rend :
  *
- *     KAM              →  National Sales            →  (porte du DG)  →  DIRECTION MARKETING
- *     National Sales   →  Directeur des opérations  →  (porte du DG)  →  DIRECTION MARKETING
- *     tout autre       →                               (porte du DG)  →  DIRECTION MARKETING
+ *     KAM               →  National Sales  →  (porte du DG)                             →  DIRECTION MARKETING
+ *     KAM (sponsoring)  →  National Sales  →  (porte du DG)  →  Direction des opérations  →  DIRECTION MARKETING
+ *     National Sales    →                     (porte du DG)  →  Direction des opérations  →  DIRECTION MARKETING
+ *     tout autre        →                     (porte du DG)                             →  DIRECTION MARKETING
+ *     Direction Mkt (2) →                     (porte du DG)  →  DIRECTION DES OPÉRATIONS, qui tranche
+ *     Direction, DG… (3)→                                                                   DIRECTION MARKETING
  *
- * La porte du DG est ORTHOGONALE aux trois branches : elle est franchie automatiquement sous le
- * seuil réglé, et elle vaut pour tout le monde au-dessus — une rallonge d'un million ne se
- * décide pas plus bas parce qu'elle vient d'en haut.
+ * Les deux dernières ne sont pas dans la phrase : ce sont les garde-fous d'auto-arbitrage (rang 2 :
+ * Direction Marketing et le Manager Promotion médicale ; rang 3 : Direction, DG, Directeur des
+ * opérations, Super Admin) — personne ne tranche sa propre demande. Le sponsoring d'un KAM est la
+ * décision du 28/09/2026, prise pour cette nature seule (§118.156).
+ *
+ * La porte du DG est ORTHOGONALE à ces branches : franchie automatiquement sous le seuil réglé,
+ * elle vaut pour toute demande dont l'auteur est EN DESSOUS du DG — une rallonge d'un million ne
+ * se décide pas plus bas parce qu'elle vient de Direction Marketing. Seul le rang 3 ne la traverse
+ * pas : le DG en fait partie.
+ *
+ * Sur la route du rang 2, la Direction des opérations CONCLUT : elle hérite alors, à l'exécution,
+ * l'émission ET les pouvoirs d'argent de l'étape qu'elle remplace (`pouvoirs-argent.ts`) — sans quoi
+ * la demande sortait approuvée sans budget, sans ordre de dépense ni déclaration.
  *
  * ── LA PROPRIÉTÉ QUI PORTAIT TOUT LE RESTE EST TOMBÉE, ET C'EST LE FAIT DU JOUR ─────────
  *

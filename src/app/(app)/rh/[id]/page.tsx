@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowLeft, Building2, ChevronRight } from "lucide-react";
 import { requireModule } from "@/lib/session";
-import { userCan } from "@/lib/rbac";
+import { userCan, hasGlobalView, estPrete } from "@/lib/rbac";
 import { voitLesSalaires } from "@/lib/hr/confidentialite";
 import { prisma } from "@/lib/prisma";
 import { getFieldDefs } from "@/lib/custom-fields";
@@ -150,7 +150,9 @@ export default async function EmployeeDetailPage({ params }: { params: { id: str
 
       {/* Accès aux entités du groupe : l'appartenance (sa fiche) et le droit d'accès (ce
           qu'elle voit) sont deux choses distinctes. */}
-      {canUpdate && employee.userId && (
+      {/* Un droit RH qui ne tient qu'à un INTÉRIM n'ouvre pas d'entité à un tiers (§118.196) : la carte ne
+          s'offre pas à qui l'action refuserait — la même règle que `canManage` de l'action. */}
+      {canUpdate && (hasGlobalView(user) || !estPrete(user, "RH", "UPDATE")) && employee.userId && (
         <CompanyAccessCard userId={employee.userId} rows={accessRows} seesWholeGroup={targetSeesGroup} />
       )}
 

@@ -1,7 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { getManagerOfUser } from "@/lib/departments";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
-import { lireLignesDAchat, purchaseStage, summarize } from "@/lib/general-means/purchase-request";
+import { lireLignesDAchat, purchaseStage, summarize, phraseDeDecision } from "@/lib/general-means/purchase-request";
 import { PurchaseRequestForm } from "./purchase-request-form";
 import { MyPurchaseRequests, type MyPurchaseRow } from "./my-purchase-requests";
 import type { CatalogArticle } from "@/app/(app)/moyens-generaux/receipt-lines";
@@ -33,7 +33,10 @@ export async function PurchaseSection({
       select: {
         id: true, reference: true, title: true, status: true, createdAt: true, fields: true,
         validator: { select: { name: true } },
-        approvals: { orderBy: { createdAt: "desc" }, take: 1, select: { status: true, comment: true, decidedAt: true } },
+        approvals: {
+          orderBy: { createdAt: "desc" }, take: 1,
+          select: { status: true, decisionNote: true, validatorId: true, decidedById: true, decidedBy: { select: { name: true } } },
+        },
       },
     }),
   ]);
@@ -52,9 +55,14 @@ export async function PurchaseSection({
       stage,
       validatorName: r.validator?.name ?? null,
       estimated: typeof fields.estimatedTotal === "number" ? fields.estimatedTotal : null,
-      // On ne montre le commentaire du validateur qu'une fois qu'il a DÉCIDÉ : avant, le champ
-      // porte l'estimation catalogue, qui n'est pas un avis et se lirait comme tel.
-      decisionNote: approval?.decidedAt ? approval.comment : null,
+      // LA PAROLE DE CELUI QUI A TRANCHÉ, jamais `comment` (lot E5) : ce champ porte l'estimation du catalogue,
+      // qui se lisait comme l'avis du directeur dès qu'il avait décidé. Et quand ce n'est pas le validateur nommé
+      // qui a tranché (son intérimaire, la Direction), la ligne le NOMME — comparé par identifiant, pas par nom.
+      decisionNote: phraseDeDecision(stage, approval ? {
+        status: approval.status,
+        note: approval.decisionNote,
+        decideurAutre: approval.decidedById && approval.decidedById !== approval.validatorId ? approval.decidedBy?.name ?? null : null,
+      } : null),
     };
   });
 

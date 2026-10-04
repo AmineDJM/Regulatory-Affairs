@@ -28,8 +28,9 @@ l'autre (le plan de tournée revient dans cinq rapports).
 
 **État au 3 octobre** : S1 à S15 corrigés et testés (lot A, `CLAUDE.md` §118.184 — 95 sabotages, 95 chutes) ;
 S16 trié : les routes signalées sont gardées par une enveloppe (`handle(`) ou après le chargement — le
-scanner doit apprendre à les reconnaître. Reste ouvert : la fiche d'un sponsoring et celles des deux prises
-en charge se chargent par leur identifiant seul (relevé de la phase 0).
+scanner doit apprendre à les reconnaître. Reste ouvert (relevé de la phase 0, précisé le 4 octobre) : la fiche
+d'un sponsoring et celles des deux prises en charge appliquent la portée par ligne (`sponsoring/[id]/page.tsx:51-54`,
+`queries/congress.ts:59-63`), mais pas encore le filtre d'entité d'une fiche (`ficheScopedWhere`).
 
 | # | Constat | Qui est touché | |
 |---|---|---|---|
@@ -156,8 +157,11 @@ cumul de ses factures nettes d'avoirs ; la réserve des clauses ne défait plus 
 dépense des moyens généraux ne s'écrit plus avant que sa pièce soit acceptée (F5) ; le total imprimé est exigé
 pour terminer une retranscription de devis promo, dont les écritures d'étape sont conditionnelles (F6) ;
 l'interrupteur général de l'IA est lu par `lib/ai.ts`, l'OCR, le client Luna et la transcription des médias (F3) ;
-les mineurs de F8 sont corrigés. Restent : F1 (chaînage d'un BC composé), F2 (PCH), F4 (plafond « factures ≤ BC »
-au règlement pour tous les BC — décision de la Direction), et l'extraction elle-même (lot D2 et suivants).
+les mineurs de F8 sont corrigés. **F1 et F2 sont livrés à leur tour (§118.197)** : le compositeur chaîne un BC à
+son devis ; la lecture d'un AO PCH est tracée (texte natif d'abord, coupe dite, fichier gardé, relecture qui ne
+remplace que les lignes que personne n'a touchées). Restent : F4 (plafond « factures ≤ BC » au règlement pour tous
+les BC — décision de la Direction), et l'extraction elle-même (lot D2, en cours : lecture locale gratuite, lignes par
+l'IA désactivées par défaut, confirmation ligne à ligne par une personne).
 
 - **Aucun des 12 points d'upload n'extrait les données** : le fichier est stocké, les montants sont
   **retapés** (l'assistante recopie les devis du matériel promotionnel à la main ; une facture classée
@@ -179,8 +183,17 @@ au règlement pour tous les BC — décision de la Direction), et l'extraction e
 
 **État au 4 octobre — la file des congés montre ce que l'action accepte (lot E1, §118.196)** : N+1 enregistré et
 N+1 actuel, filtre dans la requête (M08) ; un congé ou une formation ne se décide qu'une fois, le solde débité dans
-la même transaction — deux accords simultanés le débitaient deux fois (N1). La suite des managers (une file de
-décisions unique, une équipe actionnable, l'intérim, les achats) est en cours.
+la même transaction — deux accords simultanés le débitaient deux fois (N1).
+
+**État au 4 octobre — la suite des managers est livrée (vague E2–E5, §118.197)** : Mon espace réunit ce qui attend
+la personne, une ligne par objet, datée à l'arrivée chez elle, avec la file du réviseur et du N+2 des plans de
+tournée (M09, N2) ; Mon Équipe montre cinq natures à décider, des chiffres dont le lien est gardé côté serveur, les
+absences au jour d'Alger et les chevauchements de congés (M10–M12, M19, M21) ; l'intérim ne prête que ce que l'absent
+détient, notifie vers Mon espace et s'affiche dans un bandeau (M13) ; une approbation d'achat dit qui l'a tranchée et
+pourquoi, motif exigé, jamais sa propre demande (M14, M15). Restent des décisions de la Direction : le N+1 voit,
+relance et réassigne les tâches de son équipe ; une entrée de menu et un accès Recrutement pour les approbateurs ;
+la portée SFE du Directeur des Opérations ; les extensions de l'intérim (recrutement, N+1 du matériel promotionnel,
+étapes Ad & Pro nominatives, sièges des centres) ; les indicateurs propres à chaque métier (M11 sur le fond).
 
 - 12 rôles sur 19 n'ont **aucun indicateur métier** ; les chiffres affichés ne mènent nulle part.
 - Un manager **ne voit ni ne réassigne** une tâche d'un membre de son équipe.
@@ -198,6 +211,19 @@ la Direction) ; paie (le « transfert au budget » n'existe plus) ; centre de pa
 absentes** dont le Centre de validations ; `/admin/departments` (404 — le vrai écran est
 `/rh/departements`) ; l'onboarding montre Adam et la boîte Infomaniak. Le scanner ajoute 4 chemins de
 fichiers et 4 routes cités qui n'existent pas.
+
+**État au 4 octobre** : corrigé (lot F). Les 13 écarts et les 27 points relevés à la main sont repris d'après
+le code (diagramme des liens et cinq parcours Ad & Pro, centre de paiement, paie, Finances et bons de commande,
+rôles, intérim, comptages…), les entrées de menu manquantes sont au panorama, et les ancres cassées hors du
+journal sont réparées (14 → 0 ; les 4 du journal restent : il ne se réécrit pas). Hors du journal, les chemins
+et routes que le scanner disait inexistants sont des faux positifs — le contrat du site vit dans son propre
+dépôt, `e2e/inbox.spec.ts` existe, `/storage/v1/s3` est un chemin de Supabase —, sauf `/admin/departments`,
+corrigé. Restent, en vérification et en correction dans le code, deux défauts du moteur Ad & Pro lus dans le
+code : la demande d'un « rang 2 » (Direction Marketing, Manager Promotion médicale) tranchée par une étape sans
+pouvoir d'argent, et la signature du référent sur la déclaration d'un sponsoring ; le README dira le
+comportement réparé. Les cartes de Mon espace, de Mon Équipe, de l'intérim, des approbations d'achat, des
+écritures du matériel promotionnel et de la lecture des appels d'offres PCH suivront les lots en cours (E2 à E5,
+D1b, D1c).
 
 ## 7. Autres constats transverses du scanner (`scan-code.md`)
 

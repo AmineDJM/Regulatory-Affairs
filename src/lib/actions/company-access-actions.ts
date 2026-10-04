@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { requireUser } from "@/lib/session";
-import { userCan, hasGlobalView } from "@/lib/rbac";
+import { userCan, hasGlobalView, estPrete, type SessionUser } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
 import { fdStr, type ActionResult } from "@/lib/actions/types";
@@ -16,16 +16,27 @@ import { fdStr, type ActionResult } from "@/lib/actions/types";
  * ⚠️ Une garde structurelle : **on ne modifie jamais ses PROPRES accès**. Sans elle, quiconque
  * gère les ressources humaines pourrait s'ouvrir toutes les entités du groupe en un clic — et
  * l'étanchéité ne vaudrait plus rien. Un Super Admin passe par l'Administration.
+ *
+ * ⚠️ Et un droit RH qui ne tient qu'à un INTÉRIM n'ouvre pas d'entité à un tiers (§118.196, lot E4 —
+ * audit 360°, M13) : ouvrir ou fermer un accès est un geste de DROITS, et il survivrait au retour du
+ * titulaire. L'intérim prête le métier des RH, pas le pouvoir d'accorder des droits (`estPrete`).
  */
 
-function canManage(user: { role: string; secondaryRole?: string | null }): boolean {
-  return hasGlobalView(user as never) || userCan(user as never, "RH", "UPDATE");
+function canManage(user: SessionUser): boolean {
+  return hasGlobalView(user) || (userCan(user, "RH", "UPDATE") && !estPrete(user, "RH", "UPDATE"));
 }
 
 /** Accorde ou révoque l'accès d'une personne à une entité. */
 export async function setCompanyAccess(_prev: ActionResult | undefined, formData: FormData): Promise<ActionResult> {
   const actor = await requireUser();
-  if (!canManage(actor)) return { ok: false, error: "Réservé aux ressources humaines." };
+  if (!canManage(actor)) {
+    return {
+      ok: false,
+      error: estPrete(actor, "RH", "UPDATE")
+        ? "Vous tenez les ressources humaines par intérim : ouvrir ou fermer l'accès d'une personne à une entité reste aux RH en titre."
+        : "Réservé aux ressources humaines.",
+    };
+  }
 
   const userId = fdStr(formData, "userId");
   const companyId = fdStr(formData, "companyId");

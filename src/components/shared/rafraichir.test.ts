@@ -58,8 +58,9 @@ const APPEL_NU = /\brouter\.refresh\(\)/g;
  * Ramené à 341 au §118.193 — le planificateur de tournée (demander une révision s'ouvre sur l'état
  * qu'il montre) et l'emploi du temps de « Ma journée » (« N'a pas eu lieu » sur une visite que l'état
  * d'avant montrerait encore à faire) suivent leur rafraîchissement.
+ * Ramené à 340 au §118.197 — les boutons d'une approbation d'achat suivent leur rafraîchissement.
  */
-const PLAFOND_APPELS_NUS = 341;
+const PLAFOND_APPELS_NUS = 340;
 
 describe("le rafraîchissement suivi", () => {
   const parc = fichiers(SRC).map((f) => ({ f, src: sansCommentaires(readFileSync(f, "utf8")) }));
@@ -95,6 +96,9 @@ describe("le rafraîchissement suivi", () => {
       // du temps — dire une visite non tenue, puis la rapporter sur l'état d'avant.
       "src/app/(app)/medical/plan-de-tournee/planificateur.tsx",
       "src/app/(app)/medical/ma-journee/emploi-du-temps.tsx",
+      // §118.197 : les boutons d'une approbation d'achat — trancher puis retrancher sur l'état d'avant
+      // reposerait une décision qu'une autre personne vient de prendre.
+      "src/app/(app)/demandes/approval-buttons.tsx",
     ];
     for (const e of ecrans) {
       const src = sansCommentaires(readFileSync(join(process.cwd(), e), "utf8"));

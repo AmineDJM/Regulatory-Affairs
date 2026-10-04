@@ -557,7 +557,34 @@ export async function demanderMateriel(formData: FormData): Promise<ActionResult
   return reussi(d.id, "Demande envoyée au magasin.");
 }
 
-/** SERVIR une demande : une dotation pré-remplie, que le demandeur confirmera à réception. */
+/**
+ * La demande n'est plus ouverte — dite selon ce qu'elle est devenue, avec le geste qui reste (§118.30).
+ * Rien n'est parti : ce refus passe AVANT tout mouvement de stock (lot D1b).
+ */
+function refusDemandeFermee(statut: string | null | undefined): string {
+  const parti = " Rien n'est parti du magasin. Si le matériel a déjà été remis à la personne, enregistrez-le par « Doter » sur la ligne de l'article : le stock le dira.";
+  if (statut === "ANNULEE") return `Cette demande vient d'être annulée par son auteur.${parti}`;
+  if (statut === "REFUSEE") return `Cette demande vient d'être refusée.${parti}`;
+  if (statut === "SERVIE") return "Cette demande vient d'être servie : la dotation est déjà en route — rechargez la page.";
+  return "Cette demande n'existe plus — rechargez la page.";
+}
+
+/** Le refus d'un service qui a déjà pris la demande — levé pour annuler la transaction ENTIÈRE, rattrapé à sa sortie. */
+class RefusService extends Error {}
+
+/**
+ * SERVIR une demande : une dotation pré-remplie, que le demandeur confirmera à réception.
+ *
+ * LA DEMANDE SE PREND AVANT QUE RIEN NE PARTE (lot D1b). Elle était relue « ouverte », puis le matériel
+ * partait, puis elle passait « servie » SANS condition : une demande annulée par son auteur entre la lecture
+ * et l'écriture était servie quand même — la dotation partait, et l'annulation était écrasée sans un mot,
+ * son auteur la croyant annulée. L'annulation et le refus ne prennent pas le verrou de l'article : seule une
+ * écriture CONDITIONNELLE sur la demande les voit. Elle est donc la PREMIÈRE écriture, avant tout
+ * mouvement ; perdue, rien n'est écrit, et le refus dit le geste qui reste. Gagnée, elle tient la ligne de
+ * la demande jusqu'au bout : une annulation lancée pendant qu'on sert attend, puis trouve la demande
+ * servie. Si le magasin refuse ensuite (stock insuffisant), la transaction s'annule entière — la demande
+ * redevient ouverte, rien n'est parti.
+ */
 export async function servirDemande(formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
   const f = await faitsStock(user);
@@ -570,17 +597,31 @@ export async function servirDemande(formData: FormData): Promise<ActionResult> {
   const note = fdStr(formData, "note");
   const r = await sousVerrou(d0.itemId, async (tx) => {
     const d = await tx.promoStockRequest.findUnique({ where: { id: demandeId } });
-    if (!d || d.statut !== "OUVERTE") return { refus: "Cette demande n'est plus ouverte." };
+    if (!d || d.statut !== "OUVERTE") return { refus: refusDemandeFermee(d?.statut) };
     const quantite = brut == null ? Number(d.quantite) : parseQuantity(brut);
     if (quantite == null || quantite <= 0) return { refus: "Indiquez une quantité supérieure à zéro." };
     const dest = await peutRecevoirDuStock(d.demandeurId);
     if (!dest.ok) return { refus: dest.error };
+    // LA DEMANDE EST-ELLE ENCORE OUVERTE ? La PREMIÈRE écriture, conditionnelle sur l'état lu, AVANT tout
+    // mouvement : une annulation ou un refus passés depuis la lecture la font perdre, et rien n'est écrit.
+    const prise = await tx.promoStockRequest.updateMany({
+      where: { id: demandeId, statut: "OUVERTE" },
+      data: { statut: "SERVIE", decideParId: user.id, decideLe: new Date(), noteDecision: note },
+    });
+    if (prise.count === 0) {
+      const devenue = await tx.promoStockRequest.findUnique({ where: { id: demandeId }, select: { statut: true } });
+      return { refus: refusDemandeFermee(devenue?.statut) };
+    }
     const p = await fairePartir(tx, d.itemId, {
       nature: "DOTATION", deId: null, versId: d.demandeurId, quantite, note, initiateurId: user.id, demandeId, maintenant: new Date(),
     });
-    if (!p.ok) return { refus: `Le magasin ne peut pas servir : ${p.refus}` };
-    await tx.promoStockRequest.update({ where: { id: demandeId }, data: { statut: "SERVIE", decideParId: user.id, decideLe: new Date(), noteDecision: note } });
+    // Le magasin ne peut pas servir : la demande, prise plus haut, ne doit pas rester « servie » sans
+    // dotation — la transaction s'annule entière, et la demande redevient ouverte.
+    if (!p.ok) throw new RefusService(`Le magasin ne peut pas servir : ${p.refus}`);
     return { d, quantite, transfertId: p.transfertId };
+  }).catch((e: unknown) => {
+    if (e instanceof RefusService) return { refus: e.message };
+    throw e;
   });
   if (refus(r)) return { ok: false, error: r.refus };
   const libelle = await libelleDe(r.d.itemId);

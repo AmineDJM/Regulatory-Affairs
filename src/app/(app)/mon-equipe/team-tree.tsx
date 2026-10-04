@@ -1,7 +1,8 @@
 "use client";
 
 import * as React from "react";
-import { CalendarClock, ChevronDown, ChevronRight, Loader2, Mail, Phone, Plane } from "lucide-react";
+import Link from "next/link";
+import { ArrowUpRight, CalendarClock, ChevronDown, ChevronRight, Loader2, Mail, Phone, Plane } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { formatDate, daysUntil, cn } from "@/lib/utils";
@@ -29,6 +30,11 @@ import { teamMemberKpis } from "@/lib/actions/my-team-actions";
  * Sept compteurs pour quarante personnes, ce sont plusieurs centaines d'agrégats à l'ouverture
  * de l'écran, pour trois cartes qu'on dépliera. On charge donc quand on ouvre — et une fois
  * chargé, on garde : replier puis rouvrir ne redemande rien.
+ *
+ * ── UN CHIFFRE QUI A UN ÉCRAN Y MÈNE (§118.196, lot E3 — audit 360°, M12) ──────────────────
+ *
+ * Le lien vient du SERVEUR, qui a rejoué la garde de l'écran visé pour celui qui regarde : la
+ * tuile ne fabrique aucune adresse, elle affiche celle qu'on lui donne, ou reste un simple chiffre.
  */
 
 const TONE_CLASS: Record<TeamKpiTone, string> = {
@@ -158,13 +164,31 @@ function KpiRow({ title, kpis }: { title: string; kpis: TeamKpi[] }) {
     <div className="space-y-1.5">
       <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{title}</p>
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-        {kpis.map((kpi) => (
-          <div key={kpi.label} className="rounded-lg border border-border bg-secondary/30 px-2.5 py-2">
-            <p className={cn("text-lg font-semibold tabular-nums", TONE_CLASS[kpi.tone ?? "default"])}>{kpi.value}</p>
-            <p className="text-xs text-muted-foreground">{kpi.label}</p>
-            {kpi.hint && <p className="mt-0.5 text-[11px] text-muted-foreground">{kpi.hint}</p>}
-          </div>
-        ))}
+        {kpis.map((kpi) => {
+          const corps = (
+            <>
+              <p className={cn("text-lg font-semibold tabular-nums", TONE_CLASS[kpi.tone ?? "default"])}>{kpi.value}</p>
+              <p className="text-xs text-muted-foreground">{kpi.label}</p>
+              {kpi.hint && <p className="mt-0.5 text-[11px] text-muted-foreground">{kpi.hint}</p>}
+            </>
+          );
+          return kpi.href ? (
+            <Link
+              key={kpi.cle}
+              href={kpi.href}
+              className="rounded-lg border border-border bg-secondary/30 px-2.5 py-2 transition-colors hover:border-primary/50 hover:bg-secondary/60"
+            >
+              {corps}
+              <span className="mt-1 inline-flex items-center gap-0.5 text-[11px] font-medium text-primary">
+                Voir le détail <ArrowUpRight className="h-3 w-3" />
+              </span>
+            </Link>
+          ) : (
+            <div key={kpi.cle} className="rounded-lg border border-border bg-secondary/30 px-2.5 py-2">
+              {corps}
+            </div>
+          );
+        })}
       </div>
     </div>
   );

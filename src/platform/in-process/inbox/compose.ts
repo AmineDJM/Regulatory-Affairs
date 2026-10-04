@@ -16,7 +16,7 @@
 import { prisma } from "@/lib/prisma";
 import { requireModule } from "@/lib/session";
 import { userCan, type SessionUser } from "@/lib/rbac";
-import { getActionCenter } from "@/lib/queries/action-center";
+import { getActionCenter, PREFIXE_CONGE, PREFIXE_DEMANDE_ADMIN } from "@/lib/queries/action-center";
 import { getPendingValidations } from "@/lib/queries/validations";
 import { approbationsEnAttente } from "@/lib/missions/approval/gate";
 import { sitsOnPaymentCentre } from "@/lib/payments/authorization";
@@ -107,7 +107,10 @@ export async function composerInbox(user: SessionUser): Promise<VueInbox> {
       orderBy: { dueAt: "asc" }, take: 15,
       select: { id: true, who: true, toWhom: true, what: true, dueAt: true, promisedAt: true, source: true, relatedRef: true, createdAt: true },
     })),
-    file("centre", async () => (await getActionCenter(user)).items.filter((i) => i.kind !== "validation" && i.kind !== "payment")),
+    // Les congés et les approbations d'achat n'ont pas d'autre file ici : avant le lot E2 le centre les rendait
+    // sous les genres « hr » et « request », que ce filtre laissait passer — la boîte les garde (§118.61).
+    file("centre", async () => (await getActionCenter(user)).items.filter((i) =>
+      (i.kind !== "validation" && i.kind !== "payment") || i.objet.startsWith(PREFIXE_CONGE) || i.objet.startsWith(PREFIXE_DEMANDE_ADMIN))),
     ]),
     // LA QUALITÉ DES DONNÉES (§23) : les constats critiques et hauts qui attendent une personne —
     // sous ses droits, cinq au plus, pour ne pas noyer les décisions du jour.

@@ -17,9 +17,9 @@ import { leaveFormContext } from "@/lib/hr/leave-form-context";
 import { MyLeaves } from "@/components/hr/my-leaves";
 import { ExpenseClaimEdit } from "@/components/hr/expense-claim-edit";
 import { prisma } from "@/lib/prisma";
-import { MODULES } from "@/lib/rbac";
 import { MODULE_LABELS } from "@/lib/labels";
-import { isDelegatable } from "@/lib/hr/stand-in";
+import { modulesPretables, congeTermine } from "@/lib/hr/stand-in";
+import { detenteurPourInterim } from "@/lib/hr/stand-in-resolve";
 import { MeetingControls } from "@/components/shared/hr-meeting-controls";
 import { HrRequestThread } from "@/components/shared/hr-request-thread";
 
@@ -31,18 +31,21 @@ export default async function MonDossierPage() {
   // MÊME demande, MÊME liste que « Mon espace » : un congé n'existe qu'une fois.
   const myLeaves = await getMyLeaveRequests(user.id);
   // Qui peut me remplacer, et sur quoi. Les collègues actifs (moi excepté — on ne se remplace
-  // pas soi-même) et les modules réellement délégables, jamais les espaces personnels.
+  // pas soi-même) et ce que JE DÉTIENS et qui se prête — la lecture même de l'action et du calcul des
+  // droits (`modulesPretables`), jamais la liste de tous les modules : on proposait des modules que la
+  // personne n'avait pas, et même ceux que la plateforme a retirés (§118.196, lot E4 — audit 360°, M13).
   // La fiche de demande de congé, pré-remplie depuis la fiche employé (même contexte que
   // « Mon espace » : un seul formulaire, un seul jeu d'informations).
   const leaveForm = await leaveFormContext(user.id);
-  const [colleagues, delegatable] = await Promise.all([
+  const [colleagues, moi] = await Promise.all([
     prisma.user.findMany({
       where: { isActive: true, id: { not: user.id } },
       select: { id: true, name: true },
       orderBy: { name: "asc" },
     }),
-    Promise.resolve(MODULES.filter(isDelegatable).map((m) => ({ value: m, label: MODULE_LABELS[m] }))),
+    detenteurPourInterim(user.id),
   ]);
+  const delegatable = (moi ? modulesPretables(moi) : []).map((m) => ({ value: m, label: MODULE_LABELS[m] }));
   // MÊMES onglets que tout l'espace personnel : le dossier RH en est un, plus un module à
   // part. Deux barres d'onglets différentes selon l'écran donnaient l'impression de changer
   // d'endroit alors qu'on reste chez soi.
@@ -156,7 +159,11 @@ export default async function MonDossierPage() {
             <strong> responsable (N+1) → ressources humaines → direction générale</strong> ;
             votre solde n&apos;est débité qu&apos;une fois le circuit terminé.
           </p>
-          <MyLeaves leaves={myLeaves} people={colleagues} modules={delegatable} moduleLabels={MODULE_LABELS} />
+          {/* « Terminé » se calcule ICI, sur l'horloge du serveur — celle de l'action (§118.196). */}
+          <MyLeaves
+            leaves={myLeaves.map((l) => ({ ...l, termine: congeTermine(l.endDate) }))}
+            people={colleagues} modules={delegatable} moduleLabels={MODULE_LABELS}
+          />
         </CardContent>
       </Card>
 

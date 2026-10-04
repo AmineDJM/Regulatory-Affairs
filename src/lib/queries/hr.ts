@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { clauseSalariesVisibles } from "@/lib/queries/visibilite-listes";
 import { userCan, hasGlobalView, isTopManagement, type SessionUser } from "@/lib/rbac";
 import { canDecideLeave, type LeaveStage } from "@/lib/leave-workflow";
+import { arriveeALaMarche } from "@/lib/approval-chain";
 import { buildLeaveSheet } from "@/lib/hr/leave-sheet";
 import { auNomDeQui } from "@/lib/hr/stand-in-resolve";
 import { clauseFileConges, fichesDesSignataires, salariesDontJeSuisLeN1 } from "@/lib/hr/file-conges";
@@ -371,6 +372,11 @@ export interface LeaveToDecide {
   sheet: { label: string; value: string }[];
   /** En intérim : le N+1 absent au nom de qui l'on signe ; `null` quand la marche est à moi (I18). */
   pourLeCompteDe: string | null;
+  /**
+   * DEPUIS QUAND LA DEMANDE ATTEND À SA MARCHE (ISO, lot E2 — audit 360°, 07-05) : son dépôt, l'accord du
+   * N+1, celui des RH (`arriveeALaMarche`). La file la trie, la ligne le dit.
+   */
+  depuis: string;
 }
 
 /**
@@ -481,6 +487,7 @@ export async function getLeavesToDecide(user: SessionUser): Promise<LeaveToDecid
       ),
       // La marche du N+1 tranchée par son intérimaire se signe AU NOM de l'absent — l'écran le dit.
       pourLeCompteDe: l.stage === "MANAGER" && isManager && managerUserId !== user.id ? auNom.nomDe(managerUserId) : null,
+      depuis: arriveeALaMarche(l.stage, { creeLe: l.createdAt, n1DecideLe: l.managerDecidedAt, rhDecideLe: l.hrDecidedAt }).toISOString(),
     });
   }
   return out;

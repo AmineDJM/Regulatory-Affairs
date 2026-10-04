@@ -21,9 +21,12 @@ import {
  *
  * ── LES PARCOURS, ET POURQUOI QUATRE ÉTAPES SUFFISENT ───────────────────────────────────
  *
- * Chaque chaîne est une tranche CONTIGUË de cette colonne vertébrale : `parcours.ts` porte les
- * deux bornes, la définition reste unique. Deux définitions auraient divergé au premier réglage
- * (§118.5).
+ * Chaque demande traverse CETTE colonne vertébrale, filtrée par son parcours (`parcours.ts`) :
+ * une BORNE — où la chaîne s'arrête — et un TAMIS — les étapes qu'elle ne traverse pas —, figés à
+ * la naissance de l'instance (`finalSlug`, `skippedSlugs`, §118.142). Ce n'est plus une tranche
+ * contiguë : un KAM traverse le préliminaire sans la Direction des opérations, un National Sales
+ * l'inverse. La définition, elle, reste UNIQUE : deux définitions auraient divergé au premier
+ * réglage (§118.5).
  */
 
 /** Les quatre étapes « colonne vertébrale » communes aux 4 catégories. */
@@ -63,6 +66,10 @@ function defaultSpine(): StepInput[] {
       notifyRoles: ["GENERAL_MANAGER", "SUPER_ADMIN"],
       legacyStatus: "PRELIMINARY_APPROVED",
     },
+    // SUR LA ROUTE DU RANG 2 (Direction Marketing, Manager Promotion médicale), cette étape CONCLUT :
+    // elle hérite alors, à l'EXÉCUTION, le montant et la sous-catégorie de l'étape qu'elle remplace
+    // (`pouvoirs-argent.ts`). La définition ne change pas — et la description ci-dessous, lue par le
+    // seul Super Admin, décrit les autres routes, où elle ne tranche rien.
     {
       slug: SLUG_DIRECTION,
       title: "Validation (Direction des opérations)",

@@ -192,8 +192,12 @@ export async function settleExpenseOrder(formData: FormData): Promise<ActionResu
       where: { id: order.sourceId }, data: { status: "PAID", paidDate: new Date(), transactionId: tx.id },
     }).catch(() => undefined);
   } else if (order.sourceType === "ADMIN_REQUEST" && order.sourceId) {
-    await prisma.administrativeRequest.update({
-      where: { id: order.sourceId }, data: { status: "IN_PROGRESS" },
+    // UNE DEMANDE TERMINÉE OU ANNULÉE NE REVIENT PAS « EN COURS » parce que son paiement part (lot E5) : la règle
+    // de `decideApproval` et de `decideValidation` (§118.187) ne valait pas pour le règlement de l'ordre qu'elles
+    // émettent — une demande terminée avant son règlement repassait « en cours », sans que personne l'ait rouverte.
+    await prisma.administrativeRequest.updateMany({
+      where: { id: order.sourceId, deletedAt: null, status: { notIn: ["DONE", "CANCELLED"] } },
+      data: { status: "IN_PROGRESS" },
     }).catch(() => undefined);
   } else if (order.sourceType === "PAYROLL" && order.sourceId) {
     // LA PAIE EST VIRÉE (§118.176) : le virement garde le FAIT (il survit à la purge de

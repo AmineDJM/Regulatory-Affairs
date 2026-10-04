@@ -17,10 +17,10 @@ import { resolveParties } from "@/lib/queries/company-contacts";
 import { fdStr, fdNum, fdDate, type ActionResult } from "@/lib/actions/types";
 import { manquesDeRetranscription, totauxDeLaSelection, formatDzd, type DevisLu } from "@/lib/promo-material/devis";
 import { demandeLesDevis, retranscritLesDevis, choisitLesLignes } from "@/lib/promo-material/circuit";
-import { devisDuDossier, devisLu, SELECT_DEVIS } from "@/lib/queries/promo-circuit";
+import { devisLu, SELECT_DEVIS } from "@/lib/queries/promo-circuit";
 import { validatePromoStep } from "@/lib/actions/promo-circuit-actions";
 import { ecrireAuFil } from "@/lib/ad-pro/fil";
-import { rouvrirDemandeAuSecretariat } from "@/lib/promo-material/demande-secretariat";
+import { rouvrirDemandeAuSecretariat, fermerDemandeAuSecretariat } from "@/lib/promo-material/demande-secretariat";
 import { ACTION_LABEL, estAction, type PromoAction } from "@/lib/promo-material/actions-fournisseur";
 
 /**
@@ -494,8 +494,9 @@ export async function terminerRetranscriptionPromo(formData: FormData): Promise<
       // LE VERROU D'ABORD, LES DEVIS ENSUITE. Lus avant le verrou, les devis pouvaient être corrigés
       // entre le contrôle et la bascule : la fin était déclarée sur des devis qu'elle n'avait pas
       // contrôlés — un écart avec le total imprimé passait au choix du demandeur, puis au BC. Toute
-      // écriture d'un devis prend ce même verrou en premier (`enregistrerDevisPromo`,
-      // `supprimerDevisPromo`) : une correction en cours finit avant notre lecture, une correction
+      // écriture d'un devis prend ce même verrou en premier (`enregistrerDevisPromo`, `supprimerDevisPromo`,
+      // et pour la sélection `choisirLignesPromo`, la correction, la validation du choix) : une correction en
+      // cours finit avant notre lecture, une correction
       // suivante attend notre bascule — puis la trouve et se refuse.
       // L'ÉTAPE est relue SOUS le verrou, avant les devis — l'état d'abord, le motif ensuite (§118.18) :
       // un dossier annulé pendant qu'on attendait ne se fait pas répondre « retranscription incomplète »,
@@ -510,15 +511,16 @@ export async function terminerRetranscriptionPromo(formData: FormData): Promise<
       if (manques.length > 0) throw new RefusDevis(`Retranscription incomplète : ${manques.join(" ; ")}.`);
       // L'étape vient d'être lue sous le verrou : l'écriture ne peut plus la perdre.
       await tx.promoMaterial.update({ where: { id: pm.id }, data: { circuitState: "REVIEW_REQUESTER", updatedById: user.id } });
+      // LA DEMANDE AU SECRÉTARIAT SE FERME DANS LA MÊME TRANSACTION (lot D1b), et seulement si elle se traite
+      // encore. Fermée après coup et sans condition, elle repassait « terminée » une demande annulée entre-temps ;
+      // et une correction demandée juste après la fin voyait sa demande rouverte… puis refermée par cette
+      // fermeture tardive — l'assistante, prévenue, ne trouvait rien à traiter.
+      await fermerDemandeAuSecretariat(tx, pm.id);
       return lus;
-    });
+    }, { timeout: 15_000, maxWait: 15_000 });
   } catch (e) {
     if (e instanceof RefusDevis) return { ok: false, error: e.message };
     throw e;
-  }
-  const demande = await prisma.promoMaterial.findUnique({ where: { id: pm.id }, select: { adminRequestId: true } });
-  if (demande?.adminRequestId) {
-    await prisma.administrativeRequest.update({ where: { id: demande.adminRequestId }, data: { status: "DONE" } }).catch(() => undefined);
   }
   if (pm.requesterId && pm.requesterId !== user.id) {
     await notifyUser({ userId: pm.requesterId, type: "VALIDATION_REQUIRED", title: "Devis retranscrits — à vous de choisir", body: `${pm.reference} — ${devis.length} devis, ${devis.reduce((s, d) => s + d.lines.length, 0)} lignes`, link: chemin(pm.id) });
@@ -538,6 +540,15 @@ export async function terminerRetranscriptionPromo(formData: FormData): Promise<
  * que la personne a sous les yeux qui fait foi, pas une suite de clics. Avec `valider`, le choix
  * part en validation : l'avance passe par `validatePromoStep`, l'unique écrivain des transitions,
  * qui fige le montant retenu et prévient la Direction Marketing (ou le DG au-delà du seuil).
+ *
+ * L'ÉTAPE LUE EN HAUT NE SE CROIT PAS JUSQU'À L'ÉCRITURE (lot D1b). La sélection s'écrivait sans
+ * condition : un choix parti pendant qu'une correction était demandée recochait les lignes que la
+ * correction venait d'effacer — le dossier repartait chez l'assistante avec un choix fait sur des lignes
+ * qu'elle allait refaire —, et un choix tardif réécrivait la sélection d'un dossier déjà parti en
+ * validation, sous un montant figé qui n'était plus le sien. La transaction commence par une écriture
+ * CONDITIONNELLE sur « choix des lignes », comme les devis ; le verrou qu'elle prend fait aussi passer un
+ * à un deux choix croisés. Et ce que l'écran a envoyé est passé à la validation (`lignesVues`), qui ne
+ * valide que cela.
  */
 export async function choisirLignesPromo(formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
@@ -548,26 +559,55 @@ export async function choisirLignesPromo(formData: FormData): Promise<ActionResu
   if (!choisitLesLignes(acteur(user), pm)) return { ok: false, error: "Le choix des lignes revient au demandeur." };
   if (pm.circuitState !== "REVIEW_REQUESTER") return { ok: false, error: "Ce dossier n'attend pas le choix du demandeur." };
 
+  const valider = formData.get("valider") === "1";
   const voulues = new Set(formData.getAll("lineIds").map((x) => String(x)).filter(Boolean));
-  const lignes = await prisma.promoQuoteLine.findMany({ where: { quote: { promoMaterialId: pm.id } }, select: { id: true } });
-  const connues = new Set(lignes.map((l) => l.id));
-  const etrangeres = [...voulues].filter((id) => !connues.has(id));
-  if (etrangeres.length > 0) return { ok: false, error: `${etrangeres.length} ligne(s) choisie(s) n'appartiennent pas aux devis de ce dossier.` };
+  // VALIDER UN CHOIX VIDE est refusé AVANT toute écriture : un geste qui ne part pas n'efface pas la
+  // sélection enregistrée — il l'effaçait, la journalisait, puis refusait.
+  if (valider && voulues.size === 0) return { ok: false, error: "Retenez au moins une ligne avant de valider votre choix." };
 
-  await prisma.$transaction([
-    prisma.promoQuoteLine.updateMany({ where: { quote: { promoMaterialId: pm.id }, id: { notIn: [...voulues] } }, data: { selected: false } }),
-    prisma.promoQuoteLine.updateMany({ where: { quote: { promoMaterialId: pm.id }, id: { in: [...voulues] } }, data: { selected: true } }),
-  ]);
-  const totaux = totauxDeLaSelection((await devisDuDossier(pm.id)).map(devisLu));
+  let totaux: ReturnType<typeof totauxDeLaSelection>;
+  try {
+    totaux = await prisma.$transaction(async (tx) => {
+      // LE CHOIX EST-IL ENCORE OUVERT ? La PREMIÈRE écriture, conditionnelle sur l'étape lue. Une correction
+      // demandée, des devis redemandés, un article ajouté, une validation passée entre la lecture et l'écriture
+      // l'ont fait changer — et prennent ce même verrou en premier. La version : seuls deux écrivains la posent,
+      // la création et la bascule d'un dossier sans circuit (`startPromoCircuit`), tous deux à 2 — elle ne quitte
+      // jamais 2, la condition ne peut pas tomber (mesuré, lot D1b) ; elle dit l'intention, comme chez les devis.
+      const ouvert = await tx.promoMaterial.updateMany({
+        where: { id: pm.id, circuitVersion: 2, circuitState: "REVIEW_REQUESTER" },
+        data: { updatedById: user.id },
+      });
+      if (ouvert.count === 0) throw new RefusDevis(ETAPE_CHANGEE);
+      // LES LIGNES CHOISIES, RELUES SOUS LE VERROU : une ligne d'un autre dossier, ou d'un devis corrigé depuis
+      // l'affichage (la correction recrée ses lignes), ne se retient pas en silence — la sélection enregistrée
+      // serait plus petite que celle de l'écran, sans que rien le dise.
+      const presentes = await tx.promoQuoteLine.count({ where: { id: { in: [...voulues] }, quote: { promoMaterialId: pm.id } } });
+      if (presentes !== voulues.size) {
+        throw new RefusDevis(`${voulues.size - presentes} ligne(s) choisie(s) ne figurent pas (ou plus) parmi les devis de ce dossier — rechargez la fiche, puis refaites votre choix.`);
+      }
+      await tx.promoQuoteLine.updateMany({ where: { quote: { promoMaterialId: pm.id }, id: { notIn: [...voulues] } }, data: { selected: false } });
+      await tx.promoQuoteLine.updateMany({ where: { quote: { promoMaterialId: pm.id }, id: { in: [...voulues] } }, data: { selected: true } });
+      // Les totaux de CE choix, lus sous le même verrou : lus après, ils pouvaient être ceux d'un autre.
+      const lus = (await tx.promoQuote.findMany({
+        where: { promoMaterialId: pm.id }, orderBy: [{ position: "asc" }, { createdAt: "asc" }], select: SELECT_DEVIS,
+      })).map(devisLu);
+      return totauxDeLaSelection(lus);
+    }, { timeout: 15_000, maxWait: 15_000 });
+  } catch (e) {
+    if (e instanceof RefusDevis) return { ok: false, error: e.message };
+    throw e;
+  }
   await audit(user, pm.id, `Choix des lignes : ${totaux.lignes} ligne(s) sur ${totaux.devis} devis — ${formatDzd(totaux.ttc)} TTC`);
 
-  if (formData.get("valider") !== "1") {
+  if (!valider) {
     revalidatePath(chemin(pm.id));
     return { ok: true, message: `Choix enregistré : ${totaux.lignes} ligne(s), ${formatDzd(totaux.ttc)} TTC. Validez-le quand il est complet.` };
   }
-  if (totaux.lignes === 0) return { ok: false, error: "Retenez au moins une ligne avant de valider votre choix." };
   const f = new FormData();
   f.set("id", pm.id);
+  // CE QUE L'ÉCRAN A ENVOYÉ, et lui seul, se valide : la validation relit la sélection sous son verrou et
+  // refuse si un autre choix s'est enregistré entre les deux (un autre onglet, un déblocage du Super Admin).
+  for (const lineId of voulues) f.append("lignesVues", lineId);
   return validatePromoStep(f);
 }
 
@@ -618,6 +658,13 @@ export async function redemanderDevisPromo(formData: FormData): Promise<ActionRe
  * Un prix mal recopié se voit au moment du choix : le demandeur le signale au lieu de retenir
  * une ligne fausse. Sa sélection est effacée — les lignes vont changer, et un choix fait sur les
  * anciennes serait appliqué à des lignes qu'il n'a jamais vues.
+ *
+ * LA BASCULE ET CE QUI EN DÉPEND, DANS UNE SEULE TRANSACTION (lot D1b). La bascule était conditionnelle,
+ * mais la sélection effacée, le motif au fil et la demande au secrétariat rouverte s'écrivaient après, chacun
+ * de son côté : une panne entre deux laissait le dossier chez une assistante dont le bureau ne montrait rien à
+ * traiter, et une fin de retranscription passée entre la bascule et la réouverture voyait la demande se rouvrir
+ * sur un dossier revenu au choix. Tout s'écrit sous le verrou que la bascule prend ; l'avis à l'assistante et
+ * le journal partent après.
  */
 export async function demanderCorrectionDevisPromo(formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
@@ -630,16 +677,23 @@ export async function demanderCorrectionDevisPromo(formData: FormData): Promise<
   const motif = fdStr(formData, "motif");
   if (!motif) return { ok: false, error: "Dites ce qui est à corriger : l'assistante reprendrait sinon à l'identique." };
 
-  const bascule = await prisma.promoMaterial.updateMany({
-    where: { id: pm.id, circuitState: "REVIEW_REQUESTER" },
-    data: { circuitState: "QUOTE_REQUESTED", updatedById: user.id },
-  });
-  if (bascule.count === 0) return { ok: false, error: "Ce dossier vient de changer d'étape." };
-  await prisma.promoQuoteLine.updateMany({ where: { quote: { promoMaterialId: pm.id } }, data: { selected: false } });
-  await prisma.comment.create({ data: { entityType: "PROMO_MATERIAL", entityId: pm.id, body: `Correction de la retranscription demandée : ${motif}`, authorId: user.id } });
-  // LA DEMANDE AU SECRÉTARIAT SE ROUVRE (audit 360°, R07) : la retranscription l'avait close, et une
-  // demande close ne figure plus dans « à traiter » — l'assistante, prévenue, ne voyait rien à faire.
-  await rouvrirDemandeAuSecretariat(user.id, pm.id, `Correction de la retranscription demandée par le demandeur : ${motif}`);
+  try {
+    await prisma.$transaction(async (tx) => {
+      const bascule = await tx.promoMaterial.updateMany({
+        where: { id: pm.id, circuitVersion: 2, circuitState: "REVIEW_REQUESTER" },
+        data: { circuitState: "QUOTE_REQUESTED", updatedById: user.id },
+      });
+      if (bascule.count === 0) throw new RefusDevis(ETAPE_CHANGEE);
+      await tx.promoQuoteLine.updateMany({ where: { quote: { promoMaterialId: pm.id } }, data: { selected: false } });
+      await tx.comment.create({ data: { entityType: "PROMO_MATERIAL", entityId: pm.id, body: `Correction de la retranscription demandée : ${motif}`, authorId: user.id } });
+      // LA DEMANDE AU SECRÉTARIAT SE ROUVRE (audit 360°, R07) : la retranscription l'avait close, et une
+      // demande close ne figure plus dans « à traiter » — l'assistante, prévenue, ne voyait rien à faire.
+      await rouvrirDemandeAuSecretariat(tx, user.id, pm.id, `Correction de la retranscription demandée par le demandeur : ${motif}`);
+    }, { timeout: 15_000, maxWait: 15_000 });
+  } catch (e) {
+    if (e instanceof RefusDevis) return { ok: false, error: e.message };
+    throw e;
+  }
   const avis = { type: "ASSIGNMENT" as const, title: "Matériel promotionnel — retranscription à corriger", body: `${pm.reference} — ${motif.slice(0, 200)}`, link: chemin(pm.id) };
   if (pm.assistantId) await notifyUser({ userId: pm.assistantId, ...avis });
   else await notifyRoles(["DIRECTION_ASSISTANT"], avis);

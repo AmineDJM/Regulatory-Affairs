@@ -28,12 +28,41 @@
 
 export type TeamKpiTone = "default" | "info" | "warning" | "danger" | "success";
 
+/**
+ * LA CLÉ D'UN CHIFFRE — un lien s'y accroche, jamais au libellé : le libellé est une phrase
+ * d'écran, qu'on reformule sans prévenir personne (§118.196, lot E3).
+ */
+export type CleKpi =
+  | "openTasks" | "openRequests" | "leaveDaysThisYear"
+  | "visitsDone30" | "visitsPlanned" | "doctors" | "visitsWithoutReport"
+  | "dossiers" | "overdue" | "stepsInProgress"
+  | "awaiting" | "docsRequested" | "validated30"
+  | "runsDone30" | "runsLate30" | "runsOpen";
+
 export interface TeamKpi {
+  cle: CleKpi;
   label: string;
   /** Déjà mis en forme : « 12 », « 8 j », « 3 / 14 ». La page n'a rien à calculer. */
   value: string;
   hint?: string;
   tone?: TeamKpiTone;
+  /**
+   * L'ÉCRAN QUI MONTRE CE QUE CE CHIFFRE COMPTE, pour CETTE personne (audit 360°, M12) — posé par
+   * le serveur, et seulement si la garde de cet écran laisse entrer celui qui regarde. Absent :
+   * aucun écran ne le détaille pour lui, et le chiffre ne promet pas de geste qu'il n'a pas.
+   */
+  href?: string;
+}
+
+/** Les liens d'une carte, par clé — calculés côté serveur (`queries/team-kpis.ts`). */
+export type LiensKpi = Partial<Record<CleKpi, string>>;
+
+/** Accroche à chaque chiffre l'écran qui le détaille, quand il en existe un ouvert à ce lecteur. */
+export function avecLiens(kpis: readonly TeamKpi[], liens: LiensKpi): TeamKpi[] {
+  return kpis.map((k) => {
+    const href = liens[k.cle];
+    return href ? { ...k, href } : k;
+  });
 }
 
 /**
@@ -71,9 +100,16 @@ export const JOB_LABEL: Record<TeamJob, string> = {
   GENERIC: "Charge de travail",
 };
 
-/** Ce qu'on affiche quand le métier n'a pas de compteur propre — dit, pas laissé en blanc. */
+/**
+ * Ce qu'on affiche quand le métier n'a pas de compteur propre — dit, pas laissé en blanc.
+ *
+ * La phrase disait « ce métier n'a pas d'indicateur d'activité propre DANS L'OUTIL » : faux pour
+ * les Finances (paiements, bons de commande), le Marketing (Ad & Pro), l'Assistante de direction
+ * (secrétariat) — l'outil les porte ; c'est CET ÉCRAN qui ne les suit pas encore (audit 360°,
+ * M11). Une phrase fausse se corrige, même quand le chiffre qu'elle excuse reste à écrire.
+ */
 export const NO_JOB_KPI_NOTE =
-  "Ce métier n'a pas d'indicateur d'activité propre dans l'outil : seules la charge de travail et la disponibilité sont suivies.";
+  "Cet écran ne suit pas encore d'indicateur propre à ce métier : seules la charge de travail et la disponibilité y figurent.";
 
 // ─────────────────────────────── Les comptes bruts, par métier ───────────────────────────────
 
@@ -139,6 +175,7 @@ const jours = (n: number) => `${n} j`;
 export function commonKpis(c: CommonCounts): TeamKpi[] {
   return [
     {
+      cle: "openTasks",
       label: "Tâches ouvertes",
       value: String(c.openTasks),
       // LE RETARD SE DIT AVEC LE NOMBRE, pas à côté : « 12 tâches » rassure, « 12 dont 5 en
@@ -147,12 +184,13 @@ export function commonKpis(c: CommonCounts): TeamKpi[] {
       tone: c.overdueTasks > 0 ? "warning" : "default",
     },
     {
+      cle: "openRequests",
       label: "Demandes en cours",
       value: String(c.openRequests),
       hint: c.openRequests > 0 ? "congé, achat ou formation en instruction" : undefined,
       tone: c.openRequests > 0 ? "info" : "default",
     },
-    { label: "Congés pris cette année", value: jours(c.leaveDaysThisYear) },
+    { cle: "leaveDaysThisYear", label: "Congés pris cette année", value: jours(c.leaveDaysThisYear) },
   ];
 }
 
@@ -161,10 +199,11 @@ export function jobKpis(j: JobCounts): TeamKpi[] {
     case "FIELD": {
       const c = j.counts;
       return [
-        { label: "Visites réalisées", value: String(c.visitsDone30), hint: "30 derniers jours", tone: c.visitsDone30 > 0 ? "success" : "default" },
-        { label: "Visites planifiées", value: String(c.visitsPlanned), hint: "à venir" },
-        { label: "Médecins au portefeuille", value: String(c.doctors) },
+        { cle: "visitsDone30", label: "Visites réalisées", value: String(c.visitsDone30), hint: "30 derniers jours", tone: c.visitsDone30 > 0 ? "success" : "default" },
+        { cle: "visitsPlanned", label: "Visites planifiées", value: String(c.visitsPlanned), hint: "à venir" },
+        { cle: "doctors", label: "Médecins au portefeuille", value: String(c.doctors) },
         {
+          cle: "visitsWithoutReport",
           label: "Comptes rendus manquants",
           value: String(c.visitsWithoutReport),
           // Une visite sans compte rendu, c'est une visite qui n'a pas eu lieu pour tous ceux
@@ -178,24 +217,25 @@ export function jobKpis(j: JobCounts): TeamKpi[] {
     case "REGULATORY": {
       const c = j.counts;
       return [
-        { label: "Dossiers portés", value: String(c.dossiers), hint: "responsable ou assistant·e" },
-        { label: "Dossiers en retard", value: String(c.overdue), hint: c.overdue > 0 ? "date cible dépassée" : undefined, tone: c.overdue > 0 ? "danger" : "success" },
-        { label: "Étapes en cours", value: String(c.stepsInProgress) },
+        { cle: "dossiers", label: "Dossiers portés", value: String(c.dossiers), hint: "responsable ou assistant·e" },
+        { cle: "overdue", label: "Dossiers en retard", value: String(c.overdue), hint: c.overdue > 0 ? "date cible dépassée" : undefined, tone: c.overdue > 0 ? "danger" : "success" },
+        { cle: "stepsInProgress", label: "Étapes en cours", value: String(c.stepsInProgress) },
       ];
     }
     case "MEDICAL_INFO": {
       const c = j.counts;
       return [
-        { label: "Dossiers à instruire", value: String(c.awaiting), tone: c.awaiting > 0 ? "warning" : "success" },
-        { label: "En attente de pièces", value: String(c.docsRequested), hint: c.docsRequested > 0 ? "la balle est chez le demandeur" : undefined, tone: c.docsRequested > 0 ? "info" : "default" },
-        { label: "Validés", value: String(c.validated30), hint: "30 derniers jours", tone: c.validated30 > 0 ? "success" : "default" },
+        { cle: "awaiting", label: "Dossiers à instruire", value: String(c.awaiting), tone: c.awaiting > 0 ? "warning" : "success" },
+        { cle: "docsRequested", label: "En attente de pièces", value: String(c.docsRequested), hint: c.docsRequested > 0 ? "la balle est chez le demandeur" : undefined, tone: c.docsRequested > 0 ? "info" : "default" },
+        { cle: "validated30", label: "Validés", value: String(c.validated30), hint: "30 derniers jours", tone: c.validated30 > 0 ? "success" : "default" },
       ];
     }
     case "COORDINATION": {
       const c = j.counts;
       return [
-        { label: "Courses terminées", value: String(c.runsDone30), hint: "30 derniers jours", tone: c.runsDone30 > 0 ? "success" : "default" },
+        { cle: "runsDone30", label: "Courses terminées", value: String(c.runsDone30), hint: "30 derniers jours", tone: c.runsDone30 > 0 ? "success" : "default" },
         {
+          cle: "runsLate30",
           label: "Hors délai",
           // UN TAUX SANS SON DÉNOMINATEUR MENT : « 33 % de retard » sur trois courses n'est pas
           // « 33 % » sur trente. On affiche donc la fraction telle qu'elle est.
@@ -203,7 +243,7 @@ export function jobKpis(j: JobCounts): TeamKpi[] {
           hint: c.runsDone30 === 0 ? "aucune course sur la période" : "durée dépassée",
           tone: c.runsLate30 > 0 ? "warning" : "success",
         },
-        { label: "Courses à faire", value: String(c.runsOpen), tone: c.runsOpen > 0 ? "info" : "default" },
+        { cle: "runsOpen", label: "Courses à faire", value: String(c.runsOpen), tone: c.runsOpen > 0 ? "info" : "default" },
       ];
     }
     case "GENERIC":

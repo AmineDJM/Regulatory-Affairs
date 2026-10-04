@@ -31,7 +31,6 @@ const DETTE = new Set([
   "src/lib/actions/finance-actions.ts",
   "src/lib/actions/logistics-actions.ts",
   "src/lib/actions/pch-actions.ts",
-  "src/lib/actions/purchase-request-actions.ts",
   "src/lib/actions/support-actions.ts",
   "src/lib/medical-info.ts",
   // Deux AIDES de la série FIN : le filet appartient à leurs appelants, qui n'en ont pas.
@@ -118,7 +117,7 @@ describe("Cliquet — une référence numérotée porte son filet", () => {
     // `createExpenseOrder`. Ce commentaire disait « qui porte le sien » : c'était FAUX jusqu'au §118.182
     // — le filet du fichier était celui du dossier compagnon, et la création de l'ORDRE n'en avait
     // aucun. Le cas ci-dessous le mesure création par création.
-    expect(DETTE.size, "dette mesurée le 02/10/2026").toBeLessThanOrEqual(10);
+    expect(DETTE.size, "dette mesurée le 04/10/2026 (§118.197 : la demande d'achat porte son filet)").toBeLessThanOrEqual(9);
   });
 
   it("L'ÉCRIVAIN DE TOUT DÉCAISSEMENT porte un filet sur CHACUNE de ses créations numérotées (§118.182)", () => {

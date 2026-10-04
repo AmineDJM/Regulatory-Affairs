@@ -13,7 +13,7 @@ import { MEDICAL_TABS } from "@/lib/labels";
 import { Badge } from "@/components/ui/badge";
 import { loadPanelPlanifiable, loadPlanTournee } from "@/lib/queries/tour-schedule";
 import {
-  GRANULARITE_LABELS, STATUT_PLAN_LABELS, aResoumettre, accesAuPlan, estJourOuvrePourTournee, gestesPossibles, periodeSuivante,
+  GRANULARITE_LABELS, STATUT_PLAN_LABELS, aResoumettre, accesAuPlan, clausePlansADecider, estJourOuvrePourTournee, gestesPossibles, periodeSuivante,
   retardDeSoumission, type StatutPlan,
 } from "@/lib/sfe/tournee";
 import { lireReglageTournee } from "@/lib/sfe/tournee-reglage";
@@ -65,15 +65,9 @@ export default async function PlanDeTourneePage({ searchParams }: { searchParams
     prisma.tourPlan.findMany({
       where: {
         OR: [
-          { reviewerId: user.id, status: "SUBMITTED" },
-          { escalatedToId: user.id, status: "ESCALATED" },
-          // L'INTÉRIMAIRE voit ce qui attend l'absent — jamais son propre plan (`accesAuPlan` le refuse).
-          ...(agitPour.length
-            ? [
-                { reviewerId: { in: agitPour }, status: "SUBMITTED" as const, repId: { not: user.id } },
-                { escalatedToId: { in: agitPour }, status: "ESCALATED" as const, repId: { not: user.id } },
-              ]
-            : []),
+          // CE QUI ATTEND MA DÉCISION, OU CELLE DE L'ABSENT QUE JE REMPLACE — jamais mon propre plan (`accesAuPlan`
+          // le refuse). La clause de « Mon espace » (lot E2) : deux copies de la même file finiraient par diverger.
+          clausePlansADecider(user.id, agitPour),
           // UNE VUE GLOBALE VOIT TOUT CE QUI ATTEND : sans cette branche, un plan dont le
           // validateur a quitté l'entreprise n'apparaîtrait sur aucun écran et resterait soumis
           // pour toujours — le KAM attendant une décision que personne ne sait devoir prendre.

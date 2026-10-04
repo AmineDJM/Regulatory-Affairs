@@ -463,6 +463,24 @@ export interface FaitsAccesPlan {
   agitPour: readonly string[];
 }
 
+/**
+ * LA FILE « À DÉCIDER » DES PLANS — `accesAuPlan.decider` projeté en requête (lot E2 — audit 360°, M09) : le
+ * réviseur tant que le plan est soumis, le N+2 dès qu'il est escaladé, pour moi ET pour les absents que je
+ * remplace — jamais mon propre plan. « Mon espace » et la page du plan la lisent toutes deux : deux copies de la
+ * même file finiraient par ne plus lister la même chose (§118.5). La vue globale, qui tranche partout, ne fait
+ * pas une file (§118.153a) : la page l'ajoute à part.
+ */
+export function clausePlansADecider(moi: string, agitPour: readonly string[]) {
+  const signataires = [moi, ...agitPour];
+  return {
+    repId: { not: moi },
+    OR: [
+      { status: "SUBMITTED" as const, reviewerId: { in: signataires } },
+      { status: "ESCALATED" as const, escalatedToId: { in: signataires } },
+    ],
+  };
+}
+
 export function accesAuPlan(f: FaitsAccesPlan): { voir: boolean; decider: boolean; escalader: boolean } {
   const gestes = gestesPossibles(f.statut);
   const estLeKam = f.userId === f.repId;

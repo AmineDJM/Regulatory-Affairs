@@ -1276,6 +1276,7 @@ model User {
   adminRequestsAssigned   AdministrativeRequest[] @relation("ReqAssignee")
   adminRequestsValidating AdministrativeRequest[] @relation("ReqValidator")
   adminApprovals          AdminApproval[]         @relation("ApprovalValidator")
+  adminApprovalsDecided   AdminApproval[]         @relation("ApprovalDecider")
   driverMissions          DriverMission[]         @relation("MissionDriver")
 
   // Validations transversales + feedback
@@ -5725,6 +5726,15 @@ model AdminApproval {
   amount        Decimal?              @db.Decimal(14, 2)
   currency      String                @default("DZD")
   decidedAt     DateTime?
+  /// QUI A TRANCHÉ (audit des managers, M14) — le validateur nommé, son intérimaire, un détenteur du droit
+  /// « Valider » du module ou la vue globale. `SetNull` : supprimer un compte ne fait pas disparaître la
+  /// décision ; elle se lit alors « auteur inconnu », comme celles d'avant cet enregistrement.
+  decidedById   String?
+  decidedBy     User?                 @relation("ApprovalDecider", fields: [decidedById], references: [id], onDelete: SetNull)
+  /// LA PAROLE DE CELUI QUI TRANCHE (M15) — exigée pour un refus ou une demande de modification. À part de
+  /// `comment`, qui porte celle de celui qui DEMANDE (l'estimation du catalogue, la note de l'assistante) :
+  /// une colonne pour deux voix efface l'une sous l'autre (§118.146).
+  decisionNote  String?
   createdAt     DateTime              @default(now())
 
   @@index([requestId])
@@ -6063,6 +6073,8 @@ model PchTender {
   notes       String?
   orders      PchOrder[]
   lines       PchTenderLine[]
+  /// Les LECTURES de son document (texte natif ou OCR → lignes) — ce qui a été lu, et ce qui ne l'a pas été.
+  extractions PchTenderExtraction[]
   /// Les VERSIONS de préparation de la soumission — la déposée est verrouillée.
   submissions PchSubmission[]
   /// Les CONTRATS nés de ce marché — le lien FORT qui remplace la recherche par texte.
@@ -6166,9 +6178,52 @@ model PchTenderLine {
   orderLines             PchOrderLine[]              @relation("OrderLineTenderLine")
   /// LES BUSINESS UNITS QUI PORTENT CE PRODUIT — voir `PchTenderLineBusinessUnit`.
   businessUnits          PchTenderLineBusinessUnit[]
+  /// LA LECTURE dont cette ligne est née — `null` : saisie à la main, ou née avant que les lectures soient tracées.
+  /// Une lecture ne remplace QUE des lignes nées d'une lecture, que personne n'a touchées (`lib/pch/extraction.ts`).
+  extractionId           String?
+  extraction             PchTenderExtraction?        @relation(fields: [extractionId], references: [id], onDelete: SetNull)
+  /// CE QUE LA LECTURE AVAIT LU (désignation, dosage, forme, quantité), figé : c'est lui, et non la ligne corrigée,
+  /// qui reconnaît le même produit à la lecture suivante — une quantité mal lue puis corrigée n'est pas recréée.
+  empreinteExtraction    String?
+  /// La dernière fois qu'une PERSONNE a changé cette ligne. `updatedAt` bouge aussi quand l'enrichissement écrit ;
+  /// seul ce champ dit « touchée à la main ».
+  modifieeLe             DateTime?
 
   @@index([tenderId])
   @@index([productId])
+  @@index([extractionId])
+}
+
+/// UNE LECTURE DU DOCUMENT D'UN APPEL D'OFFRES — ce qu'on a lu, comment, et ce qu'on n'a PAS lu (audit 360°, lot D1c).
+///
+/// La lecture d'avant océrisait même un PDF qui porte son texte, coupait le texte à 24 000 caractères sans le dire,
+/// et AJOUTAIT ses lignes aux précédentes. Une lecture porte désormais sa méthode, ses pages, sa coupe (`caracteres`
+/// / `caracteresLus`) et le fichier gardé ; ses lignes la désignent (`PchTenderLine.extractionId`), ce qui permet
+/// à la lecture suivante de remplacer ce que personne n'a touché — et seulement cela.
+model PchTenderExtraction {
+  id             String          @id @default(cuid())
+  tenderId       String
+  tender         PchTender       @relation(fields: [tenderId], references: [id], onDelete: Cascade)
+  /// « document » (fichier lu) ou « texte » (texte collé).
+  source         String
+  nomFichier     String?
+  /// Le fichier gardé dans les documents du marché, quand il a pu l'être (`Document`, polymorphe : pas de clé étrangère).
+  documentId     String?
+  /// « texte » : texte natif ; « ocr » : reconnu sur des images.
+  methode        String
+  confiance      Int?
+  aRelire        Boolean         @default(false)
+  pagesLues      Int?
+  pagesTotal     Int?
+  caracteres     Int
+  caracteresLus  Int
+  produits       Int
+  complementaire Boolean         @default(false)
+  createdById    String?
+  createdAt      DateTime        @default(now())
+  lignes         PchTenderLine[]
+
+  @@index([tenderId, createdAt])
 }
 
 /// QUI PORTE CE PRODUIT DU MARCHÉ — l'affectation d'un lot d'AO à une ou plusieurs Business Units.

@@ -205,6 +205,7 @@ export default async function LegalPage({ searchParams }: { searchParams?: { ech
             societeParDefaut={composition.societeParDefaut}
             letterheads={composition.letterheads}
             peutReglerNumerotation={composition.peutReglerNumerotation}
+            amont={composition.amont}
           />
         )}
         {composition && typeInitialCompose && (
@@ -215,6 +216,7 @@ export default async function LegalPage({ searchParams }: { searchParams?: { ech
             societeParDefaut={composition.societeParDefaut}
             letterheads={composition.letterheads}
             peutReglerNumerotation={composition.peutReglerNumerotation}
+            amont={composition.amont}
           />
         )}
         {canCreate && (

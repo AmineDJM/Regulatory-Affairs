@@ -6,7 +6,7 @@ import { userCan } from "@/lib/rbac";
 import { listPartyOptions } from "@/lib/queries/company-contacts";
 import { aiConfigured } from "@/lib/ai";
 import { prisma } from "@/lib/prisma";
-import { getPchTenderDetail } from "@/lib/queries/pch";
+import { getPchTenderDetail, lecturesDuMarche } from "@/lib/queries/pch";
 import { loadMarket360 } from "@/lib/queries/market-360";
 import { loadEngagementsAilleurs, reserveEngagement } from "@/lib/queries/pch-engagements";
 import { storyMarche } from "@/lib/queries/story";
@@ -76,6 +76,8 @@ export default async function PchTenderPage({ params }: { params: { id: string }
     if (phrase) reserves[pid] = phrase;
   }
   const canEdit = userCan(user, "PCH", "UPDATE");
+  // LES LECTURES DU DOCUMENT (lot D1c — F2) : ce que chaque lecture a fait, montré à qui peut en relancer une.
+  const lectures = canEdit ? await lecturesDuMarche(t.id) : { liste: [], total: 0 };
   const canDelete = userCan(user, "PCH", "DELETE");
   const canUpload = userCan(user, "PCH", "UPLOAD");
   const canLegal = userCan(user, "LEGAL", "CREATE") && userCan(user, "LEGAL", "UPDATE");
@@ -216,7 +218,7 @@ export default async function PchTenderPage({ params }: { params: { id: string }
 
       <Card>
         <CardContent className="p-4">
-          <TenderLines tenderId={t.id} lines={t.lines} canEdit={canEdit} aiConfigured={aiConfigured()} reserves={reserves} />
+          <TenderLines tenderId={t.id} lines={t.lines} canEdit={canEdit} aiConfigured={aiConfigured()} reserves={reserves} lectures={lectures} />
         </CardContent>
       </Card>
 

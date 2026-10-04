@@ -17,6 +17,7 @@ import { getAppSettings } from "@/lib/settings";
 import { statutDepuisCircuit } from "@/lib/events/statut";
 import { AD_PRO_PARENTS, PARENT_COLONNE, type AdProParent } from "@/lib/ad-pro-items";
 import { issueTerminaleSponsoring } from "./issue-sponsoring";
+import { argentEffectif } from "./pouvoirs-argent";
 import { auteursDAvis, etapeDeReprise, peutResoumettre, refusDuRenvoi, statutLegacyALEtape } from "./renvoi";
 import {
   CATEGORY_LABELS,
@@ -170,6 +171,41 @@ export function nextStepAfter(
 ): LoadedStep | null {
   if (estDecisionnaire(step.slug, borne ?? null)) return null;
   return orderedSteps(def).find((s) => s.position > step.position && !estIgnoree(s.slug, ignorees)) ?? null;
+}
+
+/**
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ * CE QUE DÉCIDE L'APPROBATION DE CETTE ÉTAPE — une seule lecture, pour le moteur ET pour l'écran.
+ *
+ * Trois faits qui ne vont pas l'un sans l'autre : y a-t-il une SUITE (`nextStepAfter`, la borne et
+ * le tamis réunis), quelles étapes la demande n'atteindra JAMAIS (`etapesNonAtteintes` — c'est d'elles
+ * que l'étape qui conclut hérite l'émission, §118.107a), et donc ce que l'étape DÉCIDE de l'argent
+ * (`argentEffectif` : sur la route d'un rang 2, la Direction des opérations conclut, et fixe le
+ * montant et la catégorie que Direction Marketing aurait fixés).
+ *
+ * Le moteur l'appelle pour JUGER l'approbation (montant exigé, catégorie exigée, issue d'un
+ * sponsoring) ; l'écran doit l'appeler pour PROPOSER les champs. Deux lectures séparées finiraient
+ * par ne plus dire la même chose, et le symptôme serait le pire de cet écran : un montant exigé que
+ * le panneau ne montre pas — une approbation offerte puis refusée (§118.83).
+ *
+ * `etape` est l'étape elle-même (même objet) quand rien n'est hérité.
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ */
+export function lectureDeLApprobation(
+  def: LoadedDefinition,
+  step: LoadedStep,
+  borne: string | null,
+  ignorees: readonly string[],
+): { next: LoadedStep | null; conclut: boolean; nonAtteintes: LoadedStep[]; etape: LoadedStep } {
+  const ordonnees = orderedSteps(def);
+  const next = nextStepAfter(def, step, borne, ignorees);
+  const conclut = next === null;
+  const nonAtteintes = conclut
+    ? etapesNonAtteintes(ordonnees.map((s) => s.slug), borne, ignorees)
+        .map((slug) => ordonnees.find((s) => s.slug === slug))
+        .filter((s): s is LoadedStep => Boolean(s))
+    : [];
+  return { next, conclut, nonAtteintes, etape: argentEffectif(step, conclut, nonAtteintes) };
 }
 
 /**
@@ -348,10 +384,11 @@ export async function ensureInstance(entityType: EntityType, entityId: string): 
   const def = await getDefinition(category);
   const summary = await loadEntity(entityType, entityId);
   const { currentSlug, status } = positionFromLegacy(orderedSteps(def), summary?.legacyStatus ?? null);
-  // LA BORNE DE SORTIE DU PARCOURS, fixée MAINTENANT et jamais recalculée.
+  // LA BORNE ET LE TAMIS DU PARCOURS, fixés MAINTENANT et jamais recalculés.
   //
-  // Elle se lit sur le DEMANDEUR et sur la NATURE de la demande (`parcoursAdPro` : trois branches,
-  // et le sponsoring d'un KAM qui traverse aussi la Direction des opérations). On la fige à la naissance de l'instance
+  // Ils se lisent sur le DEMANDEUR et sur la NATURE de la demande (`parcoursAdPro` : le rang et
+  // le métier de son auteur, et le sponsoring d'un KAM qui traverse aussi la Direction des
+  // opérations). On les fige à la naissance de l'instance
   // parce qu'un KAM promu National Sales en cours de circuit ne doit pas voir sa chaîne
   // changer — et surtout parce qu'un National Sales redevenu KAM ne doit pas PERDRE la
   // validation de la Direction qui lui était promise. Le parcours est un fait de la DEMANDE.
@@ -777,7 +814,6 @@ async function appliquerLeGeste(ctx: ContexteGeste): Promise<AdvanceResult> {
   // action === APPROVE
   if (!step.powers.includes("APPROVE")) return { ok: false, error: "Cette étape ne permet pas d'approuver." };
 
-  const ordonnees = orderedSteps(def);
   // L'ÉTAPE SUIVANTE, LUE ICI ET UNE SEULE FOIS — c'est elle qui dit si cette étape CONCLUT.
   //
   // Elle était calculée plus bas, et l'héritage d'émission se gouvernait sur la BORNE
@@ -788,9 +824,9 @@ async function appliquerLeGeste(ctx: ContexteGeste): Promise<AdvanceResult> {
   // en échec, exactement le silence que l'héritage existe pour fermer.
   //
   // « Y a-t-il une suite ? » est déjà l'unique lecture qui réunit la borne ET le tamis. On s'en
-  // sert donc, au lieu d'en écrire une seconde qui divergerait (§118.5, §118.61).
-  const next = nextStepAfter(def, step, borne, ignorees);
-  const conclut = next === null;
+  // sert donc, au lieu d'en écrire une seconde qui divergerait (§118.5, §118.61) — et l'écran lit
+  // la MÊME réponse (`lectureDeLApprobation`), pour proposer exactement les champs jugés ici.
+  //
   // L'ÉMISSION HÉRITÉE DE TOUT CE QUI N'EST PAS ATTEINT — la queue coupée ET le tamis.
   //
   // Une demande de KAM s'arrête à Direction Marketing ; l'émission financière peut être déclarée
@@ -799,27 +835,35 @@ async function appliquerLeGeste(ctx: ContexteGeste): Promise<AdvanceResult> {
   // engagé, et aucune étape n'est en échec. On ne réécrit pas la définition pour autant (§118.5)
   // — le Super Admin a posé ses drapeaux où il les voulait ; c'est l'EXÉCUTION qui hérite, et
   // seulement à l'étape qui CONCLUT, une fois qu'il est sûr que rien d'autre ne viendra.
-  const nonAtteintes = conclut
-    ? etapesNonAtteintes(ordonnees.map((s) => s.slug), borne, ignorees)
-        .map((slug) => ordonnees.find((s) => s.slug === slug))
-        .filter((s): s is LoadedStep => Boolean(s))
-    : [];
+  //
+  // LES POUVOIRS D'ARGENT SUIVENT LE MÊME CHEMIN, et c'est ce qui manquait (`pouvoirs-argent.ts`).
+  // Hériter l'émission sans hériter le montant ne servait à rien : `emitFinancials` ne part pas
+  // sans montant fixé, et la Direction des opérations, qui conclut la route d'un rang 2, n'avait
+  // aucun moyen d'en fixer un — 12 demandes sur 12 sortaient approuvées sans budget ni dépense.
+  // `etape` est donc l'étape TELLE QU'ELLE DÉCIDE : c'est elle qu'on juge (montant, catégorie) et
+  // dont on lit l'issue ; `step` reste l'étape de la définition, pour tout le reste.
+  const { next, conclut, nonAtteintes, etape } = lectureDeLApprobation(def, step, borne, ignorees);
   const emitDeclarationDue = step.emitDeclaration || nonAtteintes.some((s) => s.emitDeclaration);
   const emitExpenseOrderDue = step.emitExpenseOrder || nonAtteintes.some((s) => s.emitExpenseOrder);
   const emitStep = emitDeclarationDue || emitExpenseOrderDue;
   // UN SPONSORING DONT CETTE ÉTAPE PRÉ-VALIDE LA TENUE (§118.151) : l'argent se décidera APRÈS,
   // poste par poste puis à la clôture. La déclaration d'information médicale ne peut pas attendre
   // jusque-là — la clôture vient une fois l'événement passé, trop tard pour le déclarer.
-  const argentDecideApres = entityType === "SPONSORING" && conclut && issueTerminaleSponsoring(step) === "PRE_VALIDATED";
+  //
+  // L'ISSUE SE LIT SUR L'ÉTAPE TELLE QU'ELLE DÉCIDE : sur le circuit par défaut, l'étape décisive
+  // du sponsoring ne fixe aucun argent, donc rien n'est hérité et la tenue reste pré-validée. Sur
+  // un circuit dont le Super Admin a laissé l'argent à Direction Marketing, l'étape qui conclut une
+  // route coupée hérite ce pouvoir — et ACCORDE, exactement comme l'étape dont elle tient la place.
+  const argentDecideApres = entityType === "SPONSORING" && conclut && issueTerminaleSponsoring(etape) === "PRE_VALIDATED";
   const amount = input.amount ?? null;
   const budgetCategoryId = input.budgetCategoryId?.trim() || null;
   const assigneeId = input.assigneeId?.trim() || null;
 
-  // Contrôles des champs requis par l'étape.
+  // Contrôles des champs requis par l'étape — telle qu'elle décide.
   if (step.powers.includes("ASSIGN") && !assigneeId) return { ok: false, error: "Désignez la personne en charge de l'étape suivante." };
-  if (step.requireAmount && !(amount != null && amount > 0)) return { ok: false, error: "Le montant est obligatoire à cette étape." };
+  if (etape.requireAmount && !(amount != null && amount > 0)) return { ok: false, error: "Le montant est obligatoire à cette étape." };
   if (step.requireNote && !note) return { ok: false, error: "Un commentaire est obligatoire à cette étape." };
-  if (step.requireCategory && !budgetCategoryId) return { ok: false, error: "La (sous-)catégorie budgétaire est obligatoire à cette étape." };
+  if (etape.requireCategory && !budgetCategoryId) return { ok: false, error: "La (sous-)catégorie budgétaire est obligatoire à cette étape." };
   if (budgetCategoryId) {
     const okCat = await prisma.budgetCategoryLine.count({ where: { id: budgetCategoryId } });
     if (okCat === 0) return { ok: false, error: "La (sous-)catégorie budgétaire choisie est introuvable." };
@@ -837,7 +881,7 @@ async function appliquerLeGeste(ctx: ContexteGeste): Promise<AdvanceResult> {
   if (budgetCategoryId) instData.budgetCategoryId = budgetCategoryId;
   // Le montant d'une étape « Fixer un montant » (proposition) OU de l'étape d'émission (accordé)
   // devient le montant de TRAVAIL de l'instance : base des franchissements auto par seuil en aval.
-  if (amount != null && (emitStep || step.powers.includes("SET_AMOUNT"))) instData.amount = amount;
+  if (amount != null && (emitStep || etape.powers.includes("SET_AMOUNT"))) instData.amount = amount;
   if (Object.keys(instData).length) await prisma.workflowInstance.update({ where: { id: instance.id }, data: instData });
 
   const refreshed = await prisma.workflowInstance.findUnique({ where: { id: instance.id } });
@@ -852,8 +896,10 @@ async function appliquerLeGeste(ctx: ContexteGeste): Promise<AdvanceResult> {
       liveInstance, summary, viewer);
   }
 
-  // Projection « legacy » : écrit les champs de l'entité source attendus par l'UI.
-  await projectApprove(entityType, entityId, step, next, {
+  // Projection « legacy » : écrit les champs de l'entité source attendus par l'UI. L'étape TELLE
+  // QU'ELLE DÉCIDE, ici aussi : l'issue d'un sponsoring s'y relit (§118.151), et elle doit être la
+  // même que celle que `argentDecideApres` vient de juger.
+  await projectApprove(entityType, entityId, etape, next, {
     viewer, note, amount, assigneeId, emitResult,
     nextLegacyStatus: next?.legacyStatus ?? null,
     emitStep,

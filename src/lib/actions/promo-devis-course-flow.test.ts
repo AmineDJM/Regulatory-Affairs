@@ -1,4 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import type { Prisma } from "@prisma/client";
 import type { CurrentUser } from "@/lib/session";
 
@@ -10,8 +12,11 @@ import { prisma } from "@/lib/prisma";
 import { getAccess, hasGlobalView, type SessionUser } from "@/lib/rbac";
 import { deleteFileByKey } from "@/lib/storage";
 import { createPromoMaterial } from "./promo-material-actions";
-import { validatePromoStep } from "./promo-circuit-actions";
-import { demanderDevisPromo, enregistrerDevisPromo, supprimerDevisPromo, terminerRetranscriptionPromo } from "./promo-devis-actions";
+import { completePromoTrack, validatePromoStep } from "./promo-circuit-actions";
+import {
+  choisirLignesPromo, demanderCorrectionDevisPromo, demanderDevisPromo, enregistrerDevisPromo, supprimerDevisPromo, terminerRetranscriptionPromo,
+} from "./promo-devis-actions";
+import { enregistrerArticleDemandePromo } from "./promo-demande-actions";
 import { formatDzd } from "@/lib/promo-material/devis";
 import type { ActionResult } from "./types";
 
@@ -21,6 +26,9 @@ const suite = dbOk ? describe : describe.skip;
 
 const TAG = `__pdcourse__${Date.now().toString(36)}`;
 const ETAPE_CHANGEE = "Ce dossier vient de changer d'étape — rechargez la fiche.";
+const CHOIX_CHANGE = "La sélection a changé pendant votre validation (un autre onglet, ou un déblocage du Super Admin) : rien n'a été validé — rechargez la fiche, vérifiez les lignes retenues, puis validez.";
+const LIGNE_ABSENTE = "1 ligne(s) choisie(s) ne figurent pas (ou plus) parmi les devis de ce dossier — rechargez la fiche, puis refaites votre choix.";
+const CHANTIER_CHANGE = "Ce dossier vient de changer — un autre chantier vient d'être clos, ou son étape a changé : rechargez la fiche.";
 
 async function actorFor(id: string): Promise<CurrentUser> {
   const u = await prisma.user.findUniqueOrThrow({ where: { id } });
@@ -70,11 +78,17 @@ const avisAuDemandeur = (userId: string, id: string) =>
  * Chaque course est JOUÉE, jamais espérée (§118.65) : la transaction du banc verrouille la ligne du
  * dossier, lance le geste, attend qu'il soit bloqué PAR ELLE, écrit elle-même le changement
  * concurrent, puis relâche.
+ *
+ * LOT D1b — les autres écritures d'étape du circuit 2 : le choix des lignes, sa validation, la demande
+ * de correction, la fin de la retranscription et la demande au secrétariat qu'elle ferme, l'article
+ * ajouté au choix, les chantiers. Deux sortes de preuves : une COURSE (le changement concurrent écrit par
+ * le banc pendant que le geste attend), et une OBSERVATION d'atomicité (le banc verrouille ce que le geste
+ * écrit en DERNIER, et lit, par le client global, ce qu'un tiers voit pendant l'attente : rien).
  * ═══════════════════════════════════════════════════════════════════════════════════════════
  */
 suite("Matériel promotionnel — la retranscription sous course, et le total imprimé exigé", () => {
   const u: Record<string, string> = {};
-  let companyId = "", fourA = "", fourB = "", catCarnet = "";
+  let companyId = "", fourA = "", fourB = "", catCarnet = "", catPlv = "";
   let debutBanc = new Date();
 
   beforeAll(async () => {
@@ -96,8 +110,9 @@ suite("Matériel promotionnel — la retranscription sous course, et le total im
       prisma.companyContact.create({ data: { name: `${TAG} Imprimerie Atlas`, address: "Zone industrielle", city: "Alger", companyId: null }, select: { id: true } }),
       prisma.companyContact.create({ data: { name: `${TAG} Imprimerie Tell`, address: "Rue 5", city: "Blida", companyId: null }, select: { id: true } }),
       prisma.promoCatalogueArticle.create({ data: { reference: `${TAG}-CARNET`, nom: `${TAG} Carnet bilan`, famille: "CONSOMMABLE" }, select: { id: true } }),
+      prisma.promoCatalogueArticle.create({ data: { reference: `${TAG}-PLV`, nom: `${TAG} Présentoir PLV`, famille: "DURABLE" }, select: { id: true } }),
     ]);
-    [fourA, fourB, catCarnet] = vague.map((r) => r.id);
+    [fourA, fourB, catCarnet, catPlv] = vague.map((r) => r.id);
   }, 60_000);
 
   afterAll(async () => {
@@ -173,39 +188,105 @@ suite("Matériel promotionnel — la retranscription sous course, et le total im
     return r.id!;
   }
 
+  /** Ce que la transaction du banc tient pendant que les gestes attendent : UNE ligne (ou les lignes d'un dossier). */
+  type Verrou = (tx: Prisma.TransactionClient) => Promise<unknown>;
+  const verrouDossier = (id: string): Verrou => (tx) => tx.$queryRaw`SELECT id FROM "PromoMaterial" WHERE id = ${id} FOR UPDATE`;
+  /** Les lignes des devis du dossier : une sélection qui s'efface ou se coche attend derrière. */
+  const verrouLignes = (id: string): Verrou => (tx) => tx.$queryRaw`
+    SELECT l.id FROM "PromoQuoteLine" l JOIN "PromoQuote" q ON q.id = l."quoteId" WHERE q."promoMaterialId" = ${id} FOR UPDATE OF l`;
+  /** La demande au secrétariat du dossier : sa fermeture ou sa réouverture attend derrière. */
+  const verrouDemande = (demandeId: string): Verrou => (tx) => tx.$queryRaw`SELECT id FROM "AdministrativeRequest" WHERE id = ${demandeId} FOR UPDATE`;
   /**
-   * LA COURSE FORCÉE (§118.164e). Un verrou de LIGNE sur le seul dossier visé laisse le geste LIRE et le bloque
-   * à sa première écriture — et `pg_blocking_pids` dit qu'il est bloqué PAR NOUS : un verrou de table, ou un
-   * filtre sur le texte des requêtes, compterait aussi les gestes des autres fichiers de la suite, et la
-   * barrière s'ouvrirait avant que le nôtre y soit (§118.65, §118.193). Puis le détenteur écrit lui-même le
-   * changement concurrent, et relâche. Un échec de barrière dit ce que faisaient les sessions.
+   * La fiche d'une personne : son JOURNAL attend derrière (la clé étrangère de `AuditLog.actorId`), pas ses
+   * écritures sur le dossier, qui n'en portent aucune. Un choix s'enregistre donc, puis s'arrête avant sa validation.
    */
-  async function pendantQueLeGesteAttend<T>(dossierId: string, lancer: () => Promise<T>, entretemps: (tx: Prisma.TransactionClient) => Promise<unknown>): Promise<T> {
-    let geste!: Promise<T>;
+  const verrouPersonne = (userId: string): Verrou => (tx) => tx.$queryRaw`SELECT id FROM "User" WHERE id = ${userId} FOR UPDATE`;
+
+  /**
+   * LA COURSE FORCÉE (§118.164e). Un verrou de LIGNE sur ce que vise le seul geste du banc le laisse LIRE et le
+   * bloque à sa première écriture — et `pg_blocking_pids` dit qu'il est bloqué PAR NOUS : un verrou de table, ou
+   * un filtre sur le texte des requêtes, compterait aussi les gestes des autres fichiers de la suite, et la
+   * barrière s'ouvrirait avant que le nôtre y soit (§118.65, §118.193). Plusieurs gestes sont lancés UN PAR UN,
+   * chacun attendu bloqué — par nous, ou derrière un geste bloqué par nous — avant le suivant : ils font la queue
+   * sur la ligne dans l'ordre de leur lancement, et cet ordre est celui de leur passage (déterministe, pas
+   * espéré). Puis le détenteur écrit lui-même le changement concurrent (ou lit, par le client global, ce qu'un
+   * tiers voit pendant l'attente), et relâche. Un échec de barrière dit ce que faisaient les sessions.
+   */
+  async function pendantQueLesGestesAttendent<T>(
+    verrou: Verrou, gestes: Array<() => Promise<T>>, entretemps?: (tx: Prisma.TransactionClient) => Promise<unknown>,
+  ): Promise<T[]> {
+    const lances: Promise<T>[] = [];
     await prisma.$transaction(async (tx) => {
-      await tx.$queryRaw`SELECT id FROM "PromoMaterial" WHERE id = ${dossierId} FOR UPDATE`;
-      geste = lancer();
-      geste.catch(() => undefined);
-      const debut = Date.now();
-      for (;;) {
-        await tx.$executeRawUnsafe("SELECT pg_stat_clear_snapshot()");
-        const [{ n }] = await tx.$queryRaw<{ n: number }[]>`
-          SELECT count(*)::int AS n FROM pg_stat_activity
-          WHERE datname = current_database() AND pg_backend_pid() = ANY(pg_blocking_pids(pid))`;
-        if (n >= 1) break;
-        if (Date.now() - debut > 15_000) {
+      await verrou(tx);
+      for (const lancer of gestes) {
+        const geste = lancer();
+        geste.catch(() => undefined);
+        lances.push(geste);
+        const debut = Date.now();
+        for (;;) {
           await tx.$executeRawUnsafe("SELECT pg_stat_clear_snapshot()");
-          const vues = await tx.$queryRaw<{ etat: string | null; attente: string; requete: string }[]>`
-            SELECT state AS etat, coalesce(wait_event_type, '') || ':' || coalesce(wait_event, '') AS attente, left(query, 90) AS requete
-            FROM pg_stat_activity WHERE datname = current_database() AND pid <> pg_backend_pid()`;
-          throw new Error(`le geste n'a pas atteint la barrière — ${JSON.stringify(vues)}`);
+          const [{ n }] = await tx.$queryRaw<{ n: number }[]>`
+            WITH att AS (SELECT pid, pg_blocking_pids(pid) AS par FROM pg_stat_activity WHERE datname = current_database()),
+                 directs AS (SELECT pid FROM att WHERE pg_backend_pid() = ANY(par))
+            SELECT count(*)::int AS n FROM att
+            WHERE pg_backend_pid() = ANY(par) OR par && ARRAY(SELECT pid FROM directs)`;
+          if (n >= lances.length) break;
+          if (Date.now() - debut > 15_000) {
+            await tx.$executeRawUnsafe("SELECT pg_stat_clear_snapshot()");
+            const vues = await tx.$queryRaw<{ etat: string | null; attente: string; requete: string }[]>`
+              SELECT state AS etat, coalesce(wait_event_type, '') || ':' || coalesce(wait_event, '') AS attente, left(query, 90) AS requete
+              FROM pg_stat_activity WHERE datname = current_database() AND pid <> pg_backend_pid()`;
+            throw new Error(`le geste n°${lances.length} n'a pas atteint la barrière — ${JSON.stringify(vues)}`);
+          }
+          await new Promise((r) => setTimeout(r, 25));
         }
-        await new Promise((r) => setTimeout(r, 25));
       }
-      await entretemps(tx);
+      if (entretemps) await entretemps(tx);
     }, { timeout: 30_000 });
-    return geste;
+    return Promise.all(lances);
   }
+  /** Un geste, le dossier tenu : la forme des courses du lot D1. */
+  async function pendantQueLeGesteAttend<T>(dossierId: string, lancer: () => Promise<T>, entretemps: (tx: Prisma.TransactionClient) => Promise<unknown>): Promise<T> {
+    const [r] = await pendantQueLesGestesAttendent(verrouDossier(dossierId), [lancer], entretemps);
+    return r as T;
+  }
+
+  /** Un dossier de cp AU CHOIX DES LIGNES : un devis complet par fournisseur, la retranscription terminée (sa demande au secrétariat close). */
+  async function auChoix(titre: string, fournisseurs: string[] = [fourA]): Promise<{ id: string; lignes: string[]; demande: string }> {
+    const id = await auxDevisDemandes(titre);
+    const devis: string[] = [];
+    for (const f of fournisseurs) devis.push(await devisComplet(id, f));
+    await comme("asst");
+    reussi(await terminerRetranscriptionPromo(form({ promoMaterialId: id })), "terminer la retranscription");
+    const lignes: string[] = [];
+    for (const q of devis) lignes.push((await lignesDe(q))[0]!.id);
+    const demande = (await prisma.promoMaterial.findUniqueOrThrow({ where: { id }, select: { adminRequestId: true } })).adminRequestId;
+    if (!demande) throw new Error("le dossier n'a pas de demande au secrétariat");
+    await comme("cp");
+    return { id, lignes, demande };
+  }
+  const choix = (id: string, lignes: string[], valider = false) =>
+    choisirLignesPromo(form({ promoMaterialId: id, lineIds: lignes, ...(valider ? { valider: "1" } : {}) }));
+  const retenues = async (id: string) =>
+    (await prisma.promoQuoteLine.findMany({ where: { quote: { promoMaterialId: id }, selected: true }, select: { id: true } })).map((l) => l.id).sort();
+  const auditsDuChoix = (id: string) =>
+    prisma.auditLog.count({ where: { entityType: "PROMO_MATERIAL", entityId: id, summary: { startsWith: "Choix des lignes" } } });
+  const demandeDe = (demandeId: string) =>
+    prisma.administrativeRequest.findUniqueOrThrow({ where: { id: demandeId }, select: { status: true, completedAt: true } });
+  const demandeDuDossier = async (id: string) => {
+    const d = (await prisma.promoMaterial.findUniqueOrThrow({ where: { id }, select: { adminRequestId: true } })).adminRequestId;
+    if (!d) throw new Error("le dossier n'a pas de demande au secrétariat");
+    return d;
+  };
+  /** Ce que la validation fige : l'étape, le montant retenu et ses fournisseurs. */
+  const fige = (id: string) =>
+    prisma.promoMaterial.findUniqueOrThrow({ where: { id }, select: { circuitState: true, chosenAmount: true, chosenAgency: true } })
+      .then((p) => ({ etape: p.circuitState, montant: p.chosenAmount == null ? null : Number(p.chosenAmount), fournisseurs: p.chosenAgency }));
+  /** Ce qu'écrit une correction de la retranscription, joué par le banc : l'étape revient à l'assistante, la sélection s'efface. */
+  const corrigeeParLeBanc = (id: string) => async (tx: Prisma.TransactionClient) => {
+    await tx.promoMaterial.update({ where: { id }, data: { circuitState: "QUOTE_REQUESTED" } });
+    await tx.promoQuoteLine.updateMany({ where: { quote: { promoMaterialId: id } }, data: { selected: false } });
+  };
 
   it("PRÉMISSES : l'assistante et le demandeur n'ont pas la vue globale — une garde éprouvée avec elle ne pourrait pas tomber (§118.104)", async () => {
     expect(hasGlobalView((await actorFor(u.asst!)).role)).toBe(false);
@@ -342,4 +423,203 @@ suite("Matériel promotionnel — la retranscription sous course, et le total im
     reussi(await terminerRetranscriptionPromo(form({ promoMaterialId: id })), "terminer");
     expect((await etat(id)).circuitState).toBe("REVIEW_REQUESTER");
   }, 60_000);
+
+  // ═════════════════════════════════════════════════════════════════════════════════════════════════
+  // LOT D1b — LE CHOIX DES LIGNES, SA VALIDATION, LA CORRECTION, LA FIN, L'ARTICLE AU CHOIX, LES CHANTIERS
+  // ═════════════════════════════════════════════════════════════════════════════════════════════════
+
+  it("UN CHOIX VALIDÉ PENDANT QU'UNE CORRECTION EST DEMANDÉE : refusé à l'étape — la sélection effacée par la correction le reste, rien n'est journalisé", async () => {
+    const { id, lignes: [l1] } = await auChoix("Choix pendant une correction");
+    const r = await pendantQueLeGesteAttend(id, () => choix(id, [l1!], true), corrigeeParLeBanc(id));
+    expect(err(r)).toBe(ETAPE_CHANGEE);
+    expect(await retenues(id), "le choix ne recoche pas ce que la correction vient d'effacer").toEqual([]);
+    expect(await fige(id)).toEqual({ etape: "QUOTE_REQUESTED", montant: null, fournisseurs: null });
+    expect(await auditsDuChoix(id), "un choix refusé n'est pas journalisé").toBe(0);
+  }, 90_000);
+
+  it("UN CHOIX DONT UNE LIGNE A ÉTÉ REFAITE PENDANT QU'IL ATTEND : refusé en le disant — rien n'est retenu en silence", async () => {
+    const { id, lignes: [l1] } = await auChoix("Ligne refaite pendant le choix");
+    const r = await pendantQueLeGesteAttend(id, () => choix(id, [l1!]), async (tx) => {
+      // Une correction déjà refermée : l'assistante a refait la ligne (supprimée, recréée), le dossier est revenu au choix.
+      const l = await tx.promoQuoteLine.findUniqueOrThrow({ where: { id: l1! } });
+      await tx.promoQuoteLine.delete({ where: { id: l.id } });
+      await tx.promoQuoteLine.create({
+        data: { quoteId: l.quoteId, position: l.position, reference: l.reference, unit: l.unit, quantity: l.quantity, unitPrice: l.unitPrice, action: l.action, requestItemId: l.requestItemId },
+      });
+    });
+    expect(err(r)).toBe(LIGNE_ABSENTE);
+    expect(await retenues(id)).toEqual([]);
+    expect(await auditsDuChoix(id)).toBe(0);
+    expect((await etat(id)).circuitState).toBe("REVIEW_REQUESTER");
+  }, 90_000);
+
+  it("DEUX CHOIX CROISÉS (deux onglets) : celui qui valide ne valide que ce qu'il a envoyé — l'autre choix est enregistré, rien n'est figé", async () => {
+    const { id, lignes: [l1, l2] } = await auChoix("Deux onglets", [fourA, fourB]);
+    // A choisit l1 et valide ; B (un second onglet) choisit l2 sans valider. Le banc tient la fiche de cp : chaque
+    // choix S'ENREGISTRE (sa transaction ne la touche pas) puis s'arrête à son journal — A d'abord, B ensuite. Relâchée,
+    // la validation de A relit la sélection sous son verrou : c'est celle de B, enregistrée entre les deux transactions
+    // de A. L'ordre est forcé, pas espéré (§118.65) : B a écrit avant que la validation de A puisse commencer.
+    const [a, b] = await pendantQueLesGestesAttendent(verrouPersonne(u.cp!), [() => choix(id, [l1!], true), () => choix(id, [l2!])]);
+    expect(err(a)).toBe(CHOIX_CHANGE);
+    expect(b.ok, err(b)).toBe(true);
+    expect(b.message).toMatch(/^Choix enregistré : 1 ligne\(s\)/);
+    expect(await retenues(id)).toEqual([l2!]);
+    expect(await fige(id), "aucune validation n'est passée sur une sélection que personne n'a validée").toEqual({ etape: "REVIEW_REQUESTER", montant: null, fournisseurs: null });
+    expect(await prisma.notification.count({ where: { userId: u.dir!, link: `/promo-material/${id}`, title: "Devis à valider (Direction Marketing)" } })).toBe(0);
+  }, 120_000);
+
+  it("LA VALIDATION DU CHOIX LIT LA SÉLECTION SOUS SON VERROU : une ligne cochée pendant qu'elle attend est celle qu'elle fige", async () => {
+    const { id, lignes: [l1, l2] } = await auChoix("Validation sous verrou", [fourA, fourB]);
+    reussi(await choix(id, [l1!]), "enregistrer le choix");
+    // Le chemin d'Adam : valider SANS `lignesVues` — la validation fige ce que la sélection EST quand elle tient le dossier.
+    const r = await pendantQueLeGesteAttend(id, () => validatePromoStep(form({ id })),
+      (tx) => tx.promoQuoteLine.updateMany({ where: { id: l2! }, data: { selected: true } }));
+    reussi(r, "valider le choix");
+    expect(await fige(id)).toEqual({ etape: "REVIEW_MANAGER", montant: 119_000, fournisseurs: `${TAG} Imprimerie Atlas, ${TAG} Imprimerie Tell` });
+  }, 120_000);
+
+  it("LA VALIDATION D'UN CHOIX PENDANT QU'UNE CORRECTION EST DEMANDÉE : refusée par l'étape — l'état d'abord, pas « la sélection a changé »", async () => {
+    const { id, lignes: [l1] } = await auChoix("Validation pendant une correction");
+    reussi(await choix(id, [l1!]), "enregistrer le choix");
+    const r = await pendantQueLeGesteAttend(id, () => validatePromoStep(form({ id, lignesVues: [l1!] })), corrigeeParLeBanc(id));
+    expect(err(r)).toBe(ETAPE_CHANGEE);
+    expect(await fige(id)).toEqual({ etape: "QUOTE_REQUESTED", montant: null, fournisseurs: null });
+  }, 90_000);
+
+  it("UNE LIGNE ÉTRANGÈRE est refusée, et VALIDER SANS LIGNE ne touche pas au choix enregistré", async () => {
+    const a = await auChoix("Ligne étrangère — A");
+    const b = await auChoix("Ligne étrangère — B");
+    reussi(await choix(a.id, [a.lignes[0]!]), "le choix de A");
+    reussi(await choix(b.id, [b.lignes[0]!]), "le choix de B");
+    expect(err(await choix(a.id, [b.lignes[0]!])), "une ligne d'un autre dossier").toBe(LIGNE_ABSENTE);
+    expect(err(await choix(a.id, [], true))).toBe("Retenez au moins une ligne avant de valider votre choix.");
+    expect(await retenues(a.id), "le choix enregistré de A tient").toEqual([a.lignes[0]!]);
+    expect(await retenues(b.id), "celui de B aussi").toEqual([b.lignes[0]!]);
+    expect(await auditsDuChoix(a.id), "deux gestes refusés n'ont rien journalisé").toBe(1);
+    expect((await etat(a.id)).circuitState).toBe("REVIEW_REQUESTER");
+  }, 120_000);
+
+  it("UNE CORRECTION DEMANDÉE PENDANT QUE LE CHOIX EST VALIDÉ : refusée — rien ne bouge, ni la sélection, ni la demande au secrétariat", async () => {
+    const { id, lignes: [l1], demande } = await auChoix("Correction pendant la validation");
+    reussi(await choix(id, [l1!]), "enregistrer le choix");
+    const r = await pendantQueLeGesteAttend(id, () => demanderCorrectionDevisPromo(form({ promoMaterialId: id, motif: "Prix du carnet" })),
+      (tx) => tx.promoMaterial.update({ where: { id }, data: { circuitState: "REVIEW_MANAGER", chosenAmount: 59_500, chosenAgency: `${TAG} Imprimerie Atlas` } }));
+    expect(err(r)).toBe(ETAPE_CHANGEE);
+    expect((await etat(id)).circuitState).toBe("REVIEW_MANAGER");
+    expect(await retenues(id)).toEqual([l1!]);
+    expect((await demandeDe(demande)).status, "la demande au secrétariat reste close").toBe("DONE");
+    expect(await prisma.comment.count({ where: { entityType: "PROMO_MATERIAL", entityId: id, body: { startsWith: "Correction de la retranscription demandée" } } })).toBe(0);
+    expect(await prisma.notification.count({ where: { link: `/promo-material/${id}`, title: "Matériel promotionnel — retranscription à corriger", createdAt: { gte: debutBanc } } })).toBe(0);
+  }, 90_000);
+
+  it("UNE CORRECTION EST UN SEUL GESTE (1/2) : tant que la sélection n'est pas effacée, personne ne voit le dossier reparti ni la demande rouverte", async () => {
+    const { id, lignes: [l1], demande } = await auChoix("Correction atomique — sélection");
+    reussi(await choix(id, [l1!]), "enregistrer le choix");
+    let vu: unknown = null;
+    const [r] = await pendantQueLesGestesAttendent(verrouLignes(id), [() => demanderCorrectionDevisPromo(form({ promoMaterialId: id, motif: "Prix du carnet" }))],
+      // L'OBSERVATEUR lit par le client global : ce qu'un tiers voit pendant que la correction attend.
+      async () => { vu = { etape: (await etat(id)).circuitState, demande: (await demandeDe(demande)).status }; });
+    expect(vu, "rien de ce que la correction a déjà écrit n'est visible tant qu'elle n'a pas fini").toEqual({ etape: "REVIEW_REQUESTER", demande: "DONE" });
+    reussi(r, "la correction");
+    expect((await etat(id)).circuitState).toBe("QUOTE_REQUESTED");
+    expect(await retenues(id)).toEqual([]);
+    expect((await demandeDe(demande)).status).toBe("IN_PROGRESS");
+  }, 90_000);
+
+  it("UNE CORRECTION EST UN SEUL GESTE (2/2) : la demande au secrétariat se rouvre DANS la transaction — sa raison au fil, sans date de fin", async () => {
+    const { id, lignes: [l1], demande } = await auChoix("Correction atomique — demande");
+    reussi(await choix(id, [l1!]), "enregistrer le choix");
+    let vu: unknown = null;
+    const [r] = await pendantQueLesGestesAttendent(verrouDemande(demande), [() => demanderCorrectionDevisPromo(form({ promoMaterialId: id, motif: "La TVA est à 9 %" }))],
+      async () => { vu = { etape: (await etat(id)).circuitState, retenues: await retenues(id) }; });
+    expect(vu, "la bascule et la sélection effacée ne se voient pas avant la réouverture").toEqual({ etape: "REVIEW_REQUESTER", retenues: [l1!] });
+    reussi(r, "la correction");
+    expect(await demandeDe(demande)).toEqual({ status: "IN_PROGRESS", completedAt: null });
+    const fil = await prisma.comment.findFirst({ where: { entityType: "ADMIN_REQUEST", entityId: demande }, orderBy: { createdAt: "desc" }, select: { body: true } });
+    expect(fil?.body).toBe("Demande rouverte — Correction de la retranscription demandée par le demandeur : La TVA est à 9 %");
+  }, 90_000);
+
+  it("LA FIN DE LA RETRANSCRIPTION NE RESSUSCITE PAS UNE DEMANDE AU SECRÉTARIAT ANNULÉE pendant qu'elle attend", async () => {
+    const id = await auxDevisDemandes("Fin et demande annulée");
+    await devisComplet(id);
+    const demande = await demandeDuDossier(id);
+    await comme("asst");
+    const r = await pendantQueLeGesteAttend(id, () => terminerRetranscriptionPromo(form({ promoMaterialId: id })),
+      (tx) => tx.administrativeRequest.update({ where: { id: demande }, data: { status: "CANCELLED" } }));
+    reussi(r, "terminer");
+    expect((await etat(id)).circuitState).toBe("REVIEW_REQUESTER");
+    expect(await demandeDe(demande), "une demande annulée ne repasse pas « terminée »").toEqual({ status: "CANCELLED", completedAt: null });
+  }, 90_000);
+
+  it("LA FIN DE LA RETRANSCRIPTION ET LA FERMETURE DE SA DEMANDE SONT UN SEUL GESTE — la demande se ferme avec sa date de fin", async () => {
+    const id = await auxDevisDemandes("Fin atomique");
+    await devisComplet(id);
+    const demande = await demandeDuDossier(id);
+    const avant = (await demandeDe(demande)).status;
+    expect(avant, "prémisse : la demande se traite encore").not.toBe("DONE");
+    await comme("asst");
+    let vu: unknown = null;
+    const [r] = await pendantQueLesGestesAttendent(verrouDemande(demande), [() => terminerRetranscriptionPromo(form({ promoMaterialId: id }))],
+      async () => { vu = { etape: (await etat(id)).circuitState, demande: (await demandeDe(demande)).status }; });
+    expect(vu, "le dossier ne passe pas au choix avant que sa demande soit close").toEqual({ etape: "QUOTE_REQUESTED", demande: avant });
+    reussi(r, "terminer");
+    expect((await etat(id)).circuitState).toBe("REVIEW_REQUESTER");
+    const d = await demandeDe(demande);
+    expect(d.status).toBe("DONE");
+    expect(d.completedAt, "« terminée » porte sa date de fin").not.toBeNull();
+  }, 90_000);
+
+  it("DEUX CHANTIERS CLOS À LA MÊME SECONDE ne s'effacent pas ; et un dossier annulé pendant qu'on clôt son dernier chantier ne repasse pas « terminé »", async () => {
+    // Décor du CIRCUIT 1, créé en base : la garde est commune aux deux versions, et un chantier du circuit 2 se
+    // constate sur des pièces réelles (BC signés, paiements réglés) hors de propos ici ; « visa » n'en exige aucune.
+    const dossierAuxChantiers = async (titre: string, tracksDone: string | null) => (await prisma.promoMaterial.create({
+      data: { reference: `${TAG}-${titre.length}-${Date.now().toString(36)}`, title: `${TAG} ${titre}`, requesterId: u.cp!, companyId, circuitVersion: 1, circuitState: "IN_EXECUTION", tracksDone },
+      select: { id: true },
+    })).id;
+    const chantiers = (id: string) => prisma.promoMaterial.findUniqueOrThrow({ where: { id }, select: { tracksDone: true, circuitState: true } });
+    await comme("cp");
+
+    const a = await dossierAuxChantiers("Chantiers croisés", null);
+    const [r] = await pendantQueLesGestesAttendent(verrouDossier(a), [() => completePromoTrack(form({ id: a, track: "AD_VISA" }))],
+      (tx) => tx.promoMaterial.update({ where: { id: a }, data: { tracksDone: "PAYMENT" } }));
+    expect(err(r)).toBe(CHANTIER_CHANGE);
+    expect(await chantiers(a), "le chantier clos par l'autre n'est pas effacé").toEqual({ tracksDone: "PAYMENT", circuitState: "IN_EXECUTION" });
+    reussi(await completePromoTrack(form({ id: a, track: "AD_VISA" })), "le chantier, relu");
+    expect((await chantiers(a)).tracksDone).toBe("PAYMENT,AD_VISA");
+
+    const b = await dossierAuxChantiers("Annulé pendant la clôture", "PURCHASE_ORDER,PAYMENT");
+    const [r2] = await pendantQueLesGestesAttendent(verrouDossier(b), [() => completePromoTrack(form({ id: b, track: "AD_VISA" }))],
+      (tx) => tx.promoMaterial.update({ where: { id: b }, data: { status: "CANCELLED", circuitState: "REFUSED" } }));
+    expect(err(r2)).toBe(CHANTIER_CHANGE);
+    expect(await chantiers(b), "rien de « terminé » sur un dossier annulé").toEqual({ tracksDone: "PURCHASE_ORDER,PAYMENT", circuitState: "REFUSED" });
+  }, 60_000);
+
+  it("UN ARTICLE AJOUTÉ AU CHOIX RENVOIE À LA RETRANSCRIPTION ET ROUVRE LA DEMANDE EN UN SEUL GESTE", async () => {
+    const { id, demande } = await auChoix("Article au choix");
+    let vu: unknown = null;
+    const [r] = await pendantQueLesGestesAttendent(verrouDemande(demande),
+      [() => enregistrerArticleDemandePromo(form({ promoMaterialId: id, catalogueId: catPlv, quantite: "10", actions: ["FABRICATION"] }))],
+      async () => { vu = { etape: (await etat(id)).circuitState, articles: await prisma.promoRequestItem.count({ where: { promoMaterialId: id } }) }; });
+    expect(vu, "ni la bascule ni l'article ne se voient avant la réouverture").toEqual({ etape: "REVIEW_REQUESTER", articles: 1 });
+    reussi(r, "ajouter l'article");
+    expect((await etat(id)).circuitState).toBe("QUOTE_REQUESTED");
+    expect((await demandeDe(demande)).status).toBe("IN_PROGRESS");
+    expect(await prisma.promoRequestItem.count({ where: { promoMaterialId: id } })).toBe(2);
+  }, 90_000);
+
+  it("LA DEMANDE « QUI SE TRAITE ENCORE » EST LA MÊME POUR LE SECRÉTARIAT ET POUR LE DOSSIER — la copie ne diverge pas de l'original", () => {
+    // `OUVERTE` vit dans un fichier « use server », qui n'exporte que des fonctions : la fermeture d'un dossier en
+    // porte une COPIE. Deux définitions de la même règle finissent par diverger (§118.5) : celle-ci est comparée.
+    const sansCommentaires = (src: string) => src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/.*$/gm, "$1");
+    const lire = (f: string) => sansCommentaires(readFileSync(join(process.cwd(), f), "utf8"));
+    const original = lire("src/lib/actions/admin-request-actions.ts").match(/const OUVERTE = \{([^;]*)\}\s*satisfies/);
+    expect(original, "la constante OUVERTE du bureau du secrétariat").not.toBeNull();
+    const copie = lire("src/lib/promo-material/demande-secretariat.ts").match(/export async function fermerDemandeAuSecretariat[\s\S]*?where: \{([^}]*\{ notIn: \[[^\]]*\] \})/);
+    expect(copie, "la condition de la fermeture d'un dossier").not.toBeNull();
+    const statuts = (src: string) => [...(src.match(/notIn: \[([^\]]*)\]/)?.[1] ?? "").matchAll(/"([A-Z_]+)"/g)].map((m) => m[1]).sort();
+    expect(statuts(original![1]!).length).toBeGreaterThan(0);
+    expect(statuts(copie![1]!)).toEqual(statuts(original![1]!));
+    expect(original![1]).toContain("deletedAt: null");
+    expect(copie![1]).toContain("deletedAt: null");
+  });
 });

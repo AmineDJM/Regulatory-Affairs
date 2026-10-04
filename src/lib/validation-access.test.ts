@@ -1,7 +1,8 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { EntityType, UserRole } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { getAccess } from "./rbac";
+import { getAccess, MODULES } from "./rbac";
+import { isRetiredModule } from "./modules-retired";
 
 /**
  * Accès TEMPORAIRE de validation (bug rapporté : un validateur ne pouvait ni ouvrir ni voir
@@ -48,11 +49,14 @@ suite("getAccess — accès temporaire de validation", () => {
     // peut malgré tout ouvrir la page des validations dès qu'une étape l'attend.
     ids.viewer = await mkUser("viewer", "VIEWER");
     ids.viewerNone = await mkUser("viewerNone", "VIEWER");
+    // Un validateur dont l'étape porte un module RETIRÉ — nommé par sa CLÉ, qui se résout à coup sûr.
+    ids.retire = await mkUser("retire", "PRODUCT_MANAGER");
     await mkValidation(ids.label, { module: "PCH — Marchés" });
     await mkValidation(ids.link, { module: "Demandes de validations", link: "/pch/abc123?tab=bc" });
     await mkValidation(ids.row, { module: "Ventes", entityType: "SALE", entityId: "sale-xyz" });
     await mkValidation(ids.done, { module: "PCH — Marchés", status: "APPROVED", stepStatus: "APPROVED" });
     await mkValidation(ids.viewer, { module: "Demandes de validations", link: "/pch/def456" });
+    await mkValidation(ids.retire, { module: "SALES", entityType: "SALE", entityId: "sale-retire" });
   });
 
   afterAll(async () => {
@@ -98,5 +102,17 @@ suite("getAccess — accès temporaire de validation", () => {
   it("un VIEWER SANS étape en attente n'a toujours PAS le module VALIDATIONS", async () => {
     const a = await getAccess(ids.viewerNone, "VIEWER");
     expect(a.modules.has("VALIDATIONS")).toBe(false);
+  });
+
+  // La garde de l'accès attribué (`accesAttribue`) écartait les modules retirés ; une porte IMPLICITE les
+  // rouvrait — une validation qui les nomme, ou un intérim (§118.75, §118.196). La ligne liée, elle, reste
+  // accordée : le validateur peut toujours décider.
+  it("une validation en attente sur un module RETIRÉ n'ouvre pas ce module — la ligne liée, si", async () => {
+    expect(isRetiredModule("SALES"), "PRÉMISSE : le module est retiré").toBe(true);
+    expect((MODULES as readonly string[]).includes("SALES"), "PRÉMISSE : sa clé se lit comme un module").toBe(true);
+    const a = await getAccess(ids.retire, "PRODUCT_MANAGER");
+    expect(a.modules.has("SALES")).toBe(false);
+    expect(a.rowGrants.get("SALE")?.has("sale-retire")).toBe(true);
+    expect(a.modules.get("VALIDATIONS")?.actions.has("VIEW"), "il peut décider").toBe(true);
   });
 });

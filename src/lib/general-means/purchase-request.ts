@@ -20,6 +20,8 @@
  * Module PUR — testé, sans base de données.
  */
 
+import { libelleMotif } from "@/lib/secretariat/decision-approbation";
+
 /** Une ligne de la demande : un article du catalogue, ou un besoin décrit en clair. */
 export interface PurchaseLine {
   /** Article du catalogue, `null` pour une ligne « autre ». */
@@ -101,7 +103,7 @@ export function seesBudget(canViewModule: boolean): boolean {
   return canViewModule;
 }
 
-export type PurchaseStage = "PENDING" | "APPROVED" | "REJECTED" | "DONE" | "CANCELLED";
+export type PurchaseStage = "PENDING" | "CHANGES_REQUESTED" | "APPROVED" | "REJECTED" | "DONE" | "CANCELLED";
 
 /**
  * Où en est une demande d'achat, dit comme on le dirait à l'oral.
@@ -109,17 +111,24 @@ export type PurchaseStage = "PENDING" | "APPROVED" | "REJECTED" | "DONE" | "CANC
  * On lit d'abord la DÉCISION du validateur, puis le statut de la demande : une demande refusée
  * dont le statut est resté « bloqué » doit se lire « refusée par votre directeur », pas
  * « bloquée » — le second n'explique rien à celui qui attend.
+ *
+ * UNE MODIFICATION DEMANDÉE N'EST PAS UNE ATTENTE (lot E5 — audit des managers, M15) : elle se lisait
+ * « En attente de votre directeur » — le demandeur attendait une décision que le directeur avait déjà prise,
+ * et la balle était à lui.
  */
 export function purchaseStage(status: string, approval: { status: string } | null): PurchaseStage {
   if (status === "CANCELLED") return "CANCELLED";
   if (approval?.status === "REJECTED") return "REJECTED";
   if (status === "DONE" || status === "COMPLETED") return "DONE";
   if (approval?.status === "APPROVED") return "APPROVED";
+  if (approval?.status === "CHANGES_REQUESTED") return "CHANGES_REQUESTED";
   return "PENDING";
 }
 
 export const STAGE_LABEL: Record<PurchaseStage, string> = {
   PENDING: "En attente de votre directeur",
+  // Pas « par votre directeur » : c'est peut-être son intérimaire ou la Direction qui l'a renvoyée — la ligne le nomme.
+  CHANGES_REQUESTED: "À modifier",
   APPROVED: "Validée — en cours d'achat",
   REJECTED: "Refusée",
   DONE: "Achat effectué",
@@ -128,6 +137,7 @@ export const STAGE_LABEL: Record<PurchaseStage, string> = {
 
 export const STAGE_TONE: Record<PurchaseStage, "neutral" | "info" | "success" | "warning" | "danger"> = {
   PENDING: "warning",
+  CHANGES_REQUESTED: "warning",
   APPROVED: "info",
   REJECTED: "danger",
   DONE: "success",
@@ -137,9 +147,30 @@ export const STAGE_TONE: Record<PurchaseStage, "neutral" | "info" | "success" | 
 /**
  * La demande est-elle encore retirable par son auteur ?
  *
- * Tant que le directeur n'a pas tranché. Après, elle appartient au circuit : la retirer
- * effacerait une décision, et l'on ne saurait plus pourquoi un achat a été lancé.
+ * Tant que personne n'a tranché DÉFINITIVEMENT. Après, elle appartient au circuit : la retirer
+ * effacerait une décision, et l'on ne saurait plus pourquoi un achat a été lancé. Une demande
+ * « à modifier » se retire aussi : c'est, aujourd'hui, le geste qui la fait repartir corrigée (la redéposer).
  */
 export function canWithdraw(stage: PurchaseStage): boolean {
-  return stage === "PENDING";
+  return stage === "PENDING" || stage === "CHANGES_REQUESTED";
+}
+
+/**
+ * CE QUE LE DEMANDEUR LIT SOUS SA DEMANDE, une fois tranchée (lot E5 — M14, M15) : la parole de celui qui a
+ * tranché (`decisionNote`), préfixée de ce qu'elle est ; le geste qui reste quand la balle revient au demandeur ;
+ * et le NOM de celui qui a tranché quand ce n'est pas le validateur nommé. Jamais `comment` : il porte
+ * l'estimation du catalogue, qui se lisait comme l'avis du directeur — la fonction ne le reçoit même pas.
+ */
+export function phraseDeDecision(
+  stage: PurchaseStage,
+  a: { status: string; note: string | null; decideurAutre: string | null } | null,
+): string | null {
+  if (!a || a.status === "PENDING") return null;
+  const morceaux: string[] = [];
+  if (a.note) morceaux.push(`${libelleMotif(a.status)} : ${a.note}`);
+  if (stage === "CHANGES_REQUESTED") morceaux.push("retirez la demande, puis redéposez-la corrigée");
+  if (a.decideurAutre) morceaux.push(`décision prise par ${a.decideurAutre}`);
+  if (morceaux.length === 0) return null;
+  const phrase = morceaux.join(" — ");
+  return phrase.charAt(0).toUpperCase() + phrase.slice(1);
 }

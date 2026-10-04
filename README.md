@@ -4,9 +4,9 @@
 
 **L'« OS d'entreprise » d'un laboratoire pharmaceutique algérien : un seul outil connecté pour piloter 100 % de l'activité.**
 
-Regulatory · Ad & Pro (Sponsoring · Congrès · Événements · Matériel promotionnel) · Budgets & enveloppes · Finances ·
-Ventes · Logistique & Marchés PCH · Annuaire (praticiens) · Information médicale · Business Development (+ Pharmatool) ·
-RH · Bureau du secrétariat · Messagerie · Courrier · Drive & Office · Calendrier · Réunions · Assistant IA · Adventum Brain
+Regulatory · Ad & Pro (Sponsoring · Prises en charge · Événements · Matériel promotionnel · Consulting) · Budgets ·
+Finances & centre de paiement · Marchés PCH · Stocks · Annuaires · Information médicale · Force de vente · RH ·
+Bureau du secrétariat · Messagerie · Messagerie e-mail · Drive & Office · Calendrier · Réunions · Assistant IA · Adventum Brain
 
 [![Next.js](https://img.shields.io/badge/Next.js-14.2-black?logo=next.js)](https://nextjs.org)
 [![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178c6?logo=typescript)](https://www.typescriptlang.org)
@@ -25,17 +25,17 @@ RH · Bureau du secrétariat · Messagerie · Courrier · Drive & Office · Cale
 - [Glossaire métier (Algérie & pharma)](#-glossaire-métier-algérie--pharma)
 - [Aperçu en un coup d'œil](#-aperçu-en-un-coup-dœil)
 - [Stack technique](#-stack-technique)
-- [Panorama des modules](#-panorama-des-modules)
+- [Panorama des modules](#%EF%B8%8F-panorama-des-modules)
   - [Pilotage](#pilotage) · [Pôles métier](#pôles-métier) · [Transverse](#transverse) · [Système](#système) · [Externe](#externe)
 - [Interconnexions — comment les modules s'alimentent](#-interconnexions--comment-les-modules-salimentent)
 - [Sécurité & contrôle d'accès (RBAC)](#-sécurité--contrôle-daccès-rbac)
 - [Rôles](#-rôles)
 - [Workflows critiques](#-workflows-critiques)
 - [**Référence détaillée des circuits & mécanismes transverses**](#-référence-détaillée-des-circuits--mécanismes-transverses)
-  - [**Centre de paiement — l'autorisation du PDG**](#centre-de-paiement--rien-ne-sort-quel-que-soit-le-montant-sans-le-pdg)
+  - [**Centre de paiement — l'autorisation avant tout décaissement**](#centre-de-paiement--rien-ne-sort-quel-que-soit-le-montant-sans-son-autorisation)
   - [**Centre de validation Ad & Pro — le seuil et les sept natures**](#centre-de-validation-ad--pro--toute-demande-au-dessus-du-seuil-y-passe)
   - [Chaîne du dossier d'achat (Legal)](#la-chaîne-du-dossier-dachat--devis--bc--facture--règlement-dun-seul-écran)
-  - [My Chief of Staff — interface exécutive](#my-chief-of-staff--linterface-exécutive-pdg--super-admin)
+  - [My Chief of Staff — interface exécutive](#my-chief-of-staff--linterface-exécutive-super-admin-seul-depuis-092026)
   - [**Matériel promotionnel — circuit 2 : devis retranscrits, lignes retenues, BC générés**](#matériel-promotionnel--circuit-2--devis-retranscrits-lignes-retenues-bc-générés)
   - [Matériel promotionnel — circuit court (dossiers d'avant)](#matériel-promotionnel--cinq-marches-puis-trois-chantiers-en-parallèle)
   - [Rejeu de session — support technique](#rejeu-de-session--rembobiner-ce-quune-personne-a-fait)
@@ -45,22 +45,22 @@ RH · Bureau du secrétariat · Messagerie · Courrier · Drive & Office · Cale
   - [Budgets par département (trois natures)](#budgets-par-département--trois-natures-trois-responsables)
   - [Ad & Pro — corriger une demande, joindre un fichier](#ad--pro--corriger-une-demande-joindre-un-fichier-à-un-avis)
   - [Assistant — recherche Regulatory & écriture](#assistant--recherche-regulatory-complète-et-écriture-sur-les-produits)
-- [Carte du code — fichiers clés par domaine](#-carte-du-code--fichiers-clés-par-domaine)
+- [Carte du code — fichiers clés par domaine](#%EF%B8%8F-carte-du-code--fichiers-clés-par-domaine)
 - [Budgets, enveloppes & sous-catégories](#-budgets-enveloppes--sous-catégories)
 - [Intelligence artificielle](#-intelligence-artificielle-claude--whisper)
 - [Adventum Brain](#-adventum-brain-cockpit-super-admin)
-- [Score d'adoption](#-score-dadoption-super-admin--adminadoption)
+- [Score d'adoption](#-score-dadoption-super-admin--admin--onglet-adoption)
 - [Messagerie temps réel](#-messagerie-interne-temps-réel)
-- [Courrier — webmail intégré](#-courrier--webmail-infomaniak-intégré)
+- [Courrier — ancien webmail Infomaniak (retiré)](#-courrier--webmail-infomaniak-retiré)
 - [Édition Office & impression](#-édition-office-onlyoffice--impression)
-- [Modèle de données — entités clés](#-modèle-de-données--entités-clés)
+- [Modèle de données — entités clés](#%EF%B8%8F-modèle-de-données--entités-clés)
 - [Démarrage local](#-démarrage-local)
 - [Variables d'environnement](#-variables-denvironnement)
-- [Déploiement (Render)](#-déploiement--render)
-- [Base de données & migrations](#-base-de-données--migrations)
+- [Déploiement (Render)](#%EF%B8%8F-déploiement--render)
+- [Base de données & migrations](#%EF%B8%8F-base-de-données--migrations)
 - [Scripts](#-scripts)
 - [Tests & qualité](#-tests--qualité)
-- [Architecture du code](#-architecture-du-code)
+- [Architecture du code](#%EF%B8%8F-architecture-du-code)
 - [Journal des évolutions récentes](#-journal-des-évolutions-récentes)
 - [Feuille de route](#-feuille-de-route)
 - [Conventions](#-conventions--contribution)
@@ -74,8 +74,10 @@ e-mails / Excel / WhatsApp par **un seul environnement de travail connecté** o�
 trace exploitable par le suivant.
 
 - 🧩 **Tout dans un seul outil connecté** — un module en alimente un autre : une **demande** devient une
-  **validation**, qui devient un **ordre de dépense**, qui devient une **écriture comptable**, qui **consomme une
-  enveloppe budgétaire** et **met à jour la trésorerie**. Rien n'est ressaisi ; tout est relié par des identifiants.
+  **validation**, qui devient un **ordre de dépense** autorisé par le **centre de paiement**, qui devient une
+  **écriture comptable**, qui **consomme une enveloppe budgétaire** et **met à jour la trésorerie**. Rien n'est
+  ressaisi d'un module à l'autre ; tout est relié par des identifiants (ce qui arrive de l'extérieur, en revanche, se
+  recopie encore : les devis du matériel promotionnel sont retranscrits à la main par l'assistante de direction).
 - 📊 **100 % digitalisé & data-driven**, **zéro donnée simulée** : l'admin et les utilisateurs saisissent la
   **vraie donnée**. Aucune fixture de démo n'est semée — l'application démarre vide sauf le compte Super Admin.
 - 🔐 **Accès ultra-granulaire piloté par l'admin** : par **utilisateur × onglet × action × ligne**. Deux
@@ -83,8 +85,9 @@ trace exploitable par le suivant.
 - 🇩🇿 **Contexte algérien de bout en bout** : devise **DZD**, fiscalité (**G50, IRG, IBS, CNAS, CASNOS**),
   réglementaire **AMM / ANPP**, client institutionnel **PCH** (Pharmacie Centrale des Hôpitaux — marchés publics),
   fuseau **Africa/Algiers**, interface **intégralement en français**.
-- 🏢 **L'unique poste de travail de l'employé** : Drive, messagerie interne, **courrier (e-mail)**, **édition Office
-  collaborative**, **calendrier**, **réunions**, **assistant IA** — tout intégré, aucune fenêtre à ouvrir ailleurs.
+- 🏢 **L'unique poste de travail de l'employé** : Drive, messagerie interne, **messagerie e-mail Microsoft 365** (en
+  pilote), **édition Office collaborative**, **calendrier**, **réunions** — tout intégré, aucune fenêtre à ouvrir
+  ailleurs (l'**assistant IA** n'est visible que du Super Admin depuis 09/2026, Adam étant en pause).
 - 🖨️ **Tout est imprimable et traçable** : chaque document de la plateforme dispose d'une option **Imprimer**
   (rendu same-origin, sans dépendance externe), et chaque action sensible est **journalisée** (qui / quoi / quand /
   ancienne → nouvelle valeur / motif).
@@ -111,7 +114,7 @@ Comprendre l'OS, c'est comprendre le métier qu'il digitalise. Termes récurrent
 | **KOL** | **Key Opinion Leader** — médecin leader d'opinion (segmentation « influence » élevée dans Promotion médicale). |
 | **PRIM** | **Pharmacien Responsable de l'Information Médicale** — déclare aux autorités les événements pris en charge avant que la dépense ne parte au comptable. |
 | **BV** | **Bon de Virement** — demande de paiement émise depuis Regulatory vers les Finances (→ ordre de dépense). |
-| **Ordre de dépense** | Pièce financière émise après validation définitive ; le comptable la **règle** (sortie de trésorerie) ou demande une **révision de budget**. |
+| **Ordre de dépense** | Pièce financière émise quand une dépense est décidée ; elle naît **en attente du centre de paiement**, qui l'**autorise** ou la refuse — quel que soit le montant —, puis le comptable la **règle** (sortie de trésorerie). La « révision de budget » demandée par le comptable a été retirée. |
 | **Enveloppe budgétaire** | Budget d'une période rattaché à un ou plusieurs modules, réparti en **catégories** et **sous-catégories**, dont la **consommation réelle** est calculée depuis les dépenses attribuées. |
 | **G50** | Déclaration fiscale mensuelle algérienne (TVA, IRG salaires, TAP…). |
 | **IRG / IBS** | Impôt sur le Revenu Global (personnes) / Impôt sur les Bénéfices des Sociétés. |
@@ -127,12 +130,12 @@ Comprendre l'OS, c'est comprendre le métier qu'il digitalise. Termes récurrent
 
 | | |
 |---|---|
-| **40** modules RBAC · **168** pages applicatives | **19** rôles métier |
-| **238** modèles Prisma · **167** enums | **239** migrations SQL |
-| **108** fichiers de *server actions* · **51** fichiers de requêtes | **80** routes API |
+| **50** modules RBAC (dont 3 retirés du service) · **209** pages applicatives | **19** rôles métier |
+| **355** modèles Prisma · **195** enums | **389** migrations SQL |
+| **141** fichiers de *server actions* · **91** fichiers de requêtes | **99** routes API |
 | RBAC **module × action × ligne** appliqué **côté serveur** | Drive & mots de passe **chiffrés AES-256-GCM** |
-| Assistant IA (boucle agent Claude) partout | Rapports terrain **vocaux** (Whisper → Claude) |
-| Messagerie interne temps réel **+ notification sonore** (même en arrière-plan) | Webmail Infomaniak intégré (recherche, répondre à tous, transfert) |
+| Assistant IA — **Super Admin seul** depuis 09/2026 (Adam en pause) | Rapports terrain **vocaux** (Whisper → Claude) |
+| Messagerie interne temps réel **+ notification sonore** (même en arrière-plan) | Messagerie e-mail **Microsoft 365** intégrée (`/messagerie`, en pilote) |
 | Édition Word/Excel/PowerPoint (OnlyOffice) | Aperçu **et impression** in-app PDF/Word/Excel/PPT, sans dépendance externe |
 | Enveloppes budgétaires (fixe/flexible) **+ sous-catégories + vue consolidée** | Adventum Brain — cockpit Super Admin (risques, root cause, graphe) |
 
@@ -162,72 +165,84 @@ Comprendre l'OS, c'est comprendre le métier qu'il digitalise. Termes récurrent
 
 ## 🗺️ Panorama des modules
 
-La navigation est organisée en 4 groupes. Plusieurs modules sont **fusionnés** en un seul item de sidebar avec
-**onglets internes** (sans rien retirer) : **Ad & Pro** (Sponsoring · Congrès internationaux · Événements nationaux ·
-Events · Matériel promotionnel), **Finances** (Finances · Espace comptable),
-**Mon dossier RH** (dossier RH · Mes ordres de mission), **Mon espace** (Mon travail · Mon espace · Directives).
-**Logistique** et **Stocks** sont deux modules distincts de la sidebar (séparés depuis la refonte Stocks).
-Un onglet **n'apparaît que si l'utilisateur y a accès** (RBAC asymétrique) : la sidebar de deux personnes n'est
-jamais identique.
+La navigation est organisée en 4 groupes — **Pilotage**, **Pôles** (Regulatory · Administration · Sales & Marketing ·
+Business Development · Supply Chain), **Transverse**, **Système** (`NAVIGATION`, `lib/labels.ts`). Plusieurs modules
+sont **fusionnés** en un seul item de sidebar avec **onglets internes** (sans rien retirer) : **Mon espace**
+(Aujourd'hui · Mon espace · Mon dossier RH · Annuaire · Directives), **Agenda** (Calendrier · Réunions & appels),
+**Ad & Pro** (Toutes les demandes · Sponsoring · Prises en charge internationales · Prises en charge nationales ·
+Événements · Matériel promotionnel · Consulting · Autres demandes), **Stock promotionnel** (Stock · Catalogue) ;
+**Finances** se déplie dans le menu en **Banque & paiements** et **Comptabilité**. **Ventes**, **Commandes &
+logistique** et **Market Intelligence** sont **retirés du service** depuis 2026-09 (voir plus bas). Un onglet
+**n'apparaît que si l'utilisateur y a accès** (RBAC asymétrique) : la sidebar de deux personnes n'est jamais identique.
 
 ### Pilotage
 
 | Module | Route | Description |
 |---|---|---|
-| **Mon travail** *(Action Center)* | `/mon-travail` | Redirige vers **Mon espace** (fusionné). La file agrège **selon les droits ET le métier** : validations **à mon tour seulement** (une étape en attente du validateur précédent reste sur `/validations` → « Qui vous reviendront »), paiements à régler **réservés au comptable** (`FINANCE_BUDGET_MANAGER`) + Super Admin, info médicale : stades d'instruction **réservés au PRIM** (+ Super Admin), la Direction ne reçoit que la **validation finale**. |
-| **Mon espace** | `/mon-espace` | Le POSTE DE TRAVAIL : validations à faire, demandes à traiter, tâches (perso, demandées, partagées, déléguées — **suppression par le créateur** ou le Super Admin, pièces et fil compris), **pièces demandées** et **ordres de mission en sections** (plus d'onglets à part), rappels, congés **des autres** à signer (N+1), historique d'avances. Trois portes de dépôt : nouvelle tâche, **demande de formation**, et **« Ajouter une note de frais »** — mois concerné, **montant** (son propre champ, plus un chiffre noyé dans le motif), motif, et le justificatif **scanné ou choisi dans ses fichiers** (pas de `capture` : le sélecteur du téléphone propose « Numériser un document », qui redresse et recadre — bien plus lisible qu'une photo). **Montant et pièce sont exigés côté serveur.** Le bouton n'invente aucun circuit : c'est la MÊME demande RH `EXPENSE_REPORT`, avec le même accusé de réception des ORIGINAUX au secrétariat (§17). **Quinze minutes pour se corriger** ensuite, depuis « Mon dossier RH » — et les RH peuvent rouvrir au-delà. **« Mes congés » vit uniquement dans Mon dossier RH.** |
+| **Mon travail** *(Action Center)* | `/mon-travail` | Redirige vers **Mon espace** (fusionné). La file agrège **selon les droits ET le métier** : validations **à mon tour seulement** (une étape en attente du validateur précédent reste sur `/validations` → « Qui vous reviendront »), paiements à régler **réservés au comptable** (`FINANCE_BUDGET_MANAGER`) + Super Admin, info médicale : stades d'instruction **réservés au PRIM** (+ Super Admin), la Direction ne reçoit que la **validation finale**. **Chaque file se lit avec la règle que son ACTION applique** (lot E2) : les congés par la file de la porte (`getLeavesToDecide`), les achats par l'approbation **encore en attente** — un achat tranché ne reste plus « à traiter » chez le N+1 —, les **plans de tournée** par `clausePlansADecider` (`lib/sfe/tournee.ts` : le réviseur tant que le plan est soumis, le N+2 dès qu'il est escaladé, et l'intérimaire de l'un ou de l'autre ; jamais son propre plan), les formations de l'absent qu'on remplace. **Une ligne par objet** : ce qui arrivait par deux portes (le congé d'un N+1 absent, une demande assignée ET à valider) n'est montré qu'une fois, au premier bloc ; **l'attente la plus ancienne d'abord**, une ligne qu'on ne sait pas dater passant après les autres (`lib/queries/mes-decisions.ts`) ; au-delà de 40 congés, achats ou plans, une ligne le dit et mène à la liste complète. |
+| **Mon espace** | `/mon-espace` | Le POSTE DE TRAVAIL : validations à faire, demandes à traiter (dont les lignes **« À corriger »** : ce qu'un circuit m'a renvoyé — demande Ad & Pro, consulting, demande de paiement, recrutement, plan de tournée), tâches (perso, demandées, partagées, déléguées — **suppression par le créateur** ou le Super Admin, pièces et fil compris), **pièces demandées** et **ordres de mission en sections** (plus d'onglets à part), rappels, congés **des autres** à signer (le N+1 enregistré ou actuel et son intérimaire, les RH à leur marche, la direction à toute marche), historique d'avances. **« À valider » compte exactement les lignes des deux blocs de décision** (lot E2) : les validations, hors congés, et MES congés à signer, dont le bloc vit juste **sous** les validations — chaque congé montré une fois, intérim compris. Chaque ligne dit **depuis quand elle attend** (« En attente depuis 3 j », en jours civils d'Alger — `depuisLisible`, `lib/calendar-tz.ts`) : une validation séquentielle depuis la décision du rang précédent, une demande resoumise depuis sa resoumission, un congé depuis son arrivée à sa marche (`arriveeALaMarche`, `lib/approval-chain.ts`), une ligne « À corriger » depuis le renvoi. Trois portes de dépôt : nouvelle tâche, **demande de formation**, et **« Ajouter une note de frais »** — mois concerné, **montant** (son propre champ, plus un chiffre noyé dans le motif), motif, et le justificatif **scanné ou choisi dans ses fichiers** (pas de `capture` : le sélecteur du téléphone propose « Numériser un document », qui redresse et recadre — bien plus lisible qu'une photo). **Montant et pièce sont exigés côté serveur.** Le bouton n'invente aucun circuit : c'est la MÊME demande RH `EXPENSE_REPORT`, avec le même accusé de réception des ORIGINAUX au secrétariat (§17). **Quinze minutes pour se corriger** ensuite, depuis « Mon dossier RH » — et les RH peuvent rouvrir au-delà. **« Mes congés » vit uniquement dans Mon dossier RH.** |
 | **Messagerie** | `/messages` | Messagerie interne complète (DM / groupes / canaux). Badge non-lus live **+ notification sonore** qui retentit même quand l'onglet est en arrière-plan. → [détails](#-messagerie-interne-temps-réel) |
-| **Courrier** | `/courrier` | **Webmail Infomaniak** intégré par utilisateur (IMAP + SMTP) : dossiers (Réception · **Envoyés** · Corbeille…), **recherche** plein-texte, **filtres** (tous / non lus), **Répondre · Répondre à tous · Transférer**, **carnet de contacts externes**, **aperçu des pièces jointes**, **« Lier à un dossier »**. → [détails](#-courrier--webmail-infomaniak-intégré) |
-| **Directives** | `/directives` | **Instructions priorisées de la Direction** vers une personne ou un rôle entier, avec échéance, statut et **fil d'échange**. |
+| **Messagerie e-mail** | `/messagerie` | La boîte **Microsoft 365** de chacun, dans l'ERP : on la **connecte** (compte Microsoft), puis on lit, on répond, on classe, on enregistre une pièce jointe dans le Drive et l'on relie un message à une fiche, sans quitter la plateforme. **Trois portes**, et l'écran dit laquelle est fermée : le drapeau `MICROSOFT_MAIL`, la configuration Entra du serveur, puis la **liste pilote** — pendant le pilote, seules ses boîtes et le Super Admin (qui le mène) y entrent (`lib/mail/access.ts`). L'ancien webmail Infomaniak (`/courrier`) est **retiré** : l'adresse redirige vers Mon espace. → [historique](#-courrier--webmail-infomaniak-retiré) |
+| **Directives** | `/directives` | **Notes de service et instructions priorisées** vers des **personnes nommées, un rôle, une entité ou tout le monde**, avec échéance, statut et **fil d'échange**. Rédigées en brouillon puis **soumises** : seuls le **Directeur Général** et le **Super Admin** les publient — ou les refusent avec motif (`PUBLISHER_ROLES`, `lib/directives/audience.ts`). |
 | **Assistant IA** 💬 | `/assistant` (module dédié) | **Visible du SEUL Super Admin depuis 09/2026** (décision de la Direction, Adam en pause de développement — `peutVoirAdam`, §118.153 : menu, pages, routes, voix, brief, boutons et actions serveur). Chatbot interne (boucle agent Claude) **scopé par les droits**. **Suggestions proactives** sur les messages non lus. → [détails](#-intelligence-artificielle-claude--whisper) |
-| **Mon dossier RH** | `/mon-dossier` | Documents RH personnels (contrats, bulletins, attestations) + **demandes RH** (attestation, CNAS, relevé d'émoluments, titre/demandes de congé — annuel, sans solde, exceptionnel, maternité —, sortie exceptionnelle, arrêt maladie, **note de frais avec mois obligatoire**, **entrevue avec les RH** à date négociée) avec **pièces jointes** et **fil d'échange** par demande + onglet **« Mes ordres de mission »**. Carte **« Ma rémunération »** (salaire de base, Ret SS 9 %, Ret IRG, Remb. frais, Net à payer — **jamais** le brut, la Ret SS 35 % ni la TFP). Notification **« salaire versé »** reçue **24 h après** le marquage par les RH. Accès **strict** à ses propres documents. |
+| **Missions d'Adam** | `/centre-de-missions` | Le centre des **missions et surveillances d'Adam** — **Super Admin seul** (`peutPiloterMissionsAdam`, garde `adamMissions`, décision de la Direction 09/2026 ; Adam est en pause de développement). Une mission dont le propriétaire n'a plus le droit passe en **pause**, jamais supprimée ; un **interrupteur global** les suspend toutes, et seul un clic le lève (§118.132, §118.136). |
+| **My Chief of Staff** | `/chief-of-staff` | **L'interface exécutive — visible du SEUL Super Admin depuis 09/2026** (module `CHIEF_OF_STAFF` + `peutVoirAdam`, garde au niveau du segment ; Adam est en pause de développement, §118.153) : piloter l'entreprise en langage naturel, **au clavier ou à la voix** (conversation vocale avec interruption). Recherche fédérée `search_everything` (~30 familles, tolérante aux accents/fautes), histoire complète d'un dossier (`inspect_record` : timeline, validateurs, chaîne devis→BC→facture→règlement — paiements, Legal, Regulatory, factures, courriers, projets, tâches), lecture des documents du Drive, calendrier + disponibilités, stocks, hôpitaux, paie, agrégats financiers, **signaux d'alerte proactifs**, **point exécutif**, **rapport consolidé .docx**, rappels récurrents (rôle ou personne nommée), et les **actions** — trancher un paiement, réassigner une tâche, chaîner une facture, **modifier un salaire (confirmation renforcée)** — toujours confirmées et auditées. → [architecture](docs/CHIEF_OF_STAFF_ARCHITECTURE.md) |
+| **Mon dossier RH** | `/mon-dossier` | Documents RH personnels (contrats, bulletins, attestations) + **demandes RH** (attestation, CNAS, relevé d'émoluments, titre/demandes de congé — annuel, sans solde, exceptionnel, maternité —, sortie exceptionnelle, arrêt maladie, **note de frais avec mois obligatoire**, **entrevue avec les RH** à date négociée) avec **pièces jointes** et **fil d'échange** par demande ; un **ordre de mission** s'y demande et se suit dans la section « Mes ordres de mission » de **Mon espace** (plus d'onglet à part). Carte **« Ma rémunération »** (salaire de base, Ret SS 9 %, Ret IRG, Remb. frais, Net à payer — **jamais** le brut, la Ret SS 35 % ni la TFP). Notification **« salaire versé »** au plus tôt **24 h** après la saisie par les RH, et seulement une fois le **virement réglé** (la paie passe par le centre de paiement, §118.176). Accès **strict** à ses propres documents. |
 | **Calendrier** | `/calendar` | Agenda d'entreprise (fuseau **Alger**), création de rendez-vous + invitations, **accessible à l'Assistant IA** (créer/inviter par la conversation). |
 | **Réunions** | `/meetings` | Appels & réunions (lien Meet simple **ou présentiel avec lieu**) + **fil de discussion** (chat texte + pièces jointes) + **réponse d'invitation** (Oui/Peut-être/Non) + **enregistrement / transcription / compte-rendu IA** + **rappel 30 min avant** (notification planifiée). L'organisateur peut **modifier** titre, objet, lien, type et **horaire** (heure d'Alger). |
 | **Sujets** *(ex-« Projets », renommé le 01/10/2026)* | `/dossiers` | **Sujet** de suivi ad hoc : description, **responsable + participants**, statut, **fichiers** et **fil de discussion**. Créable **manuellement**, **proposé par l'IA**, ou **créé automatiquement** quand on implique une tierce personne sur un événement. « Projets » ne nomme plus que le registre de Business Development (§118.163). **Chaque sujet a son entité** (société du groupe), choisie à la création parmi celles que la personne VOIT, sinon celle où elle travaille ; la liste respecte le cloisonnement d'entité **sans perdre** un sujet d'avant sans entité (il reste visible, rattachable depuis Administration › Entités). (Route interne `/dossiers`, entité `Dossier` inchangées.) |
-| **Dashboard** | `/dashboard` | KPIs & graphiques adaptés au rôle. |
+| **Mon Équipe** | `/mon-equipe` | L'écran de celui qui **encadre** (RBAC `MY_TEAM`, ouvert à tous — l'entrée n'apparaît qu'à qui a réellement des N-1, garde `myTeam`). **Tout l'arbre sous soi** : N-1, N-2, jusqu'en bas (`subtreeOf`, chaque rang = `directReportsOf`, la MÊME fonction qui route les demandes), chacun portant son N+1 et son rang. **« À décider » réunit cinq natures, chacune selon SON circuit** (lot E3) : congés, achats et formations s'arrêtent au **PREMIER RANG** (le congé d'un N-2 est routé vers SON N+1) ; les **marches de recrutement** qui m'attendent — bornées à mon arbre et à la portée du module (`recruitmentScope`) — et les **plans de tournée** à trancher (`clausePlansADecider` : un plan escaladé monte au N+2) peuvent m'attendre plus bas ; `TeamMember.pending` compte les lignes de la file qui concernent la personne, et rien d'autre. **Une ligne n'est un lien que si sa page s'ouvre**, rejoué CÔTÉ SERVEUR (`lienDeLigne`, `lib/queries/lien-ouvrable.ts`) : module masqué ou retiré → la ligne disparaît ; module non accordé → elle reste, sans lien, et nomme qui peut l'ouvrir. **Qui est là** se lit au **jour d'Alger**, le dernier jour d'un congé compris (`lib/hr/absences.ts`) ; un congé à signer dit les absences de la même équipe qu'il **chevauche**, et la liste des absences qui se chevauchent couvre les **30 prochains jours** (12 montrées, le reste compté). **Au clic sur une personne : quelques KPI SELON SON MÉTIER** (`teamMemberKpis`) — charge de travail pour tous (tâches ouvertes/en retard, demandes en cours, congés pris), puis TERRAIN (visites 30 j, planifiées, médecins, comptes rendus manquants), RÉGLEMENTAIRE (dossiers portés, en retard, étapes), INFORMATION MÉDICALE (à instruire, en attente de pièces, validés 30 j), COORDINATION (courses 30 j, hors délai `n / N`, à faire) ; un métier sans compteur propre le DIT ; un chiffre mène à l'écran qui le détaille quand il en existe un et que sa garde laisse entrer celui qui regarde (lien posé CÔTÉ SERVEUR, `lib/queries/team-kpis.ts`). **La porte n'est PAS le module** (tout le monde l'a) mais la HIÉRARCHIE, revérifiée côté serveur — et un identifiant inconnu reçoit le MÊME refus qu'un hors-équipe. Ce n'est **pas** un mini-module RH : ni salaire, ni évaluation, ni dossier. **Recrutement** est son sous-module dans le menu, avec ses **droits propres**. |
+| **Recrutement** | `/recrutement` | Le poste demandé, de l'idée d'un directeur jusqu'à l'intégration. Un **directeur de département** formule le besoin (poste, missions, compétences, contrat **CDI / CDD / consulting / stage**, fourchette de rémunération, dates, fiche de poste) — le droit de demander suit l'**organigramme**, pas une liste de rôles. Sa **hiérarchie valide marche par marche jusqu'au sommet** (chaîne **figée à la soumission** ; la direction peut trancher à n'importe quelle marche, les marches sautées étant marquées **non consultées**). Les **RH instruisent** et demandent des précisions autant de fois qu'il le faut — la demande **retourne alors au demandeur**. Poste ouvert : **CV reçus** déposés par les RH, **présélection par le demandeur**, **choix de la direction parmi les présélectionnés ou en dehors**, entretiens, recrutement. Puis l'**intégration** (fiche employé pré-remplie) — **sauf pour un consulting**, intervenant externe hors effectif et hors paie. Chaque marche peut aussi **renvoyer pour correction** (motif exigé), une demande refusée **se rouvre** à la marche qui l'a refusée, et une embauche **s'annule** tant que la fiche employé n'existe pas (§118.192). → [circuit](#recrutement--de-la-demande-dun-directeur-jusquà-lintégration) |
 
 ### Pôles métier
 
 | Module | Route | Description |
 |---|---|---|
-| **Regulatory** | `/regulatory` | Dossiers **AMM / ANPP**, **workflow 17 étapes** + **processus officiel ANPP** (19 étapes / 5 phases — CTD déposé sur l'étape 1, check-list de présoumission en étape 2, allers-retours de réserves dans la frise), documents par molécule, **DCI mono / double / triple**, commentaires, champs personnalisés. Catégorie **Médicament / Dispositif médical**. **Référentiel fournisseurs** créé par les responsables réglementaires (menu déroulant dans les dossiers), colonnes **Forme** (galénique), **Dosage + unité** (mg/g/µg/UI/%…) en menus déroulants et **Conditionnement** (« B/30 » — à dosage égal, c'est lui qui distingue deux dossiers). Colonne **« Chargé du dossier »** : la personne qui porte le dossier se choisit **au menu déroulant depuis le tableau**, sans ouvrir la fiche. **Cadenas** : un dossier verrouillé est **invisible pour toute l'équipe** — y compris la Direction, son responsable et l'assistant IA ; seul le **Super Admin** le voit et l'ouvre. Section **Réserves** (upload PDF). **Demande de BV** → ordre de dépense (échéance). **Détenteur de DE** + **variation d'enregistrement** (packaging secondaire / primaire / full process, avec date) — toute variation en **fabrication locale exige le Fabricant** (bloqué serveur + champ requis). **UNE DCI DÉJÀ SUIVIE SE DIT PENDANT LA SAISIE** (pipeline comme suivi de dossiers) : le formulaire NOMME les dossiers existants et demande de vérifier qu'il s'agit bien d'un autre dosage, d'une autre forme ou d'un autre produit — on avertit, on n'interdit pas (interdire ferait saisir le doublon sous une DCI mal orthographiée, donc plus rapprochable du premier), et la création repart d'un clic « J'ai vérifié ». La comparaison **trie les molécules d'une association** (« A + B » = « B + A ») et ignore casse et accents. Un dossier **verrouillé au pipeline se COMPTE sans se NOMMER**, avec le geste qui débloque : **« Demander l'accès »** prévient la supervision Regulatory (notification + audit, aucun registre de plus). Carte **« Vue fournisseur »** (pilote le portail externe). **Relance de mise à jour** (Super Admin / Directeur Général) : une personne ou tout le monde, avec le portefeuille, la part en sommeil (30 j sans mouvement) et la date de la dernière relance — les dossiers verrouillés et aboutis en sont exclus. **Catalogue produits** (bouton depuis Regulatory) : une identité par médicament — le **produit canonique** — que les dossiers, les produits des Business Units et ceux du Business Development référencent ; un dossier à l'identité complète (DCI, dosage avec unité, forme, conditionnement) le rejoint à sa création et à chaque modification, un dossier incomplet dit ce qui lui manque, et le Super Admin rattache l'existant d'un geste après un aperçu qui n'écrit rien. |
-| **Ad & Pro** | `/sponsoring` (+ onglets) | Module unifié **Sponsoring · Congrès internationaux · Événements nationaux · Events · Matériel promotionnel**. Circuit de demande avec le **National Sales** (approuve la demande d'un KAM, et elle seule), **référents Direction Marketing configurés par Business Unit**, **sponsoring en trois temps** (la Direction Marketing **pré-valide la tenue**, les **postes** se préparent — devis, BC, factures —, puis **validation finale : chaque poste dans un budget, clôture**, la somme des postes accordés devenant le montant accordé), **tierce personne** impliquée via son espace (+ dossier auto), **décision définitive de la Direction** (budget accordé visible), enchaînement **Information médicale → Finances**. **Liste des personnes prises en charge** (pièces d'identité) + **ordre de mission**. Le **matériel promotionnel** suit le **circuit 2** : validation de la demande (directrice marketing pour le marketing, N+1 plafonné au directeur des opérations sinon, personne pour la directrice ni pour le directeur des opérations) → devis **retranscrits ligne à ligne** par l'assistante → le demandeur **retient des lignes** de plusieurs devis → Direction Marketing → **DG au-dessus du seuil** → **BC générés par la plateforme** (un par fournisseur, centre Ad & Pro au-dessus du seuil BC, signature des Finances) → **facture obligatoire par BC** → **paiement au centre de paiement** avec la **demande de visa ou de déclaration** à l'information médicale. Les dossiers d'avant gardent leur circuit court. → [circuit 2](#matériel-promotionnel--circuit-2--devis-retranscrits-lignes-retenues-bc-générés) · [circuit court](#matériel-promotionnel--cinq-marches-puis-trois-chantiers-en-parallèle) |
+| **Regulatory** | `/regulatory` | Dossiers **AMM / ANPP**, **workflow 17 étapes** + **processus officiel ANPP** (19 étapes / 5 phases — CTD déposé sur l'étape 1, check-list de présoumission en étape 2, allers-retours de réserves dans la frise), documents par molécule, **DCI mono / double / triple**, commentaires, champs personnalisés. Catégorie **Médicament / Dispositif médical**. **Référentiel fournisseurs** créé par les responsables réglementaires (menu déroulant dans les dossiers), colonnes **Forme** (galénique), **Dosage + unité** (mg/g/µg/UI/%…) en menus déroulants et **Conditionnement** (« B/30 » — à dosage égal, c'est lui qui distingue deux dossiers). Colonne **« Chargé du dossier »** : la personne qui porte le dossier se choisit **au menu déroulant depuis le tableau**, sans ouvrir la fiche. **Cadenas** : un dossier verrouillé est **invisible pour toute l'équipe** — y compris la Direction, son responsable et l'assistant IA ; seuls le **Super Admin** et ceux à qui il a **ouvert le pipeline** (Administration › Réglages — consulter, ou tenir le cadenas) le voient, et seul qui tient le cadenas l'ouvre ([cadenas](#regulatory--le-cadenas--un-dossier-invisible-pour-toute-léquipe)). Section **Réserves** (upload PDF). **Demande de BV** → ordre de dépense (échéance). **Détenteur de DE** + **variation d'enregistrement** (packaging secondaire / primaire / full process, avec date) — toute variation en **fabrication locale exige le Fabricant** (bloqué serveur + champ requis). **UNE DCI DÉJÀ SUIVIE SE DIT PENDANT LA SAISIE** (pipeline comme suivi de dossiers) : le formulaire NOMME les dossiers existants et demande de vérifier qu'il s'agit bien d'un autre dosage, d'une autre forme ou d'un autre produit — on avertit, on n'interdit pas (interdire ferait saisir le doublon sous une DCI mal orthographiée, donc plus rapprochable du premier), et la création repart d'un clic « J'ai vérifié ». La comparaison **trie les molécules d'une association** (« A + B » = « B + A ») et ignore casse et accents. Un dossier **verrouillé au pipeline se COMPTE sans se NOMMER**, avec le geste qui débloque : **« Demander l'accès »** prévient la supervision Regulatory (notification + audit, aucun registre de plus). Carte **« Vue fournisseur »** (pilote le portail externe). **Relance de mise à jour** (Super Admin / Directeur Général) : une personne ou tout le monde, avec le portefeuille, la part en sommeil (30 j sans mouvement) et la date de la dernière relance — les dossiers verrouillés et aboutis en sont exclus. **Catalogue produits** (bouton depuis Regulatory) : une identité par médicament — le **produit canonique** — que les dossiers, les produits des Business Units et ceux du Business Development référencent ; un dossier à l'identité complète (DCI, dosage avec unité, forme, conditionnement) le rejoint à sa création et à chaque modification, un dossier incomplet dit ce qui lui manque, et le Super Admin rattache l'existant d'un geste après un aperçu qui n'écrit rien. |
+| **Pipeline** | `/regulatory/pipeline` | Les dossiers **verrouillés** du portefeuille, avant leur publication à l'entreprise : le **Super Admin** et ceux à qui il a **ouvert le pipeline** (Administration › Réglages — rôles ou personnes, deux droits : consulter, tenir le cadenas) ; l'entrée de menu n'apparaît qu'à eux (garde `pipeline`). → [cadenas](#regulatory--le-cadenas--un-dossier-invisible-pour-toute-léquipe) |
+| **Analyse CTD** | `/regulatory/enregistrement` | Le **référentiel réglementaire ANPP** intégré (cadre légal, frais, pièces du dossier, modules CTD, mentions de décision) et l'analyse des dossiers CTD par **organisation activée** — **masqué tant que le Super Admin ne l'a pas débloqué**, puis ouvert à des rôles choisis (garde `regEnrollment`) ; l'entité analysée est choisie parmi celles **ouvertes à la personne** (`resolveRegCompanyIdFor`), jamais le cookie tel quel (§118.177). |
+| **Ad & Pro** | `/ad-pro` (8 onglets) | Module unifié : **Toutes les demandes · Sponsoring · Prises en charge internationales · Prises en charge nationales · Événements · Matériel promotionnel · Consulting · Autres demandes**. Circuit de demande avec le **National Sales** (approuve la demande d'un KAM, et elle seule), **référents Direction Marketing configurés par Business Unit**, **sponsoring en trois temps** (la Direction Marketing **pré-valide la tenue**, les **postes** se préparent — devis, BC, factures —, puis **validation finale : chaque poste dans un budget, clôture**, la somme des postes accordés devenant le montant accordé), **tierce personne** impliquée via son espace (+ dossier auto), **décision de la Direction Marketing**, qui fixe le montant et la sous-catégorie (budget accordé visible) — la Direction des opérations valide avant elle la demande du National Sales et le sponsoring d'un KAM, et ne tranche que les demandes de rang 2 (Direction Marketing, Manager Promotion médicale), dont elle fixe alors le montant et la sous-catégorie : l'étape qui conclut une route coupée en hérite (`argentEffectif`) —, enchaînement **Information médicale → centre de paiement → Finances**. **Liste des personnes prises en charge** (pièces d'identité) + **ordre de mission**. Le **matériel promotionnel** suit le **circuit 2** : validation de la demande (directrice marketing pour le marketing, N+1 plafonné au directeur des opérations sinon, personne pour la directrice ni pour le directeur des opérations) → devis **retranscrits ligne à ligne** par l'assistante → le demandeur **retient des lignes** de plusieurs devis → Direction Marketing → **DG au-dessus du seuil** → **BC générés par la plateforme** (un par fournisseur, centre Ad & Pro au-dessus du seuil BC, signature des Finances) → **facture obligatoire par BC** → **paiement au centre de paiement** avec la **demande de visa ou de déclaration** à l'information médicale. Les dossiers d'avant gardent leur circuit court. → [circuit 2](#matériel-promotionnel--circuit-2--devis-retranscrits-lignes-retenues-bc-générés) · [circuit court](#matériel-promotionnel--cinq-marches-puis-trois-chantiers-en-parallèle) |
 | **Stock promotionnel** | `/stock-promotionnel` | Sous-module **à part** du pôle Sales & Marketing (module `PROMO_STOCK`, §118.164, §118.173 — plus un onglet d'Ad & Pro ; l'ancienne adresse `/promo-material/stock` redirige, la vue comprise) : le **magasin central** tenu par la directrice marketing, ce que chaque délégué a en main, ce qui est **en route**. Une quantité se calcule à partir des **mouvements**, par **lot** (le plus tôt périmé sort d'abord, un lot périmé ne se distribue plus) ; une dotation n'entre dans le stock d'un délégué qu'à **sa confirmation** ; le directeur des opérations a la vue globale et déplace le matériel de ses équipes. Les **achats** y entrent par leur **facture**, ligne à ligne (ce qui est reçu, et lui seul, est payé) ; le **matériel remis en visite** sort du stock du délégué (au-delà de son solde, la visite est bloquée) ; un poste **« Matériel du stock »** d'une demande Ad & Pro réserve à l'accord et se confirme après l'événement ; le directeur des opérations fait **compter** ses équipes, ponctuellement ou régulièrement ; **alertes** et **tableau de bord** (§118.165–168). → [détails](#matériel-promotionnel--le-stock--catalogue-magasin-achats-visites-événements-comptages-118164168) |
 | **Catalogue promotionnel** | `/stock-promotionnel/catalogue` | Onglet du Stock promotionnel (module `PROMO_CATALOG`) : **les supports** (fiche POSO, ADV, stylos, présentoir, banner, vidéo…), chacun sous une référence **fixe** `CAT-0001`, rangés en trois familles (consommable, durable, numérique) ; on en ajoute ensuite (nom, famille, « existe par produit » — rien d'autre, §118.173). Tenu par le Super Admin, ouvert **en lecture ou en écriture personne par personne** (Administration › Accès). |
 | **Budgets & enveloppes** | `/budgets` | **Enveloppes budgétaires** (Super Admin, délégable) : période, **modules rattachés**, **catégories + sous-catégories**, **budget total** fixe ou flexible, **allocation** des dépenses validées, **vue consolidée** du total de toutes les enveloppes, **accès par rôle ET par personne**. → [détails](#-budgets-enveloppes--sous-catégories) |
 | **Finances** | `/finances/paiements-a-faire` | **DEUX SOUS-MODULES** : **Banque & paiements** (`/finances/paiements-a-faire` — le **Solde trésorerie = somme des comptes − paiements autorisés à régler** (§118.176) et le détail par compte, puis la file du décaissement, alimentée **exclusivement** par le centre de paiement) et **Comptabilité** (`/finances/comptabilite` — le livre, l'import, les **comptes de trésorerie ANCRÉS** — banque, RIB, entité, et le solde d'un relevé à une date, jamais réécrit : le solde d'un compte = cet ancrage + les écritures réglées postérieures —, et ce que le DAF doit encore arbitrer). Les **Bons de commande** ne sont plus un sous-module des Finances : c'est un module à part (Administration › Bons de commande). Le **Dashboard a été supprimé** (2026-09) : il ne portait aucun geste. Cliquer « Finances » mène à « Banque & paiements » ; `/finances` redirige. « Demander l'actualisation des soldes » est réservé au **Super Admin** (écran, action serveur et Adam). Les **factures** ne sont pas ici : ce sont des documents légaux de nature « facture » (`/legal?nature=INVOICE`), et la comptabilité y garde sa porte. Aucun paiement n'arrive ici sans être **autorisé par le centre**, quel que soit son montant. |
-| **Centre de paiement** | `/centre-de-paiement` | **Module À PART, hors Finances** (RBAC `PAYMENT_CENTRE` — PDG + Super Admin) : celui qui **autorise** l'argent n'est pas dans l'écran de celui qui le **décaisse**. **GUICHET UNIQUE** : aucun paiement n'atteint les Finances sans autorisation, **quel que soit le montant et le module** — plus de seuil, plus d'exemption. Une demande de paiement y entre **dès sa soumission**, avant l'instruction des Finances. **Deux issues** (autoriser · refuser) — la révision du montant et l'argumentation ont été retirées ; un dossier qui les portait se reprend par la réponse du demandeur. **La paie** (un envoi par entité et par mois, avec la somme des salaires à virer) et **la remise de caisse d'avance** y passent depuis le 01/10 (§118.176). → [détails](#centre-de-paiement--rien-ne-sort-quel-que-soit-le-montant-sans-le-pdg) |
-| **Centre de validation Ad & Pro** | `/centre-ad-pro` | **Module À PART** (RBAC `AD_PRO_CENTRE` — **Direction Générale + Super Admin**, et personne d'autre : la Direction et la Direction Marketing ARBITRENT déjà les demandes dans leur circuit, leur ouvrir le centre reviendrait à s'autoriser elles-mêmes le dépassement qu'elles ont proposé). **Toute demande Ad & Pro dont le budget total dépasse le seuil y passe** — les SEPT natures du pôle, mesurées : 5 avaient déjà une porte (l'étape `dg` des quatre circuits configurables, l'étape `REVIEW_DG` du matériel promotionnel), **le consulting et les « autres demandes » n'en avaient AUCUNE** et un engagement de 5 M DZD sortait sans que personne en haut l'ait vu. **Le seuil se règle DEPUIS le centre** (le même chiffre qu'Administration › Réglages — un seul réglage, cinq lecteurs). Le centre est une **LENTILLE**, pas une seconde autorisation : il montre les trois formes de porte au même endroit et décide là où la porte est un VISA ; pour une étape de circuit il renvoie au dossier, parce qu'une décision se prend devant ses pièces. → [détails](#centre-de-validation-ad--pro--toute-demande-au-dessus-du-seuil-y-passe) |
-| **My Chief of Staff** | `/chief-of-staff` | **L'interface exécutive — visible du SEUL Super Admin depuis 09/2026** (module `CHIEF_OF_STAFF` + `peutVoirAdam`, garde au niveau du segment ; Adam est en pause de développement, §118.153) : piloter l'entreprise en langage naturel, **au clavier ou à la voix** (conversation vocale avec interruption). Recherche fédérée `search_everything` (~30 familles, tolérante aux accents/fautes), histoire complète d'un dossier (`inspect_record` : timeline, validateurs, chaîne devis→BC→facture→règlement — paiements, Legal, Regulatory, factures, courriers, projets, tâches), lecture des documents du Drive, calendrier + disponibilités, stocks, hôpitaux, paie, agrégats financiers, **signaux d'alerte proactifs**, **point exécutif**, **rapport consolidé .docx**, rappels récurrents (rôle ou personne nommée), et les **actions** — trancher un paiement, réassigner une tâche, chaîner une facture, **modifier un salaire (confirmation renforcée)** — toujours confirmées et auditées. → [architecture](docs/CHIEF_OF_STAFF_ARCHITECTURE.md) |
-| **RH** | `/rh` | Employés (contrats, **périodes d'essai** avec renouvellement et 2ᵉ période, congés, avances), **éléments de salaire du bulletin** (base, Ret SS 9 %/35 %, TFP, Ret IRG, remb. frais, net à payer, brut — 3 champs confidentiels côté salarié), file **« Demandes RH à traiter »** (toutes les demandes de Mon dossier RH), **traitement des notes de frais** (validation mois demandé / mois suivant, verrouillée tant que le secrétariat n'a pas accusé réception des originaux), **entrevues RH** (proposition/contre-proposition de date → rendez-vous au calendrier), onglet **Paie** (matrice employés × mois), **Départements** (`/rh/departements` : structure de l'entreprise sur N niveaux, responsables, effectifs — c'est le DRH qui possède l'organisation), **Consultants** (`/rh/consultants` : les contrats de consultant suivis par les RH — les MÊMES contrats que Ad & Pro › Consulting, rangés au **pôle RH** ; un contrat déjà suivi par Ad & Pro se **transfère** depuis sa fiche, sans rien perdre, §118.150). → [référence](#-référence-détaillée-des-circuits--mécanismes-transverses) |
+| **Centre de paiement** | `/centre-de-paiement` | **Module À PART, hors Finances** (y **siègent** le PDG — rôle `DIRECTION` —, le Super Admin et les **sièges nommés** par lui, `PaymentCentreSeat` ; cocher le module `PAYMENT_CENTRE` ne fait pas siéger) : celui qui **autorise** l'argent n'est pas dans l'écran de celui qui le **décaisse**. **GUICHET UNIQUE** : aucun paiement n'atteint les Finances sans autorisation, **quel que soit le montant et le module** — plus de seuil, et une seule exception assumée : la **rallonge** de caisse d'avance (`horsCentre()`). Une demande de paiement y entre **dès sa soumission**, avant l'instruction des Finances. **Deux issues** (autoriser · refuser) — la révision du montant et l'argumentation ont été retirées ; un dossier qui les portait se reprend par la réponse du demandeur. **La paie** (un envoi par entité et par mois, avec la somme des salaires à virer) et **la remise de caisse d'avance** y passent depuis le 01/10 (§118.176). → [détails](#centre-de-paiement--rien-ne-sort-quel-que-soit-le-montant-sans-son-autorisation) |
+| **Centre de validation Ad & Pro** | `/centre-ad-pro` | **Module À PART** (RBAC `AD_PRO_CENTRE` — **Direction Générale + Super Admin**, et personne d'autre : la Direction et la Direction Marketing ARBITRENT déjà les demandes dans leur circuit, leur ouvrir le centre reviendrait à s'autoriser elles-mêmes le dépassement qu'elles ont proposé). **Toute demande Ad & Pro dont le budget total dépasse le seuil y passe** (sauf, sur les quatre circuits configurables, celle du rang le plus haut — Direction, DG, Directeur des Opérations, Super Admin —, dont la route saute la porte du DG) — les SEPT natures du pôle, mesurées : 5 avaient déjà une porte (l'étape `dg` des quatre circuits configurables, l'étape `REVIEW_DG` du matériel promotionnel), **le consulting et les « autres demandes » n'en avaient AUCUNE** et un engagement de 5 M DZD sortait sans que personne en haut l'ait vu. **Le seuil se règle DEPUIS le centre** (le même chiffre qu'Administration › Réglages — un seul réglage, cinq lecteurs). Le centre est une **LENTILLE**, pas une seconde autorisation : il montre les trois formes de porte au même endroit et décide là où la porte est un VISA ; pour une étape de circuit il renvoie au dossier, parce qu'une décision se prend devant ses pièces. → [détails](#centre-de-validation-ad--pro--toute-demande-au-dessus-du-seuil-y-passe) |
+| **Centre de validations** | `/centre-de-validations` | **Module À PART** (`VALIDATION_CENTRE`), le pendant du centre de paiement côté décisions : le **Directeur Général** et le **Super Admin** (`sitsOnValidationCentre` — cocher le module ne suffit pas) y trouvent **seulement** ce qu'on attend d'eux, avec le contexte, les pièces (aperçu) et le lien vers la demande source ; c'est notamment là que passent les **bons de commande hors Ad & Pro** au-dessus du seuil. On demande et on suit ses validations dans « Demandes de validations » ; ici, on décide. |
+| **Bons de commande** | `/bons-de-commande` | **Module À PART** (`PURCHASE_ORDERS`, depuis le 01/10 — l'ancienne adresse sous les Finances redirige) : la file des BC **à signer** (validés par leur centre, ou sous le seuil des BC), la pièce à lire, **Signer** ou **Renvoyer à l'émetteur**. « Voir » ouvre la file, « Modifier » est le droit de signer — par défaut Direction, Directeur Général et Finances ; le Directeur des Opérations la lit. Le compositeur de pièces y a son bouton. → [détails](#bons-de-commande--le-seuil-puis-la-signature-des-finances-118149) |
+| **Legal** | `/legal` | Le **registre des documents légaux** (`LEGAL`) — contrats et avenants, conventions, accords de confidentialité, assurances, licences, baux, et la **chaîne d'achat** devis → bon de commande → facture → avoir —, avec ses **lecteurs désignés** (un document restreint n'existe que pour eux), ses échéances et rappels, et la **fabrique** de pièces au papier en-tête (« Composer une pièce »). Les Finances n'y voient que la chaîne d'achat. Sous-menu **Coordonnées des entités** (`/legal/identites`). → [chaîne d'achat](#la-chaîne-du-dossier-dachat--devis--bc--facture--règlement-dun-seul-écran) |
+| **Courriers** | `/courriers` | Le **registre des courriers** (`MAIL_REGISTER`) : arrivées et départs, n° de chrono, expéditeur et destinataire choisis dans l'annuaire, direction et personne concernées, **dossiers de classement**, **plusieurs pièces** par courrier (chacune avec son destinataire), classement depuis le Drive sans copie. Ce n'est pas une messagerie : c'est la trace des plis. → [détails](#courriers--dossiers-de-classement-et-autant-de-pièces-quil-en-faut) |
+| **Annuaires** | `/annuaires` | **Module à part du pôle Administration** (`DIRECTORIES`) qui **centralise tous les annuaires** en onglets : **Médecins**, **Pharmaciens** (le grade `PHARMACIEN` de la même feuille de praticiens), **Établissements**, **Spécialités** (le référentiel : ajouter, renommer, fusionner, retirer, et rattacher les spécialités écrites à la main sur les fiches — gardé par la Promotion médicale, c'est une structure de l'annuaire), **Partenaires** (les contacts extérieurs de la société), **Personnes** (l'annuaire interne) et **Autres annuaires** (spécialités, fournisseurs Regulatory, partenaires courriers, lieux de stock — avec leur compte et le lien vers leur écran, ou « accès réservé »). **La porte est ouverte à tous** (accès implicite `VIEW`, comme « Mon équipe ») et **n'ouvre rien de plus** : chaque onglet est gardé par le module de SON référentiel (`MEDICAL` pour les trois premiers, `WORKSPACE` pour Partenaires et Personnes) — un lecteur sans Promotion médicale ne voit pas les onglets médicaux, et l'adresse tapée à la main refuse de la même façon. **Accès PAR ANNUAIRE** : dans la console (compte › accès, ou « Accès par module »), un accès **Personnalisé** au module Annuaires coche les annuaires à ouvrir — médecins, pharmaciens, établissements, partenaires, personnes — avec les gestes cochés (créer, modifier, supprimer), **sans** donner le module du référentiel : l'assistante de direction reçoit les établissements sans toute la Promotion médicale. L'ouverture **s'ajoute** au rôle (une case oubliée ne retire rien), l'annuaire s'ouvre **en entier** (un référentiel, pas un portefeuille), et la structure (annuaires nommés, colonnes, import de fichier) reste à la Promotion médicale. Les écrans d'origine `/medical/annuaire` et `/mon-espace/annuaire` restent en place et lisent les **mêmes chargeurs** (`lib/queries/annuaires.ts`) : deux portes, une lecture ; `/medical/etablissements` **redirige** vers `/annuaires/etablissements`, seul écran des établissements et de leurs **services**. → [détails](#annuaires--praticiens-et-contacts-de-lentreprise) |
+| **Site web** | `/site-web` | **Pôle Administration** (`SITE_WEB`) : l'ERP **publie** les **offres d'emploi** et les **articles de blog** du site public **adventumdz.com** — il en est la source de vérité, le site n'est jamais saisi à la main pour ces contenus. Trois onglets : **Publication** (une phrase quand rien ne part, contenus envoyés et leur état sur le site — *À envoyer*, *En attente*, *Nouvel essai prévu*, *En ligne*, *Retiré du site*, *Refusé par le site*, *Échec d'envoi* —, journal des derniers échanges, dernier rapprochement ; la **liaison** elle-même — clé, vérification, rapprochement à la demande, **mise en service** — vit dans Console d'Administration › **Site web (connexion)**, Super Admin seul, `peutGererLaLiaison`), **Articles** (éditeur Markdown avec aperçu, sommaire, temps de lecture, refus d'un `# Titre` avant l'envoi) et **Offres d'emploi** (préparées depuis une demande de recrutement, **jamais** avec la rémunération ni la justification). Chaque envoi part par une **file** qui réessaie, et un **rapprochement quotidien** relit ce que le site détient. La liaison marche **dans les deux sens** : la clé se **génère en un clic** (un bloc à coller dans Render), les **candidatures** déposées sur le site arrivent dans **Recrutement › Candidatures du site** (ou directement dans le recrutement quand le poste est ouvert), et le site se recharge depuis l'ERP à chaque démarrage. La Direction, la Direction Générale et la Direction Marketing écrivent les articles ; les RH et la direction publient les offres. → [détails](#site-web-adventum--lerp-publie-les-offres-demploi-et-les-articles) |
+| **RH** | `/rh` | Employés (contrats, **périodes d'essai** avec renouvellement et 2ᵉ période, congés, avances), **éléments de salaire du bulletin** (base, Ret SS 9 %/35 %, TFP, Ret IRG, remb. frais, net à payer, brut — 3 champs confidentiels côté salarié), file **« Demandes RH à traiter »** (toutes les demandes de Mon dossier RH), **traitement des notes de frais** (validation mois demandé / mois suivant, verrouillée tant que le secrétariat n'a pas accusé réception des originaux), **entrevues RH** (proposition/contre-proposition de date → rendez-vous au calendrier), sous-menu **Paie** (`/rh/paie`, réservé à qui tient les RH en écriture — garde `payroll` : matrice employés × mois, et l'**envoi au centre de paiement**, un virement par entité et par mois avec la somme des salaires à virer, §118.176), **Départements** (`/rh/departements` : structure de l'entreprise sur N niveaux, responsables, effectifs — c'est le DRH qui possède l'organisation), **Consultants** (`/rh/consultants` : les contrats de consultant suivis par les RH — les MÊMES contrats que Ad & Pro › Consulting, rangés au **pôle RH** ; un contrat déjà suivi par Ad & Pro se **transfère** depuis sa fiche, sans rien perdre, §118.150). → [référence](#-référence-détaillée-des-circuits--mécanismes-transverses) |
 | **Moyens généraux** | `/moyens-generaux` | **Module à part entière** (`GENERAL_MEANS`), et non un onglet de Budgets. **L'ACCÈS SE RÈGLE DEPUIS LA CONSOLE, ET NULLE PART AILLEURS** : le module s'accordait implicitement à quiconque tenait les RH en écriture — la console affichait « Aucun accès » sur cette ligne et la personne l'avait quand même, si bien que le retirer ne changeait rien. La règle est **supprimée** : matrice du rôle, ou attribution nominative dans la console (`rbac-console-authority.test.ts` tient les deux sens depuis la vraie table d'overrides). **L'entrée de MENU porte le même module que la page** (`GENERAL_MEANS`, plus `WORKSPACE`) : elle était restée sur le module ouvert à tous du temps où l'on demandait un achat ici, si bien qu'un compte bloqué continuait de la voir — et en concluait que la console ne marchait pas. **LES MOYENS GÉNÉRAUX SONT CEUX DE TOUT LE MONDE** : un SEUL service, désigné par le Super Admin (`AppSetting.generalMeansDepartmentId`), sur lequel chacun atterrit, **Super Admin compris : plus aucun sélecteur de départements à l'écran** (décision du 01/10) — le découpage par département reste la façon dont l'argent est **imputé**, et il se lit dans Budgets › par département ; le Super Admin garde la **désignation** du service (« Changer de service… », proposé d'office quand aucun service n'est désigné ou qu'il a été supprimé). **Chaque demande d'achat est copiée ENTIÈREMENT dans un journal à part** (`/admin/achats`, Super Admin seul) à chaque geste — dépôt, validation, refus, retrait : on ajoute, on n'efface jamais, si bien qu'une demande retirée y garde sa trace complète ; les **ressources humaines** dotent la caisse du service, l'**assistante de direction** en est l'utilisatrice quotidienne. Elle reçoit les demandes d'achat par son **bureau du secrétariat**, elles suivent le circuit de validation normal, et **à la clôture de la demande** elle choisit le budget de moyens généraux à débiter — le sien ou celui du **département demandeur** — dont le montant est alors **déduit**, la demande restant attachée à la dépense. Le budget, les achats et la **caisse d'avance** d'un département au même endroit. Tout achat s'y saisit avec son **montant** et le **scan de la facture / du bon de paiement** (pièce obligatoire), qu'il soit payé sur la caisse ou autrement (virement, carte, Finances) — et il est **déduit du budget** dans les deux cas. La caisse est de l'argent **en main** (distinct du budget qui dit ce qu'on a le **droit** de dépenser) et elle est **CONTINUE** : chaque remise s'ajoute au fond et garde sa date, aucune ne clôt la précédente — solder est un geste, et il porte sur le fond entier. **Chaque remise passe d'abord par le centre de paiement** (§118.176) : elle naît en attente de son autorisation, l'argent ne sort qu'au **versement** par les Finances (sans catégorie budgétaire — c'est un changement de tiroir, ce sont les achats faits sur la caisse qui s'imputent), et une remise refusée se ferme avec son motif. La personne qui la détient **confirme avoir reçu** chaque somme — **après** le versement, rien n'est disponible avant —, puis chaque dépense en est déduite avec sa **facture ou son bon de paiement scanné**. Les dépenses tiennent en **une seule liste, en tableau, filtrable sur « caisse d'avance »**. Alerte à 20 % restants, **rallonge** demandée depuis le même écran. **Catalogue d'articles** tenu depuis le module (le même que celui du Bureau du secrétariat) et **ticket de caisse à plusieurs articles** : on enregistre le justificatif, on sélectionne les articles achetés avec leur nombre et leur montant, et le **total de la dépense découle des lignes**. **Annuaire d'entreprise** (`/mon-espace/annuaire`) : tous les contacts extérieurs de la société — agence de voyage, livreurs, agence marketing, imprimeur, transitaire… — par catégorie, cherchables, avec téléphone et e-mail cliquables. → [détails](#budgets-par-département--trois-natures-trois-responsables) |
 | **Formations** | `/formations` | Demande individuelle (montant, organisme, dates, devis) validée **N+1 → RH → DG**, et formations **organisées par les RH** (qui partent directement au DG) avec **participants convoqués ou volontaires** (les volontaires acceptent ou déclinent) et **postes** (salle, traiteur, intervenant) validés un par un par la Direction. Budget **FORMATION** parmi les budgets départementaux. |
-| **Promotion médicale** | `/medical/ma-journee` | **Ma journée** (KAM) : la **tournée proposée** du jour — les praticiens en retard sur leur **fréquence cible**, avec la raison chiffrée — et la **saisie d'une visite en 3 gestes** (praticien, produits de sa mallette pré-cochés P1, un mot dicté au clavier) ; une ligne de chiffres (fait/attendu, couverture du panel, rythme à tenir sur les **jours ouvrés algériens**). Onglet **Annuaire** : le référentiel des praticiens, en **feuille tableur** — sélection de cellules à la souris et au clavier, **couleurs** partagées, **colonnes sur mesure** visibles dans la feuille. Onglet **Établissements** (`/medical/etablissements`) : le référentiel des **hôpitaux** (CHU, EPH, EHS, cliniques, polycliniques, cabinets) avec leurs **services** (ajouter d'un coup une liste collée, renommer, supprimer — panneau « Services » de chaque ligne), un bouton **Désactiver / Réactiver** sur la ligne — celui auquel se **rattachent** les praticiens : dans la feuille des médecins et des pharmaciens, les colonnes **Établissement** et **Service** sont des **liens** vers cet annuaire (menu des établissements actifs, le plus proche du texte d'avant en tête ; menu des seuls services de l'établissement de la ligne ; une fiche d'avant le lien se dit « à rattacher », et « Rattacher les établissements » relie en lot ce qui désigne exactement UN établissement actif). Les **secteurs** ne s'y saisissent plus : chaque **Business Unit** découpe le sien (établissements, avec tous leurs services ou certains) ; **la wilaya est le SEUL découpage géographique** (liste fermée des 58 wilayas en menu déroulant ; le champ « Ville » a disparu des annuaires). Les mêmes feuilles se retrouvent dans le module **Annuaires** du pôle Administration (`/annuaires`), qui centralise tous les annuaires. Onglet **Plan de tournée** (`/medical/plan-de-tournee`) : le KAM **pré-sélectionne** ses praticiens jour par jour depuis son panel (réunion de son **secteur** et de ses rattachements directs), à la maille que le Super Admin a choisie (**semaine / mois / trimestre / semestre**, mensuelle par défaut), avec l'**échéance de soumission** (15 jours avant la fin du mois précédent par défaut — **réglable**, avec la maille, dans **Force de vente › Paramètres** par le Super Admin) dont le **retard** se lit chez le KAM, dans sa liste de plans et sur le tableau de bord de la Direction ; son **N+1 valide**, peut **escalader au N+2**, et un **rejet motivé** rouvre 48 h pour resoumettre ; un plan **validé se révise** (motif exigé — il repasse « En révision », se resoumet sous 48 h, et les visites déjà passées restent au plan). Le plan validé devient l'**emploi du temps** de « Ma journée » — **Aujourd'hui / Demain / Cette semaine / Ce mois-ci**, **gris** tant que le rapport n'est pas fait, **vert** après — où un clic ouvre le **rapport terrain** (vocal ou écrit) qui exige les **produits de sa BU** et les **messages pré-définis de la Direction Marketing**, dans une fenêtre de **48 h** après la visite ; une visite qui n'a pas eu lieu se dit **reportée ou annulée** (« N'a pas eu lieu », motif exigé, la même fenêtre de 48 h). **Visite imprévue** et **visite commandée par la Direction** entrent hors plan et comptent au « nombre de visites », jamais au dénominateur des « planifiées ». Onglet **Coaching** (`/medical/coaching`) : la **fiche de coaching « tournée en double »** de la Direction, en natif — grille à 4 niveaux × 5 axes **administrée et versionnée par le directeur des opérations**, fiches remplies par le superviseur, finalisées et partagées avec le collaborateur, **téléchargeables** en Excel (total en formule) et en PDF, synthèse par collaborateur et par axe. → [détails](#force-de-vente--la-boucle-terrain) · [coaching](#promotion-médicale--la-fiche-de-coaching-tournée-en-double) |
-| **Ventes** | `/sales` | CA pharma/PCH, **import CSV**, type **Produit / Service**. |
-| **Logistique PCH** | `/logistics` | Module autonome : import / expéditions fournisseurs, dates estimées vs réelles, dédouanement. |
+| **Promotion médicale** | `/medical/ma-journee` | **Ma journée** (KAM) : la **tournée proposée** du jour — les praticiens en retard sur leur **fréquence cible**, avec la raison chiffrée — et la **saisie d'une visite en 3 gestes** (praticien, produits de sa mallette pré-cochés P1, un mot dicté au clavier) ; une ligne de chiffres (fait/attendu, couverture du panel, rythme à tenir sur les **jours ouvrés algériens**). Onglet **Annuaire** : le référentiel des praticiens, en **feuille tableur** — sélection de cellules à la souris et au clavier, **couleurs** partagées, **colonnes sur mesure** visibles dans la feuille. Les **établissements** vivent dans **Annuaires › Établissements** (`/annuaires/etablissements` — l'ancien onglet `/medical/etablissements` redirige depuis 09/2026) : le référentiel des **hôpitaux** (CHU, EPH, EHS, cliniques, polycliniques, cabinets) avec leurs **services** (ajouter d'un coup une liste collée, renommer, supprimer — panneau « Services » de chaque ligne), un bouton **Désactiver / Réactiver** sur la ligne — celui auquel se **rattachent** les praticiens : dans la feuille des médecins et des pharmaciens, les colonnes **Établissement** et **Service** sont des **liens** vers cet annuaire (menu des établissements actifs, le plus proche du texte d'avant en tête ; menu des seuls services de l'établissement de la ligne ; une fiche d'avant le lien se dit « à rattacher », et « Rattacher les établissements » relie en lot ce qui désigne exactement UN établissement actif). Les **secteurs** ne s'y saisissent plus : chaque **Business Unit** découpe le sien (établissements, avec tous leurs services ou certains) ; **la wilaya est le SEUL découpage géographique** (liste fermée des 58 wilayas en menu déroulant ; le champ « Ville » a disparu des annuaires). Les mêmes feuilles se retrouvent dans le module **Annuaires** du pôle Administration (`/annuaires`), qui centralise tous les annuaires. Onglet **Plan de tournée** (`/medical/plan-de-tournee`) : le KAM **pré-sélectionne** ses praticiens jour par jour depuis son panel (réunion de son **secteur** et de ses rattachements directs), à la maille que le Super Admin a choisie (**semaine / mois / trimestre / semestre**, mensuelle par défaut), avec l'**échéance de soumission** (15 jours avant la fin du mois précédent par défaut — **réglable**, avec la maille, dans **Force de vente › Paramètres** par le Super Admin) dont le **retard** se lit chez le KAM, dans sa liste de plans et sur le tableau de bord de la Direction ; son **N+1 valide**, peut **escalader au N+2**, et un **rejet motivé** rouvre 48 h pour resoumettre ; un plan **validé se révise** (motif exigé — il repasse « En révision », se resoumet sous 48 h, et les visites déjà passées restent au plan). Le plan validé devient l'**emploi du temps** de « Ma journée » — **Aujourd'hui / Demain / Cette semaine / Ce mois-ci**, **gris** tant que le rapport n'est pas fait, **vert** après — où un clic ouvre le **rapport terrain** (vocal ou écrit) qui exige les **produits de sa BU** et les **messages pré-définis de la Direction Marketing**, dans une fenêtre de **48 h** après la visite ; une visite qui n'a pas eu lieu se dit **reportée ou annulée** (« N'a pas eu lieu », motif exigé, la même fenêtre de 48 h). **Visite imprévue** et **visite commandée par la Direction** entrent hors plan et comptent au « nombre de visites », jamais au dénominateur des « planifiées ». Onglet **Coaching** (`/medical/coaching`) : la **fiche de coaching « tournée en double »** de la Direction, en natif — grille à 4 niveaux × 5 axes **administrée et versionnée par le directeur des opérations**, fiches remplies par le superviseur, finalisées et partagées avec le collaborateur, **téléchargeables** en Excel (total en formule) et en PDF, synthèse par collaborateur et par axe. → [détails](#force-de-vente--la-boucle-terrain) · [coaching](#promotion-médicale--la-fiche-de-coaching-tournée-en-double) |
+| **Force de vente** | `/planning` | Le pilotage SFE (`SALES_PLANNING`) : **Business Units** (spécialités visées, référents Direction Marketing, secteurs = établissements de l'annuaire avec tous leurs services ou certains), **affectations** KAM × produit × rang de détail, **prévision** de la Direction par produit (réservée à qui configure), **messages pré-définis**, **paramètres** (maille et échéance du plan de tournée, Super Admin) et le **cockpit** (`/planning/pilotage`) : planifié / réalisé, couverture, alertes au superviseur. → [boucle terrain](#force-de-vente--la-boucle-terrain) |
+| **Retirés du service (2026-09)** | — | **Ventes** (`/sales`), **Commandes & logistique** (`/logistics`) et **Market Intelligence** (`/business-development` : le tableau stratégique Projet → Gamme → Produit et Pharmatool) — ni menu, ni adresse, ni action serveur, ni outil d'assistant, **pour personne, Super Admin compris** (`RETIRED_MODULE_KEYS`, `lib/modules-retired.ts`) ; les données restent en base. **Marchés PCH**, **Explorateur produits** et **Business Development › Projets** restent en service. |
 | **PCH — Marchés** | `/pch` | **Market 360°** : AO → soumission versionnée → attribution par lot → contrat & avenants → BC à lignes → livraisons → factures — niveau de vie **dérivé**, caution (alertes). → [détails](#pch--marchés-publics-market-360) |
 | **Stocks** | `/stocks` | Refonte en **états datés** (« à cette date, il reste X ») — **sans** entrées/sorties : 3 onglets **Stock PCH · Stock hôpitaux · Annexes PCH** (les **hôpitaux sont ceux de l'annuaire des établissements** : un KAM voit ceux de **son secteur** dans sa BU et les **produits de sa BU**, le National Sales toute sa BU, la chaîne d'approvisionnement tout ; les annexes PCH restent des lieux nommés du Super Admin), **vue par produit** (catalogue Regulatory) en **graphique** (courbe date → quantité) ou **tableau** (avec évolution entre relevés), un état par jour (ressaisie = correction). Le détecteur « Stock PCH bas » du Brain lit en priorité le dernier état. **Demander un état de stock** est une réquisition adressée à une personne nommée (tâche assignée + notification + audit), réservée à qui tient la chaîne d'approvisionnement — et elle se pose aussi en **RÉCURRENCE** : « le 1er de chaque mois, demande à ce KAM l'état de ces hôpitaux », en cadence **quotidienne / hebdomadaire / mensuelle**, avec la liste des hôpitaux NOMMÉS, le compteur de demandes réellement parties, pause/reprise sans rattrapage des occurrences manquées, et un **arrêt automatique** si l'auteur perd le droit de réquisitionner. → [détails](#stocks-états-datés) |
 | **Rapports terrain** | `/field-reports` | **Rapports vocaux IA** des délégués : parler → transcription → analyse → relecture → validation. Onglet **« Overview »** (`/field-reports/overview`) : **graphes d'analyse** (visites par médecin / hôpital / délégué / spécialité, tendance 12 mois, statut, produits) — accès **par autorisation du Super Admin** (`fieldReportsOverviewRoles`). La fiche d'un rapport est gardée par le module **Rapports terrain** (et non plus « Promotion médicale »). → [détails](#-intelligence-artificielle-claude--whisper) |
-| **Annuaire** *(ex-« Promotion médicale »)* | `/medical` | **Annuaire structuré** : Spécialité → Secteur (Hôpital / Libéral) → médecins, titre/grade. Onglet **Annuaire** (`/medical/annuaire`) = **feuille modifiable en place** (11 colonnes exactes — « Ville » a disparu, la wilaya est le seul découpage géographique —, 58 wilayas en liste fermée, potentiel, export), qui se manipule **comme un tableur** : clic, Maj+clic, Ctrl+clic et glisser sélectionnent des cellules, flèches et Tab déplacent, Ctrl+C copie en TSV, une **barre de sélection** colore (huit teintes, persistées **par cellule**, sous le même droit que l'édition) ou efface ; les **colonnes sur mesure** (texte, nombre, date, choix) se créent, se remplissent et se suppriment depuis la feuille, en **plusieurs annuaires nommés** (« Cardiologues Centre », « Pédiatres Ouest »…) qu'on crée, renomme et supprime — la suppression d'un annuaire **déplace ses praticiens** vers un autre plutôt que de les détruire. **Segmentation à 5 niveaux** (Très haut / Haut / Moyen / Bas / Très bas) pour **influence**, **potentiel** et **affinité**, **par spécialité et par produit**, médecins **et** pharmaciens. Visites & tournées **scopées par délégué**, plans de tournées **duplicables**. |
-| **Information médicale** | `/information-medicale` | Module du **pharmacien responsable de l'information médicale (PRIM)**, en **DEUX CIRCUITS** que la nature du dossier décide. **Événements & prises en charge** (national, international, événements, sponsorings) : aucun bon de versement — le PRIM soumet sa **lecture** (« à déclarer au ministère » ou « sans déclaration », motif exigé), la fait valider, puis dépose auprès du **ministère de l'Industrie pharmaceutique** et valide. **Matériel promotionnel** : le dossier se sépare en **matériels**, un **bon de versement par matériel**, **une** validation pour le dépôt du lot, puis le paiement de **chaque quittance séparément** (centre de paiement → Finances → remise au bureau). Le PRIM peut aussi **ouvrir lui-même** un dossier, et **entre DEUX natures seulement** : déclaration **MIP** ou **demande de visa publicitaire**. Le « bon de versement » n'est pas ce qu'on OUVRE — c'est une ÉTAPE du circuit du matériel, à l'intérieur du dossier ; le proposer produisait des dossiers vides dont le bon n'attendait rien. La nature reste **RECONNUE en lecture** (les dossiers historiques gardent leur circuit) et ceux qui la portaient sont **reclassés en visa publicitaire** — même circuit MATÉRIEL, donc rien ne se perd. **Consultation des pièces de l'événement source**, demande de pièces, affichage du demandeur. → [workflow](#information-médicale--déclaration-réglementaire-prim) |
+| **Annuaire** *(ex-« Promotion médicale »)* | `/medical` | **Annuaire structuré** : Spécialité → Secteur (Hôpital / Libéral) → médecins, titre/grade. Onglet **Annuaire** (`/medical/annuaire`) = **feuille modifiable en place** (13 colonnes exactes — Nom, Prénom, Adresse, Wilaya, Potentiel, Code postal, Téléphone, Spécialité 1, Établissement, Service, Grade, Mail, Privé/Public ; « Ville » a disparu, la wilaya est le seul découpage géographique —, 58 wilayas en liste fermée, export), qui se manipule **comme un tableur** : clic, Maj+clic, Ctrl+clic et glisser sélectionnent des cellules, flèches et Tab déplacent, Ctrl+C copie en TSV, une **barre de sélection** colore (huit teintes, persistées **par cellule**, sous le même droit que l'édition) ou efface ; les **colonnes sur mesure** (texte, nombre, date, choix) se créent, se remplissent et se suppriment depuis la feuille, en **plusieurs annuaires nommés** (« Cardiologues Centre », « Pédiatres Ouest »…) qu'on crée, renomme et supprime — la suppression d'un annuaire **déplace ses praticiens** vers un autre plutôt que de les détruire. **Segmentation à 5 niveaux** (Très haut / Haut / Moyen / Bas / Très bas) pour **influence**, **potentiel** et **affinité**, **par spécialité et par produit**, médecins **et** pharmaciens. Visites & tournées **scopées par délégué** (le plan de tournée vit dans Promotion médicale › Plan de tournée). |
+| **Information médicale** | `/information-medicale` | Module du **pharmacien responsable de l'information médicale (PRIM)**, en **DEUX CIRCUITS** que la nature du dossier décide. **Événements & prises en charge** (national, international, événements, sponsorings) : aucun bon de versement — le PRIM soumet sa **lecture** (« à déclarer au ministère » ou « sans déclaration », motif exigé), la fait valider, puis dépose auprès du **ministère de l'Industrie pharmaceutique** et valide. **Matériel promotionnel** : le dossier se sépare en **matériels**, un **bon de versement par matériel**, **une** validation pour le dépôt du lot, puis le paiement de **chaque quittance séparément** (centre de paiement → Finances → remise au bureau). Le PRIM peut aussi **ouvrir lui-même** un dossier, et **entre DEUX natures seulement** : déclaration **MIP** ou **demande de visa publicitaire**. Le « bon de versement » n'est pas ce qu'on OUVRE — c'est une ÉTAPE du circuit du matériel, à l'intérieur du dossier ; le proposer produisait des dossiers vides dont le bon n'attendait rien. La nature reste **RECONNUE en lecture** (les dossiers historiques gardent leur circuit) et ceux qui la portaient sont **reclassés en visa publicitaire** — même circuit MATÉRIEL, donc rien ne se perd. **Consultation des pièces de l'événement source**, demande de pièces, affichage du demandeur. → [workflow](#information-médicale--deux-circuits-et-la-nature-du-dossier-décide-prim) |
 | **Business Development › Projets** | `/business-development/projets` | Le registre des projets de la direction, **son propre module `BD_PROJECTS`** réglé par le Super Admin dans Administration › Accès comme tous les autres (§118.163) — par défaut, chaque rôle qui voit Regulatory le LIT, le Super Admin le gère. **Chaque projet appartient à une entité** (obligatoire à la création, parmi celles que la personne voit) : c'est elle qui décide qui le voit ; un projet d'avant sans entité reste affiché pour qu'on le rattache. Supprimer un projet passe par la corbeille : ses gammes et produits partent avec lui, ses dossiers Regulatory sont DÉCLASSÉS (et la fenêtre le dit avant le clic), tout revient à la restauration. Le classement d'un dossier Regulatory n'accepte que les projets que son menu propose. |
-| **Business Development** | `/business-development` | **Grand tableau stratégique Projet → Gamme → Produit** (~20 colonnes), colonnes gelées, export CSV. **Intègre Pharmatool** : pipeline de données concurrentielles, **Vue d'ensemble**, **moteur de matching DCI**, **Opportunités**, **Pricing** (ville / hôpital), **Analyse produit / concurrence** (HHI, parts de marché, radar), **Explorateur produits** (recherche **en temps réel** + filtres classe/labo, sélection multi-produits, comparaison volume/prix/valeur). |
+| **Explorateur produits** | `/explorateur-produits` | **Module à part** (`PRODUCT_EXPLORER`) : chercher UN produit, UNE molécule, UN laboratoire dans les données de marché — recherche en temps réel, filtres classe / laboratoire, sélection multi-produits, comparaison volume / prix / valeur. Il **survit** au retrait de Market Intelligence. |
 
 ### Transverse
 
 | Module | Route | Description |
 |---|---|---|
 | **Demandes de validations** | `/validations` | **Bureau de validation central** : agrège **toutes les validations en attente** issues des autres modules (Bureau du secrétariat, Ad & Pro, **Finances**, information médicale…) — visible des **validateurs** (pas du demandeur). Le Super Admin définit des **règles configurables** (module, type d'objet, montant, département, rôle, priorité → 1 ou 2 validateurs, séquentiel/parallèle). → [détails](#centre-de-validation-agrégation--configurable) |
-| **Documents** (Drive + Documents + **catégories**) | `/drive` | Stockage **chiffré et durable en base** (`FileBlob`), visionneuses PDF / Word / Excel / PowerPoint / images / vidéo / audio, **édition Office** (OnlyOffice), **impression**, versioning. **Imports larges**, **déplacer**, **corbeille en cascade**, **accès par personne** (voir / modifier) à l'import. **Catégories** (espaces partagés type « Promotion Médicale ») créées par un rôle autorisé par le Super Admin, présentées en **onglets** à côté de Drive/Documents, accès encadré (consultation vs gestion). |
-| **Mon Équipe** | `/mon-equipe` | L'écran de celui qui **encadre** (RBAC `MY_TEAM`, ouvert à tous — l'entrée n'apparaît qu'à qui a réellement des N-1, garde `myTeam`). **Tout l'arbre sous soi** : N-1, N-2, jusqu'en bas (`subtreeOf`, chaque rang = `directReportsOf`, la MÊME fonction qui route les demandes), chacun portant son N+1 et son rang. **Ce qui attend ma décision s'arrête au PREMIER RANG** : le congé d'un N-2 est routé vers SON N+1 (`TeamMember.pending` vaut 0 plus bas). **Au clic sur une personne : quelques KPI SELON SON MÉTIER** (`teamMemberKpis`) — charge de travail pour tous (tâches ouvertes/en retard, demandes en cours, congés pris), puis TERRAIN (visites 30 j, planifiées, médecins, comptes rendus manquants), RÉGLEMENTAIRE (dossiers portés, en retard, étapes), INFORMATION MÉDICALE (à instruire, en attente de pièces, validés 30 j), COORDINATION (courses 30 j, hors délai `n / N`, à faire) ; un métier sans compteur propre le DIT. **La porte n'est PAS le module** (tout le monde l'a) mais la HIÉRARCHIE, revérifiée côté serveur — et un identifiant inconnu reçoit le MÊME refus qu'un hors-équipe. Ce n'est **pas** un mini-module RH : ni salaire, ni évaluation, ni dossier. **Recrutement** est son sous-module dans le menu, avec ses **droits propres**. |
-| **Recrutement** | `/recrutement` | Le poste demandé, de l'idée d'un directeur jusqu'à l'intégration. Un **directeur de département** formule le besoin (poste, missions, compétences, contrat **CDI / CDD / consulting / stage**, fourchette de rémunération, dates, fiche de poste) — le droit de demander suit l'**organigramme**, pas une liste de rôles. Sa **hiérarchie valide marche par marche jusqu'au sommet** (chaîne **figée à la soumission** ; la direction peut trancher à n'importe quelle marche, les marches sautées étant marquées **non consultées**). Les **RH instruisent** et demandent des précisions autant de fois qu'il le faut — la demande **retourne alors au demandeur**. Poste ouvert : **CV reçus** déposés par les RH, **présélection par le demandeur**, **choix de la direction parmi les présélectionnés ou en dehors**, entretiens, recrutement. Puis l'**intégration** (fiche employé pré-remplie) — **sauf pour un consulting**, intervenant externe hors effectif et hors paie. → [circuit](#-journal-des-évolutions-récentes) |
-| **Bureau du secrétariat** | `/demandes` | « Bureau de l'assistante de direction » : **10 types** de demandes, **catalogue d'articles de fourniture**, **demandes multi-cellules**, **fenêtre de 15 min** pour que le demandeur **modifie TOUT ce qu'il a saisi** ou supprime sa demande, **suppression traçable** (corbeille + motif), **flux par demande** (achat → validation Finances → devis/facture → Fin de la demande), validations, ordres de dépense, **espace Courses** (`/demandes/courses` : courses chauffeur **multi-points A/B/C** avec consigne par point, date **et heure max** — heure d'Alger —, pièces jointes, vue chauffeur en checklist), **accusé de réception des originaux de notes de frais** (section dédiée sur `/demandes`, verrouille/déverrouille le traitement RH), demandes terminées **archivées dans le Drive** (« Dossier traité »). → [workflow](#bureau-du-secrétariat--flux-par-demande) |
-| **Demandes de support** | `/support` | Questions / **brochures** / **supports de visite** / PDF adressés au **directeur médical** ou à la **Direction Marketing**, avec fil + pièces jointes. |
+| **Drive** (+ **catégories**) | `/drive` | Stockage **chiffré et durable en base** (`FileBlob`), visionneuses PDF / Word / Excel / PowerPoint / images / vidéo / audio, **édition Office** (OnlyOffice), **impression**, versioning. **Imports larges**, **déplacer**, **corbeille en cascade**, **accès par personne** (voir / modifier) à l'import. **Catégories** (espaces partagés type « Promotion Médicale ») créées par un rôle autorisé par le Super Admin, présentées en **onglets** à côté du Drive (l'ancien onglet « Documents » n'est plus au menu), accès encadré (consultation vs gestion). |
+| **Bureau du secrétariat** | `/demandes` | « Bureau de l'assistante de direction » : **10 types** de demandes, **catalogue d'articles de fourniture**, **demandes multi-cellules**, **30 minutes en mode discret** pour que le demandeur **modifie TOUT ce qu'il a saisi** ou supprime sa demande sans déranger personne, puis, tant qu'elle n'est ni terminée ni annulée, **correction ou annulation motivée** (l'assistante prévenue), **suppression traçable** (corbeille + motif), **flux par demande** (achat → validation Finances → devis/facture → Fin de la demande), validations — une **approbation** dit **qui l'a tranchée** et **sa parole**, exige un motif pour refuser ou demander une modification, ne se tranche pas sur sa propre demande (sauf au sommet) et s'écrit une seule fois —, ordres de dépense, **espace Courses** (`/demandes/courses` : courses chauffeur **multi-points A/B/C** avec consigne par point, date **et heure max** — heure d'Alger —, pièces jointes, vue chauffeur en checklist), **accusé de réception des originaux de notes de frais** (section dédiée sur `/demandes`, verrouille/déverrouille le traitement RH), demandes terminées **archivées dans le Drive** (« Dossier traité »). → [workflow](#bureau-du-secrétariat--flux-par-demande) |
+| **Demandes de support** | `/support` (sans entrée de menu ni de palette) | Questions / **brochures** / **supports de visite** / PDF adressés au **directeur médical** ou à la **Direction Marketing**, avec fil + pièces jointes. |
 | **Feedback** | `/feedback` | Retour libre utilisateur → admin, **+ boîte de réception** : les réponses de l'administration s'affichent à l'utilisateur (avec notification). |
 
-> **Menu simplifié** : modules fusionnés en **onglets** — « Mon espace » (Mon travail · Mon espace · Directives),
-> « Ad & Pro » (Sponsoring · Congrès · Événements · Matériel promotionnel · **Consulting** · **Autres demandes**), « **Drive** » (Drive personnel + **catégories partagées** ; l'onglet « Documents » a été retiré, tout est consolidé dans le Drive),
-> « Mon dossier RH » (RH perso · Mes ordres de mission), « Mon espace » porte aussi **Pièces demandées**.
+> **Menu simplifié** : modules fusionnés en **onglets** — « Mon espace » (Aujourd'hui · Mon espace · Mon dossier RH ·
+> Annuaire · Directives ; il porte aussi **Pièces demandées** et **Mes ordres de mission** en sections), « Agenda »
+> (Calendrier · Réunions & appels), « Ad & Pro » (huit onglets, de « Toutes les demandes » aux « Autres demandes »),
+> « **Drive** » (Drive personnel + **catégories partagées** ; l'onglet « Documents » a été retiré, tout est consolidé
+> dans le Drive). « Aujourd'hui » n'apparaît que derrière son drapeau de nouveauté (`home_today`).
 > La **messagerie e-mail Microsoft 365** est dans **Pilotage** (on relève ses mails en même temps qu'on
 > regarde son espace, pas en même temps qu'on range un fichier). **Messagerie interne** et
 > **Notifications** restent accessibles via leurs **icônes** dans la barre du haut.
@@ -237,9 +252,7 @@ jamais identique.
 | Module | Route | Description |
 |---|---|---|
 | **Adventum Brain** 🧠 | `/adventum-brain` | **Super Admin uniquement — le cockpit qui voit ce que les autres ne voient pas.** War Room, Risk Radar, Root Cause, Knowledge Graph, Autopilot, Intelligence Feed + **Process Intelligence** en onglet. → [détails](#-adventum-brain-cockpit-super-admin) |
-| **Administration** | `/admin` | Comptes (création, **modification e-mail/profil/rôle**), **matrice d'accès** (onglet × action × ligne), **sessions révocables**, activité, **journal d'audit** (paginé), **champs personnalisés**, règles de validation, feedback, **Départements & sous-départements** (`/admin/departments` — structure hiérarchique à 2 niveaux « comme une vraie boîte », employés rattachés depuis leur fiche RH), comptes portail fournisseur, **Vue exacte** (impersonation), **Contrôle IA** + **Score d'adoption** en onglets, **limites d'upload** configurables, **Corbeille des suppressions définitives** (`/admin/corbeille` — chaque suppression définitive est **restaurable** jusqu'à destruction réelle), carte **Stockage Drive** (consommation exacte globale dédupliquée + par utilisateur, **capacité et quota modifiables et appliqués à l'envoi**), colonne **« Dernière activité (dernier clic) »** précise à la minute, **Rejeu de session** (`/admin/replay` — **Super Admin uniquement** : la suite exacte des actions d'une personne, pour reproduire un bug sans le faire raconter ; **aucune valeur de champ n'est enregistrée**). → [détails](#rejeu-de-session--rembobiner-ce-quune-personne-a-fait) |
-| **Annuaires** | `/annuaires` | **Module à part du pôle Administration** (`DIRECTORIES`) qui **centralise tous les annuaires** en onglets : **Médecins**, **Pharmaciens** (le grade `PHARMACIEN` de la même feuille de praticiens), **Établissements**, **Spécialités** (le référentiel : ajouter, renommer, fusionner, retirer, et rattacher les spécialités écrites à la main sur les fiches — gardé par la Promotion médicale, c'est une structure de l'annuaire), **Partenaires** (les contacts extérieurs de la société), **Personnes** (l'annuaire interne) et **Autres annuaires** (spécialités, fournisseurs Regulatory, partenaires courriers, lieux de stock — avec leur compte et le lien vers leur écran, ou « accès réservé »). **La porte est ouverte à tous** (accès implicite `VIEW`, comme « Mon équipe ») et **n'ouvre rien de plus** : chaque onglet est gardé par le module de SON référentiel (`MEDICAL` pour les trois premiers, `WORKSPACE` pour Partenaires et Personnes) — un lecteur sans Promotion médicale ne voit pas les onglets médicaux, et l'adresse tapée à la main refuse de la même façon. **Accès PAR ANNUAIRE** : dans la console (compte › accès, ou « Accès par module »), un accès **Personnalisé** au module Annuaires coche les annuaires à ouvrir — médecins, pharmaciens, établissements, partenaires, personnes — avec les gestes cochés (créer, modifier, supprimer), **sans** donner le module du référentiel : l'assistante de direction reçoit les établissements sans toute la Promotion médicale. L'ouverture **s'ajoute** au rôle (une case oubliée ne retire rien), l'annuaire s'ouvre **en entier** (un référentiel, pas un portefeuille), et la structure (annuaires nommés, colonnes, import de fichier) reste à la Promotion médicale. Les écrans d'origine (`/medical/annuaire`, `/medical/etablissements`, `/mon-espace/annuaire`) restent en place et lisent les **mêmes chargeurs** (`lib/queries/annuaires.ts`) : deux portes, une lecture. → [détails](#annuaires--praticiens-et-contacts-de-lentreprise) |
-| **Site web** | `/site-web` | **Pôle Administration** (`SITE_WEB`) : l'ERP **publie** les **offres d'emploi** et les **articles de blog** du site public **adventumdz.com** — il en est la source de vérité, le site n'est jamais saisi à la main pour ces contenus. Trois onglets : **Publication** (état de la connexion, contenus envoyés et leur état sur le site — *À envoyer*, *En attente*, *Nouvel essai prévu*, *En ligne*, *Retiré du site*, *Refusé par le site*, *Échec d'envoi* —, journal des derniers échanges, dernier rapprochement, et la **mise en service**), **Articles** (éditeur Markdown avec aperçu, sommaire, temps de lecture, refus d'un `# Titre` avant l'envoi) et **Offres d'emploi** (préparées depuis une demande de recrutement, **jamais** avec la rémunération ni la justification). Chaque envoi part par une **file** qui réessaie, et un **rapprochement quotidien** relit ce que le site détient. La liaison marche **dans les deux sens** : la clé se **génère en un clic** (un bloc à coller dans Render), les **candidatures** déposées sur le site arrivent dans **Recrutement › Candidatures du site** (ou directement dans le recrutement quand le poste est ouvert), et le site se recharge depuis l'ERP à chaque démarrage. La Direction, la Direction Générale et la Direction Marketing écrivent les articles ; les RH et la direction publient les offres. → [détails](#site-web-adventum--lerp-publie-les-offres-demploi-et-les-articles) |
+| **Administration** | `/admin` | Comptes (création, **modification e-mail/profil/rôle**), **matrice d'accès** (onglet × action × ligne), **sessions révocables**, activité, **journal d'audit** (paginé), **champs personnalisés**, règles de validation, feedback, **Organigramme** (`/admin/organigramme` ; les **départements** se gèrent dans RH › Départements, `/rh/departements`, sur autant de niveaux que nécessaire), comptes portail fournisseur, **Vue exacte** (impersonation, en lecture seule), **Site web (connexion)** (`/admin/site-web`, Super Admin : la clé, la vérification, le rapprochement, la mise en service), **Contrôle IA** + **Score d'adoption** en onglets, **limites d'upload** configurables, **Corbeille des suppressions définitives** (`/admin/corbeille` — chaque suppression définitive est **restaurable** jusqu'à destruction réelle), carte **Stockage Drive** (consommation exacte globale dédupliquée + par utilisateur, **capacité et quota modifiables et appliqués à l'envoi**), colonne **« Dernière activité (dernier clic) »** précise à la minute, **Rejeu de session** (`/admin/replay` — **Super Admin uniquement** : la suite exacte des actions d'une personne, pour reproduire un bug sans le faire raconter ; **aucune valeur de champ n'est enregistrée**). → [détails](#rejeu-de-session--rembobiner-ce-quune-personne-a-fait) |
 | **Recherche globale** | `/search` | RBAC-aware + **palette ⌘K**. **Elle cherche dans ce que chaque écran de liste montre, et nulle part ailleurs** : chaque famille lit la clause de SA liste (`queries/visibilite-listes.ts`, `regulatoryVisibleWhere`, `accessibleDocumentWhere`…) — entité, portée par ligne, lecteurs, annuaires fermés, publication des directives, membres actifs des discussions (§118.177). |
 
 ### Externe
@@ -257,17 +270,27 @@ Le cœur de l'OS, ce sont les **liens** entre modules. Un même fait métier tra
 ressaisi :
 
 ```
-QUI demande décide PAR OÙ ça passe — deux parcours, et la dernière étape TRANCHE :
+QUI demande décide PAR OÙ ça passe — cinq parcours (workflow/parcours.ts), et l'étape qui TRANCHE décide :
 
-  KAM / délégué       ─▶ National Sales (préliminaire) ─▶ Direction Marketing ⟵ TRANCHE
-  n'importe qui d'autre ────────────────────────────────▶ Direction Marketing ─▶ Direction ⟵ TRANCHE
+  KAM / délégué          ─▶ National Sales ─▶ [DG] ─▶ (sponsoring : Direction des opérations) ─▶ Direction Marketing ⟵ TRANCHE
+  National Sales         ─▶ [DG] ─▶ Direction des opérations ─▶ Direction Marketing ⟵ TRANCHE
+  tout autre demandeur   ─▶ [DG] ─▶ Direction Marketing ⟵ TRANCHE
+  Direction Marketing,   ─▶ [DG] ─▶ Direction des opérations ⟵ TRANCHE   (on n'arbitre pas sa propre demande)
+  Manager Promo médicale
+  Direction, DG, Directeur des Opérations, Super Admin
+                         ─▶ Direction Marketing ⟵ TRANCHE   (directement : personne au-dessus d'eux, pas de porte du DG)
 
-L'étape qui tranche porte le BUDGET ACCORDÉ et la SOUS-CATÉGORIE budgétaire, puis :
+  [DG] = la porte du DG, franchie seule (et tracée) sous le seuil réglé. À chaque étape : approuver, refuser,
+  ou RENVOYER au demandeur pour correction (motif exigé) ; resoumise, la demande revient à cette étape.
+
+L'étape qui tranche porte le BUDGET ACCORDÉ et la SOUS-CATÉGORIE budgétaire (pour un sponsoring, elle pré-valide la
+TENUE : l'argent se fixe poste par poste, puis à la clôture) — quand la route s'arrête avant Direction Marketing
+(rang 2), l'étape qui conclut HÉRITE ces pouvoirs des étapes non atteintes (argentEffectif) —, puis :
    └─▶ décision définitive (budget accordé visible du demandeur)
         ├─▶ Information médicale : le PRIM déclare aux autorités (si applicable)
         │        └─▶ exige des pièces → déposées par Direction / comptable / délégué
-        └─▶ ORDRE DE DÉPENSE émis
-             └─▶ Finances : le comptable RÈGLE (facture obligatoire)
+        └─▶ ORDRE DE DÉPENSE émis — un par poste quand l'opération en porte —, EN ATTENTE du centre de paiement
+             └─▶ le centre l'AUTORISE (quel que soit le montant), puis Finances : le comptable RÈGLE (facture obligatoire)
                   ├─▶ FinanceTransaction (sortie) → met à jour la TRÉSORERIE
                   └─▶ attribution AUTOMATIQUE à la CATÉGORIE budgétaire du module
                        └─▶ consommation de l'ENVELOPPE recalculée (barres de santé)
@@ -276,12 +299,12 @@ L'étape qui tranche porte le BUDGET ACCORDÉ et la SOUS-CATÉGORIE budgétaire,
 Autres connexions notables :
 
 - **Regulatory → Finances** : une **Demande de BV** émet un ordre de dépense avec échéance.
-- **Regulatory → Stocks PCH** : les **mouvements de stock** sont liés aux **produits Regulatory**.
+- **Regulatory → Stocks** : les **états de stock** (relevés datés « à cette date, il reste X ») et les sorties de livraison PCH sont liés aux **produits Regulatory**.
 - **Bureau du secrétariat → Finances** : une demande d'achat déclenche une **validation Finances** (devis → facture).
 - **Tâches / Messages → Sujets** : un message peut devenir une **tâche demandée** ; une tâche peut ouvrir un sujet.
 - **Tierce personne → Sujets** : impliquer quelqu'un sur un événement **crée automatiquement un sujet** (sans budget).
 - **Tous les modules → Validations** : chaque circuit d'approbation remonte dans le **bureau de validation central**.
-- **RH (Paie) → Finances & Budgets** : « Transférer dans le budget » crée **une écriture Salaire (sortie) par employé** imputée à la (sous-)catégorie choisie ; la fiche de paie part dans le **dossier RH** de l'employé ; l'employé est notifié **24 h après** (tâches planifiées internes).
+- **RH (Paie) → centre de paiement → Finances** : la paie d'un mois part **au centre de paiement**, un envoi par entité avec la **somme des salaires à virer** (déclarée, jamais pré-remplie) ; autorisée, les Finances virent — **une seule écriture SALAIRE**, de la somme déclarée (le « transfert au budget », qui écrivait une sortie par employé, n'existe plus) ; la fiche de paie part dans le **dossier RH** de l'employé ; l'employé est notifié **au plus tôt 24 h** après la saisie, et seulement une fois le **virement réglé**.
 - **Notes de frais : RH ⇄ Bureau du secrétariat** : le traitement RH est **verrouillé** tant que le secrétariat n'a pas **accusé réception des originaux** (accusé tracé, visible des deux côtés, notifié).
 - **Demandes traitées → Drive (« Dossier traité »)** : demandes RH, demandes administratives (Terminée) et déclarations PRIM sont **auto-archivées** (récapitulatif + copie des pièces) dans la boîte Drive du traitant, reclassable librement.
 - **Réunions planifiées → Calendrier** : les réunions apparaissent dans le calendrier (heure d'Alger) avec lien « Rejoindre ».
@@ -313,18 +336,18 @@ canAccessEntity(user, entityType, id, action)   → contrôle d'accès POLYMORPH
 > `/no-access` claire l'invite à contacter l'admin.
 
 > **Exemple** : la Direction des opérations voit tout (`hasGlobalView`) ; une **assistante Regulatory** ne voit
-> que les DCI qui lui sont assignées ; un **délégué** ne voit que ses propres demandes et tournées ; un **chef de
-> produit** ne voit l'analyse confidentielle que sur les dossiers qu'il instruit ; le **National Sales**, doté d'une
-> **portée ALL** sur les circuits Ad & Pro, voit toutes les demandes à approuver.
+> que les DCI qui lui sont assignées ; un **délégué** ne voit que ses propres demandes et tournées ; la **Direction
+> Marketing**, qui tranche, voit toutes les demandes Ad & Pro ; le **National Sales**, doté d'une **portée ALL** sur
+> les circuits Ad & Pro (hors matériel promotionnel : ses dossiers), voit toutes les demandes à approuver.
 
-**Gardes serveur** : `requireModule(module, action)` protège chaque page, `requireUser()` chaque server action.
+**Gardes serveur** : `requireModule(module, action)` protège la plupart des pages (d'autres lisent `requireUser()` puis une règle d'organisation — le centre de paiement, par exemple), `requireUser()` chaque server action.
 Toute action sensible est **ré-autorisée côté serveur** et **journalisée**.
 
 **Autres mesures** :
 - 🔒 **Chiffrement AES-256-GCM** des blobs Drive (adressage par contenu SHA-256) et des mots de passe e-mail, clé
   maître dérivée d'`AUTH_SECRET`.
 - 🪪 **Sessions révocables** en base ; 👁️ **Vue exacte** (impersonation) honorée **uniquement** si la session
-  réelle est Super Admin.
+  réelle est Super Admin, et **en lecture seule** : toute écriture part au nom du Super Admin réel.
 - 🧾 **Journal d'audit** complet (qui / quoi / ancienne → nouvelle valeur / date / module), y compris la
   **suppression traçable** des demandes (motif obligatoire) et la **modération** (édition/suppression de
   commentaires, pièces jointes et messages par l'admin / responsable / auteur).
@@ -337,8 +360,11 @@ Toute action sensible est **ré-autorisée côté serveur** et **journalisée**.
   tous autres types acceptés) ; download protégé par vérification d'accès.
 
 **Parcours de première connexion** : un nouveau compte doit **définir son mot de passe**, puis suit un
-**onboarding guidé** (`/onboarding`) — coordonnées, **connexion e-mail** et **visite des onglets accessibles**
-(générée à partir des droits réels). Le Super Admin peut **redéclencher le setup**. Le drapeau `mustOnboard` est
+**onboarding guidé** (`/onboarding`) — coordonnées, **connexion e-mail** et **visite des onglets accessibles**.
+Deux écarts connus : la visite lit le menu par les seuls droits de **module**, sans ses gardes propres — l'Assistant IA,
+les Missions d'Adam, Mon Équipe, le Pipeline ou l'Analyse CTD peuvent y être proposés à qui n'y entre pas ; et l'étape
+« connexion e-mail » propose encore la boîte **Infomaniak** de l'ancien Courrier (retiré). Le Super Admin peut
+**redéclencher le setup**. Le drapeau `mustOnboard` est
 **lu à chaud en base** : la fin du parcours prend effet **immédiatement, sans reconnexion**.
 
 ---
@@ -351,19 +377,19 @@ libellés français viennent de `src/lib/labels.ts`.
 | Rôle | Libellé | Portée typique |
 |---|---|---|
 | `SUPER_ADMIN` | Super Admin | Tout + administration (permissions, comptes, sécurité, IA, Brain, enveloppes budgétaires, Vue exacte). Compte **souverain**. **Seul compte qui pilote les missions et surveillances d'Adam** (`peutPiloterMissionsAdam`, décision de la Direction 09/2026) : Centre de missions, `run_mission`, `watch_entity`, interrupteur global. |
-| `DIRECTION` | **Direction des opérations** | **Pair quasi-administrateur** : accès complet (gérer + valider) aux pôles, **vue globale** (`hasGlobalView`) donc supervision de toutes les demandes de validation. **Décision définitive** des demandes Ad & Pro (budget accordé). Attribue les dépenses aux enveloppes. Restreignable par overrides. |
+| `DIRECTION` | **Direction des opérations** | **Pair quasi-administrateur** : accès complet (gérer + valider) aux pôles, **vue globale** (`hasGlobalView`) donc supervision de toutes les demandes de validation. **Valide l'opération** dans le circuit Ad & Pro (étape « Validation (Direction des opérations) », sans chiffrer) et ne **tranche** que les demandes de rang 2 — Direction Marketing, Manager Promotion médicale —, dont elle fixe alors le montant et la sous-catégorie, hérités des étapes que la route n'atteint pas (`argentEffectif`, `lib/workflow/pouvoirs-argent.ts`) ; **siège au centre de paiement** (c'est le « PDG » du centre). Attribue les dépenses aux enveloppes. Restreignable par overrides. |
 | `GENERAL_MANAGER` | **Directeur Général** | **Tous les pouvoirs métier** (gère et décide sur tous les pôles, signataire des circuits Ad & Pro) mais **délibérément hors vue globale** : il ne supervise **pas** les demandes de validation de tout le monde, et les modules **personnels** (Drive, directives, dossiers, support) restent cloisonnés. Administration, IA et Process Intelligence restent au seul Super Admin. |
-| `OPERATIONS_DIRECTOR` | **Directeur des Opérations** | Rôle **à part**, pas une Direction au rabais : approvisionnement (logistique, PCH, stocks), ventes, moyens généraux, secrétariat. **Lit** ce dont il dépend — réglementaire, budgets, finances, RH — sans le piloter. Pas de vue globale ; les circuits Ad & Pro ne sont pas les siens. |
-| `NATIONAL_SALES` | **National Sales** | **Toutes les capacités du délégué médical** + **approbation préliminaire** des demandes Ad & Pro / événements de ses KAM (approuver / refuser ; il ne désigne plus de référent Direction Marketing — les référents se configurent par gamme). Portée **ALL** pour voir toutes les demandes à instruire ; **pas** de décision définitive (réservée à la Direction). |
+| `OPERATIONS_DIRECTOR` | **Directeur des Opérations** | Rôle **à part**, pas une Direction au rabais : approvisionnement (**PCH**, **stocks**), **moyens généraux**, **secrétariat**, Legal en contribution, le **stock promotionnel de ses équipes** et la **grille de coaching** ; **lit** les bons de commande sans les signer (la logistique et les ventes qu'il portait sont retirées du service). **Lit** ce dont il dépend — réglementaire, budgets, finances, RH — sans le piloter. Pas de vue globale ; les circuits Ad & Pro ne sont pas les siens. |
+| `NATIONAL_SALES` | **National Sales** | **Toutes les capacités du délégué médical** + **approbation préliminaire** des demandes Ad & Pro / événements de ses KAM (approuver / refuser ; il ne désigne plus de référent Direction Marketing — les référents se configurent par gamme). Portée **ALL** pour voir toutes les demandes à instruire (le matériel promotionnel, lui, en portée « ses dossiers ») ; **pas** de décision (réservée à la Direction Marketing). |
 | `MEDICAL_PROMOTION_MANAGER` | Manager Promotion Médicale | Promotion médicale, module Ad & Pro, **configuration de la force de vente** (donc des référents d'une gamme). Ne peut **pas** être désigné référent Direction Marketing : l'étape qui TRANCHE ne nomme que `PRODUCT_MANAGER`, et l'inscrire serait une attente sans pouvoir. N'assure **plus** l'étape préliminaire (désormais National Sales). |
 | `HEAD_OF_REGULATORY` | Responsable Réglementaire | Regulatory (gestion complète + fournisseurs). |
 | `REGULATORY_ASSISTANT` | Assistante Réglementaire | Regulatory (lignes assignées). |
-| `HEAD_OF_SALES` | Responsable Ventes | Ventes, PCH, Stocks. |
-| `SALES_USER` | Commercial | Ventes / PCH (ses lignes). |
-| `LOGISTICS_MANAGER` | Responsable Logistique | Logistique, PCH, Stocks. |
+| `HEAD_OF_SALES` | Responsable Ventes | PCH, Stocks (le module Ventes est retiré du service). |
+| `SALES_USER` | Commercial | PCH en contribution (portée ALL), Stocks en lecture (le module Ventes est retiré du service). |
+| `LOGISTICS_MANAGER` | Responsable Logistique | PCH, Stocks (la logistique est retirée du service). |
 | `MEDICAL_DELEGATE` | Délégué Médical | Ses médecins, visites, demandes (scope **ASSIGNED**). Émetteur typique des demandes Ad & Pro / événements. |
-| `PRODUCT_MANAGER` | **Direction Marketing** | Analyse congrès / sponsoring / événements (avis + **budget proposé confidentiel**). |
-| `BUSINESS_DEVELOPMENT_MANAGER` | Manager Business Development | Business Development (+ Pharmatool). |
+| `PRODUCT_MANAGER` | **Direction Marketing** | **Tranche** toute demande Ad & Pro (« Gérer » les sept natures) : montant accordé et sous-catégorie ; pour un sponsoring, **pré-valide la tenue** puis **clôture**. Tient le **magasin central** du stock promotionnel (sa cheffe, lue sur l'organigramme), écrit les **articles du site**, lit la force de vente. |
+| `BUSINESS_DEVELOPMENT_MANAGER` | Manager Business Development | **Explorateur produits** (Market Intelligence, son module d'origine, est retiré du service). |
 | `FINANCE_BUDGET_MANAGER` | Responsable Finance / Budget | Finances, Budgets, ordres de dépense, **validations Finances**. |
 | `MEDICAL_INFO_PHARMACIST` | Pharmacien resp. information médicale | Déclaration réglementaire des événements validés (PRIM). |
 | `DIRECTION_ASSISTANT` | **Assistante de Direction** | **Bureau du secrétariat** (gère les demandes, **retranscrit les devis** du matériel promotionnel ligne à ligne et pilote son exécution — BC, factures — **sans accès au module**). |
@@ -385,8 +411,9 @@ libellés français viennent de `src/lib/labels.ts`.
 
 Le **même** circuit sert le **Sponsoring**, les **Congrès internationaux/nationaux** et les **Événements** :
 
-**Le parcours dépend de QUI demande — TROIS branches** (décision de la Direction, 22/09/2026 ; le sponsoring d'un KAM
-précisé le 28/09/2026) :
+**Le parcours dépend de QUI demande — trois branches décidées par la Direction** (22/09/2026 ; le sponsoring d'un KAM
+précisé le 28/09/2026) **et deux garde-fous d'auto-arbitrage** — on ne tranche jamais sa propre demande
+(`workflow/parcours.ts`) :
 
 ```
 Demande d'un KAM (délégué médical)
@@ -395,7 +422,7 @@ Demande d'un KAM (délégué médical)
    → (SPONSORING seulement) DIRECTION DES OPÉRATIONS : accord               ← décision du 28/09/2026
    → DIRECTION MARKETING : montant accordé + (sous-)catégorie budgétaire     ← elle TRANCHE
    → [Information médicale : déclaration du pharmacien (PRIM)]               ← uniquement si applicable
-   → Ordre de dépense → Finances / comptable
+   → Ordre de dépense (un par poste quand l'opération en a) → centre de paiement → comptable
 
 Demande du NATIONAL SALES lui-même
    → [porte du DG]
@@ -406,15 +433,33 @@ Demande de TOUT AUTRE demandeur
    → [porte du DG]
    → DIRECTION MARKETING : montant + catégorie                               ← DIRECT, elle TRANCHE
 
-   → (option, aux trois parcours) tierce personne impliquée via son espace + dossier auto (sans budget)
+Demande de la DIRECTION MARKETING elle-même (ou du Manager Promotion médicale)
+   → [porte du DG]
+   → DIRECTION DES OPÉRATIONS : elle TRANCHE                                 ← on n'arbitre pas sa propre demande
+
+Demande de la DIRECTION, du DG, du DIRECTEUR DES OPÉRATIONS ou du SUPER ADMIN
+   → DIRECTION MARKETING : montant + catégorie                               ← DIRECT, sans porte du DG
+
+   → (option, à tous les parcours) tierce personne impliquée via son espace + dossier auto (sans budget)
+   → à chaque étape : approuver, refuser (avant l'étape qui tranche, un refus n'est qu'un avis défavorable),
+     ou RENVOYER au demandeur pour correction — motif exigé ; resoumise, la demande revient à cette étape
 ```
 
-> ⚠️ **La porte du DG est ORTHOGONALE aux trois branches** : franchie automatiquement (et tracée) sous le
-> seuil réglé, elle vaut pour tout le monde au-dessus — une rallonge d'un million ne se décide pas plus bas
-> parce qu'elle vient d'en haut.
+> ⚠️ **La porte du DG est ORTHOGONALE aux branches** : franchie automatiquement (et tracée) sous le seuil réglé,
+> elle vaut au-dessus pour tout demandeur — une rallonge d'un million ne se décide pas plus bas parce qu'elle vient
+> d'en haut — **sauf le rang le plus haut** (Direction, DG, Directeur des Opérations, Super Admin, vue globale et
+> rôle secondaire compris : `adProOriginRank` = 3), dont la demande va directement chez Direction Marketing : le DG
+> est à ce rang, il n'y a personne au-dessus. Ce saut ne vaut que pour les quatre circuits configurables ; le visa
+> du consulting et des « autres demandes » et l'étape `REVIEW_DG` du matériel promotionnel ne regardent que le montant.
 
 > ⚠️ **Le BUDGET appartient à Direction Marketing** (ex-« Chef de produit »), plus à la Direction : montant
-> accordé ET choix de la sous-catégorie budgétaire. La Direction accorde ou refuse ce qui a été arbitré.
+> accordé ET choix de la sous-catégorie budgétaire. La Direction des opérations valide **avant** elle — la demande
+> du National Sales et le sponsoring d'un KAM —, sans chiffrer, et ne **tranche** que la demande de la Direction
+> Marketing elle-même (et du Manager Promotion médicale), qu'on ne fait pas s'arbitrer : elle y fixe alors le montant
+> et la sous-catégorie, que l'étape qui conclut une route coupée HÉRITE des étapes non atteintes (`argentEffectif`,
+> `lib/workflow/pouvoirs-argent.ts` — seulement si elle n'a aucune configuration d'argent à elle) ; le moteur et
+> l'écran lisent la même réponse (`lectureDeLApprobation`). Le sponsoring n'hérite rien : sa route conclut sur une
+> tenue pré-validée, l'argent se fixant à la clôture.
 
 > ⚠️ **Étape préliminaire réservée au National Sales**, et elle ne concerne QUE les demandes de KAM : lui seul
 > a un superviseur national au-dessus de sa demande. Il ne DÉSIGNE plus personne — Direction Marketing est
@@ -423,14 +468,16 @@ Demande de TOUT AUTRE demandeur
 > ⚠️ **Plus de « Référent Direction Marketing » à nommer sur une nouvelle demande** (22/09/2026 : « ça va
 > DIRECT chez le directeur/directrice du département marketing »). Le menu ne conditionnait déjà plus rien et
 > demandait au demandeur de désigner quelqu'un dans une direction qu'il ne connaît pas. Le CHAMP
-> `productManagerId` survit : il reste lu (droits de la fiche, déclaration PRIM) et accepté par les actions
-> serveur — le référent se configurera **par Business Unit**, et d'ici là rien ne l'écrit, ses lecteurs se
-> dégradant dans le sens sûr (un droit de moins, jamais un droit de plus).
+> `productManagerId` survit, et il est de nouveau ÉCRIT : à la création d'un sponsoring ou d'une prise en
+> charge, et à la soumission d'un événement, il reçoit le **référent de la gamme** quand la Business Unit de la
+> demande en a **exactement un**, actif et porteur du rôle Direction Marketing (`referentAInscrire`, Force de vente ›
+> Business Units, §118.144) — plusieurs n'en désignent aucun. La désignation **cible** sans rien accorder : l'étape
+> qui tranche reste ouverte à tout porteur du rôle, qui reste prévenu.
 
-> ⚠️ **Confidentialité : un AVIS, pas une DÉCISION.** L'arbitrage de Direction Marketing n'est pas visible du
-> demandeur **tant que la Direction n'a pas tranché**. Quand c'est Direction Marketing qui TRANCHE (demande de
-> KAM), sa décision EST la décision : le budget accordé et son commentaire deviennent visibles — un accord
-> illisible n'est pas un accord.
+> ⚠️ **Confidentialité : un AVIS, pas une DÉCISION.** Seule une étape que le Super Admin a marquée
+> **confidentielle** est caviardée pour le demandeur — **aucune ne l'est dans la graine** (`defaults.ts`) — et jamais
+> l'étape qui TRANCHE : sa décision EST la décision, le budget accordé et son commentaire sont visibles — un accord
+> illisible n'est pas un accord (`queries/workflow.ts`).
 
 > **LE PARCOURS EST UN TAMIS, plus une troncature.** Le circuit n'existe qu'en un exemplaire par catégorie ;
 > ce qui change est l'ENTRÉE (`workflow/origin.ts`, selon le rang du créateur), la BORNE de sortie
@@ -450,8 +497,9 @@ Demande de TOUT AUTRE demandeur
 > conclut** (lecture unique : « y a-t-il une suite ? ») — sans quoi la demande sortirait approuvée, budget
 > accordé écrit en base, et Finance ne recevrait RIEN.
 > Le **Sponsoring** ajoute l'**appel** : après la décision — sous la règle de la tenue, un REFUS (une tenue
-> pré-validée ne se conteste pas : ses postes se discutent un à un) —, le délégué peut faire appel → nouvel avis
-> de la Direction Marketing → la Direction tranche définitivement. Pour les congrès/événements pris en charge, on saisit la **liste
+> pré-validée ne se conteste pas : ses postes se discutent un à un) —, le demandeur peut faire appel, motif exigé →
+> le circuit se rouvre sur l'étape qui a tranché, qui est prévenue (`reopenInstance`) ; la Direction et le Super Admin
+> sont informés de tout appel. Pour les congrès/événements pris en charge, on saisit la **liste
 > des personnes prises en charge** (avec pièces d'identité) et un **ordre de mission**.
 
 #### Sponsoring — la tenue d'abord, l'argent à la fin (27/09/2026)
@@ -468,7 +516,7 @@ Marketing **valide tout, met chaque poste dans un budget, valide et clôture**. 
 Création : demandé par le médecin + suggéré par le délégué + NATURE (direct / indirect)
    → le POSTE naît avec la demande : « Sponsoring direct (association) » ou « Sponsoring indirect
      (prise en charge) », chiffré au montant SUGGÉRÉ, la demande du médecin écrite dans le poste
-   → circuit à trois branches — un KAM : National Sales PUIS Direction des opérations (28/09/2026) —
+   → le circuit de son demandeur — un KAM : National Sales PUIS Direction des opérations (28/09/2026) —
      et porte du DG au-delà du seuil
    → DIRECTION MARKETING : pré-valide ou refuse la TENUE — aucun montant accordé, aucun ordre global
         → statut « Tenue pré-validée — postes en cours » ; la déclaration PRIM part (estimation des postes)
@@ -692,11 +740,13 @@ parties (l'entité qui signe, le prestataire), la période, la rémunération **
 — 200 000 DZD par mois et 200 000 DZD pour la mission entière n'engagent pas la même somme —, les
 tâches attendues (à part, parce que « ce qui reste à livrer » est une question qu'on pose au
 contrat et qu'un paragraphe ne sait pas y répondre) et les pièces signées. Cycle de vie dans un
-module pur (`lib/ad-pro/consulting.ts`, 23 tests) : brouillon → en validation → actif → **expiré**
-ou **annulé**. Les deux fins ne se confondent pas — la première a produit ses effets jusqu'au bout,
-la seconde a été rompue — et une fin est **définitive** : rouvrir effacerait la date à laquelle la
-relation s'est terminée. Un terme dépassé se **signale** (compteur et badge) sans rien basculer
-tout seul : une échéance se prolonge souvent d'un avenant.
+module pur (`lib/ad-pro/consulting.ts`, 24 tests) : brouillon → en validation → actif → **expiré**
+ou **annulé** ; en validation, le validateur peut aussi le **renvoyer pour correction** (retour en brouillon chez
+son porteur, qui corrige et resoumet — audit 360°, lot C4a). Les deux fins ne se confondent pas — la première a
+produit ses effets jusqu'au bout, la seconde a été rompue — et une fin est **définitive** : rouvrir effacerait la
+date à laquelle la relation s'est terminée. Refuser ou annuler exige un motif. Un terme dépassé se **signale**
+(compteur et badge) sans rien basculer tout seul ; un contrat actif se **prolonge** (nouvelle fin plus tardive,
+motif exigé, par qui peut valider — `prolongerConsultingContract`).
 
 **Le pôle d'un contrat — Ad & Pro ou Ressources humaines (§118.150).** Un consultant engagé comme un
 membre de l'équipe relève des RH, pas de la promotion. Le contrat porte donc un **pôle**
@@ -719,7 +769,8 @@ aussi directement depuis RH › Consultants.
 de promotion inhabituelle se déclarait « en sponsoring » faute de mieux, et l'on perdait deux
 choses : la lisibilité du sponsoring, qui se remplissait d'objets qui n'en étaient pas, et la trace
 de la dépense, rangée sous une étiquette fausse. Circuit volontairement court — un demandeur, une
-description **obligatoire** (c'est elle qui portera tout), une décision, un motif.
+description **obligatoire** (c'est elle qui portera tout), une décision, un motif ; un refus se **resoumet** en
+disant ce qui a changé (`resoumettreAdProOtherRequest`), et la demande se corrige par la porte commune du pôle.
 
 ### Impliquer une tierce personne (sans accès au module)
 
@@ -763,7 +814,8 @@ l'autre une relance) et `/pieces/[id]`.
 
 Depuis le même poste : **« Demander une validation »** — un ou deux validateurs choisis nommément,
 et chacun peut à son tour en redemander une à quelqu'un d'autre. La transmission aux **Finances**
-reste le circuit existant : demande de bon de commande → visa Direction → émission.
+reste le circuit existant : demande de bon de commande → visa du centre Ad & Pro au-dessus du seuil des BC (en
+dessous, directement) → émission par les Finances.
 
 ### Bureau du secrétariat — flux par demande
 
@@ -791,10 +843,28 @@ l'approbation et le paiement en attente partent avec elle ; non offerte pour la 
 retire depuis le poste), « Rouvrir… » une demande terminée (motif ; une annulée ne se rouvre pas). La règle
 vit dans `secretariat/statut-manuel.ts`, lue par l'action et par l'écran.
 
+**Trancher une approbation (lot E5 — audit des managers, M14 et M15).** Une approbation (`AdminApproval`) a trois
+issues : valider, refuser, demander une modification. Elle porte **qui l'a tranchée** (`decidedById` — le validateur
+nommé, son intérimaire, l'assistante ou la Direction ; une décision d'avant, ou d'un compte supprimé, se lit « auteur
+inconnu ») et **sa parole** (`decisionNote`, à part de `comment`, qui reste celle du demandeur) — migration
+`20270103090500_approbation_decideur_motif`. Refuser ou demander une modification **exige un motif** (l'état
+d'abord) ; personne ne valide **sa propre** demande, sauf le sommet — la liste (`getApprovals`) ne la propose pas et
+la fiche n'offre pas de boutons. La décision s'écrit **une seule fois**, sous condition : approbation encore en
+attente ET demande vivante ; une demande annulée pendant la décision voit l'ordre émis **annulé**, et la phrase le
+dit. Redemander la validation à quelqu'un d'autre retire l'approbation précédente encore en attente et prévient son
+validateur. Le demandeur lit l'issue par son nom — « À modifier », avec le motif, le geste qui reste (retirer, puis
+redéposer corrigée) et le nom de qui a tranché quand ce n'est pas le validateur nommé (`phraseDeDecision`) ; la fiche
+affiche le décideur et son motif, et le journal des achats les garde. La **fin d'un achat** exige sa facture là où
+l'écran la range (`ficheAFacture`, `lib/finance/facture-ordre.ts`) : un fichier « Facture » de la demande, ou une
+facture du registre avec son PDF, rattachée à la demande ou qui SUIT un devis ou un BC non annulé de la MÊME fiche ;
+une facture annulée, ou sans son fichier, ne compte pas. Règle pure `secretariat/decision-approbation.ts`, lue par
+l'action et par les écrans.
+
 ### Information médicale — deux circuits, et la nature du dossier décide (PRIM)
 
-Étape **intercalée** entre la validation définitive de la Direction et l'ordre de dépense (uniquement si un
-pharmacien responsable est configuré ; sinon l'ordre part directement aux Finances). **Le bon de versement
+Étape **intercalée** entre la décision de l'étape qui tranche (Direction Marketing par défaut ; pour un sponsoring, la
+pré-validation de la tenue, avec l'estimation de ses postes) et l'ordre de dépense — uniquement si un pharmacien
+responsable est configuré ; sinon l'ordre naît directement, en attente du centre de paiement. **Le bon de versement
 ne concerne que le matériel promotionnel** — c'est ce qui sépare les deux circuits, et aucun geste ne permet
 de faire changer un dossier de chemin (`lib/medical-info/circuits.ts`) :
 
@@ -805,7 +875,8 @@ CIRCUIT ÉVÉNEMENT — prise en charge nationale / internationale, événement,
    → trois signatures : son responsable, le référent Direction Marketing du dossier, le centre de validations
    → accordée : il réclame les pièces s'il en manque, dépose auprès du ministère de l'Industrie
      pharmaceutique, enregistre la référence
-   → il VALIDE  →  la Direction valide  →  l'ordre de dépense part au comptable
+   → il VALIDE  →  la Direction (vue globale) valide  →  l'ordre de dépense naît, en attente du centre de paiement
+     (aucun ordre global quand des postes portent la dépense : chacun émet le sien)
 
 CIRCUIT MATÉRIEL PROMOTIONNEL
    → il réclame les pièces s'il en manque
@@ -824,10 +895,11 @@ dossier parfaitement conforme aurait été marqué comme rejeté.
 aucune sécurité : cela ajoute quatre relances. À l'inverse, grouper les paiements obligerait à attendre le
 dernier matériel pour déposer le premier. Un refus du centre rouvre CE bon, et lui seul.
 
-**Le PRIM ouvre aussi ses propres dossiers** — déclaration MIP, demande de visa publicitaire, bon de
-versement — sans attendre qu'un événement les lui envoie ; la nature choisie décide du circuit.
+**Le PRIM ouvre aussi ses propres dossiers**, entre **deux** natures — déclaration MIP ou demande de visa
+publicitaire (`OPENABLE_DECLARATION_KINDS`) — sans attendre qu'un événement les lui envoie ; la nature choisie décide
+du circuit. Le bon de versement ne s'ouvre pas : c'est une étape du circuit du matériel.
 
-### Ordres de dépense — aller-retour comptable ↔ Direction
+### Ordres de dépense — le centre autorise, le comptable règle
 
 Le centre de paiement **autorise** → **ordre de dépense** → le **comptable règle**. La « révision demandée
 par le comptable » a été retirée aux Finances : plus rien ne produit `REVISION_REQUESTED`, que seuls des ordres
@@ -1024,9 +1096,18 @@ versionné, mêmes contrôles d'accès PCH).
 
 **Chaîne d'automatisation d'une ligne-produit** (`src/lib/actions/pch-tender-line-actions.ts`,
 `src/lib/market/pch-lookup.ts`, RBAC `PCH`/`UPDATE`) :
-1. **Extraction** — `analyzeTenderDocument` (upload PDF/image → **OCR Mistral** `ocrDocument` → Claude) ou
-   `analyzeTenderText` (texte collé → Claude) ; helper commun `extractAndSaveLines` (désignation, DCI, dosage,
-   forme, quantité en unités, `unitsPerBox`). Nombre de boîtes = ⌈unités / `unitsPerBox`⌉.
+1. **Lecture** — `analyzeTenderDocument` (PDF/image : **le texte du fichier d'abord**, l'OCR `ocrDocument` seulement
+   quand il manque — ou forcé, « Océriser même si le PDF porte du texte » ; 40 pages au plus par le moteur local) ou
+   `analyzeTenderText` (texte collé) → le modèle rend les lignes (désignation, DCI, dosage, forme, quantité en
+   unités, `unitsPerBox`). Nombre de boîtes = ⌈unités / `unitsPerBox`⌉. **Chaque lecture est tracée**
+   (`PchTenderExtraction`, migration `20270103094500_pch_lecture_ao`) : sa méthode, ses pages, et sa **coupe à
+   24 000 caractères**, DITE et chiffrée (« seuls les N premiers caractères sur M ont été analysés… ») ; le fichier
+   lu est gardé dans les documents du marché quand la personne a le droit d'y téléverser. Une **relecture ne
+   remplace QUE** les lignes nées d'une lecture que personne n'a touchées (`extractionId`, `empreinteExtraction`,
+   `modifieeLe`) — une ligne saisie à la main, modifiée, chiffrée, soumise, au statut tranché, annotée ou rattachée
+   reste, et la phrase dit combien ; une lecture « complémentaire » (annexe, lot ajouté) ne remplace rien. Règles
+   PURES `lib/pch/extraction.ts`, lecture et écriture `lib/pch/lecture-ao.ts` ; les cinq dernières lectures se
+   lisent sous le panneau, pour qui peut en relancer une (`lecturesDuMarche`).
 2. **Enrichir** (`enrichTenderLine`) — **verrou prix** depuis les **réceptions PCH 2025** (`pchReceptionPrice`,
    vérifie DCI + dosage + forme → `refPriceDzd` + `refPriceSource`) ; **nomenclature** (`nomenclatureMatch`) ;
    **notre produit** (`matchOurProduct` sur `RegulatoryProduct` → `ourProductId`, `registeredOurs`, `haveProduct`) ;
@@ -1044,7 +1125,9 @@ Comptes externes **totalement séparés** (`Supplier` / `SupplierUser`, **auth d
 ### Vue exacte (impersonation)
 
 Le Super Admin visualise l'OS **exactement comme** un utilisateur. Cookie honoré **uniquement** si la session
-réelle est Super Admin. Bandeau permanent + « Quitter », démarrage/arrêt journalisés.
+réelle est Super Admin. Bandeau permanent + « Quitter », démarrage/arrêt journalisés. **Une vue, pas une
+usurpation** (§118.184) : une requête qui ÉCRIT — une action serveur, ou une route d'API qui le déclare par
+`getCurrentUserPourEcrire` — ignore la vue et part **au nom du Super Admin réel**, avec ses droits (`lib/session.ts`).
 
 ---
 
@@ -1090,6 +1173,10 @@ ensuite). C'est une **dimension transverse** appliquée à tout le logiciel :
     recrutement, stock promotionnel…) : une ligne sans entité n'est le secret d'aucune société. Les deux filtres
     ne répondent donc pas pareil à « une ligne sans entité est-elle visible ? » : chacun porte sa raison dans son
     commentaire, et c'est l'écran qui choisit le sien.
+  - `ficheScopedWhere(userId, base)` — le filtre d'une **FICHE** ouverte par son lien (notification, favori, lien
+    partagé) : toutes les sociétés auxquelles la personne a **droit**, plus les lignes sans entité — et non la seule
+    société choisie dans l'en-tête, qui ferait répondre « introuvable » au validateur de la société B qui travaille
+    en A (§118.184). Mêmes garde-fous ; `entitePermisePourFiche` / `predicatEntitePermise` pour une ligne déjà lue.
   - Ce qui reste sans entité est listé et se rattache en masse depuis **Administration → Entités**
     (`queries/unattached.ts`). Second garde-fou : **moins de deux entités ⇒ aucun filtre**.
 - **À la création** : `companyIdForNew(userId)` = la portée en cours, à défaut la société d'appartenance du créateur,
@@ -1122,7 +1209,10 @@ matériel promotionnel. **Le consulting et les « autres demandes » n'en avaien
 dans leur machine à états, ne consultait `adProDgThreshold`, donc un engagement de 5 M DZD sortait
 sans que personne en haut l'ait vu. Ces deux-là reçoivent un **VISA** (`AdProGateVisa`), et
 `FORME_PORTE: Record<AdProKind, FormePorte>` fait qu'une huitième nature **ne compilera pas** tant
-que personne n'aura dit quelle porte la garde.
+que personne n'aura dit quelle porte la garde. **Une exception, mesurée** : sur les quatre circuits, une demande du
+rang le plus haut (Direction, DG, Directeur des Opérations, Super Admin — `adProOriginRank` = 3) entre directement
+chez Direction Marketing et ne traverse pas l'étape `dg` ; la file du centre, qui lit `currentSlug = 'dg'`
+(`queries/ad-pro-centre.ts`), ne la montre donc jamais. Le visa et `REVIEW_DG` ne regardent, eux, que le montant.
 
 **TROIS ISSUES, ET LE RÉEXAMEN** (audit 360°, R07/R10, §118.188). Sur un visa, le centre **valide**,
 **renvoie pour correction** (ce qu'il faut corriger est obligatoire) ou **refuse** (motif obligatoire),
@@ -1182,10 +1272,10 @@ la **liste du centre elle-même**, jamais par une seconde requête (§118.5).
 `20261117090000_centre_validation_ad_pro`. **Bancs** : 6 + 14 + 12 tests, dont un de bout en bout
 par les **vrais points d'entrée**, et **15 sabotages** dont le bilan est au journal.
 
-### Centre de paiement — rien ne sort, quel que soit le montant, sans le PDG
+### Centre de paiement — rien ne sort, quel que soit le montant, sans son autorisation
 
-**Un module À PART, hors Finances** (`/centre-de-paiement`, RBAC `PAYMENT_CENTRE` — PDG + Super
-Admin) : celui qui autorise l'argent ne doit pas être dans l'écran de celui qui le décaisse, sinon
+**Un module À PART, hors Finances** (`/centre-de-paiement`, RBAC `PAYMENT_CENTRE` pour
+l'écran ; y siègent le PDG, le Super Admin et les sièges nommés — voir « Qui siège ») : celui qui autorise l'argent ne doit pas être dans l'écran de celui qui le décaisse, sinon
 la séparation des rôles n'est qu'un onglet. L'ancienne adresse `/finances/centre-de-paiement`
 redirige.
 
@@ -1197,14 +1287,14 @@ soit le montant**, passe par le **centre de paiement** avant d'atteindre les Fin
 c'est clair, tous passent par le centre de paiements » (Direction, 09/2026). Le registre des chemins
 de paiement (`lib/finances/settlement.ts`) porte désormais un axe **`centre`** : `AUTORISE` (l'ordre
 naît en attente du centre et `canDisburse` refuse de payer sans lui — ordre de dépense, demande de
-paiement, facture envoyée au règlement), `ENREGISTRE` (le geste enregistre un mouvement DÉJÀ fait —
+paiement, facture envoyée au règlement, **paie** virée par entité, **remise** de caisse d'avance), `ENREGISTRE` (le geste enregistre un mouvement DÉJÀ fait —
 écriture directe au livre, facture « marquée réglée » avant son enregistrement, achat sur caisse ; il
 n'y a rien à autoriser, et payer un fournisseur par ce chemin serait un contournement) et
-**`HORS_CENTRE`** — trois chemins décidés dans l'ERP sans le centre : la **paie** (virements de
-salaires sans ordre de dépense), la **remise de caisse d'avance** et sa **rallonge**. Ce sont des
-exceptions à la règle, **assumées par la Direction le 28/09/2026** (« garder les trois exceptions ») :
-chacune porte sa décision écrite (`horsCentre()`), et un test tombe si un quatrième chemin change de
-camp sans décision.
+**`HORS_CENTRE`** — **un seul chemin** décidé dans l'ERP sans le centre : la **rallonge** de caisse d'avance,
+accordée par les RH sans ordre de dépense. La Direction avait assumé trois exceptions le 28/09/2026 (« garder les
+trois exceptions » : paie, remise, rallonge) ; le **01/10/2026** elle a fait passer **la paie** (un virement par
+entité et par mois) et **la remise mensuelle** par le centre, sans nommer la rallonge — qui reste l'exception, avec sa
+décision écrite (`horsCentre()`), et un test tombe si un chemin change de camp sans décision.
 
 **Le seuil et l'exemption ont été retirés (2026-08).** Au-dessous de 50 000 DZD, et pour les moyens
 généraux, l'ordre filait droit aux Finances. L'intention était bonne — ne pas faire viser une
@@ -1231,8 +1321,9 @@ hausse ou un autre bénéficiaire **rouvre** une autorisation donnée, une baiss
 ou refusé ne se révise pas. Le centre, lui, **décide sur ce qu'il a lu** : un montant ou un bénéficiaire corrigé
 pendant sa lecture se dit avec les deux valeurs, et rien n'est autorisé.
 
-**Qui siège** : le **PDG** (`DIRECTION`) et le **Super Admin**, et personne d'autre — le Directeur
-Général n'y est délibérément pas. **Un centre par entité** : autoriser un paiement d'Adventum et un
+**Qui siège** : le **PDG** (`DIRECTION`, rôle principal), le **Super Admin**, et les personnes **nommément
+désignées** par lui (`PaymentCentreSeat`, Administration → Accès, avec motif et trace : le siège n'ouvre rien d'autre)
+— `sitsOnPaymentCentre`, refus `PAYMENT_CENTRE_REFUSAL`. Le Directeur Général n'y est pas par défaut. **Un centre par entité** : autoriser un paiement d'Adventum et un
 paiement de Pharmagène sont deux gestes comptablement distincts, et une file unique ferait perdre de
 vue ce que chaque société engage.
 
@@ -1292,30 +1383,33 @@ qui consulte le verrou) ou le montant.
   ne sont pas touchés : les rouvrir gèlerait des dossiers clos et réécrirait un passé autorisé par
   le circuit d'alors.
 
-### Finances — trois sous-modules, trois métiers
+### Finances — deux sous-modules, deux métiers
 
 Une seule page portait la trésorerie, le livre comptable, les règlements et les factures : celui
-qui **paie** et celui qui **tient les comptes** s'y disputaient le défilement. Trois écrans, dans
-l'ordre où l'on y passe, atteignables par onglets **et par flèches** (`ModuleTabs arrows`) :
-
-Ils se **déplient aussi dans le menu latéral** (flèche, comme la paie sous les RH) : le menu pour
-arriver directement là où l'on va travailler, les onglets pour passer d'un métier à l'autre sans
-repartir du menu.
+qui **paie** et celui qui **tient les comptes** s'y disputaient le défilement. Deux écrans, qui se
+**déplient dans le menu latéral** sous « Finances » (flèche, comme la paie sous les RH) : on arrive
+directement là où l'on va travailler.
 
 | Sous-module | Route | Ce qu'on y fait |
 | --- | --- | --- |
-| **Dashboard** | `/finances` | Soldes, ce que le DAF doit encore arbitrer, courbes. Rien qui s'écrive, et **rien qui vive déjà ailleurs** : « à régler » et « recettes attendues » ont été retirés (la file EST « Paiements à faire » — deux listes de la même chose divergent dès qu'on règle depuis l'une), ainsi que les trois cartes par poste, que le résultat mensuel dit mieux. |
-| **Paiements à faire** | `/finances/paiements-a-faire` | La file du décaissement. **Une seule source d'alimentation : le centre de paiement.** Les ordres non autorisés sont écartés en amont — ils n'existent ni en ligne, ni en total, ni en compteur. **TROIS ÉTATS, et rien d'autre** : *non payé* (défaut) · *paiement reporté à une date* · *payé*. Ni annulation ni révision de budget : l'ordre arrive **autorisé**, et le rouvrir à la caisse défait une décision prise par le centre. Un report est une **date** — il expire seul, et l'ordre reste dans la file. |
-| **Comptabilité** | `/finances/comptabilite` | Le livre : écritures, import de relevés, soldes d'ouverture. |
+| **Banque & paiements** | `/finances/paiements-a-faire` | Le **Solde trésorerie** (somme des comptes − paiements autorisés à régler, §118.176) et le détail par compte, puis la file du décaissement. **Une seule source d'alimentation : le centre de paiement.** Les ordres non autorisés sont écartés en amont — ils n'existent ni en ligne, ni en total, ni en compteur. **TROIS ÉTATS, et rien d'autre** : *non payé* (défaut) · *paiement reporté à une date* · *payé*. Ni annulation ni révision de budget : l'ordre arrive **autorisé**, et le rouvrir à la caisse défait une décision prise par le centre. Un report est une **date** — il expire seul, et l'ordre reste dans la file. |
+| **Comptabilité** | `/finances/comptabilite` | Le livre : écritures, import de relevés, **comptes de trésorerie ANCRÉS** (le solde d'un relevé à une date, jamais réécrit : le solde d'un compte = cet ancrage + les écritures réglées postérieures), et ce que le DAF doit encore arbitrer. |
 
-L'ancienne adresse `/finances/ordres-de-depense` **redirige** — des notifications déjà parties et
-des favoris y pointent.
+Le **Dashboard** (`/finances`) a été **supprimé** (2026-09) : il ne portait aucun geste ; `/finances` redirige vers
+« Banque & paiements ». L'ancienne adresse `/finances/ordres-de-depense` **redirige** aussi — des notifications déjà
+parties et des favoris y pointent.
 
 **Les Finances composent leurs factures et leurs bons de commande** depuis Legal › « Factures et bons de
 commande » (bouton « Composer une pièce ») : une pièce au format de la maison, sur le papier en-tête de la
 société, en Word et en PDF, numérotée par le compteur de la société au motif de son profil — la fabrique
-documentaire d'Adam, par un bouton (voir « Fabrique de documents »). Leur vue de Legal se limite à ces deux
-natures.
+documentaire d'Adam, par un bouton (voir « Fabrique de documents »). Leur vue de Legal se limite à la chaîne
+d'achat — factures, bons de commande et avoirs (`PURCHASE_CHAIN_KINDS`). Le menu **« Fait suite à »** du compositeur
+chaîne la pièce à celle dont elle découle (`chainFromId` — un BC à son devis, une facture à son devis ou à son BC :
+la table `NATURES_AMONT` de `lib/legal/piece-emise.ts`, que la fabrique applique aussi) ; chaîné à son devis, un BC
+suit la demande dont le devis est né (centre de validation Ad & Pro pour une demande Ad & Pro), et le devis ne se
+révise plus. Les Finances ne lisant pas les devis (décision de permission : `PURCHASE_CHAIN_KINDS`), elles ne chaînent
+pas un BC à son devis depuis le compositeur — le menu le dit et nomme Legal, qui rattache la pièce depuis sa fiche
+(« Modifier » › « Fait suite à »).
 
 ### La chaîne du dossier d'achat — devis → BC → facture → règlement, d'un seul écran
 
@@ -1337,7 +1431,10 @@ quand elle est hors du périmètre de la personne (`piecesAmontProposees`, `lib/
 elle, corriger la date d'une facture chaînée à un BC plus ancien la détachait en silence, et elle sortait du
 cumul qui empêche de payer plus que la commande. Une facture **saisie ligne à ligne sur un dossier de matériel
 promotionnel** garde son BC : la rattacher ailleurs se fait en l'annulant depuis le dossier, puis en la
-redéposant (le refus le dit).
+redéposant (le refus le dit). À la création, le compositeur propose les cent pièces les plus récentes de chaque
+nature, sans les annulées, par la porte de la liste Legal (`piecesAmontComposables`), et la fabrique juge la pièce
+amont AVANT qu'un numéro existe : lisible par la personne (sinon la phrase de l'absence), de la même société, de la
+bonne nature, non annulée (`refusPieceAmont`).
 
 **Sur les fiches Ad & Pro, les pièces liées se lisent dans cet ordre** (§118.161, décision de la Direction du
 30/09/2026) : **Devis → Bon de commande → Facture**, chacun avec sa version plateforme (Word / PDF de la fabrique) et
@@ -1419,10 +1516,12 @@ signer de leur part. Si un BC se retrouve là-bas, c'est qu'il doit être signé
   (`LegalDocument.signatureReturnedAt/ById/Note`, migration `20261228090000_bc_signature_renvoyee`). Un BC d'avant le circuit
   (`bcCircuitAt` nul) n'est présumé ni à valider ni à signer : fixer un seuil ne fait pas tomber
   l'historique dans la file des Finances ; « Adresser au centre » l'y fait entrer.
-- **FINANCES › BONS DE COMMANDE** (`/finances/bons-de-commande`) ne contient QUE des BC à signer —
-  validés par leur centre, ou sous le seuil — avec la raison de leur présence, la pièce à lire et le
-  bouton **Signer** (droit de modification des Finances). Les BC encore au centre y sont COMPTÉS, pas
-  listés. Les Finances sont prévenues à l'ENTRÉE d'un BC dans leur file (jamais à chaque relecture).
+- **BONS DE COMMANDE** (`/bons-de-commande`, module à part `PURCHASE_ORDERS` depuis le 01/10 — l'ancienne adresse
+  `/finances/bons-de-commande` redirige) ne contient QUE des BC à signer — validés par leur centre, ou sous le
+  seuil — avec la raison de leur présence, la pièce à lire et le bouton **Signer** (droit « Modifier » du module,
+  `peutSignerBC` : par défaut Direction, Directeur Général et Finances ; le Directeur des Opérations a « Voir »). Les
+  BC encore au centre y sont COMPTÉS, pas listés. Sont prévenus à l'ENTRÉE d'un BC dans la file (jamais à chaque
+  relecture) les Finances, dont c'est le métier, et les personnes que la console désigne pour signer.
 - **LA SIGNATURE EST UNE ATTESTATION** (`signerBonDeCommande`) : un clic dans une vraie session, jamais
   Adam ni le chemin générique (`SURFACES_HUMAINES`, parité EXCLUDED). Trois gardes : le droit, la
   lecture (la portée de l'écran Legal) et l'étape — et le verrou porte sur la DERNIÈRE ÉCRITURE de la
@@ -1534,8 +1633,8 @@ l'assistant expédiait par le SMTP historique du module Courrier (`MailAccount`)
 l'intention canonique : sans empreinte approuvée, sans approbateur, sans relecture de
 `MAIL_SEND_POLICY`. Il PRÉPARE désormais une `OutboundMailIntent` et rend la carte
 `send_prepared_mail` — un seul appel d'outil, une seule confirmation. L'ancienne carte
-(`payload.kind === "send_email"`) n'expédie plus rien et le dit. Le module `/courrier` garde son
-propre bouton d'envoi : c'est un humain devant un écran, pas l'assistant.
+(`payload.kind === "send_email"`) n'expédie plus rien et le dit. L'ancien module `/courrier`, lui,
+est retiré (l'adresse redirige vers Mon espace) : son bouton d'envoi humain n'existe plus.
 
 **Une confirmation en français CONCLUT, elle ne relance pas.** « Je confirme », « oui », « envoie »
 sont résolus côté serveur (`resolvePendingMailConfirmation`) vers l'intention EXACTE qui attend —
@@ -1653,6 +1752,14 @@ montant** (± 1 DZD, dépôts sérialisés par BC). Le paiement passe par la **p
 `createExpenseOrder` → **centre de paiement**), sérialisé par facture ; la demande à l'information médicale part
 **avec** lui, **sans montant** — l'information médicale n'émet pas un second paiement pour le même matériel.
 
+**Un geste à la fois, sur ce que l'écran a montré (lot D1b).** Le **choix des lignes** commence par une écriture
+conditionnelle sur l'étape (deux choix croisés passent l'un après l'autre) et relit les lignes sous ce verrou ; un
+choix vide est refusé **avant toute écriture**. La **validation** relit la sélection sous `FOR UPDATE` et refuse si
+elle a changé depuis l'écran (`lignesVues`) : rien n'est validé, et la phrase demande de recharger. La clôture d'un
+chantier est conditionnelle (deux chantiers clos à la même seconde ne s'effacent plus l'un l'autre). Rouvrir ou
+fermer la demande au secrétariat se fait dans la transaction du geste (`promo-material/demande-secretariat.ts`, `tx`
+obligatoire).
+
 **Qui retranscrit.** Une assistante de direction ACTIVE (rôle principal ou secondaire), jamais le demandeur. La
 demande ne la désigne plus (décision du 01/10) : quand les devis sont demandés, **toutes** les assistantes sont
 prévenues et la retranscription est ouverte au secrétariat (`retranscritLesDevis`) — ce qui ôte aussi au demandeur le
@@ -1703,8 +1810,8 @@ document lu est une donnée, jamais la main qui écrit ce qui sera payé.
 - **Lectures** : `queries/promo-circuit.ts`, `queries/promo-execution.ts`, `queries/legal-fichier.ts`.
 - **Pont d'Adam** : `platform/in-process/promo/` ; ops `assistant/ops/impl-promo-circuit2.ts`.
 - **Bancs** : `circuit-v2.test.ts` (29), `promo-circuit-v2-flow.test.ts` (20, de bout en bout par les vrais points
-  d'entrée, opérations d'Adam comprises), `platform/in-process/promo/designation.test.ts` (10). Migration
-  `20261130090000_promo_devis_lignes`.
+  d'entrée, opérations d'Adam comprises), `platform/in-process/promo/designation.test.ts` (10),
+  `promo-devis-course-flow.test.ts` (les courses forcées sous verrou). Migration `20261130090000_promo_devis_lignes`.
 
 ### Matériel promotionnel — cinq marches, puis trois chantiers en parallèle
 
@@ -1779,7 +1886,10 @@ Nivolex » et « — Trastuzex » sont deux stocks.
   d'ouverture** se pose une fois par article et par détenteur ; ensuite, un écart se règle par une
   **correction** (au magasin : sa gestionnaire ; chez une personne : le Super Admin).
 - **Demandes** : un délégué demande au magasin ; le magasin la **sert** (une dotation pré-remplie, que
-  le délégué confirme) ou la **refuse avec un motif** ; seul son auteur l'**annule**.
+  le délégué confirme) ou la **refuse avec un motif** ; seul son auteur l'**annule**. Servir **prend** d'abord la
+  demande par une écriture conditionnelle, AVANT tout mouvement (lot D1b) : annulée ou servie entre-temps, rien ne
+  part, et le refus dit le geste qui reste — « Doter » sur la ligne de l'article si le matériel a déjà été remis ; si
+  le magasin ne peut pas servir, tout s'annule et la demande redevient ouverte.
 - **Deux dotations simultanées** qui dépassent le magasin : une passe, l'autre est refusée — le solde ne
   devient jamais négatif (verrou par article, soldes relus en base).
 
@@ -1816,6 +1926,7 @@ chacun atteste un fait physique, et Adam est en pause.
   `app/(app)/stock-promotionnel/catalogue/` ; **adresses** : `lib/chemins/stock-promo.ts` (socle) — les anciennes
   (`app/(app)/promo-material/{stock,catalogue}/page.tsx`) ne sont plus que des escales qui redirigent.
 - **Bancs** : `promo-stock-flow.test.ts` (24 cas par les vraies actions, acteurs SANS vue globale),
+  `promo-stock-demande-course.test.ts` (servir une demande pendant qu'elle change),
   `e2e/stock-promo.spec.ts` (navigateur, bureau et téléphone). Migration `20261208090000_stock_promo_socle`.
 
 #### Étape 2 — un achat entre au stock par sa FACTURE, ligne à ligne (§118.165)
@@ -2128,31 +2239,52 @@ migrations `20261202090000_site_web_adventum`, `20261203090000_site_web_liaison`
 **Modèle** : `LeaveRequest.standInId` · `standInStatus` (`StandInStatus`) · `standInModules` ·
 `standInDecidedById` · `standInDecidedAt` · `standInNote`.
 
-**Le circuit** : l'**absent désigne** (`proposeStandIn`) et choisit les modules délégués ; les **RH valident**
-(`decideStandIn`, refus motivé obligatoire). Toute nouvelle désignation **repart en attente** : l'accord donné
-pour quelqu'un ne s'hérite pas. Les RH ne peuvent pas valider un intérim **qui ne transmettrait rien** — cela
-laisserait croire que la place est tenue.
+**Le circuit** : l'**absent désigne** (`proposeStandIn`) et choisit les modules délégués — l'écran ne propose que ce
+qu'il peut réellement prêter (`modulesPretables`), et l'action refuse le reste en **nommant** le module ; les **RH
+valident** (`decideStandIn`, refus motivé obligatoire). Toute nouvelle désignation **repart en attente** : l'accord
+donné pour quelqu'un ne s'hérite pas. Les RH ne peuvent pas valider un intérim **qui ne transmettrait rien** — cela
+laisserait croire que la place est tenue. **La décision des RH est gardée** (lot E4) : une décision illisible est
+refusée ; l'écriture est conditionnelle (un intérim modifié ou tranché entre-temps ne se tranche pas une seconde
+fois) ; celui qui valide n'est ni l'absent ni l'intérimaire désigné, et un droit RH tenu par intérim ne valide pas
+d'intérim ; la fiche est bornée à la société, comme la liste ; un congé terminé, ou un absent sans compte actif, est
+refusé. Validé, l'intérimaire est prévenu avec un lien vers **Mon espace**, et la notification dit **quand**
+l'intérim s'ouvrira (`annonceDeValidation`) : elle n'annonce plus des validations ouvertes des semaines avant le
+congé.
 
 **La fenêtre** : `isDelegationActive` exige quatre conditions — congé accordé, intérimaire désigné, RH d'accord,
 date du jour dans `[startDate, endDate]`. La comparaison se fait au **jour**, pas à l'instant : un congé du 3 au
 10 couvre le 10 tout entier. La délégation s'**éteint seule** ; personne n'a rien à révoquer, et c'est ce qui la
 rend sûre là où un accès ouvert « pour cette fois » ne se referme jamais.
 
-**La portée** : `NEVER_DELEGATED` exclut `ADMIN`, `DRIVE`, `MESSAGING`, `WORKSPACE`, `NOTIFICATIONS` — remplacer
-quelqu'un n'est pas lire son Drive privé. `delegatedActions` part de la matrice du rôle de l'**absent** et retire
-`DELETE` : une délégation ne crée pas un droit, elle en prête un, et un remplaçant ne détruit pas.
+**La portée** : `NEVER_DELEGATED` exclut la souveraineté du Super Admin (`ADMIN`, `ADVENTUM_BRAIN`,
+`PROCESS_INTELLIGENCE`), les espaces **personnels** (`DRIVE`, `MESSAGING`, `WORKSPACE`, `NOTIFICATIONS` — remplacer
+quelqu'un n'est pas lire son Drive privé), les **sièges** (`PAYMENT_CENTRE`, `VALIDATION_CENTRE`, `AD_PRO_CENTRE`,
+`CHIEF_OF_STAFF` — un rôle ou une désignation nominative les donne, et l'intérim ne prête aucun rôle) et les portes
+ouvertes à tous (`MY_TEAM`, `DIRECTORIES`). `delegatedActions` prête ce que l'absent **DÉTIENT** — la matrice de son
+rôle **PRINCIPAL** ∩ son accès **attribué** (`accesAttribue`, la règle même de `getAccess` : rôle, « autre rôle »,
+console) — et retire `DELETE` : un module bloqué par l'administrateur, un accès personnalisé plus étroit que le rôle,
+un module retiré de la plateforme, un compte fermé ne se prêtent pas (`detenteurPourInterim`). Une délégation ne
+crée pas un droit, elle en prête un, et un remplaçant ne détruit pas.
 
 **Effets** : les modules délégués sont ajoutés dans `getAccess` (recalculé à chaque requête, donc éteint le
-lendemain du congé) ; `decideValidationStep` accepte l'intérimaire sur les étapes du validateur absent
-(`actsForUser`), et le journal **dit** que la décision a été prise au titre d'un intérim.
+lendemain du congé ; un module retiré n'y entre par aucune porte implicite) et **se disent** : un **bandeau
+d'intérim** dans la coque (`components/layout/interim-banner.tsx`, lu sur `access.interims` — aucune lecture de plus)
+nomme qui l'on remplace, jusqu'à quand et les modules prêtés ; un droit prêté ne s'accorde pas à son tour
+(`estPrete` : ouvrir l'accès d'un tiers à une entité, fermer un compte — `lib/hr/depart.ts` —, désigner ou valider
+un intérim) ; `decideValidation` accepte l'intérimaire sur les étapes du validateur absent
+(`droitSurLEtape` : le validateur, le Super Admin ou l'intérim — jamais sur sa propre demande ; le jugement des
+pièces lit la même règle), les portes qui nomment une PERSONNE (N+1 d'un congé ou d'une formation, validateur d'un
+achat, réviseur et N+2 d'un plan de tournée) reconnaissent l'intérimaire par la même lecture des intérims en cours
+(`activeStandInsFor`, déclinée en `auNomDeQui`, `actsForUser` et `standInForUserIds`), et le journal **dit** que la
+décision a été prise au titre d'un intérim. Les étapes adressées à un RÔLE ne se délèguent pas (décision).
 
-**Fichiers** : `lib/hr/stand-in.ts` (+ 25 tests) · `lib/hr/stand-in-resolve.ts` ·
-`lib/actions/stand-in-actions.ts` · `components/hr/stand-in-panel.tsx` · sections de `/rh/conges` et
-`/mon-dossier`.
+**Fichiers** : `lib/hr/stand-in.ts` (+ 36 tests) · `lib/hr/stand-in-resolve.ts` ·
+`lib/actions/stand-in-actions.ts` · `components/hr/stand-in-panel.tsx` · `components/layout/interim-banner.tsx` ·
+sections de `/rh/conges` et `/mon-dossier` ; banc de bout en bout `lib/hr/interim-prete-flow.test.ts`.
 
 ### Moteur de workflow dynamique (Ad & Pro — 4 catégories)
 
-Le circuit Sponsoring / Congrès intl / Événements nationaux / Events est piloté par un **moteur 100 % dynamique**
+Le circuit Sponsoring / Prise en charge internationale / Prise en charge nationale / Événements est piloté par un **moteur 100 % dynamique**
 éditable en no-code par le Super Admin (Administration → Circuits de validation) :
 
 - **Modèles** : `WorkflowDefinition` (1 par catégorie) → `WorkflowStep[]` (position, slug, titre, `actorRoles[]`,
@@ -2160,17 +2292,23 @@ Le circuit Sponsoring / Congrès intl / Événements nationaux / Events est pilo
   `assignRole`, `requireAmount/Category/Note`, `emitDeclaration/ExpenseOrder`, `notifyRoles[]`, `optional`,
   `confidential`, `autoSkipMaxAmount` (seuil DZD anti-bureaucratie), `autoApproveIfRequester`, `legacyStatus`) →
   `WorkflowInstance` (unique par entityType+entityId, `currentSlug`, statut
-  IN_PROGRESS|APPROVED|REJECTED, `amount`, `budgetCategoryId`, `assigneeId`) → `WorkflowStepEvent`
-  (APPROVE|REJECT|OPINION_AGAINST|COMMENT|SKIP|AUTO_SKIP|AUTO_APPROVE_REQUESTER).
+  IN_PROGRESS|RETURNED|APPROVED|REJECTED|CANCELLED, `finalSlug` + `skippedSlugs` — le parcours figé —, `amount`,
+  `budgetCategoryId`, `assigneeId`, `claimedAt` — la prise d'un geste) → `WorkflowStepEvent`
+  (CREATE|APPROVE|REJECT|OPINION_AGAINST|RETURN|RESUBMIT|SKIP|AUTO_SKIP|AUTO_APPROVE_REQUESTER|APPEAL|REOPEN|CANCEL|COMMENT).
 - **Règles clés** : un REJECT **non terminal** = `OPINION_AGAINST` (avis défavorable) et **le flux continue**
-  (l'assignation reste requise) ; seul le refus de la **dernière étape** (Direction) est éliminatoire. Sur une étape
-  `SET_AMOUNT` (analyse Direction Marketing), l'avis défavorable peut porter un **montant révisé OPTIONNEL** (« revu à la
-  hausse ») → consigné en budget Direction Marketing, en `amount` de l'instance et sur l'événement `OPINION_AGAINST`. Le
-  moteur **projette les statuts legacy** sur les entités (les listes/badges existants continuent de fonctionner). Les
-  étapes `confidential` (analyse Direction Marketing) sont **caviardées** pour le demandeur. La **méta du workflow**
-  (rôles/portées/pouvoirs) reste réservée au **Super Admin** ; l'**historique complet** (dont l'avis confidentiel + le
-  montant révisé) est visible des spectateurs **privilégiés** : Super Admin, **Direction / Directeur des opérations**,
-  National Sales et le référent Direction Marketing désigné (`canViewHistory`). Les autres n'y ont pas accès.
+  (l'assignation reste requise) ; seul le refus de l'**étape qui tranche** (la dernière de la route — Direction
+  Marketing par défaut, la Direction des opérations sur la demande de la Direction Marketing elle-même) est
+  éliminatoire. Un acteur qui peut refuser peut aussi **RENVOYER** pour correction (`RETURN` → statut `RETURNED`,
+  « À corriger », motif exigé) : le demandeur corrige et resoumet, la demande revient à cette étape — sauf une porte de
+  montant franchie seule que le montant corrigé ne franchit plus (`etapeDeReprise`, §118.186) ; un geste à la fois
+  (`claimedAt`). Sur une étape intermédiaire `SET_AMOUNT`, l'avis défavorable peut porter un **montant révisé
+  OPTIONNEL** (« revu à la hausse ») → consigné comme montant proposé, en `amount` de l'instance et sur l'événement
+  `OPINION_AGAINST`. Le moteur **projette les statuts legacy** sur les entités (les listes/badges existants continuent
+  de fonctionner). Les étapes `confidential` (aucune dans la graine) sont **caviardées** pour le demandeur, jamais
+  l'étape qui tranche. La **méta du workflow** (rôles/portées/pouvoirs) reste réservée au **Super Admin** ;
+  l'**historique complet** est visible des spectateurs **privilégiés** : vue globale (Super Admin, Direction), la
+  personne désignée sur l'instance, le National Sales et tout porteur du rôle Direction Marketing (`canViewHistory`).
+  Les autres n'y ont pas accès.
 - **Anti-bureaucratie — 3 mécanismes par étape (`src/lib/workflow/engine.ts`, tous tracés)** :
   1. **Saut manuel** (`SKIP`) — un acteur habilité peut **sauter une étape intermédiaire** avec **raison obligatoire**
      (tracée + notifiée à l'étape suivante). Jamais sur une désignation ni la décision finale.
@@ -2185,25 +2323,33 @@ Le circuit Sponsoring / Congrès intl / Événements nationaux / Events est pilo
   toujours l'accord définitif. Ces mécanismes se **cascadent** (settleAutoSkips) et sont **opt-in** dans le builder
   no-code (défaut inactif ⇒ aucun changement de comportement). Le détecteur de friction d'Adventum Brain repère les
   étapes qui **ne filtrent rien** (100 % d'`APPROVE`) et les files bloquées.
-- **Routage intelligent à la création (saut d'étapes selon le rang du créateur)** : personne n'approuve une demande
-  qu'il émet lui-même. `src/lib/workflow/origin.ts` (`adProOriginRank`, `adProInit`) choisit le **statut de départ** :
-  un **délégué** part du préliminaire (National Sales) ; le **National Sales**, en désignant la Direction Marketing à la
-  création (sélecteur ajouté aux formulaires sponsoring/congrès/événement), **saute son propre préliminaire** →
-  `PRELIMINARY_APPROVED` ; la **Direction Marketing**, la **Direction** ou le **Super Admin** **sautent préliminaire + analyse**
-  → `AWAITING_FINAL` (Direction). Le statut legacy de départ pilote à la fois les actions historiques et le moteur
+- **Routage à la création (l'entrée selon le rang du créateur)** : personne n'approuve une demande qu'il émet
+  lui-même. `src/lib/workflow/origin.ts` (`adProOriginRank`, `adProInit`) lit la branche de `parcoursAdPro` — plus
+  aucun sélecteur dans les formulaires : un **KAM** entre au préliminaire (`AWAITING_PRELIMINARY`) ; le rang le plus
+  haut (**Direction**, **DG**, **Directeur des Opérations**, **Super Admin**, vue globale comprise) entre directement
+  chez la **Direction Marketing** (`AWAITING_FINAL`, l'étape qui tranche) ; tous les autres — **National Sales**,
+  **Direction Marketing** et **Manager Promotion médicale**, demandeur ordinaire — entrent par la **porte du DG**
+  (`PRELIMINARY_APPROVED`). Le statut legacy de départ pilote à la fois les actions historiques et le moteur
   (`positionFromLegacy`). Câblé dans `createSponsoring`, `createCongressRequest`, `submitEventForApproval`.
-- **Bornes du PARCOURS (09/2026)** : `src/lib/workflow/parcours.ts` (module PUR) porte la table des deux
-  bornes — entrée et sortie — pour les deux chaînes Ad & Pro. La SORTIE entre dans `nextStepAfter`, l'unique
-  endroit où « y a-t-il une étape après celle-ci ? » se décide : la terminalité, la projection de l'accord
-  définitif, le refus de sauter ou de franchir automatiquement la décision finale et la levée du caviardage en
-  découlent sans être écrits une seconde fois. `WorkflowInstance.finalSlug` porte la borne, **figée à la
-  naissance de l'instance** (le parcours est un fait de la demande, pas du poste qu'occupe son auteur
-  aujourd'hui) ; `null` = la dernière étape de la définition, donc le comportement d'avant. Une **émission
-  financière déclarée sur une étape de la queue coupée est HÉRITÉE** par l'étape qui tranche — sans quoi une
-  demande de KAM sortirait approuvée, budget accordé en base, et Finance ne recevrait rien.
-- **Fichiers** : `src/lib/workflow/engine.ts` (avance/refus/projection ; ⚠ `Event` n'a pas `updatedById` — il est
-  retiré avant update), `parcours.ts` (les deux bornes, pur), `defaults.ts` (seed paresseux de la colonne
-  vertébrale préliminaire → marketing → final), `origin.ts` (rang du créateur → étape de départ),
+- **Le PARCOURS (09/2026)** : `src/lib/workflow/parcours.ts` (module PUR) porte la table des **branches** (§118.142) :
+  l'ENTRÉE, la BORNE de sortie (`WorkflowInstance.finalSlug`) et le **TAMIS** des étapes que la demande ne traverse
+  pas (`skippedSlugs`), **figés à la naissance de l'instance** (le parcours est un fait de la demande, pas du poste
+  qu'occupe son auteur aujourd'hui). La sortie entre dans `nextStepAfter`, l'unique endroit où « y a-t-il une étape
+  après celle-ci ? » se décide : la terminalité, la projection de l'accord définitif, le refus de sauter ou de franchir
+  automatiquement la décision finale et la levée du caviardage en découlent sans être écrits une seconde fois. Une
+  **émission financière déclarée sur une étape non atteinte — queue coupée OU tamis — est HÉRITÉE** par l'étape qui
+  conclut (`etapesNonAtteintes`) — sans quoi une demande sortirait approuvée, budget accordé en base, et Finance ne
+  recevrait rien. Les **pouvoirs d'argent** suivent la MÊME liste : l'étape qui conclut, si elle n'a aucune
+  configuration d'argent à elle, hérite « fixer le montant » et « fixer la catégorie » — et leurs exigences — des
+  étapes non atteintes (`argentEffectif`) ; le moteur, qui juge l'approbation, et l'écran, qui propose les champs,
+  lisent la même réponse (`lectureDeLApprobation`). La Direction des opérations fixe donc le montant et la
+  sous-catégorie d'une demande de rang 2 — sans quoi elle sortait approuvée sans montant, donc sans ordre de dépense
+  ni déclaration à l'information médicale.
+- **Fichiers** : `src/lib/workflow/engine.ts` (avance/renvoi/refus/projection ; ⚠ `Event` n'a pas `updatedById` — il
+  est retiré avant update), `parcours.ts` (les branches : entrée, borne, tamis — pur), `renvoi.ts` (le renvoi pour
+  correction, pur), `defaults.ts` (seed paresseux de la colonne vertébrale préliminaire → dg → final → marketing, et la
+  pré-validation de la tenue d'un sponsoring), `origin.ts` (rang du créateur → étape de départ),
+  `pouvoirs-argent.ts` (les pouvoirs d'argent qu'hérite l'étape qui conclut une route coupée — pur),
   `src/lib/personnes/roles-vente.ts` (socle : qui est un KAM, qui est Direction Marketing),
   `src/lib/queries/workflow.ts` (vue caviardée, bornée au parcours de l'instance),
   `src/components/workflow/workflow-panel.tsx` (panneau runtime), builder sous `/admin/workflows`.
@@ -3206,10 +3352,11 @@ fichiers dérivés des MÊMES données, cohérents chiffre par chiffre — ou au
   Word (plan, tableaux, chiffres). `verifierCoherence` compare les TOTAUX du classeur recalculé à ceux que le code a
   calculés (les mêmes qui figurent dans le deck et la note) : un écart, ou zéro total comparable, et `ok` est faux —
   aucun des trois fichiers n'est écrit. Une formule hors grammaire est refusée en le disant.
-- **Le bouton des Finances** (`app/(app)/legal/composer-piece.tsx`, actions `lib/actions/fabrique-actions.ts`) :
+- **Le bouton des Finances** (`components/pieces/composer-piece.tsx`, actions `lib/actions/fabrique-actions.ts`) :
   depuis Legal › « Factures et bons de commande », « Composer une pièce » ouvre un panneau — nature, société, papier
   en-tête (Word, de la société ou commun au groupe), tiers (nom, adresse, RC, NIF, AI, NIS, numéro de client),
-  références (date, échéance ou validité, pièce amont et sa date, contact, adresse et délai de livraison, mode et
+  références (« Fait suite à » — la pièce du registre dont elle découle, `chainFromId` —, date, échéance ou validité,
+  référence amont et sa date, contact, adresse et délai de livraison, mode et
   conditions de paiement, objet), lignes (désignation, détails, quantité, PU, remise, TVA, lignes de section), taxes
   additionnelles (préréglage « Taxe Pub 2 % »), notes. L'APERÇU est la composition jouée à blanc côté serveur
   (`previsualiserDocument`) : numéro prévu au motif, totaux, somme en lettres, papier en-tête, identité incomplète,
@@ -3259,7 +3406,7 @@ fichiers dérivés des MÊMES données, cohérents chiffre par chiffre — ou au
   à 961 345 TTC ; le devis reste à Legal).
 - **Fichiers** : `lib/artifact/factory/lettres.ts`, `commercial.ts` (pur, sans import Node), `empreinte.ts`,
   `word.ts`, `build.ts`, `canonical.ts`, `dossier.ts` ; `platform/in-process/artifact/factory.ts`
-  (`previsualiserDocument`, `pdfDeLaPiece`), `factory-access.ts` ; le bouton `app/(app)/legal/composer-piece.tsx` et
+  (`previsualiserDocument`, `pdfDeLaPiece`), `factory-access.ts` ; le bouton `components/pieces/composer-piece.tsx` et
   `lib/actions/fabrique-actions.ts` ; le jumeau `lib/payslip/{docx-blocks,to-pdf}.ts` ; outils `document_build`,
   `document_profile`, `dossier_build` dans `lib/assistant/office-capabilities.ts` ; capacités
   `artifact.document_build`, `artifact.dossier_build` ; migration `20261020090000_fabrique_documentaire`
@@ -3390,7 +3537,7 @@ pour l'envoi) et un onglet qui s'effondre est un bien pire défaut qu'un envoi n
 
 - `runScheduledJobs()` est déclenché par le **polling messagerie** (`/api/messaging/sync`), débounce 1 min,
   verrou process-wide, ne lève jamais. Jobs : **rappels de réunion** (30 min avant, `reminderSentAt`) et
-  **notifications de paie différées** (24 h, `employeeNotifyAt`/`employeeNotifiedAt`). Chaque envoi est protégé par
+  **notifications de paie différées** (au plus tôt 24 h après la saisie, et seulement une fois le virement réglé — `clauseSalairesVersesANotifier`). Chaque envoi est protégé par
   un **claim `updateMany`** anti-concurrence. Cloche + push (même téléphone hors ligne). Ajouter un job = une
   fonction appelée dans `runScheduledJobs`.
 - **Site web** (§118.158, §118.159) : le même battement **entretient la liaison** (présente au site une clé en attente selon un rythme dégressif, lit sa santé une fois l'heure, rapproche aussitôt s'il a redémarré), **vide la file** des envois vers le site public (réessais à leur échéance, lus en base — un redémarrage ne perd rien) puis lance le **rapprochement quotidien** quand il est dû. Ils vivent ici et non dans le registre d'ordonnancement, qui n'admet que des tâches sans effet.
@@ -3410,7 +3557,7 @@ L'entreprise se pense **par département**, pas seulement par personne. Deux axe
 
 | Axe | Répond à | Porté par |
 |---|---|---|
-| **Rôle** (17 rôles) | « qu'ai-je le droit de faire ? » | `User.role` / `secondaryRole` → `MODULE_PERMISSIONS` |
+| **Rôle** (19 rôles) | « qu'ai-je le droit de faire ? » | `User.role` / `secondaryRole` → `PERMISSIONS` |
 | **Département** | « sur quel périmètre ? **qui me valide ?** » | `Employee.departmentId` → `Department` |
 
 - **Une structure PAR ENTITÉ** : `Department.companyId` — chaque société du groupe (Adventum,
@@ -3454,7 +3601,8 @@ L'OS est utilisé au quotidien depuis un téléphone (« Ajouter à l'écran d'a
 `standalone`). La navigation mobile est donc **native dans l'esprit**, pas un site rétréci :
 
 - **Barre d'onglets basse** (`components/layout/mobile-tabbar.tsx`, masquée dès `lg`) : quatre
-  cibles au pouce — **Espace**, **Messages**, **Assistant**, **Tout** — avec badges de non-lus,
+  cibles au pouce — **Espace**, **Messages**, **Assistant** (seulement pour qui le voit au menu : le Super Admin
+  depuis 09/2026), **Tout** — avec badges de non-lus,
   indicateur d'onglet actif et respect de la **safe-area iOS**.
 - **« Tout »** ouvre la **grille plein écran de tous les modules autorisés**, groupée
   (Pilotage / Pôles / Transverse / Système) et **filtrable par recherche** : toute la navigation
@@ -3965,7 +4113,8 @@ que la fiche d'action d'Adam déclare, sans qu'on touche à rien : la dérivatio
 
 **Chaque poste se valide INDÉPENDAMMENT** (doctrine révisée — auparavant un poste n'était qu'une
 ventilation sans circuit propre). Consulting, traiteur, location de salle ne se décident pas
-ensemble : la Direction **accorde**, **refuse**, ou **demande à revoir le budget** — autant de
+ensemble : « la Direction » au sens de l'écran — la vue globale, ou le droit « Valider » du module (par défaut la
+Direction, le Directeur Général et la Direction Marketing) — **accorde**, **refuse**, ou **demande à revoir le budget** — autant de
 fois qu'il le faut. Chaque tour est conservé (`AdProItemDecision`) : un poste accordé au 3ᵉ tour
 garde la trace des deux refus qui l'ont précédé.
 
@@ -3975,9 +4124,10 @@ garde la trace des deux refus qui l'ont précédé.
 Ajout du poste (nature, montant estimé, INCLUS dans le budget accordé ou RALLONGE)
    → (option) demande de DEVIS ouverte au Bureau du secrétariat (AdministrativeRequest type QUOTE)
         → les devis déposés sur la demande font partie du dossier du poste
-   → SOUMISSION à la Direction  →  accordé / refusé / budget à revoir (aller-retour illimité)
+   → SOUMISSION à « la Direction » (vue globale ou « Valider » du module)  →  accordé / refusé / budget à revoir
    → choix du BUDGET (catégorie d'enveloppe)
-   → demande d'ÉMISSION DU BON DE COMMANDE  →  visa Direction  →  émission par les FINANCES
+   → demande d'ÉMISSION DU BON DE COMMANDE  →  visa du centre Ad & Pro (au-dessus du seuil des BC ; en dessous,
+     directement)  →  émission par les FINANCES
         → l'ordre de dépense naît avec sa catégorie budgétaire déjà renseignée
 ```
 
@@ -3994,8 +4144,8 @@ qui n'a aucun lecteur dans le dépôt.
 **Devis, bon de commande et facture ne sont PAS le même geste — mesuré avant d'être codé.** Le
 devis et la facture sont des pièces qu'on fait **établir** ou qu'on **réclame** : une demande au
 bureau du secrétariat, avec sa référence, sa file, ses pièces jointes et son cycle — tout cela
-existe déjà. Le bon de commande, lui, **engage de l'argent** : il porte le visa de la Direction
-puis l'émission d'un ordre de dépense par les Finances (`orderStage`), et en faire une quatrième
+existe déjà. Le bon de commande, lui, **engage de l'argent** : il porte le visa du centre Ad & Pro
+(au-dessus du seuil des BC) puis l'émission d'un ordre de dépense par les Finances (`orderStage`), et en faire une quatrième
 demande de secrétariat aurait créé une SECONDE vérité sur « le BC de ce poste » (§118.5). Un
 seul écrivain pour les deux natures de secrétariat (`demanderPieceSecretariat`), l'enchaînement
 dans un module pur (`lib/ad-pro/pieces-secretariat.ts`) : **le devis n'est pas un préalable**
@@ -4011,7 +4161,7 @@ message vivait dans `orderNote`, que le visa **écrasait** — et la colonne ava
 porte désormais le visa ou le refus, et les deux sont AFFICHÉES sur la carte du poste.
 **L'assistante de direction est prévenue de la demande d'émission** — c'est elle qui établit la
 pièce ; elle n'était prévenue de rien. On ajoute un destinataire, on ne retire aucune garde : le
-visa de la Direction reste ce qui engage.
+visa du centre Ad & Pro reste ce qui engage.
 
 **Le rattachement se fait par le lien CANONIQUE** (`linkedEntityType` / `linkedEntityId`), celui
 que `/demandes/[id]` lit déjà pour savoir qu'une dépense vient d'Ad & Pro et ne doit **pas** être
@@ -4026,7 +4176,7 @@ se dérive maintenant du registre canonique (§118.73). **Le même geste existe 
 | Un poste **inclus** ventile l'enveloppe ; un poste **supplémentaire** est une rallonge | `breakdown()` (pure, testée) | Une rallonge assumée n'est pas un dépassement subi : les mêler ferait prendre une décision pour l'autre. La question est posée **à l'ajout**. |
 | Un poste **refusé** ne pèse plus sur rien | `breakdown()` | Garder son montant ferait porter à l'opération le poids d'une dépense que la Direction a précisément écartée. |
 | **Un ordre de dépense par poste** | `emitItemExpenseOrder` | Le stand se paie à l'organisateur, le matériel à l'agence : trois bénéficiaires, trois pièces. Un ordre global obligerait les Finances à répartir à la main. |
-| Le BC s'émet **après** le visa Direction | `orderStage` + `canRequestPurchaseOrder` (pure, testée) | Deux responsabilités distinctes : la Direction engage, les Finances paient. |
+| Le BC s'émet **après** le visa du centre Ad & Pro (ou directement sous le seuil des BC) | `orderStage` + `canRequestPurchaseOrder` (pure, testée) | Deux responsabilités distinctes : le centre engage, les Finances paient. |
 | Ajout après décision **autorisé et tracé** | `addedAfterDecision` | Cas réel : on découvre qu'il faut un stand. On ne bloque pas — mais l'écran affiche le dépassement. |
 | Le matériel promo **n'est pas recopié** | `promoMaterialId` | Il a un circuit non négociable (visa publicitaire, conformité, agence, BAT). Le poste y renvoie. |
 | Ce qui est **annoncé** doit être **chiffré** | `plannedGaps()` (pure, testée) | Un congrès déclare `hasBooth`/`hasSymposium` : l'écart se voit avant la facture. |
@@ -4414,8 +4564,9 @@ Tests : `src/lib/market/molecule.test.ts` (20 tests, cas tirés des données ré
 
 ### PCH — un appel d'offres lu par l'IA devient un tableau Excel
 
-Téléverser le document suffit : **OCR → extraction IA des produits → enrichissement
-automatique de chaque ligne** par l'intelligence marché. Avant, il fallait cliquer « Enrichir »
+Téléverser le document suffit : **lecture (le texte du fichier d'abord, l'OCR seulement quand il
+manque) → extraction IA des produits → enrichissement automatique de chaque ligne** par
+l'intelligence marché. Avant, il fallait cliquer « Enrichir »
 ligne par ligne — sur un marché de quarante produits, personne ne le faisait.
 
 - **Nature de l'unité demandée** (`unitLabel`) : un appel d'offres ne parle pas toujours de
@@ -4520,9 +4671,10 @@ quoi dire « le responsable du Commercial règle le fonctionnement DE SON dépar
 
 ### Ad & Pro — corriger une demande, joindre un fichier à un avis
 
-**Corriger une demande** (bouton « Modifier » sur les trois détails Ad & Pro). Deux règles portent tout le reste :
+**Corriger une demande** (bouton « Modifier » sur les sept fiches du pôle — sponsoring, deux prises en charge,
+événement, matériel promotionnel, consulting, autre demande). Deux règles portent tout le reste :
 
-1. **Ce qui a fondé une décision ne se réécrit pas.** Une fois la Direction ayant tranché, le demandeur ne modifie
+1. **Ce qui a fondé une décision ne se réécrit pas.** Une fois la demande tranchée (`isAdProDecided`), le demandeur ne modifie
    plus : réécrire « 200 000 demandés » en « 400 000 » après un accord transformerait la décision en autre chose
    que ce qui a été décidé. Seule la **vue globale** garde la main — et l'audit note explicitement
    « **APRÈS DÉCISION** ». Avant décision : le demandeur, ou le droit `UPDATE` du module.
@@ -4531,7 +4683,7 @@ quoi dire « le responsable du Commercial règle le fonctionnement DE SON dépar
    d'interdits — elle ne se trompe pas quand un champ nouveau apparaît dans le modèle. Le `select` de la requête
    **ET** le formulaire en sont dérivés : le formulaire ne peut pas afficher un champ que le serveur refuserait.
 
-Le point d'entrée est **unique pour les trois modules** ; ce qui varie (table, module RBAC, chemin, colonne de
+Le point d'entrée est **unique pour les sept natures** ; ce qui varie (table, module RBAC, chemin, colonne de
 statut) tient dans la table `TARGETS`. L'audit consigne **ce qui CHANGE** (avant → après), pas l'état final :
 relire « ville : Alger » n'apprend rien, « ville : Oran → Alger » dit ce qui s'est passé. Les comparaisons ignorent
 les espaces de bordure et l'heure d'une date, sans quoi le journal se remplirait de non-modifications.
@@ -4582,11 +4734,13 @@ celles dont l'entité est déjà ouverte en entier — on ne retire jamais un dr
 Composé côté serveur par `productRangeScope(userId)` dans `queries/regulatory-rows.ts` et
 `queries/product-catalog.ts`.
 
-**Le filtre d'entité des écrans** : `currentCompanyWhereFor(userId)` — la portée du cookie
-**validée** contre les droits, avec deux garde-fous (aucun filtre si le groupe n'a qu'une société ;
-aucun filtre pour qui ne relève d'aucune entité, on n'aveugle personne par omission). ⚠️ L'ancien
-`currentCompanyWhere()` a été **supprimé** : il posait le cookie tel quel et, **sans cookie, ne
-filtrait rien**.
+**Le filtre d'entité des écrans** : `platformScope(userId)` — la portée du cookie **validée** contre les
+droits, avec deux garde-fous (aucun filtre si le groupe n'a qu'une société ; aucun filtre pour qui ne relève
+d'aucune entité, on n'aveugle personne par omission) —, composée en `AND` par `companyScopedWhere` (une LISTE,
+lignes sans entité comprises) ou `ficheScopedWhere` (une FICHE ouverte par son lien : toutes les sociétés auxquelles
+la personne a droit, §118.184). ⚠️ `currentCompanyWhere()` puis `currentCompanyWhereFor()` ont été **supprimés** : le
+premier posait le cookie tel quel et, **sans cookie, ne filtrait rien** ; le second se laissait **étaler** dans un
+`where` qui porte déjà un `OR`, et la portée métier disparaissait en silence.
 
 **Le sélecteur** (`CompanySwitcher`) n'affiche un menu que si l'on a **plusieurs** entités ; sinon
 il montre la sienne, sans choix. `setCompanyScope` **refuse** une entité hors droits et retombe sur
@@ -4622,7 +4776,7 @@ entité) sont éligibles. Supprimer une gamme **ne supprime aucun produit** (`SE
 | **Adam — chef de cabinet : missions inédites, attention, relances** | `scripts/bench/adam-mission-bench.ts` (neuf missions vagues via `lancerMission`, carte de score par mission, attendus vérifiés en base, coût par mission ; `BENCH_ONLY`, `BENCH_TOURS`) ; `platform/in-process/missions/situation.ts` (enquête) ; `lib/missions/attention/policy.ts` + `platform/in-process/missions/attention.ts` (porte d'attention) ; `platform/in-process/missions/relance.ts` (échelle de relances) ; `lib/messaging.ts` (`envoyerMessageDirect`, l'unique chemin d'écriture d'un message direct ; module SERVEUR — les écrans importent la part pure `lib/messaging-ui.ts`) ; `lib/events/messaging-events.ts` (`MESSAGE_RECEIVED`) ; `lib/missions/registry/capability-meta.ts` (`AUTONOMES`) ; `lib/assistant/watch-tools.ts` (`watch_entity`, `list_watches`, `stop_watch`) ; `prisma/migrations/20261019090000_adam_surveillances`. |
 | **Excel God Mode — lire, vérifier, expliquer, comparer** | `lib/artifact/sheets/reader.ts` (lecteur natif en flux : fflate + TextDecoder en flux, formules partagées traduites, résultats typés, 1,2 M de cellules en 3,5 s) ; `formula.ts` (analyseur Pratt, A1 ↔ R1C1, `decaler`, `traduireFormulePartagee`) ; `graph.ts` (`construireGraphe`, `rayonImpact`, `precedentsDirects`, Kahn à tête d'index) ; `evaluate.ts` (`recalculer`, `evaluerFormule`, ~100 fonctions + `ALIAS_FR`, `nonCalculees` / `nonVerifiees`) ; `audit.ts` (`auditerClasseur`, 16 codes de constat, `resumerAudit`) ; `diff.ts` (`comparerClasseurs` : alignement patience + R1C1 + plages ajustées) ; `build.ts` (`construireClasseurVerifie` : spécification → xlsx relu, recalculé, valeurs écrites, audité) ; `analyse.ts` (façade : `analyserClasseur`, `tracerCellule`, `comparerFichiersXlsx`, `lirePlage`) ; pont `platform/in-process/artifact/sheets.ts` (droits par le port, cache borné en cellules) ; outils `lib/assistant/office-capabilities.ts` (`sheet_audit`, `sheet_trace`, `sheet_diff`, `sheet_read`) ; banc `scripts/bench/sheets-bench.ts` (`npm run sheets:bench`). |
 | **Word / PowerPoint / PDF à grande échelle** | `lib/artifact/adapters/docx/adapter.ts` (`marquesDePage`, `estimerPages`, `niveauDeTitre` : page de chaque paragraphe, `paginationSource`, `plan`) ; `commands/resolve.ts` (`cible.page` : rang dans la page, texte dans la page) ; `adapters/pptx/adapter.ts` (`ajouterDiapo`, `enregistrerDiapo`) ; `decks/build.ts` (`construireDeckVerifie`, `verifierSpecDeck`) ; `pdf/read.ts` (`lireTextePdf`, `chercherDansPdf`, `planPdf`, `extrairePages`, `plagePages`) ; `versions/diff.ts` (`alignerSequences`, `fragmentModifie`) ; `qa/checks.ts` (`controlerAvantLivraison`) ; `runtime/engine.ts` (`controlerSession`) ; pont `platform/in-process/artifact/documents.ts` (`lirePdfDrive` avec OCR borné, `construireDeckDrive`) et `office.ts` (`controlerDocument`, `inspecterDocument`) ; outils `lib/assistant/office-capabilities.ts` (`pdf_read`, `deck_build`, gestes `controler` / `inspecter`). |
-| **Fabrique de documents — devis, BC, factures, dossiers à trois formats** | `lib/artifact/factory/lettres.ts` (`nombreEnLettres`, `montantEnLettres`) ; `commercial.ts` (`calculerTotaux`, `verifierSpecCommerciale`, `formaterNumero`, `empreinteDocument`, `TIMBRE_FISCAL`, `NATURE_LEGALE`) ; `word.ts` (`paragraphe`, `tableau`, `composerDocx` avec papier en-tête conservé à l'octet près, `papierEnTeteDeDemonstration`) ; `build.ts` (`blocsCommerciaux`, `construireDocumentCommercial` : compose, relit, contrôle) ; `canonical.ts` (`evaluerFormuleLigne`, `calculerTableau`, `verifierSpecCanon`, `versClasseur` / `versDeck` / `versDocument`, `verifierCoherence`) ; `dossier.ts` (`construireDossier`) ; pont `platform/in-process/artifact/factory.ts` (`emettreDocumentDrive`, `reviserDocumentDrive`, `profilDocumentaire`, `definirProfilDocumentaire`, `construireDossierDrive`, compteur `DocumentSequence` atomique) et `factory-access.ts` (`peutEmettrePieces`) ; outils `document_build`, `document_profile`, `dossier_build` ; modèles `CompanyDocumentProfile`, `DocumentSequence` ; banc `scripts/bench/factory-bench.ts` (`npm run factory:bench`) ; **le bouton des Finances** : `lib/actions/fabrique-actions.ts` (`previsualiserPieceCommerciale`, `emettrePieceCommerciale`, `reglerNumerotationPieces`), écran `app/(app)/legal/composer-piece.tsx` (`ComposerPieceButton`), `lib/artifact/factory/empreinte.ts` ; jumeau PDF `lib/payslip/docx-blocks.ts` (`readDocxBlocks` : blocs, grille, trames, filets, bandes d'en-tête et de pied, images) et `lib/payslip/to-pdf.ts` (`docxToPdf`, `lignesDuParagraphe`, `limitesDuRendu`) ; portée `lib/legal/invoices.ts` (`legalWriteAllowed`, `legalKindVisible`, `PURCHASE_CHAIN_KINDS`). |
+| **Fabrique de documents — devis, BC, factures, dossiers à trois formats** | `lib/artifact/factory/lettres.ts` (`nombreEnLettres`, `montantEnLettres`) ; `commercial.ts` (`calculerTotaux`, `verifierSpecCommerciale`, `formaterNumero`, `empreinteDocument`, `TIMBRE_FISCAL`, `NATURE_LEGALE`) ; `word.ts` (`paragraphe`, `tableau`, `composerDocx` avec papier en-tête conservé à l'octet près, `papierEnTeteDeDemonstration`) ; `build.ts` (`blocsCommerciaux`, `construireDocumentCommercial` : compose, relit, contrôle) ; `canonical.ts` (`evaluerFormuleLigne`, `calculerTableau`, `verifierSpecCanon`, `versClasseur` / `versDeck` / `versDocument`, `verifierCoherence`) ; `dossier.ts` (`construireDossier`) ; pont `platform/in-process/artifact/factory.ts` (`emettreDocumentDrive`, `reviserDocumentDrive`, `profilDocumentaire`, `definirProfilDocumentaire`, `construireDossierDrive`, compteur `DocumentSequence` atomique) et `factory-access.ts` (`peutEmettrePieces`) ; outils `document_build`, `document_profile`, `dossier_build` ; modèles `CompanyDocumentProfile`, `DocumentSequence` ; banc `scripts/bench/factory-bench.ts` (`npm run factory:bench`) ; **le bouton des Finances** : `lib/actions/fabrique-actions.ts` (`previsualiserPieceCommerciale`, `emettrePieceCommerciale`, `reglerNumerotationPieces`), écran `components/pieces/composer-piece.tsx` (`ComposerPieceButton`, menu « Fait suite à » sur `NATURES_AMONT` / `refusPieceAmont` de `lib/legal/piece-emise.ts`), `lib/artifact/factory/empreinte.ts` ; jumeau PDF `lib/payslip/docx-blocks.ts` (`readDocxBlocks` : blocs, grille, trames, filets, bandes d'en-tête et de pied, images) et `lib/payslip/to-pdf.ts` (`docxToPdf`, `lignesDuParagraphe`, `limitesDuRendu`) ; portée `lib/legal/invoices.ts` (`legalWriteAllowed`, `legalKindVisible`, `PURCHASE_CHAIN_KINDS`). |
 | **Boîte de décision (Executive Inbox)** | `lib/assistant/inbox/model.ts` (genres, urgence, ordre, recommandations, `estGesteValide`) ; `platform/in-process/inbox/compose.ts` (`composerInbox` : huit files mesurées) ; `platform/in-process/inbox/actions.ts` (`agirSurCarte` → actions canoniques) ; `components/chief/inbox/inbox-view.tsx` ; page `(chief)/chief-of-staff/inbox` ; porte dans `chief-home.tsx` ; `e2e/inbox.spec.ts`. |
 | **Provenance au niveau du fait (F8)** | `lib/fabric/provenance.ts` (vocabulaire `FaitSource`, `extraireFaits`, `faitCalcule`, `repondreProvenance`, `resumerFait`) ; `lib/fabric/provenance-store.ts` (`consignerProvenance`, `relireProvenance`, `repondreDouTuTiensCa`) ; pont `platform/in-process/fabric/provenance.ts` ; `voice/fast-path.ts` (forme `PROVENANCE`) ; `assistant.ts` (branche déterministe, `lectures`, `avecProvenance`, `sourcesDuResultat`) ; entrées `api/assistant/stream/route.ts`, `actions/assistant-actions.ts`, `api/assistant/voice/tool/route.ts` ; `executive-read-tools.ts` (`finance_totals._provenance`) ; migration `20261022090000_provenance_faits` ; `e2e/provenance.spec.ts`. |
 | **Qualité des données (§23)** | `lib/quality/model.ts` (vocabulaire pur : familles, criticités, résolutions, clés de rapprochement, e-mails, médiane) ; `rules.ts` (catalogue de 23 règles + détecteurs Prisma bornés) ; `engine.ts` (`balayerQualite`, `balayageQualiteSiDu`, `derniersBalayages`) ; `fix.ts` (correcteurs — liste fermée, audit) ; `read.ts` (`lireConstats`, `compterConstats` sous les droits) ; `decide.ts` (`corrigerConstat`, `ignorerConstat`, `rouvrirConstat`) ; pont `platform/in-process/quality/{index,actions}.ts` ; outil `assistant/quality-tools.ts` (`data_quality`, domaine `QUALITE`) ; cartes dans `platform/in-process/inbox/compose.ts` ; écran `app/(app)/admin/qualite/` ; migration `20261023090000_data_quality` ; `quality/engine.test.ts` (banc d'anomalies plantées). |
@@ -4657,7 +4811,7 @@ entité) sont éligibles. Supprimer une gamme **ne supprime aucun produit** (`SE
 | **Adam — espace de travail génératif** | `lib/assistant/workspace/protocol.ts` (types de blocs + `WORKSPACE_LIMITS`) ; `compose.ts` (`composeWorkspace` — table de correspondance **fermée** : un outil absent ne compose RIEN, le repli est le texte ; plus la porte `_blocs`, **revalidée champ par champ**, par laquelle une lecture déclare ce qu'elle montre) ; `sheet.ts` (classeur → lignes, ExcelJS, **sans dépendance ERP**) ; `emit.ts` (helpers **purs** de composition : gestes, retards, métriques de charge, étapes) ; `components/chief/workspace/blocks.tsx` + `blocks.css` (feuille autonome à valeurs de repli : les blocs servent aussi `/assistant`, qui ne charge pas `chief.css`) ; `preview-planche.tsx` (la planche de revue visuelle, servie par `/chief-of-staff?apercu=blocs` **uniquement** si `ADAM_BLOCK_PREVIEW=1` — elle n'a pas d'adresse en production). Blocs : `people` (fiche riche : statut, métriques, coordonnées avec provenance), `directory`, `mail`, `agenda`, `queue` (**avec ses boutons Approuver / Refuser**), `record`, `table` (**gestes par ligne**, cartes empilées sur mobile), `timeline`, `progress` (jauges), `document` (PDF, image, feuille), `dossier` (faits + frise de circuit + pièces + participants + activité), `email` (le message avant l'envoi). Événement de flux `{ type: "workspace" }` ; stocké sur le message dans `assistant-chat.tsx`, qui fournit `WorkspaceAskProvider` — un clic écrit une phrase dans la conversation, il n'exécute rien. La prop `canvas` (défaut **faux**) rend le tour d'Adam **sans bulle** ; `/assistant` reste inchangé. |
 | **Adam — montrer (et non lire)** | `lib/assistant/show-tools.ts` : `show_document` (PDF/contrat en visionneuse, image, classeur rendu en tableau — passe par le **contrat** `document.show`, servi par `platform/in-process/adapter.ts`, seul autorisé à toucher Drive, stockage et droits) et `show_table` (colonnes et tri **à la demande** : le modèle choisit la vue, le serveur relit les lignes à la source canonique — sources fermées dans `TABLE_SOURCES`). À ne pas confondre avec `read_document`, qui extrait du TEXTE pour le modèle. |
 | **Sécurité / session** | `lib/rbac.ts` (PERMISSIONS, `userCan`, `anyRoleFilter`, `getAccess` cumul secondaire), `lib/session.ts` (`requireUser`/`requireModule`, maj `UserSession.lastSeenAt`), `lib/entity-access.ts` (accès par ligne + `ENTITY_MODULE`). |
-| **Workflow Ad & Pro** | `lib/workflow/engine.ts` · `defaults.ts` · `engine.test.ts`, `lib/queries/workflow.ts`, `components/workflow/workflow-panel.tsx`, `app/(app)/admin/workflows/`. |
+| **Workflow Ad & Pro** | `lib/workflow/engine.ts` (`lectureDeLApprobation` : ce que décide l'approbation, lu par le moteur ET l'écran) · `pouvoirs-argent.ts` (`argentEffectif`, pur) · `defaults.ts` · `engine.test.ts`, `lib/queries/workflow.ts`, `components/workflow/workflow-panel.tsx`, `app/(app)/admin/workflows/`. |
 | **RH** | `lib/actions/hr-actions.ts` (fiche employé, salaires, essai, congés éditables par le DRH), `hr-document-actions.ts` (demandes, notes de frais, entrevues, archives), `payroll-hr-actions.ts` (paie), `lib/queries/hr-documents.ts` (DTO + confidentialité salaires), pages `app/(app)/rh/` (+ `paie/`, `departements/`), `app/(app)/mon-dossier/`. |
 | **Site web Adventum (§118.158)** | `lib/site-web/contrat.ts` (PUR : le contrat du site — limites, refus, corps d'une offre et d'un article, `classerReponse`, `prochainEssai`, `planifierRapprochement`, `etatPublication`) · `markdown.ts` (PUR : titres, refus d'un `# Titre` avec sa ligne, sommaire, temps de lecture, aperçu en blocs typés) · `config.ts` (variables, empreinte) · `transport.ts` (`envoyerAuSite`, la **seule** fonction qui appelle le site, garde de sortie en premier) · `file.ts` (file, versions, prise atomique, disjoncteur, alertes) · `contenus.ts` (mise en file, offre ↔ demande de recrutement, contenus voulus) · `reconciliation.ts` (rapprochement, `rapprocherSiteSiDu`, `verifierSante`) · `acces.ts` · `etat.ts` · `cles.ts` (§118.159 : générer, sceller, présenter, promouvoir la clé ; le bloc à coller) · `liaison.ts` (l'entretien du battement) · `entrant.ts` (`authentifierLeSite`, la porte des appels du site — signature exigée sur toute requête) · `candidatures.ts` (réception idempotente, rattachement, tri, effacement) ; routes `app/api/site-web/v1/{candidatures,contenus}` ; actions `lib/actions/{site-web,offres-emploi,candidatures-site}-actions.ts` ; écrans `app/(app)/site-web/**`, `app/(app)/recrutement/candidatures` ; banc à deux serveurs `scripts/bench/site-web-liaison.ts`. |
 | **Structure & hiérarchie** | `lib/departments.ts` (arbre N niveaux, membres, **résolution du N+1**), `lib/actions/department-actions.ts` (CRUD + rattachements, anti-cycle), `app/(app)/rh/departements/`, `app/(app)/admin/organigramme/`. Portées d'étape `DEPARTMENT_MANAGER`/`DEPARTMENT_HEAD` dans `lib/workflow/`. |
@@ -4672,7 +4826,7 @@ entité) sont éligibles. Supprimer une gamme **ne supprime aucun produit** (`SE
 | **Panel du KAM, spécialités, types d'audit (graphe AMD, phase 1B)** | Panel : `clausePanelDuKam` dans `lib/rbac.ts` (lue par `scopeMedicalDoctors`, donc `canAccessEntity` DOCTOR), `lib/queries/panel-kam.ts` (`panelsDesKams` pour le cockpit, `kamsQuiCouvrent` pour l'alerte KOL), lecteurs `queries/tour-schedule.ts` (`loadPanelPlanifiable`), `queries/my-field-day.ts`, `queries/team-kpis.ts`, `queries/sfe-cockpit.ts`, `adventum/risks.ts` (`suiviDuKol`) ; banc `queries/panel-kam.test.ts` (acteurs sans vue globale). Spécialités : module PUR `lib/annuaires/specialites.ts` (`cleDeSpecialite`, `indexerSpecialites`, `ecritureDeSpecialite`, `lienDeSpecialiteValide` — un lien ne vaut que si le texte le désigne), chargeur `lib/queries/specialites.ts`, actions `medical-actions.ts` (création / renommage / retrait / `fusionnerSpecialite` / `rattacherLibelleSpecialite`, fiche praticien) et `medical-directory-actions.ts` (cellule, ajout de ligne, import, `rattacherSpecialitesParNom`), écran `app/(app)/annuaires/specialites/` ; banc `actions/specialites-flow.test.ts`. Types d'audit : `EntityType` + `BUSINESS_UNIT`, `TOUR_PLAN`, `SALES_SECTOR`, `INSTITUTION`, `SPECIALTY` (migrations `20261222090000_audit_types_graphe`, `20261222090100_audit_plans_de_tournee`), refusés comme portes par `canAccessEntity` ; banc `actions/audit-types-graphe.test.ts`. |
 | **Spécialités d'une BU (graphe AMD, phase 2)** | Modèle `BusinessUnitSpecialty` (BU × spécialité, `principale` ; index PARTIEL « une principale par BU » dans la migration `20261223090000_bu_specialites`, `onDelete: Restrict` côté référentiel) ; écrivain `lib/sfe/specialites-bu.ts` (`specialitesDemandees`, `ecrireSpecialitesBu`, `resumeSpecialitesBu` — dans un module que la dérivation des contrats LIT) ; actions `createBusinessUnit` (avec ses spécialités) et `enregistrerSpecialitesBu` (`lib/actions/sales-planning-actions.ts`, en série par BU) ; écran `app/(app)/planning/business-units/` (`choix-specialites.tsx`, section `SpecialitesDeLaBu` de `bu-manager.tsx`) ; étape « Choisir les spécialités » dans `lib/sfe-setup.ts` ; référentiel : retrait refusé et fusion qui fait suivre les BU (`medical-actions.ts`), usage par BU dans `lib/queries/specialites.ts` ; bancs `actions/bu-specialites-flow.test.ts` (acteur sans vue globale) et navigateur `e2e/bu-specialites.spec.ts`. |
 | **Audit 360° — lot A, sécurité et confidentialité** | Fiches à la même règle que leurs listes : `lib/queries/regulatory-visibilite.ts` (`clauseRegulatoryVisible(user, "liste" | "fiche")`), `lib/queries/visibilite-listes.ts` (`clauseMarchesPchVisibles`, `clauseBonsDeCommandePchVisibles`, `clauseFormationsVisibles`), `lib/queries/admin-requests.ts` (`clauseDemandeLisible`), `lib/queries/medical-info.ts` (`canViewDeclaration`), branches de `lib/entity-access.ts` ; porte du marché PCH lue en base `lib/pch/porte-marche.ts` ; règle d'édition d'un événement `lib/events/modification.ts` ; confidentialité RH `lib/hr/confidentialite.ts` et compte qui suit la fiche `lib/hr/depart.ts` ; administration déléguée `lib/admin/garde-comptes.ts` ; « Vue exacte » : `getCurrentUserPourEcrire` (`lib/session.ts`), exigée de chaque route d'API qui écrit ; pilotage `lib/queries/sfe-effort.ts` ; secteurs d'un KAM bornés à sa BU (`clausePanelDuKam` dans `lib/rbac.ts`, `saveRepProfile`/`deleteRepProfile`/`ecrireSecteur` dans `sales-planning-actions.ts`) ; type `TRAINING` (migrations `20261224090000_entity_type_formation`, `20261224090100_formations_pieces_requalifiees`). Bancs : `entity-access-fiches.test.ts`, `pch/pch-entite.test.ts`, `queries/demande-declaration-acces.test.ts`, `hr/confidentialite.test.ts`, `hr/depart.test.ts`, `queries/formations-visibles.test.ts`, `legal/legal-restreint.test.ts`, `session-vue-exacte.test.ts`, `admin/garde-comptes.test.ts`, `actions/ad-pro-edition-portee.test.ts`, `sfe/plan-tournee-acces.test.ts`, `queries/sfe-effort.test.ts`, `sfe/kam-bu.test.ts`. |
-| **Audit 360° — lot B, les impasses** | Facture d'un ordre : `lib/finance/facture-ordre.ts` (`ordresAvecFacture`, `ordreAFacture` — règlement, colonne « Facture », intelligence financière) ; paiement qui suit sa demande : `lib/payments/annulation.ts` (`annulerOrdreNonRegle`, écriture conditionnelle) ; facture refusée renvoyable : `ordreClos` et `cleEnvoiAuReglement` (`lib/finances/settlement.ts`) ; information médicale : `canRequestDecision` / `declareStage` (`lib/medical-info/declare-decision.ts`), `clorePrecedente` (`medical-info-actions.ts`), `canViewDeclaration` (Finances) ; bureau du secrétariat `getRequestList` (ouvertes en entier + totaux, `lib/queries/admin-requests.ts`) ; passeport du sujet `lib/ad-pro/passeport-acces.ts` ; « À arbitrer » et « En intérim » dans `lib/queries/action-center.ts` ; pièces de l'arbitre `accesAuxPiecesLegalDetaille` (`lib/entity-access.ts`, `horsFiche` → titre sans lien dans `components/shared/linked-records.tsx`) ; portée du sponsoring `scopeSponsoring` (`lib/rbac.ts`) ; lignes d'achat `lireLignesDAchat` (`lib/general-means/purchase-request.ts`) + `components/purchase/purchase-lines.tsx` ; intérim `auNomDeQui` (`lib/hr/stand-in-resolve.ts`), lu par `leaveDecider`, `getLeavesToDecide`, `deciderFor` (formations), `decideApproval`/`getApprovals`/`clauseDemandeLisible`, `accesAuPlan` (`agitPour`), `getPendingValidations`, `droitSurLEtape` (`validation-actions.ts`) ; revue SFE `snapshotMonth` (clôture conditionnelle, `lib/sfe-sweep.ts`) ; PCH : produit canonique du lot (`matchOurProduct`) et suppression par `supprimerReversible`. Bancs : `payments/ordres-fermes-flow.test.ts`, `actions/medical-info-reprise.test.ts`, `actions/assistante-bureau-flow.test.ts`, `ad-pro/direction-marketing-flow.test.ts`, `ad-pro/sponsoring-kam-flow.test.ts`, `actions/formations-decision-flow.test.ts`, `actions/mon-equipe-flow.test.ts`, `sfe-sweep.test.ts`, `pch/lot-produit-corbeille.test.ts`, `components/purchase/purchase-lines.test.ts`, `hr/interim-decisions-flow.test.ts`. |
+| **Audit 360° — lot B, les impasses** | Facture d'un ordre : `lib/finance/facture-ordre.ts` (`ordresAvecFacture`, `ordreAFacture` — règlement, colonne « Facture », intelligence financière ; `fichesAvecFacture` / `ficheAFacture` — la fin d'un achat au secrétariat, lot E5 : une facture chaînée ne compte que si elle suit un devis ou un BC non annulé de la même fiche) ; paiement qui suit sa demande : `lib/payments/annulation.ts` (`annulerOrdreNonRegle`, écriture conditionnelle) ; facture refusée renvoyable : `ordreClos` et `cleEnvoiAuReglement` (`lib/finances/settlement.ts`) ; information médicale : `canRequestDecision` / `declareStage` (`lib/medical-info/declare-decision.ts`), `clorePrecedente` (`medical-info-actions.ts`), `canViewDeclaration` (Finances) ; bureau du secrétariat `getRequestList` (ouvertes en entier + totaux, `lib/queries/admin-requests.ts`) ; passeport du sujet `lib/ad-pro/passeport-acces.ts` ; « À arbitrer » dans `lib/queries/action-center.ts` (les décisions d'intérim y sont fondues, depuis le lot E2, dans ce qui attend ma décision — une ligne par objet, `lib/queries/mes-decisions.ts`) ; pièces de l'arbitre `accesAuxPiecesLegalDetaille` (`lib/entity-access.ts`, `horsFiche` → titre sans lien dans `components/shared/linked-records.tsx`) ; portée du sponsoring `scopeSponsoring` (`lib/rbac.ts`) ; lignes d'achat `lireLignesDAchat` (`lib/general-means/purchase-request.ts`) + `components/purchase/purchase-lines.tsx` ; intérim `auNomDeQui` (`lib/hr/stand-in-resolve.ts`), lu par `leaveDecider`, `getLeavesToDecide`, `deciderFor` (formations), `decideApproval`/`getApprovals`/`clauseDemandeLisible` (lot E5 : la décision lue par `lib/secretariat/decision-approbation.ts` — `estDecisionDApprobation`, `refusSansMotif`, `interditSurSaPropreDemande`, `decideurAffiche` —, `AdminApproval.decidedById` / `decisionNote`, migration `20270103090500_approbation_decideur_motif`), `accesAuPlan` (`agitPour`) et `clausePlansADecider`, `getPendingValidations`, `droitSurLEtape` (`validation-actions.ts`) ; revue SFE `snapshotMonth` (clôture conditionnelle, `lib/sfe-sweep.ts`) ; PCH : produit canonique du lot (`matchOurProduct`) et suppression par `supprimerReversible`. Bancs : `payments/ordres-fermes-flow.test.ts`, `actions/medical-info-reprise.test.ts`, `actions/assistante-bureau-flow.test.ts`, `ad-pro/direction-marketing-flow.test.ts`, `ad-pro/sponsoring-kam-flow.test.ts`, `actions/formations-decision-flow.test.ts`, `actions/mon-equipe-flow.test.ts`, `sfe-sweep.test.ts`, `pch/lot-produit-corbeille.test.ts`, `components/purchase/purchase-lines.test.ts`, `hr/interim-decisions-flow.test.ts`, `secretariat/decision-approbation.test.ts`, `secretariat/approbation-achat-flow.test.ts`, `secretariat/fin-achat-facture-flow.test.ts`. |
 | **Audit 360° — lot C1, faire corriger** | Règles pures `lib/workflow/renvoi.ts` (`refusDuRenvoi`, `etapeDeReprise`, `statutLegacyALEtape`, `motifVisible`, `peutResoumettre`, `auteursDAvis`) ; moteur `lib/workflow/engine.ts` : geste `RETURN` (`appliquerLeGeste`), `resubmitWorkflowInstance`, `apresModificationDeLaDemande`, `retirerDemande`, `fermerInstance` (arguments partagés `clotureDuCircuit`/`evenementDeCloture`), `relancerCycle` (`preparer` sous la prise), `reopenInstance` (étape qui tranche, `rolesPrevenus`), écriture commune `projeterStatut` ; **un geste à la fois** : `WorkflowInstance.claimedAt` (`argsPrise`, `argsRendre`, `prendreLeCircuitEnAttendant`, migration `20261225090100_circuit_pris_le_temps_d_un_geste`) ; statut `RETURNED` (migration `20261225090000_demande_renvoyee_pour_correction`, `events/statut.ts`, `ad-pro/unified.ts`, libellés) ; actions `resoumettreDemande`, `retirerDemandeAdPro` (`workflow-actions.ts`), `cancelCongressRequest` (motif), `submitEventForApproval` (relance), `sponsoringAppeal` ; vue `getWorkflowForEntity` (`motif`, `peutResoumettre`, `peutRetirer`) et `components/workflow/workflow-panel.tsx` ; Mon espace « À corriger » (`lib/queries/action-center.ts`). Bancs : `workflow/renvoi.test.ts`, `workflow/renvoi-flow.test.ts` (le banc possède ses circuits : copies privées semées par `stepCreate`). |
 | **Audit 360° — lot C2, réviser un poste et une demande au secrétariat** | Règle pure `lib/ad-pro/bc-poste.ts` (`gesteVisaPoste` : ROUVRIR / SOUS_LE_SEUIL / RIEN, `memePrestataire`) et empreinte du visa `AdProItem.orderVisaAmount` / `orderVisaSupplier` (migration `20261226090000_poste_visa_empreinte`) ; lecture partagée `lib/ad-pro/bc-etablis.ts` (`bcEtablisDesPostes`, `refusBcEtabli`) ; actions `ad-pro-item-actions.ts` : `retirerDemandeBC`, `modifierDemandeBC`, `annulerOrdrePoste`, `demanderRevisionPoste`, visa et émission conditionnels (`approveAdProItemOrder` : `montantVu` / `prestataireVu`), dernier rempart dans `emitItemExpenseOrder`, retrait réversible (`AD_PRO_ITEM` au registre, `lot: true`, `LIENS_DIRECTS` `AdProItem.expenseOrderId`) ; secrétariat : `lib/secretariat/porte-demandeur.ts` (PUR : `porteDuDemandeur`, `estDiscrete`, `refusDeModification`, `changementsDeLaDemande`, `suitLaDemandeDeBcDuPoste`), `lib/secretariat/annulation.ts` (`annulerDemandeSecretariat`, `prevenirLeSecretariat`), `admin-request-actions.ts` (`editOwnRequest`, `deleteOwnRequest`, écritures conditionnelles `OUVERTE`), `validation-actions.ts`, `lib/validation.ts` (`retirerValidationSansObjet` : la compensation d'une validation née après une annulation) ; écrans `components/ad-pro/items-panel.tsx`, `centre-ad-pro/centre-board.tsx`, `demandes/[id]/requester-window.tsx`. Bancs : `ad-pro/bc-poste.test.ts`, `ad-pro/postes-revision-flow.test.ts`, `ad-pro/bc-poste-points-d-appel.test.ts`, `secretariat/porte-demandeur.test.ts`, `secretariat/demandeur-flow.test.ts`, `e2e/postes-revision.spec.ts`. |
 | **Audit 360° — lot C3, les centres font corriger** | Validations : règle pure `lib/validations/decision.ts` (`motifExige`, `issueDeLaDecision`, `repriseApresCorrection`, `resoumissionSurPlace`), `ValidationRequest.version` (migration `20261227090000_validation_version`), `validation-actions.ts` (`decideValidation` sous verrou `FOR UPDATE`, `resoumettreValidation`, `deleteMyValidationRequest` qui abandonne), `lib/validation.ts` (`reprendreEtapesRenvoyees`, `verifierPiecesValidation`, `joindrePiecesValidation`), `entity-access.ts` (`lecteurDeLaDemandeDeValidation`), écrans `validations/[id]/{page,resubmit,withdraw}.tsx`, `validations/validation-decision.tsx`. Centre Ad & Pro : `ad-pro-centre-actions.ts` (`deciderVisaCentreAdPro` à trois issues, `reexaminerVisaCentreAdPro`, `resoumettreAuCentreAdPro`), `queries/ad-pro-centre.ts` (`visasTranchesCentreAdPro`, `ATTEND_ENCORE`, `demandeAttendLeCentre`, `peutResoumettreAuCentre`, `demandeurDuVisa`), `ad-pro/visa.ts` (`lireVisaDetail`, `montantPourLeVisa`), `components/ad-pro/{visa-centre-banniere,resoumettre-au-centre}.tsx`. Bons de commande : `bc-signature-actions.ts` (`renvoyerBonDeCommande`), étape `A_CORRIGER` (`bons-de-commande/regle.ts`, `etat.ts`, `aiguillage.ts`), `LegalDocument.signatureReturnedAt/ById/Note` (migration `20261228090000_bc_signature_renvoyee`), écrans `bons-de-commande/file-bc.tsx`, `legal/[id]/bc-gate.tsx`. Centre de paiement : prose et garde (`payment-centre-actions.ts`, `payments/authorization.ts`, `centre-de-paiement/page.tsx`, boîte de décision `platform/in-process/inbox/compose.ts`), état du centre sur `validations/paiements/[id]/page.tsx`. Bancs : `validations/decision.test.ts`, `validations/renvoi-flow.test.ts`, `actions/ad-pro-centre-renvoi-flow.test.ts`, `bons-de-commande/signature-renvoi-flow.test.ts`, `payments/centre-deux-issues.test.ts`, `e2e/centres-renvoi.spec.ts`. |
@@ -4683,16 +4837,16 @@ entité) sont éligibles. Supprimer une gamme **ne supprime aucun produit** (`SE
 | **Moyens généraux — catalogue & ticket multi-articles** | `lib/general-means/receipt.ts` (pur : `normalizeLines`, `receiptTotal`, `validateReceipt`, `receiptLabel`, `parseLinesField`) + `receipt.test.ts` (20 tests) ; `lib/general-means/expense-lines.ts` (`readReceipt`, `saveReceiptLines`, partagé par les deux actions) ; modèle `DepartmentExpenseLine` ; `app/(app)/moyens-generaux/receipt-lines.tsx` ; catalogue `OfficeSupplyArticle` + `SuppliesManager` réutilisé depuis `app/(app)/demandes/`. |
 | **Regulatory — import d'un classeur** | `lib/regulatory/sheet-import.ts` (pur : `mapSheetRow`, `parseDosage`, `formOf`, `splitProduct`, `stripContainerSize`…) + `sheet-import.test.ts` (34 tests) ; générateur `scripts/gen-selection-pf-migration.ts` ; source `data/selection-pf-produits.xlsx` ; migration `prisma/migrations/20260812110000_selection_pf_products/`. |
 | **Entités, gammes & produits** | Modèles `ProductRange` / `UserProductRange` + `RegulatoryProduct.rangeId` ; module PUR `lib/org/product-ranges.ts` (`companyIdsFromRanges`, `restrictingRangeIds`, `productRangeWhere`, `canSeeProduct`, `buildRangeTree`) + `product-ranges.test.ts` (18 tests) ; `lib/company.ts` → `productRangeScope` (composé dans `queries/regulatory-rows.ts` et `queries/product-catalog.ts`) ; `AccessBearer.rangeGrants` dans `lib/company-access.ts` ; `lib/actions/product-range-actions.ts` ; écran `app/(app)/admin/gammes/` (`page.tsx` + `ranges-manager.tsx`). |
-| **Cloisonnement d'entité (portée validée)** | `lib/company.ts` → `currentCompanyWhereFor(userId)` (**remplace** `currentCompanyWhere()`, qui posait le cookie tel quel), `myCompanyScope`, `myCompanyWhere`, `platformScope`, `getMyCompanies` ; règles pures dans `lib/company-access.ts` (`allowedCompanyIds`, `resolveScope`, `platformScopeWhere`) ; `setCompanyScope` refuse une entité hors droits (`lib/actions/company-actions.ts`) ; `components/layout/company-switcher.tsx` (pas de menu quand on n'a qu'une entité). |
+| **Cloisonnement d'entité (portée validée)** | `lib/company.ts` → `companyScopedWhere(userId, base)` (une liste) et `ficheScopedWhere(userId, base)` (une fiche, §118.184), composés en `AND` — `currentCompanyWhere()` et `currentCompanyWhereFor()` sont supprimés —, `myCompanyScope`, `myCompanyWhere`, `platformScope`, `getMyCompanies` ; règles pures dans `lib/company-access.ts` (`allowedCompanyIds`, `resolveScope`, `platformScopeWhere`) ; `setCompanyScope` refuse une entité hors droits (`lib/actions/company-actions.ts`) ; `components/layout/company-switcher.tsx` (pas de menu quand on n'a qu'une entité). |
 | **Explorateur Drive dans un formulaire** | `lib/actions/drive-browse-actions.ts` (`browseDrive`, lecture seule via `getDriveListing`) ; `components/drive/drive-picker.tsx` (`DrivePickerField`) ; type de champ `drivepicker` dans `components/shared/create-record-button.tsx` ; pièces jointes de création via `attachFormFiles` (`lib/documents.ts`). |
 | **Bureautique — papier en-tête** | Modèle `OfficeLetterhead` ; module PUR `lib/office/letterhead.ts` (`canManageLetterheads` — **assistante de direction + Super Admin, et personne d'autre** : la Direction et le DG en ont été retirés, ils signent les courriers, ils ne tiennent pas la papeterie ; CHOISIR un en-tête à la création reste ouvert à tous —, `validateLetterheadFile`, `letterheadsFor`, `documentName`) + `letterhead.test.ts` (15 tests) ; `lib/actions/letterhead-actions.ts` (téléverser / renommer / retirer / supprimer) ; `lib/queries/letterheads.ts` (`letterheadContextFor`) ; `components/office/letterhead-choice.tsx` (Vierge / Avec en-tête) ; `app/(app)/office/letterhead-manager.tsx`. `createOfficeNode` recopie les OCTETS du modèle (voir circuit). |
 | **Tâches demandées (accepter / faire / valider)** | `Task.requestedAt|respondedAt|declineReason|completionNote` + `TaskComment` (le fil) ; module PUR `lib/tasks/request-flow.ts` (**`taskCreationMode`**, **`creationNotices`**, `canRespond`, `canDoWork`, `canSee`, `canAttach`, **`canComment`**, **`taskActions`**, `requestStage`, `declineSummary`) + `request-flow.test.ts` (43 tests) ; **cœur partagé `lib/tasks/create-core.ts`** (`createTaskRecord` : statut/`requestedAt` selon le mode + notifications pop-up/cloche + audit — consommé par l'action écran ET par l'assistant, une seule logique du circuit) ; `lib/actions/task-actions.ts` (`createTask` — porte UNIQUE, `respondTaskRequest`, `submitTaskWork`, `reopenTaskWork`, `addTaskComment`) ; dossier `app/(app)/mon-espace/taches/[id]/` (+ `work-panel.tsx`, `comments.tsx`) ; cas `TASK` dans `lib/entity-access.ts`. |
 | **Demandes de paiement** | Les écrans vivent sous `app/(app)/validations/paiements/` (`page.tsx`, `[id]/page.tsx` + `dossier.tsx`, `new-payment-button.tsx`) ; `app/(app)/finances/paiements/**` sont des **redirections**. Pas de bouton « retour aux Finances » : la page est **ouverte à tout le monde** (n'importe qui peut avoir une facture à faire payer) alors que le module Finances ne l'est pas — le bouton menait donc la plupart des gens vers un refus. Les Finances les voient depuis **leur propre module**. `lib/queries/finance-people.ts` (`financeRecipients`) ; garde **nominative** `PAYMENT_REQUEST` dans `lib/entity-access.ts` (demandeur / destinataire / Finances — elle tranche avant la porte du module, donc elle a survécu aux deux déménagements sans changer) ; règles pures dans `lib/finance/payment-request.ts`. **CE QU'UNE DEMANDE DOIT PORTER POUR PARTIR** (`lib/finance/payment-dossier.ts`, pur, 15 tests) : un **bon de commande OU une facture** (`JUSTIFYING_KINDS` — le devis et le bon de livraison accompagnent, ils ne justifient pas) **et** la case `paymentMethodStated` (« le moyen de paiement figure dans le document »). Le reste — autres PJ, notes, `contactName|Phone|Email` — reste facultatif. **EXEMPTION** : un **bon de versement** (`entityType = MEDICAL_INFO_DECLARATION`, posé **à la création**) part sans pièce — la quittance n'existe qu'après le versement, et le BV a déjà été validé en amont. La MÊME fonction garde le formulaire (`dossierHint`), l'action (`createPaymentRequest`), le renvoi (`canResubmit`) et le bon à payer (`canApprove`). **NATURE DE L'ÉCHÉANCE** (`lib/finance/deadline-nature.ts`) : `FIXED` / `IMPORTANT` / `MODERATE` — elle classe `sortByPriority`, voyage jusqu'à `ExpenseOrder.deadlineNature`, et exige un motif pour reporter un paiement. |
 | **Moyens généraux — caisse ou hors caisse** | Module PUR `lib/general-means/payment-source.ts` (`sourceOf`, `cashAvailable`, `resolveSource`, `sourceChange`, `defaultSource`) + `payment-source.test.ts` (15 tests) ; `addDepartmentExpense` / `updateDepartmentExpense` acceptent `paymentSource` (`lib/actions/department-budget-actions.ts`) ; `app/(app)/moyens-generaux/{expense-panel,expense-row-actions}.tsx`. Le volet « dépense » de `cash-panel.tsx` a été **retiré** : un seul bouton. |
-| **Moyens généraux — demande d'achat (tous)** | Module PUR `lib/general-means/purchase-request.ts` (`cleanLines`, `estimatedTotal`, `summarize`, `purchaseStage`, `canWithdraw`) + `purchase-request.test.ts` (20 tests) ; `lib/actions/purchase-request-actions.ts` (validateur = **N+1 résolu par `getManagerOfUser`**) ; `app/(app)/moyens-generaux/{purchase-section,purchase-request-form,my-purchase-requests}.tsx`. La demande est une `AdministrativeRequest` de type `PURCHASE`. |
+| **Moyens généraux — demande d'achat (tous)** | Module PUR `lib/general-means/purchase-request.ts` (`cleanLines`, `estimatedTotal`, `summarize`, `purchaseStage` — étape `CHANGES_REQUESTED` « À modifier » —, `canWithdraw`, `phraseDeDecision`) + `purchase-request.test.ts` (29 tests) ; `lib/actions/purchase-request-actions.ts` (validateur = **N+1 résolu par `getManagerOfUser`**) ; `components/purchase/{purchase-section,purchase-request-form,my-purchase-requests}.tsx`. La demande est une `AdministrativeRequest` de type `PURCHASE`. |
 | **Paie — correction d'une ligne** | Module PUR `lib/hr/payroll-amend.ts` (`validateAmounts` — partagé avec le marquage —, `resolvedGross`, `amendImpact`, `canAmend`) + `payroll-amend.test.ts` (16 tests) ; `updatePayrollEntry` (`lib/actions/payroll-hr-actions.ts`, reprend l'écriture de trésorerie liée) ; `app/(app)/rh/paie/payroll-matrix.tsx`. |
 | **Recrutement (circuit complet)** | Modèles `RecruitmentRequest` · `RecruitmentApproval` · `RecruitmentInfoRequest` · `RecruitmentCandidate` ; enums `RecruitmentStage` / `RecruitmentApprovalState` / `RecruitmentCandidateStatus` ; `ContractType.CONSULTING`. Module PUR `lib/recruitment/request-flow.ts` (`contractNeedsEndDate`, **`needsOnboarding`**, `currentStep`, `canDecideStep`, `applyChainDecision`, `chainProgress`, `abilities`, `canSelectCandidate`, `validateDraft`, `summarize`, `salaryRange`) + `request-flow.test.ts` (32 tests) ; `lib/recruitment/access.ts` (`recruitmentViewer`, `recruitmentScope` — la même règle pour la liste et pour la fiche) ; `lib/actions/recruitment-actions.ts` (chaîne bâtie par `getManagementChain`, **figée** à la soumission) ; `app/(app)/recrutement/` (`page.tsx`, `new-request.tsx`, `[id]/page.tsx` + `panels.tsx`). Module RBAC `RECRUITMENT` + `recruitmentAccessFor` (accès dicté par l'**organigramme**, pas par une liste de rôles). Types d'entité `RECRUITMENT_REQUEST` / `RECRUITMENT_CANDIDATE` dans `lib/entity-access.ts`. |
-| **Congés — intérimaire** | `LeaveRequest.standInId|standInStatus|standInModules|standInDecidedById|standInDecidedAt|standInNote` + enum `StandInStatus`. Module PUR `lib/hr/stand-in.ts` (`isDelegatable`, `normalizeDelegated`, **`isDelegationActive`**, `inactiveReason`, `delegatedActions`, `delegationsFor`, `actsFor`, `delegationNotice`) + `stand-in.test.ts` (25 tests) ; `lib/hr/stand-in-resolve.ts` (`activeStandInsFor`, `actsForUser`, `standInForUserIds`) ; grant implicite dans `getAccess` (`lib/rbac.ts`) ; garde d'intérim dans `decideValidationStep` (`lib/actions/validation-actions.ts`) ; `lib/actions/stand-in-actions.ts` ; `components/hr/stand-in-panel.tsx` (désignation + décision RH). |
+| **Congés — intérimaire** | `LeaveRequest.standInId|standInStatus|standInModules|standInDecidedById|standInDecidedAt|standInNote` + enum `StandInStatus`. Module PUR `lib/hr/stand-in.ts` (`isDelegatable`, `normalizeDelegated`, **`isDelegationActive`**, `inactiveReason`, `delegatedActions` — la matrice du rôle PRINCIPAL ∩ ce que l'absent détient —, `delegationsFor`, `modulesPretables`, `modulesNonPretes`, `congeTermine`, `actsFor`, `delegationNotice`, `annonceDeValidation`, `bandeauInterim`) + `stand-in.test.ts` (36 tests) ; `lib/hr/stand-in-resolve.ts` (`detenteurPourInterim` — l'accès ATTRIBUÉ, `null` pour un compte fermé —, `activeStandInsFor`, `actsForUser`, `auNomDeQui`, `standInForUserIds`) ; grant implicite dans `getAccess` (`lib/rbac.ts` : `accesAttribue`, une règle pour l'accès et l'intérim ; `access.interims` nourrit le bandeau, `access.pretes` alimente `estPrete`) ; garde d'intérim dans `decideValidation` et le jugement des pièces (`droitSurLEtape`, `lib/actions/validation-actions.ts` — jamais sur sa propre demande) ; les portes qui nomment une personne (congé, formation, achat, plan de tournée) reconnaissent l'intérimaire par la même lecture (`activeStandInsFor`) ; `lib/actions/stand-in-actions.ts` ; `components/hr/stand-in-panel.tsx` (désignation + décision RH) ; `estPrete` aux trois gestes de droits (`company-access-actions.ts`, `lib/hr/depart.ts`, `stand-in-actions.ts`) ; bandeau `components/layout/interim-banner.tsx` (+ test) ; banc `lib/hr/interim-prete-flow.test.ts`. |
 | **Assistant — export Excel & réglages** | `lib/assistant/admin-write.ts` (**liste blanche** : `WRITABLE_SETTINGS`, `WRITABLE_REG_FIELDS`, `parseSettingValue`, `parseRegFieldValue`, `renderSettingValue`) + `admin-write.test.ts` (22 tests) ; `lib/assistant/exports.ts` (`DATASETS`, `canExport`, `exportDatasetToDrive` → Drive personnel, dossier « Exports IA ») ; outils `export_excel`, `read_platform_settings`, `update_platform_setting`, `update_regulatory_product` + les deux `AssistantActionPayload` correspondants dans `lib/assistant.ts`. |
 | **Regulatory — relance de mise à jour** | Modèle `RegulatoryUpdateReminder` (une ligne **par destinataire**, même pour une relance groupée) ; module PUR `lib/regulatory/update-reminder.ts` (`canSendUpdateReminder`, `isStaleDossier`, `remindedRecently`, `reminderTargets`, messages) + `update-reminder.test.ts` (21 tests) ; `lib/queries/regulatory-reminders.ts` (**mêmes chiffres à l'écran et à l'envoi**) ; `lib/actions/regulatory-reminder-actions.ts` ; `app/(app)/regulatory/update-reminder.tsx`. |
 | **Courriers — direction & personne concernées** | `MailEntry.departmentId|concernedUserId` ; `lib/queries/mail-routing.ts` (menus partagés liste ↔ fiche) ; `diffMailAssignments` + `MAIL_ASSIGNMENT_FIELDS` dans `lib/mail-register/trace.ts` (journal **par le nom**, jamais par l'identifiant) ; `resolveAssignments` dans `lib/mail-register/write.ts` ; colonne « Concerne » filtrable dans `app/(app)/courriers/mail-table.tsx`. |
@@ -4716,11 +4870,12 @@ entité) sont éligibles. Supprimer une gamme **ne supprime aucun produit** (`SE
 | **Pièce Legal émise — réviser depuis la fiche, formulaire qui ne réécrit pas le fichier (§118.194)** | Règles pures `lib/legal/piece-emise.ts` (`pieceEmise`, `champsDuFichierChanges`, `refusChampsDuFichier`, `remedePieceEmise`, `AVAL_QUI_FIGE`, `refusRevisionAval`, `specRevisable`) ; lecteur `lib/legal/aval.ts` (`avalActif`) ; fabrique `platform/in-process/artifact/factory.ts` (`reviserDocumentDrive` : file `enSerie`, aval, `versionVue`, motif après l'état, écriture conditionnelle sur `custom.fabrique.version`, fichier de la PIÈCE) ; actions `fabrique-actions.ts` (`reviserPieceCommerciale`), `legal-actions.ts` (`updateLegalDocument` verrouillé, `readFields(formData, natureImposee)`) ; écrans `legal/[id]/reviser-piece.tsx`, `legal/[id]/page.tsx`, `legal/legal-fields.ts` (filtre des champs du fichier), `legal/[id]/edit-legal.tsx` ; dérivation `actions/contrat.ts` (test de présence qui cède) ; bancs `actions/legal-revision-flow.test.ts`, `e2e/correction-c4d2b1.spec.ts` |
 | **Facture émise — corriger par un avoir, plafond au centime, règlement au net (§118.195)** | Règles pures au socle `lib/lecteurs/avoir.ts` (`netDeLaFacture`, `resteACrediter`, `entierementCreditee`, `refusPlafondAvoir` — en centimes, zéro import) et `lib/legal/piece-emise.ts` (type `AVOIR`, `pieceDefinitive`, `remedePieceEmise`, `refusChampsDuFichier` accordé) ; lecteurs au socle `lib/lecteurs/avoirs-actifs.ts` (`montantsDesAvoirsActifs` — aussi dans la transaction qui verrouille la facture —, `totauxAvoirsActifs` en une requête) et `lib/legal/aval.ts` (`avoirsDeLaFacture`, `factureACrediter`) ; fabrique `lib/artifact/factory/commercial.ts` (`AVOIR` dans `TYPES_DOCUMENT`, `NATURE_LEGALE` → `CREDIT_NOTE`, `PREFIXE_DEFAUT` `AV`, `estPieceFiscale`, bloquants « sans facture d'origine » et « sans motif »), `lib/artifact/factory/build.ts` (`blocsFacture` à l'envers : « MONTANT CRÉDITÉ », jamais « SOMME À PAYER »), `platform/in-process/artifact/factory.ts` (`factureDeLAvoir` — client, calcul et facture d'origine lus sur le lien —, plafond après l'essai à blanc puis sous `SELECT … FOR UPDATE`, `previsualiserDocument` qui lit la facture comme l'émission, révision refusée à la facture et à l'avoir) ; actions `fabrique-actions.ts` (`emettreAvoir`), `legal-actions.ts` (`cancelLegalDocument` refuse sous des avoirs actifs, avant le motif ; `sendLegalInvoiceToSettlement` lit le sens ; `CREDIT_NOTE` hors des natures créables) ; règlement `lib/finance/settle-invoice.ts` (`syncInvoiceSettlement` au net), `lib/finances/settlement.ts` (`REFUS_FACTURE_EMISE_AU_REGLEMENT`, `canSendToSettlement` + `direction`) ; liste `lib/legal/invoices.ts` (`invoiceTally` au net), `lib/legal/list-view.ts` (filtre « à régler »), `app/(app)/legal/page.tsx` ; qualité `lib/quality/rules.ts` (`montant_contradictoire` au net) ; lecture des Finances `lib/lecteurs/legal.ts` (`PURCHASE_CHAIN_KINDS` + `CREDIT_NOTE`) ; libellé `labels.ts` (`natureLegale` → « Avoir ») ; écrans `legal/[id]/emettre-avoir.tsx`, `legal/[id]/lignes-editables.tsx` (un seul éditeur de lignes pour la révision et l'avoir), `legal/[id]/page.tsx` (avoirs, net, phrase du règlement) ; migration `20270102090000_avoir` ; bancs `lib/legal/avoir.test.ts`, `lib/actions/avoir-flow.test.ts` |
 | **Pièces — doublon par émetteur, BC au cumul, interrupteur d'IA, file des congés (§118.196)** | Règles pures `lib/quality/model.ts` (`groupeReferenceFacture`, `memeEmetteur`, `jumellesDeReference`, `depassementDuCumul`) appelées par `quality/rules.ts` (`doublon_factures`, `montant_contradictoire` net des avoirs) ; réserve des clauses `platform/in-process/intelligence/index.ts` (`ecrireCacheIntelligence` : `jsonb_set` sur `custom.intelligence`, sans `updatedAt`) ; moyens généraux `department-budget-actions.ts` et `petty-cash-actions.ts` (pièces validées avant toute écriture) ; devis promo `promo-devis-actions.ts` (écritures conditionnelles, compensation du scan) et `promo-material/devis.ts` (`manquesDeRetranscription` exige le total imprimé) ; interrupteur `ai-settings.ts` (`interrupteurIaCoupe`, `REFUS_IA_COUPEE`, lecteur injectable pour les bancs) lu par `ai.ts`, `regulatory/intelligence/ocr/ocr-engine.ts` (repli Tesseract), `openai-luna.ts` (`callLuna`, `submitBatch`, `lunaEmbed`) et `media/stt.ts` ; phrase de la clé `ia/cle-manquante.ts` ; import bancaire `finance-actions.ts` (`importTransactions` : bilan ligne à ligne) ; file des congés `hr/file-conges.ts` (`fichesDesSignataires`, `salariesDontJeSuisLeN1`, `clauseFileConges`) lue par `queries/hr.ts` (`getLeavesToDecide`) ; décisions conditionnelles `hr-actions.ts` (`decideLeave`, solde dans la même transaction) et `training-actions.ts` (`decideTraining`). Bancs : `quality/model.test.ts`, `cache-clauses.test.ts`, `moyens-generaux-pieces-flow.test.ts`, `promo-devis-course-flow.test.ts`, `ai-interrupteur.test.ts`, `ocr-interrupteur.test.ts`, `luna-interrupteur.test.ts`, `ia/cle-manquante.test.ts`, `saisie-montant.test.ts`, `finance-import-flow.test.ts`, `hr/file-conges-flow.test.ts`. |
+| **Décider en un endroit, équipe, intérim, achats, PCH, route coupée (§118.197)** | Mon espace `queries/mes-decisions.ts` (+ `queries/action-center.ts`, `sfe/tournee.ts` : `clausePlansADecider`) ; Mon Équipe `queries/my-team.ts`, `queries/lien-ouvrable.ts`, `queries/team-kpis.ts`, `hr/absences.ts` ; intérim `rbac.ts` (`accesAttribue`), `hr/stand-in.ts` (`modulesPretables`), `actions/stand-in-actions.ts`, `components/layout/interim-banner.tsx` ; achats `secretariat/decision-approbation.ts`, `actions/admin-request-actions.ts` (`decideApproval`), `finance/facture-ordre.ts` (`ficheAFacture`) ; promo `actions/promo-circuit-actions.ts` (`lignesVues`), `promo-material/demande-secretariat.ts` ; PCH `pch/extraction.ts`, `pch/lecture-ao.ts`, `actions/pch-tender-line-actions.ts` ; moteur `workflow/pouvoirs-argent.ts`, `workflow/engine.ts` (`lectureDeLApprobation`), `queries/workflow.ts`. Bancs : `queries/mon-espace-decisions-flow.test.ts`, `actions/mon-equipe-actionnable-flow.test.ts`, `hr/interim-prete-flow.test.ts`, `secretariat/approbation-achat-flow.test.ts`, `secretariat/fin-achat-facture-flow.test.ts`, `actions/promo-devis-course-flow.test.ts`, `actions/promo-stock-demande-course.test.ts`, `actions/pch-lecture-ao-flow.test.ts`, `workflow/argent-route-coupee-flow.test.ts`, `actions/medical-info-signataires-flow.test.ts`. |
 | **Matériel promo — circuit court** | Module PUR `lib/promo-material/circuit.ts` (`PROMO_STEPS` (7), `PROMO_TRACKS` (`PURCHASE_ORDER`/`PAYMENT`/`AD_VISA`), `initialStep` — saute la demande de devis si le devis est déjà là —, `canValidate` (N+1 réel : `Employee.managerId`, à défaut `departmentRef.head`), **`seesFullCircuit`** (Super Admin + PDG **uniquement**), `tracksOpen`, `allTracksDone`, `pendingTracks`, `progress`, `waitingOn`) + `circuit.test.ts` (23 tests) ; `lib/actions/promo-circuit-actions.ts`. |
 | **Rejeu de session (support)** | Module PUR `lib/replay/capture.ts` (`FORBIDDEN_FIELD` — mot de passe / secret / jeton / IBAN / RIB / CVV / carte —, `FORBIDDEN_INPUT_TYPE` — `password`, `hidden` —, `fieldIsRecordable`, `isSensitiveLabel`, `cleanLabel`, `scrubDetail`, **`makeEvent` : la porte d'entrée UNIQUE**, `coalesce`, `describeEvent`, `stamp`, `firstErrorIndex`) + `capture.test.ts` (20 tests) ; modèle `SessionEvent` ; `components/layout/session-recorder.tsx` (monté dans `app/(app)/layout.tsx`, `sendBeacon`, **ne lit jamais `.value`**) ; `app/api/replay/route.ts` (**re-masque côté serveur**, 204 systématique, lot plafonné à 200) ; `app/(app)/admin/replay/{page,replay-viewer}.tsx` (**`SUPER_ADMIN` seul**). |
 | **Courriers — dossiers & pièces multiples** | Modèles `MailFolder` (arbre, `MailEntry.folderId` en `ON DELETE SET NULL`) et `MailEntryPiece` (intitulé + **destinataire propre** + fichier téléversé **ou** nœud Drive référencé) ; `lib/actions/mail-folder-actions.ts`, `lib/actions/mail-piece-actions.ts` ; `app/(app)/courriers/mail-folder-bar.tsx`, `app/(app)/courriers/[id]/mail-pieces.tsx`. |
 | **Suppression par le créateur** | `CREATOR_DELETABLE` = `MAIL_ENTRY`, `LEGAL_DOCUMENT` ; `CREATOR_DELETE_PERMISSION` (le droit `DELETE` du module reste exigé) ; `snapshotAndSoftDelete` (instantané dans la **corbeille** avant destruction) et `deleteOwnRecord` dans `lib/actions/admin-delete-actions.ts` ; `components/shared/record-delete-button.tsx`. |
-| **Annuaires (praticiens & entreprise)** | Praticiens : `app/(app)/medical/annuaire/directory-bar.tsx` + `lib/actions/medical-directory-crud-actions.ts` (créer / renommer / supprimer — la suppression **déplace** les praticiens ; à ne pas confondre avec `medical-directory-actions.ts`, qui porte l'import et l'édition de la grille). Entreprise : module PUR `lib/contacts/kinds.ts` (+ tests) ; `lib/actions/company-contact-actions.ts` ; `app/(app)/mon-espace/annuaire/{page,contacts-board}.tsx`. **Chargeurs partagés** `lib/queries/annuaires.ts` (`chargerFeuillePraticiens` — grade, annuaire fermé, portée composée en `AND` —, `chargerEtablissements`, `chargerPartenaires`, `chargerPersonnes`, `chargerAutresAnnuaires`) + `annuaires.test.ts` (joué avec un DÉLÉGUÉ) ; types PURS `lib/annuaires/types.ts` (socle). La grille : `app/(app)/medical/annuaire/annuaire-grid.tsx` (feuille tableur, colonnes sur mesure), `lib/medical/directory-grid.ts` (11 colonnes, `CustomColumnVue`), `lib/actions/medical-directory-actions.ts` (`saveDirectoryCell`, `saveDirectoryCustomCell`, `addDirectoryDoctor`). |
+| **Annuaires (praticiens & entreprise)** | Praticiens : `app/(app)/medical/annuaire/directory-bar.tsx` + `lib/actions/medical-directory-crud-actions.ts` (créer / renommer / supprimer — la suppression **déplace** les praticiens ; à ne pas confondre avec `medical-directory-actions.ts`, qui porte l'import et l'édition de la grille). Entreprise : module PUR `lib/contacts/kinds.ts` (+ tests) ; `lib/actions/company-contact-actions.ts` ; `app/(app)/mon-espace/annuaire/{page,contacts-board}.tsx`. **Chargeurs partagés** `lib/queries/annuaires.ts` (`chargerFeuillePraticiens` — grade, annuaire fermé, portée composée en `AND` —, `chargerEtablissements`, `chargerPartenaires`, `chargerPersonnes`, `chargerAutresAnnuaires`) + `annuaires.test.ts` (joué avec un DÉLÉGUÉ) ; types PURS `lib/annuaires/types.ts` (socle). La grille : `app/(app)/medical/annuaire/annuaire-grid.tsx` (feuille tableur, colonnes sur mesure), `lib/medical/directory-grid.ts` (13 colonnes — l'établissement et le service sont des liens vers l'annuaire des établissements, §118.172 —, `CustomColumnVue`), `lib/actions/medical-directory-actions.ts` (`saveDirectoryCell`, `saveDirectoryCustomCell`, `addDirectoryDoctor`). |
 | **Module « Annuaires » (pôle Administration)** | Clé `DIRECTORIES` : `lib/rbac.ts` (MODULES + `grantImplicit("DIRECTORIES", ["VIEW"])` ; accès par annuaire : `EffectiveModuleAccess.sections`, `faitsAnnuaire`, `peutAnnuaire`, `annuaireOuvertParConsole`), règle PURE `lib/annuaires/acces.ts` (+ `acces.test.ts`, `acces-points.test.ts`), console `components/admin/annuaires-coches.tsx` + `lib/actions/access-actions.ts` (`annuairesCoches`), `lib/labels.ts` (`MODULE_LABELS`, `ANNUAIRES_TABS` — chaque onglet porte le module de SON référentiel et son `annuaire` —, entrée `NAVIGATION` du pôle `ADMINISTRATION`), `lib/assistant/context/modules-domaines.ts` (`SERVICE_DU_MODULE.DIRECTORIES`), `lib/assistant.ts` (`MODULE_FR`). Pages : `app/(app)/annuaires/{page,en-tete,feuille-praticiens}.tsx` + `medecins/`, `pharmaciens/`, `etablissements/`, `partenaires/`, `personnes/`, `autres/`. Banc : `lib/annuaires/module.test.ts` (module, onglets, point d'appel des chargeurs, VIEWER vs délégué). |
 | **Grille tableur — sélection & couleurs** | Modèle PUR `lib/grille/selection.ts` (`cliquer`, `glisser`, `deplacer`, `plage`, `clesSelection`, `versTsv` ; NEUTRE + socle) + `selection.test.ts` ; palette FERMÉE `lib/grille/couleurs.ts` (`COULEURS_CELLULE`, `estCouleurCellule`, `cleCellule` / `lireCleCellule` — joindre et couper au même endroit) + `couleurs.test.ts` ; `components/grille/{use-selection.ts,barre-selection.tsx,palette.ts}` (les classes Tailwind vivent sous `components/` : le `content` de Tailwind ne balaie pas `src/lib`). Persistance : `DirectoryCellStyle` (migration `20261114090000_directory_cell_style`, cascade) ; écriture `lib/actions/annuaire-couleurs-actions.ts` (`colorerCellulesAnnuaire` — droit de modifier l'annuaire (`peutAnnuaire`) + `canAccessEntity` par LIGNE, colonne connue, clé de palette ; hors portée ignoré et compté) + `annuaire-feuille.test.ts` ; réexports pour Adam par le pont `platform/in-process/capacites` ; op `color_directory_cells` (`ops/impl-wave4b.ts`, `ops/catalog.ts`). |
 | **Coordonnées d'entité — documents nommés** | Module PUR `lib/legal/company-docs.ts` (+ tests) : la liste de noms **empruntée au CTD** a été retirée, le document se nomme librement. |
@@ -4740,9 +4895,9 @@ entité) sont éligibles. Supprimer une gamme **ne supprime aucun produit** (`SE
 | **Rappels planifiés du Chief of Staff** | Modèle `AssistantReminder` (dueAt, `recurrence` NONE/DAILY/WEEKLY/MONTHLY/**MONTHLY_WEEKDAY** — « chaque premier lundi du mois », repli dernière occurrence —, `targetRole` ET/OU **`targetUserId`** — personne nommée, résolue à la création —, `active`) ; module `lib/assistant/reminders.ts` (`nextOccurrence` — retombe le même jour/heure même tiré en retard, rattrape un serveur éteint sans notifier N fois —, `algiersToUtc`, `runAssistantReminders`) + `reminders.test.ts` (13 tests) ; balayage branché dans `lib/scheduled.ts` ; pop-up via `broadcastNotification`, relances via `notifyRoles`/`notifyUser`. |
 | **Observabilité IA (boucle agent)** | `AiUsageLog` + `ttftMs` (délai avant le 1er mot), `turns`, `toolCalls`, `toolErrors`, `toolLatencyMs` — mesurés dans `runAssistantStream` (`AssistantMetrics`), journalisés par `/api/assistant/stream` via `logAiUsage` (`lib/ai-settings.ts`). Migration `20260824230000_ai_usage_metrics`. |
 | **Drive → « Classer en courrier »** | `attachDriveNodeToMail` (`mail-register-actions.ts` — référence sans copie, refus du doublon) ; `app/(app)/drive/send-to-mail.tsx` (panneau rendu PAR LA LIGNE, hors menu-portail) ; entrée dans `node-actions.tsx`. |
-| **Annuaire des ÉTABLISSEMENTS** | `app/(app)/medical/etablissements/{page,etablissements-table}.tsx` ; écritures `lib/actions/medical-actions.ts` (`createInstitution` / `updateInstitution` / `deleteInstitution`, sous `peutAnnuaire(…, "ETABLISSEMENTS", …)` : la Promotion médicale OU l'annuaire ouvert depuis la console, §118.147). Le modèle et ses trois écritures existaient depuis toujours **sans aucun écran** — leurs seuls importeurs étaient `assistant.ts` et le catalogue d'ops (§118.14) : le nom d'un hôpital se tapait donc à la main sur chaque fiche de praticien, et trois orthographes faisaient trois établissements pour les humains et zéro pour le logiciel. `MedicalInstitution` n'a **aucune** fonction de portée (c'est un référentiel, comme les spécialités) ; ce qui EST cloisonné, ce sont les praticiens, donc le compte affiché par établissement passe par `scopeMedicalDoctors`. Depuis 09/2026 : **la wilaya est le seul découpage** (`<Select>` des 58 wilayas, `parseWilaya` refuse une valeur hors liste, `canonicalWilaya` recolle la casse ; plus de « Ville » à l'écran, la colonne `city` reste en base), grille PURE `lib/medical/etablissements-grid.ts` (+ test), sélection et couleurs comme la feuille des praticiens (`institutionId` dans `DirectoryCellStyle`, `MEDICAL UPDATE`). Aussi servi par `/annuaires/etablissements`. |
+| **Annuaire des ÉTABLISSEMENTS** | `app/(app)/annuaires/etablissements/{page,etablissements-table,services-panel}.tsx` (l'ancienne adresse `/medical/etablissements` redirige) ; écritures `lib/actions/medical-actions.ts` (`createInstitution` / `updateInstitution` / `deleteInstitution`, sous `peutAnnuaire(…, "ETABLISSEMENTS", …)` : la Promotion médicale OU l'annuaire ouvert depuis la console, §118.147). Le modèle et ses trois écritures existaient depuis toujours **sans aucun écran** — leurs seuls importeurs étaient `assistant.ts` et le catalogue d'ops (§118.14) : le nom d'un hôpital se tapait donc à la main sur chaque fiche de praticien, et trois orthographes faisaient trois établissements pour les humains et zéro pour le logiciel. `MedicalInstitution` n'a **aucune** fonction de portée (c'est un référentiel, comme les spécialités) ; ce qui EST cloisonné, ce sont les praticiens, donc le compte affiché par établissement passe par `scopeMedicalDoctors`. Depuis 09/2026 : **la wilaya est le seul découpage** (`<Select>` des 58 wilayas, `parseWilaya` refuse une valeur hors liste, `canonicalWilaya` recolle la casse ; plus de « Ville » à l'écran, la colonne `city` reste en base), grille PURE `lib/medical/etablissements-grid.ts` (+ test), sélection et couleurs comme la feuille des praticiens (`institutionId` dans `DirectoryCellStyle`, `MEDICAL UPDATE`). Un seul écran depuis 09/2026 : l'onglet de la Promotion médicale a été retiré. |
 | **Secteurs de la force de vente** | `SalesSector` (+ `SalesSectorInstitution`, `SalesSectorRep`) ; écran dans `app/(app)/planning/business-units/bu-manager.tsx` (composant `SecteursDeLaBu`) ; écritures `createSector` / `updateSector` / `deleteSector` (`lib/actions/sales-planning-actions.ts`) ; ops `planning_operation/{create,update,delete}_sector` (`assistant/ops/impl-wave6c.ts` — les hôpitaux et les KAM se donnent par leurs **noms**, jamais par des `cuid`) ; l'étape de montage « Découper les secteurs » vit dans le module PUR `lib/sfe-setup.ts`. Un secteur est une sélection nommée d'établissements (« Est », « Oranais », « Alger ») — chacun avec **tous ses services** ou **certains** (`SalesSectorInstitution.tousLesServices` + `SalesSectorInstitutionService`, §118.172 ; un praticien sans service d'un établissement restreint n'est PAS couvert, et un lien restreint dont le dernier service disparaît ne s'élargit jamais tout seul) — **portée par la BU** et non par le KAM : deux KAM peuvent couvrir le même territoire, et un KAM qui part n'emporte pas la carte. L'étape lit **trois** nombres (secteurs, secteurs vides, KAM couverts) parce que « la BU a des secteurs » cache trois pannes silencieuses. Banc : `lib/sfe/secteurs.test.ts`. |
-| **Plan de tournée (décisions PURES)** | `lib/sfe/tournee.ts` — granularités et libellés, `periodeDe` / `periodeSuivante`, `echeanceDeSoumission` (**15 jours avant la fin du mois PRÉCÉDANT la période**, ramenée sur un jour ouvré), `fenetreRapport` / `limiteResoumission` (**48 h**), `etatVisite` (à faire / faite / perdue / annulée / reportée), `avancementTournee`, `VUES` et `fenetreDeVue`, `gestesPossibles`, `bloquantsDeSoumission`, `reviseurDuPlan` / `escaladeDuPlan`, `peutEcrireMessagesPromo`, **`reglageDepuisJson`** (le réglage de maille et de délai lu UNE fois, défaut par champ, borne `JOURS_AVANT_ECHEANCE_MAX` = 90) et **`retardDeSoumission`** (jours de retard d'un plan ENCORE à soumettre — jamais sur un plan soumis, échéance de resoumission sur un plan rejeté). Module PUR, zéro base — le fait de la **semaine algérienne** (dimanche→jeudi) vient de `sfe-day.ts:estJourOuvre`, réexporté ici plutôt que recopié (§118.5). Banc : `lib/sfe/tournee.test.ts` (35 cas). |
+| **Plan de tournée (décisions PURES)** | `lib/sfe/tournee.ts` — granularités et libellés, `periodeDe` / `periodeSuivante`, `echeanceDeSoumission` (**15 jours avant la fin du mois PRÉCÉDANT la période**, ramenée sur un jour ouvré), `fenetreRapport` / `limiteResoumission` (**48 h**), `etatVisite` (à faire / faite / perdue / annulée / reportée), `avancementTournee`, `VUES` et `fenetreDeVue`, `gestesPossibles`, `bloquantsDeSoumission`, `reviseurDuPlan` / `escaladeDuPlan`, **`clausePlansADecider`** (la file « à décider » des plans — le réviseur tant que le plan est soumis, le N+2 dès qu'il est escaladé, et leur intérimaire ; jamais son propre plan — lue par Mon espace, la page du plan et Mon Équipe), `peutEcrireMessagesPromo`, **`reglageDepuisJson`** (le réglage de maille et de délai lu UNE fois, défaut par champ, borne `JOURS_AVANT_ECHEANCE_MAX` = 90) et **`retardDeSoumission`** (jours de retard d'un plan ENCORE à soumettre — jamais sur un plan soumis, échéance de resoumission sur un plan rejeté). Module PUR, zéro base — le fait de la **semaine algérienne** (dimanche→jeudi) vient de `sfe-day.ts:estJourOuvre`, réexporté ici plutôt que recopié (§118.5). Banc : `lib/sfe/tournee.test.ts` (38 cas). |
 | **Plan de tournée (base, écritures, écrans)** | `TourPlan` (+ `PromoMessage`, `MedicalVisitMessage`, `MedicalVisit.tourPlanId` / `.origin`, `FieldReport.visitId`, `SfeSettings.tourPlanning`, `AppSetting.promoMessageAuthorRoles`) ; lecteur unique du réglage `lib/sfe/tournee-reglage.ts:lireReglageTournee` (action, page du plan, tableau de bord de la Direction et op Adam lisent le MÊME) ; écrivain **`sales-planning-actions.ts:saveTourPlanningSettings`** (Super Admin seul, refus qui nomme la borne) + formulaire `app/(app)/planning/parametres/tour-planning-form.tsx` ; écritures `lib/actions/tour-plan-actions.ts` (`ouvrirPlanTournee` idempotent, `planifierVisites` qui **REMPLACE** la grille et **refuse un praticien AJOUTÉ hors du panel** du KAM — relu par `loadPanelPlanifiable`, la liste même de l'écran ; ce qui était déjà planifié reste, même si le praticien a quitté le panel depuis (§118.172) —, `soumettrePlanTournee` qui **fige** son réviseur, `escaladerPlanTournee`, `deciderPlanTournee`) et `lib/actions/tour-visit-actions.ts` (`rapporterVisite`, `ajouterVisiteImprevue`, `commanderVisite`) ; référentiel des messages `lib/actions/promo-message-actions.ts` + écran `app/(app)/planning/messages/` ; chargeurs `lib/queries/tour-schedule.ts` ; écrans `app/(app)/medical/plan-de-tournee/` et `app/(app)/medical/ma-journee/emploi-du-temps.tsx` ; KPI Direction dans `app/(app)/planning/pilotage/page.tsx`. **`TourPlan` NE PORTE PAS ses visites** : une visite planifiée est une `MedicalVisit` `PLANNED` rattachée au plan, ce qui laisse **UN SEUL dénominateur** à « visitées / planifiées » (§118.5, §118.51) — un test compare l'écran du KAM et le tableau de bord de la Direction, et un second exige que le taux du TOTAL se calcule **sur les totaux** et non comme une moyenne des taux de ligne (§118.117). Bancs : `lib/sfe/plan-tournee.test.ts` (31 cas par les vraies server actions — dont le réglage écrit par le Super Admin et LU par l'action d'ouverture, et le retard vu par la Direction : sans plan après l'échéance, brouillon en retard, jamais un plan soumis), onze sabotages rejoués. |
 | **Plan de tournée côté Adam** | `platform/in-process/tournee/index.ts` — le **port** : il porte le savoir d'ERP (quelle table, quelles colonnes, l'**étiquette** qui lève une ambiguïté) et réexporte les décisions pures et les trois écritures ouvertes à la conversation ; `assistant/ops/impl-tournee.ts` garde la **politique** de résolution (exact → unique → ambiguïté LISTÉE). Ops `open_tour_plan` (sans maille nommée : le réglage en vigueur, jamais « MONTH » en dur), **`set_tour_planning`** (maille + délai, Super Admin, FUSION), `submit_tour_plan`, `escalate_tour_plan`, `order_visit` (« demain va voir Achour »), `{create,update,delete}_promo_message`. **Quatre écritures restent réservées à un clic humain** : décider un plan, rapporter une visite et saisir une imprévue sont des **attestations** (§118.15) ; `planifierVisites` remplace la grille entière, donc une phrase qui ne nomme qu'une visite effacerait les autres (§118.16). Le port existe parce que `boundary.test.ts` a compté 433 franchissements pour un plafond de 428 : le remède est celui que le refus nomme, jamais un plafond relevé (§118.114, §118.117). |
 | **Fiche de coaching (Promotion médicale)** | Décisions PURES : `lib/coaching/grille.ts` (la grille d'origine = le classeur de la Direction, `validerGrille` qui rend TOUTES les erreurs, `lireNotes` / `notesRefusees` contre LA grille de la fiche, `bilanDesNotes`, `refusFinalisation` qui nomme les axes manquants, `cleProvisoire` côté écran / `cleLibre` côté serveur), `acces.ts` (`ROLES_ADMINISTRATEURS`, `peutCoacher`, `peutLireFiche` et sa traduction `clauseFichesVisibles`, `gestesSurLaFiche`), `dates.ts` (jour strict, « aujourd'hui » à Alger), `synthese.ts`. Serveur : `serveur.ts` (grille en vigueur créée à la première lecture, versions, lecteur et périmètre par `resolveRepScope`), `fiches.ts`, `classeur.ts` (Excel au format du modèle, formules vivantes). Écritures `lib/actions/coaching-actions.ts` (cinq actions, EXCLUDED de la parité : attestations et décision de grille). Écrans `app/(app)/medical/coaching/**` (liste + synthèse, fiche, saisie, grille), `app/impression/coaching/[id]`, routes `app/api/medical/coaching/**`. Modèles `CoachingGrid`, `CoachingSheet`. Bancs : `lib/coaching/*.test.ts` (pur, écran, classeur recalculé), `lib/actions/coaching-actions.test.ts` (vraies actions, acteurs sans vue globale), `e2e/coaching.spec.ts` (navigateur, 6 parcours). |
@@ -4751,7 +4906,7 @@ entité) sont éligibles. Supprimer une gamme **ne supprime aucun produit** (`SE
 | **Accès par annuaire de praticiens** | Modèle `MedicalDirectoryAccess` (liste vide = ouvert à tout le module) ; `setDirectoryAccess` (`medical-directory-crud-actions.ts` — celui qui restreint reste dedans d'office) ; filtrage dans `app/(app)/medical/annuaire/page.tsx` (pastille masquée, adresse directe en 404, praticiens exclus de la vue « Tous ») ; panneau d'accès dans `directory-bar.tsx`. |
 | **RH — contrats : visibilité et miroir Drive** | Module PUR `lib/hr/document-visibility.ts` (`defaultVisibleToEmployee`, `resolveVisibility`, `shouldMirrorToDrive`) + tests ; `lib/hr-drive-mirror.ts` écrit dans une **catégorie de Drive** « RH — Contrats » ouverte aux seuls rôles RH (`rolesWithModule("RH")`), plus dans un Drive personnel. |
 | **Finances / budgets** | `lib/actions/finance-actions.ts`, `budget-envelope-actions.ts`, `lib/queries/budget.ts` (`getBudgetCategoryOptions`), `lib/expense-orders.ts`. |
-| **Info médicale (PRIM)** | `lib/actions/medical-info-actions.ts` (validation + archive), `lib/medical-info.ts`, `lib/queries/medical-info.ts`. |
+| **Info médicale (PRIM)** | `lib/actions/medical-info-actions.ts` (validation + archive ; le référent Direction Marketing signataire se lit sur le dossier source — sponsoring, prise en charge, événement : `productManagerOfSource`), `lib/medical-info.ts`, `lib/queries/medical-info.ts`. |
 | **Transverse** | `lib/archive.ts` (Dossier traité), `lib/admin-delete-registry.ts` (registre partagé des 28 types supprimables, `refuse` + `reserve`) + `lib/actions/admin-delete-actions.ts` (purge + corbeille), `lib/assistant/action-registry.ts` (registre ZERO-GAP des actions natives + classification des 644 server actions — **534 NATIVE / 34 COVERED / 0 GAP / 76 EXCLUDED motivées**, soit 100 % de parité sur les 568 actions retenues ; 493 ops de domaine sur 30 outils dans `lib/assistant/ops/` —, gardé par `action-parity.test.ts` et audité par `assistant/capability-audit.test.ts`), `lib/scheduled.ts` (jobs), `lib/calendar-tz.ts` (fuseau), `lib/calendar.ts` (agenda + réunions projetées), `lib/notify.ts`, `lib/audit.ts`, `lib/refs.ts`, `lib/settings.ts` (AppSetting), `lib/labels.ts` (libellés + NAVIGATION + tabs). |
 | **Drive / documents** | `lib/drive-storage.ts` (blobs chiffrés), `lib/drive.ts` (accès + `effectiveSpaceId`/`canCreateInSpace`), `lib/drive/explorer.ts` (pur : type lisible, taille, tri, volet), `lib/drive/search.ts` (**pur** : repli des accents, pertinence, chemin lisible — 29 tests) + `lib/queries/drive-search.ts` (périmètre étendu aux sous-arbres visibles, deux passes) + `app/(app)/drive/drive-search.tsx`, `lib/drive/{mirror,mirror-path,document-mirror}.ts` (miroir Drive de tout import), `lib/storage.ts` (Documents + `validateDocumentUpload`), `lib/documents.ts` (`persistUploadedDocument`), `lib/attach-files.ts`, `lib/actions/drive-actions.ts` + `document-actions.ts`, `app/api/drive/upload/route.ts` (quotas) + `app/api/documents/upload/route.ts` (lot/dossier, flux, parallèle), `app/(app)/drive/{drive-table,drive-canvas,explorer-nav,wide-toggle}.tsx`, `components/documents/`. |
 | **Catégories Drive (espaces partagés)** | Modèle `DriveSpace` + `DriveNode.spaceId` ; RBAC `canCreateDriveSpace`/`canViewDriveSpace`/`canManageDriveSpace` (`lib/rbac.ts`, accès implicite module Drive dans `getAccess`) ; `lib/queries/drive.ts` (`getDriveSpacesForUser`, `getDriveTabs`, `getDriveListing(…, spaceId)`) ; `lib/actions/drive-space-actions.ts` (créer/modifier/archiver/supprimer) ; page `app/(app)/drive/espace/[id]/` + `drive-space-manager.tsx` ; réglage `AppSetting.driveSpaceCreatorRoles` (`DriveSpaceCreatorForm` en Administration). Les catégories sont des **Emplacements du volet de navigation** (`ExplorerNav`), plus des onglets — `getDriveTabs` ne sert plus qu'à la page Documents. |
@@ -4764,7 +4919,7 @@ entité) sont éligibles. Supprimer une gamme **ne supprime aucun produit** (`SE
 | **Graphiques (partagés)** | `components/charts/palette.ts` (palette catégorielle **vérifiée** — ne pas réordonner), `donut.tsx` (camembert), `trend.tsx` (courbe + rythme théorique), `bars.tsx` (barres statut + jauge). Composants serveur, zéro JS. |
 | **Budgets (3 écrans)** | `app/(app)/budgets/` — `page.tsx` (vue d'ensemble, lecture seule), `depenses/`, `reglages/`, `budget-context-bar.tsx`, `budget-expenses.tsx`, `budget-settings.tsx`, `budget-forms.tsx` (tiroirs partagés). `lib/queries/budget.ts` → `buildMonthlySeries` (+ `budget-monthly.test.ts`). |
 | **Intelligence marché — molécule** | `lib/market/molecule.ts` (`moleculeStem`, `canonicalForm`, `extractDosage`, `labKey`, `analyzeMolecule`, suggestions) + `molecule.test.ts` ; `lib/actions/market-actions.ts` ; `app/(app)/business-development/marche/produits/` (`product-explorer.tsx`, `molecule-panel.tsx`). |
-| **PCH — lecture IA d'un AO** | `lib/actions/pch-tender-line-actions.ts` (`extractAndSaveLines` → `enrichLineById` → `analyzeMolecule`, `enrichAllTenderLines`, `dominantOrigin`), `lib/pch-tender-export.ts` (+ tests), `app/api/pch/export/route.ts`, `app/(app)/pch/[id]/tender-lines.tsx`. |
+| **PCH — lecture IA d'un AO** | Règles PURES `lib/pch/extraction.ts` (`decouperPourLecture` — la coupe à 24 000 caractères, sur une fin de ligne —, `phraseCoupe`, `lireLignesExtraites`, `empreinteLigneExtraite`, `raisonDeGarder`, `planDeRemplacement`, `phraseDeLecture`) ; lecture et écriture `lib/pch/lecture-ao.ts` (`lireDocumentAo` — texte natif d'abord, `ocrDocument` seulement sinon ou forcé —, `demanderLignesAo`, `ecrireLectureAo`) ; modèle `PchTenderExtraction` + `PchTenderLine.extractionId` / `empreinteExtraction` / `modifieeLe` (migration `20270103094500_pch_lecture_ao`) ; `lib/actions/pch-tender-line-actions.ts` (`analyzeTenderDocument` / `analyzeTenderText` → `enrichLineById` → `analyzeMolecule`, `enrichAllTenderLines`, `dominantOrigin`) ; lectures montrées `lecturesDuMarche` (`lib/queries/pch.ts`) ; `lib/pch-tender-export.ts` (+ tests), `app/api/pch/export/route.ts`, `app/(app)/pch/[id]/tender-lines.tsx`. Bancs : `pch/extraction.test.ts`, `pch/lecture-ao-points-d-appel.test.ts`, `actions/pch-lecture-ao-flow.test.ts`. |
 | **Assistant — flux (streaming)** | `lib/ai.ts` → `callClaudeStream`, `lib/assistant.ts` → `runAssistantStream`, `app/api/assistant/stream/route.ts` (SSE), `app/(app)/assistant/assistant-chat.tsx`. |
 | **Regulatory — niveau de process** | `lib/regulatory/manufacturing-stage.ts` (`effectiveStage`, pure) + tests ; colonne et cellule dans `app/(app)/regulatory/regulatory-table.tsx` ; fiche `app/(app)/regulatory/[id]/page.tsx`. |
 | **Regulatory — frise du dossier** | `lib/regulatory/dossier-timeline.ts` (`ADDABLE_KINDS`, `planInsertion`, `validateStep`, `canRemove`, `describeStep`, `summarize` — **pures** + 17 tests) ; `lib/actions/regulatory-timeline-actions.ts` (`startDossierTimeline`, `addDossierStep`, `updateDossierStep`, `deleteDossierStep`, journalisées) ; UI `app/(app)/regulatory/[id]/dossier-timeline.tsx` + `upload-button.tsx`. Modèle `RegulatoryDossierStep` (+ index unique **partiel** `WHERE kind='CTD_INITIAL'`) ; pièces jointes par `Document.stepKey` = id de l'étape. Capacité Adam `regulatory_operation:add_dossier_step`. |
@@ -6064,14 +6219,15 @@ battement pour les dirigeants actifs), `assistant/source-map.ts`, `document-disc
 
 ## 💰 Budgets, enveloppes & sous-catégories
 
-Le module **Budgets** est un vrai système de gestion budgétaire multi-niveaux, réparti sur **trois écrans, un par
+Le module **Budgets** est un vrai système de gestion budgétaire multi-niveaux, réparti sur **cinq onglets, un par
 intention** — on ne consulte plus son budget en traversant tout ce qui le modifie :
 
 | Écran | Route | Ce qu'on y fait |
 |---|---|---|
 | **Vue d'ensemble** | `/budgets` | **Que de la lecture.** Le reste à dépenser en grand, une jauge, un **camembert** de la répartition, une **courbe** de la consommation cumulée face au **rythme théorique**, des **barres** par catégorie. Aucun bouton d'action. |
 | **Dépenses** | `/budgets/depenses` | **Le travail.** Ce qui est **à imputer** vient en premier (tant que ces lignes traînent, la vue d'ensemble est fausse), puis la saisie d'une dépense, puis l'historique. |
-| **Départements** | `/budgets/departements` | **Le budget de chaque département**, par exercice — deux colonnes, deux responsables (voir [référence](#budget-par-département--deux-natures-deux-responsables)). |
+| **Départements** | `/budgets/departements` | **Le budget de chaque département**, par exercice — une ligne par nature (fonctionnement, masse salariale, activité, formation), chacune avec son responsable (voir [référence](#budgets-par-département--trois-natures-trois-responsables)). |
+| **Business Units** | `/budgets/business-units` | **Le budget par gamme** : une Business Unit est un sous-département — son enveloppe et ses dépenses sont celles de son sous-département, lues gamme par gamme ; le consolidé est la somme des lignes affichées, et une gamme sans sous-département apparaît à zéro, signalée. |
 | **Réglages** | `/budgets/reglages` | **Le paramétrage.** L'enveloppe, ses catégories et sous-catégories, le budget total au-dessus des enveloppes. |
 
 La **barre de contexte** (`budget-context-bar.tsx`) ne porte que ce qui change ce qu'on **regarde** : l'enveloppe et
@@ -6247,7 +6403,12 @@ mis en cache). Le Super Admin n'est pas mesuré.
 
 ---
 
-## 📧 Courrier — webmail Infomaniak intégré
+## 📧 Courrier — webmail Infomaniak (retiré)
+
+> **Retiré de la plateforme** : `/courrier` redirige vers Mon espace, le module n'est plus au menu et son back-end
+> IMAP/SMTP reste dormant (`app/(app)/courrier/page.tsx`). La messagerie e-mail est désormais **Microsoft 365**
+> (`/messagerie`, Pilotage — drapeau `MICROSOFT_MAIL`, configuration Entra, liste pilote). Ce qui suit décrit
+> l'ancien webmail, pour mémoire.
 
 Boîte mail **par utilisateur**, connectée à la plateforme (une seule entité).
 
@@ -6587,7 +6748,7 @@ Mesuré : `callOpenAi` rend `ok: true` par le chemin du produit, et `bench:inten
 - **Porte de vérification** avant chaque push (jamais contournée) :
 
 ```bash
-npx tsc --noEmit && npm run build && npx vitest run
+npm run typecheck && npm run build && npm test && npx next lint
 ```
 
 > Les tests d'intégration **skippent proprement** si aucune base n'est disponible (CI verte) et **s'exécutent
@@ -6647,6 +6808,38 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 ---
 
 ## 🧾 Journal des évolutions récentes
+
+### AUDIT 360° — VAGUE E2–E5 + D1b + D1c + H : DÉCIDER EN UN ENDROIT, UNE ÉQUIPE ACTIONNABLE, UN INTÉRIM QUI NE PRÊTE QUE CE QU'ON DÉTIENT, UNE ROUTE COUPÉE QUI RETROUVE SON ARGENT (2026-10)
+
+Rapport des managers (M09–M21, N2), rapport 19 (F1, F2) et deux défauts du moteur Ad & Pro trouvés en relisant le
+circuit. Huit lots écrits en parallèle sur des fichiers disjoints. Doctrine : `CLAUDE.md` §118.197.
+
+- **Mon espace, lieu de décision** (`queries/mes-decisions.ts`, `queries/action-center.ts`) : une ligne par objet ; un
+  achat décidé ne reste plus « à traiter » ; les congés d'intérim ne s'affichent plus deux fois ; « À valider » compte les
+  congés à signer ; la file du réviseur et du N+2 d'un plan de tournée (`sfe/tournee.ts` : `clausePlansADecider`) ;
+  « En attente depuis … » daté à l'arrivée chez la personne.
+- **Mon Équipe actionnable** (`queries/my-team.ts`, `queries/lien-ouvrable.ts`, `hr/absences.ts`) : cinq natures à
+  décider (recrutement, plans de tournée compris) ; chaque chiffre mène à une page que la personne peut ouvrir — sinon
+  la ligne disparaît ou nomme le remède ; « qui est là » au jour d'Alger ; chevauchements de congés sur 30 jours.
+- **Intérim** (`rbac.ts` : `accesAttribue`, `hr/stand-in.ts` : `modulesPretables`) : on ne prête que ce que l'absent
+  détient (matrice du rôle principal ∩ accès attribué) ; décision conditionnelle ; notification vers Mon espace ; bandeau
+  d'intérim dans la coque (`components/layout/interim-banner.tsx`).
+- **Approbations d'achat** (`secretariat/decision-approbation.ts`, migration `20270103090500`) : qui a tranché
+  (`decidedById`) et pourquoi (`decisionNote`, exigé pour refuser ou faire modifier) ; jamais sa propre demande sauf le
+  sommet ; écriture conditionnelle ; l'ordre émis est annulé si la demande l'a été pendant la décision ; la facture
+  chaînée ne compte que si elle suit un devis ou un BC de la même fiche.
+- **Matériel promotionnel — circuit 2** : la validation juge la sélection qu'elle a vue (`lignesVues`, relue sous
+  `FOR UPDATE`) ; choix, correction, clôture et réouverture de la demande au secrétariat sous condition ; `servirDemande`
+  prend la demande avant tout mouvement de stock.
+- **PCH — lecture d'un AO tracée** (`pch/extraction.ts`, `pch/lecture-ao.ts`, `PchTenderExtraction`, migration
+  `20270103094500`) : texte natif d'abord, coupe dite, fichier gardé ; une relecture ne remplace que les lignes que
+  personne n'a touchées. Le compositeur chaîne un BC à son devis (`chainFromId`).
+- **Moteur Ad & Pro** (`workflow/pouvoirs-argent.ts` : `argentEffectif`, `engine.ts` : `lectureDeLApprobation`) : une
+  demande de la Direction Marketing ou du Manager Promotion médicale (route close à `final`) était approuvée sans
+  montant ni ordre de dépense (12 sur 12 mesurées) ; l'étape qui conclut hérite désormais des pouvoirs d'argent des
+  étapes non atteintes, et l'écran lit la même étape que le moteur. La signature de l'information médicale d'un
+  sponsoring retrouve son référent.
+- **README** : 124 corrections de la carte fonctionnelle, plus les lignes de chaque lot de cette vague.
 
 ### AUDIT 360° — LOT D1 (+ E1) : DES GARDES DÉTERMINISTES SUR LES PIÈCES, UN INTERRUPTEUR D'IA QUI COUPE ENFIN, UNE FILE DE CONGÉS QUI MONTRE CE QUE L'ACTION ACCEPTE (2026-10)
 
@@ -15113,7 +15306,7 @@ vs réalisé · lots & péremptions / pharmacovigilance · export comptable (G50
 ## 🤝 Conventions & contribution
 
 - Développement sur la branche **`claude/hopeful-goodall-phd0nb`**.
-- Tout doit être **réel et vérifié** : `typecheck` + `build` + `tests` **verts** avant de pousser. **Aucune donnée simulée.**
+- Tout doit être **réel et vérifié** : `typecheck` + `build` + `tests` + `npx next lint` **verts** avant de pousser (Render lance le lint AVANT le build, §118.155). **Aucune donnée simulée.**
 - Les fichiers `"use server"` n'exportent **que** des fonctions `async`.
 - Migrations : SQL manuel dans `prisma/migrations/<ts>_<nom>/migration.sql` + `prisma migrate deploy` (idempotent).
 - Références séquentielles via `src/lib/refs.ts` (`buildRef` + `createWithRetry`) — **jamais** `count()+1`.

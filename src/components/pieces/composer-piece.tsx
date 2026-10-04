@@ -7,6 +7,7 @@ import { Sheet } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { Input, Label, Select, Textarea } from "@/components/ui/input";
 import { formatCurrency } from "@/lib/utils";
+import { NATURES_AMONT } from "@/lib/legal/piece-emise";
 import {
   emettrePieceCommerciale, previsualiserPieceCommerciale, reglerNumerotationPieces,
   type ApercuPiece, type ResultatEmission,
@@ -42,6 +43,19 @@ const LIBELLE: Record<TypePieceComposable, { nom: string; bouton: string; tiers:
 interface Ligne { id: number; designation: string; details: string; quantite: string; prix: string; remise: string; tva: string; section: boolean }
 interface Taxe { id: number; libelle: string; taux: string }
 
+/**
+ * LES PIÈCES AMONT QU'ON PEUT CHOISIR (audit 360°, lot D1c — F1) — chargées par la porte de la liste Legal
+ * (`piecesAmontComposables`) : la société de l'en-tête, les lecteurs désignés, les natures ouvertes. Une nature
+ * que la personne ne lit pas n'est pas chargée : elle est NOMMÉE (`fermees`), pour que l'écran dise pourquoi le
+ * menu est vide ; une nature coupée à `limite` pièces l'est aussi (`tronquees`).
+ */
+export interface AmontComposable {
+  options: { value: string; label: string; kind: string; companyId: string | null }[];
+  tronquees: string[];
+  fermees: string[];
+  limite: number;
+}
+
 export interface ComposerPieceProps {
   typeInitial: TypePieceComposable;
   typesAutorises: TypePieceComposable[];
@@ -49,6 +63,7 @@ export interface ComposerPieceProps {
   societeParDefaut: string | null;
   letterheads: { id: string; name: string; companyId: string | null; companyLabel: string | null }[];
   peutReglerNumerotation: boolean;
+  amont: AmontComposable;
 }
 
 const aujourdhui = (): string => new Date().toISOString().slice(0, 10);
@@ -74,6 +89,7 @@ function ComposerPieceSheet(props: ComposerPieceProps & { onClose: () => void })
   const [type, setType] = React.useState<TypePieceComposable>(props.typeInitial);
   const [societe, setSociete] = React.useState<string>(props.societeParDefaut ?? props.societes[0]?.id ?? "");
   const [letterheadId, setLetterheadId] = React.useState<string>("");
+  const [amont, setAmont] = React.useState<string>("");
   const [tiers, setTiers] = React.useState({ nom: "", adresse: "", telephone: "", email: "", rc: "", nif: "", ai: "", nis: "" });
   const [champs, setChamps] = React.useState({
     numeroClient: "", date: aujourdhui(), echeance: "", validiteJours: "30", objet: "", referenceAmont: "", referenceAmontDate: "",
@@ -95,6 +111,20 @@ function ComposerPieceSheet(props: ComposerPieceProps & { onClose: () => void })
     [props.letterheads, societe],
   );
 
+  // LE MENU « FAIT SUITE À » (lot D1c — F1) : les natures que la fabrique accepte pour CE type (`NATURES_AMONT`,
+  // la même table que la fabrique), et de la société émettrice — la fabrique refuse la pièce d'une autre
+  // société : le menu ne la propose pas (§118.83). La pièce n'est envoyée que si le menu la propose ENCORE :
+  // changer de nature ou de société n'envoie pas une pièce qu'on ne voit plus.
+  const naturesAmont: readonly string[] = NATURES_AMONT[type];
+  const optionsAmont = props.amont.options;
+  const amontsProposes = React.useMemo(
+    () => optionsAmont.filter((o) => naturesAmont.includes(o.kind) && (!o.companyId || o.companyId === societe)),
+    [optionsAmont, naturesAmont, societe],
+  );
+  const amontRetenu = amontsProposes.some((o) => o.value === amont) ? amont : "";
+  const amontFermees = props.amont.fermees.filter((k) => naturesAmont.includes(k));
+  const amontTronquees = props.amont.tronquees.filter((k) => naturesAmont.includes(k));
+
   // LE MÊME FORMULAIRE pour l'aperçu et l'émission : ce qu'on a vu est ce qui est émis.
   const construireFormData = React.useCallback((): FormData => {
     const fd = new FormData();
@@ -113,13 +143,14 @@ function ComposerPieceSheet(props: ComposerPieceProps & { onClose: () => void })
       fd.append("ligneSection", l.section ? "1" : "0");
     }
     for (const t of taxes) { fd.append("taxeLibelle", t.libelle); fd.append("taxeTaux", t.taux); }
+    if (amontRetenu) fd.set("chainFromId", amontRetenu);
     return fd;
-  }, [type, societe, letterheadId, tiers, champs, lignes, taxes]);
+  }, [type, societe, letterheadId, tiers, champs, lignes, taxes, amontRetenu]);
 
   // L'APERÇU suit la saisie, avec un demi-seconde de retenue : assez pour ne pas appeler le
   // serveur à chaque touche, assez peu pour que les totaux paraissent vivants.
   const pret = tiers.nom.trim() !== "" && lignes.some((l) => !l.section && l.designation.trim() !== "");
-  const empreinte = JSON.stringify({ type, societe, letterheadId, tiers, champs, lignes, taxes });
+  const empreinte = JSON.stringify({ type, societe, letterheadId, tiers, champs, lignes, taxes, amontRetenu });
   React.useEffect(() => {
     if (!pret || resultat) return;
     const fd = construireFormData();
@@ -179,7 +210,7 @@ function ComposerPieceSheet(props: ComposerPieceProps & { onClose: () => void })
           <div className="flex flex-wrap items-center justify-between gap-2">
             <span className="text-sm text-muted-foreground">Pièce émise.</span>
             <div className="flex gap-2">
-              <Button type="button" variant="outline" onClick={() => { setResultat(null); setLignes([nouvelleLigne()]); setTiers({ nom: "", adresse: "", telephone: "", email: "", rc: "", nif: "", ai: "", nis: "" }); setApercu(null); }}>
+              <Button type="button" variant="outline" onClick={() => { setResultat(null); setLignes([nouvelleLigne()]); setTiers({ nom: "", adresse: "", telephone: "", email: "", rc: "", nif: "", ai: "", nis: "" }); setAmont(""); setApercu(null); }}>
                 Composer une autre pièce
               </Button>
               <Button type="button" onClick={props.onClose}>Fermer</Button>
@@ -250,6 +281,22 @@ function ComposerPieceSheet(props: ComposerPieceProps & { onClose: () => void })
         <section className="space-y-2">
           <h3 className="font-semibold">Références</h3>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+            {naturesAmont.length > 0 && (
+              <div className="sm:col-span-3">
+                <Label htmlFor="cp-amont">Fait suite à (pièce du registre)</Label>
+                <Select id="cp-amont" value={amontRetenu} onChange={(e) => setAmont(e.target.value)}>
+                  <option value="">— Aucune : pièce isolée —</option>
+                  {amontsProposes.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                </Select>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {type === "BON_DE_COMMANDE"
+                    ? "Chaîné à son devis, le bon de commande suit la demande dont le devis est né (centre de validation Ad & Pro pour une demande Ad & Pro), et le devis ne se révise plus."
+                    : "Chaînée à sa pièce amont, la facture la fige : la pièce dont elle découle ne se révise plus."}
+                  {amontFermees.includes("QUOTE") && " Les devis ne vous sont pas ouverts : Legal peut rattacher cette pièce depuis sa fiche (« Modifier » › « Fait suite à »)."}
+                  {amontTronquees.length > 0 && ` Seules les ${props.amont.limite} pièces les plus récentes de chaque nature sont proposées.`}
+                </p>
+              </div>
+            )}
             <div><Label htmlFor="cp-date">Date d'émission</Label><Input id="cp-date" type="date" value={champs.date} onChange={(e) => setChamps({ ...champs, date: e.target.value })} /></div>
             {type === "FACTURE" && <div><Label htmlFor="cp-echeance">Échéance de règlement</Label><Input id="cp-echeance" type="date" value={champs.echeance} onChange={(e) => setChamps({ ...champs, echeance: e.target.value })} /></div>}
             {type === "DEVIS" && <div><Label htmlFor="cp-validite">Validité (jours)</Label><Input id="cp-validite" type="number" min={1} max={365} value={champs.validiteJours} onChange={(e) => setChamps({ ...champs, validiteJours: e.target.value })} /></div>}

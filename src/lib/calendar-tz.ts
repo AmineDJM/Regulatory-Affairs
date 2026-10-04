@@ -68,3 +68,25 @@ export function monthGrid(year: number, month: number): GridDay[] {
 }
 
 export const MONTH_LABELS = ["Janvier", "Février", "Mars", "Avril", "Mai", "Juin", "Juillet", "Août", "Septembre", "Octobre", "Novembre", "Décembre"];
+
+/** Jours CIVILS d'Alger écoulés entre deux instants — 0 le même jour, jamais négatif. */
+export function joursCivilsDepuis(depuis: Date, maintenant: Date): number {
+  const jour = (d: Date) => Date.parse(`${algiersYmd(d)}T00:00:00.000Z`) / 86_400_000;
+  return Math.max(0, Math.round(jour(maintenant) - jour(depuis)));
+}
+
+/**
+ * « depuis 3 j » — L'ANCIENNETÉ D'UNE ATTENTE, en jours civils d'Alger (lot E2 — audit 360°, 07-05).
+ *
+ * « depuis aujourd'hui », « depuis hier », puis « depuis N j ». En jours CIVILS et pas en tranches
+ * de 24 h : une demande déposée hier à 23 h 30 attend « depuis hier » à 0 h 30, pas « depuis
+ * aujourd'hui ». `null` sur une date absente ou illisible : on ne fabrique pas une ancienneté.
+ * Sans dépendance serveur — la page et la file des congés (composant client) la lisent.
+ */
+export function depuisLisible(depuis: Date | string | null | undefined, maintenant: Date = new Date()): string | null {
+  if (!depuis) return null;
+  const d = typeof depuis === "string" ? new Date(depuis) : depuis;
+  if (Number.isNaN(d.getTime())) return null;
+  const n = joursCivilsDepuis(d, maintenant);
+  return n === 0 ? "depuis aujourd'hui" : n === 1 ? "depuis hier" : `depuis ${n} j`;
+}

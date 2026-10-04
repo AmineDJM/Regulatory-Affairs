@@ -23,8 +23,12 @@ import { PERMISSIONS, MODULES, type Action, type Module } from "@/lib/rbac";
  *
  *   • l'intérimaire ne reçoit QUE les modules choisis, jamais tout le compte. Un directeur qui
  *     part en congé délègue ses validations, pas la lecture de ses courriels ;
- *   • il ne reçoit jamais PLUS que ce que l'absent avait lui-même. Une délégation qui ajouterait
- *     des droits serait une promotion déguisée, et le retour du titulaire ne la retirerait pas.
+ *   • il ne reçoit jamais PLUS que ce que l'absent DÉTIENT. Pas la matrice de son rôle : ce que son
+ *     rôle, son « autre rôle » et la console lui donnent réellement (`accesAttribue`) — un module que
+ *     l'administrateur lui a bloqué, un accès personnalisé plus étroit que son rôle, un module retiré
+ *     de la plateforme ne passent pas par l'intérim (§118.196, lot E4 — audit 360°, M13). Une
+ *     délégation qui ajouterait des droits serait une promotion déguisée, et le retour du titulaire
+ *     ne la retirerait pas.
  *
  * Module PUR — testé, sans base de données.
  */
@@ -38,15 +42,28 @@ export const STAND_IN_LABEL: Record<StandInStatus, string> = {
 };
 
 /**
- * Les modules qu'on peut déléguer.
+ * Les modules qu'on peut déléguer — et ceux qu'on ne prête JAMAIS, chacun avec sa raison.
  *
  * On exclut ce qui n'a AUCUN sens à déléguer, et le dire vaut mieux que de laisser quelqu'un
  * cocher une case qui ne produira rien :
- *   • `ADMIN` — la souveraineté du Super Admin ne se prête pas ;
- *   • `DRIVE`, `MESSAGING`, `WORKSPACE` — ce sont les espaces PERSONNELS de l'absent. Remplacer
- *     quelqu'un, ce n'est pas lire son Drive privé ni sa messagerie.
+ *   • `ADMIN`, `ADVENTUM_BRAIN`, `PROCESS_INTELLIGENCE` — la souveraineté du Super Admin (comptes,
+ *     rôles, accès, IA) ne se prête pas. Les deux derniers ne sont gardés que par leur module :
+ *     prêtés par un Super Admin absent, ils s'ouvraient réellement à son intérimaire ;
+ *   • `DRIVE`, `MESSAGING`, `WORKSPACE`, `NOTIFICATIONS` — ce sont les espaces PERSONNELS de
+ *     l'absent. Remplacer quelqu'un, ce n'est pas lire son Drive privé ni sa messagerie ;
+ *   • `PAYMENT_CENTRE`, `VALIDATION_CENTRE`, `AD_PRO_CENTRE`, `CHIEF_OF_STAFF` — des SIÈGES : un rôle
+ *     ou une désignation nominative les donne, pas le module (`sitsOnPaymentCentre`,
+ *     `sitsOnValidationCentre`, `siegeAuCentreAdPro`, `peutVoirAdam`). L'intérim ne prête aucun rôle
+ *     (§118.185) : la case ouvrait une entrée de menu menant à une page refusée. Prêter un siège est
+ *     une décision de la Direction, pas une case à cocher (§118.196) ;
+ *   • `MY_TEAM`, `DIRECTORIES` — des portes accordées à tous : il n'y a rien à prêter.
  */
-const NEVER_DELEGATED: readonly Module[] = ["ADMIN", "DRIVE", "MESSAGING", "WORKSPACE", "NOTIFICATIONS"];
+const NEVER_DELEGATED: readonly Module[] = [
+  "ADMIN", "ADVENTUM_BRAIN", "PROCESS_INTELLIGENCE",
+  "DRIVE", "MESSAGING", "WORKSPACE", "NOTIFICATIONS",
+  "PAYMENT_CENTRE", "VALIDATION_CENTRE", "AD_PRO_CENTRE", "CHIEF_OF_STAFF",
+  "MY_TEAM", "DIRECTORIES",
+];
 
 export function isDelegatable(module: string): module is Module {
   return (MODULES as readonly string[]).includes(module)
@@ -103,21 +120,33 @@ export function inactiveReason(leave: StandInLeave, now: Date = new Date()): str
 }
 
 /**
- * Les droits que l'intérimaire reçoit sur un module — bornés par ceux de l'ABSENT.
+ * CE QUE L'ABSENT DÉTIENT — la seule source des droits prêtés (§118.196, lot E4 — audit 360°, M13).
  *
- * On part de la matrice du rôle de l'absent et on n'en garde que ce qui sert à TENIR LA PLACE :
- * lire, valider, et faire avancer ce qui attend. La SUPPRESSION est écartée — un remplaçant ne
- * détruit pas ; c'est le genre de geste qui se découvre au retour et qui ne se répare pas.
- *
- * `null` quand l'absent n'avait lui-même rien sur ce module : une délégation ne crée pas un
- * droit, elle en prête un.
+ * `role` est son rôle PRINCIPAL : la matrice de ce rôle reste une BORNE. C'est tout ce que la règle
+ * d'avant prêtait, et prêter davantage — son « autre rôle », un accès personnalisé plus large que son
+ * rôle, un accès implicite — serait un élargissement que la Direction n'a pas décidé. `detient` est
+ * son accès ATTRIBUÉ (`accesAttribue` : rôle, « autre rôle », console — la règle même de
+ * `getAccess`) : ce qu'il a réellement, blocages et modules retirés compris.
  */
-export function delegatedActions(absenteeRole: string, module: Module): Action[] | null {
-  const matrix = PERMISSIONS[absenteeRole as keyof typeof PERMISSIONS];
-  const owned = matrix?.[module];
-  if (!owned || !owned.includes("VIEW")) return null;
-  const kept = owned.filter((a) => a !== "DELETE");
-  return kept.length > 0 ? kept : null;
+export interface Detenteur {
+  role: string;
+  detient: ReadonlyMap<Module, { actions: ReadonlySet<Action> }>;
+}
+
+/**
+ * Les droits que l'intérimaire reçoit sur un module — ce que l'absent DÉTIENT, borné par la matrice de
+ * son rôle principal, sans la SUPPRESSION : un remplaçant ne détruit pas, c'est le genre de geste qui
+ * se découvre au retour et qui ne se répare pas.
+ *
+ * `null` quand il n'y a rien à prêter — un module qu'on ne prête jamais, un module que l'absent ne voit
+ * pas, ou que la console lui a retiré : une délégation ne crée pas un droit, elle en prête un.
+ */
+export function delegatedActions(absent: Detenteur, module: Module): Action[] | null {
+  if (!isDelegatable(module)) return null;
+  const parRole = PERMISSIONS[absent.role as keyof typeof PERMISSIONS]?.[module];
+  const detenu = absent.detient.get(module)?.actions;
+  if (!parRole?.includes("VIEW") || !detenu?.has("VIEW")) return null;
+  return parRole.filter((a) => a !== "DELETE" && detenu.has(a));
 }
 
 export interface Delegation {
@@ -126,13 +155,43 @@ export interface Delegation {
 }
 
 /** Ce que l'intérimaire obtient réellement, module par module. */
-export function delegationsFor(absenteeRole: string, modules: readonly string[]): Delegation[] {
+export function delegationsFor(absent: Detenteur, modules: readonly string[]): Delegation[] {
   const out: Delegation[] = [];
   for (const m of normalizeDelegated(modules)) {
-    const actions = delegatedActions(absenteeRole, m);
+    const actions = delegatedActions(absent, m);
     if (actions) out.push({ module: m, actions });
   }
   return out;
+}
+
+/**
+ * Ce qu'une personne peut PRÊTER — la liste que l'écran de déclaration propose, et la seule que
+ * l'action accepte : une case qui ne prêterait rien ne s'affiche pas (§118.196).
+ */
+export function modulesPretables(absent: Detenteur): Module[] {
+  return MODULES.filter((m) => delegatedActions(absent, m) !== null);
+}
+
+/** Les modules choisis que la délégation NE transmettrait PAS — à dire, jamais à taire. */
+export function modulesNonPretes(absent: Detenteur, choisis: readonly string[]): string[] {
+  return [...new Set(choisis.map((m) => String(m ?? "").trim()))]
+    .filter((m) => m.length > 0 && delegatedActions(absent, m as Module) === null);
+}
+
+/**
+ * Ce congé est-il TERMINÉ ? On compare des JOURS, comme `isDelegationActive` : le dernier jour reste
+ * ouvert. Un congé terminé n'a plus de place à tenir — la liste ne propose plus d'y désigner quelqu'un,
+ * et l'action le refuse.
+ */
+export function congeTermine(endDate: Date | string, now: Date = new Date()): boolean {
+  const fin = day(endDate);
+  const today = day(now);
+  return !Number.isNaN(fin) && !Number.isNaN(today) && today > fin;
+}
+
+function jourMois(v: Date | string): string | null {
+  const d = v instanceof Date ? v : new Date(v);
+  return Number.isNaN(d.getTime()) ? null : new Intl.DateTimeFormat("fr-FR", { day: "numeric", month: "long" }).format(d);
 }
 
 /**
@@ -159,4 +218,44 @@ export function delegationNotice(absenteeName: string, endDate: Date | string): 
     ? "pendant son congé"
     : `jusqu'au ${new Intl.DateTimeFormat("fr-FR", { day: "numeric", month: "long" }).format(d)}`;
   return `Vous remplacez ${absenteeName} ${when} : ses validations en attente vous sont ouvertes.`;
+}
+
+/**
+ * LA NOTIFICATION DE L'INTÉRIMAIRE QUAND LES RH VALIDENT (§118.196, lot E4).
+ *
+ * Elle disait « Vous remplacez X : ses validations en attente vous sont ouvertes » le jour de la
+ * validation — souvent des semaines avant le congé, parfois avant même qu'il soit accordé : la phrase
+ * était fausse au moment exact où on la lisait. Elle dit maintenant QUAND l'intérim s'ouvrira, et ce
+ * qu'il transmettra.
+ */
+export function annonceDeValidation(
+  absentNom: string,
+  conge: { leaveApproved: boolean; startDate: Date | string; endDate: Date | string },
+  modulesPretes: readonly string[],
+  now: Date = new Date(),
+): string {
+  const prete = modulesPretes.length ? ` Modules prêtés : ${modulesPretes.join(", ")}.` : "";
+  const actif = isDelegationActive({ ...conge, standInId: "intérimaire", standInStatus: "APPROVED", standInModules: [] }, now);
+  if (actif) return `${delegationNotice(absentNom, conge.endDate)} Elles sont réunies dans « Mon espace ».${prete}`;
+  const du = jourMois(conge.startDate);
+  const au = jourMois(conge.endDate);
+  const periode = du && au ? ` (congé du ${du} au ${au})` : "";
+  const quand = conge.leaveApproved
+    ? "L'intérim s'ouvrira de lui-même au premier jour du congé"
+    : "Le congé n'est pas encore accordé : s'il l'est, l'intérim s'ouvrira de lui-même au premier jour";
+  return `Les RH ont validé votre désignation comme intérimaire de ${absentNom}${periode}. ${quand}, et ses décisions en attente vous seront alors réunies dans « Mon espace ».${prete}`;
+}
+
+/**
+ * LE BANDEAU DE L'INTÉRIMAIRE — qui l'on remplace, jusqu'à quand, et ce qui en vient (§118.196, lot E4).
+ * La phrase qu'il lit là où il agit : sans elle, rien ne distingue un module prêté d'un droit propre,
+ * ni une décision prise au nom d'un absent d'une décision ordinaire.
+ */
+export function bandeauInterim(
+  i: { absentNom: string; jusquau: Date | string; modules: readonly string[] },
+  libelles: Readonly<Record<string, string>>,
+): string {
+  const au = jourMois(i.jusquau);
+  const mods = i.modules.length ? ` (${i.modules.map((m) => libelles[m] ?? m).join(", ")})` : "";
+  return `Intérim : vous remplacez ${i.absentNom}${au ? ` jusqu'au ${au}` : " pendant son congé"}${mods} — ce que vous tranchez pour cette personne est enregistré à votre nom.`;
 }

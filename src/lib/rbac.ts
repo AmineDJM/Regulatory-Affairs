@@ -1,5 +1,5 @@
 import { cache } from "react";
-import type { AccessScope, EntityType, Prisma, UserRole } from "@prisma/client";
+import type { AccessScope, EntityType, Prisma, UserAccess, UserRole } from "@prisma/client";
 import { prisma } from "./prisma";
 import { isRetiredModule } from "./modules-retired";
 import { activeStandInsFor } from "./hr/stand-in-resolve";
@@ -833,6 +833,28 @@ export interface EffectiveAccess {
    *  que le pipeline : `sitsOnPaymentCentre` est SYNCHRONE et appelée partout, elle ne peut pas
    *  lire la base. Optionnel : les fabriques de test construisent un accès minimal. */
   paymentCentreSeat?: boolean;
+  /**
+   * LES INTÉRIMS QUI ÉLARGISSENT CET ACCÈS AUJOURD'HUI (§118.196, lot E4 — audit 360°, M13) — qui l'on
+   * remplace, jusqu'à quand, quels modules en viennent réellement. Un droit prêté qui ne se voit nulle
+   * part ne se distingue pas d'un droit propre : le bandeau d'intérim (coque) le dit. Optionnel : les
+   * fabriques de test construisent un accès minimal.
+   */
+  interims?: readonly InterimEnCours[];
+  /**
+   * Les actions que SEUL un intérim donne — celles que la personne ne détenait pas elle-même. Les gestes
+   * de DROITS (ouvrir l'accès d'un tiers à une entité, fermer un compte, désigner ou valider un intérim)
+   * les lisent (`estPrete`) : un droit prêté ne s'accorde pas à son tour.
+   */
+  pretes?: ReadonlyMap<Module, ReadonlySet<Action>>;
+}
+
+/** Un intérim en cours, vu de l'intérimaire (§118.196). */
+export interface InterimEnCours {
+  absentId: string;
+  absentNom: string;
+  jusquau: Date;
+  /** Les modules réellement ouverts par cet intérim (ceux que la console ne bloque pas chez l'intérimaire). */
+  modules: Module[];
 }
 export interface SessionUser {
   id: string;
@@ -840,6 +862,102 @@ export interface SessionUser {
   /** « Autre rôle » : fonction secondaire cumulée (réglée par le Super Admin). */
   secondaryRole?: UserRole | null;
   access: EffectiveAccess;
+}
+
+/** Une ligne d'accès PERSONNALISÉ telle que la console l'écrit — les seules colonnes que la règle lit. */
+export type LigneAccesAttribue = Pick<UserAccess,
+  "module" | "canView" | "canCreate" | "canUpdate" | "canDelete" | "canValidate" | "canExport" | "canUpload" | "scope" | "sections">;
+
+/**
+ * L'ACCÈS ATTRIBUÉ — ce que le rôle, l'« autre rôle » et la console donnent à une personne, AVANT tout
+ * accès implicite (validation en attente, département dirigé, dossier porté, partage, siège, intérim).
+ *
+ * `getAccess` en part ; l'INTÉRIM y lit ce que l'absent DÉTIENT (§118.196, lot E4 — audit 360°, M13).
+ * Écrite une fois : un second calcul « de ce qu'une personne a » finirait par ne plus voir le blocage que
+ * l'administrateur vient de poser (§118.5), et l'intérimaire hériterait du module qu'on a retiré à
+ * l'absent. PURE : aucune lecture de base.
+ */
+export function accesAttribue(
+  role: UserRole,
+  secondaryRole: UserRole | null,
+  overrides: readonly LigneAccesAttribue[],
+): { modules: Map<Module, EffectiveModuleAccess>; blockedModules: Set<Module> } {
+  const overrideMap = new Map(overrides.map((o) => [o.module as Module, o]));
+  const modules = new Map<Module, EffectiveModuleAccess>();
+  // Modules explicitement BLOQUÉS par l'administrateur. On les retient pour que les accès
+  // IMPLICITES posés plus bas (porter un dossier, se voir partager une catégorie…) ne défassent
+  // pas une décision prise à la main — un blocage qui se lèverait tout seul serait pire
+  // qu'inutile : il serait imprévisible.
+  const blockedModules = new Set<Module>();
+
+  for (const module of MODULES) {
+    // UN MODULE RETIRÉ N'ENTRE PAS DANS L'ACCÈS EFFECTIF — et c'est LA garde qui compte.
+    // `userCan` répond alors non partout d'un seul coup : écrans, actions serveur, routes
+    // d'API et outils d'Adam. Le masquage du menu ne fait que rendre l'interface cohérente ;
+    // s'il était seul, l'assistant continuerait de créer des projets dans un module retiré.
+    // Voir `lib/modules-retired.ts`.
+    if (isRetiredModule(module)) continue;
+    const ov = overrideMap.get(module);
+    // Override « BLOQUÉ » (ligne présente, canView=false) : **absolu**. Il retire le
+    // module quoi qu'il arrive — y compris par-dessus un défaut de rôle PRINCIPAL **ou
+    // SECONDAIRE**. C'est ce qui rend l'action de l'admin (« bloquer X à Untel »)
+    // réellement effective en temps réel, même si son « autre rôle » l'accorde.
+    const blocked = !!ov && !ov.canView;
+    if (blocked) blockedModules.add(module);
+    const actions = new Set<Action>();
+    let scope: AccessScope = "ASSIGNED";
+    let hasView = false;
+
+    const addRoleDefaults = (r: UserRole) => {
+      const def = PERMISSIONS[r]?.[module];
+      if (def?.includes("VIEW")) {
+        hasView = true;
+        for (const a of def) actions.add(a);
+        if (defaultScope(r, module) === "ALL") scope = "ALL";
+      }
+    };
+
+    // Rôle principal : l'override par utilisateur (s'il existe) REMPLACE ses défauts.
+    if (ov) {
+      if (ov.canView) {
+        hasView = true;
+        actions.add("VIEW");
+        if (ov.canCreate) actions.add("CREATE");
+        if (ov.canUpdate) actions.add("UPDATE");
+        if (ov.canDelete) actions.add("DELETE");
+        if (ov.canValidate) actions.add("VALIDATE");
+        if (ov.canExport) actions.add("EXPORT");
+        if (ov.canUpload) actions.add("UPLOAD");
+        if (ov.scope === "ALL") scope = "ALL";
+      }
+    } else {
+      addRoleDefaults(role);
+    }
+
+    // Un « accès personnalisé » (override) ne doit pas RÉTRÉCIR SILENCIEUSEMENT la
+    // portée qu'un rôle possède NATIVEMENT : si le rôle voit tout le module par défaut
+    // (ex. National Sales voit TOUTES les demandes de congrès à pré-valider), on conserve
+    // la portée ALL même quand l'admin a coché « accès personnalisé » sans (re)choisir
+    // « tout » dans le sélecteur de portée (qui retombe sinon sur ASSIGNED). Symétrique
+    // de la règle du rôle secondaire ci-dessous.
+    if (ov?.canView && defaultScope(role, module) === "ALL") scope = "ALL";
+
+    // Rôle SECONDAIRE : ses capacités se cumulent (union des actions, portée la plus
+    // large) — SAUF si l'admin a explicitement **BLOQUÉ** ce module pour ce compte :
+    // un blocage prime sur l'« autre rôle » (sinon on ne pourrait jamais retirer un
+    // module à quelqu'un qui le détient via son rôle secondaire). Hors blocage, un
+    // ancien réglage « accès personnalisé » ne doit pas neutraliser silencieusement
+    // l'« autre rôle » attribué ensuite (ex. un National Sales en secondaire doit voir
+    // TOUTES les demandes de congrès à pré-valider).
+    if (!blocked && secondaryRole && secondaryRole !== role) addRoleDefaults(secondaryRole);
+
+    // LES SECTIONS ne viennent QUE d'un accès personnalisé : un rôle n'en porte pas, et un
+    // accès bloqué n'en ouvre aucune. Les clés sont relues par la règle pure — une clé
+    // inconnue en base est écartée, jamais interprétée.
+    const sections = ov?.canView ? lireSections(ov.sections) : [];
+    if (hasView && !blocked) modules.set(module, { actions, scope, ...(sections.length ? { sections: new Set(sections) } : {}) });
+  }
+  return { modules, blockedModules };
 }
 
 /**
@@ -884,81 +1002,9 @@ export const getAccess = perRequest(
     // « Autre rôle » : l'utilisateur CUMULE son rôle principal ET son rôle secondaire.
     const secondaryRole = userRow?.secondaryRole ?? null;
 
-    const overrideMap = new Map(overrides.map((o) => [o.module as Module, o]));
-    const modules = new Map<Module, EffectiveModuleAccess>();
-    // Modules explicitement BLOQUÉS par l'administrateur. On les retient pour que les accès
-    // IMPLICITES posés plus bas (porter un dossier, se voir partager une catégorie…) ne défassent
-    // pas une décision prise à la main — un blocage qui se lèverait tout seul serait pire
-    // qu'inutile : il serait imprévisible.
-    const blockedModules = new Set<Module>();
-
-    for (const module of MODULES) {
-      // UN MODULE RETIRÉ N'ENTRE PAS DANS L'ACCÈS EFFECTIF — et c'est LA garde qui compte.
-      // `userCan` répond alors non partout d'un seul coup : écrans, actions serveur, routes
-      // d'API et outils d'Adam. Le masquage du menu ne fait que rendre l'interface cohérente ;
-      // s'il était seul, l'assistant continuerait de créer des projets dans un module retiré.
-      // Voir `lib/modules-retired.ts`.
-      if (isRetiredModule(module)) continue;
-      const ov = overrideMap.get(module);
-      // Override « BLOQUÉ » (ligne présente, canView=false) : **absolu**. Il retire le
-      // module quoi qu'il arrive — y compris par-dessus un défaut de rôle PRINCIPAL **ou
-      // SECONDAIRE**. C'est ce qui rend l'action de l'admin (« bloquer X à Untel »)
-      // réellement effective en temps réel, même si son « autre rôle » l'accorde.
-      const blocked = !!ov && !ov.canView;
-      if (blocked) blockedModules.add(module);
-      const actions = new Set<Action>();
-      let scope: AccessScope = "ASSIGNED";
-      let hasView = false;
-
-      const addRoleDefaults = (r: UserRole) => {
-        const def = PERMISSIONS[r]?.[module];
-        if (def?.includes("VIEW")) {
-          hasView = true;
-          for (const a of def) actions.add(a);
-          if (defaultScope(r, module) === "ALL") scope = "ALL";
-        }
-      };
-
-      // Rôle principal : l'override par utilisateur (s'il existe) REMPLACE ses défauts.
-      if (ov) {
-        if (ov.canView) {
-          hasView = true;
-          actions.add("VIEW");
-          if (ov.canCreate) actions.add("CREATE");
-          if (ov.canUpdate) actions.add("UPDATE");
-          if (ov.canDelete) actions.add("DELETE");
-          if (ov.canValidate) actions.add("VALIDATE");
-          if (ov.canExport) actions.add("EXPORT");
-          if (ov.canUpload) actions.add("UPLOAD");
-          if (ov.scope === "ALL") scope = "ALL";
-        }
-      } else {
-        addRoleDefaults(role);
-      }
-
-      // Un « accès personnalisé » (override) ne doit pas RÉTRÉCIR SILENCIEUSEMENT la
-      // portée qu'un rôle possède NATIVEMENT : si le rôle voit tout le module par défaut
-      // (ex. National Sales voit TOUTES les demandes de congrès à pré-valider), on conserve
-      // la portée ALL même quand l'admin a coché « accès personnalisé » sans (re)choisir
-      // « tout » dans le sélecteur de portée (qui retombe sinon sur ASSIGNED). Symétrique
-      // de la règle du rôle secondaire ci-dessous.
-      if (ov?.canView && defaultScope(role, module) === "ALL") scope = "ALL";
-
-      // Rôle SECONDAIRE : ses capacités se cumulent (union des actions, portée la plus
-      // large) — SAUF si l'admin a explicitement **BLOQUÉ** ce module pour ce compte :
-      // un blocage prime sur l'« autre rôle » (sinon on ne pourrait jamais retirer un
-      // module à quelqu'un qui le détient via son rôle secondaire). Hors blocage, un
-      // ancien réglage « accès personnalisé » ne doit pas neutraliser silencieusement
-      // l'« autre rôle » attribué ensuite (ex. un National Sales en secondaire doit voir
-      // TOUTES les demandes de congrès à pré-valider).
-      if (!blocked && secondaryRole && secondaryRole !== role) addRoleDefaults(secondaryRole);
-
-      // LES SECTIONS ne viennent QUE d'un accès personnalisé : un rôle n'en porte pas, et un
-      // accès bloqué n'en ouvre aucune. Les clés sont relues par la règle pure — une clé
-      // inconnue en base est écartée, jamais interprétée.
-      const sections = ov?.canView ? lireSections(ov.sections) : [];
-      if (hasView && !blocked) modules.set(module, { actions, scope, ...(sections.length ? { sections: new Set(sections) } : {}) });
-    }
+    // L'ACCÈS ATTRIBUÉ (rôle, « autre rôle », console) — la règle même où l'intérim lit ce que l'absent
+    // détient (`accesAttribue`, §118.196). Les accès IMPLICITES s'y ajoutent plus bas.
+    const { modules, blockedModules } = accesAttribue(role, secondaryRole, overrides);
 
     // ── Confidentialité STRICTE du Drive et des Projets (Dossiers) ──────────────
     // Ces deux modules sont « privés par conception » : on ne voit que SES fichiers /
@@ -1008,19 +1054,24 @@ export const getAccess = perRequest(
       actions: readonly Action[],
       scope: AccessScope | null,
       mode: "widen" | "replace" = "widen",
-    ) => {
+    ): boolean => {
       // LE BLOCAGE EXPLICITE PRIME, TOUJOURS. C'est la décision d'une personne, prise à la main,
       // devant l'écran des accès ; une règle automatique ne la défait pas.
-      if (blockedModules.has(module)) return;
+      if (blockedModules.has(module)) return false;
+      // UN MODULE RETIRÉ N'ENTRE PAS — pas plus par une porte implicite que par la console : la garde
+      // d'`accesAttribue` serait défaite par la première validation en attente qui le nomme, ou par un
+      // intérim (§118.75, §118.196).
+      if (isRetiredModule(module)) return false;
       const cur = modules.get(module);
       if (!cur || mode === "replace") {
         modules.set(module, { actions: new Set<Action>(actions), scope: scope ?? "ASSIGNED" });
-        return;
+        return true;
       }
       for (const a of actions) cur.actions.add(a);
       // On n'élargit la portée que vers le HAUT : un accès implicite ne rétrécit jamais ce
       // qu'un rôle accorde nativement.
       if (scope === "ALL") cur.scope = "ALL";
+      return true;
     };
 
     // ── Accès TEMPORAIRE de validation ──────────────────────────────────────────
@@ -1126,8 +1177,28 @@ export const getAccess = perRequest(
     // La délégation s'ÉTEINT SEULE : elle n'est calculée que si le congé couvre aujourd'hui.
     // Personne n'a rien à révoquer au retour, et c'est précisément ce qui la rend sûre — un
     // accès ouvert « pour cette fois » par un administrateur, lui, ne se referme jamais.
+    //
+    // CE QUI SE PRÊTE se lit sur ce que l'absent DÉTIENT (`accesAttribue`), borné par la matrice de
+    // son rôle principal — jamais la matrice seule (§118.196, lot E4 — audit 360°, M13) : un module
+    // qu'on lui a bloqué, un accès plus étroit que son rôle, un module retiré ne passent pas. Et ce
+    // qui en vient se DIT : `interims` nourrit le bandeau de la coque, `pretes` garde ce que la
+    // personne ne détenait pas elle-même — les gestes de droits le lisent (`estPrete`).
+    const interims: InterimEnCours[] = [];
+    const pretes = new Map<Module, Set<Action>>();
     for (const intérim of standIns) {
-      for (const d of intérim.delegations) grantImplicit(d.module, d.actions, null);
+      const ouverts: Module[] = [];
+      for (const d of intérim.delegations) {
+        const avant = modules.get(d.module)?.actions;
+        const neufs = d.actions.filter((a) => !avant?.has(a));
+        if (!grantImplicit(d.module, d.actions, null)) continue;
+        ouverts.push(d.module);
+        if (neufs.length > 0) {
+          const s = pretes.get(d.module) ?? new Set<Action>();
+          for (const a of neufs) s.add(a);
+          pretes.set(d.module, s);
+        }
+      }
+      interims.push({ absentId: intérim.absenteeUserId, absentNom: intérim.absenteeName, jusquau: intérim.endDate, modules: ouverts });
     }
 
     // ── PORTER UN DOSSIER RÉGLEMENTAIRE OUVRE LE MODULE ─────────────────────────
@@ -1224,6 +1295,7 @@ export const getAccess = perRequest(
       modules, rowGrants, secondaryRole, role,
       pipelineView: pipeline.view, pipelineManage: pipeline.manage,
       paymentCentreSeat: centreSeat > 0,
+      interims, pretes,
     };
   },
 );
@@ -1231,6 +1303,22 @@ export const getAccess = perRequest(
 /** Does the user's effective access permit this action on this module? */
 export function userCan(user: SessionUser, module: Module, action: Action): boolean {
   return user.access.modules.get(module)?.actions.has(action) ?? false;
+}
+
+/**
+ * CE DROIT NE TIENT-IL QU'À UN INTÉRIM ? (§118.196, lot E4 — audit 360°, M13)
+ *
+ * Un intérim prête des gestes de MÉTIER ; il ne prête pas le pouvoir d'accorder des droits. Les
+ * portes qui ouvrent ou ferment un accès — l'accès d'un tiers à une entité, la fermeture d'un compte,
+ * la désignation ou la validation d'un intérim — refusent un droit qui n'est que prêté : sinon
+ * l'intérimaire des RH ouvrirait des entités, fermerait des comptes et validerait des intérims au nom
+ * d'une personne absente, trois gestes qui survivent au retour du titulaire.
+ *
+ * Nommé `est…` exprès : la dérivation des contrats ne le prend pas pour une garde, et les portes
+ * gardent leur `userCan(user, "RH", "UPDATE")` littéral — `porte` et `gardes` ne bougent pas.
+ */
+export function estPrete(user: { access: EffectiveAccess }, module: Module, action: Action): boolean {
+  return user.access.pretes?.get(module)?.has(action) ?? false;
 }
 
 /**

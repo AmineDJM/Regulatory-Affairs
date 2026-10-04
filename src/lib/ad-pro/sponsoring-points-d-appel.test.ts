@@ -37,7 +37,12 @@ describe("le MOTEUR — ce qu'une étape qui conclut décide, et ce qu'elle déc
     // Deux lectures, une seule règle : la décision (émettre ou non) et la projection (le statut
     // écrit) doivent lire la même fonction, sinon une étape pourrait projeter PRE_VALIDATED tout
     // en émettant l'ordre global d'un accord à montant.
-    expect(moteur).toMatch(/argentDecideApres\s*=\s*entityType\s*===\s*"SPONSORING"\s*&&\s*conclut\s*&&\s*issueTerminaleSponsoring\(\s*step\s*\)\s*===\s*"PRE_VALIDATED"/);
+    // §118.197g : la décision juge l'étape EFFECTIVE (`lectureDeLApprobation` — celle qui conclut une route
+    // coupée hérite des pouvoirs d'argent des étapes non atteintes), et la projection reçoit LA MÊME : lire
+    // l'issue sur l'étape brute ici et sur l'étape effective là ferait diverger la décision et ce qu'elle projette.
+    expect(moteur).toMatch(/etape\s*\}\s*=\s*lectureDeLApprobation\(/);
+    expect(moteur).toMatch(/argentDecideApres\s*=\s*entityType\s*===\s*"SPONSORING"\s*&&\s*conclut\s*&&\s*issueTerminaleSponsoring\(\s*etape\s*\)\s*===\s*"PRE_VALIDATED"/);
+    expect(moteur).toMatch(/await\s+projectApprove\(\s*entityType\s*,\s*entityId\s*,\s*etape\s*,/);
     expect(corps(moteur, "projectApprove")).toMatch(/issueTerminaleSponsoring\(\s*step\s*\)/);
   });
 

@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import { requireModule } from "@/lib/session";
-import { userCan, hasGlobalView } from "@/lib/rbac";
+import { userCan, hasGlobalView, isTopManagement } from "@/lib/rbac";
 import { clauseDemandeLisible } from "@/lib/queries/admin-requests";
 import { prisma } from "@/lib/prisma";
 import { fieldLabels, REQUEST_TYPE_FIELDS } from "@/lib/admin-requests";
@@ -35,6 +35,7 @@ import { lireLignesDAchat } from "@/lib/general-means/purchase-request";
 import { auNomDeQui } from "@/lib/hr/stand-in-resolve";
 import { PurchaseLines } from "@/components/purchase/purchase-lines";
 import { porteDuDemandeur, refusDeModification, suitLaDemandeDeBcDuPoste, refusDemandeDeBcDuPoste } from "@/lib/secretariat/porte-demandeur";
+import { decideurAffiche, libelleMotif, interditSurSaPropreDemande } from "@/lib/secretariat/decision-approbation";
 
 const REQ_DOC_CATEGORIES = ["QUOTE", "INVOICE", "REQUEST_LETTER", "CONVENTION", "SUPPORTING_DOC", "PHOTO", "OTHER"];
 
@@ -51,7 +52,7 @@ export default async function RequestDetailPage({ params }: { params: { id: stri
       assignedTo: { select: { name: true } },
       validator: { select: { name: true } },
       department: { select: { name: true } },
-      approvals: { include: { validator: { select: { name: true } } }, orderBy: { createdAt: "desc" } },
+      approvals: { include: { validator: { select: { name: true } }, decidedBy: { select: { name: true } } }, orderBy: { createdAt: "desc" } },
       missions: { include: { assignedTo: { select: { name: true } } }, orderBy: { createdAt: "desc" } },
     },
   });
@@ -311,18 +312,28 @@ export default async function RequestDetailPage({ params }: { params: { id: stri
             <CardContent className="space-y-3 text-sm">
               {req.approvals.length === 0 ? (
                 <p className="text-muted-foreground">Aucune validation demandée.</p>
-              ) : req.approvals.map((a) => (
-                <div key={a.id} className="space-y-1 border-b border-border pb-2 last:border-0 last:pb-0">
-                  <div className="flex items-center justify-between">
-                    <StatusBadge map={ADMIN_APPROVAL_STATUS} value={a.status} dot={false} />
-                    {a.amount && <span className="font-medium">{formatCurrency(toNumber(a.amount))}</span>}
+              ) : req.approvals.map((a) => {
+                // QUI A TRANCHÉ, ET CE QU'IL A DIT (lot E5 — M14, M15) : « Validateur : X » se lisait comme la
+                // signature de X, alors que son intérimaire, l'assistante ou la Direction tranchent aussi.
+                const decideur = decideurAffiche({ status: a.status, decidedAt: a.decidedAt, decidedByName: a.decidedBy?.name ?? null });
+                return (
+                  <div key={a.id} className="space-y-1 border-b border-border pb-2 last:border-0 last:pb-0">
+                    <div className="flex items-center justify-between">
+                      <StatusBadge map={ADMIN_APPROVAL_STATUS} value={a.status} dot={false} />
+                      {a.amount && <span className="font-medium">{formatCurrency(toNumber(a.amount))}</span>}
+                    </div>
+                    <p className="text-xs text-muted-foreground">Validateur : {a.validator?.name ?? "—"}</p>
+                    {a.comment && <p className="text-xs">{a.comment}</p>}
+                    {decideur && <p className="text-xs text-muted-foreground">{decideur}{a.decidedAt ? ` le ${formatDateTime(a.decidedAt)}` : ""}</p>}
+                    {a.decisionNote && <p className="text-xs"><span className="text-muted-foreground">{libelleMotif(a.status)} :</span> {a.decisionNote}</p>}
+                    {/* Un bouton que l'action refuserait n'est pas un geste (§118.83) : on ne tranche pas sa propre demande. */}
+                    {a.status === "PENDING" && (canValidate || a.validatorId === user.id
+                      || (req.requesterId !== user.id && auNomInterim.nomDe(a.validatorId) !== null))
+                      && !interditSurSaPropreDemande({ estDemandeur: req.requesterId === user.id, sommet: isTopManagement(user) })
+                      && <ApprovalButtons approvalId={a.id} />}
                   </div>
-                  <p className="text-xs text-muted-foreground">Validateur : {a.validator?.name ?? "—"}</p>
-                  {a.comment && <p className="text-xs">{a.comment}</p>}
-                  {a.status === "PENDING" && (canValidate || a.validatorId === user.id
-                    || (req.requesterId !== user.id && auNomInterim.nomDe(a.validatorId) !== null)) && <ApprovalButtons approvalId={a.id} />}
-                </div>
-              ))}
+                );
+              })}
             </CardContent>
           </Card>
 

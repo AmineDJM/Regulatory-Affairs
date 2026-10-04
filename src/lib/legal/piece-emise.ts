@@ -155,6 +155,66 @@ export function refusRevisionAval(type: TypePieceEmise, aval: { kind: string; re
   return `${n.article} découle déjà de ${amont}${ref} : il ne se révise plus. Annulez d'abord ${n.nom} qui en découle — ${lui} redeviendra révisable.`;
 }
 
+/**
+ * LA PIÈCE DONT UNE PIÈCE ÉMISE DÉCOULE (audit 360°, lot D1c — F1) — le pendant d'`AVAL_QUI_FIGE`, lu dans
+ * l'autre sens : un bon de commande suit un devis ; une facture suit un devis ou un bon de commande ; un avoir
+ * suit SA facture (relue par la fabrique, `factureDeLAvoir`) ; un devis ne suit rien.
+ *
+ * Le compositeur n'envoyait jamais la pièce amont, et la fabrique n'en vérifiait que l'existence et la société :
+ * un BC pouvait « suivre » une facture, un devis annulé, ou — par un identifiant forgé — un devis que la personne
+ * ne lit pas. Un BC non chaîné à son devis part au mauvais centre de validation (son origine se lit sur le devis)
+ * et laisse le devis révisable sous lui. La fabrique (refus), le compositeur (son menu) et son chargeur lisent
+ * cette table — une seule (§118.5).
+ */
+export const NATURES_AMONT: Record<TypePieceEmise, readonly string[]> = {
+  DEVIS: [],
+  BON_DE_COMMANDE: ["QUOTE"],
+  FACTURE: ["QUOTE", "PURCHASE_ORDER"],
+  AVOIR: ["INVOICE"],
+};
+
+/** La pièce amont introuvable — ou illisible pour la personne : la MÊME phrase, pour ne rien révéler (§118.71). */
+export const PIECE_AMONT_INTROUVABLE = "La pièce amont (devis / bon de commande) n'existe plus.";
+
+const NATURE_ARTICLE: Record<string, string> = {
+  QUOTE: "un devis", PURCHASE_ORDER: "un bon de commande", INVOICE: "une facture", CREDIT_NOTE: "un avoir",
+  CONTRACT: "un contrat", AMENDMENT: "un avenant",
+};
+
+const TYPE_AMONT: Record<TypePieceEmise, { article: string; suit: string; dont: string }> = {
+  DEVIS: { article: "Un devis", suit: "", dont: "" },
+  BON_DE_COMMANDE: { article: "Un bon de commande", suit: "un devis", dont: "choisissez le devis dont il découle, ou aucune pièce" },
+  FACTURE: { article: "Une facture", suit: "un devis ou à un bon de commande", dont: "choisissez la pièce dont elle découle, ou aucune" },
+  AVOIR: { article: "Un avoir", suit: "sa facture", dont: "émettez-le depuis la fiche de la facture" },
+};
+
+/**
+ * Peut-on émettre une pièce de ce type À LA SUITE de cette pièce ? La NATURE d'abord, le statut ensuite ;
+ * `null` = elle se suit. La lecture (et l'absence) se jugent AVANT, chez l'appelant — avec la phrase de
+ * l'absence, pour qu'un identifiant forgé n'apprenne rien de la pièce qu'il désigne.
+ */
+export function refusPieceAmont(type: TypePieceEmise, amont: { kind: string; status: string; nom: string }): string | null {
+  const t = TYPE_AMONT[type];
+  if (NATURES_AMONT[type].length === 0) return `${t.article} ne fait suite à aucune pièce : retirez la pièce amont.`;
+  if (!NATURES_AMONT[type].includes(amont.kind)) {
+    return `${t.article} fait suite à ${t.suit} : la pièce « ${amont.nom} » est ${NATURE_ARTICLE[amont.kind] ?? "d'une autre nature"} — ${t.dont}.`;
+  }
+  if (amont.status === "CANCELLED") {
+    return `La pièce « ${amont.nom} » est annulée : une pièce ne fait pas suite à une pièce annulée — choisissez la pièce en vigueur, ou aucune.`;
+  }
+  return null;
+}
+
+/**
+ * La pièce IDENTIQUE déjà émise, rendue au lieu d'une nouvelle (§118.135) — et la pièce amont demandée qu'elle
+ * ne porte pas, DITE : sans cette phrase, réémettre un BC identique AVEC son devis rendait l'ancien, non
+ * chaîné, sans un mot. `null` quand rien n'est demandé, ou que la pièce rendue porte déjà cette pièce amont.
+ */
+export function phrasePieceAmontNonRattachee(numero: string, amontExistant: string | null, amontDemande: string | null): string | null {
+  if (!amontDemande || amontDemande === amontExistant) return null;
+  return `La pièce identique ${numero} ${amontExistant ? "fait suite à une autre pièce" : "ne fait suite à aucune pièce"} : la pièce amont demandée ne lui a pas été rattachée — ouvrez sa fiche, « Modifier » › « Fait suite à ».`;
+}
+
 /** Ce que l'écran de révision pré-remplit, lu dans la spécification de la version courante. */
 export interface SpecRevisable {
   lignes: {

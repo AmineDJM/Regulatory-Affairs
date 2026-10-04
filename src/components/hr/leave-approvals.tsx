@@ -10,6 +10,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { LEAVE_TYPE } from "@/lib/labels";
 import { type LeaveStage } from "@/lib/leave-workflow";
 import { formatDate, cn } from "@/lib/utils";
+import { depuisLisible } from "@/lib/calendar-tz";
 import { LeaveEditButton } from "./leave-edit";
 
 export interface PendingLeave {
@@ -28,6 +29,8 @@ export interface PendingLeave {
   sheet?: { label: string; value: string }[];
   /** En intérim : le N+1 absent au nom de qui l'on signe (I18). */
   pourLeCompteDe?: string | null;
+  /** Depuis quand la demande attend à sa marche (ISO — lot E2, 07-05). */
+  depuis?: string | null;
 }
 
 const STAGE_SHORT: Record<LeaveStage, string> = {
@@ -44,8 +47,11 @@ const STAGE_SHORT: Record<LeaveStage, string> = {
  * deviner ce que la précédente pensait. Le champ « note » est donc dans la ligne, pas derrière
  * un écran de plus.
  */
-function DecisionRow({ leave, canManage }: { leave: PendingLeave; canManage: boolean }) {
+function DecisionRow({ leave, canManage, maintenant }: { leave: PendingLeave; canManage: boolean; maintenant?: string }) {
   const router = useRouter();
+  // DEPUIS QUAND ÇA ATTEND (07-05) — la période dit quand la personne part, pas depuis quand elle attend
+  // une réponse. L'instant vient du serveur quand il le donne : le rendu et l'hydratation disent la même chose.
+  const attente = depuisLisible(leave.depuis, maintenant ? new Date(maintenant) : undefined);
   const [note, setNote] = React.useState("");
   const [busy, setBusy] = React.useState<"APPROVED" | "REJECTED" | null>(null);
   const [error, setError] = React.useState<string | null>(null);
@@ -101,6 +107,7 @@ function DecisionRow({ leave, canManage }: { leave: PendingLeave; canManage: boo
       <TableCell label="Étape">
         <Badge tone="warning" dot={false}>{STAGE_SHORT[leave.stage]}</Badge>
         {leave.pourLeCompteDe && <Badge tone="info" dot={false} className="mt-1">Intérim pour {leave.pourLeCompteDe}</Badge>}
+        {attente && <p className="mt-1 text-[0.6875rem] text-muted-foreground">En attente {attente}</p>}
       </TableCell>
       <TableCell label="Décision">
         <div className="flex flex-col items-stretch gap-1.5 md:items-end">
@@ -146,8 +153,8 @@ function DecisionRow({ leave, canManage }: { leave: PendingLeave; canManage: boo
  * déjà filtrée pour eux.
  */
 export function LeaveApprovals({
-  leaves, emptyHint, canManage = false,
-}: { leaves: PendingLeave[]; emptyHint?: string; canManage?: boolean }) {
+  leaves, emptyHint, canManage = false, maintenant,
+}: { leaves: PendingLeave[]; emptyHint?: string; canManage?: boolean; maintenant?: string }) {
   if (leaves.length === 0) {
     return (
       <EmptyState
@@ -172,7 +179,7 @@ export function LeaveApprovals({
           </TableRow>
         </TableHeader>
         <TableBody>
-          {leaves.map((l) => <DecisionRow key={l.id} leave={l} canManage={canManage} />)}
+          {leaves.map((l) => <DecisionRow key={l.id} leave={l} canManage={canManage} maintenant={maintenant} />)}
         </TableBody>
       </Table>
     </div>

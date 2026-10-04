@@ -9,9 +9,10 @@ import type { WorkflowCategory } from "./types";
  *
  * Personne n'approuve une demande qu'il émet lui-même : on saute toute étape située au niveau
  * ou en dessous du rang de son auteur. Ce module apporte ce que `parcours.ts` ne peut pas
- * savoir — le rang, qui se lit dans le RBAC — et lit la RÈGLE chez lui : la table des deux
- * bornes vit à UN seul endroit, sinon l'entrée et la sortie finissent par ne plus se
- * correspondre (§118.5), et le symptôme est une demande posée sur une étape que l'écran masque.
+ * savoir — le rang, qui se lit dans le RBAC — et lit la RÈGLE chez lui : la table des parcours
+ * (l'entrée, la borne, le tamis) vit à UN seul endroit, sinon l'entrée et la sortie finissent par
+ * ne plus se correspondre (§118.5), et le symptôme est une demande posée sur une étape que
+ * l'écran masque.
  * ═══════════════════════════════════════════════════════════════════════════════════════════
  */
 
@@ -56,11 +57,14 @@ export function adProOriginRank(user: OriginUser): number {
  * retiré, il n'avait plus aucun appelant de production, et un prédicat qu'aucun code n'interroge
  * est du code mort qui a l'air d'une règle (§118.14).
  *
- * Le champ `productManagerId` lui SURVIT : il reste lu (droits de la fiche, déclaration
- * d'information médicale) et accepté par les actions serveur. Le référent se configurera par
- * BUSINESS UNIT (« chaque BU aura son ou ses référents de la direction marketing depuis la
- * configuration des BU ») ; d'ici là rien ne l'écrit, et ses lecteurs se dégradent dans le sens
- * sûr — un droit de moins, jamais un droit de plus.
+ * Le champ `productManagerId` lui SURVIT : il reste lu (droits de la fiche, signataire de la
+ * déclaration d'information médicale — sponsoring, congrès et événement) et accepté par les
+ * actions serveur. Il est ÉCRIT à la création depuis la configuration de la BUSINESS UNIT
+ * (`referentAInscrire`, §118.144 — « chaque BU aura son ou ses référents de la direction
+ * marketing ») par les trois portes de création, et SEULEMENT quand la gamme désigne une personne
+ * à coup sûr : plusieurs référents n'en désignent aucun (§118.34). Sans référent, ses lecteurs se
+ * dégradent dans le sens sûr — un droit de moins, une signature sautée et DITE, jamais un droit de
+ * plus.
  * ═══════════════════════════════════════════════════════════════════════════════════════════
  */
 
@@ -95,8 +99,11 @@ export interface AdProInit {
  *
  * Les entrées tenues par `parcoursAdPro` (la nature ne change que la SUITE, jamais l'entrée) :
  *   • KAM → préliminaire (National Sales) ;
- *   • Direction / DG / Super Admin → directement Direction Marketing, qui TRANCHE ;
- *   • tout autre demandeur → porte du DG (franchie sous le seuil).
+ *   • rang 3 — Direction, DG, Directeur des opérations, Super Admin → directement Direction
+ *     Marketing, qui TRANCHE ;
+ *   • tous les autres — National Sales, Direction Marketing et Manager Promotion médicale
+ *     (rang 2), demandeur ordinaire → porte du DG (franchie sous le seuil). Ce qui les distingue
+ *     vient APRÈS : la borne et le tamis, que `ensureInstance` fige avec `parcoursEffectif`.
  *
  * Le rang l'emporte sur le métier : un délégué médical qui porte aussi Direction Marketing ne
  * s'arbitre pas sa propre demande — c'est la Direction qui tranche la sienne.

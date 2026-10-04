@@ -138,6 +138,12 @@ export async function enregistrerArticleDemandePromo(formData: FormData): Promis
   // retranscription se termine, serait chiffré par personne. Au choix des lignes, un article ajouté ou
   // corrigé RENVOIE le dossier à la retranscription — il faut le faire chiffrer (§118.190).
   const versRetranscription = pm.circuitState === "REVIEW_REQUESTER";
+  // Le LIBELLÉ avant la transaction : la raison de la réouverture s'y écrit (lot D1b).
+  const nomsProduits = v.article.produitIds.length
+    ? (await prisma.product.findMany({ where: { id: { in: v.article.produitIds } }, select: { id: true, canonicalName: true } })).map((p) => ({ id: p.id, nom: p.canonicalName }))
+    : [];
+  const libelle = libelleArticleDemande({ reference: catalogue!.reference, nom: catalogue!.nom, produits: nomsProduits, quantite: v.article.quantite, unite: catalogue!.unite });
+  const raison = `Article ${existant ? "corrigé" : "ajouté"} par le demandeur : ${libelle} — à faire chiffrer.`;
   let article: { id: string };
   try {
     article = await prisma.$transaction(async (tx) => {
@@ -146,29 +152,31 @@ export async function enregistrerArticleDemandePromo(formData: FormData): Promis
         data: { updatedById: user.id, ...(versRetranscription ? { circuitState: "QUOTE_REQUESTED" } : {}) },
       });
       if (pris.count === 0) throw new RefusComposition("Ce dossier vient de changer d'étape — rechargez la fiche.");
+      let ecrit: { id: string };
       if (existant) {
         await tx.promoRequestItemProduct.deleteMany({ where: { itemId: existant.id } });
-        return tx.promoRequestItem.update({ where: { id: existant.id }, data: { ...donnees, produits: { create: produits } }, select: { id: true } });
+        ecrit = await tx.promoRequestItem.update({ where: { id: existant.id }, data: { ...donnees, produits: { create: produits } }, select: { id: true } });
+      } else {
+        const rang = await tx.promoRequestItem.count({ where: { promoMaterialId: pm.id } });
+        ecrit = await tx.promoRequestItem.create({
+          data: { ...donnees, promoMaterialId: pm.id, position: rang, createdById: user.id, produits: { create: produits } },
+          select: { id: true },
+        });
       }
-      const rang = await tx.promoRequestItem.count({ where: { promoMaterialId: pm.id } });
-      return tx.promoRequestItem.create({
-        data: { ...donnees, promoMaterialId: pm.id, position: rang, createdById: user.id, produits: { create: produits } },
-        select: { id: true },
-      });
-    });
+      // RENVOYÉ À LA RETRANSCRIPTION, le dossier rouvre sa demande au secrétariat DANS la même transaction
+      // (lot D1b) : rouverte après coup, une fin de retranscription passée entre les deux la laissait « à
+      // traiter » sur un dossier revenu au choix — et une panne entre les deux, close sur un dossier revenu
+      // chez l'assistante.
+      if (versRetranscription) await rouvrirDemandeAuSecretariat(tx, user.id, pm.id, raison);
+      return ecrit;
+    }, { timeout: 15_000, maxWait: 15_000 });
   } catch (e) {
     if (e instanceof RefusComposition) return { ok: false, error: e.message };
     throw e;
   }
 
-  const nomsProduits = v.article.produitIds.length
-    ? (await prisma.product.findMany({ where: { id: { in: v.article.produitIds } }, select: { id: true, canonicalName: true } })).map((p) => ({ id: p.id, nom: p.canonicalName }))
-    : [];
-  const libelle = libelleArticleDemande({ reference: catalogue!.reference, nom: catalogue!.nom, produits: nomsProduits, quantite: v.article.quantite, unite: catalogue!.unite });
   await audit(user, pm.id, `Article demandé ${existant ? "corrigé" : "ajouté"} — ${libelle}${versRetranscription ? " (retour à la retranscription)" : ""}`);
   if (ETATS_ASSISTANTE.has(pm.circuitState ?? "")) {
-    const raison = `Article ${existant ? "corrigé" : "ajouté"} par le demandeur : ${libelle} — à faire chiffrer.`;
-    if (versRetranscription) await rouvrirDemandeAuSecretariat(user.id, pm.id, raison);
     await prevenirAssistante(pm, "Matériel promotionnel — un article demandé a changé", raison);
   }
   revalidatePath(chemin(pm.id));

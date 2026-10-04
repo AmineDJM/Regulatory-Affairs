@@ -15,7 +15,7 @@ import { promoManagerOf } from "@/lib/queries/promo-material";
 import { etatApresRenvoi, attendSaCorrection, refusParLeDemandeur, REFUS_EN_CORRECTION } from "@/lib/promo-material/renvoi";
 import { ecrireAuFil } from "@/lib/ad-pro/fil";
 import {
-  contexteDuDossier, validateursDeLaDemande, validateursMarketing, devisDuDossier, devisLu,
+  contexteDuDossier, validateursDeLaDemande, validateursMarketing, devisLu, SELECT_DEVIS,
 } from "@/lib/queries/promo-circuit";
 import { totauxDeLaSelection, formatDzd } from "@/lib/promo-material/devis";
 import { verdictDuChantierPromo } from "@/lib/queries/promo-execution";
@@ -41,6 +41,15 @@ import { chantierPaiementClos, etatDeLOrdre, type PieceDeReglement } from "@/lib
 
 const PATH = "/promo-material";
 const path = (id: string) => `${PATH}/${id}`;
+/** La phrase de toute écriture qui trouve le dossier passé à une autre étape entre sa lecture et son écriture. */
+const ETAPE_CHANGEE = "Ce dossier vient de changer d'étape — rechargez la fiche.";
+/**
+ * Ce que l'écran a envoyé n'est plus la sélection : un autre choix s'est enregistré entre l'envoi et la
+ * validation. Valider la sélection du moment ferait valider ce que la personne n'a pas vu (§118.187).
+ */
+const CHOIX_CHANGE = "La sélection a changé pendant votre validation (un autre onglet, ou un déblocage du Super Admin) : rien n'a été validé — rechargez la fiche, vérifiez les lignes retenues, puis validez.";
+/** Le refus d'une écriture qui a perdu la course — levé dans la transaction pour l'annuler entière, rattrapé à sa sortie. */
+class RefusEtape extends Error {}
 
 /**
  * LES RÈGLEMENTS RATTACHÉS À UN DOSSIER — tout ce qui peut porter son paiement (§118.148).
@@ -255,6 +264,15 @@ async function validateursDeLEtape(
  *
  * La transition est CONDITIONNELLE (`updateMany` sur l'état lu) : deux validateurs qui cliquent
  * ensemble ne font pas avancer le dossier deux fois, ni ne préviennent deux fois l'étape suivante.
+ *
+ * LE CHOIX DU DEMANDEUR SE LIT SOUS LE VERROU DU DOSSIER (lot D1b). La sélection, le montant qu'on fige et la
+ * porte du DG qu'il ouvre se lisaient AVANT l'écriture conditionnelle — qui ne regardait que l'étape : un choix
+ * enregistré entre les deux (un autre onglet, un déblocage du Super Admin) faisait partir le dossier avec un
+ * montant figé sur une sélection qui n'était plus celle des lignes cochées, donc des bons de commande. La
+ * transaction prend le verrou, relit l'étape, puis la sélection ; toute écriture de la sélection prend le même
+ * verrou en premier (`choisirLignesPromo`, la correction). `lignesVues` — ce que `choisirLignesPromo` vient
+ * d'enregistrer — n'est validé que s'il est encore la sélection : un accord ne couvre pas plus que ce qu'il a
+ * vu (§118.187).
  */
 export async function validatePromoStep(formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
@@ -272,32 +290,60 @@ export async function validatePromoStep(formData: FormData): Promise<ActionResul
     return { ok: false, error: `Cette étape ne vous revient pas — elle attend : ${libelleEtape(state, version)}.` };
   }
 
-  // LE CHOIX DU DEMANDEUR (circuit 2) : sans ligne retenue, il n'y a rien à valider — et le montant
-  // retenu devient celui du dossier, avec les fournisseurs dont une ligne est retenue.
-  let fige: { chosenAmount: number; chosenAgency: string } | null = null;
-  if (version === 2 && state === "REVIEW_REQUESTER") {
-    const devis = (await devisDuDossier(id)).map(devisLu);
-    const totaux = totauxDeLaSelection(devis);
-    if (totaux.lignes === 0) return { ok: false, error: "Retenez au moins une ligne de devis avant de valider votre choix." };
-    const fournisseurs = devis.filter((d) => d.lines.some((l) => l.selected)).map((d) => d.supplierName);
-    fige = { chosenAmount: totaux.ttc, chosenAgency: fournisseurs.join(", ") };
+  const choixDuDemandeur = version === 2 && state === "REVIEW_REQUESTER";
+  const vues = formData.getAll("lignesVues").map((x) => String(x)).filter(Boolean);
+  const lignesVues = vues.length > 0 ? new Set(vues) : null;
+  const ctxLu = await contexteDuDossier(item);
+
+  let resultat: { fige: { chosenAmount: number; chosenAgency: string } | null; next: PromoStep };
+  try {
+    resultat = await prisma.$transaction(async (tx) => {
+      let fige: { chosenAmount: number; chosenAgency: string } | null = null;
+      let ctx = ctxLu;
+      // LE CHOIX DU DEMANDEUR (circuit 2) : sans ligne retenue, il n'y a rien à valider — et le montant
+      // retenu devient celui du dossier, avec les fournisseurs dont une ligne est retenue.
+      if (choixDuDemandeur) {
+        const [etat] = await tx.$queryRaw<{ circuitState: string | null; circuitVersion: number }[]>`
+          SELECT "circuitState", "circuitVersion" FROM "PromoMaterial" WHERE id = ${id} FOR UPDATE`;
+        // L'ÉTAPE D'ABORD (§118.18) : un dossier reparti chez l'assistante pendant qu'on attendait ne se fait pas
+        // répondre « retenez au moins une ligne » parce que la correction a effacé la sélection.
+        if (!etat || etat.circuitVersion !== 2 || etat.circuitState !== "REVIEW_REQUESTER") throw new RefusEtape(ETAPE_CHANGEE);
+        const devis = (await tx.promoQuote.findMany({
+          where: { promoMaterialId: id }, orderBy: [{ position: "asc" }, { createdAt: "asc" }], select: SELECT_DEVIS,
+        })).map(devisLu);
+        if (lignesVues) {
+          const retenues = devis.flatMap((d) => d.lines.filter((l) => l.selected).map((l) => l.id));
+          if (retenues.length !== lignesVues.size || retenues.some((x) => !lignesVues.has(x))) throw new RefusEtape(CHOIX_CHANGE);
+        }
+        const totaux = totauxDeLaSelection(devis);
+        if (totaux.lignes === 0) throw new RefusEtape("Retenez au moins une ligne de devis avant de valider votre choix.");
+        const fournisseurs = devis.filter((d) => d.lines.some((l) => l.selected)).map((d) => d.supplierName);
+        fige = { chosenAmount: totaux.ttc, chosenAgency: fournisseurs.join(", ") };
+        // Le montant du contexte EST celui qu'on fige — la règle de `contexteDuDossier` (le TTC des lignes
+        // retenues), appliquée à la sélection lue sous le verrou : lue avant, elle pouvait ouvrir ou fermer la
+        // porte du DG sur un autre choix que celui qu'on fige.
+        ctx = { ...ctxLu, montant: totaux.ttc };
+      }
+      const next = nextStep(state as PromoStep, ctx);
+      if (!next) throw new RefusEtape("Ce dossier est au bout de son circuit.");
+      // AVANCER RÉPOND AU RENVOI (§118.190) : le choix revalidé, la marque et son motif s'effacent — ils
+      // restent au fil et au journal. Une avance qui les laisserait ferait relire « À corriger » à
+      // chaque étape suivante, sur un dossier que plus personne n'a à corriger.
+      const avance = await tx.promoMaterial.updateMany({
+        where: { id, circuitState: state },
+        data: {
+          circuitState: next, updatedById: user.id, ...(fige ?? {}),
+          returnedAt: null, returnedById: null, returnNote: null, returnedFrom: null,
+        },
+      });
+      if (avance.count === 0) throw new RefusEtape(ETAPE_CHANGEE);
+      return { fige, next };
+    }, { timeout: 15_000, maxWait: 15_000 });
+  } catch (e) {
+    if (e instanceof RefusEtape) return { ok: false, error: e.message };
+    throw e;
   }
-
-  const ctx = await contexteDuDossier(item);
-  const next = nextStep(state as PromoStep, ctx);
-  if (!next) return { ok: false, error: "Ce dossier est au bout de son circuit." };
-
-  // AVANCER RÉPOND AU RENVOI (§118.190) : le choix revalidé, la marque et son motif s'effacent — ils
-  // restent au fil et au journal. Une avance qui les laisserait ferait relire « À corriger » à
-  // chaque étape suivante, sur un dossier que plus personne n'a à corriger.
-  const avance = await prisma.promoMaterial.updateMany({
-    where: { id, circuitState: state },
-    data: {
-      circuitState: next, updatedById: user.id, ...(fige ?? {}),
-      returnedAt: null, returnedById: null, returnNote: null, returnedFrom: null,
-    },
-  });
-  if (avance.count === 0) return { ok: false, error: "Ce dossier vient de changer d'étape — rechargez la fiche." };
+  const { fige, next } = resultat;
   await recordAudit({
     actorId: user.id, action: "UPDATE", module: "Matériel promotionnel",
     entityType: "PROMO_MATERIAL", entityId: id,
@@ -551,14 +597,20 @@ export async function completePromoTrack(formData: FormData): Promise<ActionResu
   const nextDone = [...done, track as PromoTrack];
   const finished = allTracksDone(nextDone);
 
-  await prisma.promoMaterial.update({
-    where: { id },
+  // CONDITIONNELLE SUR CE QUI A ÉTÉ LU (lot D1b) : l'étape ET les chantiers déjà clos. Deux chantiers clos à
+  // la même seconde lisaient la même liste et le second effaçait le premier — un chantier clos redevenait
+  // ouvert sans que personne l'ait rouvert ; un dossier annulé pendant qu'on clôturait son dernier chantier
+  // repassait « terminé ». Les verdicts lus plus haut (BC signés, paiements réglés) portent sur d'autres
+  // pièces : leur course est d'une autre nature, et n'est pas fermée ici.
+  const ecrit = await prisma.promoMaterial.updateMany({
+    where: { id, circuitState: item.circuitState, tracksDone: item.tracksDone },
     data: {
       tracksDone: nextDone.join(","),
       ...(finished ? { circuitState: "COMPLETED" } : {}),
       updatedById: user.id,
     },
   });
+  if (ecrit.count === 0) return { ok: false, error: "Ce dossier vient de changer — un autre chantier vient d'être clos, ou son étape a changé : rechargez la fiche." };
   await recordAudit({
     actorId: user.id, action: "UPDATE", module: "Matériel promotionnel",
     entityType: "PROMO_MATERIAL", entityId: id,

@@ -100,3 +100,54 @@ export function repriseApresCorrection(
 export function resoumissionSurPlace(demande: { entityType: string | null; documentId?: string | null }): boolean {
   return !demande.entityType && !demande.documentId;
 }
+
+/**
+ * L'INSTANT DE LA DERNIÈRE RESOUMISSION, lu dans les traces du journal (lot E2 — 07-05).
+ *
+ * La resoumission (`resoumettreValidation`) est le SEUL écrivain qui trace le champ « version » d'une
+ * demande de validation, avec la version atteinte. On ne retient que la trace de la version COURANTE :
+ * si elle manque (une écriture de journal perdue), une trace plus ancienne daterait la reprise d'une
+ * correction précédente — une ancienneté fausse, dans le sens qui accuse. On rend alors `null`.
+ */
+export function instantDeReprise(
+  traces: readonly { newValue: string | null; createdAt: Date }[],
+  version: number,
+): Date | null {
+  if (version <= 1) return null;
+  let t: Date | null = null;
+  for (const tr of traces) {
+    if (tr.newValue !== String(version)) continue;
+    if (!t || tr.createdAt > t) t = tr.createdAt;
+  }
+  return t;
+}
+
+/**
+ * DEPUIS QUAND CETTE ÉTAPE EST À SON TOUR (lot E2 — audit 360°, 07-05) — l'instant où la décision est
+ * devenue possible, pas celui où la demande a été déposée.
+ *
+ *   · En PARALLÈLE, chaque étape est à son tour dès le dépôt.
+ *   · En SÉQUENTIEL, l'étape du rang N l'est quand le rang précédent a décidé : on prend la plus
+ *     récente décision des rangs inférieurs. Dater l'étape 3 du dépôt ferait porter au troisième
+ *     validateur les jours que les deux premiers ont pris.
+ *   · Une demande RESOUMISE (version > 1) repart à la resoumission : les accords d'avant le renvoi
+ *     datent d'avant la correction. Sans instant de reprise connu, on ne date pas (§118.16).
+ */
+export function depuisEtapeValidation(e: {
+  mode: "SEQUENTIAL" | "PARALLEL" | string;
+  ordre: number;
+  creeLe: Date;
+  version: number;
+  etapes: readonly { ordre: number; decideeLe: Date | null }[];
+  reprise: Date | null;
+}): Date | null {
+  if (e.version > 1 && e.reprise === null) return null;
+  let t = e.creeLe.getTime();
+  if (e.reprise) t = Math.max(t, e.reprise.getTime());
+  if (e.mode === "SEQUENTIAL") {
+    for (const s of e.etapes) {
+      if (s.ordre < e.ordre && s.decideeLe) t = Math.max(t, s.decideeLe.getTime());
+    }
+  }
+  return new Date(t);
+}

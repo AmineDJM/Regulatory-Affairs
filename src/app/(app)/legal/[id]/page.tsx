@@ -30,6 +30,7 @@ import { PartagerButton } from "@/components/shared/partager-button";
 import { legalReaderWhere, canManageLegalReaders } from "@/lib/lecteurs/legal";
 import { LegalAccessPanel } from "./access-panel";
 import { loadLegalChain, piecesAmontProposees } from "@/lib/queries/legal-chain";
+import { perimetreLegal } from "@/lib/queries/visibilite-listes";
 import { valeurContractuelleCourante } from "@/lib/pch/market-math";
 import { MarketContext } from "./market-context";
 import { LegalChainCard } from "./chain-card";
@@ -180,7 +181,12 @@ export default async function LegalDocumentPage({ params }: { params: { id: stri
     prisma.legalFolder.findMany({ select: { id: true, name: true, parentId: true } }),
     // Les pièces amont possibles pour rattacher CE document à sa chaîne d'achat — et la pièce
     // ACTUELLE toujours, sans quoi « Enregistrer » détachait une facture d'un BC ancien (§118.168).
-    piecesAmontProposees({ userId: user.id, readerScope, docId: doc.id, actuelId: doc.chainFromId }),
+    // Par LA porte de la liste (`perimetreLegal`, lot D1c) : les Finances ne lisent pas les devis, le menu ne leur en
+    // montre pas les titres — et la pièce actuelle qu'elles ne lisent pas garde son libellé NEUTRE (§118.168). Sans
+    // porte de liste (aucune nature lisible), le menu ne propose rien.
+    perimetreLegal(user).then((perimetre) => piecesAmontProposees({
+      userId: user.id, readerScope: perimetre.where ?? { id: { in: [] } }, docId: doc.id, actuelId: doc.chainFromId,
+    })),
     // La chaîne complète : maillons, validateurs de chacun, règlement au bout.
     loadLegalChain(doc.id),
   ]);
