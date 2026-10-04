@@ -417,7 +417,7 @@ describe("Cliquet — tout appelant de production appelle SANS rien injecter (§
     expect(appelsDe("structurerParModele({ nomFichier: \"a, b\" })", "structurerParModele")).toEqual([1]);
   });
 
-  it("aucun fichier de production n'injecte de dépendances — le service de lecture (D2-D), dès qu'il existe, appelle", () => {
+  it("aucun fichier de production n'injecte de dépendances — et le service de lecture (D2-D) EST l'appelant, sans rien injecter", () => {
     const module = join(RACINE, "src/lib/lecture-pieces-ia.ts");
     const fautifs: string[] = [];
     const appelants = new Set<string>();
@@ -433,8 +433,12 @@ describe("Cliquet — tout appelant de production appelle SANS rien injecter (§
       }
     }
     expect(fautifs, "un appelant de production qui injecte désarme les portes en ayant l'air armé").toEqual([]);
-    // Le service de lecture en est l'appelant prévu par le plan : le jour où il existe, il DOIT passer par ici.
+    // LE SERVICE DE LECTURE EST L'APPELANT DE PRODUCTION (D2-D) — et le cliquet est FERME : un service
+    // déplacé ou renommé sans que ce banc le suive ne doit pas le rendre vert en ne trouvant rien (§118.17).
     const service = "src/lib/pieces-lues/service.ts";
-    if (existsSync(join(RACINE, service))) expect([...appelants]).toContain(service);
+    expect(existsSync(join(RACINE, service)), "le service de lecture a disparu : son appel des portes n'est plus gardé").toBe(true);
+    expect([...appelants], "le service de lecture doit passer par `structurerParModele`, sans rien injecter").toContain(service);
+    const appelsDuService = appelsDe(sansCommentaires(readFileSync(join(RACINE, service), "utf8")), "structurerParModele");
+    expect(appelsDuService.length, "le service n'appelle plus la lecture des lignes").toBeGreaterThan(0);
   });
 });

@@ -89,7 +89,7 @@ export type MoteurOcr = (args: { ext: string; buffer: Buffer; cloud?: boolean; m
 }>;
 
 /** Le moteur de production : `ocrDocument`, et ce qu'il dit de sa lecture (pages lues, moteur réel). */
-const moteurParDefaut: MoteurOcr = async ({ ext, buffer, cloud, maxPages }) => {
+export const moteurParDefaut: MoteurOcr = async ({ ext, buffer, cloud, maxPages }) => {
   const r = await ocrDocument({ ext, buffer, cloud, maxPages });
   return {
     text: r.text, meanConfidence: r.meanConfidence, needsReview: r.needsReview, pageCount: r.pageCount,

@@ -6814,6 +6814,11 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 
 ## 🧾 Journal des évolutions récentes
 
+### POSTES AD & PRO : CEUX QUI DÉCIDENT SONT PRÉVENUS ; LECTURE DES PIÈCES PAR LUNA ET DEVIS PRÉREMPLI (2026-10)
+
+- **Notifications des postes** (`ad-pro-item-actions.ts:valideursDuPoste`) : la soumission et la demande de révision d'un poste préviennent les rôles que la MATRICE laisse décider (`rolesWithModule(module, "VALIDATE")` + Direction + Super Admin) — la Direction Marketing sur un congrès comprise ; un poste ajouté hors budget ou après la décision est signalé en lecture aux mêmes personnes. Banc `ad-pro/postes-notifications.test.ts`.
+- **Lecture des pièces (lot D2-D/E)** : service `pieces-lues/service.ts` (`proposerLecture`, confirmation obligatoire avant écriture), devis promo prérempli depuis le scan (`lireScanDevisPromo`, `quotes-card.tsx`). Un scan est lu par **Luna** (`pieces-lues/moteur-luna.ts`) quand la pièce peut sortir et que la bascule « lecture des pièces » est ouverte ; sinon moteur local, jamais d'OCR externe ; une pièce confidentielle ne part jamais.
+
 ### VAGUE « RESTES 2 » : UNE PIÈCE VALIDÉE RELIT SA DEMANDE, UNE SEULE RÈGLE DE DÉPART DES COMPTAGES, UN LIVRABLE REPRIS N'EST PLUS VÉRIFIÉ (2026-10)
 
 Quatre défauts que la vague « restes » avait nommés sans les réparer. Doctrine : `CLAUDE.md` §118.199.

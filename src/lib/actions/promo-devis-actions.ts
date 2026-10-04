@@ -11,10 +11,16 @@ import { notifyUser, notifyRoles } from "@/lib/notify";
 import { hasGlobalView, type SessionUser } from "@/lib/rbac";
 import { buildRef, createWithRetry } from "@/lib/refs";
 import { persistUploadedDocument } from "@/lib/documents";
-import { deleteFileByKey } from "@/lib/storage";
+import { deleteFileByKey, readFileByKey, validateDocumentUpload } from "@/lib/storage";
+import { getAppSettings } from "@/lib/settings";
 import { mirrorDocumentsToDrive } from "@/lib/drive/document-mirror";
 import { resolveParties } from "@/lib/queries/company-contacts";
-import { fdStr, fdNum, fdDate, type ActionResult } from "@/lib/actions/types";
+import { fdStr, fdNum, fdDate, fdCase, type ActionResult } from "@/lib/actions/types";
+import { empreinteDe } from "@/lib/pieces-lues/lecture-fichier";
+import {
+  annuaireDeLecture, consignerConfirmation, exigerLectureConfirmee, proposerLecture, RefusLecture, type ConfirmationPrete,
+} from "@/lib/pieces-lues/service";
+import { lectureDevisPromo, lignesProposeesDevisPromo, type LectureDevisPromo } from "@/lib/pieces-lues/prerempli-devis-promo";
 import { manquesDeRetranscription, totauxDeLaSelection, formatDzd, type DevisLu } from "@/lib/promo-material/devis";
 import { demandeLesDevis, retranscritLesDevis, choisitLesLignes } from "@/lib/promo-material/circuit";
 import { devisLu, SELECT_DEVIS } from "@/lib/queries/promo-circuit";
@@ -122,6 +128,17 @@ async function retirerScanOrphelin(userId: string, pmId: string, documentId: str
     console.error("[devis promo] scan orphelin non retiré", documentId, err);
     return false;
   }
+}
+
+/**
+ * LES OCTETS DU SCAN QU'UN DEVIS PORTE DÉJÀ — pour confirmer une lecture sans re-joindre le fichier
+ * (lot D2-E). Seulement une pièce de CE dossier : un identifiant de document venu d'ailleurs ne se lit
+ * pas. `null` quand la pièce ou son binaire manque — la garde demande alors de joindre le scan.
+ */
+async function octetsDuScan(pmId: string, documentId: string): Promise<Buffer | null> {
+  const doc = await prisma.document.findFirst({ where: { id: documentId, entityType: "PROMO_MATERIAL", entityId: pmId }, select: { fileKey: true } });
+  if (!doc?.fileKey) return null;
+  return readFileByKey(doc.fileKey).catch(() => null);
 }
 
 /** La référence d'une demande au secrétariat — la même série que les demandes de devis des postes. */
@@ -254,7 +271,13 @@ export async function demanderDevisPromo(formData: FormData): Promise<ActionResu
 
 // ───────────────────────── 2. L'assistante retranscrit ─────────────────────────
 
-type LigneLue = { reference: string; unit: string | null; quantity: number; unitPrice: number; action: PromoAction; requestItemId: string | null };
+type LigneLue = {
+  reference: string; unit: string | null; quantity: number; unitPrice: number; action: PromoAction; requestItemId: string | null;
+  /** Le rang de la ligne LUE sur le scan dont elle vient (lot D2-E) ; `null` : saisie à la main. */
+  lue: number | null;
+  /** La case « vérifiée » de cette ligne — ce que la personne atteste avoir comparé au papier. */
+  verifiee: boolean;
+};
 
 /**
  * Une ligne lue du formulaire, ou le motif qui la refuse (avec son rang, pour qu'on la retrouve).
@@ -262,6 +285,10 @@ type LigneLue = { reference: string; unit: string | null; quantity: number; unit
  * Chaque ligne porte l'ACTION qu'elle chiffre (§118.165) — conception, impression… : c'est elle qui
  * dira, à la réception, si ce qui arrive entre au stock. Et, si elle chiffre un article DEMANDÉ, son
  * rattachement ; une ligne sans article est une ligne « en plus », que le demandeur pourra retenir.
+ *
+ * Préremplie depuis le scan (lot D2-E), elle porte aussi le RANG de la ligne lue dont elle vient et sa
+ * case « vérifiée » — deux champs cachés par rangée, alignés comme les autres : une case décochée
+ * n'envoyant rien, la rangée envoie « 1 » ou « 0 », jamais un vide qui décalerait les suivantes.
  */
 function lireLignes(formData: FormData): { ok: true; lignes: LigneLue[] } | { ok: false; error: string } {
   const refs = formData.getAll("ligneReference").map((x) => String(x ?? "").trim());
@@ -270,6 +297,8 @@ function lireLignes(formData: FormData): { ok: true; lignes: LigneLue[] } | { ok
   const prix = formData.getAll("lignePrix").map((x) => String(x ?? "").trim());
   const actions = formData.getAll("ligneAction").map((x) => String(x ?? "").trim());
   const articles = formData.getAll("ligneArticle").map((x) => String(x ?? "").trim());
+  const rangsLus = formData.getAll("ligneLue").map((x) => String(x ?? "").trim());
+  const cases = formData.getAll("ligneVerifiee").map((x) => String(x ?? "").trim());
   const n = Math.max(refs.length, quantites.length, prix.length);
   const lignes: LigneLue[] = [];
   const nombre = (s: string) => (s === "" ? NaN : Number(s.replace(/\s/g, "").replace(",", ".")));
@@ -287,9 +316,59 @@ function lireLignes(formData: FormData): { ok: true; lignes: LigneLue[] } | { ok
     if (!estAction(action)) {
       return { ok: false, error: `Ligne ${i + 1} (« ${r} ») : choisissez l'action qu'elle chiffre (conception, impression, fabrication, achat, location…) — c'est elle qui dira à la réception si ce qui arrive entre au stock.` };
     }
-    lignes.push({ reference: r, unit: (unites[i] ?? "") || null, quantity, unitPrice, action, requestItemId: (articles[i] ?? "") || null });
+    const rangLu = Number(rangsLus[i] ?? "");
+    lignes.push({
+      reference: r, unit: (unites[i] ?? "") || null, quantity, unitPrice, action, requestItemId: (articles[i] ?? "") || null,
+      lue: rangsLus[i] && Number.isInteger(rangLu) && rangLu > 0 ? rangLu : null,
+      verifiee: cases[i] === "1",
+    });
   }
   return { ok: true, lignes };
+}
+
+/**
+ * LIRE LE SCAN D'UN DEVIS (lot D2-E) — la lecture PROPOSE ce que l'assistante aurait recopié, elle
+ * n'écrit rien : ni devis, ni pièce, ni confirmation. Les mêmes portes que la retranscription — la
+ * lecture sert la retranscription, elle n'ouvre rien de plus : l'ancien circuit, une autre personne
+ * que celle qui retranscrit (le demandeur choisira ses lignes, il ne lit pas le papier à sa place),
+ * une autre étape que « devis demandés » sont refusés AVANT qu'aucun octet soit lu.
+ *
+ * La lecture est locale (texte du fichier, OCR sur ce serveur) ; les lignes ne partent chez le
+ * fournisseur d'IA que si la Direction l'a permis (Contrôle de l'IA), une seule fois par fichier. Le
+ * scan d'un devis d'agence se dépose en pièce INTERNE du dossier : sa sortie vers le modèle est donc
+ * permise — une pièce confidentielle, elle, ne sort jamais (décision 5, tenue par le service).
+ */
+export async function lireScanDevisPromo(formData: FormData): Promise<ActionResult & { lecture?: LectureDevisPromo }> {
+  const user = await requireUser();
+  const pm = await chargerDossier(fdStr(formData, "promoMaterialId"));
+  if (!pm) return { ok: false, error: "Dossier introuvable." };
+  const v = refusVersion(pm);
+  if (v) return { ok: false, error: v };
+  if (!retranscrit(user, pm)) return { ok: false, error: "La lecture d'un scan de devis sert sa retranscription : elle revient à l'assistante de direction." };
+  if (pm.circuitState !== "QUOTE_REQUESTED") {
+    return { ok: false, error: "Un scan de devis ne se lit que pendant l'étape « devis demandés » — c'est elle qui retranscrit." };
+  }
+  const scan = formData.get("scan");
+  if (!(scan instanceof File) || scan.size === 0) return { ok: false, error: "Choisissez le scan du devis à lire." };
+  const invalide = validateDocumentUpload(scan.name, scan.size, (await getAppSettings()).maxUploadMb);
+  if (invalide) return { ok: false, error: `Scan « ${scan.name} » : ${invalide}` };
+
+  const octets = Buffer.from(await scan.arrayBuffer());
+  const { annuaireVisible, groupe } = await annuaireDeLecture(user.id);
+  const r = await proposerLecture({
+    user, octets, nomFichier: scan.name,
+    contexte: { cible: "PROMO_QUOTE", sortieCloudPermise: true, annuaireVisible, groupe },
+  });
+  if (!r.ok) return { ok: false, error: r.error };
+  const lecture = lectureDevisPromo(r.proposition, annuaireVisible.map((c) => c.id));
+  const n = lecture.prerempli.lignes.length;
+  return {
+    ok: true,
+    lecture,
+    message: n > 0
+      ? `Scan lu : ${n} ligne${n > 1 ? "s" : ""} proposée${n > 1 ? "s" : ""} — comparez chacune au papier, puis cochez-la.`
+      : `Scan lu : en-tête et totaux repérés — ${lecture.sansLignes ?? "aucune ligne lue ; saisissez-les depuis le papier."}`,
+  };
 }
 
 /**
@@ -303,6 +382,10 @@ function lireLignes(formData: FormData): { ok: true; lignes: LigneLue[] } | { ok
  * L'étape lue en haut ne se croit pas jusqu'à l'écriture : la transaction commence par une écriture
  * CONDITIONNELLE sur « devis demandés », et un geste qui a perdu la course ne laisse rien derrière
  * lui — pas même le scan qu'il venait de déposer.
+ *
+ * Prérempli depuis le scan (`lectureId`, lot D2-E), il exige la lecture CONFIRMÉE — le fichier lu,
+ * chaque ligne gardée cochée « vérifiée », le total coché — avant toute écriture, et consigne qui a
+ * confirmé quoi (`LecturePieceConfirmation`) DANS la transaction du devis.
  */
 export async function enregistrerDevisPromo(formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
@@ -317,7 +400,7 @@ export async function enregistrerDevisPromo(formData: FormData): Promise<ActionR
 
   const quoteId = fdStr(formData, "quoteId");
   const existant = quoteId
-    ? await prisma.promoQuote.findFirst({ where: { id: quoteId, promoMaterialId: pm.id }, select: { id: true, supplierId: true, supplierName: true } })
+    ? await prisma.promoQuote.findFirst({ where: { id: quoteId, promoMaterialId: pm.id }, select: { id: true, supplierId: true, supplierName: true, documentId: true } })
     : null;
   if (quoteId && !existant) return { ok: false, error: "Ce devis n'appartient pas à ce dossier." };
 
@@ -344,19 +427,41 @@ export async function enregistrerDevisPromo(formData: FormData): Promise<ActionR
   const announcedTotal = fdNum(formData, "announcedTotal");
   if (announcedTotal != null && !(announcedTotal >= 0)) return { ok: false, error: "Le total annoncé sur le devis doit être un montant positif." };
 
+  const scan = formData.get("scan");
+  const scanJoint = scan instanceof File && scan.size > 0 ? scan : null;
+  const contenuScan = scanJoint ? Buffer.from(await scanJoint.arrayBuffer()) : null;
+
+  // LA LECTURE CONFIRMÉE (lot D2-E). L'écran a prérempli depuis le scan : la personne atteste avoir
+  // comparé chaque ligne gardée au papier, et le total — la garde passe AVANT toute écriture, scan
+  // compris (P7). Le fichier comparé est celui qu'on joint, sinon celui que le devis porte déjà : une
+  // confirmation porte sur la pièce LUE, et un autre fichier sous le même nom n'en est pas une.
+  const lectureId = fdStr(formData, "lectureId");
+  let confirmation: ConfirmationPrete | null = null;
+  if (lectureId !== null) {
+    const octetsLus = contenuScan ?? (existant?.documentId ? await octetsDuScan(pm.id, existant.documentId) : null);
+    if (octetsLus === null) return { ok: false, error: "Joignez le scan qui a été lu : une lecture se confirme contre sa pièce, rien n'a été enregistré." };
+    const exigee = await exigerLectureConfirmee({
+      lectureId,
+      empreinte: empreinteDe(octetsLus),
+      totalVerifie: fdCase(formData, "totalVerifie") === true,
+      soumises: lues.lignes.map((l) => ({ lue: l.lue, verifiee: l.verifiee, designation: l.reference, quantite: l.quantity, prixUnitaire: l.unitPrice })),
+      proposees: lignesProposeesDevisPromo,
+    });
+    if (!exigee.ok) return { ok: false, error: exigee.error };
+    confirmation = exigee.confirmation;
+  }
+
   // LE SCAN — enregistré AVANT d'écrire le devis : une pièce qui échoue ne laisse pas un devis
   // qui prétend l'avoir. Son MIROIR DRIVE attend, lui, que le devis soit écrit (plus bas) : parti
   // ici, il laisserait une copie dans le Drive d'un devis que la course a refusé.
-  const scan = formData.get("scan");
   let scanDepose: { id: string; nom: string; contenu: Buffer; mime: string | null } | null = null;
-  if (scan instanceof File && scan.size > 0) {
-    const contenu = Buffer.from(await scan.arrayBuffer());
+  if (scanJoint && contenuScan) {
     const r = await persistUploadedDocument(user.id, {
       entityType: "PROMO_MATERIAL", entityId: pm.id, category: "QUOTE", confidentiality: "INTERNAL",
-      stepKey: "devis", file: scan, buffer: contenu, mirrorToDrive: false,
+      stepKey: "devis", file: scanJoint, buffer: contenuScan, mirrorToDrive: false,
     });
-    if (!r.ok || !r.documentId) return { ok: false, error: `Scan « ${scan.name} » : ${r.error ?? "téléversement impossible"}` };
-    scanDepose = { id: r.documentId, nom: scan.name, contenu, mime: scan.type || null };
+    if (!r.ok || !r.documentId) return { ok: false, error: `Scan « ${scanJoint.name} » : ${r.error ?? "téléversement impossible"}` };
+    scanDepose = { id: r.documentId, nom: scanJoint.name, contenu: contenuScan, mime: scanJoint.type || null };
   }
 
   const donnees = {
@@ -388,6 +493,28 @@ export async function enregistrerDevisPromo(formData: FormData): Promise<ActionR
         data: { updatedById: user.id },
       });
       if (encoreOuverte.count === 0) throw new RefusDevis(ETAPE_CHANGEE);
+      let ecrit: { id: string };
+      if (existant) {
+        if ((await tx.promoQuote.count({ where: { id: existant.id, promoMaterialId: pm.id } })) === 0) throw new RefusDevis(DEVIS_RETIRE);
+        await tx.promoQuoteLine.deleteMany({ where: { quoteId: existant.id } });
+        // Sans scan joint, la pièce du devis n'est PAS réécrite : la valeur lue en haut a pu être
+        // remplacée entre-temps par une autre correction, et la réécrire détacherait son scan (§118.152c).
+        ecrit = await tx.promoQuote.update({
+          where: { id: existant.id },
+          data: { ...donnees, ...(scanDepose ? { documentId: scanDepose.id } : {}) },
+          select: { id: true },
+        });
+      } else {
+        const rang = await tx.promoQuote.count({ where: { promoMaterialId: pm.id } });
+        ecrit = await tx.promoQuote.create({
+          data: { ...donnees, documentId: scanDepose?.id ?? null, promoMaterialId: pm.id, position: rang, createdById: user.id },
+          select: { id: true },
+        });
+      }
+      // L'ATTESTATION, DANS LA TRANSACTION DU DEVIS (lot D2-E) — et AVANT les relectures qui peuvent
+      // encore refuser : un refus plus bas l'annule avec le devis. Écrite à côté, elle resterait en base
+      // pour un devis jamais écrit ; écrite après, un devis existerait sans dire qu'il vient d'une lecture.
+      if (confirmation) await consignerConfirmation(tx, { confirmation, cibleType: "PROMO_QUOTE", cibleId: ecrit.id, confirmeeParId: user.id });
       // UN ARTICLE RETIRÉ ENTRE-TEMPS : le demandeur peut retirer un article pendant la retranscription
       // (§118.190), et son retrait prend le même verrou. Relu ici, il se dit ; écrit sans relecture, la
       // ligne visait un article disparu et la base refusait l'écriture en erreur technique.
@@ -395,27 +522,13 @@ export async function enregistrerDevisPromo(formData: FormData): Promise<ActionR
         const encore = await tx.promoRequestItem.count({ where: { id: { in: rattaches }, promoMaterialId: pm.id } });
         if (encore !== rattaches.length) throw new RefusDevis("Un article demandé auquel une ligne est rattachée vient d'être retiré du dossier — rechargez la fiche.");
       }
-      if (existant) {
-        if ((await tx.promoQuote.count({ where: { id: existant.id, promoMaterialId: pm.id } })) === 0) throw new RefusDevis(DEVIS_RETIRE);
-        await tx.promoQuoteLine.deleteMany({ where: { quoteId: existant.id } });
-        // Sans scan joint, la pièce du devis n'est PAS réécrite : la valeur lue en haut a pu être
-        // remplacée entre-temps par une autre correction, et la réécrire détacherait son scan (§118.152c).
-        return tx.promoQuote.update({
-          where: { id: existant.id },
-          data: { ...donnees, ...(scanDepose ? { documentId: scanDepose.id } : {}), lines: { create: lignes } },
-          select: { id: true },
-        });
-      }
-      const rang = await tx.promoQuote.count({ where: { promoMaterialId: pm.id } });
-      return tx.promoQuote.create({
-        data: { ...donnees, documentId: scanDepose?.id ?? null, promoMaterialId: pm.id, position: rang, createdById: user.id, lines: { create: lignes } },
-        select: { id: true },
-      });
+      await tx.promoQuoteLine.createMany({ data: lignes.map((l) => ({ ...l, quoteId: ecrit.id })) });
+      return ecrit;
     });
   } catch (e) {
     // LA COMPENSATION : rien n'a été écrit, la pièce qu'on vient de déposer ne reste pas seule au dossier.
     const retire = scanDepose ? await retirerScanOrphelin(user.id, pm.id, scanDepose.id) : true;
-    if (e instanceof RefusDevis) {
+    if (e instanceof RefusDevis || e instanceof RefusLecture) {
       if (!scanDepose) return { ok: false, error: e.message };
       return {
         ok: false,
@@ -431,9 +544,9 @@ export async function enregistrerDevisPromo(formData: FormData): Promise<ActionR
     void mirrorDocumentsToDrive({ ownerId: user.id, entityType: "PROMO_MATERIAL", entityId: pm.id, files: [{ name: s.nom, data: s.contenu, mime: s.mime }] })
       .catch((e) => console.error("[devis promo] miroir Drive échoué (non bloquant)", e));
   }
-  await audit(user, pm.id, `Devis ${existant ? "corrigé" : "retranscrit"} — ${parties.text}${donnees.reference ? ` n° ${donnees.reference}` : ""} (${lignes.length} ligne${lignes.length > 1 ? "s" : ""})`);
+  await audit(user, pm.id, `Devis ${existant ? "corrigé" : "retranscrit"} — ${parties.text}${donnees.reference ? ` n° ${donnees.reference}` : ""} (${lignes.length} ligne${lignes.length > 1 ? "s" : ""})${confirmation ? ` — ${confirmation.resumeAudit}` : ""}`);
   revalidatePath(chemin(pm.id));
-  return { ok: true, id: devis.id, message: `Devis de ${parties.text} ${existant ? "corrigé" : "enregistré"} (${lignes.length} ligne${lignes.length > 1 ? "s" : ""}).` };
+  return { ok: true, id: devis.id, message: `Devis de ${parties.text} ${existant ? "corrigé" : "enregistré"} (${lignes.length} ligne${lignes.length > 1 ? "s" : ""})${confirmation ? " — lecture du scan confirmée" : ""}.` };
 }
 
 /** Retirer un devis retranscrit — pendant la retranscription seulement. Le scan reste au dossier. */

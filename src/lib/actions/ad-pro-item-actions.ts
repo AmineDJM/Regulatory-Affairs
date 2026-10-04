@@ -4,7 +4,7 @@ import { CHEMIN_STOCK_PROMO, lienStockPromo } from "@/lib/chemins/stock-promo";
 import { revalidatePath } from "next/cache";
 import type { AdProItemKind, AdProItemOrderStage, AdProItemStatus, AdProItemBudgetKind, UserRole } from "@prisma/client";
 import { requireUser } from "@/lib/session";
-import { userCan, hasGlobalView, anyRoleFilter, type SessionUser } from "@/lib/rbac";
+import { userCan, hasGlobalView, anyRoleFilter, rolesWithModule, type SessionUser } from "@/lib/rbac";
 import { canAccessEntity } from "@/lib/entity-access";
 import { prisma } from "@/lib/prisma";
 import { toNumber } from "@/lib/utils";
@@ -25,7 +25,6 @@ import { getAppSettings } from "@/lib/settings";
 import { validationRequiseBC, motifSousLeSeuil } from "@/lib/bons-de-commande/regle";
 import { signalerSiASigner } from "@/lib/bons-de-commande/etat";
 import { CHEMIN_BC_A_SIGNER } from "@/lib/bons-de-commande/aiguillage";
-import { ROLE_DIRECTION_MARKETING } from "@/lib/workflow/parcours";
 import { etatPostesSponsoring } from "@/lib/ad-pro/cloture-sponsoring";
 import { rendreAuMagasin, reserverPourEvenement, sousVerrous, type Tx } from "@/lib/promo/stock-ecriture";
 import {
@@ -250,6 +249,19 @@ function canEditItems(user: SessionUser, parent: AdProParent): boolean {
 }
 function canAllocate(user: SessionUser, parent: AdProParent): boolean {
   return hasGlobalView(user) || userCan(user, PARENTS[parent].module, "VALIDATE");
+}
+
+/**
+ * QUI DÉCIDE UN POSTE SE LIT SUR LA MATRICE, PAS SUR UNE LISTE ÉCRITE À LA MAIN (§118.200).
+ *
+ * `canAllocate` laisse décider la vue globale ET tout rôle qui VALIDE le module de la demande ; la
+ * notification, elle, partait à « Direction + Super Admin » (et la Direction Marketing pour le seul
+ * sponsoring). Sur un congrès, la Direction Marketing — qui valide ce module — décidait donc des
+ * postes sans jamais en être prévenue : un billet d'avion ajouté hors budget restait bloqué chez
+ * elle, en silence. Une seule lecture, la même que la porte.
+ */
+function valideursDuPoste(parent: AdProParent): UserRole[] {
+  return [...new Set<UserRole>([...rolesWithModule(PARENTS[parent].module, "VALIDATE"), "DIRECTION", "SUPER_ADMIN"])];
 }
 
 async function audit(user: SessionUser, parent: AdProParent, id: string, action: "CREATE" | "UPDATE" | "DELETE", detail: string) {
@@ -650,6 +662,18 @@ export async function addAdProItem(_prev: ActionResult | undefined, formData: Fo
 
     await audit(user, parentRaw, parentId, "CREATE",
       `Poste ajouté — ${ITEM_KIND_LABELS[kind]} « ${label} » (${budgetKind === "ADDITIONAL" ? "budget supplémentaire" : "inclus dans le budget accordé"})${late ? " — APRÈS la décision définitive" : ""}.`);
+    // UN POSTE HORS BUDGET OU APRÈS LA DÉCISION SE DIT, EN LECTURE, À CEUX QUI DÉCIDENT (§118.200) :
+    // il n'est pas encore à valider (la validation partira à sa soumission), mais il change ce que
+    // la demande coûtera. Le dire seulement là : un poste inclus avant la décision est le détail
+    // ordinaire du besoin, et une notification par ligne serait du bruit qu'on cesse de lire.
+    if (budgetKind === "ADDITIONAL" || late) {
+      await notifyRoles(valideursDuPoste(parentRaw), {
+        type: "GENERIC",
+        title: budgetKind === "ADDITIONAL" ? "Poste hors budget ajouté" : "Poste ajouté après la décision",
+        body: `${info.ref} — ${ITEM_KIND_LABELS[kind]} « ${label} »${amountEstimated != null ? ` (${amountEstimated.toLocaleString("fr-FR")} DZD)` : ""} — pour information ; la validation vous parviendra à sa soumission.`,
+        link: `${PARENTS[parentRaw].path}/${parentId}`,
+      }).catch(() => undefined);
+    }
     revalidate(parentRaw, parentId);
     return { ok: true, id: created.id };
   } catch (err) {
@@ -1085,9 +1109,7 @@ export async function submitAdProItem(_prev: ActionResult | undefined, formData:
   // tout valider et mettre chaque poste dans un budget ». La prévenir en plus de la Direction, et
   // non à sa place : la Direction garde le droit de décider un poste (vue globale), et la retirer
   // de la notification ferait taire un validateur qui existe toujours.
-  const valideurs: UserRole[] = owner.parent === "SPONSORING"
-    ? [ROLE_DIRECTION_MARKETING, "DIRECTION", "SUPER_ADMIN"]
-    : ["DIRECTION", "SUPER_ADMIN"];
+  const valideurs = valideursDuPoste(owner.parent);
   await notifyRoles(valideurs, {
     type: "VALIDATION_REQUIRED",
     title: "Poste à valider",
@@ -1857,7 +1879,7 @@ export async function demanderRevisionPoste(_prev: ActionResult | undefined, for
     ? await cloreDemandesSecretariat(id, `le poste « ${item.label} » est rendu à la Direction pour révision — la demande de bon de commande est retirée`, user, "BC_A_ETABLIR")
     : 0;
   const info = await PARENTS[owner.parent].load(owner.id);
-  const valideurs: UserRole[] = owner.parent === "SPONSORING" ? [ROLE_DIRECTION_MARKETING, "DIRECTION", "SUPER_ADMIN"] : ["DIRECTION", "SUPER_ADMIN"];
+  const valideurs = valideursDuPoste(owner.parent);
   await notifyRoles(valideurs, {
     type: "VALIDATION_REQUIRED", title: "Poste accordé — révision demandée",
     body: `${info?.ref ?? "Opération"} — « ${item.label} »${estimation != null ? ` (nouvelle estimation : ${estimation.toLocaleString("fr-FR")} DZD)` : ""} : ${motif}`,
