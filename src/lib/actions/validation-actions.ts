@@ -13,6 +13,7 @@ import { notifyUser } from "@/lib/notify";
 import { createValidationFromRules, createDirectValidation, notifyValidator, joindrePiecesValidation, reprendreEtapesRenvoyees, verifierPiecesValidation } from "@/lib/validation";
 import { issueDeLaDecision, motifExige, MOTIF_EXIGE, repriseApresCorrection, resoumissionSurPlace, type DecisionEtape } from "@/lib/validations/decision";
 import { createExpenseOrder } from "@/lib/expense-orders";
+import { annulerOrdreNonRegle } from "@/lib/payments/annulation";
 import { actsForUser } from "@/lib/hr/stand-in-resolve";
 import { toNumber } from "@/lib/utils";
 import { fdStr, fdNum, fdDate, fdBool, type ActionResult } from "@/lib/actions/types";
@@ -308,23 +309,53 @@ export async function decideValidation(formData: FormData): Promise<ActionResult
   // soumission, sinon « Autre ») et rattaché à la demande d'origine — au règlement, la dépense
   // rejoint le budget par le circuit habituel des ordres. Sans montant, rien n'est payable :
   // l'approbation reste un simple avis sur la pièce.
+  //
+  // UNE DEMANDE ANNULÉE NE REÇOIT PAS DE PAIEMENT (vague « restes 2 ») — la règle de `decideApproval`
+  // (§118.197d), que cette émission n'appliquait pas. La décision ci-dessus juge la PIÈCE, sous le verrou
+  // de la validation ; elle ne relisait pas la DEMANDE au secrétariat. L'annulation de la demande
+  // (`annulerDemandeSecretariat`) relit ses ordres APRÈS sa propre écriture : elle rattrape un ordre né
+  // AVANT elle, jamais un ordre né après. Joué : la décision écrit APPROVED, l'annulation passe et ne
+  // trouve aucun ordre, puis l'ordre naît — payable au centre pour une demande annulée, sans un mot.
+  // Deux lectures, donc : AVANT d'émettre (une demande déjà annulée ou supprimée n'en reçoit aucun, et le
+  // centre n'est pas sollicité pour rien) ; APRÈS l'émission (une annulation passée entre les deux voit
+  // l'ordre qu'elle ne pouvait pas voir annulé par la porte unique, conditionnelle — un ordre réglé n'est
+  // jamais défait). L'une ou l'autre voit l'annulation : chacun écrit avant de relire l'autre. L'accord sur
+  // la pièce, lui, reste enregistré — et la phrase le DIT.
+  let paiementRetire: string | null = null;
   if (newStatus === "APPROVED" && req.documentId && req.entityType === "ADMIN_REQUEST" && req.entityId) {
     const amt = req.amount === null ? 0 : toNumber(req.amount);
     if (amt > 0) {
-      try {
-        await createExpenseOrder({
-          label: req.title,
-          amount: amt,
-          category: (req.category as Parameters<typeof createExpenseOrder>[0]["category"]) ?? "AUTRE",
-          sourceType: "ADMIN_REQUEST",
-          sourceId: req.entityId,
-          requestedById: req.requesterId,
-          notes: `Pièce validée (${req.reference})${req.description ? ` — ${req.description}` : ""}`,
-        });
-        revalidatePath("/finances/paiements-a-faire");
-      } catch (err) {
-        // L'ordre raté ne doit pas annuler la décision déjà enregistrée — on trace et on continue.
-        console.error("[validations] ordre de dépense post-approbation échoué :", err);
+      const demandeId = req.entityId;
+      const avant = await prisma.administrativeRequest.findUnique({ where: { id: demandeId }, select: { reference: true, status: true, deletedAt: true } });
+      if (demandeSansPaiement(avant)) {
+        paiementRetire = `La demande ${avant?.reference ?? "au secrétariat"} a été annulée ou supprimée : votre accord sur la pièce est enregistré, mais aucun paiement n'a été émis — rechargez la page.`;
+      } else {
+        let ordre: { id: string; reference: string } | null = null;
+        try {
+          ordre = await createExpenseOrder({
+            label: req.title,
+            amount: amt,
+            category: (req.category as Parameters<typeof createExpenseOrder>[0]["category"]) ?? "AUTRE",
+            sourceType: "ADMIN_REQUEST",
+            sourceId: demandeId,
+            requestedById: req.requesterId,
+            notes: `Pièce validée (${req.reference})${req.description ? ` — ${req.description}` : ""}`,
+          });
+          revalidatePath("/finances/paiements-a-faire");
+        } catch (err) {
+          // L'ordre raté ne doit pas annuler la décision déjà enregistrée — on trace et on continue.
+          console.error("[validations] ordre de dépense post-approbation échoué :", err);
+        }
+        if (ordre) {
+          const apres = await prisma.administrativeRequest.findUnique({ where: { id: demandeId }, select: { reference: true, status: true, deletedAt: true } });
+          if (demandeSansPaiement(apres)) {
+            const ref = apres?.reference ?? avant?.reference ?? "au secrétariat";
+            const retrait = await annulerOrdreNonRegle(ordre.id, { acteurId: user.id, motif: `demande ${ref} annulée pendant la décision sur la pièce ${req.reference}` });
+            paiementRetire = retrait.ok
+              ? `La demande ${ref} vient d'être annulée pendant votre décision : votre accord sur la pièce est enregistré, mais le paiement ${ordre.reference} qu'il émettait a été annulé — rechargez la page.`
+              : `La demande ${ref} vient d'être annulée pendant votre décision, et le paiement ${ordre.reference} qu'il émettait n'a pas pu être annulé : ${retrait.error}`;
+          }
+        }
       }
     }
   }
@@ -358,7 +389,19 @@ export async function decideValidation(formData: FormData): Promise<ActionResult
   revalidatePath("/validations");
   revalidatePath("/admin/validations");
   revalidatePath("/mon-travail");
+  // L'accord est enregistré, le paiement n'est pas parti (ou a été retiré) : on le DIT, comme
+  // `decideApproval` — une décision « réussie » sur un paiement annulé serait une phrase fausse.
+  if (paiementRetire) return { ok: false, error: paiementRetire };
   return { ok: true };
+}
+
+/**
+ * Une demande au secrétariat qui n'est plus là pour recevoir un paiement : effacée, supprimée ou
+ * annulée — la condition même de `decideApproval`. Une demande TERMINÉE, elle, garde son paiement :
+ * le montant a bien été autorisé (§118.187).
+ */
+function demandeSansPaiement(d: { status: string; deletedAt: Date | null } | null): boolean {
+  return !d || d.deletedAt !== null || d.status === "CANCELLED";
 }
 
 const ITEM_DECISIONS: ValidationStepState[] = ["APPROVED", "REJECTED", "CHANGES_REQUESTED"];

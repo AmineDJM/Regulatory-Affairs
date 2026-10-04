@@ -8,7 +8,8 @@ import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
 import { notifyUser } from "@/lib/notify";
 import { fdStr, type ActionResult } from "@/lib/actions/types";
-import { articleDansMonPerimetre, faitsStock, faitsStockDe, gestionnairesDuMagasin, peutRecevoirDuStock } from "@/lib/queries/promo-stock";
+import { articleDansMonPerimetre, faitsStock, gestionnairesDuMagasin, peutRecevoirDuStock } from "@/lib/queries/promo-stock";
+import { peutDeclencherRecurrence } from "@/lib/promo-stock-comptages";
 import { lireDateJour } from "@/lib/promo/stock";
 import type { PromoFamille } from "@/lib/promo/catalogue";
 import {
@@ -388,19 +389,11 @@ export async function reprendreRecurrenceComptage(formData: FormData): Promise<A
   if (!r) return { ok: false, error: "Récurrence introuvable." };
   if (!peutGererRecurrence(f, r.auteurId)) return { ok: false, error: REFUS_COMPTAGE.recurrence };
   if (r.actif) return { ok: false, error: "Cette récurrence est déjà active." };
-  const auteur = r.auteurId === user.id ? f : r.auteurId ? await faitsStockDe(r.auteurId) : null;
-  if (!auteur) return { ok: false, error: "L'auteur de cette récurrence n'existe plus ou n'est plus actif : planifiez-en une nouvelle à votre nom." };
-  // LA PERSONNE VISÉE, AUSSI (vague « restes ») : le battement suspend une récurrence dont le détenteur a
-  // disparu ou n'a plus le stock (`declencherComptagesRecurrents`, `peutRecevoirDuStock`) — la reprendre
-  // sans le relire la faisait repartir pour la remettre en pause au premier battement. Une PERSONNE sans
-  // détenteur ne relève pas de la règle du magasin : elle ne se reprend pas.
-  if (r.cible === "PERSONNE" && !r.holderId) return { ok: false, error: "La personne qui devait compter n'est plus désignée : planifiez une nouvelle récurrence." };
-  const autorise = r.cible === "EQUIPE" ? peutDemanderAEquipe(auteur) : peutDemanderComptage(auteur, r.cible === "MAGASIN" ? null : r.holderId);
-  if (!autorise) return { ok: false, error: "Son auteur n'a plus le droit de demander ce comptage (équipe, rôle ou accès changés) : planifiez-en une nouvelle." };
-  if (r.cible === "PERSONNE" && r.holderId) {
-    const peut = await peutRecevoirDuStock(r.holderId, "saisir son comptage");
-    if (!peut.ok) return { ok: false, error: `${peut.error} La récurrence reste suspendue.` };
-  }
+  // LA RÈGLE DU BATTEMENT, ET NON UNE COPIE (vague « restes 2 ») : l'auteur, la personne visée, son accès au
+  // stock — tout ce qui ferait suspendre la récurrence au prochain battement refuse ici, avec la même phrase.
+  // Deux copies avaient déjà divergé une fois (la personne visée n'était pas relue, §118.198c).
+  const depart = await peutDeclencherRecurrence(r);
+  if (!depart.ok) return { ok: false, error: `${depart.motif} ${depart.remede}` };
   const prochaineLe = prochaineEcheanceComptage(r.ancreLe, r.frequence as FrequenceComptage, new Date());
   // CONDITIONNELLE sur la pause LUE : deux reprises croisées n'écrivent qu'une reprise (et un journal),
   // et une récurrence supprimée entre-temps répond par une phrase, pas par une erreur de base.

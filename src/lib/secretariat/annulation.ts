@@ -126,10 +126,10 @@ export async function annulerDemandeSecretariat(
   // validée, une approbation tranchée à la même seconde : la demande partait « annulée » et son paiement
   // restait payable au centre, sans un mot (§118.5 : deux vérités sur le même paiement). Relus après la
   // demande close, ses validations et ses approbations retirées, ils couvrent tout ordre né avant la
-  // clôture. Celui qu'une approbation émettrait encore APRÈS est rattrapé par la compensation de
-  // `decideApproval`, qui relit la demande et annule l'ordre qu'elle vient d'émettre. Reste un trou,
-  // NOMMÉ et hors de ce fichier : une pièce validée émet son ordre sans relire la demande
-  // (`decideValidation`) — né après cette relecture, il n'est rattrapé par personne.
+  // clôture. Celui qu'une décision émettrait encore APRÈS est rattrapé par la décision elle-même :
+  // `decideApproval` et `decideValidation` (une pièce validée, vague « restes 2 ») relisent la demande
+  // après avoir émis, et annulent par la porte unique l'ordre qu'ils viennent d'émettre. Chacun des deux
+  // gestes écrit avant de relire l'autre : l'un des deux voit forcément l'annulation.
   const ordres = await prisma.expenseOrder.findMany({
     where: { sourceType: "ADMIN_REQUEST", sourceId: id, status: { not: "CANCELLED" } },
     select: { id: true },

@@ -255,8 +255,9 @@ async function composerSpec(ctx: StepContext, deps: ArtifactDeps): Promise<SpecO
   //
   // On RÉSERVE donc d'abord — une ligne PENDING, sans fichier, portant l'empreinte — et l'on
   // DÉSIGNE l'auteur de la base dans le MÊME geste, sous un verrou : voir `reserverEtDesigner`.
-  // Une ligne réservée sans octets n'est jamais comptée comme un livrable produit :
-  // `goal/qa.ts` exige VERIFIED et `byteSize > 0`.
+  // Une ligne réservée n'est jamais comptée comme un livrable produit : `goal/qa.ts` exige VERIFIED
+  // et `byteSize > 0`, et une ligne REPRISE sur d'autres données repart à PENDING — ses octets sont
+  // ceux de la version précédente.
   const empreinte = createHash("sha256").update(JSON.stringify(amont)).digest("hex");
   const auteur = await reserverEtDesigner({
     missionId: mission.id, stepId: step.id, cle: identite.key, titre: step.title,
@@ -387,6 +388,19 @@ async function reserverEtDesigner(r: {
       where: { missionId: r.missionId, inputsHash: r.empreinte },
       select: { key: true, format: true, spec: true, createdAt: true, updatedAt: true },
     });
+    // UNE LIGNE QUI CHANGE DE DONNÉES N'EST PLUS LE LIVRABLE QU'ELLE PORTAIT (vague « restes 2 »). La clé
+    // d'un livrable se reprend d'une version à l'autre (`identiteDuLivrable`, #88) : la réservation ne changeait
+    // que l'empreinte et laissait le statut VERIFIED et les octets de la version précédente. Si la
+    // recomposition échouait ensuite pour de bon — le modèle en panne, un rendu impossible —, `goal/qa.ts`
+    // comptait pour PRODUIT un fichier bâti sur les données d'AVANT : le faux succès parfait, sans une étape
+    // verte de trop. Le statut repart donc à PENDING quand l'empreinte CHANGE — et seulement alors : sur les
+    // MÊMES données, le livrable déjà vérifié reste le bon, et le reprendre ne le défait pas. L'écriture est
+    // conditionnelle sur l'empreinte stockée (une empreinte absente compte pour une autre) : c'est la ligne
+    // en base qui décide, jamais une lecture faite avant.
+    await tx.missionArtifact.updateMany({
+      where: { missionId: r.missionId, key: r.cle, OR: [{ inputsHash: null }, { inputsHash: { not: r.empreinte } }] },
+      data: { status: "PENDING" },
+    });
     await tx.missionArtifact.upsert({
       where: { missionId_key: { missionId: r.missionId, key: r.cle } },
       create: {
@@ -425,7 +439,7 @@ async function attendreLaBase(args: {
     const brut = auteur?.spec;
     // UNE SPEC NON VIDE N'EST PAS UNE BASE : il faut qu'elle ait été composée DEPUIS ces données.
     // La ligne de l'auteur garde la spec de sa version précédente tant qu'il n'a pas publié la
-    // nouvelle (la réservation ne change que l'empreinte) — la reprendre mettrait les chiffres
+    // nouvelle (la réservation ne touche pas à la spec) — la reprendre mettrait les chiffres
     // d'avant dans ce livrable, et `parserSpec` les re-tamponnerait de l'empreinte du jour.
     if (estBasePour(brut, empreinte)) {
       const s = parserSpec({
