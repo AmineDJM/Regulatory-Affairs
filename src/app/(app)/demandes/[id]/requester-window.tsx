@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Input, Select, Textarea, Label } from "@/components/ui/input";
 import { optionsFromMap } from "@/components/shared/form-fields";
 import { PRIORITY } from "@/lib/labels";
+import { BoutonDecisif } from "@/components/ui/bouton-decisif";
 
 /** Champ spécifique au type de demande (sérialisable depuis le serveur). */
 export interface EditField {
@@ -94,14 +95,13 @@ export function RequesterWindow({
         {enFenetre ? (
           <form
             action={(fd) => {
-              if (!confirm("Supprimer définitivement cette demande ?")) return;
               fd.set("id", requestId);
               return run(deleteOwnRequest, fd, () => router.push("/demandes"));
             }}
           >
-            <Button type="submit" variant="outline" size="sm" disabled={occupe}>
+            <BoutonDecisif type="submit" variant="outline" size="sm" disabled={occupe}>
               <Trash2 className="h-3.5 w-3.5" /> Supprimer
-            </Button>
+            </BoutonDecisif>
           </form>
         ) : (
           <Button type="button" variant="outline" size="sm" disabled={occupe} onClick={() => { setErr(null); setAnnuler(true); }}>
@@ -122,7 +122,7 @@ export function RequesterWindow({
           {err && <p className="text-sm text-destructive">{err}</p>}
           <div className="flex justify-end gap-2">
             <Button type="button" variant="outline" onClick={() => setAnnuler(false)}>Retour</Button>
-            <Button type="submit" disabled={occupe}>{busy && <Loader2 className="h-4 w-4 animate-spin" />} Annuler la demande</Button>
+            <BoutonDecisif type="submit" disabled={occupe}>{busy && <Loader2 className="h-4 w-4 animate-spin" />} Annuler la demande</BoutonDecisif>
           </div>
         </form>
       </Sheet>

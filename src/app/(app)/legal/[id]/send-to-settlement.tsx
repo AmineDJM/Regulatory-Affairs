@@ -3,7 +3,7 @@
 import * as React from "react";
 import { useRouter } from "next/navigation";
 import { AlertCircle, Loader2, Send } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { BoutonDecisif } from "@/components/ui/bouton-decisif";
 import { sendLegalInvoiceToSettlement } from "@/lib/actions/legal-actions";
 import { formatCurrency } from "@/lib/utils";
 
@@ -24,7 +24,6 @@ import { formatCurrency } from "@/lib/utils";
  */
 export function SendToSettlementButton({ id, amount, renvoi = false }: { id: string; amount: number | null; renvoi?: boolean }) {
   const router = useRouter();
-  const [confirm, setConfirm] = React.useState(false);
   const [busy, setBusy] = React.useState(false);
   const [err, setErr] = React.useState<string | null>(null);
 
@@ -44,21 +43,15 @@ export function SendToSettlementButton({ id, amount, renvoi = false }: { id: str
           <AlertCircle className="h-4 w-4 shrink-0" /> {err}
         </p>
       )}
-      {!confirm ? (
-        <Button size="sm" variant="primary" onClick={() => setConfirm(true)}>
-          <Send className="h-4 w-4" /> {renvoi ? "Renvoyer au règlement" : "Envoyer au règlement"}
-        </Button>
-      ) : (
-        <div className="flex flex-wrap items-center gap-2 text-sm">
-          <span className="text-muted-foreground">
-            {renvoi ? "Renvoyer" : "Envoyer"} {amount != null ? formatCurrency(amount) : "cette facture"} au règlement ? Le centre de paiement l&apos;autorisera avant que les Finances ne la règlent.{renvoi ? " L’ordre précédent ne paiera pas." : ""}
-          </span>
-          <Button size="sm" onClick={run} disabled={busy}>
-            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />} Confirmer
-          </Button>
-          <Button size="sm" variant="ghost" onClick={() => setConfirm(false)} disabled={busy}>Annuler</Button>
-        </div>
-      )}
+      <BoutonDecisif
+        size="sm" variant="primary" onClick={run} disabled={busy}
+        confirmation={`${renvoi ? "renvoyer" : "envoyer"} ${amount != null ? formatCurrency(amount) : "cette facture"} au règlement`}
+      >
+        {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />} {renvoi ? "Renvoyer au règlement" : "Envoyer au règlement"}
+      </BoutonDecisif>
+      <p className="text-xs text-muted-foreground">
+        Le centre de paiement l&apos;autorisera avant que les Finances ne la règlent.{renvoi ? " L’ordre précédent ne paiera pas." : ""}
+      </p>
     </div>
   );
 }

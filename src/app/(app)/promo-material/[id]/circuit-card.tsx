@@ -13,6 +13,7 @@ import { Textarea, Label } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
 import type { ActionResult } from "@/lib/actions/types";
 import { useRafraichir } from "@/components/shared/use-rafraichir";
+import { BoutonDecisif } from "@/components/ui/bouton-decisif";
 
 /**
  * LE SUIVI DU CIRCUIT — ce que chacun voit dépend de qui il est.
@@ -119,9 +120,9 @@ export function PromoCircuitCard(p: Props) {
           générés, factures et paiements, et demande de visa à chaque paiement.
         </p>
         <Err msg={err} />
-        <Button size="sm" onClick={() => run(() => startPromoCircuit(fd()))} disabled={saving}>
+        <BoutonDecisif size="sm" onClick={() => run(() => startPromoCircuit(fd()))} disabled={saving}>
           {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Rocket className="h-4 w-4" />} Basculer sur le circuit actuel
-        </Button>
+        </BoutonDecisif>
       </div>
     );
   }
@@ -231,9 +232,9 @@ export function PromoCircuitCard(p: Props) {
       {mode === null && ((p.canAct && p.validerIci) || p.canRenvoyer || p.canRefuser) && (
         <div className="flex flex-wrap gap-2">
           {p.canAct && p.validerIci && (
-            <Button size="sm" variant="success" onClick={() => run(() => validatePromoStep(fd()))} disabled={saving}>
+            <BoutonDecisif size="sm" variant="success" onClick={() => run(() => validatePromoStep(fd()))} disabled={saving}>
               {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <BadgeCheck className="h-4 w-4" />} Valider cette étape
-            </Button>
+            </BoutonDecisif>
           )}
           {p.canRenvoyer && (
             <Button size="sm" variant="outline" onClick={() => setMode("renvoi")} disabled={saving}>
@@ -255,9 +256,9 @@ export function PromoCircuitCard(p: Props) {
           <Label htmlFor="promo-renvoi-motif">Ce qu&apos;il faut corriger</Label>
           <Textarea id="promo-renvoi-motif" name="motif" value={motif} onChange={(e) => setMotif(e.target.value)} className="min-h-[60px]" placeholder="Ex. retenez plutôt le devis de l'imprimeur B, moins cher à qualité égale." />
           <div className="flex gap-2">
-            <Button type="submit" size="sm" disabled={saving || !motif.trim()}>
+            <BoutonDecisif type="submit" size="sm" disabled={saving || !motif.trim()}>
               {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Undo2 className="h-4 w-4" />} Renvoyer au demandeur
-            </Button>
+            </BoutonDecisif>
             <Button type="button" size="sm" variant="ghost" onClick={() => setMode(null)} disabled={saving}>Annuler</Button>
           </div>
         </form>
@@ -270,9 +271,9 @@ export function PromoCircuitCard(p: Props) {
           <Label htmlFor="promo-refuse-reason">Motif du refus</Label>
           <Textarea id="promo-refuse-reason" name="reason" value={motif} onChange={(e) => setMotif(e.target.value)} className="min-h-[60px]" placeholder="Un refus est définitif : pour une correction, renvoyez plutôt le dossier." />
           <div className="flex gap-2">
-            <Button type="submit" size="sm" variant="destructive" disabled={saving || !motif.trim()}>
+            <BoutonDecisif type="submit" size="sm" variant="destructive" disabled={saving || !motif.trim()}>
               {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <XCircle className="h-4 w-4" />} Confirmer le refus
-            </Button>
+            </BoutonDecisif>
             <Button type="button" size="sm" variant="ghost" onClick={() => setMode(null)} disabled={saving}>Annuler</Button>
           </div>
         </form>

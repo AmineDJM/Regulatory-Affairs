@@ -19,6 +19,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input, Label, Textarea } from "@/components/ui/input";
 import type { ActionResult } from "@/lib/actions/types";
+import { BoutonDecisif } from "@/components/ui/bouton-decisif";
 
 /**
  * LES DEVIS DU DOSSIER — le tableau interne de l'entreprise (§118.152).
@@ -443,10 +444,10 @@ export function PromoQuotesCard({ id, quotes, articles, canTranscribe, canSelect
                 {canTranscribe && (
                   <>
                     <Button size="sm" variant="outline" onClick={() => setEdition(q.id)} disabled={saving}><Pencil className="h-4 w-4" /> Corriger</Button>
-                    <Button size="sm" variant="ghost" disabled={saving} aria-label={`Retirer le devis de ${q.supplierName}`}
-                      onClick={() => { if (confirm(`Retirer le devis de ${q.supplierName} ?`)) { const f = new FormData(); f.set("promoMaterialId", id); f.set("quoteId", q.id); run(() => supprimerDevisPromo(f)); } }}>
+                    <BoutonDecisif size="sm" variant="ghost" disabled={saving} aria-label={`Retirer le devis de ${q.supplierName}`}
+                      onClick={() => { const f = new FormData(); f.set("promoMaterialId", id); f.set("quoteId", q.id); run(() => supprimerDevisPromo(f)); }}>
                       <Trash2 className="h-4 w-4" />
-                    </Button>
+                    </BoutonDecisif>
                   </>
                 )}
               </div>
@@ -579,9 +580,9 @@ export function PromoQuotesCard({ id, quotes, articles, canTranscribe, canSelect
           </p>
           {!correction && !redemande ? (
             <div className="flex flex-wrap gap-2">
-              <Button size="sm" variant="success" onClick={() => envoyerChoix(true)} disabled={saving || selection.lignes === 0}>
+              <BoutonDecisif size="sm" variant="success" onClick={() => envoyerChoix(true)} disabled={saving || selection.lignes === 0}>
                 {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />} Valider ma sélection
-              </Button>
+              </BoutonDecisif>
               <Button size="sm" variant="outline" onClick={() => envoyerChoix(false)} disabled={saving}>Enregistrer sans valider</Button>
               <Button size="sm" variant="ghost" onClick={() => setCorrection(true)} disabled={saving}><Undo2 className="h-4 w-4" /> Demander une correction</Button>
               <Button size="sm" variant="ghost" onClick={() => setRedemande(true)} disabled={saving}><RotateCcw className="h-4 w-4" /> Redemander des devis</Button>

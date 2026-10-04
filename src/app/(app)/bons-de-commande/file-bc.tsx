@@ -13,6 +13,7 @@ import { signerBonDeCommande, renvoyerBonDeCommande } from "@/lib/actions/bc-sig
 import { LIBELLE_CENTRE_BC } from "@/lib/bons-de-commande/regle";
 import type { LigneBCFinances } from "@/lib/queries/bons-de-commande";
 import { lienFichierEmis } from "@/lib/legal/fichiers-emis";
+import { BoutonDecisif } from "@/components/ui/bouton-decisif";
 
 /**
  * LA FILE DES SIGNATAIRES — chaque BC avec ce qu'il faut pour le signer en connaissance de cause :
@@ -180,7 +181,7 @@ function LigneASigner({ ligne: l, peutSigner }: { ligne: LigneBCFinances; peutSi
           </a>
         ) : null}
         {peutSigner && !fait && (
-          <Button
+          <BoutonDecisif
             size="sm" disabled={saving}
             onClick={() => {
               const fd = new FormData();
@@ -194,7 +195,7 @@ function LigneASigner({ ligne: l, peutSigner }: { ligne: LigneBCFinances; peutSi
           >
             {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <FilePen className="h-4 w-4" />}
             Signer
-          </Button>
+          </BoutonDecisif>
         )}
         {peutSigner && !fait && renvoi === null && (
           <Button size="sm" variant="secondary" disabled={saving} onClick={() => setRenvoi("")}>
@@ -208,7 +209,7 @@ function LigneASigner({ ligne: l, peutSigner }: { ligne: LigneBCFinances; peutSi
             value={renvoi} onChange={(e) => setRenvoi(e.target.value)} aria-label="Ce qu'il faut corriger"
             placeholder="Ce qu'il faut corriger (obligatoire)" className="min-w-0 flex-1"
           />
-          <Button
+          <BoutonDecisif
             size="sm" variant="secondary" disabled={saving || !renvoi.trim()}
             onClick={() => {
               const fd = new FormData();
@@ -222,7 +223,7 @@ function LigneASigner({ ligne: l, peutSigner }: { ligne: LigneBCFinances; peutSi
             }}
           >
             {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Undo2 className="h-4 w-4" />} Confirmer le renvoi
-          </Button>
+          </BoutonDecisif>
           <Button size="sm" variant="ghost" disabled={saving} onClick={() => setRenvoi(null)}>Annuler</Button>
         </div>
       )}

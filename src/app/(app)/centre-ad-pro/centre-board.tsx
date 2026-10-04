@@ -14,6 +14,7 @@ import { deciderVisaCentreAdPro, reexaminerVisaCentreAdPro } from "@/lib/actions
 import { approveAdProItemOrder } from "@/lib/actions/ad-pro-item-actions";
 import type { LigneCentre, FormePorte, FormeBC } from "@/lib/ad-pro/centre";
 import type { VisaTranche } from "@/lib/queries/ad-pro-centre";
+import { BoutonDecisif } from "@/components/ui/bouton-decisif";
 
 /**
  * LE PLAN DE TRAVAIL DU CENTRE.
@@ -157,7 +158,7 @@ function LigneTranchee({ t }: { t: VisaTranche }) {
             value={note} onChange={(e) => setNote(e.target.value)} aria-label={`Motif du réexamen — ${t.intitule}`}
             placeholder="Pourquoi le centre réexamine (obligatoire)" className="min-w-0 flex-1"
           />
-          <Button
+          <BoutonDecisif
             size="sm" variant="outline" disabled={busy || !note.trim()}
             onClick={async () => {
               setBusy(true); setError(null);
@@ -169,7 +170,7 @@ function LigneTranchee({ t }: { t: VisaTranche }) {
             }}
           >
             {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : null} Réexaminer
-          </Button>
+          </BoutonDecisif>
         </div>
       )}
       {error && <p className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</p>}
@@ -376,13 +377,13 @@ function DecisionVisa({ row }: { row: LigneCentre }) {
         />
       </div>
       <div className="flex flex-wrap items-center gap-2">
-        <Button size="sm" disabled={busy} onClick={() => decider("VALIDER")}>
+        <BoutonDecisif size="sm" disabled={busy} onClick={() => decider("VALIDER")}>
           {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : null} {libelleAccord}
-        </Button>
+        </BoutonDecisif>
         {troisIssues && (
-          <Button size="sm" variant="outline" disabled={busy || !note.trim()} onClick={() => decider("RENVOYER")}>Renvoyer pour correction</Button>
+          <BoutonDecisif size="sm" variant="outline" disabled={busy || !note.trim()} onClick={() => decider("RENVOYER")}>Renvoyer pour correction</BoutonDecisif>
         )}
-        <Button size="sm" variant="destructive" disabled={busy} onClick={() => decider("REFUSER")}>Refuser</Button>
+        <BoutonDecisif size="sm" variant="destructive" disabled={busy} onClick={() => decider("REFUSER")}>Refuser</BoutonDecisif>
         <Link
           href={row.href}
           className="inline-flex items-center gap-1 text-xs text-primary hover:underline"

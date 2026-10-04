@@ -9,6 +9,7 @@ import { Sheet } from "@/components/ui/sheet";
 import { Input, Label, Select } from "@/components/ui/input";
 import { proposeStandIn, decideStandIn } from "@/lib/actions/stand-in-actions";
 import { STAND_IN_LABEL, type StandInStatus } from "@/lib/hr/stand-in";
+import { BoutonDecisif } from "@/components/ui/bouton-decisif";
 
 /**
  * DÉSIGNER UN INTÉRIMAIRE, ET LE FAIRE VALIDER.
@@ -200,16 +201,16 @@ export function StandInDecision({ leaveId }: { leaveId: string }) {
         placeholder="Motif (obligatoire pour refuser)" className="h-8 w-56 text-xs"
       />
       <div className="flex gap-1.5">
-        <Button size="sm" disabled={busy !== null} onClick={() => decide(true)}>
+        <BoutonDecisif size="sm" disabled={busy !== null} onClick={() => decide(true)}>
           {busy === "ok" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />} Valider
-        </Button>
-        <Button
+        </BoutonDecisif>
+        <BoutonDecisif
           variant="outline" size="sm" disabled={busy !== null || !note.trim()}
           title={note.trim() ? undefined : "Un refus se motive : l'intéressé doit savoir quoi proposer d'autre."}
           onClick={() => decide(false)}
         >
           {busy === "no" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <X className="h-3.5 w-3.5" />} Refuser
-        </Button>
+        </BoutonDecisif>
       </div>
       {error && <p className="max-w-xs text-right text-xs text-destructive">{error}</p>}
     </div>

@@ -12,6 +12,7 @@ import { type LeaveStage } from "@/lib/leave-workflow";
 import { formatDate, cn } from "@/lib/utils";
 import { depuisLisible } from "@/lib/calendar-tz";
 import { LeaveEditButton } from "./leave-edit";
+import { BoutonDecisif } from "@/components/ui/bouton-decisif";
 
 export interface PendingLeave {
   id: string;
@@ -57,7 +58,6 @@ function DecisionRow({ leave, canManage, maintenant }: { leave: PendingLeave; ca
   const [error, setError] = React.useState<string | null>(null);
 
   const decide = async (decision: "APPROVED" | "REJECTED") => {
-    if (decision === "REJECTED" && !window.confirm("Refuser cette demande de congé ? Le circuit s'arrête ici.")) return;
     setBusy(decision); setError(null);
     const fd = new FormData();
     fd.set("id", leave.id);
@@ -118,18 +118,18 @@ function DecisionRow({ leave, canManage, maintenant }: { leave: PendingLeave; ca
             className="w-full rounded-md border border-border bg-background px-2 py-1 text-xs md:w-56"
           />
           <div className="flex items-center gap-1.5 md:justify-end">
-            <button
+            <BoutonDecisif brut
               type="button" disabled={busy !== null} onClick={() => decide("APPROVED")}
               className={cn("inline-flex items-center gap-1 rounded-md border border-success/30 px-2 py-1 text-xs font-medium text-success hover:bg-success/10 disabled:opacity-50")}
             >
               {busy === "APPROVED" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />} Approuver
-            </button>
-            <button
+            </BoutonDecisif>
+            <BoutonDecisif brut
               type="button" disabled={busy !== null} onClick={() => decide("REJECTED")}
               className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-xs font-medium text-muted-foreground hover:bg-destructive/10 hover:text-destructive disabled:opacity-50"
             >
               {busy === "REJECTED" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <X className="h-3.5 w-3.5" />} Refuser
-            </button>
+            </BoutonDecisif>
             {canManage && (
               <LeaveEditButton leave={{
                 id: leave.id, employee: leave.employee, type: leave.type,

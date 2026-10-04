@@ -25,6 +25,7 @@ import {
   nudgePaymentRequest, corrigerDemandePaiement,
 } from "@/lib/actions/payment-request-actions";
 import { requestDocument, askablePeople } from "@/lib/actions/document-request-actions";
+import { BoutonDecisif } from "@/components/ui/bouton-decisif";
 
 export interface PieceView {
   id: string;
@@ -340,9 +341,9 @@ export function PaymentDossier({
           <h2 className="text-sm font-semibold">Retirer la demande</h2>
           <p className="text-xs text-muted-foreground">Le paiement n&apos;est pas encore réglé : le retirer annule l&apos;ordre de dépense, et les Finances sont prévenues.</p>
           <Textarea value={note} onChange={(e) => setNote(e.target.value)} rows={2} placeholder="Motif (facultatif)" />
-          <Button variant="outline" className="text-muted-foreground" disabled={busy !== null} onClick={() => void run("cancel", cancelPaymentRequest, { id, note })}>
+          <BoutonDecisif variant="outline" className="text-muted-foreground" disabled={busy !== null} onClick={() => void run("cancel", cancelPaymentRequest, { id, note })}>
             Retirer la demande
-          </Button>
+          </BoutonDecisif>
         </section>
       )}
 
@@ -384,27 +385,27 @@ export function PaymentDossier({
               </Button>
             )}
             {isFinance && status !== "CHANGES_REQUESTED" && (
-              <Button variant="outline" disabled={busy !== null} onClick={() => void run("back", decidePaymentRequest, { id, move: "REQUEST_CHANGES", note })}>
+              <BoutonDecisif variant="outline" disabled={busy !== null} onClick={() => void run("back", decidePaymentRequest, { id, move: "REQUEST_CHANGES", note })}>
                 {busy === "back" ? <Loader2 className="h-4 w-4 animate-spin" /> : <RotateCcw className="h-4 w-4" />} Renvoyer au demandeur
-              </Button>
+              </BoutonDecisif>
             )}
             {isFinance && (
               <>
-                <Button
+                <BoutonDecisif
                   disabled={busy !== null || !canApproveNow} title={approveBlocker ?? undefined}
                   onClick={() => void run("ok", decidePaymentRequest, { id, move: "APPROVE", note })}
                 >
                   {busy === "ok" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />} Bon à payer
-                </Button>
-                <Button variant="outline" className="text-destructive" disabled={busy !== null} onClick={() => void run("no", decidePaymentRequest, { id, move: "REJECT", note })}>
+                </BoutonDecisif>
+                <BoutonDecisif variant="outline" className="text-destructive" disabled={busy !== null} onClick={() => void run("no", decidePaymentRequest, { id, move: "REJECT", note })}>
                   {busy === "no" ? <Loader2 className="h-4 w-4 animate-spin" /> : <X className="h-4 w-4" />} Refuser
-                </Button>
+                </BoutonDecisif>
               </>
             )}
             {isRequester && refusRetrait === null && (
-              <Button variant="outline" className="text-muted-foreground" disabled={busy !== null} onClick={() => void run("cancel", cancelPaymentRequest, { id, note })}>
+              <BoutonDecisif variant="outline" className="text-muted-foreground" disabled={busy !== null} onClick={() => void run("cancel", cancelPaymentRequest, { id, note })}>
                 Retirer la demande
-              </Button>
+              </BoutonDecisif>
             )}
           </div>
           {isFinance && approveBlocker && <p className="text-xs text-muted-foreground">{approveBlocker}</p>}
@@ -721,15 +722,15 @@ function PieceCard({
         <div className="space-y-2 border-t border-border pt-2">
           <Input value={review} onChange={(e) => setReview(e.target.value)} placeholder="Ce qui ne va pas (obligatoire pour « à revoir » ou « refusée »)" />
           <div className="flex flex-wrap gap-2">
-            <Button size="sm" variant="outline" disabled={busy !== null} onClick={() => void run(`ok-${piece.id}`, reviewPaymentPiece, { pieceId: piece.id, verdict: "ACCEPTED", note: review })}>
+            <BoutonDecisif size="sm" variant="outline" disabled={busy !== null} onClick={() => void run(`ok-${piece.id}`, reviewPaymentPiece, { pieceId: piece.id, verdict: "ACCEPTED", note: review })}>
               <Check className="h-3.5 w-3.5" /> Accepter
-            </Button>
-            <Button size="sm" variant="outline" disabled={busy !== null} onClick={() => void run(`fix-${piece.id}`, reviewPaymentPiece, { pieceId: piece.id, verdict: "CHANGES_REQUESTED", note: review })}>
+            </BoutonDecisif>
+            <BoutonDecisif size="sm" variant="outline" disabled={busy !== null} onClick={() => void run(`fix-${piece.id}`, reviewPaymentPiece, { pieceId: piece.id, verdict: "CHANGES_REQUESTED", note: review })}>
               <RotateCcw className="h-3.5 w-3.5" /> À revoir
-            </Button>
-            <Button size="sm" variant="outline" className="text-destructive" disabled={busy !== null} onClick={() => void run(`no-${piece.id}`, reviewPaymentPiece, { pieceId: piece.id, verdict: "REJECTED", note: review })}>
+            </BoutonDecisif>
+            <BoutonDecisif size="sm" variant="outline" className="text-destructive" disabled={busy !== null} onClick={() => void run(`no-${piece.id}`, reviewPaymentPiece, { pieceId: piece.id, verdict: "REJECTED", note: review })}>
               <X className="h-3.5 w-3.5" /> Refuser
-            </Button>
+            </BoutonDecisif>
             {/* PLUS DE « FAIRE VALIDER » ICI.
                 Le dossier n'arrive dans cet écran QU'AUTORISÉ par le centre de paiement : demander
                 une validation sur ce qui vient d'être autorisé n'avait plus de sens, et proposer un

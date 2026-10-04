@@ -18,6 +18,7 @@ import { EmptyState } from "@/components/shared/empty-state";
 import { formatCurrency, formatDate, formatDateTime } from "@/lib/utils";
 import { deadlineNatureLabel, deadlineNatureOf } from "@/lib/finance/deadline-nature";
 import { ItemAskPanel } from "@/components/ad-pro/item-ask-panel";
+import { BoutonDecisif } from "@/components/ui/bouton-decisif";
 
 export interface CentreMessage {
   id: string;
@@ -303,9 +304,9 @@ export function CentreBoard({ orders, canDecide }: { orders: CentreOrder[]; canD
             {err && <p className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">{err}</p>}
             <div className="flex justify-end gap-2">
               <Button type="button" variant="outline" onClick={() => setActing(null)} disabled={busy}>Annuler</Button>
-              <Button type="submit" disabled={busy} variant={acting.decision === "REFUSE" ? "destructive" : "primary"}>
+              <BoutonDecisif type="submit" disabled={busy} variant={acting.decision === "REFUSE" ? "destructive" : "primary"}>
                 {busy && <Loader2 className="h-4 w-4 animate-spin" />} {CENTRAL_DECISION_LABEL[acting.decision]}
-              </Button>
+              </BoutonDecisif>
             </div>
           </form>
         </Sheet>

@@ -14,6 +14,7 @@ import {
   LIBELLE_CENTRE_BC, LIBELLE_ETAT_BC, CHEMIN_CENTRE_BC, reserveBC, reserveEtapeBC, LIBELLE_ETAPE_BC,
   type CentreBC, type EtatPorteBC, type PorteBC, type EtapeBC,
 } from "@/lib/bons-de-commande/regle";
+import { BoutonDecisif } from "@/components/ui/bouton-decisif";
 
 /**
  * LA PORTE D'UN BON DE COMMANDE, SUR SA FICHE (§118.148).
@@ -163,10 +164,10 @@ export function BonDeCommandeGate({
             <p className="text-xs">{reserveEtapeBC("A_SIGNER", porte, seuil)}</p>
             {peutSigner && (
               <div className="flex flex-wrap items-center gap-2">
-                <Button size="sm" onClick={() => void agir("SIGNER")} disabled={busy !== null}>
+                <BoutonDecisif size="sm" onClick={() => void agir("SIGNER")} disabled={busy !== null}>
                   {busy === "SIGNER" ? <Loader2 className="h-4 w-4 animate-spin" /> : <FilePen className="h-4 w-4" />}
                   Signer (Finances)
-                </Button>
+                </BoutonDecisif>
                 {motifRenvoi === null && (
                   <Button size="sm" variant="secondary" onClick={() => setMotifRenvoi("")} disabled={busy !== null}>
                     <Undo2 className="h-4 w-4" /> Renvoyer à l&apos;émetteur
@@ -180,9 +181,9 @@ export function BonDeCommandeGate({
                   value={motifRenvoi} onChange={(e) => setMotifRenvoi(e.target.value)} aria-label="Ce qu'il faut corriger"
                   placeholder="Ce qu'il faut corriger (obligatoire)" className="min-w-0 flex-1"
                 />
-                <Button size="sm" variant="secondary" onClick={() => void agir("RENVOYER")} disabled={busy !== null || !motifRenvoi.trim()}>
+                <BoutonDecisif size="sm" variant="secondary" onClick={() => void agir("RENVOYER")} disabled={busy !== null || !motifRenvoi.trim()}>
                   {busy === "RENVOYER" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Undo2 className="h-4 w-4" />} Confirmer le renvoi
-                </Button>
+                </BoutonDecisif>
                 <Button size="sm" variant="ghost" onClick={() => setMotifRenvoi(null)} disabled={busy !== null}>Annuler</Button>
               </div>
             )}

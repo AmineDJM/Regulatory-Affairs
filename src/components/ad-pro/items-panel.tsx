@@ -45,6 +45,7 @@ import { BlocMaterielStock, type LigneStockVue, type ContexteMaterielStock } fro
 import { BlocVoyageurs, type VoyageurVue } from "./voyageurs-bloc";
 import { ConseilLuna } from "./conseil-luna";
 import type { PiecesDuPoste, PieceDePoste, DemandeBCDuPoste } from "@/lib/ad-pro/pieces-poste";
+import { BoutonDecisif } from "@/components/ui/bouton-decisif";
 
 export type { LigneStockVue, ContexteMaterielStock, ArticleMagasinVue } from "./materiel-stock";
 export type { VoyageurVue } from "./voyageurs-bloc";
@@ -518,7 +519,7 @@ function PosteCarte({ item, parent, parentId, regard, freres, assistantes, budge
     { expenseOrderId: item.expenseOrderId, expenseOrderStatus: item.expenseOrder?.status ?? null },
     { canAllocate: arbitrer },
   );
-  const entrees: { cle: string; libelle: string; icone: React.ReactNode; faire: () => void; danger?: boolean }[] = [];
+  const entrees: { cle: string; libelle: string; icone: React.ReactNode; faire: () => void; danger?: boolean; decisif?: string }[] = [];
   if (editer) entrees.push({ cle: "modifier", libelle: "Modifier le poste", icone: <Pencil className="h-3.5 w-3.5" />, faire: () => setPanneau("MODIFIER") });
   if (arbitrer && !stock && !item.expenseOrderId && pas.geste?.cle !== "MONTANT") {
     entrees.push({ cle: "montant", libelle: "Affecter un montant", icone: <Wallet className="h-3.5 w-3.5" />, faire: () => setPanneau("MONTANT") });
@@ -594,13 +595,8 @@ function PosteCarte({ item, parent, parentId, regard, freres, assistantes, budge
   if (editer && removable.ok && !item.lignesStock.some((l) => faitDeStock(l) != null)) {
     entrees.push({
       cle: "retirer", libelle: "Retirer le poste", icone: <Trash2 className="h-3.5 w-3.5" />, danger: true,
-      faire: () => {
-        const question = item.expenseOrderId
-          ? `Retirer ce poste annulera l'ordre de dépense ${item.expenseOrder?.reference ?? ""} transmis aux Finances. Continuer ?`
-          : `Retirer le poste « ${item.label} » ?`;
-        if (!window.confirm(question)) return;
-        void run(`del:${item.id}`, () => deleteAdProItem(undefined, fdOf()), "Poste retiré.");
-      },
+      decisif: item.expenseOrderId ? `retirer le poste et annuler l'ordre ${item.expenseOrder?.reference ?? ""}` : `retirer le poste « ${item.label} »`,
+      faire: () => { void run(`del:${item.id}`, () => deleteAdProItem(undefined, fdOf()), "Poste retiré."); },
     });
   }
 
@@ -639,7 +635,15 @@ function PosteCarte({ item, parent, parentId, regard, freres, assistantes, budge
             </button>
             {menu && (
               <div role="menu" className="absolute right-0 z-20 mt-1 w-64 rounded-lg border border-border bg-popover p-1 text-sm shadow-lg">
-                {entrees.map((e) => (
+                {entrees.map((e) => e.decisif ? (
+                  <BoutonDecisif
+                    brut key={e.cle} type="button" role="menuitem" confirmation={e.decisif}
+                    onClick={() => { setMenu(false); e.faire(); }}
+                    className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left hover:bg-secondary ${e.danger ? "text-destructive" : ""}`}
+                  >
+                    {e.icone} {e.libelle}
+                  </BoutonDecisif>
+                ) : (
                   <button
                     key={e.cle} type="button" role="menuitem"
                     onClick={() => { setMenu(false); e.faire(); }}
@@ -989,7 +993,6 @@ function PosteCarte({ item, parent, parentId, regard, freres, assistantes, budge
               <LignePiece
                 key={d.id} piece={d}
                 retirer={editer && !d.annulee ? () => {
-                  if (!window.confirm(`Retirer « ${d.titre} » de ce poste ?`)) return;
                   void run(`rdev:${item.id}`, () => retirerDevisDuPoste(undefined, fdOf({ pieceId: d.id })), "Pièce retirée du poste.");
                 } : undefined}
               />
@@ -1059,9 +1062,9 @@ function LignePiece({ piece, retirer }: { piece: PieceDePoste; retirer?: () => v
         {piece.aussiPour.length > 0 && <p className="truncate text-muted-foreground" title={piece.aussiPour.join(", ")}>Couvre aussi : {piece.aussiPour.join(", ")}</p>}
       </div>
       {retirer && (
-        <button type="button" onClick={retirer} aria-label={`Retirer ${piece.titre} du poste`} className="rounded p-0.5 text-muted-foreground hover:text-destructive">
+        <BoutonDecisif brut type="button" onClick={retirer} aria-label={`Retirer ${piece.titre} du poste`} className="rounded p-0.5 text-muted-foreground hover:text-destructive">
           <X className="h-3 w-3" />
-        </button>
+        </BoutonDecisif>
       )}
     </div>
   );
@@ -1215,31 +1218,31 @@ function BoiteDecision({ item, mode, budgetOptions, busy, run, fdOf, onCancel, r
       />
       <div className="flex flex-wrap gap-2">
         {offrir("APPROVED") && (
-          <Button
+          <BoutonDecisif
             size="sm" disabled={occupe || !accordPret}
             title={!accordPret ? "Indiquez le montant accordé et choisissez le budget." : mode === "STOCK" ? "Accorder réserve le matériel au magasin." : undefined}
             onClick={() => decider("APPROVED", mode === "OPERATIONS" ? "Validé — transmis au second temps." : mode === "STOCK" ? "Poste accordé — le matériel est réservé au magasin." : "Poste accordé.")}
           >
             <ThumbsUp className="h-4 w-4" /> {mode === "OPERATIONS" ? "Valider" : mode === "STOCK" ? "Accorder et réserver" : "Accorder"}
-          </Button>
+          </BoutonDecisif>
         )}
         {offrir("REVISION") && (
-          <Button
+          <BoutonDecisif
             size="sm" variant="outline" disabled={occupe || !note.trim()}
             title={!note.trim() ? "Indiquez ce qu'il faut revoir" : undefined}
             onClick={() => decider("REVISION", "Renvoyé au demandeur pour correction.")}
           >
             <RotateCcw className="h-4 w-4" /> {mode === "STOCK" ? "Revoir la liste" : "Renvoyer"}
-          </Button>
+          </BoutonDecisif>
         )}
         {offrir("REJECTED") && (
-          <Button
+          <BoutonDecisif
             size="sm" variant="outline" className="text-destructive" disabled={occupe || !note.trim()}
             title={!note.trim() ? "Indiquez le motif du refus" : undefined}
             onClick={() => decider("REJECTED", "Poste refusé.")}
           >
             <ThumbsDown className="h-4 w-4" /> Refuser
-          </Button>
+          </BoutonDecisif>
         )}
         <Button size="sm" variant="ghost" onClick={onCancel}>Annuler</Button>
       </div>
@@ -1305,15 +1308,15 @@ function VerifierBC({ demandeId, busy, onDecide, onCancel }: {
         className="w-full rounded-lg border border-border bg-background px-2.5 py-1.5 text-xs outline-none focus:border-primary/60"
       />
       <div className="flex flex-wrap gap-2">
-        <Button size="sm" disabled={busy} onClick={() => onDecide(true, note.trim())}>
+        <BoutonDecisif size="sm" disabled={busy} onClick={() => onDecide(true, note.trim())}>
           {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <ThumbsUp className="h-4 w-4" />} Accepter le BC
-        </Button>
-        <Button
+        </BoutonDecisif>
+        <BoutonDecisif
           size="sm" variant="outline" className="text-destructive" disabled={busy || !note.trim()}
           title={note.trim() ? undefined : "Indiquez ce qu'il faut corriger"} onClick={() => onDecide(false, note.trim())}
         >
           <ThumbsDown className="h-4 w-4" /> Refuser
-        </Button>
+        </BoutonDecisif>
         <Button size="sm" variant="ghost" onClick={onCancel}>Annuler</Button>
       </div>
     </div>
@@ -1453,13 +1456,13 @@ function GesteAvecMotif({ titre, aide, bouton, danger = false, busy, extra, onSe
         />
       )}
       <div className="flex flex-wrap gap-2">
-        <Button
+        <BoutonDecisif
           size="sm" variant={danger ? "outline" : "primary"} className={danger ? "text-destructive" : undefined}
           disabled={busy || !motif.trim()} title={motif.trim() ? undefined : "Indiquez le motif"}
           onClick={() => onSend(motif.trim(), valeur.trim())}
         >
           {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : null} {bouton}
-        </Button>
+        </BoutonDecisif>
         <Button size="sm" variant="ghost" onClick={onCancel}>Retour</Button>
       </div>
     </div>
@@ -1471,16 +1474,16 @@ function VisaBC({ busy, onDecide, onCancel }: { busy: boolean; onDecide: (decisi
   const [note, setNote] = React.useState("");
   return (
     <div className="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-background p-2">
-      <Button size="sm" disabled={busy} onClick={() => onDecide("APPROVE", note)}>
+      <BoutonDecisif size="sm" disabled={busy} onClick={() => onDecide("APPROVE", note)}>
         <ThumbsUp className="h-4 w-4" /> Valider le BC
-      </Button>
-      <Button
+      </BoutonDecisif>
+      <BoutonDecisif
         size="sm" variant="outline" className="text-destructive" disabled={busy || !note.trim()}
         title={note.trim() ? undefined : "Indiquez le motif du refus dans le champ ci-dessous."}
         onClick={() => onDecide("REFUSE", note)}
       >
         <ThumbsDown className="h-4 w-4" /> Refuser
-      </Button>
+      </BoutonDecisif>
       <input
         value={note} onChange={(e) => setNote(e.target.value)}
         placeholder="Motif (obligatoire pour refuser)"

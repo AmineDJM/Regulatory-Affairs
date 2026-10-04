@@ -13,6 +13,7 @@ import { useRafraichir } from "@/components/shared/use-rafraichir";
 import { Sheet } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { Input, Select, Textarea, Label } from "@/components/ui/input";
+import { BoutonDecisif } from "@/components/ui/bouton-decisif";
 
 type U = { id: string; name: string };
 
@@ -104,7 +105,7 @@ export function RequestActions({
           </Button>
         ) : (
           <form action={(fd) => { fd.set("id", requestId); return run(fd, finishRequest); }}>
-            <Button variant="outline" size="sm" type="submit" disabled={busy}><CheckCircle2 className="h-4 w-4" /> Fin de la demande</Button>
+            <BoutonDecisif variant="outline" size="sm" type="submit" disabled={busy}><CheckCircle2 className="h-4 w-4" /> Fin de la demande</BoutonDecisif>
           </form>
         )}
       </div>}
@@ -267,14 +268,14 @@ export function RequestActions({
         <form action={(fd) => { fd.set("id", requestId); return run(fd, annulerDemandeAuSecretariat, () => setAnnuler(false)); }} className="space-y-3">
           <div className="space-y-1.5"><Label htmlFor="rq-cancel">Motif de l&apos;annulation</Label><Textarea id="rq-cancel" name="motif" rows={3} required /></div>
           {err && <p className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">{err}</p>}
-          <div className="flex justify-end gap-2"><Button type="button" variant="outline" onClick={() => setAnnuler(false)}>Fermer</Button><Button type="submit" variant="destructive" disabled={busy}>{busy && <Loader2 className="h-4 w-4 animate-spin" />} Annuler la demande</Button></div>
+          <div className="flex justify-end gap-2"><BoutonDecisif type="button" variant="outline" onClick={() => setAnnuler(false)}>Fermer</BoutonDecisif><Button type="submit" variant="destructive" disabled={busy}>{busy && <Loader2 className="h-4 w-4 animate-spin" />} Annuler la demande</Button></div>
         </form>
       </Sheet>
       <Sheet open={del} onClose={() => setDel(false)} title="Supprimer la demande" width="md">
         <form action={(fd) => { fd.set("ids", requestId); return run(fd, deleteRequests, () => { setDel(false); router.push("/demandes"); }); }} className="space-y-3">
           <p className="text-xs text-muted-foreground">La suppression est <strong>tracée</strong> (qui, quand, pourquoi). La demande est archivée et masquée des listes, mais reste consultable en corbeille.</p>
           <Field label="Motif de suppression (obligatoire)"><Textarea name="reason" required placeholder="Ex. Doublon, demande annulée par le service…" /></Field>
-          <div className="flex justify-end gap-2"><Button type="button" variant="outline" onClick={() => setDel(false)}>Annuler</Button><Button type="submit" variant="destructive" disabled={busy}>{busy && <Loader2 className="h-4 w-4 animate-spin" />} Supprimer</Button></div>
+          <div className="flex justify-end gap-2"><BoutonDecisif type="button" variant="outline" onClick={() => setDel(false)}>Annuler</BoutonDecisif><Button type="submit" variant="destructive" disabled={busy}>{busy && <Loader2 className="h-4 w-4 animate-spin" />} Supprimer</Button></div>
         </form>
       </Sheet>
     </div>

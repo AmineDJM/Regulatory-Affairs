@@ -6,6 +6,7 @@ import { decideApproval } from "@/lib/actions/admin-request-actions";
 import { useRafraichir } from "@/components/shared/use-rafraichir";
 import { exigeMotif, type DecisionApprobation } from "@/lib/secretariat/decision-approbation";
 import { cn } from "@/lib/utils";
+import { BoutonDecisif } from "@/components/ui/bouton-decisif";
 
 /**
  * TRANCHER UNE VALIDATION AU SECRÉTARIAT — valider d'un clic ; refuser et demander une modification avec un
@@ -55,12 +56,12 @@ export function ApprovalButtons({ approvalId }: { approvalId: string }) {
   return (
     <div className="space-y-2">
       <div className="flex flex-wrap items-center gap-1.5">
-        <button
+        <BoutonDecisif brut
           type="button" disabled={ferme} onClick={() => void trancher("APPROVED")}
           className={cn(BTN, "border-success/30 text-success hover:bg-success/10")}
         >
           {busy && ouvert === null ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />} Valider
-        </button>
+        </BoutonDecisif>
         {(["CHANGES_REQUESTED", "REJECTED"] as const).map((d) => (
           <button
             key={d} type="button" disabled={ferme} aria-expanded={ouvert === d}
@@ -83,12 +84,12 @@ export function ApprovalButtons({ approvalId }: { approvalId: string }) {
             className="w-full rounded-md border border-border bg-background px-2 py-1.5 text-xs"
           />
           <div className="flex flex-wrap gap-1.5">
-            <button
+            <BoutonDecisif brut
               type="button" disabled={ferme || motif.trim() === ""} onClick={() => void trancher(ouvert)}
               className={cn(BTN, "border-border text-foreground hover:bg-secondary")}
             >
               {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null} {INVITE[ouvert].envoyer}
-            </button>
+            </BoutonDecisif>
             <button
               type="button" disabled={ferme} onClick={() => { setOuvert(null); setMotif(""); }}
               className={cn(BTN, "border-border text-muted-foreground hover:bg-secondary")}

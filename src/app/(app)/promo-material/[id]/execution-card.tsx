@@ -18,6 +18,7 @@ import { Badge } from "@/components/ui/badge";
 import { Input, Label, Textarea } from "@/components/ui/input";
 import type { ActionResult } from "@/lib/actions/types";
 import type { OptionCatalogue } from "@/lib/queries/promo-achats";
+import { BoutonDecisif } from "@/components/ui/bouton-decisif";
 
 /**
  * L'EXÉCUTION D'UN DOSSIER DU CIRCUIT 2 — du devis retenu au stock (§118.152, §118.165).
@@ -473,7 +474,7 @@ function Facture({ id, f, agir, canReceive, options }: {
           <Label htmlFor={`fa-ann-${f.id}`}>Pourquoi annuler cette facture ?</Label>
           <Textarea id={`fa-ann-${f.id}`} name="motif" required className="min-h-[50px]" placeholder="Doublon, facture erronée, rien n'a été livré… Elle reste au registre (annulée), avec ce motif." />
           <div className="flex gap-2">
-            <Button type="submit" size="sm" variant="destructive" disabled={saving}>Annuler la facture</Button>
+            <BoutonDecisif type="submit" size="sm" variant="destructive" disabled={saving}>Annuler la facture</BoutonDecisif>
             <Button type="button" size="sm" variant="ghost" onClick={() => setAnnulation(false)} disabled={saving}>Garder</Button>
           </div>
         </form>
@@ -483,10 +484,10 @@ function Facture({ id, f, agir, canReceive, options }: {
         <form className="flex flex-wrap items-center gap-2" action={demanderPaiement}>
           <ChoixFormalite name="formalite" />
           {enAttente.length > 0 && <Input name="motifRenoncement" required aria-label="Motif du renoncement" placeholder="Motif (obligatoire) — ligne non livrée" className="w-64" />}
-          <Button type="submit" size="sm" variant={enAttente.length > 0 ? "outline" : "primary"} disabled={saving}>
+          <BoutonDecisif type="submit" size="sm" variant={enAttente.length > 0 ? "outline" : "primary"} disabled={saving}>
             {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
             {enAttente.length > 0 ? " Demander le paiement malgré tout" : " Demander le paiement"}
-          </Button>
+          </BoutonDecisif>
           {enAttente.length > 0 && (
             <span className="w-full text-xs text-amber-700 dark:text-amber-400">
               Le paiement attend que tout soit reçu. Le demander maintenant, c&apos;est renoncer à payer ce qui manque — définitivement.
@@ -581,7 +582,7 @@ function LigneExecution({ id, e, canPilot, canReceive, ouvert, options }: {
           <Label htmlFor={`bc-sup-${e.quoteId}`}>Pourquoi supprimer ce bon de commande ?</Label>
           <Textarea id={`bc-sup-${e.quoteId}`} name="motif" required className="min-h-[50px]" placeholder="Son numéro reste au registre (annulé), avec ce motif." />
           <div className="flex gap-2">
-            <Button type="submit" size="sm" variant="destructive" disabled={saving}>{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />} Supprimer le BC</Button>
+            <BoutonDecisif type="submit" size="sm" variant="destructive" disabled={saving}>{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />} Supprimer le BC</BoutonDecisif>
             <Button type="button" size="sm" variant="ghost" onClick={() => setMode(null)} disabled={saving}>Annuler</Button>
           </div>
         </form>
@@ -635,7 +636,7 @@ export function PromoExecutionCard({ id, executions, canPilot, canReceive, ouver
               </div>
             )}
             <div className="flex flex-wrap gap-2">
-              <Button type="submit" size="sm" disabled={saving}>{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Wand2 className="h-4 w-4" />} Générer les bons de commande manquants</Button>
+              <BoutonDecisif type="submit" size="sm" disabled={saving}>{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Wand2 className="h-4 w-4" />} Générer les bons de commande manquants</BoutonDecisif>
               {!options && <Button type="button" size="sm" variant="ghost" onClick={() => setOptions(true)}>Livraison et notes…</Button>}
             </div>
           </form>

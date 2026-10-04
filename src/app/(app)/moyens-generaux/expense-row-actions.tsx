@@ -13,6 +13,7 @@ import { BudgetTargetField } from "./budget-target-field";
 import { SOURCE_LABEL, SOURCE_HINT, type PaymentSource } from "@/lib/general-means/payment-source";
 import { cn } from "@/lib/utils";
 import type { BudgetTarget } from "@/lib/budget/target";
+import { BoutonDecisif } from "@/components/ui/bouton-decisif";
 
 export interface EditableExpense {
   id: string;
@@ -104,9 +105,9 @@ export function ExpenseRowActions({
             supprimé avec la ligne. L&apos;opération est tracée dans le journal.
           </p>
           <div className="mt-2 flex gap-2">
-            <Button size="sm" variant="destructive" onClick={() => void remove()} disabled={busy}>
+            <BoutonDecisif size="sm" variant="destructive" onClick={() => void remove()} disabled={busy}>
               {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />} Supprimer
-            </Button>
+            </BoutonDecisif>
             <Button size="sm" variant="outline" onClick={() => setMode("idle")}><X className="h-3.5 w-3.5" /> Annuler</Button>
           </div>
         </div>

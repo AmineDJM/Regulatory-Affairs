@@ -6,6 +6,7 @@ import { Loader2, Trash2 } from "lucide-react";
 import { deleteMyValidationRequest } from "@/lib/actions/validation-actions";
 import { Button } from "@/components/ui/button";
 import { useRafraichir } from "@/components/shared/use-rafraichir";
+import { BoutonDecisif } from "@/components/ui/bouton-decisif";
 
 /**
  * RETIRER SA DEMANDE — tant que personne ne s'est prononcé.
@@ -37,16 +38,13 @@ export function WithdrawRequestButton({ id, reference, canWithdraw, abandon = fa
 
   return (
     <div className="flex flex-col items-end gap-1">
-      <Button
+      <BoutonDecisif
         variant="outline"
         size="sm"
         className="text-destructive"
         disabled={busy}
+        confirmation={abandon ? `retirer ${reference} (close, validateurs prévenus)` : `retirer ${reference} de la file des validateurs`}
         onClick={async () => {
-          const question = abandon
-            ? `Retirer la demande ${reference} ? Elle sera close et restera visible, avec son historique ; les validateurs déjà sollicités sont prévenus.`
-            : `Retirer la demande ${reference} ? Elle disparaîtra de la file de vos validateurs.`;
-          if (!window.confirm(question)) return;
           setBusy(true); setErr(null);
           const fd = new FormData();
           fd.set("id", id);
@@ -57,7 +55,7 @@ export function WithdrawRequestButton({ id, reference, canWithdraw, abandon = fa
         }}
       >
         {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />} Retirer ma demande
-      </Button>
+      </BoutonDecisif>
       {err && <p role="alert" className="max-w-xs text-right text-xs text-destructive">{err}</p>}
     </div>
   );

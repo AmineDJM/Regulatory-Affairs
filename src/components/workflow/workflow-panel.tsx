@@ -14,6 +14,7 @@ import { Input, Select, Textarea, Label } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { formatCurrency, formatDateTime } from "@/lib/utils";
+import { BoutonDecisif } from "@/components/ui/bouton-decisif";
 
 const STATUS_TONE: Record<string, { label: string; tone: "success" | "danger" | "warning" | "neutral" }> = {
   IN_PROGRESS: { label: "En cours", tone: "warning" },
@@ -237,24 +238,24 @@ export function WorkflowPanel({ entityType, entityId, view }: { entityType: Enti
                         {err && <p className="text-xs text-destructive">{err}</p>}
                         <div className="flex gap-2">
                           {mode === "approve" && (
-                            <Button size="sm" disabled={approveDisabled} onClick={() => submit("APPROVE")}>
+                            <BoutonDecisif size="sm" disabled={approveDisabled} onClick={() => submit("APPROVE")}>
                               {pending ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowRight className="h-4 w-4" />} Confirmer
-                            </Button>
+                            </BoutonDecisif>
                           )}
                           {mode === "reject" && (
-                            <Button size="sm" variant="destructive" disabled={pending || !note.trim() || (!actionIsLast && needsAssign && !assignee)} onClick={() => submit("REJECT")}>
+                            <BoutonDecisif size="sm" variant="destructive" disabled={pending || !note.trim() || (!actionIsLast && needsAssign && !assignee)} onClick={() => submit("REJECT")}>
                               {pending && <Loader2 className="h-4 w-4 animate-spin" />} {actionIsLast ? "Refuser" : "Émettre l'avis défavorable"}
-                            </Button>
+                            </BoutonDecisif>
                           )}
                           {mode === "return" && (
-                            <Button size="sm" variant="outline" disabled={pending || !note.trim()} onClick={() => submit("RETURN")}>
+                            <BoutonDecisif size="sm" variant="outline" disabled={pending || !note.trim()} onClick={() => submit("RETURN")}>
                               {pending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Undo2 className="h-4 w-4" />} Renvoyer au demandeur
-                            </Button>
+                            </BoutonDecisif>
                           )}
                           {mode === "skip" && (
-                            <Button size="sm" variant="outline" disabled={pending || !note.trim()} onClick={() => submit("SKIP")}>
+                            <BoutonDecisif size="sm" variant="outline" disabled={pending || !note.trim()} onClick={() => submit("SKIP")}>
                               {pending ? <Loader2 className="h-4 w-4 animate-spin" /> : <SkipForward className="h-4 w-4" />} Confirmer le saut
-                            </Button>
+                            </BoutonDecisif>
                           )}
                           {mode === "comment" && (
                             <Button size="sm" disabled={pending || !note.trim()} onClick={() => submit("COMMENT")}>
@@ -437,9 +438,9 @@ function WithdrawForm({ entityType, entityId }: { entityType: EntityType; entity
       <Textarea value={motif} onChange={(e) => setMotif(e.target.value)} placeholder="Pourquoi retirer la demande (obligatoire)…" className="min-h-[56px]" />
       {err && <p className="text-xs text-destructive">{err}</p>}
       <div className="flex gap-2">
-        <Button size="sm" variant="destructive" disabled={pending || !motif.trim()} onClick={retirer}>
+        <BoutonDecisif size="sm" variant="destructive" disabled={pending || !motif.trim()} onClick={retirer}>
           {pending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Ban className="h-4 w-4" />} Retirer
-        </Button>
+        </BoutonDecisif>
         <Button size="sm" variant="ghost" onClick={() => { setOpen(false); setErr(null); }}>Annuler</Button>
       </div>
     </div>

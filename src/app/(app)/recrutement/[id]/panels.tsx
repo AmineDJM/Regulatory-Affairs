@@ -18,6 +18,7 @@ import {
 import { RECRUITMENT_CONTRACTS, CONTRACT_LABEL } from "@/lib/recruitment/request-flow";
 import type { ActionResult } from "@/lib/actions/types";
 import { useKeyedAction as useAction } from "@/components/shared/use-action";
+import { BoutonDecisif } from "@/components/ui/bouton-decisif";
 
 /**
  * LES GESTES DU CIRCUIT DE RECRUTEMENT.
@@ -61,27 +62,27 @@ export function ChainDecisionPanel({ id, stepLabel }: { id: string; stepLabel: s
         <Input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Ex. Budget non prévu cette année." className="h-9 text-sm" />
       </div>
       <div className="flex flex-wrap gap-2">
-        <Button
+        <BoutonDecisif
           size="sm" disabled={busy !== null}
           onClick={() => run("ok", () => decideRecruitmentStep(fd({ id, decision: "APPROVED", reason })))}
         >
           {busy === "ok" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />} Valider
-        </Button>
+        </BoutonDecisif>
         {/* RENVOYER (§118.192) : un besoin mal posé se corrige — le refuser ferait recommencer toute la chaîne. */}
-        <Button
+        <BoutonDecisif
           size="sm" variant="outline" disabled={busy !== null || !reason.trim()}
           title={reason.trim() ? undefined : "Dites ce qu'il faut corriger — c'est ce que le demandeur lira."}
           onClick={() => run("ret", () => renvoyerDemandeRecrutement(fd({ id, motif: reason })))}
         >
           {busy === "ret" ? <Loader2 className="h-4 w-4 animate-spin" /> : <CornerUpLeft className="h-4 w-4" />} Renvoyer pour correction
-        </Button>
-        <Button
+        </BoutonDecisif>
+        <BoutonDecisif
           size="sm" variant="outline" disabled={busy !== null || !reason.trim()}
           title={reason.trim() ? undefined : "Un refus se motive — c'est ce que le demandeur lira."}
           onClick={() => run("no", () => decideRecruitmentStep(fd({ id, decision: "REJECTED", reason })))}
         >
           {busy === "no" ? <Loader2 className="h-4 w-4 animate-spin" /> : <X className="h-4 w-4" />} Refuser
-        </Button>
+        </BoutonDecisif>
       </div>
       <ErrorLine error={error} />
     </div>
@@ -92,15 +93,14 @@ export function CancelRequestButton({ id }: { id: string }) {
   const { busy, error, run } = useAction();
   return (
     <div className="flex flex-col items-end gap-1">
-      <Button
+      <BoutonDecisif
         variant="outline" size="sm" disabled={busy !== null}
         onClick={() => {
-          if (!window.confirm("Retirer cette demande de recrutement ?")) return;
           void run("cancel", () => cancelRecruitmentRequest(fd({ id })));
         }}
       >
         {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Undo2 className="h-4 w-4" />} Retirer la demande
-      </Button>
+      </BoutonDecisif>
       {error && <p className="text-xs text-destructive">{error}</p>}
     </div>
   );
@@ -150,28 +150,28 @@ export function HrPanel({ id, canAsk, canOpen, canReject, canReturn }: {
           <Input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Motif (ce qu'il faut corriger, raison d'un refus…)" className="h-9 text-sm" />
           <div className="flex flex-wrap gap-2 pt-1">
             {canOpen && (
-              <Button size="sm" disabled={busy !== null} onClick={() => run("open", () => openRecruitmentSourcing(fd({ id })))}>
+              <BoutonDecisif size="sm" disabled={busy !== null} onClick={() => run("open", () => openRecruitmentSourcing(fd({ id })))}>
                 {busy === "open" ? <Loader2 className="h-4 w-4 animate-spin" /> : <DoorOpen className="h-4 w-4" />}
                 Ouvrir le poste
-              </Button>
+              </BoutonDecisif>
             )}
             {canReturn && (
-              <Button
+              <BoutonDecisif
                 size="sm" variant="outline" disabled={busy !== null || !note.trim()}
                 title={note.trim() ? undefined : "Dites ce qu'il faut corriger."}
                 onClick={() => run("ret", () => renvoyerDemandeRecrutement(fd({ id, motif: note })))}
               >
                 {busy === "ret" ? <Loader2 className="h-4 w-4 animate-spin" /> : <CornerUpLeft className="h-4 w-4" />} Renvoyer pour correction
-              </Button>
+              </BoutonDecisif>
             )}
             {canReject && (
-              <Button
+              <BoutonDecisif
                 size="sm" variant="outline" disabled={busy !== null || !note.trim()}
                 title={note.trim() ? undefined : "Un refus se motive."}
                 onClick={() => run("rej", () => closeRecruitmentRequest(fd({ id, decision: "REJECTED", note })))}
               >
                 {busy === "rej" ? <Loader2 className="h-4 w-4 animate-spin" /> : <X className="h-4 w-4" />} Refuser
-              </Button>
+              </BoutonDecisif>
             )}
           </div>
         </div>
@@ -276,10 +276,10 @@ export function CandidateActions({ candidateId, status, can }: {
           </Button>
         )}
         {can.hire && !done && (
-          <Button size="sm" disabled={busy !== null} onClick={() => move("HIRE")}>
+          <BoutonDecisif size="sm" disabled={busy !== null} onClick={() => move("HIRE")}>
             {busy === "HIRE" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
             Recruter
-          </Button>
+          </BoutonDecisif>
         )}
         {(can.shortlist || can.select || can.interview) && !done && (
           <Button size="sm" variant="outline" disabled={busy !== null} onClick={() => move("DECLINE")}>
@@ -308,23 +308,23 @@ export function OnboardPanel({ id, hiredName, external, canCancelHire }: {
           ? "Consulting : intervenant EXTERNE. Aucune fiche employé n'est créée — il n'entre ni dans l'effectif, ni dans la paie, ni dans l'organigramme."
           : "Créez la fiche employé : elle sera pré-remplie depuis la demande (poste, direction, contrat, dates) et depuis le candidat. Le salaire réel et le compte applicatif se complètent ensuite depuis les RH."}
       </p>
-      <Button size="sm" disabled={busy !== null} onClick={() => run("on", () => onboardRecruitment(fd({ id })))}>
+      <BoutonDecisif size="sm" disabled={busy !== null} onClick={() => run("on", () => onboardRecruitment(fd({ id })))}>
         {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <IdCard className="h-4 w-4" />}
         {external ? "Clôturer — consultant externe" : "Créer la fiche employé"}
-      </Button>
+      </BoutonDecisif>
       {/* ANNULER L'EMBAUCHE (§118.192) : un candidat qui se désiste avant sa fiche ne laisse plus la demande
           en intégration pour toujours. */}
       {canCancelHire && (
         <div className="space-y-1 border-t border-success/30 pt-2">
           <Label className="text-xs">Annuler l&apos;embauche (désistement, erreur…)</Label>
           <Input value={motif} onChange={(e) => setMotif(e.target.value)} placeholder="Motif" className="h-9 text-sm" />
-          <Button
+          <BoutonDecisif
             size="sm" variant="outline" disabled={busy !== null || !motif.trim()}
             title={motif.trim() ? undefined : "Dites pourquoi l'embauche s'annule."}
             onClick={() => run("annul", () => annulerEmbaucheRecrutement(fd({ id, motif })))}
           >
             {busy === "annul" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Undo2 className="h-4 w-4" />} Annuler l&apos;embauche
-          </Button>
+          </BoutonDecisif>
         </div>
       )}
       <ErrorLine error={error} />
@@ -339,12 +339,12 @@ export function CloseRequestButton({ id }: { id: string }) {
     <div className="space-y-1.5 rounded-xl border border-border p-3">
       <Label className="text-xs">Clôturer sans suite</Label>
       <Input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Motif (poste abandonné, gel des embauches…)" className="h-9 text-sm" />
-      <Button
+      <BoutonDecisif
         size="sm" variant="outline" disabled={busy !== null || !note.trim()}
         onClick={() => run("close", () => closeRecruitmentRequest(fd({ id, note })))}
       >
         {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <X className="h-4 w-4" />} Clôturer
-      </Button>
+      </BoutonDecisif>
       <ErrorLine error={error} />
     </div>
   );

@@ -14,6 +14,7 @@ import { Button } from "@/components/ui/button";
 import { Input, Label, Select, Textarea } from "@/components/ui/input";
 import { Sheet } from "@/components/ui/sheet";
 import { cn } from "@/lib/utils";
+import { BoutonDecisif } from "@/components/ui/bouton-decisif";
 
 export interface PraticienVue {
   id: string; name: string; specialty: string | null; institution: string | null;
@@ -265,9 +266,9 @@ export function Planificateur({
               </p>
               <div className="flex justify-end gap-2">
                 <Button type="button" variant="ghost" size="sm" disabled={occupe} onClick={() => { setRevision(false); setMotifRevision(""); }}>Annuler</Button>
-                <Button type="submit" size="sm" disabled={occupe || motifRevision.trim().length === 0}>
+                <BoutonDecisif type="submit" size="sm" disabled={occupe || motifRevision.trim().length === 0}>
                   {occupe && <Loader2 className="h-4 w-4 animate-spin" />} Rouvrir pour révision
-                </Button>
+                </BoutonDecisif>
               </div>
             </form>
           )}
@@ -293,7 +294,7 @@ export function Planificateur({
               <Button variant="outline" size="sm" disabled={occupe} onClick={() => { setErr(null); setRejet(true); }}>
                 <X className="h-4 w-4" /> Rejeter
               </Button>
-              <Button
+              <BoutonDecisif
                 size="sm" disabled={occupe}
                 onClick={() => {
                   const fd = new FormData();
@@ -302,7 +303,7 @@ export function Planificateur({
                 }}
               >
                 <Check className="h-4 w-4" /> Valider le plan
-              </Button>
+              </BoutonDecisif>
             </>
           )}
         </div>
@@ -490,9 +491,9 @@ export function Planificateur({
           {err && <p className="text-sm text-destructive">{err}</p>}
           <div className="flex justify-end gap-2">
             <Button type="button" variant="ghost" onClick={() => setRejet(false)} disabled={occupe}>Annuler</Button>
-            <Button type="submit" variant="destructive" disabled={occupe}>
+            <BoutonDecisif type="submit" variant="destructive" disabled={occupe}>
               {occupe && <Loader2 className="h-4 w-4 animate-spin" />} Rejeter
-            </Button>
+            </BoutonDecisif>
           </div>
         </form>
       </Sheet>

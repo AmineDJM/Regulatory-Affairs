@@ -6,6 +6,7 @@ import { Check, X, MessageSquareWarning, Loader2 } from "lucide-react";
 import { decideValidation } from "@/lib/actions/validation-actions";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/input";
+import { BoutonDecisif } from "@/components/ui/bouton-decisif";
 
 type Decision = "APPROVED" | "REJECTED" | "CHANGES_REQUESTED";
 
@@ -52,9 +53,9 @@ export function ValidationDecision({ stepId }: { stepId: string }) {
         <Textarea autoFocus value={reason} onChange={(e) => setReason(e.target.value)} placeholder={cfg.ph} className="min-h-[60px]" />
         {err && <p className="text-xs text-destructive">{err}</p>}
         <div className="flex gap-2">
-          <Button size="sm" variant={cfg.variant} disabled={pending || (cfg.motif && !reason.trim())} onClick={confirm}>
+          <BoutonDecisif size="sm" variant={cfg.variant} disabled={pending || (cfg.motif && !reason.trim())} onClick={confirm}>
             {pending && <Loader2 className="h-4 w-4 animate-spin" />} {cfg.label}
-          </Button>
+          </BoutonDecisif>
           <Button size="sm" variant="ghost" disabled={pending} onClick={() => { setMode(null); setReason(""); setErr(null); }}>Annuler</Button>
         </div>
       </div>

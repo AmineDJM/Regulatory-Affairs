@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/button";
 import { Input, Label, Textarea } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import type { ActionResult } from "@/lib/actions/types";
+import { BoutonDecisif } from "@/components/ui/bouton-decisif";
 
 export interface PromoFlags {
   isMarketing: boolean;
@@ -102,7 +103,7 @@ export function PromoActionPanel(props: Props) {
       panels.push(
         <Step key="vbc" title="Validation du bon de commande (centre Ad & Pro)" hint="Vérifiez le BC déposé, puis validez. Tout bon de commande né d'Ad & Pro passe par le centre de validation Ad & Pro.">
           <Err msg={err} />
-          <Button onClick={() => run(() => validateBc(fd()))} disabled={saving}>{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <BadgeCheck className="h-4 w-4" />} Valider le bon de commande</Button>
+          <BoutonDecisif onClick={() => run(() => validateBc(fd()))} disabled={saving}>{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <BadgeCheck className="h-4 w-4" />} Valider le bon de commande</BoutonDecisif>
         </Step>,
       );
     }
@@ -119,7 +120,7 @@ export function PromoActionPanel(props: Props) {
     panels.push(
       <Step key="sent" title="Transmission à l'agence" hint="Le BC est validé. Confirmez sa transmission à l'agence (contact hors plateforme).">
         <Err msg={err} />
-        <Button onClick={() => run(() => confirmBcSent(fd()))} disabled={saving}>{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />} BC validé & transmis à l'agence</Button>
+        <BoutonDecisif onClick={() => run(() => confirmBcSent(fd()))} disabled={saving}>{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />} BC validé & transmis à l'agence</BoutonDecisif>
       </Step>,
     );
   }
@@ -202,7 +203,7 @@ export function PromoActionPanel(props: Props) {
     panels.push(
       <Step key="inv" title="Facture de l'agence" hint="Enregistrez la facture finale + le bon de livraison (ci-dessus), puis transmettez aux finances.">
         <Err msg={err} />
-        <Button onClick={() => run(() => recordInvoice(fd()))} disabled={saving}>{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />} Facture reçue — transmettre aux finances</Button>
+        <BoutonDecisif onClick={() => run(() => recordInvoice(fd()))} disabled={saving}>{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />} Facture reçue — transmettre aux finances</BoutonDecisif>
       </Step>,
     );
   }
@@ -217,7 +218,7 @@ export function PromoActionPanel(props: Props) {
       ) : o.regle ? (
         <Step key="settle" title="Règlement" hint={`L'ordre ${o.reference} est réglé : le dossier peut être clôturé.`}>
           <Err msg={err} />
-          <Button onClick={() => run(() => settle(fd()))} disabled={saving}>{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <BadgeCheck className="h-4 w-4" />} Clôturer le dossier (réglé)</Button>
+          <BoutonDecisif onClick={() => run(() => settle(fd()))} disabled={saving}>{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <BadgeCheck className="h-4 w-4" />} Clôturer le dossier (réglé)</BoutonDecisif>
         </Step>
       ) : (
         <Step key="settle" title="Règlement" hint={`L'ordre ${o.reference} est ${o.etat}. Le dossier se clôturera une fois l'ordre réglé depuis Finances › Paiements à faire.`}>
@@ -257,7 +258,7 @@ function CancelButton({ id }: { id: string }) {
         <div className="flex flex-wrap items-center gap-2 text-sm">
           <span className="text-muted-foreground">Annuler le dossier ?</span>
           <Input value={motif} onChange={(e) => setMotif(e.target.value)} aria-label="Motif de l'annulation" placeholder="Pourquoi (obligatoire)" className="min-w-0 flex-1" />
-          <Button size="sm" variant="destructive" onClick={() => { const f = new FormData(); f.set("id", id); f.set("motif", motif.trim()); run(() => cancelPromoMaterial(f)); }} disabled={saving || !motif.trim()}>{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <XCircle className="h-4 w-4" />} Confirmer</Button>
+          <BoutonDecisif size="sm" variant="destructive" onClick={() => { const f = new FormData(); f.set("id", id); f.set("motif", motif.trim()); run(() => cancelPromoMaterial(f)); }} disabled={saving || !motif.trim()}>{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <XCircle className="h-4 w-4" />} Confirmer</BoutonDecisif>
           <Button size="sm" variant="ghost" onClick={() => setConfirm(false)} disabled={saving}>Non</Button>
         </div>
       )}

@@ -18,6 +18,7 @@ import {
 import {
   requestTraining, createHrTraining, decideTraining, inviteTrainingParticipants, respondToTrainingInvitation, annulerFormation,
 } from "@/lib/actions/training-actions";
+import { BoutonDecisif } from "@/components/ui/bouton-decisif";
 
 export interface TrainingParticipantRow {
   id: string;
@@ -290,7 +291,7 @@ export function TrainingBoard({
                           </label>
                         </div>
                         <div className="flex gap-1.5">
-                          <button type="button" disabled={busy === `dec:${t.id}`} onClick={() => {
+                          <BoutonDecisif brut type="button" disabled={busy === `dec:${t.id}`} onClick={() => {
                             const fd = new FormData();
                             fd.set("id", t.id); fd.set("decision", "APPROVED");
                             if (note[t.id]) fd.set("note", note[t.id]);
@@ -298,16 +299,15 @@ export function TrainingBoard({
                             void run(`dec:${t.id}`, () => decideTraining(fd), "Formation validée.");
                           }} className="inline-flex items-center gap-1 rounded-md border border-success/30 px-2 py-1 text-xs font-medium text-success hover:bg-success/10 disabled:opacity-50">
                             {busy === `dec:${t.id}` ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ThumbsUp className="h-3.5 w-3.5" />} Approuver
-                          </button>
-                          <button type="button" disabled={busy === `dec:${t.id}`} onClick={() => {
-                            if (!window.confirm("Refuser cette formation ? Le circuit s'arrête ici.")) return;
+                          </BoutonDecisif>
+                          <BoutonDecisif brut type="button" disabled={busy === `dec:${t.id}`} onClick={() => {
                             const fd = new FormData();
                             fd.set("id", t.id); fd.set("decision", "REJECTED");
                             if (note[t.id]) fd.set("note", note[t.id]);
                             void run(`dec:${t.id}`, () => decideTraining(fd), "Formation refusée.");
                           }} className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-xs text-muted-foreground hover:bg-destructive/10 hover:text-destructive disabled:opacity-50">
                             <ThumbsDown className="h-3.5 w-3.5" /> Refuser
-                          </button>
+                          </BoutonDecisif>
                         </div>
                       </div>
                     )}

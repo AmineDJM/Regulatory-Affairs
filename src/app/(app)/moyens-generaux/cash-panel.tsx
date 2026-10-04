@@ -19,6 +19,7 @@ import {
   decidePettyCashTopUp, setPettyCashPlan, annulerRallongeCaisse,
 } from "@/lib/actions/petty-cash-actions";
 import type { GeneralMeansView, GeneralMeansRemittance } from "@/lib/queries/general-means";
+import { BoutonDecisif } from "@/components/ui/bouton-decisif";
 
 /**
  * LA CAISSE D'AVANCE, À L'ÉCRAN — une seule, continue.
@@ -142,12 +143,12 @@ export function CashPanel({ view, people }: { view: GeneralMeansView; people: { 
                 <strong>{formatCurrency(r.amount)}</strong> ont été versés pour votre caisse (remise du {formatDate(r.remittedAt)}) —
                 cette somme n&apos;est pas dépensable tant que vous n&apos;avez pas confirmé l&apos;avoir reçue.
               </span>
-              <Button size="sm" disabled={busy === `recv:${r.id}`} onClick={() => {
+              <BoutonDecisif size="sm" disabled={busy === `recv:${r.id}`} onClick={() => {
                 const fd = new FormData(); fd.set("id", r.id);
                 void run(`recv:${r.id}`, () => confirmPettyCashReceipt(fd), "Réception confirmée.");
               }}>
                 {busy === `recv:${r.id}` ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />} J&apos;ai reçu la somme
-              </Button>
+              </BoutonDecisif>
             </div>
           ))}
 
@@ -173,16 +174,14 @@ export function CashPanel({ view, people }: { view: GeneralMeansView; people: { 
               </>
             )}
             {(view.isHolder || view.canAllot) && cash.currentId && (
-              <Button size="sm" variant="outline" disabled={busy === "close"} onClick={() => {
-                if (!window.confirm(
-                  `Solder la caisse ? Les ${fund.remittanceCount} remise(s) en cours sont arrêtées d'un bloc, `
-                  + `reliquat de ${formatCurrency(fund.remaining)}. Aucune dépense ne pourra plus y être imputée.`,
-                )) return;
+              <BoutonDecisif size="sm" variant="outline" disabled={busy === "close"}
+                confirmation={`solder la caisse (${fund.remittanceCount} remise(s) arrêtée(s), reliquat ${formatCurrency(fund.remaining)})`}
+                onClick={() => {
                 const fd = new FormData(); fd.set("id", cash.currentId ?? "");
                 void run("close", () => closePettyCash(fd), "Caisse soldée.");
               }}>
                 <Lock className="h-4 w-4" /> Solder la caisse
-              </Button>
+              </BoutonDecisif>
             )}
           </div>
         </>
@@ -340,34 +339,33 @@ export function CashPanel({ view, people }: { view: GeneralMeansView; people: { 
                         inputMode="decimal" aria-label="Montant accordé"
                         className="h-8 w-28 text-right tabular-nums"
                       />
-                      <button type="button" disabled={busy === `top:${t.id}`} onClick={() => {
+                      <BoutonDecisif brut type="button" disabled={busy === `top:${t.id}`} onClick={() => {
                         const fd = new FormData();
                         fd.set("id", t.id); fd.set("decision", "APPROVED");
                         fd.set("amountGranted", grant[t.id] ?? String(t.amountRequested));
                         void run(`top:${t.id}`, () => decidePettyCashTopUp(fd), "Rallonge accordée.");
                       }} className="inline-flex items-center gap-1 rounded-md border border-success/30 px-2 py-1 text-xs font-medium text-success hover:bg-success/10 disabled:opacity-50">
                         {busy === `top:${t.id}` ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ThumbsUp className="h-3.5 w-3.5" />} Accorder
-                      </button>
-                      <button type="button" disabled={busy === `top:${t.id}`} onClick={() => {
+                      </BoutonDecisif>
+                      <BoutonDecisif brut type="button" disabled={busy === `top:${t.id}`} onClick={() => {
                         const fd = new FormData();
                         fd.set("id", t.id); fd.set("decision", "REJECTED");
                         void run(`top:${t.id}`, () => decidePettyCashTopUp(fd), "Rallonge refusée.");
                       }} className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-xs text-muted-foreground hover:bg-destructive/10 hover:text-destructive disabled:opacity-50">
                         <ThumbsDown className="h-3.5 w-3.5" /> Refuser
-                      </button>
+                      </BoutonDecisif>
                     </span>
                   ) : (
                     <span className="flex flex-wrap items-center gap-1.5">
                       <Badge tone="warning" dot={false}>En attente des RH</Badge>
                       {/* RETIRER SA DEMANDE (décision du 04/10) — tant qu'elle n'est pas tranchée. */}
                       {t.canCancel && (
-                        <button type="button" disabled={busy === `top:${t.id}`} onClick={() => {
-                          if (!window.confirm("Retirer cette demande de rallonge ? Les RH en seront prévenues.")) return;
+                        <BoutonDecisif brut type="button" disabled={busy === `top:${t.id}`} onClick={() => {
                           const fd = new FormData(); fd.set("id", t.id);
                           void run(`top:${t.id}`, () => annulerRallongeCaisse(fd), "Demande de rallonge retirée.");
                         }} className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-xs text-muted-foreground hover:bg-destructive/10 hover:text-destructive disabled:opacity-50">
                           Retirer
-                        </button>
+                        </BoutonDecisif>
                       )}
                     </span>
                   )

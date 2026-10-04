@@ -15,6 +15,7 @@ import { HrRequestThread } from "@/components/shared/hr-request-thread";
 import { MeetingControls } from "@/components/shared/hr-meeting-controls";
 import { ExpenseClaimHrPanel } from "@/components/hr/expense-claim-hr-panel";
 import type { HrDocumentDTO, HrRequestDTO } from "@/lib/queries/hr-documents";
+import { BoutonDecisif } from "@/components/ui/bouton-decisif";
 
 const REQ_TO_CAT: Record<string, string> = {
   WORK_CERTIFICATE: "WORK_CERTIFICATE",
@@ -133,10 +134,10 @@ export function HrDossier({ employeeId, employeeName, documents, requests, curre
                   {visibilityLabel(d.visibleToEmployee)}
                 </button>
                 <a href={`/api/rh/document/${d.id}?dl=1`} className="rounded p-1.5 text-muted-foreground hover:bg-secondary hover:text-foreground" title="Télécharger"><Download className="h-4 w-4" /></a>
-                <button
-                  onClick={() => { if (window.confirm("Supprimer ce document ?")) { const fd = new FormData(); fd.set("id", d.id); deleteEmployeeDocument(fd).then(() => router.refresh()); } }}
+                <BoutonDecisif brut
+                  onClick={() => { const fd = new FormData(); fd.set("id", d.id); deleteEmployeeDocument(fd).then(() => router.refresh()); }}
                   className="rounded p-1.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive" title="Supprimer"
-                ><Trash2 className="h-4 w-4" /></button>
+                ><Trash2 className="h-4 w-4" /></BoutonDecisif>
               </li>
             ))}
           </ul>
@@ -211,9 +212,8 @@ function RequestRow({ req, employeeId, employeeName, onFulfil, busy, currentUser
             <FolderArchive className="h-3.5 w-3.5" /> Dossier traité
           </a>
         )}
-        <button
+        <BoutonDecisif brut
           onClick={() => {
-            if (!window.confirm("Supprimer UNIQUEMENT cette demande RH ? (la fiche employé n'est pas touchée)")) return;
             const fd = new FormData(); fd.set("id", req.id);
             deleteHrRequest(fd).then(() => router.refresh());
           }}
@@ -221,7 +221,7 @@ function RequestRow({ req, employeeId, employeeName, onFulfil, busy, currentUser
           className="ml-auto rounded-md p-1.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
         >
           <Trash2 className="h-4 w-4" />
-        </button>
+        </BoutonDecisif>
       </div>
       {req.details && <p className="mb-2 text-xs text-muted-foreground">Demande : {req.details}</p>}
 
@@ -262,15 +262,15 @@ function RequestRow({ req, employeeId, employeeName, onFulfil, busy, currentUser
                 </p>
               )}
               <div className="flex flex-wrap gap-1.5">
-                <Button size="sm" disabled={deciding !== null || !req.originalsAckAt} onClick={() => decide("APPROVE")}>
+                <BoutonDecisif size="sm" disabled={deciding !== null || !req.originalsAckAt} onClick={() => decide("APPROVE")}>
                   {deciding === "APPROVE" ? <Loader2 className="h-4 w-4 animate-spin" /> : null} Valider ({formatMonth(req.expenseMonth)})
-                </Button>
-                <Button size="sm" variant="outline" disabled={deciding !== null || !req.originalsAckAt} onClick={() => decide("APPROVE_NEXT")}>
+                </BoutonDecisif>
+                <BoutonDecisif size="sm" variant="outline" disabled={deciding !== null || !req.originalsAckAt} onClick={() => decide("APPROVE_NEXT")}>
                   {deciding === "APPROVE_NEXT" ? <Loader2 className="h-4 w-4 animate-spin" /> : null} Valider pour le mois suivant
-                </Button>
-                <Button size="sm" variant="outline" disabled={deciding !== null || !req.originalsAckAt} onClick={() => { if (window.confirm("Refuser cette note de frais ?")) decide("REJECT"); }} className="text-destructive hover:bg-destructive/10">
+                </BoutonDecisif>
+                <BoutonDecisif size="sm" variant="outline" disabled={deciding !== null || !req.originalsAckAt} onClick={() => decide("REJECT")} className="text-destructive hover:bg-destructive/10">
                   {deciding === "REJECT" ? <Loader2 className="h-4 w-4 animate-spin" /> : null} Refuser
-                </Button>
+                </BoutonDecisif>
               </div>
             </>
           )}
@@ -321,12 +321,12 @@ function RequestRow({ req, employeeId, employeeName, onFulfil, busy, currentUser
                 <Input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Motif / précision communiqué à l'employé" />
               </div>
               <div className="flex flex-wrap gap-1.5">
-                <Button size="sm" disabled={deciding !== null} onClick={() => decideLeave("APPROVE")}>
+                <BoutonDecisif size="sm" disabled={deciding !== null} onClick={() => decideLeave("APPROVE")}>
                   {deciding === "APPROVE" ? <Loader2 className="h-4 w-4 animate-spin" /> : null} Accorder
-                </Button>
-                <Button size="sm" variant="outline" disabled={deciding !== null} onClick={() => { if (window.confirm("Refuser cette demande ?")) decideLeave("REJECT"); }} className="text-destructive hover:bg-destructive/10">
+                </BoutonDecisif>
+                <BoutonDecisif size="sm" variant="outline" disabled={deciding !== null} onClick={() => decideLeave("REJECT")} className="text-destructive hover:bg-destructive/10">
                   {deciding === "REJECT" ? <Loader2 className="h-4 w-4 animate-spin" /> : null} Refuser
-                </Button>
+                </BoutonDecisif>
               </div>
             </>
           )}

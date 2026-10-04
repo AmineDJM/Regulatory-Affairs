@@ -8,6 +8,7 @@ import { Label, Textarea } from "@/components/ui/input";
 import { useRafraichir } from "@/components/shared/use-rafraichir";
 import { emettreAvoir } from "@/lib/actions/fabrique-actions";
 import { ajouterLignes, LignesEditables, versEcran, type LigneEcran, type LigneRevisable } from "./lignes-editables";
+import { BoutonDecisif } from "@/components/ui/bouton-decisif";
 
 /**
  * ÉMETTRE UN AVOIR, depuis la fiche d'une facture émise (§118.195 — audit 360°, R15).
@@ -74,9 +75,9 @@ function EmettreAvoirSheet(props: React.ComponentProps<typeof EmettreAvoirButton
           {erreur && <p className="rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive" role="alert">{erreur}</p>}
           <div className="flex justify-end gap-2">
             <Button type="button" variant="ghost" disabled={envoi} onClick={props.onClose}>Annuler</Button>
-            <Button type="button" disabled={envoi || motif.trim().length === 0} onClick={envoyer}>
+            <BoutonDecisif type="button" disabled={envoi || motif.trim().length === 0} onClick={envoyer}>
               {envoi && <Loader2 className="h-4 w-4 animate-spin" aria-hidden />} Émettre l&apos;avoir
-            </Button>
+            </BoutonDecisif>
           </div>
         </div>
       )}
