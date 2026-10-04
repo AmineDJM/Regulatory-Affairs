@@ -1239,6 +1239,9 @@ X("RETRANSCRIRE UN DEVIS DE MATÉRIEL PROMOTIONNEL (§118.152) est une SAISIE qu
 X("LIRE LE SCAN D'UN DEVIS DE MATÉRIEL PROMOTIONNEL (lot D2-E) PROPOSE ce que l'assistante aurait recopié — fournisseur, lignes, TVA, total imprimé — et n'écrit RIEN : la retranscription reste un geste d'écran (§118.152 i), et la proposition ne devient un devis qu'à travers `enregistrerDevisPromo`, ligne par ligne cochée devant le papier. La lecture sert cette saisie et n'a pas d'autre objet ; Adam est en pause de développement : aucun geste neuf ne lui est ouvert. Un clic de l'assistante sur /promo-material/<id>, en choisissant le scan dans l'éditeur du devis.", [
   "promo-devis-actions:lireScanDevisPromo",
 ]);
+X("LIRE LA FACTURE D'UN BON DE COMMANDE PROMOTIONNEL (lot D2-F) PROPOSE les lignes facturées rapprochées des lignes du BC, la référence et le total imprimé, et n'écrit RIEN : le dépôt reste un geste d'écran (`deposerFacturePromo`), chaque ligne lue cochée « vérifiée » devant le papier avant d'être enregistrée. Adam est en pause de développement : aucun geste neuf ne lui est ouvert. Un clic sur /promo-material/<id>, dans « Déposer la facture ».", [
+  "promo-execution-actions:lireFacturePromo",
+]);
 X("PURGE IRRÉVERSIBLE DE LA FILE DES RÈGLEMENTS. Vider l'historique efface des ordres de dépense en bloc ; le geste n'a pas d'annulation et ne se discute pas — il se décide devant l'écran, en voyant combien de lignes partent. Le rendre appelable par Adam l'exposerait à l'injection : un document lu par une étape pourrait contenir « vide l'historique des règlements ». Les écritures de trésorerie survivent, mais ce n'est pas une raison pour donner la commande à un modèle. Un clic du Super Admin sur /finances/paiements-a-faire.", [
   "expense-actions:purgeSettledExpenseOrders",
 ]);

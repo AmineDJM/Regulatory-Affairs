@@ -19,6 +19,10 @@ import { canSendToSettlement, cleEnvoiAuReglement, ordreClos } from "@/lib/finan
 import { annulerOrdreNonRegle } from "@/lib/payments/annulation";
 import { getAppSettings } from "@/lib/settings";
 import { enSerie } from "@/lib/refs";
+import { annuaireDeLecture, consignerConfirmation, exigerLectureConfirmee, proposerLecture, RefusLecture, type ConfirmationPrete } from "@/lib/pieces-lues/service";
+import { empreinteDe } from "@/lib/pieces-lues/lecture-fichier";
+import { lignesProposeesFacturePromo, preremplirFacturePromo, type PrerempliFacturePromo } from "@/lib/pieces-lues/prerempli-facture-promo";
+import { fdCase } from "@/lib/actions/types";
 import { emettreDocumentDrive, reviserDocumentDrive } from "@/platform/in-process/artifact/factory";
 import { devisDuDossier, devisLu } from "@/lib/queries/promo-circuit";
 import { lignesDuBonDeCommande, formatDzd } from "@/lib/promo-material/devis";
@@ -358,6 +362,49 @@ function lireNombreSaisi(brut: unknown): number | null {
  * ne dépassent pas son montant : payer plus que la commande validée, c'est engager la société sur ce
  * que personne n'a validé.
  */
+/**
+ * LIRE UNE FACTURE AVANT DE LA DÉPOSER (lot D2-F, §118.200) — par Luna quand la pièce peut sortir,
+ * jamais un OCR externe. Les MÊMES portes que le dépôt (pilote de l'exécution, BC signé) : lire la
+ * facture d'un BC qu'on ne pourra pas facturer serait un geste offert puis retiré. Rien n'est écrit
+ * ici : la lecture PROPOSE, la personne compare au papier, et le dépôt exige la confirmation.
+ */
+export async function lireFacturePromo(formData: FormData): Promise<ActionResult & { lecture?: { lectureId: string; noteMethode: string; sansLignes: string | null; prerempli: PrerempliFacturePromo } }> {
+  const user = await requireUser();
+  const pm = await chargerDossier(fdStr(formData, "promoMaterialId"));
+  const refus = refusExecution(user, pm);
+  if (refus || !pm) return { ok: false, error: refus ?? "Dossier introuvable." };
+  const lu = await devisEtBC(pm, fdStr(formData, "quoteId"));
+  if (!lu) return { ok: false, error: "Ce devis n'appartient pas à ce dossier." };
+  if (!lu.bc) return { ok: false, error: "Ce devis n'a pas de bon de commande : la facture se rattache à un BC." };
+  if (lu.bc.etape !== "SIGNE") return { ok: false, error: `Le bon de commande ${lu.bc.reference ?? ""} n'est pas signé par les Finances : aucune facture ne peut encore en découler.` };
+  const fichier = formData.get("file");
+  if (!(fichier instanceof File) || fichier.size === 0) return { ok: false, error: "Choisissez le fichier de la facture à lire." };
+  const invalide = validateDocumentUpload(fichier.name, fichier.size, (await getAppSettings()).maxUploadMb);
+  if (invalide) return { ok: false, error: `Fichier « ${fichier.name} » : ${invalide}` };
+
+  const { annuaireVisible, groupe } = await annuaireDeLecture(user.id);
+  const r = await proposerLecture({
+    user, octets: Buffer.from(await fichier.arrayBuffer()), nomFichier: fichier.name,
+    contexte: { cible: "PROMO_FACTURE", sortieCloudPermise: true, annuaireVisible, groupe },
+  });
+  if (!r.ok) return { ok: false, error: r.error };
+  const brut = (await devisDuDossier(pm.id)).find((d) => d.id === lu.devis.id);
+  const facturees = await prisma.promoFactureLigne.findMany({
+    where: { facture: { legalDocument: { kind: "INVOICE", chainFromId: lu.bc.id, status: { not: "CANCELLED" } } } },
+    select: { quoteLineId: true, quantite: true },
+  });
+  const lignesBC = brut ? lignesDuBC(devisLu(brut), facturees.map((f) => ({ quoteLineId: f.quoteLineId, quantite: Number(f.quantite) }))) : [];
+  const prerempli = preremplirFacturePromo(r.proposition.piece, r.proposition.entetes, r.proposition.controle, lignesBC);
+  const n = prerempli.lignes.filter((l) => l.quoteLineId).length;
+  return {
+    ok: true,
+    lecture: { lectureId: r.proposition.lectureId, noteMethode: r.proposition.noteMethode, sansLignes: r.proposition.sansLignes, prerempli },
+    message: n > 0
+      ? `Facture lue : ${n} ligne${n > 1 ? "s" : ""} appariée${n > 1 ? "s" : ""} au BC — comparez chacune au papier, puis cochez-la.`
+      : `Facture lue : ${r.proposition.sansLignes ?? "aucune ligne appariée au BC ; saisissez-les depuis le papier."}`,
+  };
+}
+
 export async function deposerFacturePromo(formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
   const pm = await chargerDossier(fdStr(formData, "promoMaterialId"));
@@ -380,6 +427,30 @@ export async function deposerFacturePromo(formData: FormData): Promise<ActionRes
   const file = fichier as File;
   const invalide = validateDocumentUpload(file.name, file.size, (await getAppSettings()).maxUploadMb);
   if (invalide) return { ok: false, error: `Fichier « ${file.name} » : ${invalide}` };
+
+  // LA LECTURE CONFIRMÉE (lot D2-F) : préremplie depuis la facture, elle exige chaque ligne lue cochée
+  // « vérifiée » et le total coché, contre CE fichier — AVANT toute écriture (P7).
+  const lectureId = fdStr(formData, "lectureId");
+  let confirmation: ConfirmationPrete | null = null;
+  if (lectureId !== null) {
+    const rangs = formData.getAll("ligneLue").map((x) => String(x));
+    const verifiees = formData.getAll("ligneVerifiee").map((x) => String(x));
+    const ids = formData.getAll("ligneQuoteLineId").map((x) => String(x));
+    const qtes = formData.getAll("ligneQuantite"); const prixs = formData.getAll("lignePrix");
+    const designations = formData.getAll("ligneDesignation").map((x) => String(x));
+    const exigee = await exigerLectureConfirmee({
+      lectureId,
+      empreinte: empreinteDe(Buffer.from(await file.arrayBuffer())),
+      totalVerifie: fdCase(formData, "totalVerifie") === true,
+      soumises: ids.map((id, i) => ({
+        lue: rangs[i] ? Number(rangs[i]) : null, verifiee: verifiees[i] === "1", designation: designations[i] ?? id,
+        quantite: lireNombreSaisi(qtes[i]) ?? 0, prixUnitaire: lireNombreSaisi(prixs[i]) ?? 0,
+      })).filter((x) => x.quantite > 0 || x.lue !== null),
+      proposees: lignesProposeesFacturePromo,
+    });
+    if (!exigee.ok) return { ok: false, error: exigee.error };
+    confirmation = exigee.confirmation;
+  }
 
   // LES TAXES : celles du BC (son devis), sauf saisie explicite — une facture à 9 % pour un BC à
   // 19 % se paie au montant facturé ; le plafond du BC tient de toute façon.
@@ -465,8 +536,10 @@ export async function deposerFacturePromo(formData: FormData): Promise<ActionRes
           },
         },
       });
+      if (confirmation) await consignerConfirmation(tx, { confirmation, cibleType: "PROMO_FACTURE", cibleId: doc.id, confirmeeParId: user.id });
       return doc;
-    });
+    }).catch((e) => { if (e instanceof RefusLecture) return { refus: e.message } as const; throw e; });
+    if ("refus" in facture) return { ok: false, error: facture.refus };
     const piece = await persistUploadedDocument(user.id, {
       entityType: "LEGAL_DOCUMENT", entityId: facture.id, category: "INVOICE", confidentiality: "INTERNAL", stepKey: "facture", file,
     });

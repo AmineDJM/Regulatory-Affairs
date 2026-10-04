@@ -19,7 +19,7 @@ import { validatePromoStep } from "./promo-circuit-actions";
 import { demanderDevisPromo, enregistrerDevisPromo, terminerRetranscriptionPromo, choisirLignesPromo } from "./promo-devis-actions";
 import { enregistrerArticleDemandePromo, retirerArticleDemandePromo } from "./promo-demande-actions";
 import {
-  genererBonsDeCommandePromo, deposerFacturePromo, receptionnerLigneFacturePromo, annulerReceptionLigneFacturePromo,
+  genererBonsDeCommandePromo, deposerFacturePromo, lireFacturePromo, receptionnerLigneFacturePromo, annulerReceptionLigneFacturePromo,
   annulerFacturePromo, demanderPaiementFacturePromo,
 } from "./promo-execution-actions";
 import { deciderVisaCentreAdPro } from "./ad-pro-centre-actions";
@@ -666,6 +666,36 @@ suite("Matériel promotionnel — achats piochés dans le catalogue, facture lig
     expect(a.ok, a.ok ? "" : a.error).toBe(true);
     expect(Number((await prisma.expenseOrder.findFirstOrThrow({ where: { sourceType: "LEGAL_DOCUMENT", sourceId: factureA } })).amount)).toBe(416_500);
   }, 60_000);
+
+  it("LIRE LA FACTURE (lot D2-F) : la lecture ne s'écrit nulle part, et un dépôt qui la désigne exige qu'elle existe pour CE fichier", async () => {
+    await comme("cp");
+    const avant = await prisma.promoFacture.count({ where: { legalDocument: { chainFromId: { not: null } } } });
+    expect((await lireFacturePromo(form({ promoMaterialId: pmId, quoteId: quoteB }))).error).toMatch(/Choisissez le fichier/);
+    const lu = form({ promoMaterialId: pmId, quoteId: quoteB });
+    lu.set("file", pdf("f3.pdf"));
+    const r = await lireFacturePromo(lu);
+    expect(r.ok, r.ok ? "" : r.error).toBe(true);
+    expect(r.lecture?.lectureId).toBeTruthy();
+    expect(await prisma.promoFacture.count({ where: { legalDocument: { chainFromId: { not: null } } } }), "lire n'écrit aucune facture").toBe(avant);
+    const forge = form({ promoMaterialId: pmId, quoteId: quoteB, reference: "IA-F3", amount: "1", lectureId: "inexistante", totalVerifie: "on" });
+    forge.set("file", pdf("f3.pdf"));
+    expect((await deposerFacturePromo(forge)).error).toMatch(/lecture désignée n'existe pas/);
+    const sansTotal = form({ promoMaterialId: pmId, quoteId: quoteB, reference: "IA-F3", amount: "1", lectureId: r.lecture!.lectureId });
+    sansTotal.set("file", pdf("f3.pdf"));
+    expect((await deposerFacturePromo(sansTotal)).error).toMatch(/total vérifié/);
+    expect(await prisma.promoFacture.count({ where: { legalDocument: { chainFromId: { not: null } } } }), "un refus n'écrit rien").toBe(avant);
+    // CONFIRMÉE : la ligne saisie à la main, le total coché — la facture s'inscrit ET porte sa confirmation.
+    const fiche = (await devisB()).lignesBC.find((l) => l.designation.startsWith("Fiche"))!;
+    const conf = form({ promoMaterialId: pmId, quoteId: quoteB, reference: "IA-F3", amount: "2380", lectureId: r.lecture!.lectureId, totalVerifie: "on",
+      ligneQuoteLineId: [fiche.quoteLineId], ligneQuantite: ["100"], lignePrix: ["20"] });
+    conf.set("file", pdf("f3.pdf"));
+    const d = await deposerFacturePromo(conf);
+    expect(d.ok, d.ok ? "" : d.error).toBe(true);
+    const c = await prisma.lecturePieceConfirmation.findFirst({ where: { cibleType: "PROMO_FACTURE", cibleId: d.id! } });
+    expect(c?.lectureId, "la confirmation est consignée sur la facture déposée").toBe(r.lecture!.lectureId);
+    // Défaite : le scénario qui suit compte sur les 1 000 restantes.
+    expect((await annulerFacturePromo(form({ promoMaterialId: pmId, invoiceId: d.id!, motif: "banc D2-F" }))).ok).toBe(true);
+  });
 
   it("LE RENONCEMENT NE REVIENT PAS : la quantité renoncée reste facturée, elle ne se refacture pas", async () => {
     const e = await devisB();

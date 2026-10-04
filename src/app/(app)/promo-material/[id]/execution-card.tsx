@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { AlertCircle, CheckCircle2, FileText, Loader2, PackageCheck, Pencil, Send, Stethoscope, Trash2, Undo2, Upload, Wand2, X } from "lucide-react";
 import {
   genererBonsDeCommandePromo, modifierBonDeCommandePromo, annulerBonDeCommandePromo, marquerBonDeCommandeEnvoye,
-  deposerFacturePromo, demanderPaiementFacturePromo, adresserInfoMedicaleFacturePromo,
+  deposerFacturePromo, lireFacturePromo, demanderPaiementFacturePromo, adresserInfoMedicaleFacturePromo,
   receptionnerLigneFacturePromo, annulerReceptionLigneFacturePromo, annulerFacturePromo,
 } from "@/lib/actions/promo-execution-actions";
 import { formatDzd } from "@/lib/promo-material/devis";
@@ -153,10 +153,36 @@ function ChoixFormalite({ name }: { name: string }) {
 function DepotFacture({ id, e, onDone, onCancel }: { id: string; e: ExecutionAffichee; onDone: () => void; onCancel: () => void }) {
   const { saving, err, run } = useRun();
   const aFacturer = e.lignesBC.filter((l) => l.reste > 0);
-  const [saisies, setSaisies] = React.useState(() => aFacturer.map((l) => ({ quoteLineId: l.quoteLineId, quantite: String(l.reste), prix: String(l.prixUnitaire) })));
+  const [saisies, setSaisies] = React.useState(() => aFacturer.map((l) => ({ quoteLineId: l.quoteLineId, quantite: String(l.reste), prix: String(l.prixUnitaire), lue: null as number | null, verifiee: false })));
+  // LA LECTURE PAR LUNA (lot D2-F) : elle PROPOSE ; chaque ligne reportée se coche « vérifiée » après
+  // comparaison au papier, et le dépôt refuse tant que ce n'est pas fait.
+  const fichierRef = React.useRef<HTMLInputElement>(null);
+  const [lecture, setLecture] = React.useState<Awaited<ReturnType<typeof lireFacturePromo>>["lecture"] | null>(null);
+  const [lectureMsg, setLectureMsg] = React.useState<string | null>(null);
+  const [lit, setLit] = React.useState(false);
+  const [reference, setReference] = React.useState("");
+  const [montant, setMontant] = React.useState("");
+  const lireAvecLuna = async () => {
+    const f = fichierRef.current?.files?.[0];
+    if (!f) { setLectureMsg("Choisissez d'abord le fichier de la facture."); return; }
+    setLit(true); setLectureMsg(null);
+    const fd = new FormData(); fd.set("promoMaterialId", id); fd.set("quoteId", e.quoteId); fd.set("file", f);
+    const r = await lireFacturePromo(fd).catch(() => ({ ok: false as const, error: "La lecture n'a pas abouti — saisissez depuis le papier." }));
+    setLit(false);
+    if (!r.ok || !r.lecture) { setLectureMsg(r.ok ? "Aucune lecture rendue." : (r.error ?? "La lecture n'a pas abouti.")); return; }
+    const lu = r.lecture;
+    setLecture(lu); setLectureMsg(r.message ?? null);
+    if (lu.prerempli.reference) setReference(lu.prerempli.reference);
+    if (lu.prerempli.totalImprime != null) setMontant(String(lu.prerempli.totalImprime));
+    setSaisies((ss) => ss.map((s) => {
+      const l = lu.prerempli.lignes.find((x) => x.quoteLineId === s.quoteLineId);
+      return l ? { ...s, quantite: l.quantite != null ? String(l.quantite) : s.quantite, prix: l.prixUnitaire != null ? String(l.prixUnitaire) : s.prix, lue: l.rang, verifiee: false }
+        : { ...s, quantite: "0", lue: null, verifiee: false };
+    }));
+  };
   const [tva, setTva] = React.useState(String(e.taxes.tvaRate));
   const [taxe, setTaxe] = React.useState(e.taxes.extraTaxRate != null ? String(e.taxes.extraTaxRate) : "");
-  const maj = (i: number, k: "quantite" | "prix", v: string) => setSaisies((ss) => ss.map((s, j) => (j === i ? { ...s, [k]: v } : s)));
+  const maj = (i: number, k: "quantite" | "prix" | "verifiee", v: string | boolean) => setSaisies((ss) => ss.map((s, j) => (j === i ? { ...s, [k]: v } : s)));
   const totaux = totauxFacture(
     { tvaRate: lire(tva) || 0, extraTaxRate: taxe.trim() ? lire(taxe) : null },
     saisies.map((s) => ({ quantite: lire(s.quantite) || 0, prixUnitaire: lire(s.prix) || 0 })).filter((s) => s.quantite > 0),
@@ -179,10 +205,24 @@ function DepotFacture({ id, e, onDone, onCancel }: { id: string; e: ExecutionAff
         (une ligne absente de cette facture : mettez 0). Les écarts avec le BC sont signalés ; on ne facture pas plus que commandé.
       </p>
       <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
-        <div><Label htmlFor={`fa-ref-${e.quoteId}`}>N° de facture *</Label><Input id={`fa-ref-${e.quoteId}`} name="reference" required /></div>
+        <div><Label htmlFor={`fa-ref-${e.quoteId}`}>N° de facture *</Label><Input id={`fa-ref-${e.quoteId}`} name="reference" required value={reference} onChange={(ev) => setReference(ev.target.value)} /></div>
         <div><Label htmlFor={`fa-date-${e.quoteId}`}>Date</Label><Input id={`fa-date-${e.quoteId}`} name="invoiceDate" type="date" /></div>
-        <div><Label htmlFor={`fa-file-${e.quoteId}`}>Fichier de la facture *</Label><Input id={`fa-file-${e.quoteId}`} name="file" type="file" required accept=".pdf,.png,.jpg,.jpeg,.doc,.docx" /></div>
+        <div><Label htmlFor={`fa-file-${e.quoteId}`}>Fichier de la facture *</Label><Input ref={fichierRef} id={`fa-file-${e.quoteId}`} name="file" type="file" required accept=".pdf,.png,.jpg,.jpeg,.doc,.docx" onChange={() => { setLecture(null); setSaisies((ss) => ss.map((x) => ({ ...x, lue: null, verifiee: false }))); }} /></div>
       </div>
+      <div className="flex flex-wrap items-center gap-2 text-xs">
+        <Button type="button" size="sm" variant="outline" onClick={lireAvecLuna} disabled={lit || saving}>{lit ? <Loader2 className="h-4 w-4 animate-spin" /> : null} Lire avec Luna</Button>
+        <span className="text-muted-foreground">Luna lit la facture et préremplit les lignes du BC ; vous vérifiez chacune contre le papier.</span>
+      </div>
+      {lectureMsg && <p className="text-xs">{lectureMsg}</p>}
+      {lecture && (
+        <div className="space-y-1 rounded-md border border-border bg-muted/40 p-2 text-xs">
+          <input type="hidden" name="lectureId" value={lecture.lectureId} />
+          <p className="text-muted-foreground">{lecture.noteMethode}</p>
+          {lecture.prerempli.desaccordTotal && <p className="text-amber-700 dark:text-amber-400">{lecture.prerempli.desaccordTotal}</p>}
+          {lecture.prerempli.lignes.filter((l) => !l.quoteLineId).map((l) => <p key={l.rang} className="text-amber-700 dark:text-amber-400">{l.phrase ?? `« ${l.designation} » : non reportée.`}</p>)}
+          <label className="flex items-center gap-2"><input type="checkbox" name="totalVerifie" value="on" /> Total vérifié contre le papier</label>
+        </div>
+      )}
       <div className="overflow-x-auto">
         <table className="w-full min-w-[620px] text-sm">
           <thead>
@@ -205,7 +245,15 @@ function DepotFacture({ id, e, onDone, onCancel }: { id: string; e: ExecutionAff
                 <tr key={l.quoteLineId} className="border-t border-border align-top">
                   <td className="py-1 pr-2">
                     <input type="hidden" name="ligneQuoteLineId" value={l.quoteLineId} />
+                    <input type="hidden" name="ligneDesignation" value={l.designation} />
+                    <input type="hidden" name="ligneLue" value={s.lue ?? ""} />
+                    <input type="hidden" name="ligneVerifiee" value={s.verifiee ? "1" : "0"} />
                     {designationAvecAction(l.designation, l.action)}
+                    {s.lue !== null && (
+                      <label className="mt-1 flex items-center gap-1 text-xs text-muted-foreground">
+                        <input type="checkbox" checked={s.verifiee} onChange={(ev) => maj(i, "verifiee", ev.target.checked)} /> lue par Luna — vérifiée
+                      </label>
+                    )}
                   </td>
                   <td className="py-1 pr-2 text-right tabular-nums text-muted-foreground">{nombre(l.reste)}{l.unite ? ` ${l.unite}` : ""}</td>
                   <td className="py-1 pr-2">
@@ -232,7 +280,7 @@ function DepotFacture({ id, e, onDone, onCancel }: { id: string; e: ExecutionAff
         {e.taxes.extraTaxLabel && <input type="hidden" name="extraTaxLabel" value={e.taxes.extraTaxLabel} />}
         <div className="sm:col-span-2">
           <Label htmlFor={`fa-mt-${e.quoteId}`}>Total TTC imprimé sur la facture *</Label>
-          <Input id={`fa-mt-${e.quoteId}`} name="amount" inputMode="decimal" required placeholder={formatDzd(totaux.ttc)} />
+          <Input id={`fa-mt-${e.quoteId}`} name="amount" inputMode="decimal" required placeholder={formatDzd(totaux.ttc)} value={montant} onChange={(ev) => setMontant(ev.target.value)} />
         </div>
       </div>
       <p className="text-sm">
