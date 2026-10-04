@@ -6,6 +6,7 @@ import { toNumber } from "@/lib/utils";
 import { buildTenderWorkbook, tenderExportFilename } from "@/lib/pch-tender-export";
 import { recordAudit } from "@/lib/audit";
 import { canAccessEntity } from "@/lib/entity-access";
+import { contentDisposition } from "@/lib/http/content-disposition";
 
 /**
  * EXPORT EXCEL d'un appel d'offres PCH — le tableau de réponse.
@@ -76,7 +77,7 @@ export async function GET(req: NextRequest) {
   return new NextResponse(buffer as unknown as BodyInit, {
     headers: {
       "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-      "Content-Disposition": `attachment; filename="${tenderExportFilename(tender.reference)}"`,
+      "Content-Disposition": contentDisposition(tenderExportFilename(tender.reference)),
       "Cache-Control": "no-store",
     },
   });

@@ -3,6 +3,7 @@ import { getCurrentUser } from "@/lib/session";
 import { getBlob } from "@/lib/drive-storage";
 import { prisma } from "@/lib/prisma";
 import { regCan, resolveRegCompanyIdFor } from "@/lib/regulatory/intelligence/access";
+import { contentDisposition } from "@/lib/http/content-disposition";
 
 /** Téléchargement d'un document GÉNÉRÉ (G10) — org-scopé + permission. */
 export const runtime = "nodejs";
@@ -32,7 +33,7 @@ export async function GET(req: NextRequest, { params }: { params: { docId: strin
   return new NextResponse(new Uint8Array(bytes), {
     headers: {
       "Content-Type": mime,
-      "Content-Disposition": `attachment; filename="${filename}"`,
+      "Content-Disposition": contentDisposition(filename),
       "Content-Length": String(bytes.length),
       "Cache-Control": "private, no-store",
     },

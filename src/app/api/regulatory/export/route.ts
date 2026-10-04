@@ -7,6 +7,7 @@ import { recordAudit } from "@/lib/audit";
 import { effectiveStage } from "@/lib/regulatory/manufacturing-stage";
 import { dossierReceived } from "@/lib/regulatory/dossier-received";
 import { buildRegulatoryWorkbook, regulatoryExportFilename, type RegulatoryExportRow } from "@/lib/regulatory/export";
+import { contentDisposition } from "@/lib/http/content-disposition";
 
 /**
  * EXPORT EXCEL DES DOSSIERS REGULATORY.
@@ -114,7 +115,7 @@ export async function POST(req: NextRequest) {
   return new NextResponse(buffer as unknown as BodyInit, {
     headers: {
       "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-      "Content-Disposition": `attachment; filename="${regulatoryExportFilename()}"`,
+      "Content-Disposition": contentDisposition(regulatoryExportFilename()),
       "Cache-Control": "no-store",
     },
   });

@@ -3,6 +3,9 @@
 import * as React from "react";
 import { useRouter } from "next/navigation";
 import { UploadCloud, Loader2, CheckCircle2, AlertCircle, X, ChevronDown, Ban } from "lucide-react";
+import {
+  envoyerParties, EnvoiAnnule, Debitmetre, debitLisible, resteLisible, type PlanClient,
+} from "@/lib/storage/envoi-direct-client";
 
 /**
  * GESTIONNAIRE D'ENVOIS GÉNÉRIQUE, GLOBAL — n'importe quel téléversement de la plateforme
@@ -16,11 +19,26 @@ import { UploadCloud, Loader2, CheckCircle2, AlertCircle, X, ChevronDown, Ban } 
  */
 
 type FileStatus = "pending" | "checking" | "uploading" | "done" | "error" | "cancelled";
-interface BgFile { name: string; size: number; status: FileStatus; progress: number; error?: string }
+interface BgFile { name: string; size: number; status: FileStatus; progress: number; error?: string; direct?: boolean }
 interface BgJob {
   id: string; label: string; files: BgFile[]; phase: "uploading" | "done" | "error" | "cancelled"; spec: EnqueueSpec;
   /** Diagnostic du serveur sur l'envoi le plus lent du lot — affiché quand ça traîne. */
   slowest?: { name: string; line: string };
+  /** Débit mesuré (octets/s) et temps restant estimé — ce que la personne attend de savoir. */
+  debit?: number;
+  resteS?: number | null;
+}
+
+/**
+ * ENVOI DIRECT AU BUCKET d'un gros fichier : le serveur ouvre, signe, finalise ; les octets vont
+ * du navigateur au stockage, en parties parallèles, et une coupure ne coûte que les parties
+ * manquantes (le serveur reconnaît le même fichier et rend ce que le bucket a déjà).
+ */
+export interface DirectSpec {
+  ouvrir: () => Promise<{ sessionId: string; plan: PlanClient } | { error: string }>;
+  replanifier: (sessionId: string) => Promise<PlanClient>;
+  finaliser: (sessionId: string) => Promise<{ ok: true } | { ok: false; error: string; reprendre?: boolean }>;
+  abandonner: (sessionId: string) => Promise<void>;
 }
 
 /** Spécification d'un envoi : un libellé, des fichiers, et comment poster CHAQUE fichier. */
@@ -44,6 +62,14 @@ export interface EnqueueSpec {
    * Une erreur ici est avalée : l'envoi a eu lieu, un écran qui n'écoute plus ne le défait pas.
    */
   onFileDone?: (file: File, body: Record<string, unknown>) => void;
+  /**
+   * REFUS AVANT L'ENVOI (audit du 04/10, constat 11) : type interdit ou taille au-delà de la
+   * limite se disent tout de suite, avec la phrase du serveur — pas après avoir envoyé 300 Mo
+   * pour recevoir « Body exceeded ».
+   */
+  refus?: (file: File) => string | null;
+  /** Envoi DIRECT au bucket pour ce fichier (gros fichier, stockage objet branché), ou `null`. */
+  direct?: (file: File) => DirectSpec | null;
 }
 
 interface Ctx { enqueue: (spec: EnqueueSpec) => void }
@@ -119,15 +145,82 @@ export function BackgroundUploadProvider({ children }: { children: React.ReactNo
     xhr.addEventListener("loadend", () => set.delete(xhr));
   }, []);
 
+  // Envois DIRECTS en cours (pour les abandonner côté bucket sur « Annuler ») et coupe-circuit.
+  const controllers = React.useRef(new Map<string, AbortController>());
+  const directSessions = React.useRef(new Map<string, Map<string, DirectSpec>>());
+
+  // DÉBIT ET TEMPS RESTANT, par lot, sur une fenêtre glissante (voir `Debitmetre`).
+  const meters = React.useRef(new Map<string, { metre: Debitmetre; octets: Map<number, number>; total: number; dernier: number }>());
+  const noterOctets = React.useCallback((jobId: string, idx: number, octets: number) => {
+    const m = meters.current.get(jobId);
+    if (!m) return;
+    m.octets.set(idx, octets);
+    let somme = 0;
+    for (const v of m.octets.values()) somme += v;
+    const t = Date.now();
+    m.metre.noter(t, somme);
+    if (t - m.dernier < 400) return; // l'écran n'a pas besoin de plus de deux rafraîchissements par seconde
+    m.dernier = t;
+    const debit = m.metre.debit();
+    setJobs((js) => js.map((j) => (j.id === jobId ? { ...j, debit, resteS: debit > 0 ? Math.max(0, m.total - somme) / debit : null } : j)));
+  }, []);
+
   // Lance (ou relance) l'envoi des fichiers du lot dont l'index est dans `indices`.
   const runJob = React.useCallback(async (jobId: string, spec: EnqueueSpec, indices: number[]) => {
     cancelled.current.delete(jobId);
     inflight.current.set(jobId, new Set());
+    const ctrl = new AbortController();
+    controllers.current.set(jobId, ctrl);
+    directSessions.current.set(jobId, new Map());
+    meters.current.set(jobId, {
+      metre: new Debitmetre(), octets: new Map(), dernier: 0,
+      total: indices.reduce((a, i) => a + (spec.files[i]?.size ?? 0), 0),
+    });
     const stopped = () => cancelled.current.has(jobId);
+
+    /** Envoi DIRECT au bucket : ouverture (ou reprise), parties parallèles, finalisation. */
+    const uploadDirect = async (idx: number, file: File, direct: DirectSpec): Promise<void> => {
+      patchFile(jobId, idx, { status: "uploading", progress: 0, error: undefined, direct: true });
+      const ouv = await direct.ouvrir().catch((e: unknown) => ({ error: e instanceof Error ? e.message : "Ouverture impossible." }));
+      if ("error" in ouv) { patchFile(jobId, idx, { status: "error", progress: 0, error: ouv.error }); return; }
+      directSessions.current.get(jobId)?.set(ouv.sessionId, direct);
+      const envoyer = (plan: PlanClient) => envoyerParties({
+        fichier: file, plan, signal: ctrl.signal,
+        onProgres: (p) => {
+          patchFile(jobId, idx, { progress: Math.min(99, Math.floor((p.envoyes / Math.max(1, p.total)) * 100)) });
+          noterOctets(jobId, idx, p.envoyes);
+        },
+        renouveler: () => direct.replanifier(ouv.sessionId),
+      });
+      try {
+        await envoyer(ouv.plan);
+        // La finalisation dit si une partie manque encore : on renvoie CELLES-LÀ, puis on refinalise.
+        for (let essai = 0; essai < 3; essai++) {
+          const f = await direct.finaliser(ouv.sessionId);
+          if (f.ok) {
+            directSessions.current.get(jobId)?.delete(ouv.sessionId);
+            patchFile(jobId, idx, { status: "done", progress: 100 });
+            return;
+          }
+          if (!f.reprendre || essai === 2) throw new Error(f.error);
+          await envoyer(await direct.replanifier(ouv.sessionId));
+        }
+      } catch (e) {
+        if (e instanceof EnvoiAnnule || stopped()) { patchFile(jobId, idx, { status: "cancelled", progress: 0 }); return; }
+        directSessions.current.get(jobId)?.delete(ouv.sessionId); // gardée côté serveur : la reprise la retrouvera
+        const msg = e instanceof Error ? e.message : "Échec de l'envoi.";
+        patchFile(jobId, idx, { status: "error", progress: 0, error: `${msg} Relancez le même fichier : les parties déjà envoyées ne repartiront pas.` });
+      }
+    };
 
     const uploadOne = async (idx: number): Promise<void> => {
       const file = spec.files[idx];
       if (stopped()) { patchFile(jobId, idx, { status: "cancelled", progress: 0 }); return; }
+      // Refusé AVANT d'envoyer : la phrase du serveur, sans attendre l'aller-retour (constat 11).
+      const refus = file.size === 0 ? "Fichier vide (0 octet) — rien à envoyer." : spec.refus?.(file) ?? null;
+      if (refus) { patchFile(jobId, idx, { status: "error", progress: 0, error: refus }); return; }
+      const direct = spec.direct?.(file) ?? null;
+      if (direct) { await uploadDirect(idx, file, direct); return; }
       patchFile(jobId, idx, { status: "uploading", progress: 0, error: undefined });
 
       // Le contenu est-il déjà là ? Si oui, aucun octet ne part sur le réseau. L'état
@@ -147,7 +240,7 @@ export function BackgroundUploadProvider({ children }: { children: React.ReactNo
         if (stopped()) { patchFile(jobId, idx, { status: "cancelled", progress: 0 }); return; }
         let r: { ok: boolean; status: number; body: Record<string, unknown> };
         try {
-          r = await postFormXhr(url, formData, (frac) => patchFile(jobId, idx, { progress: Math.round(frac * 100) }), 20 * 60_000, (x) => track(jobId, x));
+          r = await postFormXhr(url, formData, (frac) => { patchFile(jobId, idx, { progress: Math.round(frac * 100) }); noterOctets(jobId, idx, frac * file.size); }, 20 * 60_000, (x) => track(jobId, x));
         } catch (e) {
           // Annulation : on ne retente pas ce que l'utilisateur vient d'arrêter.
           if (e instanceof BgCancelled) { patchFile(jobId, idx, { status: "cancelled", progress: 0 }); return; }
@@ -167,8 +260,12 @@ export function BackgroundUploadProvider({ children }: { children: React.ReactNo
           return;
         }
         const retryable = r.status === 0 || r.status >= 500 || r.status === 429;
-        const errs = r.body.errors as { error?: string }[] | undefined;
-        const msg = errs?.[0]?.error ?? (r.body.error as string | undefined) ?? (r.status === 0 ? "Réseau indisponible." : `Échec (code ${r.status}).`);
+        // TOUTES les raisons du serveur, pas la première seulement (constat 13).
+        const errs = (r.body.errors as { name?: string; error?: string }[] | undefined)?.filter((e) => e.error);
+        const msg = (errs && errs.length > 0 ? errs.map((e) => (e.name ? `« ${e.name} » : ${e.error}` : e.error)).join(" · ") : undefined)
+          ?? (r.body.error as string | undefined)
+          ?? (r.status === 413 ? `Fichier trop volumineux pour cet envoi (${humanSize(file.size)}).`
+            : r.status === 0 ? "Réseau indisponible." : `Échec (code ${r.status}).`);
         if (!retryable || attempt === attempts - 1) { patchFile(jobId, idx, { status: "error", progress: 0, error: msg }); return; }
         await new Promise((res) => setTimeout(res, 500 * 2 ** attempt)); // backoff : 0,5 → 1 → 2 → 4 s
       }
@@ -180,6 +277,9 @@ export function BackgroundUploadProvider({ children }: { children: React.ReactNo
     const worker = async () => { while (cursor < indices.length && !stopped()) { const i = cursor++; await uploadOne(indices[i]); } };
     await Promise.all(Array.from({ length: pool }, () => worker()));
     inflight.current.delete(jobId);
+    controllers.current.delete(jobId);
+    directSessions.current.delete(jobId);
+    meters.current.delete(jobId);
 
     // État final du lot + rafraîchissement de la vue courante. Les fichiers restés en attente au
     // moment de l'annulation le disent, plutôt que de figer une barre à mi-course.
@@ -194,7 +294,7 @@ export function BackgroundUploadProvider({ children }: { children: React.ReactNo
       return { ...j, phase: j.files.some((f) => f.status === "error") ? "error" : "done" };
     }));
     router.refresh();
-  }, [patchFile, router, track]);
+  }, [patchFile, router, track, noterOctets]);
 
   /**
    * ANNULER UN LOT EN COURS.
@@ -207,13 +307,20 @@ export function BackgroundUploadProvider({ children }: { children: React.ReactNo
     cancelled.current.add(jobId);
     for (const xhr of inflight.current.get(jobId) ?? []) { try { xhr.abort(); } catch { /* déjà terminée */ } }
     inflight.current.delete(jobId);
+    // Les envois directs : les parties en vol sont coupées, et celles déjà reçues par le bucket
+    // sont LIBÉRÉES — un envoi annulé à 80 % ne doit pas rester payé et invisible.
+    controllers.current.get(jobId)?.abort();
+    for (const [sessionId, d] of directSessions.current.get(jobId) ?? []) void d.abandonner(sessionId).catch(() => undefined);
+    directSessions.current.delete(jobId);
     setJobs((js) => js.map((j) => (j.id === jobId
       ? { ...j, phase: "cancelled", files: j.files.map((f) => (f.status === "done" || f.status === "error" ? f : { ...f, status: "cancelled" as FileStatus, progress: 0 })) }
       : j)));
   }, []);
 
   const enqueue = React.useCallback((spec: EnqueueSpec) => {
-    const files = spec.files.filter((f) => f.size > 0);
+    // Un fichier VIDE reste dans le lot, et le dit — l'écarter en silence le faisait disparaître
+    // sans que personne sache pourquoi (constat 13).
+    const files = spec.files;
     if (files.length === 0) return;
     const id = `bg${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
     const fullSpec = { ...spec, files };
@@ -325,7 +432,9 @@ function BgUploadWidget({ jobs, onDismiss, onRetry, onCancel }: { jobs: BgJob[];
             // présent. Sans ce mot, la barre paraît figée et l'on croit à une panne.
             const checking = j.files.filter((f) => f.status === "checking").length;
             const failed = j.files.filter((f) => f.status === "error").length;
-            const firstErr = j.files.find((f) => f.status === "error")?.error;
+            // TOUTES les erreurs du lot, fichier par fichier (constat 13) — cinq au plus à l'écran,
+            // le reste COMPTÉ : une liste coupée en silence se lirait comme complète.
+            const erreurs = j.files.filter((f) => f.status === "error" && f.error);
             const pct = Math.round((j.files.reduce((a, f) => a + (f.status === "done" ? 100 : f.progress), 0) / (j.files.length * 100)) * 100);
             return (
               <li key={j.id} className="px-3 py-2.5 text-sm">
@@ -353,7 +462,21 @@ function BgUploadWidget({ jobs, onDismiss, onRetry, onCancel }: { jobs: BgJob[];
                       <span>{pct}%</span>
                     </div>
                     <div className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-secondary"><div className="h-full rounded-full bg-primary transition-all" style={{ width: `${pct}%` }} /></div>
+                    {/* Le débit RÉEL et le temps restant : sur un fichier de plusieurs Go, c'est la
+                        seule chose qui permet de décider d'attendre ou d'aller faire autre chose. */}
+                    <p className="mt-1 flex justify-between text-[0.6875rem] text-muted-foreground" aria-live="polite">
+                      <span>{debitLisible(j.debit ?? 0)}</span>
+                      <span>{resteLisible(j.resteS ?? null)}</span>
+                    </p>
                   </div>
+                )}
+                {failed > 0 && j.phase !== "error" && erreurs.length > 0 && (
+                  <ul className="mt-1 space-y-0.5">
+                    {erreurs.slice(0, 5).map((f, i) => (
+                      <li key={`${i}-${f.name}`} className="rounded bg-destructive/10 px-2 py-1 text-[0.6875rem] leading-snug text-destructive"><strong>{f.name}</strong> — {f.error}</li>
+                    ))}
+                    {erreurs.length > 5 && <li className="text-[0.6875rem] text-destructive">… et {erreurs.length - 5} autre·s fichier·s en échec.</li>}
+                  </ul>
                 )}
                 {j.phase === "done" && <p className="mt-1 text-xs text-success">{done} fichier·s téléversé·s{failed > 0 ? `, ${failed} en échec` : ""}.</p>}
                 {/* On ne prétend PAS avoir annulé ce qui est déjà arrivé : le serveur l'a
@@ -375,7 +498,12 @@ function BgUploadWidget({ jobs, onDismiss, onRetry, onCancel }: { jobs: BgJob[];
                       <p className="text-xs text-destructive">{done} réussi·s, {failed} en échec.</p>
                       <button type="button" onClick={() => onRetry(j.id)} className="shrink-0 rounded-md border border-border px-2 py-0.5 text-xs font-medium text-foreground hover:bg-muted">Réessayer</button>
                     </div>
-                    {firstErr && <p className="rounded bg-destructive/10 px-2 py-1 text-[0.6875rem] leading-snug text-destructive" title={firstErr}>{firstErr}</p>}
+                    <ul className="space-y-0.5">
+                      {erreurs.slice(0, 5).map((f, i) => (
+                        <li key={`${i}-${f.name}`} className="rounded bg-destructive/10 px-2 py-1 text-[0.6875rem] leading-snug text-destructive"><strong>{f.name}</strong> — {f.error}</li>
+                      ))}
+                      {erreurs.length > 5 && <li className="text-[0.6875rem] text-destructive">… et {erreurs.length - 5} autre·s fichier·s en échec.</li>}
+                    </ul>
                   </div>
                 )}
               </li>

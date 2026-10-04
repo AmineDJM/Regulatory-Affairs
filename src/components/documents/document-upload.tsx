@@ -7,6 +7,8 @@ import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/input";
 import { DOCUMENT_CATEGORY, CONFIDENTIALITY } from "@/lib/labels";
 import { useBackgroundUpload } from "@/components/layout/background-upload";
+import { useLimitesEnvoi } from "@/components/layout/use-limites-envoi";
+import { refusTeleversement } from "@/lib/files/politique-televersement";
 import { cn } from "@/lib/utils";
 
 interface DocumentUploadProps {
@@ -47,18 +49,37 @@ export function DocumentUpload({ entityType, entityId, categories, stepKey, comp
   const [category, setCategory] = React.useState(categoryEntries[0]?.[0] ?? "OTHER");
   const [confidentiality, setConfidentiality] = React.useState("INTERNAL");
 
+  // LE REFUS AVANT L'ENVOI (audit du 04/10, constats 11 et 13) : un fichier vide, d'un type
+  // interdit ou plus lourd que la limite est dit TOUT DE SUITE, à côté de son nom, avec la phrase
+  // du serveur — pas après avoir envoyé 300 Mo pour lire « Body exceeded ». Sans limites lues
+  // (serveur muet), on laisse passer : le serveur reste la garde.
+  const limites = useLimitesEnvoi();
+  const [refuses, setRefuses] = React.useState<{ id: string; path: string; raison: string }[]>([]);
+
   function addFiles(list: FileList | null) {
     if (!list || list.length === 0) return;
-    const next: Item[] = Array.from(list)
-      .filter((f) => f.size > 0)
-      .map((file) => ({
-        id: `u${uid++}`,
-        file,
-        path: (file as File & { webkitRelativePath?: string }).webkitRelativePath || file.name,
-      }));
+    const next: Item[] = [];
+    const ko: { id: string; path: string; raison: string }[] = [];
+    for (const file of Array.from(list)) {
+      const path = (file as File & { webkitRelativePath?: string }).webkitRelativePath || file.name;
+      const raison = file.size === 0 ? "Fichier vide (0 octet)." : limites ? refusTeleversement(file.name, file.size, limites.maxUploadMb) : null;
+      if (raison) ko.push({ id: `r${uid++}`, path, raison });
+      else next.push({ id: `u${uid++}`, file, path });
+    }
     setItems((cur) => [...cur, ...next]);
+    setRefuses(ko);
     setQueued(0);
   }
+
+  // UNE SÉLECTION NON ENVOYÉE NE SE PERD PAS EN SILENCE (constat 10). L'envoi se fait en deux
+  // gestes (choisir, puis « Téléverser ») ; quitter la page entre les deux perdait le choix sans
+  // un mot. Le navigateur demande désormais confirmation tant qu'une sélection attend.
+  React.useEffect(() => {
+    if (items.length === 0) return;
+    const h = (e: BeforeUnloadEvent) => { e.preventDefault(); e.returnValue = ""; };
+    window.addEventListener("beforeunload", h);
+    return () => window.removeEventListener("beforeunload", h);
+  }, [items.length]);
 
   const removeItem = (id: string) => setItems((cur) => cur.filter((it) => it.id !== id));
 
@@ -143,6 +164,21 @@ export function DocumentUpload({ entityType, entityId, categories, stepKey, comp
             </li>
           ))}
         </ul>
+      )}
+
+      {refuses.length > 0 && (
+        <ul className="space-y-1 rounded-lg border border-destructive/30 bg-destructive/5 p-1.5" aria-live="polite">
+          {refuses.map((r) => (
+            <li key={r.id} className="flex items-start gap-2 px-2 py-1 text-xs text-destructive">
+              <X className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+              <span className="min-w-0"><strong className="break-all">{r.path}</strong> — non envoyé : {r.raison}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {items.length > 0 && (
+        <p className="text-xs text-warning">Sélection pas encore envoyée — cliquez « Téléverser » pour l&apos;envoyer.</p>
       )}
 
       <div className="flex items-center justify-between gap-2">

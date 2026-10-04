@@ -3,6 +3,7 @@ import { getCurrentUser } from "@/lib/session";
 import { getBlob } from "@/lib/drive-storage";
 import { regCan, resolveRegCompanyIdFor } from "@/lib/regulatory/intelligence/access";
 import { getVersionForCompany } from "@/lib/regulatory/intelligence/queries";
+import { contentDisposition } from "@/lib/http/content-disposition";
 
 /** Téléchargement de l'archive ORIGINALE (immuable) d'une version de dossier. Org-scopé. */
 export const runtime = "nodejs";
@@ -26,7 +27,7 @@ export async function GET(_req: NextRequest, { params }: { params: { versionId: 
   return new NextResponse(new Uint8Array(bytes), {
     headers: {
       "Content-Type": "application/zip",
-      "Content-Disposition": `attachment; filename="${filename}"`,
+      "Content-Disposition": contentDisposition(filename),
       "Content-Length": String(bytes.length),
       "Cache-Control": "private, no-store",
     },

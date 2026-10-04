@@ -1,0 +1,34 @@
+import { NextRequest, NextResponse } from "next/server";
+import { getCurrentUserPourEcrire } from "@/lib/session";
+import { replanifierDepotDirect, finaliserDepotDirect, abandonnerDepotDirect } from "@/lib/drive/depot-direct";
+
+export const dynamic = "force-dynamic";
+
+/** Adresses fraîches pour les parties manquantes (expiration, reprise). */
+export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
+  const user = await getCurrentUserPourEcrire();
+  if (!user) return NextResponse.json({ error: "Non authentifié." }, { status: 401 });
+  try {
+    const r = await replanifierDepotDirect(user, params.id);
+    if (!r.ok) return NextResponse.json({ error: r.error }, { status: r.status });
+    return NextResponse.json({ ok: true, plan: r.plan }, { headers: { "Cache-Control": "no-store" } });
+  } catch (e) {
+    return NextResponse.json({ error: `Le stockage ne répond pas (${e instanceof Error ? e.message : "erreur"}).` }, { status: 503 });
+  }
+}
+
+/** Finalise : le fichier entre au Drive si le bucket l'a reçu en entier, à la bonne taille. */
+export async function POST(_req: NextRequest, { params }: { params: { id: string } }) {
+  const user = await getCurrentUserPourEcrire();
+  if (!user) return NextResponse.json({ error: "Non authentifié." }, { status: 401 });
+  const r = await finaliserDepotDirect(user, params.id);
+  if (!r.ok) return NextResponse.json({ error: r.error, reprendre: r.reprendre ?? false, manquantes: r.manquantes ?? [] }, { status: r.status });
+  return NextResponse.json({ ok: true, id: r.id, ...(r.version ? { version: r.version } : {}) });
+}
+
+/** Abandon : les parties déjà envoyées sont libérées dans le bucket. */
+export async function DELETE(_req: NextRequest, { params }: { params: { id: string } }) {
+  const user = await getCurrentUserPourEcrire();
+  if (!user) return NextResponse.json({ error: "Non authentifié." }, { status: 401 });
+  return NextResponse.json(await abandonnerDepotDirect(user, params.id));
+}

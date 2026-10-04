@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/session";
 import { getMailAccount, getAttachment } from "@/lib/mail";
+import { contentDisposition } from "@/lib/http/content-disposition";
 
 export const dynamic = "force-dynamic";
 
@@ -23,7 +24,7 @@ export async function GET(req: NextRequest) {
     return new NextResponse(att.content as unknown as BodyInit, {
       headers: {
         "Content-Type": att.contentType,
-        "Content-Disposition": `${inline ? "inline" : "attachment"}; filename="${encodeURIComponent(att.filename)}"`,
+        "Content-Disposition": contentDisposition(att.filename, inline ? "inline" : "attachment"),
         // Empêche l'exécution de contenu actif dans l'aperçu.
         "Content-Security-Policy": "sandbox; default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'; object-src 'self';",
         "X-Content-Type-Options": "nosniff",

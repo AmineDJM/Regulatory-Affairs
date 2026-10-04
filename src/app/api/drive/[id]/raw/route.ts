@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
-import { getBlob } from "@/lib/drive-storage";
+import { getBlob, cleObjetDirect } from "@/lib/drive-storage";
+import { presignGetUrl } from "@/lib/storage/object-storage";
+import { contentDisposition } from "@/lib/http/content-disposition";
 import { resolveDriveAccess, canViewDrive } from "@/lib/drive";
 import { buildDriveZip } from "@/lib/drive-zip";
 import { recordAudit } from "@/lib/audit";
@@ -40,13 +42,25 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
   });
   if (!version) return new NextResponse(null, { status: 404 });
 
-  const bytes = await getBlob(version.blobId);
-  if (!bytes) return new NextResponse(null, { status: 404 });
-
   const dl = req.nextUrl.searchParams.get("dl") === "1";
   if (dl) {
     await recordAudit({ actorId: user.id, action: "EXPORT", module: "Drive", entityType: "DRIVE_NODE", entityId: params.id, summary: `Téléchargement « ${node.name} »` });
   }
+
+  // GROS FICHIER DÉPOSÉ EN DIRECT : le navigateur le lit dans le bucket, sur une adresse signée
+  // pour quinze minutes. Le servir d'ici le ferait passer entier par la mémoire de l'instance —
+  // plusieurs gigaoctets sur 512 Mo. Les droits viennent d'être vérifiés, c'est eux qui signent.
+  const direct = await cleObjetDirect(version.blobId);
+  if (direct) {
+    const url = presignGetUrl(direct, 900, {
+      "response-content-disposition": contentDisposition(node.name, dl ? "attachment" : "inline"),
+      "response-content-type": node.mimeType ?? version.mimeType ?? "application/octet-stream",
+    });
+    if (url) return NextResponse.redirect(url, { status: 302, headers: { "Cache-Control": "private, no-store" } });
+  }
+
+  const bytes = await getBlob(version.blobId);
+  if (!bytes) return new NextResponse(null, { status: 404 });
   const filename = encodeURIComponent(node.name);
   return new NextResponse(new Uint8Array(bytes), {
     headers: {

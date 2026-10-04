@@ -5,6 +5,7 @@ import { peutLirePasseportDuSujet } from "@/lib/ad-pro/passeport-acces";
 import { readFileByKey } from "@/lib/storage";
 import { recordAudit } from "@/lib/audit";
 import { prisma } from "@/lib/prisma";
+import { contentDisposition } from "@/lib/http/content-disposition";
 
 /** Secure document download: authenticates, enforces row-level access, streams. */
 export async function GET(
@@ -45,7 +46,7 @@ export async function GET(
     return new NextResponse(buffer as unknown as BodyInit, {
       headers: {
         "Content-Type": doc.mimeType ?? "application/octet-stream",
-        "Content-Disposition": `${download ? "attachment" : "inline"}; filename="${encodeURIComponent(doc.name)}"`,
+        "Content-Disposition": contentDisposition(doc.name, download ? "attachment" : "inline"),
       },
     });
   } catch {

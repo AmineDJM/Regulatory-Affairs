@@ -304,6 +304,9 @@ export async function putBlobFromFile(path: string, opts: { sha256?: string } = 
 export async function getBlob(blobId: string): Promise<Buffer | null> {
   const blob = await prisma.fileBlob.findUnique({ where: { id: blobId }, select: { iv: true, data: true, storageKey: true, size: true } });
   if (!blob) return null;
+  // Déposé EN DIRECT par le navigateur (gros fichier) : l'objet est en clair dans le bucket,
+  // protégé par le chiffrement au repos du fournisseur — un IV vide le signale.
+  if (blob.storageKey && blob.iv.length === 0) return getObject(blob.storageKey);
   let cipherBytes: Buffer | null;
   if (blob.storageKey) cipherBytes = await getObject(blob.storageKey);
   else if (blob.data) cipherBytes = Buffer.from(blob.data);
@@ -395,4 +398,14 @@ async function orphelins(): Promise<{ id: string; size: number }[]> {
 export async function countOrphanBlobs(): Promise<{ count: number; bytes: number }> {
   const rows = await orphelins();
   return { count: rows.length, bytes: rows.reduce((a, r) => a + r.size, 0) };
+}
+
+/**
+ * La clé objet d'un blob déposé EN DIRECT (en clair dans le bucket), ou `null`. Le téléchargement
+ * d'un tel fichier ne passe pas par l'application : elle signe une adresse, et le navigateur lit
+ * le bucket — plusieurs gigaoctets ne transitent ni par la mémoire du serveur ni par sa bande.
+ */
+export async function cleObjetDirect(blobId: string): Promise<string | null> {
+  const b = await prisma.fileBlob.findUnique({ where: { id: blobId }, select: { iv: true, storageKey: true } });
+  return b?.storageKey && b.iv.length === 0 ? b.storageKey : null;
 }

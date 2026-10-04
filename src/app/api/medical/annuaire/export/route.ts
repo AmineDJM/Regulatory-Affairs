@@ -7,6 +7,7 @@ import { recordAudit } from "@/lib/audit";
 import { buildAnnuaireWorkbook } from "@/lib/medical/directory-workbook";
 import { directoryExportFilename } from "@/lib/medical/directory-sheet";
 import { ligneAnnuaire } from "@/lib/medical/directory-grid";
+import { contentDisposition } from "@/lib/http/content-disposition";
 
 /**
  * EXPORT DE L'ANNUAIRE EN CLASSEUR — exactement les colonnes de l'écran.
@@ -57,7 +58,7 @@ export async function GET(req: Request) {
   return new NextResponse(buffer as unknown as BodyInit, {
     headers: {
       "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-      "Content-Disposition": `attachment; filename="${directoryExportFilename()}"`,
+      "Content-Disposition": contentDisposition(directoryExportFilename()),
       "Cache-Control": "no-store",
     },
   });

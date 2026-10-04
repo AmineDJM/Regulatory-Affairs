@@ -5,6 +5,7 @@ import { getPresentationVersionForExport } from "@/lib/queries/market-research";
 import { buildPresentationPptx, presentationFilename } from "@/lib/market-presentation-pptx";
 import type { PresentationAnalysis } from "@/lib/market-presentation";
 import { recordAudit } from "@/lib/audit";
+import { contentDisposition } from "@/lib/http/content-disposition";
 
 /** Télécharge le .pptx d'une version de présentation — (re)construit à la demande depuis l'analyse stockée. */
 export async function GET(_req: NextRequest, { params }: { params: { versionId: string } }) {
@@ -25,7 +26,7 @@ export async function GET(_req: NextRequest, { params }: { params: { versionId: 
   return new NextResponse(buffer as unknown as BodyInit, {
     headers: {
       "Content-Type": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-      "Content-Disposition": `attachment; filename="${presentationFilename(v.presentationTitle, v.version)}"`,
+      "Content-Disposition": contentDisposition(presentationFilename(v.presentationTitle, v.version)),
       "Cache-Control": "no-store",
     },
   });

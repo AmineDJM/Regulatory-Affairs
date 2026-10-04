@@ -5,6 +5,7 @@ import { recordAudit } from "@/lib/audit";
 import { grilleCourante, lecteurCoaching } from "@/lib/coaching/serveur";
 import { listerFichesVisibles } from "@/lib/coaching/fiches";
 import { construireClasseurSuivi, type LignePourListe } from "@/lib/coaching/classeur";
+import { contentDisposition } from "@/lib/http/content-disposition";
 
 /**
  * EXPORTER LE SUIVI DU COACHING (§118.157) — toutes les fiches VISIBLES, une par ligne, plus la
@@ -48,7 +49,7 @@ export async function GET(req: Request) {
   return new NextResponse(octets as unknown as BodyInit, {
     headers: {
       "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-      "Content-Disposition": `attachment; filename="Suivi_coaching_${new Date().toISOString().slice(0, 10)}.xlsx"`,
+      "Content-Disposition": contentDisposition(`Suivi_coaching_${new Date().toISOString().slice(0, 10)}.xlsx`),
       "Cache-Control": "no-store",
     },
   });

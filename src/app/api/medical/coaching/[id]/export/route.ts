@@ -6,6 +6,7 @@ import { lecteurCoaching } from "@/lib/coaching/serveur";
 import { chargerFicheVisible } from "@/lib/coaching/fiches";
 import { construireClasseurFiche, nomDeFichier } from "@/lib/coaching/classeur";
 import { formaterJour } from "@/lib/coaching/dates";
+import { contentDisposition } from "@/lib/http/content-disposition";
 
 /**
  * TÉLÉCHARGER UNE FICHE DE COACHING (§118.157) — le classeur au format du modèle de la Direction.
@@ -44,7 +45,7 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
   return new NextResponse(octets as unknown as BodyInit, {
     headers: {
       "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-      "Content-Disposition": `attachment; filename="${nomDeFichier(fiche.collaborateur, fiche.visitDate)}"`,
+      "Content-Disposition": contentDisposition(nomDeFichier(fiche.collaborateur, fiche.visitDate)),
       "Cache-Control": "no-store",
     },
   });

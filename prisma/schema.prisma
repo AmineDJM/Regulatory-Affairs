@@ -14301,3 +14301,29 @@ model LecturePieceConfirmation {
   @@index([cibleType, cibleId])
   @@index([lectureId])
 }
+
+/// Envoi DIRECT navigateur → bucket (S3/R2) d'un gros fichier, en plusieurs parties. Le serveur ne
+/// voit jamais les octets : il ouvre, signe, puis finalise. La ligne survit à une coupure — c'est
+/// elle qui permet de REPRENDRE (empreinte `fingerprint` = nom, taille, date du fichier) sans
+/// renvoyer les parties que le bucket a déjà.
+model DirectUpload {
+  id          String   @id @default(cuid())
+  userId      String
+  purpose     String // "DRIVE"
+  objectKey   String
+  uploadId    String?
+  fileName    String
+  mimeType    String?
+  totalBytes  BigInt
+  partSize    Int
+  fingerprint String
+  target      Json // destination (dossier, catégorie, version d'un fichier…)
+  status      String   @default("UPLOADING") // UPLOADING | COMPLETED | ABORTED
+  resultId    String? // nœud Drive créé
+  error       String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([userId, status])
+  @@index([status, updatedAt])
+}
