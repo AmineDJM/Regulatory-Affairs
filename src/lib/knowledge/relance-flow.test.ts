@@ -168,8 +168,25 @@ suite("Couche de connaissance — pannes, boîte morte, rattrapages", () => {
     const boite = await chargerBoiteMorte();
     expect(boite.groupes.find((g) => g.cle === cle)?.count).toBe(2);
 
-    // DEUX clics en même temps : chaque travail n'est relancé qu'une fois.
-    const [r1, r2] = await Promise.all([relancerTravauxMorts({ cle }), relancerTravauxMorts({ cle })]);
+    // DEUX clics en même temps : chaque travail n'est relancé qu'une fois. L'entrelacement est
+    // FORCÉ : le banc verrouille les deux lignes, laisse les deux relances LIRE la boîte (les
+    // lectures ne sont pas bloquées) et attend qu'elles soient toutes deux arrêtées sur leur
+    // écriture, puis relâche. Sans cette barrière, les deux gestes se succèdent parfois, et le
+    // cas passerait aussi sans la condition `status = 'DEAD'` qu'il existe pour garder.
+    let barriere = false;
+    const [r1, r2] = await prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM "KnowledgeJob" WHERE id = ANY(${[ja.id, jb.id]}::text[]) FOR UPDATE`;
+      const gestes = Promise.all([relancerTravauxMorts({ cle }), relancerTravauxMorts({ cle })]);
+      for (let i = 0; i < 300 && !barriere; i += 1) {
+        const [{ n }] = await prisma.$queryRaw<{ n: bigint }[]>`
+          SELECT count(*)::bigint AS n FROM pg_stat_activity
+          WHERE wait_event_type = 'Lock' AND query ILIKE '%UPDATE "KnowledgeJob"%depuis la boîte morte%'`;
+        if (Number(n) >= 2) barriere = true;
+        else await new Promise((r) => setTimeout(r, 50));
+      }
+      return { gestes };
+    }, { timeout: 30_000 }).then(({ gestes }) => gestes);
+    expect(barriere, "les deux relances doivent avoir été arrêtées ENSEMBLE sur leur écriture").toBe(true);
     expect(r1.relances + r2.relances).toBe(2);
 
     for (const id of [ja.id, jb.id]) {
