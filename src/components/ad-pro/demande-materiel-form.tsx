@@ -76,7 +76,7 @@ export function DemandeMaterielForm({ catalogue, produits, onDone, onCancel, can
     const texte = (k: string) => String(saisie.get(k) ?? "").trim();
     setApercu(texteDemandeDeDevis({
       reference: null, titre: texte("title") || "(sans titre)", brief: texte("description") || null,
-      precisions: texte("precisionsDevis") || null, relance: false,
+      precisions: null, relance: false,
       articles: lignes.flatMap((l) => {
         const c = parId.get(l.catalogueId);
         if (!c) return [];
@@ -103,7 +103,7 @@ export function DemandeMaterielForm({ catalogue, produits, onDone, onCancel, can
     setErr(null);
     const saisie = new FormData(e.currentTarget);
     const fd = new FormData();
-    for (const cle of ["title", "description", "precisionsDevis"]) {
+    for (const cle of ["title", "description"]) {
       const v = saisie.get(cle);
       if (typeof v === "string") fd.set(cle, v);
     }
@@ -146,8 +146,8 @@ export function DemandeMaterielForm({ catalogue, produits, onDone, onCancel, can
       <fieldset className="space-y-3">
         <legend className="text-sm font-semibold">Articles demandés <span className="text-destructive">*</span></legend>
         <p className="text-xs text-muted-foreground">
-          Une ligne par article du catalogue : sa quantité et ce qu&apos;on attend du fournisseur. C&apos;est ce que
-          l&apos;assistante de direction fera chiffrer.
+          Une ligne par article du catalogue : sa quantité et ce qu&apos;on attend du fournisseur. C&apos;est ce qui
+          sera fait chiffrer.
         </p>
         {catalogue.length === 0 && (
           <p className="rounded-lg bg-warning/10 px-3 py-2 text-xs text-muted-foreground">
@@ -245,16 +245,12 @@ export function DemandeMaterielForm({ catalogue, produits, onDone, onCancel, can
         <Button type="button" size="sm" variant="outline" disabled={busy || catalogue.length === 0} onClick={() => setLignes((ls) => [...ls, nouvelleLigne()])}>
           <Plus className="h-4 w-4" /> Ajouter une ligne
         </Button>
-        <div className="space-y-1">
-          <Label htmlFor="mp-precisions">Précisions pour l&apos;assistante de direction (facultatif)</Label>
-          <Textarea id="mp-precisions" name="precisionsDevis" rows={2} placeholder="Agences à consulter, délai souhaité…" />
-        </div>
         {/* L'APERÇU AVANT ENVOI — la demande de devis part d'elle-même : à l'enregistrement si la demande n'a
             pas de validation, sinon dès qu'elle est validée. */}
         <div className="space-y-2 rounded-lg border border-primary/30 bg-primary/5 p-3">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <p className="text-xs text-muted-foreground">
-              La demande de devis part d&apos;elle-même à l&apos;assistante de direction — à l&apos;enregistrement, ou dès que votre demande est validée.
+              La demande de devis part d&apos;elle-même au secrétariat — à l&apos;enregistrement, ou dès que votre demande est validée.
             </p>
             <Button type="button" size="sm" variant="outline" onClick={() => setApercuOuvert((o) => !o)} aria-expanded={apercuOuvert}>
               <Eye className="h-4 w-4" /> {apercuOuvert ? "Masquer l'aperçu" : "Aperçu de la demande de devis"}

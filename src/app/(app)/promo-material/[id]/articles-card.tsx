@@ -9,7 +9,6 @@ import { Badge } from "@/components/ui/badge";
 import { RecordForm, type FieldDef } from "@/components/shared/create-record-button";
 import { enregistrerArticleDemandePromo, retirerArticleDemandePromo } from "@/lib/actions/promo-demande-actions";
 import { demanderDevisPromo } from "@/lib/actions/promo-devis-actions";
-import { Label, Textarea } from "@/components/ui/input";
 import { ACTIONS, ACTION_AIDE, ACTION_LABEL } from "@/lib/promo-material/actions-fournisseur";
 import { FAMILLE_LABEL } from "@/lib/promo/catalogue";
 import { libellesPromusDeLArticle, type ArticleDemandeLu } from "@/lib/promo-material/achats";
@@ -28,7 +27,7 @@ import type { ActionResult } from "@/lib/actions/types";
 
 const nombre = (n: number) => n.toLocaleString("fr-FR", { maximumFractionDigits: 3 });
 
-/** La demande de devis AVANT son départ (§118.204) — son aperçu, ses précisions, et le geste qui l'envoie quand il le faut. */
+/** La demande de devis AVANT son départ (§118.204) — son aperçu, et le geste qui l'envoie quand il le faut. */
 export interface EnvoiDevis {
   /** Le texte exact que l'assistante recevra (`texteDemandeDeDevis`). */
   apercu: string;
@@ -109,7 +108,7 @@ export function PromoArticlesCard({ id, articles, canEdit, options, avertissemen
     return champs;
   };
 
-  // ENVOYER LA DEMANDE DE DEVIS — le repli (§118.204), avec les précisions saisies DANS cette rubrique.
+  // ENVOYER LA DEMANDE DE DEVIS — le repli (§118.204), quand l'envoi automatique n'a pas pu partir.
   const envoyer = async (fd: FormData) => {
     setSaving(true); setErr(null); setMsg(null);
     fd.set("promoMaterialId", id);
@@ -166,16 +165,14 @@ export function PromoArticlesCard({ id, articles, canEdit, options, avertissemen
           <p className="text-sm font-medium">Aperçu de la demande de devis</p>
           <p className="text-xs text-muted-foreground">
             {envoiDevis.attendValidation
-              ? "Elle partira d'elle-même à l'assistante de direction dès que la demande sera validée."
+              ? "Elle partira d'elle-même au secrétariat dès que la demande sera validée."
               : envoiDevis.peutEnvoyer
-                ? "Elle n'est pas encore partie : relisez-la, ajoutez vos précisions, puis envoyez-la."
+                ? "Elle n'est pas encore partie : relisez-la, puis envoyez-la."
                 : "Elle n'est pas encore partie : le demandeur l'envoie d'ici."}
           </p>
           <pre className="max-h-72 overflow-auto whitespace-pre-wrap rounded-md border border-border bg-background p-2 text-xs">{envoiDevis.apercu}</pre>
           {envoiDevis.peutEnvoyer && (
             <form action={envoyer} className="space-y-2">
-              <Label htmlFor="promo-precisions-devis">Précisions pour l&apos;assistante (facultatif)</Label>
-              <Textarea id="promo-precisions-devis" name="note" defaultValue={envoiDevis.precisions ?? ""} className="min-h-[60px]" placeholder="Agences à consulter, délai souhaité…" />
               <Button type="submit" size="sm" disabled={saving || enCours}>
                 {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />} Envoyer la demande de devis
               </Button>
