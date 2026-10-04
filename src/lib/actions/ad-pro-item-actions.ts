@@ -2682,9 +2682,17 @@ export async function validerDevisVoyageur(formData: FormData): Promise<ActionRe
   if (!lien) return { ok: false, error: `Ce devis n'est pas une proposition déposée pour ${v.nom}.` };
   const doc = lien.piece.legalDocument;
   if (doc.status === "CANCELLED" || doc.cancelledAt) return { ok: false, error: "Ce devis a été annulé au registre : il ne se retient plus." };
-  if (lien.retenuLe) return { ok: true, id: devisId, message: `Ce devis est déjà celui retenu pour ${v.nom}.` };
-  // CE QUE LA PERSONNE A VU RETENU (§118.187) : changer de devis ne remplace QUE ce choix-là.
-  const retenuVu = fdStr(formData, "retenuVu");
+  if (lien.retenuLe) {
+    const depasse = await depassementDuPoste(item.id, item.amountGranted);
+    return { ok: true, id: devisId, message: `Ce devis est déjà celui retenu pour ${v.nom}.${depasse ? ` ${depasse}` : ""}` };
+  }
+  // CE QUE LA PERSONNE A VU RETENU (§118.187) : changer de devis ne remplace QUE ce choix-là. L'écran
+  // l'envoie ; sans lui, c'est le choix LU ICI qui fait foi — un choix posé entre cette lecture et
+  // l'écriture (un autre clic, une autre personne) l'emporte, et le refus le dit.
+  const retenuLu = (await prisma.adProVoyageurDevis.findFirst({
+    where: { voyageurId, retenuLe: { not: null } }, select: { piece: { select: { legalDocumentId: true } } },
+  }))?.piece.legalDocumentId ?? null;
+  const retenuVu = formData.has("retenuVu") ? fdStr(formData, "retenuVu") : retenuLu;
 
   let issue: "POSE" | "DEJA" | "CHANGE" | "BC";
   try {
@@ -2694,6 +2702,7 @@ export async function validerDevisVoyageur(formData: FormData): Promise<ActionRe
       const actuel = await tx.adProVoyageurDevis.findFirst({
         where: { voyageurId, retenuLe: { not: null } }, select: { id: true, piece: { select: { legalDocumentId: true } } },
       });
+      // Retenu entre la lecture et ce verrou : par un autre geste — ce clic-ci n'a rien posé.
       if (actuel?.piece.legalDocumentId === devisId) return "DEJA" as const;
       if ((actuel?.piece.legalDocumentId ?? null) !== retenuVu) return "CHANGE" as const;
       if (actuel) await tx.adProVoyageurDevis.update({ where: { id: actuel.id }, data: { retenuLe: null, retenuParId: null } });
@@ -2711,7 +2720,7 @@ export async function validerDevisVoyageur(formData: FormData): Promise<ActionRe
     else if (estConflitUnicite(e)) issue = "CHANGE";
     else throw e;
   }
-  if (issue === "DEJA") return { ok: true, id: devisId, message: `Ce devis est déjà celui retenu pour ${v.nom}.` };
+  if (issue === "DEJA") return { ok: false, error: `Ce devis vient d'être retenu pour ${v.nom} : rouvrez la fiche.` };
   if (issue === "CHANGE") return { ok: false, error: `Le devis retenu pour ${v.nom} vient de changer : rouvrez la fiche.` };
   if (issue === "BC") return { ok: false, error: "Le bon de commande de ce poste vient d'être demandé : le devis retenu ne change plus d'ici." };
   const depasse = await depassementDuPoste(item.id, item.amountGranted);

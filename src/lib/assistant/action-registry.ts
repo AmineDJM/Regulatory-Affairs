@@ -1092,6 +1092,9 @@ X("LES PIÈCES D'ACHAT D'UN POSTE (§118.204) — déposer un devis ou une factu
   + "ouvre un ordre de dépense au centre de paiement. Adam est en pause de développement : aucun geste neuf ne lui est "
   + "ouvert. Un clic sur la carte du poste, fiche de la demande.", [
   "ad-pro-item-actions:ajouterDevisPoste", "ad-pro-item-actions:retirerDevisDuPoste", "ad-pro-item-actions:demanderPaiementPoste",
+  // Les voyageurs d'une billetterie (§118.205) : le devis d'un voyageur est un FICHIER, le choix d'une
+  // proposition et la demande de BC qui en découle se font devant la carte du poste.
+  "ad-pro-item-actions:ajouterDevisVoyageur", "ad-pro-item-actions:validerDevisVoyageur", "ad-pro-item-actions:demanderBCBilletterie",
 ]);
 X("RENVOYER, RÉEXAMINER, RESOUMETTRE DANS LES CENTRES (§118.188, audit R07/R08/R10) — resoumettre une demande de "
   + "validation renvoyée pour correction (sur elle-même, elle reprend à l'étape qui l'a renvoyée), resoumettre au centre "

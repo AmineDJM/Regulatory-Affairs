@@ -290,7 +290,7 @@ export async function cancelDocumentRequest(formData: FormData): Promise<ActionR
       data: { status: "CANCELLED", closedAt: new Date(), closedById: user.id },
     });
     if (pris.count === 0) {
-      const apres = await prisma.documentRequest.findUnique({ where: { id }, select: { status: true, askedById: true } });
+      const apres = await prisma.documentRequest.findUnique({ where: { id }, select: { status: true, askedById: true, askedToId: true } });
       return { ok: false, error: (apres && refusAnnulationPiece(apres, user.id, hasGlobalView(user.role))) ?? "Cette demande vient de changer — rechargez la page." };
     }
     await recordAudit({
