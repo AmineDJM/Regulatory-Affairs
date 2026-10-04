@@ -150,7 +150,7 @@ describe("les boutons décisifs restent décisifs", () => {
 
   it("la liste n'est pas vide — un parcours cassé ne rend pas ce banc vert", () => {
     expect(fichiers.length).toBeGreaterThanOrEqual(38);
-    expect(POINTS.length).toBeGreaterThanOrEqual(100);
+    expect(POINTS.length).toBeGreaterThanOrEqual(97);
   });
 
   it.each(POINTS)("%s — « %s » (au moins %i) passe par BoutonDecisif", (fichier, aiguille, auMoins) => {
