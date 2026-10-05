@@ -9,6 +9,7 @@ import { recordAudit } from "@/lib/audit";
 import { monthLabel, canEditRep } from "@/lib/sfe";
 import { fdStr, fdCase, type ActionResult } from "@/lib/actions/types";
 import { lireCouverture } from "@/lib/annuaires/services";
+import { CHEMINS_SPECIALITES } from "@/lib/annuaires/specialites";
 import { canAttachBuDepartment, buDepartmentName, buDepartmentCode } from "@/lib/sfe/bu-department";
 import { GRANULARITES, GRANULARITE_LABELS, JOURS_AVANT_ECHEANCE_MAX, estGranularite } from "@/lib/sfe/tournee";
 import { ROLES_QUI_TRANCHENT } from "@/lib/personnes/referents-gamme";
@@ -77,7 +78,7 @@ export async function createBusinessUnit(formData: FormData): Promise<ActionResu
     summary: `BU « ${name} »${specialites ? ` — spécialités : ${specialites}` : ""}`,
   });
   revalidatePath(BU_PATH);
-  if (voulues.ids.length) revalidatePath("/annuaires/specialites");
+  if (voulues.ids.length) for (const chemin of CHEMINS_SPECIALITES) revalidatePath(chemin);
   return { ok: true, id: created.id };
 }
 
@@ -142,7 +143,7 @@ export async function enregistrerSpecialitesBu(formData: FormData): Promise<Acti
     });
   }
   revalidatePath(BU_PATH);
-  revalidatePath("/annuaires/specialites");
+  for (const chemin of CHEMINS_SPECIALITES) revalidatePath(chemin);
   return { ok: true, message: resume ? undefined : "Rien n'a changé." };
 }
 

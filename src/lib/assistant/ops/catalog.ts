@@ -1,5 +1,5 @@
 import type { CurrentUser } from "@/lib/session";
-import { userCan, hasGlobalView } from "@/lib/rbac";
+import { userCan, hasGlobalView, peutGererSpecialites } from "@/lib/rbac";
 import { canManageLetterheads } from "@/lib/office/letterhead";
 import { siegeAuCentreAdPro } from "@/platform/in-process/capacites";
 
@@ -2652,7 +2652,9 @@ export const OPS_CATALOG: OpMeta[] = [
     aliases: ["crée la spécialité", "ajoute une spécialité médicale"],
     risk: "NORMAL",
     summary: "Crée une spécialité au référentiel (doublon refusé par l'action).",
-    gate: (u) => userCan(u, "MEDICAL", "CREATE"),
+    // La règle du RÉFÉRENTIEL (§118.209) — la même que l'écran et l'action : la Direction Marketing et les
+    // directeurs des opérations le gèrent sans la Promotion médicale en écriture.
+    gate: (u) => peutGererSpecialites(u, "CREATE"),
     covers: ["medical-actions:createSpecialty"],
   },
   {
@@ -2661,7 +2663,9 @@ export const OPS_CATALOG: OpMeta[] = [
     aliases: ["renomme la spécialité", "change la couleur de la spécialité"],
     risk: "NORMAL",
     summary: "Renomme / recolore une spécialité — le libellé dénormalisé est resynchronisé sur TOUS ses praticiens ; couleur et notes existantes rejouées.",
-    gate: (u) => userCan(u, "MEDICAL", "UPDATE"),
+    // La règle du RÉFÉRENTIEL (§118.209) — la même que l'écran et l'action : la Direction Marketing et les
+    // directeurs des opérations le gèrent sans la Promotion médicale en écriture.
+    gate: (u) => peutGererSpecialites(u, "UPDATE"),
     covers: ["medical-actions:updateSpecialty"],
   },
   {
@@ -2670,7 +2674,9 @@ export const OPS_CATALOG: OpMeta[] = [
     aliases: ["supprime la spécialité"],
     risk: "SENSITIVE",
     summary: "Supprime une spécialité — les praticiens passent « Sans spécialité », AUCUNE fiche n'est supprimée.",
-    gate: (u) => userCan(u, "MEDICAL", "DELETE"),
+    // La règle du RÉFÉRENTIEL (§118.209) — la même que l'écran et l'action : la Direction Marketing et les
+    // directeurs des opérations le gèrent sans la Promotion médicale en écriture.
+    gate: (u) => peutGererSpecialites(u, "DELETE"),
     covers: ["medical-actions:deleteSpecialty"],
   },
   {
