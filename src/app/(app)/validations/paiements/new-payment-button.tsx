@@ -35,11 +35,7 @@ interface PieceDraft { file: File; kind: string; note: string }
  * L'échéance a trois formes, et les trois comptent : la **date convenue**, **ce qu'elle pèse**
  * (fixe non négociable, importante, moyenne), et à défaut de date **l'urgence**.
  */
-export function NewPaymentButton({ companies = [], defaultCompanyId = null }: {
-  /** Les entités ouvertes à cette personne. Vide = groupe mono-entité : le champ ne s'affiche pas. */
-  companies?: { id: string; name: string }[];
-  defaultCompanyId?: string | null;
-} = {}) {
+export function NewPaymentButton() {
   const router = useRouter();
   const [open, setOpen] = React.useState(false);
   const [busy, setBusy] = React.useState(false);
@@ -129,21 +125,9 @@ export function NewPaymentButton({ companies = [], defaultCompanyId = null }: {
                 guichet unique : les Finances ne voient rien avant l'autorisation, si bien que le
                 champ désignait quelqu'un qui ne pouvait pas encore agir. Et une demande adressée
                 à un absent dormait jusqu'à son retour. */}
-            {/* L'ENTITÉ CONCERNÉE — celle qui PAIERA. Elle se prenait jusqu'ici en silence sur
-                le compte du demandeur : personne ne la voyait, personne ne la choisissait, et la
-                file de paiements mélangeait deux sociétés avec un total qui n'appartenait à
-                aucune. Elle est proposée (la vôtre) et modifiable ; la Direction la corrige en
-                validant, au seul moment où quelqu'un a le dossier entier sous les yeux. */}
-            {companies.length > 0 && (
-              <div className="space-y-1.5 sm:col-span-2">
-                <Label htmlFor="pay-company">Entité concernée <span className="text-destructive">*</span></Label>
-                <Select id="pay-company" name="companyId" required defaultValue={defaultCompanyId ?? ""}>
-                  <option value="" disabled>— Choisir l&apos;entité —</option>
-                  {companies.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-                </Select>
-                <p className="text-xs text-muted-foreground">C&apos;est elle qui paiera, et sa comptabilité doit pouvoir s&apos;y retrouver.</p>
-              </div>
-            )}
+            {/* PLUS DE CHOIX D'ENTITÉ (Direction, 06/10) : la demande d'un salarié est rattachée
+                d'office à Adventum par le serveur (`createPaymentRequest`). La Direction peut
+                toujours corriger l'entité en validant. */}
             <div className="space-y-1.5">
               <Label htmlFor="pay-due">Échéance demandée</Label>
               <Input id="pay-due" name="dueDate" type="date" />

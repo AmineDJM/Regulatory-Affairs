@@ -14,7 +14,7 @@ import { sortByPriority, isOverdue, deadlineLabel, isWithFinance } from "@/lib/f
 import { isCompanionDossier } from "@/lib/finance/dossier-auto";
 import { deadlineNatureLabel, deadlineNatureOf } from "@/lib/finance/deadline-nature";
 import { NewPaymentButton } from "./new-payment-button";
-import { getMyCompanies, moneyEntityOf } from "@/lib/company";
+import { getMyCompanies } from "@/lib/company";
 import { myPaymentRequests } from "@/lib/queries/my-payment-requests";
 import { groupByEntity, unassignedWarning } from "@/lib/finance/money-entity";
 
@@ -66,7 +66,7 @@ export default async function PaymentRequestsPage() {
 
   // L'ENTITÉ EST LA COLONNE VERTÉBRALE DE L'ARGENT : le formulaire la propose et l'exige, la
   // file la RANGE. Un total qui mélange deux sociétés n'appartient à aucune des deux.
-  const [mesEntites, monEntite] = await Promise.all([getMyCompanies(user.id), moneyEntityOf(user.id)]);
+  const mesEntites = await getMyCompanies(user.id);
   const entityLabels = Object.fromEntries(mesEntites.map((c) => [c.id, c.shortName || c.name]));
 
   const names = new Map(
@@ -144,10 +144,7 @@ export default async function PaymentRequestsPage() {
         title="Demandes de paiement"
         description="Le dossier qui arrive aux Finances : montant, bénéficiaire, échéance, et les pièces qui le justifient. La discussion se tient pièce par pièce."
       >
-        <NewPaymentButton
-          companies={mesEntites.map((c) => ({ id: c.id, name: c.shortName || c.name }))}
-          defaultCompanyId={monEntite}
-        />
+        <NewPaymentButton />
       </PageHeader>
 
       {finance && (

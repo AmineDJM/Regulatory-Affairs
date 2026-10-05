@@ -11,7 +11,7 @@ import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
 import { notifyUser, notifyRoles } from "@/lib/notify";
 import { buildRef, createWithRetry, enSerie } from "@/lib/refs";
-import { moneyEntityOf, getMyCompanies } from "@/lib/company";
+import { moneyEntityOf, getMyCompanies, adventumCompanyId } from "@/lib/company";
 import { resolveMoneyEntity, checkMoneyEntity } from "@/lib/finance/money-entity";
 import { persistUploadedDocument } from "@/lib/documents";
 import { createExpenseOrder, SERIE_DEMANDES_PAIEMENT } from "@/lib/expense-orders";
@@ -178,11 +178,18 @@ export async function createPaymentRequest(_prev: ActionResult | undefined, form
     // est vide n'est pas une règle, c'est une impasse. Ces demandes-là existent (personne non
     // rattachée, installation mono-société) ; elles partent, et la Direction les voit dans le
     // groupe « Sans entité — à rattacher » de la file, qui existe précisément pour cela.
-    const companyId = resolveMoneyEntity({
+    //
+    // DEPUIS LE 06/10 (Direction), LA DEMANDE D'UN SALARIÉ EST RATTACHÉE D'OFFICE À ADVENTUM : plus
+    // de choix d'entité à l'écran, et un `companyId` envoyé quand même est ignoré. La Direction
+    // peut toujours corriger l'entité en validant (`canOverrideEntity`). Sans entité Adventum
+    // (installation neuve), on retombe sur l'ancienne règle plutôt que de laisser la demande sans
+    // société.
+    const adventumId = await adventumCompanyId();
+    const companyId = adventumId ?? resolveMoneyEntity({
       explicit: fdStr(formData, "companyId"),
       requester: await moneyEntityOf(user.id),
     });
-    const mesEntites = (await getMyCompanies(user.id)).map((c) => c.id);
+    const mesEntites = adventumId ? [] : (await getMyCompanies(user.id)).map((c) => c.id);
     if (submit && mesEntites.length > 0) {
       const verdict = checkMoneyEntity(companyId, mesEntites, { hasGlobalView: hasGlobalView(user.role) });
       if (!verdict.ok) return { ok: false, error: verdict.reason ?? "Entité manquante." };
