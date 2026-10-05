@@ -49,7 +49,7 @@ export interface ExecutionDevis extends BCDuDevis {
    */
   lignesBC: LigneBC[];
   /** Les taxes du devis — celles du BC, que la facture reprend (corrigeables). */
-  taxes: { tvaRate: number; extraTaxLabel: string | null; extraTaxRate: number | null };
+  taxes: { tvaRate: number | null; extraTaxLabel: string | null; extraTaxRate: number | null };
 }
 
 export async function executionDuDossier(promoId: string): Promise<ExecutionDevis[]> {

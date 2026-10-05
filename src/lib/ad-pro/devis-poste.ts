@@ -43,8 +43,12 @@ export interface LigneDevisPoste {
 }
 
 export interface EnteteDevisPoste {
-  /** En POUR CENT (19). */
-  tvaRate: number;
+  /**
+   * En POUR CENT (19), TEL QU'IMPRIMÉ. `null` : le devis n'indique aucune TVA — elle n'est JAMAIS devinée
+   * (Direction, 06/10 : « la TVA n'était pas écrite, l'IA ne doit pas deviner, juste retranscrire »). Sans
+   * elle les montants restent HORS TAXE et le bon de commande ne se génère pas : on la saisit depuis le papier.
+   */
+  tvaRate: number | null;
   extraTaxLabel: string | null;
   /** En POUR CENT. */
   extraTaxRate: number | null;
@@ -95,7 +99,8 @@ export function devisPourCalcul(
 ): DevisLu {
   return {
     id: "devis-de-poste", supplierId: null, supplierName: "", reference: null,
-    tvaRate: entete.tvaRate, extraTaxLabel: entete.extraTaxLabel, extraTaxRate: entete.extraTaxRate,
+    // TVA non indiquée → 0 pour le CALCUL (aucune taxe n'est ajoutée) ; l'absence se DIT ailleurs (`tvaRate === null`).
+    tvaRate: entete.tvaRate ?? 0, extraTaxLabel: entete.extraTaxLabel, extraTaxRate: entete.extraTaxRate,
     announcedTotal: entete.announcedTotal, documentId: null,
     lines: lignes.map((l) => ({
       id: l.id, position: l.position, reference: l.reference, unit: l.unit,
@@ -108,13 +113,13 @@ export function devisPourCalcul(
 /** Les totaux (HT, TVA, taxe, TTC) des lignes validées pour ce poste dans ce devis. */
 export function totauxValides(entete: EnteteDevisPoste, lignes: readonly LigneDevisPoste[], itemId: string): Totaux {
   const gardees = lignesValidees(lignes, itemId);
-  return totauxTaxes(entete, gardees.map((l) => ({ quantity: l.quantity as number, unitPrice: l.unitPrice as number })));
+  return totauxTaxes({ ...entete, tvaRate: entete.tvaRate ?? 0 }, gardees.map((l) => ({ quantity: l.quantity as number, unitPrice: l.unitPrice as number })));
 }
 
 /** Les totaux du devis ENTIER tel que lu — pour le comparer au total imprimé. */
 export function totauxDuDevisLu(entete: EnteteDevisPoste, lignes: readonly LigneDevisPoste[]): Totaux {
   const completes = lignes.filter((l) => lisible(l.quantity) && lisible(l.unitPrice));
-  return totauxTaxes(entete, completes.map((l) => ({ quantity: l.quantity as number, unitPrice: l.unitPrice as number })));
+  return totauxTaxes({ ...entete, tvaRate: entete.tvaRate ?? 0 }, completes.map((l) => ({ quantity: l.quantity as number, unitPrice: l.unitPrice as number })));
 }
 
 /**
@@ -242,9 +247,14 @@ export function etapeDEnsemble(etapes: readonly (EtapeBC | null)[]): EtapeBC | n
  * commande que le poste ne pourra jamais payer en entier, et le visa du centre porte sur ce qui a été
  * accordé. Le refus dit les DEUX montants et les gestes qui lèvent l'écart (§118.30).
  */
-export function refusDepassement(totalTtc: number, accorde: number | null, totalHt?: number): string | null {
+export function refusDepassement(totalTtc: number, accorde: number | null, totalHt?: number, tvaIndiquee = true): string | null {
   if (accorde == null || !(accorde > 0)) return null;
   if (cents(totalTtc) <= cents(accorde)) return null;
+  // TVA NON INDIQUÉE sur le devis : on n'invente pas de TTC. Le total est HORS TAXE, et la phrase le dit.
+  if (!tvaIndiquee) {
+    return `Les lignes validées pour ce poste totalisent ${formatDzd(totalTtc)} HT (le devis n'indique pas de TVA), au-delà des ${formatDzd(accorde)} accordés (+${formatDzd(totalTtc - accorde)}). `
+      + "Demandez une révision du poste pour relever le montant accordé, ou décochez une ligne.";
+  }
   // LE MONTANT ACCORDÉ S'ENTEND TTC — et le devis s'imprime HT : un devis de 400 000 HT pèse 476 000 TTC à 19 %.
   // Quand l'écart ne vient que de la taxe, la phrase le DIT (Direction, 06/10 : « c'est 400 000 dans le devis,
   // je ne comprends pas »), avec le montant à demander.
@@ -264,7 +274,10 @@ export function refusDepassement(totalTtc: number, accorde: number | null, total
  */
 export const TAUX_TVA_PCT_ADMIS: readonly number[] = [0, 9, 19];
 
-export function refusTauxDuDevis(tvaRate: number): string | null {
+export function refusTauxDuDevis(tvaRate: number | null): string | null {
+  if (tvaRate === null) {
+    return "Ce devis n'indique pas de TVA, et la plateforme ne la devine pas : saisissez le taux imprimé sur le papier (0, 9 ou 19 %) dans « Corriger les lignes ».";
+  }
   if (TAUX_TVA_PCT_ADMIS.some((t) => Math.abs(t - tvaRate) < 1e-9)) return null;
   return `Le taux de TVA du devis (${tvaRate} %) n'existe pas en Algérie : un bon de commande porte 0, 9 ou 19 %. Corrigez-le dans les lignes du devis (« Corriger les lignes »).`;
 }

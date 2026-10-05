@@ -46,7 +46,8 @@ export interface DevisLu {
   supplierName: string;
   reference: string | null;
   /** TVA en POUR CENT (19), comme on la lit sur le devis. */
-  tvaRate: number;
+  /** Telle qu'imprimée ; `null` tant qu'elle n'a pas été indiquée (jamais devinée) — comptée 0 dans les totaux, qui sont alors HT. */
+  tvaRate: number | null;
   extraTaxLabel: string | null;
   /** Taxe additionnelle en POUR CENT, hors base de TVA. Nulle = aucune. */
   extraTaxRate: number | null;
@@ -77,7 +78,7 @@ export function totalLigneHT(l: Pick<LigneDevisLue, "quantity" | "unitPrice">): 
  * par annoncer deux montants pour les mêmes lignes, et c'est celui de la facture qu'on paierait.
  */
 export function totauxTaxes(
-  taxes: { tvaRate: number; extraTaxRate: number | null },
+  taxes: { tvaRate: number | null; extraTaxRate: number | null },
   lignes: readonly { quantity: number; unitPrice: number }[],
 ): Totaux {
   return totauxDeLignes(taxes, lignes);

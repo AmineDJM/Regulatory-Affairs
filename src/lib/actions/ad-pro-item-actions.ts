@@ -3089,7 +3089,7 @@ export async function validerLignesDuDevis(formData: FormData): Promise<ActionRe
       : apres?.etat === "A_GENERER" ? " Le bon de commande de ce devis est à générer." : "";
     return {
       ok: true, id,
-      message: `${apres?.nbValidees ?? 0} ligne${(apres?.nbValidees ?? 0) > 1 ? "s" : ""} validée${(apres?.nbValidees ?? 0) > 1 ? "s" : ""} pour ce poste (${(apres?.totalValideTtc ?? 0).toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} DZD TTC).${suite}`,
+      message: `${apres?.nbValidees ?? 0} ligne${(apres?.nbValidees ?? 0) > 1 ? "s" : ""} validée${(apres?.nbValidees ?? 0) > 1 ? "s" : ""} pour ce poste (${(apres?.entete.tvaRate === null ? (apres?.totalValideHt ?? 0) : (apres?.totalValideTtc ?? 0)).toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} DZD ${apres?.entete.tvaRate === null ? "HT, TVA non indiquée" : "TTC"}).${suite}`,
     };
   });
 }
@@ -3172,7 +3172,8 @@ export async function enregistrerLignesDuDevis(formData: FormData): Promise<Acti
     const gardees = new Set(lignes.map((l) => l.ligneId).filter((x): x is string => Boolean(x)));
     const doc = await prisma.legalDocument.findUnique({ where: { id: pieceId }, select: { reference: true } });
     const donnees = {
-      ...(tvaSaisie !== null ? { tvaRate: new Prisma.Decimal(tvaSaisie) } : {}),
+      // Un champ TVA VIDE efface la TVA (« le devis n'en porte pas ») : on ne remet jamais un 19 de repli.
+      ...(formData.has("tvaRate") ? { tvaRate: tvaSaisie !== null ? new Prisma.Decimal(tvaSaisie) : null } : {}),
       ...(formData.has("extraTaxRate") ? { extraTaxRate: taxeSaisie !== null ? new Prisma.Decimal(taxeSaisie) : null, extraTaxLabel: taxeSaisie !== null ? (fdStr(formData, "extraTaxLabel") ?? "Taxe additionnelle") : null } : {}),
       ...(formData.has("announcedTotal") ? { announcedTotal: totalSaisi !== null ? new Prisma.Decimal(totalSaisi) : null } : {}),
       ...(supplierId ? { supplierId } : {}),

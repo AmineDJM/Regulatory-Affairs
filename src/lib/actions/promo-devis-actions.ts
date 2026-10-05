@@ -317,7 +317,10 @@ export async function enregistrerDevisPromo(formData: FormData): Promise<ActionR
     if (connus !== rattaches.length) return { ok: false, error: "Une ligne est rattachée à un article qui n'est pas demandé sur ce dossier." };
   }
   const tvaSaisie = fdNum(formData, "tvaRate");
-  const tvaRate = tvaSaisie ?? 19;
+  // LA TVA SE RETRANSCRIT, ELLE NE SE DEVINE PAS (Direction, 06/10) : plus de « 19 % par défaut ». Le taux est celui
+  // imprimé sur le devis — « 0 » pour un devis exonéré — et son absence est un refus qui dit quoi faire.
+  if (tvaSaisie == null) return { ok: false, error: "Indiquez le taux de TVA tel qu'il est imprimé sur le devis (0 s'il est exonéré) : la plateforme ne le devine pas." };
+  const tvaRate = tvaSaisie;
   if (!(tvaRate >= 0 && tvaRate <= 100)) return { ok: false, error: "Le taux de TVA s'exprime en pour cent, entre 0 et 100." };
   const extraTaxRate = fdNum(formData, "extraTaxRate");
   if (extraTaxRate != null && !(extraTaxRate > 0 && extraTaxRate <= 100)) return { ok: false, error: "La taxe additionnelle s'exprime en pour cent, entre 0 et 100 (laissez vide s'il n'y en a pas)." };
