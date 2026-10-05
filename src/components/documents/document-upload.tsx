@@ -5,10 +5,11 @@ import { UploadCloud, CheckCircle2, FileUp, FolderUp, X } from "lucide-react";
 import type { EntityType } from "@prisma/client";
 import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/input";
+import { BoutonDecisif } from "@/components/ui/bouton-decisif";
 import { DOCUMENT_CATEGORY, CONFIDENTIALITY } from "@/lib/labels";
 import { useBackgroundUpload } from "@/components/layout/background-upload";
 import { useLimitesEnvoi } from "@/components/layout/use-limites-envoi";
-import { envoiDocument, lireDepot, dossierDuChemin, FICHIER_PARASITE, type EntreeDepot } from "./envoi-document";
+import { envoiDocument, construireEnvoi, lireDepot, FICHIER_PARASITE, type EntreeDepot } from "./envoi-document";
 import { cn } from "@/lib/utils";
 
 interface DocumentUploadProps {
@@ -19,6 +20,19 @@ interface DocumentUploadProps {
   compact?: boolean; // version condensée (par étape)
   /** Les identifiants des `Document` créés, fichier par fichier, une fois chacun déposé. */
   onUploaded?: (ids: string[]) => void;
+  /** Le dépôt vise la « CTD initiale » d'un dossier Regulatory (étape 1, catégorie « CTD complet ») — §118.213. */
+  ctd?: boolean;
+  /** Le dossier de la CTD où poser le lot (« Compléments ») ; absent = la racine. */
+  dossierBase?: string | null;
+  /**
+   * Un geste qui DOIT réussir avant que le lot parte (remplacer la CTD : l'ancienne part d'abord à la
+   * corbeille). `false` = rien n'est envoyé et la sélection reste intacte — la personne ne perd pas ses fichiers.
+   */
+  avantEnvoi?: () => Promise<boolean>;
+  /** Le libellé du bouton d'envoi, quand « Téléverser » ne dit pas ce qui va se passer. */
+  libelleEnvoi?: string;
+  /** Si posé, le bouton d'envoi est un bouton décisif : un second clic confirme (« Remplacer la CTD »). */
+  confirmationEnvoi?: string;
 }
 
 interface Item { id: string; file: File; path: string }
@@ -40,7 +54,7 @@ let uid = 0;
  * dans le **dossier Drive du produit** (le ZIP y reste entier et navigable). File d'attente locale
  * seulement pour la sélection.
  */
-export function DocumentUpload({ entityType, entityId, categories, stepKey, compact, onUploaded }: DocumentUploadProps) {
+export function DocumentUpload({ entityType, entityId, categories, stepKey, compact, onUploaded, ctd, dossierBase, avantEnvoi, libelleEnvoi, confirmationEnvoi }: DocumentUploadProps) {
   const { enqueue } = useBackgroundUpload();
   const filesRef = React.useRef<HTMLInputElement>(null);
   const dossierRef = React.useRef<HTMLInputElement>(null);
@@ -61,7 +75,7 @@ export function DocumentUpload({ entityType, entityId, categories, stepKey, comp
   const limites = useLimitesEnvoi();
   const [refuses, setRefuses] = React.useState<{ id: string; path: string; raison: string }[]>([]);
 
-  const refusDe = limites ? envoiDocument({ entityType, entityId, category, confidentiality, stepKey }, limites, () => null).refus : undefined;
+  const refusDe = limites ? envoiDocument({ entityType, entityId, category, confidentiality, stepKey, ctd }, limites, () => null).refus : undefined;
 
   function addEntries(list: EntreeDepot[]) {
     if (list.length === 0) return;
@@ -96,39 +110,25 @@ export function DocumentUpload({ entityType, entityId, categories, stepKey, comp
   const removeItem = (id: string) => setItems((cur) => cur.filter((it) => it.id !== id));
 
   /** Confie le lot au gestionnaire global : l'envoi continue même si on quitte la page. */
-  function uploadAll() {
+  async function uploadAll() {
     if (items.length === 0) return;
-    const files = items.map((it) => it.file);
-    // Le dossier d'origine de chaque fichier (« CTD/Module 1 ») : l'arborescence se garde sur la fiche.
-    const dossiers = new Map<File, string | null>(items.map((it) => [it.file, dossierDuChemin(it.path)]));
+    if (avantEnvoi && !(await avantEnvoi())) return;
     const cat = category, conf = confidentiality;
-    const envoi = envoiDocument({ entityType, entityId, category: cat, confidentiality: conf, stepKey }, limites, (f) => dossiers.get(f) ?? null);
-    enqueue({
-      label: `${files.length} document${files.length > 1 ? "s" : ""}`,
-      files,
-      concurrency: 6,
-      makeRequest: (file) => {
-        const fd = new FormData();
-        fd.set("entityType", entityType);
-        fd.set("entityId", entityId);
-        fd.set("category", cat);
-        fd.set("confidentiality", conf);
-        if (stepKey) fd.set("stepKey", stepKey);
-        const dossier = dossiers.get(file);
-        if (dossier) fd.set("folder", dossier);
-        fd.append("files", file, file.name);
-        return { url: "/api/documents/upload", formData: fd };
-      },
-      refus: envoi.refus,
-      direct: envoi.direct,
+    // UNE construction pour tous les téléverseurs (`construireEnvoi`) : le dossier d'origine de chaque fichier
+    // (« CTD/Module 1 ») et le dossier de DESTINATION choisi s'y joignent — l'arborescence se garde sur la fiche.
+    enqueue(construireEnvoi({
+      cible: { entityType, entityId, category: cat, confidentiality: conf, stepKey, ctd },
+      entrees: items.map((it) => ({ file: it.file, path: it.path })),
+      limites,
+      dossierBase,
       onFileDone: onUploaded
         ? (_file, body) => {
             const ids = Array.isArray(body.ids) ? body.ids.filter((x): x is string => typeof x === "string") : [];
             if (ids.length > 0) onUploaded(ids);
           }
         : undefined,
-    });
-    setQueued(files.length);
+    }));
+    setQueued(items.length);
     setItems([]);
   }
 
@@ -218,10 +218,17 @@ export function DocumentUpload({ entityType, entityId, categories, stepKey, comp
             <span className="flex items-center gap-1.5 text-success"><CheckCircle2 className="h-4 w-4" /> {queued} document·s en envoi — vous pouvez continuer à travailler.</span>
           )}
         </div>
-        <Button type="button" size="sm" onClick={uploadAll} disabled={items.length === 0}>
-          <UploadCloud className="h-4 w-4" />
-          Téléverser{items.length > 0 ? ` (${items.length})` : ""}
-        </Button>
+        {confirmationEnvoi ? (
+          <BoutonDecisif type="button" size="sm" onClick={() => void uploadAll()} disabled={items.length === 0} confirmation={confirmationEnvoi}>
+            <UploadCloud className="h-4 w-4" />
+            {libelleEnvoi ?? "Téléverser"}{items.length > 0 ? ` (${items.length})` : ""}
+          </BoutonDecisif>
+        ) : (
+          <Button type="button" size="sm" onClick={() => void uploadAll()} disabled={items.length === 0}>
+            <UploadCloud className="h-4 w-4" />
+            {libelleEnvoi ?? "Téléverser"}{items.length > 0 ? ` (${items.length})` : ""}
+          </Button>
+        )}
       </div>
     </div>
   );

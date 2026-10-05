@@ -10,6 +10,11 @@ import { Sheet } from "@/components/ui/sheet";
 import { TextField, TextAreaField, SelectField, optionsFromMap } from "@/components/shared/form-fields";
 import { DciAssociationField } from "./dci-field";
 import { DciDuplicateBanner, useDciDuplicate } from "./dci-duplicate-banner";
+import { CtdALaCreation } from "./ctd-creation";
+import { useBackgroundUpload } from "@/components/layout/background-upload";
+import { useLimitesEnvoi } from "@/components/layout/use-limites-envoi";
+import { construireEnvoi, type EntreeDepot } from "@/components/documents/envoi-document";
+import { CTD_INITIALE_CATEGORIE, CTD_INITIALE_ENTITE, CTD_INITIALE_ETAPE } from "@/lib/regulatory/ctd-initiale";
 import { MANUFACTURING_STATUS, REGULATORY_CATEGORY, PRODUCT_CHANNEL, PRIORITY, REGULATORY_STATUS, ROLE_LABELS, PHARMA_FORM, DOSAGE_UNIT } from "@/lib/labels";
 
 interface UserOption {
@@ -41,12 +46,36 @@ export function NewProductButton({ users, suppliers, companies, lockOnCreate = f
   const doublon = useDciDuplicate(dci);
   const recheck = doublon.recheck;
 
+  // LA CTD INITIALE choisie dans le formulaire (§118.213) : gardée ici, confiée au gestionnaire d'envois
+  // global UNE fois le dossier créé — vers l'étape 1, sans retenir la création.
+  const { enqueue } = useBackgroundUpload();
+  const limites = useLimitesEnvoi();
+  const [ctd, setCtd] = React.useState<EntreeDepot[]>([]);
+  const ctdRef = React.useRef<EntreeDepot[]>([]);
+  ctdRef.current = ctd;
+  const limitesRef = React.useRef(limites);
+  limitesRef.current = limites;
+  // Un résultat d'action ne se traite qu'UNE fois : l'effet rejoue quand d'autres dépendances changent, et
+  // une CTD choisie pour un AUTRE dossier plus tard ne doit jamais partir vers celui-ci.
+  const traite = React.useRef<unknown>(null);
+
   React.useEffect(() => {
     if (state?.ok) {
+      if (traite.current === state) return;
+      traite.current = state;
+      const aEnvoyer = ctdRef.current;
+      if (state.id && aEnvoyer.length > 0) {
+        enqueue(construireEnvoi({
+          cible: { entityType: CTD_INITIALE_ENTITE, entityId: state.id, category: CTD_INITIALE_CATEGORIE, confidentiality: "INTERNAL", stepKey: CTD_INITIALE_ETAPE, ctd: true },
+          entrees: aEnvoyer,
+          limites: limitesRef.current,
+        }));
+        setCtd([]);
+      }
       setOpen(false);
       setSubmitting(false);
       router.refresh();
-      if (state.id) router.push(`/regulatory/${state.id}`);
+      if (state.id) router.push(`/regulatory/${state.id}${aEnvoyer.length > 0 ? "?ctd=envoi" : ""}`);
     } else if (state?.error) {
       setSubmitting(false);
       lock.current = false; // échec → on autorise une nouvelle tentative
@@ -55,7 +84,7 @@ export function NewProductButton({ users, suppliers, companies, lockOnCreate = f
       // s'afficherait sans le bouton qui permet de passer outre, et l'on serait bloqué.
       recheck();
     }
-  }, [state, router, recheck]);
+  }, [state, router, recheck, enqueue]);
 
   const userOptions = users.map((u) => ({
     value: u.id,
@@ -113,6 +142,8 @@ export function NewProductButton({ users, suppliers, companies, lockOnCreate = f
             <TextField label="Détenteur de DE" name="deHolder" placeholder="Titulaire de la décision d'enregistrement" className="sm:col-span-2" />
           </div>
           <TextAreaField label="Commentaires" name="comments" placeholder="Notes internes…" />
+
+          <CtdALaCreation entrees={ctd} onChange={setCtd} />
 
           <DciDuplicateBanner dci={dci} check={doublon} />
           {/* L'accord de la personne, porté par le formulaire. Le serveur refuse sans lui : la

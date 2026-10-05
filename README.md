@@ -15397,6 +15397,19 @@ Ajustements de la Direction sur les bons de commande et les factures (§118.203)
   lignes de plusieurs devis, génération des BC d'après ce qui est validé, BC modifiable en natif, révisions). Un scan par
   « Retranscrire un devis ».
 
+**Regulatory — la « CTD initiale » (§118.213)** : à la création d'un dossier, un champ facultatif « CTD initiale » prend un
+**.zip complet ou un dossier entier** (arborescence conservée) ; il part, **une fois le dossier créé**, vers l'**étape 1** du
+processus (« Réception du CTD complet ») par le gestionnaire d'envois d'arrière-plan (dépôt direct au bucket pour les gros
+fichiers, « Réessayer » dans la pastille en cas d'échec) sans retenir la création. Sur la fiche, l'étape 1 porte un bloc bien visible
+**« CTD initiale »** (même importance que « Réserves & réponses (ANPP) ») : contenu en dossiers dépliables, un .zip se parcourt
+sans être téléchargé, **ajouter** des fichiers ou un dossier dans un sous-dossier choisi (existant ou nouveau), **remplacer** la CTD,
+**supprimer** la CTD (aperçu + double confirmation), **renommer** un dossier. Remplacer et supprimer mettent la CTD à la
+**corbeille** d'un bloc (type `REGULATORY_CTD`, fichiers conservés) : le Super Admin la restaure depuis Administration › Corbeille,
+sauf si une autre CTD vit déjà sur le dossier. Une CTD est **reconnue par un fait** — pièce du dossier, étape 1, catégorie « CTD
+complet » (`lib/regulatory/ctd-initiale.ts`) —, donc les dossiers d'avant en ont déjà une. Droits : ceux du dépôt de documents du
+dossier (`canAccessEntity` UPLOAD, portée de ligne, gamme, verrou) ; retirer, remplacer et renommer exigent en plus de pouvoir
+**modifier** le dossier. Un dépôt « CTD complet » sur l'étape 1 qui ne vient pas du bloc est refusé, avec le geste qui existe.
+
 ---
 
 ## 🧭 Feuille de route

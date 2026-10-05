@@ -9,6 +9,7 @@ import { LIMITE_FICHIER_BYTES, LIMITE_FICHIER_MO, LIMITE_FICHIER_LIBELLE } from 
 import { MAX_SANS_STOCKAGE_OBJET_MO } from "@/lib/storage/phrases-stockage";
 import { refusDevisLibre } from "@/lib/promo-material/rangement";
 import { dossierSur, inscrireDocumentDirect } from "@/lib/documents";
+import { refusDepotCtd } from "@/lib/regulatory/ctd-initiale";
 import { addPhysicalUsage } from "@/lib/drive/usage";
 import { empreinteFichier } from "@/lib/drive/depot-direct";
 import {
@@ -40,6 +41,8 @@ export interface CibleDocument {
   confidentiality: Confidentiality;
   stepKey: string | null;
   folder: string | null;
+  /** Le dépôt vient du bloc « CTD initiale » d'un dossier Regulatory (§118.213). */
+  ctd?: boolean;
 }
 
 export type ResultatOuvertureDoc =
@@ -49,12 +52,17 @@ export type ResultatOuvertureDoc =
 const cibleCanonique = (c: CibleDocument): string => JSON.stringify({
   entityType: c.entityType, entityId: c.entityId, category: c.category, confidentiality: c.confidentiality,
   stepKey: c.stepKey ?? null, folder: c.folder ?? null,
+  // Posée seulement quand elle l'est : l'empreinte d'un dépôt ordinaire ne change pas (reprise des envois en cours).
+  ...(c.ctd ? { ctd: true } : {}),
 });
 
 /** Les droits ET la règle des devis, relus à l'ouverture comme à la finalisation. */
 async function refusDepotDocument(user: SessionUser, c: CibleDocument): Promise<{ status: number; error: string } | null> {
   if (!c.entityType || !c.entityId) return { status: 400, error: "Entité manquante." };
   if (!(await canAccessEntity(user, c.entityType, c.entityId, "UPLOAD"))) return { status: 403, error: "Vous n'êtes pas autorisé à téléverser ici." };
+  // UN DÉPÔT QUI VISE LA CTD INITIALE LE DIT (§118.213) — à l'ouverture comme à la finalisation.
+  const refusCtd = refusDepotCtd({ entityType: c.entityType, stepKey: c.stepKey, category: c.category }, c.ctd === true);
+  if (refusCtd) return { status: 400, error: refusCtd };
   if (c.entityType === "PROMO_MATERIAL" && c.category === "QUOTE") {
     const refus = refusDevisLibre(await prisma.promoMaterial.findUnique({ where: { id: c.entityId }, select: { circuitVersion: true } }));
     if (refus) return { status: 400, error: refus };
@@ -159,7 +167,7 @@ export async function finaliserDepotDirectDocument(user: SessionUser, id: string
     blobId = blob.id;
     const r = await inscrireDocumentDirect(user.id, {
       entityType: cible.entityType, entityId: cible.entityId, category: cible.category, confidentiality: cible.confidentiality,
-      stepKey: cible.stepKey, folder: cible.folder, blobId, size: total, mimeType: s.mimeType || "application/octet-stream", name: s.fileName,
+      stepKey: cible.stepKey, folder: cible.folder, ctd: cible.ctd === true, blobId, size: total, mimeType: s.mimeType || "application/octet-stream", name: s.fileName,
     });
     await prisma.directUpload.update({ where: { id }, data: { status: "COMPLETED", resultId: r.documentId, error: null } });
     addPhysicalUsage(total);

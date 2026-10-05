@@ -17,6 +17,8 @@ import {
   type DeletableKind,
 } from "@/lib/admin-delete-registry";
 import { restaurerLotDeLaCorbeille, supprimerReversible, type DeleteResult } from "@/lib/suppression/coeur";
+import { KIND_CORBEILLE_CTD } from "@/lib/regulatory/ctd-initiale";
+import { restaurerLaCtdDeLaCorbeille } from "@/lib/regulatory/ctd-initiale-corbeille";
 import { peutSupprimerUneDemandeAdPro } from "@/lib/queries/ad-pro-suppression";
 import { estDemandeAdProSupprimable, REFUS_SUPPRESSION_AD_PRO } from "@/lib/ad-pro/suppression";
 import { peutSupprimerUnRapportTerrain } from "@/lib/queries/field-reports";
@@ -136,6 +138,14 @@ export async function restoreDeletedRecord(formData: FormData): Promise<DeleteRe
   const recId = String(formData.get("id") ?? "");
   const rec = await prisma.deletedRecord.findUnique({ where: { id: recId } });
   if (!rec || rec.restoredAt || rec.purgedAt) return { ok: false, error: "Entrée introuvable ou déjà traitée." };
+  // LA CTD INITIALE d'un dossier Regulatory (§118.213) : un ensemble de documents, pas une ligne du registre.
+  if (rec.kind === KIND_CORBEILLE_CTD) {
+    const r = await restaurerLaCtdDeLaCorbeille(rec, user.id);
+    if (!r.ok) return r;
+    revalidatePath("/admin/corbeille");
+    revalidatePath(`/regulatory/${rec.sourceId}`);
+    return { ok: true, redirect: r.redirect };
+  }
   if (!isDeletableKind(rec.kind)) return { ok: false, error: "Type inconnu." };
   const spec = DELETE_REGISTRY[rec.kind];
 

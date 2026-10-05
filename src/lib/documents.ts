@@ -8,16 +8,14 @@ import { ENTITY_TYPE_LABELS } from "@/lib/labels";
 import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
 import { mirrorDocumentsToDrive } from "@/lib/drive/document-mirror";
+import { cheminSur, refusDepotCtd } from "@/lib/regulatory/ctd-initiale";
 
 /**
  * Chemin de dossier SÛR : jamais de « .. », jamais de chemin absolu, séparateur « / », borné.
- * `null` quand il ne reste rien. Une pièce déposée seule n'a pas de dossier.
+ * `null` quand il ne reste rien. Une pièce déposée seule n'a pas de dossier. UNE seule écriture,
+ * au module pur de la CTD initiale : le navigateur choisit la destination avec la même règle.
  */
-export function dossierSur(brut: string | null | undefined): string | null {
-  if (!brut) return null;
-  const propre = brut.replace(/\\/g, "/").split("/").map((x) => x.trim()).filter((x) => x && x !== "." && x !== "..").join("/");
-  return propre ? propre.slice(0, 500) : null;
-}
+export const dossierSur = cheminSur;
 
 export interface PersistDocInput {
   entityType: EntityType;
@@ -39,6 +37,8 @@ export interface PersistDocInput {
    * fichier absent du Drive, et c'est précisément ce qu'on corrige.
    */
   mirrorToDrive?: boolean;
+  /** Le dépôt vient du bloc « CTD initiale » d'un dossier Regulatory (§118.213) — voir `refusDepotCtd`. */
+  ctd?: boolean;
 }
 
 /**
@@ -55,6 +55,9 @@ export async function persistUploadedDocument(
   const { entityType, entityId, category, confidentiality, stepKey, file } = input;
   const folder = dossierSur(input.folder);
   if (!file || file.size === 0) return { ok: false, error: "Fichier vide." };
+  // UN DÉPÔT QUI VISE LA CTD INITIALE LE DIT (§118.213) — gardé ICI, là où passent tous les dépôts.
+  const refusCtd = refusDepotCtd({ entityType, stepKey, category }, input.ctd === true);
+  if (refusCtd) return { ok: false, error: refusCtd };
 
   const maxMb = input.maxUploadMb ?? (await getAppSettings()).maxUploadMb;
   const invalid = validateDocumentUpload(file.name, file.size, maxMb);
@@ -149,9 +152,13 @@ export async function inscrireDocumentDirect(
   input: {
     entityType: EntityType; entityId: string; category: DocumentCategory; confidentiality: Confidentiality;
     stepKey: string | null; folder?: string | null; blobId: string; size: number; mimeType: string | null; name: string;
+    /** Le dépôt vient du bloc « CTD initiale » (§118.213). */
+    ctd?: boolean;
   },
 ): Promise<{ documentId: string }> {
   const { entityType, entityId, name } = input;
+  const refusCtd = refusDepotCtd({ entityType, stepKey: input.stepKey, category: input.category }, input.ctd === true);
+  if (refusCtd) throw new Error(refusCtd);
   const folder = dossierSur(input.folder);
   const key = `${entityType}/${entityId}/${randomUUID()}__${name}`;
   await prisma.storedFile.create({ data: { key, blobId: input.blobId, size: input.size } });

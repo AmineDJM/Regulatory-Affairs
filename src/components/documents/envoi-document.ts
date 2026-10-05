@@ -1,6 +1,7 @@
 "use client";
 
-import type { DirectSpec } from "@/components/layout/background-upload";
+import type { DirectSpec, EnqueueSpec } from "@/components/layout/background-upload";
+import { dossierDeDestination } from "@/lib/regulatory/ctd-initiale";
 import type { LimitesEnvoi } from "@/components/layout/use-limites-envoi";
 import type { PlanClient } from "@/lib/storage/envoi-direct-client";
 import { refusTeleversement } from "@/lib/files/politique-televersement";
@@ -14,6 +15,8 @@ export interface CibleDocumentClient {
   category: string;
   confidentiality: string;
   stepKey?: string | null;
+  /** Le dépôt vient du bloc « CTD initiale » d'un dossier Regulatory (§118.213) — le serveur le juge. */
+  ctd?: boolean;
 }
 
 async function json<T>(res: Response): Promise<T> {
@@ -65,6 +68,49 @@ export function envoiDocument(
         abandonner: async (id) => { await fetch(`/api/documents/upload/direct/${id}`, { method: "DELETE" }).catch(() => undefined); },
       };
     },
+  };
+}
+
+/**
+ * LE LOT À CONFIER AU GESTIONNAIRE D'ENVOIS — UNE construction, pour tous les téléverseurs.
+ *
+ * Le téléverseur des documents et le dépôt de la CTD à la création d'un dossier construisaient chacun
+ * leur requête ; la seconde copie aurait fini par oublier un champ (le dossier d'origine, la marque
+ * CTD). Chaque fichier part avec son dossier : le dossier de DESTINATION choisi (« Compléments »), puis le
+ * dossier d'origine du fichier déposé (« CTD/Module 1 ») — l'arborescence se garde sur la fiche.
+ */
+export function construireEnvoi(args: {
+  cible: CibleDocumentClient;
+  entrees: EntreeDepot[];
+  limites: LimitesEnvoi | null;
+  /** Le dossier de la CTD où poser le lot (« Compléments ») ; absent = la racine. */
+  dossierBase?: string | null;
+  onFileDone?: (file: File, body: Record<string, unknown>) => void;
+}): EnqueueSpec {
+  const { cible, entrees, limites } = args;
+  const files = entrees.map((e) => e.file);
+  const dossiers = new Map<File, string | null>(entrees.map((e) => [e.file, dossierDeDestination(args.dossierBase, dossierDuChemin(e.path))]));
+  const envoi = envoiDocument(cible, limites, (f) => dossiers.get(f) ?? null);
+  return {
+    label: cible.ctd ? `CTD initiale — ${files.length} document${files.length > 1 ? "s" : ""}` : `${files.length} document${files.length > 1 ? "s" : ""}`,
+    files,
+    concurrency: 6,
+    makeRequest: (file) => {
+      const fd = new FormData();
+      fd.set("entityType", cible.entityType);
+      fd.set("entityId", cible.entityId);
+      fd.set("category", cible.category);
+      fd.set("confidentiality", cible.confidentiality);
+      if (cible.stepKey) fd.set("stepKey", cible.stepKey);
+      if (cible.ctd) fd.set("ctd", "1");
+      const dossier = dossiers.get(file);
+      if (dossier) fd.set("folder", dossier);
+      fd.append("files", file, file.name);
+      return { url: "/api/documents/upload", formData: fd };
+    },
+    refus: envoi.refus,
+    direct: envoi.direct,
+    onFileDone: args.onFileDone,
   };
 }
 

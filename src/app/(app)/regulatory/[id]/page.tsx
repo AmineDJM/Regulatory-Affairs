@@ -47,6 +47,8 @@ import { orderSteps, type DossierStepKind } from "@/lib/regulatory/dossier-timel
 import { getMyCompanies } from "@/lib/company";
 import { loadProductMarkets } from "@/lib/queries/market-360";
 import { ProductMarkets } from "./product-markets";
+import { estCtdInitiale, KIND_CORBEILLE_CTD } from "@/lib/regulatory/ctd-initiale";
+import { droitsSurLaCtd } from "@/lib/regulatory/ctd-initiale-corbeille";
 
 const REG_DOC_CATEGORIES = [
   "CTD_FULL", "MODULE_1", "MODULE_2", "MODULE_3", "MODULE_4", "MODULE_5",
@@ -57,7 +59,7 @@ const REG_DOC_CATEGORIES = [
 // Documents liés aux réserves de l'ANPP (réserves reçues + réponses du laboratoire).
 const REG_RESERVE_CATEGORIES = ["QUERY_RECEIVED", "QUERY_RESPONSE"];
 
-export default async function RegulatoryDetailPage({ params, searchParams }: { params: { id: string }; searchParams: { dossier?: string } }) {
+export default async function RegulatoryDetailPage({ params, searchParams }: { params: { id: string }; searchParams: { dossier?: string; ctd?: string } }) {
   const user = await requireModule("REGULATORY");
   if (!(await canAccessEntity(user, "REGULATORY_PRODUCT", params.id, "VIEW"))) {
     notFound();
@@ -115,6 +117,17 @@ export default async function RegulatoryDetailPage({ params, searchParams }: { p
     getMyCompanies(user.id),
   ]);
 
+  // LA CTD INITIALE (§118.213) : ce que la personne peut en faire (la porte du dépôt, jamais plus large), et la
+  // dernière CTD retirée de ce dossier — dite sur le bloc, restaurable par le Super Admin depuis la corbeille.
+  const [droitsCtd, ctdRetiree] = await Promise.all([
+    droitsSurLaCtd(user, product.id),
+    prisma.deletedRecord.findFirst({
+      where: { kind: KIND_CORBEILLE_CTD, sourceId: product.id, restoredAt: null, purgedAt: null },
+      orderBy: { deletedAt: "desc" },
+      select: { deletedAt: true, payload: true },
+    }),
+  ]);
+
   // LES MARCHÉS DU PRODUIT (§30) : la vue inverse de la fiche marché, servie par la MÊME
   // requête que /pch/[id]. Rien à montrer tant que le produit canonique n'a croisé aucun AO.
   const marches = product.productId ? await loadProductMarkets(product.productId) : [];
@@ -161,7 +174,10 @@ export default async function RegulatoryDetailPage({ params, searchParams }: { p
   // Les pièces rattachées à une étape (ANPP ou frise du dossier) vivent SOUS leur étape, pas
   // dans la liste générale : c'est tout l'intérêt de les y avoir rattachées.
   const stepDocs: Record<string, DocItem[]> = {};
-  for (const d of documents) if (d.stepKey) (stepDocs[d.stepKey] ??= []).push(toDocItem(d));
+  // La CTD initiale a son BLOC : elle n'est pas répétée parmi les « pièces de l'étape » (le même fichier deux fois à l'écran).
+  for (const d of documents) if (d.stepKey && !estCtdInitiale(d)) (stepDocs[d.stepKey] ??= []).push(toDocItem(d));
+  const ctdDocs = documents.filter(estCtdInitiale).map(toDocItem);
+  const retireePayload = (ctdRetiree?.payload ?? null) as { fichiers?: number; motif?: string } | null;
   const nonStep = documents.filter((d) => !d.stepKey);
   // On sépare ensuite les pièces des réserves (section dédiée) du reste des documents.
   const reserveDocs = nonStep.filter((d) => REG_RESERVE_CATEGORIES.includes(d.category)).map(toDocItem);
@@ -403,6 +419,13 @@ export default async function RegulatoryDetailPage({ params, searchParams }: { p
                 canUpload={canUpload}
                 canDelete={canDelete}
                 stepDocs={stepDocs}
+                ctd={{
+                  docs: ctdDocs,
+                  canUpload: droitsCtd.deposer,
+                  canManage: droitsCtd.gerer,
+                  depotEnCours: searchParams.ctd === "envoi",
+                  retiree: ctdRetiree ? { quand: ctdRetiree.deletedAt.toISOString(), fichiers: retireePayload?.fichiers ?? 0, remplacee: retireePayload?.motif === "REMPLACEE" } : null,
+                }}
                 dossierSteps={timeline}
                 path={`/regulatory/${product.id}`}
               />

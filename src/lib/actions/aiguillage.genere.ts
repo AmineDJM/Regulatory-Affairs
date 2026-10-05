@@ -1,7 +1,7 @@
 // ⚠️  FICHIER GÉNÉRÉ — ne pas éditer à la main. Voir `npm run actions:contrat`.
 //
 // Chaque entrée est un spécificateur LITTÉRAL : l'empaqueteur les voit tous, et rien n'est
-// chargé avant l'appel. `executer.test.ts` résout les 893 actions et échoue en
+// chargé avant l'appel. `executer.test.ts` résout les 896 actions et échoue en
 // nommant celle qui a disparu — c'est le contrôle d'appelant que le compilateur ne fait pas ici.
 
 export const MODULES_ACTIONS: Readonly<Record<string, () => Promise<Record<string, unknown>>>> = {
@@ -125,6 +125,7 @@ export const MODULES_ACTIONS: Readonly<Record<string, () => Promise<Record<strin
   "purchase-request-actions": () => import("./purchase-request-actions") as unknown as Promise<Record<string, unknown>>,
   "recruitment-actions": () => import("./recruitment-actions") as unknown as Promise<Record<string, unknown>>,
   "regulatory-actions": () => import("./regulatory-actions") as unknown as Promise<Record<string, unknown>>,
+  "regulatory-ctd-actions": () => import("./regulatory-ctd-actions") as unknown as Promise<Record<string, unknown>>,
   "regulatory-reminder-actions": () => import("./regulatory-reminder-actions") as unknown as Promise<Record<string, unknown>>,
   "regulatory-timeline-actions": () => import("./regulatory-timeline-actions") as unknown as Promise<Record<string, unknown>>,
   "reminder-actions": () => import("./reminder-actions") as unknown as Promise<Record<string, unknown>>,
