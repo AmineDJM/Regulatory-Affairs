@@ -1,0 +1,2291 @@
+diff --git a/prisma/migrations/20270107090000_promo_devis_automatiques/migration.sql b/prisma/migrations/20270107090000_promo_devis_automatiques/migration.sql
+new file mode 100644
+index 0000000..fec3603
+--- /dev/null
++++ b/prisma/migrations/20270107090000_promo_devis_automatiques/migration.sql
+@@ -0,0 +1,4 @@
++-- §118.204 — matériel promotionnel : précisions de la demande de devis, et ce que chaque ligne promeut.
++-- Idempotente : rejouée, elle ne change rien. Aucune donnée existante n'est réécrite.
++ALTER TABLE "PromoMaterial" ADD COLUMN IF NOT EXISTS "precisionsDevis" TEXT;
++ALTER TABLE "PromoRequestItem" ADD COLUMN IF NOT EXISTS "promus" JSONB;
+diff --git a/prisma/schema.prisma b/prisma/schema.prisma
+index 64dea49..3ac212e 100644
+--- a/prisma/schema.prisma
++++ b/prisma/schema.prisma
+@@ -6641,6 +6641,9 @@ model PromoMaterial {
+   /// Quand, et par qui, les devis ont été demandés au secrétariat.
+   quotesRequestedAt    DateTime?
+   quotesRequestedById  String?
++  /// Les précisions du demandeur pour l'assistante de direction (§118.204) — saisies dans « Articles
++  /// demandés » à la création, envoyées avec la demande de devis quand elle part.
++  precisionsDevis      String?
+   /// Les devis RETRANSCRITS par l'assistante de direction — un par agence ou partenaire.
+   quotes               PromoQuote[]
+   /// LES ARTICLES DEMANDÉS (§118.165) — ce que le demandeur veut faire faire, pioché dans le
+@@ -6770,6 +6773,10 @@ model PromoRequestItem {
+   /// Ce qu'on attend du fournisseur — au moins une action.
+   actions         PromoAction[]             @default([])
+   commentaire     String?
++  /// CE QUE LA LIGNE PROMEUT (§118.204), lisible tel quel : { societe, gammes:[{id,nom}], produits:[{id,nom}],
++  /// autre }. Les produits sont ceux des Business Units ; `produits` (ci-dessous) garde le lien CANONIQUE
++  /// quand il existe, pour le stock. Nul : ligne d'avant (ses produits canoniques font foi).
++  promus          Json?
+   produits        PromoRequestItemProduct[]
+   lignesDevis     PromoQuoteLine[]
+   lignesFacture   PromoFactureLigne[]
+diff --git a/src/app/(app)/promo-material/[id]/articles-card.tsx b/src/app/(app)/promo-material/[id]/articles-card.tsx
+index f547096..c4d41c7 100644
+--- a/src/app/(app)/promo-material/[id]/articles-card.tsx
++++ b/src/app/(app)/promo-material/[id]/articles-card.tsx
+@@ -1,16 +1,18 @@
+ "use client";
+ 
+ import * as React from "react";
+-import { useRouter } from "next/navigation";
+-import { AlertCircle, CheckCircle2, Pencil, Plus, Trash2 } from "lucide-react";
++import { useRafraichir } from "@/components/shared/use-rafraichir";
++import { AlertCircle, CheckCircle2, Loader2, Pencil, Plus, Send, Trash2 } from "lucide-react";
+ import { Sheet } from "@/components/ui/sheet";
+ import { Button } from "@/components/ui/button";
+ import { Badge } from "@/components/ui/badge";
+ import { RecordForm, type FieldDef } from "@/components/shared/create-record-button";
+ import { enregistrerArticleDemandePromo, retirerArticleDemandePromo } from "@/lib/actions/promo-demande-actions";
++import { demanderDevisPromo } from "@/lib/actions/promo-devis-actions";
++import { Label, Textarea } from "@/components/ui/input";
+ import { ACTIONS, ACTION_AIDE, ACTION_LABEL } from "@/lib/promo-material/actions-fournisseur";
+ import { FAMILLE_LABEL } from "@/lib/promo/catalogue";
+-import type { ArticleDemandeLu } from "@/lib/promo-material/achats";
++import { libellesPromusDeLArticle, type ArticleDemandeLu } from "@/lib/promo-material/achats";
+ import type { OptionCatalogue } from "@/lib/queries/promo-achats";
+ import type { ActionResult } from "@/lib/actions/types";
+ 
+@@ -26,7 +28,18 @@ import type { ActionResult } from "@/lib/actions/types";
+ 
+ const nombre = (n: number) => n.toLocaleString("fr-FR", { maximumFractionDigits: 3 });
+ 
+-export function PromoArticlesCard({ id, articles, canEdit, options, avertissement }: {
++/** La demande de devis AVANT son départ (§118.204) — son aperçu, ses précisions, et le geste qui l'envoie quand il le faut. */
++export interface EnvoiDevis {
++  /** Le texte exact que l'assistante recevra (`texteDemandeDeDevis`). */
++  apercu: string;
++  precisions: string | null;
++  /** « Devis à demander » : l'envoi automatique n'a pas pu partir (ou dossier d'avant) — le demandeur l'envoie d'ici. */
++  peutEnvoyer: boolean;
++  /** La demande attend sa validation : la demande de devis partira d'elle-même ensuite. */
++  attendValidation: boolean;
++}
++
++export function PromoArticlesCard({ id, articles, canEdit, options, avertissement, envoiDevis = null }: {
+   id: string;
+   articles: ArticleDemandeLu[];
+   canEdit: boolean;
+@@ -34,8 +47,10 @@ export function PromoArticlesCard({ id, articles, canEdit, options, avertissemen
+   avertissement?: string | null;
+   /** Le catalogue actif et les produits — chargés seulement quand la personne peut composer. */
+   options: { catalogue: OptionCatalogue[]; produits: { id: string; nom: string }[] } | null;
++  envoiDevis?: EnvoiDevis | null;
+ }) {
+-  const router = useRouter();
++  // LE RAFRAÎCHISSEMENT SUIVI (§118.172) : une fiche ouverte avant la fin rouvrirait l'état d'avant — les gestes attendent.
++  const { enCours, rafraichir } = useRafraichir();
+   const [edition, setEdition] = React.useState<ArticleDemandeLu | "nouveau" | null>(null);
+   const [msg, setMsg] = React.useState<string | null>(null);
+   const [err, setErr] = React.useState<string | null>(null);
+@@ -49,7 +64,7 @@ export function PromoArticlesCard({ id, articles, canEdit, options, avertissemen
+     fd.set("requestItemId", a.id);
+     const r = await retirerArticleDemandePromo(fd);
+     setSaving(false);
+-    if (r.ok) { setMsg(r.message ?? null); router.refresh(); } else setErr(r.error ?? "Action impossible.");
++    if (r.ok) { setMsg(r.message ?? null); rafraichir(); } else setErr(r.error ?? "Action impossible.");
+   };
+ 
+   // `exactOptionalPropertyTypes` : une clé facultative absente ne s'écrit pas `undefined` — on la
+@@ -68,6 +83,8 @@ export function PromoArticlesCard({ id, articles, canEdit, options, avertissemen
+     if (a?.quantite != null) quantite.defaultValue = a.quantite;
+     const commentaire: Extract<FieldDef, { type: "textarea" }> = { type: "textarea", name: "commentaire", label: "Commentaire", placeholder: "Format, recto-verso, finition, délai…" };
+     if (a?.commentaire) commentaire.defaultValue = a.commentaire;
++    const autre: Extract<FieldDef, { type: "text" | "number" | "date" | "datetime-local" }> = { type: "text", name: "autre", label: "Autre produit promu (saisie libre)", hint: "Un produit qui n'est dans aucune liste — écrit tel que l'assistante le cherchera." };
++    if (a?.choixPromus?.autre) autre.defaultValue = a.choixPromus.autre;
+     const champs: FieldDef[] = [{ type: "hidden", name: "promoMaterialId", value: id }];
+     if (a) champs.push({ type: "hidden", name: "requestItemId", value: a.id });
+     champs.push(
+@@ -75,10 +92,11 @@ export function PromoArticlesCard({ id, articles, canEdit, options, avertissemen
+       {
+         type: "multiselect", name: "produitIds", label: "Produit(s) promu(s)",
+         options: (options?.produits ?? []).map((p) => ({ value: p.id, label: p.nom })),
+-        defaultValue: a ? a.produits.map((p) => p.id) : [],
+-        hint: "Obligatoire pour un article « par produit » (fiche posologique, aide de visite) ; vide pour un support générique.",
+-        searchPlaceholder: "Rechercher un produit…", emptyLabel: "Aucun produit actif dans le référentiel.",
++        defaultValue: a ? (a.choixPromus?.codes ?? a.produits.map((p) => p.id)) : [],
++        hint: "La société en général, une gamme, ou les produits des Business Units. Obligatoire pour un article « par produit » (fiche posologique, aide de visite).",
++        searchPlaceholder: "Rechercher un produit, une gamme…", emptyLabel: "Aucune gamme ni produit actif dans les Business Units.",
+       },
++      autre,
+       {
+         type: "multiselect", name: "actions", label: "Ce qu'on attend du fournisseur", required: true,
+         options: ACTIONS.map((x) => ({ value: x, label: `${ACTION_LABEL[x]} — ${ACTION_AIDE[x]}` })),
+@@ -91,9 +109,18 @@ export function PromoArticlesCard({ id, articles, canEdit, options, avertissemen
+     return champs;
+   };
+ 
++  // ENVOYER LA DEMANDE DE DEVIS — le repli (§118.204), avec les précisions saisies DANS cette rubrique.
++  const envoyer = async (fd: FormData) => {
++    setSaving(true); setErr(null); setMsg(null);
++    fd.set("promoMaterialId", id);
++    const r = await demanderDevisPromo(fd);
++    setSaving(false);
++    if (r.ok) { setMsg(r.message ?? null); rafraichir(); } else setErr(r.error ?? "Envoi impossible.");
++  };
++
+   const action = async (_prev: ActionResult | undefined, fd: FormData): Promise<ActionResult> => {
+     const r = await enregistrerArticleDemandePromo(fd);
+-    if (r.ok) { setMsg(r.message ?? null); setErr(null); router.refresh(); }
++    if (r.ok) { setMsg(r.message ?? null); setErr(null); rafraichir(); }
+     return r;
+   };
+ 
+@@ -112,7 +139,7 @@ export function PromoArticlesCard({ id, articles, canEdit, options, avertissemen
+               <div className="min-w-0 space-y-1">
+                 <p className="font-medium">
+                   <span className="text-muted-foreground">{a.reference}</span> {a.nom}
+-                  {a.produits.length > 0 && <span> — {a.produits.map((p) => p.nom).join(", ")}</span>}
++                  {libellesPromusDeLArticle(a).length > 0 && <span> — {libellesPromusDeLArticle(a).join(", ")}</span>}
+                 </p>
+                 <div className="flex flex-wrap items-center gap-1.5 text-xs">
+                   <Badge tone="neutral">{FAMILLE_LABEL[a.famille]}</Badge>
+@@ -123,8 +150,8 @@ export function PromoArticlesCard({ id, articles, canEdit, options, avertissemen
+               </div>
+               {canEdit && (
+                 <div className="flex gap-1">
+-                  <Button size="sm" variant="ghost" disabled={saving} onClick={() => setEdition(a)} aria-label={`Corriger ${a.nom}`}><Pencil className="h-4 w-4" /></Button>
+-                  <Button size="sm" variant="ghost" disabled={saving} onClick={() => retirer(a)} aria-label={`Retirer ${a.nom}`}><Trash2 className="h-4 w-4" /></Button>
++                  <Button size="sm" variant="ghost" disabled={saving || enCours} onClick={() => setEdition(a)} aria-label={`Corriger ${a.nom}`}><Pencil className="h-4 w-4" /></Button>
++                  <Button size="sm" variant="ghost" disabled={saving || enCours} onClick={() => retirer(a)} aria-label={`Retirer ${a.nom}`}><Trash2 className="h-4 w-4" /></Button>
+                 </div>
+               )}
+             </li>
+@@ -132,12 +159,37 @@ export function PromoArticlesCard({ id, articles, canEdit, options, avertissemen
+         </ul>
+       )}
+ 
++      {/* LA DEMANDE DE DEVIS, AVANT SON DÉPART (§118.204) — dans la MÊME rubrique que les articles : ce que
++          l'assistante recevra, mot pour mot. Elle part d'elle-même ; le bouton n'apparaît que si elle est restée. */}
++      {envoiDevis && (
++        <div className="space-y-2 rounded-lg border border-primary/30 bg-primary/5 p-3">
++          <p className="text-sm font-medium">Aperçu de la demande de devis</p>
++          <p className="text-xs text-muted-foreground">
++            {envoiDevis.attendValidation
++              ? "Elle partira d'elle-même à l'assistante de direction dès que la demande sera validée."
++              : envoiDevis.peutEnvoyer
++                ? "Elle n'est pas encore partie : relisez-la, ajoutez vos précisions, puis envoyez-la."
++                : "Elle n'est pas encore partie : le demandeur l'envoie d'ici."}
++          </p>
++          <pre className="max-h-72 overflow-auto whitespace-pre-wrap rounded-md border border-border bg-background p-2 text-xs">{envoiDevis.apercu}</pre>
++          {envoiDevis.peutEnvoyer && (
++            <form action={envoyer} className="space-y-2">
++              <Label htmlFor="promo-precisions-devis">Précisions pour l&apos;assistante (facultatif)</Label>
++              <Textarea id="promo-precisions-devis" name="note" defaultValue={envoiDevis.precisions ?? ""} className="min-h-[60px]" placeholder="Agences à consulter, délai souhaité…" />
++              <Button type="submit" size="sm" disabled={saving || enCours}>
++                {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />} Envoyer la demande de devis
++              </Button>
++            </form>
++          )}
++        </div>
++      )}
++
+       {err && <div className="flex items-start gap-2 rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive"><AlertCircle className="mt-0.5 h-4 w-4 shrink-0" /> <span>{err}</span></div>}
+       {msg && <div className="flex items-start gap-2 rounded-lg bg-emerald-500/10 px-3 py-2 text-sm text-emerald-700 dark:text-emerald-400"><CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" /> <span>{msg}</span></div>}
+ 
+       {canEdit && avertissement && <p className="text-xs text-muted-foreground">{avertissement}</p>}
+       {canEdit && (
+-        <Button size="sm" variant="outline" disabled={saving} onClick={() => setEdition("nouveau")}><Plus className="h-4 w-4" /> Ajouter un article du catalogue</Button>
++        <Button size="sm" variant="outline" disabled={saving || enCours} onClick={() => setEdition("nouveau")}><Plus className="h-4 w-4" /> Ajouter un article du catalogue</Button>
+       )}
+ 
+       {canEdit && edition && (
+diff --git a/src/app/(app)/promo-material/[id]/circuit-card.tsx b/src/app/(app)/promo-material/[id]/circuit-card.tsx
+index 54c5f3b..3a1bd4e 100644
+--- a/src/app/(app)/promo-material/[id]/circuit-card.tsx
++++ b/src/app/(app)/promo-material/[id]/circuit-card.tsx
+@@ -1,12 +1,11 @@
+ "use client";
+ 
+ import * as React from "react";
+-import { Loader2, AlertCircle, BadgeCheck, CheckCircle2, Circle, FileCheck2, Rocket, Send, XCircle, Undo2, RotateCcw } from "lucide-react";
++import { Loader2, AlertCircle, BadgeCheck, CheckCircle2, Circle, FileCheck2, Rocket, XCircle, Undo2, RotateCcw } from "lucide-react";
+ import {
+   startPromoCircuit, markQuoteReceived, validatePromoStep, refusePromoStep, completePromoTrack,
+   renvoyerPromoStep, resoumettrePromoDemande,
+ } from "@/lib/actions/promo-circuit-actions";
+-import { demanderDevisPromo } from "@/lib/actions/promo-devis-actions";
+ import type { PromoTrack } from "@/lib/promo-material/circuit";
+ import { Button } from "@/components/ui/button";
+ import { Badge } from "@/components/ui/badge";
+@@ -57,7 +56,6 @@ interface Props {
+   /** Peut basculer un dossier d'avant la réforme sur le circuit actuel. */
+   canStart: boolean;
+   /** (circuit 2) Peut demander les devis au secrétariat — le demandeur, à l'étape « devis à demander ». */
+-  canRequestQuotes: boolean;
+   /** Peut clore un chantier (pilote de l'exécution). */
+   canDrive: boolean;
+   /** Le renvoi pour correction en cours (§118.190) — affiché à tous, pour que personne ne cherche
+@@ -197,20 +195,9 @@ export function PromoCircuitCard(p: Props) {
+       <Err msg={err} />
+       <Ok msg={msg} />
+ 
+-      {/* CIRCUIT 2 — le demandeur demande les devis au secrétariat, une fois la demande validée. */}
+-      {p.state === "QUOTE_TO_REQUEST" && p.canRequestQuotes && (
+-        <form
+-          action={(f: FormData) => { f.set("promoMaterialId", p.id); run(() => demanderDevisPromo(f)); }}
+-          className="space-y-2 rounded-lg border border-primary/30 bg-primary/5 p-3"
+-        >
+-          <Label htmlFor="promo-quote-note">Précisions pour le secrétariat (facultatif)</Label>
+-          <Textarea id="promo-quote-note" name="note" className="min-h-[60px]" placeholder="Agences à consulter, quantités, délai souhaité…" />
+-          <Button type="submit" size="sm" disabled={saving}>
+-            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />} Demander les devis à l&apos;assistante de direction
+-          </Button>
+-        </form>
+-      )}
+-
++      {/* CIRCUIT 2 — LA DEMANDE DE DEVIS PART D'ELLE-MÊME (§118.204) : à la création, ou à la validation de
++          la demande. Son aperçu, ses précisions et, au besoin, son envoi vivent dans « Articles demandés » —
++          plus de bouton « Demander les devis » ni de champ de précisions séparé ici. */}
+       {/* CIRCUIT 1 — le devis est déposé comme pièce, puis confirmé. */}
+       {p.version === 1 && p.state === "QUOTE_REQUESTED" && p.canConfirmQuote && (
+         <div className="flex flex-wrap items-center gap-2">
+diff --git a/src/app/(app)/promo-material/[id]/execution-card.tsx b/src/app/(app)/promo-material/[id]/execution-card.tsx
+index d8549f8..a5d4a33 100644
+--- a/src/app/(app)/promo-material/[id]/execution-card.tsx
++++ b/src/app/(app)/promo-material/[id]/execution-card.tsx
+@@ -616,7 +616,9 @@ export function PromoExecutionCard({ id, executions, canPilot, canReceive, ouver
+       {canPilot && ouvert && aGenerer > 0 && (
+         <div className="space-y-2 rounded-lg border border-primary/30 bg-primary/5 p-3">
+           <p className="text-sm">
+-            <strong>{aGenerer}</strong> bon{aGenerer > 1 ? "s" : ""} de commande à générer — un par fournisseur, composé{aGenerer > 1 ? "s" : ""} par la plateforme d&apos;après les lignes validées (chacune avec son action : conception, impression…), sur le papier en-tête de la société.
++            {/* LES BC SE GÉNÈRENT D'EUX-MÊMES à la dernière validation (§118.204) : ce cadre n'apparaît que pour
++                ce que la génération automatique n'a pas pu émettre — le geste de repli, avec livraison et taxe. */}
++            <strong>{aGenerer}</strong> bon{aGenerer > 1 ? "s" : ""} de commande n&apos;{aGenerer > 1 ? "ont" : "a"} pas pu être généré{aGenerer > 1 ? "s" : ""} automatiquement à la dernière validation — un par fournisseur, composé{aGenerer > 1 ? "s" : ""} par la plateforme d&apos;après les lignes validées. Relancez la génération (le message dira ce qui bloque).
+           </p>
+           <form className="space-y-2" action={(f: FormData) => { f.set("promoMaterialId", id); run(() => genererBonsDeCommandePromo(f)); }}>
+             {/* LA CASE DES TAXES SUPPLÉMENTAIRES, toujours visible : « Taxe Pub 2 % » sur le HT, hors base de TVA. Vide = celle de chaque devis ; 0 = aucune. */}
+@@ -633,7 +635,7 @@ export function PromoExecutionCard({ id, executions, canPilot, canReceive, ouver
+               </div>
+             )}
+             <div className="flex flex-wrap gap-2">
+-              <Button type="submit" size="sm" disabled={saving}>{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Wand2 className="h-4 w-4" />} Générer les bons de commande</Button>
++              <Button type="submit" size="sm" disabled={saving}>{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Wand2 className="h-4 w-4" />} Générer les bons de commande manquants</Button>
+               {!options && <Button type="button" size="sm" variant="ghost" onClick={() => setOptions(true)}>Livraison et notes…</Button>}
+             </div>
+           </form>
+diff --git a/src/app/(app)/promo-material/[id]/page.tsx b/src/app/(app)/promo-material/[id]/page.tsx
+index a3dea08..e36078a 100644
+--- a/src/app/(app)/promo-material/[id]/page.tsx
++++ b/src/app/(app)/promo-material/[id]/page.tsx
+@@ -12,6 +12,10 @@ import {
+ import { executionDuDossier, verdictDuChantierPromo } from "@/lib/queries/promo-execution";
+ import { listPartyOptions } from "@/lib/queries/company-contacts";
+ import { manquesDeRetranscription } from "@/lib/promo-material/devis";
++import { refusDeRangement } from "@/lib/promo-material/rangement";
++import { texteDemandeDeDevis } from "@/lib/promo-material/texte-demande-devis";
++import { ACTION_LABEL } from "@/lib/promo-material/actions-fournisseur";
++import { libellesPromusDeLArticle } from "@/lib/promo-material/achats";
+ import { toNumber, formatCurrency, formatDate, formatDateTime } from "@/lib/utils";
+ import { PageHeader } from "@/components/shared/page-header";
+ import { AdProEditButton } from "@/components/ad-pro/edit-request-button";
+@@ -21,7 +25,7 @@ import { StatusBadge } from "@/components/shared/status-badge";
+ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+ import type { DocItem } from "@/components/documents/document-list";
+ import { DocumentUpload } from "@/components/documents/document-upload";
+-import { PROMO_MATERIAL_DOC_CATEGORIES, categoriesDuDepotDeLaDemande } from "@/lib/ad-pro/doc-categories";
++import { PROMO_MATERIAL_DOC_CATEGORIES, categoriesDuDepotDeLaDemande, natureDeLaCategorie } from "@/lib/ad-pro/doc-categories";
+ import { contextePiecesLiees } from "@/lib/ad-pro/pieces-liees";
+ import { LinkedRecords } from "@/components/shared/linked-records";
+ import { canAttachToAdPro, attachHint } from "@/lib/ad-pro/attachments";
+@@ -197,7 +201,6 @@ export default async function PromoMaterialDetailPage({ params }: { params: { id
+     validerIci: !(version === 2 && circuitState === "REVIEW_REQUESTER"),
+     canConfirmQuote: flags.isMarketing || flags.isAssistant || isDirection || user.role === "SUPER_ADMIN",
+     canStart: !circuitState && (user.id === pm.requesterId || isDirection),
+-    canRequestQuotes: v2 && circuitState === "QUOTE_TO_REQUEST" && demandeLesDevis(acteur, pm),
+     canDrive: piloteLExecution(acteur, pm),
+     renvoi,
+     canRenvoyer: peutTrancher && circuitState !== null && etatApresRenvoi(circuitState) !== null,
+@@ -213,6 +216,18 @@ export default async function PromoMaterialDetailPage({ params }: { params: { id
+   // (ou la Direction) la compose tant que les devis ne sont pas demandés — la règle de l'action.
+   const articles = v2 ? await articlesDemandesDuDossier(pm.id) : [];
+   // Jusqu'au départ du choix en validation (§118.190) — la règle de `refusComposition`, lue telle quelle.
++  // L'APERÇU DE LA DEMANDE DE DEVIS (§118.204) — ce que l'assistante recevra, tant qu'elle n'est pas partie ;
++  // et, sur « devis à demander » (l'envoi automatique n'a pas pu partir, ou dossier d'avant), le geste qui l'envoie.
++  const avantEnvoi = v2 && (circuitState === "REVIEW_REQUEST" || circuitState === "QUOTE_TO_REQUEST");
++  const apercuDevis = avantEnvoi
++    ? texteDemandeDeDevis({
++        reference: pm.reference, titre: pm.title, brief: pm.description, precisions: pm.precisionsDevis, relance: false,
++        articles: articles.map((a) => ({ reference: a.reference, nom: a.nom, quantite: a.quantite, unite: a.unite, actions: a.actions.map((x) => ACTION_LABEL[x]), promus: libellesPromusDeLArticle(a), commentaire: a.commentaire })),
++      })
++    : null;
++  const envoiDevis = apercuDevis
++    ? { apercu: apercuDevis, precisions: pm.precisionsDevis, peutEnvoyer: circuitState === "QUOTE_TO_REQUEST" && demandeLesDevis(acteur, pm), attendValidation: circuitState === "REVIEW_REQUEST" }
++    : null;
+   const canEditArticles = v2 && (circuitState === "REVIEW_REQUEST" || circuitState === "QUOTE_TO_REQUEST" || circuitState === "QUOTE_REQUESTED" || circuitState === "REVIEW_REQUESTER") && demandeLesDevis(acteur, pm);
+   const canReceive = v2 && circuitState === "IN_EXECUTION" && peutReceptionner({ id: user.id, role: user.role }, pm);
+ 
+@@ -230,8 +245,22 @@ export default async function PromoMaterialDetailPage({ params }: { params: { id
+     documentName: d.documentId ? nomsScans.get(d.documentId) ?? null : null,
+   }));
+   const canTranscribe = v2 && circuitState === "QUOTE_REQUESTED" && retranscritLesDevis(acteur, pm);
++  // LES FICHIERS « DEVIS » DÉPOSÉS SANS FICHE (§118.204) — ceux qu'aucun devis du circuit ne désigne. Ils se
++  // RANGENT comme devis d'une agence (« Ranger comme devis de… »), dans la carte « Devis » : plus de « Créer sa
++  // fiche » sur un dossier de matériel promotionnel. Les scans déjà rangés ne se montrent qu'une fois — sur la
++  // ligne de leur devis.
++  const scansRanges = new Set(v2
++    ? (await prisma.promoQuote.findMany({ where: { promoMaterialId: pm.id }, select: { documentId: true } })).map((q) => q.documentId).filter((x): x is string => Boolean(x))
++    : []);
++  const devisARanger = v2 ? docItems.filter((d) => natureDeLaCategorie(d.category) === "QUOTE" && !scansRanges.has(d.id)) : [];
++  const rangementRefuse = refusDeRangement(circuitState);
++  const peutRanger = v2 && rangementRefuse === null && retranscritLesDevis(acteur, pm);
++  // Ce que montre « Pièces liées » : sans les scans rangés, et sans les devis à ranger quand la carte « Devis » les porte.
++  const piecesLiees = v2
++    ? docItems.filter((d) => !scansRanges.has(d.id) && !(montrerDevis && devisARanger.some((x) => x.id === d.id)))
++    : docItems;
+   const canSelect = v2 && circuitState === "REVIEW_REQUESTER" && choisitLesLignes(acteur, pm);
+-  const parties = canTranscribe ? await listPartyOptions(user.id, { includeIds: devis.map((d) => d.supplierId).filter((x): x is string => Boolean(x)) }) : undefined;
++  const parties = canTranscribe || peutRanger ? await listPartyOptions(user.id, { includeIds: devis.map((d) => d.supplierId).filter((x): x is string => Boolean(x)) }) : undefined;
+ 
+   // L'EXÉCUTION — une ligne par devis RETENU, avec son BC, ses factures et leur fichier.
+   const facturesIds = execution.flatMap((e) => e.factures.map((f) => f.id));
+@@ -323,7 +352,7 @@ export default async function PromoMaterialDetailPage({ params }: { params: { id
+           <CardHeader><CardTitle className="flex items-center gap-2 text-base"><ListChecks className="h-4 w-4" /> Articles demandés</CardTitle></CardHeader>
+           <CardContent>
+             <PromoArticlesCard
+-              id={pm.id} articles={articles} canEdit={canEditArticles} options={canEditArticles ? optionsCatalogue : null}
++              id={pm.id} articles={articles} canEdit={canEditArticles} options={canEditArticles ? optionsCatalogue : null} envoiDevis={envoiDevis}
+               avertissement={circuitState === "REVIEW_REQUESTER"
+                 ? "Ajouter ou corriger un article renvoie le dossier à l'assistante, pour le faire chiffrer."
+                 : circuitState === "QUOTE_REQUESTED" ? "L'assistante cherche les devis : elle est prévenue de chaque changement." : null}
+@@ -336,13 +365,15 @@ export default async function PromoMaterialDetailPage({ params }: { params: { id
+           les autres lisent. Il apparaît dès que les devis sont demandés. */}
+       {montrerDevis && (
+         <Card>
+-          <CardHeader><CardTitle className="flex items-center gap-2 text-base"><ClipboardList className="h-4 w-4" /> Devis retranscrits</CardTitle></CardHeader>
++          <CardHeader><CardTitle className="flex items-center gap-2 text-base"><ClipboardList className="h-4 w-4" /> Devis</CardTitle></CardHeader>
+           <CardContent>
+             <PromoQuotesCard
+               id={pm.id} quotes={devis} articles={articles} canTranscribe={canTranscribe} canSelect={canSelect}
+               manques={canTranscribe ? manquesDeRetranscription(devis) : []}
+               parties={parties} canCreateContact={userCan(user, "GENERAL_MEANS", "CREATE")}
+               seuilDg={ctx?.seuilDg ?? null}
++              aRanger={devisARanger.map((d) => ({ id: d.id, nom: d.name, deposePar: d.uploadedBy, le: d.createdAt }))}
++              peutRanger={peutRanger} refusRangement={rangementRefuse}
+             />
+           </CardContent>
+         </Card>
+@@ -406,7 +437,7 @@ export default async function PromoMaterialDetailPage({ params }: { params: { id
+             acces={ctxPieces.acces} candidatsLegal={ctxPieces.candidatsLegal}
+             piecesDeLaDemande={{
+               titre: v2 ? "Pièces du dossier (maquettes, BAT, matériel, visa…)" : "Pièces du dossier (matériel, visa, bordereau, quittance…)",
+-              documents: docItems,
++              documents: piecesLiees,
+               televerseur: canUpload
+                 ? <DocumentUpload entityType="PROMO_MATERIAL" entityId={pm.id} categories={categoriesDuDepotDeLaDemande(PROMO_MATERIAL_DOC_CATEGORIES)} />
+                 : undefined,
+@@ -414,7 +445,12 @@ export default async function PromoMaterialDetailPage({ params }: { params: { id
+               // AU CIRCUIT 2, un fichier « devis » du dossier est le SCAN d'un devis retranscrit :
+               // sa version plateforme est la ligne du tableau « Devis retranscrits », pas une fiche
+               // à créer — le dire, au lieu de le présenter comme une pièce orpheline.
+-              noteLibres: v2 ? "Scans joints aux devis retranscrits — leur version plateforme est le tableau « Devis retranscrits »." : undefined,
++              // PLUS DE « CRÉER SA FICHE » SUR UN DOSSIER DE MATÉRIEL PROMOTIONNEL (§118.204) — la note est
++              // TOUJOURS posée, ancien circuit compris : c'est elle qui retire le bouton. Au circuit 2, un devis
++              // déposé ici se range comme devis d'une agence dès que les devis sont demandés (carte « Devis »).
++              noteLibres: v2
++                ? (rangementRefuse ? `Devis déposés sur la demande, à ranger comme devis d'une agence. ${rangementRefuse}` : "Pièces déposées sur la demande.")
++                : "Pièces de l'ancien circuit, déposées sur le dossier.",
+               canDelete, canRename: canUpload, canEdit: onlyofficeConfigured() && canUpload,
+               path: `/promo-material/${pm.id}`,
+             }}
+diff --git a/src/app/(app)/promo-material/[id]/quotes-card.tsx b/src/app/(app)/promo-material/[id]/quotes-card.tsx
+index 37e74ee..a5fe577 100644
+--- a/src/app/(app)/promo-material/[id]/quotes-card.tsx
++++ b/src/app/(app)/promo-material/[id]/quotes-card.tsx
+@@ -5,14 +5,14 @@ import { useRouter } from "next/navigation";
+ import { AlertCircle, CheckCircle2, FileText, Loader2, Pencil, Plus, RotateCcw, ScanText, Send, Trash2, Undo2 } from "lucide-react";
+ import {
+   enregistrerDevisPromo, supprimerDevisPromo, terminerRetranscriptionPromo, choisirLignesPromo, demanderCorrectionDevisPromo,
+-  redemanderDevisPromo, lireScanDevisPromo,
++  redemanderDevisPromo, lireScanDevisPromo, rangerDevisPromo,
+ } from "@/lib/actions/promo-devis-actions";
+ import type { LectureDevisPromo, LignePreremplie } from "@/lib/pieces-lues/prerempli-devis-promo";
+ import { LigneLue } from "@/components/pieces/ligne-lue";
+ import { NoteDeLecture } from "@/components/pieces/note-de-lecture";
+ import { totauxDeLaSelection, totauxDuDevis, totalLigneHT, ecartDeRetranscription, formatDzd, type DevisLu } from "@/lib/promo-material/devis";
+ import { ACTIONS, ACTION_LABEL, type PromoAction } from "@/lib/promo-material/actions-fournisseur";
+-import { libelleArticleDemande, rapprocher, type ArticleDemandeLu } from "@/lib/promo-material/achats";
++import { libelleArticleDemande, libellesPromusDeLArticle, rapprocher, type ArticleDemandeLu } from "@/lib/promo-material/achats";
+ import type { PartyOption } from "@/lib/contacts/parties";
+ import { PartyPicker } from "@/components/directory/party-picker";
+ import { Button } from "@/components/ui/button";
+@@ -61,6 +61,12 @@ interface Props {
+   canCreateContact: boolean;
+   /** Le seuil du DG, pour dire au demandeur si son choix passera par le Directeur Général. */
+   seuilDg: number | null;
++  /** Les fichiers « devis » déposés sur la demande SANS devis du circuit (§118.204) — à ranger. */
++  aRanger?: { id: string; nom: string; deposePar: string | null; le: string }[];
++  /** Tranché au serveur (`refusDeRangement` + qui retranscrit) : la personne peut-elle les ranger ICI ? */
++  peutRanger?: boolean;
++  /** Pourquoi pas à cette étape — la phrase même de l'action. */
++  refusRangement?: string | null;
+ }
+ 
+ function useRun() {
+@@ -343,7 +349,7 @@ function EditeurDevis({ id, devis, articles, parties, canCreateContact, onDone }
+ 
+ // ───────────────────────── La carte ─────────────────────────
+ 
+-export function PromoQuotesCard({ id, quotes, articles, canTranscribe, canSelect, manques, parties, canCreateContact, seuilDg }: Props) {
++export function PromoQuotesCard({ id, quotes, articles, canTranscribe, canSelect, manques, parties, canCreateContact, seuilDg, aRanger = [], peutRanger = false, refusRangement = null }: Props) {
+   const { saving, err, msg, run } = useRun();
+   const [edition, setEdition] = React.useState<string | "nouveau" | null>(null);
+   const [choisies, setChoisies] = React.useState<Set<string>>(() => new Set(quotes.flatMap((q) => q.lines.filter((l) => l.selected).map((l) => l.id))));
+@@ -362,12 +368,48 @@ export function PromoQuotesCard({ id, quotes, articles, canTranscribe, canSelect
+     run(() => choisirLignesPromo(f));
+   };
+   const auDg = seuilDg != null && seuilDg > 0 && selection.lignes > 0 && selection.ttc > seuilDg;
+-  const nomArticle = new Map(articles.map((a) => [a.id, `${a.reference} ${a.nom}${a.produits.length ? ` — ${a.produits.map((p) => p.nom).join(", ")}` : ""}`]));
++  const nomArticle = new Map(articles.map((a) => { const promus = libellesPromusDeLArticle(a); return [a.id, `${a.reference} ${a.nom}${promus.length ? ` — ${promus.join(", ")}` : ""}`]; }));
+   // LE RAPPROCHEMENT — calculé par le module pur, avec la sélection de l'écran (§118.165).
+   const rapprochement = articles.length > 0 && quotes.length > 0 ? rapprocher(articles, affiches) : null;
+ 
+   return (
+     <div className="space-y-4">
++      {/* LES DEVIS DÉPOSÉS SANS FOURNISSEUR (§118.204) — « les fiches doivent être automatiques » : un fichier
++          « devis » de la demande devient un devis du circuit d'un geste, l'agence choisie dans l'annuaire. Le
++          fichier n'est pas retéléversé : le devis le DÉSIGNE. Plus de « Créer sa fiche » ici. */}
++      {aRanger.length > 0 && (
++        <div className="space-y-2 rounded-lg border border-amber-500/40 bg-amber-500/5 p-3">
++          <p className="text-sm font-medium">Devis déposés sans fournisseur ({aRanger.length})</p>
++          <p className="text-xs text-muted-foreground">
++            {peutRanger
++              ? "Choisissez l'agence à qui appartient chaque devis : il entre dans le tableau sans être téléversé une seconde fois, puis ses lignes se retranscrivent (« Corriger »)."
++              : refusRangement ?? "L'assistante de direction (ou la Direction) les range comme devis d'une agence."}
++          </p>
++          <ul className="space-y-2">
++            {aRanger.map((d) => (
++              <li key={d.id} className="space-y-1.5 rounded-md border border-border bg-background p-2">
++                <p className="flex flex-wrap items-center gap-2 text-sm">
++                  <FileText className="h-4 w-4 shrink-0 text-muted-foreground" />
++                  <a className="font-medium hover:underline" href={`/api/documents/${d.id}`} target="_blank" rel="noreferrer">{d.nom}</a>
++                  <span className="text-xs text-muted-foreground">{d.deposePar ? `déposé par ${d.deposePar}, ` : ""}le {new Date(d.le).toLocaleDateString("fr-FR")}</span>
++                </p>
++                {peutRanger && (
++                  <form
++                    className="flex flex-wrap items-end gap-2"
++                    action={(f: FormData) => { f.set("promoMaterialId", id); f.set("documentId", d.id); run(() => rangerDevisPromo(f)); }}
++                  >
++                    <div className="min-w-[14rem] flex-1">
++                      <PartyPicker name="supplierId" arity={1} options={parties} canCreate={canCreateContact} placeholder="L'agence ou le partenaire de ce devis" />
++                    </div>
++                    <Button type="submit" size="sm" disabled={saving}>{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />} Ranger comme devis de cette agence</Button>
++                  </form>
++                )}
++              </li>
++            ))}
++          </ul>
++        </div>
++      )}
++
+       {quotes.length === 0 && !canTranscribe && (
+         <p className="text-sm text-muted-foreground">Aucun devis retranscrit pour l&apos;instant.</p>
+       )}
+@@ -512,7 +554,7 @@ export function PromoQuotesCard({ id, quotes, articles, canTranscribe, canSelect
+       {canTranscribe && edition === null && (
+         <div className="space-y-2">
+           <div className="flex flex-wrap gap-2">
+-            <Button size="sm" variant="outline" onClick={() => setEdition("nouveau")} disabled={saving}><Plus className="h-4 w-4" /> Retranscrire un devis</Button>
++            <Button size="sm" variant="outline" onClick={() => setEdition("nouveau")} disabled={saving}><Plus className="h-4 w-4" /> Déposer un devis</Button>
+             <Button size="sm" onClick={() => { const f = new FormData(); f.set("promoMaterialId", id); run(() => terminerRetranscriptionPromo(f)); }} disabled={saving || manques.length > 0}>
+               {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />} Retranscription terminée
+             </Button>
+diff --git a/src/app/api/documents/upload/route.ts b/src/app/api/documents/upload/route.ts
+index 95416dc..21fe9d5 100644
+--- a/src/app/api/documents/upload/route.ts
++++ b/src/app/api/documents/upload/route.ts
+@@ -7,6 +7,8 @@ import { persistUploadedDocument } from "@/lib/documents";
+ import { mirrorRegulatoryUpload } from "@/lib/regulatory-drive-mirror";
+ import { mirrorDocumentsToDrive } from "@/lib/drive/document-mirror";
+ import { shouldMirrorToDrive } from "@/lib/drive/mirror-path";
++import { prisma } from "@/lib/prisma";
++import { refusDevisLibre } from "@/lib/promo-material/rangement";
+ 
+ /**
+  * Téléversement de documents **en lot** (fichiers ET dossiers) pour un objet métier :
+@@ -32,6 +34,13 @@ export async function POST(req: NextRequest) {
+     return NextResponse.json({ error: "Vous n'êtes pas autorisé à téléverser ici." }, { status: 403 });
+   }
+   if (files.length === 0) return NextResponse.json({ error: "Aucun fichier." }, { status: 400 });
++  // UN DEVIS DU MATÉRIEL PROMOTIONNEL N'EST PAS UN FICHIER LIBRE (§118.204) : au circuit 2, un devis se
++  // dépose avec SON fournisseur et devient un devis du circuit — un fichier « Devis » posé ici attendrait
++  // qu'on lui crée une fiche, et c'est ce que la Direction a retiré.
++  if (entityType === "PROMO_MATERIAL" && category === "QUOTE") {
++    const refus = refusDevisLibre(await prisma.promoMaterial.findUnique({ where: { id: entityId }, select: { circuitVersion: true } }));
++    if (refus) return NextResponse.json({ error: refus }, { status: 400 });
++  }
+ 
+   // Une seule lecture des réglages pour tout le lot (repli généreux si la lecture échoue).
+   const maxUploadMb = await getAppSettings().then((s) => s.maxUploadMb).catch(() => 200);
+diff --git a/src/components/ad-pro/demande-materiel-form.tsx b/src/components/ad-pro/demande-materiel-form.tsx
+index 3213875..b86a34c 100644
+--- a/src/components/ad-pro/demande-materiel-form.tsx
++++ b/src/components/ad-pro/demande-materiel-form.tsx
+@@ -2,7 +2,7 @@
+ 
+ import * as React from "react";
+ import { useRouter } from "next/navigation";
+-import { AlertCircle, Loader2, Plus, Trash2 } from "lucide-react";
++import { AlertCircle, Eye, Loader2, Plus, Trash2 } from "lucide-react";
+ import { Button } from "@/components/ui/button";
+ import { Sheet } from "@/components/ui/sheet";
+ import { useAutoOpen } from "@/components/shared/use-auto-open";
+@@ -13,6 +13,7 @@ import { ACTIONS, ACTION_AIDE, ACTION_LABEL } from "@/lib/promo-material/actions
+ import { FAMILLES, FAMILLE_LABEL, familleQuantifiee } from "@/lib/promo/catalogue";
+ import { MENU_CATALOGUE_PROMO } from "@/lib/chemins/stock-promo";
+ import type { LigneDemandeSaisie } from "@/lib/promo-material/lignes-demande";
++import { texteDemandeDeDevis } from "@/lib/promo-material/texte-demande-devis";
+ import type { OptionCatalogue } from "@/lib/queries/promo-achats";
+ 
+ /**
+@@ -32,6 +33,11 @@ import type { OptionCatalogue } from "@/lib/queries/promo-achats";
+  * (§118.173) : le catalogue EST la liste des supports, et chaque ligne en désigne un — un type
+  * choisi à côté redisait la même chose, et pouvait la contredire (« Stylos » sur une demande de
+  * fiches POSO).
++ *
++ * LA DEMANDE DE DEVIS SE VOIT AVANT DE PARTIR (§118.204). Elle n'a plus de geste à elle : elle part
++ * d'elle-même à l'assistante de direction (tout de suite, ou dès que la demande est validée). Le
++ * demandeur la voit donc ICI, dans « Articles demandés », avec ses précisions — l'aperçu est le texte
++ * EXACT que l'assistante recevra (`texteDemandeDeDevis`, la même rédaction que le serveur).
+  */
+ 
+ type Ligne = { uid: string; catalogueId: string; produitsOuverts: boolean };
+@@ -57,6 +63,35 @@ export function DemandeMaterielForm({ catalogue, produits, onDone, onCancel, can
+   // deux demandes identiques (la règle de `RecordForm`, que ce formulaire ne peut pas emprunter).
+   const verrou = React.useRef(false);
+   const parId = React.useMemo(() => new Map(catalogue.map((c) => [c.id, c])), [catalogue]);
++  const libellePromu = React.useMemo(() => new Map(produits.map((p) => [p.id, p.nom])), [produits]);
++  const formRef = React.useRef<HTMLFormElement>(null);
++  const [apercuOuvert, setApercuOuvert] = React.useState(false);
++  const [tick, setTick] = React.useState(0);
++  const [apercu, setApercu] = React.useState("");
++  // L'APERÇU SE LIT APRÈS LE RENDU : les sélecteurs écrivent leurs champs cachés au commit — lu pendant le
++  // rendu, le formulaire rendrait l'état d'un clic plus tôt.
++  React.useEffect(() => {
++    if (!apercuOuvert || !formRef.current) return;
++    const saisie = new FormData(formRef.current);
++    const texte = (k: string) => String(saisie.get(k) ?? "").trim();
++    setApercu(texteDemandeDeDevis({
++      reference: null, titre: texte("title") || "(sans titre)", brief: texte("description") || null,
++      precisions: texte("precisionsDevis") || null, relance: false,
++      articles: lignes.flatMap((l) => {
++        const c = parId.get(l.catalogueId);
++        if (!c) return [];
++        const q = Number(texte(`${l.uid}:quantite`).replace(/\s/g, "").replace(",", "."));
++        const autre = texte(`${l.uid}:autre`);
++        return [{
++          reference: c.reference, nom: c.nom, unite: c.unite,
++          quantite: texte(`${l.uid}:quantite`) && Number.isFinite(q) ? q : null,
++          actions: saisie.getAll(`${l.uid}:actions`).map((a) => ACTION_LABEL[String(a) as keyof typeof ACTION_LABEL] ?? String(a)),
++          promus: [...saisie.getAll(`${l.uid}:produitIds`).map((v) => libellePromu.get(String(v)) ?? String(v)), ...(autre ? [`Autre : ${autre}`] : [])],
++          commentaire: texte(`${l.uid}:commentaire`) || null,
++        }];
++      }),
++    }));
++  }, [apercuOuvert, tick, lignes, parId, libellePromu]);
+ 
+   const maj = (uid: string, patch: Partial<Ligne>) => setLignes((ls) => ls.map((l) => (l.uid === uid ? { ...l, ...patch } : l)));
+ 
+@@ -68,7 +103,7 @@ export function DemandeMaterielForm({ catalogue, produits, onDone, onCancel, can
+     setErr(null);
+     const saisie = new FormData(e.currentTarget);
+     const fd = new FormData();
+-    for (const cle of ["title", "description"]) {
++    for (const cle of ["title", "description", "precisionsDevis"]) {
+       const v = saisie.get(cle);
+       if (typeof v === "string") fd.set(cle, v);
+     }
+@@ -77,6 +112,7 @@ export function DemandeMaterielForm({ catalogue, produits, onDone, onCancel, can
+       quantite: String(saisie.get(`${l.uid}:quantite`) ?? ""),
+       actions: saisie.getAll(`${l.uid}:actions`).map(String),
+       produitIds: saisie.getAll(`${l.uid}:produitIds`).map(String),
++      autre: String(saisie.get(`${l.uid}:autre`) ?? ""),
+       commentaire: String(saisie.get(`${l.uid}:commentaire`) ?? ""),
+     }));
+     fd.set("lignes", JSON.stringify(envoi));
+@@ -97,7 +133,7 @@ export function DemandeMaterielForm({ catalogue, produits, onDone, onCancel, can
+   }
+ 
+   return (
+-    <form onSubmit={envoyer} className="space-y-4">
++    <form ref={formRef} onSubmit={envoyer} onChange={() => setTick((t) => t + 1)} onClick={() => setTick((t) => t + 1)} className="space-y-4">
+       <div className="space-y-1.5">
+         <Label htmlFor="mp-title">Campagne / matériel <span className="text-destructive">*</span></Label>
+         <Input id="mp-title" name="title" required placeholder="Ex. Brochure Cardiomax 2026" />
+@@ -108,7 +144,7 @@ export function DemandeMaterielForm({ catalogue, produits, onDone, onCancel, can
+       </div>
+ 
+       <fieldset className="space-y-3">
+-        <legend className="text-sm font-semibold">Lignes demandées <span className="text-destructive">*</span></legend>
++        <legend className="text-sm font-semibold">Articles demandés <span className="text-destructive">*</span></legend>
+         <p className="text-xs text-muted-foreground">
+           Une ligne par article du catalogue : sa quantité et ce qu&apos;on attend du fournisseur. C&apos;est ce que
+           l&apos;assistante de direction fera chiffrer.
+@@ -188,13 +224,14 @@ export function DemandeMaterielForm({ catalogue, produits, onDone, onCancel, can
+                         type: "multiselect", name: `${l.uid}:produitIds`, label: `Produit(s) de la ligne ${i + 1}`,
+                         options: produits.map((p) => ({ value: p.id, label: p.nom })),
+                         required: Boolean(article?.exigeProduit),
+-                        searchPlaceholder: "Rechercher un produit…", emptyLabel: "Aucun produit actif dans le référentiel.",
++                        searchPlaceholder: "Rechercher un produit, une gamme…", emptyLabel: "Aucune gamme ni produit actif dans les Business Units.",
+                       }}
+                     />
++                    <Input name={`${l.uid}:autre`} aria-label={`Autre produit promu, ligne ${i + 1}`} placeholder="Autre (saisie libre) — un produit qui n'est dans aucune liste" />
+                   </div>
+                 ) : (
+                   <button type="button" onClick={() => maj(l.uid, { produitsOuverts: true })} className="text-xs font-medium text-primary hover:underline">
+-                    + Préciser le ou les produits promus
++                    + Préciser ce que la ligne promeut (société, gamme, produits…)
+                   </button>
+                 )}
+                 <div className="space-y-1">
+@@ -208,6 +245,25 @@ export function DemandeMaterielForm({ catalogue, produits, onDone, onCancel, can
+         <Button type="button" size="sm" variant="outline" disabled={busy || catalogue.length === 0} onClick={() => setLignes((ls) => [...ls, nouvelleLigne()])}>
+           <Plus className="h-4 w-4" /> Ajouter une ligne
+         </Button>
++        <div className="space-y-1">
++          <Label htmlFor="mp-precisions">Précisions pour l&apos;assistante de direction (facultatif)</Label>
++          <Textarea id="mp-precisions" name="precisionsDevis" rows={2} placeholder="Agences à consulter, délai souhaité…" />
++        </div>
++        {/* L'APERÇU AVANT ENVOI — la demande de devis part d'elle-même : à l'enregistrement si la demande n'a
++            pas de validation, sinon dès qu'elle est validée. */}
++        <div className="space-y-2 rounded-lg border border-primary/30 bg-primary/5 p-3">
++          <div className="flex flex-wrap items-center justify-between gap-2">
++            <p className="text-xs text-muted-foreground">
++              La demande de devis part d&apos;elle-même à l&apos;assistante de direction — à l&apos;enregistrement, ou dès que votre demande est validée.
++            </p>
++            <Button type="button" size="sm" variant="outline" onClick={() => setApercuOuvert((o) => !o)} aria-expanded={apercuOuvert}>
++              <Eye className="h-4 w-4" /> {apercuOuvert ? "Masquer l'aperçu" : "Aperçu de la demande de devis"}
++            </Button>
++          </div>
++          {apercuOuvert && (
++            <pre aria-label="Aperçu de la demande de devis" className="max-h-72 overflow-auto whitespace-pre-wrap rounded-md border border-border bg-background p-2 text-xs">{apercu}</pre>
++          )}
++        </div>
+       </fieldset>
+ 
+       {err && (
+@@ -217,7 +273,7 @@ export function DemandeMaterielForm({ catalogue, produits, onDone, onCancel, can
+       )}
+       <div className="flex flex-wrap gap-2">
+         <Button type="submit" disabled={busy}>
+-          {busy && <Loader2 className="h-4 w-4 animate-spin" />} Enregistrer
++          {busy && <Loader2 className="h-4 w-4 animate-spin" />} Enregistrer la demande
+         </Button>
+         {onCancel && <Button type="button" variant="outline" disabled={busy} onClick={onCancel}>{cancelLabel}</Button>}
+       </div>
+@@ -242,7 +298,7 @@ export function NouvelleDemandeMaterielButton({ catalogue, produits }: {
+       <Sheet
+         open={open} onClose={() => setOpen(false)} width="lg"
+         title="Demande de matériel promotionnel"
+-        description="Les lignes que vous voulez faire produire, acheter ou louer, piochées dans le catalogue. La demande est d'abord validée (N+1, ou directrice marketing), puis vous demandez les devis au secrétariat."
++        description="Les articles que vous voulez faire produire, acheter ou louer, piochés dans le catalogue. La demande est d'abord validée (N+1, ou directrice marketing), puis la demande de devis part d'elle-même au secrétariat."
+       >
+         {open && <DemandeMaterielForm catalogue={catalogue} produits={produits} onDone={() => setOpen(false)} onCancel={() => setOpen(false)} />}
+       </Sheet>
+diff --git a/src/lib/actions/promo-automatismes.ts b/src/lib/actions/promo-automatismes.ts
+new file mode 100644
+index 0000000..66d5ac7
+--- /dev/null
++++ b/src/lib/actions/promo-automatismes.ts
+@@ -0,0 +1,286 @@
++import { revalidatePath } from "next/cache";
++import { prisma } from "@/lib/prisma";
++import { recordAudit } from "@/lib/audit";
++import { moneyEntityOf } from "@/lib/company";
++import type { CurrentUser } from "@/lib/session";
++import { buildRef, createWithRetry, enSerie } from "@/lib/refs";
++import { MENU_CATALOGUE_PROMO } from "@/lib/chemins/stock-promo";
++import { CHEMIN_BONS_DE_COMMANDE } from "@/lib/chemins/bons-de-commande";
++import { etatsDesBC } from "@/lib/bons-de-commande/etat";
++import { emettreDocumentDrive } from "@/platform/in-process/artifact/factory";
++import { devisDuDossier, devisLu } from "@/lib/queries/promo-circuit";
++import { articleDemandeLu, SELECT_ARTICLE_DEMANDE } from "@/lib/queries/promo-achats";
++import { lignesDuBonDeCommande, formatDzd } from "@/lib/promo-material/devis";
++import { libellesPromusDeLArticle } from "@/lib/promo-material/achats";
++import { ACTION_LABEL } from "@/lib/promo-material/actions-fournisseur";
++import { texteDemandeDeDevis } from "@/lib/promo-material/texte-demande-devis";
++
++/**
++ * ═══════════════════════════════════════════════════════════════════════════════════════════
++ * LES AUTOMATISMES DU CIRCUIT 2 DU MATÉRIEL PROMOTIONNEL (§118.204).
++ *
++ * « La demande de devis est générée automatiquement » et « le BC devient automatique, par
++ * fournisseur » (Direction, 04/10). Deux gestes que le demandeur faisait à la main — « Demander les
++ * devis à l'assistante de direction », « Générer les bons de commande » — partent désormais d'eux-mêmes
++ * au moment où le circuit les rend possibles :
++ *
++ *   • LA DEMANDE DE DEVIS, quand le dossier ARRIVE sur « devis à demander » : à la création s'il n'a
++ *     pas de validation de la demande, sinon quand cette validation tombe (`validatePromoStep`). Avant,
++ *     demander des devis sur une demande que personne n'a encore acceptée ferait travailler le
++ *     secrétariat et les agences pour rien — la règle d'avant reste, seul le clic disparaît.
++ *   • LES BONS DE COMMANDE, quand la DERNIÈRE validation du choix tombe (Direction Marketing, puis le
++ *     Directeur Général au-dessus du seuil) : aucune validation n'est retirée, la génération vient après.
++ *
++ * Hors d'un fichier « use server » : ces fonctions reçoivent l'auteur en argument. Exportées d'un tel
++ * fichier, elles seraient des points d'entrée publics où l'on agirait au nom de n'importe qui (§118.153).
++ * Chacune garde ses portes d'ÉTAT (version, étape lue, écriture conditionnelle) : ce sont les APPELANTS
++ * qui disent qui a le droit de les déclencher.
++ * ═══════════════════════════════════════════════════════════════════════════════════════════
++ */
++
++const chemin = (id: string) => `/promo-material/${id}`;
++
++export type DossierDevis = {
++  id: string; reference: string; title: string; circuitVersion: number; circuitState: string | null;
++  requesterId: string | null; assistantId: string | null; description: string | null; companyId: string | null;
++};
++
++const SELECT_DOSSIER_DEVIS = {
++  id: true, reference: true, title: true, circuitVersion: true, circuitState: true, requesterId: true,
++  assistantId: true, description: true, companyId: true, precisionsDevis: true,
++} as const;
++
++/** La référence d'une demande au secrétariat — la même série que les demandes de devis des postes. */
++async function prochaineReferenceDemande(): Promise<string> {
++  const year = new Date().getFullYear();
++  const rows = await prisma.administrativeRequest.findMany({ where: { reference: { startsWith: `DEM-${year}-` } }, select: { reference: true } });
++  return buildRef("DEM", year, rows.map((r) => r.reference));
++}
++
++/** Les articles d'un dossier, dans la forme que le texte de la demande lit — la même que l'aperçu du formulaire. */
++async function articlesPourLeDevis(promoMaterialId: string) {
++  const rows = await prisma.promoRequestItem.findMany({
++    where: { promoMaterialId }, orderBy: [{ position: "asc" }, { createdAt: "asc" }], select: SELECT_ARTICLE_DEMANDE,
++  });
++  return rows.map(articleDemandeLu).map((a) => ({
++    reference: a.reference, nom: a.nom, quantite: a.quantite, unite: a.unite,
++    actions: a.actions.map((x) => ACTION_LABEL[x]), promus: libellesPromusDeLArticle(a), commentaire: a.commentaire,
++  }));
++}
++
++/**
++ * OUVRIR UNE DEMANDE DE DEVIS AU SECRÉTARIAT — la première, ou une nouvelle (`redemanderDevisPromo`).
++ * Une seule rédaction (`texteDemandeDeDevis`), celle que le demandeur a vue en aperçu. Rien ne bascule
++ * ici : la bascule est conditionnelle, chez l'appelant, APRÈS la création (§118.107).
++ */
++export async function ouvrirDemandeDeDevis(
++  auteurId: string, pm: DossierDevis, note: string | null, relance: boolean,
++): Promise<{ ok: true; demande: { id: string; reference: string } } | { ok: false; error: string }> {
++  // LES ARTICLES D'ABORD (§118.165) : une demande de devis sans article ferait chercher l'assistante
++  // dans un brief en prose. Le refus nomme le geste, et le cas du catalogue vide.
++  const articles = await articlesPourLeDevis(pm.id);
++  if (articles.length === 0) {
++    const catalogueVide = (await prisma.promoCatalogueArticle.count({ where: { actif: true } })) === 0;
++    return {
++      ok: false,
++      error: catalogueVide
++        ? `Composez d'abord la liste des articles à faire chiffrer — mais le catalogue est encore vide : demandez au Super Admin d'y ajouter vos supports (${MENU_CATALOGUE_PROMO}).`
++        : "Composez d'abord la liste des articles à faire chiffrer (« Articles demandés », piochés dans le catalogue) : c'est elle qui dit à l'assistante quels devis chercher.",
++    };
++  }
++  // LA SOCIÉTÉ DE LA DEMANDE — celle du dossier, sinon celle où TRAVAILLE le demandeur (§118.154).
++  const societe = pm.companyId ?? (await moneyEntityOf(pm.requesterId ?? auteurId));
++  const demande = await createWithRetry(async () => prisma.administrativeRequest.create({
++    data: {
++      reference: await prochaineReferenceDemande(),
++      type: "QUOTE",
++      title: `${relance ? "Nouveaux devis" : "Devis"} — matériel promotionnel ${pm.reference} : ${pm.title}`,
++      description: texteDemandeDeDevis({ reference: pm.reference, titre: pm.title, brief: pm.description, precisions: note, relance, articles }),
++      priority: "HIGH",
++      status: "NEW",
++      requesterId: pm.requesterId ?? auteurId,
++      assignedToId: pm.assistantId,
++      companyId: societe,
++      linkedEntityType: "PROMO_MATERIAL",
++      linkedEntityId: pm.id,
++    },
++    select: { id: true, reference: true },
++  }));
++  return { ok: true, demande };
++}
++
++/** L'avis à l'assistante — une rédaction, que chaque appelant envoie (l'assistante nommée, sinon le secrétariat). */
++export function avisDemandeDeDevis(pm: { id: string; reference: string; title: string }) {
++  return { type: "ASSIGNMENT" as const, title: "Matériel promotionnel — devis à demander et à retranscrire", body: `${pm.reference} — ${pm.title}`, link: chemin(pm.id) };
++}
++
++export type EnvoiDemandeDeDevis =
++  | { ok: true; demande: { id: string; reference: string }; assistantId: string | null; avis: ReturnType<typeof avisDemandeDeDevis> }
++  | { ok: false; error: string };
++
++/**
++ * ENVOYER LA DEMANDE DE DEVIS D'UN DOSSIER QUI EST SUR « DEVIS À DEMANDER » — à sa création, à la
++ * validation de la demande, ou depuis la rubrique « Articles demandés » (le repli, quand l'envoi
++ * automatique n'a pas pu partir). La demande d'abord, la bascule CONDITIONNELLE ensuite : deux envois
++ * simultanés ne font pas deux demandes — le perdant retire la sienne, que personne n'a vue.
++ *
++ * Les précisions sont celles qu'on lui passe, sinon celles saisies à la création (`precisionsDevis`).
++ * L'avis à l'assistante n'est PAS envoyé ici : l'appelant l'envoie (`avisDemandeDeDevis`), pour que
++ * chaque geste déclare lui-même qu'il prévient quelqu'un.
++ */
++export async function envoyerDemandeDeDevis(auteurId: string, promoMaterialId: string, note?: string | null): Promise<EnvoiDemandeDeDevis> {
++  const pm = await prisma.promoMaterial.findUnique({ where: { id: promoMaterialId }, select: SELECT_DOSSIER_DEVIS });
++  if (!pm) return { ok: false, error: "Dossier introuvable." };
++  if (pm.circuitVersion !== 2) return { ok: false, error: "Ce dossier suit l'ancien circuit : ses devis s'y déposent comme pièces." };
++  if (pm.circuitState === "REVIEW_REQUEST") return { ok: false, error: "La demande n'est pas encore validée : la demande de devis partira d'elle-même dès qu'elle le sera." };
++  if (pm.circuitState !== "QUOTE_TO_REQUEST") return { ok: false, error: "La demande de devis de ce dossier est déjà partie." };
++  const precisions = note !== undefined && note !== null ? note : pm.precisionsDevis;
++  const ouverte = await ouvrirDemandeDeDevis(auteurId, pm, precisions, false);
++  if (!ouverte.ok) return ouverte;
++  const bascule = await prisma.promoMaterial.updateMany({
++    where: { id: pm.id, circuitVersion: 2, circuitState: "QUOTE_TO_REQUEST" },
++    data: {
++      circuitState: "QUOTE_REQUESTED", quotesRequestedAt: new Date(), quotesRequestedById: pm.requesterId ?? auteurId,
++      adminRequestId: ouverte.demande.id, precisionsDevis: precisions, updatedById: auteurId,
++    },
++  });
++  if (bascule.count === 0) {
++    await prisma.administrativeRequest.delete({ where: { id: ouverte.demande.id } }).catch(() => {});
++    return { ok: false, error: "La demande de devis de ce dossier vient de partir." };
++  }
++  await recordAudit({
++    actorId: auteurId, action: "UPDATE", module: "Matériel promotionnel", entityType: "PROMO_MATERIAL", entityId: pm.id,
++    summary: `Demande de devis envoyée au secrétariat (${ouverte.demande.reference})${precisions ? ` — ${precisions.slice(0, 200)}` : ""}`,
++  });
++  revalidatePath(chemin(pm.id));
++  revalidatePath("/demandes");
++  return { ok: true, demande: ouverte.demande, assistantId: pm.assistantId, avis: avisDemandeDeDevis(pm) };
++}
++
++// ───────────────────────── Les bons de commande ─────────────────────────
++
++/**
++ * LA SOCIÉTÉ QUI COMMANDE — celle du dossier ; à défaut, celle où travaille son DEMANDEUR. Jamais celle
++ * de la personne qui clique (ni du validateur qui déclenche la génération automatique) : deux gestes du
++ * même dossier doivent produire le même BC. `null` quand rien ne se lit à coup sûr.
++ */
++async function societeDuDossier(pm: { companyId: string | null; requesterId: string | null }): Promise<string | null> {
++  if (pm.companyId) return pm.companyId;
++  if (!pm.requesterId) return null;
++  const e = await prisma.employee.findFirst({
++    where: { userId: pm.requesterId },
++    select: { companyId: true, departmentRef: { select: { companyId: true } } },
++  });
++  return e?.companyId ?? e?.departmentRef?.companyId ?? null;
++}
++
++const SELECT_DOSSIER_BC = { id: true, reference: true, title: true, status: true, circuitVersion: true, circuitState: true, requesterId: true, companyId: true } as const;
++type DossierBC = { id: string; reference: string; title: string; status: string; circuitVersion: number; circuitState: string | null; requesterId: string | null; companyId: string | null };
++
++/** L'ÉTAT qui autorise une génération — la porte d'état, sans la porte de PERSONNE (l'appelant la tient). */
++export function refusEtatGeneration(pm: DossierBC | null): string | null {
++  if (!pm) return "Dossier introuvable.";
++  if (pm.circuitVersion !== 2) return "Ce dossier suit l'ancien circuit : ses bons de commande se créent depuis « Pièces liées ».";
++  if (pm.circuitState === "IN_EXECUTION") return null;
++  if (pm.status === "CANCELLED") return "Ce dossier a été annulé : plus rien ne s'y génère ni ne s'y facture.";
++  if (pm.circuitState === "REFUSED") return "Ce dossier a été refusé : plus rien ne s'y génère ni ne s'y facture.";
++  return pm.circuitState === "COMPLETED"
++    ? "Ce dossier est terminé."
++    : "Les bons de commande se génèrent une fois TOUTES les validations obtenues (demandeur, Direction Marketing, et Directeur Général au-dessus du seuil).";
++}
++
++export interface OptionsGeneration {
++  livraison: { adresse: string | null; delai: string | null };
++  notes: string | null;
++  /** `undefined` : celle de chaque devis ; `null` : aucune ; sinon la taxe pour tous les BC. */
++  taxe: { libelle: string; taux: number } | null | undefined;
++  /** Généré à la dernière validation, sans geste : dit dans l'audit de la fabrique. */
++  automatique: boolean;
++}
++
++export type BilanGeneration = { ok: true; emis: number; echecs: string[]; message: string } | { ok: false; error: string };
++
++/**
++ * GÉNÉRER LES BONS DE COMMANDE — un par devis dont une ligne est retenue, et qui n'en a pas (un devis
++ * est celui d'UN fournisseur : c'est le BC de l'agence). Idempotent et sérialisé par dossier (`enSerie`) :
++ * deux déclenchements simultanés — la validation automatique et un clic de repli — ne font pas deux BC.
++ * Chaque devis est isolé : l'échec de l'un est DIT sans empêcher les autres.
++ */
++export async function genererLesBonsDeCommande(user: CurrentUser, promoMaterialId: string, o: OptionsGeneration): Promise<BilanGeneration> {
++  const lu = await prisma.promoMaterial.findUnique({ where: { id: promoMaterialId }, select: SELECT_DOSSIER_BC });
++  const refus = refusEtatGeneration(lu);
++  if (refus || !lu) return { ok: false, error: refus ?? "Dossier introuvable." };
++  const societe = await societeDuDossier(lu);
++  if (!societe) {
++    return { ok: false, error: "La société qui commande est introuvable : le dossier n'en nomme aucune, et la fiche salarié de son demandeur non plus. Renseignez la société du demandeur (RH › fiche salarié), puis relancez la génération depuis la carte « Exécution »." };
++  }
++  return enSerie(`promo-bc:${lu.id}`, async (): Promise<BilanGeneration> => {
++    // LE DOSSIER SE RELIT DANS LA FILE : l'annulation y passe aussi (`cancelPromoMaterial`).
++    const pm = await prisma.promoMaterial.findUnique({ where: { id: promoMaterialId }, select: SELECT_DOSSIER_BC });
++    const refusDansLaFile = refusEtatGeneration(pm);
++    if (refusDansLaFile || !pm) return { ok: false, error: refusDansLaFile ?? "Dossier introuvable." };
++    const devis = await devisDuDossier(pm.id);
++    const etats = await etatsDesBC(devis.map((d) => d.purchaseOrderId).filter((x): x is string => Boolean(x)));
++    const actifs = new Set(devis.filter((d) => {
++      const e = d.purchaseOrderId ? etats.get(d.purchaseOrderId) : undefined;
++      return e && !e.annule;
++    }).map((d) => d.id));
++    const aGenerer = devis.filter((d) => d.lines.some((l) => l.selected) && !actifs.has(d.id));
++    if (aGenerer.length === 0) {
++      return { ok: true, emis: 0, echecs: [], message: "Chaque devis retenu a déjà son bon de commande — rien de nouveau à générer." };
++    }
++    const fournisseurs = await prisma.companyContact.findMany({
++      where: { id: { in: aGenerer.map((d) => d.supplierId).filter((x): x is string => Boolean(x)) } },
++      select: { id: true, name: true, address: true, city: true, wilaya: true, rc: true, nif: true, rib: true, phone: true, email: true },
++    });
++    const parId = new Map(fournisseurs.map((f) => [f.id, f]));
++    const emis: string[] = [];
++    const echecs: string[] = [];
++    const reserves: string[] = [];
++    for (const brut of aGenerer) {
++      const d = devisLu(brut);
++      const f = brut.supplierId ? parId.get(brut.supplierId) : undefined;
++      if (!f) { echecs.push(`${d.supplierName} : fournisseur absent de l'annuaire — faites corriger le devis`); continue; }
++      const adresse = [f.address, [f.city, f.wilaya].filter(Boolean).join(", ")].filter((x) => x && x.trim()).join("\n") || null;
++      const r = await emettreDocumentDrive(user, {
++        type: "BON_DE_COMMANDE",
++        societe,
++        tiers: { nom: f.name, adresse, rc: f.rc, nif: f.nif, rib: f.rib, telephone: f.phone, email: f.email },
++        lignes: lignesDuBonDeCommande(d),
++        tvaDefaut: d.tvaRate / 100,
++        taxes: o.taxe !== undefined
++          ? (o.taxe ? [o.taxe] : null)
++          : d.extraTaxRate ? [{ libelle: d.extraTaxLabel ?? "Taxe additionnelle", taux: d.extraTaxRate / 100 }] : null,
++        referenceAmont: d.reference,
++        referenceAmontDate: brut.quoteDate ? brut.quoteDate.toISOString().slice(0, 10) : null,
++        objet: `Matériel promotionnel ${pm.reference} — ${pm.title}`,
++        livraison: o.livraison.adresse || o.livraison.delai ? o.livraison : null,
++        notes: o.notes,
++        dossier: `Matériel promotionnel/${pm.reference}`,
++      }, {
++        source: { type: "PROMO_MATERIAL", id: pm.id },
++        delegation: `${pm.reference} — dossier de matériel promotionnel validé (demande, Direction Marketing, seuil du DG), bon de commande composé d'après les lignes retenues${o.automatique ? ", généré automatiquement à la dernière validation" : ""}`,
++      });
++      if (!r.ok) { echecs.push(`${d.supplierName} : ${r.motif}`); continue; }
++      await prisma.promoQuote.update({ where: { id: d.id }, data: { purchaseOrderId: r.legalDocumentId, purchaseOrderSentAt: null, purchaseOrderSentById: null } });
++      emis.push(`${r.reference} (${d.supplierName}, ${formatDzd(r.totaux.totalTtc)} TTC)`);
++      if (r.reserveBonDeCommande) reserves.push(r.reserveBonDeCommande);
++    }
++    if (emis.length) {
++      await recordAudit({
++        actorId: user.id, action: "UPDATE", module: "Matériel promotionnel", entityType: "PROMO_MATERIAL", entityId: pm.id,
++        summary: `Bons de commande générés${o.automatique ? " automatiquement (dernière validation)" : ""} : ${emis.join(" ; ")}`,
++      });
++    }
++    revalidatePath(chemin(pm.id));
++    revalidatePath(CHEMIN_BONS_DE_COMMANDE);
++    if (emis.length === 0) return { ok: false, error: `Aucun bon de commande n'a pu être généré — ${echecs.join(" ; ")}.` };
++    const suite = [...new Set(reserves)].join(" ");
++    return {
++      ok: true, emis: emis.length, echecs,
++      message: `${emis.length} bon${emis.length > 1 ? "s" : ""} de commande généré${emis.length > 1 ? "s" : ""} : ${emis.join(" ; ")}.`
++        + (echecs.length ? ` Non générés : ${echecs.join(" ; ")}.` : "")
++        + (suite ? ` ${suite}` : ""),
++    };
++  });
++}
+diff --git a/src/lib/actions/promo-circuit-actions.ts b/src/lib/actions/promo-circuit-actions.ts
+index 535e7b8..2595161 100644
+--- a/src/lib/actions/promo-circuit-actions.ts
++++ b/src/lib/actions/promo-circuit-actions.ts
+@@ -14,6 +14,7 @@ import {
+ import { promoManagerOf } from "@/lib/queries/promo-material";
+ import { etatApresRenvoi, attendSaCorrection, refusParLeDemandeur, REFUS_EN_CORRECTION } from "@/lib/promo-material/renvoi";
+ import { ecrireAuFil } from "@/lib/ad-pro/fil";
++import { envoyerDemandeDeDevis, genererLesBonsDeCommande } from "@/lib/actions/promo-automatismes";
+ import {
+   contexteDuDossier, validateursDeLaDemande, validateursMarketing, devisLu, SELECT_DEVIS,
+ } from "@/lib/queries/promo-circuit";
+@@ -357,10 +358,40 @@ export async function validatePromoStep(formData: FormData): Promise<ActionResul
+     summary: `${libelleEtape(state, version)} — validé${fige ? ` (montant retenu ${formatDzd(fige.chosenAmount)} TTC — ${fige.chosenAgency})` : ""}. Étape suivante : ${libelleEtape(next, version)}`,
+   });
+ 
++  // LES AUTOMATISMES (§118.204) — la demande de devis part quand la demande est validée, et les bons de
++  // commande sont générés quand la DERNIÈRE validation du choix tombe. Après l'avance, jamais avant : un
++  // automatisme qui échoue ne retire pas la validation qu'on vient de donner, il le DIT, et le repli (la
++  // rubrique « Articles demandés », la carte « Exécution ») reste là pour le rattraper.
++  let suiteAuto: string | null = null;
++  let devisPartis = false;
++  if (version === 2 && next === "QUOTE_TO_REQUEST") {
++    const envoi = await envoyerDemandeDeDevis(user.id, id);
++    if (envoi.ok) {
++      devisPartis = true;
++      if (envoi.assistantId) await notifyUser({ userId: envoi.assistantId, ...envoi.avis });
++      else await notifyRoles(["DIRECTION_ASSISTANT"], envoi.avis);
++      suiteAuto = `La demande de devis est partie au secrétariat (${envoi.demande.reference}).`;
++    } else {
++      suiteAuto = `La demande de devis n'est pas partie d'elle-même : ${envoi.error} Le demandeur l'envoie depuis « Articles demandés ».`;
++    }
++  }
++  let bilanBC: Awaited<ReturnType<typeof genererLesBonsDeCommande>> | null = null;
++  if (version === 2 && next === "IN_EXECUTION") {
++    bilanBC = await genererLesBonsDeCommande(user, id, { livraison: { adresse: null, delai: null }, notes: null, taxe: undefined, automatique: true });
++    suiteAuto = bilanBC.ok
++      ? bilanBC.message
++      : `Les bons de commande n'ont pas pu être générés automatiquement : ${bilanBC.error} Ils se génèrent depuis la carte « Exécution ».`;
++  }
++
+   // On prévient CELUI QUI DOIT AGIR ENSUITE, pas tout le monde.
+   const avis = { type: "VALIDATION_REQUIRED" as const, body: `${item.reference} — ${item.title}`, link: path(id) };
+   if (next === "QUOTE_TO_REQUEST" && item.requesterId) {
+-    await notifyUser({ userId: item.requesterId, ...avis, type: "GENERIC", title: "Demande validée — demandez les devis au secrétariat" });
++    await notifyUser({
++      userId: item.requesterId, ...avis, type: "GENERIC",
++      title: devisPartis
++        ? "Demande validée — la demande de devis est partie au secrétariat"
++        : "Demande validée — envoyez la demande de devis depuis « Articles demandés »",
++    });
+   } else if (next === "REVIEW_MANAGER") {
+     // UNE PERSONNE quand on la sait (la directrice du demandeur, ou les cheffes) ; sinon le RÔLE.
+     const nommees = version === 2 ? await validateursMarketing(item) : null;
+@@ -379,9 +410,9 @@ export async function validatePromoStep(formData: FormData): Promise<ActionResul
+     // Les TROIS chantiers s'ouvrent d'un coup : c'est le moment où le circuit cesse d'être une file.
+     await notifyUser({
+       userId: item.requesterId, type: "GENERIC",
+-      title: "Validations obtenues — vous pouvez lancer",
++      title: version === 2 && bilanBC?.ok ? "Validations obtenues — bons de commande générés" : "Validations obtenues — vous pouvez lancer",
+       body: version === 2
+-        ? `${item.reference} — générez les bons de commande : la plateforme les compose d'après les lignes validées.`
++        ? `${item.reference} — ${suiteAuto ?? "les bons de commande se génèrent depuis la carte « Exécution »."}`
+         : `${item.reference} — bon de commande, demande de paiement et demande de visa peuvent partir en parallèle.`,
+       link: path(id),
+     });
+@@ -391,8 +422,8 @@ export async function validatePromoStep(formData: FormData): Promise<ActionResul
+   return {
+     ok: true,
+     message: `Validé. ${next === "IN_EXECUTION"
+-      ? (version === 2 ? "Les validations sont obtenues : générez les bons de commande." : "Les trois chantiers sont ouverts.")
+-      : `Au tour de : ${libelleEtape(next, version)}.`}`,
++      ? (version === 2 ? `Les validations sont obtenues. ${suiteAuto ?? ""}`.trim() : "Les trois chantiers sont ouverts.")
++      : suiteAuto ?? `Au tour de : ${libelleEtape(next, version)}.`}`,
+   };
+ }
+ 
+diff --git a/src/lib/actions/promo-circuit-v2-flow.test.ts b/src/lib/actions/promo-circuit-v2-flow.test.ts
+index f65ad4e..4ca0a25 100644
+--- a/src/lib/actions/promo-circuit-v2-flow.test.ts
++++ b/src/lib/actions/promo-circuit-v2-flow.test.ts
+@@ -349,27 +349,31 @@ suite("Matériel promotionnel — circuit 2 de bout en bout", () => {
+     expect(await prisma.notification.count({ where: { userId: u.dir, link: `/promo-material/${pmId}` } })).toBe(1);
+   });
+ 
+-  it("VALIDER LA DEMANDE : ni le demandeur, ni un tiers — la directrice figée", async () => {
++  it("VALIDER LA DEMANDE : ni le demandeur, ni un tiers — la directrice figée ; un envoi automatique qui ne peut pas partir le DIT", async () => {
+     ACTOR = await actorFor(u.cp);
+     expect((await validatePromoStep(form({ id: pmId }))).ok).toBe(false);
+     ACTOR = await actorFor(u.dehors);
+     expect((await validatePromoStep(form({ id: pmId }))).ok).toBe(false);
++    // §118.165 : sans article demandé, l'assistante ne saurait pas quels devis chercher. La demande NAÎT avec
++    // ses lignes (§118.171) ; ce garde-fou reste atteignable si le demandeur retire la dernière ligne avant la
++    // validation — la demande de devis, qui part d'elle-même à la validation (§118.204), ne part alors PAS.
++    ACTOR = await actorFor(u.cp);
++    const premiere = await prisma.promoRequestItem.findFirstOrThrow({ where: { promoMaterialId: pmId }, select: { id: true } });
++    const retrait = await retirerArticleDemandePromo(form({ promoMaterialId: pmId, requestItemId: premiere.id }));
++    expect(retrait.ok, retrait.ok ? "" : retrait.error).toBe(true);
+     ACTOR = await actorFor(u.dir);
+     const r = await validatePromoStep(form({ id: pmId }));
+     expect(r.ok, r.ok ? "" : r.error).toBe(true);
++    expect(r.message).toMatch(/n'est pas partie d'elle-même.*articles à faire chiffrer/s);
+     expect((await etatDe(pmId)).circuitState).toBe("QUOTE_TO_REQUEST");
++    expect(await prisma.administrativeRequest.count({ where: { linkedEntityType: "PROMO_MATERIAL", linkedEntityId: pmId } })).toBe(0);
++    expect(await prisma.notification.count({ where: { userId: u.cp, title: "Demande validée — envoyez la demande de devis depuis « Articles demandés »" } })).toBe(1);
+   });
+ 
+-  it("DEMANDER LES DEVIS : le demandeur, une fois les articles posés ; la demande au secrétariat porte le lien canonique", async () => {
++  it("ENVOYER LA DEMANDE DE DEVIS (le repli) : le demandeur, une fois les articles posés ; la demande au secrétariat porte le lien canonique", async () => {
+     ACTOR = await actorFor(u.asst);
+-    expect((await demanderDevisPromo(form({ promoMaterialId: pmId }))).ok, "l'assistante ne demande pas à la place du demandeur").toBe(false);
++    expect((await demanderDevisPromo(form({ promoMaterialId: pmId }))).ok, "l'assistante n'envoie pas à la place du demandeur").toBe(false);
+     ACTOR = await actorFor(u.cp);
+-    // §118.165 : sans article demandé, l'assistante ne saurait pas quels devis chercher. La demande
+-    // NAÎT avec ses lignes (§118.171) ; ce garde-fou-ci reste atteignable si l'on retire la
+-    // dernière ligne sur la fiche — on le joue ainsi, puis on la remet.
+-    const premiere = await prisma.promoRequestItem.findFirstOrThrow({ where: { promoMaterialId: pmId }, select: { id: true } });
+-    const retrait = await retirerArticleDemandePromo(form({ promoMaterialId: pmId, requestItemId: premiere.id }));
+-    expect(retrait.ok, retrait.ok ? "" : retrait.error).toBe(true);
+     const sansArticle = await demanderDevisPromo(form({ promoMaterialId: pmId }));
+     expect(sansArticle.ok).toBe(false);
+     expect(sansArticle.ok ? "" : sansArticle.error).toMatch(/articles à faire chiffrer/);
+diff --git a/src/lib/actions/promo-demande-actions.ts b/src/lib/actions/promo-demande-actions.ts
+index 33bb4fa..fd4ad20 100644
+--- a/src/lib/actions/promo-demande-actions.ts
++++ b/src/lib/actions/promo-demande-actions.ts
+@@ -12,6 +12,8 @@ import { rouvrirDemandeAuSecretariat } from "@/lib/promo-material/demande-secret
+ import { parseQuantity } from "@/lib/promo/stock";
+ import { demandeLesDevis } from "@/lib/promo-material/circuit";
+ import { libelleArticleDemande, validerArticleDemande, type FamillePromo } from "@/lib/promo-material/achats";
++import { aucunPromu, designeUnProduit, libellesPromus, lirePromusStockes } from "@/lib/promo-material/promus";
++import { resoudrePromus } from "@/lib/queries/promo-promus";
+ 
+ /**
+  * ═══════════════════════════════════════════════════════════════════════════════════════════
+@@ -98,7 +100,7 @@ export async function enregistrerArticleDemandePromo(formData: FormData): Promis
+ 
+   const requestItemId = fdStr(formData, "requestItemId");
+   const existant = requestItemId
+-    ? await prisma.promoRequestItem.findFirst({ where: { id: requestItemId, promoMaterialId: pm.id }, select: { id: true } })
++    ? await prisma.promoRequestItem.findFirst({ where: { id: requestItemId, promoMaterialId: pm.id }, select: { id: true, promus: true } })
+     : null;
+   if (requestItemId && !existant) return { ok: false, error: "Cet article n'appartient pas à ce dossier." };
+ 
+@@ -109,40 +111,40 @@ export async function enregistrerArticleDemandePromo(formData: FormData): Promis
+         select: { id: true, reference: true, nom: true, famille: true, unite: true, exigeProduit: true, actif: true },
+       })
+     : null;
+-  const produitIds = formData.getAll("produitIds").map(String).filter(Boolean);
++  // CE QUE LA LIGNE PROMEUT (§118.204) — les codes du sélecteur, et « Autre » en clair. « Autre » que le
++  // formulaire ne porte pas garde sa valeur (§118.152c) : une correction faite sans lui ne l'efface pas.
++  const autre = formData.has("autre") ? fdStr(formData, "autre") : lirePromusStockes(existant?.promus ?? null)?.autre ?? null;
++  const promus = await resoudrePromus(formData.getAll("produitIds").map(String).filter(Boolean), autre);
++  if (!promus.ok) return { ok: false, error: promus.error };
+   const brutQuantite = fdStr(formData, "quantite");
+   const quantite = brutQuantite ? parseQuantity(brutQuantite) : null;
+   const v = validerArticleDemande({
+     catalogue: catalogue ? { ...catalogue, famille: catalogue.famille as FamillePromo } : null,
+-    produitIds,
++    // Un article « par produit » exige un PRODUIT désigné — d'une BU, ou écrit dans « Autre ».
++    produitIds: designeUnProduit(promus.promus) ? ["produit"] : [],
+     quantite,
+     quantiteIllisible: Boolean(brutQuantite) && quantite == null,
+     actions: formData.getAll("actions").map(String).filter(Boolean),
+     commentaire: fdStr(formData, "commentaire"),
+   });
+   if (!v.ok) return { ok: false, error: v.error };
+-  if (v.article.produitIds.length) {
+-    const trouves = await prisma.product.count({ where: { id: { in: v.article.produitIds } } });
+-    if (trouves !== v.article.produitIds.length) return { ok: false, error: "Un des produits choisis est introuvable." };
+-  }
+ 
+   const donnees = {
+     catalogueId: catalogue!.id,
+     quantite: v.article.quantite != null ? new Prisma.Decimal(v.article.quantite) : null,
+     actions: v.article.actions,
+     commentaire: v.article.commentaire,
++    promus: aucunPromu(promus.promus) ? Prisma.DbNull : (promus.promus as unknown as Prisma.InputJsonValue),
+     updatedById: user.id,
+   };
+-  const produits = v.article.produitIds.map((productId) => ({ productId }));
++  // Le lien CANONIQUE (le stock le lit à la réception) : celui des produits de BU qui en ont un.
++  const produits = promus.canoniques.map((productId) => ({ productId }));
+   // CONDITIONNELLE SUR L'ÉTAPE LUE : un article ajouté pendant que les devis partent, ou pendant que la
+   // retranscription se termine, serait chiffré par personne. Au choix des lignes, un article ajouté ou
+   // corrigé RENVOIE le dossier à la retranscription — il faut le faire chiffrer (§118.190).
+   const versRetranscription = pm.circuitState === "REVIEW_REQUESTER";
+   // Le LIBELLÉ avant la transaction : la raison de la réouverture s'y écrit (lot D1b).
+-  const nomsProduits = v.article.produitIds.length
+-    ? (await prisma.product.findMany({ where: { id: { in: v.article.produitIds } }, select: { id: true, canonicalName: true } })).map((p) => ({ id: p.id, nom: p.canonicalName }))
+-    : [];
+-  const libelle = libelleArticleDemande({ reference: catalogue!.reference, nom: catalogue!.nom, produits: nomsProduits, quantite: v.article.quantite, unite: catalogue!.unite });
++  const libelle = libelleArticleDemande({ reference: catalogue!.reference, nom: catalogue!.nom, produits: [], promus: libellesPromus(promus.promus), quantite: v.article.quantite, unite: catalogue!.unite });
+   const raison = `Article ${existant ? "corrigé" : "ajouté"} par le demandeur : ${libelle} — à faire chiffrer.`;
+   let article: { id: string };
+   try {
+diff --git a/src/lib/actions/promo-devis-actions.ts b/src/lib/actions/promo-devis-actions.ts
+index addb655..38d8f1e 100644
+--- a/src/lib/actions/promo-devis-actions.ts
++++ b/src/lib/actions/promo-devis-actions.ts
+@@ -1,15 +1,12 @@
+ "use server";
+ 
+-import { MENU_CATALOGUE_PROMO } from "@/lib/chemins/stock-promo";
+ import { revalidatePath } from "next/cache";
+ import { Prisma } from "@prisma/client";
+ import { requireUser } from "@/lib/session";
+-import { moneyEntityOf } from "@/lib/company";
+ import { prisma } from "@/lib/prisma";
+ import { recordAudit } from "@/lib/audit";
+ import { notifyUser, notifyRoles } from "@/lib/notify";
+ import { hasGlobalView, type SessionUser } from "@/lib/rbac";
+-import { buildRef, createWithRetry } from "@/lib/refs";
+ import { persistUploadedDocument } from "@/lib/documents";
+ import { deleteFileByKey, readFileByKey, validateDocumentUpload } from "@/lib/storage";
+ import { getAppSettings } from "@/lib/settings";
+@@ -27,7 +24,10 @@ import { devisLu, SELECT_DEVIS } from "@/lib/queries/promo-circuit";
+ import { validatePromoStep } from "@/lib/actions/promo-circuit-actions";
+ import { ecrireAuFil } from "@/lib/ad-pro/fil";
+ import { rouvrirDemandeAuSecretariat, fermerDemandeAuSecretariat } from "@/lib/promo-material/demande-secretariat";
+-import { ACTION_LABEL, estAction, type PromoAction } from "@/lib/promo-material/actions-fournisseur";
++import { estAction, type PromoAction } from "@/lib/promo-material/actions-fournisseur";
++import { envoyerDemandeDeDevis, ouvrirDemandeDeDevis } from "@/lib/actions/promo-automatismes";
++import { natureDeLaCategorie } from "@/lib/ad-pro/doc-categories";
++import { refusDeRangement } from "@/lib/promo-material/rangement";
+ 
+ /**
+  * LES DEVIS DU MATÉRIEL PROMOTIONNEL — demande, retranscription, choix des lignes (§118.152).
+@@ -141,101 +141,14 @@ async function octetsDuScan(pmId: string, documentId: string): Promise<Buffer |
+   return readFileByKey(doc.fileKey).catch(() => null);
+ }
+ 
+-/** La référence d'une demande au secrétariat — la même série que les demandes de devis des postes. */
+-async function prochaineReferenceDemande(): Promise<string> {
+-  const year = new Date().getFullYear();
+-  const rows = await prisma.administrativeRequest.findMany({ where: { reference: { startsWith: `DEM-${year}-` } }, select: { reference: true } });
+-  return buildRef("DEM", year, rows.map((r) => r.reference));
+-}
+-
+-/**
+- * OUVRIR UNE DEMANDE DE DEVIS AU SECRÉTARIAT — la première (`demanderDevisPromo`) ou une nouvelle
+- * (`redemanderDevisPromo`, audit 360°, R06). Une seule rédaction de la demande : deux copies finiraient
+- * par dire à l'assistante deux choses différentes du même dossier (§118.5). Rien ne bascule ici : la
+- * bascule est conditionnelle, chez l'appelant, APRÈS la création (§118.107).
+- */
+-async function ouvrirDemandeDeDevis(
+-  user: SessionUser, pm: Dossier, note: string | null, relance: boolean,
+-): Promise<{ ok: true; demande: { id: string; reference: string } } | { ok: false; error: string }> {
+-  // LES ARTICLES D'ABORD (§118.165) : « pour que l'assistante sache clairement quels devis
+-  // chercher ». Une demande de devis sans article ferait chercher l'assistante dans un brief en
+-  // prose — exactement ce que la liste piochée dans le catalogue remplace. Le refus nomme le geste,
+-  // et le cas où le catalogue ne contient pas encore l'article (seul le Super Admin l'y ajoute).
+-  const articles = await prisma.promoRequestItem.findMany({
+-    where: { promoMaterialId: pm.id },
+-    orderBy: [{ position: "asc" }, { createdAt: "asc" }],
+-    select: {
+-      quantite: true, actions: true, commentaire: true,
+-      catalogue: { select: { reference: true, nom: true, unite: true } },
+-      produits: { select: { product: { select: { canonicalName: true } } } },
+-    },
+-  });
+-  if (articles.length === 0) {
+-    const catalogueVide = (await prisma.promoCatalogueArticle.count({ where: { actif: true } })) === 0;
+-    return {
+-      ok: false,
+-      error: catalogueVide
+-        ? `Composez d'abord la liste des articles à faire chiffrer — mais le catalogue est encore vide : demandez au Super Admin d'y ajouter vos supports (${MENU_CATALOGUE_PROMO}).`
+-        : "Composez d'abord la liste des articles à faire chiffrer (« Articles demandés », piochés dans le catalogue) : c'est elle qui dit à l'assistante quels devis chercher.",
+-    };
+-  }
+-  const listeArticles = articles.map((a, i) => {
+-    const produits = a.produits.map((p) => p.product.canonicalName).join(", ");
+-    const quantite = a.quantite != null ? ` · ${Number(a.quantite).toLocaleString("fr-FR")} ${a.catalogue.unite}` : "";
+-    const actions = a.actions.filter(estAction).map((x) => ACTION_LABEL[x as PromoAction].toLowerCase()).join(", ");
+-    return `${i + 1}. ${a.catalogue.reference} ${a.catalogue.nom}${produits ? ` — ${produits}` : ""}${quantite} (${actions})${a.commentaire ? ` — ${a.commentaire}` : ""}`;
+-  }).join("\n");
+-
+-  // LA SOCIÉTÉ DE LA DEMANDE — celle du dossier, sinon celle où TRAVAILLE le demandeur. Un dossier
+-  // né avant que la création porte son entité a `companyId` nul ; sa demande au secrétariat
+-  // héritait de ce nul, et une ligne sans société n'apparaît dans AUCUNE vue cloisonnée
+-  // (`platformScopeWhere`) : l'assistante ne la voyait pas dans son bureau, alors qu'elle avait
+-  // été prévenue et que le dossier affichait « devis demandés » (§118.154). La société de la
+-  // PERSONNE et non celle de l'écran (`moneyEntityOf`) : un devis engage une dépense.
+-  const societe = pm.companyId ?? (await moneyEntityOf(pm.requesterId ?? user.id));
+-
+-  // LA DEMANDE AU SECRÉTARIAT D'ABORD, LA BASCULE ENSUITE. Dans l'ordre inverse, une création qui
+-  // échoue (collision de référence épuisée, base indisponible) laissait le dossier sur « devis
+-  // demandés » sans aucune demande ni personne prévenue : une étape que personne ne peut faire
+-  // avancer, sans une ligne d'échec (§118.107). Ici, un double clic perd la course à la bascule
+-  // et sa demande en trop est retirée — elle n'a été vue de personne.
+-  const demande = await createWithRetry(async () => prisma.administrativeRequest.create({
+-    data: {
+-      reference: await prochaineReferenceDemande(),
+-      type: "QUOTE",
+-      title: `${relance ? "Nouveaux devis" : "Devis"} — matériel promotionnel ${pm.reference} : ${pm.title}`,
+-      description: [
+-        note,
+-        relance ? "NOUVELLE DEMANDE de devis : les devis déjà retranscrits restent sur la fiche du dossier — cherchez ce qui est demandé ci-dessus, puis retranscrivez les nouveaux." : null,
+-        `Articles à faire chiffrer :\n${listeArticles}`,
+-        `Dossier ${pm.reference}. Recevez les devis des agences, puis retranscrivez-les ligne à ligne sur la fiche du dossier (référence, unité, quantité, prix unitaire, action, article demandé), avec le scan de chaque devis.`,
+-        pm.description ? `Brief : ${pm.description}` : null,
+-      ].filter(Boolean).join("\n"),
+-      priority: "HIGH",
+-      status: "NEW",
+-      requesterId: pm.requesterId ?? user.id,
+-      assignedToId: pm.assistantId,
+-      companyId: societe,
+-      linkedEntityType: "PROMO_MATERIAL",
+-      linkedEntityId: pm.id,
+-    },
+-    select: { id: true, reference: true },
+-  }));
+-  return { ok: true, demande };
+-}
+-
+ // ───────────────────────── 1. Le demandeur demande les devis ─────────────────────────
+ 
+ /**
+- * DEMANDER LES DEVIS AU SECRÉTARIAT — une demande administrative, liée au dossier.
+- *
+- * Le LIEN CANONIQUE (`linkedEntityType` / `linkedEntityId`) est posé : c'est lui que l'écran du
+- * secrétariat lit pour savoir que la dépense vient d'Ad & Pro et ne doit pas être imputée une
+- * seconde fois à un département (§118.146). L'assistante nommée est prévenue ; à défaut, toutes
+- * les assistantes de direction — personne ne doit apprendre qu'on attendait d'elle un devis.
+- *
+- * La transition est CONDITIONNELLE (`updateMany` sur l'état lu) : deux clics simultanés ne font
+- * pas deux demandes au secrétariat.
++ * ENVOYER LA DEMANDE DE DEVIS — le REPLI (§118.204). La demande de devis part d'elle-même quand le
++ * dossier arrive sur « devis à demander » (à la création, ou à la validation de la demande —
++ * `envoyerDemandeDeDevis`). Ce geste reste dans la rubrique « Articles demandés » pour un dossier qui y
++ * est resté (un envoi automatique qui n'a pas pu partir, un dossier d'avant) : c'est le même envoi, la
++ * même demande, le même aperçu. Le demandeur (ou la Direction) seulement.
+  */
+ export async function demanderDevisPromo(formData: FormData): Promise<ActionResult> {
+   const user = await requireUser();
+@@ -243,30 +156,13 @@ export async function demanderDevisPromo(formData: FormData): Promise<ActionResu
+   if (!pm) return { ok: false, error: "Dossier introuvable." };
+   const v = refusVersion(pm);
+   if (v) return { ok: false, error: v };
+-  if (!pilote(user, pm)) return { ok: false, error: "Seul le demandeur (ou la Direction) demande les devis de ce dossier." };
+-  if (pm.circuitState === "REVIEW_REQUEST") return { ok: false, error: "La demande n'est pas encore validée : les devis se demandent une fois la demande acceptée." };
+-  if (pm.circuitState !== "QUOTE_TO_REQUEST") return { ok: false, error: "Les devis de ce dossier sont déjà demandés." };
++  if (!pilote(user, pm)) return { ok: false, error: "Seul le demandeur (ou la Direction) envoie la demande de devis de ce dossier." };
+   const note = fdStr(formData, "note");
+-
+-  const ouverte = await ouvrirDemandeDeDevis(user, pm, note, false);
+-  if (!ouverte.ok) return { ok: false, error: ouverte.error };
+-  const demande = ouverte.demande;
+-  const bascule = await prisma.promoMaterial.updateMany({
+-    where: { id: pm.id, circuitState: "QUOTE_TO_REQUEST" },
+-    data: { circuitState: "QUOTE_REQUESTED", quotesRequestedAt: new Date(), quotesRequestedById: user.id, adminRequestId: demande.id, updatedById: user.id },
+-  });
+-  if (bascule.count === 0) {
+-    await prisma.administrativeRequest.delete({ where: { id: demande.id } }).catch(() => {});
+-    return { ok: false, error: "Les devis de ce dossier viennent d'être demandés." };
+-  }
+-
+-  const avis = { type: "ASSIGNMENT" as const, title: "Matériel promotionnel — devis à demander et à retranscrire", body: `${pm.reference} — ${pm.title}`, link: chemin(pm.id) };
+-  if (pm.assistantId) await notifyUser({ userId: pm.assistantId, ...avis });
+-  else await notifyRoles(["DIRECTION_ASSISTANT"], avis);
+-  await audit(user, pm.id, `Devis demandés au secrétariat (${demande.reference})${note ? ` — ${note.slice(0, 200)}` : ""}`);
+-  revalidatePath(chemin(pm.id));
+-  revalidatePath("/demandes");
+-  return { ok: true, id: demande.id, message: `Devis demandés au secrétariat (${demande.reference}).` };
++  const r = await envoyerDemandeDeDevis(user.id, pm.id, note);
++  if (!r.ok) return { ok: false, error: r.error };
++  if (r.assistantId) await notifyUser({ userId: r.assistantId, ...r.avis });
++  else await notifyRoles(["DIRECTION_ASSISTANT"], r.avis);
++  return { ok: true, id: r.demande.id, message: `Demande de devis envoyée au secrétariat (${r.demande.reference}).` };
+ }
+ 
+ // ───────────────────────── 2. L'assistante retranscrit ─────────────────────────
+@@ -644,6 +540,69 @@ export async function terminerRetranscriptionPromo(formData: FormData): Promise<
+   return { ok: true, message: `Retranscription terminée — ${devis.length} devis sont au choix du demandeur.` };
+ }
+ 
++/**
++ * RANGER COMME DEVIS DE <AGENCE> (§118.204) — un fichier « devis » déposé sur la demande SANS fiche devient
++ * un devis du circuit, rattaché à l'agence choisie dans l'annuaire. « Les fiches doivent être automatiques » :
++ * un devis du dossier est une ligne du tableau « Devis », pas un fichier qui attend qu'on lui crée une fiche
++ * au registre Legal (« Créer sa fiche », retiré du matériel promotionnel). Le fichier n'est NI copié NI
++ * retéléversé : il est déjà une pièce du dossier, là où vivent les scans des devis — le devis le DÉSIGNE
++ * (`documentId`), exactement comme un scan joint à la retranscription.
++ *
++ * Le fournisseur est OBLIGATOIRE : c'est lui qui donne son adresse, son RC et son NIF au bon de commande. Les
++ * lignes se retranscrivent ensuite (« Corriger » sur la ligne du devis) — la fin de la retranscription les
++ * exige. Écriture CONDITIONNELLE sur « devis demandés », sous le verrou du dossier : deux clics ne rangent
++ * pas deux fois le même fichier.
++ */
++export async function rangerDevisPromo(formData: FormData): Promise<ActionResult> {
++  const user = await requireUser();
++  const pm = await chargerDossier(fdStr(formData, "promoMaterialId"));
++  if (!pm) return { ok: false, error: "Dossier introuvable." };
++  const v = refusVersion(pm);
++  if (v) return { ok: false, error: v };
++  if (!retranscrit(user, pm)) return { ok: false, error: "Ranger un devis déposé revient à qui retranscrit les devis : l'assistante de direction (ou la Direction)." };
++  const etape = refusDeRangement(pm.circuitState);
++  if (etape) return { ok: false, error: etape };
++  const documentId = fdStr(formData, "documentId");
++  if (!documentId) return { ok: false, error: "Choisissez le fichier à ranger." };
++  const supplierId = fdStr(formData, "supplierId");
++  if (!supplierId) return { ok: false, error: "Choisissez dans l'annuaire l'agence (ou le partenaire) à qui appartient ce devis : c'est elle qui donnera son adresse, son RC et son NIF au bon de commande." };
++  const parties = await resolveParties(user.id, [supplierId]);
++  if (!parties.ok) return { ok: false, error: parties.error };
++  const doc = await prisma.document.findFirst({ where: { id: documentId, entityType: "PROMO_MATERIAL", entityId: pm.id }, select: { id: true, name: true, category: true } });
++  if (!doc) return { ok: false, error: "Ce fichier n'est pas une pièce de ce dossier." };
++  if (natureDeLaCategorie(doc.category) !== "QUOTE") return { ok: false, error: `« ${doc.name} » n'a pas été déposé comme devis : seul un fichier « Devis » se range comme devis.` };
++
++  let devis: { id: string };
++  try {
++    devis = await prisma.$transaction(async (tx) => {
++      // L'ÉTAPE D'ABORD, SOUS LE VERROU DU DOSSIER — la même première écriture que la retranscription.
++      const ouverte = await tx.promoMaterial.updateMany({
++        where: { id: pm.id, circuitVersion: 2, circuitState: "QUOTE_REQUESTED" },
++        data: { updatedById: user.id },
++      });
++      if (ouverte.count === 0) throw new RefusDevis(ETAPE_CHANGEE);
++      // RELU SOUS LE VERROU : un second clic, ou une retranscription qui vient de joindre ce scan.
++      if ((await tx.promoQuote.count({ where: { promoMaterialId: pm.id, documentId: doc.id } })) > 0) {
++        throw new RefusDevis(`« ${doc.name} » est déjà le scan d'un devis de ce dossier — rechargez la fiche.`);
++      }
++      if ((await tx.document.count({ where: { id: doc.id, entityType: "PROMO_MATERIAL", entityId: pm.id } })) === 0) {
++        throw new RefusDevis(`« ${doc.name} » vient d'être retiré du dossier — rechargez la fiche.`);
++      }
++      const rang = await tx.promoQuote.count({ where: { promoMaterialId: pm.id } });
++      return tx.promoQuote.create({
++        data: { promoMaterialId: pm.id, position: rang, supplierId, supplierName: parties.text, documentId: doc.id, createdById: user.id },
++        select: { id: true },
++      });
++    }, { timeout: 15_000, maxWait: 15_000 });
++  } catch (e) {
++    if (e instanceof RefusDevis) return { ok: false, error: e.message };
++    throw e;
++  }
++  await audit(user, pm.id, `Devis de ${parties.text} rangé depuis le fichier « ${doc.name} » (à retranscrire)`);
++  revalidatePath(chemin(pm.id));
++  return { ok: true, id: devis.id, message: `« ${doc.name} » est rangé comme devis de ${parties.text} — retranscrivez ses lignes (« Corriger » sur sa ligne) avant de terminer la retranscription.` };
++}
++
+ // ───────────────────────── 3. Le demandeur choisit ─────────────────────────
+ 
+ /**
+@@ -745,7 +704,7 @@ export async function redemanderDevisPromo(formData: FormData): Promise<ActionRe
+   const note = fdStr(formData, "note");
+   if (note === null) return { ok: false, error: "Dites ce que vous cherchez — d'autres agences, d'autres quantités, un délai : l'assistante rapporterait sinon les mêmes devis." };
+ 
+-  const ouverte = await ouvrirDemandeDeDevis(user, pm, note, true);
++  const ouverte = await ouvrirDemandeDeDevis(user.id, pm, note, true);
+   if (!ouverte.ok) return { ok: false, error: ouverte.error };
+   const bascule = await prisma.promoMaterial.updateMany({
+     where: { id: pm.id, circuitState: "REVIEW_REQUESTER" },
+diff --git a/src/lib/actions/promo-devis-course-flow.test.ts b/src/lib/actions/promo-devis-course-flow.test.ts
+index 30c1e47..26cdc31 100644
+--- a/src/lib/actions/promo-devis-course-flow.test.ts
++++ b/src/lib/actions/promo-devis-course-flow.test.ts
+@@ -14,7 +14,7 @@ import { deleteFileByKey } from "@/lib/storage";
+ import { createPromoMaterial } from "./promo-material-actions";
+ import { completePromoTrack, validatePromoStep } from "./promo-circuit-actions";
+ import {
+-  choisirLignesPromo, demanderCorrectionDevisPromo, demanderDevisPromo, enregistrerDevisPromo, supprimerDevisPromo, terminerRetranscriptionPromo,
++  choisirLignesPromo, demanderCorrectionDevisPromo, enregistrerDevisPromo, supprimerDevisPromo, terminerRetranscriptionPromo,
+ } from "./promo-devis-actions";
+ import { enregistrerArticleDemandePromo } from "./promo-demande-actions";
+ import { formatDzd } from "@/lib/promo-material/devis";
+@@ -165,8 +165,8 @@ suite("Matériel promotionnel — la retranscription sous course, et le total im
+     const id = r.id!;
+     await comme("dir");
+     reussi(await validatePromoStep(form({ id })), "valider la demande");
+-    await comme("cp");
+-    reussi(await demanderDevisPromo(form({ promoMaterialId: id })), "demander les devis");
++    // LA DEMANDE DE DEVIS PART D'ELLE-MÊME à la validation de la demande (§118.204) : plus de geste « demander les devis ».
++    if ((await prisma.promoMaterial.findUniqueOrThrow({ where: { id }, select: { circuitState: true } })).circuitState !== "QUOTE_REQUESTED") throw new Error("la demande de devis n'est pas partie d'elle-même à la validation");
+     return id;
+   }
+   const articleDe = async (id: string) => (await prisma.promoRequestItem.findFirstOrThrow({ where: { promoMaterialId: id } })).id;
+diff --git a/src/lib/actions/promo-devis-lecture-flow.test.ts b/src/lib/actions/promo-devis-lecture-flow.test.ts
+index 0cfa70d..ea2e437 100644
+--- a/src/lib/actions/promo-devis-lecture-flow.test.ts
++++ b/src/lib/actions/promo-devis-lecture-flow.test.ts
+@@ -54,7 +54,7 @@ import { deleteFileByKey } from "@/lib/storage";
+ import { remplacerLecteurInterrupteurIaPourTests } from "@/lib/ai-settings";
+ import { createPromoMaterial } from "./promo-material-actions";
+ import { validatePromoStep } from "./promo-circuit-actions";
+-import { demanderDevisPromo, enregistrerDevisPromo, lireScanDevisPromo, terminerRetranscriptionPromo } from "./promo-devis-actions";
++import { enregistrerDevisPromo, lireScanDevisPromo, terminerRetranscriptionPromo } from "./promo-devis-actions";
+ import { PHRASE_LECTURE_DISPARUE } from "@/lib/pieces-lues/service";
+ import { empreinteDe, VERSION_LECTEUR } from "@/lib/pieces-lues/lecture-fichier";
+ import type { LectureDevisPromo } from "@/lib/pieces-lues/prerempli-devis-promo";
+@@ -209,8 +209,8 @@ suite("Matériel promotionnel — le devis lu sur son scan, proposé puis confir
+     const id = r.id!;
+     await comme("dir");
+     reussi(await validatePromoStep(form({ id })), "valider la demande");
+-    await comme("cp");
+-    reussi(await demanderDevisPromo(form({ promoMaterialId: id })), "demander les devis");
++    // LA DEMANDE DE DEVIS PART D'ELLE-MÊME à la validation de la demande (§118.204) : plus de geste « demander les devis ».
++    if ((await prisma.promoMaterial.findUniqueOrThrow({ where: { id }, select: { circuitState: true } })).circuitState !== "QUOTE_REQUESTED") throw new Error("la demande de devis n'est pas partie d'elle-même à la validation");
+     return id;
+   }
+   const articleDe = async (id: string) => (await prisma.promoRequestItem.findFirstOrThrow({ where: { promoMaterialId: id } })).id;
+diff --git a/src/lib/actions/promo-execution-actions.ts b/src/lib/actions/promo-execution-actions.ts
+index cded47b..2bb4d21 100644
+--- a/src/lib/actions/promo-execution-actions.ts
++++ b/src/lib/actions/promo-execution-actions.ts
+@@ -13,7 +13,7 @@ import { validateDocumentUpload } from "@/lib/storage";
+ import { createExpenseOrder } from "@/lib/expense-orders";
+ import { createMedicalInfoDeclaration } from "@/lib/medical-info";
+ import { aiguillerBC, porteDuBC } from "@/lib/bons-de-commande/aiguillage";
+-import { etatDuBC, etatsDesBC } from "@/lib/bons-de-commande/etat";
++import { etatDuBC } from "@/lib/bons-de-commande/etat";
+ import { canCancel } from "@/lib/legal/lifecycle";
+ import { canSendToSettlement, cleEnvoiAuReglement, ordreClos } from "@/lib/finances/settlement";
+ import { annulerOrdreNonRegle } from "@/lib/payments/annulation";
+@@ -23,9 +23,10 @@ import { annuaireDeLecture, consignerConfirmation, exigerLectureConfirmee, propo
+ import { empreinteDe } from "@/lib/pieces-lues/lecture-fichier";
+ import { lignesProposeesFacturePromo, preremplirFacturePromo, type PrerempliFacturePromo } from "@/lib/pieces-lues/prerempli-facture-promo";
+ import { fdCase } from "@/lib/actions/types";
+-import { emettreDocumentDrive, reviserDocumentDrive } from "@/platform/in-process/artifact/factory";
++import { reviserDocumentDrive } from "@/platform/in-process/artifact/factory";
++import { genererLesBonsDeCommande } from "@/lib/actions/promo-automatismes";
+ import { devisDuDossier, devisLu } from "@/lib/queries/promo-circuit";
+-import { lignesDuBonDeCommande, formatDzd } from "@/lib/promo-material/devis";
++import { formatDzd } from "@/lib/promo-material/devis";
+ import { piloteLExecution } from "@/lib/promo-material/circuit";
+ import { fdStr, fdNum, fdDate, type ActionResult } from "@/lib/actions/types";
+ import {
+@@ -108,23 +109,6 @@ async function audit(user: SessionUser, id: string, summary: string) {
+   await recordAudit({ actorId: user.id, action: "UPDATE", module: "Matériel promotionnel", entityType: "PROMO_MATERIAL", entityId: id, summary });
+ }
+ 
+-/**
+- * LA SOCIÉTÉ QUI COMMANDE — celle du dossier ; à défaut, celle où travaille son DEMANDEUR (sa
+- * fiche salarié, puis son département). Jamais celle de la personne qui clique, ni celle d'un
+- * sélecteur d'affichage : l'assistante qui génère les BC d'un demandeur de Pharmagène ne les
+- * émet pas au nom de sa propre société, et deux pilotes du même dossier doivent produire le même
+- * BC. `null` quand rien ne se lit à coup sûr — on ne devine pas une société qui s'engage.
+- */
+-async function societeDuDossier(pm: Dossier): Promise<string | null> {
+-  if (pm.companyId) return pm.companyId;
+-  if (!pm.requesterId) return null;
+-  const e = await prisma.employee.findFirst({
+-    where: { userId: pm.requesterId },
+-    select: { companyId: true, departmentRef: { select: { companyId: true } } },
+-  });
+-  return e?.companyId ?? e?.departmentRef?.companyId ?? null;
+-}
+-
+ /** Le devis de ce dossier, et son BC s'il en a un d'actif. */
+ async function devisEtBC(pm: Dossier, quoteId: string | null) {
+   if (!quoteId) return null;
+@@ -157,12 +141,11 @@ function lireTaxeSupplementaire(formData: FormData): { ok: true; taxe: { libelle
+ // ───────────────────────── 1. Générer les bons de commande ─────────────────────────
+ 
+ /**
+- * GÉNÉRER LES BONS DE COMMANDE — un par devis dont une ligne est retenue, et qui n'en a pas.
+- *
+- * Idempotent : un devis qui a déjà son BC actif n'en reçoit pas un second, et la fabrique rend
+- * une pièce identique au lieu d'en émettre une autre. Sérialisé par dossier (`enSerie`) : deux
+- * clics simultanés ne font pas deux BC pour le même devis. Chaque devis est isolé : l'échec de
+- * l'un (fournisseur sans identité, société que le pilote ne peut pas voir) est DIT sans empêcher les autres.
++ * GÉNÉRER LES BONS DE COMMANDE — le REPLI (§118.204). La génération part d'elle-même quand la dernière
++ * validation du choix tombe (`validatePromoStep` → `genererLesBonsDeCommande`) ; ce geste reste pour
++ * ce qu'elle n'a pas pu émettre (un fournisseur sans identité, une société que le validateur ne voit pas),
++ * et pour régler la livraison ou la taxe avant d'émettre. Le cœur est UN (`promo-automatismes.ts`) : deux
++ * générations finiraient par composer deux BC différents du même devis (§118.5).
+  */
+ export async function genererBonsDeCommandePromo(formData: FormData): Promise<ActionResult> {
+   const user = await requireUser();
+@@ -174,78 +157,8 @@ export async function genererBonsDeCommandePromo(formData: FormData): Promise<Ac
+   // LA CASE « TAXE SUPPLÉMENTAIRE » (Direction, 10/2026) : vide = celle de chaque devis ; « 0 » = aucune ; sinon pour tous les BC générés.
+   const taxeSaisie = lireTaxeSupplementaire(formData);
+   if (!taxeSaisie.ok) return { ok: false, error: taxeSaisie.error };
+-
+-  const societe = await societeDuDossier(pm);
+-  if (!societe) {
+-    return { ok: false, error: "La société qui commande est introuvable : le dossier n'en nomme aucune, et la fiche salarié de son demandeur non plus. Renseignez la société du demandeur (RH › fiche salarié), puis relancez." };
+-  }
+-
+-  return enSerie(`promo-bc:${pm.id}`, async () => {
+-    // LE DOSSIER SE RELIT DANS LA FILE (vague « restes ») : l'annulation y passe aussi
+-    // (`cancelPromoMaterial`), et une génération mise en file AVANT elle — sur un dossier encore en
+-    // exécution — passait quand même, une fois l'annulation écrite : un BC vivant sur un dossier annulé.
+-    const refusDansLaFile = refusExecution(user, await chargerDossier(pm.id));
+-    if (refusDansLaFile) return { ok: false, error: refusDansLaFile };
+-    const devis = await devisDuDossier(pm.id);
+-    const etats = await etatsDesBC(devis.map((d) => d.purchaseOrderId).filter((x): x is string => Boolean(x)));
+-    const actifs = new Set(devis.filter((d) => {
+-      const e = d.purchaseOrderId ? etats.get(d.purchaseOrderId) : undefined;
+-      return e && !e.annule;
+-    }).map((d) => d.id));
+-    const aGenerer = devis.filter((d) => d.lines.some((l) => l.selected) && !actifs.has(d.id));
+-    if (aGenerer.length === 0) {
+-      return { ok: true, message: "Chaque devis retenu a déjà son bon de commande — rien de nouveau à générer." };
+-    }
+-    const fournisseurs = await prisma.companyContact.findMany({
+-      where: { id: { in: aGenerer.map((d) => d.supplierId).filter((x): x is string => Boolean(x)) } },
+-      select: { id: true, name: true, address: true, city: true, wilaya: true, rc: true, nif: true, rib: true, phone: true, email: true },
+-    });
+-    const parId = new Map(fournisseurs.map((f) => [f.id, f]));
+-
+-    const emis: string[] = [];
+-    const echecs: string[] = [];
+-    const reserves: string[] = [];
+-    for (const brut of aGenerer) {
+-      const d = devisLu(brut);
+-      const f = brut.supplierId ? parId.get(brut.supplierId) : undefined;
+-      if (!f) { echecs.push(`${d.supplierName} : fournisseur absent de l'annuaire — faites corriger le devis`); continue; }
+-      const adresse = [f.address, [f.city, f.wilaya].filter(Boolean).join(", ")].filter((x) => x && x.trim()).join("\n") || null;
+-      const r = await emettreDocumentDrive(user, {
+-        type: "BON_DE_COMMANDE",
+-        societe,
+-        tiers: { nom: f.name, adresse, rc: f.rc, nif: f.nif, rib: f.rib, telephone: f.phone, email: f.email },
+-        lignes: lignesDuBonDeCommande(d),
+-        tvaDefaut: d.tvaRate / 100,
+-        taxes: taxeSaisie.taxe !== undefined
+-          ? (taxeSaisie.taxe ? [taxeSaisie.taxe] : null)
+-          : d.extraTaxRate ? [{ libelle: d.extraTaxLabel ?? "Taxe additionnelle", taux: d.extraTaxRate / 100 }] : null,
+-        referenceAmont: d.reference,
+-        referenceAmontDate: brut.quoteDate ? brut.quoteDate.toISOString().slice(0, 10) : null,
+-        objet: `Matériel promotionnel ${pm.reference} — ${pm.title}`,
+-        livraison: livraison.adresse || livraison.delai ? livraison : null,
+-        notes,
+-        dossier: `Matériel promotionnel/${pm.reference}`,
+-      }, {
+-        source: { type: "PROMO_MATERIAL", id: pm.id },
+-        delegation: `${pm.reference} — dossier de matériel promotionnel validé (demande, Direction Marketing, seuil du DG), bon de commande composé d'après les lignes retenues`,
+-      });
+-      if (!r.ok) { echecs.push(`${d.supplierName} : ${r.motif}`); continue; }
+-      await prisma.promoQuote.update({ where: { id: d.id }, data: { purchaseOrderId: r.legalDocumentId, purchaseOrderSentAt: null, purchaseOrderSentById: null } });
+-      emis.push(`${r.reference} (${d.supplierName}, ${formatDzd(r.totaux.totalTtc)} TTC)`);
+-      if (r.reserveBonDeCommande) reserves.push(r.reserveBonDeCommande);
+-    }
+-    if (emis.length) await audit(user, pm.id, `Bons de commande générés : ${emis.join(" ; ")}`);
+-    revalidatePath(chemin(pm.id));
+-    revalidatePath(CHEMIN_BONS_DE_COMMANDE);
+-    if (emis.length === 0) return { ok: false, error: `Aucun bon de commande n'a pu être généré — ${echecs.join(" ; ")}.` };
+-    const suite = [...new Set(reserves)].join(" ");
+-    return {
+-      ok: true,
+-      message: `${emis.length} bon${emis.length > 1 ? "s" : ""} de commande généré${emis.length > 1 ? "s" : ""} : ${emis.join(" ; ")}.`
+-        + (echecs.length ? ` Non générés : ${echecs.join(" ; ")}.` : "")
+-        + (suite ? ` ${suite}` : ""),
+-    };
+-  });
++  const r = await genererLesBonsDeCommande(user, pm.id, { livraison, notes, taxe: taxeSaisie.taxe, automatique: false });
++  return r.ok ? { ok: true, message: r.message } : { ok: false, error: r.error };
+ }
+ 
+ // ───────────────────────── 2. Modifier, supprimer, envoyer un BC ─────────────────────────
+diff --git a/src/lib/actions/promo-material-actions.ts b/src/lib/actions/promo-material-actions.ts
+index 1611b6f..32b6b56 100644
+--- a/src/lib/actions/promo-material-actions.ts
++++ b/src/lib/actions/promo-material-actions.ts
+@@ -19,6 +19,9 @@ import { fdStr, fdNum, type ActionResult } from "@/lib/actions/types";
+ import { parseQuantity } from "@/lib/promo/stock";
+ import { validerArticleDemande, type ArticleDemandeValide, type FamillePromo } from "@/lib/promo-material/achats";
+ import { lireLignesDemande, ligneVide, REFUS_SANS_LIGNE } from "@/lib/promo-material/lignes-demande";
++import { aucunPromu, designeUnProduit, type PromusChoisis } from "@/lib/promo-material/promus";
++import { resoudrePromus } from "@/lib/queries/promo-promus";
++import { envoyerDemandeDeDevis } from "@/lib/actions/promo-automatismes";
+ import { siegeAuCentreAdPro, REFUS_BC_CENTRE_AD_PRO } from "@/lib/ad-pro/centre";
+ import { getAppSettings } from "@/lib/settings";
+ import { moneyEntityOf } from "@/lib/company";
+@@ -193,9 +196,9 @@ async function ordreNonRegle(orderId: string | null): Promise<string | null> {
+  * `managerId` : un organigramme qui change ne transfère pas une validation en attente à quelqu'un
+  * qui n'a rien suivi.
+  *
+- * Aucun devis n'est demandé ici : c'est le demandeur qui les demande, une fois la demande validée
+- * (`demanderDevisPromo`). Demander des devis sur une demande que personne n'a encore acceptée
+- * ferait travailler le secrétariat et les agences pour rien.
++ * LA DEMANDE DE DEVIS PART D'ELLE-MÊME (§118.204) : ici quand la demande n'a pas de validation, sinon à
++ * sa validation (`validatePromoStep`). Demander des devis sur une demande que personne n'a encore acceptée
++ * ferait travailler le secrétariat et les agences pour rien — la règle reste, seul le clic disparaît.
+  */
+ export async function createPromoMaterial(_prev: ActionResult | undefined, formData: FormData): Promise<ActionResult> {
+   try {
+@@ -225,26 +228,28 @@ export async function createPromoMaterial(_prev: ActionResult | undefined, formD
+         })
+       : [];
+     const parId = new Map(catalogue.map((c) => [c.id, c]));
+-    const lignes: (ArticleDemandeValide & { catalogueId: string })[] = [];
+-    saisies.forEach((s, i) => {
++    const lignes: (ArticleDemandeValide & { catalogueId: string; promus: PromusChoisis; canoniques: string[] })[] = [];
++    for (const [i, s] of saisies.entries()) {
+       const c = parId.get(s.catalogueId) ?? null;
+       const quantite = s.quantite ? parseQuantity(s.quantite) : null;
++      // CE QUE LA LIGNE PROMEUT (§118.204) — la société, une gamme, des produits des BU, « Autre ».
++      const promus = await resoudrePromus(s.produitIds, s.autre);
++      if (!promus.ok) { manques.push(`Ligne ${i + 1} : ${promus.error}`); continue; }
+       const v = validerArticleDemande({
+         catalogue: c ? { ...c, famille: c.famille as FamillePromo } : null,
+-        produitIds: s.produitIds,
++        // Un article « par produit » exige un PRODUIT désigné — d'une BU, ou écrit dans « Autre ».
++        produitIds: designeUnProduit(promus.promus) ? ["produit"] : [],
+         quantite,
+         quantiteIllisible: Boolean(s.quantite) && quantite == null,
+         actions: s.actions,
+         commentaire: s.commentaire || null,
+       });
+-      if (v.ok && c) lignes.push({ ...v.article, catalogueId: c.id });
++      if (v.ok && c) lignes.push({ ...v.article, catalogueId: c.id, promus: promus.promus, canoniques: promus.canoniques });
+       else if (!v.ok) manques.push(`Ligne ${i + 1} : ${v.error}`);
+-    });
+-    if (manques.length || !title) return { ok: false, error: manques.join(" ") };
+-    const produitIds = [...new Set(lignes.flatMap((l) => l.produitIds))];
+-    if (produitIds.length && (await prisma.product.count({ where: { id: { in: produitIds } } })) !== produitIds.length) {
+-      return { ok: false, error: "Un des produits choisis est introuvable : rechargez le formulaire." };
+     }
++    if (manques.length || !title) return { ok: false, error: manques.join(" ") };
++    // LES PRÉCISIONS POUR L'ASSISTANTE — saisies dans « Articles demandés », envoyées avec la demande de devis.
++    const precisionsDevis = fdStr(formData, "precisionsDevis");
+ 
+     // CE QUE LA DEMANDE NE PORTE PLUS (décision du 01/10). La GAMME : « pas du tout pertinent
+     // ici » — le matériel se demande par article du catalogue, pas par Business Unit. Le BUDGET
+@@ -268,6 +273,7 @@ export async function createPromoMaterial(_prev: ActionResult | undefined, formD
+         title,
+         description,
+         companyId: companyId || null,
++        precisionsDevis,
+         status: "PROSPECTION_REQUESTED",
+         circuitState,
+         circuitVersion: 2,
+@@ -287,9 +293,10 @@ export async function createPromoMaterial(_prev: ActionResult | undefined, formD
+             quantite: l.quantite != null ? new Prisma.Decimal(l.quantite) : null,
+             actions: l.actions,
+             commentaire: l.commentaire,
++            promus: aucunPromu(l.promus) ? Prisma.DbNull : (l.promus as unknown as Prisma.InputJsonValue),
+             createdById: user.id,
+             updatedById: user.id,
+-            produits: { create: l.produitIds.map((productId) => ({ productId })) },
++            produits: { create: l.canoniques.map((productId) => ({ productId })) },
+           })),
+         },
+       },
+@@ -300,8 +307,22 @@ export async function createPromoMaterial(_prev: ActionResult | undefined, formD
+     if (figes.validateur.kind === "PERSONNE") await notifyUser({ userId: figes.validateur.userId, ...avis });
+     else if (figes.validateur.kind === "PLAFOND") await notifyRoles(["DIRECTION"], avis);
+     await audit(user, pm.id, "CREATE", `Matériel promotionnel créé — ${pm.reference}, ${lignes.length} ligne(s) demandée(s). ${figes.validateur.motif} Étape : ${libelleEtape(circuitState, 2)}.`);
++    // LA DEMANDE DE DEVIS PART D'ELLE-MÊME (§118.204) — tout de suite quand la demande n'a pas de validation,
++    // sinon quand la validation tombe (`validatePromoStep`). Un envoi qui échoue ne défait pas la création :
++    // le dossier reste sur « devis à demander », et la rubrique « Articles demandés » offre l'envoi.
++    let suite = figes.validateur.kind !== "AUCUNE" ? " La demande de devis partira au secrétariat dès qu'elle sera validée." : "";
++    if (circuitState === "QUOTE_TO_REQUEST") {
++      const envoi = await envoyerDemandeDeDevis(user.id, pm.id);
++      if (envoi.ok) {
++        if (envoi.assistantId) await notifyUser({ userId: envoi.assistantId, ...envoi.avis });
++        else await notifyRoles(["DIRECTION_ASSISTANT"], envoi.avis);
++        suite = ` Demande de devis envoyée au secrétariat (${envoi.demande.reference}).`;
++      } else {
++        suite = ` La demande de devis n'est pas partie : ${envoi.error} Envoyez-la depuis « Articles demandés ».`;
++      }
++    }
+     revalidate(pm.id);
+-    return { ok: true, id: pm.id };
++    return { ok: true, id: pm.id, message: `Demande ${pm.reference} enregistrée.${suite}` };
+   } catch (err) {
+     console.error("[promo] createPromoMaterial failed", err);
+     return { ok: false, error: "La demande n'a pas pu être créée. Réessayez dans un instant." };
+diff --git a/src/lib/actions/promo-renvoi-flow.test.ts b/src/lib/actions/promo-renvoi-flow.test.ts
+index 188d820..79ac80b 100644
+--- a/src/lib/actions/promo-renvoi-flow.test.ts
++++ b/src/lib/actions/promo-renvoi-flow.test.ts
+@@ -12,7 +12,7 @@ import { getAppSettings } from "@/lib/settings";
+ import { createPromoMaterial } from "./promo-material-actions";
+ import { validatePromoStep, refusePromoStep, renvoyerPromoStep, resoumettrePromoDemande } from "./promo-circuit-actions";
+ import {
+-  demanderDevisPromo, enregistrerDevisPromo, terminerRetranscriptionPromo, choisirLignesPromo, demanderCorrectionDevisPromo, redemanderDevisPromo,
++  enregistrerDevisPromo, terminerRetranscriptionPromo, choisirLignesPromo, demanderCorrectionDevisPromo, redemanderDevisPromo,
+ } from "./promo-devis-actions";
+ import { enregistrerArticleDemandePromo, retirerArticleDemandePromo } from "./promo-demande-actions";
+ import { REFUS_EN_CORRECTION } from "@/lib/promo-material/renvoi";
+@@ -155,8 +155,8 @@ suite("Matériel promotionnel — renvoyer, resoumettre, redemander des devis (l
+   async function jusquAuChoix(id: string): Promise<void> {
+     await comme("dir");
+     reussi(await validatePromoStep(form({ id })), "valider la demande");
+-    await comme("cp");
+-    reussi(await demanderDevisPromo(form({ promoMaterialId: id, note: "Deux imprimeurs au moins" })), "demander les devis");
++    // LA DEMANDE DE DEVIS PART D'ELLE-MÊME à la validation de la demande (§118.204) : plus de geste « demander les devis ».
++    if ((await prisma.promoMaterial.findUniqueOrThrow({ where: { id }, select: { circuitState: true } })).circuitState !== "QUOTE_REQUESTED") throw new Error("la demande de devis n'est pas partie d'elle-même à la validation");
+     await retranscrire(id, fourA, "A-1", "100");
+     await comme("asst");
+     reussi(await terminerRetranscriptionPromo(form({ promoMaterialId: id })), "terminer la retranscription");
+@@ -276,7 +276,8 @@ suite("Matériel promotionnel — renvoyer, resoumettre, redemander des devis (l
+     // La directrice tranche de nouveau — et l'étape suivante ne se renvoie pas : c'est le demandeur qui l'a.
+     await comme("dir");
+     reussi(await validatePromoStep(form({ id })), "revalider");
+-    expect((await dossier(id)).circuitState).toBe("QUOTE_TO_REQUEST");
++    // Revalidée, la demande de devis part d'elle-même (§118.204).
++    expect((await dossier(id)).circuitState).toBe("QUOTE_REQUESTED");
+     expect(err(await renvoyerPromoStep(form({ id, motif: "x" })))).toMatch(/ne se renvoie pas/);
+     await comme("cp");
+     expect(err(await resoumettrePromoDemande(form({ id, note: "x" })))).toBe("Ce dossier n'est pas à corriger : il n'y a rien à resoumettre.");
+diff --git a/src/lib/assistant/action-registry.ts b/src/lib/assistant/action-registry.ts
+index 51dd58b..064c1e2 100644
+--- a/src/lib/assistant/action-registry.ts
++++ b/src/lib/assistant/action-registry.ts
+@@ -1112,6 +1112,13 @@ X("RENVOYER, RESOUMETTRE, REDEMANDER — LE MATÉRIEL PROMOTIONNEL SE CORRIGE (a
+   "promo-circuit-actions:renvoyerPromoStep", "promo-circuit-actions:resoumettrePromoDemande",
+   "promo-devis-actions:redemanderDevisPromo", "promo-comptage-actions:corrigerComptage",
+ ]);
++X("RANGER UN DEVIS DÉPOSÉ COMME DEVIS D'UNE AGENCE (§118.204) — un fichier « devis » posé sur une demande de matériel "
++  + "promotionnel devient un devis du circuit, rattaché à l'agence que la personne choisit dans l'annuaire. C'est un geste "
++  + "de RETRANSCRIPTION (l'assistante de direction, ou la Direction), devant le fichier : dire à qui appartient un devis "
++  + "engage le bon de commande qui en sortira. Adam est en pause de développement : aucun geste neuf ne lui est ouvert. "
++  + "Un clic sur /promo-material/<id> › carte « Devis » › « Ranger comme devis de cette agence ».", [
++  "promo-devis-actions:rangerDevisPromo",
++]);
+ X("CORRIGER SA DEMANDE DE PAIEMENT (audit 360°, lot C4c, §118.191) — l'objet, le bénéficiaire, le montant, le "
+   + "contexte et l'échéance, tant que le dossier est chez le demandeur (brouillon, ou renvoyé par les Finances). C'est le "
+   + "geste du DEMANDEUR, qui dit après transmission ce qui a changé ; il fait suivre l'ordre de dépense et peut rouvrir "
+diff --git a/src/lib/promo-material/achats.ts b/src/lib/promo-material/achats.ts
+index 0b92a80..a782dc7 100644
+--- a/src/lib/promo-material/achats.ts
++++ b/src/lib/promo-material/achats.ts
+@@ -69,15 +69,28 @@ export interface ArticleDemandeLu {
+   nom: string;
+   famille: FamillePromo;
+   unite: string;
++  /** Les produits CANONIQUES liés — ceux que le stock lit à la réception. */
+   produits: { id: string; nom: string }[];
++  /**
++   * CE QUE LA LIGNE PROMEUT, en libellés lisibles (§118.204) : « Société en général », « Gamme … »,
++   * les produits des Business Units, « Autre : … ». Absent : ligne d'avant, ses produits canoniques font foi.
++   */
++  promus?: string[];
++  /** Le choix tel que le sélecteur le présélectionne à la correction (codes et saisie « Autre »). */
++  choixPromus?: { codes: string[]; autre: string | null };
+   quantite: number | null;
+   actions: PromoAction[];
+   commentaire: string | null;
+ }
+ 
++/** Ce qu'une ligne promeut, en libellés — les promus quand ils existent, sinon les produits canoniques (ligne d'avant). */
++export function libellesPromusDeLArticle(a: Pick<ArticleDemandeLu, "produits" | "promus">): string[] {
++  return a.promus && a.promus.length ? a.promus : a.produits.map((p) => p.nom).filter(Boolean);
++}
++
+ /** « CAT-0042 Fiche posologique — Nivolex · 5 000 pièces » — ce qu'on lit dans un menu ou une phrase. */
+-export function libelleArticleDemande(a: Pick<ArticleDemandeLu, "reference" | "nom" | "produits" | "quantite" | "unite">): string {
+-  const produits = a.produits.map((p) => p.nom).filter(Boolean);
++export function libelleArticleDemande(a: Pick<ArticleDemandeLu, "reference" | "nom" | "produits" | "promus" | "quantite" | "unite">): string {
++  const produits = libellesPromusDeLArticle(a);
+   const base = `${a.reference} ${a.nom}${produits.length ? ` — ${produits.join(", ")}` : ""}`;
+   return a.quantite != null ? `${base} · ${nombre(a.quantite)} ${a.unite}` : base;
+ }
+diff --git a/src/lib/promo-material/circuit-v2.test.ts b/src/lib/promo-material/circuit-v2.test.ts
+index dbef552..c16911d 100644
+--- a/src/lib/promo-material/circuit-v2.test.ts
++++ b/src/lib/promo-material/circuit-v2.test.ts
+@@ -245,7 +245,8 @@ describe("le circuit 2 — ses étapes, et qui fait quoi", () => {
+     const c = ctx();
+     expect(progress("REVIEW_MANAGER", [], c)).toEqual({ step: 5, total: 7 });
+     expect(waitingOn("QUOTE_REQUESTED", [], 2)).toMatch(/assistante de direction/);
+-    expect(waitingOn("QUOTE_TO_REQUEST", [], 2)).toMatch(/demander les devis/);
++    // La demande de devis part d'elle-même (§118.204) ; si elle est restée, c'est le demandeur qui l'envoie, d'« Articles demandés ».
++    expect(waitingOn("QUOTE_TO_REQUEST", [], 2)).toMatch(/demande de devis n'est pas partie.*Articles demandés/);
+     expect(libelleEtape("REVIEW_REQUESTER", 2)).toMatch(/lignes/);
+     expect(libelleEtape("REVIEW_REQUESTER", 1)).toBe("Validation du demandeur");
+     expect(libelleCourt("QUOTE_REQUESTED", 2)).toBe("Retranscription des devis");
+diff --git a/src/lib/promo-material/circuit.ts b/src/lib/promo-material/circuit.ts
+index 85e3168..cbc6fce 100644
+--- a/src/lib/promo-material/circuit.ts
++++ b/src/lib/promo-material/circuit.ts
+@@ -470,7 +470,7 @@ export function progress(state: PromoState, done: readonly PromoTrack[], ctx?: C
+ export function waitingOn(state: PromoState, done: readonly PromoTrack[], version: VersionCircuit = 1): string {
+   if (state === "REFUSED") return "Dossier refusé";
+   if (state === "COMPLETED") return "Rien — dossier terminé";
+-  if (state === "QUOTE_TO_REQUEST") return "Le demandeur — il doit demander les devis au secrétariat";
++  if (state === "QUOTE_TO_REQUEST") return "Le demandeur — la demande de devis n'est pas partie : il l'envoie depuis « Articles demandés »";
+   if (state === "QUOTE_REQUESTED") return version === 2 ? "L'assistante de direction — retranscription des devis" : "Le devis de l'agence";
+   if (state === "IN_EXECUTION") {
+     const rest = pendingTracks(done);
+diff --git a/src/lib/promo-material/lignes-demande.test.ts b/src/lib/promo-material/lignes-demande.test.ts
+index ccb5207..3a2ba5f 100644
+--- a/src/lib/promo-material/lignes-demande.test.ts
++++ b/src/lib/promo-material/lignes-demande.test.ts
+@@ -15,7 +15,7 @@ import { CONTRAT_PAR_ID } from "@/lib/actions/contrat.genere";
+  * ═══════════════════════════════════════════════════════════════════════════════════════════
+  */
+ 
+-const vide: LigneDemandeSaisie = { catalogueId: "", quantite: "", actions: [], produitIds: [], commentaire: "" };
++const vide: LigneDemandeSaisie = { catalogueId: "", quantite: "", actions: [], produitIds: [], autre: "", commentaire: "" };
+ 
+ describe("lireLignesDemande — lire, jamais deviner", () => {
+   it("un champ absent ou blanc ne porte aucune ligne (c'est l'action qui dira qu'il en faut une)", () => {
+@@ -50,10 +50,10 @@ describe("lireLignesDemande — lire, jamais deviner", () => {
+       ok: true,
+       lignes: [
+         // Le commentaire n'est PAS rogné : c'est une phrase de la personne, telle qu'elle l'a écrite.
+-        { catalogueId: "cat-1", quantite: "500", actions: ["IMPRESSION", "CONCEPTION"], produitIds: ["p1", "p2"], commentaire: "  A5, recto-verso  " },
++        { catalogueId: "cat-1", quantite: "500", actions: ["IMPRESSION", "CONCEPTION"], produitIds: ["p1", "p2"], autre: "", commentaire: "  A5, recto-verso  " },
+         // Une liste qui n'en est pas une ne devient pas une liste d'un élément : elle est VIDE, et la
+         // règle de la ligne dira qu'il manque une action — au lieu de la deviner.
+-        { catalogueId: "cat-2", quantite: "1 000", actions: [], produitIds: [], commentaire: "" },
++        { catalogueId: "cat-2", quantite: "1 000", actions: [], produitIds: [], autre: "", commentaire: "" },
+       ],
+     });
+   });
+@@ -100,15 +100,16 @@ describe("ce que la demande ne porte PLUS (décision du 01/10) — lu sur les fa
+     const contrat = CONTRAT_PAR_ID.get("promo-material-actions:createPromoMaterial");
+     expect(contrat, "prémisse : l'action est décrite").toBeDefined();
+     const champs = (contrat!.champs ?? []).map((c) => c.nom).sort();
+-    expect(champs).toEqual(["description", "lignes", "title"]);
++    // Les PRÉCISIONS pour l'assistante (§118.204) entrent : elles partent avec la demande de devis, saisies dans « Articles demandés ».
++    expect(champs).toEqual(["description", "lignes", "precisionsDevis", "title"]);
+     for (const r of RETIRES) expect(champs, r).not.toContain(r);
+   });
+ 
+-  it("le FORMULAIRE n'envoie que le titre, le brief et les lignes", () => {
++  it("le FORMULAIRE n'envoie que le titre, le brief, les précisions et les lignes", () => {
+     const src = sansCommentaires(readFileSync(path.join(process.cwd(), "src/components/ad-pro/demande-materiel-form.tsx"), "utf8"));
+     // PRÉMISSE : la lecture voit bien les clés qu'il envoie — sans cela, l'absence ci-dessous ne
+     // prouverait rien (un fichier vide ne contiendrait aucune clé retirée non plus).
+-    expect(src).toMatch(/\["title", "description"\]/);
++    expect(src).toMatch(/\["title", "description", "precisionsDevis"\]/);
+     expect(src).toMatch(/fd\.set\("lignes", JSON\.stringify\(envoi\)\)/);
+     for (const r of RETIRES) expect(src, `le formulaire envoie encore « ${r} »`).not.toMatch(new RegExp(`["'\`]${r}["'\`]`));
+   });
+diff --git a/src/lib/promo-material/lignes-demande.ts b/src/lib/promo-material/lignes-demande.ts
+index 3fb531f..0e6d2b3 100644
+--- a/src/lib/promo-material/lignes-demande.ts
++++ b/src/lib/promo-material/lignes-demande.ts
+@@ -23,7 +23,10 @@ export interface LigneDemandeSaisie {
+   catalogueId: string;
+   quantite: string;
+   actions: string[];
++  /** Les CODES des produits promus (§118.204) : « societe », « gamme:… », « bu:… » — ou un produit canonique (ligne d'avant). */
+   produitIds: string[];
++  /** « Autre » — un produit promu écrit en clair, quand il n'est dans aucune liste. */
++  autre: string;
+   commentaire: string;
+ }
+ 
+@@ -59,6 +62,7 @@ export function lireLignesDemande(brut: string | null | undefined): { ok: true;
+         quantite: texte(o.quantite).trim(),
+         actions: textes(o.actions),
+         produitIds: textes(o.produitIds),
++        autre: texte(o.autre).trim(),
+         commentaire: texte(o.commentaire),
+       };
+     }),
+@@ -72,7 +76,7 @@ export function lireLignesDemande(brut: string | null | undefined): { ok: true;
+  * une ligne vide, et le refus le dira.
+  */
+ export function ligneVide(l: LigneDemandeSaisie): boolean {
+-  return !l.catalogueId && !l.quantite && l.actions.length === 0 && l.produitIds.length === 0 && !l.commentaire.trim();
++  return !l.catalogueId && !l.quantite && l.actions.length === 0 && l.produitIds.length === 0 && !l.autre && !l.commentaire.trim();
+ }
+ 
+ /** Le refus quand il ne reste aucune ligne — il dit à quoi sert une ligne, pas seulement qu'il en manque. */
+diff --git a/src/lib/promo-material/promus.ts b/src/lib/promo-material/promus.ts
+new file mode 100644
+index 0000000..e2c5f0b
+--- /dev/null
++++ b/src/lib/promo-material/promus.ts
+@@ -0,0 +1,97 @@
++/**
++ * ═══════════════════════════════════════════════════════════════════════════════════════════
++ * CE QU'UNE LIGNE DE MATÉRIEL PROMEUT (§118.204).
++ *
++ * « Produit(s) promu(s) » affichait « Aucun produit actif dans le référentiel » : la liste lisait
++ * le produit CANONIQUE (`Product`), que rien ne crée encore en production (§118.178), alors que les
++ * produits que la force de vente PROMEUT sont ceux des Business Units (`PromoProduct`). Une ligne
++ * promeut désormais, au choix et cumulables : la SOCIÉTÉ en général, une ou plusieurs GAMMES (une
++ * Business Unit), un ou plusieurs PRODUITS d'une BU — sans nommer la BU —, et « Autre », en clair.
++ *
++ * Le choix se STOCKE LISIBLE (`PromoRequestItem.promus`, JSON) : l'assistante qui cherche les
++ * devis, le tableau des devis et la fiche le lisent tel quel, sans relire l'annuaire des BU — un
++ * produit renommé ou archivé demain ne réécrit pas ce qui a été demandé hier.
++ *
++ * PUR, zéro import : le formulaire (navigateur) code ses options, le serveur les décode.
++ * ═══════════════════════════════════════════════════════════════════════════════════════════
++ */
++
++export interface PromusChoisis {
++  societe: boolean;
++  gammes: { id: string; nom: string }[];
++  produits: { id: string; nom: string }[];
++  autre: string | null;
++}
++
++/** Les CODES d'option du sélecteur — une valeur sans préfixe est un produit canonique (lignes d'avant). */
++export const CODE_SOCIETE = "societe";
++export const codeGamme = (businessUnitId: string) => `gamme:${businessUnitId}`;
++export const codeProduitBu = (promoProductId: string) => `bu:${promoProductId}`;
++
++export const LIBELLE_SOCIETE = "Société en général";
++
++export type CodeLu =
++  | { type: "SOCIETE" }
++  | { type: "GAMME"; id: string }
++  | { type: "PRODUIT_BU"; id: string }
++  | { type: "CANONIQUE"; id: string };
++
++/** Lire un code ; `null` sur ce qui ne se lit pas à coup sûr (un préfixe sans identifiant). */
++export function lireCode(brut: string): CodeLu | null {
++  const v = brut.trim();
++  if (!v) return null;
++  if (v === CODE_SOCIETE) return { type: "SOCIETE" };
++  if (v.startsWith("gamme:")) { const id = v.slice(6).trim(); return id ? { type: "GAMME", id } : null; }
++  if (v.startsWith("bu:")) { const id = v.slice(3).trim(); return id ? { type: "PRODUIT_BU", id } : null; }
++  if (v.includes(":")) return null;
++  return { type: "CANONIQUE", id: v };
++}
++
++export const aucunPromu = (p: PromusChoisis | null): boolean =>
++  !p || (!p.societe && p.gammes.length === 0 && p.produits.length === 0 && !p.autre);
++
++/** Un article « par produit » (fiche posologique) exige un PRODUIT désigné — un produit d'une BU, ou « Autre ». */
++export const designeUnProduit = (p: PromusChoisis): boolean => p.produits.length > 0 || Boolean(p.autre);
++
++/** Les libellés, dans l'ordre où on les lit : « Société en général », « Gamme Oncologie », « Nivolex », « Autre : … ». */
++export function libellesPromus(p: PromusChoisis | null): string[] {
++  if (!p) return [];
++  return [
++    ...(p.societe ? [LIBELLE_SOCIETE] : []),
++    ...p.gammes.map((g) => `Gamme ${g.nom}`),
++    ...p.produits.map((x) => x.nom),
++    ...(p.autre ? [`Autre : ${p.autre}`] : []),
++  ];
++}
++
++/** Les codes d'un choix enregistré — pour présélectionner le sélecteur à la correction. */
++export function codesPromus(p: PromusChoisis | null): string[] {
++  if (!p) return [];
++  return [
++    ...(p.societe ? [CODE_SOCIETE] : []),
++    ...p.gammes.map((g) => codeGamme(g.id)),
++    // Un produit est stocké sous son CODE (« bu:… », ou l'identifiant canonique d'une ligne d'avant).
++    ...p.produits.map((x) => x.id),
++  ];
++}
++
++const paires = (x: unknown): { id: string; nom: string }[] =>
++  Array.isArray(x)
++    ? x.flatMap((y) => {
++        const o = y && typeof y === "object" ? (y as Record<string, unknown>) : null;
++        return o && typeof o.id === "string" && typeof o.nom === "string" && o.id && o.nom ? [{ id: o.id, nom: o.nom }] : [];
++      })
++    : [];
++
++/** Relire la colonne JSON ; `null` quand elle est vide ou illisible — la ligne retombe sur ses produits canoniques. */
++export function lirePromusStockes(json: unknown): PromusChoisis | null {
++  if (!json || typeof json !== "object" || Array.isArray(json)) return null;
++  const o = json as Record<string, unknown>;
++  const p: PromusChoisis = {
++    societe: o.societe === true,
++    gammes: paires(o.gammes),
++    produits: paires(o.produits),
++    autre: typeof o.autre === "string" && o.autre.trim() ? o.autre.trim() : null,
++  };
++  return aucunPromu(p) ? null : p;
++}
+diff --git a/src/lib/promo-material/rangement.ts b/src/lib/promo-material/rangement.ts
+new file mode 100644
+index 0000000..dd5c7cc
+--- /dev/null
++++ b/src/lib/promo-material/rangement.ts
+@@ -0,0 +1,26 @@
++/** PUR, zéro import — l'action `rangerDevisPromo` et la fiche du dossier le lisent (§118.204). */
++
++/**
++ * LE REFUS D'ÉTAPE DU RANGEMENT — chaque étape dit son remède (§118.30). Lu par l'action ET par la
++ * fiche, qui ne propose « Ranger comme devis de… » que là où l'action l'acceptera (§118.83).
++ */
++export function refusDeRangement(circuitState: string | null): string | null {
++  if (circuitState === "QUOTE_REQUESTED") return null;
++  if (circuitState === "REVIEW_REQUEST" || circuitState === "QUOTE_TO_REQUEST") {
++    return "La demande de devis n'est pas encore partie : ce fichier se range comme devis dès que l'assistante retranscrit les devis.";
++  }
++  if (circuitState === "REVIEW_REQUESTER") {
++    return "Les devis sont au choix du demandeur : qu'il demande une correction de la retranscription (« Demander une correction ») — le dossier revient à l'assistante, qui pourra ranger ce devis.";
++  }
++  return "Les devis de ce dossier sont arrêtés (validation, exécution ou dossier clos) : ce fichier reste une pièce du dossier.";
++}
++
++/**
++ * UN FICHIER « DEVIS » DÉPOSÉ À NU SUR UN DOSSIER DU CIRCUIT 2 — refusé (§118.204), en nommant le geste
++ * qui le fait entrer au circuit avec son fournisseur. L'ancien circuit (version 1) dépose ses devis comme
++ * pièces : il n'est pas concerné. `null` : rien à refuser (dossier inconnu compris — la porte d'accès a déjà jugé).
++ */
++export function refusDevisLibre(pm: { circuitVersion: number } | null): string | null {
++  if (!pm || pm.circuitVersion !== 2) return null;
++  return "Un devis se dépose depuis la carte « Devis » de la fiche du dossier, avec son fournisseur choisi dans l'annuaire : il devient alors un devis du circuit (le tableau des devis), sans autre geste.";
++}
+diff --git a/src/lib/promo-material/texte-demande-devis.ts b/src/lib/promo-material/texte-demande-devis.ts
+new file mode 100644
+index 0000000..58f7fb5
+--- /dev/null
++++ b/src/lib/promo-material/texte-demande-devis.ts
+@@ -0,0 +1,59 @@
++/**
++ * ═══════════════════════════════════════════════════════════════════════════════════════════
++ * LA DEMANDE DE DEVIS, TELLE QUE L'ASSISTANTE DE DIRECTION LA LIT (§118.204).
++ *
++ * La demande de devis part désormais SANS geste séparé : à la création si la demande n'a pas de
++ * validation, sinon dès qu'elle est validée. Le demandeur ne clique donc plus sur « Demander les
++ * devis » — il doit VOIR, avant d'enregistrer, ce qui partira. Ce texte est écrit UNE fois et lu
++ * des deux côtés : l'aperçu du formulaire (navigateur) et la demande au secrétariat (serveur). Deux
++ * rédactions finiraient par montrer au demandeur autre chose que ce que l'assistante reçoit (§118.5).
++ *
++ * PUR, zéro import : les libellés (actions, produits promus) arrivent déjà traduits.
++ * ═══════════════════════════════════════════════════════════════════════════════════════════
++ */
++
++export interface ArticlePourDevis {
++  reference: string;
++  nom: string;
++  quantite: number | null;
++  unite: string;
++  /** « Conception », « Impression »… — déjà en libellés. */
++  actions: string[];
++  /** « Société en général », « Gamme Oncologie », « Nivolex »… — déjà en libellés. */
++  promus: string[];
++  commentaire: string | null;
++}
++
++const nombre = (n: number) => n.toLocaleString("fr-FR", { maximumFractionDigits: 3 });
++
++/** Une ligne, sur plusieurs lignes de texte : ce qu'il faut faire chiffrer, et rien d'ambigu. */
++export function texteArticlePourDevis(a: ArticlePourDevis, rang: number): string {
++  const tete = `${rang}. ${a.reference} ${a.nom}${a.quantite != null ? ` — ${nombre(a.quantite)} ${a.unite}` : ""}`;
++  return [
++    tete,
++    `   Ce qu'on attend du fournisseur : ${a.actions.length ? a.actions.join(", ").toLowerCase() : "—"}`,
++    a.promus.length ? `   Produit(s) promu(s) : ${a.promus.join(", ")}` : null,
++    a.commentaire?.trim() ? `   Précision : ${a.commentaire.trim()}` : null,
++  ].filter((x): x is string => x !== null).join("\n");
++}
++
++export function texteDemandeDeDevis(d: {
++  /** La référence du dossier (« MP-2026-012 ») — absente dans l'aperçu, avant la création. */
++  reference: string | null;
++  titre: string;
++  brief: string | null;
++  precisions: string | null;
++  relance: boolean;
++  articles: ArticlePourDevis[];
++}): string {
++  const dossier = d.reference ? `Dossier ${d.reference}` : "Dossier (sa référence sera attribuée à l'enregistrement)";
++  return [
++    d.relance
++      ? "NOUVELLE DEMANDE de devis : les devis déjà reçus restent sur la fiche du dossier — cherchez ce qui est demandé ci-dessous."
++      : null,
++    d.precisions?.trim() ? `Précisions du demandeur : ${d.precisions.trim()}` : null,
++    `Articles à faire chiffrer (${d.articles.length}) :\n${d.articles.map((a, i) => texteArticlePourDevis(a, i + 1)).join("\n")}`,
++    d.brief?.trim() ? `Brief : ${d.brief.trim()}` : null,
++    `${dossier} — ${d.titre}. Recevez les devis des agences, puis déposez chacun sur la fiche du dossier avec son fournisseur (choisi dans l'annuaire) et retranscrivez-le ligne à ligne (référence, unité, quantité, prix unitaire, action, article demandé).`,
++  ].filter((x): x is string => Boolean(x)).join("\n\n");
++}
+diff --git a/src/lib/queries/promo-achats.ts b/src/lib/queries/promo-achats.ts
+index 9c6a5a9..9c84c6e 100644
+--- a/src/lib/queries/promo-achats.ts
++++ b/src/lib/queries/promo-achats.ts
+@@ -2,6 +2,8 @@ import type { Prisma } from "@prisma/client";
+ import { prisma } from "@/lib/prisma";
+ import { estAction, type PromoAction } from "@/lib/promo-material/actions-fournisseur";
+ import type { ArticleDemandeLu, FamillePromo, LigneFactureLue, OptionCatalogue } from "@/lib/promo-material/achats";
++import { codesPromus, libellesPromus, lirePromusStockes } from "@/lib/promo-material/promus";
++import { optionsPromus } from "@/lib/queries/promo-promus";
+ 
+ /**
+  * LE CHARGEUR DES ACHATS DU MATÉRIEL PROMOTIONNEL (§118.165) — ce que la règle pure ne lit pas.
+@@ -15,7 +17,7 @@ const num = (v: Prisma.Decimal | number | null | undefined): number | null => (v
+ const actions = (xs: readonly string[]): PromoAction[] => xs.filter(estAction);
+ 
+ export const SELECT_ARTICLE_DEMANDE = {
+-  id: true, position: true, catalogueId: true, quantite: true, actions: true, commentaire: true,
++  id: true, position: true, catalogueId: true, quantite: true, actions: true, commentaire: true, promus: true,
+   catalogue: { select: { reference: true, nom: true, famille: true, unite: true } },
+   produits: { select: { product: { select: { id: true, canonicalName: true } } } },
+ } satisfies Prisma.PromoRequestItemSelect;
+@@ -23,7 +25,9 @@ export const SELECT_ARTICLE_DEMANDE = {
+ type ArticleBrut = Prisma.PromoRequestItemGetPayload<{ select: typeof SELECT_ARTICLE_DEMANDE }>;
+ 
+ export function articleDemandeLu(a: ArticleBrut): ArticleDemandeLu {
++  const promus = lirePromusStockes(a.promus);
+   return {
++    ...(promus ? { promus: libellesPromus(promus), choixPromus: { codes: codesPromus(promus), autre: promus.autre } } : {}),
+     id: a.id, position: a.position, catalogueId: a.catalogueId,
+     reference: a.catalogue.reference, nom: a.catalogue.nom, famille: a.catalogue.famille as FamillePromo, unite: a.catalogue.unite,
+     produits: a.produits.map((p) => ({ id: p.product.id, nom: p.product.canonicalName })).sort((x, y) => x.nom.localeCompare(y.nom, "fr")),
+@@ -45,7 +49,7 @@ export async function articlesDemandesDuDossier(promoMaterialId: string): Promis
+ export type { OptionCatalogue } from "@/lib/promo-material/achats";
+ 
+ /**
+- * CE QUE LE FORMULAIRE D'UN ARTICLE DEMANDÉ PROPOSE — le catalogue ACTIF et les produits actifs.
++ * CE QUE LE FORMULAIRE D'UN ARTICLE DEMANDÉ PROPOSE — le catalogue ACTIF et ce qu'une ligne peut promouvoir.
+  *
+  * Pas de garde du module « Catalogue » ici : le demandeur PIOCHE dans le catalogue pour composer
+  * sa demande ; le module règle qui consulte et tient le catalogue lui-même (son écran), pas qui
+@@ -59,11 +63,13 @@ export async function optionsDesArticlesDemandes(): Promise<{ catalogue: OptionC
+       select: { id: true, reference: true, nom: true, famille: true, unite: true, exigeProduit: true },
+       orderBy: { reference: "asc" },
+     }),
+-    prisma.product.findMany({ where: { isActive: true }, select: { id: true, canonicalName: true }, orderBy: { canonicalName: "asc" } }),
++    // LES PRODUITS PROMUS (§118.204) — la société, les gammes et les produits des Business Units, sous
++    // leurs CODES : la liste lisait `Product` (canonique), vide en production, et affichait « Aucun produit ».
++    optionsPromus(),
+   ]);
+   return {
+     catalogue: catalogue.map((c) => ({ ...c, famille: c.famille as FamillePromo })),
+-    produits: produits.map((p) => ({ id: p.id, nom: p.canonicalName })),
++    produits,
+   };
+ }
+ 
+diff --git a/src/lib/queries/promo-promus.ts b/src/lib/queries/promo-promus.ts
+new file mode 100644
+index 0000000..e9c7f61
+--- /dev/null
++++ b/src/lib/queries/promo-promus.ts
+@@ -0,0 +1,90 @@
++import { prisma } from "@/lib/prisma";
++import {
++  CODE_SOCIETE, LIBELLE_SOCIETE, codeGamme, codeProduitBu, lireCode, type PromusChoisis,
++} from "@/lib/promo-material/promus";
++
++/**
++ * LES « PRODUITS PROMUS » D'UNE LIGNE DE MATÉRIEL — la liste proposée, et la lecture d'un choix (§118.204).
++ *
++ * POURQUOI LA LISTE ÉTAIT VIDE : elle lisait `Product` (le produit CANONIQUE, `isActive`), une table que
++ * rien ne remplit encore en production — le rattachement du catalogue reste un geste du Super Admin
++ * (§118.178). Les produits que la force de vente promeut vivent dans les Business Units (`PromoProduct`,
++ * « Force de vente › Business Units ») : c'est eux qu'on propose, SANS nommer la BU (un produit porté par
++ * deux BU n'apparaît qu'une fois), avec « Société en général » et chaque gamme.
++ *
++ * Aucune garde de module : la liste ne révèle que des noms de produits COMMERCIALISÉS et de gammes — la
++ * même ouverture que l'ancienne liste de produits actifs. Une BU archivée ne propose rien.
++ */
++
++export interface OptionPromu { id: string; nom: string }
++
++const cle = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/\s+/g, " ").trim().toLowerCase();
++
++export async function optionsPromus(): Promise<OptionPromu[]> {
++  const [gammes, produits] = await Promise.all([
++    prisma.businessUnit.findMany({ where: { isActive: true }, select: { id: true, name: true }, orderBy: [{ sortOrder: "asc" }, { name: "asc" }] }),
++    prisma.promoProduct.findMany({
++      where: { isActive: true, businessUnit: { isActive: true } },
++      select: { id: true, name: true, productId: true },
++      orderBy: [{ name: "asc" }, { id: "asc" }],
++    }),
++  ]);
++  // UN PRODUIT, UNE ENTRÉE : deux BU qui portent le même produit (même canonique, ou même nom) ne le
++  // proposent pas deux fois — sans la BU, deux lignes « Nivolex » ne se départageraient pas.
++  const vus = new Set<string>();
++  const uniques = produits.filter((p) => {
++    const k = p.productId ? `c:${p.productId}` : `n:${cle(p.name)}`;
++    if (vus.has(k)) return false;
++    vus.add(k);
++    return true;
++  });
++  return [
++    { id: CODE_SOCIETE, nom: LIBELLE_SOCIETE },
++    ...gammes.map((g) => ({ id: codeGamme(g.id), nom: `Gamme — ${g.name}` })),
++    ...uniques.map((p) => ({ id: codeProduitBu(p.id), nom: p.name })),
++  ];
++}
++
++/**
++ * LIRE UN CHOIX — les codes du sélecteur et la saisie « Autre ». Un code venu d'un champ ne se croit pas
++ * sur parole : une gamme ou un produit inconnu (ou archivé) est REFUSÉ en le disant, jamais ignoré —
++ * une ligne qui perd un produit en silence serait chiffrée pour autre chose (§118.16). Rend aussi les
++ * produits CANONIQUES que ce choix désigne (le lien d'un produit de BU, ou une ligne d'avant) : c'est eux
++ * que le stock lit à la réception.
++ */
++export async function resoudrePromus(
++  codes: readonly string[], autreSaisi: string | null | undefined,
++): Promise<{ ok: true; promus: PromusChoisis; canoniques: string[] } | { ok: false; error: string }> {
++  const lus = [...new Set(codes.map((c) => c.trim()).filter(Boolean))].map((c) => ({ brut: c, lu: lireCode(c) }));
++  const illisibles = lus.filter((x) => !x.lu).map((x) => x.brut);
++  if (illisibles.length) return { ok: false, error: `Produit promu illisible (${illisibles.join(", ")}) : rechargez le formulaire.` };
++  const idsGammes = lus.flatMap((x) => (x.lu?.type === "GAMME" ? [x.lu.id] : []));
++  const idsBu = lus.flatMap((x) => (x.lu?.type === "PRODUIT_BU" ? [x.lu.id] : []));
++  const idsCanon = lus.flatMap((x) => (x.lu?.type === "CANONIQUE" ? [x.lu.id] : []));
++  const [gammes, produitsBu, canons] = await Promise.all([
++    idsGammes.length ? prisma.businessUnit.findMany({ where: { id: { in: idsGammes }, isActive: true }, select: { id: true, name: true } }) : [],
++    idsBu.length ? prisma.promoProduct.findMany({ where: { id: { in: idsBu }, isActive: true }, select: { id: true, name: true, productId: true } }) : [],
++    idsCanon.length ? prisma.product.findMany({ where: { id: { in: idsCanon } }, select: { id: true, canonicalName: true } }) : [],
++  ]);
++  if (gammes.length !== idsGammes.length || produitsBu.length !== idsBu.length || canons.length !== idsCanon.length) {
++    return { ok: false, error: "Un des produits promus choisis n'existe plus (ou a été archivé dans sa Business Unit) : rechargez le formulaire." };
++  }
++  const autre = (autreSaisi ?? "").trim().slice(0, 200) || null;
++  const parIdGamme = new Map(gammes.map((g) => [g.id, g.name]));
++  const parIdBu = new Map(produitsBu.map((p) => [p.id, p]));
++  const parIdCanon = new Map(canons.map((p) => [p.id, p.canonicalName]));
++  const promus: PromusChoisis = {
++    societe: lus.some((x) => x.lu?.type === "SOCIETE"),
++    gammes: idsGammes.map((id) => ({ id, nom: parIdGamme.get(id)! })),
++    produits: [
++      ...idsBu.map((id) => ({ id: codeProduitBu(id), nom: parIdBu.get(id)!.name })),
++      ...idsCanon.map((id) => ({ id, nom: parIdCanon.get(id)! })),
++    ],
++    autre,
++  };
++  const canoniques = [...new Set([
++    ...produitsBu.map((p) => p.productId).filter((x): x is string => Boolean(x)),
++    ...idsCanon,
++  ])];
++  return { ok: true, promus, canoniques };
++}

@@ -1,0 +1,2586 @@
+diff --git a/prisma/migrations/20270111090000_sponsoring_direct_sans_facture/migration.sql b/prisma/migrations/20270111090000_sponsoring_direct_sans_facture/migration.sql
+new file mode 100644
+index 0000000..861bc30
+--- /dev/null
++++ b/prisma/migrations/20270111090000_sponsoring_direct_sans_facture/migration.sql
+@@ -0,0 +1,23 @@
++-- SPONSORING DIRECT : LA FACTURE N'EST PLUS EXIGÉE POUR LE PAIEMENT (Direction, 05/10).
++--
++-- « Quand c'est un sponsoring direct (à l'association), ça demande « Proforma / lettre de demande de
++-- sponsoring », la facture n'est pas obligatoire. »
++--
++-- La règle se lit sur `ExpenseOrder.requiresInvoice`, posée à la naissance de l'ordre : le règlement,
++-- la colonne « Facture » des règlements à effectuer et le signal « justificatif manquant » la lisent
++-- tels quels. Les ordres NÉS ensuite la portent à faux (le poste d'un versement à l'association le dit
++-- à la création). Cette migration ne règle que les ordres DÉJÀ nés et pas encore réglés — un ordre
++-- réglé est un fait, on ne réécrit pas son histoire — et seulement ceux d'un poste « versement à
++-- l'association » : l'ordre d'un autre poste du même sponsoring (une prestation, un BC) garde sa facture.
++--
++-- Idempotente : relancée, elle ne retouche que ce qui exige encore une facture.
++
++UPDATE "ExpenseOrder" o
++   SET "requiresInvoice" = false
++ WHERE o."requiresInvoice" = true
++   AND o."status" IN ('PENDING', 'REVISION_REQUESTED')
++   AND EXISTS (
++     SELECT 1 FROM "AdProItem" i
++      WHERE i."expenseOrderId" = o."id"
++        AND i."kind" = 'ASSOCIATION_SUPPORT'
++   );
+diff --git a/src/app/(app)/congress-international/[id]/page.tsx b/src/app/(app)/congress-international/[id]/page.tsx
+index 6faa9d4..674dd53 100644
+--- a/src/app/(app)/congress-international/[id]/page.tsx
++++ b/src/app/(app)/congress-international/[id]/page.tsx
+@@ -38,6 +38,10 @@ import { promoMaterialOptions } from "@/lib/actions/ad-pro-item-actions";
+ import { toNumber } from "@/lib/utils";
+ import { siegeAuCentreAdPro } from "@/lib/ad-pro/centre";
+ 
++// Une page qui dépend de QUI regarde ne se met jamais en cache : la même adresse rend autre chose pour le
++// demandeur, pour la Direction et pour le Super Admin en Vue exacte (voir `lib/vue-exacte.ts`).
++export const dynamic = "force-dynamic";
++
+ export default async function CongressIntlDetailPage({ params }: { params: { id: string } }) {
+   const user = await requireModule("CONGRESS_INTERNATIONAL");
+   const detail = await getCongressDetail("INTL", user, params.id);
+diff --git a/src/app/(app)/congress-international/page.tsx b/src/app/(app)/congress-international/page.tsx
+index abb2bb8..de1e4a2 100644
+--- a/src/app/(app)/congress-international/page.tsx
++++ b/src/app/(app)/congress-international/page.tsx
+@@ -9,6 +9,8 @@ import { EVENTS_TABS } from "@/lib/labels";
+ import { CongressRequestButton } from "./congress-request-form";
+ import { CongressTable } from "./congress-table";
+ 
++export const dynamic = "force-dynamic";
++
+ export default async function CongressInternationalPage() {
+   const user = await requireModule("CONGRESS_INTERNATIONAL");
+   const canCreate = userCan(user, "CONGRESS_INTERNATIONAL", "CREATE");
+diff --git a/src/app/(app)/congress-national/[id]/page.tsx b/src/app/(app)/congress-national/[id]/page.tsx
+index 4eabad7..0b43d91 100644
+--- a/src/app/(app)/congress-national/[id]/page.tsx
++++ b/src/app/(app)/congress-national/[id]/page.tsx
+@@ -38,6 +38,10 @@ import { AD_PRO_DOC_CATEGORIES, categoriesDuDepotDeLaDemande } from "@/lib/ad-pr
+ import { canAttachToAdPro } from "@/lib/ad-pro/attachments";
+ import { siegeAuCentreAdPro } from "@/lib/ad-pro/centre";
+ 
++// Une page qui dépend de QUI regarde ne se met jamais en cache : la même adresse rend autre chose pour le
++// demandeur, pour la Direction et pour le Super Admin en Vue exacte (voir `lib/vue-exacte.ts`).
++export const dynamic = "force-dynamic";
++
+ export default async function CongressNatDetailPage({ params }: { params: { id: string } }) {
+   const user = await requireModule("CONGRESS_NATIONAL");
+   const detail = await getCongressDetail("NATIONAL", user, params.id);
+diff --git a/src/app/(app)/congress-national/page.tsx b/src/app/(app)/congress-national/page.tsx
+index 6a7b528..44f4335 100644
+--- a/src/app/(app)/congress-national/page.tsx
++++ b/src/app/(app)/congress-national/page.tsx
+@@ -9,6 +9,8 @@ import { EVENTS_TABS } from "@/lib/labels";
+ import { CongressRequestButton } from "../congress-international/congress-request-form";
+ import { CongressTable } from "../congress-international/congress-table";
+ 
++export const dynamic = "force-dynamic";
++
+ export default async function CongressNationalPage() {
+   const user = await requireModule("CONGRESS_NATIONAL");
+   const canCreate = userCan(user, "CONGRESS_NATIONAL", "CREATE");
+diff --git a/src/app/(app)/events/event-form.tsx b/src/app/(app)/events/event-form.tsx
+index 069b6d8..94c827e 100644
+--- a/src/app/(app)/events/event-form.tsx
++++ b/src/app/(app)/events/event-form.tsx
+@@ -91,24 +91,18 @@ function EventFields({ e, responsibles, referentiels = {} }: {
+   return (
+     <div className="grid grid-cols-2 gap-3">
+       <W full label="Nom de l'événement"><Input name="name" defaultValue={e?.name} required placeholder="Ex. Symposium Cardiologie 2027" /></W>
+-      {/* LA GAMME QUI PORTE LA DEMANDE — c'est SON budget Ad&Pro qui est engagé. Déduite du
+-          demandeur quand elle se lit à coup sûr, et le serveur l'impose de son côté : un champ
+-          de formulaire se forge, et une gamme forgée fait peser la dépense sur une autre équipe. */}
+-      {deduite ? (
+-        <W full label="Business Unit">
+-          <Select name="businessUnitId" defaultValue={deduite.id} required>
+-            <option value={deduite.id}>{deduite.name}</option>
+-          </Select>
+-          <p className="text-xs text-muted-foreground">{deduite.raison} C&apos;est son budget Ad&amp;Pro qui est engagé.</p>
+-        </W>
+-      ) : gammes.length > 0 ? (
++      {/* LA GAMME QUI PORTE LA DEMANDE — c'est SON budget Ad&Pro qui est engagé. Quand elle se lit
++          sur le demandeur (un KAM rattaché à sa BU, un superviseur d'UNE gamme), le champ n'est PAS
++          proposé : le serveur la pose et ignore toute valeur postée (`gammeImposee`) — un champ de
++          formulaire se forge, et une gamme forgée fait peser la dépense sur une autre équipe. */}
++      {!deduite && gammes.length > 0 && (
+         <W full label="Business Unit">
+           <Select name="businessUnitId" defaultValue={e?.businessUnitId ?? ""} required>
+             <option value="">— Choisir la gamme —</option>
+             {gammes.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
+           </Select>
+         </W>
+-      ) : null}
++      )}
+       {/* TYPE, PORTÉE, FORMAT : un choix EXPLICITE, plus une valeur pré-remplie. C'est sur eux que
+           l'arbitrage se fait, et une valeur par défaut EST une décision prise à la place du
+           demandeur (§118.108). À la MODIFICATION la valeur existe, donc le repère ne gêne pas. */}
+diff --git a/src/app/(app)/sponsoring/[id]/page.tsx b/src/app/(app)/sponsoring/[id]/page.tsx
+index 3a8012e..fceaa07 100644
+--- a/src/app/(app)/sponsoring/[id]/page.tsx
++++ b/src/app/(app)/sponsoring/[id]/page.tsx
+@@ -44,6 +44,10 @@ import { porteLeRoleQuiTranche } from "@/lib/personnes/referents-gamme";
+ import { ClosurePanel } from "./closure-panel";
+ 
+ 
++// Une page qui dépend de QUI regarde ne se met jamais en cache : la même adresse rend autre chose pour le
++// demandeur, pour la Direction et pour le Super Admin en Vue exacte (voir `lib/vue-exacte.ts`).
++export const dynamic = "force-dynamic";
++
+ export default async function SponsoringDetailPage({ params }: { params: { id: string } }) {
+   const user = await requireModule("SPONSORING");
+   // LA PORTÉE PAR LIGNE (§118.185, I4) : un délégué n'ouvre que SES demandes — la même phrase
+diff --git a/src/app/(app)/sponsoring/page.tsx b/src/app/(app)/sponsoring/page.tsx
+index a1a974f..0161254 100644
+--- a/src/app/(app)/sponsoring/page.tsx
++++ b/src/app/(app)/sponsoring/page.tsx
+@@ -13,6 +13,8 @@ import { AVAILABLE_PRODUCT_STATUSES } from "@/lib/ad-pro/pickers";
+ import { EVENTS_TABS } from "@/lib/labels";
+ import { SponsoringTable, type SponsoringRow } from "./sponsoring-table";
+ 
++export const dynamic = "force-dynamic";
++
+ export default async function SponsoringPage() {
+   const user = await requireModule("SPONSORING");
+   const canCreate = userCan(user, "SPONSORING", "CREATE");
+diff --git a/src/components/ad-pro/items-panel.tsx b/src/components/ad-pro/items-panel.tsx
+index 118d1ba..50c91ce 100644
+--- a/src/components/ad-pro/items-panel.tsx
++++ b/src/components/ad-pro/items-panel.tsx
+@@ -33,7 +33,7 @@ import {
+   NATURES_PIECE_SECRETARIAT, PIECE_SECRETARIAT, peutDemanderPiece, type NaturePieceSecretariat,
+ } from "@/lib/ad-pro/pieces-secretariat";
+ import {
+-  etapesDuPoste, prochainPas, grouperParRepartition, faitsDuPoste, VERSEMENT_SANS_BC,
++  etapesDuPoste, prochainPas, grouperParRepartition, faitsDuPoste, VERSEMENT_SANS_BC, LIBELLE_JUSTIFICATIF_DIRECT,
+   type CleGeste, type Etape, type RegardPoste,
+ } from "@/lib/ad-pro/poste-etapes";
+ import { NATURES_REPARTITION } from "@/lib/ad-pro/repartition";
+@@ -821,8 +821,13 @@ function PosteCarte({ item, parent, parentId, regard, freres, assistantes, budge
+       )}
+       {panneau === "DEMANDER_PAIEMENT" && paiementOuvert && (
+         <FormulairePiece
+-          titre={direct ? "Déposer la facture et demander le paiement" : "Déposer la facture du bon de commande et demander le paiement"}
+-          aide={`La facture est obligatoire. Son montant ne dépasse pas l'accordé${item.amountGranted != null ? ` (${formatCurrency(item.amountGranted)})` : ""}.`}
++          titre={direct ? `Joindre la ${LIBELLE_JUSTIFICATIF_DIRECT.toLocaleLowerCase("fr")} et demander le paiement` : "Déposer la facture du bon de commande et demander le paiement"}
++          aide={direct
++            ? `La ${LIBELLE_JUSTIFICATIF_DIRECT.toLocaleLowerCase("fr")} est exigée${(item.pieces?.devis ?? []).some((d) => !d.annulee && d.fichiers > 0) ? " — elle est déjà sur le poste, il n'y a rien à joindre de plus" : ""} ; la facture est facultative. Le montant ne dépasse pas l'accordé${item.amountGranted != null ? ` (${formatCurrency(item.amountGranted)})` : ""}.`
++            : `La facture est obligatoire. Son montant ne dépasse pas l'accordé${item.amountGranted != null ? ` (${formatCurrency(item.amountGranted)})` : ""}.`}
++          libelleFichier={direct ? LIBELLE_JUSTIFICATIF_DIRECT : undefined}
++          fichierObligatoire={!(direct && (item.pieces?.devis ?? []).some((d) => !d.annulee && d.fichiers > 0))}
++          factureFacultative={direct}
+           montantObligatoire montantMax={item.amountGranted} montantInitial={item.amountGranted}
+           bouton="Demander le paiement" busy={busy === `pay:${item.id}`} onCancel={fermer}
+           onSubmit={(fd) => {
+@@ -833,13 +838,13 @@ function PosteCarte({ item, parent, parentId, regard, freres, assistantes, budge
+               const r = await demanderPaiementPoste(undefined, fd);
+               if (r.ok) setDepose({ case: "FACTURE", id: null, avant });
+               return r;
+-            }, "Facture déposée — paiement demandé au centre de paiement.").then(fermer);
++            }, direct ? `${LIBELLE_JUSTIFICATIF_DIRECT} jointe — paiement demandé au centre de paiement.` : "Facture déposée — paiement demandé au centre de paiement.").then(fermer);
+           }}
+         />
+       )}
+       {panneau === "DEVIS" && peutDeposerDevis && (
+         <FormulairePiece
+-          titre={direct ? "Joindre une facture pro forma" : "Joindre un devis ou une facture pro forma"}
++          titre={direct ? `Joindre la ${LIBELLE_JUSTIFICATIF_DIRECT.toLocaleLowerCase("fr")}` : "Joindre un devis ou une facture pro forma"}
+           aide="Le fichier est obligatoire. Un même devis peut couvrir d'autres postes de cette demande."
+           montantInitial={null} fournisseurInitial={item.supplier ?? ""} proforma={direct ? "imposee" : "choix"} freres={freres}
+           bouton="Joindre" busy={busy === `dev:${item.id}`} onCancel={fermer}
+@@ -986,7 +991,7 @@ function PosteCarte({ item, parent, parentId, regard, freres, assistantes, budge
+       {/* 4. LES PIÈCES — la chaîne d'achat en trois cases alignées. */}
+       {!stock && (
+         <div className={`grid grid-cols-1 gap-2 border-t border-border/70 pt-2 ${direct && !item.pieces.bc && item.orderStage === "NONE" ? "sm:grid-cols-2" : "sm:grid-cols-3"}`}>
+-          <CasePiece titre={direct ? "Pro forma (facultatif)" : "Devis / pro forma"} ajouter={peutDeposerDevis && !enCours ? () => basculer("DEVIS") : undefined}>
++          <CasePiece titre={direct ? LIBELLE_JUSTIFICATIF_DIRECT : "Devis / pro forma"} ajouter={peutDeposerDevis && !enCours ? () => basculer("DEVIS") : undefined}>
+             {item.pieces.devis.length === 0 ? (
+               <p className="text-muted-foreground">—</p>
+             ) : item.pieces.devis.map((d) => (
+@@ -1004,9 +1009,9 @@ function PosteCarte({ item, parent, parentId, regard, freres, assistantes, budge
+               <EtatBC item={item} />
+             </CasePiece>
+           )}
+-          <CasePiece titre="Facture" ajouter={paiementOuvert && item.pieces.factures.length === 0 && !enCours ? () => basculer("DEMANDER_PAIEMENT") : undefined}>
++          <CasePiece titre={direct ? "Facture (facultative)" : "Facture"} ajouter={paiementOuvert && item.pieces.factures.length === 0 && !enCours ? () => basculer("DEMANDER_PAIEMENT") : undefined}>
+             {item.pieces.factures.length === 0 ? (
+-              <p className="text-muted-foreground">{direct ? "Après l'accord." : "Après la signature du BC."}</p>
++              <p className="text-muted-foreground">{direct ? "Non exigée pour le paiement." : "Après la signature du BC."}</p>
+             ) : item.pieces.factures.map((f) => <LignePiece key={f.id} piece={f} />)}
+             {conseil("FACTURE")}
+             {item.expenseOrder && (
+@@ -1329,10 +1334,16 @@ function VerifierBC({ demandeId, busy, onDecide, onCancel }: {
+  */
+ function FormulairePiece({
+   titre, aide, bouton, busy, onSubmit, onCancel, montantInitial, montantMax = null, montantObligatoire = false,
+-  fournisseurInitial, proforma, freres = [],
++  fournisseurInitial, proforma, freres = [], libelleFichier = "Fichier", fichierObligatoire = true, factureFacultative = false,
+ }: {
+   titre: string; aide: string; bouton: string; busy: boolean; onSubmit: (fd: FormData) => void; onCancel: () => void;
+   montantInitial: number | null; montantMax?: number | null; montantObligatoire?: boolean;
++  /** Ce que le fichier principal EST (« Proforma / lettre de demande de sponsoring » pour un versement à l'association). */
++  libelleFichier?: string;
++  /** Faux quand la pièce exigée est déjà sur le poste : rien de plus à joindre. */
++  fichierObligatoire?: boolean;
++  /** Un second fichier, la facture, qu'on peut joindre mais qu'on n'exige pas (sponsoring direct). */
++  factureFacultative?: boolean;
+   /** Le fournisseur (devis seulement). */
+   fournisseurInitial?: string;
+   /** Devis : « choix » = case à cocher ; « imposee » = c'est forcément une pro forma (sponsoring direct). */
+@@ -1349,9 +1360,15 @@ function FormulairePiece({
+       <p className="font-medium text-foreground">{titre}</p>
+       <p className="text-muted-foreground">{aide}</p>
+       <label className="block">
+-        Fichier
+-        <input type="file" name="attachment" multiple required className="mt-1 block w-full text-xs" />
++        {libelleFichier}{fichierObligatoire ? "" : " — déjà sur le poste"}
++        <input type="file" name="attachment" multiple required={fichierObligatoire} className="mt-1 block w-full text-xs" />
+       </label>
++      {factureFacultative && (
++        <label className="block">
++          Facture — facultative
++          <input type="file" name="facture" multiple className="mt-1 block w-full text-xs" />
++        </label>
++      )}
+       <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+         <label>
+           Montant (DZD){montantObligatoire ? "" : " — facultatif"}
+diff --git a/src/components/workflow/workflow-panel.tsx b/src/components/workflow/workflow-panel.tsx
+index 0e609e5..a12741b 100644
+--- a/src/components/workflow/workflow-panel.tsx
++++ b/src/components/workflow/workflow-panel.tsx
+@@ -2,6 +2,7 @@
+ 
+ import * as React from "react";
+ import Link from "next/link";
++import { useRouter } from "next/navigation";
+ import { useRafraichir } from "@/components/shared/use-rafraichir";
+ import { Check, X, Loader2, MessageSquare, ArrowRight, SkipForward, Undo2, Send, Ban } from "lucide-react";
+ import type { EntityType } from "@prisma/client";
+@@ -406,11 +407,15 @@ function ResubmitForm({ entityType, entityId }: { entityType: EntityType; entity
+   );
+ }
+ 
+-/** RETIRER une demande non tranchée (§118.186) — motif obligatoire, et la confirmation le dit. */
++/**
++ * RETIRER une demande non tranchée (§118.186) — motif obligatoire, et la confirmation le dit : retirer
++ * la SUPPRIME (Direction, 05/10), récupérable depuis la corbeille par le Super Admin. La fiche n'existe
++ * plus après le geste : on quitte la page vers la liste au lieu de la rafraîchir (elle s'afficherait
++ * « Introuvable »).
++ */
+ function WithdrawForm({ entityType, entityId }: { entityType: EntityType; entityId: string }) {
+-  const { enCours, rafraichir } = useRafraichir();
+-  const [pendingAction, start] = React.useTransition();
+-  const pending = pendingAction || enCours;
++  const router = useRouter();
++  const [pending, start] = React.useTransition();
+   const [open, setOpen] = React.useState(false);
+   const [motif, setMotif] = React.useState("");
+   const [err, setErr] = React.useState<string | null>(null);
+@@ -423,7 +428,9 @@ function WithdrawForm({ entityType, entityId }: { entityType: EntityType; entity
+     const r = await retirerDemandeAdPro(fd);
+     if (!r.ok) { setErr(r.error ?? "Retrait impossible."); return; }
+     setOpen(false);
+-    rafraichir();
++    // Pas de `refresh()` : la fiche n'existe plus, la rafraîchir la rendrait « Introuvable ». L'action a
++    // invalidé les listes (`revaliderLaDemande`) ; la navigation les relit.
++    router.push(r.redirect ?? "/ad-pro");
+   });
+   if (!open) {
+     return (
+@@ -434,7 +441,9 @@ function WithdrawForm({ entityType, entityId }: { entityType: EntityType; entity
+   }
+   return (
+     <div className="space-y-2 border-t border-border pt-3">
+-      <p className="text-xs text-muted-foreground">La demande sera close et son circuit arrêté. Le motif reste à l&apos;historique.</p>
++      <p className="text-xs text-muted-foreground">
++        La demande sera SUPPRIMÉE, avec ses postes, ses pièces et ce qui en découle (circuit, validations, ordres non réglés). Elle reste récupérable depuis la corbeille par le Super Admin ; le motif reste au journal.
++      </p>
+       <Textarea value={motif} onChange={(e) => setMotif(e.target.value)} placeholder="Pourquoi retirer la demande (obligatoire)…" className="min-h-[56px]" />
+       {err && <p className="text-xs text-destructive">{err}</p>}
+       <div className="flex gap-2">
+diff --git a/src/lib/actions/ad-pro-item-actions.ts b/src/lib/actions/ad-pro-item-actions.ts
+index 3be0242..d923bdc 100644
+--- a/src/lib/actions/ad-pro-item-actions.ts
++++ b/src/lib/actions/ad-pro-item-actions.ts
+@@ -36,7 +36,7 @@ import { familleQuantifiee, type PromoFamille } from "@/lib/promo/catalogue";
+ import { articleDansMonPerimetre, gestionnairesDuMagasin } from "@/lib/queries/promo-stock";
+ import { lireRepartition, libelleLigne, type LigneRepartition } from "@/lib/ad-pro/repartition";
+ import { ecrireRepartition, type PosteReparti } from "@/lib/ad-pro/repartition-ecriture";
+-import { STATUTS_EDITABLES, VERSEMENT_SANS_BC } from "@/lib/ad-pro/poste-etapes";
++import { STATUTS_EDITABLES, VERSEMENT_SANS_BC, LIBELLE_JUSTIFICATIF_DIRECT, facturePourPayer } from "@/lib/ad-pro/poste-etapes";
+ import {
+   assistantesDeDirection, demanderBcAAssistante, demandesBCDesPostes, annulerDemandesPiecesDuPoste, rattacherPieceAuPoste, piecesDesPostes,
+ } from "@/lib/ad-pro/pieces-poste";
+@@ -1135,13 +1135,28 @@ export async function demanderPaiementPoste(_prev: ActionResult | undefined, for
+   }
+ 
+   const fichiers = formData.getAll("attachment").filter((v): v is File => v instanceof File && v.size > 0);
+-  if (fichiers.length === 0) return { ok: false, error: "Joignez la facture : elle est obligatoire pour demander le paiement." };
+-  const refusFichier = await validateAttachments(fichiers);
++  // LA PIÈCE QU'ON EXIGE DÉPEND DE LA NATURE DU POSTE (Direction, 05/10) : un sponsoring INDIRECT
++  // (devis → BC → facture) exige la facture ; un sponsoring DIRECT à l'association exige la
++  // « Proforma / lettre de demande de sponsoring », et la facture n'est qu'une pièce de plus qu'on peut
++  // joindre. La pro forma ou la lettre peut aussi être DÉJÀ sur le poste (déposée dans sa case) : elle
++  // compte, il n'y a alors rien à rejoindre.
++  const justificatifDejaLa = direct && (pieces?.devis ?? []).some((d) => !d.annulee && d.fichiers > 0);
++  if (fichiers.length === 0 && !justificatifDejaLa) {
++    return {
++      ok: false,
++      error: direct
++        ? `Joignez la ${LIBELLE_JUSTIFICATIF_DIRECT.toLocaleLowerCase("fr")} : elle est exigée pour demander le paiement d'un sponsoring direct (la facture, elle, est facultative).`
++        : "Joignez la facture : elle est obligatoire pour demander le paiement.",
++    };
++  }
++  const facturesFacultatives = direct ? formData.getAll("facture").filter((v): v is File => v instanceof File && v.size > 0) : [];
++  const refusFichier = await validateAttachments([...fichiers, ...facturesFacultatives]);
+   if (refusFichier) return { ok: false, error: refusFichier };
+   const montant = fdNum(formData, "montant");
+-  if (montant === null || !(montant > 0)) return { ok: false, error: "Indiquez le montant de la facture." };
++  const piece = direct ? LIBELLE_JUSTIFICATIF_DIRECT.toLocaleLowerCase("fr") : "facture";
++  if (montant === null || !(montant > 0)) return { ok: false, error: `Indiquez le montant de la ${piece}.` };
+   if (montantAccorde !== null && montant > montantAccorde) {
+-    return { ok: false, error: `La facture (${montant.toLocaleString("fr-FR")} DZD) dépasse le montant accordé (${montantAccorde.toLocaleString("fr-FR")} DZD) : demandez une révision du poste.` };
++    return { ok: false, error: `La ${piece} (${montant.toLocaleString("fr-FR")} DZD) dépasse le montant accordé (${montantAccorde.toLocaleString("fr-FR")} DZD) : demandez une révision du poste.` };
+   }
+ 
+   // LE DERNIER REMPART (§118.187) : ce qui part ne dépasse jamais ce que le centre a vu. Le montant ou
+@@ -1164,28 +1179,58 @@ export async function demanderPaiementPoste(_prev: ActionResult | undefined, for
+   });
+   if (prise.count === 0) return { ok: false, error: "Ce poste vient de changer (paiement déjà demandé, ou sa décision a été revue) : rouvrez la fiche." };
+ 
++  const piecesCreees: string[] = [];
+   let factureId: string | null = null;
+   let ordreNe = false;
+   try {
+     const amont = bc?.id ?? (pieces?.devis.filter((d) => !d.annulee).length === 1 ? pieces.devis.find((d) => !d.annulee)!.id : null);
+-    const facture = await prisma.legalDocument.create({
+-      data: {
+-        title: `Facture — ${ITEM_KIND_LABELS[item.kind]} : ${item.label} (${info.ref})`,
+-        kind: "INVOICE", direction: "OUT",
+-        reference: fdStr(formData, "reference"),
+-        amount: montant,
+-        counterparty: item.supplier ?? info.beneficiary,
+-        companyId: info.companyId ?? (await moneyEntityOf(info.requesterId ?? user.id)),
+-        sourceType: PARENT_ENTITE[owner.parent], sourceId: owner.id,
+-        chainFromId: amont,
+-        createdById: user.id, updatedById: user.id,
+-        notes: `Facture du poste « ${item.label} » de ${info.ref}.`,
+-      },
+-      select: { id: true },
+-    });
+-    factureId = facture.id;
+-    await attachFormFiles(user.id, "LEGAL_DOCUMENT", facture.id, formData);
+-    await rattacherPieceAuPoste({ itemId: id, legalDocumentId: facture.id, nature: "FACTURE", acteurId: user.id });
++    const companyId = info.companyId ?? (await moneyEntityOf(info.requesterId ?? user.id));
++    let amontDeLaFacture = amont;
++    // UN SPONSORING DIRECT : la pièce exigée est la pro forma / lettre de demande — un DEVIS au registre,
++    // rattaché au poste dans la case des devis. Rien n'est créé quand elle est déjà sur le poste.
++    if (direct && fichiers.length > 0) {
++      const justificatif = await prisma.legalDocument.create({
++        data: {
++          title: `${LIBELLE_JUSTIFICATIF_DIRECT} — ${ITEM_KIND_LABELS[item.kind]} : ${item.label} (${info.ref})`,
++          kind: "QUOTE",
++          reference: fdStr(formData, "reference"),
++          amount: montant,
++          counterparty: item.supplier ?? info.beneficiary,
++          companyId,
++          sourceType: PARENT_ENTITE[owner.parent], sourceId: owner.id,
++          createdById: user.id, updatedById: user.id,
++          notes: `${LIBELLE_JUSTIFICATIF_DIRECT} du poste « ${item.label} » de ${info.ref}.`,
++        },
++        select: { id: true },
++      });
++      piecesCreees.push(justificatif.id);
++      await attachFormFiles(user.id, "LEGAL_DOCUMENT", justificatif.id, formData);
++      await rattacherPieceAuPoste({ itemId: id, legalDocumentId: justificatif.id, nature: "DEVIS", acteurId: user.id });
++      amontDeLaFacture = justificatif.id;
++    }
++    // LA FACTURE : exigée pour tout poste qui n'est pas un versement à l'association ; facultative pour lui
++    // (elle se joint si on l'a, sous le champ « facture »).
++    if (!direct || facturesFacultatives.length > 0) {
++      const facture = await prisma.legalDocument.create({
++        data: {
++          title: `Facture — ${ITEM_KIND_LABELS[item.kind]} : ${item.label} (${info.ref})`,
++          kind: "INVOICE", direction: "OUT",
++          reference: direct ? null : fdStr(formData, "reference"),
++          amount: montant,
++          counterparty: item.supplier ?? info.beneficiary,
++          companyId,
++          sourceType: PARENT_ENTITE[owner.parent], sourceId: owner.id,
++          chainFromId: amontDeLaFacture,
++          createdById: user.id, updatedById: user.id,
++          notes: `Facture du poste « ${item.label} » de ${info.ref}.`,
++        },
++        select: { id: true },
++      });
++      factureId = facture.id;
++      piecesCreees.push(facture.id);
++      await attachFormFiles(user.id, "LEGAL_DOCUMENT", facture.id, formData, direct ? "facture" : "attachment");
++      await rattacherPieceAuPoste({ itemId: id, legalDocumentId: facture.id, nature: "FACTURE", acteurId: user.id });
++    }
+ 
+     const order = await createExpenseOrder({
+       label: `${info.ref} — ${ITEM_KIND_LABELS[item.kind]} : ${item.label}`,
+@@ -1196,21 +1241,26 @@ export async function demanderPaiementPoste(_prev: ActionResult | undefined, for
+       sourceId: info.id,
+       requestedById: user.id,
+       budgetCategoryId: item.budgetCategoryId ?? null,
+-      notes: `Poste de l'opération ${info.ref} — facture jointe.`,
++      // La facture n'est exigée avant le règlement que là où elle est la pièce du paiement.
++      requiresInvoice: facturePourPayer(item.kind),
++      notes: `Poste de l'opération ${info.ref} — ${direct ? `${LIBELLE_JUSTIFICATIF_DIRECT.toLocaleLowerCase("fr")} jointe${factureId ? " ; facture jointe" : ""}` : "facture jointe"}.`,
+     });
+     ordreNe = true;
+     await prisma.adProItem.update({ where: { id }, data: { expenseOrderId: order.id, orderStage: "ISSUED", updatedById: user.id } });
+-    await prisma.legalDocument.update({ where: { id: facture.id }, data: { expenseOrderId: order.id } });
++    if (factureId) await prisma.legalDocument.update({ where: { id: factureId }, data: { expenseOrderId: order.id } });
+     await audit(user, owner.parent, owner.id, "UPDATE",
+-      `Facture déposée et paiement demandé pour le poste « ${item.label} » — ${montant.toLocaleString("fr-FR")} DZD (ordre ${order.reference}, au centre de paiement).`);
++      `${direct ? `${LIBELLE_JUSTIFICATIF_DIRECT} jointe` : "Facture déposée"} et paiement demandé pour le poste « ${item.label} » — ${montant.toLocaleString("fr-FR")} DZD (ordre ${order.reference}, au centre de paiement).`);
+     revalidate(owner.parent, owner.id);
+     revalidatePath("/finances/paiements-a-faire");
+-    return { ok: true, id: order.id, message: `Facture déposée — paiement de ${montant.toLocaleString("fr-FR")} DZD demandé au centre de paiement (${order.reference}).` };
++    return {
++      ok: true, id: order.id,
++      message: `${direct ? `${LIBELLE_JUSTIFICATIF_DIRECT} jointe` : "Facture déposée"} — paiement de ${montant.toLocaleString("fr-FR")} DZD demandé au centre de paiement (${order.reference}).`,
++    };
+   } catch (err) {
+     console.error("[ad-pro-item] demande de paiement impossible", err);
+     if (!ordreNe) {
+       await prisma.adProItem.updateMany({ where: { id, expenseOrderId: null, orderStage: "ISSUED" }, data: { orderStage: etapeLue } }).catch(() => undefined);
+-      if (factureId) await prisma.legalDocument.updateMany({ where: { id: factureId }, data: { status: "CANCELLED" } }).catch(() => undefined);
++      if (piecesCreees.length > 0) await prisma.legalDocument.updateMany({ where: { id: { in: piecesCreees } }, data: { status: "CANCELLED" } }).catch(() => undefined);
+     }
+     return { ok: false, error: "La demande de paiement n'a pas pu être enregistrée." };
+   }
+@@ -1769,7 +1819,7 @@ export async function requestAdProItemOrder(_prev: ActionResult | undefined, for
+   const refusStock = refusArgentSurPosteStock(item.kind, "un bon de commande");
+   if (refusStock) return { ok: false, error: refusStock };
+   if (VERSEMENT_SANS_BC.includes(item.kind)) {
+-    return { ok: false, error: "Un sponsoring direct n'a pas de bon de commande : déposez la facture (et, si vous l'avez, la pro forma) puis demandez le paiement." };
++    return { ok: false, error: `Un sponsoring direct n'a pas de bon de commande : joignez la ${LIBELLE_JUSTIFICATIF_DIRECT.toLocaleLowerCase("fr")} puis demandez le paiement (la facture n'est pas exigée).` };
+   }
+   const demande = await PARENTS[owner.parent].load(owner.id);
+   if (!demande) return { ok: false, error: "Opération introuvable." };
+diff --git a/src/lib/actions/ad-pro-other-actions.ts b/src/lib/actions/ad-pro-other-actions.ts
+index a6f5433..0120960 100644
+--- a/src/lib/actions/ad-pro-other-actions.ts
++++ b/src/lib/actions/ad-pro-other-actions.ts
+@@ -13,6 +13,8 @@ import { notifyRoles, notifyUser } from "@/lib/notify";
+ import { buildRef, createWithRetry } from "@/lib/refs";
+ import { companyIdForNew } from "@/lib/company";
+ import { readMultiField, lireMedecinsDemande } from "@/lib/ad-pro/pickers";
++import { gammeImposee } from "@/lib/ad-pro/business-unit-auto";
++import { refuseSousVueExacte } from "@/lib/vue-exacte";
+ import { fdStr, fdNum, type ActionResult } from "@/lib/actions/types";
+ 
+ const PATH = "/ad-pro/autres";
+@@ -51,6 +53,9 @@ export async function createAdProOtherRequest(_prev: ActionResult | undefined, f
+   try {
+     const user = await requireUser();
+     if (!userCan(user, "AD_PRO_OTHER", "CREATE")) return { ok: false, error: "Création réservée aux personnes habilitées." };
++    // Pas de création « comme » quelqu'un : voir `vue-exacte.ts`.
++    const sousVue = await refuseSousVueExacte(user);
++    if (sousVue) return sousVue;
+ 
+     const title = fdStr(formData, "title");
+     if (!title) return { ok: false, error: "L'objet de la demande est obligatoire." };
+@@ -73,7 +78,9 @@ export async function createAdProOtherRequest(_prev: ActionResult | undefined, f
+           reference: await nextRef(),
+           // LA GAMME — même défaut qu'au consulting, même remède : le menu était OBLIGATOIRE et
+           // rien ne l'écrivait (§118.140).
+-          businessUnitId: fdStr(formData, "businessUnitId") || null,
++          // Lue d'abord SUR LE DEMANDEUR (`gammeImposee`) : le champ ne lui est plus proposé quand
++          // sa gamme se déduit, et une valeur postée n'entre pas en ligne de compte pour lui.
++          businessUnitId: await gammeImposee(user, fdStr(formData, "businessUnitId") || null),
+           doctor: couple.medecins,
+           product: couple.produits,
+           title,
+diff --git a/src/lib/actions/admin-delete-actions.ts b/src/lib/actions/admin-delete-actions.ts
+index 94c750a..5f17cfc 100644
+--- a/src/lib/actions/admin-delete-actions.ts
++++ b/src/lib/actions/admin-delete-actions.ts
+@@ -114,7 +114,14 @@ export async function supprimerDemandeAdPro(formData: FormData): Promise<DeleteR
+   if (!id || !isDeletableKind(kind) || !estDemandeAdProSupprimable(kind)) return { ok: false, error: "Élément invalide." };
+   if (!(await peutSupprimerUneDemandeAdPro(user, kind, id))) return { ok: false, error: REFUS_SUPPRESSION_AD_PRO };
+   const name = await DELETE_REGISTRY[kind].describe(id);
+-  return supprimerReversible(kind, id, user.id, `Suppression d'une demande Ad & Pro — ${DELETE_REGISTRY[kind].label} « ${name ?? id} » (restaurable depuis la corbeille)`);
++  const r = await supprimerReversible(kind, id, user.id, `Suppression d'une demande Ad & Pro — ${DELETE_REGISTRY[kind].label} « ${name ?? id} » (restaurable depuis la corbeille)`);
++  // Le cœur ne revalide que la liste de la nature : le tableau « Toutes les demandes » (Ad & Pro) et
++  // « Mon espace » listent aussi la demande qui vient de partir.
++  if (r.ok) {
++    revalidatePath("/ad-pro");
++    revalidatePath("/mon-espace");
++  }
++  return r;
+ }
+ 
+ /**
+diff --git a/src/lib/actions/congress-request-actions.ts b/src/lib/actions/congress-request-actions.ts
+index fdc2665..82c828a 100644
+--- a/src/lib/actions/congress-request-actions.ts
++++ b/src/lib/actions/congress-request-actions.ts
+@@ -16,6 +16,8 @@ import { involveThirdParty } from "@/lib/third-party";
+ import { adProInit, PRODUCT_MANAGER_ROLES } from "@/lib/workflow/origin";
+ import { retirerDemandeAdPro } from "@/lib/actions/workflow-actions";
+ import { referentAInscrire } from "@/lib/ad-pro/referent-de-la-gamme";
++import { gammeImposee } from "@/lib/ad-pro/business-unit-auto";
++import { refuseSousVueExacte } from "@/lib/vue-exacte";
+ import { fdStr, fdNum, fdDate, type ActionResult } from "@/lib/actions/types";
+ import { attachFiles, validateAttachments } from "@/lib/attach-files";
+ 
+@@ -57,6 +59,9 @@ export async function createCongressRequest(
+   const user = await requireUser();
+   const t = typeOf(formData);
+   if (!userCan(user, moduleFor(t), "CREATE")) return { ok: false, error: "Non autorisé." };
++  // Pas de création « comme » quelqu'un : voir `vue-exacte.ts`.
++  const sousVue = await refuseSousVueExacte(user);
++  if (sousVue) return sousVue;
+   /*
+    * CE QUE LA DEMANDE EXIGE, NOMMÉ EN UNE FOIS (décision du 04/10/2026) : le nom, et l'événement par
+    * son DÉBUT et sa FIN — deux dates, des deux côtés. Un refus par champ ferait ressaisir le
+@@ -106,7 +111,9 @@ export async function createCongressRequest(
+   // LA GAMME SE LIT UNE FOIS : le référent vient de la gamme qu'on ÉCRIT, jamais d'une lecture
+   // parallèle du formulaire. Les deux coïncident ici, et c'est précisément le genre d'accord qui
+   // se défait le jour où la gamme se déduit du demandeur, en silence (§118.5).
+-  const gammeDeLaDemande = fdStr(formData, "businessUnitId") || null;
++  // Et elle se lit d'abord SUR LE DEMANDEUR (`gammeImposee`) : un KAM rattaché à sa BU n'a plus le
++  // champ à l'écran, et une valeur postée n'entre pas en ligne de compte pour lui.
++  const gammeDeLaDemande = await gammeImposee(user, fdStr(formData, "businessUnitId") || null);
+   const referentGamme = await referentAInscrire(gammeDeLaDemande);
+   const now = new Date();
+ 
+@@ -208,6 +215,9 @@ export async function createCongressRequest(
+     await notifyRoles(["NATIONAL_SALES", "SUPER_ADMIN"], { type: "VALIDATION_REQUIRED", title: "Demande de congrès — à attribuer (National Sales)", body: name, link });
+   }
+   revalidatePath(pathFor(t));
++  // Le tableau « Toutes les demandes » et « Mon espace » lisent aussi la demande qui vient de naître.
++  revalidatePath("/ad-pro");
++  revalidatePath("/mon-espace");
+   return { ok: true, id: created.id, ...(attached.error ? { message: `Demande créée. ${attached.error}` } : {}) };
+ }
+ 
+diff --git a/src/lib/actions/consulting-actions.ts b/src/lib/actions/consulting-actions.ts
+index d5a7e83..f4cf764 100644
+--- a/src/lib/actions/consulting-actions.ts
++++ b/src/lib/actions/consulting-actions.ts
+@@ -15,6 +15,8 @@ import { fdStr, fdNum, type ActionResult } from "@/lib/actions/types";
+ import { nextConsultingStatus, isContractEditable } from "@/lib/ad-pro/consulting";
+ import { ajusterVisaAuMontant, phraseGesteVisa, poserVisaAdPro, blocageCentreAdPro, retirerVisaEnAttente } from "@/lib/ad-pro/visa";
+ import { ecrireAuFil } from "@/lib/ad-pro/fil";
++import { gammeImposee } from "@/lib/ad-pro/business-unit-auto";
++import { refuseSousVueExacte } from "@/lib/vue-exacte";
+ import { toNumber, formatDate } from "@/lib/utils";
+ import { recordEvent } from "@/lib/events/ledger";
+ import { reaiguillerLesBCDe, LOT_ORIGINE } from "@/lib/bons-de-commande/aiguillage";
+@@ -120,6 +122,9 @@ export async function createConsultingContract(_prev: ActionResult | undefined,
+     const poleBrut = fdStr(formData, "pole");
+     const pole: PoleConsulting = estPoleConsulting(poleBrut) ? poleBrut : "AD_PRO";
+     if (!peutSurLeContrat(user, { pole }, "CREATE")) return { ok: false, error: "Création réservée aux personnes habilitées." };
++    // Pas de création « comme » quelqu'un : voir `vue-exacte.ts`.
++    const sousVue = await refuseSousVueExacte(user);
++    if (sousVue) return sousVue;
+ 
+     const title = fdStr(formData, "title");
+     const counterparty = fdStr(formData, "counterparty");
+@@ -139,6 +144,7 @@ export async function createConsultingContract(_prev: ActionResult | undefined,
+       .split("\n").map((t) => t.trim()).filter(Boolean).slice(0, 60);
+ 
+     const companyId = fdStr(formData, "companyId") || (await companyIdForNew(user.id));
++    const gammeAImposer = await gammeImposee(user, fdStr(formData, "businessUnitId") || null);
+     // LE PRATICIEN ET LE PRODUIT CONCERNÉS — lus par le lecteur canonique des six natures.
+     // Facultatifs ici (`REFERENTIELS_PAR_NATURE`) : un accompagnement réglementaire n'a pas de
+     // praticien, et exiger un choix qui n'existe pas serait un refus à tort (§118.27).
+@@ -159,7 +165,9 @@ export async function createConsultingContract(_prev: ActionResult | undefined,
+           // ne l'avaient, donc le choix imposé au demandeur était JETÉ (§118.140).
+           // Côté RH, ni gamme, ni praticien, ni produit : ce sont des faits de PROMOTION, et un
+           // contrat RH ne pèse sur aucun budget Ad & Pro.
+-          businessUnitId: pole === "AD_PRO" ? fdStr(formData, "businessUnitId") || null : null,
++          // Lue d'abord SUR LE DEMANDEUR (`gammeImposee`) : le champ ne lui est plus proposé quand
++          // sa gamme se déduit, et une valeur postée n'entre pas en ligne de compte pour lui.
++          businessUnitId: pole === "AD_PRO" ? gammeAImposer : null,
+           doctor: pole === "AD_PRO" ? couple.medecins : null,
+           product: pole === "AD_PRO" ? couple.produits : null,
+           title,
+diff --git a/src/lib/actions/contrat.genere.json b/src/lib/actions/contrat.genere.json
+index d8386fd..dfee53b 100644
+--- a/src/lib/actions/contrat.genere.json
++++ b/src/lib/actions/contrat.genere.json
+@@ -25,7 +25,7 @@
+   {"id":"ad-pro-item-actions:decideAdProItem","fichier":"ad-pro-item-actions","fonction":"decideAdProItem","avantFormulaire":0,"porte":{"module":null,"verbe":null,"entite":null,"moduleFr":null,"gardes":["canAllocate","peutTrancherSur"]},"ecrit":true,"modelesEcrits":["adProItem","notification"],"audit":false,"appel":"etat-formulaire","champs":[{"nom":"amountGranted","type":"nombre","obligatoire":false,"valeurs":null,"modele":null},{"nom":"budgetCategoryId","type":"reference","obligatoire":false,"valeurs":null,"modele":"BudgetCategoryLine"},{"nom":"decision","type":"texte","obligatoire":true,"valeurs":["DRAFT","PENDING","REVISION","APPROVED","REJECTED"],"modele":null},{"nom":"id","type":"reference","obligatoire":true,"valeurs":null,"modele":"AdProItem"},{"nom":"note","type":"texte","obligatoire":false,"valeurs":null,"modele":null}],"illisible":null},
+   {"id":"ad-pro-item-actions:deleteAdProItem","fichier":"ad-pro-item-actions","fonction":"deleteAdProItem","avantFormulaire":0,"porte":{"module":null,"verbe":null,"entite":null,"moduleFr":null,"gardes":["canAllocate","canEditItems","canRemoveItem"]},"ecrit":true,"modelesEcrits":["adProItem","comment","deletedRecord","document","dossier","dossierMessage","expenseOrder","notification"],"audit":true,"appel":"etat-formulaire","champs":[{"nom":"id","type":"reference","obligatoire":true,"valeurs":null,"modele":"AdProItem"}],"illisible":null},
+   {"id":"ad-pro-item-actions:demanderBCBilletterie","fichier":"ad-pro-item-actions","fonction":"demanderBCBilletterie","avantFormulaire":0,"porte":{"module":null,"verbe":null,"entite":null,"moduleFr":null,"gardes":["canEditItems"]},"ecrit":true,"modelesEcrits":["adProItem"],"audit":false,"appel":"formulaire","champs":[{"nom":"id","type":"reference","obligatoire":true,"valeurs":null,"modele":"AdProItem"},{"nom":"note","type":"texte","obligatoire":false,"valeurs":null,"modele":null}],"illisible":null},
+-  {"id":"ad-pro-item-actions:demanderPaiementPoste","fichier":"ad-pro-item-actions","fonction":"demanderPaiementPoste","avantFormulaire":0,"porte":{"module":null,"verbe":null,"entite":null,"moduleFr":null,"gardes":["canAllocate","canEditItems","canEmitOrder"]},"ecrit":true,"modelesEcrits":["adProItem","adProItemPiece","expenseOrder","legalDocument"],"audit":false,"appel":"etat-formulaire","champs":[{"nom":"attachment","type":"liste","obligatoire":false,"valeurs":null,"modele":null},{"nom":"id","type":"reference","obligatoire":true,"valeurs":null,"modele":null},{"nom":"montant","type":"nombre","obligatoire":false,"valeurs":null,"modele":null},{"nom":"reference","type":"texte","obligatoire":false,"valeurs":null,"modele":null}],"illisible":null},
++  {"id":"ad-pro-item-actions:demanderPaiementPoste","fichier":"ad-pro-item-actions","fonction":"demanderPaiementPoste","avantFormulaire":0,"porte":{"module":null,"verbe":null,"entite":null,"moduleFr":null,"gardes":["canAllocate","canEditItems","canEmitOrder"]},"ecrit":true,"modelesEcrits":["adProItem","adProItemPiece","expenseOrder","legalDocument"],"audit":false,"appel":"etat-formulaire","champs":[{"nom":"attachment","type":"liste","obligatoire":false,"valeurs":null,"modele":null},{"nom":"facture","type":"liste","obligatoire":false,"valeurs":null,"modele":null},{"nom":"id","type":"reference","obligatoire":true,"valeurs":null,"modele":null},{"nom":"montant","type":"nombre","obligatoire":false,"valeurs":null,"modele":null},{"nom":"reference","type":"texte","obligatoire":false,"valeurs":null,"modele":null}],"illisible":null},
+   {"id":"ad-pro-item-actions:demanderPieceSecretariat","fichier":"ad-pro-item-actions","fonction":"demanderPieceSecretariat","avantFormulaire":0,"porte":{"module":null,"verbe":null,"entite":null,"moduleFr":null,"gardes":["canEditItems","peutDemanderPiece"]},"ecrit":true,"modelesEcrits":["adProItem","administrativeRequest","notification"],"audit":false,"appel":"etat-formulaire","champs":[{"nom":"id","type":"reference","obligatoire":true,"valeurs":null,"modele":null},{"nom":"nature","type":"texte","obligatoire":false,"valeurs":null,"modele":null},{"nom":"note","type":"texte","obligatoire":false,"valeurs":null,"modele":null}],"illisible":null},
+   {"id":"ad-pro-item-actions:demanderReservation","fichier":"ad-pro-item-actions","fonction":"demanderReservation","avantFormulaire":0,"porte":{"module":null,"verbe":null,"entite":null,"moduleFr":null,"gardes":["canEditItems"]},"ecrit":true,"modelesEcrits":["adProItem","dossier","dossierMessage"],"audit":true,"appel":"formulaire","champs":[{"nom":"id","type":"reference","obligatoire":true,"valeurs":null,"modele":"AdProItem"}],"illisible":null},
+   {"id":"ad-pro-item-actions:demanderRevisionPoste","fichier":"ad-pro-item-actions","fonction":"demanderRevisionPoste","avantFormulaire":0,"porte":{"module":null,"verbe":null,"entite":null,"moduleFr":null,"gardes":["canEditItems"]},"ecrit":true,"modelesEcrits":["adProItem"],"audit":false,"appel":"etat-formulaire","champs":[{"nom":"amountEstimated","type":"nombre","obligatoire":false,"valeurs":null,"modele":null},{"nom":"id","type":"reference","obligatoire":true,"valeurs":null,"modele":"AdProItem"},{"nom":"motif","type":"texte","obligatoire":true,"valeurs":null,"modele":null}],"illisible":null},
+@@ -889,7 +889,7 @@
+   {"id":"workflow-actions:advanceWorkflow","fichier":"workflow-actions","fonction":"advanceWorkflow","avantFormulaire":0,"porte":{"module":null,"verbe":null,"entite":null,"moduleFr":"Ad & Pro","gardes":[]},"ecrit":true,"modelesEcrits":["auditLog","comment","document","workflowInstance"],"audit":true,"appel":"formulaire","champs":[{"nom":"action","type":"texte","obligatoire":false,"valeurs":null,"modele":null},{"nom":"amount","type":"nombre","obligatoire":false,"valeurs":null,"modele":null},{"nom":"assigneeId","type":"reference","obligatoire":false,"valeurs":null,"modele":null},{"nom":"budgetCategoryId","type":"reference","obligatoire":false,"valeurs":null,"modele":null},{"nom":"entityId","type":"reference","obligatoire":true,"valeurs":null,"modele":null},{"nom":"entityType","type":"texte","obligatoire":true,"valeurs":["SPONSORING","CONGRESS_INTERNATIONAL","CONGRESS_NATIONAL","EVENT"],"modele":null},{"nom":"files","type":"liste","obligatoire":false,"valeurs":null,"modele":null},{"nom":"note","type":"texte","obligatoire":false,"valeurs":null,"modele":null}],"illisible":null},
+   {"id":"workflow-actions:resetWorkflowDefinition","fichier":"workflow-actions","fonction":"resetWorkflowDefinition","avantFormulaire":0,"porte":{"module":null,"verbe":null,"entite":null,"moduleFr":"Administration","gardes":["isWorkflowCategory"]},"ecrit":true,"modelesEcrits":["auditLog","workflowDefinition"],"audit":true,"appel":"formulaire","champs":[{"nom":"category","type":"texte","obligatoire":true,"valeurs":null,"modele":null}],"illisible":null},
+   {"id":"workflow-actions:resoumettreDemande","fichier":"workflow-actions","fonction":"resoumettreDemande","avantFormulaire":0,"porte":{"module":null,"verbe":null,"entite":null,"moduleFr":null,"gardes":["canAccessEntity"]},"ecrit":true,"modelesEcrits":["workflowInstance"],"audit":true,"appel":"formulaire","champs":[{"nom":"entityId","type":"reference","obligatoire":true,"valeurs":null,"modele":null},{"nom":"entityType","type":"texte","obligatoire":true,"valeurs":["SPONSORING","CONGRESS_INTERNATIONAL","CONGRESS_NATIONAL","EVENT"],"modele":null},{"nom":"note","type":"texte","obligatoire":false,"valeurs":null,"modele":null}],"illisible":null},
+-  {"id":"workflow-actions:retirerDemandeAdPro","fichier":"workflow-actions","fonction":"retirerDemandeAdPro","avantFormulaire":0,"porte":{"module":null,"verbe":null,"entite":null,"moduleFr":null,"gardes":["canAccessEntity","hasGlobalView"]},"ecrit":true,"modelesEcrits":["workflowInstance","workflowStepEvent"],"audit":true,"appel":"formulaire","champs":[{"nom":"entityId","type":"reference","obligatoire":true,"valeurs":null,"modele":null},{"nom":"entityType","type":"texte","obligatoire":true,"valeurs":["SPONSORING","CONGRESS_INTERNATIONAL","CONGRESS_NATIONAL","EVENT"],"modele":null},{"nom":"motif","type":"texte","obligatoire":true,"valeurs":null,"modele":null}],"illisible":null},
++  {"id":"workflow-actions:retirerDemandeAdPro","fichier":"workflow-actions","fonction":"retirerDemandeAdPro","avantFormulaire":0,"porte":{"module":null,"verbe":null,"entite":null,"moduleFr":null,"gardes":["canAccessEntity","hasGlobalView","isDeletableKind"]},"ecrit":true,"modelesEcrits":["comment","deletedRecord","document","workflowInstance"],"audit":true,"appel":"formulaire","champs":[{"nom":"entityId","type":"reference","obligatoire":true,"valeurs":null,"modele":null},{"nom":"entityType","type":"texte","obligatoire":true,"valeurs":["SPONSORING","CONGRESS_INTERNATIONAL","CONGRESS_NATIONAL","EVENT"],"modele":null},{"nom":"motif","type":"texte","obligatoire":true,"valeurs":null,"modele":null}],"illisible":null},
+   {"id":"workflow-actions:rollbackWorkflowDefinition","fichier":"workflow-actions","fonction":"rollbackWorkflowDefinition","avantFormulaire":0,"porte":{"module":null,"verbe":null,"entite":null,"moduleFr":"Administration","gardes":["isWorkflowCategory"]},"ecrit":true,"modelesEcrits":["auditLog"],"audit":true,"appel":"formulaire","champs":[{"nom":"category","type":"texte","obligatoire":true,"valeurs":null,"modele":null},{"nom":"version","type":"nombre","obligatoire":true,"valeurs":null,"modele":null}],"illisible":null},
+   {"id":"workflow-actions:saveWorkflowDefinition","fichier":"workflow-actions","fonction":"saveWorkflowDefinition","avantFormulaire":0,"porte":{"module":null,"verbe":null,"entite":null,"moduleFr":"Administration","gardes":["isWorkflowCategory"]},"ecrit":true,"modelesEcrits":["auditLog","workflowDefinition","workflowDefinitionVersion","workflowStep"],"audit":true,"appel":"formulaire","champs":[{"nom":"payload","type":"texte","obligatoire":true,"valeurs":null,"modele":null}],"illisible":null}
+ ]
+diff --git a/src/lib/actions/event-actions.ts b/src/lib/actions/event-actions.ts
+index 909f2b7..a4b1e0e 100644
+--- a/src/lib/actions/event-actions.ts
++++ b/src/lib/actions/event-actions.ts
+@@ -19,6 +19,8 @@ import { statutManuelOuRien, estStatutDuCircuit } from "@/lib/events/statut";
+ import { adProInit, PRODUCT_MANAGER_ROLES } from "@/lib/workflow/origin";
+ import { relancerCycle } from "@/lib/workflow/engine";
+ import { referentAInscrire } from "@/lib/ad-pro/referent-de-la-gamme";
++import { gammeImposee, businessUnitDuDemandeur } from "@/lib/ad-pro/business-unit-auto";
++import { refuseSousVueExacte } from "@/lib/vue-exacte";
+ import { fdStr, fdNum, fdDate, type ActionResult } from "@/lib/actions/types";
+ import { readMultiField, lireMedecinsDemande } from "@/lib/ad-pro/pickers";
+ 
+@@ -127,6 +129,9 @@ function champsManquants(formData: FormData): string[] {
+ export async function createEvent(formData: FormData): Promise<ActionResult> {
+   const user = await requireUser();
+   if (!userCan(user, "EVENTS", "CREATE")) return { ok: false, error: "Non autorisé." };
++  // Pas de création « comme » quelqu'un : voir `vue-exacte.ts`.
++  const sousVue = await refuseSousVueExacte(user);
++  if (sousVue) return sousVue;
+   const name = fdStr(formData, "name");
+   if (!name) return { ok: false, error: "Le nom de l'événement est obligatoire." };
+   const manquants = champsManquants(formData);
+@@ -142,7 +147,9 @@ export async function createEvent(formData: FormData): Promise<ActionResult> {
+   const created = await prisma.event.create({
+     data: {
+       // LA GAMME QUI PORTE LA DEMANDE — c'est SON budget Ad&Pro qui est engagé.
+-      businessUnitId: fdStr(formData, "businessUnitId") || null,
++      // Lue d'abord SUR LE DEMANDEUR : un KAM rattaché à sa BU n'a plus le champ, et une valeur
++      // postée n'entre pas en ligne de compte pour lui (`gammeImposee`).
++      businessUnitId: await gammeImposee(user, fdStr(formData, "businessUnitId") || null),
+       name,
+       // Entité : la portée en cours, à défaut la société d'appartenance du créateur.
+       // L'ENTITÉ QUI PAIERA suit la PERSONNE (sa fiche employé, à défaut son
+@@ -175,6 +182,9 @@ export async function createEvent(formData: FormData): Promise<ActionResult> {
+   });
+   await recordAudit({ actorId: user.id, action: "CREATE", module: "Events", summary: `Événement « ${name} »` });
+   revalidatePath("/events");
++  // Le tableau « Toutes les demandes » et « Mon espace » lisent aussi la demande qui vient de naître.
++  revalidatePath("/ad-pro");
++  revalidatePath("/mon-espace");
+   return { ok: true, id: created.id };
+ }
+ 
+@@ -211,8 +221,11 @@ export async function updateEvent(formData: FormData): Promise<ActionResult> {
+   }
+   const saisi = statutSaisi(formData);
+   if (!saisi.ok) return saisi;
++  // LA GAMME NE SE CHANGE PAS PAR QUELQU'UN DONT LA GAMME EST DÉDUITE : le champ ne lui est plus
++  // proposé, et une valeur postée est une valeur forgée (ne pas y toucher = `undefined`).
++  const gammeDeLEditeur = await businessUnitDuDemandeur(user);
+   const data = {
+-    businessUnitId: fdStr(formData, "businessUnitId") || undefined,
++    businessUnitId: gammeDeLEditeur ? undefined : fdStr(formData, "businessUnitId") || undefined,
+     name,
+     type: inEnum(EventType, fdStr(formData, "type"), "CONGRESS"),
+     scope: inEnum(EventScope, fdStr(formData, "scope"), "NATIONAL"),
+diff --git a/src/lib/actions/promo-material-actions.ts b/src/lib/actions/promo-material-actions.ts
+index 17eea36..aa8bdbd 100644
+--- a/src/lib/actions/promo-material-actions.ts
++++ b/src/lib/actions/promo-material-actions.ts
+@@ -33,6 +33,7 @@ import { annulerDemandeSecretariat } from "@/lib/secretariat/annulation";
+ import { etatsDesBC } from "@/lib/bons-de-commande/etat";
+ import { mirrorDocumentsToDrive } from "@/lib/drive/document-mirror";
+ import { deleteFileByKey } from "@/lib/storage";
++import { refuseSousVueExacte } from "@/lib/vue-exacte";
+ 
+ const PATH = "/promo-material";
+ 
+@@ -206,6 +207,9 @@ export async function createPromoMaterial(_prev: ActionResult | undefined, formD
+     // UN REFUS DIT LA VRAIE RAISON. Il disait « réservée au Marketing » — faux : délégués, KAM et
+     // National Sales créent aussi (droit du module) ; celui qui est refusé n'a pas le droit du module.
+     if (!userCan(user, "PROMO_MATERIAL", "CREATE")) return { ok: false, error: "Votre profil n'a pas le droit de créer une demande de matériel promotionnel (module Matériel promotionnel) : l'accès se règle en Administration › Comptes." };
++    // Pas de création « comme » quelqu'un : voir `vue-exacte.ts`.
++    const sousVue = await refuseSousVueExacte(user);
++    if (sousVue) return sousVue;
+     const title = fdStr(formData, "title");
+     const description = fdStr(formData, "description");
+ 
+diff --git a/src/lib/actions/sponsoring-actions.ts b/src/lib/actions/sponsoring-actions.ts
+index c68c326..798e9a4 100644
+--- a/src/lib/actions/sponsoring-actions.ts
++++ b/src/lib/actions/sponsoring-actions.ts
+@@ -23,6 +23,7 @@ import { toNumber } from "@/lib/utils";
+ import { porteLeRoleQuiTranche } from "@/lib/personnes/referents-gamme";
+ import { bilanCloture, peutCloturer, quiCloture, refusCloture, type QuiCloture } from "@/lib/ad-pro/cloture-sponsoring";
+ import { postesPourCloture } from "@/lib/queries/ad-pro-items";
++import { refuseSousVueExacte } from "@/lib/vue-exacte";
+ 
+ const PATH = "/sponsoring";
+ 
+@@ -73,6 +74,9 @@ export async function createSponsoring(
+ ): Promise<ActionResult> {
+   const user = await requireUser();
+   if (!userCan(user, "SPONSORING", "CREATE")) return { ok: false, error: "Non autorisé." };
++  // Pas de création « comme » quelqu'un : voir `vue-exacte.ts`.
++  const sousVue = await refuseSousVueExacte(user);
++  if (sousVue) return sousVue;
+ 
+   const institution = fdStr(formData, "institution");
+   if (!institution) return { ok: false, error: "L'institution est obligatoire." };
+@@ -269,6 +273,9 @@ export async function createSponsoring(
+   await notifyAdProCreation(init, created.id, `${created.reference} — ${institution}`);
+ 
+   revalidatePath(PATH);
++  // Le tableau « Toutes les demandes » et « Mon espace » lisent aussi la demande qui vient de naître.
++  revalidatePath("/ad-pro");
++  revalidatePath("/mon-espace");
+   return { ok: true, id: created.id, ...(attached.error ? { message: `Demande créée. ${attached.error}` } : {}) };
+ }
+ 
+diff --git a/src/lib/actions/types.ts b/src/lib/actions/types.ts
+index e57adf0..93edfb9 100644
+--- a/src/lib/actions/types.ts
++++ b/src/lib/actions/types.ts
+@@ -4,6 +4,8 @@ export interface ActionResult {
+   error?: string;
+   id?: string;
+   message?: string;
++  /** Où aller après l'action quand l'objet n'existe plus (une demande retirée = supprimée). */
++  redirect?: string;
+ }
+ 
+ /** Helpers for parsing FormData values inside server actions. */
+diff --git a/src/lib/actions/workflow-actions.ts b/src/lib/actions/workflow-actions.ts
+index f9a9c93..15ac883 100644
+--- a/src/lib/actions/workflow-actions.ts
++++ b/src/lib/actions/workflow-actions.ts
+@@ -9,6 +9,8 @@ import { attachFiles, validateAttachments } from "@/lib/attach-files";
+ import { ROLE_LABELS } from "@/lib/labels";
+ import { advanceWorkflowInstance, resubmitWorkflowInstance, retirerDemande } from "@/lib/workflow/engine";
+ import { canAccessEntity } from "@/lib/entity-access";
++import { supprimerReversible } from "@/lib/suppression/coeur";
++import { DELETE_REGISTRY, isDeletableKind } from "@/lib/admin-delete-registry";
+ import { hasGlobalView, userCan, type Module } from "@/lib/rbac";
+ import {
+   ACTOR_SCOPES, WORKFLOW_POWERS, WORKFLOW_CATEGORIES, CATEGORY_PATH,
+@@ -131,6 +133,15 @@ export async function resoumettreDemande(formData: FormData): Promise<ActionResu
+  * RETIRER une demande non tranchée (audit 360°, R24 — §118.186). Le demandeur la retire ; qui
+  * TRANCHE le module, ou la vue globale, peut l'annuler — les mêmes que l'annulation d'un congrès.
+  * Motif obligatoire, poste engagé bloquant : le moteur le vérifie.
++ *
++ * RETIRER, C'EST SUPPRIMER (Direction, 05/10) : « quand je retire une demande Ad&Pro, elle doit être
++ * TOTALEMENT supprimée — évidemment toujours récupérable depuis la corbeille par le Super Admin ». La
++ * demande part par le cœur réversible de la corbeille, au même titre que `supprimerDemandeAdPro` : UN lot,
++ * UNE transaction, avec son circuit, ses validations, ses ordres de dépense non réglés, ses postes, ses
++ * pièces — et elle revient intacte à la restauration. Ce qui a quitté l'ERP (un règlement parti, une
++ * pièce signée) la garde, et le refus nomme ce qui l'y oblige. La porte reste celle du RETRAIT (le
++ * demandeur, qui tranche, la vue globale) : retirer sa propre demande n'est pas le pouvoir de supprimer
++ * celle d'un autre, qui reste à `supprimerDemandeAdPro`.
+  */
+ export async function retirerDemandeAdPro(formData: FormData): Promise<ActionResult> {
+   const user = await requireUser();
+@@ -138,19 +149,25 @@ export async function retirerDemandeAdPro(formData: FormData): Promise<ActionRes
+   const entityId = fdStr(formData, "entityId");
+   const motif = fdStr(formData, "motif");
+   if (!entityType || !WORKFLOW_ENTITIES.includes(entityType) || !entityId) return { ok: false, error: "Paramètres manquants." };
+-  if (!motif) return { ok: false, error: "Dites pourquoi vous retirez la demande : le motif reste à l'historique." };
++  if (!motif) return { ok: false, error: "Dites pourquoi vous retirez la demande : le motif reste au journal." };
+   if (!(await canAccessEntity(user, entityType, entityId, "VIEW"))) return { ok: false, error: "Demande introuvable." };
+   const demandeurId = await demandeurDe(entityType, entityId);
+   const module = MODULE_DE[entityType];
+   const autorise = demandeurId === user.id || hasGlobalView(user) || (module !== undefined && userCan(user, module, "VALIDATE"));
+   if (!autorise) return { ok: false, error: "Seuls le demandeur et qui tranche ce module retirent une demande." };
++  const kind = entityType as string;
++  if (!isDeletableKind(kind)) return { ok: false, error: "Paramètres manquants." };
+   const r = await retirerDemande({
+     viewer: { id: user.id, role: user.role, secondaryRole: user.secondaryRole ?? null, name: user.name },
+     entityType, entityId, motif,
++    supprimer: (nom) => supprimerReversible(
++      kind, entityId, user.id,
++      `Demande retirée par ${user.id === demandeurId ? "son demandeur" : "un validateur"} — ${DELETE_REGISTRY[kind].label} « ${nom} » : ${motif} (restaurable depuis la corbeille)`,
++    ),
+   });
+   if (!r.ok) return { ok: false, error: r.error };
+   revaliderLaDemande(entityType, entityId);
+-  return { ok: true, message: "Demande retirée — son circuit est clos, le motif reste à l'historique." };
++  return { ok: true, message: "Demande retirée et supprimée — elle reste récupérable depuis la corbeille par le Super Admin.", redirect: r.redirect ?? CHEMIN[entityType] ?? "/ad-pro" };
+ }
+ 
+ async function demandeurDe(entityType: EntityType, entityId: string): Promise<string | null> {
+diff --git a/src/lib/ad-pro/business-unit-auto.ts b/src/lib/ad-pro/business-unit-auto.ts
+index ccdee8e..9671a9e 100644
+--- a/src/lib/ad-pro/business-unit-auto.ts
++++ b/src/lib/ad-pro/business-unit-auto.ts
+@@ -81,3 +81,28 @@ export async function businessUnitDuDemandeur(user: DemandeurBu): Promise<BuDedu
+ 
+   return null;
+ }
++
++/**
++ * LA GAMME QU'ON ÉCRIT SUR UNE DEMANDE — LA MÊME RÈGLE POUR LES SIX NATURES.
++ *
++ * « Si un KAM fait déjà partie d'une BU, quand il fait une demande Ad&Pro, ça ne doit pas lui
++ * proposer le champ « Business Unit » » (Direction, 05/10). Le champ disparaît des formulaires
++ * quand la gamme se lit sur la personne (`businessUnitDuDemandeur`) : sans lui, rien n'arrive plus
++ * du navigateur, et c'est le SERVEUR qui la pose — pour les cinq natures qui écrivent une gamme
++ * (sponsoring, congrès international et national, événement, consulting, autre demande). Seul le
++ * sponsoring l'imposait ; les quatre autres lisaient le formulaire tel quel, donc masquer le champ
++ * sans cette règle les aurait fait naître SANS gamme — la dépense à la charge de personne.
++ *
++ * Là où la gamme se lit, la valeur postée est IGNORÉE : un champ de formulaire se forge, et une
++ * gamme forgée fait peser la dépense sur le budget d'une autre équipe. Là où elle ne se lit pas
++ * (Direction, superviseur de plusieurs gammes, personne sans rattachement), la saisie reste
++ * souveraine — le comportement d'avant.
++ *
++ * La valeur postée se lit DANS L'ACTION, en littéral (`fdStr(formData, "businessUnitId")`) : la
++ * dérivation des contrats d'action ne suit pas la lecture d'un formulaire dans un module importé
++ * (§118.143), et le champ disparaîtrait de la fiche d'Adam.
++ */
++export async function gammeImposee(user: DemandeurBu, posted: string | null): Promise<string | null> {
++  const deduite = await businessUnitDuDemandeur(user);
++  return deduite?.id ?? (posted || null);
++}
+diff --git a/src/lib/ad-pro/conseil-pieces.ts b/src/lib/ad-pro/conseil-pieces.ts
+index 45a3b65..383263c 100644
+--- a/src/lib/ad-pro/conseil-pieces.ts
++++ b/src/lib/ad-pro/conseil-pieces.ts
+@@ -160,8 +160,9 @@ export const CONSIGNE_CONSEIL = [
+   "  convention, engagement, courrier, invitation, attestation.",
+   "- un POSTE (une ligne de dépense : hôtellerie, billetterie, restauration, imprimerie, stand…) et l'une de ses CASES :",
+   "  DEVIS (un devis ou une facture pro forma), BON_DE_COMMANDE, FACTURE (la facture définitive).",
+-  "- Un poste de nature « Sponsoring direct (association) » n'a PAS de bon de commande : une pro forma va dans DEVIS,",
+-  "  la facture dans FACTURE ; un bon de commande déposé là est mal placé.",
++  "- Un poste de nature « Sponsoring direct (association) » n'a PAS de bon de commande : une pro forma ou la lettre de demande",
++  "  de sponsoring va dans DEVIS (c'est la pièce exigée pour le paiement), la facture — facultative — dans FACTURE ;",
++  "  un bon de commande déposé là est mal placé.",
+   "",
+   "LES GESTES — liste FERMÉE, tu n'en inventes aucun :",
+   "- DEPLACER_POSTE : la pièce appartient à un AUTRE poste existant (donne son posteId et la case).",
+@@ -346,7 +347,7 @@ export function appliquerRegles(c: ConseilPiece, ctx: ContexteConseil): ConseilP
+       verdict = "A_DEPLACER";
+       conseils.unshift({
+         geste: "AUTRE",
+-        texte: "Un sponsoring direct n'a pas de bon de commande : une pro forma va dans la case « Devis / pro forma », la facture dans la case « Facture ».",
++        texte: "Un sponsoring direct n'a pas de bon de commande : la proforma ou la lettre de demande de sponsoring va dans la case « Proforma / lettre de demande de sponsoring » (c'est elle qui est exigée), la facture — facultative — dans la case « Facture ».",
+       });
+     }
+   }
+diff --git a/src/lib/ad-pro/create-fields.test.ts b/src/lib/ad-pro/create-fields.test.ts
+index 693a0f1..6853b7c 100644
+--- a/src/lib/ad-pro/create-fields.test.ts
++++ b/src/lib/ad-pro/create-fields.test.ts
+@@ -93,18 +93,15 @@ describe("Le formulaire de sponsoring", () => {
+     expect(find(f, "amountProposed")).toMatchObject({ required: true });
+   });
+ 
+-  it("la Business Unit DÉDUITE ne propose que celle-là, et DIT pourquoi", () => {
+-    // Ce qui le ferait tomber : garder la liste entière. Le champ resterait un menu libre, et
+-    // un KAM pourrait faire peser sa dépense sur le budget Ad&Pro d'une autre gamme — le
+-    // serveur l'impose de son côté, mais l'écran ne doit pas proposer ce qu'il refusera.
++  it("la Business Unit DÉDUITE n'est PAS demandée : le champ disparaît (Direction, 05/10)", () => {
++    // Ce qui le ferait tomber : garder le menu, même réduit à une option. La personne ne choisit pas
++    // ce que son poste dit déjà ; c'est le SERVEUR qui l'impose (`gammeImposee`), et un menu libre
++    // laisserait croire qu'on peut choisir — ou forger une autre gamme.
+     const f = sponsoringCreateFields({
+       businessUnits: [{ id: "bu1", name: "Oncologie" }, { id: "bu2", name: "Cardiologie" }],
+       businessUnitDeduite: { id: "bu1", name: "Oncologie", raison: "Votre gamme — rattachement de votre fiche force de vente." },
+     });
+-    const bu = find(f, "businessUnitId") as unknown as { options: { value: string }[]; defaultValue: string; hint: string };
+-    expect(bu.options.map((o) => o.value)).toEqual(["bu1"]);
+-    expect(bu.defaultValue).toBe("bu1");
+-    expect(bu.hint).toContain("force de vente");
++    expect(f.some((x) => x.name === "businessUnitId"), "plus aucun champ gamme").toBe(false);
+   });
+ 
+   it("Business Unit NON déduite : le choix reste manuel sur la liste entière", () => {
+diff --git a/src/lib/ad-pro/create-fields.ts b/src/lib/ad-pro/create-fields.ts
+index 55462c5..c46e490 100644
+--- a/src/lib/ad-pro/create-fields.ts
++++ b/src/lib/ad-pro/create-fields.ts
+@@ -88,24 +88,19 @@ export function toPeople(users: readonly UserOption[]): PersonOption[] {
+  *
+  * Le choix est OBLIGATOIRE dès qu'il y a des gammes à proposer — une demande sans gamme retombe
+  * dans l'indistinct, et personne ne revient la rattacher. Il DISPARAÎT quand aucune BU n'existe :
+- * exiger un choix dans une liste vide n'est pas une règle, c'est une impasse.
++ * exiger un choix dans une liste vide n'est pas une règle, c'est une impasse. Et il DISPARAÎT aussi
++ * quand la gamme se déduit du demandeur : le serveur l'impose, la lui redemander est du bruit.
+  */
+ export function businessUnitField(
+   businessUnits: readonly { id: string; name: string }[],
+   deduite?: { id: string; name: string; raison: string } | null,
+ ): FieldDef[] {
+   // LA GAMME SE LIT SUR LA PERSONNE : un KAM par sa fiche force de vente, un superviseur
+-  // national par la gamme qu'il supervise. Le menu ne propose alors que CELLE-LÀ — et le
+-  // serveur l'impose, parce qu'un champ de formulaire se forge et qu'une gamme forgée fait
+-  // peser la dépense sur le budget Ad&Pro d'une autre équipe (`business-unit-auto.ts`).
+-  if (deduite) {
+-    return [{
+-      type: "select", name: "businessUnitId", label: "Business Unit", required: true, full: true,
+-      options: [{ value: deduite.id, label: deduite.name }],
+-      defaultValue: deduite.id,
+-      hint: `${deduite.raison} C'est son budget Ad&Pro qui est engagé.`,
+-    }];
+-  }
++  // national par la gamme qu'il supervise. Le champ DISPARAÎT alors — « si un KAM fait
++  // déjà partie d'une BU, ça ne doit pas lui proposer le champ » — et le serveur la pose
++  // (`gammeImposee`) : un champ de formulaire se forge, et une gamme forgée fait peser la dépense
++  // sur le budget Ad&Pro d'une autre équipe (`business-unit-auto.ts`).
++  if (deduite) return [];
+   if (businessUnits.length === 0) return [];
+   return [{
+     type: "select", name: "businessUnitId", label: "Business Unit", required: true, full: true,
+diff --git a/src/lib/ad-pro/gamme-imposee.test.ts b/src/lib/ad-pro/gamme-imposee.test.ts
+new file mode 100644
+index 0000000..df3e5b9
+--- /dev/null
++++ b/src/lib/ad-pro/gamme-imposee.test.ts
+@@ -0,0 +1,295 @@
++import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
++import { readFileSync } from "node:fs";
++import type { CurrentUser } from "@/lib/session";
++
++vi.mock("next/cache", () => ({ revalidatePath: () => {} }));
++vi.mock("next/headers", () => ({
++  cookies: () => { throw new Error("hors requête"); },
++  headers: () => new Headers(),
++}));
++let ACTOR: CurrentUser | null = null;
++vi.mock("@/lib/session", () => ({ requireUser: async () => ACTOR, getCurrentUser: async () => ACTOR, getCurrentUserPourEcrire: async () => ACTOR }));
++
++import type { UserRole } from "@prisma/client";
++import { prisma } from "@/lib/prisma";
++import { getAccess, hasGlobalView, type SessionUser } from "@/lib/rbac";
++import { businessUnitDuDemandeur, gammeImposee } from "@/lib/ad-pro/business-unit-auto";
++import { businessUnitField, consultingCreateFields, adProOtherCreateFields, sponsoringCreateFields } from "@/lib/ad-pro/create-fields";
++import { createSponsoring } from "@/lib/actions/sponsoring-actions";
++import { createCongressRequest } from "@/lib/actions/congress-request-actions";
++import { createEvent, updateEvent } from "@/lib/actions/event-actions";
++import { createConsultingContract } from "@/lib/actions/consulting-actions";
++import { createAdProOtherRequest } from "@/lib/actions/ad-pro-other-actions";
++
++/**
++ * ═══════════════════════════════════════════════════════════════════════════════════════════
++ * LA BUSINESS UNIT DÉDUITE N'EST PLUS DEMANDÉE — ET LE SERVEUR L'IMPOSE (Direction, 05/10).
++ *
++ * « Dans les formulaires Ad&Pro, ne pas proposer le champ Business Unit quand elle est déduite : un
++ * KAM rattaché à sa BU, un superviseur national d'UNE gamme. »
++ *
++ * Masquer le champ ne protège de rien : un champ de formulaire se forge. Chaque porte qui LISAIT la
++ * gamme postée (congrès, événement, consulting, « autre demande ») est donc passée par `gammeImposee`
++ * AVANT que le champ disparaisse — et ce banc forge la gamme d'un AUTRE budget par les vrais points
++ * d'entrée, avec des acteurs sans vue globale (§118.104).
++ *
++ *   kam    délégué médical rattaché à BU1 : la gamme se lit sur sa fiche de force de vente
++ *   ns1    National Sales qui supervise UNE gamme (BU1) : la gamme se lit sur sa supervision
++ *   ns2    National Sales qui en supervise DEUX : aucune des deux n'est déduite (on ne choisit pas pour lui)
++ *   libre  délégué sans fiche force de vente : rien à déduire, la saisie reste libre
++ *   pm     Direction Marketing : idem — la gamme se choisit
++ *   pmkam  Direction Marketing qui est AUSSI KAM de BU1 (rôle secondaire) : il modifie un événement en entier ET sa gamme se déduit
++ * ═══════════════════════════════════════════════════════════════════════════════════════════
++ */
++
++const TAG = `__gamme${Date.now()}__`;
++let dbOk = false;
++try { await prisma.$queryRaw`SELECT 1`; dbOk = true; } catch { dbOk = false; }
++const suite = dbOk ? describe : describe.skip;
++
++const ids: Record<string, string> = {};
++const roles: Record<string, UserRole> = {};
++const bu: Record<string, string> = {};
++
++const secondaires: Record<string, UserRole | null> = {};
++async function comme(qui: string) {
++  const id = ids[qui]!;
++  const access = await getAccess(id, roles[qui] as SessionUser["role"]);
++  ACTOR = { id, name: `${TAG}${qui}`, email: `${TAG}${qui}@t.dz`, role: roles[qui] as SessionUser["role"], secondaryRole: secondaires[qui] ?? null, access, mustChangePassword: false } as CurrentUser;
++  return ACTOR;
++}
++const pdf = () => new File([new Uint8Array([0x25, 0x50, 0x44, 0x46])], "demande.pdf", { type: "application/pdf" });
++
++function formSponsoring(nom: string, gamme: string): FormData {
++  const f = new FormData();
++  f.set("institution", `${TAG}${nom}`);
++  f.append("doctorIds", `${TAG}Dr Benali`); f.append("productIds", `${TAG}Nivolex`);
++  f.set("city", "Alger"); f.set("specialty", "Cardiologie"); f.set("type", "Congrès");
++  f.set("amountRequested", "120000"); f.set("amountProposed", "90000"); f.set("nature", "DIRECT"); f.set("strategicImportance", "HIGH");
++  f.set("businessUnitId", gamme);
++  f.append("files", pdf());
++  return f;
++}
++function formCongres(type: "INTL" | "NATIONAL", nom: string, gamme: string): FormData {
++  const f = new FormData();
++  f.set("type", type); f.set("name", `${TAG}${nom}`); f.set(type === "INTL" ? "startDate" : "date", "2027-03-01"); f.set("endDate", "2027-03-04");
++  f.set("estimatedBudget", "200000"); f.set("businessUnitId", gamme);
++  return f;
++}
++function formEvenement(nom: string, gamme: string): FormData {
++  const f = new FormData();
++  f.set("name", `${TAG}${nom}`); f.set("type", "CONGRESS"); f.set("scope", "NATIONAL"); f.set("format", "PRESENTIEL");
++  f.set("startDate", "2027-04-01"); f.set("endDate", "2027-04-02"); f.set("location", "Hôtel"); f.set("city", "Alger"); f.set("country", "Algérie");
++  f.set("specialty", "Cardiologie"); f.append("doctorIds", `${TAG}Dr Amrani`); f.append("productIds", `${TAG}Nivolex`);
++  f.set("estimatedBudget", "300000"); f.set("responsibleId", ids.kam!); f.set("description", "Test");
++  f.set("businessUnitId", gamme);
++  return f;
++}
++function formConsulting(nom: string, gamme: string): FormData {
++  const f = new FormData();
++  f.set("title", `${TAG}${nom}`); f.set("counterparty", `${TAG}Cabinet`); f.set("businessUnitId", gamme);
++  return f;
++}
++function formAutre(nom: string, gamme: string): FormData {
++  const f = new FormData();
++  f.set("title", `${TAG}${nom}`); f.set("description", "Une demande d'essai"); f.set("businessUnitId", gamme);
++  return f;
++}
++
++suite("La gamme déduite s'impose côté serveur — et le champ n'est plus proposé", () => {
++  beforeAll(async () => {
++    const c = await prisma.company.findFirst({ where: { isActive: true }, select: { id: true } });
++    for (const k of ["bu1", "bu2", "bu3", "bu4"]) bu[k] = (await prisma.businessUnit.create({ data: { name: `${TAG}${k}` } })).id;
++    const comptes: [string, UserRole][] = [
++      ["kam", "MEDICAL_DELEGATE"], ["ns1", "NATIONAL_SALES"], ["ns2", "NATIONAL_SALES"], ["libre", "MEDICAL_DELEGATE"], ["pm", "PRODUCT_MANAGER"], ["pmkam", "PRODUCT_MANAGER"],
++    ];
++    for (const [k, role] of comptes) {
++      const u = await prisma.user.create({ data: { name: `${TAG}${k}`, email: `${TAG}${k}@t.dz`, role, passwordHash: "x" } });
++      await prisma.employee.create({ data: { fullName: `${TAG}${k}`, userId: u.id, isActive: true, companyId: c!.id } });
++      ids[k] = u.id; roles[k] = role;
++    }
++    await prisma.salesRepProfile.create({ data: { repId: ids.kam!, businessUnitId: bu.bu1! } });
++    await prisma.salesRepProfile.create({ data: { repId: ids.pmkam!, businessUnitId: bu.bu1! } });
++    secondaires.pmkam = "MEDICAL_DELEGATE";
++    await prisma.user.update({ where: { id: ids.pmkam! }, data: { secondaryRole: "MEDICAL_DELEGATE" } });
++    await prisma.businessUnit.update({ where: { id: bu.bu1! }, data: { supervisorId: ids.ns1! } });
++    await prisma.businessUnit.update({ where: { id: bu.bu3! }, data: { supervisorId: ids.ns2! } });
++    await prisma.businessUnit.update({ where: { id: bu.bu4! }, data: { supervisorId: ids.ns2! } });
++  }, 60_000);
++
++  afterAll(async () => {
++    const nettoyer = async (type: "SPONSORING" | "CONGRESS_INTERNATIONAL" | "CONGRESS_NATIONAL" | "EVENT" | "CONSULTING_CONTRACT" | "AD_PRO_OTHER", lignes: { id: string }[]) => {
++      for (const l of lignes) {
++        await prisma.workflowInstance.deleteMany({ where: { entityType: type, entityId: l.id } }).catch(() => {});
++        await prisma.adProGateVisa.deleteMany({ where: { entityId: l.id } }).catch(() => {});
++        await prisma.notification.deleteMany({ where: { link: { contains: l.id } } }).catch(() => {});
++      }
++    };
++    await nettoyer("SPONSORING", await prisma.sponsoringRequest.findMany({ where: { institution: { startsWith: TAG } }, select: { id: true } }));
++    await prisma.sponsoringRequest.deleteMany({ where: { institution: { startsWith: TAG } } }).catch(() => {});
++    await nettoyer("CONGRESS_INTERNATIONAL", await prisma.congressInternational.findMany({ where: { name: { startsWith: TAG } }, select: { id: true } }));
++    await prisma.congressInternational.deleteMany({ where: { name: { startsWith: TAG } } }).catch(() => {});
++    await nettoyer("CONGRESS_NATIONAL", await prisma.congressNational.findMany({ where: { name: { startsWith: TAG } }, select: { id: true } }));
++    await prisma.congressNational.deleteMany({ where: { name: { startsWith: TAG } } }).catch(() => {});
++    await nettoyer("EVENT", await prisma.event.findMany({ where: { name: { startsWith: TAG } }, select: { id: true } }));
++    await prisma.event.deleteMany({ where: { name: { startsWith: TAG } } }).catch(() => {});
++    await nettoyer("CONSULTING_CONTRACT", await prisma.consultingContract.findMany({ where: { title: { startsWith: TAG } }, select: { id: true } }));
++    await prisma.consultingContract.deleteMany({ where: { title: { startsWith: TAG } } }).catch(() => {});
++    await nettoyer("AD_PRO_OTHER", await prisma.adProOtherRequest.findMany({ where: { title: { startsWith: TAG } }, select: { id: true } }));
++    await prisma.adProOtherRequest.deleteMany({ where: { title: { startsWith: TAG } } }).catch(() => {});
++    await prisma.salesRepProfile.deleteMany({ where: { repId: { in: [ids.kam!, ids.pmkam!] } } }).catch(() => {});
++    await prisma.businessUnit.deleteMany({ where: { id: { in: Object.values(bu) } } }).catch(() => {});
++    await prisma.employee.deleteMany({ where: { fullName: { startsWith: TAG } } }).catch(() => {});
++    await prisma.notification.deleteMany({ where: { userId: { in: Object.values(ids) } } }).catch(() => {});
++    await prisma.auditLog.deleteMany({ where: { actorId: { in: Object.values(ids) } } }).catch(() => {});
++    await prisma.user.deleteMany({ where: { id: { in: Object.values(ids) } } }).catch(() => {});
++  }, 60_000);
++
++  // ── LA DÉDUCTION : ce que le serveur lit sur la personne ─────────────────────────────────────
++
++  it("PRÉMISSES — ce que la déduction dit de chacun, et qu'aucun n'a la vue globale", async () => {
++    for (const k of ["kam", "ns1", "ns2", "libre", "pm", "pmkam"]) expect(hasGlobalView(await comme(k)), `${k} : pas de vue globale`).toBe(false);
++    expect((await businessUnitDuDemandeur({ id: ids.kam!, role: "MEDICAL_DELEGATE" }))?.id, "le KAM : sa gamme").toBe(bu.bu1);
++    expect((await businessUnitDuDemandeur({ id: ids.ns1!, role: "NATIONAL_SALES" }))?.id, "NS d'UNE gamme").toBe(bu.bu1);
++    expect(await businessUnitDuDemandeur({ id: ids.ns2!, role: "NATIONAL_SALES" }), "NS de DEUX gammes : aucune").toBeNull();
++    expect(await businessUnitDuDemandeur({ id: ids.libre!, role: "MEDICAL_DELEGATE" }), "délégué sans fiche : aucune").toBeNull();
++    expect(await businessUnitDuDemandeur({ id: ids.pm!, role: "PRODUCT_MANAGER" }), "Direction Marketing : aucune").toBeNull();
++  });
++
++  it("`gammeImposee` : la déduite l'emporte sur la postée ; sans déduction, la postée est gardée ; rien de postée = null", async () => {
++    expect(await gammeImposee({ id: ids.kam!, role: "MEDICAL_DELEGATE" }, bu.bu2!)).toBe(bu.bu1);
++    expect(await gammeImposee({ id: ids.kam!, role: "MEDICAL_DELEGATE" }, null)).toBe(bu.bu1);
++    expect(await gammeImposee({ id: ids.libre!, role: "MEDICAL_DELEGATE" }, bu.bu2!)).toBe(bu.bu2);
++    expect(await gammeImposee({ id: ids.libre!, role: "MEDICAL_DELEGATE" }, null)).toBeNull();
++    expect(await gammeImposee({ id: ids.libre!, role: "MEDICAL_DELEGATE" }, "")).toBeNull();
++  });
++
++  // ── LE CHAMP : proposé à qui doit choisir, jamais à qui est déduit ───────────────────────────
++
++  it("LE CHAMP disparaît des formulaires quand la gamme est déduite, et reste quand elle ne l'est pas", () => {
++    const gammes = [{ id: "b1", name: "A" }, { id: "b2", name: "B" }];
++    const deduite = { id: "b1", name: "A", raison: "Votre gamme" };
++    const noms = (f: { name: string }[]) => f.map((x) => x.name);
++    expect(noms(businessUnitField(gammes, deduite)), "champ commun").not.toContain("businessUnitId");
++    expect(noms(businessUnitField(gammes, null)), "champ commun, non déduit").toContain("businessUnitId");
++    expect(noms(sponsoringCreateFields({ businessUnits: gammes, businessUnitDeduite: deduite }))).not.toContain("businessUnitId");
++    expect(noms(sponsoringCreateFields({ businessUnits: gammes, businessUnitDeduite: null }))).toContain("businessUnitId");
++    expect(noms(consultingCreateFields({ companies: [], businessUnits: gammes, businessUnitDeduite: deduite }))).not.toContain("businessUnitId");
++    expect(noms(consultingCreateFields({ companies: [], businessUnits: gammes, businessUnitDeduite: null }))).toContain("businessUnitId");
++    expect(noms(adProOtherCreateFields({ companies: [], businessUnits: gammes, businessUnitDeduite: deduite }))).not.toContain("businessUnitId");
++    expect(noms(adProOtherCreateFields({ companies: [], businessUnits: gammes, businessUnitDeduite: null }))).toContain("businessUnitId");
++  });
++
++  // ── LE SERVEUR : une gamme forgée est ignorée, par chaque porte qui la lisait ────────────────
++
++  it("UN KAM qui FORGE la gamme d'un autre budget : sponsoring, congrès international, congrès national, événement — la sienne est écrite", async () => {
++    await comme("kam");
++    const s = await createSponsoring(undefined, formSponsoring("S", bu.bu2!));
++    expect(s.ok, JSON.stringify(s)).toBe(true);
++    expect((await prisma.sponsoringRequest.findUniqueOrThrow({ where: { id: s.id! } })).businessUnitId, "sponsoring").toBe(bu.bu1);
++
++    const ci = await createCongressRequest(undefined, formCongres("INTL", "CI", bu.bu2!));
++    expect(ci.ok, JSON.stringify(ci)).toBe(true);
++    expect((await prisma.congressInternational.findUniqueOrThrow({ where: { id: ci.id! } })).businessUnitId, "congrès international").toBe(bu.bu1);
++
++    const cn = await createCongressRequest(undefined, formCongres("NATIONAL", "CN", bu.bu2!));
++    expect(cn.ok, JSON.stringify(cn)).toBe(true);
++    expect((await prisma.congressNational.findUniqueOrThrow({ where: { id: cn.id! } })).businessUnitId, "congrès national").toBe(bu.bu1);
++
++    const e = await createEvent(formEvenement("E", bu.bu2!));
++    expect(e.ok, JSON.stringify(e)).toBe(true);
++    expect((await prisma.event.findUniqueOrThrow({ where: { id: e.id! } })).businessUnitId, "événement").toBe(bu.bu1);
++  }, 60_000);
++
++  it("UN KAM qui N'ENVOIE PAS la gamme (le champ n'est plus à l'écran) : la sienne est écrite quand même", async () => {
++    await comme("kam");
++    const f = formCongres("INTL", "CI sans champ", bu.bu2!);
++    f.delete("businessUnitId");
++    const r = await createCongressRequest(undefined, f);
++    expect(r.ok, JSON.stringify(r)).toBe(true);
++    expect((await prisma.congressInternational.findUniqueOrThrow({ where: { id: r.id! } })).businessUnitId).toBe(bu.bu1);
++    const g = formEvenement("E sans champ", bu.bu2!);
++    g.delete("businessUnitId");
++    const e = await createEvent(g);
++    expect(e.ok, JSON.stringify(e)).toBe(true);
++    expect((await prisma.event.findUniqueOrThrow({ where: { id: e.id! } })).businessUnitId).toBe(bu.bu1);
++  }, 60_000);
++
++  it("UN NATIONAL SALES d'UNE gamme qui forge une autre : consulting et « autre demande » écrivent la sienne", async () => {
++    await comme("ns1");
++    const c = await createConsultingContract(undefined, formConsulting("Consulting", bu.bu2!));
++    expect(c.ok, JSON.stringify(c)).toBe(true);
++    expect((await prisma.consultingContract.findUniqueOrThrow({ where: { id: c.id! } })).businessUnitId, "consulting").toBe(bu.bu1);
++    const a = await createAdProOtherRequest(undefined, formAutre("Autre", bu.bu2!));
++    expect(a.ok, JSON.stringify(a)).toBe(true);
++    expect((await prisma.adProOtherRequest.findUniqueOrThrow({ where: { id: a.id! } })).businessUnitId, "autre demande").toBe(bu.bu1);
++  }, 60_000);
++
++  // ── LE CHOIX RESTE LIBRE LÀ OÙ RIEN NE SE DÉDUIT (refuser à tort coûterait plus que le défaut) ───────
++
++  it("SANS DÉDUCTION, la gamme postée est gardée — NS de deux gammes, délégué sans fiche, Direction Marketing", async () => {
++    await comme("ns2");
++    const c = await createConsultingContract(undefined, formConsulting("Libre NS2", bu.bu3!));
++    expect(c.ok, JSON.stringify(c)).toBe(true);
++    expect((await prisma.consultingContract.findUniqueOrThrow({ where: { id: c.id! } })).businessUnitId, "NS de deux gammes : son choix").toBe(bu.bu3);
++
++    await comme("libre");
++    const ev = await createEvent(formEvenement("Libre", bu.bu2!));
++    expect(ev.ok, JSON.stringify(ev)).toBe(true);
++    expect((await prisma.event.findUniqueOrThrow({ where: { id: ev.id! } })).businessUnitId, "délégué sans fiche : son choix").toBe(bu.bu2);
++
++    await comme("pm");
++    const a = await createAdProOtherRequest(undefined, formAutre("Libre PM", bu.bu4!));
++    expect(a.ok, JSON.stringify(a)).toBe(true);
++    expect((await prisma.adProOtherRequest.findUniqueOrThrow({ where: { id: a.id! } })).businessUnitId, "Direction Marketing : son choix").toBe(bu.bu4);
++  }, 60_000);
++
++  // ── LA MODIFICATION D'UN ÉVÉNEMENT ───────────────────────────────────────────────────────────
++
++  it("MODIFIER un événement : qui se déduit ne change pas sa gamme par un champ forgé ; qui doit choisir la change", async () => {
++    await comme("kam");
++    const e = await createEvent(formEvenement("À modifier", bu.bu1!));
++    expect(e.ok, JSON.stringify(e)).toBe(true);
++    const modif = (gamme: string | null) => {
++      const f = formEvenement("À modifier", gamme ?? "");
++      f.set("id", e.id!);
++      if (gamme === null) f.delete("businessUnitId");
++      return f;
++    };
++    // Seule la Direction et qui valide modifient un événement EN ENTIER : un KAM n'y a pas accès. La personne
++    // qui cumule (Direction Marketing ET KAM de BU1) exerce la seule situation où la déduction sert ici.
++    expect((await updateEvent(modif(bu.bu2!))).ok, "PRÉMISSE : un KAM seul ne modifie pas l'événement en entier").toBe(false);
++    await comme("pmkam");
++    const r = await updateEvent(modif(bu.bu2!));
++    expect(r.ok, JSON.stringify(r)).toBe(true);
++    expect((await prisma.event.findUniqueOrThrow({ where: { id: e.id! } })).businessUnitId, "forgée : ignorée").toBe(bu.bu1);
++    // Le témoin : qui ne se déduit pas choisit — sans lui, une garde qui ignorerait TOUJOURS la gamme postée passerait.
++    await comme("pm");
++    const r2 = await updateEvent(modif(bu.bu2!));
++    expect(r2.ok, JSON.stringify(r2)).toBe(true);
++    expect((await prisma.event.findUniqueOrThrow({ where: { id: e.id! } })).businessUnitId, "non déduite : le choix de la personne").toBe(bu.bu2);
++  }, 60_000);
++
++  // ── LES POINTS D'APPEL (§118.49) ────────────────────────────────────────────────────────────
++
++  it("CLIQUET — chaque action de création lit la gamme par `gammeImposee`, et le formulaire de l'événement masque le champ", () => {
++    const sansCommentaires = (src: string) => src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/.*$/gm, "$1");
++    const lire = (f: string) => sansCommentaires(readFileSync(f, "utf8"));
++    for (const f of ["congress-request-actions.ts", "event-actions.ts", "consulting-actions.ts", "ad-pro-other-actions.ts"]) {
++      const src = lire(`src/lib/actions/${f}`);
++      expect(src, `${f} : lit la gamme par gammeImposee`).toMatch(/gammeImposee\(\s*user\s*,\s*fdStr\(formData, "businessUnitId"\)/);
++      // Les lectures postées restent LITTÉRALES (la dérivation des contrats lit ces clés, §118.143).
++      expect(src, `${f} : la clé postée reste littérale`).toContain('fdStr(formData, "businessUnitId")');
++    }
++    const sponsoring = lire("src/lib/actions/sponsoring-actions.ts");
++    expect(sponsoring, "le sponsoring la déduisait déjà").toMatch(/gammeDeduite\?\.id \?\? \(fdStr\(formData, "businessUnitId"\)/);
++    const event = lire("src/lib/actions/event-actions.ts");
++    const upd = event.slice(event.indexOf("export async function updateEvent"));
++    expect(upd, "la modification ignore la gamme postée pour qui se déduit").toMatch(/businessUnitDuDemandeur\(user\)/);
++    expect(upd).toMatch(/businessUnitId: gammeDeLEditeur \? undefined/);
++    const form = lire("src/app/(app)/events/event-form.tsx");
++    expect(form, "l'écran n'affiche le menu que si rien n'est déduit").toMatch(/!deduite && gammes\.length > 0/);
++    const champ = lire("src/lib/ad-pro/create-fields.ts");
++    expect(champ, "le champ commun se retire quand la gamme est déduite").toMatch(/if \(deduite\) return \[\];/);
++  });
++});
+diff --git a/src/lib/ad-pro/poste-etapes.test.ts b/src/lib/ad-pro/poste-etapes.test.ts
+index 08effe4..949b8d8 100644
+--- a/src/lib/ad-pro/poste-etapes.test.ts
++++ b/src/lib/ad-pro/poste-etapes.test.ts
+@@ -1,5 +1,5 @@
+ import { describe, it, expect } from "vitest";
+-import { faitsDuPoste, etapesDuPoste, prochainPas, type FaitsPoste, type RegardPoste } from "@/lib/ad-pro/poste-etapes";
++import { faitsDuPoste, etapesDuPoste, prochainPas, facturePourPayer, LIBELLE_JUSTIFICATIF_DIRECT, type FaitsPoste, type RegardPoste } from "@/lib/ad-pro/poste-etapes";
+ 
+ /**
+  * LE GESTE SUIVANT D'UN POSTE (§118.175, §118.204) — un seul, ou ce qu'on attend et de qui.
+@@ -121,6 +121,44 @@ describe("le geste suivant d'un poste", () => {
+     expect(prochainPas(avant, DEMANDEUR).geste?.cle).toBe("DEMANDER_BC");
+   });
+ 
++  /**
++   * SPONSORING DIRECT : LA PIÈCE EXIGÉE EST LA PROFORMA / LETTRE (Direction, 05/10). La frise nomme ce qui
++   * est exigé et le dit FAIT dès que la pièce est là ; le geste le dit aussi ; la facture n'est nulle part
++   * obligatoire — et le sponsoring INDIRECT garde son « Facture » : sans ce témoin, un libellé qui dirait
++   * « Pro forma » partout passerait.
++   */
++  it("un sponsoring DIRECT nomme la proforma / lettre — la facture n'y est plus exigée ; l'INDIRECT garde la facture", () => {
++    const p = pret({ kind: "ASSOCIATION_SUPPORT", amountGranted: 300_000 });
++    expect(etapesDuPoste(p).find((e) => e.cle === "FACTURE")?.libelle).toBe("Pro forma / lettre");
++    expect(prochainPas(p, DEMANDEUR).geste?.libelle).toMatch(/proforma \/ lettre de demande/);
++    expect(prochainPas(p, DEMANDEUR).geste?.libelle).not.toMatch(/facture/i);
++    expect(prochainPas(p, regard({ canAllocate: true })).attente).toMatch(/proforma ou la lettre de demande/);
++    // La pièce posée (un devis non annulé au poste) : l'étape est FAITE sans qu'aucune facture existe.
++    expect(etapesDuPoste({ ...p, devis: 1, factures: 0 }).find((e) => e.cle === "FACTURE")?.etat).toBe("FAIT");
++    expect(etapesDuPoste({ ...p, devis: 0, factures: 0 }).find((e) => e.cle === "FACTURE")?.etat).not.toBe("FAIT");
++    // Le TÉMOIN : un sponsoring indirect (poste d'un autre genre) garde le mot « Facture ».
++    const autre = pret({ kind: "OTHER", orderStage: "DIRECTION_OK", bc: "SIGNE" });
++    expect(etapesDuPoste(autre).find((e) => e.cle === "FACTURE")?.libelle).toBe("Facture");
++    expect(prochainPas(autre, DEMANDEUR).geste?.libelle).toMatch(/Déposer la facture/);
++  });
++
++  it("CLIQUET — la carte d'un poste direct demande la proforma / lettre (fichier exigé), et la facture n'y est qu'un second champ facultatif", async () => {
++    const { readFileSync } = await import("node:fs");
++    const src = readFileSync("src/components/ad-pro/items-panel.tsx", "utf8").replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/.*$/gm, "$1");
++    expect(src, "le libellé vient de la source unique").toMatch(/libelleFichier=\{direct \? LIBELLE_JUSTIFICATIF_DIRECT : undefined\}/);
++    expect(src, "le fichier de la proforma est exigé sauf s'il est déjà sur le poste").toMatch(/fichierObligatoire=\{!\(direct && /);
++    expect(src, "la facture est un champ facultatif propre au sponsoring direct").toMatch(/factureFacultative=\{direct\}/);
++    expect(src, "un second champ fichier porte la facture facultative").toContain('name="facture"');
++    expect(src, "le texte de la carte dit que la facture est facultative").toMatch(/la facture est facultative/);
++    expect(src, "et que le sponsoring indirect la garde obligatoire").toMatch(/La facture est obligatoire\./);
++  });
++
++  it("`facturePourPayer` : exigée partout SAUF pour un versement direct à l'association", () => {
++    expect(facturePourPayer("ASSOCIATION_SUPPORT")).toBe(false);
++    for (const k of ["OTHER", "TRAVEL", "CATERING", "PRINTING"] as const) expect(facturePourPayer(k), k).toBe(true);
++    expect(LIBELLE_JUSTIFICATIF_DIRECT).toBe("Proforma / lettre de demande de sponsoring");
++  });
++
+   it("un sponsoring DIRECT se paie sur facture, sans BC — et jamais avant que l'opération soit accordée", () => {
+     const p = pret({ kind: "ASSOCIATION_SUPPORT", amountGranted: 300_000 });
+     expect(etapesDuPoste(p).map((e) => e.cle)).toEqual(["CHIFFRE", "OPERATIONS", "MARKETING", "FACTURE", "PAIEMENT"]);
+@@ -163,11 +201,13 @@ describe("la traduction des faits d'un poste — une seule, lue par l'écran et
+     expect(f).toEqual({
+       kind: "STAND", status: "APPROVED", amountEstimated: 10, amountGranted: 9, budgetCategoryId: "b",
+       orderStage: "DIRECTION_OK", expenseOrderId: "e", expenseOrderStatus: "PAID", lignesStock: 2, orderSansCentre: true,
+-      opsDecidedAt: "2026-10-01", demandeBC: "DEPOSE", bc: "SIGNE", factures: 1,
++      opsDecidedAt: "2026-10-01", demandeBC: "DEPOSE", bc: "SIGNE", factures: 1, devis: 0,
+     });
+     const vide = faitsDuPoste({ ...brut, expenseOrder: null, lignesStock: [], demandeBC: null, pieces: undefined, opsDecidedAt: null });
+     expect(vide).toMatchObject({ expenseOrderStatus: null, demandeBC: "AUCUNE", bc: null, factures: 0, opsDecidedAt: null });
+     // Un BC au registre dont l'étape ne se lit pas (hors circuit) reste un BC : « pas de BC » serait faux.
+     expect(faitsDuPoste({ ...brut, pieces: { bc: { etape: null }, factures: [] } }).bc).toBe("HORS_CIRCUIT");
++    // La proforma / lettre d'un sponsoring direct est un DEVIS du poste : seuls les devis NON annulés comptent.
++    expect(faitsDuPoste({ ...brut, pieces: { bc: null, factures: [], devis: [{ annulee: false }, { annulee: true }, {}] } }).devis).toBe(2);
+   });
+ });
+diff --git a/src/lib/ad-pro/poste-etapes.ts b/src/lib/ad-pro/poste-etapes.ts
+index 522166f..2aa8f29 100644
+--- a/src/lib/ad-pro/poste-etapes.ts
++++ b/src/lib/ad-pro/poste-etapes.ts
+@@ -71,6 +71,8 @@ export interface FaitsPoste {
+   bc?: EtapeBC | null;
+   /** Combien de factures (non annulées) le poste porte. */
+   factures?: number;
++  /** Combien de devis / pro forma / lettres de demande (non annulés) le poste porte. */
++  devis?: number;
+ }
+ 
+ /** Ce que la personne qui regarde peut faire — calculé au serveur, jamais deviné ici. */
+@@ -134,7 +136,7 @@ export function faitsDuPoste(r: {
+   /** La demande de BC ouverte chez l'assistante (`DemandeBCDuPoste`), s'il y en a une. */
+   demandeBC?: { etat: EtatDemandeBC } | null;
+   /** La chaîne d'achat du poste (`PiecesDuPoste`). */
+-  pieces?: { bc: { etape: EtapeBC | null } | null; factures: readonly unknown[] };
++  pieces?: { bc: { etape: EtapeBC | null } | null; factures: readonly unknown[]; devis?: readonly { annulee?: boolean }[] };
+ }): FaitsPoste {
+   return {
+     kind: r.kind, status: r.status, amountEstimated: r.amountEstimated, amountGranted: r.amountGranted,
+@@ -142,6 +144,7 @@ export function faitsDuPoste(r: {
+     expenseOrderStatus: r.expenseOrder?.status ?? null, lignesStock: r.lignesStock.length, orderSansCentre: r.orderSansCentre,
+     opsDecidedAt: r.opsDecidedAt ?? null, demandeBC: r.demandeBC?.etat ?? "AUCUNE",
+     bc: r.pieces?.bc ? (r.pieces.bc.etape ?? "HORS_CIRCUIT") : null, factures: r.pieces?.factures.length ?? 0,
++    devis: (r.pieces?.devis ?? []).filter((d) => !d.annulee).length,
+   };
+ }
+ 
+@@ -158,6 +161,19 @@ const chiffre = (p: FaitsPoste) => positif(p.amountGranted ?? p.amountEstimated)
+  */
+ export const VERSEMENT_SANS_BC: readonly AdProItemKind[] = ["ASSOCIATION_SUPPORT"];
+ 
++/**
++ * CE QUE LE PAIEMENT D'UN VERSEMENT À L'ASSOCIATION EXIGE (Direction, 05/10) : « quand c'est un
++ * sponsoring direct (à l'association), ça demande « Proforma / lettre de demande de sponsoring » ;
++ * la facture n'est pas obligatoire ». Le paiement d'un sponsoring DIRECT part donc de la pro forma
++ * ou de la lettre de demande (qui est un DEVIS au registre : une pro forma l'a toujours été), et la
++ * facture reste possible, jamais exigée. Un sponsoring INDIRECT (prise en charge : devis → BC →
++ * facture) garde la règle d'avant. Une seule fonction, lue par la frise, le geste, les phrases,
++ * l'action et l'ordre de dépense — deux lectures de « qu'exige-t-on pour payer ? » finiraient par
++ * diverger (§118.5).
++ */
++export const LIBELLE_JUSTIFICATIF_DIRECT = "Proforma / lettre de demande de sponsoring";
++export const facturePourPayer = (kind: AdProItemKind): boolean => !VERSEMENT_SANS_BC.includes(kind);
++
+ /** Le BC du poste est-il signé — la condition pour déposer la facture d'un poste qui en a un (§118.204) ? */
+ export const bcSigne = (p: FaitsPoste) => p.bc === "SIGNE";
+ 
+@@ -172,6 +188,7 @@ export function etapesDuPoste(p: FaitsPoste): Etape[] {
+   const paye = p.expenseOrderStatus === "PAID";
+   const sansBC = VERSEMENT_SANS_BC.includes(p.kind);
+   const factures = p.factures ?? 0;
++  const justificatifPose = (p.devis ?? 0) > 0 || factures > 0;
+   const etapes: Etape[] = [
+     { cle: "CHIFFRE", libelle: "Chiffré", etat: chiffre(p) ? "FAIT" : "EN_COURS" },
+     {
+@@ -201,10 +218,17 @@ export function etapesDuPoste(p: FaitsPoste): Etape[] {
+     });
+   }
+   const factureOuverte = accorde && p.budgetCategoryId && (sansBC ? true : bcSigne(p));
+-  etapes.push({
+-    cle: "FACTURE", libelle: "Facture",
+-    etat: factures > 0 ? "FAIT" : factureOuverte || p.expenseOrderId ? "EN_COURS" : "A_VENIR",
+-  });
++  // UN VERSEMENT À L'ASSOCIATION se justifie par la pro forma ou la lettre de demande, pas par une
++  // facture : la frise nomme ce qui est exigé, et le dit FAIT dès qu'il est là.
++  etapes.push(sansBC
++    ? {
++        cle: "FACTURE", libelle: "Pro forma / lettre",
++        etat: justificatifPose ? "FAIT" : factureOuverte || p.expenseOrderId ? "EN_COURS" : "A_VENIR",
++      }
++    : {
++        cle: "FACTURE", libelle: "Facture",
++        etat: factures > 0 ? "FAIT" : factureOuverte || p.expenseOrderId ? "EN_COURS" : "A_VENIR",
++      });
+   etapes.push({
+     cle: "PAIEMENT", libelle: "Paiement",
+     etat: paye ? "FAIT" : p.expenseOrderId ? "EN_COURS" : "A_VENIR",
+@@ -300,13 +324,15 @@ export function prochainPas(p: FaitsPoste, r: RegardPoste): ProchainPas {
+       ? { geste: { cle: "BUDGET", libelle: "Choisir le budget" }, attente: null }
+       : { geste: null, attente: `${capitale(qui2)} choisit le budget qui porte ce poste.` };
+   }
++  const direct = VERSEMENT_SANS_BC.includes(p.kind);
+   const payer: ProchainPas = r.canEdit
+-    ? { geste: { cle: "DEMANDER_PAIEMENT", libelle: "Déposer la facture et demander le paiement" }, attente: null }
+-    : { geste: null, attente: "Le demandeur dépose la facture pour demander le paiement." };
++    ? { geste: { cle: "DEMANDER_PAIEMENT", libelle: direct ? "Joindre la proforma / lettre de demande et demander le paiement" : "Déposer la facture et demander le paiement" }, attente: null }
++    : { geste: null, attente: direct ? "Le demandeur joint la proforma ou la lettre de demande de sponsoring pour demander le paiement." : "Le demandeur dépose la facture pour demander le paiement." };
+ 
+-  // SPONSORING DIRECT : pas de bon de commande. Pro forma facultative, facture obligatoire.
+-  if (VERSEMENT_SANS_BC.includes(p.kind) && p.orderStage === "NONE" && !p.bc) {
+-    if (!r.operationDecidee) return { geste: null, attente: "La facture se déposera quand l'opération sera accordée." };
++  // SPONSORING DIRECT : pas de bon de commande, et pas de facture exigée — la pro forma ou la lettre
++  // de demande de sponsoring suffit à demander le paiement (Direction, 05/10).
++  if (direct && p.orderStage === "NONE" && !p.bc) {
++    if (!r.operationDecidee) return { geste: null, attente: "La proforma ou la lettre de demande se joindra quand l'opération sera accordée." };
+     return payer;
+   }
+ 
+diff --git a/src/lib/ad-pro/postes-chaine-flow.test.ts b/src/lib/ad-pro/postes-chaine-flow.test.ts
+index e524119..c6b74e4 100644
+--- a/src/lib/ad-pro/postes-chaine-flow.test.ts
++++ b/src/lib/ad-pro/postes-chaine-flow.test.ts
+@@ -43,6 +43,8 @@ import { signerBonDeCommande } from "@/lib/actions/bc-signature-actions";
+ import { fileBonsDeCommande } from "@/lib/queries/bons-de-commande";
+ import { etatDuBC } from "@/lib/bons-de-commande/etat";
+ import { ordreAFacture } from "@/lib/finance/facture-ordre";
++import { settleExpenseOrder } from "@/lib/actions/expense-actions";
++import { signauxFinance } from "@/platform/in-process/intelligence";
+ import { getActionCenter } from "@/lib/queries/action-center";
+ import { persistUploadedDocument } from "@/lib/documents";
+ import type { Prisma } from "@prisma/client";
+@@ -397,11 +399,12 @@ suite("Ad & Pro — la chaîne d'un poste : deux temps, BC par l'assistante, fac
+     }
+   });
+ 
+-  it("UN SPONSORING DIRECT n'a pas de bon de commande — le refus nomme la facture", async () => {
++  it("UN SPONSORING DIRECT n'a pas de bon de commande — le refus nomme la proforma / lettre, pas la facture", async () => {
+     const id = await posteAccorde("Aide directe sans BC", 200_000, { parent: "SPONSORING", parentId: spo, kind: "ASSOCIATION_SUPPORT" });
+     await comme("kam");
+     const r = await requestAdProItemOrder(undefined, fd({ id, note: "x", assistantId: u.ast1 }));
+-    expect(r.ok === false ? r.error : "demandé").toMatch(/sponsoring direct n'a pas de bon de commande : déposez la facture/);
++    expect(r.ok === false ? r.error : "demandé").toMatch(/sponsoring direct n'a pas de bon de commande : joignez la proforma \/ lettre de demande de sponsoring/);
++    expect(r.ok === false ? r.error : "", "la facture n'est plus exigée").toMatch(/la facture n'est pas exigée/);
+     expect(await demandeBC(id)).toBeNull();
+   });
+ 
+@@ -575,20 +578,104 @@ suite("Ad & Pro — la chaîne d'un poste : deux temps, BC par l'assistante, fac
+     expect(encore.ok === false ? encore.error : "payé").toMatch(/déjà été demandé/);
+   });
+ 
+-  it("UN SPONSORING DIRECT se paie sur facture, SANS bon de commande — la pro forma, facultative, est en amont", async () => {
++  /**
++   * SPONSORING DIRECT : LA PIÈCE EXIGÉE EST LA PROFORMA / LETTRE DE DEMANDE, PAS LA FACTURE (Direction, 05/10).
++   * L'ordre naît avec `requiresInvoice: false` — c'est lui que lisent le règlement, la colonne « Facture »
++   * des Finances et le signal « justificatif manquant » : une seule valeur, trois lecteurs qui suivent.
++   */
++  it("UN SPONSORING DIRECT se paie sur PROFORMA / LETTRE, SANS bon de commande ni facture exigée", async () => {
+     const id = await posteAccorde("Aide à l'association", 250_000, { parent: "SPONSORING", parentId: spo, kind: "ASSOCIATION_SUPPORT" });
+     await comme("kam");
+-    const pro = await ajouterDevisPoste(undefined, avecFichier({ id, montant: "250000", proforma: "on" }));
+-    ok(pro);
++    const sans = await payer(id, "250000", "kam", false);
++    expect(sans.ok === false ? sans.error : "payé", "sans pièce, le refus nomme la proforma / lettre").toMatch(/Joignez la proforma \/ lettre de demande de sponsoring/);
++    expect(await prisma.adProItem.findUniqueOrThrow({ where: { id }, select: { orderStage: true } }).then((p) => p.orderStage), "un refus ne prend rien").not.toBe("ISSUED");
+     const r = await payer(id, "250000");
+     ok(r);
+     expect(await prisma.adProItemPiece.count({ where: { itemId: id, nature: "BON_DE_COMMANDE" } }), "aucun BC").toBe(0);
++    expect(await prisma.adProItemPiece.count({ where: { itemId: id, nature: "FACTURE" } }), "aucune facture créée : elle n'est pas exigée").toBe(0);
++    const lien = await prisma.adProItemPiece.findFirstOrThrow({ where: { itemId: id, nature: "DEVIS" } });
++    const proforma = await prisma.legalDocument.findUniqueOrThrow({ where: { id: lien.legalDocumentId } });
++    expect(proforma.kind, "la proforma est un DEVIS au registre").toBe("QUOTE");
++    expect(proforma.title).toMatch(/^Proforma \/ lettre de demande de sponsoring/);
++    expect(proforma.sourceType).toBe("SPONSORING");
++    const ordre = await prisma.expenseOrder.findUniqueOrThrow({ where: { id: r.id! } });
++    expect(ordre.centralStatus).toBe("AWAITING");
++    expect(ordre.requiresInvoice, "LA valeur que lisent le règlement, la colonne et le signal").toBe(false);
++    expect(await ordreAFacture({ id: ordre.id, sourceType: ordre.sourceType, sourceId: ordre.sourceId }), "PRÉMISSE : aucune facture n'existe").toBe(false);
++  });
++
++  /**
++   * LES TROIS LECTEURS DE LA RÈGLE « FACTURE OBLIGATOIRE » SUIVENT UN SEUL DRAPEAU (§118.61, Direction 05/10).
++   * Le règlement, la colonne « Facture » des Finances et le signal « justificatif manquant » lisent
++   * `ExpenseOrder.requiresInvoice` : le poser à faux à la naissance de l'ordre d'un sponsoring direct suffit
++   * à les faire suivre. Le TÉMOIN est le même ordre, drapeau remis à vrai — l'ancienne règle : le
++   * règlement refuse, le signal sort. Sans lui, trois lecteurs qui ne liraient plus rien passeraient.
++   */
++  it("SPONSORING DIRECT : le règlement et le signal « justificatif manquant » suivent `requiresInvoice` — témoin : l'ancienne règle les rallume", async () => {
++    const id = await posteAccorde("Aide directe, trois lecteurs", 150_000, { parent: "SPONSORING", parentId: spo, kind: "ASSOCIATION_SUPPORT" });
++    const r = await payer(id, "150000");
++    ok(r);
++    await prisma.expenseOrder.update({ where: { id: r.id! }, data: { centralStatus: "APPROVED" } });
++    const finances = await acteur(u.fin, ROLES.fin);
++    const signal = async () => (await signauxFinance(finances, { horizonJours: 30 })).signaux.find((x) => x.code === "justificatif_manquant" && x.entite?.id === r.id);
++    expect(await signal(), "aucun signal : la facture n'est pas exigée").toBeUndefined();
++
++    // Le TÉMOIN : l'ancienne règle sur le même ordre.
++    await prisma.expenseOrder.update({ where: { id: r.id! }, data: { requiresInvoice: true } });
++    expect(await signal(), "PRÉMISSE — drapeau levé, le signal sort").toBeDefined();
++    await comme("fin");
++    const refus = await settleExpenseOrder(fd({ id: r.id! }));
++    expect(refus.ok === false ? refus.error : "réglé", "PRÉMISSE — drapeau levé, le règlement refuse la facture manquante").toMatch(/facture/i);
++    expect((await prisma.expenseOrder.findUniqueOrThrow({ where: { id: r.id! } })).status).toBe("PENDING");
++
++    // La règle du jour : drapeau baissé, le règlement passe sans facture.
++    await prisma.expenseOrder.update({ where: { id: r.id! }, data: { requiresInvoice: false } });
++    const regle = await settleExpenseOrder(fd({ id: r.id! }));
++    expect(regle.ok, regle.ok === false ? regle.error : "").toBe(true);
++    expect((await prisma.expenseOrder.findUniqueOrThrow({ where: { id: r.id! } })).status).toBe("PAID");
++  });
++
++  it("UN SPONSORING DIRECT dont la proforma est DÉJÀ sur le poste se paie sans rien joindre — et la facture facultative se chaîne à elle", async () => {
++    const id = await posteAccorde("Aide à l'association 2", 250_000, { parent: "SPONSORING", parentId: spo, kind: "ASSOCIATION_SUPPORT" });
++    await comme("kam");
++    const pro = await ajouterDevisPoste(undefined, avecFichier({ id, montant: "250000", proforma: "on" }));
++    ok(pro);
++    const f = fd({ id, montant: "250000", reference: `${TAG}FA` });
++    f.append("facture", pdf(`${TAG}facture-facultative.pdf`));
++    const r = await demanderPaiementPoste(undefined, f);
++    ok(r);
+     const lien = await prisma.adProItemPiece.findFirstOrThrow({ where: { itemId: id, nature: "FACTURE" } });
+     const facture = await prisma.legalDocument.findUniqueOrThrow({ where: { id: lien.legalDocumentId } });
+-    expect(facture.chainFromId, "la facture suit la pro forma, seule pièce amont").toBe(pro.id);
+-    expect(facture.sourceType).toBe("SPONSORING");
++    expect(facture.chainFromId, "la facture facultative suit la proforma, seule pièce amont").toBe(pro.id);
+     const ordre = await prisma.expenseOrder.findUniqueOrThrow({ where: { id: r.id! } });
+-    expect(ordre.centralStatus).toBe("AWAITING");
++    expect(ordre.requiresInvoice, "facultative, même quand elle est là").toBe(false);
++  });
++
++  it("UNE PROFORMA ANNULÉE ne compte pas : le sponsoring direct redemande la pièce", async () => {
++    const id = await posteAccorde("Aide à l'association 3", 250_000, { parent: "SPONSORING", parentId: spo, kind: "ASSOCIATION_SUPPORT" });
++    await comme("kam");
++    const pro = await ajouterDevisPoste(undefined, avecFichier({ id, montant: "250000", proforma: "on" }));
++    ok(pro);
++    await prisma.legalDocument.update({ where: { id: pro.id! }, data: { status: "CANCELLED" } });
++    const sans = await payer(id, "250000", "kam", false);
++    expect(sans.ok === false ? sans.error : "payé", "la proforma annulée n'est pas une pièce").toMatch(/Joignez la proforma \/ lettre de demande de sponsoring/);
++    // Le TÉMOIN : rétablie, la même demande passe sans rien joindre.
++    await prisma.legalDocument.update({ where: { id: pro.id! }, data: { status: "ACTIVE" } });
++    ok(await payer(id, "250000", "kam", false));
++  });
++
++  it("UN SPONSORING INDIRECT GARDE LA RÈGLE D'AVANT — facture obligatoire, `requiresInvoice` vrai", async () => {
++    SEUIL = 500_000;
++    const id = await posteAccorde("Indirect facture", 100_000);
++    await comme("kam");
++    ok(await requestAdProItemOrder(undefined, fd({ id, note: "x", assistantId: u.ast1 })));
++    await bcSigne(id);
++    const sans = await payer(id, "100000", "kam", false);
++    expect(sans.ok === false ? sans.error : "payé").toMatch(/Joignez la facture : elle est obligatoire/);
++    const r = await payer(id, "100000");
++    ok(r);
++    const ordre = await prisma.expenseOrder.findUniqueOrThrow({ where: { id: r.id! } });
++    expect(ordre.requiresInvoice).toBe(true);
+     expect(await ordreAFacture({ id: ordre.id, sourceType: ordre.sourceType, sourceId: ordre.sourceId })).toBe(true);
+   });
+ 
+diff --git a/src/lib/ad-pro/postes-revision-flow.test.ts b/src/lib/ad-pro/postes-revision-flow.test.ts
+index f7fff23..19f3a44 100644
+--- a/src/lib/ad-pro/postes-revision-flow.test.ts
++++ b/src/lib/ad-pro/postes-revision-flow.test.ts
+@@ -688,7 +688,7 @@ suite("Ad & Pro — réviser un poste : visa, demande de BC, ordre, décision, r
+ 
+   it("RETIRER LE POSTE : l'ordre non réglé s'annule, le poste part à la CORBEILLE avec ses décisions, et revient", async () => {
+     SEUIL = 500_000;
+-    // Un SPONSORING DIRECT (§118.204) : payé sur facture, sans BC — le seul poste dont l'ordre peut
++    // Un SPONSORING DIRECT (§118.204) : payé sur proforma / lettre de demande (Direction, 05/10), sans BC — le seul poste dont l'ordre peut
+     // exister sans BC signé, donc le seul qui se retire avec un ordre en attente (un BC signé bloque).
+     const id = await posteAccorde("Navettes", 600_000, "Association Alpha", "ASSOCIATION_SUPPORT");
+     const em = await payer(id);
+@@ -709,7 +709,7 @@ suite("Ad & Pro — réviser un poste : visa, demande de BC, ordre, décision, r
+     expect(revenu.expenseOrderId, "sans l'ordre annulé : sinon « émis » pour toujours, impossible à réémettre").toBeNull();
+     expect(revenu.orderStage, "sans BC demandé, il revient sans étape de BC").toBe("NONE");
+     expect(await prisma.adProItemDecision.count({ where: { itemId: id } }), "l'historique revient avec lui").toBe(decisionsAvant);
+-    expect(await prisma.adProItemPiece.count({ where: { itemId: id, nature: "FACTURE" } }), "sa facture revient sur lui").toBe(1);
++    expect(await prisma.adProItemPiece.count({ where: { itemId: id, nature: "DEVIS" } }), "sa proforma / lettre revient sur lui").toBe(1);
+   });
+ 
+   /**
+@@ -722,7 +722,7 @@ suite("Ad & Pro — réviser un poste : visa, demande de BC, ordre, décision, r
+    */
+   it("RETIRER un poste payé qui a une demande au secrétariat ouverte : elle part avec lui, l'assistante l'apprend, tout revient", async () => {
+     SEUIL = 500_000;
+-    // Un SPONSORING DIRECT (§118.204) : payé sur facture, sans BC — le seul poste dont l'ordre peut
++    // Un SPONSORING DIRECT (§118.204) : payé sur proforma / lettre de demande (Direction, 05/10), sans BC — le seul poste dont l'ordre peut
+     // exister sans BC signé, donc le seul qui se retire avec un ordre en attente (un BC signé bloque).
+     const id = await posteAccorde("Navettes", 600_000, "Association Alpha", "ASSOCIATION_SUPPORT");
+     await comme("kam");
+@@ -753,7 +753,7 @@ suite("Ad & Pro — réviser un poste : visa, demande de BC, ordre, décision, r
+     expect(revenu.expenseOrderId, "sans l'ordre annulé : sinon « émis » pour toujours, impossible à réémettre").toBeNull();
+     expect(revenu.orderStage, "sans BC demandé, il revient sans étape de BC").toBe("NONE");
+     expect(await prisma.adProItemDecision.count({ where: { itemId: id } }), "l'historique revient avec lui").toBe(decisionsAvant);
+-    expect(await prisma.adProItemPiece.count({ where: { itemId: id, nature: "FACTURE" } }), "sa facture revient sur lui").toBe(1);
++    expect(await prisma.adProItemPiece.count({ where: { itemId: id, nature: "DEVIS" } }), "sa proforma / lettre revient sur lui").toBe(1);
+     // Et la demande revient TELLE QU'ELLE ÉTAIT : la clore d'abord ferait revenir un poste dont la demande
+     // vit encore, annulée.
+     const [revenue] = await demandesDe();
+@@ -817,7 +817,7 @@ suite("Ad & Pro — réviser un poste : visa, demande de BC, ordre, décision, r
+     expect(revenu.expenseOrderId, "l'ordre revient avec son poste").toBe(em.id);
+     expect(revenu.orderStage).toBe("ISSUED");
+     expect((await prisma.expenseOrder.findUniqueOrThrow({ where: { id: em.id! }, select: { status: true } })).status).toBe("PENDING");
+-    expect(await prisma.adProItemPiece.count({ where: { itemId: id, nature: "FACTURE" } }), "et sa facture avec lui").toBe(1);
++    expect(await prisma.adProItemPiece.count({ where: { itemId: id, nature: "DEVIS" } }), "et sa proforma / lettre avec lui").toBe(1);
+   });
+ 
+   it("UNE DEMANDE REFUSÉE ne fait plus partir ses postes — mais les refuser reste possible", async () => {
+diff --git a/src/lib/ad-pro/sponsoring-direct-migration.test.ts b/src/lib/ad-pro/sponsoring-direct-migration.test.ts
+new file mode 100644
+index 0000000..f8e37ff
+--- /dev/null
++++ b/src/lib/ad-pro/sponsoring-direct-migration.test.ts
+@@ -0,0 +1,96 @@
++import { describe, expect, it } from "vitest";
++import { readFileSync } from "node:fs";
++import path from "node:path";
++import { prisma } from "@/lib/prisma";
++
++/**
++ * ═══════════════════════════════════════════════════════════════════════════════════════════
++ * LA MIGRATION « SPONSORING DIRECT SANS FACTURE EXIGÉE » (Direction, 05/10), jouée sur son TEXTE RÉEL.
++ *
++ * Les ordres NÉS ensuite portent `requiresInvoice: false` par le code (`facturePourPayer`) ; cette
++ * migration ne règle que les ordres DÉJÀ nés et pas encore réglés d'un poste « versement à
++ * l'association ». Trois propriétés :
++ *   • elle atteint ce qu'elle doit (ordre en attente ou en révision d'un poste direct) ;
++ *   • elle épargne tout le reste : un ordre RÉGLÉ (un fait), l'ordre d'un poste d'un autre genre, un
++ *     ordre sans poste — une garde trop large passerait pour armée si on ne le prouvait pas (§118.17) ;
++ *   • rejouée, elle ne change rien.
++ *
++ * Le patron est celui de §118.173 : des tables TEMPORAIRES du même nom (`pg_temp` passe devant
++ * `public` pour la session), dans une transaction annulée — le SQL du fichier s'exécute tel qu'il est
++ * écrit, sans lire ni écrire les ordres réels de la base partagée.
++ * ═══════════════════════════════════════════════════════════════════════════════════════════
++ */
++
++const SQL = readFileSync(path.join(process.cwd(), "prisma/migrations/20270111090000_sponsoring_direct_sans_facture/migration.sql"), "utf8");
++
++let dbOk = false;
++try { await prisma.$queryRaw`SELECT 1`; dbOk = true; } catch { dbOk = false; }
++const suite = dbOk ? describe : describe.skip;
++
++async function jouer(avant: string[], rejouer = 1): Promise<Map<string, boolean>> {
++  const ANNULE = new Error("annulé — le banc ne garde rien");
++  let lignes: { id: string; requiresInvoice: boolean }[] = [];
++  try {
++    await prisma.$transaction(async (tx) => {
++      await tx.$executeRawUnsafe(`CREATE TEMP TABLE "ExpenseOrder" ("id" text PRIMARY KEY, "requiresInvoice" boolean NOT NULL, "status" text NOT NULL) ON COMMIT DROP`);
++      await tx.$executeRawUnsafe(`CREATE TEMP TABLE "AdProItem" ("id" text PRIMARY KEY, "expenseOrderId" text, "kind" text NOT NULL) ON COMMIT DROP`);
++      for (const s of avant) await tx.$executeRawUnsafe(s);
++      for (let i = 0; i < rejouer; i++) await tx.$executeRawUnsafe(SQL);
++      lignes = await tx.$queryRawUnsafe(`SELECT id, "requiresInvoice" FROM "ExpenseOrder" ORDER BY id`);
++      throw ANNULE;
++    }, { timeout: 20_000 });
++  } catch (e) {
++    if (e !== ANNULE) throw e;
++  }
++  return new Map(lignes.map((l) => [l.id, l.requiresInvoice]));
++}
++const ordre = (id: string, statut: string) => `INSERT INTO "ExpenseOrder" (id, "requiresInvoice", status) VALUES ('${id}', true, '${statut}')`;
++const poste = (id: string, ordreId: string | null, kind: string) =>
++  `INSERT INTO "AdProItem" (id, "expenseOrderId", kind) VALUES ('${id}', ${ordreId ? `'${ordreId}'` : "NULL"}, '${kind}')`;
++
++const DECOR = [
++  ordre("o-direct-attente", "PENDING"), poste("p1", "o-direct-attente", "ASSOCIATION_SUPPORT"),
++  ordre("o-direct-revision", "REVISION_REQUESTED"), poste("p2", "o-direct-revision", "ASSOCIATION_SUPPORT"),
++  ordre("o-direct-regle", "PAID"), poste("p3", "o-direct-regle", "ASSOCIATION_SUPPORT"),
++  ordre("o-direct-annule", "CANCELLED"), poste("p4", "o-direct-annule", "ASSOCIATION_SUPPORT"),
++  ordre("o-autre-poste", "PENDING"), poste("p5", "o-autre-poste", "OTHER"),
++  ordre("o-sans-poste", "PENDING"),
++];
++
++suite("La migration du sponsoring direct, jouée sur son texte réel", () => {
++  it("elle lève l'exigence des ordres en attente ou en révision d'un poste direct — et de ceux-là seulement", async () => {
++    const r = await jouer(DECOR);
++    expect(r.get("o-direct-attente"), "ordre en attente d'un poste direct").toBe(false);
++    expect(r.get("o-direct-revision"), "ordre en révision d'un poste direct").toBe(false);
++    expect(r.get("o-direct-regle"), "un ordre RÉGLÉ est un fait : on ne réécrit pas son histoire").toBe(true);
++    expect(r.get("o-direct-annule"), "un ordre annulé ne bouge pas").toBe(true);
++    expect(r.get("o-autre-poste"), "le poste d'un autre genre garde sa facture").toBe(true);
++    expect(r.get("o-sans-poste"), "un ordre qu'aucun poste ne porte garde sa règle").toBe(true);
++  });
++
++  it("rejouée, elle ne change RIEN de plus", async () => {
++    expect([...(await jouer(DECOR, 2))]).toEqual([...(await jouer(DECOR, 1))]);
++  });
++
++  it("le texte s'exécute contre le VRAI schéma (noms de colonnes, valeurs d'énumération) — dans une transaction annulée", async () => {
++    // Les tables temporaires ci-dessus prouvent la logique ; elles ne prouvent pas que `status`, `kind`
++    // et `expenseOrderId` existent sous ces noms, ni que les valeurs comparées sont celles de l'énumération.
++    const ANNULE = new Error("annulé");
++    let passe = false;
++    try {
++      await prisma.$transaction(async (tx) => {
++        await tx.$executeRawUnsafe(SQL);
++        passe = true;
++        throw ANNULE;
++      }, { timeout: 30_000 });
++    } catch (e) {
++      if (e !== ANNULE) throw e;
++    }
++    expect(passe).toBe(true);
++  });
++
++  it("le texte ne touche que ce qu'il nomme : aucune écriture hors `ExpenseOrder`, aucune valeur d'énumération ajoutée", () => {
++    expect(SQL).not.toMatch(/ADD VALUE|ALTER TABLE|DROP |DELETE /i);
++    expect(SQL).toMatch(/UPDATE "ExpenseOrder"/);
++  });
++});
+diff --git a/src/lib/ad-pro/vue-exacte-creation.test.ts b/src/lib/ad-pro/vue-exacte-creation.test.ts
+new file mode 100644
+index 0000000..c359696
+--- /dev/null
++++ b/src/lib/ad-pro/vue-exacte-creation.test.ts
+@@ -0,0 +1,303 @@
++import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
++import { readFileSync } from "node:fs";
++
++/**
++ * ═══════════════════════════════════════════════════════════════════════════════════════════
++ * « UNE DEMANDE RECRÉÉE APRÈS SA SUPPRESSION S'AFFICHE « INTROUVABLE » » — le défaut, MESURÉ (Direction, 05/10).
++ *
++ * Le rapport : un KAM recrée une demande Ad&Pro après sa suppression par le Super Admin ; elle apparaît
++ * dans le tableau Ad&Pro, mais sa fiche dit « Introuvable — ou ne vous est pas visible » ; après
++ * actualisation avec le compte admin, ça marche.
++ *
++ * CE QUE LE BANC A ÉTABLI, par les vrais points d'entrée (la session RÉELLE de `session.ts`, seuls
++ * `@/auth` et les en-têtes de requête sont simulés) :
++ *   1. avec un vrai KAM, la fiche de la demande recréée S'OUVRE — sponsoring, congrès, événement,
++ *      avant comme après la suppression de la première. Ce n'est ni la référence réutilisée, ni un cache ;
++ *   2. avec un Super Admin en « Vue exacte » sur ce KAM, la requête qui ÉCRIT agit au nom de
++ *      l'administrateur (§118.184), et la navigation qui SUIT lit au nom du KAM : la demande, déposée par
++ *      l'administrateur, est introuvable pour la personne visualisée — le symptôme exact du rapport ;
++ *   3. le geste est donc refusé sous la vue, avec la raison et le remède.
++ *
++ * LES PRÉMISSES SE VÉRIFIENT : sans la prémisse 2 (la fiche déposée par l'administrateur est
++ * réellement introuvable pour le KAM visualisé), le refus ne serait pas motivé.
++ * ═══════════════════════════════════════════════════════════════════════════════════════════
++ */
++
++const revalidees: string[] = [];
++vi.mock("next/cache", () => ({ revalidatePath: (p: string) => { revalidees.push(p); } }));
++const ETAT: { cookie: string | undefined; ecrit: boolean; qui: string | null; horsRequete: boolean } = { cookie: undefined, ecrit: false, qui: null, horsRequete: false };
++vi.mock("next/headers", () => ({
++  cookies: () => {
++    // Hors requête (banc, battement), `cookies()` lève.
++    if (ETAT.horsRequete) throw new Error("cookies() hors de la portée d'une requête");
++    return { get: (n: string) => (n === "amd_impersonate" && ETAT.cookie ? { value: ETAT.cookie } : undefined) };
++  },
++  headers: () => new Headers(ETAT.ecrit ? { "next-action": "abc" } : {}),
++}));
++vi.mock("next/navigation", () => ({
++  notFound: () => { throw new Error("NEXT_NOT_FOUND"); },
++  redirect: (u: string) => { throw new Error("NEXT_REDIRECT " + u); },
++  useRouter: () => ({}),
++}));
++vi.mock("@/auth", () => ({
++  auth: async () => (ETAT.qui ? { user: { id: ETAT.qui, role: ROLES[ETAT.qui] ?? "SUPER_ADMIN", name: "x", email: "x@t.dz" } } : null),
++}));
++const ROLES: Record<string, string> = {};
++
++import { prisma } from "@/lib/prisma";
++import { requireUser } from "@/lib/session";
++import { personneVisualisee } from "@/lib/vue-exacte";
++import { createSponsoring } from "@/lib/actions/sponsoring-actions";
++import { createCongressRequest } from "@/lib/actions/congress-request-actions";
++import { createEvent } from "@/lib/actions/event-actions";
++import { createConsultingContract } from "@/lib/actions/consulting-actions";
++import { createAdProOtherRequest } from "@/lib/actions/ad-pro-other-actions";
++import { createPromoMaterial } from "@/lib/actions/promo-material-actions";
++import { supprimerDemandeAdPro } from "@/lib/actions/admin-delete-actions";
++import SponsoringDetailPage from "@/app/(app)/sponsoring/[id]/page";
++import CongressIntlDetailPage from "@/app/(app)/congress-international/[id]/page";
++import EventDetailPage from "@/app/(app)/events/[id]/page";
++
++const TAG = `__vuex${Date.now()}__`;
++let dbOk = false;
++try { await prisma.$queryRaw`SELECT 1`; dbOk = true; } catch { dbOk = false; }
++const suite = dbOk ? describe : describe.skip;
++
++const ids: Record<string, string> = {};
++let buId = "";
++
++const pdf = () => new File([new Uint8Array([0x25, 0x50, 0x44, 0x46])], "demande.pdf", { type: "application/pdf" });
++function formSponsoring(institution: string): FormData {
++  const f = new FormData();
++  f.set("institution", institution);
++  f.append("doctorIds", `${TAG}Dr Benali`); f.append("productIds", `${TAG}Nivolex`);
++  f.set("city", "Alger"); f.set("specialty", "Cardiologie"); f.set("type", "Congrès");
++  f.set("amountRequested", "120000"); f.set("amountProposed", "90000"); f.set("nature", "DIRECT"); f.set("strategicImportance", "HIGH");
++  f.append("files", pdf());
++  return f;
++}
++function formCongres(nom: string): FormData {
++  const f = new FormData();
++  f.set("type", "INTL"); f.set("name", nom); f.set("startDate", "2027-03-01"); f.set("endDate", "2027-03-04");
++  f.set("estimatedBudget", "200000");
++  return f;
++}
++function formEvenement(nom: string): FormData {
++  const f = new FormData();
++  f.set("name", nom); f.set("type", "CONGRESS"); f.set("scope", "NATIONAL"); f.set("format", "PRESENTIEL");
++  f.set("startDate", "2027-04-01"); f.set("endDate", "2027-04-02"); f.set("location", "Hôtel"); f.set("city", "Alger"); f.set("country", "Algérie");
++  f.set("specialty", "Cardiologie"); f.append("doctorIds", `${TAG}Dr Amrani`); f.append("productIds", `${TAG}Nivolex`);
++  f.set("estimatedBudget", "300000"); f.set("responsibleId", ids.kam!); f.set("description", "Test");
++  return f;
++}
++
++type Page = (p: { params: { id: string } }) => Promise<unknown>;
++/** Ouvre la fiche comme le serveur le ferait : « introuvable » se distingue d'une fiche qui s'ouvre. */
++async function ouvre(page: Page, id: string): Promise<"OK" | "INTROUVABLE" | string> {
++  try { await page({ params: { id } }); return "OK"; } catch (e) {
++    const m = String(e);
++    if (m.includes("NEXT_NOT_FOUND")) return "INTROUVABLE";
++    // Aucune transformation JSX ici : la page est allée jusqu'à construire son arbre, donc ses données se sont chargées.
++    if (m.includes("React is not defined")) return "OK";
++    return m;
++  }
++}
++const kam = () => { ETAT.qui = ids.kam!; ETAT.cookie = undefined; ETAT.ecrit = true; };
++const adminEnVue = () => { ETAT.qui = ids.sa!; ETAT.cookie = ids.kam!; ETAT.ecrit = true; };
++const lecture = () => { ETAT.ecrit = false; };
++
++suite("Vue exacte — créer une demande n'a de sens qu'en son propre nom", () => {
++  beforeAll(async () => {
++    const c = await prisma.company.findFirst({ where: { isActive: true }, select: { id: true } });
++    const bu = await prisma.businessUnit.create({ data: { name: `${TAG} BU` } });
++    buId = bu.id;
++    for (const [k, role] of [["kam", "MEDICAL_DELEGATE"], ["sa", "SUPER_ADMIN"], ["fin", "FINANCE_BUDGET_MANAGER"]] as const) {
++      const u = await prisma.user.create({ data: { name: `${TAG} ${k}`, email: `${TAG}${k}@t.dz`, role, passwordHash: "x" } });
++      await prisma.employee.create({ data: { fullName: `${TAG} ${k}`, userId: u.id, isActive: true, companyId: c!.id } });
++      ids[k] = u.id;
++      ROLES[u.id] = role;
++    }
++    await prisma.salesRepProfile.create({ data: { repId: ids.kam!, businessUnitId: buId } });
++  }, 60_000);
++
++  afterAll(async () => {
++    ETAT.qui = null; ETAT.cookie = undefined;
++    const spo = await prisma.sponsoringRequest.findMany({ where: { institution: { startsWith: TAG } }, select: { id: true } });
++    for (const s of spo) await prisma.workflowInstance.deleteMany({ where: { entityType: "SPONSORING", entityId: s.id } }).catch(() => {});
++    await prisma.sponsoringRequest.deleteMany({ where: { institution: { startsWith: TAG } } }).catch(() => {});
++    const cg = await prisma.congressInternational.findMany({ where: { name: { startsWith: TAG } }, select: { id: true } });
++    for (const s of cg) await prisma.workflowInstance.deleteMany({ where: { entityType: "CONGRESS_INTERNATIONAL", entityId: s.id } }).catch(() => {});
++    await prisma.congressInternational.deleteMany({ where: { name: { startsWith: TAG } } }).catch(() => {});
++    const ev = await prisma.event.findMany({ where: { name: { startsWith: TAG } }, select: { id: true } });
++    for (const s of ev) await prisma.workflowInstance.deleteMany({ where: { entityType: "EVENT", entityId: s.id } }).catch(() => {});
++    await prisma.event.deleteMany({ where: { name: { startsWith: TAG } } }).catch(() => {});
++    await prisma.deletedRecord.deleteMany({ where: { name: { contains: TAG } } }).catch(() => {});
++    await prisma.salesRepProfile.deleteMany({ where: { repId: ids.kam } }).catch(() => {});
++    await prisma.businessUnit.deleteMany({ where: { id: buId } }).catch(() => {});
++    await prisma.employee.deleteMany({ where: { fullName: { startsWith: TAG } } }).catch(() => {});
++    await prisma.notification.deleteMany({ where: { userId: { in: Object.values(ids) } } }).catch(() => {});
++    await prisma.auditLog.deleteMany({ where: { actorId: { in: Object.values(ids) } } }).catch(() => {});
++    await prisma.user.deleteMany({ where: { id: { in: Object.values(ids) } } }).catch(() => {});
++  }, 60_000);
++
++  // ── 1. CE QUI N'EST PAS LA CAUSE : un vrai KAM, après suppression et recréation ─────────────────────────
++
++  it("PRÉMISSE 1 — avec un vrai KAM, la fiche recréée S'OUVRE, y compris après la suppression de la première", async () => {
++    kam();
++    const a = await createSponsoring(undefined, formSponsoring(`${TAG} A`));
++    expect(a.ok, JSON.stringify(a)).toBe(true);
++    expect(await ouvre(SponsoringDetailPage as Page, a.id!), "avant toute suppression").toBe("OK");
++    // Le Super Admin supprime (il agit en son nom propre, hors vue) ; le KAM recrée.
++    ETAT.qui = ids.sa!; ETAT.cookie = undefined; ETAT.ecrit = true;
++    const fd = new FormData(); fd.set("kind", "SPONSORING"); fd.set("id", a.id!);
++    // La liste se vide AVANT la suppression : la création précédente a déjà revalidé « /ad-pro », et une
++    // assertion sur une liste qui contient déjà la valeur attendue ne peut pas tomber.
++    revalidees.length = 0;
++    expect((await supprimerDemandeAdPro(fd)).ok).toBe(true);
++    expect(revalidees, "la suppression revalide le tableau Ad&Pro et Mon espace").toEqual(expect.arrayContaining(["/ad-pro", "/mon-espace"]));
++    kam();
++    revalidees.length = 0;
++    const b = await createSponsoring(undefined, formSponsoring(`${TAG} B`));
++    expect(b.ok, JSON.stringify(b)).toBe(true);
++    expect(revalidees, "la création revalide le tableau Ad&Pro").toContain("/ad-pro");
++    lecture();
++    expect(await ouvre(SponsoringDetailPage as Page, b.id!), "la fiche de la demande recréée s'ouvre").toBe("OK");
++    const ligne = await prisma.sponsoringRequest.findUniqueOrThrow({ where: { id: b.id! }, select: { requesterId: true, businessUnitId: true } });
++    expect(ligne.requesterId).toBe(ids.kam);
++    expect(ligne.businessUnitId, "la gamme du KAM, imposée").toBe(buId);
++  }, 60_000);
++
++  it("PRÉMISSE 1 bis — congrès et événement : la même chose, avant et après la suppression", async () => {
++    kam();
++    const c1 = await createCongressRequest(undefined, formCongres(`${TAG} Congrès A`));
++    expect(c1.ok, JSON.stringify(c1)).toBe(true);
++    ETAT.qui = ids.sa!; ETAT.cookie = undefined; ETAT.ecrit = true;
++    const fd = new FormData(); fd.set("kind", "CONGRESS_INTERNATIONAL"); fd.set("id", c1.id!);
++    expect((await supprimerDemandeAdPro(fd)).ok).toBe(true);
++    kam();
++    const c2 = await createCongressRequest(undefined, formCongres(`${TAG} Congrès B`));
++    expect(c2.ok, JSON.stringify(c2)).toBe(true);
++    lecture();
++    expect(await ouvre(CongressIntlDetailPage as Page, c2.id!)).toBe("OK");
++
++    kam();
++    const e = await createEvent(formEvenement(`${TAG} Événement`));
++    expect(e.ok, JSON.stringify(e)).toBe(true);
++    lecture();
++    expect(await ouvre(EventDetailPage as Page, e.id!)).toBe("OK");
++  }, 60_000);
++
++  // ── 2. LA CAUSE : la Vue exacte écrit en nom propre et lit au nom de la personne visualisée ─────────────
++
++  it("PRÉMISSE 2 — une demande déposée par l'ADMINISTRATEUR est introuvable pour le KAM visualisé (le symptôme du rapport)", async () => {
++    // Ce que produisait la création sous vue : la demande est au nom de l'administrateur…
++    const spo = await prisma.sponsoringRequest.create({
++      data: { reference: `${TAG}P2`, institution: `${TAG} déposée par l'admin`, type: "Congrès", requesterId: ids.sa!, status: "REFUSED" },
++    });
++    // …le tableau rendu dans la réponse de l'action (côté écriture, en Super Admin) la voit…
++    ETAT.qui = ids.sa!; ETAT.cookie = ids.kam!; ETAT.ecrit = true;
++    const ecrivain = await requireUser();
++    expect(ecrivain.impersonatedBy, "une requête qui écrit ignore la vue (§118.184)").toBeFalsy();
++    expect(ecrivain.id).toBe(ids.sa);
++    // …et la navigation qui suit, rendue pour le KAM visualisé, ne l'ouvre pas.
++    lecture();
++    const lecteur = await requireUser();
++    expect(lecteur.id, "la lecture est rendue pour la personne visualisée").toBe(ids.kam);
++    expect(await ouvre(SponsoringDetailPage as Page, spo.id)).toBe("INTROUVABLE");
++    await prisma.sponsoringRequest.delete({ where: { id: spo.id } });
++  }, 60_000);
++
++  it("SOUS LA VUE EXACTE, les six créations de demande sont REFUSÉES — avec la personne visualisée et le remède, et RIEN n'est créé", async () => {
++    adminEnVue();
++    const avantSpo = await prisma.sponsoringRequest.count();
++    const creations: [string, () => Promise<{ ok: boolean; error?: string }>][] = [
++      ["sponsoring", () => createSponsoring(undefined, formSponsoring(`${TAG} sous vue`)) as never],
++      ["congrès", () => createCongressRequest(undefined, formCongres(`${TAG} sous vue`)) as never],
++      ["événement", () => createEvent(formEvenement(`${TAG} sous vue`)) as never],
++      ["consulting", () => createConsultingContract(undefined, new FormData()) as never],
++      ["autre demande", () => createAdProOtherRequest(undefined, new FormData()) as never],
++      ["matériel promotionnel", () => createPromoMaterial(undefined, new FormData()) as never],
++    ];
++    for (const [nom, creer] of creations) {
++      adminEnVue();
++      const r = await creer();
++      expect(r.ok, `${nom} : refusée sous la vue`).toBe(false);
++      expect(r.error, `${nom} : le refus nomme la personne visualisée`).toContain(`${TAG} kam`);
++      expect(r.error, `${nom} : le refus nomme le remède`).toMatch(/Quittez la Vue exacte/);
++    }
++    expect(await prisma.sponsoringRequest.count(), "aucune demande n'est née").toBe(avantSpo);
++    expect(await prisma.congressInternational.count({ where: { name: { contains: "sous vue" } } })).toBe(0);
++    expect(await prisma.event.count({ where: { name: { contains: "sous vue" } } })).toBe(0);
++  }, 60_000);
++
++  // ── 3. LE REFUS NE TOMBE QUE SUR CE QU'IL DOIT ATTRAPER (le sens dangereux est de refuser à tort) ───────
++
++  it("un cookie qui ne désigne personne de valable ne bloque rien — périmé, soi-même, compte fermé", async () => {
++    ETAT.qui = ids.sa!; ETAT.ecrit = true;
++    const sa = await requireUser();
++    ETAT.cookie = "inexistant";
++    expect(await personneVisualisee(sa), "cookie périmé").toBeNull();
++    ETAT.cookie = ids.sa!;
++    expect(await personneVisualisee(sa), "soi-même").toBeNull();
++    await prisma.user.update({ where: { id: ids.fin! }, data: { isActive: false } });
++    ETAT.cookie = ids.fin!;
++    expect(await personneVisualisee(sa), "compte fermé").toBeNull();
++    await prisma.user.update({ where: { id: ids.fin! }, data: { isActive: true } });
++    ETAT.cookie = ids.kam!;
++    expect(await personneVisualisee(sa), "PRÉMISSE : ici la vue est valable").toBe(`${TAG} kam`);
++  });
++
++  it("le cookie n'a d'effet que pour un Super Admin — un autre compte qui le forge crée normalement", async () => {
++    ETAT.qui = ids.kam!; ETAT.cookie = ids.sa!; ETAT.ecrit = true;
++    const kamLui = await requireUser();
++    expect(await personneVisualisee(kamLui), "un délégué n'a pas de vue exacte").toBeNull();
++    const r = await createSponsoring(undefined, formSponsoring(`${TAG} cookie forgé`));
++    expect(r.ok, JSON.stringify(r)).toBe(true);
++  }, 60_000);
++
++  it("hors requête (banc, battement), personne ne visualise rien — `null`, jamais une exception", async () => {
++    ETAT.cookie = ids.kam!;
++    ETAT.horsRequete = true;
++    try {
++      expect(await personneVisualisee({ id: ids.sa!, role: "SUPER_ADMIN" })).toBeNull();
++    } finally {
++      ETAT.horsRequete = false;
++    }
++    expect(await personneVisualisee({ id: ids.sa!, role: "SUPER_ADMIN" }), "PRÉMISSE : la même vue, en requête, est honorée").toBe(`${TAG} kam`);
++  });
++
++  // ── 4. LE POINT D'APPEL (§118.49) ───────────────────────────────────────────────────────────────
++
++  it("CLIQUET — chacune des six actions de création appelle le refus, APRÈS le droit de créer et AVANT toute lecture du formulaire", () => {
++    const sansCommentaires = (src: string) => src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/.*$/gm, "$1");
++    const fichiers: [string, string, RegExp][] = [
++      ["sponsoring-actions.ts", "export async function createSponsoring", /userCan\(user, "SPONSORING", "CREATE"\)/],
++      ["congress-request-actions.ts", "export async function createCongressRequest", /userCan\(user, moduleFor\(t\), "CREATE"\)/],
++      ["event-actions.ts", "export async function createEvent", /userCan\(user, "EVENTS", "CREATE"\)/],
++      ["consulting-actions.ts", "export async function createConsultingContract", /peutSurLeContrat\(user, \{ pole \}, "CREATE"\)/],
++      ["ad-pro-other-actions.ts", "export async function createAdProOtherRequest", /userCan\(user, "AD_PRO_OTHER", "CREATE"\)/],
++      ["promo-material-actions.ts", "export async function createPromoMaterial", /userCan\(user, "PROMO_MATERIAL", "CREATE"\)/],
++    ];
++    for (const [fichier, debut, droit] of fichiers) {
++      const src = sansCommentaires(readFileSync(`src/lib/actions/${fichier}`, "utf8"));
++      const i = src.indexOf(debut);
++      expect(i, `${fichier} : action trouvée`).toBeGreaterThan(-1);
++      const corps = src.slice(i, i + 2500);
++      const iDroit = corps.search(droit);
++      const iVue = corps.indexOf("refuseSousVueExacte(user)");
++      expect(iDroit, `${fichier} : le droit de créer est lu`).toBeGreaterThan(-1);
++      expect(iVue, `${fichier} : l'appel du refus`).toBeGreaterThan(-1);
++      expect(iVue, `${fichier} : le refus vient APRÈS le droit`).toBeGreaterThan(iDroit);
++      // Rien n'est lu ni écrit en base avant le refus : une demande refusée ne laisse aucune trace.
++      expect(corps.slice(0, iVue), `${fichier} : aucun accès à la base avant le refus`).not.toMatch(/prisma\./);
++    }
++  });
++
++  it("CLIQUET — la création revalide le tableau Ad&Pro et Mon espace (sponsoring, congrès, événement)", () => {
++    for (const f of ["sponsoring-actions.ts", "congress-request-actions.ts", "event-actions.ts"]) {
++      const src = readFileSync(`src/lib/actions/${f}`, "utf8");
++      expect(src, `${f} : revalide /ad-pro`).toMatch(/revalidatePath\("\/ad-pro"\)/);
++      expect(src, `${f} : revalide /mon-espace`).toMatch(/revalidatePath\("\/mon-espace"\)/);
++    }
++  });
++});
+diff --git a/src/lib/assistant/ops/catalog.ts b/src/lib/assistant/ops/catalog.ts
+index 6066b60..7634df2 100644
+--- a/src/lib/assistant/ops/catalog.ts
++++ b/src/lib/assistant/ops/catalog.ts
+@@ -3090,10 +3090,10 @@ export const OPS_CATALOG: OpMeta[] = [
+   },
+   {
+     tool: "adpro_operation", op: "cancel_congress_request", module: "Congrès",
+-    uiLabel: "Annuler la demande",
+-    aliases: ["annule la demande de congrès", "annule la prise en charge"],
++    uiLabel: "Retirer la demande",
++    aliases: ["annule la demande de congrès", "annule la prise en charge", "retire la demande de congrès", "retire la prise en charge"],
+     risk: "SENSITIVE",
+-    summary: "Annule une demande de congrès / événement NON encore validée (le demandeur, un validateur du module, ou la Direction).",
++    summary: "Retire une demande de congrès / événement NON encore validée : elle est SUPPRIMÉE avec ses postes, ses pièces et ses ordres non réglés, et reste récupérable depuis la corbeille par le Super Admin (le demandeur, un validateur du module, ou la Direction).",
+     gate: () => true,
+     gateNote: "demandeur ou validateur (revérifié par l'action)",
+     covers: ["congress-request-actions:cancelCongressRequest"],
+diff --git a/src/lib/assistant/ops/impl-wave5.ts b/src/lib/assistant/ops/impl-wave5.ts
+index add1711..47aa74b 100644
+--- a/src/lib/assistant/ops/impl-wave5.ts
++++ b/src/lib/assistant/ops/impl-wave5.ts
+@@ -571,13 +571,16 @@ export const ADPRO5_OPS_IMPL: Record<string, OpImpl> = {
+       // LE MOTIF EST OBLIGATOIRE depuis que l'annulation ferme le circuit (§118.186) : l'action le
+       // refuse sans lui, et une carte qui part sans motif promettrait un geste qui échoue au clic.
+       const motif = opStr(input, "motif") || opStr(input, "reason") || opStr(input, "note");
+-      if (!motif) return { error: "Dites pourquoi annuler cette demande : le motif est obligatoire et reste à l'historique." };
++      if (!motif) return { error: "Dites pourquoi retirer cette demande : le motif est obligatoire et reste au journal." };
+       return {
+-        title: `Annuler la demande — ${target.label}`,
++        title: `Retirer la demande — ${target.label}`,
+         fields: [{ label: "Demande", value: target.label }, { label: "Motif", value: motif }],
+-        warnings: ["Une demande déjà VALIDÉE ne s'annule plus par ce geste (l'action refuse)."],
++        warnings: [
++          "Retirer SUPPRIME la demande, avec ses postes, ses pièces et ce qui en découle (circuit, validations, ordres non réglés). Elle reste récupérable depuis la corbeille par le Super Admin.",
++          "Une demande déjà VALIDÉE ne se retire plus par ce geste, ni une demande dont de l'argent est déjà parti (l'action refuse).",
++        ],
+         args: { id: target.entityId, type: target.congressType, motif },
+-        successMessage: `Demande ${target.label} annulée.`,
++        successMessage: `Demande ${target.label} retirée — supprimée, récupérable depuis la corbeille.`,
+         revalidate: ["/events"],
+       };
+     },
+diff --git a/src/lib/events/statut.test.ts b/src/lib/events/statut.test.ts
+index c6985ee..131ab49 100644
+--- a/src/lib/events/statut.test.ts
++++ b/src/lib/events/statut.test.ts
+@@ -107,8 +107,11 @@ describe("les deux moitiés ont leur appelant de production", () => {
+       const corps = src.slice(src.indexOf(site), src.indexOf("\n}\n", src.indexOf(site)));
+       expect(corps, `${site} écrit par projeterStatut`).toContain("projeterStatut(");
+     }
++    // Le retrait SUPPRIME désormais la demande (Direction, 05/10) : il n'y a plus d'état « annulé » à
++    // projeter sur un événement qui n'existe plus. `retirerDemande` ne projette donc rien.
+     const retrait = src.slice(src.indexOf("export async function retirerDemande"), src.indexOf("\n}\n", src.indexOf("export async function retirerDemande")));
+-    expect(retrait, "le retrait écrit « annulée » par projeterStatut").toContain('projeterStatut(entityType, entityId, "CANCELLED", viewer)');
++    expect(retrait, "le retrait délègue la suppression et n'écrit plus d'état").toContain("input.supprimer(");
++    expect(retrait, "le retrait ne projette plus rien").not.toContain("projeterStatut(");
+     expect(src, "la projection se fait dans `projectApprove`, une seule fois pour les deux branches")
+       .toMatch(/entityType === "EVENT"[\s\S]{0,400}statutDepuisCircuit/);
+   });
+diff --git a/src/lib/expense-orders.ts b/src/lib/expense-orders.ts
+index 70d195a..8aa0eed 100644
+--- a/src/lib/expense-orders.ts
++++ b/src/lib/expense-orders.ts
+@@ -59,6 +59,15 @@ interface CreateExpenseOrderInput {
+    * et un Directeur Général cloisonné sur la bonne ne la verrait pas au centre.
+    */
+   companyId?: string | null;
++  /**
++   * LA FACTURE EST-ELLE EXIGÉE AVANT LE RÈGLEMENT ? Absent = la règle d'avant (les dépenses
++   * événementielles l'exigent). Posé par l'appelant qui SAIT que la pièce attendue est autre : le
++   * versement d'un sponsoring DIRECT à l'association se justifie par la pro forma ou la lettre de
++   * demande, pas par une facture (Direction, 05/10). Un seul champ, lu partout où la règle se
++   * juge : le règlement, la colonne « Facture » des règlements à effectuer, et le signal
++   * « justificatif manquant » de l'intelligence financière.
++   */
++  requiresInvoice?: boolean;
+ }
+ 
+ // Dépenses « événementielles » : une facture est obligatoire avant le règlement.
+@@ -256,7 +265,8 @@ async function openCompanionDossier(
+ }
+ 
+ export async function createExpenseOrder(input: CreateExpenseOrderInput) {
+-  const requiresInvoice = (input.sourceType ? INVOICE_REQUIRED_SOURCES.includes(input.sourceType) : false) || input.category === "EVENEMENT";
++  const requiresInvoice = input.requiresInvoice
++    ?? ((input.sourceType ? INVOICE_REQUIRED_SOURCES.includes(input.sourceType) : false) || input.category === "EVENEMENT");
+ 
+   // LE CENTRE DE PAIEMENT SE DÉCIDE ICI, à la naissance de l'ordre — le seul endroit par lequel
+   // TOUT décaissement passe. Tout ordre part « en attente » et n'arrive pas aux Finances tant que
+diff --git a/src/lib/session.ts b/src/lib/session.ts
+index b2d7b95..4011c03 100644
+--- a/src/lib/session.ts
++++ b/src/lib/session.ts
+@@ -9,9 +9,14 @@ import { firstAccessibleHref } from "./labels";
+ import { shouldTouch } from "./touch-throttle";
+ import { getAppSettings } from "./settings";
+ import { canOpenModule } from "./modules-visibility";
++import { IMPERSONATE_COOKIE } from "./vue-exacte";
+ 
+-/** Nom du cookie de « Vue exacte » (impersonation), honoré uniquement pour un Super Admin. */
+-export const IMPERSONATE_COOKIE = "amd_impersonate";
++/**
++ * Nom du cookie de « Vue exacte » (impersonation), honoré uniquement pour un Super Admin. Défini dans
++ * `vue-exacte.ts` (qui sait aussi refuser une création sous la vue) et réexporté ici : les actions de
++ * création le lisent sans importer la session, que les bancs remplacent entièrement.
++ */
++export { IMPERSONATE_COOKIE };
+ 
+ export interface CurrentUser {
+   id: string;
+diff --git a/src/lib/vue-exacte.ts b/src/lib/vue-exacte.ts
+new file mode 100644
+index 0000000..f1d6ae3
+--- /dev/null
++++ b/src/lib/vue-exacte.ts
+@@ -0,0 +1,68 @@
++import { cookies } from "next/headers";
++import { prisma } from "./prisma";
++
++/** Nom du cookie de « Vue exacte » (impersonation), honoré uniquement pour un Super Admin. */
++export const IMPERSONATE_COOKIE = "amd_impersonate";
++
++/**
++ * ═══════════════════════════════════════════════════════════════════════════════════════════
++ * UNE DEMANDE NE SE CRÉE PAS « COMME » QUELQU'UN — la Vue exacte lit en son nom, écrit au vôtre.
++ *
++ * « Quand un KAM recrée une demande Ad&Pro après une suppression, la nouvelle demande s'affiche
++ * « Introuvable […] ne vous est pas visible » alors qu'elle apparaît dans le tableau Ad&Pro ; après
++ * actualisation avec le compte admin ça marche » (Direction, 05/10).
++ *
++ * MESURÉ, par les vrais points d'entrée (`ad-pro/vue-exacte-creation.test.ts`) : avec un vrai KAM, la
++ * fiche de la demande recréée s'ouvre — sponsoring, congrès international et national, événement,
++ * y compris après la suppression de la première par le Super Admin. Le défaut n'est pas un cache : il
++ * tient à la « Vue exacte ». Le Super Admin qui visualise l'ERP « comme » un KAM LIT en son nom
++ * (`session.ts` honore le cookie) et ÉCRIT au sien (§118.184 : une vue n'est pas une usurpation, une
++ * requête qui écrit ignore la vue). Créer une demande dans cet état produit donc :
++ *   • une demande déposée par l'ADMINISTRATEUR — sans la gamme du KAM, sans son circuit ;
++ *   • un tableau Ad&Pro qui la MONTRE, parce que la réponse de l'action est rendue côté écriture
++ *     (le Super Admin, qui voit tout) ;
++ *   • puis une fiche « Introuvable — ou ne vous est pas visible », parce que la navigation qui suit
++ *     est une LECTURE, rendue pour le KAM visualisé, qui n'est pas le demandeur ;
++ *   • et tout redevient normal « avec le compte admin », la vue quittée.
++ *
++ * Créer une demande est un geste qui n'a de sens qu'au nom de la personne qui la dépose : on ne
++ * dépose pas « comme » un KAM, on dépose en son propre nom. Le geste est donc REFUSÉ pendant une Vue
++ * exacte, avec la raison et le remède (quitter la vue, ou se connecter au compte). Refuser est plus
++ * juste qu'accepter puis perdre la fiche : la demande ne naît pas, aucun fantôme n'entre dans les
++ * listes, et rien ne ressemble à un cache.
++ *
++ * Hors requête (banc, battement), `cookies()` lève : personne ne visualise rien — rendu `null`.
++ * ═══════════════════════════════════════════════════════════════════════════════════════════
++ */
++
++/**
++ * Le nom de la personne que ce Super Admin visualise EN CE MOMENT, ou `null`. Mêmes conditions que
++ * `session.ts` pour honorer la vue : session réelle Super Admin, cookie qui désigne une AUTRE personne,
++ * et cette personne existe et est active — un cookie périmé ou forgé ne bloque rien.
++ */
++export async function personneVisualisee(user: { id: string; role: string }): Promise<string | null> {
++  if (user.role !== "SUPER_ADMIN") return null;
++  let cible: string | undefined;
++  try {
++    cible = cookies().get(IMPERSONATE_COOKIE)?.value;
++  } catch {
++    return null;
++  }
++  if (!cible || cible === user.id) return null;
++  const t = await prisma.user.findUnique({ where: { id: cible }, select: { name: true, isActive: true } });
++  return t?.isActive ? t.name : null;
++}
++
++/** La phrase du refus — elle nomme la personne visualisée ET le remède. */
++export function refusCreationSousVue(nom: string): string {
++  return `Vous visualisez l'ERP comme ${nom} (Vue exacte) : une demande créée d'ici serait déposée au nom de l'administrateur, pas de ${nom}, et sa fiche ne s'ouvrirait pas dans cette vue (« Introuvable »). Quittez la Vue exacte depuis le bandeau en haut de l'écran pour créer la demande en votre nom — ou connectez-vous avec le compte de ${nom} pour tester son parcours.`;
++}
++
++/**
++ * LE REFUS, d'un seul appel — pour les actions de CRÉATION d'une demande : `null` quand rien ne
++ * s'oppose, sinon le résultat à rendre tel quel.
++ */
++export async function refuseSousVueExacte(user: { id: string; role: string }): Promise<{ ok: false; error: string } | null> {
++  const nom = await personneVisualisee(user);
++  return nom ? { ok: false, error: refusCreationSousVue(nom) } : null;
++}
+diff --git a/src/lib/workflow/engine.ts b/src/lib/workflow/engine.ts
+index 4548c70..4cc3d98 100644
+--- a/src/lib/workflow/engine.ts
++++ b/src/lib/workflow/engine.ts
+@@ -1567,13 +1567,27 @@ function evenementDeCloture(instanceId: string, etape: LoadedStep | null, viewer
+  * un poste qui engage déjà la dépense (bon de commande demandé, ordre émis) l'interdit, avec le
+  * geste qui débloque. Le motif est obligatoire (règle commune des gestes définitifs, R17) ; la
+  * permission est vérifiée par l'APPELANT, qui seul connaît la session.
++ *
++ * RETIRER, C'EST SUPPRIMER (Direction, 05/10) : « quand je retire une demande Ad&Pro, elle doit être
++ * TOTALEMENT supprimée — évidemment toujours récupérable depuis la corbeille par le Super Admin ».
++ * Le moteur ne fait plus que JUGER si la demande se retire (état du circuit, postes engagés) et tient
++ * la prise du circuit pendant que l'APPELANT supprime : la suppression est le cœur réversible de la
++ * corbeille (`supprimerReversible`, un lot, une transaction), qui emporte avec la demande son circuit,
++ * ses validations, ses ordres non réglés, ses postes et ses pièces — et refuse ce qui a quitté l'ERP.
++ * Fermer le circuit AVANT de supprimer aurait laissé, sur un refus du lot, une demande « annulée »
++ * qu'on n'a pas supprimée : l'ordre inverse (juger, supprimer, rien d'autre) ne laisse jamais un
++ * état à moitié. Le cœur de la suppression n'est pas importé ici — le domaine du circuit ne lit pas
++ * celui de la corbeille —, il arrive en argument, et il est appelé APRÈS tous les refus.
+  */
+-export async function retirerDemande(input: { viewer: Viewer; entityType: EntityType; entityId: string; motif: string }): Promise<ResultatRevision> {
++export async function retirerDemande(input: {
++  viewer: Viewer; entityType: EntityType; entityId: string; motif: string;
++  supprimer: (nom: string) => Promise<{ ok: boolean; error?: string; redirect?: string }>;
++}): Promise<ResultatRevision & { redirect?: string }> {
+   const { viewer, entityType, entityId } = input;
+   const category = entityToCategory(entityType);
+   if (!category) return { ok: false, error: "Catégorie de workflow inconnue." };
+   const motif = input.motif.trim();
+-  if (!motif) return { ok: false, error: "Dites pourquoi vous retirez la demande : le motif reste à l'historique." };
++  if (!motif) return { ok: false, error: "Dites pourquoi vous retirez la demande : le motif reste au journal." };
+   const instance = await ensureInstance(entityType, entityId);
+   if (!instance) return { ok: false, error: "Circuit introuvable." };
+   if (instance.status !== "IN_PROGRESS" && instance.status !== "RETURNED") {
+@@ -1594,15 +1608,12 @@ export async function retirerDemande(input: { viewer: Viewer; entityType: Entity
+     }
+     const summary = await loadEntity(entityType, entityId);
+     if (!summary) return { ok: false, error: "Demande introuvable." };
+-    // La clôture s'écrit ICI et non par `fermerInstance` : voir `clotureDuCircuit`.
+-    const def = await chargerDefinition(instance);
+-    const etape = def ? stepBySlug(def, instance.currentSlug) : null;
+-    const pris = await prisma.workflowInstance.updateMany(clotureDuCircuit(instance.id));
+-    if (pris.count === 0) return { ok: false, error: "La demande vient d'être tranchée ou close." };
+-    await prisma.workflowStepEvent.create(evenementDeCloture(instance.id, etape, viewer, `Retirée — ${motif}`));
+-    await projeterStatut(entityType, entityId, "CANCELLED", viewer);
+-    await recordAudit({ actorId: viewer.id, action: "UPDATE", module: auditModule(entityType), entityType, entityId, summary: `Demande retirée — ${summary.name} : ${motif}` });
+-    return { ok: true, category, etape: "" };
++    // LA SUPPRESSION, sous la prise : plus personne ne décide, approuve ou renvoie cette demande pendant
++    // qu'elle part. Un refus du lot (de l'argent est parti, une pièce est signée) rend la demande telle
++    // qu'elle était — la prise est rendue plus bas, rien n'a été écrit.
++    const supprime = await input.supprimer(summary.name);
++    if (!supprime.ok) return { ok: false, error: supprime.error ?? "La demande n'a pas pu être supprimée." };
++    return { ok: true, category, etape: "", redirect: supprime.redirect };
+   } finally {
+     await prisma.workflowInstance.updateMany(argsRendre(instance.id, prise)).catch(() => undefined);
+   }
+diff --git a/src/lib/workflow/renvoi-flow.test.ts b/src/lib/workflow/renvoi-flow.test.ts
+index 19e848f..07ee2ba 100644
+--- a/src/lib/workflow/renvoi-flow.test.ts
++++ b/src/lib/workflow/renvoi-flow.test.ts
+@@ -63,6 +63,8 @@ const fd = (champs: Record<string, string>) => {
+ 
+ const instanceDe = (entityType: "CONGRESS_INTERNATIONAL" | "EVENT" | "SPONSORING", entityId: string) =>
+   prisma.workflowInstance.findUniqueOrThrow({ where: { entityType_entityId: { entityType, entityId } } });
++const circuitExiste = async (entityType: "CONGRESS_INTERNATIONAL" | "EVENT" | "SPONSORING", entityId: string) =>
++  (await prisma.workflowInstance.count({ where: { entityType, entityId } })) > 0;
+ const evenementsDe = async (entityType: "CONGRESS_INTERNATIONAL" | "EVENT" | "SPONSORING", entityId: string) =>
+   prisma.workflowStepEvent.findMany({ where: { instance: { entityType, entityId } }, orderBy: { createdAt: "asc" } });
+ const notifsDe = (qui: string, contient: string) =>
+@@ -325,9 +327,13 @@ suite("Renvoyer pour correction, resoumettre, retirer, faire appel, relancer —
+     await comme("kam");
+     const r = await retirerDemandeAdPro(fd({ entityType: "CONGRESS_INTERNATIONAL", entityId: c, motif: "Congrès reporté" }));
+     expect(r.ok).toBe(true);
+-    expect((await instanceDe("CONGRESS_INTERNATIONAL", c)).status).toBe("CANCELLED");
+-    expect((await prisma.congressInternational.findUniqueOrThrow({ where: { id: c } })).requestStatus).toBe("CANCELLED");
+-    expect((await evenementsDe("CONGRESS_INTERNATIONAL", c)).find((e) => e.action === "CANCEL")?.note).toMatch(/Congrès reporté/);
++    // RETIRER = SUPPRIMER (Direction, 05/10) : la demande et son circuit partent ensemble, par le
++    // cœur réversible — la corbeille porte le motif, et le Super Admin peut tout rendre.
++    expect(await circuitExiste("CONGRESS_INTERNATIONAL", c), "le circuit part avec la demande").toBe(false);
++    expect(await prisma.congressInternational.count({ where: { id: c } }), "la demande est supprimée").toBe(0);
++    expect(await prisma.deletedRecord.count({ where: { kind: "CONGRESS_INTERNATIONAL", sourceId: c, restoredAt: null } }), "elle est à la corbeille").toBe(1);
++    const trace = await prisma.auditLog.findFirst({ where: { entityId: c, action: "DELETE" } });
++    expect(trace?.summary, "l'historique porte le motif").toMatch(/Congrès reporté/);
+     const apres = await advanceWorkflowInstance({ viewer: viewer("ns"), entityType: "CONGRESS_INTERNATIONAL", entityId: c, action: "APPROVE" });
+     expect(apres.ok, "on n'approuve pas une demande retirée").toBe(false);
+   });
+@@ -341,6 +347,7 @@ suite("Renvoyer pour correction, resoumettre, retirer, faire appel, relancer —
+     expect(refus.ok).toBe(false);
+     expect(refus.ok ? "" : refus.error).toMatch(/^1 poste\(s\) de cette demande engagent déjà la dépense/);
+     expect((await instanceDe("CONGRESS_INTERNATIONAL", c)).status, "rien n'est fermé sur un refus").toBe("IN_PROGRESS");
++    expect(await prisma.congressInternational.count({ where: { id: c } }), "ni supprimé").toBe(1);
+     await prisma.adProItem.update({ where: { id: engage.id }, data: { orderStage: "NONE" } });
+     expect((await retirerDemandeAdPro(fd({ entityType: "CONGRESS_INTERNATIONAL", entityId: c, motif: "Annulé" }))).ok, "le brouillon seul ne retient pas la demande").toBe(true);
+   });
+@@ -373,7 +380,8 @@ suite("Renvoyer pour correction, resoumettre, retirer, faire appel, relancer —
+     expect((await instanceDe("EVENT", ev.id)).status, "rien n'est fermé sur un refus").toBe("IN_PROGRESS");
+     await comme("kam");
+     expect((await retirerDemandeAdPro(fd({ entityType: "EVENT", entityId: ev.id, motif: "Reporté" }))).ok, "son demandeur, lui, la retire").toBe(true);
+-    expect((await instanceDe("EVENT", ev.id)).status).toBe("CANCELLED");
++    expect(await circuitExiste("EVENT", ev.id)).toBe(false);
++    expect(await prisma.event.count({ where: { id: ev.id } })).toBe(0);
+   });
+ 
+   it("ANNULER UN CONGRÈS FERME SON CIRCUIT — l'annulation laissait « Approuver » ouvert sur une demande annulée", async () => {
+@@ -381,7 +389,7 @@ suite("Renvoyer pour correction, resoumettre, retirer, faire appel, relancer —
+     await comme("kam");
+     expect((await cancelCongressRequest(fd({ type: "INTL", id: c }))).ok, "sans motif").toBe(false);
+     expect((await cancelCongressRequest(fd({ type: "INTL", id: c, motif: "Plus de budget" }))).ok).toBe(true);
+-    expect((await instanceDe("CONGRESS_INTERNATIONAL", c)).status).toBe("CANCELLED");
++    expect(await circuitExiste("CONGRESS_INTERNATIONAL", c), "annuler = retirer = supprimer : le circuit part").toBe(false);
+     expect((await advanceWorkflowInstance({ viewer: viewer("ns"), entityType: "CONGRESS_INTERNATIONAL", entityId: c, action: "APPROVE" })).ok).toBe(false);
+   });
+ 
+@@ -494,9 +502,11 @@ suite("Renvoyer pour correction, resoumettre, retirer, faire appel, relancer —
+       advanceWorkflowInstance({ viewer: viewer("ns"), entityType: "CONGRESS_INTERNATIONAL", entityId: c, action: "APPROVE", note: "ok" }),
+     ]);
+     expect(res.filter((r) => r.ok).length).toBe(1);
+-    const inst = await instanceDe("CONGRESS_INTERNATIONAL", c);
+-    const approuve = (await evenementsDe("CONGRESS_INTERNATIONAL", c)).some((e) => e.action === "APPROVE");
+-    expect(inst.status === "CANCELLED", "close OU approuvée, pas les deux").toBe(!approuve);
++    // Supprimée (circuit parti) OU approuvée (circuit vivant, avec son accord) — jamais les deux.
++    const supprimee = !(await circuitExiste("CONGRESS_INTERNATIONAL", c));
++    const approuve = !supprimee && (await evenementsDe("CONGRESS_INTERNATIONAL", c)).some((e) => e.action === "APPROVE");
++    expect(supprimee !== approuve, "supprimée OU approuvée, pas les deux").toBe(true);
++    if (supprimee) expect(await prisma.congressInternational.count({ where: { id: c } })).toBe(0);
+   });
+ 
+   it("LA PRISE EST RENDUE après un geste — réussi comme refusé en cours de route", async () => {
+diff --git a/src/lib/workflow/retrait-supprime-flow.test.ts b/src/lib/workflow/retrait-supprime-flow.test.ts
+new file mode 100644
+index 0000000..ed46908
+--- /dev/null
++++ b/src/lib/workflow/retrait-supprime-flow.test.ts
+@@ -0,0 +1,262 @@
++import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
++import type { CurrentUser } from "@/lib/session";
++
++vi.mock("next/cache", () => ({ revalidatePath: () => {} }));
++let ACTOR: CurrentUser | null = null;
++vi.mock("@/lib/session", () => ({ requireUser: async () => ACTOR, getCurrentUser: async () => ACTOR, getCurrentUserPourEcrire: async () => ACTOR }));
++
++import type { UserRole } from "@prisma/client";
++import { readFileSync } from "node:fs";
++import { prisma } from "@/lib/prisma";
++import { getAccess, hasGlobalView, type SessionUser } from "@/lib/rbac";
++import { canAccessEntity } from "@/lib/entity-access";
++import { peutSupprimerUneDemandeAdPro } from "@/lib/queries/ad-pro-suppression";
++import { getAdProRequests } from "@/lib/queries/ad-pro";
++import { ensureInstance } from "@/lib/workflow/engine";
++import { retirerDemandeAdPro } from "@/lib/actions/workflow-actions";
++import { cancelCongressRequest } from "@/lib/actions/congress-request-actions";
++import { supprimerDemandeAdPro, restoreDeletedRecord } from "@/lib/actions/admin-delete-actions";
++
++/**
++ * ═══════════════════════════════════════════════════════════════════════════════════════════
++ * « QUAND JE RETIRE UNE DEMANDE AD&PRO, ELLE DOIT ÊTRE TOTALEMENT SUPPRIMÉE — ÉVIDEMMENT TOUJOURS
++ * RÉCUPÉRABLE DEPUIS LA CORBEILLE PAR LE SUPER ADMIN » (Direction, 05/10).
++ *
++ * Le retrait (§118.186) fermait le circuit et laissait la demande « annulée » : visible dans les listes,
++ * avec ses postes et ses pièces. Il passe désormais par le cœur RÉVERSIBLE (§118.162) — la même cible que
++ * la suppression du Super Admin : une transaction, une entrée de corbeille, la demande et ses branches
++ * (circuit, postes, pièces, ordres non réglés) partent ensemble et reviennent ensemble.
++ *
++ * Ce que le banc tient, par les vrais points d'entrée et des acteurs SANS vue globale (§118.104) :
++ *   • retirer = la demande a disparu des listes, de la porte par enregistrement, du circuit ;
++ *   • la corbeille la rend INTACTE (même identifiant, même référence, postes et circuit compris) ;
++ *   • les refus restent — l'argent parti, un poste qui engage la dépense, le motif, la porte du retrait —
++ *     et un refus ne laisse RIEN de fermé : le circuit n'est pas touché quand le lot refuse ;
++ *   • retirer sa propre demande n'est pas le pouvoir de supprimer celle d'un autre.
++ * ═══════════════════════════════════════════════════════════════════════════════════════════
++ */
++
++const TAG = `__retrait${Date.now()}__`;
++let dbOk = false;
++try { await prisma.$queryRaw`SELECT 1`; dbOk = true; } catch { dbOk = false; }
++const suite = dbOk ? describe : describe.skip;
++
++const ids: Record<string, string> = {};
++const roles: Record<string, UserRole> = {};
++async function comme(qui: string): Promise<CurrentUser> {
++  const id = ids[qui]!;
++  const access = await getAccess(id, roles[qui] as SessionUser["role"]);
++  ACTOR = { id, name: `${TAG}${qui}`, email: `${TAG}${qui}@t.dz`, role: roles[qui] as SessionUser["role"], secondaryRole: null, access, mustChangePassword: false } as CurrentUser;
++  return ACTOR;
++}
++const fd = (champs: Record<string, string>) => {
++  const f = new FormData();
++  for (const [k, v] of Object.entries(champs)) f.set(k, v);
++  return f;
++};
++
++let n = 0;
++async function nouveauSponsoring(nom: string) {
++  n += 1;
++  const spo = await prisma.sponsoringRequest.create({
++    data: { reference: `${TAG}SPO${n}`, institution: `${TAG}${nom}`, type: "Congrès", requesterId: ids.kam!, status: "AWAITING_PRELIMINARY", amountRequested: 100_000 },
++  });
++  await ensureInstance("SPONSORING", spo.id);
++  return spo;
++}
++const circuit = (entityType: "SPONSORING" | "EVENT" | "CONGRESS_INTERNATIONAL", entityId: string) =>
++  prisma.workflowInstance.findUnique({ where: { entityType_entityId: { entityType, entityId } } });
++const dansLaListe = async (qui: string, id: string) => (await getAdProRequests(await comme(qui))).some((d) => d.id === id);
++const retirer = (entityType: string, entityId: string, motif = "Plus d'actualité") => retirerDemandeAdPro(fd({ entityType, entityId, motif }));
++
++suite("Retirer une demande Ad & Pro la SUPPRIME — par le cœur réversible, récupérable par le Super Admin", () => {
++  beforeAll(async () => {
++    const quiQuoi: [string, UserRole][] = [["kam", "MEDICAL_DELEGATE"], ["autre", "MEDICAL_DELEGATE"], ["dir", "DIRECTION"], ["sa", "SUPER_ADMIN"]];
++    for (const [nom, role] of quiQuoi) {
++      const u = await prisma.user.create({ data: { name: `${TAG}${nom}`, email: `${TAG}${nom}@t.dz`, role, passwordHash: "x" } });
++      ids[nom] = u.id; roles[nom] = role;
++    }
++  });
++
++  afterAll(async () => {
++    const spos = await prisma.sponsoringRequest.findMany({ where: { institution: { startsWith: TAG } }, select: { id: true } });
++    const entites = spos.map((x) => x.id);
++    await prisma.deletedRecord.deleteMany({ where: { name: { contains: TAG } } }).catch(() => {});
++    await prisma.workflowStepEvent.deleteMany({ where: { instance: { entityId: { in: entites } } } }).catch(() => {});
++    await prisma.workflowInstance.deleteMany({ where: { entityId: { in: entites } } }).catch(() => {});
++    await prisma.adProItem.deleteMany({ where: { sponsoringId: { in: entites } } }).catch(() => {});
++    await prisma.expenseOrder.deleteMany({ where: { reference: { startsWith: TAG } } }).catch(() => {});
++    await prisma.sponsoringRequest.deleteMany({ where: { institution: { startsWith: TAG } } }).catch(() => {});
++    await prisma.notification.deleteMany({ where: { user: { email: { startsWith: TAG } } } }).catch(() => {});
++    await prisma.auditLog.deleteMany({ where: { actorId: { in: Object.values(ids) } } }).catch(() => {});
++    await prisma.user.deleteMany({ where: { email: { startsWith: TAG } } }).catch(() => {});
++  });
++
++  it("PRÉMISSES — personne n'a la vue globale sauf la Direction et le Super Admin ; l'auteur ne SUPPRIME pas sa demande, il la RETIRE", async () => {
++    expect(hasGlobalView(await comme("kam")), "le KAM n'a pas la vue globale").toBe(false);
++    expect(hasGlobalView(await comme("autre"))).toBe(false);
++    const spo = await nouveauSponsoring("Prémisse");
++    expect(await peutSupprimerUneDemandeAdPro(await comme("kam"), "SPONSORING", spo.id), "le droit de SUPPRIMER est celui d'un autre : jamais l'auteur").toBe(false);
++    expect(await dansLaListe("kam", spo.id)).toBe(true);
++  });
++
++  it("RETIRER SUPPRIME : la demande, son circuit et ses postes partent, elle quitte les listes et la porte — et le motif est au journal", async () => {
++    const spo = await nouveauSponsoring("À retirer");
++    const poste = await prisma.adProItem.create({ data: { sponsoringId: spo.id, label: `${TAG}Poste`, kind: "OTHER", amountEstimated: 50_000 } });
++    expect(await circuit("SPONSORING", spo.id), "PRÉMISSE : le circuit existe").not.toBeNull();
++    await comme("kam");
++    const r = await retirer("SPONSORING", spo.id, "Congrès reporté");
++    expect(r.ok, r.ok ? "" : r.error).toBe(true);
++    expect(r.ok ? r.redirect : "", "l'écran quitte la fiche supprimée").toBe("/sponsoring");
++    expect(r.ok ? r.message : "").toMatch(/corbeille/);
++    expect(await prisma.sponsoringRequest.count({ where: { id: spo.id } }), "la demande est supprimée").toBe(0);
++    expect(await circuit("SPONSORING", spo.id), "le circuit part avec elle").toBeNull();
++    expect(await prisma.adProItem.count({ where: { id: poste.id } }), "ses postes aussi").toBe(0);
++    expect(await dansLaListe("kam", spo.id), "plus dans le tableau Ad & Pro").toBe(false);
++    expect(await canAccessEntity(await comme("kam"), "SPONSORING", spo.id, "VIEW"), "ni ouvrable par son identifiant").toBe(false);
++    const corbeille = await prisma.deletedRecord.findFirst({ where: { kind: "SPONSORING", sourceId: spo.id } });
++    expect(corbeille, "elle est à la corbeille").not.toBeNull();
++    expect(corbeille?.deletedById).toBe(ids.kam);
++    expect(corbeille?.lot, "avec ses branches").not.toBeNull();
++    const trace = await prisma.auditLog.findFirst({ where: { entityId: spo.id, action: "DELETE" } });
++    expect(trace?.summary, "le journal porte le motif et le fait que la corbeille la rend").toMatch(/Congrès reporté[\s\S]*restaurable depuis la corbeille/);
++  }, 60_000);
++
++  it("LA CORBEILLE LA RENDRA INTACTE : mêmes identifiant et référence, postes et circuit compris — et elle revient dans les listes", async () => {
++    const spo = await nouveauSponsoring("À restaurer");
++    const poste = await prisma.adProItem.create({ data: { sponsoringId: spo.id, label: `${TAG}Poste restauré`, kind: "OTHER", amountEstimated: 70_000 } });
++    const avant = await circuit("SPONSORING", spo.id);
++    await comme("kam");
++    expect((await retirer("SPONSORING", spo.id)).ok).toBe(true);
++    const entree = await prisma.deletedRecord.findFirstOrThrow({ where: { kind: "SPONSORING", sourceId: spo.id } });
++
++    // Le KAM ne rend rien depuis la corbeille : c'est le Super Admin, et lui seul.
++    await comme("kam");
++    expect((await restoreDeletedRecord(fd({ id: entree.id }))).ok, "un KAM ne restaure pas").toBe(false);
++    await comme("sa");
++    const r = await restoreDeletedRecord(fd({ id: entree.id }));
++    expect(r.ok, r.ok ? "" : r.error).toBe(true);
++    const revenue = await prisma.sponsoringRequest.findUniqueOrThrow({ where: { id: spo.id } });
++    expect(revenue.reference).toBe(spo.reference);
++    expect(revenue.requesterId, "la même demandeuse").toBe(ids.kam);
++    expect((await prisma.adProItem.findUniqueOrThrow({ where: { id: poste.id } })).label, "le poste est revenu").toBe(`${TAG}Poste restauré`);
++    const apres = await circuit("SPONSORING", spo.id);
++    expect(apres, "le circuit est revenu").not.toBeNull();
++    expect(apres?.currentSlug).toBe(avant?.currentSlug);
++    expect(apres?.status, "il reprend là où il en était : en cours, pas « annulé »").toBe("IN_PROGRESS");
++    expect(await dansLaListe("kam", spo.id), "elle est de nouveau dans le tableau").toBe(true);
++    expect((await prisma.deletedRecord.findUniqueOrThrow({ where: { id: entree.id } })).restoredAt).not.toBeNull();
++  }, 60_000);
++
++  it("LES REFUS RESTENT, et un refus ne ferme RIEN : sans motif, par un collègue, par un autre module, argent parti, poste qui engage la dépense", async () => {
++    const spo = await nouveauSponsoring("À refuser");
++    const intact = async (raison: string) => {
++      expect(await prisma.sponsoringRequest.count({ where: { id: spo.id } }), `${raison} : la demande est toujours là`).toBe(1);
++      expect((await circuit("SPONSORING", spo.id))?.status, `${raison} : le circuit n'est pas fermé`).toBe("IN_PROGRESS");
++      expect(await prisma.deletedRecord.count({ where: { kind: "SPONSORING", sourceId: spo.id } }), `${raison} : rien à la corbeille`).toBe(0);
++    };
++    await comme("kam");
++    const sansMotif = await retirerDemandeAdPro(fd({ entityType: "SPONSORING", entityId: spo.id }));
++    expect(sansMotif.ok).toBe(false);
++    await intact("sans motif");
++
++    await comme("autre");
++    const collegue = await retirer("SPONSORING", spo.id, "pas à moi");
++    expect(collegue.ok).toBe(false);
++    await intact("un collègue");
++
++    // Un poste qui ENGAGE la dépense (BC demandé) : le retrait nomme le remède et ne touche à rien.
++    const engage = await prisma.adProItem.create({ data: { sponsoringId: spo.id, label: `${TAG}Engagé`, kind: "OTHER", orderStage: "REQUESTED" } });
++    await comme("kam");
++    const refus = await retirer("SPONSORING", spo.id);
++    expect(refus.ok ? "" : refus.error).toMatch(/engagent déjà la dépense/);
++    await intact("un poste engagé");
++    await prisma.adProItem.update({ where: { id: engage.id }, data: { orderStage: "NONE" } });
++
++    // L'ARGENT PARTI : un ordre RÉGLÉ de cette demande. Le cœur refuse en nommant ce qui l'y oblige.
++    const regle = await prisma.expenseOrder.create({
++      data: { reference: `${TAG}OD`, label: `${TAG}Ordre réglé`, amount: 10_000, status: "PAID", paidDate: new Date(), sourceType: "SPONSORING", sourceId: spo.id, requestedById: ids.kam! },
++    });
++    const parti = await retirer("SPONSORING", spo.id);
++    expect(parti.ok, "l'argent est parti : la demande en est la justification").toBe(false);
++    expect(parti.ok ? "" : parti.error, "le refus nomme ce qui l'y oblige").toMatch(/r[ée]gl|pay|argent|ordre/i);
++    await intact("l'argent est parti");
++
++    // Le TÉMOIN : l'ordre disparu, le même retrait passe — sans lui, un refus de principe passerait pour juste.
++    await prisma.expenseOrder.delete({ where: { id: regle.id } });
++    const ok = await retirer("SPONSORING", spo.id);
++    expect(ok.ok, ok.ok ? "" : ok.error).toBe(true);
++    expect(await prisma.sponsoringRequest.count({ where: { id: spo.id } })).toBe(0);
++  }, 60_000);
++
++  it("UNE DEMANDE DÉJÀ TRANCHÉE ne se retire plus : le circuit clos refuse, rien n'est supprimé — et le témoin la retire tant qu'elle est en cours", async () => {
++    const spo = await nouveauSponsoring("Déjà tranchée");
++    await prisma.workflowInstance.update({ where: { entityType_entityId: { entityType: "SPONSORING", entityId: spo.id } }, data: { status: "APPROVED" } });
++    await comme("kam");
++    const r = await retirer("SPONSORING", spo.id);
++    expect(r.ok ? "" : r.error).toMatch(/déjà tranchée ou close/);
++    expect(await prisma.sponsoringRequest.count({ where: { id: spo.id } }), "rien n'est supprimé").toBe(1);
++    await prisma.workflowInstance.update({ where: { entityType_entityId: { entityType: "SPONSORING", entityId: spo.id } }, data: { status: "IN_PROGRESS" } });
++    expect((await retirer("SPONSORING", spo.id)).ok, "le témoin : en cours, elle se retire").toBe(true);
++  }, 60_000);
++
++  it("LA DIRECTION retire la demande d'un collègue (qui tranche le module) ; la suppression du Super Admin vise la même cible", async () => {
++    const a = await nouveauSponsoring("Retirée par la Direction");
++    await comme("dir");
++    const r = await retirer("SPONSORING", a.id, "Doublon");
++    expect(r.ok, r.ok ? "" : r.error).toBe(true);
++    expect(await prisma.deletedRecord.count({ where: { kind: "SPONSORING", sourceId: a.id } })).toBe(1);
++
++    const b = await nouveauSponsoring("Supprimée par le Super Admin");
++    await comme("sa");
++    const s = await supprimerDemandeAdPro(fd({ kind: "SPONSORING", id: b.id }));
++    expect(s.ok, s.ok ? "" : s.error).toBe(true);
++    // MÊME ENTRÉE DE CORBEILLE, même type, même forme de lot : un seul destin pour une demande retirée ou supprimée.
++    const ea = await prisma.deletedRecord.findFirstOrThrow({ where: { kind: "SPONSORING", sourceId: a.id } });
++    const eb = await prisma.deletedRecord.findFirstOrThrow({ where: { kind: "SPONSORING", sourceId: b.id } });
++    expect(ea.kind).toBe(eb.kind);
++    expect(Object.keys((ea.lot ?? {}) as object).sort()).toEqual(Object.keys((eb.lot ?? {}) as object).sort());
++  }, 60_000);
++
++  it("ANNULER UN CONGRÈS / ÉVÉNEMENT délègue au retrait : même issue (suppression), même refus sans motif", async () => {
++    const e = await prisma.event.create({ data: { name: `${TAG}Événement`, createdById: ids.kam!, requesterId: ids.kam!, requestStatus: "AWAITING_PRELIMINARY", estimatedBudget: 100_000 } });
++    await ensureInstance("EVENT", e.id);
++    await comme("kam");
++    const sans = await cancelCongressRequest(fd({ type: "EVENT", id: e.id }));
++    expect(sans.ok, "sans motif").toBe(false);
++    expect(await prisma.event.count({ where: { id: e.id } })).toBe(1);
++    const r = await cancelCongressRequest(fd({ type: "EVENT", id: e.id, motif: "Annulé" }));
++    expect(r.ok, r.ok ? "" : r.error).toBe(true);
++    expect(await prisma.event.count({ where: { id: e.id } }), "supprimé").toBe(0);
++    expect(await prisma.deletedRecord.count({ where: { kind: "EVENT", sourceId: e.id } }), "à la corbeille").toBe(1);
++    await prisma.deletedRecord.deleteMany({ where: { kind: "EVENT", sourceId: e.id } });
++  }, 60_000);
++
++  // ── LES POINTS D'APPEL (§118.49) ────────────────────────────────────────────────────────────
++
++  it("CLIQUET — le retrait SUPPRIME par le cœur réversible : l'action passe `supprimerReversible` au moteur, qui l'appelle APRÈS tous ses refus", () => {
++    const sansCommentaires = (src: string) => src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/.*$/gm, "$1");
++    const action = sansCommentaires(readFileSync("src/lib/actions/workflow-actions.ts", "utf8"));
++    const corpsAction = action.slice(action.indexOf("export async function retirerDemandeAdPro"), action.indexOf("async function demandeurDe"));
++    expect(corpsAction, "l'action donne au moteur la suppression réversible").toMatch(/supprimer: \(nom\) => supprimerReversible\(/);
++    const moteur = sansCommentaires(readFileSync("src/lib/workflow/engine.ts", "utf8"));
++    const corps = moteur.slice(moteur.indexOf("export async function retirerDemande"), moteur.indexOf("\n}\n", moteur.indexOf("export async function retirerDemande")));
++    const iAppel = corps.indexOf("input.supprimer(");
++    expect(iAppel, "le moteur appelle la suppression").toBeGreaterThan(-1);
++    for (const refus of ["REFUS_RETRAIT", "engagent déjà la dépense", "ne peut plus être retirée", "motif"]) {
++      const i = corps.indexOf(refus);
++      if (i === -1) continue;
++      expect(i, `« ${refus} » est jugé AVANT la suppression : un refus ne laisse rien de fermé`).toBeLessThan(iAppel);
++    }
++    // L'ÉCRAN (composant client, aucun banc ne le rend) : il quitte la fiche supprimée, et le dit avant le clic.
++    const panneau = readFileSync("src/components/workflow/workflow-panel.tsx", "utf8");
++    expect(sansCommentaires(panneau), "après le retrait, l'écran va où l'action le dit").toMatch(/router\.push\(r\.redirect \?\? "\/ad-pro"\)/);
++    expect(panneau, "la confirmation dit que la demande sera SUPPRIMÉE et récupérable").toMatch(/SUPPRIMÉE[\s\S]{0,200}corbeille/);
++    // ADAM (en pause, mais une phrase fausse qu'un modèle lit se corrige) : la carte et le catalogue disent « supprimée ».
++    const carte = readFileSync("src/lib/assistant/ops/impl-wave5.ts", "utf8");
++    expect(carte, "la carte du retrait annonce la suppression").toMatch(/Retirer SUPPRIME la demande/);
++    expect(readFileSync("src/lib/assistant/ops/catalog.ts", "utf8"), "le catalogue dit « retire » et « supprimée »").toMatch(/Retire une demande de congrès \/ événement NON encore validée : elle est SUPPRIMÉE/);
++    const adpro = sansCommentaires(readFileSync("src/lib/actions/admin-delete-actions.ts", "utf8"));
++    expect(adpro, "la suppression du Super Admin revalide le tableau et Mon espace").toMatch(/revalidatePath\("\/ad-pro"\)[\s\S]{0,80}revalidatePath\("\/mon-espace"\)/);
++  });
++});

@@ -1,0 +1,247 @@
+diff --git a/CLAUDE.md b/CLAUDE.md
+index 9ee3f04..2545e2e 100644
+--- a/CLAUDE.md
++++ b/CLAUDE.md
+@@ -1393,7 +1393,7 @@ Versionnés : `graphify-out/{graph.json, graph.html, GRAPH_REPORT.md, .graphify_
+ 
+ **UNE DÉLÉGATION QUI PERMET DE DÉPASSER CE QU'ON A DÉLÉGUÉ N'EN EST PAS UNE.** Un compte à qui l'on confie l'Administration nommait n'importe qui Super Admin — lui compris —, réinitialisait le mot de passe d'un Super Admin pour se connecter à sa place, et s'accordait les modules qu'on ne lui avait pas donnés. `admin/garde-comptes.ts` (pur) : seul un Super Admin fait ou touche un Super Admin, et ses propres droits passent par quelqu'un d'autre. Les gestes ordinaires restent à l'administrateur délégué — c'est l'objet de la délégation.
+ 
+-**LA « VUE EXACTE » EST UNE VUE, PAS UNE USURPATION.** Le bandeau promettait « vos actions seront enregistrées à votre nom » ; chaque écriture partait au nom de la personne visualisée, au journal comme dans les notifications. Une requête qui ÉCRIT ignore désormais la vue : une action serveur se reconnaît à son en-tête, une route d'API le DÉCLARE (`getCurrentUserPourEcrire`) et un cliquet l'exige de chaque gestionnaire POST, PUT, PATCH et DELETE.
++**LA « VUE EXACTE » EST UNE VUE, PAS UNE USURPATION.** Le bandeau promettait « vos actions seront enregistrées à votre nom » ; chaque écriture partait au nom de la personne visualisée, au journal comme dans les notifications. Une requête qui ÉCRIT ignore désormais la vue : une action serveur se reconnaît à son EXÉCUTION (§118.209 — l'en-tête, lui, était faux), une route d'API le DÉCLARE (`getCurrentUserPourEcrire`) et un cliquet l'exige de chaque gestionnaire POST, PUT, PATCH et DELETE.
+ 
+ **UNE PERSONNE PARTIE NE GARDE PAS L'ERP.** Désactiver une fiche salarié laissait le compte ouvert, sessions comprises : deux registres pour le même fait, et le plus permissif restait vrai (§118.5). Le compte suit la fiche ; trois limites, chacune avec sa phrase : la RH ne ferme pas le compte d'un Super Admin, on ne se ferme pas soi-même, et une réactivation ne rouvre rien — c'est une décision d'administration. **Et le banc a trouvé pire** : les écritures RH ne lisaient que le droit de module — la RH d'une société modifiait et désactivait, par l'identifiant, un salarié d'une autre.
+ 
+@@ -1778,3 +1778,5 @@ Versionnés : `graphify-out/{graph.json, graph.html, GRAPH_REPORT.md, .graphify_
+ **Ce qui reste, nommé.** La route ZIP du Drive garde son plafond de 300 Mo (JSZip) : elle est à porter sur le même lecteur. Un ZIP stocké en base de plus de 400 Mo n'est pas ouvert (il est téléchargeable) — le cas ne se produit plus dès que le stockage objet est branché, les gros fichiers partant en direct. Aucun échange réel avec le bucket n'a eu lieu depuis ce conteneur (le bucket est simulé, la plage `Range` est exercée par un faux) ; le premier dépôt réel de plusieurs Go se vérifie en production. Sans stockage objet, la limite reste celle du chemin ordinaire et le refus nomme les variables à poser.
+ 
+ 208. **Un correctif qui dépend d'une commande qu'on ne contrôle pas ne corrige rien.** Le déploiement Render mourait en « heap out of memory » à « Checking validity of types » : le typecheck intégré à `next build` consomme ≈ 4,7 Go (Prisma + 730 K lignes) dans un tas d'environ 4 Go. Premier correctif : un processus tsc dédié dans `build:render`. **Il ne s'est jamais appliqué** — le journal Render montrait `npx next build` NU : la commande du tableau de bord remplace celle de `render.yaml`. Et la branche clonée (`claude/hopeful-goodall-phd0nb`) ne portait de toute façon aucun de nos commits : deux causes, deux endroits où chercher avant d'accuser le code. Le correctif vit maintenant dans `next.config.mjs` (phase `phase-production-build` + variable `RENDER`) : tsc sur `tsconfig.build.json` (la production, sans les tests : 4,7 → 3,7 Go ; `npm run typecheck` vérifie tout) dans un processus à tas de 5 Go AVANT la compilation, et une erreur de type ARRÊTE le build — vérifié en injectant une erreur (build en échec avant toute compilation, arbre restauré). Mesuré, simulation de Render (`NODE_OPTIONS=--max-old-space-size=4096 RENDER=1 npx next build`, dossier vide) : code 0 en 7 min 53. **Ma première simulation était fausse** : sans plafond, ce conteneur plafonne à 2 Go (Node 22) et la COMPILATION mourait, ce qui ressemblait à un échec du correctif ; on simule le tas de la cible (≈ 4 Go sur Render), pas celui de la machine de développement (§118.84 : par quel chemin, avec quels réglages ?). Un build local et `next start` sont inchangés.
++
++209. **« Voir comme cet utilisateur » : il fallait rafraîchir, sortir et rentrer — la session lisait un en-tête qui ne dit pas ce qu'elle croyait.** §118.184 a fait de la vue exacte une VUE : une requête qui ÉCRIT part au nom du Super Admin. Pour reconnaître une action serveur, la session lisait l'en-tête `Next-Action`. Mais une action qui `redirect()` ne renvoie pas une redirection : Next rend la page cible DANS la réponse de l'action, en rejouant les en-têtes de la requête, `Next-Action` compris (`createRedirectRenderResult`, `getForwardedHeaders`). La page d'arrivée se rendait donc comme celle de l'administrateur, sans bandeau ; seul un rechargement — une vraie requête GET — montrait la vue. Même défaut après toute action qui revalide la page affichée. **Mesuré avant de corriger**, par le clic réel contre le build de production : sans rechargement, 0 bandeau ; après rechargement, 1 (`e2e/vue-exacte.spec.ts`, rouge avant, vert après). L'en-tête dit « cette requête VIENT d'une action », pas « le code qui tourne est celui de l'action » ; le fait juste est le stockage asynchrone que Next pose autour du seul corps de l'action (`actionAsyncStorage`, `isAction`), le même que `cookies().set` et `redirect` lisent. Un seul endroit décide (`actionServeurEnCours`, `lib/session.ts`) : tous les rendus qui suivent une action lisent la vue. **Un test unitaire ne pouvait pas le voir** (le défaut est dans ce que Next fait ENTRE l'action et la page) ; le banc unitaire joue désormais les deux situations avec le vrai stockage et tient le point d'appel (§118.49). Quatre sabotages, quatre chutes.
+diff --git a/e2e/vue-exacte.spec.ts b/e2e/vue-exacte.spec.ts
+new file mode 100644
+index 0000000..3a86df8
+--- /dev/null
++++ b/e2e/vue-exacte.spec.ts
+@@ -0,0 +1,94 @@
++import { test, expect, type Page } from "@playwright/test";
++import { PrismaClient } from "@prisma/client";
++import { E2E } from "./global-setup";
++
++/**
++ * ═══════════════════════════════════════════════════════════════════════════════════════════
++ * « VOIR COMME CET UTILISATEUR » — il fallait rafraîchir, sortir et rentrer pour que ça marche.
++ *
++ * Une action serveur qui `redirect()` ne renvoie pas une redirection : Next rend la page cible DANS
++ * la réponse de l'action, en rejouant les en-têtes de la requête — `Next-Action` compris. La session
++ * lisait cet en-tête pour savoir si « cette requête écrit » (§118.184) et, dans ce cas, ignorait la
++ * vue : la page affichée juste après le clic était celle du Super Admin, sans bandeau. Un
++ * rechargement (une vraie requête GET, sans l'en-tête) montrait enfin la vue — d'où « rafraîchis,
++ * sors, rentre ».
++ *
++ * Aucun test unitaire ne pouvait le voir : le défaut est dans ce que Next fait ENTRE l'action et la
++ * page. Cette spec joue le clic réel, contre le build de production, et ne recharge JAMAIS.
++ * ═══════════════════════════════════════════════════════════════════════════════════════════
++ */
++
++const prisma = new PrismaClient({
++  datasources: { db: { url: process.env.DATABASE_URL ?? "postgresql://postgres:postgres@localhost:5432/amd_internal_os?schema=public" } },
++});
++
++async function login(page: Page, email: string) {
++  await page.goto("/login");
++  await page.getByLabel(/e-?mail/i).fill(email);
++  await page.getByLabel(/mot de passe/i).fill(E2E.password);
++  await page.getByRole("button", { name: /connexion|se connecter/i }).click();
++  await page.waitForURL((url) => !url.pathname.startsWith("/login"), { timeout: 20_000 });
++}
++
++/** Navigation qui attend l'hydratation : un clic posé avant elle ne déclenche rien (§118.164). */
++async function aller(page: Page, url: string) {
++  await page.goto(url);
++  await page.waitForLoadState("networkidle");
++}
++
++let cibleId = "";
++let cibleNom = "";
++test.beforeAll(async () => {
++  const u = await prisma.user.findUnique({ where: { email: E2E.email }, select: { id: true, name: true } });
++  if (!u) throw new Error("le seed E2E n'a pas posé son utilisateur");
++  cibleId = u.id;
++  cibleNom = u.name;
++});
++test.afterAll(async () => { await prisma.$disconnect(); });
++
++test("« Voir comme » : la vue s'ouvre du premier coup, sans rechargement ; « Quitter » la ferme de même", async ({ page }) => {
++  await login(page, E2E.superAdminEmail);
++  await aller(page, `/admin/users/${cibleId}`);
++
++  // Marqueur posé sur le document : un rechargement complet l'EFFACE. S'il survit, on n'a pas rechargé.
++  await page.evaluate(() => { (window as unknown as { __sansRechargement: boolean }).__sansRechargement = true; });
++
++  await page.getByRole("button", { name: /voir comme cet utilisateur/i }).click();
++
++  // La vue est là tout de suite : le bandeau nomme la personne visualisée, la page est celle de SON espace.
++  const bandeau = page.getByText(/Vue exacte : vous voyez l.OS exactement comme/);
++  await expect(bandeau).toBeVisible({ timeout: 15_000 });
++  await expect(bandeau).toContainText(cibleNom);
++  await expect(page).toHaveURL(/\/mon-espace/);
++  expect(await page.evaluate(() => (window as unknown as { __sansRechargement?: boolean }).__sansRechargement)).toBe(true);
++
++  // Naviguer dans la vue garde la vue (le routeur ne ressert pas une page d'avant).
++  await page.getByRole("link", { name: /mon espace/i }).first().click().catch(() => undefined);
++  await expect(bandeau).toBeVisible();
++
++  // Quitter la vue : le bandeau disparaît du premier coup et on retrouve la console.
++  await page.getByRole("button", { name: /quitter la vue/i }).click();
++  await expect(page).toHaveURL(/\/admin(\?|$|\/)/, { timeout: 15_000 });
++  await expect(page.getByText(/Vue exacte : vous voyez l.OS exactement comme/)).toHaveCount(0);
++  expect(await page.evaluate(() => (window as unknown as { __sansRechargement?: boolean }).__sansRechargement)).toBe(true);
++});
++
++test("« Voir comme » : un second passage sur une autre personne ne ressert pas la première", async ({ page }) => {
++  const autre = await prisma.user.findUnique({ where: { email: E2E.lecteurEmail }, select: { id: true, name: true } });
++  if (!autre) throw new Error("le seed E2E n'a pas posé son lecteur");
++  await login(page, E2E.superAdminEmail);
++
++  await aller(page, `/admin/users/${cibleId}`);
++  await page.getByRole("button", { name: /voir comme cet utilisateur/i }).click();
++  await expect(page.getByText(/Vue exacte : vous voyez l.OS exactement comme/)).toContainText(cibleNom, { timeout: 15_000 });
++  await page.getByRole("button", { name: /quitter la vue/i }).click();
++  await expect(page).toHaveURL(/\/admin/, { timeout: 15_000 });
++
++  // Retour sur la page d'une AUTRE personne, sans recharger.
++  await page.goto(`/admin/users/${autre.id}`);
++  await page.waitForLoadState("networkidle");
++  await page.getByRole("button", { name: /voir comme cet utilisateur/i }).click();
++  await expect(page.getByText(/Vue exacte : vous voyez l.OS exactement comme/)).toContainText(autre.name, { timeout: 15_000 });
++  await page.getByRole("button", { name: /quitter la vue/i }).click();
++  await expect(page.getByText(/Vue exacte : vous voyez l.OS exactement comme/)).toHaveCount(0);
++});
+diff --git a/src/lib/session-vue-exacte.test.ts b/src/lib/session-vue-exacte.test.ts
+index fc06667..64d5e60 100644
+--- a/src/lib/session-vue-exacte.test.ts
++++ b/src/lib/session-vue-exacte.test.ts
+@@ -1,3 +1,4 @@
++import { AsyncLocalStorage } from "node:async_hooks";
+ import { readFileSync, readdirSync, statSync } from "node:fs";
+ import { join } from "node:path";
+ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+@@ -18,6 +19,15 @@ let SESSION: unknown = null;
+ let EN_TETES = new Headers();
+ let COOKIE: string | undefined;
+ vi.mock("@/auth", () => ({ auth: async () => SESSION }));
++// Le stockage asynchrone de Next qui marque l'exécution du CORPS d'une action serveur : on y met le même
++// `AsyncLocalStorage` que Next instancie (le sien n'existe qu'une fois le serveur démarré).
++const { ACTION_STORE } = vi.hoisted(() => ({ ACTION_STORE: { current: null as null | { run: <T>(s: { isAction: boolean }, f: () => T) => T; getStore: () => unknown } } }));
++vi.mock("next/dist/client/components/action-async-storage.external", async () => {
++  const { AsyncLocalStorage: ALS } = await import("node:async_hooks");
++  const store = new ALS<{ isAction: boolean }>();
++  ACTION_STORE.current = store as never;
++  return { actionAsyncStorage: store };
++});
+ vi.mock("next/headers", () => ({
+   cookies: () => ({ get: (n: string) => (n === "amd_impersonate" && COOKIE ? { value: COOKIE } : undefined) }),
+   headers: () => EN_TETES,
+@@ -49,13 +59,31 @@ suite("Vue exacte — qui agit", () => {
+     expect(u?.impersonatedBy?.id).toBe(admin);
+   });
+ 
+-  it("une ACTION SERVEUR part au nom du Super Admin — ce que le bandeau promet", async () => {
++  it("le CORPS d'une action serveur part au nom du Super Admin — ce que le bandeau promet", async () => {
+     EN_TETES = new Headers({ "next-action": "abc123" });
+-    const u = await requireUser();
++    const u = await ACTION_STORE.current!.run({ isAction: true }, () => requireUser());
+     expect(u.id).toBe(admin);
+     expect(u.impersonatedBy).toBeUndefined();
+   });
+ 
++  it("le RENDU qui suit une action (redirect, revalidation) lit la vue, même avec l'en-tête `Next-Action` rejoué", async () => {
++    // Next rend la page cible d'un `redirect()` dans la réponse de l'action, en rejouant les en-têtes de la
++    // requête — `Next-Action` compris — mais HORS du corps de l'action. C'est le défaut mesuré : la page
++    // d'arrivée de « Voir comme » se rendait comme celle de l'administrateur, sans bandeau, jusqu'au prochain
++    // rechargement. L'en-tête ne dit pas « le code qui tourne est une action » : il ne décide donc de rien.
++    EN_TETES = new Headers({ "next-action": "abc123" });
++    const u = await requireUser();
++    expect(u.id).toBe(cible);
++    expect(u.impersonatedBy?.id).toBe(admin);
++    expect((await getCurrentUser())?.id).toBe(cible);
++  });
++
++  it("l'action TERMINÉE ne laisse rien derrière elle : la lecture suivante revoit la vue", async () => {
++    EN_TETES = new Headers({ "next-action": "abc123" });
++    await ACTION_STORE.current!.run({ isAction: true }, () => requireUser());
++    expect((await requireUser()).id).toBe(cible);
++  });
++
+   it("une route d'API qui ÉCRIT part aussi au nom du Super Admin", async () => {
+     EN_TETES = new Headers();
+     expect((await getCurrentUserPourEcrire())?.id).toBe(admin);
+@@ -104,3 +132,17 @@ describe("Vue exacte — chaque route d'API qui écrit le déclare", () => {
+     expect(fautives).toEqual([]);
+   });
+ });
++
++describe("Vue exacte — la session ne décide plus sur l'en-tête (§118.49 : le point d'appel, pas le corps)", () => {
++  const src = readFileSync("src/lib/session.ts", "utf8").replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
++
++  it("`build` consulte l'exécution de l'action (stockage de Next) avant d'ignorer la vue", () => {
++    expect(src).toMatch(/opts\.ecriture \|\| actionServeurEnCours\(\)/);
++    expect(src).toMatch(/actionAsyncStorage\.getStore\(\)\?\.isAction === true/);
++  });
++
++  it("aucune lecture de l'en-tête `next-action` pour décider de la vue", () => {
++    expect(src).not.toMatch(/next-action/i);
++    expect(src).not.toMatch(/headers\(\)/);
++  });
++});
+diff --git a/src/lib/session.ts b/src/lib/session.ts
+index b2d7b95..aaf07b7 100644
+--- a/src/lib/session.ts
++++ b/src/lib/session.ts
+@@ -1,4 +1,5 @@
+-import { cookies, headers } from "next/headers";
++import { cookies } from "next/headers";
++import { actionAsyncStorage } from "next/dist/client/components/action-async-storage.external";
+ import { redirect } from "next/navigation";
+ import type { Session } from "next-auth";
+ import type { UserRole } from "@prisma/client";
+@@ -28,13 +29,26 @@ export interface CurrentUser {
+ }
+ 
+ /**
+- * CETTE REQUÊTE ÉCRIT-ELLE ? Une action serveur porte toujours l'en-tête `Next-Action` ; une route
+- * d'API qui écrit le DIT en appelant `getCurrentUserPourEcrire` (un cliquet l'exige de chaque
++ * UNE ACTION SERVEUR S'EXÉCUTE-T-ELLE EN CE MOMENT ? La question n'est pas « cette requête porte-t-elle
++ * l'en-tête `Next-Action` ? » : c'est ce qu'on lisait (§118.184), et c'était faux de deux façons.
++ *
++ *   · Une action qui `redirect()` ne renvoie pas une redirection : Next rend la page cible DANS la
++ *     réponse de l'action, en rejouant les en-têtes de la requête — `Next-Action` compris. La page
++ *     d'arrivée de « Voir comme cet utilisateur » se rendait donc comme celle du Super Admin, sans
++ *     bandeau ; seul un rechargement (une vraie requête GET) montrait la vue. Même défaut après toute
++ *     action qui revalide la page affichée : l'écran retombait sur l'administrateur jusqu'au prochain
++ *     rechargement. Mesuré contre le build de production (`e2e/vue-exacte.spec.ts`).
++ *   · L'en-tête dit « cette requête VIENT d'une action », pas « le code qui tourne est celui de
++ *     l'action » : le rendu de la page qui suit l'action est un RENDU, il LIT.
++ *
++ * Next marque l'exécution du corps de l'action — et d'elle seule — dans un stockage asynchrone
++ * (`actionAsyncStorage`, `isAction`) : c'est le fait que `cookies().set` et `redirect` lisent eux-mêmes.
++ * Une route d'API qui écrit le DIT en appelant `getCurrentUserPourEcrire` (un cliquet l'exige de chaque
+  * gestionnaire POST/PUT/PATCH/DELETE). Hors requête (banc, battement), personne n'usurpe rien.
+  */
+-function requeteQuiEcrit(): boolean {
++function actionServeurEnCours(): boolean {
+   try {
+-    return Boolean(headers().get("next-action"));
++    return actionAsyncStorage.getStore()?.isAction === true;
+   } catch {
+     return false;
+   }
+@@ -70,7 +84,7 @@ async function build(session: Session | null, opts: { ecriture?: boolean } = {})
+   // personne visualisée : une décision, un envoi, un dépôt s'écrivaient sous son nom au journal et
+   // dans les notifications. Une requête qui ÉCRIT ignore donc la vue : elle part au nom du Super
+   // Admin, avec ses droits — ce que le bandeau dit.
+-  if (session.user.role === "SUPER_ADMIN" && !(opts.ecriture || requeteQuiEcrit())) {
++  if (session.user.role === "SUPER_ADMIN" && !(opts.ecriture || actionServeurEnCours())) {
+     const targetId = cookies().get(IMPERSONATE_COOKIE)?.value;
+     if (targetId && targetId !== session.user.id) {
+       const target = await prisma.user.findUnique({

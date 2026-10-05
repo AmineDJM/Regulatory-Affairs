@@ -1,0 +1,1648 @@
+diff --git a/e2e/demande-materiel.spec.ts b/e2e/demande-materiel.spec.ts
+index 0700798..299f204 100644
+--- a/e2e/demande-materiel.spec.ts
++++ b/e2e/demande-materiel.spec.ts
+@@ -125,26 +125,16 @@ test("Stock promotionnel : une entrée À PART du menu Sales & Marketing — ses
+   await expect(page).toHaveURL(/\/stock-promotionnel\?vue=moi$/);
+ });
+ 
+-test("Moyens généraux : sans service ni département, le Super Admin DÉSIGNE — puis change — sans voir d'autre caisse", async ({ page }) => {
+-  page.on("dialog", (d) => d.accept());
++test("Moyens généraux : sans service ni département, le Super Admin arrive sur le CATALOGUE — plus d'impasse, plus de choix de service (04/10)", async ({ page }) => {
+   await login(page, SA_EMAIL);
+   await aller(page, "/moyens-generaux");
+-  // L'IMPASSE D'AVANT : « Aucun département rattaché à votre compte », sans geste possible.
+-  await expect(page.getByText("Aucun service des moyens généraux n'est désigné")).toBeVisible();
+-  const choix = page.getByLabel("Département qui tient les moyens généraux");
+-  await choix.selectOption(deptA);
+-  await page.getByRole("button", { name: "Désigner" }).click();
+-  await expect(page.getByRole("heading", { name: `Moyens généraux — ${DEPT_A}` })).toBeVisible({ timeout: 20_000 });
+-  await expect(page.getByText("Service des moyens généraux de la société")).toBeVisible();
+-  // PLUS DE SÉLECTEUR DE DÉPARTEMENTS : la liste n'existe que derrière « Changer de service… », et
+-  // elle DÉSIGNE — elle n'ouvre la caisse d'aucun autre département.
+-  await expect(page.getByLabel("Département qui tient les moyens généraux")).toHaveCount(0);
++  // L'IMPASSE D'AVANT (« aucun service désigné ») n'existe plus : l'écran ne dépend plus d'aucun service.
++  await expect(page.getByRole("heading", { name: "Moyens généraux — Catalogue d'articles" })).toBeVisible();
++  await expect(page.getByText("Aucun service des moyens généraux n'est désigné")).toHaveCount(0);
++  await expect(page.getByRole("button", { name: "Changer de service…" })).toHaveCount(0);
+   expect(await page.locator('a[href*="dept="]').count(), "un lien ?dept= ouvrirait la caisse d'un autre département").toBe(0);
+-  await page.getByRole("button", { name: "Changer de service…" }).click();
+-  await page.getByLabel("Département qui tient les moyens généraux").selectOption(deptB);
+-  await page.getByRole("button", { name: "Désigner" }).click();
+-  await expect(page.getByRole("heading", { name: `Moyens généraux — ${DEPT_B}` })).toBeVisible({ timeout: 20_000 });
+-  expect((await prisma.appSetting.findUnique({ where: { id: "global" } }))?.generalMeansDepartmentId).toBe(deptB);
++  // L'écran n'écrit pas le réglage : il reste ce que le décor a posé.
++  expect((await prisma.appSetting.findUnique({ where: { id: "global" } }))?.generalMeansDepartmentId).toBeNull();
+ });
+ 
+ test("Matériel promotionnel : la demande se compose de LIGNES dès sa création — sans budget, assistante, gamme ni entité", async ({ page }) => {
+diff --git a/e2e/finances-centre.spec.ts b/e2e/finances-centre.spec.ts
+index 4cdca1a..1b413cb 100644
+--- a/e2e/finances-centre.spec.ts
++++ b/e2e/finances-centre.spec.ts
+@@ -346,29 +346,23 @@ test("CENTRE : la paie s'autorise comme tout paiement — et le solde de trésor
+   await expect(page.getByText(LIBELLE_PAIE).first()).toBeVisible();
+ });
+ 
+-test("CAISSE D'AVANCE : la remise part au centre — la détentrice ne confirme rien avant le versement", async ({ page }) => {
++test("MOYENS GÉNÉRAUX : l'écran ne garde que le catalogue d'articles — plus de caisse, plus de remise (décision du 04/10)", async ({ page }) => {
++  // La remise de caisse au centre de paiement reste éprouvée par l'ACTION (`centre-paie-caisse-flow.test.ts`) :
++  // c'est l'ÉCRAN qui ne la propose plus. Ce parcours tient la règle du jour, pour le Super Admin comme
++  // pour la détentrice d'une caisse — sans quoi une caisse ouverte se verrait encore par une porte.
+   await login(page, SA_EMAIL);
+   await aller(page, "/moyens-generaux");
+-  // Le service n'a AUCUNE caisse ouverte (sa seule remise est soldée) : l'écran propose la remise
+-  // d'emblée, sans bouton intermédiaire.
+-  const formulaire = page.locator("form").filter({ hasText: "Remettre une somme en caisse" });
+-  await expect(formulaire).toBeVisible();
+-  await formulaire.locator('input[name="amount"]').fill("24000");
+-  await formulaire.locator('select[name="holderId"]').selectOption({ label: `${P} Assistante caisse` });
+-  await formulaire.getByRole("button", { name: "Envoyer au centre de paiement" }).click();
+-  // La phrase porte la RÉFÉRENCE de l'ordre : c'est ce qu'on suit ensuite au centre de paiement.
+-  await expect(page.getByText(/Remise de 24[\s  ]000 DZD envoyée au centre de paiement \(/)).toBeVisible({ timeout: 15_000 });
+-  await expect(page.getByText(/en attente du centre de paiement/i).first()).toBeVisible({ timeout: 15_000 });
+-
+-  const remise = await prisma.pettyCashAllotment.findFirstOrThrow({ where: { departmentId: deptId, status: "ALLOTTED" }, include: { expenseOrder: true } });
+-  expect(remise.transactionId, "écrire la sortie avant l'autorisation, c'est inscrire un décaissement que personne n'a autorisé").toBeNull();
+-  expect(remise.expenseOrder?.centralStatus).toBe("AWAITING");
+-  expect(remise.expenseOrder?.companyId).toBe(companyId);
++  await expect(page.getByRole("heading", { name: "Moyens généraux — Catalogue d'articles" })).toBeVisible();
++  // Le témoin : le catalogue est bien LÀ (le formulaire d'ajout), donc les absences ci-dessous ne
++  // viennent pas d'une page vide.
++  await expect(page.getByText("Nouvel article")).toBeVisible();
++  for (const retire of ["Remettre une somme en caisse", "Caisse d'avance", "Changer de service…", "Annuaire de l'entreprise", "Budgets par département"]) {
++    await expect(page.getByText(retire, { exact: true }), `l'écran montre encore « ${retire} »`).toHaveCount(0);
++  }
+ 
+   await page.context().clearCookies();
+   await login(page, CAISSE_EMAIL);
+   await aller(page, "/moyens-generaux");
+-  await expect(page.getByText(/en attente du centre de paiement/i).first()).toBeVisible();
+   await expect(page.getByRole("button", { name: /J'ai reçu la somme/ })).toHaveCount(0);
+-  await capture(page, "f4-caisse-en-attente");
++  await capture(page, "f4-moyens-generaux-catalogue");
+ });
+diff --git a/prisma/migrations/20270106110000_remises_rapport_terrain/migration.sql b/prisma/migrations/20270106110000_remises_rapport_terrain/migration.sql
+new file mode 100644
+index 0000000..b395be9
+--- /dev/null
++++ b/prisma/migrations/20270106110000_remises_rapport_terrain/migration.sql
+@@ -0,0 +1,12 @@
++-- LE MATÉRIEL REMIS DÉCLARÉ DANS UN COMPTE RENDU DE VISITE (§118.204) : un rapport terrain sans visite
++-- derrière lui porte ses remises lui-même. Le lien est un CONTEXTE (SetNull, comme la visite) : le
++-- registre du stock garde la vérité du mouvement, et l'action refuse de supprimer un rapport qui porte
++-- des remises. Idempotente.
++ALTER TABLE "PromoStockMovement" ADD COLUMN IF NOT EXISTS "fieldReportId" TEXT;
++
++CREATE INDEX IF NOT EXISTS "PromoStockMovement_fieldReportId_idx" ON "PromoStockMovement"("fieldReportId");
++
++DO $$ BEGIN
++  ALTER TABLE "PromoStockMovement" ADD CONSTRAINT "PromoStockMovement_fieldReportId_fkey"
++    FOREIGN KEY ("fieldReportId") REFERENCES "FieldReport"("id") ON DELETE SET NULL ON UPDATE CASCADE;
++EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+diff --git a/prisma/schema.prisma b/prisma/schema.prisma
+index 64dea49..5545bd4 100644
+--- a/prisma/schema.prisma
++++ b/prisma/schema.prisma
+@@ -7050,6 +7050,11 @@ model PromoStockMovement {
+   /// mouvement ; la visite en est le contexte, et sa suppression ne recrée pas les fiches.
+   visitId     String?
+   visit       MedicalVisit?       @relation("PromoRemiseVisite", fields: [visitId], references: [id], onDelete: SetNull)
++  /// LE COMPTE RENDU DE VISITE (rapport terrain) où ce matériel a été déclaré remis, quand aucune
++  /// visite ne le porte (§118.204). SetNull, comme la visite : le stock dit la vérité du mouvement.
++  /// L'action refuse de supprimer un rapport qui porte des remises.
++  fieldReportId String?
++  fieldReport   FieldReport?      @relation("PromoRemiseRapport", fields: [fieldReportId], references: [id], onDelete: SetNull)
+   /// LE MÉDECIN qui l'a reçu — l'historique de sa fiche.
+   doctorId    String?
+   doctor      MedicalDoctor?      @relation("PromoRemiseMedecin", fields: [doctorId], references: [id], onDelete: SetNull)
+@@ -7069,6 +7074,7 @@ model PromoStockMovement {
+   @@index([itemId, holderId])
+   @@index([holderId])
+   @@index([lotId])
++  @@index([fieldReportId])
+   @@index([transferId])
+   @@index([visitId])
+   @@index([doctorId])
+@@ -7608,6 +7614,8 @@ model FieldReport {
+   /// ajoute le lien, on ne fond pas les deux (§118.5).
+   visitId String?
+   visit   MedicalVisit? @relation("FieldReportVisit", fields: [visitId], references: [id], onDelete: SetNull)
++  /// Le matériel promotionnel déclaré remis dans ce compte rendu (§118.204).
++  remises PromoStockMovement[] @relation("PromoRemiseRapport")
+ 
+   @@index([visitId])
+   @@index([delegateId])
+diff --git a/src/app/(app)/demandes/supplies-manager.tsx b/src/app/(app)/demandes/supplies-manager.tsx
+index 7eec899..81bedf5 100644
+--- a/src/app/(app)/demandes/supplies-manager.tsx
++++ b/src/app/(app)/demandes/supplies-manager.tsx
+@@ -101,16 +101,7 @@ function NormalizePanel() {
+ }
+ 
+ export function SuppliesManager({ articles }: { articles: SupplyArticleRow[] }) {
+-  const router = useRouter();
+   const [open, setOpen] = React.useState(false);
+-  const [editing, setEditing] = React.useState<SupplyArticleRow | null>(null);
+-  const [submitting, setSubmitting] = React.useState(false);
+-  const [error, setError] = React.useState<string | null>(null);
+-  const [saved, setSaved] = React.useState(false);
+-  const formRef = React.useRef<HTMLFormElement>(null);
+-
+-  const reset = () => { setEditing(null); setError(null); formRef.current?.reset(); };
+-
+   return (
+     <>
+       <Button variant="outline" size="sm" onClick={() => setOpen(true)}>
+@@ -120,102 +111,127 @@ export function SuppliesManager({ articles }: { articles: SupplyArticleRow[] })
+ 
+       <Sheet
+         open={open}
+-        onClose={() => { setOpen(false); reset(); }}
++        onClose={() => setOpen(false)}
+         title="Catalogue d'articles de fourniture"
+         description="Référentiel des articles de bureau pour passer commande plus vite. Sélectionnables dans les demandes d'achat."
+         width="lg"
+       >
+-        <div className="space-y-6">
+-          <form
+-            ref={formRef}
+-            key={editing?.id ?? "new"}
+-            action={async (fd) => {
+-              setSubmitting(true); setError(null); setSaved(false);
+-              const r = editing ? await updateSupplyArticle(fd) : await createSupplyArticle(fd);
+-              setSubmitting(false);
+-              if (r.ok) { setSaved(true); reset(); router.refresh(); setTimeout(() => setSaved(false), 2000); }
+-              else setError(r.error ?? "Erreur.");
+-            }}
+-            className="space-y-4 rounded-xl border bg-card p-4"
+-          >
+-            <div className="flex items-center justify-between">
+-              <p className="text-sm font-medium">{editing ? `Modifier « ${editing.name} »` : "Nouvel article"}</p>
+-              {editing && (
+-                <button type="button" onClick={reset} className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground">
+-                  <X className="h-3.5 w-3.5" /> Annuler
+-                </button>
+-              )}
+-            </div>
+-            {editing && <input type="hidden" name="id" value={editing.id} />}
+-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+-              <TextField label="Nom de l'article" name="name" placeholder="Ex. Rame de papier A4 80g" defaultValue={editing?.name} className="sm:col-span-2" />
+-              <SelectField label="Catégorie" name="category" options={optionsFromMap(SUPPLY_CATEGORY)} placeholder="—" defaultValue={editing?.category ?? ""} />
+-              <SelectField label="Unité" name="unit" options={optionsFromMap(SUPPLY_UNIT)} placeholder="—" defaultValue={editing?.unit ?? ""} />
+-              <TextField label="Référence / code" name="reference" placeholder="Ex. PAP-A4-80" defaultValue={editing?.reference ?? undefined} />
+-              <TextField label="Prix indicatif (DZD)" name="estimatedPrice" type="number" defaultValue={editing?.estimatedPrice ?? undefined} />
+-              <TextField label="Fournisseur habituel" name="supplierHint" placeholder="Ex. Papeterie Centrale" defaultValue={editing?.supplierHint ?? undefined} className="sm:col-span-2" />
+-              <TextAreaField label="Notes" name="notes" placeholder="Précisions éventuelles…" defaultValue={editing?.notes ?? undefined} className="sm:col-span-2" />
+-            </div>
+-
+-            {error && (
+-              <div className="flex items-center gap-2 rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">
+-                <AlertCircle className="h-4 w-4" />
+-                {error}
+-              </div>
+-            )}
+-
+-            <div className="flex items-center justify-end gap-2">
+-              {saved && <span className="inline-flex items-center gap-1 text-sm text-success"><Check className="h-4 w-4" /> Enregistré</span>}
+-              <Button type="submit" disabled={submitting}>
+-                {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : editing ? <Pencil className="h-4 w-4" /> : <Plus className="h-4 w-4" />}
+-                {editing ? "Enregistrer" : "Ajouter"}
+-              </Button>
+-            </div>
+-          </form>
+-
+-          <NormalizePanel />
+-
+-          <div className="space-y-2">
+-            <p className="text-sm font-medium">
+-              Articles <span className="text-muted-foreground">({articles.length})</span>
+-            </p>
+-            {articles.length === 0 ? (
+-              <p className="rounded-lg border border-dashed px-3 py-6 text-center text-sm text-muted-foreground">
+-                Aucun article. Ajoutez vos fournitures les plus courantes.
+-              </p>
+-            ) : (
+-              <ul className="divide-y rounded-xl border">
+-                {articles.map((a) => (
+-                  <li key={a.id} className="flex items-center justify-between gap-3 px-3 py-2.5">
+-                    <div className="min-w-0">
+-                      <p className="truncate text-sm font-medium">
+-                        {a.name}
+-                        {!a.active && <span className="ml-2 text-xs font-normal text-muted-foreground">(inactif)</span>}
+-                      </p>
+-                      <p className="truncate text-xs text-muted-foreground">
+-                        {[a.category ? SUPPLY_CATEGORY[a.category] ?? a.category : null, a.unit ? SUPPLY_UNIT[a.unit] ?? a.unit : null, a.reference, a.estimatedPrice != null ? formatCurrency(a.estimatedPrice) : null]
+-                          .filter(Boolean)
+-                          .join(" · ") || "—"}
+-                      </p>
+-                    </div>
+-                    <div className="flex shrink-0 items-center gap-1.5">
+-                      <Button type="button" variant="ghost" size="sm" onClick={() => { setEditing(a); setError(null); }}>
+-                        <Pencil className="h-3.5 w-3.5" />
+-                      </Button>
+-                      <form action={async (fd) => { await toggleSupplyArticle(fd); router.refresh(); }}>
+-                        <input type="hidden" name="id" value={a.id} />
+-                        <Button type="submit" variant="ghost" size="sm">
+-                          {a.active ? <Badge tone="success" dot={false}>Actif</Badge> : <Badge tone="neutral" dot={false}>Inactif</Badge>}
+-                        </Button>
+-                      </form>
+-                    </div>
+-                  </li>
+-                ))}
+-              </ul>
+-            )}
+-          </div>
+-        </div>
++        {/* Une nouvelle ouverture repart d'un formulaire vierge, comme avant. */}
++        <CatalogueArticles key={open ? "ouvert" : "ferme"} articles={articles} />
+       </Sheet>
+     </>
+   );
+ }
++
++/**
++ * LE CATALOGUE D'ARTICLES — le formulaire, l'uniformisation et la liste. Rendu dans le panneau du
++ * Bureau du secrétariat (`SuppliesManager`) ET, en pleine page, par les Moyens généraux (décision du
++ * 04/10 : « ne laisse que le catalogue d'articles »). Un seul composant : deux copies finiraient par
++ * ne plus proposer les mêmes champs (§118.5). Sans le droit de modifier, la liste se LIT seulement —
++ * un bouton offert puis refusé n'est pas un geste (§118.83).
++ */
++export function CatalogueArticles({ articles, peutModifier = true }: { articles: SupplyArticleRow[]; peutModifier?: boolean }) {
++  const router = useRouter();
++  const [editing, setEditing] = React.useState<SupplyArticleRow | null>(null);
++  const [submitting, setSubmitting] = React.useState(false);
++  const [error, setError] = React.useState<string | null>(null);
++  const [saved, setSaved] = React.useState(false);
++  const formRef = React.useRef<HTMLFormElement>(null);
++
++  const reset = () => { setEditing(null); setError(null); formRef.current?.reset(); };
++
++  return (
++    <div className="space-y-6">
++      {peutModifier && (<>
++      <form
++        ref={formRef}
++        key={editing?.id ?? "new"}
++        action={async (fd) => {
++          setSubmitting(true); setError(null); setSaved(false);
++          const r = editing ? await updateSupplyArticle(fd) : await createSupplyArticle(fd);
++          setSubmitting(false);
++          if (r.ok) { setSaved(true); reset(); router.refresh(); setTimeout(() => setSaved(false), 2000); }
++          else setError(r.error ?? "Erreur.");
++        }}
++        className="space-y-4 rounded-xl border bg-card p-4"
++      >
++        <div className="flex items-center justify-between">
++          <p className="text-sm font-medium">{editing ? `Modifier « ${editing.name} »` : "Nouvel article"}</p>
++          {editing && (
++            <button type="button" onClick={reset} className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground">
++              <X className="h-3.5 w-3.5" /> Annuler
++            </button>
++          )}
++        </div>
++        {editing && <input type="hidden" name="id" value={editing.id} />}
++        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
++          <TextField label="Nom de l'article" name="name" placeholder="Ex. Rame de papier A4 80g" defaultValue={editing?.name} className="sm:col-span-2" />
++          <SelectField label="Catégorie" name="category" options={optionsFromMap(SUPPLY_CATEGORY)} placeholder="—" defaultValue={editing?.category ?? ""} />
++          <SelectField label="Unité" name="unit" options={optionsFromMap(SUPPLY_UNIT)} placeholder="—" defaultValue={editing?.unit ?? ""} />
++          <TextField label="Référence / code" name="reference" placeholder="Ex. PAP-A4-80" defaultValue={editing?.reference ?? undefined} />
++          <TextField label="Prix indicatif (DZD)" name="estimatedPrice" type="number" defaultValue={editing?.estimatedPrice ?? undefined} />
++          <TextField label="Fournisseur habituel" name="supplierHint" placeholder="Ex. Papeterie Centrale" defaultValue={editing?.supplierHint ?? undefined} className="sm:col-span-2" />
++          <TextAreaField label="Notes" name="notes" placeholder="Précisions éventuelles…" defaultValue={editing?.notes ?? undefined} className="sm:col-span-2" />
++        </div>
++
++        {error && (
++          <div className="flex items-center gap-2 rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">
++            <AlertCircle className="h-4 w-4" />
++            {error}
++          </div>
++        )}
++
++        <div className="flex items-center justify-end gap-2">
++          {saved && <span className="inline-flex items-center gap-1 text-sm text-success"><Check className="h-4 w-4" /> Enregistré</span>}
++          <Button type="submit" disabled={submitting}>
++            {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : editing ? <Pencil className="h-4 w-4" /> : <Plus className="h-4 w-4" />}
++            {editing ? "Enregistrer" : "Ajouter"}
++          </Button>
++        </div>
++      </form>
++
++      <NormalizePanel />
++      </>)}
++
++      <div className="space-y-2">
++        <p className="text-sm font-medium">
++          Articles <span className="text-muted-foreground">({articles.length})</span>
++        </p>
++        {articles.length === 0 ? (
++          <p className="rounded-lg border border-dashed px-3 py-6 text-center text-sm text-muted-foreground">
++            Aucun article. Ajoutez vos fournitures les plus courantes.
++          </p>
++        ) : (
++          <ul className="divide-y rounded-xl border">
++            {articles.map((a) => (
++              <li key={a.id} className="flex items-center justify-between gap-3 px-3 py-2.5">
++                <div className="min-w-0">
++                  <p className="truncate text-sm font-medium">
++                    {a.name}
++                    {!a.active && <span className="ml-2 text-xs font-normal text-muted-foreground">(inactif)</span>}
++                  </p>
++                  <p className="truncate text-xs text-muted-foreground">
++                    {[a.category ? SUPPLY_CATEGORY[a.category] ?? a.category : null, a.unit ? SUPPLY_UNIT[a.unit] ?? a.unit : null, a.reference, a.estimatedPrice != null ? formatCurrency(a.estimatedPrice) : null]
++                      .filter(Boolean)
++                      .join(" · ") || "—"}
++                  </p>
++                </div>
++                {peutModifier && <div className="flex shrink-0 items-center gap-1.5">
++                  <Button type="button" variant="ghost" size="sm" onClick={() => { setEditing(a); setError(null); }}>
++                    <Pencil className="h-3.5 w-3.5" />
++                  </Button>
++                  <form action={async (fd) => { await toggleSupplyArticle(fd); router.refresh(); }}>
++                    <input type="hidden" name="id" value={a.id} />
++                    <Button type="submit" variant="ghost" size="sm">
++                      {a.active ? <Badge tone="success" dot={false}>Actif</Badge> : <Badge tone="neutral" dot={false}>Inactif</Badge>}
++                    </Button>
++                  </form>
++                </div>}
++              </li>
++            ))}
++          </ul>
++        )}
++      </div>
++    </div>
++  );
++}
+diff --git a/src/app/(app)/field-reports/[id]/page.tsx b/src/app/(app)/field-reports/[id]/page.tsx
+index b1f5ca6..8f9b1ee 100644
+--- a/src/app/(app)/field-reports/[id]/page.tsx
++++ b/src/app/(app)/field-reports/[id]/page.tsx
+@@ -10,6 +10,7 @@ import { SuperAdminDeleteButton } from "@/components/shared/super-admin-delete";
+ import { ReportEditor } from "./report-editor";
+ import { SimpleReportEditor } from "./simple-report-editor";
+ import { BackLink } from "@/components/shared/back-link";
++import { remisesDuRapport, stockPourVisite } from "@/lib/queries/promo-remises";
+ 
+ export const dynamic = "force-dynamic";
+ 
+@@ -32,6 +33,16 @@ export default async function FieldReportPage({ params }: { params: { id: string
+     take: 500,
+   });
+ 
++  // LE MATÉRIEL REMIS (§118.204) — le stock EN MAIN du KAM qui a fait la visite (pas de celui qui
++  // ouvre la fiche), et ce que ce compte rendu a déjà remis. Un compte rendu rattaché à une visite de
++  // l'emploi du temps n'en porte pas : la visite les porte, et son rapport les corrige.
++  const lien = await prisma.fieldReport.findUnique({ where: { id: detail.id }, select: { delegateId: true, visitId: true } });
++  const materiel = !isManager && lien && !lien.visitId
++    ? await Promise.all([stockPourVisite(lien.delegateId ?? user.id), remisesDuRapport(detail.id)])
++        // Un compte rendu ne présente pas de supports numériques : ils se rattachent à une VISITE.
++        .then(([stock, initial]) => ({ stock: { articles: stock.articles, numeriques: [] }, initial }))
++    : null;
++
+   return (
+     <div className="space-y-5">
+       <BackLink href="/field-reports">
+@@ -49,7 +60,7 @@ export default async function FieldReportPage({ params }: { params: { id: string
+       </PageHeader>
+       {isManager
+         ? <ReportEditor detail={detail} doctors={doctors} />
+-        : <SimpleReportEditor detail={detail} doctors={doctors} />}
++        : <SimpleReportEditor detail={detail} doctors={doctors} materiel={materiel} rattacheAUneVisite={Boolean(lien?.visitId)} />}
+     </div>
+   );
+ }
+diff --git a/src/app/(app)/field-reports/[id]/simple-report-editor.tsx b/src/app/(app)/field-reports/[id]/simple-report-editor.tsx
+index a9435a5..c007f12 100644
+--- a/src/app/(app)/field-reports/[id]/simple-report-editor.tsx
++++ b/src/app/(app)/field-reports/[id]/simple-report-editor.tsx
+@@ -11,12 +11,29 @@ import { formatBytes } from "../../messages/format";
+ import { submitFieldReport, reopenFieldReport, deleteFieldReportAttachment } from "@/lib/actions/field-report-actions";
+ import type { FieldReportDetail } from "@/lib/queries/field-reports";
+ import { DoctorPicker } from "./doctor-picker";
++import { BlocMaterielRemis, type RemisesInitiales } from "../../medical/ma-journee/materiel-remis";
++import type { StockPourVisite } from "@/lib/queries/promo-remises";
++
++/** Le matériel du compte rendu : le stock en main du KAM, et ce que ce compte rendu a déjà remis. */
++export interface MaterielDuRapport { stock: StockPourVisite; initial: RemisesInitiales }
++
++const AUCUN_PRODUIT: ReadonlySet<string> = new Set();
+ 
+ /**
+  * Vue **délégué** simple : un seul compte rendu (synthèse) — on parle (ou on écrit) —
+  * + médecin(s), établissement, spécialité, date, pièces jointes. On envoie.
++ *
++ * Et le MATÉRIEL REMIS (§118.204) : le même bloc que les trois autres portes d'une visite faite,
++ * lu et vérifié par le même module côté serveur. Un compte rendu rattaché à une visite de l'emploi
++ * du temps n'en porte pas — la visite le porte — et l'écran le dit au lieu de proposer un geste
++ * que l'action refuserait (§118.83).
+  */
+-export function SimpleReportEditor({ detail, doctors }: { detail: FieldReportDetail; doctors: { id: string; name: string }[] }) {
++export function SimpleReportEditor({ detail, doctors, materiel, rattacheAUneVisite }: {
++  detail: FieldReportDetail;
++  doctors: { id: string; name: string }[];
++  materiel: MaterielDuRapport | null;
++  rattacheAUneVisite: boolean;
++}) {
+   const router = useRouter();
+   const sent = detail.status === "VALIDATED";
+ 
+@@ -33,6 +50,7 @@ export function SimpleReportEditor({ detail, doctors }: { detail: FieldReportDet
+   const mr = React.useRef<MediaRecorder | null>(null);
+   const chunks = React.useRef<Blob[]>([]);
+   const fileRef = React.useRef<HTMLInputElement>(null);
++  const materielRef = React.useRef<HTMLFormElement>(null);
+ 
+   const startRec = async () => {
+     setMsg(null);
+@@ -72,6 +90,8 @@ export function SimpleReportEditor({ detail, doctors }: { detail: FieldReportDet
+     f.set("id", detail.id); f.set("summary", summary); f.set("visitDate", visitDate);
+     f.set("doctorIds", doctorIds.join(",")); f.set("doctorName", doctorName);
+     f.set("institution", institution); f.set("specialty", specialty);
++    // Les champs du bloc « Matériel remis » (mêmes noms que dans « Ma journée »).
++    if (materielRef.current) for (const [k, v] of new FormData(materielRef.current)) f.append(k, v);
+     const r = await submitFieldReport(f);
+     setSending(false);
+     if (r.ok) router.push("/field-reports"); else setMsg(r.error ?? "Envoi impossible.");
+@@ -97,6 +117,16 @@ export function SimpleReportEditor({ detail, doctors }: { detail: FieldReportDet
+           <Label>Compte rendu (synthèse)</Label>
+           <p className="mt-1 whitespace-pre-wrap rounded-lg border border-border bg-secondary/30 p-3 text-sm">{detail.summary || detail.transcript || "—"}</p>
+         </div>
++        {materiel && materiel.initial.materiel.length > 0 && (
++          <div>
++            <Label>Matériel remis</Label>
++            <ul className="mt-1 space-y-0.5 text-sm">
++              {materiel.initial.materiel.map((m) => (
++                <li key={m.itemId}>{m.libelle} — {m.quantite.toLocaleString("fr-FR", { maximumFractionDigits: 3 })}</li>
++              ))}
++            </ul>
++          </div>
++        )}
+         <Attachments detail={detail} readOnly />
+       </div>
+     );
+@@ -136,6 +166,16 @@ export function SimpleReportEditor({ detail, doctors }: { detail: FieldReportDet
+         </div>
+       </div>
+ 
++      {materiel ? (
++        <form ref={materielRef} onSubmit={(e) => e.preventDefault()}>
++          <BlocMaterielRemis stock={materiel.stock} produitsCoches={AUCUN_PRODUIT} initial={materiel.initial} />
++        </form>
++      ) : rattacheAUneVisite ? (
++        <p className="rounded-lg border border-dashed border-border p-2.5 text-xs text-muted-foreground">
++          Ce compte rendu raconte une visite de votre emploi du temps : le matériel remis se déclare dans le rapport de cette visite (Promotion médicale › Ma journée).
++        </p>
++      ) : null}
++
+       <div className="space-y-2">
+         <div className="flex items-center justify-between">
+           <Label>Pièces jointes (tout type)</Label>
+diff --git a/src/app/(app)/moyens-generaux/page.tsx b/src/app/(app)/moyens-generaux/page.tsx
+index a0e96e1..78d9c50 100644
+--- a/src/app/(app)/moyens-generaux/page.tsx
++++ b/src/app/(app)/moyens-generaux/page.tsx
+@@ -1,83 +1,38 @@
+-import Link from "next/link";
+-import { notFound } from "next/navigation";
+-import { Wallet, ExternalLink, BookUser } from "lucide-react";
+ import { requireUser } from "@/lib/session";
+ import { prisma } from "@/lib/prisma";
+ import { userCan } from "@/lib/rbac";
+-import { getGeneralMeans, resolveGeneralMeansDepartment, LIST_LIMIT } from "@/lib/queries/general-means";
+-import { getAppSettings } from "@/lib/settings";
+-import { generalMeansBudgetTargets } from "@/lib/general-means/budget-targets";
+-import { normalizeYear, DEPT_BUDGET_LABEL, budgetHealth, consumedPercent } from "@/lib/department-budget";
+ import { PageHeader } from "@/components/shared/page-header";
+-import { KpiCard } from "@/components/shared/kpi-card";
+-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+ import { EmptyState } from "@/components/shared/empty-state";
+-import { formatCurrency } from "@/lib/utils";
+-import { CashPanel } from "./cash-panel";
+-import { ExpensePanel } from "./expense-panel";
+-import { ServiceSwitch, ChangerDeService } from "./service-switch";
+-import { SuppliesManager } from "../demandes/supplies-manager";
+-import { ExpenseTable } from "./expense-table";
++import { CatalogueArticles } from "../demandes/supplies-manager";
+ 
+ export const dynamic = "force-dynamic";
+ export const metadata = { title: "Moyens généraux — AMD Internal OS" };
+ 
+ /**
+- * MOYENS GÉNÉRAUX — le module qui rassemble ce qui était éparpillé.
++ * MOYENS GÉNÉRAUX — LE CATALOGUE D'ARTICLES, ET LUI SEUL (décision de la Direction, 04/10 : « ne
++ * laisse que le catalogue d'articles, enlève le reste »).
+  *
+- * Le budget vivait dans un tableau, les achats dans les demandes administratives, et l'argent
+- * liquide confié à l'assistante nulle part. « Combien a-t-on dépensé ce mois-ci, et me
+- * reste-t-il de quoi payer ? » exigeait d'additionner à la main, en espérant n'avoir rien
+- * oublié.
++ * L'écran portait la caisse à deux horizons, le détail des dépenses, le choix du service, et des
++ * liens vers l'annuaire et les budgets par département. Ils sont retirés de l'ÉCRAN, rien d'autre :
++ * aucune donnée n'est effacée, aucune action serveur n'est supprimée — la caisse, ses remises au
++ * centre de paiement et ses rallonges existent toujours, et l'annuaire vit dans « Mon espace ».
+  *
+- * Un seul écran, une seule notion : LA CAISSE. Elle se lit à deux horizons — la caisse de
+- * l'exercice (la dotation de l'année, ce qu'on a le droit de dépenser) et la caisse du mois
+- * (l'argent en main aujourd'hui). Ce n'est pas un budget d'un côté et une caisse de l'autre :
+- * c'est le même argent, la caisse du mois étant prélevée sur celle de l'exercice. Puis le détail
+- * des dépenses avec leurs pièces (où est passé l'argent ?). Chaque dépense porte sa facture ou
+- * son bon de paiement — sans pièce, une ligne n'est qu'une affirmation.
++ * Le catalogue est le MÊME que celui du Bureau du secrétariat (`CatalogueArticles`) : deux
++ * catalogues auraient produit deux vocabulaires, donc des consommations incomparables. Qui a le
++ * droit de le modifier le tient ici ; qui ne l'a pas le lit — on n'offre pas un geste que l'action
++ * refuserait (§118.83).
+  */
+-export default async function MoyensGenerauxPage({
+-  searchParams,
+-}: { searchParams: { year?: string } }) {
+-  // DEUX VISAGES SUR LE MÊME ÉCRAN, et c'est le sujet de cette page.
+-  //
+-  // Demander un achat est un geste de TOUT employé : un délégué qui a besoin de cartouches n'a
+-  // pas à connaître le circuit ni à écrire à l'assistante. La porte du module s'ouvre donc à
+-  // tous — mais le BUDGET, lui, reste fermé à qui n'a pas le droit de module. Ce n'est pas de
+-  // la cachotterie : connaître le reste de l'enveloppe transforme une demande en négociation,
+-  // et le rôle du demandeur est de dire ce dont il a besoin, pas d'arbitrer une caisse qu'il
+-  // ne tient pas.
++export default async function MoyensGenerauxPage() {
+   const user = await requireUser();
+-  const year = normalizeYear(searchParams.year);
+-  // PLUS DE PÉRIODE À RÉSOUDRE. La caisse d'avance est CONTINUE : elle ne se ferme pas au
+-  // changement de mois, et il n'y a donc plus « le mois qu'on regarde » — il y a le fond, fait de
+-  // toutes les remises non soldées, chacune avec sa date.
+ 
+-  // Le catalogue est proposé à TOUT LE MONDE : c'est lui qui rend la demande possible sans
+-  // connaître les références internes.
+-  const articles = await prisma.officeSupplyArticle.findMany({
+-    where: { active: true },
+-    select: { id: true, name: true, unit: true, estimatedPrice: true },
+-    orderBy: { name: "asc" },
+-  });
+-  const articleOptions = articles.map((a) => ({
+-    id: a.id, name: a.name, unit: a.unit, estimatedPrice: a.estimatedPrice ? Number(a.estimatedPrice) : null,
+-  }));
+-
+-  // LES DEMANDES D'ACHAT ONT DÉMÉNAGÉ DANS « MON ESPACE » (2026-08).
+-  //
+-  // Demander un stylo et tenir la caisse d'un département sont deux métiers. Ce module est
+-  // celui de ceux qui ACHÈTENT et qui DÉCAISSENT ; demander ce dont on a besoin pour
+-  // travailler est un geste de tout le monde, au même titre que demander un congé ou une
+-  // formation. Qui n'a pas la caisse n'a donc plus rien à faire ici — et on le lui dit,
+-  // avec le chemin, plutôt que de lui laisser une page vide.
++  // Demander un achat est un geste de tout employé, et il vit dans « Mon espace » : qui n'a pas le
++  // module le lit ici, avec le chemin, plutôt qu'une page vide.
+   if (!userCan(user, "GENERAL_MEANS", "VIEW")) {
+     return (
+       <div className="space-y-5">
+         <PageHeader
+           title="Moyens généraux"
+-          description="Ce module tient la caisse et le budget d'un département. Vos demandes d'achat, elles, se font désormais depuis « Mon espace »."
++          description="Ce module tient le catalogue d'articles. Vos demandes d'achat, elles, se font depuis « Mon espace »."
+         />
+         <EmptyState
+           icon="ShoppingBasket"
+@@ -88,204 +43,23 @@ export default async function MoyensGenerauxPage({
+     );
+   }
+ 
+-  // LE SUPER ADMIN DÉSIGNE LE SERVICE — et lui seul (`setGeneralMeansDepartment` le revérifie).
+-  const pilote = user.role === "SUPER_ADMIN" || user.secondaryRole === "SUPER_ADMIN";
+-  const serviceCourant = pilote ? (await getAppSettings()).generalMeansDepartmentId : null;
+-  // La liste des départements ne sert qu'à DÉSIGNER le service (`ChangerDeService`) : elle n'ouvre
+-  // la caisse d'aucun d'eux. Chargée pour le seul Super Admin.
+-  const departements = pilote
+-    ? (await prisma.department.findMany({ select: { id: true, name: true, parent: { select: { name: true } } }, orderBy: { name: "asc" } }))
+-        .map((d) => ({ id: d.id, libelle: d.parent ? `${d.parent.name} › ${d.name}` : d.name }))
+-    : [];
+-
+-  const departmentId = await resolveGeneralMeansDepartment(user);
+-  if (!departmentId) {
+-    // UNE ISSUE POUR LE SUPER ADMIN. Sans département à lui et sans service valide (jamais désigné,
+-    // ou supprimé depuis), il n'avait que « aucun département rattaché » — et le seul geste qui
+-    // désigne le service vivait sur l'écran d'un département qu'il ne pouvait plus ouvrir.
+-    if (pilote) {
+-      return (
+-        <div className="space-y-5">
+-          <PageHeader title="Moyens généraux" description="La caisse des moyens généraux de la société — l'exercice et le mois — et ses achats, au même endroit." />
+-          <EmptyState
+-            icon="Landmark"
+-            title={serviceCourant ? "Le service des moyens généraux n'existe plus" : "Aucun service des moyens généraux n'est désigné"}
+-            description="Choisissez le département qui tient la caisse de la société : c'est elle que tout le monde ouvrira en arrivant ici."
+-          />
+-          <ChangerDeService departements={departements} actuel={null} ouvertParDefaut />
+-        </div>
+-      );
+-    }
+-    return (
+-      <div className="space-y-5">
+-        <PageHeader title="Moyens généraux" description="La caisse d'un département — l'exercice et le mois — et ses achats, au même endroit." />
+-        <EmptyState
+-          icon="Building2"
+-          title="Aucun département rattaché à votre compte"
+-          description="La caisse et le budget se tiennent par département. Demandez aux ressources humaines de rattacher votre fiche employé — vos demandes d'achat, elles, fonctionnent déjà."
+-        />
+-      </div>
+-    );
+-  }
+-
+-  const view = await getGeneralMeans(user, departmentId, year);
+-  if (!view) notFound();
+-
+-  // UN SEUL SERVICE À L'ÉCRAN, Super Admin compris (décision du 01/10 : « enlève les autres
+-  // départements, laisse que l'Administration »). Le sélecteur qui lui ouvrait les moyens généraux
+-  // de chaque département est retiré : pour tout le monde, les moyens généraux sont ceux de la
+-  // société, et un sélecteur dirait le contraire. Le découpage par département reste la façon dont
+-  // l'argent est IMPUTÉ — il se lit dans Budgets › par département, lien conservé ci-dessous.
+-  // Le Super Admin garde ce qui n'appartient qu'à lui : voir QUEL département tient le service,
+-  // et en désigner un autre (`ChangerDeService`) — sans ouvrir la caisse de cet autre.
+-
+-  // Les candidats à qui remettre une caisse : seule l'administration a besoin de cette liste.
+-  const people = view.canAllot
+-    ? await prisma.user.findMany({ where: { isActive: true }, select: { id: true, name: true }, orderBy: { name: "asc" } })
+-    : [];
+-
+-  // LE CATALOGUE D'ARTICLES — le même que celui du Bureau du secrétariat, vu d'ici. Deux
+-  // catalogues auraient produit deux vocabulaires, donc des consommations incomparables.
+-  // La liste courte alimente les menus déroulants des tickets ; la liste détaillée n'est
+-  // chargée que pour qui peut la tenir.
+-  const canManageCatalog = userCan(user, "GENERAL_MEANS", "UPDATE");
+-  const catalog = canManageCatalog
+-    ? await prisma.officeSupplyArticle.findMany({
+-        select: { id: true, name: true, category: true, unit: true, reference: true, estimatedPrice: true, supplierHint: true, active: true, notes: true },
+-        orderBy: [{ active: "desc" }, { name: "asc" }],
+-      })
+-    : [];
+-  const catalogRows = catalog.map((a) => ({ ...a, estimatedPrice: a.estimatedPrice ? Number(a.estimatedPrice) : null }));
+-
+-  // LES CASES BUDGÉTAIRES OUVERTES ICI. Liste volontairement pauvre : des destinations, sans
+-  // montants ni consommation — classer une dépense ne suppose pas d'accéder au module Budget.
+-  const budgetTargets = view.canSpend ? await generalMeansBudgetTargets() : [];
+-
+-  const health = budgetHealth(view.allocated, view.consumed);
+-  const tone = health === "OVER_BUDGET" ? "danger" : health === "AT_RISK" ? "warning" : health === "UNSET" ? "default" : "success";
++  const peutModifier = userCan(user, "GENERAL_MEANS", "UPDATE");
++  // Sans le droit de modifier, seuls les articles ACTIFS : un article retiré ne se propose plus, et
++  // le montrer « inactif » à qui ne peut rien en faire n'apprend rien.
++  const articles = await prisma.officeSupplyArticle.findMany({
++    where: peutModifier ? {} : { active: true },
++    select: { id: true, name: true, category: true, unit: true, reference: true, estimatedPrice: true, supplierHint: true, active: true, notes: true },
++    orderBy: [{ active: "desc" }, { name: "asc" }],
++  });
++  const lignes = articles.map((a) => ({ ...a, estimatedPrice: a.estimatedPrice ? Number(a.estimatedPrice) : null }));
+ 
+   return (
+     <div className="space-y-5">
+-      {/* Le département ne figure au titre que pour le Super Admin : c'est lui qui désigne le
+-          service, il doit voir lequel est en vigueur. Pour les autres, il n'y en a qu'un. */}
+       <PageHeader
+-        title={pilote ? `Moyens généraux — ${view.department.path}` : "Moyens généraux"}
+-        description="La caisse à deux horizons — l'exercice (l'année) et le mois — et le détail des dépenses avec leurs justificatifs. Tout achat porte sa facture ou son bon de paiement."
+-      >
+-        {/* QUEL DÉPARTEMENT TIENT LES MOYENS GÉNÉRAUX DE LA SOCIÉTÉ — le réglage qui décide où
+-            tout le monde atterrit. Il n'appartient qu'au Super Admin. */}
+-        {pilote && (
+-          <ServiceSwitch
+-            departmentId={view.department.id} departmentName={view.department.path}
+-            current={serviceCourant}
+-          />
+-        )}
+-        {pilote && <ChangerDeService departements={departements} actuel={serviceCourant} />}
+-        {canManageCatalog && <SuppliesManager articles={catalogRows} />}
+-        {/* L'ANNUAIRE DE L'ENTREPRISE — l'imprimeur, le transitaire, l'agence de voyage. C'est ce
+-            service qui traite avec eux : sa porte est ici. */}
+-        <Link href="/mon-espace/annuaire" className="inline-flex items-center gap-1.5 rounded-lg border border-input px-3 py-1.5 text-sm font-medium hover:bg-secondary">
+-          <BookUser className="h-4 w-4" /> Annuaire de l&apos;entreprise
+-        </Link>
+-        {/* Un lien vers un écran qu'on ne peut pas ouvrir est pire qu'une absence de lien. */}
+-        {pilote && userCan(user, "BUDGETS", "VIEW") && (
+-          <Link href="/budgets/departements" className="inline-flex items-center gap-1.5 rounded-lg border border-input px-3 py-1.5 text-sm font-medium hover:bg-secondary">
+-            <ExternalLink className="h-4 w-4" /> Budgets par département
+-          </Link>
+-        )}
+-      </PageHeader>
+-
+-      {/* TROIS INDICATEURS, PAS QUATRE. « Restant sur l'année » affichait allocation − consommé :
+-          sans caisse annuelle réglée, cela donnait un « restant » NÉGATIF du montant déjà dépensé
+-          (« −11 680 DZD »), qui ne veut rien dire pour personne. La consommation de l'année est
+-          déjà là, avec son pourcentage quand une caisse existe ; le seul reste qui se dépense
+-          vraiment est celui du mois, juste à côté. */}
+-      <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
+-        <KpiCard label={`Caisse de l'exercice ${year}`} value={formatCurrency(view.allocated)} icon="Wallet" />
+-        <KpiCard
+-          label="Consommé (année)" value={formatCurrency(view.consumed)} icon="Receipt" tone={tone}
+-          hint={view.allocated > 0 ? `${consumedPercent(view.allocated, view.consumed)} % de la caisse annuelle` : "aucune caisse annuelle réglée"}
+-        />
+-        <KpiCard
+-          label="Reste en caisse d'avance" value={view.cash ? formatCurrency(view.cash.fund.remaining) : "—"} icon="HandCoins"
+-          tone={view.cash?.fund.overspent ? "danger" : view.cash?.fund.lowOnCash ? "warning" : "info"}
+-          hint={view.cash
+-            ? `${view.cash.fund.remittanceCount} remise${view.cash.fund.remittanceCount > 1 ? "s" : ""} en cours`
+-            : "aucune somme remise"}
+-        />
+-      </div>
+-
+-
+-      <Card>
+-        <CardHeader>
+-          <CardTitle className="flex items-center gap-2"><Wallet className="h-4 w-4 text-primary" /> Caisse d&apos;avance</CardTitle>
+-        </CardHeader>
+-        <CardContent>
+-          <p className="mb-3 text-xs text-muted-foreground">
+-            La part de la caisse de l&apos;exercice <strong>en main</strong> — pas un budget à côté, le
+-            <strong> même argent</strong>. Elle est <strong>continue</strong> : chaque remise s&apos;ajoute au fond
+-            et garde sa date, aucune ne clôt la précédente. La personne qui la détient confirme avoir reçu la
+-            somme, puis chaque dépense en est déduite, justificatif scanné à l&apos;appui, jusqu&apos;à
+-            épuisement — moment où elle demande une rallonge.
+-          </p>
+-          <CashPanel view={view} people={people} />
+-        </CardContent>
+-      </Card>
+-
+-      <Card>
+-        <CardHeader>
+-          <CardTitle>Toutes les dépenses {year} ({view.expenseCount})</CardTitle>
+-          {/* La liste MÊLE les natures ; la caisse affichée plus haut, elle, n'en porte
+-              qu'une. Sans cette phrase, la somme des lignes ne retomberait pas sur le
+-              « Consommé » et on croirait à une erreur de calcul. */}
+-          {view.otherConsumed > 0 && (
+-            <p className="text-xs text-muted-foreground">
+-              Dont <strong>{formatCurrency(view.otherConsumed)}</strong> imputés à d&apos;autres budgets
+-              (métier, formation) — non déduits de la caisse des {DEPT_BUDGET_LABEL.OPERATING.toLowerCase()}.
+-            </p>
+-          )}
+-          {view.truncated && (
+-            <p className="text-xs text-muted-foreground">
+-              Les {LIST_LIMIT} plus récentes sont affichées ; les totaux ci-dessus portent sur l&apos;année entière.
+-            </p>
+-          )}
+-        </CardHeader>
+-        {view.canSpend && (
+-          <CardContent className="pb-0">
+-            <p className="mb-2 text-xs text-muted-foreground">
+-              <strong>Un seul endroit pour enregistrer un achat</strong>, qu&apos;il ait été réglé sur la caisse
+-              du mois ou autrement (virement, carte, facture payée par les Finances). Le moyen de paiement se
+-              choisit dans le formulaire, et se corrige après coup sur une dépense déjà saisie.
+-            </p>
+-            <ExpensePanel
+-              departmentId={view.department.id} year={year} remaining={view.remaining}
+-              articles={articleOptions} budgetTargets={budgetTargets}
+-              cash={view.cash ? {
+-                // « Reçue » se juge sur le FOND : une remise en attente de confirmation
+-                // n'empêche pas de dépenser ce qui est déjà en main.
+-                status: view.cash.fund.received > 0 ? "RECEIVED" : "ALLOTTED",
+-                remaining: view.cash.fund.remaining,
+-                // La caisse n'est proposée qu'à qui peut réellement en sortir de l'argent :
+-                // offrir l'option à quelqu'un d'autre, c'est un refus après la saisie.
+-                canSpend: view.isHolder || view.canAmendCash,
+-              } : null}
+-            />
+-          </CardContent>
+-        )}
+-        <CardContent className="p-0">
+-          {/* UNE SEULE LISTE, ET ELLE SE FILTRE. Les dépenses payées en liquide s'affichaient
+-              aussi dans un bloc « Dépenses de la caisse » juste au-dessus : les mêmes achats,
+-              deux fois, avec deux compteurs. « Caisse d'avance » est devenu un filtre. */}
+-          <ExpenseTable
+-            expenses={view.expenses}
+-            canSpend={view.canSpend}
+-            canAmendCash={view.canAmendCash}
+-            articles={articleOptions}
+-            budgetTargets={budgetTargets}
+-            cashUsable={Boolean(view.cash && view.cash.fund.received > 0 && (view.isHolder || view.canAmendCash))}
+-          />
+-        </CardContent>
+-      </Card>
++        title="Moyens généraux — Catalogue d'articles"
++        description="Le référentiel des fournitures : les articles proposés dans les demandes d'achat."
++      />
++      <CatalogueArticles articles={lignes} peutModifier={peutModifier} />
+     </div>
+   );
+ }
+diff --git a/src/lib/actions/contrat.genere.json b/src/lib/actions/contrat.genere.json
+index a9f25f8..79926a8 100644
+--- a/src/lib/actions/contrat.genere.json
++++ b/src/lib/actions/contrat.genere.json
+@@ -305,7 +305,7 @@
+   {"id":"field-report-actions:deleteFieldReport","fichier":"field-report-actions","fonction":"deleteFieldReport","avantFormulaire":0,"porte":{"module":null,"verbe":null,"entite":null,"moduleFr":null,"gardes":["canEdit"]},"ecrit":true,"modelesEcrits":["fieldReport","fileBlob"],"audit":false,"appel":"formulaire","champs":[{"nom":"id","type":"reference","obligatoire":true,"valeurs":null,"modele":"FieldReport"}],"illisible":null},
+   {"id":"field-report-actions:deleteFieldReportAttachment","fichier":"field-report-actions","fonction":"deleteFieldReportAttachment","avantFormulaire":0,"porte":{"module":null,"verbe":null,"entite":null,"moduleFr":null,"gardes":["canEdit"]},"ecrit":true,"modelesEcrits":["fieldReportAttachment","fileBlob"],"audit":false,"appel":"formulaire","champs":[{"nom":"id","type":"reference","obligatoire":true,"valeurs":null,"modele":"FieldReportAttachment"}],"illisible":null},
+   {"id":"field-report-actions:reopenFieldReport","fichier":"field-report-actions","fonction":"reopenFieldReport","avantFormulaire":0,"porte":{"module":null,"verbe":null,"entite":null,"moduleFr":null,"gardes":["canEdit"]},"ecrit":true,"modelesEcrits":["fieldReport"],"audit":false,"appel":"formulaire","champs":[{"nom":"id","type":"reference","obligatoire":true,"valeurs":null,"modele":"FieldReport"}],"illisible":null},
+-  {"id":"field-report-actions:submitFieldReport","fichier":"field-report-actions","fonction":"submitFieldReport","avantFormulaire":0,"porte":{"module":null,"verbe":null,"entite":null,"moduleFr":"Rapports terrain","gardes":["canEdit"]},"ecrit":true,"modelesEcrits":["auditLog","fieldReport"],"audit":true,"appel":"formulaire","champs":[{"nom":"doctorIds","type":"liste","obligatoire":false,"valeurs":null,"modele":null},{"nom":"doctorName","type":"texte","obligatoire":false,"valeurs":null,"modele":null},{"nom":"id","type":"reference","obligatoire":true,"valeurs":null,"modele":"FieldReport"},{"nom":"institution","type":"texte","obligatoire":false,"valeurs":null,"modele":null},{"nom":"specialty","type":"texte","obligatoire":false,"valeurs":null,"modele":null},{"nom":"summary","type":"texte","obligatoire":true,"valeurs":null,"modele":null},{"nom":"visitDate","type":"date","obligatoire":false,"valeurs":null,"modele":null}],"illisible":null},
++  {"id":"field-report-actions:submitFieldReport","fichier":"field-report-actions","fonction":"submitFieldReport","avantFormulaire":0,"porte":{"module":null,"verbe":null,"entite":null,"moduleFr":"Rapports terrain","gardes":["canEdit"]},"ecrit":true,"modelesEcrits":["auditLog","fieldReport","medicalVisitSupportNumerique"],"audit":true,"appel":"formulaire","champs":[{"nom":"doctorIds","type":"liste","obligatoire":false,"valeurs":null,"modele":null},{"nom":"doctorName","type":"texte","obligatoire":false,"valeurs":null,"modele":null},{"nom":"id","type":"reference","obligatoire":true,"valeurs":null,"modele":"FieldReport"},{"nom":"institution","type":"texte","obligatoire":false,"valeurs":null,"modele":null},{"nom":"specialty","type":"texte","obligatoire":false,"valeurs":null,"modele":null},{"nom":"summary","type":"texte","obligatoire":true,"valeurs":null,"modele":null},{"nom":"visitDate","type":"date","obligatoire":false,"valeurs":null,"modele":null}],"illisible":null},
+   {"id":"field-report-actions:updateFieldReport","fichier":"field-report-actions","fonction":"updateFieldReport","avantFormulaire":0,"porte":{"module":null,"verbe":null,"entite":null,"moduleFr":null,"gardes":["canEdit"]},"ecrit":true,"modelesEcrits":["fieldReport"],"audit":false,"appel":"formulaire","champs":[{"nom":"doctorIds","type":"liste","obligatoire":false,"valeurs":null,"modele":null},{"nom":"doctorName","type":"texte","obligatoire":false,"valeurs":null,"modele":null},{"nom":"id","type":"reference","obligatoire":true,"valeurs":null,"modele":"FieldReport"},{"nom":"institution","type":"texte","obligatoire":false,"valeurs":null,"modele":null},{"nom":"specialty","type":"texte","obligatoire":false,"valeurs":null,"modele":null},{"nom":"summary","type":"texte","obligatoire":false,"valeurs":null,"modele":null},{"nom":"visitDate","type":"date","obligatoire":false,"valeurs":null,"modele":null}],"illisible":null},
+   {"id":"field-report-actions:validateFieldReport","fichier":"field-report-actions","fonction":"validateFieldReport","avantFormulaire":0,"porte":{"module":null,"verbe":null,"entite":null,"moduleFr":"Rapports terrain","gardes":["canEdit"]},"ecrit":true,"modelesEcrits":["auditLog","fieldReport"],"audit":true,"appel":"formulaire","champs":[{"nom":"id","type":"reference","obligatoire":true,"valeurs":null,"modele":"FieldReport"}],"illisible":null},
+   {"id":"finance-actions:corrigerAncrageTresorerie","fichier":"finance-actions","fonction":"corrigerAncrageTresorerie","avantFormulaire":0,"porte":{"module":"FINANCES","verbe":"UPDATE","entite":null,"moduleFr":"Finances","gardes":["userCan"]},"ecrit":true,"modelesEcrits":["auditLog","treasuryAccount"],"audit":true,"appel":"formulaire","champs":[{"nom":"id","type":"reference","obligatoire":true,"valeurs":null,"modele":"TreasuryAccount"},{"nom":"motif","type":"texte","obligatoire":false,"valeurs":null,"modele":null},{"nom":"openingBalance","type":"nombre","obligatoire":false,"valeurs":null,"modele":null},{"nom":"openingDate","type":"date","obligatoire":true,"valeurs":null,"modele":null}],"illisible":null},
+diff --git a/src/lib/actions/field-report-actions.ts b/src/lib/actions/field-report-actions.ts
+index 4b634fe..d232f5e 100644
+--- a/src/lib/actions/field-report-actions.ts
++++ b/src/lib/actions/field-report-actions.ts
+@@ -11,6 +11,14 @@ import { analyzeFieldReport, aiModelCheap } from "@/lib/ai";
+ import { aiFeatureEnabled, logAiUsage } from "@/lib/ai-settings";
+ import type { CurrentUser } from "@/lib/session";
+ import { fdStr, fdDate, type ActionResult } from "@/lib/actions/types";
++import { sousVerrous } from "@/lib/promo/stock-ecriture";
++import {
++  dejaDansLeRapport, ecrireRemises, formulairePorteDuMateriel, lireMaterielRemis, motifDeRemise, phraseMateriel, RefusRemise,
++  refusSuppressionRapport, toucheLeStock, verrousDuRapport,
++} from "@/lib/promo/remises-visite";
++import { remisesDuRapport } from "@/lib/queries/promo-remises";
++import { fenetreRapport } from "@/lib/sfe/tournee";
++import { CHEMIN_STOCK_PROMO } from "@/lib/chemins/stock-promo";
+ 
+ /** Un manager / la Direction **gère** tous les rapports ; un délégué les siens. */
+ function managesReports(user: CurrentUser): boolean {
+@@ -154,28 +162,107 @@ export async function submitFieldReport(formData: FormData): Promise<ActionResul
+   const summary = fdStr(formData, "summary");
+   if (!summary) return { ok: false, error: "Dictez ou saisissez d'abord votre compte rendu." };
+   const doctorIds = parseIds(formData, "doctorIds");
++  const rapport = await prisma.fieldReport.findUnique({ where: { id }, select: { delegateId: true, visitId: true, visitDate: true } });
++  if (!rapport) return { ok: false, error: "Rapport introuvable." };
++  const visitDate = fdDate(formData, "visitDate") ?? rapport.visitDate;
++  const doctorName = fdStr(formData, "doctorName");
+ 
+-  await prisma.fieldReport.update({
+-    where: { id },
+-    data: {
+-      summary,
+-      transcript: summary,
+-      visitDate: fdDate(formData, "visitDate") ?? undefined,
+-      doctorIds,
+-      doctorId: doctorIds[0] ?? null,
+-      doctorName: fdStr(formData, "doctorName"),
+-      institution: fdStr(formData, "institution"),
+-      specialty: fdStr(formData, "specialty"),
+-      status: "VALIDATED",
+-      validatedAt: new Date(),
+-    },
+-  });
+-  await recordAudit({ actorId: user.id, action: "VALIDATE", module: "Rapports terrain", summary: "Compte rendu de visite envoyé" });
++  // ── LE MATÉRIEL REMIS (§118.204) — la QUATRIÈME porte d'une visite faite, par le MÊME module ───
++  // Un compte rendu RATTACHÉ à une visite (dicté depuis « Ma journée ») ne porte pas de remises : la
++  // visite les porte déjà, et son rapport les corrige dans ses 48 h. Deux portes vers la même ancre
++  // diraient deux choses (§118.5) — on nomme celle qui sait.
++  const maintenant = new Date();
++  const saisi = formulairePorteDuMateriel(formData);
++  if (rapport.visitId && saisi.materiel) {
++    return { ok: false, error: "Ce compte rendu raconte une visite de votre emploi du temps : le matériel remis se déclare dans le rapport de cette visite (Promotion médicale › Ma journée), dans ses 48 h." };
++  }
++  // Un support numérique se PRÉSENTE lors d'une visite : un compte rendu sans visite n'en porte pas.
++  if (saisi.numerique) {
++    return { ok: false, error: "Un support numérique se présente lors d'une visite : déclarez-le dans « Ma journée » (rapport de la visite ou visite imprévue)." };
++  }
++  const deja = rapport.visitId ? { remis: [], presentes: [] } : await dejaDansLeRapport(id);
++  const lu = await lireMaterielRemis(formData, deja, maintenant);
++  if (!lu.ok) return { ok: false, error: lu.error };
++  const remet = lu.materiel.remises.length > 0;
++
++  // À QUI : une remise se rattache à un médecin de l'ANNUAIRE. Un nom tapé à la main ne désigne
++  // personne, et le stock du KAM sortirait vers un praticien que rien ne permet de retrouver. Un seul
++  // médecin → la remise porte son nom ; plusieurs → elle reste au compte rendu, sans médecin désigné
++  // (choisir le premier serait l'attribuer à quelqu'un à la place du KAM, §118.34).
++  // Dans l'ORDRE du compte rendu : une lecture `in` rend l'ordre du disque, et le motif écrit au
++  // registre changerait d'un envoi à l'autre pour les mêmes médecins.
++  const medecins = doctorIds.length
++    ? (await prisma.medicalDoctor.findMany({ where: { id: { in: doctorIds } }, select: { id: true, name: true } }))
++        .sort((a, b) => doctorIds.indexOf(a.id) - doctorIds.indexOf(b.id))
++    : [];
++  if (remet && medecins.length === 0) {
++    return {
++      ok: false,
++      error: doctorName
++        ? `Le matériel remis se rattache à un médecin de l'annuaire : « ${doctorName} » n'y est pas — ajoutez-le (Annuaires › Médecins) puis choisissez-le dans la liste.`
++        : "Le matériel remis se rattache à un médecin de l'annuaire : choisissez-le dans la liste « Médecin(s) — annuaire ».",
++    };
++  }
++  // QUAND : la règle des trois autres portes. Une visite à venir ne remet rien ; et le matériel
++  // d'une visite se déclare dans ses 48 h — seulement si le matériel CHANGE : renvoyer un compte
++  // rendu corrigé dans son texte ne doit pas exiger de retirer une remise faite à temps.
++  const changeLeStock = await materielChange(id, deja, lu.materiel.remises);
++  if (changeLeStock && visitDate.getTime() > maintenant.getTime() + 86_400_000) {
++    return { ok: false, error: "Une visite à venir ne remet rien : le matériel se déclare une fois la visite faite." };
++  }
++  if (changeLeStock && !fenetreRapport(visitDate, maintenant).ouvert) {
++    return { ok: false, error: `Le matériel remis se déclare dans les 48 h de la visite (comme dans « Ma journée ») : celle du ${visitDate.toLocaleDateString("fr-FR")} est passée. Rien n'est enregistré — renvoyez le compte rendu sans changer le matériel.` };
++  }
++  // C'EST LA VOITURE DU KAM QUI SE VIDE — même quand un superviseur envoie le compte rendu à sa place.
++  const detenteurId = rapport.delegateId ?? user.id;
++  const medecin = medecins.length === 1 ? medecins[0] : null;
++
++  try {
++    await sousVerrous(verrousDuRapport(lu.materiel, deja), async (tx, verrouilles) => {
++      await tx.fieldReport.update({
++        where: { id },
++        data: {
++          summary,
++          transcript: summary,
++          visitDate,
++          doctorIds,
++          doctorId: doctorIds[0] ?? null,
++          doctorName,
++          institution: fdStr(formData, "institution"),
++          specialty: fdStr(formData, "specialty"),
++          status: "VALIDATED",
++          validatedAt: maintenant,
++        },
++      });
++      if (!rapport.visitId) {
++        await ecrireRemises(tx, lu.materiel, verrouilles, {
++          ancre: { fieldReportId: id }, doctorId: medecin?.id ?? null, detenteurId, auteurId: user.id, maintenant,
++          motif: motifDeRemise(visitDate, medecin?.name ?? (medecins.length > 1 ? medecins.map((m) => m.name).join(", ") : null)),
++        });
++      }
++    });
++  } catch (e) {
++    if (e instanceof RefusRemise) return { ok: false, error: e.message };
++    throw e;
++  }
++  await recordAudit({ actorId: user.id, action: "VALIDATE", module: "Rapports terrain", summary: `Compte rendu de visite envoyé${phraseMateriel(lu.materiel)}` });
+   revalidatePath(`/field-reports/${id}`);
+   revalidatePath("/field-reports");
++  if (toucheLeStock(lu.materiel, deja)) revalidatePath(CHEMIN_STOCK_PROMO);
+   return { ok: true };
+ }
+ 
++/** Le matériel saisi change-t-il ce que le compte rendu a déjà remis ? (net, par article) */
++async function materielChange(fieldReportId: string, deja: { remis: string[] }, voulu: { itemId: string; quantite: number }[]): Promise<boolean> {
++  if (deja.remis.length === 0) return voulu.length > 0;
++  const avant = await remisesDuRapport(fieldReportId);
++  const a = new Map(avant.materiel.map((m) => [m.itemId, m.quantite]));
++  const b = new Map(voulu.map((m) => [m.itemId, m.quantite]));
++  if (a.size !== b.size) return true;
++  for (const [k, v] of b) if (a.get(k) !== v) return true;
++  return false;
++}
++
+ export async function validateFieldReport(formData: FormData): Promise<ActionResult> {
+   const user = await requireUser();
+   const id = fdStr(formData, "id");
+@@ -203,6 +290,8 @@ export async function deleteFieldReport(formData: FormData): Promise<ActionResul
+   const id = fdStr(formData, "id");
+   if (!id) return { ok: false, error: "Rapport introuvable." };
+   if (!(await canEdit(user, id))) return { ok: false, error: "Non autorisé." };
++  const refus = await refusSuppressionRapport(id);
++  if (refus) return { ok: false, error: refus };
+   const atts = await prisma.fieldReportAttachment.findMany({ where: { reportId: id }, select: { blobId: true } });
+   const report = await prisma.fieldReport.findUnique({ where: { id }, select: { audioBlobId: true } });
+   await prisma.fieldReport.delete({ where: { id } });
+diff --git a/src/lib/actions/medical-actions.ts b/src/lib/actions/medical-actions.ts
+index 07efdee..74924eb 100644
+--- a/src/lib/actions/medical-actions.ts
++++ b/src/lib/actions/medical-actions.ts
+@@ -768,7 +768,7 @@ export async function logVisit(
+       // lendemain le reproposerait en tête, et l'écran perdrait la confiance du terrain.
+       await tx.medicalDoctor.update({ where: { id: doctorId }, data: { lastVisit: date } });
+       await ecrireRemises(tx, lu.materiel, verrouilles, {
+-        visitId: v.id, doctorId, detenteurId: user.id, auteurId: user.id, maintenant: now, motif: motifDeRemise(date, doctor.name),
++        ancre: { visitId: v.id }, doctorId, detenteurId: user.id, auteurId: user.id, maintenant: now, motif: motifDeRemise(date, doctor.name),
+       });
+       return v;
+     });
+diff --git a/src/lib/actions/rapport-terrain-remises-flow.test.ts b/src/lib/actions/rapport-terrain-remises-flow.test.ts
+new file mode 100644
+index 0000000..3977e5e
+--- /dev/null
++++ b/src/lib/actions/rapport-terrain-remises-flow.test.ts
+@@ -0,0 +1,214 @@
++import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
++import type { CurrentUser } from "@/lib/session";
++
++vi.mock("next/cache", () => ({ revalidatePath: () => {} }));
++
++let ACTOR: CurrentUser | null = null;
++vi.mock("@/lib/session", () => ({ requireUser: async () => ACTOR, getCurrentUser: async () => ACTOR, requireModule: async () => ACTOR }));
++
++import { prisma } from "@/lib/prisma";
++import { getAccess, type SessionUser } from "@/lib/rbac";
++import { createFieldReport, deleteFieldReport, reopenFieldReport, submitFieldReport } from "./field-report-actions";
++import { entrerLot, sousVerrou, trouverOuCreerArticle } from "@/lib/promo/stock-ecriture";
++import { remisesDuRapport } from "@/lib/queries/promo-remises";
++import { DELETE_REGISTRY } from "@/lib/admin-delete-registry";
++
++let dbOk = false;
++try { await prisma.$queryRaw`SELECT 1`; dbOk = true; } catch { dbOk = false; }
++const suite = dbOk ? describe : describe.skip;
++
++const TAG = "__rtremises__";
++
++async function actorFor(id: string): Promise<CurrentUser> {
++  const u = await prisma.user.findUniqueOrThrow({ where: { id } });
++  const access = await getAccess(id, u.role as SessionUser["role"]);
++  return { id, name: u.name, email: u.email, role: u.role as SessionUser["role"], secondaryRole: u.secondaryRole as SessionUser["role"] | null, access, mustChangePassword: false } as CurrentUser;
++}
++
++const form = (fields: Record<string, string | string[]>): FormData => {
++  const fd = new FormData();
++  for (const [k, v] of Object.entries(fields)) {
++    if (Array.isArray(v)) for (const x of v) fd.append(k, x);
++    else fd.set(k, v);
++  }
++  return fd;
++};
++
++const AUJOURDHUI = new Date().toISOString().slice(0, 10);
++
++/**
++ * ═══════════════════════════════════════════════════════════════════════════════════════════
++ * LE MATÉRIEL REMIS DANS UN COMPTE RENDU DE VISITE (rapport terrain, §118.204) — la QUATRIÈME porte
++ * d'une visite faite, par la VRAIE action d'envoi (`submitFieldReport`) et le MÊME module que les
++ * trois autres (`remises-visite.ts`). Un délégué SANS vue globale (§118.104).
++ *
++ *   kam   délégué : il tient le stock, il écrit ses comptes rendus
++ *   sup   Manager Promotion médicale : il gère les rapports — et n'a AUCUN stock
++ *   dm    Direction Marketing : l'auteur du décor du stock
++ *
++ * Le stock est posé par l'écrivain (`entrerLot`) : 20 fiches valides en main du KAM.
++ * ═══════════════════════════════════════════════════════════════════════════════════════════
++ */
++suite("Compte rendu de visite — le matériel remis sort du stock du KAM, par le module des remises", () => {
++  const ids: Record<string, string> = {};
++  let doc1 = "", doc2 = "", fiche = "";
++
++  beforeAll(async () => {
++    await nettoyer();
++    const faire = (nom: string, role: string) =>
++      prisma.user.create({ data: { name: `${TAG}${nom}`, email: `${TAG}${nom}@t.dz`, role: role as never, passwordHash: "x" } });
++    const [kam, sup, dm] = await Promise.all([faire("kam", "MEDICAL_DELEGATE"), faire("sup", "MEDICAL_PROMOTION_MANAGER"), faire("dm", "PRODUCT_MANAGER")]);
++    Object.assign(ids, { kam: kam.id, sup: sup.id, dm: dm.id });
++    const docs = await Promise.all(["Achour", "Benali"].map((n) =>
++      prisma.medicalDoctor.create({ data: { name: `${TAG}Dr ${n}`, delegateId: kam.id, wilaya: "Alger" }, select: { id: true } })));
++    [doc1, doc2] = docs.map((d) => d.id) as [string, string];
++    const cat = await prisma.promoCatalogueArticle.create({ data: { reference: `${TAG}C1`, nom: `${TAG}Fiche posologique`, famille: "CONSOMMABLE" as never }, select: { id: true } });
++    fiche = (await trouverOuCreerArticle({ companyId: null, catalogueId: cat.id, produitIds: [], nom: `${TAG}Fiche`, unite: "pièce", materialType: null, auteurId: dm.id })).id;
++    const r = await sousVerrou(fiche, (tx) => entrerLot(tx, fiche, {
++      holderId: kam.id, quantite: 20, kind: "OPENING", origine: "OUVERTURE", valableJusquau: new Date("2030-12-31"), auteurId: dm.id,
++    }));
++    if ("refus" in r) throw new Error(r.refus);
++  });
++
++  afterAll(async () => { await nettoyer(); });
++
++  async function nettoyer() {
++    const users = await prisma.user.findMany({ where: { email: { startsWith: TAG } }, select: { id: true } });
++    const uids = users.map((u) => u.id);
++    const cat = await prisma.promoCatalogueArticle.findMany({ where: { nom: { startsWith: TAG } }, select: { id: true } });
++    // L'article d'abord : il emporte ses mouvements, sans quoi un rapport qui porte une remise est
++    // retenu (SetNull, mais le banc veut une base propre).
++    if (cat.length) await prisma.promoStockItem.deleteMany({ where: { catalogueId: { in: cat.map((c) => c.id) } } });
++    await prisma.promoCatalogueArticle.deleteMany({ where: { nom: { startsWith: TAG } } });
++    if (uids.length) {
++      await prisma.medicalVisit.deleteMany({ where: { delegateId: { in: uids } } });
++      await prisma.fieldReport.deleteMany({ where: { delegateId: { in: uids } } });
++    }
++    await prisma.medicalDoctor.deleteMany({ where: { name: { startsWith: TAG } } });
++    if (uids.length) {
++      await prisma.notification.deleteMany({ where: { userId: { in: uids } } });
++      await prisma.auditLog.deleteMany({ where: { actorId: { in: uids } } }).catch(() => undefined);
++    }
++    await prisma.user.deleteMany({ where: { id: { in: uids } } });
++  }
++
++  const comme = async (qui: string) => { ACTOR = await actorFor(ids[qui]!); };
++  const solde = async (holderId: string) => {
++    const r = await prisma.promoStockMovement.aggregate({ where: { itemId: fiche, holderId }, _sum: { delta: true } });
++    return Number(r._sum.delta ?? 0);
++  };
++  const nouveauRapport = async (): Promise<string> => {
++    await comme("kam");
++    const r = await createFieldReport();
++    if (!r.ok || !r.id) throw new Error(r.ok ? "pas d'identifiant" : r.error);
++    return r.id;
++  };
++  const envoyer = (id: string, extra: Record<string, string | string[]>) =>
++    submitFieldReport(form({ id, summary: "Visite faite, intérêt pour la posologie.", visitDate: AUJOURDHUI, ...extra }));
++
++  let rapport1 = "";
++
++  it("PRÉMISSE : le KAM tient 20 fiches, le superviseur aucune", async () => {
++    expect(await solde(ids.kam!)).toBe(20);
++    expect(await solde(ids.sup!)).toBe(0);
++  });
++
++  it("1. la remise déclarée sort du stock du KAM, porte le rapport ET le médecin de l'annuaire", async () => {
++    rapport1 = await nouveauRapport();
++    const r = await envoyer(rapport1, { doctorIds: doc1, materielItemId: [fiche], materielQuantite: ["5"] });
++    expect(r).toEqual({ ok: true });
++    expect(await solde(ids.kam!)).toBe(15);
++    const ms = await prisma.promoStockMovement.findMany({ where: { fieldReportId: rapport1 }, select: { kind: true, doctorId: true, holderId: true, visitId: true } });
++    expect(ms).toEqual([{ kind: "DISTRIBUTION", doctorId: doc1, holderId: ids.kam, visitId: null }]);
++    expect((await prisma.fieldReport.findUniqueOrThrow({ where: { id: rapport1 } })).status).toBe("VALIDATED");
++  });
++
++  it("2. au-delà du solde : REFUSÉ, et rien n'est écrit — ni le compte rendu, ni la remise", async () => {
++    const id = await nouveauRapport();
++    const r = await envoyer(id, { doctorIds: doc1, materielItemId: [fiche], materielQuantite: ["50"] });
++    expect(r.ok).toBe(false);
++    expect(r.ok ? "" : r.error).toMatch(/votre stock ne le permet pas/);
++    expect(await solde(ids.kam!)).toBe(15);
++    expect(await prisma.promoStockMovement.count({ where: { fieldReportId: id } })).toBe(0);
++    const rap = await prisma.fieldReport.findUniqueOrThrow({ where: { id } });
++    expect(rap.status, "le compte rendu refusé ne passe pas « envoyé »").toBe("DRAFT");
++    expect(rap.summary).toBeNull();
++  });
++
++  it("3. corriger 5 en 2 rend 3 au KAM ; renvoyer à l'identique n'écrit RIEN", async () => {
++    await comme("kam");
++    await reopenFieldReport(form({ id: rapport1 }));
++    const r = await envoyer(rapport1, { doctorIds: doc1, materielItemId: [fiche], materielQuantite: ["2"] });
++    expect(r).toEqual({ ok: true });
++    expect(await solde(ids.kam!)).toBe(18);
++    expect((await remisesDuRapport(rapport1)).materiel.map((m) => m.quantite)).toEqual([2]);
++    const avant = await prisma.promoStockMovement.count({ where: { fieldReportId: rapport1 } });
++    expect(await envoyer(rapport1, { doctorIds: doc1, materielItemId: [fiche], materielQuantite: ["2"] })).toEqual({ ok: true });
++    expect(await prisma.promoStockMovement.count({ where: { fieldReportId: rapport1 } })).toBe(avant);
++  });
++
++  it("4. le superviseur qui envoie le compte rendu du KAM vide la voiture du KAM, pas la sienne", async () => {
++    const id = await nouveauRapport();
++    await comme("sup");
++    const r = await envoyer(id, { doctorIds: doc1, materielItemId: [fiche], materielQuantite: ["3"] });
++    expect(r).toEqual({ ok: true });
++    expect(await solde(ids.kam!)).toBe(15);
++    expect(await solde(ids.sup!)).toBe(0);
++  });
++
++  it("5. un médecin HORS annuaire : refus NOMMÉ, stock intact", async () => {
++    const id = await nouveauRapport();
++    const r = await envoyer(id, { doctorName: "Dr Karim Inconnu", materielItemId: [fiche], materielQuantite: ["1"] });
++    expect(r.ok).toBe(false);
++    expect(r.ok ? "" : r.error).toMatch(/« Dr Karim Inconnu » n'y est pas/);
++    expect(await solde(ids.kam!)).toBe(15);
++    // Sans matériel, le même compte rendu part : la règle ne porte que sur la remise.
++    expect(await envoyer(id, { doctorName: "Dr Karim Inconnu" })).toEqual({ ok: true });
++  });
++
++  it("6. plusieurs médecins : la remise reste au compte rendu, sans médecin choisi à la place du KAM", async () => {
++    const id = await nouveauRapport();
++    expect(await envoyer(id, { doctorIds: `${doc1},${doc2}`, materielItemId: [fiche], materielQuantite: ["1"] })).toEqual({ ok: true });
++    const ms = await prisma.promoStockMovement.findMany({ where: { fieldReportId: id }, select: { doctorId: true, reason: true } });
++    expect(ms).toHaveLength(1);
++    expect(ms[0]!.doctorId).toBeNull();
++    expect(ms[0]!.reason).toMatch(/Dr Achour.*Dr Benali/);
++    expect(await solde(ids.kam!)).toBe(14);
++  });
++
++  it("7. un compte rendu RATTACHÉ à une visite renvoie le matériel au rapport de la visite", async () => {
++    const id = await nouveauRapport();
++    const v = await prisma.medicalVisit.create({ data: { date: new Date(), doctorId: doc1, delegateId: ids.kam!, status: "COMPLETED" }, select: { id: true } });
++    await prisma.fieldReport.update({ where: { id }, data: { visitId: v.id } });
++    const r = await envoyer(id, { doctorIds: doc1, materielItemId: [fiche], materielQuantite: ["1"] });
++    expect(r.ok).toBe(false);
++    expect(r.ok ? "" : r.error).toMatch(/Ma journée/);
++    expect(await solde(ids.kam!)).toBe(14);
++    expect(await envoyer(id, { doctorIds: doc1 })).toEqual({ ok: true });
++  });
++
++  it("8. la fenêtre de 48 h : un matériel qui CHANGE est refusé hors délai ; un renvoi qui ne le change pas passe", async () => {
++    await comme("kam");
++    await reopenFieldReport(form({ id: rapport1 }));
++    const vieux = new Date(Date.now() - 5 * 86_400_000).toISOString().slice(0, 10);
++    const change = await submitFieldReport(form({ id: rapport1, summary: "Corrigé.", visitDate: vieux, doctorIds: doc1, materielItemId: [fiche], materielQuantite: ["4"] }));
++    expect(change.ok).toBe(false);
++    expect(change.ok ? "" : change.error).toMatch(/dans les 48 h/);
++    expect(await solde(ids.kam!)).toBe(14);
++    const identique = await submitFieldReport(form({ id: rapport1, summary: "Corrigé.", visitDate: vieux, doctorIds: doc1, materielItemId: [fiche], materielQuantite: ["2"] }));
++    expect(identique).toEqual({ ok: true });
++  });
++
++  it("9. un compte rendu qui porte des remises ne se supprime pas — ni par l'action, ni par la corbeille", async () => {
++    await comme("kam");
++    const r = await deleteFieldReport(form({ id: rapport1 }));
++    expect(r.ok).toBe(false);
++    expect(r.ok ? "" : r.error).toMatch(/porte du matériel remis/);
++    expect(await prisma.fieldReport.count({ where: { id: rapport1 } })).toBe(1);
++    expect(await DELETE_REGISTRY.FIELD_REPORT.refuse!(rapport1)).toMatch(/porte du matériel remis/);
++    // Le témoin : un compte rendu SANS remise se supprime toujours.
++    const libre = await nouveauRapport();
++    expect(await DELETE_REGISTRY.FIELD_REPORT.refuse!(libre)).toBeNull();
++    expect(await deleteFieldReport(form({ id: libre }))).toEqual({ ok: true });
++  });
++});
+diff --git a/src/lib/actions/tour-visit-actions.ts b/src/lib/actions/tour-visit-actions.ts
+index ff50113..8e210cc 100644
+--- a/src/lib/actions/tour-visit-actions.ts
++++ b/src/lib/actions/tour-visit-actions.ts
+@@ -203,7 +203,7 @@ export async function rapporterVisite(formData: FormData): Promise<ActionResult>
+         }
+       }
+       await ecrireRemises(tx, lu.materiel, verrouilles, {
+-        visitId: visite.id, doctorId: visite.doctorId, detenteurId, auteurId: user.id, maintenant,
++        ancre: { visitId: visite.id }, doctorId: visite.doctorId, detenteurId, auteurId: user.id, maintenant,
+         motif: motifDeRemise(visite.date, visite.doctor?.name ?? null),
+       });
+     });
+@@ -306,7 +306,7 @@ export async function ajouterVisiteImprevue(formData: FormData): Promise<ActionR
+         });
+       }
+       await ecrireRemises(tx, lu.materiel, verrouilles, {
+-        visitId: v.id, doctorId, detenteurId: user.id, auteurId: user.id, maintenant, motif: motifDeRemise(date, doctor.name),
++        ancre: { visitId: v.id }, doctorId, detenteurId: user.id, auteurId: user.id, maintenant, motif: motifDeRemise(date, doctor.name),
+       });
+       return v.id;
+     });
+diff --git a/src/lib/admin-delete-refus.test.ts b/src/lib/admin-delete-refus.test.ts
+index 163e716..41e5e9f 100644
+--- a/src/lib/admin-delete-refus.test.ts
++++ b/src/lib/admin-delete-refus.test.ts
+@@ -64,12 +64,15 @@ describe("Registre des suppressions — le refus et la réserve", () => {
+   });
+ 
+   it("les autres types ne refusent rien et ne réservent rien — l'ajout n'a rien changé chez eux", () => {
+-    const AVEC_REFUS: readonly string[] = ["CONVERSATION", "NOTIFICATION", "PROMO_CATALOGUE", "PROMO_STOCK_ITEM", "PCH_TENDER_LINE"];
++    // FIELD_REPORT (§118.204) : un compte rendu qui porte du matériel remis justifie des sorties du stock —
++    // la corbeille lit le MÊME refus que l'action (`refusSuppressionRapport`), éprouvé dans
++    // `rapport-terrain-remises-flow.test.ts`, avec son témoin (un compte rendu sans remise part toujours).
++    const AVEC_REFUS: readonly string[] = ["CONVERSATION", "NOTIFICATION", "PROMO_CATALOGUE", "PROMO_STOCK_ITEM", "PCH_TENDER_LINE", "FIELD_REPORT"];
+     const anciens = DELETABLE_KINDS.filter((k) => !AVEC_REFUS.includes(k));
+     // 28 → 29 : l'appel d'offres PCH ne refuse ni ne réserve rien lui-même — c'est le LOT qui
+     // refuse une facture réglée ou une pièce signée parmi ses branches (`faitIrreversible`).
+     // 29 → 30 : le poste d'une demande Ad & Pro (§118.187), pour la même raison.
+-    expect(anciens).toHaveLength(30);
++    expect(anciens).toHaveLength(29);
+     for (const k of anciens) {
+       expect(DELETE_REGISTRY[k].refuse, `${k} ne refusait rien avant ce lot`).toBeUndefined();
+       expect(DELETE_REGISTRY[k].reserve, `${k} n'annonçait aucune réserve avant ce lot`).toBeUndefined();
+diff --git a/src/lib/admin-delete-registry.ts b/src/lib/admin-delete-registry.ts
+index 59676d1..e6be96a 100644
+--- a/src/lib/admin-delete-registry.ts
++++ b/src/lib/admin-delete-registry.ts
+@@ -1,6 +1,7 @@
+ import { CHEMIN_CATALOGUE_PROMO, CHEMIN_STOCK_PROMO } from "@/lib/chemins/stock-promo";
+ import type { EntityType } from "@prisma/client";
+ import { prisma } from "@/lib/prisma";
++import { refusSuppressionRapport } from "@/lib/promo/remises-visite";
+ import { inventorier } from "@/lib/suppression/lot";
+ import { resumeDesLiens } from "@/lib/suppression/branches";
+ 
+@@ -335,6 +336,9 @@ export const DELETE_REGISTRY: Record<DeletableKind, KindSpec> = {
+       const r = await prisma.fieldReport.findUnique({ where: { id }, select: { doctorName: true, institution: true, visitDate: true } });
+       return r ? `${r.doctorName || r.institution || "Rapport"} — ${r.visitDate.toLocaleDateString("fr-FR")}` : null;
+     },
++    // Le MÊME refus que l'action de suppression (§118.204) : un compte rendu qui porte du matériel
++    // remis justifie des sorties du stock, il ne passe pas à la corbeille.
++    refuse: (id) => refusSuppressionRapport(id),
+     async remove(id) {
+       // L'audio (blob chiffré) est conservé pour la restauration ; il n'est
+       // libéré qu'à la destruction réelle depuis la corbeille.
+diff --git a/src/lib/promo/remises-sources.test.ts b/src/lib/promo/remises-sources.test.ts
+index 36b9a4b..d77a7aa 100644
+--- a/src/lib/promo/remises-sources.test.ts
++++ b/src/lib/promo/remises-sources.test.ts
+@@ -16,8 +16,9 @@ import { join, relative } from "node:path";
+  * Ce banc tient la chaîne entière, sur la SOURCE (§118.17), sans ses commentaires (§118.79d) :
+  *   • TOURNÉES — le seul mouvement « remis à un médecin » (`DISTRIBUTION`) s'écrit dans
+  *     `remettreAuMedecin`, qui n'est appelé que par le module des remises de visite, lui-même
+- *     appelé par les TROIS portes d'une visite faite : le rapport d'une visite planifiée, la visite
+- *     imprévue, la saisie rapide de « Ma journée » ;
++ *     appelé par les QUATRE portes d'une visite faite : le rapport d'une visite planifiée, la visite
++ *     imprévue, la saisie rapide de « Ma journée », et le compte rendu de visite du module Rapports
++ *     terrain (§118.204 — un rapport terrain est un compte rendu de visite, pas une cinquième voie) ;
+  *   • OPÉRATIONS AD & PRO — la réservation pour un événement (`RESERVATION_OUT`) et son retour
+  *     (`RESERVATION_BACK`) ne s'écrivent que dans leurs deux fonctions, appelées par les seules
+  *     actions des postes Ad & Pro.
+@@ -78,8 +79,11 @@ describe("Remis aux médecins : les tournées", () => {
+     expect(appelants("remettreAuMedecin")).toEqual(["src/lib/promo/remises-visite.ts"]);
+   });
+ 
+-  it("et ce module n'est appelé que par les TROIS portes d'une visite faite", () => {
+-    expect(appelants("ecrireRemises")).toEqual(["src/lib/actions/medical-actions.ts", "src/lib/actions/tour-visit-actions.ts"]);
++  it("et ce module n'est appelé que par les QUATRE portes d'une visite faite", () => {
++    expect(appelants("ecrireRemises")).toEqual([
++      "src/lib/actions/field-report-actions.ts", "src/lib/actions/medical-actions.ts", "src/lib/actions/tour-visit-actions.ts",
++    ]);
++    expect(fonctionsContenant("src/lib/actions/field-report-actions.ts", /\becrireRemises\(/)).toEqual(["submitFieldReport"]);
+     expect(fonctionsContenant("src/lib/actions/tour-visit-actions.ts", /\becrireRemises\(/)).toEqual(["ajouterVisiteImprevue", "rapporterVisite"]);
+     expect(fonctionsContenant("src/lib/actions/medical-actions.ts", /\becrireRemises\(/)).toEqual(["logVisit"]);
+   });
+diff --git a/src/lib/promo/remises-visite.ts b/src/lib/promo/remises-visite.ts
+index cb4e8bf..261d2a9 100644
+--- a/src/lib/promo/remises-visite.ts
++++ b/src/lib/promo/remises-visite.ts
+@@ -4,14 +4,17 @@ import {
+   type GesteDeRemise,
+ } from "@/lib/promo/remises";
+ import { etatValidite, libelleArticleStock } from "@/lib/promo/stock";
+-import { remettreAuMedecin, reprendreRemisesDeLaVisite, type Tx } from "@/lib/promo/stock-ecriture";
++import { remettreAuMedecin, reprendreRemisesDeLaVisite, type AncreRemise, type Tx } from "@/lib/promo/stock-ecriture";
++
++export type { AncreRemise };
+ 
+ /**
+  * ═══════════════════════════════════════════════════════════════════════════════════════════
+- * LE MATÉRIEL REMIS EN VISITE, CÔTÉ SERVEUR (§118.166) — un seul endroit pour les trois portes
+- * qui enregistrent une visite faite : le rapport d'une visite planifiée, la visite imprévue, et la
+- * saisie rapide de « Ma journée ». Trois copies auraient fini par ne pas remettre pareil — et le
+- * symptôme serait un stock juste ou faux selon le bouton qu'un délégué a pris (§118.5, §118.71).
++ * LE MATÉRIEL REMIS EN VISITE, CÔTÉ SERVEUR (§118.166) — un seul endroit pour les QUATRE portes
++ * qui enregistrent une visite faite : le rapport d'une visite planifiée, la visite imprévue, la
++ * saisie rapide de « Ma journée », et le compte rendu de visite du module Rapports terrain
++ * (§118.204). Quatre copies auraient fini par ne pas remettre pareil — et le symptôme serait un
++ * stock juste ou faux selon le bouton qu'un délégué a pris (§118.5, §118.71).
+  *
+  * L'ordre est toujours le même : LIRE et vérifier hors transaction (tout ce qui ne va pas, en une
+  * fois), puis ÉCRIRE sous le verrou de chaque article, dans la transaction de la visite. Le SOLDE
+@@ -103,6 +106,16 @@ export async function lireMaterielRemis(formData: FormData, deja: DejaDansLaVisi
+   return { ok: true, materiel: { remises: lues.remises, numeriques, libelles: new Map(articles.map((a) => [a.id, libelleDe(a)])) } };
+ }
+ 
++/**
++ * CE QU'UN COMPTE RENDU DE VISITE (rapport terrain) PORTE DÉJÀ (§118.204). Il n'a pas de supports
++ * numériques : une présentation se rattache à une VISITE (`MedicalVisitSupportNumerique`), et le
++ * compte rendu qui n'en a pas ne les propose pas.
++ */
++export async function dejaDansLeRapport(fieldReportId: string): Promise<DejaDansLaVisite> {
++  const ms = await prisma.promoStockMovement.findMany({ where: { fieldReportId, kind: "DISTRIBUTION" }, select: { itemId: true }, distinct: ["itemId"] });
++  return { remis: ms.map((m) => m.itemId), presentes: [] };
++}
++
+ /** LES ARTICLES À VERROUILLER : ce qu'on remet, et ce que la visite avait déjà remis. */
+ export function verrousDuRapport(m: MaterielLu, deja: DejaDansLaVisite): string[] {
+   return [...new Set([...m.remises.map((r) => r.itemId), ...deja.remis])];
+@@ -115,10 +128,10 @@ export function verrousDuRapport(m: MaterielLu, deja: DejaDansLaVisite): string[
+  * remis ; un rapport renvoyé à l'identique n'écrit rien. Rend les gestes écrits.
+  */
+ export async function ecrireRemises(tx: Tx, m: MaterielLu, verrouilles: ReadonlyMap<string, unknown>, c: {
+-  visitId: string; doctorId: string | null; detenteurId: string; auteurId: string; maintenant: Date; motif: string;
++  ancre: AncreRemise; doctorId: string | null; detenteurId: string; auteurId: string; maintenant: Date; motif: string;
+ }): Promise<GesteDeRemise[]> {
+   const mouvements = await tx.promoStockMovement.findMany({
+-    where: { visitId: c.visitId, kind: { in: ["DISTRIBUTION", "REVERSAL"] } },
++    where: { ...c.ancre, kind: { in: ["DISTRIBUTION", "REVERSAL"] } },
+     select: { id: true, itemId: true, kind: true, delta: true, annuleId: true },
+   });
+   const avant = remisNetParArticle(mouvements.map((x) => ({ ...x, delta: Number(x.delta) })));
+@@ -132,20 +145,24 @@ export async function ecrireRemises(tx: Tx, m: MaterielLu, verrouilles: Readonly
+   }
+   for (const g of gestes) {
+     if (g.geste === "REPRENDRE" || g.geste === "REMPLACER") {
+-      await reprendreRemisesDeLaVisite(tx, c.visitId, g.itemId, c.auteurId, "Rapport de visite corrigé");
++      await reprendreRemisesDeLaVisite(tx, c.ancre, g.itemId, c.auteurId, "Rapport de visite corrigé");
+     }
+     if (g.geste === "REMETTRE" || g.geste === "REMPLACER") {
+       const r = await remettreAuMedecin(tx, g.itemId, {
+-        holderId: c.detenteurId, quantite: g.apres, visitId: c.visitId, doctorId: c.doctorId,
++        holderId: c.detenteurId, quantite: g.apres, ancre: c.ancre, doctorId: c.doctorId,
+         motif: c.motif, auteurId: c.auteurId, maintenant: c.maintenant,
+       });
+       if (!r.ok) throw new RefusRemise(refusRemise(m.libelles.get(g.itemId) ?? "Article", g.apres, r.refus));
+     }
+   }
+-  // LES PRÉSENTATIONS NUMÉRIQUES sont un ensemble par visite : remplacées, jamais cumulées.
+-  await tx.medicalVisitSupportNumerique.deleteMany({ where: { visitId: c.visitId } });
+-  if (m.numeriques.length) {
+-    await tx.medicalVisitSupportNumerique.createMany({ data: m.numeriques.map((itemId) => ({ visitId: c.visitId, itemId })), skipDuplicates: true });
++  // LES PRÉSENTATIONS NUMÉRIQUES sont un ensemble par visite : remplacées, jamais cumulées. Un
++  // compte rendu sans visite n'en porte pas — l'appelant refuse un support coché (§118.204).
++  if ("visitId" in c.ancre) {
++    const visitId = c.ancre.visitId;
++    await tx.medicalVisitSupportNumerique.deleteMany({ where: { visitId } });
++    if (m.numeriques.length) {
++      await tx.medicalVisitSupportNumerique.createMany({ data: m.numeriques.map((itemId) => ({ visitId, itemId })), skipDuplicates: true });
++    }
+   }
+   return gestes;
+ }
+@@ -168,3 +185,25 @@ export function phraseMateriel(m: MaterielLu): string {
+ export function toucheLeStock(m: MaterielLu, deja: DejaDansLaVisite): boolean {
+   return m.remises.length > 0 || deja.remis.length > 0;
+ }
++
++/**
++ * LE FORMULAIRE PORTE-T-IL DU MATÉRIEL ? (une quantité non nulle, ou un support coché). Lu ici,
++ * avec les autres champs du bloc, pour que les noms du bloc ne vivent qu'à un endroit.
++ */
++export function formulairePorteDuMateriel(formData: FormData): { materiel: boolean; numerique: boolean } {
++  const numerique = formData.getAll("numeriqueItemId").some((v) => String(v).trim() !== "");
++  return { materiel: numerique || formData.getAll("materielQuantite").some((q) => Number(q) > 0), numerique };
++}
++
++/**
++ * UN COMPTE RENDU QUI PORTE DES REMISES NE SE SUPPRIME PAS (§118.204) — comme une visite rapportée
++ * (§118.193d) : ses remises, et leurs corrections, restent au registre du stock, et le compte rendu
++ * est ce qui les justifie. Lu par l'action de suppression ET par la corbeille du Super Admin : deux
++ * portes, une règle (§118.71). Rend la phrase du refus, ou `null`.
++ */
++export async function refusSuppressionRapport(fieldReportId: string): Promise<string | null> {
++  const n = await prisma.promoStockMovement.count({ where: { fieldReportId } });
++  return n > 0
++    ? "Ce compte rendu porte du matériel remis : ses remises restent au registre du stock, et c'est lui qui les justifie — il ne se supprime pas. Une remise saisie par erreur se corrige dans le compte rendu (« Corriger / renvoyer », quantité à 0)."
++    : null;
++}
+diff --git a/src/lib/promo/stock-ecriture.ts b/src/lib/promo/stock-ecriture.ts
+index 3a6a3a1..0018abd 100644
+--- a/src/lib/promo/stock-ecriture.ts
++++ b/src/lib/promo/stock-ecriture.ts
+@@ -353,11 +353,16 @@ export async function renvoyer(tx: Tx, transfertId: string, r: {
+  * périmé ne se remet pas, il se déclare détruit). Chaque tranche porte la visite et le médecin :
+  * c'est ce qui fait l'historique « ce que ce médecin a reçu », et ce qu'une correction contre-passe.
+  * L'appelant tient le verrou de l'article.
++ *
++ * L'ANCRE est la visite, ou — pour un compte rendu de visite (rapport terrain) qu'aucune visite ne
++ * porte — le rapport lui-même (§118.204). Jamais les deux : c'est l'ancre qu'une correction relit.
+  */
++export type AncreRemise = { visitId: string } | { fieldReportId: string };
++
+ export async function remettreAuMedecin(tx: Tx, itemId: string, r: {
+   holderId: string;
+   quantite: number;
+-  visitId: string;
++  ancre: AncreRemise;
+   doctorId: string | null;
+   motif: string | null;
+   auteurId: string;
+@@ -370,7 +375,7 @@ export async function remettreAuMedecin(tx: Tx, itemId: string, r: {
+     await tx.promoStockMovement.create({
+       data: {
+         itemId, lotId: t.lotId, holderId: r.holderId, kind: "DISTRIBUTION", delta: -t.quantite,
+-        visitId: r.visitId, doctorId: r.doctorId, reason: r.motif, occurredAt: r.maintenant, createdById: r.auteurId,
++        ...r.ancre, doctorId: r.doctorId, reason: r.motif, occurredAt: r.maintenant, createdById: r.auteurId,
+       },
+     });
+   }
+@@ -384,10 +389,10 @@ export async function remettreAuMedecin(tx: Tx, itemId: string, r: {
+  * médecin garde la trace de la remise ET de sa correction. Rend la quantité reprise.
+  * L'appelant tient le verrou de l'article.
+  */
+-export async function reprendreRemisesDeLaVisite(tx: Tx, visitId: string, itemId: string, auteurId: string, motif: string | null):
++export async function reprendreRemisesDeLaVisite(tx: Tx, ancre: AncreRemise, itemId: string, auteurId: string, motif: string | null):
+   Promise<number> {
+   const actives = await tx.promoStockMovement.findMany({
+-    where: { visitId, itemId, kind: "DISTRIBUTION", annulation: { is: null } },
++    where: { ...ancre, itemId, kind: "DISTRIBUTION", annulation: { is: null } },
+     select: { id: true, lotId: true, holderId: true, delta: true, doctorId: true },
+   });
+   let reprise = 0;
+@@ -396,7 +401,7 @@ export async function reprendreRemisesDeLaVisite(tx: Tx, visitId: string, itemId
+     await tx.promoStockMovement.create({
+       data: {
+         itemId, lotId: m.lotId, holderId: m.holderId, kind: "REVERSAL", delta: inverse,
+-        annuleId: m.id, visitId, doctorId: m.doctorId, reason: motif, createdById: auteurId,
++        annuleId: m.id, ...ancre, doctorId: m.doctorId, reason: motif, createdById: auteurId,
+       },
+     });
+     reprise = r3(reprise + inverse);
+diff --git a/src/lib/queries/budget.ts b/src/lib/queries/budget.ts
+index 9a023f5..72e8677 100644
+--- a/src/lib/queries/budget.ts
++++ b/src/lib/queries/budget.ts
+@@ -4,7 +4,6 @@ import { platformScope } from "@/lib/company";
+ import { toNumber } from "@/lib/utils";
+ import { canViewEnvelope, type SessionUser } from "@/lib/rbac";
+ import { generalMeansConsumption } from "@/lib/queries/budget-general-means";
+-import { getAppSettings } from "@/lib/settings";
+ 
+ /** Une enveloppe est visible d'un non-gestionnaire seulement si l'admin lui a ouvert la
+  *  visualisation (rôle/personne) ou lui a délégué la gestion — sinon invisible (strict). */
+@@ -67,9 +66,9 @@ export interface AttributedTx {
+   status: string;
+   categoryId: string;
+   categoryName: string;
+-  /** Moyens généraux seulement : où la dépense se corrige. `null` quand elle n'est pas au SERVICE —
+-   *  l'écran des moyens généraux ne montre plus que lui (§118.170), et un « Voir la dépense » qui
+-   *  mène là où elle n'est pas fait chercher ce qui n'y est pas. */
++  /** Moyens généraux seulement : où la dépense se corrige. `null` aujourd'hui pour toutes — l'écran
++   *  des moyens généraux ne montre plus que le catalogue d'articles (04/10), et un « Voir la
++   *  dépense » qui mène là où elle n'est pas fait chercher ce qui n'y est pas (§118.170). */
+   lien?: string | null;
+ }
+ 
+@@ -325,7 +324,7 @@ export async function getBudgetOverview(
+   // affichait la consommation de l'entreprise entière — d'où les « 42 millions consommés »
+   // impossibles. Chaque enveloppe ne compte QUE ses propres catégories ; le non-imputé a sa
+   // propre alerte (« à imputer »), il ne doit jamais peser dans une enveloppe qui ne l'a pas reçu.
+-  const [sums, expenseSums, generalMeans, reglages] = await Promise.all([
++  const [sums, expenseSums, generalMeans] = await Promise.all([
+     catIds.length
+       ? prisma.financeTransaction.groupBy({
+           by: ["budgetCategoryId", "status"],
+@@ -344,7 +343,6 @@ export async function getBudgetOverview(
+     // Les achats des moyens généraux, classés par ceux qui les font — c'est ce qui remplit
+     // l'enveloppe « Moyens généraux » sans double saisie.
+     generalMeansConsumption(catIds, from, to),
+-    getAppSettings(),
+   ]);
+ 
+   const consumedByCat = new Map<string | null, number>();
+@@ -463,7 +461,10 @@ export async function getBudgetOverview(
+       date: r.date.toISOString(), label: r.label, amount: r.amount,
+       counterparty: r.department || null, status: "SETTLED",
+       categoryId: r.categoryId, categoryName: catNameById.get(r.categoryId) ?? "—",
+-      lien: r.departmentId === reglages.generalMeansDepartmentId ? "/moyens-generaux" : null,
++      // Aucun écran ne montre plus le détail d'une dépense des moyens généraux (décision du 04/10 :
++      // l'écran ne garde que le catalogue d'articles) — un « Voir la dépense » mènerait là où elle
++      // n'est pas (§118.83).
++      lien: null,
+     })),
+   ].sort((a, b) => b.date.localeCompare(a.date));
+ 
+diff --git a/src/lib/queries/general-means-service.test.ts b/src/lib/queries/general-means-service.test.ts
+index 5bbf15f..e47f733 100644
+--- a/src/lib/queries/general-means-service.test.ts
++++ b/src/lib/queries/general-means-service.test.ts
+@@ -105,15 +105,16 @@ suite("Moyens généraux — le service, et lui seul", () => {
+     expect(await resolveGeneralMeansDepartment(await acteur(u.sa))).toBeNull();
+   });
+ 
+-  it("3. le budget compte TOUTES les dépenses ; « Voir la dépense » ne mène que vers celles que l'écran montre", async () => {
++  it("3. le budget compte TOUTES les dépenses ; « Voir la dépense » ne mène plus nulle part — aucun écran ne les montre (04/10)", async () => {
+     SERVICE = dService;
+     const vue = await getBudgetOverview(await acteur(u.sa), envelopeId);
+     expect(vue, "prémisse : le Super Admin ouvre l'enveloppe").not.toBeNull();
+     const mg = vue!.attributed.transactions.filter((t) => t.kind === "GENERAL_MEANS" && [depService, depAutre].includes(t.id));
+     // Rien n'est retiré du budget : la dépense d'un autre département y est toujours COMPTÉE…
+     expect(mg.map((t) => [t.id, t.amount]).sort()).toEqual([[depAutre, 3_500], [depService, 12_000]].sort());
+-    // … mais seule celle du service a un lien : l'écran des moyens généraux ne montre plus que lui.
+-    expect(mg.find((t) => t.id === depService)?.lien).toBe("/moyens-generaux");
++    // … mais AUCUNE n'a de lien : l'écran des moyens généraux ne garde que le catalogue d'articles
++    // (décision du 04/10). Celle du SERVICE est le témoin — c'est elle qui avait un lien hier.
++    expect(mg.find((t) => t.id === depService)?.lien).toBeNull();
+     expect(mg.find((t) => t.id === depAutre)?.lien).toBeNull();
+   });
+ });
+@@ -121,27 +122,27 @@ suite("Moyens généraux — le service, et lui seul", () => {
+ /** La source sans ses commentaires — un cliquet ne s'accroche pas à la prose qui le décrit (§118.79d). */
+ const sansCommentaires = (src: string) => src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:"'`])\/\/.*$/gm, "$1");
+ 
+-describe("Moyens généraux — plus aucune porte vers les autres départements à l'écran", () => {
+-  it("la page ne lit plus `?dept=` et ne monte plus de sélecteur de départements", () => {
+-    const page = sansCommentaires(readFileSync(path.join(RACINE, "src/app/(app)/moyens-generaux/page.tsx"), "utf8"));
+-    // PRÉMISSE : on lit bien la page qui résout le service — sans quoi l'absence ne prouverait rien.
+-    expect(page).toMatch(/resolveGeneralMeansDepartment\(user\)/);
+-    expect(page, "la page lit encore ?dept=").not.toMatch(/searchParams[^;]*\bdept\b|\.dept\b/);
+-    expect(page).not.toMatch(/DepartmentSwitcher/);
++describe("Moyens généraux — l'écran ne garde QUE le catalogue d'articles (décision du 04/10)", () => {
++  // « Ne laisse que le catalogue d'articles, enlève le reste. » La caisse, les dépenses, le choix du
++  // service, l'annuaire et les budgets par département quittent l'ÉCRAN (aucune action serveur
++  // n'est retirée). La décision du 01/10 (§118.170 : « Changer de service… » sur l'écran) est donc
++  // RETOURNÉE par la Direction : le banc tient la règle du jour, dans les deux sens.
++  const page = () => sansCommentaires(readFileSync(path.join(RACINE, "src/app/(app)/moyens-generaux/page.tsx"), "utf8"));
++
++  it("la page monte le catalogue — le MÊME composant que le Bureau du secrétariat — sous son titre", () => {
++    const p = page();
++    // PRÉMISSE : on lit bien la page du module — sans quoi les absences ci-dessous ne prouveraient rien.
++    expect(p).toMatch(/export default async function MoyensGenerauxPage/);
++    expect(p).toMatch(/<CatalogueArticles articles=\{lignes\} peutModifier=\{peutModifier\} \/>/);
++    expect(p).toMatch(/title="Moyens généraux — Catalogue d'articles"/);
+   });
+ 
+-  it("le Super Admin garde de quoi DÉSIGNER le service — sur l'écran du service ET sur l'écran vide, sinon le réglage n'a plus d'écrivain", () => {
+-    // Le seul geste qui écrit le réglage vivait sur l'écran d'un AUTRE département (« En faire le
+-    // service »), que plus personne ne peut ouvrir d'ici. Sans ces deux points d'appel, le service
+-    // ne se changerait plus jamais, et un Super Admin sans département resterait devant un écran
+-    // vide sans issue (§118.131, §118.63). Le POINT D'APPEL, pas le corps du composant (§118.49).
+-    const page = sansCommentaires(readFileSync(path.join(RACINE, "src/app/(app)/moyens-generaux/page.tsx"), "utf8"));
+-    expect(page.match(/<ChangerDeService departements=\{departements\}/g) ?? []).toHaveLength(2);
+-    expect(page, "l'écran vide du Super Admin propose la désignation ouverte d'office").toMatch(/<ChangerDeService departements=\{departements\} actuel=\{null\} ouvertParDefaut \/>/);
+-    expect(page, "l'écran du service la propose, fermée, à côté de l'état du réglage").toMatch(/<ChangerDeService departements=\{departements\} actuel=\{serviceCourant\} \/>/);
+-    // La liste des départements n'est chargée que pour le Super Admin : elle n'ouvre la caisse
+-    // d'aucun d'eux, mais rien ne justifie de la servir à qui ne peut rien en faire.
+-    expect(page).toMatch(/const departements = pilote\s*\?/);
++  it("et plus rien d'autre : ni caisse, ni dépenses, ni service, ni annuaire, ni budgets par département", () => {
++    const p = page();
++    for (const retire of [/CashPanel/, /ExpensePanel/, /ExpenseTable/, /ServiceSwitch/, /ChangerDeService/, /resolveGeneralMeansDepartment/,
++      /mon-espace\/annuaire/, /budgets\/departements/, /La caisse à deux horizons/, /searchParams/]) {
++      expect(p, `la page porte encore ${retire}`).not.toMatch(retire);
++    }
+   });
+ 
+   it("le sélecteur n'existe plus, et personne ne l'importe (une porte cachée vers ce qu'on a retiré de l'écran)", () => {
+diff --git a/src/lib/queries/promo-remises.ts b/src/lib/queries/promo-remises.ts
+index c8f78c9..642bf9b 100644
+--- a/src/lib/queries/promo-remises.ts
++++ b/src/lib/queries/promo-remises.ts
+@@ -163,3 +163,24 @@ export async function remisesDesVisites(visitIds: readonly string[]): Promise<Ma
+   }
+   return out;
+ }
++
++/**
++ * CE QU'UN COMPTE RENDU DE VISITE (rapport terrain) A REMIS (§118.204) — le point de départ de sa
++ * correction. Le même calcul net que pour une visite : une remise contre-passée ne compte plus.
++ * Un compte rendu ne porte pas de supports numériques (ils se présentent lors d'une VISITE).
++ */
++export async function remisesDuRapport(fieldReportId: string): Promise<RemisesDeVisite> {
++  const ms = await prisma.promoStockMovement.findMany({
++    where: { fieldReportId, kind: { in: ["DISTRIBUTION", "REVERSAL"] } },
++    select: {
++      id: true, itemId: true, kind: true, delta: true, annuleId: true,
++      item: { select: { catalogue: { select: { nom: true } }, produits: { select: { product: { select: { canonicalName: true } } } } } },
++    },
++  });
++  const net = remisNetParArticle(ms.map((m) => ({ id: m.id, itemId: m.itemId, kind: m.kind, delta: num(m.delta), annuleId: m.annuleId })));
++  const libelles = new Map(ms.map((m) => [m.itemId, libelleArticleStock(m.item.catalogue.nom, m.item.produits.map((p) => p.product.canonicalName))]));
++  return {
++    materiel: [...net].map(([itemId, quantite]) => ({ itemId, libelle: libelles.get(itemId) ?? "Article", quantite })),
++    numeriques: [],
++  };
++}
+diff --git a/src/lib/queries/promo-stock.ts b/src/lib/queries/promo-stock.ts
+index 42dbe49..ccaa0ac 100644
+--- a/src/lib/queries/promo-stock.ts
++++ b/src/lib/queries/promo-stock.ts
+@@ -846,7 +846,7 @@ async function chargerTableau(c: {
+     ? await Promise.all([
+         prisma.promoStockMovement.groupBy({
+           by: ["itemId"], _sum: { delta: true },
+-          where: { itemId: { in: qIds }, occurredAt: { gte: depuis }, ...perimetre, OR: [{ kind: "DISTRIBUTION" }, { kind: "REVERSAL", visitId: { not: null } }] },
++          where: { itemId: { in: qIds }, occurredAt: { gte: depuis }, ...perimetre, OR: [{ kind: "DISTRIBUTION" }, { kind: "REVERSAL", visitId: { not: null } }, { kind: "REVERSAL", fieldReportId: { not: null } }] },
+         }),
+         prisma.promoStockMovement.groupBy({ by: ["itemId"], _sum: { delta: true }, where: { itemId: { in: qIds }, occurredAt: { gte: depuis }, kind: "LOSS", ...perimetre } }),
+         prisma.promoStockMovement.groupBy({ by: ["itemId"], _sum: { delta: true }, where: { itemId: { in: qIds }, occurredAt: { gte: depuis }, kind: "REVERSAL", annule: { is: { kind: "LOSS" } }, ...perimetre } }),

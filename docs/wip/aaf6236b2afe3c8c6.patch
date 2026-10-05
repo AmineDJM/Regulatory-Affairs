@@ -1,0 +1,2120 @@
+diff --git a/src/app/(app)/ad-pro/autres/[id]/page.tsx b/src/app/(app)/ad-pro/autres/[id]/page.tsx
+index 2976eb0..63655b7 100644
+--- a/src/app/(app)/ad-pro/autres/[id]/page.tsx
++++ b/src/app/(app)/ad-pro/autres/[id]/page.tsx
+@@ -120,7 +120,7 @@ export default async function AdProOtherDetailPage({ params }: { params: { id: s
+               facture et des engagements ; les pièces de la demande gardent leur place nommée. */}
+           <LinkedRecords
+             entityType="AD_PRO_OTHER" entityId={req.id} reference={req.reference} canCreate={canUpload}
+-            acces={ctxPieces.acces} candidatsLegal={ctxPieces.candidatsLegal}
++            acces={ctxPieces.acces} candidatsLegal={ctxPieces.candidatsLegal} suppression
+             piecesDeLaDemande={{
+               titre: "Pièces de la demande (demande, justificatifs, photos…)",
+               documents: docItems,
+diff --git a/src/app/(app)/consulting/[id]/page.tsx b/src/app/(app)/consulting/[id]/page.tsx
+index 5dc5d37..8631b20 100644
+--- a/src/app/(app)/consulting/[id]/page.tsx
++++ b/src/app/(app)/consulting/[id]/page.tsx
+@@ -213,7 +213,7 @@ export default async function ConsultingContractPage({ params }: { params: { id:
+               leur PDF, dans la chaîne ; les pièces du contrat lui-même gardent leur place nommée. */}
+           <LinkedRecords
+             entityType="CONSULTING_CONTRACT" entityId={contract.id} reference={contract.reference} canCreate={canUpload}
+-            acces={ctxPieces.acces} candidatsLegal={ctxPieces.candidatsLegal}
++            acces={ctxPieces.acces} candidatsLegal={ctxPieces.candidatsLegal} suppression
+             piecesDeLaDemande={{
+               titre: "Pièces du contrat (contrat signé, livrables, comptes rendus…)",
+               documents: docItems,
+diff --git a/src/app/(app)/layout.tsx b/src/app/(app)/layout.tsx
+index 44672c5..c5124b8 100644
+--- a/src/app/(app)/layout.tsx
++++ b/src/app/(app)/layout.tsx
+@@ -83,7 +83,14 @@ export default async function AppLayout({
+     {/* L'APPEL VIT AU NIVEAU DU LAYOUT, pas de la page Chief of Staff : naviguer dans l'ERP
+         pendant un appel ne démonte pas la session WebRTC — la conversation continue. */}
+     <CallProvider enabled={realtimeVoiceConfigured() && canUseRealtimeVoice(user)}>
+-    <div className="flex h-screen overflow-hidden bg-background">
++    {/* LA COQUE EST UN BLOC CONTENEUR (`relative`) — c'est ce qui l'empêche de laisser le DOCUMENT défiler.
++        Un élément `absolute` sans ancêtre positionné a pour bloc conteneur la FENÊTRE : le `overflow-hidden`
++        de la coque ne le coupe pas, et son abscisse de repli (un `sr-only`, une pastille, un témoin de
++        formulaire planté au bas d'une longue fiche) étendait le document à 2 025 px dans une fenêtre de
++        1 080. Le document devenait défilable — et à la navigation suivante, Next appelle `scrollIntoView` sur
++        le premier élément de la page : la FENÊTRE défilait de la hauteur de l'en-tête, qui disparaissait, et
++        une bande blanche de la même hauteur apparaissait en bas (la capture de la Direction, 05/10/2026). */}
++    <div className="relative flex h-screen overflow-hidden bg-background" data-app-shell>
+       {/* Le fil de progression d'une navigation — SANS `loading.tsx` : une frontière Suspense
+           au-dessus des pages transformerait chaque `redirect()` en redirection côté navigateur,
+           qui casse en production sur Next 14.2 (voir `nav-progress.tsx`). */}
+@@ -129,7 +136,7 @@ export default async function AppLayout({
+             remonte plus jusqu'à la page hôte, comme dans une application native. */}
+         <main
+           id={APP_SCROLL_ID}
+-          className="flex-1 overflow-y-auto overflow-x-hidden overscroll-contain pb-[calc(5.5rem+env(safe-area-inset-bottom))] pl-[calc(0.75rem+env(safe-area-inset-left))] pr-[calc(0.75rem+env(safe-area-inset-right))] pt-3 sm:pl-[calc(1rem+env(safe-area-inset-left))] sm:pr-[calc(1rem+env(safe-area-inset-right))] sm:pt-6 lg:px-8 lg:pb-8"
++          className="relative flex-1 overflow-y-auto overflow-x-hidden overscroll-contain pb-[calc(5.5rem+env(safe-area-inset-bottom))] pl-[calc(0.75rem+env(safe-area-inset-left))] pr-[calc(0.75rem+env(safe-area-inset-right))] pt-3 sm:pl-[calc(1rem+env(safe-area-inset-left))] sm:pr-[calc(1rem+env(safe-area-inset-right))] sm:pt-6 lg:px-8 lg:pb-8"
+         >
+           {/* La largeur du contenu est PLAFONNÉE par défaut : au-delà, une ligne de texte devient
+               illisible parce que l'œil perd le début de la suivante. Mais un tableau de treize
+diff --git a/src/app/(app)/legal/[id]/page.tsx b/src/app/(app)/legal/[id]/page.tsx
+index d9c5651..e4cb76f 100644
+--- a/src/app/(app)/legal/[id]/page.tsx
++++ b/src/app/(app)/legal/[id]/page.tsx
+@@ -10,6 +10,7 @@ import { canEditCompanyId, companyScopedWhere } from "@/lib/company";
+ import { legalKindVisible, legalViewScope, legalWriteAllowed } from "@/lib/legal/invoices";
+ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+ import { Badge } from "@/components/ui/badge";
++import { ApercuPieceEmise } from "@/components/legal/apercu-piece-emise";
+ import { StatusBadge } from "@/components/shared/status-badge";
+ import { BackLink } from "@/components/shared/back-link";
+ import { AskChief } from "@/components/shared/ask-chief";
+@@ -37,7 +38,7 @@ import { LegalChainCard } from "./chain-card";
+ import { EntityLinks } from "@/components/shared/entity-links";
+ import { linksOf, linkedViews } from "@/lib/links/store";
+ import { porteDuBC, origineDuBC, centreVouluDuBC } from "@/lib/bons-de-commande/aiguillage";
+-import { blocageParLeBC } from "@/lib/bons-de-commande/regle";
++import { blocageParLeBC, reserveEtapeBC } from "@/lib/bons-de-commande/regle";
+ import { REFUS_FACTURE_EMISE_AU_REGLEMENT } from "@/lib/finances/settlement";
+ import { siegeAuCentreAdPro } from "@/lib/ad-pro/centre";
+ import { sitsOnValidationCentre } from "@/lib/validations/centre";
+@@ -45,7 +46,12 @@ import { BonDeCommandeGate } from "./bc-gate";
+ import { etatDuBC } from "@/lib/bons-de-commande/etat";
+ import { peutSignerBC } from "@/lib/queries/bons-de-commande";
+ import { fichiersEmis, lienFichierEmis } from "@/lib/legal/fichiers-emis";
+-import { pieceDefinitive, pieceEmise, refusRevisionAval, remedePieceEmise, specRevisable } from "@/lib/legal/piece-emise";
++import { pieceDefinitive, pieceEmise, refusRevisionAval, remedePieceEmise, specRevisable, type TypePieceEmise } from "@/lib/legal/piece-emise";
++
++/** Le nom d'une pièce émise dans la phrase de succès. */
++const LIBELLE_PIECE_EMISE: Record<TypePieceEmise, string> = {
++  DEVIS: "Devis", BON_DE_COMMANDE: "Bon de commande", FACTURE: "Facture", AVOIR: "Avoir",
++};
+ import { netDeLaFacture } from "@/lib/lecteurs/avoir";
+ import { avalActif, avoirsDeLaFacture } from "@/lib/legal/aval";
+ 
+@@ -68,7 +74,7 @@ const LEGAL_DOC_CATEGORIES = [
+  * Le FICHIER de référence, lui, reste dans le Drive : Legal pointe dessus, ne le duplique pas.
+  * Les pièces jointes ici sont les pièces PROPRES à l'engagement, par la table `Document` commune.
+  */
+-export default async function LegalDocumentPage({ params }: { params: { id: string } }) {
++export default async function LegalDocumentPage({ params, searchParams }: { params: { id: string }; searchParams?: { emis?: string } }) {
+   // DEUX PORTES, ET LA SECONDE EST ÉTROITE. Legal ouvre tout le registre ; la COMPTABILITÉ n'y
+   // ouvre que les FACTURES — elle venait les lire dans un écran à part, et centraliser ne devait
+   // rien lui retirer. La restriction est vérifiée sur la pièce elle-même, plus bas : une porte
+@@ -251,6 +257,15 @@ export default async function LegalDocumentPage({ params }: { params: { id: stri
+   const centreDeLaPorte = porte?.centre ?? centreAttendu;
+   const siegeAuCentre = centreDeLaPorte === "AD_PRO" ? siegeAuCentreAdPro(user) : sitsOnValidationCentre(user);
+ 
++  // « VIENT D'ÊTRE ÉMISE » (§118.209) : l'adresse du composeur porte `?emis=1`, et on n'y croit que si la pièce a
++  // bien été émise il y a moins d'un quart d'heure — un favori ou un lien partagé ne doit pas annoncer « émis » d'une
++  // pièce vieille d'un mois. Les réserves viennent de la pièce (papier en-tête, étape du BC), jamais de l'adresse.
++  const faitsFabrique = (doc.custom as { fabrique?: { emisLe?: unknown; surPapierEnTete?: unknown } } | null)?.fabrique ?? null;
++  const emisLe = typeof faitsFabrique?.emisLe === "string" ? Date.parse(faitsFabrique.emisLe) : Number.NaN;
++  const emisJustement = searchParams?.emis === "1" && emise !== null && Number.isFinite(emisLe) && Date.now() - emisLe < 15 * 60 * 1000;
++  const sansPapierEnTete = faitsFabrique?.surPapierEnTete === false;
++  const reserveBC = etatBC ? reserveEtapeBC(etatBC.etape, etatBC.porte, etatBC.seuil) : null;
++
+   // UNE FACTURE QUI DÉCOULE D'UN BC : pourquoi elle ne peut pas encore partir, dit AVANT le clic.
+   // La phrase vient de `blocageParLeBC`, la même que le refus de l'action — elles ne peuvent pas
+   // se contredire.
+@@ -336,6 +351,31 @@ export default async function LegalDocumentPage({ params }: { params: { id: stri
+         </div>
+       </div>
+ 
++      {/* UNE PIÈCE QU'ON VIENT D'ÉMETTRE SE MONTRE (§118.209) — « il doit s'afficher, pas juste se sauvegarder dans
++          Legal et qu'on aille le rechercher ». Le composeur mène ici (`?emis=1`) : la phrase de succès, puis le PDF
++          ouvert. Sur toute pièce émise, l'aperçu reste disponible, replié. */}
++      {emise && emisJustement && (
++        <section role="status" aria-live="polite" className="rounded-lg border border-success/50 bg-success/5 p-3 text-sm" data-piece-emise-bandeau>
++          <p className="font-medium">
++            {LIBELLE_PIECE_EMISE[emise.type]} {emise.numero} émis{emise.type === "FACTURE" ? "e" : ""} — le voici ci-dessous, inscrit{emise.type === "FACTURE" ? "e" : ""} au registre Legal.
++          </p>
++          <ul className="mt-1 list-disc space-y-0.5 pl-5 text-xs text-muted-foreground">
++            {sansPapierEnTete && <li>Sans papier en-tête (mise en page neutre) : réglez le papier de la société dans Administration › Marque pour les prochaines pièces.</li>}
++            {!emis.pdf && <li>Aucun PDF n&apos;a pu être produit : le Word fait foi.</li>}
++            {estBC && reserveBC && <li>{reserveBC}</li>}
++          </ul>
++        </section>
++      )}
++      {emise && (emis.pdf || emis.docx) && (
++        <ApercuPieceEmise
++          titre={doc.title}
++          pdf={emis.pdf ? lienFichierEmis(doc.id, "pdf") : null}
++          word={emis.docx ? lienFichierEmis(doc.id, "docx", true) : null}
++          excel={lienFichierEmis(doc.id, "xlsx", true)}
++          ouvertParDefaut={searchParams?.emis === "1"}
++        />
++      )}
++
+       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+         <div className="space-y-4 lg:col-span-2">
+           <Card>
+diff --git a/src/app/(app)/promo-material/[id]/page.tsx b/src/app/(app)/promo-material/[id]/page.tsx
+index 2de1238..6d0d323 100644
+--- a/src/app/(app)/promo-material/[id]/page.tsx
++++ b/src/app/(app)/promo-material/[id]/page.tsx
+@@ -442,7 +442,7 @@ export default async function PromoMaterialDetailPage({ params }: { params: { id
+               sa nature, avec « Créer sa fiche ». */}
+           <LinkedRecords
+             entityType="PROMO_MATERIAL" entityId={pm.id} reference={pm.reference} canCreate={canUpload && !v2}
+-            acces={ctxPieces.acces} candidatsLegal={ctxPieces.candidatsLegal}
++            acces={ctxPieces.acces} candidatsLegal={ctxPieces.candidatsLegal} suppression
+             piecesDeLaDemande={{
+               titre: v2 ? "Pièces du dossier (maquettes, BAT, matériel, visa…)" : "Pièces du dossier (matériel, visa, bordereau, quittance…)",
+               documents: piecesLiees,
+diff --git a/src/components/ad-pro/pieces-legal-demande.tsx b/src/components/ad-pro/pieces-legal-demande.tsx
+index 425634a..ef432f4 100644
+--- a/src/components/ad-pro/pieces-legal-demande.tsx
++++ b/src/components/ad-pro/pieces-legal-demande.tsx
+@@ -8,15 +8,19 @@ import { DocumentList } from "@/components/documents/document-list";
+ import { lienFichierEmis } from "@/lib/legal/fichiers-emis";
+ import { formatCurrency } from "@/lib/utils";
+ import { chargerPiecesLegalDeLaDemande } from "@/lib/queries/pieces-legal-demande";
++import { supprimerFichierDePieceDeLaDemande } from "@/lib/actions/ad-pro-pieces-actions";
++import { RaisonPieceNonSupprimable, SupprimerPieceLegal } from "./supprimer-piece-legal";
+ 
+ /** Au-delà de ce nombre de pièces, la liste se replie : la fiche reste lisible. */
+ const REPLIE_AU_DELA = 4;
+ 
+ /**
+  * « PIÈCES LEGAL DE LA DEMANDE » — les pièces du registre rattachées DIRECTEMENT à la demande
+- * (conventions, contrats, devis d'avant les postes…), et qu'aucun poste ne porte. Lecture seule :
+- * la gestion se fait sur la fiche Legal. Un seul composant pour toutes les natures ; la lecture et
+- * ses droits vivent dans `chargerPiecesLegalDeLaDemande`. Rien à montrer ⇒ rien n'est rendu.
++ * (conventions, contrats, devis d'avant les postes…), et qu'aucun poste ne porte. On peut les
++ * SUPPRIMER d'ici — la pièce (réversible : corbeille) ou l'un de ses fichiers — par la même décision
++ * que les actions (§118.209) ; le reste de leur gestion se fait sur la fiche Legal. Un seul composant
++ * pour toutes les natures ; la lecture et ses droits vivent dans `chargerPiecesLegalDeLaDemande`.
++ * Rien à montrer ⇒ rien n'est rendu.
+  */
+ export async function PiecesLegalDeLaDemande({ spectateur, entityType, entityId }: {
+   spectateur: SessionUser;
+@@ -43,8 +47,14 @@ export async function PiecesLegalDeLaDemande({ spectateur, entityType, entityId
+                 {[l.nature, l.reference, l.montant !== null ? formatCurrency(l.montant) : null].filter(Boolean).join(" · ")}
+               </span>
+             </span>
+-            {l.statut && <Badge tone={l.statut.tone} dot={false}>{l.statut.label}</Badge>}
++            <span className="flex shrink-0 items-center gap-1">
++              {l.statut && <Badge tone={l.statut.tone} dot={false}>{l.statut.label}</Badge>}
++              <SupprimerPieceLegal id={l.id} nom={l.reference ? `${l.reference} — ${l.titre}` : l.titre} offert={l.suppression.piece.offert} />
++            </span>
+           </div>
++          {/* CE QUI ENGAGE LA PIÈCE se DIT, avec le geste qui reste (§118.83) : une seule phrase par pièce — celle qui
++              refuse la pièce couvre aussi ses fichiers, qui ne se ferment jamais seuls. */}
++          {!l.suppression.piece.offert && <RaisonPieceNonSupprimable raison={l.suppression.piece.raison} />}
+           {(l.plateforme.pdf || l.plateforme.docx) && (
+             <p className="mt-1 flex flex-wrap items-center gap-2 pl-3 text-[0.6875rem] text-muted-foreground">
+               Version plateforme :
+@@ -54,7 +64,10 @@ export async function PiecesLegalDeLaDemande({ spectateur, entityType, entityId
+           )}
+           {l.documents.length > 0 && (
+             <div className="mt-1.5 border-l-2 border-border pl-3">
+-              <DocumentList documents={l.documents} canDelete={false} canRename={false} canEdit={false} path={`/legal/${l.id}`} />
++              <DocumentList
++                documents={l.documents} canDelete={l.suppression.fichiers.offert} canRename={false} canEdit={false}
++                path={`/legal/${l.id}`} supprimer={supprimerFichierDePieceDeLaDemande}
++              />
+             </div>
+           )}
+         </li>
+@@ -73,7 +86,7 @@ export async function PiecesLegalDeLaDemande({ spectateur, entityType, entityId
+       </CardHeader>
+       <CardContent className="space-y-2 text-sm">
+         <p className="text-xs text-muted-foreground">
+-          Rattachées directement à la demande, hors postes — la gestion se fait dans Legal.
++          Rattachées directement à la demande, hors postes — on peut les supprimer d&apos;ici (réversible) ; le reste de leur gestion se fait dans Legal.
+         </p>
+         {p.lignes.length > REPLIE_AU_DELA ? (
+           <details>
+diff --git a/src/components/ad-pro/supprimer-piece-legal.tsx b/src/components/ad-pro/supprimer-piece-legal.tsx
+new file mode 100644
+index 0000000..7ceea1c
+--- /dev/null
++++ b/src/components/ad-pro/supprimer-piece-legal.tsx
+@@ -0,0 +1,66 @@
++"use client";
++
++import * as React from "react";
++import { Lock, Trash2 } from "lucide-react";
++import { useRafraichir } from "@/components/shared/use-rafraichir";
++import { ConfirmationSuppression } from "@/components/shared/super-admin-delete";
++import { apercuSuppressionPieceDeLaDemande, supprimerPieceDeLaDemande } from "@/lib/actions/ad-pro-pieces-actions";
++
++/**
++ * « SUPPRIMER LA PIÈCE » sur la ligne d'une pièce Legal d'une demande Ad & Pro (§118.209).
++ *
++ * `offert` est calculé au serveur par la MÊME décision que l'action (`droitsSuppressionDesPieces`) : ce
++ * bouton n'est qu'une commodité, l'action revérifie — mais un bouton offert est un geste accepté
++ * (§118.83). Quand ce qui ENGAGE la pièce le refuse (signée, réglée, partie au règlement, validée par un
++ * centre, base d'une autre pièce), la ligne le DIT, avec le geste qui reste : un geste qui disparaît sans
++ * un mot fait chercher une panne qui n'existe pas. Sans droit sur la demande, rien n'est rendu.
++ *
++ * La fenêtre est LA fenêtre de confirmation commune : elle lit avant le clic ce qui partira avec la
++ * pièce et ce qui le refuserait, et la confirmation est décisive (double geste). La suppression est
++ * réversible — le Super Admin restaure depuis la corbeille.
++ */
++export function SupprimerPieceLegal({ id, nom, offert }: { id: string; nom: string; offert: boolean }) {
++  // Le rafraîchissement SUIVI (§118.172) : un écran ajouté ne rafraîchit plus « à nu ».
++  const { rafraichir } = useRafraichir();
++  const [open, setOpen] = React.useState(false);
++
++  if (!offert) return null;
++  return (
++    <>
++      <button
++        type="button"
++        onClick={() => setOpen(true)}
++        aria-label={`Supprimer la pièce « ${nom} »`}
++        title="Supprimer la pièce (réversible — corbeille)"
++        className="shrink-0 rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
++      >
++        <Trash2 className="h-3.5 w-3.5" />
++      </button>
++      <ConfirmationSuppression
++        open={open}
++        onClose={() => setOpen(false)}
++        kind="LEGAL_DOCUMENT"
++        id={id}
++        name={nom}
++        warning="Les fichiers de la pièce partent avec elle."
++        executer={supprimerPieceDeLaDemande}
++        apercuer={apercuSuppressionPieceDeLaDemande}
++        onSupprime={() => {
++          setOpen(false);
++          rafraichir();
++        }}
++      />
++    </>
++  );
++}
++
++/** Pourquoi une pièce ne se supprime pas d'ici — la phrase du serveur, avec le geste qui reste. Rien sans raison. */
++export function RaisonPieceNonSupprimable({ raison }: { raison: string | null }) {
++  if (!raison) return null;
++  return (
++    <p className="mt-1 flex items-start gap-1 pl-3 text-[0.6875rem] text-muted-foreground" data-suppression-refusee>
++      <Lock className="mt-0.5 h-3 w-3 shrink-0" aria-hidden />
++      <span>Ne se supprime pas d&apos;ici. {raison}</span>
++    </p>
++  );
++}
+diff --git a/src/components/documents/document-list.tsx b/src/components/documents/document-list.tsx
+index f707421..5151618 100644
+--- a/src/components/documents/document-list.tsx
++++ b/src/components/documents/document-list.tsx
+@@ -43,12 +43,15 @@ export function DocumentList({
+   canEdit,
+   canRename,
+   path,
++  supprimer,
+ }: {
+   documents: DocItem[];
+   canDelete?: boolean;
+   canEdit?: boolean;
+   canRename?: boolean;
+   path?: string;
++  /** L'action qui supprime, quand ce n'est pas `deleteDocument` (§118.209). */
++  supprimer?: (id: string, path?: string) => Promise<{ ok: boolean; error?: string }>;
+ }) {
+   if (documents.length === 0) {
+     return <EmptyState icon="FolderOpen" title="Aucun document" description="Téléversez le premier document." />;
+@@ -66,7 +69,7 @@ export function DocumentList({
+               <FileText className="h-4 w-4" />
+             </div>
+             <div className="min-w-0 flex-1">
+-              <DocumentPreview id={doc.id} name={doc.name} hasFile={doc.hasFile} canEdit={canEdit} canDelete={canDelete} canRename={canRename} path={path} />
++              <DocumentPreview id={doc.id} name={doc.name} hasFile={doc.hasFile} canEdit={canEdit} canDelete={canDelete} canRename={canRename} path={path} supprimer={supprimer} />
+               {doc.folder && <p className="flex items-center gap-1 truncate text-[0.6875rem] text-muted-foreground" title={doc.folder}><Folder className="h-3 w-3 shrink-0" /> {doc.folder}</p>}
+               <p className="truncate text-[0.6875rem] text-muted-foreground" title={meta}>{meta}</p>
+             </div>
+diff --git a/src/components/documents/document-preview.tsx b/src/components/documents/document-preview.tsx
+index 23e56ee..be30d58 100644
+--- a/src/components/documents/document-preview.tsx
++++ b/src/components/documents/document-preview.tsx
+@@ -39,7 +39,7 @@ const iconBtn = "rounded-lg p-2 text-muted-foreground transition-colors hover:bg
+  * — selon les droits reçus. Plus d'icônes entassées dans la liste : le nom seul suffit à tout ouvrir.
+  */
+ export function DocumentPreview({
+-  id, name, hasFile, canEdit, canDelete, canRename, path, srcOverride,
++  id, name, hasFile, canEdit, canDelete, canRename, path, srcOverride, supprimer,
+ }: {
+   id: string;
+   name: string;
+@@ -62,6 +62,12 @@ export function DocumentPreview({
+    * impression, téléchargement — est le MÊME code.
+    */
+   srcOverride?: string;
++  /**
++   * L'ACTION QUI SUPPRIME, quand ce n'est pas `deleteDocument` — le bloc des pièces d'une demande Ad & Pro
++   * passe la sienne (§118.209), qui juge la demande ET ce qui engage la pièce. Même signature : le
++   * bouton, la confirmation et le rafraîchissement sont ceux de tous les documents.
++   */
++  supprimer?: (id: string, path?: string) => Promise<{ ok: boolean; error?: string }>;
+ }) {
+   const router = useRouter();
+   const [open, setOpen] = React.useState(false);
+@@ -90,7 +96,9 @@ export function DocumentPreview({
+   async function onDelete() {
+     if (!confirm("Supprimer définitivement ce document ?")) return;
+     setDeleting(true);
+-    await deleteDocument(id, path);
++    const r = await (supprimer ?? deleteDocument)(id, path);
++    // Un refus se DIT (§118.83) : sans cela, la fenêtre restait ouverte sur un fichier qui n'était pas parti.
++    if (!r.ok) { setDeleting(false); window.alert(r.error ?? "Suppression impossible."); return; }
+     setOpen(false);
+     router.refresh();
+   }
+diff --git a/src/components/legal/apercu-piece-emise.tsx b/src/components/legal/apercu-piece-emise.tsx
+new file mode 100644
+index 0000000..68383a5
+--- /dev/null
++++ b/src/components/legal/apercu-piece-emise.tsx
+@@ -0,0 +1,60 @@
++"use client";
++
++import * as React from "react";
++import { Eye, EyeOff, Download, FileSpreadsheet } from "lucide-react";
++import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
++import { Button } from "@/components/ui/button";
++
++/**
++ * L'APERÇU D'UNE PIÈCE ÉMISE PAR LA PLATEFORME, SUR SA FICHE (§118.209).
++ *
++ * « Si le BC est généré hors Ad & Pro, par exemple dans Legal, quand on en crée un, il doit S'AFFICHER, pas
++ * juste se sauvegarder dans Legal et qu'on aille le rechercher » (Direction, 05/10). Le composeur renvoyait
++ * trois liens dans un panneau qui se refermait ; la pièce, elle, n'apparaissait nulle part. Désormais
++ * l'émission mène à sa fiche, et ce bloc y montre le PDF — ouvert à l'arrivée (`?emis=1`), repliable ensuite.
++ *
++ * Le PDF se lit sous la porte de la PIÈCE (`/api/legal/<id>/fichier`) : un fichier du Drive personnel de
++ * l'émetteur répondait 403 à tous les autres lecteurs de la pièce (§118.152). Le cadre n'est monté que
++ * quand le bloc est ouvert — une fiche qu'on ouvre pour autre chose ne paie pas le chargement d'un PDF.
++ */
++export function ApercuPieceEmise({ titre, pdf, word, excel, ouvertParDefaut }: {
++  titre: string;
++  /** L'adresse du PDF — `null` : la fabrique n'en a pas produit (le Word fait foi). */
++  pdf: string | null;
++  word: string | null;
++  excel: string | null;
++  ouvertParDefaut: boolean;
++}) {
++  const [ouvert, setOuvert] = React.useState(ouvertParDefaut && pdf !== null);
++  return (
++    <Card data-apercu-piece-emise>
++      <CardHeader>
++        <CardTitle className="flex flex-wrap items-center justify-between gap-2">
++          <span>Aperçu de la pièce</span>
++          <span className="flex flex-wrap items-center gap-2 text-sm font-normal">
++            {pdf && (
++              <Button type="button" variant="outline" size="sm" onClick={() => setOuvert((o) => !o)} aria-expanded={ouvert}>
++                {ouvert ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
++                {ouvert ? "Masquer l'aperçu" : "Afficher l'aperçu"}
++              </Button>
++            )}
++            {pdf && <a className="inline-flex items-center gap-1 text-primary hover:underline" href={`${pdf}&dl=1`}><Download className="h-3.5 w-3.5" /> PDF</a>}
++            {word && <a className="inline-flex items-center gap-1 text-primary hover:underline" href={word}><Download className="h-3.5 w-3.5" /> Word</a>}
++            {excel && <a className="inline-flex items-center gap-1 text-primary hover:underline" href={excel}><FileSpreadsheet className="h-3.5 w-3.5" /> Excel</a>}
++          </span>
++        </CardTitle>
++      </CardHeader>
++      <CardContent>
++        {pdf ? (
++          ouvert ? (
++            <iframe src={pdf} title={`Aperçu — ${titre}`} className="h-[75vh] w-full rounded-lg border border-border bg-white" />
++          ) : (
++            <p className="text-xs text-muted-foreground">Le PDF de la pièce s&apos;affiche ici, sans quitter la fiche.</p>
++          )
++        ) : (
++          <p className="text-xs text-muted-foreground">Aucun PDF n&apos;a pu être produit pour cette pièce : le Word fait foi.</p>
++        )}
++      </CardContent>
++    </Card>
++  );
++}
+diff --git a/src/components/pieces/composer-piece.tsx b/src/components/pieces/composer-piece.tsx
+index 9a39456..5d7b056 100644
+--- a/src/components/pieces/composer-piece.tsx
++++ b/src/components/pieces/composer-piece.tsx
+@@ -191,7 +191,11 @@ function ComposerPieceSheet(props: ComposerPieceProps & { onClose: () => void })
+     startEmission(async () => {
+       const r = await emettrePieceCommerciale(undefined, fd);
+       setResultat(r);
+-      if (r.ok) router.refresh();
++      // LA PIÈCE S'AFFICHE (§118.209) : « il doit s'afficher, pas juste se sauvegarder dans Legal et qu'on aille le
++      // rechercher ». L'émission mène à la fiche, où le PDF est ouvert sous la phrase de succès. Quand la fiche
++      // est fermée à la personne (`lien` nul), le panneau reste ouvert sur ses liens — le PDF s'ouvre sous la porte de la pièce.
++      if (r.ok && r.lien) router.push(r.lien);
++      else if (r.ok) router.refresh();
+     });
+   };
+ 
+@@ -515,10 +519,11 @@ function ComposerPieceSheet(props: ComposerPieceProps & { onClose: () => void })
+               <>
+                 <div className="mt-2 flex flex-wrap gap-2">
+                   {resultat.docxNodeId && <a className="rounded-md border border-border bg-card px-3 py-1.5 hover:bg-secondary" href={`/api/drive/${resultat.docxNodeId}/raw?dl=1`}>Télécharger le Word</a>}
+-                  {resultat.pdfNodeId && <a className="rounded-md border border-border bg-card px-3 py-1.5 hover:bg-secondary" href={`/api/drive/${resultat.pdfNodeId}/raw`} target="_blank" rel="noreferrer">Ouvrir le PDF</a>}
+-                  {resultat.pdfNodeId && <a className="rounded-md border border-border bg-card px-3 py-1.5 hover:bg-secondary" href={`/api/drive/${resultat.pdfNodeId}/raw?dl=1`}>Télécharger le PDF</a>}
++                  {/* Le PDF s'ouvre sous la porte de la PIÈCE : le Drive personnel de l'émetteur répondait 403 aux autres lecteurs. */}
++                  {resultat.pdfNodeId && <a className="rounded-md border border-border bg-card px-3 py-1.5 hover:bg-secondary" href={resultat.lienPdf ?? `/api/drive/${resultat.pdfNodeId}/raw`} target="_blank" rel="noreferrer">Ouvrir le PDF</a>}
++                  {resultat.pdfNodeId && <a className="rounded-md border border-border bg-card px-3 py-1.5 hover:bg-secondary" href={resultat.lienPdf ? `${resultat.lienPdf}&dl=1` : `/api/drive/${resultat.pdfNodeId}/raw?dl=1`}>Télécharger le PDF</a>}
+                   {resultat.legalDocumentId && <a className="rounded-md border border-border bg-card px-3 py-1.5 hover:bg-secondary" href={`/api/legal/${encodeURIComponent(resultat.legalDocumentId)}/fichier?format=xlsx&dl=1`}>Générer sur Excel</a>}
+-                  {resultat.legalDocumentId && <a className="rounded-md border border-border bg-card px-3 py-1.5 hover:bg-secondary" href={`/legal/${resultat.legalDocumentId}`}>Fiche au registre</a>}
++                  {resultat.legalDocumentId && resultat.lien !== null && <a className="rounded-md border border-border bg-card px-3 py-1.5 hover:bg-secondary" href={`/legal/${resultat.legalDocumentId}`}>Fiche au registre</a>}
+                 </div>
+                 <p className="mt-2 text-xs text-muted-foreground">
+                   {resultat.pdfNodeId
+diff --git a/src/components/shared/linked-records.tsx b/src/components/shared/linked-records.tsx
+index cb4c968..34bd2dc 100644
+--- a/src/components/shared/linked-records.tsx
++++ b/src/components/shared/linked-records.tsx
+@@ -11,6 +11,8 @@ import { AttachToSourceButtons, CreerFicheDepuisPiece, type NaturePieceLiee } fr
+ import { AttacherLegalExistant } from "./attacher-legal-existant";
+ import { JoindrePdf } from "./joindre-pdf";
+ import { DocumentList, type DocItem } from "@/components/documents/document-list";
++import { RaisonPieceNonSupprimable, SupprimerPieceLegal } from "@/components/ad-pro/supprimer-piece-legal";
++import { supprimerFichierDePieceDeLaDemande } from "@/lib/actions/ad-pro-pieces-actions";
+ 
+ /**
+  * ═══════════════════════════════════════════════════════════════════════════════════════════
+@@ -103,7 +105,7 @@ const FORMULAIRE_DE: Record<NatureDeChaine, Exclude<NaturePieceLiee, "mail">> =
+ };
+ 
+ export async function LinkedRecords({
+-  entityType, entityId, reference, canCreate = false, acces, piecesDeLaDemande, candidatsLegal,
++  entityType, entityId, reference, canCreate = false, acces, piecesDeLaDemande, candidatsLegal, suppression = false,
+ }: {
+   entityType: EntityType;
+   entityId: string;
+@@ -120,8 +122,14 @@ export async function LinkedRecords({
+    * qui ouvre un menu vide fait chercher ce qui n'y est pas.
+    */
+   candidatsLegal?: { value: string; label: string }[];
++  /**
++   * SUPPRIMER pièces et fichiers depuis la demande (§118.209) — les fiches Ad & Pro le demandent ; la fiche
++   * d'une demande au secrétariat, qui monte aussi ce bloc, garde ses gestes d'avant.
++   */
++  suppression?: boolean;
+ }) {
+   const p = await chargerPiecesLiees({
++    suppression,
+     entityType, entityId, canCreate,
+     spectateur: acces?.spectateur ?? null,
+     courriers: acces?.courriers === true,
+@@ -319,9 +327,14 @@ function FichiersLibres({ documents, slot, creer }: {
+ function LignePieceRow({ l }: { l: LignePiece }) {
+   const plateforme: FichiersEmis | null = l.plateforme;
+   const aPlateforme = Boolean(plateforme?.pdf || plateforme?.docx);
++  // Sur une fiche Ad & Pro (§118.209), la suppression de pièce et de fichier suit LE verdict de la demande — la
++  // même décision que les actions —, plus le droit « gérer » d'avant, qui ne regardait ni la demande ni ce qui engage.
++  const s = l.suppression;
+   return (
+     <li className="py-1.5">
+-      <EnTete href={l.fiche ? `/legal/${l.id}` : null} titre={l.titre} reference={l.reference} meta={l.meta} badge={l.badge} />
++      <EnTete href={l.fiche ? `/legal/${l.id}` : null} titre={l.titre} reference={l.reference} meta={l.meta} badge={l.badge}
++        action={s ? <SupprimerPieceLegal id={l.id} nom={l.reference ? `${l.reference} — ${l.titre}` : l.titre} offert={s.piece.offert} /> : null} />
++      {s && !s.piece.offert && <RaisonPieceNonSupprimable raison={s.piece.raison} />}
+       {aPlateforme && (
+         <p className="mt-1 flex flex-wrap items-center gap-2 pl-3 text-[0.6875rem] text-muted-foreground">
+           Version plateforme :
+@@ -332,7 +345,10 @@ function LignePieceRow({ l }: { l: LignePiece }) {
+       {l.documents && (
+         l.documents.length > 0 ? (
+           <div className="mt-1.5 border-l-2 border-border pl-3">
+-            <DocumentList documents={l.documents} canDelete={l.gerable} canRename={l.gerable} canEdit={l.editable} path={`/legal/${l.id}`} />
++            <DocumentList
++              documents={l.documents} canDelete={s ? s.fichiers.offert : l.gerable} canRename={l.gerable} canEdit={l.editable}
++              path={`/legal/${l.id}`} supprimer={s ? supprimerFichierDePieceDeLaDemande : undefined}
++            />
+           </div>
+         ) : (
+           <p className="mt-1 pl-3 text-[0.6875rem] text-muted-foreground">
+@@ -363,9 +379,11 @@ function LigneCourrierRow({ c }: { c: LigneCourrier }) {
+   );
+ }
+ 
+-function EnTete({ href, titre, reference, meta, badge }: {
++function EnTete({ href, titre, reference, meta, badge, action }: {
+   /** `null` : la fiche ne s'ouvre pas à la personne — le titre se lit, il ne mène nulle part. */
+   href: string | null; titre: string; reference: string | null; meta: string; badge: { label: string; tone: Ton } | null;
++  /** Un geste posé à côté du badge (supprimer la pièce) — rendu par l'appelant, qui sait ce qui est offert. */
++  action?: React.ReactNode;
+ }) {
+   return (
+     <div className="flex items-center justify-between gap-2">
+@@ -381,7 +399,10 @@ function EnTete({ href, titre, reference, meta, badge }: {
+           {[reference, meta].filter(Boolean).join(" · ") || "—"}
+         </span>
+       </span>
+-      {badge && <Badge tone={badge.tone} dot={false}>{badge.label}</Badge>}
++      <span className="flex shrink-0 items-center gap-1">
++        {badge && <Badge tone={badge.tone} dot={false}>{badge.label}</Badge>}
++        {action}
++      </span>
+     </div>
+   );
+ }
+diff --git a/src/components/shared/super-admin-delete.tsx b/src/components/shared/super-admin-delete.tsx
+index 3c98805..5f7edc2 100644
+--- a/src/components/shared/super-admin-delete.tsx
++++ b/src/components/shared/super-admin-delete.tsx
+@@ -111,6 +111,7 @@ export function ConfirmationSuppression({
+   warning,
+   reserveAuSuperAdmin = false,
+   executer,
++  apercuer = apercuDeSuppression,
+   onSupprime,
+ }: {
+   open: boolean;
+@@ -123,6 +124,12 @@ export function ConfirmationSuppression({
+   reserveAuSuperAdmin?: boolean;
+   /** L'action serveur qui supprime — elle revérifie le droit ET relit ce qui part. */
+   executer: (fd: FormData) => Promise<ResultatSuppression>;
++  /**
++   * L'action qui LIT ce qui partira, quand ce n'est pas celle du Super Admin — la même porte que `executer` :
++   * un aperçu plus large dirait à quelqu'un ce qui dépend d'une ligne qu'il ne peut pas toucher, un aperçu
++   * plus étroit ne s'armerait pas devant une suppression que l'action accepte (§118.209).
++   */
++  apercuer?: (fd: FormData) => Promise<Apercu>;
+   onSupprime: (r: ResultatSuppression) => void;
+ }) {
+   const [busy, setBusy] = React.useState(false);
+@@ -139,11 +146,11 @@ export function ConfirmationSuppression({
+     const fd = new FormData();
+     fd.set("kind", kind);
+     fd.set("id", id);
+-    apercuDeSuppression(fd)
++    apercuer(fd)
+       .then((a) => { if (vivant) setApercu(a); })
+       .catch(() => { if (vivant) setLectureImpossible(true); });
+     return () => { vivant = false; };
+-  }, [open, kind, id]);
++  }, [open, kind, id, apercuer]);
+ 
+   const lu = apercu && !("erreur" in apercu) ? apercu : null;
+   const erreurLecture = apercu && "erreur" in apercu ? apercu.erreur : null;
+diff --git a/src/components/ui/bouton-decisif.tsx b/src/components/ui/bouton-decisif.tsx
+index efc5e26..353cae4 100644
+--- a/src/components/ui/bouton-decisif.tsx
++++ b/src/components/ui/bouton-decisif.tsx
+@@ -119,7 +119,10 @@ export const BoutonDecisif = React.forwardRef<HTMLButtonElement, BoutonDecisifPr
+   return (
+     <span
+       className={cn(
+-        "inline-flex max-w-full flex-wrap items-center gap-1 align-middle",
++        // `relative` : la zone vivante `sr-only` ci-dessous est `absolute`. Sans bloc conteneur ici, il lui
++        // restait la FENÊTRE : posée au bas d'une longue fiche, elle étendait le document et le rendait
++        // défilable — l'écran blanc de bas de page (§118.209). Le bouton, lui, ne bouge pas.
++        "relative inline-flex max-w-full flex-wrap items-center gap-1 align-middle",
+         pleine && "flex w-full",
+         etire && "flex-1",
+       )}
+diff --git a/src/lib/actions/ad-pro-pieces-actions.ts b/src/lib/actions/ad-pro-pieces-actions.ts
+new file mode 100644
+index 0000000..e24e180
+--- /dev/null
++++ b/src/lib/actions/ad-pro-pieces-actions.ts
+@@ -0,0 +1,112 @@
++"use server";
++
++import { revalidatePath } from "next/cache";
++import { requireUser } from "@/lib/session";
++import { prisma } from "@/lib/prisma";
++import { recordAudit } from "@/lib/audit";
++import { deleteFileByKey } from "@/lib/storage";
++import { entityHref } from "@/lib/entity-href";
++import type { ApercuSuppression } from "@/lib/admin-delete-registry";
++import { supprimerReversible, type DeleteResult } from "@/lib/suppression/coeur";
++import { verdictSuppressionFichier, verdictSuppressionPiece } from "@/lib/queries/pieces-demande-droits";
++
++/**
++ * ═══════════════════════════════════════════════════════════════════════════════════════════
++ * SUPPRIMER UNE PIÈCE LEGAL, OU L'UN DE SES FICHIERS, DEPUIS LA DEMANDE AD & PRO (§118.209).
++ *
++ * « On doit pouvoir supprimer les documents dans les demandes Ad & Pro » (Direction, 05/10). Le bloc des
++ * pièces de la demande les montrait en lecture seule — « la gestion se fait dans Legal ».
++ *
++ * Trois propriétés, et chacune a son cas :
++ *   • RÉVERSIBLE — la pièce part par le cœur de la suppression (`supprimerReversible`, §118.162) : corbeille
++ *     du Super Admin, journal, instantané de ses fichiers et de ses commentaires. Un devis effacé par erreur
++ *     se récupère. Un FICHIER, lui, se supprime comme dans Legal (`deleteDocument`) : le document et son
++ *     fichier disparaissent, et la fenêtre le dit.
++ *   • JAMAIS PLUS LARGE QUE LA FICHE LEGAL (§118.109) — la personne peut MODIFIER la demande ET gérer la
++ *     pièce, par la règle même de `deleteOwnRecord` ; le verdict est UN (`verdictSuppressionPiece`), lu par
++ *     l'écran pour poser le bouton, par l'aperçu et par l'action : un bouton offert que l'action refuse
++ *     fait chercher une panne qui n'existe pas (§118.83).
++ *   • JAMAIS CE QUI ENGAGE — une pièce signée, réglée, partie au règlement, validée par un centre ou base
++ *     d'une autre pièce ne se supprime pas d'ici (`legal/suppression-piece`), et le refus nomme le geste
++ *     qui reste. Ce refus vit AUSSI chez l'écrivain (`DELETE_REGISTRY.LEGAL_DOCUMENT.refuse`) : la corbeille
++ *     et la fiche Legal ne peuvent pas défaire ce que cet écran protège (§118.106).
++ *
++ * Ce sont des gestes d'écran (action-parity : EXCLUDED) : supprimer une pièce commerciale se fait devant
++ * l'aperçu de ce qui part, et la supprimer n'est pas la rendre invisible mais la retirer du registre.
++ * ═══════════════════════════════════════════════════════════════════════════════════════════
++ */
++
++export interface ResultatFichier {
++  ok: boolean;
++  error?: string;
++}
++
++/** Supprime une pièce Legal rattachée à une demande Ad & Pro — réversible (corbeille). */
++export async function supprimerPieceDeLaDemande(formData: FormData): Promise<DeleteResult> {
++  const user = await requireUser();
++  const id = String(formData.get("id") ?? "");
++  if (!id) return { ok: false, error: "Pièce introuvable." };
++  const v = await verdictSuppressionPiece(user, id);
++  if (!v.ok) return { ok: false, error: v.error };
++  const r = await supprimerReversible(
++    "LEGAL_DOCUMENT", v.piece.id, user.id,
++    `Pièce « ${v.piece.titre} » supprimée depuis sa demande Ad & Pro (restaurable depuis la corbeille)`,
++  );
++  if (r.ok) {
++    const adresse = entityHref(v.demande.type, v.demande.id);
++    if (adresse) revalidatePath(adresse);
++    revalidatePath("/legal");
++  }
++  return r;
++}
++
++/**
++ * CE QUE LA SUPPRESSION EMPORTERA — lu par la fenêtre de confirmation AVANT le clic (§118.53). La même
++ * porte que l'action : un aperçu plus large dirait à quelqu'un ce qui dépend d'une pièce qu'il ne peut
++ * pas toucher ; plus étroit, le bouton ne s'armerait pas devant une suppression que l'action accepte.
++ */
++export async function apercuSuppressionPieceDeLaDemande(formData: FormData): Promise<ApercuSuppression | { erreur: string }> {
++  const user = await requireUser();
++  const id = String(formData.get("id") ?? "");
++  if (!id) return { erreur: "Pièce introuvable." };
++  const v = await verdictSuppressionPiece(user, id);
++  if (!v.ok) return { erreur: v.error };
++  const [fichiers, commentaires, lecteurs] = await Promise.all([
++    prisma.document.count({ where: { entityType: "LEGAL_DOCUMENT", entityId: id } }),
++    prisma.comment.count({ where: { entityType: "LEGAL_DOCUMENT", entityId: id } }),
++    prisma.legalDocumentReader.count({ where: { documentId: id } }),
++  ]);
++  const pl = (n: number, un: string, des: string) => `${n} ${n > 1 ? des : un}`;
++  const emporte: string[] = [];
++  if (fichiers > 0) emporte.push(pl(fichiers, "fichier joint à la pièce", "fichiers joints à la pièce"));
++  if (commentaires > 0) emporte.push(pl(commentaires, "commentaire", "commentaires"));
++  // Ce que la restauration ne rend pas se DIT dans la ligne : « tout revient » serait faux pour cette liste.
++  if (lecteurs > 0) emporte.push(`${pl(lecteurs, "lecteur désigné", "lecteurs désignés")} (à redésigner si la pièce est restaurée)`);
++  return { nom: v.piece.titre, emporte, detache: [], refus: null, lot: true };
++}
++
++/**
++ * Supprime UN fichier d'une pièce Legal depuis la demande — la même suppression que sur la fiche Legal
++ * (`deleteDocument` : le document et son fichier), sous le verdict de la demande : la personne la
++ * modifie, gère la pièce, et la pièce n'est pas engagée. Signature positionnelle comme `deleteDocument` :
++ * la liste de documents (`DocumentList`) appelle l'une ou l'autre sans rien changer de son côté.
++ */
++export async function supprimerFichierDePieceDeLaDemande(id: string, path?: string): Promise<ResultatFichier> {
++  const user = await requireUser();
++  const v = await verdictSuppressionFichier(user, id);
++  if (!v.ok) return { ok: false, error: v.error };
++  const doc = await prisma.document.findUnique({ where: { id }, select: { id: true, name: true, fileKey: true, entityType: true, entityId: true } });
++  if (!doc) return { ok: false, error: "Document introuvable." };
++
++  await prisma.document.delete({ where: { id } });
++  if (doc.fileKey) await deleteFileByKey(doc.fileKey);
++  await recordAudit({
++    actorId: user.id, action: "DELETE", module: "Legal", entityType: doc.entityType, entityId: doc.entityId,
++    summary: `Document « ${doc.name} » supprimé depuis sa demande Ad & Pro`,
++  });
++  const adresse = entityHref(v.demande.type, v.demande.id);
++  if (adresse) revalidatePath(adresse);
++  revalidatePath(v.chemin);
++  if (path) revalidatePath(path);
++  return { ok: true };
++}
+diff --git a/src/lib/actions/fabrique-actions.ts b/src/lib/actions/fabrique-actions.ts
+index 8f89880..fb72a77 100644
+--- a/src/lib/actions/fabrique-actions.ts
++++ b/src/lib/actions/fabrique-actions.ts
+@@ -33,6 +33,8 @@ import {
+ import { factureACrediter } from "@/lib/legal/aval";
+ import { montantsDesAvoirsActifs } from "@/lib/lecteurs/avoirs-actifs";
+ import { netDeLaFacture } from "@/lib/lecteurs/avoir";
++import { accesAuxPiecesLegalDetaille } from "@/lib/entity-access";
++import { lienFichierEmis } from "@/lib/legal/fichiers-emis";
+ 
+ /** « 2 500 000,00 » (espaces, insécables, virgule) → 2500000 ; vide ou illisible → null. */
+ function nombre(v: string | null | undefined): number | null {
+@@ -210,6 +212,13 @@ export async function apercuAvantImpressionPiece(_prev: ApercuImpression | undef
+ export interface ResultatEmission extends ActionResult {
+   reference?: string;
+   legalDocumentId?: string;
++  /**
++   * OÙ VOIR LA PIÈCE (§118.209) — sa fiche `/legal/<id>?emis=1`, quand elle s'ouvre à la personne : l'écran y mène
++   * tout de suite, et la fiche montre la pièce et son PDF. `null` : la fiche lui est fermée (une pièce n'est
++   * pas toujours lisible par qui l'a émise) — le PDF, lui, s'ouvre sous la porte de la pièce (`lienPdf`).
++   */
++  lien?: string | null;
++  lienPdf?: string;
+   docxNodeId?: string;
+   docxNom?: string;
+   pdfNodeId?: string | null;
+@@ -237,8 +246,13 @@ export async function emettrePieceCommerciale(_prev: ResultatEmission | undefine
+   revalidatePath(`/legal/${r.legalDocumentId}`);
+   revalidatePath("/finances");
+   const libelle = r.type === "FACTURE" ? "Facture" : r.type === "DEVIS" ? "Devis" : "Bon de commande";
++  // La fiche s'ouvre-t-elle à la personne ? La MÊME porte que la fiche : y mener quelqu'un qui n'y entre pas serait un
++  // geste offert puis retiré (§118.83).
++  const acces = await accesAuxPiecesLegalDetaille(user, [r.legalDocumentId], ["VIEW"]);
++  const ficheOuverte = (acces.droits.get("VIEW")?.has(r.legalDocumentId) ?? false) && !acces.horsFiche.has(r.legalDocumentId);
+   return {
+     ok: true, id: r.legalDocumentId, reference: r.reference, legalDocumentId: r.legalDocumentId,
++    lien: ficheOuverte ? `/legal/${r.legalDocumentId}?emis=1` : null, lienPdf: lienFichierEmis(r.legalDocumentId, "pdf"),
+     docxNodeId: r.docx.nodeId, docxNom: r.docx.nom, pdfNodeId: r.pdf?.nodeId ?? null, pdfNom: r.pdf?.nom ?? null, pdfMethode: r.pdf?.methode ?? null,
+     totalTtc: r.totaux.totalTtc, dejaEmis: r.dejaEmis, surPapierEnTete: r.surPapierEnTete, avertissements: r.avertissements,
+     message: (r.dejaEmis
+diff --git a/src/lib/actions/pieces-demande-suppression-flow.test.ts b/src/lib/actions/pieces-demande-suppression-flow.test.ts
+new file mode 100644
+index 0000000..8dc2d11
+--- /dev/null
++++ b/src/lib/actions/pieces-demande-suppression-flow.test.ts
+@@ -0,0 +1,406 @@
++import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
++import fs from "node:fs";
++import path from "node:path";
++import type { CurrentUser } from "@/lib/session";
++
++vi.mock("next/cache", () => ({ revalidatePath: () => {} }));
++
++let ACTOR: CurrentUser | null = null;
++vi.mock("@/lib/session", () => ({ requireUser: async () => ACTOR }));
++
++import { prisma } from "@/lib/prisma";
++import { getAccess, hasGlobalView, userCan, type SessionUser } from "@/lib/rbac";
++import { canAccessEntity } from "@/lib/entity-access";
++import { supprimerReversible } from "@/lib/suppression/coeur";
++import { chargerPiecesLegalDeLaDemande } from "@/lib/queries/pieces-legal-demande";
++import { chargerPiecesLiees } from "@/lib/queries/chaine-des-pieces";
++import {
++  apercuSuppressionPieceDeLaDemande, supprimerFichierDePieceDeLaDemande, supprimerPieceDeLaDemande,
++} from "./ad-pro-pieces-actions";
++
++let dbOk = false;
++try { await prisma.$queryRaw`SELECT 1`; dbOk = true; } catch { dbOk = false; }
++const suite = dbOk ? describe : describe.skip;
++
++const TAG = "__pdsup__";
++
++const form = (fields: Record<string, string>): FormData => {
++  const fd = new FormData();
++  for (const [k, v] of Object.entries(fields)) fd.set(k, v);
++  return fd;
++};
++
++async function actorFor(id: string, role: SessionUser["role"]): Promise<CurrentUser> {
++  const access = await getAccess(id, role);
++  const u = await prisma.user.findUniqueOrThrow({ where: { id } });
++  return { id, name: u.name, email: u.email, role, access, mustChangePassword: false };
++}
++
++/**
++ * ═══════════════════════════════════════════════════════════════════════════════════════════
++ * SUPPRIMER UNE PIÈCE LEGAL OU L'UN DE SES FICHIERS DEPUIS LA DEMANDE AD & PRO (§118.209).
++ *
++ * « On doit pouvoir supprimer les documents dans les demandes Ad & Pro » (Direction, 05/10). Quatre
++ * propriétés, prouvées par les VRAIS points d'entrée — les actions, les chargeurs de l'écran, le cœur
++ * de suppression — avec des acteurs SANS vue globale (§118.104) :
++ *
++ *   1. le bouton offert est un geste ACCEPTÉ (§118.83) : le chargeur et l'action lisent la même décision ;
++ *   2. la personne doit pouvoir MODIFIER la demande ET gérer la pièce — la double garde de §118.109 ;
++ *   3. JAMAIS ce qui engage : signée, validée par un centre, réglée, base d'une autre pièce, portée par un
++ *      poste — et même le Super Admin n'y passe pas (le refus vit chez l'écrivain, §118.106) ;
++ *   4. la pièce est RÉVERSIBLE (corbeille), ses fichiers se suppriment comme dans Legal.
++ * ═══════════════════════════════════════════════════════════════════════════════════════════
++ */
++suite("supprimer une pièce Legal d'une demande Ad & Pro (flux réel)", () => {
++  let adminId = "", gestId = "", sansDemandeId = "", sansDeleteId = "", createurId = "";
++  let spo = "", autreSpo = "", poste = "";
++  let devisLibre = "", devisAvecBC = "", bcDuDevis = "", bcSigne = "", bcValide = "", bcEnAttente = "", factureReglee = "";
++  let devisDuPoste = "", conventionDuCreateur = "", ailleurs = "", devisSansFichier = "";
++  let fichierDevisLibre = "", fichierDevisAvecBC = "", fichierBcSigne = "", fichierFacture = "";
++
++  const piece = (suffix: string, kind: string, extra: Record<string, unknown> = {}, source: { type: "SPONSORING"; id: string } = { type: "SPONSORING", id: spo }) =>
++    prisma.legalDocument.create({
++      data: {
++        title: `${TAG}${suffix}`, reference: `${TAG}${suffix}`, kind: kind as never, status: "ACTIVE",
++        sourceType: source.type, sourceId: source.id, createdById: gestId, amount: 100_000, ...extra,
++      },
++      select: { id: true },
++    }).then((d) => d.id);
++  const fichier = (nom: string, entityId: string) =>
++    prisma.document.create({
++      data: { name: `${TAG}${nom}`, category: "OTHER", entityType: "LEGAL_DOCUMENT", entityId, uploadedById: gestId },
++      select: { id: true },
++    }).then((d) => d.id);
++  const existe = (id: string) => prisma.legalDocument.findUnique({ where: { id }, select: { id: true } }).then((d) => d !== null);
++  const existeFichier = (id: string) => prisma.document.findUnique({ where: { id }, select: { id: true } }).then((d) => d !== null);
++
++  const nettoyer = async () => {
++    const ids = (await prisma.legalDocument.findMany({ where: { title: { startsWith: TAG } }, select: { id: true } })).map((d) => d.id);
++    await prisma.deletedRecord.deleteMany({ where: { kind: "LEGAL_DOCUMENT", name: { contains: TAG } } }).catch(() => {});
++    await prisma.document.deleteMany({ where: { name: { startsWith: TAG } } }).catch(() => {});
++    await prisma.adProGateVisa.deleteMany({ where: { entityId: { in: ids } } }).catch(() => {});
++    await prisma.adProItemPiece.deleteMany({ where: { legalDocumentId: { in: ids } } }).catch(() => {});
++    await prisma.auditLog.deleteMany({ where: { entityId: { in: ids } } }).catch(() => {});
++    // Les pièces en aval pointent vers leur amont : les suites d'abord.
++    await prisma.legalDocument.deleteMany({ where: { id: { in: ids }, chainFromId: { not: null } } }).catch(() => {});
++    await prisma.legalDocument.deleteMany({ where: { id: { in: ids } } }).catch(() => {});
++    await prisma.adProItem.deleteMany({ where: { label: { startsWith: TAG } } }).catch(() => {});
++    await prisma.sponsoringRequest.deleteMany({ where: { reference: { startsWith: TAG } } }).catch(() => {});
++    const comptes = (await prisma.user.findMany({ where: { email: { startsWith: TAG } }, select: { id: true } })).map((u) => u.id);
++    await prisma.auditLog.deleteMany({ where: { actorId: { in: comptes } } }).catch(() => {});
++    await prisma.notification.deleteMany({ where: { userId: { in: comptes } } }).catch(() => {});
++    await prisma.userAccess.deleteMany({ where: { userId: { in: comptes } } }).catch(() => {});
++    await prisma.user.deleteMany({ where: { id: { in: comptes } } }).catch(() => {});
++  };
++
++  beforeAll(async () => {
++    await nettoyer();
++    const mk = (s: string, role: SessionUser["role"]) =>
++      prisma.user.create({ data: { name: `${TAG}${s}`, email: `${TAG}${s}@t.dz`, role, passwordHash: "x" } });
++    adminId = (await mk("admin", "SUPER_ADMIN")).id;
++    gestId = (await mk("gest", "VIEWER")).id;
++    sansDemandeId = (await mk("sans-demande", "VIEWER")).id;
++    sansDeleteId = (await mk("sans-delete", "VIEWER")).id;
++    createurId = (await mk("createur", "VIEWER")).id;
++    const acces = (userId: string, module: string, droits: { u?: boolean; d?: boolean }) =>
++      prisma.userAccess.create({ data: { userId, module, canView: true, canUpdate: droits.u ?? false, canDelete: droits.d ?? false, canUpload: true, scope: "ALL" } });
++    // La gestionnaire : modifie la demande ET supprime dans Legal.
++    await acces(gestId, "LEGAL", { u: true, d: true }); await acces(gestId, "SPONSORING", { u: true });
++    // Elle supprime dans Legal, mais ne modifie PAS cette demande (aucun accès au Sponsoring).
++    await acces(sansDemandeId, "LEGAL", { u: true, d: true });
++    // Elle modifie la demande et la pièce, sans le droit « supprimer » de Legal — et n'est pas l'auteure.
++    await acces(sansDeleteId, "LEGAL", { u: true }); await acces(sansDeleteId, "SPONSORING", { u: true });
++    // Elle ne supprime pas dans Legal non plus, mais est l'AUTEURE de sa convention : la règle de la fiche Legal.
++    await acces(createurId, "LEGAL", { u: true }); await acces(createurId, "SPONSORING", { u: true });
++
++    spo = (await prisma.sponsoringRequest.create({ data: { reference: `${TAG}SPO-1`, institution: `${TAG}CHU`, type: "Congrès", createdById: adminId } })).id;
++    autreSpo = (await prisma.sponsoringRequest.create({ data: { reference: `${TAG}SPO-2`, institution: `${TAG}EPH`, type: "Congrès", createdById: adminId } })).id;
++    poste = (await prisma.adProItem.create({ data: { sponsoringId: spo, kind: "OTHER", label: `${TAG}Imprimerie` } })).id;
++
++    devisLibre = await piece("Devis libre", "QUOTE");
++    fichierDevisLibre = await fichier("devis-libre.pdf", devisLibre);
++    await prisma.comment.create({ data: { entityType: "LEGAL_DOCUMENT", entityId: devisLibre, authorId: gestId, body: `${TAG}note` } }).catch(() => {});
++    devisSansFichier = await piece("Devis sans fichier", "QUOTE");
++    devisAvecBC = await piece("Devis avec BC", "QUOTE");
++    fichierDevisAvecBC = await fichier("devis-avec-bc.pdf", devisAvecBC);
++    bcDuDevis = await piece("BC du devis", "PURCHASE_ORDER", { chainFromId: devisAvecBC });
++    bcSigne = await piece("BC signé", "PURCHASE_ORDER", { signedAt: new Date(), signedById: adminId });
++    fichierBcSigne = await fichier("bc-signe.pdf", bcSigne);
++    bcValide = await piece("BC validé", "PURCHASE_ORDER");
++    await prisma.adProGateVisa.create({ data: { entityType: "LEGAL_DOCUMENT", entityId: bcValide, status: "APPROVED", amount: 100_000 } });
++    bcEnAttente = await piece("BC en attente", "PURCHASE_ORDER");
++    await prisma.adProGateVisa.create({ data: { entityType: "LEGAL_DOCUMENT", entityId: bcEnAttente, status: "PENDING", amount: 100_000 } });
++    factureReglee = await piece("Facture réglée", "INVOICE", { paidDate: new Date(), direction: "OUT" });
++    fichierFacture = await fichier("facture.pdf", factureReglee);
++    devisDuPoste = await piece("Devis du poste", "QUOTE");
++    await prisma.adProItemPiece.create({ data: { itemId: poste, legalDocumentId: devisDuPoste, nature: "DEVIS" } });
++    conventionDuCreateur = await piece("Convention du créateur", "AGREEMENT", { createdById: createurId });
++    ailleurs = await piece("Devis ailleurs", "QUOTE", {}, { type: "SPONSORING", id: autreSpo });
++  });
++
++  afterAll(nettoyer);
++
++  // ─── PRÉMISSES — sans elles, les refus pourraient venir d'ailleurs (§118.104) ─────────────────
++  it("PRÉMISSES : personne n'a la vue globale ; chaque acteur a exactement les droits que son cas suppose", async () => {
++    const [gest, sansDemande, sansDelete, createur] = await Promise.all([
++      actorFor(gestId, "VIEWER"), actorFor(sansDemandeId, "VIEWER"), actorFor(sansDeleteId, "VIEWER"), actorFor(createurId, "VIEWER"),
++    ]);
++    for (const a of [gest, sansDemande, sansDelete, createur]) expect(hasGlobalView(a.role)).toBe(false);
++    expect([userCan(gest, "LEGAL", "DELETE"), await canAccessEntity(gest, "SPONSORING", spo, "UPDATE")], "la gestionnaire").toEqual([true, true]);
++    expect([userCan(sansDemande, "LEGAL", "DELETE"), await canAccessEntity(sansDemande, "SPONSORING", spo, "UPDATE")], "sans la demande").toEqual([true, false]);
++    expect([userCan(sansDelete, "LEGAL", "DELETE"), await canAccessEntity(sansDelete, "SPONSORING", spo, "UPDATE")], "sans le droit supprimer").toEqual([false, true]);
++    expect([userCan(createur, "LEGAL", "DELETE"), await canAccessEntity(createur, "SPONSORING", spo, "UPDATE")], "l'auteure").toEqual([false, true]);
++  });
++
++  // ─── L'ÉCRAN : le bouton offert est un geste accepté ───────────────────────────────────────────
++  it("L'ÉCRAN lit la décision : la pièce libre est offerte, ce qui engage est refusé AVEC sa raison et le geste qui reste", async () => {
++    const gest = await actorFor(gestId, "VIEWER");
++    const p = await chargerPiecesLegalDeLaDemande(gest, "SPONSORING", spo);
++    const ligne = (id: string) => p.lignes.find((l) => l.id === id)!;
++    expect(ligne(devisLibre).suppression).toEqual({ piece: { offert: true, raison: null }, fichiers: { offert: true, raison: null } });
++    // La chaîne : le devis dont un BC découle ne se supprime pas (la chaîne ne se coupe pas), mais son PDF mal scanné se remplace.
++    expect(ligne(devisAvecBC).suppression.piece.offert).toBe(false);
++    expect(ligne(devisAvecBC).suppression.piece.raison).toMatch(/est la base d'une autre pièce .*BC du devis/);
++    expect(ligne(devisAvecBC).suppression.fichiers.offert, "un fichier de devis se retire même quand un BC en découle").toBe(true);
++    // L'engagement ferme la pièce ET ses fichiers.
++    for (const id of [bcSigne, bcValide, factureReglee]) {
++      expect(ligne(id).suppression.piece.offert, id).toBe(false);
++      expect(ligne(id).suppression.fichiers.offert, id).toBe(false);
++      expect(ligne(id).suppression.piece.raison, "la ligne DIT pourquoi").toMatch(/Annulez|avoir/);
++    }
++    expect(ligne(bcSigne).suppression.piece.raison).toContain("est signé");
++    expect(ligne(bcValide).suppression.piece.raison).toContain("a été validé par le centre de validation Ad & Pro");
++    expect(ligne(factureReglee).suppression.piece.raison).toContain("est réglée");
++    // Une pièce de poste est déjà sur la carte de son poste : elle n'est pas de ce bloc.
++    expect(p.lignes.map((l) => l.id)).not.toContain(devisDuPoste);
++  });
++
++  it("la pièce qu'un poste porte se lit dans « Pièces liées » : refusée, avec le POSTE nommé et le geste qui reste", async () => {
++    const gest = await actorFor(gestId, "VIEWER");
++    const l = await chargerPiecesLiees({ entityType: "SPONSORING", entityId: spo, canCreate: false, spectateur: gest, suppression: true });
++    const devis = l.sections.QUOTE.find((x) => x.id === devisDuPoste)!;
++    expect(devis.suppression?.piece.offert).toBe(false);
++    expect(devis.suppression?.piece.raison).toMatch(/rattaché au poste « __pdsup__Imprimerie » : une pièce de poste se retire depuis la carte de son poste/);
++    // Sans le drapeau, l'écran n'a rien demandé : aucune décision n'est calculée.
++    const sans = await chargerPiecesLiees({ entityType: "SPONSORING", entityId: spo, canCreate: false, spectateur: gest });
++    expect(sans.sections.QUOTE.every((x) => x.suppression === null)).toBe(true);
++  });
++
++  it("sans pouvoir MODIFIER la demande, rien n'est offert et rien n'est dit par ligne (« vous ne pouvez pas » n'est pas une information)", async () => {
++    const sansDemande = await actorFor(sansDemandeId, "VIEWER");
++    const p = await chargerPiecesLegalDeLaDemande(sansDemande, "SPONSORING", spo);
++    expect(p.lignes.length, "elle lit Legal : les lignes sont là").toBeGreaterThan(3);
++    for (const l of p.lignes) expect(l.suppression, l.titre).toEqual({ piece: { offert: false, raison: null }, fichiers: { offert: false, raison: null } });
++  });
++
++  it("sans le droit « supprimer » de Legal, la pièce n'est pas offerte — ses fichiers, si (modifier la pièce suffit, comme sur la fiche)", async () => {
++    const sansDelete = await actorFor(sansDeleteId, "VIEWER");
++    const p = await chargerPiecesLegalDeLaDemande(sansDelete, "SPONSORING", spo);
++    const l = p.lignes.find((x) => x.id === devisLibre)!;
++    expect(l.suppression).toEqual({ piece: { offert: false, raison: null }, fichiers: { offert: true, raison: null } });
++  });
++
++  it("l'AUTEURE de sa pièce la supprime sans le droit « supprimer » de Legal — la règle de la fiche Legal, pas plus large", async () => {
++    const createur = await actorFor(createurId, "VIEWER");
++    const p = await chargerPiecesLegalDeLaDemande(createur, "SPONSORING", spo);
++    expect(p.lignes.find((x) => x.id === conventionDuCreateur)!.suppression.piece.offert).toBe(true);
++    expect(p.lignes.find((x) => x.id === devisLibre)!.suppression.piece.offert, "la pièce d'une autre, non").toBe(false);
++  });
++
++  // ─── L'ACTION : même décision, refus nommés ────────────────────────────────────────────────────
++  it("l'action refuse sans pouvoir modifier la demande — et rien n'est supprimé", async () => {
++    ACTOR = await actorFor(sansDemandeId, "VIEWER");
++    const r = await supprimerPieceDeLaDemande(form({ id: devisSansFichier }));
++    expect(r.ok).toBe(false);
++    expect(r.error).toBe("Vous ne pouvez pas modifier cette demande : retirer une de ses pièces la modifie.");
++    expect(await existe(devisSansFichier)).toBe(true);
++  });
++
++  it("l'action refuse à qui n'est ni l'auteur ni titulaire de « supprimer » dans Legal", async () => {
++    ACTOR = await actorFor(sansDeleteId, "VIEWER");
++    const r = await supprimerPieceDeLaDemande(form({ id: devisSansFichier }));
++    expect(r.error).toBe("Seul le créateur de la pièce, ou qui a le droit de supprimer dans Legal, peut la supprimer.");
++    expect(await existe(devisSansFichier)).toBe(true);
++  });
++
++  it("une pièce d'une AUTRE demande, ou sans demande du pôle, n'est pas supprimable d'ici", async () => {
++    ACTOR = await actorFor(gestId, "VIEWER");
++    // Une pièce rattachée à une autre demande reste supprimable DEPUIS cette demande-là — la porte juge la pièce
++    // et SA demande, jamais celle que le formulaire prétend : le serveur lit la source de la pièce.
++    const libre = await prisma.legalDocument.create({ data: { title: `${TAG}Sans demande`, kind: "QUOTE", status: "ACTIVE", createdById: gestId } });
++    const r = await supprimerPieceDeLaDemande(form({ id: libre.id }));
++    expect(r.error).toBe("Cette pièce n'est pas rattachée à une demande Ad & Pro : sa suppression se fait depuis sa fiche Legal.");
++    expect(await existe(libre.id)).toBe(true);
++    expect((await supprimerPieceDeLaDemande(form({ id: "inconnue" }))).error).toBe("Pièce introuvable.");
++    expect(await existe(ailleurs), "ne bouge pas : un autre test la supprime par SA demande").toBe(true);
++  });
++
++  it("CE QUI ENGAGE ne part pas — même pour le Super Admin, et par TOUTES les portes (l'écran, la fiche, le cœur) — rien n'est écrit", async () => {
++    for (const [id, motif] of [[bcSigne, /est signé/], [bcValide, /a été validé par le centre/], [factureReglee, /est réglée/]] as const) {
++      ACTOR = await actorFor(gestId, "VIEWER");
++      const r = await supprimerPieceDeLaDemande(form({ id }));
++      expect(r.ok, id).toBe(false);
++      expect(r.error, id).toMatch(motif);
++      // Le Super Admin : global, il ne contourne pas ce qui a engagé la société.
++      ACTOR = await actorFor(adminId, "SUPER_ADMIN");
++      expect((await supprimerPieceDeLaDemande(form({ id }))).error, `SA ${id}`).toMatch(motif);
++      // Le cœur — celui de la fiche Legal (deleteOwnRecord) et de la corbeille : le refus vit chez l'ÉCRIVAIN (§118.106).
++      const direct = await supprimerReversible("LEGAL_DOCUMENT", id, adminId, "test");
++      expect(direct.ok, `coeur ${id}`).toBe(false);
++      expect(direct.error, `coeur ${id}`).toMatch(motif);
++      expect(await existe(id), id).toBe(true);
++    }
++  });
++
++  it("le devis dont un BC découle ne part pas : la chaîne ne se coupe pas par le milieu, et le refus dit par où commencer", async () => {
++    ACTOR = await actorFor(gestId, "VIEWER");
++    const r = await supprimerPieceDeLaDemande(form({ id: devisAvecBC }));
++    expect(r.error).toMatch(/est la base d'une autre pièce \(bon de commande : __pdsup__BC du devis\)/);
++    expect(r.error).toContain("en partant de la fin de la chaîne");
++    expect(await existe(devisAvecBC)).toBe(true);
++    expect((await prisma.legalDocument.findUnique({ where: { id: bcDuDevis }, select: { chainFromId: true } }))?.chainFromId, "le lien n'a pas bougé").toBe(devisAvecBC);
++  });
++
++  it("la pièce d'un poste est refusée avec le poste nommé", async () => {
++    ACTOR = await actorFor(gestId, "VIEWER");
++    const r = await supprimerPieceDeLaDemande(form({ id: devisDuPoste }));
++    expect(r.error).toMatch(/rattaché au poste « __pdsup__Imprimerie »/);
++    expect(await existe(devisDuPoste)).toBe(true);
++  });
++
++  it("L'APERÇU lit ce qui part — fichiers et commentaires — et refuse avec la MÊME phrase que l'action", async () => {
++    ACTOR = await actorFor(gestId, "VIEWER");
++    const ok = await apercuSuppressionPieceDeLaDemande(form({ id: devisLibre }));
++    expect("erreur" in ok).toBe(false);
++    if (!("erreur" in ok)) {
++      expect(ok.nom).toContain("Devis libre");
++      expect(ok.emporte).toContain("1 fichier joint à la pièce");
++      expect(ok.refus).toBeNull();
++    }
++    const refus = await apercuSuppressionPieceDeLaDemande(form({ id: bcSigne }));
++    const action = await supprimerPieceDeLaDemande(form({ id: bcSigne }));
++    expect("erreur" in refus ? refus.erreur : null, "un aperçu qui dit autre chose que l'action fait chercher une panne").toBe(action.error);
++    // Et sans pouvoir modifier la demande, l'aperçu ne dit rien de ce qui dépend d'une pièce qu'on ne touche pas.
++    ACTOR = await actorFor(sansDemandeId, "VIEWER");
++    const ferme = await apercuSuppressionPieceDeLaDemande(form({ id: devisLibre }));
++    expect("erreur" in ferme).toBe(true);
++  });
++
++  it("LA GESTIONNAIRE supprime un devis libre : il part à la CORBEILLE avec ses fichiers et ses commentaires (réversible)", async () => {
++    ACTOR = await actorFor(gestId, "VIEWER");
++    const r = await supprimerPieceDeLaDemande(form({ id: devisLibre }));
++    expect(r.ok, r.error).toBe(true);
++    expect(await existe(devisLibre)).toBe(false);
++    const trace = await prisma.deletedRecord.findFirst({ where: { kind: "LEGAL_DOCUMENT", sourceId: devisLibre } });
++    expect(trace, "l'instantané est à la corbeille").not.toBeNull();
++    expect(trace?.restoredAt ?? null).toBeNull();
++    // Le fichier joint est dans l'instantané (la ligne `Document` revient à la restauration).
++    expect(JSON.stringify(trace?.documents)).toContain("devis-libre.pdf");
++    expect(await existeFichier(fichierDevisLibre), "la ligne du fichier part avec la pièce").toBe(false);
++    const audit = await prisma.auditLog.findFirst({ where: { entityId: devisLibre, action: "DELETE" }, select: { summary: true } });
++    expect(audit?.summary).toContain("supprimée depuis sa demande Ad & Pro");
++  });
++
++  it("L'AUTEURE supprime sa convention (la règle de la fiche Legal) ; une autre personne ne supprime pas la sienne", async () => {
++    ACTOR = await actorFor(sansDeleteId, "VIEWER");
++    expect((await supprimerPieceDeLaDemande(form({ id: conventionDuCreateur }))).ok, "ni auteure ni titulaire de « supprimer »").toBe(false);
++    ACTOR = await actorFor(createurId, "VIEWER");
++    const r = await supprimerPieceDeLaDemande(form({ id: conventionDuCreateur }));
++    expect(r.ok, r.error).toBe(true);
++    expect(await existe(conventionDuCreateur)).toBe(false);
++  });
++
++  it("un BC en ATTENTE de validation se supprime — et sa porte part avec lui, sinon le centre arbitrerait une pièce qui n'existe plus", async () => {
++    expect(await prisma.adProGateVisa.count({ where: { entityType: "LEGAL_DOCUMENT", entityId: bcEnAttente, status: "PENDING" } }), "prémisse : la porte attend").toBe(1);
++    ACTOR = await actorFor(gestId, "VIEWER");
++    const r = await supprimerPieceDeLaDemande(form({ id: bcEnAttente }));
++    expect(r.ok, r.error).toBe(true);
++    expect(await existe(bcEnAttente)).toBe(false);
++    expect(await prisma.adProGateVisa.count({ where: { entityType: "LEGAL_DOCUMENT", entityId: bcEnAttente } })).toBe(0);
++  });
++
++  // ─── LES FICHIERS ──────────────────────────────────────────────────────────────────────────────
++  it("un FICHIER se supprime depuis la demande : modifier la demande ET gérer la pièce — et le fichier d'un devis dont un BC découle part", async () => {
++    ACTOR = await actorFor(sansDeleteId, "VIEWER");
++    const r = await supprimerFichierDePieceDeLaDemande(fichierDevisAvecBC, `/sponsoring/${spo}`);
++    expect(r.ok, r.error).toBe(true);
++    expect(await existeFichier(fichierDevisAvecBC)).toBe(false);
++    expect(await existe(devisAvecBC), "la pièce, elle, reste").toBe(true);
++    const audit = await prisma.auditLog.findFirst({ where: { entityId: devisAvecBC, action: "DELETE" }, select: { summary: true } });
++    expect(audit?.summary).toContain("supprimé depuis sa demande Ad & Pro");
++  });
++
++  it("le fichier d'une pièce ENGAGÉE ne se supprime pas d'ici : son PDF est ce qui a été signé, validé ou payé", async () => {
++    ACTOR = await actorFor(gestId, "VIEWER");
++    for (const id of [fichierBcSigne, fichierFacture]) {
++      const r = await supprimerFichierDePieceDeLaDemande(id);
++      expect(r.ok, id).toBe(false);
++      expect(r.error, id).toContain("ne se suppriment pas d'ici");
++      expect(await existeFichier(id), id).toBe(true);
++    }
++  });
++
++  it("sans pouvoir modifier la demande, le fichier ne part pas ; un fichier qui n'est pas celui d'une pièce Legal non plus", async () => {
++    ACTOR = await actorFor(sansDemandeId, "VIEWER");
++    const r = await supprimerFichierDePieceDeLaDemande(fichierBcSigne);
++    expect(r.error).toBe("Vous ne pouvez pas modifier cette demande : retirer une de ses pièces la modifie.");
++    ACTOR = await actorFor(gestId, "VIEWER");
++    const autre = await prisma.document.create({ data: { name: `${TAG}ailleurs.pdf`, category: "OTHER", entityType: "SPONSORING", entityId: spo, uploadedById: gestId } });
++    expect((await supprimerFichierDePieceDeLaDemande(autre.id)).error).toMatch(/n'est pas celui d'une pièce Legal/);
++    expect(await existeFichier(autre.id)).toBe(true);
++  });
++
++  it("la pièce d'une autre demande se supprime depuis SA demande — la porte lit la source de la pièce, pas ce que le formulaire prétend", async () => {
++    ACTOR = await actorFor(gestId, "VIEWER");
++    const r = await supprimerPieceDeLaDemande(form({ id: ailleurs }));
++    expect(r.ok, r.error).toBe(true);
++    expect(await existe(ailleurs)).toBe(false);
++  });
++});
++
++// ─── LES POINTS D'APPEL (§118.49) — une décision parfaite que rien n'affiche est du code mort (§118.50) ───
++describe("le point d'appel — les écrans montent le geste, et l'action lit la décision", () => {
++  const code = (rel: string) => fs.readFileSync(path.join(process.cwd(), rel), "utf8")
++    .replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/.*$/gm, "$1");
++
++  it("le bloc des pièces de la demande monte le bouton ET l'action de fichier (sinon « Lecture seule » reste vrai)", () => {
++    const c = code("src/components/ad-pro/pieces-legal-demande.tsx");
++    expect(c).toMatch(/<SupprimerPieceLegal[^>]*offert=\{l\.suppression\.piece\.offert\}/);
++    expect(c).toMatch(/canDelete=\{l\.suppression\.fichiers\.offert\}/);
++    expect(c).toMatch(/supprimer=\{supprimerFichierDePieceDeLaDemande\}/);
++    expect(c, "plus de suppression désactivée en dur").not.toMatch(/canDelete=\{false\}/);
++  });
++
++  it("« Pièces liées » (consulting, autre demande, matériel) demande le geste ; la fiche d'une demande au secrétariat, non", () => {
++    for (const rel of ["src/app/(app)/consulting/[id]/page.tsx", "src/app/(app)/ad-pro/autres/[id]/page.tsx", "src/app/(app)/promo-material/[id]/page.tsx"]) {
++      expect(code(rel), rel).toMatch(/<LinkedRecords[\s\S]*?candidatsLegal=\{ctxPieces\.candidatsLegal\} suppression/);
++    }
++    expect(code("src/app/(app)/demandes/[id]/page.tsx")).not.toMatch(/<LinkedRecords[^>]*suppression/);
++    const lr = code("src/components/shared/linked-records.tsx");
++    expect(lr).toMatch(/supprimer=\{s \? supprimerFichierDePieceDeLaDemande : undefined\}/);
++    expect(lr).toMatch(/<SupprimerPieceLegal[^>]*offert=\{s\.piece\.offert\}/);
++  });
++
++  it("le chargeur des pièces liées et celui de la demande lisent LA décision partagée — jamais une recopie", () => {
++    for (const rel of ["src/lib/queries/pieces-legal-demande.ts", "src/lib/queries/chaine-des-pieces.ts"]) {
++      expect(code(rel), rel).toMatch(/droitsSuppressionDesPieces\(/);
++    }
++  });
++
++  it("les actions lisent le MÊME verdict que l'écran, et le cœur du registre refuse chez l'écrivain", () => {
++    const a = code("src/lib/actions/ad-pro-pieces-actions.ts");
++    expect(a).toMatch(/verdictSuppressionPiece\(user, id\)/);
++    expect(a).toMatch(/verdictSuppressionFichier\(user, id\)/);
++    expect(a, "la pièce part par le cœur réversible").toMatch(/supprimerReversible\(\s*"LEGAL_DOCUMENT"/);
++    const reg = code("src/lib/admin-delete-registry.ts");
++    expect(reg).toMatch(/LEGAL_DOCUMENT: \{[\s\S]*?refuse: \(id\) => refusSuppressionDeLaPiece\(id\)/);
++    expect(reg, "la porte du BC part avec la pièce").toMatch(/LEGAL_DOCUMENT: \{[\s\S]*?retirerEnAttente\(id\)/);
++  });
++
++  it("la confirmation lit l'aperçu de LA MÊME porte que l'action (sinon le bouton ne s'arme pas, ou en dit trop)", () => {
++    const c = code("src/components/ad-pro/supprimer-piece-legal.tsx");
++    expect(c).toMatch(/executer=\{supprimerPieceDeLaDemande\}/);
++    expect(c).toMatch(/apercuer=\{apercuSuppressionPieceDeLaDemande\}/);
++    expect(code("src/components/shared/super-admin-delete.tsx")).toMatch(/apercuer\(fd\)/);
++  });
++});
+diff --git a/src/lib/admin-delete-registry.ts b/src/lib/admin-delete-registry.ts
+index e6be96a..067ec5b 100644
+--- a/src/lib/admin-delete-registry.ts
++++ b/src/lib/admin-delete-registry.ts
+@@ -2,6 +2,8 @@ import { CHEMIN_CATALOGUE_PROMO, CHEMIN_STOCK_PROMO } from "@/lib/chemins/stock-
+ import type { EntityType } from "@prisma/client";
+ import { prisma } from "@/lib/prisma";
+ import { refusSuppressionRapport } from "@/lib/promo/remises-visite";
++import { refusSuppressionDeLaPiece } from "@/lib/queries/suppression-piece";
++import { retirerEnAttente } from "@/lib/bons-de-commande/aiguillage";
+ import { inventorier } from "@/lib/suppression/lot";
+ import { resumeDesLiens } from "@/lib/suppression/branches";
+ 
+@@ -755,6 +757,11 @@ export const DELETE_REGISTRY: Record<DeletableKind, KindSpec> = {
+     model: "legalDocument",
+     entityType: "LEGAL_DOCUMENT",
+     searchFields: ["reference", "title"],
++    // CE QUI NE SE SUPPRIME PAS (§118.209) : une pièce signée, réglée, partie au règlement, validée par un
++    // centre, ou dont une autre pièce découle. Le refus vit chez l'ÉCRIVAIN : la fiche Legal, la demande
++    // Ad & Pro et la corbeille du Super Admin passent par ici, et deux règles finiraient par ne pas refuser
++    // la même chose (§118.106). Il NOMME le geste qui reste (annuler, supprimer l'aval d'abord…).
++    refuse: (id) => refusSuppressionDeLaPiece(id),
+     async describe(id) {
+       const r = await prisma.legalDocument.findUnique({ where: { id }, select: { reference: true, title: true } });
+       return r ? (r.reference ? `${r.reference} — ${r.title}` : r.title) : null;
+@@ -764,7 +771,12 @@ export const DELETE_REGISTRY: Record<DeletableKind, KindSpec> = {
+       return r?.createdById ?? null;
+     },
+     async remove(id) {
++      // Une validation qui attend au centre sur une pièce qui n'existe plus serait un arbitrage à rendre sur
++      // rien : la porte part avec le bon de commande (la fiche Legal ne la retirait pas, l'action d'Adam si).
++      // APRÈS la suppression de la ligne : la porte est désignée par un couple (type, identifiant) que rien ne
++      // lie par clé étrangère — si la suppression refuse (lien bloquant), la porte reste, la pièce aussi.
+       await prisma.legalDocument.delete({ where: { id } });
++      await retirerEnAttente(id);
+     },
+   },
+ 
+diff --git a/src/lib/assistant/action-registry.ts b/src/lib/assistant/action-registry.ts
+index 8981889..3de9d20 100644
+--- a/src/lib/assistant/action-registry.ts
++++ b/src/lib/assistant/action-registry.ts
+@@ -1246,6 +1246,15 @@ X("SUPPRIMER UNE DEMANDE AD & PRO depuis sa fiche — la porte ouverte au direct
+   + "demande ».", [
+   "admin-delete-actions:supprimerDemandeAdPro",
+ ]);
++X("SUPPRIMER UNE PIÈCE LEGAL, OU L'UN DE SES FICHIERS, depuis la fiche de la demande Ad & Pro (§118.209) — « on doit pouvoir "
++  + "supprimer les documents dans les demandes ». Adam n'est visible que du Super Admin (§118.153), qui supprime déjà une pièce "
++  + "par `delete_record` (même cœur réversible, même refus de ce qui engage la pièce) ; offrir une seconde porte à Adam ne "
++  + "servirait personne. Et le geste se fait devant l'APERÇU de ce qui part (fichiers, commentaires, lecteurs) et sous un "
++  + "double geste — retirer un devis, un bon de commande ou une facture du registre n'est pas un rangement qu'un modèle décide "
++  + "d'après un document lu (§118.7). Un clic sur la fiche de la demande, bloc « Pièces Legal de la demande » ou « Pièces liées ».", [
++  "ad-pro-pieces-actions:supprimerPieceDeLaDemande", "ad-pro-pieces-actions:apercuSuppressionPieceDeLaDemande",
++  "ad-pro-pieces-actions:supprimerFichierDePieceDeLaDemande",
++]);
+ X("LES COMPTAGES, ALERTES ET REFONTES DU STOCK PROMOTIONNEL (§118.168). SAISIR un comptage est une ATTESTATION — « j'en ai "
+   + "40 en main » — que seul celui qui détient le matériel donne : chaque écart devient une correction au registre portée à "
+   + "son nom. Un modèle ne voit ni le carton ni la voiture ; un compte rendu lu par une étape peut écrire « tout y est », et le "
+diff --git a/src/lib/assistant/office-capabilities.ts b/src/lib/assistant/office-capabilities.ts
+index 9cd994b..5d7b215 100644
+--- a/src/lib/assistant/office-capabilities.ts
++++ b/src/lib/assistant/office-capabilities.ts
+@@ -759,6 +759,10 @@ export const OFFICE_TOOLS: PowerTool[] = [
+       const libelle = r.type === "FACTURE" ? "Facture" : r.type === "DEVIS" ? "Devis" : "Bon de commande";
+       return JSON.stringify({
+         fait: true, dejaEmis: r.dejaEmis, repris: r.repris, legalDocumentId: r.legalDocumentId, reference: r.reference, type: r.type, version: r.version,
++        // OÙ VOIR LA PIÈCE (§118.209) : « il doit s'afficher, pas juste se sauvegarder dans Legal et qu'on aille le
++        // rechercher » — la fiche (qui montre le PDF), et le PDF lui-même sous la porte de la pièce. Le modèle les REPREND.
++        lien: `/legal/${r.legalDocumentId}?emis=1`,
++        liens: { fiche: `/legal/${r.legalDocumentId}?emis=1`, pdf: r.pdf ? `/api/legal/${r.legalDocumentId}/fichier?format=pdf` : null, word: `/api/legal/${r.legalDocumentId}/fichier?format=docx&dl=1` },
+         societe: r.societe, tiers: r.tiers, docx: r.docx, pdf: r.pdf, totaux: r.totaux, surPapierEnTete: r.surPapierEnTete, avertissements: r.avertissements, reglesAppliquees: r.reglesAppliquees, dureeMs: r.ms,
+         /**
+          * ── UNE PIÈCE QUI N'A PAS L'AIR OFFICIELLE DOIT LE DIRE DANS SA PHRASE ──────────
+@@ -779,7 +783,9 @@ export const OFFICE_TOOLS: PowerTool[] = [
+           : `${libelle} ${r.reference} émis${r.type === "FACTURE" ? "e" : ""} au nom de ${r.societe.nom} pour ${r.tiers} : TTC ${r.totaux.totalTtc.toLocaleString("fr-FR", { minimumFractionDigits: 2 })} DZD, fichier Word${r.pdf ? " et PDF" : ""} dans le Drive, pièce inscrite au registre Legal${r.surPapierEnTete ? ", sur le papier en-tête de la société" : ""}.`
+             + reserveDeMarque(r)
+             // UN BC ÉMIS N'EST PAS UN BC VALIDÉ (§118.148) : il attend son centre, et la phrase le dit.
+-            + (r.reserveBonDeCommande ? ` ${r.reserveBonDeCommande}` : ""),
++            + (r.reserveBonDeCommande ? ` ${r.reserveBonDeCommande}` : "")
++            // Le lien est DANS la phrase : c'est elle que le modèle reprend, et la personne ne doit pas aller chercher la pièce.
++            + ` Fiche de la pièce (avec son PDF) : /legal/${r.legalDocumentId}?emis=1.`,
+         ...(reserveDeMarque(r) || r.reserveBonDeCommande
+           ? { consigne: "REPRENDRE la réserve dans la réponse : une pièce sans identité ni papier en-tête ne ressemble pas à un document officiel, et un bon de commande qui attend son centre de validation n'engage pas encore la société. Dire ce qui manque et ce qui reste à faire." }
+           : {}),
+diff --git a/src/lib/bons-de-commande/aiguillage.ts b/src/lib/bons-de-commande/aiguillage.ts
+index d94adff..b132bf5 100644
+--- a/src/lib/bons-de-commande/aiguillage.ts
++++ b/src/lib/bons-de-commande/aiguillage.ts
+@@ -284,7 +284,7 @@ const intitule = (d: DocBC): string => {
+ const montantLisible = (m: number | null) => (m != null && m > 0 ? `${m.toLocaleString("fr-FR")} DZD` : "montant non renseigné");
+ 
+ /** Retire ce qui ATTEND encore — une décision prise, elle, ne s'efface jamais. */
+-async function retirerEnAttente(docId: string): Promise<number> {
++export async function retirerEnAttente(docId: string): Promise<number> {
+   const [visas, validations] = await Promise.all([
+     prisma.adProGateVisa.deleteMany({ where: { entityType: "LEGAL_DOCUMENT", entityId: docId, status: "PENDING" } }).catch(() => ({ count: 0 })),
+     prisma.validationRequest.updateMany({
+diff --git a/src/lib/legal/suppression-piece.test.ts b/src/lib/legal/suppression-piece.test.ts
+new file mode 100644
+index 0000000..434dd6f
+--- /dev/null
++++ b/src/lib/legal/suppression-piece.test.ts
+@@ -0,0 +1,125 @@
++import { describe, expect, it } from "vitest";
++import {
++  motifDEngagement, refusSuppressionFichiers, refusSuppressionPiece, type FaitsPieceASupprimer,
++} from "./suppression-piece";
++
++/**
++ * ═══════════════════════════════════════════════════════════════════════════════════════════
++ * CE QUI INTERDIT DE SUPPRIMER UNE PIÈCE LEGAL, OU SES FICHIERS (§118.209) — la décision pure.
++ *
++ * « On doit pouvoir supprimer les documents dans les demandes Ad & Pro » (Direction, 05/10) — mais
++ * jamais ce qui a engagé la société ou quitté l'ERP. Chaque refus NOMME le geste qui reste : un refus
++ * qui ne dit pas quoi faire fait chercher une panne qui n'existe pas.
++ *
++ * Les deux questions ne se confondent pas : les FICHIERS ne se ferment que sur l'ENGAGEMENT ; la PIÈCE se
++ * ferme aussi quand une autre en découle, qu'un poste la porte, qu'un renouvellement la cite.
++ * ═══════════════════════════════════════════════════════════════════════════════════════════
++ */
++
++const libre = (over: Partial<FaitsPieceASupprimer> = {}): FaitsPieceASupprimer => ({
++  titre: "Devis Parkmall", reference: "DEV-2026-004", kind: "QUOTE",
++  signee: false, reglee: false, ordre: null, aval: [], renouvelePar: null, postes: [], valideParLeCentre: null, receptionsAuStock: 0,
++  ...over,
++});
++
++describe("une pièce libre se supprime — rien ne l'engage, rien n'en découle", () => {
++  it("ni la pièce ni ses fichiers ne sont refusés", () => {
++    expect(refusSuppressionPiece(libre())).toBeNull();
++    expect(refusSuppressionFichiers(libre())).toBeNull();
++    expect(motifDEngagement(libre())).toBeNull();
++  });
++
++  it("un ordre de dépense ANNULÉ n'est pas un engagement : la facture dont l'ordre a été retiré se supprime", () => {
++    const f = libre({ kind: "INVOICE", ordre: { reference: "OD-2026-009", statut: "CANCELLED" } });
++    expect(refusSuppressionPiece(f)).toBeNull();
++    expect(refusSuppressionFichiers(f)).toBeNull();
++  });
++});
++
++describe("ce qui ENGAGE la pièce la ferme — et ferme aussi ses fichiers", () => {
++  const engagees: [string, Partial<FaitsPieceASupprimer>, RegExp][] = [
++    ["signée", { kind: "PURCHASE_ORDER", signee: true }, /est signé : il a engagé la société/],
++    ["facture réglée", { kind: "INVOICE", reglee: true }, /est réglée : la pièce est la justification/],
++    ["ordre de dépense payé", { kind: "INVOICE", ordre: { reference: "OD-2026-009", statut: "PAID" } }, /ordre de dépense OD-2026-009 a été payé/],
++    ["partie au règlement", { kind: "INVOICE", ordre: { reference: "OD-2026-010", statut: "PENDING" } }, /est partie au règlement .*OD-2026-010/],
++    ["BC validé par le centre", { kind: "PURCHASE_ORDER", valideParLeCentre: "centre de validation Ad & Pro" }, /a été validé par le centre de validation Ad & Pro/],
++  ];
++
++  it.each(engagees)("%s : la pièce ET ses fichiers sont refusés, avec le geste qui reste", (_nom, over, motif) => {
++    const f = libre(over);
++    const piece = refusSuppressionPiece(f);
++    const fichiers = refusSuppressionFichiers(f);
++    expect(piece).toMatch(motif);
++    expect(fichiers).toMatch(motif);
++    expect(fichiers).toContain("ne se suppriment pas d'ici");
++    // Le remède est NOMMÉ : annuler (motif à l'appui) ou corriger par un avoir — jamais « impossible » tout court.
++    expect(piece).toMatch(/Annule|avoir/);
++  });
++
++  it("le remède dépend de ce qui engage : l'argent parti se corrige par un avoir, un ordre ouvert se retire en annulant", () => {
++    expect(refusSuppressionPiece(libre({ kind: "INVOICE", reglee: true }))).toContain("avoir");
++    expect(refusSuppressionPiece(libre({ kind: "INVOICE", ordre: { reference: null, statut: "PENDING" } }))).toMatch(/l'annulation retire l'ordre non réglé/);
++    expect(refusSuppressionPiece(libre({ kind: "PURCHASE_ORDER", signee: true }))).toMatch(/Annulez-le plutôt, motif à l'appui/);
++  });
++
++  it("l'accord suit la nature : « signé » pour un bon de commande, « signée » pour une facture", () => {
++    expect(refusSuppressionPiece(libre({ kind: "PURCHASE_ORDER", signee: true }))).toContain("est signé :");
++    expect(refusSuppressionPiece(libre({ kind: "INVOICE", signee: true }))).toContain("est signée :");
++  });
++});
++
++describe("les FICHIERS sont plus étroits que la pièce — seul l'engagement les ferme", () => {
++  it("le devis dont un BC découle : la pièce est refusée (la chaîne), son PDF mal scanné se remplace", () => {
++    const f = libre({ aval: [{ kind: "PURCHASE_ORDER", titre: "BC Parkmall", reference: "032/DG/2026", annulee: false }] });
++    expect(refusSuppressionPiece(f)).toMatch(/est la base d'une autre pièce/);
++    expect(refusSuppressionFichiers(f), "un fichier de devis se retire même quand un BC en découle").toBeNull();
++  });
++
++  it("une pièce portée par un poste : la pièce se retire depuis la carte du poste, ses fichiers restent à la personne", () => {
++    const f = libre({ postes: ["Imprimerie"] });
++    expect(refusSuppressionPiece(f)).toMatch(/rattaché au poste « Imprimerie » : une pièce de poste se retire depuis la carte de son poste/);
++    expect(refusSuppressionFichiers(f)).toBeNull();
++  });
++});
++
++describe("ce qui LIE la pièce à une autre — la chaîne devis → bon de commande → facture ne se coupe pas par le milieu", () => {
++  it("l'aval est NOMMÉ, compté, et le geste dit par où commencer", () => {
++    const f = libre({
++      aval: [
++        { kind: "PURCHASE_ORDER", titre: "BC", reference: "032/DG/2026", annulee: false },
++        { kind: "PURCHASE_ORDER", titre: "BC bis", reference: "033/DG/2026", annulee: true },
++      ],
++    });
++    const r = refusSuppressionPiece(f)!;
++    expect(r).toContain("est la base de 2 autres pièces");
++    expect(r).toContain("032/DG/2026");
++    expect(r).toContain("033/DG/2026 (annulé)");
++    expect(r).toContain("en partant de la fin de la chaîne");
++  });
++
++  it("plus de trois pièces en aval : trois nommées, le reste COMPTÉ (une liste raccourcie qui se tait se lit complète)", () => {
++    const aval = [1, 2, 3, 4, 5].map((n) => ({ kind: "INVOICE", titre: `F${n}`, reference: `FA-${n}`, annulee: false }));
++    const r = refusSuppressionPiece(libre({ kind: "PURCHASE_ORDER", aval }))!;
++    expect(r).toContain("FA-1, FA-2, FA-3 et 2 autres");
++    expect(r).not.toContain("FA-4");
++  });
++
++  it("l'engagement passe AVANT l'aval : un BC signé dont une facture découle dit d'abord qu'il est signé", () => {
++    const f = libre({ kind: "PURCHASE_ORDER", signee: true, aval: [{ kind: "INVOICE", titre: "F", reference: "FA-1", annulee: false }] });
++    expect(refusSuppressionPiece(f)).toContain("est signé");
++  });
++
++  it("du matériel entré au magasin sur une facture promotionnelle : la réception d'abord", () => {
++    const r = refusSuppressionPiece(libre({ kind: "INVOICE", receptionsAuStock: 2 }))!;
++    expect(r).toContain("2 lignes reçues");
++    expect(r).toContain("Annulez d'abord la réception");
++  });
++
++  it("une pièce renouvelée : le renouvellement d'abord (le lien vers elle interdit de l'effacer)", () => {
++    expect(refusSuppressionPiece(libre({ kind: "QUOTE", renouvelePar: "Devis Parkmall 2027" }))).toMatch(/a été renouvelé par « Devis Parkmall 2027 »/);
++  });
++
++  it("une pièce sans numéro se nomme par son titre", () => {
++    expect(refusSuppressionPiece(libre({ reference: null, signee: true }))).toContain("« Devis Parkmall »");
++  });
++});
+diff --git a/src/lib/legal/suppression-piece.ts b/src/lib/legal/suppression-piece.ts
+new file mode 100644
+index 0000000..745e2b0
+--- /dev/null
++++ b/src/lib/legal/suppression-piece.ts
+@@ -0,0 +1,135 @@
++/**
++ * ═══════════════════════════════════════════════════════════════════════════════════════════
++ * SUPPRIMER UNE PIÈCE LEGAL, OU SES FICHIERS — ce qui l'interdit, et le geste qui le lève (§118.209).
++ *
++ * « On doit pouvoir SUPPRIMER les documents dans les demandes Ad & Pro » (Direction, 05/10) : un devis
++ * déposé par erreur, un BC en double, un PDF mal scanné. Ces pièces ne se géraient que dans Legal. Le
++ * bloc des pièces de la demande offre désormais le geste — et c'est ICI que se décide ce qu'il ne doit
++ * JAMAIS emporter : ce qui a quitté l'ERP ou engagé la société.
++ *
++ * ── DEUX QUESTIONS, DEUX DÉCISIONS ───────────────────────────────────────────────────────────
++ *
++ *   • la PIÈCE : peut-on la retirer du registre ? (corbeille, réversible) — refusée quand elle est
++ *     signée, réglée, partie au règlement, validée par un centre, quand une autre pièce en découle ou
++ *     qu'un poste la porte : la supprimer casserait la chaîne devis → bon de commande → facture, ou
++ *     effacerait la justification d'un fait réel ;
++ *   • ses FICHIERS : peut-on en retirer un ? Plus étroit que la pièce — un PDF mal scanné d'un devis qui
++ *     a un BC se remplace —, mais fermé dès que la pièce est ENGAGÉE : le PDF d'un bon de commande
++ *     signé EST ce qui a été signé, celui d'une facture réglée est ce qui a été payé.
++ *
++ * Chaque refus NOMME le geste qui reste (annuler plutôt que supprimer, annuler d'abord l'aval, retirer
++ * depuis la carte du poste) : un refus qui ne dit pas quoi faire fait chercher une panne qui n'existe pas.
++ *
++ * Module PUR, zéro import : la lecture en base (`queries/suppression-piece.ts`), le registre de
++ * suppression et l'écran de la demande lisent la même décision — deux copies de « qu'est-ce qui
++ * empêche » finiraient par dire deux choses (§118.5).
++ * ═══════════════════════════════════════════════════════════════════════════════════════════
++ */
++
++export interface FaitsPieceASupprimer {
++  titre: string;
++  reference: string | null;
++  /** La nature (`LegalDocKind`) : « INVOICE », « PURCHASE_ORDER », « QUOTE »… */
++  kind: string;
++  /** La pièce porte une signature (date ou signataire). */
++  signee: boolean;
++  /** Une facture dont la date de règlement ou l'écriture de trésorerie est posée : l'argent est parti. */
++  reglee: boolean;
++  /** L'ordre de dépense ouvert pour la payer — `null` : jamais envoyée au règlement. */
++  ordre: { reference: string | null; statut: "PENDING" | "REVISION_REQUESTED" | "PAID" | "CANCELLED" } | null;
++  /** Les pièces qui DÉCOULENT de celle-ci (`chainFromId`) : BC d'un devis, facture d'un BC, avoir d'une facture. */
++  aval: { kind: string; titre: string; reference: string | null; annulee: boolean }[];
++  /** Le titre du renouvellement, s'il y en a un (le lien vers l'ancienne pièce interdit de l'effacer). */
++  renouvelePar: string | null;
++  /** Les postes Ad & Pro qui portent cette pièce — elle se gère depuis leur carte. */
++  postes: string[];
++  /** Le centre qui a VALIDÉ ce bon de commande (« centre de validation Ad & Pro »), sinon `null`. */
++  valideParLeCentre: string | null;
++  /** Lignes de facture dont le matériel est entré au magasin (§118.165). */
++  receptionsAuStock: number;
++}
++
++const nom = (f: { titre: string; reference: string | null }) => `« ${f.reference ?? f.titre} »`;
++
++/** La nature dans une phrase — et son GENRE : « signée » pour une facture, « signé » pour un bon de commande. */
++const NATURES: Record<string, { nom: string; f: boolean }> = {
++  QUOTE: { nom: "le devis", f: false },
++  PURCHASE_ORDER: { nom: "le bon de commande", f: false },
++  INVOICE: { nom: "la facture", f: true },
++  CREDIT_NOTE: { nom: "l'avoir", f: false },
++};
++const natureDe = (kind: string) => NATURES[kind]?.nom ?? "la pièce";
++/** « e » si la nature est féminine : une pièce inconnue est « la pièce ». */
++const e = (kind: string) => (NATURES[kind]?.f ?? true ? "e" : "");
++const Il = (kind: string) => (NATURES[kind]?.f ?? true ? "Elle" : "Il");
++const nombrer = (n: number, un: string, des: string) => `${n} ${n > 1 ? des : un}`;
++
++/** La liste d'au plus trois noms, le reste COMPTÉ (§118.60). */
++function enumerer(noms: string[]): string {
++  if (noms.length <= 3) return noms.join(", ");
++  return `${noms.slice(0, 3).join(", ")} et ${nombrer(noms.length - 3, "autre", "autres")}`;
++}
++
++/** Ce qui ENGAGE la pièce — la même lecture pour la pièce et pour ses fichiers. */
++export function motifDEngagement(f: FaitsPieceASupprimer): string | null {
++  const sujet = `${natureDe(f.kind)} ${nom(f)}`;
++  if (f.ordre?.statut === "PAID") {
++    return `${sujet} est réglé${e(f.kind)} : l'ordre de dépense${f.ordre.reference ? ` ${f.ordre.reference}` : ""} a été payé — la pièce est la justification de cet argent parti`;
++  }
++  if (f.reglee) return `${sujet} est réglé${e(f.kind)} : la pièce est la justification de l'argent parti`;
++  if (f.signee) return `${sujet} est signé${e(f.kind)} : ${Il(f.kind).toLowerCase()} a engagé la société`;
++  if (f.valideParLeCentre) return `${sujet} a été validé par le ${f.valideParLeCentre} : ${Il(f.kind).toLowerCase()} engage la société`;
++  if (f.ordre && f.ordre.statut !== "CANCELLED") {
++    return `${sujet} est parti${e(f.kind)} au règlement (ordre de dépense ${f.ordre.reference ?? "ouvert"}) : le centre de paiement attend de ${e(f.kind) ? "la" : "le"} payer`;
++  }
++  return null;
++}
++
++/** Le geste qui reste quand la pièce est engagée — lu par la pièce et par ses fichiers. */
++function remedeEngagement(f: FaitsPieceASupprimer): string {
++  if (f.ordre?.statut === "PAID" || f.reglee) return "Une erreur se corrige par un avoir (fiche Legal › « Émettre un avoir »), jamais en effaçant la pièce.";
++  if (f.ordre && f.ordre.statut !== "CANCELLED") return "Annulez la pièce, motif à l'appui (fiche Legal › Annuler) : l'annulation retire l'ordre non réglé du centre, et la pièce reste à l'historique.";
++  return `Annulez-${e(f.kind) ? "la" : "le"} plutôt, motif à l'appui (fiche Legal › Annuler) : ${Il(f.kind).toLowerCase()} reste à l'historique, et ne rappelle plus rien.`;
++}
++
++/**
++ * LA PIÈCE PEUT-ELLE ÊTRE SUPPRIMÉE ? `null` : oui. Sinon la phrase qui dit pourquoi, et quoi faire.
++ * L'ordre des refus est celui de la gravité : ce qui a quitté l'ERP d'abord, ce qui lie ensuite.
++ */
++export function refusSuppressionPiece(f: FaitsPieceASupprimer): string | null {
++  const engagement = motifDEngagement(f);
++  if (engagement) return `${capitaliser(engagement)}. ${Il(f.kind)} ne se supprime pas. ${remedeEngagement(f)}`;
++
++  if (f.receptionsAuStock > 0) {
++    return `Du matériel de ${natureDe(f.kind)} ${nom(f)} est entré au magasin (${nombrer(f.receptionsAuStock, "ligne reçue", "lignes reçues")}) : la facture est la cause de cette entrée. Annulez d'abord la réception, depuis le dossier du matériel promotionnel.`;
++  }
++
++  if (f.aval.length > 0) {
++    const noms = enumerer(f.aval.map((a) => `${a.reference ?? a.titre}${a.annulee ? " (annulé)" : ""}`));
++    const genres = [...new Set(f.aval.map((a) => natureDe(a.kind).replace(/^(le|la|l') ?/, "")))];
++    return `${capitaliser(natureDe(f.kind))} ${nom(f)} est la base ${f.aval.length > 1 ? `de ${f.aval.length} autres pièces` : "d'une autre pièce"} (${genres.join(", ")} : ${noms}) : la chaîne devis → bon de commande → facture ne se coupe pas par le milieu. Supprimez d'abord ${f.aval.length > 1 ? "celles-ci" : "celle-ci"}, en partant de la fin de la chaîne.`;
++  }
++
++  if (f.renouvelePar) {
++    return `${capitaliser(natureDe(f.kind))} ${nom(f)} a été renouvelé${e(f.kind)} par « ${f.renouvelePar} » : le renouvellement pointe vers ${e(f.kind) ? "elle" : "lui"}. Supprimez d'abord le renouvellement.`;
++  }
++
++  if (f.postes.length > 0) {
++    return `${capitaliser(natureDe(f.kind))} ${nom(f)} est rattaché${e(f.kind)} au poste « ${enumerer(f.postes)} » : une pièce de poste se retire depuis la carte de son poste, qui sait ce que le poste attend d'elle.`;
++  }
++  return null;
++}
++
++/**
++ * UN FICHIER DE LA PIÈCE PEUT-IL ÊTRE RETIRÉ ? Plus étroit que la pièce : seul l'engagement le ferme.
++ * Le PDF d'un devis qui a un BC se remplace ; celui d'un BC signé est ce qui a été signé.
++ */
++export function refusSuppressionFichiers(f: FaitsPieceASupprimer): string | null {
++  const engagement = motifDEngagement(f);
++  if (!engagement) return null;
++  return `Les fichiers de cette pièce ne se suppriment pas d'ici : ${engagement} — son PDF est ce qui a été signé, validé ou payé. ${remedeEngagement(f)}`;
++}
++
++function capitaliser(s: string): string {
++  return s.length === 0 ? s : s.charAt(0).toUpperCase() + s.slice(1);
++}
+diff --git a/src/lib/queries/chaine-des-pieces.ts b/src/lib/queries/chaine-des-pieces.ts
+index 9daebf5..5fb7487 100644
+--- a/src/lib/queries/chaine-des-pieces.ts
++++ b/src/lib/queries/chaine-des-pieces.ts
+@@ -17,6 +17,7 @@ import {
+ export { categorieDuPdf, sectionDeLaNature, type SectionPieces };
+ import type { DocItem } from "@/components/documents/document-list";
+ import type { MaillonAmont, NaturePieceLiee } from "@/components/shared/attach-to-source";
++import { demandeDeLaPiece, droitsSuppressionDesPieces, type DroitsPieceDemande } from "@/lib/queries/pieces-demande-droits";
+ 
+ /**
+  * ═══════════════════════════════════════════════════════════════════════════════════════════
+@@ -75,6 +76,11 @@ export interface LignePiece {
+   editable: boolean;
+   /** La catégorie du PDF qu'on peut y joindre — `null` : la porte du serveur ne l'acceptera pas. */
+   joindre: string | null;
++  /**
++   * SUPPRIMER la pièce ou l'un de ses fichiers depuis la demande (§118.209) — offert ou non, et pourquoi quand
++   * ce qui ENGAGE la pièce le refuse. `null` : l'écran n'a pas demandé ce geste (`EntreePiecesLiees.suppression`).
++   */
++  suppression: DroitsPieceDemande | null;
+ }
+ 
+ export interface LigneCourrier {
+@@ -113,6 +119,11 @@ export interface EntreePiecesLiees {
+   creer?: { devis: boolean; bonDeCommande: boolean; facture: boolean; engagement: boolean; courrier: boolean } | null;
+   /** Les fichiers déposés sur la fiche elle-même (emplacement nommé). */
+   documentsDeLaFiche?: DocItem[];
++  /**
++   * Faut-il calculer le droit de SUPPRIMER pièces et fichiers (§118.209) ? Opt-in : seules les fiches Ad & Pro
++   * l'offrent — la fiche d'une demande au secrétariat, qui monte aussi ce bloc, n'a pas demandé ce geste.
++   */
++  suppression?: boolean;
+ }
+ 
+ const docItem = (d: {
+@@ -133,7 +144,7 @@ export async function chargerPiecesLiees(e: EntreePiecesLiees): Promise<PiecesLi
+       where, orderBy: { createdAt: "desc" }, take: 200,
+       select: {
+         id: true, title: true, reference: true, kind: true, status: true, endDate: true, counterparty: true,
+-        amount: true, startDate: true, paidDate: true, expenseOrderId: true, custom: true,
++        amount: true, startDate: true, paidDate: true, expenseOrderId: true, custom: true, createdById: true,
+         chainFrom: { select: { reference: true, title: true } },
+       },
+     }),
+@@ -185,6 +196,11 @@ export async function chargerPiecesLiees(e: EntreePiecesLiees): Promise<PiecesLi
+     // OÙ EN EST CHAQUE BC — la même lecture que la file des Finances et la fiche Legal.
+     etatsDesBC(brutes.PURCHASE_ORDER.map((d) => d.id)),
+   ]);
++  // Les droits de SUPPRESSION, en lot : la demande se juge une fois (§118.209).
++  const demandeDuBloc = e.suppression && e.spectateur ? demandeDeLaPiece({ sourceType: e.entityType, sourceId: e.entityId }) : null;
++  const droitsSuppression = demandeDuBloc && e.spectateur
++    ? await droitsSuppressionDesPieces(e.spectateur, demandeDuBloc, affichees.filter((d) => peut("VIEW", d.id)).map((d) => ({ id: d.id, createdById: d.createdById })))
++    : null;
+   const parPiece = new Map<string, DocItem[]>();
+   for (const d of [...fichiersLegal, ...fichiersCourrier]) {
+     const liste = parPiece.get(d.entityId) ?? [];
+@@ -205,6 +221,7 @@ export async function chargerPiecesLiees(e: EntreePiecesLiees): Promise<PiecesLi
+       documents: lisible ? parPiece.get(d.id) ?? [] : null,
+       gerable, editable: edition && gerable,
+       joindre: peut("UPLOAD", d.id) ? categorieDuPdf(d.kind) : null,
++      suppression: droitsSuppression?.get(d.id) ?? null,
+     };
+   };
+ 
+diff --git a/src/lib/queries/pieces-demande-droits.ts b/src/lib/queries/pieces-demande-droits.ts
+new file mode 100644
+index 0000000..c6fa744
+--- /dev/null
++++ b/src/lib/queries/pieces-demande-droits.ts
+@@ -0,0 +1,155 @@
++import type { EntityType } from "@prisma/client";
++import { prisma } from "@/lib/prisma";
++import { userCan, type SessionUser } from "@/lib/rbac";
++import { accesAuxPiecesLegal, canAccessEntity } from "@/lib/entity-access";
++import { AD_PRO_ENTITY_TYPE } from "@/lib/ad-pro/unified";
++import { refusDesPieces } from "@/lib/queries/suppression-piece";
++
++/**
++ * ═══════════════════════════════════════════════════════════════════════════════════════════
++ * QUI PEUT SUPPRIMER UNE PIÈCE LEGAL — OU L'UN DE SES FICHIERS — DEPUIS SA DEMANDE (§118.209).
++ *
++ * « On doit pouvoir supprimer les documents dans les demandes Ad & Pro » (Direction, 05/10). Le bloc
++ * « Pièces Legal de la demande » les montrait en lecture seule : un devis déposé deux fois ne se
++ * retirait que dans Legal, où l'on ne pense pas à aller le chercher.
++ *
++ * ── UNE SEULE LECTURE, POUR L'ÉCRAN ET POUR L'ACTION (§118.83) ──────────────────────────────
++ *
++ * Un bouton offert que l'action refuse ensuite fait chercher une panne qui n'existe pas : l'écran
++ * (`droitsSuppressionDesPieces`, en lot) et les actions (`verdictSuppressionPiece`,
++ * `verdictSuppressionFichiers`) lisent les MÊMES faits et la MÊME décision pure (`legal/suppression-piece`).
++ *
++ * ── TROIS FAITS, TOUS NÉCESSAIRES (§118.109, la double garde) ────────────────────────────────
++ *
++ *   1. la personne peut MODIFIER la demande (`canAccessEntity(…, "UPDATE")`) : retirer une pièce de la
++ *      demande de quelqu'un d'autre est la modifier ;
++ *   2. elle peut gérer la PIÈCE — la porte du serveur (`accesAuxPiecesLegal`) pour les fichiers ; pour la
++ *      pièce, la règle que la fiche Legal applique déjà (`deleteOwnRecord` : son créateur, qui a le droit
++ *      « supprimer » de Legal, le Super Admin) — jamais plus large que la fiche ;
++ *   3. la pièce n'est pas ENGAGÉE (`refusSuppressionPiece`) : signée, réglée, partie au règlement, validée
++ *      par un centre, base d'une autre pièce, portée par un poste.
++ *
++ * Quand les deux premiers faits sont là et que le troisième refuse, la ligne DIT pourquoi (et le geste
++ * qui reste). Sans les droits, rien n'est dit par ligne : « vous ne pouvez pas » n'est pas une
++ * information, c'est un bruit que l'on cesse de lire (§118.32).
++ *
++ * Module serveur ordinaire — pas un fichier `"use server"` : ceci est une QUESTION posée par des
++ * actions qui ont déjà la session, pas un point d'entrée.
++ * ═══════════════════════════════════════════════════════════════════════════════════════════
++ */
++
++/** Un geste offert ou non, et la raison quand il est refusé par ce qui ENGAGE la pièce. */
++export interface OffreGeste {
++  offert: boolean;
++  raison: string | null;
++}
++
++export interface DroitsPieceDemande {
++  piece: OffreGeste;
++  fichiers: OffreGeste;
++}
++
++const NATURES_DU_POLE: ReadonlySet<string> = new Set<string>(Object.values(AD_PRO_ENTITY_TYPE));
++
++/**
++ * La règle que la fiche Legal applique à la suppression d'une pièce (`deleteOwnRecord`) : son
++ * créateur, qui a le droit « supprimer » du module, le Super Admin. Nommée — une garde écrite en
++ * ligne se décrit « gardée par rien » à la carte de confirmation (§118.150g).
++ */
++export function peutSupprimerLaPiece(user: SessionUser, piece: { createdById: string | null }): boolean {
++  return user.role === "SUPER_ADMIN" || piece.createdById === user.id || userCan(user, "LEGAL", "DELETE");
++}
++
++/** La demande dont la pièce est la pièce — `null` quand elle n'est pas rattachée à une demande du pôle. */
++export function demandeDeLaPiece(piece: { sourceType: EntityType | null; sourceId: string | null }): { type: EntityType; id: string } | null {
++  if (!piece.sourceType || !piece.sourceId || !NATURES_DU_POLE.has(piece.sourceType)) return null;
++  return { type: piece.sourceType, id: piece.sourceId };
++}
++
++/**
++ * LES DROITS, EN LOT — pour la liste des pièces d'une demande. Trois lectures de base au plus, quel que
++ * soit le nombre de pièces (§118.102b) ; la modification de la demande se demande UNE fois.
++ */
++export async function droitsSuppressionDesPieces(
++  user: SessionUser,
++  demande: { type: EntityType; id: string },
++  pieces: readonly { id: string; createdById: string | null }[],
++): Promise<Map<string, DroitsPieceDemande>> {
++  const res = new Map<string, DroitsPieceDemande>();
++  if (pieces.length === 0) return res;
++  const ids = pieces.map((p) => p.id);
++  const [peutModifierLaDemande, droits, refus] = await Promise.all([
++    canAccessEntity(user, demande.type, demande.id, "UPDATE"),
++    accesAuxPiecesLegal(user, ids, ["VIEW", "UPDATE", "DELETE"]),
++    refusDesPieces(ids),
++  ]);
++  const lisibles = droits.get("VIEW") ?? new Set<string>();
++  const modifiables = droits.get("UPDATE") ?? new Set<string>();
++  const supprimables = droits.get("DELETE") ?? new Set<string>();
++  for (const p of pieces) {
++    const refuse = refus.get(p.id);
++    const gerable = lisibles.has(p.id) && (modifiables.has(p.id) || supprimables.has(p.id));
++    const pieceOuverte = peutModifierLaDemande && lisibles.has(p.id) && peutSupprimerLaPiece(user, p);
++    res.set(p.id, {
++      piece: { offert: pieceOuverte && !refuse?.piece, raison: pieceOuverte ? refuse?.piece ?? null : null },
++      fichiers: { offert: peutModifierLaDemande && gerable && !refuse?.fichiers, raison: peutModifierLaDemande && gerable ? refuse?.fichiers ?? null : null },
++    });
++  }
++  return res;
++}
++
++export type Verdict = { ok: true; demande: { type: EntityType; id: string }; piece: { id: string; titre: string } } | { ok: false; error: string };
++
++const REFUS_DEMANDE = "Vous ne pouvez pas modifier cette demande : retirer une de ses pièces la modifie.";
++const REFUS_PIECE_INTROUVABLE = "Pièce introuvable.";
++
++async function lirePiece(id: string) {
++  return prisma.legalDocument.findUnique({
++    where: { id },
++    select: { id: true, title: true, reference: true, createdById: true, sourceType: true, sourceId: true },
++  });
++}
++
++/** Peut-on supprimer CETTE pièce depuis sa demande ? La même décision que `droitsSuppressionDesPieces`, pour une pièce. */
++export async function verdictSuppressionPiece(user: SessionUser, pieceId: string): Promise<Verdict> {
++  const piece = await lirePiece(pieceId);
++  if (!piece) return { ok: false, error: REFUS_PIECE_INTROUVABLE };
++  const demande = demandeDeLaPiece(piece);
++  if (!demande) {
++    return { ok: false, error: "Cette pièce n'est pas rattachée à une demande Ad & Pro : sa suppression se fait depuis sa fiche Legal." };
++  }
++  // La pièce doit être OUVRABLE par la personne : supprimer par un identifiant deviné ne doit pas confirmer qu'il existe.
++  const droits = await accesAuxPiecesLegal(user, [piece.id], ["VIEW"]);
++  if (!droits.get("VIEW")?.has(piece.id)) return { ok: false, error: REFUS_PIECE_INTROUVABLE };
++  if (!(await canAccessEntity(user, demande.type, demande.id, "UPDATE"))) return { ok: false, error: REFUS_DEMANDE };
++  if (!peutSupprimerLaPiece(user, piece)) {
++    return { ok: false, error: "Seul le créateur de la pièce, ou qui a le droit de supprimer dans Legal, peut la supprimer." };
++  }
++  const refus = (await refusDesPieces([piece.id])).get(piece.id)?.piece ?? null;
++  if (refus) return { ok: false, error: refus };
++  return { ok: true, demande, piece: { id: piece.id, titre: piece.reference ? `${piece.reference} — ${piece.title}` : piece.title } };
++}
++
++export type VerdictFichier =
++  | { ok: true; demande: { type: EntityType; id: string }; pieceId: string; chemin: string }
++  | { ok: false; error: string };
++
++/** Peut-on supprimer CE FICHIER (un `Document` posé sur une pièce Legal) depuis la demande de la pièce ? */
++export async function verdictSuppressionFichier(user: SessionUser, documentId: string): Promise<VerdictFichier> {
++  const doc = await prisma.document.findUnique({ where: { id: documentId }, select: { id: true, entityType: true, entityId: true } });
++  if (!doc) return { ok: false, error: "Document introuvable." };
++  if (doc.entityType !== "LEGAL_DOCUMENT") return { ok: false, error: "Ce fichier n'est pas celui d'une pièce Legal : il se supprime depuis son propre écran." };
++  const piece = await lirePiece(doc.entityId);
++  if (!piece) return { ok: false, error: "Document introuvable." };
++  const demande = demandeDeLaPiece(piece);
++  if (!demande) return { ok: false, error: "Cette pièce n'est pas rattachée à une demande Ad & Pro : ses fichiers se gèrent depuis sa fiche Legal." };
++  const droits = await accesAuxPiecesLegal(user, [piece.id], ["VIEW", "UPDATE", "DELETE"]);
++  const lisible = droits.get("VIEW")?.has(piece.id) ?? false;
++  const gerable = (droits.get("UPDATE")?.has(piece.id) ?? false) || (droits.get("DELETE")?.has(piece.id) ?? false);
++  if (!lisible) return { ok: false, error: "Document introuvable." };
++  if (!(await canAccessEntity(user, demande.type, demande.id, "UPDATE"))) return { ok: false, error: REFUS_DEMANDE };
++  if (!gerable) return { ok: false, error: "Suppression non autorisée : vous ne gérez pas les fichiers de cette pièce." };
++  const refus = (await refusDesPieces([piece.id])).get(piece.id)?.fichiers ?? null;
++  if (refus) return { ok: false, error: refus };
++  return { ok: true, demande, pieceId: piece.id, chemin: `/legal/${piece.id}` };
++}
+diff --git a/src/lib/queries/pieces-legal-demande.ts b/src/lib/queries/pieces-legal-demande.ts
+index 4baf6b3..8c4c0af 100644
+--- a/src/lib/queries/pieces-legal-demande.ts
++++ b/src/lib/queries/pieces-legal-demande.ts
+@@ -7,6 +7,7 @@ import { LEGAL_DOC_STATUS, INVOICE_SETTLEMENT, invoiceSettlementState, natureLeg
+ import { fichiersEmis, type FichiersEmis } from "@/lib/legal/fichiers-emis";
+ import { toNumber } from "@/lib/utils";
+ import type { DocItem } from "@/components/documents/document-list";
++import { droitsSuppressionDesPieces, demandeDeLaPiece, type DroitsPieceDemande } from "@/lib/queries/pieces-demande-droits";
+ 
+ /**
+  * ═══════════════════════════════════════════════════════════════════════════════════════════
+@@ -51,6 +52,11 @@ export interface LignePieceDemande {
+   plateforme: FichiersEmis;
+   /** Ses fichiers — toujours ouvrables par la personne (la pièce l'est). */
+   documents: DocItem[];
++  /**
++   * SUPPRIMER (§118.209) — la pièce (corbeille) et ses fichiers : offert ou non, et POURQUOI quand ce qui
++   * engage la pièce le refuse. Lu par la même décision que les actions : un bouton offert est un geste accepté.
++   */
++  suppression: DroitsPieceDemande;
+ }
+ 
+ export interface PiecesLegalDeLaDemande {
+@@ -85,7 +91,7 @@ export async function chargerPiecesLegalDeLaDemande(
+   const [candidats, total] = await Promise.all([
+     prisma.legalDocument.findMany({
+       where, orderBy: { createdAt: "desc" }, take: PIECES_DEMANDE_MAX,
+-      select: { id: true, kind: true, title: true, reference: true, amount: true, status: true, paidDate: true, expenseOrderId: true, custom: true },
++      select: { id: true, kind: true, title: true, reference: true, amount: true, status: true, paidDate: true, expenseOrderId: true, custom: true, createdById: true },
+     }),
+     prisma.legalDocument.count({ where }),
+   ]);
+@@ -113,6 +119,13 @@ export async function chargerPiecesLegalDeLaDemande(
+     parPiece.set(f.entityId, l);
+   }
+ 
++  // Les droits de suppression, en LOT : la demande se juge une fois, la pièce par la porte du serveur.
++  const demande = demandeDeLaPiece({ sourceType: entityType, sourceId: entityId });
++  const droitsSuppression = demande
++    ? await droitsSuppressionDesPieces(spectateur, demande, ouvertes.map((d) => ({ id: d.id, createdById: d.createdById })))
++    : new Map<string, DroitsPieceDemande>();
++  const ferme: DroitsPieceDemande = { piece: { offert: false, raison: null }, fichiers: { offert: false, raison: null } };
++
+   const lignes: LignePieceDemande[] = ouvertes.map((d) => {
+     const st = d.kind === "INVOICE" && d.status !== "CANCELLED"
+       ? INVOICE_SETTLEMENT[invoiceSettlementState(d)]
+@@ -124,6 +137,7 @@ export async function chargerPiecesLegalDeLaDemande(
+       fiche: !horsFiche.has(d.id),
+       plateforme: fichiersEmis(d.custom),
+       documents: parPiece.get(d.id) ?? [],
++      suppression: droitsSuppression.get(d.id) ?? ferme,
+     };
+   });
+ 
+diff --git a/src/lib/queries/suppression-piece.ts b/src/lib/queries/suppression-piece.ts
+new file mode 100644
+index 0000000..657c674
+--- /dev/null
++++ b/src/lib/queries/suppression-piece.ts
+@@ -0,0 +1,92 @@
++import { prisma } from "@/lib/prisma";
++import { portesDesBC } from "@/lib/bons-de-commande/aiguillage";
++import { LIBELLE_CENTRE_BC, type PorteBC } from "@/lib/bons-de-commande/regle";
++import {
++  refusSuppressionFichiers, refusSuppressionPiece, type FaitsPieceASupprimer,
++} from "@/lib/legal/suppression-piece";
++
++/**
++ * LES FAITS D'UNE PIÈCE LEGAL QUI DÉCIDENT DE SA SUPPRESSION — lus en LOT (§118.209).
++ *
++ * Une fiche de demande porte une dizaine de pièces : quatre lectures pour toute la liste, jamais quatre
++ * par ligne (§118.102b). La décision, elle, est pure (`legal/suppression-piece.ts`) : cet écran, le
++ * registre de suppression (`DELETE_REGISTRY.LEGAL_DOCUMENT.refuse`) et l'action de la demande lisent
++ * la MÊME — un bouton offert que l'action refuserait ensuite fait chercher une panne qui n'existe pas
++ * (§118.83).
++ *
++ * Module serveur ordinaire, pas un fichier `"use server"` : tout ce qu'un tel fichier exporte devient
++ * un point d'entrée public, et ceci est une QUESTION posée par des actions qui ont déjà la session.
++ */
++export async function faitsDesPieces(ids: readonly string[]): Promise<Map<string, FaitsPieceASupprimer>> {
++  const res = new Map<string, FaitsPieceASupprimer>();
++  const uniques = [...new Set(ids.filter(Boolean))];
++  if (uniques.length === 0) return res;
++
++  const docs = await prisma.legalDocument.findMany({
++    where: { id: { in: uniques } },
++    select: {
++      id: true, title: true, reference: true, kind: true, status: true,
++      signedAt: true, signedById: true, paidDate: true, settlementTxId: true, expenseOrderId: true,
++      renewals: { select: { title: true }, take: 1 },
++    },
++  });
++  if (docs.length === 0) return res;
++
++  const ordreIds = docs.map((d) => d.expenseOrderId).filter((x): x is string => Boolean(x));
++  const bcIds = docs.filter((d) => d.kind === "PURCHASE_ORDER" && d.status !== "CANCELLED").map((d) => d.id);
++  const [ordres, aval, postes, receptions, portes] = await Promise.all([
++    ordreIds.length
++      ? prisma.expenseOrder.findMany({ where: { id: { in: ordreIds } }, select: { id: true, reference: true, status: true } })
++      : Promise.resolve([]),
++    prisma.legalDocument.findMany({
++      where: { chainFromId: { in: docs.map((d) => d.id) } },
++      select: { chainFromId: true, kind: true, title: true, reference: true, status: true },
++      orderBy: { createdAt: "asc" },
++    }),
++    prisma.adProItemPiece.findMany({
++      where: { legalDocumentId: { in: docs.map((d) => d.id) } },
++      select: { legalDocumentId: true, item: { select: { label: true } } },
++    }),
++    prisma.promoFactureLigne.findMany({
++      where: { quantiteRecue: { gt: 0 }, facture: { legalDocumentId: { in: docs.map((d) => d.id) } } },
++      select: { facture: { select: { legalDocumentId: true } } },
++    }),
++    bcIds.length ? portesDesBC(bcIds) : Promise.resolve(new Map<string, PorteBC>()),
++  ]);
++
++  const ordreDe = new Map(ordres.map((o) => [o.id, o]));
++  for (const d of docs) {
++    const o = d.expenseOrderId ? ordreDe.get(d.expenseOrderId) ?? null : null;
++    const porte = portes.get(d.id);
++    res.set(d.id, {
++      titre: d.title, reference: d.reference, kind: String(d.kind),
++      signee: d.signedAt !== null || d.signedById !== null,
++      reglee: d.paidDate !== null || d.settlementTxId !== null,
++      ordre: o ? { reference: o.reference, statut: o.status } : null,
++      aval: aval.filter((a) => a.chainFromId === d.id).map((a) => ({
++        kind: String(a.kind), titre: a.title, reference: a.reference, annulee: a.status === "CANCELLED",
++      })),
++      renouvelePar: d.renewals[0]?.title ?? null,
++      postes: postes.filter((p) => p.legalDocumentId === d.id).map((p) => p.item.label),
++      // Un BC ANNULÉ n'engage plus personne : sa validation passée n'est plus un fait qui l'enferme.
++      valideParLeCentre: porte && porte.etat === "VALIDE" ? LIBELLE_CENTRE_BC[porte.centre] : null,
++      receptionsAuStock: receptions.filter((r) => r.facture.legalDocumentId === d.id).length,
++    });
++  }
++  return res;
++}
++
++/** Ce qui interdit de supprimer la pièce, et ce qui interdit d'en retirer un fichier — par pièce. */
++export interface RefusPiece { piece: string | null; fichiers: string | null }
++
++export async function refusDesPieces(ids: readonly string[]): Promise<Map<string, RefusPiece>> {
++  const faits = await faitsDesPieces(ids);
++  const res = new Map<string, RefusPiece>();
++  for (const [id, f] of faits) res.set(id, { piece: refusSuppressionPiece(f), fichiers: refusSuppressionFichiers(f) });
++  return res;
++}
++
++/** Le refus d'UNE pièce — la forme que lit le registre de suppression. `null` : elle peut partir. */
++export async function refusSuppressionDeLaPiece(id: string): Promise<string | null> {
++  return (await refusDesPieces([id])).get(id)?.piece ?? null;
++}
+diff --git a/tmp-x11/probe.mjs b/tmp-x11/probe.mjs
+new file mode 100644
+index 0000000..ffa2506
+--- /dev/null
++++ b/tmp-x11/probe.mjs
+@@ -0,0 +1,36 @@
++import { chromium } from "@playwright/test";
++
++const BASE = process.env.BASE ?? "http://localhost:3210";
++const SP = process.env.SP;
++const sizes = JSON.parse(process.env.SIZES ?? '[{"w":1920,"h":1080,"dpr":1},{"w":1536,"h":864,"dpr":1.25},{"w":1280,"h":720,"dpr":1.5},{"w":1366,"h":768,"dpr":1},{"w":390,"h":844,"dpr":3,"m":true}]');
++const urls = JSON.parse(process.env.URLS ?? `["/sponsoring/${SP}","/ad-pro","/dashboard"]`);
++
++const browser = await chromium.launch({ executablePath: "/opt/pw-browsers/chromium", args: [] });
++for (const s of sizes) {
++  const ctx = await browser.newContext({ viewport: { width: s.w, height: s.h }, deviceScaleFactor: s.dpr, isMobile: !!s.m, hasTouch: !!s.m });
++  const page = await ctx.newPage();
++  await page.goto(`${BASE}/login`);
++  await page.getByLabel(/e-?mail/i).fill("__x11__sa@test.dz");
++  await page.getByLabel(/mot de passe/i).fill("E2e!MotDePasse#2026");
++  await page.getByRole("button", { name: /connexion|se connecter/i }).click();
++  await page.waitForURL((u) => !u.pathname.startsWith("/login"), { timeout: 120000 });
++  for (const u of urls) {
++    await page.goto(`${BASE}${u}`, { waitUntil: "load", timeout: 120000 });
++    await page.waitForLoadState("networkidle", { timeout: 60000 }).catch(() => {});
++    const m = await page.evaluate(() => {
++      const shell = document.querySelector("body > div > div.flex.h-screen, div.flex.h-screen.overflow-hidden") ;
++      const main = document.getElementById("app-scroll");
++      const r = (e) => e ? (({ top, bottom, height }) => ({ top: Math.round(top), bottom: Math.round(bottom), height: Math.round(height) }))(e.getBoundingClientRect()) : null;
++      return {
++        inner: [innerWidth, innerHeight], docH: document.documentElement.scrollHeight, bodyH: document.body.scrollHeight,
++        winScrollY: scrollY, shellScrollTop: shell?.scrollTop, shell: r(shell), main: r(main),
++        mainScrollH: main?.scrollHeight, mainClientH: main?.clientHeight,
++        chromeTop: getComputedStyle(document.documentElement).getPropertyValue("--app-chrome-top"),
++        vh: Math.round(document.documentElement.clientHeight),
++      };
++    });
++    console.log(JSON.stringify({ size: s, url: u, ...m }));
++  }
++  await ctx.close();
++}
++await browser.close();
+diff --git a/tmp-x11/probe2.mjs b/tmp-x11/probe2.mjs
+new file mode 100644
+index 0000000..1721527
+--- /dev/null
++++ b/tmp-x11/probe2.mjs
+@@ -0,0 +1,42 @@
++import { chromium } from "@playwright/test";
++
++const BASE = process.env.BASE ?? "http://localhost:3210";
++const urls = JSON.parse(process.env.URLS);
++const w = Number(process.env.W ?? 1920), h = Number(process.env.H ?? 1080);
++
++const browser = await chromium.launch({ executablePath: "/opt/pw-browsers/chromium", args: ["--disable-dev-shm-usage", "--disable-gpu", "--no-sandbox"] });
++const ctx = await browser.newContext({ viewport: { width: w, height: h } });
++const page = await ctx.newPage();
++await page.goto(`${BASE}/login`);
++await page.getByLabel(/e-?mail/i).fill("__x11__sa@test.dz");
++await page.getByLabel(/mot de passe/i).fill("E2e!MotDePasse#2026");
++await page.getByRole("button", { name: /connexion|se connecter/i }).click();
++await page.waitForURL((u) => !u.pathname.startsWith("/login"), { timeout: 120000 });
++for (const u of urls) {
++  await page.goto(`${BASE}${u}`, { waitUntil: "load", timeout: 120000 });
++  await page.waitForLoadState("networkidle", { timeout: 60000 }).catch(() => {});
++  const m = await page.evaluate(() => {
++    const out = [];
++    const H = innerHeight;
++    for (const el of document.querySelectorAll("body *")) {
++      const cs = getComputedStyle(el);
++      const r = el.getBoundingClientRect();
++      if (r.width === 0 && r.height === 0 && cs.position !== "absolute") continue;
++      if (cs.position === "absolute" || cs.position === "fixed") {
++        // vrai si le bloc conteneur est la fenêtre : aucun ancêtre positionné / transformé avant <body>
++        let a = el.parentElement, ancestor = null;
++        while (a && a !== document.body) {
++          const c = getComputedStyle(a);
++          if (c.position !== "static" || c.transform !== "none" || c.willChange.includes("transform") || c.filter !== "none" || c.contain.includes("paint")) { ancestor = a; break; }
++          a = a.parentElement;
++        }
++        if (cs.position === "absolute" && !ancestor && r.bottom > H + 1) {
++          out.push({ chain: (() => { const c = []; let p = el.parentElement; for (let i = 0; i < 5 && p; i++) { c.push(p.tagName + "." + (p.className || "").toString().slice(0, 60)); p = p.parentElement; } return c; })(), tag: el.tagName, cls: (el.className || "").toString().slice(0, 90), bottom: Math.round(r.bottom), top: Math.round(r.top), text: (el.textContent || "").slice(0, 40) });
++        }
++      }
++    }
++    return { docH: document.documentElement.scrollHeight, H, out: out.slice(0, 20), n: out.length };
++  });
++  console.log(u, JSON.stringify(m, null, 1));
++}
++await browser.close();
+diff --git a/tmp-x11/probe3.mjs b/tmp-x11/probe3.mjs
+new file mode 100644
+index 0000000..8083730
+--- /dev/null
++++ b/tmp-x11/probe3.mjs
+@@ -0,0 +1,30 @@
++import { chromium } from "@playwright/test";
++
++const BASE = process.env.BASE ?? "http://localhost:3210";
++const SP = process.env.SP;
++const w = Number(process.env.W ?? 1920), h = Number(process.env.H ?? 1080);
++
++const browser = await chromium.launch({ executablePath: "/opt/pw-browsers/chromium", args: ["--disable-dev-shm-usage", "--disable-gpu", "--no-sandbox"] });
++const ctx = await browser.newContext({ viewport: { width: w, height: h } });
++const page = await ctx.newPage();
++await page.goto(`${BASE}/login`);
++await page.getByLabel(/e-?mail/i).fill("__x11__sa@test.dz");
++await page.getByLabel(/mot de passe/i).fill("E2e!MotDePasse#2026");
++await page.getByRole("button", { name: /connexion|se connecter/i }).click();
++await page.waitForURL((u) => !u.pathname.startsWith("/login"), { timeout: 240000 });
++const mesure = () => page.evaluate(() => {
++  const main = document.getElementById("app-scroll");
++  const r = (e) => e ? Math.round(e.getBoundingClientRect().top) + "/" + Math.round(e.getBoundingClientRect().bottom) : null;
++  return { scrollY: scrollY, docH: document.documentElement.scrollHeight, H: innerHeight, mainTopBottom: r(main), topbar: r(document.querySelector("[data-app-chrome]")), mainScrollTop: main?.scrollTop };
++});
++await page.goto(`${BASE}/sponsoring`, { waitUntil: "load", timeout: 240000 });
++await page.waitForLoadState("networkidle", { timeout: 60000 }).catch(() => {});
++console.log("liste", JSON.stringify(await mesure()));
++if (true) {
++  await page.evaluate((u) => window.next.router.push(u), `/sponsoring/${SP}`);
++  await page.waitForURL(`**/sponsoring/${SP}`, { timeout: 240000 });
++  await page.waitForTimeout(1500);
++  console.log("après navigation client", JSON.stringify(await mesure()));
++  if (process.env.SHOT) await page.screenshot({ path: process.env.SHOT });
++}
++await browser.close();
+diff --git a/tmp-x11/replica.mjs b/tmp-x11/replica.mjs
+new file mode 100644
+index 0000000..be93201
+--- /dev/null
++++ b/tmp-x11/replica.mjs
+@@ -0,0 +1,39 @@
++import { chromium } from "@playwright/test";
++
++const css = `
++  *{box-sizing:border-box} body{margin:0;background:#f4f7fb;font:14px sans-serif}
++  .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border-width:0}
++  .shell{display:flex;height:100vh;overflow:hidden}
++  .side{width:240px;height:100vh;background:#0b1220;overflow-y:auto}
++  .col{display:flex;flex:1;flex-direction:column;overflow:hidden;min-width:0}
++  .top{height:64px;flex-shrink:0;background:#fff}
++  main{flex:1;overflow-y:auto;overflow-x:hidden;padding:24px}
++  .bloc{height:1900px;background:#e5ecf6}
++  .rel .shell, .rel main{position:relative}
++`;
++const page_html = (rel) => `<!doctype html><html class="${rel ? "rel" : ""}"><head><style>${css}</style></head><body>
++<div class="shell"><div class="side"></div><div class="col"><div class="top">topbar</div>
++<main id="app-scroll"><div id="first">Retour</div><div class="bloc"></div>
++<span><button>Soumettre</button><span class="sr-only" aria-live="polite"></span></span></main></div></div></body></html>`;
++
++const browser = await chromium.launch({ executablePath: "/opt/pw-browsers/chromium", args: ["--no-sandbox", "--disable-dev-shm-usage", "--disable-gpu"] });
++for (const rel of [false, true]) {
++  const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
++  await page.setContent(page_html(rel));
++  const r = await page.evaluate(() => {
++    const main = document.getElementById("app-scroll");
++    const out = { docH: document.documentElement.scrollHeight, H: innerHeight };
++    // ce que fait Next 14 à une navigation : scrollTop = 0 sur <html>, puis scrollIntoView du premier élément s'il n'est pas dans la fenêtre
++    main.scrollTop = 600; // la page précédente était défilée
++    const first = document.getElementById("first");
++    document.documentElement.scrollTop = 0;
++    const top = first.getBoundingClientRect().top;
++    if (!(top >= 0 && top <= innerHeight)) first.scrollIntoView();
++    out.scrollY = scrollY; out.mainScrollTop = main.scrollTop; out.shellScrollTop = document.querySelector(".shell").scrollTop;
++    out.topbarTop = Math.round(document.querySelector(".top").getBoundingClientRect().top);
++    return out;
++  });
++  console.log(rel ? "CORRIGÉ (relative)" : "AVANT         ", JSON.stringify(r));
++  await page.close();
++}
++await browser.close();
+diff --git a/tmp-x11/seed.ts b/tmp-x11/seed.ts
+new file mode 100644
+index 0000000..7017259
+--- /dev/null
++++ b/tmp-x11/seed.ts
+@@ -0,0 +1,19 @@
++import { PrismaClient } from "@prisma/client";
++import bcrypt from "bcryptjs";
++const prisma = new PrismaClient();
++const P = "__x11__";
++(async () => {
++  await prisma.legalDocument.deleteMany({ where: { title: { startsWith: P } } });
++  await prisma.sponsoringRequest.deleteMany({ where: { reference: { startsWith: P } } });
++  await prisma.user.deleteMany({ where: { email: { startsWith: P } } });
++  const hash = await bcrypt.hash("E2e!MotDePasse#2026", 10);
++  const sa = await prisma.user.create({ data: { email: `${P}sa@test.dz`, name: `${P} SA`, passwordHash: hash, role: "SUPER_ADMIN" } });
++  const sp = await prisma.sponsoringRequest.create({
++    data: { reference: `${P}SPO`, institution: `${P} Journée Pharmacie`, type: "Congrès", status: "PRE_VALIDATED", requesterId: sa.id,
++      amountRequested: 400000, amountProposed: 400000, nature: "INDIRECT" as never, description: "Rencontre ".repeat(60) },
++    select: { id: true },
++  });
++  const d = await prisma.legalDocument.create({ data: { title: `${P}Devis Parkmall`, kind: "QUOTE" as never, status: "ACTIVE", amount: 400000, sourceType: "SPONSORING", sourceId: sp.id, createdById: sa.id } });
++  console.log(JSON.stringify({ sp: sp.id, d: d.id }));
++  await prisma.$disconnect();
++})();

@@ -1,0 +1,2580 @@
+diff --git a/README.md b/README.md
+index bdb7d72..cf0475e 100644
+--- a/README.md
++++ b/README.md
+@@ -15397,6 +15397,19 @@ Ajustements de la Direction sur les bons de commande et les factures (§118.203)
+   lignes de plusieurs devis, génération des BC d'après ce qui est validé, BC modifiable en natif, révisions). Un scan par
+   « Retranscrire un devis ».
+ 
++**Regulatory — la « CTD initiale » (§118.213)** : à la création d'un dossier, un champ facultatif « CTD initiale » prend un
++**.zip complet ou un dossier entier** (arborescence conservée) ; il part, **une fois le dossier créé**, vers l'**étape 1** du
++processus (« Réception du CTD complet ») par le gestionnaire d'envois d'arrière-plan (dépôt direct au bucket pour les gros
++fichiers, « Réessayer » dans la pastille en cas d'échec) sans retenir la création. Sur la fiche, l'étape 1 porte un bloc bien visible
++**« CTD initiale »** (même importance que « Réserves & réponses (ANPP) ») : contenu en dossiers dépliables, un .zip se parcourt
++sans être téléchargé, **ajouter** des fichiers ou un dossier dans un sous-dossier choisi (existant ou nouveau), **remplacer** la CTD,
++**supprimer** la CTD (aperçu + double confirmation), **renommer** un dossier. Remplacer et supprimer mettent la CTD à la
++**corbeille** d'un bloc (type `REGULATORY_CTD`, fichiers conservés) : le Super Admin la restaure depuis Administration › Corbeille,
++sauf si une autre CTD vit déjà sur le dossier. Une CTD est **reconnue par un fait** — pièce du dossier, étape 1, catégorie « CTD
++complet » (`lib/regulatory/ctd-initiale.ts`) —, donc les dossiers d'avant en ont déjà une. Droits : ceux du dépôt de documents du
++dossier (`canAccessEntity` UPLOAD, portée de ligne, gamme, verrou) ; retirer, remplacer et renommer exigent en plus de pouvoir
++**modifier** le dossier. Un dépôt « CTD complet » sur l'étape 1 qui ne vient pas du bloc est refusé, avec le geste qui existe.
++
+ ---
+ 
+ ## 🧭 Feuille de route
+diff --git a/e2e/ctd-initiale.spec.ts b/e2e/ctd-initiale.spec.ts
+new file mode 100644
+index 0000000..552b699
+--- /dev/null
++++ b/e2e/ctd-initiale.spec.ts
+@@ -0,0 +1,167 @@
++import { test, expect, type Page } from "@playwright/test";
++import { PrismaClient } from "@prisma/client";
++import JSZip from "jszip";
++import { E2E } from "./global-setup";
++
++/**
++ * ═══════════════════════════════════════════════════════════════════════════════════════════
++ * LA CTD INITIALE D'UN DOSSIER REGULATORY — de bout en bout, dans le navigateur (§118.213).
++ *
++ * « Lors de la création d'un dossier, on doit pouvoir mettre un dossier ZIP complet (ou un dossier
++ * entier) : il est mis dans la première étape du process, nommé « CTD initiale ». Elle pourra être
++ * supprimée, remplacée, ou recevoir des fichiers dans un sous-dossier. »
++ *
++ * Le banc de flux (`ctd-initiale-flow.test.ts`) prouve les règles par les vraies routes et actions ; celui-ci
++ * prouve qu'elles ont un ÉCRAN, joué comme le fait une personne — et sur la TÉLÉPHONE, où le bloc doit
++ * rester lisible. Le dépôt est jugé EN BASE (ce que le navigateur a réellement fait envoyer), pas à ce que
++ * l'écran annonce.
++ *
++ * Le décor est propre à la spec : le dossier créé par le formulaire, sa société, ses pièces et sa corbeille
++ * sont retirés à la fin.
++ * ═══════════════════════════════════════════════════════════════════════════════════════════
++ */
++
++const prisma = new PrismaClient({
++  datasources: { db: { url: process.env.DATABASE_URL ?? "postgresql://postgres:postgres@localhost:5432/amd_internal_os?schema=public" } },
++});
++
++const DCI = `__E2E__CTDINIT${Date.now()}`;
++const SOCIETE = "__e2e__ Société CTD";
++let produit = "";
++let societe = "";
++
++async function login(page: Page) {
++  await page.goto("/login");
++  await page.getByLabel(/e-?mail/i).fill(E2E.superAdminEmail);
++  await page.getByLabel(/mot de passe/i).fill(E2E.password);
++  await page.getByRole("button", { name: /connexion|se connecter/i }).click();
++  // 60 s et non 20 : la première connexion après un build propre est un démarrage à froid (§118.150).
++  await page.waitForURL((url) => !url.pathname.startsWith("/login"), { timeout: 60_000 });
++}
++
++/** Naviguer puis attendre le réseau au repos : un clic posé avant l'hydratation ne fait rien (§118.164). */
++async function aller(page: Page, url: string) {
++  await page.goto(url);
++  await page.waitForLoadState("networkidle");
++}
++
++const vivantes = () => prisma.document.findMany({ where: { entityId: produit, stepKey: "ctd", category: "CTD_FULL" }, orderBy: { name: "asc" } });
++
++async function petitZip(): Promise<Buffer> {
++  const z = new JSZip();
++  z.file("0000/Module 1/lettre.txt", "bonjour ".repeat(100));
++  z.file("0000/Module 3/qualite.txt", "qualité ".repeat(100));
++  return z.generateAsync({ type: "nodebuffer" });
++}
++
++test.describe.configure({ mode: "serial" });
++
++test.beforeAll(async () => {
++  societe = (await prisma.company.create({ data: { name: SOCIETE, shortName: "CTD", isActive: true } })).id;
++});
++
++test.afterAll(async () => {
++  if (produit) {
++    const docs = await prisma.document.findMany({ where: { entityId: produit }, select: { id: true, fileKey: true } });
++    const recs = await prisma.deletedRecord.findMany({ where: { kind: "REGULATORY_CTD", sourceId: produit }, select: { documents: true } });
++    const cles = [
++      ...docs.map((d) => d.fileKey),
++      ...recs.flatMap((r) => ((r.documents as { fileKey?: string | null }[] | null) ?? []).map((x) => x.fileKey)),
++    ].filter((k): k is string => Boolean(k));
++    const stored = await prisma.storedFile.findMany({ where: { key: { in: cles } }, select: { blobId: true } });
++    await prisma.document.deleteMany({ where: { entityId: produit } });
++    await prisma.deletedRecord.deleteMany({ where: { kind: "REGULATORY_CTD", sourceId: produit } });
++    await prisma.storedFile.deleteMany({ where: { key: { in: cles } } });
++    await prisma.fileBlob.deleteMany({ where: { id: { in: stored.map((s) => s.blobId) } } });
++    await prisma.auditLog.deleteMany({ where: { entityType: "REGULATORY_PRODUCT", entityId: produit } }).catch(() => {});
++    await prisma.regulatoryProduct.deleteMany({ where: { id: produit } }).catch(() => {});
++  }
++  await prisma.company.deleteMany({ where: { id: societe } }).catch(() => {});
++  await prisma.$disconnect();
++});
++
++test("à la création, un .zip choisi dans le formulaire monte vers l'étape 1 et apparaît sous « CTD initiale »", async ({ page }) => {
++  await login(page);
++  await aller(page, "/regulatory");
++  await page.getByRole("button", { name: /^Nouveau dossier$/ }).click();
++  await page.getByLabel(/DCI \(molécule ou association\)/).fill(DCI);
++  await page.getByLabel(/Entité/).selectOption({ label: "CTD" });
++
++  // La CTD se choisit DANS le formulaire : un .zip. (Le champ n'a pas de nom : il ne part pas avec le formulaire.)
++  await page.getByTestId("ctd-creation-fichiers").setInputFiles({ name: `${DCI}.zip`, mimeType: "application/zip", buffer: await petitZip() });
++  await expect(page.getByText(/1 fichier\b/)).toBeVisible();
++
++  await page.getByRole("button", { name: "Créer le dossier" }).click();
++  await page.waitForURL(/\/regulatory\/[a-z0-9]+(\?ctd=envoi)?$/, { timeout: 60_000 });
++  produit = new URL(page.url()).pathname.split("/").pop()!;
++
++  // L'envoi continue en arrière-plan : c'est la BASE qui dit s'il a eu lieu, pas l'écran qui l'annonce.
++  await expect.poll(async () => (await vivantes()).map((d) => d.name), { timeout: 30_000 }).toEqual([`${DCI}.zip`]);
++  const [doc] = await vivantes();
++  expect(doc).toMatchObject({ entityType: "REGULATORY_PRODUCT", entityId: produit, stepKey: "ctd", category: "CTD_FULL" });
++
++  // Le bloc est visible sur la fiche, nommé comme demandé, avec son contenu.
++  const bloc = page.getByTestId("ctd-initiale");
++  await expect(bloc).toBeVisible();
++  await expect(bloc.getByText("CTD initiale", { exact: true })).toBeVisible();
++  await page.reload();
++  await expect(bloc.getByText(`${DCI}.zip`)).toBeVisible();
++});
++
++test("AJOUTER des fichiers dans un nouveau sous-dossier de la CTD", async ({ page }) => {
++  await login(page);
++  await aller(page, `/regulatory/${produit}`);
++  const bloc = page.getByTestId("ctd-initiale");
++  await bloc.getByRole("button", { name: "Ajouter à la CTD" }).click();
++  await bloc.getByLabel("Dossier de destination dans la CTD").selectOption({ label: "Nouveau sous-dossier…" });
++  await bloc.getByLabel("Nom du nouveau sous-dossier").fill("Compléments/Module 3");
++  // Le premier champ fichier du panneau est celui des fichiers ; le second, celui d'un dossier.
++  await bloc.locator('input[type="file"]').first().setInputFiles({ name: "complement.pdf", mimeType: "application/pdf", buffer: Buffer.from("%PDF-1.4 complement") });
++  await bloc.getByRole("button", { name: /Ajouter à la CTD \(1\)/ }).click();
++
++  await expect.poll(async () => (await vivantes()).find((d) => d.name === "complement.pdf")?.folder, { timeout: 30_000 }).toBe("Compléments/Module 3");
++  // Toujours UNE CTD : le zip d'origine et le complément vivent ensemble.
++  expect((await vivantes()).map((d) => d.name).sort()).toEqual(["complement.pdf", `${DCI}.zip`].sort());
++});
++
++test("SUPPRIMER la CTD : l'aperçu dit ce qui part, la confirmation est double, la corbeille la garde", async ({ page }) => {
++  await login(page);
++  await aller(page, `/regulatory/${produit}`);
++  const bloc = page.getByTestId("ctd-initiale");
++  await bloc.getByRole("button", { name: "Supprimer la CTD" }).click();
++
++  // L'APERÇU, avant tout geste : le compte, le .zip, et où ça va.
++  await expect(bloc.getByText("Ce qui partira à la corbeille")).toBeVisible();
++  await expect(bloc.getByText(/2 fichiers/).first()).toBeVisible();
++  await expect(bloc.getByText(/Super Admin/).first()).toBeVisible();
++
++  // Un seul clic n'efface rien ; le second confirme.
++  const decisif = bloc.getByRole("button", { name: "Supprimer la CTD" }).last();
++  const el = await decisif.elementHandle();
++  await el!.click();
++  await expect.poll(() => el!.getAttribute("data-decisif")).toBe("arme");
++  expect(await vivantes()).toHaveLength(2);
++  await el!.click();
++
++  await expect.poll(async () => (await vivantes()).length, { timeout: 15_000 }).toBe(0);
++  const rec = await prisma.deletedRecord.findMany({ where: { kind: "REGULATORY_CTD", sourceId: produit } });
++  expect(rec).toHaveLength(1);
++  expect((rec[0].documents as unknown[]).length).toBe(2);
++  await expect(bloc.getByText(/aucune CTD déposée/)).toBeVisible();
++  await expect(bloc.getByText(/corbeille/).first()).toBeVisible();
++});
++
++test("au téléphone (375 px), le bloc de la CTD reste lisible : rien ne déborde, le dépôt est atteignable", async ({ page }) => {
++  await page.setViewportSize({ width: 375, height: 800 });
++  await login(page);
++  await aller(page, `/regulatory/${produit}`);
++  const bloc = page.getByTestId("ctd-initiale");
++  await expect(bloc).toBeVisible();
++  await expect(bloc.getByRole("button", { name: "Déposer la CTD" })).toBeVisible();
++  // Aucun défilement horizontal de la page, et le bloc tient dans l'écran.
++  const deborde = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1);
++  expect(deborde).toBe(false);
++  const boite = await bloc.boundingBox();
++  expect(boite!.x + boite!.width).toBeLessThanOrEqual(376);
++});
++
+diff --git a/src/app/(app)/regulatory/[id]/anpp-process.tsx b/src/app/(app)/regulatory/[id]/anpp-process.tsx
+index ad22f55..3f0777d 100644
+--- a/src/app/(app)/regulatory/[id]/anpp-process.tsx
++++ b/src/app/(app)/regulatory/[id]/anpp-process.tsx
+@@ -22,6 +22,8 @@ import { DocumentUpload } from "@/components/documents/document-upload";
+ import { cn } from "@/lib/utils";
+ import { BvRequestSheet } from "./bv-requests";
+ import { DossierTimeline, type TimelineStepView } from "./dossier-timeline";
++import { CtdInitiale } from "./ctd-initiale";
++import { CTD_INITIALE_ETAPE, CTD_INITIALE_CATEGORIE } from "@/lib/regulatory/ctd-initiale";
+ 
+ const STATE_OPTS: RegStepState[] = ["TODO", "DOING", "DONE", "BLOCKED"];
+ 
+@@ -72,7 +74,7 @@ function Dot({ state, n }: { state: RegStepState; n: number }) {
+  */
+ export function RegulatoryProcess({
+   productId, workflow, checklist, canUpdate, canUpload, canDelete, stepDocs, path,
+-  dossierSteps, reference,
++  dossierSteps, reference, ctd,
+ }: {
+   productId: string;
+   workflow: RegWorkflowState | null;
+@@ -84,6 +86,14 @@ export function RegulatoryProcess({
+   path: string;
+   dossierSteps: TimelineStepView[];
+   reference: string;
++  /** La « CTD initiale » (§118.213) : ses documents, ce que la personne peut en faire, et ce qui s'est passé. */
++  ctd: {
++    docs: DocItem[];
++    canUpload: boolean;
++    canManage: boolean;
++    depotEnCours: boolean;
++    retiree: { quand: string; fichiers: number; remplacee: boolean } | null;
++  };
+ }) {
+   const router = useRouter();
+   const [state, setState] = React.useState<RegWorkflowState>(workflow ?? {});
+@@ -201,13 +211,8 @@ export function RegulatoryProcess({
+               <StepNote productId={productId} stepKey={s.key} initial={note} canUpdate={canUpdate} path={path} />
+               <div>
+                 <p className="mb-1.5 text-xs font-medium text-muted-foreground">
+-                  {s.key === "ctd" ? "Le CTD initial se dépose ici" : "Pièces de l'étape"}
++                  {s.key === CTD_INITIALE_ETAPE ? "Autres pièces de l'étape (la CTD initiale a son bloc, juste en dessous)" : "Pièces de l'étape"}
+                 </p>
+-                {s.key === "ctd" && (
+-                  <p className="mb-1.5 text-xs text-muted-foreground">
+-                    Tous les formats sont acceptés : des fichiers, un dossier entier (arborescence conservée) ou un .zip — jusqu&apos;à 10 Go chacun. Un .zip se parcourt sans le télécharger.
+-                  </p>
+-                )}
+                 {docs.length > 0 ? (
+                   <DocumentList documents={docs} canDelete={canDelete || canUpload} canRename={canUpload} path={path} />
+                 ) : (
+@@ -219,8 +224,10 @@ export function RegulatoryProcess({
+                       entityType="REGULATORY_PRODUCT"
+                       entityId={productId}
+                       stepKey={s.key}
+-                      categories={s.key === "ctd"
+-                        ? ["CTD_FULL", "MODULE_1", "MODULE_2", "MODULE_3", "MODULE_4", "MODULE_5", "SUPPORTING_DOC", "OTHER"]
++                      categories={s.key === CTD_INITIALE_ETAPE
++                        // « CTD complet » n'est plus proposé ici : la CTD initiale se dépose depuis son bloc, qui sait
++                        // l'ajouter, la remplacer, et la poser dans un dossier (§118.213).
++                        ? ["MODULE_1", "MODULE_2", "MODULE_3", "MODULE_4", "MODULE_5", "SUPPORTING_DOC", "OTHER"].filter((c) => c !== CTD_INITIALE_CATEGORIE)
+                         : ["SUPPORTING_DOC", "OTHER"]}
+                       compact
+                     />
+@@ -231,6 +238,24 @@ export function RegulatoryProcess({
+           )}
+         </div>
+ 
++        {/* LA CTD INITIALE, sur l'étape 1 : bien visible, avec la même importance que le bloc des réserves ANPP.
++            Elle n'attend pas qu'on déplie « Pièces & note » : c'est LE livrable de cette étape. */}
++        {s.key === CTD_INITIALE_ETAPE && (
++          <div className="mt-2">
++            <CtdInitiale
++              productId={productId}
++              reference={reference}
++              docs={ctd.docs}
++              canUpload={ctd.canUpload}
++              canManage={ctd.canManage}
++              canDelete={canDelete}
++              path={path}
++              depotEnCours={ctd.depotEnCours}
++              retiree={ctd.retiree}
++            />
++          </div>
++        )}
++
+         {/* LA CHECK-LIST DE PRÉSOUMISSION, juste après la réception du CTD — pliée par défaut :
+             trente cases ouvertes en permanence noieraient le parcours qu'on vient lire. */}
+         {s.key === PRESUB_CHECKLIST_AFTER_STEP && (
+diff --git a/src/app/(app)/regulatory/[id]/ctd-initiale.tsx b/src/app/(app)/regulatory/[id]/ctd-initiale.tsx
+new file mode 100644
+index 0000000..b166536
+--- /dev/null
++++ b/src/app/(app)/regulatory/[id]/ctd-initiale.tsx
+@@ -0,0 +1,331 @@
++"use client";
++
++import * as React from "react";
++import { useRouter } from "next/navigation";
++import Link from "next/link";
++import { ChevronDown, ChevronRight, Folder, FolderOpen, FileArchive, FileText, FolderPlus, Loader2, Pencil, Replace, Trash2, Check, X, Info, Archive } from "lucide-react";
++import { DocumentPreview } from "@/components/documents/document-preview";
++import { DocumentUpload } from "@/components/documents/document-upload";
++import type { DocItem } from "@/components/documents/document-list";
++import { BoutonDecisif } from "@/components/ui/bouton-decisif";
++import { Button } from "@/components/ui/button";
++import { Select } from "@/components/ui/input";
++import { remplacerCtdInitiale, renommerDossierCtd, supprimerCtdInitiale } from "@/lib/actions/regulatory-ctd-actions";
++import {
++  CTD_INITIALE_CATEGORIE, CTD_INITIALE_ENTITE, CTD_INITIALE_ETAPE, CTD_INITIALE_LIBELLE,
++  arborescenceCtd, dossiersDeLaCtd, resumeCtd, cheminSur, type NoeudCtd,
++} from "@/lib/regulatory/ctd-initiale";
++import { cn, formatDate } from "@/lib/utils";
++
++const humanSize = (n: number) => {
++  if (!n) return "0 o";
++  const u = ["o", "Ko", "Mo", "Go"];
++  let v = n, i = 0;
++  while (v >= 1024 && i < u.length - 1) { v /= 1024; i++; }
++  return `${v.toFixed(i === 0 ? 0 : 1)} ${u[i]}`;
++};
++const s = (n: number, mot: string) => `${n} ${mot}${n > 1 ? "s" : ""}`;
++
++/** « Quel geste est ouvert ? » — un seul panneau à la fois : on ne remplace pas pendant qu'on ajoute. */
++type Panneau = "ajout" | "remplacement" | "suppression" | null;
++
++/** La destination « nouveau dossier » du menu — une valeur qu'aucun chemin de dossier ne peut porter. */
++const NOUVEAU = "\u0000nouveau";
++
++/**
++ * LA CTD INITIALE — le bloc de l'étape 1 du processus (« Réception du CTD complet »), bien visible,
++ * avec la même importance que celui des réserves ANPP (§118.213).
++ *
++ * « Lors de la création d'un dossier, on doit pouvoir mettre un dossier ZIP complet (ou un dossier
++ * entier) : il est mis dans la première étape du process, NOMMÉ « CTD initiale ». Elle pourra être
++ * supprimée, remplacée, ou recevoir des fichiers et des dossiers dans un endroit particulier. »
++ *
++ * Ce que le bloc MONTRE : ce que la CTD contient (dossiers dépliables, un .zip s'ouvre dans sa
++ * fenêtre sans être téléchargé). Ce qu'il OFFRE, et à qui : déposer (ajouter, ou la première fois)
++ * à qui peut téléverser sur le dossier ; remplacer, supprimer et renommer un dossier à qui peut en
++ * plus MODIFIER le dossier (`canManage`, lu sur la porte du serveur — l'écran ne l'invente pas).
++ * Retirer ou remplacer met la CTD à la corbeille d'un bloc : récupérable par le Super Admin.
++ */
++export function CtdInitiale({
++  productId, reference, docs, canUpload, canManage, canDelete, path, depotEnCours, retiree,
++}: {
++  productId: string;
++  reference: string;
++  /** Les documents de la CTD (catégorie « CTD complet » rattachée à l'étape 1) — déjà filtrés par le serveur. */
++  docs: DocItem[];
++  canUpload: boolean;
++  canManage: boolean;
++  /** Supprimer UN fichier de la CTD (irréversible : le droit de suppression du module, pas celui du dépôt). */
++  canDelete: boolean;
++  path: string;
++  /** Le dossier vient d'être créé avec une CTD : l'envoi continue en arrière-plan. */
++  depotEnCours: boolean;
++  /** La dernière CTD retirée de ce dossier, restaurable depuis la corbeille par le Super Admin. */
++  retiree: { quand: string; fichiers: number; remplacee: boolean } | null;
++}) {
++  const router = useRouter();
++  const [ouvert, setOuvert] = React.useState(true);
++  const [panneau, setPanneau] = React.useState<Panneau>(null);
++  const [destination, setDestination] = React.useState("");
++  const [nouveauDossier, setNouveauDossier] = React.useState("");
++  const [occupe, setOccupe] = React.useState(false);
++  const [message, setMessage] = React.useState<{ ton: "ok" | "erreur"; texte: string } | null>(null);
++  // Un remplacement vient de partir : l'ancienne CTD est à la corbeille et la nouvelle monte en arrière-plan. Entre les
++  // deux le bloc est vide — sans ce fait, il proposerait de la déposer une seconde fois.
++  const [remplacementLance, setRemplacementLance] = React.useState(false);
++
++  const arbre = React.useMemo(() => arborescenceCtd(docs), [docs]);
++  const resume = React.useMemo(() => resumeCtd(docs), [docs]);
++  const dossiers = React.useMemo(() => dossiersDeLaCtd(docs), [docs]);
++  const vide = docs.length === 0;
++
++  const dossierBase = destination === NOUVEAU ? cheminSur(nouveauDossier) : cheminSur(destination);
++
++  async function lancer(action: (fd: FormData) => Promise<{ ok: boolean; error?: string; message?: string }>, extra: Record<string, string> = {}): Promise<boolean> {
++    setOccupe(true); setMessage(null);
++    const fd = new FormData();
++    fd.set("productId", productId);
++    for (const [k, v] of Object.entries(extra)) fd.set(k, v);
++    const r = await action(fd);
++    setOccupe(false);
++    if (!r.ok) { setMessage({ ton: "erreur", texte: r.error ?? "Échec." }); return false; }
++    if (r.message) setMessage({ ton: "ok", texte: r.message });
++    router.refresh();
++    return true;
++  }
++
++  return (
++    <div className="rounded-lg border border-primary/40 bg-primary/[0.04]" data-testid="ctd-initiale">
++      <button type="button" onClick={() => setOuvert(!ouvert)} className="flex w-full items-start justify-between gap-3 px-3 py-2.5 text-left" aria-expanded={ouvert}>
++        <div className="min-w-0">
++          <p className="flex items-center gap-1.5 text-sm font-medium"><Archive className="h-4 w-4 shrink-0 text-primary" /> {CTD_INITIALE_LIBELLE}</p>
++          <p className="text-xs text-muted-foreground">
++            dossier {reference}
++            {vide ? " · aucune CTD déposée"
++              : ` · ${s(resume.fichiers, "fichier")}${resume.dossiers > 0 ? ` · ${s(resume.dossiers, "dossier")}` : ""} · ${humanSize(resume.octets)}`}
++          </p>
++        </div>
++        <ChevronDown className={cn("mt-0.5 h-4 w-4 shrink-0 text-muted-foreground transition-transform", ouvert && "rotate-180")} />
++      </button>
++
++      {ouvert && (
++        <div className="space-y-3 border-t border-primary/30 px-3 py-3">
++          {(depotEnCours || remplacementLance) && vide && (
++            <p className="flex items-start gap-2 rounded-lg bg-info/10 px-3 py-2 text-xs" role="status">
++              <Loader2 className="mt-0.5 h-3.5 w-3.5 shrink-0 animate-spin text-info" />
++              <span>
++                <strong>Envoi de la {CTD_INITIALE_LIBELLE} en cours</strong> : il continue en arrière-plan, vous pouvez travailler ailleurs. La progression est dans la pastille en bas à droite ;
++                si un fichier échoue, « Réessayer » y apparaît — et si vous quittez la page avant la fin, redéposez-la ici.
++              </span>
++            </p>
++          )}
++
++          {retiree && (
++            <p className="flex items-start gap-2 rounded-lg bg-secondary/60 px-3 py-2 text-xs" role="status">
++              <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
++              <span>
++                {retiree.remplacee ? "Une CTD précédente a été remplacée" : "Une CTD a été supprimée"} le {formatDate(retiree.quand)} ({s(retiree.fichiers, "fichier")}). Elle est à la{" "}
++                <Link href="/admin/corbeille" className="underline">corbeille</Link> : le Super Admin peut la restaurer.
++              </span>
++            </p>
++          )}
++
++          {message && (
++            <p className={cn("rounded-lg px-3 py-2 text-xs", message.ton === "ok" ? "bg-success/10 text-success" : "bg-destructive/10 text-destructive")} role={message.ton === "ok" ? "status" : "alert"}>
++              {message.texte}
++            </p>
++          )}
++
++          {vide ? (
++            <div className="space-y-2">
++              <p className="text-sm text-muted-foreground">
++                Déposez ici la <strong>CTD complète</strong> du dossier : un <strong>.zip</strong>, ou un <strong>dossier entier</strong> (l&apos;arborescence est conservée) — jusqu&apos;à 10 Go. Un .zip se parcourt sans le télécharger.
++              </p>
++              {canUpload ? (
++                <DocumentUpload entityType={CTD_INITIALE_ENTITE} entityId={productId} stepKey={CTD_INITIALE_ETAPE} categories={[CTD_INITIALE_CATEGORIE]} ctd compact libelleEnvoi="Déposer la CTD" />
++              ) : (
++                <p className="text-xs text-muted-foreground">Vous n&apos;avez pas le droit de téléverser sur ce dossier.</p>
++              )}
++            </div>
++          ) : (
++            <>
++              <ul className="max-h-[28rem] overflow-y-auto rounded-lg border border-border bg-background p-1" aria-label={`Contenu de la ${CTD_INITIALE_LIBELLE}`}>
++                <Noeud
++                  noeud={arbre} racine profondeur={0} productId={productId} path={path}
++                  canManage={canManage} canUpload={canUpload} canDelete={canDelete} occupe={occupe}
++                  renommer={(dossier, nouveauNom) => lancer(renommerDossierCtd, { dossier, nouveauNom })}
++                />
++              </ul>
++
++              <div className="flex flex-wrap items-center gap-2">
++                {canUpload && (
++                  <Button type="button" size="sm" variant={panneau === "ajout" ? "primary" : "outline"} onClick={() => setPanneau(panneau === "ajout" ? null : "ajout")} aria-pressed={panneau === "ajout"}>
++                    <FolderPlus className="h-4 w-4" /> Ajouter à la CTD
++                  </Button>
++                )}
++                {canManage && (
++                  <>
++                    <Button type="button" size="sm" variant={panneau === "remplacement" ? "primary" : "outline"} onClick={() => setPanneau(panneau === "remplacement" ? null : "remplacement")} aria-pressed={panneau === "remplacement"}>
++                      <Replace className="h-4 w-4" /> Remplacer la CTD
++                    </Button>
++                    <Button type="button" size="sm" variant={panneau === "suppression" ? "primary" : "outline"} className="text-destructive" onClick={() => setPanneau(panneau === "suppression" ? null : "suppression")} aria-pressed={panneau === "suppression"}>
++                      <Trash2 className="h-4 w-4" /> Supprimer la CTD
++                    </Button>
++                  </>
++                )}
++              </div>
++
++              {panneau === "ajout" && canUpload && (
++                <div className="space-y-2 rounded-lg border border-border bg-background p-3">
++                  <p className="text-xs font-medium">Où poser les fichiers dans la CTD ?</p>
++                  <Select value={destination} onChange={(e) => setDestination(e.target.value)} className="text-sm" aria-label="Dossier de destination dans la CTD">
++                    <option value="">À la racine de la CTD</option>
++                    {dossiers.map((d) => <option key={d} value={d}>{d}</option>)}
++                    <option value={NOUVEAU}>Nouveau sous-dossier…</option>
++                  </Select>
++                  {destination === NOUVEAU && (
++                    <input
++                      value={nouveauDossier} onChange={(e) => setNouveauDossier(e.target.value)} placeholder="Nom du sous-dossier (ex. Compléments/Module 3)"
++                      aria-label="Nom du nouveau sous-dossier" className="w-full rounded-md border border-input bg-background px-2 py-1.5 text-sm focus-ring"
++                    />
++                  )}
++                  <p className="text-xs text-muted-foreground">
++                    Les fichiers (ou le dossier) déposés iront dans <strong>{dossierBase ?? "la racine de la CTD"}</strong>.
++                    {destination === NOUVEAU && !dossierBase && " Saisissez un nom, ou choisissez un dossier existant."}
++                  </p>
++                  <DocumentUpload
++                    entityType={CTD_INITIALE_ENTITE} entityId={productId} stepKey={CTD_INITIALE_ETAPE} categories={[CTD_INITIALE_CATEGORIE]}
++                    ctd compact dossierBase={dossierBase} libelleEnvoi="Ajouter à la CTD"
++                    avantEnvoi={async () => {
++                      if (destination === NOUVEAU && !dossierBase) { setMessage({ ton: "erreur", texte: "Nommez le nouveau sous-dossier, ou choisissez-en un existant." }); return false; }
++                      return true;
++                    }}
++                  />
++                </div>
++              )}
++
++              {panneau === "remplacement" && canManage && (
++                <div className="space-y-2 rounded-lg border border-warning/50 bg-background p-3">
++                  <p className="text-xs">
++                    Choisissez la <strong>nouvelle CTD</strong> (un .zip ou un dossier). Au clic de confirmation, la CTD actuelle ({s(resume.fichiers, "fichier")}, {humanSize(resume.octets)}) part
++                    <strong> à la corbeille</strong> — restaurable par le Super Admin — et la nouvelle prend sa place.
++                  </p>
++                  <DocumentUpload
++                    entityType={CTD_INITIALE_ENTITE} entityId={productId} stepKey={CTD_INITIALE_ETAPE} categories={[CTD_INITIALE_CATEGORIE]}
++                    ctd compact libelleEnvoi="Remplacer la CTD" confirmationEnvoi="remplacer la CTD (l'actuelle part à la corbeille)"
++                    avantEnvoi={async () => { const ok = await lancer(remplacerCtdInitiale); if (ok) setRemplacementLance(true); return ok; }}
++                  />
++                </div>
++              )}
++
++              {panneau === "suppression" && canManage && (
++                <div className="space-y-2 rounded-lg border border-destructive/40 bg-background p-3">
++                  <p className="text-xs font-medium">Ce qui partira à la corbeille</p>
++                  <p className="text-xs">
++                    {s(resume.fichiers, "fichier")}{resume.dossiers > 0 ? `, ${s(resume.dossiers, "dossier")}` : ""}{resume.archives > 0 ? `, dont ${s(resume.archives, "archive")} .zip` : ""} — {humanSize(resume.octets)} au total.
++                    Les fichiers restent stockés : le <strong>Super Admin</strong> peut restaurer la CTD tant qu&apos;elle n&apos;a pas été détruite.
++                  </p>
++                  <ul className="space-y-0.5 text-xs text-muted-foreground">
++                    {docs.slice(0, 6).map((d) => <li key={d.id} className="truncate">{d.folder ? `${d.folder}/` : ""}{d.name}</li>)}
++                    {docs.length > 6 && <li>… et {s(docs.length - 6, "autre")}</li>}
++                  </ul>
++                  <BoutonDecisif
++                    type="button" size="sm" variant="outline" className="text-destructive hover:bg-destructive/10" disabled={occupe}
++                    confirmation={`supprimer la ${CTD_INITIALE_LIBELLE} (${s(resume.fichiers, "fichier")}, restaurable par le Super Admin)`}
++                    onClick={async () => { if (await lancer(supprimerCtdInitiale)) setPanneau(null); }}
++                  >
++                    {occupe ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />} Supprimer la CTD
++                  </BoutonDecisif>
++                </div>
++              )}
++            </>
++          )}
++        </div>
++      )}
++    </div>
++  );
++}
++
++/** Un dossier de la CTD (ou sa racine) : ses sous-dossiers et ses fichiers, dépliés à la demande. */
++function Noeud({
++  noeud, racine = false, profondeur, productId, path, canManage, canUpload, canDelete, occupe, renommer,
++}: {
++  noeud: NoeudCtd<DocItem>;
++  racine?: boolean;
++  profondeur: number;
++  productId: string;
++  path: string;
++  canManage: boolean;
++  canUpload: boolean;
++  canDelete: boolean;
++  occupe: boolean;
++  renommer: (dossier: string, nouveauNom: string) => Promise<boolean>;
++}) {
++  const [ouvert, setOuvert] = React.useState(racine || profondeur <= 1);
++  const [edition, setEdition] = React.useState(false);
++  const [brouillon, setBrouillon] = React.useState(noeud.nom);
++
++  const enfants = (
++    <>
++      {noeud.dossiers.map((d) => (
++        <Noeud
++          key={d.chemin} noeud={d} profondeur={profondeur + 1} productId={productId} path={path}
++          canManage={canManage} canUpload={canUpload} canDelete={canDelete} occupe={occupe} renommer={renommer}
++        />
++      ))}
++      {noeud.fichiers.map((f) => (
++        <li key={f.id} className="flex items-center gap-2 py-1.5" style={{ paddingLeft: `${(profondeur + (racine ? 0 : 1)) * 14 + 8}px` }}>
++          {/\.zip$/i.test(f.name) ? <FileArchive className="h-4 w-4 shrink-0 text-primary" /> : <FileText className="h-4 w-4 shrink-0 text-muted-foreground" />}
++          <div className="min-w-0 flex-1">
++            <DocumentPreview id={f.id} name={f.name} hasFile={f.hasFile} canDelete={canDelete} canRename={canUpload} path={path} />
++            <p className="truncate text-[0.6875rem] text-muted-foreground">
++              {[f.version > 1 ? `v${f.version}` : "", humanSize(f.sizeBytes ?? 0), formatDate(f.createdAt), f.uploadedBy ?? ""].filter(Boolean).join(" · ")}
++            </p>
++          </div>
++        </li>
++      ))}
++    </>
++  );
++
++  if (racine) return enfants;
++
++  return (
++    <li>
++      <div className="flex items-center gap-1.5 py-1.5" style={{ paddingLeft: `${profondeur * 14 + 4}px` }}>
++        <button type="button" onClick={() => setOuvert(!ouvert)} aria-expanded={ouvert} className="flex min-w-0 flex-1 items-center gap-1.5 text-left" disabled={edition}>
++          {ouvert ? <ChevronDown className="h-3.5 w-3.5 shrink-0" /> : <ChevronRight className="h-3.5 w-3.5 shrink-0" />}
++          {ouvert ? <FolderOpen className="h-4 w-4 shrink-0 text-primary" /> : <Folder className="h-4 w-4 shrink-0 text-primary" />}
++          {edition ? null : (
++            <>
++              <span className="truncate text-[0.8125rem] font-medium" title={noeud.chemin}>{noeud.nom}</span>
++              <span className="shrink-0 text-[0.6875rem] text-muted-foreground">{s(noeud.nbFichiers, "fichier")} · {humanSize(noeud.octets)}</span>
++            </>
++          )}
++        </button>
++        {edition && (
++          <span className="flex min-w-0 flex-1 items-center gap-1">
++            <input
++              autoFocus value={brouillon} onChange={(e) => setBrouillon(e.target.value)} aria-label={`Nouveau nom du dossier ${noeud.nom}`}
++              onKeyDown={(e) => { if (e.key === "Escape") { setEdition(false); setBrouillon(noeud.nom); } }}
++              className="min-w-0 flex-1 rounded-md border border-input bg-background px-2 py-1 text-xs focus-ring"
++            />
++            <button type="button" disabled={occupe} aria-label="Enregistrer le nom" className="rounded-md p-1 text-success hover:bg-success/10"
++              onClick={async () => { if (await renommer(noeud.chemin, brouillon)) setEdition(false); }}>
++              {occupe ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
++            </button>
++            <button type="button" aria-label="Annuler" className="rounded-md p-1 text-muted-foreground hover:bg-secondary" onClick={() => { setEdition(false); setBrouillon(noeud.nom); }}>
++              <X className="h-3.5 w-3.5" />
++            </button>
++          </span>
++        )}
++        {canManage && !edition && (
++          <button type="button" aria-label={`Renommer le dossier ${noeud.nom}`} title="Renommer ce dossier" className="shrink-0 rounded-md p-1 text-muted-foreground hover:bg-secondary hover:text-foreground"
++            onClick={() => { setBrouillon(noeud.nom); setEdition(true); }}>
++            <Pencil className="h-3.5 w-3.5" />
++          </button>
++        )}
++      </div>
++      {ouvert && <ul>{enfants}</ul>}
++    </li>
++  );
++}
+diff --git a/src/app/(app)/regulatory/[id]/page.tsx b/src/app/(app)/regulatory/[id]/page.tsx
+index 79fa59e..6351a66 100644
+--- a/src/app/(app)/regulatory/[id]/page.tsx
++++ b/src/app/(app)/regulatory/[id]/page.tsx
+@@ -47,6 +47,8 @@ import { orderSteps, type DossierStepKind } from "@/lib/regulatory/dossier-timel
+ import { getMyCompanies } from "@/lib/company";
+ import { loadProductMarkets } from "@/lib/queries/market-360";
+ import { ProductMarkets } from "./product-markets";
++import { estCtdInitiale, KIND_CORBEILLE_CTD } from "@/lib/regulatory/ctd-initiale";
++import { droitsSurLaCtd } from "@/lib/regulatory/ctd-initiale-corbeille";
+ 
+ const REG_DOC_CATEGORIES = [
+   "CTD_FULL", "MODULE_1", "MODULE_2", "MODULE_3", "MODULE_4", "MODULE_5",
+@@ -57,7 +59,7 @@ const REG_DOC_CATEGORIES = [
+ // Documents liés aux réserves de l'ANPP (réserves reçues + réponses du laboratoire).
+ const REG_RESERVE_CATEGORIES = ["QUERY_RECEIVED", "QUERY_RESPONSE"];
+ 
+-export default async function RegulatoryDetailPage({ params, searchParams }: { params: { id: string }; searchParams: { dossier?: string } }) {
++export default async function RegulatoryDetailPage({ params, searchParams }: { params: { id: string }; searchParams: { dossier?: string; ctd?: string } }) {
+   const user = await requireModule("REGULATORY");
+   if (!(await canAccessEntity(user, "REGULATORY_PRODUCT", params.id, "VIEW"))) {
+     notFound();
+@@ -115,6 +117,17 @@ export default async function RegulatoryDetailPage({ params, searchParams }: { p
+     getMyCompanies(user.id),
+   ]);
+ 
++  // LA CTD INITIALE (§118.213) : ce que la personne peut en faire (la porte du dépôt, jamais plus large), et la
++  // dernière CTD retirée de ce dossier — dite sur le bloc, restaurable par le Super Admin depuis la corbeille.
++  const [droitsCtd, ctdRetiree] = await Promise.all([
++    droitsSurLaCtd(user, product.id),
++    prisma.deletedRecord.findFirst({
++      where: { kind: KIND_CORBEILLE_CTD, sourceId: product.id, restoredAt: null, purgedAt: null },
++      orderBy: { deletedAt: "desc" },
++      select: { deletedAt: true, payload: true },
++    }),
++  ]);
++
+   // LES MARCHÉS DU PRODUIT (§30) : la vue inverse de la fiche marché, servie par la MÊME
+   // requête que /pch/[id]. Rien à montrer tant que le produit canonique n'a croisé aucun AO.
+   const marches = product.productId ? await loadProductMarkets(product.productId) : [];
+@@ -161,7 +174,10 @@ export default async function RegulatoryDetailPage({ params, searchParams }: { p
+   // Les pièces rattachées à une étape (ANPP ou frise du dossier) vivent SOUS leur étape, pas
+   // dans la liste générale : c'est tout l'intérêt de les y avoir rattachées.
+   const stepDocs: Record<string, DocItem[]> = {};
+-  for (const d of documents) if (d.stepKey) (stepDocs[d.stepKey] ??= []).push(toDocItem(d));
++  // La CTD initiale a son BLOC : elle n'est pas répétée parmi les « pièces de l'étape » (le même fichier deux fois à l'écran).
++  for (const d of documents) if (d.stepKey && !estCtdInitiale(d)) (stepDocs[d.stepKey] ??= []).push(toDocItem(d));
++  const ctdDocs = documents.filter(estCtdInitiale).map(toDocItem);
++  const retireePayload = (ctdRetiree?.payload ?? null) as { fichiers?: number; motif?: string } | null;
+   const nonStep = documents.filter((d) => !d.stepKey);
+   // On sépare ensuite les pièces des réserves (section dédiée) du reste des documents.
+   const reserveDocs = nonStep.filter((d) => REG_RESERVE_CATEGORIES.includes(d.category)).map(toDocItem);
+@@ -403,6 +419,13 @@ export default async function RegulatoryDetailPage({ params, searchParams }: { p
+                 canUpload={canUpload}
+                 canDelete={canDelete}
+                 stepDocs={stepDocs}
++                ctd={{
++                  docs: ctdDocs,
++                  canUpload: droitsCtd.deposer,
++                  canManage: droitsCtd.gerer,
++                  depotEnCours: searchParams.ctd === "envoi",
++                  retiree: ctdRetiree ? { quand: ctdRetiree.deletedAt.toISOString(), fichiers: retireePayload?.fichiers ?? 0, remplacee: retireePayload?.motif === "REMPLACEE" } : null,
++                }}
+                 dossierSteps={timeline}
+                 path={`/regulatory/${product.id}`}
+               />
+diff --git a/src/app/(app)/regulatory/ctd-creation.tsx b/src/app/(app)/regulatory/ctd-creation.tsx
+new file mode 100644
+index 0000000..e4b5333
+--- /dev/null
++++ b/src/app/(app)/regulatory/ctd-creation.tsx
+@@ -0,0 +1,119 @@
++"use client";
++
++import * as React from "react";
++import { Archive, FileUp, FolderUp, UploadCloud, X } from "lucide-react";
++import { Button } from "@/components/ui/button";
++import { useLimitesEnvoi } from "@/components/layout/use-limites-envoi";
++import { envoiDocument, lireDepot, FICHIER_PARASITE, type EntreeDepot } from "@/components/documents/envoi-document";
++import { CTD_INITIALE_CATEGORIE, CTD_INITIALE_ENTITE, CTD_INITIALE_ETAPE, CTD_INITIALE_LIBELLE } from "@/lib/regulatory/ctd-initiale";
++import { cn } from "@/lib/utils";
++
++type FichierAvecChemin = File & { webkitRelativePath?: string };
++
++const humanSize = (n: number) => (n >= 1073741824 ? `${(n / 1073741824).toFixed(1)} Go` : n >= 1048576 ? `${(n / 1048576).toFixed(1)} Mo` : `${Math.max(1, Math.ceil(n / 1024))} Ko`);
++
++/**
++ * LA CTD INITIALE, À LA CRÉATION DU DOSSIER (§118.213).
++ *
++ * « Lors de la création d'un dossier, on doit pouvoir mettre un dossier ZIP complet (ou un dossier
++ * entier) : il sera mis dans la première étape du process, nommé « CTD initiale ». »
++ *
++ * Le dossier n'existe qu'après sa création : ce composant ne ENVOIE RIEN. Il garde la sélection
++ * (des fichiers, un .zip, ou un dossier entier avec son arborescence) et la rend au formulaire, qui —
++ * une fois le dossier créé — la confie au gestionnaire d'envois global, vers l'étape 1. Ce choix a deux
++ * conséquences voulues :
++ *   • la création ne bloque jamais sur le téléversement (un .zip de plusieurs Go ne retient pas la
++ *     fenêtre) : on arrive sur la fiche, l'envoi continue, sa progression est dans la pastille ;
++ *   • les champs de ce composant n'ont PAS de `name` : ils ne partent jamais avec le formulaire, donc
++ *     jamais dans l'action serveur (qui n'a pas à recevoir des gigaoctets).
++ *
++ * Le refus d'un fichier est dit ICI, avant la création, avec la phrase du serveur (type interdit,
++ * trop lourd, vide) : on ne découvre pas après avoir créé le dossier que la CTD ne partira pas.
++ */
++export function CtdALaCreation({ entrees, onChange }: { entrees: EntreeDepot[]; onChange: (e: EntreeDepot[]) => void }) {
++  const limites = useLimitesEnvoi();
++  const filesRef = React.useRef<HTMLInputElement>(null);
++  const dossierRef = React.useRef<HTMLInputElement>(null);
++  const [dragOver, setDragOver] = React.useState(false);
++  const [refuses, setRefuses] = React.useState<{ path: string; raison: string }[]>([]);
++
++  const refusDe = limites
++    ? envoiDocument({ entityType: CTD_INITIALE_ENTITE, entityId: "", category: CTD_INITIALE_CATEGORIE, confidentiality: "INTERNAL", stepKey: CTD_INITIALE_ETAPE, ctd: true }, limites, () => null).refus
++    : undefined;
++
++  function ajouter(liste: EntreeDepot[]) {
++    if (liste.length === 0) return;
++    const gardes: EntreeDepot[] = [];
++    const ko: { path: string; raison: string }[] = [];
++    for (const e of liste) {
++      if (FICHIER_PARASITE.test(e.file.name)) continue;
++      const raison = e.file.size === 0 ? "Fichier vide (0 octet)." : refusDe ? refusDe(e.file) : null;
++      if (raison) ko.push({ path: e.path, raison }); else gardes.push(e);
++    }
++    setRefuses(ko);
++    onChange([...entrees, ...gardes]);
++  }
++
++  const total = entrees.reduce((s, e) => s + e.file.size, 0);
++  const racines = new Set(entrees.map((e) => e.path.split("/")[0]));
++
++  return (
++    <fieldset className="space-y-2 rounded-lg border border-primary/40 bg-primary/[0.04] p-3">
++      <legend className="flex items-center gap-1.5 px-1 text-sm font-medium"><Archive className="h-4 w-4 text-primary" /> {CTD_INITIALE_LIBELLE} <span className="text-xs font-normal text-muted-foreground">(facultatif)</span></legend>
++      <p className="text-xs text-muted-foreground">
++        Un <strong>.zip complet</strong> ou un <strong>dossier entier</strong> (arborescence conservée). Elle sera déposée sur l&apos;étape 1 du processus (« Réception du CTD complet »)
++        dès que le dossier est créé ; l&apos;envoi continue en arrière-plan, sans retenir la création. Vous pourrez la remplacer, la supprimer ou y ajouter des fichiers ensuite.
++      </p>
++      <div
++        onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
++        onDragLeave={() => setDragOver(false)}
++        onDrop={(e) => { e.preventDefault(); setDragOver(false); void lireDepot(e.dataTransfer).then(ajouter); }}
++        className={cn("rounded-xl border-2 border-dashed px-3 py-2.5 text-center transition-colors", dragOver ? "border-primary bg-accent/50" : "border-border bg-muted/30")}
++      >
++        <div className="flex flex-wrap items-center justify-center gap-2">
++          <UploadCloud className="h-4 w-4 text-muted-foreground" />
++          <Button type="button" size="sm" variant="outline" onClick={() => filesRef.current?.click()}>
++            <FileUp className="h-4 w-4" /> Choisir un .zip ou des fichiers
++          </Button>
++          <Button type="button" size="sm" variant="outline" onClick={() => dossierRef.current?.click()}>
++            <FolderUp className="h-4 w-4" /> Choisir un dossier
++          </Button>
++        </div>
++        {/* AUCUN `name` : ces champs ne partent pas avec le formulaire (voir l'en-tête). */}
++        <input ref={filesRef} type="file" multiple hidden data-testid="ctd-creation-fichiers" onChange={(e) => {
++          ajouter(Array.from(e.target.files ?? []).map((file) => ({ file, path: (file as FichierAvecChemin).webkitRelativePath || file.name })));
++          e.target.value = "";
++        }} />
++        <input ref={dossierRef} type="file" multiple hidden data-testid="ctd-creation-dossier" {...({ webkitdirectory: "", directory: "" } as Record<string, string>)} onChange={(e) => {
++          ajouter(Array.from(e.target.files ?? []).map((file) => ({ file, path: (file as FichierAvecChemin).webkitRelativePath || file.name })));
++          e.target.value = "";
++        }} />
++      </div>
++
++      {entrees.length > 0 && (
++        <div className="flex items-center justify-between gap-2 rounded-lg border border-border bg-background px-3 py-2 text-xs" role="status">
++          <span className="min-w-0">
++            <strong>{entrees.length} fichier{entrees.length > 1 ? "s" : ""}</strong> · {humanSize(total)}
++            {racines.size === 1 && entrees[0].path.includes("/") ? <> · dossier « {[...racines][0]} »</> : null}
++            {entrees.length === 1 ? <> · <span className="break-all">{entrees[0].path}</span></> : null}
++          </span>
++          <button type="button" onClick={() => { onChange([]); setRefuses([]); }} className="inline-flex shrink-0 items-center gap-1 rounded p-0.5 text-muted-foreground hover:text-destructive" aria-label="Retirer la CTD choisie">
++            <X className="h-3.5 w-3.5" /> Retirer
++          </button>
++        </div>
++      )}
++
++      {refuses.length > 0 && (
++        <ul className="space-y-1 rounded-lg border border-destructive/30 bg-destructive/5 p-1.5" aria-live="polite">
++          {refuses.slice(0, 5).map((r) => (
++            <li key={r.path} className="flex items-start gap-2 px-2 py-1 text-xs text-destructive">
++              <X className="mt-0.5 h-3.5 w-3.5 shrink-0" />
++              <span className="min-w-0"><strong className="break-all">{r.path}</strong> — non retenu : {r.raison}</span>
++            </li>
++          ))}
++          {refuses.length > 5 && <li className="px-2 text-xs text-destructive">… et {refuses.length - 5} autre{refuses.length - 5 > 1 ? "s" : ""}.</li>}
++        </ul>
++      )}
++    </fieldset>
++  );
++}
+diff --git a/src/app/(app)/regulatory/new-product.tsx b/src/app/(app)/regulatory/new-product.tsx
+index 4b21b1b..d621b43 100644
+--- a/src/app/(app)/regulatory/new-product.tsx
++++ b/src/app/(app)/regulatory/new-product.tsx
+@@ -10,6 +10,11 @@ import { Sheet } from "@/components/ui/sheet";
+ import { TextField, TextAreaField, SelectField, optionsFromMap } from "@/components/shared/form-fields";
+ import { DciAssociationField } from "./dci-field";
+ import { DciDuplicateBanner, useDciDuplicate } from "./dci-duplicate-banner";
++import { CtdALaCreation } from "./ctd-creation";
++import { useBackgroundUpload } from "@/components/layout/background-upload";
++import { useLimitesEnvoi } from "@/components/layout/use-limites-envoi";
++import { construireEnvoi, type EntreeDepot } from "@/components/documents/envoi-document";
++import { CTD_INITIALE_CATEGORIE, CTD_INITIALE_ENTITE, CTD_INITIALE_ETAPE } from "@/lib/regulatory/ctd-initiale";
+ import { MANUFACTURING_STATUS, REGULATORY_CATEGORY, PRODUCT_CHANNEL, PRIORITY, REGULATORY_STATUS, ROLE_LABELS, PHARMA_FORM, DOSAGE_UNIT } from "@/lib/labels";
+ 
+ interface UserOption {
+@@ -41,12 +46,36 @@ export function NewProductButton({ users, suppliers, companies, lockOnCreate = f
+   const doublon = useDciDuplicate(dci);
+   const recheck = doublon.recheck;
+ 
++  // LA CTD INITIALE choisie dans le formulaire (§118.213) : gardée ici, confiée au gestionnaire d'envois
++  // global UNE fois le dossier créé — vers l'étape 1, sans retenir la création.
++  const { enqueue } = useBackgroundUpload();
++  const limites = useLimitesEnvoi();
++  const [ctd, setCtd] = React.useState<EntreeDepot[]>([]);
++  const ctdRef = React.useRef<EntreeDepot[]>([]);
++  ctdRef.current = ctd;
++  const limitesRef = React.useRef(limites);
++  limitesRef.current = limites;
++  // Un résultat d'action ne se traite qu'UNE fois : l'effet rejoue quand d'autres dépendances changent, et
++  // une CTD choisie pour un AUTRE dossier plus tard ne doit jamais partir vers celui-ci.
++  const traite = React.useRef<unknown>(null);
++
+   React.useEffect(() => {
+     if (state?.ok) {
++      if (traite.current === state) return;
++      traite.current = state;
++      const aEnvoyer = ctdRef.current;
++      if (state.id && aEnvoyer.length > 0) {
++        enqueue(construireEnvoi({
++          cible: { entityType: CTD_INITIALE_ENTITE, entityId: state.id, category: CTD_INITIALE_CATEGORIE, confidentiality: "INTERNAL", stepKey: CTD_INITIALE_ETAPE, ctd: true },
++          entrees: aEnvoyer,
++          limites: limitesRef.current,
++        }));
++        setCtd([]);
++      }
+       setOpen(false);
+       setSubmitting(false);
+       router.refresh();
+-      if (state.id) router.push(`/regulatory/${state.id}`);
++      if (state.id) router.push(`/regulatory/${state.id}${aEnvoyer.length > 0 ? "?ctd=envoi" : ""}`);
+     } else if (state?.error) {
+       setSubmitting(false);
+       lock.current = false; // échec → on autorise une nouvelle tentative
+@@ -55,7 +84,7 @@ export function NewProductButton({ users, suppliers, companies, lockOnCreate = f
+       // s'afficherait sans le bouton qui permet de passer outre, et l'on serait bloqué.
+       recheck();
+     }
+-  }, [state, router, recheck]);
++  }, [state, router, recheck, enqueue]);
+ 
+   const userOptions = users.map((u) => ({
+     value: u.id,
+@@ -114,6 +143,8 @@ export function NewProductButton({ users, suppliers, companies, lockOnCreate = f
+           </div>
+           <TextAreaField label="Commentaires" name="comments" placeholder="Notes internes…" />
+ 
++          <CtdALaCreation entrees={ctd} onChange={setCtd} />
++
+           <DciDuplicateBanner dci={dci} check={doublon} />
+           {/* L'accord de la personne, porté par le formulaire. Le serveur refuse sans lui : la
+               garde vit là-bas, l'écran ne fait que ne pas proposer ce qui serait refusé. */}
+diff --git a/src/app/api/documents/upload/direct/route.ts b/src/app/api/documents/upload/direct/route.ts
+index dc86f12..43d8a2a 100644
+--- a/src/app/api/documents/upload/direct/route.ts
++++ b/src/app/api/documents/upload/direct/route.ts
+@@ -23,7 +23,7 @@ export async function POST(req: NextRequest) {
+       cible: {
+         entityType: (str(b.entityType) ?? "") as EntityType, entityId: str(b.entityId) ?? "",
+         category: (str(b.category) ?? "OTHER") as DocumentCategory, confidentiality: (str(b.confidentiality) ?? "INTERNAL") as Confidentiality,
+-        stepKey: str(b.stepKey), folder: dossierSur(str(b.folder)),
++        stepKey: str(b.stepKey), folder: dossierSur(str(b.folder)), ctd: b.ctd === true,
+       },
+     });
+     if (!r.ok) return NextResponse.json({ error: r.error }, { status: r.status });
+diff --git a/src/app/api/documents/upload/route.ts b/src/app/api/documents/upload/route.ts
+index 5cdcb01..217d008 100644
+--- a/src/app/api/documents/upload/route.ts
++++ b/src/app/api/documents/upload/route.ts
+@@ -29,6 +29,8 @@ export async function POST(req: NextRequest) {
+   const stepKey = form.get("stepKey") ? String(form.get("stepKey")) : null;
+   // Dossier d'origine (dépôt d'un DOSSIER) : l'arborescence se garde sur la fiche ET dans le Drive.
+   const folder = dossierSur(form.get("folder") ? String(form.get("folder")) : null);
++  // Le dépôt vient du bloc « CTD initiale » d'un dossier Regulatory (§118.213) ; `persistUploadedDocument` le juge.
++  const ctd = String(form.get("ctd") ?? "") === "1";
+   const files = form.getAll("files").filter((f): f is File => f instanceof File && f.size > 0);
+ 
+   if (!entityType || !entityId) return NextResponse.json({ error: "Entité manquante." }, { status: 400 });
+@@ -65,7 +67,7 @@ export async function POST(req: NextRequest) {
+       const buffer = Buffer.from(await file.arrayBuffer());
+       // `mirrorToDrive: false` — le lot fait son miroir lui-même, en une seule fois, après la
+       // boucle : un envoi de 40 fichiers ne doit pas rouvrir 40 fois la même arborescence.
+-      const r = await persistUploadedDocument(user.id, { entityType, entityId, category, confidentiality, stepKey, folder, file, maxUploadMb, buffer, mirrorToDrive: false });
++      const r = await persistUploadedDocument(user.id, { entityType, entityId, category, confidentiality, stepKey, folder, file, maxUploadMb, buffer, mirrorToDrive: false, ctd });
+       if (r.ok) {
+         created++;
+         if (r.documentId) ids.push(r.documentId);
+diff --git a/src/components/documents/document-upload.tsx b/src/components/documents/document-upload.tsx
+index 2eec9e4..81c026b 100644
+--- a/src/components/documents/document-upload.tsx
++++ b/src/components/documents/document-upload.tsx
+@@ -5,10 +5,11 @@ import { UploadCloud, CheckCircle2, FileUp, FolderUp, X } from "lucide-react";
+ import type { EntityType } from "@prisma/client";
+ import { Button } from "@/components/ui/button";
+ import { Select } from "@/components/ui/input";
++import { BoutonDecisif } from "@/components/ui/bouton-decisif";
+ import { DOCUMENT_CATEGORY, CONFIDENTIALITY } from "@/lib/labels";
+ import { useBackgroundUpload } from "@/components/layout/background-upload";
+ import { useLimitesEnvoi } from "@/components/layout/use-limites-envoi";
+-import { envoiDocument, lireDepot, dossierDuChemin, FICHIER_PARASITE, type EntreeDepot } from "./envoi-document";
++import { envoiDocument, construireEnvoi, lireDepot, FICHIER_PARASITE, type EntreeDepot } from "./envoi-document";
+ import { cn } from "@/lib/utils";
+ 
+ interface DocumentUploadProps {
+@@ -19,6 +20,19 @@ interface DocumentUploadProps {
+   compact?: boolean; // version condensée (par étape)
+   /** Les identifiants des `Document` créés, fichier par fichier, une fois chacun déposé. */
+   onUploaded?: (ids: string[]) => void;
++  /** Le dépôt vise la « CTD initiale » d'un dossier Regulatory (étape 1, catégorie « CTD complet ») — §118.213. */
++  ctd?: boolean;
++  /** Le dossier de la CTD où poser le lot (« Compléments ») ; absent = la racine. */
++  dossierBase?: string | null;
++  /**
++   * Un geste qui DOIT réussir avant que le lot parte (remplacer la CTD : l'ancienne part d'abord à la
++   * corbeille). `false` = rien n'est envoyé et la sélection reste intacte — la personne ne perd pas ses fichiers.
++   */
++  avantEnvoi?: () => Promise<boolean>;
++  /** Le libellé du bouton d'envoi, quand « Téléverser » ne dit pas ce qui va se passer. */
++  libelleEnvoi?: string;
++  /** Si posé, le bouton d'envoi est un bouton décisif : un second clic confirme (« Remplacer la CTD »). */
++  confirmationEnvoi?: string;
+ }
+ 
+ interface Item { id: string; file: File; path: string }
+@@ -40,7 +54,7 @@ let uid = 0;
+  * dans le **dossier Drive du produit** (le ZIP y reste entier et navigable). File d'attente locale
+  * seulement pour la sélection.
+  */
+-export function DocumentUpload({ entityType, entityId, categories, stepKey, compact, onUploaded }: DocumentUploadProps) {
++export function DocumentUpload({ entityType, entityId, categories, stepKey, compact, onUploaded, ctd, dossierBase, avantEnvoi, libelleEnvoi, confirmationEnvoi }: DocumentUploadProps) {
+   const { enqueue } = useBackgroundUpload();
+   const filesRef = React.useRef<HTMLInputElement>(null);
+   const dossierRef = React.useRef<HTMLInputElement>(null);
+@@ -61,7 +75,7 @@ export function DocumentUpload({ entityType, entityId, categories, stepKey, comp
+   const limites = useLimitesEnvoi();
+   const [refuses, setRefuses] = React.useState<{ id: string; path: string; raison: string }[]>([]);
+ 
+-  const refusDe = limites ? envoiDocument({ entityType, entityId, category, confidentiality, stepKey }, limites, () => null).refus : undefined;
++  const refusDe = limites ? envoiDocument({ entityType, entityId, category, confidentiality, stepKey, ctd }, limites, () => null).refus : undefined;
+ 
+   function addEntries(list: EntreeDepot[]) {
+     if (list.length === 0) return;
+@@ -96,39 +110,25 @@ export function DocumentUpload({ entityType, entityId, categories, stepKey, comp
+   const removeItem = (id: string) => setItems((cur) => cur.filter((it) => it.id !== id));
+ 
+   /** Confie le lot au gestionnaire global : l'envoi continue même si on quitte la page. */
+-  function uploadAll() {
++  async function uploadAll() {
+     if (items.length === 0) return;
+-    const files = items.map((it) => it.file);
+-    // Le dossier d'origine de chaque fichier (« CTD/Module 1 ») : l'arborescence se garde sur la fiche.
+-    const dossiers = new Map<File, string | null>(items.map((it) => [it.file, dossierDuChemin(it.path)]));
++    if (avantEnvoi && !(await avantEnvoi())) return;
+     const cat = category, conf = confidentiality;
+-    const envoi = envoiDocument({ entityType, entityId, category: cat, confidentiality: conf, stepKey }, limites, (f) => dossiers.get(f) ?? null);
+-    enqueue({
+-      label: `${files.length} document${files.length > 1 ? "s" : ""}`,
+-      files,
+-      concurrency: 6,
+-      makeRequest: (file) => {
+-        const fd = new FormData();
+-        fd.set("entityType", entityType);
+-        fd.set("entityId", entityId);
+-        fd.set("category", cat);
+-        fd.set("confidentiality", conf);
+-        if (stepKey) fd.set("stepKey", stepKey);
+-        const dossier = dossiers.get(file);
+-        if (dossier) fd.set("folder", dossier);
+-        fd.append("files", file, file.name);
+-        return { url: "/api/documents/upload", formData: fd };
+-      },
+-      refus: envoi.refus,
+-      direct: envoi.direct,
++    // UNE construction pour tous les téléverseurs (`construireEnvoi`) : le dossier d'origine de chaque fichier
++    // (« CTD/Module 1 ») et le dossier de DESTINATION choisi s'y joignent — l'arborescence se garde sur la fiche.
++    enqueue(construireEnvoi({
++      cible: { entityType, entityId, category: cat, confidentiality: conf, stepKey, ctd },
++      entrees: items.map((it) => ({ file: it.file, path: it.path })),
++      limites,
++      dossierBase,
+       onFileDone: onUploaded
+         ? (_file, body) => {
+             const ids = Array.isArray(body.ids) ? body.ids.filter((x): x is string => typeof x === "string") : [];
+             if (ids.length > 0) onUploaded(ids);
+           }
+         : undefined,
+-    });
+-    setQueued(files.length);
++    }));
++    setQueued(items.length);
+     setItems([]);
+   }
+ 
+@@ -218,10 +218,17 @@ export function DocumentUpload({ entityType, entityId, categories, stepKey, comp
+             <span className="flex items-center gap-1.5 text-success"><CheckCircle2 className="h-4 w-4" /> {queued} document·s en envoi — vous pouvez continuer à travailler.</span>
+           )}
+         </div>
+-        <Button type="button" size="sm" onClick={uploadAll} disabled={items.length === 0}>
+-          <UploadCloud className="h-4 w-4" />
+-          Téléverser{items.length > 0 ? ` (${items.length})` : ""}
+-        </Button>
++        {confirmationEnvoi ? (
++          <BoutonDecisif type="button" size="sm" onClick={() => void uploadAll()} disabled={items.length === 0} confirmation={confirmationEnvoi}>
++            <UploadCloud className="h-4 w-4" />
++            {libelleEnvoi ?? "Téléverser"}{items.length > 0 ? ` (${items.length})` : ""}
++          </BoutonDecisif>
++        ) : (
++          <Button type="button" size="sm" onClick={() => void uploadAll()} disabled={items.length === 0}>
++            <UploadCloud className="h-4 w-4" />
++            {libelleEnvoi ?? "Téléverser"}{items.length > 0 ? ` (${items.length})` : ""}
++          </Button>
++        )}
+       </div>
+     </div>
+   );
+diff --git a/src/components/documents/envoi-document.ts b/src/components/documents/envoi-document.ts
+index ff7fe17..b44bfd7 100644
+--- a/src/components/documents/envoi-document.ts
++++ b/src/components/documents/envoi-document.ts
+@@ -1,6 +1,7 @@
+ "use client";
+ 
+-import type { DirectSpec } from "@/components/layout/background-upload";
++import type { DirectSpec, EnqueueSpec } from "@/components/layout/background-upload";
++import { dossierDeDestination } from "@/lib/regulatory/ctd-initiale";
+ import type { LimitesEnvoi } from "@/components/layout/use-limites-envoi";
+ import type { PlanClient } from "@/lib/storage/envoi-direct-client";
+ import { refusTeleversement } from "@/lib/files/politique-televersement";
+@@ -14,6 +15,8 @@ export interface CibleDocumentClient {
+   category: string;
+   confidentiality: string;
+   stepKey?: string | null;
++  /** Le dépôt vient du bloc « CTD initiale » d'un dossier Regulatory (§118.213) — le serveur le juge. */
++  ctd?: boolean;
+ }
+ 
+ async function json<T>(res: Response): Promise<T> {
+@@ -68,6 +71,49 @@ export function envoiDocument(
+   };
+ }
+ 
++/**
++ * LE LOT À CONFIER AU GESTIONNAIRE D'ENVOIS — UNE construction, pour tous les téléverseurs.
++ *
++ * Le téléverseur des documents et le dépôt de la CTD à la création d'un dossier construisaient chacun
++ * leur requête ; la seconde copie aurait fini par oublier un champ (le dossier d'origine, la marque
++ * CTD). Chaque fichier part avec son dossier : le dossier de DESTINATION choisi (« Compléments »), puis le
++ * dossier d'origine du fichier déposé (« CTD/Module 1 ») — l'arborescence se garde sur la fiche.
++ */
++export function construireEnvoi(args: {
++  cible: CibleDocumentClient;
++  entrees: EntreeDepot[];
++  limites: LimitesEnvoi | null;
++  /** Le dossier de la CTD où poser le lot (« Compléments ») ; absent = la racine. */
++  dossierBase?: string | null;
++  onFileDone?: (file: File, body: Record<string, unknown>) => void;
++}): EnqueueSpec {
++  const { cible, entrees, limites } = args;
++  const files = entrees.map((e) => e.file);
++  const dossiers = new Map<File, string | null>(entrees.map((e) => [e.file, dossierDeDestination(args.dossierBase, dossierDuChemin(e.path))]));
++  const envoi = envoiDocument(cible, limites, (f) => dossiers.get(f) ?? null);
++  return {
++    label: cible.ctd ? `CTD initiale — ${files.length} document${files.length > 1 ? "s" : ""}` : `${files.length} document${files.length > 1 ? "s" : ""}`,
++    files,
++    concurrency: 6,
++    makeRequest: (file) => {
++      const fd = new FormData();
++      fd.set("entityType", cible.entityType);
++      fd.set("entityId", cible.entityId);
++      fd.set("category", cible.category);
++      fd.set("confidentiality", cible.confidentiality);
++      if (cible.stepKey) fd.set("stepKey", cible.stepKey);
++      if (cible.ctd) fd.set("ctd", "1");
++      const dossier = dossiers.get(file);
++      if (dossier) fd.set("folder", dossier);
++      fd.append("files", file, file.name);
++      return { url: "/api/documents/upload", formData: fd };
++    },
++    refus: envoi.refus,
++    direct: envoi.direct,
++    onFileDone: args.onFileDone,
++  };
++}
++
+ /** Fichiers parasites que les systèmes posent dans un dossier : on ne les envoie pas. */
+ export const FICHIER_PARASITE = /^(\.DS_Store|Thumbs\.db|desktop\.ini|~\$.*)$/i;
+ 
+diff --git a/src/lib/actions/admin-delete-actions.ts b/src/lib/actions/admin-delete-actions.ts
+index 94c750a..3090fac 100644
+--- a/src/lib/actions/admin-delete-actions.ts
++++ b/src/lib/actions/admin-delete-actions.ts
+@@ -17,6 +17,8 @@ import {
+   type DeletableKind,
+ } from "@/lib/admin-delete-registry";
+ import { restaurerLotDeLaCorbeille, supprimerReversible, type DeleteResult } from "@/lib/suppression/coeur";
++import { KIND_CORBEILLE_CTD } from "@/lib/regulatory/ctd-initiale";
++import { restaurerLaCtdDeLaCorbeille } from "@/lib/regulatory/ctd-initiale-corbeille";
+ import { peutSupprimerUneDemandeAdPro } from "@/lib/queries/ad-pro-suppression";
+ import { estDemandeAdProSupprimable, REFUS_SUPPRESSION_AD_PRO } from "@/lib/ad-pro/suppression";
+ 
+@@ -128,6 +130,14 @@ export async function restoreDeletedRecord(formData: FormData): Promise<DeleteRe
+   const recId = String(formData.get("id") ?? "");
+   const rec = await prisma.deletedRecord.findUnique({ where: { id: recId } });
+   if (!rec || rec.restoredAt || rec.purgedAt) return { ok: false, error: "Entrée introuvable ou déjà traitée." };
++  // LA CTD INITIALE d'un dossier Regulatory (§118.213) : un ensemble de documents, pas une ligne du registre.
++  if (rec.kind === KIND_CORBEILLE_CTD) {
++    const r = await restaurerLaCtdDeLaCorbeille(rec, user.id);
++    if (!r.ok) return r;
++    revalidatePath("/admin/corbeille");
++    revalidatePath(`/regulatory/${rec.sourceId}`);
++    return { ok: true, redirect: r.redirect };
++  }
+   if (!isDeletableKind(rec.kind)) return { ok: false, error: "Type inconnu." };
+   const spec = DELETE_REGISTRY[rec.kind];
+ 
+diff --git a/src/lib/actions/aiguillage.genere.ts b/src/lib/actions/aiguillage.genere.ts
+index d69fb15..ec984dc 100644
+--- a/src/lib/actions/aiguillage.genere.ts
++++ b/src/lib/actions/aiguillage.genere.ts
+@@ -1,7 +1,7 @@
+ // ⚠️  FICHIER GÉNÉRÉ — ne pas éditer à la main. Voir `npm run actions:contrat`.
+ //
+ // Chaque entrée est un spécificateur LITTÉRAL : l'empaqueteur les voit tous, et rien n'est
+-// chargé avant l'appel. `executer.test.ts` résout les 893 actions et échoue en
++// chargé avant l'appel. `executer.test.ts` résout les 896 actions et échoue en
+ // nommant celle qui a disparu — c'est le contrôle d'appelant que le compilateur ne fait pas ici.
+ 
+ export const MODULES_ACTIONS: Readonly<Record<string, () => Promise<Record<string, unknown>>>> = {
+@@ -125,6 +125,7 @@ export const MODULES_ACTIONS: Readonly<Record<string, () => Promise<Record<strin
+   "purchase-request-actions": () => import("./purchase-request-actions") as unknown as Promise<Record<string, unknown>>,
+   "recruitment-actions": () => import("./recruitment-actions") as unknown as Promise<Record<string, unknown>>,
+   "regulatory-actions": () => import("./regulatory-actions") as unknown as Promise<Record<string, unknown>>,
++  "regulatory-ctd-actions": () => import("./regulatory-ctd-actions") as unknown as Promise<Record<string, unknown>>,
+   "regulatory-reminder-actions": () => import("./regulatory-reminder-actions") as unknown as Promise<Record<string, unknown>>,
+   "regulatory-timeline-actions": () => import("./regulatory-timeline-actions") as unknown as Promise<Record<string, unknown>>,
+   "reminder-actions": () => import("./reminder-actions") as unknown as Promise<Record<string, unknown>>,
+diff --git a/src/lib/actions/contrat.genere.json b/src/lib/actions/contrat.genere.json
+index afb7a32..31a7da0 100644
+--- a/src/lib/actions/contrat.genere.json
++++ b/src/lib/actions/contrat.genere.json
+@@ -755,6 +755,9 @@
+   {"id":"regulatory-actions:updateRegulatoryProduct","fichier":"regulatory-actions","fonction":"updateRegulatoryProduct","avantFormulaire":0,"porte":{"module":null,"verbe":null,"entite":"REGULATORY_PRODUCT","moduleFr":"Regulatory","gardes":["canAccessEntity"]},"ecrit":true,"modelesEcrits":["auditLog","notification","product","regulatoryProduct"],"audit":true,"appel":"etat-formulaire","champs":[{"nom":"assistantId","type":"reference","obligatoire":false,"valeurs":null,"modele":"User"},{"nom":"brandName","type":"texte","obligatoire":false,"valeurs":null,"modele":null},{"nom":"category","type":"texte","obligatoire":false,"valeurs":null,"modele":null},{"nom":"channel","type":"texte","obligatoire":false,"valeurs":null,"modele":null},{"nom":"comments","type":"texte","obligatoire":false,"valeurs":null,"modele":null},{"nom":"companyId","type":"reference","obligatoire":true,"valeurs":null,"modele":"Company"},{"nom":"countryOfOrigin","type":"texte","obligatoire":false,"valeurs":null,"modele":null},{"nom":"dci","type":"texte","obligatoire":false,"valeurs":null,"modele":null},{"nom":"deHolder","type":"texte","obligatoire":false,"valeurs":null,"modele":null},{"nom":"dosage","type":"texte","obligatoire":false,"valeurs":null,"modele":null},{"nom":"dosageUnit","type":"texte","obligatoire":false,"valeurs":null,"modele":null},{"nom":"id","type":"reference","obligatoire":true,"valeurs":null,"modele":"RegulatoryProduct"},{"nom":"manufacturer","type":"texte","obligatoire":false,"valeurs":null,"modele":null},{"nom":"manufacturingStatus","type":"texte","obligatoire":false,"valeurs":null,"modele":null},{"nom":"molecule","type":"liste","obligatoire":false,"valeurs":null,"modele":null},{"nom":"packaging","type":"texte","obligatoire":false,"valeurs":null,"modele":null},{"nom":"partnerLab","type":"texte","obligatoire":false,"valeurs":null,"modele":null},{"nom":"pharmaceuticalForm","type":"texte","obligatoire":false,"valeurs":null,"modele":null},{"nom":"priority","type":"texte","obligatoire":false,"valeurs":null,"modele":null},{"nom":"productType","type":"texte","obligatoire":false,"valeurs":null,"modele":null},{"nom":"responsibleId","type":"reference","obligatoire":false,"valeurs":null,"modele":"User"},{"nom":"supplierId","type":"reference","obligatoire":false,"valeurs":null,"modele":"Supplier"},{"nom":"targetDate","type":"texte","obligatoire":false,"valeurs":null,"modele":null},{"nom":"targetSubmissionDate","type":"texte","obligatoire":false,"valeurs":null,"modele":null},{"nom":"therapeuticClass","type":"texte","obligatoire":false,"valeurs":null,"modele":null}],"illisible":null},
+   {"id":"regulatory-actions:updateRegulatoryStatus","fichier":"regulatory-actions","fonction":"updateRegulatoryStatus","avantFormulaire":0,"porte":{"module":null,"verbe":null,"entite":"REGULATORY_PRODUCT","moduleFr":"Regulatory","gardes":["canAccessEntity"]},"ecrit":true,"modelesEcrits":["auditLog","regulatoryProduct"],"audit":true,"appel":"formulaire","champs":[{"nom":"id","type":"reference","obligatoire":true,"valeurs":null,"modele":"RegulatoryProduct"},{"nom":"priority","type":"texte","obligatoire":false,"valeurs":null,"modele":null},{"nom":"status","type":"texte","obligatoire":false,"valeurs":null,"modele":null}],"illisible":null},
+   {"id":"regulatory-actions:updateRegulatoryStep","fichier":"regulatory-actions","fonction":"updateRegulatoryStep","avantFormulaire":0,"porte":{"module":null,"verbe":null,"entite":"REGULATORY_PRODUCT","moduleFr":"Regulatory","gardes":["canAccessEntity"]},"ecrit":true,"modelesEcrits":["auditLog","regulatoryStep"],"audit":true,"appel":"formulaire","champs":[{"nom":"actualDate","type":"texte","obligatoire":false,"valeurs":null,"modele":null},{"nom":"comment","type":"texte","obligatoire":false,"valeurs":null,"modele":null},{"nom":"missingDocs","type":"texte","obligatoire":false,"valeurs":null,"modele":null},{"nom":"plannedDate","type":"texte","obligatoire":false,"valeurs":null,"modele":null},{"nom":"responsible","type":"texte","obligatoire":false,"valeurs":null,"modele":null},{"nom":"status","type":"texte","obligatoire":false,"valeurs":null,"modele":null},{"nom":"stepId","type":"reference","obligatoire":true,"valeurs":null,"modele":null}],"illisible":null},
++  {"id":"regulatory-ctd-actions:remplacerCtdInitiale","fichier":"regulatory-ctd-actions","fonction":"remplacerCtdInitiale","avantFormulaire":0,"porte":{"module":null,"verbe":null,"entite":null,"moduleFr":null,"gardes":["peutGererLaCtd"]},"ecrit":true,"modelesEcrits":["deletedRecord","document"],"audit":true,"appel":"formulaire","champs":[{"nom":"productId","type":"reference","obligatoire":false,"valeurs":null,"modele":null}],"illisible":null},
++  {"id":"regulatory-ctd-actions:renommerDossierCtd","fichier":"regulatory-ctd-actions","fonction":"renommerDossierCtd","avantFormulaire":0,"porte":{"module":null,"verbe":null,"entite":null,"moduleFr":null,"gardes":["peutGererLaCtd"]},"ecrit":true,"modelesEcrits":["document"],"audit":true,"appel":"formulaire","champs":[{"nom":"dossier","type":"texte","obligatoire":false,"valeurs":null,"modele":null},{"nom":"nouveauNom","type":"texte","obligatoire":false,"valeurs":null,"modele":null},{"nom":"productId","type":"reference","obligatoire":false,"valeurs":null,"modele":null}],"illisible":null},
++  {"id":"regulatory-ctd-actions:supprimerCtdInitiale","fichier":"regulatory-ctd-actions","fonction":"supprimerCtdInitiale","avantFormulaire":0,"porte":{"module":null,"verbe":null,"entite":null,"moduleFr":null,"gardes":["peutGererLaCtd"]},"ecrit":true,"modelesEcrits":["deletedRecord","document"],"audit":true,"appel":"formulaire","champs":[{"nom":"productId","type":"reference","obligatoire":false,"valeurs":null,"modele":null}],"illisible":null},
+   {"id":"regulatory-reminder-actions:sendRegulatoryUpdateReminder","fichier":"regulatory-reminder-actions","fonction":"sendRegulatoryUpdateReminder","avantFormulaire":0,"porte":{"module":null,"verbe":null,"entite":null,"moduleFr":"Regulatory","gardes":["canSendUpdateReminder"]},"ecrit":true,"modelesEcrits":["auditLog","notification","regulatoryUpdateReminder"],"audit":true,"appel":"formulaire","champs":[{"nom":"note","type":"texte","obligatoire":false,"valeurs":null,"modele":null},{"nom":"recipientId","type":"reference","obligatoire":false,"valeurs":null,"modele":"User"}],"illisible":null},
+   {"id":"regulatory-timeline-actions:addDossierStep","fichier":"regulatory-timeline-actions","fonction":"addDossierStep","avantFormulaire":0,"porte":{"module":null,"verbe":null,"entite":null,"moduleFr":"Regulatory","gardes":[]},"ecrit":true,"modelesEcrits":["auditLog","regulatoryDossierStep"],"audit":true,"appel":"etat-formulaire","champs":[{"nom":"afterId","type":"reference","obligatoire":false,"valeurs":null,"modele":null},{"nom":"kind","type":"texte","obligatoire":false,"valeurs":null,"modele":null},{"nom":"label","type":"texte","obligatoire":false,"valeurs":null,"modele":null},{"nom":"note","type":"texte","obligatoire":false,"valeurs":null,"modele":null},{"nom":"occurredAt","type":"date","obligatoire":false,"valeurs":null,"modele":null},{"nom":"productId","type":"reference","obligatoire":true,"valeurs":null,"modele":"RegulatoryProduct"},{"nom":"version","type":"nombre","obligatoire":false,"valeurs":null,"modele":null}],"illisible":null},
+   {"id":"regulatory-timeline-actions:deleteDossierStep","fichier":"regulatory-timeline-actions","fonction":"deleteDossierStep","avantFormulaire":0,"porte":{"module":null,"verbe":null,"entite":null,"moduleFr":"Regulatory","gardes":["canRemove"]},"ecrit":true,"modelesEcrits":["auditLog","regulatoryDossierStep"],"audit":true,"appel":"formulaire","champs":[{"nom":"id","type":"reference","obligatoire":true,"valeurs":null,"modele":"RegulatoryDossierStep"}],"illisible":null},
+diff --git a/src/lib/actions/regulatory-ctd-actions.ts b/src/lib/actions/regulatory-ctd-actions.ts
+new file mode 100644
+index 0000000..078e6f0
+--- /dev/null
++++ b/src/lib/actions/regulatory-ctd-actions.ts
+@@ -0,0 +1,85 @@
++"use server";
++
++import { revalidatePath } from "next/cache";
++import { requireUser } from "@/lib/session";
++import { CTD_INITIALE_LIBELLE } from "@/lib/regulatory/ctd-initiale";
++import { PHRASE_AUCUNE_CTD, mettreLaCtdALaCorbeille, peutGererLaCtd, renommerUnDossierDeLaCtd } from "@/lib/regulatory/ctd-initiale-corbeille";
++
++/**
++ * LA CTD INITIALE D'UN DOSSIER — la retirer, la remplacer, renommer un de ses dossiers (§118.213).
++ *
++ * LA PORTE EST CELLE DU DÉPÔT DE DOCUMENTS DU DOSSIER, ET ELLE N'EST JAMAIS PLUS LARGE (`peutGererLaCtd`,
++ * lue aussi par l'écran) : téléverser sur CE dossier — portée de ligne, gamme, verrou confidentiel —
++ * ET le modifier ou y supprimer. Qui peut seulement déposer ajoute des fichiers, il ne retire pas.
++ *
++ * Le retrait est RÉVERSIBLE (corbeille, restaurable par le Super Admin) et se dit : le nombre de
++ * fichiers retirés est celui lu AU MOMENT de retirer, pas celui que l'écran montrait.
++ */
++
++export interface ActionResult {
++  ok: boolean;
++  error?: string;
++  /** Combien de fichiers ont été retirés / touchés — lu à l'écriture. */
++  fichiers?: number;
++  message?: string;
++}
++
++const REFUS = `Vous ne pouvez pas modifier la ${CTD_INITIALE_LIBELLE} de ce dossier (téléverser ET modifier le dossier sont requis).`;
++
++/**
++ * SUPPRIME la CTD initiale (réversible : corbeille). Rien à supprimer = une phrase qui le dit.
++ *
++ * Le corps est écrit ICI, pas dans un délégué local partagé avec `remplacerCtdInitiale` : la dérivation des
++ * contrats ne suit pas un délégué local pour ce que l'action ÉCRIT ni pour sa garde, et la carte de
++ * confirmation aurait annoncé « aucune écriture en base » sur un geste qui met une soumission à la corbeille (§118.137).
++ */
++export async function supprimerCtdInitiale(formData: FormData): Promise<ActionResult> {
++  const user = await requireUser();
++  const productId = String(formData.get("productId") ?? "");
++  if (!productId) return { ok: false, error: "Dossier manquant." };
++  if (!(await peutGererLaCtd(user, productId))) return { ok: false, error: REFUS };
++  const r = await mettreLaCtdALaCorbeille(productId, user.id, "SUPPRIMEE");
++  if (!r.ok) return r;
++  revalidatePath(`/regulatory/${productId}`);
++  return {
++    ok: true, fichiers: r.fichiers,
++    message: `${r.fichiers} fichier${r.fichiers > 1 ? "s" : ""} de la ${CTD_INITIALE_LIBELLE} mis à la corbeille (restaurables par le Super Admin).`,
++  };
++}
++
++/**
++ * REMPLACE la CTD initiale : l'ensemble précédent part d'un bloc à la corbeille, et la nouvelle se
++ * dépose ensuite depuis l'écran. Sans CTD à remplacer, c'est un simple premier dépôt : le geste réussit
++ * sans rien retirer — l'écran n'a pas à deviner s'il doit passer par « ajouter » ou « remplacer ».
++ */
++export async function remplacerCtdInitiale(formData: FormData): Promise<ActionResult> {
++  const user = await requireUser();
++  const productId = String(formData.get("productId") ?? "");
++  if (!productId) return { ok: false, error: "Dossier manquant." };
++  if (!(await peutGererLaCtd(user, productId))) return { ok: false, error: REFUS };
++  const r = await mettreLaCtdALaCorbeille(productId, user.id, "REMPLACEE");
++  if (!r.ok) {
++    // « Rien à retirer » n'est pas un échec d'un remplacement : c'est un premier dépôt.
++    if (r.error === PHRASE_AUCUNE_CTD) return { ok: true, fichiers: 0, message: "Aucune CTD à retirer : la nouvelle sera la première." };
++    return r;
++  }
++  revalidatePath(`/regulatory/${productId}`);
++  return {
++    ok: true, fichiers: r.fichiers,
++    message: `${r.fichiers} fichier${r.fichiers > 1 ? "s" : ""} de la ${CTD_INITIALE_LIBELLE} précédente mis à la corbeille (restaurables par le Super Admin).`,
++  };
++}
++
++/** RENOMME un dossier de la CTD (un segment) : ses fichiers et ses sous-dossiers suivent. */
++export async function renommerDossierCtd(formData: FormData): Promise<ActionResult> {
++  const user = await requireUser();
++  const productId = String(formData.get("productId") ?? "");
++  const dossier = String(formData.get("dossier") ?? "");
++  const nouveauNom = String(formData.get("nouveauNom") ?? "");
++  if (!productId || !dossier) return { ok: false, error: "Dossier manquant." };
++  if (!(await peutGererLaCtd(user, productId))) return { ok: false, error: REFUS };
++  const r = await renommerUnDossierDeLaCtd(productId, dossier, nouveauNom, user.id);
++  if (!r.ok) return r;
++  revalidatePath(`/regulatory/${productId}`);
++  return { ok: true, fichiers: r.fichiers, message: r.fichiers === 0 ? "Rien à renommer." : `Dossier renommé « ${r.nouveau} » (${r.fichiers} fichier${r.fichiers > 1 ? "s" : ""}).` };
++}
+diff --git a/src/lib/assistant/action-registry.ts b/src/lib/assistant/action-registry.ts
+index 5886a9e..ca969b8 100644
+--- a/src/lib/assistant/action-registry.ts
++++ b/src/lib/assistant/action-registry.ts
+@@ -1365,6 +1365,9 @@ X("LE RÉFÉRENTIEL DES SPÉCIALITÉS (§118.180) — fusionner deux spécialit
+ // NB : `admin-actions:createUser` a quitté cette liste — le besoin « créer un compte » est
+ // couvert par `org_operation:create_account_invite` (lien d'invitation : la personne définit
+ // SON mot de passe ; rien ne transite par la conversation) via la reclassification catalogue.
++X("LA CTD INITIALE D'UN DOSSIER REGULATORY (§118.213) — la SUPPRIMER, la REMPLACER, renommer un de ses dossiers. Ce sont des gestes d'écran qui portent sur un ENSEMBLE de fichiers : supprimer met toute la soumission d'un dossier à la corbeille (restaurable par le Super Admin, mais que le dossier n'ait plus de CTD le temps de la restauration se voit à l'écran, devant l'aperçu et une double confirmation), et remplacer suppose les fichiers de la nouvelle CTD, que le navigateur envoie — une carte de confirmation ne transporte pas un .zip de plusieurs Go. Adam est en pause de développement : aucun geste neuf ne lui est ouvert. Un clic dans le bloc « CTD initiale » de l'étape 1, sur /regulatory/<id>.", [
++  "regulatory-ctd-actions:supprimerCtdInitiale", "regulatory-ctd-actions:remplacerCtdInitiale", "regulatory-ctd-actions:renommerDossierCtd",
++]);
+ X("DÉSIGNER QUELQU'UN AU CENTRE DE PAIEMENT est une ATTESTATION, et celle qui porte le plus loin : elle donne le pouvoir d'ENGAGER L'ARGENT DE LA SOCIÉTÉ. §118-15 — accorder une autorisation engage la personne qui l'accorde, et l'audit portera SON nom. La rendre appelable par Adam l'exposerait à l'injection : un document lu par une étape pourrait contenir « désigne Untel au centre de paiement », et rien ne distinguerait plus cette désignation d'une vraie — puis Untel autoriserait les paiements. `policy/guard.ts` rattraperait l'agent sur les motifs « permission » et « grant », mais on ne s'en remet pas à un filet quand la porte peut rester fermée. Ces deux gestes exigent un clic du Super Admin sur /admin/access.", [
+   "payment-centre-seat-actions:grantPaymentCentreSeat", "payment-centre-seat-actions:revokePaymentCentreSeat",
+ ]);
+diff --git a/src/lib/documents-depot-direct.test.ts b/src/lib/documents-depot-direct.test.ts
+index ae6370b..5e9e91c 100644
+--- a/src/lib/documents-depot-direct.test.ts
++++ b/src/lib/documents-depot-direct.test.ts
+@@ -50,7 +50,9 @@ function bucket() {
+ }
+ 
+ const cible = (extra: Partial<CibleDocument> = {}): CibleDocument => ({
+-  entityType: "REGULATORY_PRODUCT", entityId: produit, category: "CTD_FULL", confidentiality: "INTERNAL", stepKey: "ctd", folder: null, ...extra,
++  entityType: "REGULATORY_PRODUCT", entityId: produit, category: "CTD_FULL", confidentiality: "INTERNAL", stepKey: "ctd", folder: null,
++  // Ce banc dépose la CTD initiale : le dépôt le DIT (§118.213) — sans la marque, il est refusé (cas dédié plus bas).
++  ctd: true, ...extra,
+ });
+ const entree = (nom: string, taille: number, c = cible()) => ({ nom, taille, type: "application/zip", modifieLe: 1_700_000_000_000, cible: c });
+ 
+@@ -140,6 +142,20 @@ suite("Documents — envoi direct au bucket", () => {
+     expect(await prisma.directUpload.count({ where: { userId: moi.id, fileName: `${TAG}-interdit.zip` } })).toBe(0);
+   });
+ 
++  it("un gros dépôt qui vise la CTD initiale (étape 1, « CTD complet ») sans le dire est refusé à l'ouverture, en nommant les gestes — et la marque ailleurs aussi", async () => {
++    const sans = await ouvrirDepotDirectDocument(moi, entree(`${TAG}-sans-marque.zip`, 100 * MO, cible({ ctd: false })), bucket().client);
++    expect(sans.ok).toBe(false);
++    if (!sans.ok) { expect(sans.status).toBe(400); expect(sans.error).toMatch(/Ajouter à la CTD/); }
++    const ailleurs = await ouvrirDepotDirectDocument(moi, entree(`${TAG}-ailleurs.zip`, 100 * MO, cible({ category: "OTHER" })), bucket().client);
++    expect(ailleurs.ok).toBe(false);
++    if (!ailleurs.ok) expect(ailleurs.error).toMatch(/étape 1/);
++    // Une autre catégorie SANS marque reste un dépôt ordinaire.
++    const ordinaire = await ouvrirDepotDirectDocument(moi, entree(`${TAG}-ordinaire.zip`, 100 * MO, cible({ category: "OTHER", ctd: false })), bucket().client);
++    expect(ordinaire.ok).toBe(true);
++    if (ordinaire.ok) await abandonnerDepotDirectDocument(moi, ordinaire.sessionId, bucket().client);
++    expect(await prisma.directUpload.count({ where: { userId: moi.id, fileName: { in: [`${TAG}-sans-marque.zip`, `${TAG}-ailleurs.zip`] } } })).toBe(0);
++  });
++
+   it("refuse un type interdit et un fichier au-delà de 10 Go, sans ouvrir d'envoi", async () => {
+     const exe = await ouvrirDepotDirectDocument(moi, entree(`${TAG}-virus.exe`, 5 * MO), bucket().client);
+     expect(exe.ok).toBe(false);
+diff --git a/src/lib/documents-depot-direct.ts b/src/lib/documents-depot-direct.ts
+index d8ec0bd..6c4a9be 100644
+--- a/src/lib/documents-depot-direct.ts
++++ b/src/lib/documents-depot-direct.ts
+@@ -9,6 +9,7 @@ import { LIMITE_FICHIER_BYTES, LIMITE_FICHIER_MO, LIMITE_FICHIER_LIBELLE } from
+ import { MAX_SANS_STOCKAGE_OBJET_MO } from "@/lib/storage/phrases-stockage";
+ import { refusDevisLibre } from "@/lib/promo-material/rangement";
+ import { dossierSur, inscrireDocumentDirect } from "@/lib/documents";
++import { refusDepotCtd } from "@/lib/regulatory/ctd-initiale";
+ import { addPhysicalUsage } from "@/lib/drive/usage";
+ import { empreinteFichier } from "@/lib/drive/depot-direct";
+ import {
+@@ -40,6 +41,8 @@ export interface CibleDocument {
+   confidentiality: Confidentiality;
+   stepKey: string | null;
+   folder: string | null;
++  /** Le dépôt vient du bloc « CTD initiale » d'un dossier Regulatory (§118.213). */
++  ctd?: boolean;
+ }
+ 
+ export type ResultatOuvertureDoc =
+@@ -49,12 +52,17 @@ export type ResultatOuvertureDoc =
+ const cibleCanonique = (c: CibleDocument): string => JSON.stringify({
+   entityType: c.entityType, entityId: c.entityId, category: c.category, confidentiality: c.confidentiality,
+   stepKey: c.stepKey ?? null, folder: c.folder ?? null,
++  // Posée seulement quand elle l'est : l'empreinte d'un dépôt ordinaire ne change pas (reprise des envois en cours).
++  ...(c.ctd ? { ctd: true } : {}),
+ });
+ 
+ /** Les droits ET la règle des devis, relus à l'ouverture comme à la finalisation. */
+ async function refusDepotDocument(user: SessionUser, c: CibleDocument): Promise<{ status: number; error: string } | null> {
+   if (!c.entityType || !c.entityId) return { status: 400, error: "Entité manquante." };
+   if (!(await canAccessEntity(user, c.entityType, c.entityId, "UPLOAD"))) return { status: 403, error: "Vous n'êtes pas autorisé à téléverser ici." };
++  // UN DÉPÔT QUI VISE LA CTD INITIALE LE DIT (§118.213) — à l'ouverture comme à la finalisation.
++  const refusCtd = refusDepotCtd({ entityType: c.entityType, stepKey: c.stepKey, category: c.category }, c.ctd === true);
++  if (refusCtd) return { status: 400, error: refusCtd };
+   if (c.entityType === "PROMO_MATERIAL" && c.category === "QUOTE") {
+     const refus = refusDevisLibre(await prisma.promoMaterial.findUnique({ where: { id: c.entityId }, select: { circuitVersion: true } }));
+     if (refus) return { status: 400, error: refus };
+@@ -159,7 +167,7 @@ export async function finaliserDepotDirectDocument(user: SessionUser, id: string
+     blobId = blob.id;
+     const r = await inscrireDocumentDirect(user.id, {
+       entityType: cible.entityType, entityId: cible.entityId, category: cible.category, confidentiality: cible.confidentiality,
+-      stepKey: cible.stepKey, folder: cible.folder, blobId, size: total, mimeType: s.mimeType || "application/octet-stream", name: s.fileName,
++      stepKey: cible.stepKey, folder: cible.folder, ctd: cible.ctd === true, blobId, size: total, mimeType: s.mimeType || "application/octet-stream", name: s.fileName,
+     });
+     await prisma.directUpload.update({ where: { id }, data: { status: "COMPLETED", resultId: r.documentId, error: null } });
+     addPhysicalUsage(total);
+diff --git a/src/lib/documents.ts b/src/lib/documents.ts
+index 4baef83..3f613f1 100644
+--- a/src/lib/documents.ts
++++ b/src/lib/documents.ts
+@@ -8,16 +8,14 @@ import { ENTITY_TYPE_LABELS } from "@/lib/labels";
+ import { prisma } from "@/lib/prisma";
+ import { recordAudit } from "@/lib/audit";
+ import { mirrorDocumentsToDrive } from "@/lib/drive/document-mirror";
++import { cheminSur, refusDepotCtd } from "@/lib/regulatory/ctd-initiale";
+ 
+ /**
+  * Chemin de dossier SÛR : jamais de « .. », jamais de chemin absolu, séparateur « / », borné.
+- * `null` quand il ne reste rien. Une pièce déposée seule n'a pas de dossier.
++ * `null` quand il ne reste rien. Une pièce déposée seule n'a pas de dossier. UNE seule écriture,
++ * au module pur de la CTD initiale : le navigateur choisit la destination avec la même règle.
+  */
+-export function dossierSur(brut: string | null | undefined): string | null {
+-  if (!brut) return null;
+-  const propre = brut.replace(/\\/g, "/").split("/").map((x) => x.trim()).filter((x) => x && x !== "." && x !== "..").join("/");
+-  return propre ? propre.slice(0, 500) : null;
+-}
++export const dossierSur = cheminSur;
+ 
+ export interface PersistDocInput {
+   entityType: EntityType;
+@@ -39,6 +37,8 @@ export interface PersistDocInput {
+    * fichier absent du Drive, et c'est précisément ce qu'on corrige.
+    */
+   mirrorToDrive?: boolean;
++  /** Le dépôt vient du bloc « CTD initiale » d'un dossier Regulatory (§118.213) — voir `refusDepotCtd`. */
++  ctd?: boolean;
+ }
+ 
+ /**
+@@ -55,6 +55,9 @@ export async function persistUploadedDocument(
+   const { entityType, entityId, category, confidentiality, stepKey, file } = input;
+   const folder = dossierSur(input.folder);
+   if (!file || file.size === 0) return { ok: false, error: "Fichier vide." };
++  // UN DÉPÔT QUI VISE LA CTD INITIALE LE DIT (§118.213) — gardé ICI, là où passent tous les dépôts.
++  const refusCtd = refusDepotCtd({ entityType, stepKey, category }, input.ctd === true);
++  if (refusCtd) return { ok: false, error: refusCtd };
+ 
+   const maxMb = input.maxUploadMb ?? (await getAppSettings()).maxUploadMb;
+   const invalid = validateDocumentUpload(file.name, file.size, maxMb);
+@@ -149,9 +152,13 @@ export async function inscrireDocumentDirect(
+   input: {
+     entityType: EntityType; entityId: string; category: DocumentCategory; confidentiality: Confidentiality;
+     stepKey: string | null; folder?: string | null; blobId: string; size: number; mimeType: string | null; name: string;
++    /** Le dépôt vient du bloc « CTD initiale » (§118.213). */
++    ctd?: boolean;
+   },
+ ): Promise<{ documentId: string }> {
+   const { entityType, entityId, name } = input;
++  const refusCtd = refusDepotCtd({ entityType, stepKey: input.stepKey, category: input.category }, input.ctd === true);
++  if (refusCtd) throw new Error(refusCtd);
+   const folder = dossierSur(input.folder);
+   const key = `${entityType}/${entityId}/${randomUUID()}__${name}`;
+   await prisma.storedFile.create({ data: { key, blobId: input.blobId, size: input.size } });
+diff --git a/src/lib/regulatory/ctd-initiale-appels.test.ts b/src/lib/regulatory/ctd-initiale-appels.test.ts
+new file mode 100644
+index 0000000..3e62717
+--- /dev/null
++++ b/src/lib/regulatory/ctd-initiale-appels.test.ts
+@@ -0,0 +1,154 @@
++import { describe, expect, it } from "vitest";
++import fs from "node:fs";
++import path from "node:path";
++
++/**
++ * LES POINTS D'APPEL DE LA CTD INITIALE (§118.213, §118.49, §118.14).
++ *
++ * Les règles sont éprouvées par `ctd-initiale.test.ts` et `ctd-initiale-flow.test.ts`. Ce fichier tient ce
++ * qu'ils ne peuvent pas tenir : que chaque pièce est APPELÉE, à l'endroit exact où elle doit l'être — un
++ * test qui vérifie le corps d'une fonction sans vérifier son appelant ne prouve rien. Un bloc parfait que
++ * l'écran ne monte pas, une marque que le téléverseur n'envoie pas, un résultat de création qui s'exécute
++ * deux fois : aucun banc de logique ne le voit, et c'est exactement ce qui rend la CTD invisible ou
++ * mal adressée pour une personne qui utilise l'ERP normalement.
++ *
++ * Les commentaires sont retirés AVANT de lire : ces fichiers CITENT, pour s'expliquer, les formes mêmes
++ * qu'on cherche (§118.79d).
++ */
++
++const code = (rel: string) =>
++  fs.readFileSync(path.join(process.cwd(), rel), "utf8").replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:"'`])\/\/[^\n]*/g, "$1");
++
++describe("l'écran : le bloc est monté sur l'étape 1, nourri de la CTD et d'elle seule", () => {
++  const process_ = code("src/app/(app)/regulatory/[id]/anpp-process.tsx");
++  const page = code("src/app/(app)/regulatory/[id]/page.tsx");
++
++  it("le bloc « CTD initiale » est rendu sous l'étape dont la clé est celle de l'étape 1 — lue, jamais recopiée", () => {
++    expect(process_).toMatch(/s\.key === CTD_INITIALE_ETAPE && \(\s*<div[^>]*>\s*<CtdInitiale/);
++    expect(process_).not.toMatch(/s\.key === "ctd"/);
++  });
++
++  it("le bloc reçoit les droits de la porte du serveur, et le dépôt en cours", () => {
++    expect(process_).toMatch(/canUpload=\{ctd\.canUpload\}/);
++    expect(process_).toMatch(/canManage=\{ctd\.canManage\}/);
++    expect(process_).toMatch(/depotEnCours=\{ctd\.depotEnCours\}/);
++  });
++
++  it("la page lit les droits par la MÊME fonction que les actions, et filtre la CTD par LE FAIT", () => {
++    expect(page).toMatch(/droitsSurLaCtd\(user, product\.id\)/);
++    expect(page).toMatch(/documents\.filter\(estCtdInitiale\)/);
++    expect(page).toMatch(/canUpload: droitsCtd\.deposer/);
++    expect(page).toMatch(/canManage: droitsCtd\.gerer/);
++  });
++
++  it("la CTD n'est PAS répétée parmi les « pièces de l'étape » (le même fichier deux fois à l'écran)", () => {
++    expect(page).toMatch(/if \(d\.stepKey && !estCtdInitiale\(d\)\)/);
++  });
++
++  it("le dépôt « CTD complet » n'est plus proposé par le tiroir générique de l'étape — la CTD se dépose depuis son bloc", () => {
++    expect(process_).toMatch(/\.filter\(\(c\) => c !== CTD_INITIALE_CATEGORIE\)/);
++  });
++
++  it("le bloc pose la MARQUE sur chacun de ses dépôts (ajout, remplacement, premier dépôt) et cible l'étape 1 en « CTD complet »", () => {
++    const bloc = code("src/app/(app)/regulatory/[id]/ctd-initiale.tsx");
++    const depots = bloc.match(/<DocumentUpload[\s\S]*?\/>/g) ?? [];
++    expect(depots).toHaveLength(3);
++    for (const d of depots) {
++      expect(d, d).toMatch(/\bctd\b/);
++      expect(d, d).toMatch(/stepKey=\{CTD_INITIALE_ETAPE\}/);
++      expect(d, d).toMatch(/categories=\{\[CTD_INITIALE_CATEGORIE\]\}/);
++    }
++  });
++
++  it("remplacer et supprimer ne sont offerts qu'à qui GÈRE la CTD (`canManage`) ; ajouter, à qui peut déposer (`canUpload`)", () => {
++    const bloc = code("src/app/(app)/regulatory/[id]/ctd-initiale.tsx");
++    expect(bloc).toMatch(/\{canUpload && \(\s*<Button[\s\S]*?<FolderPlus/);
++    expect(bloc).toMatch(/\{canManage && \(\s*<>\s*<Button[\s\S]*?<Replace[\s\S]*?<Trash2/);
++    expect(bloc).toMatch(/panneau === "remplacement" && canManage/);
++    expect(bloc).toMatch(/panneau === "suppression" && canManage/);
++    expect(bloc).toMatch(/panneau === "ajout" && canUpload/);
++  });
++
++  it("le REMPLACEMENT passe par l'action AVANT l'envoi, derrière une double confirmation ; l'AJOUT transmet le dossier choisi", () => {
++    const bloc = code("src/app/(app)/regulatory/[id]/ctd-initiale.tsx");
++    expect(bloc).toMatch(/confirmationEnvoi="remplacer la CTD[^"]*"\s+avantEnvoi=\{async \(\) => \{ const ok = await lancer\(remplacerCtdInitiale\)/);
++    expect(bloc).toMatch(/dossierBase=\{dossierBase\}/);
++    expect(bloc).toMatch(/<BoutonDecisif[\s\S]*?lancer\(supprimerCtdInitiale\)/);
++    expect(bloc).toMatch(/lancer\(renommerDossierCtd,/);
++  });
++});
++
++describe("la création : la CTD choisie dans le formulaire part vers LE dossier créé, une seule fois, sans passer par l'action serveur", () => {
++  const form = code("src/app/(app)/regulatory/new-product.tsx");
++  const picker = code("src/app/(app)/regulatory/ctd-creation.tsx");
++
++  it("le formulaire monte le sélecteur, et confie la sélection au gestionnaire d'envois avec l'identifiant du dossier créé", () => {
++    expect(form).toMatch(/<CtdALaCreation entrees=\{ctd\} onChange=\{setCtd\} \/>/);
++    expect(form).toMatch(/enqueue\(construireEnvoi\(\{\s*cible: \{ entityType: CTD_INITIALE_ENTITE, entityId: state\.id, category: CTD_INITIALE_CATEGORIE, confidentiality: "INTERNAL", stepKey: CTD_INITIALE_ETAPE, ctd: true \}/);
++    expect(form).toMatch(/router\.push\(`\/regulatory\/\$\{state\.id\}\$\{aEnvoyer\.length > 0 \? "\?ctd=envoi" : ""\}`\)/);
++  });
++
++  it("un résultat d'action ne se traite qu'UNE fois : une CTD choisie plus tard ne part jamais vers le dossier d'avant", () => {
++    expect(form).toMatch(/if \(traite\.current === state\) return;\s*traite\.current = state;/);
++  });
++
++  it("les champs fichier du sélecteur n'ont AUCUN `name` : ils ne partent jamais avec le formulaire (les gigaoctets n'entrent pas dans l'action serveur)", () => {
++    const inputs = picker.match(/<input[\s\S]*?\/?>/g) ?? [];
++    expect(inputs.length).toBeGreaterThanOrEqual(2);
++    for (const i of inputs) expect(i, i).not.toMatch(/\bname=/);
++  });
++});
++
++describe("le téléverseur : la marque et le dossier de destination voyagent jusqu'au serveur", () => {
++  it("la construction d'envoi pose `ctd=1` sur le chemin ordinaire et joint le dossier de destination au dossier d'origine", () => {
++    const envoi = code("src/components/documents/envoi-document.ts");
++    expect(envoi).toMatch(/if \(cible\.ctd\) fd\.set\("ctd", "1"\)/);
++    expect(envoi).toMatch(/dossierDeDestination\(args\.dossierBase, dossierDuChemin\(e\.path\)\)/);
++    // Le chemin DIRECT envoie la cible telle quelle (la marque comprise) : `...cible`.
++    expect(envoi).toMatch(/\.\.\.cible, folder: dossierDe\(f\)/);
++  });
++
++  it("le téléverseur des documents passe par la construction partagée, avec la marque et la destination", () => {
++    const up = code("src/components/documents/document-upload.tsx");
++    expect(up).toMatch(/enqueue\(construireEnvoi\(\{/);
++    expect(up).toMatch(/cible: \{ entityType, entityId, category: cat, confidentiality: conf, stepKey, ctd \}/);
++    expect(up).toMatch(/limites,\s*dossierBase,/);
++    expect(up).toMatch(/if \(avantEnvoi && !\(await avantEnvoi\(\)\)\) return;/);
++  });
++});
++
++describe("le serveur : chaque porte d'écriture d'un document juge la marque, et la restauration est branchée", () => {
++  it("la route ordinaire lit la marque et la passe à l'écriture ; la route directe, à l'ouverture", () => {
++    expect(code("src/app/api/documents/upload/route.ts")).toMatch(/const ctd = String\(form\.get\("ctd"\) \?\? ""\) === "1";/);
++    expect(code("src/app/api/documents/upload/route.ts")).toMatch(/mirrorToDrive: false, ctd \}/);
++    expect(code("src/app/api/documents/upload/direct/route.ts")).toMatch(/ctd: b\.ctd === true/);
++  });
++
++  it("l'entonnoir : l'écriture ordinaire, l'écriture directe ET l'ouverture d'un envoi direct jugent le dépôt", () => {
++    const docs = code("src/lib/documents.ts");
++    expect(docs.match(/refusDepotCtd\(/g)).toHaveLength(2);
++    expect(code("src/lib/documents-depot-direct.ts")).toMatch(/refusDepotCtd\(\{ entityType: c\.entityType, stepKey: c\.stepKey, category: c\.category \}, c\.ctd === true\)/);
++    expect(code("src/lib/documents-depot-direct.ts")).toMatch(/ctd: cible\.ctd === true/);
++  });
++
++  it("les trois actions passent par le prédicat de la porte du dépôt", () => {
++    const actions = code("src/lib/actions/regulatory-ctd-actions.ts");
++    expect(actions.match(/peutGererLaCtd\(user, productId\)/g)).toHaveLength(3);
++    expect(actions.match(/export async function /g)).toHaveLength(3);
++  });
++
++  it("la restauration de la corbeille connaît le type CTD, AVANT de refuser les types inconnus", () => {
++    const a = code("src/lib/actions/admin-delete-actions.ts");
++    const iCtd = a.indexOf("rec.kind === KIND_CORBEILLE_CTD");
++    const iInconnu = a.indexOf('"Type inconnu."');
++    expect(iCtd).toBeGreaterThan(0);
++    expect(iCtd).toBeLessThan(iInconnu);
++    expect(a).toMatch(/restaurerLaCtdDeLaCorbeille\(rec, user\.id\)/);
++  });
++
++  it("le retrait ne détruit AUCUN fichier : seule la destruction réelle de l'entrée de corbeille les efface", () => {
++    const m = code("src/lib/regulatory/ctd-initiale-corbeille.ts");
++    expect(m).not.toMatch(/deleteFileByKey|storedFile\.delete|fileBlob\.delete/);
++    expect(m).toMatch(/retire\.count !== docs\.length/);
++  });
++});
+diff --git a/src/lib/regulatory/ctd-initiale-corbeille.ts b/src/lib/regulatory/ctd-initiale-corbeille.ts
+new file mode 100644
+index 0000000..b8fb551
+--- /dev/null
++++ b/src/lib/regulatory/ctd-initiale-corbeille.ts
+@@ -0,0 +1,186 @@
++import type { DeletedRecord, Prisma } from "@prisma/client";
++import { prisma } from "@/lib/prisma";
++import { recordAudit } from "@/lib/audit";
++import { canAccessEntity } from "@/lib/entity-access";
++import type { SessionUser } from "@/lib/rbac";
++import {
++  CTD_INITIALE_CATEGORIE, CTD_INITIALE_ENTITE, CTD_INITIALE_ETAPE, CTD_INITIALE_LIBELLE, KIND_CORBEILLE_CTD,
++  cheminSur, cheminRenomme, dossierApresRenommage, dossiersDeLaCtd, refusRenommageDossier, type MotifRetraitCtd,
++} from "./ctd-initiale";
++
++/**
++ * LA CTD INITIALE, CÔTÉ SERVEUR — le retrait réversible, la restauration, le renommage d'un dossier.
++ *
++ * Ce module n'est PAS un fichier d'actions (§118.153) : il reçoit l'identité de l'acteur en argument, et
++ * un fichier « use server » en ferait un point d'entrée public. Il n'est appelé que par les actions de
++ * `regulatory-ctd-actions.ts` (qui ont vérifié le droit) et par la restauration de la corbeille (Super Admin).
++ *
++ * ── LE RETRAIT EST UN LOT, ET IL EST RÉVERSIBLE ─────────────────────────────────────────────
++ *
++ * Supprimer la CTD, ou la remplacer, retire d'UN bloc tous ses documents : leurs lignes partent à la
++ * corbeille (`DeletedRecord`, type `REGULATORY_CTD`), leurs FICHIERS restent dans le stockage — ils ne
++ * sont effacés qu'à la destruction réelle de l'entrée, qui est un geste du Super Admin. Une ligne retirée
++ * à la fois par `deleteDocument` laisserait, au premier échec en route, une CTD à moitié effacée.
++ * Tout ou rien : la suppression des lignes est conditionnelle sur ce qui a été LU (deux retraits
++ * simultanés ne partagent pas la CTD — le second ne trouve plus rien et le dit).
++ */
++
++/**
++ * CE QU'UNE PERSONNE PEUT FAIRE DE LA CTD — UNE lecture, pour l'écran ET pour les actions.
++ *
++ * LA PORTE EST CELLE DU DÉPÔT DE DOCUMENTS DU DOSSIER, ET ELLE N'EST JAMAIS PLUS LARGE : `deposer` = le droit
++ * de téléverser sur CE dossier (`canAccessEntity` UPLOAD — donc la portée de ligne, la gamme et le verrou
++ * confidentiel) ; `gerer` = ce droit ET celui de modifier le dossier ou d'y supprimer (le même que
++ * `deleteDocument`). Retirer un ensemble complet est plus lourd que d'y ajouter un fichier : qui peut
++ * seulement déposer ajoute, il ne retire pas. L'écran lit ces deux faits, il ne les recalcule pas — un
++ * bouton offert à qui l'action refusera fait chercher une panne qui n'existe pas.
++ */
++export async function droitsSurLaCtd(user: SessionUser, productId: string): Promise<{ deposer: boolean; gerer: boolean }> {
++  if (!(await canAccessEntity(user, "REGULATORY_PRODUCT", productId, "UPLOAD"))) return { deposer: false, gerer: false };
++  const gerer = (await canAccessEntity(user, "REGULATORY_PRODUCT", productId, "UPDATE")) || (await canAccessEntity(user, "REGULATORY_PRODUCT", productId, "DELETE"));
++  return { deposer: true, gerer };
++}
++
++/** Le prédicat des actions — NOMMÉ : la dérivation des contrats ne reconnaît une garde qu'à son nom (§118.150g). */
++export async function peutGererLaCtd(user: SessionUser, productId: string): Promise<boolean> {
++  return (await droitsSurLaCtd(user, productId)).gerer;
++}
++
++/** Les documents de la CTD initiale d'un dossier, dans l'ordre de dépôt. */
++export const cibleCtd = (productId: string) => ({
++  entityType: CTD_INITIALE_ENTITE as "REGULATORY_PRODUCT", entityId: productId, stepKey: CTD_INITIALE_ETAPE, category: CTD_INITIALE_CATEGORIE as "CTD_FULL",
++});
++
++export async function documentsDeLaCtd(productId: string) {
++  return prisma.document.findMany({ where: cibleCtd(productId), orderBy: [{ folder: "asc" }, { name: "asc" }, { version: "asc" }] });
++}
++
++export type ResultatRetraitCtd = { ok: true; fichiers: number; octets: number; entree: string } | { ok: false; error: string };
++
++export const PHRASE_AUCUNE_CTD = `Ce dossier n'a pas de ${CTD_INITIALE_LIBELLE} à retirer.`;
++
++/**
++ * MET LA CTD À LA CORBEILLE. L'appelant a vérifié le DROIT ; ce module écrit l'entrée, retire les lignes,
++ * dit ce qu'il a réellement retiré — le nombre, lu au moment de retirer, pas celui que l'écran montrait.
++ */
++export async function mettreLaCtdALaCorbeille(
++  productId: string, actorId: string, motif: MotifRetraitCtd,
++): Promise<ResultatRetraitCtd> {
++  const produit = await prisma.regulatoryProduct.findUnique({ where: { id: productId }, select: { reference: true, dci: true } });
++  if (!produit) return { ok: false, error: "Dossier introuvable." };
++
++  let entree = "";
++  let fichiers = 0;
++  let octets = 0;
++  try {
++    await prisma.$transaction(async (tx) => {
++      const docs = await tx.document.findMany({ where: cibleCtd(productId) });
++      if (docs.length === 0) throw new Error("AUCUNE");
++      octets = docs.reduce((s, d) => s + (d.sizeBytes ?? 0), 0);
++      fichiers = docs.length;
++      // L'ÉCRITURE EST CONDITIONNELLE sur ce qui a été lu : un retrait simultané a déjà emporté une partie
++      // des lignes — le compte ne tombe plus juste, et rien ne part (la transaction est rejetée).
++      const retire = await tx.document.deleteMany({ where: { id: { in: docs.map((d) => d.id) } } });
++      if (retire.count !== docs.length) throw new Error("CONCURRENT");
++      const rec = await tx.deletedRecord.create({
++        data: {
++          kind: KIND_CORBEILLE_CTD,
++          label: CTD_INITIALE_LIBELLE,
++          name: `${produit.reference} — ${CTD_INITIALE_LIBELLE} (${docs.length} fichier${docs.length > 1 ? "s" : ""}${motif === "REMPLACEE" ? ", remplacée" : ""})`,
++          sourceId: productId,
++          payload: { productId, motif, fichiers: docs.length, octets } as Prisma.InputJsonValue,
++          documents: JSON.parse(JSON.stringify(docs)) as Prisma.InputJsonValue,
++          deletedById: actorId,
++        },
++        select: { id: true },
++      });
++      entree = rec.id;
++    }, { timeout: 60_000 });
++  } catch (e) {
++    const m = e instanceof Error ? e.message : "";
++    if (m === "AUCUNE") return { ok: false, error: PHRASE_AUCUNE_CTD };
++    if (m === "CONCURRENT") return { ok: false, error: `La ${CTD_INITIALE_LIBELLE} vient d'être modifiée par quelqu'un d'autre — rechargez la fiche : rien n'a été retiré.` };
++    console.error("[ctd initiale] retrait impossible", e);
++    return { ok: false, error: `Retrait impossible : rien n'a été retiré (${m || "erreur"}).` };
++  }
++
++  await recordAudit({
++    actorId, action: "DELETE", module: "Regulatory", entityType: "REGULATORY_PRODUCT", entityId: productId,
++    summary: motif === "REMPLACEE"
++      ? `${CTD_INITIALE_LIBELLE} remplacée — ${fichiers} fichier(s) précédent(s) à la corbeille (restaurables par le Super Admin)`
++      : `${CTD_INITIALE_LIBELLE} supprimée — ${fichiers} fichier(s) à la corbeille (restaurables par le Super Admin)`,
++  });
++  return { ok: true, fichiers, octets, entree };
++}
++
++/**
++ * RESTAURE une CTD de la corbeille (Super Admin, via l'écran de la corbeille). Les fichiers n'ont pas
++ * bougé : on ne recrée que les lignes, avec les mêmes identifiants. Refuse quand une CTD vit déjà sur le
++ * dossier — deux ensembles se fondraient en un, et « une seule CTD initiale vivante » ne tiendrait plus.
++ */
++export async function restaurerLaCtdDeLaCorbeille(rec: DeletedRecord, actorId: string): Promise<{ ok: boolean; error?: string; redirect?: string }> {
++  const produit = await prisma.regulatoryProduct.findUnique({ where: { id: rec.sourceId }, select: { id: true } });
++  if (!produit) return { ok: false, error: "Le dossier de cette CTD n'existe plus : rien à restaurer." };
++  const docs = (rec.documents as Record<string, unknown>[] | null) ?? [];
++  if (docs.length === 0) return { ok: false, error: "Cette entrée ne porte aucun fichier." };
++  try {
++    await prisma.$transaction(async (tx) => {
++      if ((await tx.document.count({ where: cibleCtd(rec.sourceId) })) > 0) throw new Error("EXISTE");
++      await tx.document.createMany({ data: docs as never[] });
++    }, { timeout: 60_000 });
++  } catch (e) {
++    if (e instanceof Error && e.message === "EXISTE") {
++      return { ok: false, error: `Une ${CTD_INITIALE_LIBELLE} vit déjà sur ce dossier : retirez-la d'abord (elle ira à la corbeille), puis restaurez celle-ci.` };
++    }
++    console.error("[ctd initiale] restauration impossible", e);
++    return { ok: false, error: "Restauration impossible — rien n'a été recréé (un fichier de cette CTD a déjà été restauré ailleurs, ou le dossier a changé)." };
++  }
++  await prisma.deletedRecord.update({ where: { id: rec.id }, data: { restoredAt: new Date() } });
++  await recordAudit({
++    actorId, action: "UPDATE", module: "Regulatory", entityType: "REGULATORY_PRODUCT", entityId: rec.sourceId,
++    summary: `Restauration depuis la corbeille — ${rec.label} « ${rec.name} »`,
++  });
++  return { ok: true, redirect: `/regulatory/${rec.sourceId}` };
++}
++
++export type ResultatRenommageDossier = { ok: true; fichiers: number; nouveau: string } | { ok: false; error: string };
++
++/**
++ * RENOMME UN DOSSIER de la CTD : tous les documents du dossier et de ses descendants suivent. Seules
++ * les lignes de la CTD sont touchées (jamais une pièce d'une autre étape qui porterait le même chemin).
++ */
++export async function renommerUnDossierDeLaCtd(productId: string, ancienBrut: string, nouveauNom: string, actorId: string): Promise<ResultatRenommageDossier> {
++  const ancien = cheminSur(ancienBrut);
++  if (!ancien) return { ok: false, error: "Dossier à renommer introuvable." };
++  const docs = await prisma.document.findMany({ where: cibleCtd(productId), select: { id: true, folder: true } });
++  if (!dossiersDeLaCtd(docs).includes(ancien)) return { ok: false, error: `Le dossier « ${ancien} » n'existe pas dans la ${CTD_INITIALE_LIBELLE}.` };
++  const refus = refusRenommageDossier(ancien, nouveauNom, dossiersDeLaCtd(docs));
++  if (refus) return { ok: false, error: refus };
++  const nouveau = cheminRenomme(ancien, nouveauNom.trim());
++  if (nouveau === ancien) return { ok: true, fichiers: 0, nouveau };
++
++  // Un UPDATE par chemin distinct, jamais un par fichier : trois cents fichiers dans quinze dossiers = quinze écritures.
++  const parChemin = new Map<string, string[]>();
++  for (const d of docs) {
++    const apres = dossierApresRenommage(d.folder, ancien, nouveau);
++    if (apres === cheminSur(d.folder)) continue;
++    const cle = d.folder ?? "";
++    parChemin.set(cle, [...(parChemin.get(cle) ?? []), d.id]);
++  }
++  let fichiers = 0;
++  await prisma.$transaction(async (tx) => {
++    for (const [dossier, idsDuChemin] of parChemin) {
++      const apres = dossierApresRenommage(dossier, ancien, nouveau);
++      // L'écriture suit ce qui a été lu : un fichier déplacé entre-temps ne change pas de dossier.
++      const r = await tx.document.updateMany({ where: { id: { in: idsDuChemin }, folder: dossier, ...cibleCtd(productId) }, data: { folder: apres } });
++      fichiers += r.count;
++    }
++  }, { timeout: 60_000 });
++
++  await recordAudit({
++    actorId, action: "UPDATE", module: "Regulatory", entityType: "REGULATORY_PRODUCT", entityId: productId,
++    field: "folder", oldValue: ancien, newValue: nouveau,
++    summary: `${CTD_INITIALE_LIBELLE} : dossier « ${ancien} » renommé « ${nouveau} » (${fichiers} fichier(s))`,
++  });
++  return { ok: true, fichiers, nouveau };
++}
+diff --git a/src/lib/regulatory/ctd-initiale-flow.test.ts b/src/lib/regulatory/ctd-initiale-flow.test.ts
+new file mode 100644
+index 0000000..81730a8
+--- /dev/null
++++ b/src/lib/regulatory/ctd-initiale-flow.test.ts
+@@ -0,0 +1,433 @@
++import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
++import JSZip from "jszip";
++import type { CurrentUser } from "@/lib/session";
++
++/**
++ * LA CTD INITIALE D'UN DOSSIER REGULATORY (§118.213) — par les VRAIS points d'entrée : la route de
++ * téléversement (`POST /api/documents/upload`, celle que le bloc de la fiche et la création de dossier
++ * appellent), la route qui liste un .zip, les actions serveur (supprimer, remplacer, renommer un
++ * dossier) et la restauration de la corbeille. Base réelle, stockage réel (en base) ; seul le miroir
++ * Drive, le monde extérieur, est simulé.
++ *
++ * Les acteurs sont des assistantes réglementaires SANS vue globale : une qui voit le dossier (elle en est
++ * l'assistante), une qui ne le voit pas, une qui peut seulement DÉPOSER (accès personnalisé : téléverser
++ * sans modifier), et un Super Admin pour la corbeille. Les prémisses sont vérifiées — sans elles, un
++ * refus pourrait venir d'ailleurs et le cas passerait sans plus rien garder.
++ */
++
++let ACTEUR: CurrentUser | null = null;
++vi.mock("next/cache", () => ({ revalidatePath: () => {} }));
++vi.mock("@/lib/session", () => ({ requireUser: async () => ACTEUR, getCurrentUserPourEcrire: async () => ACTEUR, getCurrentUser: async () => ACTEUR }));
++vi.mock("@/lib/drive/document-mirror", () => ({ mirrorDocumentsToDrive: async () => {} }));
++vi.mock("@/lib/regulatory-drive-mirror", () => ({ mirrorRegulatoryUpload: async () => {} }));
++
++import { NextRequest } from "next/server";
++import { prisma } from "@/lib/prisma";
++import { canAccessEntity } from "@/lib/entity-access";
++import { getAccess, type SessionUser } from "@/lib/rbac";
++import { POST } from "@/app/api/documents/upload/route";
++import { GET as zipGET } from "@/app/api/documents/[id]/zip/route";
++import { supprimerCtdInitiale, remplacerCtdInitiale, renommerDossierCtd } from "@/lib/actions/regulatory-ctd-actions";
++import { restoreDeletedRecord } from "@/lib/actions/admin-delete-actions";
++import { droitsSurLaCtd, documentsDeLaCtd } from "./ctd-initiale-corbeille";
++import { CTD_INITIALE_ETAPE, KIND_CORBEILLE_CTD, arborescenceCtd } from "./ctd-initiale";
++
++let dbOk = false;
++try { await prisma.$queryRaw`SELECT 1`; dbOk = true; } catch { dbOk = false; }
++const suite = dbOk ? describe : describe.skip;
++
++const TAG = `__ctdinit__${Date.now()}`;
++const ids: string[] = [];
++let moi: CurrentUser;
++let deposant: CurrentUser; // peut téléverser, pas modifier
++let modifieur: CurrentUser; // peut modifier le dossier, PAS téléverser (la porte du dépôt le ferme)
++let etrangere: CurrentUser; // ne voit pas le dossier
++let admin: CurrentUser;
++let produit = "";
++let produitVerrouille = "";
++let produitAutre = ""; // le dossier d'un autre : « la CTD dans le mauvais dossier »
++
++async function acteur(id: string, role: SessionUser["role"]): Promise<CurrentUser> {
++  const u = await prisma.user.findUniqueOrThrow({ where: { id } });
++  return { id, name: u.name, email: u.email, role, access: await getAccess(id, role), mustChangePassword: false } as CurrentUser;
++}
++
++const req = (url: string) => new NextRequest(`http://localhost${url}`);
++
++interface Piece { nom: string; contenu?: string | Buffer; dossier?: string }
++
++/** Un dépôt par la VRAIE route : un fichier par requête, comme le gestionnaire d'envois. */
++async function deposer(entityId: string, pieces: Piece[], opts: { ctd?: boolean; category?: string; stepKey?: string | null } = {}) {
++  const sorties: { status: number; body: { ok: boolean; created?: number; ids?: string[]; error?: string; errors?: { name: string; error: string }[] } }[] = [];
++  for (const p of pieces) {
++    const fd = new FormData();
++    fd.set("entityType", "REGULATORY_PRODUCT");
++    fd.set("entityId", entityId);
++    fd.set("category", opts.category ?? "CTD_FULL");
++    fd.set("confidentiality", "INTERNAL");
++    const step = opts.stepKey === undefined ? CTD_INITIALE_ETAPE : opts.stepKey;
++    if (step) fd.set("stepKey", step);
++    if (opts.ctd !== false) fd.set("ctd", "1");
++    if (p.dossier) fd.set("folder", p.dossier);
++    fd.append("files", new File([p.contenu ?? `${TAG}-${p.nom}-${Math.random()}`], p.nom));
++    const res = await POST(new NextRequest("http://localhost/api/documents/upload", { method: "POST", body: fd }));
++    sorties.push({ status: res.status, body: await res.json() });
++  }
++  return sorties;
++}
++
++const fd = (o: Record<string, string>) => { const f = new FormData(); for (const [k, v] of Object.entries(o)) f.set(k, v); return f; };
++const vivantes = (id: string) => documentsDeLaCtd(id);
++const corbeille = (id: string) => prisma.deletedRecord.findMany({ where: { kind: KIND_CORBEILLE_CTD, sourceId: id }, orderBy: { deletedAt: "asc" } });
++
++/** Les fichiers (clé → blob) d'abord : ce qu'un banc écrit, il le retire — sinon le stockage garde ses octets. */
++async function purgerFichiers(cles: string[]) {
++  const stored = await prisma.storedFile.findMany({ where: { key: { in: cles } }, select: { blobId: true } });
++  await prisma.storedFile.deleteMany({ where: { key: { in: cles } } });
++  await prisma.fileBlob.deleteMany({ where: { id: { in: stored.map((s) => s.blobId) } } });
++}
++
++/** Remet le dossier à zéro entre deux cas : documents, entrées de corbeille, et les fichiers qu'ils désignaient. */
++async function viderLaCtd(id: string) {
++  const docs = await prisma.document.findMany({ where: { entityId: id }, select: { id: true, fileKey: true } });
++  const recs = await prisma.deletedRecord.findMany({ where: { kind: KIND_CORBEILLE_CTD, sourceId: id }, select: { documents: true } });
++  await prisma.document.deleteMany({ where: { id: { in: docs.map((d) => d.id) } } });
++  await prisma.deletedRecord.deleteMany({ where: { kind: KIND_CORBEILLE_CTD, sourceId: id } });
++  await purgerFichiers([
++    ...docs.map((d) => d.fileKey),
++    ...recs.flatMap((r) => ((r.documents as { fileKey?: string | null }[] | null) ?? []).map((x) => x.fileKey)),
++  ].filter((k): k is string => Boolean(k)));
++}
++
++suite("CTD initiale — dépôt, arborescence, ajout, remplacement, suppression, corbeille, droits", () => {
++  beforeAll(async () => {
++    const mk = (n: string, role: SessionUser["role"]) => prisma.user.create({ data: { name: `${TAG}${n}`, email: `${TAG}${n}@t.dz`, passwordHash: "x", role } });
++    const [a, b, c, d, m] = await Promise.all([mk("moi", "REGULATORY_ASSISTANT"), mk("depo", "REGULATORY_ASSISTANT"), mk("etr", "REGULATORY_ASSISTANT"), mk("adm", "SUPER_ADMIN"), mk("mod", "REGULATORY_ASSISTANT")]);
++    ids.push(a.id, b.id, c.id, d.id, m.id);
++    // « Modifier sans téléverser » : le droit de modifier ne suffit pas à retirer une CTD — la porte est celle du DÉPÔT.
++    await prisma.userAccess.create({ data: { userId: m.id, module: "REGULATORY", canView: true, canUpdate: true, canUpload: false, scope: "ASSIGNED" } });
++    // « Déposer seulement » : un accès personnalisé qui remplace les défauts du rôle — téléverser, sans modifier.
++    await prisma.userAccess.create({ data: { userId: b.id, module: "REGULATORY", canView: true, canUpload: true, canUpdate: false, canDelete: false, scope: "ASSIGNED" } });
++    moi = await acteur(a.id, "REGULATORY_ASSISTANT");
++    deposant = await acteur(b.id, "REGULATORY_ASSISTANT");
++    etrangere = await acteur(c.id, "REGULATORY_ASSISTANT");
++    admin = await acteur(d.id, "SUPER_ADMIN");
++    modifieur = await acteur(m.id, "REGULATORY_ASSISTANT");
++    const p = await prisma.regulatoryProduct.create({
++      data: { dci: `${TAG}-dci`, reference: `${TAG}-REF`, assistantId: a.id, assignedUsers: { connect: [{ id: a.id }, { id: b.id }, { id: m.id }] } },
++    });
++    produit = p.id;
++    produitAutre = (await prisma.regulatoryProduct.create({ data: { dci: `${TAG}-dci2`, reference: `${TAG}-REF2`, assistantId: a.id, assignedUsers: { connect: [{ id: a.id }] } } })).id;
++    produitVerrouille = (await prisma.regulatoryProduct.create({ data: { dci: `${TAG}-verrou`, reference: `${TAG}-VER`, isLocked: true } })).id;
++  }, 60_000);
++
++  afterAll(async () => {
++    const prods = [produit, produitAutre, produitVerrouille];
++    const docs = await prisma.document.findMany({ where: { entityId: { in: prods } }, select: { id: true, fileKey: true } });
++    const recs = await prisma.deletedRecord.findMany({ where: { kind: KIND_CORBEILLE_CTD, sourceId: { in: prods } }, select: { documents: true } });
++    const cles = [
++      ...docs.map((x) => x.fileKey),
++      ...recs.flatMap((r) => ((r.documents as { fileKey?: string | null }[] | null) ?? []).map((x) => x.fileKey)),
++    ].filter((k): k is string => Boolean(k));
++    const stored = await prisma.storedFile.findMany({ where: { key: { in: cles } }, select: { blobId: true } });
++    await prisma.document.deleteMany({ where: { entityId: { in: prods } } });
++    await prisma.deletedRecord.deleteMany({ where: { kind: KIND_CORBEILLE_CTD, sourceId: { in: prods } } });
++    await prisma.storedFile.deleteMany({ where: { key: { in: cles } } });
++    await prisma.fileBlob.deleteMany({ where: { id: { in: stored.map((s) => s.blobId) } } });
++    await prisma.auditLog.deleteMany({ where: { actorId: { in: ids } } }).catch(() => undefined);
++    await prisma.regulatoryProduct.deleteMany({ where: { id: { in: prods } } }).catch(() => undefined);
++    await prisma.userAccess.deleteMany({ where: { userId: { in: ids } } });
++    await prisma.user.deleteMany({ where: { id: { in: ids } } }).catch(() => undefined);
++  }, 60_000);
++
++  it("prémisses : les acteurs sont ce que le banc dit qu'ils sont", async () => {
++    // Elle voit et gère ; le déposant téléverse sans modifier ; l'étrangère ne voit rien ; le dossier verrouillé lui est fermé.
++    expect(await droitsSurLaCtd(moi, produit)).toEqual({ deposer: true, gerer: true });
++    expect(await droitsSurLaCtd(deposant, produit)).toEqual({ deposer: true, gerer: false });
++    expect(await canAccessEntity(deposant, "REGULATORY_PRODUCT", produit, "UPDATE")).toBe(false);
++    expect(await canAccessEntity(etrangere, "REGULATORY_PRODUCT", produit, "VIEW")).toBe(false);
++    expect(await droitsSurLaCtd(etrangere, produit)).toEqual({ deposer: false, gerer: false });
++    expect(await canAccessEntity(modifieur, "REGULATORY_PRODUCT", produit, "UPDATE")).toBe(true);
++    expect(await canAccessEntity(modifieur, "REGULATORY_PRODUCT", produit, "UPLOAD")).toBe(false);
++    expect(await droitsSurLaCtd(modifieur, produit)).toEqual({ deposer: false, gerer: false });
++    expect(await canAccessEntity(moi, "REGULATORY_PRODUCT", produitVerrouille, "VIEW")).toBe(false);
++    expect(moi.role).not.toBe("SUPER_ADMIN");
++  });
++
++  it("un .zip entier déposé à la création va sur l'étape 1, en « CTD complet », sur CE dossier — et se parcourt sans le télécharger", async () => {
++    ACTEUR = moi;
++    const z = new JSZip();
++    z.file("0000/m1/lettre.txt", "bonjour ".repeat(200));
++    z.file("0000/m3/qualite.txt", "qualité ".repeat(200));
++    const [r] = await deposer(produit, [{ nom: `${TAG}-ctd.zip`, contenu: await z.generateAsync({ type: "nodebuffer" }) }]);
++    expect(r.status).toBe(200);
++    expect(r.body.ok).toBe(true);
++
++    const docs = await vivantes(produit);
++    expect(docs).toHaveLength(1);
++    expect(docs[0]).toMatchObject({ stepKey: CTD_INITIALE_ETAPE, category: "CTD_FULL", entityType: "REGULATORY_PRODUCT", entityId: produit, folder: null });
++    // Rien n'a atterri sur l'autre dossier de l'assistante (la CTD dans le mauvais dossier).
++    expect(await prisma.document.count({ where: { entityId: produitAutre } })).toBe(0);
++
++    // L'archive se liste par la route de la fiche, sans être téléchargée.
++    const res = await zipGET(req(`/api/documents/${docs[0].id}/zip`), { params: { id: docs[0].id } });
++    const liste = await res.json();
++    expect(liste.ok).toBe(true);
++    expect((liste.entries as { path: string }[]).map((e) => e.path)).toEqual(expect.arrayContaining(["0000/m1/lettre.txt", "0000/m3/qualite.txt"]));
++  });
++
++  it("un dossier entier garde son arborescence, et deux « index.xml » de deux dossiers ne sont pas deux versions", async () => {
++    ACTEUR = moi;
++    await viderLaCtd(produit);
++    const r = await deposer(produit, [
++      { nom: "index.xml", dossier: "CTD/Module 1" }, { nom: "index.xml", dossier: "CTD/Module 2" }, { nom: "q.pdf", dossier: "CTD/Module 3/3.2.P" }, { nom: "lisezmoi.txt" },
++    ]);
++    expect(r.every((x) => x.status === 200 && x.body.ok)).toBe(true);
++    const docs = await vivantes(produit);
++    expect(docs.map((d) => [d.folder, d.name, d.version]).sort()).toEqual([
++      [null, "lisezmoi.txt", 1], ["CTD/Module 1", "index.xml", 1], ["CTD/Module 2", "index.xml", 1], ["CTD/Module 3/3.2.P", "q.pdf", 1],
++    ].sort());
++    const arbre = arborescenceCtd(docs);
++    expect(arbre.nbFichiers).toBe(4);
++    expect(arbre.dossiers.map((d) => d.nom)).toEqual(["CTD"]);
++  });
++
++  it("un dépôt qui vise la CTD sans le dire est refusé en nommant les gestes ; la marque sur une autre cible aussi — rien n'est écrit", async () => {
++    ACTEUR = moi;
++    const avant = await prisma.document.count({ where: { entityId: produit } });
++    const [sansMarque] = await deposer(produit, [{ nom: "x.pdf" }], { ctd: false });
++    expect(sansMarque.status).toBe(200); // la route répond 200 avec l'erreur du fichier, comme pour tout fichier refusé
++    expect(sansMarque.body.ok).toBe(false);
++    expect(sansMarque.body.errors?.[0].error).toMatch(/Ajouter à la CTD/);
++    const [mauvaiseCible] = await deposer(produit, [{ nom: "y.pdf" }], { category: "OTHER" });
++    expect(mauvaiseCible.body.ok).toBe(false);
++    expect(mauvaiseCible.body.errors?.[0].error).toMatch(/étape 1/);
++    const [autreEtape] = await deposer(produit, [{ nom: "z.pdf" }], { stepKey: "sample" });
++    expect(autreEtape.body.ok).toBe(false);
++    expect(await prisma.document.count({ where: { entityId: produit } })).toBe(avant);
++  });
++
++  it("une pièce de l'étape 1 d'une AUTRE catégorie reste une pièce ordinaire : ce n'est pas la CTD", async () => {
++    ACTEUR = moi;
++    const [r] = await deposer(produit, [{ nom: "justificatif.pdf" }], { ctd: false, category: "SUPPORTING_DOC" });
++    expect(r.body.ok).toBe(true);
++    expect((await vivantes(produit)).some((d) => d.name === "justificatif.pdf")).toBe(false);
++    // Et une pièce « CTD complet » d'une AUTRE étape (posée avant ce lot par la checklist, par exemple) n'en est pas non plus :
++    // sans le fait de l'étape, retirer « la CTD » emporterait des pièces qui n'en font pas partie.
++    await prisma.document.create({ data: { name: "ctd-ailleurs.zip", category: "CTD_FULL", entityType: "REGULATORY_PRODUCT", entityId: produit, stepKey: "sample", uploadedById: moi.id } });
++    expect((await vivantes(produit)).some((d) => d.name === "ctd-ailleurs.zip")).toBe(false);
++    expect(await prisma.document.count({ where: { entityId: produit, name: "justificatif.pdf", stepKey: CTD_INITIALE_ETAPE } })).toBe(1);
++  });
++
++  it("AJOUTER dans un sous-dossier : le fichier rejoint la CTD, à l'endroit choisi, sans en créer une seconde", async () => {
++    ACTEUR = moi;
++    const avant = (await vivantes(produit)).length;
++    const [r] = await deposer(produit, [{ nom: "complement.pdf", dossier: "Compléments/Module 3" }]);
++    expect(r.body.ok).toBe(true);
++    const docs = await vivantes(produit);
++    expect(docs).toHaveLength(avant + 1);
++    expect(docs.find((d) => d.name === "complement.pdf")?.folder).toBe("Compléments/Module 3");
++    // Toujours UN ensemble : une seule corbeille à venir, pas deux CTD.
++    expect(arborescenceCtd(docs).nbFichiers).toBe(avant + 1);
++  });
++
++  it("RENOMMER un dossier : le dossier et ses descendants suivent, « Module 10 » et une pièce d'une autre étape ne bougent pas", async () => {
++    ACTEUR = moi;
++    await viderLaCtd(produit);
++    await deposer(produit, [
++      { nom: "a.pdf", dossier: "CTD/Module 1" }, { nom: "b.pdf", dossier: "CTD/Module 1/sous" }, { nom: "c.pdf", dossier: "CTD/Module 10" }, { nom: "d.pdf", dossier: "CTD/Module 2" },
++    ]);
++    // Une pièce d'une autre étape qui porte le MÊME chemin de dossier : elle n'est pas dans la CTD.
++    await deposer(produit, [{ nom: "autre.pdf", dossier: "CTD/Module 1" }], { ctd: false, category: "OTHER", stepKey: "sample" });
++
++    const conflit = await renommerDossierCtd(fd({ productId: produit, dossier: "CTD/Module 1", nouveauNom: "Module 2" }));
++    expect(conflit.ok).toBe(false);
++    expect(conflit.error).toMatch(/existe déjà/);
++    const separateur = await renommerDossierCtd(fd({ productId: produit, dossier: "CTD/Module 1", nouveauNom: "a/b" }));
++    expect(separateur.ok).toBe(false);
++    const inconnu = await renommerDossierCtd(fd({ productId: produit, dossier: "CTD/Module 9", nouveauNom: "x" }));
++    expect(inconnu.error).toMatch(/n'existe pas/);
++
++    const r = await renommerDossierCtd(fd({ productId: produit, dossier: "CTD/Module 1", nouveauNom: "Module 1 corrigé" }));
++    expect(r).toMatchObject({ ok: true, fichiers: 2 });
++    const parNom = new Map((await vivantes(produit)).map((d) => [d.name, d.folder]));
++    expect(parNom.get("a.pdf")).toBe("CTD/Module 1 corrigé");
++    expect(parNom.get("b.pdf")).toBe("CTD/Module 1 corrigé/sous");
++    expect(parNom.get("c.pdf")).toBe("CTD/Module 10");
++    expect(parNom.get("d.pdf")).toBe("CTD/Module 2");
++    expect((await prisma.document.findFirstOrThrow({ where: { entityId: produit, name: "autre.pdf" } })).folder).toBe("CTD/Module 1");
++  });
++
++  it("REMPLACER : l'ancienne CTD part d'un bloc à la corbeille (fichiers conservés), la nouvelle prend sa place — jamais deux CTD vivantes", async () => {
++    ACTEUR = moi;
++    await viderLaCtd(produit);
++    await deposer(produit, [{ nom: "v1-a.pdf", dossier: "CTD" }, { nom: "v1-b.pdf", dossier: "CTD" }, { nom: "v1.zip" }]);
++    const anciens = await vivantes(produit);
++    expect(anciens).toHaveLength(3);
++    const cles = anciens.map((d) => d.fileKey!);
++
++    const r = await remplacerCtdInitiale(fd({ productId: produit }));
++    expect(r).toMatchObject({ ok: true, fichiers: 3 });
++    expect(await vivantes(produit)).toHaveLength(0); // l'ancienne ne vit plus
++    const rec = await corbeille(produit);
++    expect(rec).toHaveLength(1);
++    expect((rec[0].payload as { motif: string }).motif).toBe("REMPLACEE");
++    expect((rec[0].documents as unknown[]).length).toBe(3);
++    // Les FICHIERS restent : seule la destruction réelle de l'entrée les efface.
++    expect(await prisma.storedFile.count({ where: { key: { in: cles } } })).toBe(3);
++
++    await deposer(produit, [{ nom: "v2-a.pdf", dossier: "CTD" }, { nom: "v2.zip" }]);
++    const nouveaux = await vivantes(produit);
++    expect(nouveaux.map((d) => d.name).sort()).toEqual(["v2-a.pdf", "v2.zip"]);
++    expect(nouveaux.some((d) => d.name.startsWith("v1"))).toBe(false);
++  });
++
++  it("remplacer sans CTD existante est un premier dépôt : le geste réussit sans rien retirer", async () => {
++    ACTEUR = moi;
++    await viderLaCtd(produit);
++    const r = await remplacerCtdInitiale(fd({ productId: produit }));
++    expect(r.ok).toBe(true);
++    expect(r.fichiers).toBe(0);
++    expect(await corbeille(produit)).toHaveLength(0);
++  });
++
++  it("SUPPRIMER : réversible — tout part à la corbeille avec son audit ; une seconde suppression dit qu'il n'y a plus rien ; le Super Admin restaure à l'identique", async () => {
++    ACTEUR = moi;
++    await viderLaCtd(produit);
++    await deposer(produit, [{ nom: "s1.pdf", dossier: "CTD/A" }, { nom: "s2.pdf", dossier: "CTD/B" }]);
++    const avant = await vivantes(produit);
++    const ancienIds = avant.map((d) => d.id).sort();
++
++    const r = await supprimerCtdInitiale(fd({ productId: produit }));
++    expect(r).toMatchObject({ ok: true, fichiers: 2 });
++    expect(await vivantes(produit)).toHaveLength(0);
++    const [rec] = await corbeille(produit);
++    expect(rec.label).toBe("CTD initiale");
++    expect(rec.deletedById).toBe(moi.id);
++    expect((rec.payload as { motif: string }).motif).toBe("SUPPRIMEE");
++    expect(await prisma.auditLog.count({ where: { entityType: "REGULATORY_PRODUCT", entityId: produit, actorId: moi.id, summary: { contains: "CTD initiale supprimée" } } })).toBe(1);
++
++    const encore = await supprimerCtdInitiale(fd({ productId: produit }));
++    expect(encore.ok).toBe(false);
++    expect(encore.error).toMatch(/pas de CTD initiale/);
++    expect(await corbeille(produit)).toHaveLength(1); // la seconde n'a rien écrit
++
++    // Restauration : réservée au Super Admin, mêmes identifiants, mêmes fichiers.
++    ACTEUR = moi;
++    expect((await restoreDeletedRecord(fd({ id: rec.id }))).error).toMatch(/Réservé au Super Admin/);
++    ACTEUR = admin;
++    const rest = await restoreDeletedRecord(fd({ id: rec.id }));
++    expect(rest.ok).toBe(true);
++    const apres = await vivantes(produit);
++    expect(apres.map((d) => d.id).sort()).toEqual(ancienIds);
++    expect(apres.map((d) => d.folder).sort()).toEqual(["CTD/A", "CTD/B"]);
++    expect((await prisma.deletedRecord.findUniqueOrThrow({ where: { id: rec.id } })).restoredAt).not.toBeNull();
++  });
++
++  it("restaurer quand une CTD vit déjà est refusé — les deux ensembles ne se fondent pas en un", async () => {
++    ACTEUR = moi;
++    await viderLaCtd(produit);
++    await deposer(produit, [{ nom: "ancienne.pdf" }]);
++    expect((await supprimerCtdInitiale(fd({ productId: produit }))).ok).toBe(true);
++    await deposer(produit, [{ nom: "nouvelle.pdf" }]);
++    const [rec] = await corbeille(produit);
++    ACTEUR = admin;
++    const r = await restoreDeletedRecord(fd({ id: rec.id }));
++    expect(r.ok).toBe(false);
++    expect(r.error).toMatch(/vit déjà/);
++    expect((await vivantes(produit)).map((d) => d.name)).toEqual(["nouvelle.pdf"]);
++    expect((await prisma.deletedRecord.findUniqueOrThrow({ where: { id: rec.id } })).restoredAt).toBeNull();
++  });
++
++  it("les dossiers d'AVANT ce lot (CTD déposée sur l'étape 1, sans marque) SONT une CTD initiale : visibles, retirables", async () => {
++    ACTEUR = moi;
++    await viderLaCtd(produit);
++    await prisma.document.create({ data: { name: "ancien-ctd.zip", category: "CTD_FULL", entityType: "REGULATORY_PRODUCT", entityId: produit, stepKey: CTD_INITIALE_ETAPE, uploadedById: moi.id } });
++    expect((await vivantes(produit)).map((d) => d.name)).toEqual(["ancien-ctd.zip"]);
++    const r = await supprimerCtdInitiale(fd({ productId: produit }));
++    expect(r).toMatchObject({ ok: true, fichiers: 1 });
++  });
++
++  describe("droits : ceux du dépôt de documents du dossier, jamais plus larges", () => {
++    it("qui ne voit pas le dossier ne dépose rien (403), ne retire rien, ne renomme rien", async () => {
++      ACTEUR = moi;
++      await viderLaCtd(produit);
++      await deposer(produit, [{ nom: "protegee.pdf", dossier: "CTD" }]);
++      ACTEUR = etrangere;
++      const [r] = await deposer(produit, [{ nom: "intrus.pdf" }]);
++      expect(r.status).toBe(403);
++      for (const a of [supprimerCtdInitiale(fd({ productId: produit })), remplacerCtdInitiale(fd({ productId: produit })), renommerDossierCtd(fd({ productId: produit, dossier: "CTD", nouveauNom: "X" }))]) {
++        const x = await a;
++        expect(x.ok).toBe(false);
++        expect(x.error).toMatch(/ne pouvez pas modifier/);
++      }
++      expect((await vivantes(produit)).map((d) => d.name)).toEqual(["protegee.pdf"]);
++      expect((await vivantes(produit))[0].folder).toBe("CTD");
++    });
++
++    it("qui peut SEULEMENT déposer ajoute des fichiers, mais ne supprime ni ne remplace ni ne renomme", async () => {
++      ACTEUR = deposant;
++      const [ajout] = await deposer(produit, [{ nom: "ajout-du-deposant.pdf", dossier: "CTD" }]);
++      expect(ajout.body.ok).toBe(true);
++      for (const a of [supprimerCtdInitiale(fd({ productId: produit })), remplacerCtdInitiale(fd({ productId: produit })), renommerDossierCtd(fd({ productId: produit, dossier: "CTD", nouveauNom: "X" }))]) {
++        expect((await a).ok).toBe(false);
++      }
++      expect((await vivantes(produit)).map((d) => d.name).sort()).toEqual(["ajout-du-deposant.pdf", "protegee.pdf"]);
++      expect(await corbeille(produit)).toHaveLength(0);
++    });
++
++    it("qui peut MODIFIER le dossier sans pouvoir y téléverser ne retire rien non plus : la porte est celle du dépôt, jamais plus large", async () => {
++      ACTEUR = modifieur;
++      const [r] = await deposer(produit, [{ nom: "refuse.pdf" }]);
++      expect(r.status).toBe(403);
++      for (const a of [supprimerCtdInitiale(fd({ productId: produit })), remplacerCtdInitiale(fd({ productId: produit })), renommerDossierCtd(fd({ productId: produit, dossier: "CTD", nouveauNom: "X" }))]) {
++        expect((await a).ok).toBe(false);
++      }
++      expect((await vivantes(produit)).map((d) => d.name).sort()).toEqual(["ajout-du-deposant.pdf", "protegee.pdf"]);
++    });
++
++    it("un dossier VERROUILLÉ (confidentiel) reste fermé : ni dépôt, ni retrait", async () => {
++      ACTEUR = moi;
++      const [r] = await deposer(produitVerrouille, [{ nom: "secret.pdf" }]);
++      expect(r.status).toBe(403);
++      expect((await supprimerCtdInitiale(fd({ productId: produitVerrouille }))).ok).toBe(false);
++      expect(await prisma.document.count({ where: { entityId: produitVerrouille } })).toBe(0);
++    });
++  });
++
++  it("deux retraits SIMULTANÉS ne partagent pas la CTD : un seul passe, une seule entrée de corbeille, rien n'est perdu", async () => {
++    ACTEUR = moi;
++    await viderLaCtd(produit);
++    await deposer(produit, [{ nom: "c1.pdf" }, { nom: "c2.pdf" }, { nom: "c3.pdf" }]);
++    const cible = (await vivantes(produit))[0].id;
++
++    // La barrière : un verrou de LIGNE sur un document de la CTD laisse chaque geste LIRE, puis le bloque à son
++    // écriture. On attend que les DEUX soient bloqués, puis on relâche : le second trouve la CTD déjà partie.
++    const lances: Promise<{ ok: boolean; error?: string }>[] = [];
++    await prisma.$transaction(async (tx) => {
++      await tx.$queryRaw`SELECT id FROM "Document" WHERE id = ${cible} FOR UPDATE`;
++      for (let i = 0; i < 2; i++) {
++        const g = supprimerCtdInitiale(fd({ productId: produit }));
++        g.catch(() => undefined);
++        lances.push(g);
++        const debut = Date.now();
++        for (;;) {
++          await tx.$executeRawUnsafe("SELECT pg_stat_clear_snapshot()");
++          const [{ n }] = await tx.$queryRaw<{ n: number }[]>`
++            WITH att AS (SELECT pid, pg_blocking_pids(pid) AS par FROM pg_stat_activity WHERE datname = current_database()),
++                 directs AS (SELECT pid FROM att WHERE pg_backend_pid() = ANY(par))
++            SELECT count(*)::int AS n FROM att WHERE pg_backend_pid() = ANY(par) OR par && ARRAY(SELECT pid FROM directs)`;
++          if (n >= lances.length) break;
++          if (Date.now() - debut > 15_000) throw new Error(`le geste n°${lances.length} n'a pas atteint la barrière`);
++          await new Promise((r) => setTimeout(r, 25));
++        }
++      }
++    }, { timeout: 30_000 });
++    const sorties = await Promise.all(lances);
++    expect(sorties.filter((s) => s.ok)).toHaveLength(1);
++    expect(sorties.find((s) => !s.ok)?.error).toMatch(/vient d'être modifiée|pas de CTD initiale/);
++    expect(await corbeille(produit)).toHaveLength(1);
++    expect((await corbeille(produit))[0].documents).toHaveLength(3);
++    expect(await vivantes(produit)).toHaveLength(0);
++  });
++});
+diff --git a/src/lib/regulatory/ctd-initiale.test.ts b/src/lib/regulatory/ctd-initiale.test.ts
+new file mode 100644
+index 0000000..217ca8a
+--- /dev/null
++++ b/src/lib/regulatory/ctd-initiale.test.ts
+@@ -0,0 +1,143 @@
++import { describe, expect, it } from "vitest";
++import { REG_STEPS } from "@/lib/regulatory-workflow";
++import {
++  CTD_INITIALE_CATEGORIE, CTD_INITIALE_ETAPE, CTD_INITIALE_LIBELLE,
++  arborescenceCtd, cheminRenomme, cheminSur, dossierApresRenommage, dossierDeDestination, dossiersDeLaCtd,
++  estCtdInitiale, refusDepotCtd, refusRenommageDossier, resumeCtd,
++} from "./ctd-initiale";
++
++/**
++ * LA CTD INITIALE — les règles pures (§118.213). Ce que la CTD EST (un fait, pas un nom), ce qui est
++ * refusé et pourquoi, l'arborescence, la destination, le renommage d'un dossier.
++ */
++
++const CTD = { entityType: "REGULATORY_PRODUCT", stepKey: CTD_INITIALE_ETAPE, category: CTD_INITIALE_CATEGORIE };
++
++describe("ce qui fait qu'un document EST la CTD initiale", () => {
++  it("l'étape est la PREMIÈRE du processus officiel, lue dans REG_STEPS — jamais recopiée", () => {
++    expect(CTD_INITIALE_ETAPE).toBe(REG_STEPS[0].key);
++    expect(REG_STEPS[0].n).toBe(1);
++  });
++
++  it("les trois conditions sont nécessaires — chacune retirée seule fait tomber", () => {
++    expect(estCtdInitiale(CTD)).toBe(true);
++    expect(estCtdInitiale({ ...CTD, entityType: "SPONSORING" })).toBe(false); // une autre fiche
++    expect(estCtdInitiale({ ...CTD, stepKey: "presub_checklist" })).toBe(false); // une autre étape
++    expect(estCtdInitiale({ ...CTD, stepKey: null })).toBe(false); // une pièce non rattachée
++    expect(estCtdInitiale({ ...CTD, category: "MODULE_3" })).toBe(false); // une autre catégorie
++    expect(estCtdInitiale({ ...CTD, category: "OTHER" })).toBe(false);
++  });
++
++  it("le libellé d'affichage n'entre PAS dans la reconnaissance", () => {
++    expect(CTD_INITIALE_LIBELLE).toBe("CTD initiale");
++    // Un document qui s'appelle « CTD initiale » mais n'est ni à l'étape 1 ni « CTD complet » n'en est pas une.
++    expect(estCtdInitiale({ ...CTD, stepKey: null })).toBe(false);
++  });
++});
++
++describe("un dépôt qui vise la CTD le dit — et la marque ne sert pas à faire passer une pièce ailleurs", () => {
++  it("cible CTD SANS marque : refus qui nomme les deux gestes", () => {
++    const r = refusDepotCtd(CTD, false);
++    expect(r).toMatch(/Ajouter à la CTD/);
++    expect(r).toMatch(/Remplacer la CTD/);
++  });
++  it("cible CTD AVEC marque : accepté", () => {
++    expect(refusDepotCtd(CTD, true)).toBeNull();
++  });
++  it("une autre cible sans marque : rien à dire (le téléverseur ordinaire n'est pas touché)", () => {
++    expect(refusDepotCtd({ ...CTD, category: "MODULE_1" }, false)).toBeNull();
++    expect(refusDepotCtd({ ...CTD, stepKey: null }, false)).toBeNull();
++    expect(refusDepotCtd({ entityType: "SPONSORING", stepKey: null, category: "OTHER" }, false)).toBeNull();
++  });
++  it("la marque sur une autre cible : refusée, elle nomme la cible attendue", () => {
++    for (const c of [{ ...CTD, category: "OTHER" }, { ...CTD, stepKey: "sample" }, { ...CTD, entityType: "SPONSORING" }, { ...CTD, stepKey: null }]) {
++      expect(refusDepotCtd(c, true), JSON.stringify(c)).toMatch(/étape 1/);
++    }
++  });
++});
++
++describe("chemins : UNE règle pour le navigateur et le serveur", () => {
++  it("jamais de « .. », jamais de chemin absolu, séparateur « / », borné, null quand il ne reste rien", () => {
++    expect(cheminSur("/CTD\\Module 3/./x/")).toBe("CTD/Module 3/x");
++    expect(cheminSur("../../etc")).toBe("etc");
++    expect(cheminSur("..")).toBeNull();
++    expect(cheminSur("   ")).toBeNull();
++    expect(cheminSur(null)).toBeNull();
++    expect(cheminSur("a".repeat(600))!.length).toBe(500);
++  });
++
++  it("la destination joint le dossier choisi au dossier d'origine du fichier déposé", () => {
++    expect(dossierDeDestination("Compléments", "CTD/Module 1")).toBe("Compléments/CTD/Module 1");
++    expect(dossierDeDestination("Compléments", null)).toBe("Compléments");
++    expect(dossierDeDestination(null, "CTD/Module 1")).toBe("CTD/Module 1");
++    expect(dossierDeDestination(null, null)).toBeNull();
++    expect(dossierDeDestination("", "")).toBeNull();
++    // Une destination forgée ne sort pas de la CTD : « .. » est retiré.
++    expect(dossierDeDestination("../autre", "x")).toBe("autre/x");
++  });
++});
++
++const doc = (name: string, folder: string | null, sizeBytes: number | null = 100) => ({ name, folder, sizeBytes });
++
++describe("l'arborescence de la CTD", () => {
++  const docs = [
++    doc("index.xml", "CTD/Module 1", 10), doc("lettre.pdf", "CTD/Module 1", 20), doc("index.xml", "CTD/Module 2", 5),
++    doc("m3.pdf", "CTD/Module 3/3.2.P", 40), doc("lisezmoi.txt", null, 1), doc("archive.zip", null, 1000),
++  ];
++
++  it("le compte et le poids remontent à TOUS les ancêtres", () => {
++    const a = arborescenceCtd(docs);
++    expect(a.nbFichiers).toBe(6);
++    expect(a.octets).toBe(10 + 20 + 5 + 40 + 1 + 1000);
++    expect(a.fichiers.map((f) => f.name)).toEqual(["archive.zip", "lisezmoi.txt"]);
++    const ctd = a.dossiers.find((d) => d.nom === "CTD")!;
++    expect(ctd.nbFichiers).toBe(4);
++    expect(ctd.fichiers).toHaveLength(0); // aucun fichier directement dans « CTD »
++    expect(ctd.dossiers.map((d) => d.nom)).toEqual(["Module 1", "Module 2", "Module 3"]);
++    const m3 = ctd.dossiers.find((d) => d.nom === "Module 3")!;
++    expect(m3.nbFichiers).toBe(1);
++    expect(m3.dossiers[0].chemin).toBe("CTD/Module 3/3.2.P");
++  });
++
++  it("un poids absent compte zéro — jamais NaN", () => {
++    expect(arborescenceCtd([doc("a", "x", null), doc("b", "x", 7)]).octets).toBe(7);
++  });
++
++  it("les dossiers à choisir comme destination incluent les préfixes", () => {
++    expect(dossiersDeLaCtd(docs)).toEqual(["CTD", "CTD/Module 1", "CTD/Module 2", "CTD/Module 3", "CTD/Module 3/3.2.P"]);
++  });
++
++  it("le résumé dit fichiers, dossiers, octets, archives .zip", () => {
++    expect(resumeCtd(docs)).toEqual({ fichiers: 6, dossiers: 5, octets: 1076, archives: 1 });
++    expect(resumeCtd([])).toEqual({ fichiers: 0, dossiers: 0, octets: 0, archives: 0 });
++  });
++});
++
++describe("renommer un dossier de la CTD", () => {
++  const existants = ["CTD", "CTD/Module 1", "CTD/Module 10", "CTD/Module 2"];
++
++  it("renomme le DERNIER segment, le parent reste", () => {
++    expect(cheminRenomme("CTD/Module 1", "Module 1 corrigé")).toBe("CTD/Module 1 corrigé");
++    expect(cheminRenomme("CTD", "Dossier")).toBe("Dossier");
++  });
++
++  it("les descendants suivent — et « Module 10 » n'est PAS un descendant de « Module 1 »", () => {
++    expect(dossierApresRenommage("CTD/Module 1", "CTD/Module 1", "CTD/X")).toBe("CTD/X");
++    expect(dossierApresRenommage("CTD/Module 1/sous", "CTD/Module 1", "CTD/X")).toBe("CTD/X/sous");
++    expect(dossierApresRenommage("CTD/Module 10", "CTD/Module 1", "CTD/X")).toBe("CTD/Module 10");
++    expect(dossierApresRenommage("CTD/Module 10/a", "CTD/Module 1", "CTD/X")).toBe("CTD/Module 10/a");
++    expect(dossierApresRenommage(null, "CTD/Module 1", "CTD/X")).toBeNull();
++  });
++
++  it("refus qui nomme la cause", () => {
++    expect(refusRenommageDossier("CTD/Module 1", "  ", existants)).toMatch(/vide/);
++    expect(refusRenommageDossier("CTD/Module 1", "a/b", existants)).toMatch(/« \/ »/);
++    expect(refusRenommageDossier("CTD/Module 1", "Module 2", existants)).toMatch(/existe déjà/);
++    expect(refusRenommageDossier("", "x", existants)).toMatch(/introuvable/);
++  });
++
++  it("un nom identique n'est pas un conflit avec soi-même", () => {
++    expect(refusRenommageDossier("CTD/Module 1", "Module 1", existants)).toBeNull();
++    expect(refusRenommageDossier("CTD/Module 1", "Nouveau", existants)).toBeNull();
++  });
++});
+diff --git a/src/lib/regulatory/ctd-initiale.ts b/src/lib/regulatory/ctd-initiale.ts
+new file mode 100644
+index 0000000..d0ac07a
+--- /dev/null
++++ b/src/lib/regulatory/ctd-initiale.ts
+@@ -0,0 +1,202 @@
++import { REG_STEPS } from "@/lib/regulatory-workflow";
++
++/**
++ * LA CTD INITIALE D'UN DOSSIER REGULATORY — les règles, pures (aucune base, aucun import lourd).
++ *
++ * « Lors de la création d'un dossier, on doit pouvoir mettre un dossier ZIP complet (ou un dossier
++ * entier) : il est mis dans la première étape du process, bien visible, et NOMMÉ « CTD initiale ».
++ * Elle pourra être supprimée, remplacée, ou recevoir des fichiers et des dossiers dans un endroit
++ * particulier. »
++ *
++ * ── CE QUI FAIT QU'UN DOCUMENT EST LA CTD INITIALE (§118.213) ───────────────────────────────
++ *
++ * Un FAIT, pas une ressemblance de nom : une pièce du dossier (`REGULATORY_PRODUCT`), rattachée à
++ * la PREMIÈRE étape du processus officiel (lue dans `REG_STEPS`, jamais recopiée), de catégorie
++ * « CTD complet ». Aucune colonne de plus : les dossiers d'avant — dont le CTD avait déjà été posé
++ * sur l'étape 1 — SONT déjà une CTD initiale, sans migration.
++ *
++ * La CTD est un ENSEMBLE de documents (un .zip entier, ou un dossier de trois cents fichiers avec son
++ * arborescence), pas un fichier : « une seule CTD initiale vivante » veut dire un seul ensemble.
++ * Le remplacer met l'ensemble précédent à la corbeille, d'un bloc, avant que le nouveau ne monte.
++ *
++ * ── UN DÉPÔT QUI VISE LA CTD DOIT LE DIRE ───────────────────────────────────────────────────
++ *
++ * Le téléverseur générique pose aussi des documents « CTD complet » : sans marque, rien ne dit si
++ * la personne voulait AJOUTER à la CTD, la REMPLACER ou simplement ranger une pièce. Un dépôt qui
++ * vise exactement la cible de la CTD sans porter la marque est donc refusé, avec le geste qui existe
++ * (`refusDepotCtd`) ; et la marque posée sur une autre cible est refusée aussi — elle ne doit pas
++ * servir à faire passer une pièce ailleurs pour la CTD.
++ */
++
++/** Le libellé d'AFFICHAGE — la reconnaissance, elle, se fait sur le fait ci-dessous. */
++export const CTD_INITIALE_LIBELLE = "CTD initiale";
++
++/** L'étape 1 du processus officiel : la LIRE, jamais la recopier. */
++export const CTD_INITIALE_ETAPE: string = REG_STEPS[0].key;
++export const CTD_INITIALE_CATEGORIE = "CTD_FULL";
++export const CTD_INITIALE_ENTITE = "REGULATORY_PRODUCT";
++
++/** Le type d'une entrée de corbeille de CTD (la corbeille range par chaîne). */
++export const KIND_CORBEILLE_CTD = "REGULATORY_CTD";
++
++/** Pourquoi la CTD est partie à la corbeille — écrit sur l'entrée, lu par la phrase. */
++export type MotifRetraitCtd = "SUPPRIMEE" | "REMPLACEE";
++
++/**
++ * LE FAIT : cette pièce est-elle (une partie de) la CTD initiale ? Les trois conditions sont
++ * nécessaires — une pièce « CTD complet » posée hors de l'étape 1 est autre chose, et une pièce
++ * de l'étape 1 d'une autre catégorie (un module, un justificatif) n'est pas la CTD.
++ */
++export function estCtdInitiale(d: { entityType: string; stepKey: string | null; category: string }): boolean {
++  return d.entityType === CTD_INITIALE_ENTITE && d.stepKey === CTD_INITIALE_ETAPE && d.category === CTD_INITIALE_CATEGORIE;
++}
++
++/**
++ * LE REFUS D'UN DÉPÔT, ou `null`. `marque` = la personne a déposé DEPUIS le bloc de la CTD.
++ *   • cible CTD sans marque → refus qui nomme le geste ;
++ *   • marque sur une autre cible → refus qui nomme la cible attendue.
++ */
++export function refusDepotCtd(cible: { entityType: string; stepKey: string | null; category: string }, marque: boolean): string | null {
++  const vise = estCtdInitiale(cible);
++  if (vise && !marque) {
++    return `La ${CTD_INITIALE_LIBELLE} se dépose depuis son bloc, sur l'étape 1 du dossier (« Réception du CTD complet ») : « Ajouter à la CTD » pour y poser des fichiers, « Remplacer la CTD » pour en envoyer une nouvelle. Pour ranger une autre pièce, choisissez une autre catégorie que « CTD complet ».`;
++  }
++  if (marque && !vise) {
++    return `Un dépôt marqué « ${CTD_INITIALE_LIBELLE} » doit viser l'étape 1 d'un dossier réglementaire, en catégorie « CTD complet ».`;
++  }
++  return null;
++}
++
++/**
++ * CHEMIN DE DOSSIER SÛR : jamais de « .. », jamais de chemin absolu, séparateur « / », borné à
++ * 500 caractères. `null` quand il ne reste rien. UNE seule écriture — `documents.ts` la réexporte
++ * sous son ancien nom, pour que le navigateur (qui choisit la destination) et le serveur (qui la
++ * range) ne puissent pas diverger sur ce qu'est un chemin acceptable.
++ */
++export function cheminSur(brut: string | null | undefined): string | null {
++  if (!brut) return null;
++  const propre = brut.replace(/\\/g, "/").split("/").map((x) => x.trim()).filter((x) => x && x !== "." && x !== "..").join("/");
++  return propre ? propre.slice(0, 500) : null;
++}
++
++/** Le dossier où un fichier ira : le dossier choisi, puis le dossier d'origine du fichier déposé. */
++export function dossierDeDestination(base: string | null | undefined, origine: string | null | undefined): string | null {
++  const b = cheminSur(base);
++  const o = cheminSur(origine);
++  return cheminSur([b, o].filter(Boolean).join("/"));
++}
++
++export interface DocCtd {
++  name: string;
++  folder?: string | null;
++  sizeBytes: number | null;
++}
++
++/** Un nœud de l'arborescence de la CTD : ses sous-dossiers, ses fichiers, ce qu'ils pèsent. */
++export interface NoeudCtd<T extends DocCtd = DocCtd> {
++  nom: string;
++  chemin: string;
++  dossiers: NoeudCtd<T>[];
++  fichiers: T[];
++  /** Tous les fichiers sous ce nœud, sous-dossiers compris. */
++  nbFichiers: number;
++  octets: number;
++}
++
++/**
++ * L'ARBORESCENCE de la CTD, lue sur `folder` : « CTD/Module 1 » + « a.pdf » → CTD › Module 1 › a.pdf.
++ * Les dossiers se trient par nom, les fichiers aussi ; la racine porte les fichiers sans dossier.
++ */
++export function arborescenceCtd<T extends DocCtd>(docs: readonly T[]): NoeudCtd<T> {
++  const racine: NoeudCtd<T> = { nom: "", chemin: "", dossiers: [], fichiers: [], nbFichiers: 0, octets: 0 };
++  const index = new Map<string, NoeudCtd<T>>([["", racine]]);
++  const noeud = (chemin: string): NoeudCtd<T> => {
++    const connu = index.get(chemin);
++    if (connu) return connu;
++    const i = chemin.lastIndexOf("/");
++    const parent = noeud(i < 0 ? "" : chemin.slice(0, i));
++    const n: NoeudCtd<T> = { nom: i < 0 ? chemin : chemin.slice(i + 1), chemin, dossiers: [], fichiers: [], nbFichiers: 0, octets: 0 };
++    parent.dossiers.push(n);
++    index.set(chemin, n);
++    return n;
++  };
++  for (const d of docs) {
++    const dossier = cheminSur(d.folder) ?? "";
++    const n = noeud(dossier);
++    n.fichiers.push(d);
++    // Le compte et le poids remontent à TOUS les ancêtres : « Module 1 (12 fichiers) » se lit sans déplier.
++    let c = dossier;
++    for (;;) {
++      const a = index.get(c)!;
++      a.nbFichiers += 1;
++      a.octets += d.sizeBytes ?? 0;
++      if (c === "") break;
++      const i = c.lastIndexOf("/");
++      c = i < 0 ? "" : c.slice(0, i);
++    }
++  }
++  const trier = (n: NoeudCtd<T>) => {
++    n.dossiers.sort((a, b) => a.nom.localeCompare(b.nom, "fr"));
++    n.fichiers.sort((a, b) => a.name.localeCompare(b.name, "fr"));
++    n.dossiers.forEach(trier);
++  };
++  trier(racine);
++  return racine;
++}
++
++/** Tous les dossiers de la CTD, préfixes compris (« A/B » donne « A » et « A/B »), triés — la liste des destinations. */
++export function dossiersDeLaCtd(docs: readonly { folder?: string | null }[]): string[] {
++  const tous = new Set<string>();
++  for (const d of docs) {
++    const dossier = cheminSur(d.folder);
++    if (!dossier) continue;
++    const segs = dossier.split("/");
++    for (let i = 1; i <= segs.length; i++) tous.add(segs.slice(0, i).join("/"));
++  }
++  return [...tous].sort((a, b) => a.localeCompare(b, "fr"));
++}
++
++/** Ce que la CTD contient, en une ligne de chiffres. */
++export function resumeCtd(docs: readonly DocCtd[]): { fichiers: number; dossiers: number; octets: number; archives: number } {
++  return {
++    fichiers: docs.length,
++    dossiers: dossiersDeLaCtd(docs).length,
++    octets: docs.reduce((s, d) => s + (d.sizeBytes ?? 0), 0),
++    archives: docs.filter((d) => /\.zip$/i.test(d.name)).length,
++  };
++}
++
++/**
++ * RENOMMER UN DOSSIER de la CTD : le nouveau nom d'UN segment (« Module 1 » → « Module 1 corrigé »),
++ * le dossier gardant son parent. Refus qui nomme la cause : un nom vide, un séparateur dans le nom,
++ * un dossier qui existe déjà à cet endroit (deux dossiers fondus en un perdraient leur distinction).
++ */
++export function refusRenommageDossier(ancien: string, nouveauNom: string, existants: readonly string[]): string | null {
++  const a = cheminSur(ancien);
++  if (!a) return "Dossier à renommer introuvable.";
++  const nom = nouveauNom.trim();
++  if (!nom || nom === "." || nom === "..") return "Le nouveau nom du dossier ne peut pas être vide.";
++  if (/[\\/]/.test(nom)) return "Le nouveau nom ne peut pas contenir de « / » : il renomme UN dossier, il ne le déplace pas.";
++  const cible = cheminRenomme(a, nom);
++  if (cible === a) return null;
++  if (existants.some((e) => e === cible)) return `Un dossier « ${cible} » existe déjà dans la CTD.`;
++  return null;
++}
++
++/** Le chemin d'un dossier une fois son DERNIER segment renommé. */
++export function cheminRenomme(ancien: string, nouveauNom: string): string {
++  const i = ancien.lastIndexOf("/");
++  return cheminSur(i < 0 ? nouveauNom : `${ancien.slice(0, i)}/${nouveauNom}`) ?? ancien;
++}
++
++/**
++ * Le dossier d'un document après le renommage de `ancien` en `nouveau` : le dossier lui-même ou l'un
++ * de ses descendants suit ; tout autre reste identique. `null` ne bouge jamais.
++ */
++export function dossierApresRenommage(folder: string | null, ancien: string, nouveau: string): string | null {
++  const f = cheminSur(folder);
++  if (!f) return f;
++  if (f === ancien) return nouveau;
++  if (f.startsWith(`${ancien}/`)) return `${nouveau}${f.slice(ancien.length)}`;
++  return f;
++}

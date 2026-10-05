@@ -1,0 +1,1753 @@
+diff --git a/src/app/(app)/promo-material/[id]/page.tsx b/src/app/(app)/promo-material/[id]/page.tsx
+index e36078a..2de1238 100644
+--- a/src/app/(app)/promo-material/[id]/page.tsx
++++ b/src/app/(app)/promo-material/[id]/page.tsx
+@@ -43,6 +43,8 @@ import { attendSaCorrection, etatApresRenvoi, refusParLeDemandeur } from "@/lib/
+ import { PromoActionPanel } from "./promo-panels";
+ import { PromoCircuitCard, type ChantierAffiche } from "./circuit-card";
+ import { PromoQuotesCard, type DevisAffiche } from "./quotes-card";
++import { RetirerDemandeDevis } from "./retirer-demande-devis";
++import { etatRetraitDemandeDevis } from "@/lib/promo-material/retrait-devis";
+ import { PromoExecutionCard, type ExecutionAffichee, type NatureAffichee } from "./execution-card";
+ import { PromoArticlesCard } from "./articles-card";
+ import { articlesDemandesDuDossier, optionsDesArticlesDemandes } from "@/lib/queries/promo-achats";
+@@ -230,6 +232,11 @@ export default async function PromoMaterialDetailPage({ params }: { params: { id
+     : null;
+   const canEditArticles = v2 && (circuitState === "REVIEW_REQUEST" || circuitState === "QUOTE_TO_REQUEST" || circuitState === "QUOTE_REQUESTED" || circuitState === "REVIEW_REQUESTER") && demandeLesDevis(acteur, pm);
+   const canReceive = v2 && circuitState === "IN_EXECUTION" && peutReceptionner({ id: user.id, role: user.role }, pm);
++  // RETIRER LA DEMANDE DE DEVIS (constat 35) — le demandeur (ou la Direction), tant que l'assistante n'a
++  // rien retranscrit : la règle de l'action, lue ici pour n'offrir que ce qu'elle accepte (§118.83).
++  const retraitDevis = v2 && circuitState === "QUOTE_REQUESTED" && demandeLesDevis(acteur, pm)
++    ? await etatRetraitDemandeDevis(pm.id)
++    : null;
+ 
+   // LES DEVIS (circuit 2) — le tableau interne, dès que les devis sont demandés.
+   const montrerDevis = v2 && circuitState !== "REVIEW_REQUEST" && circuitState !== "QUOTE_TO_REQUEST";
+@@ -366,7 +373,8 @@ export default async function PromoMaterialDetailPage({ params }: { params: { id
+       {montrerDevis && (
+         <Card>
+           <CardHeader><CardTitle className="flex items-center gap-2 text-base"><ClipboardList className="h-4 w-4" /> Devis</CardTitle></CardHeader>
+-          <CardContent>
++          <CardContent className="space-y-3">
++            {retraitDevis && <RetirerDemandeDevis promoMaterialId={pm.id} references={retraitDevis.demandes.map((d) => d.reference)} refus={retraitDevis.refus} />}
+             <PromoQuotesCard
+               id={pm.id} quotes={devis} articles={articles} canTranscribe={canTranscribe} canSelect={canSelect}
+               manques={canTranscribe ? manquesDeRetranscription(devis) : []}
+diff --git a/src/app/(app)/promo-material/[id]/retirer-demande-devis.tsx b/src/app/(app)/promo-material/[id]/retirer-demande-devis.tsx
+new file mode 100644
+index 0000000..8cf55f9
+--- /dev/null
++++ b/src/app/(app)/promo-material/[id]/retirer-demande-devis.tsx
+@@ -0,0 +1,63 @@
++"use client";
++
++import * as React from "react";
++import { Loader2, Undo2 } from "lucide-react";
++import { retirerDemandeDevisPromo } from "@/lib/actions/promo-devis-actions";
++import { useRafraichir } from "@/components/shared/use-rafraichir";
++import { Button } from "@/components/ui/button";
++import { Textarea } from "@/components/ui/input";
++
++/**
++ * RETIRER LA DEMANDE DE DEVIS DEPUIS LE DOSSIER (audit du 04/10, constat 35). Offert seulement quand le
++ * serveur l'a décidé possible (le demandeur ou la Direction, étape « devis demandés ») ; quand l'assistante
++ * a déjà retranscrit, le geste n'est pas offert et la carte dit pourquoi — la phrase même de l'action
++ * (§118.83). Le motif est exigé : c'est ce que lira l'assistante.
++ */
++export function RetirerDemandeDevis({ promoMaterialId, references, refus }: { promoMaterialId: string; references: string[]; refus: string | null }) {
++  const { enCours, rafraichir } = useRafraichir();
++  const [ouvert, setOuvert] = React.useState(false);
++  const [motif, setMotif] = React.useState("");
++  const [envoi, setEnvoi] = React.useState(false);
++  const [err, setErr] = React.useState<string | null>(null);
++  const [msg, setMsg] = React.useState<string | null>(null);
++
++  if (refus) return <p className="text-xs text-muted-foreground">{refus}</p>;
++  const occupe = envoi || enCours;
++  return (
++    <div className="space-y-2 rounded-lg border border-border p-2.5 text-xs">
++      {msg && <p className="text-emerald-700 dark:text-emerald-400">{msg}</p>}
++      {err && <p role="alert" className="text-destructive">{err}</p>}
++      {!ouvert ? (
++        <Button size="sm" variant="outline" disabled={occupe} onClick={() => { setOuvert(true); setErr(null); }}>
++          <Undo2 className="h-4 w-4" /> Retirer la demande de devis{references.length ? ` (${references.join(", ")})` : ""}
++        </Button>
++      ) : (
++        <form
++          className="space-y-2"
++          onSubmit={async (e) => {
++            e.preventDefault();
++            const f = new FormData();
++            f.set("promoMaterialId", promoMaterialId);
++            f.set("motif", motif);
++            setEnvoi(true); setErr(null);
++            const r = await retirerDemandeDevisPromo(f);
++            setEnvoi(false);
++            if (!r.ok) { setErr(r.error ?? "Retrait impossible."); return; }
++            setMsg(r.message ?? "Demande de devis retirée.");
++            setOuvert(false); setMotif("");
++            rafraichir();
++          }}
++        >
++          <label className="block font-medium" htmlFor={`motif-retrait-${promoMaterialId}`}>Pourquoi retirer la demande de devis ?</label>
++          <Textarea id={`motif-retrait-${promoMaterialId}`} value={motif} onChange={(e) => setMotif(e.target.value)} rows={2} />
++          <div className="flex flex-wrap gap-2">
++            <Button type="submit" size="sm" variant="destructive" disabled={occupe || motif.trim() === ""}>
++              {occupe ? <Loader2 className="h-4 w-4 animate-spin" /> : <Undo2 className="h-4 w-4" />} Retirer la demande
++            </Button>
++            <Button type="button" size="sm" variant="ghost" disabled={occupe} onClick={() => setOuvert(false)}>Annuler</Button>
++          </div>
++        </form>
++      )}
++    </div>
++  );
++}
+diff --git a/src/components/ad-pro/items-panel.tsx b/src/components/ad-pro/items-panel.tsx
+index 0fc7ad9..870f5c4 100644
+--- a/src/components/ad-pro/items-panel.tsx
++++ b/src/components/ad-pro/items-panel.tsx
+@@ -85,6 +85,11 @@ export interface ItemRow {
+    * les laisserait sans porte. L'écran ne propose donc pas ces gestes ; il dit pourquoi (§118.83).
+    */
+   bcEtablis: string[];
++  /**
++   * Ce qui empêche « Annuler la demande de BC » (constat 36) : un BC signé par les Finances, ou une facture
++   * qui en découle. `null` : le geste unique annule le BC non signé au registre, puis retire la demande.
++   */
++  refusAnnulationBc: string | null;
+   /** Combien de pièces jointes le poste porte — le détail se déplie à la demande. */
+   documentCount: number;
+   /** Émission du bon de commande : demande → visa du centre (au-dessus du seuil) → Finances. */
+@@ -104,7 +109,8 @@ export interface ItemRow {
+   /** Les postes nés d'une même répartition d'un sponsoring indirect (§118.175). */
+   repartitionId: string | null;
+   /** Le sujet de réservation d'une billetterie, s'il a été ouvert. */
+-  reservation: { id: string; reference: string } | null;
++  /** Le sujet de réservation ; `refusRetrait` : ce qui empêche de retirer la demande (`null` : elle se retire). */
++  reservation: { id: string; reference: string; refusRetrait: string | null } | null;
+   /** Les voyageurs d'un poste « billetterie » — vide sinon. */
+   voyageurs: VoyageurVue[];
+   /** Les noms que la demande porte déjà — proposés à la saisie d'un voyageur, jamais imposés. */
+@@ -527,9 +533,12 @@ function PosteCarte({ item, parent, parentId, regard, freres, assistantes, budge
+   const bcEnCours = (item.orderStage === "REQUESTED" || item.orderStage === "DIRECTION_OK") && !item.expenseOrderId;
+   const bcLegal = bcEnCours && item.bcEtablis.length > 0;
+   const toucheBC = regard.canEdit || regard.canAllocate;
++  // UN GESTE UNIQUE (constat 36) : un BC établi mais NON signé s'annule avec la demande ; signé, ou suivi
++  // d'une facture, la demande est exécutée — la carte ne propose plus le geste et dit pourquoi.
++  const bcAnnulable = bcEnCours && !item.refusAnnulationBc;
+   if (bcEnCours && toucheBC) {
+     entrees.push({ cle: "modifier-bc", libelle: "Modifier la demande de BC", icone: <Pencil className="h-3.5 w-3.5" />, faire: () => setPanneau("MODIFIER_BC") });
+-    if (!bcLegal) entrees.push({ cle: "retirer-bc", libelle: "Retirer la demande de BC", icone: <Undo2 className="h-3.5 w-3.5" />, faire: () => setPanneau("RETIRER_BC") });
++    if (bcAnnulable) entrees.push({ cle: "retirer-bc", libelle: "Annuler la demande de BC", icone: <Undo2 className="h-3.5 w-3.5" />, danger: bcLegal, faire: () => setPanneau("RETIRER_BC") });
+   }
+   // L'ORDRE ÉMIS S'ANNULE TANT QU'IL N'EST PAS RÉGLÉ (audit R06) — les Finances ou qui tranche.
+   const ordreAnnulable = Boolean(item.expenseOrderId) && ["PENDING", "REVISION_REQUESTED"].includes(item.expenseOrder?.status ?? "");
+@@ -688,8 +697,10 @@ function PosteCarte({ item, parent, parentId, regard, freres, assistantes, budge
+           le retrait de la demande de BC (§118.83). */}
+       {bcLegal && (
+         <p className="text-xs text-muted-foreground">
+-          BC établi dans Legal : {item.bcEtablis.join(", ")} — il lit sa validation sur ce poste. Pour retirer la demande, la refuser
+-          ou la rendre à la Direction, annulez-le d&apos;abord dans Legal.
++          BC établi dans Legal : {item.bcEtablis.join(", ")} — il lit sa validation sur ce poste.{" "}
++          {item.refusAnnulationBc
++            ? item.refusAnnulationBc
++            : "« Annuler la demande de BC » l'annule au registre avec la demande ; pour refuser ou rendre le poste à la Direction, annulez d'abord la demande."}
+         </p>
+       )}
+ 
+@@ -733,12 +744,14 @@ function PosteCarte({ item, parent, parentId, regard, freres, assistantes, budge
+           }
+         />
+       )}
+-      {panneau === "RETIRER_BC" && bcEnCours && toucheBC && (
++      {panneau === "RETIRER_BC" && bcAnnulable && toucheBC && (
+         <GesteAvecMotif
+-          titre="Retirer la demande de bon de commande"
+-          aide="Le motif reste à l'historique ; la demande à l'assistante se ferme avec, et les Finances sont prévenues si le centre l'avait visée."
+-          bouton="Retirer la demande" danger busy={busy === `por:${item.id}`} onCancel={fermer}
+-          onSend={(motif) => void run(`por:${item.id}`, () => retirerDemandeBC(undefined, fdOf({ motif })), "Demande de bon de commande retirée.").then(fermer)}
++          titre="Annuler la demande de bon de commande"
++          aide={bcLegal
++            ? `Le bon de commande ${item.bcEtablis.join(", ")} n'est pas signé : il est annulé au registre avec la demande. Le motif reste à l'historique, l'assistante et les Finances sont prévenues.`
++            : "Le motif reste à l'historique ; la demande à l'assistante se ferme avec, et les Finances sont prévenues si le centre l'avait visée."}
++          bouton="Annuler la demande" danger busy={busy === `por:${item.id}`} onCancel={fermer}
++          onSend={(motif) => void run(`por:${item.id}`, () => retirerDemandeBC(undefined, fdOf({ motif })), "Demande de bon de commande annulée.").then(fermer)}
+         />
+       )}
+       {panneau === "ANNULER_ORDRE" && ordreAnnulable && regard.canEmettre && (
+@@ -1168,7 +1181,8 @@ function BoiteDecision({ item, mode, budgetOptions, busy, run, fdOf, onCancel, r
+       )}
+       {accordSeul && (
+         <p className="text-xs text-amber-700 dark:text-amber-400">
+-          Un bon de commande est déjà établi dans Legal ({item.bcEtablis.join(", ")}) : pour refuser ou renvoyer ce poste, annulez-le d&apos;abord dans Legal.
++          Un bon de commande est déjà établi dans Legal ({item.bcEtablis.join(", ")}) : pour refuser ou renvoyer ce poste, annulez d&apos;abord la demande de BC
++          {item.refusAnnulationBc ? ` — ${item.refusAnnulationBc}` : " (« Annuler la demande de BC » l'annule avec elle)."}
+         </p>
+       )}
+       {marketing && offrir("APPROVED") && (
+diff --git a/src/components/ad-pro/voyageurs-bloc.tsx b/src/components/ad-pro/voyageurs-bloc.tsx
+index 287e7b6..29169a2 100644
+--- a/src/components/ad-pro/voyageurs-bloc.tsx
++++ b/src/components/ad-pro/voyageurs-bloc.tsx
+@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
+ import { DocumentUpload } from "@/components/documents/document-upload";
+ import { DocumentPreview } from "@/components/documents/document-preview";
+ import {
+-  ajouterVoyageur, modifierVoyageur, retirerVoyageur, demanderReservation,
++  ajouterVoyageur, modifierVoyageur, retirerVoyageur, demanderReservation, retirerReservation,
+   ajouterDevisVoyageur, validerDevisVoyageur, demanderBCBilletterie,
+ } from "@/lib/actions/ad-pro-item-actions";
+ import {
+@@ -69,7 +69,8 @@ export function BlocVoyageurs({
+   itemId: string;
+   voyageurs: VoyageurVue[];
+   nomsSuggeres: string[];
+-  reservation: { id: string; reference: string } | null;
++  /** Le sujet de réservation ; `refusRetrait` : la raison qui empêche de la retirer (`null` : elle se retire). */
++  reservation: { id: string; reference: string; refusRetrait: string | null } | null;
+   peutEditer: boolean;
+   /** Le poste n'est pas refusé — l'action le revérifie. */
+   peutReserver: boolean;
+@@ -86,6 +87,9 @@ export function BlocVoyageurs({
+   const [ajout, setAjout] = React.useState(false);
+   const [ouvert, setOuvert] = React.useState<{ id: string; quoi: "MENU" | "EDITER" | "PASSEPORT" | "DEVIS" | "CHOIX" } | null>(null);
+   const [assistanteId, setAssistanteId] = React.useState("");
++  // RETIRER LA DEMANDE DE RÉSERVATION (constat 37) — offert seulement si l'action l'accepte (§118.83).
++  const [retrait, setRetrait] = React.useState(false);
++  const [motifRetrait, setMotifRetrait] = React.useState("");
+   const listeId = `noms-${itemId}`;
+   const fermer = () => setOuvert(null);
+   const basculer = (id: string, quoi: NonNullable<typeof ouvert>["quoi"]) =>
+@@ -105,6 +109,33 @@ export function BlocVoyageurs({
+           </Link>
+         )}
+       </div>
++      {reservation?.refusRetrait && peutEditer && (
++        <p className="text-muted-foreground">{reservation.refusRetrait}</p>
++      )}
++      {retrait && reservation && !reservation.refusRetrait && (
++        <form
++          className="space-y-2 rounded-lg border border-border p-2"
++          onSubmit={(e) => {
++            e.preventDefault();
++            const fd = new FormData();
++            fd.set("id", itemId);
++            fd.set("motif", motifRetrait);
++            void run(`resa-retrait:${itemId}`, () => retirerReservation(fd), "Demande de réservation retirée.").then(() => { setRetrait(false); setMotifRetrait(""); });
++          }}
++        >
++          <label className="block font-medium" htmlFor={`motif-resa-${itemId}`}>Pourquoi retirer la demande de réservation ?</label>
++          <textarea
++            id={`motif-resa-${itemId}`} value={motifRetrait} onChange={(e) => setMotifRetrait(e.target.value)} rows={2}
++            className="w-full rounded-lg border border-border bg-background px-2 py-1 text-xs"
++          />
++          <div className="flex flex-wrap gap-2">
++            <Button type="submit" size="sm" variant="destructive" disabled={busy !== null || motifRetrait.trim() === ""}>
++              {busy === `resa-retrait:${itemId}` ? <Loader2 className="h-4 w-4 animate-spin" /> : null} Retirer la demande
++            </Button>
++            <Button type="button" size="sm" variant="ghost" disabled={busy !== null} onClick={() => setRetrait(false)}>Annuler</Button>
++          </div>
++        </form>
++      )}
+ 
+       {nomsSuggeres.length > 0 && (
+         <datalist id={listeId}>
+@@ -306,6 +337,11 @@ export function BlocVoyageurs({
+                 {reservation ? "Mettre à jour la réservation" : "Demander la réservation"}
+               </Button>
+             )}
++            {reservation && peutEditer && !reservation.refusRetrait && !retrait && (
++              <Button size="sm" variant="outline" disabled={busy !== null} onClick={() => setRetrait(true)}>
++                Retirer la demande de réservation
++              </Button>
++            )}
+             {bcPossible && retenus.length > 0 && (
+               <>
+                 {assistantes.length > 1 && (
+diff --git a/src/lib/actions/ad-pro-item-actions.ts b/src/lib/actions/ad-pro-item-actions.ts
+index 914a9cd..3be0242 100644
+--- a/src/lib/actions/ad-pro-item-actions.ts
++++ b/src/lib/actions/ad-pro-item-actions.ts
+@@ -43,15 +43,17 @@ import {
+ import { validateAttachments } from "@/lib/attach-files";
+ import { attachFormFiles } from "@/lib/documents";
+ import {
+-  lireVoyageur, ligneVoyageur, changementsVoyageur, porteDesVoyageurs, depassementDevisRetenus, type SaisieVoyageur, type VoyageurLu,
++  lireVoyageur, ligneVoyageur, changementsVoyageur, porteDesVoyageurs, depassementDevisRetenus, refusRetraitReservation,
++  type SaisieVoyageur, type VoyageurLu,
+ } from "@/lib/ad-pro/voyageurs";
+-import { createDossierRecord, ecrireDansLeSujet } from "@/lib/dossiers-core";
++import { cloreSujetVivant, createDossierRecord, ecrireDansLeSujet } from "@/lib/dossiers-core";
+ import { gesteVisaPoste, memePrestataire, type EtatBcPoste, type GesteVisaPoste } from "@/lib/ad-pro/bc-poste";
+ import { annulerOrdreNonRegle } from "@/lib/payments/annulation";
+ import { annulerDemandeSecretariat, prevenirLeSecretariat } from "@/lib/secretariat/annulation";
+ import { supprimerReversible } from "@/lib/suppression/coeur";
+ import { apercuSuppression } from "@/lib/admin-delete-registry";
+-import { bcEtablisDuPoste, refusBcEtabli } from "@/lib/ad-pro/bc-etablis";
++import { annulerBcNonSigne, bcEtablisDuPoste, bcVivantsDesPostes, refusAnnulationBcDuPoste, refusBcEtabli } from "@/lib/ad-pro/bc-etablis";
++import { aiguillerBC } from "@/lib/bons-de-commande/aiguillage";
+ import {
+   droitsValidation, tempsEnAttente, rolesAPrevenir, opsFranchiALaSoumission, libelleTemps,
+   type DroitsValidation, type Porteur,
+@@ -526,6 +528,24 @@ async function appliquerGesteVisa(
+ async function cloreDemandesSecretariat(
+   itemId: string, motif: string, user: SessionUser, portee: "TOUTES" | "BC_A_ETABLIR",
+ ): Promise<number> {
++  const { closes } = await cloreDemandesAuBureau(itemId, motif, user, portee);
++  // LA DEMANDE DE PIÈCE ENVOYÉE À L'ASSISTANTE (§118.204) suit le même sort : sans cela, elle déposerait
++  // un BC pour un poste refusé ou une demande retirée. Elle est prévenue, motif à l'appui.
++  const pieces = await annulerDemandesPiecesDuPoste(itemId, portee === "BC_A_ETABLIR" ? "BC" : "TOUTES");
++  for (const p of pieces) {
++    await notifyUser({ userId: p.askedToId, type: "GENERIC", title: "Demande de pièce annulée", body: motif, link: `/pieces/${p.id}` }).catch(() => undefined);
++  }
++  if (pieces.length > 0) revalidatePath("/pieces");
++  return closes + pieces.length;
++}
++
++/**
++ * LES DEMANDES AU BUREAU DU SECRÉTARIAT du poste (et elles seules) — par l'annulation commune. Rend le
++ * nombre de demandes closes et la réserve d'une demande qui ne s'annule pas (paiement déjà réglé).
++ */
++async function cloreDemandesAuBureau(
++  itemId: string, motif: string, user: SessionUser, portee: "TOUTES" | "BC_A_ETABLIR", cause = "avec son poste",
++): Promise<{ closes: number; reserve: string | null }> {
+   const ouvertes = await prisma.administrativeRequest.findMany({
+     where: {
+       linkedEntityType: "AD_PRO_ITEM", linkedEntityId: itemId, deletedAt: null,
+@@ -538,19 +558,14 @@ async function cloreDemandesSecretariat(
+   // en attente, son paiement non réglé, la trace et l'assistante — la même chose que lorsque son
+   // demandeur l'annule. Une demande dont le paiement est déjà réglé reste ouverte : elle se termine.
+   let closes = 0;
++  let reserve: string | null = null;
+   for (const d of ouvertes) {
+-    const a = await annulerDemandeSecretariat(d.id, { acteurId: user.id, motif, cause: "avec son poste" });
++    const a = await annulerDemandeSecretariat(d.id, { acteurId: user.id, motif, cause });
+     if (a.ok && a.annulee) closes += 1;
++    else if (!a.ok) reserve = a.error;
+   }
+   if (closes > 0) revalidatePath("/demandes");
+-  // LA DEMANDE DE PIÈCE ENVOYÉE À L'ASSISTANTE (§118.204) suit le même sort : sans cela, elle déposerait
+-  // un BC pour un poste refusé ou une demande retirée. Elle est prévenue, motif à l'appui.
+-  const pieces = await annulerDemandesPiecesDuPoste(itemId, portee === "BC_A_ETABLIR" ? "BC" : "TOUTES");
+-  for (const p of pieces) {
+-    await notifyUser({ userId: p.askedToId, type: "GENERIC", title: "Demande de pièce annulée", body: motif, link: `/pieces/${p.id}` }).catch(() => undefined);
+-  }
+-  if (pieces.length > 0) revalidatePath("/pieces");
+-  return closes + pieces.length;
++  return { closes, reserve };
+ }
+ 
+ /** « 2 demandes au secrétariat closes » — la phrase, une fois ; rien quand il n'y en avait pas. */
+@@ -757,7 +772,7 @@ export async function updateAdProItem(_prev: ActionResult | undefined, formData:
+   // d'abord, puis se réémet — sinon l'ordre et le poste diraient deux bénéficiaires.
+   const bcEnCours = item.orderStage === "REQUESTED" || item.orderStage === "DIRECTION_OK";
+   if (wantsAllocate && amountGranted == null && bcEnCours) {
+-    return { ok: false, error: "Une demande de bon de commande est en cours sur ce montant : retirez-la d'abord (« Retirer la demande de BC »), puis retirez le montant." };
++    return { ok: false, error: "Une demande de bon de commande est en cours sur ce montant : retirez-la d'abord (« Annuler la demande de BC »), puis retirez le montant." };
+   }
+   const nouveauFournisseur = formData.has("supplier") ? fdStr(formData, "supplier") : item.supplier;
+   if (item.expenseOrderId && !memePrestataire(nouveauFournisseur, item.supplier)) {
+@@ -1773,9 +1788,22 @@ export async function requestAdProItemOrder(_prev: ActionResult | undefined, for
+     const assistante = await assistanteDuBC(formData);
+     if ("error" in assistante) return { ok: false, error: assistante.error };
+     await envoyerDemandeBC({ item, owner, ref: demande.ref, montant: montantAccorde, assistante, demandeurId: user.id, note: note ?? item.orderNote });
+-    await audit(user, owner.parent, owner.id, "UPDATE", `Demande de bon de commande envoyée à ${assistante.name} pour le poste « ${item.label} ».`);
++    // L'ANCIENNE DEMANDE « BC À ÉTABLIR » AU BUREAU DU SECRÉTARIAT (audit du 04/10, constat 21) : la
++    // demande de pièce la REMPLACE. Laissée ouverte, l'assistante avait deux demandes pour le même BC, et
++    // déposer dans l'ancienne ne revenait jamais au poste. Elle se clôt par l'annulation commune, avec la
++    // trace qui dit par quoi elle est remplacée — APRÈS l'envoi : si l'envoi échoue, l'ancienne reste.
++    const anciennes = await cloreDemandesAuBureau(
++      id, `le bon de commande se demande désormais à ${assistante.name} comme une pièce, qui reviendra sur le poste`, user, "BC_A_ETABLIR",
++      "au profit de la demande de pièce",
++    );
++    await audit(user, owner.parent, owner.id, "UPDATE", `Demande de bon de commande envoyée à ${assistante.name} pour le poste « ${item.label} »${anciennes.closes > 0 ? ` — l'ancienne demande au secrétariat est close` : ""}.`);
+     revalidate(owner.parent, owner.id);
+-    return { ok: true, id, message: `Demande envoyée à ${assistante.name}, qui déposera le bon de commande.` };
++    return {
++      ok: true, id,
++      message: `Demande envoyée à ${assistante.name}, qui déposera le bon de commande.`
++        + (anciennes.closes > 0 ? ` L'ancienne demande « ${TITRE_BC_A_ETABLIR} » au secrétariat est close.` : "")
++        + (anciennes.reserve ? ` Attention : ${anciennes.reserve}` : ""),
++    };
+   }
+ 
+   const check = canRequestPurchaseOrder({
+@@ -1941,6 +1969,9 @@ export async function approveAdProItemOrder(_prev: ActionResult | undefined, for
+ 
+ // ───────────────────── Corriger le bon de commande d'un poste (§118.187, audit R06, R12) ─────────────────────
+ 
++/** Un refus levé DANS une transaction pour l'annuler entière, rattrapé à sa sortie pour devenir une phrase. */
++class RefusPoste extends Error {}
++
+ /** Qui touche à la demande de BC d'un poste : qui décrit les postes, ou qui les arbitre. */
+ function peutToucherDemandeBC(user: SessionUser, parent: AdProParent): boolean {
+   return canEditItems(user, parent) || canAllocate(user, parent);
+@@ -1955,8 +1986,6 @@ export async function retirerDemandeBC(_prev: ActionResult | undefined, formData
+   const user = await requireUser();
+   const id = fdStr(formData, "id");
+   if (!id) return { ok: false, error: "Poste non précisé." };
+-  const motif = fdStr(formData, "motif");
+-  if (!motif) return { ok: false, error: "Dites pourquoi vous retirez la demande : le motif reste à l'historique, et l'assistante le lit." };
+   const found = await loadItem(id, user);
+   if (!found) return { ok: false, error: "Poste introuvable." };
+   const { item, owner } = found;
+@@ -1967,20 +1996,53 @@ export async function retirerDemandeBC(_prev: ActionResult | undefined, formData
+   if (item.orderStage !== "REQUESTED" && item.orderStage !== "DIRECTION_OK") {
+     return { ok: false, error: "Aucune demande de bon de commande n'est en cours sur ce poste." };
+   }
+-  const bcs = await bcEtablisDuPoste(id);
+-  if (bcs.length > 0) return { ok: false, error: refusBcEtabli(bcs, "retirez la demande") };
++  // UN GESTE UNIQUE (audit du 04/10, constat 36) : le BC établi par l'assistante mais NON signé n'engage
++  // encore personne — il s'annule au registre AVEC la demande. Signé par les Finances, ou suivi d'une
++  // facture, la demande est exécutée : le refus le nomme (la même règle que la carte, §118.83). Tout ce
++  // qui refuse passe AVANT le motif (§118.18).
++  const bcs = (await bcVivantsDesPostes([id])).get(id) ?? [];
++  const refusBc = refusAnnulationBcDuPoste(bcs);
++  if (refusBc) return { ok: false, error: refusBc };
++  const motif = fdStr(formData, "motif");
++  if (!motif) return { ok: false, error: "Dites pourquoi vous annulez la demande : le motif reste à l'historique, et l'assistante le lit." };
+ 
+-  const r = await prisma.adProItem.updateMany({
+-    where: { id, orderStage: { in: ["REQUESTED", "DIRECTION_OK"] }, expenseOrderId: null },
+-    data: {
+-      orderStage: "NONE", orderDirectionAt: null, orderDirectionById: null,
+-      orderVisaAmount: null, orderVisaSupplier: null, orderDecisionNote: null, updatedById: user.id,
+-    },
+-  });
+-  if (r.count === 0) return { ok: false, error: "Cette demande vient de changer (visée, émise ou déjà retirée) : rouvrez la fiche." };
++  // TOUT OU RIEN, SOUS CONDITION : chaque BC n'est annulé que s'il n'a pas été signé (ni touché) depuis la
++  // lecture — la signature des Finances écrit sur `updatedAt` lu, et cette annulation le change : des deux
++  // gestes simultanés, un seul passe. Le poste revient sans demande de BC dans la même transaction.
++  const changee = "Cette demande vient de changer (visée, émise, signée ou déjà annulée) : rouvrez la fiche.";
++  const annules: string[] = [];
++  try {
++    await prisma.$transaction(async (tx) => {
++      for (const bc of bcs) {
++        const annule = await annulerBcNonSigne(tx, bc.id, `demande de bon de commande du poste « ${item.label} » annulée — ${motif}`, user.id);
++        if (!annule) throw new RefusPoste(changee);
++        annules.push(bc.nom);
++      }
++      const r = await tx.adProItem.updateMany({
++        where: { id, orderStage: { in: ["REQUESTED", "DIRECTION_OK"] }, expenseOrderId: null },
++        data: {
++          orderStage: "NONE", orderDirectionAt: null, orderDirectionById: null,
++          orderVisaAmount: null, orderVisaSupplier: null, orderDecisionNote: null, updatedById: user.id,
++        },
++      });
++      if (r.count === 0) throw new RefusPoste(changee);
++    });
++  } catch (e) {
++    if (e instanceof RefusPoste) return { ok: false, error: e.message };
++    throw e;
++  }
++  // Un BC annulé n'a plus rien à faire valider : sa porte en attente quitte le centre — et son journal le dit.
++  for (const bc of bcs) {
++    await recordAudit({
++      actorId: user.id, action: "UPDATE", module: "Legal", entityType: "LEGAL_DOCUMENT", entityId: bc.id,
++      field: "status", newValue: "CANCELLED", summary: `Bon de commande ${bc.nom} annulé avec la demande du poste « ${item.label} » — ${motif}`,
++    });
++    await aiguillerBC(bc.id, { acteurId: user.id }).catch(() => undefined);
++  }
++  if (bcs.length > 0) { revalidatePath("/legal"); revalidatePath(CHEMIN_BC_A_SIGNER); }
+ 
+   const info = await PARENTS[owner.parent].load(owner.id);
+-  const closes = await cloreDemandesSecretariat(id, `la demande de bon de commande du poste « ${item.label} » a été retirée — ${motif}`, user, "BC_A_ETABLIR");
++  const closes = await cloreDemandesSecretariat(id, `la demande de bon de commande du poste « ${item.label} » a été annulée — ${motif}`, user, "BC_A_ETABLIR");
+   // Les Finances avaient reçu « à émettre » : sans ce message, elles chercheraient un BC qui n'existe plus.
+   if (item.orderStage === "DIRECTION_OK") {
+     await notifyRoles(FINANCES_BC, {
+@@ -1988,10 +2050,18 @@ export async function retirerDemandeBC(_prev: ActionResult | undefined, formData
+       body: `${info?.ref ?? ""} — « ${item.label} » : ${motif}`, link: `${PARENTS[owner.parent].path}/${owner.id}`,
+     }).catch(() => undefined);
+   }
+-  await audit(user, owner.parent, owner.id, "UPDATE", `Demande de bon de commande RETIRÉE pour le poste « ${item.label} » — ${motif}`);
++  // LE DEMANDEUR, quand c'est quelqu'un d'autre qui annule (qui tranche) : c'est sa demande qui s'arrête.
++  if (item.orderRequestedById && item.orderRequestedById !== user.id) {
++    await notifyUser({
++      userId: item.orderRequestedById, type: "GENERIC", title: "Demande de bon de commande annulée",
++      body: `${info?.ref ?? ""} — « ${item.label} »${annules.length ? ` (BC ${annules.join(", ")} annulé)` : ""} : ${motif}`,
++      link: `${PARENTS[owner.parent].path}/${owner.id}`,
++    }).catch(() => undefined);
++  }
++  await audit(user, owner.parent, owner.id, "UPDATE", `Demande de bon de commande ANNULÉE pour le poste « ${item.label} »${annules.length ? ` — BC ${annules.join(", ")} annulé au registre` : ""} — ${motif}`);
+   revalidate(owner.parent, owner.id);
+   revalidatePath("/centre-ad-pro");
+-  return { ok: true, id, message: `Demande de bon de commande retirée.${phraseDemandesCloses(closes)}` };
++  return { ok: true, id, message: `Demande de bon de commande annulée${annules.length ? ` — le bon de commande ${annules.join(", ")}, non signé, est annulé au registre` : ""}.${phraseDemandesCloses(closes)}` };
+ }
+ 
+ /**
+@@ -2593,6 +2663,58 @@ export async function demanderReservation(formData: FormData): Promise<ActionRes
+   return { ok: true, id: sujet.id, message: `Demande de réservation envoyée — sujet ${sujet.reference} ouvert pour l'assistante de direction.` };
+ }
+ 
++/**
++ * RETIRER LA DEMANDE DE RÉSERVATION des billets d'un poste (audit du 04/10, constat 37) — « on annule
++ * sa demande tant que l'autre ne l'a pas exécutée ». Rien ne la retirait : le sujet restait ouvert chez
++ * l'assistante, qui pouvait réserver des billets dont plus personne ne voulait. Exécutée quand le sujet
++ * est clos ou que le BC des billets est demandé (`refusRetraitReservation`, la règle de la carte) ; tout
++ * ce qui refuse passe AVANT le motif (§118.18).
++ *
++ * TOUT OU RIEN, SOUS CONDITION : le sujet n'est clos que s'il est encore vivant, et le poste ne lâche
++ * son sujet que s'il le porte encore et qu'aucun BC n'a été demandé entre-temps. Le motif s'écrit DANS
++ * le sujet — l'assistante (et chaque participant) est prévenue par lui. Les voyageurs restent : une
++ * nouvelle demande ouvrira un nouveau sujet avec la liste à jour.
++ */
++export async function retirerReservation(formData: FormData): Promise<ActionResult> {
++  const user = await requireUser();
++  const id = fdStr(formData, "id");
++  if (!id) return { ok: false, error: "Poste non précisé." };
++  const found = await loadItem(id, user);
++  if (!found) return { ok: false, error: "Poste introuvable." };
++  const { item, owner } = found;
++  if (!canEditItems(user, owner.parent)) return { ok: false, error: "Non autorisé." };
++  if (!porteDesVoyageurs(item.kind)) return { ok: false, error: "Seul un poste « billetterie » se réserve." };
++  const poste = await prisma.adProItem.findUnique({ where: { id }, select: { reservationDossierId: true, orderStage: true } });
++  const sujet = poste?.reservationDossierId
++    ? await prisma.dossier.findUnique({ where: { id: poste.reservationDossierId }, select: { id: true, reference: true, status: true } })
++    : null;
++  const refus = refusRetraitReservation({ sujet: sujet ? String(sujet.status) : null, orderStage: String(poste?.orderStage ?? "NONE") });
++  if (refus || !sujet) return { ok: false, error: refus ?? "Aucune demande de réservation n'est en cours pour ce poste." };
++  const motif = fdStr(formData, "motif");
++  if (!motif) return { ok: false, error: "Dites pourquoi vous retirez la demande de réservation : c'est ce que lira l'assistante de direction." };
++
++  const changee = "La réservation vient de changer (traitée, ou un bon de commande demandé) : rouvrez la fiche.";
++  try {
++    await prisma.$transaction(async (tx) => {
++      if (!(await cloreSujetVivant(tx, sujet.id))) throw new RefusPoste(changee);
++      const lache = await tx.adProItem.updateMany({
++        where: { id, reservationDossierId: sujet.id, orderStage: { in: ["NONE", "REFUSED"] } },
++        data: { reservationDossierId: null, updatedById: user.id },
++      });
++      if (lache.count === 0) throw new RefusPoste(changee);
++    });
++  } catch (e) {
++    if (e instanceof RefusPoste) return { ok: false, error: e.message };
++    throw e;
++  }
++  await ecrireDansLeSujet({ dossierId: sujet.id, authorId: user.id, body: `Demande de réservation RETIRÉE — « ${item.label} » : ${motif}. Ne réservez pas ces billets ; le sujet est clos.` });
++  await audit(user, owner.parent, owner.id, "UPDATE", `Réservation du poste « ${item.label} » retirée — sujet ${sujet.reference} clos : ${motif}`);
++  revalidate(owner.parent, owner.id);
++  revalidatePath("/dossiers");
++  revalidatePath(`/dossiers/${sujet.id}`);
++  return { ok: true, id, message: `Demande de réservation retirée — le sujet ${sujet.reference} est clos, l'assistante de direction est prévenue. Les voyageurs restent sur le poste.` };
++}
++
+ // ───────────────────── Billetterie : le devis de chaque voyageur, puis le BC (§118.205) ─────────────────────
+ //
+ // « Pour chaque voyageur, on met le devis ou pro forma de l'agence ; si le demandeur valide une des pro
+diff --git a/src/lib/actions/admin-request-actions.ts b/src/lib/actions/admin-request-actions.ts
+index bfbcad8..2842bca 100644
+--- a/src/lib/actions/admin-request-actions.ts
++++ b/src/lib/actions/admin-request-actions.ts
+@@ -30,6 +30,7 @@ import {
+   porteDuDemandeur, refusDeModification, changementsDeLaDemande, suitLaDemandeDeBcDuPoste, refusDemandeDeBcDuPoste, type ContenuDemande,
+ } from "@/lib/secretariat/porte-demandeur";
+ import { annulerDemandeSecretariat, prevenirLeSecretariat } from "@/lib/secretariat/annulation";
++import { ramenerSiPlusDeDemandeDevis } from "@/lib/promo-material/retrait-devis";
+ import { refusDuStatutManuel, refusDeReouverture } from "@/lib/secretariat/statut-manuel";
+ import { estDecisionDApprobation, refusSansMotif, interditSurSaPropreDemande, LIBELLE_DECISION } from "@/lib/secretariat/decision-approbation";
+ import { ficheAFacture } from "@/lib/finance/facture-ordre";
+@@ -255,11 +256,25 @@ export async function rouvrirDemande(formData: FormData): Promise<ActionResult>
+  * libre écrivait « annulée » et laissait tout le reste vivant. Le demandeur est prévenu : c'est sa
+  * demande qui s'arrête.
+  */
++/**
++ * UNE DEMANDE DE DEVIS DE MATÉRIEL PROMOTIONNEL RETIRÉE D'ICI (audit du 04/10, constat 35) : annulée par le
++ * secrétariat, par son demandeur, ou supprimée — et que plus aucune demande de devis ne vit pour ce dossier,
++ * il revient à l'étape d'avant au lieu de rester « devis demandés » pour toujours. Toutes les portes qui
++ * retirent une demande d'ici l'appellent : en oublier une rouvrirait la porte d'à côté (§118.71).
++ */
++async function apresRetraitDevisPromo(
++  req: { linkedEntityType: string | null; linkedEntityId: string | null; type: string }, auteurId: string, motif: string,
++): Promise<void> {
++  if (req.linkedEntityType !== "PROMO_MATERIAL" || !req.linkedEntityId || req.type !== "QUOTE") return;
++  const r = await ramenerSiPlusDeDemandeDevis(req.linkedEntityId, auteurId, motif);
++  if (r.ramene) revalidatePath(`/promo-material/${req.linkedEntityId}`);
++}
++
+ export async function annulerDemandeAuSecretariat(formData: FormData): Promise<ActionResult> {
+   const user = await requireUser();
+   const id = fdStr(formData, "id");
+   if (!id) return { ok: false, error: "Demande introuvable." };
+-  const req = await prisma.administrativeRequest.findUnique({ where: { id }, select: { assignedToId: true, requesterId: true, reference: true, status: true, deletedAt: true, linkedEntityType: true, type: true, title: true } });
++  const req = await prisma.administrativeRequest.findUnique({ where: { id }, select: { assignedToId: true, requesterId: true, reference: true, status: true, deletedAt: true, linkedEntityType: true, linkedEntityId: true, type: true, title: true } });
+   if (!req || req.deletedAt) return { ok: false, error: "Demande introuvable." };
+   if (!isManager(user, req.assignedToId)) return DENIED;
+   const close = refusDemandeClose(req.status);
+@@ -273,6 +288,7 @@ export async function annulerDemandeAuSecretariat(formData: FormData): Promise<A
+   const a = await annulerDemandeSecretariat(id, { acteurId: user.id, motif, cause: "par le secrétariat" });
+   if (!a.ok) return { ok: false, error: a.error };
+   if (!a.annulee) return { ok: false, error: "Cette demande vient d'être terminée ou annulée : rouvrez-la pour voir où elle en est." };
++  await apresRetraitDevisPromo(req, user.id, motif);
+   if (req.requesterId && req.requesterId !== user.id) {
+     await notifyUser({ userId: req.requesterId, type: "GENERIC", title: "Demande annulée par le secrétariat", body: `${req.reference} — ${motif}`, link: `/demandes/${id}` });
+   }
+@@ -833,7 +849,7 @@ export async function deleteOwnRequest(formData: FormData): Promise<ActionResult
+   if (!id) return { ok: false, error: "Demande introuvable." };
+   const req = await prisma.administrativeRequest.findUnique({
+     where: { id },
+-    select: { requesterId: true, status: true, createdAt: true, processingStartedAt: true, reference: true, deletedAt: true, linkedEntityType: true, type: true, title: true },
++    select: { requesterId: true, status: true, createdAt: true, processingStartedAt: true, reference: true, deletedAt: true, linkedEntityType: true, linkedEntityId: true, type: true, title: true },
+   });
+   if (!req || req.deletedAt) return { ok: false, error: "Demande introuvable." };
+   const porte = porteDuDemandeur(req, user.id, Date.now());
+@@ -847,6 +863,7 @@ export async function deleteOwnRequest(formData: FormData): Promise<ActionResult
+     });
+     if (r.count === 0) return { ok: false, error: "L'assistante vient de commencer cette demande : rouvrez-la — elle s'annule désormais avec un motif." };
+     await recordAudit({ actorId: user.id, action: "DELETE", module: "Bureau du secrétariat", entityType: "ADMIN_REQUEST", entityId: id, summary: `Demande ${req.reference} supprimée par le demandeur` });
++    await apresRetraitDevisPromo(req, user.id, "demande supprimée par son demandeur");
+     revalidatePath("/demandes");
+     revalidatePath("/demandes/assistant");
+     return { ok: true };
+@@ -857,6 +874,7 @@ export async function deleteOwnRequest(formData: FormData): Promise<ActionResult
+   const a = await annulerDemandeSecretariat(id, { acteurId: user.id, motif, cause: "par son demandeur" });
+   if (!a.ok) return { ok: false, error: a.error };
+   if (!a.annulee) return { ok: false, error: "Cette demande vient d'être terminée ou annulée : rouvrez-la pour voir où elle en est." };
++  await apresRetraitDevisPromo(req, user.id, motif);
+   revalidatePath(`/demandes/${id}`);
+   revalidatePath("/demandes");
+   revalidatePath("/demandes/assistant");
+@@ -883,7 +901,7 @@ export async function deleteRequests(formData: FormData): Promise<ActionResult>
+   const reason = fdStr(formData, "reason");
+   if (!reason) return { ok: false, error: "Le motif de suppression est obligatoire (traçabilité)." };
+ 
+-  const targets = await prisma.administrativeRequest.findMany({ where: { id: { in: ids }, deletedAt: null }, select: { id: true, reference: true } });
++  const targets = await prisma.administrativeRequest.findMany({ where: { id: { in: ids }, deletedAt: null }, select: { id: true, reference: true, linkedEntityType: true, linkedEntityId: true, type: true } });
+   if (targets.length === 0) return { ok: false, error: "Demande(s) introuvable(s)." };
+ 
+   await prisma.administrativeRequest.updateMany({
+@@ -892,6 +910,7 @@ export async function deleteRequests(formData: FormData): Promise<ActionResult>
+   });
+   for (const t of targets) {
+     await recordAudit({ actorId: user.id, action: "DELETE", module: "Bureau du secrétariat", entityType: "ADMIN_REQUEST", entityId: t.id, newValue: reason, summary: `Demande ${t.reference} supprimée — motif : ${reason}` });
++    await apresRetraitDevisPromo(t, user.id, reason);
+   }
+   revalidatePath("/demandes");
+   revalidatePath("/demandes/assistant");
+diff --git a/src/lib/actions/congress-request-actions.ts b/src/lib/actions/congress-request-actions.ts
+index 1ad4aed..041ffd9 100644
+--- a/src/lib/actions/congress-request-actions.ts
++++ b/src/lib/actions/congress-request-actions.ts
+@@ -14,7 +14,7 @@ import { createExpenseOrder } from "@/lib/expense-orders";
+ import { reviserOrdreNonRegle, apresRevisionOrdre } from "@/lib/payments/revision-ordre";
+ import { involveThirdParty } from "@/lib/third-party";
+ import { adProInit, PRODUCT_MANAGER_ROLES } from "@/lib/workflow/origin";
+-import { retirerDemande } from "@/lib/workflow/engine";
++import { retirerDemandeAdPro } from "@/lib/actions/workflow-actions";
+ import { referentAInscrire } from "@/lib/ad-pro/referent-de-la-gamme";
+ import { fdStr, fdNum, fdDate, type ActionResult } from "@/lib/actions/types";
+ import { attachFiles } from "@/lib/attach-files";
+@@ -474,29 +474,23 @@ export async function requestThirdPartyInput(formData: FormData): Promise<Action
+   return { ok: true };
+ }
+ 
++/**
++ * ANNULER UNE DEMANDE DE CONGRÈS — UN SEUL CHEMIN (audit du 04/10, constat 23). Cette action et
++ * `retirerDemandeAdPro` faisaient la même chose par deux portes : chacune vérifiait le droit à sa façon
++ * (celle-ci sans la porte de la FICHE — une demande hors portée s'annulait par son identifiant), et les
++ * deux finissaient dans `retirerDemande`. Elle ne garde que ce qui lui est propre — lire le type de
++ * congrès — et DÉLÈGUE : droit, motif, circuit et refus sont ceux du retrait commun. Son seul appelant
++ * est l'op d'Adam `cancel_congress_request` (aucun écran ne l'appelle) : elle reste pour lui.
++ */
+ export async function cancelCongressRequest(formData: FormData): Promise<ActionResult> {
+-  const user = await requireUser();
++  await requireUser();
+   const t = typeOf(formData);
+   const id = fdStr(formData, "id");
+   if (!id) return { ok: false, error: "Identifiant manquant." };
+-  const c = await loadCongress(t, id);
+-  if (!c) return { ok: false, error: "Introuvable." };
+-  const isOwner = c.requesterId === user.id;
+-  if (!isOwner && !userCan(user, moduleFor(t), "VALIDATE") && !hasGlobalView(user)) return { ok: false, error: "Non autorisé." };
+-  if (["APPROVED", "COMPLETED"].includes(c.requestStatus ?? "")) return { ok: false, error: "Demande déjà validée." };
+-  // PAR LE MOTEUR, ET AVEC UN MOTIF (§118.186). Cette action écrivait « annulée » sur la demande et
+-  // laissait son CIRCUIT ouvert : le panneau proposait encore « Approuver », et l'approuver aurait
+-  // émis l'argent d'une demande que son auteur avait retirée. `retirerDemande` ferme le circuit,
+-  // refuse quand un poste engage déjà la dépense, et garde le motif — obligatoire, comme tout geste
+-  // définitif (R17).
++  const relais = new FormData();
++  relais.set("entityType", entityFor(t));
++  relais.set("entityId", id);
+   const motif = fdStr(formData, "motif");
+-  if (!motif) return { ok: false, error: "Dites pourquoi vous annulez la demande : le motif reste à l'historique." };
+-  const r = await retirerDemande({
+-    viewer: { id: user.id, role: user.role, secondaryRole: user.secondaryRole ?? null, name: user.name },
+-    entityType: entityFor(t), entityId: id, motif,
+-  });
+-  if (!r.ok) return { ok: false, error: r.error };
+-  revalidatePath(`${pathFor(t)}/${id}`);
+-  revalidatePath(pathFor(t));
+-  return { ok: true };
++  if (motif !== null) relais.set("motif", motif);
++  return retirerDemandeAdPro(relais);
+ }
+diff --git a/src/lib/actions/promo-devis-actions.ts b/src/lib/actions/promo-devis-actions.ts
+index 5b8a66f..a13cb32 100644
+--- a/src/lib/actions/promo-devis-actions.ts
++++ b/src/lib/actions/promo-devis-actions.ts
+@@ -28,6 +28,8 @@ import { estAction, type PromoAction } from "@/lib/promo-material/actions-fourni
+ import { envoyerDemandeDeDevis, ouvrirDemandeDeDevis } from "@/lib/promo-automatismes";
+ import { natureDeLaCategorie } from "@/lib/ad-pro/doc-categories";
+ import { refusDeRangement } from "@/lib/promo-material/rangement";
++import { annulerDemandeSecretariat } from "@/lib/secretariat/annulation";
++import { etatRetraitDemandeDevis, ramenerSiPlusDeDemandeDevis } from "@/lib/promo-material/retrait-devis";
+ 
+ /**
+  * LES DEVIS DU MATÉRIEL PROMOTIONNEL — demande, retranscription, choix des lignes (§118.152).
+@@ -724,6 +726,50 @@ export async function redemanderDevisPromo(formData: FormData): Promise<ActionRe
+   return { ok: true, id: ouverte.demande.id, message: `Nouveaux devis demandés au secrétariat (${ouverte.demande.reference}) — les devis déjà reçus restent sur la fiche.` };
+ }
+ 
++/**
++ * RETIRER LA DEMANDE DE DEVIS DEPUIS LE DOSSIER (audit du 04/10, constat 35) — « on annule sa demande tant
++ * que l'autre ne l'a pas exécutée ». Le demandeur (ou la Direction) la retirait seulement depuis
++ * « Demandes », et le dossier restait sur « devis demandés ». Elle se retire ici, motif à l'appui, par
++ * l'annulation COMMUNE de la demande au secrétariat (l'assistante est prévenue, la trace va à la demande),
++ * puis le dossier revient à l'étape d'avant (`ramenerSiPlusDeDemandeDevis`).
++ *
++ * EXÉCUTÉE dès que l'assistante a commencé à RETRANSCRIRE : un devis enregistré depuis la demande est du
++ * travail fait — le refus le nomme, avec les deux gestes qui restent (le retirer, ou la laisser terminer).
++ * Tout ce qui refuse passe AVANT le motif (§118.18).
++ */
++export async function retirerDemandeDevisPromo(formData: FormData): Promise<ActionResult> {
++  const user = await requireUser();
++  const pm = await chargerDossier(fdStr(formData, "promoMaterialId"));
++  if (!pm) return { ok: false, error: "Dossier introuvable." };
++  const v = refusVersion(pm);
++  if (v) return { ok: false, error: v };
++  if (!pilote(user, pm)) return { ok: false, error: "Seul le demandeur (ou la Direction) retire la demande de devis de ce dossier." };
++  if (pm.circuitState !== "QUOTE_REQUESTED") return { ok: false, error: "Aucune demande de devis n'est en cours sur ce dossier." };
++  const { demandes, refus } = await etatRetraitDemandeDevis(pm.id);
++  if (refus) return { ok: false, error: refus };
++  const motif = fdStr(formData, "motif");
++  if (motif === null) return { ok: false, error: "Dites pourquoi vous retirez la demande de devis : c'est ce que lira l'assistante." };
++
++  const annulees: string[] = [];
++  for (const d of demandes) {
++    const a = await annulerDemandeSecretariat(d.id, { acteurId: user.id, motif, cause: "depuis son dossier" });
++    if (!a.ok) return { ok: false, error: a.error };
++    if (a.annulee) annulees.push(a.reference);
++  }
++  const retour = await ramenerSiPlusDeDemandeDevis(pm.id, user.id, motif);
++  if (annulees.length === 0 && !retour.ramene) {
++    return { ok: false, error: "Ce dossier vient de changer (demande terminée ou dossier passé à une autre étape) : rechargez la fiche." };
++  }
++  await audit(user, pm.id, `Demande de devis retirée depuis le dossier${annulees.length ? ` (${annulees.join(", ")})` : ""} — ${motif.slice(0, 200)}`);
++  revalidatePath(chemin(pm.id));
++  revalidatePath("/demandes");
++  const ou = retour.etape === "REVIEW_REQUESTER" ? "au choix des lignes — les devis déjà reçus restent" : retour.etape === "QUOTE_TO_REQUEST" ? "à « devis à demander »" : null;
++  return {
++    ok: true,
++    message: `Demande de devis retirée${annulees.length ? ` (${annulees.join(", ")})` : ""} — l'assistante est prévenue${ou ? ` ; le dossier revient ${ou}` : ""}.`,
++  };
++}
++
+ /**
+  * DEMANDER UNE CORRECTION DE LA RETRANSCRIPTION — le dossier revient à l'assistante, avec le motif.
+  *
+diff --git a/src/lib/actions/promo-retrait-devis-flow.test.ts b/src/lib/actions/promo-retrait-devis-flow.test.ts
+new file mode 100644
+index 0000000..d974e12
+--- /dev/null
++++ b/src/lib/actions/promo-retrait-devis-flow.test.ts
+@@ -0,0 +1,217 @@
++import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
++import type { CurrentUser } from "@/lib/session";
++
++vi.mock("next/cache", () => ({ revalidatePath: () => {} }));
++let ACTOR: CurrentUser | null = null;
++vi.mock("@/lib/session", () => ({ requireUser: async () => ACTOR, getCurrentUser: async () => ACTOR }));
++
++import { prisma } from "@/lib/prisma";
++import { getAccess, hasGlobalView, type SessionUser } from "@/lib/rbac";
++import { deleteFileByKey } from "@/lib/storage";
++import { createPromoMaterial } from "./promo-material-actions";
++import { validatePromoStep } from "./promo-circuit-actions";
++import { enregistrerDevisPromo, redemanderDevisPromo, retirerDemandeDevisPromo, terminerRetranscriptionPromo, demanderDevisPromo } from "./promo-devis-actions";
++import { annulerDemandeAuSecretariat, deleteOwnRequest } from "./admin-request-actions";
++import type { ActionResult } from "./types";
++
++let dbOk = false;
++try { await prisma.$queryRaw`SELECT 1`; dbOk = true; } catch { dbOk = false; }
++const suite = dbOk ? describe : describe.skip;
++
++const TAG = `__pdretrait__${Date.now().toString(36)}`;
++
++async function actorFor(id: string): Promise<CurrentUser> {
++  const u = await prisma.user.findUniqueOrThrow({ where: { id } });
++  const access = await getAccess(id, u.role);
++  return { id, name: u.name, email: u.email, role: u.role, secondaryRole: u.secondaryRole, access, mustChangePassword: false };
++}
++const form = (fields: Record<string, string | string[]>): FormData => {
++  const fd = new FormData();
++  for (const [k, v] of Object.entries(fields)) {
++    if (Array.isArray(v)) for (const x of v) fd.append(k, x); else fd.set(k, v);
++  }
++  return fd;
++};
++const pdf = (nom: string) => new File([new Uint8Array([37, 80, 68, 70, 45, 49, 46, 52, nom.length])], nom, { type: "application/pdf" });
++const err = (r: ActionResult) => (r.ok ? "" : r.error ?? "");
++function reussi(r: ActionResult, quoi: string): ActionResult {
++  if (!r.ok) throw new Error(`${quoi} : ${r.error}`);
++  return r;
++}
++const etape = async (id: string) => (await prisma.promoMaterial.findUniqueOrThrow({ where: { id }, select: { circuitState: true } })).circuitState;
++const demandesDe = (id: string) => prisma.administrativeRequest.findMany({
++  where: { linkedEntityType: "PROMO_MATERIAL", linkedEntityId: id, type: "QUOTE" }, orderBy: { createdAt: "asc" },
++  select: { id: true, status: true, deletedAt: true },
++});
++
++/**
++ * ═══════════════════════════════════════════════════════════════════════════════════════════
++ * RETIRER LA DEMANDE DE DEVIS DU MATÉRIEL PROMOTIONNEL (audit du 04/10, constat 35) — par les VRAIS
++ * points d'entrée, avec un demandeur et une assistante SANS vue globale (§118.104).
++ *
++ * Avant : la demande ne se retirait que depuis « Demandes », et le dossier restait « devis demandés »
++ * pour toujours. Désormais elle se retire DEPUIS LE DOSSIER, et quelle que soit la porte qui la retire
++ * (le dossier, le demandeur dans « Demandes », le secrétariat), le dossier revient à l'étape d'avant
++ * quand plus aucune demande de devis ne vit.
++ * ═══════════════════════════════════════════════════════════════════════════════════════════
++ */
++suite("Matériel promotionnel — retirer la demande de devis, le circuit recule", () => {
++  const u: Record<string, string> = {};
++  let companyId = "", fourA = "", catCarnet = "";
++
++  beforeAll(async () => {
++    const mk = async (k: string, role: SessionUser["role"]) => {
++      u[k] = (await prisma.user.create({ data: { name: `${TAG} ${k}`, email: `${TAG}${k}@t.dz`, role, passwordHash: "x" } })).id;
++    };
++    await Promise.all([mk("ops", "DIRECTION"), mk("dir", "PRODUCT_MANAGER"), mk("cp", "MEDICAL_PROMOTION_MANAGER"), mk("asst", "DIRECTION_ASSISTANT")]);
++    companyId = (await prisma.company.create({ data: { name: `${TAG} Pharma`, shortName: TAG.slice(0, 12), color: "#1B7F79" } })).id;
++    const emp: Record<string, string> = {};
++    const e = async (k: string, managerKey: string | null) => {
++      emp[k] = (await prisma.employee.create({ data: { fullName: `${TAG} ${k}`, userId: u[k], managerId: managerKey ? emp[managerKey] : null, companyId } })).id;
++    };
++    await e("ops", null);
++    await e("dir", "ops");
++    await Promise.all([e("cp", "dir"), e("asst", null)]);
++    fourA = (await prisma.companyContact.create({ data: { name: `${TAG} Imprimerie Atlas`, address: "ZI", city: "Alger", companyId: null }, select: { id: true } })).id;
++    catCarnet = (await prisma.promoCatalogueArticle.create({ data: { reference: `${TAG}-CARNET`, nom: `${TAG} Carnet`, famille: "CONSOMMABLE" }, select: { id: true } })).id;
++  }, 60_000);
++
++  afterAll(async () => {
++    const ids = Object.values(u);
++    const pmIds = (await prisma.promoMaterial.findMany({ where: { title: { startsWith: TAG } }, select: { id: true } })).map((p) => p.id);
++    const demandes = (await prisma.administrativeRequest.findMany({ where: { linkedEntityType: "PROMO_MATERIAL", linkedEntityId: { in: pmIds } }, select: { id: true } })).map((d) => d.id);
++    await prisma.comment.deleteMany({ where: { OR: [{ entityType: "PROMO_MATERIAL", entityId: { in: pmIds } }, { entityType: "ADMIN_REQUEST", entityId: { in: demandes } }] } }).catch(() => {});
++    await prisma.promoMaterial.updateMany({ where: { id: { in: pmIds } }, data: { adminRequestId: null } }).catch(() => {});
++    await prisma.administrativeRequest.deleteMany({ where: { id: { in: demandes } } }).catch(() => {});
++    const docs = await prisma.document.findMany({ where: { entityType: "PROMO_MATERIAL", entityId: { in: pmIds } }, select: { id: true, fileKey: true } }).catch(() => []);
++    await prisma.promoMaterial.deleteMany({ where: { id: { in: pmIds } } }).catch(() => {});
++    await prisma.document.deleteMany({ where: { id: { in: docs.map((d) => d.id) } } }).catch(() => {});
++    for (const d of docs) if (d.fileKey) await deleteFileByKey(d.fileKey).catch(() => {});
++    await prisma.promoCatalogueArticle.deleteMany({ where: { reference: { startsWith: TAG } } }).catch(() => {});
++    await prisma.companyContact.deleteMany({ where: { name: { startsWith: TAG } } }).catch(() => {});
++    await prisma.notification.deleteMany({ where: { link: { in: pmIds.map((id) => `/promo-material/${id}`) } } }).catch(() => {});
++    await prisma.fileVersion.deleteMany({ where: { node: { ownerId: { in: ids } } } }).catch(() => {});
++    await prisma.driveNode.deleteMany({ where: { ownerId: { in: ids }, type: "FILE" } }).catch(() => {});
++    await prisma.driveNode.deleteMany({ where: { ownerId: { in: ids } } }).catch(() => {});
++    await prisma.employee.updateMany({ where: { fullName: { startsWith: TAG } }, data: { managerId: null } }).catch(() => {});
++    await prisma.employee.deleteMany({ where: { fullName: { startsWith: TAG } } }).catch(() => {});
++    await prisma.notification.deleteMany({ where: { userId: { in: ids } } }).catch(() => {});
++    await prisma.auditLog.deleteMany({ where: { actorId: { in: ids } } }).catch(() => {});
++    await prisma.userAccess.deleteMany({ where: { userId: { in: ids } } }).catch(() => {});
++    await prisma.user.deleteMany({ where: { id: { in: ids } } }).catch(() => {});
++    await prisma.company.delete({ where: { id: companyId } }).catch(() => {});
++  }, 60_000);
++
++  const comme = async (k: string) => { ACTOR = await actorFor(u[k]!); return ACTOR; };
++
++  /** Un dossier de cp à l'étape « devis demandés » — la demande part d'elle-même à la validation. */
++  async function auxDevisDemandes(titre: string): Promise<string> {
++    await comme("cp");
++    const r = await createPromoMaterial(undefined, form({
++      title: `${TAG} ${titre}`,
++      lignes: JSON.stringify([{ catalogueId: catCarnet, quantite: "500", actions: ["IMPRESSION"], commentaire: "A5" }]),
++    }));
++    if (!r.ok) throw new Error(r.error);
++    await comme("dir");
++    reussi(await validatePromoStep(form({ id: r.id! })), "valider la demande");
++    expect(await etape(r.id!), "PRÉMISSE : la demande de devis est partie").toBe("QUOTE_REQUESTED");
++    return r.id!;
++  }
++  async function devisComplet(id: string): Promise<void> {
++    await comme("asst");
++    const art = (await prisma.promoRequestItem.findFirstOrThrow({ where: { promoMaterialId: id } })).id;
++    const f = form({
++      promoMaterialId: id, supplierId: fourA, reference: "D-1", tvaRate: "19", announcedTotal: "50000",
++      ligneReference: ["Carnet A5"], ligneQuantite: ["500"], lignePrix: ["100"], ligneAction: ["IMPRESSION"], ligneArticle: [art],
++    });
++    f.set("scan", pdf(`${TAG}-devis.pdf`));
++    reussi(await enregistrerDevisPromo(f), "retranscrire un devis");
++  }
++
++  it("PRÉMISSES : ni le demandeur ni l'assistante n'ont la vue globale", async () => {
++    expect(hasGlobalView((await comme("cp")).role)).toBe(false);
++    expect(hasGlobalView((await comme("asst")).role)).toBe(false);
++  });
++
++  it("DEPUIS LE DOSSIER : motif exigé, la demande se clôt avec sa trace, le dossier revient à « devis à demander » — et la demande repart", async () => {
++    const id = await auxDevisDemandes("Depuis le dossier");
++    const [demande] = await demandesDe(id);
++    await comme("asst");
++    expect(err(await retirerDemandeDevisPromo(form({ promoMaterialId: id, motif: "x" }))), "l'assistante ne retire pas la demande d'un autre").toMatch(/Seul le demandeur/);
++    await comme("cp");
++    expect(err(await retirerDemandeDevisPromo(form({ promoMaterialId: id }))), "le motif est exigé").toMatch(/Dites pourquoi/);
++    expect(await etape(id), "un refus ne touche à rien").toBe("QUOTE_REQUESTED");
++    const r = reussi(await retirerDemandeDevisPromo(form({ promoMaterialId: id, motif: "Le salon est annulé." })), "retirer");
++    expect(r.message ?? "").toMatch(/revient à « devis à demander »/);
++    expect(await etape(id), "le dossier ne reste plus « devis demandés »").toBe("QUOTE_TO_REQUEST");
++    expect((await demandesDe(id))[0]!.status).toBe("CANCELLED");
++    expect(await prisma.comment.count({ where: { entityType: "ADMIN_REQUEST", entityId: demande!.id, body: { contains: "Le salon est annulé." } } }), "la trace va à la demande").toBe(1);
++    expect(await prisma.comment.count({ where: { entityType: "PROMO_MATERIAL", entityId: id, body: { contains: "Demande de devis retirée" } } }), "et au fil du dossier").toBe(1);
++    // Rien ne retient plus le dossier : la demande repart, par le geste de l'écran.
++    reussi(await demanderDevisPromo(form({ promoMaterialId: id })), "redemander");
++    expect(await etape(id)).toBe("QUOTE_REQUESTED");
++  });
++
++  it("EXÉCUTÉE : un devis déjà retranscrit refuse le retrait — AVANT le motif, en le nommant, et rien ne bouge", async () => {
++    const id = await auxDevisDemandes("Déjà retranscrite");
++    await devisComplet(id);
++    await comme("cp");
++    const r = await retirerDemandeDevisPromo(form({ promoMaterialId: id }));
++    expect(err(r), "l'état refuse avant qu'on demande pourquoi").toMatch(/déjà retranscrit 1 devis/);
++    expect(await etape(id)).toBe("QUOTE_REQUESTED");
++    expect((await demandesDe(id)).every((d) => d.status !== "CANCELLED")).toBe(true);
++    expect((await demandesDe(id)).length, "PRÉMISSE : la liste n'est pas vide").toBeGreaterThan(0);
++  });
++
++  it("UNE DEMANDE DE NOUVEAUX DEVIS retirée ramène au CHOIX DES LIGNES — les devis reçus restent", async () => {
++    const id = await auxDevisDemandes("Redemande");
++    await devisComplet(id);
++    await comme("asst");
++    reussi(await terminerRetranscriptionPromo(form({ promoMaterialId: id })), "terminer");
++    await comme("cp");
++    reussi(await redemanderDevisPromo(form({ promoMaterialId: id, note: "D'autres imprimeurs." })), "redemander");
++    expect(await etape(id)).toBe("QUOTE_REQUESTED");
++    reussi(await retirerDemandeDevisPromo(form({ promoMaterialId: id, motif: "Le premier devis suffit." })), "retirer la redemande");
++    expect(await etape(id), "l'étape d'avant est le choix, pas « devis à demander »").toBe("REVIEW_REQUESTER");
++    expect(await prisma.promoQuote.count({ where: { promoMaterialId: id } })).toBe(1);
++  });
++
++  it("DEPUIS « DEMANDES » : le demandeur qui retire sa demande, ou le secrétariat qui l'annule, fait aussi reculer le dossier", async () => {
++    const a = await auxDevisDemandes("Par le demandeur");
++    const [da] = await demandesDe(a);
++    await comme("cp");
++    reussi(await deleteOwnRequest(form({ id: da!.id, motif: "Plus besoin." })), "retirer depuis Demandes");
++    expect(await etape(a)).toBe("QUOTE_TO_REQUEST");
++
++    const b = await auxDevisDemandes("Par le secrétariat");
++    const [db] = await demandesDe(b);
++    await comme("asst");
++    reussi(await annulerDemandeAuSecretariat(form({ id: db!.id, motif: "Doublon." })), "annuler au secrétariat");
++    expect(await etape(b)).toBe("QUOTE_TO_REQUEST");
++    expect(await prisma.notification.count({ where: { userId: u.cp!, title: "Demande de devis retirée", link: `/promo-material/${b}` } }), "le demandeur l'apprend : c'est son dossier qui recule").toBe(1);
++  });
++
++  it("COURSE FORCÉE : le dossier passe à une autre étape pendant le retrait — le retour conditionnel ne l'écrase pas", async () => {
++    const id = await auxDevisDemandes("Course");
++    await comme("cp");
++    let geste!: Promise<ActionResult>;
++    await prisma.$transaction(async (tx) => {
++      await tx.$queryRaw`SELECT id FROM "PromoMaterial" WHERE id = ${id} FOR UPDATE`;
++      geste = retirerDemandeDevisPromo(form({ promoMaterialId: id, motif: "Course." }));
++      geste.catch(() => undefined);
++      const debut = Date.now();
++      for (;;) {
++        await tx.$executeRawUnsafe("SELECT pg_stat_clear_snapshot()");
++        const [{ n }] = await tx.$queryRaw<{ n: number }[]>`
++          SELECT count(*)::int AS n FROM pg_stat_activity WHERE datname = current_database() AND pg_backend_pid() = ANY(pg_blocking_pids(pid))`;
++        if (n >= 1) break;
++        if (Date.now() - debut > 15_000) throw new Error("le geste n'a pas atteint la barrière");
++        await new Promise((res) => setTimeout(res, 25));
++      }
++      // Le détenteur fait avancer le dossier (une fin de retranscription jouée ailleurs).
++      await tx.promoMaterial.update({ where: { id }, data: { circuitState: "REVIEW_REQUESTER" } });
++    }, { timeout: 30_000 });
++    await geste;
++    expect(await etape(id), "le dossier avancé n'est pas ramené en arrière").toBe("REVIEW_REQUESTER");
++  });
++});
+diff --git a/src/lib/ad-pro/ad-pro-postes-flow.test.ts b/src/lib/ad-pro/ad-pro-postes-flow.test.ts
+index 8261e07..c046f7f 100644
+--- a/src/lib/ad-pro/ad-pro-postes-flow.test.ts
++++ b/src/lib/ad-pro/ad-pro-postes-flow.test.ts
+@@ -11,7 +11,7 @@ import { canAccessEntity } from "@/lib/entity-access";
+ import { createSponsoring } from "@/lib/actions/sponsoring-actions";
+ import {
+   addAdProItem, repartirPoste, submitAdProItem, decideAdProItem, requestAdProItemOrder,
+-  ajouterVoyageur, modifierVoyageur, retirerVoyageur, demanderReservation,
++  ajouterVoyageur, modifierVoyageur, retirerVoyageur, demanderReservation, retirerReservation,
+ } from "@/lib/actions/ad-pro-item-actions";
+ import { supprimerDemandeAdPro, apercuDeSuppression, restoreDeletedRecord } from "@/lib/actions/admin-delete-actions";
+ import { createLegalDocument, updateLegalDocument } from "@/lib/actions/legal-actions";
+@@ -547,6 +547,57 @@ suite("Ad & Pro — postes simplifiés : répartition, gestes, voyageurs, suppre
+     expect(dernier.body).toContain("voyageur retiré : Dr Yacine Ouali.");
+   });
+ 
++  it("RETIRER LA DEMANDE DE RÉSERVATION (constat 37) : motif exigé, le sujet se clôt, l'assistante le lit — et une nouvelle demande rouvre un sujet", async () => {
++    ACTOR = await acteur(nsId, "NATIONAL_SALES");
++    const sansMotif = await retirerReservation(fd({ id: billetterie }));
++    expect(sansMotif.ok === false ? sansMotif.error : "retiré").toMatch(/Dites pourquoi/);
++    expect((await prisma.dossier.findUniqueOrThrow({ where: { id: sujetId } })).status, "un refus ne touche à rien").not.toBe("ARCHIVED");
++    const avis = await prisma.notification.count({ where: { userId: asstId, link: `/dossiers/${sujetId}` } });
++    const r = await retirerReservation(fd({ id: billetterie, motif: "Le congrès passe en visio." }));
++    expect(r.ok, r.ok === false ? r.error : "").toBe(true);
++    expect((await prisma.dossier.findUniqueOrThrow({ where: { id: sujetId } })).status, "le sujet est clos").toBe("ARCHIVED");
++    expect((await prisma.adProItem.findUniqueOrThrow({ where: { id: billetterie } })).reservationDossierId, "le poste lâche son sujet").toBeNull();
++    const dernier = await prisma.dossierMessage.findFirstOrThrow({ where: { dossierId: sujetId }, orderBy: { createdAt: "desc" } });
++    expect(dernier.body).toMatch(/Demande de réservation RETIRÉE .* Le congrès passe en visio\./);
++    expect(await prisma.notification.count({ where: { userId: asstId, link: `/dossiers/${sujetId}` } }), "l'assistante est prévenue par le sujet").toBe(avis + 1);
++    expect(await prisma.adProVoyageur.count({ where: { itemId: billetterie } }), "les voyageurs restent").toBeGreaterThan(0);
++    const encore = await retirerReservation(fd({ id: billetterie, motif: "x" }));
++    expect(encore.ok === false ? encore.error : "retiré").toMatch(/Aucune demande de réservation/);
++    // Une NOUVELLE demande ouvre un nouveau sujet — l'ancien, clos, ne se rouvre pas en silence.
++    const nouvelle = await demanderReservation(fd({ id: billetterie }));
++    expect(nouvelle.ok, nouvelle.ok === false ? nouvelle.error : "").toBe(true);
++    expect(nouvelle.ok ? nouvelle.id : sujetId).not.toBe(sujetId);
++    sujetId = nouvelle.ok ? nouvelle.id! : sujetId;
++  });
++
++  it("RETIRER LA RÉSERVATION : traitée (sujet clos) elle ne se retire plus — AVANT le motif ; et une clôture pendant le retrait gagne (course forcée)", async () => {
++    ACTOR = await acteur(nsId, "NATIONAL_SALES");
++    // LA COURSE : l'assistante clôt le sujet pendant que le retrait attend sa ligne.
++    let geste!: Promise<Awaited<ReturnType<typeof retirerReservation>>>;
++    await prisma.$transaction(async (tx) => {
++      await tx.$queryRaw`SELECT id FROM "Dossier" WHERE id = ${sujetId} FOR UPDATE`;
++      geste = retirerReservation(fd({ id: billetterie, motif: "Course." }));
++      geste.catch(() => undefined);
++      const debut = Date.now();
++      for (;;) {
++        await tx.$executeRawUnsafe("SELECT pg_stat_clear_snapshot()");
++        const [{ n }] = await tx.$queryRaw<{ n: number }[]>`
++          SELECT count(*)::int AS n FROM pg_stat_activity WHERE datname = current_database() AND pg_backend_pid() = ANY(pg_blocking_pids(pid))`;
++        if (n >= 1) break;
++        if (Date.now() - debut > 15_000) throw new Error("le retrait n'a pas atteint la barrière");
++        await new Promise((res) => setTimeout(res, 25));
++      }
++      await tx.dossier.update({ where: { id: sujetId }, data: { status: "DONE" } });
++    }, { timeout: 30_000 });
++    const r = await geste;
++    expect(r.ok === false ? r.error : "retiré").toMatch(/vient de changer/);
++    expect((await prisma.adProItem.findUniqueOrThrow({ where: { id: billetterie } })).reservationDossierId, "tout ou rien : le poste garde son sujet").toBe(sujetId);
++    expect((await prisma.dossier.findUniqueOrThrow({ where: { id: sujetId } })).status).toBe("DONE");
++    // Désormais TRAITÉE : le refus vient avant le motif, et le nomme.
++    const traitee = await retirerReservation(fd({ id: billetterie }));
++    expect(traitee.ok === false ? traitee.error : "retiré").toMatch(/La réservation est traitée/);
++  });
++
+   it("UN POSTE REFUSÉ ne se réserve pas", async () => {
+     ACTOR = await acteur(nsId, "NATIONAL_SALES");
+     expect((await submitAdProItem(undefined, fd({ id: billetterie }))).ok).toBe(true);
+diff --git a/src/lib/ad-pro/bc-etablis.ts b/src/lib/ad-pro/bc-etablis.ts
+index 5d953d2..7c9f204 100644
+--- a/src/lib/ad-pro/bc-etablis.ts
++++ b/src/lib/ad-pro/bc-etablis.ts
+@@ -1,3 +1,4 @@
++import type { Prisma } from "@prisma/client";
+ import { prisma } from "@/lib/prisma";
+ 
+ /**
+@@ -6,7 +7,7 @@ import { prisma } from "@/lib/prisma";
+  *
+  * Le BC qu'une assistante établit pour un poste naît d'une demande de pièce (`DocumentRequest`,
+  * `entityType = AD_PRO_ITEM`) et lit sa validation SUR LE POSTE (`portesDesBC`, `source: "POSTE"`).
+- * Retirer la demande de BC, revoir la décision du poste ou le rendre à la Direction le laisserait
++ * Annuler la demande de BC (pour un BC SIGNÉ ou facturé), revoir la décision du poste ou le rendre à la Direction le laisserait
+  * SANS porte — et la facture d'un BC sans porte part au règlement (`blocageParLeBC(null)`). Ces trois
+  * gestes refusent donc tant qu'il en existe un, non annulé, et le refus le NOMME.
+  *
+@@ -21,8 +22,18 @@ import { prisma } from "@/lib/prisma";
+  * suppression (`faitIrreversible`). Ce n'est pas la même question (§118.57).
+  * ═══════════════════════════════════════════════════════════════════════════════════════════
+  */
+-export async function bcEtablisDesPostes(itemIds: readonly string[]): Promise<Map<string, string[]>> {
+-  const res = new Map<string, string[]>();
++/** Un BC vivant d'un poste — ce que « Annuler la demande de BC » doit savoir de lui (constat 36). */
++export interface BcDuPoste {
++  id: string;
++  nom: string;
++  /** Signé par les Finances : il engage la société, il ne s'annule plus depuis le poste. */
++  signe: boolean;
++  /** La facture qui en découle (non annulée) — son nom, ou `null`. */
++  facture: string | null;
++}
++
++export async function bcVivantsDesPostes(itemIds: readonly string[]): Promise<Map<string, BcDuPoste[]>> {
++  const res = new Map<string, BcDuPoste[]>();
+   const ids = [...new Set(itemIds.filter(Boolean))];
+   if (ids.length === 0) return res;
+   // DEUX CHEMINS, UNE LECTURE (§118.204) : le BC classé depuis une demande de pièce ET le BC rattaché
+@@ -41,21 +52,56 @@ export async function bcEtablisDesPostes(itemIds: readonly string[]): Promise<Ma
+   const demandes = [...parDemande, ...parLien.map((l) => ({ entityId: l.itemId, legalDocumentId: l.legalDocumentId }))];
+   const docIds = [...new Set(demandes.map((d) => d.legalDocumentId).filter((x): x is string => Boolean(x)))];
+   if (docIds.length === 0) return res;
+-  const docs = await prisma.legalDocument.findMany({
+-    where: { id: { in: docIds }, kind: "PURCHASE_ORDER", status: { not: "CANCELLED" } },
+-    select: { id: true, reference: true, title: true },
+-  });
+-  const nomDe = new Map(docs.map((d) => [d.id, d.reference?.trim() || d.title]));
++  const [docs, factures] = await Promise.all([
++    prisma.legalDocument.findMany({
++      where: { id: { in: docIds }, kind: "PURCHASE_ORDER", status: { not: "CANCELLED" } },
++      select: { id: true, reference: true, title: true, signedAt: true, signedById: true },
++    }),
++    prisma.legalDocument.findMany({
++      where: { chainFromId: { in: docIds }, kind: "INVOICE", status: { not: "CANCELLED" } },
++      select: { chainFromId: true, reference: true, title: true },
++    }),
++  ]);
++  const factureDe = new Map<string, string>();
++  for (const f of factures) if (f.chainFromId && !factureDe.has(f.chainFromId)) factureDe.set(f.chainFromId, f.reference?.trim() || f.title);
++  const parId = new Map(docs.map((d) => [d.id, {
++    id: d.id, nom: d.reference?.trim() || d.title, signe: d.signedAt != null || d.signedById != null, facture: factureDe.get(d.id) ?? null,
++  } satisfies BcDuPoste]));
+   for (const d of demandes) {
+-    const nom = d.legalDocumentId ? nomDe.get(d.legalDocumentId) : undefined;
+-    if (!nom) continue;
++    const bc = d.legalDocumentId ? parId.get(d.legalDocumentId) : undefined;
++    if (!bc) continue;
+     const l = res.get(d.entityId) ?? [];
+-    if (!l.includes(nom)) l.push(nom);
++    if (!l.some((x) => x.id === bc.id)) l.push(bc);
+     res.set(d.entityId, l);
+   }
+   return res;
+ }
+ 
++export async function bcEtablisDesPostes(itemIds: readonly string[]): Promise<Map<string, string[]>> {
++  const res = new Map<string, string[]>();
++  for (const [k, l] of await bcVivantsDesPostes(itemIds)) res.set(k, [...new Set(l.map((b) => b.nom))]);
++  return res;
++}
++
++/**
++ * POURQUOI LA DEMANDE DE BC NE S'ANNULE PAS DEPUIS LE POSTE — `null` si elle s'annule (constat 36 de
++ * l'audit du 04/10). « On annule sa demande tant que l'autre ne l'a pas exécutée » : le BC établi par
++ * l'assistante mais NON signé n'engage encore personne — le geste unique l'annule au registre, puis
++ * retire la demande. Signé par les Finances, il engage la société ; une facture qui en découle, plus
++ * encore : là, la demande est exécutée et le refus le nomme. Une lecture pour l'action et pour la carte.
++ */
++export function refusAnnulationBcDuPoste(bcs: readonly Pick<BcDuPoste, "nom" | "signe" | "facture">[]): string | null {
++  const facture = bcs.find((b) => b.facture);
++  if (facture) {
++    return `Une facture (${facture.facture}) découle déjà du bon de commande ${facture.nom} : la demande est exécutée, elle ne s'annule plus d'ici — annulez d'abord la facture dans Legal si c'est bien voulu.`;
++  }
++  const signe = bcs.find((b) => b.signe);
++  if (signe) {
++    return `Le bon de commande ${signe.nom} est signé par les Finances : il engage la société, la demande ne s'annule plus depuis le poste — voyez avec les Finances.`;
++  }
++  return null;
++}
++
+ export async function bcEtablisDuPoste(itemId: string): Promise<string[]> {
+   return (await bcEtablisDesPostes([itemId])).get(itemId) ?? [];
+ }
+@@ -63,5 +109,21 @@ export async function bcEtablisDuPoste(itemId: string): Promise<string[]> {
+ /** Le refus, et le geste qui le lève — une rédaction pour les trois actions et pour la carte. */
+ export function refusBcEtabli(bcs: readonly string[], ensuite: string): string {
+   return `Un bon de commande a déjà été établi pour ce poste (${bcs.join(", ")}) et il lit sa validation sur ce poste : `
+-    + `annulez-le d'abord dans Legal (« Annuler », motif à l'appui), puis ${ensuite}.`;
++    + `annulez d'abord la demande de BC (« Annuler la demande de BC » l'annule avec elle tant qu'il n'est pas signé), puis ${ensuite}.`;
++}
++
++/**
++ * ANNULER UN BC NON SIGNÉ, DANS LA TRANSACTION DE L'APPELANT (constat 36) — `false` si la condition a perdu :
++ * signé entre la lecture et l'écriture (la signature écrit sur l'`updatedAt` lu, cette annulation le change :
++ * des deux gestes, un seul passe), déjà annulé, ou une facture née entre-temps. Hors de l'action : la
++ * dérivation des contrats désigne l'objet d'une action par ce que SON corps écrit (§118.150g).
++ */
++export async function annulerBcNonSigne(tx: Prisma.TransactionClient, bcId: string, raison: string, acteurId: string): Promise<boolean> {
++  const a = await tx.legalDocument.updateMany({
++    where: { id: bcId, kind: "PURCHASE_ORDER", status: { not: "CANCELLED" }, signedAt: null, signedById: null },
++    data: { status: "CANCELLED", cancelledAt: new Date(), cancelReason: raison, updatedById: acteurId },
++  });
++  if (a.count === 0) return false;
++  const facture = await tx.legalDocument.count({ where: { chainFromId: bcId, kind: "INVOICE", status: { not: "CANCELLED" } } });
++  return facture === 0;
+ }
+diff --git a/src/lib/ad-pro/postes-chaine-flow.test.ts b/src/lib/ad-pro/postes-chaine-flow.test.ts
+index c7bec74..e524119 100644
+--- a/src/lib/ad-pro/postes-chaine-flow.test.ts
++++ b/src/lib/ad-pro/postes-chaine-flow.test.ts
+@@ -46,6 +46,7 @@ import { ordreAFacture } from "@/lib/finance/facture-ordre";
+ import { getActionCenter } from "@/lib/queries/action-center";
+ import { persistUploadedDocument } from "@/lib/documents";
+ import type { Prisma } from "@prisma/client";
++import { TITRE_BC_A_ETABLIR } from "@/lib/ad-pro/pieces-secretariat";
+ 
+ let dbOk = false;
+ try { await prisma.$queryRaw`SELECT 1`; dbOk = true; } catch { dbOk = false; }
+@@ -137,6 +138,10 @@ suite("Ad & Pro — la chaîne d'un poste : deux temps, BC par l'assistante, fac
+     const docs = [...new Set([...demandes.map((d) => d.legalDocumentId), ...liens.map((l) => l.legalDocumentId)].filter((x): x is string => Boolean(x)))];
+     await prisma.document.deleteMany({ where: { entityId: { in: [...docs, ...demandes.map((d) => d.id), ...postes] } } }).catch(() => {});
+     await prisma.adProItemPiece.deleteMany({ where: { itemId: { in: postes } } }).catch(() => {});
++    const aDemandes = (await prisma.administrativeRequest.findMany({ where: { linkedEntityType: "AD_PRO_ITEM", linkedEntityId: { in: postes } }, select: { id: true } }).catch(() => [])).map((r) => r.id);
++    await prisma.comment.deleteMany({ where: { entityType: "ADMIN_REQUEST", entityId: { in: aDemandes } } }).catch(() => {});
++    await prisma.auditLog.deleteMany({ where: { entityId: { in: aDemandes } } }).catch(() => {});
++    await prisma.administrativeRequest.deleteMany({ where: { id: { in: aDemandes } } }).catch(() => {});
+     await prisma.documentRequest.deleteMany({ where: { id: { in: demandes.map((d) => d.id) } } }).catch(() => {});
+     await prisma.adProGateVisa.deleteMany({ where: { entityId: { in: docs } } }).catch(() => {});
+     const vIds = (await prisma.validationRequest.findMany({ where: { entityId: { in: docs } }, select: { id: true } }).catch(() => [])).map((v) => v.id);
+@@ -404,9 +409,31 @@ suite("Ad & Pro — la chaîne d'un poste : deux temps, BC par l'assistante, fac
+     // DÉCOR, nommé : un poste dont le BC avait été demandé au secrétariat avant §118.204, et visé.
+     const id = await posteAccorde("Avant la règle", 600_000);
+     await prisma.adProItem.update({ where: { id }, data: { orderStage: "DIRECTION_OK", orderRequestedAt: new Date(), orderRequestedById: u.kam, orderVisaAmount: 600_000, orderVisaSupplier: "Imprimerie Alpha", orderDirectionAt: new Date(), orderDirectionById: u.gm } });
++    // L'ANCIENNE DEMANDE AU BUREAU DU SECRÉTARIAT (constat 21) — telle que l'écrivait le circuit d'avant.
++    const ancienne = await prisma.administrativeRequest.create({
++      data: {
++        reference: `${RUN.slice(-12)}-BCA`, type: "OTHER", title: `${TITRE_BC_A_ETABLIR} — ${TAG}Avant la règle`, priority: "HIGH",
++        status: "IN_PROGRESS", requesterId: u.kam, linkedEntityType: "AD_PRO_ITEM", linkedEntityId: id,
++      },
++      select: { id: true },
++    });
++    // Témoin : une demande au secrétariat d'une AUTRE nature (un devis) du même poste reste ouverte.
++    const devis = await prisma.administrativeRequest.create({
++      data: {
++        reference: `${RUN.slice(-12)}-DEV`, type: "QUOTE", title: `${TAG}Devis — Avant la règle`, priority: "HIGH",
++        status: "NEW", requesterId: u.kam, linkedEntityType: "AD_PRO_ITEM", linkedEntityId: id,
++      },
++      select: { id: true },
++    });
+     await comme("kam");
+-    ok(await requestAdProItemOrder(undefined, fd({ id, assistantId: u.ast1 })));
++    const r = await requestAdProItemOrder(undefined, fd({ id, assistantId: u.ast1 }));
++    ok(r);
++    expect(r.message ?? "").toMatch(/ancienne demande « Bon de commande à établir » au secrétariat est close/);
+     expect((await demandeBC(id))?.askedToId).toBe(u.ast1);
++    const a = await prisma.administrativeRequest.findUniqueOrThrow({ where: { id: ancienne.id }, select: { status: true } });
++    expect(a.status, "l'ancienne demande se clôt : la demande de pièce la remplace").toBe("CANCELLED");
++    expect(await prisma.comment.count({ where: { entityType: "ADMIN_REQUEST", entityId: ancienne.id, body: { contains: "au profit de la demande de pièce" } } }), "la trace dit par quoi elle est remplacée").toBe(1);
++    expect((await prisma.administrativeRequest.findUniqueOrThrow({ where: { id: devis.id }, select: { status: true } })).status, "le devis n'est pas un BC : il reste").toBe("NEW");
+     const p = await poste(id);
+     expect(p.orderStage, "le visa tient").toBe("DIRECTION_OK");
+     expect(Number(p.orderVisaAmount)).toBe(600_000);
+diff --git a/src/lib/ad-pro/postes-revision-flow.test.ts b/src/lib/ad-pro/postes-revision-flow.test.ts
+index fbcb3ad..f7fff23 100644
+--- a/src/lib/ad-pro/postes-revision-flow.test.ts
++++ b/src/lib/ad-pro/postes-revision-flow.test.ts
+@@ -504,36 +504,95 @@ suite("Ad & Pro — réviser un poste : visa, demande de BC, ordre, décision, r
+     // Elle l'APPREND, motif compris — par le lien causal (sa demande de pièce), pas un compte de titres.
+     const avis = await prisma.notification.findFirstOrThrow({ where: { userId: astId, link: `/pieces/${apres.id}`, createdAt: { gte: t0 } }, select: { title: true, body: true } });
+     expect(avis.title).toBe("Demande de pièce annulée");
+-    expect(avis.body).toMatch(/la demande de bon de commande du poste .* a été retirée — Le devis est caduc\./);
++    expect(avis.body).toMatch(/la demande de bon de commande du poste .* a été annulée — Le devis est caduc\./);
+     // Et une nouvelle demande repart : un poste n'est pas figé par un retrait.
+     ok(await demanderBC(id, "Nouveau devis DV-31."));
+     expect((await etat(id)).orderStage).toBe("REQUESTED");
+     expect((await travauxBc(id)).filter((d) => d.status === "PENDING"), "une demande NEUVE, la close reste close").toHaveLength(1);
+   });
+ 
+-  it("RETIRER est REFUSÉ quand un BC est déjà établi dans Legal — il lit sa validation sur ce poste", async () => {
++  it("ANNULER LA DEMANDE DE BC — geste unique (constat 36) : le BC établi NON signé part au registre avec la demande", async () => {
+     SEUIL = 500_000;
+     const id = await posteAccorde("Plaquettes", 600_000);
+     ok(await demanderBC(id));
+     ok(await viser(id));
+     // Le BC établi par la VRAIE chaîne : déposé par l'assistante, accepté par le demandeur (§118.204).
+     const pieceId = await bcEtabli(id);
+-    const piece = { id: pieceId };
+-    await comme("kam");
+-    const r = await retirerDemandeBC(undefined, fd({ id, motif: "x" }));
+-    expect(r.ok).toBe(false);
+-    expect(r.error).toMatch(/Un bon de commande a déjà été établi pour ce poste \(.+\).*annulez-le d'abord dans Legal/);
+-    expect((await etat(id)).orderStage, "le BC Legal aurait perdu sa porte").toBe("DIRECTION_OK");
+-    // La même règle tient pour « revoir la décision » et « demander une révision ».
++    // Tant que le BC vit, revoir la décision et rendre le poste restent refusés — et le refus nomme le geste.
+     await comme("pm");
+     const revoir = await decideAdProItem(undefined, fd({ id, decision: "REVISION", note: "À revoir" }));
+     expect(revoir.ok).toBe(false);
+-    expect(revoir.error).toMatch(/annulez-le d'abord dans Legal/);
++    expect(revoir.error).toMatch(/Annuler la demande de BC/);
+     await comme("kam");
+     expect((await demanderRevisionPoste(undefined, fd({ id, motif: "x" }))).ok).toBe(false);
+-    // Le BC annulé dans Legal, le retrait passe.
+-    await prisma.legalDocument.update({ where: { id: piece.id }, data: { status: "CANCELLED" } });
+-    ok(await retirerDemandeBC(undefined, fd({ id, motif: "BC annulé dans Legal." })));
++    // Le motif est exigé — APRÈS l'état : ici rien ne refuse, on demande pourquoi.
++    const sans = await retirerDemandeBC(undefined, fd({ id }));
++    expect(sans.ok).toBe(false);
++    expect(sans.error).toMatch(/Dites pourquoi/);
++    // QUI TRANCHE annule : le demandeur (le délégué) est prévenu, c'est sa demande qui s'arrête.
++    await comme("pm");
++    const t0 = new Date();
++    const r = await retirerDemandeBC(undefined, fd({ id, motif: "Le prestataire a changé." }));
++    ok(r);
++    expect(r.message ?? "").toMatch(/non signé, est annulé au registre/);
++    const doc = await prisma.legalDocument.findUniqueOrThrow({ where: { id: pieceId }, select: { status: true, cancelReason: true, cancelledAt: true } });
++    expect(doc.status, "le BC part avec la demande").toBe("CANCELLED");
++    expect(doc.cancelReason ?? "").toMatch(/Le prestataire a changé\./);
++    expect(doc.cancelledAt).not.toBeNull();
++    expect((await etat(id)).orderStage, "le poste revient sans demande de BC").toBe("NONE");
++    expect(await prisma.notification.count({ where: { userId: kamId, title: "Demande de bon de commande annulée", createdAt: { gte: t0 } } })).toBe(1);
++    expect(await prisma.auditLog.count({ where: { entityType: "LEGAL_DOCUMENT", entityId: pieceId, createdAt: { gte: t0 }, summary: { contains: "annulé avec la demande" } } })).toBe(1);
++    // Rien ne retient plus le poste : une nouvelle demande de BC repart.
++    ok(await demanderBC(id, "Nouveau prestataire, devis DV-77."));
++    expect((await etat(id)).orderStage).toBe("REQUESTED");
++  });
++
++  it("ANNULER LA DEMANDE DE BC : un BC SIGNÉ par les Finances refuse — AVANT le motif, en le nommant, et rien n'est touché", async () => {
++    SEUIL = 500_000;
++    const id = await posteAccorde("Kakémonos", 600_000);
++    ok(await demanderBC(id));
++    ok(await viser(id));
++    const pieceId = await bcSigne(id);
++    await comme("kam");
++    const r = await retirerDemandeBC(undefined, fd({ id }));
++    expect(r.ok).toBe(false);
++    expect(r.error, "l'état refuse avant qu'on demande pourquoi").toMatch(/est signé par les Finances/);
++    expect((await prisma.legalDocument.findUniqueOrThrow({ where: { id: pieceId }, select: { status: true } })).status).not.toBe("CANCELLED");
++    expect((await etat(id)).orderStage).toBe("DIRECTION_OK");
++  });
++
++  it("ANNULER LA DEMANDE DE BC pendant que les Finances SIGNENT : la signature gagne, rien n'est annulé (course forcée)", async () => {
++    SEUIL = 500_000;
++    const id = await posteAccorde("Course signature", 600_000);
++    ok(await demanderBC(id));
++    ok(await viser(id));
++    const pieceId = await bcEtabli(id);
++    await comme("kam");
++    let geste!: Promise<Awaited<ReturnType<typeof retirerDemandeBC>>>;
++    await prisma.$transaction(async (tx) => {
++      // Les écritures du registre attendent, ses lectures passent : l'annulation lit un BC NON signé, puis
++      // bute sur le verrou ; le détenteur signe le BC (il peut écrire), puis relâche.
++      await tx.$executeRawUnsafe(`LOCK TABLE "LegalDocument" IN SHARE MODE`);
++      geste = retirerDemandeBC(undefined, fd({ id, motif: "Course." }));
++      geste.catch(() => undefined);
++      const debut = Date.now();
++      for (;;) {
++        await tx.$executeRawUnsafe("SELECT pg_stat_clear_snapshot()");
++        const [{ n }] = await tx.$queryRaw<{ n: number }[]>`
++          SELECT count(*)::int AS n FROM pg_stat_activity
++          WHERE datname = current_database() AND pid <> pg_backend_pid()
++            AND wait_event_type = 'Lock' AND query ILIKE ANY(${["%LegalDocument%"]}::text[])`;
++        if (n >= 1) break;
++        if (Date.now() - debut > 10_000) throw new Error("le geste n'a pas atteint la barrière");
++        await new Promise((res) => setTimeout(res, 25));
++      }
++      await tx.legalDocument.update({ where: { id: pieceId }, data: { signedAt: new Date(), signedById: finId } });
++    }, { timeout: 20_000 });
++    const r = await geste;
++    expect(r.ok, JSON.stringify(r)).toBe(false);
++    expect(r.error).toMatch(/vient de changer/);
++    expect((await prisma.legalDocument.findUniqueOrThrow({ where: { id: pieceId }, select: { status: true } })).status, "le BC signé reste").not.toBe("CANCELLED");
++    expect((await etat(id)).orderStage, "tout ou rien : le poste garde sa demande").toBe("DIRECTION_OK");
+   });
+ 
+   it("MODIFIER LA DEMANDE DE BC : le message change, et le « BC à établir » de l'assistante avec lui", async () => {
+@@ -654,14 +713,14 @@ suite("Ad & Pro — réviser un poste : visa, demande de BC, ordre, décision, r
+   });
+ 
+   /**
+-   * DÉFAUT NOMMÉ (§118.204, NON réparé) : un sponsoring direct dont le paiement est
+-   * demandé (facture rattachée, ordre en attente) ET qui porte une demande au secrétariat ouverte ne se
+-   * retire plus — la corbeille refuse (« la demande dépend d'une de ses propres branches — ordre de
+-   * recréation impossible »). Vider le raccourci `adminRequestId` du poste ne suffit pas : une autre boucle
+-   * subsiste entre la demande au secrétariat, l'ordre et son dossier compagnon. `it.fails` : réparé, ce cas
+-   * passe — retirer alors `.fails`.
++   * DÉFAUT RÉPARÉ (audit du 04/10, constat 20 — nommé en §118.204) : un sponsoring direct dont le paiement
++   * est demandé ET qui porte une demande au secrétariat ouverte ne se retirait plus — « la demande dépend
++   * d'une de ses propres branches ». Mesuré : la SEULE dépendance de la tête vers le lot était
++   * `AdProItem.adminRequestId` → la demande au secrétariat que le couple `linkedEntityType` emporte (la
++   * « seconde boucle » supposée n'existait pas). Colonne facultative : le lot DIFFÈRE ce lien — la tête
++   * renaît sans lui, la demande renaît, puis le lien est rétabli (`liensTete`, `lot.ts`).
+    */
+-  it.fails("DÉFAUT — RETIRER un poste payé qui a une demande au secrétariat ouverte : elle part avec lui, l'assistante l'apprend, tout revient", async () => {
++  it("RETIRER un poste payé qui a une demande au secrétariat ouverte : elle part avec lui, l'assistante l'apprend, tout revient", async () => {
+     SEUIL = 500_000;
+     // Un SPONSORING DIRECT (§118.204) : payé sur facture, sans BC — le seul poste dont l'ordre peut
+     // exister sans BC signé, donc le seul qui se retire avec un ordre en attente (un BC signé bloque).
+diff --git a/src/lib/ad-pro/voyageurs.ts b/src/lib/ad-pro/voyageurs.ts
+index cdaa190..97ddb45 100644
+--- a/src/lib/ad-pro/voyageurs.ts
++++ b/src/lib/ad-pro/voyageurs.ts
+@@ -243,3 +243,21 @@ export function depassementDevisRetenus(montantsRetenus: readonly (number | null
+   const f = (c: number) => (c / 100).toLocaleString("fr-FR");
+   return `Les devis retenus totalisent ${f(centimes)} DZD, au-delà des ${f(accordeC)} DZD accordés au poste (+${f(centimes - accordeC)} DZD). Le montant accordé ne change pas : demandez une révision du poste si l'écart doit être couvert.`;
+ }
++
++/**
++ * RETIRER LA DEMANDE DE RÉSERVATION — `null` si elle se retire, sinon la raison (audit du 04/10,
++ * constat 37 : « on annule sa demande tant que l'autre ne l'a pas exécutée »). La réservation est
++ * EXÉCUTÉE quand son sujet est clos (abouti ou archivé), ou quand le bon de commande des billets est
++ * demandé : là, l'agence est engagée, et la demande de BC s'annule d'abord par son propre geste. Une
++ * lecture pour l'action et pour la carte (§118.83).
++ */
++export function refusRetraitReservation(r: { sujet: string | null; orderStage: string }): string | null {
++  if (!r.sujet) return "Aucune demande de réservation n'est en cours pour ce poste.";
++  if (r.sujet === "DONE" || r.sujet === "ARCHIVED") {
++    return "La réservation est traitée — son sujet est clos : elle ne se retire plus. Écrivez à l'assistante de direction dans le sujet si quelque chose change.";
++  }
++  if (r.orderStage !== "NONE" && r.orderStage !== "REFUSED") {
++    return "Le bon de commande des billets est déjà demandé : la réservation est engagée. Annulez d'abord la demande de BC (« Annuler la demande de BC »), puis la réservation.";
++  }
++  return null;
++}
+diff --git a/src/lib/assistant/action-registry.ts b/src/lib/assistant/action-registry.ts
+index 234d97f..f4ff4a4 100644
+--- a/src/lib/assistant/action-registry.ts
++++ b/src/lib/assistant/action-registry.ts
+@@ -1086,6 +1086,12 @@ X("RÉVISER UN POSTE AD & PRO APRÈS COUP (§118.187, audit R05/R06/R12) — RET
+   "ad-pro-item-actions:retirerDemandeBC", "ad-pro-item-actions:modifierDemandeBC",
+   "ad-pro-item-actions:annulerOrdrePoste", "ad-pro-item-actions:demanderRevisionPoste",
+ ]);
++X("ANNULER SA DEMANDE TANT QU'ELLE N'EST PAS EXÉCUTÉE (audit du 04/10, constats 35 et 37) — retirer la demande de "
++  + "devis d'un dossier de matériel promotionnel (le dossier recule à l'étape d'avant), retirer la demande de réservation "
++  + "des billets d'un poste (son sujet se clôt). Deux gestes du DEMANDEUR, motif à l'appui, qu'une assistante lira. Adam est "
++  + "en pause de développement : aucun geste neuf ne lui est ouvert. Un clic sur la fiche du dossier, ou sur la carte du poste.", [
++  "promo-devis-actions:retirerDemandeDevisPromo", "ad-pro-item-actions:retirerReservation",
++]);
+ X("LES PIÈCES D'ACHAT D'UN POSTE (§118.204) — déposer un devis ou une facture pro forma (commun à plusieurs postes), "
+   + "le retirer d'un poste où il a été mal placé, et déposer la FACTURE qui demande le paiement. Chacun dépose un "
+   + "FICHIER que la personne a sous la main (une carte de confirmation ne transporte pas un fichier), et le dernier "
+diff --git a/src/lib/dossiers-core.ts b/src/lib/dossiers-core.ts
+index e5827ab..c4aae49 100644
+--- a/src/lib/dossiers-core.ts
++++ b/src/lib/dossiers-core.ts
+@@ -5,7 +5,7 @@
+  * d'import (sinon les tests ne chargent plus). Ne lit jamais la session : l'auteur
+  * est passé explicitement (`actorId`).
+  */
+-import type { Priority } from "@prisma/client";
++import type { Priority, Prisma } from "@prisma/client";
+ import { prisma } from "@/lib/prisma";
+ import { companyIdForNew } from "@/lib/company";
+ import { buildRef, createWithRetry } from "@/lib/refs";
+@@ -106,3 +106,13 @@ export async function ecrireDansLeSujet(input: { dossierId: string; authorId: st
+   }
+   return true;
+ }
++
++/**
++ * CLORE UN SUJET ENCORE VIVANT, dans la transaction de l'appelant (audit du 04/10, constat 37 — la demande de
++ * réservation retirée). Écriture CONDITIONNELLE : un sujet abouti ou archivé entre-temps n'est pas réécrit, et
++ * l'appelant le lit (`false`). Archivé, pas « abouti » : rien n'a été fait, la demande s'est arrêtée.
++ */
++export async function cloreSujetVivant(tx: Prisma.TransactionClient, dossierId: string): Promise<boolean> {
++  const r = await tx.dossier.updateMany({ where: { id: dossierId, status: { in: ["OPEN", "IN_PROGRESS", "ON_HOLD"] } }, data: { status: "ARCHIVED" } });
++  return r.count > 0;
++}
+diff --git a/src/lib/promo-material/retrait-devis.ts b/src/lib/promo-material/retrait-devis.ts
+new file mode 100644
+index 0000000..3f6dc40
+--- /dev/null
++++ b/src/lib/promo-material/retrait-devis.ts
+@@ -0,0 +1,86 @@
++import { prisma } from "@/lib/prisma";
++import { recordAudit } from "@/lib/audit";
++import { notifyUser } from "@/lib/notify";
++import { ecrireAuFil } from "@/lib/ad-pro/fil";
++
++/**
++ * ═══════════════════════════════════════════════════════════════════════════════════════════
++ * LA DEMANDE DE DEVIS RETIRÉE — LE DOSSIER NE RESTE PAS « DEVIS DEMANDÉS » (audit du 04/10, constat 35).
++ *
++ * Une demande de devis de matériel promotionnel est une demande au secrétariat (`type: QUOTE`,
++ * `linkedEntityType: PROMO_MATERIAL`). Annulée — depuis le dossier, par son demandeur dans « Demandes »,
++ * ou par le secrétariat —, elle laissait le dossier sur « devis demandés » : une étape que plus personne
++ * n'avait à faire avancer, sans une ligne d'échec. Quand PLUS AUCUNE demande de devis n'est vivante, le
++ * dossier revient à l'étape d'AVANT :
++ *   • « devis à demander » s'il n'a jamais reçu de devis retranscrits (première demande) ;
++ *   • le choix des lignes s'il en a reçu lors d'un tour PRÉCÉDENT terminé (une demande de « nouveaux
++ *     devis » retirée : les devis déjà retranscrits et vérifiés sont toujours là).
++ *
++ * Sous le verrou de la ligne du dossier, et par une écriture CONDITIONNELLE sur « devis demandés » : deux
++ * retraits simultanés ne ramènent le dossier qu'une fois, et un dossier qui a changé d'étape entre-temps
++ * n'est pas touché. Hors d'un fichier « use server » : elle reçoit l'auteur en argument (§118.153).
++ * ═══════════════════════════════════════════════════════════════════════════════════════════
++ */
++
++/** Une demande de devis du secrétariat encore VIVANTE — celle qui retient le dossier sur « devis demandés ». */
++export const DEMANDE_DEVIS_VIVANTE = { type: "QUOTE" as const, deletedAt: null, status: { notIn: ["DONE" as const, "CANCELLED" as const] } };
++
++/**
++ * LES DEMANDES DE DEVIS VIVANTES D'UN DOSSIER, et ce qui empêche de les retirer — une lecture pour l'action
++ * et pour la fiche (§118.83). EXÉCUTÉE dès que l'assistante a commencé à RETRANSCRIRE : un devis enregistré
++ * depuis la demande est du travail fait.
++ */
++export async function etatRetraitDemandeDevis(promoMaterialId: string): Promise<{
++  demandes: { id: string; reference: string }[]; refus: string | null;
++}> {
++  const demandes = await prisma.administrativeRequest.findMany({
++    where: { linkedEntityType: "PROMO_MATERIAL", linkedEntityId: promoMaterialId, ...DEMANDE_DEVIS_VIVANTE },
++    select: { id: true, reference: true, createdAt: true }, orderBy: { createdAt: "asc" },
++  });
++  if (demandes.length === 0) return { demandes: [], refus: null };
++  const commences = await prisma.promoQuote.count({ where: { promoMaterialId, createdAt: { gte: demandes[0]!.createdAt } } });
++  const refus = commences > 0
++    ? `L'assistante a déjà retranscrit ${commences} devis pour cette demande : elle est en cours d'exécution et ne se retire plus. Demandez-lui de terminer (vous choisirez ensuite les lignes, ou redemanderez des devis), ou de retirer ces devis d'abord.`
++    : null;
++  return { demandes: demandes.map((d) => ({ id: d.id, reference: d.reference })), refus };
++}
++
++export async function ramenerSiPlusDeDemandeDevis(
++  promoMaterialId: string, auteurId: string, motif: string,
++): Promise<{ ramene: boolean; etape: "QUOTE_TO_REQUEST" | "REVIEW_REQUESTER" | null }> {
++  const r = await prisma.$transaction(async (tx) => {
++    const [pm] = await tx.$queryRaw<{ circuitState: string | null; circuitVersion: number; reference: string; requesterId: string | null }[]>`
++      SELECT "circuitState", "circuitVersion", reference, "requesterId" FROM "PromoMaterial" WHERE id = ${promoMaterialId} FOR UPDATE`;
++    if (!pm || pm.circuitVersion !== 2 || pm.circuitState !== "QUOTE_REQUESTED") return null;
++    const vivantes = await tx.administrativeRequest.count({
++      where: { linkedEntityType: "PROMO_MATERIAL", linkedEntityId: promoMaterialId, ...DEMANDE_DEVIS_VIVANTE },
++    });
++    if (vivantes > 0) return null;
++    // Un tour PRÉCÉDENT terminé ⇒ ses devis ont été retranscrits et vérifiés : on revient au choix.
++    const tourTermine = await tx.administrativeRequest.count({
++      where: { linkedEntityType: "PROMO_MATERIAL", linkedEntityId: promoMaterialId, type: "QUOTE", status: "DONE", deletedAt: null },
++    });
++    const etape = tourTermine > 0 ? "REVIEW_REQUESTER" as const : "QUOTE_TO_REQUEST" as const;
++    const u = await tx.promoMaterial.updateMany({
++      where: { id: promoMaterialId, circuitVersion: 2, circuitState: "QUOTE_REQUESTED" },
++      data: { circuitState: etape, updatedById: auteurId },
++    });
++    return u.count > 0 ? { etape, reference: pm.reference, requesterId: pm.requesterId } : null;
++  });
++  if (!r) return { ramene: false, etape: null };
++  const libelle = r.etape === "REVIEW_REQUESTER" ? "au choix des lignes (les devis déjà reçus restent)" : "à « devis à demander »";
++  await ecrireAuFil({ entityType: "PROMO_MATERIAL", entityId: promoMaterialId, authorId: auteurId, body: `Demande de devis retirée — le dossier revient ${libelle} : ${motif}` });
++  await recordAudit({
++    actorId: auteurId, action: "UPDATE", module: "Matériel promotionnel", entityType: "PROMO_MATERIAL", entityId: promoMaterialId,
++    field: "circuitState", oldValue: "QUOTE_REQUESTED", newValue: r.etape,
++    summary: `Plus aucune demande de devis vivante — le dossier ${r.reference} revient ${libelle}`,
++  });
++  // Le DEMANDEUR, quand ce n'est pas lui qui a retiré (le secrétariat, la Direction) : c'est son dossier qui recule.
++  if (r.requesterId && r.requesterId !== auteurId) {
++    await notifyUser({
++      userId: r.requesterId, type: "GENERIC", title: "Demande de devis retirée",
++      body: `${r.reference} — le dossier revient ${libelle} : ${motif}`, link: `/promo-material/${promoMaterialId}`,
++    }).catch(() => undefined);
++  }
++  return { ramene: true, etape: r.etape };
++}
+diff --git a/src/lib/queries/ad-pro-items.ts b/src/lib/queries/ad-pro-items.ts
+index 8386860..06f8b41 100644
+--- a/src/lib/queries/ad-pro-items.ts
++++ b/src/lib/queries/ad-pro-items.ts
+@@ -12,9 +12,9 @@ import type { PostePourCloture } from "@/lib/ad-pro/cloture-sponsoring";
+ import { gestionnairesDuMagasin } from "@/lib/queries/promo-stock";
+ import { NATURES_PIECE_SECRETARIAT, PIECE_SECRETARIAT, estDemandeBcAEtablir, type NaturePieceSecretariat } from "@/lib/ad-pro/pieces-secretariat";
+ import { statutDuDossier } from "@/lib/promo-material/statut";
+-import { porteDesVoyageurs } from "@/lib/ad-pro/voyageurs";
++import { porteDesVoyageurs, refusRetraitReservation } from "@/lib/ad-pro/voyageurs";
+ import { splitMulti } from "@/lib/ad-pro/pickers";
+-import { bcEtablisDesPostes } from "@/lib/ad-pro/bc-etablis";
++import { bcVivantsDesPostes, refusAnnulationBcDuPoste } from "@/lib/ad-pro/bc-etablis";
+ import type { VoyageurVue } from "@/components/ad-pro/voyageurs-bloc";
+ import { piecesDesPostes, demandesBCDesPostes, assistantesDeDirection } from "@/lib/ad-pro/pieces-poste";
+ import { droitsValidation, estDirectionMarketingPoste, type DroitsValidation } from "@/lib/ad-pro/validation-poste";
+@@ -68,7 +68,7 @@ export async function loadAdProItems(parent: AdProParent, parentId: string): Pro
+         })
+       : Promise.resolve([]),
+     sujetsIds.length
+-      ? prisma.dossier.findMany({ where: { id: { in: sujetsIds } }, select: { id: true, reference: true } })
++      ? prisma.dossier.findMany({ where: { id: { in: sujetsIds } }, select: { id: true, reference: true, status: true } })
+       : Promise.resolve([]),
+     billetterie.length ? nomsDeLaDemande(parent, parentId) : Promise.resolve([] as string[]),
+   ]);
+@@ -119,7 +119,7 @@ export async function loadAdProItems(parent: AdProParent, parentId: string): Pro
+     });
+     voyageursDe.set(v.itemId, l);
+   }
+-  const sujetDe = new Map(sujetRows.map((d) => [d.id, { id: d.id, reference: d.reference }]));
++  const sujetDe = new Map(sujetRows.map((d) => [d.id, { id: d.id, reference: d.reference, statut: String(d.status) }]));
+ 
+   const [promoRows, orderRows, demandeRows, docRows, lignesParPoste, bcLegalParPoste] = await Promise.all([
+     promoIds.length
+@@ -146,7 +146,7 @@ export async function loadAdProItems(parent: AdProParent, parentId: string): Pro
+     // LE MATÉRIEL DU STOCK des postes qui en portent (§118.167) — en lot, comme le reste.
+     lignesStockParPoste(itemIds),
+     // LES BC DÉJÀ ÉTABLIS DANS LEGAL (§118.187) : la même lecture que les actions qui les refusent.
+-    bcEtablisDesPostes(itemIds),
++    bcVivantsDesPostes(itemIds),
+   ]);
+   // LA CHAÎNE D'ACHAT DE CHAQUE POSTE (§118.204) — devis, BC, factures — et la demande de BC chez
+   // l'assistante. En lot, comme le reste.
+@@ -195,11 +195,19 @@ export async function loadAdProItems(parent: AdProParent, parentId: string): Pro
+     budgetCategoryLabel: i.budgetCategory ? `${i.budgetCategory.envelope.name} › ${i.budgetCategory.name}` : null,
+     demandes: demandesParPoste.get(i.id) ?? [],
+     travauxBc: travauxBcParPoste.get(i.id) ?? [],
+-    bcEtablis: bcLegalParPoste.get(i.id) ?? [],
++    bcEtablis: [...new Set((bcLegalParPoste.get(i.id) ?? []).map((b) => b.nom))],
++    // CE QUI EMPÊCHE « Annuler la demande de BC » (constat 36) — la règle de l'action, lue ici pour que la
++    // carte n'offre pas un geste que l'action refuserait (§118.83).
++    refusAnnulationBc: refusAnnulationBcDuPoste(bcLegalParPoste.get(i.id) ?? []),
+     documentCount: docsParPoste.get(i.id) ?? 0,
+     lignesStock: lignesParPoste.get(i.id) ?? [],
+     repartitionId: i.repartitionId,
+-    reservation: i.reservationDossierId ? sujetDe.get(i.reservationDossierId) ?? null : null,
++    reservation: (() => {
++      const sujet = i.reservationDossierId ? sujetDe.get(i.reservationDossierId) ?? null : null;
++      // CE QUI EMPÊCHE DE RETIRER LA DEMANDE (constat 37) — la règle de l'action, pour que la carte
++      // n'offre pas un geste qu'elle refuserait (§118.83).
++      return sujet ? { id: sujet.id, reference: sujet.reference, refusRetrait: refusRetraitReservation({ sujet: sujet.statut, orderStage: String(i.orderStage) }) } : null;
++    })(),
+     voyageurs: voyageursDe.get(i.id) ?? [],
+     nomsSuggeres: porteDesVoyageurs(i.kind) ? nomsSuggeres : [],
+     orderStage: i.orderStage,
+diff --git a/src/lib/secretariat/demandeur-flow.test.ts b/src/lib/secretariat/demandeur-flow.test.ts
+index 9e8a5c8..88ea657 100644
+--- a/src/lib/secretariat/demandeur-flow.test.ts
++++ b/src/lib/secretariat/demandeur-flow.test.ts
+@@ -556,7 +556,7 @@ suite("Secrétariat — le demandeur corrige, annule, et sa parole arrive à que
+     expect(e.error).toMatch(/« Modifier la demande de BC »/);
+     const d = await deleteOwnRequest(fd({ id: r.id, motif: "x" }));
+     expect(d.ok).toBe(false);
+-    expect(d.error).toMatch(/« Retirer la demande de BC »/);
++    expect(d.error).toMatch(/« Annuler la demande de BC »/);
+     expect((await prisma.administrativeRequest.findUniqueOrThrow({ where: { id: r.id }, select: { status: true } })).status).toBe("NEW");
+   });
+ });
+diff --git a/src/lib/secretariat/porte-demandeur.test.ts b/src/lib/secretariat/porte-demandeur.test.ts
+index 00a3f14..07c2fc5 100644
+--- a/src/lib/secretariat/porte-demandeur.test.ts
++++ b/src/lib/secretariat/porte-demandeur.test.ts
+@@ -94,6 +94,6 @@ describe("la demande « BC à établir » suit son poste", () => {
+   });
+   it("le refus nomme le geste du poste qui la met à jour ou la ferme", () => {
+     expect(refusDemandeDeBcDuPoste("corriger")).toMatch(/« Modifier la demande de BC »/);
+-    expect(refusDemandeDeBcDuPoste("annuler")).toMatch(/« Retirer la demande de BC »/);
++    expect(refusDemandeDeBcDuPoste("annuler")).toMatch(/« Annuler la demande de BC »/);
+   });
+ });
+diff --git a/src/lib/secretariat/porte-demandeur.ts b/src/lib/secretariat/porte-demandeur.ts
+index acbae05..3e556cf 100644
+--- a/src/lib/secretariat/porte-demandeur.ts
++++ b/src/lib/secretariat/porte-demandeur.ts
+@@ -79,7 +79,7 @@ export function suitLaDemandeDeBcDuPoste(req: { linkedEntityType: EntityType | n
+ export function refusDemandeDeBcDuPoste(geste: "corriger" | "annuler"): string {
+   return geste === "corriger"
+     ? "Cette demande suit la demande de bon de commande d'un poste Ad & Pro : corrigez-la depuis le poste (« Modifier la demande de BC »), elle se mettra à jour avec."
+-    : "Cette demande suit la demande de bon de commande d'un poste Ad & Pro : retirez-la depuis le poste (« Retirer la demande de BC »), elle se fermera avec.";
++    : "Cette demande suit la demande de bon de commande d'un poste Ad & Pro : retirez-la depuis le poste (« Annuler la demande de BC »), elle se fermera avec.";
+ }
+ 
+ /** Ce qui interdit de MODIFIER (l'annulation, elle, reste ouverte : c'est un geste qui réduit). */
+diff --git a/src/lib/suppression/lot.ts b/src/lib/suppression/lot.ts
+index 6f56616..33153d7 100644
+--- a/src/lib/suppression/lot.ts
++++ b/src/lib/suppression/lot.ts
+@@ -154,6 +154,15 @@ export interface Inventaire {
+    * pas, c'est le lot qui le vide, dans la même transaction.
+    */
+   liensExternes: { modele: string; cle: Record<string, unknown>; champ: string; valeur: string; doux?: boolean }[];
++  /**
++   * LES LIENS DE LA TÊTE VERS UNE DE SES BRANCHES (constat 20 de l'audit du 04/10). Un poste désigne la
++   * demande au secrétariat qui travaille pour lui (`adminRequestId`), et cette demande part AVEC lui (le
++   * couple `linkedEntityType` l'emporte) : la tête dépend d'une de ses branches. Recréée la première, elle
++   * violerait sa clé étrangère. Quand la colonne est FACULTATIVE, le lien se DIFFÈRE : la tête renaît sans
++   * lui, les branches renaissent, puis le lien est rétabli — dans la même transaction. Une colonne
++   * OBLIGATOIRE ne se diffère pas, et le lot reste refusé en le disant.
++   */
++  liensTete: { champ: string; valeur: string }[];
+   /** Ce qui interdit la suppression — vide : rien. */
+   bloquants: string[];
+   /** « 2 postes », « 1 déclaration d'information médicale »… — hors la tête. */
+@@ -228,7 +237,7 @@ export async function inventorier(modeleTete: string, idTete: string): Promise<I
+   const bloquants: string[] = [];
+   if (vus.size > MAX_LIGNES) {
+     bloquants.push(`plus de ${MAX_LIGNES} éléments liés : une suppression de cette taille ne se fait pas d'un seul geste`);
+-    return { lignes: ordre, documents: [], commentaires: [], liensExternes: [], bloquants, resume: [] };
++    return { lignes: ordre, documents: [], commentaires: [], liensExternes: [], liensTete: [], bloquants, resume: [] };
+   }
+ 
+   // ─── LES FAITS QUI ONT QUITTÉ L'ERP ─────────────────────────────────────────────────────
+@@ -298,7 +307,19 @@ export async function inventorier(modeleTete: string, idTete: string): Promise<I
+     }
+   }
+ 
+-  const lignes = trierParentsDabord(ordre);
++  // Les liens de la TÊTE vers une branche, sur une colonne FACULTATIVE : différés (voir `liensTete`).
++  const teteLigne = ordre[0]!;
++  const dansLeLot = new Set(ordre.map((l) => cle(l.modele, l.id)));
++  const liensTete: Inventaire["liensTete"] = [];
++  for (const r of RELATIONS) {
++    if (r.enfant !== teteLigne.modele) continue;
++    const v = teteLigne.donnees[r.champ];
++    if (typeof v !== "string" || !dansLeLot.has(cle(r.parent, v)) || cle(r.parent, v) === cle(teteLigne.modele, teteLigne.id)) continue;
++    const scalaire = PAR_NOM.get(teteLigne.modele)?.fields.find((f) => f.name === r.champ);
++    if (scalaire && !scalaire.isRequired) liensTete.push({ champ: r.champ, valeur: v });
++  }
++  const differes = new Set(liensTete.map((l) => l.champ));
++  const lignes = trierParentsDabord(ordre, differes);
+   if (!lignes) bloquants.push("des éléments liés se désignent en boucle — le lot ne saurait pas dans quel ordre les recréer");
+   // La tête se recrée la PREMIÈRE (elle vit dans `payload`, hors du lot) : si elle dépendait
+   // d'une de ses branches, cet ordre ne tiendrait pas — on le dit au lieu de le découvrir à la
+@@ -310,20 +331,22 @@ export async function inventorier(modeleTete: string, idTete: string): Promise<I
+   const resume = [...compte].sort((a, b) => b[1] - a[1]).map(([m, n]) => libelleDe(m, n));
+   if (documents.length) resume.push(`${documents.length} pièce${documents.length > 1 ? "s" : ""} jointe${documents.length > 1 ? "s" : ""}`);
+ 
+-  return { lignes: lignes ?? ordre, documents, commentaires, liensExternes, bloquants: [...new Set(bloquants)], resume };
++  return { lignes: lignes ?? ordre, documents, commentaires, liensExternes, liensTete, bloquants: [...new Set(bloquants)], resume };
+ }
+ 
+ /**
+  * L'ORDRE DE RECRÉATION : un parent avant ses enfants, pour toute clé étrangère ENTRE lignes du
+  * lot. Rend `null` sur une boucle — on ne devine pas un ordre qu'on ne sait pas tenir.
+  */
+-function trierParentsDabord(lignes: Ligne[]): Ligne[] | null {
++function trierParentsDabord(lignes: Ligne[], differesTete: ReadonlySet<string> = new Set()): Ligne[] | null {
+   const index = new Map(lignes.map((l) => [cle(l.modele, l.id), l]));
+   const parents = new Map<string, Set<string>>();
+-  for (const l of lignes) {
++  for (const [i, l] of lignes.entries()) {
+     const ps = new Set<string>();
+     for (const r of RELATIONS) {
+       if (r.enfant !== l.modele) continue;
++      // Un lien DIFFÉRÉ de la tête n'impose aucun ordre : il se rétablit après les branches.
++      if (i === 0 && differesTete.has(r.champ)) continue;
+       const v = l.donnees[r.champ];
+       if (typeof v !== "string") continue;
+       const k = cle(r.parent, v);
+@@ -355,6 +378,8 @@ export interface InstantaneLot {
+   /** Branches, parents d'abord — la tête n'y est PAS (elle vit dans `payload`, comme avant). */
+   lignes: { modele: string; donnees: Record<string, unknown> }[];
+   liensExternes: Inventaire["liensExternes"];
++  /** Les liens de la tête vers une branche, rétablis APRÈS les branches (absent d'un lot ancien : aucun). */
++  liensTete?: Inventaire["liensTete"];
+   resume: string[];
+ }
+ 
+@@ -372,6 +397,7 @@ export async function supprimerLot(
+     version: 1,
+     lignes: inv.lignes.filter((l) => l !== tete).map((l) => ({ modele: l.modele, donnees: versJson(l.modele, l.donnees) })),
+     liensExternes: inv.liensExternes,
++    liensTete: inv.liensTete,
+     resume: inv.resume,
+   };
+   const enfantsDabord = [...inv.lignes].reverse();
+@@ -404,9 +430,17 @@ export async function restaurerLot(
+   documents: Record<string, unknown>[],
+   commentaires: Record<string, unknown>[],
+ ): Promise<void> {
++  const differes = lot.liensTete ?? [];
++  const donneesTete = depuisJson(modeleTete, tete);
++  for (const l of differes) donneesTete[l.champ] = null;
+   await prisma.$transaction(async (tx) => {
+-    await d(tx, modeleTete).create({ data: depuisJson(modeleTete, tete) });
++    await d(tx, modeleTete).create({ data: donneesTete });
+     for (const l of lot.lignes) await d(tx, l.modele).create({ data: depuisJson(l.modele, l.donnees) });
++    // Les liens de la tête vers ses branches, maintenant qu'elles existent.
++    const idTete = String(tete.id ?? "");
++    for (const l of differes) {
++      await d(tx, modeleTete).updateMany({ where: { ...ouIdentite(modeleTete, { id: idTete }), [l.champ]: null }, data: { [l.champ]: l.valeur } });
++    }
+     // Les pièces AVANT les liens extérieurs : un lien peut viser une pièce (la pièce d'un courrier).
+     if (documents.length) await tx.document.createMany({ data: documents as never[], skipDuplicates: true });
+     if (commentaires.length) await tx.comment.createMany({ data: commentaires as never[], skipDuplicates: true });
+diff --git a/src/lib/workflow/renvoi-flow.test.ts b/src/lib/workflow/renvoi-flow.test.ts
+index 73479ee..19e848f 100644
+--- a/src/lib/workflow/renvoi-flow.test.ts
++++ b/src/lib/workflow/renvoi-flow.test.ts
+@@ -365,6 +365,11 @@ suite("Renvoyer pour correction, resoumettre, retirer, faire appel, relancer —
+     const intrus = await retirerDemandeAdPro(fd({ entityType: "EVENT", entityId: ev.id, motif: "pas à moi" }));
+     expect(intrus.ok).toBe(false);
+     expect(intrus.ok ? "" : intrus.error).toMatch(/Seuls le demandeur et qui tranche ce module retirent une demande/);
++    // UN SEUL CHEMIN (audit du 04/10, constat 23) : l'annulation d'un congrès / événement DÉLÈGUE au retrait
++    // commun — le même refus, mot pour mot. Elle avait sa propre règle (« Non autorisé. »), et pas la porte
++    // de la fiche.
++    const parLAutrePorte = await cancelCongressRequest(fd({ type: "EVENT", id: ev.id, motif: "pas à moi" }));
++    expect(parLAutrePorte.ok ? "" : parLAutrePorte.error).toMatch(/Seuls le demandeur et qui tranche ce module retirent une demande/);
+     expect((await instanceDe("EVENT", ev.id)).status, "rien n'est fermé sur un refus").toBe("IN_PROGRESS");
+     await comme("kam");
+     expect((await retirerDemandeAdPro(fd({ entityType: "EVENT", entityId: ev.id, motif: "Reporté" }))).ok, "son demandeur, lui, la retire").toBe(true);

@@ -1,0 +1,2252 @@
+diff --git a/src/app/(app)/admin/connaissance/page.tsx b/src/app/(app)/admin/connaissance/page.tsx
+index ba6bc39..dff7f25 100644
+--- a/src/app/(app)/admin/connaissance/page.tsx
++++ b/src/app/(app)/admin/connaissance/page.tsx
+@@ -1,3 +1,4 @@
++import Link from "next/link";
+ import { redirect } from "next/navigation";
+ import { requireModule } from "@/lib/session";
+ import { userCan } from "@/lib/rbac";
+@@ -9,7 +10,8 @@ import { cn } from "@/lib/utils";
+ import { knowledgeHealth } from "@/lib/knowledge/worker";
+ import { availableWorkflows } from "@/lib/scheduler/registry";
+ import { registerBuiltinWorkflows } from "@/lib/scheduler/handlers";
+-import { EXTRACTION_RANK, INGEST_STAGES, type ExtractedBy, type IngestStage } from "@/lib/knowledge/contract";
++import { EXTRACTION_RANK, INGEST_STAGES, MOYENS_MODELE, type ExtractedBy, type IngestStage } from "@/lib/knowledge/contract";
++import { RelancerBouton } from "./relancer-bouton";
+ 
+ export const metadata = { title: "Couche de connaissance — AMD Internal OS" };
+ export const dynamic = "force-dynamic";
+@@ -41,7 +43,20 @@ const STAGE_LABEL: Record<IngestStage, string> = {
+   INDEXED: "Recherchable",
+   READY: "Recherchable et relié",
+   ENRICHED: "Enrichi",
+-  FAILED: "En échec",
++  EMPTY: "Sans texte lisible",
++  FAILED: "En échec (ancienne règle — réparé au fil des passages)",
++};
++
++/**
++ * Pourquoi une étape reste à zéro, dit à côté d'elle. Un « 0 » sans raison se lit comme une panne ;
++ * ces étapes-là sont des PASSAGES (l'élément les franchit en quelques secondes) ou n'ont pas de
++ * déclencheur — et c'est ce qu'il faut savoir avant de chercher un défaut.
++ */
++const STAGE_NOTE: Partial<Record<IngestStage, string>> = {
++  RECEIVED: "reçu sans texte, en attente de lecture",
++  PARSED: "étape de passage — l'ingestion écrit directement « Recherchable »",
++  CLASSIFIED: "étape de passage — la mise en relation suit dans le même passage",
++  INDEXED: "étape de passage — la mise en relation suit en quelques secondes",
+ };
+ 
+ const MEAN_LABEL: Record<ExtractedBy, string> = {
+@@ -49,12 +64,29 @@ const MEAN_LABEL: Record<ExtractedBy, string> = {
+   native: "Parsing natif (gratuit)",
+   ocr: "OCR (gratuit)",
+   luna: "Luna — vision",
++  hybrid: "Hybride — parsing natif complété par Luna (vision)",
+   terra: "Terra — escalade",
+ };
+ 
++const KIND_LABEL: Record<string, string> = {
++  parse: "Extraction",
++  classify: "Classement",
++  entities: "Mise en relation",
++  embed: "Vectorisation",
++  vision: "Lecture visuelle",
++  enrich: "Résumé",
++};
++
+ /** Le code est en vert, le modèle en ambre. La couleur DIT la doctrine, elle ne décore pas. */
+ const meanTone = (m: string): string =>
+-  m === "luna" || m === "terra" ? "text-amber-600" : "text-emerald-600";
++  MOYENS_MODELE.has(m as ExtractedBy) ? "text-amber-600" : "text-emerald-600";
++
++const PGVECTOR_PHRASE: Record<string, string> = {
++  absente: "l'extension pgvector est absente de ce serveur de base (constaté à l'instant)",
++  disponible: "l'extension pgvector est disponible sur ce serveur mais pas installée (constaté à l'instant)",
++  installee: "l'extension pgvector est installée, mais cette couche ne s'en sert pas encore",
++  inconnu: "la présence de pgvector n'a pas pu être lue",
++};
+ 
+ export default async function KnowledgePage() {
+   const admin = await requireModule("ADMIN", "UPDATE");
+@@ -63,15 +95,17 @@ export default async function KnowledgePage() {
+   registerBuiltinWorkflows();
+   const [h, workflows] = await Promise.all([knowledgeHealth(), Promise.resolve(availableWorkflows())]);
+ 
+-  const stages = INGEST_STAGES.map((s) => ({ stage: s, label: STAGE_LABEL[s], count: h.byStage[s] ?? 0 }));
++  const stages = INGEST_STAGES
++    .map((s) => ({ stage: s, label: STAGE_LABEL[s], count: h.byStage[s] ?? 0 }))
++    // L'étape de l'ancienne règle ne s'affiche que tant qu'il en reste.
++    .filter((s) => s.stage !== "FAILED" || s.count > 0);
+   const means = Object.entries(h.byExtraction)
+     .map(([k, v]) => ({ key: k, label: MEAN_LABEL[k as ExtractedBy] ?? k, count: v }))
+     .sort((a, b) => (EXTRACTION_RANK[a.key as ExtractedBy] ?? 9) - (EXTRACTION_RANK[b.key as ExtractedBy] ?? 9));
+   const meansTotal = means.reduce((n, m) => n + m.count, 0);
+-  const byCode = means.filter((m) => m.key !== "luna" && m.key !== "terra").reduce((n, m) => n + m.count, 0);
++  const byCode = means.filter((m) => !MOYENS_MODELE.has(m.key as ExtractedBy)).reduce((n, m) => n + m.count, 0);
+   const codeShare = meansTotal ? Math.round((byCode / meansTotal) * 100) : null;
+ 
+-  const retrievable = (h.byStage.INDEXED ?? 0) + (h.byStage.READY ?? 0) + (h.byStage.ENRICHED ?? 0);
+   const embeddedShare = h.chunks.total ? Math.round((h.chunks.embedded / h.chunks.total) * 100) : null;
+ 
+   return (
+@@ -83,7 +117,7 @@ export default async function KnowledgePage() {
+         <Stat
+           title="Documents indexés"
+           value={String(h.total)}
+-          hint={`${retrievable} retrouvables aujourd'hui`}
++          hint={`${h.retrouvables} retrouvables aujourd'hui sur ${h.courants} versions courantes`}
+         />
+         <Stat
+           title="Compris par le code"
+@@ -97,20 +131,75 @@ export default async function KnowledgePage() {
+           hint={
+             // `null` = file vide. Le distinguer de « 0 minute » évite d'afficher « attend depuis
+             // 0 min » sur une file qui n'a rien à traiter, ce qui se lit comme une anomalie.
+-            h.queue.oldestQueuedMin != null && h.queue.oldestQueuedMin > 0
+-              ? `Le plus ancien attend ${h.queue.oldestQueuedMin} min`
+-              : "Rien en attente"
++            h.queue.queuedModele > 0 && !h.modele.ok
++              ? `${h.queue.queuedModele} attendent un modèle : ${h.modele.raison}`
++              : h.queue.oldestQueuedMin != null && h.queue.oldestQueuedMin > 0
++                ? `Le plus ancien attend ${h.queue.oldestQueuedMin} min`
++                : "Rien en attente"
+           }
+-          tone={h.queue.queued > 500 ? "warning" : "ok"}
++          tone={h.queue.queued > 500 || (h.queue.queuedModele > 0 && !h.modele.ok) ? "warning" : "ok"}
+         />
+         <Stat
+           title="Boîte morte"
+           value={String(h.queue.dead)}
+-          hint={h.queue.dead ? "Travaux abandonnés après plusieurs essais" : "Aucun travail abandonné"}
++          hint={h.queue.dead ? "Travaux abandonnés après plusieurs essais — regroupés par cause ci-dessous" : "Aucun travail abandonné"}
+           tone={h.queue.dead > 0 ? "danger" : "ok"}
+         />
+       </div>
+ 
++      {/* ── LA BOÎTE MORTE, PAR CAUSE — un nombre sans cause ne se répare pas ─────────────── */}
++      {h.boiteMorte.total > 0 ? (
++        <Card>
++          <CardHeader className="pb-2">
++            <div className="flex flex-wrap items-start justify-between gap-3">
++              <div className="min-w-0">
++                <CardTitle className="text-base">Boîte morte — par cause</CardTitle>
++                <CardDescription>
++                  Chaque ligne est UNE cause : l&apos;étape, le motif (sans ce qui varie d&apos;un
++                  document à l&apos;autre) et le type de fichier. « Panne temporaire » veut dire que
++                  le document n&apos;y est pour rien — relancer suffit, maintenant que ces pannes
++                  attendent au lieu d&apos;échouer. Relancer remet les essais à zéro ; ce qui
++                  échoue de nouveau revient ici avec son motif.
++                  {h.boiteMorte.tronque
++                    ? ` Seuls les ${h.boiteMorte.groupes.reduce((n, g) => n + g.count, 0)} plus récents sur ${h.boiteMorte.total} sont regroupés ici.`
++                    : ""}
++                </CardDescription>
++              </div>
++              <RelancerBouton libelle="Tout relancer" nombre={h.boiteMorte.total} />
++            </div>
++          </CardHeader>
++          <CardContent className="space-y-3">
++            {h.boiteMorte.groupes.map((g) => (
++              <div key={g.cle} className="flex flex-col gap-2 border-t pt-3 text-sm first:border-t-0 first:pt-0 sm:flex-row sm:items-start sm:justify-between">
++                <div className="min-w-0 space-y-1">
++                  <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
++                    <span className="font-medium tabular-nums">{g.count}</span>
++                    <span>{KIND_LABEL[g.kind] ?? g.kind}</span>
++                    <Badge tone="neutral" dot={false}>{g.extension === "—" ? "type inconnu" : `.${g.extension}`}</Badge>
++                    {g.temporaire ? <Badge tone="warning" dot={false}>panne temporaire</Badge> : null}
++                  </div>
++                  <p className="break-words text-xs text-muted-foreground">{g.cause}</p>
++                  {g.exemples.length ? (
++                    <p className="flex flex-wrap gap-x-3 gap-y-0.5 text-xs">
++                      {g.exemples.map((e, i) =>
++                        e.href ? (
++                          <Link key={i} href={e.href} className="truncate text-primary underline-offset-2 hover:underline">{e.label}</Link>
++                        ) : (
++                          <span key={i} className="truncate text-muted-foreground">{e.label}</span>
++                        ),
++                      )}
++                    </p>
++                  ) : null}
++                </div>
++                <div className="shrink-0">
++                  <RelancerBouton cle={g.cle} libelle="Relancer" nombre={g.count} />
++                </div>
++              </div>
++            ))}
++          </CardContent>
++        </Card>
++      ) : null}
++
+       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+         {/* ── LA RÉPARTITION PAR MOYEN — le tableau de bord de la doctrine ─────────────── */}
+         <Card>
+@@ -135,6 +224,12 @@ export default async function KnowledgePage() {
+                 </div>
+               ))
+             )}
++            {h.lunaNonLus > 0 ? (
++              <p className="text-xs text-muted-foreground">
++                Dont {h.lunaNonLus} routés vers Luna et pas encore lus : la décision est prise, la
++                lecture visuelle attend son tour{h.modele.ok ? " (rattrapée par petits lots à chaque passage)" : ` — ${h.modele.raison}`}.
++              </p>
++            ) : null}
+           </CardContent>
+         </Card>
+ 
+@@ -149,9 +244,19 @@ export default async function KnowledgePage() {
+           </CardHeader>
+           <CardContent className="space-y-2">
+             {stages.map((s) => (
+-              <div key={s.stage} className="flex items-center justify-between gap-3 text-sm">
+-                <span className={cn("truncate", s.stage === "FAILED" && s.count > 0 && "text-destructive")}>
+-                  {s.label}
++              <div key={s.stage} className="flex items-start justify-between gap-3 text-sm">
++                <span className="min-w-0">
++                  <span className={cn(s.stage === "FAILED" && s.count > 0 && "text-destructive")}>{s.label}</span>
++                  {s.count === 0 && STAGE_NOTE[s.stage] ? (
++                    <span className="block text-xs text-muted-foreground">{STAGE_NOTE[s.stage]}</span>
++                  ) : null}
++                  {s.stage === "ENRICHED" && s.count === 0 ? (
++                    <span className="block text-xs text-muted-foreground">
++                      {h.enrichDemandes === 0
++                        ? "aucune source ne demande encore de résumé : l'étage existe, son déclenchement est une décision de coût"
++                        : "les résumés demandés n'ont pas encore abouti"}
++                    </span>
++                  ) : null}
+                 </span>
+                 <span className="shrink-0 tabular-nums text-muted-foreground">{s.count}</span>
+               </div>
+@@ -180,9 +285,8 @@ export default async function KnowledgePage() {
+           <CardHeader className="pb-2">
+             <CardTitle className="text-base">Recherche par le sens</CardTitle>
+             <CardDescription>
+-              Vecteurs en JSONB et cosinus en mémoire : l&apos;extension pgvector n&apos;est pas
+-              disponible sur cette infrastructure. Sans clé OpenAI, la recherche reste lexicale —
+-              dégradée, jamais cassée.
++              Vecteurs en JSONB et cosinus en mémoire : {PGVECTOR_PHRASE[h.pgvector]}. Sans modèle
++              disponible, la recherche reste lexicale — dégradée, jamais cassée.
+             </CardDescription>
+           </CardHeader>
+           <CardContent className="space-y-2 text-sm">
+@@ -192,6 +296,16 @@ export default async function KnowledgePage() {
+               value={h.chunks.embedded}
+               suffix={embeddedShare == null ? undefined : `${embeddedShare} %`}
+             />
++            <Line
++              label="Restant à vectoriser (versions courantes)"
++              value={h.chunks.restants}
++              suffix={h.chunks.restants ? `≈ ${h.chunks.coutEstimeUsd.toLocaleString("fr-FR", { minimumFractionDigits: 2 })} $ estimés` : undefined}
++            />
++            <p className="text-xs text-muted-foreground">
++              {h.modele.ok
++                ? "Le rattrapage avance à chaque passage du battement, par petits lots (chaque travail encode au plus 32 morceaux) ; le traitement planifiable « Rattrapage d'indexation » en passe davantage."
++                : `Rattrapage suspendu : ${h.modele.raison} Les travaux attendent en file, sans consommer d'essai.`}
++            </p>
+           </CardContent>
+         </Card>
+       </div>
+diff --git a/src/app/(app)/admin/connaissance/relancer-bouton.tsx b/src/app/(app)/admin/connaissance/relancer-bouton.tsx
+new file mode 100644
+index 0000000..e39cf79
+--- /dev/null
++++ b/src/app/(app)/admin/connaissance/relancer-bouton.tsx
+@@ -0,0 +1,51 @@
++"use client";
++
++import * as React from "react";
++import { RotateCcw } from "lucide-react";
++import { Button } from "@/components/ui/button";
++import { useRafraichir } from "@/components/shared/use-rafraichir";
++import { relancerBoiteMorte } from "@/lib/actions/knowledge-actions";
++
++/**
++ * « RELANCER » — un groupe de la boîte morte (sa clé), ou toute la boîte (`cle` absente).
++ *
++ * L'écran ne transmet que la CLÉ du groupe : l'action recalcule les travaux depuis la base, et
++ * n'agit que sur ceux qui sont encore morts. Le résultat se DIT ici (combien, et ce qu'il reste) —
++ * un bouton qui ne répond rien laisse croire que rien ne s'est passé, et invite au second clic.
++ */
++export function RelancerBouton({ cle, libelle, nombre }: { cle?: string; libelle: string; nombre: number }) {
++  const { enCours, rafraichir } = useRafraichir();
++  const [pending, start] = React.useTransition();
++  const [retour, setRetour] = React.useState<{ ok: boolean; texte: string } | null>(null);
++
++  const relancer = () => {
++    setRetour(null);
++    start(async () => {
++      const fd = new FormData();
++      if (cle) fd.set("cle", cle);
++      const r = await relancerBoiteMorte(fd);
++      setRetour({ ok: r.ok, texte: r.ok ? (r.message ?? "Relancé.") : (r.error ?? "Relance impossible.") });
++      if (r.ok) rafraichir();
++    });
++  };
++
++  return (
++    <div className="flex flex-col items-start gap-1">
++      <Button
++        type="button"
++        size="sm"
++        variant="outline"
++        onClick={relancer}
++        disabled={pending || enCours || nombre === 0}
++        aria-label={cle ? `${libelle} — ${nombre} travaux` : libelle}
++      >
++        <RotateCcw className="h-3.5 w-3.5" /> {libelle}
++      </Button>
++      {retour ? (
++        <p role="status" className={retour.ok ? "text-xs text-emerald-700" : "text-xs text-destructive"}>
++          {retour.texte}
++        </p>
++      ) : null}
++    </div>
++  );
++}
+diff --git a/src/lib/actions/aiguillage.genere.ts b/src/lib/actions/aiguillage.genere.ts
+index dd48f0c..aa8c662 100644
+--- a/src/lib/actions/aiguillage.genere.ts
++++ b/src/lib/actions/aiguillage.genere.ts
+@@ -1,7 +1,7 @@
+ // ⚠️  FICHIER GÉNÉRÉ — ne pas éditer à la main. Voir `npm run actions:contrat`.
+ //
+ // Chaque entrée est un spécificateur LITTÉRAL : l'empaqueteur les voit tous, et rien n'est
+-// chargé avant l'appel. `executer.test.ts` résout les 890 actions et échoue en
++// chargé avant l'appel. `executer.test.ts` résout les 891 actions et échoue en
+ // nommant celle qui a disparu — c'est le contrôle d'appelant que le compilateur ne fait pas ici.
+ 
+ export const MODULES_ACTIONS: Readonly<Record<string, () => Promise<Record<string, unknown>>>> = {
+@@ -71,6 +71,7 @@ export const MODULES_ACTIONS: Readonly<Record<string, () => Promise<Record<strin
+   "hr-document-actions": () => import("./hr-document-actions") as unknown as Promise<Record<string, unknown>>,
+   "impersonation-actions": () => import("./impersonation-actions") as unknown as Promise<Record<string, unknown>>,
+   "invoice-actions": () => import("./invoice-actions") as unknown as Promise<Record<string, unknown>>,
++  "knowledge-actions": () => import("./knowledge-actions") as unknown as Promise<Record<string, unknown>>,
+   "legal-actions": () => import("./legal-actions") as unknown as Promise<Record<string, unknown>>,
+   "legal-folder-actions": () => import("./legal-folder-actions") as unknown as Promise<Record<string, unknown>>,
+   "letterhead-actions": () => import("./letterhead-actions") as unknown as Promise<Record<string, unknown>>,
+diff --git a/src/lib/actions/contrat.genere.json b/src/lib/actions/contrat.genere.json
+index 4805c49..626d948 100644
+--- a/src/lib/actions/contrat.genere.json
++++ b/src/lib/actions/contrat.genere.json
+@@ -365,6 +365,7 @@
+   {"id":"invoice-actions:setInvoiceOrder","fichier":"invoice-actions","fonction":"setInvoiceOrder","avantFormulaire":0,"porte":{"module":null,"verbe":null,"entite":null,"moduleFr":"Legal","gardes":["peutEcrire"]},"ecrit":true,"modelesEcrits":["auditLog","legalDocument"],"audit":true,"appel":"formulaire","champs":[{"nom":"id","type":"reference","obligatoire":false,"valeurs":null,"modele":"LegalDocument"},{"nom":"pchOrderId","type":"reference","obligatoire":false,"valeurs":null,"modele":null}],"illisible":null},
+   {"id":"invoice-actions:setInvoicePaid","fichier":"invoice-actions","fonction":"setInvoicePaid","avantFormulaire":0,"porte":{"module":null,"verbe":null,"entite":null,"moduleFr":"Legal","gardes":["canMarkPaidDirectly","peutEcrire"]},"ecrit":true,"modelesEcrits":["auditLog","financeTransaction","legalDocument"],"audit":true,"appel":"objet","illisible":null,"champs":[{"nom":"id","type":"reference","obligatoire":true,"valeurs":null,"modele":"LegalDocument"},{"nom":"paidDate","type":"texte","obligatoire":true,"valeurs":null,"modele":null}]},
+   {"id":"invoice-actions:updateInvoice","fichier":"invoice-actions","fonction":"updateInvoice","avantFormulaire":0,"porte":{"module":null,"verbe":null,"entite":null,"moduleFr":"Legal","gardes":["canMarkPaidDirectly","peutEcrire"]},"ecrit":true,"modelesEcrits":["auditLog","financeTransaction","legalDocument"],"audit":true,"appel":"formulaire","champs":[{"nom":"amount","type":"texte","obligatoire":false,"valeurs":null,"modele":null},{"nom":"counterparty","type":"texte","obligatoire":false,"valeurs":null,"modele":null},{"nom":"direction","type":"texte","obligatoire":false,"valeurs":null,"modele":null},{"nom":"dueDate","type":"date","obligatoire":false,"valeurs":null,"modele":null},{"nom":"id","type":"reference","obligatoire":false,"valeurs":null,"modele":"LegalDocument"},{"nom":"issueDate","type":"date","obligatoire":false,"valeurs":null,"modele":null},{"nom":"notes","type":"texte","obligatoire":false,"valeurs":null,"modele":null},{"nom":"number","type":"texte","obligatoire":false,"valeurs":null,"modele":null},{"nom":"paidDate","type":"date","obligatoire":false,"valeurs":null,"modele":null},{"nom":"payer","type":"texte","obligatoire":false,"valeurs":null,"modele":null},{"nom":"recipient","type":"texte","obligatoire":false,"valeurs":null,"modele":null},{"nom":"reference","type":"texte","obligatoire":false,"valeurs":null,"modele":null},{"nom":"title","type":"texte","obligatoire":false,"valeurs":null,"modele":null}],"illisible":null},
++  {"id":"knowledge-actions:relancerBoiteMorte","fichier":"knowledge-actions","fonction":"relancerBoiteMorte","avantFormulaire":0,"porte":{"module":null,"verbe":null,"entite":null,"moduleFr":"Administration","gardes":[]},"ecrit":true,"modelesEcrits":["auditLog"],"audit":true,"appel":"formulaire","champs":[{"nom":"cle","type":"texte","obligatoire":false,"valeurs":null,"modele":null}],"illisible":null},
+   {"id":"legal-actions:adresserBCAuCentre","fichier":"legal-actions","fonction":"adresserBCAuCentre","avantFormulaire":0,"porte":{"module":null,"verbe":null,"entite":null,"moduleFr":null,"gardes":["peutEcrire"]},"ecrit":true,"modelesEcrits":["adProGateVisa","legalDocument","validationRequest"],"audit":true,"appel":"formulaire","champs":[{"nom":"id","type":"reference","obligatoire":true,"valeurs":null,"modele":null}],"illisible":null},
+   {"id":"legal-actions:attachDriveNodeToLegal","fichier":"legal-actions","fonction":"attachDriveNodeToLegal","avantFormulaire":0,"porte":{"module":"LEGAL","verbe":"CREATE","entite":null,"moduleFr":"Legal","gardes":["userCan"]},"ecrit":true,"modelesEcrits":["adProGateVisa","auditLog","legalDocument","validationRequest"],"audit":true,"appel":"objet","illisible":null,"champs":[{"nom":"driveNodeId","type":"reference","obligatoire":true,"valeurs":null,"modele":"DriveNode"},{"nom":"title","type":"texte","obligatoire":false,"valeurs":null,"modele":null},{"nom":"kind","type":"texte","obligatoire":false,"valeurs":null,"modele":null},{"nom":"counterpartyIds","type":"liste","obligatoire":false,"valeurs":null,"modele":null},{"nom":"counterpartyName","type":"texte","obligatoire":false,"valeurs":null,"modele":null},{"nom":"startDate","type":"texte","obligatoire":false,"valeurs":null,"modele":null},{"nom":"endDate","type":"texte","obligatoire":false,"valeurs":null,"modele":null},{"nom":"reference","type":"texte","obligatoire":false,"valeurs":null,"modele":null},{"nom":"notes","type":"texte","obligatoire":false,"valeurs":null,"modele":null}]},
+   {"id":"legal-actions:cancelLegalDocument","fichier":"legal-actions","fonction":"cancelLegalDocument","avantFormulaire":0,"porte":{"module":null,"verbe":null,"entite":"LEGAL_DOCUMENT","moduleFr":"Legal","gardes":["canAccessEntity","canCancel"]},"ecrit":true,"modelesEcrits":["adProGateVisa","auditLog","expenseOrder","legalDocument","validationRequest"],"audit":true,"appel":"formulaire","champs":[{"nom":"id","type":"reference","obligatoire":true,"valeurs":null,"modele":"LegalDocument"},{"nom":"reason","type":"texte","obligatoire":true,"valeurs":null,"modele":null}],"illisible":null},
+diff --git a/src/lib/actions/knowledge-actions.ts b/src/lib/actions/knowledge-actions.ts
+new file mode 100644
+index 0000000..78b35f4
+--- /dev/null
++++ b/src/lib/actions/knowledge-actions.ts
+@@ -0,0 +1,48 @@
++"use server";
++
++import { revalidatePath } from "next/cache";
++import { requireUser } from "@/lib/session";
++import { recordAudit } from "@/lib/audit";
++import { relancerTravauxMorts, RELANCE_MAX } from "@/lib/knowledge/rattrapage";
++import type { ActionResult } from "@/lib/actions/types";
++
++/**
++ * RELANCER DEPUIS LA BOÎTE MORTE (Administration › Couche de connaissance) — Super Admin.
++ *
++ * `cle` désigne UN groupe (étape, cause, type de fichier) tel que l'écran le montre ; vide, la
++ * relance porte sur toute la boîte, bornée à `RELANCE_MAX` par clic (un second clic reprend la
++ * suite). Les identifiants ne viennent jamais du formulaire : ils sont recalculés depuis la base
++ * (`relancerTravauxMorts`), et l'écriture est conditionnelle à `DEAD` — rejouer le clic ne relance
++ * rien deux fois.
++ */
++export async function relancerBoiteMorte(formData: FormData): Promise<ActionResult & { relances?: number }> {
++  const user = await requireUser();
++  if (user.role !== "SUPER_ADMIN") return { ok: false, error: "Réservé au Super Admin." };
++  const cleBrute = formData.get("cle");
++  const cle = typeof cleBrute === "string" && cleBrute.trim() ? cleBrute.trim() : null;
++
++  const r = await relancerTravauxMorts({ cle });
++  if (r.relances === 0) {
++    return {
++      ok: false,
++      error: cle
++        ? "Rien à relancer : ce groupe n'est plus dans la boîte morte (déjà relancé, ou rechargez l'écran)."
++        : "Rien à relancer : la boîte morte est vide.",
++    };
++  }
++  await recordAudit({
++    actorId: user.id,
++    action: "UPDATE",
++    module: "Administration",
++    summary: `Couche de connaissance : ${r.relances} travaux relancés depuis la boîte morte${cle ? ` (groupe « ${cle} »)` : ""} ; ${r.etapesReparees} étapes réparées.`,
++  });
++  revalidatePath("/admin/connaissance");
++  const suite = r.borne
++    ? ` La relance est bornée à ${RELANCE_MAX} travaux par clic : relancez encore pour la suite.`
++    : "";
++  return {
++    ok: true,
++    relances: r.relances,
++    message: `${r.relances} travaux remis en file, essais remis à zéro.${suite} Il en reste ${r.restants} en boîte morte.`,
++  };
++}
+diff --git a/src/lib/assistant/action-registry.ts b/src/lib/assistant/action-registry.ts
+index 234d97f..9c28389 100644
+--- a/src/lib/assistant/action-registry.ts
++++ b/src/lib/assistant/action-registry.ts
+@@ -1575,6 +1575,13 @@ X("L'ENTRETIEN DE L'INTÉGRATION AU SITE (§118.158) — relancer un envoi, vér
+   "site-web-actions:rapprocherSiteMaintenant",
+   "site-web-actions:leverBlocageSite",
+ ]);
++X("RELANCER LA BOÎTE MORTE DE LA COUCHE DE CONNAISSANCE remet en file des travaux qui APPELLENT DES MODÈLES "
++  + "facturés (vecteurs, lectures visuelles) et que la file avait abandonnés : c'est une décision d'exploitation, prise "
++  + "devant l'écran qui montre chaque cause, ses exemples et son caractère temporaire ou non. Offerte à Adam, une "
++  + "relance « de tout » pourrait partir sans que personne ait lu pourquoi ces travaux étaient morts. Adam est par "
++  + "ailleurs en pause. Un clic du Super Admin sur /admin/connaissance.", [
++  "knowledge-actions:relancerBoiteMorte",
++]);
+ X("LA CLÉ DE LIAISON AU SITE PUBLIC (§118.159) est l'IDENTIFIANT qui donne le droit d'y publier. La générer ou "
+   + "l'abandonner, c'est créer ou retirer un identifiant — exactement ce que §118.6 interdit structurellement à un "
+   + "agent, quelle que soit la personne qui le demande. Et le bloc généré se colle ensuite dans l'hébergeur du site : "
+diff --git a/src/lib/knowledge/boite-morte.test.ts b/src/lib/knowledge/boite-morte.test.ts
+new file mode 100644
+index 0000000..b8687cf
+--- /dev/null
++++ b/src/lib/knowledge/boite-morte.test.ts
+@@ -0,0 +1,166 @@
++import { describe, it, expect } from "vitest";
++import { causeNormalisee, extensionDe, regrouperEchecs, MOTIF_ABSENT, type TravailMort } from "./boite-morte";
++import { estPanneTemporaire, PanneTemporaire, delaiReportMs, REPORTS_MAX } from "./panne";
++import { advances, isRetrievable, normaliserMoyen, compterParMoyen, MOYENS_MODELE, JOB_KINDS_MODELE } from "./contract";
++import { etapeDepuisLesFaits, coutVectorisationUsd } from "./rattrapage";
++import { kindsReclamables, JOB_KINDS_CODE } from "./worker";
++import { sansTexteDefinitif } from "./ingest";
++
++/**
++ * ═══════════════════════════════════════════════════════════════════════════════════════════
++ * LA COUCHE DE CONNAISSANCE, CE QUE L'ÉCRAN DE PRODUCTION A MONTRÉ — les règles PURES.
++ *
++ *   • « luna_vision » et « hybride » à côté de « Luna — vision » : un vocabulaire fermé à
++ *     l'écriture, et les anciennes lignes regroupées à la lecture ;
++ *   • une panne de l'ENVIRONNEMENT n'est pas un échec du document ;
++ *   • la boîte morte regroupée par cause, pour qu'un défaut répété se lise comme UNE ligne ;
++ *   • « sans texte lisible » est un état, pas une panne.
++ * ═══════════════════════════════════════════════════════════════════════════════════════════
++ */
++
++describe("un moyen d'extraction, une écriture", () => {
++  it("les anciennes écritures rejoignent leur moyen ; un moyen inconnu n'est rangé sous aucun autre", () => {
++    expect(normaliserMoyen("luna_vision")).toBe("luna");
++    expect(normaliserMoyen("hybride")).toBe("hybrid");
++    expect(normaliserMoyen("native")).toBe("native");
++    expect(normaliserMoyen("bidule")).toBeNull();
++    expect(normaliserMoyen(null)).toBeNull();
++  });
++
++  it("la répartition FUSIONNE les deux écritures d'un même moyen — une ligne, pas deux", () => {
++    const r = compterParMoyen([
++      { moyen: "luna", n: 208 }, { moyen: "luna_vision", n: 28 }, { moyen: "hybride", n: 9 },
++      { moyen: "native", n: 540 }, { moyen: null, n: 2 }, { moyen: "bidule", n: 1 },
++    ]);
++    expect(r).toEqual({ luna: 236, hybrid: 9, native: 540, inconnu: 2, bidule: 1 });
++    expect(r).not.toHaveProperty("luna_vision");
++    expect(r).not.toHaveProperty("hybride");
++  });
++
++  it("l'hybride a demandé un modèle : il compte dans la part ambre, pas dans « compris par le code »", () => {
++    expect(MOYENS_MODELE.has("hybrid")).toBe(true);
++    expect(MOYENS_MODELE.has("native")).toBe(false);
++  });
++});
++
++describe("une panne de l'environnement n'est pas un échec du document", () => {
++  it("clé absente, interrupteur coupé, débit, panne du fournisseur, réseau, base : temporaire", () => {
++    for (const m of [
++      "Clé OPENAI_API_KEY non configurée.",
++      "L'IA est coupée par l'interrupteur général (Administration › Contrôle de l'IA) : aucun appel n'est parti.",
++      "Erreur IA (HTTP 429) : Rate limit reached",
++      "Erreur IA (HTTP 503) : overloaded",
++      "Erreur IA (HTTP 401) : Incorrect API key provided",
++      "Appel à l'IA impossible (réseau ou délai dépassé).",
++      "fetch failed",
++      "Can't reach database server at localhost:5432",
++      "embeddings indisponibles", // l'ancien motif de l'étage `embed`, encore en boîte morte
++    ]) {
++      expect(estPanneTemporaire(m), m).toBe(true);
++    }
++    expect(estPanneTemporaire(new PanneTemporaire("n'importe quoi"))).toBe(true);
++  });
++
++  it("un défaut du DOCUMENT (format, fichier absent, réponse illisible) n'est PAS temporaire", () => {
++    for (const m of [
++      "Erreur IA (HTTP 400) : Invalid image",
++      "Fichier introuvable dans le stockage (version ou contenu absent).",
++      "Lecture visuelle : réponse inexploitable (JSON illisible).",
++      "Cannot read properties of undefined",
++      "",
++    ]) {
++      expect(estPanneTemporaire(m), m || "(vide)").toBe(false);
++    }
++  });
++
++  it("l'attente croît et se borne ; au-delà de REPORTS_MAX, la panne est déclarée persistante", () => {
++    expect(delaiReportMs(0)).toBe(15 * 60_000);
++    expect(delaiReportMs(1)).toBe(30 * 60_000);
++    expect(delaiReportMs(REPORTS_MAX)).toBe(6 * 60 * 60_000);
++  });
++
++  it("sans modèle disponible, seuls les travaux qui ne coûtent rien sont réclamés", () => {
++    expect(kindsReclamables(true)).toBeUndefined();
++    const code = kindsReclamables(false)!;
++    expect(code).toEqual([...JOB_KINDS_CODE]);
++    for (const k of JOB_KINDS_MODELE) expect(code).not.toContain(k);
++    expect(code).toEqual(expect.arrayContaining(["parse", "classify", "entities"]));
++  });
++});
++
++describe("la boîte morte, regroupée par cause", () => {
++  const mort = (id: string, kind: string, lastError: string | null, nom: string | null, sourceId = id): TravailMort => ({
++    id, kind, lastError, itemId: `i-${id}`, nom, sourceType: "drive_file", sourceId,
++  });
++
++  it("le même défaut sur deux documents donne UNE cause : identifiants, nombres et citations retirés", () => {
++    expect(causeNormalisee("Fichier « Rapport 2026.pdf » : 12 pages illisibles (job cmabcdefghijklmnopqrstu)"))
++      .toBe(causeNormalisee("Fichier « Autre.pdf » : 3 pages illisibles (job cmzyxwvutsrqponmlkjihgf)"));
++    expect(causeNormalisee("Erreur IA (HTTP 429) : retry after 20s")).toBe("Erreur IA (HTTP 429) : retry after #s");
++    expect(causeNormalisee("Erreur IA (HTTP 429) : x")).not.toBe(causeNormalisee("Erreur IA (HTTP 400) : x"));
++    expect(causeNormalisee(null)).toBe(MOTIF_ABSENT);
++  });
++
++  it("l'extension se lit à coup sûr, sinon « — »", () => {
++    expect(extensionDe("Scan.PDF")).toBe("pdf");
++    expect(extensionDe("archive")).toBe("—");
++    expect(extensionDe(".bashrc")).toBe("—");
++    expect(extensionDe(null)).toBe("—");
++  });
++
++  it("étape × cause × type : les plus nombreux d'abord, des exemples cliquables, la nature de la cause", () => {
++    const g = regrouperEchecs([
++      mort("a", "embed", "embeddings indisponibles", "A.pdf"),
++      mort("b", "embed", "embeddings indisponibles", "B.pdf"),
++      mort("c", "embed", "embeddings indisponibles", "C.docx"),
++      mort("d", "vision", "Erreur IA (HTTP 400) : Invalid image", "D.png", "noeud-d#v2"),
++      mort("e", "embed", "embeddings indisponibles", "E.pdf"),
++      mort("f", "embed", "embeddings indisponibles", "F.pdf"),
++    ]);
++    expect(g.map((x) => [x.kind, x.extension, x.count])).toEqual([
++      ["embed", "pdf", 4], ["embed", "docx", 1], ["vision", "png", 1],
++    ]);
++    expect(g[0].temporaire).toBe(true);
++    expect(g[0].exemples).toHaveLength(3); // assez pour vérifier, pas assez pour noyer
++    expect(g[0].ids).toEqual(["a", "b", "e", "f"]);
++    expect(g[2].temporaire).toBe(false);
++    // Une version close (`#v2`) ouvre le même nœud du Drive.
++    expect(g[2].exemples[0].href).toBe("/drive/noeud-d");
++  });
++});
++
++describe("« sans texte lisible » est un état, pas une panne", () => {
++  it("un élément retrouvable ne devient jamais « sans texte » ; un « sans texte » peut encore devenir lisible", () => {
++    expect(advances("READY", "EMPTY")).toBe(false);
++    expect(advances("INDEXED", "EMPTY")).toBe(false);
++    expect(advances("RECEIVED", "EMPTY")).toBe(true);
++    expect(advances("EMPTY", "INDEXED")).toBe(true);
++    expect(advances("EMPTY", "RECEIVED")).toBe(false);
++    expect(isRetrievable("EMPTY")).toBe(false);
++  });
++
++  it("à l'ingestion : lu sans texte et sans vision à attendre → EMPTY ; une vision demandée, un objet structuré → non", () => {
++    expect(sansTexteDefinitif({ extractedBy: "native", deepJobs: ["classify", "entities"] })).toBe(true);
++    expect(sansTexteDefinitif({ extractedBy: "luna", deepJobs: ["classify", "entities", "vision"] })).toBe(false);
++    expect(sansTexteDefinitif({ extractedBy: "metadata", deepJobs: ["entities"] })).toBe(false);
++    expect(sansTexteDefinitif({})).toBe(false);
++  });
++
++  it("l'étape d'un élément « en échec » se déduit de ses FAITS", () => {
++    expect(etapeDepuisLesFaits({ texte: true, moyen: "native", relie: true })).toBe("READY");
++    expect(etapeDepuisLesFaits({ texte: true, moyen: "native", relie: false })).toBe("INDEXED");
++    expect(etapeDepuisLesFaits({ texte: false, moyen: "metadata", relie: true })).toBe("READY");
++    expect(etapeDepuisLesFaits({ texte: false, moyen: "native", relie: true })).toBe("EMPTY");
++    expect(etapeDepuisLesFaits({ texte: false, moyen: "luna", relie: false })).toBe("RECEIVED");
++    expect(etapeDepuisLesFaits({ texte: false, moyen: null, relie: false })).toBe("RECEIVED");
++  });
++});
++
++describe("le coût de la vectorisation se dit avant de partir", () => {
++  it("≈ 4 caractères par jeton, tarif de l'encodeur, arrondi au cent supérieur", () => {
++    expect(coutVectorisationUsd(0)).toBe(0);
++    // 72 398 morceaux × ~1 200 caractères ≈ 87 M caractères ≈ 21,7 M jetons ≈ 0,44 $
++    expect(coutVectorisationUsd(86_877_600)).toBe(0.44);
++    expect(coutVectorisationUsd(1)).toBe(0.01);
++  });
++});
+diff --git a/src/lib/knowledge/boite-morte.ts b/src/lib/knowledge/boite-morte.ts
+new file mode 100644
+index 0000000..4fcf054
+--- /dev/null
++++ b/src/lib/knowledge/boite-morte.ts
+@@ -0,0 +1,125 @@
++import { estPanneTemporaire } from "./panne";
++
++/**
++ * ═══════════════════════════════════════════════════════════════════════════════════════════
++ * LA BOÎTE MORTE, REGROUPÉE PAR CAUSE — module PUR (il n'importe que `panne.ts`, pur lui aussi).
++ *
++ * ── POURQUOI ─────────────────────────────────────────────────────────────────────────────
++ *
++ * L'écran disait « 441 — travaux abandonnés après plusieurs essais », et rien d'autre. Un nombre
++ * sans cause ne se répare pas : on ne sait ni s'il faut relancer, ni s'il faut corriger un format,
++ * ni si les 441 sont une seule panne vue 441 fois. Regroupés, ils le disent — et un défaut
++ * répété se voit comme UNE ligne, pas comme un mur.
++ *
++ * ── LA CLÉ D'UN GROUPE ───────────────────────────────────────────────────────────────────
++ *
++ * (étape, motif normalisé, type de fichier). Le motif est normalisé pour que le même défaut sur
++ * deux documents donne la même ligne : identifiants, nombres et citations retirés. La clé est
++ * recalculée par l'ACTION de relance depuis la base — l'écran ne lui transmet qu'un libellé de
++ * groupe, jamais une liste d'identifiants qu'une requête forgée pourrait gonfler.
++ * ═══════════════════════════════════════════════════════════════════════════════════════════
++ */
++
++export interface TravailMort {
++  id: string;
++  kind: string;
++  lastError: string | null;
++  itemId: string | null;
++  /** Le nom du fichier (ou le titre de l'élément), quand on le connaît. */
++  nom: string | null;
++  sourceType: string | null;
++  sourceId: string | null;
++}
++
++export interface ExempleMort {
++  label: string;
++  /** Lien vers l'objet, quand il en a un — `null` pour une source sans écran. */
++  href: string | null;
++}
++
++export interface GroupeMort {
++  cle: string;
++  kind: string;
++  cause: string;
++  extension: string;
++  /** La cause est-elle une panne de l'environnement ? Alors relancer suffit. */
++  temporaire: boolean;
++  count: number;
++  ids: string[];
++  exemples: ExempleMort[];
++}
++
++/** Un motif absent est un motif — le cacher ferait croire qu'il n'y a rien à lire. */
++export const MOTIF_ABSENT = "(aucun motif enregistré)";
++
++/**
++ * LE MOTIF NORMALISÉ. Ce qui varie d'un document à l'autre (identifiants, nombres, noms cités)
++ * est retiré ; ce qui dit la NATURE du défaut reste. Le statut HTTP est gardé : un 429 et un 400
++ * ne sont pas la même panne.
++ */
++export function causeNormalisee(msg: string | null | undefined): string {
++  const brut = (msg ?? "").trim();
++  if (!brut) return MOTIF_ABSENT;
++  return brut
++    .replace(/\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi, "…")
++    .replace(/\bc[a-z0-9]{20,}\b/g, "…") // identifiants cuid
++    .replace(/«[^»]*»|"[^"]*"|'[^']{3,}'/g, "«…»")
++    // Un nombre qui ne suit ni « HTTP » ni un autre chiffre — le statut HTTP reste entier.
++    .replace(/(?<!HTTP )(?<![\d.,])\d+([.,]\d+)?/g, "#")
++    .replace(/\s+/g, " ")
++    .trim()
++    .slice(0, 160);
++}
++
++/** L'extension du fichier, en minuscules — `—` quand elle ne se lit pas à coup sûr. */
++export function extensionDe(nom: string | null | undefined): string {
++  const n = (nom ?? "").trim();
++  const point = n.lastIndexOf(".");
++  if (point <= 0 || point === n.length - 1) return "—";
++  const ext = n.slice(point + 1).toLowerCase();
++  return /^[a-z0-9]{1,6}$/.test(ext) ? ext : "—";
++}
++
++export function cleDeGroupe(t: Pick<TravailMort, "kind" | "lastError" | "nom">): string {
++  return `${t.kind}|${causeNormalisee(t.lastError)}|${extensionDe(t.nom)}`;
++}
++
++/** Le lien d'un exemple : un fichier du Drive s'ouvre, le reste n'a pas d'écran à désigner. */
++function hrefDe(t: TravailMort): string | null {
++  if ((t.sourceType === "drive_file" || t.sourceType === "attachment") && t.sourceId) {
++    // Une version close porte `#vN` : le nœud, lui, est le même.
++    return `/drive/${encodeURIComponent(t.sourceId.split("#")[0])}`;
++  }
++  return null;
++}
++
++/** Combien d'exemples par groupe — assez pour vérifier, pas assez pour noyer. */
++export const EXEMPLES_PAR_GROUPE = 3;
++
++/** REGROUPE. Les groupes les plus nombreux d'abord : c'est par eux qu'on gagne le plus. */
++export function regrouperEchecs(travaux: readonly TravailMort[]): GroupeMort[] {
++  const groupes = new Map<string, GroupeMort>();
++  for (const t of travaux) {
++    const cle = cleDeGroupe(t);
++    let g = groupes.get(cle);
++    if (!g) {
++      g = {
++        cle,
++        kind: t.kind,
++        cause: causeNormalisee(t.lastError),
++        extension: extensionDe(t.nom),
++        temporaire: estPanneTemporaire(t.lastError ?? ""),
++        count: 0,
++        ids: [],
++        exemples: [],
++      };
++      groupes.set(cle, g);
++    }
++    g.count += 1;
++    g.ids.push(t.id);
++    if (g.exemples.length < EXEMPLES_PAR_GROUPE) {
++      g.exemples.push({ label: t.nom ?? t.sourceId ?? t.itemId ?? t.id, href: hrefDe(t) });
++    }
++  }
++  return [...groupes.values()].sort((a, b) => b.count - a.count || a.cle.localeCompare(b.cle));
++}
+diff --git a/src/lib/knowledge/contract.ts b/src/lib/knowledge/contract.ts
+index 21261dc..1f479d3 100644
+--- a/src/lib/knowledge/contract.ts
++++ b/src/lib/knowledge/contract.ts
+@@ -71,15 +71,25 @@ export type IngestStage =
+   | "INDEXED"     // recherchable (lexical)
+   | "READY"       // recherchable ET relié — l'utilisateur peut compter dessus
+   | "ENRICHED"    // enrichissement profond terminé (résumé, relations secondaires, vecteurs)
++  | "EMPTY"       // fichier lu jusqu'au bout, et il n'en sort AUCUN texte : un état, pas une panne
+   | "FAILED";     // échec nommé — jamais un silence
+ 
+ export const INGEST_STAGES: readonly IngestStage[] = [
+-  "RECEIVED", "PARSED", "CLASSIFIED", "INDEXED", "READY", "ENRICHED", "FAILED",
++  "RECEIVED", "PARSED", "CLASSIFIED", "INDEXED", "READY", "ENRICHED", "EMPTY", "FAILED",
+ ] as const;
+ 
+-/** L'ordre de progression — un élément ne recule pas, sauf vers `FAILED`. */
++/**
++ * L'ordre de progression — un élément ne recule pas, sauf vers `FAILED`.
++ *
++ * `EMPTY` (« sans texte lisible ») se range juste au-dessus de `RECEIVED` : un fichier dont on n'a
++ * rien tiré peut encore devenir lisible (une lecture visuelle, un parseur amélioré), donc tout ce
++ * qui le rend RETROUVABLE l'emporte sur lui ; mais il ne remplace jamais un élément déjà
++ * retrouvable. Ce n'est PAS `FAILED` : un scan blanc ou une archive sans texte est un fait du
++ * fichier, pas un défaut du traitement — le ranger parmi les échecs remplissait l'écran de
++ * non-problèmes, et cachait les vrais.
++ */
+ const STAGE_RANK: Record<IngestStage, number> = {
+-  RECEIVED: 0, PARSED: 1, CLASSIFIED: 2, INDEXED: 3, READY: 4, ENRICHED: 5, FAILED: -1,
++  RECEIVED: 0, EMPTY: 0.5, PARSED: 1, CLASSIFIED: 2, INDEXED: 3, READY: 4, ENRICHED: 5, FAILED: -1,
+ };
+ 
+ /**
+@@ -108,15 +118,63 @@ export type ExtractedBy =
+   | "metadata"  // déjà structuré dans l'ERP — aucun texte à comprendre
+   | "ocr"       // reconnaissance de caractères
+   | "luna"      // vision / compréhension, modèle économique
++  | "hybrid"    // texte natif COMPLÉTÉ par une lecture visuelle des pages que le parseur n'a pas lues
+   | "terra";    // escalade — cas réellement complexe
+ 
+-export const EXTRACTED_BY: readonly ExtractedBy[] = ["native", "metadata", "ocr", "luna", "terra"] as const;
++export const EXTRACTED_BY: readonly ExtractedBy[] = ["native", "metadata", "ocr", "luna", "hybrid", "terra"] as const;
+ 
+ /** Le coût relatif d'un moyen. Sert au routage ET au rapport : l'ordre est la doctrine. */
+ export const EXTRACTION_RANK: Record<ExtractedBy, number> = {
+-  metadata: 0, native: 1, ocr: 2, luna: 3, terra: 4,
++  metadata: 0, native: 1, ocr: 2, luna: 3, hybrid: 3.5, terra: 4,
++};
++
++/** Les moyens qui ont demandé un MODÈLE — la part « ambre » du tableau de bord. */
++export const MOYENS_MODELE: ReadonlySet<ExtractedBy> = new Set<ExtractedBy>(["luna", "hybrid", "terra"]);
++
++/**
++ * LES ANCIENNES ÉCRITURES DU MÊME MOYEN. L'étage vision écrivait `luna_vision` (aucun texte natif)
++ * et `hybride` (texte natif complété) pendant que l'ingestion écrivait `luna` : deux écritures de
++ * la même méthode, que l'écran affichait côte à côte — « Luna — vision » et « luna_vision », deux
++ * lignes pour une seule chose, la seconde sans libellé. L'écriture est désormais FERMÉE
++ * (`ExtractedBy`) ; les lignes déjà en base se regroupent ici, à la lecture, sous le bon moyen.
++ */
++const MOYENS_HERITES: Readonly<Record<string, ExtractedBy>> = {
++  luna_vision: "luna",
++  hybride: "hybrid",
+ };
+ 
++/**
++ * LIT un moyen tel qu'il est en base. `null` pour une valeur vide ou inconnue — jamais une
++ * supposition : un moyen inconnu se montre sous son nom brut plutôt que rangé sous un autre.
++ */
++export function normaliserMoyen(raw: string | null | undefined): ExtractedBy | null {
++  const v = (raw ?? "").trim();
++  if (!v) return null;
++  if ((EXTRACTED_BY as readonly string[]).includes(v)) return v as ExtractedBy;
++  return MOYENS_HERITES[v] ?? null;
++}
++
++/**
++ * LA RÉPARTITION PAR MOYEN, regroupée à la lecture : les anciennes écritures rejoignent leur
++ * moyen, un moyen inconnu garde son nom brut (on ne le range pas sous un autre), un moyen absent
++ * se dit « inconnu ».
++ */
++export function compterParMoyen(rows: readonly { moyen: string | null; n: number }[]): Record<string, number> {
++  const out: Record<string, number> = {};
++  for (const r of rows) {
++    const cle = normaliserMoyen(r.moyen) ?? ((r.moyen ?? "").trim() || "inconnu");
++    out[cle] = (out[cle] ?? 0) + r.n;
++  }
++  return out;
++}
++
++/**
++ * LES TRAVAUX QUI APPELLENT UN MODÈLE. Sans clé, ou sous l'interrupteur général coupé, ils
++ * ATTENDENT en file — ils ne sont même pas réclamés. Les autres (parse, classify, entities) ne
++ * coûtent rien et avancent quoi qu'il arrive.
++ */
++export const JOB_KINDS_MODELE: ReadonlySet<JobKind> = new Set<JobKind>(["embed", "vision", "enrich"]);
++
+ /**
+  * POURQUOI on est monté d'un barreau. Un motif VIDE est interdit par construction (le type
+  * l'exige) : monter sans raison est précisément ce qu'on veut rendre impossible à faire
+diff --git a/src/lib/knowledge/disponibilite.ts b/src/lib/knowledge/disponibilite.ts
+new file mode 100644
+index 0000000..c8603ad
+--- /dev/null
++++ b/src/lib/knowledge/disponibilite.ts
+@@ -0,0 +1,14 @@
++import { lunaConfigured } from "@/lib/openai-luna";
++import { interrupteurIaCoupe, REFUS_IA_COUPEE } from "@/lib/ai-settings";
++
++/**
++ * LE MODÈLE EST-IL JOIGNABLE ? La clé d'abord, puis l'interrupteur général (lu en base). La raison
++ * voyage avec la réponse : l'écran la montre au lieu d'un « en attente » sans explication, et le
++ * worker comme les rattrapages lisent la MÊME réponse — deux lectures finiraient par diverger, et
++ * l'on mettrait en file des travaux que le worker refuse ensuite de prendre.
++ */
++export async function modeleDisponible(): Promise<{ ok: boolean; raison: string | null }> {
++  if (!lunaConfigured()) return { ok: false, raison: "La clé du fournisseur de modèles n'est pas configurée." };
++  if (await interrupteurIaCoupe()) return { ok: false, raison: REFUS_IA_COUPEE };
++  return { ok: true, raison: null };
++}
+diff --git a/src/lib/knowledge/ingest.ts b/src/lib/knowledge/ingest.ts
+index 2dd7fb9..ab6d45d 100644
+--- a/src/lib/knowledge/ingest.ts
++++ b/src/lib/knowledge/ingest.ts
+@@ -70,6 +70,19 @@ export interface IngestResult {
+   jobsQueued: number;
+ }
+ 
++/**
++ * UN FICHIER LU JUSQU'AU BOUT, SANS TEXTE, ET SANS LECTURE VISUELLE À ATTENDRE : « sans texte
++ * lisible » (`EMPTY`), un état honnête — ni « reçu » (comme si rien n'avait été tenté), ni « en
++ * échec » (ce n'est pas une panne). Trois conditions, toutes nécessaires : un moyen d'extraction
++ * déclaré (le contenu a été LU), ce moyen n'est pas `metadata` (un objet structuré se retrouve
++ * par ses champs), et aucune vision n'est demandée (sinon le texte peut encore venir).
++ */
++export function sansTexteDefinitif(input: Pick<IngestInput, "extractedBy" | "deepJobs">): boolean {
++  return Boolean(input.extractedBy)
++    && input.extractedBy !== "metadata"
++    && !(input.deepJobs ?? []).includes("vision");
++}
++
+ /** Le texte principal stocké sur l'élément — assez pour retrouver et citer, pas pour tout relire. */
+ const TEXT_CAP = 40_000;
+ 
+@@ -126,7 +139,7 @@ export async function ingestFast(input: IngestInput): Promise<IngestResult | nul
+       effectiveDate: input.effectiveDate ?? null,
+       // INDEXED plutôt que READY : le texte est cherchable, les relations ne le sont pas encore.
+       // Annoncer READY ici ferait promettre un lien qui n'existe pas.
+-      stage: text ? "INDEXED" : "RECEIVED",
++      stage: text ? "INDEXED" : sansTexteDefinitif(input) ? "EMPTY" : "RECEIVED",
+       error: null,
+     };
+ 
+diff --git a/src/lib/knowledge/panne.ts b/src/lib/knowledge/panne.ts
+new file mode 100644
+index 0000000..be3af32
+--- /dev/null
++++ b/src/lib/knowledge/panne.ts
+@@ -0,0 +1,68 @@
++/**
++ * ═══════════════════════════════════════════════════════════════════════════════════════════
++ * UNE PANNE TEMPORAIRE N'EST PAS UN ÉCHEC — module PUR, zéro import.
++ *
++ * ── LE DÉFAUT QU'IL FERME ────────────────────────────────────────────────────────────────
++ *
++ * La file comptait chaque exception comme un essai, et au quatrième elle envoyait le travail en
++ * BOÎTE MORTE. Or la cause la plus fréquente d'un échec d'enrichissement n'est pas le document :
++ * c'est le FOURNISSEUR — clé absente, interrupteur général coupé, limite de débit, réseau. Quatre
++ * essais à 30 s, 1 min, 2 min d'intervalle, et une coupure de cinq minutes suffisait à condamner
++ * TOUS les travaux en cours. Pire : la mort d'un travail faisait passer le DOCUMENT en échec,
++ * c'est-à-dire qu'une vectorisation ratée retirait des « retrouvables » un fichier qu'on trouvait
++ * parfaitement par son texte.
++ *
++ * ── LA RÈGLE ─────────────────────────────────────────────────────────────────────────────
++ *
++ * Ce qui dépend de l'ENVIRONNEMENT (fournisseur, clé, interrupteur, réseau, base momentanément
++ * injoignable) ATTEND : le travail repart en file sans consommer d'essai. Ce qui dépend du
++ * DOCUMENT (format refusé, fichier absent du stockage, réponse inexploitable) compte ses essais et
++ * finit en boîte morte — c'est là qu'un humain doit regarder.
++ *
++ * La lecture du motif est une liste FERMÉE de formes connues. Un motif inconnu n'est PAS
++ * temporaire : le croire ferait tourner pour toujours un travail qui ne peut pas réussir, en
++ * coûtant à chaque tour. L'erreur va dans le sens qui s'arrête.
++ * ═══════════════════════════════════════════════════════════════════════════════════════════
++ */
++
++/** Ce qu'un étage LÈVE quand il sait que la cause est dans l'environnement, pas dans le document. */
++export class PanneTemporaire extends Error {
++  readonly temporaire = true as const;
++  constructor(message: string) {
++    super(message);
++    this.name = "PanneTemporaire";
++  }
++}
++
++/** Les formes de motif qu'on sait temporaires. Chacune porte sa raison. */
++const MOTIFS_TEMPORAIRES: readonly RegExp[] = [
++  /interrupteur g[ée]n[ée]ral/i,                 // l'IA coupée depuis « Contrôle de l'IA »
++  /non configur[ée]e?/i,                          // la clé du fournisseur absente
++  /cl[ée] du fournisseur/i,
++  /HTTP (401|403|408|409|425|429|5\d\d)\b/,       // clé refusée, délai, débit, panne du fournisseur
++  /r[ée]seau|d[ée]lai d[ée]pass[ée]|timeout|timed out/i,
++  /ETIMEDOUT|ECONNRESET|ECONNREFUSED|ENOTFOUND|EAI_AGAIN|fetch failed|socket hang up/i,
++  /can't reach database|connection terminated|too many connections|fetching a new connection/i,
++  /embeddings indisponibles|vectorisation indisponible/i, // l'ancien motif de l'étage `embed`
++];
++
++/** La cause est-elle dans l'environnement ? Une exception typée l'emporte sur la lecture du texte. */
++export function estPanneTemporaire(err: unknown): boolean {
++  if (err instanceof PanneTemporaire) return true;
++  if (err && typeof err === "object" && (err as { temporaire?: unknown }).temporaire === true) return true;
++  const msg = err instanceof Error ? err.message : typeof err === "string" ? err : "";
++  if (!msg) return false;
++  return MOTIFS_TEMPORAIRES.some((re) => re.test(msg));
++}
++
++/** Combien de fois un travail peut ATTENDRE une panne temporaire avant qu'on la déclare persistante. */
++export const REPORTS_MAX = 20;
++
++/**
++ * L'attente avant de retenter après une panne temporaire : 15 min, doublée, plafonnée à 6 h. Vingt
++ * reports couvrent ainsi environ quatre jours de panne du fournisseur — au-delà, ce n'est plus une
++ * panne passagère, et le travail rejoint la boîte morte avec un motif qui le DIT.
++ */
++export function delaiReportMs(reports: number): number {
++  return Math.min(15 * 60_000 * 2 ** Math.max(0, reports), 6 * 60 * 60_000);
++}
+diff --git a/src/lib/knowledge/queue.ts b/src/lib/knowledge/queue.ts
+index 5d41da4..c0447bb 100644
+--- a/src/lib/knowledge/queue.ts
++++ b/src/lib/knowledge/queue.ts
+@@ -2,9 +2,11 @@ import { prisma } from "@/lib/prisma";
+ import {
+   type JobKind,
+   JOB_PRIORITY,
++  JOB_KINDS_MODELE,
+   MAX_ATTEMPTS,
+   backoffMs,
+ } from "./contract";
++import { REPORTS_MAX, delaiReportMs } from "./panne";
+ 
+ /**
+  * ═══════════════════════════════════════════════════════════════════════════════════════════
+@@ -186,6 +188,57 @@ export async function failJob(id: string, error: string): Promise<"retry" | "dea
+   return exhausted ? "dead" : "retry";
+ }
+ 
++/**
++ * PANNE TEMPORAIRE — le travail ATTEND, il n'échoue pas (voir `panne.ts`).
++ *
++ * L'essai consommé par la réclamation est RENDU (le document n'est pas en cause), le travail
++ * repart en file après une attente croissante, et le nombre de reports voyage dans sa charge
++ * utile. Au-delà de `REPORTS_MAX`, la panne n'est plus passagère : boîte morte, avec un motif qui
++ * dit « persistante » — sans cette borne, un fournisseur qui refuse pour de bon ferait tourner
++ * le travail pour toujours.
++ *
++ * L'écriture est CONDITIONNELLE à `RUNNING` : un travail qu'un autre geste a déjà repris (un
++ * `requeueStale`, une relance) n'est pas réécrit par-dessus.
++ */
++export async function reporterJob(id: string, motif: string): Promise<"reporte" | "dead"> {
++  const job = await prisma.knowledgeJob
++    .findUnique({ where: { id }, select: { attempts: true, payload: true } })
++    .catch(() => null);
++  if (!job) return "dead";
++  const payload = (job.payload && typeof job.payload === "object" && !Array.isArray(job.payload)
++    ? (job.payload as Record<string, unknown>)
++    : {}) as Record<string, unknown>;
++  const reports = typeof payload._reports === "number" ? payload._reports : 0;
++
++  if (reports >= REPORTS_MAX) {
++    await prisma.knowledgeJob
++      .updateMany({
++        where: { id, status: "RUNNING" },
++        data: {
++          status: "DEAD",
++          finishedAt: new Date(),
++          lastError: `Panne persistante après ${reports} reports : ${motif}`.slice(0, 500),
++        },
++      })
++      .catch(() => undefined);
++    return "dead";
++  }
++
++  await prisma.knowledgeJob
++    .updateMany({
++      where: { id, status: "RUNNING" },
++      data: {
++        status: "QUEUED",
++        attempts: Math.max(0, job.attempts - 1),
++        runAfter: new Date(Date.now() + delaiReportMs(reports)),
++        lastError: `En attente — panne temporaire : ${motif}`.slice(0, 500),
++        payload: { ...payload, _reports: reports + 1 } as object,
++      },
++    })
++    .catch(() => undefined);
++  return "reporte";
++}
++
+ /**
+  * LES TRAVAUX ABANDONNÉS. Un processus tué en plein travail laisse un job en `RUNNING` que plus
+  * personne ne réclamera — c'est la panne silencieuse classique d'une file. On les récupère au
+@@ -210,11 +263,13 @@ export interface QueueHealth {
+   dead: number;
+   /** Le plus vieux travail en attente, en minutes — le signe le plus lisible d'un engorgement. */
+   oldestQueuedMin: number | null;
++  /** Parmi les travaux en file, ceux qui attendent un MODÈLE (vecteurs, vision, résumé). */
++  queuedModele: number;
+ }
+ 
+ /** L'état de la file, pour l'écran d'observabilité (§26). */
+ export async function queueHealth(): Promise<QueueHealth> {
+-  const [queued, running, dead, oldest] = await Promise.all([
++  const [queued, running, dead, oldest, queuedModele] = await Promise.all([
+     prisma.knowledgeJob.count({ where: { status: "QUEUED" } }),
+     prisma.knowledgeJob.count({ where: { status: "RUNNING" } }),
+     prisma.knowledgeJob.count({ where: { status: "DEAD" } }),
+@@ -223,11 +278,13 @@ export async function queueHealth(): Promise<QueueHealth> {
+       orderBy: { createdAt: "asc" },
+       select: { createdAt: true },
+     }),
++    prisma.knowledgeJob.count({ where: { status: "QUEUED", kind: { in: [...JOB_KINDS_MODELE] } } }),
+   ]);
+   return {
+     queued,
+     running,
+     dead,
++    queuedModele,
+     oldestQueuedMin: oldest ? Math.round((Date.now() - oldest.createdAt.getTime()) / 60_000) : null,
+   };
+ }
+diff --git a/src/lib/knowledge/rattrapage.ts b/src/lib/knowledge/rattrapage.ts
+new file mode 100644
+index 0000000..35e0d13
+--- /dev/null
++++ b/src/lib/knowledge/rattrapage.ts
+@@ -0,0 +1,315 @@
++import { prisma } from "@/lib/prisma";
++import { normaliserMoyen, type ExtractedBy, type IngestStage } from "./contract";
++import { enqueue } from "./queue";
++import { modeleDisponible } from "./disponibilite";
++import { regrouperEchecs, type GroupeMort, type TravailMort } from "./boite-morte";
++
++/**
++ * ═══════════════════════════════════════════════════════════════════════════════════════════
++ * LES RATTRAPAGES DE LA COUCHE DE CONNAISSANCE — ce que l'ancienne file a laissé en plan.
++ *
++ * Trois défauts, constatés sur l'écran de production, et un geste pour chacun :
++ *
++ *   • DES DOCUMENTS « EN ÉCHEC » QU'ON TROUVAIT TRÈS BIEN. La mort d'un enrichissement (un
++ *     vecteur, une relation) faisait passer l'élément en `FAILED` — 441 éléments sur 795, tous
++ *     retrouvables par leur texte, comptés hors des « retrouvables ». La nouvelle règle ne fait
++ *     plus reculer une étape ; `reparerEtapesEnEchec` rend aux anciens l'étape que leurs FAITS
++ *     disent (un texte → recherchable ; une relation faite → relié ; rien → sans texte).
++ *   • DES VECTEURS JAMAIS DEMANDÉS UNE SECONDE FOIS. Sans clé, l'étage `embed` rendait « rien à
++ *     faire » : le travail était TERMINÉ et sa clé de dédoublonnage interdisait de le refaire.
++ *     `rattraperVecteurs` remet en file, par petits lots, les documents dont la vectorisation
++ *     avait été voulue et n'a pas eu lieu.
++ *   • DES SCANS QUE LUNA N'A JAMAIS LUS. Même mécanisme pour la vision : `rattraperVisions`.
++ *
++ * Et la boîte morte, rendue ACTIONNABLE : regroupée par cause (`boite-morte.ts`) et relançable
++ * par le Super Admin (`relancerTravauxMorts`).
++ *
++ * Tout ce qui appellerait un MODÈLE respecte la clé et l'interrupteur général (`modeleDisponible`) :
++ * rien n'est mis en file que le worker refuserait ensuite de prendre.
++ * ═══════════════════════════════════════════════════════════════════════════════════════════
++ */
++
++// ─────────────────────────────── L'étape que les faits disent ───────────────────────────────
++
++/**
++ * L'ÉTAPE D'UN ÉLÉMENT, DÉDUITE DE CE QU'IL PORTE — jamais d'un souvenir de l'ancienne file.
++ * Pure : c'est elle que le banc fait parler cas par cas.
++ */
++export function etapeDepuisLesFaits(f: { texte: boolean; moyen: ExtractedBy | null; relie: boolean }): IngestStage {
++  if (f.texte || f.moyen === "metadata") {
++    if (f.relie) return "READY";
++    return f.texte ? "INDEXED" : "RECEIVED";
++  }
++  // Sans texte : un scan routé vers la vision attend encore sa lecture ; un moyen inconnu ne
++  // permet pas de conclure ; tout le reste a été LU, et il n'en est rien sorti.
++  if (f.moyen === null || f.moyen === "luna") return "RECEIVED";
++  return "EMPTY";
++}
++
++/** Combien d'éléments un passage répare — petit, idempotent, et le suivant reprend. */
++export const REPARATIONS_PAR_PASSAGE = 50;
++
++/**
++ * RÉPARE LES ÉTAPES « EN ÉCHEC » laissées par l'ancienne règle. L'écriture est CONDITIONNELLE à
++ * `FAILED` : un élément qu'un autre geste a déjà fait avancer n'est pas réécrit. Le motif
++ * (`error`) est GARDÉ — c'est l'histoire de ce qui avait échoué.
++ */
++export async function reparerEtapesEnEchec(limit = REPARATIONS_PAR_PASSAGE, itemIds?: string[]): Promise<number> {
++  const rows = await prisma.knowledgeItem.findMany({
++    where: { stage: "FAILED", ...(itemIds ? { id: { in: itemIds } } : {}) },
++    take: limit,
++    select: { id: true, text: true, extractedBy: true },
++  });
++  if (!rows.length) return 0;
++  const relies = await prisma.knowledgeJob.findMany({
++    where: { itemId: { in: rows.map((r) => r.id) }, kind: "entities", status: "DONE" },
++    select: { itemId: true },
++  });
++  const relie = new Set(relies.map((r) => r.itemId));
++  let n = 0;
++  for (const r of rows) {
++    const stage = etapeDepuisLesFaits({
++      texte: Boolean((r.text ?? "").trim()),
++      moyen: normaliserMoyen(r.extractedBy),
++      relie: relie.has(r.id),
++    });
++    const u = await prisma.knowledgeItem
++      .updateMany({ where: { id: r.id, stage: "FAILED" }, data: { stage } })
++      .catch(() => ({ count: 0 }));
++    n += u.count;
++  }
++  return n;
++}
++
++// ─────────────────────────────── Les vecteurs ───────────────────────────────
++
++/**
++ * LE TARIF DE L'ENCODEUR (`text-embedding-3-small`, tarif public) en dollars par million de jetons.
++ * Sert à l'ESTIMATION affichée — volontairement arrondie vers le haut, comme `lunaCostUsd`.
++ */
++export const PRIX_VECTEUR_PAR_M_JETONS = 0.02;
++/** ~4 caractères par jeton : l'ordre de grandeur qu'emploie aussi `estimateTokens`. */
++const CARACTERES_PAR_JETON = 4;
++
++export function coutVectorisationUsd(caracteres: number): number {
++  const jetons = Math.ceil(Math.max(0, caracteres) / CARACTERES_PAR_JETON);
++  return Math.ceil((jetons / 1_000_000) * PRIX_VECTEUR_PAR_M_JETONS * 100) / 100; // au cent supérieur
++}
++
++/** Documents remis en file par passage. Chaque travail encode au plus 32 morceaux, puis se redemande. */
++export const VECTEURS_PAR_PASSAGE = 10;
++
++type Dispo = () => Promise<{ ok: boolean; raison: string | null }>;
++
++/**
++ * REMET EN FILE LES VECTORISATIONS VOULUES ET JAMAIS FAITES. Trois conditions : la vectorisation
++ * a été DEMANDÉE un jour pour ce document (un travail `embed` existe — §18 : on ne vectorise pas
++ * une tâche triviale qui n'en voulait pas) ; aucun n'est en file ni en cours ; aucun n'est en
++ * boîte morte (celui-là se relance d'un clic, avec sa cause sous les yeux). Sans modèle
++ * disponible, rien n'est mis en file.
++ */
++export async function rattraperVecteurs(limit = VECTEURS_PAR_PASSAGE, deps: { modele?: Dispo; itemIds?: string[] } = {}): Promise<number> {
++  const m = await (deps.modele ?? modeleDisponible)();
++  if (!m.ok) return 0;
++  const filtre = deps.itemIds?.length ? deps.itemIds : null;
++  const rows = await prisma.$queryRaw<{ itemId: string; restant: bigint }[]>`
++    SELECT c."itemId", count(*)::bigint AS restant
++    FROM "KnowledgeChunk" c
++    JOIN "KnowledgeItem" i ON i.id = c."itemId"
++    WHERE c.embedding IS NULL
++      AND i."isCurrent" = true
++      AND (${filtre}::text[] IS NULL OR c."itemId" = ANY(${filtre}::text[]))
++      AND EXISTS (SELECT 1 FROM "KnowledgeJob" j WHERE j."itemId" = c."itemId" AND j.kind = 'embed')
++      AND NOT EXISTS (
++        SELECT 1 FROM "KnowledgeJob" j
++        WHERE j."itemId" = c."itemId" AND j.kind = 'embed' AND j.status IN ('QUEUED', 'RUNNING', 'DEAD')
++      )
++    GROUP BY c."itemId"
++    ORDER BY max(i."updatedAt") DESC
++    LIMIT ${limit}`;
++  let n = 0;
++  for (const r of rows) {
++    const id = await enqueue({ kind: "embed", itemId: r.itemId, dedupeKey: `embed:${r.itemId}:rattrapage:${Number(r.restant)}` });
++    if (id) n += 1;
++  }
++  return n;
++}
++
++/** Documents dont la lecture visuelle est rattrapée par passage — la vision coûte, on va doucement. */
++export const VISIONS_PAR_PASSAGE = 3;
++
++/**
++ * LES SCANS QUE LUNA N'A JAMAIS LUS : routés vers la vision, toujours sans texte, leur travail
++ * `vision` terminé « sans rien faire » (l'ancienne règle, sans clé). Une seule reprise par
++ * document (clé de dédoublonnage fixe) : si elle ne lit rien, le document finit « sans texte
++ * lisible », et ne repasse plus.
++ */
++export async function rattraperVisions(limit = VISIONS_PAR_PASSAGE, deps: { modele?: Dispo; itemIds?: string[] } = {}): Promise<number> {
++  const m = await (deps.modele ?? modeleDisponible)();
++  if (!m.ok) return 0;
++  const filtre = deps.itemIds?.length ? deps.itemIds : null;
++  const rows = await prisma.$queryRaw<{ id: string }[]>`
++    SELECT i.id FROM "KnowledgeItem" i
++    WHERE i."isCurrent" = true
++      AND i.text IS NULL
++      AND i."sourceType" IN ('drive_file', 'attachment')
++      AND i."extractedBy" IN ('luna', 'luna_vision')
++      AND i.stage <> 'EMPTY'
++      AND (${filtre}::text[] IS NULL OR i.id = ANY(${filtre}::text[]))
++      AND EXISTS (SELECT 1 FROM "KnowledgeJob" j WHERE j."itemId" = i.id AND j.kind = 'vision')
++      AND NOT EXISTS (
++        SELECT 1 FROM "KnowledgeJob" j
++        WHERE j."itemId" = i.id AND j.kind = 'vision' AND j.status IN ('QUEUED', 'RUNNING', 'DEAD')
++      )
++    ORDER BY i."updatedAt" DESC
++    LIMIT ${limit}`;
++  let n = 0;
++  for (const r of rows) {
++    const id = await enqueue({ kind: "vision", itemId: r.id, dedupeKey: `vision:${r.id}:rattrapage` });
++    if (id) n += 1;
++  }
++  return n;
++}
++
++export interface EtatVectorisation {
++  /** Morceaux des versions COURANTES pas encore vectorisés. */
++  restants: number;
++  /** Leur coût estimé (encodeur), en dollars — l'ordre de grandeur, pas une facture. */
++  coutEstimeUsd: number;
++}
++
++export async function etatVectorisation(): Promise<EtatVectorisation> {
++  const rows = await prisma.$queryRaw<{ n: bigint; car: bigint | null }[]>`
++    SELECT count(*)::bigint AS n, sum(length(c.text))::bigint AS car
++    FROM "KnowledgeChunk" c JOIN "KnowledgeItem" i ON i.id = c."itemId"
++    WHERE c.embedding IS NULL AND i."isCurrent" = true`.catch(() => [{ n: BigInt(0), car: BigInt(0) }]);
++  const r = rows[0] ?? { n: BigInt(0), car: BigInt(0) };
++  return { restants: Number(r.n), coutEstimeUsd: coutVectorisationUsd(Number(r.car ?? 0)) };
++}
++
++/**
++ * pgvector EST-IL LÀ ? Une CONSTATATION, pas un texte en dur : l'écran affirmait « l'extension
++ * n'est pas disponible sur cette infrastructure » sans l'avoir jamais demandé à la base. Trois
++ * réponses : absente du serveur, disponible mais pas installée, installée.
++ */
++export type EtatPgvector = "absente" | "disponible" | "installee" | "inconnu";
++
++export async function etatPgvector(): Promise<EtatPgvector> {
++  try {
++    const rows = await prisma.$queryRaw<{ installed_version: string | null }[]>`
++      SELECT installed_version FROM pg_available_extensions WHERE name = 'vector'`;
++    if (!rows.length) return "absente";
++    return rows[0].installed_version ? "installee" : "disponible";
++  } catch {
++    return "inconnu";
++  }
++}
++
++// ─────────────────────────────── La boîte morte ───────────────────────────────
++
++/** Combien de travaux morts on lit pour l'écran et pour une relance. Au-delà, la phrase le DIT. */
++export const BOITE_MORTE_LUE = 2_000;
++/** Combien de travaux une relance remet en file d'un clic — une limite opérationnelle, dite. */
++export const RELANCE_MAX = 500;
++
++export interface BoiteMorte {
++  total: number;
++  groupes: GroupeMort[];
++  /** Vrai quand la boîte contient plus de travaux qu'on n'en a lus — les groupes sont alors partiels. */
++  tronque: boolean;
++}
++
++export async function chargerBoiteMorte(limit = BOITE_MORTE_LUE): Promise<BoiteMorte> {
++  const [total, jobs] = await Promise.all([
++    prisma.knowledgeJob.count({ where: { status: "DEAD" } }),
++    prisma.knowledgeJob.findMany({
++      where: { status: "DEAD" },
++      orderBy: { finishedAt: "desc" },
++      take: limit,
++      select: {
++        id: true, kind: true, lastError: true, itemId: true, payload: true,
++        item: { select: { title: true, sourceType: true, sourceId: true } },
++      },
++    }),
++  ]);
++
++  // Un travail `parse` n'a pas encore d'élément : sa source est dans sa charge utile, et le nom
++  // du fichier se lit sur le nœud du Drive.
++  const sourceDe = (p: unknown): { type: string | null; id: string | null } => {
++    const o = (p && typeof p === "object" ? p : {}) as { sourceType?: unknown; sourceId?: unknown };
++    return {
++      type: typeof o.sourceType === "string" ? o.sourceType : null,
++      id: typeof o.sourceId === "string" ? o.sourceId : null,
++    };
++  };
++  const nodeIds = jobs
++    .filter((j) => !j.item)
++    .map((j) => sourceDe(j.payload))
++    .filter((s) => s.type === "drive_file" && s.id)
++    .map((s) => s.id as string);
++  const nodes = nodeIds.length
++    ? await prisma.driveNode.findMany({ where: { id: { in: nodeIds } }, select: { id: true, name: true } }).catch(() => [])
++    : [];
++  const nomNoeud = new Map(nodes.map((n) => [n.id, n.name]));
++
++  const travaux: TravailMort[] = jobs.map((j) => {
++    const s = j.item ? { type: j.item.sourceType, id: j.item.sourceId } : sourceDe(j.payload);
++    return {
++      id: j.id,
++      kind: j.kind,
++      lastError: j.lastError,
++      itemId: j.itemId,
++      nom: j.item?.title ?? (s.id ? nomNoeud.get(s.id) ?? null : null),
++      sourceType: s.type,
++      sourceId: s.id,
++    };
++  });
++  return { total, groupes: regrouperEchecs(travaux), tronque: total > jobs.length };
++}
++
++export interface ResultatRelance {
++  relances: number;
++  /** Éléments dont l'étape « en échec » a été réparée au passage. */
++  etapesReparees: number;
++  /** Ce qui reste en boîte morte après ce geste. */
++  restants: number;
++  /** Vrai quand le groupe dépassait `RELANCE_MAX` : un second clic reprend la suite. */
++  borne: boolean;
++}
++
++/**
++ * RELANCE DEPUIS LA BOÎTE MORTE — un groupe (par sa clé) ou tout.
++ *
++ * Les identifiants sont RECALCULÉS ici depuis la base : l'écran ne transmet qu'une clé de groupe,
++ * jamais une liste qu'une requête forgée pourrait gonfler. Chaque travail repart PROPREMENT —
++ * essais remis à zéro, reports effacés, dû tout de suite — et l'écriture est conditionnelle à
++ * `DEAD` : deux clics simultanés ne relancent pas deux fois, et un second clic après le premier
++ * ne trouve plus rien (idempotent). Le dernier motif est GARDÉ dans `lastError` : s'il échoue de
++ * nouveau pour la même raison, on le saura.
++ */
++export async function relancerTravauxMorts(opts: { cle?: string | null; limite?: number } = {}): Promise<ResultatRelance> {
++  const limite = Math.max(1, Math.min(opts.limite ?? RELANCE_MAX, RELANCE_MAX));
++  const boite = await chargerBoiteMorte();
++  const groupes = opts.cle ? boite.groupes.filter((g) => g.cle === opts.cle) : boite.groupes;
++  const tous = groupes.flatMap((g) => g.ids);
++  const ids = tous.slice(0, limite);
++  if (!ids.length) return { relances: 0, etapesReparees: 0, restants: boite.total, borne: false };
++
++  const relances = await prisma.$executeRaw`
++    UPDATE "KnowledgeJob"
++    SET status = 'QUEUED',
++        attempts = 0,
++        "runAfter" = now(),
++        "claimedAt" = NULL,
++        "finishedAt" = NULL,
++        payload = CASE WHEN jsonb_typeof(payload) = 'object' THEN payload - '_reports' ELSE payload END,
++        "lastError" = left('Relancé depuis la boîte morte — motif précédent : ' || coalesce("lastError", '—'), 500)
++    WHERE id = ANY(${ids}::text[]) AND status = 'DEAD'`;
++
++  const itemIds = await prisma.knowledgeJob
++    .findMany({ where: { id: { in: ids }, itemId: { not: null } }, select: { itemId: true } })
++    .then((r) => [...new Set(r.map((x) => x.itemId as string))]);
++  const etapesReparees = itemIds.length ? await reparerEtapesEnEchec(itemIds.length, itemIds) : 0;
++  const restants = await prisma.knowledgeJob.count({ where: { status: "DEAD" } });
++  return { relances, etapesReparees, restants, borne: tous.length > ids.length };
++}
+diff --git a/src/lib/knowledge/relance-flow.test.ts b/src/lib/knowledge/relance-flow.test.ts
+new file mode 100644
+index 0000000..3c5262e
+--- /dev/null
++++ b/src/lib/knowledge/relance-flow.test.ts
+@@ -0,0 +1,317 @@
++import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
++import type { CurrentUser } from "@/lib/session";
++
++vi.mock("next/cache", () => ({ revalidatePath: () => {} }));
++let ACTOR: CurrentUser | null = null;
++vi.mock("@/lib/session", () => ({ requireUser: async () => ACTOR }));
++
++import { prisma } from "@/lib/prisma";
++import { getAccess, hasGlobalView, type SessionUser } from "@/lib/rbac";
++import { lunaConfigured } from "@/lib/openai-luna";
++import { remplacerLecteurInterrupteurIaPourTests } from "@/lib/ai-settings";
++import { contentHash } from "./text";
++import { ingestFast } from "./ingest";
++import { stageEntities } from "./stages";
++import { traiterJob, knowledgeHealth } from "./worker";
++import { relancerTravauxMorts, reparerEtapesEnEchec, rattraperVecteurs, rattraperVisions, chargerBoiteMorte } from "./rattrapage";
++import { cleDeGroupe } from "./boite-morte";
++import { MAX_ATTEMPTS } from "./contract";
++import { relancerBoiteMorte } from "@/lib/actions/knowledge-actions";
++
++/**
++ * ═══════════════════════════════════════════════════════════════════════════════════════════
++ * LA COUCHE DE CONNAISSANCE, PAR SES VRAIS POINTS D'ENTRÉE — ce que l'écran de production a montré.
++ *
++ *   • « Boîte morte 441 » : une panne du FOURNISSEUR (clé, interrupteur, réseau) envoyait les
++ *     travaux en boîte morte et passait les documents « en échec ». Ici : elle ATTEND, sans
++ *     consommer d'essai, et l'étape du document ne bouge pas.
++ *   • La boîte morte est RELANÇABLE par cause, proprement (essais remis à zéro), une seule fois
++ *     (idempotent), bornée, et par le seul Super Admin.
++ *   • Les éléments « en échec » laissés par l'ancienne règle retrouvent l'étape que leurs faits
++ *     disent ; un fichier sans texte finit « sans texte lisible ».
++ *   • Les vecteurs et lectures visuelles jamais faits sont rattrapés — jamais sans modèle.
++ *
++ * Tout ce qui est créé porte `__krel__` et est retiré à la fin, dans une base partagée.
++ * ═══════════════════════════════════════════════════════════════════════════════════════════
++ */
++
++let dbOk = false;
++try { await prisma.$queryRaw`SELECT 1`; dbOk = true; } catch { dbOk = false; }
++const suite = dbOk ? describe : describe.skip;
++
++const TAG = "__krel__";
++/** Un mot que rien d'autre n'écrit : les groupes de ce banc ne se mêlent pas à ceux des voisins. */
++const MOT = "zqkrelzq";
++
++async function nettoyer() {
++  const items = await prisma.knowledgeItem.findMany({ where: { sourceId: { startsWith: TAG } }, select: { id: true } });
++  const ids = items.map((i) => i.id);
++  await prisma.knowledgeJob.deleteMany({ where: { OR: [{ itemId: { in: ids } }, { dedupeKey: { startsWith: TAG } }, { lastError: { contains: MOT } }] } });
++  if (ids.length) {
++    await prisma.knowledgeChunk.deleteMany({ where: { itemId: { in: ids } } });
++    await prisma.knowledgeItem.deleteMany({ where: { id: { in: ids } } });
++  }
++  const users = await prisma.user.findMany({ where: { email: { startsWith: TAG } }, select: { id: true } });
++  if (users.length) {
++    await prisma.auditLog.deleteMany({ where: { actorId: { in: users.map((u) => u.id) } } }).catch(() => undefined);
++    await prisma.user.deleteMany({ where: { id: { in: users.map((u) => u.id) } } }).catch(() => undefined);
++  }
++}
++
++async function element(nom: string, opts: { text?: string | null; stage?: string; extractedBy?: string; chunks?: number } = {}) {
++  const text = opts.text === undefined ? `Texte de ${nom} suffisant pour être retrouvé.` : opts.text;
++  const it = await prisma.knowledgeItem.create({
++    data: {
++      sourceType: "drive_file", sourceId: `${TAG}${nom}`, contentHash: contentHash(nom), title: `${nom}.pdf`,
++      text, textFold: text ? text.toLowerCase() : null, stage: opts.stage ?? "READY", extractedBy: opts.extractedBy ?? "native",
++    },
++    select: { id: true },
++  });
++  for (let i = 0; i < (opts.chunks ?? 0); i += 1) {
++    await prisma.knowledgeChunk.create({ data: { itemId: it.id, kind: "section", ord: i, text: `morceau ${i}`, textFold: `morceau ${i}` } });
++  }
++  return it.id;
++}
++
++async function travail(kind: string, itemId: string | null, data: { status: string; attempts?: number; lastError?: string | null }) {
++  return prisma.knowledgeJob.create({
++    data: { kind, itemId, status: data.status, attempts: data.attempts ?? 0, maxAttempts: MAX_ATTEMPTS, lastError: data.lastError ?? null, dedupeKey: `${TAG}${Math.random().toString(36).slice(2)}` },
++    select: { id: true },
++  });
++}
++
++async function acteur(nom: string, role: SessionUser["role"]): Promise<CurrentUser> {
++  const u = await prisma.user.create({ data: { email: `${TAG}${nom}@t.dz`, name: `${TAG}${nom}`, role, passwordHash: "x" }, select: { id: true, name: true, email: true } });
++  return { id: u.id, name: u.name, email: u.email, role, access: await getAccess(u.id, role), mustChangePassword: false };
++}
++
++suite("Couche de connaissance — pannes, boîte morte, rattrapages", () => {
++  beforeAll(nettoyer);
++  afterAll(nettoyer);
++  afterEach(() => remplacerLecteurInterrupteurIaPourTests(null));
++
++  it("PRÉMISSE : ce banc tourne sans clé du fournisseur — c'est la vraie situation qu'il éprouve", () => {
++    expect(lunaConfigured()).toBe(false);
++  });
++
++  it("SANS CLÉ, une vectorisation ATTEND : aucun essai consommé, jamais la boîte morte, l'étape intacte", async () => {
++    const itemId = await element("sans-cle", { chunks: 2 });
++    // Le travail est au DERNIER essai : l'ancienne règle l'envoyait en boîte morte et passait le
++    // document « en échec ».
++    const j = await travail("embed", itemId, { status: "RUNNING", attempts: MAX_ATTEMPTS });
++    const issue = await traiterJob({ id: j.id, kind: "embed", itemId, payload: null, attempts: MAX_ATTEMPTS });
++    expect(issue).toBe("reporte");
++    const job = await prisma.knowledgeJob.findUniqueOrThrow({ where: { id: j.id } });
++    expect(job.status).toBe("QUEUED");
++    expect(job.attempts).toBe(MAX_ATTEMPTS - 1); // l'essai de la réclamation est rendu
++    expect(job.runAfter.getTime()).toBeGreaterThan(Date.now() + 10 * 60_000);
++    expect(job.lastError).toMatch(/En attente — panne temporaire/);
++    expect((job.payload as { _reports?: number })._reports).toBe(1);
++    const item = await prisma.knowledgeItem.findUniqueOrThrow({ where: { id: itemId } });
++    expect(item.stage).toBe("READY");
++  });
++
++  it("SOUS L'INTERRUPTEUR COUPÉ, même chose — la clé présente ne change rien, rien ne part", async () => {
++    const avant = process.env.OPENAI_API_KEY;
++    process.env.OPENAI_API_KEY = "cle-de-banc";
++    remplacerLecteurInterrupteurIaPourTests(async () => true);
++    const fetchEspion = vi.spyOn(globalThis, "fetch");
++    try {
++      const itemId = await element("interrupteur", { chunks: 1 });
++      const j = await travail("embed", itemId, { status: "RUNNING", attempts: 1 });
++      expect(await traiterJob({ id: j.id, kind: "embed", itemId, payload: null, attempts: 1 })).toBe("reporte");
++      expect(fetchEspion).not.toHaveBeenCalled();
++      const job = await prisma.knowledgeJob.findUniqueOrThrow({ where: { id: j.id } });
++      expect(job.status).toBe("QUEUED");
++    } finally {
++      fetchEspion.mockRestore();
++      if (avant === undefined) delete process.env.OPENAI_API_KEY; else process.env.OPENAI_API_KEY = avant;
++    }
++  });
++
++  it("une panne qui PERSISTE au-delà des reports finit en boîte morte — avec un motif qui le dit", async () => {
++    const itemId = await element("persistante", { chunks: 1 });
++    const j = await prisma.knowledgeJob.create({
++      data: { kind: "embed", itemId, status: "RUNNING", attempts: 1, payload: { _reports: 20 }, dedupeKey: `${TAG}persist` },
++    });
++    expect(await traiterJob({ id: j.id, kind: "embed", itemId, payload: { _reports: 20 }, attempts: 1 })).toBe("mort");
++    const job = await prisma.knowledgeJob.findUniqueOrThrow({ where: { id: j.id } });
++    expect(job.status).toBe("DEAD");
++    expect(job.lastError).toMatch(/Panne persistante après 20 reports/);
++  });
++
++  it("un défaut du DOCUMENT au dernier essai : boîte morte, motif noté sur l'élément — son étape ne recule pas", async () => {
++    const itemId = await element("defaut");
++    const j = await travail("entities", itemId, { status: "RUNNING", attempts: MAX_ATTEMPTS });
++    const issue = await traiterJob(
++      { id: j.id, kind: "entities", itemId, payload: null, attempts: MAX_ATTEMPTS },
++      { executer: async () => { throw new Error(`Format ${MOT} refusé`); } },
++    );
++    expect(issue).toBe("mort");
++    expect((await prisma.knowledgeJob.findUniqueOrThrow({ where: { id: j.id } })).status).toBe("DEAD");
++    const item = await prisma.knowledgeItem.findUniqueOrThrow({ where: { id: itemId } });
++    expect(item.stage).toBe("READY"); // l'ancienne règle : FAILED, et le document sortait des retrouvables
++    expect(item.error).toMatch(/Étape « entities » abandonnée/);
++  });
++
++  it("RELANCER une cause : propre (essais à zéro), seulement ce groupe, une seule fois, et les étapes réparées", async () => {
++    const a = await element("rel-a", { stage: "FAILED" });
++    const b = await element("rel-b", { stage: "FAILED", text: null });
++    const autre = await element("rel-autre", { stage: "FAILED" });
++    const motif = `Erreur ${MOT} du parseur`;
++    const ja = await travail("classify", a, { status: "DEAD", attempts: 4, lastError: motif });
++    const jb = await travail("classify", b, { status: "DEAD", attempts: 4, lastError: motif });
++    const jAutre = await travail("classify", autre, { status: "DEAD", attempts: 4, lastError: `Autre ${MOT} chose` });
++    await travail("entities", a, { status: "DONE" }); // a a été relié
++
++    const cle = cleDeGroupe({ kind: "classify", lastError: motif, nom: "x.pdf" });
++    const boite = await chargerBoiteMorte();
++    expect(boite.groupes.find((g) => g.cle === cle)?.count).toBe(2);
++
++    // DEUX clics en même temps : chaque travail n'est relancé qu'une fois. L'entrelacement est
++    // FORCÉ : le banc verrouille les deux lignes, laisse les deux relances LIRE la boîte (les
++    // lectures ne sont pas bloquées) et attend qu'elles soient toutes deux arrêtées sur leur
++    // écriture, puis relâche. Sans cette barrière, les deux gestes se succèdent parfois, et le
++    // cas passerait aussi sans la condition `status = 'DEAD'` qu'il existe pour garder.
++    let barriere = false;
++    const [r1, r2] = await prisma.$transaction(async (tx) => {
++      await tx.$queryRaw`SELECT id FROM "KnowledgeJob" WHERE id = ANY(${[ja.id, jb.id]}::text[]) FOR UPDATE`;
++      const gestes = Promise.all([relancerTravauxMorts({ cle }), relancerTravauxMorts({ cle })]);
++      for (let i = 0; i < 300 && !barriere; i += 1) {
++        const [{ n }] = await prisma.$queryRaw<{ n: bigint }[]>`
++          SELECT count(*)::bigint AS n FROM pg_stat_activity
++          WHERE wait_event_type = 'Lock' AND query ILIKE '%UPDATE "KnowledgeJob"%depuis la boîte morte%'`;
++        if (Number(n) >= 2) barriere = true;
++        else await new Promise((r) => setTimeout(r, 50));
++      }
++      return { gestes };
++    }, { timeout: 30_000 }).then(({ gestes }) => gestes);
++    expect(barriere, "les deux relances doivent avoir été arrêtées ENSEMBLE sur leur écriture").toBe(true);
++    expect(r1.relances + r2.relances).toBe(2);
++
++    for (const id of [ja.id, jb.id]) {
++      const job = await prisma.knowledgeJob.findUniqueOrThrow({ where: { id } });
++      expect(job.status).toBe("QUEUED");
++      expect(job.attempts).toBe(0);
++      expect(job.lastError).toContain(motif); // l'histoire du motif est gardée
++      expect(job.runAfter.getTime()).toBeLessThanOrEqual(Date.now());
++    }
++    expect((await prisma.knowledgeJob.findUniqueOrThrow({ where: { id: jAutre.id } })).status).toBe("DEAD");
++
++    // Les étapes : a avait un texte et une relation faite → relié ; b n'avait aucun texte → sans texte.
++    expect((await prisma.knowledgeItem.findUniqueOrThrow({ where: { id: a } })).stage).toBe("READY");
++    expect((await prisma.knowledgeItem.findUniqueOrThrow({ where: { id: b } })).stage).toBe("EMPTY");
++    // L'élément de l'AUTRE cause n'a pas été touché par cette relance.
++    expect((await prisma.knowledgeItem.findUniqueOrThrow({ where: { id: autre } })).stage).toBe("FAILED");
++
++    // Rejouer le clic : rien.
++    expect((await relancerTravauxMorts({ cle })).relances).toBe(0);
++  });
++
++  it("la relance est BORNÉE par clic, et le dit", async () => {
++    const motif = `Borne ${MOT} atteinte`;
++    for (let i = 0; i < 3; i += 1) await travail("classify", null, { status: "DEAD", attempts: 4, lastError: motif });
++    const cle = cleDeGroupe({ kind: "classify", lastError: motif, nom: null });
++    const r = await relancerTravauxMorts({ cle, limite: 2 });
++    expect(r.relances).toBe(2);
++    expect(r.borne).toBe(true);
++    const r2 = await relancerTravauxMorts({ cle, limite: 2 });
++    expect(r2.relances).toBe(1);
++    expect(r2.borne).toBe(false);
++  });
++
++  it("l'ACTION est au Super Admin : un administrateur délégué sans vue globale est refusé, et rien ne bouge", async () => {
++    const motif = `Action ${MOT} gardée`;
++    const j = await travail("classify", null, { status: "DEAD", attempts: 4, lastError: motif });
++    const fd = new FormData();
++    fd.set("cle", cleDeGroupe({ kind: "classify", lastError: motif, nom: null }));
++
++    ACTOR = await acteur("finances", "FINANCE_BUDGET_MANAGER");
++    expect(hasGlobalView(ACTOR.role)).toBe(false); // PRÉMISSE : le refus ne peut venir que de la règle
++    const refus = await relancerBoiteMorte(fd);
++    expect(refus.ok).toBe(false);
++    expect(refus.error).toMatch(/Super Admin/);
++    expect((await prisma.knowledgeJob.findUniqueOrThrow({ where: { id: j.id } })).status).toBe("DEAD");
++
++    ACTOR = await acteur("sa", "SUPER_ADMIN");
++    const ok = await relancerBoiteMorte(fd);
++    expect(ok.ok).toBe(true);
++    expect(ok.relances).toBe(1);
++    expect((await prisma.knowledgeJob.findUniqueOrThrow({ where: { id: j.id } })).status).toBe("QUEUED");
++    const encore = await relancerBoiteMorte(fd);
++    expect(encore.ok).toBe(false); // idempotent : le second clic ne trouve plus rien, et le DIT
++    ACTOR = null;
++  });
++
++  it("les éléments « en échec » de l'ancienne règle retrouvent l'étape de leurs faits — idempotent", async () => {
++    const lu = await element("rep-lu", { stage: "FAILED" });
++    const muet = await element("rep-muet", { stage: "FAILED", text: null });
++    const scan = await element("rep-scan", { stage: "FAILED", text: null, extractedBy: "luna" });
++    const n = await reparerEtapesEnEchec(50, [lu, muet, scan]);
++    expect(n).toBe(3);
++    expect((await prisma.knowledgeItem.findUniqueOrThrow({ where: { id: lu } })).stage).toBe("INDEXED");
++    expect((await prisma.knowledgeItem.findUniqueOrThrow({ where: { id: muet } })).stage).toBe("EMPTY");
++    expect((await prisma.knowledgeItem.findUniqueOrThrow({ where: { id: scan } })).stage).toBe("RECEIVED");
++    expect(await reparerEtapesEnEchec(50, [lu, muet, scan])).toBe(0);
++  });
++
++  it("un fichier lu SANS texte finit « sans texte lisible » ; un scan qui attend sa vision reste « reçu »", async () => {
++    const vide = await ingestFast({
++      sourceType: "drive_file", sourceId: `${TAG}ing-vide`, contentHash: contentHash(`${TAG}v`),
++      extractedBy: "native", deepJobs: ["classify", "entities"],
++    });
++    expect(vide?.stage).toBe("EMPTY");
++    const scan = await ingestFast({
++      sourceType: "drive_file", sourceId: `${TAG}ing-scan`, contentHash: contentHash(`${TAG}s`),
++      extractedBy: "luna", deepJobs: ["classify", "entities", "vision"],
++    });
++    expect(scan?.stage).toBe("RECEIVED");
++    // La mise en relation ne déclare plus « recherchable et relié » un fichier sans texte.
++    await stageEntities(scan!.itemId);
++    expect((await prisma.knowledgeItem.findUniqueOrThrow({ where: { id: scan!.itemId } })).stage).toBe("RECEIVED");
++    await stageEntities(vide!.itemId);
++    expect((await prisma.knowledgeItem.findUniqueOrThrow({ where: { id: vide!.itemId } })).stage).toBe("EMPTY");
++  });
++
++  it("RATTRAPAGE DES VECTEURS : ce qui était voulu et jamais fait repart — pas sans modèle, pas un travail mort", async () => {
++    const voulu = await element("vec-voulu", { chunks: 3 });
++    await travail("embed", voulu, { status: "DONE" }); // terminé « sans rien faire » (sans clé)
++    const jamaisVoulu = await element("vec-jamais", { chunks: 2 }); // §18 : personne n'a demandé de vecteur
++    const mort = await element("vec-mort", { chunks: 2 });
++    await travail("embed", mort, { status: "DEAD", lastError: `Vecteur ${MOT}` }); // se relance d'un clic
++    const ids = [voulu, jamaisVoulu, mort];
++
++    expect(await rattraperVecteurs(10, { itemIds: ids })).toBe(0); // vraie disponibilité : pas de clé
++    const dispo = async () => ({ ok: true, raison: null });
++    expect(await rattraperVecteurs(10, { itemIds: ids, modele: dispo })).toBe(1);
++    const enFile = await prisma.knowledgeJob.findMany({ where: { itemId: { in: ids }, kind: "embed", status: "QUEUED" } });
++    expect(enFile.map((j) => j.itemId)).toEqual([voulu]);
++    // Rejouer ne double rien : un travail est déjà en file.
++    expect(await rattraperVecteurs(10, { itemIds: ids, modele: dispo })).toBe(0);
++  });
++
++  it("RATTRAPAGE DES LECTURES VISUELLES : une seule reprise par scan jamais lu", async () => {
++    const scan = await element("vis-scan", { text: null, stage: "RECEIVED", extractedBy: "luna_vision" });
++    await travail("vision", scan, { status: "DONE" });
++    const lu = await element("vis-lu", { extractedBy: "luna" }); // déjà lu : rien à faire
++    await travail("vision", lu, { status: "DONE" });
++    const dispo = async () => ({ ok: true, raison: null });
++    expect(await rattraperVisions(5, { itemIds: [scan, lu], modele: dispo })).toBe(1);
++    await prisma.knowledgeJob.updateMany({ where: { itemId: scan, kind: "vision", status: "QUEUED" }, data: { status: "DONE" } });
++    expect(await rattraperVisions(5, { itemIds: [scan, lu], modele: dispo })).toBe(0); // une seule reprise
++  });
++
++  it("L'ÉCRAN : une ligne par moyen (plus de « luna_vision » ni d'« hybride » bruts), pgvector constaté", async () => {
++    await element("ecran-lv", { extractedBy: "luna_vision" });
++    await element("ecran-hy", { extractedBy: "hybride" });
++    const h = await knowledgeHealth();
++    expect(h.byExtraction).not.toHaveProperty("luna_vision");
++    expect(h.byExtraction).not.toHaveProperty("hybride");
++    expect(h.byExtraction.hybrid ?? 0).toBeGreaterThanOrEqual(1);
++    expect(["absente", "disponible", "installee", "inconnu"]).toContain(h.pgvector);
++    const constat = await prisma.$queryRaw<{ n: bigint }[]>`SELECT count(*)::bigint AS n FROM pg_available_extensions WHERE name = 'vector'`;
++    expect(h.pgvector === "absente").toBe(Number(constat[0].n) === 0);
++    expect(h.modele.ok).toBe(false);
++    expect(h.modele.raison).toMatch(/clé/);
++  });
++});
+diff --git a/src/lib/knowledge/sources/drive.ts b/src/lib/knowledge/sources/drive.ts
+index cf141e4..85198e5 100644
+--- a/src/lib/knowledge/sources/drive.ts
++++ b/src/lib/knowledge/sources/drive.ts
+@@ -79,23 +79,43 @@ export interface DriveIngestDraft {
+  * récente déposée entre-temps, qui ferait citer une page qui n'est pas celle qu'on a lue.
+  */
+ export async function driveBytes(nodeId: string): Promise<{ buffer: Buffer; mime: string; name: string } | null> {
++  const r = await lireOctetsDrive(nodeId);
++  return r.ok ? r : null;
++}
++
++/**
++ * LES MÊMES OCTETS, AVEC LA RAISON QUAND ILS MANQUENT. `driveBytes` répondait `null` à quatre
++ * questions différentes ; l'étage vision a besoin de les distinguer, parce qu'elles n'appellent
++ * pas le même geste :
++ *   • `absent`   — nœud supprimé, à la corbeille, ou n'est pas un fichier : rien à lire, et rien à
++ *                  corriger ;
++ *   • `trop_gros` — au-delà de la borne d'ingestion : le fichier existe, on ne le lit pas, et
++ *                  l'écran doit le dire « sans texte lisible » plutôt qu'« en échec » ;
++ *   • `stockage` — la fiche existe mais ses octets sont introuvables : c'est un VRAI défaut, et il
++ *                  doit se voir dans la boîte morte avec ce nom-là.
++ */
++export type OctetsDrive =
++  | { ok: true; buffer: Buffer; mime: string; name: string }
++  | { ok: false; raison: "absent" | "trop_gros" | "stockage"; name: string | null };
++
++export async function lireOctetsDrive(nodeId: string): Promise<OctetsDrive> {
+   const node = await prisma.driveNode
+     .findUnique({ where: { id: nodeId }, select: { id: true, name: true, type: true, isTrashed: true, size: true } })
+     .catch(() => null);
+-  if (!node || node.type !== "FILE" || node.isTrashed) return null;
+-  if (node.size != null && node.size > MAX_INGEST_BYTES) return null;
++  if (!node || node.type !== "FILE" || node.isTrashed) return { ok: false, raison: "absent", name: node?.name ?? null };
++  if (node.size != null && node.size > MAX_INGEST_BYTES) return { ok: false, raison: "trop_gros", name: node.name };
+ 
+   const version = await prisma.fileVersion
+     .findFirst({ where: { nodeId }, orderBy: { version: "desc" }, select: { blobId: true } })
+     .catch(() => null);
+-  if (!version?.blobId) return null;
++  if (!version?.blobId) return { ok: false, raison: "stockage", name: node.name };
+ 
+   const buffer = await getBlob(version.blobId).catch(() => null);
+-  if (!buffer) return null;
++  if (!buffer) return { ok: false, raison: "stockage", name: node.name };
+ 
+   const guessed = detectMime(buffer, (node.name.split(".").pop() ?? "").toLowerCase());
+   const mime = guessed.family === "zip-office" ? (officeMimeOf(node.name) ?? guessed.mime) : guessed.mime;
+-  return { buffer, mime, name: node.name };
++  return { ok: true, buffer, mime, name: node.name };
+ }
+ 
+ /**
+diff --git a/src/lib/knowledge/stages.ts b/src/lib/knowledge/stages.ts
+index cfdd674..f5d40ad 100644
+--- a/src/lib/knowledge/stages.ts
++++ b/src/lib/knowledge/stages.ts
+@@ -2,13 +2,15 @@ import { Prisma } from "@prisma/client";
+ import { prisma } from "@/lib/prisma";
+ import { classifyDocument, DOC_KIND_LABEL } from "@/platform/doc-kind";
+ import { lunaEmbed, callLuna, lunaConfigured, EMBED_DIMS } from "@/lib/openai-luna";
+-import { type KnowledgeMeta } from "./contract";
+-import { setStage } from "./ingest";
++import { normaliserMoyen, type KnowledgeChunkDraft, type KnowledgeMeta } from "./contract";
++import { setStage, replaceChunks } from "./ingest";
++import { chunkText } from "./chunk";
++import { PanneTemporaire, estPanneTemporaire } from "./panne";
+ import { documentDateOf, detectLanguage, extractDates, extractAmounts } from "./facts";
+ import { fold } from "./text";
+ import { linkEntitiesForItem } from "./entities/link";
+ import { decideRoute } from "./route";
+-import { driveBytes } from "./sources/drive";
++import { lireOctetsDrive } from "./sources/drive";
+ import { rasterizePages } from "@/lib/storage/raster";
+ 
+ /**
+@@ -96,6 +98,21 @@ export async function stageEntities(itemId: string): Promise<boolean> {
+   const r = await linkEntitiesForItem(itemId);
+   // `READY` même sans aucun lien écrit : un document qui ne cite aucune entité connue est
+   // complètement traité, pas en panne. Le retenir en `CLASSIFIED` le ferait passer pour bloqué.
++  //
++  // MAIS PAS SANS TEXTE. « Recherchable et relié » sur un fichier dont on n'a tiré aucune ligne
++  // était faux : l'étage passait l'élément `READY` avant même que la lecture visuelle ait eu lieu,
++  // et l'écran comptait parmi les retrouvables des scans que personne n'avait lus. Un objet
++  // STRUCTURÉ (`metadata`) reste retrouvable par ses champs ; un fichier sans texte attend sa
++  // lecture visuelle, ou devient « sans texte lisible » s'il n'y en a pas à attendre.
++  const item = await prisma.knowledgeItem.findUnique({
++    where: { id: itemId },
++    select: { text: true, extractedBy: true },
++  });
++  if (!item) return false;
++  if (!item.text && item.extractedBy !== "metadata") {
++    if (normaliserMoyen(item.extractedBy) !== "luna") await setStage(itemId, "EMPTY");
++    return r.mentions > 0;
++  }
+   await setStage(itemId, "READY");
+   if (r.written) {
+     console.info("[knowledge] linked", { itemId, ...r });
+@@ -115,10 +132,13 @@ const EMBED_BATCH = 32;
+  * JSONB et le cosinus se calcule en mémoire, exactement comme le corpus CTD et l'index Drive. Le
+  * jour où l'extension sera là, seule la colonne et la requête de rapprochement changeront.
+  *
+- * Sans clé OpenAI, cet étage rend `false` et la recherche reste lexicale : dégradée, pas cassée.
++ * Sans clé, cet étage ATTEND (`PanneTemporaire`) et la recherche reste lexicale : dégradée, pas
++ * cassée. Il rendait `false` autrefois — le travail était alors marqué TERMINÉ, et sa clé de
++ * dédoublonnage interdisait à jamais de le reprendre : la clé posée plus tard, ces documents ne
++ * se vectorisaient plus jamais. C'est une des deux raisons du « 6 % vectorisés ».
+  */
+ export async function stageEmbed(itemId: string): Promise<boolean> {
+-  if (!lunaConfigured()) return false;
++  if (!lunaConfigured()) throw new PanneTemporaire("Vectorisation en attente : la clé du fournisseur n'est pas configurée.");
+ 
+   const chunks = await prisma.knowledgeChunk.findMany({
+     where: { itemId, embedding: { equals: Prisma.DbNull } },
+@@ -129,9 +149,10 @@ export async function stageEmbed(itemId: string): Promise<boolean> {
+   if (!chunks.length) return false;
+ 
+   const vectors = await lunaEmbed(chunks.map((c) => c.text), EMBED_DIMS);
+-  // `null` = service indisponible ou refus. On LÈVE, pour que la file réessaie avec son attente
+-  // croissante : c'est exactement le cas où un réessai a un sens.
+-  if (!vectors) throw new Error("embeddings indisponibles");
++  // `null` = interrupteur coupé, fournisseur indisponible ou réseau. C'est une PANNE TEMPORAIRE :
++  // le travail attend sans consommer d'essai. L'ancienne règle (« erreur », quatre essais, puis
++  // boîte morte et document passé en échec) faisait d'une coupure de cinq minutes une perte.
++  if (!vectors) throw new PanneTemporaire("Vectorisation indisponible (interrupteur, fournisseur ou réseau).");
+ 
+   await Promise.all(
+     chunks.map((c, i) =>
+@@ -212,8 +233,21 @@ const VISION_SYSTEM =
+ /** Au-delà, ce n'est plus un rattrapage de pages : c'est une analyse, et elle a son propre lot. */
+ const VISION_MAX_PAGES = 8;
+ 
++/**
++ * SANS TEXTE LISIBLE — l'issue honnête d'un fichier dont on n'a rien pu tirer. Seulement quand
++ * l'élément n'a AUCUN texte : un document hybride garde ce que le parseur avait lu, et un
++ * élément déjà retrouvable ne recule pas (`advances`).
++ */
++async function sansTexte(item: { id: string; text: string | null }, raison: string): Promise<void> {
++  if ((item.text ?? "").trim()) return;
++  await setStage(item.id, "EMPTY", raison);
++}
++
+ export async function stageVision(itemId: string): Promise<boolean> {
+-  if (!lunaConfigured()) return false;
++  // Sans clé, l'étage ATTEND. Il rendait `false`, le travail était marqué terminé, et sa clé de
++  // dédoublonnage interdisait à jamais de le reprendre : ces scans restaient « Luna — vision »
++  // sans que Luna les ait jamais lus.
++  if (!lunaConfigured()) throw new PanneTemporaire("Lecture visuelle en attente : la clé du fournisseur n'est pas configurée.");
+ 
+   const item = await prisma.knowledgeItem.findUnique({
+     where: { id: itemId },
+@@ -224,8 +258,15 @@ export async function stageVision(itemId: string): Promise<boolean> {
+   // regarder — et prétendre le contraire ferait tourner cet étage pour rien à chaque passage.
+   if (item.sourceType !== "drive_file" && item.sourceType !== "attachment") return false;
+ 
+-  const src = await driveBytes(item.sourceId);
+-  if (!src) return false;
++  const octets = await lireOctetsDrive(item.sourceId.split("#")[0]);
++  if (!octets.ok) {
++    // Trois raisons, trois issues : rien à lire (nœud parti), lu « sans texte » (au-delà de la
++    // borne), ou un VRAI défaut du stockage — qui doit se voir en boîte morte sous ce nom-là.
++    if (octets.raison === "stockage") throw new Error("Fichier introuvable dans le stockage (version ou contenu absent).");
++    if (octets.raison === "trop_gros") await sansTexte(item, "Fichier au-delà de la taille lue par l'indexation (8 Mo).");
++    return false;
++  }
++  const src = octets;
+ 
+   // On REDÉCIDE ici plutôt que de relire une décision prise à l'ingestion : entre les deux, le
+   // texte a pu être réparé par un autre étage. Redécider rend l'étage idempotent et évite de
+@@ -256,8 +297,11 @@ export async function stageVision(itemId: string): Promise<boolean> {
+     for (const r of rendered) { images.push({ buffer: r.png, mime: "image/png" }); rangs.push(r.page); }
+   }
+   // Rien à regarder — un PDF vide ou une rastérisation entièrement en échec. On ne relance pas :
+-  // ce n'est pas une panne, c'est un document dont on ne peut rien tirer.
+-  if (images.length === 0) return false;
++  // ce n'est pas une panne, c'est un document dont on ne peut rien tirer — et on le DIT.
++  if (images.length === 0) {
++    await sansTexte(item, "Aucune page n'a pu être rendue pour la lecture visuelle.");
++    return false;
++  }
+ 
+   const reply = await callLuna<{ pages?: { page?: number; texte?: string }[]; confiance?: number }>({
+     system: VISION_SYSTEM,
+@@ -269,13 +313,23 @@ export async function stageVision(itemId: string): Promise<boolean> {
+     jsonSchema: VISION_SCHEMA,
+     maxOutputTokens: 8000,
+   });
+-  if (!reply.ok || !reply.data) return false;
++  if (!reply.ok) {
++    // Fournisseur, clé, interrupteur, réseau : le travail ATTEND. Un refus argumenté (format,
++    // requête) est un défaut du document, et il compte ses essais.
++    const motif = reply.error ?? "Lecture visuelle impossible.";
++    if (!reply.configured || estPanneTemporaire(motif)) throw new PanneTemporaire(motif);
++    throw new Error(`Lecture visuelle refusée : ${motif}`);
++  }
++  if (!reply.data) throw new Error("Lecture visuelle : réponse inexploitable (JSON illisible).");
+ 
+   const lues = (reply.data.pages ?? [])
+     .map((p, i) => ({ page: Number(p?.page) || rangs[i] || i + 1, texte: (p?.texte ?? "").trim() }))
+     .filter((p) => p.texte.length > 0)
+     .sort((a, b) => a.page - b.page);
+-  if (lues.length === 0) return false;
++  if (lues.length === 0) {
++    await sansTexte(item, "La lecture visuelle n'a trouvé aucun texte sur les pages regardées.");
++    return true; // un modèle a regardé : c'est un travail fait, dont l'issue est « sans texte »
++  }
+ 
+   const ajout = lues.map((p) => `[page ${p.page}]\n${p.texte}`).join("\n\n");
+   const base = (item.text ?? "").trim();
+@@ -291,10 +345,40 @@ export async function stageVision(itemId: string): Promise<boolean> {
+       // `extractedBy` dit D'OÙ vient le texte. Sans lui, on ne saurait plus distinguer ce que le
+       // fichier contenait de ce qu'un modèle a cru y lire — et §23 exige de pouvoir répondre
+       // « d'où vient cette information ? ».
+-      extractedBy: base ? "hybride" : "luna_vision",
++      // Le vocabulaire est FERMÉ (`ExtractedBy`) : on écrivait « hybride » et « luna_vision »,
++      // deux écritures de plus pour le même moyen, que l'écran montrait sans libellé.
++      extractedBy: base ? "hybrid" : "luna",
+       ...(confiance !== null ? { confidence: confiance } : {}),
+     },
+   });
++
++  // CE QUI A ÉTÉ LU DOIT SE RETROUVER. Le texte lu n'était écrit que sur l'élément : aucun
++  // morceau, donc aucune recherche par le contenu (elle cherche dans les morceaux), aucune
++  // relation, aucun vecteur. On AJOUTE les pages lues aux morceaux existants (le découpage natif
++  // d'un document hybride reste tel quel), puis on demande les étages qui suivent — une seule fois
++  // par lecture visuelle (clé `:vision`).
++  const existants = await prisma.knowledgeChunk.findMany({
++    where: { itemId },
++    orderBy: { ord: "asc" },
++    select: { kind: true, ord: true, label: true, locator: true, text: true },
++  });
++  const pages: KnowledgeChunkDraft[] = lues.flatMap((p) =>
++    chunkText(p.texte).map((c) => ({
++      ...c,
++      kind: "page" as const,
++      label: `Page ${p.page} (lecture visuelle)`,
++      locator: String(p.page),
++    })),
++  );
++  await replaceChunks(itemId, [
++    ...existants.map((c) => ({ kind: c.kind as KnowledgeChunkDraft["kind"], ord: c.ord, label: c.label, locator: c.locator, text: c.text })),
++    ...pages.map((c, i) => ({ ...c, ord: existants.length + i })),
++  ]);
++  await setStage(itemId, "INDEXED");
++  const { enqueueAll } = await import("./queue");
++  await enqueueAll(
++    (["classify", "entities", "embed"] as const).map((kind) => ({ kind, itemId, dedupeKey: `${kind}:${itemId}:vision` })),
++  );
+   return true;
+ }
+ 
+@@ -334,7 +418,7 @@ const SUMMARY_SCHEMA = {
+  * complète est un résumé qui invente, et il finirait cité comme un fait de l'entreprise.
+  */
+ export async function stageEnrich(itemId: string): Promise<boolean> {
+-  if (!lunaConfigured()) return false;
++  if (!lunaConfigured()) throw new PanneTemporaire("Résumé en attente : la clé du fournisseur n'est pas configurée.");
+ 
+   const item = await prisma.knowledgeItem.findUnique({
+     where: { id: itemId },
+@@ -354,7 +438,11 @@ export async function stageEnrich(itemId: string): Promise<boolean> {
+     maxOutputTokens: 600,
+   });
+ 
+-  // Non configuré ou refus : ce n'est pas un échec à réessayer indéfiniment.
++  // Une panne de l'environnement (clé, interrupteur, fournisseur, réseau) ATTEND — elle ne
++  // condamne pas le résumé. Un refus argumenté, lui, n'est pas un échec à réessayer indéfiniment.
++  if (!res.ok && (!res.configured || estPanneTemporaire(res.error ?? ""))) {
++    throw new PanneTemporaire(res.error ?? "Résumé indisponible (fournisseur).");
++  }
+   if (!res.ok || !res.data?.resume) return false;
+ 
+   await prisma.knowledgeItem.update({
+diff --git a/src/lib/knowledge/worker.ts b/src/lib/knowledge/worker.ts
+index 7675f4c..9ff334d 100644
+--- a/src/lib/knowledge/worker.ts
++++ b/src/lib/knowledge/worker.ts
+@@ -1,8 +1,13 @@
+ import { Prisma } from "@prisma/client";
+ import { prisma } from "@/lib/prisma";
+-import type { JobKind, KnowledgeSourceType } from "./contract";
+-import { claimNext, completeJob, failJob, requeueStale, queueHealth } from "./queue";
+-import { ingestFast, setStage } from "./ingest";
++import { JOB_KINDS, JOB_KINDS_MODELE, compterParMoyen, type JobKind, type KnowledgeSourceType } from "./contract";
++import { claimNext, completeJob, failJob, reporterJob, requeueStale, queueHealth, type ClaimedJob } from "./queue";
++import { ingestFast } from "./ingest";
++import { estPanneTemporaire } from "./panne";
++import {
++  reparerEtapesEnEchec, rattraperVecteurs, rattraperVisions, chargerBoiteMorte, etatVectorisation, etatPgvector,
++} from "./rattrapage";
++import { modeleDisponible } from "./disponibilite";
+ import { draftFromDriveNode } from "./sources/drive";
+ import { draftFromEmail, enqueueEmailBacklog } from "./sources/email";
+ import { stageClassify, stageEntities, stageEmbed, stageEnrich, stageVision } from "./stages";
+@@ -28,11 +33,15 @@ import { stageClassify, stageEntities, stageEmbed, stageEnrich, stageVision } fr
+  *
+  * ── CE QUI EST BRANCHÉ, ET CE QUI NE L'EST PAS ───────────────────────────────────────────
+  *
+- * `parse`, `classify`, `entities`, `embed` et `enrich` font un vrai travail (voir `stages.ts`).
+- * `vision` reste marqué TERMINÉ SANS TRAVAIL : la rastérisation des pages n'existe pas encore
+- * dans cette couche, et un étage qui échouerait en boucle remplirait la boîte morte de faux
+- * problèmes — ce qui masquerait les VRAIES pannes. La distinction « rien à faire » / « fait »
+- * est justement là pour que cet écart se voie dans l'observabilité au lieu de se deviner.
++ * Les six étages font un vrai travail (voir `stages.ts`). `enrich` existe mais aucune source ne
++ * le demande encore : le déclencher est une décision de coût, et l'écran le dit.
++ *
++ * ── PANNE TEMPORAIRE ≠ ÉCHEC (voir `panne.ts`) ───────────────────────────────────────────
++ *
++ * Sans modèle disponible (clé absente, interrupteur coupé), les travaux qui l'appellent ne sont
++ * pas réclamés ; une panne du fournisseur fait ATTENDRE un travail sans consommer d'essai. Seul un
++ * défaut du document finit en boîte morte — et la mort d'un enrichissement ne fait plus reculer
++ * l'étape du document : il reste retrouvable par son texte, ce qui est le service rendu.
+  * ═══════════════════════════════════════════════════════════════════════════════════════════
+  */
+ 
+@@ -48,6 +57,72 @@ export interface SweepResult {
+   failed: number;
+   skipped: number;
+   requeued: number;
++  /** Travaux qui ont rencontré une panne TEMPORAIRE et attendent — sans avoir consommé d'essai. */
++  postponed: number;
++  /** Étapes réparées : éléments que l'ancienne règle avait mis « en échec » à tort. */
++  repaired: number;
++}
++
++/** Les travaux qui ne coûtent rien — ceux qui avancent même sans modèle. */
++export const JOB_KINDS_CODE: readonly JobKind[] = JOB_KINDS.filter((k) => !JOB_KINDS_MODELE.has(k));
++
++/**
++ * CE QU'UN PASSAGE A LE DROIT DE RÉCLAMER. Sans modèle disponible (clé absente, interrupteur
++ * coupé), les travaux qui l'appelleraient ne sont même pas pris : ils ATTENDENT en file, sans
++ * consommer d'essai. Les réclamer pour les faire échouer aussitôt était le chemin le plus court
++ * vers la boîte morte — une coupure volontaire de l'IA y envoyait tous les vecteurs en cours.
++ */
++export function kindsReclamables(modeleDisponible: boolean): JobKind[] | undefined {
++  return modeleDisponible ? undefined : [...JOB_KINDS_CODE];
++}
++
++export type IssueTravail = "fait" | "rien" | "reporte" | "reessai" | "mort";
++
++/**
++ * UN TRAVAIL RÉCLAMÉ, TRAITÉ. Trois issues en cas d'exception, et la distinction est toute la
++ * réparation :
++ *
++ *   • PANNE TEMPORAIRE (`panne.ts`) → il ATTEND, sans consommer d'essai ;
++ *   • autre échec, essais restants → retour en file avec l'attente croissante ;
++ *   • essais épuisés → BOÎTE MORTE, et le motif est NOTÉ sur l'élément — sans toucher à son
++ *     étape. Un enrichissement mort (vecteurs, relations, résumé) ne retire rien à ce que
++ *     l'ingestion rapide a déjà rendu retrouvable : l'ancienne règle passait le document en
++ *     « échec », et la vectorisation ratée d'un fichier le faisait disparaître des retrouvables
++ *     alors que la recherche le trouvait toujours par son texte.
++ *
++ * `executer` s'injecte dans les bancs ; le défaut est le vrai aiguillage.
++ */
++export async function traiterJob(
++  job: ClaimedJob,
++  deps: { executer?: (kind: JobKind, itemId: string | null, payload: Record<string, unknown> | null) => Promise<boolean> } = {},
++): Promise<IssueTravail> {
++  const executer = deps.executer ?? handle;
++  try {
++    const done = await executer(job.kind, job.itemId, job.payload);
++    await completeJob(job.id);
++    return done ? "fait" : "rien";
++  } catch (err) {
++    const msg = err instanceof Error ? err.message : String(err);
++    if (estPanneTemporaire(err)) {
++      const r = await reporterJob(job.id, msg);
++      if (r === "dead" && job.itemId) await noterEchecSurElement(job.itemId, job.kind, msg);
++      return r === "dead" ? "mort" : "reporte";
++    }
++    const verdict = await failJob(job.id, msg);
++    if (verdict === "dead") {
++      console.error("[knowledge] job_dead", { kind: job.kind, itemId: job.itemId, error: msg.slice(0, 200) });
++      if (job.itemId) await noterEchecSurElement(job.itemId, job.kind, msg);
++      return "mort";
++    }
++    return "reessai";
++  }
++}
++
++/** Le motif d'un travail abandonné, noté sur l'élément — son ÉTAPE ne bouge pas. */
++async function noterEchecSurElement(itemId: string, kind: JobKind, msg: string): Promise<void> {
++  await prisma.knowledgeItem
++    .update({ where: { id: itemId }, data: { error: `Étape « ${kind} » abandonnée : ${msg}`.slice(0, 300) } })
++    .catch(() => undefined);
+ }
+ 
+ /**
+@@ -55,35 +130,31 @@ export interface SweepResult {
+  * exception ici les priverait tous de leur tour.
+  */
+ export async function runKnowledgeSweep(batch = BATCH): Promise<SweepResult> {
+-  const out: SweepResult = { processed: 0, failed: 0, skipped: 0, requeued: 0 };
++  const out: SweepResult = { processed: 0, failed: 0, skipped: 0, requeued: 0, postponed: 0, repaired: 0 };
+   if (!knowledgeWorkerEnabled()) return out;
+ 
+   try {
+     // Les travaux abandonnés par un processus tué reviennent en file — sinon ils resteraient
+     // « en cours » pour toujours, ce qui est la panne silencieuse classique d'une file.
+     out.requeued = await requeueStale();
++    // Les éléments que l'ancienne règle avait passés « en échec » retrouvent l'étape que leurs
++    // faits disent — un petit lot par passage, idempotent (voir `rattrapage.ts`).
++    out.repaired = await reparerEtapesEnEchec().catch(() => 0);
++
++    const modele = await modeleDisponible();
++    const kinds = kindsReclamables(modele.ok);
+ 
+     for (let i = 0; i < batch; i += 1) {
+-      const job = await claimNext();
++      const job = await claimNext(kinds);
+       if (!job) break;
+-
+-      try {
+-        const done = await handle(job.kind, job.itemId, job.payload);
+-        await completeJob(job.id);
+-        if (done) out.processed += 1;
+-        else out.skipped += 1;
+-      } catch (err) {
+-        const msg = err instanceof Error ? err.message : String(err);
+-        const verdict = await failJob(job.id, msg);
+-        out.failed += 1;
+-        if (verdict === "dead") {
+-          console.error("[knowledge] job_dead", { kind: job.kind, itemId: job.itemId, error: msg.slice(0, 200) });
+-          if (job.itemId) await setStage(job.itemId, "FAILED", msg.slice(0, 300));
+-        }
+-      }
++      const issue = await traiterJob(job);
++      if (issue === "fait") out.processed += 1;
++      else if (issue === "rien") out.skipped += 1;
++      else if (issue === "reporte") out.postponed += 1;
++      else out.failed += 1;
+     }
+ 
+-    if (out.processed || out.failed || out.requeued) {
++    if (out.processed || out.failed || out.requeued || out.postponed || out.repaired) {
+       console.info("[knowledge] sweep", JSON.stringify(out));
+     }
+   } catch (err) {
+@@ -213,19 +284,25 @@ export async function enqueueDriveBacklog(limit = 20): Promise<number> {
+  * traitement l'est pour une vraie raison — un scan sans couche texte — et c'est à la vision d'en
+  * décider, pas à ce rattrapage.
+  */
+-export async function enqueueBacklogs(limit = 20): Promise<{ drive: number; email: number }> {
+-  const [drive, email] = await Promise.all([
++export async function enqueueBacklogs(limit = 20): Promise<{ drive: number; email: number; vecteurs: number; visions: number }> {
++  const actif = knowledgeWorkerEnabled();
++  const [drive, email, vecteurs, visions] = await Promise.all([
+     enqueueDriveBacklog(limit).catch(() => 0),
+-    knowledgeWorkerEnabled() ? enqueueEmailBacklog(limit).catch(() => 0) : Promise.resolve(0),
++    actif ? enqueueEmailBacklog(limit).catch(() => 0) : Promise.resolve(0),
++    // LES VECTEURS ET LES LECTURES VISUELLES JAMAIS FAITS (voir `rattrapage.ts`). Bornés par
++    // passage, et sans modèle disponible (clé, interrupteur) ils ne mettent rien en file. Le lot
++    // grandit avec `limit` : le traitement planifiable « Rattrapage d'indexation » passe 60.
++    actif ? rattraperVecteurs(Math.max(1, Math.round(limit / 2))).catch(() => 0) : Promise.resolve(0),
++    actif ? rattraperVisions(Math.max(1, Math.round(limit / 6))).catch(() => 0) : Promise.resolve(0),
+   ]);
+-  return { drive, email };
++  return { drive, email, vecteurs, visions };
+ }
+ 
+ export async function enqueueStalled(limit = 20): Promise<number> {
+   if (!knowledgeWorkerEnabled()) return 0;
+   try {
+     const stalled = await prisma.knowledgeItem.findMany({
+-      where: { text: null, isCurrent: true, stage: { in: ["RECEIVED", "FAILED"] } },
++      where: { text: null, isCurrent: true, stage: { in: ["RECEIVED", "EMPTY", "FAILED"] } },
+       orderBy: { updatedAt: "asc" }, // les plus anciennement touchés d'abord : personne ne les repasse
+       take: limit,
+       select: { sourceType: true, sourceId: true, updatedAt: true },
+@@ -297,12 +374,39 @@ export async function knowledgeHealth() {
+     prisma.knowledgeChunk.count().catch(() => 0),
+     prisma.knowledgeChunk.count({ where: { NOT: { embedding: { equals: Prisma.DbNull } } } }).catch(() => 0),
+   ]);
++  const [retrouvables, courants, lunaNonLus, enrichDemandes, boiteMorte, vecteurs, pgvector, modele] = await Promise.all([
++    // RETROUVABLE = ce que la recherche trouve VRAIMENT : la version courante, avec un texte (ou un
++    // objet structuré, qu'on retrouve par ses champs). La recherche ne lit pas l'étape — compter
++    // par étape annonçait « 354 retrouvables » quand 441 éléments « en échec » se trouvaient très
++    // bien par leur texte.
++    prisma.knowledgeItem
++      .count({ where: { isCurrent: true, OR: [{ text: { not: null } }, { extractedBy: "metadata" }] } })
++      .catch(() => 0),
++    prisma.knowledgeItem.count({ where: { isCurrent: true } }).catch(() => 0),
++    // « Luna — vision » sans texte : routés vers la vision, jamais lus. Les compter avec les
++    // documents lus aurait fait croire que Luna avait travaillé.
++    prisma.knowledgeItem
++      .count({ where: { isCurrent: true, text: null, extractedBy: { in: ["luna", "luna_vision"] } } })
++      .catch(() => 0),
++    prisma.knowledgeJob.count({ where: { kind: "enrich" } }).catch(() => 0),
++    chargerBoiteMorte().catch(() => ({ total: 0, groupes: [], tronque: false })),
++    etatVectorisation().catch(() => ({ restants: 0, coutEstimeUsd: 0 })),
++    etatPgvector(),
++    modeleDisponible().catch(() => ({ ok: false, raison: "Disponibilité du modèle illisible." })),
++  ]);
+   return {
+     queue,
+     total,
++    courants,
++    retrouvables,
+     byStage: Object.fromEntries(byStage.map((r) => [r.stage, r._count._all])),
+-    byExtraction: Object.fromEntries(byExtraction.map((r) => [r.extractedBy ?? "inconnu", r._count._all])),
++    byExtraction: compterParMoyen(byExtraction.map((r) => ({ moyen: r.extractedBy, n: r._count._all }))),
++    lunaNonLus,
++    enrichDemandes,
+     entities: { entities, aliases, links },
+-    chunks: { total: chunks, embedded },
++    chunks: { total: chunks, embedded, restants: vecteurs.restants, coutEstimeUsd: vecteurs.coutEstimeUsd },
++    pgvector,
++    modele,
++    boiteMorte,
+   };
+ }
+diff --git a/src/lib/scheduler/handlers.ts b/src/lib/scheduler/handlers.ts
+index 2eb5c11..f039094 100644
+--- a/src/lib/scheduler/handlers.ts
++++ b/src/lib/scheduler/handlers.ts
+@@ -62,20 +62,22 @@ export function registerBuiltinWorkflows(): void {
+   registerWorkflow({
+     kind: "knowledge_catchup",
+     label: "Rattrapage d'indexation",
+-    description: "Met en file les documents jamais vus, repasse ceux restés muets, puis traite un lot élargi.",
++    description: "Met en file les documents jamais vus, repasse ceux restés muets, rattrape les vecteurs et les lectures visuelles jamais faits (sans modèle disponible, rien ne part), puis traite un lot élargi.",
+     mutates: false,
+     run: async () => {
+       const { enqueueBacklogs, enqueueStalled, runKnowledgeSweep } = await import("@/lib/knowledge/worker");
+       const backlog = await enqueueBacklogs(60);
+       const stalled = await enqueueStalled(30);
+       const sweep = await runKnowledgeSweep(40);
+-      const queued = backlog.drive + backlog.email + stalled;
++      const queued = backlog.drive + backlog.email + stalled + backlog.vecteurs + backlog.visions;
+       return {
+         // « Rien à faire » est un résultat, pas un échec : tout est à jour, et l'historique le dira.
+-        didWork: queued > 0 || sweep.processed > 0,
++        didWork: queued > 0 || sweep.processed > 0 || sweep.repaired > 0,
+         summary:
+-          `${queued} documents mis en file (${backlog.drive} Drive, ${backlog.email} messages, ${stalled} repassés). ` +
+-          `Traités : ${sweep.processed}, sans effet : ${sweep.skipped}, en échec : ${sweep.failed}.`,
++          `${queued} travaux mis en file (${backlog.drive} Drive, ${backlog.email} messages, ${stalled} repassés, ` +
++          `${backlog.vecteurs} vectorisations et ${backlog.visions} lectures visuelles rattrapées). ` +
++          `Traités : ${sweep.processed}, sans effet : ${sweep.skipped}, en attente (panne temporaire) : ${sweep.postponed}, ` +
++          `en échec : ${sweep.failed}, étapes réparées : ${sweep.repaired}.`,
+       };
+     },
+   });
+diff --git a/tsconfig.krel.json b/tsconfig.krel.json
+new file mode 100644
+index 0000000..4b73bba
+--- /dev/null
++++ b/tsconfig.krel.json
+@@ -0,0 +1,17 @@
++{
++  "extends": "./tsconfig.json",
++  "compilerOptions": { "incremental": false },
++  "include": ["next-env.d.ts"],
++  "files": [
++    "src/app/(app)/admin/connaissance/page.tsx",
++    "src/app/(app)/admin/connaissance/relancer-bouton.tsx",
++    "src/lib/actions/knowledge-actions.ts",
++    "src/lib/knowledge/boite-morte.test.ts",
++    "src/lib/knowledge/relance-flow.test.ts",
++    "src/lib/knowledge/pipeline.test.ts",
++    "src/lib/knowledge/knowledge.test.ts",
++    "src/lib/scheduler/handlers.ts",
++    "src/lib/scheduled.ts",
++    "src/lib/assistant/action-registry.ts"
++  ]
++}

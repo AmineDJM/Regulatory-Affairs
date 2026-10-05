@@ -1,0 +1,1313 @@
+diff --git a/e2e/rapports-terrain-corbeille.spec.ts b/e2e/rapports-terrain-corbeille.spec.ts
+new file mode 100644
+index 0000000..341dfdb
+--- /dev/null
++++ b/e2e/rapports-terrain-corbeille.spec.ts
+@@ -0,0 +1,160 @@
++import { test, expect, type Page } from "@playwright/test";
++import { PrismaClient } from "@prisma/client";
++import bcrypt from "bcryptjs";
++import { E2E } from "./global-setup";
++import { cliquerDecisif } from "./decisif";
++
++/**
++ * ═════════════════════════════════════════════════════════════════
++ * SUPPRIMER UN RAPPORT TERRAIN — la double confirmation et la corbeille, dans le navigateur (§118.212).
++ *
++ * Le banc de flux (`rapport-terrain-suppression-flow.test.ts`) prouve les RÈGLES par les vraies actions ; celui-ci
++ * prouve qu'elles ont un ÉCRAN qui les déclenche (§118.50) — et que la double confirmation tient :
++ *   - l'icône de la ligne ouvre la fenêtre, qui dit ce qui part avec le rapport (sa pièce jointe) ;
++ *   - « Oui, supprimer » ARME le bouton au premier clic : RIEN n'est supprimé ; Échap le désarme ; seul le
++ *     second clic supprime — et le rapport part à la corbeille, pas à l'oubli ;
++ *   - le seul rapport d'une visite planifiée ne se supprime pas : le refus s'affiche AVANT le clic et le
++ *     bouton ne s'arme pas ;
++ *   - le Super Admin restaure depuis Administration › Corbeille : le rapport revient avec sa pièce jointe, puis
++ *     le supprime lui-même depuis la fiche (le bouton n'est plus réservé au Super Admin, mais lui l'a aussi).
++ *
++ * Décor propre à la spec (préfixe `__e2e18__`), posé en base et retiré au début et à la fin.
++ * ═════════════════════════════════════════════════════════════════
++ */
++
++const prisma = new PrismaClient({
++  datasources: { db: { url: process.env.DATABASE_URL ?? "postgresql://postgres:postgres@localhost:5432/amd_internal_os?schema=public" } },
++});
++
++const P = "__e2e18__";
++const EMAIL = { kam: `${P}kam@test.dz` };
++const NOM_BROUILLON = `${P} Dr Brouillon`;
++const NOM_VISITE = `${P} Dr Visite`;
++
++const u: Record<string, string> = {};
++let brouillonId = "";
++let visiteReportId = "";
++
++async function login(page: Page, email: string) {
++  await page.goto("/login");
++  await page.getByLabel(/e-?mail/i).fill(email);
++  await page.getByLabel(/mot de passe/i).fill(E2E.password);
++  await page.getByRole("button", { name: /connexion|se connecter/i }).click();
++  // 60 s : la toute première connexion après un build propre est lente (§118.124b).
++  await page.waitForURL((url) => !url.pathname.startsWith("/login"), { timeout: 60_000 });
++}
++
++/** Naviguer PUIS attendre l'hydratation : un clic posé avant ne fait rien (§118.168). */
++async function aller(page: Page, url: string) {
++  await page.goto(url);
++  await page.waitForLoadState("networkidle");
++}
++
++async function nettoyer() {
++  const ids = (await prisma.user.findMany({ where: { email: { startsWith: P } }, select: { id: true } })).map((x) => x.id);
++  await prisma.deletedRecord.deleteMany({ where: { kind: "FIELD_REPORT", name: { contains: P } } });
++  await prisma.fieldReport.deleteMany({ where: { doctorName: { startsWith: P } } });
++  await prisma.medicalVisit.deleteMany({ where: { delegateId: { in: ids } } });
++  await prisma.fileBlob.deleteMany({ where: { sha256: { startsWith: P } } });
++  await prisma.notification.deleteMany({ where: { userId: { in: ids } } });
++  await prisma.auditLog.deleteMany({ where: { actorId: { in: ids } } }).catch(() => {});
++  await prisma.user.deleteMany({ where: { id: { in: ids } } });
++}
++
++test.describe.configure({ mode: "serial" });
++
++test.beforeAll(async () => {
++  await nettoyer();
++  const hash = await bcrypt.hash(E2E.password, 10);
++  u.kam = (await prisma.user.create({ data: { email: EMAIL.kam, name: `${P} KAM`, passwordHash: hash, role: "MEDICAL_DELEGATE" }, select: { id: true } })).id;
++  // Un brouillon avec UNE pièce jointe — ce que la fenêtre doit annoncer.
++  const blob = await prisma.fileBlob.create({ data: { sha256: `${P}b1`, size: 3, iv: Buffer.from("iv"), data: Buffer.from("abc"), refCount: 1 } });
++  const r = await prisma.fieldReport.create({ data: { delegateId: u.kam, doctorName: NOM_BROUILLON, summary: "Visite chez le Dr Brouillon.", status: "DRAFT" }, select: { id: true } });
++  brouillonId = r.id;
++  await prisma.fieldReportAttachment.create({ data: { reportId: r.id, blobId: blob.id, name: `${P}ordonnance.pdf`, mime: "application/pdf", size: 3 } });
++  // Le SEUL rapport d'une visite planifiée : le supprimer changerait l'état de la visite.
++  const visite = await prisma.medicalVisit.create({ data: { delegateId: u.kam, date: new Date(), status: "PLANNED" }, select: { id: true } });
++  visiteReportId = (await prisma.fieldReport.create({ data: { delegateId: u.kam, doctorName: NOM_VISITE, status: "DRAFT", visitId: visite.id }, select: { id: true } })).id;
++});
++
++test.afterAll(async () => {
++  await nettoyer();
++  await prisma.$disconnect();
++});
++
++const ligne = (page: Page, nom: string) => page.locator("div.flex.items-center.gap-1").filter({ hasText: nom });
++
++test("DOUBLE CONFIRMATION — un seul clic ne supprime rien ; Échap désarme ; le second clic supprime, vers la corbeille", async ({ page }) => {
++  test.setTimeout(120_000);
++  await login(page, EMAIL.kam);
++  await aller(page, "/field-reports");
++  await ligne(page, NOM_BROUILLON).getByTestId("supprimer-rapport").click();
++  // Étape 1 : la fenêtre dit ce qui part — la pièce jointe — et que c'est réversible.
++  await expect(page.getByText("Part aussi avec lui")).toBeVisible({ timeout: 15_000 });
++  await expect(page.getByText("1 pièce jointe")).toBeVisible();
++  await expect(page.getByText(/le Super Admin peut restaurer depuis la corbeille/i).first()).toBeVisible();
++  const confirmer = page.getByRole("button", { name: "Oui, supprimer définitivement" });
++  await expect(confirmer).toBeEnabled();
++  // Étape 2 : le premier clic ARME le bouton — il ne supprime rien.
++  const el = await confirmer.elementHandle();
++  if (!el) throw new Error("bouton introuvable");
++  await el.click();
++  await expect.poll(() => el.getAttribute("data-decisif")).toBe("arme");
++  expect(await prisma.fieldReport.count({ where: { id: brouillonId } }), "un premier clic ne supprime rien").toBe(1);
++  // Échap désarme (et ne ferme pas la fenêtre) : toujours rien de supprimé.
++  await el.press("Escape");
++  await expect.poll(() => el.getAttribute("data-decisif")).toBe("repos");
++  expect(await prisma.fieldReport.count({ where: { id: brouillonId } })).toBe(1);
++  // Le second clic, dans les 5 s, supprime.
++  await cliquerDecisif(page.getByRole("button", { name: "Oui, supprimer définitivement" }));
++  await expect(ligne(page, NOM_BROUILLON)).toHaveCount(0, { timeout: 20_000 });
++  expect(await prisma.fieldReport.count({ where: { id: brouillonId } })).toBe(0);
++  // Pas à l'oubli : l'entrée de corbeille existe, lot compris, et la pièce jointe y voyage.
++  const rec = await prisma.deletedRecord.findFirstOrThrow({ where: { kind: "FIELD_REPORT", sourceId: brouillonId } });
++  expect(rec.restoredAt).toBeNull();
++  expect(rec.lot).not.toBeNull();
++  expect(await prisma.fieldReportAttachment.count({ where: { reportId: brouillonId } })).toBe(0);
++});
++
++test("REFUS AVANT LE CLIC — le seul rapport d'une visite planifiée : la fenêtre le dit, le bouton ne s'arme pas", async ({ page }) => {
++  test.setTimeout(90_000);
++  await login(page, EMAIL.kam);
++  await aller(page, "/field-reports");
++  await ligne(page, NOM_VISITE).getByTestId("supprimer-rapport").click();
++  await expect(page.getByRole("alert").filter({ hasText: /seul rapport de la visite/ })).toBeVisible({ timeout: 15_000 });
++  await expect(page.getByRole("button", { name: "Oui, supprimer définitivement" })).toBeDisabled();
++  expect(await prisma.fieldReport.count({ where: { id: visiteReportId } })).toBe(1);
++});
++
++test("RESTAURATION — le Super Admin rend le rapport avec sa pièce jointe, puis le supprime lui-même depuis sa fiche", async ({ page }) => {
++  test.setTimeout(120_000);
++  await login(page, E2E.superAdminEmail);
++  await aller(page, "/admin/corbeille");
++  const rangee = page.locator("div.flex.flex-wrap.items-center.gap-3").filter({ hasText: NOM_BROUILLON });
++  await expect(rangee).toHaveCount(1, { timeout: 15_000 });
++  await expect(rangee.getByText(/1 pièce jointe/)).toBeVisible();
++  await cliquerDecisif(rangee.getByRole("button", { name: "Restaurer" }));
++  await expect.poll(() => prisma.fieldReport.count({ where: { id: brouillonId } }), { timeout: 20_000 }).toBe(1);
++  expect(await prisma.fieldReportAttachment.count({ where: { reportId: brouillonId } }), "la pièce jointe revient avec le rapport").toBe(1);
++  expect((await prisma.deletedRecord.findFirstOrThrow({ where: { kind: "FIELD_REPORT", sourceId: brouillonId } })).restoredAt).not.toBeNull();
++
++  // La fiche : le bouton de l'en-tête, même fenêtre, même double confirmation, retour à la liste.
++  await aller(page, `/field-reports/${brouillonId}`);
++  await page.getByTestId("supprimer-rapport").click();
++  await expect(page.getByText("1 pièce jointe")).toBeVisible({ timeout: 15_000 });
++  await cliquerDecisif(page.getByRole("button", { name: "Oui, supprimer définitivement" }));
++  await page.waitForURL(/\/field-reports$/, { timeout: 20_000 });
++  expect(await prisma.fieldReport.count({ where: { id: brouillonId } })).toBe(0);
++});
++
++test("TÉLÉPHONE — l'icône de la corbeille tient dans l'écran à 375 px, sans défilement horizontal", async ({ page }) => {
++  test.setTimeout(90_000);
++  await page.setViewportSize({ width: 375, height: 800 });
++  await login(page, EMAIL.kam);
++  await aller(page, "/field-reports");
++  const icone = ligne(page, NOM_VISITE).getByTestId("supprimer-rapport");
++  await expect(icone).toBeVisible({ timeout: 15_000 });
++  const box = await icone.boundingBox();
++  expect(box && box.x >= 0 && box.x + box.width <= 375, "l'icône est dans l'écran").toBe(true);
++  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1), "pas de défilement horizontal").toBe(true);
++});
+diff --git a/src/app/(app)/field-reports/[id]/page.tsx b/src/app/(app)/field-reports/[id]/page.tsx
+index d567630..e6639cc 100644
+--- a/src/app/(app)/field-reports/[id]/page.tsx
++++ b/src/app/(app)/field-reports/[id]/page.tsx
+@@ -6,7 +6,7 @@ import { scopeMedicalDoctors } from "@/lib/rbac";
+ import { prisma } from "@/lib/prisma";
+ import { getFieldReportDetail, managesReports } from "@/lib/queries/field-reports";
+ import { PageHeader } from "@/components/shared/page-header";
+-import { SuperAdminDeleteButton } from "@/components/shared/super-admin-delete";
++import { SupprimerRapport } from "../supprimer-rapport";
+ import { ReportEditor } from "./report-editor";
+ import { SimpleReportEditor } from "./simple-report-editor";
+ import { BackLink } from "@/components/shared/back-link";
+@@ -56,7 +56,14 @@ export default async function FieldReportPage({ params }: { params: { id: string
+             : "Parlez (ou écrivez) votre compte rendu, puis envoyez."
+         }
+       >
+-        <SuperAdminDeleteButton kind="FIELD_REPORT" id={detail.id} name={detail.delegateName ? `Rapport — ${detail.delegateName}` : "Rapport de visite"} enabled={user.role === "SUPER_ADMIN"} />
++        <SupprimerRapport
++          id={detail.id}
++          name={detail.delegateName ? `Rapport — ${detail.delegateName}` : "Rapport de visite"}
++          enabled={detail.canDelete}
++          versLaListe
++          compact={false}
++          libelle="Supprimer"
++        />
+       </PageHeader>
+       {isManager
+         ? <ReportEditor detail={detail} doctors={doctors} materiel={materiel} rattacheAUneVisite={Boolean(lien?.visitId)} />
+diff --git a/src/app/(app)/field-reports/page.tsx b/src/app/(app)/field-reports/page.tsx
+index 20bfac5..33376a0 100644
+--- a/src/app/(app)/field-reports/page.tsx
++++ b/src/app/(app)/field-reports/page.tsx
+@@ -9,6 +9,7 @@ import { StatusBadge } from "@/components/shared/status-badge";
+ import { FIELD_REPORT_STATUS } from "@/lib/labels";
+ import { formatDate } from "@/lib/utils";
+ import { NewReportButton } from "./new-report-button";
++import { SupprimerRapport } from "./supprimer-rapport";
+ 
+ export const dynamic = "force-dynamic";
+ 
+@@ -38,16 +39,25 @@ export default async function FieldReportsPage() {
+         ) : (
+           <div className="surface divide-y divide-border">
+             {reports.map((r) => (
+-              <Link key={r.id} href={`/field-reports/${r.id}`} className="flex flex-wrap items-center gap-3 px-4 py-3 hover:bg-secondary/40">
+-                <StatusBadge map={FIELD_REPORT_STATUS} value={r.status} />
+-                <div className="min-w-0 flex-1">
+-                  <p className="truncate text-sm font-medium">{r.doctorName || "Médecin non précisé"}{r.specialty ? ` · ${r.specialty}` : ""}</p>
+-                  <p className="truncate text-xs text-muted-foreground">{r.summary || r.products || "Brouillon en cours…"}</p>
+-                </div>
+-                {isManager && r.delegateName && <span className="text-xs text-muted-foreground">{r.delegateName}</span>}
+-                {r.attachments > 0 && <span className="text-xs text-muted-foreground">📎 {r.attachments}</span>}
+-                <span className="text-xs text-muted-foreground">{formatDate(r.visitDate)}</span>
+-              </Link>
++              // La ligne n'est plus UN lien : une icône dans un lien est un bouton dans un lien (deux
++              // gestes pour un clic). Le lien porte le contenu, la corbeille est sa SŒUR (§118.212).
++              <div key={r.id} className="flex items-center gap-1 pr-2 hover:bg-secondary/40">
++                <Link href={`/field-reports/${r.id}`} className="flex min-w-0 flex-1 flex-wrap items-center gap-3 px-4 py-3">
++                  <StatusBadge map={FIELD_REPORT_STATUS} value={r.status} />
++                  <div className="min-w-0 flex-1">
++                    <p className="truncate text-sm font-medium">{r.doctorName || "Médecin non précisé"}{r.specialty ? ` · ${r.specialty}` : ""}</p>
++                    <p className="truncate text-xs text-muted-foreground">{r.summary || r.products || "Brouillon en cours…"}</p>
++                  </div>
++                  {isManager && r.delegateName && <span className="text-xs text-muted-foreground">{r.delegateName}</span>}
++                  {r.attachments > 0 && <span className="text-xs text-muted-foreground">📎 {r.attachments}</span>}
++                  <span className="text-xs text-muted-foreground">{formatDate(r.visitDate)}</span>
++                </Link>
++                <SupprimerRapport
++                  id={r.id}
++                  enabled={r.canDelete}
++                  name={`${r.doctorName || "Rapport"}${r.delegateName ? ` — ${r.delegateName}` : ""} · ${formatDate(r.visitDate)}`}
++                />
++              </div>
+             ))}
+           </div>
+         )}
+diff --git a/src/app/(app)/field-reports/supprimer-rapport.tsx b/src/app/(app)/field-reports/supprimer-rapport.tsx
+new file mode 100644
+index 0000000..35aa822
+--- /dev/null
++++ b/src/app/(app)/field-reports/supprimer-rapport.tsx
+@@ -0,0 +1,86 @@
++"use client";
++
++import * as React from "react";
++import { useRouter } from "next/navigation";
++import { Trash2 } from "lucide-react";
++import { deleteFieldReport } from "@/lib/actions/field-report-actions";
++import { ConfirmationSuppression } from "@/components/shared/super-admin-delete";
++import { useRafraichir } from "@/components/shared/use-rafraichir";
++import { Button } from "@/components/ui/button";
++
++/**
++ * SUPPRIMER UN RAPPORT TERRAIN depuis la liste ou la fiche (§118.212) — par la fenêtre de
++ * confirmation commune, et la corbeille.
++ *
++ * DOUBLE CONFIRMATION, deux étapes que rien ne contourne :
++ *   1. l'icône ouvre la fenêtre, qui lit AVANT le clic ce qui part avec le rapport (ses pièces
++ *      jointes) et ce qui l'interdit (du matériel remis au stock, une visite dont il est le seul
++ *      rapport) — un refus désarme le bouton, jamais un geste offert puis retiré (§118.83) ;
++ *   2. « Oui, supprimer » est un bouton décisif : un premier clic l'ARME (« Confirmer : … ? »), seul
++ *      le second clic dans les cinq secondes supprime. Aucune fenêtre modale du navigateur.
++ *
++ * La suppression est RÉVERSIBLE : le rapport et ses pièces vont à la corbeille d'Administration, d'où
++ * le Super Admin les restaure intacts. Le serveur revérifie le droit ET relit ce qui part — l'icône
++ * n'est qu'une commodité (n'est rendue que si `enabled`).
++ *
++ * `enCours` ferme le geste pendant que la liste se rafraîchit : une ligne qui vient de partir ne doit
++ * pas rester cliquable sur l'état d'avant (§118.172).
++ */
++export function SupprimerRapport({
++  id,
++  name,
++  enabled,
++  versLaListe = false,
++  libelle = "Supprimer ce rapport",
++  compact = true,
++}: {
++  id: string;
++  /** Le nom lisible, montré dans la fenêtre (« Rapport — Amine Djouamai · 05 oct. »). */
++  name: string;
++  enabled: boolean;
++  /** Fiche : après suppression, retour à la liste (elle n'existe plus). Liste : rester, se rafraîchir. */
++  versLaListe?: boolean;
++  libelle?: string;
++  /** Icône seule (rangée de liste) ou bouton avec texte (en-tête de fiche). */
++  compact?: boolean;
++}) {
++  const router = useRouter();
++  const [open, setOpen] = React.useState(false);
++  const { enCours, rafraichir } = useRafraichir();
++  if (!enabled) return null;
++
++  return (
++    <>
++      {compact ? (
++        <button
++          type="button"
++          onClick={() => setOpen(true)}
++          disabled={enCours}
++          title={libelle}
++          aria-label={`${libelle} — ${name}`}
++          data-testid="supprimer-rapport"
++          className="shrink-0 rounded p-1.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive disabled:opacity-50"
++        >
++          <Trash2 className="h-4 w-4" />
++        </button>
++      ) : (
++        <Button variant="outline" size="sm" onClick={() => setOpen(true)} disabled={enCours} data-testid="supprimer-rapport" className="text-destructive hover:bg-destructive/10">
++          <Trash2 className="h-4 w-4" /> {libelle}
++        </Button>
++      )}
++      <ConfirmationSuppression
++        open={open}
++        onClose={() => setOpen(false)}
++        kind="FIELD_REPORT"
++        id={id}
++        name={name}
++        executer={deleteFieldReport}
++        onSupprime={(r) => {
++          setOpen(false);
++          if (versLaListe) router.push(r.redirect ?? "/field-reports");
++          rafraichir();
++        }}
++      />
++    </>
++  );
++}
+diff --git a/src/lib/actions/admin-delete-actions.ts b/src/lib/actions/admin-delete-actions.ts
+index 94c750a..97513c6 100644
+--- a/src/lib/actions/admin-delete-actions.ts
++++ b/src/lib/actions/admin-delete-actions.ts
+@@ -19,6 +19,7 @@ import {
+ import { restaurerLotDeLaCorbeille, supprimerReversible, type DeleteResult } from "@/lib/suppression/coeur";
+ import { peutSupprimerUneDemandeAdPro } from "@/lib/queries/ad-pro-suppression";
+ import { estDemandeAdProSupprimable, REFUS_SUPPRESSION_AD_PRO } from "@/lib/ad-pro/suppression";
++import { peutSupprimerUnRapportTerrain } from "@/lib/queries/field-reports";
+ 
+ export type { DeleteResult } from "@/lib/suppression/coeur";
+ 
+@@ -189,6 +190,15 @@ export async function destroyDeletedRecord(formData: FormData): Promise<DeleteRe
+     // Cas particulier : audio d'un rapport terrain (blob chiffré du Drive).
+     const audioBlobId = (rec.payload as { audioBlobId?: string | null } | null)?.audioBlobId;
+     if (rec.kind === "FIELD_REPORT" && audioBlobId) await releaseBlob(audioBlobId).catch(() => {});
++    // Les PIÈCES JOINTES d'un rapport terrain (§118.212) voyagent dans le lot, et leurs fichiers
++    // restent au stockage tant que l'entrée existe : la destruction réelle les libère — comme
++    // l'ancien geste « supprimer » le faisait d'emblée, sans corbeille.
++    if (rec.kind === "FIELD_REPORT") {
++      const lot = rec.lot as { lignes?: { modele: string; donnees: { blobId?: string | null } }[] } | null;
++      for (const l of lot?.lignes ?? []) {
++        if (l.modele === "FieldReportAttachment" && l.donnees.blobId) await releaseBlob(l.donnees.blobId).catch(() => {});
++      }
++    }
+   }
+ 
+   await prisma.deletedRecord.update({ where: { id: recId }, data: { purgedAt: new Date() } });
+@@ -232,6 +242,10 @@ async function peutSupprimerDepuisSonModule(user: Awaited<ReturnType<typeof requ
+   // suppriment aussi — la MÊME règle que `supprimerDemandeAdPro`, sans quoi l'aperçu ne s'ouvrirait
+   // pas devant une suppression que l'action accepte.
+   if (estDemandeAdProSupprimable(kind) && (await peutSupprimerUneDemandeAdPro(user, kind, id))) return true;
++  // UN RAPPORT TERRAIN (§118.212) : l'auteur, la hiérarchie qui le gère dans son périmètre d'entité —
++  // la MÊME règle que `deleteFieldReport`, sans quoi l'aperçu ne s'ouvrirait pas devant une
++  // suppression que l'action accepte (ni ne s'ouvrirait à qui l'action refuse).
++  if (kind === "FIELD_REPORT") return peutSupprimerUnRapportTerrain(user, id);
+   const droit = SUPPRIME_PAR_SON_MODULE[kind];
+   if (!droit || !userCan(user, droit.module, droit.action)) return false;
+   const entite = DELETE_REGISTRY[kind].entityType;
+diff --git a/src/lib/actions/field-report-actions.ts b/src/lib/actions/field-report-actions.ts
+index d232f5e..2e33030 100644
+--- a/src/lib/actions/field-report-actions.ts
++++ b/src/lib/actions/field-report-actions.ts
+@@ -3,6 +3,9 @@
+ import { revalidatePath } from "next/cache";
+ import { requireUser } from "@/lib/session";
+ import { userCan, hasGlobalView } from "@/lib/rbac";
++import { notifyUser } from "@/lib/notify";
++import { supprimerReversible, type DeleteResult } from "@/lib/suppression/coeur";
++import { peutSupprimerUnRapportTerrain } from "@/lib/queries/field-reports";
+ import { prisma } from "@/lib/prisma";
+ import { companyIdForNew } from "@/lib/company";
+ import { releaseBlob } from "@/lib/drive-storage";
+@@ -14,7 +17,7 @@ import { fdStr, fdDate, type ActionResult } from "@/lib/actions/types";
+ import { sousVerrous } from "@/lib/promo/stock-ecriture";
+ import {
+   dejaDansLeRapport, ecrireRemises, formulairePorteDuMateriel, lireMaterielRemis, motifDeRemise, phraseMateriel, RefusRemise,
+-  refusSuppressionRapport, toucheLeStock, verrousDuRapport,
++  toucheLeStock, verrousDuRapport,
+ } from "@/lib/promo/remises-visite";
+ import { remisesDuRapport } from "@/lib/queries/promo-remises";
+ import { fenetreRapport } from "@/lib/sfe/tournee";
+@@ -285,20 +288,47 @@ export async function reopenFieldReport(formData: FormData): Promise<ActionResul
+   return { ok: true };
+ }
+ 
+-export async function deleteFieldReport(formData: FormData): Promise<ActionResult> {
++/**
++ * SUPPRIMER UN RAPPORT TERRAIN — RÉVERSIBLE (§118.212). Le geste passe par le cœur partagé de la
++ * corbeille (§118.162) : le rapport ET ses pièces jointes partent en UN lot, et reviennent
++ * ensemble quand le Super Admin restaure (Administration › Corbeille).
++ *
++ * L'ANCIEN GESTE ÉTAIT DÉFINITIF. Il supprimait la ligne puis libérait chaque fichier — pièces
++ * jointes et audio — du stockage : une suppression par erreur ne se rattrapait pas, alors que la
++ * même fiche, supprimée par le Super Admin, passait par la corbeille. Deux chemins pour le même
++ * geste, dont un irréversible (§118.5, §118.71). Les fichiers ne sont donc PLUS libérés ici : ils
++ * restent tant que l'entrée de corbeille existe, et c'est la destruction réelle depuis la corbeille
++ * qui les libère (`destroyDeletedRecord`).
++ *
++ * LE DROIT est `peutSupprimerLeRapport` (l'auteur, la hiérarchie qui gère déjà les rapports dans
++ * son périmètre d'entité, le Super Admin) ; LE REFUS est celui du registre (`spec.refuse`, lu par
++ * le cœur AVANT tout instantané) : du matériel remis au stock, une visite dont ce compte rendu est
++ * le seul rapport. L'aperçu de la fenêtre de confirmation et la carte d'Adam lisent les mêmes.
++ */
++export async function deleteFieldReport(formData: FormData): Promise<DeleteResult> {
+   const user = await requireUser();
+   const id = fdStr(formData, "id");
+   if (!id) return { ok: false, error: "Rapport introuvable." };
+-  if (!(await canEdit(user, id))) return { ok: false, error: "Non autorisé." };
+-  const refus = await refusSuppressionRapport(id);
+-  if (refus) return { ok: false, error: refus };
+-  const atts = await prisma.fieldReportAttachment.findMany({ where: { reportId: id }, select: { blobId: true } });
+-  const report = await prisma.fieldReport.findUnique({ where: { id }, select: { audioBlobId: true } });
+-  await prisma.fieldReport.delete({ where: { id } });
+-  for (const a of atts) await releaseBlob(a.blobId);
+-  if (report?.audioBlobId) await releaseBlob(report.audioBlobId);
++  if (!(await peutSupprimerUnRapportTerrain(user, id))) return { ok: false, error: "Non autorisé." };
++  const rapport = await prisma.fieldReport.findUnique({
++    where: { id },
++    select: { delegateId: true, doctorName: true, visitDate: true, delegate: { select: { name: true } } },
++  });
++  if (!rapport) return { ok: false, error: "Rapport introuvable (déjà supprimé ?)." };
++  const nom = `${rapport.doctorName || "Rapport"} du ${rapport.visitDate.toLocaleDateString("fr-FR")}${rapport.delegate?.name ? ` (${rapport.delegate.name})` : ""}`;
++  const r = await supprimerReversible("FIELD_REPORT", id, user.id, `Suppression d'un rapport terrain — ${nom} (restaurable depuis la corbeille)`);
++  if (!r.ok) return r;
++  // On ne retire pas le compte rendu de quelqu'un sans le lui dire.
++  if (rapport.delegateId && rapport.delegateId !== user.id) {
++    await notifyUser({
++      userId: rapport.delegateId, type: "GENERIC",
++      title: "Votre rapport terrain a été supprimé",
++      body: `${nom} a été supprimé par ${user.name}. Le Super Admin peut le restaurer depuis la corbeille.`,
++      link: "/field-reports",
++    });
++  }
+   revalidatePath("/field-reports");
+-  return { ok: true };
++  return r;
+ }
+ 
+ export async function deleteFieldReportAttachment(formData: FormData): Promise<ActionResult> {
+diff --git a/src/lib/actions/rapport-terrain-remises-flow.test.ts b/src/lib/actions/rapport-terrain-remises-flow.test.ts
+index 3977e5e..8218c06 100644
+--- a/src/lib/actions/rapport-terrain-remises-flow.test.ts
++++ b/src/lib/actions/rapport-terrain-remises-flow.test.ts
+@@ -209,6 +209,6 @@ suite("Compte rendu de visite — le matériel remis sort du stock du KAM, par l
+     // Le témoin : un compte rendu SANS remise se supprime toujours.
+     const libre = await nouveauRapport();
+     expect(await DELETE_REGISTRY.FIELD_REPORT.refuse!(libre)).toBeNull();
+-    expect(await deleteFieldReport(form({ id: libre }))).toEqual({ ok: true });
++    expect(await deleteFieldReport(form({ id: libre }))).toMatchObject({ ok: true });
+   });
+ });
+diff --git a/src/lib/actions/rapport-terrain-suppression-flow.test.ts b/src/lib/actions/rapport-terrain-suppression-flow.test.ts
+new file mode 100644
+index 0000000..4fa4385
+--- /dev/null
++++ b/src/lib/actions/rapport-terrain-suppression-flow.test.ts
+@@ -0,0 +1,504 @@
++import { readFileSync } from "node:fs";
++import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
++import type { CurrentUser } from "@/lib/session";
++
++vi.mock("next/cache", () => ({ revalidatePath: () => {} }));
++
++let ACTOR: CurrentUser | null = null;
++vi.mock("@/lib/session", () => ({ requireUser: async () => ACTOR, getCurrentUser: async () => ACTOR, requireModule: async () => ACTOR }));
++
++import { prisma } from "@/lib/prisma";
++import { getAccess, hasGlobalView, userCan, type SessionUser } from "@/lib/rbac";
++import { entitePermisePourFiche } from "@/lib/company";
++import { createFieldReport, deleteFieldReport, submitFieldReport } from "./field-report-actions";
++import { apercuDeSuppression, destroyDeletedRecord, restoreDeletedRecord } from "./admin-delete-actions";
++import { getFieldReportDetail, getMyFieldReports, managesReports, viewsAllReports } from "@/lib/queries/field-reports";
++import { FIELD_REPORT_OPS_IMPL } from "@/lib/assistant/ops/impl-wave6b";
++import { entrerLot, sousVerrou, trouverOuCreerArticle } from "@/lib/promo/stock-ecriture";
++
++let dbOk = false;
++try { await prisma.$queryRaw`SELECT 1`; dbOk = true; } catch { dbOk = false; }
++const suite = dbOk ? describe : describe.skip;
++
++const TAG = "__rtsuppr__";
++const SUFFIXE = Date.now().toString(36);
++
++async function actorFor(id: string): Promise<CurrentUser> {
++  const u = await prisma.user.findUniqueOrThrow({ where: { id } });
++  const access = await getAccess(id, u.role as SessionUser["role"]);
++  return { id, name: u.name, email: u.email, role: u.role as SessionUser["role"], secondaryRole: u.secondaryRole as SessionUser["role"] | null, access, mustChangePassword: false } as CurrentUser;
++}
++
++const form = (fields: Record<string, string>): FormData => {
++  const fd = new FormData();
++  for (const [k, v] of Object.entries(fields)) fd.set(k, v);
++  return fd;
++};
++
++const code = (p: string): string =>
++  readFileSync(p, "utf8").replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/.*$/gm, "$1").replace(/\{\/\*[\s\S]*?\*\/\}/g, "");
++
++/**
++ * ═══════════════════════════════════════════════════════════════════════════════════════════
++ * SUPPRIMER UN RAPPORT TERRAIN — réversible, par la corbeille (§118.212), par les VRAIS points
++ * d'entrée : l'action, l'aperçu de la fenêtre de confirmation, la restauration et la destruction
++ * du Super Admin, la liste, la carte d'Adam. Des acteurs SANS vue globale (§118.104) :
++ *
++ *   kamA  délégué, auteur des rapports du décor
++ *   kamB  délégué, collègue — il ne supprime pas le rapport d'un autre
++ *   sup   Manager Promotion médicale, rattaché à la société A — il gère les rapports de SON entité
++ *   ns    superviseur national — il VOIT tous les rapports sans les éditer
++ *   sa    Super Admin — il restaure
++ * ═══════════════════════════════════════════════════════════════════════════════════════════
++ */
++suite("Rapport terrain — la suppression est réversible, gardée par ligne et par entité", () => {
++  const ids: Record<string, string> = {};
++  let A = "", B = "";
++  const blobs: string[] = [];
++
++  async function nettoyer() {
++    const users = await prisma.user.findMany({ where: { email: { startsWith: TAG } }, select: { id: true } });
++    const uids = users.map((u) => u.id);
++    const companies = await prisma.company.findMany({ where: { name: { startsWith: TAG } }, select: { id: true } });
++    const cids = companies.map((c) => c.id);
++    await prisma.deletedRecord.deleteMany({ where: { kind: "FIELD_REPORT", name: { contains: TAG } } });
++    const cat = await prisma.promoCatalogueArticle.findMany({ where: { nom: { startsWith: TAG } }, select: { id: true } });
++    if (cat.length) await prisma.promoStockItem.deleteMany({ where: { catalogueId: { in: cat.map((c) => c.id) } } });
++    await prisma.promoCatalogueArticle.deleteMany({ where: { nom: { startsWith: TAG } } });
++    if (uids.length) {
++      await prisma.fieldReport.deleteMany({ where: { delegateId: { in: uids } } });
++      await prisma.medicalVisit.deleteMany({ where: { delegateId: { in: uids } } });
++    }
++    await prisma.fieldReport.deleteMany({ where: { doctorName: { startsWith: TAG } } });
++    await prisma.medicalDoctor.deleteMany({ where: { name: { startsWith: TAG } } });
++    await prisma.fileBlob.deleteMany({ where: { sha256: { startsWith: TAG } } });
++    if (uids.length) {
++      await prisma.notification.deleteMany({ where: { userId: { in: uids } } });
++      await prisma.auditLog.deleteMany({ where: { actorId: { in: uids } } }).catch(() => undefined);
++      await prisma.employee.deleteMany({ where: { userId: { in: uids } } });
++      await prisma.user.deleteMany({ where: { id: { in: uids } } });
++    }
++    if (cids.length) await prisma.company.deleteMany({ where: { id: { in: cids } } });
++  }
++
++  const comme = async (qui: string) => { ACTOR = await actorFor(ids[qui]!); };
++
++  /** Un FileBlob minimal, tenu une fois (refCount 1) — c'est ce que la libération décrémente. */
++  async function blob(): Promise<string> {
++    const b = await prisma.fileBlob.create({ data: { sha256: `${TAG}${SUFFIXE}${blobs.length}`, size: 3, iv: Buffer.from("iv"), data: Buffer.from("abc"), refCount: 1 } });
++    blobs.push(b.id);
++    return b.id;
++  }
++
++  /** Un rapport du décor, avec ses pièces jointes et son audio. */
++  async function rapport(opts: { delegate: string; company: string | null; nom: string; status?: "DRAFT" | "VALIDATED"; pieces?: number; audio?: boolean; visitId?: string; doctorIds?: string[] }) {
++    const audioBlobId = opts.audio ? await blob() : null;
++    const r = await prisma.fieldReport.create({
++      data: {
++        delegateId: ids[opts.delegate]!, companyId: opts.company, doctorName: `${TAG}${opts.nom}`, institution: "CHU Test", specialty: "Cardiologie",
++        summary: `Résumé ${opts.nom}`, status: opts.status ?? "DRAFT", audioBlobId, visitId: opts.visitId ?? null, doctorIds: opts.doctorIds ?? [],
++      },
++    });
++    const pieceIds: string[] = [];
++    for (let i = 0; i < (opts.pieces ?? 0); i++) {
++      const blobId = await blob();
++      const a = await prisma.fieldReportAttachment.create({ data: { reportId: r.id, blobId, name: `${TAG}piece${i}.pdf`, mime: "application/pdf", size: 3 } });
++      pieceIds.push(a.id);
++    }
++    return { id: r.id, pieceIds, audioBlobId };
++  }
++
++  const refCount = async (id: string) => (await prisma.fileBlob.findUnique({ where: { id }, select: { refCount: true } }))?.refCount ?? null;
++  const existe = async (id: string) => (await prisma.fieldReport.count({ where: { id } })) === 1;
++  const visite = async (opts: { delegate: string; statut?: "PLANNED" | "COMPLETED" | "CANCELLED" | "POSTPONED"; joursAvant?: number; report?: string }) =>
++    (await prisma.medicalVisit.create({
++      data: { delegateId: ids[opts.delegate]!, date: new Date(Date.now() - (opts.joursAvant ?? 0) * 86_400_000), status: opts.statut ?? "PLANNED", report: opts.report ?? null },
++    })).id;
++
++  beforeAll(async () => {
++    await nettoyer();
++    const [ca, cb] = await Promise.all(["Alpha", "Beta"].map((n) => prisma.company.create({ data: { name: `${TAG}${n}` } })));
++    A = ca.id; B = cb.id;
++    const faire = (nom: string, role: string) =>
++      prisma.user.create({ data: { name: `${TAG}${nom}`, email: `${TAG}${nom}@t.dz`, role: role as never, passwordHash: "x" } });
++    const [kamA, kamB, sup, ns, sa, ancien] = await Promise.all([
++      faire("kamA", "MEDICAL_DELEGATE"), faire("kamB", "MEDICAL_DELEGATE"), faire("sup", "MEDICAL_PROMOTION_MANAGER"),
++      faire("ns", "NATIONAL_SALES"), faire("sa", "SUPER_ADMIN"), faire("ancien", "VIEWER"),
++    ]);
++    Object.assign(ids, { kamA: kamA.id, kamB: kamB.id, sup: sup.id, ns: ns.id, sa: sa.id, ancien: ancien.id });
++    // L'appartenance : le manager relève de la société A — la portée d'entité qui le borne.
++    await prisma.employee.create({ data: { fullName: `${TAG}sup`, companyId: A, userId: sup.id } });
++  });
++
++  afterAll(async () => { await nettoyer(); });
++
++  it("PRÉMISSES : le manager gère les rapports sans la vue globale et sans la société B ; le national les voit sans les gérer ; le délégué ne gère rien", async () => {
++    await comme("sup");
++    expect(managesReports(ACTOR!)).toBe(true);
++    expect(hasGlobalView(ACTOR!)).toBe(false);
++    expect(await entitePermisePourFiche(ids.sup!, A)).toBe(true);
++    expect(await entitePermisePourFiche(ids.sup!, B), "sans cette prémisse, le cas « autre société » ne mesurerait rien").toBe(false);
++    expect(await entitePermisePourFiche(ids.sup!, null)).toBe(true);
++    await comme("ns");
++    expect(viewsAllReports(ACTOR!)).toBe(true);
++    expect(managesReports(ACTOR!)).toBe(false);
++    await comme("kamB");
++    expect(managesReports(ACTOR!)).toBe(false);
++    expect(viewsAllReports(ACTOR!)).toBe(false);
++  });
++
++  it("1. l'auteur supprime son brouillon : la ligne et ses pièces partent en UN lot, les fichiers RESTENT, un audit est écrit", async () => {
++    const r = await rapport({ delegate: "kamA", company: A, nom: "un", pieces: 2, audio: true });
++    const pieces = await prisma.fieldReportAttachment.findMany({ where: { reportId: r.id }, select: { blobId: true } });
++    expect(pieces).toHaveLength(2);
++    await comme("kamA");
++    const res = await deleteFieldReport(form({ id: r.id }));
++    expect(res).toMatchObject({ ok: true, redirect: "/field-reports" });
++    expect(await existe(r.id)).toBe(false);
++    expect(await prisma.fieldReportAttachment.count({ where: { reportId: r.id } })).toBe(0);
++    // LES FICHIERS NE SONT PAS LIBÉRÉS : la restauration doit les retrouver.
++    for (const b of [r.audioBlobId!, ...pieces.map((p) => p.blobId)]) {
++      expect(await refCount(b), "le blob reste tenu tant que l'entrée de corbeille existe").toBe(1);
++    }
++    const rec = await prisma.deletedRecord.findFirstOrThrow({ where: { kind: "FIELD_REPORT", sourceId: r.id } });
++    expect(rec.lot, "c'est un LOT : les pièces voyagent avec lui").not.toBeNull();
++    expect(rec.deletedById).toBe(ids.kamA);
++    expect(await prisma.auditLog.count({ where: { actorId: ids.kamA, action: "DELETE", entityId: r.id } })).toBe(1);
++  });
++
++  it("2. le Super Admin restaure : le rapport revient INTACT, avec ses pièces jointes et son audio", async () => {
++    const r = await rapport({ delegate: "kamA", company: A, nom: "deux", status: "VALIDATED", pieces: 2, audio: true });
++    const avant = await prisma.fieldReport.findUniqueOrThrow({ where: { id: r.id } });
++    const piecesAvant = await prisma.fieldReportAttachment.findMany({ where: { reportId: r.id }, orderBy: { id: "asc" } });
++    await comme("kamA");
++    expect((await deleteFieldReport(form({ id: r.id }))).ok).toBe(true);
++    const rec = await prisma.deletedRecord.findFirstOrThrow({ where: { kind: "FIELD_REPORT", sourceId: r.id } });
++
++    // Un délégué ne restaure pas : la corbeille est celle du Super Admin.
++    const refus = await restoreDeletedRecord(form({ id: rec.id }));
++    expect(refus.ok).toBe(false);
++    expect(await existe(r.id)).toBe(false);
++
++    await comme("sa");
++    const res = await restoreDeletedRecord(form({ id: rec.id }));
++    expect(res.ok, res.error).toBe(true);
++    const apres = await prisma.fieldReport.findUniqueOrThrow({ where: { id: r.id } });
++    expect(apres).toEqual(avant);
++    const piecesApres = await prisma.fieldReportAttachment.findMany({ where: { reportId: r.id }, orderBy: { id: "asc" } });
++    expect(piecesApres).toEqual(piecesAvant);
++    expect(piecesApres).toHaveLength(2);
++    expect(await refCount(r.audioBlobId!)).toBe(1);
++    for (const p of piecesApres) expect(await refCount(p.blobId)).toBe(1);
++    expect((await prisma.deletedRecord.findUniqueOrThrow({ where: { id: rec.id } })).restoredAt).not.toBeNull();
++    // Restaurer deux fois ne recrée rien.
++    expect((await restoreDeletedRecord(form({ id: rec.id }))).ok).toBe(false);
++  });
++
++  it("3. un collègue ne supprime pas le rapport d'un autre — ni par l'action, ni par l'aperçu de la fenêtre", async () => {
++    const r = await rapport({ delegate: "kamA", company: A, nom: "trois", pieces: 1 });
++    await comme("kamB");
++    const res = await deleteFieldReport(form({ id: r.id }));
++    expect(res.ok).toBe(false);
++    expect(res.error).toBe("Non autorisé.");
++    expect(await existe(r.id)).toBe(true);
++    expect(await apercuDeSuppression(form({ kind: "FIELD_REPORT", id: r.id }))).toEqual({ erreur: "Réservé à qui peut supprimer cet élément." });
++    // Le témoin : l'auteur, lui, lit l'aperçu — ce qui part, et rien qui l'interdise.
++    await comme("kamA");
++    const apercu = await apercuDeSuppression(form({ kind: "FIELD_REPORT", id: r.id }));
++    expect("erreur" in apercu).toBe(false);
++    if (!("erreur" in apercu)) {
++      expect(apercu.lot).toBe(true);
++      expect(apercu.refus).toBeNull();
++      expect(apercu.emporte).toEqual(["1 pièce jointe"]);
++      expect(apercu.nom).toContain(`${TAG}trois`);
++    }
++    // Lire l'aperçu n'écrit RIEN.
++    expect(await existe(r.id)).toBe(true);
++    expect(await prisma.deletedRecord.count({ where: { kind: "FIELD_REPORT", sourceId: r.id } })).toBe(0);
++  });
++
++  it("4. le manager supprime le rapport VALIDÉ d'un délégué de SON entité — et l'auteur en est prévenu", async () => {
++    const r = await rapport({ delegate: "kamA", company: A, nom: "quatre", status: "VALIDATED", pieces: 1 });
++    await comme("sup");
++    expect((await deleteFieldReport(form({ id: r.id }))).ok).toBe(true);
++    expect(await existe(r.id)).toBe(false);
++    const n = await prisma.notification.findMany({ where: { userId: ids.kamA!, title: "Votre rapport terrain a été supprimé" } });
++    expect(n).toHaveLength(1);
++    expect(n[0]!.body).toContain(`${TAG}quatre`);
++    expect(n[0]!.body).toContain("restaurer");
++    // L'auteur qui supprime SON rapport ne se notifie pas lui-même.
++    const avant = await prisma.notification.count({ where: { userId: ids.kamA!, title: "Votre rapport terrain a été supprimé" } });
++    const r2 = await rapport({ delegate: "kamA", company: A, nom: "quatrebis" });
++    await comme("kamA");
++    expect((await deleteFieldReport(form({ id: r2.id }))).ok).toBe(true);
++    expect(await prisma.notification.count({ where: { userId: ids.kamA!, title: "Votre rapport terrain a été supprimé" } })).toBe(avant);
++  });
++
++  it("5. le manager ne supprime PAS le rapport d'une autre société — mais celui d'une ligne sans entité, oui", async () => {
++    const autre = await rapport({ delegate: "kamB", company: B, nom: "cinqB" });
++    const libre = await rapport({ delegate: "kamB", company: null, nom: "cinqN" });
++    await comme("sup");
++    const res = await deleteFieldReport(form({ id: autre.id }));
++    expect(res).toMatchObject({ ok: false, error: "Non autorisé." });
++    expect(await existe(autre.id)).toBe(true);
++    expect(await apercuDeSuppression(form({ kind: "FIELD_REPORT", id: autre.id }))).toEqual({ erreur: "Réservé à qui peut supprimer cet élément." });
++    // Un rapport sans entité n'est le secret d'aucune société (la règle des fiches, §118.184).
++    expect((await deleteFieldReport(form({ id: libre.id }))).ok).toBe(true);
++    // Le Super Admin, lui, supprime celui de la société B.
++    await comme("sa");
++    expect((await deleteFieldReport(form({ id: autre.id }))).ok).toBe(true);
++  });
++
++  it("6. le superviseur national VOIT les rapports sans pouvoir en supprimer un — et la liste ne lui offre aucune corbeille", async () => {
++    const r = await rapport({ delegate: "kamA", company: A, nom: "six" });
++    await comme("ns");
++    const res = await deleteFieldReport(form({ id: r.id }));
++    expect(res).toMatchObject({ ok: false, error: "Non autorisé." });
++    expect(await existe(r.id)).toBe(true);
++    const liste = await getMyFieldReports(ACTOR as unknown as SessionUser);
++    const sien = liste.find((x) => x.id === r.id);
++    expect(sien, "PRÉMISSE : le national voit ce rapport dans sa liste").toBeDefined();
++    expect(liste.filter((x) => x.canDelete)).toEqual([]);
++  });
++
++  it("7. la liste dit la même chose que l'action : l'auteur a la corbeille sur SES rapports, pas sur ceux d'un collègue", async () => {
++    const mien = await rapport({ delegate: "kamA", company: A, nom: "septA" });
++    const sien = await rapport({ delegate: "kamB", company: A, nom: "septB" });
++    await comme("kamA");
++    const liste = await getMyFieldReports(ACTOR as unknown as SessionUser);
++    expect(liste.find((x) => x.id === mien.id)?.canDelete).toBe(true);
++    expect(liste.find((x) => x.id === sien.id), "un délégué ne voit même pas le rapport d'un collègue").toBeUndefined();
++    await comme("sup");
++    const listeSup = await getMyFieldReports(ACTOR as unknown as SessionUser);
++    expect(listeSup.find((x) => x.id === mien.id)?.canDelete).toBe(true);
++    expect(listeSup.find((x) => x.id === sien.id)?.canDelete).toBe(true);
++  });
++
++  it("7 ter. la FICHE porte le même droit que l'action : l'auteur et le manager de l'entité l'ont, le national non", async () => {
++    const r = await rapport({ delegate: "kamA", company: A, nom: "septter" });
++    for (const [qui, attendu] of [["kamA", true], ["sup", true], ["ns", false]] as const) {
++      await comme(qui);
++      const d = await getFieldReportDetail(ACTOR as unknown as SessionUser, r.id);
++      expect(d, `${qui} ouvre la fiche`).not.toBeNull();
++      expect(d?.canDelete, qui).toBe(attendu);
++    }
++  });
++
++  it("7 bis. l'auteur d'un rapport dont le rôle n'a PLUS le module Rapports terrain ne supprime plus — être l'auteur ne rend pas le droit", async () => {
++    const r = await rapport({ delegate: "ancien", company: A, nom: "septbis" });
++    await comme("ancien");
++    expect(userCan(ACTOR as unknown as SessionUser, "FIELD_REPORTS", "VIEW"), "PRÉMISSE : ce rôle n a pas le module").toBe(false);
++    expect(await deleteFieldReport(form({ id: r.id }))).toMatchObject({ ok: false, error: "Non autorisé." });
++    expect(await existe(r.id)).toBe(true);
++  });
++
++  it("8. la destruction réelle depuis la corbeille libère les pièces ET l'audio — et seulement elle", async () => {
++    const r = await rapport({ delegate: "kamA", company: A, nom: "huit", pieces: 2, audio: true });
++    const pieces = await prisma.fieldReportAttachment.findMany({ where: { reportId: r.id }, select: { blobId: true } });
++    await comme("kamA");
++    expect((await deleteFieldReport(form({ id: r.id }))).ok).toBe(true);
++    for (const b of [r.audioBlobId!, ...pieces.map((p) => p.blobId)]) expect(await refCount(b)).toBe(1);
++    const rec = await prisma.deletedRecord.findFirstOrThrow({ where: { kind: "FIELD_REPORT", sourceId: r.id } });
++    await comme("kamA");
++    expect((await destroyDeletedRecord(form({ id: rec.id }))).ok, "la destruction est celle du Super Admin").toBe(false);
++    for (const b of [r.audioBlobId!, ...pieces.map((p) => p.blobId)]) expect(await refCount(b)).toBe(1);
++    await comme("sa");
++    expect((await destroyDeletedRecord(form({ id: rec.id }))).ok).toBe(true);
++    for (const b of [r.audioBlobId!, ...pieces.map((p) => p.blobId)]) {
++      expect(await prisma.fileBlob.count({ where: { id: b } }), "plus personne ne tient le fichier : il est libéré").toBe(0);
++    }
++  });
++
++  describe("la visite que le compte rendu documente — rien ne change en silence", () => {
++    it("9. le SEUL rapport d'une visite planifiée ne se supprime pas : elle repasserait de « fait » à « à faire »", async () => {
++      const v = await visite({ delegate: "kamA" });
++      const r = await rapport({ delegate: "kamA", company: A, nom: "neuf", visitId: v });
++      await comme("kamA");
++      const res = await deleteFieldReport(form({ id: r.id }));
++      expect(res.ok).toBe(false);
++      expect(res.error).toMatch(/seul rapport de la visite/);
++      expect(res.error).toMatch(/Rapport fait/);
++      expect(res.error).toMatch(/Ma journée/);
++      expect(await existe(r.id)).toBe(true);
++      // Le même refus s'affiche AVANT le clic, dans la fenêtre.
++      const apercu = await apercuDeSuppression(form({ kind: "FIELD_REPORT", id: r.id }));
++      expect("erreur" in apercu ? "" : apercu.refus).toMatch(/seul rapport de la visite/);
++    });
++
++    it("10. fenêtre de 48 h fermée : la visite deviendrait « non rapportée » — refus aussi", async () => {
++      const v = await visite({ delegate: "kamA", joursAvant: 5 });
++      const r = await rapport({ delegate: "kamA", company: A, nom: "dix", visitId: v });
++      await comme("kamA");
++      const res = await deleteFieldReport(form({ id: r.id }));
++      expect(res.ok).toBe(false);
++      expect(res.error).toMatch(/Rapport non fait — délai dépassé/);
++      expect(await existe(r.id)).toBe(true);
++    });
++
++    it("11. quand l'état de la visite ne bouge pas, le compte rendu part : visite rapportée, annulée, ou portant son propre rapport écrit", async () => {
++      for (const [nom, v] of [
++        ["onzeA", await visite({ delegate: "kamA", statut: "COMPLETED" })],
++        ["onzeB", await visite({ delegate: "kamA", statut: "CANCELLED" })],
++        ["onzeC", await visite({ delegate: "kamA", report: "Rapport écrit de la visite" })],
++        ["onzeD", await visite({ delegate: "kamA", statut: "POSTPONED", joursAvant: 9 })],
++      ] as const) {
++        const r = await rapport({ delegate: "kamA", company: A, nom, visitId: v });
++        const avant = await prisma.medicalVisit.findUniqueOrThrow({ where: { id: v }, select: { status: true, report: true, date: true } });
++        await comme("kamA");
++        const res = await deleteFieldReport(form({ id: r.id }));
++        expect(res.ok, `${nom} : ${res.error}`).toBe(true);
++        expect(await existe(r.id)).toBe(false);
++        // La visite, elle, n'a pas bougé.
++        expect(await prisma.medicalVisit.findUniqueOrThrow({ where: { id: v }, select: { status: true, report: true, date: true } })).toEqual(avant);
++      }
++    });
++
++    it("12. deux comptes rendus pour la même visite : on peut en retirer un, pas le dernier", async () => {
++      const v = await visite({ delegate: "kamA" });
++      const r1 = await rapport({ delegate: "kamA", company: A, nom: "douzeA", visitId: v });
++      const r2 = await rapport({ delegate: "kamA", company: A, nom: "douzeB", visitId: v });
++      await comme("kamA");
++      expect((await deleteFieldReport(form({ id: r1.id }))).ok).toBe(true);
++      const dernier = await deleteFieldReport(form({ id: r2.id }));
++      expect(dernier.ok).toBe(false);
++      expect(dernier.error).toMatch(/seul rapport de la visite/);
++      expect(await existe(r2.id)).toBe(true);
++    });
++  });
++
++  describe("le matériel remis reste au registre du stock", () => {
++    it("13. un compte rendu qui porte du matériel remis ne se supprime pas — ni par l'action, ni par l'aperçu, pas même pour le Super Admin", async () => {
++      const cat = await prisma.promoCatalogueArticle.create({ data: { reference: `${TAG}C1`, nom: `${TAG}Fiche posologique`, famille: "CONSOMMABLE" as never }, select: { id: true } });
++      const fiche = (await trouverOuCreerArticle({ companyId: null, catalogueId: cat.id, produitIds: [], nom: `${TAG}Fiche`, unite: "pièce", materialType: null, auteurId: ids.sa! })).id;
++      const entree = await sousVerrou(fiche, (tx) => entrerLot(tx, fiche, { holderId: ids.kamA!, quantite: 10, kind: "OPENING", origine: "OUVERTURE", valableJusquau: new Date("2030-12-31"), auteurId: ids.sa! }));
++      if ("refus" in entree) throw new Error(entree.refus);
++      const medecin = await prisma.medicalDoctor.create({ data: { name: `${TAG}Dr Remise`, delegateId: ids.kamA!, wilaya: "Alger" }, select: { id: true } });
++      await comme("kamA");
++      const cree = await createFieldReport();
++      if (!cree.ok || !cree.id) throw new Error("brouillon non créé");
++      const fd = new FormData();
++      fd.set("id", cree.id); fd.set("summary", "Visite faite."); fd.set("visitDate", new Date().toISOString().slice(0, 10));
++      fd.set("doctorIds", medecin.id); fd.append("materielItemId", fiche); fd.append("materielQuantite", "2");
++      expect(await submitFieldReport(fd)).toEqual({ ok: true });
++      expect(await prisma.promoStockMovement.count({ where: { fieldReportId: cree.id } }), "PRÉMISSE : le compte rendu porte une remise").toBe(1);
++
++      const res = await deleteFieldReport(form({ id: cree.id }));
++      expect(res.ok).toBe(false);
++      expect(res.error).toMatch(/porte du matériel remis/);
++      expect(await existe(cree.id)).toBe(true);
++      const apercu = await apercuDeSuppression(form({ kind: "FIELD_REPORT", id: cree.id }));
++      expect("erreur" in apercu ? "" : apercu.refus).toMatch(/porte du matériel remis/);
++      // Le Super Admin non plus : la règle est celle du cœur, pas celle d'un rôle.
++      await comme("sa");
++      expect((await deleteFieldReport(form({ id: cree.id }))).ok).toBe(false);
++    });
++  });
++
++  describe("Adam — la carte lit l'aperçu et ne supprime jamais sans clic", () => {
++    const op = FIELD_REPORT_OPS_IMPL.delete_field_report!;
++
++    it("14. la carte nomme ce qui part, dit que c'est réversible, et n'écrit RIEN", async () => {
++      const r = await rapport({ delegate: "kamA", company: A, nom: "quatorze", pieces: 2 });
++      await comme("kamA");
++      const carte = await op.propose({ target: `${TAG}quatorze` }, ACTOR!);
++      expect("error" in carte).toBe(false);
++      if (!("error" in carte)) {
++        expect(carte.fields.map((f) => `${f.label}: ${f.value}`).join(" | ")).toMatch(/Part aussi: 2 pièces jointes/);
++        expect((carte.warnings ?? []).join(" ")).toMatch(/Réversible/);
++        expect(carte.warnings!.join(" ")).not.toMatch(/DÉFINITIVE/);
++        expect(carte.args).toEqual({ id: r.id });
++      }
++      // Proposer n'écrit rien : il faut un clic.
++      expect(await existe(r.id)).toBe(true);
++      expect(await prisma.deletedRecord.count({ where: { kind: "FIELD_REPORT", sourceId: r.id } })).toBe(0);
++      expect(await prisma.fieldReportAttachment.count({ where: { reportId: r.id } })).toBe(2);
++    });
++
++    it("15. la carte ne nomme pas, et ne propose pas, le rapport d'un collègue", async () => {
++      await rapport({ delegate: "kamA", company: A, nom: "quinze" });
++      await comme("kamB");
++      const carte = await op.propose({ target: `${TAG}quinze` }, ACTOR!);
++      expect(carte).toEqual({ error: `Aucun rapport terrain « ${TAG}quinze ».` });
++    });
++
++    it("16. la carte refuse AVANT d'être montrée quand le registre refuse (visite) — pas un geste offert puis retiré", async () => {
++      const v = await visite({ delegate: "kamA" });
++      await rapport({ delegate: "kamA", company: A, nom: "seize", visitId: v });
++      await comme("kamA");
++      const carte = await op.propose({ target: `${TAG}seize` }, ACTOR!);
++      expect("error" in carte ? carte.error : "").toMatch(/seul rapport de la visite/);
++    });
++
++    it("17. exécutée (le clic), la carte supprime par la corbeille — le rapport est restaurable", async () => {
++      const r = await rapport({ delegate: "kamA", company: A, nom: "dixsept", pieces: 1 });
++      await comme("kamA");
++      const res = await op.execute({ id: r.id }, ACTOR!);
++      expect(res.ok).toBe(true);
++      expect(await existe(r.id)).toBe(false);
++      expect(await prisma.deletedRecord.count({ where: { kind: "FIELD_REPORT", sourceId: r.id } })).toBe(1);
++    });
++  });
++});
++
++/**
++ * LE POINT D'APPEL (§118.49) — un test qui vérifie le corps d'une règle sans vérifier son appelant
++ * ne teste rien. Ces cliquets lisent le CODE (commentaires retirés, §118.79d) à l'endroit exact où
++ * le mécanisme doit être branché : l'écran, l'action, l'aperçu, la restauration.
++ */
++describe("Rapport terrain — la suppression est branchée là où une personne la voit (§118.212)", () => {
++  it("la liste monte l'icône sur CHAQUE ligne, armée par la règle de l'action — et hors du lien de la ligne", () => {
++    const src = code("src/app/(app)/field-reports/page.tsx");
++    expect(src).toMatch(/<SupprimerRapport[\s\S]{0,200}enabled=\{r\.canDelete\}/);
++    // L'icône est la SŒUR du lien : un bouton dans un lien déclenche deux gestes pour un clic.
++    const ligne = src.slice(src.indexOf("reports.map"));
++    expect(ligne.indexOf("</Link>"), "le lien existe").toBeGreaterThan(-1);
++    expect(ligne.indexOf("</Link>"), "le lien est refermé AVANT l'icône").toBeLessThan(ligne.indexOf("<SupprimerRapport"));
++  });
++
++  it("la fiche monte le même bouton, pour qui a le droit (plus pour le seul Super Admin)", () => {
++    const src = code("src/app/(app)/field-reports/[id]/page.tsx");
++    expect(src).toMatch(/<SupprimerRapport[\s\S]{0,300}enabled=\{detail\.canDelete\}/);
++    expect(src).not.toContain("SuperAdminDeleteButton");
++  });
++
++  it("le bouton passe par la fenêtre commune (double confirmation) — jamais un window.confirm", () => {
++    const src = code("src/app/(app)/field-reports/supprimer-rapport.tsx");
++    expect(src).not.toContain("window.confirm(");
++    expect(src).toMatch(/<ConfirmationSuppression[\s\S]{0,300}kind="FIELD_REPORT"[\s\S]{0,200}executer=\{deleteFieldReport\}/);
++    const fenetre = code("src/components/shared/super-admin-delete.tsx");
++    expect(fenetre, "la seconde confirmation est un bouton décisif (arme, puis confirme)").toMatch(/<BoutonDecisif[\s\S]{0,200}disabled=\{!armable\}/);
++    expect(fenetre).toContain("apercuDeSuppression(fd)");
++  });
++
++  it("l'action passe par le cœur réversible : plus de `delete` sec, plus de fichiers libérés à la suppression", () => {
++    const src = code("src/lib/actions/field-report-actions.ts");
++    const i = src.indexOf("export async function deleteFieldReport(");
++    const corps = src.slice(i, src.indexOf("export async function deleteFieldReportAttachment"));
++    expect(corps).toContain('supprimerReversible("FIELD_REPORT"');
++    expect(corps).not.toMatch(/prisma\.fieldReport\.delete\(/);
++    expect(corps, "libérer un fichier à la suppression rend la restauration impossible").not.toContain("releaseBlob");
++    expect(corps).toContain("peutSupprimerUnRapportTerrain(user, id)");
++  });
++
++  it("l'aperçu de la fenêtre lit la MÊME règle que l'action — sinon le bouton ne s'armerait pas devant un geste que l'action accepte", () => {
++    const src = code("src/lib/actions/admin-delete-actions.ts");
++    expect(src).toMatch(/kind === "FIELD_REPORT"\) return peutSupprimerUnRapportTerrain\(user, id\)/);
++  });
++
++  it("le type est un LOT au registre, et la destruction libère les pièces du lot", async () => {
++    const { DELETE_REGISTRY } = await import("@/lib/admin-delete-registry");
++    expect(DELETE_REGISTRY.FIELD_REPORT.lot).toBe(true);
++    const src = code("src/lib/actions/admin-delete-actions.ts");
++    expect(src).toMatch(/l\.modele === "FieldReportAttachment" && l\.donnees\.blobId\) await releaseBlob\(l\.donnees\.blobId\)/);
++  });
++
++  it("Adam : la carte résout sous la règle de suppression, lit l'aperçu avant de se montrer, et ne dit plus « définitive »", () => {
++    const src = code("src/lib/assistant/ops/impl-wave6b.ts");
++    const i = src.indexOf("delete_field_report: {");
++    const corps = src.slice(i, src.indexOf("delete_field_report_attachment: {"));
++    expect(corps).toContain("peutSupprimerUnRapportTerrain(user, id)");
++    expect(corps).toContain('apercuSuppression("FIELD_REPORT", hit.id)');
++    expect(corps).toMatch(/if \(apercu\.refus\) return \{ error: apercu\.refus \}/);
++    expect(corps).not.toContain("DÉFINITIVE");
++  });
++});
+diff --git a/src/lib/admin-delete-registry.ts b/src/lib/admin-delete-registry.ts
+index e6be96a..04b266d 100644
+--- a/src/lib/admin-delete-registry.ts
++++ b/src/lib/admin-delete-registry.ts
+@@ -333,15 +333,22 @@ export const DELETE_REGISTRY: Record<DeletableKind, KindSpec> = {
+     model: "fieldReport",
+     searchFields: ["doctorName", "institution"],
+     async describe(id) {
+-      const r = await prisma.fieldReport.findUnique({ where: { id }, select: { doctorName: true, institution: true, visitDate: true } });
+-      return r ? `${r.doctorName || r.institution || "Rapport"} — ${r.visitDate.toLocaleDateString("fr-FR")}` : null;
++      const r = await prisma.fieldReport.findUnique({ where: { id }, select: { doctorName: true, institution: true, visitDate: true, delegate: { select: { name: true } } } });
++      // L'auteur est dans le nom : la corbeille liste des rapports de tout le monde, et « Médecin non
++      // précisé — 05/10/2026 » ne dit pas lequel restaurer (§118.212).
++      return r ? `${r.doctorName || r.institution || "Rapport"} — ${r.visitDate.toLocaleDateString("fr-FR")}${r.delegate?.name ? ` (${r.delegate.name})` : ""}` : null;
+     },
+     // Le MÊME refus que l'action de suppression (§118.204) : un compte rendu qui porte du matériel
+-    // remis justifie des sorties du stock, il ne passe pas à la corbeille.
++    // remis justifie des sorties du stock, il ne passe pas à la corbeille. Et, depuis §118.212, un
++    // compte rendu qui est le seul rapport d'une visite de l'emploi du temps.
+     refuse: (id) => refusSuppressionRapport(id),
++    // UN LOT (§118.212) : le rapport ET ses pièces jointes (`FieldReportAttachment`, supprimées en
++    // cascade par la base) partent ensemble et reviennent ensemble. Avant, la restauration rendait
++    // le rapport SANS ses pièces — alors que la phrase de la corbeille disait « restaurable ». Les
++    // fichiers (pièces, audio) restent au stockage tant que l'entrée existe : seule la destruction
++    // réelle depuis la corbeille les libère.
++    lot: true,
+     async remove(id) {
+-      // L'audio (blob chiffré) est conservé pour la restauration ; il n'est
+-      // libéré qu'à la destruction réelle depuis la corbeille.
+       await prisma.fieldReport.delete({ where: { id } });
+     },
+   },
+diff --git a/src/lib/assistant/ops-goldens-wave6b.test.ts b/src/lib/assistant/ops-goldens-wave6b.test.ts
+index 8f1a4a2..cee64e5 100644
+--- a/src/lib/assistant/ops-goldens-wave6b.test.ts
++++ b/src/lib/assistant/ops-goldens-wave6b.test.ts
+@@ -241,12 +241,17 @@ suite("ops vague 6b — validations, rapports terrain, catalogue d'articles", ()
+       }
+     });
+ 
+-    it("delete_field_report : pièces jointes comptées dans la proposition", async () => {
++    it("delete_field_report : ce qui part avec le rapport est lu par l'aperçu du registre, et la carte dit « réversible » (§118.212)", async () => {
+       const p = await buildProposal("field_report_operation", {
+         op: "delete_field_report", target: "mon dernier",
+       }, sa());
+       expect("error" in p).toBe(false);
+-      if (!("error" in p)) expect(p.fields.map((f) => f.value).join(" ")).toContain("0");
++      if (!("error" in p)) {
++        // Le rapport du décor n'a aucune pièce jointe : l'aperçu le dit (« rien d'autre »).
++        expect(p.fields.map((f) => `${f.label}: ${f.value}`).join(" | ")).toContain("Part aussi: rien d'autre");
++        expect(p.warnings.join(" ")).toMatch(/Réversible/);
++        expect(p.warnings.join(" ")).not.toMatch(/DÉFINITIVE/);
++      }
+     });
+   });
+ 
+diff --git a/src/lib/assistant/ops/catalog.ts b/src/lib/assistant/ops/catalog.ts
+index 3904739..4dbb9ec 100644
+--- a/src/lib/assistant/ops/catalog.ts
++++ b/src/lib/assistant/ops/catalog.ts
+@@ -4303,9 +4303,9 @@ export const OPS_CATALOG: OpMeta[] = [
+     uiLabel: "Supprimer un rapport",
+     aliases: ["supprime mon rapport terrain"],
+     risk: "SENSITIVE",
+-    summary: "Suppression DÉFINITIVE du rapport, de son audio et de ses pièces jointes (comptées, stockage libéré).",
++    summary: "Supprime le rapport ET ses pièces jointes — RÉVERSIBLE : le Super Admin le restaure depuis la corbeille. Refusé quand le compte rendu porte du matériel remis au stock, ou quand il est le seul rapport d'une visite de l'emploi du temps.",
+     gate: () => true,
+-    gateNote: "auteur ou manager des rapports (revérifié par l'action)",
++    gateNote: "auteur, ou hiérarchie qui gère les rapports dans son périmètre d'entité (revérifié par l'action)",
+     covers: ["field-report-actions:deleteFieldReport"],
+   },
+   {
+diff --git a/src/lib/assistant/ops/impl-wave6b.ts b/src/lib/assistant/ops/impl-wave6b.ts
+index 5a256fe..1c21c8e 100644
+--- a/src/lib/assistant/ops/impl-wave6b.ts
++++ b/src/lib/assistant/ops/impl-wave6b.ts
+@@ -14,6 +14,7 @@ import {
+ import { normalizeArticle, needsRewrite, describeRewrite } from "@/lib/general-means/catalog-normalize";
+ import { ROLE_LABELS, SUPPLY_CATEGORY, SUPPLY_UNIT } from "@/lib/labels";
+ import type { CurrentUser } from "@/lib/session";
++import { apercuSuppression, peutSupprimerUnRapportTerrain } from "@/platform/in-process/capacites";
+ import type { OpImpl, OpProposalDraft } from "./types";
+ import { opStr } from "./types";
+ import { runFd, runFd2, fieldsOf, resolveOne, isoDate, dzd } from "./helpers";
+@@ -426,10 +427,15 @@ export const VALIDATION_OPS_IMPL: Record<string, OpImpl> = {
+ 
+ interface FieldReportHit { id: string; label: string }
+ 
+-async function resolveFieldReport(user: CurrentUser, raw: string): Promise<FieldReportHit | { error: string }> {
++async function resolveFieldReport(
++  user: CurrentUser,
++  raw: string,
++  /** Ne retient que les rapports sur lesquels la personne a le droit d'agir (§118.212) : un candidat qu'on ne peut pas toucher ne se NOMME pas. */
++  garde?: (id: string) => Promise<boolean>,
++): Promise<FieldReportHit | { error: string }> {
+   const q = raw.trim();
+   const mine = /^(mon |mes |dernier)/i.test(q) || !q;
+-  const rows = await prisma.fieldReport.findMany({
++  let rows = await prisma.fieldReport.findMany({
+     where: mine
+       ? { delegateId: user.id }
+       : {
+@@ -442,6 +448,10 @@ async function resolveFieldReport(user: CurrentUser, raw: string): Promise<Field
+     select: { id: true, visitDate: true, doctorName: true, status: true, delegate: { select: { name: true } } },
+     orderBy: { visitDate: "desc" }, take: 6,
+   });
++  if (garde) {
++    const ouverts = await Promise.all(rows.map((r) => garde(r.id)));
++    rows = rows.filter((_, i) => ouverts[i]);
++  }
+   const label = (r: (typeof rows)[number]) =>
+     `${r.visitDate.toISOString().slice(0, 10)} · ${r.doctorName ?? "—"} (${r.delegate?.name ?? "?"}${r.status === "DRAFT" ? ", brouillon" : ""})`;
+   if (rows.length === 0) return { error: q ? `Aucun rapport terrain « ${q} ».` : "Vous n'avez aucun rapport terrain." };
+@@ -611,15 +621,23 @@ export const FIELD_REPORT_OPS_IMPL: Record<string, OpImpl> = {
+ 
+   delete_field_report: {
+     async propose(input, user): Promise<OpProposalDraft | { error: string }> {
+-      const hit = await resolveFieldReport(user, opStr(input, "target"));
++      const hit = await resolveFieldReport(user, opStr(input, "target"), (id) => peutSupprimerUnRapportTerrain(user, id));
+       if ("error" in hit) return hit;
+-      const atts = await prisma.fieldReportAttachment.count({ where: { reportId: hit.id } });
++      // CE QUI PART, ET CE QUI L'INTERDIT, lus par le MÊME inventaire que l'action et la fenêtre de
++      // l'écran (§118.212) : du matériel remis au stock, une visite dont ce compte rendu est le seul
++      // rapport — la carte ne propose pas une suppression que l'action refusera (§118.83). Une
++      // suppression est RÉVERSIBLE (corbeille) : la carte ne dit plus « définitive ».
++      const apercu = await apercuSuppression("FIELD_REPORT", hit.id);
++      if (apercu.refus) return { error: apercu.refus };
+       return {
+         title: `SUPPRIMER le rapport terrain (${hit.label})`,
+-        fields: [{ label: "Rapport", value: hit.label }, { label: "Pièces jointes emportées", value: String(atts) }],
+-        warnings: ["Suppression DÉFINITIVE du rapport, de son audio et de ses pièces (stockage libéré)."],
++        fields: [
++          { label: "Rapport", value: hit.label },
++          { label: "Part aussi", value: apercu.emporte.length ? apercu.emporte.join(", ") : "rien d'autre" },
++        ],
++        warnings: ["Le rapport et ses pièces jointes disparaissent de tous les écrans. Réversible : le Super Admin peut tout restaurer depuis la corbeille."],
+         args: { id: hit.id },
+-        successMessage: "Rapport terrain supprimé.",
++        successMessage: "Rapport terrain supprimé (restaurable depuis la corbeille).",
+         revalidate: ["/field-reports"],
+       };
+     },
+diff --git a/src/lib/promo/remises-visite.ts b/src/lib/promo/remises-visite.ts
+index 261d2a9..e65886f 100644
+--- a/src/lib/promo/remises-visite.ts
++++ b/src/lib/promo/remises-visite.ts
+@@ -1,4 +1,5 @@
+ import { prisma } from "@/lib/prisma";
++import { refusSuppressionRapportDeVisite } from "@/lib/sfe/tournee";
+ import {
+   gestesDeRemise, lireNumeriques, lireRemises, refusRemise, remisNetParArticle, resumeRemises,
+   type GesteDeRemise,
+@@ -203,7 +204,20 @@ export function formulairePorteDuMateriel(formData: FormData): { materiel: boole
+  */
+ export async function refusSuppressionRapport(fieldReportId: string): Promise<string | null> {
+   const n = await prisma.promoStockMovement.count({ where: { fieldReportId } });
+-  return n > 0
+-    ? "Ce compte rendu porte du matériel remis : ses remises restent au registre du stock, et c'est lui qui les justifie — il ne se supprime pas. Une remise saisie par erreur se corrige dans le compte rendu (« Corriger / renvoyer », quantité à 0)."
+-    : null;
++  if (n > 0) {
++    return "Ce compte rendu porte du matériel remis : ses remises restent au registre du stock, et c'est lui qui les justifie — il ne se supprime pas. Une remise saisie par erreur se corrige dans le compte rendu (« Corriger / renvoyer », quantité à 0).";
++  }
++  // LA VISITE QU'IL DOCUMENTE (§118.212) : le retirer ne doit pas changer le taux en silence.
++  const rapport = await prisma.fieldReport.findUnique({ where: { id: fieldReportId }, select: { visitId: true } });
++  if (!rapport?.visitId) return null;
++  const visite = await prisma.medicalVisit.findUnique({
++    where: { id: rapport.visitId },
++    select: { status: true, date: true, report: true, doctor: { select: { name: true } } },
++  });
++  if (!visite) return null;
++  const autres = await prisma.fieldReport.count({ where: { visitId: rapport.visitId, id: { not: fieldReportId } } });
++  return refusSuppressionRapportDeVisite({
++    statut: visite.status, date: visite.date, rapportEcrit: false, autresRapports: autres,
++    maintenant: new Date(), praticien: visite.doctor?.name ?? null,
++  });
+ }
+diff --git a/src/lib/queries/field-reports.ts b/src/lib/queries/field-reports.ts
+index ce30d14..aa22d30 100644
+--- a/src/lib/queries/field-reports.ts
++++ b/src/lib/queries/field-reports.ts
+@@ -1,6 +1,6 @@
+-import { hasGlobalView, hasRole, type SessionUser } from "@/lib/rbac";
++import { hasGlobalView, hasRole, userCan, type SessionUser } from "@/lib/rbac";
+ import { prisma } from "@/lib/prisma";
+-import { platformScope } from "@/lib/company";
++import { entitePermisePourFiche, platformScope, predicatEntitePermise } from "@/lib/company";
+ 
+ /** Lecture des rapports terrain (vocaux). Un délégué voit les siens ; un manager
+  *  / la Direction / la Direction Marketing **gèrent** tout (édition + validation + synthèse).
+@@ -11,6 +11,32 @@ export function managesReports(user: SessionUser): boolean {
+   return hasGlobalView(user) || user.role === "MEDICAL_PROMOTION_MANAGER" || user.role === "PRODUCT_MANAGER";
+ }
+ 
++/**
++ * QUI PEUT SUPPRIMER UN RAPPORT (§118.212) — la règle, une fois, lue par l'action, l'aperçu de la
++ * fenêtre de confirmation, la liste et la fiche. Pure : l'entité est un FAIT que l'appelant lit.
++ *
++ *   • l'AUTEUR du rapport, brouillon ou validé — c'est son compte rendu ;
++ *   • qui le GÈRE déjà (`managesReports` : la hiérarchie et la Direction — la règle de `canEdit`)…
++ *     …pour un rapport de SON périmètre d'entité : la fiche ne s'ouvre pas plus large que la liste ;
++ *   • jamais le superviseur national, qui voit sans éditer.
++ *
++ * Le nom est un prédicat (`peut…`) : la carte de confirmation le lit comme une garde, et non comme
++ * « gardé par rien » (§118.150g).
++ */
++export function peutSupprimerLeRapport(user: SessionUser, rapport: { delegateId: string | null }, entitePermise: boolean): boolean {
++  if (user.role === "SUPER_ADMIN") return true;
++  if (!userCan(user, "FIELD_REPORTS", "VIEW")) return false;
++  if (rapport.delegateId !== null && rapport.delegateId === user.id) return true;
++  return managesReports(user) && entitePermise;
++}
++
++/** La même règle pour UN rapport lu en base — l'action et l'aperçu passent par ici. */
++export async function peutSupprimerUnRapportTerrain(user: SessionUser, id: string): Promise<boolean> {
++  const rapport = await prisma.fieldReport.findUnique({ where: { id }, select: { delegateId: true, companyId: true } });
++  if (!rapport) return false;
++  return peutSupprimerLeRapport(user, rapport, await entitePermisePourFiche(user.id, rapport.companyId));
++}
++
+ /** Voit TOUS les rapports (managers + superviseur national). */
+ export function viewsAllReports(user: SessionUser): boolean {
+   return managesReports(user) || hasRole(user, "NATIONAL_SALES");
+@@ -33,6 +59,8 @@ export interface FieldReportListItem {
+   delegateName: string | null;
+   attachments: number;
+   validatedAt: string | null;
++  /** Le bouton « Supprimer » de la ligne — la même règle que l'action (`peutSupprimerLeRapport`). */
++  canDelete: boolean;
+ }
+ 
+ export interface FieldReportAttachmentDTO { id: string; name: string; mime: string; size: number; isImage: boolean }
+@@ -65,6 +93,7 @@ export interface FieldReportDetail {
+   validatedAt: string | null;
+   attachments: FieldReportAttachmentDTO[];
+   canEdit: boolean;
++  canDelete: boolean;
+ }
+ 
+ export async function getMyFieldReports(user: SessionUser): Promise<FieldReportListItem[]> {
+@@ -74,11 +103,14 @@ export async function getMyFieldReports(user: SessionUser): Promise<FieldReportL
+     take: 100,
+     include: { delegate: { select: { name: true } }, doctor: { select: { name: true } }, _count: { select: { attachments: true } } },
+   });
++  // La règle d'entité se calcule UNE fois pour la personne, pas une fois par ligne (§118.102b).
++  const entitePermise = await predicatEntitePermise(user.id);
+   return reports.map((r) => ({
+     id: r.id, status: r.status, visitDate: r.visitDate.toISOString(),
+     doctorName: r.doctor?.name ?? r.doctorName, specialty: r.specialty, products: r.products, summary: r.summary,
+     delegateName: r.delegate?.name ?? null, attachments: r._count.attachments,
+     validatedAt: r.validatedAt?.toISOString() ?? null,
++    canDelete: peutSupprimerLeRapport(user, r, entitePermise(r.companyId)),
+   }));
+ }
+ 
+@@ -104,6 +136,7 @@ export async function getFieldReportDetail(user: SessionUser, id: string): Promi
+     delegateName: r.delegate?.name ?? null, validatedAt: r.validatedAt?.toISOString() ?? null,
+     attachments: r.attachments.map((a) => ({ id: a.id, name: a.name, mime: a.mime, size: a.size, isImage: a.mime.startsWith("image/") })),
+     canEdit,
++    canDelete: peutSupprimerLeRapport(user, r, await entitePermisePourFiche(user.id, r.companyId)),
+   };
+ }
+ 
+diff --git a/src/lib/sfe/tournee.ts b/src/lib/sfe/tournee.ts
+index e8f6569..82d0257 100644
+--- a/src/lib/sfe/tournee.ts
++++ b/src/lib/sfe/tournee.ts
+@@ -269,6 +269,42 @@ export function etatVisite(input: {
+   return fenetreRapport(input.date, input.maintenant).ouvert ? "A_FAIRE" : "PERDUE";
+ }
+ 
++/**
++ * SUPPRIMER LE COMPTE RENDU D'UNE VISITE NE CHANGE PAS SILENCIEUSEMENT SON ÉTAT (§118.212).
++ *
++ * Un compte rendu vocal (`FieldReport`) rattaché à une visite fait passer la ligne de l'emploi du
++ * temps au vert (`rapportFait`, `tour-schedule.ts`). Le retirer rend la visite à son état d'avant :
++ * « à faire » ou — fenêtre de 48 h fermée — « rapport non fait », une visite PERDUE. Le retirer en
++ * silence corrigerait l'état d'une visite après coup, par la porte d'à côté (§118.193a). La règle ne
++ * refuse pas « tout compte rendu rattaché » (un refus à tort, §118.27 : si la visite est rapportée
++ * par ailleurs, rien ne change) : elle compare l'état AVEC et SANS ce compte rendu, par `etatVisite`
++ * — la MÊME fonction que l'écran, jamais une seconde copie de la règle (§118.5).
++ *
++ * Mesuré, et nommé plutôt que réparé ici : `avancementDuMois` ne lit que le rapport ÉCRIT
++ * (`report`), pas le compte rendu vocal — pour le taux du mois, une visite rapportée seulement à la
++ * voix compte déjà comme non rapportée. Ce défaut précède cette règle ; la règle ne l'aggrave pas.
++ *
++ * Rend la phrase du refus, ou `null` quand l'état ne bouge pas.
++ */
++export function refusSuppressionRapportDeVisite(input: {
++  statut: string;
++  date: Date;
++  /** La visite porte-t-elle son propre rapport écrit ? */
++  rapportEcrit: boolean;
++  /** Les AUTRES comptes rendus vocaux rattachés à la même visite (hors celui qu'on retire). */
++  autresRapports: number;
++  maintenant: Date;
++  /** Le praticien, pour dire de quelle visite il s'agit. */
++  praticien?: string | null;
++}): string | null {
++  const avec = etatVisite({ statut: input.statut, date: input.date, rapportFait: true, maintenant: input.maintenant });
++  const sans = etatVisite({ statut: input.statut, date: input.date, rapportFait: input.rapportEcrit || input.autresRapports > 0, maintenant: input.maintenant });
++  if (avec === sans) return null;
++  const visite = `${input.praticien ? `la visite chez ${input.praticien}` : "la visite"} du ${input.date.toLocaleDateString("fr-FR")}`;
++  return `Ce compte rendu est le seul rapport de ${visite} (emploi du temps) : sans lui elle repasserait de « ${ETAT_VISITE_LABELS[avec]} » à « ${ETAT_VISITE_LABELS[sans]} » dans « Ma journée », sans que personne l'ait décidé. `
++    + "Il ne se supprime pas d'ici : corrigez-le (« Corriger / renvoyer »), ou, si la visite n'a pas eu lieu, dites-le dans Promotion médicale › Ma journée (« N'a pas eu lieu », dans les 48 h).";
++}
++
+ // ─────────────────────────── L'avancement — UN seul calcul ───────────────────────────
+ 
+ export interface VisiteComptable {
+diff --git a/src/lib/suppression/branches.ts b/src/lib/suppression/branches.ts
+index 74e58c6..20c2f6a 100644
+--- a/src/lib/suppression/branches.ts
++++ b/src/lib/suppression/branches.ts
+@@ -324,6 +324,8 @@ export const LIBELLE_DU_MODELE: Readonly<Record<string, [string, string]>> = {
+   SalaryAdvance: ["avance sur salaire", "avances sur salaire"],
+   PayrollEntry: ["bulletin de paie", "bulletins de paie"],
+   PayrollWire: ["virement de paie", "virements de paie"],
++  // Les pièces jointes d'un rapport terrain (§118.212) : elles partent avec lui, et reviennent avec lui.
++  FieldReportAttachment: ["pièce jointe", "pièces jointes"],
+   // Un appel d'offres PCH (§118.185, I17) : ce qui part avec lui…
+   PchTenderLine: ["lot du marché", "lots du marché"],
+   PchTenderLineBusinessUnit: ["affectation d'un lot à une BU", "affectations de lots à des BU"],
+diff --git a/src/platform/in-process/capacites/index.ts b/src/platform/in-process/capacites/index.ts
+index 557fdbd..ab3064a 100644
+--- a/src/platform/in-process/capacites/index.ts
++++ b/src/platform/in-process/capacites/index.ts
+@@ -127,3 +127,9 @@ export { postesPourCloture } from "@/lib/queries/ad-pro-items";
+ // supprime un événement le lit AVANT de montrer sa carte, comme la fenêtre de l'écran : deux
+ // rédactions de « ce qui part avec » finiraient par dire deux choses (§118.5).
+ export { apercuSuppression, type ApercuSuppression } from "@/lib/admin-delete-registry";
++
++// QUI PEUT SUPPRIMER UN RAPPORT TERRAIN (§118.212) — la règle de l'action, lue par l'op d'Adam
++// AVANT de montrer sa carte : une carte qui propose une suppression que l'action refusera est un
++// geste offert puis retiré (§118.83). Adam n'a pas le droit d'importer les lecteurs de l'ERP en
++// direct : il passe par cette porte.
++export { peutSupprimerUnRapportTerrain } from "@/lib/queries/field-reports";

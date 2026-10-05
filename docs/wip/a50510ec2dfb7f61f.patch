@@ -1,0 +1,2714 @@
+diff --git a/e2e/annuaires-etablissements.spec.ts b/e2e/annuaires-etablissements.spec.ts
+index 4bc6979..778e69d 100644
+--- a/e2e/annuaires-etablissements.spec.ts
++++ b/e2e/annuaires-etablissements.spec.ts
+@@ -458,69 +458,70 @@ test("« Rattacher les établissements » relie le nom qui désigne UN établiss
+   await expect(await cellule(page, DR_INCONNU, "Établissement")).toContainText("à rattacher");
+ });
+ 
+-test("le découpage d'une BU : le CHU pour la seule Cardiologie, l'EPH en entier — et le filtre ne retire rien", async ({ page }) => {
++test("le territoire d'un KAM, sur SA ligne : le CHU pour la seule Cardiologie, l'EPH en entier — et le filtre ne retire rien", async ({ page }) => {
++  // 04/10/2026 : « Secteurs de la BU » a quitté l'écran ; le territoire se choisit sur la ligne du KAM
++  // (BU hospitalière — la BU du banc est « les deux », le défaut).
+   await login(page, DIR_EMAIL);
+   await aller(page, "/planning/business-units");
+   await page.getByRole("button", { name: new RegExp(BU) }).first().click();
+-  await page.getByRole("button", { name: "Découper un secteur" }).click();
+-  const fiche = page.getByRole("dialog", { name: "Découper un secteur" });
+-  await fiche.getByLabel("Nom du secteur").fill(`${P} Est`);
+-  await fiche.getByRole("checkbox", { name: `${P} KAM Est` }).check();
++  await expect(page.getByText(/Secteurs de la BU/)).toHaveCount(0);
++  await page.getByRole("button", { name: `Territoire de ${P} KAM Est` }).click();
++  const fiche = page.getByRole("dialog", { name: `Territoire de ${P} KAM Est` });
+   await fiche.getByRole("checkbox", { name: `Couvrir ${CHU}` }).check();
+   await fiche.getByRole("checkbox", { name: `Tous les services de ${CHU}` }).uncheck();
+   // « Aucun service » n'est pas un choix : le bouton refuse, et l'écran dit pourquoi.
+   await expect(fiche.getByRole("alert")).toContainText(CHU);
+-  await expect(fiche.getByRole("button", { name: "Créer le secteur" })).toBeDisabled();
++  await expect(fiche.getByRole("button", { name: "Enregistrer le territoire" })).toBeDisabled();
+   await fiche.getByRole("checkbox", { name: `Cardiologie — ${CHU}` }).check();
+   await fiche.getByRole("checkbox", { name: `Couvrir ${EPH}` }).check();
+-  // LE DÉFAUT D'AVANT : filtrer puis enregistrer retirait du secteur tout ce qu'on ne voyait plus.
++  // LE DÉFAUT D'AVANT : filtrer puis enregistrer retirait du territoire tout ce qu'on ne voyait plus.
+   await fiche.getByLabel("Filtrer les établissements").fill("zzz-rien");
+   await expect(fiche.getByText("Aucun établissement ne correspond à ce filtre.")).toBeVisible();
+-  await fiche.getByRole("button", { name: "Créer le secteur" }).click();
++  await fiche.getByRole("button", { name: "Enregistrer le territoire" }).click();
+ 
+   const cardio = await prisma.medicalInstitutionService.findFirstOrThrow({ where: { institutionId: chuId, name: "Cardiologie" } });
+   await enBase(async () => {
+     const sec = await prisma.salesSector.findFirst({
+-      where: { businessUnitId: buId },
++      where: { businessUnitId: buId, repId: kamId },
+       select: { reps: { select: { repId: true } }, institutions: { select: { institutionId: true, tousLesServices: true, services: { select: { serviceId: true } } } } },
+     });
+     if (!sec) return null;
+     const parEtab = Object.fromEntries(sec.institutions.map((l) => [l.institutionId, [l.tousLesServices, l.services.map((s) => s.serviceId)]]));
+     return { reps: sec.reps.map((r) => r.repId), parEtab };
+-  }, { reps: [kamId], parEtab: { [chuId]: [false, [cardio.id]], [ephId]: [true, []] } }, "secteur écrit avec sa couverture");
++  }, { reps: [kamId], parEtab: { [chuId]: [false, [cardio.id]], [ephId]: [true, []] } }, "territoire écrit avec sa couverture");
+ 
+   // ROUVRIR montre ce qui est enregistré — la restriction n'est pas perdue à l'affichage.
+-  await page.getByRole("button", { name: `Modifier le secteur ${P} Est` }).click();
+-  const edition = page.getByRole("dialog", { name: `Secteur « ${P} Est »` });
++  await page.getByRole("button", { name: `Territoire de ${P} KAM Est` }).click();
++  const edition = page.getByRole("dialog", { name: `Territoire de ${P} KAM Est` });
+   await expect(edition.getByRole("checkbox", { name: `Couvrir ${CHU}` })).toBeChecked();
+   await expect(edition.getByRole("checkbox", { name: `Tous les services de ${CHU}` })).not.toBeChecked();
+   await expect(edition.getByRole("checkbox", { name: `Cardiologie — ${CHU}` })).toBeChecked();
+   await expect(edition.getByRole("checkbox", { name: `Tous les services de ${EPH}` })).toBeChecked();
+-  // La ligne du secteur DIT ce qu'il couvre.
++  // La ligne du KAM DIT ce que son territoire couvre.
+   await edition.getByRole("button", { name: "Annuler" }).click();
+   await expect(page.getByText(`${CHU} (Cardiologie)`)).toBeVisible();
+ });
+ 
+-test("rouvrir un secteur JUSTE après l'avoir enregistré montre ce qu'on vient d'enregistrer — pas l'état d'avant", async ({ page }) => {
++test("rouvrir un territoire JUSTE après l'avoir enregistré montre ce qu'on vient d'enregistrer — pas l'état d'avant", async ({ page }) => {
+   await login(page, DIR_EMAIL);
+   await aller(page, "/planning/business-units");
+   await ralentirRafraichissements(page);
+   await page.getByRole("button", { name: new RegExp(BU) }).first().click();
+   const lireTous = async () => (await prisma.salesSectorInstitution.findFirstOrThrow({
+-    where: { institutionId: chuId, sector: { businessUnitId: buId } },
++    where: { institutionId: chuId, sector: { businessUnitId: buId, repId: kamId } },
+   })).tousLesServices;
+ 
+   // Rendre au CHU « tous ses services ».
+-  await page.getByRole("button", { name: `Modifier le secteur ${P} Est` }).click();
+-  const edition = page.getByRole("dialog", { name: `Secteur « ${P} Est »` });
++  await page.getByRole("button", { name: `Territoire de ${P} KAM Est` }).click();
++  const edition = page.getByRole("dialog", { name: `Territoire de ${P} KAM Est` });
+   await edition.getByRole("checkbox", { name: `Tous les services de ${CHU}` }).check();
+   await edition.getByRole("button", { name: /Enregistrer/ }).click();
+   await enBase(lireTous, true, "couverture élargie en base");
+ 
+   // LA COURSE : le panneau naît de la couverture qu'il lit à l'ouverture. Rouvert sur l'état
+   // d'AVANT, il remontrait la restriction — et l'enregistrer la RÉÉCRIVAIT.
+-  await page.getByRole("button", { name: `Modifier le secteur ${P} Est` }).click();
+-  const encore = page.getByRole("dialog", { name: `Secteur « ${P} Est »` });
++  await page.getByRole("button", { name: `Territoire de ${P} KAM Est` }).click();
++  const encore = page.getByRole("dialog", { name: `Territoire de ${P} KAM Est` });
+   await expect(encore.getByRole("checkbox", { name: `Tous les services de ${CHU}` })).toBeChecked();
+   await encore.getByRole("button", { name: /Enregistrer/ }).click();
+   await enBase(lireTous, true, "rien n'a été réécrit à l'état d'avant");
+diff --git a/prisma/migrations/20270106093000_territoire_kam/migration.sql b/prisma/migrations/20270106093000_territoire_kam/migration.sql
+new file mode 100644
+index 0000000..413ac27
+--- /dev/null
++++ b/prisma/migrations/20270106093000_territoire_kam/migration.sql
+@@ -0,0 +1,118 @@
++-- ═══════════════════════════════════════════════════════════════════════════════════════════
++-- Force de vente — LE TERRITOIRE D'UN KAM SE CHOISIT SUR SA LIGNE (04/10/2026)
++--
++-- Demande du dirigeant : « sur l'écran de la BU, dans "KAM de la BU", dans le secteur de chaque
++-- KAM, on doit pouvoir sélectionner un ou des services d'un ou de plusieurs établissements
++-- hospitaliers de l'annuaire — dans le cas où la BU est hospitalière ; enlève "Secteurs de la BU". »
++--
++-- Le territoire d'un KAM devient un `SalesSector` qui n'appartient qu'à lui (`repId`). Il garde
++-- AUSSI sa ligne `SalesSectorRep` : la règle du panel (`clausePanelDuKam`) et la portée des stocks
++-- lisent le territoire par ce lien, et ne changent pas.
++--
++-- ── LA REPRISE NE PERD RIEN ──────────────────────────────────────────────────────────────────
++--
++-- Un KAM affecté à un ou plusieurs secteurs PARTAGÉS actifs (repId nul) retrouve EXACTEMENT la
++-- même couverture dans son territoire propre :
++--   · l'UNION des établissements de ses secteurs ;
++--   · « tous les services » si l'UN des anciens liens le disait — un établissement entier
++--     couvert par un secteur l'était, quoi que disent les autres ;
++--   · sinon l'UNION des services choisis. Un lien restreint SANS aucun service (il ne couvrait
++--     personne de cet hôpital, §118.172) reste restreint et vide : on n'élargit rien en silence.
++-- Puis ses affectations aux anciens secteurs sont retirées (la couverture vit désormais dans son
++-- territoire), et les anciens secteurs devenus sans KAM sont DÉSACTIVÉS, jamais supprimés : un
++-- secteur partagé actif sans KAM ne couvrait déjà personne.
++--
++-- Un secteur partagé INACTIF ne couvrait personne (le panel ne lit que les actifs) : il n'est pas
++-- repris, et ses lignes ne bougent pas.
++--
++-- ── LE NOM ───────────────────────────────────────────────────────────────────────────────────
++--
++-- « Territoire — <nom du KAM> » ; quand ce nom est déjà pris dans la BU (un ancien secteur, ou
++-- deux KAM homonymes), il prend la fin de l'identifiant du KAM (« · a1b2c3 ») — la même règle que
++-- `nomDuTerritoire` (`lib/sfe/territoire-kam.ts`), qu'un banc compare à ce fichier.
++--
++-- ── IDEMPOTENTE ──────────────────────────────────────────────────────────────────────────────
++--
++-- Identifiants déterministes (md5 de ce qui les définit), `ON CONFLICT DO NOTHING` partout ; au
++-- second passage plus aucune affectation à un ancien secteur actif ne reste, donc plus rien ne
++-- se reprend. Le banc `lib/sfe/territoire-kam-migration.test.ts` joue ce TEXTE deux fois contre
++-- des tables temporaires (§118.173).
++-- ═══════════════════════════════════════════════════════════════════════════════════════════
++
++ALTER TABLE "SalesSector" ADD COLUMN IF NOT EXISTS "repId" TEXT;
++
++CREATE UNIQUE INDEX IF NOT EXISTS "SalesSector_businessUnitId_repId_key" ON "SalesSector"("businessUnitId", "repId");
++
++DO $$
++BEGIN
++  ALTER TABLE "SalesSector" ADD CONSTRAINT "SalesSector_repId_fkey"
++    FOREIGN KEY ("repId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
++EXCEPTION WHEN duplicate_object THEN NULL;
++END $$;
++
++-- 1. Un territoire propre par (BU, KAM) affecté à au moins un ancien secteur actif.
++INSERT INTO "SalesSector" ("id", "businessUnitId", "name", "repId", "isActive", "createdAt", "updatedAt")
++SELECT
++  'terr_' || md5(p."businessUnitId" || ':' || p."repId"),
++  p."businessUnitId",
++  CASE
++    WHEN p."homonymes" > 1
++      OR EXISTS (SELECT 1 FROM "SalesSector" x WHERE x."businessUnitId" = p."businessUnitId" AND lower(x."name") = lower(p."nom"))
++    THEN p."nom" || ' · ' || right(p."repId", 6)
++    ELSE p."nom"
++  END,
++  p."repId", true, now(), now()
++FROM (
++  SELECT q."businessUnitId", q."repId", q."nom",
++         count(*) OVER (PARTITION BY q."businessUnitId", lower(q."nom")) AS "homonymes"
++  FROM (
++    SELECT DISTINCT s."businessUnitId", r."repId",
++           'Territoire — ' || coalesce(nullif(btrim(u."name"), ''), 'KAM') AS "nom"
++    FROM "SalesSectorRep" r
++    JOIN "SalesSector" s ON s."id" = r."sectorId"
++    JOIN "User" u ON u."id" = r."repId"
++    WHERE s."repId" IS NULL AND s."isActive" = true
++  ) q
++) p
++ON CONFLICT DO NOTHING;
++
++-- 2. L'union des établissements ; « tous les services » si l'un des anciens liens le disait.
++INSERT INTO "SalesSectorInstitution" ("id", "sectorId", "institutionId", "tousLesServices", "createdAt")
++SELECT 'terri_' || md5(t."id" || ':' || l."institutionId"), t."id", l."institutionId", bool_or(l."tousLesServices"), now()
++FROM "SalesSectorRep" r
++JOIN "SalesSector" s ON s."id" = r."sectorId" AND s."repId" IS NULL AND s."isActive" = true
++JOIN "SalesSectorInstitution" l ON l."sectorId" = s."id"
++JOIN "SalesSector" t ON t."businessUnitId" = s."businessUnitId" AND t."repId" = r."repId"
++GROUP BY t."id", l."institutionId"
++ON CONFLICT DO NOTHING;
++
++-- 3. L'union des services choisis, pour les seuls établissements restés restreints.
++INSERT INTO "SalesSectorInstitutionService" ("id", "sectorInstitutionId", "serviceId")
++SELECT DISTINCT 'terrs_' || md5(tl."id" || ':' || sv."serviceId"), tl."id", sv."serviceId"
++FROM "SalesSectorRep" r
++JOIN "SalesSector" s ON s."id" = r."sectorId" AND s."repId" IS NULL AND s."isActive" = true
++JOIN "SalesSectorInstitution" l ON l."sectorId" = s."id" AND l."tousLesServices" = false
++JOIN "SalesSectorInstitutionService" sv ON sv."sectorInstitutionId" = l."id"
++JOIN "SalesSector" t ON t."businessUnitId" = s."businessUnitId" AND t."repId" = r."repId"
++JOIN "SalesSectorInstitution" tl ON tl."sectorId" = t."id" AND tl."institutionId" = l."institutionId" AND tl."tousLesServices" = false
++ON CONFLICT DO NOTHING;
++
++-- 4. Le KAM est affecté à son territoire — c'est ce lien que lisent le panel et les stocks.
++INSERT INTO "SalesSectorRep" ("id", "sectorId", "repId", "assignedAt")
++SELECT DISTINCT 'terrr_' || md5(t."id"), t."id", r."repId", now()
++FROM "SalesSectorRep" r
++JOIN "SalesSector" s ON s."id" = r."sectorId" AND s."repId" IS NULL AND s."isActive" = true
++JOIN "SalesSector" t ON t."businessUnitId" = s."businessUnitId" AND t."repId" = r."repId"
++ON CONFLICT DO NOTHING;
++
++-- 5. Ses affectations aux anciens secteurs actifs sont retirées : la couverture vit dans son territoire.
++DELETE FROM "SalesSectorRep" r
++USING "SalesSector" s
++WHERE r."sectorId" = s."id" AND s."repId" IS NULL AND s."isActive" = true
++  AND EXISTS (SELECT 1 FROM "SalesSector" t WHERE t."businessUnitId" = s."businessUnitId" AND t."repId" = r."repId");
++
++-- 6. Les anciens secteurs sans KAM sont désactivés — jamais supprimés.
++UPDATE "SalesSector" s
++SET "isActive" = false, "updatedAt" = now()
++WHERE s."repId" IS NULL AND s."isActive" = true
++  AND NOT EXISTS (SELECT 1 FROM "SalesSectorRep" r WHERE r."sectorId" = s."id");
+diff --git a/prisma/schema.prisma b/prisma/schema.prisma
+index 64dea49..1659589 100644
+--- a/prisma/schema.prisma
++++ b/prisma/schema.prisma
+@@ -1182,6 +1182,8 @@ model User {
+   visits                  MedicalVisit[]
+   /// LES SECTEURS qui lui sont affectés (KAM / délégué).
+   salesSectors            SalesSectorRep[]                 @relation("SalesSectorRepUser")
++  /// SON TERRITOIRE PROPRE dans sa BU (un `SalesSector` dont il est le KAM — voir `SalesSector.repId`).
++  territoiresKam          SalesSector[]                    @relation("SalesSectorTerritoireKam")
+   /// LES RÉCURRENCES de demande d'état de stock qui lui sont ADRESSÉES, et celles qu'il a POSÉES.
+   stockRecurrences        StockRequestRecurrence[]         @relation("StockRecurrenceAssignee")
+   stockRecurrencesCreated StockRequestRecurrence[]         @relation("StockRecurrenceAuthor")
+@@ -10309,12 +10311,24 @@ model SalesSector {
+   createdById    String?
+   createdAt      DateTime     @default(now())
+   updatedAt      DateTime     @updatedAt
++  /// LE KAM DONT C'EST LE TERRITOIRE PROPRE (04/10/2026). Dans une BU hospitalière, le territoire
++  /// d'un KAM se choisit SUR SA LIGNE (établissements de l'annuaire, tous leurs services ou
++  /// certains) : c'est un secteur qui n'appartient qu'à lui, et qui porte aussi sa ligne
++  /// `SalesSectorRep` — la règle du panel (`clausePanelDuKam`) et la portée des stocks continuent
++  /// de lire le territoire par ce lien, sans rien changer. Nul = un secteur PARTAGÉ d'avant
++  /// (« Est », « Oranais »), repris dans les territoires propres par la migration
++  /// `20270106093000_territoire_kam` et désactivé, jamais supprimé.
++  repId          String?
++  rep            User?        @relation("SalesSectorTerritoireKam", fields: [repId], references: [id], onDelete: Cascade)
+ 
+   institutions SalesSectorInstitution[]
+   reps         SalesSectorRep[]
+ 
+   /// Deux secteurs « Est » dans la même BU sont une erreur de saisie, pas deux territoires.
+   @@unique([businessUnitId, name])
++  /// UN TERRITOIRE PROPRE PAR KAM ET PAR BU. Les secteurs partagés (repId nul) n'y entrent pas :
++  /// sous Postgres, deux NULL ne se heurtent jamais.
++  @@unique([businessUnitId, repId])
+   @@index([businessUnitId])
+ }
+ 
+diff --git a/src/app/(app)/medical/plan-de-tournee/page.tsx b/src/app/(app)/medical/plan-de-tournee/page.tsx
+index 02dff72..bf2452a 100644
+--- a/src/app/(app)/medical/plan-de-tournee/page.tsx
++++ b/src/app/(app)/medical/plan-de-tournee/page.tsx
+@@ -11,7 +11,7 @@ import { ModuleTabs } from "@/components/shared/module-tabs";
+ import { visibleTabs } from "@/lib/nav-tabs";
+ import { MEDICAL_TABS } from "@/lib/labels";
+ import { Badge } from "@/components/ui/badge";
+-import { loadPanelPlanifiable, loadPlanTournee } from "@/lib/queries/tour-schedule";
++import { diagnostiquerPanelVide, loadPanelPlanifiable, loadPlanTournee } from "@/lib/queries/tour-schedule";
+ import {
+   GRANULARITE_LABELS, STATUT_PLAN_LABELS, aResoumettre, accesAuPlan, clausePlansADecider, estJourOuvrePourTournee, gestesPossibles, periodeSuivante,
+   retardDeSoumission, type StatutPlan,
+@@ -102,6 +102,9 @@ export default async function PlanDeTourneePage({ searchParams }: { searchParams
+     : null;
+   if (plan && !acces?.voir) notFound();
+   const panel = plan ? await loadPanelPlanifiable(plan.repId) : [];
++  // UN PANEL VIDE DIT SA VRAIE CAUSE (04/10/2026) : « demandez un secteur » à une KAM qui en a un fait
++  // chercher au mauvais endroit — la panne était souvent des fiches jamais rattachées à l'établissement.
++  const panelVide = plan && panel.length === 0 ? (await diagnostiquerPanelVide(plan.repId)).phrase : null;
+   // QUI PEUT ÉCRIRE CE PLAN — donc le rouvrir pour révision (§118.193) : la même règle que l'action
+   // (`peutEcrirePourLeKam` : le KAM, le superviseur de sa BU, la Direction). Un bouton offert à qui l'action
+   // refuse fait chercher une panne qui n'existe pas (§118.83).
+@@ -148,6 +151,7 @@ export default async function PlanDeTourneePage({ searchParams }: { searchParams
+             rejectionComment={plan.rejectionComment}
+             resubmitDueAt={plan.resubmitDueAt?.toISOString() ?? null}
+             praticiens={panel}
++            panelVide={panelVide}
+             pairesInitiales={plan.paires}
+             pairesAcquises={plan.pairesAcquises}
+             pairesNonTenues={plan.pairesNonTenues}
+diff --git a/src/app/(app)/medical/plan-de-tournee/planificateur.tsx b/src/app/(app)/medical/plan-de-tournee/planificateur.tsx
+index 4c6de36..6cdb515 100644
+--- a/src/app/(app)/medical/plan-de-tournee/planificateur.tsx
++++ b/src/app/(app)/medical/plan-de-tournee/planificateur.tsx
+@@ -47,7 +47,7 @@ export interface PraticienVue {
+ export function Planificateur({
+   planId, repName, status, periodStart, periodEnd, joursOuvres, submittedAt, retard,
+   reviewerName, escalatedToName, rejectionComment, resubmitDueAt,
+-  praticiens, pairesInitiales, pairesAcquises, pairesNonTenues, pairesPassees, jeSuisLeKam, jePeuxDecider, jePeuxEscalader,
++  praticiens, panelVide, pairesInitiales, pairesAcquises, pairesNonTenues, pairesPassees, jeSuisLeKam, jePeuxDecider, jePeuxEscalader,
+   revisionNote, revisionPar, revisionLe, jePeuxDemanderRevision,
+ }: {
+   planId: string;
+@@ -67,6 +67,8 @@ export function Planificateur({
+   rejectionComment: string | null;
+   resubmitDueAt: string | null;
+   praticiens: PraticienVue[];
++  /** La VRAIE cause d'un panel vide (`diagnosticPanelVide`), ou null quand le panel ne l'est pas. */
++  panelVide?: string | null;
+   pairesInitiales: string[];
+   pairesAcquises: string[];
+   /** Parmi les acquises, celles DITES non tenues (reportées, annulées) — le reste est rapporté. */
+@@ -337,8 +339,9 @@ export function Planificateur({
+           <div className="flex flex-wrap items-end gap-2">
+             <div className="min-w-40">
+               <Label htmlFor="plan-wilaya">Wilaya où je serai</Label>
+-              <Select id="plan-wilaya" value={wilaya} onChange={(e) => setWilaya(e.target.value)}>
+-                <option value="">Toutes les wilayas</option>
++              {/* Le menu se nourrit du panel : vide, il le DIT au lieu d'un « Toutes les wilayas » sans rien. */}
++              <Select id="plan-wilaya" value={wilaya} onChange={(e) => setWilaya(e.target.value)} disabled={praticiens.length === 0}>
++                <option value="">{praticiens.length === 0 ? "Aucune wilaya — panel vide" : "Toutes les wilayas"}</option>
+                 {wilayas.map((v) => <option key={v} value={v}>{v}</option>)}
+               </Select>
+             </div>
+@@ -367,9 +370,8 @@ export function Planificateur({
+             </div>
+             {praticiens.length === 0 ? (
+               <p className="rounded-lg border border-warning/40 bg-warning/10 p-3 text-sm">
+-                <strong>Votre panel est vide.</strong> Un plan de tournée se construit sur vos secteurs (les
+-                établissements qu&apos;ils couvrent) et sur les praticiens qui vous sont rattachés. Demandez au
+-                superviseur de votre BU de vous affecter un secteur (Force de vente › Business Units).
++                <strong>Votre panel est vide.</strong>{" "}
++                {panelVide ?? "Un plan de tournée se construit sur votre territoire (les établissements qu'il couvre) et sur les praticiens qui vous sont rattachés."}
+               </p>
+             ) : (
+               <div className="max-h-80 divide-y divide-border overflow-y-auto rounded-xl border border-border">
+diff --git a/src/app/(app)/planning/business-units/bu-manager.tsx b/src/app/(app)/planning/business-units/bu-manager.tsx
+index 6da0177..3e82cd5 100644
+--- a/src/app/(app)/planning/business-units/bu-manager.tsx
++++ b/src/app/(app)/planning/business-units/bu-manager.tsx
+@@ -2,13 +2,13 @@
+ 
+ import * as React from "react";
+ import {
+-  AlertTriangle, Building2, Check, ChevronDown, ChevronRight, Loader2, Map, Package, Pencil, Plus,
++  AlertTriangle, Check, ChevronDown, ChevronRight, Loader2, Package, Plus,
+   Star, Stethoscope, Trash2, UserCog, Users, Wallet,
+ } from "lucide-react";
+ import {
+   createBusinessUnit, updateBusinessUnit, deleteBusinessUnit, openBusinessUnitBudget,
+   createPromoProduct, updatePromoProduct, deletePromoProduct,
+-  saveRepProfile, createSector, updateSector, deleteSector,
++  saveRepProfile,
+   addBuMarketingReferent, removeBuMarketingReferent, enregistrerSpecialitesBu,
+ } from "@/lib/actions/sales-planning-actions";
+ import { ChoixSpecialites, type ChoixSpecialitesValeur } from "./choix-specialites";
+@@ -19,8 +19,9 @@ import {
+ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+ import { Badge } from "@/components/ui/badge";
+ import { Button } from "@/components/ui/button";
+-import { cn } from "@/lib/utils";
+-import { libelleCouverture, type LienCouverture } from "@/lib/annuaires/services";
++import { estBuHospitaliere, kamsSansTerritoire } from "@/lib/sfe/territoire-kam";
++import { TerritoireKam, type TerritoireRow } from "./territoire-kam";
++import type { EtabOpt } from "./choix-etablissements";
+ import { Sheet } from "@/components/ui/sheet";
+ import { useRafraichir } from "@/components/shared/use-rafraichir";
+ 
+@@ -56,30 +57,8 @@ export interface KamRow {
+   capDaysPerMonth: number | null; capVisitsPerDay: number | null; capFieldPct: number | null;
+   fteBudget: number; seniority: string | null; isActive: boolean; hasProfile: boolean;
+ }
+-/**
+- * UN SECTEUR — le territoire nommé d'une BU : « Est », « Oranais », « Alger ».
+- *
+- * C'est LUI qui donne au KAM son panel de médecins (les praticiens des établissements du
+- * secteur) et qui ouvre sa planification sur la bonne ville. Il appartient à la BU et non au KAM
+- * (deux KAM peuvent le couvrir, un KAM qui part n'emporte pas la carte) — voir `SalesSector`.
+- */
+-export interface SectorRow {
+-  id: string; name: string; city: string | null; color: string | null; isActive: boolean;
+-  institutionIds: string[];
+-  /**
+-   * CE QUE LE SECTEUR COUVRE DE CHAQUE ÉTABLISSEMENT (§118.172) : tous ses services, ou certains.
+-   * « Chaque Business Unit aura son propre sectoring regroupant une liste d'établissements
+-   * hospitaliers et un ou certains ou tous leurs services. »
+-   */
+-  liens: LienCouverture[];
+-  repIds: string[];
+-}
+-
+-/** Un établissement à cocher — avec sa wilaya, son état et ses services (§118.172). */
+-export interface EtabOpt {
+-  id: string; name: string; wilaya: string | null; type: string; isActive: boolean;
+-  services: { id: string; name: string }[];
+-}
++export type { EtabOpt } from "./choix-etablissements";
++export type { TerritoireRow } from "./territoire-kam";
+ 
+ export interface ProductRow {
+   id: string; name: string; code: string | null; channel: string;
+@@ -93,7 +72,7 @@ export interface ReferentRow { id: string; userId: string; name: string; porteLe
+ 
+ export function BusinessUnitsManager({
+   businessUnits, companies, supervisors, users, kams, products, dossiers, config,
+-  sectors, etablissements, referents, referentsEligibles, specialitesReferentiel,
++  territoires, etablissements, referents, referentsEligibles, specialitesReferentiel,
+ }: {
+   businessUnits: BuRow[];
+   companies: Opt[];
+@@ -103,18 +82,22 @@ export function BusinessUnitsManager({
+   products: ProductRow[];
+   dossiers: { id: string; label: string }[];
+   config: { daysPerMonth: number; visitsPerDay: number; fieldPct: number };
+-  /** Les secteurs de TOUTES les BU, groupés à l'affichage — comme les KAM et les produits. */
+-  sectors: (SectorRow & { businessUnitId: string })[];
++  /**
++   * Les TERRITOIRES PROPRES des KAM, de TOUTES les BU, groupés à l'affichage — comme les KAM et les
++   * produits (04/10/2026 : le territoire d'un KAM se choisit sur sa ligne ; les secteurs partagés ne
++   * s'affichent plus).
++   */
++  territoires: (TerritoireRow & { businessUnitId: string })[];
+   /** Le référentiel des établissements, à cocher. Vide → l'annuaire est vide, et on le DIT. */
+   etablissements: EtabOpt[];
+-  /** Les référents de TOUTES les gammes, groupés à l'affichage — comme les KAM et les secteurs. */
++  /** Les référents de TOUTES les gammes, groupés à l'affichage — comme les KAM et les territoires. */
+   referents: ReferentRow[];
+   /** Les personnes qui PORTENT le rôle Direction Marketing : les seules désignables. */
+   referentsEligibles: Opt[];
+   /** Le référentiel des spécialités, à cocher (§118.183). Vide → le choix dit où il se remplit. */
+   specialitesReferentiel: Opt[];
+ }) {
+-  // LES GESTES ATTENDENT LES NOUVELLES DONNÉES (§118.172) : le panneau d'un secteur naît de la
++  // LES GESTES ATTENDENT LES NOUVELLES DONNÉES (§118.172) : le panneau d'un territoire naît de la
+   // couverture qu'il lit à l'ouverture. Rouvert avant le rafraîchissement, il remontrait l'état
+   // d'AVANT, et l'enregistrer le RÉÉCRIVAIT par-dessus ce qu'on venait de changer.
+   const { enCours: rafraichit, rafraichir } = useRafraichir();
+@@ -136,7 +119,7 @@ export function BusinessUnitsManager({
+   }, [rafraichir]);
+ 
+   const kamsOf = (buId: string | null) => kams.filter((k) => k.businessUnitId === buId);
+-  const sectorsOf = (buId: string) => sectors.filter((x) => x.businessUnitId === buId);
++  const territoiresOf = (buId: string) => territoires.filter((x) => x.businessUnitId === buId);
+   const referentsOf = (buId: string) => referents.filter((x) => x.businessUnitId === buId);
+   const productsOf = (buId: string | null) => products.filter((p) => p.businessUnitId === buId);
+   const orphelinsKam = kamsOf(null);
+@@ -220,7 +203,7 @@ export function BusinessUnitsManager({
+           run={run}
+           kamsInside={kamsOf(bu.id)}
+           kamsFree={orphelinsKam}
+-          sectorsInside={sectorsOf(bu.id)}
++          territoiresInside={territoiresOf(bu.id)}
+           etablissements={etablissements}
+           referentsInside={referentsOf(bu.id)}
+           referentsEligibles={referentsEligibles}
+@@ -259,7 +242,7 @@ export function BusinessUnitsManager({
+ 
+ function BuCard({
+   bu, open, onToggle, companies, supervisors, users, dossiers, config, busy, run,
+-  kamsInside, kamsFree, productsInside, productsFree, sectorsInside, etablissements,
++  kamsInside, kamsFree, productsInside, productsFree, territoiresInside, etablissements,
+   referentsInside, referentsEligibles, specialitesReferentiel,
+ }: {
+   bu: BuRow; open: boolean; onToggle: () => void;
+@@ -268,20 +251,23 @@ function BuCard({
+   config: { daysPerMonth: number; visitsPerDay: number; fieldPct: number };
+   busy: boolean; run: (a: Action, fd: FormData, refresh?: boolean) => Promise<boolean>;
+   kamsInside: KamRow[]; kamsFree: KamRow[]; productsInside: ProductRow[]; productsFree: ProductRow[];
+-  sectorsInside: SectorRow[]; etablissements: EtabOpt[];
++  territoiresInside: TerritoireRow[]; etablissements: EtabOpt[];
+   /** Les référents Direction Marketing DE CETTE GAMME, et les personnes éligibles à l'être. */
+   referentsInside: ReferentRow[]; referentsEligibles: Opt[];
+   specialitesReferentiel: Opt[];
+ }) {
+-  // LES TROIS NOMBRES QUE L'ÉTAPE « SECTEURS » RÉCLAME, et il en faut trois : « la BU a des
+-  // secteurs » cache trois pannes distinctes, toutes silencieuses (voir `sfe-setup.ts`).
+-  const kamAvecSecteur = new Set(sectorsInside.flatMap((x) => x.repIds));
++  // LES DEUX FAITS QUE L'ÉTAPE « TERRITOIRES » RÉCLAME (voir `sfe-setup.ts`) : combien de KAM sont
++  // actifs, et LESQUELS n'ont aucun établissement — la raison les nomme.
++  const hospitaliere = estBuHospitaliere(bu.channel);
++  const territoireDe = (repId: string) => territoiresInside.find((t) => t.repId === repId) ?? null;
+   const etat = {
+     supervisorId: bu.supervisorId, channel: bu.channel,
+     repCount: kamsInside.length, productCount: productsInside.length,
+-    sectorCount: sectorsInside.length,
+-    sectorsWithoutInstitution: sectorsInside.filter((x) => x.institutionIds.length === 0).length,
+-    repsWithSector: kamsInside.filter((k) => kamAvecSecteur.has(k.repId)).length,
++    kamsActifs: kamsInside.filter((k) => k.isActive).length,
++    kamsSansTerritoire: kamsSansTerritoire(
++      kamsInside,
++      territoiresInside.map((t) => ({ repId: t.repId, etablissements: t.liens.length })),
++    ),
+     // LES DEUX NOMBRES DE L'ÉTAPE « RÉFÉRENTS », pour la même raison : aucun référent et un
+     // référent sans le rôle sont DEUX pannes distinctes, et toutes deux silencieuses.
+     referentCount: referentsInside.length,
+@@ -433,9 +419,17 @@ function BuCard({
+             {kamsInside.length === 0 && (
+               <p className="text-xs text-muted-foreground">{steps.find((s) => s.key === "KAM")!.why}</p>
+             )}
++            {/* LE TERRITOIRE DE CHAQUE KAM (04/10/2026) : dans une BU hospitalière, il se choisit sur SA
++                ligne — la raison de l'étape nomme ceux qui n'en ont pas, jamais un reproche générique. */}
++            {kamsInside.length > 0 && !steps.find((x) => x.key === "TERRITOIRES")!.done && (
++              <p className="text-xs text-muted-foreground">{steps.find((x) => x.key === "TERRITOIRES")!.why}</p>
++            )}
+             <div className="space-y-1.5">
+               {kamsInside.map((k) => (
+-                <KamLine key={k.repId} kam={k} buId={bu.id} config={config} busy={busy} run={run} />
++                <KamLine
++                  key={k.repId} kam={k} buId={bu.id} config={config} busy={busy} run={run}
++                  hospitaliere={hospitaliere} territoire={territoireDe(k.repId)} etablissements={etablissements}
++                />
+               ))}
+             </div>
+             {kamsFree.length > 0 && (
+@@ -454,25 +448,6 @@ function BuCard({
+             )}
+           </section>
+ 
+-          {/* ── 4. Les secteurs — le TERRITOIRE de chaque KAM ───────────── */}
+-          <section className="space-y-2">
+-            <h4 className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+-              <Map className="h-3.5 w-3.5" aria-hidden /> Secteurs de la BU ({sectorsInside.length})
+-            </h4>
+-            {/* La RAISON dit laquelle des trois pannes on tient — jamais un reproche générique. */}
+-            {!steps.find((x) => x.key === "SECTEURS")!.done && (
+-              <p className="text-xs text-muted-foreground">{steps.find((x) => x.key === "SECTEURS")!.why}</p>
+-            )}
+-            <SecteursDeLaBu
+-              buId={bu.id}
+-              secteurs={sectorsInside}
+-              kams={kamsInside}
+-              etablissements={etablissements}
+-              busy={busy}
+-              run={run}
+-            />
+-          </section>
+-
+           {/* ── 5. Les référents DIRECTION MARKETING ────────────────────── */}
+           <section className="space-y-2">
+             <h4 className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+@@ -577,18 +552,27 @@ function BuCard({
+   );
+ }
+ 
+-/** Une ligne de KAM : sa capacité, son ETP, et le bouton qui le sort de la BU. */
+-function KamLine({ kam, buId, config, busy, run }: {
++/**
++ * Une ligne de KAM : son territoire (BU hospitalière) ou son secteur en texte (BU de ville), sa
++ * capacité, son ETP, et le bouton qui le sort de la BU.
++ */
++function KamLine({ kam, buId, config, busy, run, hospitaliere, territoire, etablissements }: {
+   kam: KamRow; buId: string;
+   config: { daysPerMonth: number; visitsPerDay: number; fieldPct: number };
+   busy: boolean; run: (a: Action, fd: FormData, refresh?: boolean) => Promise<boolean>;
++  /** BU hospitalière : le territoire se choisit dans l'annuaire, le texte « Secteur » disparaît. */
++  hospitaliere: boolean;
++  territoire: TerritoireRow | null;
++  etablissements: EtabOpt[];
+ }) {
+   function save(patch: Partial<KamRow>, refresh = false) {
+     const next = { ...kam, ...patch };
+     const fd = new FormData();
+     fd.set("repId", next.repId);
+     fd.set("businessUnitId", next.businessUnitId ?? "");
+-    fd.set("region", next.region ?? "");
++    // CE QUE LA LIGNE NE MONTRE PAS NE S'ÉCRIT PAS (§118.152c) : dans une BU hospitalière le texte
++    // « Secteur » n'est pas affiché, il ne repart donc pas.
++    if (!hospitaliere) fd.set("region", next.region ?? "");
+     fd.set("capDaysPerMonth", next.capDaysPerMonth == null ? "" : String(next.capDaysPerMonth));
+     fd.set("capVisitsPerDay", next.capVisitsPerDay == null ? "" : String(next.capVisitsPerDay));
+     fd.set("capFieldPct", next.capFieldPct == null ? "" : String(next.capFieldPct));
+@@ -603,7 +587,9 @@ function KamLine({ kam, buId, config, busy, run }: {
+     <div className="flex flex-wrap items-center gap-1.5 rounded-lg border border-border p-1.5 text-sm">
+       <UserCog className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
+       <span className="min-w-28 flex-1 font-medium">{kam.name}</span>
+-      <input className={`${inputCls} w-32`} defaultValue={kam.region ?? ""} placeholder="Secteur" onBlur={(e) => save({ region: e.target.value || null })} />
++      {!hospitaliere && (
++        <input className={`${inputCls} w-32`} defaultValue={kam.region ?? ""} placeholder="Secteur" aria-label={`Secteur de ${kam.name}`} onBlur={(e) => save({ region: e.target.value || null })} />
++      )}
+       {/* La capacité vide = la valeur globale du paramétrage : le placeholder le DIT. */}
+       <input className={`${inputCls} w-20`} type="number" defaultValue={kam.capDaysPerMonth ?? ""} placeholder={`${config.daysPerMonth} j`} title="Jours terrain / mois" onBlur={(e) => save({ capDaysPerMonth: num(e.target.value) })} />
+       <input className={`${inputCls} w-20`} type="number" defaultValue={kam.capVisitsPerDay ?? ""} placeholder={`${config.visitsPerDay} v/j`} title="Visites / jour" onBlur={(e) => save({ capVisitsPerDay: num(e.target.value) })} />
+@@ -621,6 +607,9 @@ function KamLine({ kam, buId, config, busy, run }: {
+       >
+         <Trash2 className="h-4 w-4" />
+       </button>
++      {hospitaliere && (
++        <TerritoireKam buId={buId} kam={kam} territoire={territoire} etablissements={etablissements} busy={busy} run={run} />
++      )}
+     </div>
+   );
+ }
+@@ -684,326 +673,6 @@ function ProductLine({ prod, buChannel, users, busy, run }: {
+   );
+ }
+ 
+-/**
+- * LES SECTEURS D'UNE BU — un nom, des établissements cochés, des KAM affectés.
+- *
+- * ── POURQUOI LE FORMULAIRE PART EN UN SEUL ENVOI ────────────────────────────────────────────
+- *
+- * Le nom, les établissements et les KAM partent ensemble : un secteur créé dont les
+- * établissements n'auraient pas été enregistrés est un NOM SANS TERRITOIRE, dont le KAM affecté
+- * a un panel vide sans qu'une ligne le dise. L'action les écrit dans une transaction.
+- *
+- * ── LES LISTES SONT ENVOYÉES COMPLÈTES ──────────────────────────────────────────────────────
+- *
+- * L'action REMPLACE les deux sélections, c'est ce qui fait que décocher retire. Les cases non
+- * cochées n'envoient rien : c'est exactement la sélection, et une sélection VIDE retire tout.
+- *
+- * ── LE COMPTE AFFICHÉ EST CE QU'ON A COCHÉ ──────────────────────────────────────────────────
+- *
+- * « 12 établissements · 2 KAM » se lit sur la ligne : sans lui, on ouvre les secteurs un par un
+- * pour trouver celui qui est vide — et c'est précisément le vide qui casse une tournée.
+- */
+-function SecteursDeLaBu({
+-  buId, secteurs, kams, etablissements, busy, run,
+-}: {
+-  buId: string;
+-  secteurs: SectorRow[];
+-  kams: KamRow[];
+-  etablissements: EtabOpt[];
+-  busy: boolean;
+-  run: (a: Action, fd: FormData, refresh?: boolean) => Promise<boolean>;
+-}) {
+-  const [edite, setEdite] = React.useState<SectorRow | null>(null);
+-  const [cree, setCree] = React.useState(false);
+-  const [filtre, setFiltre] = React.useState("");
+-  /**
+-   * LA SÉLECTION, CONTRÔLÉE (§118.172) — par établissement coché : tous ses services, ou ceux
+-   * choisis. Elle naît de la couverture enregistrée à l'ouverture du panneau ; c'est ELLE, et non
+-   * ce que le filtre laisse voir, qui part avec le formulaire.
+-   */
+-  const [choix, setChoix] = React.useState<globalThis.Map<string, { tous: boolean; services: Set<string> }>>(new globalThis.Map());
+-
+-  const parId = React.useMemo(() => new globalThis.Map(etablissements.map((e) => [e.id, e])), [etablissements]);
+-  const nomEtab = (id: string) => parId.get(id)?.name ?? "(établissement retiré de l'annuaire)";
+-  const nomService = (id: string) => {
+-    for (const e of etablissements) { const x = e.services.find((sv) => sv.id === id); if (x) return x.name; }
+-    return null;
+-  };
+-  const nomKam = (id: string) => kams.find((k) => k.repId === id)?.name ?? null;
+-
+-  const ouvrir = (sec: SectorRow | null) => {
+-    const m = new globalThis.Map<string, { tous: boolean; services: Set<string> }>();
+-    for (const l of sec?.liens ?? []) m.set(l.institutionId, { tous: l.tousLesServices, services: new Set(l.serviceIds) });
+-    setChoix(m);
+-    setFiltre("");
+-    if (sec) setEdite(sec); else setCree(true);
+-  };
+-  const fermer = () => { setCree(false); setEdite(null); setFiltre(""); };
+-
+-  const basculerEtab = (id: string, on: boolean) => setChoix((m) => {
+-    const n = new globalThis.Map(m);
+-    if (on) n.set(id, m.get(id) ?? { tous: true, services: new Set() }); else n.delete(id);
+-    return n;
+-  });
+-  const basculerTous = (id: string, tous: boolean) => setChoix((m) => {
+-    const n = new globalThis.Map(m);
+-    const avant = m.get(id) ?? { tous: true, services: new Set<string>() };
+-    n.set(id, { tous, services: new Set(avant.services) });
+-    return n;
+-  });
+-  const basculerService = (id: string, serviceId: string, on: boolean) => setChoix((m) => {
+-    const n = new globalThis.Map(m);
+-    const avant = m.get(id) ?? { tous: false, services: new Set<string>() };
+-    const services = new Set(avant.services);
+-    if (on) services.add(serviceId); else services.delete(serviceId);
+-    n.set(id, { tous: false, services });
+-    return n;
+-  });
+-
+-  const supprimer = async (sec: SectorRow) => {
+-    const msg = `Supprimer le secteur « ${sec.name} » ?`
+-      + (sec.repIds.length > 0
+-        ? `\n\n• ${sec.repIds.length} KAM perdent ce territoire : sans autre secteur, leur panel devient vide et ils ne peuvent plus planifier de tournée.`
+-        : "\n\nLes établissements et les comptes ne bougent pas — on retire un découpage, pas un annuaire.");
+-    if (!window.confirm(msg)) return;
+-    const fd = new FormData();
+-    fd.set("id", sec.id);
+-    void run(deleteSector, fd);
+-  };
+-
+-  const cle = filtre.trim().toLowerCase();
+-  const correspond = (e: EtabOpt) => !cle || `${e.name} ${e.wilaya ?? ""}`.toLowerCase().includes(cle);
+-  // LES DÉSACTIVÉS ne se proposent plus au découpage — sauf ceux que le secteur couvre DÉJÀ :
+-  // les retirer de la liste les retirerait du secteur à l'enregistrement, sans un mot.
+-  const proposes = etablissements.filter((e) => e.isActive || choix.has(e.id));
+-  const masques = proposes.filter((e) => !correspond(e)).length;
+-  const sansService = [...choix.entries()].filter(([, c]) => !c.tous && c.services.size === 0).map(([id]) => nomEtab(id));
+-
+-  const ouvert = cree || edite !== null;
+-
+-  return (
+-    <>
+-      <div className="space-y-1.5">
+-        {secteurs.map((sec) => (
+-          <div key={sec.id} className="flex flex-wrap items-center gap-2 rounded-lg border border-border px-2.5 py-1.5 text-sm">
+-            <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: sec.color ?? "#94a3b8" }} />
+-            <span className="font-medium">{sec.name}</span>
+-            {sec.city && <Badge tone="neutral" dot={false}>{sec.city}</Badge>}
+-            <span className="text-xs text-muted-foreground">
+-              {sec.institutionIds.length} établissement(s) · {sec.repIds.length} KAM
+-            </span>
+-            {/* UN SECTEUR VIDE EST NOMMÉ SUR SA LIGNE : c'est là qu'on le corrige. */}
+-            {sec.institutionIds.length === 0 && (
+-              <Badge tone="warning" dot={false}>Sans établissement</Badge>
+-            )}
+-            {sec.repIds.length === 0 && <Badge tone="neutral" dot={false}>Personne ne le couvre</Badge>}
+-            <span className="ml-auto flex items-center gap-1">
+-              <button
+-                type="button" onClick={() => ouvrir(sec)} disabled={busy}
+-                className="rounded-md p-1 text-muted-foreground hover:bg-secondary hover:text-foreground"
+-                aria-label={`Modifier le secteur ${sec.name}`}
+-              >
+-                <Pencil className="h-3.5 w-3.5" />
+-              </button>
+-              <button
+-                type="button" onClick={() => void supprimer(sec)} disabled={busy}
+-                className="rounded-md p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+-                aria-label={`Supprimer le secteur ${sec.name}`}
+-              >
+-                <Trash2 className="h-3.5 w-3.5" />
+-              </button>
+-            </span>
+-            {sec.liens.length > 0 && (
+-              <span className="w-full text-xs text-muted-foreground">
+-                {/* CE QUE LE SECTEUR COUVRE, en clair : « CHU Mustapha (Cardiologie, Oncologie) ». */}
+-                {sec.liens.slice(0, 6).map((l) => libelleCouverture(nomEtab(l.institutionId), l, nomService)).join(" · ")}
+-                {sec.liens.length > 6 ? ` … +${sec.liens.length - 6}` : ""}
+-                {sec.repIds.length > 0 && ` — ${sec.repIds.map(nomKam).filter(Boolean).join(", ")}`}
+-              </span>
+-            )}
+-          </div>
+-        ))}
+-      </div>
+-
+-      <button
+-        type="button" onClick={() => ouvrir(null)} disabled={busy}
+-        className="inline-flex items-center gap-1.5 rounded-lg border border-input px-2.5 py-1.5 text-sm hover:bg-secondary disabled:opacity-60"
+-      >
+-        <Plus className="h-4 w-4" /> Découper un secteur
+-      </button>
+-
+-      <Sheet
+-        open={ouvert}
+-        onClose={fermer}
+-        title={edite ? `Secteur « ${edite.name} »` : "Découper un secteur"}
+-        description="Un nom que la force de vente emploie (« Est », « Oranais », « Alger »), les établissements qu'il couvre — tous leurs services, ou certains —, et les KAM qui le parcourent."
+-        width="lg"
+-      >
+-        <form
+-          key={edite?.id ?? (cree ? "nouveau" : "ferme")}
+-          className="space-y-3"
+-          action={async (fd) => {
+-            if (edite) fd.set("id", edite.id);
+-            else fd.set("businessUnitId", buId);
+-            // LA SÉLECTION PART DE L'ÉTAT, pas des cases à l'écran : un filtre qui masque des lignes
+-            // ne les retire pas du secteur.
+-            fd.delete("institutionIds");
+-            for (const id of choix.keys()) fd.append("institutionIds", id);
+-            const couverture: Record<string, string[]> = {};
+-            for (const [id, c] of choix) if (!c.tous) couverture[id] = [...c.services];
+-            fd.set("couverture", JSON.stringify(couverture));
+-            const ok = await run(edite ? updateSector : createSector, fd);
+-            if (ok) fermer();
+-          }}
+-        >
+-          <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+-            <input
+-              name="name" required defaultValue={edite?.name ?? ""} placeholder="Nom du secteur (Est, Oranais…)"
+-              className={`${inputCls} sm:col-span-2`} aria-label="Nom du secteur"
+-            />
+-            <input
+-              name="city" defaultValue={edite?.city ?? ""} placeholder="Ville pivot (facultatif)"
+-              className={inputCls} aria-label="Ville pivot du secteur"
+-            />
+-          </div>
+-          {/* La ville pivot n'est pas décorative : c'est elle qui ouvre la planification du KAM
+-              sur la bonne ville sans qu'il ait à la chercher. Un secteur multi-villes la laisse
+-              vide, et la ville se lit alors sur chaque établissement. */}
+-
+-          <div className="space-y-1.5">
+-            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+-              KAM qui couvrent ce secteur
+-            </p>
+-            {kams.length === 0
+-              ? <p className="text-xs text-muted-foreground">Aucun KAM rattaché à cette BU — rattachez-les d&apos;abord, le secteur pourra ensuite leur être affecté.</p>
+-              : (
+-                <div className="flex flex-wrap gap-2">
+-                  {kams.map((k) => (
+-                    <label key={k.repId} className="inline-flex items-center gap-1.5 rounded-lg border border-input px-2 py-1 text-sm">
+-                      <input
+-                        type="checkbox" name="repIds" value={k.repId}
+-                        defaultChecked={edite?.repIds.includes(k.repId) ?? false}
+-                        className="h-4 w-4 rounded border-input"
+-                      />
+-                      {k.name}
+-                    </label>
+-                  ))}
+-                </div>
+-              )}
+-          </div>
+-
+-          <div className="space-y-1.5">
+-            <div className="flex flex-wrap items-center justify-between gap-2">
+-              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+-                Établissements du secteur {choix.size > 0 && <span className="normal-case">· {choix.size} coché(s)</span>}
+-              </p>
+-              <input
+-                value={filtre} onChange={(e) => setFiltre(e.target.value)}
+-                placeholder="Filtrer par nom ou wilaya" className={`${inputCls} w-56`}
+-                aria-label="Filtrer les établissements"
+-              />
+-            </div>
+-            {/* L'ANNUAIRE VIDE SE DIT, avec le geste qui le remplit — un cadre de cases vide se
+-                lit comme « il n'y a pas d'hôpitaux », alors que la vérité est « personne n'en a
+-                encore saisi ». */}
+-            {proposes.length === 0 ? (
+-              <p className="rounded-lg border border-dashed border-border p-3 text-xs text-muted-foreground">
+-                L&apos;annuaire des établissements est vide : un secteur est une sélection d&apos;hôpitaux, il n&apos;y a
+-                donc rien à cocher. Ajoutez-les dans <span className="font-medium">Annuaires › Établissements</span>.
+-              </p>
+-            ) : (
+-              <div className="max-h-80 space-y-1 overflow-y-auto rounded-lg border border-border p-2">
+-                {masques === proposes.length && (
+-                  <p className="px-1 py-2 text-xs text-muted-foreground">Aucun établissement ne correspond à ce filtre.</p>
+-                )}
+-                {/* TOUTES LES LIGNES SONT RENDUES, le filtre ne fait que MASQUER : la version d'avant
+-                    ne montait que les lignes filtrées, et enregistrer après avoir filtré RETIRAIT du
+-                    secteur tout ce qu'on ne voyait plus — alors que son commentaire promettait
+-                    l'inverse (§118.172). La sélection vit désormais dans l'état. */}
+-                {proposes.map((e) => {
+-                  const c = choix.get(e.id);
+-                  return (
+-                    <div key={e.id} className={cn("rounded-md px-1 py-1", !correspond(e) && "hidden", c && "bg-primary/5")}>
+-                      <label className="flex items-center gap-2 text-sm">
+-                        <input
+-                          type="checkbox" checked={Boolean(c)}
+-                          onChange={(ev) => basculerEtab(e.id, ev.target.checked)}
+-                          className="h-4 w-4 rounded border-input"
+-                          aria-label={`Couvrir ${e.name}`}
+-                        />
+-                        <Building2 className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden />
+-                        <span className="min-w-0 truncate">{e.name}</span>
+-                        {!e.isActive && <Badge tone="warning" dot={false}>désactivé</Badge>}
+-                        {e.wilaya && <span className="ml-auto shrink-0 text-xs text-muted-foreground">{e.wilaya}</span>}
+-                      </label>
+-                      {/* LES SERVICES DE CET ÉTABLISSEMENT — tous, ou certains. Un établissement sans
+-                          service renseigné est couvert en entier : il n'y a rien à choisir. */}
+-                      {c && e.services.length > 0 && (
+-                        <div className="ml-6 mt-1 space-y-1">
+-                          <label className="inline-flex items-center gap-1.5 text-xs">
+-                            <input
+-                              type="checkbox" checked={c.tous}
+-                              onChange={(ev) => basculerTous(e.id, ev.target.checked)}
+-                              className="h-3.5 w-3.5 rounded border-input"
+-                              aria-label={`Tous les services de ${e.name}`}
+-                            />
+-                            Tous les services ({e.services.length})
+-                          </label>
+-                          {!c.tous && (
+-                            <div className="flex flex-wrap gap-1.5">
+-                              {e.services.map((sv) => (
+-                                <label key={sv.id} className={cn(
+-                                  "inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-xs",
+-                                  c.services.has(sv.id) ? "border-primary/50 bg-primary/10" : "border-input",
+-                                )}>
+-                                  <input
+-                                    type="checkbox" checked={c.services.has(sv.id)}
+-                                    onChange={(ev) => basculerService(e.id, sv.id, ev.target.checked)}
+-                                    className="h-3 w-3 rounded border-input"
+-                                    aria-label={`${sv.name} — ${e.name}`}
+-                                  />
+-                                  {sv.name}
+-                                </label>
+-                              ))}
+-                            </div>
+-                          )}
+-                        </div>
+-                      )}
+-                    </div>
+-                  );
+-                })}
+-              </div>
+-            )}
+-            {cle && masques > 0 && choix.size > 0 && (
+-              <p className="text-xs text-muted-foreground">
+-                Le filtre masque {masques} ligne(s) sans les décocher : la sélection enregistrée reste complète.
+-              </p>
+-            )}
+-            {sansService.length > 0 && (
+-              <p role="alert" className="rounded-lg bg-warning/10 px-2 py-1.5 text-xs text-warning">
+-                Aucun service choisi pour {sansService.join(", ")} : cochez au moins un service, ou « Tous les services ».
+-              </p>
+-            )}
+-          </div>
+-
+-          <div className="flex justify-end gap-2 pt-1">
+-            <button
+-              type="button" onClick={fermer}
+-              className="rounded-lg px-3 py-2 text-sm text-muted-foreground hover:bg-secondary"
+-            >
+-              Annuler
+-            </button>
+-            <button type="submit" disabled={busy || sansService.length > 0} className={btnCls}>
+-              {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
+-              {edite ? "Enregistrer" : "Créer le secteur"}
+-            </button>
+-          </div>
+-        </form>
+-      </Sheet>
+-    </>
+-  );
+-}
+-
+ /** LES SPÉCIALITÉS D'UNE BU — ce qu'elle vise, et le geste qui le change (§118.183). */
+ function SpecialitesDeLaBu({ bu, referentiel, busy, run, why }: {
+   bu: BuRow;
+diff --git a/src/app/(app)/planning/business-units/choix-etablissements.tsx b/src/app/(app)/planning/business-units/choix-etablissements.tsx
+new file mode 100644
+index 0000000..042d72d
+--- /dev/null
++++ b/src/app/(app)/planning/business-units/choix-etablissements.tsx
+@@ -0,0 +1,180 @@
++"use client";
++
++import * as React from "react";
++import { Building2 } from "lucide-react";
++import { Badge } from "@/components/ui/badge";
++import { cn } from "@/lib/utils";
++import type { LienCouverture } from "@/lib/annuaires/services";
++
++/**
++ * LE CHOIX DES ÉTABLISSEMENTS D'UN TERRITOIRE — et, pour chacun, tous ses services ou certains
++ * (§118.172). Déplacé de l'ancienne section « Secteurs de la BU » (retirée le 04/10/2026) : le
++ * territoire d'un KAM se choisit désormais sur SA ligne, avec exactement le même choix.
++ *
++ * ── LA SÉLECTION EST CONTRÔLÉE ──────────────────────────────────────────────────────────────
++ *
++ * Elle naît de la couverture enregistrée à l'ouverture du panneau ; c'est ELLE, et non ce que le
++ * filtre laisse voir, qui part avec le formulaire. La version d'avant ne montait que les lignes
++ * filtrées, et enregistrer après avoir filtré RETIRAIT ce qu'on ne voyait plus (§118.172).
++ */
++
++export const inputCls = "h-9 rounded-lg border border-input bg-background px-2 text-sm focus:border-primary focus:outline-none";
++
++/** Un établissement à cocher — avec sa wilaya, son état et ses services (§118.172). */
++export interface EtabOpt {
++  id: string; name: string; wilaya: string | null; type: string; isActive: boolean;
++  services: { id: string; name: string }[];
++}
++
++/** Par établissement coché : tous ses services, ou ceux choisis. */
++export type ChoixEtab = Map<string, { tous: boolean; services: Set<string> }>;
++
++/** Le choix tel qu'il est enregistré — l'état d'ouverture du panneau. */
++export function choixDepuisLiens(liens: LienCouverture[]): ChoixEtab {
++  const m: ChoixEtab = new Map();
++  for (const l of liens) m.set(l.institutionId, { tous: l.tousLesServices, services: new Set(l.serviceIds) });
++  return m;
++}
++
++/**
++ * LE FORMULAIRE QUE L'ACTION LIT : la liste COMPLÈTE des établissements (décocher retire), et la
++ * couverture des établissements restreints — un établissement absent de la couverture les couvre
++ * tous. La couverture part TOUJOURS : l'écran dit tout ce qu'il a choisi.
++ */
++export function remplirFormulaire(fd: FormData, choix: ChoixEtab): void {
++  fd.delete("institutionIds");
++  for (const id of choix.keys()) fd.append("institutionIds", id);
++  const couverture: Record<string, string[]> = {};
++  for (const [id, c] of choix) if (!c.tous) couverture[id] = [...c.services];
++  fd.set("couverture", JSON.stringify(couverture));
++}
++
++/** Les établissements cochés « certains services » sans aucun service : l'action les refuse. */
++export function etablissementsSansService(choix: ChoixEtab): string[] {
++  return [...choix.entries()].filter(([, c]) => !c.tous && c.services.size === 0).map(([id]) => id);
++}
++
++export function ChoixEtablissements({ etablissements, choix, onChange }: {
++  etablissements: EtabOpt[];
++  choix: ChoixEtab;
++  onChange: (m: ChoixEtab) => void;
++}) {
++  const [filtre, setFiltre] = React.useState("");
++  const parId = React.useMemo(() => new Map(etablissements.map((e) => [e.id, e])), [etablissements]);
++  const nomEtab = (id: string) => parId.get(id)?.name ?? "(établissement retiré de l'annuaire)";
++
++  const changer = (f: (n: ChoixEtab) => void) => { const n: ChoixEtab = new Map(choix); f(n); onChange(n); };
++  const basculerEtab = (id: string, on: boolean) => changer((n) => {
++    if (on) n.set(id, choix.get(id) ?? { tous: true, services: new Set() }); else n.delete(id);
++  });
++  const basculerTous = (id: string, tous: boolean) => changer((n) => {
++    const avant = choix.get(id) ?? { tous: true, services: new Set<string>() };
++    n.set(id, { tous, services: new Set(avant.services) });
++  });
++  const basculerService = (id: string, serviceId: string, on: boolean) => changer((n) => {
++    const avant = choix.get(id) ?? { tous: false, services: new Set<string>() };
++    const services = new Set(avant.services);
++    if (on) services.add(serviceId); else services.delete(serviceId);
++    n.set(id, { tous: false, services });
++  });
++
++  const cle = filtre.trim().toLowerCase();
++  const correspond = (e: EtabOpt) => !cle || `${e.name} ${e.wilaya ?? ""}`.toLowerCase().includes(cle);
++  // LES DÉSACTIVÉS ne se proposent plus — sauf ceux que le territoire couvre DÉJÀ : les retirer de la
++  // liste les retirerait du territoire à l'enregistrement, sans un mot.
++  const proposes = etablissements.filter((e) => e.isActive || choix.has(e.id));
++  const masques = proposes.filter((e) => !correspond(e)).length;
++  const sansService = etablissementsSansService(choix).map(nomEtab);
++
++  return (
++    <div className="space-y-1.5">
++      <div className="flex flex-wrap items-center justify-between gap-2">
++        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
++          Établissements {choix.size > 0 && <span className="normal-case">· {choix.size} coché(s)</span>}
++        </p>
++        <input
++          value={filtre} onChange={(e) => setFiltre(e.target.value)}
++          placeholder="Filtrer par nom ou wilaya" className={`${inputCls} w-56`}
++          aria-label="Filtrer les établissements"
++        />
++      </div>
++      {/* L'ANNUAIRE VIDE SE DIT, avec le geste qui le remplit — un cadre de cases vide se lit comme
++          « il n'y a pas d'hôpitaux », alors que la vérité est « personne n'en a encore saisi ». */}
++      {proposes.length === 0 ? (
++        <p className="rounded-lg border border-dashed border-border p-3 text-xs text-muted-foreground">
++          L&apos;annuaire des établissements est vide : un territoire est une sélection d&apos;hôpitaux, il n&apos;y a
++          donc rien à cocher. Ajoutez-les dans <span className="font-medium">Annuaires › Établissements</span>.
++        </p>
++      ) : (
++        <div className="max-h-80 space-y-1 overflow-y-auto rounded-lg border border-border p-2">
++          {masques === proposes.length && (
++            <p className="px-1 py-2 text-xs text-muted-foreground">Aucun établissement ne correspond à ce filtre.</p>
++          )}
++          {/* TOUTES LES LIGNES SONT RENDUES, le filtre ne fait que MASQUER. */}
++          {proposes.map((e) => {
++            const c = choix.get(e.id);
++            return (
++              <div key={e.id} className={cn("rounded-md px-1 py-1", !correspond(e) && "hidden", c && "bg-primary/5")}>
++                <label className="flex items-center gap-2 text-sm">
++                  <input
++                    type="checkbox" checked={Boolean(c)}
++                    onChange={(ev) => basculerEtab(e.id, ev.target.checked)}
++                    className="h-4 w-4 rounded border-input"
++                    aria-label={`Couvrir ${e.name}`}
++                  />
++                  <Building2 className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden />
++                  <span className="min-w-0 truncate">{e.name}</span>
++                  {!e.isActive && <Badge tone="warning" dot={false}>désactivé</Badge>}
++                  {e.wilaya && <span className="ml-auto shrink-0 text-xs text-muted-foreground">{e.wilaya}</span>}
++                </label>
++                {/* LES SERVICES DE CET ÉTABLISSEMENT — tous, ou certains. Un établissement sans service
++                    renseigné est couvert en entier : il n'y a rien à choisir. */}
++                {c && e.services.length > 0 && (
++                  <div className="ml-6 mt-1 space-y-1">
++                    <label className="inline-flex items-center gap-1.5 text-xs">
++                      <input
++                        type="checkbox" checked={c.tous}
++                        onChange={(ev) => basculerTous(e.id, ev.target.checked)}
++                        className="h-3.5 w-3.5 rounded border-input"
++                        aria-label={`Tous les services de ${e.name}`}
++                      />
++                      Tous les services ({e.services.length})
++                    </label>
++                    {!c.tous && (
++                      <div className="flex flex-wrap gap-1.5">
++                        {e.services.map((sv) => (
++                          <label key={sv.id} className={cn(
++                            "inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-xs",
++                            c.services.has(sv.id) ? "border-primary/50 bg-primary/10" : "border-input",
++                          )}>
++                            <input
++                              type="checkbox" checked={c.services.has(sv.id)}
++                              onChange={(ev) => basculerService(e.id, sv.id, ev.target.checked)}
++                              className="h-3 w-3 rounded border-input"
++                              aria-label={`${sv.name} — ${e.name}`}
++                            />
++                            {sv.name}
++                          </label>
++                        ))}
++                      </div>
++                    )}
++                  </div>
++                )}
++              </div>
++            );
++          })}
++        </div>
++      )}
++      {cle && masques > 0 && choix.size > 0 && (
++        <p className="text-xs text-muted-foreground">
++          Le filtre masque {masques} ligne(s) sans les décocher : la sélection enregistrée reste complète.
++        </p>
++      )}
++      {sansService.length > 0 && (
++        <p role="alert" className="rounded-lg bg-warning/10 px-2 py-1.5 text-xs text-warning">
++          Aucun service choisi pour {sansService.join(", ")} : cochez au moins un service, ou « Tous les services ».
++        </p>
++      )}
++    </div>
++  );
++}
+diff --git a/src/app/(app)/planning/business-units/page.tsx b/src/app/(app)/planning/business-units/page.tsx
+index 043debd..dde499d 100644
+--- a/src/app/(app)/planning/business-units/page.tsx
++++ b/src/app/(app)/planning/business-units/page.tsx
+@@ -64,15 +64,17 @@ export default async function BusinessUnitsPage() {
+       take: 400,
+     }),
+     getSfeConfig(),
+-    // LES SECTEURS de toutes les BU, avec leurs deux sélections. Chargés en une requête et
+-    // groupés à l'affichage, comme les KAM et les produits : une requête par BU dépliée ferait
+-    // N allers-retours pour un écran qu'on ouvre pour tout voir.
++    // LES TERRITOIRES PROPRES DES KAM de toutes les BU (04/10/2026), avec ce qu'ils couvrent de
++    // chaque établissement. Chargés en une requête et groupés à l'affichage, comme les KAM et les
++    // produits : une requête par BU dépliée ferait N allers-retours pour un écran qu'on ouvre pour
++    // tout voir. Les secteurs PARTAGÉS d'avant (repId nul) ne s'affichent plus : la migration
++    // `20270106093000_territoire_kam` en a repris la couverture dans les territoires.
+     prisma.salesSector.findMany({
++      where: { repId: { not: null }, isActive: true },
+       orderBy: [{ name: "asc" }],
+       select: {
+-        id: true, name: true, city: true, color: true, isActive: true, businessUnitId: true,
++        id: true, name: true, businessUnitId: true, repId: true,
+         institutions: { select: { institutionId: true, tousLesServices: true, services: { select: { serviceId: true } } } },
+-        reps: { select: { repId: true } },
+       },
+     }),
+     // LE RÉFÉRENTIEL DES ÉTABLISSEMENTS, à cocher, avec leurs SERVICES (§118.172). Les ACTIFS, ET
+@@ -171,15 +173,12 @@ export default async function BusinessUnitsPage() {
+           id: d.id,
+           label: `${d.reference} — ${d.brandName ? `${d.brandName} (${d.dci})` : d.dci}`,
+         }))}
+-        sectors={secteurs.map((x) => ({
+-          id: x.id, name: x.name, city: x.city, color: x.color, isActive: x.isActive,
+-          businessUnitId: x.businessUnitId,
+-          institutionIds: x.institutions.map((i) => i.institutionId),
++        territoires={secteurs.flatMap((x) => (x.repId ? [{
++          id: x.id, name: x.name, businessUnitId: x.businessUnitId, repId: x.repId,
+           liens: x.institutions.map((i) => ({
+             institutionId: i.institutionId, tousLesServices: i.tousLesServices, serviceIds: i.services.map((sv) => sv.serviceId),
+           })),
+-          repIds: x.reps.map((r) => r.repId),
+-        }))}
++        }] : []))}
+         etablissements={etablissements.map((e) => ({
+           id: e.id, name: e.name, wilaya: e.wilaya, type: String(e.type), isActive: e.isActive, services: e.services,
+         }))}
+diff --git a/src/app/(app)/planning/business-units/territoire-kam.tsx b/src/app/(app)/planning/business-units/territoire-kam.tsx
+new file mode 100644
+index 0000000..4b54bdd
+--- /dev/null
++++ b/src/app/(app)/planning/business-units/territoire-kam.tsx
+@@ -0,0 +1,112 @@
++"use client";
++
++import * as React from "react";
++import { Check, Loader2, MapPin } from "lucide-react";
++import { enregistrerTerritoireKam } from "@/lib/actions/sales-planning-actions";
++import { libelleCouverture, type LienCouverture } from "@/lib/annuaires/services";
++import { Badge } from "@/components/ui/badge";
++import { Sheet } from "@/components/ui/sheet";
++import {
++  ChoixEtablissements, choixDepuisLiens, etablissementsSansService, remplirFormulaire,
++  type ChoixEtab, type EtabOpt,
++} from "./choix-etablissements";
++
++/**
++ * LE TERRITOIRE D'UN KAM, SUR SA LIGNE (04/10/2026) — dans une BU hospitalière.
++ *
++ * « Dans le secteur de chaque KAM, on doit pouvoir sélectionner un ou des services d'un ou de
++ * plusieurs établissements hospitaliers de l'annuaire. » Le résumé dit, ligne fermée, ce qu'il
++ * couvre — « CHU Mustapha (Cardiologie) · EPH Kouba » — et le vide se NOMME : un KAM sans territoire
++ * a un panel vide, et c'est sur cette ligne qu'on le corrige.
++ *
++ * Le panneau naît de la couverture enregistrée À L'OUVERTURE ; le bouton qui l'ouvre attend la fin
++ * du rafraîchissement (`busy`) : rouvert sur l'état d'avant, il remontrerait l'ancienne sélection et
++ * l'enregistrer la réécrirait (§118.172).
++ */
++
++/** Le territoire tel que l'écran le reçoit : ses établissements, et ce qu'il couvre de chacun. */
++export interface TerritoireRow { id: string; name: string; repId: string; liens: LienCouverture[] }
++
++type Action = (fd: FormData) => Promise<{ ok: boolean; error?: string }>;
++const btnCls = "inline-flex items-center justify-center gap-1.5 rounded-lg bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:opacity-90 disabled:opacity-60";
++
++export function TerritoireKam({ buId, kam, territoire, etablissements, busy, run }: {
++  buId: string;
++  /** `region` : l'ancien « Secteur » saisi en texte — il ne couvre rien, et la ligne le DIT. */
++  kam: { repId: string; name: string; region?: string | null };
++  territoire: TerritoireRow | null;
++  etablissements: EtabOpt[];
++  busy: boolean;
++  run: (a: Action, fd: FormData, refresh?: boolean) => Promise<boolean>;
++}) {
++  const [ouvert, setOuvert] = React.useState(false);
++  const [choix, setChoix] = React.useState<ChoixEtab>(new Map());
++  const parId = React.useMemo(() => new Map(etablissements.map((e) => [e.id, e])), [etablissements]);
++  const nomEtab = (id: string) => parId.get(id)?.name ?? "(établissement retiré de l'annuaire)";
++  const nomService = (id: string) => {
++    for (const e of etablissements) { const x = e.services.find((sv) => sv.id === id); if (x) return x.name; }
++    return null;
++  };
++  const liens = territoire?.liens ?? [];
++  const sansService = etablissementsSansService(choix);
++
++  const ouvrir = () => { setChoix(choixDepuisLiens(liens)); setOuvert(true); };
++
++  return (
++    <div className="flex w-full flex-wrap items-center gap-2 pl-6 text-xs text-muted-foreground">
++      {liens.length === 0 ? (
++        <>
++          <Badge tone="warning" dot={false}>Sans territoire — panel vide</Badge>
++          {/* LE « SECTEUR » TAPÉ EN TEXTE avant ce lot n'a jamais couvert un seul établissement : c'est
++              la cause la plus probable d'un panel vide « alors qu'on lui a donné un secteur ». */}
++          {kam.region?.trim() && (
++            <span>Le secteur « {kam.region.trim()} » saisi en texte n&apos;est relié à aucun établissement : choisissez-les ici.</span>
++          )}
++        </>
++      ) : (
++        <span className="min-w-0 flex-1">
++          {/* CE QUE LE TERRITOIRE COUVRE, en clair : « CHU Mustapha (Cardiologie, Oncologie) ». */}
++          {liens.slice(0, 6).map((l) => libelleCouverture(nomEtab(l.institutionId), l, nomService)).join(" · ")}
++          {liens.length > 6 ? ` … +${liens.length - 6}` : ""}
++        </span>
++      )}
++      <button
++        type="button" onClick={ouvrir} disabled={busy}
++        className="inline-flex items-center gap-1 rounded-md border border-input px-2 py-1 text-xs font-medium text-foreground hover:bg-secondary disabled:opacity-60"
++        aria-label={`Territoire de ${kam.name}`}
++      >
++        <MapPin className="h-3.5 w-3.5" aria-hidden /> Territoire
++      </button>
++
++      <Sheet
++        open={ouvert}
++        onClose={() => setOuvert(false)}
++        title={`Territoire de ${kam.name}`}
++        description="Les établissements de l'annuaire que ce KAM couvre — tous leurs services, ou certains. C'est ce qui lui donne son panel de médecins et ouvre sa planification de tournée."
++        width="lg"
++      >
++        <form
++          className="space-y-3"
++          action={async (fd) => {
++            fd.set("businessUnitId", buId);
++            fd.set("repId", kam.repId);
++            // LA SÉLECTION PART DE L'ÉTAT, pas des cases à l'écran : un filtre qui masque des lignes
++            // ne les retire pas du territoire.
++            remplirFormulaire(fd, choix);
++            if (await run(enregistrerTerritoireKam, fd)) setOuvert(false);
++          }}
++        >
++          <ChoixEtablissements etablissements={etablissements} choix={choix} onChange={setChoix} />
++          <div className="flex justify-end gap-2 pt-1">
++            <button type="button" onClick={() => setOuvert(false)} className="rounded-lg px-3 py-2 text-sm text-muted-foreground hover:bg-secondary">
++              Annuler
++            </button>
++            <button type="submit" disabled={busy || sansService.length > 0} className={btnCls}>
++              {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />} Enregistrer le territoire
++            </button>
++          </div>
++        </form>
++      </Sheet>
++    </div>
++  );
++}
+diff --git a/src/lib/actions/aiguillage.genere.ts b/src/lib/actions/aiguillage.genere.ts
+index fd3b672..fb8962b 100644
+--- a/src/lib/actions/aiguillage.genere.ts
++++ b/src/lib/actions/aiguillage.genere.ts
+@@ -1,7 +1,7 @@
+ // ⚠️  FICHIER GÉNÉRÉ — ne pas éditer à la main. Voir `npm run actions:contrat`.
+ //
+ // Chaque entrée est un spécificateur LITTÉRAL : l'empaqueteur les voit tous, et rien n'est
+-// chargé avant l'appel. `executer.test.ts` résout les 872 actions et échoue en
++// chargé avant l'appel. `executer.test.ts` résout les 873 actions et échoue en
+ // nommant celle qui a disparu — c'est le contrôle d'appelant que le compilateur ne fait pas ici.
+ 
+ export const MODULES_ACTIONS: Readonly<Record<string, () => Promise<Record<string, unknown>>>> = {
+diff --git a/src/lib/actions/contrat.genere.json b/src/lib/actions/contrat.genere.json
+index a9f25f8..ef7970e 100644
+--- a/src/lib/actions/contrat.genere.json
++++ b/src/lib/actions/contrat.genere.json
+@@ -759,6 +759,7 @@
+   {"id":"sales-planning-actions:deleteRepProfile","fichier":"sales-planning-actions","fonction":"deleteRepProfile","avantFormulaire":0,"porte":{"module":"SALES_PLANNING","verbe":"UPDATE","entite":null,"moduleFr":null,"gardes":["userCan"]},"ecrit":true,"modelesEcrits":["salesRepProfile","salesSectorRep"],"audit":false,"appel":"formulaire","champs":[{"nom":"repId","type":"reference","obligatoire":true,"valeurs":null,"modele":"User"}],"illisible":null},
+   {"id":"sales-planning-actions:deleteSector","fichier":"sales-planning-actions","fonction":"deleteSector","avantFormulaire":0,"porte":{"module":"SALES_PLANNING","verbe":"UPDATE","entite":null,"moduleFr":"Force de vente","gardes":["userCan"]},"ecrit":true,"modelesEcrits":["auditLog","salesSector"],"audit":true,"appel":"formulaire","champs":[{"nom":"id","type":"reference","obligatoire":true,"valeurs":null,"modele":"SalesSector"}],"illisible":null},
+   {"id":"sales-planning-actions:enregistrerSpecialitesBu","fichier":"sales-planning-actions","fonction":"enregistrerSpecialitesBu","avantFormulaire":0,"porte":{"module":"SALES_PLANNING","verbe":"UPDATE","entite":null,"moduleFr":"Force de vente","gardes":["userCan"]},"ecrit":true,"modelesEcrits":["auditLog","businessUnitSpecialty"],"audit":true,"appel":"formulaire","champs":[{"nom":"businessUnitId","type":"reference","obligatoire":true,"valeurs":null,"modele":null},{"nom":"principaleId","type":"reference","obligatoire":false,"valeurs":null,"modele":null},{"nom":"specialtyIds","type":"liste","obligatoire":false,"valeurs":null,"modele":null}],"illisible":null},
++  {"id":"sales-planning-actions:enregistrerTerritoireKam","fichier":"sales-planning-actions","fonction":"enregistrerTerritoireKam","avantFormulaire":0,"porte":{"module":"SALES_PLANNING","verbe":"UPDATE","entite":null,"moduleFr":null,"gardes":["userCan"]},"ecrit":true,"modelesEcrits":["salesSector","salesSectorInstitution","salesSectorInstitutionService","salesSectorRep"],"audit":true,"appel":"formulaire","champs":[{"nom":"businessUnitId","type":"reference","obligatoire":true,"valeurs":null,"modele":"BusinessUnit"},{"nom":"city","type":"texte","obligatoire":false,"valeurs":null,"modele":null},{"nom":"color","type":"texte","obligatoire":false,"valeurs":null,"modele":null},{"nom":"couverture","type":"texte","obligatoire":false,"valeurs":null,"modele":null},{"nom":"institutionIds","type":"liste","obligatoire":false,"valeurs":null,"modele":null},{"nom":"isActive","type":"booleen","obligatoire":false,"valeurs":null,"modele":null},{"nom":"repId","type":"reference","obligatoire":true,"valeurs":null,"modele":"User"},{"nom":"repIds","type":"liste","obligatoire":false,"valeurs":null,"modele":null}],"illisible":null},
+   {"id":"sales-planning-actions:ensureCycle","fichier":"sales-planning-actions","fonction":"ensureCycle","avantFormulaire":0,"porte":{"module":null,"verbe":null,"entite":null,"moduleFr":null,"gardes":[]},"ecrit":true,"modelesEcrits":["promoCycle"],"audit":false,"appel":"arguments","illisible":null,"champs":[{"nom":"year","type":"nombre","obligatoire":true,"valeurs":null,"modele":null},{"nom":"month","type":"nombre","obligatoire":true,"valeurs":null,"modele":null}]},
+   {"id":"sales-planning-actions:openBusinessUnitBudget","fichier":"sales-planning-actions","fonction":"openBusinessUnitBudget","avantFormulaire":0,"porte":{"module":"SALES_PLANNING","verbe":"UPDATE","entite":null,"moduleFr":"Force de vente","gardes":["canAttachBuDepartment","userCan"]},"ecrit":true,"modelesEcrits":["auditLog","businessUnit","department"],"audit":true,"appel":"formulaire","champs":[{"nom":"id","type":"reference","obligatoire":true,"valeurs":null,"modele":null}],"illisible":null},
+   {"id":"sales-planning-actions:removeBuMarketingReferent","fichier":"sales-planning-actions","fonction":"removeBuMarketingReferent","avantFormulaire":0,"porte":{"module":"SALES_PLANNING","verbe":"UPDATE","entite":null,"moduleFr":"Force de vente","gardes":["userCan"]},"ecrit":true,"modelesEcrits":["auditLog","businessUnitMarketingReferent"],"audit":true,"appel":"formulaire","champs":[{"nom":"id","type":"reference","obligatoire":true,"valeurs":null,"modele":"BusinessUnitMarketingReferent"}],"illisible":null},
+diff --git a/src/lib/actions/sales-planning-actions.ts b/src/lib/actions/sales-planning-actions.ts
+index 9b3e1c7..410b875 100644
+--- a/src/lib/actions/sales-planning-actions.ts
++++ b/src/lib/actions/sales-planning-actions.ts
+@@ -1,6 +1,6 @@
+ "use server";
+ 
+-import type { UserRole } from "@prisma/client";
++import { Prisma, type UserRole } from "@prisma/client";
+ import { revalidatePath } from "next/cache";
+ import { requireUser } from "@/lib/session";
+ import { userCan, anyRoleFilter } from "@/lib/rbac";
+@@ -16,6 +16,7 @@ import { DOSSIERS_PROPOSABLES_BU } from "@/lib/sfe/produits-bu";
+ import { rattacherDossier } from "@/lib/products/canonique";
+ import { enSerie } from "@/lib/refs";
+ import { specialitesDemandees, ecrireSpecialitesBu, resumeSpecialitesBu } from "@/lib/sfe/specialites-bu";
++import { estBuHospitaliere, nomDuTerritoire } from "@/lib/sfe/territoire-kam";
+ 
+ const MODULE = "SALES_PLANNING" as const;
+ const PATH = "/planning";
+@@ -477,18 +478,36 @@ export async function saveRepProfile(formData: FormData): Promise<ActionResult>
+   // affectations restaient en base, et leurs praticiens dans son panel. Retirées dans la MÊME transaction
+   // que le rattachement — un KAM ne passe pas par un état où il couvre deux BU.
+   const nouvelleBu = "businessUnitId" in data ? data.businessUnitId : undefined;
+-  const retires = await prisma.$transaction(async (tx) => {
++  const { retires, rendu } = await prisma.$transaction(async (tx) => {
+     await tx.salesRepProfile.upsert({ where: { repId }, create: { repId, ...data }, update: data });
+-    if (nouvelleBu === undefined) return 0;
++    if (nouvelleBu === undefined) return { retires: 0, rendu: false };
+     const r = await tx.salesSectorRep.deleteMany({
+       where: { repId, ...(nouvelleBu ? { sector: { businessUnitId: { not: nouvelleBu } } } : {}) },
+     });
+-    return r.count;
++    // SON TERRITOIRE PROPRE LUI EST RENDU quand il revient dans une BU où il en avait un (04/10/2026).
++    // Quitter la BU lui retire l'affectation (ci-dessus) mais garde le territoire en sommeil : retiré
++    // par erreur puis rattaché, il ne doit pas perdre le choix d'établissements qu'on avait fait pour
++    // lui. Le lien se recrée dans la MÊME transaction — un KAM ne passe pas par un état où son
++    // territoire existe sans le couvrir.
++    let rendu = false;
++    if (nouvelleBu) {
++      const territoire = await tx.salesSector.findUnique({
++        where: { businessUnitId_repId: { businessUnitId: nouvelleBu, repId } },
++        select: { id: true, isActive: true },
++      });
++      if (territoire?.isActive) {
++        const c = await tx.salesSectorRep.createMany({ data: [{ sectorId: territoire.id, repId }], skipDuplicates: true });
++        rendu = c.count > 0;
++      }
++    }
++    return { retires: r.count, rendu };
+   });
+   revalidatePath(BU_PATH);
+-  return retires > 0
+-    ? { ok: true, message: `${retires} affectation(s) à un secteur de son ancienne BU lui sont retirées : son panel suit sa nouvelle BU.` }
+-    : { ok: true };
++  const phrases = [
++    retires > 0 ? `${retires} affectation(s) à un secteur de son ancienne BU lui sont retirées : son panel suit sa nouvelle BU.` : null,
++    rendu ? "Son territoire dans cette BU lui est rendu, tel qu'il était." : null,
++  ].filter(Boolean);
++  return phrases.length > 0 ? { ok: true, message: phrases.join(" ") } : { ok: true };
+ }
+ 
+ export async function deleteRepProfile(formData: FormData): Promise<ActionResult> {
+@@ -550,11 +569,19 @@ export async function updateSector(formData: FormData): Promise<ActionResult> {
+   const name = fdStr(formData, "name");
+   if (!id) return { ok: false, error: "Identifiant du secteur manquant." };
+   if (!name) return { ok: false, error: "Le nom du secteur est obligatoire (« Est », « Oranais »…)." };
+-  const cible = await prisma.salesSector.findUnique({ where: { id }, select: { id: true, businessUnitId: true } });
++  const cible = await prisma.salesSector.findUnique({ where: { id }, select: { id: true, businessUnitId: true, repId: true } });
+   if (!cible) return { ok: false, error: "Secteur introuvable." };
++  // LE TERRITOIRE D'UN KAM N'EST PAS UN SECTEUR PARTAGÉ : il se règle sur la ligne de SON KAM, qui
++  // y est le seul affecté. Le modifier d'ici permettrait d'y affecter un autre KAM, ou de le renommer
++  // en secteur « Est » — deux vérités pour un même territoire (§118.5).
++  if (cible.repId) return { ok: false, error: REFUS_TERRITOIRE_PAR_SECTEUR };
+   return ecrireSecteur(user.id, cible.id, cible.businessUnitId, name, formData);
+ }
+ 
++/** Le remède, nommé : le territoire d'un KAM se règle sur sa ligne (§118.30). */
++const REFUS_TERRITOIRE_PAR_SECTEUR =
++  "Ce secteur est le territoire propre d'un KAM : il se règle sur sa ligne, dans « KAM de la BU » (bouton « Territoire »).";
++
+ /**
+  * LE CORPS COMMUN. Non exporté : un fichier `"use server"` n'exporte que des fonctions
+  * asynchrones appelables à distance, et ceci n'en est pas une — c'est la part que les deux gestes
+@@ -562,17 +589,24 @@ export async function updateSector(formData: FormData): Promise<ActionResult> {
+  */
+ async function ecrireSecteur(
+   actorId: string, sectorId: string | null, businessUnitId: string, name: string, formData: FormData,
++  /**
++   * LE TERRITOIRE PROPRE D'UN KAM (04/10/2026) : son KAM est le seul affecté (`repIds` imposé, le
++   * formulaire n'en dit rien) et la ligne porte `repId`. Le reste — établissements, couverture des
++   * services, vérifications, transaction — est le MÊME corps que pour un secteur partagé : une règle
++   * de couverture écrite deux fois divergerait au premier réglage (§118.5).
++   */
++  territoireDe?: string,
+ ): Promise<ActionResult> {
+   // Les identifiants sont VÉRIFIÉS en base avant d'être écrits : un lien vers un établissement
+   // supprimé entre l'ouverture de l'écran et l'enregistrement partirait en violation de clé
+   // étrangère — une erreur technique là où la vérité est « cet hôpital n'existe plus ».
+   const institutionIds = [...new Set(formData.getAll("institutionIds").map(String).filter(Boolean))];
+-  const repIds = [...new Set(formData.getAll("repIds").map(String).filter(Boolean))];
++  const repIds = territoireDe ? [territoireDe] : [...new Set(formData.getAll("repIds").map(String).filter(Boolean))];
+ 
+-  const [institutions, reps, homonyme] = await Promise.all([
++  const [institutions, reps, homonyme, dejaCouverts] = await Promise.all([
+     institutionIds.length
+-      ? prisma.medicalInstitution.findMany({ where: { id: { in: institutionIds } }, select: { id: true } })
+-      : Promise.resolve([] as { id: string }[]),
++      ? prisma.medicalInstitution.findMany({ where: { id: { in: institutionIds } }, select: { id: true, name: true, isActive: true } })
++      : Promise.resolve([] as { id: string; name: string; isActive: boolean }[]),
+     // UN KAM DE CETTE BU (§118.184 — S15) : l'écran ne propose que les KAM rattachés à la BU ; une requête
+     // forgée y affectait n'importe quel compte, qui recevait alors un territoire d'une autre équipe.
+     repIds.length
+@@ -584,10 +618,23 @@ async function ecrireSecteur(
+       where: { businessUnitId, name: { equals: name, mode: "insensitive" }, ...(sectorId ? { id: { not: sectorId } } : {}) },
+       select: { id: true },
+     }),
++    // CE QUE LE SECTEUR COUVRE DÉJÀ : un établissement désactivé depuis y reste (le retirer en silence
++    // à l'enregistrement retirerait des médecins du panel sans que personne l'ait décidé).
++    sectorId
++      ? prisma.salesSectorInstitution.findMany({ where: { sectorId }, select: { institutionId: true } })
++      : Promise.resolve([] as { institutionId: string }[]),
+   ]);
+   if (institutions.length !== institutionIds.length) {
+     return { ok: false, error: `${institutionIds.length - institutions.length} établissement(s) sélectionné(s) n'existent plus dans l'annuaire — rechargez l'écran.` };
+   }
++  // UN ÉTABLISSEMENT DÉSACTIVÉ NE S'AJOUTE PLUS — l'écran ne le propose pas ; une requête forgée,
++  // si. Il RESTE quand le secteur le couvrait déjà (§118.172).
++  const couvertsAvant = new Set(dejaCouverts.map((d) => d.institutionId));
++  const inactifsAjoutes = institutions.filter((i) => !i.isActive && !couvertsAvant.has(i.id));
++  if (inactifsAjoutes.length > 0) {
++    const noms = inactifsAjoutes.map((i) => `« ${i.name} »`).join(", ");
++    return { ok: false, error: `${noms} : désactivé dans l'annuaire, on ne l'ajoute pas à un territoire. Réactivez-le d'abord dans Annuaires › Établissements.` };
++  }
+   if (reps.length !== repIds.length) {
+     return { ok: false, error: `${repIds.length - reps.length} KAM sélectionné(s) ne sont pas (ou plus) rattachés à cette BU — rattachez-les d'abord à la BU, ou rechargez l'écran.` };
+   }
+@@ -637,7 +684,10 @@ async function ecrireSecteur(
+   const ecrit = await prisma.$transaction(async (tx) => {
+     const secteur = sectorId
+       ? await tx.salesSector.update({ where: { id: sectorId }, data, select: { id: true } })
+-      : await tx.salesSector.create({ data: { ...data, businessUnitId, createdById: actorId }, select: { id: true } });
++      : await tx.salesSector.create({
++        data: { ...data, businessUnitId, createdById: actorId, ...(territoireDe ? { repId: territoireDe } : {}) },
++        select: { id: true },
++      });
+     // RETIRER CE QUI N'EST PLUS COCHÉ. Une sélection VIDE retire tout, et c'est bien ce que
+     // Prisma fait : `notIn: []` a été MESURÉ — il supprime la ligne (un `NOT IN` vide est vrai
+     // pour tout le monde). Une première version portait une sentinelle `["__aucun__"]` en
+@@ -690,7 +740,7 @@ async function ecrireSecteur(
+ 
+   await recordAudit({
+     actorId, action: sectorId ? "UPDATE" : "CREATE", module: "Force de vente", entityType: "SALES_SECTOR", entityId: ecrit,
+-    summary: `Secteur « ${name} » — ${institutionIds.length} établissement(s)${restreints && restreints.size > 0 ? ` dont ${restreints.size} limité(s) à certains services` : ""}, ${repIds.length} KAM`,
++    summary: `${territoireDe ? "Territoire" : "Secteur"} « ${name} » — ${institutionIds.length} établissement(s)${restreints && restreints.size > 0 ? ` dont ${restreints.size} limité(s) à certains services` : ""}, ${repIds.length} KAM`,
+   });
+   revalidatePath(BU_PATH);
+   return { ok: true, id: ecrit };
+@@ -707,9 +757,12 @@ export async function deleteSector(formData: FormData): Promise<ActionResult> {
+   if (!id) return { ok: false, error: "Identifiant manquant." };
+   const secteur = await prisma.salesSector.findUnique({
+     where: { id },
+-    select: { name: true, _count: { select: { reps: true } } },
++    select: { name: true, repId: true, _count: { select: { reps: true } } },
+   });
+   if (!secteur) return { ok: false, error: "Secteur introuvable." };
++  // Le territoire d'un KAM se VIDE depuis sa ligne (on décoche ses établissements) ; il ne se
++  // supprime pas d'ici, où rien ne dit à qui il appartient.
++  if (secteur.repId) return { ok: false, error: REFUS_TERRITOIRE_PAR_SECTEUR };
+   await prisma.salesSector.delete({ where: { id } });
+   await recordAudit({
+     actorId: user.id, action: "DELETE", module: "Force de vente", entityType: "SALES_SECTOR", entityId: id,
+@@ -721,6 +774,83 @@ export async function deleteSector(formData: FormData): Promise<ActionResult> {
+   return { ok: true };
+ }
+ 
++// ─────────────────────────── Territoire d'un KAM (BU hospitalière) ───────────────────────────
++
++/**
++ * LE TERRITOIRE D'UN KAM — choisi SUR SA LIGNE, dans « KAM de la BU » (04/10/2026).
++ *
++ * « Dans le secteur de chaque KAM, on doit pouvoir sélectionner un ou des services d'un ou de
++ * plusieurs établissements hospitaliers de l'annuaire, dans le cas où la BU est hospitalière. »
++ *
++ * Le territoire est un `SalesSector` propre au KAM (`repId`), qui porte sa ligne `SalesSectorRep` :
++ * le panel (`clausePanelDuKam`) et la portée des stocks le lisent sans changer. Le corps d'écriture
++ * est celui des secteurs (`ecrireSecteur`) : mêmes vérifications, même transaction, même règle de
++ * couverture (§118.172) — tous les services d'un établissement, ou certains ; « aucun service » est
++ * refusé en nommant l'établissement ; un service d'un autre établissement est refusé ; un
++ * établissement désactivé ne s'ajoute pas (il reste s'il y était) ; un formulaire qui ne porte pas
++ * la couverture ne la touche pas (§118.152c). La liste des établissements, elle, est toujours
++ * COMPLÈTE : décocher retire, et une sélection vide vide le territoire.
++ *
++ * Refusé : une BU de VILLE (pas d'hôpital à cocher — le secteur y reste un texte sur la ligne), un
++ * KAM qui n'est pas rattaché à cette BU (une requête forgée lui donnerait un territoire d'une autre
++ * équipe, §118.184).
++ *
++ * UN SEUL TERRITOIRE PAR KAM ET PAR BU (`@@unique([businessUnitId, repId])`). Deux premiers
++ * enregistrements simultanés en créeraient deux : ils passent un par un (`enSerie`), et le second
++ * MET À JOUR celui que le premier a créé ; entre deux processus, la contrainte d'unicité refuse le
++ * second, qui le DIT au lieu d'une erreur de base.
++ */
++export async function enregistrerTerritoireKam(formData: FormData): Promise<ActionResult> {
++  const user = await requireUser();
++  if (!userCan(user, MODULE, "UPDATE")) return { ok: false, error: "Non autorisé." };
++  const businessUnitId = fdStr(formData, "businessUnitId");
++  const repId = fdStr(formData, "repId");
++  if (!businessUnitId) return { ok: false, error: "Le territoire doit appartenir à une Business Unit." };
++  if (!repId) return { ok: false, error: "KAM introuvable." };
++  const [bu, profil, kam] = await Promise.all([
++    prisma.businessUnit.findUnique({ where: { id: businessUnitId }, select: { id: true, channel: true } }),
++    prisma.salesRepProfile.findFirst({ where: { repId, businessUnitId }, select: { repId: true } }),
++    prisma.user.findUnique({ where: { id: repId }, select: { name: true } }),
++  ]);
++  if (!bu) return { ok: false, error: "Business Unit introuvable." };
++  if (!estBuHospitaliere(String(bu.channel))) {
++    return { ok: false, error: REFUS_BU_DE_VILLE };
++  }
++  if (!profil || !kam) {
++    return { ok: false, error: "Ce KAM n'est pas (ou plus) rattaché à cette BU — rattachez-le d'abord, ou rechargez l'écran." };
++  }
++  try {
++    return await enSerie(`territoire-kam:${businessUnitId}:${repId}`, async () => {
++      const existant = await prisma.salesSector.findUnique({
++        where: { businessUnitId_repId: { businessUnitId, repId } },
++        select: { id: true, name: true },
++      });
++      // LE NOM : celui du territoire s'il existe déjà ; sinon « Territoire — <KAM> », suffixé quand
++      // ce nom est pris dans la BU (un ancien secteur, un homonyme) — la règle de la migration.
++      let nom = existant?.name;
++      if (!nom) {
++        const base = nomDuTerritoire(kam.name, repId, false);
++        const pris = await prisma.salesSector.findFirst({
++          where: { businessUnitId, name: { equals: base, mode: "insensitive" } },
++          select: { id: true },
++        });
++        nom = nomDuTerritoire(kam.name, repId, Boolean(pris));
++      }
++      return ecrireSecteur(user.id, existant?.id ?? null, businessUnitId, nom, formData, repId);
++    });
++  } catch (e) {
++    if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") {
++      return { ok: false, error: "Le territoire de ce KAM vient d'être enregistré par ailleurs — rechargez l'écran, puis recommencez." };
++    }
++    throw e;
++  }
++}
++
++/** Le refus d'une BU de ville nomme les DEUX remèdes : rien à cocher ici, ou changer son terrain. */
++const REFUS_BU_DE_VILLE =
++  "Cette BU est une gamme de ville : il n'y a pas d'établissement à choisir — le secteur du KAM se saisit en texte sur sa ligne. "
++  + "Passez la BU en terrain « Hospitalière » ou « les deux » pour choisir des établissements.";
++
+ // ─────────────────────────── Affectations (matrice KAM × produit) ───────────────────────────
+ export async function saveAssignment(formData: FormData): Promise<ActionResult> {
+   const user = await requireUser();
+diff --git a/src/lib/assistant/action-registry.ts b/src/lib/assistant/action-registry.ts
+index 51dd58b..c03a26d 100644
+--- a/src/lib/assistant/action-registry.ts
++++ b/src/lib/assistant/action-registry.ts
+@@ -1316,6 +1316,9 @@ X("LE CATALOGUE DES PRODUITS CANONIQUES (§118.178) — rattacher un dossier à
+ X("LES SPÉCIALITÉS D'UNE BUSINESS UNIT (§118.183) — l'ensemble des spécialités qu'une BU vise, et sa principale — sont un geste d'écran neuf, et Adam est en pause de développement : aucun geste neuf ne lui est ouvert. L'ensemble se REMPLACE d'un geste (décocher retire), ce qui se décide devant la liste du référentiel. Tout se fait sur Force de vente › Business Units, dans la carte de la BU ou à sa création.", [
+   "sales-planning-actions:enregistrerSpecialitesBu",
+ ]);
++X("LE TERRITOIRE D'UN KAM (04/10/2026) — dans une BU hospitalière, les établissements de l'annuaire qu'un KAM couvre, et pour chacun tous ses services ou certains — est un geste d'écran neuf, et Adam est en pause de développement : aucun geste neuf ne lui est ouvert. Il se décide DEVANT l'annuaire et ses services, cases à cocher sous les yeux, et il REMPLACE la sélection (décocher retire) : c'est le panel de médecins d'une personne qu'on change. Tout se fait sur Force de vente › Business Units, ligne du KAM, bouton « Territoire ».", [
++  "sales-planning-actions:enregistrerTerritoireKam",
++]);
+ X("LE RÉFÉRENTIEL DES SPÉCIALITÉS (§118.180) — fusionner deux spécialités, rattacher un libellé hérité à une spécialité, rattacher en lot les fiches dont la spécialité est écrite sans lien — sont des gestes d'écran neufs, et Adam est en pause de développement : aucun geste neuf ne lui est ouvert. La fusion change, de plus, la spécialité de fiches que la personne ne voit peut-être pas : c'est une décision de STRUCTURE, prise devant l'écran qui en montre l'effet. Tout se fait sur Annuaires › Spécialités et dans la feuille des praticiens (« Rattacher les spécialités »).", [
+   "medical-actions:fusionnerSpecialite",
+   "medical-actions:rattacherLibelleSpecialite",
+diff --git a/src/lib/assistant/ops/catalog.ts b/src/lib/assistant/ops/catalog.ts
+index be39aa4..8adafd7 100644
+--- a/src/lib/assistant/ops/catalog.ts
++++ b/src/lib/assistant/ops/catalog.ts
+@@ -4466,7 +4466,7 @@ export const OPS_CATALOG: OpMeta[] = [
+       "quels hôpitaux dans le secteur",
+     ],
+     risk: "NORMAL",
+-    summary: "Crée un SECTEUR — une sélection d'établissements qui porte un nom (« Est », « Oranais ») — sur une BU, avec les KAM qui le couvrent. Établissements et KAM par leurs NOMS (champs « institutions » et « person », séparés par des virgules) : un nom introuvable ou ambigu se DIT avec ses candidats. Un secteur sans établissement est créé mais AVERTI (le KAM qu'on y affecte n'aurait aucun médecin).",
++    summary: "Crée un SECTEUR — une sélection d'établissements qui porte un nom (« Est », « Oranais ») — sur une BU, avec les KAM qui le couvrent. Établissements et KAM par leurs NOMS (champs « institutions » et « person », séparés par des virgules) : un nom introuvable ou ambigu se DIT avec ses candidats. Un secteur sans établissement est créé mais AVERTI (le KAM qu'on y affecte n'aurait aucun médecin). Le TERRITOIRE PROPRE d'un KAM (BU hospitalière, depuis le 04/10/2026) n'est pas un secteur partagé : il se choisit sur la ligne du KAM, à l'écran Force de vente › Business Units, et l'action le refuse d'ici.",
+     gate: (u) => userCan(u, "SALES_PLANNING", "UPDATE"),
+     covers: ["sales-planning-actions:createSector"],
+   },
+@@ -4475,7 +4475,7 @@ export const OPS_CATALOG: OpMeta[] = [
+     uiLabel: "Modifier un secteur",
+     aliases: ["renomme le secteur", "ajoute l'hôpital au secteur", "affecte le KAM au secteur"],
+     risk: "NORMAL",
+-    summary: "Modifie un secteur (nom via « newName », ville pivot, établissements, KAM). L'action REMPLACE les deux listes — c'est ce qui fait qu'un retrait retire : l'existant est relu et REJOUÉ (FUSION) dès qu'une liste n'est pas citée, sans quoi renommer un secteur effacerait ses établissements.",
++    summary: "Modifie un secteur (nom via « newName », ville pivot, établissements, KAM). L'action REMPLACE les deux listes — c'est ce qui fait qu'un retrait retire : l'existant est relu et REJOUÉ (FUSION) dès qu'une liste n'est pas citée, sans quoi renommer un secteur effacerait ses établissements. Le TERRITOIRE PROPRE d'un KAM (BU hospitalière, depuis le 04/10/2026) n'est pas un secteur partagé : il se choisit sur la ligne du KAM, à l'écran Force de vente › Business Units, et l'action le refuse d'ici.",
+     gate: (u) => userCan(u, "SALES_PLANNING", "UPDATE"),
+     covers: ["sales-planning-actions:updateSector"],
+   },
+@@ -4484,7 +4484,7 @@ export const OPS_CATALOG: OpMeta[] = [
+     uiLabel: "Supprimer un secteur",
+     aliases: ["supprime le secteur", "retire le découpage"],
+     risk: "SENSITIVE",
+-    summary: "Supprime un secteur — les établissements et les comptes ne bougent pas. La carte DIT combien de KAM perdent ce territoire : sans autre secteur, leur panel devient vide et ils ne peuvent plus planifier de tournée.",
++    summary: "Supprime un secteur — les établissements et les comptes ne bougent pas. La carte DIT combien de KAM perdent ce territoire : sans autre secteur, leur panel devient vide et ils ne peuvent plus planifier de tournée. Le TERRITOIRE PROPRE d'un KAM (BU hospitalière, depuis le 04/10/2026) n'est pas un secteur partagé : il se choisit sur la ligne du KAM, à l'écran Force de vente › Business Units, et l'action le refuse d'ici.",
+     gate: (u) => userCan(u, "SALES_PLANNING", "UPDATE"),
+     covers: ["sales-planning-actions:deleteSector"],
+   },
+diff --git a/src/lib/assistant/ops/impl-wave6c.ts b/src/lib/assistant/ops/impl-wave6c.ts
+index 844bef2..8b33d1d 100644
+--- a/src/lib/assistant/ops/impl-wave6c.ts
++++ b/src/lib/assistant/ops/impl-wave6c.ts
+@@ -75,7 +75,9 @@ const LISTES_SECTEUR = ["institutionIds", "repIds"] as const;
+ const resolveSector = (raw: string) =>
+   resolveOne(raw, "le secteur (champ « name » — son nom, « Est », « Oranais »)",
+     (q) => prisma.salesSector.findMany({
+-      where: { name: { contains: q, mode: "insensitive" } },
++      // LES SECTEURS PARTAGÉS seulement (04/10/2026) : le territoire propre d'un KAM (`repId`) se règle sur
++      // sa ligne, à l'écran — l'action le refuse d'ici, la désignation ne le propose donc pas.
++      where: { name: { contains: q, mode: "insensitive" }, repId: null },
+       select: { id: true, name: true, businessUnit: { select: { name: true } } }, take: 6,
+     }),
+     // DEUX BU peuvent porter un secteur « Est » : le libellé d'ambiguïté doit dire LAQUELLE,
+diff --git a/src/lib/queries/tour-schedule.ts b/src/lib/queries/tour-schedule.ts
+index 2b44e8f..a5bd3eb 100644
+--- a/src/lib/queries/tour-schedule.ts
++++ b/src/lib/queries/tour-schedule.ts
+@@ -7,6 +7,7 @@ import {
+   type AvancementTournee, type EtatVisite, type RetardDeSoumission, type StatutPlan, type VueTournee,
+ } from "@/lib/sfe/tournee";
+ import { lireReglageTournee } from "@/lib/sfe/tournee-reglage";
++import { diagnosticPanelVide, type CausePanelVide } from "@/lib/sfe/panel-diagnostic";
+ import { remisesDesVisites, type RemisesDeVisite } from "@/lib/queries/promo-remises";
+ 
+ /**
+@@ -286,17 +287,78 @@ export async function loadPanelPlanifiable(repId: string): Promise<PraticienPlan
+     select: {
+       id: true, name: true, specialty: true, institution: true, wilaya: true, potential: true,
+       institutionId: true, serviceId: true,
++      institutionRef: { select: { wilaya: true } },
+     },
+   });
+   return praticiens.map((d) => ({
+     id: d.id, name: d.name, specialty: d.specialty, institution: d.institution,
+-    wilaya: d.wilaya, potential: d.potential ? String(d.potential) : null,
++    // LA WILAYA DE LA FICHE, sinon celle de son ÉTABLISSEMENT (04/10/2026) : le panel d'un KAM vient de
++    // ses établissements, et une fiche sans wilaya saisie restait hors du menu « Wilaya où je serai »
++    // alors que l'hôpital qui l'amène en a une.
++    wilaya: d.wilaya ?? d.institutionRef?.wilaya ?? null, potential: d.potential ? String(d.potential) : null,
+     // LE SECTEUR qui l'amène — la MÊME règle que la clause (`lienCouvre`), pour qu'un praticien
+     // venu par un service ne soit pas étiqueté du secteur qui ne couvre pas ce service.
+     secteur: liens.find((l) => lienCouvre(l, d))?.secteur ?? null,
+   }));
+ }
+ 
++/**
++ * POURQUOI CE PANEL EST VIDE — les faits que lit `diagnosticPanelVide` (04/10/2026).
++ *
++ * Lus par la MÊME règle que le panel : la BU du KAM (`SalesRepProfile`), ses secteurs (actifs ou non,
++ * dans sa BU ou non — `clausePanelDuKam` ne compte que les actifs de SA BU, §118.184), les praticiens
++ * rattachés par identifiant aux établissements couverts, et les fiches d'avant le lien dont seul le
++ * TEXTE d'établissement porte le nom d'un établissement couvert. Appelé seulement quand le panel est
++ * vide : un écran normal ne paie pas ces lectures.
++ */
++export async function diagnostiquerPanelVide(repId: string): Promise<{ cause: CausePanelVide; phrase: string }> {
++  const [profil, affectations] = await Promise.all([
++    prisma.salesRepProfile.findUnique({ where: { repId }, select: { businessUnitId: true, region: true, businessUnit: { select: { name: true } } } }),
++    prisma.salesSectorRep.findMany({
++      where: { repId },
++      select: {
++        sector: {
++          select: {
++            name: true, isActive: true, businessUnitId: true, businessUnit: { select: { name: true } },
++            institutions: {
++              select: { institutionId: true, tousLesServices: true, services: { select: { serviceId: true } }, institution: { select: { name: true } } },
++            },
++          },
++        },
++      },
++    }),
++  ]);
++  const buId = profil?.businessUnitId ?? null;
++  const secteurs = affectations.map((a) => a.sector);
++  const vivants = secteurs.filter((s) => s.isActive && s.businessUnitId === buId);
++  const liens = vivants.flatMap((s) => s.institutions);
++  const etabIds = [...new Set(liens.map((l) => l.institutionId))];
++  const [rattaches, enTexte] = etabIds.length
++    ? await Promise.all([
++      prisma.medicalDoctor.findMany({ where: { institutionId: { in: etabIds } }, select: { institutionId: true, serviceId: true } }),
++      prisma.medicalDoctor.count({
++        where: {
++          institutionId: null,
++          OR: [...new Set(liens.map((l) => l.institution.name))].map((nom) => ({ institution: { equals: nom, mode: "insensitive" as const } })),
++        },
++      }),
++    ])
++    : [[] as { institutionId: string | null; serviceId: string | null }[], 0];
++  const couvre = (d: { institutionId: string | null; serviceId: string | null }) => liens.some((l) => lienCouvre(
++    { institutionId: l.institutionId, tousLesServices: l.tousLesServices, serviceIds: l.services.map((x) => x.serviceId) }, d,
++  ));
++  return diagnosticPanelVide({
++    bu: profil?.businessUnit?.name ?? null,
++    secteurTexte: profil?.region ?? null,
++    secteurs: secteurs.map((s) => ({
++      nom: s.name, bu: s.businessUnit.name, dansSaBu: s.businessUnitId === buId, actif: s.isActive, etablissements: s.institutions.length,
++    })),
++    praticiensRattaches: rattaches.length,
++    horsServicesChoisis: rattaches.filter((d) => !couvre(d)).length,
++    praticiensEnTexte: enTexte,
++  });
++}
++
+ /** La clé d'une paire jour × praticien, telle que l'écran l'envoie et que l'action la relit. */
+ export const clePaire = (d: Date, doctorId: string): string =>
+   `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}|${doctorId}`;
+diff --git a/src/lib/sfe-setup.test.ts b/src/lib/sfe-setup.test.ts
+index 1382699..81ef5ce 100644
+--- a/src/lib/sfe-setup.test.ts
++++ b/src/lib/sfe-setup.test.ts
+@@ -1,12 +1,12 @@
+ import { describe, it, expect } from "vitest";
+ import {
+   CHANNELS, CHANNEL_LABELS, buSetupComplete, buSetupProgress, buSetupSteps,
+-  channelCovers, channelLabel, isChannel, nextBuStep,
++  channelCovers, channelLabel, estBuHospitaliere, isChannel, nextBuStep,
+ } from "./sfe-setup";
+ 
+ const vide = {
+   supervisorId: null, channel: "BOTH", repCount: 0, productCount: 0,
+-  sectorCount: 0, sectorsWithoutInstitution: 0, repsWithSector: 0,
++  kamsActifs: 0, kamsSansTerritoire: [] as string[],
+   referentCount: 0, referentsSansRole: 0, specialtyCount: 0,
+ };
+ 
+@@ -17,8 +17,8 @@ describe("le montage d'une BU — l'ordre, et ce qui manque", () => {
+     expect(buSetupComplete(vide)).toBe(false);
+   });
+ 
+-  it("l'ordre est celui du montage : superviseur → terrain → spécialités → KAM → secteurs → référents → produits", () => {
+-    expect(buSetupSteps(vide).map((s) => s.key)).toEqual(["SUPERVISEUR", "CANAL", "SPECIALITES", "KAM", "SECTEURS", "REFERENTS", "PRODUITS"]);
++  it("l'ordre est celui du montage : superviseur → terrain → spécialités → KAM → territoires → référents → produits", () => {
++    expect(buSetupSteps(vide).map((s) => s.key)).toEqual(["SUPERVISEUR", "CANAL", "SPECIALITES", "KAM", "TERRITOIRES", "REFERENTS", "PRODUITS"]);
+   });
+ 
+   it("LES SPÉCIALITÉS (§118.183) : au moins une — la principale n'est PAS exigée", () => {
+@@ -49,7 +49,7 @@ describe("le montage d'une BU — l'ordre, et ce qui manque", () => {
+   it("une BU complète ne réclame plus rien", () => {
+     const pleine = {
+       supervisorId: "u1", channel: "HOSPITAL", repCount: 4, productCount: 3,
+-      sectorCount: 2, sectorsWithoutInstitution: 0, repsWithSector: 4, referentCount: 1, referentsSansRole: 0,
++      kamsActifs: 4, kamsSansTerritoire: [], referentCount: 1, referentsSansRole: 0,
+       specialtyCount: 3,
+     };
+     expect(nextBuStep(pleine)).toBeNull();
+@@ -85,50 +85,55 @@ describe("le montage d'une BU — l'ordre, et ce qui manque", () => {
+ });
+ 
+ /**
+- * LES SECTEURS — trois pannes distinctes derrière « la BU a des secteurs », et le cas qui
+- * ferait tomber chaque assertion est nommé à côté d'elle.
++ * LES TERRITOIRES DES KAM (04/10/2026) — dans une BU hospitalière, chacun choisit sur sa ligne les
++ * établissements qu'il couvre. Le cas qui ferait tomber chaque assertion est nommé à côté d'elle.
+  */
+-describe("les secteurs d'une BU — un KAM sans territoire a un panel VIDE", () => {
+-  // Une BU AU STADE des secteurs : supervisée, avec ses spécialités (§118.183) et ses produits.
+-  const secteur = (o: Partial<typeof vide>) => ({ ...vide, supervisorId: "u1", productCount: 2, specialtyCount: 1, ...o });
+-  const etape = (o: Partial<typeof vide>) => buSetupSteps(secteur(o)).find((s) => s.key === "SECTEURS")!;
++describe("les territoires des KAM — un KAM sans territoire a un panel VIDE", () => {
++  // Une BU AU STADE des territoires : supervisée, avec ses spécialités (§118.183) et ses produits.
++  const bu = (o: Partial<typeof vide>) => ({ ...vide, supervisorId: "u1", productCount: 2, specialtyCount: 1, channel: "HOSPITAL", ...o });
++  const etape = (o: Partial<typeof vide>) => buSetupSteps(bu(o)).find((s) => s.key === "TERRITOIRES")!;
+ 
+-  it("aucun secteur : l'étape n'est pas franchie, et la raison le DIT", () => {
+-    const e = etape({ repCount: 3 });
+-    expect(e.done).toBe(false);
+-    expect(e.why).toContain("panel est vide");
++  it("une BU hospitalière, ou « les deux » — jamais une BU de ville, ni une valeur inconnue", () => {
++    expect(estBuHospitaliere("HOSPITAL")).toBe(true);
++    expect(estBuHospitaliere("BOTH")).toBe(true);
++    expect(estBuHospitaliere("RETAIL")).toBe(false);
++    expect(estBuHospitaliere("AUTRE")).toBe(false);
+   });
+ 
+-  it("UN SECTEUR VIDE compte pour rien — un nom de territoire sans territoire", () => {
+-    // Ce cas est celui qui ferait passer une garde écrite « sectorCount > 0 » : deux secteurs
+-    // existent, l'un ne contient aucun établissement, et le KAM qu'on y affecte ne voit rien.
+-    const e = etape({ repCount: 2, sectorCount: 2, sectorsWithoutInstitution: 1, repsWithSector: 2, referentCount: 1, referentsSansRole: 0 });
++  it("des KAM actifs SANS territoire : l'étape n'est pas franchie, et la raison les NOMME", () => {
++    const e = etape({ repCount: 3, kamsActifs: 3, kamsSansTerritoire: ["Leila Sahridj", "Amel Haddad"] });
+     expect(e.done).toBe(false);
+-    expect(e.why).toContain("1 secteur ne contient aucun établissement");
++    expect(e.why).toContain("Leila Sahridj, Amel Haddad");
++    expect(e.why).toContain("« Territoire »");
++    expect(e.label).toBe("Choisir les territoires des KAM");
+   });
+ 
+-  it("UN KAM SANS SECTEUR fait tomber l'étape, même si la BU a des secteurs pleins", () => {
+-    // Le cas qui trompe : la BU a l'air montée, quatre personnes ne voient aucun médecin.
+-    const e = etape({ repCount: 5, sectorCount: 1, sectorsWithoutInstitution: 0, repsWithSector: 1, referentCount: 1, referentsSansRole: 0 });
+-    expect(e.done).toBe(false);
+-    expect(e.why).toContain("4 KAM sur 5");
++  it("au-delà de trois noms, la raison COMPTE le reste au lieu de l'avaler", () => {
++    const e = etape({ repCount: 5, kamsActifs: 5, kamsSansTerritoire: ["A", "B", "C", "D", "E"] });
++    expect(e.why).toContain("A, B, C et 2 autre(s)");
+   });
+ 
+-  it("tous les KAM couverts par des secteurs pleins : l'étape est franchie", () => {
+-    const e = etape({ repCount: 2, sectorCount: 1, sectorsWithoutInstitution: 0, repsWithSector: 2, referentCount: 1, referentsSansRole: 0 });
+-    expect(e.done).toBe(true);
++  it("tous les KAM actifs ont un territoire : l'étape est franchie — « les deux » compris", () => {
++    expect(etape({ repCount: 2, kamsActifs: 2 }).done).toBe(true);
++    expect(etape({ repCount: 2, kamsActifs: 2, channel: "BOTH" }).done).toBe(true);
++    expect(etape({ repCount: 2, kamsActifs: 2, channel: "BOTH", kamsSansTerritoire: ["X"] }).done).toBe(false);
+   });
+ 
+-  it("une BU SANS KAM n'a rien de couvert — la jauge ne s'en félicite pas", () => {
+-    // Sans cette ligne, `sectorsWithoutInstitution === 0 && repsWithSector >= repCount` serait
+-    // VRAI sur une BU vide (0 >= 0), et la jauge annoncerait un territoire couvert qui n'existe
+-    // pas. L'étape KAM reste celle qu'on réclame.
++  it("aucun KAM ACTIF n'a rien de couvert — la jauge ne s'en félicite pas", () => {
++    // Sans `kamsActifs > 0`, une liste « sans territoire » VIDE franchirait l'étape sur une BU vide.
+     expect(etape({ repCount: 0 }).done).toBe(false);
+-    expect(nextBuStep(secteur({ repCount: 0 }))?.key).toBe("KAM");
++    expect(etape({ repCount: 2, kamsActifs: 0 }).done).toBe(false);
++    expect(nextBuStep(bu({ repCount: 0 }))?.key).toBe("KAM");
++  });
++
++  it("une BU DE VILLE n'exige pas de territoire, et sa raison le DIT", () => {
++    const e = etape({ channel: "RETAIL", repCount: 2, kamsActifs: 2, kamsSansTerritoire: ["X", "Y"] });
++    expect(e.done).toBe(true);
++    expect(e.why).toContain("n'est pas exigée");
+   });
+ 
+-  it("le secteur devient l'étape réclamée dès que les KAM sont là", () => {
+-    expect(nextBuStep(secteur({ repCount: 3 }))?.key).toBe("SECTEURS");
++  it("le territoire devient l'étape réclamée dès que les KAM sont là", () => {
++    expect(nextBuStep(bu({ repCount: 3, kamsActifs: 3, kamsSansTerritoire: ["X"] }))?.key).toBe("TERRITOIRES");
+   });
+ });
+ 
+diff --git a/src/lib/sfe-setup.ts b/src/lib/sfe-setup.ts
+index 37644a5..efe6569 100644
+--- a/src/lib/sfe-setup.ts
++++ b/src/lib/sfe-setup.ts
+@@ -42,6 +42,16 @@ export function isChannel(v: string): v is Channel {
+   return v === "RETAIL" || v === "HOSPITAL" || v === "BOTH";
+ }
+ 
++/**
++ * UNE BU EST HOSPITALIÈRE quand son terrain est l'hôpital, ou les deux (04/10/2026). C'est ce qui
++ * décide si le territoire de chaque KAM se choisit dans l'annuaire des établissements (sur sa ligne)
++ * ou reste un texte libre. Une valeur inconnue n'est PAS hospitalière : ouvrir un territoire
++ * d'hôpitaux sur un terrain qu'on ne sait pas lire choisirait à la place de qui règle la BU.
++ */
++export function estBuHospitaliere(channel: string): boolean {
++  return channel === "HOSPITAL" || channel === "BOTH";
++}
++
+ export function channelLabel(v: string): string {
+   return isChannel(v) ? CHANNEL_LABELS[v] : v;
+ }
+@@ -56,7 +66,7 @@ export function channelCovers(bu: string, product: string): boolean {
+   return bu === "BOTH" || bu === product;
+ }
+ 
+-export type BuStepKey = "SUPERVISEUR" | "CANAL" | "SPECIALITES" | "KAM" | "SECTEURS" | "PRODUITS" | "REFERENTS";
++export type BuStepKey = "SUPERVISEUR" | "CANAL" | "SPECIALITES" | "KAM" | "TERRITOIRES" | "PRODUITS" | "REFERENTS";
+ 
+ export interface BuSetupInput {
+   supervisorId: string | null;
+@@ -64,29 +74,22 @@ export interface BuSetupInput {
+   repCount: number;
+   productCount: number;
+   /**
+-   * LES TERRITOIRES DE LA BU — combien de secteurs nommés elle porte, combien sont VIDES, et
+-   * combien de ses KAM en ont au moins un.
+-   *
+-   * Trois nombres et non un seul, parce que trois pannes différentes se cachent derrière « la BU
+-   * a des secteurs », et les trois sont SILENCIEUSES — elles ne produisent pas d'erreur, elles
+-   * produisent un KAM dont le panel est VIDE, qui ne peut planifier aucune tournée, sans qu'une
+-   * seule ligne le dise :
+-   *   · aucun secteur : personne ne sait quels hôpitaux la BU couvre ;
+-   *   · un secteur SANS établissement : un nom de territoire sans territoire — le KAM qu'on y
+-   *     affecte a exactement le même panel vide qu'un KAM sans secteur ;
+-   *   · des KAM SANS secteur : la BU est « configurée » et ces personnes-là ne voient rien.
+-   *
+-   * Le dernier point est celui qui trompe : une BU avec un secteur et cinq KAM dont quatre n'en
+-   * ont aucun se lit comme montée. C'est la forme exacte du circuit sans étape rendu comme un
+-   * circuit configuré (§118.113).
++   * LES TERRITOIRES DES KAM (04/10/2026) — dans une BU hospitalière, chaque KAM choisit SUR SA LIGNE
++   * les établissements qu'il couvre. Deux faits et non un seul, parce que deux pannes se cachent
++   * derrière « les KAM ont un territoire », toutes deux SILENCIEUSES — elles produisent un KAM dont
++   * le panel est VIDE, qui ne peut planifier aucune tournée, sans qu'une ligne le dise :
++   *   · aucun KAM ACTIF : il n'y a rien de couvert, et la jauge ne doit pas s'en féliciter ;
++   *   · des KAM actifs SANS territoire (ou dont le territoire n'a aucun établissement) : la BU a
++   *     l'air montée et ces personnes-là ne voient aucun médecin. On les NOMME : la raison dit sur
++   *     quelle ligne agir, pas « des territoires manquent ».
++   * Un KAM inactif ne bloque rien : il ne planifie pas.
+    */
+-  sectorCount: number;
+-  sectorsWithoutInstitution: number;
+-  repsWithSector: number;
++  kamsActifs: number;
++  kamsSansTerritoire: string[];
+   /**
+    * LES RÉFÉRENTS DIRECTION MARKETING de la gamme (22/09/2026).
+    *
+-   * Deux nombres et non un, pour la même raison que les secteurs : « la gamme a un référent »
++   * Deux nombres et non un, pour la même raison que les territoires : « la gamme a un référent »
+    * cache DEUX pannes distinctes, toutes deux silencieuses. Aucun référent — les demandes Ad &
+    * Pro de cette gamme ne préviennent personne nommément, elles repartent sur le rôle entier et
+    * chacun suppose que quelqu'un d'autre s'en occupe. Un référent qui ne PORTE pas le rôle — il
+@@ -111,26 +114,26 @@ export interface BuStep {
+ }
+ 
+ /**
+- * CE QU'ON PERD, DANS LE CAS QU'ON A. Un motif unique (« les secteurs sont incomplets ») ferait
+- * chercher soi-même laquelle des trois pannes on tient ; c'est le défaut d'un refus qui nomme la
+- * faute sans nommer le remède (§118.30).
++ * CE QU'ON PERD, DANS LE CAS QU'ON A. Un motif unique (« des territoires manquent ») ferait chercher
++ * soi-même quel KAM n'a rien ; c'est le défaut d'un refus qui nomme la faute sans nommer le remède
++ * (§118.30).
+  */
+-function secteursWhy(bu: BuSetupInput): string {
+-  if (bu.sectorCount === 0) {
+-    return "Sans secteur, aucun KAM ne sait quels établissements il couvre : son panel est vide et il ne peut soumettre aucun plan de tournée.";
++function territoiresWhy(bu: BuSetupInput): string {
++  if (!estBuHospitaliere(bu.channel)) {
++    return "BU de ville : pas d'établissement à choisir — le secteur de chaque KAM se saisit en texte sur sa ligne, et cette étape n'est pas exigée.";
+   }
+-  if (bu.sectorsWithoutInstitution > 0) {
+-    const n = bu.sectorsWithoutInstitution;
+-    return `${n} secteur${n > 1 ? "s" : ""} ne contient aucun établissement : un nom de territoire sans territoire donne exactement le même panel vide qu'un KAM sans secteur.`;
++  if (bu.kamsActifs === 0) {
++    return "Aucun KAM actif dans la BU : il n'y a encore aucun territoire à choisir, donc rien de couvert.";
+   }
+-  if (bu.repCount > 0 && bu.repsWithSector < bu.repCount) {
+-    const n = bu.repCount - bu.repsWithSector;
+-    return `${n} KAM sur ${bu.repCount} n'est affecté à aucun secteur : la BU a l'air montée et ces personnes-là ne voient aucun médecin.`;
++  const n = bu.kamsSansTerritoire.length;
++  if (n > 0) {
++    const noms = bu.kamsSansTerritoire.slice(0, 3).join(", ") + (n > 3 ? ` et ${n - 3} autre(s)` : "");
++    return `Sans territoire, ${noms} ${n > 1 ? "n'ont" : "n'a"} aucun médecin dans ${n > 1 ? "leur" : "son"} panel et ne ${n > 1 ? "peuvent" : "peut"} soumettre aucun plan de tournée : choisissez les établissements sur ${n > 1 ? "leur" : "sa"} ligne (« Territoire »).`;
+   }
+-  return "Un secteur est une sélection d'établissements qui porte un nom (« Est », « Oranais ») : c'est lui qui donne au KAM son panel de médecins et ouvre sa planification sur la bonne ville.";
++  return "Chaque KAM choisit sur sa ligne les établissements qu'il couvre — tous leurs services, ou certains : c'est ce qui lui donne son panel de médecins.";
+ }
+ 
+-/** Même principe que `secteursWhy` : la raison DANS LE CAS qu'on tient, jamais « incomplet ». */
++/** Même principe que `territoiresWhy` : la raison DANS LE CAS qu'on tient, jamais « incomplet ». */
+ function referentsWhyBu(bu: BuSetupInput): string {
+   if (bu.referentCount === 0) {
+     return "Aucun référent Direction Marketing : les demandes Ad & Pro de cette gamme ne préviennent personne "
+@@ -177,14 +180,14 @@ export function buSetupSteps(bu: BuSetupInput): BuStep[] {
+       why: "Une BU sans KAM n'apparaît pas au pilotage : ni panel, ni visites, ni couverture.",
+     },
+     {
+-      key: "SECTEURS",
+-      label: "Découper les secteurs",
+-      // `repCount > 0` est nécessaire : sans KAM, il n'y a pas de territoire COUVERT, et annoncer
+-      // l'étape franchie sur une BU vide ferait mentir la jauge par son numérateur (§118.51).
+-      // L'étape KAM vient avant et reste la « suivante » dans ce cas — celle-ci dit simplement la
+-      // vérité : rien n'est couvert.
+-      done: bu.repCount > 0 && bu.sectorsWithoutInstitution === 0 && bu.repsWithSector >= bu.repCount,
+-      why: secteursWhy(bu),
++      key: "TERRITOIRES",
++      label: "Choisir les territoires des KAM",
++      // Une BU de VILLE n'a pas d'hôpital à cocher : l'étape n'est pas exigée, et sa raison le DIT.
++      // Dans une BU hospitalière, `kamsActifs > 0` est nécessaire : sans KAM actif il n'y a pas de
++      // territoire COUVERT, et annoncer l'étape franchie sur une BU vide ferait mentir la jauge par
++      // son numérateur (§118.51). L'étape KAM vient avant et reste la « suivante » dans ce cas.
++      done: !estBuHospitaliere(bu.channel) || (bu.kamsActifs > 0 && bu.kamsSansTerritoire.length === 0),
++      why: territoiresWhy(bu),
+     },
+     {
+       key: "REFERENTS",
+diff --git a/src/lib/sfe/panel-diagnostic.ts b/src/lib/sfe/panel-diagnostic.ts
+new file mode 100644
+index 0000000..778f76e
+--- /dev/null
++++ b/src/lib/sfe/panel-diagnostic.ts
+@@ -0,0 +1,114 @@
++/**
++ * POURQUOI LE PANEL D'UN KAM EST VIDE — la vraie cause, nommée (04/10/2026).
++ *
++ * Rapporté en production : « j'ai donné un secteur à chaque KAM mais ils ne peuvent toujours pas
++ * mettre leur plan de tournée ni sélectionner les wilayas ». L'écran disait une seule chose —
++ * « Votre panel est vide… demandez un secteur » — à une KAM qui EN AVAIT un. Le panel
++ * (`clausePanelDuKam`, §118.179/§118.184) se vide pour au moins sept raisons distinctes, et une
++ * phrase unique fait chercher au mauvais endroit (§118.30) : le superviseur réaffecte un secteur qui
++ * l'était déjà, pendant que la vraie panne — des fiches de médecins jamais rattachées à
++ * l'établissement — reste invisible.
++ *
++ * Ce module est PUR : il reçoit les faits (lus par `diagnostiquerPanelVide`, `queries/tour-schedule`)
++ * et rend la PREMIÈRE cause dans l'ordre où elle se répare. Le menu des wilayas se nourrit du panel :
++ * il est vide pour la même raison, et la phrase le dit.
++ */
++
++export type CausePanelVide =
++  | "SANS_BU"
++  | "SECTEUR_AUTRE_BU"
++  | "SECTEUR_INACTIF"
++  | "SANS_SECTEUR"
++  | "SECTEUR_SANS_ETABLISSEMENT"
++  | "PRATICIENS_NON_RATTACHES"
++  | "SERVICES_SANS_PRATICIEN"
++  | "AUCUN_PRATICIEN";
++
++export interface FaitsPanel {
++  /** Le nom de la BU où le KAM est rattaché (`SalesRepProfile.businessUnitId`), ou null. */
++  bu: string | null;
++  /**
++   * LE « SECTEUR » TAPÉ EN TEXTE sur sa ligne (`SalesRepProfile.region`). C'est la cause la plus
++   * probable du rapport de production : on « donne un secteur » en tapant « Est » dans ce champ, qui
++   * n'a jamais rien couvert — il n'est relié à aucun établissement. Le dire évite qu'on le retape.
++   */
++  secteurTexte?: string | null;
++  /** Les secteurs où il est affecté, avec leur BU et leur état. */
++  secteurs: { nom: string; bu: string; dansSaBu: boolean; actif: boolean; etablissements: number }[];
++  /** Les praticiens RATTACHÉS (par identifiant) aux établissements que ses secteurs couvrent. */
++  praticiensRattaches: number;
++  /** Parmi eux, ceux qui sortent de la couverture parce que le secteur ne retient que certains services. */
++  horsServicesChoisis: number;
++  /** Les fiches dont l'établissement n'est écrit qu'en TEXTE, au nom exact d'un établissement couvert. */
++  praticiensEnTexte: number;
++}
++
++const BU_ECRAN = "Force de vente › Business Units";
++const ANNUAIRE = "Annuaires › Médecins (« Rattacher les établissements »)";
++
++export function diagnosticPanelVide(f: FaitsPanel): { cause: CausePanelVide; phrase: string } {
++  const dansSaBu = f.secteurs.filter((s) => s.dansSaBu);
++  const actifs = dansSaBu.filter((s) => s.actif);
++  if (!f.bu) {
++    return {
++      cause: "SANS_BU",
++      phrase: `Vous n'êtes rattaché(e) à aucune Business Unit : un panel ne se lit que dans la BU du KAM. `
++        + `Demandez à la Direction de vous rattacher à votre BU (${BU_ECRAN}, « Rattacher un KAM »).`,
++    };
++  }
++  if (actifs.length === 0 && f.secteurs.some((s) => !s.dansSaBu)) {
++    const ailleurs = [...new Set(f.secteurs.filter((s) => !s.dansSaBu).map((s) => s.bu))].join(", ");
++    return {
++      cause: "SECTEUR_AUTRE_BU",
++      phrase: `Votre territoire est dans une autre BU (${ailleurs}) que celle où vous êtes rattaché(e) (${f.bu}) : `
++        + `il ne compte pas. Choisissez votre territoire dans « ${f.bu} » (${BU_ECRAN}, ligne du KAM, « Territoire »), `
++        + "ou rattachez-vous à la bonne BU.",
++    };
++  }
++  if (actifs.length === 0 && dansSaBu.length > 0) {
++    return {
++      cause: "SECTEUR_INACTIF",
++      phrase: `Votre secteur dans « ${f.bu} » est désactivé : il ne compte plus. `
++        + `Choisissez votre territoire sur votre ligne (${BU_ECRAN}, « Territoire »).`,
++    };
++  }
++  if (actifs.length === 0) {
++    const texte = f.secteurTexte?.trim();
++    return {
++      cause: "SANS_SECTEUR",
++      phrase: (texte
++        ? `Le secteur « ${texte} » saisi en texte sur votre ligne n'est relié à aucun établissement : il ne donne aucun médecin. `
++        : `Aucun territoire ne vous est affecté dans « ${f.bu} ». `)
++        + `Demandez au superviseur de votre BU de choisir vos établissements (${BU_ECRAN}, votre ligne, « Territoire »).`,
++    };
++  }
++  if (actifs.every((s) => s.etablissements === 0)) {
++    return {
++      cause: "SECTEUR_SANS_ETABLISSEMENT",
++      phrase: "Votre territoire ne contient aucun établissement : un nom sans hôpital ne donne aucun médecin. "
++        + `Faites-y cocher vos établissements (${BU_ECRAN}, votre ligne, « Territoire »).`,
++    };
++  }
++  if (f.praticiensRattaches === 0 && f.praticiensEnTexte > 0) {
++    const n = f.praticiensEnTexte;
++    return {
++      cause: "PRATICIENS_NON_RATTACHES",
++      phrase: `${n} fiche(s) de médecin portent le nom d'un établissement de votre territoire en texte seulement, `
++        + "sans y être rattachées : elles n'entrent pas dans un panel. Le responsable de l'annuaire (Promotion médicale) "
++        + `les rattache depuis ${ANNUAIRE}.`,
++    };
++  }
++  if (f.praticiensRattaches > 0 && f.horsServicesChoisis >= f.praticiensRattaches) {
++    return {
++      cause: "SERVICES_SANS_PRATICIEN",
++      phrase: `Les établissements de votre territoire ont ${f.praticiensRattaches} médecin(s), mais aucun dans les services `
++        + "retenus (ou leur fiche ne porte pas de service) : élargissez à « Tous les services », ou renseignez le service "
++        + `des fiches dans ${ANNUAIRE.replace(" (« Rattacher les établissements »)", "")}.`,
++    };
++  }
++  return {
++    cause: "AUCUN_PRATICIEN",
++    phrase: "Aucun médecin de l'annuaire n'est rattaché aux établissements de votre territoire. Ajoutez-les, ou "
++      + `rattachez les fiches existantes, depuis ${ANNUAIRE}.`,
++  };
++}
+diff --git a/src/lib/sfe/territoire-kam-ecran.test.ts b/src/lib/sfe/territoire-kam-ecran.test.ts
+new file mode 100644
+index 0000000..69e55d2
+--- /dev/null
++++ b/src/lib/sfe/territoire-kam-ecran.test.ts
+@@ -0,0 +1,87 @@
++import { describe, expect, it } from "vitest";
++import { readFileSync } from "node:fs";
++import path from "node:path";
++import { kamsSansTerritoire, nomDuTerritoire } from "./territoire-kam";
++import { diagnosticPanelVide } from "./panel-diagnostic";
++import { choixDepuisLiens, etablissementsSansService, remplirFormulaire } from "@/app/(app)/planning/business-units/choix-etablissements";
++
++/**
++ * LE TERRITOIRE D'UN KAM À L'ÉCRAN (04/10/2026) — les règles pures que l'écran lit, et les POINTS
++ * D'APPEL (§118.49) : vérifier une règle sans son appelant ne prouverait rien, et ces écrans sont
++ * des composants client qu'aucun banc unitaire ne rend.
++ */
++
++const lire = (p: string) => readFileSync(path.join(process.cwd(), p), "utf8")
++  .split("\n").filter((l) => !l.trim().startsWith("//") && !l.trim().startsWith("*") && !l.trim().startsWith("/*")).join("\n");
++
++describe("les KAM sans territoire — ce que l'étape de montage nomme", () => {
++  const kams = [
++    { repId: "a", name: "Amel", isActive: true },
++    { repId: "b", name: "Bilal", isActive: true },
++    { repId: "c", name: "Chérif", isActive: false },
++    { repId: "d", name: "Dalila", isActive: true },
++  ];
++  it("un territoire SANS établissement compte pour rien ; un KAM INACTIF ne bloque pas", () => {
++    expect(kamsSansTerritoire(kams, [{ repId: "a", etablissements: 2 }, { repId: "b", etablissements: 0 }])).toEqual(["Bilal", "Dalila"]);
++  });
++  it("le nom d'un territoire, nu ou suffixé de la fin de l'identifiant", () => {
++    expect(nomDuTerritoire(" Leila Sahridj ", "cuid123456", false)).toBe("Territoire — Leila Sahridj");
++    expect(nomDuTerritoire("Leila Sahridj", "cuid123456", true)).toBe("Territoire — Leila Sahridj · 123456");
++    expect(nomDuTerritoire(null, "x", false)).toBe("Territoire — KAM");
++  });
++});
++
++describe("le formulaire du territoire — la sélection COMPLÈTE et sa couverture", () => {
++  it("chaque établissement coché part ; seuls les restreints portent une couverture", () => {
++    const choix = choixDepuisLiens([
++      { institutionId: "chu", tousLesServices: true, serviceIds: [] },
++      { institutionId: "eph", tousLesServices: false, serviceIds: ["cardio"] },
++    ]);
++    const f = new FormData();
++    f.append("institutionIds", "ancien");
++    remplirFormulaire(f, choix);
++    expect(f.getAll("institutionIds")).toEqual(["chu", "eph"]);
++    expect(JSON.parse(String(f.get("couverture")))).toEqual({ eph: ["cardio"] });
++  });
++  it("un établissement restreint SANS service est signalé — l'action le refuserait", () => {
++    const choix = choixDepuisLiens([{ institutionId: "eph", tousLesServices: false, serviceIds: [] }]);
++    expect(etablissementsSansService(choix)).toEqual(["eph"]);
++  });
++});
++
++describe("un panel vide dit sa cause — l'ordre où elle se répare", () => {
++  const base = { bu: "Onco", secteurs: [], praticiensRattaches: 0, horsServicesChoisis: 0, praticiensEnTexte: 0 };
++  it("une BU absente passe avant tout", () => {
++    expect(diagnosticPanelVide({ ...base, bu: null, secteurTexte: "Est" }).cause).toBe("SANS_BU");
++  });
++  it("un secteur actif dans SA BU masque un secteur d'une autre BU", () => {
++    const s = { nom: "x", bu: "Onco", dansSaBu: true, actif: true, etablissements: 1 };
++    expect(diagnosticPanelVide({ ...base, secteurs: [s, { ...s, bu: "Cardio", dansSaBu: false }] }).cause).toBe("AUCUN_PRATICIEN");
++  });
++});
++
++describe("les points d'appel — ce que l'écran montre est ce que le panel lit", () => {
++  it("l'écran BU n'a plus de section « Secteurs de la BU », et la ligne du KAM porte son territoire", () => {
++    const bu = lire("src/app/(app)/planning/business-units/bu-manager.tsx");
++    expect(bu).not.toMatch(/Secteurs de la BU/);
++    expect(bu).not.toMatch(/createSector|updateSector|deleteSector/);
++    // Le texte « Secteur » ne se montre ni ne repart dans une BU hospitalière.
++    expect(bu).toMatch(/\{!hospitaliere && \(\s*<input[^>]*placeholder="Secteur"/);
++    expect(bu).toMatch(/if \(!hospitaliere\) fd\.set\("region"/);
++    expect(bu).toMatch(/\{hospitaliere && \(\s*<TerritoireKam /);
++    const page = lire("src/app/(app)/planning/business-units/page.tsx");
++    expect(page).toMatch(/repId: \{ not: null \}, isActive: true/);
++  });
++  it("le panneau du territoire envoie la sélection par `remplirFormulaire` à l'action du territoire", () => {
++    const t = lire("src/app/(app)/planning/business-units/territoire-kam.tsx");
++    expect(t).toMatch(/remplirFormulaire\(fd, choix\)/);
++    expect(t).toMatch(/run\(enregistrerTerritoireKam, fd\)/);
++  });
++  it("le plan de tournée affiche la VRAIE cause d'un panel vide", () => {
++    const page = lire("src/app/(app)/medical/plan-de-tournee/page.tsx");
++    expect(page).toMatch(/diagnostiquerPanelVide\(plan\.repId\)/);
++    expect(page).toMatch(/panelVide=\{panelVide\}/);
++    const ecran = lire("src/app/(app)/medical/plan-de-tournee/planificateur.tsx");
++    expect(ecran).toMatch(/\{panelVide \?\?/);
++  });
++});
+diff --git a/src/lib/sfe/territoire-kam-migration.test.ts b/src/lib/sfe/territoire-kam-migration.test.ts
+new file mode 100644
+index 0000000..0a6054d
+--- /dev/null
++++ b/src/lib/sfe/territoire-kam-migration.test.ts
+@@ -0,0 +1,142 @@
++import { describe, expect, it } from "vitest";
++import { readFileSync } from "node:fs";
++import path from "node:path";
++import { prisma } from "@/lib/prisma";
++import { nomDuTerritoire } from "./territoire-kam";
++
++/**
++ * ═══════════════════════════════════════════════════════════════════════════════════════════
++ * LA REPRISE DES SECTEURS PARTAGÉS DANS LES TERRITOIRES PROPRES — jouée sur le TEXTE RÉEL de la
++ * migration, contre des tables temporaires (§118.173 : `pg_temp` passe devant `public` pour la
++ * session ; rien de la base partagée n'est lu ni écrit, et la transaction est annulée).
++ *
++ * Ce qu'elle doit tenir : un KAM retrouve EXACTEMENT la même couverture — l'union des
++ * établissements, « tous les services » si l'un des anciens liens le disait, sinon l'union des
++ * services ; ses affectations aux anciens secteurs sont retirées ; les anciens secteurs devenus sans
++ * KAM sont désactivés, jamais supprimés ; un secteur inactif n'est pas repris ; et rejouée, elle ne
++ * change RIEN.
++ * ═══════════════════════════════════════════════════════════════════════════════════════════
++ */
++
++const SQL = readFileSync(path.join(process.cwd(), "prisma/migrations/20270106093000_territoire_kam/migration.sql"), "utf8");
++
++/** Les instructions du fichier, une par une — un bloc `DO $$ … $$` reste entier. */
++function instructions(sql: string): string[] {
++  const sansCommentaires = sql.split("\n").filter((l) => !l.trim().startsWith("--")).join("\n");
++  const out: string[] = [];
++  let cur = "";
++  let dollar = false;
++  for (const ligne of sansCommentaires.split("\n")) {
++    if ((ligne.match(/\$\$/g) ?? []).length % 2 === 1) dollar = !dollar;
++    cur += `${ligne}\n`;
++    if (!dollar && ligne.trim().endsWith(";")) { if (cur.trim()) out.push(cur.trim()); cur = ""; }
++  }
++  if (cur.trim()) out.push(cur.trim());
++  return out;
++}
++
++let dbOk = false;
++try { await prisma.$queryRaw`SELECT 1`; dbOk = true; } catch { dbOk = false; }
++const suite = dbOk ? describe : describe.skip;
++
++interface Etat {
++  secteurs: { id: string; businessUnitId: string; name: string; repId: string | null; isActive: boolean }[];
++  liens: { sectorId: string; institutionId: string; tousLesServices: boolean }[];
++  services: { sectorId: string; institutionId: string; serviceId: string }[];
++  reps: { sectorId: string; repId: string }[];
++}
++
++async function jouer(passes: number): Promise<Etat> {
++  const ANNULE = new Error("annulé — le banc ne garde rien");
++  let etat: Etat | null = null;
++  try {
++    await prisma.$transaction(async (tx) => {
++      const x = (q: string) => tx.$executeRawUnsafe(q);
++      await x(`CREATE TEMP TABLE "User" ("id" text PRIMARY KEY, "name" text NOT NULL) ON COMMIT DROP`);
++      await x(`CREATE TEMP TABLE "SalesSector" ("id" text PRIMARY KEY, "businessUnitId" text NOT NULL, "name" text NOT NULL, "city" text, "color" text,
++        "isActive" boolean NOT NULL DEFAULT true, "createdById" text, "createdAt" timestamp NOT NULL DEFAULT now(), "updatedAt" timestamp NOT NULL DEFAULT now(),
++        UNIQUE ("businessUnitId", "name")) ON COMMIT DROP`);
++      await x(`CREATE TEMP TABLE "SalesSectorInstitution" ("id" text PRIMARY KEY, "sectorId" text NOT NULL, "institutionId" text NOT NULL,
++        "tousLesServices" boolean NOT NULL DEFAULT true, "createdAt" timestamp NOT NULL DEFAULT now(), UNIQUE ("sectorId", "institutionId")) ON COMMIT DROP`);
++      await x(`CREATE TEMP TABLE "SalesSectorInstitutionService" ("id" text PRIMARY KEY, "sectorInstitutionId" text NOT NULL, "serviceId" text NOT NULL,
++        UNIQUE ("sectorInstitutionId", "serviceId")) ON COMMIT DROP`);
++      await x(`CREATE TEMP TABLE "SalesSectorRep" ("id" text PRIMARY KEY, "sectorId" text NOT NULL, "repId" text NOT NULL,
++        "assignedAt" timestamp NOT NULL DEFAULT now(), UNIQUE ("sectorId", "repId")) ON COMMIT DROP`);
++      // DEUX KAM, une BU « bu1 » et une seconde « bu2 ».
++      await x(`INSERT INTO "User" VALUES ('kamA', 'Amel Haddad'), ('kamB', 'Bilal Kam'), ('kamC', 'Amel Haddad')`);
++      await x(`INSERT INTO "SalesSector" ("id", "businessUnitId", "name", "isActive") VALUES
++        ('est', 'bu1', 'Est', true), ('ouest', 'bu1', 'Ouest', true), ('ferme', 'bu1', 'Fermé', false), ('vide', 'bu1', 'Vide', true),
++        ('nord', 'bu2', 'Nord', true), ('pris', 'bu2', 'Territoire — Bilal Kam', true)`);
++      await x(`INSERT INTO "SalesSectorInstitution" ("id", "sectorId", "institutionId", "tousLesServices") VALUES
++        ('l1', 'est', 'chu', false), ('l2', 'est', 'eph', false), ('l3', 'ouest', 'chu', true), ('l4', 'ouest', 'eph', false),
++        ('l5', 'ferme', 'clinique', true), ('l6', 'nord', 'chu', false), ('l7', 'est', 'cac', false)`);
++      await x(`INSERT INTO "SalesSectorInstitutionService" ("id", "sectorInstitutionId", "serviceId") VALUES
++        ('s1', 'l1', 'urg'), ('s2', 'l2', 'cardio'), ('s3', 'l4', 'onco'), ('s4', 'l6', 'pneumo')`);
++      // kamA : Est + Ouest (bu1) — union ; et Fermé, inactif. kamB : Nord (bu2), et le nom de son territoire est PRIS.
++      // kamC : homonyme de kamA, dans Est aussi.
++      await x(`INSERT INTO "SalesSectorRep" ("id", "sectorId", "repId") VALUES
++        ('r1', 'est', 'kamA'), ('r2', 'ouest', 'kamA'), ('r3', 'ferme', 'kamA'), ('r4', 'nord', 'kamB'), ('r5', 'est', 'kamC')`);
++      for (let i = 0; i < passes; i++) for (const q of instructions(SQL)) await x(q);
++      etat = {
++        secteurs: await tx.$queryRawUnsafe(`SELECT "id", "businessUnitId", "name", "repId", "isActive" FROM "SalesSector" ORDER BY "id"`),
++        liens: await tx.$queryRawUnsafe(`SELECT "sectorId", "institutionId", "tousLesServices" FROM "SalesSectorInstitution" ORDER BY "sectorId", "institutionId"`),
++        services: await tx.$queryRawUnsafe(`SELECT l."sectorId", l."institutionId", s."serviceId" FROM "SalesSectorInstitutionService" s
++          JOIN "SalesSectorInstitution" l ON l."id" = s."sectorInstitutionId" ORDER BY 1, 2, 3`),
++        reps: await tx.$queryRawUnsafe(`SELECT "sectorId", "repId" FROM "SalesSectorRep" ORDER BY "sectorId", "repId"`),
++      };
++      throw ANNULE;
++    }, { timeout: 30_000 });
++  } catch (e) {
++    if (e !== ANNULE) throw e;
++  }
++  return etat!;
++}
++
++suite("La reprise des secteurs partagés, jouée sur le texte réel de la migration", () => {
++  const territoireDe = (e: Etat, repId: string, bu: string) => e.secteurs.find((s) => s.repId === repId && s.businessUnitId === bu);
++
++  it("l'UNION des établissements ; « tous » si l'un des anciens liens le disait ; sinon l'union des services", async () => {
++    const e = await jouer(1);
++    const t = territoireDe(e, "kamA", "bu1")!;
++    expect(t.isActive).toBe(true);
++    const liens = e.liens.filter((l) => l.sectorId === t.id).map((l) => [l.institutionId, l.tousLesServices]);
++    // chu : restreint (Est) ∪ entier (Ouest) → ENTIER. eph : restreint des deux côtés → restreint.
++    // cac : restreint SANS service → reste restreint et vide (on n'élargit rien en silence).
++    expect(liens).toEqual([["cac", false], ["chu", true], ["eph", false]]);
++    expect(e.services.filter((s) => s.sectorId === t.id).map((s) => [s.institutionId, s.serviceId])).toEqual([["eph", "cardio"], ["eph", "onco"]]);
++    // Un ancien secteur INACTIF n'est pas repris : sa clinique ne couvrait personne.
++    expect(e.liens.some((l) => l.sectorId === t.id && l.institutionId === "clinique")).toBe(false);
++  });
++
++  it("le KAM est affecté à SON territoire, et ses affectations aux anciens secteurs ACTIFS sont retirées", async () => {
++    const e = await jouer(1);
++    const t = territoireDe(e, "kamA", "bu1")!;
++    expect(e.reps.filter((r) => r.repId === "kamA").map((r) => r.sectorId).sort()).toEqual(["ferme", t.id].sort());
++  });
++
++  it("les anciens secteurs devenus sans KAM sont DÉSACTIVÉS, jamais supprimés — un inactif reste tel quel", async () => {
++    const e = await jouer(1);
++    const parId = new Map(e.secteurs.map((s) => [s.id, s]));
++    for (const id of ["est", "ouest", "vide", "nord"]) expect(parId.get(id)?.isActive, id).toBe(false);
++    expect(parId.get("ferme")?.isActive).toBe(false);
++    // Le secteur dont le NOM est pris n'avait pas de KAM : désactivé lui aussi, pas supprimé.
++    expect(parId.has("pris")).toBe(true);
++  });
++
++  it("LE NOM : « Territoire — <KAM> », la fin de l'identifiant quand il est pris — la MÊME règle que l'action", async () => {
++    const e = await jouer(1);
++    expect(territoireDe(e, "kamB", "bu2")?.name).toBe(nomDuTerritoire("Bilal Kam", "kamB", true));
++    // Deux homonymes dans la même BU : aucun ne prend le nom nu — sinon l'un des deux échouerait sur l'unicité.
++    expect(territoireDe(e, "kamA", "bu1")?.name).toBe(nomDuTerritoire("Amel Haddad", "kamA", true));
++    expect(territoireDe(e, "kamC", "bu1")?.name).toBe(nomDuTerritoire("Amel Haddad", "kamC", true));
++    // kamB : la couverture restreinte de Nord reprise telle quelle.
++    const tb = territoireDe(e, "kamB", "bu2")!;
++    expect(e.services.filter((s) => s.sectorId === tb.id).map((s) => s.serviceId)).toEqual(["pneumo"]);
++  });
++
++  it("rejouée, elle ne change RIEN — deux passes identiques", async () => {
++    const une = await jouer(1);
++    const deux = await jouer(2);
++    expect(deux).toEqual(une);
++  });
++});
+diff --git a/src/lib/sfe/territoire-kam.test.ts b/src/lib/sfe/territoire-kam.test.ts
+new file mode 100644
+index 0000000..9084413
+--- /dev/null
++++ b/src/lib/sfe/territoire-kam.test.ts
+@@ -0,0 +1,330 @@
++import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
++
++vi.mock("next/cache", () => ({ revalidatePath: () => {} }));
++vi.mock("next/headers", () => ({ cookies: () => ({ get: () => undefined }), headers: () => new Headers() }));
++let ACTEUR: unknown = null;
++vi.mock("@/lib/session", () => ({
++  requireUser: async () => ACTEUR, getCurrentUser: async () => ACTEUR, getUser: async () => ACTEUR, requireModule: async () => ACTEUR,
++}));
++
++import { prisma } from "@/lib/prisma";
++import { clausePanelDuKam, getAccess, hasGlobalView, userCan, type SessionUser } from "@/lib/rbac";
++import {
++  enregistrerTerritoireKam, saveRepProfile, deleteRepProfile, createSector, updateSector, deleteSector,
++} from "@/lib/actions/sales-planning-actions";
++import { diagnostiquerPanelVide, loadPanelPlanifiable } from "@/lib/queries/tour-schedule";
++import { nomDuTerritoire } from "./territoire-kam";
++
++/**
++ * ═══════════════════════════════════════════════════════════════════════════════════════════
++ * LE TERRITOIRE D'UN KAM, CHOISI SUR SA LIGNE (04/10/2026) — par les VRAIS points d'entrée.
++ *
++ * L'action de l'écran (`enregistrerTerritoireKam`), puis la règle du panel (`clausePanelDuKam`) EN
++ * BASE : ce que l'écran BU montre doit être exactement ce que le panel lit. L'acteur est le Manager
++ * Promotion médicale — il monte les BU SANS vue globale (§118.104) ; sa prémisse est vérifiée.
++ *
++ * Et le rapport de production : « j'ai donné un secteur à chaque KAM mais ils ne peuvent toujours
++ * pas mettre leur plan de tournée ni sélectionner les wilayas » — chaque cause plausible d'un panel
++ * vide est REPRODUITE, et la phrase de l'écran doit nommer la bonne.
++ * ═══════════════════════════════════════════════════════════════════════════════════════════
++ */
++
++const TAG = "__terrkam__";
++let dbOk = false;
++try { await prisma.$queryRaw`SELECT 1`; dbOk = true; } catch { dbOk = false; }
++const suite = dbOk ? describe : describe.skip;
++
++const fd = (o: Record<string, string | string[]>) => {
++  const f = new FormData();
++  for (const [k, v] of Object.entries(o)) {
++    if (Array.isArray(v)) for (const x of v) f.append(k, x);
++    else f.set(k, v);
++  }
++  return f;
++};
++
++async function nettoyer() {
++  await prisma.salesSector.deleteMany({ where: { businessUnit: { name: { startsWith: TAG } } } }).catch(() => {});
++  const comptes = await prisma.user.findMany({ where: { email: { startsWith: TAG } }, select: { id: true } });
++  await prisma.salesRepProfile.deleteMany({ where: { repId: { in: comptes.map((c) => c.id) } } }).catch(() => {});
++  await prisma.medicalDoctor.deleteMany({ where: { name: { startsWith: TAG } } }).catch(() => {});
++  await prisma.medicalInstitution.deleteMany({ where: { name: { startsWith: TAG } } }).catch(() => {});
++  await prisma.businessUnit.deleteMany({ where: { name: { startsWith: TAG } } }).catch(() => {});
++  await prisma.auditLog.deleteMany({ where: { actorId: { in: comptes.map((c) => c.id) } } }).catch(() => {});
++  await prisma.user.deleteMany({ where: { id: { in: comptes.map((c) => c.id) } } }).catch(() => {});
++}
++
++suite("le territoire d'un KAM — l'action de l'écran, puis le panel en base", () => {
++  const u: Record<string, string> = {};
++  const bu: Record<string, string> = {};
++  const et: Record<string, string> = {};
++  const sv: Record<string, string> = {};
++  const dr: Record<string, string> = {};
++
++  const panel = async (repId: string) =>
++    (await prisma.medicalDoctor.findMany({ where: { AND: [clausePanelDuKam(repId), { name: { startsWith: TAG } }] }, select: { id: true } }))
++      .map((d) => d.id).sort();
++  const territoire = (buId: string, repId: string) => prisma.salesSector.findUnique({
++    where: { businessUnitId_repId: { businessUnitId: buId, repId } },
++    include: { institutions: { include: { services: true } }, reps: true },
++  });
++  const enregistrer = (o: Record<string, string | string[]>) => enregistrerTerritoireKam(fd(o));
++
++  beforeAll(async () => {
++    await nettoyer();
++    const mk = async (k: string, role: string, name = `${TAG}${k}`) => {
++      u[k] = (await prisma.user.create({ data: { name, email: `${TAG}${k}@t.dz`, role: role as never, passwordHash: "x" } })).id;
++    };
++    await mk("mpm", "MEDICAL_PROMOTION_MANAGER");
++    await mk("leila", "MEDICAL_DELEGATE", `${TAG}Leila Sahridj`);
++    await mk("amel", "MEDICAL_DELEGATE");
++    await mk("autre", "MEDICAL_DELEGATE");
++    await mk("sansbu", "MEDICAL_DELEGATE");
++    await mk("texte", "MEDICAL_DELEGATE");
++    bu.hop = (await prisma.businessUnit.create({ data: { name: `${TAG}Onco`, channel: "HOSPITAL" } })).id;
++    bu.deux = (await prisma.businessUnit.create({ data: { name: `${TAG}Cardio`, channel: "BOTH" } })).id;
++    bu.ville = (await prisma.businessUnit.create({ data: { name: `${TAG}Ville`, channel: "RETAIL" } })).id;
++    await prisma.salesRepProfile.createMany({
++      data: [
++        { repId: u.leila, businessUnitId: bu.hop }, { repId: u.amel, businessUnitId: bu.ville },
++        { repId: u.autre, businessUnitId: bu.deux }, { repId: u.texte, businessUnitId: bu.hop, region: "Est" },
++      ],
++    });
++    et.chu = (await prisma.medicalInstitution.create({ data: { name: `${TAG}CHU Mustapha`, type: "CHU", wilaya: "Alger" } })).id;
++    et.eph = (await prisma.medicalInstitution.create({ data: { name: `${TAG}EPH Kouba`, type: "EPH", wilaya: "Alger" } })).id;
++    et.ferme = (await prisma.medicalInstitution.create({ data: { name: `${TAG}Clinique fermée`, type: "CLINIQUE_PRIVEE", isActive: false } })).id;
++    sv.cardio = (await prisma.medicalInstitutionService.create({ data: { institutionId: et.eph, name: "Cardiologie" } })).id;
++    sv.onco = (await prisma.medicalInstitutionService.create({ data: { institutionId: et.eph, name: "Oncologie" } })).id;
++    sv.chuUrg = (await prisma.medicalInstitutionService.create({ data: { institutionId: et.chu, name: "Urgences" } })).id;
++    const doc = async (k: string, data: Record<string, unknown>) => {
++      dr[k] = (await prisma.medicalDoctor.create({ data: { name: `${TAG}${k}`, ...data } as never })).id;
++    };
++    // La fiche du CHU ne porte PAS de wilaya : la wilaya de son établissement doit la porter au planificateur.
++    await doc("chu", { institutionId: et.chu });
++    await doc("cardio", { institutionId: et.eph, serviceId: sv.cardio, wilaya: "Alger" });
++    await doc("onco", { institutionId: et.eph, serviceId: sv.onco, wilaya: "Alger" });
++    await doc("ephSansService", { institutionId: et.eph, wilaya: "Alger" });
++    ACTEUR = { id: u.mpm, role: "MEDICAL_PROMOTION_MANAGER", secondaryRole: null, access: await getAccess(u.mpm, "MEDICAL_PROMOTION_MANAGER") } as unknown as SessionUser;
++  });
++
++  afterAll(nettoyer);
++
++  it("la prémisse : le Manager Promotion médicale monte les BU, SANS vue globale", () => {
++    const a = ACTEUR as SessionUser;
++    expect(userCan(a, "SALES_PLANNING", "UPDATE")).toBe(true);
++    expect(hasGlobalView(a.role)).toBe(false);
++  });
++
++  it("un établissement ENTIER : son praticien entre dans le panel du KAM — et seulement après", async () => {
++    expect(await panel(u.leila)).toEqual([]);
++    const r = await enregistrer({ businessUnitId: bu.hop, repId: u.leila, institutionIds: [et.chu], couverture: "{}" });
++    expect(r.ok, r.ok === false ? r.error : "").toBe(true);
++    const t = await territoire(bu.hop, u.leila);
++    expect(t?.name).toBe(nomDuTerritoire(`${TAG}Leila Sahridj`, u.leila, false));
++    expect(t?.reps.map((x) => x.repId)).toEqual([u.leila]);
++    expect(t?.institutions.map((i) => [i.institutionId, i.tousLesServices])).toEqual([[et.chu, true]]);
++    expect(await panel(u.leila)).toEqual([dr.chu]);
++  });
++
++  it("un établissement RESTREINT à un service : le praticien du service entre, ceux d'un autre service ou sans service, non", async () => {
++    const r = await enregistrer({
++      businessUnitId: bu.hop, repId: u.leila, institutionIds: [et.chu, et.eph], couverture: JSON.stringify({ [et.eph]: [sv.cardio] }),
++    });
++    expect(r.ok, r.ok === false ? r.error : "").toBe(true);
++    expect(await panel(u.leila)).toEqual([dr.chu, dr.cardio].sort());
++    // UN SEUL territoire : le second enregistrement met à jour, il n'en crée pas un autre.
++    expect(await prisma.salesSector.count({ where: { businessUnitId: bu.hop, repId: u.leila } })).toBe(1);
++  });
++
++  it("ce que l'écran BU montre est ce que le planificateur lit — et la wilaya vient de l'établissement quand la fiche n'en a pas", async () => {
++    const plan = await loadPanelPlanifiable(u.leila);
++    const ids = plan.filter((p) => p.name.startsWith(TAG)).map((p) => p.id).sort();
++    expect(ids).toEqual(await panel(u.leila));
++    expect(plan.find((p) => p.id === dr.chu)?.wilaya).toBe("Alger");
++    expect(plan.find((p) => p.id === dr.chu)?.secteur).toBe(nomDuTerritoire(`${TAG}Leila Sahridj`, u.leila, false));
++  });
++
++  it("un formulaire SANS couverture garde la restriction ; un nouvel établissement les couvre tous", async () => {
++    const r = await enregistrer({ businessUnitId: bu.hop, repId: u.leila, institutionIds: [et.chu, et.eph] });
++    expect(r.ok, r.ok === false ? r.error : "").toBe(true);
++    const t = await territoire(bu.hop, u.leila);
++    const eph = t?.institutions.find((i) => i.institutionId === et.eph);
++    expect(eph?.tousLesServices).toBe(false);
++    expect(eph?.services.map((s) => s.serviceId)).toEqual([sv.cardio]);
++  });
++
++  it("« aucun service » coché est refusé en NOMMANT l'établissement — rien n'est écrit", async () => {
++    const r = await enregistrer({ businessUnitId: bu.hop, repId: u.leila, institutionIds: [et.eph], couverture: JSON.stringify({ [et.eph]: [] }) });
++    expect(r.ok).toBe(false);
++    expect(r.ok === false ? r.error : "").toContain(`${TAG}EPH Kouba`);
++    expect((await territoire(bu.hop, u.leila))?.institutions.length).toBe(2);
++  });
++
++  it("un service d'un AUTRE établissement est refusé", async () => {
++    const r = await enregistrer({ businessUnitId: bu.hop, repId: u.leila, institutionIds: [et.eph], couverture: JSON.stringify({ [et.eph]: [sv.chuUrg] }) });
++    expect(r.ok).toBe(false);
++    expect(r.ok === false ? r.error : "").toContain("n'appartient pas à son établissement");
++  });
++
++  it("un établissement DÉSACTIVÉ ne s'ajoute pas — et reste s'il y était déjà", async () => {
++    const r = await enregistrer({ businessUnitId: bu.hop, repId: u.leila, institutionIds: [et.chu, et.ferme], couverture: "{}" });
++    expect(r.ok).toBe(false);
++    expect(r.ok === false ? r.error : "").toContain(`${TAG}Clinique fermée`);
++    // Désactivé APRÈS avoir été choisi : il reste au réenregistrement.
++    await prisma.medicalInstitution.update({ where: { id: et.chu }, data: { isActive: false } });
++    try {
++      const ok = await enregistrer({ businessUnitId: bu.hop, repId: u.leila, institutionIds: [et.chu, et.eph], couverture: JSON.stringify({ [et.eph]: [sv.cardio] }) });
++      expect(ok.ok, ok.ok === false ? ok.error : "").toBe(true);
++    } finally {
++      await prisma.medicalInstitution.update({ where: { id: et.chu }, data: { isActive: true } });
++    }
++  });
++
++  it("une BU DE VILLE est refusée — rien n'est créé", async () => {
++    const r = await enregistrer({ businessUnitId: bu.ville, repId: u.amel, institutionIds: [et.chu], couverture: "{}" });
++    expect(r.ok).toBe(false);
++    expect(r.ok === false ? r.error : "").toContain("gamme de ville");
++    expect(await territoire(bu.ville, u.amel)).toBeNull();
++  });
++
++  it("un KAM d'une AUTRE BU est refusé — on ne donne pas un territoire à l'équipe d'à côté", async () => {
++    const r = await enregistrer({ businessUnitId: bu.hop, repId: u.autre, institutionIds: [et.chu], couverture: "{}" });
++    expect(r.ok).toBe(false);
++    expect(r.ok === false ? r.error : "").toContain("n'est pas (ou plus) rattaché à cette BU");
++    expect(await territoire(bu.hop, u.autre)).toBeNull();
++  });
++
++  it("deux premiers enregistrements SIMULTANÉS : un seul territoire, les deux réussissent", async () => {
++    const [a, b] = await Promise.all([
++      enregistrer({ businessUnitId: bu.deux, repId: u.autre, institutionIds: [et.chu], couverture: "{}" }),
++      enregistrer({ businessUnitId: bu.deux, repId: u.autre, institutionIds: [et.eph], couverture: "{}" }),
++    ]);
++    expect([a.ok, b.ok], JSON.stringify([a, b])).toEqual([true, true]);
++    expect(await prisma.salesSector.count({ where: { businessUnitId: bu.deux, repId: u.autre } })).toBe(1);
++  });
++
++  it("le territoire n'est pas un secteur partagé : `updateSector` et `deleteSector` le refusent en nommant la ligne du KAM", async () => {
++    const t = await territoire(bu.hop, u.leila);
++    for (const r of [
++      await updateSector(fd({ id: t!.id, name: "Est", repIds: [u.leila, u.texte] })),
++      await deleteSector(fd({ id: t!.id })),
++    ]) {
++      expect(r.ok).toBe(false);
++      expect(r.ok === false ? r.error : "").toContain("« Territoire »");
++    }
++    expect((await territoire(bu.hop, u.leila))?.reps.map((x) => x.repId)).toEqual([u.leila]);
++  });
++
++  it("le nom pris dans la BU (un ancien secteur) : le territoire prend la fin de l'identifiant du KAM", async () => {
++    await createSector(fd({ businessUnitId: bu.hop, name: nomDuTerritoire(`${TAG}texte`, u.texte, false) }));
++    const r = await enregistrer({ businessUnitId: bu.hop, repId: u.texte, institutionIds: [et.chu], couverture: "{}" });
++    expect(r.ok, r.ok === false ? r.error : "").toBe(true);
++    expect((await territoire(bu.hop, u.texte))?.name).toBe(nomDuTerritoire(`${TAG}texte`, u.texte, true));
++  });
++
++  it("retiré de la BU, le KAM perd son panel ; rattaché de nouveau, son territoire lui est RENDU tel quel", async () => {
++    const avant = await panel(u.leila);
++    expect(avant.length).toBeGreaterThan(0);
++    expect((await saveRepProfile(fd({ repId: u.leila, businessUnitId: "" }))).ok).toBe(true);
++    expect(await panel(u.leila)).toEqual([]);
++    const r = await saveRepProfile(fd({ repId: u.leila, businessUnitId: bu.hop }));
++    expect(r.ok).toBe(true);
++    expect(r.ok && "message" in r ? r.message : "").toContain("lui est rendu");
++    expect(await panel(u.leila)).toEqual(avant);
++    // Retiré de la force de vente : même chose, sans rien perdre du territoire.
++    expect((await deleteRepProfile(fd({ repId: u.leila }))).ok).toBe(true);
++    expect(await panel(u.leila)).toEqual([]);
++    expect((await territoire(bu.hop, u.leila))?.institutions.length).toBe(2);
++    await saveRepProfile(fd({ repId: u.leila, businessUnitId: bu.hop }));
++    expect(await panel(u.leila)).toEqual(avant);
++  });
++});
++
++/**
++ * POURQUOI LE PANEL EST VIDE — chaque cause plausible du rapport de production, reproduite, et la
++ * phrase que l'écran du plan de tournée affiche (`diagnostiquerPanelVide`) doit nommer CELLE-LÀ.
++ */
++suite("un panel vide dit sa VRAIE cause", () => {
++  const T = `${TAG}diag_`;
++  const u: Record<string, string> = {};
++  let buA = "", buB = "", chu = "", eph = "", cardio = "";
++
++  async function nettoyerDiag() {
++    await prisma.salesSector.deleteMany({ where: { businessUnit: { name: { startsWith: T } } } }).catch(() => {});
++    const comptes = await prisma.user.findMany({ where: { email: { startsWith: T } }, select: { id: true } });
++    await prisma.salesRepProfile.deleteMany({ where: { repId: { in: comptes.map((c) => c.id) } } }).catch(() => {});
++    await prisma.medicalDoctor.deleteMany({ where: { name: { startsWith: T } } }).catch(() => {});
++    await prisma.medicalInstitution.deleteMany({ where: { name: { startsWith: T } } }).catch(() => {});
++    await prisma.businessUnit.deleteMany({ where: { name: { startsWith: T } } }).catch(() => {});
++    await prisma.user.deleteMany({ where: { id: { in: comptes.map((c) => c.id) } } }).catch(() => {});
++  }
++
++  const secteur = async (buId: string, nom: string, reps: string[], liens: { institutionId: string; tous?: boolean; services?: string[] }[], actif = true) => {
++    const s = await prisma.salesSector.create({ data: { businessUnitId: buId, name: `${T}${nom}`, isActive: actif } });
++    for (const l of liens) {
++      const lien = await prisma.salesSectorInstitution.create({ data: { sectorId: s.id, institutionId: l.institutionId, tousLesServices: l.tous ?? true } });
++      for (const sid of l.services ?? []) await prisma.salesSectorInstitutionService.create({ data: { sectorInstitutionId: lien.id, serviceId: sid } });
++    }
++    await prisma.salesSectorRep.createMany({ data: reps.map((repId) => ({ sectorId: s.id, repId })) });
++  };
++  const cause = async (k: string) => {
++    expect(await loadPanelPlanifiable(u[k]), `PRÉMISSE — le panel de ${k} doit être vide`).toEqual([]);
++    return diagnostiquerPanelVide(u[k]);
++  };
++
++  beforeAll(async () => {
++    await nettoyerDiag();
++    for (const k of ["sansbu", "autrebu", "inactif", "texte", "vide", "nonrattache", "services", "aucun"]) {
++      u[k] = (await prisma.user.create({ data: { name: `${T}${k}`, email: `${T}${k}@t.dz`, role: "MEDICAL_DELEGATE", passwordHash: "x" } })).id;
++    }
++    buA = (await prisma.businessUnit.create({ data: { name: `${T}A`, channel: "HOSPITAL" } })).id;
++    buB = (await prisma.businessUnit.create({ data: { name: `${T}B`, channel: "HOSPITAL" } })).id;
++    await prisma.salesRepProfile.createMany({
++      data: ["autrebu", "inactif", "vide", "nonrattache", "services", "aucun"].map((k) => ({ repId: u[k], businessUnitId: buA }))
++        .concat([{ repId: u.texte, businessUnitId: buA, region: "Est" } as never]),
++    });
++    chu = (await prisma.medicalInstitution.create({ data: { name: `${T}CHU Batna`, type: "CHU", wilaya: "Batna" } })).id;
++    eph = (await prisma.medicalInstitution.create({ data: { name: `${T}EPH Sétif`, type: "EPH", wilaya: "Sétif" } })).id;
++    cardio = (await prisma.medicalInstitutionService.create({ data: { institutionId: eph, name: "Cardiologie" } })).id;
++    // Une fiche d'AVANT le lien : l'établissement n'est qu'un texte, écrit autrement en casse.
++    await prisma.medicalDoctor.create({ data: { name: `${T}texteSeul`, institution: `${T}chu batna` } });
++    // Un praticien rattaché à l'EPH, mais sans service.
++    await prisma.medicalDoctor.create({ data: { name: `${T}ephSansService`, institutionId: eph } });
++    await secteur(buB, "Ailleurs", [u.autrebu], [{ institutionId: chu }]);
++    await secteur(buA, "Ferme", [u.inactif], [{ institutionId: chu }], false);
++    await secteur(buA, "Vide", [u.vide], []);
++    await secteur(buA, "NonRattache", [u.nonrattache], [{ institutionId: chu }]);
++    await secteur(buA, "Services", [u.services], [{ institutionId: eph, tous: false, services: [cardio] }]);
++  });
++
++  afterAll(nettoyerDiag);
++
++  it("aucune BU", async () => expect((await cause("sansbu")).cause).toBe("SANS_BU"));
++  it("un secteur dans une AUTRE BU que la sienne — nommée", async () => {
++    const d = await cause("autrebu");
++    expect(d.cause).toBe("SECTEUR_AUTRE_BU");
++    expect(d.phrase).toContain(`${T}B`);
++  });
++  it("un secteur désactivé", async () => expect((await cause("inactif")).cause).toBe("SECTEUR_INACTIF"));
++  it("un « Secteur » tapé en TEXTE, relié à rien — la cause la plus probable du rapport", async () => {
++    const d = await cause("texte");
++    expect(d.cause).toBe("SANS_SECTEUR");
++    expect(d.phrase).toContain("« Est » saisi en texte");
++  });
++  it("un territoire sans établissement", async () => expect((await cause("vide")).cause).toBe("SECTEUR_SANS_ETABLISSEMENT"));
++  it("des fiches dont l'établissement n'est qu'un TEXTE — le remède nomme qui les rattache", async () => {
++    const d = await cause("nonrattache");
++    expect(d.cause).toBe("PRATICIENS_NON_RATTACHES");
++    expect(d.phrase).toContain("1 fiche(s)");
++    expect(d.phrase).toContain("Rattacher les établissements");
++  });
++  it("des médecins dans l'établissement, aucun dans les services retenus", async () => {
++    const d = await cause("services");
++    expect(d.cause).toBe("SERVICES_SANS_PRATICIEN");
++    expect(d.phrase).toContain("1 médecin(s)");
++  });
++  it("un territoire dont les établissements n'ont aucun médecin", async () => {
++    await secteur(buA, "Aucun", [u.aucun], [{ institutionId: (await prisma.medicalInstitution.create({ data: { name: `${T}Clinique vide`, type: "CLINIQUE_PRIVEE" } })).id }]);
++    expect((await cause("aucun")).cause).toBe("AUCUN_PRATICIEN");
++  });
++});
+diff --git a/src/lib/sfe/territoire-kam.ts b/src/lib/sfe/territoire-kam.ts
+new file mode 100644
+index 0000000..9c4fc8d
+--- /dev/null
++++ b/src/lib/sfe/territoire-kam.ts
+@@ -0,0 +1,51 @@
++/**
++ * LE TERRITOIRE D'UN KAM — ce qui se décide sans base (04/10/2026).
++ *
++ * Demande du dirigeant : dans une BU hospitalière, le territoire de chaque KAM se choisit SUR SA
++ * LIGNE (« KAM de la BU ») — un ou plusieurs établissements de l'annuaire, et pour chacun tous ses
++ * services ou certains —, et la section « Secteurs de la BU » disparaît. Dans une BU de ville, le
++ * « secteur » reste un texte libre sur la ligne du KAM : il n'y a pas d'hôpital à cocher.
++ *
++ * Le territoire est STOCKÉ comme un `SalesSector` propre au KAM (`repId`) et porte sa ligne
++ * `SalesSectorRep` : la règle du panel (`clausePanelDuKam`) et la portée des stocks le lisent sans
++ * changer. Ce module est PUR (zéro import lourd) : l'écran (client) et l'action (serveur) lisent la
++ * même règle — deux copies de « la BU est-elle hospitalière ? » finiraient par répondre deux choses,
++ * et le symptôme serait un écran qui propose un territoire que l'action refuse (§118.5).
++ */
++
++/**
++ * UNE BU EST HOSPITALIÈRE quand son terrain est l'hôpital, ou les deux — la règle vit dans
++ * `sfe-setup.ts`, qui en a besoin pour l'étape de montage ; réexportée ici pour l'action et l'écran.
++ */
++export { estBuHospitaliere } from "@/lib/sfe-setup";
++
++export const PREFIXE_TERRITOIRE = "Territoire — ";
++
++/**
++ * LE NOM D'UN TERRITOIRE. Le nom d'un secteur est unique dans sa BU : quand « Territoire — Amel
++ * Haddad » est déjà pris (un ancien secteur, ou un homonyme), on y ajoute la fin de l'identifiant
++ * du KAM. La migration `20270106093000_territoire_kam` écrit la MÊME règle en SQL
++ * (`right(repId, 6)`) ; un banc compare les deux.
++ */
++export function nomDuTerritoire(nomKam: string | null | undefined, repId: string, dejaPris: boolean): string {
++  const base = `${PREFIXE_TERRITOIRE}${(nomKam ?? "").trim() || "KAM"}`;
++  return dejaPris ? `${base} · ${repId.slice(-6)}` : base;
++}
++
++/** Ce qu'un territoire couvre, compté : un territoire sans établissement donne un panel VIDE. */
++export interface TerritoireResume {
++  repId: string;
++  etablissements: number;
++}
++
++/**
++ * LES KAM ACTIFS SANS TERRITOIRE — ceux dont le territoire n'a aucun établissement (ou qui n'en ont
++ * pas). Un KAM inactif ne bloque pas le montage : il ne planifie pas.
++ */
++export function kamsSansTerritoire(
++  kams: { repId: string; name: string; isActive: boolean }[],
++  territoires: TerritoireResume[],
++): string[] {
++  const couverts = new Set(territoires.filter((t) => t.etablissements > 0).map((t) => t.repId));
++  return kams.filter((k) => k.isActive && !couverts.has(k.repId)).map((k) => k.name);
++}

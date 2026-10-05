@@ -1,0 +1,2709 @@
+diff --git a/prisma/migrations/20270112090000_blob_compression/migration.sql b/prisma/migrations/20270112090000_blob_compression/migration.sql
+new file mode 100644
+index 0000000..68dba24
+--- /dev/null
++++ b/prisma/migrations/20270112090000_blob_compression/migration.sql
+@@ -0,0 +1,9 @@
++-- COMPRESSION SANS PERTE AU REPOS (Direction, 05/10/2026 — §118.214).
++--
++-- Idempotente, et RIEN n'est réécrit : un blob d'avant garde `codec` NUL (octets bruts, lus tels
++-- quels) et `storedSize` NUL. Seuls les dépôts d'après, que la mesure juge compressibles, portent
++-- « br » : le clair est compressé puis chiffré. `sha256` et `size` continuent de dire le CLAIR
++-- d'origine — l'empreinte d'un original reste vérifiable octet pour octet.
++
++ALTER TABLE "FileBlob" ADD COLUMN IF NOT EXISTS "codec" TEXT;
++ALTER TABLE "FileBlob" ADD COLUMN IF NOT EXISTS "storedSize" DOUBLE PRECISION;
+diff --git a/prisma/schema.prisma b/prisma/schema.prisma
+index 349dcaa..8e48b3e 100644
+--- a/prisma/schema.prisma
++++ b/prisma/schema.prisma
+@@ -5576,6 +5576,12 @@ model FileBlob {
+   id         String          @id @default(cuid())
+   sha256     String          @unique
+   size       Float // taille du CLAIR en octets (Float : exact jusqu'à 9 Po ; un objet envoyé directement au bucket peut dépasser 2 Go)
++  /// COMPRESSION SANS PERTE AU REPOS (§118.214). Nul = octets bruts (tout fichier d'avant, et tout
++  /// ce que la mesure juge déjà compressé) ; « br » = le clair est compressé en brotli AVANT d'être
++  /// chiffré. `sha256` et `size` disent TOUJOURS le clair d'origine : l'empreinte reste vérifiable.
++  codec      String?
++  /// Taille du contenu STOCKÉ avant chiffrement (le clair compressé) ; nul quand `codec` l'est.
++  storedSize Float?
+   iv         Bytes // nonce AES-GCM
+   data       Bytes? // contenu chiffré EN BASE, en UNE valeur (petits fichiers) ; null si chunké ou en objet
+   storageKey String? // clé objet S3/R2 du contenu chiffré (null = stocké en base) — dé-gonfle le disque BDD
+diff --git a/src/app/(app)/drive/[id]/file-viewer.tsx b/src/app/(app)/drive/[id]/file-viewer.tsx
+index ab37fea..52e26cd 100644
+--- a/src/app/(app)/drive/[id]/file-viewer.tsx
++++ b/src/app/(app)/drive/[id]/file-viewer.tsx
+@@ -3,6 +3,7 @@
+ import { Download } from "lucide-react";
+ import { DocxView, XlsxView, PptxView } from "@/components/documents/office-viewers";
+ import { ZipViewer } from "@/components/documents/zip-viewer";
++import { BoutonTelecharger } from "@/components/telechargement/bouton-telecharger";
+ 
+ export function FileViewer({ id, name, kind }: { id: string; name: string; kind: string }) {
+   const src = `/api/drive/${id}/raw`;
+@@ -33,12 +34,12 @@ export function FileViewer({ id, name, kind }: { id: string; name: string; kind:
+     if (ext === "xlsx" || ext === "xls" || ext === "csv") return <XlsxView src={src} name={name} />;
+     if (ext === "pptx") return <PptxView src={src} name={name} />;
+     // Anciens formats binaires (.doc/.ppt) : pas d'aperçu fidèle → téléchargement.
+-    return <Unsupported src={src} legacy />;
++    return <Unsupported src={src} name={name} legacy />;
+   }
+-  return <Unsupported src={src} />;
++  return <Unsupported src={src} name={name} />;
+ }
+ 
+-function Unsupported({ src, legacy }: { src: string; legacy?: boolean }) {
++function Unsupported({ src, name, legacy }: { src: string; name: string; legacy?: boolean }) {
+   return (
+     <div className="flex flex-col items-center gap-3 rounded-lg border border-dashed border-border bg-muted/30 p-10 text-center">
+       <p className="text-sm text-muted-foreground">
+@@ -46,9 +47,9 @@ function Unsupported({ src, legacy }: { src: string; legacy?: boolean }) {
+           ? "Aperçu non disponible pour cet ancien format Office. Téléchargez le fichier pour l'ouvrir."
+           : "Aperçu non disponible pour ce type de fichier."}
+       </p>
+-      <a href={`${src}?dl=1`} className="inline-flex items-center gap-2 rounded-lg bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:opacity-90">
++      <BoutonTelecharger href={`${src}?dl=1`} nom={name} className="inline-flex items-center gap-2 rounded-lg bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:opacity-90">
+         <Download className="h-4 w-4" /> Télécharger
+-      </a>
++      </BoutonTelecharger>
+     </div>
+   );
+ }
+diff --git a/src/app/(app)/drive/[id]/page.tsx b/src/app/(app)/drive/[id]/page.tsx
+index 4e79d75..4be3859 100644
+--- a/src/app/(app)/drive/[id]/page.tsx
++++ b/src/app/(app)/drive/[id]/page.tsx
+@@ -15,6 +15,7 @@ import { Button } from "@/components/ui/button";
+ import { CustomFieldsCard } from "@/components/shared/custom-fields-card";
+ import { formatDateTime } from "@/lib/utils";
+ import { FileViewer } from "./file-viewer";
++import { BoutonTelecharger } from "@/components/telechargement/bouton-telecharger";
+ import { SharePanel, type ShareItem } from "./share-panel";
+ import { DriveComments, type DriveCommentItem } from "./drive-comments";
+ import { FileActions } from "./file-actions";
+@@ -88,9 +89,9 @@ export default async function DriveFilePage({ params }: { params: { id: string }
+             <ConvertPdfButton id={node.id} />
+           )}
+           {canEdit && <UploadButton nodeId={node.id} label="Nouvelle version" />}
+-          <a href={`/api/drive/${node.id}/raw?dl=1`}>
++          <BoutonTelecharger href={`/api/drive/${node.id}/raw?dl=1`} nom={node.name} mime={node.mimeType} taille={node.size}>
+             <Button variant="outline"><Download className="h-4 w-4" /> Télécharger</Button>
+-          </a>
++          </BoutonTelecharger>
+           {canEdit && <FileActions id={node.id} name={node.name} parentHref={node.parentId ? `/drive?folder=${node.parentId}` : "/drive"} />}
+         </div>
+       </div>
+diff --git a/src/app/(app)/drive/drive-table.tsx b/src/app/(app)/drive/drive-table.tsx
+index 9ed88df..4086030 100644
+--- a/src/app/(app)/drive/drive-table.tsx
++++ b/src/app/(app)/drive/drive-table.tsx
+@@ -18,6 +18,7 @@ import {
+ } from "@/lib/drive/selection";
+ import { sortRows, type SortKey, type SortDir } from "@/lib/drive/explorer";
+ import { NodeActions } from "./node-actions";
++import { BoutonTelecharger } from "@/components/telechargement/bouton-telecharger";
+ 
+ export interface DriveRow {
+   id: string;
+@@ -109,10 +110,11 @@ export function DriveTable({
+   const toggleAll = () => setSel((s) => selectAll(order, !allSelected(s, order)));
+   const clear = () => setSel(EMPTY_SELECTION);
+ 
++  /** Le bouton partagé suit le lien : le clic principal part en ZIP maximal (original), le chevron propose la taille réduite. */
++  const urlZip = `/api/drive/zip?ids=${sel.ids.join(",")}`;
+   const downloadZip = () => {
+     if (sel.ids.length === 0) return;
+     setZipping(true);
+-    window.location.href = `/api/drive/zip?ids=${sel.ids.join(",")}`;
+     window.setTimeout(() => setZipping(false), 4000);
+   };
+ 
+@@ -280,10 +282,16 @@ export function DriveTable({
+             </Link>
+           )}
+ 
+-          <button type="button" onClick={downloadZip} disabled={zipping}
+-            className="inline-flex items-center gap-1.5 rounded-lg border border-input px-2.5 py-1.5 text-sm font-medium hover:bg-secondary disabled:opacity-60">
++          <BoutonTelecharger
++            href={urlZip}
++            nom="selection.zip"
++            archive
++            onClick={downloadZip}
++            ariaLabel="Télécharger la sélection"
++            className={`inline-flex items-center gap-1.5 rounded-lg border border-input px-2.5 py-1.5 text-sm font-medium hover:bg-secondary ${zipping ? "pointer-events-none opacity-60" : ""}`}
++          >
+             {zipping ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />} Télécharger
+-          </button>
++          </BoutonTelecharger>
+ 
+           {!trash && users && users.length > 0 && canActOnAll && (
+             <button type="button" onClick={() => setShareOpen(true)} disabled={busy}
+diff --git a/src/app/(app)/drive/node-actions.tsx b/src/app/(app)/drive/node-actions.tsx
+index 8cda761..bddba98 100644
+--- a/src/app/(app)/drive/node-actions.tsx
++++ b/src/app/(app)/drive/node-actions.tsx
+@@ -14,6 +14,7 @@ import { SharePanel, type ShareItem } from "./[id]/share-panel";
+ import { SendToLegalSheet } from "./send-to-legal";
+ import { SendToMailSheet } from "./send-to-mail";
+ import { PartagerSheet } from "@/components/shared/partager-button";
++import { BoutonTelecharger } from "@/components/telechargement/bouton-telecharger";
+ 
+ interface MoveTarget { id: string; name: string }
+ interface UserLite { id: string; name: string }
+@@ -60,11 +61,13 @@ function AccessSheet({ nodeId, name, users, open, onClose }: { nodeId: string; n
+ 
+ /** Une entrée du menu — même hauteur, même gabarit d'icône, quel que soit ce qu'elle déclenche. */
+ export function MenuItem({
+-  icon, label, onClick, href, download, danger, disabled,
++  icon, label, onClick, href, download, danger, disabled, telechargement,
+ }: {
+   icon: React.ReactNode; label: string;
+   onClick?: () => void; href?: string; download?: boolean;
+   danger?: boolean; disabled?: boolean;
++  /** Un TÉLÉCHARGEMENT : l'entrée devient le bouton partagé (original en un clic, choix de la taille à côté). */
++  telechargement?: { nom: string; archive?: boolean };
+ }) {
+   const cls = [
+     "flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-left text-[0.8125rem] transition-colors",
+@@ -72,6 +75,9 @@ export function MenuItem({
+     disabled ? "pointer-events-none opacity-50" : "",
+   ].join(" ");
+   const body = <><span className="shrink-0 text-muted-foreground">{icon}</span><span className="truncate">{label}</span></>;
++  if (href && telechargement) {
++    return <BoutonTelecharger href={href} nom={telechargement.nom} archive={telechargement.archive} className={`${cls} flex-1`} classeRacine="w-full">{body}</BoutonTelecharger>;
++  }
+   if (href) {
+     return <a href={href} className={cls} {...(download ? { download: "" } : {})}>{body}</a>;
+   }
+@@ -209,6 +215,7 @@ export function NodeActions({ id, name, isFile, canEdit, owner, trash, moveTarge
+                 icon={<Download className="h-3.5 w-3.5" />}
+                 label={isFile ? "Télécharger" : "Télécharger (ZIP)"}
+                 href={`/api/drive/${id}/raw?dl=1`}
++                telechargement={{ nom: name, archive: !isFile }}
+               />
+               {/* PARTAGER PAR LA MESSAGERIE — ouvert à QUI VOIT, pas seulement à qui modifie :
+                   « envoie-moi ce dossier » est une lecture qu'on relaie, et « Gérer l'accès »
+diff --git a/src/app/(app)/drive/vue/workspace.tsx b/src/app/(app)/drive/vue/workspace.tsx
+index 1db598f..e442489 100644
+--- a/src/app/(app)/drive/vue/workspace.tsx
++++ b/src/app/(app)/drive/vue/workspace.tsx
+@@ -4,6 +4,7 @@ import * as React from "react";
+ import Link from "next/link";
+ import { X, Download, Pencil, Eye, Maximize2, Minus, Copy, LayoutGrid, ArrowLeft, ExternalLink } from "lucide-react";
+ import { FileGlyph } from "@/components/drive/file-glyph";
++import { BoutonTelecharger } from "@/components/telechargement/bouton-telecharger";
+ import {
+   cascade, clampToBounds, focus, toggleMaximize, tileRects, moveBy, resizeTo, topZ,
+   type WinState, type Bounds, type Rect,
+@@ -167,12 +168,13 @@ export function DocumentWorkspace({ docs, officeEnabled }: { docs: OpenDoc[]; of
+             {editing.has(doc.id) ? <><Eye className="h-3.5 w-3.5" /> Lecture</> : <><Pencil className="h-3.5 w-3.5" /> Modifier</>}
+           </button>
+         )}
+-        <a
++        <BoutonTelecharger
+           href={`/api/drive/${doc.id}/raw?dl=1`}
++          nom={doc.name}
+           className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium text-muted-foreground hover:bg-secondary"
+         >
+           <Download className="h-3.5 w-3.5" /> Télécharger
+-        </a>
++        </BoutonTelecharger>
+         <Link
+           href={`/drive/${doc.id}`}
+           className="ml-auto inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium text-muted-foreground hover:bg-secondary"
+diff --git a/src/app/(app)/validations/paiements/[id]/dossier.tsx b/src/app/(app)/validations/paiements/[id]/dossier.tsx
+index 5d2b001..fcd7b46 100644
+--- a/src/app/(app)/validations/paiements/[id]/dossier.tsx
++++ b/src/app/(app)/validations/paiements/[id]/dossier.tsx
+@@ -26,6 +26,7 @@ import {
+ } from "@/lib/actions/payment-request-actions";
+ import { requestDocument, askablePeople } from "@/lib/actions/document-request-actions";
+ import { BoutonDecisif } from "@/components/ui/bouton-decisif";
++import { BoutonTelecharger } from "@/components/telechargement/bouton-telecharger";
+ 
+ export interface PieceView {
+   id: string;
+@@ -660,9 +661,9 @@ function PieceCard({
+         <Badge tone="neutral" dot={false}>{PAYMENT_PIECE_KIND[piece.kind] ?? piece.kind}</Badge>
+         <StatusBadge map={PAYMENT_PIECE_STATUS} value={piece.status} dot={false} />
+         {superseded && <Badge tone="neutral" dot={false}>remplacée</Badge>}
+-        <a href={`/api/documents/${piece.documentId}?dl=1`} className="rounded p-1 text-muted-foreground hover:bg-secondary" aria-label="Télécharger">
++        <BoutonTelecharger href={`/api/documents/${piece.documentId}?dl=1`} nom={piece.name} className="rounded p-1 text-muted-foreground hover:bg-secondary" ariaLabel="Télécharger">
+           <Download className="h-3.5 w-3.5" />
+-        </a>
++        </BoutonTelecharger>
+       </div>
+ 
+       {/* CE QUI EST PARTI AU CENTRE DE VALIDATIONS, sur CETTE pièce. */}
+diff --git a/src/app/api/documents/[id]/route.ts b/src/app/api/documents/[id]/route.ts
+index dd4821d..e9dcbb3 100644
+--- a/src/app/api/documents/[id]/route.ts
++++ b/src/app/api/documents/[id]/route.ts
+@@ -3,13 +3,19 @@ import { getCurrentUser } from "@/lib/session";
+ import { canAccessEntity } from "@/lib/entity-access";
+ import { peutLirePasseportDuSujet } from "@/lib/ad-pro/passeport-acces";
+ import { readFileByKey } from "@/lib/storage";
+-import { cleObjetDirect } from "@/lib/drive-storage";
++import { cleObjetDirect, infoBlob } from "@/lib/drive-storage";
+ import { presignGetUrl } from "@/lib/storage/object-storage";
+ import { recordAudit } from "@/lib/audit";
+ import { prisma } from "@/lib/prisma";
+ import { contentDisposition } from "@/lib/http/content-disposition";
++import { qualiteDeLaRequete, repondreFichier } from "@/lib/http/telechargement";
+ 
+-/** Secure document download: authenticates, enforces row-level access, streams. */
++/**
++ * Secure document download: authenticates, enforces row-level access, streams.
++ *
++ * `?qualite=max|reduite|estimer` — voir `@/lib/http/telechargement` (la porte unique). Les DROITS
++ * sont ceux d'avant et ne dépendent pas de la qualité : la version réduite n'ouvre rien de plus.
++ */
+ export async function GET(
+   req: NextRequest,
+   { params }: { params: { id: string } },
+@@ -37,37 +43,34 @@ export async function GET(
+     // Aperçu in-app : on sert le fichier « inline » par défaut (l'iframe/img peut
+     // l'afficher) ; `?dl=1` force le téléchargement. On ne journalise que le téléchargement.
+     const download = req.nextUrl.searchParams.get("dl") === "1";
+-    const journaliser = () => download
+-      ? recordAudit({
+-        actorId: user.id, action: "EXPORT", module: "Documents",
+-        entityType: doc.entityType, entityId: doc.entityId,
+-        summary: `Téléchargement de « ${doc.name} »`,
+-      })
+-      : Promise.resolve();
+-
++    const fileKey = doc.fileKey;
++    const stocke = await prisma.storedFile.findUnique({ where: { key: fileKey }, select: { blobId: true } });
++    const info = stocke ? await infoBlob(stocke.blobId) : null;
+     // GROS FICHIER DÉPOSÉ EN DIRECT : le navigateur le lit dans le bucket, sur une adresse signée
+     // pour quinze minutes — le servir d'ici le ferait passer ENTIER par la mémoire de l'instance
+     // (plusieurs gigaoctets sur 512 Mo). Les droits viennent d'être vérifiés, ce sont eux qui signent.
+-    const stocke = await prisma.storedFile.findUnique({ where: { key: doc.fileKey }, select: { blobId: true } });
+     const direct = stocke ? await cleObjetDirect(stocke.blobId) : null;
+-    if (direct) {
+-      const url = presignGetUrl(direct, 900, {
+-        "response-content-disposition": contentDisposition(doc.name, download ? "attachment" : "inline"),
+-        "response-content-type": doc.mimeType ?? "application/octet-stream",
+-      });
+-      if (url) {
+-        await journaliser();
+-        return NextResponse.redirect(url, { status: 302, headers: { "Cache-Control": "private, no-store" } });
+-      }
+-    }
+-    const buffer = await readFileByKey(doc.fileKey);
+-    await journaliser();
+-    return new NextResponse(buffer as unknown as BodyInit, {
+-      headers: {
+-        "Content-Type": doc.mimeType ?? "application/octet-stream",
+-        "Content-Disposition": contentDisposition(doc.name, download ? "attachment" : "inline"),
++    const mime = doc.mimeType ?? "application/octet-stream";
++    return await repondreFichier(
++      { nom: doc.name, mime, charger: () => readFileByKey(fileKey), empreinte: info?.sha256 ?? null, taille: info?.size ?? doc.sizeBytes },
++      {
++        qualite: qualiteDeLaRequete(req),
++        telecharger: download,
++        journaliser: (q) => download
++          ? recordAudit({
++            actorId: user.id, action: "EXPORT", module: "Documents",
++            entityType: doc.entityType, entityId: doc.entityId,
++            summary: `Téléchargement de « ${doc.name} »${q === "reduite" ? " (taille réduite)" : ""}`,
++          })
++          : undefined,
++        redirection: () => direct
++          ? presignGetUrl(direct, 900, {
++            "response-content-disposition": contentDisposition(doc.name, download ? "attachment" : "inline"),
++            "response-content-type": mime,
++          })
++          : null,
+       },
+-    });
++    );
+   } catch {
+     return NextResponse.json({ error: "Fichier indisponible" }, { status: 404 });
+   }
+diff --git a/src/app/api/drive/[id]/raw/route.ts b/src/app/api/drive/[id]/raw/route.ts
+index b2e25fe..ee74f6f 100644
+--- a/src/app/api/drive/[id]/raw/route.ts
++++ b/src/app/api/drive/[id]/raw/route.ts
+@@ -1,14 +1,19 @@
+ import { NextRequest, NextResponse } from "next/server";
+ import { getCurrentUser } from "@/lib/session";
+ import { prisma } from "@/lib/prisma";
+-import { getBlob, cleObjetDirect } from "@/lib/drive-storage";
++import { getBlob, cleObjetDirect, infoBlob } from "@/lib/drive-storage";
+ import { presignGetUrl } from "@/lib/storage/object-storage";
+ import { contentDisposition } from "@/lib/http/content-disposition";
+ import { resolveDriveAccess, canViewDrive } from "@/lib/drive";
+-import { buildDriveZip } from "@/lib/drive-zip";
++import { collecterPourZip, entreesDeDrive } from "@/lib/drive-zip";
++import { qualiteDeLaRequete, repondreArchive, repondreEstimationArchive, repondreFichier } from "@/lib/http/telechargement";
+ import { recordAudit } from "@/lib/audit";
+ 
+-/** Stream a file's current version (decrypted). `?dl=1` forces download. */
++/**
++ * Stream a file's current version (decrypted). `?dl=1` forces download.
++ * `?qualite=max|reduite|estimer` : voir `@/lib/http/telechargement`. Un dossier part en archive ZIP
++ * streamée — non compressée en qualité maximale, deflate 9 en taille réduite.
++ */
+ export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
+   const user = await getCurrentUser();
+   if (!user) return new NextResponse(null, { status: 401 });
+@@ -19,19 +24,21 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
+     select: { name: true, mimeType: true, type: true, isTrashed: true },
+   });
+   if (!node) return new NextResponse(null, { status: 404 });
++  const qualite = qualiteDeLaRequete(req);
+ 
+   // Dossier → téléchargement en archive ZIP (contenu récursif).
+   if (node.type === "FOLDER") {
+-    const res = await buildDriveZip([{ id: params.id, name: node.name, type: "FOLDER" }]);
++    const res = await collecterPourZip([{ id: params.id, name: node.name, type: "FOLDER" }]);
+     if ("error" in res) return NextResponse.json({ error: res.error }, { status: res.status });
+-    await recordAudit({ actorId: user.id, action: "EXPORT", module: "Drive", entityType: "DRIVE_NODE", entityId: params.id, summary: `Téléchargement du dossier « ${node.name} » (ZIP, ${res.count} fichier·s)` });
+-    return new NextResponse(new Uint8Array(res.buffer), {
+-      headers: {
+-        "Content-Type": "application/zip",
+-        "Content-Disposition": `attachment; filename*=UTF-8''${encodeURIComponent(res.filename)}`,
+-        "Content-Length": String(res.buffer.length),
+-        "Cache-Control": "private, no-store",
+-      },
++    if (qualite === "estimer") {
++      return repondreEstimationArchive({
++        nomArchive: res.filename, noms: res.items.map((i) => i.chemin), octetsTotal: res.total,
++        cle: `drive:${res.items.map((i) => i.blobId).join(",")}`, entrees: () => entreesDeDrive(res.items),
++      });
++    }
++    return repondreArchive(res.filename, entreesDeDrive(res.items), qualite, {
++      octetsTotal: res.total,
++      journaliser: (q) => recordAudit({ actorId: user.id, action: "EXPORT", module: "Drive", entityType: "DRIVE_NODE", entityId: params.id, summary: `Téléchargement du dossier « ${node.name} » (ZIP${q === "reduite" ? " compressé" : ""}, ${res.items.length} fichier·s)` }),
+     });
+   }
+ 
+@@ -43,31 +50,24 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
+   if (!version) return new NextResponse(null, { status: 404 });
+ 
+   const dl = req.nextUrl.searchParams.get("dl") === "1";
+-  if (dl) {
+-    await recordAudit({ actorId: user.id, action: "EXPORT", module: "Drive", entityType: "DRIVE_NODE", entityId: params.id, summary: `Téléchargement « ${node.name} »` });
+-  }
+-
+   // GROS FICHIER DÉPOSÉ EN DIRECT : le navigateur le lit dans le bucket, sur une adresse signée
+   // pour quinze minutes. Le servir d'ici le ferait passer entier par la mémoire de l'instance —
+   // plusieurs gigaoctets sur 512 Mo. Les droits viennent d'être vérifiés, c'est eux qui signent.
+   const direct = await cleObjetDirect(version.blobId);
+-  if (direct) {
+-    const url = presignGetUrl(direct, 900, {
+-      "response-content-disposition": contentDisposition(node.name, dl ? "attachment" : "inline"),
+-      "response-content-type": node.mimeType ?? version.mimeType ?? "application/octet-stream",
+-    });
+-    if (url) return NextResponse.redirect(url, { status: 302, headers: { "Cache-Control": "private, no-store" } });
+-  }
+-
+-  const bytes = await getBlob(version.blobId);
+-  if (!bytes) return new NextResponse(null, { status: 404 });
+-  const filename = encodeURIComponent(node.name);
+-  return new NextResponse(new Uint8Array(bytes), {
+-    headers: {
+-      "Content-Type": node.mimeType ?? version.mimeType ?? "application/octet-stream",
+-      "Content-Disposition": `${dl ? "attachment" : "inline"}; filename*=UTF-8''${filename}`,
+-      "Content-Length": String(bytes.length),
+-      "Cache-Control": "private, no-store",
++  const mime = node.mimeType ?? version.mimeType ?? "application/octet-stream";
++  const info = await infoBlob(version.blobId);
++  return repondreFichier(
++    { nom: node.name, mime, charger: () => getBlob(version.blobId), empreinte: info?.sha256 ?? null, taille: info?.size ?? null },
++    {
++      qualite,
++      telecharger: dl,
++      journaliser: (q) => dl
++        ? recordAudit({ actorId: user.id, action: "EXPORT", module: "Drive", entityType: "DRIVE_NODE", entityId: params.id, summary: `Téléchargement « ${node.name} »${q === "reduite" ? " (taille réduite)" : ""}` })
++        : undefined,
++      entetes: { "Cache-Control": "private, no-store" },
++      redirection: () => direct
++        ? presignGetUrl(direct, 900, { "response-content-disposition": contentDisposition(node.name, dl ? "attachment" : "inline"), "response-content-type": mime })
++        : null,
+     },
+-  });
++  );
+ }
+diff --git a/src/app/api/drive/upload/route.ts b/src/app/api/drive/upload/route.ts
+index 1361366..94ae77b 100644
+--- a/src/app/api/drive/upload/route.ts
++++ b/src/app/api/drive/upload/route.ts
+@@ -75,11 +75,11 @@ export async function POST(req: NextRequest) {
+     // Une écriture refusée se DIT, avec sa cause — jamais une erreur 500 opaque.
+     return NextResponse.json({ error: e instanceof Error ? e.message : "Écriture impossible." }, { status: 503 });
+   }
+-  const { blobId, size, deduplicated } = ecrit;
++  const { blobId, size, deduplicated, storedSize } = ecrit;
+   timer.mark(deduplicated ? "contenu déjà présent" : "chiffrement + stockage");
+   // Un contenu dédupliqué n'occupe pas de place NEUVE : le compter gonflerait l'occupation jusqu'à
+   // refuser des envois qui tiennent parfaitement.
+-  if (!deduplicated) addPhysicalUsage(size);
++  if (!deduplicated) addPhysicalUsage(storedSize ?? size); // le COMPRIMÉ quand le stockage l'a compressé
+   const mimeType = file.type || "application/octet-stream";
+ 
+   const res = await enregistrerFichierDrive(user, cible, { blobId, size, mimeType, name: file.name });
+diff --git a/src/app/api/drive/zip/route.ts b/src/app/api/drive/zip/route.ts
+index 52cf59d..253c933 100644
+--- a/src/app/api/drive/zip/route.ts
++++ b/src/app/api/drive/zip/route.ts
+@@ -2,13 +2,17 @@ import { NextRequest, NextResponse } from "next/server";
+ import { getCurrentUser } from "@/lib/session";
+ import { prisma } from "@/lib/prisma";
+ import { resolveDriveAccess, canViewDrive } from "@/lib/drive";
+-import { buildDriveZip } from "@/lib/drive-zip";
++import { collecterPourZip, entreesDeDrive } from "@/lib/drive-zip";
++import { qualiteDeLaRequete, repondreArchive, repondreEstimationArchive } from "@/lib/http/telechargement";
+ import { recordAudit } from "@/lib/audit";
+ 
+ /**
+  * Télécharge **plusieurs éléments** du Drive (fichiers et/ou dossiers) en une seule
+  * archive ZIP : `GET /api/drive/zip?ids=a,b,c`. L'accès est vérifié sur chaque élément
+  * de tête ; les éléments non autorisés ou en corbeille sont ignorés.
++ *
++ * `&qualite=max` (défaut : aucun fichier recompressé, octet pour octet) | `reduite` (deflate 9) |
++ * `estimer` (JSON des deux tailles) — voir `@/lib/http/telechargement`.
+  */
+ export async function GET(req: NextRequest) {
+   const user = await getCurrentUser();
+@@ -25,19 +29,21 @@ export async function GET(req: NextRequest) {
+   }
+   if (nodes.length === 0) return NextResponse.json({ error: "Aucun élément accessible dans la sélection." }, { status: 403 });
+ 
+-  const res = await buildDriveZip(nodes);
++  const res = await collecterPourZip(nodes);
+   if ("error" in res) return NextResponse.json({ error: res.error }, { status: res.status });
+ 
+-  await recordAudit({
+-    actorId: user.id, action: "EXPORT", module: "Drive",
+-    summary: `Téléchargement ZIP — ${res.count} fichier·s (${nodes.length} élément·s sélectionné·s)`,
+-  });
+-  return new NextResponse(new Uint8Array(res.buffer), {
+-    headers: {
+-      "Content-Type": "application/zip",
+-      "Content-Disposition": `attachment; filename*=UTF-8''${encodeURIComponent(res.filename)}`,
+-      "Content-Length": String(res.buffer.length),
+-      "Cache-Control": "private, no-store",
+-    },
++  const qualite = qualiteDeLaRequete(req);
++  if (qualite === "estimer") {
++    return repondreEstimationArchive({
++      nomArchive: res.filename, noms: res.items.map((i) => i.chemin), octetsTotal: res.total,
++      cle: `drive:${res.items.map((i) => i.blobId).join(",")}`, entrees: () => entreesDeDrive(res.items),
++    });
++  }
++  return repondreArchive(res.filename, entreesDeDrive(res.items), qualite, {
++    octetsTotal: res.total,
++    journaliser: (q) => recordAudit({
++      actorId: user.id, action: "EXPORT", module: "Drive",
++      summary: `Téléchargement ZIP${q === "reduite" ? " compressé" : ""} — ${res.items.length} fichier·s (${nodes.length} élément·s sélectionné·s)`,
++    }),
+   });
+ }
+diff --git a/src/app/api/legal/[id]/fichier/route.ts b/src/app/api/legal/[id]/fichier/route.ts
+index 38dcaf8..dd40876 100644
+--- a/src/app/api/legal/[id]/fichier/route.ts
++++ b/src/app/api/legal/[id]/fichier/route.ts
+@@ -1,7 +1,8 @@
+ import { NextRequest, NextResponse } from "next/server";
+ import { getCurrentUser } from "@/lib/session";
+ import { prisma } from "@/lib/prisma";
+-import { getBlob } from "@/lib/drive-storage";
++import { getBlob, infoBlob } from "@/lib/drive-storage";
++import { qualiteDeLaRequete, repondreFichier } from "@/lib/http/telechargement";
+ import { recordAudit } from "@/lib/audit";
+ import { fichierEmisDeLaPiece, specDeLaPieceEmise } from "@/lib/queries/legal-fichier";
+ import { construireXlsxCommercial } from "@/lib/artifact/factory/xlsx";
+@@ -53,22 +54,23 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
+     where: { nodeId: fichier.nodeId }, orderBy: { version: "desc" }, select: { blobId: true, mimeType: true },
+   });
+   if (!version) return new NextResponse(null, { status: 404 });
+-  const bytes = await getBlob(version.blobId);
+-  if (!bytes) return new NextResponse(null, { status: 404 });
+-
+   const dl = req.nextUrl.searchParams.get("dl") === "1";
+-  if (dl) {
+-    await recordAudit({
+-      actorId: user.id, action: "EXPORT", module: "Legal", entityType: "LEGAL_DOCUMENT", entityId: params.id,
+-      summary: `Téléchargement du fichier émis « ${node.name} »`,
+-    });
+-  }
+-  return new NextResponse(new Uint8Array(bytes), {
+-    headers: {
+-      "Content-Type": node.mimeType ?? version.mimeType ?? "application/octet-stream",
+-      "Content-Disposition": `${dl ? "attachment" : "inline"}; filename*=UTF-8''${encodeURIComponent(node.name)}`,
+-      "Content-Length": String(bytes.length),
+-      "Cache-Control": "private, no-store",
++  const info = await infoBlob(version.blobId);
++  // UNE PIÈCE JURIDIQUE SE DÉLIVRE EN ORIGINAL : c'est le fichier émis, celui qu'on signe, qu'on
++  // contrôle et qu'on envoie. Pas de « taille réduite » ici, et la porte le dit à qui le demande.
++  return repondreFichier(
++    { nom: node.name, mime: node.mimeType ?? version.mimeType ?? "application/octet-stream", charger: () => getBlob(version.blobId), empreinte: info?.sha256 ?? null, taille: info?.size ?? null },
++    {
++      qualite: qualiteDeLaRequete(req),
++      telecharger: dl,
++      reductionAutorisee: { oui: false, raison: "Pièce juridique : seul l'original est délivré." },
++      entetes: { "Cache-Control": "private, no-store" },
++      journaliser: () => dl
++        ? recordAudit({
++          actorId: user.id, action: "EXPORT", module: "Legal", entityType: "LEGAL_DOCUMENT", entityId: params.id,
++          summary: `Téléchargement du fichier émis « ${node.name} »`,
++        })
++        : undefined,
+     },
+-  });
++  );
+ }
+diff --git a/src/components/documents/document-preview.tsx b/src/components/documents/document-preview.tsx
+index 23e56ee..5b87643 100644
+--- a/src/components/documents/document-preview.tsx
++++ b/src/components/documents/document-preview.tsx
+@@ -8,6 +8,7 @@ import { ZipViewer } from "./zip-viewer";
+ import { printDocument } from "@/lib/print-document";
+ import { deleteDocument, renameDocument } from "@/lib/actions/document-actions";
+ import { useScrollLock } from "@/lib/use-scroll-lock";
++import { BoutonTelecharger } from "@/components/telechargement/bouton-telecharger";
+ 
+ const IMAGE = ["png", "jpg", "jpeg", "gif", "webp", "svg", "bmp", "avif"];
+ const TEXTLIKE = ["txt", "md", "log", "json", "xml"];
+@@ -135,7 +136,7 @@ export function DocumentPreview({
+                   {hasFile && kind !== "zip" && <button onClick={() => printDocument(id)} className={iconBtn} title="Imprimer"><Printer className="h-4 w-4" /></button>}
+                   {canEditFile && <a href={`/documents/${id}/edit`} className={iconBtn} title="Modifier dans l'éditeur Office"><ExternalLink className="h-4 w-4" /></a>}
+                   {canRename && <button onClick={() => { setDraft(name); setRenaming(true); }} className={iconBtn} title="Renommer"><Pencil className="h-4 w-4" /></button>}
+-                  {hasFile && <a href={`${src}?dl=1`} className={iconBtn} title="Enregistrer (télécharger)"><Download className="h-4 w-4" /></a>}
++                  {hasFile && <BoutonTelecharger href={`${src}?dl=1`} nom={name} sansChoix={Boolean(srcOverride)} className={iconBtn} title="Enregistrer (télécharger)"><Download className="h-4 w-4" /></BoutonTelecharger>}
+                   {canDelete && (
+                     <button onClick={onDelete} disabled={deleting} className="rounded-lg p-2 text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive" title="Supprimer">
+                       {deleting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+@@ -164,7 +165,7 @@ export function DocumentPreview({
+               ) : (
+                 <div className="flex h-full min-h-[40vh] flex-col items-center justify-center gap-3 text-center">
+                   <p className="text-sm text-muted-foreground">{hasFile ? "Aperçu non disponible pour ce type de fichier." : "Aucun fichier — métadonnées uniquement."}</p>
+-                  {hasFile && <a href={`${src}?dl=1`} className="inline-flex items-center gap-2 rounded-lg bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:opacity-90"><Download className="h-4 w-4" /> Télécharger</a>}
++                  {hasFile && <BoutonTelecharger href={`${src}?dl=1`} nom={name} sansChoix={Boolean(srcOverride)} className="inline-flex items-center gap-2 rounded-lg bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:opacity-90"><Download className="h-4 w-4" /> Télécharger</BoutonTelecharger>}
+                 </div>
+               )}
+             </div>
+diff --git a/src/components/telechargement/bouton-telecharger.tsx b/src/components/telechargement/bouton-telecharger.tsx
+new file mode 100644
+index 0000000..054e0a6
+--- /dev/null
++++ b/src/components/telechargement/bouton-telecharger.tsx
+@@ -0,0 +1,181 @@
++"use client";
++
++import * as React from "react";
++import { ChevronDown, Download, Loader2 } from "lucide-react";
++import { formaterTaille, profilReduction, type EstimationTelechargement } from "@/lib/compression/politique";
++
++/**
++ * LE BOUTON DE TÉLÉCHARGEMENT — un seul, partagé par tous les écrans qui téléchargent un fichier
++ * ou une archive (§118.214).
++ *
++ * Il NE CHANGE RIEN à ce que la personne faisait : le bouton principal est le même lien qu'avant
++ * et télécharge l'ORIGINAL en un clic. À côté, un petit chevron ouvre le choix — « qualité
++ * maximale » (l'original, octet pour octet) ou « taille réduite » — MAIS seulement quand une
++ * version réduite existe : au premier clic sur le chevron, le serveur MESURE (`?qualite=estimer`) et
++ * le menu ne montre que ce qui est réellement plus petit, avec ses vraies tailles. Sinon il dit
++ * « déjà optimisé » et le chevron disparaît : on ne propose pas un choix qui ne change rien.
++ *
++ * Import : uniquement le module PUR de politique (aucun module serveur dans le navigateur).
++ */
++
++const avecParam = (href: string, cle: string, valeur: string): string => {
++  const [sansAncre, ancre = ""] = href.split("#");
++  const [chemin, requete = ""] = sansAncre.split("?");
++  const p = new URLSearchParams(requete);
++  p.set(cle, valeur);
++  return `${chemin}?${p.toString()}${ancre ? `#${ancre}` : ""}`;
++};
++
++/** Les entrées du menu téléchargent : `dl=1` — sans lui le serveur afficherait le fichier au lieu de l'enregistrer. */
++const pourTelecharger = (href: string, qualite: "max" | "reduite") => avecParam(avecParam(href, "dl", "1"), "qualite", qualite);
++
++type Etat =
++  | { phase: "repos" }
++  | { phase: "mesure" }
++  | { phase: "pret"; e: EstimationTelechargement }
++  | { phase: "erreur" };
++
++export function BoutonTelecharger({
++  href, nom, mime, taille, archive, sansChoix, className, classeRacine, classeChevron, children, title, ariaLabel, onClick,
++}: {
++  /** Adresse de base (peut porter `?dl=1`) : sans `qualite`, c'est l'original. */
++  href: string;
++  /** Nom du fichier : le profil statique décide, sans rien lire, s'il y a une chance de réduction. */
++  nom: string;
++  mime?: string | null;
++  taille?: number | null;
++  /** Dossier ou sélection (archive ZIP) : le serveur dira ce qu'une compression changerait. */
++  archive?: boolean;
++  /**
++   * La route qui sert ce fichier ne passe pas par la porte unique du téléchargement (elle ignore
++   * `?qualite=`) : le bouton reste un simple lien vers l'original, sans chevron.
++   */
++  sansChoix?: boolean;
++  /** Apparence du bouton principal — celle de l'écran d'origine. */
++  className?: string;
++  /** Gabarit de l'enveloppe (ex. `w-full` dans un menu). */
++  classeRacine?: string;
++  classeChevron?: string;
++  children?: React.ReactNode;
++  title?: string;
++  ariaLabel?: string;
++  onClick?: React.MouseEventHandler<HTMLAnchorElement>;
++}) {
++  const [ouvert, setOuvert] = React.useState(false);
++  const [etat, setEtat] = React.useState<Etat>({ phase: "repos" });
++  const [optimise, setOptimise] = React.useState(false);
++  const racine = React.useRef<HTMLSpanElement>(null);
++  const bascule = React.useRef<HTMLButtonElement>(null);
++
++  const possible = !sansChoix && (archive || profilReduction(nom, mime, taille).nature !== null);
++
++  // Un changement de fichier remet le choix à zéro.
++  React.useEffect(() => { setEtat({ phase: "repos" }); setOptimise(false); setOuvert(false); }, [href]);
++
++  React.useEffect(() => {
++    if (!ouvert) return;
++    const dehors = (e: MouseEvent | TouchEvent) => { if (racine.current && !racine.current.contains(e.target as Node)) setOuvert(false); };
++    const touche = (e: KeyboardEvent) => { if (e.key === "Escape") { setOuvert(false); bascule.current?.focus(); } };
++    document.addEventListener("mousedown", dehors);
++    document.addEventListener("touchstart", dehors);
++    document.addEventListener("keydown", touche);
++    return () => { document.removeEventListener("mousedown", dehors); document.removeEventListener("touchstart", dehors); document.removeEventListener("keydown", touche); };
++  }, [ouvert]);
++
++  async function ouvrir() {
++    const demain = !ouvert;
++    setOuvert(demain);
++    if (!demain || etat.phase === "pret" || etat.phase === "mesure") return;
++    setEtat({ phase: "mesure" });
++    try {
++      const res = await fetch(avecParam(href, "qualite", "estimer"), { credentials: "same-origin", cache: "no-store" });
++      if (!res.ok) throw new Error(String(res.status));
++      const e = (await res.json()) as EstimationTelechargement;
++      setEtat({ phase: "pret", e });
++      if (!e.reduite) setOptimise(true);
++    } catch {
++      // Une mesure qui échoue ne retire RIEN : l'original reste à un clic, le menu le dit.
++      setEtat({ phase: "erreur" });
++    }
++  }
++
++  const principal = (
++    <a
++      href={href}
++      className={className}
++      title={optimise ? "Déjà optimisé" : title}
++      aria-label={ariaLabel}
++      onClick={onClick}
++    >
++      {children ?? <><Download className="h-4 w-4" /> Télécharger</>}
++    </a>
++  );
++  if (!possible || optimise) {
++    return optimise && etat.phase === "pret" && ouvert
++      ? <span ref={racine} className={`relative inline-flex ${classeRacine ?? ""}`}>{principal}<Panneau etat={etat} href={href} /></span>
++      : principal;
++  }
++
++  return (
++    <span ref={racine} className={`relative inline-flex items-stretch ${classeRacine ?? ""}`}>
++      {principal}
++      <button
++        ref={bascule}
++        type="button"
++        onClick={ouvrir}
++        aria-haspopup="menu"
++        aria-expanded={ouvert}
++        aria-label="Choisir la qualité du téléchargement"
++        title="Qualité maximale ou taille réduite"
++        className={classeChevron ?? "ml-0.5 inline-flex min-h-[28px] min-w-[24px] items-center justify-center rounded-md text-muted-foreground hover:bg-secondary hover:text-foreground"}
++      >
++        <ChevronDown className={`h-3.5 w-3.5 transition-transform ${ouvert ? "rotate-180" : ""}`} aria-hidden />
++      </button>
++      {ouvert && <Panneau etat={etat} href={href} />}
++    </span>
++  );
++}
++
++function Panneau({ etat, href }: { etat: Etat; href: string }) {
++  const ligne = "flex min-h-[44px] w-full flex-col justify-center rounded-md px-3 py-2 text-left text-sm hover:bg-secondary focus-visible:bg-secondary focus-visible:outline-none";
++  return (
++    <div
++      role="menu"
++      aria-label="Qualité du téléchargement"
++      className="absolute right-0 top-full z-50 mt-1 w-72 max-w-[calc(100vw-2rem)] rounded-lg border border-border bg-card p-1 text-foreground shadow-lg"
++    >
++      {etat.phase === "mesure" && (
++        <div className="flex min-h-[44px] items-center gap-2 px-3 text-sm text-muted-foreground" role="status">
++          <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> Calcul des tailles…
++        </div>
++      )}
++      {etat.phase === "erreur" && (
++        <a role="menuitem" href={pourTelecharger(href, "max")} className={ligne}>
++          <span className="font-medium">Qualité maximale (original)</span>
++          <span className="text-xs text-muted-foreground">La taille réduite n&apos;a pas pu être calculée.</span>
++        </a>
++      )}
++      {etat.phase === "pret" && (
++        <>
++          <a role="menuitem" href={pourTelecharger(href, "max")} className={ligne}>
++            <span className="font-medium">Qualité maximale (original)</span>
++            <span className="text-xs text-muted-foreground">{etat.e.max.taille > 0 ? `${formaterTaille(etat.e.max.taille)} — ` : ""}exactement le fichier déposé</span>
++          </a>
++          {etat.e.reduite ? (
++            <a role="menuitem" href={pourTelecharger(href, "reduite")} className={ligne}>
++              <span className="font-medium">Taille réduite (compressé)</span>
++              <span className="text-xs text-muted-foreground">
++                {etat.e.reduite.taille !== null ? `${formaterTaille(etat.e.reduite.taille)}${etat.e.reduite.gain !== null ? ` (−${Math.round(etat.e.reduite.gain * 100)} %)` : ""} — ` : "taille non estimée — "}
++                {etat.e.reduite.methode}
++              </span>
++            </a>
++          ) : (
++            <p className="px-3 py-2 text-xs text-muted-foreground" role="status">
++              Déjà optimisé{etat.e.raison ? ` — ${etat.e.raison.replace(/^Déjà optimisé\s*[:.—-]?\s*/i, "")}` : ""}
++            </p>
++          )}
++        </>
++      )}
++    </div>
++  );
++}
+diff --git a/src/lib/compression/flux.ts b/src/lib/compression/flux.ts
+new file mode 100644
+index 0000000..b6d0a65
+--- /dev/null
++++ b/src/lib/compression/flux.ts
+@@ -0,0 +1,153 @@
++import { brotliCompress, brotliDecompress, constants, createBrotliCompress, createBrotliDecompress } from "zlib";
++import { promisify } from "util";
++import crypto from "crypto";
++import { createReadStream, createWriteStream } from "fs";
++import { open, rm, stat } from "fs/promises";
++import { pipeline } from "stream/promises";
++import {
++  CODEC_BROTLI, GAIN_ECHANTILLON_MIN, GAIN_MIN, TAILLE_MIN_COMPRESSION, TRANCHE_ECHANTILLON,
++  codecConnu, formatDejaCompresse, qualiteBrotli, type Codec,
++} from "./politique";
++
++/**
++ * COMPRESSER / DÉCOMPRESSER — l'effet de bord de la politique, jamais sa décision.
++ *
++ * Trois propriétés, chacune tenue par un cas :
++ *   • JAMAIS DE GONFLEMENT : un contenu n'est rendu compressé que s'il économise `GAIN_MIN`
++ *     sur le résultat RÉEL ; sinon `null` et le stockage garde les octets bruts ;
++ *   • RELIRE AVANT D'ÉCRIRE (§104.8) : le résultat est décompressé et comparé à l'original AVANT
++ *     d'être rendu. Un doute rend `null` — on stocke brut, on ne stocke pas un fichier qu'on
++ *     ne saurait pas relire ;
++ *   • MÉMOIRE BORNÉE sur le chemin fichier : compression en flux vers un fichier temporaire,
++ *     jamais le fichier entier en mémoire (le tas d'un déploiement Render est d'environ 4 Go).
++ */
++
++const brotliAsync = promisify(brotliCompress);
++const unbrotliAsync = promisify(brotliDecompress);
++
++const optionsBrotli = (taille: number) => ({
++  params: {
++    [constants.BROTLI_PARAM_QUALITY]: qualiteBrotli(taille),
++    [constants.BROTLI_PARAM_LGWIN]: 22,
++    [constants.BROTLI_PARAM_SIZE_HINT]: Math.min(taille, 2 ** 31 - 1),
++  },
++});
++
++/** Pourquoi un contenu n'a PAS été compressé — dit au journal et aux bancs, jamais à l'écran. */
++export type RaisonBrut = "petit" | "deja-compresse" | "echantillon-incompressible" | "gain-insuffisant" | "verification-echouee";
++
++export type DecisionCompression =
++  | { compresse: true; codec: Codec; octets: Buffer }
++  | { compresse: false; raison: RaisonBrut };
++
++/** Gain estimé sur un échantillon (début, milieu, fin) — l'essai bon marché qui évite de tout compresser pour rien. */
++export async function gainSurEchantillon(echantillon: Buffer): Promise<number> {
++  if (echantillon.length === 0) return 0;
++  const out = await brotliAsync(echantillon, { params: { [constants.BROTLI_PARAM_QUALITY]: 4, [constants.BROTLI_PARAM_LGWIN]: 22 } });
++  return 1 - out.length / echantillon.length;
++}
++
++function echantillonDeTampon(b: Buffer): Buffer {
++  if (b.length <= 3 * TRANCHE_ECHANTILLON) return b;
++  const milieu = Math.floor((b.length - TRANCHE_ECHANTILLON) / 2);
++  return Buffer.concat([
++    b.subarray(0, TRANCHE_ECHANTILLON),
++    b.subarray(milieu, milieu + TRANCHE_ECHANTILLON),
++    b.subarray(b.length - TRANCHE_ECHANTILLON),
++  ]);
++}
++
++/** Décide, et compresse si ça vaut le coup. Rend les octets compressés, relus et identiques à l'original. */
++export async function decider(plain: Buffer): Promise<DecisionCompression> {
++  if (plain.length < TAILLE_MIN_COMPRESSION) return { compresse: false, raison: "petit" };
++  if (formatDejaCompresse(plain.subarray(0, 16))) return { compresse: false, raison: "deja-compresse" };
++  if ((await gainSurEchantillon(echantillonDeTampon(plain))) < GAIN_ECHANTILLON_MIN) return { compresse: false, raison: "echantillon-incompressible" };
++  let octets: Buffer;
++  try { octets = await brotliAsync(plain, optionsBrotli(plain.length)); } catch { return { compresse: false, raison: "verification-echouee" }; }
++  if (octets.length > plain.length * (1 - GAIN_MIN)) return { compresse: false, raison: "gain-insuffisant" };
++  // RELIRE avant d'écrire : octet pour octet.
++  try {
++    const relu = await unbrotliAsync(octets, { maxOutputLength: plain.length + 1 });
++    if (!relu.equals(plain)) return { compresse: false, raison: "verification-echouee" };
++  } catch { return { compresse: false, raison: "verification-echouee" }; }
++  return { compresse: true, codec: CODEC_BROTLI, octets };
++}
++
++/** Compresse un tampon (null = à stocker brut). Raccourci de `decider` pour les appelants qui n'ont pas besoin de la raison. */
++export async function compresserSiUtile(plain: Buffer): Promise<{ codec: Codec; octets: Buffer } | null> {
++  const d = await decider(plain);
++  return d.compresse ? { codec: d.codec, octets: d.octets } : null;
++}
++
++/**
++ * Décompresse. Un codec INCONNU lève : rendre les octets stockés tels quels ferait servir du
++ * brotli pour un PDF — un fichier illisible, annoncé « téléchargé ». La taille attendue borne la
++ * sortie (une « bombe » ne peut pas gonfler au-delà de ce que le blob déclare).
++ */
++export async function decompresser(codec: string, octets: Buffer, tailleClair: number): Promise<Buffer> {
++  if (!codecConnu(codec)) throw new Error(`Codec de stockage inconnu « ${codec} » — ce fichier ne peut pas être relu par cette version.`);
++  const clair = await unbrotliAsync(octets, { maxOutputLength: tailleClair + 1 });
++  if (clair.length !== tailleClair) {
++    throw new Error(`Contenu décompressé inattendu (${clair.length} octets au lieu de ${tailleClair}) — fichier corrompu.`);
++  }
++  return clair;
++}
++
++// ───────────────────────────── chemin fichier (flux) ─────────────────────────────────────
++
++async function lireTranche(path: string, debut: number, longueur: number): Promise<Buffer> {
++  const fh = await open(path, "r");
++  try {
++    const buf = Buffer.alloc(longueur);
++    const { bytesRead } = await fh.read(buf, 0, longueur, debut);
++    return buf.subarray(0, bytesRead);
++  } finally { await fh.close(); }
++}
++
++async function echantillonDeFichier(path: string, taille: number): Promise<Buffer> {
++  if (taille <= 3 * TRANCHE_ECHANTILLON) return lireTranche(path, 0, taille);
++  const milieu = Math.floor((taille - TRANCHE_ECHANTILLON) / 2);
++  return Buffer.concat([
++    await lireTranche(path, 0, TRANCHE_ECHANTILLON),
++    await lireTranche(path, milieu, TRANCHE_ECHANTILLON),
++    await lireTranche(path, taille - TRANCHE_ECHANTILLON, TRANCHE_ECHANTILLON),
++  ]);
++}
++
++export interface FichierCompresse { chemin: string; taille: number; codec: Codec; nettoyer: () => Promise<void> }
++
++/**
++ * Compresse UN FICHIER en flux vers `cheminTemp`, le relit en flux (décompression + SHA-256) et
++ * ne le rend QUE si l'empreinte retombe sur `sha256Clair` et que le gain est réel. La mémoire ne
++ * dépend pas de la taille du fichier. `null` : stocker brut (le fichier temporaire est déjà retiré).
++ */
++export async function compresserFichierSiUtile(
++  chemin: string, tailleClair: number, sha256Clair: string, cheminTemp: string,
++): Promise<{ resultat: FichierCompresse } | { resultat: null; raison: RaisonBrut }> {
++  const nettoyer = () => rm(cheminTemp, { force: true });
++  if (tailleClair < TAILLE_MIN_COMPRESSION) return { resultat: null, raison: "petit" };
++  const tete = await lireTranche(chemin, 0, 16);
++  if (formatDejaCompresse(tete)) return { resultat: null, raison: "deja-compresse" };
++  if ((await gainSurEchantillon(await echantillonDeFichier(chemin, tailleClair))) < GAIN_ECHANTILLON_MIN) {
++    return { resultat: null, raison: "echantillon-incompressible" };
++  }
++  try {
++    await pipeline(
++      createReadStream(chemin, { highWaterMark: 4 * 1024 * 1024 }),
++      createBrotliCompress(optionsBrotli(tailleClair)),
++      createWriteStream(cheminTemp),
++    );
++    const taille = (await stat(cheminTemp)).size;
++    if (taille > tailleClair * (1 - GAIN_MIN)) { await nettoyer(); return { resultat: null, raison: "gain-insuffisant" }; }
++    // RELIRE : décompression en flux, empreinte du clair comparée à celle que l'appelant a calculée.
++    const hash = crypto.createHash("sha256");
++    let total = 0;
++    const lecteur = createReadStream(cheminTemp, { highWaterMark: 4 * 1024 * 1024 }).pipe(createBrotliDecompress());
++    for await (const morceau of lecteur) { hash.update(morceau as Buffer); total += (morceau as Buffer).length; }
++    if (total !== tailleClair || hash.digest("hex") !== sha256Clair) { await nettoyer(); return { resultat: null, raison: "verification-echouee" }; }
++    return { resultat: { chemin: cheminTemp, taille, codec: CODEC_BROTLI, nettoyer } };
++  } catch {
++    await nettoyer();
++    return { resultat: null, raison: "verification-echouee" };
++  }
++}
+diff --git a/src/lib/compression/politique.ts b/src/lib/compression/politique.ts
+new file mode 100644
+index 0000000..d300d06
+--- /dev/null
++++ b/src/lib/compression/politique.ts
+@@ -0,0 +1,199 @@
++/**
++ * ═══════════════════════════════════════════════════════════════════════════════════════════
++ * LA POLITIQUE DE COMPRESSION — ce que la MESURE justifie, et rien de plus. Module PUR (zéro
++ * import) : le stockage, les routes de téléchargement ET le bouton du navigateur la lisent, et
++ * aucun des trois n'a le droit d'importer les autres (§118.72).
++ *
++ * Deux questions qui ne se confondent pas (§118.16 : deux axes, jamais mêlés) :
++ *
++ *  1. AU REPOS — « ce contenu vaut-il d'être compressé AVANT d'être chiffré ? » Sans perte, à
++ *     l'insu de tous : `FileBlob.codec`. L'empreinte (`sha256`) et la taille (`size`) disent
++ *     TOUJOURS le clair d'origine ; lire rend exactement les octets déposés.
++ *
++ *  2. AU TÉLÉCHARGEMENT — « existe-t-il une version PLUS PETITE, lisible, qu'on peut proposer
++ *     à côté de l'original ? » Elle ne remplace JAMAIS l'original stocké et ne sert à aucun
++ *     contrôle, signature ou contrat.
++ *
++ * Mesuré sur un corpus généré (voir §118.214 : les chiffres sont indicatifs, pas garantis) :
++ *   • texte structuré (CSV, JSON, XML, HTML) : 73 à 87 % économisés (brotli q6) ;
++ *   • PDF non compressé : −89 % ; PDF déjà compressé : −17 à −22 % ; PDF de scan (JPEG) : 0 % ;
++ *   • DOCX/XLSX/PPTX, ZIP, JPEG, PNG, MP4 : 0 % — déjà compressés. On NE les recompresse PAS ;
++ *   • BMP, WAV : 10 à 25 %.
++ * ═══════════════════════════════════════════════════════════════════════════════════════════
++ */
++
++export const CODEC_BROTLI = "br" as const;
++export type Codec = typeof CODEC_BROTLI;
++
++/** Les seuls codecs que le stockage sait relire. Un autre est REFUSÉ à la lecture, jamais deviné. */
++export function codecConnu(codec: string | null | undefined): codec is Codec {
++  return codec === CODEC_BROTLI;
++}
++
++/** Sous cette taille le gain absolu est négligeable et la ligne de base pèse déjà davantage. */
++export const TAILLE_MIN_COMPRESSION = 4 * 1024;
++
++/**
++ * Un contenu n'est stocké compressé que s'il économise au moins ce pourcentage — SUR LE
++ * RÉSULTAT RÉEL, pas sur l'estimation. En dessous, la lecture paierait une décompression pour
++ * rien, et un fichier qui gonfle ne doit JAMAIS être stocké plus gros.
++ */
++export const GAIN_MIN = 0.10;
++
++/** Essai sur échantillon : en dessous de ce gain, on ne tente même pas le fichier entier. */
++export const GAIN_ECHANTILLON_MIN = 0.15;
++
++/** Trois tranches (début, milieu, fin) de cette taille : un PDF commence par du texte et finit par des images. */
++export const TRANCHE_ECHANTILLON = 64 * 1024;
++
++/** Brotli : q6 est le point de rendement (gain de q9 à un tiers du temps) ; q4 au-delà de 64 Mo (3× plus vite). */
++export const SEUIL_QUALITE_RAPIDE = 64 * 1024 * 1024;
++export function qualiteBrotli(taille: number): number {
++  return taille > SEUIL_QUALITE_RAPIDE ? 4 : 6;
++}
++
++/**
++ * Les formats DÉJÀ compressés, reconnus à leurs premiers octets — le contenu, pas le nom : le
++ * stockage reçoit des octets (`putBlob(buffer)`), jamais un nom de fichier, et un `.dat` peut
++ * être un ZIP. Ce test évite l'essai ; il n'est pas la garantie (l'essai et le gain réel le sont).
++ */
++export function formatDejaCompresse(tete: Uint8Array): string | null {
++  const t = tete;
++  const at = (o: number, ...octets: number[]) => octets.every((b, i) => t[o + i] === b);
++  if (t.length < 4) return null;
++  if (at(0, 0x50, 0x4b, 0x03, 0x04) || at(0, 0x50, 0x4b, 0x05, 0x06) || at(0, 0x50, 0x4b, 0x07, 0x08)) return "zip";
++  if (at(0, 0xff, 0xd8, 0xff)) return "jpeg";
++  if (at(0, 0x89, 0x50, 0x4e, 0x47)) return "png";
++  if (at(0, 0x47, 0x49, 0x46, 0x38)) return "gif";
++  if (at(0, 0x52, 0x49, 0x46, 0x46) && t.length >= 12 && at(8, 0x57, 0x45, 0x42, 0x50)) return "webp";
++  if (at(0, 0x1f, 0x8b)) return "gzip";
++  if (at(0, 0x42, 0x5a, 0x68)) return "bzip2";
++  if (at(0, 0x37, 0x7a, 0xbc, 0xaf, 0x27, 0x1c)) return "7z";
++  if (at(0, 0x52, 0x61, 0x72, 0x21)) return "rar";
++  if (at(0, 0xfd, 0x37, 0x7a, 0x58, 0x5a, 0x00)) return "xz";
++  if (at(0, 0x28, 0xb5, 0x2f, 0xfd)) return "zstd";
++  if (t.length >= 8 && at(4, 0x66, 0x74, 0x79, 0x70)) return "mp4"; // ftyp : mp4, mov, heic, m4a…
++  if (at(0, 0x1a, 0x45, 0xdf, 0xa3)) return "matroska";
++  if (at(0, 0x49, 0x44, 0x33) || (t[0] === 0xff && (t[1] & 0xe0) === 0xe0 && (t[1] & 0x06) !== 0)) return "mp3";
++  if (at(0, 0x4f, 0x67, 0x67, 0x53)) return "ogg";
++  if (at(0, 0x66, 0x4c, 0x61, 0x43)) return "flac";
++  if (at(0, 0x77, 0x4f, 0x46, 0x32) || at(0, 0x77, 0x4f, 0x46, 0x46)) return "woff";
++  return null;
++}
++
++// ───────────────────────── le choix proposé au téléchargement ─────────────────────────────
++
++export type Qualite = "max" | "reduite" | "estimer";
++
++/** `?qualite=` : le défaut est l'ORIGINAL — sans le paramètre, rien ne change pour personne. */
++export function lireQualite(valeur: string | null | undefined): Qualite {
++  return valeur === "reduite" || valeur === "estimer" ? valeur : "max";
++}
++
++export type NatureReduction = "jpeg" | "png" | "webp" | "tiff" | "pdf" | "office" | "texte";
++
++export interface ProfilReduction {
++  /** Ce qu'on saurait faire de ce fichier, ou null. */
++  nature: NatureReduction | null;
++  /** Pourquoi pas, en une phrase — affichée telle quelle (« déjà optimisé »). */
++  raison: string;
++}
++
++const EXT_TEXTE = new Set(["txt", "csv", "tsv", "json", "xml", "html", "htm", "md", "log", "sql", "yaml", "yml", "ini", "svg", "rtf", "ndjson", "tex", "xsd", "xsl", "xslt"]);
++const EXT_OOXML = new Set(["docx", "xlsx", "pptx", "docm", "xlsm", "pptm"]);
++
++/** Seuils du profil (octets) : en dessous, le gain ne vaut pas un choix de plus à l'écran. */
++export const SEUILS_REDUCTION = {
++  jpeg: 150 * 1024,
++  png: 100 * 1024,
++  webp: 150 * 1024,
++  tiff: 500 * 1024,
++  pdf: 100 * 1024,
++  /** Au-delà, mupdf et JSZip tiendraient trop de mémoire sur une instance bornée. */
++  pdfMax: 100 * 1024 * 1024,
++  office: 300 * 1024,
++  officeMax: 60 * 1024 * 1024,
++  texte: 20 * 1024,
++  texteMax: 512 * 1024 * 1024,
++  imageMax: 120 * 1024 * 1024,
++} as const;
++
++export function extensionDe(nom: string): string {
++  const i = nom.lastIndexOf(".");
++  return i > 0 ? nom.slice(i + 1).toLowerCase() : "";
++}
++
++/**
++ * LE PROFIL STATIQUE : ce qu'on peut dire SANS lire le fichier — c'est ce qui décide si le bouton
++ * affiche un menu. Il est PRUDENT : « oui » veut dire « une réduction est plausible », et c'est la
++ * mesure réelle (`/api/…?qualite=estimer`) qui dit si elle est vraiment plus petite. Un « non »
++ * est définitif : on ne propose pas un choix qui ne peut rien donner.
++ */
++export function profilReduction(nom: string, mime: string | null | undefined, taille: number | null | undefined): ProfilReduction {
++  const ext = extensionDe(nom);
++  const m = (mime ?? "").toLowerCase();
++  const t = typeof taille === "number" && Number.isFinite(taille) ? taille : null;
++  const trop = (min: number, max: number): ProfilReduction | null => {
++    if (t === null) return null;
++    if (t < min) return { nature: null, raison: "Déjà optimisé (fichier léger)." };
++    if (t > max) return { nature: null, raison: `Trop volumineux pour être optimisé ici (plus de ${Math.round(max / 1048576)} Mo).` };
++    return null;
++  };
++
++  if (ext === "jpg" || ext === "jpeg" || m === "image/jpeg") {
++    return trop(SEUILS_REDUCTION.jpeg, SEUILS_REDUCTION.imageMax) ?? { nature: "jpeg", raison: "" };
++  }
++  if (ext === "png" || m === "image/png") return trop(SEUILS_REDUCTION.png, SEUILS_REDUCTION.imageMax) ?? { nature: "png", raison: "" };
++  if (ext === "webp" || m === "image/webp") return trop(SEUILS_REDUCTION.webp, SEUILS_REDUCTION.imageMax) ?? { nature: "webp", raison: "" };
++  if (ext === "tif" || ext === "tiff" || m === "image/tiff") return trop(SEUILS_REDUCTION.tiff, SEUILS_REDUCTION.imageMax) ?? { nature: "tiff", raison: "" };
++  if (ext === "pdf" || m === "application/pdf") return trop(SEUILS_REDUCTION.pdf, SEUILS_REDUCTION.pdfMax) ?? { nature: "pdf", raison: "" };
++  if (EXT_OOXML.has(ext)) return trop(SEUILS_REDUCTION.office, SEUILS_REDUCTION.officeMax) ?? { nature: "office", raison: "" };
++  if (EXT_TEXTE.has(ext) || m.startsWith("text/") || m === "application/json" || m === "application/xml") {
++    return trop(SEUILS_REDUCTION.texte, SEUILS_REDUCTION.texteMax) ?? { nature: "texte", raison: "" };
++  }
++  return { nature: null, raison: "Déjà optimisé." };
++}
++
++/** Un fichier de cette nature se rend, réduit, SOUS CE NOM et ce type. Le texte devient une archive ZIP. */
++export function nomReduit(nom: string, nature: NatureReduction): string {
++  return nature === "texte" ? `${nom}.zip` : nom;
++}
++export function typeReduit(nature: NatureReduction, typeOrigine: string): string {
++  return nature === "texte" ? "application/zip" : typeOrigine;
++}
++
++/** Un gain n'est annoncé que s'il est réel : la réduction doit économiser au moins ce pourcentage. */
++export const GAIN_MIN_REDUCTION = 0.10;
++export function reductionRetenue(tailleOrigine: number, tailleReduite: number): boolean {
++  return tailleOrigine > 0 && tailleReduite > 0 && tailleReduite <= tailleOrigine * (1 - GAIN_MIN_REDUCTION);
++}
++
++/**
++ * Les extensions dont le contenu est DÉJÀ compressé : mises dans une archive, elles ne rétrécissent
++ * pas. Sert à juger, sans rien lire, si un dossier peut gagner quoi que ce soit à être zippé réduit.
++ * (Le PDF n'y est pas : ses flux sont souvent déjà compressés, mais pas toujours — la mesure tranche.)
++ */
++const EXT_DEJA_COMPRESSEES = new Set([
++  "jpg", "jpeg", "png", "gif", "webp", "heic", "avif", "zip", "docx", "xlsx", "pptx", "docm", "xlsm", "pptm", "odt", "ods", "odp", "epub",
++  "mp4", "mov", "mkv", "avi", "webm", "mp3", "m4a", "aac", "ogg", "flac", "7z", "rar", "gz", "bz2", "xz", "zst", "jar", "woff", "woff2",
++]);
++export function extensionDejaCompressee(nom: string): boolean {
++  return EXT_DEJA_COMPRESSEES.has(extensionDe(nom));
++}
++
++/** « 12,4 Mo », « 830 Ko » — la forme que montre le menu. */
++export function formaterTaille(octets: number): string {
++  if (octets >= 1024 ** 3) return `${(octets / 1024 ** 3).toFixed(2).replace(".", ",")} Go`;
++  if (octets >= 1024 ** 2) return `${(octets / 1024 ** 2).toFixed(1).replace(".", ",")} Mo`;
++  if (octets >= 1024) return `${Math.round(octets / 1024)} Ko`;
++  return `${octets} o`;
++}
++
++/** Forme de la réponse de `?qualite=estimer`, partagée par la porte et le bouton. */
++export interface EstimationTelechargement {
++  max: { taille: number; nom: string };
++  /** Absente : aucune version réduite réellement plus petite — « déjà optimisé ». */
++  reduite: { taille: number | null; nom: string; gain: number | null; methode: string } | null;
++  /** Pourquoi pas de version réduite (affiché). */
++  raison?: string;
++}
+diff --git a/src/lib/compression/reduction-cache.ts b/src/lib/compression/reduction-cache.ts
+new file mode 100644
+index 0000000..b25f857
+--- /dev/null
++++ b/src/lib/compression/reduction-cache.ts
+@@ -0,0 +1,103 @@
++import { reduire, type ResultatReduction } from "./reduction";
++import { profilReduction } from "./politique";
++
++/**
++ * LA MÉMOIRE DES RÉDUCTIONS — pour qu'un fichier regardé dans le menu puis téléchargé ne soit pas
++ * réduit DEUX fois.
++ *
++ * Choix assumé : un cache EN MÉMOIRE du processus, borné et à durée de vie courte — pas une table.
++ * La version réduite n'est jamais un fait stocké (elle se recalcule à l'identique depuis
++ * l'original) ; la ranger en base doublerait le stockage et créerait une seconde vérité qui
++ * prendrait du retard (§118.5). Perdue au redémarrage, elle se recalcule : un coût, jamais une erreur.
++ *
++ * Clé = l'EMPREINTE du clair (`FileBlob.sha256`) + la version du réducteur : le contenu change,
++ * la clé change — rien de périmé ne peut être servi. Sans empreinte (ancien fichier sur disque),
++ * pas de cache.
++ */
++
++/** À changer dès que le résultat d'une réduction peut changer pour les mêmes octets. */
++export const VERSION_REDUCTION = 1;
++
++const TTL_MS = 15 * 60_000;
++const BUDGET_OCTETS = 96 * 1024 * 1024;
++/** Au-delà, le verdict (la taille) est gardé mais pas les octets : on recalcule au téléchargement. */
++const MAX_OCTETS_PAR_ENTREE = 24 * 1024 * 1024;
++const DELAI_MAX_MS = 90_000;
++
++interface Entree { resultat: ResultatReduction; garde: boolean; expire: number; poids: number }
++const cache = new Map<string, Entree>();
++const enVol = new Map<string, Promise<ResultatReduction>>();
++let poidsTotal = 0;
++
++function purger() {
++  const maintenant = Date.now();
++  for (const [k, e] of cache) if (e.expire <= maintenant) { poidsTotal -= e.poids; cache.delete(k); }
++  // LRU : la Map garde l'ordre d'insertion ; une lecture ré-insère. On retire les plus anciennes.
++  while (poidsTotal > BUDGET_OCTETS && cache.size > 0) {
++    const [k, e] = cache.entries().next().value as [string, Entree];
++    poidsTotal -= e.poids; cache.delete(k);
++  }
++}
++
++export interface DemandeReduction {
++  /** Empreinte du clair d'origine ; nul = pas de cache. */
++  empreinte: string | null;
++  nom: string;
++  mime: string | null;
++  /** Taille connue sans lire : le profil statique est jugé AVANT de charger quoi que ce soit. */
++  taille: number | null;
++  charger: () => Promise<Buffer | null>;
++}
++
++/** Verdict seul (sans octets) quand le cache le sait déjà. */
++export function verdictEnCache(empreinte: string | null): ResultatReduction | null {
++  if (!empreinte) return null;
++  const e = cache.get(`${VERSION_REDUCTION}:${empreinte}`);
++  return e && e.expire > Date.now() ? e.resultat : null;
++}
++
++/**
++ * La réduction, avec cache et appel unique (deux demandes simultanées du même fichier n'en lancent
++ * qu'une). `avecOctets: false` pour une simple estimation : un verdict en cache suffit.
++ */
++export async function obtenirReduction(d: DemandeReduction, opts: { avecOctets: boolean }): Promise<ResultatReduction> {
++  const profil = profilReduction(d.nom, d.mime, d.taille);
++  if (!profil.nature) return { ok: false, raison: profil.raison || "Déjà optimisé." };
++  const cle = d.empreinte ? `${VERSION_REDUCTION}:${d.empreinte}` : null;
++  if (cle) {
++    const e = cache.get(cle);
++    if (e && e.expire > Date.now()) {
++      // Verdict négatif, ou verdict positif dont on n'a pas besoin des octets, ou octets gardés : on répond.
++      if (!e.resultat.ok || !opts.avecOctets || e.garde) { cache.delete(cle); cache.set(cle, e); return e.resultat; }
++    }
++    const lance = enVol.get(cle);
++    if (lance) return lance;
++  }
++  const travail = (async (): Promise<ResultatReduction> => {
++    const octets = await d.charger();
++    if (!octets) return { ok: false, raison: "Fichier introuvable." };
++    let delai: NodeJS.Timeout | undefined;
++    const limite = new Promise<ResultatReduction>((r) => { delai = setTimeout(() => r({ ok: false, raison: "L'optimisation a pris trop de temps — original seulement." }), DELAI_MAX_MS); });
++    const r = await Promise.race([reduire(octets, d.nom, d.mime), limite]).finally(() => delai && clearTimeout(delai));
++    if (cle) {
++      const garde = !r.ok || r.octets.length <= MAX_OCTETS_PAR_ENTREE;
++      const poids = r.ok && garde ? r.octets.length : 0;
++      purger();
++      const ancien = cache.get(cle);
++      if (ancien) { poidsTotal -= ancien.poids; cache.delete(cle); }
++      cache.set(cle, { resultat: r, garde, expire: Date.now() + TTL_MS, poids });
++      poidsTotal += poids;
++      purger();
++    }
++    return r;
++  })();
++  if (cle) {
++    enVol.set(cle, travail);
++    travail.finally(() => enVol.delete(cle)).catch(() => undefined);
++  }
++  return travail;
++}
++
++/** Pour les bancs : vide la mémoire. */
++export function _viderCacheReductions(): void { cache.clear(); enVol.clear(); poidsTotal = 0; }
++export function _etatCacheReductions(): { entrees: number; octets: number } { return { entrees: cache.size, octets: poidsTotal }; }
+diff --git a/src/lib/compression/reduction.ts b/src/lib/compression/reduction.ts
+new file mode 100644
+index 0000000..feaacff
+--- /dev/null
++++ b/src/lib/compression/reduction.ts
+@@ -0,0 +1,235 @@
++import crypto from "crypto";
++import JSZip from "jszip";
++import { nomReduit, profilReduction, reductionRetenue, typeReduit, type NatureReduction } from "./politique";
++import { zipUneEntree } from "./zip-ecriture";
++import { listerZip, lireEntreeZip, sourceTampon } from "@/lib/storage/zip-lecteur";
++
++/**
++ * LA VERSION « TAILLE RÉDUITE » D'UN FICHIER — ce qu'on propose à côté de l'original au
++ * téléchargement. Elle n'est JAMAIS stockée, ne remplace JAMAIS l'original et ne sert à aucun
++ * contrôle, signature ou contrat : c'est une copie de confort, produite à la demande.
++ *
++ * Principe : pas de perte VISIBLE, et le DIRE quand il y a une perte.
++ *   • JPEG  : ré-encodé à la qualité 80, côté ≤ 4096 px (la seule perte de ce module — dite) ;
++ *   • PNG, TIFF : SANS PERTE (recompression), pixels comparés à l'original avant d'être rendus ;
++ *   • PDF   : réécriture SANS PERTE (objets dédupliqués, flux compressés) par mupdf ; jamais pour un
++ *     PDF signé, chiffré, PDF/A (la conformité d'archivage est ce qu'il faut garder), ni réparé ;
++ *     le nombre de pages et le texte des pages sont relus avant d'être rendus ;
++ *   • Office (DOCX/XLSX/PPTX) : médias internes (JPEG, PNG) optimisés, tout le reste recopié OCTET
++ *     POUR OCTET ; structure et contenus relus ;
++ *   • texte (CSV, JSON, XML, HTML…) : une archive ZIP (deflate 9), relue.
++ *
++ * Tout est refusé (`ok: false`, avec sa raison) quand le résultat n'est pas au moins
++ * `GAIN_MIN_REDUCTION` plus petit, ou quand sa relecture échoue : un « réduit » plus gros, ou
++ * qu'on ne saurait pas rouvrir, serait pire que de ne rien proposer (§118.27).
++ */
++
++export type ResultatReduction =
++  | { ok: true; octets: Buffer; nom: string; mime: string; methode: string }
++  | { ok: false; raison: string };
++
++const ko = (raison: string): { ok: false; raison: string } => ({ ok: false, raison });
++
++/** Une réduction est un travail de processeur : deux à la fois au plus, les autres attendent (une page ne se met pas à ramer pour ça). */
++const MAX_SIMULTANEES = 2;
++let enCours = 0;
++const attente: (() => void)[] = [];
++async function avecPlace<T>(f: () => Promise<T>): Promise<T> {
++  if (enCours >= MAX_SIMULTANEES) await new Promise<void>((r) => attente.push(r));
++  enCours++;
++  try { return await f(); } finally { enCours--; attente.shift()?.(); }
++}
++
++const MAX_COTE_JPEG = 4096;
++const QUALITE_JPEG = 80;
++const MAX_PIXELS_JPEG = 80_000_000;
++/** Un PNG ou un TIFF se compare pixel à pixel : le tampon décodé d'un côté tient en mémoire — 25 Mpx ≈ 100 Mo. */
++const MAX_PIXELS_SANS_PERTE = 25_000_000;
++/** Un document Office qui se décompresse au-delà de cette taille n'est pas ouvert (« bombe » de décompression). */
++const MAX_DECOMPRESSE_OFFICE = 500 * 1024 * 1024;
++const MIN_MEDIA_OFFICE = 100 * 1024;
++const QUALITE_JPEG_OFFICE = 85;
++
++async function sharpModule() { return (await import("sharp")).default; }
++
++/** Empreinte des PIXELS (RGBA 8 bits) : comparer deux images, pas deux fichiers. */
++async function empreintePixels(sharp: Awaited<ReturnType<typeof sharpModule>>, octets: Buffer): Promise<{ hash: string; l: number; h: number }> {
++  const { data, info } = await sharp(octets, { limitInputPixels: MAX_PIXELS_SANS_PERTE }).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
++  return { hash: crypto.createHash("sha256").update(data).digest("hex"), l: info.width, h: info.height };
++}
++
++// ─────────────────────────────────────────── images ────────────────────────────────────────
++
++async function reduireJpeg(buf: Buffer, qualite = QUALITE_JPEG, maxCote = MAX_COTE_JPEG): Promise<ResultatReduction> {
++  if (!(buf[0] === 0xff && buf[1] === 0xd8)) return ko("Le contenu n'est pas un JPEG.");
++  const sharp = await sharpModule();
++  const entree = sharp(buf, { limitInputPixels: MAX_PIXELS_JPEG, failOn: "error" });
++  const meta = await entree.metadata();
++  if (!meta.width || !meta.height) return ko("Image illisible.");
++  const orient = meta.orientation ?? 1;
++  const [lo, ho] = orient >= 5 ? [meta.height, meta.width] : [meta.width, meta.height]; // dimensions APRÈS redressement
++  // `rotate()` applique l'orientation EXIF : sans lui, retirer les métadonnées coucherait la photo.
++  const sortie = await entree.rotate().resize({ width: maxCote, height: maxCote, fit: "inside", withoutEnlargement: true })
++    .jpeg({ quality: qualite, progressive: true }).toBuffer();
++  const m2 = await sharp(sortie).metadata();
++  if (m2.format !== "jpeg" || !m2.width || !m2.height) return ko("Relecture de l'image réduite impossible.");
++  // Même cadrage (au pixel d'arrondi près) : une photo réduite ne change pas de proportions.
++  if (Math.abs(m2.width / m2.height - lo / ho) > 0.01 * (lo / ho)) return ko("Proportions inattendues après réduction.");
++  return { ok: true, octets: sortie, nom: "", mime: "image/jpeg", methode: `JPEG qualité ${qualite}${m2.width < lo ? `, côté ≤ ${maxCote} px` : ""}` };
++}
++
++async function reduireSansPerte(buf: Buffer, format: "png" | "tiff"): Promise<ResultatReduction> {
++  const sharp = await sharpModule();
++  const meta = await sharp(buf, { limitInputPixels: MAX_PIXELS_SANS_PERTE }).metadata().catch(() => null);
++  if (!meta || !meta.width || !meta.height) return ko("Image illisible ou trop grande pour être optimisée ici.");
++  if ((meta.pages ?? 1) > 1) return ko("Image animée ou à plusieurs pages : conservée telle quelle.");
++  if (meta.depth !== "uchar") return ko("Profondeur de couleur élevée (16 bits) : conservée telle quelle.");
++  const avant = await empreintePixels(sharp, buf);
++  const base = sharp(buf, { limitInputPixels: MAX_PIXELS_SANS_PERTE });
++  const sortie = format === "png"
++    ? await base.png({ compressionLevel: 9, adaptiveFiltering: true, effort: 3 }).toBuffer()
++    : await base.tiff({ compression: "deflate", predictor: "horizontal" }).toBuffer();
++  // SANS PERTE se PROUVE : les pixels décodés des deux côtés doivent être identiques.
++  const apres = await empreintePixels(sharp, sortie);
++  if (apres.hash !== avant.hash || apres.l !== avant.l || apres.h !== avant.h) return ko("Les pixels ne retombent pas à l'identique : version réduite écartée.");
++  return { ok: true, octets: sortie, nom: "", mime: format === "png" ? "image/png" : "image/tiff", methode: `${format.toUpperCase()} recompressé sans perte` };
++}
++
++// ───────────────────────────────────────────── PDF ─────────────────────────────────────────
++
++const PAGES_COMPAREES = 40;
++
++async function reduirePdf(buf: Buffer): Promise<ResultatReduction> {
++  if (buf.subarray(0, 5).toString("latin1") !== "%PDF-") return ko("Le contenu n'est pas un PDF.");
++  // Ce qu'une réécriture RUINERAIT, détecté sur les octets avant toute ouverture.
++  if (buf.includes("/ByteRange")) return ko("PDF signé électroniquement : la réécriture invaliderait la signature — original seulement.");
++  if (buf.includes("/Encrypt")) return ko("PDF chiffré : conservé tel quel.");
++  if (buf.includes("pdfaid:part")) return ko("PDF/A : la conformité d'archivage est conservée — original seulement.");
++  const mupdf = await import("mupdf");
++  let doc: ReturnType<typeof mupdf.Document.openDocument> | null = null;
++  let relu: ReturnType<typeof mupdf.Document.openDocument> | null = null;
++  try {
++    doc = mupdf.Document.openDocument(new Uint8Array(buf), "application/pdf");
++    const pdf = doc.asPDF();
++    if (!pdf) return ko("Ce n'est pas un PDF lisible.");
++    if (pdf.needsPassword()) return ko("PDF protégé par mot de passe : conservé tel quel.");
++    if (pdf.wasRepaired()) return ko("PDF endommagé (réparé à l'ouverture) : conservé tel quel.");
++    const pages = pdf.countPages();
++    const sortie = Buffer.from(pdf.saveToBuffer("garbage=deduplicate,compress,objstms").asUint8Array());
++    relu = mupdf.Document.openDocument(new Uint8Array(sortie), "application/pdf");
++    if (relu.countPages() !== pages) return ko("Le nombre de pages ne retombe pas : version réduite écartée.");
++    // RELIRE : le texte des premières et dernières pages doit être identique (la réécriture ne touche pas au contenu).
++    const idx = new Set<number>();
++    for (let i = 0; i < Math.min(pages, PAGES_COMPAREES / 2); i++) idx.add(i);
++    for (let i = Math.max(0, pages - PAGES_COMPAREES / 2); i < pages; i++) idx.add(i);
++    for (const i of idx) {
++      const a = pdf.loadPage(i); const b = relu.loadPage(i);
++      try {
++        if (a.toStructuredText().asText() !== b.toStructuredText().asText()) return ko(`Le texte de la page ${i + 1} ne retombe pas : version réduite écartée.`);
++        const ra = a.getBounds(); const rb = b.getBounds();
++        if (ra.join(",") !== rb.join(",")) return ko(`Le format de la page ${i + 1} ne retombe pas : version réduite écartée.`);
++      } finally { a.destroy?.(); b.destroy?.(); }
++    }
++    return { ok: true, octets: sortie, nom: "", mime: "application/pdf", methode: "PDF réécrit sans perte" };
++  } catch (e) {
++    return ko(`PDF non optimisable ici (${e instanceof Error ? e.message.slice(0, 80) : "erreur"}).`);
++  } finally {
++    doc?.destroy?.(); relu?.destroy?.();
++  }
++}
++
++// ────────────────────────────────────────── Office ─────────────────────────────────────────
++
++const MEDIA_OFFICE = /^(word|xl|ppt)\/media\/.+\.(jpe?g|png)$/i;
++const DEJA_COMPRESSE = /\.(jpe?g|png|gif|webp|zip|docx|xlsx|pptx|mp4|mp3|m4a|mov|7z|gz)$/i;
++
++async function reduireOffice(buf: Buffer): Promise<ResultatReduction> {
++  if (!(buf[0] === 0x50 && buf[1] === 0x4b)) return ko("Le contenu n'est pas un document Office.");
++  let source: JSZip;
++  try { source = await JSZip.loadAsync(buf); } catch { return ko("Archive Office illisible : conservée telle quelle."); }
++  const noms = Object.keys(source.files);
++  if (!source.files["[Content_Types].xml"]) return ko("Document Office sans table des types : conservé tel quel.");
++  const sortie = new JSZip();
++  const modifies = new Map<string, "jpeg" | "png">();
++  let decompresse = 0;
++  for (const n of noms) {
++    const e = source.files[n];
++    if (e.dir) { sortie.file(n, "", { dir: true, date: e.date, createFolders: false }); continue; }
++    let data: Buffer = await e.async("nodebuffer");
++    decompresse += data.length;
++    if (decompresse > MAX_DECOMPRESSE_OFFICE) return ko("Document trop volumineux une fois décompressé : conservé tel quel.");
++    if (MEDIA_OFFICE.test(n) && data.length >= MIN_MEDIA_OFFICE) {
++      const jpeg = /\.jpe?g$/i.test(n);
++      // Même format en sortie : les relations et les types du document restent justes sans y toucher.
++      const r = jpeg ? await reduireJpeg(data, QUALITE_JPEG_OFFICE, MAX_COTE_JPEG).catch(() => null) : await reduireSansPerte(data, "png").catch(() => null);
++      if (r?.ok && reductionRetenue(data.length, r.octets.length)) { data = r.octets; modifies.set(n, jpeg ? "jpeg" : "png"); }
++    }
++    // Les médias déjà compressés sont STOCKÉS : le deflate ne les réduit pas et les alourdit parfois.
++    sortie.file(n, data, { date: e.date, createFolders: false, compression: DEJA_COMPRESSE.test(n) ? "STORE" : "DEFLATE", compressionOptions: { level: 9 } });
++  }
++  const octets = await sortie.generateAsync({ type: "nodebuffer", platform: "UNIX" });
++  // RELIRE : mêmes entrées, dans le même ordre ; tout ce qu'on n'a pas touché est identique OCTET POUR OCTET ;
++  // chaque média touché se décode, dans son format d'origine.
++  let relu: JSZip;
++  try { relu = await JSZip.loadAsync(octets); } catch { return ko("Relecture du document réduit impossible : version écartée."); }
++  const noms2 = Object.keys(relu.files);
++  if (noms2.length !== noms.length || noms2.some((n, i) => n !== noms[i])) return ko("La liste des fichiers du document ne retombe pas : version écartée.");
++  const sharp = await sharpModule();
++  for (const n of noms) {
++    if (source.files[n].dir) continue;
++    const apres = await relu.files[n].async("nodebuffer");
++    if (modifies.has(n)) {
++      const m = await sharp(apres).metadata().catch(() => null);
++      if (!m || m.format !== modifies.get(n)) return ko(`L'image « ${n} » ne se relit pas : version écartée.`);
++    } else {
++      const avant = await source.files[n].async("nodebuffer");
++      if (!apres.equals(avant)) return ko(`« ${n} » ne retombe pas à l'identique : version écartée.`);
++    }
++  }
++  const methode = modifies.size > 0 ? `${modifies.size} image(s) du document optimisée(s), le reste intact` : "document recompressé, contenu intact";
++  return { ok: true, octets, nom: "", mime: "", methode };
++}
++
++// ─────────────────────────────────────────── texte ─────────────────────────────────────────
++
++async function reduireTexte(buf: Buffer, nom: string): Promise<ResultatReduction> {
++  const archive = await zipUneEntree(nom, buf);
++  // RELIRE avec notre propre lecteur de ZIP (indépendant de l'écrivain) : une entrée, mêmes octets.
++  const src = sourceTampon(archive);
++  const { entrees } = await listerZip(src);
++  if (entrees.length !== 1) return ko("Archive inattendue : version écartée.");
++  const relu = await lireEntreeZip(src, entrees[0], buf.length + 1);
++  if (!relu.equals(buf)) return ko("Le texte archivé ne retombe pas à l'identique : version écartée.");
++  return { ok: true, octets: archive, nom: "", mime: "application/zip", methode: "archive ZIP compressée (deflate 9)" };
++}
++
++// ───────────────────────────────────────── point d'entrée ───────────────────────────────────
++
++/**
++ * Produit la version réduite d'un fichier, ou dit pourquoi pas. Le profil statique est jugé
++ * d'abord (sans rien lire de plus) ; l'opération elle-même passe par une file de deux travaux.
++ */
++export async function reduire(octets: Buffer, nom: string, mime: string | null): Promise<ResultatReduction> {
++  const profil = profilReduction(nom, mime, octets.length);
++  if (!profil.nature) return ko(profil.raison || "Déjà optimisé.");
++  const nature: NatureReduction = profil.nature;
++  const brut = await avecPlace(async (): Promise<ResultatReduction> => {
++    try {
++      switch (nature) {
++        case "jpeg": return await reduireJpeg(octets);
++        case "png": return await reduireSansPerte(octets, "png");
++        case "tiff": return await reduireSansPerte(octets, "tiff");
++        case "pdf": return await reduirePdf(octets);
++        case "office": return await reduireOffice(octets);
++        case "texte": return await reduireTexte(octets, nom);
++        default: return ko("Déjà optimisé.");
++      }
++    } catch (e) {
++      return ko(`Optimisation impossible (${e instanceof Error ? e.message.slice(0, 80) : "erreur"}) — original seulement.`);
++    }
++  });
++  if (!brut.ok) return brut;
++  // L'exigence de fond : plus petit d'au moins GAIN_MIN_REDUCTION. Sinon, pas d'offre.
++  if (!reductionRetenue(octets.length, brut.octets.length)) return ko("Déjà optimisé : aucune version sensiblement plus petite.");
++  return { ...brut, nom: nomReduit(nom, nature), mime: brut.mime || typeReduit(nature, mime ?? "application/octet-stream") };
++}
+diff --git a/src/lib/compression/stockage.test.ts b/src/lib/compression/stockage.test.ts
+new file mode 100644
+index 0000000..b9fa309
+--- /dev/null
++++ b/src/lib/compression/stockage.test.ts
+@@ -0,0 +1,262 @@
++import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
++import crypto from "crypto";
++import fs from "fs";
++import os from "os";
++import path from "path";
++import { prisma } from "@/lib/prisma";
++import { getBlob, infoBlob, putBlob, putBlobFromFile, releaseBlob, sha256 } from "@/lib/drive-storage";
++import { decider, decompresser } from "./flux";
++import { GAIN_MIN } from "./politique";
++
++/**
++ * LA COMPRESSION AU REPOS, PAR LES VRAIS POINTS D'ENTRÉE (`putBlob`, `putBlobFromFile`, `getBlob`)
++ * sur la vraie base. Chaque cas nomme ce qui le ferait tomber (§118.17) ; la série de sabotages de
++ * §118.214 les rejoue un à un.
++ */
++
++const ids: string[] = [];
++const fichiers: string[] = [];
++const marque = crypto.randomBytes(6).toString("hex"); // chaque cas écrit un contenu UNIQUE : pas de déduplication avec un voisin
++
++const csv = (lignes: number, graine = marque) => {
++  const out: string[] = ["id;lot;produit;resultat;commentaire"];
++  for (let i = 0; i < lignes; i++) out.push(`${i};L${100000 + (i % 977)};produit-${i % 13};${(Math.sin(i) * 100).toFixed(3)};note ${graine} ${i % 29}`);
++  return Buffer.from(out.join("\n"));
++};
++
++async function ligne(blobId: string) {
++  return prisma.fileBlob.findUniqueOrThrow({ where: { id: blobId }, select: { codec: true, storedSize: true, size: true, sha256: true, data: true, storageKey: true } });
++}
++
++beforeAll(async () => { await prisma.$queryRaw`SELECT 1`; });
++afterEach(() => { delete process.env.REG_BLOB_CHUNK_MB; });
++afterAll(async () => {
++  for (const id of ids) await releaseBlob(id).catch(() => undefined);
++  await prisma.fileBlob.deleteMany({ where: { id: { in: ids } } }).catch(() => undefined);
++  for (const f of fichiers) fs.rmSync(f, { force: true });
++});
++
++describe("compression au repos — aller-retour exact", () => {
++  it("un CSV est stocké compressé, et RELU octet pour octet — l'empreinte reste celle du clair", async () => {
++    const plain = csv(40_000);
++    const r = await putBlob(plain);
++    ids.push(r.blobId);
++    const l = await ligne(r.blobId);
++    expect(l.codec).toBe("br");
++    expect(l.size).toBe(plain.length);
++    expect(l.sha256).toBe(sha256(plain));
++    expect(l.storedSize!).toBeLessThan(plain.length * (1 - GAIN_MIN));
++    expect(r.storedSize).toBe(l.storedSize);
++    const lu = await getBlob(r.blobId);
++    expect(lu).not.toBeNull();
++    expect(lu!.equals(plain)).toBe(true);
++    // Ce que la base tient réellement est PLUS PETIT que le clair (le chiffrement ajoute 16 octets de tag).
++    expect(Buffer.from(l.data!).length).toBe(l.storedSize! + 16);
++    expect(Buffer.from(l.data!).length).toBeLessThan(plain.length);
++  }, 120_000);
++
++  it("`infoBlob` rend l'empreinte du clair, la taille du clair et le codec — sans lire le fichier", async () => {
++    const plain = csv(8_000, `${marque}-info`);
++    const r = await putBlob(plain);
++    ids.push(r.blobId);
++    const info = await infoBlob(r.blobId);
++    expect(info).toEqual({ sha256: sha256(plain), size: plain.length, codec: "br", storedSize: r.storedSize });
++  });
++
++  it("un contenu DÉJÀ compressé (ZIP, JPEG, MP4) reste brut — jamais recompressé, jamais gonflé", async () => {
++    const aleatoire = crypto.randomBytes(300_000);
++    for (const [tete, nom] of [
++      [Buffer.from([0x50, 0x4b, 0x03, 0x04]), "zip"],
++      [Buffer.from([0xff, 0xd8, 0xff, 0xe0]), "jpeg"],
++      [Buffer.from("0000001866747970", "hex"), "mp4"],
++    ] as const) {
++      const plain = Buffer.concat([tete, aleatoire.subarray(0, 250_000), Buffer.from(`${nom}-${marque}`)]);
++      const r = await putBlob(plain);
++      ids.push(r.blobId);
++      const l = await ligne(r.blobId);
++      expect(l.codec, nom).toBeNull();
++      expect(l.storedSize, nom).toBeNull();
++      expect((await getBlob(r.blobId))!.equals(plain), nom).toBe(true);
++      expect(Buffer.from(l.data!).length, nom).toBe(plain.length + 16); // exactement comme avant la compression
++    }
++  });
++
++  it("des octets incompressibles quelconques restent bruts (l'essai sur échantillon les écarte)", async () => {
++    const plain = Buffer.concat([crypto.randomBytes(400_000), Buffer.from(marque)]);
++    const d = await decider(plain);
++    expect(d).toEqual({ compresse: false, raison: "echantillon-incompressible" });
++    const r = await putBlob(plain);
++    ids.push(r.blobId);
++    expect((await ligne(r.blobId)).codec).toBeNull();
++  });
++
++  it("un petit fichier (< 4 Ko) n'est pas compressé : le gain absolu ne vaut pas la décompression", async () => {
++    const plain = csv(60, `${marque}-petit`);
++    expect(plain.length).toBeLessThan(4096);
++    const r = await putBlob(plain);
++    ids.push(r.blobId);
++    const l = await ligne(r.blobId);
++    expect(l.codec).toBeNull();
++    expect((await getBlob(r.blobId))!.equals(plain)).toBe(true);
++  });
++
++  it("un échantillon prometteur dont le fichier ENTIER n'économise pas GAIN_MIN reste brut (gain réel, pas estimé)", async () => {
++    // 30 Ko très répétitifs au début (l'échantillon les voit), 370 Ko aléatoires derrière : ~7,5 % de gain réel.
++    const plain = Buffer.concat([Buffer.alloc(30_000, "abcdefgh"), crypto.randomBytes(370_000)]);
++    const d = await decider(plain);
++    expect(d).toEqual({ compresse: false, raison: "gain-insuffisant" });
++  });
++
++  it("deux dépôts du même contenu : un seul blob, déjà compressé, relu identique (la déduplication se décide sur le clair)", async () => {
++    const plain = csv(12_000, `${marque}-dedup`);
++    const a = await putBlob(plain);
++    const b = await putBlob(plain);
++    ids.push(a.blobId);
++    expect(b.deduplicated).toBe(true);
++    expect(b.blobId).toBe(a.blobId);
++    expect((await getBlob(b.blobId))!.equals(plain)).toBe(true);
++  });
++});
++
++describe("rétrocompatibilité : méthode absente = brut", () => {
++  it("une ligne d'avant (codec et storedSize nuls) se lit telle quelle", async () => {
++    const plain = csv(50, `${marque}-ancien`); // petit : stocké brut, comme tout fichier d'avant la compression
++    const r = await putBlob(plain);
++    ids.push(r.blobId);
++    const l = await ligne(r.blobId);
++    expect(l.codec).toBeNull();
++    expect(l.storedSize).toBeNull();
++    expect((await getBlob(r.blobId))!.equals(plain)).toBe(true);
++  });
++
++  it("un codec que cette version ne connaît pas est REFUSÉ à la lecture — jamais servi tel quel", async () => {
++    const plain = csv(9_000, `${marque}-codec`);
++    const r = await putBlob(plain);
++    ids.push(r.blobId);
++    await prisma.fileBlob.update({ where: { id: r.blobId }, data: { codec: "zz" } });
++    await expect(getBlob(r.blobId)).rejects.toThrow(/Codec de stockage inconnu « zz »/);
++    await prisma.fileBlob.update({ where: { id: r.blobId }, data: { codec: "br" } });
++    expect((await getBlob(r.blobId))!.equals(plain)).toBe(true);
++  });
++
++  it("un contenu décompressé qui ne retombe pas sur l'empreinte est REFUSÉ (corruption)", async () => {
++    const plain = csv(9_000, `${marque}-empreinte`);
++    const r = await putBlob(plain);
++    ids.push(r.blobId);
++    const vraie = (await ligne(r.blobId)).sha256;
++    await prisma.fileBlob.update({ where: { id: r.blobId }, data: { sha256: "0".repeat(64) } });
++    await expect(getBlob(r.blobId)).rejects.toThrow(/Empreinte/);
++    await prisma.fileBlob.update({ where: { id: r.blobId }, data: { sha256: vraie } });
++  });
++
++  it("`decompresser` borne la sortie : une taille déclarée trop petite lève, une « bombe » ne gonfle pas", async () => {
++    const plain = Buffer.alloc(2_000_000, "a");
++    const d = await decider(plain);
++    expect(d.compresse).toBe(true);
++    if (!d.compresse) return;
++    await expect(decompresser("br", d.octets, 1000)).rejects.toThrow();
++    await expect(decompresser("br", d.octets, plain.length)).resolves.toHaveLength(plain.length);
++  });
++});
++
++describe("tranches en base (gros contenu)", () => {
++  it("un contenu compressé de plus d'une tranche s'écrit en tranches et se relit exactement", async () => {
++    process.env.REG_BLOB_CHUNK_MB = "1";
++    // base64 d'octets aléatoires : ~25 % de gain, donc compressé (~3,9 Mo) ET plus grand qu'une tranche d'1 Mo.
++    const plain = Buffer.from(crypto.randomBytes(5_000_000).toString("base64"));
++    const r = await putBlob(plain);
++    ids.push(r.blobId);
++    const l = await ligne(r.blobId);
++    expect(l.codec).toBe("br");
++    expect(l.data).toBeNull();
++    const n = await prisma.fileBlobChunk.count({ where: { blobId: r.blobId } });
++    expect(n).toBeGreaterThan(1);
++    expect((await getBlob(r.blobId))!.equals(plain)).toBe(true);
++    // Intégrité des tranches : une tranche manquante ne rend PAS un fichier tronqué.
++    await prisma.fileBlobChunk.deleteMany({ where: { blobId: r.blobId, idx: 1 } });
++    expect(await getBlob(r.blobId)).toBeNull();
++  });
++});
++
++describe("chemin fichier : en flux, mémoire bornée", () => {
++  const ecrire = (nom: string, buf: Buffer) => { const p = path.join(os.tmpdir(), `amd-test-${marque}-${nom}`); fs.writeFileSync(p, buf); fichiers.push(p); return p; };
++  const residus = () => fs.readdirSync(os.tmpdir()).filter((f) => f.startsWith("amd-cmp-"));
++
++  it("un fichier compressible est stocké compressé, relu identique, et AUCUN fichier temporaire ne reste", async () => {
++    const plain = csv(60_000, `${marque}-fichier`);
++    const avant = residus().length;
++    const r = await putBlobFromFile(ecrire("a.csv", plain));
++    ids.push(r.blobId);
++    const l = await ligne(r.blobId);
++    expect(l.codec).toBe("br");
++    expect(l.size).toBe(plain.length);
++    expect(r.storedSize).toBe(l.storedSize);
++    expect((await getBlob(r.blobId))!.equals(plain)).toBe(true);
++    expect(residus().length).toBe(avant);
++  });
++
++  it("un fichier déjà compressé reste brut sur le chemin fichier aussi", async () => {
++    const plain = Buffer.concat([Buffer.from([0x50, 0x4b, 0x03, 0x04]), crypto.randomBytes(300_000), Buffer.from(marque)]);
++    const r = await putBlobFromFile(ecrire("b.zip", plain));
++    ids.push(r.blobId);
++    expect((await ligne(r.blobId)).codec).toBeNull();
++    expect((await getBlob(r.blobId))!.equals(plain)).toBe(true);
++  });
++
++  it("par tranches en base : le fichier compressé relit exactement", async () => {
++    process.env.REG_BLOB_CHUNK_MB = "1";
++    const plain = Buffer.from(crypto.randomBytes(4_000_000).toString("base64"));
++    const r = await putBlobFromFile(ecrire("c.txt", plain));
++    ids.push(r.blobId);
++    const l = await ligne(r.blobId);
++    expect(l.codec).toBe("br");
++    expect(await prisma.fileBlobChunk.count({ where: { blobId: r.blobId } })).toBeGreaterThan(1);
++    expect((await getBlob(r.blobId))!.equals(plain)).toBe(true);
++  });
++
++  it("une empreinte fournie qui ne correspond pas au fichier : le contenu est stocké BRUT (la relecture refuse de compresser)", async () => {
++    const plain = csv(20_000, `${marque}-sha`);
++    const p = ecrire("d.csv", plain);
++    const r = await putBlobFromFile(p, { sha256: "f".repeat(64) });
++    ids.push(r.blobId);
++    expect((await ligne(r.blobId)).codec).toBeNull(); // la vérification en flux a échoué : pas de contenu compressé non vérifié
++  });
++
++  it("MÉMOIRE BORNÉE : 160 Mo de CSV passent en flux sans que le pic dépasse une fraction du fichier", async () => {
++    // Le fichier est écrit en flux (jamais entier en mémoire dans le test non plus).
++    const p = path.join(os.tmpdir(), `amd-test-${marque}-gros.csv`);
++    fichiers.push(p);
++    const fd = fs.openSync(p, "w");
++    const bloc = csv(120_000, `${marque}-gros`);
++    let ecrit = 0;
++    while (ecrit < 160 * 1024 * 1024) {
++      // un en-tête de bloc unique : deux blocs consécutifs ne sont pas identiques
++      fs.writeSync(fd, Buffer.concat([Buffer.from(`# bloc ${ecrit}\n`), bloc, Buffer.from("\n")]));
++      ecrit = fs.fstatSync(fd).size;
++    }
++    fs.closeSync(fd);
++    const taille = fs.statSync(p).size;
++    // Les tranches en base sont écrites par Prisma, dont le moteur natif multiplie la taille d'un
++    // paramètre bytea : mesuré, la croissance de la mémoire suit la TRANCHE (16 Mo par défaut), pas
++    // le fichier. Le cas la ramène à 4 Mo pour isoler ce qui nous appartient — la compression.
++    process.env.REG_BLOB_CHUNK_MB = "4";
++    global.gc?.();
++    const base = process.memoryUsage().rss;
++    let pic = base;
++    const t = setInterval(() => { pic = Math.max(pic, process.memoryUsage().rss); }, 20);
++    let r;
++    try { r = await putBlobFromFile(p); } finally { clearInterval(t); }
++    ids.push(r.blobId);
++    const l = await ligne(r.blobId);
++    expect(l.codec).toBe("br");
++    expect(l.storedSize!).toBeLessThan(taille * 0.5);
++    // Charger le fichier entier coûterait ≥ 160 Mo d'un seul tenant ; le flux en tient une fraction.
++    const croissance = pic - base;
++    expect(croissance, `pic de mémoire +${Math.round(croissance / 1048576)} Mo pour un fichier de ${Math.round(taille / 1048576)} Mo`).toBeLessThan(taille * 0.75);
++    expect(residus().length).toBe(0);
++    // Relu : la taille et l'empreinte du clair d'origine.
++    const lu = await getBlob(r.blobId);
++    expect(lu!.length).toBe(taille);
++    expect(sha256(lu!)).toBe(l.sha256);
++  }, 120_000);
++});
+diff --git a/src/lib/compression/zip-ecriture.test.ts b/src/lib/compression/zip-ecriture.test.ts
+new file mode 100644
+index 0000000..644fcb1
+--- /dev/null
++++ b/src/lib/compression/zip-ecriture.test.ts
+@@ -0,0 +1,145 @@
++import { describe, expect, it } from "vitest";
++import crypto from "crypto";
++import fs from "fs";
++import os from "os";
++import path from "path";
++import { execFileSync } from "child_process";
++import JSZip from "jszip";
++import { crc32, ecrireZip, enFluxWeb, ErreurZipLimite, LIMITE_ZIP_OCTETS, zipUneEntree, type EntreeZip } from "./zip-ecriture";
++import { listerZip, lireEntreeZip, sourceTampon } from "@/lib/storage/zip-lecteur";
++
++/**
++ * L'ÉCRIVAIN DE ZIP EN FLUX. Trois lecteurs INDÉPENDANTS le jugent — JSZip (avec contrôle des CRC),
++ * notre lecteur par plages, et le `zipfile` de Python : un écrivain jugé par son propre lecteur
++ * ne prouverait que sa cohérence avec lui-même.
++ */
++
++const collecter = async (it: AsyncIterable<Buffer>): Promise<Buffer> => { const m: Buffer[] = []; for await (const b of it) m.push(b); return Buffer.concat(m); };
++const texte = (n: number, graine = "") => Buffer.from(Array.from({ length: n }, (_, i) => `ligne ${graine} ${i} lot L${i % 977} résultat ${(Math.sin(i) * 100).toFixed(3)}`).join("\n"));
++
++function testerAvecPython(archive: Buffer): string {
++  const f = path.join(os.tmpdir(), `amd-zip-${crypto.randomBytes(6).toString("hex")}.zip`);
++  fs.writeFileSync(f, archive);
++  try {
++    return execFileSync("python3", ["-c", "import zipfile,sys; z=zipfile.ZipFile(sys.argv[1]); r=z.testzip(); print('OK' if r is None else 'MAUVAIS:'+r, len(z.namelist()))", f]).toString().trim();
++  } finally { fs.rmSync(f, { force: true }); }
++}
++
++describe("crc32", () => {
++  it("retombe sur la valeur connue de « 123456789 » (0xCBF43926), en un bloc comme en deux", () => {
++    expect(crc32(Buffer.from("123456789"))).toBe(0xcbf43926);
++    expect(crc32(Buffer.from("6789"), crc32(Buffer.from("12345")))).toBe(0xcbf43926);
++  });
++});
++
++describe("ecrireZip — qualité maximale (stocké) : chaque fichier, octet pour octet", () => {
++  it("les trois lecteurs relisent les mêmes octets, noms accentués et dossiers compris", async () => {
++    const entrees: EntreeZip[] = [
++      { chemin: "Module 1/lettre.txt", contenu: texte(2000, "a") },
++      { chemin: "Module 3/données-é.csv", contenu: texte(5000, "b") },
++      { chemin: "vide.bin", contenu: Buffer.alloc(0) },
++      { chemin: "photo.jpg", contenu: Buffer.concat([Buffer.from([0xff, 0xd8, 0xff]), crypto.randomBytes(50_000)]) },
++    ];
++    const zip = await collecter(ecrireZip(entrees, "stocke"));
++    // 1. JSZip, avec contrôle de CRC
++    const js = await JSZip.loadAsync(zip, { checkCRC32: true });
++    for (const e of entrees) expect(Buffer.from(await js.files[e.chemin].async("nodebuffer")).equals(e.contenu as Buffer), e.chemin).toBe(true);
++    // 2. notre lecteur par plages
++    const src = sourceTampon(zip);
++    const { entrees: lues } = await listerZip(src);
++    expect(lues.map((l) => l.chemin).sort()).toEqual(entrees.map((e) => e.chemin).sort());
++    for (const l of lues.filter((x) => !x.dossier)) {
++      expect(l.methode, l.chemin).toBe(0); // STOCKÉ : aucune compression en qualité maximale
++      expect((await lireEntreeZip(src, l)).equals(entrees.find((e) => e.chemin === l.chemin)!.contenu as Buffer), l.chemin).toBe(true);
++    }
++    // 3. Python
++    expect(testerAvecPython(zip)).toBe("OK 4");
++    // Stocké : la taille de l'archive est la somme des fichiers + des en-têtes (jamais moins).
++    const somme = entrees.reduce((s, e) => s + (e.contenu as Buffer).length, 0);
++    expect(zip.length).toBeGreaterThan(somme);
++    expect(zip.length).toBeLessThan(somme + 1000);
++  });
++});
++
++describe("ecrireZip — taille réduite (deflate 9) : jamais de gonflement", () => {
++  it("le texte rétrécit, ce qui est déjà compressé ou aléatoire est STOCKÉ tel quel, et tout se relit", async () => {
++    const csv = texte(20_000, "c");
++    const aleatoire = Buffer.concat([Buffer.from("PAS-UN-FORMAT"), crypto.randomBytes(80_000)]);
++    const jpeg = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff]), crypto.randomBytes(80_000)]);
++    const zip = await collecter(ecrireZip([
++      { chemin: "a.csv", contenu: csv }, { chemin: "b.dat", contenu: aleatoire }, { chemin: "c.jpg", contenu: jpeg },
++    ], "max"));
++    const { entrees } = await listerZip(sourceTampon(zip));
++    const par = Object.fromEntries(entrees.map((e) => [e.chemin, e]));
++    expect(par["a.csv"].methode).toBe(8);
++    expect(par["a.csv"].tailleCompressee).toBeLessThan(csv.length * 0.35);
++    expect(par["b.dat"].methode, "aléatoire : le deflate gonflerait, on stocke").toBe(0);
++    expect(par["b.dat"].tailleCompressee).toBe(aleatoire.length);
++    expect(par["c.jpg"].methode, "déjà compressé : stocké").toBe(0);
++    const js = await JSZip.loadAsync(zip, { checkCRC32: true });
++    expect(Buffer.from(await js.files["a.csv"].async("nodebuffer")).equals(csv)).toBe(true);
++    expect(Buffer.from(await js.files["b.dat"].async("nodebuffer")).equals(aleatoire)).toBe(true);
++    expect(testerAvecPython(zip)).toBe("OK 3");
++    // L'archive réduite est plus petite que l'archive maximale du même contenu.
++    const max = await collecter(ecrireZip([{ chemin: "a.csv", contenu: csv }, { chemin: "b.dat", contenu: aleatoire }, { chemin: "c.jpg", contenu: jpeg }], "stocke"));
++    expect(zip.length).toBeLessThan(max.length * 0.7);
++  });
++
++  it("`zipUneEntree` : une entrée, relue", async () => {
++    const csv = texte(3000, "d");
++    const z = await zipUneEntree("rapport.csv", csv);
++    const js = await JSZip.loadAsync(z, { checkCRC32: true });
++    expect(Buffer.from(await js.files["rapport.csv"].async("nodebuffer")).equals(csv)).toBe(true);
++  });
++});
++
++describe("ecrireZip — entrées en flux (objet volumineux)", () => {
++  it("une entrée annoncée de N octets, lue en flux, s'écrit avec son descripteur et se relit ; une taille fausse ABANDONNE l'archive", async () => {
++    const gros = crypto.randomBytes(3_000_000);
++    async function* morceaux(b: Buffer) { for (let o = 0; o < b.length; o += 64 * 1024) yield b.subarray(o, o + 64 * 1024); }
++    const zip = await collecter(ecrireZip([
++      { chemin: "avant.txt", contenu: texte(100, "e") },
++      { chemin: "dossier/gros.bin", contenu: { flux: morceaux(gros), taille: gros.length } },
++      { chemin: "apres.txt", contenu: texte(100, "f") },
++    ], "stocke"));
++    const js = await JSZip.loadAsync(zip, { checkCRC32: true });
++    expect(Buffer.from(await js.files["dossier/gros.bin"].async("nodebuffer")).equals(gros)).toBe(true);
++    expect(testerAvecPython(zip)).toBe("OK 3");
++    await expect(collecter(ecrireZip([{ chemin: "x", contenu: { flux: morceaux(gros), taille: gros.length + 10 } }], "stocke"))).rejects.toThrow(/taille lue/);
++  });
++});
++
++describe("ecrireZip — limites dites, jamais d'archive tronquée", () => {
++  it("une entrée annoncée à 4 Go ou plus est REFUSÉE (pas de Zip64) ; la limite totale est un chiffre", async () => {
++    await expect(collecter(ecrireZip([{ chemin: "x", contenu: { flux: (async function* () { /* jamais lu */ })(), taille: 4 * 1024 ** 3 } }], "stocke"))).rejects.toBeInstanceOf(ErreurZipLimite);
++    expect(LIMITE_ZIP_OCTETS).toBeLessThan(4 * 1024 ** 3);
++  });
++
++  it("les chemins dangereux sont assainis (jamais de « .. » ni de chemin absolu)", async () => {
++    const zip = await collecter(ecrireZip([{ chemin: "../../etc/passwd", contenu: Buffer.from("x") }, { chemin: "/abs/f.txt", contenu: Buffer.from("y") }], "stocke"));
++    const { entrees } = await listerZip(sourceTampon(zip));
++    expect(entrees.map((e) => e.chemin)).toEqual(["etc/passwd", "abs/f.txt"]);
++  });
++});
++
++describe("mémoire bornée : une archive de plusieurs dizaines de Mo se produit entrée par entrée", () => {
++  it("60 entrées de 2 Mo (≈ 120 Mo) : la mémoire vivante ne suit pas la taille de l'archive", async () => {
++    const entrees = (async function* (): AsyncGenerator<EntreeZip> {
++      for (let i = 0; i < 60; i++) yield { chemin: `f${i}.csv`, contenu: texte(40_000, `m${i}`) };
++    })();
++    global.gc?.();
++    const base = process.memoryUsage().arrayBuffers;
++    let pic = base; let total = 0;
++    for await (const b of ecrireZip(entrees, "max")) { total += b.length; pic = Math.max(pic, process.memoryUsage().arrayBuffers); }
++    // Les fichiers font ~2 Mo chacun ; l'archive réduite pèse bien moins que leur somme, et le pic reste de l'ordre d'une entrée.
++    expect(total).toBeGreaterThan(1_000_000);
++    expect(pic - base, `pic +${Math.round((pic - base) / 1048576)} Mo`).toBeLessThan(40 * 1024 * 1024);
++  }, 60_000);
++
++  it("`enFluxWeb` propage une erreur de la source au lecteur (le téléchargement ÉCHOUE, il n'est pas tronqué en silence)", async () => {
++    async function* casse(): AsyncGenerator<Buffer> { yield Buffer.from("début"); throw new Error("blob illisible"); }
++    const lecteur = enFluxWeb(casse()).getReader();
++    expect((await lecteur.read()).done).toBe(false);
++    await expect(lecteur.read()).rejects.toThrow("blob illisible");
++  });
++});
+diff --git a/src/lib/compression/zip-ecriture.ts b/src/lib/compression/zip-ecriture.ts
+new file mode 100644
+index 0000000..9d0d1d0
+--- /dev/null
++++ b/src/lib/compression/zip-ecriture.ts
+@@ -0,0 +1,168 @@
++import * as zlib from "zlib";
++import { deflateRawSync } from "zlib";
++import { formatDejaCompresse } from "./politique";
++
++/**
++ * ÉCRIVAIN DE ZIP EN FLUX — l'archive est produite entrée par entrée, jamais montée en mémoire.
++ *
++ * Pourquoi pas JSZip : il tient TOUTES les entrées, puis l'archive, dans le tas — d'où l'ancien
++ * plafond de 800 Mo d'un téléchargement de dossier. Ici, la mémoire vaut la plus grosse entrée
++ * (une à la fois) ; l'archive part au fil de l'eau avec la contre-pression du réseau.
++ *
++ * Deux niveaux, qui sont aussi les deux « qualités » du téléchargement :
++ *   • `stocke` (qualité maximale) : AUCUNE compression — chaque fichier y est, octet pour octet ;
++ *   • `max`    (taille réduite)   : deflate niveau 9, mais JAMAIS de gonflement — une entrée qui
++ *     ne compresse pas (ou qui est déjà compressée : JPEG, ZIP, DOCX…) est stockée telle quelle.
++ *
++ * Limite opérationnelle, dite avec son chiffre : pas de Zip64 — une entrée ou une archive de 4 Gio
++ * ou plus est REFUSÉE (`ErreurZipLimite`), jamais écrite tronquée.
++ */
++
++export const LIMITE_ZIP_OCTETS = 4 * 1024 ** 3 - 1024 * 1024; // marge pour les en-têtes
++export class ErreurZipLimite extends Error {}
++
++export type NiveauZip = "stocke" | "max";
++
++export interface EntreeZip {
++  /** Chemin dans l'archive, séparateur « / ». */
++  chemin: string;
++  date?: Date;
++  /** Un tampon (la taille et le CRC se connaissent : en-tête complet) ou un flux de taille connue (descripteur de données). */
++  contenu: Buffer | { flux: AsyncIterable<Buffer>; taille: number };
++}
++
++// ─── CRC-32 : zlib.crc32 quand il existe (Node ≥ 20.15 / 22.2), sinon une table.
++const TABLE: Uint32Array = (() => {
++  const t = new Uint32Array(256);
++  for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1; t[n] = c >>> 0; }
++  return t;
++})();
++function crcTable(buf: Uint8Array, crc = 0): number {
++  let c = (crc ^ 0xffffffff) >>> 0;
++  for (let i = 0; i < buf.length; i++) c = TABLE[(c ^ buf[i]) & 0xff] ^ (c >>> 8);
++  return (c ^ 0xffffffff) >>> 0;
++}
++const natif = (zlib as unknown as { crc32?: (d: Uint8Array, v?: number) => number }).crc32;
++export const crc32 = (buf: Uint8Array, crc = 0): number => (natif ? natif(buf, crc) >>> 0 : crcTable(buf, crc));
++
++/** Date MS-DOS (le format d'un ZIP). Une date hors de 1980-2107 est ramenée dans la plage. */
++function dateDos(d: Date): { date: number; heure: number } {
++  const an = Math.min(2107, Math.max(1980, d.getFullYear()));
++  return { date: ((an - 1980) << 9) | ((d.getMonth() + 1) << 5) | d.getDate(), heure: (d.getHours() << 11) | (d.getMinutes() << 5) | (d.getSeconds() >> 1) };
++}
++
++interface Central { nom: Buffer; methode: number; crc: number; taille: number; tailleCompressee: number; decalage: number; date: number; heure: number; descripteur: boolean }
++
++function enteteLocal(e: Central): Buffer {
++  const b = Buffer.alloc(30 + e.nom.length);
++  b.writeUInt32LE(0x04034b50, 0);
++  b.writeUInt16LE(20, 4);
++  b.writeUInt16LE(0x0800 | (e.descripteur ? 0x0008 : 0), 6); // bit 11 : noms en UTF-8 ; bit 3 : descripteur de données
++  b.writeUInt16LE(e.methode, 8);
++  b.writeUInt16LE(e.heure, 10);
++  b.writeUInt16LE(e.date, 12);
++  b.writeUInt32LE(e.descripteur ? 0 : e.crc, 14);
++  b.writeUInt32LE(e.descripteur ? 0 : e.tailleCompressee, 18);
++  b.writeUInt32LE(e.descripteur ? 0 : e.taille, 22);
++  b.writeUInt16LE(e.nom.length, 26);
++  b.writeUInt16LE(0, 28);
++  e.nom.copy(b, 30);
++  return b;
++}
++
++function entreeCentrale(e: Central): Buffer {
++  const b = Buffer.alloc(46 + e.nom.length);
++  b.writeUInt32LE(0x02014b50, 0);
++  b.writeUInt16LE(20, 4); // fait par
++  b.writeUInt16LE(20, 6); // nécessaire
++  b.writeUInt16LE(0x0800 | (e.descripteur ? 0x0008 : 0), 8);
++  b.writeUInt16LE(e.methode, 10);
++  b.writeUInt16LE(e.heure, 12);
++  b.writeUInt16LE(e.date, 14);
++  b.writeUInt32LE(e.crc, 16);
++  b.writeUInt32LE(e.tailleCompressee, 20);
++  b.writeUInt32LE(e.taille, 24);
++  b.writeUInt16LE(e.nom.length, 28);
++  b.writeUInt32LE(e.decalage, 42);
++  e.nom.copy(b, 46);
++  return b;
++}
++
++const cheminZip = (c: string) => c.replace(/\\/g, "/").split("/").filter((s) => s && s !== "." && s !== "..").join("/") || "sans-nom";
++
++/**
++ * Écrit l'archive. `entrees` peut être un générateur paresseux : une entrée n'est lue que quand le
++ * consommateur a demandé la précédente (contre-pression).
++ */
++export async function* ecrireZip(entrees: AsyncIterable<EntreeZip> | Iterable<EntreeZip>, niveau: NiveauZip): AsyncGenerator<Buffer> {
++  const centrales: Central[] = [];
++  let decalage = 0;
++  const emettre = (b: Buffer) => { decalage += b.length; if (decalage > LIMITE_ZIP_OCTETS) throw new ErreurZipLimite("Archive trop volumineuse (4 Go au plus) — téléchargez par sous-dossiers."); return b; };
++
++  for await (const e of entrees) {
++    const nom = Buffer.from(cheminZip(e.chemin), "utf8");
++    const { date, heure } = dateDos(e.date ?? new Date());
++    const debut = decalage;
++    if (Buffer.isBuffer(e.contenu)) {
++      const brut = e.contenu;
++      if (brut.length >= 4 * 1024 ** 3 - 1) throw new ErreurZipLimite(`« ${e.chemin} » dépasse 4 Go : trop volumineux pour une archive ZIP ici.`);
++      let methode = 0;
++      let octets = brut;
++      if (niveau === "max" && brut.length > 0 && !formatDejaCompresse(brut.subarray(0, 16))) {
++        const d = deflateRawSync(brut, { level: 9 });
++        // JAMAIS de gonflement : on ne garde le deflate que s'il est plus petit.
++        if (d.length < brut.length) { methode = 8; octets = d; }
++      }
++      const c: Central = { nom, methode, crc: crc32(brut), taille: brut.length, tailleCompressee: octets.length, decalage: debut, date, heure, descripteur: false };
++      yield emettre(enteteLocal(c));
++      if (octets.length) yield emettre(octets);
++      centrales.push(c);
++    } else {
++      // Entrée en flux (objet volumineux d'un bucket) : STOCKÉE, avec descripteur de données — la
++      // taille est annoncée par la source, le CRC ne se connaît qu'à la fin.
++      const { flux, taille } = e.contenu;
++      if (taille >= 4 * 1024 ** 3 - 1) throw new ErreurZipLimite(`« ${e.chemin} » dépasse 4 Go : trop volumineux pour une archive ZIP ici.`);
++      const c: Central = { nom, methode: 0, crc: 0, taille, tailleCompressee: taille, decalage: debut, date, heure, descripteur: true };
++      yield emettre(enteteLocal(c));
++      let crc = 0; let lu = 0;
++      for await (const morceau of flux) { lu += morceau.length; crc = crc32(morceau, crc); yield emettre(morceau); }
++      if (lu !== taille) throw new Error(`« ${e.chemin} » : taille lue (${lu}) différente de la taille annoncée (${taille}) — archive abandonnée.`);
++      c.crc = crc;
++      const d = Buffer.alloc(16);
++      d.writeUInt32LE(0x08074b50, 0); d.writeUInt32LE(crc, 4); d.writeUInt32LE(taille, 8); d.writeUInt32LE(taille, 12);
++      yield emettre(d);
++      centrales.push(c);
++    }
++  }
++
++  const debutCentral = decalage;
++  for (const c of centrales) yield emettre(entreeCentrale(c));
++  const tailleCentral = decalage - debutCentral;
++  const fin = Buffer.alloc(22);
++  fin.writeUInt32LE(0x06054b50, 0);
++  fin.writeUInt16LE(centrales.length, 8); fin.writeUInt16LE(centrales.length, 10);
++  fin.writeUInt32LE(tailleCentral, 12); fin.writeUInt32LE(debutCentral, 16);
++  if (centrales.length > 0xffff) throw new ErreurZipLimite("Plus de 65 535 fichiers : téléchargez par sous-dossiers.");
++  yield emettre(fin);
++}
++
++/** Un générateur d'octets → un `ReadableStream` Web, avec contre-pression et erreur propagée (le téléchargement échoue, il ne se tronque pas en silence). */
++export function enFluxWeb(source: AsyncIterable<Buffer>): ReadableStream<Uint8Array> {
++  const it = source[Symbol.asyncIterator]();
++  return new ReadableStream<Uint8Array>({
++    async pull(controle) {
++      try {
++        const { done, value } = await it.next();
++        if (done) controle.close(); else controle.enqueue(new Uint8Array(value.buffer, value.byteOffset, value.byteLength));
++      } catch (e) { controle.error(e); }
++    },
++    async cancel() { await it.return?.(undefined); },
++  });
++}
++
++/** Archive d'UNE entrée en mémoire (le texte « taille réduite »). */
++export async function zipUneEntree(chemin: string, octets: Buffer, date?: Date): Promise<Buffer> {
++  const morceaux: Buffer[] = [];
++  for await (const b of ecrireZip([{ chemin, contenu: octets, date }], "max")) morceaux.push(b);
++  return Buffer.concat(morceaux);
++}
+diff --git a/src/lib/drive-storage.ts b/src/lib/drive-storage.ts
+index 23c3fe7..13d119e 100644
+--- a/src/lib/drive-storage.ts
++++ b/src/lib/drive-storage.ts
+@@ -2,7 +2,11 @@ import { BLOB_MAX_BYTES } from "@/lib/storage/limites-blob";
+ import crypto from "crypto";
+ import { createReadStream } from "fs";
+ import { readFile, stat } from "fs/promises";
++import { tmpdir } from "os";
++import { join as joindre } from "path";
+ import { Prisma } from "@prisma/client";
++import { decider, compresserFichierSiUtile, decompresser } from "./compression/flux";
++import { codecConnu } from "./compression/politique";
+ import { prisma } from "./prisma";
+ import { sqlAucuneColonneNeLeTient, sqlBlobsCitesEnJson } from "./storage/blob-refs";
+ import {
+@@ -138,7 +142,14 @@ function storageFailure(err: unknown): Error {
+ }
+ 
+ /** Ce qu'a produit une écriture. `deduplicated` = le contenu existait déjà, aucune place NEUVE prise. */
+-export interface PutBlobResult { blobId: string; sha256: string; size: number; deduplicated: boolean }
++export interface PutBlobResult {
++  blobId: string; sha256: string; size: number; deduplicated: boolean;
++  /** Octets RÉELLEMENT pris par une écriture neuve (le clair compressé quand il l'est) ; absent si dédupliqué. */
++  storedSize?: number;
++}
++
++/** Ce qu'une écriture ajoute à la ligne `FileBlob` quand son contenu est stocké compressé (rien sinon : brut). */
++type MetaCompression = { codec?: string; storedSize?: number };
+ 
+ /**
+  * LA COURSE DE DÉDUPLICATION — deux écritures du MÊME contenu au même instant.
+@@ -164,7 +175,8 @@ async function createOrAdoptBlob(
+ ): Promise<PutBlobResult> {
+   try {
+     const blob = await prisma.fileBlob.create({ data, select: { id: true } });
+-    return { blobId: blob.id, sha256: hash, size, deduplicated: false };
++    const stocke = (data as { storedSize?: number | null }).storedSize;
++    return { blobId: blob.id, sha256: hash, size, deduplicated: false, storedSize: stocke ?? size };
+   } catch (err) {
+     if (!isUniqueSha256Violation(err)) throw err;
+     const winner = await reemployer(hash);
+@@ -183,11 +195,19 @@ export async function putBlob(plain: Buffer): Promise<PutBlobResult> {
+   if (existing) return existing;
+   const iv = crypto.randomBytes(12);
+ 
++  // COMPRESSION SANS PERTE AU REPOS (§118.214) : compresser AVANT de chiffrer (un contenu chiffré
++  // ne se compresse plus). La décision se lit sur les OCTETS — ce point d'entrée ne reçoit pas de
++  // nom de fichier — et le résultat est relu avant d'être rendu ; un doute, un gain mince ou un
++  // format déjà compressé laissent les octets bruts, comme avant. `sha256` et `size` restent ceux du clair.
++  const d = await decider(plain);
++  const contenu = d.compresse ? d.octets : plain;
++  const meta: MetaCompression = d.compresse ? { codec: d.codec, storedSize: d.octets.length } : {};
++
+   // Stockage OBJET (S3/R2) si configuré → la base ne garde que les métadonnées + l'IV.
+   if (objectStorageConfigured()) {
+     const key = blobKey(hash);
+     // contenu CHIFFRÉ dans le bucket — il ne voit jamais le clair
+-    const encrypted = encryptWhole(plain, iv);
++    const encrypted = encryptWhole(contenu, iv);
+     try {
+       // Gros contenu → envoi EN PARTIES PARALLÈLES. Un PUT unique de 300 Mo attend un seul flux du
+       // début à la fin ; quatre parties en vol saturent la liaison. Le découpage ne recopie rien
+@@ -198,19 +218,20 @@ export async function putBlob(plain: Buffer): Promise<PutBlobResult> {
+         await putObject(key, encrypted);
+       }
+     } catch (err) { throw storageFailure(err); }
+-    return createOrAdoptBlob({ sha256: hash, size: plain.length, iv, data: null, storageKey: key, refCount: 1 }, hash, plain.length);
++    return createOrAdoptBlob({ sha256: hash, size: plain.length, iv, data: null, storageKey: key, refCount: 1, ...meta }, hash, plain.length);
+   }
+ 
+   // Base, gros fichier → écriture EN TRANCHES (mémoire bornée à une tranche, pas d'hex géant).
+-  if (plain.length > blobChunkBytes()) return putBlobChunked(plain, hash, iv);
++  if (contenu.length > blobChunkBytes()) return putBlobChunked(contenu, plain.length, hash, iv, meta);
+ 
+   // Base, petit fichier → une seule valeur bytea (chemin historique, rétrocompatible).
+-  return createOrAdoptBlob({ sha256: hash, size: plain.length, iv, data: encryptWhole(plain, iv), refCount: 1 }, hash, plain.length);
++  return createOrAdoptBlob({ sha256: hash, size: plain.length, iv, data: encryptWhole(contenu, iv), refCount: 1, ...meta }, hash, plain.length);
+ }
+ 
+ /** Écrit le contenu chiffré en tranches ordonnées (streaming du chiffrement → mémoire bornée). */
+-async function putBlobChunked(plain: Buffer, hash: string, iv: Buffer): Promise<PutBlobResult> {
+-  const created = await createOrAdoptBlob({ sha256: hash, size: plain.length, iv, data: null, refCount: 1 }, hash, plain.length);
++async function putBlobChunked(plain: Buffer, tailleClair: number, hash: string, iv: Buffer, meta: MetaCompression = {}): Promise<PutBlobResult> {
++  // `plain` = le contenu À STOCKER (le clair, ou le clair compressé) ; `tailleClair` = ce que dit `size`.
++  const created = await createOrAdoptBlob({ sha256: hash, size: tailleClair, iv, data: null, refCount: 1, ...meta }, hash, tailleClair);
+   // Le contenu venait d'être écrit par un autre appel : ses tranches sont (ou seront) les siennes.
+   if (created.deduplicated) return created;
+   const blob = { id: created.blobId };
+@@ -224,7 +245,7 @@ async function putBlobChunked(plain: Buffer, hash: string, iv: Buffer): Promise<
+     }
+     // Dernière tranche : reliquat éventuel + tag d'authentification (16 o). Concat des tranches = ciphertext || tag.
+     await prisma.fileBlobChunk.create({ data: { blobId: blob.id, idx: idx++, data: Buffer.concat([cipher.final(), cipher.getAuthTag()]) } });
+-    return { blobId: blob.id, sha256: hash, size: plain.length, deduplicated: false };
++    return { blobId: blob.id, sha256: hash, size: tailleClair, deduplicated: false, storedSize: meta.storedSize ?? tailleClair };
+   } catch (err) {
+     await prisma.fileBlob.delete({ where: { id: blob.id } }).catch(() => undefined); // cascade → supprime les tranches partielles
+     throw err;
+@@ -250,60 +271,70 @@ export async function putBlobFromFile(path: string, opts: { sha256?: string } =
+   const hash = opts.sha256 || (await sha256File(path));
+   const existing = await reemployer(hash);
+   if (existing) return existing;
+-  refuserSiTropGros((await stat(path)).size);
++  const { size } = await stat(path);
++  refuserSiTropGros(size);
++
++  // COMPRESSION SANS PERTE AU REPOS (§118.214), EN FLUX : le fichier est compressé vers un fichier
++  // temporaire, relu en flux (décompression + SHA-256 comparé à celui du clair) et seulement alors
++  // stocké à sa place. La mémoire ne dépend pas de la taille ; un doute laisse les octets bruts.
++  const compresse = await compresserFichierSiUtile(path, size, hash, joindre(tmpdir(), `amd-cmp-${crypto.randomBytes(8).toString("hex")}.br`));
++  const source = compresse.resultat?.chemin ?? path;
++  const aStocker = compresse.resultat?.taille ?? size;
++  const meta: MetaCompression = compresse.resultat ? { codec: compresse.resultat.codec, storedSize: compresse.resultat.taille } : {};
++  try {
++    // Stockage OBJET — EN FLUX. Le fichier est lu par morceaux, chiffré au fil de l'eau et poussé
++    // vers le bucket en plusieurs parties : le pic mémoire vaut une partie (16 Mio), qu'il s'agisse
++    // d'un PDF de 2 Mo ou d'une archive CTD d'un gigaoctet. Charger le fichier entier ici ferait
++    // tomber le processus sur un hébergeur à mémoire bornée — panne d'autant plus difficile à
++    // diagnostiquer qu'elle ne se déclenche qu'au-delà d'une certaine taille de dossier.
++    if (objectStorageConfigured()) {
++      const key = blobKey(hash);
++      const iv = crypto.randomBytes(12);
++      try {
++        if (aStocker <= MULTIPART_THRESHOLD_BYTES) {
++          // Petit fichier : un PUT simple reste plus rapide qu'un téléversement en parties.
++          await putObject(key, encryptWhole(await readFile(source), iv));
++        } else {
++          await putObjectStream(key, encryptFileStream(source, iv));
++        }
++      } catch (err) {
++        throw storageFailure(err);
++      }
++      return await createOrAdoptBlob({ sha256: hash, size, iv, data: null, storageKey: key, refCount: 1, ...meta }, hash, size);
++    }
+ 
+-  // Stockage OBJET — EN FLUX. Le fichier est lu par morceaux, chiffré au fil de l'eau et poussé
+-  // vers le bucket en plusieurs parties : le pic mémoire vaut une partie (16 Mio), qu'il s'agisse
+-  // d'un PDF de 2 Mo ou d'une archive CTD d'un gigaoctet. Charger le fichier entier ici ferait
+-  // tomber le processus sur un hébergeur à mémoire bornée — panne d'autant plus difficile à
+-  // diagnostiquer qu'elle ne se déclenche qu'au-delà d'une certaine taille de dossier.
+-  if (objectStorageConfigured()) {
+-    const { size } = await stat(path);
+-    const key = blobKey(hash);
+     const iv = crypto.randomBytes(12);
++    const created = await createOrAdoptBlob({ sha256: hash, size, iv, data: null, refCount: 1, ...meta }, hash, size);
++    // Le contenu venait d'être écrit par un autre appel : ses tranches sont (ou seront) les siennes.
++    if (created.deduplicated) return created;
++    const blob = { id: created.blobId };
+     try {
+-      if (size <= MULTIPART_THRESHOLD_BYTES) {
+-        // Petit fichier : un PUT simple reste plus rapide qu'un téléversement en parties.
+-        await putObject(key, encryptWhole(await readFile(path), iv));
+-      } else {
+-        await putObjectStream(key, encryptFileStream(path, iv));
++      const cipher = crypto.createCipheriv("aes-256-gcm", masterKey(), iv);
++      let idx = 0;
++      let read = 0;
++      // Les tranches sont recollées à la lecture dans l'ordre `idx` : leurs tailles respectives
++      // n'ont aucune importance, seul l'ordre compte.
++      for await (const chunk of createReadStream(source, { highWaterMark: blobChunkBytes() })) {
++        const plain = chunk as Buffer;
++        read += plain.length;
++        const enc = cipher.update(plain);
++        if (enc.length > 0) await prisma.fileBlobChunk.create({ data: { blobId: blob.id, idx: idx++, data: enc } });
+       }
++      if (read !== aStocker) throw new Error(`Fichier modifié pendant la lecture (${read} ≠ ${aStocker}).`);
++      await prisma.fileBlobChunk.create({ data: { blobId: blob.id, idx: idx++, data: Buffer.concat([cipher.final(), cipher.getAuthTag()]) } });
++      return { blobId: blob.id, sha256: hash, size, deduplicated: false, storedSize: aStocker };
+     } catch (err) {
+-      throw storageFailure(err);
+-    }
+-    return createOrAdoptBlob({ sha256: hash, size, iv, data: null, storageKey: key, refCount: 1 }, hash, size);
+-  }
+-
+-  const { size } = await stat(path);
+-  const iv = crypto.randomBytes(12);
+-  const created = await createOrAdoptBlob({ sha256: hash, size, iv, data: null, refCount: 1 }, hash, size);
+-  // Le contenu venait d'être écrit par un autre appel : ses tranches sont (ou seront) les siennes.
+-  if (created.deduplicated) return created;
+-  const blob = { id: created.blobId };
+-  try {
+-    const cipher = crypto.createCipheriv("aes-256-gcm", masterKey(), iv);
+-    let idx = 0;
+-    let read = 0;
+-    // Les tranches sont recollées à la lecture dans l'ordre `idx` : leurs tailles respectives
+-    // n'ont aucune importance, seul l'ordre compte.
+-    for await (const chunk of createReadStream(path, { highWaterMark: blobChunkBytes() })) {
+-      const plain = chunk as Buffer;
+-      read += plain.length;
+-      const enc = cipher.update(plain);
+-      if (enc.length > 0) await prisma.fileBlobChunk.create({ data: { blobId: blob.id, idx: idx++, data: enc } });
++      await prisma.fileBlob.delete({ where: { id: blob.id } }).catch(() => undefined); // cascade → tranches partielles
++      throw err;
+     }
+-    if (read !== size) throw new Error(`Fichier modifié pendant la lecture (${read} ≠ ${size}).`);
+-    await prisma.fileBlobChunk.create({ data: { blobId: blob.id, idx: idx++, data: Buffer.concat([cipher.final(), cipher.getAuthTag()]) } });
+-    return { blobId: blob.id, sha256: hash, size, deduplicated: false };
+-  } catch (err) {
+-    await prisma.fileBlob.delete({ where: { id: blob.id } }).catch(() => undefined); // cascade → tranches partielles
+-    throw err;
++  } finally {
++    await compresse.resultat?.nettoyer();
+   }
+ }
+ 
+ /** Retrieve and decrypt bytes by blob id (objet S3/R2, bytea unique, ou tranches — selon le stockage). */
+ export async function getBlob(blobId: string): Promise<Buffer | null> {
+-  const blob = await prisma.fileBlob.findUnique({ where: { id: blobId }, select: { iv: true, data: true, storageKey: true, size: true } });
++  const blob = await prisma.fileBlob.findUnique({ where: { id: blobId }, select: { iv: true, data: true, storageKey: true, size: true, codec: true, storedSize: true, sha256: true } });
+   if (!blob) return null;
+   // Déposé EN DIRECT par le navigateur (gros fichier) : l'objet est en clair dans le bucket,
+   // protégé par le chiffrement au repos du fournisseur — un IV vide le signale.
+@@ -314,8 +345,11 @@ export async function getBlob(blobId: string): Promise<Buffer | null> {
+   else {
+     const chunks = await prisma.fileBlobChunk.findMany({ where: { blobId }, orderBy: { idx: "asc" }, select: { data: true } });
+     cipherBytes = chunks.length > 0 ? Buffer.concat(chunks.map((c) => Buffer.from(c.data))) : null;
+-    // Intégrité : le chiffré GCM fait taille_claire + 16 (tag). Un blob chunké incomplet est écarté.
+-    if (cipherBytes && cipherBytes.length !== blob.size + 16) return null;
++    // Intégrité : le chiffré GCM fait taille_stockée + 16 (tag) — la taille du clair quand rien
++    // n'est compressé. Un blob chunké incomplet est écarté (`storedSize` nul pendant l'écriture
++    // d'une ligne compressée : le test échoue alors, et c'est voulu).
++    const attendu = (blob.codec ? blob.storedSize : blob.size);
++    if (cipherBytes && (attendu == null || cipherBytes.length !== attendu + 16)) return null;
+   }
+   if (!cipherBytes) return null;
+   const iv = Buffer.from(blob.iv);
+@@ -323,7 +357,25 @@ export async function getBlob(blobId: string): Promise<Buffer | null> {
+   const enc = cipherBytes.subarray(0, cipherBytes.length - 16);
+   const decipher = crypto.createDecipheriv("aes-256-gcm", masterKey(), iv);
+   decipher.setAuthTag(tag);
+-  return Buffer.concat([decipher.update(enc), decipher.final()]);
++  const stocke = Buffer.concat([decipher.update(enc), decipher.final()]);
++  if (!blob.codec) return stocke; // brut : tout fichier d'avant, et tout ce que la mesure juge déjà compressé
++  // COMPRIMÉ AU REPOS : on rend EXACTEMENT les octets déposés. Taille ET empreinte sont relues —
++  // le chiffrement authentifie ce qui est stocké, pas ce que la décompression en fait.
++  if (!codecConnu(blob.codec)) throw new Error(`Codec de stockage inconnu « ${blob.codec} » — ce fichier ne peut pas être relu par cette version.`);
++  const clair = await decompresser(blob.codec, stocke, blob.size);
++  if (sha256(clair) !== blob.sha256) throw new Error("Empreinte du fichier décompressé inattendue — fichier corrompu.");
++  return clair;
++}
++
++/**
++ * Ce qu'on peut dire d'un blob SANS le lire : l'empreinte du clair (vérifiable par qui reçoit les
++ * octets), sa taille, et si le stockage le garde compressé. `null` : blob absent. Un blob déposé
++ * en direct n'a pas de vraie empreinte (`direct:<clé>`) : elle est rendue absente, pas inventée.
++ */
++export async function infoBlob(blobId: string): Promise<{ sha256: string | null; size: number; codec: string | null; storedSize: number | null } | null> {
++  const b = await prisma.fileBlob.findUnique({ where: { id: blobId }, select: { sha256: true, size: true, codec: true, storedSize: true } });
++  if (!b) return null;
++  return { sha256: /^[0-9a-f]{64}$/.test(b.sha256) ? b.sha256 : null, size: b.size, codec: b.codec, storedSize: b.storedSize };
+ }
+ 
+ /**
+diff --git a/src/lib/drive-zip.ts b/src/lib/drive-zip.ts
+index 7d6e6ac..79ba031 100644
+--- a/src/lib/drive-zip.ts
++++ b/src/lib/drive-zip.ts
+@@ -1,30 +1,32 @@
+-import JSZip from "jszip";
+ import { prisma } from "@/lib/prisma";
+ import { getBlob } from "@/lib/drive-storage";
++import { getObjectStream } from "@/lib/storage/object-storage";
++import { LIMITE_ZIP_OCTETS, type EntreeZip } from "@/lib/compression/zip-ecriture";
+ 
+ /**
+- * Construction d'archives ZIP pour le Drive : télécharger **un dossier** (contenu
+- * récursif) ou **plusieurs éléments** (fichiers et/ou dossiers) en une seule archive.
+- * L'accès est vérifié par l'appelant sur chaque élément de tête ; les descendants
+- * héritent de l'accès (les partages se résolvent en remontant l'arbre — voir
+- * `resolveDriveAccess`).
++ * Archives ZIP du Drive : télécharger **un dossier** (contenu récursif) ou **plusieurs éléments**
++ * (fichiers et/ou dossiers) en une seule archive. L'accès est vérifié par l'appelant sur chaque
++ * élément de tête ; les descendants héritent de l'accès (les partages se résolvent en remontant
++ * l'arbre — voir `resolveDriveAccess`).
++ *
++ * EN FLUX (§118.214) : ce module ne monte plus l'archive en mémoire. Il COLLECTE d'abord ce qui
++ * va dedans (des métadonnées seulement), puis un générateur lit UN fichier à la fois — la mémoire
++ * vaut le plus gros fichier, plus la taille de l'archive. L'ancien plafond de 800 Mo (JSZip tenait
++ * tout) devient la limite du format ZIP sans Zip64 : 4 Go.
+  */
+ 
+-// Garde-fou mémoire : le ZIP est monté en mémoire (JSZip). Au-delà, on invite à
+-// télécharger par sous-dossiers.
+-const MAX_ZIP_BYTES = 800 * 1024 * 1024;
+-
+-interface Collected { path: string; blobId: string; size: number }
++export interface ItemZip { chemin: string; blobId: string; taille: number; date: Date }
++export interface ZipErreur { error: string; status: number }
+ 
+ /** Nettoie un nom pour un chemin d'archive (pas de séparateurs). */
+ const safeName = (name: string) => name.replace(/[\\/]/g, "_").trim() || "sans-nom";
+ 
+ /** Parcourt récursivement un dossier et collecte ses fichiers (chemins relatifs). */
+-async function collectFolder(folderId: string, prefix: string, acc: Collected[]): Promise<void> {
++async function collectFolder(folderId: string, prefix: string, acc: ItemZip[]): Promise<void> {
+   const children = await prisma.driveNode.findMany({
+     where: { parentId: folderId, isTrashed: false },
+     select: {
+-      id: true, name: true, type: true, size: true,
++      id: true, name: true, type: true, size: true, updatedAt: true,
+       versions: { orderBy: { version: "desc" }, take: 1, select: { blobId: true } },
+     },
+     orderBy: [{ type: "asc" }, { name: "asc" }],
+@@ -35,20 +37,17 @@ async function collectFolder(folderId: string, prefix: string, acc: Collected[])
+       await collectFolder(c.id, `${prefix}${nm}/`, acc);
+     } else {
+       const blobId = c.versions[0]?.blobId;
+-      if (blobId) acc.push({ path: `${prefix}${nm}`, blobId, size: c.size });
++      if (blobId) acc.push({ chemin: `${prefix}${nm}`, blobId, taille: c.size, date: c.updatedAt });
+     }
+   }
+ }
+ 
+-export interface ZipResult { buffer: Buffer; count: number; filename: string }
+-export interface ZipError { error: string; status: number }
+-
+ /**
+- * Construit un ZIP à partir de nœuds de tête (déjà autorisés). Un fichier est ajouté à
+- * la racine ; un dossier est ajouté récursivement sous son nom. Noms de tête dédupliqués.
++ * Ce qui va dans l'archive : un fichier à la racine, un dossier récursivement sous son nom. Noms de
++ * tête dédupliqués. Rend aussi le nom de l'archive.
+  */
+-export async function buildDriveZip(nodes: { id: string; name: string; type: string }[]): Promise<ZipResult | ZipError> {
+-  const acc: Collected[] = [];
++export async function collecterPourZip(nodes: { id: string; name: string; type: string }[]): Promise<{ items: ItemZip[]; total: number; filename: string } | ZipErreur> {
++  const items: ItemZip[] = [];
+   const used = new Map<string, number>();
+   const uniqueRoot = (name: string) => {
+     const n = used.get(name) ?? 0;
+@@ -61,27 +60,62 @@ export async function buildDriveZip(nodes: { id: string; name: string; type: str
+   for (const node of nodes) {
+     const root = uniqueRoot(safeName(node.name));
+     if (node.type === "FOLDER") {
+-      await collectFolder(node.id, `${root}/`, acc);
++      await collectFolder(node.id, `${root}/`, items);
+     } else {
+       const f = await prisma.driveNode.findUnique({
+         where: { id: node.id },
+-        select: { size: true, versions: { orderBy: { version: "desc" }, take: 1, select: { blobId: true } } },
++        select: { size: true, updatedAt: true, versions: { orderBy: { version: "desc" }, take: 1, select: { blobId: true } } },
+       });
+       const blobId = f?.versions[0]?.blobId;
+-      if (blobId) acc.push({ path: root, blobId, size: f?.size ?? 0 });
++      if (blobId) items.push({ chemin: root, blobId, taille: f?.size ?? 0, date: f?.updatedAt ?? new Date() });
+     }
+   }
+ 
+-  if (acc.length === 0) return { error: "Aucun fichier à télécharger.", status: 404 };
+-  const total = acc.reduce((s, x) => s + x.size, 0);
+-  if (total > MAX_ZIP_BYTES) return { error: "Sélection trop volumineuse pour une archive. Téléchargez par sous-dossiers.", status: 413 };
++  if (items.length === 0) return { error: "Aucun fichier à télécharger.", status: 404 };
++  const total = items.reduce((s, x) => s + x.taille, 0);
++  if (total > LIMITE_ZIP_OCTETS) return { error: "Sélection trop volumineuse pour une archive (4 Go au plus). Téléchargez par sous-dossiers.", status: 413 };
++  const base = nodes.length === 1 ? safeName(nodes[0].name).replace(/\.[^.]+$/, "") : `Drive-${new Date().toISOString().slice(0, 10)}`;
++  return { items, total, filename: `${base}.zip` };
++}
++
++async function* octetsDuFlux(flux: ReadableStream<Uint8Array>): AsyncGenerator<Buffer> {
++  const lecteur = flux.getReader();
++  try {
++    for (;;) {
++      const { done, value } = await lecteur.read();
++      if (done) return;
++      yield Buffer.from(value.buffer, value.byteOffset, value.byteLength);
++    }
++  } finally { lecteur.releaseLock(); }
++}
+ 
+-  const zip = new JSZip();
+-  for (const item of acc) {
+-    const bytes = await getBlob(item.blobId);
+-    if (bytes) zip.file(item.path, bytes);
++/**
++ * Les entrées de l'archive, LUES UNE À LA FOIS. Un fichier dont le contenu n'est plus lisible n'est
++ * pas écarté en silence (l'ancienne version l'omettait sans un mot) : il est LISTÉ dans un fichier
++ * « LISEZ-MOI.txt » ajouté à la fin de l'archive. Un fichier déposé en direct (volumineux, en clair
++ * dans le bucket) passe en flux, sans jamais être tenu entier en mémoire.
++ */
++export async function* entreesDeDrive(items: ItemZip[]): AsyncGenerator<EntreeZip> {
++  const blobs = await prisma.fileBlob.findMany({
++    where: { id: { in: [...new Set(items.map((i) => i.blobId))] } },
++    select: { id: true, iv: true, storageKey: true },
++  });
++  const direct = new Map(blobs.filter((b) => b.storageKey && b.iv.length === 0).map((b) => [b.id, b.storageKey as string]));
++  const existants = new Set(blobs.map((b) => b.id));
++  const manquants: string[] = [];
++  for (const it of items) {
++    if (!existants.has(it.blobId)) { manquants.push(it.chemin); continue; }
++    const cle = direct.get(it.blobId);
++    if (cle) {
++      yield { chemin: it.chemin, date: it.date, contenu: { flux: octetsDuFlux(await getObjectStream(cle)), taille: it.taille } };
++      continue;
++    }
++    const octets = await getBlob(it.blobId);
++    if (!octets) { manquants.push(it.chemin); continue; }
++    yield { chemin: it.chemin, date: it.date, contenu: octets };
++  }
++  if (manquants.length > 0) {
++    const texte = `Ces fichiers n'ont pas pu être inclus (contenu illisible ou absent du stockage) :\n\n${manquants.map((m) => `- ${m}`).join("\n")}\n\nSignalez-le à l'administrateur.\n`;
++    yield { chemin: "LISEZ-MOI.txt", contenu: Buffer.from(texte, "utf8") };
+   }
+-  const buffer = await zip.generateAsync({ type: "nodebuffer", compression: "DEFLATE", compressionOptions: { level: 6 } });
+-  const base = nodes.length === 1 ? safeName(nodes[0].name).replace(/\.[^.]+$/, "") : `Drive-${new Date().toISOString().slice(0, 10)}`;
+-  return { buffer, count: acc.length, filename: `${base}.zip` };
+ }
+diff --git a/src/lib/drive/usage.ts b/src/lib/drive/usage.ts
+index bcd8a59..2d4ac2b 100644
+--- a/src/lib/drive/usage.ts
++++ b/src/lib/drive/usage.ts
+@@ -12,8 +12,11 @@ import { makeTtlCache } from "./quota";
+ const CAPACITY_TTL_MS = 30_000;
+ 
+ const physicalCache = makeTtlCache(async () => {
+-  const agg = await prisma.fileBlob.aggregate({ _sum: { size: true } });
+-  return agg._sum.size ?? 0;
++  // Ce qui est RÉELLEMENT stocké : la taille compressée quand le contenu l'est (`storedSize`), celle
++  // du clair sinon. Additionner `size` compterait l'espace que la compression vient de rendre.
++  const rows = await prisma.$queryRaw<{ total: number | null }[]>`
++    SELECT COALESCE(SUM(COALESCE("storedSize", "size")), 0)::float8 AS total FROM "FileBlob"`;
++  return Number(rows[0]?.total ?? 0);
+ }, CAPACITY_TTL_MS);
+ 
+ /** Octets physiques occupés (contenu chiffré dédupliqué), à 30 secondes près. */
+diff --git a/src/lib/http/telechargement.ts b/src/lib/http/telechargement.ts
+new file mode 100644
+index 0000000..c4092b4
+--- /dev/null
++++ b/src/lib/http/telechargement.ts
+@@ -0,0 +1,197 @@
++import { NextResponse } from "next/server";
++import { contentDisposition } from "@/lib/http/content-disposition";
++import { extensionDejaCompressee, lireQualite, type EstimationTelechargement, type Qualite } from "@/lib/compression/politique";
++import { obtenirReduction } from "@/lib/compression/reduction-cache";
++import { ecrireZip, enFluxWeb, ErreurZipLimite, LIMITE_ZIP_OCTETS, type EntreeZip, type NiveauZip } from "@/lib/compression/zip-ecriture";
++
++/**
++ * LA PORTE UNIQUE DU TÉLÉCHARGEMENT — le seul endroit qui lit `?qualite=` et le seul qui décide
++ * de ce que reçoit le navigateur (§118.58 : l'endroit où TOUTES les instances passent).
++ *
++ *   ?qualite=max      (défaut) l'ORIGINAL : exactement les octets déposés. Sans le paramètre,
++ *                     rien ne change pour personne — liens, aperçus, favoris, e-mails.
++ *   ?qualite=reduite  la version « taille réduite », SI elle existe et est réellement plus petite ;
++ *                     sinon l'original, avec `X-Qualite: max` — jamais une erreur, jamais un gonflement.
++ *   ?qualite=estimer  JSON : tailles réelles des deux versions (ce que lit le bouton avant d'offrir le choix).
++ *
++ * Les DROITS ne se jouent pas ici : la route les a vérifiés avant d'appeler la porte, avec ses
++ * règles propres, et les mêmes pour les trois qualités. La version réduite n'ajoute aucun accès.
++ */
++
++export interface FichierServi {
++  nom: string;
++  mime: string;
++  /** Octets de l'ORIGINAL (décompressés si stockés compressés). `null` : introuvable. */
++  charger: () => Promise<Buffer | null>;
++  /** Empreinte SHA-256 de l'original (`FileBlob.sha256`), quand on la connaît : rendue en en-tête, et clé du cache. */
++  empreinte?: string | null;
++  /** Taille connue sans lire (base) — le profil statique est jugé avec, avant de charger. */
++  taille?: number | null;
++}
++
++export interface OptionsPorte {
++  qualite: Qualite;
++  /** `dl=1` : téléchargement ; sinon aperçu en ligne (l'original, toujours). */
++  telecharger: boolean;
++  /** Appelé une fois, juste avant la réponse, avec la qualité RÉELLEMENT servie — c'est ce qu'on trace à l'audit. */
++  journaliser?: (qualiteServie: "max" | "reduite") => Promise<void> | void;
++  /** En-têtes propres à la route (ex. `Cache-Control: private, no-store`). */
++  entetes?: Record<string, string>;
++  /** Fichier volumineux déposé en direct : adresse signée vers le bucket. L'original SEUL (il ne transite pas par ce serveur). */
++  redirection?: () => string | null;
++  /** `false` : jamais de version réduite pour cette pièce (pièce juridique, signée…) — la raison s'affiche. */
++  reductionAutorisee?: { oui: true } | { oui: false; raison: string };
++}
++
++/** Lit `?qualite=` — la seule lecture du paramètre dans tout le dépôt (un cliquet le tient). */
++export function qualiteDeLaRequete(req: { nextUrl: { searchParams: URLSearchParams } }): Qualite {
++  return lireQualite(req.nextUrl.searchParams.get("qualite"));
++}
++
++export async function repondreFichier(f: FichierServi, o: OptionsPorte): Promise<NextResponse> {
++  const autorise = o.reductionAutorisee ?? { oui: true as const };
++  const directRedirect = o.redirection?.() ?? null;
++
++  // ───── estimer : les tailles réelles, pour que le bouton n'offre que ce qui existe
++  if (o.qualite === "estimer") {
++    const taille = f.taille ?? 0;
++    const nonReduite = (raison: string, tailleMax = taille): NextResponse =>
++      NextResponse.json({ max: { taille: tailleMax, nom: f.nom }, reduite: null, raison } satisfies EstimationTelechargement, { headers: { "Cache-Control": "private, no-store" } });
++    if (!autorise.oui) return nonReduite(autorise.raison);
++    if (directRedirect) return nonReduite("Fichier volumineux déposé directement : original seulement.");
++    const r = await obtenirReduction({ empreinte: f.empreinte ?? null, nom: f.nom, mime: f.mime, taille: f.taille ?? null, charger: f.charger }, { avecOctets: false });
++    if (!r.ok) return nonReduite(r.raison);
++    const original = f.taille ?? 0;
++    const body: EstimationTelechargement = {
++      max: { taille: original, nom: f.nom },
++      reduite: { taille: r.octets.length, nom: r.nom, gain: original > 0 ? 1 - r.octets.length / original : 0, methode: r.methode },
++    };
++    return NextResponse.json(body, { headers: { "Cache-Control": "private, no-store" } });
++  }
++
++  // ───── réduite : seulement si elle existe ; sinon l'original, dit
++  if (o.qualite === "reduite" && autorise.oui && !directRedirect) {
++    const r = await obtenirReduction({ empreinte: f.empreinte ?? null, nom: f.nom, mime: f.mime, taille: f.taille ?? null, charger: f.charger }, { avecOctets: true });
++    if (r.ok) {
++      await o.journaliser?.("reduite");
++      return new NextResponse(new Uint8Array(r.octets), {
++        headers: {
++          "Content-Type": r.mime,
++          "Content-Disposition": contentDisposition(r.nom, o.telecharger ? "attachment" : "inline"),
++          "Content-Length": String(r.octets.length),
++          "X-Qualite": "reduite",
++          "X-Reduction": encodeURIComponent(r.methode),
++          ...(f.taille ? { "X-Taille-Originale": String(f.taille) } : {}),
++          "Cache-Control": "private, no-store",
++          ...o.entetes,
++        },
++      });
++    }
++    // Pas de version réduite : on sert l'original (ci-dessous) et on le dit.
++    return servirOriginal(f, o, directRedirect, { "X-Qualite-Raison": encodeURIComponent(r.raison) });
++  }
++
++  return servirOriginal(f, o, directRedirect, {});
++}
++
++async function servirOriginal(f: FichierServi, o: OptionsPorte, directRedirect: string | null, extra: Record<string, string>): Promise<NextResponse> {
++  if (directRedirect) {
++    await o.journaliser?.("max");
++    return NextResponse.redirect(directRedirect, { status: 302, headers: { "Cache-Control": "private, no-store" } });
++  }
++  const octets = await f.charger();
++  if (!octets) return new NextResponse(null, { status: 404 });
++  await o.journaliser?.("max");
++  return new NextResponse(new Uint8Array(octets), {
++    headers: {
++      "Content-Type": f.mime,
++      "Content-Disposition": contentDisposition(f.nom, o.telecharger ? "attachment" : "inline"),
++      "Content-Length": String(octets.length),
++      "X-Qualite": "max",
++      // L'empreinte du fichier d'origine : qui reçoit les octets peut vérifier qu'ils sont ceux qui ont été déposés.
++      ...(f.empreinte ? { "X-Empreinte-SHA256": f.empreinte } : {}),
++      ...extra,
++      ...o.entetes,
++    },
++  });
++}
++
++// ─────────────────────────────── archives : dossier, sélection ──────────────────────────────
++
++/**
++ * Une archive ZIP streamée. `max` = AUCUNE compression (chaque fichier, octet pour octet) ;
++ * `reduite` = deflate 9 sans gonflement. `estimer` n'a de sens que pour l'appelant, qui sait ce
++ * que l'archive contient : il passe par `repondreEstimationArchive`.
++ */
++export async function repondreArchive(
++  nomArchive: string,
++  entrees: AsyncIterable<EntreeZip> | Iterable<EntreeZip>,
++  qualite: Qualite,
++  opts: { journaliser?: (q: "max" | "reduite") => Promise<void> | void; octetsTotal?: number } = {},
++): Promise<NextResponse> {
++  const niveau: NiveauZip = qualite === "reduite" ? "max" : "stocke";
++  if (opts.octetsTotal !== undefined && opts.octetsTotal > LIMITE_ZIP_OCTETS) {
++    return NextResponse.json({ error: "Sélection trop volumineuse pour une archive (4 Go au plus). Téléchargez par sous-dossiers." }, { status: 413 });
++  }
++  await opts.journaliser?.(qualite === "reduite" ? "reduite" : "max");
++  const flux = enFluxWeb(ecrireZip(entrees, niveau));
++  return new NextResponse(flux, {
++    headers: {
++      "Content-Type": "application/zip",
++      "Content-Disposition": contentDisposition(nomArchive, "attachment"),
++      "X-Qualite": qualite === "reduite" ? "reduite" : "max",
++      "Cache-Control": "private, no-store",
++    },
++  });
++}
++
++/** Au-delà, compresser le dossier pour en MESURER la taille coûterait presque autant que le téléchargement : on dit « taille non estimée ». */
++const MAX_ESTIMATION_ARCHIVE = 128 * 1024 * 1024;
++const TTL_ESTIMATION_MS = 15 * 60_000;
++const estimations = new Map<string, { taille: number; expire: number }>();
++
++/** Surcoût EXACT d'une archive « stockée » : en-tête local + entrée centrale par fichier, plus la fin. */
++export function surcoutZip(noms: string[]): number {
++  return 22 + noms.reduce((s, n) => s + 30 + 46 + 2 * Buffer.byteLength(n, "utf8"), 0);
++}
++
++/**
++ * `?qualite=estimer` pour une ARCHIVE. L'original (qualité maximale, non compressé) a une taille
++ * exacte, connue sans rien lire. La version réduite n'est offerte que si au moins un fichier peut
++ * rétrécir (les JPEG, ZIP, DOCX, MP4… ne le peuvent pas) ; sa taille n'est mesurée — en compressant
++ * pour de bon — que sous 128 Mo, sinon elle est dite « non estimée ».
++ */
++export async function repondreEstimationArchive(a: {
++  nomArchive: string;
++  noms: string[];
++  octetsTotal: number;
++  /** Identifiant stable du contenu (les blobs, dans l'ordre) : deux estimations du même contenu n'en font qu'une. */
++  cle: string;
++  entrees: () => AsyncIterable<EntreeZip>;
++}): Promise<NextResponse> {
++  const max = { taille: a.octetsTotal + surcoutZip(a.noms), nom: a.nomArchive };
++  const entetes = { "Cache-Control": "private, no-store" };
++  if (a.noms.every(extensionDejaCompressee)) {
++    return NextResponse.json({ max, reduite: null, raison: "Déjà optimisé : ces fichiers sont déjà compressés." } satisfies EstimationTelechargement, { headers: entetes });
++  }
++  const base = { nom: a.nomArchive, methode: "archive ZIP compressée (deflate 9)" };
++  if (a.octetsTotal > MAX_ESTIMATION_ARCHIVE) {
++    return NextResponse.json({ max, reduite: { ...base, taille: null, gain: null } } satisfies EstimationTelechargement, { headers: entetes });
++  }
++  const connue = estimations.get(a.cle);
++  let taille: number;
++  if (connue && connue.expire > Date.now()) taille = connue.taille;
++  else {
++    taille = 0;
++    for await (const b of ecrireZip(a.entrees(), "max")) taille += b.length;
++    estimations.set(a.cle, { taille, expire: Date.now() + TTL_ESTIMATION_MS });
++    if (estimations.size > 200) estimations.delete(estimations.keys().next().value as string);
++  }
++  // Même exigence que pour un fichier : une version « réduite » qui n'économise pas 10 % n'est pas offerte.
++  if (taille > max.taille * 0.9) {
++    return NextResponse.json({ max, reduite: null, raison: "Déjà optimisé : la compression n'économiserait presque rien." } satisfies EstimationTelechargement, { headers: entetes });
++  }
++  return NextResponse.json({ max, reduite: { ...base, taille, gain: 1 - taille / max.taille } } satisfies EstimationTelechargement, { headers: entetes });
++}
++
++export { ErreurZipLimite };

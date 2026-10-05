@@ -1,0 +1,1795 @@
+diff --git a/src/app/(app)/finances/compta-cockpit.tsx b/src/app/(app)/finances/compta-cockpit.tsx
+index 3adca48..85c3393 100644
+--- a/src/app/(app)/finances/compta-cockpit.tsx
++++ b/src/app/(app)/finances/compta-cockpit.tsx
+@@ -1,6 +1,7 @@
+ import Link from "next/link";
+ import { ArrowRight } from "lucide-react";
+ import type { getComptaData, ComptaItem } from "@/lib/queries/compta";
++import { CHOIX_PERIODE, type Periode, type ResultatPeriode } from "@/lib/finance/resultat-mensuel";
+ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+ import { Badge } from "@/components/ui/badge";
+ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+@@ -18,7 +19,7 @@ type ComptaData = Awaited<ReturnType<typeof getComptaData>>;
+  * les dépenses qu'aucun autre écran ne porte — celles hors ordres, la masse salariale à
+  * provisionner — et le résultat mensuel.
+  */
+-export function ComptaCockpit({ d }: { d: ComptaData }) {
++export function ComptaCockpit({ d, resultat, periode }: { d: ComptaData; resultat: ResultatPeriode; periode: Periode }) {
+   return (
+     <div className="space-y-6">
+       {d.enRetardCount > 0 && (
+@@ -54,37 +55,7 @@ export function ComptaCockpit({ d }: { d: ComptaData }) {
+         </section>
+       )}
+ 
+-      {/* Résultat mensuel */}
+-      <Card>
+-        <CardHeader>
+-          <CardTitle>Résultat mensuel</CardTitle>
+-          <CardDescription>Recettes, dépenses et résultat réalisés sur les 6 derniers mois.</CardDescription>
+-        </CardHeader>
+-        <CardContent className="p-0">
+-          <Table>
+-            <TableHeader>
+-              <TableRow>
+-                <TableHead>Mois</TableHead>
+-                <TableHead className="text-right">Recettes</TableHead>
+-                <TableHead className="text-right">Dépenses</TableHead>
+-                <TableHead className="text-right">Résultat</TableHead>
+-              </TableRow>
+-            </TableHeader>
+-            <TableBody>
+-              {d.months.map((m) => (
+-                <TableRow key={m.label}>
+-                  <TableCell className="font-medium">{m.label}</TableCell>
+-                  <TableCell className="text-right text-success">{formatCurrency(m.recettes)}</TableCell>
+-                  <TableCell className="text-right text-destructive">{formatCurrency(m.depenses)}</TableCell>
+-                  <TableCell className={`text-right font-semibold ${m.resultat >= 0 ? "text-foreground" : "text-destructive"}`}>
+-                    {formatCurrency(m.resultat)}
+-                  </TableCell>
+-                </TableRow>
+-              ))}
+-            </TableBody>
+-          </Table>
+-        </CardContent>
+-      </Card>
++      <ResultatMensuel resultat={resultat} periode={periode} />
+     </div>
+   );
+ }
+@@ -131,3 +102,88 @@ function ItemTable({ items, thirdLabel, href }: { items: ComptaItem[]; thirdLabe
+     </div>
+   );
+ }
++
++/**
++ * LE RÉSULTAT MENSUEL, SUR LA PÉRIODE CHOISIE — 1 mois, 3 mois, 6 mois (défaut), 1 an, ou du… au…
++ * (Direction, 04/10/2026). Le choix est un paramètre d'adresse lu par le serveur : des liens et un
++ * formulaire GET, sans état côté navigateur. La paie compte dans son MOIS DE PAIE (voir
++ * `finance/resultat-mensuel.ts`), et sa part est montrée à côté des dépenses.
++ */
++function ResultatMensuel({ resultat, periode }: { resultat: ResultatPeriode; periode: Periode }) {
++  const lien = (valeur: string) => `/finances/comptabilite?periode=${valeur}`;
++  return (
++    <Card>
++      <CardHeader>
++        <CardTitle>Résultat mensuel</CardTitle>
++        <CardDescription>
++          Recettes, dépenses et résultat réalisés — {periode.libelle}. La paie compte dans le mois qu&apos;elle paie, même virée le mois suivant.
++        </CardDescription>
++        <nav aria-label="Période du résultat" className="flex flex-wrap items-end gap-2 pt-2">
++          {CHOIX_PERIODE.filter((c) => c.valeur !== "perso").map((c) => (
++            <Link
++              key={c.valeur} href={lien(c.valeur)}
++              aria-current={periode.choix === c.valeur ? "page" : undefined}
++              className={`rounded-full border px-3 py-1 text-xs ${periode.choix === c.valeur ? "border-primary bg-primary/10 font-medium text-primary" : "border-border hover:bg-muted"}`}
++            >
++              {c.libelle}
++            </Link>
++          ))}
++          <form method="get" action="/finances/comptabilite" className="flex flex-wrap items-end gap-2">
++            <input type="hidden" name="periode" value="perso" />
++            <label className="flex flex-col gap-0.5 text-xs">
++              <span className="text-muted-foreground">Du</span>
++              <input type="month" name="du" defaultValue={periode.choix === "perso" ? periode.debut : ""} required className="h-8 rounded-md border border-border bg-background px-2 text-xs" />
++            </label>
++            <label className="flex flex-col gap-0.5 text-xs">
++              <span className="text-muted-foreground">Au</span>
++              <input type="month" name="au" defaultValue={periode.choix === "perso" ? periode.fin : ""} required className="h-8 rounded-md border border-border bg-background px-2 text-xs" />
++            </label>
++            <button
++              type="submit"
++              aria-current={periode.choix === "perso" ? "page" : undefined}
++              className={`h-8 rounded-md border px-3 text-xs ${periode.choix === "perso" ? "border-primary bg-primary/10 font-medium text-primary" : "border-border hover:bg-muted"}`}
++            >
++              Période donnée
++            </button>
++          </form>
++        </nav>
++        {periode.avertissement && <p role="status" className="text-xs text-warning">{periode.avertissement}</p>}
++      </CardHeader>
++      <CardContent className="p-0">
++        <Table>
++          <TableHeader>
++            <TableRow>
++              <TableHead>Mois</TableHead>
++              <TableHead className="text-right">Recettes</TableHead>
++              <TableHead className="text-right">Dépenses</TableHead>
++              <TableHead className="text-right">dont paie</TableHead>
++              <TableHead className="text-right">Résultat</TableHead>
++            </TableRow>
++          </TableHeader>
++          <TableBody>
++            {resultat.lignes.map((m) => (
++              <TableRow key={m.mois}>
++                <TableCell className="font-medium">{m.libelle}</TableCell>
++                <TableCell className="text-right text-success">{formatCurrency(m.recettes)}</TableCell>
++                <TableCell className="text-right text-destructive">{formatCurrency(m.depenses)}</TableCell>
++                <TableCell className="text-right text-muted-foreground">{formatCurrency(m.dontPaie)}</TableCell>
++                <TableCell className={`text-right font-semibold ${m.resultat >= 0 ? "text-foreground" : "text-destructive"}`}>
++                  {formatCurrency(m.resultat)}
++                </TableCell>
++              </TableRow>
++            ))}
++            <TableRow className="border-t-2 border-border font-semibold" data-total-periode>
++              <TableCell>Total — {periode.libelle}</TableCell>
++              <TableCell className="text-right text-success">{formatCurrency(resultat.total.recettes)}</TableCell>
++              <TableCell className="text-right text-destructive">{formatCurrency(resultat.total.depenses)}</TableCell>
++              <TableCell className="text-right text-muted-foreground">{formatCurrency(resultat.total.dontPaie)}</TableCell>
++              <TableCell className={`text-right ${resultat.total.resultat >= 0 ? "text-foreground" : "text-destructive"}`}>
++                {formatCurrency(resultat.total.resultat)}
++              </TableCell>
++            </TableRow>
++          </TableBody>
++        </Table>
++      </CardContent>
++    </Card>
++  );
++}
+diff --git a/src/app/(app)/finances/comptabilite/page.tsx b/src/app/(app)/finances/comptabilite/page.tsx
+index f8153fe..8a59be5 100644
+--- a/src/app/(app)/finances/comptabilite/page.tsx
++++ b/src/app/(app)/finances/comptabilite/page.tsx
+@@ -4,7 +4,8 @@ import { prisma } from "@/lib/prisma";
+ import { companyScopedWhere } from "@/lib/company";
+ import { toNumber } from "@/lib/utils";
+ import { getFinanceData, chargerTresorerie } from "@/lib/queries/finance";
+-import { getComptaData } from "@/lib/queries/compta";
++import { getComptaData, getResultatMensuel } from "@/lib/queries/compta";
++import { lirePeriode, moisAlger } from "@/lib/finance/resultat-mensuel";
+ import { ComptaCockpit } from "../compta-cockpit";
+ import { auditLedger, auditSummary } from "@/lib/finance/ledger-audit";
+ import { PageHeader } from "@/components/shared/page-header";
+@@ -34,15 +35,23 @@ export const dynamic = "force-dynamic";
+  * du travail de comptable, il est donc ICI, au-dessus du livre qu'il conduit à corriger. Le
+  * reloger était le seul moyen de ne pas perdre une capacité qu'aucun autre écran ne portait.
+  */
+-export default async function ComptabilitePage() {
++export default async function ComptabilitePage({
++  searchParams,
++}: {
++  searchParams?: { periode?: string; du?: string; au?: string };
++}) {
+   const user = await requireModule("FINANCES");
++  // LA PÉRIODE DU RÉSULTAT MENSUEL — lue dans l'adresse, côté serveur : un lien la partage, un
++  // rechargement la garde. Illisible, elle retombe sur 6 mois en le disant (`lirePeriode`).
++  const periode = lirePeriode(searchParams ?? {}, moisAlger(new Date()));
+   const canCreate = userCan(user, "FINANCES", "CREATE");
+   const canUpdate = userCan(user, "FINANCES", "UPDATE");
+   const canDelete = userCan(user, "FINANCES", "DELETE");
+-  const [data, compta, companies, settled, remises, tresorerie] = await Promise.all([
++  const [data, compta, resultat, companies, settled, remises, tresorerie] = await Promise.all([
+     getFinanceData(user.id),
+     // CE QUE LE DAF DOIT ENCORE ARBITRER — arrivé du tableau de bord supprimé.
+     getComptaData(user.id),
++    getResultatMensuel(user.id, periode),
+     getMyCompanies(user.id),
+     // ── LE CONTRÔLE DU LIVRE ────────────────────────────────────────────────────────────────
+     //
+@@ -150,7 +159,7 @@ export default async function ComptabilitePage() {
+           faut aller chercher sous trois mille lignes est un contrôle que personne ne lit. */}
+       {/* CE QU'IL RESTE À ARBITRER, avant le livre : ce sont ces lignes-là qui deviendront des
+           écritures, et les voir après le livre reviendrait à les lire trop tard. */}
+-      <ComptaCockpit d={compta} />
++      <ComptaCockpit d={compta} resultat={resultat} periode={periode} />
+ 
+       <section className="surface space-y-3 p-4">
+         <div className="flex flex-wrap items-baseline justify-between gap-2">
+diff --git a/src/app/(app)/rh/paie/masse-mensuelle.tsx b/src/app/(app)/rh/paie/masse-mensuelle.tsx
+new file mode 100644
+index 0000000..9c062ec
+--- /dev/null
++++ b/src/app/(app)/rh/paie/masse-mensuelle.tsx
+@@ -0,0 +1,69 @@
++import { formatCurrency } from "@/lib/utils";
++import type { MasseMensuelle } from "@/lib/hr/payroll-mass";
++
++const MOIS = ["Janvier", "Février", "Mars", "Avril", "Mai", "Juin", "Juillet", "Août", "Septembre", "Octobre", "Novembre", "Décembre"];
++
++export interface ColonneMasse {
++  companyId: string | null;
++  label: string;
++  masse: MasseMensuelle;
++}
++
++/**
++ * LA MASSE SALARIALE, ENTITÉ PAR ENTITÉ ET MOIS PAR MOIS — « pour chaque entité avoir la masse
++ * salariale MENSUELLE et ANNUELLE » (Direction, 04/10/2026).
++ *
++ * Les mois en LIGNES, les entités en colonnes : douze lignes se lisent sur un téléphone, quatorze
++ * colonnes non. Chaque case porte le coût employeur (la masse) et, dessous, le net (ce qui part au
++ * salarié). La table défile dans son propre conteneur si les entités sont nombreuses.
++ */
++export function MasseMensuelleTable({ year, colonnes }: { year: number; colonnes: ColonneMasse[] }) {
++  return (
++    <section className="surface space-y-2 p-4" aria-labelledby="masse-mensuelle-titre">
++      <div>
++        <h2 id="masse-mensuelle-titre" className="text-sm font-semibold">Masse salariale {year} — par entité, mois par mois</h2>
++        <p className="text-xs text-muted-foreground">
++          Salaires saisis comme payés : le coût employeur (charges comprises), et dessous le net versé au salarié.
++        </p>
++      </div>
++      <div className="overflow-x-auto">
++        <table className="w-full min-w-[28rem] text-sm">
++          <thead>
++            <tr className="border-b border-border text-left text-xs text-muted-foreground">
++              <th scope="col" className="py-1.5 pr-3 font-medium">Mois</th>
++              {colonnes.map((c) => (
++                <th key={c.companyId ?? "sans"} scope="col" className={`py-1.5 pl-3 text-right font-medium ${c.companyId ? "" : "text-warning"}`}>
++                  {c.label}
++                </th>
++              ))}
++            </tr>
++          </thead>
++          <tbody>
++            {MOIS.map((m, i) => (
++              <tr key={m} className="border-b border-border/60">
++                <th scope="row" className="py-1.5 pr-3 text-left font-normal">{m}</th>
++                {colonnes.map((c) => <Case key={c.companyId ?? "sans"} cost={c.masse.mois[i]!.cost} net={c.masse.mois[i]!.net} />)}
++              </tr>
++            ))}
++          </tbody>
++          <tfoot>
++            <tr className="font-semibold">
++              <th scope="row" className="py-2 pr-3 text-left">Total {year}</th>
++              {colonnes.map((c) => <Case key={c.companyId ?? "sans"} cost={c.masse.total.cost} net={c.masse.total.net} />)}
++            </tr>
++          </tfoot>
++        </table>
++      </div>
++    </section>
++  );
++}
++
++function Case({ cost, net }: { cost: number; net: number }) {
++  if (cost === 0 && net === 0) return <td className="py-1.5 pl-3 text-right text-muted-foreground">—</td>;
++  return (
++    <td className="py-1.5 pl-3 text-right tabular-nums">
++      <span className="block">{formatCurrency(cost)}</span>
++      <span className="block text-[0.6875rem] font-normal text-muted-foreground">net {formatCurrency(net)}</span>
++    </td>
++  );
++}
+diff --git a/src/app/(app)/rh/paie/page.tsx b/src/app/(app)/rh/paie/page.tsx
+index 2ce8b25..7cea334 100644
+--- a/src/app/(app)/rh/paie/page.tsx
++++ b/src/app/(app)/rh/paie/page.tsx
+@@ -12,11 +12,12 @@ import { VirementsPaie, type CarteEntite, type MoisCarte } from "./virements-pai
+ import { BackLink } from "@/components/shared/back-link";
+ import { defaultEmployerCost } from "@/lib/hr/payroll-cost";
+ import { entryCost } from "@/lib/hr/payroll-cost";
+-import { massByEntity, type PayrollCostLine } from "@/lib/hr/payroll-mass";
++import { masseMensuelleParEntite, type LigneMasseMensuelle } from "@/lib/hr/payroll-mass";
++import { MasseMensuelleTable, type ColonneMasse } from "./masse-mensuelle";
++import { RattacherSansEntite, type SalarieSansEntite } from "./rattacher-sans-entite";
+ import { etatVirement, etatSalaire, moisDeLEntite, saisiAvantLeCentre, type VirementDuMois, type EtatSalaire } from "@/lib/hr/virement-paie";
+ import { instantDuCentreDePaie } from "@/lib/hr/paie-centre";
+ import { getMyCompanies, myCompanyWhere } from "@/lib/company";
+-import { formatCurrency } from "@/lib/utils";
+ 
+ export const dynamic = "force-dynamic";
+ 
+@@ -38,7 +39,7 @@ export default async function PaiePage({ searchParams }: { searchParams: { year?
+     prisma.employee.findMany({
+       where: { isActive: true, ...portee },
+       select: {
+-        id: true, fullName: true, netToPay: true, grossSalary: true, baseSalary: true,
++        id: true, fullName: true, position: true, netToPay: true, grossSalary: true, baseSalary: true,
+         employerCost: true, companyId: true, departmentId: true,
+       },
+       orderBy: { fullName: "asc" },
+@@ -129,32 +130,46 @@ export default async function PaiePage({ searchParams }: { searchParams: { year?
+   const maintenant = new Date();
+   const moisInitial = maintenant.getFullYear() === year ? maintenant.getMonth() + 1 : 12;
+ 
+-  // LA MASSE SALARIALE, SOCIÉTÉ PAR SOCIÉTÉ. C'est le chiffre que chaque entité doit reconnaître
+-  // comme le sien ; consolidé, il n'est celui d'aucune. Calculé sur les lignes PAYÉES de l'année
+-  // et sur les seuls salariés de la portée — le même coût employeur que celui imputé au budget.
++  // LA MASSE SALARIALE, SOCIÉTÉ PAR SOCIÉTÉ ET MOIS PAR MOIS (Direction, 04/10/2026). C'est le
++  // chiffre que chaque entité doit reconnaître comme le sien ; consolidé, il n'est celui d'aucune.
++  // Calculé sur les lignes PAYÉES de l'année et sur les seuls salariés de la portée — le même coût
++  // employeur que celui imputé au budget. L'entité d'une ligne est celle de la FICHE SALARIÉ : une
++  // ligne de paie n'en porte aucune à elle.
+   const empById = new Map(employees.map((e) => [e.id, e]));
+-  const lignes: PayrollCostLine[] = entries
+-    .filter((e) => e.status === "PAID" && empById.has(e.employeeId))
+-    .map((e) => {
+-      const emp = empById.get(e.employeeId)!;
+-      return {
+-        departmentId: emp.departmentId ?? null,
+-        companyId: emp.companyId ?? null,
+-        cost: entryCost({
+-          employerCost: e.employerCost != null ? toNumber(e.employerCost) : null,
+-          gross: toNumber(e.gross), bonuses: toNumber(e.bonuses), deductions: toNumber(e.deductions),
+-        }),
+-      };
+-    });
+-  const masse = massByEntity(lignes);
++  const payees = entries.filter((e) => e.status === "PAID" && empById.has(e.employeeId));
++  const lignes: (LigneMasseMensuelle & { employeeId: string })[] = payees.map((e) => ({
++    employeeId: e.employeeId,
++    companyId: empById.get(e.employeeId)!.companyId ?? null,
++    month: e.month,
++    cost: entryCost({
++      employerCost: e.employerCost != null ? toNumber(e.employerCost) : null,
++      gross: toNumber(e.gross), bonuses: toNumber(e.bonuses), deductions: toNumber(e.deductions),
++    }),
++    net: toNumber(e.net),
++  }));
++  const masse = masseMensuelleParEntite(lignes);
+   const nomEntite = new Map(mesEntites.map((c) => [c.id, c.shortName || c.name]));
+-  const masseParEntite = [...masse.entries()]
+-    .map(([companyId, total]) => ({
++  const colonnesMasse: ColonneMasse[] = [...masse.entries()]
++    .map(([companyId, m]) => ({
+       companyId,
+-      label: companyId ? (nomEntite.get(companyId) ?? "Entité inconnue") : "Sans entité — à rattacher",
+-      total,
++      label: companyId ? (nomEntite.get(companyId) ?? "Entité inconnue") : "Sans entité",
++      masse: m,
+     }))
+     .sort((a, b) => (a.companyId ? 0 : 1) - (b.companyId ? 0 : 1) || a.label.localeCompare(b.label, "fr"));
++
++  // LES SALARIÉS SANS ENTITÉ — QUI, avec ce qu'ils pèsent, et le geste qui les rattache.
++  const sansEntiteSalaries: SalarieSansEntite[] = employees
++    .filter((e) => !e.companyId)
++    .map((e) => {
++      const siens = lignes.filter((l) => l.employeeId === e.id);
++      return {
++        id: e.id, nom: e.fullName, poste: e.position ?? null,
++        cout: siens.reduce((a, l) => a + l.cost, 0),
++        net: siens.reduce((a, l) => a + l.net, 0),
++        salaires: siens.length,
++      };
++    })
++    .sort((a, b) => b.cout - a.cout || a.nom.localeCompare(b.nom, "fr"));
+   const rows: PayrollRow[] = employees.map((emp) => ({
+     employeeId: emp.id,
+     name: emp.fullName,
+@@ -195,19 +210,13 @@ export default async function PaiePage({ searchParams }: { searchParams: { year?
+         title={`Paie ${year}`}
+         description="Un clic sur un mois pour saisir le salaire (coût employeur, net, fiche de paie). Puis, entité par entité, « Envoyer la paie au centre » avec la somme des salaires à virer : le centre de paiement l'autorise, les Finances la virent, et chaque salarié est prévenu au virement."
+       />
+-      {/* LA MASSE SALARIALE, SOCIÉTÉ PAR SOCIÉTÉ — et non un total consolidé qui n'est le chiffre
+-          d'aucune d'elles. La matrice ci-dessous ne montre que les salariés de la portée
+-          sélectionnée : c'est le sélecteur d'entité de la barre supérieure qui sépare la paie. */}
+-      {masseParEntite.length > 0 && (
+-        <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+-          {masseParEntite.map((m) => (
+-            <div key={m.companyId ?? "sans"} className={`rounded-lg border px-3 py-2 ${m.companyId ? "border-border" : "border-warning/40 bg-warning/5"}`}>
+-              <p className="text-xs text-muted-foreground">{m.label}</p>
+-              <p className="text-lg font-semibold tabular-nums">{formatCurrency(m.total)}</p>
+-              <p className="text-[0.6875rem] text-muted-foreground">masse salariale saisie {year} (coût employeur)</p>
+-            </div>
+-          ))}
+-        </div>
++      {colonnesMasse.length > 0 && <MasseMensuelleTable year={year} colonnes={colonnesMasse} />}
++
++      {sansEntiteSalaries.length > 0 && (
++        <RattacherSansEntite
++          year={year} salaries={sansEntiteSalaries}
++          entites={mesEntites.map((c) => ({ id: c.id, label: c.shortName || c.name }))}
++        />
+       )}
+ 
+       <VirementsPaie
+diff --git a/src/app/(app)/rh/paie/rattacher-sans-entite.tsx b/src/app/(app)/rh/paie/rattacher-sans-entite.tsx
+new file mode 100644
+index 0000000..c67719b
+--- /dev/null
++++ b/src/app/(app)/rh/paie/rattacher-sans-entite.tsx
+@@ -0,0 +1,130 @@
++"use client";
++
++import * as React from "react";
++import Link from "next/link";
++import { Loader2, Link2, UserX } from "lucide-react";
++import { Button } from "@/components/ui/button";
++import { Select } from "@/components/ui/input";
++import { formatCurrency } from "@/lib/utils";
++import { rattacherSalariesAEntite } from "@/lib/actions/payroll-hr-actions";
++import { useRafraichir } from "@/components/shared/use-rafraichir";
++
++export interface SalarieSansEntite {
++  id: string;
++  nom: string;
++  poste: string | null;
++  /** Coût employeur des salaires payés de l'année. */
++  cout: number;
++  net: number;
++  salaires: number;
++}
++
++/**
++ * LES SALARIÉS SANS ENTITÉ — « me dire QUI, et en un clic je les rattache » (Direction, 04/10/2026).
++ *
++ * Un geste par salarié, et un geste pour tous. Le menu ne propose que les entités ouvertes à la
++ * personne ; l'action le revérifie. Le rafraîchissement passe par `useRafraichir` (§118.172) :
++ * tant que la liste n'est pas à jour, les gestes restent fermés — sinon un second clic partirait
++ * sur un salarié déjà rattaché.
++ */
++export function RattacherSansEntite({
++  year, salaries, entites,
++}: {
++  year: number;
++  salaries: SalarieSansEntite[];
++  entites: { id: string; label: string }[];
++}) {
++  const { enCours, rafraichir } = useRafraichir();
++  const [busy, setBusy] = React.useState<string | null>(null);
++  const [msg, setMsg] = React.useState<{ ok: boolean; texte: string } | null>(null);
++  const [cibles, setCibles] = React.useState<Record<string, string>>({});
++  const [cibleTous, setCibleTous] = React.useState("");
++
++  const rattacher = async (cle: string, companyId: string, ids: string[]) => {
++    setBusy(cle); setMsg(null);
++    const fd = new FormData();
++    fd.set("companyId", companyId);
++    for (const id of ids) fd.append("employeeIds", id);
++    const r = await rattacherSalariesAEntite(fd).catch(() => ({ ok: false as const, error: "Le rattachement n'a pas abouti — réessayez.", message: undefined }));
++    setBusy(null);
++    setMsg({ ok: r.ok, texte: r.ok ? (r.message ?? "Rattaché.") : (r.error ?? "Rattachement refusé.") });
++    if (r.ok) rafraichir();
++  };
++
++  const total = salaries.reduce((a, s) => a + s.cout, 0);
++  const ferme = busy !== null || enCours;
++
++  return (
++    <section className="space-y-3 rounded-xl border border-warning/40 bg-warning/5 p-4" aria-labelledby="sans-entite-titre">
++      <div>
++        <h2 id="sans-entite-titre" className="flex items-center gap-2 text-sm font-semibold">
++          <UserX className="h-4 w-4 text-warning" /> Sans entité — à rattacher ({salaries.length})
++        </h2>
++        <p className="text-xs text-muted-foreground">
++          {formatCurrency(total)} de masse {year} (coût employeur) n&apos;appartient à aucune entité : leur paie ne peut pas partir au centre.
++          Rattacher écrit l&apos;entité de la FICHE SALARIÉ — toute sa paie la suit.
++        </p>
++      </div>
++
++      {entites.length === 0 ? (
++        <p className="text-xs text-muted-foreground">Aucune entité ne vous est ouverte : le rattachement se fait depuis une entité que vous voyez.</p>
++      ) : (
++        <div className="flex flex-wrap items-end gap-2">
++          <label className="flex flex-col gap-1 text-xs">
++            <span className="text-muted-foreground">Tout rattacher à…</span>
++            <Select value={cibleTous} onChange={(e) => setCibleTous(e.target.value)} className="h-9 w-48 text-sm" aria-label="Entité pour tous les salariés sans entité">
++              <option value="">— Choisir —</option>
++              {entites.map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
++            </Select>
++          </label>
++          <Button
++            type="button" size="sm" disabled={ferme || !cibleTous || salaries.length === 0}
++            onClick={() => rattacher("tous", cibleTous, salaries.map((s) => s.id))}
++          >
++            {busy === "tous" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Link2 className="h-4 w-4" />}
++            Tout rattacher ({salaries.length})
++          </Button>
++        </div>
++      )}
++
++      <ul className="divide-y divide-border/60 text-sm">
++        {salaries.map((s) => (
++          <li key={s.id} className="flex flex-wrap items-center justify-between gap-2 py-2" data-salarie={s.nom}>
++            <div className="min-w-0">
++              <Link href={`/rh/${s.id}`} className="font-medium hover:underline">{s.nom}</Link>
++              <p className="text-xs text-muted-foreground">
++                {s.poste || "Poste non renseigné"} · {s.salaires > 0
++                  ? <>{formatCurrency(s.cout)} ({s.salaires} salaire{s.salaires > 1 ? "s" : ""} payé{s.salaires > 1 ? "s" : ""} en {year}, net {formatCurrency(s.net)})</>
++                  : <>aucun salaire payé en {year}</>}
++              </p>
++            </div>
++            {entites.length > 0 && (
++              <div className="flex items-center gap-2">
++                <Select
++                  value={cibles[s.id] ?? ""} onChange={(e) => setCibles((c) => ({ ...c, [s.id]: e.target.value }))}
++                  className="h-9 w-40 text-sm" aria-label={`Entité de ${s.nom}`}
++                >
++                  <option value="">Rattacher à…</option>
++                  {entites.map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
++                </Select>
++                <Button
++                  type="button" size="sm" variant="outline" disabled={ferme || !cibles[s.id]}
++                  onClick={() => rattacher(s.id, cibles[s.id]!, [s.id])}
++                >
++                  {busy === s.id ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
++                  Rattacher
++                </Button>
++              </div>
++            )}
++          </li>
++        ))}
++      </ul>
++
++      {msg && (
++        <p role="status" className={msg.ok ? "rounded-lg bg-success/10 px-3 py-2 text-xs" : "rounded-lg bg-destructive/10 px-3 py-2 text-xs text-destructive"}>
++          {msg.texte}
++        </p>
++      )}
++    </section>
++  );
++}
+diff --git a/src/lib/actions/aiguillage.genere.ts b/src/lib/actions/aiguillage.genere.ts
+index fd3b672..fb8962b 100644
+--- a/src/lib/actions/aiguillage.genere.ts
++++ b/src/lib/actions/aiguillage.genere.ts
+@@ -1,7 +1,7 @@
+ // ⚠️  FICHIER GÉNÉRÉ — ne pas éditer à la main. Voir `npm run actions:contrat`.
+ //
+ // Chaque entrée est un spécificateur LITTÉRAL : l'empaqueteur les voit tous, et rien n'est
+-// chargé avant l'appel. `executer.test.ts` résout les 872 actions et échoue en
++// chargé avant l'appel. `executer.test.ts` résout les 873 actions et échoue en
+ // nommant celle qui a disparu — c'est le contrôle d'appelant que le compilateur ne fait pas ici.
+ 
+ export const MODULES_ACTIONS: Readonly<Record<string, () => Promise<Record<string, unknown>>>> = {
+diff --git a/src/lib/actions/contrat.genere.json b/src/lib/actions/contrat.genere.json
+index a9f25f8..23150b9 100644
+--- a/src/lib/actions/contrat.genere.json
++++ b/src/lib/actions/contrat.genere.json
+@@ -560,6 +560,7 @@
+   {"id":"payment-request-actions:updatePaymentRequestDetails","fichier":"payment-request-actions","fonction":"updatePaymentRequestDetails","avantFormulaire":0,"porte":{"module":null,"verbe":null,"entite":null,"moduleFr":null,"gardes":["isClosed","isRequester"]},"ecrit":true,"modelesEcrits":["paymentRequest"],"audit":false,"appel":"formulaire","champs":[{"nom":"contactEmail","type":"texte","obligatoire":false,"valeurs":null,"modele":null},{"nom":"contactName","type":"texte","obligatoire":false,"valeurs":null,"modele":null},{"nom":"contactPhone","type":"texte","obligatoire":false,"valeurs":null,"modele":null},{"nom":"id","type":"reference","obligatoire":true,"valeurs":null,"modele":"PaymentRequest"},{"nom":"paymentMethodStated","type":"booleen","obligatoire":false,"valeurs":null,"modele":null}],"illisible":null},
+   {"id":"payroll-hr-actions:envoyerPaieAuCentre","fichier":"payroll-hr-actions","fonction":"envoyerPaieAuCentre","avantFormulaire":0,"porte":{"module":null,"verbe":null,"entite":null,"moduleFr":"RH","gardes":["canRunPayroll"]},"ecrit":true,"modelesEcrits":["auditLog","expenseOrder","payrollEntry","payrollWire"],"audit":true,"appel":"formulaire","champs":[{"nom":"amount","type":"texte","obligatoire":true,"valeurs":null,"modele":null},{"nom":"budgetCategoryId","type":"reference","obligatoire":false,"valeurs":null,"modele":null},{"nom":"companyId","type":"reference","obligatoire":true,"valeurs":null,"modele":"Company"},{"nom":"month","type":"nombre","obligatoire":true,"valeurs":null,"modele":null},{"nom":"year","type":"nombre","obligatoire":true,"valeurs":null,"modele":null}],"illisible":null},
+   {"id":"payroll-hr-actions:markSalaryPaid","fichier":"payroll-hr-actions","fonction":"markSalaryPaid","avantFormulaire":0,"porte":{"module":null,"verbe":null,"entite":null,"moduleFr":"RH","gardes":["canRunPayroll"]},"ecrit":true,"modelesEcrits":["auditLog","payrollEntry"],"audit":true,"appel":"formulaire","champs":[{"nom":"employeeId","type":"reference","obligatoire":true,"valeurs":null,"modele":"Employee"},{"nom":"employerCost","type":"nombre","obligatoire":false,"valeurs":null,"modele":null},{"nom":"gross","type":"nombre","obligatoire":false,"valeurs":null,"modele":null},{"nom":"month","type":"nombre","obligatoire":true,"valeurs":null,"modele":null},{"nom":"net","type":"nombre","obligatoire":false,"valeurs":null,"modele":null},{"nom":"payslip","type":"texte","obligatoire":false,"valeurs":null,"modele":null},{"nom":"year","type":"nombre","obligatoire":true,"valeurs":null,"modele":null}],"illisible":null},
++  {"id":"payroll-hr-actions:rattacherSalariesAEntite","fichier":"payroll-hr-actions","fonction":"rattacherSalariesAEntite","avantFormulaire":0,"porte":{"module":null,"verbe":null,"entite":null,"moduleFr":"Ressources humaines","gardes":["canRunPayroll"]},"ecrit":true,"modelesEcrits":["auditLog","employee"],"audit":true,"appel":"formulaire","champs":[{"nom":"companyId","type":"reference","obligatoire":true,"valeurs":null,"modele":"Company"},{"nom":"employeeIds","type":"liste","obligatoire":false,"valeurs":null,"modele":null}],"illisible":null},
+   {"id":"payroll-hr-actions:unmarkSalaryPaid","fichier":"payroll-hr-actions","fonction":"unmarkSalaryPaid","avantFormulaire":0,"porte":{"module":null,"verbe":null,"entite":null,"moduleFr":"RH","gardes":["canRunPayroll"]},"ecrit":true,"modelesEcrits":["auditLog","employeeDocument","fileBlob","payrollEntry"],"audit":true,"appel":"formulaire","champs":[{"nom":"id","type":"reference","obligatoire":true,"valeurs":null,"modele":null}],"illisible":null},
+   {"id":"payroll-hr-actions:updatePayrollEntry","fichier":"payroll-hr-actions","fonction":"updatePayrollEntry","avantFormulaire":0,"porte":{"module":null,"verbe":null,"entite":null,"moduleFr":"RH","gardes":["canAmend","canRunPayroll"]},"ecrit":true,"modelesEcrits":["auditLog","employeeDocument","fileBlob","financeTransaction","payrollEntry"],"audit":true,"appel":"formulaire","champs":[{"nom":"employerCost","type":"nombre","obligatoire":false,"valeurs":null,"modele":null},{"nom":"gross","type":"nombre","obligatoire":false,"valeurs":null,"modele":null},{"nom":"id","type":"reference","obligatoire":true,"valeurs":null,"modele":null},{"nom":"net","type":"nombre","obligatoire":false,"valeurs":null,"modele":null},{"nom":"payslip","type":"texte","obligatoire":false,"valeurs":null,"modele":null}],"illisible":null},
+   {"id":"pch-actions:createOrder","fichier":"pch-actions","fonction":"createOrder","avantFormulaire":0,"porte":{"module":"PCH","verbe":"CREATE","entite":null,"moduleFr":"PCH","gardes":["peutAgirSurLeMarche","userCan"]},"ecrit":true,"modelesEcrits":["auditLog","pchOrder"],"audit":true,"appel":"formulaire","champs":[{"nom":"contractId","type":"reference","obligatoire":false,"valeurs":null,"modele":"LegalDocument"},{"nom":"notes","type":"texte","obligatoire":false,"valeurs":null,"modele":null},{"nom":"paymentDate","type":"date","obligatoire":false,"valeurs":null,"modele":null},{"nom":"products","type":"texte","obligatoire":false,"valeurs":null,"modele":null},{"nom":"quantity","type":"texte","obligatoire":false,"valeurs":null,"modele":null},{"nom":"receivedDate","type":"date","obligatoire":false,"valeurs":null,"modele":null},{"nom":"reference","type":"texte","obligatoire":false,"valeurs":null,"modele":null},{"nom":"status","type":"texte","obligatoire":false,"valeurs":["PENDING","VALIDATED","DELIVERED","PAID","CANCELLED"],"modele":null},{"nom":"tenderId","type":"reference","obligatoire":true,"valeurs":null,"modele":"PchTender"},{"nom":"value","type":"nombre","obligatoire":false,"valeurs":null,"modele":null}],"illisible":null},
+diff --git a/src/lib/actions/payroll-hr-actions.ts b/src/lib/actions/payroll-hr-actions.ts
+index 64da19c..09bb57b 100644
+--- a/src/lib/actions/payroll-hr-actions.ts
++++ b/src/lib/actions/payroll-hr-actions.ts
+@@ -12,7 +12,7 @@ import { enSerie } from "@/lib/refs";
+ import { formatMonth } from "@/lib/utils";
+ import { fdStr, fdNum, type ActionResult } from "@/lib/actions/types";
+ import { createExpenseOrder } from "@/lib/expense-orders";
+-import { getMyCompanies } from "@/lib/company";
++import { getMyCompanies, entitePermisePourFiche } from "@/lib/company";
+ import { getBudgetCategoryOptions } from "@/lib/queries/budget";
+ import { entryCost } from "@/lib/hr/payroll-cost";
+ import {
+@@ -20,6 +20,7 @@ import {
+   noteVirementPaie, moisDeLaPaie, deMois, ETAT_VIREMENT_LABEL, SOMME_A_VIRER_MANQUANTE, saisiAvantLeCentre, type VirementDuMois,
+ } from "@/lib/hr/virement-paie";
+ import { instantDuCentreDePaie } from "@/lib/hr/paie-centre";
++import { decisionRattachement, phraseRattachement, type SalaireParti } from "@/lib/hr/rattachement-paie";
+ import { validateAmounts, resolvedGross, amendImpact, canAmend } from "@/lib/hr/payroll-amend";
+ import { docxToPdf, isConvertibleWord, pdfFileName } from "@/lib/payslip/to-pdf";
+ import { MIME_DOCX } from "@/lib/artifact/adapters/docx/adapter";
+@@ -358,6 +359,131 @@ export async function envoyerPaieAuCentre(formData: FormData): Promise<ActionRes
+   });
+ }
+ 
++/** Au-delà, le lot se fait en plusieurs fois — limite opérationnelle, pas d'architecture. */
++const RATTACHEMENT_MAX = 200;
++
++/**
++ * RATTACHER À UNE ENTITÉ DES SALARIÉS QUI N'EN ONT PAS — depuis l'écran de la paie, un salarié ou
++ * tous d'un geste (Direction, 04/10/2026). Écrit la société de la FICHE SALARIÉ : c'est elle que
++ * la paie lit (voir `hr/rattachement-paie.ts`, et pourquoi on n'écrit rien sur les lignes).
++ *
++ * La garde est celle de l'écran de la paie (RH qui écrit) ; l'entité visée est l'une de celles
++ * que le menu propose (`getMyCompanies`) ; l'écriture est CONDITIONNELLE (« encore sans entité ») :
++ * un salarié rattaché entre-temps par quelqu'un d'autre garde SON entité et la phrase le nomme. Un
++ * salaire déjà parti au nom d'une autre entité REFUSE tout le lot, en le nommant.
++ */
++export async function rattacherSalariesAEntite(formData: FormData): Promise<ActionResult> {
++  const user = await requireUser();
++  if (!canRunPayroll(user)) return { ok: false, error: "Réservé aux RH." };
++  const companyId = fdStr(formData, "companyId");
++  if (!companyId) return { ok: false, error: "Choisissez l'entité à laquelle rattacher." };
++  const ids = [...new Set(formData.getAll("employeeIds").map((v) => String(v).trim()).filter(Boolean))];
++  if (ids.length === 0) return { ok: false, error: "Aucun salarié à rattacher." };
++  if (ids.length > RATTACHEMENT_MAX) {
++    return { ok: false, error: `${ids.length} salariés d'un coup : au-delà de ${RATTACHEMENT_MAX}, rattachez-les en plusieurs fois.` };
++  }
++
++  const entite = (await getMyCompanies(user.id)).find((c) => c.id === companyId);
++  if (!entite) return { ok: false, error: "Cette entité ne vous est pas ouverte : on n'y rattache pas un salarié d'ici." };
++  const nomCible = entite.shortName || entite.name;
++
++  const fiches = await prisma.employee.findMany({
++    where: { id: { in: ids } },
++    select: { id: true, fullName: true, companyId: true },
++  });
++  if (fiches.length !== ids.length) return { ok: false, error: "Salarié introuvable — rechargez la page." };
++  // LA PORTE DE LA FICHE (celle de `updateEmployee`) : la fiche d'une société qu'on ne voit pas reste introuvable.
++  for (const f of fiches) {
++    if (!(await entitePermisePourFiche(user.id, f.companyId))) return { ok: false, error: "Salarié introuvable — rechargez la page." };
++  }
++  const dejaRattaches = fiches.filter((f) => f.companyId !== null);
++  const aRattacher = fiches.filter((f) => f.companyId === null);
++  if (aRattacher.length === 0) {
++    return { ok: false, error: `${dejaRattaches.length > 1 ? "Ces salariés ont" : "Ce salarié a"} déjà une entité — rien à rattacher. Rechargez la page.` };
++  }
++
++  // CE QUI EST DÉJÀ PARTI — lu sur chaque salaire payé, par la MÊME règle que l'écran et l'envoi.
++  const depuisLeCentre = await instantDuCentreDePaie();
++  const lignes = await prisma.payrollEntry.findMany({
++    where: { employeeId: { in: aRattacher.map((f) => f.id) }, status: "PAID" },
++    select: {
++      employeeId: true, year: true, month: true, status: true, transactionId: true, budgetTransferredAt: true,
++      paidDate: true, createdAt: true,
++      payrollWire: { select: { companyId: true, paidAt: true, expenseOrder: { select: { reference: true, status: true, centralStatus: true } } } },
++    },
++  });
++  const idsEcritures = lignes.map((l) => l.transactionId).filter((v): v is string => Boolean(v));
++  const ecritures = idsEcritures.length
++    ? await prisma.financeTransaction.findMany({ where: { id: { in: idsEcritures } }, select: { id: true, companyId: true, reference: true } })
++    : [];
++  const ecritureParId = new Map(ecritures.map((e) => [e.id, e]));
++  const partisParSalarie = new Map<string, SalaireParti[]>();
++  const saisisParSalarie = new Map<string, number>();
++  for (const l of lignes) {
++    const virement = l.payrollWire ? etatVirement({ paidAt: l.payrollWire.paidAt, ordre: l.payrollWire.expenseOrder }) : null;
++    const etat = etatSalaire({
++      status: l.status, transactionId: l.transactionId, budgetTransferredAt: l.budgetTransferredAt,
++      virement, avantLeCentre: saisiAvantLeCentre(l, depuisLeCentre),
++    });
++    if (etat === "SAISI") { saisisParSalarie.set(l.employeeId, (saisisParSalarie.get(l.employeeId) ?? 0) + 1); continue; }
++    if (etat !== "ENVOYE" && etat !== "VIRE") continue;
++    let parti: SalaireParti;
++    if (l.payrollWire && virement && virementCouvre(virement)) {
++      parti = { year: l.year, month: l.month, companyId: l.payrollWire.companyId, reference: l.payrollWire.expenseOrder?.reference ?? null };
++    } else if (l.transactionId) {
++      const e = ecritureParId.get(l.transactionId);
++      parti = { year: l.year, month: l.month, companyId: e?.companyId ?? null, reference: e?.reference ?? null };
++    } else {
++      parti = { year: l.year, month: l.month, companyId: null, reference: null };
++    }
++    partisParSalarie.set(l.employeeId, [...(partisParSalarie.get(l.employeeId) ?? []), parti]);
++  }
++  const societes = await prisma.company.findMany({ select: { id: true, name: true, shortName: true } });
++  const nomDe = new Map(societes.map((c) => [c.id, c.shortName || c.name]));
++  const decision = decisionRattachement(
++    aRattacher.map((f) => ({ id: f.id, nom: f.fullName, salairesPartis: partisParSalarie.get(f.id) ?? [] })),
++    { id: companyId, nom: nomCible },
++    (id) => nomDe.get(id) ?? "une entité supprimée",
++  );
++  if (!decision.ok) return { ok: false, error: decision.refus };
++
++  // L'ÉCRITURE CONDITIONNELLE, salarié par salarié : on sait ainsi lesquels ont réellement bougé.
++  const rattaches = await prisma.$transaction(async (tx) => {
++    const faits: { id: string; nom: string }[] = [];
++    for (const f of aRattacher) {
++      const r = await tx.employee.updateMany({ where: { id: f.id, companyId: null }, data: { companyId } });
++      if (r.count === 1) faits.push({ id: f.id, nom: f.fullName });
++    }
++    return faits;
++  });
++  if (rattaches.length === 0) {
++    return { ok: false, error: "Rattachés entre-temps par quelqu'un d'autre — rien n'a été modifié ici. Rechargez la page." };
++  }
++  const bouges = new Set(rattaches.map((r) => r.id));
++  const ancienCircuit = aRattacher
++    .filter((f) => bouges.has(f.id))
++    .reduce((a, f) => a + (partisParSalarie.get(f.id) ?? []).filter((p) => p.companyId === null).length, 0);
++  for (const r of rattaches) {
++    await recordAudit({
++      actorId: user.id, action: "UPDATE", module: "Ressources humaines", entityType: "EMPLOYEE", entityId: r.id,
++      field: "companyId", oldValue: null, newValue: companyId,
++      summary: `Fiche de ${r.nom} rattachée à ${nomCible} depuis l'écran de la paie (elle n'avait pas d'entité)`,
++    });
++  }
++  revalidatePath(PATH);
++  revalidatePath("/rh");
++  return {
++    ok: true,
++    message: phraseRattachement({
++      noms: rattaches.map((r) => r.nom),
++      cible: nomCible,
++      saisis: rattaches.reduce((a, r) => a + (saisisParSalarie.get(r.id) ?? 0), 0),
++      ancienCircuit,
++      dejaRattaches: fiches.filter((f) => !bouges.has(f.id)).map((f) => f.fullName),
++    }),
++  };
++}
++
+ /**
+  * CORRIGER UNE LIGNE DE PAIE DÉJÀ FAITE — montants, fiche de paie, y compris après transfert.
+  *
+diff --git a/src/lib/assistant/action-registry.ts b/src/lib/assistant/action-registry.ts
+index 51dd58b..b7ac7db 100644
+--- a/src/lib/assistant/action-registry.ts
++++ b/src/lib/assistant/action-registry.ts
+@@ -1582,6 +1582,13 @@ X("ENVOYER LA PAIE AU CENTRE DE PAIEMENT (§118.176) — « un bouton pour toute
+   + "personne n'a relu ; et Adam est de plus en pause de développement. Un clic sur RH › Paie.", [
+   "payroll-hr-actions:envoyerPaieAuCentre",
+ ]);
++X("RATTACHER À UNE ENTITÉ LES SALARIÉS QUI N'EN ONT PAS, depuis l'écran de la paie (Direction, 04/10/2026). Le geste "
++  + "écrit la société de la FICHE SALARIÉ, que toute sa paie suit : il décide quelle société porte sa masse salariale "
++  + "et d'où sa paie partira au centre de paiement — une décision RH qui se prend devant la liste des salariés et de "
++  + "ce qu'ils pèsent, et qu'un document lu par une étape ne doit pas pouvoir prendre. Adam est de plus en pause de "
++  + "développement. Un clic sur RH › Paie.", [
++  "payroll-hr-actions:rattacherSalariesAEntite",
++]);
+ 
+ // ── RECLASSIFICATION AUTOMATIQUE PAR LE CATALOGUE D'OPS (après tous les blocs ci-dessus). ──
+ // Chaque op de domaine déclare les server actions qu'elle rend NATIVE (`covers`) : leurs clés
+diff --git a/src/lib/finance/resultat-mensuel.test.ts b/src/lib/finance/resultat-mensuel.test.ts
+new file mode 100644
+index 0000000..ede1680
+--- /dev/null
++++ b/src/lib/finance/resultat-mensuel.test.ts
+@@ -0,0 +1,103 @@
++import { describe, expect, it } from "vitest";
++import { lirePeriode, resultatParMois, moisAlger, debutDuMoisAlger, finDeLaPeriodeAlger, PERIODE_MAX_MOIS } from "./resultat-mensuel";
++
++/**
++ * LE RÉSULTAT MENSUEL — la période se lit sans deviner, la paie compte dans son mois de paie, et
++ * chaque écriture une seule fois (Direction, 04/10/2026).
++ */
++describe("lirePeriode", () => {
++  it("6 mois par défaut, glissants jusqu'au mois courant", () => {
++    const p = lirePeriode({}, "2026-10");
++    expect(p.choix).toBe("6m");
++    expect(p.mois).toEqual(["2026-05", "2026-06", "2026-07", "2026-08", "2026-09", "2026-10"]);
++    expect(p.avertissement).toBeNull();
++  });
++
++  it("1 mois, 3 mois, 1 an — et une année qui se franchit", () => {
++    expect(lirePeriode({ periode: "1m" }, "2026-10").mois).toEqual(["2026-10"]);
++    expect(lirePeriode({ periode: "3m" }, "2026-02").mois).toEqual(["2025-12", "2026-01", "2026-02"]);
++    const an = lirePeriode({ periode: "12m" }, "2026-10");
++    expect(an.mois).toHaveLength(12);
++    expect(an.debut).toBe("2025-11");
++  });
++
++  it("une période donnée du… au…, mois entiers", () => {
++    const p = lirePeriode({ periode: "perso", du: "2026-01", au: "2026-03" }, "2026-10");
++    expect(p.choix).toBe("perso");
++    expect(p.mois).toEqual(["2026-01", "2026-02", "2026-03"]);
++    expect(p.avertissement).toBeNull();
++    const jours = lirePeriode({ periode: "perso", du: "2026-01-15", au: "2026-02-10" }, "2026-10");
++    expect(jours.mois).toEqual(["2026-01", "2026-02"]);
++    expect(jours.avertissement).toMatch(/au mois/);
++  });
++
++  it("ce qui ne se lit pas retombe sur 6 mois EN LE DISANT", () => {
++    const inverse = lirePeriode({ periode: "perso", du: "2026-05", au: "2026-01" }, "2026-10");
++    expect(inverse.choix).toBe("6m");
++    expect(inverse.avertissement).toMatch(/après le dernier/);
++    const manque = lirePeriode({ periode: "perso", du: "2026-05" }, "2026-10");
++    expect(manque.avertissement).toMatch(/premier et le dernier mois/);
++    const inconnue = lirePeriode({ periode: "2ans" }, "2026-10");
++    expect(inconnue.avertissement).toMatch(/inconnue/);
++    const longue = lirePeriode({ periode: "perso", du: "2020-01", au: "2026-01" }, "2026-10");
++    expect(longue.avertissement).toMatch(new RegExp(`${PERIODE_MAX_MOIS} mois`));
++    // Exactement la limite passe : elle accepte son propre chiffre.
++    expect(lirePeriode({ periode: "perso", du: "2024-01", au: "2026-12" }, "2026-10").mois).toHaveLength(PERIODE_MAX_MOIS);
++  });
++});
++
++describe("le mois d'Alger", () => {
++  it("le 31 décembre à 23 h 30 UTC est déjà janvier à Alger", () => {
++    expect(moisAlger(new Date("2026-12-31T23:30:00Z"))).toBe("2027-01");
++    expect(moisAlger(new Date("2026-12-31T22:30:00Z"))).toBe("2026-12");
++    expect(debutDuMoisAlger("2027-01").toISOString()).toBe("2026-12-31T23:00:00.000Z");
++    expect(finDeLaPeriodeAlger(lirePeriode({ periode: "1m" }, "2026-12")).toISOString()).toBe("2026-12-31T23:00:00.000Z");
++  });
++});
++
++describe("resultatParMois", () => {
++  const periode = lirePeriode({ periode: "perso", du: "2026-09", au: "2026-10" }, "2026-10");
++  const sept = new Date("2026-09-15T10:00:00Z");
++  const oct = new Date("2026-10-03T10:00:00Z");
++
++  it("LA PAIE DE SEPTEMBRE VIRÉE EN OCTOBRE est une dépense de SEPTEMBRE", () => {
++    const r = resultatParMois({
++      periode,
++      ecritures: [
++        { id: "paie", date: oct, direction: "OUT", amount: 500_000 },
++        { id: "fournisseur", date: oct, direction: "OUT", amount: 100_000 },
++        { id: "vente", date: sept, direction: "IN", amount: 1_000_000 },
++      ],
++      moisDePaie: new Map([["paie", "2026-09"]]),
++      paieSansEcriture: [],
++    });
++    expect(r.lignes[0]).toMatchObject({ mois: "2026-09", recettes: 1_000_000, depenses: 500_000, dontPaie: 500_000, resultat: 500_000 });
++    expect(r.lignes[1]).toMatchObject({ mois: "2026-10", depenses: 100_000, dontPaie: 0, resultat: -100_000 });
++    expect(r.total).toEqual({ recettes: 1_000_000, depenses: 600_000, dontPaie: 500_000, resultat: 400_000 });
++  });
++
++  it("une écriture lue deux fois ne compte qu'une fois ; une paie hors période est écartée", () => {
++    const r = resultatParMois({
++      periode,
++      ecritures: [
++        { id: "paie", date: sept, direction: "OUT", amount: 300_000 },
++        { id: "paie", date: sept, direction: "OUT", amount: 300_000 },
++        { id: "paie-aout", date: sept, direction: "OUT", amount: 70_000 },
++      ],
++      moisDePaie: new Map([["paie", "2026-09"], ["paie-aout", "2026-08"]]),
++      paieSansEcriture: [{ mois: "2026-10", montant: 45_000.5 }, { mois: "2026-12", montant: 9 }],
++    });
++    expect(r.lignes[0]!.depenses).toBe(300_000);
++    expect(r.lignes[1]).toMatchObject({ depenses: 45_000.5, dontPaie: 45_000.5 });
++    expect(r.total.depenses).toBe(345_000.5);
++  });
++
++  it("les centimes ne dérivent pas", () => {
++    const r = resultatParMois({
++      periode,
++      ecritures: Array.from({ length: 10 }, (_, i) => ({ id: `e${i}`, date: sept, direction: "OUT" as const, amount: 0.1 })),
++      moisDePaie: new Map(), paieSansEcriture: [],
++    });
++    expect(r.lignes[0]!.depenses).toBe(1);
++  });
++});
+diff --git a/src/lib/finance/resultat-mensuel.ts b/src/lib/finance/resultat-mensuel.ts
+new file mode 100644
+index 0000000..f887312
+--- /dev/null
++++ b/src/lib/finance/resultat-mensuel.ts
+@@ -0,0 +1,228 @@
++/**
++ * ═══════════════════════════════════════════════════════════════════════════════════════════
++ * LE RÉSULTAT MENSUEL — sur la période qu'on choisit, et la paie dans le mois qu'elle paie.
++ *
++ * « Les paies d'un mois doivent aller dans ses dépenses » ; « 1 mois, 3 mois, 6 mois, 1 an, ou une
++ * période donnée » — la Direction, 04/10/2026.
++ *
++ * ── LA PAIE SE RANGE DANS SON MOIS DE PAIE, PAS AU JOUR DU VIREMENT ─────────────────────────
++ *
++ * La paie de septembre virée le 3 octobre est une dépense de SEPTEMBRE : c'est le travail de
++ * septembre qu'elle rémunère, et le résultat de septembre sans ses salaires serait un bénéfice
++ * qui n'existe pas — pendant qu'octobre en porterait deux. Les autres écritures restent au jour
++ * où elles ont été réglées : c'est le « réalisé » que ce tableau a toujours montré.
++ *
++ * Une écriture de paie se reconnaît par son LIEN, jamais par sa catégorie (une avance est aussi
++ * « salaire », et ne se rattache à aucun mois de paie) : le virement de la paie qui la porte
++ * (`PayrollWire.transactionId`, ou l'ordre de dépense de ce virement), ou la ligne de paie de
++ * l'ancien « transfert au budget » (`PayrollEntry.transactionId`). Chaque écriture est comptée
++ * UNE fois — déplacée vers son mois de paie, jamais ajoutée en plus.
++ *
++ * ── LA PAIE VERSÉE SANS ÉCRITURE ────────────────────────────────────────────────────────────
++ *
++ * Avant que la paie passe par le centre (§118.176), « marquer payé » voulait dire « versé », et
++ * rien n'était écrit au livre. Ces salaires ont bien quitté la société : ils comptent dans leur
++ * mois de paie, à leur NET — ce qui a été versé au salarié, comme la somme qu'un virement déclare
++ * aujourd'hui. Ils n'ont aucune écriture, donc aucun double comptage possible.
++ *
++ * Module PUR — testé, sans base de données.
++ * ═══════════════════════════════════════════════════════════════════════════════════════════
++ */
++
++export type ChoixPeriode = "1m" | "3m" | "6m" | "12m" | "perso";
++
++export const CHOIX_PERIODE: { valeur: ChoixPeriode; libelle: string }[] = [
++  { valeur: "1m", libelle: "1 mois" },
++  { valeur: "3m", libelle: "3 mois" },
++  { valeur: "6m", libelle: "6 mois" },
++  { valeur: "12m", libelle: "1 an" },
++  { valeur: "perso", libelle: "Période donnée" },
++];
++
++/** Au-delà, la période se choisit en plusieurs fois — limite opérationnelle, pas d'architecture. */
++export const PERIODE_MAX_MOIS = 36;
++
++export interface Periode {
++  choix: ChoixPeriode;
++  /** Les mois de la période, du plus ancien au plus récent, au format AAAA-MM. */
++  mois: string[];
++  debut: string;
++  fin: string;
++  libelle: string;
++  /** Ce que la lecture des paramètres n'a pas pu suivre — dit à l'écran, jamais tu. */
++  avertissement: string | null;
++}
++
++const MOIS_COURTS = ["janv.", "févr.", "mars", "avr.", "mai", "juin", "juil.", "août", "sept.", "oct.", "nov.", "déc."];
++
++/** « sept. 2026 » */
++export function libelleMois(m: string): string {
++  const [y, mm] = m.split("-").map(Number);
++  return `${MOIS_COURTS[(mm ?? 1) - 1] ?? mm} ${y}`;
++}
++
++const decaler = (m: string, n: number): string => {
++  const [y, mm] = m.split("-").map(Number) as [number, number];
++  const t = y * 12 + (mm - 1) + n;
++  return `${Math.floor(t / 12)}-${String((t % 12) + 1).padStart(2, "0")}`;
++};
++
++const ecart = (a: string, b: string): number => {
++  const [ya, ma] = a.split("-").map(Number) as [number, number];
++  const [yb, mb] = b.split("-").map(Number) as [number, number];
++  return (yb * 12 + mb) - (ya * 12 + ma);
++};
++
++/** AAAA-MM, ou AAAA-MM-JJ dont on garde le mois. `null` sur tout le reste. */
++function lireMois(v: string | undefined): { mois: string; jour: boolean } | null {
++  const t = (v ?? "").trim();
++  const m = /^(\d{4})-(\d{2})(?:-(\d{2}))?$/.exec(t);
++  if (!m) return null;
++  const mm = Number(m[2]);
++  const y = Number(m[1]);
++  if (mm < 1 || mm > 12 || y < 2000 || y > 2100) return null;
++  return { mois: `${m[1]}-${m[2]}`, jour: Boolean(m[3]) };
++}
++
++/**
++ * LA PÉRIODE, lue dans l'adresse. `moisCourant` est le mois d'aujourd'hui (AAAA-MM, heure
++ * d'Alger) — un paramètre, jamais lu ici, pour que la règle se teste à n'importe quelle date.
++ * Une période illisible retombe sur 6 mois EN LE DISANT.
++ */
++export function lirePeriode(
++  params: { periode?: string; du?: string; au?: string },
++  moisCourant: string,
++): Periode {
++  const glissante = (choix: Exclude<ChoixPeriode, "perso">, avertissement: string | null): Periode => {
++    const n = choix === "1m" ? 1 : choix === "3m" ? 3 : choix === "6m" ? 6 : 12;
++    const debut = decaler(moisCourant, -(n - 1));
++    return construire(choix, debut, moisCourant, avertissement);
++  };
++  const choix = params.periode as ChoixPeriode | undefined;
++  if (choix === "1m" || choix === "3m" || choix === "6m" || choix === "12m") return glissante(choix, null);
++  if (choix !== "perso") {
++    return glissante("6m", params.periode ? `Période « ${params.periode} » inconnue : les 6 derniers mois sont affichés.` : null);
++  }
++  const du = lireMois(params.du);
++  const au = lireMois(params.au);
++  if (!du || !au) {
++    return glissante("6m", "Indiquez le premier et le dernier mois de la période (du… au…) : les 6 derniers mois sont affichés.");
++  }
++  if (ecart(du.mois, au.mois) < 0) {
++    return glissante("6m", "Le premier mois de la période est après le dernier : les 6 derniers mois sont affichés.");
++  }
++  if (ecart(du.mois, au.mois) + 1 > PERIODE_MAX_MOIS) {
++    return glissante("6m", `Une période de plus de ${PERIODE_MAX_MOIS} mois se lit en plusieurs fois : les 6 derniers mois sont affichés.`);
++  }
++  return construire(
++    "perso", du.mois, au.mois,
++    du.jour || au.jour ? "Le résultat se lit au mois : la période couvre les mois entiers des dates données." : null,
++  );
++}
++
++function construire(choix: ChoixPeriode, debut: string, fin: string, avertissement: string | null): Periode {
++  const n = ecart(debut, fin) + 1;
++  const mois = Array.from({ length: n }, (_, i) => decaler(debut, i));
++  const libelle = n === 1 ? libelleMois(debut) : `${libelleMois(debut)} – ${libelleMois(fin)}`;
++  return { choix, mois, debut, fin, libelle, avertissement };
++}
++
++/** Le premier instant (UTC) d'un mois à l'heure d'Alger — UTC+1, sans heure d'été. */
++export function debutDuMoisAlger(m: string): Date {
++  const [y, mm] = m.split("-").map(Number) as [number, number];
++  return new Date(Date.UTC(y, mm - 1, 1) - 3600_000);
++}
++
++/** Le premier instant APRÈS la période (borne exclue). */
++export function finDeLaPeriodeAlger(p: Periode): Date {
++  return debutDuMoisAlger(decaler(p.fin, 1));
++}
++
++/** Le mois (AAAA-MM, heure d'Alger) d'une date. */
++export function moisAlger(d: Date): string {
++  const t = new Date(d.getTime() + 3600_000);
++  return `${t.getUTCFullYear()}-${String(t.getUTCMonth() + 1).padStart(2, "0")}`;
++}
++
++/** Une écriture RÉGLÉE du livre. */
++export interface EcritureReglee {
++  id: string;
++  date: Date;
++  direction: "IN" | "OUT";
++  amount: number;
++}
++
++export interface LigneResultat {
++  mois: string;
++  libelle: string;
++  recettes: number;
++  depenses: number;
++  /** La part de la paie dans les dépenses du mois — déjà comprise dans `depenses`. */
++  dontPaie: number;
++  resultat: number;
++}
++
++export interface ResultatPeriode {
++  lignes: LigneResultat[];
++  total: { recettes: number; depenses: number; dontPaie: number; resultat: number };
++}
++
++/**
++ * LE TABLEAU — chaque écriture une fois, la paie dans son mois de paie.
++ *
++ * `moisDePaie` dit, pour une écriture de paie, le mois qu'elle paie (AAAA-MM) ; une écriture qui
++ * n'y figure pas reste au mois de son règlement. `paieSansEcriture` est la paie versée par l'ancien
++ * circuit sans écriture au livre (son net, par mois de paie). Une écriture ou un montant hors de la
++ * période est ÉCARTÉ — jamais rangé dans un mois voisin.
++ * Les montants s'additionnent en centimes : une somme de flottants dérive au centime.
++ */
++export function resultatParMois(input: {
++  periode: Periode;
++  ecritures: readonly EcritureReglee[];
++  moisDePaie: ReadonlyMap<string, string>;
++  paieSansEcriture: readonly { mois: string; montant: number }[];
++}): ResultatPeriode {
++  const index = new Map(input.periode.mois.map((m, i) => [m, i]));
++  const rec = input.periode.mois.map(() => 0);
++  const dep = input.periode.mois.map(() => 0);
++  const paie = input.periode.mois.map(() => 0);
++  const vues = new Set<string>();
++  for (const e of input.ecritures) {
++    if (vues.has(e.id)) continue;
++    vues.add(e.id);
++    const moisPaie = input.moisDePaie.get(e.id);
++    const i = index.get(moisPaie ?? moisAlger(e.date));
++    if (i === undefined) continue;
++    const c = Math.round(e.amount * 100);
++    if (e.direction === "IN") rec[i]! += c;
++    else {
++      dep[i]! += c;
++      if (moisPaie) paie[i]! += c;
++    }
++  }
++  for (const p of input.paieSansEcriture) {
++    const i = index.get(p.mois);
++    if (i === undefined) continue;
++    const c = Math.round(p.montant * 100);
++    dep[i]! += c;
++    paie[i]! += c;
++  }
++  const lignes = input.periode.mois.map((m, i) => ({
++    mois: m,
++    libelle: libelleMois(m),
++    recettes: rec[i]! / 100,
++    depenses: dep[i]! / 100,
++    dontPaie: paie[i]! / 100,
++    resultat: (rec[i]! - dep[i]!) / 100,
++  }));
++  const somme = (t: number[]) => t.reduce((a, b) => a + b, 0);
++  return {
++    lignes,
++    total: {
++      recettes: somme(rec) / 100,
++      depenses: somme(dep) / 100,
++      dontPaie: somme(paie) / 100,
++      resultat: (somme(rec) - somme(dep)) / 100,
++    },
++  };
++}
+diff --git a/src/lib/hr/payroll-mass.ts b/src/lib/hr/payroll-mass.ts
+index ecb529b..e71c40d 100644
+--- a/src/lib/hr/payroll-mass.ts
++++ b/src/lib/hr/payroll-mass.ts
+@@ -111,3 +111,51 @@ export function refreshSummary(rows: readonly BudgetRefresh[], format: (n: numbe
+   const total = rows.reduce((a, r) => a + r.amount, 0);
+   return `Masse salariale actualisée sur ${rows.length} département(s) — ${format(total)} au total (remplacement, pas addition).`;
+ }
++
++/** Une ligne de paie PAYÉE, réduite à ce qui fait la masse d'un MOIS. */
++export interface LigneMasseMensuelle {
++  companyId: string | null;
++  /** 1 = janvier. */
++  month: number;
++  /** Le coût employeur (`entryCost`). */
++  cost: number;
++  /** Le net — ce qui est viré au salarié. */
++  net: number;
++}
++
++export interface MasseMensuelle {
++  /** Index 0 = janvier. */
++  mois: { cost: number; net: number }[];
++  total: { cost: number; net: number };
++}
++
++/**
++ * LA MASSE PAR ENTITÉ ET PAR MOIS — « pour chaque entité, la masse salariale MENSUELLE et
++ * ANNUELLE » (Direction, 04/10/2026).
++ *
++ * Deux chiffres par case, et ils ne se remplacent pas : le COÛT EMPLOYEUR (ce que la société
++ * décaisse, charges comprises — la masse) et le NET (ce qui part au salarié — ce que la carte
++ * d'envoi au centre compare à la somme déclarée). Le total de l'année est la SOMME des mois, calculée
++ * ici et pas ailleurs : deux additions du même tableau finiraient par ne pas tomber juste.
++ * Les montants s'additionnent en centimes — une somme de flottants dérive au centime.
++ * Un mois hors 1–12 est ÉCARTÉ, jamais rangé dans un mois voisin.
++ */
++export function masseMensuelleParEntite(lignes: readonly LigneMasseMensuelle[]): Map<string | null, MasseMensuelle> {
++  const centimes = new Map<string | null, { cost: number; net: number }[]>();
++  for (const l of lignes) {
++    if (!Number.isInteger(l.month) || l.month < 1 || l.month > 12) continue;
++    let mois = centimes.get(l.companyId);
++    if (!mois) { mois = Array.from({ length: 12 }, () => ({ cost: 0, net: 0 })); centimes.set(l.companyId, mois); }
++    mois[l.month - 1]!.cost += Math.round(l.cost * 100);
++    mois[l.month - 1]!.net += Math.round(l.net * 100);
++  }
++  const out = new Map<string | null, MasseMensuelle>();
++  for (const [companyId, mois] of centimes) {
++    const total = mois.reduce((a, m) => ({ cost: a.cost + m.cost, net: a.net + m.net }), { cost: 0, net: 0 });
++    out.set(companyId, {
++      mois: mois.map((m) => ({ cost: m.cost / 100, net: m.net / 100 })),
++      total: { cost: total.cost / 100, net: total.net / 100 },
++    });
++  }
++  return out;
++}
+diff --git a/src/lib/hr/rattachement-compta-flow.test.ts b/src/lib/hr/rattachement-compta-flow.test.ts
+new file mode 100644
+index 0000000..21044ac
+--- /dev/null
++++ b/src/lib/hr/rattachement-compta-flow.test.ts
+@@ -0,0 +1,283 @@
++import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
++import type { CurrentUser } from "@/lib/session";
++
++vi.mock("next/cache", () => ({ revalidatePath: () => {} }));
++vi.mock("next/headers", () => ({ cookies: () => ({ get: () => undefined }) }));
++let ACTOR: CurrentUser | null = null;
++vi.mock("@/lib/session", () => ({ requireUser: async () => ACTOR }));
++
++import { prisma } from "@/lib/prisma";
++import { getAccess, hasGlobalView, type SessionUser } from "@/lib/rbac";
++import { rattacherSalariesAEntite, envoyerPaieAuCentre } from "@/lib/actions/payroll-hr-actions";
++import { getMyCompanies } from "@/lib/company";
++import { getResultatMensuel } from "@/lib/queries/compta";
++import { lirePeriode } from "@/lib/finance/resultat-mensuel";
++
++let dbOk = false;
++try { await prisma.$queryRaw`SELECT 1`; dbOk = true; } catch { dbOk = false; }
++const suite = dbOk ? describe : describe.skip;
++
++const TAG = "__rattachepaie__";
++const YEAR = 2041;
++
++async function actorFor(id: string, role: SessionUser["role"]): Promise<CurrentUser> {
++  const access = await getAccess(id, role);
++  const u = await prisma.user.findUniqueOrThrow({ where: { id } });
++  return { id, name: u.name, email: u.email, role, access, mustChangePassword: false };
++}
++const form = (fields: Record<string, string | string[]>): FormData => {
++  const fd = new FormData();
++  for (const [k, v] of Object.entries(fields)) for (const x of Array.isArray(v) ? v : [v]) fd.append(k, x);
++  return fd;
++};
++
++/**
++ * ═══════════════════════════════════════════════════════════════════════════════════════════
++ * RATTACHER LES SALARIÉS SANS ENTITÉ, ET LA PAIE DANS LE RÉSULTAT DE SON MOIS (Direction,
++ * 04/10/2026) — par les VRAIS points d'entrée, avec des acteurs SANS vue globale (§118.104) : une
++ * RH qui ne voit que l'entité A, un financier qui ne voit que l'entité A. Les juges lisent le lien
++ * causal (la fiche, son audit, le virement qui couvre la ligne) ou des entités créées ICI — jamais
++ * un total de la base partagée.
++ * ═══════════════════════════════════════════════════════════════════════════════════════════
++ */
++suite("Rattacher à une entité depuis la paie ; la paie dans le résultat de son mois", () => {
++  let aId = "", bId = "", cId = "";
++  let rhId = "", financeId = "";
++  const sans: Record<string, string> = {};
++  let empA = "", empB = "";
++  const ordres: string[] = [];
++  const wires: string[] = [];
++
++  const rh = () => actorFor(rhId, "DIRECTION_ASSISTANT");
++  const finance = () => actorFor(financeId, "FINANCE_BUDGET_MANAGER");
++  const rattacher = async (companyId: string, ids: string[]) => {
++    ACTOR = await rh();
++    return rattacherSalariesAEntite(form({ companyId, employeeIds: ids }));
++  };
++  const entiteDe = async (id: string) => (await prisma.employee.findUniqueOrThrow({ where: { id }, select: { companyId: true } })).companyId;
++  const tx = (label: string, date: string, direction: "IN" | "OUT", amount: number, companyId: string) =>
++    prisma.financeTransaction.create({
++      data: { reference: `${TAG}${label}`, label: `${TAG}${label}`, date: new Date(date), direction, amount, category: direction === "IN" ? "RECETTE" : "SALAIRE", status: "SETTLED", companyId },
++      select: { id: true },
++    }).then((t) => t.id);
++  const ordre = async (companyId: string, wireId: string, extra: { status?: "PENDING" | "PAID"; transactionId?: string } = {}) => {
++    const o = await prisma.expenseOrder.create({
++      data: {
++        reference: `${TAG}OD${ordres.length}`, label: `${TAG} paie`, amount: 1, category: "SALAIRE", companyId,
++        sourceType: "PAYROLL", sourceId: wireId, status: extra.status ?? "PENDING", centralStatus: "PENDING",
++        transactionId: extra.transactionId ?? null,
++      },
++      select: { id: true, reference: true },
++    });
++    ordres.push(o.id);
++    return o;
++  };
++
++  beforeAll(async () => {
++    await nettoyer();
++    const [a, b, c] = await Promise.all([
++      prisma.company.create({ data: { name: `${TAG} Adventum`, shortName: `${TAG}ADV` } }),
++      prisma.company.create({ data: { name: `${TAG} Pharmagène`, shortName: `${TAG}PHA` } }),
++      prisma.company.create({ data: { name: `${TAG} Tierce`, shortName: `${TAG}TRC` } }),
++    ]);
++    aId = a.id; bId = b.id; cId = c.id;
++    const mk = (n: string, role: SessionUser["role"]) =>
++      prisma.user.create({ data: { name: `${TAG}${n}`, email: `${TAG}${n}@t.dz`, role, passwordHash: "x" } }).then((u) => u.id);
++    [rhId, financeId] = await Promise.all([mk("rh", "DIRECTION_ASSISTANT"), mk("finance", "FINANCE_BUDGET_MANAGER")]);
++    await prisma.userAccess.create({ data: { userId: rhId, module: "RH", canView: true, canCreate: true, canUpdate: true, scope: "ALL" } });
++    await prisma.employee.create({ data: { fullName: `${TAG} RH`, userId: rhId, companyId: aId } });
++    await prisma.userCompanyAccess.create({ data: { userId: rhId, companyId: aId, canEdit: true } });
++    await prisma.employee.create({ data: { fullName: `${TAG} Finance`, userId: financeId, companyId: aId } });
++    await prisma.userCompanyAccess.create({ data: { userId: financeId, companyId: aId, canEdit: true } });
++
++    for (const k of ["saisi", "autreEntite", "lot", "ancien", "course"]) {
++      sans[k] = (await prisma.employee.create({ data: { fullName: `${TAG} ${k}`, position: "Délégué" } })).id;
++    }
++    empA = (await prisma.employee.create({ data: { fullName: `${TAG} salarié A`, companyId: aId } })).id;
++    empB = (await prisma.employee.create({ data: { fullName: `${TAG} salarié B`, companyId: bId } })).id;
++  });
++
++  // LE NETTOYAGE SE FAIT PAR LE TAG, avant ET après : un run interrompu ne doit pas faire tomber le
++  // suivant sur une contrainte d'unicité dont la cause est invisible (§118.91).
++  async function nettoyer() {
++    const societes = (await prisma.company.findMany({ where: { name: { startsWith: TAG } }, select: { id: true } })).map((c) => c.id);
++    const comptes = (await prisma.user.findMany({ where: { email: { startsWith: TAG } }, select: { id: true } })).map((u) => u.id);
++    const tous = (await prisma.employee.findMany({ where: { fullName: { startsWith: TAG } }, select: { id: true } })).map((e) => e.id);
++    await prisma.payrollEntry.deleteMany({ where: { employeeId: { in: tous } } }).catch(() => {});
++    const w = await prisma.payrollWire.findMany({ where: { companyId: { in: societes } }, select: { expenseOrderId: true } });
++    const parTag = await prisma.expenseOrder.findMany({ where: { reference: { startsWith: TAG } }, select: { id: true } });
++    const idsOrdres = [...parTag.map((o) => o.id), ...w.map((x) => x.expenseOrderId).filter((v): v is string => Boolean(v))];
++    await prisma.payrollWire.deleteMany({ where: { companyId: { in: societes } } }).catch(() => {});
++    await prisma.paymentRequest.deleteMany({ where: { expenseOrderId: { in: idsOrdres } } }).catch(() => {});
++    const txOrdres = (await prisma.expenseOrder.findMany({ where: { id: { in: idsOrdres } }, select: { transactionId: true } }))
++      .map((o) => o.transactionId).filter((v): v is string => Boolean(v));
++    await prisma.expenseOrder.deleteMany({ where: { id: { in: idsOrdres } } }).catch(() => {});
++    await prisma.financeTransaction.deleteMany({ where: { OR: [{ reference: { startsWith: TAG } }, { id: { in: txOrdres } }] } }).catch(() => {});
++    await prisma.auditLog.deleteMany({ where: { OR: [{ actorId: { in: comptes } }, { entityId: { in: tous } }] } }).catch(() => {});
++    await prisma.employee.deleteMany({ where: { id: { in: tous } } }).catch(() => {});
++    await prisma.notification.deleteMany({ where: { userId: { in: comptes } } }).catch(() => {});
++    await prisma.userAccess.deleteMany({ where: { userId: { in: comptes } } }).catch(() => {});
++    await prisma.userCompanyAccess.deleteMany({ where: { userId: { in: comptes } } }).catch(() => {});
++    await prisma.user.deleteMany({ where: { id: { in: comptes } } }).catch(() => {});
++    await prisma.company.deleteMany({ where: { id: { in: societes } } }).catch(() => {});
++  }
++  afterAll(nettoyer);
++
++  describe("rattacher — la fiche salarié, une entité ouverte, et jamais une paie partie ailleurs", () => {
++    it("PRÉMISSES : la RH n'a pas la vue globale et ne voit que A ; le financier non plus", async () => {
++      expect(hasGlobalView("DIRECTION_ASSISTANT")).toBe(false);
++      expect(hasGlobalView("FINANCE_BUDGET_MANAGER")).toBe(false);
++      expect((await getMyCompanies(rhId)).map((c) => c.id)).toEqual([aId]);
++    });
++
++    it("seule la RH qui écrit rattache ; l'entité doit être ouverte ; rien ne bouge sur un refus", async () => {
++      ACTOR = await finance();
++      const pasRh = await rattacherSalariesAEntite(form({ companyId: aId, employeeIds: [sans.saisi!] }));
++      expect(pasRh).toMatchObject({ ok: false, error: "Réservé aux RH." });
++      const fermee = await rattacher(cId, [sans.saisi!]);
++      expect(fermee.ok).toBe(false);
++      expect(fermee.error).toMatch(/ne vous est pas ouverte/);
++      expect(await entiteDe(sans.saisi!)).toBeNull();
++    });
++
++    it("UN SALAIRE SAISI SUIT LA FICHE : rattaché, il part ensuite dans le virement de A ; l'audit nomme la fiche", async () => {
++      const ligne = await prisma.payrollEntry.create({
++        data: { employeeId: sans.saisi!, year: YEAR, month: 3, status: "PAID", net: 80_000, employerCost: 120_000, paidDate: new Date() },
++        select: { id: true },
++      });
++      const r = await rattacher(aId, [sans.saisi!]);
++      expect(r.ok).toBe(true);
++      expect(r.message).toMatch(/1 salarié rattaché à .*ADV/);
++      expect(r.message).toMatch(/1 salaire saisi pourra partir au centre/);
++      expect(await entiteDe(sans.saisi!)).toBe(aId);
++      const audit = await prisma.auditLog.findFirst({ where: { entityType: "EMPLOYEE", entityId: sans.saisi!, field: "companyId" } });
++      expect(audit).toMatchObject({ actorId: rhId, oldValue: null, newValue: aId });
++
++      ACTOR = await rh();
++      const envoi = await envoyerPaieAuCentre(form({ companyId: aId, year: String(YEAR), month: "3", amount: "80000" }));
++      expect(envoi.ok).toBe(true);
++      const couverte = await prisma.payrollEntry.findUniqueOrThrow({ where: { id: ligne.id }, select: { payrollWire: { select: { companyId: true } } } });
++      expect(couverte.payrollWire?.companyId).toBe(aId);
++
++      const encore = await rattacher(aId, [sans.saisi!]);
++      expect(encore.ok).toBe(false);
++      expect(encore.error).toMatch(/déjà une entité/);
++    });
++
++    it("UNE PAIE PARTIE AU NOM D'UNE AUTRE ENTITÉ refuse TOUT le lot, en la nommant", async () => {
++      const wire = await prisma.payrollWire.create({ data: { companyId: bId, year: YEAR, month: 4, amount: 50_000 }, select: { id: true } });
++      wires.push(wire.id);
++      const o = await ordre(bId, wire.id);
++      await prisma.payrollWire.update({ where: { id: wire.id }, data: { expenseOrderId: o.id } });
++      await prisma.payrollEntry.create({
++        data: { employeeId: sans.autreEntite!, year: YEAR, month: 4, status: "PAID", net: 50_000, paidDate: new Date(), payrollWireId: wire.id },
++      });
++      const r = await rattacher(aId, [sans.lot!, sans.autreEntite!]);
++      expect(r.ok).toBe(false);
++      expect(r.error).toMatch(/Rien n'est rattaché/);
++      expect(r.error).toContain(`${TAG} autreEntite — paie de avril ${YEAR} partie au nom de ${TAG}PHA (${o.reference})`);
++      expect(await entiteDe(sans.lot!)).toBeNull();
++      expect(await entiteDe(sans.autreEntite!)).toBeNull();
++    });
++
++    it("VERSÉ PAR L'ANCIEN CIRCUIT sans entité connue : rattaché, et la phrase le dit", async () => {
++      await prisma.payrollEntry.create({
++        data: { employeeId: sans.ancien!, year: YEAR, month: 1, status: "PAID", net: 70_000, paidDate: new Date(), budgetTransferredAt: new Date() },
++      });
++      const r = await rattacher(aId, [sans.ancien!, sans.lot!]);
++      expect(r.ok).toBe(true);
++      expect(r.message).toMatch(/^2 salariés rattachés/);
++      expect(r.message).toMatch(/1 salaire déjà versé par l'ancien circuit/);
++      expect(await entiteDe(sans.ancien!)).toBe(aId);
++      expect(await entiteDe(sans.lot!)).toBe(aId);
++    });
++
++    it("ÉCRITURE CONDITIONNELLE : rattaché ailleurs PENDANT le geste, le salarié garde SON entité", async () => {
++      // La transaction du banc tient la ligne de la fiche ; le geste lit « sans entité », puis attend
++      // sur son écriture ; pendant qu'il attend, la fiche est rattachée à B. Sans la condition
++      // `companyId: null`, le geste écraserait B par A.
++      ACTOR = await rh();
++      let promesse: Promise<Awaited<ReturnType<typeof rattacherSalariesAEntite>>> | null = null;
++      await prisma.$transaction(async (t) => {
++        await t.$queryRaw`SELECT id FROM "Employee" WHERE id = ${sans.course!} FOR UPDATE`;
++        promesse = rattacherSalariesAEntite(form({ companyId: aId, employeeIds: [sans.course!] }));
++        promesse.catch(() => undefined);
++        const debut = Date.now();
++        for (;;) {
++          await t.$executeRawUnsafe("SELECT pg_stat_clear_snapshot()");
++          const [{ n }] = await t.$queryRaw<{ n: number }[]>`
++            SELECT count(*)::int AS n FROM pg_stat_activity
++            WHERE datname = current_database() AND pg_backend_pid() = ANY(pg_blocking_pids(pid))`;
++          if (n > 0) break;
++          if (Date.now() - debut > 15_000) throw new Error("le geste n'a jamais attendu sur la fiche");
++          await new Promise((res) => setTimeout(res, 25));
++        }
++        await t.employee.update({ where: { id: sans.course! }, data: { companyId: bId } });
++      }, { timeout: 30_000 });
++      const r = await promesse!;
++      expect(r.ok).toBe(false);
++      expect(r.error).toMatch(/entre-temps/);
++      expect(await entiteDe(sans.course!)).toBe(bId);
++    }, 40_000);
++  });
++
++  describe("comptabilité — la paie d'un mois dans les dépenses de CE mois", () => {
++    let paieSept = "";
++
++    beforeAll(async () => {
++      // Septembre : une vente, la paie de septembre VIRÉE LE 3 OCTOBRE (virement → écriture), et une
++      // ligne de l'ancien circuit versée SANS écriture (A visible, B non).
++      await tx("vente-sept", `${YEAR}-09-15T10:00:00Z`, "IN", 1_000_000, aId);
++      paieSept = await tx("paie-sept", `${YEAR}-10-03T10:00:00Z`, "OUT", 500_000, aId);
++      const w = await prisma.payrollWire.create({ data: { companyId: aId, year: YEAR, month: 9, amount: 500_000, paidAt: new Date(), transactionId: paieSept }, select: { id: true } });
++      wires.push(w.id);
++      await tx("fournisseur-oct", `${YEAR}-10-10T10:00:00Z`, "OUT", 100_000, aId);
++      // Octobre : un virement dont seul l'ORDRE porte l'écriture (le crochet a manqué), réglé en novembre.
++      const paieOct = await tx("paie-oct", `${YEAR}-11-02T10:00:00Z`, "OUT", 300_000, aId);
++      const w2 = await prisma.payrollWire.create({ data: { companyId: aId, year: YEAR, month: 10, amount: 300_000 }, select: { id: true } });
++      wires.push(w2.id);
++      const o2 = await ordre(aId, w2.id, { status: "PAID", transactionId: paieOct });
++      await prisma.payrollWire.update({ where: { id: w2.id }, data: { expenseOrderId: o2.id } });
++      // Ancien circuit : écriture de l'ancien transfert datée en octobre pour une paie d'AOÛT.
++      const ancienne = await tx("transfert-aout", `${YEAR}-10-20T10:00:00Z`, "OUT", 40_000, aId);
++      await prisma.payrollEntry.create({
++        data: { employeeId: empA, year: YEAR, month: 8, status: "PAID", net: 40_000, paidDate: new Date(), transactionId: ancienne, budgetTransferredAt: new Date() },
++      });
++      // Versé SANS écriture (transféré au budget, aucune écriture) — A compte, B ne se voit pas.
++      await prisma.payrollEntry.create({ data: { employeeId: empA, year: YEAR, month: 9, status: "PAID", net: 25_000, paidDate: new Date(), budgetTransferredAt: new Date() } });
++      await prisma.payrollEntry.create({ data: { employeeId: empB, year: YEAR, month: 9, status: "PAID", net: 999_000, paidDate: new Date(), budgetTransferredAt: new Date() } });
++      // Saisi après la bascule, jamais envoyé : pas encore une dépense.
++      await prisma.payrollEntry.create({ data: { employeeId: empA, year: YEAR, month: 10, status: "PAID", net: 7_000, paidDate: new Date() } });
++    });
++
++    const resultat = (du: string, au: string) => getResultatMensuel(financeId, lirePeriode({ periode: "perso", du, au }, `${YEAR}-12`));
++
++    it("SEPTEMBRE porte sa paie virée en octobre, la paie versée sans écriture à son net, et rien d'une autre entité", async () => {
++      const r = await resultat(`${YEAR}-09`, `${YEAR}-09`);
++      expect(r.lignes).toHaveLength(1);
++      expect(r.lignes[0]).toMatchObject({ recettes: 1_000_000, depenses: 525_000, dontPaie: 525_000, resultat: 475_000 });
++      expect(r.total).toMatchObject({ recettes: 1_000_000, depenses: 525_000 });
++    });
++
++    it("OCTOBRE ne la compte pas une seconde fois ; sa propre paie, réglée en novembre, y revient par l'ordre", async () => {
++      const r = await resultat(`${YEAR}-10`, `${YEAR}-10`);
++      expect(r.lignes[0]).toMatchObject({ depenses: 400_000, dontPaie: 300_000 });
++    });
++
++    it("LA PÉRIODE ENTIÈRE compte chaque écriture une fois, chacune dans son mois de paie", async () => {
++      const r = await resultat(`${YEAR}-08`, `${YEAR}-11`);
++      expect(r.lignes.map((l) => [l.mois, l.depenses, l.dontPaie])).toEqual([
++        [`${YEAR}-08`, 40_000, 40_000],
++        [`${YEAR}-09`, 525_000, 525_000],
++        [`${YEAR}-10`, 400_000, 300_000],
++        [`${YEAR}-11`, 0, 0],
++      ]);
++      expect(r.total).toEqual({ recettes: 1_000_000, depenses: 965_000, dontPaie: 865_000, resultat: 35_000 });
++    });
++
++    it("TÉMOIN : l'écriture de paie, prise seule, est bien datée d'octobre — c'est son LIEN qui la range en septembre", async () => {
++      const e = await prisma.financeTransaction.findUniqueOrThrow({ where: { id: paieSept }, select: { date: true } });
++      expect(e.date.toISOString().slice(0, 7)).toBe(`${YEAR}-10`);
++    });
++  });
++});
+diff --git a/src/lib/hr/rattachement-paie.test.ts b/src/lib/hr/rattachement-paie.test.ts
+new file mode 100644
+index 0000000..1b9db87
+--- /dev/null
++++ b/src/lib/hr/rattachement-paie.test.ts
+@@ -0,0 +1,72 @@
++import { describe, expect, it } from "vitest";
++import { decisionRattachement, phraseRattachement } from "./rattachement-paie";
++import { masseMensuelleParEntite } from "./payroll-mass";
++
++const nom = (id: string) => ({ A: "Adventum", B: "Pharmagène" } as Record<string, string>)[id] ?? id;
++
++describe("decisionRattachement — une paie partie ne change pas d'entité en silence", () => {
++  it("rien de parti : on rattache", () => {
++    expect(decisionRattachement([{ id: "s", nom: "Amel", salairesPartis: [] }], { id: "A", nom: "Adventum" }, nom))
++      .toEqual({ ok: true, ancienCircuit: 0 });
++  });
++
++  it("parti par l'entité CIBLE : rien ne bouge en réalité", () => {
++    const d = decisionRattachement(
++      [{ id: "s", nom: "Amel", salairesPartis: [{ year: 2026, month: 3, companyId: "A", reference: "OD-1" }] }],
++      { id: "A", nom: "Adventum" }, nom,
++    );
++    expect(d.ok).toBe(true);
++  });
++
++  it("parti au nom d'une AUTRE entité : refus qui nomme le salarié, le mois, l'entité et la pièce", () => {
++    const d = decisionRattachement(
++      [
++        { id: "s1", nom: "Amel", salairesPartis: [] },
++        { id: "s2", nom: "Karim", salairesPartis: [{ year: 2026, month: 4, companyId: "B", reference: "OD-2026-044" }] },
++      ],
++      { id: "A", nom: "Adventum" }, nom,
++    );
++    expect(d.ok).toBe(false);
++    if (!d.ok) {
++      expect(d.refus).toMatch(/Rien n'est rattaché/);
++      expect(d.refus).toContain("Karim — paie de avril 2026 partie au nom de Pharmagène (OD-2026-044)");
++      expect(d.refus).not.toContain("Amel");
++    }
++  });
++
++  it("versé par l'ancien circuit sans entité connue : on rattache, et on le compte pour le dire", () => {
++    const d = decisionRattachement(
++      [{ id: "s", nom: "Amel", salairesPartis: [{ year: 2026, month: 1, companyId: null, reference: null }, { year: 2026, month: 2, companyId: null, reference: null }] }],
++      { id: "A", nom: "Adventum" }, nom,
++    );
++    expect(d).toEqual({ ok: true, ancienCircuit: 2 });
++  });
++});
++
++describe("phraseRattachement", () => {
++  it("dit qui a bougé, ce qui pourra partir, l'ancien circuit et ce qui a été rattaché entre-temps", () => {
++    const p = phraseRattachement({ noms: ["Amel", "Karim"], cible: "Adventum", saisis: 1, ancienCircuit: 3, dejaRattaches: ["Sofia"] });
++    expect(p).toMatch(/^2 salariés rattachés à Adventum : Amel, Karim\./);
++    expect(p).toMatch(/1 salaire saisi pourra partir au centre/);
++    expect(p).toMatch(/3 salaires déjà versés par l'ancien circuit/);
++    expect(p).toContain("Déjà rattaché entre-temps, non modifié : Sofia.");
++  });
++});
++
++describe("masseMensuelleParEntite — mensuelle ET annuelle", () => {
++  it("par entité et par mois ; le total est la somme des mois ; un mois illisible est écarté", () => {
++    const m = masseMensuelleParEntite([
++      { companyId: "A", month: 1, cost: 150_000, net: 100_000 },
++      { companyId: "A", month: 1, cost: 0.1, net: 0.2 },
++      { companyId: "A", month: 3, cost: 160_000, net: 110_000 },
++      { companyId: null, month: 2, cost: 90_000, net: 60_000 },
++      { companyId: "A", month: 13, cost: 1, net: 1 },
++    ]);
++    const a = m.get("A")!;
++    expect(a.mois[0]).toEqual({ cost: 150_000.1, net: 100_000.2 });
++    expect(a.mois[1]).toEqual({ cost: 0, net: 0 });
++    expect(a.mois[2]).toEqual({ cost: 160_000, net: 110_000 });
++    expect(a.total).toEqual({ cost: 310_000.1, net: 210_000.2 });
++    expect(m.get(null)!.total).toEqual({ cost: 90_000, net: 60_000 });
++  });
++});
+diff --git a/src/lib/hr/rattachement-paie.ts b/src/lib/hr/rattachement-paie.ts
+new file mode 100644
+index 0000000..b6d8386
+--- /dev/null
++++ b/src/lib/hr/rattachement-paie.ts
+@@ -0,0 +1,122 @@
++/**
++ * ═══════════════════════════════════════════════════════════════════════════════════════════
++ * RATTACHER À UNE ENTITÉ LES SALARIÉS QUI N'EN ONT PAS — et ce que cela fait à leur paie.
++ *
++ * « Ceux sans entité, me dire QUI et en un clic je les rattache » — la Direction, 04/10/2026.
++ *
++ * ── CE QUE « RATTACHER » ÉCRIT ──────────────────────────────────────────────────────────────
++ *
++ * La société de la FICHE SALARIÉ (`Employee.companyId`), et rien d'autre. Une ligne de paie ne
++ * porte AUCUNE entité à elle : l'écran de la paie, la carte d'envoi et l'envoi au centre la lisent
++ * sur le salarié (`employee.companyId`). Écrire l'entité sur les lignes de paie en ferait une
++ * seconde vérité qui divergerait de la fiche au premier changement (§118.5) ; la fiche fait foi,
++ * et toutes les lignes du salarié la suivent.
++ *
++ * ── CE QUI NE CHANGE PAS D'ENTITÉ EN SILENCE ────────────────────────────────────────────────
++ *
++ * Puisque les lignes suivent la fiche, rattacher DÉPLACE leur attribution — y compris celle d'un
++ * salaire déjà parti. Trois cas, chacun avec sa conduite :
++ *
++ *   • parti par un VIREMENT d'une autre entité (envoyé au centre, ou viré) — ou versé par une
++ *     écriture de l'ancien circuit stampée d'une autre entité : REFUS, en le nommant. Le compter
++ *     chez la cible ferait dire à sa carte « envoyé » d'un salaire que c'est une autre société qui
++ *     a déclaré et payé. Le remède est de rattacher le salarié à l'entité qui l'a payé ;
++ *   • parti par l'entité CIBLE elle-même : rien ne bouge en réalité, on rattache ;
++ *   • versé par l'ANCIEN circuit sans aucune entité connue (marqué payé avant la bascule, ou
++ *     transféré au budget sans écriture d'entité) : on rattache, et la phrase le DIT — ce salaire
++ *     entre désormais dans la masse de la cible ; aucune écriture n'est modifiée.
++ *
++ * Tout ou rien : un lot dont un salarié serait refusé n'en rattache aucun. Un « tout rattacher »
++ * qui laisserait partir « le reste » laisserait la personne deviner lesquels ont bougé.
++ *
++ * Module PUR — testé, sans base de données.
++ * ═══════════════════════════════════════════════════════════════════════════════════════════
++ */
++
++/** Un salaire déjà PARTI (envoyé au centre ou viré) d'un salarié qu'on rattache. */
++export interface SalaireParti {
++  year: number;
++  /** 1 = janvier. */
++  month: number;
++  /** L'entité au nom de laquelle il est parti — `null` : aucune entité connue (ancien circuit). */
++  companyId: string | null;
++  /** La référence qui le désigne (ordre de dépense, écriture) — pour que le refus la nomme. */
++  reference: string | null;
++}
++
++export interface SalarieARattacher {
++  id: string;
++  nom: string;
++  salairesPartis: SalaireParti[];
++}
++
++export type DecisionRattachement =
++  | { ok: true; ancienCircuit: number }
++  | { ok: false; refus: string };
++
++const MOIS = ["janvier", "février", "mars", "avril", "mai", "juin", "juillet", "août", "septembre", "octobre", "novembre", "décembre"];
++const moisLu = (y: number, m: number) => `${MOIS[m - 1] ?? `mois ${m}`} ${y}`;
++
++/**
++ * LA DÉCISION — sur ce que la base dit des salaires déjà partis. `nomEntite` rend le libellé d'une
++ * entité (celle qui a payé peut ne pas être ouverte à la personne : on la nomme quand même, c'est
++ * l'explication du refus — la masquer ferait chercher une panne).
++ */
++export function decisionRattachement(
++  salaries: readonly SalarieARattacher[],
++  cible: { id: string; nom: string },
++  nomEntite: (companyId: string) => string,
++): DecisionRattachement {
++  const conflits: string[] = [];
++  let ancienCircuit = 0;
++  for (const s of salaries) {
++    for (const p of s.salairesPartis) {
++      if (p.companyId === null) { ancienCircuit++; continue; }
++      if (p.companyId === cible.id) continue;
++      conflits.push(
++        `${s.nom} — paie de ${moisLu(p.year, p.month)} partie au nom de ${nomEntite(p.companyId)}${p.reference ? ` (${p.reference})` : ""}`,
++      );
++    }
++  }
++  if (conflits.length > 0) {
++    const montres = conflits.slice(0, 6);
++    const reste = conflits.length - montres.length;
++    return {
++      ok: false,
++      refus:
++        `Rien n'est rattaché : ${conflits.length > 1 ? "des salaires déjà partis le sont" : "un salaire déjà parti l'est"} au nom d'une autre entité que ${cible.nom}. `
++        + `Les compter chez ${cible.nom} changerait en silence l'entité d'une paie déjà déclarée. `
++        + `${montres.join(" ; ")}${reste > 0 ? ` ; et ${reste} autre${reste > 1 ? "s" : ""}` : ""}. `
++        + "Rattachez ces salariés à l'entité qui les a payés.",
++    };
++  }
++  return { ok: true, ancienCircuit };
++}
++
++/** La phrase du succès — qui a bougé, et ce que cela fait à leur paie. */
++export function phraseRattachement(input: {
++  noms: readonly string[];
++  cible: string;
++  saisis: number;
++  ancienCircuit: number;
++  dejaRattaches: readonly string[];
++}): string {
++  const n = input.noms.length;
++  const qui = n <= 5 ? input.noms.join(", ") : `${input.noms.slice(0, 5).join(", ")} et ${n - 5} autre${n - 5 > 1 ? "s" : ""}`;
++  const parts = [
++    `${n} salarié${n > 1 ? "s" : ""} rattaché${n > 1 ? "s" : ""} à ${input.cible} : ${qui}. Leur paie compte désormais dans la masse de ${input.cible}.`,
++  ];
++  if (input.saisis > 0) {
++    parts.push(`${input.saisis} salaire${input.saisis > 1 ? "s" : ""} saisi${input.saisis > 1 ? "s" : ""} pourr${input.saisis > 1 ? "ont" : "a"} partir au centre depuis la carte de ${input.cible}.`);
++  }
++  if (input.ancienCircuit > 0) {
++    parts.push(
++      `${input.ancienCircuit} salaire${input.ancienCircuit > 1 ? "s" : ""} déjà versé${input.ancienCircuit > 1 ? "s" : ""} par l'ancien circuit, sans entité connue, `
++      + `entre${input.ancienCircuit > 1 ? "nt" : ""} aussi dans cette masse — aucune écriture de trésorerie n'est modifiée.`,
++    );
++  }
++  if (input.dejaRattaches.length > 0) {
++    parts.push(`Déjà rattaché${input.dejaRattaches.length > 1 ? "s" : ""} entre-temps, non modifié${input.dejaRattaches.length > 1 ? "s" : ""} : ${input.dejaRattaches.join(", ")}.`);
++  }
++  return parts.join(" ");
++}
+diff --git a/src/lib/queries/compta.ts b/src/lib/queries/compta.ts
+index 64ceea7..434a5e4 100644
+--- a/src/lib/queries/compta.ts
++++ b/src/lib/queries/compta.ts
+@@ -1,6 +1,11 @@
+ import { prisma } from "@/lib/prisma";
+ import { platformScope } from "@/lib/company";
+-import { clauseEcrituresVisibles } from "@/lib/queries/visibilite-listes";
++import { clauseEcrituresVisibles, clauseSalariesVisibles } from "@/lib/queries/visibilite-listes";
++import { instantDuCentreDePaie } from "@/lib/hr/paie-centre";
++import { etatSalaire, saisiAvantLeCentre } from "@/lib/hr/virement-paie";
++import {
++  resultatParMois, debutDuMoisAlger, finDeLaPeriodeAlger, type Periode, type ResultatPeriode,
++} from "@/lib/finance/resultat-mensuel";
+ import { toNumber } from "@/lib/utils";
+ 
+ /**
+@@ -15,8 +20,6 @@ import { toNumber } from "@/lib/utils";
+  *   • un petit historique mensuel.
+  */
+ 
+-const MONTHS_FR = ["Jan", "Fév", "Mar", "Avr", "Mai", "Juin", "Juil", "Aoû", "Sep", "Oct", "Nov", "Déc"];
+-
+ export interface ComptaItem {
+   id: string;
+   reference: string;
+@@ -29,13 +32,6 @@ export interface ComptaItem {
+   kind: "order" | "transaction";
+ }
+ 
+-export interface ComptaMonthRow {
+-  label: string;
+-  recettes: number;
+-  depenses: number;
+-  resultat: number;
+-}
+-
+ export interface ComptaCategoryRow {
+   category: string;
+   amount: number;
+@@ -61,18 +57,12 @@ export async function getComptaData(userId: string) {
+   let aEncaisser = 0; // total recettes prévues (PENDING IN)
+   const depByCat = new Map<string, number>();
+   const recByCat = new Map<string, number>();
+-  const monthlyIn = new Array(12).fill(0);
+-  const monthlyOut = new Array(12).fill(0);
+   const recettesAttendues: ComptaItem[] = [];
+   const depensesPrevues: ComptaItem[] = [];
+ 
+   for (const t of txs) {
+     const amt = toNumber(t.amount);
+     if (t.status === "SETTLED") {
+-      if (t.date.getFullYear() === now.getFullYear()) {
+-        if (t.direction === "IN") monthlyIn[t.date.getMonth()] += amt;
+-        else monthlyOut[t.date.getMonth()] += amt;
+-      }
+       if (t.date >= monthStart) {
+         if (t.direction === "IN") {
+           recettesMois += amt;
+@@ -139,16 +129,6 @@ export async function getComptaData(userId: string) {
+     recettesAttendues.filter((r) => r.overdue).reduce((a, r) => a + r.amount, 0) +
+     ordersPending.filter((o) => o.overdue).reduce((a, o) => a + o.amount, 0);
+ 
+-  // Résultat mensuel sur les 6 derniers mois (flux réalisés de l'année en cours).
+-  const cm = now.getMonth();
+-  const months: ComptaMonthRow[] = [];
+-  for (let i = 5; i >= 0; i--) {
+-    const idx = (cm - i + 12) % 12;
+-    const recettes = Math.round(monthlyIn[idx]);
+-    const depenses = Math.round(monthlyOut[idx]);
+-    months.push({ label: MONTHS_FR[idx], recettes, depenses, resultat: recettes - depenses });
+-  }
+-
+   const sortCat = (m: Map<string, number>): ComptaCategoryRow[] =>
+     [...m.entries()].sort((a, b) => b[1] - a[1]).map(([category, amount]) => ({ category, amount }));
+ 
+@@ -170,6 +150,95 @@ export async function getComptaData(userId: string) {
+     depensesAutres,
+     depensesSalairesTotal,
+     depensesAutresTotal,
+-    months,
+   };
+ }
++
++const cleMois = (year: number, month: number) => `${year}-${String(month).padStart(2, "0")}`;
++
++/**
++ * LE RÉSULTAT MENSUEL D'UNE PÉRIODE — la règle vit dans `finance/resultat-mensuel.ts` ; ici, on
++ * lit ce qu'elle reçoit.
++ *
++ * Trois lectures, et aucune n'est bornée en silence : les écritures RÉGLÉES datées dans la
++ * période ; les écritures de PAIE dont le mois de paie est dans la période mais qui ont été
++ * réglées hors d'elle (la paie de septembre virée en octobre, quand on regarde septembre) ; la
++ * paie versée par l'ancien circuit SANS écriture, à son net. Les écritures se lisent dans la portée
++ * du livre (`clauseEcrituresVisibles`), la paie sans écriture dans celle des salariés
++ * (`clauseSalariesVisibles`) : la même entité, au sens strict.
++ */
++export async function getResultatMensuel(userId: string, periode: Periode): Promise<ResultatPeriode> {
++  const [visibles, salariesVisibles, depuisLeCentre] = await Promise.all([
++    clauseEcrituresVisibles(userId),
++    clauseSalariesVisibles(userId),
++    instantDuCentreDePaie(),
++  ]);
++  const dansPeriode = new Set(periode.mois);
++  const annees = [...new Set(periode.mois.map((m) => Number(m.slice(0, 4))))];
++
++  const datees = await prisma.financeTransaction.findMany({
++    where: { AND: [visibles, { status: "SETTLED", date: { gte: debutDuMoisAlger(periode.debut), lt: finDeLaPeriodeAlger(periode) } }] },
++    select: { id: true, date: true, direction: true, amount: true },
++  });
++  const ids = datees.map((e) => e.id);
++
++  const [virementsParEcriture, ordresParEcriture, lignesParEcriture, virementsDuMois, lignesDuMois, versesSansEcriture] = await Promise.all([
++    ids.length ? prisma.payrollWire.findMany({ where: { transactionId: { in: ids } }, select: { transactionId: true, year: true, month: true } }) : [],
++    ids.length
++      ? prisma.expenseOrder.findMany({ where: { sourceType: "PAYROLL", transactionId: { in: ids } }, select: { transactionId: true, sourceId: true } })
++      : [],
++    ids.length ? prisma.payrollEntry.findMany({ where: { transactionId: { in: ids } }, select: { transactionId: true, year: true, month: true } }) : [],
++    prisma.payrollWire.findMany({
++      where: { year: { in: annees } },
++      select: { year: true, month: true, transactionId: true, expenseOrder: { select: { transactionId: true } } },
++    }),
++    prisma.payrollEntry.findMany({ where: { year: { in: annees }, transactionId: { not: null } }, select: { transactionId: true, year: true, month: true } }),
++    prisma.payrollEntry.findMany({
++      where: { year: { in: annees }, status: "PAID", transactionId: null, payrollWireId: null, employee: salariesVisibles },
++      select: { year: true, month: true, net: true, status: true, budgetTransferredAt: true, paidDate: true, createdAt: true },
++    }),
++  ]);
++
++  // LE MOIS DE PAIE DE CHAQUE ÉCRITURE DE PAIE — le virement d'abord, puis l'ordre de ce virement,
++  // puis la ligne de l'ancien transfert. Une écriture n'a qu'un mois de paie.
++  const moisDePaie = new Map<string, string>();
++  const poser = (tx: string | null | undefined, year: number, month: number) => {
++    if (tx && !moisDePaie.has(tx)) moisDePaie.set(tx, cleMois(year, month));
++  };
++  for (const v of virementsParEcriture) poser(v.transactionId, v.year, v.month);
++  const virementsDesOrdres = ordresParEcriture.length
++    ? await prisma.payrollWire.findMany({
++        where: { id: { in: ordresParEcriture.map((o) => o.sourceId).filter((v): v is string => Boolean(v)) } },
++        select: { id: true, year: true, month: true },
++      })
++    : [];
++  const virementParId = new Map(virementsDesOrdres.map((v) => [v.id, v]));
++  for (const o of ordresParEcriture) {
++    const v = o.sourceId ? virementParId.get(o.sourceId) : undefined;
++    if (v) poser(o.transactionId, v.year, v.month);
++  }
++  for (const l of lignesParEcriture) poser(l.transactionId, l.year, l.month);
++  for (const v of virementsDuMois) poser(v.transactionId ?? v.expenseOrder?.transactionId, v.year, v.month);
++  for (const l of lignesDuMois) poser(l.transactionId, l.year, l.month);
++
++  // LA PAIE DU MOIS RÉGLÉE HORS DE LA PÉRIODE — lue, elle aussi, dans la portée du livre.
++  const dejaLues = new Set(ids);
++  const horsPeriode = [...moisDePaie.entries()].filter(([tx, m]) => dansPeriode.has(m) && !dejaLues.has(tx)).map(([tx]) => tx);
++  const reglesAilleurs = horsPeriode.length
++    ? await prisma.financeTransaction.findMany({
++        where: { AND: [visibles, { status: "SETTLED", id: { in: horsPeriode } }] },
++        select: { id: true, date: true, direction: true, amount: true },
++      })
++    : [];
++
++  return resultatParMois({
++    periode,
++    ecritures: [...datees, ...reglesAilleurs].map((e) => ({ id: e.id, date: e.date, direction: e.direction, amount: toNumber(e.amount) })),
++    moisDePaie,
++    paieSansEcriture: versesSansEcriture
++      .filter((l) => etatSalaire({
++        status: l.status, budgetTransferredAt: l.budgetTransferredAt, transactionId: null, virement: null,
++        avantLeCentre: saisiAvantLeCentre(l, depuisLeCentre),
++      }) === "VIRE")
++      .map((l) => ({ mois: cleMois(l.year, l.month), montant: toNumber(l.net) })),
++  });
++}
