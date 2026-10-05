@@ -16,6 +16,8 @@ import { involveThirdParty } from "@/lib/third-party";
 import { adProInit, PRODUCT_MANAGER_ROLES } from "@/lib/workflow/origin";
 import { retirerDemandeAdPro } from "@/lib/actions/workflow-actions";
 import { referentAInscrire } from "@/lib/ad-pro/referent-de-la-gamme";
+import { gammeImposee } from "@/lib/ad-pro/business-unit-auto";
+import { refuseSousVueExacte } from "@/lib/vue-exacte";
 import { fdStr, fdNum, fdDate, type ActionResult } from "@/lib/actions/types";
 import { attachFiles, validateAttachments } from "@/lib/attach-files";
 
@@ -57,6 +59,9 @@ export async function createCongressRequest(
   const user = await requireUser();
   const t = typeOf(formData);
   if (!userCan(user, moduleFor(t), "CREATE")) return { ok: false, error: "Non autorisé." };
+  // Pas de création « comme » quelqu'un : voir `vue-exacte.ts`.
+  const sousVue = await refuseSousVueExacte(user);
+  if (sousVue) return sousVue;
   /*
    * CE QUE LA DEMANDE EXIGE, NOMMÉ EN UNE FOIS (décision du 04/10/2026) : le nom, et l'événement par
    * son DÉBUT et sa FIN — deux dates, des deux côtés. Un refus par champ ferait ressaisir le
@@ -106,7 +111,9 @@ export async function createCongressRequest(
   // LA GAMME SE LIT UNE FOIS : le référent vient de la gamme qu'on ÉCRIT, jamais d'une lecture
   // parallèle du formulaire. Les deux coïncident ici, et c'est précisément le genre d'accord qui
   // se défait le jour où la gamme se déduit du demandeur, en silence (§118.5).
-  const gammeDeLaDemande = fdStr(formData, "businessUnitId") || null;
+  // Et elle se lit d'abord SUR LE DEMANDEUR (`gammeImposee`) : un KAM rattaché à sa BU n'a plus le
+  // champ à l'écran, et une valeur postée n'entre pas en ligne de compte pour lui.
+  const gammeDeLaDemande = await gammeImposee(user, fdStr(formData, "businessUnitId") || null);
   const referentGamme = await referentAInscrire(gammeDeLaDemande);
   const now = new Date();
 
@@ -208,6 +215,9 @@ export async function createCongressRequest(
     await notifyRoles(["NATIONAL_SALES", "SUPER_ADMIN"], { type: "VALIDATION_REQUIRED", title: "Demande de congrès — à attribuer (National Sales)", body: name, link });
   }
   revalidatePath(pathFor(t));
+  // Le tableau « Toutes les demandes » et « Mon espace » lisent aussi la demande qui vient de naître.
+  revalidatePath("/ad-pro");
+  revalidatePath("/mon-espace");
   return { ok: true, id: created.id, ...(attached.error ? { message: `Demande créée. ${attached.error}` } : {}) };
 }
 

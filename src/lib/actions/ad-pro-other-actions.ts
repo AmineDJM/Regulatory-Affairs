@@ -13,6 +13,8 @@ import { notifyRoles, notifyUser } from "@/lib/notify";
 import { buildRef, createWithRetry } from "@/lib/refs";
 import { companyIdForNew } from "@/lib/company";
 import { readMultiField, lireMedecinsDemande } from "@/lib/ad-pro/pickers";
+import { gammeImposee } from "@/lib/ad-pro/business-unit-auto";
+import { refuseSousVueExacte } from "@/lib/vue-exacte";
 import { fdStr, fdNum, type ActionResult } from "@/lib/actions/types";
 
 const PATH = "/ad-pro/autres";
@@ -51,6 +53,9 @@ export async function createAdProOtherRequest(_prev: ActionResult | undefined, f
   try {
     const user = await requireUser();
     if (!userCan(user, "AD_PRO_OTHER", "CREATE")) return { ok: false, error: "Création réservée aux personnes habilitées." };
+    // Pas de création « comme » quelqu'un : voir `vue-exacte.ts`.
+    const sousVue = await refuseSousVueExacte(user);
+    if (sousVue) return sousVue;
 
     const title = fdStr(formData, "title");
     if (!title) return { ok: false, error: "L'objet de la demande est obligatoire." };
@@ -73,7 +78,9 @@ export async function createAdProOtherRequest(_prev: ActionResult | undefined, f
           reference: await nextRef(),
           // LA GAMME — même défaut qu'au consulting, même remède : le menu était OBLIGATOIRE et
           // rien ne l'écrivait (§118.140).
-          businessUnitId: fdStr(formData, "businessUnitId") || null,
+          // Lue d'abord SUR LE DEMANDEUR (`gammeImposee`) : le champ ne lui est plus proposé quand
+          // sa gamme se déduit, et une valeur postée n'entre pas en ligne de compte pour lui.
+          businessUnitId: await gammeImposee(user, fdStr(formData, "businessUnitId") || null),
           doctor: couple.medecins,
           product: couple.produits,
           title,

@@ -63,6 +63,8 @@ const fd = (champs: Record<string, string>) => {
 
 const instanceDe = (entityType: "CONGRESS_INTERNATIONAL" | "EVENT" | "SPONSORING", entityId: string) =>
   prisma.workflowInstance.findUniqueOrThrow({ where: { entityType_entityId: { entityType, entityId } } });
+const circuitExiste = async (entityType: "CONGRESS_INTERNATIONAL" | "EVENT" | "SPONSORING", entityId: string) =>
+  (await prisma.workflowInstance.count({ where: { entityType, entityId } })) > 0;
 const evenementsDe = async (entityType: "CONGRESS_INTERNATIONAL" | "EVENT" | "SPONSORING", entityId: string) =>
   prisma.workflowStepEvent.findMany({ where: { instance: { entityType, entityId } }, orderBy: { createdAt: "asc" } });
 const notifsDe = (qui: string, contient: string) =>
@@ -325,9 +327,13 @@ suite("Renvoyer pour correction, resoumettre, retirer, faire appel, relancer —
     await comme("kam");
     const r = await retirerDemandeAdPro(fd({ entityType: "CONGRESS_INTERNATIONAL", entityId: c, motif: "Congrès reporté" }));
     expect(r.ok).toBe(true);
-    expect((await instanceDe("CONGRESS_INTERNATIONAL", c)).status).toBe("CANCELLED");
-    expect((await prisma.congressInternational.findUniqueOrThrow({ where: { id: c } })).requestStatus).toBe("CANCELLED");
-    expect((await evenementsDe("CONGRESS_INTERNATIONAL", c)).find((e) => e.action === "CANCEL")?.note).toMatch(/Congrès reporté/);
+    // RETIRER = SUPPRIMER (Direction, 05/10) : la demande et son circuit partent ensemble, par le
+    // cœur réversible — la corbeille porte le motif, et le Super Admin peut tout rendre.
+    expect(await circuitExiste("CONGRESS_INTERNATIONAL", c), "le circuit part avec la demande").toBe(false);
+    expect(await prisma.congressInternational.count({ where: { id: c } }), "la demande est supprimée").toBe(0);
+    expect(await prisma.deletedRecord.count({ where: { kind: "CONGRESS_INTERNATIONAL", sourceId: c, restoredAt: null } }), "elle est à la corbeille").toBe(1);
+    const trace = await prisma.auditLog.findFirst({ where: { entityId: c, action: "DELETE" } });
+    expect(trace?.summary, "l'historique porte le motif").toMatch(/Congrès reporté/);
     const apres = await advanceWorkflowInstance({ viewer: viewer("ns"), entityType: "CONGRESS_INTERNATIONAL", entityId: c, action: "APPROVE" });
     expect(apres.ok, "on n'approuve pas une demande retirée").toBe(false);
   });
@@ -341,6 +347,7 @@ suite("Renvoyer pour correction, resoumettre, retirer, faire appel, relancer —
     expect(refus.ok).toBe(false);
     expect(refus.ok ? "" : refus.error).toMatch(/^1 poste\(s\) de cette demande engagent déjà la dépense/);
     expect((await instanceDe("CONGRESS_INTERNATIONAL", c)).status, "rien n'est fermé sur un refus").toBe("IN_PROGRESS");
+    expect(await prisma.congressInternational.count({ where: { id: c } }), "ni supprimé").toBe(1);
     await prisma.adProItem.update({ where: { id: engage.id }, data: { orderStage: "NONE" } });
     expect((await retirerDemandeAdPro(fd({ entityType: "CONGRESS_INTERNATIONAL", entityId: c, motif: "Annulé" }))).ok, "le brouillon seul ne retient pas la demande").toBe(true);
   });
@@ -373,7 +380,8 @@ suite("Renvoyer pour correction, resoumettre, retirer, faire appel, relancer —
     expect((await instanceDe("EVENT", ev.id)).status, "rien n'est fermé sur un refus").toBe("IN_PROGRESS");
     await comme("kam");
     expect((await retirerDemandeAdPro(fd({ entityType: "EVENT", entityId: ev.id, motif: "Reporté" }))).ok, "son demandeur, lui, la retire").toBe(true);
-    expect((await instanceDe("EVENT", ev.id)).status).toBe("CANCELLED");
+    expect(await circuitExiste("EVENT", ev.id)).toBe(false);
+    expect(await prisma.event.count({ where: { id: ev.id } })).toBe(0);
   });
 
   it("ANNULER UN CONGRÈS FERME SON CIRCUIT — l'annulation laissait « Approuver » ouvert sur une demande annulée", async () => {
@@ -381,7 +389,7 @@ suite("Renvoyer pour correction, resoumettre, retirer, faire appel, relancer —
     await comme("kam");
     expect((await cancelCongressRequest(fd({ type: "INTL", id: c }))).ok, "sans motif").toBe(false);
     expect((await cancelCongressRequest(fd({ type: "INTL", id: c, motif: "Plus de budget" }))).ok).toBe(true);
-    expect((await instanceDe("CONGRESS_INTERNATIONAL", c)).status).toBe("CANCELLED");
+    expect(await circuitExiste("CONGRESS_INTERNATIONAL", c), "annuler = retirer = supprimer : le circuit part").toBe(false);
     expect((await advanceWorkflowInstance({ viewer: viewer("ns"), entityType: "CONGRESS_INTERNATIONAL", entityId: c, action: "APPROVE" })).ok).toBe(false);
   });
 
@@ -494,9 +502,11 @@ suite("Renvoyer pour correction, resoumettre, retirer, faire appel, relancer —
       advanceWorkflowInstance({ viewer: viewer("ns"), entityType: "CONGRESS_INTERNATIONAL", entityId: c, action: "APPROVE", note: "ok" }),
     ]);
     expect(res.filter((r) => r.ok).length).toBe(1);
-    const inst = await instanceDe("CONGRESS_INTERNATIONAL", c);
-    const approuve = (await evenementsDe("CONGRESS_INTERNATIONAL", c)).some((e) => e.action === "APPROVE");
-    expect(inst.status === "CANCELLED", "close OU approuvée, pas les deux").toBe(!approuve);
+    // Supprimée (circuit parti) OU approuvée (circuit vivant, avec son accord) — jamais les deux.
+    const supprimee = !(await circuitExiste("CONGRESS_INTERNATIONAL", c));
+    const approuve = !supprimee && (await evenementsDe("CONGRESS_INTERNATIONAL", c)).some((e) => e.action === "APPROVE");
+    expect(supprimee !== approuve, "supprimée OU approuvée, pas les deux").toBe(true);
+    if (supprimee) expect(await prisma.congressInternational.count({ where: { id: c } })).toBe(0);
   });
 
   it("LA PRISE EST RENDUE après un geste — réussi comme refusé en cours de route", async () => {

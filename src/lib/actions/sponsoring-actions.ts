@@ -23,6 +23,7 @@ import { toNumber } from "@/lib/utils";
 import { porteLeRoleQuiTranche } from "@/lib/personnes/referents-gamme";
 import { bilanCloture, peutCloturer, quiCloture, refusCloture, type QuiCloture } from "@/lib/ad-pro/cloture-sponsoring";
 import { postesPourCloture } from "@/lib/queries/ad-pro-items";
+import { refuseSousVueExacte } from "@/lib/vue-exacte";
 
 const PATH = "/sponsoring";
 
@@ -73,6 +74,9 @@ export async function createSponsoring(
 ): Promise<ActionResult> {
   const user = await requireUser();
   if (!userCan(user, "SPONSORING", "CREATE")) return { ok: false, error: "Non autorisé." };
+  // Pas de création « comme » quelqu'un : voir `vue-exacte.ts`.
+  const sousVue = await refuseSousVueExacte(user);
+  if (sousVue) return sousVue;
 
   const institution = fdStr(formData, "institution");
   if (!institution) return { ok: false, error: "L'institution est obligatoire." };
@@ -269,6 +273,9 @@ export async function createSponsoring(
   await notifyAdProCreation(init, created.id, `${created.reference} — ${institution}`);
 
   revalidatePath(PATH);
+  // Le tableau « Toutes les demandes » et « Mon espace » lisent aussi la demande qui vient de naître.
+  revalidatePath("/ad-pro");
+  revalidatePath("/mon-espace");
   return { ok: true, id: created.id, ...(attached.error ? { message: `Demande créée. ${attached.error}` } : {}) };
 }
 

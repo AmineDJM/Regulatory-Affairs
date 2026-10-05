@@ -33,7 +33,7 @@ import {
   NATURES_PIECE_SECRETARIAT, PIECE_SECRETARIAT, peutDemanderPiece, type NaturePieceSecretariat,
 } from "@/lib/ad-pro/pieces-secretariat";
 import {
-  etapesDuPoste, prochainPas, grouperParRepartition, faitsDuPoste, VERSEMENT_SANS_BC,
+  etapesDuPoste, prochainPas, grouperParRepartition, faitsDuPoste, VERSEMENT_SANS_BC, LIBELLE_JUSTIFICATIF_DIRECT,
   type CleGeste, type Etape, type RegardPoste,
 } from "@/lib/ad-pro/poste-etapes";
 import { NATURES_REPARTITION } from "@/lib/ad-pro/repartition";
@@ -821,8 +821,13 @@ function PosteCarte({ item, parent, parentId, regard, freres, assistantes, budge
       )}
       {panneau === "DEMANDER_PAIEMENT" && paiementOuvert && (
         <FormulairePiece
-          titre={direct ? "Déposer la facture et demander le paiement" : "Déposer la facture du bon de commande et demander le paiement"}
-          aide={`La facture est obligatoire. Son montant ne dépasse pas l'accordé${item.amountGranted != null ? ` (${formatCurrency(item.amountGranted)})` : ""}.`}
+          titre={direct ? `Joindre la ${LIBELLE_JUSTIFICATIF_DIRECT.toLocaleLowerCase("fr")} et demander le paiement` : "Déposer la facture du bon de commande et demander le paiement"}
+          aide={direct
+            ? `La ${LIBELLE_JUSTIFICATIF_DIRECT.toLocaleLowerCase("fr")} est exigée${(item.pieces?.devis ?? []).some((d) => !d.annulee && d.fichiers > 0) ? " — elle est déjà sur le poste, il n'y a rien à joindre de plus" : ""} ; la facture est facultative. Le montant ne dépasse pas l'accordé${item.amountGranted != null ? ` (${formatCurrency(item.amountGranted)})` : ""}.`
+            : `La facture est obligatoire. Son montant ne dépasse pas l'accordé${item.amountGranted != null ? ` (${formatCurrency(item.amountGranted)})` : ""}.`}
+          libelleFichier={direct ? LIBELLE_JUSTIFICATIF_DIRECT : undefined}
+          fichierObligatoire={!(direct && (item.pieces?.devis ?? []).some((d) => !d.annulee && d.fichiers > 0))}
+          factureFacultative={direct}
           montantObligatoire montantMax={item.amountGranted} montantInitial={item.amountGranted}
           bouton="Demander le paiement" busy={busy === `pay:${item.id}`} onCancel={fermer}
           onSubmit={(fd) => {
@@ -833,13 +838,13 @@ function PosteCarte({ item, parent, parentId, regard, freres, assistantes, budge
               const r = await demanderPaiementPoste(undefined, fd);
               if (r.ok) setDepose({ case: "FACTURE", id: null, avant });
               return r;
-            }, "Facture déposée — paiement demandé au centre de paiement.").then(fermer);
+            }, direct ? `${LIBELLE_JUSTIFICATIF_DIRECT} jointe — paiement demandé au centre de paiement.` : "Facture déposée — paiement demandé au centre de paiement.").then(fermer);
           }}
         />
       )}
       {panneau === "DEVIS" && peutDeposerDevis && (
         <FormulairePiece
-          titre={direct ? "Joindre une facture pro forma" : "Joindre un devis ou une facture pro forma"}
+          titre={direct ? `Joindre la ${LIBELLE_JUSTIFICATIF_DIRECT.toLocaleLowerCase("fr")}` : "Joindre un devis ou une facture pro forma"}
           aide="Le fichier est obligatoire. Un même devis peut couvrir d'autres postes de cette demande."
           montantInitial={null} fournisseurInitial={item.supplier ?? ""} proforma={direct ? "imposee" : "choix"} freres={freres}
           bouton="Joindre" busy={busy === `dev:${item.id}`} onCancel={fermer}
@@ -986,7 +991,7 @@ function PosteCarte({ item, parent, parentId, regard, freres, assistantes, budge
       {/* 4. LES PIÈCES — la chaîne d'achat en trois cases alignées. */}
       {!stock && (
         <div className={`grid grid-cols-1 gap-2 border-t border-border/70 pt-2 ${direct && !item.pieces.bc && item.orderStage === "NONE" ? "sm:grid-cols-2" : "sm:grid-cols-3"}`}>
-          <CasePiece titre={direct ? "Pro forma (facultatif)" : "Devis / pro forma"} ajouter={peutDeposerDevis && !enCours ? () => basculer("DEVIS") : undefined}>
+          <CasePiece titre={direct ? LIBELLE_JUSTIFICATIF_DIRECT : "Devis / pro forma"} ajouter={peutDeposerDevis && !enCours ? () => basculer("DEVIS") : undefined}>
             {item.pieces.devis.length === 0 ? (
               <p className="text-muted-foreground">—</p>
             ) : item.pieces.devis.map((d) => (
@@ -1004,9 +1009,9 @@ function PosteCarte({ item, parent, parentId, regard, freres, assistantes, budge
               <EtatBC item={item} />
             </CasePiece>
           )}
-          <CasePiece titre="Facture" ajouter={paiementOuvert && item.pieces.factures.length === 0 && !enCours ? () => basculer("DEMANDER_PAIEMENT") : undefined}>
+          <CasePiece titre={direct ? "Facture (facultative)" : "Facture"} ajouter={paiementOuvert && item.pieces.factures.length === 0 && !enCours ? () => basculer("DEMANDER_PAIEMENT") : undefined}>
             {item.pieces.factures.length === 0 ? (
-              <p className="text-muted-foreground">{direct ? "Après l'accord." : "Après la signature du BC."}</p>
+              <p className="text-muted-foreground">{direct ? "Non exigée pour le paiement." : "Après la signature du BC."}</p>
             ) : item.pieces.factures.map((f) => <LignePiece key={f.id} piece={f} />)}
             {conseil("FACTURE")}
             {item.expenseOrder && (
@@ -1329,10 +1334,16 @@ function VerifierBC({ demandeId, busy, onDecide, onCancel }: {
  */
 function FormulairePiece({
   titre, aide, bouton, busy, onSubmit, onCancel, montantInitial, montantMax = null, montantObligatoire = false,
-  fournisseurInitial, proforma, freres = [],
+  fournisseurInitial, proforma, freres = [], libelleFichier = "Fichier", fichierObligatoire = true, factureFacultative = false,
 }: {
   titre: string; aide: string; bouton: string; busy: boolean; onSubmit: (fd: FormData) => void; onCancel: () => void;
   montantInitial: number | null; montantMax?: number | null; montantObligatoire?: boolean;
+  /** Ce que le fichier principal EST (« Proforma / lettre de demande de sponsoring » pour un versement à l'association). */
+  libelleFichier?: string;
+  /** Faux quand la pièce exigée est déjà sur le poste : rien de plus à joindre. */
+  fichierObligatoire?: boolean;
+  /** Un second fichier, la facture, qu'on peut joindre mais qu'on n'exige pas (sponsoring direct). */
+  factureFacultative?: boolean;
   /** Le fournisseur (devis seulement). */
   fournisseurInitial?: string;
   /** Devis : « choix » = case à cocher ; « imposee » = c'est forcément une pro forma (sponsoring direct). */
@@ -1349,9 +1360,15 @@ function FormulairePiece({
       <p className="font-medium text-foreground">{titre}</p>
       <p className="text-muted-foreground">{aide}</p>
       <label className="block">
-        Fichier
-        <input type="file" name="attachment" multiple required className="mt-1 block w-full text-xs" />
+        {libelleFichier}{fichierObligatoire ? "" : " — déjà sur le poste"}
+        <input type="file" name="attachment" multiple required={fichierObligatoire} className="mt-1 block w-full text-xs" />
       </label>
+      {factureFacultative && (
+        <label className="block">
+          Facture — facultative
+          <input type="file" name="facture" multiple className="mt-1 block w-full text-xs" />
+        </label>
+      )}
       <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
         <label>
           Montant (DZD){montantObligatoire ? "" : " — facultatif"}

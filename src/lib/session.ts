@@ -10,9 +10,14 @@ import { firstAccessibleHref } from "./labels";
 import { shouldTouch } from "./touch-throttle";
 import { getAppSettings } from "./settings";
 import { canOpenModule } from "./modules-visibility";
+import { IMPERSONATE_COOKIE } from "./vue-exacte";
 
-/** Nom du cookie de « Vue exacte » (impersonation), honoré uniquement pour un Super Admin. */
-export const IMPERSONATE_COOKIE = "amd_impersonate";
+/**
+ * Nom du cookie de « Vue exacte » (impersonation), honoré uniquement pour un Super Admin. Défini dans
+ * `vue-exacte.ts` (qui sait aussi refuser une création sous la vue) et réexporté ici : les actions de
+ * création le lisent sans importer la session, que les bancs remplacent entièrement.
+ */
+export { IMPERSONATE_COOKIE };
 
 export interface CurrentUser {
   id: string;

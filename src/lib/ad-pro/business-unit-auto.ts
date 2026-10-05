@@ -81,3 +81,28 @@ export async function businessUnitDuDemandeur(user: DemandeurBu): Promise<BuDedu
 
   return null;
 }
+
+/**
+ * LA GAMME QU'ON ÉCRIT SUR UNE DEMANDE — LA MÊME RÈGLE POUR LES SIX NATURES.
+ *
+ * « Si un KAM fait déjà partie d'une BU, quand il fait une demande Ad&Pro, ça ne doit pas lui
+ * proposer le champ « Business Unit » » (Direction, 05/10). Le champ disparaît des formulaires
+ * quand la gamme se lit sur la personne (`businessUnitDuDemandeur`) : sans lui, rien n'arrive plus
+ * du navigateur, et c'est le SERVEUR qui la pose — pour les cinq natures qui écrivent une gamme
+ * (sponsoring, congrès international et national, événement, consulting, autre demande). Seul le
+ * sponsoring l'imposait ; les quatre autres lisaient le formulaire tel quel, donc masquer le champ
+ * sans cette règle les aurait fait naître SANS gamme — la dépense à la charge de personne.
+ *
+ * Là où la gamme se lit, la valeur postée est IGNORÉE : un champ de formulaire se forge, et une
+ * gamme forgée fait peser la dépense sur le budget d'une autre équipe. Là où elle ne se lit pas
+ * (Direction, superviseur de plusieurs gammes, personne sans rattachement), la saisie reste
+ * souveraine — le comportement d'avant.
+ *
+ * La valeur postée se lit DANS L'ACTION, en littéral (`fdStr(formData, "businessUnitId")`) : la
+ * dérivation des contrats d'action ne suit pas la lecture d'un formulaire dans un module importé
+ * (§118.143), et le champ disparaîtrait de la fiche d'Adam.
+ */
+export async function gammeImposee(user: DemandeurBu, posted: string | null): Promise<string | null> {
+  const deduite = await businessUnitDuDemandeur(user);
+  return deduite?.id ?? (posted || null);
+}

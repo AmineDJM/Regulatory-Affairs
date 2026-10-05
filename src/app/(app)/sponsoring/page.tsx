@@ -13,6 +13,8 @@ import { AVAILABLE_PRODUCT_STATUSES } from "@/lib/ad-pro/pickers";
 import { EVENTS_TABS } from "@/lib/labels";
 import { SponsoringTable, type SponsoringRow } from "./sponsoring-table";
 
+export const dynamic = "force-dynamic";
+
 export default async function SponsoringPage() {
   const user = await requireModule("SPONSORING");
   const canCreate = userCan(user, "SPONSORING", "CREATE");

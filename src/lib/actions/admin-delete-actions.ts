@@ -114,7 +114,14 @@ export async function supprimerDemandeAdPro(formData: FormData): Promise<DeleteR
   if (!id || !isDeletableKind(kind) || !estDemandeAdProSupprimable(kind)) return { ok: false, error: "Élément invalide." };
   if (!(await peutSupprimerUneDemandeAdPro(user, kind, id))) return { ok: false, error: REFUS_SUPPRESSION_AD_PRO };
   const name = await DELETE_REGISTRY[kind].describe(id);
-  return supprimerReversible(kind, id, user.id, `Suppression d'une demande Ad & Pro — ${DELETE_REGISTRY[kind].label} « ${name ?? id} » (restaurable depuis la corbeille)`);
+  const r = await supprimerReversible(kind, id, user.id, `Suppression d'une demande Ad & Pro — ${DELETE_REGISTRY[kind].label} « ${name ?? id} » (restaurable depuis la corbeille)`);
+  // Le cœur ne revalide que la liste de la nature : le tableau « Toutes les demandes » (Ad & Pro) et
+  // « Mon espace » listent aussi la demande qui vient de partir.
+  if (r.ok) {
+    revalidatePath("/ad-pro");
+    revalidatePath("/mon-espace");
+  }
+  return r;
 }
 
 /**

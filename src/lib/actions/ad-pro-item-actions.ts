@@ -36,7 +36,7 @@ import { familleQuantifiee, type PromoFamille } from "@/lib/promo/catalogue";
 import { articleDansMonPerimetre, gestionnairesDuMagasin } from "@/lib/queries/promo-stock";
 import { lireRepartition, libelleLigne, type LigneRepartition } from "@/lib/ad-pro/repartition";
 import { ecrireRepartition, type PosteReparti } from "@/lib/ad-pro/repartition-ecriture";
-import { STATUTS_EDITABLES, VERSEMENT_SANS_BC } from "@/lib/ad-pro/poste-etapes";
+import { STATUTS_EDITABLES, VERSEMENT_SANS_BC, LIBELLE_JUSTIFICATIF_DIRECT, facturePourPayer } from "@/lib/ad-pro/poste-etapes";
 import {
   assistantesDeDirection, demanderBcAAssistante, demandesBCDesPostes, annulerDemandesPiecesDuPoste, rattacherPieceAuPoste, piecesDesPostes,
 } from "@/lib/ad-pro/pieces-poste";
@@ -1135,13 +1135,28 @@ export async function demanderPaiementPoste(_prev: ActionResult | undefined, for
   }
 
   const fichiers = formData.getAll("attachment").filter((v): v is File => v instanceof File && v.size > 0);
-  if (fichiers.length === 0) return { ok: false, error: "Joignez la facture : elle est obligatoire pour demander le paiement." };
-  const refusFichier = await validateAttachments(fichiers);
+  // LA PIÈCE QU'ON EXIGE DÉPEND DE LA NATURE DU POSTE (Direction, 05/10) : un sponsoring INDIRECT
+  // (devis → BC → facture) exige la facture ; un sponsoring DIRECT à l'association exige la
+  // « Proforma / lettre de demande de sponsoring », et la facture n'est qu'une pièce de plus qu'on peut
+  // joindre. La pro forma ou la lettre peut aussi être DÉJÀ sur le poste (déposée dans sa case) : elle
+  // compte, il n'y a alors rien à rejoindre.
+  const justificatifDejaLa = direct && (pieces?.devis ?? []).some((d) => !d.annulee && d.fichiers > 0);
+  if (fichiers.length === 0 && !justificatifDejaLa) {
+    return {
+      ok: false,
+      error: direct
+        ? `Joignez la ${LIBELLE_JUSTIFICATIF_DIRECT.toLocaleLowerCase("fr")} : elle est exigée pour demander le paiement d'un sponsoring direct (la facture, elle, est facultative).`
+        : "Joignez la facture : elle est obligatoire pour demander le paiement.",
+    };
+  }
+  const facturesFacultatives = direct ? formData.getAll("facture").filter((v): v is File => v instanceof File && v.size > 0) : [];
+  const refusFichier = await validateAttachments([...fichiers, ...facturesFacultatives]);
   if (refusFichier) return { ok: false, error: refusFichier };
   const montant = fdNum(formData, "montant");
-  if (montant === null || !(montant > 0)) return { ok: false, error: "Indiquez le montant de la facture." };
+  const piece = direct ? LIBELLE_JUSTIFICATIF_DIRECT.toLocaleLowerCase("fr") : "facture";
+  if (montant === null || !(montant > 0)) return { ok: false, error: `Indiquez le montant de la ${piece}.` };
   if (montantAccorde !== null && montant > montantAccorde) {
-    return { ok: false, error: `La facture (${montant.toLocaleString("fr-FR")} DZD) dépasse le montant accordé (${montantAccorde.toLocaleString("fr-FR")} DZD) : demandez une révision du poste.` };
+    return { ok: false, error: `La ${piece} (${montant.toLocaleString("fr-FR")} DZD) dépasse le montant accordé (${montantAccorde.toLocaleString("fr-FR")} DZD) : demandez une révision du poste.` };
   }
 
   // LE DERNIER REMPART (§118.187) : ce qui part ne dépasse jamais ce que le centre a vu. Le montant ou
@@ -1164,28 +1179,58 @@ export async function demanderPaiementPoste(_prev: ActionResult | undefined, for
   });
   if (prise.count === 0) return { ok: false, error: "Ce poste vient de changer (paiement déjà demandé, ou sa décision a été revue) : rouvrez la fiche." };
 
+  const piecesCreees: string[] = [];
   let factureId: string | null = null;
   let ordreNe = false;
   try {
     const amont = bc?.id ?? (pieces?.devis.filter((d) => !d.annulee).length === 1 ? pieces.devis.find((d) => !d.annulee)!.id : null);
-    const facture = await prisma.legalDocument.create({
-      data: {
-        title: `Facture — ${ITEM_KIND_LABELS[item.kind]} : ${item.label} (${info.ref})`,
-        kind: "INVOICE", direction: "OUT",
-        reference: fdStr(formData, "reference"),
-        amount: montant,
-        counterparty: item.supplier ?? info.beneficiary,
-        companyId: info.companyId ?? (await moneyEntityOf(info.requesterId ?? user.id)),
-        sourceType: PARENT_ENTITE[owner.parent], sourceId: owner.id,
-        chainFromId: amont,
-        createdById: user.id, updatedById: user.id,
-        notes: `Facture du poste « ${item.label} » de ${info.ref}.`,
-      },
-      select: { id: true },
-    });
-    factureId = facture.id;
-    await attachFormFiles(user.id, "LEGAL_DOCUMENT", facture.id, formData);
-    await rattacherPieceAuPoste({ itemId: id, legalDocumentId: facture.id, nature: "FACTURE", acteurId: user.id });
+    const companyId = info.companyId ?? (await moneyEntityOf(info.requesterId ?? user.id));
+    let amontDeLaFacture = amont;
+    // UN SPONSORING DIRECT : la pièce exigée est la pro forma / lettre de demande — un DEVIS au registre,
+    // rattaché au poste dans la case des devis. Rien n'est créé quand elle est déjà sur le poste.
+    if (direct && fichiers.length > 0) {
+      const justificatif = await prisma.legalDocument.create({
+        data: {
+          title: `${LIBELLE_JUSTIFICATIF_DIRECT} — ${ITEM_KIND_LABELS[item.kind]} : ${item.label} (${info.ref})`,
+          kind: "QUOTE",
+          reference: fdStr(formData, "reference"),
+          amount: montant,
+          counterparty: item.supplier ?? info.beneficiary,
+          companyId,
+          sourceType: PARENT_ENTITE[owner.parent], sourceId: owner.id,
+          createdById: user.id, updatedById: user.id,
+          notes: `${LIBELLE_JUSTIFICATIF_DIRECT} du poste « ${item.label} » de ${info.ref}.`,
+        },
+        select: { id: true },
+      });
+      piecesCreees.push(justificatif.id);
+      await attachFormFiles(user.id, "LEGAL_DOCUMENT", justificatif.id, formData);
+      await rattacherPieceAuPoste({ itemId: id, legalDocumentId: justificatif.id, nature: "DEVIS", acteurId: user.id });
+      amontDeLaFacture = justificatif.id;
+    }
+    // LA FACTURE : exigée pour tout poste qui n'est pas un versement à l'association ; facultative pour lui
+    // (elle se joint si on l'a, sous le champ « facture »).
+    if (!direct || facturesFacultatives.length > 0) {
+      const facture = await prisma.legalDocument.create({
+        data: {
+          title: `Facture — ${ITEM_KIND_LABELS[item.kind]} : ${item.label} (${info.ref})`,
+          kind: "INVOICE", direction: "OUT",
+          reference: direct ? null : fdStr(formData, "reference"),
+          amount: montant,
+          counterparty: item.supplier ?? info.beneficiary,
+          companyId,
+          sourceType: PARENT_ENTITE[owner.parent], sourceId: owner.id,
+          chainFromId: amontDeLaFacture,
+          createdById: user.id, updatedById: user.id,
+          notes: `Facture du poste « ${item.label} » de ${info.ref}.`,
+        },
+        select: { id: true },
+      });
+      factureId = facture.id;
+      piecesCreees.push(facture.id);
+      await attachFormFiles(user.id, "LEGAL_DOCUMENT", facture.id, formData, direct ? "facture" : "attachment");
+      await rattacherPieceAuPoste({ itemId: id, legalDocumentId: facture.id, nature: "FACTURE", acteurId: user.id });
+    }
 
     const order = await createExpenseOrder({
       label: `${info.ref} — ${ITEM_KIND_LABELS[item.kind]} : ${item.label}`,
@@ -1196,21 +1241,26 @@ export async function demanderPaiementPoste(_prev: ActionResult | undefined, for
       sourceId: info.id,
       requestedById: user.id,
       budgetCategoryId: item.budgetCategoryId ?? null,
-      notes: `Poste de l'opération ${info.ref} — facture jointe.`,
+      // La facture n'est exigée avant le règlement que là où elle est la pièce du paiement.
+      requiresInvoice: facturePourPayer(item.kind),
+      notes: `Poste de l'opération ${info.ref} — ${direct ? `${LIBELLE_JUSTIFICATIF_DIRECT.toLocaleLowerCase("fr")} jointe${factureId ? " ; facture jointe" : ""}` : "facture jointe"}.`,
     });
     ordreNe = true;
     await prisma.adProItem.update({ where: { id }, data: { expenseOrderId: order.id, orderStage: "ISSUED", updatedById: user.id } });
-    await prisma.legalDocument.update({ where: { id: facture.id }, data: { expenseOrderId: order.id } });
+    if (factureId) await prisma.legalDocument.update({ where: { id: factureId }, data: { expenseOrderId: order.id } });
     await audit(user, owner.parent, owner.id, "UPDATE",
-      `Facture déposée et paiement demandé pour le poste « ${item.label} » — ${montant.toLocaleString("fr-FR")} DZD (ordre ${order.reference}, au centre de paiement).`);
+      `${direct ? `${LIBELLE_JUSTIFICATIF_DIRECT} jointe` : "Facture déposée"} et paiement demandé pour le poste « ${item.label} » — ${montant.toLocaleString("fr-FR")} DZD (ordre ${order.reference}, au centre de paiement).`);
     revalidate(owner.parent, owner.id);
     revalidatePath("/finances/paiements-a-faire");
-    return { ok: true, id: order.id, message: `Facture déposée — paiement de ${montant.toLocaleString("fr-FR")} DZD demandé au centre de paiement (${order.reference}).` };
+    return {
+      ok: true, id: order.id,
+      message: `${direct ? `${LIBELLE_JUSTIFICATIF_DIRECT} jointe` : "Facture déposée"} — paiement de ${montant.toLocaleString("fr-FR")} DZD demandé au centre de paiement (${order.reference}).`,
+    };
   } catch (err) {
     console.error("[ad-pro-item] demande de paiement impossible", err);
     if (!ordreNe) {
       await prisma.adProItem.updateMany({ where: { id, expenseOrderId: null, orderStage: "ISSUED" }, data: { orderStage: etapeLue } }).catch(() => undefined);
-      if (factureId) await prisma.legalDocument.updateMany({ where: { id: factureId }, data: { status: "CANCELLED" } }).catch(() => undefined);
+      if (piecesCreees.length > 0) await prisma.legalDocument.updateMany({ where: { id: { in: piecesCreees } }, data: { status: "CANCELLED" } }).catch(() => undefined);
     }
     return { ok: false, error: "La demande de paiement n'a pas pu être enregistrée." };
   }
@@ -1769,7 +1819,7 @@ export async function requestAdProItemOrder(_prev: ActionResult | undefined, for
   const refusStock = refusArgentSurPosteStock(item.kind, "un bon de commande");
   if (refusStock) return { ok: false, error: refusStock };
   if (VERSEMENT_SANS_BC.includes(item.kind)) {
-    return { ok: false, error: "Un sponsoring direct n'a pas de bon de commande : déposez la facture (et, si vous l'avez, la pro forma) puis demandez le paiement." };
+    return { ok: false, error: `Un sponsoring direct n'a pas de bon de commande : joignez la ${LIBELLE_JUSTIFICATIF_DIRECT.toLocaleLowerCase("fr")} puis demandez le paiement (la facture n'est pas exigée).` };
   }
   const demande = await PARENTS[owner.parent].load(owner.id);
   if (!demande) return { ok: false, error: "Opération introuvable." };

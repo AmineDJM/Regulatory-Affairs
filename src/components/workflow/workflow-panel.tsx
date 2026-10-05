@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useRafraichir } from "@/components/shared/use-rafraichir";
 import { Check, X, Loader2, MessageSquare, ArrowRight, SkipForward, Undo2, Send, Ban } from "lucide-react";
 import type { EntityType } from "@prisma/client";
@@ -406,11 +407,15 @@ function ResubmitForm({ entityType, entityId }: { entityType: EntityType; entity
   );
 }
 
-/** RETIRER une demande non tranchée (§118.186) — motif obligatoire, et la confirmation le dit. */
+/**
+ * RETIRER une demande non tranchée (§118.186) — motif obligatoire, et la confirmation le dit : retirer
+ * la SUPPRIME (Direction, 05/10), récupérable depuis la corbeille par le Super Admin. La fiche n'existe
+ * plus après le geste : on quitte la page vers la liste au lieu de la rafraîchir (elle s'afficherait
+ * « Introuvable »).
+ */
 function WithdrawForm({ entityType, entityId }: { entityType: EntityType; entityId: string }) {
-  const { enCours, rafraichir } = useRafraichir();
-  const [pendingAction, start] = React.useTransition();
-  const pending = pendingAction || enCours;
+  const router = useRouter();
+  const [pending, start] = React.useTransition();
   const [open, setOpen] = React.useState(false);
   const [motif, setMotif] = React.useState("");
   const [err, setErr] = React.useState<string | null>(null);
@@ -423,7 +428,9 @@ function WithdrawForm({ entityType, entityId }: { entityType: EntityType; entity
     const r = await retirerDemandeAdPro(fd);
     if (!r.ok) { setErr(r.error ?? "Retrait impossible."); return; }
     setOpen(false);
-    rafraichir();
+    // Pas de `refresh()` : la fiche n'existe plus, la rafraîchir la rendrait « Introuvable ». L'action a
+    // invalidé les listes (`revaliderLaDemande`) ; la navigation les relit.
+    router.push(r.redirect ?? "/ad-pro");
   });
   if (!open) {
     return (
@@ -434,7 +441,9 @@ function WithdrawForm({ entityType, entityId }: { entityType: EntityType; entity
   }
   return (
     <div className="space-y-2 border-t border-border pt-3">
-      <p className="text-xs text-muted-foreground">La demande sera close et son circuit arrêté. Le motif reste à l&apos;historique.</p>
+      <p className="text-xs text-muted-foreground">
+        La demande sera SUPPRIMÉE, avec ses postes, ses pièces et ce qui en découle (circuit, validations, ordres non réglés). Elle reste récupérable depuis la corbeille par le Super Admin ; le motif reste au journal.
+      </p>
       <Textarea value={motif} onChange={(e) => setMotif(e.target.value)} placeholder="Pourquoi retirer la demande (obligatoire)…" className="min-h-[56px]" />
       {err && <p className="text-xs text-destructive">{err}</p>}
       <div className="flex gap-2">

@@ -571,13 +571,16 @@ export const ADPRO5_OPS_IMPL: Record<string, OpImpl> = {
       // LE MOTIF EST OBLIGATOIRE depuis que l'annulation ferme le circuit (§118.186) : l'action le
       // refuse sans lui, et une carte qui part sans motif promettrait un geste qui échoue au clic.
       const motif = opStr(input, "motif") || opStr(input, "reason") || opStr(input, "note");
-      if (!motif) return { error: "Dites pourquoi annuler cette demande : le motif est obligatoire et reste à l'historique." };
+      if (!motif) return { error: "Dites pourquoi retirer cette demande : le motif est obligatoire et reste au journal." };
       return {
-        title: `Annuler la demande — ${target.label}`,
+        title: `Retirer la demande — ${target.label}`,
         fields: [{ label: "Demande", value: target.label }, { label: "Motif", value: motif }],
-        warnings: ["Une demande déjà VALIDÉE ne s'annule plus par ce geste (l'action refuse)."],
+        warnings: [
+          "Retirer SUPPRIME la demande, avec ses postes, ses pièces et ce qui en découle (circuit, validations, ordres non réglés). Elle reste récupérable depuis la corbeille par le Super Admin.",
+          "Une demande déjà VALIDÉE ne se retire plus par ce geste, ni une demande dont de l'argent est déjà parti (l'action refuse).",
+        ],
         args: { id: target.entityId, type: target.congressType, motif },
-        successMessage: `Demande ${target.label} annulée.`,
+        successMessage: `Demande ${target.label} retirée — supprimée, récupérable depuis la corbeille.`,
         revalidate: ["/events"],
       };
     },

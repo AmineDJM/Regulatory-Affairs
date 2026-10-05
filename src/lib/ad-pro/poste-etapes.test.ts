@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { faitsDuPoste, etapesDuPoste, prochainPas, type FaitsPoste, type RegardPoste } from "@/lib/ad-pro/poste-etapes";
+import { faitsDuPoste, etapesDuPoste, prochainPas, facturePourPayer, LIBELLE_JUSTIFICATIF_DIRECT, type FaitsPoste, type RegardPoste } from "@/lib/ad-pro/poste-etapes";
 
 /**
  * LE GESTE SUIVANT D'UN POSTE (§118.175, §118.204) — un seul, ou ce qu'on attend et de qui.
@@ -121,6 +121,44 @@ describe("le geste suivant d'un poste", () => {
     expect(prochainPas(avant, DEMANDEUR).geste?.cle).toBe("DEMANDER_BC");
   });
 
+  /**
+   * SPONSORING DIRECT : LA PIÈCE EXIGÉE EST LA PROFORMA / LETTRE (Direction, 05/10). La frise nomme ce qui
+   * est exigé et le dit FAIT dès que la pièce est là ; le geste le dit aussi ; la facture n'est nulle part
+   * obligatoire — et le sponsoring INDIRECT garde son « Facture » : sans ce témoin, un libellé qui dirait
+   * « Pro forma » partout passerait.
+   */
+  it("un sponsoring DIRECT nomme la proforma / lettre — la facture n'y est plus exigée ; l'INDIRECT garde la facture", () => {
+    const p = pret({ kind: "ASSOCIATION_SUPPORT", amountGranted: 300_000 });
+    expect(etapesDuPoste(p).find((e) => e.cle === "FACTURE")?.libelle).toBe("Pro forma / lettre");
+    expect(prochainPas(p, DEMANDEUR).geste?.libelle).toMatch(/proforma \/ lettre de demande/);
+    expect(prochainPas(p, DEMANDEUR).geste?.libelle).not.toMatch(/facture/i);
+    expect(prochainPas(p, regard({ canAllocate: true })).attente).toMatch(/proforma ou la lettre de demande/);
+    // La pièce posée (un devis non annulé au poste) : l'étape est FAITE sans qu'aucune facture existe.
+    expect(etapesDuPoste({ ...p, devis: 1, factures: 0 }).find((e) => e.cle === "FACTURE")?.etat).toBe("FAIT");
+    expect(etapesDuPoste({ ...p, devis: 0, factures: 0 }).find((e) => e.cle === "FACTURE")?.etat).not.toBe("FAIT");
+    // Le TÉMOIN : un sponsoring indirect (poste d'un autre genre) garde le mot « Facture ».
+    const autre = pret({ kind: "OTHER", orderStage: "DIRECTION_OK", bc: "SIGNE" });
+    expect(etapesDuPoste(autre).find((e) => e.cle === "FACTURE")?.libelle).toBe("Facture");
+    expect(prochainPas(autre, DEMANDEUR).geste?.libelle).toMatch(/Déposer la facture/);
+  });
+
+  it("CLIQUET — la carte d'un poste direct demande la proforma / lettre (fichier exigé), et la facture n'y est qu'un second champ facultatif", async () => {
+    const { readFileSync } = await import("node:fs");
+    const src = readFileSync("src/components/ad-pro/items-panel.tsx", "utf8").replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/.*$/gm, "$1");
+    expect(src, "le libellé vient de la source unique").toMatch(/libelleFichier=\{direct \? LIBELLE_JUSTIFICATIF_DIRECT : undefined\}/);
+    expect(src, "le fichier de la proforma est exigé sauf s'il est déjà sur le poste").toMatch(/fichierObligatoire=\{!\(direct && /);
+    expect(src, "la facture est un champ facultatif propre au sponsoring direct").toMatch(/factureFacultative=\{direct\}/);
+    expect(src, "un second champ fichier porte la facture facultative").toContain('name="facture"');
+    expect(src, "le texte de la carte dit que la facture est facultative").toMatch(/la facture est facultative/);
+    expect(src, "et que le sponsoring indirect la garde obligatoire").toMatch(/La facture est obligatoire\./);
+  });
+
+  it("`facturePourPayer` : exigée partout SAUF pour un versement direct à l'association", () => {
+    expect(facturePourPayer("ASSOCIATION_SUPPORT")).toBe(false);
+    for (const k of ["OTHER", "TRAVEL", "CATERING", "PRINTING"] as const) expect(facturePourPayer(k), k).toBe(true);
+    expect(LIBELLE_JUSTIFICATIF_DIRECT).toBe("Proforma / lettre de demande de sponsoring");
+  });
+
   it("un sponsoring DIRECT se paie sur facture, sans BC — et jamais avant que l'opération soit accordée", () => {
     const p = pret({ kind: "ASSOCIATION_SUPPORT", amountGranted: 300_000 });
     expect(etapesDuPoste(p).map((e) => e.cle)).toEqual(["CHIFFRE", "OPERATIONS", "MARKETING", "FACTURE", "PAIEMENT"]);
@@ -163,11 +201,13 @@ describe("la traduction des faits d'un poste — une seule, lue par l'écran et 
     expect(f).toEqual({
       kind: "STAND", status: "APPROVED", amountEstimated: 10, amountGranted: 9, budgetCategoryId: "b",
       orderStage: "DIRECTION_OK", expenseOrderId: "e", expenseOrderStatus: "PAID", lignesStock: 2, orderSansCentre: true,
-      opsDecidedAt: "2026-10-01", demandeBC: "DEPOSE", bc: "SIGNE", factures: 1,
+      opsDecidedAt: "2026-10-01", demandeBC: "DEPOSE", bc: "SIGNE", factures: 1, devis: 0,
     });
     const vide = faitsDuPoste({ ...brut, expenseOrder: null, lignesStock: [], demandeBC: null, pieces: undefined, opsDecidedAt: null });
     expect(vide).toMatchObject({ expenseOrderStatus: null, demandeBC: "AUCUNE", bc: null, factures: 0, opsDecidedAt: null });
     // Un BC au registre dont l'étape ne se lit pas (hors circuit) reste un BC : « pas de BC » serait faux.
     expect(faitsDuPoste({ ...brut, pieces: { bc: { etape: null }, factures: [] } }).bc).toBe("HORS_CIRCUIT");
+    // La proforma / lettre d'un sponsoring direct est un DEVIS du poste : seuls les devis NON annulés comptent.
+    expect(faitsDuPoste({ ...brut, pieces: { bc: null, factures: [], devis: [{ annulee: false }, { annulee: true }, {}] } }).devis).toBe(2);
   });
 });

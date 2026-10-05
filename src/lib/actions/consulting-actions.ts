@@ -15,6 +15,8 @@ import { fdStr, fdNum, type ActionResult } from "@/lib/actions/types";
 import { nextConsultingStatus, isContractEditable } from "@/lib/ad-pro/consulting";
 import { ajusterVisaAuMontant, phraseGesteVisa, poserVisaAdPro, blocageCentreAdPro, retirerVisaEnAttente } from "@/lib/ad-pro/visa";
 import { ecrireAuFil } from "@/lib/ad-pro/fil";
+import { gammeImposee } from "@/lib/ad-pro/business-unit-auto";
+import { refuseSousVueExacte } from "@/lib/vue-exacte";
 import { toNumber, formatDate } from "@/lib/utils";
 import { recordEvent } from "@/lib/events/ledger";
 import { reaiguillerLesBCDe, LOT_ORIGINE } from "@/lib/bons-de-commande/aiguillage";
@@ -120,6 +122,9 @@ export async function createConsultingContract(_prev: ActionResult | undefined, 
     const poleBrut = fdStr(formData, "pole");
     const pole: PoleConsulting = estPoleConsulting(poleBrut) ? poleBrut : "AD_PRO";
     if (!peutSurLeContrat(user, { pole }, "CREATE")) return { ok: false, error: "Création réservée aux personnes habilitées." };
+    // Pas de création « comme » quelqu'un : voir `vue-exacte.ts`.
+    const sousVue = await refuseSousVueExacte(user);
+    if (sousVue) return sousVue;
 
     const title = fdStr(formData, "title");
     const counterparty = fdStr(formData, "counterparty");
@@ -139,6 +144,7 @@ export async function createConsultingContract(_prev: ActionResult | undefined, 
       .split("\n").map((t) => t.trim()).filter(Boolean).slice(0, 60);
 
     const companyId = fdStr(formData, "companyId") || (await companyIdForNew(user.id));
+    const gammeAImposer = await gammeImposee(user, fdStr(formData, "businessUnitId") || null);
     // LE PRATICIEN ET LE PRODUIT CONCERNÉS — lus par le lecteur canonique des six natures.
     // Facultatifs ici (`REFERENTIELS_PAR_NATURE`) : un accompagnement réglementaire n'a pas de
     // praticien, et exiger un choix qui n'existe pas serait un refus à tort (§118.27).
@@ -159,7 +165,9 @@ export async function createConsultingContract(_prev: ActionResult | undefined, 
           // ne l'avaient, donc le choix imposé au demandeur était JETÉ (§118.140).
           // Côté RH, ni gamme, ni praticien, ni produit : ce sont des faits de PROMOTION, et un
           // contrat RH ne pèse sur aucun budget Ad & Pro.
-          businessUnitId: pole === "AD_PRO" ? fdStr(formData, "businessUnitId") || null : null,
+          // Lue d'abord SUR LE DEMANDEUR (`gammeImposee`) : le champ ne lui est plus proposé quand
+          // sa gamme se déduit, et une valeur postée n'entre pas en ligne de compte pour lui.
+          businessUnitId: pole === "AD_PRO" ? gammeAImposer : null,
           doctor: pole === "AD_PRO" ? couple.medecins : null,
           product: pole === "AD_PRO" ? couple.produits : null,
           title,

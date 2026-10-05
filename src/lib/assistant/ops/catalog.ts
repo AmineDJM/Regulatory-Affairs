@@ -3096,10 +3096,10 @@ export const OPS_CATALOG: OpMeta[] = [
   },
   {
     tool: "adpro_operation", op: "cancel_congress_request", module: "Congrès",
-    uiLabel: "Annuler la demande",
-    aliases: ["annule la demande de congrès", "annule la prise en charge"],
+    uiLabel: "Retirer la demande",
+    aliases: ["annule la demande de congrès", "annule la prise en charge", "retire la demande de congrès", "retire la prise en charge"],
     risk: "SENSITIVE",
-    summary: "Annule une demande de congrès / événement NON encore validée (le demandeur, un validateur du module, ou la Direction).",
+    summary: "Retire une demande de congrès / événement NON encore validée : elle est SUPPRIMÉE avec ses postes, ses pièces et ses ordres non réglés, et reste récupérable depuis la corbeille par le Super Admin (le demandeur, un validateur du module, ou la Direction).",
     gate: () => true,
     gateNote: "demandeur ou validateur (revérifié par l'action)",
     covers: ["congress-request-actions:cancelCongressRequest"],

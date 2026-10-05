@@ -9,6 +9,8 @@ import { EVENTS_TABS } from "@/lib/labels";
 import { CongressRequestButton } from "../congress-international/congress-request-form";
 import { CongressTable } from "../congress-international/congress-table";
 
+export const dynamic = "force-dynamic";
+
 export default async function CongressNationalPage() {
   const user = await requireModule("CONGRESS_NATIONAL");
   const canCreate = userCan(user, "CONGRESS_NATIONAL", "CREATE");

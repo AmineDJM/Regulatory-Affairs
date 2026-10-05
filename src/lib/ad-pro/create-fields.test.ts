@@ -93,18 +93,15 @@ describe("Le formulaire de sponsoring", () => {
     expect(find(f, "amountProposed")).toMatchObject({ required: true });
   });
 
-  it("la Business Unit DÉDUITE ne propose que celle-là, et DIT pourquoi", () => {
-    // Ce qui le ferait tomber : garder la liste entière. Le champ resterait un menu libre, et
-    // un KAM pourrait faire peser sa dépense sur le budget Ad&Pro d'une autre gamme — le
-    // serveur l'impose de son côté, mais l'écran ne doit pas proposer ce qu'il refusera.
+  it("la Business Unit DÉDUITE n'est PAS demandée : le champ disparaît (Direction, 05/10)", () => {
+    // Ce qui le ferait tomber : garder le menu, même réduit à une option. La personne ne choisit pas
+    // ce que son poste dit déjà ; c'est le SERVEUR qui l'impose (`gammeImposee`), et un menu libre
+    // laisserait croire qu'on peut choisir — ou forger une autre gamme.
     const f = sponsoringCreateFields({
       businessUnits: [{ id: "bu1", name: "Oncologie" }, { id: "bu2", name: "Cardiologie" }],
       businessUnitDeduite: { id: "bu1", name: "Oncologie", raison: "Votre gamme — rattachement de votre fiche force de vente." },
     });
-    const bu = find(f, "businessUnitId") as unknown as { options: { value: string }[]; defaultValue: string; hint: string };
-    expect(bu.options.map((o) => o.value)).toEqual(["bu1"]);
-    expect(bu.defaultValue).toBe("bu1");
-    expect(bu.hint).toContain("force de vente");
+    expect(f.some((x) => x.name === "businessUnitId"), "plus aucun champ gamme").toBe(false);
   });
 
   it("Business Unit NON déduite : le choix reste manuel sur la liste entière", () => {

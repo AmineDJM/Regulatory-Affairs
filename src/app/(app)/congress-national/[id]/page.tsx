@@ -38,6 +38,10 @@ import { AD_PRO_DOC_CATEGORIES, categoriesDuDepotDeLaDemande } from "@/lib/ad-pr
 import { canAttachToAdPro } from "@/lib/ad-pro/attachments";
 import { siegeAuCentreAdPro } from "@/lib/ad-pro/centre";
 
+// Une page qui dépend de QUI regarde ne se met jamais en cache : la même adresse rend autre chose pour le
+// demandeur, pour la Direction et pour le Super Admin en Vue exacte (voir `lib/vue-exacte.ts`).
+export const dynamic = "force-dynamic";
+
 export default async function CongressNatDetailPage({ params }: { params: { id: string } }) {
   const user = await requireModule("CONGRESS_NATIONAL");
   const detail = await getCongressDetail("NATIONAL", user, params.id);

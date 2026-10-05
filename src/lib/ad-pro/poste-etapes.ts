@@ -71,6 +71,8 @@ export interface FaitsPoste {
   bc?: EtapeBC | null;
   /** Combien de factures (non annulées) le poste porte. */
   factures?: number;
+  /** Combien de devis / pro forma / lettres de demande (non annulés) le poste porte. */
+  devis?: number;
 }
 
 /** Ce que la personne qui regarde peut faire — calculé au serveur, jamais deviné ici. */
@@ -134,7 +136,7 @@ export function faitsDuPoste(r: {
   /** La demande de BC ouverte chez l'assistante (`DemandeBCDuPoste`), s'il y en a une. */
   demandeBC?: { etat: EtatDemandeBC } | null;
   /** La chaîne d'achat du poste (`PiecesDuPoste`). */
-  pieces?: { bc: { etape: EtapeBC | null } | null; factures: readonly unknown[] };
+  pieces?: { bc: { etape: EtapeBC | null } | null; factures: readonly unknown[]; devis?: readonly { annulee?: boolean }[] };
 }): FaitsPoste {
   return {
     kind: r.kind, status: r.status, amountEstimated: r.amountEstimated, amountGranted: r.amountGranted,
@@ -142,6 +144,7 @@ export function faitsDuPoste(r: {
     expenseOrderStatus: r.expenseOrder?.status ?? null, lignesStock: r.lignesStock.length, orderSansCentre: r.orderSansCentre,
     opsDecidedAt: r.opsDecidedAt ?? null, demandeBC: r.demandeBC?.etat ?? "AUCUNE",
     bc: r.pieces?.bc ? (r.pieces.bc.etape ?? "HORS_CIRCUIT") : null, factures: r.pieces?.factures.length ?? 0,
+    devis: (r.pieces?.devis ?? []).filter((d) => !d.annulee).length,
   };
 }
 
@@ -158,6 +161,19 @@ const chiffre = (p: FaitsPoste) => positif(p.amountGranted ?? p.amountEstimated)
  */
 export const VERSEMENT_SANS_BC: readonly AdProItemKind[] = ["ASSOCIATION_SUPPORT"];
 
+/**
+ * CE QUE LE PAIEMENT D'UN VERSEMENT À L'ASSOCIATION EXIGE (Direction, 05/10) : « quand c'est un
+ * sponsoring direct (à l'association), ça demande « Proforma / lettre de demande de sponsoring » ;
+ * la facture n'est pas obligatoire ». Le paiement d'un sponsoring DIRECT part donc de la pro forma
+ * ou de la lettre de demande (qui est un DEVIS au registre : une pro forma l'a toujours été), et la
+ * facture reste possible, jamais exigée. Un sponsoring INDIRECT (prise en charge : devis → BC →
+ * facture) garde la règle d'avant. Une seule fonction, lue par la frise, le geste, les phrases,
+ * l'action et l'ordre de dépense — deux lectures de « qu'exige-t-on pour payer ? » finiraient par
+ * diverger (§118.5).
+ */
+export const LIBELLE_JUSTIFICATIF_DIRECT = "Proforma / lettre de demande de sponsoring";
+export const facturePourPayer = (kind: AdProItemKind): boolean => !VERSEMENT_SANS_BC.includes(kind);
+
 /** Le BC du poste est-il signé — la condition pour déposer la facture d'un poste qui en a un (§118.204) ? */
 export const bcSigne = (p: FaitsPoste) => p.bc === "SIGNE";
 
@@ -172,6 +188,7 @@ export function etapesDuPoste(p: FaitsPoste): Etape[] {
   const paye = p.expenseOrderStatus === "PAID";
   const sansBC = VERSEMENT_SANS_BC.includes(p.kind);
   const factures = p.factures ?? 0;
+  const justificatifPose = (p.devis ?? 0) > 0 || factures > 0;
   const etapes: Etape[] = [
     { cle: "CHIFFRE", libelle: "Chiffré", etat: chiffre(p) ? "FAIT" : "EN_COURS" },
     {
@@ -201,10 +218,17 @@ export function etapesDuPoste(p: FaitsPoste): Etape[] {
     });
   }
   const factureOuverte = accorde && p.budgetCategoryId && (sansBC ? true : bcSigne(p));
-  etapes.push({
-    cle: "FACTURE", libelle: "Facture",
-    etat: factures > 0 ? "FAIT" : factureOuverte || p.expenseOrderId ? "EN_COURS" : "A_VENIR",
-  });
+  // UN VERSEMENT À L'ASSOCIATION se justifie par la pro forma ou la lettre de demande, pas par une
+  // facture : la frise nomme ce qui est exigé, et le dit FAIT dès qu'il est là.
+  etapes.push(sansBC
+    ? {
+        cle: "FACTURE", libelle: "Pro forma / lettre",
+        etat: justificatifPose ? "FAIT" : factureOuverte || p.expenseOrderId ? "EN_COURS" : "A_VENIR",
+      }
+    : {
+        cle: "FACTURE", libelle: "Facture",
+        etat: factures > 0 ? "FAIT" : factureOuverte || p.expenseOrderId ? "EN_COURS" : "A_VENIR",
+      });
   etapes.push({
     cle: "PAIEMENT", libelle: "Paiement",
     etat: paye ? "FAIT" : p.expenseOrderId ? "EN_COURS" : "A_VENIR",
@@ -300,13 +324,15 @@ export function prochainPas(p: FaitsPoste, r: RegardPoste): ProchainPas {
       ? { geste: { cle: "BUDGET", libelle: "Choisir le budget" }, attente: null }
       : { geste: null, attente: `${capitale(qui2)} choisit le budget qui porte ce poste.` };
   }
+  const direct = VERSEMENT_SANS_BC.includes(p.kind);
   const payer: ProchainPas = r.canEdit
-    ? { geste: { cle: "DEMANDER_PAIEMENT", libelle: "Déposer la facture et demander le paiement" }, attente: null }
-    : { geste: null, attente: "Le demandeur dépose la facture pour demander le paiement." };
+    ? { geste: { cle: "DEMANDER_PAIEMENT", libelle: direct ? "Joindre la proforma / lettre de demande et demander le paiement" : "Déposer la facture et demander le paiement" }, attente: null }
+    : { geste: null, attente: direct ? "Le demandeur joint la proforma ou la lettre de demande de sponsoring pour demander le paiement." : "Le demandeur dépose la facture pour demander le paiement." };
 
-  // SPONSORING DIRECT : pas de bon de commande. Pro forma facultative, facture obligatoire.
-  if (VERSEMENT_SANS_BC.includes(p.kind) && p.orderStage === "NONE" && !p.bc) {
-    if (!r.operationDecidee) return { geste: null, attente: "La facture se déposera quand l'opération sera accordée." };
+  // SPONSORING DIRECT : pas de bon de commande, et pas de facture exigée — la pro forma ou la lettre
+  // de demande de sponsoring suffit à demander le paiement (Direction, 05/10).
+  if (direct && p.orderStage === "NONE" && !p.bc) {
+    if (!r.operationDecidee) return { geste: null, attente: "La proforma ou la lettre de demande se joindra quand l'opération sera accordée." };
     return payer;
   }
 
