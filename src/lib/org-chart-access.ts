@@ -41,3 +41,16 @@ export function canSeeRegEnrollment(
   if (user.role === "SUPER_ADMIN") return true;
   return settings.regEnrollmentRoles.some((r) => r === user.role || (user.secondaryRole ? r === user.secondaryRole : false));
 }
+
+/**
+ * L'écran « Corpus réglementaire » s'ouvre-t-il pour cet utilisateur ? Source UNIQUE de la règle,
+ * partagée par la page (qui répond « Introuvable » sinon) et par la notification de veille ANPP
+ * (qui ne doit jamais pointer vers un écran fermé) : module Analyse CTD débloqué ET rôle principal
+ * Super Admin.
+ */
+export function canOpenCorpusPage(
+  user: { role: string; secondaryRole?: string | null },
+  settings: { regEnrollmentEnabled: boolean; regEnrollmentRoles: string[] },
+): boolean {
+  return user.role === "SUPER_ADMIN" && canSeeRegEnrollment(user, settings);
+}
