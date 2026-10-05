@@ -241,9 +241,14 @@ describe("chemin fichier : en flux, mémoire bornée", () => {
     // le fichier. Le cas la ramène à 4 Mo pour isoler ce qui nous appartient — la compression.
     process.env.REG_BLOB_CHUNK_MB = "4";
     global.gc?.();
-    const base = process.memoryUsage().rss;
+    // CE QUI NOUS APPARTIENT : le tas JS et les tampons (`arrayBuffers`). Le RSS, lui, compte aussi l'allocateur
+    // natif du moteur Prisma, qui ne rend pas sa mémoire entre deux tranches — mesuré : +250 Mo de RSS sur un
+    // fichier peu compressible, sans qu'un seul tampon de plus ne soit tenu côté JS. Un test sur le RSS ne
+    // mesurait pas le flux, il mesurait l'humeur de l'allocateur (§118.92).
+    const nôtre = () => { const m = process.memoryUsage(); return m.heapUsed + m.arrayBuffers; };
+    const base = nôtre();
     let pic = base;
-    const t = setInterval(() => { pic = Math.max(pic, process.memoryUsage().rss); }, 20);
+    const t = setInterval(() => { pic = Math.max(pic, nôtre()); }, 20);
     let r;
     try { r = await putBlobFromFile(p); } finally { clearInterval(t); }
     ids.push(r.blobId);

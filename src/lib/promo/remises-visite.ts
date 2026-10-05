@@ -217,7 +217,7 @@ export async function refusSuppressionRapport(fieldReportId: string): Promise<st
   if (!visite) return null;
   const autres = await prisma.fieldReport.count({ where: { visitId: rapport.visitId, id: { not: fieldReportId } } });
   return refusSuppressionRapportDeVisite({
-    statut: visite.status, date: visite.date, rapportEcrit: false, autresRapports: autres,
+    statut: visite.status, date: visite.date, rapportEcrit: Boolean(visite.report), autresRapports: autres,
     maintenant: new Date(), praticien: visite.doctor?.name ?? null,
   });
 }

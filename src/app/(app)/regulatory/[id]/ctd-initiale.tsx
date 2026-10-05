@@ -1,7 +1,6 @@
 "use client";
 
 import * as React from "react";
-import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { ChevronDown, ChevronRight, Folder, FolderOpen, FileArchive, FileText, FolderPlus, Loader2, Pencil, Replace, Trash2, Check, X, Info, Archive } from "lucide-react";
 import { DocumentPreview } from "@/components/documents/document-preview";
@@ -16,6 +15,7 @@ import {
   arborescenceCtd, dossiersDeLaCtd, resumeCtd, cheminSur, type NoeudCtd,
 } from "@/lib/regulatory/ctd-initiale";
 import { cn, formatDate } from "@/lib/utils";
+import { useRafraichir } from "@/components/shared/use-rafraichir";
 
 const humanSize = (n: number) => {
   if (!n) return "0 o";
@@ -63,12 +63,12 @@ export function CtdInitiale({
   /** La dernière CTD retirée de ce dossier, restaurable depuis la corbeille par le Super Admin. */
   retiree: { quand: string; fichiers: number; remplacee: boolean } | null;
 }) {
-  const router = useRouter();
+  const { enCours: rafraichit, rafraichir } = useRafraichir();
   const [ouvert, setOuvert] = React.useState(true);
   const [panneau, setPanneau] = React.useState<Panneau>(null);
   const [destination, setDestination] = React.useState("");
   const [nouveauDossier, setNouveauDossier] = React.useState("");
-  const [occupe, setOccupe] = React.useState(false);
+  const [enEcriture, setOccupe] = React.useState(false);
   const [message, setMessage] = React.useState<{ ton: "ok" | "erreur"; texte: string } | null>(null);
   // Un remplacement vient de partir : l'ancienne CTD est à la corbeille et la nouvelle monte en arrière-plan. Entre les
   // deux le bloc est vide — sans ce fait, il proposerait de la déposer une seconde fois.
@@ -78,6 +78,9 @@ export function CtdInitiale({
   const resume = React.useMemo(() => resumeCtd(docs), [docs]);
   const dossiers = React.useMemo(() => dossiersDeLaCtd(docs), [docs]);
   const vide = docs.length === 0;
+
+  // Tant que la fiche n'a pas reçu l'état écrit, ses gestes restent fermés (§118.172).
+  const occupe = enEcriture || rafraichit;
 
   const dossierBase = destination === NOUVEAU ? cheminSur(nouveauDossier) : cheminSur(destination);
 
@@ -90,7 +93,7 @@ export function CtdInitiale({
     setOccupe(false);
     if (!r.ok) { setMessage({ ton: "erreur", texte: r.error ?? "Échec." }); return false; }
     if (r.message) setMessage({ ton: "ok", texte: r.message });
-    router.refresh();
+    rafraichir();
     return true;
   }
 

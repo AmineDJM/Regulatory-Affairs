@@ -34,6 +34,11 @@ vi.mock("next/headers", () => ({
   },
   headers: () => new Headers(ETAT.ecrit ? { "next-action": "abc" } : {}),
 }));
+// Depuis §118.210, la session reconnaît une ACTION serveur au stockage asynchrone de Next (et plus à
+// l'en-tête `Next-Action`, que la page rendue après l'action rejoue) : le banc le simule par le même fait.
+vi.mock("next/dist/client/components/action-async-storage.external", () => ({
+  actionAsyncStorage: { getStore: () => (ETAT.ecrit ? { isAction: true } : undefined) },
+}));
 vi.mock("next/navigation", () => ({
   notFound: () => { throw new Error("NEXT_NOT_FOUND"); },
   redirect: (u: string) => { throw new Error("NEXT_REDIRECT " + u); },

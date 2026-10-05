@@ -467,7 +467,9 @@ describe("Rapport terrain — la suppression est branchée là où une personne 
     expect(src).toMatch(/<ConfirmationSuppression[\s\S]{0,300}kind="FIELD_REPORT"[\s\S]{0,200}executer=\{deleteFieldReport\}/);
     const fenetre = code("src/components/shared/super-admin-delete.tsx");
     expect(fenetre, "la seconde confirmation est un bouton décisif (arme, puis confirme)").toMatch(/<BoutonDecisif[\s\S]{0,200}disabled=\{!armable\}/);
-    expect(fenetre).toContain("apercuDeSuppression(fd)");
+    // L'aperçu est injectable (le banc d'écran le remplace) ; son défaut EST l'action canonique.
+    expect(fenetre).toMatch(/apercuer = apercuDeSuppression/);
+    expect(fenetre).toContain("apercuer(fd)");
   });
 
   it("l'action passe par le cœur réversible : plus de `delete` sec, plus de fichiers libérés à la suppression", () => {
