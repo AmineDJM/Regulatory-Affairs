@@ -1,5 +1,11 @@
-import { lunaConfigured } from "@/lib/openai-luna";
 import { interrupteurIaCoupe, REFUS_IA_COUPEE } from "@/lib/ai-settings";
+
+/**
+ * Le même fait que `lunaConfigured()` (la clé est posée), lu SANS importer le fournisseur : un
+ * module de la couche de connaissance qui importe le SDK se lie à lui, et le plafond des fuites
+ * vers un fournisseur ne se relève pas.
+ */
+const clePresente = (): boolean => Boolean((process.env.OPENAI_API_KEY ?? "").trim());
 
 /**
  * LE MODÈLE EST-IL JOIGNABLE ? La clé d'abord, puis l'interrupteur général (lu en base). La raison
@@ -8,7 +14,7 @@ import { interrupteurIaCoupe, REFUS_IA_COUPEE } from "@/lib/ai-settings";
  * l'on mettrait en file des travaux que le worker refuse ensuite de prendre.
  */
 export async function modeleDisponible(): Promise<{ ok: boolean; raison: string | null }> {
-  if (!lunaConfigured()) return { ok: false, raison: "La clé du fournisseur de modèles n'est pas configurée." };
+  if (!clePresente()) return { ok: false, raison: "La clé du fournisseur de modèles n'est pas configurée." };
   if (await interrupteurIaCoupe()) return { ok: false, raison: REFUS_IA_COUPEE };
   return { ok: true, raison: null };
 }

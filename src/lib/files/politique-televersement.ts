@@ -24,8 +24,9 @@ export const EXTENSIONS_BLOQUEES: ReadonlySet<string> = new Set([
 const MO = 1024 * 1024;
 
 export function extensionDe(nom: string): string {
+  // `>= 0` : un fichier nommé « .exe » (nom vide) est un exécutable, pas un fichier sans extension.
   const i = nom.lastIndexOf(".");
-  return i > 0 ? nom.slice(i + 1).toLowerCase() : "";
+  return i >= 0 ? nom.slice(i + 1).toLowerCase() : "";
 }
 
 /** « 25 Mo », « 1,5 Go » — la taille dite comme une personne la lit. */

@@ -111,9 +111,9 @@ describe("Les écrans renvoient ce qu'ils ont lu — composants clients qu'aucun
 
   it("la carte ne propose pas un geste qu'un BC établi dans Legal ferait refuser — et lit la MÊME lecture que les actions", () => {
     const c = lire("src/components/ad-pro/items-panel.tsx");
-    expect(c).toMatch(/if \(!bcLegal\) entrees\.push\(\{ cle: "retirer-bc"/);
+    expect(c).toMatch(/if \(bcAnnulable\) entrees\.push\(\{ cle: "retirer-bc"/);
     expect(c).toMatch(/!arbitrer && editer && !stock && !bcLegal && item\.status === "APPROVED"/);
-    expect(lire("src/lib/queries/ad-pro-items.ts"), "la carte lit les BC établis par la lecture partagée").toMatch(/bcEtablisDesPostes\(itemIds\)/);
+    expect(lire("src/lib/queries/ad-pro-items.ts"), "la carte lit les BC établis par la lecture partagée").toMatch(/bcVivantsDesPostes/);
     expect(lire(ACTIONS), "les actions aussi — deux lectures de « ce BC existe-t-il ? » finiraient par diverger").toMatch(/from "@\/lib\/ad-pro\/bc-etablis"/);
   });
 });

@@ -1,3 +1,4 @@
+import { BLOB_MAX_BYTES } from "@/lib/storage/limites-blob";
 import crypto from "crypto";
 import { createReadStream } from "fs";
 import { readFile, stat } from "fs/promises";
@@ -49,7 +50,7 @@ export function sha256(buf: Buffer): string {
 const blobKey = (hash: string) => `blobs/${hash.slice(0, 2)}/${hash}-${crypto.randomBytes(6).toString("hex")}`;
 
 /** Taille maximale d'un blob : la colonne `size` est un entier 32 bits. Au-delà, on le DIT avant d'écrire. */
-export const BLOB_MAX_BYTES = 2_147_483_647;
+export { BLOB_MAX_BYTES };
 function refuserSiTropGros(size: number): void {
   if (size > BLOB_MAX_BYTES) {
     throw new Error(`Fichier trop volumineux pour le coffre chiffré (${Math.round(size / 1024 ** 2)} Mo > 2 047 Mo).`);
@@ -370,7 +371,7 @@ export async function purgeOrphanBlobs(opts: { parmi?: string[] } = {}): Promise
   // fait bouger `touchedAt`, et la ligne est épargnée.
   const orphans = await prisma.$queryRaw<{ id: string; size: number; storageKey: string | null }[]>(Prisma.sql`
     DELETE FROM "FileBlob" b
-    WHERE b.id = ANY(${ids}) AND b."touchedAt" < now() - make_interval(mins => ${PURGE_DELAI_MINUTES})
+    WHERE b.id = ANY(${ids}) AND b."touchedAt" < now() - make_interval(mins => ${PURGE_DELAI_MINUTES}::int)
       AND ${sqlAucuneColonneNeLeTient("b")}
     RETURNING b.id, b.size, b."storageKey"`);
   let bytes = 0;
@@ -386,7 +387,7 @@ async function orphelins(parmi?: string[]): Promise<{ id: string; size: number }
   const borne = parmi ? Prisma.sql`AND b.id = ANY(${parmi})` : Prisma.empty;
   const rows = await prisma.$queryRaw<{ id: string; size: number }[]>(Prisma.sql`
     SELECT b.id, b.size FROM "FileBlob" b
-    WHERE b."touchedAt" < now() - make_interval(mins => ${PURGE_DELAI_MINUTES})
+    WHERE b."touchedAt" < now() - make_interval(mins => ${PURGE_DELAI_MINUTES}::int)
       AND ${sqlAucuneColonneNeLeTient("b")} ${borne}`);
   if (rows.length === 0) return rows;
   const json = sqlBlobsCitesEnJson();

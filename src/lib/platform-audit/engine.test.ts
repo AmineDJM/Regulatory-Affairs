@@ -39,8 +39,10 @@ suite("Diagnostic de plateforme — exécution réelle", () => {
     // Les pièces jointes métier (liste blanche) acceptent pdf/docx/pptx…
     expect(biz!.accepted).toContain("pdf");
     expect(biz!.accepted).toContain("pptx");
-    // … mais refusent des formats hors liste (svg/heic) → source du constat « Formats ».
-    expect(biz!.rejected).toContain("svg");
+    // Une seule politique (audit du 04/10, constat 9) : les pièces métier acceptent aussi ce que le
+    // Drive accepte — plus de constat « Formats » fondé sur deux listes qui divergent.
+    expect(biz!.accepted).toContain("svg");
+    expect(biz!.accepted).toEqual(expect.arrayContaining(drive!.accepted));
 
     // Le Drive (liste noire) accepte plus largement (ex. mp4, svg) et bloque les exécutables.
     expect(drive!.accepted).toContain("mp4");

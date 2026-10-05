@@ -6,7 +6,7 @@ import { validateDriveUpload } from "@/lib/storage";
 import { objectStorageConfigured, deleteObject } from "@/lib/storage/object-storage";
 import { quotaVerdict } from "@/lib/drive/quota";
 import { userUsageBytes, physicalUsageBytes, addPhysicalUsage } from "@/lib/drive/usage";
-import { BLOB_MAX_BYTES } from "@/lib/drive-storage";
+import { BLOB_MAX_BYTES } from "@/lib/storage/limites-blob";
 import { MAX_SANS_STOCKAGE_OBJET_MO } from "@/lib/storage/phrases-stockage";
 import { refusDepotDrive, enregistrerFichierDrive, type CibleDepot } from "@/lib/drive/depot";
 import {

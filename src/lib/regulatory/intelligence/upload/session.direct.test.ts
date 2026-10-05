@@ -18,6 +18,27 @@ import JSZip from "jszip";
 
 for (const [k, v] of Object.entries({ S3_ENDPOINT: "https://compte.r2.cloudflarestorage.com", S3_BUCKET: "t", S3_ACCESS_KEY_ID: "k", S3_SECRET_ACCESS_KEY: "s" })) process.env[k] = v;
 
+import { vi } from "vitest";
+
+// Le test pose des variables S3 pour que la finalisation « voie » un stockage objet ; l'ingestion
+// écrit alors ses blobs par `putObject`. On les range en mémoire : aucun appel réseau, et le
+// juge ne dépend plus de ce que le bac distant répond (503 observé derrière le mandataire).
+vi.mock("@/lib/storage/object-storage", async (orig) => {
+  const m = await orig<typeof import("@/lib/storage/object-storage")>();
+  const mem = new Map<string, Buffer>();
+  return {
+    ...m,
+    putObject: async (k: string, b: Buffer) => { mem.set(k, Buffer.from(b)); },
+    putObjectStream: async (k: string, it: AsyncIterable<Buffer>) => {
+      const c: Buffer[] = [];
+      for await (const x of it) c.push(Buffer.from(x));
+      mem.set(k, Buffer.concat(c));
+    },
+    getObject: async (k: string) => mem.get(k) ?? null,
+    deleteObject: async (k: string) => { mem.delete(k); },
+  };
+});
+
 import { prisma } from "@/lib/prisma";
 import { releaseBlob } from "@/lib/drive-storage";
 import type { ClientS3Direct } from "@/lib/storage/televersement-direct";
@@ -100,7 +121,7 @@ suite("CTD — envoi direct au bucket (reprise, finalisation en flux)", () => {
     etat.recues = [{ numero: 1, etag: '"a"', taille: archive.length }];
     etat.taille = archive.length;
     const fin = await finalizeDirectUploadSession(s.sessionId!, companyId, "test-user", undefined, client, flux(archive));
-    expect(fin.ok).toBe(true);
+    expect(fin.ok, JSON.stringify({ e: fin.error, m: fin.manquantes })).toBe(true);
     expect(fin.ingest?.versionId).toBeTruthy();
     const replay = await finalizeDirectUploadSession(s.sessionId!, companyId, "test-user", undefined, client, flux(archive));
     expect(replay.ingest?.versionId).toBe(fin.ingest?.versionId);
