@@ -145,6 +145,9 @@ test("POSTE : demander le BC, en corriger le message, puis le retirer avec son m
   const c = carte(page, `${P}Brochures`);
   await c.getByRole("button", { name: "Demander l'émission du BC" }).click();
   await c.getByRole("textbox").fill("Réf. devis DV-12, 2 000 brochures.");
+  // Plusieurs assistantes de direction dans la base : la plateforme n'en choisit aucune à la place du demandeur.
+  const choixAssistante = c.getByLabel("Assistante de direction qui établira le bon de commande");
+  if (await choixAssistante.count()) await choixAssistante.selectOption({ label: `${P} Assistante` });
   await c.getByRole("button", { name: "Envoyer la demande" }).click();
   await attendre(() => prisma.adProItem.findUniqueOrThrow({ where: { id }, select: { orderStage: true } }), (p) => p.orderStage === "REQUESTED", "BC demandé");
 
@@ -162,14 +165,14 @@ test("POSTE : demander le BC, en corriger le message, puis le retirer avec son m
   // RETIRER : le motif est exigé, et la demande repart à zéro.
   await aller(page, `/events/${eventId}`);
   await c.getByRole("button", { name: `Autres actions — ${P}Brochures` }).click();
-  await page.getByRole("menuitem", { name: "Retirer la demande de BC" }).click();
+  await page.getByRole("menuitem", { name: "Annuler la demande de BC" }).click();
   await c.getByRole("textbox").fill("Le devis est caduc.");
-  await cliquerDecisif(c.getByRole("button", { name: "Retirer la demande" }));
+  await cliquerDecisif(c.getByRole("button", { name: "Annuler la demande", exact: true }));
   const apres = await attendre(() => prisma.adProItem.findUniqueOrThrow({ where: { id }, select: { orderStage: true } }), (p) => p.orderStage === "NONE", "demande retirée");
   expect(apres.orderStage).toBe("NONE");
 });
 
-test("UN BC ÉTABLI DANS LEGAL : la carte le dit, et n'offre plus le retrait que l'action refuserait", async ({ page }) => {
+test("UN BC ÉTABLI DANS LEGAL, NON SIGNÉ : la carte le dit, et « Annuler la demande de BC » l'annule avec la demande (constat 36)", async ({ page }) => {
   const { id } = await poste("Kakémonos", { orderStage: "DIRECTION_OK", orderRequestedAt: new Date(), orderRequestedById: kamId, orderDirectionAt: new Date(), orderVisaAmount: 600_000, orderVisaSupplier: "Imprimerie Alpha" });
   const piece = await prisma.legalDocument.create({ data: { title: `${P}BC Kakémonos`, kind: "PURCHASE_ORDER", reference: `${P}BC-1` }, select: { id: true } });
   await prisma.documentRequest.create({
@@ -181,7 +184,8 @@ test("UN BC ÉTABLI DANS LEGAL : la carte le dit, et n'offre plus le retrait que
   await expect(c.getByText(`BC établi dans Legal : ${P}BC-1`)).toBeVisible();
   await c.getByRole("button", { name: `Autres actions — ${P}Kakémonos` }).click();
   await expect(page.getByRole("menuitem", { name: "Modifier la demande de BC" }), "le message se corrige encore").toBeVisible();
-  await expect(page.getByRole("menuitem", { name: "Retirer la demande de BC" }), "le retrait laisserait le BC sans porte").toHaveCount(0);
+  // Un BC non signé s'annule avec la demande (un seul geste) : le geste est offert. Signé ou facturé, il ne l'est plus.
+  await expect(page.getByRole("menuitem", { name: "Annuler la demande de BC" }), "le BC non signé s'annule avec la demande").toHaveCount(1);
   await capture(page, "c2-bc-legal", c);
 });
 

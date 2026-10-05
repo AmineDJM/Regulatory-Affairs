@@ -28,8 +28,13 @@ export interface AttachResult {
   error?: string;
 }
 
-/** Un champ fichier laissé vide envoie un fichier SANS NOM de zéro octet : ce n'est pas une pièce. */
-const estUnePiece = (f: unknown): f is File => f instanceof File && (f.size > 0 || f.name !== "");
+/**
+ * Un champ fichier laissé vide envoie un fichier de zéro octet SANS NOM — ou, une fois passé par une action
+ * serveur de Next, nommé « undefined » (mesuré au navigateur : la demande de prise en charge ne pouvait plus
+ * être envoyée sans fichier, refusée « « undefined » est vide »). Ce n'est pas une pièce. Un fichier vide
+ * qui porte un VRAI nom, lui, reste refusé et dit son nom.
+ */
+const estUnePiece = (f: unknown): f is File => f instanceof File && (f.size > 0 || (f.name !== "" && f.name !== "undefined"));
 
 /**
  * Contrôle les fichiers SANS rien écrire — pour les appelants qui doivent refuser une saisie
