@@ -4065,11 +4065,18 @@ model MedicalDoctor {
   /// Les couleurs posées sur ses cellules dans la feuille de l'annuaire (§118.133).
   cellStyles   DirectoryCellStyle[]
 
+  /// ARCHIVAGE RÉVERSIBLE (Direction, 06/10) : « supprimer » une ligne de l'annuaire l'archive — elle
+  /// sort de la feuille, des comptes, de l'export et de la recherche, mais reste en base et se
+  /// restaure depuis la vue « Archivés ». Nul = fiche active.
+  archivedAt   DateTime?
+  archivedById String?
+
   createdById String?
   updatedById String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
+  @@index([archivedAt])
   @@index([delegateId])
   @@index([specialtyId])
   @@index([institutionId])

@@ -3,7 +3,7 @@
 import * as React from "react";
 import { useRouter } from "next/navigation";
 import {
-  Search, Upload, Loader2, FileSpreadsheet, Info, Plus, Rows3, LayoutList, Check, X, Trash2, Columns3, Building2, Stethoscope,
+  Search, Upload, Loader2, FileSpreadsheet, Info, Plus, Rows3, LayoutList, Check, X, Trash2, RotateCcw, Columns3, Building2, Stethoscope,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -15,7 +15,7 @@ import {
 } from "@/lib/medical/directory-grid";
 import {
   importDirectorySheet, previewDirectorySheet, saveDirectoryCell, saveDirectoryCustomCell,
-  addDirectoryDoctor, deleteDirectoryDoctors, rattacherEtablissementsParNom, rattacherSpecialitesParNom,
+  addDirectoryDoctor, deleteDirectoryDoctors, restaurerDirectoryDoctors, rattacherEtablissementsParNom, rattacherSpecialitesParNom,
 } from "@/lib/actions/medical-directory-actions";
 import { cleDEtablissement } from "@/lib/annuaires/rattachement";
 import type { EtablissementOption } from "@/lib/annuaires/types";
@@ -389,8 +389,10 @@ function GridTable({
 
 export function AnnuaireGrid({
   rows, etablissements, couleurs, customColumns, canEdit, canImport, canImportFile, canDelete, canManageColumns, specialties, directoryId, directoryName,
-  titreParDefaut, exportHref = "/api/medical/annuaire/export",
+  titreParDefaut, exportHref = "/api/medical/annuaire/export", archives = false,
 }: {
+  /** Vue des fiches ARCHIVÉES : « Supprimer » devient « Restaurer » (archivage réversible). */
+  archives?: boolean;
   rows: AnnuaireRow[];
   /** L'annuaire des établissements et leurs services — les choix des colonnes de lien (§118.172). */
   etablissements: EtablissementOption[];
@@ -872,17 +874,18 @@ export function AnnuaireGrid({
               <Button
                 size="sm" variant="outline" disabled={deleting}
                 onClick={() => {
-                  if (!window.confirm(`Supprimer ${selected.size} fiche(s) de l'annuaire ? Cette action est définitive.`)) return;
+                  // SUPPRIMER = ARCHIVER (réversible) ; dans la vue « Archivés », le même bouton RESTAURE.
+                  if (!archives && !window.confirm(`Archiver ${selected.size} fiche(s) de l'annuaire ? Elles sortent de la feuille mais restent restaurables depuis « Archivés ».`)) return;
                   setDeleting(true);
-                  void deleteDirectoryDoctors([...selected]).then((r) => {
+                  void (archives ? restaurerDirectoryDoctors : deleteDirectoryDoctors)([...selected]).then((r) => {
                     setDeleting(false);
-                    setMsg({ ok: r.ok, text: r.ok ? (r.message ?? "Supprimé.") : (r.error ?? "Suppression impossible.") });
+                    setMsg({ ok: r.ok, text: r.ok ? (r.message ?? (archives ? "Restauré." : "Archivé.")) : (r.error ?? (archives ? "Restauration impossible." : "Archivage impossible.")) });
                     if (r.ok) { setSelected(new Set()); rafraichir(); }
                   });
                 }}
-                className="text-destructive"
+                className={archives ? undefined : "text-destructive"}
               >
-                {deleting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />} Supprimer
+                {deleting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : archives ? <RotateCcw className="h-3.5 w-3.5" /> : <Trash2 className="h-3.5 w-3.5" />} {archives ? "Restaurer" : "Supprimer"}
               </Button>
             )}
             <Button size="sm" variant="ghost" onClick={() => setSelected(new Set())}>

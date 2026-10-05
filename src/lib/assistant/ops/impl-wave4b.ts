@@ -3,7 +3,7 @@ import {
   createDoctor, updateDoctor, deleteDoctor, createVisit, updateVisit, deleteVisit,
   deleteInstitution, createSpecialty, updateSpecialty, deleteSpecialty, logVisit,
 } from "@/lib/actions/medical-actions";
-import { addDirectoryDoctor, saveDirectoryCell, saveDirectoryCustomCell, deleteDirectoryDoctors } from "@/lib/actions/medical-directory-actions";
+import { addDirectoryDoctor, saveDirectoryCell, saveDirectoryCustomCell, deleteDirectoryDoctors, restaurerDirectoryDoctors } from "@/lib/actions/medical-directory-actions";
 // Par le PORT des capacités, jamais par `actions/` ni `medical/` en direct (frontière Adam ↔ ERP).
 import { colorerCellulesAnnuaire, isAnnuaireField, isEtablissementField } from "@/platform/in-process/capacites";
 import { COULEURS_CELLULE, estCouleurCellule } from "@/lib/grille/couleurs";
@@ -453,6 +453,38 @@ export const MEDICAL_OPS_IMPL: Record<string, OpImpl> = {
     async execute(args) {
       const r = await deleteDirectoryDoctors((args.ids ?? "").split(",").filter(Boolean));
       if (!r.ok) return { ok: false, error: r.error ?? "La suppression en lot a été refusée." };
+      return { ok: true, message: r.message, revalidate: ["/medical"] };
+    },
+  },
+
+  // RESTAURER des fiches archivées (le retour de « supprimer », qui archive). On cherche parmi les
+  // fiches ARCHIVÉES seulement : restaurer une fiche active n'aurait aucun sens.
+  restore_doctors: {
+    async propose(input): Promise<OpProposalDraft | { error: string }> {
+      const raw = opStr(input, "doctor") || opStr(input, "people");
+      if (!raw) return { error: "Précisez les fiches archivées à restaurer (champ « doctor », noms séparés par des virgules)." };
+      const ids: string[] = []; const names: string[] = [];
+      for (const part of raw.split(/[;,]/).map((p) => p.trim()).filter(Boolean)) {
+        const rows = await prisma.medicalDoctor.findMany({
+          where: { archivedAt: { not: null }, name: { contains: part, mode: "insensitive" } },
+          select: { id: true, name: true }, take: 4,
+        });
+        if (rows.length === 0) return { error: `Aucune fiche archivée « ${part} ».` };
+        if (rows.length > 1) return { error: `Plusieurs fiches archivées correspondent à « ${part} » : ${rows.map((d) => d.name).join(", ")} — préciser.` };
+        if (!ids.includes(rows[0].id)) { ids.push(rows[0].id); names.push(rows[0].name); }
+      }
+      return {
+        title: `RESTAURER ${names.length} fiche(s) archivée(s)`,
+        fields: [{ label: "Praticiens", value: names.join(", ") }],
+        warnings: ["Chaque ligne est revérifiée individuellement : une fiche hors de votre portée reste archivée."],
+        args: { ids: ids.join(",") },
+        successMessage: `${names.length} fiche(s) traitée(s).`,
+        revalidate: ["/medical"],
+      };
+    },
+    async execute(args) {
+      const r = await restaurerDirectoryDoctors((args.ids ?? "").split(",").filter(Boolean));
+      if (!r.ok) return { ok: false, error: r.error ?? "La restauration a été refusée." };
       return { ok: true, message: r.message, revalidate: ["/medical"] };
     },
   },
