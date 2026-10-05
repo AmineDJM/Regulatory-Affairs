@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { Plane, Plus, Send, Loader2, ExternalLink, CheckCircle2, MoreHorizontal, Upload, FileCheck2 } from "lucide-react";
+import { Plane, Plus, Send, Loader2, ExternalLink, CheckCircle2, MoreHorizontal, Upload, FileCheck2, Trash2 } from "lucide-react";
 import type { AdProTrajet, AdProTransport } from "@prisma/client";
 import { Button } from "@/components/ui/button";
 import { DocumentUpload } from "@/components/documents/document-upload";
@@ -12,8 +12,8 @@ import {
   ajouterDevisVoyageur, validerDevisVoyageur, demanderBCBilletterie,
 } from "@/lib/actions/ad-pro-item-actions";
 import {
-  manquesPourReserver, jourLisible, prochainGesteVoyageur, depassementDevisRetenus,
-  TRANSPORTS, TRANSPORT_LIBELLE, TRAJET_LIBELLE,
+  manquesPourReserver, jourLisible, prochainGesteVoyageur, depassementDevisRetenus, nomComplet, separerNom, ETAPES_MAX,
+  TRANSPORTS, TRANSPORT_LIBELLE, TRAJET_LIBELLE, TRAJETS, type EtapeTrajet,
 } from "@/lib/ad-pro/voyageurs";
 
 /** Un devis ou une pro forma déposé pour un voyageur (§118.205) — une pièce du poste, au registre Legal. */
@@ -32,7 +32,13 @@ export interface DevisVoyageurVue {
 /** Un voyageur tel que l'écran le montre — les dates en AAAA-MM-JJ, prêtes pour un champ « date ». */
 export interface VoyageurVue {
   id: string;
+  /** Le nom de famille (celui d'avant la séparation porte ici son nom complet). */
   nom: string;
+  prenom: string | null;
+  /** Les étapes d'un trajet à plusieurs destinations — vide sinon. */
+  segments: EtapeTrajet[];
+  /** Les autres documents déposés pour lui (visa, assurance, justificatif…) — pièces du poste, `stepKey` = lui. */
+  autresDocuments: { id: string; name: string; hasFile: boolean }[];
   villeDepart: string | null;
   villeArrivee: string | null;
   dateDepart: string | null;
@@ -40,7 +46,7 @@ export interface VoyageurVue {
   notes: string | null;
   trajet: AdProTrajet;
   transport: AdProTransport | null;
-  /** Le ou les passeports déposés pour lui (pièces du poste dont `stepKey` est son identifiant). */
+  /** Le ou les passeports déposés pour lui (pièces d'identité du poste dont `stepKey` est son identifiant). */
   passeports: { id: string; name: string; hasFile: boolean }[];
   devis: DevisVoyageurVue[];
 }
@@ -90,7 +96,6 @@ export function BlocVoyageurs({
   // RETIRER LA DEMANDE DE RÉSERVATION (constat 37) — offert seulement si l'action l'accepte (§118.83).
   const [retrait, setRetrait] = React.useState(false);
   const [motifRetrait, setMotifRetrait] = React.useState("");
-  const listeId = `noms-${itemId}`;
   const fermer = () => setOuvert(null);
   const basculer = (id: string, quoi: NonNullable<typeof ouvert>["quoi"]) =>
     setOuvert((o) => (o && o.id === id && o.quoi === quoi ? null : { id, quoi }));
@@ -137,14 +142,8 @@ export function BlocVoyageurs({
         </form>
       )}
 
-      {nomsSuggeres.length > 0 && (
-        <datalist id={listeId}>
-          {nomsSuggeres.map((n) => <option key={n} value={n} />)}
-        </datalist>
-      )}
-
       {voyageurs.length === 0 ? (
-        <p className="text-muted-foreground">Aucun voyageur. Son nom suffit pour commencer — le reste peut venir plus tard.</p>
+        <p className="text-muted-foreground">Aucun voyageur. Son nom suffit pour commencer — le reste (passeport, autres documents, dates) peut venir plus tard.</p>
       ) : (
         <ul className="divide-y divide-border">
           {voyageurs.map((v) => {
@@ -153,21 +152,22 @@ export function BlocVoyageurs({
             const retenu = vivants.find((d) => d.retenu) ?? null;
             const geste = prochainGesteVoyageur({ passeport, devis: v.devis.map((d) => ({ montant: d.montant, retenu: d.retenu, annule: d.annule })) }, peutEditer);
             const manque = manquesPourReserver({
-              nom: v.nom, villeDepart: v.villeDepart, villeArrivee: v.villeArrivee, dateDepart: jour(v.dateDepart),
+              nom: v.nom, prenom: v.prenom, segments: v.segments, villeDepart: v.villeDepart, villeArrivee: v.villeArrivee, dateDepart: jour(v.dateDepart),
               dateRetour: jour(v.dateRetour), passeport, notes: v.notes, trajet: v.trajet, transport: v.transport,
             }).filter((m) => m !== "passeport");
             const mode = ouvert?.id === v.id ? ouvert.quoi : null;
+            const multi = v.trajet === "MULTI_DESTINATIONS";
             const dates = v.trajet === "ALLER_SIMPLE"
               ? jourLisible(jour(v.dateDepart))
               : `${jourLisible(jour(v.dateDepart))} → ${jourLisible(jour(v.dateRetour))}`;
             return (
-              <li key={v.id} className="space-y-1.5 py-2" data-voyageur={v.nom}>
+              <li key={v.id} className="space-y-1.5 py-2" data-voyageur={nomComplet(v)}>
                 <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                  <span className="font-medium text-foreground">{v.nom}</span>
+                  <span className="font-medium text-foreground">{nomComplet(v)}</span>
                   <span className="text-muted-foreground">
                     {TRAJET_LIBELLE[v.trajet]}
-                    {v.villeDepart || v.villeArrivee ? ` · ${v.villeDepart ?? "?"} → ${v.villeArrivee ?? "?"}` : ""}
-                    {` · ${dates}`}
+                    {!multi && (v.villeDepart || v.villeArrivee) ? ` · ${v.villeDepart ?? "?"} → ${v.villeArrivee ?? "?"}` : ""}
+                    {multi ? ` · ${v.segments.length} étape${v.segments.length > 1 ? "s" : ""}` : ` · ${dates}`}
                     {` · ${v.transport ? TRANSPORT_LIBELLE[v.transport] : "mode à préciser"}`}
                   </span>
                   {passeport
@@ -206,26 +206,33 @@ export function BlocVoyageurs({
                       <button
                         type="button" onClick={() => basculer(v.id, "MENU")} disabled={busy !== null}
                         className="inline-flex items-center rounded px-1.5 py-1 text-muted-foreground hover:bg-secondary"
-                        aria-label={`Autres actions pour ${v.nom}`} aria-expanded={mode === "MENU"}
+                        aria-label={`Autres actions pour ${nomComplet(v)}`} aria-expanded={mode === "MENU"}
                       >
                         <MoreHorizontal className="h-3.5 w-3.5" />
                       </button>
                     </span>
                   )}
                 </div>
+                {multi && v.segments.length > 0 && (
+                  <ol className="list-decimal space-y-0.5 pl-5 text-muted-foreground">
+                    {v.segments.map((e, i) => (
+                      <li key={i}>{e.de ?? "?"} → {e.vers ?? "?"} · {e.date ? jourLisible(jour(e.date)) : "date à confirmer"}</li>
+                    ))}
+                  </ol>
+                )}
                 {manque.length > 0 && <p className="text-[0.6875rem] text-muted-foreground">À préciser pour réserver : {manque.join(", ")}.</p>}
                 {v.notes && <p className="text-muted-foreground">{v.notes}</p>}
 
                 {mode === "MENU" && peutEditer && (
                   <div className="flex flex-wrap gap-1.5 rounded-lg border border-border bg-secondary/30 p-1.5" role="menu">
                     <MenuItem onClick={() => basculer(v.id, "EDITER")}>Modifier</MenuItem>
-                    <MenuItem onClick={() => basculer(v.id, "PASSEPORT")}>{passeport ? "Remplacer le passeport" : "Joindre le passeport"}</MenuItem>
+                    <MenuItem onClick={() => basculer(v.id, "PASSEPORT")}>Documents (passeport, autres)</MenuItem>
                     <MenuItem onClick={() => basculer(v.id, "DEVIS")}>{vivants.length > 0 ? "Joindre un autre devis" : "Joindre le devis"}</MenuItem>
                     {vivants.length > 1 && <MenuItem onClick={() => basculer(v.id, "CHOIX")}>{retenu ? "Changer de devis" : "Choisir le devis"}</MenuItem>}
                     <MenuItem
                       danger
                       onClick={() => {
-                        if (!window.confirm(`Retirer ${v.nom} des voyageurs ?`)) return;
+                        if (!window.confirm(`Retirer ${nomComplet(v)} des voyageurs ?`)) return;
                         void run(`vdel:${v.id}`, () => retirerVoyageur(fdVoyageur(v.id, {}, "id")), "Voyageur retiré.").then(fermer);
                       }}
                     >
@@ -234,19 +241,27 @@ export function BlocVoyageurs({
                   </div>
                 )}
 
-                {/* LE PASSEPORT : une pièce du POSTE, désignée par le voyageur (`stepKey`). Remplacer = joindre le
-                    nouveau puis retirer l'ancien depuis son aperçu (rien ne s'efface en silence). */}
-                {(passeport && (mode === "PASSEPORT" || mode === "MENU")) && (
+                {/* LES DOCUMENTS D'UN VOYAGEUR : le passeport (pièce d'identité) et tout autre document — visa, assurance,
+                    justificatif —, des pièces du POSTE désignées par le voyageur (`stepKey`). Remplacer = joindre le nouveau
+                    puis retirer l'ancien depuis son aperçu (rien ne s'efface en silence). */}
+                {((passeport || v.autresDocuments.length > 0) && (mode === "PASSEPORT" || mode === "MENU")) && (
                   <div className="space-y-0.5">
-                    {v.passeports.map((p) => <DocumentPreview key={p.id} id={p.id} name={p.name} hasFile={p.hasFile} canDelete={peutEditer} />)}
+                    {v.passeports.map((p) => (
+                      <div key={p.id} className="flex items-center gap-1.5">
+                        <span className="text-[0.6875rem] text-muted-foreground">Passeport</span>
+                        <DocumentPreview id={p.id} name={p.name} hasFile={p.hasFile} canDelete={peutEditer} />
+                      </div>
+                    ))}
+                    {v.autresDocuments.map((p) => <DocumentPreview key={p.id} id={p.id} name={p.name} hasFile={p.hasFile} canDelete={peutEditer} />)}
                   </div>
                 )}
                 {mode === "PASSEPORT" && peutEditer && (
                   <div className="rounded-lg border border-border p-2">
                     <p className="mb-1 text-[0.6875rem] text-muted-foreground">
-                      Passeport de {v.nom}{passeport ? " — joignez le nouveau, puis retirez l'ancien ci-dessus" : ""}
+                      Documents de {nomComplet(v)} — choisissez « Pièce d&apos;identité » pour le passeport, « Autre » pour le reste
+                      {passeport ? " (pour remplacer le passeport : joignez le nouveau, puis retirez l'ancien ci-dessus)" : ""}
                     </p>
-                    <DocumentUpload entityType="AD_PRO_ITEM" entityId={itemId} categories={["ID_DOCUMENT"]} stepKey={v.id} compact />
+                    <DocumentUpload entityType="AD_PRO_ITEM" entityId={itemId} categories={["ID_DOCUMENT", "SUPPORTING_DOC", "OTHER"]} stepKey={v.id} compact />
                     <button type="button" onClick={fermer} className="mt-1 text-[0.6875rem] text-muted-foreground hover:text-foreground">Fermer</button>
                   </div>
                 )}
@@ -275,7 +290,7 @@ export function BlocVoyageurs({
                 )}
                 {mode === "DEVIS" && peutEditer && (
                   <FormulaireDevis
-                    nom={v.nom} busy={busy === `vdev:${v.id}`} onCancel={fermer}
+                    nom={nomComplet(v)} busy={busy === `vdev:${v.id}`} onCancel={fermer}
                     onSubmit={(fd) => {
                       fd.set("voyageurId", v.id);
                       void run(`vdev:${v.id}`, () => ajouterDevisVoyageur(undefined, fd), "Devis déposé.").then(fermer);
@@ -285,7 +300,7 @@ export function BlocVoyageurs({
                 {mode === "EDITER" && peutEditer && (
                   <div className="rounded-lg border border-primary/30 bg-primary/5 p-2">
                     <FormulaireVoyageur
-                      listeId={nomsSuggeres.length > 0 ? listeId : undefined}
+                      suggestions={nomsSuggeres}
                       defaut={v}
                       busy={busy === `vmod:${v.id}`}
                       libelle="Enregistrer"
@@ -309,12 +324,21 @@ export function BlocVoyageurs({
         ajout ? (
           <div className="rounded-lg border border-border p-2">
             <FormulaireVoyageur
-              listeId={nomsSuggeres.length > 0 ? listeId : undefined}
+              suggestions={nomsSuggeres}
               busy={busy === `vadd:${itemId}`}
               libelle="Ajouter le voyageur"
               onSubmit={(fd) => {
                 fd.set("itemId", itemId);
-                void run(`vadd:${itemId}`, () => ajouterVoyageur(undefined, fd), "Voyageur ajouté.").then(() => setAjout(false));
+                // Le voyageur créé, on ouvre tout de suite SES documents : le passeport se joint dans la foulée.
+                let cree: string | undefined;
+                void run(`vadd:${itemId}`, async () => {
+                  const r = await ajouterVoyageur(undefined, fd);
+                  if (r.ok) cree = r.id;
+                  return r;
+                }, "Voyageur ajouté.").then(() => {
+                  setAjout(false);
+                  if (cree) setOuvert({ id: cree, quoi: "PASSEPORT" });
+                });
               }}
               onCancel={() => setAjout(false)}
             />
@@ -427,12 +451,13 @@ function FormulaireDevis({ nom, busy, onSubmit, onCancel }: { nom: string; busy:
 }
 
 /**
- * LE FORMULAIRE D'UN VOYAGEUR — court : nom, trajet, mode, villes, dates. La date de retour n'apparaît
- * qu'en aller-retour ; en aller simple elle n'est pas envoyée, et l'action la vide. Les précisions ne se
- * saisissent qu'à la modification.
+ * LE FORMULAIRE D'UN VOYAGEUR — court : nom et prénom (séparés), trajet, mode, villes, dates. La date de retour
+ * n'apparaît qu'en aller-retour ; en aller simple elle n'est pas envoyée, et l'action la vide. En PLUSIEURS
+ * DESTINATIONS, le trajet est une liste d'étapes (d'où, vers où, quand) qu'on allonge à volonté — « Alger → Paris,
+ * Paris → Lyon, Lyon → Alger » —, envoyée en JSON. Seul le nom de famille est exigé : le reste peut venir plus tard.
  */
-function FormulaireVoyageur({ listeId, defaut, busy, libelle, onSubmit, onCancel }: {
-  listeId?: string;
+function FormulaireVoyageur({ suggestions, defaut, busy, libelle, onSubmit, onCancel }: {
+  suggestions: string[];
   defaut?: VoyageurVue;
   busy: boolean;
   libelle: string;
@@ -440,47 +465,113 @@ function FormulaireVoyageur({ listeId, defaut, busy, libelle, onSubmit, onCancel
   onCancel: () => void;
 }) {
   const [trajet, setTrajet] = React.useState<AdProTrajet>(defaut?.trajet ?? "ALLER_RETOUR");
+  // Un voyageur d'avant la séparation porte son nom complet dans `nom` : on PROPOSE la coupe, la personne la corrige.
+  const initial = defaut && !defaut.prenom ? separerNom(defaut.nom) : { prenom: defaut?.prenom ?? "", nom: defaut?.nom ?? "" };
+  const [prenom, setPrenom] = React.useState(initial.prenom);
+  const [nom, setNom] = React.useState(initial.nom);
+  const [etapes, setEtapes] = React.useState<{ de: string; vers: string; date: string }[]>(() =>
+    defaut && defaut.segments.length > 0
+      ? defaut.segments.map((e) => ({ de: e.de ?? "", vers: e.vers ?? "", date: e.date ?? "" }))
+      : [{ de: defaut?.villeDepart ?? "Alger", vers: defaut?.villeArrivee ?? "", date: defaut?.dateDepart ?? "" }],
+  );
+  const majEtape = (i: number, cle: "de" | "vers" | "date", valeur: string) =>
+    setEtapes((l) => l.map((e, k) => (k === i ? { ...e, [cle]: valeur } : e)));
+  // La nouvelle étape part d'où la précédente arrive : on enchaîne les villes sans les retaper.
+  const ajouterEtape = () => setEtapes((l) => (l.length >= ETAPES_MAX ? l : [...l, { de: l[l.length - 1]?.vers ?? "", vers: "", date: "" }]));
+  const retirerEtape = (i: number) => setEtapes((l) => (l.length <= 1 ? l : l.filter((_, k) => k !== i)));
+  const multi = trajet === "MULTI_DESTINATIONS";
   return (
     <form onSubmit={(e) => { e.preventDefault(); onSubmit(new FormData(e.currentTarget)); }} className="space-y-2">
       <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-        <label className="text-xs sm:col-span-2">
-          Nom de la personne
-          <input name="nom" required list={listeId} defaultValue={defaut?.nom ?? ""} placeholder="Dr Amel Haddad" className={champ} />
+        {suggestions.length > 0 && (
+          <label className="text-xs sm:col-span-2">
+            Personne de la demande
+            <select
+              defaultValue="" className={champ} aria-label="Choisir une personne de la demande"
+              onChange={(e) => { if (e.target.value) { const c = separerNom(e.target.value); setPrenom(c.prenom); setNom(c.nom); } }}
+            >
+              <option value="">— Saisir à la main —</option>
+              {suggestions.map((n) => <option key={n} value={n}>{n}</option>)}
+            </select>
+          </label>
+        )}
+        <label className="text-xs">
+          Prénom
+          <input name="prenom" value={prenom} onChange={(e) => setPrenom(e.target.value)} placeholder="Amel" className={champ} />
         </label>
-        <fieldset className="text-xs">
+        <label className="text-xs">
+          Nom
+          <input name="nom" required value={nom} onChange={(e) => setNom(e.target.value)} placeholder="Haddad" className={champ} />
+        </label>
+        <fieldset className="text-xs sm:col-span-2">
           <legend>Trajet</legend>
-          <div className="mt-1 flex gap-3">
-            {(["ALLER_RETOUR", "ALLER_SIMPLE"] as const).map((t) => (
+          <div className="mt-1 flex flex-wrap gap-3">
+            {TRAJETS.map((t) => (
               <label key={t} className="inline-flex items-center gap-1">
                 <input type="radio" name="trajet" value={t} checked={trajet === t} onChange={() => setTrajet(t)} /> {TRAJET_LIBELLE[t]}
               </label>
             ))}
           </div>
         </fieldset>
-        <label className="text-xs">
+        <label className="text-xs sm:col-span-2">
           Mode de transport
           <select name="transport" defaultValue={defaut ? (defaut.transport ?? "") : "AVION"} className={champ}>
             {defaut && !defaut.transport && <option value="">À préciser</option>}
             {TRANSPORTS.map((m) => <option key={m} value={m}>{TRANSPORT_LIBELLE[m]}</option>)}
           </select>
         </label>
-        <label className="text-xs">
-          Départ de
-          <input name="villeDepart" defaultValue={defaut?.villeDepart ?? ""} placeholder="Alger" className={champ} />
-        </label>
-        <label className="text-xs">
-          Vers
-          <input name="villeArrivee" defaultValue={defaut?.villeArrivee ?? ""} placeholder="Paris" className={champ} />
-        </label>
-        <label className="text-xs">
-          Date de départ
-          <input name="dateDepart" type="date" defaultValue={defaut?.dateDepart ?? ""} className={champ} />
-        </label>
-        {trajet === "ALLER_RETOUR" && (
-          <label className="text-xs">
-            Date de retour
-            <input name="dateRetour" type="date" defaultValue={defaut?.dateRetour ?? ""} className={champ} />
-          </label>
+        {multi ? (
+          <div className="space-y-2 sm:col-span-2" data-etapes>
+            <input type="hidden" name="segments" value={JSON.stringify(etapes)} />
+            {etapes.map((e, i) => (
+              <div key={i} className="grid grid-cols-[1fr_1fr_auto] items-end gap-2 sm:grid-cols-[auto_1fr_1fr_8.5rem_auto]">
+                <span className="hidden pb-2 text-xs font-medium text-muted-foreground sm:block">Étape {i + 1}</span>
+                <label className="text-xs">
+                  De
+                  <input value={e.de} onChange={(ev) => majEtape(i, "de", ev.target.value)} aria-label={`Étape ${i + 1} — départ`} placeholder="Alger" className={champ} />
+                </label>
+                <label className="text-xs">
+                  Vers
+                  <input value={e.vers} onChange={(ev) => majEtape(i, "vers", ev.target.value)} aria-label={`Étape ${i + 1} — arrivée`} placeholder="Paris" className={champ} />
+                </label>
+                <label className="col-span-2 text-xs sm:col-span-1">
+                  Date
+                  <input type="date" value={e.date} onChange={(ev) => majEtape(i, "date", ev.target.value)} aria-label={`Étape ${i + 1} — date`} className={champ} />
+                </label>
+                <button
+                  type="button" onClick={() => retirerEtape(i)} disabled={etapes.length <= 1}
+                  aria-label={`Retirer l'étape ${i + 1}`}
+                  className="mb-1 inline-flex items-center rounded p-1.5 text-muted-foreground hover:bg-secondary disabled:opacity-40"
+                >
+                  <Trash2 className="h-4 w-4" />
+                </button>
+              </div>
+            ))}
+            <Button type="button" size="sm" variant="outline" onClick={ajouterEtape} disabled={etapes.length >= ETAPES_MAX}>
+              <Plus className="h-4 w-4" /> Ajouter une étape
+            </Button>
+          </div>
+        ) : (
+          <>
+            <label className="text-xs">
+              Départ de
+              <input name="villeDepart" defaultValue={defaut?.villeDepart ?? ""} placeholder="Alger" className={champ} />
+            </label>
+            <label className="text-xs">
+              Vers
+              <input name="villeArrivee" defaultValue={defaut?.villeArrivee ?? ""} placeholder="Paris" className={champ} />
+            </label>
+            <label className="text-xs">
+              Date de départ
+              <input name="dateDepart" type="date" defaultValue={defaut?.dateDepart ?? ""} className={champ} />
+            </label>
+            {trajet === "ALLER_RETOUR" && (
+              <label className="text-xs">
+                Date de retour
+                <input name="dateRetour" type="date" defaultValue={defaut?.dateRetour ?? ""} className={champ} />
+              </label>
+            )}
+          </>
         )}
         {defaut && (
           <label className="text-xs sm:col-span-2">
@@ -489,7 +580,10 @@ function FormulaireVoyageur({ listeId, defaut, busy, libelle, onSubmit, onCancel
           </label>
         )}
       </div>
-      <p className="text-[0.6875rem] text-muted-foreground">Seul le nom est exigé : les dates et le trajet peuvent venir plus tard.</p>
+      <p className="text-[0.6875rem] text-muted-foreground">
+        Seul le nom est exigé : le prénom, les dates, le trajet et les documents (passeport…) peuvent venir plus tard.
+        {defaut && !defaut.prenom ? " Le nom complet a été proposé coupé en prénom et nom : corrigez si besoin." : ""}
+      </p>
       <div className="flex gap-2">
         <Button size="sm" type="submit" disabled={busy}>
           {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />} {libelle}

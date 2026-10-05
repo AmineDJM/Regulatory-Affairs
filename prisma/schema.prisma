@@ -2413,13 +2413,19 @@ model AdProVoyageur {
   id           String    @id @default(cuid())
   itemId       String
   item         AdProItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  /// Le NOM de famille. Un voyageur d'avant la séparation porte ici son nom COMPLET (`prenom` vide) :
+  /// l'écran propose de le couper à la prochaine modification, rien n'est deviné en base.
   nom          String
+  prenom       String?
   villeDepart  String?
   villeArrivee String?
   dateDepart   DateTime?
   dateRetour   DateTime?
   notes        String?
-  /// Aller simple ou aller-retour (§118.205). En aller simple, `dateRetour` est vidée.
+  /// Les ÉTAPES d'un trajet à plusieurs destinations (`MULTI_DESTINATIONS`) : [{ de, vers, date }], dans
+  /// l'ordre du voyage. Les champs ci-dessus en gardent la première étape et la dernière (lecteurs d'avant).
+  segments     Json?
+  /// Aller simple, aller-retour ou plusieurs destinations (§118.205). En aller simple, `dateRetour` est vidée.
   trajet       AdProTrajet    @default(ALLER_RETOUR)
   /// Le mode de transport — `null` : pas encore dit.
   transport    AdProTransport?
@@ -2436,6 +2442,7 @@ model AdProVoyageur {
 enum AdProTrajet {
   ALLER_SIMPLE
   ALLER_RETOUR
+  MULTI_DESTINATIONS
 }
 
 enum AdProTransport {

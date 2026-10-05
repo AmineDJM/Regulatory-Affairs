@@ -176,6 +176,59 @@ suite("Billetterie — trajet, transport, devis par voyageur, BC", () => {
     expect((await voyageurVu(amel)).transport).toBe("TRAIN");
   });
 
+  it("NOM ET PRÉNOM séparés, PLUSIEURS DESTINATIONS : les étapes se lisent, se corrigent, et rien d'autre ne bouge", async () => {
+    ACTOR = await acteur(nsId, "NATIONAL_SALES");
+    const etapes = [
+      { de: "Alger", vers: "Paris", date: "2026-11-12" },
+      { de: "Paris", vers: "Alger", date: "2026-11-15" },
+      { de: "Alger", vers: "Dubaï", date: "2026-12-01" },
+    ];
+    const r = await ajouterVoyageur(undefined, fd({
+      itemId: posteId, prenom: "Karim", nom: "Benali", trajet: "MULTI_DESTINATIONS", transport: "AVION", segments: JSON.stringify(etapes),
+    }));
+    expect(r.ok, r.ok ? "" : r.error).toBe(true);
+    const karim = r.id!;
+    expect(await voyageurVu(karim)).toMatchObject({
+      prenom: "Karim", nom: "Benali", trajet: "MULTI_DESTINATIONS", segments: etapes,
+      villeDepart: "Alger", villeArrivee: "Dubaï", dateDepart: "2026-11-12", dateRetour: "2026-12-01",
+    });
+    // Une étape ajoutée : un formulaire qui ne porte QUE les étapes ne touche ni le nom, ni le prénom, ni le mode.
+    const plus = [...etapes, { de: "Dubaï", vers: "Alger", date: "2026-12-05" }];
+    const m = await modifierVoyageur(undefined, fd({ id: karim, segments: JSON.stringify(plus) }));
+    expect(m.ok, m.ok ? "" : m.error).toBe(true);
+    expect(await voyageurVu(karim)).toMatchObject({ prenom: "Karim", nom: "Benali", transport: "AVION", segments: plus, dateRetour: "2026-12-05" });
+    // Une étape qui précède la précédente est REFUSÉE : rien n'est écrit.
+    const inv = await modifierVoyageur(undefined, fd({ id: karim, segments: JSON.stringify([etapes[1], etapes[0]]) }));
+    expect(inv.ok).toBe(false);
+    expect((await voyageurVu(karim)).segments).toEqual(plus);
+    // Revenir à un aller-retour VIDE les étapes (jamais d'étapes fantômes derrière un autre trajet).
+    const ar = await modifierVoyageur(undefined, fd({ id: karim, trajet: "ALLER_RETOUR", villeDepart: "Alger", villeArrivee: "Paris", dateDepart: "2026-11-12", dateRetour: "2026-11-15" }));
+    expect(ar.ok, ar.ok ? "" : ar.error).toBe(true);
+    expect(await voyageurVu(karim)).toMatchObject({ trajet: "ALLER_RETOUR", segments: [], dateRetour: "2026-11-15" });
+    await prisma.adProVoyageur.delete({ where: { id: karim } });
+  });
+
+  it("DOCUMENTS d'un voyageur : le passeport (pièce d'identité) et les autres se lisent à part, tous désignés par lui", async () => {
+    ACTOR = await acteur(nsId, "NATIONAL_SALES");
+    const base = { entityType: "AD_PRO_ITEM" as const, entityId: posteId, stepKey: amel, fileKey: `${TAG}k`, uploadedById: nsId };
+    await prisma.document.createMany({
+      data: [
+        { ...base, name: `${TAG}passeport.pdf`, category: "ID_DOCUMENT" },
+        { ...base, name: `${TAG}visa.pdf`, category: "OTHER" },
+        { ...base, name: `${TAG}assurance.pdf`, category: "SUPPORTING_DOC" },
+      ],
+    });
+    const v = await voyageurVu(amel);
+    expect(v.passeports.map((d) => d.name)).toEqual([`${TAG}passeport.pdf`]);
+    expect(v.autresDocuments.map((d) => d.name).sort()).toEqual([`${TAG}assurance.pdf`, `${TAG}visa.pdf`]);
+    // Sans pièce d'identité, un visa seul ne vaut PAS passeport.
+    await prisma.document.deleteMany({ where: { entityId: posteId, category: "ID_DOCUMENT", name: { startsWith: TAG } } });
+    const sans = await voyageurVu(amel);
+    expect(sans.passeports).toEqual([]);
+    expect(sans.autresDocuments).toHaveLength(2);
+    await prisma.document.deleteMany({ where: { entityId: posteId, name: { startsWith: TAG } } });
+  });
+
   it("le devis d'un voyageur EST un devis du poste — sans fichier, rien n'est écrit", async () => {
     ACTOR = await acteur(nsId, "NATIONAL_SALES");
     const avant = await prisma.adProItemPiece.count({ where: { itemId: posteId } });

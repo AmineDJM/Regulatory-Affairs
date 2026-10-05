@@ -259,7 +259,7 @@ test("BILLETTERIE : les voyageurs, puis la réservation — un sujet s'ouvre pou
   await expect(c.getByText("Voyageurs (0)")).toBeVisible();
   await c.getByRole("button", { name: "Ajouter un voyageur" }).click();
   // Un NOM suffit : les dates viendront plus tard.
-  await c.getByLabel("Nom de la personne").fill(MEDECIN_HORS);
+  await c.getByLabel("Nom", { exact: true }).fill(MEDECIN_HORS);
   await c.getByRole("button", { name: "Ajouter le voyageur" }).click();
   await expect(c.getByText(/À préciser pour réserver : date de départ, trajet/)).toBeVisible();
 

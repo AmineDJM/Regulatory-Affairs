@@ -1,12 +1,10 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { headers } from "next/headers";
-import { ArrowLeft, Users, Sparkles, ListChecks, FileText, CircleUser, MapPin, MessageSquare } from "lucide-react";
+import { ArrowLeft, Users, Sparkles, ListChecks, CircleUser, MapPin, MessageSquare } from "lucide-react";
 import { requireModule } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
 import { publicMeetUrl, appBaseUrlForMeet, canViewMeeting, canManageMeeting } from "@/lib/meetings";
-import { aiConfigured, cleModeleRequise } from "@/lib/ai";
-import { courtIaNonConfiguree } from "@/lib/ia/cle-manquante";
 import { PageHeader } from "@/components/shared/page-header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -14,8 +12,7 @@ import { MeetJoin } from "./meet-join";
 import { formatAlgiers, utcToAlgiersInput } from "@/lib/calendar-tz";
 
 const formatDateTime = (d: Date) => formatAlgiers(d, { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
-import { MeetingRecorder } from "./meeting-recorder";
-import { TranscriptPanel, ProposalActions, ShareLink, ManageBar } from "./meeting-panels";
+import { ProposalActions, ShareLink, ManageBar } from "./meeting-panels";
 import { InviteResponse } from "./invite-response";
 import { MeetingChat, type ChatMessage } from "./meeting-chat";
 import { ManageParticipants } from "./manage-participants";
@@ -165,18 +162,6 @@ export default async function MeetingDetailPage({ params }: { params: { id: stri
                 {acceptedCount > 0 && (
                   <p className="text-xs text-muted-foreground">{acceptedCount} tâche(s) déjà créée(s) dans « Mon espace ».</p>
                 )}
-              </CardContent>
-            </Card>
-          )}
-
-          {/* Enregistrement + transcription (organisateur) */}
-          {canManage && (
-            <Card>
-              <CardHeader><CardTitle className="flex items-center gap-2"><FileText className="h-4 w-4 text-primary" /> Enregistrement & compte rendu</CardTitle></CardHeader>
-              <CardContent className="space-y-3">
-                <MeetingRecorder meetingId={meeting.id} />
-                <TranscriptPanel meetingId={meeting.id} transcript={meeting.transcript ?? ""} canSummarize={aiConfigured()} />
-                {!aiConfigured() && <p className="text-xs text-muted-foreground">Le compte rendu automatique s'activera une fois l'IA configurée — {courtIaNonConfiguree(cleModeleRequise())}.</p>}
               </CardContent>
             </Card>
           )}

@@ -43,7 +43,7 @@ import {
 import { validateAttachments } from "@/lib/attach-files";
 import { attachFormFiles } from "@/lib/documents";
 import {
-  lireVoyageur, ligneVoyageur, changementsVoyageur, porteDesVoyageurs, depassementDevisRetenus, refusRetraitReservation,
+  lireVoyageur, lireEtapes, nomComplet, ligneVoyageur, changementsVoyageur, porteDesVoyageurs, depassementDevisRetenus, refusRetraitReservation,
   type SaisieVoyageur, type VoyageurLu,
 } from "@/lib/ad-pro/voyageurs";
 import { cloreSujetVivant, createDossierRecord, ecrireDansLeSujet } from "@/lib/dossiers-core";
@@ -2457,16 +2457,25 @@ export async function confirmerMaterielStock(formData: FormData): Promise<Action
 async function chargerVoyageur(id: string, user: SessionUser) {
   const v = await prisma.adProVoyageur.findUnique({
     where: { id },
-    select: { id: true, itemId: true, nom: true, villeDepart: true, villeArrivee: true, dateDepart: true, dateRetour: true, notes: true, trajet: true, transport: true },
+    select: { id: true, itemId: true, nom: true, prenom: true, segments: true, villeDepart: true, villeArrivee: true, dateDepart: true, dateRetour: true, notes: true, trajet: true, transport: true },
   });
   if (!v) return null;
   const found = await loadItem(v.itemId, user);
   return found ? { voyageur: v, ...found } : null;
 }
 
+/** Les étapes telles qu'elles sont en base — illisibles ou absentes, il n'y en a pas (jamais une étape devinée). */
+function etapesEnBase(json: unknown) {
+  const lues = lireEtapes(json);
+  return lues.ok ? lues.etapes : [];
+}
+
+/** Ce que l'écriture d'un voyageur lu pose en base — les étapes en JSON. */
+const donneesVoyageur = (v: VoyageurLu) => ({ ...v, segments: v.segments as unknown as import("@prisma/client").Prisma.InputJsonValue });
+
 /** La ligne d'un voyageur telle qu'il est en base — ce que `changementsVoyageur` compare. */
-const voyageurLu = (v: VoyageurLu): VoyageurLu => ({
-  nom: v.nom, villeDepart: v.villeDepart, villeArrivee: v.villeArrivee, dateDepart: v.dateDepart, dateRetour: v.dateRetour, notes: v.notes,
+const voyageurLu = (v: Omit<VoyageurLu, "segments" | "prenom"> & { prenom?: string | null; segments?: unknown }): VoyageurLu => ({
+  nom: v.nom, prenom: v.prenom ?? null, segments: etapesEnBase(v.segments), villeDepart: v.villeDepart, villeArrivee: v.villeArrivee, dateDepart: v.dateDepart, dateRetour: v.dateRetour, notes: v.notes,
   trajet: v.trajet, transport: v.transport,
 });
 
@@ -2498,18 +2507,18 @@ export async function ajouterVoyageur(_prev: ActionResult | undefined, formData:
   if (!porteDesVoyageurs(item.kind)) return { ok: false, error: "Seul un poste « billetterie » porte des voyageurs." };
 
   const lu = lireVoyageur({
-    nom: fdStr(formData, "nom"), villeDepart: fdStr(formData, "villeDepart"), villeArrivee: fdStr(formData, "villeArrivee"),
+    nom: fdStr(formData, "nom"), prenom: fdStr(formData, "prenom"), segments: fdStr(formData, "segments"), villeDepart: fdStr(formData, "villeDepart"), villeArrivee: fdStr(formData, "villeArrivee"),
     dateDepart: fdStr(formData, "dateDepart"), dateRetour: fdStr(formData, "dateRetour"), notes: fdStr(formData, "notes"),
     trajet: fdStr(formData, "trajet"), transport: fdStr(formData, "transport"),
   });
   if (!lu.ok) return { ok: false, error: lu.error };
   const last = await prisma.adProVoyageur.findFirst({ where: { itemId }, orderBy: { position: "desc" }, select: { position: true } });
   const cree = await prisma.adProVoyageur.create({
-    data: { itemId, ...lu.voyageur, position: (last?.position ?? 0) + 1, createdById: user.id, updatedById: user.id },
+    data: { itemId, ...donneesVoyageur(lu.voyageur), position: (last?.position ?? 0) + 1, createdById: user.id, updatedById: user.id },
     select: { id: true },
   });
   const sujet = await signalerAuSujet(item, user.id, `voyageur ajouté :\n${ligneVoyageur({ ...lu.voyageur, passeport: false })}`);
-  await audit(user, owner.parent, owner.id, "UPDATE", `Voyageur « ${lu.voyageur.nom} » ajouté au poste « ${item.label} ».`);
+  await audit(user, owner.parent, owner.id, "UPDATE", `Voyageur « ${nomComplet(lu.voyageur)} » ajouté au poste « ${item.label} ».`);
   revalidate(owner.parent, owner.id);
   return { ok: true, id: cree.id, message: `Voyageur ajouté.${sujet}` };
 }
@@ -2530,6 +2539,8 @@ export async function modifierVoyageur(_prev: ActionResult | undefined, formData
   const jour = (d: Date | null) => (d ? d.toISOString().slice(0, 10) : null);
   const saisie: SaisieVoyageur = {
     nom: formData.has("nom") ? fdStr(formData, "nom") : v.nom,
+    prenom: formData.has("prenom") ? fdStr(formData, "prenom") : v.prenom,
+    segments: formData.has("segments") ? fdStr(formData, "segments") : v.segments,
     villeDepart: formData.has("villeDepart") ? fdStr(formData, "villeDepart") : v.villeDepart,
     villeArrivee: formData.has("villeArrivee") ? fdStr(formData, "villeArrivee") : v.villeArrivee,
     dateDepart: formData.has("dateDepart") ? fdStr(formData, "dateDepart") : jour(v.dateDepart),
@@ -2544,9 +2555,9 @@ export async function modifierVoyageur(_prev: ActionResult | undefined, formData
   const changements = changementsVoyageur(voyageurLu(v), lu.voyageur);
   if (changements.length === 0) return { ok: true, id, message: "Rien n'a changé." };
 
-  await prisma.adProVoyageur.update({ where: { id }, data: { ...lu.voyageur, updatedById: user.id } });
-  const sujet = await signalerAuSujet(item, user.id, `voyageur modifié — ${v.nom} : ${changements.join(" ; ")}`);
-  await audit(user, owner.parent, owner.id, "UPDATE", `Voyageur « ${v.nom} » du poste « ${item.label} » modifié — ${changements.join(" ; ")}.`);
+  await prisma.adProVoyageur.update({ where: { id }, data: { ...donneesVoyageur(lu.voyageur), updatedById: user.id } });
+  const sujet = await signalerAuSujet(item, user.id, `voyageur modifié — ${nomComplet(v)} : ${changements.join(" ; ")}`);
+  await audit(user, owner.parent, owner.id, "UPDATE", `Voyageur « ${nomComplet(v)} » du poste « ${item.label} » modifié — ${changements.join(" ; ")}.`);
   revalidate(owner.parent, owner.id);
   return { ok: true, id, message: `Voyageur modifié.${sujet}` };
 }
@@ -2567,8 +2578,8 @@ export async function retirerVoyageur(formData: FormData): Promise<ActionResult>
   // SES DEVIS RESTENT DES DEVIS DU POSTE (§118.205) : seul le lien « pour ce voyageur » part avec lui.
   const devis = await prisma.adProVoyageurDevis.count({ where: { voyageurId: id } });
   await prisma.adProVoyageur.delete({ where: { id } });
-  const sujet = await signalerAuSujet(item, user.id, `voyageur retiré : ${v.nom}.`);
-  await audit(user, owner.parent, owner.id, "UPDATE", `Voyageur « ${v.nom} » retiré du poste « ${item.label} ».`);
+  const sujet = await signalerAuSujet(item, user.id, `voyageur retiré : ${nomComplet(v)}.`);
+  await audit(user, owner.parent, owner.id, "UPDATE", `Voyageur « ${nomComplet(v)} » retiré du poste « ${item.label} ».`);
   revalidate(owner.parent, owner.id);
   return { ok: true, message: `Voyageur retiré.${devis > 0 ? ` Son devis reste sur le poste (case « Devis / pro forma »).` : ""}${sujet}` };
 }
@@ -2602,16 +2613,17 @@ export async function demanderReservation(formData: FormData): Promise<ActionRes
   if (voyageurs.length === 0) return { ok: false, error: "Ajoutez au moins un voyageur (son nom suffit) avant de demander la réservation." };
   const piecesPasseport = await prisma.document.findMany({
     where: { entityType: "AD_PRO_ITEM", entityId: id, stepKey: { in: voyageurs.map((v) => v.id) } },
-    select: { id: true, stepKey: true },
+    select: { id: true, stepKey: true, category: true, name: true },
     orderBy: { createdAt: "asc" },
   });
-  const passeports = new Set(piecesPasseport.map((d) => d.stepKey));
+  // Le PASSEPORT est la pièce d'identité du voyageur ; ses autres documents (visa, assurance…) se listent à part.
+  const passeports = new Set(piecesPasseport.filter((d) => String(d.category) === "ID_DOCUMENT").map((d) => d.stepKey));
   const lignes = voyageurs.map((v) => ligneVoyageur({ ...voyageurLu(v), passeport: passeports.has(v.id) }));
   // LE PASSEPORT, PAS SEULEMENT SA MENTION (audit 360°, I10) : « passeport joint » sans lien obligeait
   // l'assistante à le chercher là où elle n'entre pas. Le lien s'ouvre aux personnes du sujet
   // (`peutLirePasseportDuSujet`), et à elles seules parmi celles qui n'ont pas l'opération.
-  const nomDuVoyageur = new Map(voyageurs.map((v) => [v.id, v.nom]));
-  const liensPasseport = piecesPasseport.map((d) => `• ${nomDuVoyageur.get(d.stepKey ?? "") ?? "voyageur"} — /api/documents/${d.id}`);
+  const nomDuVoyageur = new Map(voyageurs.map((v) => [v.id, nomComplet(v)]));
+  const liensPasseport = piecesPasseport.map((d) => `• ${nomDuVoyageur.get(d.stepKey ?? "") ?? "voyageur"} — ${String(d.category) === "ID_DOCUMENT" ? "passeport" : d.name} — /api/documents/${d.id}`);
 
   const info = await PARENTS[owner.parent].load(owner.id);
   if (!info) return { ok: false, error: "Opération introuvable." };
@@ -2758,10 +2770,10 @@ export async function ajouterDevisVoyageur(_prev: ActionResult | undefined, form
     : null;
   revalidate(owner.parent, owner.id);
   if (!lie) {
-    return { ok: false, error: `Le devis est déposé sur le poste, mais ${v.nom} vient d'être retiré des voyageurs : il reste un devis du poste.` };
+    return { ok: false, error: `Le devis est déposé sur le poste, mais ${nomComplet(v)} vient d'être retiré des voyageurs : il reste un devis du poste.` };
   }
-  await audit(user, owner.parent, owner.id, "UPDATE", `Devis déposé pour le voyageur « ${v.nom} » du poste « ${item.label} ».`);
-  return { ok: true, id: depose.id, message: `${depose.message ?? "Devis déposé."} Pour ${v.nom} — validez-le quand il convient.` };
+  await audit(user, owner.parent, owner.id, "UPDATE", `Devis déposé pour le voyageur « ${nomComplet(v)} » du poste « ${item.label} ».`);
+  return { ok: true, id: depose.id, message: `${depose.message ?? "Devis déposé."} Pour ${nomComplet(v)} — validez-le quand il convient.` };
 }
 
 /** La phrase du dépassement, sur l'ensemble des devis retenus du poste (tous voyageurs). */
@@ -2803,12 +2815,12 @@ export async function validerDevisVoyageur(formData: FormData): Promise<ActionRe
     where: { voyageurId, piece: { itemId: item.id, legalDocumentId: devisId } },
     select: { id: true, retenuLe: true, piece: { select: { legalDocument: { select: { status: true, cancelledAt: true } } } } },
   });
-  if (!lien) return { ok: false, error: `Ce devis n'est pas une proposition déposée pour ${v.nom}.` };
+  if (!lien) return { ok: false, error: `Ce devis n'est pas une proposition déposée pour ${nomComplet(v)}.` };
   const doc = lien.piece.legalDocument;
   if (doc.status === "CANCELLED" || doc.cancelledAt) return { ok: false, error: "Ce devis a été annulé au registre : il ne se retient plus." };
   if (lien.retenuLe) {
     const depasse = await depassementDuPoste(item.id, item.amountGranted);
-    return { ok: true, id: devisId, message: `Ce devis est déjà celui retenu pour ${v.nom}.${depasse ? ` ${depasse}` : ""}` };
+    return { ok: true, id: devisId, message: `Ce devis est déjà celui retenu pour ${nomComplet(v)}.${depasse ? ` ${depasse}` : ""}` };
   }
   // CE QUE LA PERSONNE A VU RETENU (§118.187) : changer de devis ne remplace QUE ce choix-là. L'écran
   // l'envoie ; sans lui, c'est le choix LU ICI qui fait foi — un choix posé entre cette lecture et
@@ -2844,13 +2856,13 @@ export async function validerDevisVoyageur(formData: FormData): Promise<ActionRe
     else if (estConflitUnicite(e)) issue = "CHANGE";
     else throw e;
   }
-  if (issue === "DEJA") return { ok: false, error: `Ce devis vient d'être retenu pour ${v.nom} : rouvrez la fiche.` };
-  if (issue === "CHANGE") return { ok: false, error: `Le devis retenu pour ${v.nom} vient de changer : rouvrez la fiche.` };
+  if (issue === "DEJA") return { ok: false, error: `Ce devis vient d'être retenu pour ${nomComplet(v)} : rouvrez la fiche.` };
+  if (issue === "CHANGE") return { ok: false, error: `Le devis retenu pour ${nomComplet(v)} vient de changer : rouvrez la fiche.` };
   if (issue === "BC") return { ok: false, error: "Le bon de commande de ce poste vient d'être demandé : le devis retenu ne change plus d'ici." };
   const depasse = await depassementDuPoste(item.id, item.amountGranted);
-  await audit(user, owner.parent, owner.id, "UPDATE", `Devis retenu pour le voyageur « ${v.nom} » du poste « ${item.label} ».`);
+  await audit(user, owner.parent, owner.id, "UPDATE", `Devis retenu pour le voyageur « ${nomComplet(v)} » du poste « ${item.label} ».`);
   revalidate(owner.parent, owner.id);
-  return { ok: true, id: devisId, message: `Devis retenu pour ${v.nom} — les autres propositions sont écartées.${depasse ? ` ${depasse}` : ""}` };
+  return { ok: true, id: devisId, message: `Devis retenu pour ${nomComplet(v)} — les autres propositions sont écartées.${depasse ? ` ${depasse}` : ""}` };
 }
 
 /**
@@ -2871,7 +2883,7 @@ export async function demanderBCBilletterie(formData: FormData): Promise<ActionR
   const [retenus, total] = await Promise.all([
     prisma.adProVoyageurDevis.findMany({
       where: { retenuLe: { not: null }, voyageur: { itemId: id }, piece: { legalDocument: { status: { not: "CANCELLED" }, cancelledAt: null } } },
-      select: { voyageur: { select: { nom: true, position: true } }, piece: { select: { legalDocument: { select: { title: true, reference: true, amount: true } } } } },
+      select: { voyageur: { select: { nom: true, prenom: true, position: true } }, piece: { select: { legalDocument: { select: { title: true, reference: true, amount: true } } } } },
     }),
     prisma.adProVoyageur.count({ where: { itemId: id } }),
   ]);
@@ -2881,7 +2893,7 @@ export async function demanderBCBilletterie(formData: FormData): Promise<ActionR
   retenus.sort((a, b) => a.voyageur.position - b.voyageur.position);
   const liste = retenus.map((r) => {
     const d = r.piece.legalDocument;
-    return `• ${r.voyageur.nom} — ${d.reference ?? d.title}${d.amount != null ? ` (${toNumber(d.amount).toLocaleString("fr-FR")} DZD)` : ""}`;
+    return `• ${nomComplet(r.voyageur)} — ${d.reference ?? d.title}${d.amount != null ? ` (${toNumber(d.amount).toLocaleString("fr-FR")} DZD)` : ""}`;
   }).join("\n");
   const sansDevis = total - retenus.length;
   const note = [fdStr(formData, "note"), `Devis retenus (${retenus.length}/${total} voyageur(s)) :\n${liste}`].filter(Boolean).join("\n\n");

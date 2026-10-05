@@ -12,7 +12,7 @@ import type { PostePourCloture } from "@/lib/ad-pro/cloture-sponsoring";
 import { gestionnairesDuMagasin } from "@/lib/queries/promo-stock";
 import { NATURES_PIECE_SECRETARIAT, PIECE_SECRETARIAT, estDemandeBcAEtablir, type NaturePieceSecretariat } from "@/lib/ad-pro/pieces-secretariat";
 import { statutDuDossier } from "@/lib/promo-material/statut";
-import { porteDesVoyageurs, refusRetraitReservation } from "@/lib/ad-pro/voyageurs";
+import { porteDesVoyageurs, refusRetraitReservation, lireEtapes } from "@/lib/ad-pro/voyageurs";
 import { splitMulti } from "@/lib/ad-pro/pickers";
 import { bcVivantsDesPostes, refusAnnulationBcDuPoste } from "@/lib/ad-pro/bc-etablis";
 import type { VoyageurVue } from "@/components/ad-pro/voyageurs-bloc";
@@ -64,7 +64,7 @@ export async function loadAdProItems(parent: AdProParent, parentId: string): Pro
     billetterie.length
       ? prisma.document.findMany({
           where: { entityType: "AD_PRO_ITEM", entityId: { in: billetterie }, stepKey: { not: null } },
-          select: { id: true, name: true, stepKey: true, fileKey: true }, orderBy: { createdAt: "asc" },
+          select: { id: true, name: true, stepKey: true, fileKey: true, category: true }, orderBy: { createdAt: "asc" },
         })
       : Promise.resolve([]),
     sujetsIds.length
@@ -72,12 +72,16 @@ export async function loadAdProItems(parent: AdProParent, parentId: string): Pro
       : Promise.resolve([]),
     billetterie.length ? nomsDeLaDemande(parent, parentId) : Promise.resolve([] as string[]),
   ]);
+  // LES DOCUMENTS D'UN VOYAGEUR : le passeport (catégorie « pièce d'identité ») et tout autre document
+  // (visa, assurance, justificatif…). Tous sont des pièces du poste désignées par le voyageur (`stepKey`).
   const passeportsDe = new Map<string, VoyageurVue["passeports"]>();
+  const autresDocsDe = new Map<string, VoyageurVue["autresDocuments"]>();
   for (const d of passeportRows) {
     if (!d.stepKey) continue;
-    const l = passeportsDe.get(d.stepKey) ?? [];
+    const cible = String(d.category) === "ID_DOCUMENT" ? passeportsDe : autresDocsDe;
+    const l = cible.get(d.stepKey) ?? [];
     l.push({ id: d.id, name: d.name, hasFile: Boolean(d.fileKey) });
-    passeportsDe.set(d.stepKey, l);
+    cible.set(d.stepKey, l);
   }
   // LE DEVIS DE CHAQUE VOYAGEUR (§118.205) : un devis du poste marqué pour lui, et son premier fichier.
   const liensDevis = voyageurRows.length
@@ -108,13 +112,15 @@ export async function loadAdProItems(parent: AdProParent, parentId: string): Pro
     });
     devisDe.set(l.voyageurId, liste);
   }
+  const etapesLues = (json: unknown) => { const l = lireEtapes(json); return l.ok ? l.etapes : []; };
   const iso = (d: Date | null) => (d ? d.toISOString().slice(0, 10) : null);
   const voyageursDe = new Map<string, VoyageurVue[]>();
   for (const v of voyageurRows) {
     const l = voyageursDe.get(v.itemId) ?? [];
     l.push({
-      id: v.id, nom: v.nom, villeDepart: v.villeDepart, villeArrivee: v.villeArrivee,
+      id: v.id, nom: v.nom, prenom: v.prenom, villeDepart: v.villeDepart, villeArrivee: v.villeArrivee,
       dateDepart: iso(v.dateDepart), dateRetour: iso(v.dateRetour), notes: v.notes, passeports: passeportsDe.get(v.id) ?? [],
+      autresDocuments: autresDocsDe.get(v.id) ?? [], segments: etapesLues(v.segments),
       trajet: v.trajet, transport: v.transport, devis: devisDe.get(v.id) ?? [],
     });
     voyageursDe.set(v.itemId, l);
