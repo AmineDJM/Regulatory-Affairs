@@ -2,7 +2,11 @@ import { requireModule } from "@/lib/session";
 import { userCan } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { ordresAvecFacture } from "@/lib/finance/facture-ordre";
-import { companyScopedWhere } from "@/lib/company";
+import { companyScopedWhere, getMyCompanies, companyOptions } from "@/lib/company";
+import Link from "next/link";
+import { Building2 } from "lucide-react";
+import { cn } from "@/lib/utils";
+import { ComptesTresorerieButton } from "../comptes-tresorerie";
 import { toNumber, formatCurrency } from "@/lib/utils";
 import { PageHeader } from "@/components/shared/page-header";
 import { KpiCard } from "@/components/shared/kpi-card";
@@ -41,11 +45,24 @@ import { PurgeHistoryButton } from "./purge-history";
  * une décision prise par le centre, qui voit la file entière. Reste **non payé** (le défaut),
  * **paiement reporté à** une date, **payé**.
  */
-export default async function PaiementsAFairePage({ searchParams }: { searchParams: { focus?: string } }) {
+/** « 2026-09-28 » → « 28/09/2026 ». */
+const jourFr = (iso: string | null) => {
+  if (!iso) return "—";
+  const [a, m, j] = iso.split("-");
+  return `${j}/${m}/${a}`;
+};
+
+export default async function PaiementsAFairePage({ searchParams }: { searchParams: { focus?: string; entite?: string } }) {
   // `?focus=` : la ligne qu'on vient de cliquer depuis « Mon espace ». Voir OrdersTable.
   const focusId = searchParams.focus ?? null;
   const user = await requireModule("FINANCES");
   const canSettle = userCan(user, "FINANCES", "UPDATE");
+
+  // LES CASES D'ENTITÉS, EN HAUT (Direction, 05/10) : la page se lit entité par entité. Seules les
+  // sociétés que la personne VOIT sont proposées, et un `?entite=` qui n'en est pas une est ignoré
+  // (on n'ouvre pas une société par son identifiant) — « Toutes » reste le défaut.
+  const mesSocietes = await getMyCompanies(user.id);
+  const entiteId = mesSocietes.some((c) => c.id === searchParams.entite) ? (searchParams.entite as string) : null;
 
   // LES FINANCES NE REÇOIVENT RIEN tant que le centre de paiement n'a pas tranché — quel que
   // soit le montant, depuis que le seuil a été retiré. Un ordre n'apparaît ici qu'une fois
@@ -57,7 +74,7 @@ export default async function PaiementsAFairePage({ searchParams }: { searchPara
   // tout comptable cloisonné sur une société — et un paiement invisible n'est pas un paiement
   // classé, c'est un paiement qu'on ne fera jamais.
   const orders = (await prisma.expenseOrder.findMany({
-    where: await companyScopedWhere(user.id, {}),
+    where: await companyScopedWhere(user.id, entiteId ? { companyId: entiteId } : {}),
     orderBy: { createdAt: "desc" },
     include: { requestedBy: { select: { name: true } } },
     take: 300,
@@ -119,7 +136,7 @@ export default async function PaiementsAFairePage({ searchParams }: { searchPara
   // LES COMPTES D'OÙ PEUT PARTIR UN RÈGLEMENT — et le défaut de chaque ordre, par la MÊME règle que
   // l'écriture (`compteParDefaut` sur TOUS les comptes), sinon l'écran proposerait un compte et le
   // serveur en figerait un autre (§118.176).
-  const [tresorerie, tousLesComptes] = await Promise.all([chargerTresorerie(user.id), comptesTresorerie()]);
+  const [tresorerie, tousLesComptes] = await Promise.all([chargerTresorerie(user.id, entiteId), comptesTresorerie()]);
   const comptes: CompteChoice[] = tresorerie.comptes.map((c) => ({ id: c.id, nom: c.nom }));
 
   const toRow = (o: (typeof orders)[number]): OrderRow => ({
@@ -152,11 +169,13 @@ export default async function PaiementsAFairePage({ searchParams }: { searchPara
   const others = orders.filter((o) => o.status === "PAID" || o.status === "CANCELLED");
   const totalPending = pending.reduce((a, o) => a + toNumber(o.amount), 0);
 
-  // LA BANQUE — « Solde trésorerie = somme des comptes − paiements autorisés » (Direction, 01/10).
+  // LA BANQUE — « Solde bancaire » = la somme des comptes, datée (Direction, 05/10) ; la soustraction des
+  // paiements autorisés (01/10) est retirée : ce montant à régler se lit à côté, jamais en moins.
   // Chaque compte part de son relevé ANCRÉ et n'ajoute que les écritures réglées postérieures
   // (§118.176) ; la même lecture que la comptabilité (`chargerTresorerie`) — un second calcul
   // donnerait deux soldes au moment précis où il faut décider si l'on peut payer.
   // (chargée plus haut, avec les comptes du règlement)
+  const dernierReleve = tresorerie.comptes.reduce<string | null>((max, c) => (max === null || c.jourAncrage > max ? c.jourAncrage : max), null);
 
   return (
     <div className="space-y-6">
@@ -170,22 +189,53 @@ export default async function PaiementsAFairePage({ searchParams }: { searchPara
             La MÊME règle garde l'action serveur (`requestTreasuryUpdate`) et l'opération d'Adam
             (`request_treasury_update`) — un bouton masqué n'est pas un contrôle d'accès. */}
         {user.role === "SUPER_ADMIN" && <TreasuryUpdateRequestButton />}
+        {/* LE SOLDE SE MET À JOUR ICI, là où on le lit : le comptable pose le solde du relevé et sa date,
+            et « Solde bancaire » ci-dessous les affiche dès l'enregistrement. */}
+        {canSettle && <ComptesTresorerieButton comptes={tresorerie.comptes} entites={companyOptions(mesSocietes)} canUpdate={canSettle} />}
       </PageHeader>
+
+      {mesSocietes.length > 1 && (
+        <nav aria-label="Entités" className="-mx-1 overflow-x-auto px-1 pb-1">
+          <ul className="flex min-w-max gap-2">
+            {[{ id: null as string | null, label: "Toutes les entités" }, ...mesSocietes.map((c) => ({ id: c.id as string | null, label: companyOptions([c])[0].label }))].map((e) => {
+              const active = e.id === entiteId;
+              return (
+                <li key={e.id ?? "toutes"}>
+                  <Link
+                    href={e.id ? `/finances/paiements-a-faire?entite=${e.id}` : "/finances/paiements-a-faire"} scroll={false}
+                    aria-current={active ? "page" : undefined} data-entite={e.id ?? "toutes"}
+                    className={cn(
+                      "flex min-h-11 items-center gap-2 rounded-xl border px-3 py-2 text-sm font-medium transition-colors",
+                      active ? "border-primary bg-primary/10 text-foreground" : "border-border bg-background text-muted-foreground hover:bg-secondary hover:text-foreground",
+                    )}
+                  >
+                    <Building2 className="h-4 w-4 shrink-0" aria-hidden />
+                    <span className="whitespace-nowrap">{e.label}</span>
+                  </Link>
+                </li>
+              );
+            })}
+          </ul>
+        </nav>
+      )}
 
       {/* ───────────── LA BANQUE ─────────────
           Le solde d'abord : c'est lui qui dit si la file ci-dessous peut être servie. */}
       <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
+        {/* LE SOLDE BANCAIRE, avec sa date (Direction, 05/10) : ce que les relevés disent, point. Ce qu'il reste à
+            régler ne s'en SOUSTRAIT plus — il a sa propre carte, « Montant à régler », juste à côté. La date est
+            celle du relevé le plus récent posé par la comptabilité ; les écritures réglées depuis s'y ajoutent. */}
         <KpiCard
-          label="Solde trésorerie"
-          value={tresorerie.comptes.length > 0 ? formatCurrency(tresorerie.disponible) : "—"}
+          label="Solde bancaire"
+          value={tresorerie.comptes.length > 0 ? formatCurrency(tresorerie.total) : "—"}
           icon="Landmark"
-          tone={tresorerie.comptes.length === 0 ? "default" : tresorerie.disponible >= 0 ? "success" : "danger"}
+          tone={tresorerie.comptes.length === 0 ? "default" : tresorerie.total >= 0 ? "success" : "danger"}
           hint={tresorerie.comptes.length > 0
-            ? `Comptes ${formatCurrency(tresorerie.total)} − autorisés à régler ${formatCurrency(tresorerie.autorises.montant)}`
+            ? `Relevé du ${jourFr(dernierReleve)}${tresorerie.comptes.length > 1 ? ` · ${tresorerie.comptes.length} comptes` : ""}`
             : "Aucun compte ancré"}
         />
         <KpiCard label="Ordres à régler" value={pending.length} icon="ReceiptText" tone={pending.length > 0 ? "warning" : "default"} />
-        <KpiCard label="Montant à régler" value={formatCurrency(totalPending)} icon="Banknote" tone="warning" />
+        <KpiCard label="Montant à régler" value={formatCurrency(totalPending)} icon="Banknote" tone="warning" hint={`Autorisé par le centre : ${formatCurrency(tresorerie.autorises.montant)}`} />
         <KpiCard label="Paiements reportés" value={reportes.length} icon="CalendarClock" tone={reportes.length > 0 ? "info" : "default"} />
         <KpiCard label="Total ordres émis" value={orders.length} icon="ListChecks" tone="info" />
       </div>
@@ -202,14 +252,14 @@ export default async function PaiementsAFairePage({ searchParams }: { searchPara
           <div className="flex flex-wrap items-center gap-3">
             {tresorerie.comptes.map((c) => (
               <div key={c.id} className="surface flex items-center gap-3 px-4 py-2.5" data-compte={c.nom}>
-                <span className="text-sm text-muted-foreground">{c.nom}</span>
+                <span className="text-sm text-muted-foreground">{c.nom} <span className="text-xs">· au {jourFr(c.jourAncrage)}</span></span>
                 <span className={`font-semibold tabular-nums ${c.solde >= 0 ? "text-foreground" : "text-destructive"}`}>{formatCurrency(c.solde)}</span>
               </div>
             ))}
           </div>
           <p className="text-xs text-muted-foreground">
-            {tresorerie.comptes.length} compte(s) : {formatCurrency(tresorerie.total)}, depuis leurs relevés ancrés · {tresorerie.autorises.nombre} paiement(s)
-            autorisé(s) par le centre et pas encore réglé(s) : {formatCurrency(tresorerie.autorises.montant)} · disponible : {formatCurrency(tresorerie.disponible)}
+            {tresorerie.comptes.length} compte(s) : {formatCurrency(tresorerie.total)}, depuis leurs relevés ancrés · à régler (autorisé par le centre, pas encore payé) :
+            {" "}{tresorerie.autorises.nombre} paiement(s), {formatCurrency(tresorerie.autorises.montant)}
           </p>
           {tresorerie.nonRattaches.nombre > 0 && (
             <p className="text-xs text-warning" role="status">

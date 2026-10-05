@@ -492,7 +492,7 @@ export async function corrigerAncrageTresorerie(formData: FormData): Promise<Act
     newValue: `${openingBalance!.toLocaleString("fr-FR")} DZD au ${jour(openingDate!)}`,
     summary: `Ancrage du compte « ${avant.name} » corrigé — ${toNumber(avant.openingBalance).toLocaleString("fr-FR")} DZD au ${jour(avant.openingDate)} → ${openingBalance!.toLocaleString("fr-FR")} DZD au ${jour(openingDate!)} — motif : ${motif}`,
   });
-  revalidatePath("/finances");
+  revalidatePath("/finances", "layout");
   return { ok: true, id, message: `Ancrage corrigé : ${openingBalance!.toLocaleString("fr-FR")} DZD au ${jour(openingDate!)}.` };
 }
 
