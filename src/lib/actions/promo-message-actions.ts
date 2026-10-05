@@ -22,7 +22,7 @@ import { fdStr, fdCase, type ActionResult } from "@/lib/actions/types";
  * un refus qui ne dit pas le remède fait payer un aller-retour (§118.30).
  */
 
-const PATH = "/planning/messages";
+const PATH = "/marketing-cockpit/messages";
 
 async function porte(): Promise<{ ok: true; user: Awaited<ReturnType<typeof requireUser>> } | { ok: false; error: string }> {
   const user = await requireUser();

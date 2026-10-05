@@ -1,5 +1,5 @@
 import { requireModule } from "@/lib/session";
-import { userCan, peutGererSpecialites } from "@/lib/rbac";
+import { userCan } from "@/lib/rbac";
 import { getSfeConfig } from "@/lib/sfe";
 import { lireReglageTournee } from "@/lib/sfe/tournee-reglage";
 import { PageHeader } from "@/components/shared/page-header";
@@ -17,7 +17,7 @@ export default async function ParametresPage() {
   return (
     <div className="space-y-5">
       <PageHeader title="Prévisions & Force de vente" description="Paramètres 100% configurables : capacité terrain, poids des positions, fréquences par palier de potentiel — et la maille des plans de tournée." />
-      <PlanningTabs active="parametres" canConfigure={canEdit} specialites={peutGererSpecialites(user, "VIEW")} />
+      <PlanningTabs active="parametres" canConfigure={canEdit} />
       <SettingsForm config={config} canEdit={canEdit} />
       {/* LA MAILLE DE PLANIFICATION a une porte plus étroite que les autres paramètres : la demande
           la réserve au Super Admin. Elle se LIT par tous ceux qui voient l'écran — un KAM qui

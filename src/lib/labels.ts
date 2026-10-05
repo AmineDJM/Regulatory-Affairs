@@ -1440,7 +1440,7 @@ export interface NavTab {
    * les actions lisent (`nav-tabs.ts` la traduit). `"specialites"` : `peutGererSpecialites`, qui ouvre
    * le référentiel aux deux directeurs des opérations même sans la Promotion médicale en écriture.
    */
-  regle?: "specialites";
+  regle?: "specialites" | "specialites-fdv";
 }
 
 /** Navigation metadata: maps a sidebar entry to a module + route + icon name. */
@@ -1605,6 +1605,18 @@ export const EVENTS_TABS: NavTab[] = [
 export const STOCK_PROMO_TABS: NavTab[] = [
   { module: "PROMO_STOCK", label: "Stock", href: CHEMIN_STOCK_PROMO },
   { module: "PROMO_CATALOG", label: "Catalogue", href: CHEMIN_CATALOGUE_PROMO },
+];
+/**
+ * MARKETING COCKPIT — un sous-module de Sales & Marketing (Direction, 06/10). Il reçoit les onglets
+ * « Messages » (les messages de la Direction Marketing, exigés sur chaque rapport terrain) et
+ * « Spécialités » (le référentiel), qui vivaient dans Force de vente (`/planning`). Aucun droit ne
+ * change : « Messages » suit la Force de vente, « Spécialités » la règle `peutGererSpecialites`.
+ */
+export const MARKETING_COCKPIT_TABS: NavTab[] = [
+  { module: "SALES_PLANNING", label: "Messages", href: "/marketing-cockpit/messages" },
+  // LE RÉFÉRENTIEL DES SPÉCIALITÉS (§118.209) — même écran qu'Annuaires › Spécialités.
+  // Porte du module Force de vente (la page l'exige) ET règle du référentiel : `specialites-fdv`.
+  { module: "SALES_PLANNING", label: "Spécialités", href: "/marketing-cockpit/specialites", regle: "specialites-fdv" },
 ];
 // Module « Drive » (Drive personnel). L'onglet « Documents » a été retiré (tout est consolidé
 // dans le Drive + les catégories partagées ; on y glisse des dossiers à la souris).
@@ -2000,6 +2012,8 @@ export const NAVIGATION: NavItem[] = [
   // remplacé par cette journée — les visites en base n'ont jamais bougé, et elle les relit.
   { module: "MEDICAL", label: "Promotion médicale", href: "/medical/ma-journee", icon: "Stethoscope", group: "Pôles", pole: "SALES_MARKETING", tabs: MEDICAL_TABS, match: ["/medical"] },
   { module: "SALES_PLANNING", label: "Force de vente", href: "/planning", icon: "Target", group: "Pôles", pole: "SALES_MARKETING" },
+  // MARKETING COCKPIT — Messages et Spécialités, déplacés depuis Force de vente (06/10).
+  { module: "SALES_PLANNING", label: "Marketing cockpit", href: "/marketing-cockpit/messages", icon: "Megaphone", group: "Pôles", pole: "SALES_MARKETING", tabs: MARKETING_COCKPIT_TABS, match: ["/marketing-cockpit"] },
   { module: "FIELD_REPORTS", label: "Rapports terrain", href: "/field-reports", icon: "NotebookPen", group: "Pôles", pole: "SALES_MARKETING" },
   { module: "SPONSORING", label: "Ad & Pro", href: "/ad-pro", icon: "PartyPopper", group: "Pôles", pole: "SALES_MARKETING", tabs: EVENTS_TABS, match: ["/sponsoring", "/promo-material", "/consulting"] },
   // LE STOCK PROMOTIONNEL — son propre sous-module (§118.173), et plus un onglet d'Ad & Pro.

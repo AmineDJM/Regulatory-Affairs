@@ -2,7 +2,6 @@ import { Fragment } from "react";
 import Link from "next/link";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { requireModule } from "@/lib/session";
-import { peutGererSpecialites } from "@/lib/rbac";
 import { ensureCycle } from "@/lib/actions/sales-planning-actions";
 import { monthLabel, resolveRepScope, TIERS, TIER_LABELS } from "@/lib/sfe";
 import { loadCockpit } from "@/lib/queries/sfe-cockpit";
@@ -78,7 +77,7 @@ export default async function PilotagePage({ searchParams }: { searchParams: { y
   return (
     <div className="space-y-5">
       <PageHeader title="Prévisions & Force de vente" description={`Pilotage — planifié vs réalisé, panel et couverture. ${scopeLabel}.`} />
-      <PlanningTabs active="pilotage" canConfigure={scope.canConfigure} isSupervisor={scope.isSupervisor} specialites={peutGererSpecialites(user, "VIEW")} />
+      <PlanningTabs active="pilotage" canConfigure={scope.canConfigure} isSupervisor={scope.isSupervisor} />
 
       <div className="flex items-center gap-2">
         <Link href={`/planning/pilotage?y=${prev.y}&m=${prev.m}`} className="rounded-lg border border-input p-2 hover:bg-secondary"><ChevronLeft className="h-4 w-4" /></Link>

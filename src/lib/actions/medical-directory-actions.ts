@@ -870,19 +870,61 @@ export async function deleteDirectoryDoctors(ids: string[]): Promise<ActionResul
   }
   if (allowed.length === 0) return { ok: false, error: "Aucune de ces fiches ne vous appartient." };
 
-  const { count } = await prisma.medicalDoctor.deleteMany({ where: { id: { in: allowed } } });
+  // ARCHIVAGE RÉVERSIBLE (Direction, 06/10) : « supprimer » une ligne l'ARCHIVE. La fiche garde ses
+  // visites, son historique et ses couleurs ; elle sort de la feuille, des comptes, de l'export et
+  // de la recherche, et revient par `restaurerDirectoryDoctors` depuis la vue « Archivés ».
+  const { count } = await prisma.medicalDoctor.updateMany({
+    where: { id: { in: allowed }, archivedAt: null },
+    data: { archivedAt: new Date(), archivedById: user.id },
+  });
   await recordAudit({
     actorId: user.id, action: "DELETE", module: "Promotion médicale",
-    summary: `Annuaire — ${count} fiche(s) supprimée(s)`,
+    summary: `Annuaire — ${count} fiche(s) archivée(s) (restaurables)`,
   });
   revalidatePath("/medical/annuaire");
   revalidatePath("/medical");
+  revalidatePath("/annuaires/medecins");
+  revalidatePath("/annuaires/pharmaciens");
 
   const skipped = unique.length - allowed.length;
   return {
     ok: true,
     message: skipped > 0
-      ? `${count} fiche(s) supprimée(s) · ${skipped} hors de votre portée, laissée(s) en place`
-      : `${count} fiche(s) supprimée(s)`,
+      ? `${count} fiche(s) archivée(s) · ${skipped} hors de votre portée, laissée(s) en place`
+      : `${count} fiche(s) archivée(s) — restaurables depuis « Archivés »`,
   };
+}
+
+/**
+ * RESTAURER DES FICHES ARCHIVÉES — le retour de `deleteDirectoryDoctors`. Même porte (le droit
+ * Supprimer d'un des deux annuaires de praticiens) et même revérification ligne par ligne : qui
+ * peut archiver une fiche peut la ramener, personne d'autre.
+ */
+export async function restaurerDirectoryDoctors(ids: string[]): Promise<ActionResult> {
+  const user = await requireUser();
+  if (!peutAnnuaire(user, "MEDECINS", "DELETE") && !peutAnnuaire(user, "PHARMACIENS", "DELETE")) {
+    return { ok: false, error: "Restauration réservée (droit Supprimer sur l'annuaire des praticiens)." };
+  }
+  const unique = [...new Set(ids.filter(Boolean))];
+  if (unique.length === 0) return { ok: false, error: "Aucune ligne sélectionnée." };
+
+  const allowed: string[] = [];
+  for (const id of unique) {
+    if (await canAccessEntity(user, "DOCTOR", id, "DELETE")) allowed.push(id);
+  }
+  if (allowed.length === 0) return { ok: false, error: "Aucune de ces fiches ne vous appartient." };
+
+  const { count } = await prisma.medicalDoctor.updateMany({
+    where: { id: { in: allowed }, archivedAt: { not: null } },
+    data: { archivedAt: null, archivedById: null },
+  });
+  await recordAudit({
+    actorId: user.id, action: "UPDATE", module: "Promotion médicale",
+    summary: `Annuaire — ${count} fiche(s) restaurée(s)`,
+  });
+  revalidatePath("/medical/annuaire");
+  revalidatePath("/medical");
+  revalidatePath("/annuaires/medecins");
+  revalidatePath("/annuaires/pharmaciens");
+  return { ok: true, message: `${count} fiche(s) restaurée(s)` };
 }

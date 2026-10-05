@@ -9,7 +9,7 @@ vi.mock("@/lib/session", () => ({ requireUser: async () => ACTOR }));
 
 import { prisma } from "@/lib/prisma";
 import { getAccess, type SessionUser } from "@/lib/rbac";
-import { moneyEntityOf } from "@/lib/company";
+import { moneyEntityOf, adventumCompanyId } from "@/lib/company";
 import { createPaymentRequest } from "./payment-request-actions";
 import { envoyerPaieAuCentre } from "./payroll-hr-actions";
 import { decidePayment } from "./payment-centre-actions";
@@ -105,34 +105,27 @@ suite("L'entité de l'argent", () => {
       expect(await moneyEntityOf(demandeurId)).toBe(phaId);
     });
 
-    it("l'entité CHOISIE l'emporte : la Direction ou le demandeur peut désigner l'autre société", async () => {
-      ACTOR = await actorFor(demandeurId, "MEDICAL_DELEGATE");
-      const r = await createPaymentRequest(undefined, withPiece({
-        title: `${TAG} Facture imprimeur`, payee: "Imprimeur", amount: "40000", companyId: advId,
-      }));
-      expect(r.ok, r.error).toBe(true);
-      const req = await prisma.paymentRequest.findUniqueOrThrow({ where: { id: r.id! } });
-      expect(req.companyId).toBe(advId);
-    });
-
-    it("sans choix, elle prend celle du DEMANDEUR — pas celle qu'il regarde", async () => {
+    // DEPUIS LE 06/10 : la demande d'un salarié est rattachée d'office à Adventum, sans choix.
+    it("la demande est rattachée à ADVENTUM d'office, même si le demandeur travaille chez Pharmagène", async () => {
       ACTOR = await actorFor(demandeurId, "MEDICAL_DELEGATE");
       const r = await createPaymentRequest(undefined, withPiece({
         title: `${TAG} Facture transporteur`, payee: "Transporteur", amount: "12000",
       }));
       expect(r.ok, r.error).toBe(true);
-      expect((await prisma.paymentRequest.findUniqueOrThrow({ where: { id: r.id! } })).companyId).toBe(phaId);
+      const attendu = await adventumCompanyId();
+      expect(attendu).not.toBeNull();
+      expect((await prisma.paymentRequest.findUniqueOrThrow({ where: { id: r.id! } })).companyId).toBe(attendu);
     });
 
-    it("UNE ENTITÉ QUI N'EST PAS LA SIENNE EST REFUSÉE, et le motif envoie à la bonne porte", async () => {
-      const autre = await prisma.company.create({ data: { name: `${TAG} Tierce`, shortName: `${TAG}T` } });
+    it("une entité envoyée quand même est IGNORÉE : pas de choix d'entité", async () => {
       ACTOR = await actorFor(demandeurId, "MEDICAL_DELEGATE");
       const r = await createPaymentRequest(undefined, withPiece({
-        title: `${TAG} Hors périmètre`, payee: "X", amount: "1000", companyId: autre.id,
+        title: `${TAG} Facture imprimeur`, payee: "Imprimeur", amount: "40000", companyId: phaId,
       }));
-      expect(r.ok).toBe(false);
-      expect(r.error).toMatch(/ne vous est pas ouverte/i);
-      await prisma.company.delete({ where: { id: autre.id } }).catch(() => {});
+      expect(r.ok, r.error).toBe(true);
+      const req = await prisma.paymentRequest.findUniqueOrThrow({ where: { id: r.id! } });
+      expect(req.companyId).toBe(await adventumCompanyId());
+      expect(req.companyId).not.toBe(phaId);
     });
 
     it("UN BROUILLON se garde incomplet — c'est sa raison d'être", async () => {

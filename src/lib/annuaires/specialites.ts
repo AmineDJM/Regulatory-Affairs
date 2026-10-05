@@ -100,4 +100,4 @@ export function lienDeSpecialiteValide(texte: string | null | undefined, nomDuLi
  * actions qui en recopieraient chacune une finiraient par oublier l'écran ajouté demain, et la
  * personne verrait l'état d'avant dans l'autre onglet.
  */
-export const CHEMINS_SPECIALITES = ["/annuaires/specialites", "/planning/specialites"] as const;
+export const CHEMINS_SPECIALITES = ["/annuaires/specialites", "/marketing-cockpit/specialites"] as const;

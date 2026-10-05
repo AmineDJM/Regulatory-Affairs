@@ -23,7 +23,7 @@ import { perimetreLegal } from "@/lib/queries/visibilite-listes";
 import { ComposerPieceButton, type TypePieceComposable } from "@/components/pieces/composer-piece";
 import { compositionDesPieces } from "@/lib/queries/composition-pieces";
 import { piecesAmontProposees } from "@/lib/queries/legal-chain";
-import { formatCurrency } from "@/lib/utils";
+import { cn } from "@/lib/utils";
 import { ROLE_LABELS, LEGAL_DOC_KIND } from "@/lib/labels";
 
 export const dynamic = "force-dynamic";
@@ -241,12 +241,12 @@ export default async function LegalPage({ searchParams }: { searchParams?: { ech
         )}
       </PageHeader>
 
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+      <div className={cn("grid grid-cols-2 gap-3", factures.count > 0 ? "md:grid-cols-3" : "md:grid-cols-4")}>
         <KpiCard label={facturesSeules ? "Factures" : "Documents"} value={rows.length} icon="Scale" />
         {factures.count > 0 ? (
           <>
+            {/* La case « Reste à payer » est retirée (Direction, 06/10). */}
             <KpiCard label="Factures à régler" value={factures.unpaid} icon="Hourglass" tone={factures.unpaid > 0 ? "warning" : "default"} />
-            <KpiCard label="Reste à payer" value={formatCurrency(factures.unpaidTotal)} icon="Wallet" />
             <KpiCard
               label="Échéance dépassée" value={factures.overdue + (facturesSeules ? 0 : overdue)}
               icon="AlertTriangle" tone={factures.overdue + overdue > 0 ? "danger" : "default"}

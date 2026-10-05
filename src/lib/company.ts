@@ -6,6 +6,7 @@ import {
   seesWholeGroup, type AccessBearer, type ScopeWhere,
 } from "@/lib/company-access";
 import { productRangeWhere } from "@/lib/org/product-ranges";
+import { trouverAdventum } from "@/lib/company-defaut";
 
 // Mémoïsation par requête si React `cache` est disponible ; sinon (tests, hors requête) no-op.
 const perRequest: <T extends (...args: never[]) => unknown>(fn: T) => T =
@@ -40,6 +41,14 @@ export const getCompanies = perRequest(async (): Promise<CompanyLite[]> => {
     orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
   });
 });
+
+/**
+ * L'identifiant d'Adventum parmi les entités actives, ou `null` si elle n'existe pas. Les demandes
+ * de paiement des salariés y sont rattachées d'office (Direction, 06/10) : aucun choix d'entité.
+ */
+export async function adventumCompanyId(): Promise<string | null> {
+  return trouverAdventum(await getCompanies())?.id ?? null;
+}
 
 /**
  * Portée d'entité active (cookie). `null` = toutes les entités. Défensif : hors

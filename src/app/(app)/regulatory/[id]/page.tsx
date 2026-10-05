@@ -17,7 +17,6 @@ import { Badge } from "@/components/ui/badge";
 import { Avatar } from "@/components/ui/avatar";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { CommentThread } from "@/components/shared/comment-thread";
-import { DocumentUpload } from "@/components/documents/document-upload";
 import { DocumentList, type DocItem } from "@/components/documents/document-list";
 import { ProductDriveExplorer } from "@/components/documents/product-drive-explorer";
 import { REG_DRIVE_ROOT } from "@/lib/regulatory-drive-mirror";
@@ -181,7 +180,6 @@ export default async function RegulatoryDetailPage({ params, searchParams }: { p
   const nonStep = documents.filter((d) => !d.stepKey);
   // On sépare ensuite les pièces des réserves (section dédiée) du reste des documents.
   const reserveDocs = nonStep.filter((d) => REG_RESERVE_CATEGORIES.includes(d.category)).map(toDocItem);
-  const docItems = nonStep.filter((d) => !REG_RESERVE_CATEGORIES.includes(d.category)).map(toDocItem);
 
   // La frise, dans son ORDRE — et chaque étape avec les pièces qui lui sont rattachées.
   const timeline: TimelineStepView[] = orderSteps(product.dossierSteps).map((s) => ({
@@ -484,27 +482,10 @@ export default async function RegulatoryDetailPage({ params, searchParams }: { p
         </div>
 
         <div className="space-y-5">
-          <Card>
-            <CardHeader className="flex-row items-center justify-between">
-              <CardTitle>Documents</CardTitle>
-              <Badge tone="neutral">{docItems.length}</Badge>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              {canUpload && (
-                <>
-                  <DocumentUpload
-                    entityType="REGULATORY_PRODUCT"
-                    entityId={product.id}
-                    categories={REG_DOC_CATEGORIES}
-                  />
-                  {/* Tout document téléversé est automatiquement répliqué dans le Drive, sous le dossier du produit. */}
-                  <p className="text-xs text-muted-foreground">Chaque document téléversé est automatiquement classé dans le Drive, sous le dossier du produit.</p>
-                </>
-              )}
-              <DocumentList documents={docItems} canDelete={canDelete} canRename={canUpload} canEdit={onlyofficeConfigured() && canUpload} path={`/regulatory/${product.id}`} />
-            </CardContent>
-          </Card>
-
+          {/* LE BLOC « DOCUMENTS » (zone de dépôt, catégories « CTD complet », « Interne »…) EST RETIRÉ
+              du suivi de dossier (Direction, 06/10). La CTD initiale se dépose depuis son bloc de
+              l'étape 1 du processus, les pièces des réserves depuis leur étape, et le reste se
+              range par « Dossiers & fichiers » ci-dessous. */}
           {/* LES DOSSIERS DU PRODUIT, sur place. Un ZIP décompressé ou une arborescence déposée
               vivaient dans le Drive et n'étaient plus atteignables depuis ici : il fallait quitter
               Regulatory pour les retrouver. C'est le MÊME explorateur que le Drive — pas une

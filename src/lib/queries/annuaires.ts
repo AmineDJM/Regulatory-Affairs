@@ -5,6 +5,7 @@ import { companyScopedWhere, getMyCompanies, companyLabel } from "@/lib/company"
 import { canonicalWilaya } from "@/lib/medical/wilaya";
 import { cleCellule } from "@/lib/grille/couleurs";
 import { ligneAnnuaire, type AnnuaireRow, type CustomColumnVue } from "@/lib/medical/directory-grid";
+import { annuairesParSpecialite, clauseSpecialite, type AnnuaireSpecialite } from "@/lib/annuaires/par-specialite";
 import type { DirectoryRow, EtablissementRow, ContactRow, DirectoryPerson, EtablissementOption } from "@/lib/annuaires/types";
 
 export type { EtablissementOption };
@@ -74,6 +75,8 @@ export async function clausePraticiensVisibles(
     AND: [
       await companyScopedWhere(user.id, opts.entier ? {} : scopeMedicalDoctors(user)),
       await clauseAnnuairesFermes(user),
+      // Une fiche ARCHIVÉE n'existe plus pour l'export ni la recherche (elle se restaure depuis l'annuaire).
+      { archivedAt: null },
     ],
   };
 }
@@ -113,6 +116,15 @@ export interface FeuillePraticiens {
   companies: { id: string; label: string }[];
   /** Les personnes désignables pour l'accès d'un annuaire — vides si la personne ne gère pas. */
   people: { id: string; name: string }[];
+  /** UN ANNUAIRE PAR SPÉCIALITÉ : les spécialités qui comptent des praticiens dans la portée, avec leur compte. */
+  annuairesSpecialite: AnnuaireSpecialite[];
+  sansSpecialiteCount: number;
+  /** La spécialité ouverte : un identifiant, `sans`, ou `null` (= tous). */
+  specialiteOuverte: string | null;
+  /** Vrai = la vue « Archivés » (les fiches archivées, restaurables). */
+  archives: boolean;
+  /** Combien de fiches archivées dans la portée — pour le lien « Archivés (n) ». */
+  archivesCount: number;
 }
 
 export async function chargerFeuillePraticiens(
@@ -125,6 +137,10 @@ export async function chargerFeuillePraticiens(
      * portée du module, celle d'un délégué qui ne voit que ses praticiens.
      */
     entier?: boolean;
+    /** Une spécialité (identifiant ou `sans`) : « un annuaire par spécialité » pour les médecins. */
+    specialite?: string | null;
+    /** La vue des fiches ARCHIVÉES (suppression réversible). */
+    archives?: boolean;
   },
 ): Promise<FeuillePraticiens | null> {
   // L'annuaire ouvert : « general » = ceux qui ne sont rangés nulle part, un identifiant = cet
@@ -168,9 +184,14 @@ export async function chargerFeuillePraticiens(
   // dans le même objet, la seconde ÉCRASAIT la première — un délégué voyait TOUS les praticiens
   // dès qu'un annuaire fermé existait. Trouvé par le banc du chargeur avec un acteur sans vue
   // globale (§118.104) ; la page d'origine portait ce défaut depuis l'accès par annuaire.
-  const whereFeuille = { AND: [scope, directoryWhere, hiddenWhere, gradeWhere] };
+  // ACTIVES par défaut ; la vue « Archivés » montre le reste. Un « supprimé » est un archivé.
+  const archives = opts.archives === true;
+  const archiveWhere = archives ? { archivedAt: { not: null } } : { archivedAt: null };
+  const specialiteOuverte = opts.specialite || null;
+  const specialiteWhere = clauseSpecialite(specialiteOuverte);
+  const whereFeuille = { AND: [scope, directoryWhere, hiddenWhere, gradeWhere, specialiteWhere, archiveWhere] };
 
-  const [doctors, specialtyRefs, directoryCounts, generalCount, myCompanies, colonnesSurMesure, people, etablissements] = await Promise.all([
+  const [doctors, specialtyRefs, directoryCounts, generalCount, myCompanies, colonnesSurMesure, people, etablissements, parSpecialite, archivesCount] = await Promise.all([
     prisma.medicalDoctor.findMany({
       where: whereFeuille,
       orderBy: [{ name: "asc" }],
@@ -183,11 +204,12 @@ export async function chargerFeuillePraticiens(
         cellStyles: { select: { field: true, color: true } },
       },
     }),
-    prisma.medicalSpecialty.findMany({ select: { name: true }, orderBy: { name: "asc" } }),
+    prisma.medicalSpecialty.findMany({ select: { id: true, name: true }, orderBy: { name: "asc" } }),
     // Les comptes se calculent DANS LA PORTÉE de la personne : afficher « 300 » à un délégué qui
     // n'en voit que douze donnerait un chiffre faux et ferait croire à un problème d'accès.
-    prisma.medicalDoctor.groupBy({ by: ["directoryId"], where: { AND: [scope, gradeWhere, { directoryId: { not: null } }] }, _count: { _all: true } }),
-    prisma.medicalDoctor.count({ where: { AND: [scope, gradeWhere, { directoryId: null }] } }),
+    // Les fiches archivées ne comptent pas (elles ont leur propre compteur).
+    prisma.medicalDoctor.groupBy({ by: ["directoryId"], where: { AND: [scope, gradeWhere, { archivedAt: null }, { directoryId: { not: null } }] }, _count: { _all: true } }),
+    prisma.medicalDoctor.count({ where: { AND: [scope, gradeWhere, { archivedAt: null }, { directoryId: null }] } }),
     getMyCompanies(user.id),
     // LES COLONNES PROPRES à l'annuaire ouvert. Elles existaient en base sans aucun écran
     // (§118.14) : la feuille les affiche et les édite désormais, à côté du tronc commun.
@@ -202,7 +224,16 @@ export async function chargerFeuillePraticiens(
       ? prisma.user.findMany({ where: { isActive: true }, select: { id: true, name: true }, orderBy: { name: "asc" } })
       : Promise.resolve([]),
     chargerOptionsEtablissements(),
+    // UN ANNUAIRE PAR SPÉCIALITÉ : même portée, mêmes annuaires fermés exclus, fiches actives.
+    prisma.medicalDoctor.groupBy({
+      by: ["specialtyId"], where: { AND: [scope, gradeWhere, hiddenWhere, { archivedAt: null }] }, _count: { _all: true },
+    }),
+    prisma.medicalDoctor.count({ where: { AND: [scope, gradeWhere, hiddenWhere, { archivedAt: { not: null } }] } }),
   ]);
+  const { specialites: annuairesSpecialite, sansSpecialite: sansSpecialiteCount } = annuairesParSpecialite(
+    parSpecialite.map((g) => ({ specialtyId: g.specialtyId, count: g._count._all })),
+    specialtyRefs,
+  );
 
   const countByDirectory = new Map(directoryCounts.map((c) => [c.directoryId as string, c._count._all]));
   const directories: DirectoryRow[] = visibleDirectoryRows.map((d) => ({
@@ -236,6 +267,7 @@ export async function chargerFeuillePraticiens(
       : "l'annuaire général",
     companies: myCompanies.map((c) => ({ id: c.id, label: companyLabel(c) })),
     people,
+    annuairesSpecialite, sansSpecialiteCount, specialiteOuverte, archives, archivesCount,
   };
 }
 

@@ -152,7 +152,7 @@ suite("la Direction Marketing : la force de vente en lecture, ce qui l'attend, e
     // Le témoin : un rôle sans rapport n'y gagne rien.
     expect(userCan(await actorFor(u.fin), "SALES_PLANNING", "VIEW")).toBe(false);
     // Le point d'appel : c'est bien ce module qui garde l'écran.
-    expect(readFileSync("src/app/(app)/planning/messages/page.tsx", "utf8")).toMatch(/requireModule\("SALES_PLANNING"\)/);
+    expect(readFileSync("src/app/(app)/marketing-cockpit/messages/page.tsx", "utf8")).toMatch(/requireModule\("SALES_PLANNING"\)/);
   });
 
   it("DM-03 — À ARBITRER : le sponsoring posé sur SON étape, le contrat et l'autre demande qui l'attendent", async () => {

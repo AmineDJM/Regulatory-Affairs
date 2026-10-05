@@ -1,0 +1,24 @@
+## 🗃️ Modèle de données — entités clés
+
+**238 modèles** Prisma (dont `Company`), **167 enums** (dont `MaterialType`). Quelques entités structurantes (référence `prisma/schema.prisma`) :
+
+| Domaine | Modèles clés |
+|---|---|
+| **Identité & accès** | `User` (`role` + `secondaryRole`, `lastSeenAt`), `UserAccess` (overrides), `RowGrant` (grants par ligne), `UserSession` (révocable, `lastSeenAt` = dernier clic), `LoginAttempt`, `AppSetting` (limites d'upload + `driveCapacityGb`/`driveUserQuotaGb` + mode budget total). |
+| **Ad & Pro** | `SponsoringRequest`, `CongressInternational`, `CongressNational`, `Event` (+ `EventRegistration`), `PromoMaterial`, `MissionAssignment`. |
+| **Budgets & Finances** | `BudgetEnvelope` (`accessRoles`, `accessUserIds` = visualisation ; `managerRoles`, `managerUserIds` = gestion déléguée ; `modules[]`), `BudgetCategoryLine` (auto-relation `parentId` = sous-catégories), `ExpenseOrder`, `FinanceTransaction` (`budgetCategoryId` = imputation), `PayrollEntry` (`payslipDocumentId`, `employeeNotifyAt/NotifiedAt`, `budgetTransferredAt`, `budgetCategoryId`), `SalaryAdvance`. **Centre de paiement** : `ExpenseOrder.centralStatus|proposedAmount|decidedById|decidedAt` + `PaymentCentreMessage` (le fil des allers-retours). |
+| **Regulatory & PCH** | `RegulatoryProduct` (+ étapes/documents, `deHolder`, `manufacturingVariation`, `manufacturer`, `variationDate`), `Supplier`, `PchTender` + bons de commande + caution, `StockAnnex` + `StockSnapshot` (états datés — le suivi actif), `StockMovement` (legacy, encore lu par le Brain en repli). |
+| **Information médicale** | `MedicalInfoDeclaration` (`sourceType`/`sourceId` polymorphe → événement source, clé unique). |
+| **Promotion médicale** | `MedicalDoctor`, `MedicalInstitution` (référentiel des hôpitaux), `SalesSector` (+ `SalesSectorInstitution`, `SalesSectorRep`), `TourPlan`, `MedicalVisit` (`tourPlanId`, `origin`), `PromoMessage` (+ `MedicalVisitMessage`), `DelegatePlan`, `CoachingGrid` (grille de coaching versionnée) + `CoachingSheet` (fiches), segmentation par spécialité/produit. |
+| **Transverse** | `AdministrativeRequest` (+ cellules/approbations, `archivedNodeId`), `DriverMission` + `DriverMissionStop` (courses multi-points), `OfficeSupplyArticle`, `ValidationRequest` (+ steps + rules), `Dossier` (+ `DossierMessage`), `Directive`, `SupportRequest`, `Document` + `FileBlob` (chiffré), `Comment`, `AuditLog`, `Notification`, `DeletedRecord` (corbeille des suppressions définitives), `WorkflowDefinition/Step/Instance/StepEvent` (moteur Ad & Pro), `SessionEvent` (rejeu de session — **actions seules, aucune valeur de champ**). |
+| **Messagerie & Courrier** | `Conversation`, `ConversationMember`, `Message` (+ réactions), `MessageAttachment` (**deux natures** : `blobId` = fichier téléversé, `driveNodeId` = référence au Drive sans recopie), `MailAccount` (chiffré), `MailFolder` (dossiers de classement du registre), `MailEntryPiece` (une pièce = un intitulé + **son** destinataire + un fichier téléversé **ou** un nœud Drive référencé). |
+| **IA & Brain** | `AiUsageLog`, `RiskSetting`, `AdoptionSetting`, `FieldReport`. |
+| **RH & structure** | `Employee` (contrat, périodes d'essai `trial*`, salaires `baseSalary`/`retSS9`/`retSS35`/`tfp`/`retIrg`/`expenseRefund`/`netToPay`/`grossSalary`, **`departmentId`** = rattachement structuré, `managerId` = N+1 explicite), **`Department`** (auto-relation `parentId` = sous-départements sur **N niveaux**, `headId` = responsable, `deputyId` = adjoint), `EmployeeDocument` (blob Drive + `period`), `HrDocumentRequest` (types + `expenseMonth`/`approvedMonth`/`originalsAck*`, `meeting*`, `archivedNodeId`), `LeaveRequest`, `PayrollEntry`. |
+| **Externe** | `Supplier`, `SupplierUser` (auth séparée). |
+
+> Les entités « source d'une dépense » sont **polymorphes** : `ENTITY_MODULE` (dans `entity-access.ts`) mappe chaque
+> `EntityType` vers son module, ce qui permet l'attribution budgétaire automatique et le contrôle d'accès par ligne
+> **sans** table de jointure dédiée par type.
+
+---
+

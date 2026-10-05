@@ -21,7 +21,8 @@ import {
 import { OPS_BY_TOOL } from "@/lib/assistant/ops/catalog";
 import { PlanningTabs } from "@/app/(app)/planning/tabs";
 import { EcranSpecialites } from "@/components/directory/ecran-specialites";
-import PlanningSpecialitesPage from "@/app/(app)/planning/specialites/page";
+import PlanningSpecialitesPage from "@/app/(app)/marketing-cockpit/specialites/page";
+import { MARKETING_COCKPIT_TABS } from "@/lib/labels";
 import { CHEMINS_SPECIALITES } from "@/lib/annuaires/specialites";
 
 /**
@@ -69,7 +70,7 @@ function liens(noeud: unknown, trouves: string[] = []): string[] {
 
 describe("les points d'appel — une règle, un écran, une liste de chemins", () => {
   it("les deux portes (Annuaires, Force de vente) montent LE MÊME composant, qui lit la règle", () => {
-    for (const rel of ["src/app/(app)/annuaires/specialites/page.tsx", "src/app/(app)/planning/specialites/page.tsx"]) {
+    for (const rel of ["src/app/(app)/annuaires/specialites/page.tsx", "src/app/(app)/marketing-cockpit/specialites/page.tsx"]) {
       const src = code(rel);
       expect(src, rel).toContain("<EcranSpecialites user={user} />");
       expect(src, rel).toContain(`peutGererSpecialites(user, "VIEW")`);
@@ -81,28 +82,29 @@ describe("les points d'appel — une règle, un écran, une liste de chemins", (
   });
 
   it("la page de la Force de vente garde sa porte AVANT de charger quoi que ce soit", () => {
-    const src = code("src/app/(app)/planning/specialites/page.tsx");
+    const src = code("src/app/(app)/marketing-cockpit/specialites/page.tsx");
     expect(src.indexOf("requireModule")).toBeGreaterThan(-1);
     expect(src.indexOf("requireModule")).toBeLessThan(src.indexOf("peutGererSpecialites"));
     expect(src.indexOf(`peutGererSpecialites(user, "VIEW")`)).toBeLessThan(src.indexOf("<EcranSpecialites"));
   });
 
-  it("chaque page de la Force de vente qui rend la barre d'onglets dit si l'onglet Spécialités s'affiche", () => {
+  it("Messages et Spécialités ont quitté la Force de vente (06/10) : plus d'onglet, l'ancienne adresse renvoie au Marketing cockpit", () => {
     const racine = path.join(process.cwd(), "src/app/(app)/planning");
     const pages = ["page.tsx", ...fs.readdirSync(racine, { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => `${d.name}/page.tsx`)]
       .filter((p) => fs.existsSync(path.join(racine, p)));
     const avecBarre = pages.filter((p) => /<PlanningTabs\b/.test(code(`src/app/(app)/planning/${p}`)));
-    expect(avecBarre.length, "prémisse : la découverte voit les pages d'onglets").toBeGreaterThanOrEqual(6);
+    expect(avecBarre.length, "prémisse : la découverte voit les pages d'onglets").toBeGreaterThanOrEqual(5);
     for (const p of avecBarre) {
       const src = code(`src/app/(app)/planning/${p}`);
       const appel = src.slice(src.indexOf("<PlanningTabs"), src.indexOf("/>", src.indexOf("<PlanningTabs")) + 2);
-      expect(appel, p).toMatch(/specialites(=\{peutGererSpecialites\(user, "VIEW"\)\})?\b/);
-      if (p !== "specialites/page.tsx") expect(appel, p).toContain(`specialites={peutGererSpecialites(user, "VIEW")}`);
+      expect(appel, p).not.toContain("specialites");
     }
+    expect(code("src/app/(app)/planning/specialites/page.tsx")).toContain('redirect("/marketing-cockpit/specialites")');
+    expect(code("src/app/(app)/planning/messages/page.tsx")).toContain('redirect("/marketing-cockpit/messages")');
   });
 
   it("une écriture du référentiel revalide TOUS les écrans qui le montent, et une seule liste les nomme", () => {
-    expect([...CHEMINS_SPECIALITES]).toEqual(["/annuaires/specialites", "/planning/specialites"]);
+    expect([...CHEMINS_SPECIALITES]).toEqual(["/annuaires/specialites", "/marketing-cockpit/specialites"]);
     for (const rel of ["src/lib/actions/medical-actions.ts", "src/lib/actions/sales-planning-actions.ts"]) {
       const src = code(rel);
       expect(src, rel).not.toMatch(/revalidatePath\("\/annuaires\/specialites"\)/);
@@ -190,17 +192,17 @@ suite("la Direction Marketing gère le référentiel depuis la Force de vente �
     expect(peutGererSpecialites(NS, "DELETE")).toBe(false);
   });
 
-  it("l'onglet « Spécialités » s'affiche pour qui gère le référentiel, et pour lui seul", () => {
-    const hrefs = (specialites: boolean) => liens(PlanningTabs({ active: "pilotage", canConfigure: false, specialites }));
-    expect(hrefs(true)).toContain("/planning/specialites");
-    expect(hrefs(false)).not.toContain("/planning/specialites");
-    // Il ne suit PAS `canConfigure` : la Direction Marketing le voit sans configurer la force de vente.
-    const dmVoit = liens(PlanningTabs({ active: "pilotage", canConfigure: false, specialites: peutGererSpecialites(DM, "VIEW") }));
-    expect(dmVoit).toContain("/planning/specialites");
-    expect(dmVoit, "…et ne gagne aucun autre onglet de configuration").not.toContain("/planning/business-units");
+  it("l'onglet « Spécialités » du Marketing cockpit suit la règle du référentiel, et la Force de vente n'en porte plus", () => {
+    const tab = MARKETING_COCKPIT_TABS.find((t) => t.href === "/marketing-cockpit/specialites");
+    expect(tab?.regle, "l'onglet suit peutGererSpecialites, pas le seul module").toBe("specialites");
+    expect(MARKETING_COCKPIT_TABS.map((t) => t.href)).toContain("/marketing-cockpit/messages");
+    // La Direction Marketing ne gagne aucun onglet de configuration de la Force de vente.
+    const dmVoit = liens(PlanningTabs({ active: "pilotage", canConfigure: false }));
+    expect(dmVoit).not.toContain("/planning/specialites");
+    expect(dmVoit).not.toContain("/planning/messages");
+    expect(dmVoit).not.toContain("/planning/business-units");
     expect(dmVoit).not.toContain("/planning/parametres");
-    const bloqVoit = liens(PlanningTabs({ active: "pilotage", canConfigure: false, specialites: peutGererSpecialites(BLOQ, "VIEW") }));
-    expect(bloqVoit).not.toContain("/planning/specialites");
+    expect(peutGererSpecialites(DM, "VIEW"), "…et garde la règle du référentiel").toBe(true);
   });
 
   it("la page : la Direction Marketing l'ouvre ; un compte qui a la Force de vente en lecture sans la règle est redirigé", async () => {
@@ -220,7 +222,7 @@ suite("la Direction Marketing gère le référentiel depuis la Force de vente �
     revalides.length = 0;
     const a = await createSpecialty(fd({ name: `${TAG}Néphrologie` }));
     expect(a.ok, a.ok ? "" : a.error).toBe(true);
-    expect(revalides).toEqual(expect.arrayContaining(["/annuaires/specialites", "/planning/specialites"]));
+    expect(revalides).toEqual(expect.arrayContaining(["/annuaires/specialites", "/marketing-cockpit/specialites"]));
     const b = await createSpecialty(fd({ name: `${TAG}Nephro bis` }));
     expect(b.ok, b.ok ? "" : b.error).toBe(true);
     const idA = a.ok ? a.id! : "", idB = b.ok ? b.id! : "";

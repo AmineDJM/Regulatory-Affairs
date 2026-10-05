@@ -1,7 +1,7 @@
 import type { UserRole } from "@prisma/client";
 import { redirect } from "next/navigation";
 import { requireModule } from "@/lib/session";
-import { userCan, hasGlobalView, anyRoleFilter, peutGererSpecialites } from "@/lib/rbac";
+import { userCan, hasGlobalView, anyRoleFilter } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { getSfeConfig } from "@/lib/sfe";
 import { PageHeader } from "@/components/shared/page-header";
@@ -123,7 +123,7 @@ export default async function BusinessUnitsPage() {
         title="Prévisions & Force de vente"
         description="Une Business Unit, son superviseur, son terrain, ses KAM et ses produits — tout se monte ici, dans cet ordre."
       />
-      <PlanningTabs active="business-units" canConfigure isSupervisor specialites={peutGererSpecialites(user, "VIEW")} />
+      <PlanningTabs active="business-units" canConfigure isSupervisor />
       <BusinessUnitsManager
         businessUnits={bus.map(({ specialites: liens, ...b }) => ({
           ...b, channel: String(b.channel),

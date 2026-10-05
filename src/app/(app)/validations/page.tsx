@@ -22,7 +22,6 @@ import { ValidationAttachments } from "./validation-attachments";
 import { SupervisionBoard } from "./supervision-board";
 import { supervisionCounters } from "@/lib/validation-supervision";
 import { NewPaymentButton } from "./paiements/new-payment-button";
-import { getMyCompanies, moneyEntityOf } from "@/lib/company";
 import { myPaymentRequests } from "@/lib/queries/my-payment-requests";
 import { sortByPriority, isOverdue, deadlineLabel } from "@/lib/finance/payment-request";
 import { PAYMENT_REQUEST_STATUS, PAYMENT_URGENCY } from "@/lib/labels";
@@ -88,15 +87,10 @@ export default async function ValidationsPage({ searchParams }: { searchParams: 
   // elle se referme sur le Super Admin.
   const peutSuperviser = user.role === "SUPER_ADMIN";
 
-  // L'ENTITÉ CONCERNÉE se choisit sur la demande de paiement : elle paiera, et sa comptabilité
-  // doit pouvoir s'y retrouver. Proposée (la vôtre), modifiable, exigée à l'envoi.
-  const [mesEntites, monEntite, mesPaiements] = await Promise.all([
-    getMyCompanies(user.id),
-    moneyEntityOf(user.id),
-    // MES DEMANDES DE PAIEMENT — voir la section plus bas : cet écran est la SEULE porte du
-    // circuit, il doit donc montrer ce qu'on y a déposé.
-    myPaymentRequests(user.id, 50),
-  ]);
+  // L'entité d'une demande de paiement ne se choisit plus : elle est rattachée à Adventum d'office.
+  // MES DEMANDES DE PAIEMENT — voir la section plus bas : cet écran est la SEULE porte du
+  // circuit, il doit donc montrer ce qu'on y a déposé.
+  const mesPaiements = await myPaymentRequests(user.id, 50);
 
   return (
     <div className="space-y-5">
@@ -114,10 +108,7 @@ export default async function ValidationsPage({ searchParams }: { searchParams: 
         {/* LA DEMANDE DE PAIEMENT SE FAIT D'ICI — c'est sa seule porte d'entrée, le module à
             part a disparu. Le dossier passe OBLIGATOIREMENT par le centre de paiement — tout
             paiement, quel que soit son montant —, puis atterrit dans les Règlements à effectuer. */}
-        <NewPaymentButton
-          companies={mesEntites.map((c) => ({ id: c.id, name: c.shortName || c.name }))}
-          defaultCompanyId={monEntite}
-        />
+        <NewPaymentButton />
       </PageHeader>
 
       {/* LE RACCOURCI « Suivi des demandes de paiement » A ÉTÉ RETIRÉ DU HAUT DE PAGE (2026-08) :

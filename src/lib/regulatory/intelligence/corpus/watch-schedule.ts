@@ -1,5 +1,8 @@
+import type { UserRole } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { notifyUser } from "@/lib/notify";
+import { getAppSettings } from "@/lib/settings";
+import { canOpenCorpusPage } from "@/lib/org-chart-access";
 import { regCan } from "../access";
 import { regAudit } from "../audit";
 import { watchAnppPages } from "./ingest-catalog";
@@ -76,6 +79,18 @@ export async function runAnppWatchIfDue(): Promise<void> {
 }
 
 /**
+ * Qui reçoit l'alerte : ceux qui gèrent le corpus ET pour qui l'écran s'ouvre. Sans ce second
+ * critère la notification menait à « Introuvable » (module Analyse CTD non débloqué, ou Super Admin
+ * seulement en rôle secondaire) : le lien ne doit jamais pointer vers un écran fermé.
+ */
+export function corpusAlertTargets<U extends { role: UserRole; secondaryRole?: UserRole | null }>(
+  users: U[],
+  settings: { regEnrollmentEnabled: boolean; regEnrollmentRoles: string[] },
+): U[] {
+  return users.filter((u) => regCan(u, "regulatory.corpus.manage") && canOpenCorpusPage(u, settings));
+}
+
+/**
  * Prévient les personnes qui peuvent réellement agir : celles qui gèrent le corpus. Inutile
  * d'alerter tout le monde d'une chose que personne d'autre ne peut traiter.
  */
@@ -86,7 +101,8 @@ async function alertRegulatory(changedCount: number): Promise<void> {
       select: { id: true, role: true, secondaryRole: true },
       take: 200,
     });
-    const targets = users.filter((u) => regCan(u, "regulatory.corpus.manage"));
+    const settings = await getAppSettings();
+    const targets = corpusAlertTargets(users, settings);
     await Promise.all(targets.map((u) =>
       notifyUser({
         userId: u.id,

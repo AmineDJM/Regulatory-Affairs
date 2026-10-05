@@ -1,5 +1,4 @@
 import Link from "next/link";
-import { ArrowRight } from "lucide-react";
 import type { getComptaData, ComptaItem } from "@/lib/queries/compta";
 import { CHOIX_PERIODE, type Periode, type ResultatPeriode } from "@/lib/finance/resultat-mensuel";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -22,17 +21,11 @@ type ComptaData = Awaited<ReturnType<typeof getComptaData>>;
 export function ComptaCockpit({ d, resultat, periode }: { d: ComptaData; resultat: ResultatPeriode; periode: Periode }) {
   return (
     <div className="space-y-6">
-      {d.enRetardCount > 0 && (
-        <div className="flex items-center justify-between rounded-lg border border-destructive/40 bg-destructive/10 px-4 py-2.5 text-sm text-destructive">
-          <span><strong>{d.enRetardCount}</strong> échéance·s en retard à traiter.</span>
-          <Link href="/finances/paiements-a-faire" className="inline-flex items-center gap-1 font-medium hover:underline">Voir <ArrowRight className="h-3.5 w-3.5" /></Link>
-        </div>
-      )}
-
       {/* « À RÉGLER » ET « RECETTES ATTENDUES » ONT ÉTÉ RETIRÉS D'ICI (2026-08).
           La file des ordres à régler EST le sous-module « Banque & paiements » : la répéter sur le
           tableau de bord donnait deux listes de la même chose, qui se désynchronisaient dès qu'on
-          réglait depuis l'une. Le bandeau des retards ci-dessus suffit à ramener l'œil. */}
+          réglait depuis l'une. Le bandeau « échéances en retard à traiter » est retiré à son tour
+          (Direction, 06/10) : les retards se lisent dans « Banque & paiements ». */}
 
       {/* Dépenses prévues hors ordres — la MASSE SALARIALE est séparée : elle tombe chaque mois
           et n'a pas à noyer les décaissements qu'on peut encore arbitrer. */}

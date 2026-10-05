@@ -7,12 +7,6 @@ export interface PlanningTabsProps {
   canConfigure: boolean;
   /** Superviseur d'une BU : voit Pilotage + Affectations de ses KAM. */
   isSupervisor?: boolean;
-  /**
-   * Cette personne gère-t-elle le référentiel des spécialités (`peutGererSpecialites`, §118.209) ?
-   * OBLIGATOIRE : un appelant qui l'oublierait cacherait l'onglet à la Direction Marketing, qui n'a de
-   * la Force de vente que la lecture — le typecheck nomme chaque page.
-   */
-  specialites: boolean;
 }
 
 /**
@@ -30,13 +24,8 @@ const TABS: { key: string; label: string; href: string; show: (p: PlanningTabsPr
   { key: "previsions", label: "Prévisions", href: "/planning", show: (p) => p.canConfigure },
   { key: "affectations", label: "Affectations", href: "/planning/affectations", show: (p) => p.canConfigure || !!p.isSupervisor },
   { key: "pilotage", label: "Pilotage", href: "/planning/pilotage", show: () => true },
-  // LES MESSAGES DE LA DIRECTION MARKETING — exigés sur chaque rapport terrain. L'onglet est
-  // visible dès qu'on configure : le référentiel VIDE fait refuser tous les rapports, donc le
-  // cacher à celui qui peut le remplir serait la pire façon de le protéger (§118.50).
-  { key: "messages", label: "Messages", href: "/planning/messages", show: (p) => p.canConfigure },
-  // LE RÉFÉRENTIEL DES SPÉCIALITÉS (§118.209) — le MÊME écran qu'Annuaires › Spécialités. Il ne suit
-  // PAS `canConfigure` : la Direction Marketing le gère sans configurer la force de vente.
-  { key: "specialites", label: "Spécialités", href: "/planning/specialites", show: (p) => p.specialites },
+  // « MESSAGES » ET « SPÉCIALITÉS » ONT QUITTÉ LA FORCE DE VENTE (Direction, 06/10) : ils vivent dans
+  // le sous-module « Marketing cockpit » de Sales & Marketing (`/marketing-cockpit`).
   { key: "parametres", label: "Paramètres", href: "/planning/parametres", show: (p) => p.canConfigure },
 ];
 

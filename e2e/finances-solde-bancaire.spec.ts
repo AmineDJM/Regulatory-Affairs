@@ -41,6 +41,7 @@ test("la page porte « Solde bancaire », « Montant à régler » à part, et l
   await expect(page.getByText("Solde de trésorerie")).toHaveCount(0);
   const cases = page.locator("[data-entite]");
   expect(await cases.count()).toBeGreaterThan(0);
+  await expect(page.getByText("Toutes les entités")).toHaveCount(0); // plus de vue groupe (06/10)
   await page.goto("/finances/paiements-a-faire?entite=inconnue");
   await expect(page.getByText("Solde bancaire").first()).toBeVisible();
   if (process.env.E2E_CAPTURES) await page.screenshot({ path: `${process.env.E2E_CAPTURES}/finances-solde.png`, fullPage: true });

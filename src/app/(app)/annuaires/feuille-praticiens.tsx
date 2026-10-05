@@ -4,6 +4,7 @@ import { chargerFeuillePraticiens, type FiltreGrade } from "@/lib/queries/annuai
 import { AnnuaireGrid } from "@/app/(app)/medical/annuaire/annuaire-grid";
 import { DirectoryBar } from "@/app/(app)/medical/annuaire/directory-bar";
 import { EnTeteAnnuaires } from "./en-tete";
+import { BarreSpecialites } from "./barre-specialites";
 
 /**
  * LA FEUILLE DES PRATICIENS, VUE DU MODULE « ANNUAIRES » — médecins ou pharmaciens.
@@ -14,11 +15,15 @@ import { EnTeteAnnuaires } from "./en-tete";
  * chemin des liens (`basePath`), pour que l'on reste dans le module d'où l'on vient.
  */
 export async function FeuillePraticiensHub({
-  user, grade, annuaire,
+  user, grade, annuaire, specialite = null, archives = false,
 }: {
   user: SessionUser;
   grade: Exclude<FiltreGrade, null>;
   annuaire: string | null;
+  /** `?specialite=` — un annuaire par spécialité (médecins) : un identifiant ou `sans`. */
+  specialite?: string | null;
+  /** `?archives=1` — la vue des fiches archivées. */
+  archives?: boolean;
 }) {
   // LA PORTE est celle de l'ANNUAIRE (§118.147) : le module du référentiel (la Promotion
   // médicale), OU l'annuaire coché pour cette personne dans la console. L'onglet n'est rendu qu'à
@@ -35,6 +40,9 @@ export async function FeuillePraticiensHub({
   const feuille = await chargerFeuillePraticiens(user, {
     annuaire, grade, canManage: canManageStructure,
     entier: annuaireOuvertParConsole(user, cle, "VIEW"),
+    // L'annuaire par spécialité ne concerne que les médecins ; l'archivage, les deux grades.
+    specialite: grade === "medecins" ? specialite : null,
+    archives,
   });
   if (!feuille) notFound();
 
@@ -55,7 +63,14 @@ export async function FeuillePraticiensHub({
         people={feuille.people}
         basePath={basePath}
       />
+      <BarreSpecialites
+        basePath={basePath} annuaire={annuaire}
+        specialites={feuille.annuairesSpecialite} sansSpecialite={feuille.sansSpecialiteCount}
+        ouverte={feuille.specialiteOuverte} archives={feuille.archives} archivesCount={feuille.archivesCount}
+        avecSpecialites={grade === "medecins"}
+      />
       <AnnuaireGrid
+        archives={feuille.archives}
         rows={feuille.rows} etablissements={feuille.etablissements} couleurs={feuille.couleurs} customColumns={feuille.customColumns}
         canEdit={canEdit} canImport={canImport} canImportFile={userCan(user, "MEDICAL", "CREATE")} canDelete={canDelete} specialties={feuille.specialties}
         canManageColumns={canManageStructure}
