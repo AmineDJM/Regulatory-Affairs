@@ -11,6 +11,14 @@ const nextConfig = {
     // typecheck, lui, reste DANS le build (`typescript.ignoreBuildErrors` n'est PAS touché).
     ignoreDuringBuilds: true,
   },
+  typescript: {
+    // PAS un contournement : `build:render` lance le typecheck de la PRODUCTION (tsconfig.build.json,
+    // sans les fichiers de test) dans son PROPRE processus, avant `next build`, et le `&&` arrête
+    // le déploiement sur la moindre erreur. Dans `next build`, il s'additionnait au reste dans un
+    // tas plafonné à 3 Go : tsc consomme ~3,7 Go (Prisma + 530 K lignes) → OOM sur Render. Le
+    // drapeau n'est posé QUE par ce script ; un `next build` nu garde son typecheck intégré.
+    ignoreBuildErrors: process.env.TYPECHECK_SEPARE === "1",
+  },
   experimental: {
     // ── MÉMOIRE DE BUILD : borner le PARALLÉLISME, pas la fonctionnalité ──────────────
     //
