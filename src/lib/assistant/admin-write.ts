@@ -48,7 +48,7 @@ export interface SettingSpec {
 export const WRITABLE_SETTINGS: readonly SettingSpec[] = [
   { key: "maxUploadMb", label: "Taille maximale d'un téléversement (Mo)", kind: "number", min: 1, max: 4096,
     hint: "Plafond d'un fichier joint dans les modules." },
-  { key: "maxDriveUploadMb", label: "Taille maximale d'un fichier du Drive (Mo)", kind: "number", min: 1, max: 8192,
+  { key: "maxDriveUploadMb", label: "Taille maximale d'un fichier du Drive (Mo)", kind: "number", min: 1, max: 10240,
     hint: "Plafond d'un fichier déposé dans le Drive." },
   { key: "driveCapacityGb", label: "Capacité globale du Drive (Go)", kind: "number", min: 1, max: 100_000,
     hint: "Espace total de la plateforme." },

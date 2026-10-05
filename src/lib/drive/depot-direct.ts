@@ -6,7 +6,7 @@ import { validateDriveUpload } from "@/lib/storage";
 import { objectStorageConfigured, deleteObject } from "@/lib/storage/object-storage";
 import { quotaVerdict } from "@/lib/drive/quota";
 import { userUsageBytes, physicalUsageBytes, addPhysicalUsage } from "@/lib/drive/usage";
-import { BLOB_MAX_BYTES } from "@/lib/storage/limites-blob";
+import { LIMITE_FICHIER_BYTES, LIMITE_FICHIER_LIBELLE } from "@/lib/storage/limites-blob";
 import { MAX_SANS_STOCKAGE_OBJET_MO } from "@/lib/storage/phrases-stockage";
 import { refusDepotDrive, enregistrerFichierDrive, type CibleDepot } from "@/lib/drive/depot";
 import {
@@ -63,8 +63,8 @@ export async function ouvrirDepotDirect(
   const settings = await getAppSettings();
   const invalide = validateDriveUpload(nom, taille, settings.maxDriveUploadMb);
   if (invalide) return { ok: false, status: 400, error: invalide };
-  if (taille > BLOB_MAX_BYTES) {
-    return { ok: false, status: 413, error: `Fichier trop volumineux pour le Drive (${Math.round(taille / 1024 ** 2)} Mo > 2 047 Mo).` };
+  if (taille > LIMITE_FICHIER_BYTES) {
+    return { ok: false, status: 413, error: `Fichier trop volumineux pour le Drive (${Math.round(taille / 1024 ** 2)} Mo > ${LIMITE_FICHIER_LIBELLE}).` };
   }
   const [mine, physique] = await Promise.all([userUsageBytes(user.id), physicalUsageBytes()]);
   const verdict = quotaVerdict({

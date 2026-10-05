@@ -37,7 +37,7 @@ export interface ZipLimits {
 // Les gardes anti ZIP-bomb (ratio de compression, profondeur, nombre d'entrées) restent actives :
 // elles protègent contre l'abus SANS brider la taille d'un dossier légitime.
 export const DEFAULT_ZIP_LIMITS: ZipLimits = {
-  maxArchiveBytes: Number(process.env.REG_ZIP_MAX_ARCHIVE_MB ?? "4096") * MB, // 4 Go compressés
+  maxArchiveBytes: Number(process.env.REG_ZIP_MAX_ARCHIVE_MB ?? "10240") * MB, // 10 Go compressés
   maxEntries: Number(process.env.REG_ZIP_MAX_ENTRIES ?? "50000"),
   maxTotalUncompressed: Number(process.env.REG_ZIP_MAX_TOTAL_MB ?? "16384") * MB, // 16 Go décompressés
   maxFileUncompressed: Number(process.env.REG_ZIP_MAX_FILE_MB ?? "4096") * MB, // 4 Go / fichier

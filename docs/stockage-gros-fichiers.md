@@ -79,7 +79,10 @@ Cliquez **Tester la connexion** (le serveur écrit, relit et efface un petit obj
 - Les fichiers déjà stockés en base restent lisibles ; seuls les nouveaux vont au bucket.
 - Les gros fichiers du Drive envoyés en direct sont protégés par le chiffrement au repos du
   fournisseur et par les droits de l'application (seule elle signe les adresses) ; ils ne
-  passent pas par le chiffrement applicatif et ne sont pas dédupliqués. Limite : 2 047 Mo par
-  fichier du Drive. Les archives CTD montent jusqu'à 4 Go (`REG_ZIP_MAX_ARCHIVE_MB`).
+  passent pas par le chiffrement applicatif et ne sont pas dédupliqués. Limite : 10 Go par
+  fichier (Drive, zip, archive CTD — un zip est un fichier). Réglage Drive : Administration › Réglages
+  (`maxDriveUploadMb`, 10 240 par défaut) ; archives CTD : `REG_ZIP_MAX_ARCHIVE_MB` (10 240 par défaut).
+  Les tailles sont des `Float` en base (exactes jusqu'à 9 Po). Le stockage du bucket a SA propre limite
+  (Supabase : réglage global et limite du bucket) : à relever aussi côté fournisseur.
 - Une coupure (réseau, onglet fermé) ne perd rien : relancez le même fichier, seules les
   parties manquantes repartent (24 h pour un dossier CTD, 7 jours pour le Drive).

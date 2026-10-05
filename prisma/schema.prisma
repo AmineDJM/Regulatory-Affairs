@@ -5514,7 +5514,7 @@ model DriveNode {
   spaceId          String?
   space            DriveSpace?         @relation(fields: [spaceId], references: [id], onDelete: Cascade)
   mimeType         String? // version courante (fichier)
-  size             Int                 @default(0) // octets de la version courante ; 0 pour un dossier
+  size             Float               @default(0) // octets de la version courante ; 0 pour un dossier (Float : exact jusqu'à 9 Po, tient les fichiers de plus de 2 Go sans passer en BigInt)
   category         String? // classement choisi à l'import (Contrat, Facture, Réglementaire…)
   isTrashed        Boolean             @default(false)
   versions         FileVersion[]
@@ -5567,7 +5567,7 @@ model DriveSpace {
 model FileBlob {
   id         String          @id @default(cuid())
   sha256     String          @unique
-  size       Int // taille du CLAIR en octets (≤ ~1,9 Go — borne de l'Int ; la limite d'ingestion est bien en deçà)
+  size       Float // taille du CLAIR en octets (Float : exact jusqu'à 9 Po ; un objet envoyé directement au bucket peut dépasser 2 Go)
   iv         Bytes // nonce AES-GCM
   data       Bytes? // contenu chiffré EN BASE, en UNE valeur (petits fichiers) ; null si chunké ou en objet
   storageKey String? // clé objet S3/R2 du contenu chiffré (null = stocké en base) — dé-gonfle le disque BDD
@@ -5600,7 +5600,7 @@ model FileVersion {
   blobId      String
   blob        FileBlob  @relation(fields: [blobId], references: [id])
   version     Int
-  size        Int
+  size        Float
   mimeType    String?
   note        String?
   createdById String?
@@ -8111,7 +8111,7 @@ model AppSetting {
   missionsPausedAt              DateTime?
   missionsPausedById            String?
   maxUploadMb                   Int       @default(200) // pièces jointes des modules (Documents/messagerie/RH) — ZIP de dossier
-  maxDriveUploadMb              Int       @default(1024) // fichiers du Drive (~1 Go, stockage en tranches)
+  maxDriveUploadMb              Int       @default(10240) // fichiers du Drive (10 Go ; au-delà de 2 Go : envoi direct au bucket)
   driveCapacityGb               Int       @default(100) // capacité globale du Drive (modifiable Super Admin)
   driveUserQuotaGb              Int       @default(10) // quota par utilisateur (modifiable Super Admin)
   // Budget total au-dessus des enveloppes : FIXED (montant figé) ou FLEXIBLE

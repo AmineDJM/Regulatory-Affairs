@@ -16,7 +16,7 @@ export async function saveAppSettings(formData: FormData): Promise<ActionResult>
   const admin = await requireUser();
   if (admin.role !== "SUPER_ADMIN") return { ok: false, error: "Réservé au Super Admin." };
 
-  const clamp = (v: number | null, def: number, max = 2048) => (v === null ? def : Math.max(1, Math.min(max, Math.round(v))));
+  const clamp = (v: number | null, def: number, max = 10240) => (v === null ? def : Math.max(1, Math.min(max, Math.round(v))));
   // Documents (via Server Action) : plafonné à 256 Mo = la limite de corps de Next (next.config).
   const maxUploadMb = clamp(fdNum(formData, "maxUploadMb"), DEFAULT_APP_SETTINGS.maxUploadMb, 256);
   const maxDriveUploadMb = clamp(fdNum(formData, "maxDriveUploadMb"), DEFAULT_APP_SETTINGS.maxDriveUploadMb);

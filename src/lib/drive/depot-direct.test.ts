@@ -123,6 +123,16 @@ suite("Drive — envoi direct au bucket", () => {
     expect(r).toMatchObject({ ok: false, status: 403 });
   });
 
+  it("un zip de 6 Go est ACCEPTÉ à l'ouverture, un fichier de plus de 10 Go est refusé en le disant", async () => {
+    const ok = await ouvrirDepotDirect(moi, entree(`${TAG}-gros.zip`, 6 * 1024 * MO), bucket().client);
+    expect(ok).toMatchObject({ ok: true });
+    const refus = await ouvrirDepotDirect(moi, entree(`${TAG}-enorme.zip`, 10 * 1024 * MO + 1), bucket().client);
+    // Refusé par le plafond réglé (10 240 Mo par défaut) ou, à défaut, par la borne de 10 Go : jamais ouvert.
+    expect(refus.ok).toBe(false);
+    expect([400, 413]).toContain((refus as { status: number }).status);
+    expect((refus as { error: string }).error).toMatch(/10 Go|10\s?240|Mo/);
+  });
+
   it("« Annuler » libère les parties dans le bucket", async () => {
     const { client, etat } = bucket();
     const a = await ouvrirDepotDirect(moi, entree(`${TAG}-annule.zip`, 40 * MO), client);

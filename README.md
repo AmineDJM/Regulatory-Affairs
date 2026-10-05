@@ -15138,7 +15138,7 @@ Parité UI↔Chief : **10,1 % → 22,8 %** (natives 106, couvertes 30, trous ass
   - **Chantier 2 — pool de connexions DB + concurrence réglables.** `DB_CONNECTION_LIMIT` (+ `DB_POOL_TIMEOUT`) élargit
     le pool Prisma (défaut ~3 sur 1 vCPU → cause des 500 sous forte concurrence) ; `REG_UPLOAD_CONCURRENCY` aligne le
     nombre de parties envoyées en parallèle (surfacé au client). Fichiers : `lib/prisma.ts`, `…/upload/session.ts`.
-  - Réglages d'envoi (déjà en place) : `REG_UPLOAD_PART_MB` (4 Mo), `REG_ZIP_MAX_ARCHIVE_MB` (4 Go), reprise résumable.
+  - Réglages d'envoi (déjà en place) : `REG_UPLOAD_PART_MB` (4 Mo), `REG_ZIP_MAX_ARCHIVE_MB` (10 Go), reprise résumable.
 - **Regulatory Intelligence OS — pipeline CTD prouvé de bout en bout + correctif « les scans sont lus jusqu'au
   bout ».** Test d'intégration **réel** (base + OCR + moteur, aucune simulation) qui télécharge un dossier ZIP
   multi-formats (txt, docx, xlsx, **scan PNG océrisé**, exécutable **bloqué**) et observe **chaque** étape :

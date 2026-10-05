@@ -8,6 +8,7 @@ import { userUsageBytes, physicalUsageBytes, addPhysicalUsage } from "@/lib/driv
 import { objectStorageConfigured } from "@/lib/storage/object-storage";
 import { startTimer, formatTiming } from "@/lib/drive/timing";
 import { refusDepotDrive, enregistrerFichierDrive } from "@/lib/drive/depot";
+import { BLOB_MAX_BYTES } from "@/lib/storage/limites-blob";
 import { MAX_SANS_STOCKAGE_OBJET_MO } from "@/lib/storage/phrases-stockage";
 import { refusSansStockageObjet } from "@/lib/storage/televersement-direct";
 
@@ -45,6 +46,12 @@ export async function POST(req: NextRequest) {
   // refus nomme les variables à poser pour l'accepter.
   if (!objectStorageConfigured() && file.size > MAX_SANS_STOCKAGE_OBJET_MO * 1024 * 1024) {
     return NextResponse.json({ error: refusSansStockageObjet(file.size, MAX_SANS_STOCKAGE_OBJET_MO) }, { status: 413 });
+  }
+
+  // Au-delà de 2 Go, le coffre chiffré ne peut pas tenir le fichier : seul l'envoi direct au bucket
+  // (parties de 32 Mo, depuis le navigateur) le reçoit. Ce chemin-ci le lirait en mémoire.
+  if (file.size > BLOB_MAX_BYTES) {
+    return NextResponse.json({ error: `Ce fichier (${Math.round(file.size / 1024 ** 2)} Mo) dépasse 2 Go : il doit être envoyé directement au stockage. Rechargez la page et renvoyez-le.` }, { status: 413 });
   }
 
   // Quotas (réglés dans Administration → Stockage Drive) : par utilisateur (somme de SES fichiers
