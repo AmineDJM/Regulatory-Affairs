@@ -87,7 +87,7 @@ async function reduireSansPerte(buf: Buffer, format: "png" | "tiff"): Promise<Re
   const avant = await empreintePixels(sharp, buf);
   const base = sharp(buf, { limitInputPixels: MAX_PIXELS_SANS_PERTE });
   const sortie = format === "png"
-    ? await base.png({ compressionLevel: 9, adaptiveFiltering: true, effort: 3 }).toBuffer()
+    ? await base.png({ compressionLevel: 9, adaptiveFiltering: true }).toBuffer()
     : await base.tiff({ compression: "deflate", predictor: "horizontal" }).toBuffer();
   // SANS PERTE se PROUVE : les pixels décodés des deux côtés doivent être identiques.
   const apres = await empreintePixels(sharp, sortie);
