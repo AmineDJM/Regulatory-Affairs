@@ -3,6 +3,7 @@ import { userCan } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { ordresAvecFacture } from "@/lib/finance/facture-ordre";
 import { companyScopedWhere, getMyCompanies, companyOptions } from "@/lib/company";
+import { entiteParDefaut } from "@/lib/company-defaut";
 import Link from "next/link";
 import { Building2 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -60,9 +61,11 @@ export default async function PaiementsAFairePage({ searchParams }: { searchPara
 
   // LES CASES D'ENTITÉS, EN HAUT (Direction, 05/10) : la page se lit entité par entité. Seules les
   // sociétés que la personne VOIT sont proposées, et un `?entite=` qui n'en est pas une est ignoré
-  // (on n'ouvre pas une société par son identifiant) — « Toutes » reste le défaut.
+  // (on n'ouvre pas une société par son identifiant). PLUS DE « TOUTES LES ENTITÉS » (Direction, 06/10) :
+  // tout l'existant est rattaché à Adventum (migration `finance_rattache_adventum`), et c'est Adventum
+  // qui s'ouvre par défaut.
   const mesSocietes = await getMyCompanies(user.id);
-  const entiteId = mesSocietes.some((c) => c.id === searchParams.entite) ? (searchParams.entite as string) : null;
+  const entiteId = entiteParDefaut(mesSocietes, searchParams.entite);
 
   // LES FINANCES NE REÇOIVENT RIEN tant que le centre de paiement n'a pas tranché — quel que
   // soit le montant, depuis que le seuil a été retiré. Un ordre n'apparaît ici qu'une fois
@@ -197,13 +200,13 @@ export default async function PaiementsAFairePage({ searchParams }: { searchPara
       {mesSocietes.length > 1 && (
         <nav aria-label="Entités" className="-mx-1 overflow-x-auto px-1 pb-1">
           <ul className="flex min-w-max gap-2">
-            {[{ id: null as string | null, label: "Toutes les entités" }, ...mesSocietes.map((c) => ({ id: c.id as string | null, label: companyOptions([c])[0].label }))].map((e) => {
+            {mesSocietes.map((c) => ({ id: c.id, label: companyOptions([c])[0].label })).map((e) => {
               const active = e.id === entiteId;
               return (
-                <li key={e.id ?? "toutes"}>
+                <li key={e.id}>
                   <Link
-                    href={e.id ? `/finances/paiements-a-faire?entite=${e.id}` : "/finances/paiements-a-faire"} scroll={false}
-                    aria-current={active ? "page" : undefined} data-entite={e.id ?? "toutes"}
+                    href={`/finances/paiements-a-faire?entite=${e.id}`} scroll={false}
+                    aria-current={active ? "page" : undefined} data-entite={e.id}
                     className={cn(
                       "flex min-h-11 items-center gap-2 rounded-xl border px-3 py-2 text-sm font-medium transition-colors",
                       active ? "border-primary bg-primary/10 text-foreground" : "border-border bg-background text-muted-foreground hover:bg-secondary hover:text-foreground",
