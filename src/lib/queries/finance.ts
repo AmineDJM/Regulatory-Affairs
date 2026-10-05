@@ -123,7 +123,7 @@ export interface TresorerieLue {
   nonRattaches: { nombre: number; montant: number };
   /** Les ordres AUTORISÉS par le centre et pas encore réglés — reportés compris : ils restent dus. */
   autorises: { nombre: number; montant: number };
-  /** « Solde trésorerie = somme des comptes − paiements autorisés » (Direction, 01/10). */
+  /** Somme des comptes − paiements autorisés. N'est plus AFFICHÉ comme « solde » depuis le 05/10 (le solde bancaire est `total`) ; gardé pour les lecteurs qui comparent. */
   disponible: number;
 }
 
@@ -135,7 +135,7 @@ export interface TresorerieLue {
  * contre les seuls visibles ferait tomber sur « le compte unique » d'un comptable d'Adventum les
  * écritures de Pharmagène qui ne nomment pas leur compte.
  */
-export async function chargerTresorerie(userId: string): Promise<TresorerieLue> {
+export async function chargerTresorerie(userId: string, entiteId: string | null = null): Promise<TresorerieLue> {
   const [tous, visiblesIds] = await Promise.all([
     lireComptes(),
     prisma.treasuryAccount.findMany({ where: await companyScopedWhere(userId, {}), select: { id: true } }),
@@ -156,7 +156,7 @@ export async function chargerTresorerie(userId: string): Promise<TresorerieLue> 
         })
       : Promise.resolve([]),
     prisma.expenseOrder.aggregate({
-      where: await companyScopedWhere(userId, ORDRES_AUTORISES_NON_REGLES),
+      where: await companyScopedWhere(userId, entiteId ? { ...ORDRES_AUTORISES_NON_REGLES, companyId: entiteId } : ORDRES_AUTORISES_NON_REGLES),
       _sum: { amount: true },
       _count: { _all: true },
     }),
@@ -165,10 +165,10 @@ export async function chargerTresorerie(userId: string): Promise<TresorerieLue> 
   // Ce qu'aucun compte ne reçoit se compte sur SA portée : compter celles d'une entité qu'on ne
   // voit pas dirait leur nombre et leur montant à qui n'a pas à les connaître.
   const dansLaPortee = new Set(fluxPortee.map((f) => f.id));
-  const nonRattaches = soldesTresorerie(comptes, fluxTous.filter((f) => dansLaPortee.has(f.id))).nonRattaches;
+  const nonRattaches = soldesTresorerie(comptes, fluxTous.filter((f) => dansLaPortee.has(f.id) && (!entiteId || f.societeId === entiteId))).nonRattaches;
 
   const parId = new Map(tous.map((c) => [c.id, c]));
-  const lus: CompteLu[] = soldes.comptes.filter((c) => visibles.has(c.id)).map((c) => {
+  const lus: CompteLu[] = soldes.comptes.filter((c) => visibles.has(c.id) && (!entiteId || parId.get(c.id)?.companyId === entiteId)).map((c) => {
     const brut = parId.get(c.id)!;
     return {
       ...c, banque: brut.bank, rib: brut.rib, societeId: brut.companyId,

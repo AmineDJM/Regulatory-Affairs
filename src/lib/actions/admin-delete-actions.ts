@@ -17,8 +17,11 @@ import {
   type DeletableKind,
 } from "@/lib/admin-delete-registry";
 import { restaurerLotDeLaCorbeille, supprimerReversible, type DeleteResult } from "@/lib/suppression/coeur";
+import { KIND_CORBEILLE_CTD } from "@/lib/regulatory/ctd-initiale";
+import { restaurerLaCtdDeLaCorbeille } from "@/lib/regulatory/ctd-initiale-corbeille";
 import { peutSupprimerUneDemandeAdPro } from "@/lib/queries/ad-pro-suppression";
 import { estDemandeAdProSupprimable, REFUS_SUPPRESSION_AD_PRO } from "@/lib/ad-pro/suppression";
+import { peutSupprimerUnRapportTerrain } from "@/lib/queries/field-reports";
 
 export type { DeleteResult } from "@/lib/suppression/coeur";
 
@@ -114,7 +117,14 @@ export async function supprimerDemandeAdPro(formData: FormData): Promise<DeleteR
   if (!id || !isDeletableKind(kind) || !estDemandeAdProSupprimable(kind)) return { ok: false, error: "Élément invalide." };
   if (!(await peutSupprimerUneDemandeAdPro(user, kind, id))) return { ok: false, error: REFUS_SUPPRESSION_AD_PRO };
   const name = await DELETE_REGISTRY[kind].describe(id);
-  return supprimerReversible(kind, id, user.id, `Suppression d'une demande Ad & Pro — ${DELETE_REGISTRY[kind].label} « ${name ?? id} » (restaurable depuis la corbeille)`);
+  const r = await supprimerReversible(kind, id, user.id, `Suppression d'une demande Ad & Pro — ${DELETE_REGISTRY[kind].label} « ${name ?? id} » (restaurable depuis la corbeille)`);
+  // Le cœur ne revalide que la liste de la nature : le tableau « Toutes les demandes » (Ad & Pro) et
+  // « Mon espace » listent aussi la demande qui vient de partir.
+  if (r.ok) {
+    revalidatePath("/ad-pro");
+    revalidatePath("/mon-espace");
+  }
+  return r;
 }
 
 /**
@@ -128,6 +138,14 @@ export async function restoreDeletedRecord(formData: FormData): Promise<DeleteRe
   const recId = String(formData.get("id") ?? "");
   const rec = await prisma.deletedRecord.findUnique({ where: { id: recId } });
   if (!rec || rec.restoredAt || rec.purgedAt) return { ok: false, error: "Entrée introuvable ou déjà traitée." };
+  // LA CTD INITIALE d'un dossier Regulatory (§118.213) : un ensemble de documents, pas une ligne du registre.
+  if (rec.kind === KIND_CORBEILLE_CTD) {
+    const r = await restaurerLaCtdDeLaCorbeille(rec, user.id);
+    if (!r.ok) return r;
+    revalidatePath("/admin/corbeille");
+    revalidatePath(`/regulatory/${rec.sourceId}`);
+    return { ok: true, redirect: r.redirect };
+  }
   if (!isDeletableKind(rec.kind)) return { ok: false, error: "Type inconnu." };
   const spec = DELETE_REGISTRY[rec.kind];
 
@@ -189,6 +207,15 @@ export async function destroyDeletedRecord(formData: FormData): Promise<DeleteRe
     // Cas particulier : audio d'un rapport terrain (blob chiffré du Drive).
     const audioBlobId = (rec.payload as { audioBlobId?: string | null } | null)?.audioBlobId;
     if (rec.kind === "FIELD_REPORT" && audioBlobId) await releaseBlob(audioBlobId).catch(() => {});
+    // Les PIÈCES JOINTES d'un rapport terrain (§118.212) voyagent dans le lot, et leurs fichiers
+    // restent au stockage tant que l'entrée existe : la destruction réelle les libère — comme
+    // l'ancien geste « supprimer » le faisait d'emblée, sans corbeille.
+    if (rec.kind === "FIELD_REPORT") {
+      const lot = rec.lot as { lignes?: { modele: string; donnees: { blobId?: string | null } }[] } | null;
+      for (const l of lot?.lignes ?? []) {
+        if (l.modele === "FieldReportAttachment" && l.donnees.blobId) await releaseBlob(l.donnees.blobId).catch(() => {});
+      }
+    }
   }
 
   await prisma.deletedRecord.update({ where: { id: recId }, data: { purgedAt: new Date() } });
@@ -232,6 +259,10 @@ async function peutSupprimerDepuisSonModule(user: Awaited<ReturnType<typeof requ
   // suppriment aussi — la MÊME règle que `supprimerDemandeAdPro`, sans quoi l'aperçu ne s'ouvrirait
   // pas devant une suppression que l'action accepte.
   if (estDemandeAdProSupprimable(kind) && (await peutSupprimerUneDemandeAdPro(user, kind, id))) return true;
+  // UN RAPPORT TERRAIN (§118.212) : l'auteur, la hiérarchie qui le gère dans son périmètre d'entité —
+  // la MÊME règle que `deleteFieldReport`, sans quoi l'aperçu ne s'ouvrirait pas devant une
+  // suppression que l'action accepte (ni ne s'ouvrirait à qui l'action refuse).
+  if (kind === "FIELD_REPORT") return peutSupprimerUnRapportTerrain(user, id);
   const droit = SUPPRIME_PAR_SON_MODULE[kind];
   if (!droit || !userCan(user, droit.module, droit.action)) return false;
   const entite = DELETE_REGISTRY[kind].entityType;

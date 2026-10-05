@@ -30,7 +30,8 @@ export function Sheet({ open, onClose, title, description, children, footer, wid
 
   React.useEffect(() => {
     if (!open) return;
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    // Un bouton décisif armé consomme Échap (il se désarme, le panneau reste).
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape" && !e.defaultPrevented) onClose(); };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
   }, [open, onClose]);

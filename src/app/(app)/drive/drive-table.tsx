@@ -18,6 +18,7 @@ import {
 } from "@/lib/drive/selection";
 import { sortRows, type SortKey, type SortDir } from "@/lib/drive/explorer";
 import { NodeActions } from "./node-actions";
+import { BoutonTelecharger } from "@/components/telechargement/bouton-telecharger";
 
 export interface DriveRow {
   id: string;
@@ -109,10 +110,11 @@ export function DriveTable({
   const toggleAll = () => setSel((s) => selectAll(order, !allSelected(s, order)));
   const clear = () => setSel(EMPTY_SELECTION);
 
+  /** Le bouton partagé suit le lien : le clic principal part en ZIP maximal (original), le chevron propose la taille réduite. */
+  const urlZip = `/api/drive/zip?ids=${sel.ids.join(",")}`;
   const downloadZip = () => {
     if (sel.ids.length === 0) return;
     setZipping(true);
-    window.location.href = `/api/drive/zip?ids=${sel.ids.join(",")}`;
     window.setTimeout(() => setZipping(false), 4000);
   };
 
@@ -280,10 +282,16 @@ export function DriveTable({
             </Link>
           )}
 
-          <button type="button" onClick={downloadZip} disabled={zipping}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-input px-2.5 py-1.5 text-sm font-medium hover:bg-secondary disabled:opacity-60">
+          <BoutonTelecharger
+            href={urlZip}
+            nom="selection.zip"
+            archive
+            onClick={downloadZip}
+            ariaLabel="Télécharger la sélection"
+            className={`inline-flex items-center gap-1.5 rounded-lg border border-input px-2.5 py-1.5 text-sm font-medium hover:bg-secondary ${zipping ? "pointer-events-none opacity-60" : ""}`}
+          >
             {zipping ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />} Télécharger
-          </button>
+          </BoutonTelecharger>
 
           {!trash && users && users.length > 0 && canActOnAll && (
             <button type="button" onClick={() => setShareOpen(true)} disabled={busy}

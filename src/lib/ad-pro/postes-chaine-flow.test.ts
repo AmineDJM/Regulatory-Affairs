@@ -43,6 +43,8 @@ import { signerBonDeCommande } from "@/lib/actions/bc-signature-actions";
 import { fileBonsDeCommande } from "@/lib/queries/bons-de-commande";
 import { etatDuBC } from "@/lib/bons-de-commande/etat";
 import { ordreAFacture } from "@/lib/finance/facture-ordre";
+import { settleExpenseOrder } from "@/lib/actions/expense-actions";
+import { signauxFinance } from "@/platform/in-process/intelligence";
 import { getActionCenter } from "@/lib/queries/action-center";
 import { persistUploadedDocument } from "@/lib/documents";
 import type { Prisma } from "@prisma/client";
@@ -397,11 +399,12 @@ suite("Ad & Pro — la chaîne d'un poste : deux temps, BC par l'assistante, fac
     }
   });
 
-  it("UN SPONSORING DIRECT n'a pas de bon de commande — le refus nomme la facture", async () => {
+  it("UN SPONSORING DIRECT n'a pas de bon de commande — le refus nomme la proforma / lettre, pas la facture", async () => {
     const id = await posteAccorde("Aide directe sans BC", 200_000, { parent: "SPONSORING", parentId: spo, kind: "ASSOCIATION_SUPPORT" });
     await comme("kam");
     const r = await requestAdProItemOrder(undefined, fd({ id, note: "x", assistantId: u.ast1 }));
-    expect(r.ok === false ? r.error : "demandé").toMatch(/sponsoring direct n'a pas de bon de commande : déposez la facture/);
+    expect(r.ok === false ? r.error : "demandé").toMatch(/sponsoring direct n'a pas de bon de commande : joignez la proforma \/ lettre de demande de sponsoring/);
+    expect(r.ok === false ? r.error : "", "la facture n'est plus exigée").toMatch(/la facture n'est pas exigée/);
     expect(await demandeBC(id)).toBeNull();
   });
 
@@ -575,20 +578,104 @@ suite("Ad & Pro — la chaîne d'un poste : deux temps, BC par l'assistante, fac
     expect(encore.ok === false ? encore.error : "payé").toMatch(/déjà été demandé/);
   });
 
-  it("UN SPONSORING DIRECT se paie sur facture, SANS bon de commande — la pro forma, facultative, est en amont", async () => {
+  /**
+   * SPONSORING DIRECT : LA PIÈCE EXIGÉE EST LA PROFORMA / LETTRE DE DEMANDE, PAS LA FACTURE (Direction, 05/10).
+   * L'ordre naît avec `requiresInvoice: false` — c'est lui que lisent le règlement, la colonne « Facture »
+   * des Finances et le signal « justificatif manquant » : une seule valeur, trois lecteurs qui suivent.
+   */
+  it("UN SPONSORING DIRECT se paie sur PROFORMA / LETTRE, SANS bon de commande ni facture exigée", async () => {
     const id = await posteAccorde("Aide à l'association", 250_000, { parent: "SPONSORING", parentId: spo, kind: "ASSOCIATION_SUPPORT" });
     await comme("kam");
-    const pro = await ajouterDevisPoste(undefined, avecFichier({ id, montant: "250000", proforma: "on" }));
-    ok(pro);
+    const sans = await payer(id, "250000", "kam", false);
+    expect(sans.ok === false ? sans.error : "payé", "sans pièce, le refus nomme la proforma / lettre").toMatch(/Joignez la proforma \/ lettre de demande de sponsoring/);
+    expect(await prisma.adProItem.findUniqueOrThrow({ where: { id }, select: { orderStage: true } }).then((p) => p.orderStage), "un refus ne prend rien").not.toBe("ISSUED");
     const r = await payer(id, "250000");
     ok(r);
     expect(await prisma.adProItemPiece.count({ where: { itemId: id, nature: "BON_DE_COMMANDE" } }), "aucun BC").toBe(0);
-    const lien = await prisma.adProItemPiece.findFirstOrThrow({ where: { itemId: id, nature: "FACTURE" } });
-    const facture = await prisma.legalDocument.findUniqueOrThrow({ where: { id: lien.legalDocumentId } });
-    expect(facture.chainFromId, "la facture suit la pro forma, seule pièce amont").toBe(pro.id);
-    expect(facture.sourceType).toBe("SPONSORING");
+    expect(await prisma.adProItemPiece.count({ where: { itemId: id, nature: "FACTURE" } }), "aucune facture créée : elle n'est pas exigée").toBe(0);
+    const lien = await prisma.adProItemPiece.findFirstOrThrow({ where: { itemId: id, nature: "DEVIS" } });
+    const proforma = await prisma.legalDocument.findUniqueOrThrow({ where: { id: lien.legalDocumentId } });
+    expect(proforma.kind, "la proforma est un DEVIS au registre").toBe("QUOTE");
+    expect(proforma.title).toMatch(/^Proforma \/ lettre de demande de sponsoring/);
+    expect(proforma.sourceType).toBe("SPONSORING");
     const ordre = await prisma.expenseOrder.findUniqueOrThrow({ where: { id: r.id! } });
     expect(ordre.centralStatus).toBe("AWAITING");
+    expect(ordre.requiresInvoice, "LA valeur que lisent le règlement, la colonne et le signal").toBe(false);
+    expect(await ordreAFacture({ id: ordre.id, sourceType: ordre.sourceType, sourceId: ordre.sourceId }), "PRÉMISSE : aucune facture n'existe").toBe(false);
+  });
+
+  /**
+   * LES TROIS LECTEURS DE LA RÈGLE « FACTURE OBLIGATOIRE » SUIVENT UN SEUL DRAPEAU (§118.61, Direction 05/10).
+   * Le règlement, la colonne « Facture » des Finances et le signal « justificatif manquant » lisent
+   * `ExpenseOrder.requiresInvoice` : le poser à faux à la naissance de l'ordre d'un sponsoring direct suffit
+   * à les faire suivre. Le TÉMOIN est le même ordre, drapeau remis à vrai — l'ancienne règle : le
+   * règlement refuse, le signal sort. Sans lui, trois lecteurs qui ne liraient plus rien passeraient.
+   */
+  it("SPONSORING DIRECT : le règlement et le signal « justificatif manquant » suivent `requiresInvoice` — témoin : l'ancienne règle les rallume", async () => {
+    const id = await posteAccorde("Aide directe, trois lecteurs", 150_000, { parent: "SPONSORING", parentId: spo, kind: "ASSOCIATION_SUPPORT" });
+    const r = await payer(id, "150000");
+    ok(r);
+    await prisma.expenseOrder.update({ where: { id: r.id! }, data: { centralStatus: "APPROVED" } });
+    const finances = await acteur(u.fin, ROLES.fin);
+    const signal = async () => (await signauxFinance(finances, { horizonJours: 30 })).signaux.find((x) => x.code === "justificatif_manquant" && x.entite?.id === r.id);
+    expect(await signal(), "aucun signal : la facture n'est pas exigée").toBeUndefined();
+
+    // Le TÉMOIN : l'ancienne règle sur le même ordre.
+    await prisma.expenseOrder.update({ where: { id: r.id! }, data: { requiresInvoice: true } });
+    expect(await signal(), "PRÉMISSE — drapeau levé, le signal sort").toBeDefined();
+    await comme("fin");
+    const refus = await settleExpenseOrder(fd({ id: r.id! }));
+    expect(refus.ok === false ? refus.error : "réglé", "PRÉMISSE — drapeau levé, le règlement refuse la facture manquante").toMatch(/facture/i);
+    expect((await prisma.expenseOrder.findUniqueOrThrow({ where: { id: r.id! } })).status).toBe("PENDING");
+
+    // La règle du jour : drapeau baissé, le règlement passe sans facture.
+    await prisma.expenseOrder.update({ where: { id: r.id! }, data: { requiresInvoice: false } });
+    const regle = await settleExpenseOrder(fd({ id: r.id! }));
+    expect(regle.ok, regle.ok === false ? regle.error : "").toBe(true);
+    expect((await prisma.expenseOrder.findUniqueOrThrow({ where: { id: r.id! } })).status).toBe("PAID");
+  });
+
+  it("UN SPONSORING DIRECT dont la proforma est DÉJÀ sur le poste se paie sans rien joindre — et la facture facultative se chaîne à elle", async () => {
+    const id = await posteAccorde("Aide à l'association 2", 250_000, { parent: "SPONSORING", parentId: spo, kind: "ASSOCIATION_SUPPORT" });
+    await comme("kam");
+    const pro = await ajouterDevisPoste(undefined, avecFichier({ id, montant: "250000", proforma: "on" }));
+    ok(pro);
+    const f = fd({ id, montant: "250000", reference: `${TAG}FA` });
+    f.append("facture", pdf(`${TAG}facture-facultative.pdf`));
+    const r = await demanderPaiementPoste(undefined, f);
+    ok(r);
+    const lien = await prisma.adProItemPiece.findFirstOrThrow({ where: { itemId: id, nature: "FACTURE" } });
+    const facture = await prisma.legalDocument.findUniqueOrThrow({ where: { id: lien.legalDocumentId } });
+    expect(facture.chainFromId, "la facture facultative suit la proforma, seule pièce amont").toBe(pro.id);
+    const ordre = await prisma.expenseOrder.findUniqueOrThrow({ where: { id: r.id! } });
+    expect(ordre.requiresInvoice, "facultative, même quand elle est là").toBe(false);
+  });
+
+  it("UNE PROFORMA ANNULÉE ne compte pas : le sponsoring direct redemande la pièce", async () => {
+    const id = await posteAccorde("Aide à l'association 3", 250_000, { parent: "SPONSORING", parentId: spo, kind: "ASSOCIATION_SUPPORT" });
+    await comme("kam");
+    const pro = await ajouterDevisPoste(undefined, avecFichier({ id, montant: "250000", proforma: "on" }));
+    ok(pro);
+    await prisma.legalDocument.update({ where: { id: pro.id! }, data: { status: "CANCELLED" } });
+    const sans = await payer(id, "250000", "kam", false);
+    expect(sans.ok === false ? sans.error : "payé", "la proforma annulée n'est pas une pièce").toMatch(/Joignez la proforma \/ lettre de demande de sponsoring/);
+    // Le TÉMOIN : rétablie, la même demande passe sans rien joindre.
+    await prisma.legalDocument.update({ where: { id: pro.id! }, data: { status: "ACTIVE" } });
+    ok(await payer(id, "250000", "kam", false));
+  });
+
+  it("UN SPONSORING INDIRECT GARDE LA RÈGLE D'AVANT — facture obligatoire, `requiresInvoice` vrai", async () => {
+    SEUIL = 500_000;
+    const id = await posteAccorde("Indirect facture", 100_000);
+    await comme("kam");
+    ok(await requestAdProItemOrder(undefined, fd({ id, note: "x", assistantId: u.ast1 })));
+    await bcSigne(id);
+    const sans = await payer(id, "100000", "kam", false);
+    expect(sans.ok === false ? sans.error : "payé").toMatch(/Joignez la facture : elle est obligatoire/);
+    const r = await payer(id, "100000");
+    ok(r);
+    const ordre = await prisma.expenseOrder.findUniqueOrThrow({ where: { id: r.id! } });
+    expect(ordre.requiresInvoice).toBe(true);
     expect(await ordreAFacture({ id: ordre.id, sourceType: ordre.sourceType, sourceId: ordre.sourceId })).toBe(true);
   });
 

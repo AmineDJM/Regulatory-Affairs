@@ -160,8 +160,9 @@ export const CONSIGNE_CONSEIL = [
   "  convention, engagement, courrier, invitation, attestation.",
   "- un POSTE (une ligne de dépense : hôtellerie, billetterie, restauration, imprimerie, stand…) et l'une de ses CASES :",
   "  DEVIS (un devis ou une facture pro forma), BON_DE_COMMANDE, FACTURE (la facture définitive).",
-  "- Un poste de nature « Sponsoring direct (association) » n'a PAS de bon de commande : une pro forma va dans DEVIS,",
-  "  la facture dans FACTURE ; un bon de commande déposé là est mal placé.",
+  "- Un poste de nature « Sponsoring direct (association) » n'a PAS de bon de commande : une pro forma ou la lettre de demande",
+  "  de sponsoring va dans DEVIS (c'est la pièce exigée pour le paiement), la facture — facultative — dans FACTURE ;",
+  "  un bon de commande déposé là est mal placé.",
   "",
   "LES GESTES — liste FERMÉE, tu n'en inventes aucun :",
   "- DEPLACER_POSTE : la pièce appartient à un AUTRE poste existant (donne son posteId et la case).",
@@ -346,7 +347,7 @@ export function appliquerRegles(c: ConseilPiece, ctx: ContexteConseil): ConseilP
       verdict = "A_DEPLACER";
       conseils.unshift({
         geste: "AUTRE",
-        texte: "Un sponsoring direct n'a pas de bon de commande : une pro forma va dans la case « Devis / pro forma », la facture dans la case « Facture ».",
+        texte: "Un sponsoring direct n'a pas de bon de commande : la proforma ou la lettre de demande de sponsoring va dans la case « Proforma / lettre de demande de sponsoring » (c'est elle qui est exigée), la facture — facultative — dans la case « Facture ».",
       });
     }
   }

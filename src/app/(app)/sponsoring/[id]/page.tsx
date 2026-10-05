@@ -44,6 +44,10 @@ import { porteLeRoleQuiTranche } from "@/lib/personnes/referents-gamme";
 import { ClosurePanel } from "./closure-panel";
 
 
+// Une page qui dépend de QUI regarde ne se met jamais en cache : la même adresse rend autre chose pour le
+// demandeur, pour la Direction et pour le Super Admin en Vue exacte (voir `lib/vue-exacte.ts`).
+export const dynamic = "force-dynamic";
+
 export default async function SponsoringDetailPage({ params }: { params: { id: string } }) {
   const user = await requireModule("SPONSORING");
   // LA PORTÉE PAR LIGNE (§118.185, I4) : un délégué n'ouvre que SES demandes — la même phrase

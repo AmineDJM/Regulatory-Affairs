@@ -1,0 +1,572 @@
+diff --git a/e2e/demande-materiel.spec.ts b/e2e/demande-materiel.spec.ts
+index 299f204..0700798 100644
+--- a/e2e/demande-materiel.spec.ts
++++ b/e2e/demande-materiel.spec.ts
+@@ -125,16 +125,26 @@ test("Stock promotionnel : une entrée À PART du menu Sales & Marketing — ses
+   await expect(page).toHaveURL(/\/stock-promotionnel\?vue=moi$/);
+ });
+ 
+-test("Moyens généraux : sans service ni département, le Super Admin arrive sur le CATALOGUE — plus d'impasse, plus de choix de service (04/10)", async ({ page }) => {
++test("Moyens généraux : sans service ni département, le Super Admin DÉSIGNE — puis change — sans voir d'autre caisse", async ({ page }) => {
++  page.on("dialog", (d) => d.accept());
+   await login(page, SA_EMAIL);
+   await aller(page, "/moyens-generaux");
+-  // L'IMPASSE D'AVANT (« aucun service désigné ») n'existe plus : l'écran ne dépend plus d'aucun service.
+-  await expect(page.getByRole("heading", { name: "Moyens généraux — Catalogue d'articles" })).toBeVisible();
+-  await expect(page.getByText("Aucun service des moyens généraux n'est désigné")).toHaveCount(0);
+-  await expect(page.getByRole("button", { name: "Changer de service…" })).toHaveCount(0);
++  // L'IMPASSE D'AVANT : « Aucun département rattaché à votre compte », sans geste possible.
++  await expect(page.getByText("Aucun service des moyens généraux n'est désigné")).toBeVisible();
++  const choix = page.getByLabel("Département qui tient les moyens généraux");
++  await choix.selectOption(deptA);
++  await page.getByRole("button", { name: "Désigner" }).click();
++  await expect(page.getByRole("heading", { name: `Moyens généraux — ${DEPT_A}` })).toBeVisible({ timeout: 20_000 });
++  await expect(page.getByText("Service des moyens généraux de la société")).toBeVisible();
++  // PLUS DE SÉLECTEUR DE DÉPARTEMENTS : la liste n'existe que derrière « Changer de service… », et
++  // elle DÉSIGNE — elle n'ouvre la caisse d'aucun autre département.
++  await expect(page.getByLabel("Département qui tient les moyens généraux")).toHaveCount(0);
+   expect(await page.locator('a[href*="dept="]').count(), "un lien ?dept= ouvrirait la caisse d'un autre département").toBe(0);
+-  // L'écran n'écrit pas le réglage : il reste ce que le décor a posé.
+-  expect((await prisma.appSetting.findUnique({ where: { id: "global" } }))?.generalMeansDepartmentId).toBeNull();
++  await page.getByRole("button", { name: "Changer de service…" }).click();
++  await page.getByLabel("Département qui tient les moyens généraux").selectOption(deptB);
++  await page.getByRole("button", { name: "Désigner" }).click();
++  await expect(page.getByRole("heading", { name: `Moyens généraux — ${DEPT_B}` })).toBeVisible({ timeout: 20_000 });
++  expect((await prisma.appSetting.findUnique({ where: { id: "global" } }))?.generalMeansDepartmentId).toBe(deptB);
+ });
+ 
+ test("Matériel promotionnel : la demande se compose de LIGNES dès sa création — sans budget, assistante, gamme ni entité", async ({ page }) => {
+diff --git a/e2e/finances-centre.spec.ts b/e2e/finances-centre.spec.ts
+index 1b413cb..4cdca1a 100644
+--- a/e2e/finances-centre.spec.ts
++++ b/e2e/finances-centre.spec.ts
+@@ -346,23 +346,29 @@ test("CENTRE : la paie s'autorise comme tout paiement — et le solde de trésor
+   await expect(page.getByText(LIBELLE_PAIE).first()).toBeVisible();
+ });
+ 
+-test("MOYENS GÉNÉRAUX : l'écran ne garde que le catalogue d'articles — plus de caisse, plus de remise (décision du 04/10)", async ({ page }) => {
+-  // La remise de caisse au centre de paiement reste éprouvée par l'ACTION (`centre-paie-caisse-flow.test.ts`) :
+-  // c'est l'ÉCRAN qui ne la propose plus. Ce parcours tient la règle du jour, pour le Super Admin comme
+-  // pour la détentrice d'une caisse — sans quoi une caisse ouverte se verrait encore par une porte.
++test("CAISSE D'AVANCE : la remise part au centre — la détentrice ne confirme rien avant le versement", async ({ page }) => {
+   await login(page, SA_EMAIL);
+   await aller(page, "/moyens-generaux");
+-  await expect(page.getByRole("heading", { name: "Moyens généraux — Catalogue d'articles" })).toBeVisible();
+-  // Le témoin : le catalogue est bien LÀ (le formulaire d'ajout), donc les absences ci-dessous ne
+-  // viennent pas d'une page vide.
+-  await expect(page.getByText("Nouvel article")).toBeVisible();
+-  for (const retire of ["Remettre une somme en caisse", "Caisse d'avance", "Changer de service…", "Annuaire de l'entreprise", "Budgets par département"]) {
+-    await expect(page.getByText(retire, { exact: true }), `l'écran montre encore « ${retire} »`).toHaveCount(0);
+-  }
++  // Le service n'a AUCUNE caisse ouverte (sa seule remise est soldée) : l'écran propose la remise
++  // d'emblée, sans bouton intermédiaire.
++  const formulaire = page.locator("form").filter({ hasText: "Remettre une somme en caisse" });
++  await expect(formulaire).toBeVisible();
++  await formulaire.locator('input[name="amount"]').fill("24000");
++  await formulaire.locator('select[name="holderId"]').selectOption({ label: `${P} Assistante caisse` });
++  await formulaire.getByRole("button", { name: "Envoyer au centre de paiement" }).click();
++  // La phrase porte la RÉFÉRENCE de l'ordre : c'est ce qu'on suit ensuite au centre de paiement.
++  await expect(page.getByText(/Remise de 24[\s  ]000 DZD envoyée au centre de paiement \(/)).toBeVisible({ timeout: 15_000 });
++  await expect(page.getByText(/en attente du centre de paiement/i).first()).toBeVisible({ timeout: 15_000 });
++
++  const remise = await prisma.pettyCashAllotment.findFirstOrThrow({ where: { departmentId: deptId, status: "ALLOTTED" }, include: { expenseOrder: true } });
++  expect(remise.transactionId, "écrire la sortie avant l'autorisation, c'est inscrire un décaissement que personne n'a autorisé").toBeNull();
++  expect(remise.expenseOrder?.centralStatus).toBe("AWAITING");
++  expect(remise.expenseOrder?.companyId).toBe(companyId);
+ 
+   await page.context().clearCookies();
+   await login(page, CAISSE_EMAIL);
+   await aller(page, "/moyens-generaux");
++  await expect(page.getByText(/en attente du centre de paiement/i).first()).toBeVisible();
+   await expect(page.getByRole("button", { name: /J'ai reçu la somme/ })).toHaveCount(0);
+-  await capture(page, "f4-moyens-generaux-catalogue");
++  await capture(page, "f4-caisse-en-attente");
+ });
+diff --git a/src/app/(app)/moyens-generaux/page.tsx b/src/app/(app)/moyens-generaux/page.tsx
+index 78d9c50..56ef1d7 100644
+--- a/src/app/(app)/moyens-generaux/page.tsx
++++ b/src/app/(app)/moyens-generaux/page.tsx
+@@ -1,38 +1,82 @@
++import { notFound } from "next/navigation";
++import { Wallet } from "lucide-react";
+ import { requireUser } from "@/lib/session";
+ import { prisma } from "@/lib/prisma";
+ import { userCan } from "@/lib/rbac";
++import { getGeneralMeans, resolveGeneralMeansDepartment, LIST_LIMIT } from "@/lib/queries/general-means";
++import { getAppSettings } from "@/lib/settings";
++import { generalMeansBudgetTargets } from "@/lib/general-means/budget-targets";
++import { normalizeYear, DEPT_BUDGET_LABEL, budgetHealth, consumedPercent } from "@/lib/department-budget";
+ import { PageHeader } from "@/components/shared/page-header";
++import { KpiCard } from "@/components/shared/kpi-card";
++import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+ import { EmptyState } from "@/components/shared/empty-state";
+-import { CatalogueArticles } from "../demandes/supplies-manager";
++import { formatCurrency } from "@/lib/utils";
++import { CashPanel } from "./cash-panel";
++import { ExpensePanel } from "./expense-panel";
++import { ServiceSwitch, ChangerDeService } from "./service-switch";
++import { SuppliesManager } from "../demandes/supplies-manager";
++import { ExpenseTable } from "./expense-table";
+ 
+ export const dynamic = "force-dynamic";
+ export const metadata = { title: "Moyens généraux — AMD Internal OS" };
+ 
+ /**
+- * MOYENS GÉNÉRAUX — LE CATALOGUE D'ARTICLES, ET LUI SEUL (décision de la Direction, 04/10 : « ne
+- * laisse que le catalogue d'articles, enlève le reste »).
++ * MOYENS GÉNÉRAUX — le module qui rassemble ce qui était éparpillé.
+  *
+- * L'écran portait la caisse à deux horizons, le détail des dépenses, le choix du service, et des
+- * liens vers l'annuaire et les budgets par département. Ils sont retirés de l'ÉCRAN, rien d'autre :
+- * aucune donnée n'est effacée, aucune action serveur n'est supprimée — la caisse, ses remises au
+- * centre de paiement et ses rallonges existent toujours, et l'annuaire vit dans « Mon espace ».
++ * Le budget vivait dans un tableau, les achats dans les demandes administratives, et l'argent
++ * liquide confié à l'assistante nulle part. « Combien a-t-on dépensé ce mois-ci, et me
++ * reste-t-il de quoi payer ? » exigeait d'additionner à la main, en espérant n'avoir rien
++ * oublié.
+  *
+- * Le catalogue est le MÊME que celui du Bureau du secrétariat (`CatalogueArticles`) : deux
+- * catalogues auraient produit deux vocabulaires, donc des consommations incomparables. Qui a le
+- * droit de le modifier le tient ici ; qui ne l'a pas le lit — on n'offre pas un geste que l'action
+- * refuserait (§118.83).
++ * Un seul écran, une seule notion : LA CAISSE. Elle se lit à deux horizons — la caisse de
++ * l'exercice (la dotation de l'année, ce qu'on a le droit de dépenser) et la caisse du mois
++ * (l'argent en main aujourd'hui). Ce n'est pas un budget d'un côté et une caisse de l'autre :
++ * c'est le même argent, la caisse du mois étant prélevée sur celle de l'exercice. Puis le détail
++ * des dépenses avec leurs pièces (où est passé l'argent ?). Chaque dépense porte sa facture ou
++ * son bon de paiement — sans pièce, une ligne n'est qu'une affirmation.
+  */
+-export default async function MoyensGenerauxPage() {
++export default async function MoyensGenerauxPage({
++  searchParams,
++}: { searchParams: { year?: string } }) {
++  // DEUX VISAGES SUR LE MÊME ÉCRAN, et c'est le sujet de cette page.
++  //
++  // Demander un achat est un geste de TOUT employé : un délégué qui a besoin de cartouches n'a
++  // pas à connaître le circuit ni à écrire à l'assistante. La porte du module s'ouvre donc à
++  // tous — mais le BUDGET, lui, reste fermé à qui n'a pas le droit de module. Ce n'est pas de
++  // la cachotterie : connaître le reste de l'enveloppe transforme une demande en négociation,
++  // et le rôle du demandeur est de dire ce dont il a besoin, pas d'arbitrer une caisse qu'il
++  // ne tient pas.
+   const user = await requireUser();
++  const year = normalizeYear(searchParams.year);
++  // PLUS DE PÉRIODE À RÉSOUDRE. La caisse d'avance est CONTINUE : elle ne se ferme pas au
++  // changement de mois, et il n'y a donc plus « le mois qu'on regarde » — il y a le fond, fait de
++  // toutes les remises non soldées, chacune avec sa date.
+ 
+-  // Demander un achat est un geste de tout employé, et il vit dans « Mon espace » : qui n'a pas le
+-  // module le lit ici, avec le chemin, plutôt qu'une page vide.
++  // Le catalogue est proposé à TOUT LE MONDE : c'est lui qui rend la demande possible sans
++  // connaître les références internes.
++  const articles = await prisma.officeSupplyArticle.findMany({
++    where: { active: true },
++    select: { id: true, name: true, unit: true, estimatedPrice: true },
++    orderBy: { name: "asc" },
++  });
++  const articleOptions = articles.map((a) => ({
++    id: a.id, name: a.name, unit: a.unit, estimatedPrice: a.estimatedPrice ? Number(a.estimatedPrice) : null,
++  }));
++
++  // LES DEMANDES D'ACHAT ONT DÉMÉNAGÉ DANS « MON ESPACE » (2026-08).
++  //
++  // Demander un stylo et tenir la caisse d'un département sont deux métiers. Ce module est
++  // celui de ceux qui ACHÈTENT et qui DÉCAISSENT ; demander ce dont on a besoin pour
++  // travailler est un geste de tout le monde, au même titre que demander un congé ou une
++  // formation. Qui n'a pas la caisse n'a donc plus rien à faire ici — et on le lui dit,
++  // avec le chemin, plutôt que de lui laisser une page vide.
+   if (!userCan(user, "GENERAL_MEANS", "VIEW")) {
+     return (
+       <div className="space-y-5">
+         <PageHeader
+           title="Moyens généraux"
+-          description="Ce module tient le catalogue d'articles. Vos demandes d'achat, elles, se font depuis « Mon espace »."
++          description="Ce module tient la caisse et le budget d'un département. Vos demandes d'achat, elles, se font désormais depuis « Mon espace »."
+         />
+         <EmptyState
+           icon="ShoppingBasket"
+@@ -43,23 +87,200 @@ export default async function MoyensGenerauxPage() {
+     );
+   }
+ 
+-  const peutModifier = userCan(user, "GENERAL_MEANS", "UPDATE");
+-  // Sans le droit de modifier, seuls les articles ACTIFS : un article retiré ne se propose plus, et
+-  // le montrer « inactif » à qui ne peut rien en faire n'apprend rien.
+-  const articles = await prisma.officeSupplyArticle.findMany({
+-    where: peutModifier ? {} : { active: true },
+-    select: { id: true, name: true, category: true, unit: true, reference: true, estimatedPrice: true, supplierHint: true, active: true, notes: true },
+-    orderBy: [{ active: "desc" }, { name: "asc" }],
+-  });
+-  const lignes = articles.map((a) => ({ ...a, estimatedPrice: a.estimatedPrice ? Number(a.estimatedPrice) : null }));
++  // LE SUPER ADMIN DÉSIGNE LE SERVICE — et lui seul (`setGeneralMeansDepartment` le revérifie).
++  const pilote = user.role === "SUPER_ADMIN" || user.secondaryRole === "SUPER_ADMIN";
++  const serviceCourant = pilote ? (await getAppSettings()).generalMeansDepartmentId : null;
++  // La liste des départements ne sert qu'à DÉSIGNER le service (`ChangerDeService`) : elle n'ouvre
++  // la caisse d'aucun d'eux. Chargée pour le seul Super Admin.
++  const departements = pilote
++    ? (await prisma.department.findMany({ select: { id: true, name: true, parent: { select: { name: true } } }, orderBy: { name: "asc" } }))
++        .map((d) => ({ id: d.id, libelle: d.parent ? `${d.parent.name} › ${d.name}` : d.name }))
++    : [];
++
++  const departmentId = await resolveGeneralMeansDepartment(user);
++  if (!departmentId) {
++    // UNE ISSUE POUR LE SUPER ADMIN. Sans département à lui et sans service valide (jamais désigné,
++    // ou supprimé depuis), il n'avait que « aucun département rattaché » — et le seul geste qui
++    // désigne le service vivait sur l'écran d'un département qu'il ne pouvait plus ouvrir.
++    if (pilote) {
++      return (
++        <div className="space-y-5">
++          <PageHeader title="Moyens généraux" description="La caisse des moyens généraux de la société — l'exercice et le mois — et ses achats, au même endroit." />
++          <EmptyState
++            icon="Landmark"
++            title={serviceCourant ? "Le service des moyens généraux n'existe plus" : "Aucun service des moyens généraux n'est désigné"}
++            description="Choisissez le département qui tient la caisse de la société : c'est elle que tout le monde ouvrira en arrivant ici."
++          />
++          <ChangerDeService departements={departements} actuel={null} ouvertParDefaut />
++        </div>
++      );
++    }
++    return (
++      <div className="space-y-5">
++        <PageHeader title="Moyens généraux" description="La caisse d'un département — l'exercice et le mois — et ses achats, au même endroit." />
++        <EmptyState
++          icon="Building2"
++          title="Aucun département rattaché à votre compte"
++          description="La caisse et le budget se tiennent par département. Demandez aux ressources humaines de rattacher votre fiche employé — vos demandes d'achat, elles, fonctionnent déjà."
++        />
++      </div>
++    );
++  }
++
++  const view = await getGeneralMeans(user, departmentId, year);
++  if (!view) notFound();
++
++  // UN SEUL SERVICE À L'ÉCRAN, Super Admin compris (décision du 01/10 : « enlève les autres
++  // départements, laisse que l'Administration »). Le sélecteur qui lui ouvrait les moyens généraux
++  // de chaque département est retiré : pour tout le monde, les moyens généraux sont ceux de la
++  // société, et un sélecteur dirait le contraire. Le découpage par département reste la façon dont
++  // l'argent est IMPUTÉ — il se lit dans Budgets › par département, lien conservé ci-dessous.
++  // Le Super Admin garde ce qui n'appartient qu'à lui : voir QUEL département tient le service,
++  // et en désigner un autre (`ChangerDeService`) — sans ouvrir la caisse de cet autre.
++
++  // Les candidats à qui remettre une caisse : seule l'administration a besoin de cette liste.
++  const people = view.canAllot
++    ? await prisma.user.findMany({ where: { isActive: true }, select: { id: true, name: true }, orderBy: { name: "asc" } })
++    : [];
++
++  // LE CATALOGUE D'ARTICLES — le même que celui du Bureau du secrétariat, vu d'ici. Deux
++  // catalogues auraient produit deux vocabulaires, donc des consommations incomparables.
++  // La liste courte alimente les menus déroulants des tickets ; la liste détaillée n'est
++  // chargée que pour qui peut la tenir.
++  const canManageCatalog = userCan(user, "GENERAL_MEANS", "UPDATE");
++  const catalog = canManageCatalog
++    ? await prisma.officeSupplyArticle.findMany({
++        select: { id: true, name: true, category: true, unit: true, reference: true, estimatedPrice: true, supplierHint: true, active: true, notes: true },
++        orderBy: [{ active: "desc" }, { name: "asc" }],
++      })
++    : [];
++  const catalogRows = catalog.map((a) => ({ ...a, estimatedPrice: a.estimatedPrice ? Number(a.estimatedPrice) : null }));
++
++  // LES CASES BUDGÉTAIRES OUVERTES ICI. Liste volontairement pauvre : des destinations, sans
++  // montants ni consommation — classer une dépense ne suppose pas d'accéder au module Budget.
++  const budgetTargets = view.canSpend ? await generalMeansBudgetTargets() : [];
++
++  const health = budgetHealth(view.allocated, view.consumed);
++  const tone = health === "OVER_BUDGET" ? "danger" : health === "AT_RISK" ? "warning" : health === "UNSET" ? "default" : "success";
+ 
+   return (
+     <div className="space-y-5">
++      {/* Le département ne figure au titre que pour le Super Admin : c'est lui qui désigne le
++          service, il doit voir lequel est en vigueur. Pour les autres, il n'y en a qu'un. */}
++      {/* EN-TÊTE : LE CATALOGUE D'ARTICLES, ET LUI SEUL (décision de la Direction, 04/10 : « ne laisser
++          dans le header que le catalogue d'articles »). Le reste — la caisse, les dépenses, le choix du
++          service — n'a pas été retiré : il vit dans la page, sous l'en-tête. */}
+       <PageHeader
+-        title="Moyens généraux — Catalogue d'articles"
+-        description="Le référentiel des fournitures : les articles proposés dans les demandes d'achat."
+-      />
+-      <CatalogueArticles articles={lignes} peutModifier={peutModifier} />
++        title={pilote ? `Moyens généraux — ${view.department.path}` : "Moyens généraux"}
++        description="La caisse à deux horizons — l'exercice (l'année) et le mois — et le détail des dépenses avec leurs justificatifs. Tout achat porte sa facture ou son bon de paiement."
++      >
++        {canManageCatalog && <SuppliesManager articles={catalogRows} />}
++      </PageHeader>
++
++      {/* QUEL DÉPARTEMENT TIENT LES MOYENS GÉNÉRAUX DE LA SOCIÉTÉ — le réglage qui décide où tout le
++          monde atterrit. Il n'appartient qu'au Super Admin, et il n'ouvre la caisse d'aucun autre
++          département : une seule caisse à l'écran, celle du service désigné (§118.170). */}
++      {pilote && (
++        <div className="flex flex-wrap items-center gap-2">
++          <ServiceSwitch
++            departmentId={view.department.id} departmentName={view.department.path}
++            current={serviceCourant}
++          />
++          <ChangerDeService departements={departements} actuel={serviceCourant} />
++        </div>
++      )}
++
++      {/* TROIS INDICATEURS, PAS QUATRE. « Restant sur l'année » affichait allocation − consommé :
++          sans caisse annuelle réglée, cela donnait un « restant » NÉGATIF du montant déjà dépensé
++          (« −11 680 DZD »), qui ne veut rien dire pour personne. La consommation de l'année est
++          déjà là, avec son pourcentage quand une caisse existe ; le seul reste qui se dépense
++          vraiment est celui du mois, juste à côté. */}
++      <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
++        <KpiCard label={`Caisse de l'exercice ${year}`} value={formatCurrency(view.allocated)} icon="Wallet" />
++        <KpiCard
++          label="Consommé (année)" value={formatCurrency(view.consumed)} icon="Receipt" tone={tone}
++          hint={view.allocated > 0 ? `${consumedPercent(view.allocated, view.consumed)} % de la caisse annuelle` : "aucune caisse annuelle réglée"}
++        />
++        <KpiCard
++          label="Reste en caisse d'avance" value={view.cash ? formatCurrency(view.cash.fund.remaining) : "—"} icon="HandCoins"
++          tone={view.cash?.fund.overspent ? "danger" : view.cash?.fund.lowOnCash ? "warning" : "info"}
++          hint={view.cash
++            ? `${view.cash.fund.remittanceCount} remise${view.cash.fund.remittanceCount > 1 ? "s" : ""} en cours`
++            : "aucune somme remise"}
++        />
++      </div>
++
++
++      <Card>
++        <CardHeader>
++          <CardTitle className="flex items-center gap-2"><Wallet className="h-4 w-4 text-primary" /> Caisse d&apos;avance</CardTitle>
++        </CardHeader>
++        <CardContent>
++          <p className="mb-3 text-xs text-muted-foreground">
++            La part de la caisse de l&apos;exercice <strong>en main</strong> — pas un budget à côté, le
++            <strong> même argent</strong>. Elle est <strong>continue</strong> : chaque remise s&apos;ajoute au fond
++            et garde sa date, aucune ne clôt la précédente. La personne qui la détient confirme avoir reçu la
++            somme, puis chaque dépense en est déduite, justificatif scanné à l&apos;appui, jusqu&apos;à
++            épuisement — moment où elle demande une rallonge.
++          </p>
++          <CashPanel view={view} people={people} />
++        </CardContent>
++      </Card>
++
++      <Card>
++        <CardHeader>
++          <CardTitle>Toutes les dépenses {year} ({view.expenseCount})</CardTitle>
++          {/* La liste MÊLE les natures ; la caisse affichée plus haut, elle, n'en porte
++              qu'une. Sans cette phrase, la somme des lignes ne retomberait pas sur le
++              « Consommé » et on croirait à une erreur de calcul. */}
++          {view.otherConsumed > 0 && (
++            <p className="text-xs text-muted-foreground">
++              Dont <strong>{formatCurrency(view.otherConsumed)}</strong> imputés à d&apos;autres budgets
++              (métier, formation) — non déduits de la caisse des {DEPT_BUDGET_LABEL.OPERATING.toLowerCase()}.
++            </p>
++          )}
++          {view.truncated && (
++            <p className="text-xs text-muted-foreground">
++              Les {LIST_LIMIT} plus récentes sont affichées ; les totaux ci-dessus portent sur l&apos;année entière.
++            </p>
++          )}
++        </CardHeader>
++        {view.canSpend && (
++          <CardContent className="pb-0">
++            <p className="mb-2 text-xs text-muted-foreground">
++              <strong>Un seul endroit pour enregistrer un achat</strong>, qu&apos;il ait été réglé sur la caisse
++              du mois ou autrement (virement, carte, facture payée par les Finances). Le moyen de paiement se
++              choisit dans le formulaire, et se corrige après coup sur une dépense déjà saisie.
++            </p>
++            <ExpensePanel
++              departmentId={view.department.id} year={year} remaining={view.remaining}
++              articles={articleOptions} budgetTargets={budgetTargets}
++              cash={view.cash ? {
++                // « Reçue » se juge sur le FOND : une remise en attente de confirmation
++                // n'empêche pas de dépenser ce qui est déjà en main.
++                status: view.cash.fund.received > 0 ? "RECEIVED" : "ALLOTTED",
++                remaining: view.cash.fund.remaining,
++                // La caisse n'est proposée qu'à qui peut réellement en sortir de l'argent :
++                // offrir l'option à quelqu'un d'autre, c'est un refus après la saisie.
++                canSpend: view.isHolder || view.canAmendCash,
++              } : null}
++            />
++          </CardContent>
++        )}
++        <CardContent className="p-0">
++          {/* UNE SEULE LISTE, ET ELLE SE FILTRE. Les dépenses payées en liquide s'affichaient
++              aussi dans un bloc « Dépenses de la caisse » juste au-dessus : les mêmes achats,
++              deux fois, avec deux compteurs. « Caisse d'avance » est devenu un filtre. */}
++          <ExpenseTable
++            expenses={view.expenses}
++            canSpend={view.canSpend}
++            canAmendCash={view.canAmendCash}
++            articles={articleOptions}
++            budgetTargets={budgetTargets}
++            cashUsable={Boolean(view.cash && view.cash.fund.received > 0 && (view.isHolder || view.canAmendCash))}
++          />
++        </CardContent>
++      </Card>
+     </div>
+   );
+ }
+diff --git a/src/lib/navigation.test.ts b/src/lib/navigation.test.ts
+index 4ae5312..bad307f 100644
+--- a/src/lib/navigation.test.ts
++++ b/src/lib/navigation.test.ts
+@@ -159,6 +159,10 @@ describe("une entrée de menu porte le MÊME module que sa page", () => {
+     const mg = NAVIGATION.find((n) => n.href === "/moyens-generaux")!;
+     expect(mg.module).toBe("GENERAL_MEANS");
+     expect(mg.match ?? []).not.toContain("/moyens-generaux/annuaire");
++    // EN-TÊTE / HAUT DU MODULE (04/10) : aucun sous-menu ni onglet — le seul geste du haut de la page est
++    // le catalogue d'articles (bouton de la page). Les autres onglets/sous-menus ne reviennent pas.
++    expect(mg.tabs ?? [], "le module n'a pas d'onglets").toEqual([]);
++    expect(mg.children ?? [], "le module n'a pas de sous-menus").toEqual([]);
+     const espace = NAVIGATION.find((n) => n.href === "/mon-espace")!;
+     expect(espace.match).toContain("/mon-espace/annuaire");
+     expect((espace.tabs ?? []).map((t) => t.href)).toContain("/mon-espace/annuaire");
+diff --git a/src/lib/queries/budget.ts b/src/lib/queries/budget.ts
+index 72e8677..9a023f5 100644
+--- a/src/lib/queries/budget.ts
++++ b/src/lib/queries/budget.ts
+@@ -4,6 +4,7 @@ import { platformScope } from "@/lib/company";
+ import { toNumber } from "@/lib/utils";
+ import { canViewEnvelope, type SessionUser } from "@/lib/rbac";
+ import { generalMeansConsumption } from "@/lib/queries/budget-general-means";
++import { getAppSettings } from "@/lib/settings";
+ 
+ /** Une enveloppe est visible d'un non-gestionnaire seulement si l'admin lui a ouvert la
+  *  visualisation (rôle/personne) ou lui a délégué la gestion — sinon invisible (strict). */
+@@ -66,9 +67,9 @@ export interface AttributedTx {
+   status: string;
+   categoryId: string;
+   categoryName: string;
+-  /** Moyens généraux seulement : où la dépense se corrige. `null` aujourd'hui pour toutes — l'écran
+-   *  des moyens généraux ne montre plus que le catalogue d'articles (04/10), et un « Voir la
+-   *  dépense » qui mène là où elle n'est pas fait chercher ce qui n'y est pas (§118.170). */
++  /** Moyens généraux seulement : où la dépense se corrige. `null` quand elle n'est pas au SERVICE —
++   *  l'écran des moyens généraux ne montre plus que lui (§118.170), et un « Voir la dépense » qui
++   *  mène là où elle n'est pas fait chercher ce qui n'y est pas. */
+   lien?: string | null;
+ }
+ 
+@@ -324,7 +325,7 @@ export async function getBudgetOverview(
+   // affichait la consommation de l'entreprise entière — d'où les « 42 millions consommés »
+   // impossibles. Chaque enveloppe ne compte QUE ses propres catégories ; le non-imputé a sa
+   // propre alerte (« à imputer »), il ne doit jamais peser dans une enveloppe qui ne l'a pas reçu.
+-  const [sums, expenseSums, generalMeans] = await Promise.all([
++  const [sums, expenseSums, generalMeans, reglages] = await Promise.all([
+     catIds.length
+       ? prisma.financeTransaction.groupBy({
+           by: ["budgetCategoryId", "status"],
+@@ -343,6 +344,7 @@ export async function getBudgetOverview(
+     // Les achats des moyens généraux, classés par ceux qui les font — c'est ce qui remplit
+     // l'enveloppe « Moyens généraux » sans double saisie.
+     generalMeansConsumption(catIds, from, to),
++    getAppSettings(),
+   ]);
+ 
+   const consumedByCat = new Map<string | null, number>();
+@@ -461,10 +463,7 @@ export async function getBudgetOverview(
+       date: r.date.toISOString(), label: r.label, amount: r.amount,
+       counterparty: r.department || null, status: "SETTLED",
+       categoryId: r.categoryId, categoryName: catNameById.get(r.categoryId) ?? "—",
+-      // Aucun écran ne montre plus le détail d'une dépense des moyens généraux (décision du 04/10 :
+-      // l'écran ne garde que le catalogue d'articles) — un « Voir la dépense » mènerait là où elle
+-      // n'est pas (§118.83).
+-      lien: null,
++      lien: r.departmentId === reglages.generalMeansDepartmentId ? "/moyens-generaux" : null,
+     })),
+   ].sort((a, b) => b.date.localeCompare(a.date));
+ 
+diff --git a/src/lib/queries/general-means-service.test.ts b/src/lib/queries/general-means-service.test.ts
+index e47f733..3b81afa 100644
+--- a/src/lib/queries/general-means-service.test.ts
++++ b/src/lib/queries/general-means-service.test.ts
+@@ -105,16 +105,15 @@ suite("Moyens généraux — le service, et lui seul", () => {
+     expect(await resolveGeneralMeansDepartment(await acteur(u.sa))).toBeNull();
+   });
+ 
+-  it("3. le budget compte TOUTES les dépenses ; « Voir la dépense » ne mène plus nulle part — aucun écran ne les montre (04/10)", async () => {
++  it("3. le budget compte TOUTES les dépenses ; « Voir la dépense » ne mène que vers celles que l'écran montre", async () => {
+     SERVICE = dService;
+     const vue = await getBudgetOverview(await acteur(u.sa), envelopeId);
+     expect(vue, "prémisse : le Super Admin ouvre l'enveloppe").not.toBeNull();
+     const mg = vue!.attributed.transactions.filter((t) => t.kind === "GENERAL_MEANS" && [depService, depAutre].includes(t.id));
+     // Rien n'est retiré du budget : la dépense d'un autre département y est toujours COMPTÉE…
+     expect(mg.map((t) => [t.id, t.amount]).sort()).toEqual([[depAutre, 3_500], [depService, 12_000]].sort());
+-    // … mais AUCUNE n'a de lien : l'écran des moyens généraux ne garde que le catalogue d'articles
+-    // (décision du 04/10). Celle du SERVICE est le témoin — c'est elle qui avait un lien hier.
+-    expect(mg.find((t) => t.id === depService)?.lien).toBeNull();
++    // … mais seule celle du service a un lien : l'écran des moyens généraux ne montre plus que lui.
++    expect(mg.find((t) => t.id === depService)?.lien).toBe("/moyens-generaux");
+     expect(mg.find((t) => t.id === depAutre)?.lien).toBeNull();
+   });
+ });
+@@ -122,26 +121,60 @@ suite("Moyens généraux — le service, et lui seul", () => {
+ /** La source sans ses commentaires — un cliquet ne s'accroche pas à la prose qui le décrit (§118.79d). */
+ const sansCommentaires = (src: string) => src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:"'`])\/\/.*$/gm, "$1");
+ 
+-describe("Moyens généraux — l'écran ne garde QUE le catalogue d'articles (décision du 04/10)", () => {
+-  // « Ne laisse que le catalogue d'articles, enlève le reste. » La caisse, les dépenses, le choix du
+-  // service, l'annuaire et les budgets par département quittent l'ÉCRAN (aucune action serveur
+-  // n'est retirée). La décision du 01/10 (§118.170 : « Changer de service… » sur l'écran) est donc
+-  // RETOURNÉE par la Direction : le banc tient la règle du jour, dans les deux sens.
+-  const page = () => sansCommentaires(readFileSync(path.join(RACINE, "src/app/(app)/moyens-generaux/page.tsx"), "utf8"));
+-
+-  it("la page monte le catalogue — le MÊME composant que le Bureau du secrétariat — sous son titre", () => {
+-    const p = page();
+-    // PRÉMISSE : on lit bien la page du module — sans quoi les absences ci-dessous ne prouveraient rien.
+-    expect(p).toMatch(/export default async function MoyensGenerauxPage/);
+-    expect(p).toMatch(/<CatalogueArticles articles=\{lignes\} peutModifier=\{peutModifier\} \/>/);
+-    expect(p).toMatch(/title="Moyens généraux — Catalogue d'articles"/);
++describe("Moyens généraux — plus aucune porte vers les autres départements à l'écran", () => {
++  it("la page ne lit plus `?dept=` et ne monte plus de sélecteur de départements", () => {
++    const page = sansCommentaires(readFileSync(path.join(RACINE, "src/app/(app)/moyens-generaux/page.tsx"), "utf8"));
++    // PRÉMISSE : on lit bien la page qui résout le service — sans quoi l'absence ne prouverait rien.
++    expect(page).toMatch(/resolveGeneralMeansDepartment\(user\)/);
++    expect(page, "la page lit encore ?dept=").not.toMatch(/searchParams[^;]*\bdept\b|\.dept\b/);
++    expect(page).not.toMatch(/DepartmentSwitcher/);
+   });
+ 
+-  it("et plus rien d'autre : ni caisse, ni dépenses, ni service, ni annuaire, ni budgets par département", () => {
+-    const p = page();
+-    for (const retire of [/CashPanel/, /ExpensePanel/, /ExpenseTable/, /ServiceSwitch/, /ChangerDeService/, /resolveGeneralMeansDepartment/,
+-      /mon-espace\/annuaire/, /budgets\/departements/, /La caisse à deux horizons/, /searchParams/]) {
+-      expect(p, `la page porte encore ${retire}`).not.toMatch(retire);
++  it("le Super Admin garde de quoi DÉSIGNER le service — sur l'écran du service ET sur l'écran vide, sinon le réglage n'a plus d'écrivain", () => {
++    // Le seul geste qui écrit le réglage vivait sur l'écran d'un AUTRE département (« En faire le
++    // service »), que plus personne ne peut ouvrir d'ici. Sans ces deux points d'appel, le service
++    // ne se changerait plus jamais, et un Super Admin sans département resterait devant un écran
++    // vide sans issue (§118.131, §118.63). Le POINT D'APPEL, pas le corps du composant (§118.49).
++    const page = sansCommentaires(readFileSync(path.join(RACINE, "src/app/(app)/moyens-generaux/page.tsx"), "utf8"));
++    expect(page.match(/<ChangerDeService departements=\{departements\}/g) ?? []).toHaveLength(2);
++    expect(page, "l'écran vide du Super Admin propose la désignation ouverte d'office").toMatch(/<ChangerDeService departements=\{departements\} actuel=\{null\} ouvertParDefaut \/>/);
++    expect(page, "l'écran du service la propose, fermée, à côté de l'état du réglage").toMatch(/<ChangerDeService departements=\{departements\} actuel=\{serviceCourant\} \/>/);
++    // La liste des départements n'est chargée que pour le Super Admin : elle n'ouvre la caisse
++    // d'aucun d'eux, mais rien ne justifie de la servir à qui ne peut rien en faire.
++    expect(page).toMatch(/const departements = pilote\s*\?/);
++  });
++
++  it("EN-TÊTE : le catalogue d'articles, et lui seul — la caisse, les dépenses et le service restent dans la PAGE (décision du 04/10)", () => {
++    const page = sansCommentaires(readFileSync(path.join(RACINE, "src/app/(app)/moyens-generaux/page.tsx"), "utf8"));
++    // L'en-tête de la page de la CAISSE (celui qui porte le titre du service), pas ceux des écrans vides.
++    const debut = page.lastIndexOf("<PageHeader", page.indexOf("title={pilote ?"));
++    const fin = page.indexOf("</PageHeader>", debut);
++    // PRÉMISSE : on isole bien l'en-tête — sans quoi les absences ci-dessous ne prouveraient rien.
++    expect(debut).toBeGreaterThan(-1);
++    expect(fin).toBeGreaterThan(debut);
++    const entete = page.slice(debut, fin);
++    expect(entete, "le catalogue est dans l'en-tête").toMatch(/<SuppliesManager articles=\{catalogRows\} \/>/);
++    for (const interdit of [/ServiceSwitch/, /ChangerDeService/, /<Link/, /mon-espace\/annuaire/, /budgets\/departements/, /<CashPanel/, /<ExpensePanel/, /<ExpenseTable/]) {
++      expect(entete, `l'en-tête porte encore ${interdit}`).not.toMatch(interdit);
++    }
++  });
++
++  it("POINT D'APPEL : la page rend la caisse d'avance, les dépenses et leurs gestes — rien de ce qui est enregistré n'est masqué", () => {
++    const page = sansCommentaires(readFileSync(path.join(RACINE, "src/app/(app)/moyens-generaux/page.tsx"), "utf8"));
++    expect(page).toMatch(/<CashPanel view=\{view\} people=\{people\} \/>/);
++    expect(page).toMatch(/<ExpensePanel\b/);
++    expect(page).toMatch(/<ExpenseTable\b/);
++    expect(page, "une seule caisse : celle du service désigné").toMatch(/getGeneralMeans\(user, departmentId, year\)/);
++    // Les gestes de la caisse existent dans le composant que la page monte (rallonge, remise, confirmation).
++    const cash = readFileSync(path.join(RACINE, "src/app/(app)/moyens-generaux/cash-panel.tsx"), "utf8");
++    for (const geste of ["allotPettyCash", "confirmPettyCashReceipt", "requestPettyCashTopUp", "decidePettyCashTopUp", "annulerRallongeCaisse"]) {
++      expect(cash, `la caisse ne propose plus ${geste}`).toMatch(new RegExp(`${geste}\\(`));
++    }
++  });
++
++  it("les notifications de la caisse mènent à la page qui porte le geste (constats 14 et 15 de l'audit du 04/10)", () => {
++    for (const f of ["src/lib/actions/expense-actions.ts", "src/lib/actions/payment-centre-actions.ts"]) {
++      expect(sansCommentaires(readFileSync(path.join(RACINE, f), "utf8")), f).toMatch(/link: "\/moyens-generaux"/);
+     }
+   });
+ 

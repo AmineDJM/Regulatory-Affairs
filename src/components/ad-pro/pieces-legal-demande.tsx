@@ -8,15 +8,19 @@ import { DocumentList } from "@/components/documents/document-list";
 import { lienFichierEmis } from "@/lib/legal/fichiers-emis";
 import { formatCurrency } from "@/lib/utils";
 import { chargerPiecesLegalDeLaDemande } from "@/lib/queries/pieces-legal-demande";
+import { supprimerFichierDePieceDeLaDemande } from "@/lib/actions/ad-pro-pieces-actions";
+import { RaisonPieceNonSupprimable, SupprimerPieceLegal } from "./supprimer-piece-legal";
 
 /** Au-delà de ce nombre de pièces, la liste se replie : la fiche reste lisible. */
 const REPLIE_AU_DELA = 4;
 
 /**
  * « PIÈCES LEGAL DE LA DEMANDE » — les pièces du registre rattachées DIRECTEMENT à la demande
- * (conventions, contrats, devis d'avant les postes…), et qu'aucun poste ne porte. Lecture seule :
- * la gestion se fait sur la fiche Legal. Un seul composant pour toutes les natures ; la lecture et
- * ses droits vivent dans `chargerPiecesLegalDeLaDemande`. Rien à montrer ⇒ rien n'est rendu.
+ * (conventions, contrats, devis d'avant les postes…), et qu'aucun poste ne porte. On peut les
+ * SUPPRIMER d'ici — la pièce (réversible : corbeille) ou l'un de ses fichiers — par la même décision
+ * que les actions (§118.209) ; le reste de leur gestion se fait sur la fiche Legal. Un seul composant
+ * pour toutes les natures ; la lecture et ses droits vivent dans `chargerPiecesLegalDeLaDemande`.
+ * Rien à montrer ⇒ rien n'est rendu.
  */
 export async function PiecesLegalDeLaDemande({ spectateur, entityType, entityId }: {
   spectateur: SessionUser;
@@ -43,8 +47,14 @@ export async function PiecesLegalDeLaDemande({ spectateur, entityType, entityId 
                 {[l.nature, l.reference, l.montant !== null ? formatCurrency(l.montant) : null].filter(Boolean).join(" · ")}
               </span>
             </span>
-            {l.statut && <Badge tone={l.statut.tone} dot={false}>{l.statut.label}</Badge>}
+            <span className="flex shrink-0 items-center gap-1">
+              {l.statut && <Badge tone={l.statut.tone} dot={false}>{l.statut.label}</Badge>}
+              <SupprimerPieceLegal id={l.id} nom={l.reference ? `${l.reference} — ${l.titre}` : l.titre} offert={l.suppression.piece.offert} />
+            </span>
           </div>
+          {/* CE QUI ENGAGE LA PIÈCE se DIT, avec le geste qui reste (§118.83) : une seule phrase par pièce — celle qui
+              refuse la pièce couvre aussi ses fichiers, qui ne se ferment jamais seuls. */}
+          {!l.suppression.piece.offert && <RaisonPieceNonSupprimable raison={l.suppression.piece.raison} />}
           {(l.plateforme.pdf || l.plateforme.docx) && (
             <p className="mt-1 flex flex-wrap items-center gap-2 pl-3 text-[0.6875rem] text-muted-foreground">
               Version plateforme :
@@ -54,7 +64,10 @@ export async function PiecesLegalDeLaDemande({ spectateur, entityType, entityId 
           )}
           {l.documents.length > 0 && (
             <div className="mt-1.5 border-l-2 border-border pl-3">
-              <DocumentList documents={l.documents} canDelete={false} canRename={false} canEdit={false} path={`/legal/${l.id}`} />
+              <DocumentList
+                documents={l.documents} canDelete={l.suppression.fichiers.offert} canRename={false} canEdit={false}
+                path={`/legal/${l.id}`} supprimer={supprimerFichierDePieceDeLaDemande}
+              />
             </div>
           )}
         </li>
@@ -73,7 +86,7 @@ export async function PiecesLegalDeLaDemande({ spectateur, entityType, entityId 
       </CardHeader>
       <CardContent className="space-y-2 text-sm">
         <p className="text-xs text-muted-foreground">
-          Rattachées directement à la demande, hors postes — la gestion se fait dans Legal.
+          Rattachées directement à la demande, hors postes — on peut les supprimer d&apos;ici (réversible) ; le reste de leur gestion se fait dans Legal.
         </p>
         {p.lignes.length > REPLIE_AU_DELA ? (
           <details>

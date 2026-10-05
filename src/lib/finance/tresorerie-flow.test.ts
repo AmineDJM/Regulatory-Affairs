@@ -221,6 +221,17 @@ suite("Trésorerie ancrée — comptes, règlement, solde et disponible", () => 
     expect([sga, bna, cpa].every((id) => tSa.comptes.some((c) => c.id === id))).toBe(true);
   });
 
+  it("LES CASES D'ENTITÉS : choisir une entité ne montre, ne compte et ne somme que SES comptes — « toutes » les montre tous", async () => {
+    const tous = await chargerTresorerie(u.sa);
+    const deA = await chargerTresorerie(u.sa, socA);
+    const deB = await chargerTresorerie(u.sa, socB);
+    expect(deA.comptes.map((c) => c.id).sort()).toEqual([sga, cpa].sort());
+    expect(deB.comptes.map((c) => c.id)).toEqual([bna]);
+    // Le total suit les comptes montrés — jamais le total du groupe sous la case d'une entité.
+    expect(deA.total).toBeCloseTo(deA.comptes.reduce((t, c) => t + c.solde, 0), 2);
+    expect(deB.total).toBeCloseTo(tous.comptes.find((c) => c.id === bna)!.solde, 2);
+  });
+
   it("LES PAIEMENTS AUTORISÉS : le prédicat du verrou — en attente, refusé ou déjà réglé n'y sont pas ; reporté, si", async () => {
     const mien = async (ref: string, amount: number, status: "PENDING" | "PAID", centralStatus: string, deferredUntil?: Date) => {
       const o = await prisma.expenseOrder.create({
@@ -248,7 +259,7 @@ suite("Trésorerie ancrée — comptes, règlement, solde et disponible", () => 
   it("LE DISPONIBLE se calcule avec CE prédicat — et c'est son point d'appel qu'on vérifie (§118.49)", () => {
     const src = readFileSync("src/lib/queries/finance.ts", "utf8");
     const corps = src.slice(src.indexOf("export async function chargerTresorerie("));
-    expect(corps).toMatch(/expenseOrder\.aggregate\(\{\s*where: await companyScopedWhere\(userId, ORDRES_AUTORISES_NON_REGLES\)/);
+    expect(corps).toMatch(/expenseOrder\.aggregate\(\{\s*where: await companyScopedWhere\(userId, entiteId \? \{ \.\.\.ORDRES_AUTORISES_NON_REGLES, companyId: entiteId \} : ORDRES_AUTORISES_NON_REGLES\)/);
     expect(corps).toMatch(/disponible: disponible\(total, montantAutorise\)/);
   });
 

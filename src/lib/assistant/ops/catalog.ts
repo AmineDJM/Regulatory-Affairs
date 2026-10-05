@@ -1,5 +1,5 @@
 import type { CurrentUser } from "@/lib/session";
-import { userCan, hasGlobalView } from "@/lib/rbac";
+import { userCan, hasGlobalView, peutGererSpecialites } from "@/lib/rbac";
 import { canManageLetterheads } from "@/lib/office/letterhead";
 import { siegeAuCentreAdPro } from "@/platform/in-process/capacites";
 
@@ -2652,7 +2652,9 @@ export const OPS_CATALOG: OpMeta[] = [
     aliases: ["crée la spécialité", "ajoute une spécialité médicale"],
     risk: "NORMAL",
     summary: "Crée une spécialité au référentiel (doublon refusé par l'action).",
-    gate: (u) => userCan(u, "MEDICAL", "CREATE"),
+    // La règle du RÉFÉRENTIEL (§118.209) — la même que l'écran et l'action : la Direction Marketing et les
+    // directeurs des opérations le gèrent sans la Promotion médicale en écriture.
+    gate: (u) => peutGererSpecialites(u, "CREATE"),
     covers: ["medical-actions:createSpecialty"],
   },
   {
@@ -2661,7 +2663,9 @@ export const OPS_CATALOG: OpMeta[] = [
     aliases: ["renomme la spécialité", "change la couleur de la spécialité"],
     risk: "NORMAL",
     summary: "Renomme / recolore une spécialité — le libellé dénormalisé est resynchronisé sur TOUS ses praticiens ; couleur et notes existantes rejouées.",
-    gate: (u) => userCan(u, "MEDICAL", "UPDATE"),
+    // La règle du RÉFÉRENTIEL (§118.209) — la même que l'écran et l'action : la Direction Marketing et les
+    // directeurs des opérations le gèrent sans la Promotion médicale en écriture.
+    gate: (u) => peutGererSpecialites(u, "UPDATE"),
     covers: ["medical-actions:updateSpecialty"],
   },
   {
@@ -2670,7 +2674,9 @@ export const OPS_CATALOG: OpMeta[] = [
     aliases: ["supprime la spécialité"],
     risk: "SENSITIVE",
     summary: "Supprime une spécialité — les praticiens passent « Sans spécialité », AUCUNE fiche n'est supprimée.",
-    gate: (u) => userCan(u, "MEDICAL", "DELETE"),
+    // La règle du RÉFÉRENTIEL (§118.209) — la même que l'écran et l'action : la Direction Marketing et les
+    // directeurs des opérations le gèrent sans la Promotion médicale en écriture.
+    gate: (u) => peutGererSpecialites(u, "DELETE"),
     covers: ["medical-actions:deleteSpecialty"],
   },
   {
@@ -3090,10 +3096,10 @@ export const OPS_CATALOG: OpMeta[] = [
   },
   {
     tool: "adpro_operation", op: "cancel_congress_request", module: "Congrès",
-    uiLabel: "Annuler la demande",
-    aliases: ["annule la demande de congrès", "annule la prise en charge"],
+    uiLabel: "Retirer la demande",
+    aliases: ["annule la demande de congrès", "annule la prise en charge", "retire la demande de congrès", "retire la prise en charge"],
     risk: "SENSITIVE",
-    summary: "Annule une demande de congrès / événement NON encore validée (le demandeur, un validateur du module, ou la Direction).",
+    summary: "Retire une demande de congrès / événement NON encore validée : elle est SUPPRIMÉE avec ses postes, ses pièces et ses ordres non réglés, et reste récupérable depuis la corbeille par le Super Admin (le demandeur, un validateur du module, ou la Direction).",
     gate: () => true,
     gateNote: "demandeur ou validateur (revérifié par l'action)",
     covers: ["congress-request-actions:cancelCongressRequest"],
@@ -4297,9 +4303,9 @@ export const OPS_CATALOG: OpMeta[] = [
     uiLabel: "Supprimer un rapport",
     aliases: ["supprime mon rapport terrain"],
     risk: "SENSITIVE",
-    summary: "Suppression DÉFINITIVE du rapport, de son audio et de ses pièces jointes (comptées, stockage libéré).",
+    summary: "Supprime le rapport ET ses pièces jointes — RÉVERSIBLE : le Super Admin le restaure depuis la corbeille. Refusé quand le compte rendu porte du matériel remis au stock, ou quand il est le seul rapport d'une visite de l'emploi du temps.",
     gate: () => true,
-    gateNote: "auteur ou manager des rapports (revérifié par l'action)",
+    gateNote: "auteur, ou hiérarchie qui gère les rapports dans son périmètre d'entité (revérifié par l'action)",
     covers: ["field-report-actions:deleteFieldReport"],
   },
   {

@@ -1,0 +1,869 @@
+diff --git a/CLAUDE.md b/CLAUDE.md
+index 9ee3f04..345bcd1 100644
+--- a/CLAUDE.md
++++ b/CLAUDE.md
+@@ -1778,3 +1778,11 @@ Versionnés : `graphify-out/{graph.json, graph.html, GRAPH_REPORT.md, .graphify_
+ **Ce qui reste, nommé.** La route ZIP du Drive garde son plafond de 300 Mo (JSZip) : elle est à porter sur le même lecteur. Un ZIP stocké en base de plus de 400 Mo n'est pas ouvert (il est téléchargeable) — le cas ne se produit plus dès que le stockage objet est branché, les gros fichiers partant en direct. Aucun échange réel avec le bucket n'a eu lieu depuis ce conteneur (le bucket est simulé, la plage `Range` est exercée par un faux) ; le premier dépôt réel de plusieurs Go se vérifie en production. Sans stockage objet, la limite reste celle du chemin ordinaire et le refus nomme les variables à poser.
+ 
+ 208. **Un correctif qui dépend d'une commande qu'on ne contrôle pas ne corrige rien.** Le déploiement Render mourait en « heap out of memory » à « Checking validity of types » : le typecheck intégré à `next build` consomme ≈ 4,7 Go (Prisma + 730 K lignes) dans un tas d'environ 4 Go. Premier correctif : un processus tsc dédié dans `build:render`. **Il ne s'est jamais appliqué** — le journal Render montrait `npx next build` NU : la commande du tableau de bord remplace celle de `render.yaml`. Et la branche clonée (`claude/hopeful-goodall-phd0nb`) ne portait de toute façon aucun de nos commits : deux causes, deux endroits où chercher avant d'accuser le code. Le correctif vit maintenant dans `next.config.mjs` (phase `phase-production-build` + variable `RENDER`) : tsc sur `tsconfig.build.json` (la production, sans les tests : 4,7 → 3,7 Go ; `npm run typecheck` vérifie tout) dans un processus à tas de 5 Go AVANT la compilation, et une erreur de type ARRÊTE le build — vérifié en injectant une erreur (build en échec avant toute compilation, arbre restauré). Mesuré, simulation de Render (`NODE_OPTIONS=--max-old-space-size=4096 RENDER=1 npx next build`, dossier vide) : code 0 en 7 min 53. **Ma première simulation était fausse** : sans plafond, ce conteneur plafonne à 2 Go (Node 22) et la COMPILATION mourait, ce qui ressemblait à un échec du correctif ; on simule le tas de la cible (≈ 4 Go sur Render), pas celui de la machine de développement (§118.84 : par quel chemin, avec quels réglages ?). Un build local et `next start` sont inchangés.
++
++209. **« Donne la gestion des spécialités, dans Force de vente, au marketing » — un droit donné par une règle PRÉCISE plutôt que par un module élargi, et un écran monté par deux portes.** Le référentiel des spécialités vivait dans Annuaires › Spécialités (§118.180), gardé par `peutGererSpecialites` : la Promotion médicale, plus les deux directeurs des opérations (04/10). La Direction Marketing (`PRODUCT_MANAGER`) n'a de la Promotion médicale et de la Force de vente que la LECTURE : lui donner l'écriture de l'un ou l'autre module lui aurait ouvert les praticiens, les visites, les Business Units, les affectations (§118.16). Le rôle entre donc dans la règle elle-même, les quatre gestes, sur le seul référentiel — rôle principal OU secondaire, comme les directeurs des opérations. Le Manager Promotion médicale y est déjà par son droit de module (MANAGE) : on ne lui ajoute pas un rôle que la console pourrait resserrer.
++
++**UN ÉCRAN, DEUX PORTES (§118.5).** L'onglet « Spécialités » de la Force de vente (`/planning/specialites`) monte `EcranSpecialites` — le MÊME composant, le même chargeur, les mêmes actions qu'Annuaires › Spécialités ; il vit dans `components/directory/` et refuse de lui-même avant de charger (le menu et la page ne sont pas les seules gardes). L'onglet ne suit PAS `canConfigure` : `PlanningTabs` reçoit `specialites` en prop OBLIGATOIRE (un appelant qui l'oublierait cacherait l'onglet à la Direction Marketing, et le typecheck nomme chaque page) ; elle le voit sans gagner Business Units ni Paramètres. Chaque écriture revalide TOUS les écrans du référentiel (`CHEMINS_SPECIALITES`, une seule liste) — y compris les actions des BU, dont les noms s'affichent sur la ligne de chaque spécialité.
++
++**QUI D'AUTRE POSAIT LA QUESTION ? (§118.61)** Les trois ops d'Adam (`create_specialty`, `update_specialty`, `delete_specialty`) portaient `gate: userCan(u, "MEDICAL", …)` : elles auraient répondu « je ne peux pas » à la Direction Marketing que l'écran laisse faire (§118.63). Elles lisent la même règle. Les phrases qui nomment le chemin (la BU sans spécialité, la feuille des praticiens, la parité) disent les deux onglets (§118.128). L'artefact des contrats régénéré est IDENTIQUE (893 actions / 869 appelables / 23 illisibles).
++
++**Un acteur pour chaque question (§118.153).** « Pour qui l'ai-je vérifié ? » : la Direction Marketing (sans vue globale, sans écriture sur les deux modules — prémisses vérifiées), le Manager Promotion médicale, un compte à la Promotion médicale retirée par la console (il lit la Force de vente, la règle le refuse : page, onglet, cinq actions), la Logistique (aucune des deux). Un rôle qui a la Force de vente sans la Promotion médicale n'existe pas dans la matrice par défaut : c'est la console qui le fabrique, et le banc le fabrique de même. **Ce qui reste, nommé** : un compte dont la Promotion médicale est retirée mais qui reste Direction Marketing gère le référentiel (la règle est un rôle, comme pour les directeurs des opérations) ; ses comptes de fiches (« N praticiens ») et le rattachement d'un libellé se lisent dans sa portée `MEDICAL` — sans module, ils valent zéro. Les délégués et le National Sales, qui contribuent à la Promotion médicale, voient aussi l'onglet (lecture et leurs gestes de contribution, comme dans Annuaires) : une seule règle pour les deux écrans.
+diff --git a/README.md b/README.md
+index 8972aed..bdb7d72 100644
+--- a/README.md
++++ b/README.md
+@@ -212,13 +212,13 @@ logistique** et **Market Intelligence** sont **retirés du service** depuis 2026
+ | **Bons de commande** | `/bons-de-commande` | **Module À PART** (`PURCHASE_ORDERS`, depuis le 01/10 — l'ancienne adresse sous les Finances redirige) : la file des BC **à signer** (validés par leur centre, ou sous le seuil des BC), la pièce à lire, **Signer** ou **Renvoyer à l'émetteur**. « Voir » ouvre la file, « Modifier » est le droit de signer — par défaut Direction, Directeur Général et Finances ; le Directeur des Opérations la lit. Le compositeur de pièces y a son bouton. → [détails](#bons-de-commande--le-seuil-puis-la-signature-des-finances-118149) |
+ | **Legal** | `/legal` | Le **registre des documents légaux** (`LEGAL`) — contrats et avenants, conventions, accords de confidentialité, assurances, licences, baux, et la **chaîne d'achat** devis → bon de commande → facture → avoir —, avec ses **lecteurs désignés** (un document restreint n'existe que pour eux), ses échéances et rappels, et la **fabrique** de pièces au papier en-tête (« Composer une pièce »). Les Finances n'y voient que la chaîne d'achat. Sous-menu **Coordonnées des entités** (`/legal/identites`). → [chaîne d'achat](#la-chaîne-du-dossier-dachat--devis--bc--facture--règlement-dun-seul-écran) |
+ | **Courriers** | `/courriers` | Le **registre des courriers** (`MAIL_REGISTER`) : arrivées et départs, n° de chrono, expéditeur et destinataire choisis dans l'annuaire, direction et personne concernées, **dossiers de classement**, **plusieurs pièces** par courrier (chacune avec son destinataire), classement depuis le Drive sans copie. Ce n'est pas une messagerie : c'est la trace des plis. → [détails](#courriers--dossiers-de-classement-et-autant-de-pièces-quil-en-faut) |
+-| **Annuaires** | `/annuaires` | **Module à part du pôle Administration** (`DIRECTORIES`) qui **centralise tous les annuaires** en onglets : **Médecins**, **Pharmaciens** (le grade `PHARMACIEN` de la même feuille de praticiens), **Établissements**, **Spécialités** (le référentiel : ajouter, renommer, fusionner, retirer, et rattacher les spécialités écrites à la main sur les fiches — gardé par la Promotion médicale, c'est une structure de l'annuaire), **Partenaires** (les contacts extérieurs de la société), **Personnes** (l'annuaire interne) et **Autres annuaires** (spécialités, fournisseurs Regulatory, partenaires courriers, lieux de stock — avec leur compte et le lien vers leur écran, ou « accès réservé »). **La porte est ouverte à tous** (accès implicite `VIEW`, comme « Mon équipe ») et **n'ouvre rien de plus** : chaque onglet est gardé par le module de SON référentiel (`MEDICAL` pour les trois premiers, `WORKSPACE` pour Partenaires et Personnes) — un lecteur sans Promotion médicale ne voit pas les onglets médicaux, et l'adresse tapée à la main refuse de la même façon. **Accès PAR ANNUAIRE** : dans la console (compte › accès, ou « Accès par module »), un accès **Personnalisé** au module Annuaires coche les annuaires à ouvrir — médecins, pharmaciens, établissements, partenaires, personnes — avec les gestes cochés (créer, modifier, supprimer), **sans** donner le module du référentiel : l'assistante de direction reçoit les établissements sans toute la Promotion médicale. L'ouverture **s'ajoute** au rôle (une case oubliée ne retire rien), l'annuaire s'ouvre **en entier** (un référentiel, pas un portefeuille), et la structure (annuaires nommés, colonnes, import de fichier) reste à la Promotion médicale. Les écrans d'origine `/medical/annuaire` et `/mon-espace/annuaire` restent en place et lisent les **mêmes chargeurs** (`lib/queries/annuaires.ts`) : deux portes, une lecture ; `/medical/etablissements` **redirige** vers `/annuaires/etablissements`, seul écran des établissements et de leurs **services**. → [détails](#annuaires--praticiens-et-contacts-de-lentreprise) |
++| **Annuaires** | `/annuaires` | **Module à part du pôle Administration** (`DIRECTORIES`) qui **centralise tous les annuaires** en onglets : **Médecins**, **Pharmaciens** (le grade `PHARMACIEN` de la même feuille de praticiens), **Établissements**, **Spécialités** (le référentiel : ajouter, renommer, fusionner, retirer, et rattacher les spécialités écrites à la main sur les fiches — gardé par `peutGererSpecialites` : la Promotion médicale, les deux directeurs des opérations et la Direction Marketing — c'est une structure de l'annuaire ; le même écran est monté dans Force de vente › Spécialités), **Partenaires** (les contacts extérieurs de la société), **Personnes** (l'annuaire interne) et **Autres annuaires** (spécialités, fournisseurs Regulatory, partenaires courriers, lieux de stock — avec leur compte et le lien vers leur écran, ou « accès réservé »). **La porte est ouverte à tous** (accès implicite `VIEW`, comme « Mon équipe ») et **n'ouvre rien de plus** : chaque onglet est gardé par le module de SON référentiel (`MEDICAL` pour les trois premiers, `WORKSPACE` pour Partenaires et Personnes) — un lecteur sans Promotion médicale ne voit pas les onglets médicaux, et l'adresse tapée à la main refuse de la même façon. **Accès PAR ANNUAIRE** : dans la console (compte › accès, ou « Accès par module »), un accès **Personnalisé** au module Annuaires coche les annuaires à ouvrir — médecins, pharmaciens, établissements, partenaires, personnes — avec les gestes cochés (créer, modifier, supprimer), **sans** donner le module du référentiel : l'assistante de direction reçoit les établissements sans toute la Promotion médicale. L'ouverture **s'ajoute** au rôle (une case oubliée ne retire rien), l'annuaire s'ouvre **en entier** (un référentiel, pas un portefeuille), et la structure (annuaires nommés, colonnes, import de fichier) reste à la Promotion médicale. Les écrans d'origine `/medical/annuaire` et `/mon-espace/annuaire` restent en place et lisent les **mêmes chargeurs** (`lib/queries/annuaires.ts`) : deux portes, une lecture ; `/medical/etablissements` **redirige** vers `/annuaires/etablissements`, seul écran des établissements et de leurs **services**. → [détails](#annuaires--praticiens-et-contacts-de-lentreprise) |
+ | **Site web** | `/site-web` | **Pôle Administration** (`SITE_WEB`) : l'ERP **publie** les **offres d'emploi** et les **articles de blog** du site public **adventumdz.com** — il en est la source de vérité, le site n'est jamais saisi à la main pour ces contenus. Trois onglets : **Publication** (une phrase quand rien ne part, contenus envoyés et leur état sur le site — *À envoyer*, *En attente*, *Nouvel essai prévu*, *En ligne*, *Retiré du site*, *Refusé par le site*, *Échec d'envoi* —, journal des derniers échanges, dernier rapprochement ; la **liaison** elle-même — clé, vérification, rapprochement à la demande, **mise en service** — vit dans Console d'Administration › **Site web (connexion)**, Super Admin seul, `peutGererLaLiaison`), **Articles** (éditeur Markdown avec aperçu, sommaire, temps de lecture, refus d'un `# Titre` avant l'envoi) et **Offres d'emploi** (préparées depuis une demande de recrutement, **jamais** avec la rémunération ni la justification). Chaque envoi part par une **file** qui réessaie, et un **rapprochement quotidien** relit ce que le site détient. La liaison marche **dans les deux sens** : la clé se **génère en un clic** (un bloc à coller dans Render), les **candidatures** déposées sur le site arrivent dans **Recrutement › Candidatures du site** (ou directement dans le recrutement quand le poste est ouvert), et le site se recharge depuis l'ERP à chaque démarrage. La Direction, la Direction Générale et la Direction Marketing écrivent les articles ; les RH et la direction publient les offres. → [détails](#site-web-adventum--lerp-publie-les-offres-demploi-et-les-articles) |
+ | **RH** | `/rh` | Employés (contrats, **périodes d'essai** avec renouvellement et 2ᵉ période, congés, avances), **éléments de salaire du bulletin** (base, Ret SS 9 %/35 %, TFP, Ret IRG, remb. frais, net à payer, brut — 3 champs confidentiels côté salarié), file **« Demandes RH à traiter »** (toutes les demandes de Mon dossier RH), **traitement des notes de frais** (validation mois demandé / mois suivant, verrouillée tant que le secrétariat n'a pas accusé réception des originaux), **entrevues RH** (proposition/contre-proposition de date → rendez-vous au calendrier), sous-menu **Paie** (`/rh/paie`, réservé à qui tient les RH en écriture — garde `payroll` : matrice employés × mois, et l'**envoi au centre de paiement**, un virement par entité et par mois avec la somme des salaires à virer, §118.176), **Départements** (`/rh/departements` : structure de l'entreprise sur N niveaux, responsables, effectifs — c'est le DRH qui possède l'organisation), **Consultants** (`/rh/consultants` : les contrats de consultant suivis par les RH — les MÊMES contrats que Ad & Pro › Consulting, rangés au **pôle RH** ; un contrat déjà suivi par Ad & Pro se **transfère** depuis sa fiche, sans rien perdre, §118.150). → [référence](#-référence-détaillée-des-circuits--mécanismes-transverses) |
+ | **Moyens généraux** | `/moyens-generaux` | **Module à part entière** (`GENERAL_MEANS`), et non un onglet de Budgets. **L'ACCÈS SE RÈGLE DEPUIS LA CONSOLE, ET NULLE PART AILLEURS** : le module s'accordait implicitement à quiconque tenait les RH en écriture — la console affichait « Aucun accès » sur cette ligne et la personne l'avait quand même, si bien que le retirer ne changeait rien. La règle est **supprimée** : matrice du rôle, ou attribution nominative dans la console (`rbac-console-authority.test.ts` tient les deux sens depuis la vraie table d'overrides). **L'entrée de MENU porte le même module que la page** (`GENERAL_MEANS`, plus `WORKSPACE`) : elle était restée sur le module ouvert à tous du temps où l'on demandait un achat ici, si bien qu'un compte bloqué continuait de la voir — et en concluait que la console ne marchait pas. **LES MOYENS GÉNÉRAUX SONT CEUX DE TOUT LE MONDE** : un SEUL service, désigné par le Super Admin (`AppSetting.generalMeansDepartmentId`), sur lequel chacun atterrit, **Super Admin compris : plus aucun sélecteur de départements à l'écran** (décision du 01/10) — le découpage par département reste la façon dont l'argent est **imputé**, et il se lit dans Budgets › par département ; le Super Admin garde la **désignation** du service (« Changer de service… », proposé d'office quand aucun service n'est désigné ou qu'il a été supprimé). **Chaque demande d'achat est copiée ENTIÈREMENT dans un journal à part** (`/admin/achats`, Super Admin seul) à chaque geste — dépôt, validation, refus, retrait : on ajoute, on n'efface jamais, si bien qu'une demande retirée y garde sa trace complète ; les **ressources humaines** dotent la caisse du service, l'**assistante de direction** en est l'utilisatrice quotidienne. Elle reçoit les demandes d'achat par son **bureau du secrétariat**, elles suivent le circuit de validation normal, et **à la clôture de la demande** elle choisit le budget de moyens généraux à débiter — le sien ou celui du **département demandeur** — dont le montant est alors **déduit**, la demande restant attachée à la dépense. Le budget, les achats et la **caisse d'avance** d'un département au même endroit. Tout achat s'y saisit avec son **montant** et le **scan de la facture / du bon de paiement** (pièce obligatoire), qu'il soit payé sur la caisse ou autrement (virement, carte, Finances) — et il est **déduit du budget** dans les deux cas. La caisse est de l'argent **en main** (distinct du budget qui dit ce qu'on a le **droit** de dépenser) et elle est **CONTINUE** : chaque remise s'ajoute au fond et garde sa date, aucune ne clôt la précédente — solder est un geste, et il porte sur le fond entier. **Chaque remise passe d'abord par le centre de paiement** (§118.176) : elle naît en attente de son autorisation, l'argent ne sort qu'au **versement** par les Finances (sans catégorie budgétaire — c'est un changement de tiroir, ce sont les achats faits sur la caisse qui s'imputent), et une remise refusée se ferme avec son motif. La personne qui la détient **confirme avoir reçu** chaque somme — **après** le versement, rien n'est disponible avant —, puis chaque dépense en est déduite avec sa **facture ou son bon de paiement scanné**. Les dépenses tiennent en **une seule liste, en tableau, filtrable sur « caisse d'avance »**. Alerte à 20 % restants, **rallonge** demandée depuis le même écran. **Catalogue d'articles** tenu depuis le module (le même que celui du Bureau du secrétariat) et **ticket de caisse à plusieurs articles** : on enregistre le justificatif, on sélectionne les articles achetés avec leur nombre et leur montant, et le **total de la dépense découle des lignes**. **Annuaire d'entreprise** (`/mon-espace/annuaire`) : tous les contacts extérieurs de la société — agence de voyage, livreurs, agence marketing, imprimeur, transitaire… — par catégorie, cherchables, avec téléphone et e-mail cliquables. → [détails](#budgets-par-département--trois-natures-trois-responsables) |
+ | **Formations** | `/formations` | Demande individuelle (montant, organisme, dates, devis) validée **N+1 → RH → DG**, et formations **organisées par les RH** (qui partent directement au DG) avec **participants convoqués ou volontaires** (les volontaires acceptent ou déclinent) et **postes** (salle, traiteur, intervenant) validés un par un par la Direction. Budget **FORMATION** parmi les budgets départementaux. |
+ | **Promotion médicale** | `/medical/ma-journee` | **Ma journée** (KAM) : la **tournée proposée** du jour — les praticiens en retard sur leur **fréquence cible**, avec la raison chiffrée — et la **saisie d'une visite en 3 gestes** (praticien, produits de sa mallette pré-cochés P1, un mot dicté au clavier) ; une ligne de chiffres (fait/attendu, couverture du panel, rythme à tenir sur les **jours ouvrés algériens**). Onglet **Annuaire** : le référentiel des praticiens, en **feuille tableur** — sélection de cellules à la souris et au clavier, **couleurs** partagées, **colonnes sur mesure** visibles dans la feuille. Les **établissements** vivent dans **Annuaires › Établissements** (`/annuaires/etablissements` — l'ancien onglet `/medical/etablissements` redirige depuis 09/2026) : le référentiel des **hôpitaux** (CHU, EPH, EHS, cliniques, polycliniques, cabinets) avec leurs **services** (ajouter d'un coup une liste collée, renommer, supprimer — panneau « Services » de chaque ligne), un bouton **Désactiver / Réactiver** sur la ligne — celui auquel se **rattachent** les praticiens : dans la feuille des médecins et des pharmaciens, les colonnes **Établissement** et **Service** sont des **liens** vers cet annuaire (menu des établissements actifs, le plus proche du texte d'avant en tête ; menu des seuls services de l'établissement de la ligne ; une fiche d'avant le lien se dit « à rattacher », et « Rattacher les établissements » relie en lot ce qui désigne exactement UN établissement actif). Les **secteurs** ne s'y saisissent plus : chaque **Business Unit** découpe le sien (établissements, avec tous leurs services ou certains) ; **la wilaya est le SEUL découpage géographique** (liste fermée des 58 wilayas en menu déroulant ; le champ « Ville » a disparu des annuaires). Les mêmes feuilles se retrouvent dans le module **Annuaires** du pôle Administration (`/annuaires`), qui centralise tous les annuaires. Onglet **Plan de tournée** (`/medical/plan-de-tournee`) : le KAM **pré-sélectionne** ses praticiens jour par jour depuis son panel (réunion de son **secteur** et de ses rattachements directs), à la maille que le Super Admin a choisie (**semaine / mois / trimestre / semestre**, mensuelle par défaut), avec l'**échéance de soumission** (15 jours avant la fin du mois précédent par défaut — **réglable**, avec la maille, dans **Force de vente › Paramètres** par le Super Admin) dont le **retard** se lit chez le KAM, dans sa liste de plans et sur le tableau de bord de la Direction ; son **N+1 valide**, peut **escalader au N+2**, et un **rejet motivé** rouvre 48 h pour resoumettre ; un plan **validé se révise** (motif exigé — il repasse « En révision », se resoumet sous 48 h, et les visites déjà passées restent au plan). Le plan validé devient l'**emploi du temps** de « Ma journée » — **Aujourd'hui / Demain / Cette semaine / Ce mois-ci**, **gris** tant que le rapport n'est pas fait, **vert** après — où un clic ouvre le **rapport terrain** (vocal ou écrit) qui exige les **produits de sa BU** et les **messages pré-définis de la Direction Marketing**, dans une fenêtre de **48 h** après la visite ; une visite qui n'a pas eu lieu se dit **reportée ou annulée** (« N'a pas eu lieu », motif exigé, la même fenêtre de 48 h). **Visite imprévue** et **visite commandée par la Direction** entrent hors plan et comptent au « nombre de visites », jamais au dénominateur des « planifiées ». Onglet **Coaching** (`/medical/coaching`) : la **fiche de coaching « tournée en double »** de la Direction, en natif — grille à 4 niveaux × 5 axes **administrée et versionnée par le directeur des opérations**, fiches remplies par le superviseur, finalisées et partagées avec le collaborateur, **téléchargeables** en Excel (total en formule) et en PDF, synthèse par collaborateur et par axe. → [détails](#force-de-vente--la-boucle-terrain) · [coaching](#promotion-médicale--la-fiche-de-coaching-tournée-en-double) |
+-| **Force de vente** | `/planning` | Le pilotage SFE (`SALES_PLANNING`) : **Business Units** (spécialités visées, référents Direction Marketing, secteurs = établissements de l'annuaire avec tous leurs services ou certains), **affectations** KAM × produit × rang de détail, **prévision** de la Direction par produit (réservée à qui configure), **messages pré-définis**, **paramètres** (maille et échéance du plan de tournée, Super Admin) et le **cockpit** (`/planning/pilotage`) : planifié / réalisé, couverture, alertes au superviseur. → [boucle terrain](#force-de-vente--la-boucle-terrain) |
++| **Force de vente** | `/planning` | Le pilotage SFE (`SALES_PLANNING`) : **Business Units** (spécialités visées, référents Direction Marketing, secteurs = établissements de l'annuaire avec tous leurs services ou certains), **affectations** KAM × produit × rang de détail, **prévision** de la Direction par produit (réservée à qui configure), **messages pré-définis**, **Spécialités** (le référentiel — le MÊME écran qu'Annuaires › Spécialités, ouvert à la Direction Marketing par `peutGererSpecialites` sans lui donner l'écriture de la force de vente), **paramètres** (maille et échéance du plan de tournée, Super Admin) et le **cockpit** (`/planning/pilotage`) : planifié / réalisé, couverture, alertes au superviseur. → [boucle terrain](#force-de-vente--la-boucle-terrain) |
+ | **Retirés du service (2026-09)** | — | **Ventes** (`/sales`), **Commandes & logistique** (`/logistics`) et **Market Intelligence** (`/business-development` : le tableau stratégique Projet → Gamme → Produit et Pharmatool) — ni menu, ni adresse, ni action serveur, ni outil d'assistant, **pour personne, Super Admin compris** (`RETIRED_MODULE_KEYS`, `lib/modules-retired.ts`) ; les données restent en base. **Marchés PCH**, **Explorateur produits** et **Business Development › Projets** restent en service. |
+ | **PCH — Marchés** | `/pch` | **Market 360°** : AO → soumission versionnée → attribution par lot → contrat & avenants → BC à lignes → livraisons → factures — niveau de vie **dérivé**, caution (alertes). → [détails](#pch--marchés-publics-market-360) |
+ | **Stocks** | `/stocks` | Refonte en **états datés** (« à cette date, il reste X ») — **sans** entrées/sorties : 3 onglets **Stock PCH · Stock hôpitaux · Annexes PCH** (les **hôpitaux sont ceux de l'annuaire des établissements** : un KAM voit ceux de **son secteur** dans sa BU et les **produits de sa BU**, le National Sales toute sa BU, la chaîne d'approvisionnement tout ; les annexes PCH restent des lieux nommés du Super Admin), **vue par produit** (catalogue Regulatory) en **graphique** (courbe date → quantité) ou **tableau** (avec évolution entre relevés), un état par jour (ressaisie = correction). Le détecteur « Stock PCH bas » du Brain lit en priorité le dernier état. **Demander un état de stock** est une réquisition adressée à une personne nommée (tâche assignée + notification + audit), réservée à qui tient la chaîne d'approvisionnement — et elle se pose aussi en **RÉCURRENCE** : « le 1er de chaque mois, demande à ce KAM l'état de ces hôpitaux », en cadence **quotidienne / hebdomadaire / mensuelle**, avec la liste des hôpitaux NOMMÉS, le compteur de demandes réellement parties, pause/reprise sans rattrapage des occurrences manquées, et un **arrêt automatique** si l'auteur perd le droit de réquisitionner. → [détails](#stocks-états-datés) |
+@@ -7463,6 +7463,12 @@ historique qu'on relit par objet.
+   notes conservées), fusionner deux doublons (les fiches suivent), retirer (les fiches gardent leur spécialité
+   écrite). Les **libellés hérités** (une spécialité écrite en texte sur une fiche) sont regroupés par écriture et
+   comptés dans ce que la personne voit ; un clic les rattache à une spécialité du référentiel.
++- **Force de vente › Spécialités** (§118.209) : la **Direction Marketing** gère le référentiel (ajouter, renommer,
++  fusionner, retirer) dans un onglet à part de la force de vente — le MÊME composant (`EcranSpecialites`), le même
++  chargeur et les mêmes actions qu'Annuaires › Spécialités. Elle n'a de la Promotion médicale et de la Force de vente
++  que la lecture : la règle `peutGererSpecialites` (rôle `PRODUCT_MANAGER`, principal ou secondaire) lui donne les
++  quatre gestes sur le référentiel seul, sans élargir un module. Chaque écriture revalide les deux écrans
++  (`CHEMINS_SPECIALITES`) ; les ops d'Adam lisent la même règle.
+ - **La feuille de l'annuaire écrit un LIEN.** Taper une spécialité dans une cellule, l'ajouter à une ligne, l'importer
+   d'un classeur ou la saisir sur la fiche : si le texte désigne une spécialité du référentiel (casse, accents et
+   espaces mis à part), la fiche y est rattachée et porte son nom ; sinon le texte reste, signalé « à rattacher », et
+diff --git a/src/app/(app)/annuaires/specialites/page.tsx b/src/app/(app)/annuaires/specialites/page.tsx
+index b7a7bbb..e80a59c 100644
+--- a/src/app/(app)/annuaires/specialites/page.tsx
++++ b/src/app/(app)/annuaires/specialites/page.tsx
+@@ -1,9 +1,8 @@
+ import { redirect } from "next/navigation";
+ import { requireModule } from "@/lib/session";
+ import { peutGererSpecialites } from "@/lib/rbac";
+-import { chargerSpecialites } from "@/lib/queries/specialites";
++import { EcranSpecialites } from "@/components/directory/ecran-specialites";
+ import { EnTeteAnnuaires } from "../en-tete";
+-import { SpecialitesTable } from "./specialites-table";
+ 
+ export const dynamic = "force-dynamic";
+ export const metadata = { title: "Annuaires — Spécialités — AMD Internal OS" };
+@@ -14,28 +13,21 @@ export const metadata = { title: "Annuaires — Spécialités — AMD Internal O
+  * pouvait ni ajouter « Néphrologie », ni corriger « Cardiolgie », ni réunir deux doublons — et la
+  * feuille de l'annuaire écrivait donc du texte que rien ne reliait.
+  *
+- * La porte est `peutGererSpecialites` — la Promotion médicale, ET les deux directeurs des
+- * opérations (décision du 04/10) —, la même que l'onglet et les actions : un référentiel est une
+- * STRUCTURE de l'annuaire (§118.147), il ne s'ouvre pas par la case « Médecins » de la console.
++ * La porte est `peutGererSpecialites` — la Promotion médicale, les deux directeurs des opérations
++ * (décision du 04/10) ET la Direction Marketing (05/10) —, la même que l'onglet et les actions : un
++ * référentiel est une STRUCTURE de l'annuaire (§118.147), il ne s'ouvre pas par la case « Médecins »
++ * de la console. L'écran lui-même (`EcranSpecialites`) est partagé avec Force de vente › Spécialités.
+  */
+ export default async function AnnuaireSpecialitesPage() {
+   const user = await requireModule("DIRECTORIES");
+   if (!peutGererSpecialites(user, "VIEW")) redirect("/dashboard?denied=MEDICAL");
+-  const donnees = await chargerSpecialites(user);
+   return (
+     <div className="space-y-5">
+       <EnTeteAnnuaires
+         user={user}
+         description="Le référentiel des spécialités médicales : la spécialité d'un praticien s'y rattache, et c'est elle que lisent l'annuaire, les demandes Ad & Pro et, demain, les cibles des Business Units."
+       />
+-      <SpecialitesTable
+-        specialites={donnees.specialites}
+-        heritees={donnees.heritees}
+-        heriteesTotal={donnees.heriteesTotal}
+-        canCreate={peutGererSpecialites(user, "CREATE")}
+-        canEdit={peutGererSpecialites(user, "UPDATE")}
+-        canDelete={peutGererSpecialites(user, "DELETE")}
+-      />
++      <EcranSpecialites user={user} />
+     </div>
+   );
+ }
+diff --git a/src/app/(app)/medical/annuaire/annuaire-grid.tsx b/src/app/(app)/medical/annuaire/annuaire-grid.tsx
+index 1632f2f..d96b0fc 100644
+--- a/src/app/(app)/medical/annuaire/annuaire-grid.tsx
++++ b/src/app/(app)/medical/annuaire/annuaire-grid.tsx
+@@ -369,7 +369,7 @@ function GridTable({
+                               référentiel ne le voit. */}
+                           {col.field === "specialty" && specialiteEstARattacher(row) && !overrides.has(cleCellule(row.id, col.cle)) && (
+                             <span className="ml-1.5 inline-block rounded bg-warning/15 px-1.5 py-0.5 align-middle text-[10px] font-medium uppercase tracking-wide text-warning"
+-                              title="Spécialité écrite sans lien vers le référentiel : retapez-la telle que le référentiel la nomme, ou rattachez-la dans Annuaires › Spécialités.">
++                              title="Spécialité écrite sans lien vers le référentiel : retapez-la telle que le référentiel la nomme, ou rattachez-la dans Annuaires › Spécialités (ou Force de vente › Spécialités).">
+                               à rattacher
+                             </span>
+                           )}
+diff --git a/src/app/(app)/planning/affectations/page.tsx b/src/app/(app)/planning/affectations/page.tsx
+index 4b7d4d5..84e528f 100644
+--- a/src/app/(app)/planning/affectations/page.tsx
++++ b/src/app/(app)/planning/affectations/page.tsx
+@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
+ import { ChevronLeft, ChevronRight } from "lucide-react";
+ import { requireModule } from "@/lib/session";
+ import { prisma } from "@/lib/prisma";
+-import { anyRoleFilter } from "@/lib/rbac";
++import { anyRoleFilter, peutGererSpecialites } from "@/lib/rbac";
+ import { ensureCycle } from "@/lib/actions/sales-planning-actions";
+ import { getSfeConfig, monthLabel, repCapacity, resolveRepScope } from "@/lib/sfe";
+ import { PageHeader } from "@/components/shared/page-header";
+@@ -63,7 +63,7 @@ export default async function AffectationsPage({ searchParams }: { searchParams:
+   return (
+     <div className="space-y-5">
+       <PageHeader title="Prévisions & Force de vente" description="Matrice d'affectation KAM × produit : rang de détail (P1/P2/P3) et visites prévues. Le FTE en découle et remonte dans les Prévisions." />
+-      <PlanningTabs active="affectations" canConfigure={scope.canConfigure} isSupervisor={scope.isSupervisor} />
++      <PlanningTabs active="affectations" canConfigure={scope.canConfigure} isSupervisor={scope.isSupervisor} specialites={peutGererSpecialites(user, "VIEW")} />
+ 
+       <div className="flex items-center gap-2">
+         <Link href={`/planning/affectations?y=${prev.y}&m=${prev.m}`} className="rounded-lg border border-input p-2 hover:bg-secondary"><ChevronLeft className="h-4 w-4" /></Link>
+diff --git a/src/app/(app)/planning/business-units/choix-specialites.tsx b/src/app/(app)/planning/business-units/choix-specialites.tsx
+index 6a03517..23e88ae 100644
+--- a/src/app/(app)/planning/business-units/choix-specialites.tsx
++++ b/src/app/(app)/planning/business-units/choix-specialites.tsx
+@@ -40,7 +40,7 @@ export function ChoixSpecialites({
+     // UN MENU VIDE EST UN CUL-DE-SAC : on dit où le référentiel se remplit.
+     return (
+       <p className="text-xs text-muted-foreground">
+-        Le référentiel des spécialités est vide : ajoutez-les dans Annuaires › Spécialités, puis revenez les cocher.
++        Le référentiel des spécialités est vide : ajoutez-les dans Force de vente › Spécialités (le même écran qu'Annuaires › Spécialités), puis revenez les cocher.
+       </p>
+     );
+   }
+diff --git a/src/app/(app)/planning/business-units/page.tsx b/src/app/(app)/planning/business-units/page.tsx
+index dde499d..390b39a 100644
+--- a/src/app/(app)/planning/business-units/page.tsx
++++ b/src/app/(app)/planning/business-units/page.tsx
+@@ -1,7 +1,7 @@
+ import type { UserRole } from "@prisma/client";
+ import { redirect } from "next/navigation";
+ import { requireModule } from "@/lib/session";
+-import { userCan, hasGlobalView, anyRoleFilter } from "@/lib/rbac";
++import { userCan, hasGlobalView, anyRoleFilter, peutGererSpecialites } from "@/lib/rbac";
+ import { prisma } from "@/lib/prisma";
+ import { getSfeConfig } from "@/lib/sfe";
+ import { PageHeader } from "@/components/shared/page-header";
+@@ -123,7 +123,7 @@ export default async function BusinessUnitsPage() {
+         title="Prévisions & Force de vente"
+         description="Une Business Unit, son superviseur, son terrain, ses KAM et ses produits — tout se monte ici, dans cet ordre."
+       />
+-      <PlanningTabs active="business-units" canConfigure isSupervisor />
++      <PlanningTabs active="business-units" canConfigure isSupervisor specialites={peutGererSpecialites(user, "VIEW")} />
+       <BusinessUnitsManager
+         businessUnits={bus.map(({ specialites: liens, ...b }) => ({
+           ...b, channel: String(b.channel),
+diff --git a/src/app/(app)/planning/messages/page.tsx b/src/app/(app)/planning/messages/page.tsx
+index f3bed09..3f62f5e 100644
+--- a/src/app/(app)/planning/messages/page.tsx
++++ b/src/app/(app)/planning/messages/page.tsx
+@@ -1,5 +1,5 @@
+ import { requireModule } from "@/lib/session";
+-import { hasGlobalView, userCan } from "@/lib/rbac";
++import { hasGlobalView, userCan, peutGererSpecialites } from "@/lib/rbac";
+ import { prisma } from "@/lib/prisma";
+ import { getAppSettings } from "@/lib/settings";
+ import { peutEcrireMessagesPromo } from "@/lib/sfe/tournee";
+@@ -51,6 +51,7 @@ export default async function MessagesPage() {
+         active="messages"
+         canConfigure={userCan(user, "SALES_PLANNING", "UPDATE") || hasGlobalView(user)}
+         isSupervisor
++        specialites={peutGererSpecialites(user, "VIEW")}
+       />
+       <MessagesManager
+         messages={messages.map((m) => ({
+diff --git a/src/app/(app)/planning/page.tsx b/src/app/(app)/planning/page.tsx
+index 50dca1f..2ca8ba2 100644
+--- a/src/app/(app)/planning/page.tsx
++++ b/src/app/(app)/planning/page.tsx
+@@ -2,7 +2,7 @@ import Link from "next/link";
+ import { redirect } from "next/navigation";
+ import { ChevronLeft, ChevronRight } from "lucide-react";
+ import { requireModule } from "@/lib/session";
+-import { userCan, hasGlobalView } from "@/lib/rbac";
++import { userCan, hasGlobalView, peutGererSpecialites } from "@/lib/rbac";
+ import { prisma } from "@/lib/prisma";
+ import { ensureCycle } from "@/lib/actions/sales-planning-actions";
+ import { getSfeConfig, monthLabel, fieldVisitsCapacity, repCapacity, assignmentEffort, fteFromEffort, resolveRepScope } from "@/lib/sfe";
+@@ -82,7 +82,7 @@ export default async function PlanningPage({ searchParams }: { searchParams: { y
+   return (
+     <div className="space-y-5">
+       <PageHeader title="Prévisions & Force de vente" description="Planification mensuelle par produit : FTE cible, couverture, visites et budget. Prévu par la Direction, affecté aux KAM, mesuré sur le terrain." />
+-      <PlanningTabs active="previsions" canConfigure={canConfigure} isSupervisor={scope.isSupervisor} />
++      <PlanningTabs active="previsions" canConfigure={canConfigure} isSupervisor={scope.isSupervisor} specialites={peutGererSpecialites(user, "VIEW")} />
+ 
+       <div className="flex flex-wrap items-center justify-between gap-3">
+         <div className="flex items-center gap-2">
+diff --git a/src/app/(app)/planning/parametres/page.tsx b/src/app/(app)/planning/parametres/page.tsx
+index 5202c06..15b99fa 100644
+--- a/src/app/(app)/planning/parametres/page.tsx
++++ b/src/app/(app)/planning/parametres/page.tsx
+@@ -1,5 +1,5 @@
+ import { requireModule } from "@/lib/session";
+-import { userCan } from "@/lib/rbac";
++import { userCan, peutGererSpecialites } from "@/lib/rbac";
+ import { getSfeConfig } from "@/lib/sfe";
+ import { lireReglageTournee } from "@/lib/sfe/tournee-reglage";
+ import { PageHeader } from "@/components/shared/page-header";
+@@ -17,7 +17,7 @@ export default async function ParametresPage() {
+   return (
+     <div className="space-y-5">
+       <PageHeader title="Prévisions & Force de vente" description="Paramètres 100% configurables : capacité terrain, poids des positions, fréquences par palier de potentiel — et la maille des plans de tournée." />
+-      <PlanningTabs active="parametres" canConfigure={canEdit} />
++      <PlanningTabs active="parametres" canConfigure={canEdit} specialites={peutGererSpecialites(user, "VIEW")} />
+       <SettingsForm config={config} canEdit={canEdit} />
+       {/* LA MAILLE DE PLANIFICATION a une porte plus étroite que les autres paramètres : la demande
+           la réserve au Super Admin. Elle se LIT par tous ceux qui voient l'écran — un KAM qui
+diff --git a/src/app/(app)/planning/pilotage/page.tsx b/src/app/(app)/planning/pilotage/page.tsx
+index 68b0fa6..e70d52e 100644
+--- a/src/app/(app)/planning/pilotage/page.tsx
++++ b/src/app/(app)/planning/pilotage/page.tsx
+@@ -2,6 +2,7 @@ import { Fragment } from "react";
+ import Link from "next/link";
+ import { ChevronLeft, ChevronRight } from "lucide-react";
+ import { requireModule } from "@/lib/session";
++import { peutGererSpecialites } from "@/lib/rbac";
+ import { ensureCycle } from "@/lib/actions/sales-planning-actions";
+ import { monthLabel, resolveRepScope, TIERS, TIER_LABELS } from "@/lib/sfe";
+ import { loadCockpit } from "@/lib/queries/sfe-cockpit";
+@@ -77,7 +78,7 @@ export default async function PilotagePage({ searchParams }: { searchParams: { y
+   return (
+     <div className="space-y-5">
+       <PageHeader title="Prévisions & Force de vente" description={`Pilotage — planifié vs réalisé, panel et couverture. ${scopeLabel}.`} />
+-      <PlanningTabs active="pilotage" canConfigure={scope.canConfigure} isSupervisor={scope.isSupervisor} />
++      <PlanningTabs active="pilotage" canConfigure={scope.canConfigure} isSupervisor={scope.isSupervisor} specialites={peutGererSpecialites(user, "VIEW")} />
+ 
+       <div className="flex items-center gap-2">
+         <Link href={`/planning/pilotage?y=${prev.y}&m=${prev.m}`} className="rounded-lg border border-input p-2 hover:bg-secondary"><ChevronLeft className="h-4 w-4" /></Link>
+diff --git a/src/app/(app)/planning/specialites/page.tsx b/src/app/(app)/planning/specialites/page.tsx
+new file mode 100644
+index 0000000..1741bff
+--- /dev/null
++++ b/src/app/(app)/planning/specialites/page.tsx
+@@ -0,0 +1,38 @@
++import { redirect } from "next/navigation";
++import { requireModule } from "@/lib/session";
++import { peutGererSpecialites } from "@/lib/rbac";
++import { resolveRepScope } from "@/lib/sfe";
++import { PageHeader } from "@/components/shared/page-header";
++import { EcranSpecialites } from "@/components/directory/ecran-specialites";
++import { PlanningTabs } from "../tabs";
++
++export const dynamic = "force-dynamic";
++export const metadata = { title: "Force de vente — Spécialités — AMD Internal OS" };
++
++/**
++ * Onglet SPÉCIALITÉS de la FORCE DE VENTE (§118.209). Décision de la Direction (05/10) : « donne la
++ * gestion des spécialités, dans Force de vente, dans un onglet à part au marketing — ils peuvent
++ * ajouter, supprimer, modifier ».
++ *
++ * C'est le MÊME écran que Annuaires › Spécialités (`EcranSpecialites` : même chargeur, mêmes
++ * actions, même règle) — pas une seconde implémentation. La porte est celle de la force de vente
++ * (le module qui monte l'onglet), PUIS `peutGererSpecialites` : la Direction Marketing n'a de la
++ * Force de vente que la lecture, et le droit de gérer le référentiel lui est donné par cette règle
++ * précise, pas en élargissant le module — qui lui ouvrirait les Business Units, les affectations
++ * et les paramètres de la force de vente (§118.16).
++ */
++export default async function PlanningSpecialitesPage() {
++  const user = await requireModule("SALES_PLANNING");
++  if (!peutGererSpecialites(user, "VIEW")) redirect("/dashboard?denied=SALES_PLANNING");
++  const scope = await resolveRepScope(user);
++  return (
++    <div className="space-y-5">
++      <PageHeader
++        title="Spécialités"
++        description="Le référentiel des spécialités médicales : celles que les Business Units visent et que la fiche d'un praticien porte. Ajouter, renommer, fusionner deux doublons, retirer — le même écran que Annuaires › Spécialités."
++      />
++      <PlanningTabs active="specialites" canConfigure={scope.canConfigure} isSupervisor={scope.isSupervisor} specialites />
++      <EcranSpecialites user={user} />
++    </div>
++  );
++}
+diff --git a/src/app/(app)/planning/tabs.tsx b/src/app/(app)/planning/tabs.tsx
+index 786082d..6a1d443 100644
+--- a/src/app/(app)/planning/tabs.tsx
++++ b/src/app/(app)/planning/tabs.tsx
+@@ -7,6 +7,12 @@ export interface PlanningTabsProps {
+   canConfigure: boolean;
+   /** Superviseur d'une BU : voit Pilotage + Affectations de ses KAM. */
+   isSupervisor?: boolean;
++  /**
++   * Cette personne gère-t-elle le référentiel des spécialités (`peutGererSpecialites`, §118.209) ?
++   * OBLIGATOIRE : un appelant qui l'oublierait cacherait l'onglet à la Direction Marketing, qui n'a de
++   * la Force de vente que la lecture — le typecheck nomme chaque page.
++   */
++  specialites: boolean;
+ }
+ 
+ /**
+@@ -28,6 +34,9 @@ const TABS: { key: string; label: string; href: string; show: (p: PlanningTabsPr
+   // visible dès qu'on configure : le référentiel VIDE fait refuser tous les rapports, donc le
+   // cacher à celui qui peut le remplir serait la pire façon de le protéger (§118.50).
+   { key: "messages", label: "Messages", href: "/planning/messages", show: (p) => p.canConfigure },
++  // LE RÉFÉRENTIEL DES SPÉCIALITÉS (§118.209) — le MÊME écran qu'Annuaires › Spécialités. Il ne suit
++  // PAS `canConfigure` : la Direction Marketing le gère sans configurer la force de vente.
++  { key: "specialites", label: "Spécialités", href: "/planning/specialites", show: (p) => p.specialites },
+   { key: "parametres", label: "Paramètres", href: "/planning/parametres", show: (p) => p.canConfigure },
+ ];
+ 
+diff --git a/src/components/directory/ecran-specialites.tsx b/src/components/directory/ecran-specialites.tsx
+new file mode 100644
+index 0000000..b1c0577
+--- /dev/null
++++ b/src/components/directory/ecran-specialites.tsx
+@@ -0,0 +1,30 @@
++import { redirect } from "next/navigation";
++import { peutGererSpecialites, type SessionUser } from "@/lib/rbac";
++import { chargerSpecialites } from "@/lib/queries/specialites";
++import { SpecialitesTable } from "./specialites-table";
++
++/**
++ * L'ÉCRAN DU RÉFÉRENTIEL DES SPÉCIALITÉS — UN SEUL, monté par deux portes (§118.209).
++ *
++ * Annuaires › Spécialités (§118.180) et Force de vente › Spécialités (décision de la Direction,
++ * 05/10 : la Direction Marketing gère les spécialités depuis la force de vente) rendent CE composant,
++ * qui lit le MÊME chargeur et la MÊME règle (`peutGererSpecialites`) : deux écrans qui chargent ou
++ * décident séparément divergent, toujours (§118.5) — l'un montrerait un bouton que l'action refuse.
++ *
++ * Il refuse AVANT de charger quoi que ce soit quand la personne n'a pas le droit de lecture (le menu
++ * n'est pas la garde) ; chaque bouton suit son geste.
++ */
++export async function EcranSpecialites({ user }: { user: SessionUser }) {
++  if (!peutGererSpecialites(user, "VIEW")) redirect("/dashboard?denied=MEDICAL");
++  const donnees = await chargerSpecialites(user);
++  return (
++    <SpecialitesTable
++      specialites={donnees.specialites}
++      heritees={donnees.heritees}
++      heriteesTotal={donnees.heriteesTotal}
++      canCreate={peutGererSpecialites(user, "CREATE")}
++      canEdit={peutGererSpecialites(user, "UPDATE")}
++      canDelete={peutGererSpecialites(user, "DELETE")}
++    />
++  );
++}
+diff --git a/src/app/(app)/annuaires/specialites/specialites-table.tsx b/src/components/directory/specialites-table.tsx
+similarity index 100%
+rename from src/app/(app)/annuaires/specialites/specialites-table.tsx
+rename to src/components/directory/specialites-table.tsx
+diff --git a/src/lib/actions/medical-actions.ts b/src/lib/actions/medical-actions.ts
+index 0bf5490..d0c909e 100644
+--- a/src/lib/actions/medical-actions.ts
++++ b/src/lib/actions/medical-actions.ts
+@@ -8,7 +8,7 @@ import { userCan, peutAnnuaire, peutGererSpecialites, scopeMedicalDoctors } from
+ import { canAccessEntity } from "@/lib/entity-access";
+ import { prisma } from "@/lib/prisma";
+ import { cleDEtablissement, indexerEtablissements } from "@/lib/annuaires/rattachement";
+-import { cleDeSpecialite, ecritureDeSpecialite, indexerSpecialites, lienDeSpecialiteValide } from "@/lib/annuaires/specialites";
++import { CHEMINS_SPECIALITES, cleDeSpecialite, ecritureDeSpecialite, indexerSpecialites, lienDeSpecialiteValide } from "@/lib/annuaires/specialites";
+ import { suivreRenommageEtablissement } from "@/lib/stocks/lieux";
+ import { recordAudit } from "@/lib/audit";
+ import { fdStr, fdDate, fdCase, type ActionResult } from "@/lib/actions/types";
+@@ -261,7 +261,7 @@ export async function createSpecialty(formData: FormData): Promise<ActionResult>
+     actorId: user.id, action: "CREATE", module: "Annuaires",
+     entityType: "SPECIALTY", entityId: created.id, summary: `Spécialité « ${name} » ajoutée au référentiel`,
+   });
+-  revalidatePath("/annuaires/specialites");
++  for (const chemin of CHEMINS_SPECIALITES) revalidatePath(chemin);
+   revalidatePath("/medical");
+   return { ok: true, id: created.id };
+ }
+@@ -312,7 +312,7 @@ export async function updateSpecialty(formData: FormData): Promise<ActionResult>
+     actorId: user.id, action: "UPDATE", module: "Annuaires", entityType: "SPECIALTY", entityId: id,
+     summary: data.name ? `Spécialité « ${avant.name} » renommée « ${data.name} »` : `Spécialité « ${avant.name} » modifiée`,
+   });
+-  revalidatePath("/annuaires/specialites");
++  for (const chemin of CHEMINS_SPECIALITES) revalidatePath(chemin);
+   revalidatePath("/medical");
+   return { ok: true };
+ }
+@@ -357,7 +357,7 @@ export async function deleteSpecialty(formData: FormData): Promise<ActionResult>
+     actorId: user.id, action: "DELETE", module: "Annuaires", entityType: "SPECIALTY", entityId: id,
+     summary: `Spécialité « ${avant.name} » retirée du référentiel${detaches ? ` — ${detaches} fiche(s) gardent leur spécialité écrite, à rattacher` : ""}`,
+   });
+-  revalidatePath("/annuaires/specialites");
++  for (const chemin of CHEMINS_SPECIALITES) revalidatePath(chemin);
+   revalidatePath("/medical");
+   return { ok: true, message: detaches ? `${detaches} fiche(s) gardent leur spécialité écrite, sans lien — à rattacher.` : undefined };
+ }
+@@ -420,7 +420,7 @@ export async function fusionnerSpecialite(formData: FormData): Promise<ActionRes
+     actorId: user.id, action: "UPDATE", module: "Annuaires", entityType: "SPECIALTY", entityId: cibleId,
+     summary: `Spécialité « ${source.name} » fusionnée dans « ${cible.name} » — ${deplaces} fiche(s) déplacée(s)${garde}`,
+   });
+-  revalidatePath("/annuaires/specialites");
++  for (const chemin of CHEMINS_SPECIALITES) revalidatePath(chemin);
+   revalidatePath("/medical");
+   return { ok: true, message: `« ${source.name} » fusionnée dans « ${cible.name} » : ${deplaces} fiche(s) déplacée(s)${garde}.` };
+ }
+@@ -468,7 +468,7 @@ export async function rattacherLibelleSpecialite(formData: FormData): Promise<Ac
+     actorId: user.id, action: "UPDATE", module: "Annuaires", entityType: "SPECIALTY", entityId: cible.id,
+     summary: `Libellé « ${libelle} » rattaché à « ${cible.name} » — ${count} fiche(s)`,
+   });
+-  revalidatePath("/annuaires/specialites");
++  for (const chemin of CHEMINS_SPECIALITES) revalidatePath(chemin);
+   revalidatePath("/medical/annuaire");
+   revalidatePath("/annuaires");
+   return { ok: true, rattachees: count, message: `${count} fiche(s) « ${libelle} » rattachée(s) à « ${cible.name} ».` };
+diff --git a/src/lib/actions/sales-planning-actions.ts b/src/lib/actions/sales-planning-actions.ts
+index 410b875..744b49c 100644
+--- a/src/lib/actions/sales-planning-actions.ts
++++ b/src/lib/actions/sales-planning-actions.ts
+@@ -9,6 +9,7 @@ import { recordAudit } from "@/lib/audit";
+ import { monthLabel, canEditRep } from "@/lib/sfe";
+ import { fdStr, fdCase, type ActionResult } from "@/lib/actions/types";
+ import { lireCouverture } from "@/lib/annuaires/services";
++import { CHEMINS_SPECIALITES } from "@/lib/annuaires/specialites";
+ import { canAttachBuDepartment, buDepartmentName, buDepartmentCode } from "@/lib/sfe/bu-department";
+ import { GRANULARITES, GRANULARITE_LABELS, JOURS_AVANT_ECHEANCE_MAX, estGranularite } from "@/lib/sfe/tournee";
+ import { ROLES_QUI_TRANCHENT } from "@/lib/personnes/referents-gamme";
+@@ -77,7 +78,7 @@ export async function createBusinessUnit(formData: FormData): Promise<ActionResu
+     summary: `BU « ${name} »${specialites ? ` — spécialités : ${specialites}` : ""}`,
+   });
+   revalidatePath(BU_PATH);
+-  if (voulues.ids.length) revalidatePath("/annuaires/specialites");
++  if (voulues.ids.length) for (const chemin of CHEMINS_SPECIALITES) revalidatePath(chemin);
+   return { ok: true, id: created.id };
+ }
+ 
+@@ -142,7 +143,7 @@ export async function enregistrerSpecialitesBu(formData: FormData): Promise<Acti
+     });
+   }
+   revalidatePath(BU_PATH);
+-  revalidatePath("/annuaires/specialites");
++  for (const chemin of CHEMINS_SPECIALITES) revalidatePath(chemin);
+   return { ok: true, message: resume ? undefined : "Rien n'a changé." };
+ }
+ 
+diff --git a/src/lib/actions/specialites-force-de-vente.test.ts b/src/lib/actions/specialites-force-de-vente.test.ts
+new file mode 100644
+index 0000000..d00f3e6
+--- /dev/null
++++ b/src/lib/actions/specialites-force-de-vente.test.ts
+@@ -0,0 +1,295 @@
++import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
++
++const revalides: string[] = [];
++vi.mock("next/cache", () => ({ revalidatePath: (p: string) => { revalides.push(p); } }));
++
++let ACTEUR: unknown = null;
++vi.mock("@/lib/session", () => ({
++  requireUser: async () => ACTEUR,
++  getUser: async () => ACTEUR,
++  requireModule: async () => ACTEUR,
++}));
++
++import fs from "node:fs";
++import React from "react";
++import path from "node:path";
++import { prisma } from "@/lib/prisma";
++import { getAccess, hasGlobalView, peutGererSpecialites, userCan, type SessionUser } from "@/lib/rbac";
++import {
++  createSpecialty, updateSpecialty, deleteSpecialty, fusionnerSpecialite, rattacherLibelleSpecialite,
++} from "@/lib/actions/medical-actions";
++import { OPS_BY_TOOL } from "@/lib/assistant/ops/catalog";
++import { PlanningTabs } from "@/app/(app)/planning/tabs";
++import { EcranSpecialites } from "@/components/directory/ecran-specialites";
++import PlanningSpecialitesPage from "@/app/(app)/planning/specialites/page";
++import { CHEMINS_SPECIALITES } from "@/lib/annuaires/specialites";
++
++/**
++ * ═══════════════════════════════════════════════════════════════════════════════════════════
++ * FORCE DE VENTE › SPÉCIALITÉS, À LA DIRECTION MARKETING (Direction, 05/10, §118.209) :
++ * « donne la gestion des spécialités, dans Force de vente, dans un onglet à part au marketing —
++ * ils peuvent ajouter, supprimer, modifier ».
++ *
++ * Les acteurs n'ont PAS la vue globale (§118.104) : la Direction Marketing (`PRODUCT_MANAGER`) n'a que
++ * la LECTURE de la Promotion médicale et de la Force de vente — c'est elle qui prouve que la règle
++ * précise suffit, sans élargir un module. Le Manager Promotion médicale la gère par son droit de
++ * module. Un rôle sans rien de tout cela (Logistique) est refusé : page ET action.
++ *
++ * Les noms portent le préfixe du banc : la base est partagée (§118.91).
++ * ═══════════════════════════════════════════════════════════════════════════════════════════
++ */
++
++let dbOk = false;
++try { await prisma.$queryRaw`SELECT 1`; dbOk = true; } catch { dbOk = false; }
++const suite = dbOk ? describe : describe.skip;
++
++const TAG = "ZZFDVSPE";
++const fd = (o: Record<string, string>) => {
++  const f = new FormData();
++  for (const [k, v] of Object.entries(o)) f.set(k, v);
++  return f;
++};
++async function acteur(id: string, role: string, secondaryRole: string | null = null): Promise<SessionUser> {
++  return { id, role, secondaryRole, access: await getAccess(id, role as never) } as unknown as SessionUser;
++}
++// Les composants se lisent en JSX « classique » sous vitest : on appelle leurs fonctions, on ne les monte pas.
++(globalThis as { React?: unknown }).React = React;
++const code = (rel: string) => fs.readFileSync(path.join(process.cwd(), rel), "utf8").replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:"'`])\/\/[^\n]*/g, "$1");
++
++/** Les `href` des liens d'un arbre d'éléments React — sans rendre : on lit ce que le composant ÉMET. */
++function liens(noeud: unknown, trouves: string[] = []): string[] {
++  if (Array.isArray(noeud)) { for (const n of noeud) liens(n, trouves); return trouves; }
++  if (noeud && typeof noeud === "object" && "props" in noeud) {
++    const props = (noeud as { props: { href?: unknown; children?: unknown } }).props;
++    if (typeof props.href === "string") trouves.push(props.href);
++    liens(props.children, trouves);
++  }
++  return trouves;
++}
++
++describe("les points d'appel — une règle, un écran, une liste de chemins", () => {
++  it("les deux portes (Annuaires, Force de vente) montent LE MÊME composant, qui lit la règle", () => {
++    for (const rel of ["src/app/(app)/annuaires/specialites/page.tsx", "src/app/(app)/planning/specialites/page.tsx"]) {
++      const src = code(rel);
++      expect(src, rel).toContain("<EcranSpecialites user={user} />");
++      expect(src, rel).toContain(`peutGererSpecialites(user, "VIEW")`);
++      expect(src, rel).not.toContain("SpecialitesTable");
++    }
++    const ecran = code("src/components/directory/ecran-specialites.tsx");
++    for (const g of ["VIEW", "CREATE", "UPDATE", "DELETE"]) expect(ecran).toContain(`peutGererSpecialites(user, "${g}")`);
++    expect(ecran).not.toMatch(/userCan\(/);
++  });
++
++  it("la page de la Force de vente garde sa porte AVANT de charger quoi que ce soit", () => {
++    const src = code("src/app/(app)/planning/specialites/page.tsx");
++    expect(src.indexOf("requireModule")).toBeGreaterThan(-1);
++    expect(src.indexOf("requireModule")).toBeLessThan(src.indexOf("peutGererSpecialites"));
++    expect(src.indexOf(`peutGererSpecialites(user, "VIEW")`)).toBeLessThan(src.indexOf("<EcranSpecialites"));
++  });
++
++  it("chaque page de la Force de vente qui rend la barre d'onglets dit si l'onglet Spécialités s'affiche", () => {
++    const racine = path.join(process.cwd(), "src/app/(app)/planning");
++    const pages = ["page.tsx", ...fs.readdirSync(racine, { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => `${d.name}/page.tsx`)]
++      .filter((p) => fs.existsSync(path.join(racine, p)));
++    const avecBarre = pages.filter((p) => /<PlanningTabs\b/.test(code(`src/app/(app)/planning/${p}`)));
++    expect(avecBarre.length, "prémisse : la découverte voit les pages d'onglets").toBeGreaterThanOrEqual(6);
++    for (const p of avecBarre) {
++      const src = code(`src/app/(app)/planning/${p}`);
++      const appel = src.slice(src.indexOf("<PlanningTabs"), src.indexOf("/>", src.indexOf("<PlanningTabs")) + 2);
++      expect(appel, p).toMatch(/specialites(=\{peutGererSpecialites\(user, "VIEW"\)\})?\b/);
++      if (p !== "specialites/page.tsx") expect(appel, p).toContain(`specialites={peutGererSpecialites(user, "VIEW")}`);
++    }
++  });
++
++  it("une écriture du référentiel revalide TOUS les écrans qui le montent, et une seule liste les nomme", () => {
++    expect([...CHEMINS_SPECIALITES]).toEqual(["/annuaires/specialites", "/planning/specialites"]);
++    for (const rel of ["src/lib/actions/medical-actions.ts", "src/lib/actions/sales-planning-actions.ts"]) {
++      const src = code(rel);
++      expect(src, rel).not.toMatch(/revalidatePath\("\/annuaires\/specialites"\)/);
++      expect(src, rel).toContain("CHEMINS_SPECIALITES");
++    }
++  });
++
++  it("les trois ops d'Adam lisent la même règle que l'écran, plus le droit de module seul", () => {
++    const src = code("src/lib/assistant/ops/catalog.ts");
++    for (const [op, geste] of [["create_specialty", "CREATE"], ["update_specialty", "UPDATE"], ["delete_specialty", "DELETE"]] as const) {
++      const debut = src.indexOf(`op: "${op}"`);
++      expect(debut, op).toBeGreaterThan(-1);
++      const corps = src.slice(debut, debut + 700);
++      expect(corps, op).toContain(`gate: (u) => peutGererSpecialites(u, "${geste}")`);
++      expect(corps, op).not.toMatch(/gate: \(u\) => userCan\(u, "MEDICAL"/);
++    }
++  });
++});
++
++suite("la Direction Marketing gère le référentiel depuis la Force de vente — un rôle sans accès est refusé, page ET action", () => {
++  let dm = "", mpm = "", logi = "", natSales = "", deleg = "", buId = "";
++  let DM: SessionUser, MPM: SessionUser, LOGI: SessionUser, NS: SessionUser, DMSEC: SessionUser, BLOQ: SessionUser;
++
++  const nettoyer = async () => {
++    const spes = await prisma.medicalSpecialty.findMany({ where: { name: { startsWith: TAG } }, select: { id: true } });
++    const ids = spes.map((s) => s.id);
++    await prisma.businessUnitSpecialty.deleteMany({ where: { OR: [{ specialtyId: { in: ids } }, { businessUnit: { name: { startsWith: TAG } } }] } }).catch(() => {});
++    await prisma.businessUnit.deleteMany({ where: { name: { startsWith: TAG } } }).catch(() => {});
++    await prisma.medicalDoctor.deleteMany({ where: { name: { startsWith: TAG } } }).catch(() => {});
++    await prisma.auditLog.deleteMany({ where: { entityType: "SPECIALTY", entityId: { in: ids } } }).catch(() => {});
++    await prisma.medicalSpecialty.deleteMany({ where: { id: { in: ids } } }).catch(() => {});
++    await prisma.auditLog.deleteMany({ where: { actor: { email: { startsWith: TAG.toLowerCase() } } } }).catch(() => {});
++    await prisma.user.deleteMany({ where: { email: { startsWith: TAG.toLowerCase() } } }).catch(() => {});
++  };
++
++  beforeAll(async () => {
++    await nettoyer();
++    const mk = (s: string, role: string) =>
++      prisma.user.create({ data: { name: `${TAG}${s}`, email: `${TAG.toLowerCase()}${s}@t.dz`, role: role as never, passwordHash: "x" } });
++    const [a, b, c, d, e] = await Promise.all([
++      mk("dm", "PRODUCT_MANAGER"), mk("mpm", "MEDICAL_PROMOTION_MANAGER"), mk("logi", "LOGISTICS_MANAGER"), mk("ns", "NATIONAL_SALES"),
++      mk("deleg", "MEDICAL_DELEGATE"),
++    ]);
++    dm = a.id; mpm = b.id; logi = c.id; natSales = d.id; deleg = e.id;
++    DM = await acteur(dm, "PRODUCT_MANAGER");
++    MPM = await acteur(mpm, "MEDICAL_PROMOTION_MANAGER");
++    LOGI = await acteur(logi, "LOGISTICS_MANAGER");
++    NS = await acteur(natSales, "NATIONAL_SALES");
++    // La Direction Marketing portée en rôle SECONDAIRE (cumul de postes) : la règle lit les deux rôles.
++    // Un compte qui a la Force de vente en lecture mais dont la console a RETIRÉ la Promotion médicale :
++    // l'acteur qui prouve la garde de la page et de l'onglet (Logistique n'a pas la Force de vente du tout).
++    BLOQ = await acteur(deleg, "MEDICAL_DELEGATE");
++    BLOQ.access.modules.delete("MEDICAL");
++    DMSEC = await acteur(logi, "LOGISTICS_MANAGER", "PRODUCT_MANAGER");
++    buId = (await prisma.businessUnit.create({ data: { name: `${TAG} BU` }, select: { id: true } })).id;
++  });
++
++  afterAll(nettoyer);
++
++  it("les acteurs sont ce que le banc croit qu'ils sont (prémisses)", () => {
++    expect(hasGlobalView(DM.role), "la Direction Marketing n'a pas la vue globale").toBe(false);
++    expect(userCan(DM, "MEDICAL", "VIEW"), "elle lit la Promotion médicale").toBe(true);
++    for (const g of ["CREATE", "UPDATE", "DELETE"] as const) {
++      expect(userCan(DM, "MEDICAL", g), `sans la règle, elle n'aurait pas ${g} sur la Promotion médicale`).toBe(false);
++    }
++    expect(userCan(DM, "SALES_PLANNING", "VIEW"), "elle lit la Force de vente — c'est la porte de l'onglet").toBe(true);
++    expect(userCan(DM, "SALES_PLANNING", "UPDATE"), "elle ne la modifie pas : on n'élargit pas le module").toBe(false);
++    expect(userCan(MPM, "MEDICAL", "DELETE"), "le Manager Promotion médicale gère par son module").toBe(true);
++    expect(userCan(LOGI, "MEDICAL", "VIEW"), "la Logistique n'a pas la Promotion médicale").toBe(false);
++    expect(userCan(LOGI, "SALES_PLANNING", "VIEW"), "…ni la Force de vente (la porte de l'onglet lui est fermée avant la règle)").toBe(false);
++    expect(userCan(BLOQ, "SALES_PLANNING", "VIEW"), "le compte au module retiré lit la Force de vente").toBe(true);
++    expect(userCan(BLOQ, "MEDICAL", "VIEW"), "…mais n'a plus la Promotion médicale").toBe(false);
++    expect(userCan(NS, "MEDICAL", "DELETE"), "le National Sales ne supprime pas dans la Promotion médicale").toBe(false);
++  });
++
++  it("la règle : la Direction Marketing (rôle principal OU secondaire) a les quatre gestes, la Logistique aucun", () => {
++    for (const g of ["VIEW", "CREATE", "UPDATE", "DELETE"] as const) {
++      expect(peutGererSpecialites(DM, g), `DM ${g}`).toBe(true);
++      expect(peutGererSpecialites(DMSEC, g), `DM secondaire ${g}`).toBe(true);
++      expect(peutGererSpecialites(MPM, g), `MPM ${g}`).toBe(true);
++      expect(peutGererSpecialites(LOGI, g), `Logistique ${g}`).toBe(false);
++      expect(peutGererSpecialites(BLOQ, g), `compte au module retiré ${g}`).toBe(false);
++    }
++    // Le National Sales garde ce qu'il avait (module en contribution) : pas la structure.
++    expect(peutGererSpecialites(NS, "DELETE")).toBe(false);
++  });
++
++  it("l'onglet « Spécialités » s'affiche pour qui gère le référentiel, et pour lui seul", () => {
++    const hrefs = (specialites: boolean) => liens(PlanningTabs({ active: "pilotage", canConfigure: false, specialites }));
++    expect(hrefs(true)).toContain("/planning/specialites");
++    expect(hrefs(false)).not.toContain("/planning/specialites");
++    // Il ne suit PAS `canConfigure` : la Direction Marketing le voit sans configurer la force de vente.
++    const dmVoit = liens(PlanningTabs({ active: "pilotage", canConfigure: false, specialites: peutGererSpecialites(DM, "VIEW") }));
++    expect(dmVoit).toContain("/planning/specialites");
++    expect(dmVoit, "…et ne gagne aucun autre onglet de configuration").not.toContain("/planning/business-units");
++    expect(dmVoit).not.toContain("/planning/parametres");
++    const bloqVoit = liens(PlanningTabs({ active: "pilotage", canConfigure: false, specialites: peutGererSpecialites(BLOQ, "VIEW") }));
++    expect(bloqVoit).not.toContain("/planning/specialites");
++  });
++
++  it("la page : la Direction Marketing l'ouvre ; un compte qui a la Force de vente en lecture sans la règle est redirigé", async () => {
++    ACTEUR = DM;
++    const ouverte = await PlanningSpecialitesPage();
++    expect(ouverte).toBeTruthy();
++    ACTEUR = BLOQ;
++    await expect(PlanningSpecialitesPage()).rejects.toThrow(/NEXT_REDIRECT/);
++    // L'écran partagé refuse de lui-même, AVANT de charger : la page n'est pas la seule garde.
++    await expect(EcranSpecialites({ user: BLOQ })).rejects.toThrow(/NEXT_REDIRECT/);
++    await expect(EcranSpecialites({ user: LOGI })).rejects.toThrow(/NEXT_REDIRECT/);
++    await expect(EcranSpecialites({ user: DM })).resolves.toBeTruthy();
++  });
++
++  it("la Direction Marketing : ajouter, renommer, rattacher un libellé, fusionner, retirer — par les vraies actions, deux écrans revalidés", async () => {
++    ACTEUR = DM;
++    revalides.length = 0;
++    const a = await createSpecialty(fd({ name: `${TAG}Néphrologie` }));
++    expect(a.ok, a.ok ? "" : a.error).toBe(true);
++    expect(revalides).toEqual(expect.arrayContaining(["/annuaires/specialites", "/planning/specialites"]));
++    const b = await createSpecialty(fd({ name: `${TAG}Nephro bis` }));
++    expect(b.ok, b.ok ? "" : b.error).toBe(true);
++    const idA = a.ok ? a.id! : "", idB = b.ok ? b.id! : "";
++
++    const r = await updateSpecialty(fd({ id: idB, name: `${TAG}Néphro pédiatrique`, color: "#336699" }));
++    expect(r.ok, r.ok ? "" : r.error).toBe(true);
++    const apres = await prisma.medicalSpecialty.findUniqueOrThrow({ where: { id: idB } });
++    expect(apres.name).toBe(`${TAG}Néphro pédiatrique`);
++    expect(apres.color).toBe("#336699");
++
++    const fiche = await prisma.medicalDoctor.create({ data: { name: `${TAG}Dr Libellé`, specialty: `${TAG}nephro` }, select: { id: true } });
++    const ra = await rattacherLibelleSpecialite(fd({ libelle: `${TAG}nephro`, specialtyId: idA }));
++    expect(ra.ok, ra.ok ? "" : ra.error).toBe(true);
++    expect(ra.rattachees, "sa portée de la Promotion médicale (lecture) est entière : la fiche est dans ce qu'elle voit").toBe(1);
++    expect((await prisma.medicalDoctor.findUniqueOrThrow({ where: { id: fiche.id } })).specialtyId).toBe(idA);
++
++    const fu = await fusionnerSpecialite(fd({ id: idB, cibleId: idA }));
++    expect(fu.ok, fu.ok ? "" : fu.error).toBe(true);
++    expect(await prisma.medicalSpecialty.count({ where: { id: idB } })).toBe(0);
++
++    const de = await deleteSpecialty(fd({ id: idA }));
++    expect(de.ok, de.ok ? "" : de.error).toBe(true);
++    expect(await prisma.medicalSpecialty.count({ where: { id: idA } })).toBe(0);
++    // Retirer une spécialité ne retire rien au praticien : sa spécialité écrite reste.
++    expect((await prisma.medicalDoctor.findUniqueOrThrow({ where: { id: fiche.id } })).specialty).toBeTruthy();
++  });
++
++  it("le refus nommé d'une spécialité visée par une BU vaut aussi pour la Direction Marketing — et la fusion fait suivre la BU", async () => {
++    ACTEUR = DM;
++    const a = await createSpecialty(fd({ name: `${TAG}Neurologie` }));
++    const b = await createSpecialty(fd({ name: `${TAG}Neuro bis` }));
++    const idA = a.ok ? a.id! : "", idB = b.ok ? b.id! : "";
++    await prisma.businessUnitSpecialty.create({ data: { businessUnitId: buId, specialtyId: idB, principale: false } });
++    const refus = await deleteSpecialty(fd({ id: idB }));
++    expect(refus.ok).toBe(false);
++    expect(refus.ok ? "" : refus.error).toMatch(/visée par 1 Business Unit/);
++    expect(refus.ok ? "" : refus.error, "le refus nomme la BU").toContain(`${TAG} BU`);
++    expect(await prisma.medicalSpecialty.count({ where: { id: idB } })).toBe(1);
++    const fu = await fusionnerSpecialite(fd({ id: idB, cibleId: idA }));
++    expect(fu.ok, fu.ok ? "" : fu.error).toBe(true);
++    const liens = await prisma.businessUnitSpecialty.findMany({ where: { businessUnitId: buId } });
++    expect(liens.map((l) => l.specialtyId)).toEqual([idA]);
++  });
++
++  it("un rôle sans accès : les cinq actions refusent, et rien n'est écrit", async () => {
++    ACTEUR = MPM;
++    const a = await createSpecialty(fd({ name: `${TAG}Cardio A` }));
++    const b = await createSpecialty(fd({ name: `${TAG}Cardio B` }));
++    const idA = a.ok ? a.id! : "", idB = b.ok ? b.id! : "";
++    const refus = { ok: false, error: "Non autorisé." };
++    for (const interdit of [LOGI, BLOQ]) {
++    ACTEUR = interdit;
++    expect(await createSpecialty(fd({ name: `${TAG}Interdite` }))).toEqual(refus);
++    expect(await updateSpecialty(fd({ id: idA, name: `${TAG}Renommée` }))).toEqual(refus);
++    expect(await fusionnerSpecialite(fd({ id: idB, cibleId: idA }))).toEqual(refus);
++    expect(await rattacherLibelleSpecialite(fd({ libelle: "x", specialtyId: idA }))).toEqual(refus);
++    expect(await deleteSpecialty(fd({ id: idA }))).toEqual(refus);
++    }
++    expect(await prisma.medicalSpecialty.count({ where: { name: `${TAG}Interdite` } })).toBe(0);
++    expect((await prisma.medicalSpecialty.findUniqueOrThrow({ where: { id: idA } })).name).toBe(`${TAG}Cardio A`);
++    expect(await prisma.medicalSpecialty.count({ where: { id: { in: [idA, idB] } } })).toBe(2);
++  });
++
++  it("Adam : les ops du référentiel s'ouvrent à la Direction Marketing, et pas à la Logistique", () => {
++    for (const [op, geste] of [["create_specialty", "CREATE"], ["update_specialty", "UPDATE"], ["delete_specialty", "DELETE"]] as const) {
++      const meta = OPS_BY_TOOL.medical_operation[op];
++      expect(meta, op).toBeTruthy();
++      expect(meta.gate(DM as never), `${op} (${geste}) — Direction Marketing`).toBe(true);
++      expect(meta.gate(LOGI as never), `${op} — Logistique`).toBe(false);
++    }
++  });
++});
+diff --git a/src/lib/actions/specialites-gestion.test.ts b/src/lib/actions/specialites-gestion.test.ts
+index 1712dae..8271294 100644
+--- a/src/lib/actions/specialites-gestion.test.ts
++++ b/src/lib/actions/specialites-gestion.test.ts
+@@ -61,7 +61,11 @@ describe("le point d'appel — une règle, lue par l'onglet, la page et les cinq
+     }
+   });
+   it("la page lit la même règle pour s'ouvrir et pour chaque bouton", () => {
+-    const src = code("src/app/(app)/annuaires/specialites/page.tsx");
++    // L'écran est PARTAGÉ avec Force de vente › Spécialités (§118.209) : la règle se lit dans le composant.
++    const page = code("src/app/(app)/annuaires/specialites/page.tsx");
++    expect(page).toContain(`peutGererSpecialites(user, "VIEW")`);
++    expect(page).toContain("<EcranSpecialites user={user} />");
++    const src = code("src/components/directory/ecran-specialites.tsx");
+     for (const g of ["VIEW", "CREATE", "UPDATE", "DELETE"]) expect(src).toContain(`peutGererSpecialites(user, "${g}")`);
+     expect(src).not.toMatch(/userCan\(/);
+   });
+diff --git a/src/lib/annuaires/specialites.ts b/src/lib/annuaires/specialites.ts
+index a0dc011..9e8fbd2 100644
+--- a/src/lib/annuaires/specialites.ts
++++ b/src/lib/annuaires/specialites.ts
+@@ -93,3 +93,11 @@ export function lienDeSpecialiteValide(texte: string | null | undefined, nomDuLi
+   const cle = cleDeSpecialite(String(texte ?? ""));
+   return !cle || cle === cleDeSpecialite(nomDuLien);
+ }
++
++/**
++ * LES ÉCRANS QUI MONTENT LE RÉFÉRENTIEL (§118.209) — Annuaires › Spécialités et Force de vente ›
++ * Spécialités rendent le MÊME composant ; une écriture les revalide TOUS. Une seule liste : deux
++ * actions qui en recopieraient chacune une finiraient par oublier l'écran ajouté demain, et la
++ * personne verrait l'état d'avant dans l'autre onglet.
++ */
++export const CHEMINS_SPECIALITES = ["/annuaires/specialites", "/planning/specialites"] as const;
+diff --git a/src/lib/assistant/action-registry.ts b/src/lib/assistant/action-registry.ts
+index 8981889..5886a9e 100644
+--- a/src/lib/assistant/action-registry.ts
++++ b/src/lib/assistant/action-registry.ts
+@@ -1357,7 +1357,7 @@ X("LES SPÉCIALITÉS D'UNE BUSINESS UNIT (§118.183) — l'ensemble des spécial
+ X("LE TERRITOIRE D'UN KAM (04/10/2026) — dans une BU hospitalière, les établissements de l'annuaire qu'un KAM couvre, et pour chacun tous ses services ou certains — est un geste d'écran neuf, et Adam est en pause de développement : aucun geste neuf ne lui est ouvert. Il se décide DEVANT l'annuaire et ses services, cases à cocher sous les yeux, et il REMPLACE la sélection (décocher retire) : c'est le panel de médecins d'une personne qu'on change. Tout se fait sur Force de vente › Business Units, ligne du KAM, bouton « Territoire ».", [
+   "sales-planning-actions:enregistrerTerritoireKam",
+ ]);
+-X("LE RÉFÉRENTIEL DES SPÉCIALITÉS (§118.180) — fusionner deux spécialités, rattacher un libellé hérité à une spécialité, rattacher en lot les fiches dont la spécialité est écrite sans lien — sont des gestes d'écran neufs, et Adam est en pause de développement : aucun geste neuf ne lui est ouvert. La fusion change, de plus, la spécialité de fiches que la personne ne voit peut-être pas : c'est une décision de STRUCTURE, prise devant l'écran qui en montre l'effet. Tout se fait sur Annuaires › Spécialités et dans la feuille des praticiens (« Rattacher les spécialités »).", [
++X("LE RÉFÉRENTIEL DES SPÉCIALITÉS (§118.180) — fusionner deux spécialités, rattacher un libellé hérité à une spécialité, rattacher en lot les fiches dont la spécialité est écrite sans lien — sont des gestes d'écran neufs, et Adam est en pause de développement : aucun geste neuf ne lui est ouvert. La fusion change, de plus, la spécialité de fiches que la personne ne voit peut-être pas : c'est une décision de STRUCTURE, prise devant l'écran qui en montre l'effet. Tout se fait sur Annuaires › Spécialités (ou Force de vente › Spécialités, le même écran) et dans la feuille des praticiens (« Rattacher les spécialités »).", [
+   "medical-actions:fusionnerSpecialite",
+   "medical-actions:rattacherLibelleSpecialite",
+   "medical-directory-actions:rattacherSpecialitesParNom",
+diff --git a/src/lib/assistant/ops/catalog.ts b/src/lib/assistant/ops/catalog.ts
+index 6066b60..3904739 100644
+--- a/src/lib/assistant/ops/catalog.ts
++++ b/src/lib/assistant/ops/catalog.ts
+@@ -1,5 +1,5 @@
+ import type { CurrentUser } from "@/lib/session";
+-import { userCan, hasGlobalView } from "@/lib/rbac";
++import { userCan, hasGlobalView, peutGererSpecialites } from "@/lib/rbac";
+ import { canManageLetterheads } from "@/lib/office/letterhead";
+ import { siegeAuCentreAdPro } from "@/platform/in-process/capacites";
+ 
+@@ -2652,7 +2652,9 @@ export const OPS_CATALOG: OpMeta[] = [
+     aliases: ["crée la spécialité", "ajoute une spécialité médicale"],
+     risk: "NORMAL",
+     summary: "Crée une spécialité au référentiel (doublon refusé par l'action).",
+-    gate: (u) => userCan(u, "MEDICAL", "CREATE"),
++    // La règle du RÉFÉRENTIEL (§118.209) — la même que l'écran et l'action : la Direction Marketing et les
++    // directeurs des opérations le gèrent sans la Promotion médicale en écriture.
++    gate: (u) => peutGererSpecialites(u, "CREATE"),
+     covers: ["medical-actions:createSpecialty"],
+   },
+   {
+@@ -2661,7 +2663,9 @@ export const OPS_CATALOG: OpMeta[] = [
+     aliases: ["renomme la spécialité", "change la couleur de la spécialité"],
+     risk: "NORMAL",
+     summary: "Renomme / recolore une spécialité — le libellé dénormalisé est resynchronisé sur TOUS ses praticiens ; couleur et notes existantes rejouées.",
+-    gate: (u) => userCan(u, "MEDICAL", "UPDATE"),
++    // La règle du RÉFÉRENTIEL (§118.209) — la même que l'écran et l'action : la Direction Marketing et les
++    // directeurs des opérations le gèrent sans la Promotion médicale en écriture.
++    gate: (u) => peutGererSpecialites(u, "UPDATE"),
+     covers: ["medical-actions:updateSpecialty"],
+   },
+   {
+@@ -2670,7 +2674,9 @@ export const OPS_CATALOG: OpMeta[] = [
+     aliases: ["supprime la spécialité"],
+     risk: "SENSITIVE",
+     summary: "Supprime une spécialité — les praticiens passent « Sans spécialité », AUCUNE fiche n'est supprimée.",
+-    gate: (u) => userCan(u, "MEDICAL", "DELETE"),
++    // La règle du RÉFÉRENTIEL (§118.209) — la même que l'écran et l'action : la Direction Marketing et les
++    // directeurs des opérations le gèrent sans la Promotion médicale en écriture.
++    gate: (u) => peutGererSpecialites(u, "DELETE"),
+     covers: ["medical-actions:deleteSpecialty"],
+   },
+   {
+diff --git a/src/lib/rbac.ts b/src/lib/rbac.ts
+index 3ec2467..d3734c9 100644
+--- a/src/lib/rbac.ts
++++ b/src/lib/rbac.ts
+@@ -1362,6 +1362,15 @@ export function annuaireOuvertParConsole(user: SessionUser, cle: AnnuaireAccorda
+  * second n'a de la Promotion médicale que la LECTURE : sans cette règle, il aurait vu l'onglet sans un
+  * seul bouton. Les autres gardent ce qu'ils avaient — le droit de la Promotion médicale, geste par geste.
+  *
++ * LA DIRECTION MARKETING LE GÈRE AUSSI (05/10/2026, §118.209) : « donne la gestion des spécialités, dans
++ * Force de vente, dans un onglet à part au marketing — ils peuvent ajouter, supprimer, modifier ».
++ * Elle n'a de la Promotion médicale (`MEDICAL`) et de la Force de vente (`SALES_PLANNING`) que la
++ * LECTURE ; lui donner l'écriture de l'un ou l'autre module lui ouvrirait les praticiens, les visites,
++ * les Business Units, les affectations (§118.16). La règle est donc PRÉCISE : le rôle `PRODUCT_MANAGER`
++ * (principal OU secondaire), tous les gestes, sur le seul référentiel. Le Manager Promotion médicale
++ * le gère déjà par son droit de module (MANAGE) — on ne lui ajoute pas un rôle que la console pourrait
++ * resserrer : « garde ce qu'il avait ». Le Super Admin passe par `userCan`.
++ *
+  * UNE lecture pour l'onglet, la page et les cinq actions : une porte qui recopierait la règle
+  * finirait par ouvrir un bouton que l'action refuse (§118.5, §118.83). Le rôle se lit principal OU
+  * secondaire (`hasRole`), comme les autres lectures du « directeur des opérations ».
+@@ -1370,7 +1379,7 @@ export function annuaireOuvertParConsole(user: SessionUser, cle: AnnuaireAccorda
+ export type GesteSpecialites = "VIEW" | "CREATE" | "UPDATE" | "DELETE";
+ 
+ export function peutGererSpecialites(user: SessionUser, geste: GesteSpecialites): boolean {
+-  if (hasRole(user, "DIRECTION") || hasRole(user, "OPERATIONS_DIRECTOR")) return true;
++  if (hasRole(user, "DIRECTION") || hasRole(user, "OPERATIONS_DIRECTOR") || hasRole(user, "PRODUCT_MANAGER")) return true;
+   return userCan(user, "MEDICAL", geste);
+ }
+ 

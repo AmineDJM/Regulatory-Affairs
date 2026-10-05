@@ -1362,6 +1362,15 @@ export function annuaireOuvertParConsole(user: SessionUser, cle: AnnuaireAccorda
  * second n'a de la Promotion médicale que la LECTURE : sans cette règle, il aurait vu l'onglet sans un
  * seul bouton. Les autres gardent ce qu'ils avaient — le droit de la Promotion médicale, geste par geste.
  *
+ * LA DIRECTION MARKETING LE GÈRE AUSSI (05/10/2026, §118.209) : « donne la gestion des spécialités, dans
+ * Force de vente, dans un onglet à part au marketing — ils peuvent ajouter, supprimer, modifier ».
+ * Elle n'a de la Promotion médicale (`MEDICAL`) et de la Force de vente (`SALES_PLANNING`) que la
+ * LECTURE ; lui donner l'écriture de l'un ou l'autre module lui ouvrirait les praticiens, les visites,
+ * les Business Units, les affectations (§118.16). La règle est donc PRÉCISE : le rôle `PRODUCT_MANAGER`
+ * (principal OU secondaire), tous les gestes, sur le seul référentiel. Le Manager Promotion médicale
+ * le gère déjà par son droit de module (MANAGE) — on ne lui ajoute pas un rôle que la console pourrait
+ * resserrer : « garde ce qu'il avait ». Le Super Admin passe par `userCan`.
+ *
  * UNE lecture pour l'onglet, la page et les cinq actions : une porte qui recopierait la règle
  * finirait par ouvrir un bouton que l'action refuse (§118.5, §118.83). Le rôle se lit principal OU
  * secondaire (`hasRole`), comme les autres lectures du « directeur des opérations ».
@@ -1370,7 +1379,7 @@ export function annuaireOuvertParConsole(user: SessionUser, cle: AnnuaireAccorda
 export type GesteSpecialites = "VIEW" | "CREATE" | "UPDATE" | "DELETE";
 
 export function peutGererSpecialites(user: SessionUser, geste: GesteSpecialites): boolean {
-  if (hasRole(user, "DIRECTION") || hasRole(user, "OPERATIONS_DIRECTOR")) return true;
+  if (hasRole(user, "DIRECTION") || hasRole(user, "OPERATIONS_DIRECTOR") || hasRole(user, "PRODUCT_MANAGER")) return true;
   return userCan(user, "MEDICAL", geste);
 }
 

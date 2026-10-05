@@ -93,3 +93,11 @@ export function lienDeSpecialiteValide(texte: string | null | undefined, nomDuLi
   const cle = cleDeSpecialite(String(texte ?? ""));
   return !cle || cle === cleDeSpecialite(nomDuLien);
 }
+
+/**
+ * LES ÉCRANS QUI MONTENT LE RÉFÉRENTIEL (§118.209) — Annuaires › Spécialités et Force de vente ›
+ * Spécialités rendent le MÊME composant ; une écriture les revalide TOUS. Une seule liste : deux
+ * actions qui en recopieraient chacune une finiraient par oublier l'écran ajouté demain, et la
+ * personne verrait l'état d'avant dans l'autre onglet.
+ */
+export const CHEMINS_SPECIALITES = ["/annuaires/specialites", "/planning/specialites"] as const;

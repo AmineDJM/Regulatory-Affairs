@@ -2,7 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { requireModule } from "@/lib/session";
-import { userCan, hasGlobalView } from "@/lib/rbac";
+import { userCan, hasGlobalView, peutGererSpecialites } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { ensureCycle } from "@/lib/actions/sales-planning-actions";
 import { getSfeConfig, monthLabel, fieldVisitsCapacity, repCapacity, assignmentEffort, fteFromEffort, resolveRepScope } from "@/lib/sfe";
@@ -82,7 +82,7 @@ export default async function PlanningPage({ searchParams }: { searchParams: { y
   return (
     <div className="space-y-5">
       <PageHeader title="Prévisions & Force de vente" description="Planification mensuelle par produit : FTE cible, couverture, visites et budget. Prévu par la Direction, affecté aux KAM, mesuré sur le terrain." />
-      <PlanningTabs active="previsions" canConfigure={canConfigure} isSupervisor={scope.isSupervisor} />
+      <PlanningTabs active="previsions" canConfigure={canConfigure} isSupervisor={scope.isSupervisor} specialites={peutGererSpecialites(user, "VIEW")} />
 
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2">

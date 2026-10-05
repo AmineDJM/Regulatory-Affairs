@@ -33,6 +33,7 @@ import { annulerDemandeSecretariat } from "@/lib/secretariat/annulation";
 import { etatsDesBC } from "@/lib/bons-de-commande/etat";
 import { mirrorDocumentsToDrive } from "@/lib/drive/document-mirror";
 import { deleteFileByKey } from "@/lib/storage";
+import { refuseSousVueExacte } from "@/lib/vue-exacte";
 
 const PATH = "/promo-material";
 
@@ -206,6 +207,9 @@ export async function createPromoMaterial(_prev: ActionResult | undefined, formD
     // UN REFUS DIT LA VRAIE RAISON. Il disait « réservée au Marketing » — faux : délégués, KAM et
     // National Sales créent aussi (droit du module) ; celui qui est refusé n'a pas le droit du module.
     if (!userCan(user, "PROMO_MATERIAL", "CREATE")) return { ok: false, error: "Votre profil n'a pas le droit de créer une demande de matériel promotionnel (module Matériel promotionnel) : l'accès se règle en Administration › Comptes." };
+    // Pas de création « comme » quelqu'un : voir `vue-exacte.ts`.
+    const sousVue = await refuseSousVueExacte(user);
+    if (sousVue) return sousVue;
     const title = fdStr(formData, "title");
     const description = fdStr(formData, "description");
 

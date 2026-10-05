@@ -1,4 +1,5 @@
-import { cookies, headers } from "next/headers";
+import { cookies } from "next/headers";
+import { actionAsyncStorage } from "next/dist/client/components/action-async-storage.external";
 import { redirect } from "next/navigation";
 import type { Session } from "next-auth";
 import type { UserRole } from "@prisma/client";
@@ -9,9 +10,14 @@ import { firstAccessibleHref } from "./labels";
 import { shouldTouch } from "./touch-throttle";
 import { getAppSettings } from "./settings";
 import { canOpenModule } from "./modules-visibility";
+import { IMPERSONATE_COOKIE } from "./vue-exacte";
 
-/** Nom du cookie de « Vue exacte » (impersonation), honoré uniquement pour un Super Admin. */
-export const IMPERSONATE_COOKIE = "amd_impersonate";
+/**
+ * Nom du cookie de « Vue exacte » (impersonation), honoré uniquement pour un Super Admin. Défini dans
+ * `vue-exacte.ts` (qui sait aussi refuser une création sous la vue) et réexporté ici : les actions de
+ * création le lisent sans importer la session, que les bancs remplacent entièrement.
+ */
+export { IMPERSONATE_COOKIE };
 
 export interface CurrentUser {
   id: string;
@@ -28,13 +34,26 @@ export interface CurrentUser {
 }
 
 /**
- * CETTE REQUÊTE ÉCRIT-ELLE ? Une action serveur porte toujours l'en-tête `Next-Action` ; une route
- * d'API qui écrit le DIT en appelant `getCurrentUserPourEcrire` (un cliquet l'exige de chaque
+ * UNE ACTION SERVEUR S'EXÉCUTE-T-ELLE EN CE MOMENT ? La question n'est pas « cette requête porte-t-elle
+ * l'en-tête `Next-Action` ? » : c'est ce qu'on lisait (§118.184), et c'était faux de deux façons.
+ *
+ *   · Une action qui `redirect()` ne renvoie pas une redirection : Next rend la page cible DANS la
+ *     réponse de l'action, en rejouant les en-têtes de la requête — `Next-Action` compris. La page
+ *     d'arrivée de « Voir comme cet utilisateur » se rendait donc comme celle du Super Admin, sans
+ *     bandeau ; seul un rechargement (une vraie requête GET) montrait la vue. Même défaut après toute
+ *     action qui revalide la page affichée : l'écran retombait sur l'administrateur jusqu'au prochain
+ *     rechargement. Mesuré contre le build de production (`e2e/vue-exacte.spec.ts`).
+ *   · L'en-tête dit « cette requête VIENT d'une action », pas « le code qui tourne est celui de
+ *     l'action » : le rendu de la page qui suit l'action est un RENDU, il LIT.
+ *
+ * Next marque l'exécution du corps de l'action — et d'elle seule — dans un stockage asynchrone
+ * (`actionAsyncStorage`, `isAction`) : c'est le fait que `cookies().set` et `redirect` lisent eux-mêmes.
+ * Une route d'API qui écrit le DIT en appelant `getCurrentUserPourEcrire` (un cliquet l'exige de chaque
  * gestionnaire POST/PUT/PATCH/DELETE). Hors requête (banc, battement), personne n'usurpe rien.
  */
-function requeteQuiEcrit(): boolean {
+function actionServeurEnCours(): boolean {
   try {
-    return Boolean(headers().get("next-action"));
+    return actionAsyncStorage.getStore()?.isAction === true;
   } catch {
     return false;
   }
@@ -70,7 +89,7 @@ async function build(session: Session | null, opts: { ecriture?: boolean } = {})
   // personne visualisée : une décision, un envoi, un dépôt s'écrivaient sous son nom au journal et
   // dans les notifications. Une requête qui ÉCRIT ignore donc la vue : elle part au nom du Super
   // Admin, avec ses droits — ce que le bandeau dit.
-  if (session.user.role === "SUPER_ADMIN" && !(opts.ecriture || requeteQuiEcrit())) {
+  if (session.user.role === "SUPER_ADMIN" && !(opts.ecriture || actionServeurEnCours())) {
     const targetId = cookies().get(IMPERSONATE_COOKIE)?.value;
     if (targetId && targetId !== session.user.id) {
       const target = await prisma.user.findUnique({

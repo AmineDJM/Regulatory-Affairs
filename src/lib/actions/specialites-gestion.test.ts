@@ -61,7 +61,11 @@ describe("le point d'appel — une règle, lue par l'onglet, la page et les cinq
     }
   });
   it("la page lit la même règle pour s'ouvrir et pour chaque bouton", () => {
-    const src = code("src/app/(app)/annuaires/specialites/page.tsx");
+    // L'écran est PARTAGÉ avec Force de vente › Spécialités (§118.209) : la règle se lit dans le composant.
+    const page = code("src/app/(app)/annuaires/specialites/page.tsx");
+    expect(page).toContain(`peutGererSpecialites(user, "VIEW")`);
+    expect(page).toContain("<EcranSpecialites user={user} />");
+    const src = code("src/components/directory/ecran-specialites.tsx");
     for (const g of ["VIEW", "CREATE", "UPDATE", "DELETE"]) expect(src).toContain(`peutGererSpecialites(user, "${g}")`);
     expect(src).not.toMatch(/userCan\(/);
   });

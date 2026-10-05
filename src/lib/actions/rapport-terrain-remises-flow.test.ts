@@ -209,6 +209,6 @@ suite("Compte rendu de visite — le matériel remis sort du stock du KAM, par l
     // Le témoin : un compte rendu SANS remise se supprime toujours.
     const libre = await nouveauRapport();
     expect(await DELETE_REGISTRY.FIELD_REPORT.refuse!(libre)).toBeNull();
-    expect(await deleteFieldReport(form({ id: libre }))).toEqual({ ok: true });
+    expect(await deleteFieldReport(form({ id: libre }))).toMatchObject({ ok: true });
   });
 });

@@ -9,6 +9,8 @@ import { attachFiles, validateAttachments } from "@/lib/attach-files";
 import { ROLE_LABELS } from "@/lib/labels";
 import { advanceWorkflowInstance, resubmitWorkflowInstance, retirerDemande } from "@/lib/workflow/engine";
 import { canAccessEntity } from "@/lib/entity-access";
+import { supprimerReversible } from "@/lib/suppression/coeur";
+import { DELETE_REGISTRY, isDeletableKind } from "@/lib/admin-delete-registry";
 import { hasGlobalView, userCan, type Module } from "@/lib/rbac";
 import {
   ACTOR_SCOPES, WORKFLOW_POWERS, WORKFLOW_CATEGORIES, CATEGORY_PATH,
@@ -131,6 +133,15 @@ export async function resoumettreDemande(formData: FormData): Promise<ActionResu
  * RETIRER une demande non tranchée (audit 360°, R24 — §118.186). Le demandeur la retire ; qui
  * TRANCHE le module, ou la vue globale, peut l'annuler — les mêmes que l'annulation d'un congrès.
  * Motif obligatoire, poste engagé bloquant : le moteur le vérifie.
+ *
+ * RETIRER, C'EST SUPPRIMER (Direction, 05/10) : « quand je retire une demande Ad&Pro, elle doit être
+ * TOTALEMENT supprimée — évidemment toujours récupérable depuis la corbeille par le Super Admin ». La
+ * demande part par le cœur réversible de la corbeille, au même titre que `supprimerDemandeAdPro` : UN lot,
+ * UNE transaction, avec son circuit, ses validations, ses ordres de dépense non réglés, ses postes, ses
+ * pièces — et elle revient intacte à la restauration. Ce qui a quitté l'ERP (un règlement parti, une
+ * pièce signée) la garde, et le refus nomme ce qui l'y oblige. La porte reste celle du RETRAIT (le
+ * demandeur, qui tranche, la vue globale) : retirer sa propre demande n'est pas le pouvoir de supprimer
+ * celle d'un autre, qui reste à `supprimerDemandeAdPro`.
  */
 export async function retirerDemandeAdPro(formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
@@ -138,19 +149,25 @@ export async function retirerDemandeAdPro(formData: FormData): Promise<ActionRes
   const entityId = fdStr(formData, "entityId");
   const motif = fdStr(formData, "motif");
   if (!entityType || !WORKFLOW_ENTITIES.includes(entityType) || !entityId) return { ok: false, error: "Paramètres manquants." };
-  if (!motif) return { ok: false, error: "Dites pourquoi vous retirez la demande : le motif reste à l'historique." };
+  if (!motif) return { ok: false, error: "Dites pourquoi vous retirez la demande : le motif reste au journal." };
   if (!(await canAccessEntity(user, entityType, entityId, "VIEW"))) return { ok: false, error: "Demande introuvable." };
   const demandeurId = await demandeurDe(entityType, entityId);
   const module = MODULE_DE[entityType];
   const autorise = demandeurId === user.id || hasGlobalView(user) || (module !== undefined && userCan(user, module, "VALIDATE"));
   if (!autorise) return { ok: false, error: "Seuls le demandeur et qui tranche ce module retirent une demande." };
+  const kind = entityType as string;
+  if (!isDeletableKind(kind)) return { ok: false, error: "Paramètres manquants." };
   const r = await retirerDemande({
     viewer: { id: user.id, role: user.role, secondaryRole: user.secondaryRole ?? null, name: user.name },
     entityType, entityId, motif,
+    supprimer: (nom) => supprimerReversible(
+      kind, entityId, user.id,
+      `Demande retirée par ${user.id === demandeurId ? "son demandeur" : "un validateur"} — ${DELETE_REGISTRY[kind].label} « ${nom} » : ${motif} (restaurable depuis la corbeille)`,
+    ),
   });
   if (!r.ok) return { ok: false, error: r.error };
   revaliderLaDemande(entityType, entityId);
-  return { ok: true, message: "Demande retirée — son circuit est clos, le motif reste à l'historique." };
+  return { ok: true, message: "Demande retirée et supprimée — elle reste récupérable depuis la corbeille par le Super Admin.", redirect: r.redirect ?? CHEMIN[entityType] ?? "/ad-pro" };
 }
 
 async function demandeurDe(entityType: EntityType, entityId: string): Promise<string | null> {

@@ -2370,6 +2370,9 @@ model AdProItem {
   /// Les articles du stock d'un poste « Matériel du stock » (§118.167).
   stockLines AdProStockLine[]
 
+  /// Les lignes de devis VALIDÉES pour ce poste — ce que les bons de commande générés portent (§118.206).
+  lignesDevisValidees AdProDevisLigne[] @relation("AdProDevisLigneValidee")
+
   /// LA RÉPARTITION D'UN SPONSORING INDIRECT (§118.175). L'imprimerie et l'hôtel sont deux
   /// fournisseurs : deux devis, deux BC, deux factures — donc deux postes, chacun avec sa chaîne.
   /// Les postes nés d'une même répartition portent le même identifiant (celui du premier, qui est
@@ -2413,13 +2416,19 @@ model AdProVoyageur {
   id           String    @id @default(cuid())
   itemId       String
   item         AdProItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  /// Le NOM de famille. Un voyageur d'avant la séparation porte ici son nom COMPLET (`prenom` vide) :
+  /// l'écran propose de le couper à la prochaine modification, rien n'est deviné en base.
   nom          String
+  prenom       String?
   villeDepart  String?
   villeArrivee String?
   dateDepart   DateTime?
   dateRetour   DateTime?
   notes        String?
-  /// Aller simple ou aller-retour (§118.205). En aller simple, `dateRetour` est vidée.
+  /// Les ÉTAPES d'un trajet à plusieurs destinations (`MULTI_DESTINATIONS`) : [{ de, vers, date }], dans
+  /// l'ordre du voyage. Les champs ci-dessus en gardent la première étape et la dernière (lecteurs d'avant).
+  segments     Json?
+  /// Aller simple, aller-retour ou plusieurs destinations (§118.205). En aller simple, `dateRetour` est vidée.
   trajet       AdProTrajet    @default(ALLER_RETOUR)
   /// Le mode de transport — `null` : pas encore dit.
   transport    AdProTransport?
@@ -2436,6 +2445,7 @@ model AdProVoyageur {
 enum AdProTrajet {
   ALLER_SIMPLE
   ALLER_RETOUR
+  MULTI_DESTINATIONS
 }
 
 enum AdProTransport {
@@ -2467,6 +2477,66 @@ model AdProVoyageurDevis {
 /// HISTORIQUE DES DÉCISIONS D'UN POSTE — « autant de fois qu'il le faut » : une demande de
 /// révision n'écrase pas la précédente, elle s'ajoute. Sans cette trace, un poste accordé au
 /// 3ᵉ tour ne dirait plus rien des deux refus qui l'ont précédé.
+/// LE DEVIS OU LA PRO FORMA D'UN POSTE, LU ET STRUCTURÉ (§118.206) — « Luna doit directement, lors de
+/// l'ingestion des devis à l'upload, les rendre mangeables et consommables par la plateforme ». La pièce
+/// reste au registre Legal (`AdProItemPiece`, §118.204) ; ceci porte ce qu'on en a LU : le fournisseur,
+/// la TVA, la taxe additionnelle, le total imprimé — et, dans `lignes`, les lignes que le demandeur valide
+/// une à une. Une ligne lue est une PROPOSITION ; elle ne devient le prix de la société que validée par une
+/// personne qui l'a comparée au papier (§118.152 i).
+model AdProDevis {
+  id              String            @id @default(cuid())
+  legalDocumentId String            @unique
+  legalDocument   LegalDocument     @relation("AdProDevisPiece", fields: [legalDocumentId], references: [id], onDelete: Cascade)
+  /// Le fournisseur choisi dans l'ANNUAIRE (`CompanyContact`, sans clé étrangère : un contact supprimé laisse le nom du devis).
+  supplierId      String?
+  /// La TVA du devis, en pour cent.
+  tvaRate         Decimal           @default(19) @db.Decimal(5, 2)
+  /// Une taxe ADDITIONNELLE au HT, hors base de TVA (« Taxe Pub 2 % », §118.135).
+  extraTaxLabel   String?
+  extraTaxRate    Decimal?          @db.Decimal(5, 2)
+  /// Le total HT imprimé sur le papier — pour CONTRÔLER les lignes, jamais pour calculer.
+  announcedTotal  Decimal?          @db.Decimal(14, 2)
+  quoteDate       DateTime?
+  /// La lecture (`LecturePiece`) dont viennent les lignes proposées, et d'où elles viennent, dit à la personne.
+  lectureId       String?
+  lectureNote     String?
+  createdById     String?
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+  lignes          AdProDevisLigne[]
+}
+
+/// UNE LIGNE DE DEVIS DE POSTE — référence/désignation, unité, quantité, prix unitaire HT. `quantity` et
+/// `unitPrice` peuvent être NULS : un chiffre illisible n'est pas deviné, la ligne attend d'être complétée
+/// et ne se valide pas. `validatedItemId` : le poste pour lequel elle est VALIDÉE (au plus un : une ligne
+/// ne se commande pas deux fois) ; `bcId` : le bon de commande qui la porte.
+model AdProDevisLigne {
+  id              String         @id @default(cuid())
+  devisId         String
+  devis           AdProDevis     @relation(fields: [devisId], references: [id], onDelete: Cascade)
+  position        Int            @default(0)
+  reference       String
+  unit            String?
+  quantity        Decimal?       @db.Decimal(14, 3)
+  unitPrice       Decimal?       @db.Decimal(14, 2)
+  /// Le rang de la ligne LUE dont elle vient (1-indexé) ; nul = saisie à la main.
+  lue             Int?
+  /// Ce qu'il faut vérifier sur le papier (chiffre illisible, remise lue…), dit à la personne.
+  aVerifier       String?
+  validatedItemId String?
+  validatedItem   AdProItem?     @relation("AdProDevisLigneValidee", fields: [validatedItemId], references: [id], onDelete: SetNull)
+  validatedAt     DateTime?
+  validatedById   String?
+  bcId            String?
+  bc              LegalDocument? @relation("AdProDevisLigneBc", fields: [bcId], references: [id], onDelete: SetNull)
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+
+  @@index([devisId])
+  @@index([validatedItemId])
+  @@index([bcId])
+}
+
 /// LA NATURE D'UNE PIÈCE DE POSTE (§118.204) : la chaîne d'un achat, dans l'ordre où elle se lit.
 enum AdProPieceNature {
   DEVIS // devis ou facture pro forma
@@ -5569,6 +5639,12 @@ model FileBlob {
   id         String          @id @default(cuid())
   sha256     String          @unique
   size       Float // taille du CLAIR en octets (Float : exact jusqu'à 9 Po ; un objet envoyé directement au bucket peut dépasser 2 Go)
+  /// COMPRESSION SANS PERTE AU REPOS (§118.214). Nul = octets bruts (tout fichier d'avant, et tout
+  /// ce que la mesure juge déjà compressé) ; « br » = le clair est compressé en brotli AVANT d'être
+  /// chiffré. `sha256` et `size` disent TOUJOURS le clair d'origine : l'empreinte reste vérifiable.
+  codec      String?
+  /// Taille du contenu STOCKÉ avant chiffrement (le clair compressé) ; nul quand `codec` l'est.
+  storedSize Float?
   iv         Bytes // nonce AES-GCM
   data       Bytes? // contenu chiffré EN BASE, en UNE valeur (petits fichiers) ; null si chunké ou en objet
   storageKey String? // clé objet S3/R2 du contenu chiffré (null = stocké en base) — dé-gonfle le disque BDD
@@ -11877,6 +11953,10 @@ model LegalDocument {
   readers           LegalDocumentReader[]
   /// Les postes Ad & Pro que cette pièce sert (§118.204).
   postesAdPro       AdProItemPiece[]
+  /// Le devis d'un poste Ad & Pro, tel que LU et structuré (§118.206) — au plus un par pièce.
+  devisPoste        AdProDevis?           @relation("AdProDevisPiece")
+  /// Les lignes de devis de poste que CE bon de commande couvre (§118.206).
+  lignesDeDevisCouvertes AdProDevisLigne[] @relation("AdProDevisLigneBc")
   /// Dernier rappel d'échéance envoyé — évite de renotifier tous les jours.
   lastRemindedAt    DateTime?
   createdById       String?

@@ -107,8 +107,11 @@ describe("les deux moitiés ont leur appelant de production", () => {
       const corps = src.slice(src.indexOf(site), src.indexOf("\n}\n", src.indexOf(site)));
       expect(corps, `${site} écrit par projeterStatut`).toContain("projeterStatut(");
     }
+    // Le retrait SUPPRIME désormais la demande (Direction, 05/10) : il n'y a plus d'état « annulé » à
+    // projeter sur un événement qui n'existe plus. `retirerDemande` ne projette donc rien.
     const retrait = src.slice(src.indexOf("export async function retirerDemande"), src.indexOf("\n}\n", src.indexOf("export async function retirerDemande")));
-    expect(retrait, "le retrait écrit « annulée » par projeterStatut").toContain('projeterStatut(entityType, entityId, "CANCELLED", viewer)');
+    expect(retrait, "le retrait délègue la suppression et n'écrit plus d'état").toContain("input.supprimer(");
+    expect(retrait, "le retrait ne projette plus rien").not.toContain("projeterStatut(");
     expect(src, "la projection se fait dans `projectApprove`, une seule fois pour les deux branches")
       .toMatch(/entityType === "EVENT"[\s\S]{0,400}statutDepuisCircuit/);
   });

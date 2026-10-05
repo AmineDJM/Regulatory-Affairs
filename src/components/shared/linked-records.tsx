@@ -11,6 +11,8 @@ import { AttachToSourceButtons, CreerFicheDepuisPiece, type NaturePieceLiee } fr
 import { AttacherLegalExistant } from "./attacher-legal-existant";
 import { JoindrePdf } from "./joindre-pdf";
 import { DocumentList, type DocItem } from "@/components/documents/document-list";
+import { RaisonPieceNonSupprimable, SupprimerPieceLegal } from "@/components/ad-pro/supprimer-piece-legal";
+import { supprimerFichierDePieceDeLaDemande } from "@/lib/actions/ad-pro-pieces-actions";
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
@@ -103,7 +105,7 @@ const FORMULAIRE_DE: Record<NatureDeChaine, Exclude<NaturePieceLiee, "mail">> = 
 };
 
 export async function LinkedRecords({
-  entityType, entityId, reference, canCreate = false, acces, piecesDeLaDemande, candidatsLegal,
+  entityType, entityId, reference, canCreate = false, acces, piecesDeLaDemande, candidatsLegal, suppression = false,
 }: {
   entityType: EntityType;
   entityId: string;
@@ -120,8 +122,14 @@ export async function LinkedRecords({
    * qui ouvre un menu vide fait chercher ce qui n'y est pas.
    */
   candidatsLegal?: { value: string; label: string }[];
+  /**
+   * SUPPRIMER pièces et fichiers depuis la demande (§118.209) — les fiches Ad & Pro le demandent ; la fiche
+   * d'une demande au secrétariat, qui monte aussi ce bloc, garde ses gestes d'avant.
+   */
+  suppression?: boolean;
 }) {
   const p = await chargerPiecesLiees({
+    suppression,
     entityType, entityId, canCreate,
     spectateur: acces?.spectateur ?? null,
     courriers: acces?.courriers === true,
@@ -319,9 +327,14 @@ function FichiersLibres({ documents, slot, creer }: {
 function LignePieceRow({ l }: { l: LignePiece }) {
   const plateforme: FichiersEmis | null = l.plateforme;
   const aPlateforme = Boolean(plateforme?.pdf || plateforme?.docx);
+  // Sur une fiche Ad & Pro (§118.209), la suppression de pièce et de fichier suit LE verdict de la demande — la
+  // même décision que les actions —, plus le droit « gérer » d'avant, qui ne regardait ni la demande ni ce qui engage.
+  const s = l.suppression;
   return (
     <li className="py-1.5">
-      <EnTete href={l.fiche ? `/legal/${l.id}` : null} titre={l.titre} reference={l.reference} meta={l.meta} badge={l.badge} />
+      <EnTete href={l.fiche ? `/legal/${l.id}` : null} titre={l.titre} reference={l.reference} meta={l.meta} badge={l.badge}
+        action={s ? <SupprimerPieceLegal id={l.id} nom={l.reference ? `${l.reference} — ${l.titre}` : l.titre} offert={s.piece.offert} /> : null} />
+      {s && !s.piece.offert && <RaisonPieceNonSupprimable raison={s.piece.raison} />}
       {aPlateforme && (
         <p className="mt-1 flex flex-wrap items-center gap-2 pl-3 text-[0.6875rem] text-muted-foreground">
           Version plateforme :
@@ -332,7 +345,10 @@ function LignePieceRow({ l }: { l: LignePiece }) {
       {l.documents && (
         l.documents.length > 0 ? (
           <div className="mt-1.5 border-l-2 border-border pl-3">
-            <DocumentList documents={l.documents} canDelete={l.gerable} canRename={l.gerable} canEdit={l.editable} path={`/legal/${l.id}`} />
+            <DocumentList
+              documents={l.documents} canDelete={s ? s.fichiers.offert : l.gerable} canRename={l.gerable} canEdit={l.editable}
+              path={`/legal/${l.id}`} supprimer={s ? supprimerFichierDePieceDeLaDemande : undefined}
+            />
           </div>
         ) : (
           <p className="mt-1 pl-3 text-[0.6875rem] text-muted-foreground">
@@ -363,9 +379,11 @@ function LigneCourrierRow({ c }: { c: LigneCourrier }) {
   );
 }
 
-function EnTete({ href, titre, reference, meta, badge }: {
+function EnTete({ href, titre, reference, meta, badge, action }: {
   /** `null` : la fiche ne s'ouvre pas à la personne — le titre se lit, il ne mène nulle part. */
   href: string | null; titre: string; reference: string | null; meta: string; badge: { label: string; tone: Ton } | null;
+  /** Un geste posé à côté du badge (supprimer la pièce) — rendu par l'appelant, qui sait ce qui est offert. */
+  action?: React.ReactNode;
 }) {
   return (
     <div className="flex items-center justify-between gap-2">
@@ -381,7 +399,10 @@ function EnTete({ href, titre, reference, meta, badge }: {
           {[reference, meta].filter(Boolean).join(" · ") || "—"}
         </span>
       </span>
-      {badge && <Badge tone={badge.tone} dot={false}>{badge.label}</Badge>}
+      <span className="flex shrink-0 items-center gap-1">
+        {badge && <Badge tone={badge.tone} dot={false}>{badge.label}</Badge>}
+        {action}
+      </span>
     </div>
   );
 }

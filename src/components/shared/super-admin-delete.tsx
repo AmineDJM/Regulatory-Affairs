@@ -111,6 +111,7 @@ export function ConfirmationSuppression({
   warning,
   reserveAuSuperAdmin = false,
   executer,
+  apercuer = apercuDeSuppression,
   onSupprime,
 }: {
   open: boolean;
@@ -123,6 +124,12 @@ export function ConfirmationSuppression({
   reserveAuSuperAdmin?: boolean;
   /** L'action serveur qui supprime — elle revérifie le droit ET relit ce qui part. */
   executer: (fd: FormData) => Promise<ResultatSuppression>;
+  /**
+   * L'action qui LIT ce qui partira, quand ce n'est pas celle du Super Admin — la même porte que `executer` :
+   * un aperçu plus large dirait à quelqu'un ce qui dépend d'une ligne qu'il ne peut pas toucher, un aperçu
+   * plus étroit ne s'armerait pas devant une suppression que l'action accepte (§118.209).
+   */
+  apercuer?: (fd: FormData) => Promise<Apercu>;
   onSupprime: (r: ResultatSuppression) => void;
 }) {
   const [busy, setBusy] = React.useState(false);
@@ -139,11 +146,11 @@ export function ConfirmationSuppression({
     const fd = new FormData();
     fd.set("kind", kind);
     fd.set("id", id);
-    apercuDeSuppression(fd)
+    apercuer(fd)
       .then((a) => { if (vivant) setApercu(a); })
       .catch(() => { if (vivant) setLectureImpossible(true); });
     return () => { vivant = false; };
-  }, [open, kind, id]);
+  }, [open, kind, id, apercuer]);
 
   const lu = apercu && !("erreur" in apercu) ? apercu : null;
   const erreurLecture = apercu && "erreur" in apercu ? apercu.erreur : null;

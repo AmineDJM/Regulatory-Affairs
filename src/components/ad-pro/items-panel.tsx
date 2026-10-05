@@ -23,7 +23,7 @@ import {
   submitAdProItem, decideAdProItem, setAdProItemBudget,
   demanderPieceSecretariat, requestAdProItemOrder, approveAdProItemOrder,
   retirerDemandeBC, modifierDemandeBC, annulerOrdrePoste, demanderRevisionPoste,
-  ajouterDevisPoste, retirerDevisDuPoste, demanderPaiementPoste,
+  ajouterDevisPoste, retirerDevisDuPoste, demanderPaiementPoste, genererBonDeCommandePoste,
 } from "@/lib/actions/ad-pro-item-actions";
 import { decideDocumentRequest } from "@/lib/actions/document-request-actions";
 import type { DroitsValidation } from "@/lib/ad-pro/validation-poste";
@@ -33,7 +33,7 @@ import {
   NATURES_PIECE_SECRETARIAT, PIECE_SECRETARIAT, peutDemanderPiece, type NaturePieceSecretariat,
 } from "@/lib/ad-pro/pieces-secretariat";
 import {
-  etapesDuPoste, prochainPas, grouperParRepartition, faitsDuPoste, VERSEMENT_SANS_BC,
+  etapesDuPoste, prochainPas, grouperParRepartition, faitsDuPoste, VERSEMENT_SANS_BC, LIBELLE_JUSTIFICATIF_DIRECT,
   type CleGeste, type Etape, type RegardPoste,
 } from "@/lib/ad-pro/poste-etapes";
 import { NATURES_REPARTITION } from "@/lib/ad-pro/repartition";
@@ -45,6 +45,9 @@ import { BlocMaterielStock, type LigneStockVue, type ContexteMaterielStock } fro
 import { BlocVoyageurs, type VoyageurVue } from "./voyageurs-bloc";
 import { ConseilLuna } from "./conseil-luna";
 import type { PiecesDuPoste, PieceDePoste, DemandeBCDuPoste } from "@/lib/ad-pro/pieces-poste";
+import type { DevisDePosteVue } from "@/lib/queries/ad-pro-devis-poste";
+import { refusGenerationBC } from "@/lib/ad-pro/devis-poste";
+import { BlocBonDeCommande, PanneauLignesDevis } from "./devis-bc-poste";
 import { BoutonDecisif } from "@/components/ui/bouton-decisif";
 
 export type { LigneStockVue, ContexteMaterielStock, ArticleMagasinVue } from "./materiel-stock";
@@ -123,6 +126,8 @@ export interface ItemRow {
   pieces: PiecesDuPoste;
   /** La demande de BC OUVERTE chez l'assistante, s'il y en a une. */
   demandeBC: DemandeBCDuPoste | null;
+  /** Les devis du poste lus avec leurs lignes structurées — d'après elles se génèrent les BC (§118.206). */
+  devisLignes: DevisDePosteVue[];
 }
 
 interface Props {
@@ -423,7 +428,7 @@ const RAFRAICHISSEMENT = "rafraichissement";
 
 type Panneau =
   | CleGeste | "MODIFIER" | "HISTORIQUE" | "MODIFIER_BC" | "RETIRER_BC" | "ANNULER_ORDRE" | "REVOIR_DECISION" | "REVISION_DEMANDEE"
-  | "DEVIS" | "FICHIERS_DU_POSTE" | "SECRETARIAT" | "DEMANDES_SECRETARIAT" | "DEMANDER_A_QUELQU_UN";
+  | "DEVIS" | "FICHIERS_DU_POSTE" | "SECRETARIAT" | "DEMANDES_SECRETARIAT" | "DEMANDER_A_QUELQU_UN" | `LIGNES:${string}`;
 
 /** Ce qu'un geste OUVRE (un petit formulaire) — seul « Soumettre » part au clic. */
 const GESTES_A_FORMULAIRE: readonly CleGeste[] = [
@@ -511,6 +516,8 @@ function PosteCarte({ item, parent, parentId, regard, freres, assistantes, budge
       return;
     }
     if (cle === "SOUMETTRE") void run(`submit:${item.id}`, () => submitAdProItem(undefined, fdOf()), "Poste soumis pour validation.");
+    // « Générer le BC » : un BC par devis, d'après les lignes validées (§118.206) — la même action que le CTA de la case.
+    if (cle === "GENERER_BC") void run(`gen:tous:${item.id}`, () => genererBonDeCommandePoste(fdOf()), "Bon de commande généré.");
   };
 
   // ── LE MENU « ⋯ » — ce qui ne crie pas, mais reste là. Chaque entrée n'apparaît que si
@@ -604,6 +611,14 @@ function PosteCarte({ item, parent, parentId, regard, freres, assistantes, budge
   // DÉPOSER UN DEVIS : le demandeur ou qui arbitre (`ajouterDevisPoste`), tant que le poste vit et n'est pas payé.
   const peutDeposerDevis = (regard.canEdit || regard.canAllocate) && !regard.fige && !stock && item.status !== "REJECTED" && !item.expenseOrderId;
   const paiementOuvert = pas.geste?.cle === "DEMANDER_PAIEMENT";
+  // LA GÉNÉRATION DU BC (§118.206) : la même règle que l'action (`refusGenerationBC`), jamais une copie.
+  const peutGenerer = regard.canEdit && !stock && !direct && item.orderStage !== "ISSUED" && !item.expenseOrderId;
+  const refusGeneration = refusGenerationBC({
+    status: item.status, amountGranted: item.amountGranted, budgetCategoryId: item.budgetCategoryId, orderStage: item.orderStage,
+    expenseOrderId: item.expenseOrderId, demandeChez: item.demandeBC?.assistante ?? null, demandeOuverte: item.demandeBC !== null,
+  });
+  // « Joindre un BC existant » = la demande à l'assistante (qui l'uploade) : le geste d'avant, tant qu'il est ouvert.
+  const peutJoindreBC = (pas.geste?.cle === "DEMANDER_BC" || pas.geste?.cle === "GENERER_BC") && item.orderStage !== "REQUESTED" && item.orderStage !== "DIRECTION_OK";
   const pieceDeposee = depose
     ? (depose.case === "DEVIS" ? item.pieces.devis : item.pieces.factures)
       .find((p) => (depose.id ? p.id === depose.id : !depose.avant.includes(p.id))) ?? null
@@ -821,8 +836,13 @@ function PosteCarte({ item, parent, parentId, regard, freres, assistantes, budge
       )}
       {panneau === "DEMANDER_PAIEMENT" && paiementOuvert && (
         <FormulairePiece
-          titre={direct ? "Déposer la facture et demander le paiement" : "Déposer la facture du bon de commande et demander le paiement"}
-          aide={`La facture est obligatoire. Son montant ne dépasse pas l'accordé${item.amountGranted != null ? ` (${formatCurrency(item.amountGranted)})` : ""}.`}
+          titre={direct ? `Joindre la ${LIBELLE_JUSTIFICATIF_DIRECT.toLocaleLowerCase("fr")} et demander le paiement` : "Déposer la facture du bon de commande et demander le paiement"}
+          aide={direct
+            ? `La ${LIBELLE_JUSTIFICATIF_DIRECT.toLocaleLowerCase("fr")} est exigée${(item.pieces?.devis ?? []).some((d) => !d.annulee && d.fichiers > 0) ? " — elle est déjà sur le poste, il n'y a rien à joindre de plus" : ""} ; la facture est facultative. Le montant ne dépasse pas l'accordé${item.amountGranted != null ? ` (${formatCurrency(item.amountGranted)})` : ""}.`
+            : `La facture est obligatoire. Son montant ne dépasse pas l'accordé${item.amountGranted != null ? ` (${formatCurrency(item.amountGranted)})` : ""}.`}
+          libelleFichier={direct ? LIBELLE_JUSTIFICATIF_DIRECT : undefined}
+          fichierObligatoire={!(direct && (item.pieces?.devis ?? []).some((d) => !d.annulee && d.fichiers > 0))}
+          factureFacultative={direct}
           montantObligatoire montantMax={item.amountGranted} montantInitial={item.amountGranted}
           bouton="Demander le paiement" busy={busy === `pay:${item.id}`} onCancel={fermer}
           onSubmit={(fd) => {
@@ -833,13 +853,13 @@ function PosteCarte({ item, parent, parentId, regard, freres, assistantes, budge
               const r = await demanderPaiementPoste(undefined, fd);
               if (r.ok) setDepose({ case: "FACTURE", id: null, avant });
               return r;
-            }, "Facture déposée — paiement demandé au centre de paiement.").then(fermer);
+            }, direct ? `${LIBELLE_JUSTIFICATIF_DIRECT} jointe — paiement demandé au centre de paiement.` : "Facture déposée — paiement demandé au centre de paiement.").then(fermer);
           }}
         />
       )}
       {panneau === "DEVIS" && peutDeposerDevis && (
         <FormulairePiece
-          titre={direct ? "Joindre une facture pro forma" : "Joindre un devis ou une facture pro forma"}
+          titre={direct ? `Joindre la ${LIBELLE_JUSTIFICATIF_DIRECT.toLocaleLowerCase("fr")}` : "Joindre un devis ou une facture pro forma"}
           aide="Le fichier est obligatoire. Un même devis peut couvrir d'autres postes de cette demande."
           montantInitial={null} fournisseurInitial={item.supplier ?? ""} proforma={direct ? "imposee" : "choix"} freres={freres}
           bouton="Joindre" busy={busy === `dev:${item.id}`} onCancel={fermer}
@@ -854,6 +874,12 @@ function PosteCarte({ item, parent, parentId, regard, freres, assistantes, budge
           }}
         />
       )}
+      {typeof panneau === "string" && panneau.startsWith("LIGNES:") && (() => {
+        const lu = item.devisLignes.find((v) => v.pieceId === panneau.slice("LIGNES:".length));
+        return lu ? (
+          <PanneauLignesDevis itemId={item.id} devis={lu} peutEditer={peutDeposerDevis} busy={busy} run={run} onClose={fermer} />
+        ) : null;
+      })()}
       {panneau === "SECRETARIAT" && regard.canEdit && (
         <DemandeSecretariat
           nature={naturePiece} busy={busy === `piece:${item.id}`} onCancel={fermer}
@@ -986,27 +1012,49 @@ function PosteCarte({ item, parent, parentId, regard, freres, assistantes, budge
       {/* 4. LES PIÈCES — la chaîne d'achat en trois cases alignées. */}
       {!stock && (
         <div className={`grid grid-cols-1 gap-2 border-t border-border/70 pt-2 ${direct && !item.pieces.bc && item.orderStage === "NONE" ? "sm:grid-cols-2" : "sm:grid-cols-3"}`}>
-          <CasePiece titre={direct ? "Pro forma (facultatif)" : "Devis / pro forma"} ajouter={peutDeposerDevis && !enCours ? () => basculer("DEVIS") : undefined}>
+          <CasePiece titre={direct ? LIBELLE_JUSTIFICATIF_DIRECT : "Devis / pro forma"} ajouter={peutDeposerDevis && !enCours ? () => basculer("DEVIS") : undefined}>
             {item.pieces.devis.length === 0 ? (
               <p className="text-muted-foreground">—</p>
-            ) : item.pieces.devis.map((d) => (
-              <LignePiece
-                key={d.id} piece={d}
-                retirer={editer && !d.annulee ? () => {
-                  void run(`rdev:${item.id}`, () => retirerDevisDuPoste(undefined, fdOf({ pieceId: d.id })), "Pièce retirée du poste.");
-                } : undefined}
-              />
-            ))}
+            ) : item.pieces.devis.map((d) => {
+              const lu = item.devisLignes.find((v) => v.pieceId === d.id);
+              return (
+                <div key={d.id} className="space-y-0.5">
+                  <LignePiece
+                    piece={d}
+                    retirer={editer && !d.annulee ? () => {
+                      void run(`rdev:${item.id}`, () => retirerDevisDuPoste(undefined, fdOf({ pieceId: d.id })), "Pièce retirée du poste.");
+                    } : undefined}
+                  />
+                  {lu && !d.annulee && (
+                    <button type="button" onClick={() => basculer(`LIGNES:${d.id}`)} className="ml-4 text-primary hover:underline" aria-label={`Lignes du devis ${d.reference ?? d.titre}`}>
+                      {lu.structure ? `Lignes (${lu.nbValidees}/${lu.lignes.length} validées)` : "Lignes à lire"}
+                    </button>
+                  )}
+                </div>
+              );
+            })}
             {conseil("DEVIS")}
           </CasePiece>
           {!(direct && !item.pieces.bc && item.orderStage === "NONE") && (
             <CasePiece titre="Bon de commande">
-              <EtatBC item={item} />
+              <BlocBonDeCommande
+                itemId={item.id}
+                bcs={item.pieces.bcs}
+                devis={item.devisLignes}
+                accorde={item.amountGranted}
+                refusGeneration={refusGeneration}
+                peutGenerer={peutGenerer}
+                peutJoindre={peutJoindreBC}
+                busy={busy}
+                run={run}
+                onJoindre={() => basculer("DEMANDER_BC")}
+                repli={<EtatBC item={item} />}
+              />
             </CasePiece>
           )}
-          <CasePiece titre="Facture" ajouter={paiementOuvert && item.pieces.factures.length === 0 && !enCours ? () => basculer("DEMANDER_PAIEMENT") : undefined}>
+          <CasePiece titre={direct ? "Facture (facultative)" : "Facture"} ajouter={paiementOuvert && item.pieces.factures.length === 0 && !enCours ? () => basculer("DEMANDER_PAIEMENT") : undefined}>
             {item.pieces.factures.length === 0 ? (
-              <p className="text-muted-foreground">{direct ? "Après l'accord." : "Après la signature du BC."}</p>
+              <p className="text-muted-foreground">{direct ? "Non exigée pour le paiement." : "Après la signature du BC."}</p>
             ) : item.pieces.factures.map((f) => <LignePiece key={f.id} piece={f} />)}
             {conseil("FACTURE")}
             {item.expenseOrder && (
@@ -1118,6 +1166,7 @@ function IconeGeste({ cle }: { cle: CleGeste }) {
     case "REPARTIR": return <Split className="h-4 w-4" />;
     case "CHIFFRER": return <Pencil className="h-4 w-4" />;
     case "VALIDER_OPS": case "DECIDER": case "VISER_BC": return <ThumbsUp className="h-4 w-4" />;
+    case "GENERER_BC": return <FileText className="h-4 w-4" />;
     case "MONTANT": case "BUDGET": return <Wallet className="h-4 w-4" />;
     case "VERIFIER_BC": return <ShieldCheck className="h-4 w-4" />;
     case "DEMANDER_PAIEMENT": return <FileCheck2 className="h-4 w-4" />;
@@ -1329,10 +1378,16 @@ function VerifierBC({ demandeId, busy, onDecide, onCancel }: {
  */
 function FormulairePiece({
   titre, aide, bouton, busy, onSubmit, onCancel, montantInitial, montantMax = null, montantObligatoire = false,
-  fournisseurInitial, proforma, freres = [],
+  fournisseurInitial, proforma, freres = [], libelleFichier = "Fichier", fichierObligatoire = true, factureFacultative = false,
 }: {
   titre: string; aide: string; bouton: string; busy: boolean; onSubmit: (fd: FormData) => void; onCancel: () => void;
   montantInitial: number | null; montantMax?: number | null; montantObligatoire?: boolean;
+  /** Ce que le fichier principal EST (« Proforma / lettre de demande de sponsoring » pour un versement à l'association). */
+  libelleFichier?: string;
+  /** Faux quand la pièce exigée est déjà sur le poste : rien de plus à joindre. */
+  fichierObligatoire?: boolean;
+  /** Un second fichier, la facture, qu'on peut joindre mais qu'on n'exige pas (sponsoring direct). */
+  factureFacultative?: boolean;
   /** Le fournisseur (devis seulement). */
   fournisseurInitial?: string;
   /** Devis : « choix » = case à cocher ; « imposee » = c'est forcément une pro forma (sponsoring direct). */
@@ -1349,9 +1404,15 @@ function FormulairePiece({
       <p className="font-medium text-foreground">{titre}</p>
       <p className="text-muted-foreground">{aide}</p>
       <label className="block">
-        Fichier
-        <input type="file" name="attachment" multiple required className="mt-1 block w-full text-xs" />
+        {libelleFichier}{fichierObligatoire ? "" : " — déjà sur le poste"}
+        <input type="file" name="attachment" multiple required={fichierObligatoire} className="mt-1 block w-full text-xs" />
       </label>
+      {factureFacultative && (
+        <label className="block">
+          Facture — facultative
+          <input type="file" name="facture" multiple className="mt-1 block w-full text-xs" />
+        </label>
+      )}
       <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
         <label>
           Montant (DZD){montantObligatoire ? "" : " — facultatif"}

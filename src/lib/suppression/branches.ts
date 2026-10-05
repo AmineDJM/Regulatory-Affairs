@@ -272,6 +272,9 @@ export const LIBELLE_DU_MODELE: Readonly<Record<string, [string, string]>> = {
   AdProVoyageur: ["voyageur", "voyageurs"],
   AdProItemPiece: ["pièce de poste", "pièces de poste"],
   AdProVoyageurDevis: ["devis de voyageur", "devis de voyageurs"],
+  // Le devis d'un poste lu par Luna (§118.206) : la fiche structurée et ses lignes partent avec la pièce.
+  AdProDevis: ["devis lu", "devis lus"],
+  AdProDevisLigne: ["ligne de devis lue", "lignes de devis lues"],
   // Les achats du matériel promotionnel (§118.165) : ce qu'une demande pioche dans le catalogue,
   // et les factures reçues ligne à ligne.
   PromoRequestItem: ["article demandé", "articles demandés"],
@@ -324,6 +327,8 @@ export const LIBELLE_DU_MODELE: Readonly<Record<string, [string, string]>> = {
   SalaryAdvance: ["avance sur salaire", "avances sur salaire"],
   PayrollEntry: ["bulletin de paie", "bulletins de paie"],
   PayrollWire: ["virement de paie", "virements de paie"],
+  // Les pièces jointes d'un rapport terrain (§118.212) : elles partent avec lui, et reviennent avec lui.
+  FieldReportAttachment: ["pièce jointe", "pièces jointes"],
   // Un appel d'offres PCH (§118.185, I17) : ce qui part avec lui…
   PchTenderLine: ["lot du marché", "lots du marché"],
   PchTenderLineBusinessUnit: ["affectation d'un lot à une BU", "affectations de lots à des BU"],

@@ -5,6 +5,8 @@ import { buildRef, createWithRetry } from "@/lib/refs";
 import { moneyEntityOf } from "@/lib/company";
 import { etatsDesBC } from "@/lib/bons-de-commande/etat";
 import type { EtapeBC } from "@/lib/bons-de-commande/regle";
+import { etapeDEnsemble } from "@/lib/ad-pro/devis-poste";
+import { fichiersEmis } from "@/lib/lecteurs/fichiers-emis";
 import type { EtatDemandeBC } from "@/lib/ad-pro/poste-etapes";
 
 /**
@@ -58,16 +60,33 @@ export interface PieceDePoste {
   fichierId: string | null;
   /** Pour un devis commun : les AUTRES postes qu'il couvre (libellés). */
   aussiPour: string[];
+  /**
+   * Les fichiers que la FABRIQUE a produits pour cette pièce (un BC généré : son Word et son PDF) — ils s'ouvrent sous la
+   * porte de la PIÈCE (`/api/legal/<id>/fichier`), pas du Drive de celui qui l'a émise (§118.152). Faux pour une pièce déposée.
+   */
+  emis: { docx: boolean; pdf: boolean };
 }
 
-/** Les pièces d'un poste, rangées dans l'ordre de la chaîne. */
+/** Un bon de commande du poste : sa pièce, et OÙ IL EN EST (circuit des centres et des Finances). */
+export type BcDePoste = PieceDePoste & { etape: EtapeBC | null };
+
+/**
+ * Les pièces d'un poste, rangées dans l'ordre de la chaîne.
+ *
+ * `bcs` : TOUS les bons de commande vivants du poste, du plus ancien au plus récent — un poste en porte un PAR DEVIS
+ * quand ils sont générés d'après des lignes validées (§118.206). `bc` : celui qui REPRÉSENTE le poste pour les lecteurs
+ * d'avant (la frise, le dépôt de la facture) — le MOINS avancé des vivants, de sorte qu'« un BC signé » ne veuille dire
+ * « tous signés » : la facture se dépose après la signature de TOUT ce qui a été commandé (`etapeDEnsemble`). Sans BC
+ * vivant, le plus récent annulé, pour que la case le dise.
+ */
 export interface PiecesDuPoste {
   devis: PieceDePoste[];
-  bc: (PieceDePoste & { etape: EtapeBC | null }) | null;
+  bc: BcDePoste | null;
+  bcs: BcDePoste[];
   factures: PieceDePoste[];
 }
 
-const VIDE = (): PiecesDuPoste => ({ devis: [], bc: null, factures: [] });
+const VIDE = (): PiecesDuPoste => ({ devis: [], bc: null, bcs: [], factures: [] });
 
 /**
  * LES PIÈCES DES POSTES — en LOT (une poignée de requêtes pour tout l'écran, jamais une par poste,
@@ -82,7 +101,7 @@ export async function piecesDesPostes(itemIds: readonly string[]): Promise<Map<s
     orderBy: { createdAt: "asc" },
     select: {
       itemId: true, nature: true,
-      legalDocument: { select: { id: true, title: true, reference: true, amount: true, status: true, cancelledAt: true, createdAt: true } },
+      legalDocument: { select: { id: true, title: true, reference: true, amount: true, status: true, cancelledAt: true, createdAt: true, custom: true } },
     },
   });
   if (liens.length === 0) return res;
@@ -119,13 +138,22 @@ export async function piecesDesPostes(itemIds: readonly string[]): Promise<Map<s
       id: d.id, titre: d.title, reference: d.reference, montant: d.amount != null ? toNumber(d.amount) : null, annulee,
       fichiers: nbFichiers.get(d.id) ?? 0, fichierId: premierFichier.get(d.id) ?? null,
       aussiPour: (couverts.get(d.id) ?? []).filter((c) => c.itemId !== l.itemId).map((c) => c.label),
+      emis: (() => { const f = fichiersEmis(d.custom); return { docx: f.docx !== null, pdf: f.pdf !== null }; })(),
     };
     if (l.nature === "DEVIS") p.devis.push(piece);
     else if (l.nature === "FACTURE") p.factures.push(piece);
-    // Le BC retenu : le plus récent non annulé — un BC annulé ne cède sa place qu'à un BC vivant.
-    else if (!p.bc || (p.bc.annulee && !annulee) || (!annulee && !p.bc.annulee)) {
-      p.bc = { ...piece, etape: annulee ? null : etats.get(d.id)?.etape ?? null };
+    else {
+      const bc: BcDePoste = { ...piece, etape: annulee ? null : etats.get(d.id)?.etape ?? null };
+      if (!annulee) p.bcs.push(bc);
+      // Sans BC vivant, le plus récent annulé : la case dit « annulé » au lieu de se taire.
+      else if (p.bcs.length === 0) p.bc = bc;
     }
+  }
+  for (const p of res.values()) {
+    if (p.bcs.length === 0) continue;
+    // Le moins avancé des vivants représente le poste — à égalité, le plus ancien.
+    const pire = etapeDEnsemble(p.bcs.map((b) => b.etape));
+    p.bc = p.bcs.find((b) => (b.etape ?? "HORS_CIRCUIT") === pire) ?? p.bcs[0];
   }
   return res;
 }

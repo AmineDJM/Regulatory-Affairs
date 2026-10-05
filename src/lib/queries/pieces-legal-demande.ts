@@ -7,6 +7,7 @@ import { LEGAL_DOC_STATUS, INVOICE_SETTLEMENT, invoiceSettlementState, natureLeg
 import { fichiersEmis, type FichiersEmis } from "@/lib/legal/fichiers-emis";
 import { toNumber } from "@/lib/utils";
 import type { DocItem } from "@/components/documents/document-list";
+import { droitsSuppressionDesPieces, demandeDeLaPiece, type DroitsPieceDemande } from "@/lib/queries/pieces-demande-droits";
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
@@ -51,6 +52,11 @@ export interface LignePieceDemande {
   plateforme: FichiersEmis;
   /** Ses fichiers — toujours ouvrables par la personne (la pièce l'est). */
   documents: DocItem[];
+  /**
+   * SUPPRIMER (§118.209) — la pièce (corbeille) et ses fichiers : offert ou non, et POURQUOI quand ce qui
+   * engage la pièce le refuse. Lu par la même décision que les actions : un bouton offert est un geste accepté.
+   */
+  suppression: DroitsPieceDemande;
 }
 
 export interface PiecesLegalDeLaDemande {
@@ -85,7 +91,7 @@ export async function chargerPiecesLegalDeLaDemande(
   const [candidats, total] = await Promise.all([
     prisma.legalDocument.findMany({
       where, orderBy: { createdAt: "desc" }, take: PIECES_DEMANDE_MAX,
-      select: { id: true, kind: true, title: true, reference: true, amount: true, status: true, paidDate: true, expenseOrderId: true, custom: true },
+      select: { id: true, kind: true, title: true, reference: true, amount: true, status: true, paidDate: true, expenseOrderId: true, custom: true, createdById: true },
     }),
     prisma.legalDocument.count({ where }),
   ]);
@@ -113,6 +119,13 @@ export async function chargerPiecesLegalDeLaDemande(
     parPiece.set(f.entityId, l);
   }
 
+  // Les droits de suppression, en LOT : la demande se juge une fois, la pièce par la porte du serveur.
+  const demande = demandeDeLaPiece({ sourceType: entityType, sourceId: entityId });
+  const droitsSuppression = demande
+    ? await droitsSuppressionDesPieces(spectateur, demande, ouvertes.map((d) => ({ id: d.id, createdById: d.createdById })))
+    : new Map<string, DroitsPieceDemande>();
+  const ferme: DroitsPieceDemande = { piece: { offert: false, raison: null }, fichiers: { offert: false, raison: null } };
+
   const lignes: LignePieceDemande[] = ouvertes.map((d) => {
     const st = d.kind === "INVOICE" && d.status !== "CANCELLED"
       ? INVOICE_SETTLEMENT[invoiceSettlementState(d)]
@@ -124,6 +137,7 @@ export async function chargerPiecesLegalDeLaDemande(
       fiche: !horsFiche.has(d.id),
       plateforme: fichiersEmis(d.custom),
       documents: parPiece.get(d.id) ?? [],
+      suppression: droitsSuppression.get(d.id) ?? ferme,
     };
   });
 

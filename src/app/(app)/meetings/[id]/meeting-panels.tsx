@@ -2,58 +2,12 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { Sparkles, Save, Loader2, Check, X, Link2, Play, Square, Trash2 } from "lucide-react";
+import { Loader2, Check, X, Link2, Play, Square, Trash2 } from "lucide-react";
 import {
-  saveMeetingTranscript, summarizeMeeting, acceptMeetingProposal, dismissMeetingProposal,
+  acceptMeetingProposal, dismissMeetingProposal,
   setMeetingLive, endMeeting, deleteMeeting,
 } from "@/lib/actions/meeting-actions";
 import { Button } from "@/components/ui/button";
-import { Textarea } from "@/components/ui/input";
-
-/** Transcription (collable/éditable) + génération du compte rendu IA. */
-export function TranscriptPanel({ meetingId, transcript, canSummarize }: { meetingId: string; transcript: string; canSummarize: boolean }) {
-  const router = useRouter();
-  const [text, setText] = React.useState(transcript);
-  const [saving, setSaving] = React.useState(false);
-  const [summarizing, setSummarizing] = React.useState(false);
-  const [msg, setMsg] = React.useState<string | null>(null);
-
-  async function save() {
-    setSaving(true); setMsg(null);
-    const fd = new FormData(); fd.set("id", meetingId); fd.set("transcript", text);
-    const r = await saveMeetingTranscript(fd);
-    setSaving(false);
-    setMsg(r.ok ? "Transcription enregistrée." : r.error ?? "Erreur.");
-    if (r.ok) router.refresh();
-  }
-
-  async function summarize() {
-    setSummarizing(true); setMsg(null);
-    const fd = new FormData(); fd.set("id", meetingId);
-    const r = await summarizeMeeting(fd);
-    setSummarizing(false);
-    setMsg(r.ok ? (r.message ?? "Compte rendu généré.") : r.error ?? "Erreur.");
-    if (r.ok) router.refresh();
-  }
-
-  return (
-    <div className="space-y-2">
-      <Textarea value={text} onChange={(e) => setText(e.target.value)} rows={6}
-        placeholder="Collez ou corrigez ici la transcription de la réunion (ou enregistrez l'audio ci-dessus pour une transcription automatique)…" />
-      <div className="flex flex-wrap items-center gap-2">
-        <Button type="button" variant="outline" onClick={save} disabled={saving || text === transcript}>
-          {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />} Enregistrer
-        </Button>
-        {canSummarize && (
-          <Button type="button" onClick={summarize} disabled={summarizing || !text.trim()}>
-            {summarizing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />} Générer le compte rendu IA
-          </Button>
-        )}
-        {msg && <span className="text-xs text-muted-foreground">{msg}</span>}
-      </div>
-    </div>
-  );
-}
 
 /** Boutons Accepter / Écarter d'une tâche proposée par l'IA. */
 export function ProposalActions({ proposalId }: { proposalId: string }) {

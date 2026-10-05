@@ -50,7 +50,9 @@ function bucket() {
 }
 
 const cible = (extra: Partial<CibleDocument> = {}): CibleDocument => ({
-  entityType: "REGULATORY_PRODUCT", entityId: produit, category: "CTD_FULL", confidentiality: "INTERNAL", stepKey: "ctd", folder: null, ...extra,
+  entityType: "REGULATORY_PRODUCT", entityId: produit, category: "CTD_FULL", confidentiality: "INTERNAL", stepKey: "ctd", folder: null,
+  // Ce banc dépose la CTD initiale : le dépôt le DIT (§118.213) — sans la marque, il est refusé (cas dédié plus bas).
+  ctd: true, ...extra,
 });
 const entree = (nom: string, taille: number, c = cible()) => ({ nom, taille, type: "application/zip", modifieLe: 1_700_000_000_000, cible: c });
 
@@ -138,6 +140,20 @@ suite("Documents — envoi direct au bucket", () => {
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.status).toBe(403);
     expect(await prisma.directUpload.count({ where: { userId: moi.id, fileName: `${TAG}-interdit.zip` } })).toBe(0);
+  });
+
+  it("un gros dépôt qui vise la CTD initiale (étape 1, « CTD complet ») sans le dire est refusé à l'ouverture, en nommant les gestes — et la marque ailleurs aussi", async () => {
+    const sans = await ouvrirDepotDirectDocument(moi, entree(`${TAG}-sans-marque.zip`, 100 * MO, cible({ ctd: false })), bucket().client);
+    expect(sans.ok).toBe(false);
+    if (!sans.ok) { expect(sans.status).toBe(400); expect(sans.error).toMatch(/Ajouter à la CTD/); }
+    const ailleurs = await ouvrirDepotDirectDocument(moi, entree(`${TAG}-ailleurs.zip`, 100 * MO, cible({ category: "OTHER" })), bucket().client);
+    expect(ailleurs.ok).toBe(false);
+    if (!ailleurs.ok) expect(ailleurs.error).toMatch(/étape 1/);
+    // Une autre catégorie SANS marque reste un dépôt ordinaire.
+    const ordinaire = await ouvrirDepotDirectDocument(moi, entree(`${TAG}-ordinaire.zip`, 100 * MO, cible({ category: "OTHER", ctd: false })), bucket().client);
+    expect(ordinaire.ok).toBe(true);
+    if (ordinaire.ok) await abandonnerDepotDirectDocument(moi, ordinaire.sessionId, bucket().client);
+    expect(await prisma.directUpload.count({ where: { userId: moi.id, fileName: { in: [`${TAG}-sans-marque.zip`, `${TAG}-ailleurs.zip`] } } })).toBe(0);
   });
 
   it("refuse un type interdit et un fichier au-delà de 10 Go, sans ouvrir d'envoi", async () => {

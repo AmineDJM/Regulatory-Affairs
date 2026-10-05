@@ -759,6 +759,10 @@ export const OFFICE_TOOLS: PowerTool[] = [
       const libelle = r.type === "FACTURE" ? "Facture" : r.type === "DEVIS" ? "Devis" : "Bon de commande";
       return JSON.stringify({
         fait: true, dejaEmis: r.dejaEmis, repris: r.repris, legalDocumentId: r.legalDocumentId, reference: r.reference, type: r.type, version: r.version,
+        // OÙ VOIR LA PIÈCE (§118.209) : « il doit s'afficher, pas juste se sauvegarder dans Legal et qu'on aille le
+        // rechercher » — la fiche (qui montre le PDF), et le PDF lui-même sous la porte de la pièce. Le modèle les REPREND.
+        lien: `/legal/${r.legalDocumentId}?emis=1`,
+        liens: { fiche: `/legal/${r.legalDocumentId}?emis=1`, pdf: r.pdf ? `/api/legal/${r.legalDocumentId}/fichier?format=pdf` : null, word: `/api/legal/${r.legalDocumentId}/fichier?format=docx&dl=1` },
         societe: r.societe, tiers: r.tiers, docx: r.docx, pdf: r.pdf, totaux: r.totaux, surPapierEnTete: r.surPapierEnTete, avertissements: r.avertissements, reglesAppliquees: r.reglesAppliquees, dureeMs: r.ms,
         /**
          * ── UNE PIÈCE QUI N'A PAS L'AIR OFFICIELLE DOIT LE DIRE DANS SA PHRASE ──────────
@@ -779,7 +783,9 @@ export const OFFICE_TOOLS: PowerTool[] = [
           : `${libelle} ${r.reference} émis${r.type === "FACTURE" ? "e" : ""} au nom de ${r.societe.nom} pour ${r.tiers} : TTC ${r.totaux.totalTtc.toLocaleString("fr-FR", { minimumFractionDigits: 2 })} DZD, fichier Word${r.pdf ? " et PDF" : ""} dans le Drive, pièce inscrite au registre Legal${r.surPapierEnTete ? ", sur le papier en-tête de la société" : ""}.`
             + reserveDeMarque(r)
             // UN BC ÉMIS N'EST PAS UN BC VALIDÉ (§118.148) : il attend son centre, et la phrase le dit.
-            + (r.reserveBonDeCommande ? ` ${r.reserveBonDeCommande}` : ""),
+            + (r.reserveBonDeCommande ? ` ${r.reserveBonDeCommande}` : "")
+            // Le lien est DANS la phrase : c'est elle que le modèle reprend, et la personne ne doit pas aller chercher la pièce.
+            + ` Fiche de la pièce (avec son PDF) : /legal/${r.legalDocumentId}?emis=1.`,
         ...(reserveDeMarque(r) || r.reserveBonDeCommande
           ? { consigne: "REPRENDRE la réserve dans la réponse : une pièce sans identité ni papier en-tête ne ressemble pas à un document officiel, et un bon de commande qui attend son centre de validation n'engage pas encore la société. Dire ce qui manque et ce qui reste à faire." }
           : {}),

@@ -213,7 +213,7 @@ export default async function ConsultingContractPage({ params }: { params: { id:
               leur PDF, dans la chaîne ; les pièces du contrat lui-même gardent leur place nommée. */}
           <LinkedRecords
             entityType="CONSULTING_CONTRACT" entityId={contract.id} reference={contract.reference} canCreate={canUpload}
-            acces={ctxPieces.acces} candidatsLegal={ctxPieces.candidatsLegal}
+            acces={ctxPieces.acces} candidatsLegal={ctxPieces.candidatsLegal} suppression
             piecesDeLaDemande={{
               titre: "Pièces du contrat (contrat signé, livrables, comptes rendus…)",
               documents: docItems,

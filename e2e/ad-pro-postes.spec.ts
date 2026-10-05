@@ -259,7 +259,7 @@ test("BILLETTERIE : les voyageurs, puis la réservation — un sujet s'ouvre pou
   await expect(c.getByText("Voyageurs (0)")).toBeVisible();
   await c.getByRole("button", { name: "Ajouter un voyageur" }).click();
   // Un NOM suffit : les dates viendront plus tard.
-  await c.getByLabel("Nom de la personne").fill(MEDECIN_HORS);
+  await c.getByLabel("Nom", { exact: true }).fill(MEDECIN_HORS);
   await c.getByRole("button", { name: "Ajouter le voyageur" }).click();
   await expect(c.getByText(/À préciser pour réserver : date de départ, trajet/)).toBeVisible();
 
@@ -281,6 +281,46 @@ test("BILLETTERIE : les voyageurs, puis la réservation — un sujet s'ouvre pou
   await capture(page, "p4-billetterie", carte(page, `${P} Billets Paris`));
 });
 
+test("BILLETTERIE : nom et prénom séparés, trajet à PLUSIEURS DESTINATIONS, documents du voyageur ouverts d'emblée", async ({ page }) => {
+  await login(page, NS_EMAIL);
+  await aller(page, `/sponsoring/${sponsoringId}`);
+  const c = carte(page, `${P} Billets Paris`);
+  await c.getByRole("button", { name: "Ajouter un voyageur" }).click();
+  await c.getByLabel("Prénom", { exact: true }).fill("Karim");
+  await c.getByLabel("Nom", { exact: true }).fill("Benali");
+  await c.getByLabel("plusieurs destinations").check();
+  // Un aller d'Alger, un retour vers une ville, puis un autre aller d'une ville vers une autre : on enchaîne des ÉTAPES.
+  await c.getByLabel("Étape 1 — arrivée").fill("Paris");
+  await c.getByLabel("Étape 1 — date").fill("2026-11-12");
+  await c.getByRole("button", { name: "Ajouter une étape" }).click();
+  // La nouvelle étape part d'où la précédente arrive.
+  await expect(c.getByLabel("Étape 2 — départ")).toHaveValue("Paris");
+  await c.getByLabel("Étape 2 — arrivée").fill("Alger");
+  await c.getByLabel("Étape 2 — date").fill("2026-11-15");
+  await c.getByRole("button", { name: "Ajouter une étape" }).click();
+  await c.getByLabel("Étape 3 — départ").fill("Alger");
+  await c.getByLabel("Étape 3 — arrivée").fill("Dubaï");
+  await c.getByLabel("Étape 3 — date").fill("2026-12-01");
+  await c.getByRole("button", { name: "Ajouter une étape" }).click();
+  await c.getByRole("button", { name: "Retirer l'étape 4" }).click();
+  await c.getByRole("button", { name: "Ajouter le voyageur" }).click();
+
+  await expect.poll(async () => prisma.adProVoyageur.count({ where: { prenom: "Karim", nom: "Benali", item: { sponsoringId } } })).toBe(1);
+  const v = await prisma.adProVoyageur.findFirstOrThrow({ where: { prenom: "Karim", nom: "Benali", item: { sponsoringId } } });
+  expect(v.trajet).toBe("MULTI_DESTINATIONS");
+  expect(v.segments).toEqual([
+    { de: "Alger", vers: "Paris", date: "2026-11-12" },
+    { de: "Paris", vers: "Alger", date: "2026-11-15" },
+    { de: "Alger", vers: "Dubaï", date: "2026-12-01" },
+  ]);
+  // Le voyageur s'affiche « Prénom NOM », ses étapes en liste ordonnée, et SES documents sont ouverts d'emblée.
+  const c2 = carte(page, `${P} Billets Paris`);
+  await expect(c2.getByText("Karim Benali").first()).toBeVisible();
+  await expect(c2.getByText(/Alger → Paris · 12\/11\/2026/)).toBeVisible();
+  await expect(c2.getByText(/Documents de Karim Benali/)).toBeVisible();
+  await capture(page, "p4b-billetterie-multi", carte(page, `${P} Billets Paris`));
+});
+
 test("LE RAFRAÎCHISSEMENT RETENU : la carte garde ses gestes fermés tant que l'écran n'est pas à jour", async ({ page }) => {
   // Le défaut fermé (§118.172) : entre la fin d'une action et l'arrivée des nouvelles données, la
   // carte montre l'état d'AVANT — rouvrir un voyageur à ce moment ouvrirait un formulaire sur ses
@@ -293,7 +333,7 @@ test("LE RAFRAÎCHISSEMENT RETENU : la carte garde ses gestes fermés tant que l
   await c.getByRole("menuitem", { name: "Modifier", exact: true }).click();
   await c.getByLabel(/^Date de retour/).fill("2026-11-09");
   await c.getByRole("button", { name: "Enregistrer", exact: true }).click();
-  await expect.poll(async () => (await prisma.adProVoyageur.findFirstOrThrow({ where: { nom: MEDECIN_HORS, item: { sponsoringId } } })).dateRetour?.toISOString().slice(0, 10))
+  await expect.poll(async () => (await prisma.adProVoyageur.findFirstOrThrow({ where: { nom: "Haddad", item: { sponsoringId } } })).dateRetour?.toISOString().slice(0, 10))
     .toBe("2026-11-09");
   await expect(c.getByRole("button", { name: "Ajouter un voyageur" })).toBeDisabled();
   await expect(c.getByRole("button", { name: `Autres actions pour ${MEDECIN_HORS}` })).toBeDisabled();

@@ -269,6 +269,42 @@ export function etatVisite(input: {
   return fenetreRapport(input.date, input.maintenant).ouvert ? "A_FAIRE" : "PERDUE";
 }
 
+/**
+ * SUPPRIMER LE COMPTE RENDU D'UNE VISITE NE CHANGE PAS SILENCIEUSEMENT SON ÉTAT (§118.212).
+ *
+ * Un compte rendu vocal (`FieldReport`) rattaché à une visite fait passer la ligne de l'emploi du
+ * temps au vert (`rapportFait`, `tour-schedule.ts`). Le retirer rend la visite à son état d'avant :
+ * « à faire » ou — fenêtre de 48 h fermée — « rapport non fait », une visite PERDUE. Le retirer en
+ * silence corrigerait l'état d'une visite après coup, par la porte d'à côté (§118.193a). La règle ne
+ * refuse pas « tout compte rendu rattaché » (un refus à tort, §118.27 : si la visite est rapportée
+ * par ailleurs, rien ne change) : elle compare l'état AVEC et SANS ce compte rendu, par `etatVisite`
+ * — la MÊME fonction que l'écran, jamais une seconde copie de la règle (§118.5).
+ *
+ * Mesuré, et nommé plutôt que réparé ici : `avancementDuMois` ne lit que le rapport ÉCRIT
+ * (`report`), pas le compte rendu vocal — pour le taux du mois, une visite rapportée seulement à la
+ * voix compte déjà comme non rapportée. Ce défaut précède cette règle ; la règle ne l'aggrave pas.
+ *
+ * Rend la phrase du refus, ou `null` quand l'état ne bouge pas.
+ */
+export function refusSuppressionRapportDeVisite(input: {
+  statut: string;
+  date: Date;
+  /** La visite porte-t-elle son propre rapport écrit ? */
+  rapportEcrit: boolean;
+  /** Les AUTRES comptes rendus vocaux rattachés à la même visite (hors celui qu'on retire). */
+  autresRapports: number;
+  maintenant: Date;
+  /** Le praticien, pour dire de quelle visite il s'agit. */
+  praticien?: string | null;
+}): string | null {
+  const avec = etatVisite({ statut: input.statut, date: input.date, rapportFait: true, maintenant: input.maintenant });
+  const sans = etatVisite({ statut: input.statut, date: input.date, rapportFait: input.rapportEcrit || input.autresRapports > 0, maintenant: input.maintenant });
+  if (avec === sans) return null;
+  const visite = `${input.praticien ? `la visite chez ${input.praticien}` : "la visite"} du ${input.date.toLocaleDateString("fr-FR")}`;
+  return `Ce compte rendu est le seul rapport de ${visite} (emploi du temps) : sans lui elle repasserait de « ${ETAT_VISITE_LABELS[avec]} » à « ${ETAT_VISITE_LABELS[sans]} » dans « Ma journée », sans que personne l'ait décidé. `
+    + "Il ne se supprime pas d'ici : corrigez-le (« Corriger / renvoyer »), ou, si la visite n'a pas eu lieu, dites-le dans Promotion médicale › Ma journée (« N'a pas eu lieu », dans les 48 h).";
+}
+
 // ─────────────────────────── L'avancement — UN seul calcul ───────────────────────────
 
 export interface VisiteComptable {

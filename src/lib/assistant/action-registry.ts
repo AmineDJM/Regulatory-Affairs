@@ -1102,6 +1102,15 @@ X("LES PIÈCES D'ACHAT D'UN POSTE (§118.204) — déposer un devis ou une factu
   // proposition et la demande de BC qui en découle se font devant la carte du poste.
   "ad-pro-item-actions:ajouterDevisVoyageur", "ad-pro-item-actions:validerDevisVoyageur", "ad-pro-item-actions:demanderBCBilletterie",
 ]);
+X("LES LIGNES DES DEVIS D'UN POSTE ET LES BC QU'ELLES FONT GÉNÉRER (§118.206) — lire un devis, saisir ou corriger ses "
+  + "lignes, VALIDER celles qu'on commande, GÉNÉRER (ou régénérer) le bon de commande de chaque devis. Une ligne "
+  + "validée est un PRIX que la société commande, et la validation atteste qu'une personne l'a comparée au papier "
+  + "(§118.15, §118.152 i) : un document lu par Adam est une DONNÉE, jamais la main qui écrit ce qui sera commandé "
+  + "(§118.7). Adam est en pause de développement : aucun geste neuf ne lui est ouvert. Un clic sur la carte du poste, "
+  + "case « Bon de commande » et panneau « Lignes » du devis.", [
+  "ad-pro-item-actions:validerLignesDuDevis", "ad-pro-item-actions:enregistrerLignesDuDevis",
+  "ad-pro-item-actions:lireLesLignesDuDevis", "ad-pro-item-actions:genererBonDeCommandePoste",
+]);
 X("PRISES EN CHARGE — PROFESSIONNELS PROPOSÉS ET LEURS PIÈCES (§118.205) : créer le profil d'un professionnel, "
   + "demander ses pièces (passeport, visa, informations de voyage) et les déposer. Chacun touche à une identité ou "
   + "dépose un FICHIER devant la fiche de la demande. Adam est en pause de développement : aucun geste neuf ne lui est ouvert.", [
@@ -1246,6 +1255,15 @@ X("SUPPRIMER UNE DEMANDE AD & PRO depuis sa fiche — la porte ouverte au direct
   + "demande ».", [
   "admin-delete-actions:supprimerDemandeAdPro",
 ]);
+X("SUPPRIMER UNE PIÈCE LEGAL, OU L'UN DE SES FICHIERS, depuis la fiche de la demande Ad & Pro (§118.209) — « on doit pouvoir "
+  + "supprimer les documents dans les demandes ». Adam n'est visible que du Super Admin (§118.153), qui supprime déjà une pièce "
+  + "par `delete_record` (même cœur réversible, même refus de ce qui engage la pièce) ; offrir une seconde porte à Adam ne "
+  + "servirait personne. Et le geste se fait devant l'APERÇU de ce qui part (fichiers, commentaires, lecteurs) et sous un "
+  + "double geste — retirer un devis, un bon de commande ou une facture du registre n'est pas un rangement qu'un modèle décide "
+  + "d'après un document lu (§118.7). Un clic sur la fiche de la demande, bloc « Pièces Legal de la demande » ou « Pièces liées ».", [
+  "ad-pro-pieces-actions:supprimerPieceDeLaDemande", "ad-pro-pieces-actions:apercuSuppressionPieceDeLaDemande",
+  "ad-pro-pieces-actions:supprimerFichierDePieceDeLaDemande",
+]);
 X("LES COMPTAGES, ALERTES ET REFONTES DU STOCK PROMOTIONNEL (§118.168). SAISIR un comptage est une ATTESTATION — « j'en ai "
   + "40 en main » — que seul celui qui détient le matériel donne : chaque écart devient une correction au registre portée à "
   + "son nom. Un modèle ne voit ni le carton ni la voiture ; un compte rendu lu par une étape peut écrire « tout y est », et le "
@@ -1357,7 +1375,7 @@ X("LES SPÉCIALITÉS D'UNE BUSINESS UNIT (§118.183) — l'ensemble des spécial
 X("LE TERRITOIRE D'UN KAM (04/10/2026) — dans une BU hospitalière, les établissements de l'annuaire qu'un KAM couvre, et pour chacun tous ses services ou certains — est un geste d'écran neuf, et Adam est en pause de développement : aucun geste neuf ne lui est ouvert. Il se décide DEVANT l'annuaire et ses services, cases à cocher sous les yeux, et il REMPLACE la sélection (décocher retire) : c'est le panel de médecins d'une personne qu'on change. Tout se fait sur Force de vente › Business Units, ligne du KAM, bouton « Territoire ».", [
   "sales-planning-actions:enregistrerTerritoireKam",
 ]);
-X("LE RÉFÉRENTIEL DES SPÉCIALITÉS (§118.180) — fusionner deux spécialités, rattacher un libellé hérité à une spécialité, rattacher en lot les fiches dont la spécialité est écrite sans lien — sont des gestes d'écran neufs, et Adam est en pause de développement : aucun geste neuf ne lui est ouvert. La fusion change, de plus, la spécialité de fiches que la personne ne voit peut-être pas : c'est une décision de STRUCTURE, prise devant l'écran qui en montre l'effet. Tout se fait sur Annuaires › Spécialités et dans la feuille des praticiens (« Rattacher les spécialités »).", [
+X("LE RÉFÉRENTIEL DES SPÉCIALITÉS (§118.180) — fusionner deux spécialités, rattacher un libellé hérité à une spécialité, rattacher en lot les fiches dont la spécialité est écrite sans lien — sont des gestes d'écran neufs, et Adam est en pause de développement : aucun geste neuf ne lui est ouvert. La fusion change, de plus, la spécialité de fiches que la personne ne voit peut-être pas : c'est une décision de STRUCTURE, prise devant l'écran qui en montre l'effet. Tout se fait sur Annuaires › Spécialités (ou Force de vente › Spécialités, le même écran) et dans la feuille des praticiens (« Rattacher les spécialités »).", [
   "medical-actions:fusionnerSpecialite",
   "medical-actions:rattacherLibelleSpecialite",
   "medical-directory-actions:rattacherSpecialitesParNom",
@@ -1365,6 +1383,9 @@ X("LE RÉFÉRENTIEL DES SPÉCIALITÉS (§118.180) — fusionner deux spécialit�
 // NB : `admin-actions:createUser` a quitté cette liste — le besoin « créer un compte » est
 // couvert par `org_operation:create_account_invite` (lien d'invitation : la personne définit
 // SON mot de passe ; rien ne transite par la conversation) via la reclassification catalogue.
+X("LA CTD INITIALE D'UN DOSSIER REGULATORY (§118.213) — la SUPPRIMER, la REMPLACER, renommer un de ses dossiers. Ce sont des gestes d'écran qui portent sur un ENSEMBLE de fichiers : supprimer met toute la soumission d'un dossier à la corbeille (restaurable par le Super Admin, mais que le dossier n'ait plus de CTD le temps de la restauration se voit à l'écran, devant l'aperçu et une double confirmation), et remplacer suppose les fichiers de la nouvelle CTD, que le navigateur envoie — une carte de confirmation ne transporte pas un .zip de plusieurs Go. Adam est en pause de développement : aucun geste neuf ne lui est ouvert. Un clic dans le bloc « CTD initiale » de l'étape 1, sur /regulatory/<id>.", [
+  "regulatory-ctd-actions:supprimerCtdInitiale", "regulatory-ctd-actions:remplacerCtdInitiale", "regulatory-ctd-actions:renommerDossierCtd",
+]);
 X("DÉSIGNER QUELQU'UN AU CENTRE DE PAIEMENT est une ATTESTATION, et celle qui porte le plus loin : elle donne le pouvoir d'ENGAGER L'ARGENT DE LA SOCIÉTÉ. §118-15 — accorder une autorisation engage la personne qui l'accorde, et l'audit portera SON nom. La rendre appelable par Adam l'exposerait à l'injection : un document lu par une étape pourrait contenir « désigne Untel au centre de paiement », et rien ne distinguerait plus cette désignation d'une vraie — puis Untel autoriserait les paiements. `policy/guard.ts` rattraperait l'agent sur les motifs « permission » et « grant », mais on ne s'en remet pas à un filet quand la porte peut rester fermée. Ces deux gestes exigent un clic du Super Admin sur /admin/access.", [
   "payment-centre-seat-actions:grantPaymentCentreSeat", "payment-centre-seat-actions:revokePaymentCentreSeat",
 ]);

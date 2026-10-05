@@ -19,6 +19,8 @@ import { statutManuelOuRien, estStatutDuCircuit } from "@/lib/events/statut";
 import { adProInit, PRODUCT_MANAGER_ROLES } from "@/lib/workflow/origin";
 import { relancerCycle } from "@/lib/workflow/engine";
 import { referentAInscrire } from "@/lib/ad-pro/referent-de-la-gamme";
+import { gammeImposee, businessUnitDuDemandeur } from "@/lib/ad-pro/business-unit-auto";
+import { refuseSousVueExacte } from "@/lib/vue-exacte";
 import { fdStr, fdNum, fdDate, type ActionResult } from "@/lib/actions/types";
 import { readMultiField, lireMedecinsDemande } from "@/lib/ad-pro/pickers";
 
@@ -127,6 +129,9 @@ function champsManquants(formData: FormData): string[] {
 export async function createEvent(formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
   if (!userCan(user, "EVENTS", "CREATE")) return { ok: false, error: "Non autorisé." };
+  // Pas de création « comme » quelqu'un : voir `vue-exacte.ts`.
+  const sousVue = await refuseSousVueExacte(user);
+  if (sousVue) return sousVue;
   const name = fdStr(formData, "name");
   if (!name) return { ok: false, error: "Le nom de l'événement est obligatoire." };
   const manquants = champsManquants(formData);
@@ -142,7 +147,9 @@ export async function createEvent(formData: FormData): Promise<ActionResult> {
   const created = await prisma.event.create({
     data: {
       // LA GAMME QUI PORTE LA DEMANDE — c'est SON budget Ad&Pro qui est engagé.
-      businessUnitId: fdStr(formData, "businessUnitId") || null,
+      // Lue d'abord SUR LE DEMANDEUR : un KAM rattaché à sa BU n'a plus le champ, et une valeur
+      // postée n'entre pas en ligne de compte pour lui (`gammeImposee`).
+      businessUnitId: await gammeImposee(user, fdStr(formData, "businessUnitId") || null),
       name,
       // Entité : la portée en cours, à défaut la société d'appartenance du créateur.
       // L'ENTITÉ QUI PAIERA suit la PERSONNE (sa fiche employé, à défaut son
@@ -175,6 +182,9 @@ export async function createEvent(formData: FormData): Promise<ActionResult> {
   });
   await recordAudit({ actorId: user.id, action: "CREATE", module: "Events", summary: `Événement « ${name} »` });
   revalidatePath("/events");
+  // Le tableau « Toutes les demandes » et « Mon espace » lisent aussi la demande qui vient de naître.
+  revalidatePath("/ad-pro");
+  revalidatePath("/mon-espace");
   return { ok: true, id: created.id };
 }
 
@@ -211,8 +221,11 @@ export async function updateEvent(formData: FormData): Promise<ActionResult> {
   }
   const saisi = statutSaisi(formData);
   if (!saisi.ok) return saisi;
+  // LA GAMME NE SE CHANGE PAS PAR QUELQU'UN DONT LA GAMME EST DÉDUITE : le champ ne lui est plus
+  // proposé, et une valeur postée est une valeur forgée (ne pas y toucher = `undefined`).
+  const gammeDeLEditeur = await businessUnitDuDemandeur(user);
   const data = {
-    businessUnitId: fdStr(formData, "businessUnitId") || undefined,
+    businessUnitId: gammeDeLEditeur ? undefined : fdStr(formData, "businessUnitId") || undefined,
     name,
     type: inEnum(EventType, fdStr(formData, "type"), "CONGRESS"),
     scope: inEnum(EventScope, fdStr(formData, "scope"), "NATIONAL"),

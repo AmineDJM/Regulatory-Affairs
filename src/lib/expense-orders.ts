@@ -59,6 +59,15 @@ interface CreateExpenseOrderInput {
    * et un Directeur Général cloisonné sur la bonne ne la verrait pas au centre.
    */
   companyId?: string | null;
+  /**
+   * LA FACTURE EST-ELLE EXIGÉE AVANT LE RÈGLEMENT ? Absent = la règle d'avant (les dépenses
+   * événementielles l'exigent). Posé par l'appelant qui SAIT que la pièce attendue est autre : le
+   * versement d'un sponsoring DIRECT à l'association se justifie par la pro forma ou la lettre de
+   * demande, pas par une facture (Direction, 05/10). Un seul champ, lu partout où la règle se
+   * juge : le règlement, la colonne « Facture » des règlements à effectuer, et le signal
+   * « justificatif manquant » de l'intelligence financière.
+   */
+  requiresInvoice?: boolean;
 }
 
 // Dépenses « événementielles » : une facture est obligatoire avant le règlement.
@@ -256,7 +265,8 @@ async function openCompanionDossier(
 }
 
 export async function createExpenseOrder(input: CreateExpenseOrderInput) {
-  const requiresInvoice = (input.sourceType ? INVOICE_REQUIRED_SOURCES.includes(input.sourceType) : false) || input.category === "EVENEMENT";
+  const requiresInvoice = input.requiresInvoice
+    ?? ((input.sourceType ? INVOICE_REQUIRED_SOURCES.includes(input.sourceType) : false) || input.category === "EVENEMENT");
 
   // LE CENTRE DE PAIEMENT SE DÉCIDE ICI, à la naissance de l'ordre — le seul endroit par lequel
   // TOUT décaissement passe. Tout ordre part « en attente » et n'arrive pas aux Finances tant que

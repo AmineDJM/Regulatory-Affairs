@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
@@ -18,6 +19,15 @@ let SESSION: unknown = null;
 let EN_TETES = new Headers();
 let COOKIE: string | undefined;
 vi.mock("@/auth", () => ({ auth: async () => SESSION }));
+// Le stockage asynchrone de Next qui marque l'exécution du CORPS d'une action serveur : on y met le même
+// `AsyncLocalStorage` que Next instancie (le sien n'existe qu'une fois le serveur démarré).
+const { ACTION_STORE } = vi.hoisted(() => ({ ACTION_STORE: { current: null as null | { run: <T>(s: { isAction: boolean }, f: () => T) => T; getStore: () => unknown } } }));
+vi.mock("next/dist/client/components/action-async-storage.external", async () => {
+  const { AsyncLocalStorage: ALS } = await import("node:async_hooks");
+  const store = new ALS<{ isAction: boolean }>();
+  ACTION_STORE.current = store as never;
+  return { actionAsyncStorage: store };
+});
 vi.mock("next/headers", () => ({
   cookies: () => ({ get: (n: string) => (n === "amd_impersonate" && COOKIE ? { value: COOKIE } : undefined) }),
   headers: () => EN_TETES,
@@ -49,11 +59,29 @@ suite("Vue exacte — qui agit", () => {
     expect(u?.impersonatedBy?.id).toBe(admin);
   });
 
-  it("une ACTION SERVEUR part au nom du Super Admin — ce que le bandeau promet", async () => {
+  it("le CORPS d'une action serveur part au nom du Super Admin — ce que le bandeau promet", async () => {
     EN_TETES = new Headers({ "next-action": "abc123" });
-    const u = await requireUser();
+    const u = await ACTION_STORE.current!.run({ isAction: true }, () => requireUser());
     expect(u.id).toBe(admin);
     expect(u.impersonatedBy).toBeUndefined();
+  });
+
+  it("le RENDU qui suit une action (redirect, revalidation) lit la vue, même avec l'en-tête `Next-Action` rejoué", async () => {
+    // Next rend la page cible d'un `redirect()` dans la réponse de l'action, en rejouant les en-têtes de la
+    // requête — `Next-Action` compris — mais HORS du corps de l'action. C'est le défaut mesuré : la page
+    // d'arrivée de « Voir comme » se rendait comme celle de l'administrateur, sans bandeau, jusqu'au prochain
+    // rechargement. L'en-tête ne dit pas « le code qui tourne est une action » : il ne décide donc de rien.
+    EN_TETES = new Headers({ "next-action": "abc123" });
+    const u = await requireUser();
+    expect(u.id).toBe(cible);
+    expect(u.impersonatedBy?.id).toBe(admin);
+    expect((await getCurrentUser())?.id).toBe(cible);
+  });
+
+  it("l'action TERMINÉE ne laisse rien derrière elle : la lecture suivante revoit la vue", async () => {
+    EN_TETES = new Headers({ "next-action": "abc123" });
+    await ACTION_STORE.current!.run({ isAction: true }, () => requireUser());
+    expect((await requireUser()).id).toBe(cible);
   });
 
   it("une route d'API qui ÉCRIT part aussi au nom du Super Admin", async () => {
@@ -102,5 +130,19 @@ describe("Vue exacte — chaque route d'API qui écrit le déclare", () => {
       if (/\brequireUser\(\)/.test(src)) fautives.push(f);
     }
     expect(fautives).toEqual([]);
+  });
+});
+
+describe("Vue exacte — la session ne décide plus sur l'en-tête (§118.49 : le point d'appel, pas le corps)", () => {
+  const src = readFileSync("src/lib/session.ts", "utf8").replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+
+  it("`build` consulte l'exécution de l'action (stockage de Next) avant d'ignorer la vue", () => {
+    expect(src).toMatch(/opts\.ecriture \|\| actionServeurEnCours\(\)/);
+    expect(src).toMatch(/actionAsyncStorage\.getStore\(\)\?\.isAction === true/);
+  });
+
+  it("aucune lecture de l'en-tête `next-action` pour décider de la vue", () => {
+    expect(src).not.toMatch(/next-action/i);
+    expect(src).not.toMatch(/headers\(\)/);
   });
 });

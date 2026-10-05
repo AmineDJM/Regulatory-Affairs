@@ -91,24 +91,18 @@ function EventFields({ e, responsibles, referentiels = {} }: {
   return (
     <div className="grid grid-cols-2 gap-3">
       <W full label="Nom de l'événement"><Input name="name" defaultValue={e?.name} required placeholder="Ex. Symposium Cardiologie 2027" /></W>
-      {/* LA GAMME QUI PORTE LA DEMANDE — c'est SON budget Ad&Pro qui est engagé. Déduite du
-          demandeur quand elle se lit à coup sûr, et le serveur l'impose de son côté : un champ
-          de formulaire se forge, et une gamme forgée fait peser la dépense sur une autre équipe. */}
-      {deduite ? (
-        <W full label="Business Unit">
-          <Select name="businessUnitId" defaultValue={deduite.id} required>
-            <option value={deduite.id}>{deduite.name}</option>
-          </Select>
-          <p className="text-xs text-muted-foreground">{deduite.raison} C&apos;est son budget Ad&amp;Pro qui est engagé.</p>
-        </W>
-      ) : gammes.length > 0 ? (
+      {/* LA GAMME QUI PORTE LA DEMANDE — c'est SON budget Ad&Pro qui est engagé. Quand elle se lit
+          sur le demandeur (un KAM rattaché à sa BU, un superviseur d'UNE gamme), le champ n'est PAS
+          proposé : le serveur la pose et ignore toute valeur postée (`gammeImposee`) — un champ de
+          formulaire se forge, et une gamme forgée fait peser la dépense sur une autre équipe. */}
+      {!deduite && gammes.length > 0 && (
         <W full label="Business Unit">
           <Select name="businessUnitId" defaultValue={e?.businessUnitId ?? ""} required>
             <option value="">— Choisir la gamme —</option>
             {gammes.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
           </Select>
         </W>
-      ) : null}
+      )}
       {/* TYPE, PORTÉE, FORMAT : un choix EXPLICITE, plus une valeur pré-remplie. C'est sur eux que
           l'arbitrage se fait, et une valeur par défaut EST une décision prise à la place du
           demandeur (§118.108). À la MODIFICATION la valeur existe, donc le repère ne gêne pas. */}

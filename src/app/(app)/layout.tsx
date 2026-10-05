@@ -83,7 +83,14 @@ export default async function AppLayout({
     {/* L'APPEL VIT AU NIVEAU DU LAYOUT, pas de la page Chief of Staff : naviguer dans l'ERP
         pendant un appel ne démonte pas la session WebRTC — la conversation continue. */}
     <CallProvider enabled={realtimeVoiceConfigured() && canUseRealtimeVoice(user)}>
-    <div className="flex h-screen overflow-hidden bg-background">
+    {/* LA COQUE EST UN BLOC CONTENEUR (`relative`) — c'est ce qui l'empêche de laisser le DOCUMENT défiler.
+        Un élément `absolute` sans ancêtre positionné a pour bloc conteneur la FENÊTRE : le `overflow-hidden`
+        de la coque ne le coupe pas, et son abscisse de repli (un `sr-only`, une pastille, un témoin de
+        formulaire planté au bas d'une longue fiche) étendait le document à 2 025 px dans une fenêtre de
+        1 080. Le document devenait défilable — et à la navigation suivante, Next appelle `scrollIntoView` sur
+        le premier élément de la page : la FENÊTRE défilait de la hauteur de l'en-tête, qui disparaissait, et
+        une bande blanche de la même hauteur apparaissait en bas (la capture de la Direction, 05/10/2026). */}
+    <div className="relative flex h-screen overflow-hidden bg-background" data-app-shell>
       {/* Le fil de progression d'une navigation — SANS `loading.tsx` : une frontière Suspense
           au-dessus des pages transformerait chaque `redirect()` en redirection côté navigateur,
           qui casse en production sur Next 14.2 (voir `nav-progress.tsx`). */}
@@ -129,7 +136,7 @@ export default async function AppLayout({
             remonte plus jusqu'à la page hôte, comme dans une application native. */}
         <main
           id={APP_SCROLL_ID}
-          className="flex-1 overflow-y-auto overflow-x-hidden overscroll-contain pb-[calc(5.5rem+env(safe-area-inset-bottom))] pl-[calc(0.75rem+env(safe-area-inset-left))] pr-[calc(0.75rem+env(safe-area-inset-right))] pt-3 sm:pl-[calc(1rem+env(safe-area-inset-left))] sm:pr-[calc(1rem+env(safe-area-inset-right))] sm:pt-6 lg:px-8 lg:pb-8"
+          className="relative flex-1 overflow-y-auto overflow-x-hidden overscroll-contain pb-[calc(5.5rem+env(safe-area-inset-bottom))] pl-[calc(0.75rem+env(safe-area-inset-left))] pr-[calc(0.75rem+env(safe-area-inset-right))] pt-3 sm:pl-[calc(1rem+env(safe-area-inset-left))] sm:pr-[calc(1rem+env(safe-area-inset-right))] sm:pt-6 lg:px-8 lg:pb-8"
         >
           {/* La largeur du contenu est PLAFONNÉE par défaut : au-delà, une ligne de texte devient
               illisible parce que l'œil perd le début de la suivante. Mais un tableau de treize

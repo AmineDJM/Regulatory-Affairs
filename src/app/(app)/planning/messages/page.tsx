@@ -1,5 +1,5 @@
 import { requireModule } from "@/lib/session";
-import { hasGlobalView, userCan } from "@/lib/rbac";
+import { hasGlobalView, userCan, peutGererSpecialites } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { getAppSettings } from "@/lib/settings";
 import { peutEcrireMessagesPromo } from "@/lib/sfe/tournee";
@@ -51,6 +51,7 @@ export default async function MessagesPage() {
         active="messages"
         canConfigure={userCan(user, "SALES_PLANNING", "UPDATE") || hasGlobalView(user)}
         isSupervisor
+        specialites={peutGererSpecialites(user, "VIEW")}
       />
       <MessagesManager
         messages={messages.map((m) => ({

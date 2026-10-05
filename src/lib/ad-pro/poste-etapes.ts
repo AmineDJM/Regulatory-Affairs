@@ -71,6 +71,14 @@ export interface FaitsPoste {
   bc?: EtapeBC | null;
   /** Combien de factures (non annulées) le poste porte. */
   factures?: number;
+  /** Combien de devis / pro forma / lettres de demande (non annulés) le poste porte. */
+  devis?: number;
+  /**
+   * Combien de devis du poste ont des lignes VALIDÉES et pas encore de bon de commande (§118.206) : le BC se GÉNÈRE
+   * alors d'après elles, au lieu de se demander à l'assistante. Absent ou nul : aucune ligne validée — le geste
+   * reste celui d'avant.
+   */
+  devisAGenerer?: number;
 }
 
 /** Ce que la personne qui regarde peut faire — calculé au serveur, jamais deviné ici. */
@@ -100,7 +108,7 @@ export interface RegardPoste {
 
 export type CleGeste =
   | "REPARTIR" | "CHIFFRER" | "SOUMETTRE" | "VALIDER_OPS" | "DECIDER" | "MONTANT" | "BUDGET"
-  | "DEMANDER_BC" | "VISER_BC" | "VERIFIER_BC" | "DEMANDER_PAIEMENT";
+  | "DEMANDER_BC" | "GENERER_BC" | "VISER_BC" | "VERIFIER_BC" | "DEMANDER_PAIEMENT";
 
 export interface Geste {
   cle: CleGeste;
@@ -134,7 +142,9 @@ export function faitsDuPoste(r: {
   /** La demande de BC ouverte chez l'assistante (`DemandeBCDuPoste`), s'il y en a une. */
   demandeBC?: { etat: EtatDemandeBC } | null;
   /** La chaîne d'achat du poste (`PiecesDuPoste`). */
-  pieces?: { bc: { etape: EtapeBC | null } | null; factures: readonly unknown[] };
+  pieces?: { bc: { etape: EtapeBC | null } | null; factures: readonly unknown[]; devis?: readonly { annulee?: boolean }[] };
+  /** Les devis du poste, lus avec leurs lignes (`DevisDePosteVue`) — seul l'état de leur BC compte ici. */
+  devisLignes?: readonly { etat: string }[];
 }): FaitsPoste {
   return {
     kind: r.kind, status: r.status, amountEstimated: r.amountEstimated, amountGranted: r.amountGranted,
@@ -142,6 +152,8 @@ export function faitsDuPoste(r: {
     expenseOrderStatus: r.expenseOrder?.status ?? null, lignesStock: r.lignesStock.length, orderSansCentre: r.orderSansCentre,
     opsDecidedAt: r.opsDecidedAt ?? null, demandeBC: r.demandeBC?.etat ?? "AUCUNE",
     bc: r.pieces?.bc ? (r.pieces.bc.etape ?? "HORS_CIRCUIT") : null, factures: r.pieces?.factures.length ?? 0,
+    devis: (r.pieces?.devis ?? []).filter((d) => !d.annulee).length,
+    devisAGenerer: (r.devisLignes ?? []).filter((d) => d.etat === "A_GENERER").length,
   };
 }
 
@@ -158,6 +170,19 @@ const chiffre = (p: FaitsPoste) => positif(p.amountGranted ?? p.amountEstimated)
  */
 export const VERSEMENT_SANS_BC: readonly AdProItemKind[] = ["ASSOCIATION_SUPPORT"];
 
+/**
+ * CE QUE LE PAIEMENT D'UN VERSEMENT À L'ASSOCIATION EXIGE (Direction, 05/10) : « quand c'est un
+ * sponsoring direct (à l'association), ça demande « Proforma / lettre de demande de sponsoring » ;
+ * la facture n'est pas obligatoire ». Le paiement d'un sponsoring DIRECT part donc de la pro forma
+ * ou de la lettre de demande (qui est un DEVIS au registre : une pro forma l'a toujours été), et la
+ * facture reste possible, jamais exigée. Un sponsoring INDIRECT (prise en charge : devis → BC →
+ * facture) garde la règle d'avant. Une seule fonction, lue par la frise, le geste, les phrases,
+ * l'action et l'ordre de dépense — deux lectures de « qu'exige-t-on pour payer ? » finiraient par
+ * diverger (§118.5).
+ */
+export const LIBELLE_JUSTIFICATIF_DIRECT = "Proforma / lettre de demande de sponsoring";
+export const facturePourPayer = (kind: AdProItemKind): boolean => !VERSEMENT_SANS_BC.includes(kind);
+
 /** Le BC du poste est-il signé — la condition pour déposer la facture d'un poste qui en a un (§118.204) ? */
 export const bcSigne = (p: FaitsPoste) => p.bc === "SIGNE";
 
@@ -172,6 +197,7 @@ export function etapesDuPoste(p: FaitsPoste): Etape[] {
   const paye = p.expenseOrderStatus === "PAID";
   const sansBC = VERSEMENT_SANS_BC.includes(p.kind);
   const factures = p.factures ?? 0;
+  const justificatifPose = (p.devis ?? 0) > 0 || factures > 0;
   const etapes: Etape[] = [
     { cle: "CHIFFRE", libelle: "Chiffré", etat: chiffre(p) ? "FAIT" : "EN_COURS" },
     {
@@ -201,10 +227,17 @@ export function etapesDuPoste(p: FaitsPoste): Etape[] {
     });
   }
   const factureOuverte = accorde && p.budgetCategoryId && (sansBC ? true : bcSigne(p));
-  etapes.push({
-    cle: "FACTURE", libelle: "Facture",
-    etat: factures > 0 ? "FAIT" : factureOuverte || p.expenseOrderId ? "EN_COURS" : "A_VENIR",
-  });
+  // UN VERSEMENT À L'ASSOCIATION se justifie par la pro forma ou la lettre de demande, pas par une
+  // facture : la frise nomme ce qui est exigé, et le dit FAIT dès qu'il est là.
+  etapes.push(sansBC
+    ? {
+        cle: "FACTURE", libelle: "Pro forma / lettre",
+        etat: justificatifPose ? "FAIT" : factureOuverte || p.expenseOrderId ? "EN_COURS" : "A_VENIR",
+      }
+    : {
+        cle: "FACTURE", libelle: "Facture",
+        etat: factures > 0 ? "FAIT" : factureOuverte || p.expenseOrderId ? "EN_COURS" : "A_VENIR",
+      });
   etapes.push({
     cle: "PAIEMENT", libelle: "Paiement",
     etat: paye ? "FAIT" : p.expenseOrderId ? "EN_COURS" : "A_VENIR",
@@ -300,13 +333,15 @@ export function prochainPas(p: FaitsPoste, r: RegardPoste): ProchainPas {
       ? { geste: { cle: "BUDGET", libelle: "Choisir le budget" }, attente: null }
       : { geste: null, attente: `${capitale(qui2)} choisit le budget qui porte ce poste.` };
   }
+  const direct = VERSEMENT_SANS_BC.includes(p.kind);
   const payer: ProchainPas = r.canEdit
-    ? { geste: { cle: "DEMANDER_PAIEMENT", libelle: "Déposer la facture et demander le paiement" }, attente: null }
-    : { geste: null, attente: "Le demandeur dépose la facture pour demander le paiement." };
+    ? { geste: { cle: "DEMANDER_PAIEMENT", libelle: direct ? "Joindre la proforma / lettre de demande et demander le paiement" : "Déposer la facture et demander le paiement" }, attente: null }
+    : { geste: null, attente: direct ? "Le demandeur joint la proforma ou la lettre de demande de sponsoring pour demander le paiement." : "Le demandeur dépose la facture pour demander le paiement." };
 
-  // SPONSORING DIRECT : pas de bon de commande. Pro forma facultative, facture obligatoire.
-  if (VERSEMENT_SANS_BC.includes(p.kind) && p.orderStage === "NONE" && !p.bc) {
-    if (!r.operationDecidee) return { geste: null, attente: "La facture se déposera quand l'opération sera accordée." };
+  // SPONSORING DIRECT : pas de bon de commande, et pas de facture exigée — la pro forma ou la lettre
+  // de demande de sponsoring suffit à demander le paiement (Direction, 05/10).
+  if (direct && p.orderStage === "NONE" && !p.bc) {
+    if (!r.operationDecidee) return { geste: null, attente: "La proforma ou la lettre de demande se joindra quand l'opération sera accordée." };
     return payer;
   }
 
@@ -322,8 +357,10 @@ export function prochainPas(p: FaitsPoste, r: RegardPoste): ProchainPas {
         : { geste: null, attente: "Bon de commande déposé par l'assistante — le demandeur le vérifie." };
     }
     // UNE DEMANDE D'AVANT LA RÈGLE (§118.204) : demandée au secrétariat, elle ne reviendrait jamais sur
-    // le poste. L'action accepte de l'envoyer à l'assistante ; la carte doit le proposer.
+    // le poste. L'action accepte de l'envoyer à l'assistante ; la carte doit le proposer. Des lignes de devis
+    // validées passent avant : le BC se GÉNÈRE d'après elles (§118.206).
     if (p.demandeBC === "AUCUNE") {
+      if (r.canEdit && (p.devisAGenerer ?? 0) > 0) return { geste: gesteGenerer(p.devisAGenerer as number), attente: null };
       return r.canEdit
         ? { geste: { cle: "DEMANDER_BC", libelle: "Envoyer la demande de BC à l'assistante" }, attente: null }
         : { geste: null, attente: "Le demandeur envoie la demande de bon de commande à l'assistante de direction." };
@@ -336,13 +373,18 @@ export function prochainPas(p: FaitsPoste, r: RegardPoste): ProchainPas {
     };
   }
   // Bon de commande à demander (ou à redemander après un refus du centre). Cette demande reste un
-  // geste d'EXÉCUTION : elle s'offre encore sur une demande clôturée (§118.151).
+  // geste d'EXÉCUTION : elle s'offre encore sur une demande clôturée (§118.151). Quand des lignes de devis sont
+  // VALIDÉES, c'est la génération qui est proposée : un BC par devis, avec ses seules lignes validées (§118.206).
+  if (r.canEdit && (p.devisAGenerer ?? 0) > 0) return { geste: gesteGenerer(p.devisAGenerer as number), attente: null };
   return r.canEdit
     ? { geste: { cle: "DEMANDER_BC", libelle: p.orderStage === "REFUSED" ? "Redemander l'émission du BC" : "Demander l'émission du BC" }, attente: null }
     : { geste: null, attente: "Le demandeur demande l'émission du bon de commande." };
 }
 
 const capitale = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+
+/** Le geste de génération : « Générer le BC » pour un devis, « Générer les BC (N) » pour plusieurs. */
+const gesteGenerer = (n: number): Geste => ({ cle: "GENERER_BC", libelle: n > 1 ? `Générer les BC (${n})` : "Générer le BC" });
 
 /**
  * LES POSTES REGROUPÉS PAR RÉPARTITION — dans l'ordre où ils apparaissent. Un poste né d'une

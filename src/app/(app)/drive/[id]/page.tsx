@@ -15,6 +15,7 @@ import { Button } from "@/components/ui/button";
 import { CustomFieldsCard } from "@/components/shared/custom-fields-card";
 import { formatDateTime } from "@/lib/utils";
 import { FileViewer } from "./file-viewer";
+import { BoutonTelecharger } from "@/components/telechargement/bouton-telecharger";
 import { SharePanel, type ShareItem } from "./share-panel";
 import { DriveComments, type DriveCommentItem } from "./drive-comments";
 import { FileActions } from "./file-actions";
@@ -88,9 +89,9 @@ export default async function DriveFilePage({ params }: { params: { id: string }
             <ConvertPdfButton id={node.id} />
           )}
           {canEdit && <UploadButton nodeId={node.id} label="Nouvelle version" />}
-          <a href={`/api/drive/${node.id}/raw?dl=1`}>
+          <BoutonTelecharger href={`/api/drive/${node.id}/raw?dl=1`} nom={node.name} mime={node.mimeType} taille={node.size}>
             <Button variant="outline"><Download className="h-4 w-4" /> Télécharger</Button>
-          </a>
+          </BoutonTelecharger>
           {canEdit && <FileActions id={node.id} name={node.name} parentHref={node.parentId ? `/drive?folder=${node.parentId}` : "/drive"} />}
         </div>
       </div>

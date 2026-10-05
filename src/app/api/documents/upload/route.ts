@@ -29,6 +29,8 @@ export async function POST(req: NextRequest) {
   const stepKey = form.get("stepKey") ? String(form.get("stepKey")) : null;
   // Dossier d'origine (dépôt d'un DOSSIER) : l'arborescence se garde sur la fiche ET dans le Drive.
   const folder = dossierSur(form.get("folder") ? String(form.get("folder")) : null);
+  // Le dépôt vient du bloc « CTD initiale » d'un dossier Regulatory (§118.213) ; `persistUploadedDocument` le juge.
+  const ctd = String(form.get("ctd") ?? "") === "1";
   const files = form.getAll("files").filter((f): f is File => f instanceof File && f.size > 0);
 
   if (!entityType || !entityId) return NextResponse.json({ error: "Entité manquante." }, { status: 400 });
@@ -65,7 +67,7 @@ export async function POST(req: NextRequest) {
       const buffer = Buffer.from(await file.arrayBuffer());
       // `mirrorToDrive: false` — le lot fait son miroir lui-même, en une seule fois, après la
       // boucle : un envoi de 40 fichiers ne doit pas rouvrir 40 fois la même arborescence.
-      const r = await persistUploadedDocument(user.id, { entityType, entityId, category, confidentiality, stepKey, folder, file, maxUploadMb, buffer, mirrorToDrive: false });
+      const r = await persistUploadedDocument(user.id, { entityType, entityId, category, confidentiality, stepKey, folder, file, maxUploadMb, buffer, mirrorToDrive: false, ctd });
       if (r.ok) {
         created++;
         if (r.documentId) ids.push(r.documentId);

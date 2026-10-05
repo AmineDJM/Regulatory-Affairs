@@ -332,7 +332,8 @@ test("CENTRE : la paie s'autorise comme tout paiement — et le solde de trésor
   await aller(page, "/finances/paiements-a-faire");
   const avant = await autorisesARegler(page);
 
-  await aller(page, "/centre-de-paiement");
+  // L'entité se choisit EN HAUT (§118.211) : la paie de l'entité du décor se range dans « Autres ».
+  await aller(page, `/centre-de-paiement?entite=${companyId}&section=autres`);
   const ligne = page.locator("li").filter({ hasText: LIBELLE_PAIE }).filter({ has: page.getByRole("button", { name: "Autoriser" }) }).first();
   await expect(ligne).toBeVisible();
   // L'origine s'ouvre : la paie de l'entité, là où se lit ce qui est saisi, envoyé, viré.

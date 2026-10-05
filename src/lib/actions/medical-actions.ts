@@ -8,7 +8,7 @@ import { userCan, peutAnnuaire, peutGererSpecialites, scopeMedicalDoctors } from
 import { canAccessEntity } from "@/lib/entity-access";
 import { prisma } from "@/lib/prisma";
 import { cleDEtablissement, indexerEtablissements } from "@/lib/annuaires/rattachement";
-import { cleDeSpecialite, ecritureDeSpecialite, indexerSpecialites, lienDeSpecialiteValide } from "@/lib/annuaires/specialites";
+import { CHEMINS_SPECIALITES, cleDeSpecialite, ecritureDeSpecialite, indexerSpecialites, lienDeSpecialiteValide } from "@/lib/annuaires/specialites";
 import { suivreRenommageEtablissement } from "@/lib/stocks/lieux";
 import { recordAudit } from "@/lib/audit";
 import { fdStr, fdDate, fdCase, type ActionResult } from "@/lib/actions/types";
@@ -261,7 +261,7 @@ export async function createSpecialty(formData: FormData): Promise<ActionResult>
     actorId: user.id, action: "CREATE", module: "Annuaires",
     entityType: "SPECIALTY", entityId: created.id, summary: `Spécialité « ${name} » ajoutée au référentiel`,
   });
-  revalidatePath("/annuaires/specialites");
+  for (const chemin of CHEMINS_SPECIALITES) revalidatePath(chemin);
   revalidatePath("/medical");
   return { ok: true, id: created.id };
 }
@@ -312,7 +312,7 @@ export async function updateSpecialty(formData: FormData): Promise<ActionResult>
     actorId: user.id, action: "UPDATE", module: "Annuaires", entityType: "SPECIALTY", entityId: id,
     summary: data.name ? `Spécialité « ${avant.name} » renommée « ${data.name} »` : `Spécialité « ${avant.name} » modifiée`,
   });
-  revalidatePath("/annuaires/specialites");
+  for (const chemin of CHEMINS_SPECIALITES) revalidatePath(chemin);
   revalidatePath("/medical");
   return { ok: true };
 }
@@ -357,7 +357,7 @@ export async function deleteSpecialty(formData: FormData): Promise<ActionResult>
     actorId: user.id, action: "DELETE", module: "Annuaires", entityType: "SPECIALTY", entityId: id,
     summary: `Spécialité « ${avant.name} » retirée du référentiel${detaches ? ` — ${detaches} fiche(s) gardent leur spécialité écrite, à rattacher` : ""}`,
   });
-  revalidatePath("/annuaires/specialites");
+  for (const chemin of CHEMINS_SPECIALITES) revalidatePath(chemin);
   revalidatePath("/medical");
   return { ok: true, message: detaches ? `${detaches} fiche(s) gardent leur spécialité écrite, sans lien — à rattacher.` : undefined };
 }
@@ -420,7 +420,7 @@ export async function fusionnerSpecialite(formData: FormData): Promise<ActionRes
     actorId: user.id, action: "UPDATE", module: "Annuaires", entityType: "SPECIALTY", entityId: cibleId,
     summary: `Spécialité « ${source.name} » fusionnée dans « ${cible.name} » — ${deplaces} fiche(s) déplacée(s)${garde}`,
   });
-  revalidatePath("/annuaires/specialites");
+  for (const chemin of CHEMINS_SPECIALITES) revalidatePath(chemin);
   revalidatePath("/medical");
   return { ok: true, message: `« ${source.name} » fusionnée dans « ${cible.name} » : ${deplaces} fiche(s) déplacée(s)${garde}.` };
 }
@@ -468,7 +468,7 @@ export async function rattacherLibelleSpecialite(formData: FormData): Promise<Ac
     actorId: user.id, action: "UPDATE", module: "Annuaires", entityType: "SPECIALTY", entityId: cible.id,
     summary: `Libellé « ${libelle} » rattaché à « ${cible.name} » — ${count} fiche(s)`,
   });
-  revalidatePath("/annuaires/specialites");
+  for (const chemin of CHEMINS_SPECIALITES) revalidatePath(chemin);
   revalidatePath("/medical/annuaire");
   revalidatePath("/annuaires");
   return { ok: true, rattachees: count, message: `${count} fiche(s) « ${libelle} » rattachée(s) à « ${cible.name} ».` };

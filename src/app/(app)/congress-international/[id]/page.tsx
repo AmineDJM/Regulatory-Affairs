@@ -38,6 +38,10 @@ import { promoMaterialOptions } from "@/lib/actions/ad-pro-item-actions";
 import { toNumber } from "@/lib/utils";
 import { siegeAuCentreAdPro } from "@/lib/ad-pro/centre";
 
+// Une page qui dépend de QUI regarde ne se met jamais en cache : la même adresse rend autre chose pour le
+// demandeur, pour la Direction et pour le Super Admin en Vue exacte (voir `lib/vue-exacte.ts`).
+export const dynamic = "force-dynamic";
+
 export default async function CongressIntlDetailPage({ params }: { params: { id: string } }) {
   const user = await requireModule("CONGRESS_INTERNATIONAL");
   const detail = await getCongressDetail("INTL", user, params.id);

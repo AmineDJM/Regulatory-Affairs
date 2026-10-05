@@ -241,12 +241,17 @@ suite("ops vague 6b — validations, rapports terrain, catalogue d'articles", ()
       }
     });
 
-    it("delete_field_report : pièces jointes comptées dans la proposition", async () => {
+    it("delete_field_report : ce qui part avec le rapport est lu par l'aperçu du registre, et la carte dit « réversible » (§118.212)", async () => {
       const p = await buildProposal("field_report_operation", {
         op: "delete_field_report", target: "mon dernier",
       }, sa());
       expect("error" in p).toBe(false);
-      if (!("error" in p)) expect(p.fields.map((f) => f.value).join(" ")).toContain("0");
+      if (!("error" in p)) {
+        // Le rapport du décor n'a aucune pièce jointe : l'aperçu le dit (« rien d'autre »).
+        expect(p.fields.map((f) => `${f.label}: ${f.value}`).join(" | ")).toContain("Part aussi: rien d'autre");
+        expect(p.warnings.join(" ")).toMatch(/Réversible/);
+        expect(p.warnings.join(" ")).not.toMatch(/DÉFINITIVE/);
+      }
     });
   });
 

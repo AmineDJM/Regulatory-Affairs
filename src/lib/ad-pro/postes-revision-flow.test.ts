@@ -688,7 +688,7 @@ suite("Ad & Pro — réviser un poste : visa, demande de BC, ordre, décision, r
 
   it("RETIRER LE POSTE : l'ordre non réglé s'annule, le poste part à la CORBEILLE avec ses décisions, et revient", async () => {
     SEUIL = 500_000;
-    // Un SPONSORING DIRECT (§118.204) : payé sur facture, sans BC — le seul poste dont l'ordre peut
+    // Un SPONSORING DIRECT (§118.204) : payé sur proforma / lettre de demande (Direction, 05/10), sans BC — le seul poste dont l'ordre peut
     // exister sans BC signé, donc le seul qui se retire avec un ordre en attente (un BC signé bloque).
     const id = await posteAccorde("Navettes", 600_000, "Association Alpha", "ASSOCIATION_SUPPORT");
     const em = await payer(id);
@@ -709,7 +709,7 @@ suite("Ad & Pro — réviser un poste : visa, demande de BC, ordre, décision, r
     expect(revenu.expenseOrderId, "sans l'ordre annulé : sinon « émis » pour toujours, impossible à réémettre").toBeNull();
     expect(revenu.orderStage, "sans BC demandé, il revient sans étape de BC").toBe("NONE");
     expect(await prisma.adProItemDecision.count({ where: { itemId: id } }), "l'historique revient avec lui").toBe(decisionsAvant);
-    expect(await prisma.adProItemPiece.count({ where: { itemId: id, nature: "FACTURE" } }), "sa facture revient sur lui").toBe(1);
+    expect(await prisma.adProItemPiece.count({ where: { itemId: id, nature: "DEVIS" } }), "sa proforma / lettre revient sur lui").toBe(1);
   });
 
   /**
@@ -722,7 +722,7 @@ suite("Ad & Pro — réviser un poste : visa, demande de BC, ordre, décision, r
    */
   it("RETIRER un poste payé qui a une demande au secrétariat ouverte : elle part avec lui, l'assistante l'apprend, tout revient", async () => {
     SEUIL = 500_000;
-    // Un SPONSORING DIRECT (§118.204) : payé sur facture, sans BC — le seul poste dont l'ordre peut
+    // Un SPONSORING DIRECT (§118.204) : payé sur proforma / lettre de demande (Direction, 05/10), sans BC — le seul poste dont l'ordre peut
     // exister sans BC signé, donc le seul qui se retire avec un ordre en attente (un BC signé bloque).
     const id = await posteAccorde("Navettes", 600_000, "Association Alpha", "ASSOCIATION_SUPPORT");
     await comme("kam");
@@ -753,7 +753,7 @@ suite("Ad & Pro — réviser un poste : visa, demande de BC, ordre, décision, r
     expect(revenu.expenseOrderId, "sans l'ordre annulé : sinon « émis » pour toujours, impossible à réémettre").toBeNull();
     expect(revenu.orderStage, "sans BC demandé, il revient sans étape de BC").toBe("NONE");
     expect(await prisma.adProItemDecision.count({ where: { itemId: id } }), "l'historique revient avec lui").toBe(decisionsAvant);
-    expect(await prisma.adProItemPiece.count({ where: { itemId: id, nature: "FACTURE" } }), "sa facture revient sur lui").toBe(1);
+    expect(await prisma.adProItemPiece.count({ where: { itemId: id, nature: "DEVIS" } }), "sa proforma / lettre revient sur lui").toBe(1);
     // Et la demande revient TELLE QU'ELLE ÉTAIT : la clore d'abord ferait revenir un poste dont la demande
     // vit encore, annulée.
     const [revenue] = await demandesDe();
@@ -817,7 +817,7 @@ suite("Ad & Pro — réviser un poste : visa, demande de BC, ordre, décision, r
     expect(revenu.expenseOrderId, "l'ordre revient avec son poste").toBe(em.id);
     expect(revenu.orderStage).toBe("ISSUED");
     expect((await prisma.expenseOrder.findUniqueOrThrow({ where: { id: em.id! }, select: { status: true } })).status).toBe("PENDING");
-    expect(await prisma.adProItemPiece.count({ where: { itemId: id, nature: "FACTURE" } }), "et sa facture avec lui").toBe(1);
+    expect(await prisma.adProItemPiece.count({ where: { itemId: id, nature: "DEVIS" } }), "et sa proforma / lettre avec lui").toBe(1);
   });
 
   it("UNE DEMANDE REFUSÉE ne fait plus partir ses postes — mais les refuser reste possible", async () => {

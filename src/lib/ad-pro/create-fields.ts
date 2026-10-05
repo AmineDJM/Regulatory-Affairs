@@ -88,24 +88,19 @@ export function toPeople(users: readonly UserOption[]): PersonOption[] {
  *
  * Le choix est OBLIGATOIRE dès qu'il y a des gammes à proposer — une demande sans gamme retombe
  * dans l'indistinct, et personne ne revient la rattacher. Il DISPARAÎT quand aucune BU n'existe :
- * exiger un choix dans une liste vide n'est pas une règle, c'est une impasse.
+ * exiger un choix dans une liste vide n'est pas une règle, c'est une impasse. Et il DISPARAÎT aussi
+ * quand la gamme se déduit du demandeur : le serveur l'impose, la lui redemander est du bruit.
  */
 export function businessUnitField(
   businessUnits: readonly { id: string; name: string }[],
   deduite?: { id: string; name: string; raison: string } | null,
 ): FieldDef[] {
   // LA GAMME SE LIT SUR LA PERSONNE : un KAM par sa fiche force de vente, un superviseur
-  // national par la gamme qu'il supervise. Le menu ne propose alors que CELLE-LÀ — et le
-  // serveur l'impose, parce qu'un champ de formulaire se forge et qu'une gamme forgée fait
-  // peser la dépense sur le budget Ad&Pro d'une autre équipe (`business-unit-auto.ts`).
-  if (deduite) {
-    return [{
-      type: "select", name: "businessUnitId", label: "Business Unit", required: true, full: true,
-      options: [{ value: deduite.id, label: deduite.name }],
-      defaultValue: deduite.id,
-      hint: `${deduite.raison} C'est son budget Ad&Pro qui est engagé.`,
-    }];
-  }
+  // national par la gamme qu'il supervise. Le champ DISPARAÎT alors — « si un KAM fait
+  // déjà partie d'une BU, ça ne doit pas lui proposer le champ » — et le serveur la pose
+  // (`gammeImposee`) : un champ de formulaire se forge, et une gamme forgée fait peser la dépense
+  // sur le budget Ad&Pro d'une autre équipe (`business-unit-auto.ts`).
+  if (deduite) return [];
   if (businessUnits.length === 0) return [];
   return [{
     type: "select", name: "businessUnitId", label: "Business Unit", required: true, full: true,

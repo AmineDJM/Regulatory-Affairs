@@ -33,6 +33,8 @@ import {
 import { factureACrediter } from "@/lib/legal/aval";
 import { montantsDesAvoirsActifs } from "@/lib/lecteurs/avoirs-actifs";
 import { netDeLaFacture } from "@/lib/lecteurs/avoir";
+import { accesAuxPiecesLegalDetaille } from "@/lib/entity-access";
+import { lienFichierEmis } from "@/lib/legal/fichiers-emis";
 
 /** « 2 500 000,00 » (espaces, insécables, virgule) → 2500000 ; vide ou illisible → null. */
 function nombre(v: string | null | undefined): number | null {
@@ -210,6 +212,13 @@ export async function apercuAvantImpressionPiece(_prev: ApercuImpression | undef
 export interface ResultatEmission extends ActionResult {
   reference?: string;
   legalDocumentId?: string;
+  /**
+   * OÙ VOIR LA PIÈCE (§118.209) — sa fiche `/legal/<id>?emis=1`, quand elle s'ouvre à la personne : l'écran y mène
+   * tout de suite, et la fiche montre la pièce et son PDF. `null` : la fiche lui est fermée (une pièce n'est
+   * pas toujours lisible par qui l'a émise) — le PDF, lui, s'ouvre sous la porte de la pièce (`lienPdf`).
+   */
+  lien?: string | null;
+  lienPdf?: string;
   docxNodeId?: string;
   docxNom?: string;
   pdfNodeId?: string | null;
@@ -237,8 +246,13 @@ export async function emettrePieceCommerciale(_prev: ResultatEmission | undefine
   revalidatePath(`/legal/${r.legalDocumentId}`);
   revalidatePath("/finances");
   const libelle = r.type === "FACTURE" ? "Facture" : r.type === "DEVIS" ? "Devis" : "Bon de commande";
+  // La fiche s'ouvre-t-elle à la personne ? La MÊME porte que la fiche : y mener quelqu'un qui n'y entre pas serait un
+  // geste offert puis retiré (§118.83).
+  const acces = await accesAuxPiecesLegalDetaille(user, [r.legalDocumentId], ["VIEW"]);
+  const ficheOuverte = (acces.droits.get("VIEW")?.has(r.legalDocumentId) ?? false) && !acces.horsFiche.has(r.legalDocumentId);
   return {
     ok: true, id: r.legalDocumentId, reference: r.reference, legalDocumentId: r.legalDocumentId,
+    lien: ficheOuverte ? `/legal/${r.legalDocumentId}?emis=1` : null, lienPdf: lienFichierEmis(r.legalDocumentId, "pdf"),
     docxNodeId: r.docx.nodeId, docxNom: r.docx.nom, pdfNodeId: r.pdf?.nodeId ?? null, pdfNom: r.pdf?.nom ?? null, pdfMethode: r.pdf?.methode ?? null,
     totalTtc: r.totaux.totalTtc, dejaEmis: r.dejaEmis, surPapierEnTete: r.surPapierEnTete, avertissements: r.avertissements,
     message: (r.dejaEmis

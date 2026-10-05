@@ -392,7 +392,7 @@ suite("Ad & Pro — postes simplifiés : répartition, gestes, voyageurs, suppre
         ACTOR = await acteur(nsId, "NATIONAL_SALES");
         return requestAdProItemOrder(undefined, fd({ id: hotellerie, note: "Hôtel Sofitel — 12 chambres, 3 nuits.", assistantId: asstId }));
       },
-      REPARTIR: null, CHIFFRER: null, MONTANT: null, BUDGET: null, VISER_BC: null, VERIFIER_BC: null, DEMANDER_PAIEMENT: null,
+      REPARTIR: null, CHIFFRER: null, MONTANT: null, BUDGET: null, GENERER_BC: null, VISER_BC: null, VERIFIER_BC: null, DEMANDER_PAIEMENT: null,
     };
     // Le regard de chacun est celui que le SERVEUR calcule pour l'écran (`contextePostes`) — recomposé
     // ici à la main, il pourrait proposer un geste que l'écran ne propose pas (§118.120).
@@ -463,6 +463,13 @@ suite("Ad & Pro — postes simplifiés : répartition, gestes, voyageurs, suppre
       stepKey: yacine, file: pdf(`${TAG}passeport-ouali.pdf`), maxUploadMb: 20,
     });
     expect(doc.ok, doc.error).toBe(true);
+    // UN AUTRE DOCUMENT (un visa) pour Amel : il se joint à sa fiche, mais ne vaut PAS passeport — la ligne de
+    // l'assistante dit encore « manque : passeport », et le visa figure parmi les liens qu'elle ouvre.
+    const visa = await persistUploadedDocument(nsId, {
+      entityType: "AD_PRO_ITEM", entityId: billetterie, category: "OTHER", confidentiality: "INTERNAL",
+      stepKey: amel, file: pdf(`${TAG}visa-haddad.pdf`), maxUploadMb: 20,
+    });
+    expect(visa.ok, visa.error).toBe(true);
 
     // L'ÉCRAN les lit : les voyageurs, leur passeport, et les noms que la demande porte déjà —
     // y compris celui écrit « hors annuaire » à la création.
@@ -495,6 +502,7 @@ suite("Ad & Pro — postes simplifiés : répartition, gestes, voyageurs, suppre
     expect(d).toContain("Dr Amel Haddad — trajet à confirmer — aller à confirmer, retour à confirmer (manque : date de départ, trajet, mode de transport, passeport)");
     expect(d).toContain("Dr Yacine Ouali — Alger → Paris — aller 03/11/2026, retour 07/11/2026 — passeport joint (manque : mode de transport) — Vol du matin");
     expect(d).toMatch(/Poste pas encore accordé/);
+    expect(d, "le visa d'Amel est un lien de plus, pas son passeport").toContain(`Dr Amel Haddad — ${TAG}visa-haddad.pdf — /api/documents/`);
     expect((await prisma.adProItem.findUniqueOrThrow({ where: { id: billetterie } })).reservationDossierId).toBe(sujetId);
     // PRÉVENUE — le lien CAUSAL, pas un compte global (§118.92).
     expect(await prisma.notification.count({ where: { userId: asstId, link: `/dossiers/${sujetId}` } })).toBe(1);

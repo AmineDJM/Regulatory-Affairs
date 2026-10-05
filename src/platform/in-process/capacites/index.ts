@@ -127,3 +127,9 @@ export { postesPourCloture } from "@/lib/queries/ad-pro-items";
 // supprime un événement le lit AVANT de montrer sa carte, comme la fenêtre de l'écran : deux
 // rédactions de « ce qui part avec » finiraient par dire deux choses (§118.5).
 export { apercuSuppression, type ApercuSuppression } from "@/lib/admin-delete-registry";
+
+// QUI PEUT SUPPRIMER UN RAPPORT TERRAIN (§118.212) — la règle de l'action, lue par l'op d'Adam
+// AVANT de montrer sa carte : une carte qui propose une suppression que l'action refusera est un
+// geste offert puis retiré (§118.83). Adam n'a pas le droit d'importer les lecteurs de l'ERP en
+// direct : il passe par cette porte.
+export { peutSupprimerUnRapportTerrain } from "@/lib/queries/field-reports";

@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { refusSuppressionRapportDeVisite } from "@/lib/sfe/tournee";
 import {
   gestesDeRemise, lireNumeriques, lireRemises, refusRemise, remisNetParArticle, resumeRemises,
   type GesteDeRemise,
@@ -203,7 +204,20 @@ export function formulairePorteDuMateriel(formData: FormData): { materiel: boole
  */
 export async function refusSuppressionRapport(fieldReportId: string): Promise<string | null> {
   const n = await prisma.promoStockMovement.count({ where: { fieldReportId } });
-  return n > 0
-    ? "Ce compte rendu porte du matériel remis : ses remises restent au registre du stock, et c'est lui qui les justifie — il ne se supprime pas. Une remise saisie par erreur se corrige dans le compte rendu (« Corriger / renvoyer », quantité à 0)."
-    : null;
+  if (n > 0) {
+    return "Ce compte rendu porte du matériel remis : ses remises restent au registre du stock, et c'est lui qui les justifie — il ne se supprime pas. Une remise saisie par erreur se corrige dans le compte rendu (« Corriger / renvoyer », quantité à 0).";
+  }
+  // LA VISITE QU'IL DOCUMENTE (§118.212) : le retirer ne doit pas changer le taux en silence.
+  const rapport = await prisma.fieldReport.findUnique({ where: { id: fieldReportId }, select: { visitId: true } });
+  if (!rapport?.visitId) return null;
+  const visite = await prisma.medicalVisit.findUnique({
+    where: { id: rapport.visitId },
+    select: { status: true, date: true, report: true, doctor: { select: { name: true } } },
+  });
+  if (!visite) return null;
+  const autres = await prisma.fieldReport.count({ where: { visitId: rapport.visitId, id: { not: fieldReportId } } });
+  return refusSuppressionRapportDeVisite({
+    statut: visite.status, date: visite.date, rapportEcrit: Boolean(visite.report), autresRapports: autres,
+    maintenant: new Date(), praticien: visite.doctor?.name ?? null,
+  });
 }

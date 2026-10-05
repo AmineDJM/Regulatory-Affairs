@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { requireModule } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
-import { anyRoleFilter } from "@/lib/rbac";
+import { anyRoleFilter, peutGererSpecialites } from "@/lib/rbac";
 import { ensureCycle } from "@/lib/actions/sales-planning-actions";
 import { getSfeConfig, monthLabel, repCapacity, resolveRepScope } from "@/lib/sfe";
 import { PageHeader } from "@/components/shared/page-header";
@@ -63,7 +63,7 @@ export default async function AffectationsPage({ searchParams }: { searchParams:
   return (
     <div className="space-y-5">
       <PageHeader title="Prévisions & Force de vente" description="Matrice d'affectation KAM × produit : rang de détail (P1/P2/P3) et visites prévues. Le FTE en découle et remonte dans les Prévisions." />
-      <PlanningTabs active="affectations" canConfigure={scope.canConfigure} isSupervisor={scope.isSupervisor} />
+      <PlanningTabs active="affectations" canConfigure={scope.canConfigure} isSupervisor={scope.isSupervisor} specialites={peutGererSpecialites(user, "VIEW")} />
 
       <div className="flex items-center gap-2">
         <Link href={`/planning/affectations?y=${prev.y}&m=${prev.m}`} className="rounded-lg border border-input p-2 hover:bg-secondary"><ChevronLeft className="h-4 w-4" /></Link>

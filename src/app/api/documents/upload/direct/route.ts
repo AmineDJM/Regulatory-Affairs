@@ -23,7 +23,7 @@ export async function POST(req: NextRequest) {
       cible: {
         entityType: (str(b.entityType) ?? "") as EntityType, entityId: str(b.entityId) ?? "",
         category: (str(b.category) ?? "OTHER") as DocumentCategory, confidentiality: (str(b.confidentiality) ?? "INTERNAL") as Confidentiality,
-        stepKey: str(b.stepKey), folder: dossierSur(str(b.folder)),
+        stepKey: str(b.stepKey), folder: dossierSur(str(b.folder)), ctd: b.ctd === true,
       },
     });
     if (!r.ok) return NextResponse.json({ error: r.error }, { status: r.status });

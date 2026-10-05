@@ -1,0 +1,1180 @@
+diff --git a/src/app/(app)/annuaires/specialites/page.tsx b/src/app/(app)/annuaires/specialites/page.tsx
+index 48b1203..b7a7bbb 100644
+--- a/src/app/(app)/annuaires/specialites/page.tsx
++++ b/src/app/(app)/annuaires/specialites/page.tsx
+@@ -1,6 +1,6 @@
+ import { redirect } from "next/navigation";
+ import { requireModule } from "@/lib/session";
+-import { userCan } from "@/lib/rbac";
++import { peutGererSpecialites } from "@/lib/rbac";
+ import { chargerSpecialites } from "@/lib/queries/specialites";
+ import { EnTeteAnnuaires } from "../en-tete";
+ import { SpecialitesTable } from "./specialites-table";
+@@ -14,13 +14,13 @@ export const metadata = { title: "Annuaires — Spécialités — AMD Internal O
+  * pouvait ni ajouter « Néphrologie », ni corriger « Cardiolgie », ni réunir deux doublons — et la
+  * feuille de l'annuaire écrivait donc du texte que rien ne reliait.
+  *
+- * La porte est celle de la Promotion médicale (le module du référentiel, comme les écritures
+- * existantes) : un référentiel est une STRUCTURE de l'annuaire (§118.147), il ne s'ouvre pas par
+- * la case « Médecins » de la console.
++ * La porte est `peutGererSpecialites` — la Promotion médicale, ET les deux directeurs des
++ * opérations (décision du 04/10) —, la même que l'onglet et les actions : un référentiel est une
++ * STRUCTURE de l'annuaire (§118.147), il ne s'ouvre pas par la case « Médecins » de la console.
+  */
+ export default async function AnnuaireSpecialitesPage() {
+   const user = await requireModule("DIRECTORIES");
+-  if (!userCan(user, "MEDICAL", "VIEW")) redirect("/dashboard?denied=MEDICAL");
++  if (!peutGererSpecialites(user, "VIEW")) redirect("/dashboard?denied=MEDICAL");
+   const donnees = await chargerSpecialites(user);
+   return (
+     <div className="space-y-5">
+@@ -32,9 +32,9 @@ export default async function AnnuaireSpecialitesPage() {
+         specialites={donnees.specialites}
+         heritees={donnees.heritees}
+         heriteesTotal={donnees.heriteesTotal}
+-        canCreate={userCan(user, "MEDICAL", "CREATE")}
+-        canEdit={userCan(user, "MEDICAL", "UPDATE")}
+-        canDelete={userCan(user, "MEDICAL", "DELETE")}
++        canCreate={peutGererSpecialites(user, "CREATE")}
++        canEdit={peutGererSpecialites(user, "UPDATE")}
++        canDelete={peutGererSpecialites(user, "DELETE")}
+       />
+     </div>
+   );
+diff --git a/src/app/(app)/congress-international/[id]/page.tsx b/src/app/(app)/congress-international/[id]/page.tsx
+index 6cc30d0..734f7b9 100644
+--- a/src/app/(app)/congress-international/[id]/page.tsx
++++ b/src/app/(app)/congress-international/[id]/page.tsx
+@@ -30,6 +30,7 @@ import { onlyofficeConfigured } from "@/lib/onlyoffice";
+ import { AD_PRO_DOC_CATEGORIES, categoriesDuDepotDeLaDemande } from "@/lib/ad-pro/doc-categories";
+ import { canAttachToAdPro } from "@/lib/ad-pro/attachments";
+ import { AdProItemsPanel } from "@/components/ad-pro/items-panel";
++import { PiecesLegalDeLaDemande } from "@/components/ad-pro/pieces-legal-demande";
+ import { loadAdProItems, adProBudgetOptions, contexteMaterielStock, contextePostes } from "@/lib/queries/ad-pro-items";
+ import { CarteDetailsDemande } from "@/components/ad-pro/pieces-jointes-demande";
+ import { EspaceDiscussion } from "@/components/ad-pro/espace-discussion";
+@@ -175,6 +176,9 @@ export default async function CongressIntlDetailPage({ params }: { params: { id:
+         </CardContent>
+       </Card>
+ 
++      {/* LES PIÈCES LEGAL RATTACHÉES À LA DEMANDE ELLE-MÊME, hors postes — d'avant les postes, ou qui ne sont pas des achats. */}
++      <PiecesLegalDeLaDemande spectateur={user} entityType="CONGRESS_INTERNATIONAL" entityId={detail.id} />
++
+       <CongressDetailView detail={detail} workflow={workflow} canInvolveThirdParty={canInvolveThirdParty} entityType="CONGRESS_INTERNATIONAL" entityId={detail.id} documents={docItems} canUpload={canUpload} canDelete={canDelete} path={`/congress-international/${detail.id}`} missions={missions} missionUsers={missionUsers} canManageMissions={canManageMissions} currentUserId={user.id} involvementThreads={[]} canModerate={hasGlobalView(user)} />
+ 
+       {/* LA SECTION DISCUSSION — le fil CANONIQUE de la demande et les échanges avec les personnes
+diff --git a/src/app/(app)/congress-national/[id]/page.tsx b/src/app/(app)/congress-national/[id]/page.tsx
+index c94fd4b..22cde1b 100644
+--- a/src/app/(app)/congress-national/[id]/page.tsx
++++ b/src/app/(app)/congress-national/[id]/page.tsx
+@@ -19,6 +19,7 @@ import { getInvolvementThreads } from "@/lib/queries/involvement";
+ import { toNumber } from "@/lib/utils";
+ import { promoMaterialOptions } from "@/lib/actions/ad-pro-item-actions";
+ import { AdProItemsPanel } from "@/components/ad-pro/items-panel";
++import { PiecesLegalDeLaDemande } from "@/components/ad-pro/pieces-legal-demande";
+ import { loadAdProItems, adProBudgetOptions, contexteMaterielStock, contextePostes } from "@/lib/queries/ad-pro-items";
+ import { CarteDetailsDemande } from "@/components/ad-pro/pieces-jointes-demande";
+ import { EspaceDiscussion } from "@/components/ad-pro/espace-discussion";
+@@ -182,6 +183,9 @@ export default async function CongressNatDetailPage({ params }: { params: { id:
+         }
+       />
+ 
++      {/* LES PIÈCES LEGAL RATTACHÉES À LA DEMANDE ELLE-MÊME, hors postes — d'avant les postes, ou qui ne sont pas des achats. */}
++      <PiecesLegalDeLaDemande spectateur={user} entityType="CONGRESS_NATIONAL" entityId={detail.id} />
++
+       {/* LA SECTION DISCUSSION — le fil CANONIQUE de la demande et les échanges avec les personnes
+           impliquées : un seul espace (la vue détaillée ne les rend plus à part). */}
+       <EspaceDiscussion>
+diff --git a/src/app/(app)/events/[id]/page.tsx b/src/app/(app)/events/[id]/page.tsx
+index 0da9e25..655eaa2 100644
+--- a/src/app/(app)/events/[id]/page.tsx
++++ b/src/app/(app)/events/[id]/page.tsx
+@@ -28,6 +28,7 @@ import { AdProEditButton } from "@/components/ad-pro/edit-request-button";
+ import { canEditAdProRequest, isAdProDecided } from "@/lib/ad-pro-edit";
+ import { adProEditValues } from "@/lib/queries/ad-pro-edit";
+ import { AdProItemsPanel } from "@/components/ad-pro/items-panel";
++import { PiecesLegalDeLaDemande } from "@/components/ad-pro/pieces-legal-demande";
+ import { loadAdProItems, adProBudgetOptions, contexteMaterielStock, contextePostes } from "@/lib/queries/ad-pro-items";
+ import { CarteDetailsDemande } from "@/components/ad-pro/pieces-jointes-demande";
+ import { EspaceDiscussion } from "@/components/ad-pro/espace-discussion";
+@@ -222,6 +223,9 @@ export default async function EventDetailPage({ params }: { params: { id: string
+         </CardContent>
+       </Card>
+ 
++      {/* LES PIÈCES LEGAL RATTACHÉES À LA DEMANDE ELLE-MÊME, hors postes — d'avant les postes, ou qui ne sont pas des achats. */}
++      <PiecesLegalDeLaDemande spectateur={user} entityType="EVENT" entityId={e.id} />
++
+       {e.stats.bySpecialty.length > 0 && (
+         <Card>
+           <CardHeader><CardTitle>Répartition par spécialité</CardTitle></CardHeader>
+diff --git a/src/app/(app)/sponsoring/[id]/page.tsx b/src/app/(app)/sponsoring/[id]/page.tsx
+index a8b0dfc..3a8012e 100644
+--- a/src/app/(app)/sponsoring/[id]/page.tsx
++++ b/src/app/(app)/sponsoring/[id]/page.tsx
+@@ -26,6 +26,7 @@ import { SupprimerDemandeAdPro } from "@/components/ad-pro/supprimer-demande";
+ import { peutSupprimerUneDemandeAdPro } from "@/lib/queries/ad-pro-suppression";
+ import { promoMaterialOptions } from "@/lib/actions/ad-pro-item-actions";
+ import { AdProItemsPanel } from "@/components/ad-pro/items-panel";
++import { PiecesLegalDeLaDemande } from "@/components/ad-pro/pieces-legal-demande";
+ import { loadAdProItems, adProBudgetOptions, contexteMaterielStock, postesPourCloture, contextePostes } from "@/lib/queries/ad-pro-items";
+ import { CarteDetailsDemande } from "@/components/ad-pro/pieces-jointes-demande";
+ import { EspaceDiscussion } from "@/components/ad-pro/espace-discussion";
+@@ -248,6 +249,9 @@ export default async function SponsoringDetailPage({ params }: { params: { id: s
+             </CardContent>
+           </Card>
+ 
++          {/* LES PIÈCES LEGAL RATTACHÉES À LA DEMANDE ELLE-MÊME, hors postes — d'avant les postes, ou qui ne sont pas des achats. */}
++          <PiecesLegalDeLaDemande spectateur={user} entityType="SPONSORING" entityId={req.id} />
++
+           {/* Circuit de validation configurable (piloté par le moteur — éditable dans Administration) */}
+           <Card>
+             <CardHeader><CardTitle>Circuit de validation</CardTitle></CardHeader>
+diff --git a/src/app/api/documents/upload/route.ts b/src/app/api/documents/upload/route.ts
+index 21fe9d5..6951cb7 100644
+--- a/src/app/api/documents/upload/route.ts
++++ b/src/app/api/documents/upload/route.ts
+@@ -51,6 +51,9 @@ export async function POST(req: NextRequest) {
+   const mirrorHere = isRegulatory || shouldMirrorToDrive(entityType);
+   const toMirror: { name: string; data: Buffer; mime?: string }[] = [];
+   let created = 0;
++  // LES IDENTIFIANTS CRÉÉS voyagent avec la réponse : l'écran qui vient de déposer peut demander
++  // à Luna où ranger la pièce (« + Pièce jointe » des détails d'une demande Ad & Pro).
++  const ids: string[] = [];
+   const errors: { name: string; error: string }[] = [];
+   for (const file of files) {
+     // Chaque fichier est isolé : une erreur (lecture, stockage, base) devient une erreur DE CE
+@@ -63,6 +66,7 @@ export async function POST(req: NextRequest) {
+       const r = await persistUploadedDocument(user.id, { entityType, entityId, category, confidentiality, stepKey, file, maxUploadMb, buffer, mirrorToDrive: false });
+       if (r.ok) {
+         created++;
++        if (r.documentId) ids.push(r.documentId);
+         if (mirrorHere) toMirror.push({ name: file.name, data: buffer, mime: file.type || undefined });
+       } else {
+         errors.push({ name: file.name, error: r.error ?? "Échec du téléversement." });
+@@ -84,5 +88,5 @@ export async function POST(req: NextRequest) {
+     void mirror.catch((e) => console.error("[documents upload] miroir Drive en arrière-plan a échoué", e));
+   }
+ 
+-  return NextResponse.json({ ok: errors.length === 0, created, errors });
++  return NextResponse.json({ ok: errors.length === 0, created, ids, errors });
+ }
+diff --git a/src/components/ad-pro/pieces-jointes-demande.tsx b/src/components/ad-pro/pieces-jointes-demande.tsx
+index 81dbcaa..f857e17 100644
+--- a/src/components/ad-pro/pieces-jointes-demande.tsx
++++ b/src/components/ad-pro/pieces-jointes-demande.tsx
+@@ -6,6 +6,8 @@ import type { EntityType } from "@prisma/client";
+ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+ import { DocumentUpload } from "@/components/documents/document-upload";
+ import { DocumentList, type DocItem } from "@/components/documents/document-list";
++import { ConseilLuna } from "./conseil-luna";
++import { NATURES_DEMANDE_CONSEIL, type NatureDemandeConseil } from "@/lib/ad-pro/conseil-pieces";
+ 
+ /**
+  * LES PIÈCES JOINTES GÉNÉRALES D'UNE DEMANDE AD & PRO — lettre de demande du médecin, programme,
+@@ -41,6 +43,18 @@ export function CarteDetailsDemande({ titre, pieces, children, contentClassName
+   contentClassName?: string;
+ }) {
+   const [ouvert, setOuvert] = React.useState(false);
++  // LES PIÈCES DÉPOSÉES DANS CETTE SESSION par « + Pièce jointe » : Luna lit chacune et dit si elle
++  // est au bon endroit (les détails de la demande, ou la bonne case d'un poste) — il CONSEILLE, il ne
++  // déplace rien. Un état local, jamais au rechargement : chaque montage de <ConseilLuna> appelle un
++  // modèle payant. L'interrupteur général de l'IA et la bascule du conseil sont relus au serveur, et
++  // la ligne dit pourquoi Luna se tait quand l'un ou l'autre est coupé.
++  const [deposes, setDeposes] = React.useState<string[]>([]);
++  const nature = (NATURES_DEMANDE_CONSEIL as readonly string[]).includes(pieces.entityType)
++    ? (pieces.entityType as NatureDemandeConseil)
++    : null;
++  const surDepot = React.useCallback((ids: string[]) => {
++    setDeposes((cur) => [...cur, ...ids.filter((id) => !cur.includes(id))]);
++  }, []);
+   const n = pieces.documents.length;
+   return (
+     <Card>
+@@ -58,7 +72,23 @@ export function CarteDetailsDemande({ titre, pieces, children, contentClassName
+       <CardContent className="space-y-4">
+         {children && <div className={contentClassName}>{children}</div>}
+         {ouvert && pieces.peutDeposer && (
+-          <DocumentUpload entityType={pieces.entityType} entityId={pieces.entityId} categories={pieces.categories} />
++          <DocumentUpload
++            entityType={pieces.entityType} entityId={pieces.entityId} categories={pieces.categories}
++            onUploaded={nature ? surDepot : undefined}
++          />
++        )}
++        {nature && deposes.length > 0 && (
++          <ul className="space-y-1.5 rounded-lg border border-border/70 bg-muted/30 p-2" aria-label="Conseil de Luna sur les pièces déposées">
++            {deposes.map((id) => {
++              const doc = pieces.documents.find((d) => d.id === id);
++              return (
++                <li key={id} className="space-y-0.5">
++                  <p className="truncate text-xs font-medium">{doc?.name ?? "Pièce déposée"}</p>
++                  <ConseilLuna entityType={nature} entityId={pieces.entityId} fichierId={id} emplacement={{ type: "DETAILS" }} />
++                </li>
++              );
++            })}
++          </ul>
+         )}
+         <div className={children ? "border-t border-border/70 pt-3" : undefined}>
+           <p className="mb-1.5 inline-flex items-center gap-1 text-xs text-muted-foreground">
+diff --git a/src/components/ad-pro/pieces-legal-demande.tsx b/src/components/ad-pro/pieces-legal-demande.tsx
+new file mode 100644
+index 0000000..425634a
+--- /dev/null
++++ b/src/components/ad-pro/pieces-legal-demande.tsx
+@@ -0,0 +1,100 @@
++import Link from "next/link";
++import type { EntityType } from "@prisma/client";
++import { ExternalLink, Scale } from "lucide-react";
++import type { SessionUser } from "@/lib/rbac";
++import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
++import { Badge } from "@/components/ui/badge";
++import { DocumentList } from "@/components/documents/document-list";
++import { lienFichierEmis } from "@/lib/legal/fichiers-emis";
++import { formatCurrency } from "@/lib/utils";
++import { chargerPiecesLegalDeLaDemande } from "@/lib/queries/pieces-legal-demande";
++
++/** Au-delà de ce nombre de pièces, la liste se replie : la fiche reste lisible. */
++const REPLIE_AU_DELA = 4;
++
++/**
++ * « PIÈCES LEGAL DE LA DEMANDE » — les pièces du registre rattachées DIRECTEMENT à la demande
++ * (conventions, contrats, devis d'avant les postes…), et qu'aucun poste ne porte. Lecture seule :
++ * la gestion se fait sur la fiche Legal. Un seul composant pour toutes les natures ; la lecture et
++ * ses droits vivent dans `chargerPiecesLegalDeLaDemande`. Rien à montrer ⇒ rien n'est rendu.
++ */
++export async function PiecesLegalDeLaDemande({ spectateur, entityType, entityId }: {
++  spectateur: SessionUser;
++  entityType: EntityType;
++  entityId: string;
++}) {
++  const p = await chargerPiecesLegalDeLaDemande(spectateur, entityType, entityId);
++  if (p.total === 0) return null;
++
++  const liste = (
++    <ul className="divide-y divide-border">
++      {p.lignes.map((l) => (
++        <li key={l.id} className="py-2">
++          <div className="flex items-start justify-between gap-2">
++            <span className="min-w-0">
++              {l.fiche ? (
++                <Link href={`/legal/${l.id}`} className="inline-flex min-w-0 items-center gap-1 font-medium hover:underline">
++                  <span className="truncate">{l.titre}</span> <ExternalLink className="h-3 w-3 shrink-0 text-muted-foreground" />
++                </Link>
++              ) : (
++                <span className="block truncate font-medium">{l.titre}</span>
++              )}
++              <span className="block truncate text-[0.6875rem] text-muted-foreground">
++                {[l.nature, l.reference, l.montant !== null ? formatCurrency(l.montant) : null].filter(Boolean).join(" · ")}
++              </span>
++            </span>
++            {l.statut && <Badge tone={l.statut.tone} dot={false}>{l.statut.label}</Badge>}
++          </div>
++          {(l.plateforme.pdf || l.plateforme.docx) && (
++            <p className="mt-1 flex flex-wrap items-center gap-2 pl-3 text-[0.6875rem] text-muted-foreground">
++              Version plateforme :
++              {l.plateforme.pdf && <a className="font-medium text-foreground hover:underline" href={lienFichierEmis(l.id, "pdf")} target="_blank" rel="noreferrer">PDF</a>}
++              {l.plateforme.docx && <a className="font-medium text-foreground hover:underline" href={lienFichierEmis(l.id, "docx")} target="_blank" rel="noreferrer">Word</a>}
++            </p>
++          )}
++          {l.documents.length > 0 && (
++            <div className="mt-1.5 border-l-2 border-border pl-3">
++              <DocumentList documents={l.documents} canDelete={false} canRename={false} canEdit={false} path={`/legal/${l.id}`} />
++            </div>
++          )}
++        </li>
++      ))}
++    </ul>
++  );
++
++  return (
++    <Card>
++      <CardHeader>
++        <CardTitle className="flex items-center gap-2">
++          <Scale className="h-4 w-4 text-muted-foreground" />
++          Pièces Legal de la demande
++          <span className="text-sm font-normal text-muted-foreground">({p.total})</span>
++        </CardTitle>
++      </CardHeader>
++      <CardContent className="space-y-2 text-sm">
++        <p className="text-xs text-muted-foreground">
++          Rattachées directement à la demande, hors postes — la gestion se fait dans Legal.
++        </p>
++        {p.lignes.length > REPLIE_AU_DELA ? (
++          <details>
++            <summary className="cursor-pointer text-xs font-medium text-muted-foreground">
++              Afficher les {p.lignes.length} pièces
++            </summary>
++            {liste}
++          </details>
++        ) : liste}
++        {/* CE QUI N'EST PAS RENDU SE COMPTE (§118.60) : une liste raccourcie qui se tait se lit complète. */}
++        {p.masquees > 0 && (
++          <p className="text-[0.6875rem] text-muted-foreground">
++            {p.masquees === 1 ? "1 autre pièce ne vous est pas ouverte." : `${p.masquees} autres pièces ne vous sont pas ouvertes.`}
++          </p>
++        )}
++        {p.nonLues > 0 && (
++          <p className="text-[0.6875rem] text-muted-foreground">
++            {p.nonLues === 1 ? "1 pièce plus ancienne" : `${p.nonLues} pièces plus anciennes`} — la liste complète est dans Legal.
++          </p>
++        )}
++      </CardContent>
++    </Card>
++  );
++}
+diff --git a/src/components/documents/document-upload.tsx b/src/components/documents/document-upload.tsx
+index 6d01d97..a6d4dd7 100644
+--- a/src/components/documents/document-upload.tsx
++++ b/src/components/documents/document-upload.tsx
+@@ -15,6 +15,8 @@ interface DocumentUploadProps {
+   categories?: string[]; // restreint les catégories proposées pour le module
+   stepKey?: string; // rattache les documents à une étape (Regulatory)
+   compact?: boolean; // version condensée (par étape)
++  /** Les identifiants des `Document` créés, fichier par fichier, une fois chacun déposé. */
++  onUploaded?: (ids: string[]) => void;
+ }
+ 
+ interface Item { id: string; file: File; path: string }
+@@ -32,7 +34,7 @@ let uid = 0;
+  * dans le **dossier Drive du produit** (le ZIP y reste entier et navigable). File d'attente locale
+  * seulement pour la sélection.
+  */
+-export function DocumentUpload({ entityType, entityId, categories, stepKey, compact }: DocumentUploadProps) {
++export function DocumentUpload({ entityType, entityId, categories, stepKey, compact, onUploaded }: DocumentUploadProps) {
+   const { enqueue } = useBackgroundUpload();
+   const filesRef = React.useRef<HTMLInputElement>(null);
+   const [items, setItems] = React.useState<Item[]>([]);
+@@ -79,6 +81,12 @@ export function DocumentUpload({ entityType, entityId, categories, stepKey, comp
+         fd.append("files", file, file.name);
+         return { url: "/api/documents/upload", formData: fd };
+       },
++      onFileDone: onUploaded
++        ? (_file, body) => {
++            const ids = Array.isArray(body.ids) ? body.ids.filter((x): x is string => typeof x === "string") : [];
++            if (ids.length > 0) onUploaded(ids);
++          }
++        : undefined,
+     });
+     setQueued(files.length);
+     setItems([]);
+diff --git a/src/components/layout/background-upload.tsx b/src/components/layout/background-upload.tsx
+index 7f50f74..096b58e 100644
+--- a/src/components/layout/background-upload.tsx
++++ b/src/components/layout/background-upload.tsx
+@@ -39,6 +39,11 @@ export interface EnqueueSpec {
+    * échouer un envoi.
+    */
+   preflight?: (file: File) => Promise<boolean>;
++  /**
++   * Après le dépôt RÉUSSI d'un fichier, avec le corps de la réponse du serveur — ce qu'il a créé.
++   * Une erreur ici est avalée : l'envoi a eu lieu, un écran qui n'écoute plus ne le défait pas.
++   */
++  onFileDone?: (file: File, body: Record<string, unknown>) => void;
+ }
+ 
+ interface Ctx { enqueue: (spec: EnqueueSpec) => void }
+@@ -150,6 +155,7 @@ export function BackgroundUploadProvider({ children }: { children: React.ReactNo
+         }
+         if (r.ok && (r.body.ok ?? true)) {
+           patchFile(jobId, idx, { status: "done", progress: 100 });
++          try { spec.onFileDone?.(file, r.body); } catch { /* l'écran qui écoutait a pu disparaître */ }
+           // Le serveur dit où est passé le temps. On garde le pire du lot : quand quelqu'un
+           // signale « c'est lent », la réponse est déjà à l'écran.
+           const t = r.body.timing as { totalMs?: number; phases?: { name: string; ms: number }[]; backend?: string; throughputMbs?: number } | undefined;
+diff --git a/src/lib/actions/ad-pro-conseil-details-flow.test.ts b/src/lib/actions/ad-pro-conseil-details-flow.test.ts
+new file mode 100644
+index 0000000..b8eeaae
+--- /dev/null
++++ b/src/lib/actions/ad-pro-conseil-details-flow.test.ts
+@@ -0,0 +1,169 @@
++import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
++import fs from "node:fs";
++import path from "node:path";
++import type { CurrentUser } from "@/lib/session";
++
++/**
++ * ═══════════════════════════════════════════════════════════════════════════════════════════
++ * LUNA SUR « + PIÈCE JOINTE » DES DÉTAILS D'UNE DEMANDE — de bout en bout, par les VRAIS points
++ * d'entrée : la route de téléversement rend l'identifiant du `Document` créé, et ce fichier,
++ * déposé dans les DÉTAILS, se fait conseiller par `conseillerPiece` (emplacement DETAILS).
++ *
++ * Avant : le bouton discret ne branchait pas Luna, parce que le téléversement ne rendait pas
++ * l'identifiant du fichier. Le monde extérieur est simulé, et lui seul (le fournisseur,
++ * l'interrupteur et la bascule — lignes globales qu'un banc ne pose jamais, §118.132 —, la clé, le
++ * lecteur de fichier, le miroir Drive). La session, la base, la porte et le stockage sont les vrais.
++ * ═══════════════════════════════════════════════════════════════════════════════════════════
++ */
++
++let ACTEUR: CurrentUser | null = null;
++vi.mock("@/lib/session", () => ({ requireUser: async () => ACTEUR, getCurrentUserPourEcrire: async () => ACTEUR }));
++vi.mock("@/lib/drive/document-mirror", () => ({ mirrorDocumentsToDrive: async () => {} }));
++vi.mock("@/lib/regulatory-drive-mirror", () => ({ mirrorRegulatoryUpload: async () => {} }));
++
++const APPELS: { prompt: string }[] = [];
++let DONNEES: unknown = null;
++vi.mock("@/lib/models/gateway", () => ({
++  askModelJson: async (role: string, prompt: string) => {
++    APPELS.push({ prompt });
++    return {
++      data: DONNEES,
++      reply: { ok: true, configured: true, stop: "end", blocks: [], usage: { role, model: "modele-du-banc", provider: "openai", inputTokens: 1, outputTokens: 1, cachedInputTokens: 0, costUsd: 0, ms: 1, attempts: 1 } },
++    };
++  },
++}));
++
++let COUPEE = false;
++let ACTIVE = true;
++vi.mock("@/lib/ai-settings", async (orig) => ({
++  ...(await orig<typeof import("@/lib/ai-settings")>()),
++  interrupteurIaCoupe: async () => COUPEE,
++  aiFeatureEnabled: async () => ACTIVE,
++  logAiUsage: async () => {},
++}));
++vi.mock("@/lib/ai", async (orig) => ({ ...(await orig<typeof import("@/lib/ai")>()), aiConfigured: () => true }));
++vi.mock("@/lib/pieces-lues/lecture-fichier", async (orig) => ({
++  ...(await orig<typeof import("@/lib/pieces-lues/lecture-fichier")>()),
++  lireFichierUneFois: async (a: { octets: Buffer }) => ({
++    ok: true, lecture: { id: "l", empreinte: "e", etat: "LUE", texte: a.octets.toString("utf8"), methode: "texte", confiance: null, caracteres: a.octets.length },
++  }),
++}));
++
++import { NextRequest } from "next/server";
++import { prisma } from "@/lib/prisma";
++import { getAccess, hasGlobalView, userCan } from "@/lib/rbac";
++import { deleteFileByKey } from "@/lib/storage";
++import { POST } from "@/app/api/documents/upload/route";
++import { conseillerPiece } from "./ad-pro-conseil-actions";
++
++let dbOk = false;
++try { await prisma.$queryRaw`SELECT 1`; dbOk = true; } catch { dbOk = false; }
++const suite = dbOk ? describe : describe.skip;
++
++const TAG = "__conseilDetails__";
++const FACTURE = "FACTURE N° 7/2026 — Imprimerie El Djazair — 500 programmes du congrès — total 80 000 DA";
++
++describe("le point d'appel — l'écran passe l'identifiant à Luna", () => {
++  const code = (rel: string) => fs.readFileSync(path.join(process.cwd(), rel), "utf8").replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:"'`])\/\/[^\n]*/g, "$1");
++  it("la carte des détails écoute le dépôt et monte <ConseilLuna> en emplacement DETAILS", () => {
++    const carte = code("src/components/ad-pro/pieces-jointes-demande.tsx");
++    expect(carte).toMatch(/onUploaded=\{nature \? surDepot : undefined\}/);
++    expect(carte).toMatch(/<ConseilLuna[^>]*emplacement=\{\{ type: "DETAILS" \}\}/);
++  });
++  it("le téléverseur et le gestionnaire d'envois remontent ce que le serveur a créé", () => {
++    expect(code("src/components/documents/document-upload.tsx")).toMatch(/onFileDone: onUploaded/);
++    expect(code("src/components/layout/background-upload.tsx")).toMatch(/spec\.onFileDone\?\.\(file, r\.body\)/);
++  });
++});
++
++suite("Luna conseille la pièce déposée par « + Pièce jointe » (route de téléversement → conseillerPiece)", () => {
++  let acteur: CurrentUser;
++  let spoId = "";
++  const cles: string[] = [];
++
++  const deposer = async () => {
++    const form = new FormData();
++    form.set("entityType", "SPONSORING");
++    form.set("entityId", spoId);
++    form.set("category", "OTHER");
++    form.set("confidentiality", "INTERNAL");
++    form.append("files", new File([FACTURE], `${TAG}facture-imprimerie.pdf`, { type: "application/pdf" }));
++    const res = await POST(new NextRequest("http://banc/api/documents/upload", { method: "POST", body: form }));
++    return { status: res.status, body: await res.json() as { ok: boolean; ids?: string[]; created: number } };
++  };
++
++  beforeAll(async () => {
++    const u = await prisma.user.create({ data: { name: `${TAG}dm`, email: `${TAG}dm@t.dz`, role: "PRODUCT_MANAGER", passwordHash: "x" } });
++    acteur = { id: u.id, name: u.name, email: u.email, role: "PRODUCT_MANAGER", access: await getAccess(u.id, "PRODUCT_MANAGER"), mustChangePassword: false } as CurrentUser;
++    const spo = await prisma.sponsoringRequest.create({
++      data: { reference: `${TAG}SPO-${Date.now()}`, institution: `${TAG} CHU`, type: "Congrès", requesterId: u.id, createdById: u.id },
++    });
++    spoId = spo.id;
++    await prisma.adProItem.create({ data: { sponsoringId: spoId, kind: "OTHER", label: `${TAG} Imprimerie des programmes` } });
++  });
++
++  afterAll(async () => {
++    const docs = await prisma.document.findMany({ where: { entityType: "SPONSORING", entityId: spoId }, select: { id: true, fileKey: true } });
++    for (const d of docs) if (d.fileKey) cles.push(d.fileKey);
++    await prisma.document.deleteMany({ where: { entityType: "SPONSORING", entityId: spoId } }).catch(() => {});
++    for (const k of cles) await deleteFileByKey(k).catch(() => {});
++    await prisma.adProItem.deleteMany({ where: { sponsoringId: spoId } }).catch(() => {});
++    await prisma.sponsoringRequest.deleteMany({ where: { id: spoId } }).catch(() => {});
++    await prisma.auditLog.deleteMany({ where: { actor: { email: { startsWith: TAG } } } }).catch(() => {});
++    await prisma.user.deleteMany({ where: { email: { startsWith: TAG } } }).catch(() => {});
++  });
++
++  beforeEach(() => {
++    APPELS.length = 0; COUPEE = false; ACTIVE = true; ACTEUR = acteur;
++    DONNEES = {
++      verdict: "A_DEPLACER", natureLue: "facture d'imprimerie", resume: "Facture de 500 programmes.", confiance: 0.9,
++      conseils: [{ geste: "DEPLACER_POSTE", posteId: "", case: "FACTURE", natureSuggeree: "", raison: "c'est la facture du poste Imprimerie" }],
++    };
++  });
++
++  it("le dépôt rend l'identifiant du fichier créé, et Luna le lit depuis les DÉTAILS — sans rien déplacer", async () => {
++    expect(hasGlobalView(acteur.role), "prémisse : la Direction Marketing n'a pas la vue globale").toBe(false);
++    expect(userCan(acteur, "SPONSORING", "UPLOAD")).toBe(true);
++    const d = await deposer();
++    expect(d.status, JSON.stringify(d.body)).toBe(200);
++    expect(d.body.ids, "la route rend ce qu'elle a créé").toHaveLength(1);
++    const id = d.body.ids![0]!;
++    const doc = await prisma.document.findUniqueOrThrow({ where: { id } });
++    expect([doc.entityType, doc.entityId]).toEqual(["SPONSORING", spoId]);
++
++    const poste = await prisma.adProItem.findFirstOrThrow({ where: { sponsoringId: spoId } });
++    DONNEES = { ...(DONNEES as object), conseils: [{ geste: "DEPLACER_POSTE", posteId: poste.id, case: "FACTURE", natureSuggeree: "", raison: "facture de l'imprimerie" }] };
++    const f = new FormData();
++    f.set("entityType", "SPONSORING"); f.set("entityId", spoId); f.set("fichierId", id); f.set("emplacement", JSON.stringify({ type: "DETAILS" }));
++    const r = await conseillerPiece(f);
++    expect(r.ok, JSON.stringify(r)).toBe(true);
++    if (!r.ok) return;
++    expect(r.conseil.verdict).toBe("A_DEPLACER");
++    expect(r.conseil.conseils[0]).toMatchObject({ geste: "DEPLACER_POSTE", posteId: poste.id });
++    expect(APPELS).toHaveLength(1);
++    expect(APPELS[0]!.prompt).toContain("Imprimerie El Djazair");
++    // Luna conseille, il ne range rien : le fichier est toujours sur la demande.
++    const apres = await prisma.document.findUniqueOrThrow({ where: { id } });
++    expect([apres.entityType, apres.entityId]).toEqual(["SPONSORING", spoId]);
++  });
++
++  it("l'interrupteur de l'IA coupé : Luna le DIT, rien n'est envoyé", async () => {
++    const d = await deposer();
++    COUPEE = true;
++    const f = new FormData();
++    f.set("entityType", "SPONSORING"); f.set("entityId", spoId); f.set("fichierId", d.body.ids![0]!); f.set("emplacement", JSON.stringify({ type: "DETAILS" }));
++    const r = await conseillerPiece(f);
++    expect(r).toMatchObject({ ok: false, raison: "IA_COUPEE" });
++    expect(APPELS).toHaveLength(0);
++  });
++
++  it("la bascule du conseil coupée : Luna le DIT, rien n'est envoyé", async () => {
++    const d = await deposer();
++    ACTIVE = false;
++    const f = new FormData();
++    f.set("entityType", "SPONSORING"); f.set("entityId", spoId); f.set("fichierId", d.body.ids![0]!); f.set("emplacement", JSON.stringify({ type: "DETAILS" }));
++    const r = await conseillerPiece(f);
++    expect(r).toMatchObject({ ok: false, raison: "DESACTIVEE" });
++    expect(APPELS).toHaveLength(0);
++  });
++});
+diff --git a/src/lib/actions/contrat.genere.json b/src/lib/actions/contrat.genere.json
+index 4805c49..5d8f4a1 100644
+--- a/src/lib/actions/contrat.genere.json
++++ b/src/lib/actions/contrat.genere.json
+@@ -427,18 +427,18 @@
+   {"id":"market-research-actions:updateResearchRow","fichier":"market-research-actions","fonction":"updateResearchRow","avantFormulaire":0,"porte":{"module":"BUSINESS_DEVELOPMENT","verbe":"UPDATE","entite":null,"moduleFr":null,"gardes":["userCan"]},"ecrit":true,"modelesEcrits":["marketResearchRow"],"audit":false,"appel":"formulaire","champs":[{"nom":"avgPricePerBoxUsd","type":"nombre","obligatoire":false,"valeurs":null,"modele":null},{"nom":"comment","type":"texte","obligatoire":false,"valeurs":null,"modele":null},{"nom":"id","type":"reference","obligatoire":true,"valeurs":null,"modele":"MarketResearchRow"},{"nom":"marketValueUsd","type":"nombre","obligatoire":false,"valeurs":null,"modele":null},{"nom":"marketVolume","type":"nombre","obligatoire":false,"valeurs":null,"modele":null},{"nom":"product","type":"texte","obligatoire":false,"valeurs":null,"modele":null},{"nom":"researchId","type":"reference","obligatoire":false,"valeurs":null,"modele":"MarketResearch"},{"nom":"therapeuticClass","type":"texte","obligatoire":false,"valeurs":null,"modele":null}],"illisible":null},
+   {"id":"medical-actions:createDoctor","fichier":"medical-actions","fonction":"createDoctor","avantFormulaire":0,"porte":{"module":"MEDICAL","verbe":"CREATE","entite":null,"moduleFr":"Promotion médicale","gardes":["userCan"]},"ecrit":true,"modelesEcrits":["auditLog","medicalDoctor"],"audit":true,"appel":"etat-formulaire","champs":[{"nom":"affinity","type":"texte","obligatoire":false,"valeurs":null,"modele":null},{"nom":"comments","type":"texte","obligatoire":false,"valeurs":null,"modele":null},{"nom":"companyId","type":"reference","obligatoire":false,"valeurs":null,"modele":"Company"},{"nom":"delegateId","type":"reference","obligatoire":false,"valeurs":null,"modele":"User"},{"nom":"email","type":"texte","obligatoire":false,"valeurs":null,"modele":null},{"nom":"influence","type":"texte","obligatoire":false,"valeurs":null,"modele":null},{"nom":"institution","type":"texte","obligatoire":false,"valeurs":null,"modele":null},{"nom":"institutionId","type":"reference","obligatoire":false,"valeurs":null,"modele":"MedicalInstitution"},{"nom":"name","type":"texte","obligatoire":true,"valeurs":null,"modele":null},{"nom":"phone","type":"texte","obligatoire":false,"valeurs":null,"modele":null},{"nom":"potential","type":"texte","obligatoire":false,"valeurs":null,"modele":null},{"nom":"region","type":"texte","obligatoire":false,"valeurs":null,"modele":null},{"nom":"sector","type":"texte","obligatoire":false,"valeurs":null,"modele":null},{"nom":"specialty","type":"texte","obligatoire":false,"valeurs":null,"modele":null},{"nom":"specialtyId","type":"reference","obligatoire":false,"valeurs":null,"modele":"MedicalSpecialty"},{"nom":"targetProducts","type":"texte","obligatoire":false,"valeurs":null,"modele":null},{"nom":"title","type":"texte","obligatoire":false,"valeurs":null,"modele":null},{"nom":"wilaya","type":"texte","obligatoire":false,"valeurs":null,"modele":null}],"illisible":null},
+   {"id":"medical-actions:createInstitution","fichier":"medical-actions","fonction":"createInstitution","avantFormulaire":0,"porte":{"module":null,"verbe":null,"entite":null,"moduleFr":"Annuaires","gardes":["peutAnnuaire"]},"ecrit":true,"modelesEcrits":["auditLog","medicalInstitution"],"audit":true,"appel":"formulaire","champs":[{"nom":"address","type":"texte","obligatoire":false,"valeurs":null,"modele":null},{"nom":"email","type":"texte","obligatoire":false,"valeurs":null,"modele":null},{"nom":"name","type":"texte","obligatoire":true,"valeurs":null,"modele":null},{"nom":"notes","type":"texte","obligatoire":false,"valeurs":null,"modele":null},{"nom":"phone","type":"texte","obligatoire":false,"valeurs":null,"modele":null},{"nom":"region","type":"texte","obligatoire":false,"valeurs":null,"modele":null},{"nom":"sector","type":"texte","obligatoire":false,"valeurs":null,"modele":null},{"nom":"type","type":"texte","obligatoire":false,"valeurs":null,"modele":null},{"nom":"wilaya","type":"texte","obligatoire":false,"valeurs":null,"modele":null}],"illisible":null},
+-  {"id":"medical-actions:createSpecialty","fichier":"medical-actions","fonction":"createSpecialty","avantFormulaire":0,"porte":{"module":"MEDICAL","verbe":"CREATE","entite":null,"moduleFr":"Annuaires","gardes":["userCan"]},"ecrit":true,"modelesEcrits":["auditLog","medicalSpecialty"],"audit":true,"appel":"formulaire","champs":[{"nom":"color","type":"texte","obligatoire":false,"valeurs":null,"modele":null},{"nom":"name","type":"texte","obligatoire":true,"valeurs":null,"modele":null},{"nom":"notes","type":"texte","obligatoire":false,"valeurs":null,"modele":null}],"illisible":null},
++  {"id":"medical-actions:createSpecialty","fichier":"medical-actions","fonction":"createSpecialty","avantFormulaire":0,"porte":{"module":null,"verbe":null,"entite":null,"moduleFr":"Annuaires","gardes":["peutGererSpecialites"]},"ecrit":true,"modelesEcrits":["auditLog","medicalSpecialty"],"audit":true,"appel":"formulaire","champs":[{"nom":"color","type":"texte","obligatoire":false,"valeurs":null,"modele":null},{"nom":"name","type":"texte","obligatoire":true,"valeurs":null,"modele":null},{"nom":"notes","type":"texte","obligatoire":false,"valeurs":null,"modele":null}],"illisible":null},
+   {"id":"medical-actions:createVisit","fichier":"medical-actions","fonction":"createVisit","avantFormulaire":0,"porte":{"module":"MEDICAL","verbe":"CREATE","entite":null,"moduleFr":"Promotion médicale","gardes":["userCan"]},"ecrit":true,"modelesEcrits":["auditLog","medicalVisit"],"audit":true,"appel":"etat-formulaire","champs":[{"nom":"date","type":"date","obligatoire":false,"valeurs":null,"modele":null},{"nom":"delegateId","type":"reference","obligatoire":false,"valeurs":null,"modele":"User"},{"nom":"doctorId","type":"reference","obligatoire":false,"valeurs":null,"modele":"MedicalDoctor"},{"nom":"objective","type":"texte","obligatoire":false,"valeurs":null,"modele":null},{"nom":"presentedProducts","type":"texte","obligatoire":false,"valeurs":null,"modele":null},{"nom":"region","type":"texte","obligatoire":false,"valeurs":null,"modele":null},{"nom":"status","type":"texte","obligatoire":false,"valeurs":["PLANNED","COMPLETED","CANCELLED","POSTPONED"],"modele":null}],"illisible":null},
+   {"id":"medical-actions:deleteDoctor","fichier":"medical-actions","fonction":"deleteDoctor","avantFormulaire":0,"porte":{"module":"MEDICAL","verbe":"DELETE","entite":null,"moduleFr":"Promotion médicale","gardes":["userCan"]},"ecrit":true,"modelesEcrits":["auditLog","medicalDoctor","medicalVisit"],"audit":true,"appel":"formulaire","champs":[{"nom":"id","type":"reference","obligatoire":true,"valeurs":null,"modele":null}],"illisible":null},
+   {"id":"medical-actions:deleteInstitution","fichier":"medical-actions","fonction":"deleteInstitution","avantFormulaire":0,"porte":{"module":null,"verbe":null,"entite":null,"moduleFr":"Annuaires","gardes":["peutAnnuaire"]},"ecrit":true,"modelesEcrits":["auditLog","medicalInstitution"],"audit":true,"appel":"formulaire","champs":[{"nom":"id","type":"reference","obligatoire":true,"valeurs":null,"modele":"MedicalInstitution"}],"illisible":null},
+-  {"id":"medical-actions:deleteSpecialty","fichier":"medical-actions","fonction":"deleteSpecialty","avantFormulaire":0,"porte":{"module":"MEDICAL","verbe":"DELETE","entite":null,"moduleFr":"Annuaires","gardes":["userCan"]},"ecrit":true,"modelesEcrits":["auditLog","medicalDoctor","medicalSpecialty"],"audit":true,"appel":"formulaire","champs":[{"nom":"id","type":"reference","obligatoire":true,"valeurs":null,"modele":null}],"illisible":null},
++  {"id":"medical-actions:deleteSpecialty","fichier":"medical-actions","fonction":"deleteSpecialty","avantFormulaire":0,"porte":{"module":null,"verbe":null,"entite":null,"moduleFr":"Annuaires","gardes":["peutGererSpecialites"]},"ecrit":true,"modelesEcrits":["auditLog","medicalDoctor","medicalSpecialty"],"audit":true,"appel":"formulaire","champs":[{"nom":"id","type":"reference","obligatoire":true,"valeurs":null,"modele":null}],"illisible":null},
+   {"id":"medical-actions:deleteVisit","fichier":"medical-actions","fonction":"deleteVisit","avantFormulaire":0,"porte":{"module":"MEDICAL","verbe":"DELETE","entite":null,"moduleFr":"Promotion médicale","gardes":["userCan"]},"ecrit":true,"modelesEcrits":["auditLog","medicalVisit"],"audit":true,"appel":"formulaire","champs":[{"nom":"id","type":"reference","obligatoire":true,"valeurs":null,"modele":"MedicalVisit"}],"illisible":null},
+-  {"id":"medical-actions:fusionnerSpecialite","fichier":"medical-actions","fonction":"fusionnerSpecialite","avantFormulaire":0,"porte":{"module":"MEDICAL","verbe":"DELETE","entite":null,"moduleFr":"Annuaires","gardes":["userCan"]},"ecrit":true,"modelesEcrits":["auditLog","businessUnitSpecialty","medicalDoctor","medicalSpecialty"],"audit":true,"appel":"formulaire","champs":[{"nom":"cibleId","type":"reference","obligatoire":true,"valeurs":null,"modele":null},{"nom":"id","type":"reference","obligatoire":true,"valeurs":null,"modele":null}],"illisible":null},
++  {"id":"medical-actions:fusionnerSpecialite","fichier":"medical-actions","fonction":"fusionnerSpecialite","avantFormulaire":0,"porte":{"module":null,"verbe":null,"entite":null,"moduleFr":"Annuaires","gardes":["peutGererSpecialites"]},"ecrit":true,"modelesEcrits":["auditLog","businessUnitSpecialty","medicalDoctor","medicalSpecialty"],"audit":true,"appel":"formulaire","champs":[{"nom":"cibleId","type":"reference","obligatoire":true,"valeurs":null,"modele":null},{"nom":"id","type":"reference","obligatoire":true,"valeurs":null,"modele":null}],"illisible":null},
+   {"id":"medical-actions:logVisit","fichier":"medical-actions","fonction":"logVisit","avantFormulaire":0,"porte":{"module":"MEDICAL","verbe":"CREATE","entite":"DOCTOR","moduleFr":"Promotion médicale","gardes":["canAccessEntity","userCan"]},"ecrit":true,"modelesEcrits":["auditLog","medicalDoctor","medicalVisit","medicalVisitSupportNumerique"],"audit":true,"appel":"etat-formulaire","champs":[{"nom":"date","type":"date","obligatoire":false,"valeurs":null,"modele":null},{"nom":"doctorId","type":"reference","obligatoire":true,"valeurs":null,"modele":"MedicalDoctor"},{"nom":"followUpActions","type":"texte","obligatoire":false,"valeurs":null,"modele":null},{"nom":"productId","type":"liste","obligatoire":false,"valeurs":null,"modele":null},{"nom":"report","type":"texte","obligatoire":false,"valeurs":null,"modele":null}],"illisible":null},
+-  {"id":"medical-actions:rattacherLibelleSpecialite","fichier":"medical-actions","fonction":"rattacherLibelleSpecialite","avantFormulaire":0,"porte":{"module":"MEDICAL","verbe":"UPDATE","entite":null,"moduleFr":"Annuaires","gardes":["userCan"]},"ecrit":true,"modelesEcrits":["auditLog","medicalDoctor"],"audit":true,"appel":"formulaire","champs":[{"nom":"libelle","type":"texte","obligatoire":true,"valeurs":null,"modele":null},{"nom":"specialtyId","type":"reference","obligatoire":true,"valeurs":null,"modele":"MedicalSpecialty"}],"illisible":null},
++  {"id":"medical-actions:rattacherLibelleSpecialite","fichier":"medical-actions","fonction":"rattacherLibelleSpecialite","avantFormulaire":0,"porte":{"module":null,"verbe":null,"entite":null,"moduleFr":"Annuaires","gardes":["peutGererSpecialites"]},"ecrit":true,"modelesEcrits":["auditLog","medicalDoctor"],"audit":true,"appel":"formulaire","champs":[{"nom":"libelle","type":"texte","obligatoire":true,"valeurs":null,"modele":null},{"nom":"specialtyId","type":"reference","obligatoire":true,"valeurs":null,"modele":"MedicalSpecialty"}],"illisible":null},
+   {"id":"medical-actions:updateDoctor","fichier":"medical-actions","fonction":"updateDoctor","avantFormulaire":0,"porte":{"module":null,"verbe":null,"entite":"DOCTOR","moduleFr":"Promotion médicale","gardes":["canAccessEntity"]},"ecrit":true,"modelesEcrits":["auditLog","medicalDoctor"],"audit":true,"appel":"formulaire","champs":[{"nom":"affinity","type":"texte","obligatoire":false,"valeurs":null,"modele":null},{"nom":"comments","type":"texte","obligatoire":false,"valeurs":null,"modele":null},{"nom":"companyId","type":"reference","obligatoire":false,"valeurs":null,"modele":"Company"},{"nom":"delegateId","type":"reference","obligatoire":false,"valeurs":null,"modele":"User"},{"nom":"email","type":"texte","obligatoire":false,"valeurs":null,"modele":null},{"nom":"id","type":"reference","obligatoire":true,"valeurs":null,"modele":"MedicalDoctor"},{"nom":"influence","type":"texte","obligatoire":false,"valeurs":null,"modele":null},{"nom":"institution","type":"texte","obligatoire":false,"valeurs":null,"modele":null},{"nom":"institutionId","type":"reference","obligatoire":false,"valeurs":null,"modele":"MedicalInstitution"},{"nom":"name","type":"texte","obligatoire":false,"valeurs":null,"modele":null},{"nom":"phone","type":"texte","obligatoire":false,"valeurs":null,"modele":null},{"nom":"potential","type":"texte","obligatoire":false,"valeurs":null,"modele":null},{"nom":"region","type":"texte","obligatoire":false,"valeurs":null,"modele":null},{"nom":"sector","type":"texte","obligatoire":false,"valeurs":null,"modele":null},{"nom":"specialty","type":"texte","obligatoire":false,"valeurs":null,"modele":null},{"nom":"specialtyId","type":"reference","obligatoire":false,"valeurs":null,"modele":"MedicalSpecialty"},{"nom":"targetProducts","type":"texte","obligatoire":false,"valeurs":null,"modele":null},{"nom":"title","type":"texte","obligatoire":false,"valeurs":null,"modele":null},{"nom":"wilaya","type":"texte","obligatoire":false,"valeurs":null,"modele":null}],"illisible":null},
+   {"id":"medical-actions:updateInstitution","fichier":"medical-actions","fonction":"updateInstitution","avantFormulaire":0,"porte":{"module":null,"verbe":null,"entite":null,"moduleFr":"Annuaires","gardes":["peutAnnuaire"]},"ecrit":true,"modelesEcrits":["auditLog","medicalDoctor","medicalInstitution","stockAnnex"],"audit":true,"appel":"formulaire","champs":[{"nom":"address","type":"texte","obligatoire":false,"valeurs":null,"modele":null},{"nom":"email","type":"texte","obligatoire":false,"valeurs":null,"modele":null},{"nom":"id","type":"reference","obligatoire":true,"valeurs":null,"modele":null},{"nom":"isActive","type":"booleen","obligatoire":false,"valeurs":null,"modele":null},{"nom":"name","type":"texte","obligatoire":false,"valeurs":null,"modele":null},{"nom":"notes","type":"texte","obligatoire":false,"valeurs":null,"modele":null},{"nom":"phone","type":"texte","obligatoire":false,"valeurs":null,"modele":null},{"nom":"region","type":"texte","obligatoire":false,"valeurs":null,"modele":null},{"nom":"sector","type":"texte","obligatoire":false,"valeurs":null,"modele":null},{"nom":"type","type":"texte","obligatoire":false,"valeurs":null,"modele":null},{"nom":"wilaya","type":"texte","obligatoire":false,"valeurs":null,"modele":null}],"illisible":null},
+-  {"id":"medical-actions:updateSpecialty","fichier":"medical-actions","fonction":"updateSpecialty","avantFormulaire":0,"porte":{"module":"MEDICAL","verbe":"UPDATE","entite":null,"moduleFr":"Annuaires","gardes":["userCan"]},"ecrit":true,"modelesEcrits":["auditLog","medicalDoctor","medicalSpecialty"],"audit":true,"appel":"formulaire","champs":[{"nom":"color","type":"texte","obligatoire":false,"valeurs":null,"modele":null},{"nom":"id","type":"reference","obligatoire":true,"valeurs":null,"modele":null},{"nom":"name","type":"texte","obligatoire":false,"valeurs":null,"modele":null},{"nom":"notes","type":"texte","obligatoire":false,"valeurs":null,"modele":null}],"illisible":null},
++  {"id":"medical-actions:updateSpecialty","fichier":"medical-actions","fonction":"updateSpecialty","avantFormulaire":0,"porte":{"module":null,"verbe":null,"entite":null,"moduleFr":"Annuaires","gardes":["peutGererSpecialites"]},"ecrit":true,"modelesEcrits":["auditLog","medicalDoctor","medicalSpecialty"],"audit":true,"appel":"formulaire","champs":[{"nom":"color","type":"texte","obligatoire":false,"valeurs":null,"modele":null},{"nom":"id","type":"reference","obligatoire":true,"valeurs":null,"modele":null},{"nom":"name","type":"texte","obligatoire":false,"valeurs":null,"modele":null},{"nom":"notes","type":"texte","obligatoire":false,"valeurs":null,"modele":null}],"illisible":null},
+   {"id":"medical-actions:updateVisit","fichier":"medical-actions","fonction":"updateVisit","avantFormulaire":0,"porte":{"module":null,"verbe":null,"entite":"VISIT","moduleFr":"Promotion médicale","gardes":["canAccessEntity"]},"ecrit":true,"modelesEcrits":["auditLog","medicalVisit"],"audit":true,"appel":"formulaire","champs":[{"nom":"date","type":"date","obligatoire":false,"valeurs":null,"modele":null},{"nom":"delegateId","type":"reference","obligatoire":false,"valeurs":null,"modele":"User"},{"nom":"doctorFeedback","type":"texte","obligatoire":false,"valeurs":null,"modele":null},{"nom":"doctorId","type":"reference","obligatoire":false,"valeurs":null,"modele":"MedicalDoctor"},{"nom":"followUpActions","type":"texte","obligatoire":false,"valeurs":null,"modele":null},{"nom":"id","type":"reference","obligatoire":true,"valeurs":null,"modele":"MedicalVisit"},{"nom":"objective","type":"texte","obligatoire":false,"valeurs":null,"modele":null},{"nom":"presentedProducts","type":"texte","obligatoire":false,"valeurs":null,"modele":null},{"nom":"region","type":"texte","obligatoire":false,"valeurs":null,"modele":null},{"nom":"report","type":"texte","obligatoire":false,"valeurs":null,"modele":null},{"nom":"status","type":"texte","obligatoire":false,"valeurs":["PLANNED","COMPLETED","CANCELLED","POSTPONED"],"modele":null}],"illisible":null},
+   {"id":"medical-directory-actions:addDirectoryDoctor","fichier":"medical-directory-actions","fonction":"addDirectoryDoctor","avantFormulaire":0,"porte":{"module":null,"verbe":null,"entite":null,"moduleFr":"Promotion médicale","gardes":["peutAnnuaire"]},"ecrit":true,"modelesEcrits":["auditLog","medicalDoctor"],"audit":true,"appel":"objet","illisible":null,"champs":[{"nom":"lastName","type":"texte","obligatoire":true,"valeurs":null,"modele":null},{"nom":"firstName","type":"texte","obligatoire":true,"valeurs":null,"modele":null},{"nom":"specialty","type":"texte","obligatoire":true,"valeurs":null,"modele":null},{"nom":"wilaya","type":"texte","obligatoire":true,"valeurs":null,"modele":null},{"nom":"title","type":"texte","obligatoire":false,"valeurs":null,"modele":null},{"nom":"directoryId","type":"reference","obligatoire":false,"valeurs":null,"modele":"MedicalDirectory"},{"nom":"institutionId","type":"reference","obligatoire":false,"valeurs":null,"modele":"MedicalInstitution"},{"nom":"serviceId","type":"reference","obligatoire":false,"valeurs":null,"modele":"MedicalInstitutionService"}]},
+   {"id":"medical-directory-actions:deleteDirectoryDoctors","fichier":"medical-directory-actions","fonction":"deleteDirectoryDoctors","avantFormulaire":0,"porte":{"module":null,"verbe":null,"entite":"DOCTOR","moduleFr":"Promotion médicale","gardes":["canAccessEntity","peutAnnuaire"]},"ecrit":true,"modelesEcrits":["auditLog","medicalDoctor"],"audit":true,"appel":"arguments","illisible":null,"champs":[{"nom":"ids","type":"liste","obligatoire":true,"valeurs":null,"modele":null}]},
+diff --git a/src/lib/actions/medical-actions.ts b/src/lib/actions/medical-actions.ts
+index 74924eb..0bf5490 100644
+--- a/src/lib/actions/medical-actions.ts
++++ b/src/lib/actions/medical-actions.ts
+@@ -4,7 +4,7 @@ import { CHEMIN_STOCK_PROMO } from "@/lib/chemins/stock-promo";
+ import { revalidatePath } from "next/cache";
+ import type { DoctorTitle, InfluenceLevel, InstitutionSector, InstitutionType, MedicalSector, Priority, SegmentLevel, VisitStatus } from "@prisma/client";
+ import { requireUser } from "@/lib/session";
+-import { userCan, peutAnnuaire, scopeMedicalDoctors } from "@/lib/rbac";
++import { userCan, peutAnnuaire, peutGererSpecialites, scopeMedicalDoctors } from "@/lib/rbac";
+ import { canAccessEntity } from "@/lib/entity-access";
+ import { prisma } from "@/lib/prisma";
+ import { cleDEtablissement, indexerEtablissements } from "@/lib/annuaires/rattachement";
+@@ -246,7 +246,7 @@ async function specialiteHomonyme(nom: string, saufId: string | null): Promise<{
+ 
+ export async function createSpecialty(formData: FormData): Promise<ActionResult> {
+   const user = await requireUser();
+-  if (!userCan(user, "MEDICAL", "CREATE")) return { ok: false, error: "Non autorisé." };
++  if (!peutGererSpecialites(user, "CREATE")) return { ok: false, error: "Non autorisé." };
+   // `if (!saisi)` sur la lecture même : c'est ce que la dérivation des contrats lit comme « champ
+   // OBLIGATOIRE » (§118.138) — passé par une fonction, le nom serait annoncé facultatif.
+   const saisi = fdStr(formData, "name");
+@@ -268,7 +268,7 @@ export async function createSpecialty(formData: FormData): Promise<ActionResult>
+ 
+ export async function updateSpecialty(formData: FormData): Promise<ActionResult> {
+   const user = await requireUser();
+-  if (!userCan(user, "MEDICAL", "UPDATE")) return { ok: false, error: "Non autorisé." };
++  if (!peutGererSpecialites(user, "UPDATE")) return { ok: false, error: "Non autorisé." };
+   const id = fdStr(formData, "id");
+   if (!id) return { ok: false, error: "Identifiant manquant." };
+   const avant = await prisma.medicalSpecialty.findUnique({ where: { id }, select: { name: true } });
+@@ -329,7 +329,7 @@ export async function updateSpecialty(formData: FormData): Promise<ActionResult>
+  */
+ export async function deleteSpecialty(formData: FormData): Promise<ActionResult> {
+   const user = await requireUser();
+-  if (!userCan(user, "MEDICAL", "DELETE")) return { ok: false, error: "Non autorisé." };
++  if (!peutGererSpecialites(user, "DELETE")) return { ok: false, error: "Non autorisé." };
+   const id = fdStr(formData, "id");
+   if (!id) return { ok: false, error: "Identifiant manquant." };
+   const avant = await prisma.medicalSpecialty.findUnique({ where: { id }, select: { name: true } });
+@@ -376,7 +376,7 @@ export async function deleteSpecialty(formData: FormData): Promise<ActionResult>
+  */
+ export async function fusionnerSpecialite(formData: FormData): Promise<ActionResult> {
+   const user = await requireUser();
+-  if (!userCan(user, "MEDICAL", "DELETE")) return { ok: false, error: "Non autorisé." };
++  if (!peutGererSpecialites(user, "DELETE")) return { ok: false, error: "Non autorisé." };
+   const id = fdStr(formData, "id");
+   const cibleId = fdStr(formData, "cibleId");
+   if (!id || !cibleId) return { ok: false, error: "Choisissez la spécialité dans laquelle fusionner." };
+@@ -441,7 +441,7 @@ export async function fusionnerSpecialite(formData: FormData): Promise<ActionRes
+  */
+ export async function rattacherLibelleSpecialite(formData: FormData): Promise<ActionResult & { rattachees?: number }> {
+   const user = await requireUser();
+-  if (!userCan(user, "MEDICAL", "UPDATE")) return { ok: false, error: "Non autorisé." };
++  if (!peutGererSpecialites(user, "UPDATE")) return { ok: false, error: "Non autorisé." };
+   const libelle = fdStr(formData, "libelle");
+   const specialtyId = fdStr(formData, "specialtyId");
+   if (!libelle || !specialtyId) return { ok: false, error: "Choisissez la spécialité du référentiel à laquelle rattacher ce libellé." };
+diff --git a/src/lib/actions/specialites-gestion.test.ts b/src/lib/actions/specialites-gestion.test.ts
+new file mode 100644
+index 0000000..1712dae
+--- /dev/null
++++ b/src/lib/actions/specialites-gestion.test.ts
+@@ -0,0 +1,168 @@
++import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
++
++vi.mock("next/cache", () => ({ revalidatePath: () => {} }));
++
++let ACTEUR: unknown = null;
++vi.mock("@/lib/session", () => ({
++  requireUser: async () => ACTEUR,
++  getUser: async () => ACTEUR,
++  requireModule: async () => ACTEUR,
++}));
++
++import fs from "node:fs";
++import path from "node:path";
++import { prisma } from "@/lib/prisma";
++import { getAccess, hasGlobalView, peutGererSpecialites, userCan, type SessionUser } from "@/lib/rbac";
++import { visibleTabs } from "@/lib/nav-tabs";
++import { ANNUAIRES_TABS } from "@/lib/labels";
++import {
++  createSpecialty, updateSpecialty, deleteSpecialty, fusionnerSpecialite, rattacherLibelleSpecialite,
++} from "@/lib/actions/medical-actions";
++
++/**
++ * ═══════════════════════════════════════════════════════════════════════════════════════════
++ * LA GESTION DU RÉFÉRENTIEL DES SPÉCIALITÉS AUX DEUX DIRECTEURS DES OPÉRATIONS (Direction, 04/10) :
++ * « donne la gestion/création des spécialités au directeur des opérations ». `DIRECTION`
++ * (« Direction des opérations ») et `OPERATIONS_DIRECTOR` (« Directeur des Opérations ») créent,
++ * renomment, rattachent, fusionnent et retirent — par les VRAIES actions. Le second n'a de la
++ * Promotion médicale que la lecture, et pas de vue globale : c'est lui qui prouve la règle (§118.104).
++ * Un délégué médical garde ce qu'il avait (la Promotion médicale en contribution : ajouter,
++ * renommer, rattacher dans son panel) et n'obtient PAS la structure : ni fusion, ni retrait.
++ * ═══════════════════════════════════════════════════════════════════════════════════════════
++ */
++
++let dbOk = false;
++try { await prisma.$queryRaw`SELECT 1`; dbOk = true; } catch { dbOk = false; }
++const suite = dbOk ? describe : describe.skip;
++
++const TAG = "ZZGSPE";
++const fd = (o: Record<string, string>) => {
++  const f = new FormData();
++  for (const [k, v] of Object.entries(o)) f.set(k, v);
++  return f;
++};
++async function acteur(id: string, role: string, secondaryRole: string | null = null): Promise<SessionUser> {
++  return { id, role, secondaryRole, access: await getAccess(id, role as never) } as unknown as SessionUser;
++}
++
++describe("le point d'appel — une règle, lue par l'onglet, la page et les cinq actions", () => {
++  const code = (rel: string) => fs.readFileSync(path.join(process.cwd(), rel), "utf8").replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:"'`])\/\/[^\n]*/g, "$1");
++  it("les cinq actions du référentiel appellent `peutGererSpecialites`, et plus le droit de module seul", () => {
++    const src = code("src/lib/actions/medical-actions.ts");
++    for (const [fn, geste] of [
++      ["createSpecialty", "CREATE"], ["updateSpecialty", "UPDATE"], ["deleteSpecialty", "DELETE"],
++      ["fusionnerSpecialite", "DELETE"], ["rattacherLibelleSpecialite", "UPDATE"],
++    ] as const) {
++      const debut = src.indexOf(`export async function ${fn}(`);
++      expect(debut, fn).toBeGreaterThan(-1);
++      const corps = src.slice(debut, debut + 400);
++      expect(corps, fn).toContain(`peutGererSpecialites(user, "${geste}")`);
++      expect(corps, fn).not.toMatch(/userCan\(user, "MEDICAL"/);
++    }
++  });
++  it("la page lit la même règle pour s'ouvrir et pour chaque bouton", () => {
++    const src = code("src/app/(app)/annuaires/specialites/page.tsx");
++    for (const g of ["VIEW", "CREATE", "UPDATE", "DELETE"]) expect(src).toContain(`peutGererSpecialites(user, "${g}")`);
++    expect(src).not.toMatch(/userCan\(/);
++  });
++});
++
++suite("le référentiel des spécialités — les deux directeurs des opérations le gèrent, un délégué n'en fait pas la structure", () => {
++  let dirOps = "", direction = "", delegue = "", viewer = "";
++  let OD: SessionUser, DIR: SessionUser, DEL: SessionUser;
++
++  const nettoyer = async () => {
++    const spes = await prisma.medicalSpecialty.findMany({ where: { name: { startsWith: TAG } }, select: { id: true } });
++    await prisma.medicalDoctor.deleteMany({ where: { name: { startsWith: TAG } } }).catch(() => {});
++    await prisma.auditLog.deleteMany({ where: { entityType: "SPECIALTY", entityId: { in: spes.map((s) => s.id) } } }).catch(() => {});
++    await prisma.medicalSpecialty.deleteMany({ where: { id: { in: spes.map((s) => s.id) } } }).catch(() => {});
++    await prisma.auditLog.deleteMany({ where: { actor: { email: { startsWith: TAG.toLowerCase() } } } }).catch(() => {});
++    await prisma.user.deleteMany({ where: { email: { startsWith: TAG.toLowerCase() } } }).catch(() => {});
++  };
++
++  beforeAll(async () => {
++    await nettoyer();
++    const mk = (s: string, role: string) =>
++      prisma.user.create({ data: { name: `${TAG}${s}`, email: `${TAG.toLowerCase()}${s}@t.dz`, role: role as never, passwordHash: "x" } });
++    const [a, b, c, d] = await Promise.all([
++      mk("dirops", "OPERATIONS_DIRECTOR"), mk("direction", "DIRECTION"), mk("delegue", "MEDICAL_DELEGATE"), mk("viewer", "VIEWER"),
++    ]);
++    dirOps = a.id; direction = b.id; delegue = c.id; viewer = d.id;
++    OD = await acteur(dirOps, "OPERATIONS_DIRECTOR");
++    DIR = await acteur(direction, "DIRECTION");
++    DEL = await acteur(delegue, "MEDICAL_DELEGATE");
++  });
++
++  afterAll(nettoyer);
++
++  it("les acteurs sont ce que le banc croit qu'ils sont", () => {
++    expect(hasGlobalView(OD.role), "prémisse : le Directeur des Opérations n'a pas la vue globale").toBe(false);
++    expect(userCan(OD, "MEDICAL", "VIEW")).toBe(true);
++    for (const g of ["CREATE", "UPDATE", "DELETE"] as const) {
++      expect(userCan(OD, "MEDICAL", g), `prémisse : sans la règle, il n'aurait pas ${g}`).toBe(false);
++    }
++    expect(userCan(DEL, "MEDICAL", "DELETE"), "prémisse : le délégué ne supprime pas dans la Promotion médicale").toBe(false);
++  });
++
++  it("le Directeur des Opérations : créer, renommer, rattacher un libellé, fusionner, retirer — par les vraies actions", async () => {
++    ACTEUR = OD;
++    const a = await createSpecialty(fd({ name: `${TAG}Néphrologie` }));
++    expect(a.ok, a.ok ? "" : a.error).toBe(true);
++    const b = await createSpecialty(fd({ name: `${TAG}Nephro bis` }));
++    expect(b.ok, b.ok ? "" : b.error).toBe(true);
++    const idA = a.ok ? a.id! : "", idB = b.ok ? b.id! : "";
++
++    const r = await updateSpecialty(fd({ id: idB, name: `${TAG}Néphro pédiatrique` }));
++    expect(r.ok, r.ok ? "" : r.error).toBe(true);
++    expect((await prisma.medicalSpecialty.findUniqueOrThrow({ where: { id: idB } })).name).toBe(`${TAG}Néphro pédiatrique`);
++
++    const fiche = await prisma.medicalDoctor.create({ data: { name: `${TAG}Dr Libellé`, specialty: `${TAG}nephro` }, select: { id: true } });
++    const ra = await rattacherLibelleSpecialite(fd({ libelle: `${TAG}nephro`, specialtyId: idA }));
++    expect(ra.ok, ra.ok ? "" : ra.error).toBe(true);
++    expect(ra.rattachees).toBe(1);
++    expect((await prisma.medicalDoctor.findUniqueOrThrow({ where: { id: fiche.id } })).specialtyId).toBe(idA);
++
++    const fu = await fusionnerSpecialite(fd({ id: idB, cibleId: idA }));
++    expect(fu.ok, fu.ok ? "" : fu.error).toBe(true);
++    expect(await prisma.medicalSpecialty.count({ where: { id: idB } })).toBe(0);
++
++    const de = await deleteSpecialty(fd({ id: idA }));
++    expect(de.ok, de.ok ? "" : de.error).toBe(true);
++    expect(await prisma.medicalSpecialty.count({ where: { id: idA } })).toBe(0);
++  });
++
++  it("la Direction des opérations : la même gestion, par les mêmes actions", async () => {
++    ACTEUR = DIR;
++    const a = await createSpecialty(fd({ name: `${TAG}Rhumatologie` }));
++    expect(a.ok, a.ok ? "" : a.error).toBe(true);
++    const de = await deleteSpecialty(fd({ id: a.ok ? a.id! : "" }));
++    expect(de.ok, de.ok ? "" : de.error).toBe(true);
++  });
++
++  it("un délégué : ni fusion ni retrait — la STRUCTURE du référentiel ne lui est pas ouverte", async () => {
++    ACTEUR = DIR;
++    const a = await createSpecialty(fd({ name: `${TAG}Gériatrie` }));
++    const b = await createSpecialty(fd({ name: `${TAG}Gériatrie bis` }));
++    const idA = a.ok ? a.id! : "", idB = b.ok ? b.id! : "";
++    ACTEUR = DEL;
++    expect(await fusionnerSpecialite(fd({ id: idB, cibleId: idA }))).toEqual({ ok: false, error: "Non autorisé." });
++    expect(await deleteSpecialty(fd({ id: idA }))).toEqual({ ok: false, error: "Non autorisé." });
++    expect(await prisma.medicalSpecialty.count({ where: { id: { in: [idA, idB] } } })).toBe(2);
++    expect(peutGererSpecialites(DEL, "DELETE")).toBe(false);
++  });
++
++  it("l'onglet suit la règle : ouvert aux deux directeurs, fermé à qui n'a ni la Promotion médicale ni ces rôles", async () => {
++    const onglet = async (u: SessionUser) => (await visibleTabs(u, ANNUAIRES_TABS)).find((t) => t.href === "/annuaires/specialites")?.show;
++    expect(await onglet(OD)).toBe(true);
++    expect(await onglet(DIR)).toBe(true);
++    // Un compte SANS la Promotion médicale (sa console la lui retire) mais Directeur des Opérations en
++    // rôle SECONDAIRE : la règle l'ouvre — l'onglet aussi, sinon on lui donnerait une page sans porte.
++    const sansModule = await acteur(viewer, "VIEWER", "OPERATIONS_DIRECTOR");
++    sansModule.access.modules.delete("MEDICAL");
++    expect(userCan(sansModule, "MEDICAL", "VIEW"), "prémisse : pas de Promotion médicale").toBe(false);
++    expect(await onglet(sansModule)).toBe(true);
++    const nu = await acteur(viewer, "VIEWER");
++    nu.access.modules.delete("MEDICAL");
++    expect(await onglet(nu)).toBe(false);
++  });
++});
+diff --git a/src/lib/labels.ts b/src/lib/labels.ts
+index 2e6cce4..0c839af 100644
+--- a/src/lib/labels.ts
++++ b/src/lib/labels.ts
+@@ -1435,6 +1435,12 @@ export interface NavTab {
+    * monde). Absent = onglet visible dès que le module est autorisé.
+    */
+   feature?: string;
++  /**
++   * Une RÈGLE nommée qui décide de l'affichage à la place du seul `module` — la même que la page et
++   * les actions lisent (`nav-tabs.ts` la traduit). `"specialites"` : `peutGererSpecialites`, qui ouvre
++   * le référentiel aux deux directeurs des opérations même sans la Promotion médicale en écriture.
++   */
++  regle?: "specialites";
+ }
+ 
+ /** Navigation metadata: maps a sidebar entry to a module + route + icon name. */
+@@ -1773,7 +1779,7 @@ export const ANNUAIRES_TABS: NavTab[] = [
+   { module: "MEDICAL", label: "Établissements", href: "/annuaires/etablissements", annuaire: "ETABLISSEMENTS" },
+   // LE RÉFÉRENTIEL DES SPÉCIALITÉS (§118.180) — une STRUCTURE de l'annuaire : il s'ouvre par la
+   // Promotion médicale, pas par une case « Médecins » de la console (§118.147).
+-  { module: "MEDICAL", label: "Spécialités", href: "/annuaires/specialites" },
++  { module: "MEDICAL", label: "Spécialités", href: "/annuaires/specialites", regle: "specialites" },
+   { module: "WORKSPACE", label: "Partenaires", href: "/annuaires/partenaires", annuaire: "PARTENAIRES" },
+   { module: "WORKSPACE", label: "Personnes", href: "/annuaires/personnes", annuaire: "PERSONNES" },
+   { module: "DIRECTORIES", label: "Autres annuaires", href: "/annuaires/autres" },
+diff --git a/src/lib/nav-tabs.ts b/src/lib/nav-tabs.ts
+index b151bf8..c6ec864 100644
+--- a/src/lib/nav-tabs.ts
++++ b/src/lib/nav-tabs.ts
+@@ -1,4 +1,4 @@
+-import { userCan, peutAnnuaire, type SessionUser } from "@/lib/rbac";
++import { userCan, peutAnnuaire, peutGererSpecialites, type SessionUser } from "@/lib/rbac";
+ import { featureEnabled } from "@/lib/features";
+ import type { NavTab } from "@/lib/labels";
+ import type { ModuleTab } from "@/components/shared/module-tabs";
+@@ -19,7 +19,8 @@ export async function visibleTabs(user: SessionUser, tabs: NavTab[]): Promise<Mo
+       // Un onglet d'ANNUAIRE suit la règle de l'accès par annuaire (§118.147) : le module de son
+       // référentiel OU l'annuaire coché dans la console. Lire le seul `module` cacherait
+       // l'onglet à la personne à qui on vient précisément de l'ouvrir.
+-      show: (t.annuaire ? peutAnnuaire(user, t.annuaire, "VIEW") : userCan(user, t.module, "VIEW"))
++      show: (t.regle === "specialites" ? peutGererSpecialites(user, "VIEW")
++        : t.annuaire ? peutAnnuaire(user, t.annuaire, "VIEW") : userCan(user, t.module, "VIEW"))
+         && (t.feature ? await featureEnabled(t.feature, user.id) : true),
+     })),
+   );
+diff --git a/src/lib/queries/pieces-legal-demande.test.ts b/src/lib/queries/pieces-legal-demande.test.ts
+new file mode 100644
+index 0000000..f092beb
+--- /dev/null
++++ b/src/lib/queries/pieces-legal-demande.test.ts
+@@ -0,0 +1,140 @@
++import { afterAll, beforeAll, describe, expect, it } from "vitest";
++import fs from "node:fs";
++import path from "node:path";
++import { prisma } from "@/lib/prisma";
++import { getAccess, userCan, hasGlobalView, type SessionUser } from "@/lib/rbac";
++import { chargerPiecesLegalDeLaDemande, clausePiecesDeLaDemande } from "./pieces-legal-demande";
++
++/**
++ * ═══════════════════════════════════════════════════════════════════════════════════════════
++ * LES PIÈCES LEGAL RATTACHÉES DIRECTEMENT À UNE DEMANDE — « elles doivent s'afficher même sur la
++ * demande » (Direction, 04/10). Trois propriétés, prouvées sur la base avec des acteurs SANS vue
++ * globale (§118.104) :
++ *   1. une pièce rattachée à la demande et à AUCUN de ses postes s'affiche — et une pièce qu'un
++ *      poste de la demande porte, non (elle est déjà sur la carte du poste) ;
++ *   2. ce que la personne ne peut pas ouvrir n'est PAS rendu — ni titre, ni fichiers — mais COMPTÉ ;
++ *   3. les quatre fiches qui ont perdu « Pièces liées » montent le composant (le point d'appel).
++ * ═══════════════════════════════════════════════════════════════════════════════════════════
++ */
++
++let dbOk = false;
++try { await prisma.$queryRaw`SELECT 1`; dbOk = true; } catch { dbOk = false; }
++const suite = dbOk ? describe : describe.skip;
++
++const TAG = "__pldem__";
++
++async function acteur(id: string, role: string): Promise<SessionUser> {
++  return { id, role, secondaryRole: null, access: await getAccess(id, role as never) } as unknown as SessionUser;
++}
++
++describe("la clause — hors postes seulement là où il y a des postes", () => {
++  it("une demande à postes exclut les pièces de SES postes ; une autre nature n'a pas de filtre de poste", () => {
++    const spo = clausePiecesDeLaDemande("SPONSORING", "s1");
++    expect(spo).toMatchObject({ sourceType: "SPONSORING", sourceId: "s1", postesAdPro: { none: { item: { sponsoringId: "s1" } } } });
++    expect(clausePiecesDeLaDemande("CONGRESS_NATIONAL", "c1")).toMatchObject({ postesAdPro: { none: { item: { congressNationalId: "c1" } } } });
++    expect(clausePiecesDeLaDemande("EVENT", "e1")).toMatchObject({ postesAdPro: { none: { item: { eventId: "e1" } } } });
++    expect(clausePiecesDeLaDemande("CONSULTING_CONTRACT", "k1")).toEqual({ sourceType: "CONSULTING_CONTRACT", sourceId: "k1" });
++  });
++});
++
++describe("le point d'appel — les quatre fiches qui ont perdu « Pièces liées »", () => {
++  it("chaque fiche monte le composant avec SA nature", () => {
++    const code = (rel: string) => fs.readFileSync(path.join(process.cwd(), rel), "utf8")
++      .replace(/\/\*[\s\S]*?\*\//g, "").replace(/\{\/\*[\s\S]*?\*\/\}/g, "");
++    const pages: [string, string][] = [
++      ["src/app/(app)/sponsoring/[id]/page.tsx", "SPONSORING"],
++      ["src/app/(app)/events/[id]/page.tsx", "EVENT"],
++      ["src/app/(app)/congress-international/[id]/page.tsx", "CONGRESS_INTERNATIONAL"],
++      ["src/app/(app)/congress-national/[id]/page.tsx", "CONGRESS_NATIONAL"],
++    ];
++    for (const [rel, nature] of pages) {
++      expect(code(rel), rel).toMatch(new RegExp(`<PiecesLegalDeLaDemande\\s+spectateur=\\{user\\}\\s+entityType="${nature}"`));
++    }
++  });
++});
++
++suite("les pièces Legal de la demande — hors postes, droits pièce par pièce", () => {
++  let admin = "", assistante = "", delegue = "", lecteur = "";
++  let spo = "", autreSpo = "", poste = "";
++  let convention = "", devisDuPoste = "", restreinte = "", ailleurs = "";
++  let A: SessionUser, D: SessionUser;
++
++  const nettoyer = async () => {
++    const legaux = await prisma.legalDocument.findMany({ where: { title: { startsWith: TAG } }, select: { id: true } });
++    const ids = legaux.map((l) => l.id);
++    await prisma.document.deleteMany({ where: { name: { startsWith: TAG } } }).catch(() => {});
++    await prisma.adProItemPiece.deleteMany({ where: { legalDocumentId: { in: ids } } }).catch(() => {});
++    await prisma.legalDocumentReader.deleteMany({ where: { documentId: { in: ids } } }).catch(() => {});
++    await prisma.legalDocument.deleteMany({ where: { id: { in: ids } } }).catch(() => {});
++    await prisma.adProItem.deleteMany({ where: { label: { startsWith: TAG } } }).catch(() => {});
++    await prisma.sponsoringRequest.deleteMany({ where: { reference: { startsWith: TAG } } }).catch(() => {});
++    await prisma.user.deleteMany({ where: { email: { startsWith: TAG } } }).catch(() => {});
++  };
++
++  beforeAll(async () => {
++    await nettoyer();
++    const mk = (s: string, role: string) =>
++      prisma.user.create({ data: { name: `${TAG}${s}`, email: `${TAG}${s}@t.dz`, role: role as never, passwordHash: "x" } });
++    const [a, as, d, l] = await Promise.all([
++      mk("admin", "SUPER_ADMIN"), mk("assistante", "DIRECTION_ASSISTANT"), mk("delegue", "MEDICAL_DELEGATE"), mk("lecteur", "DIRECTION_ASSISTANT"),
++    ]);
++    admin = a.id; assistante = as.id; delegue = d.id; lecteur = l.id;
++    A = await acteur(assistante, "DIRECTION_ASSISTANT");
++    D = await acteur(delegue, "MEDICAL_DELEGATE");
++
++    const [s1, s2] = await Promise.all([
++      prisma.sponsoringRequest.create({ data: { reference: `${TAG}SPO-1`, institution: `${TAG}CHU`, type: "Congrès", createdById: admin } }),
++      prisma.sponsoringRequest.create({ data: { reference: `${TAG}SPO-2`, institution: `${TAG}EPH`, type: "Congrès", createdById: admin } }),
++    ]);
++    spo = s1.id; autreSpo = s2.id;
++    poste = (await prisma.adProItem.create({ data: { sponsoringId: spo, kind: "OTHER", label: `${TAG}Traiteur` } })).id;
++
++    const src = { sourceType: "SPONSORING" as const, sourceId: spo, createdById: admin };
++    convention = (await prisma.legalDocument.create({ data: { ...src, title: `${TAG}Convention orateur`, kind: "AGREEMENT", amount: 120_000 } })).id;
++    devisDuPoste = (await prisma.legalDocument.create({ data: { ...src, title: `${TAG}Devis du poste`, kind: "QUOTE" } })).id;
++    await prisma.adProItemPiece.create({ data: { itemId: poste, legalDocumentId: devisDuPoste, nature: "DEVIS" } });
++    restreinte = (await prisma.legalDocument.create({ data: { ...src, title: `${TAG}Contrat confidentiel`, kind: "CONTRACT" } })).id;
++    await prisma.legalDocumentReader.create({ data: { documentId: restreinte, userId: lecteur, grantedById: admin } });
++    ailleurs = (await prisma.legalDocument.create({ data: { sourceType: "SPONSORING", sourceId: autreSpo, createdById: admin, title: `${TAG}Convention ailleurs`, kind: "AGREEMENT" } })).id;
++
++    await prisma.document.createMany({
++      data: [
++        { name: `${TAG}convention-signee.pdf`, category: "CONVENTION", entityType: "LEGAL_DOCUMENT", entityId: convention, uploadedById: admin },
++        { name: `${TAG}secret.pdf`, category: "OTHER", entityType: "LEGAL_DOCUMENT", entityId: restreinte, uploadedById: admin },
++      ],
++    });
++  });
++
++  afterAll(nettoyer);
++
++  it("l'assistante (Legal, sans vue globale) voit la pièce de la demande, pas celle du poste, et la restreinte est COMPTÉE", async () => {
++    expect(hasGlobalView(A.role), "prémisse : pas de vue globale").toBe(false);
++    expect(userCan(A, "LEGAL", "VIEW"), "prémisse : elle lit Legal").toBe(true);
++    const p = await chargerPiecesLegalDeLaDemande(A, "SPONSORING", spo);
++    expect(p.lignes.map((l) => l.id)).toEqual([convention]);
++    expect(p.lignes.map((l) => l.id), "la pièce d'un poste est déjà sur sa carte").not.toContain(devisDuPoste);
++    expect(p.lignes.map((l) => l.id), "une pièce d'une AUTRE demande n'est pas d'ici").not.toContain(ailleurs);
++    expect(p.total, "convention + restreinte, hors poste").toBe(2);
++    expect(p.masquees, "la restreinte n'est pas rendue mais elle est dite").toBe(1);
++    const l = p.lignes[0]!;
++    expect(l).toMatchObject({ nature: "Convention / accord-cadre", montant: 120_000, fiche: true });
++    expect(l.statut?.label).toBeTruthy();
++    expect(l.documents.map((d) => d.name)).toEqual([`${TAG}convention-signee.pdf`]);
++    // RIEN n'est rendu de ce qu'on ne peut pas ouvrir : ni la ligne, ni le fichier secret.
++    expect(JSON.stringify(p)).not.toContain(`${TAG}secret.pdf`);
++    expect(JSON.stringify(p)).not.toContain(`${TAG}Contrat confidentiel`);
++  });
++
++  it("le délégué SANS Legal : aucune ligne, et les deux pièces sont comptées", async () => {
++    expect(userCan(D, "LEGAL", "VIEW"), "prémisse : le délégué n'a pas Legal").toBe(false);
++    const p = await chargerPiecesLegalDeLaDemande(D, "SPONSORING", spo);
++    expect(p.lignes).toEqual([]);
++    expect(p.masquees).toBe(2);
++  });
++
++  it("une demande sans pièce directe ne rend rien à afficher", async () => {
++    await prisma.legalDocument.delete({ where: { id: ailleurs } });
++    const p = await chargerPiecesLegalDeLaDemande(A, "SPONSORING", autreSpo);
++    expect(p).toMatchObject({ lignes: [], total: 0, masquees: 0, nonLues: 0 });
++  });
++});
+diff --git a/src/lib/queries/pieces-legal-demande.ts b/src/lib/queries/pieces-legal-demande.ts
+new file mode 100644
+index 0000000..4baf6b3
+--- /dev/null
++++ b/src/lib/queries/pieces-legal-demande.ts
+@@ -0,0 +1,131 @@
++import type { EntityType, Prisma } from "@prisma/client";
++import { prisma } from "@/lib/prisma";
++import type { SessionUser } from "@/lib/rbac";
++import { accesAuxPiecesLegalDetaille } from "@/lib/entity-access";
++import { AD_PRO_PARENTS, PARENT_COLONNE, type AdProParent } from "@/lib/ad-pro-items";
++import { LEGAL_DOC_STATUS, INVOICE_SETTLEMENT, invoiceSettlementState, natureLegale, type BadgeTone } from "@/lib/labels";
++import { fichiersEmis, type FichiersEmis } from "@/lib/legal/fichiers-emis";
++import { toNumber } from "@/lib/utils";
++import type { DocItem } from "@/components/documents/document-list";
++
++/**
++ * ═══════════════════════════════════════════════════════════════════════════════════════════
++ * LES PIÈCES LEGAL RATTACHÉES DIRECTEMENT À UNE DEMANDE — lues pour sa fiche.
++ *
++ * « Les anciennes pièces Legal rattachées directement à une demande ne s'affichent plus sur sa
++ * fiche (elles restent dans Legal) — elles doivent s'afficher même sur la demande » (Direction,
++ * 04/10). Le bloc « Pièces liées » a quitté les fiches qui portent des POSTES (sponsoring, congrès,
++ * événements) : la chaîne devis → BC → facture vit désormais sur chaque poste (`AdProItemPiece`).
++ * Mais une convention, un contrat, ou un devis d'AVANT les postes désigne la demande elle-même
++ * (`sourceType` / `sourceId`) — et plus aucun écran de la demande ne le montrait.
++ *
++ * ── CE QUI N'Y EST PAS ──────────────────────────────────────────────────────────────────
++ *
++ * Une pièce RATTACHÉE À UN POSTE de cette demande est déjà sur la carte de ce poste : la montrer
++ * ici aussi en ferait deux lignes pour une dépense (le défaut que les postes ont fermé). Seules
++ * les pièces qu'aucun poste de la demande ne désigne sont lues.
++ *
++ * ── LA GARDE ────────────────────────────────────────────────────────────────────────────
++ *
++ * La porte unique des pièces (`accesAuxPiecesLegalDetaille`), en lot : une pièce que la personne
++ * ne peut pas ouvrir n'est PAS rendue — ni son titre, ni son montant, ni ses fichiers — elle est
++ * seulement COMPTÉE, pour qu'une liste raccourcie ne se lise pas comme complète (§118.60). Le
++ * lien vers la fiche Legal suit `horsFiche` : une exception de lecture (l'arbitre d'une demande,
++ * §118.185) ouvre les fichiers, pas la page — le titre se lit alors sans lien (§118.83).
++ * ═══════════════════════════════════════════════════════════════════════════════════════════
++ */
++
++/** Au-delà, la liste le DIT (§118.60) — la liste complète reste dans Legal. */
++export const PIECES_DEMANDE_MAX = 40;
++
++export interface LignePieceDemande {
++  id: string;
++  nature: string;
++  titre: string;
++  reference: string | null;
++  montant: number | null;
++  statut: { label: string; tone: BadgeTone } | null;
++  /** La fiche `/legal/[id]` s'ouvre-t-elle à la personne ? */
++  fiche: boolean;
++  /** La version plateforme (Word / PDF de la fabrique). */
++  plateforme: FichiersEmis;
++  /** Ses fichiers — toujours ouvrables par la personne (la pièce l'est). */
++  documents: DocItem[];
++}
++
++export interface PiecesLegalDeLaDemande {
++  lignes: LignePieceDemande[];
++  /** Pièces de la demande (hors postes) que la personne ne peut pas ouvrir — comptées, jamais rendues. */
++  masquees: number;
++  /** Pièces au-delà de la borne de lecture — ni lues ni jugées : la liste complète est dans Legal. */
++  nonLues: number;
++  /** Total des pièces de la demande hors postes, en base. */
++  total: number;
++}
++
++const estParentAdPro = (t: EntityType): t is AdProParent & EntityType =>
++  (AD_PRO_PARENTS as readonly string[]).includes(t);
++
++/** La clause : rattachées à la demande, et désignées par AUCUN de ses postes. */
++export function clausePiecesDeLaDemande(entityType: EntityType, entityId: string): Prisma.LegalDocumentWhereInput {
++  const base: Prisma.LegalDocumentWhereInput = { sourceType: entityType, sourceId: entityId };
++  if (!estParentAdPro(entityType)) return base;
++  return {
++    ...base,
++    postesAdPro: { none: { item: { [PARENT_COLONNE[entityType]]: entityId } } },
++  };
++}
++
++export async function chargerPiecesLegalDeLaDemande(
++  spectateur: SessionUser,
++  entityType: EntityType,
++  entityId: string,
++): Promise<PiecesLegalDeLaDemande> {
++  const where = clausePiecesDeLaDemande(entityType, entityId);
++  const [candidats, total] = await Promise.all([
++    prisma.legalDocument.findMany({
++      where, orderBy: { createdAt: "desc" }, take: PIECES_DEMANDE_MAX,
++      select: { id: true, kind: true, title: true, reference: true, amount: true, status: true, paidDate: true, expenseOrderId: true, custom: true },
++    }),
++    prisma.legalDocument.count({ where }),
++  ]);
++  if (candidats.length === 0) return { lignes: [], masquees: 0, nonLues: total, total };
++
++  const { droits, horsFiche } = await accesAuxPiecesLegalDetaille(spectateur, candidats.map((d) => d.id), ["VIEW"]);
++  const lisibles = droits.get("VIEW") ?? new Set<string>();
++  const ouvertes = candidats.filter((d) => lisibles.has(d.id));
++
++  // Rien n'est lu des fichiers d'une pièce fermée : seuls les identifiants OUVERTS sont interrogés.
++  const fichiers = ouvertes.length
++    ? await prisma.document.findMany({
++        where: { entityType: "LEGAL_DOCUMENT", entityId: { in: ouvertes.map((d) => d.id) } },
++        include: { uploadedBy: { select: { name: true } } }, orderBy: { createdAt: "desc" },
++      })
++    : [];
++  const parPiece = new Map<string, DocItem[]>();
++  for (const f of fichiers) {
++    const l = parPiece.get(f.entityId) ?? [];
++    l.push({
++      id: f.id, name: f.name, category: f.category, version: f.version, sizeBytes: f.sizeBytes,
++      confidentiality: f.confidentiality, uploadedBy: f.uploadedBy?.name ?? null,
++      createdAt: f.createdAt.toISOString(), hasFile: Boolean(f.fileKey),
++    });
++    parPiece.set(f.entityId, l);
++  }
++
++  const lignes: LignePieceDemande[] = ouvertes.map((d) => {
++    const st = d.kind === "INVOICE" && d.status !== "CANCELLED"
++      ? INVOICE_SETTLEMENT[invoiceSettlementState(d)]
++      : LEGAL_DOC_STATUS[d.status];
++    return {
++      id: d.id, nature: natureLegale(d.kind), titre: d.title, reference: d.reference,
++      montant: d.amount !== null ? toNumber(d.amount) : null,
++      statut: st ? { label: st.label, tone: st.tone } : null,
++      fiche: !horsFiche.has(d.id),
++      plateforme: fichiersEmis(d.custom),
++      documents: parPiece.get(d.id) ?? [],
++    };
++  });
++
++  return { lignes, masquees: candidats.length - lignes.length, nonLues: total - candidats.length, total };
++}
+diff --git a/src/lib/rbac.ts b/src/lib/rbac.ts
+index fe707f6..3ec2467 100644
+--- a/src/lib/rbac.ts
++++ b/src/lib/rbac.ts
+@@ -1351,6 +1351,29 @@ export function annuaireOuvertParConsole(user: SessionUser, cle: AnnuaireAccorda
+   return ouvertParSection(faitsAnnuaire(user), cle, geste);
+ }
+ 
++/**
++ * ═══════════════════════════════════════════════════════════════════════════════════════════
++ * LE RÉFÉRENTIEL DES SPÉCIALITÉS — qui le gère (§118.180).
++ *
++ * Décision de la Direction (04/10/2026) : « donne la gestion/création des spécialités au directeur
++ * des opérations ». Les DEUX rôles qui portent ce nom (`DIRECTION`, « Direction des opérations », et
++ * `OPERATIONS_DIRECTOR`, « Directeur des Opérations » — la lecture de `promo-material/validateurs.ts`)
++ * gèrent tout le référentiel : créer, renommer, fusionner, retirer, rattacher un libellé hérité. Le
++ * second n'a de la Promotion médicale que la LECTURE : sans cette règle, il aurait vu l'onglet sans un
++ * seul bouton. Les autres gardent ce qu'ils avaient — le droit de la Promotion médicale, geste par geste.
++ *
++ * UNE lecture pour l'onglet, la page et les cinq actions : une porte qui recopierait la règle
++ * finirait par ouvrir un bouton que l'action refuse (§118.5, §118.83). Le rôle se lit principal OU
++ * secondaire (`hasRole`), comme les autres lectures du « directeur des opérations ».
++ * ═══════════════════════════════════════════════════════════════════════════════════════════
++ */
++export type GesteSpecialites = "VIEW" | "CREATE" | "UPDATE" | "DELETE";
++
++export function peutGererSpecialites(user: SessionUser, geste: GesteSpecialites): boolean {
++  if (hasRole(user, "DIRECTION") || hasRole(user, "OPERATIONS_DIRECTOR")) return true;
++  return userCan(user, "MEDICAL", geste);
++}
++
+ /**
+  * ═══════════════════════════════════════════════════════════════════════════════════════════
+  * BD › PROJETS — un module à part, réglé depuis la console (§118.163).

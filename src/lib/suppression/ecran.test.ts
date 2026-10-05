@@ -18,7 +18,9 @@ const FENETRE = "src/components/shared/super-admin-delete.tsx";
 describe("Écran — la fenêtre de confirmation lit l'aperçu", () => {
   it("elle appelle l'aperçu à l'ouverture, et le bouton ne s'arme ni pendant la lecture ni sur un refus", () => {
     const src = code(FENETRE);
-    expect(src).toContain("apercuDeSuppression(fd)");
+    // L'aperçu est injectable (le banc d'écran le remplace) ; son défaut EST l'action canonique.
+    expect(src).toMatch(/apercuer = apercuDeSuppression/);
+    expect(src).toContain("apercuer(fd)");
     const arme = src.match(/const armable = ([^;]+);/)?.[1] ?? "";
     expect(arme, "le bouton doit attendre la lecture").toContain("!enLecture");
     expect(arme, "un refus doit désarmer le bouton — pas un geste offert puis retiré (§118.83)").toContain("!refus");

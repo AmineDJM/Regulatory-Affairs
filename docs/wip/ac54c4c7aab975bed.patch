@@ -1,0 +1,1664 @@
+diff --git a/CLAUDE.md b/CLAUDE.md
+index 92d0be4..a42beeb 100644
+--- a/CLAUDE.md
++++ b/CLAUDE.md
+@@ -1788,3 +1788,21 @@ Versionnés : `graphify-out/{graph.json, graph.html, GRAPH_REPORT.md, .graphify_
+ **Un acteur pour chaque question (§118.153).** « Pour qui l'ai-je vérifié ? » : la Direction Marketing (sans vue globale, sans écriture sur les deux modules — prémisses vérifiées), le Manager Promotion médicale, un compte à la Promotion médicale retirée par la console (il lit la Force de vente, la règle le refuse : page, onglet, cinq actions), la Logistique (aucune des deux). Un rôle qui a la Force de vente sans la Promotion médicale n'existe pas dans la matrice par défaut : c'est la console qui le fabrique, et le banc le fabrique de même. **Ce qui reste, nommé** : un compte dont la Promotion médicale est retirée mais qui reste Direction Marketing gère le référentiel (la règle est un rôle, comme pour les directeurs des opérations) ; ses comptes de fiches (« N praticiens ») et le rattachement d'un libellé se lisent dans sa portée `MEDICAL` — sans module, ils valent zéro. Les délégués et le National Sales, qui contribuent à la Promotion médicale, voient aussi l'onglet (lecture et leurs gestes de contribution, comme dans Annuaires) : une seule règle pour les deux écrans.
+ 
+ 210. **« Voir comme cet utilisateur » : il fallait rafraîchir, sortir et rentrer — la session lisait un en-tête qui ne dit pas ce qu'elle croyait.** §118.184 a fait de la vue exacte une VUE : une requête qui ÉCRIT part au nom du Super Admin. Pour reconnaître une action serveur, la session lisait l'en-tête `Next-Action`. Mais une action qui `redirect()` ne renvoie pas une redirection : Next rend la page cible DANS la réponse de l'action, en rejouant les en-têtes de la requête, `Next-Action` compris (`createRedirectRenderResult`, `getForwardedHeaders`). La page d'arrivée se rendait donc comme celle de l'administrateur, sans bandeau ; seul un rechargement — une vraie requête GET — montrait la vue. Même défaut après toute action qui revalide la page affichée. **Mesuré avant de corriger**, par le clic réel contre le build de production : sans rechargement, 0 bandeau ; après rechargement, 1 (`e2e/vue-exacte.spec.ts`, rouge avant, vert après). L'en-tête dit « cette requête VIENT d'une action », pas « le code qui tourne est celui de l'action » ; le fait juste est le stockage asynchrone que Next pose autour du seul corps de l'action (`actionAsyncStorage`, `isAction`), le même que `cookies().set` et `redirect` lisent. Un seul endroit décide (`actionServeurEnCours`, `lib/session.ts`) : tous les rendus qui suivent une action lisent la vue. **Un test unitaire ne pouvait pas le voir** (le défaut est dans ce que Next fait ENTRE l'action et la page) ; le banc unitaire joue désormais les deux situations avec le vrai stockage et tient le point d'appel (§118.49). Quatre sabotages, quatre chutes.
++
++211. **« Les entités en haut, et trois types de demandes par entité » — la section d'un paiement se lit sur son ORIGINE, et deux « porteurs » n'ont pas d'origine à eux.** Décision de la Direction (05/10) pour le centre de paiement : une barre d'entités en haut, le changement d'entité dans la page, et sous l'entité choisie trois sections — Regulatory, Sales & Marketing, Autres. La liste d'avant groupait par société sur place ; la demande est une AUTRE disposition, pas un autre droit : le siège, les deux issues, la double lecture montant/bénéficiaire (§118.191) et le cloisonnement ne bougent pas.
++
++**LE FAIT QUI CLASSE EST DÉJÀ EN BASE, ET IL N'EST PAS UN LIBELLÉ.** `ExpenseOrder.sourceType` dit d'où vient la dépense ; le pôle d'un type d'origine est celui que le MENU lui donne (`labels.ts`, `pole:`). `lib/payments/sections-centre.ts` (pur, zéro import — `import type` s'efface) porte `SECTION_DU_TYPE: Record<EntityType, SectionCentre>` : un type d'origine ajouté demain NE COMPILE PAS tant que personne n'a dit où son argent se décide (§118.130), et un banc la rejoue sur CHAQUE valeur de l'énumération du schéma, plus sur chaque `sourceType` littéral que le code écrit à côté d'un `createExpenseOrder` (une source neuve force une décision écrite dans le banc, indépendamment de la table du module : si les deux divergent, il tombe). Décisions, avec leur raison : dossier réglementaire, taxes, fournisseurs, **information médicale** → Regulatory (rangée au pôle Regulatory depuis §118.118) ; sponsoring, postes Ad & Pro, congrès, événements, matériel promotionnel, consulting Ad & Pro, promotion médicale, force de vente, ventes → Sales & Marketing ; paie, avance sur salaire, Legal, RH, chaîne d'approvisionnement, business development → Autres. **La table est ÉCRITE, pas dérivée du menu** : le pôle d'une entrée de menu et la section d'un paiement sont deux décisions qui peuvent diverger un jour, et c'est ici qu'on le dira.
++
++**TROIS TYPES NE SONT PAS UNE ORIGINE, ILS EN PORTENT UNE.** Une demande de paiement déposée à la main, une demande au secrétariat, une pièce du registre Legal (la facture d'un BC) sont des PORTEURS : `ExpenseOrder.sourceType` y vaut « la demande », jamais ce qu'elle paie. Les classer sur leur propre type aurait rangé dans « Autres » la moitié de Sales & Marketing (`PAYMENT_REQUEST` est devenu la source la plus fréquente depuis que le centre est le guichet unique, §118.176). Un porteur se classe donc sur l'origine qu'il DÉCLARE (`PaymentRequest.entityType`, `AdministrativeRequest.linkedEntityType`, `LegalDocument.sourceType`), lue en trois requêtes par lot, jamais une par ordre — et **un seul niveau** : un porteur dont l'origine est un autre porteur ne se suit pas plus loin, c'est deviner. Un contrat de consulting n'a pas de section fixe : son PÔLE le dit (§118.150), passé aux RH il se paie dans « Autres ».
++
++**« AUTRES » EST LE SEUL REPLI, ET IL SE COMPTE.** Un ordre sans type d'origine (une remise de caisse) ou un porteur muet tombe dans « Autres » faute de mieux ; `classerOrdre` rend `{ section, repli }` et l'écran dit combien de lignes de la section y sont par REPLI — « Autres » ne doit jamais se lire comme « ce qu'on a décidé de ranger là » quand c'est « ce qu'on n'a pas su lire » (§118.52). La paie, elle, est une origine DÉCIDÉE : elle est dans « Autres » sans être un repli, et un banc tient la différence.
++
++**L'ENTITÉ SE CHOISIT DANS LA PAGE, JAMAIS SUR UNE VALEUR LUE TELLE QUELLE (§118.177).** La liste suivait le sélecteur de la barre supérieure (`companyScopedWhere`). Elle lit maintenant toutes les sociétés auxquelles la personne a DROIT (`ficheScopedWhere`) — le même ensemble que la vue d'avant n'élargit pas — et une pastille par société (`getMyCompanies`), avec ses décisions en attente. `?entite=` n'est qu'une DEMANDE : `choisirEntite` ne la retient que si elle désigne une pastille PRÉSENTE ; une valeur forgée ou périmée ne désigne rien et retombe sur la préférence (le cookie, VALIDÉ par `myCompanyScope`, jamais lu brut), puis sur l'entité qui attend le plus de décisions. Un siège rattaché à UNE société ne voit pas la pastille de l'autre, et la demander dans l'adresse n'ouvre rien : le banc la demande, par chaque section. **Une ligne SANS entité reste visible** (§118.154) dans sa pastille « Sans entité » ; une société désactivée qui porte encore des ordres garde la sienne, dite « (désactivée) » — la perdre ferait disparaître de l'argent en attente.
++
++**LES COMPTES SONT EXACTS, LA LISTE EST BORNÉE ET LE DIT (§118.60).** Les comptes de pastilles et de sections se calculent sur toutes les lignes (cinq colonnes légères), pas sur les trois cents que l'écran affiche ; la liste s'arrête à 300 et la phrase dit combien de paiements plus anciens ne sont pas montrés. La lecture légère est non bornée : c'est le prix de l'exactitude, et elle se comptera en millisecondes tant que le parc d'ordres se compte en milliers ; au-delà, c'est une agrégation SQL par (société, origine, statut) pour les non-porteurs — nommée plutôt que faite.
++
++**UN GESTE QUI CHANGE D'ÉTAT FERME SES BOUTONS JUSQU'À CE QUE LES DONNÉES SOIENT À L'ÉCRAN (§118.172).** Le tableau appelait `router.refresh()` à nu après chaque décision : un second clic sur « Autoriser » partait sur l'état d'avant. Il passe par `useRafraichir`, et Autoriser, Refuser et Répondre se ferment pendant `enCours` — un cliquet en tient les trois points d'appel. **Et en le branchant, le cliquet du parc a montré un plafond qui n'était plus le mesuré** : 340 annoncés pour 334 réels, six crans de marge que personne n'avait repris (§118.79c, §118.148 : on mesure les cliquets à CHAQUE lot, y compris ceux qu'on n'a pas touchés). Le plafond est ramené à 332 — et le sabotage qui le descend d'un cran tombe, ce qui prouve la marge zéro.
++
++**VINGT-HUIT SABOTAGES, ÉCRITS AVANT D'ÊTRE JOUÉS ; TROIS SONT D'ABORD PASSÉS, ET AUCUN N'ÉTAIT UN TROU DU BANC.** Au premier passage, 25 tombent chacun sur son témoin (dont deux sur d'autres témoins que celui que j'avais nommé : les comptes d'une section sont les mêmes si l'on inverse les deux pôles de consulting — seule la LISTE des identifiants les distingue ; le sabotage « entité ignorée » ne fait pas tomber la pastille mais les sections, qui se calculent sur l'entité choisie). Trois passent : (a) « la pastille courante ne se dit plus » — l'ancre apparaît DEUX fois dans le fichier et le script n'en remplaçait qu'une : un sabotage à moitié appliqué n'est pas un sabotage passé (§118.139) ; rejoué en remplaçant tout, il tombe ; (b) « le plafond des appels nus à zéro de marge » — il PASSAIT parce que le plafond n'était pas le mesuré (voir plus haut) : le sabotage a trouvé le défaut du cliquet, pas du produit ; (c) « le cookie brut est relu » — mon sabotage écrivait `void getCompanyScope;` sans l'APPEL, et le cliquet cherche l'appel : mal formé, refait avec `getCompanyScope()`, il tombe. Restauration par copie, empreinte de l'arbre identique avant et après.
++
++**CE QUI RESTE, NOMMÉ.** (1) `decidePayment` ne juge PAS l'entité de l'ordre : un siège rattaché à Alpha qui forge l'identifiant d'un ordre de Beta peut le trancher — c'était vrai avant ce lot (la LISTE était cloisonnée, l'action non), il n'est pas élargi, et le fermer est une décision de permission (un siège nommé a-t-il vocation à trancher hors de sa société ?) qui revient à la Direction ; rien ne l'empêche d'être fermé en une ligne (`entitePermisePourFiche`). (2) Les anciens liens de notification (`/centre-de-paiement`, sans paramètre) ouvrent l'entité de la personne, ou celle qui attend le plus : un paiement d'une autre société n'est plus « sous les yeux » à l'arrivée, il est à une pastille — c'est ce que la demande dit. (3) Trois specs navigateur (`finances-centre`, `correction-c4c`, la nouvelle) ouvrent désormais l'entité et la section par adresse ; toute spec qui ouvrirait `/centre-de-paiement` nu pour y retrouver SON ordre peut tomber sur une autre pastille.
+diff --git a/README.md b/README.md
+index bdb7d72..cf99241 100644
+--- a/README.md
++++ b/README.md
+@@ -206,7 +206,7 @@ logistique** et **Market Intelligence** sont **retirés du service** depuis 2026
+ | **Catalogue promotionnel** | `/stock-promotionnel/catalogue` | Onglet du Stock promotionnel (module `PROMO_CATALOG`) : **les supports** (fiche POSO, ADV, stylos, présentoir, banner, vidéo…), chacun sous une référence **fixe** `CAT-0001`, rangés en trois familles (consommable, durable, numérique) ; on en ajoute ensuite (nom, famille, « existe par produit » — rien d'autre, §118.173). Tenu par le Super Admin, ouvert **en lecture ou en écriture personne par personne** (Administration › Accès). |
+ | **Budgets & enveloppes** | `/budgets` | **Enveloppes budgétaires** (Super Admin, délégable) : période, **modules rattachés**, **catégories + sous-catégories**, **budget total** fixe ou flexible, **allocation** des dépenses validées, **vue consolidée** du total de toutes les enveloppes, **accès par rôle ET par personne**. → [détails](#-budgets-enveloppes--sous-catégories) |
+ | **Finances** | `/finances/paiements-a-faire` | **DEUX SOUS-MODULES** : **Banque & paiements** (`/finances/paiements-a-faire` — le **Solde trésorerie = somme des comptes − paiements autorisés à régler** (§118.176) et le détail par compte, puis la file du décaissement, alimentée **exclusivement** par le centre de paiement) et **Comptabilité** (`/finances/comptabilite` — le livre, l'import, les **comptes de trésorerie ANCRÉS** — banque, RIB, entité, et le solde d'un relevé à une date, jamais réécrit : le solde d'un compte = cet ancrage + les écritures réglées postérieures —, et ce que le DAF doit encore arbitrer). Les **Bons de commande** ne sont plus un sous-module des Finances : c'est un module à part (Administration › Bons de commande). Le **Dashboard a été supprimé** (2026-09) : il ne portait aucun geste. Cliquer « Finances » mène à « Banque & paiements » ; `/finances` redirige. « Demander l'actualisation des soldes » est réservé au **Super Admin** (écran, action serveur et Adam). Les **factures** ne sont pas ici : ce sont des documents légaux de nature « facture » (`/legal?nature=INVOICE`), et la comptabilité y garde sa porte. Aucun paiement n'arrive ici sans être **autorisé par le centre**, quel que soit son montant. |
+-| **Centre de paiement** | `/centre-de-paiement` | **Module À PART, hors Finances** (y **siègent** le PDG — rôle `DIRECTION` —, le Super Admin et les **sièges nommés** par lui, `PaymentCentreSeat` ; cocher le module `PAYMENT_CENTRE` ne fait pas siéger) : celui qui **autorise** l'argent n'est pas dans l'écran de celui qui le **décaisse**. **GUICHET UNIQUE** : aucun paiement n'atteint les Finances sans autorisation, **quel que soit le montant et le module** — plus de seuil, et une seule exception assumée : la **rallonge** de caisse d'avance (`horsCentre()`). Une demande de paiement y entre **dès sa soumission**, avant l'instruction des Finances. **Deux issues** (autoriser · refuser) — la révision du montant et l'argumentation ont été retirées ; un dossier qui les portait se reprend par la réponse du demandeur. **La paie** (un envoi par entité et par mois, avec la somme des salaires à virer) et **la remise de caisse d'avance** y passent depuis le 01/10 (§118.176). → [détails](#centre-de-paiement--rien-ne-sort-quel-que-soit-le-montant-sans-son-autorisation) |
++| **Centre de paiement** | `/centre-de-paiement` | **Module À PART, hors Finances** (y **siègent** le PDG — rôle `DIRECTION` —, le Super Admin et les **sièges nommés** par lui, `PaymentCentreSeat` ; cocher le module `PAYMENT_CENTRE` ne fait pas siéger) : celui qui **autorise** l'argent n'est pas dans l'écran de celui qui le **décaisse**. **GUICHET UNIQUE** : aucun paiement n'atteint les Finances sans autorisation, **quel que soit le montant et le module** — plus de seuil, et une seule exception assumée : la **rallonge** de caisse d'avance (`horsCentre()`). Une demande de paiement y entre **dès sa soumission**, avant l'instruction des Finances. **Deux issues** (autoriser · refuser) — la révision du montant et l'argumentation ont été retirées ; un dossier qui les portait se reprend par la réponse du demandeur. **La paie** (un envoi par entité et par mois, avec la somme des salaires à virer) et **la remise de caisse d'avance** y passent depuis le 01/10 (§118.176). **Disposition (05/10, §118.211)** : les **entités en haut** (une pastille par société que la personne voit, avec ses décisions en attente ; `?entite=`, changement sans rechargement), et sous l'entité **trois sections — Regulatory · Sales & Marketing · Autres** — rangées d'après l'**origine** de la dépense (`payments/sections-centre.ts`), jamais d'après un libellé ; « Sans entité » garde les ordres non rattachés. → [détails](#centre-de-paiement--rien-ne-sort-quel-que-soit-le-montant-sans-son-autorisation) |
+ | **Centre de validation Ad & Pro** | `/centre-ad-pro` | **Module À PART** (RBAC `AD_PRO_CENTRE` — **Direction Générale + Super Admin**, et personne d'autre : la Direction et la Direction Marketing ARBITRENT déjà les demandes dans leur circuit, leur ouvrir le centre reviendrait à s'autoriser elles-mêmes le dépassement qu'elles ont proposé). **Toute demande Ad & Pro dont le budget total dépasse le seuil y passe** (sauf, sur les quatre circuits configurables, celle du rang le plus haut — Direction, DG, Directeur des Opérations, Super Admin —, dont la route saute la porte du DG) — les SEPT natures du pôle, mesurées : 5 avaient déjà une porte (l'étape `dg` des quatre circuits configurables, l'étape `REVIEW_DG` du matériel promotionnel), **le consulting et les « autres demandes » n'en avaient AUCUNE** et un engagement de 5 M DZD sortait sans que personne en haut l'ait vu. **Le seuil se règle DEPUIS le centre** (le même chiffre qu'Administration › Réglages — un seul réglage, cinq lecteurs). Le centre est une **LENTILLE**, pas une seconde autorisation : il montre les trois formes de porte au même endroit et décide là où la porte est un VISA ; pour une étape de circuit il renvoie au dossier, parce qu'une décision se prend devant ses pièces. → [détails](#centre-de-validation-ad--pro--toute-demande-au-dessus-du-seuil-y-passe) |
+ | **Centre de validations** | `/centre-de-validations` | **Module À PART** (`VALIDATION_CENTRE`), le pendant du centre de paiement côté décisions : le **Directeur Général** et le **Super Admin** (`sitsOnValidationCentre` — cocher le module ne suffit pas) y trouvent **seulement** ce qu'on attend d'eux, avec le contexte, les pièces (aperçu) et le lien vers la demande source ; c'est notamment là que passent les **bons de commande hors Ad & Pro** au-dessus du seuil. On demande et on suit ses validations dans « Demandes de validations » ; ici, on décide. |
+ | **Bons de commande** | `/bons-de-commande` | **Module À PART** (`PURCHASE_ORDERS`, depuis le 01/10 — l'ancienne adresse sous les Finances redirige) : la file des BC **à signer** (validés par leur centre, ou sous le seuil des BC), la pièce à lire, **Signer** ou **Renvoyer à l'émetteur**. « Voir » ouvre la file, « Modifier » est le droit de signer — par défaut Direction, Directeur Général et Finances ; le Directeur des Opérations la lit. Le compositeur de pièces y a son bouton. → [détails](#bons-de-commande--le-seuil-puis-la-signature-des-finances-118149) |
+@@ -4861,7 +4861,7 @@ entité) sont éligibles. Supprimer une gamme **ne supprime aucun produit** (`SE
+ | **Legal — coordonnées légales & fiscales** | Modèle `CompanyLegalIdentity` + `EntityType.COMPANY` ; module PUR `lib/legal/identity.ts` (`IDENTITY_SECTIONS`, `identityBlock`, `filledCount`) + tests ; `lib/actions/company-identity-actions.ts` ; `app/(app)/legal/identites/`. |
+ | **Siège nommé au centre de paiement** | `PaymentCentreSeat` (userId unique, `grantedById`, `grantedAt`, `note` obligatoire) ; règle dans `sitsOnPaymentCentre` ; résolution **une fois par requête** dans `getAccess` → `EffectiveAccess.paymentCentreSeat` (la règle est SYNCHRONE et appelée depuis l'écran, l'action, l'assistant et la recherche — elle ne peut pas lire la base), qui ouvre AUSSI le module `PAYMENT_CENTRE` (un droit qu'on n'atteint qu'en connaissant l'URL n'est pas un droit accordé) ; actions `grantPaymentCentreSeat` / `revokePaymentCentreSeat` (`lib/actions/payment-centre-seat-actions.ts`, **Super Admin seul** — siéger ne donne pas le droit d'élargir le cercle) ; écran `app/(app)/admin/access/payment-centre-seats.tsx`, qui montre les deux titres ENSEMBLE (rôle + désignation). **EXCLUDED de la parité Adam** : accorder cette autorisation, c'est donner le pouvoir d'engager l'argent de la société (§118-15). Refusés : compte système, compte désactivé, et ceux qui y siègent déjà par leur rôle. Migration `20261007090000_…`. |
+ | **Règlement — trois états** | Module PUR `lib/finance/settlement.ts` (`settlementState` · `checkDeferral` · `deferralNote` · `sortForSettlement`, 22 tests) : **non payé** (défaut) / **reporté à une date** / **payé**. Le report est une **DATE** (`ExpenseOrder.deferredUntil|deferredReason|deferredById|deferredAt`), jamais un statut — il **expire seul**, sans que personne ait à y penser, et l'ordre reste **dans la file**. Actions : `deferExpenseOrder` / `resumeExpenseOrder` (`lib/actions/expense-actions.ts`) ; ops Adam `defer_payment` / `resume_payment`. **SUPPRIMÉS** (écran + action + op) : `cancelExpenseOrder`, `requestBudgetRevision`, `resolveBudgetRevision` — l'ordre arrive autorisé par le centre, le rouvrir à la caisse défait une décision prise ailleurs (§118-7 : pas de porte dérobée). Migration `20261006090000_…` : les ordres `REVISION_REQUESTED` repassent `PENDING`, motif recopié en notes. |
+-| **Centre de paiement (guichet unique)** | Module PUR `lib/payments/authorization.ts` (`needsCentralAuthorization` — **toujours vrai**, `initialCentralStatus`, **`canDisburse`** — le verrou réel —, `visibleToFinance`, `isHighValue` + `CENTRAL_AUTH_THRESHOLD_DZD` = 50 000 **en marqueur, plus en filtre**, `sitsOnPaymentCentre` (**`SUPER_ADMIN`, `DIRECTION`, ou un SIÈGE NOMMÉ** — pas le DG par son rôle), `PAYMENT_CENTRE_REFUSAL` (le refus, écrit une seule fois), `applyDecision`, `applyResubmission`, `blockedReason`) + `authorization.test.ts` (18 tests) ; `ExpenseOrder.centralStatus|proposedAmount|decidedById|decidedAt` + `PaymentCentreMessage` ; `createExpenseOrder` calcule le statut d'entrée et notifie `DIRECTION` + `SUPER_ADMIN` (`lib/expense-orders.ts`) ; **la demande de paiement crée son ordre à la SOUMISSION** (`lib/actions/payment-request-actions.ts`) ; garde dans `settleExpenseOrder` (`lib/actions/expense-actions.ts`) ; `lib/actions/payment-centre-actions.ts` ; `app/(app)/centre-de-paiement/`. Migrations `20260824150000_payment_centre` puis `20261002140000_centre_guichet_unique`. **§118.148** : `statutApresNouveauMontant` (une hausse rouvre l'autorisation), `lib/payments/reglement.ts` (`etatDeLOrdre`, `chantierPaiementClos`), registre `PAYMENT_PATHS.centre` + `horsCentre()` (`lib/finances/settlement.ts`), cliquet des écrivains `lib/payments/centre-ecrivains.test.ts`, banc `centre-portes-flow.test.ts`. |
++| **Centre de paiement (guichet unique)** | Module PUR `lib/payments/authorization.ts` (`needsCentralAuthorization` — **toujours vrai**, `initialCentralStatus`, **`canDisburse`** — le verrou réel —, `visibleToFinance`, `isHighValue` + `CENTRAL_AUTH_THRESHOLD_DZD` = 50 000 **en marqueur, plus en filtre**, `sitsOnPaymentCentre` (**`SUPER_ADMIN`, `DIRECTION`, ou un SIÈGE NOMMÉ** — pas le DG par son rôle), `PAYMENT_CENTRE_REFUSAL` (le refus, écrit une seule fois), `applyDecision`, `applyResubmission`, `blockedReason`) + `authorization.test.ts` (18 tests) ; `ExpenseOrder.centralStatus|proposedAmount|decidedById|decidedAt` + `PaymentCentreMessage` ; `createExpenseOrder` calcule le statut d'entrée et notifie `DIRECTION` + `SUPER_ADMIN` (`lib/expense-orders.ts`) ; **la demande de paiement crée son ordre à la SOUMISSION** (`lib/actions/payment-request-actions.ts`) ; garde dans `settleExpenseOrder` (`lib/actions/expense-actions.ts`) ; `lib/actions/payment-centre-actions.ts` ; `app/(app)/centre-de-paiement/`. Migrations `20260824150000_payment_centre` puis `20261002140000_centre_guichet_unique`. **§118.148** : `statutApresNouveauMontant` (une hausse rouvre l'autorisation), `lib/payments/reglement.ts` (`etatDeLOrdre`, `chantierPaiementClos`), registre `PAYMENT_PATHS.centre` + `horsCentre()` (`lib/finances/settlement.ts`), cliquet des écrivains `lib/payments/centre-ecrivains.test.ts`, banc `centre-portes-flow.test.ts`. **§118.211 (entités puis sections)** : règle PURE `lib/payments/sections-centre.ts` (`SECTION_DU_TYPE: Record<EntityType, …>`, `classerOrdre`, porteurs d'origine, `choisirEntite`, `choisirSection`), chargeur `lib/queries/centre-paiement.ts` (`chargerCentre`, comptes exacts, `ficheScopedWhere`), écran `centre-de-paiement/{page,centre-navigation,centre-board}.tsx` ; bancs `payments/sections-centre.test.ts`, `queries/centre-paiement.test.ts`, `e2e/centre-paiement-entites.spec.ts`. |
+ | **Finances du 01/10 — comptes ancrés, paie et caisse par le centre (§118.176)** | Trésorerie PURE `lib/finance/tresorerie.ts` (`soldesTresorerie` — ancrage + écritures réglées POSTÉRIEURES, `disponible` = comptes − autorisés) et `lib/finance/comptes.ts` (le compte d'une écriture, figé à l'écriture) ; lecture unique `chargerTresorerie` (`lib/queries/finance.ts`, clause `ORDRES_AUTORISES_NON_REGLES`) ; écran `app/(app)/finances/comptes-tresorerie.tsx` ; cliquet `lib/finance/ecrivains-tresorerie.test.ts`. Paie : règles PURES `lib/hr/virement-paie.ts` (`etatVirement`, `etatSalaire`, `saisiAvantLeCentre`, `moisDeLEntite`, `lireSommeAVirer`, `clauseSalairesVersesANotifier`, `deMois`), `lib/hr/paie-centre.ts` (`solderVirementPaie`, `actualiserMasseSalariale`, `instantDuCentreDePaie`), action `payroll-hr-actions:envoyerPaieAuCentre`, modèle `PayrollWire`, `AppSetting.payrollCentreSince`, panneau `app/(app)/rh/paie/virements-paie.tsx`. Caisse : `lib/general-means/remise-centre.ts` (`etatRemise`, `refusConfirmationRemise`), `PettyCashAllotment.expenseOrderId`, suites du refus dans `payment-centre-actions.ts`. « À imputer » : `lib/finance/a-imputer.ts` (`clauseAImputer`, exclusion des versements de caisse par LIEN) + `app/(app)/budgets/suppression-a-imputer.tsx`. Bons de commande à part : `lib/chemins/bons-de-commande.ts`, `lib/bons-de-commande/signataires.ts`. Migrations `20261218090000_tresorerie_comptes_ancres`, `20261219090000_centre_paie_caisse`, `20261220090000_paie_avant_le_centre`. Bancs : `virement-paie.test.ts`, `remise-centre.test.ts`, `centre-paie-caisse-flow.test.ts` (vrais points d'entrée), `tresorerie(-flow).test.ts`, `a-imputer-flow.test.ts`, `module-a-part-flow.test.ts`, navigateur `e2e/finances-centre.spec.ts`. |
+ | **Bons de commande — seuil et signature des Finances (§118.149)** | Règle PURE `regle.ts` (`validationRequiseBC`, `motifSousLeSeuil`, geste `RETIRER`, `etapeBC`, `LIBELLE_ETAPE_BC`, `reserveEtapeBC`, `reserveDeLAiguillage`, `motifNonSignable`, `chantierBCClos` avec l'étape) ; `aiguillage.ts` (`CHEMIN_BC_A_SIGNER`, `notifierFinancesBCASigner`, entrée dans le circuit `bcCircuitAt`, signature retirée sur modification, `reaiguillerSurChangementDeSeuil`) ; `lib/bons-de-commande/etat.ts` (`etatsDesBC`, `etatDuBC`, `signalerSiASigner`) ; `lib/queries/bons-de-commande.ts` (`peutSignerBC`, `bcVisiblesWhere`, `fileBonsDeCommande`) ; `lib/actions/bc-signature-actions.ts` (`signerBonDeCommande` — surface humaine) ; `settings-actions:setBcValidationThreshold` ; ops `adpro_operation/set_bc_threshold` et `set_request_threshold` ; écran `app/(app)/bons-de-commande/` (module à part `PURCHASE_ORDERS` depuis §118.176 ; l'ancienne adresse `app/(app)/finances/bons-de-commande/` redirige) ; seuil au centre Ad & Pro ; `lib/queries/composition-pieces.ts` + `components/pieces/composer-piece.tsx`. Migration `20261127100000_bc_seuil_signature`. Bancs : `regle.test.ts` (50), `seuil-signature-flow.test.ts` (14, vrais points d’entrée). |
+ | **Bons de commande — un centre de validation pour chacun (§118.148)** | Règle PURE `lib/bons-de-commande/regle.ts` (socle : `centreDeLOrigine`, `etatDepuisValidation/Visa/Poste`, `gesteAiguillage` POSER/TRANSFERER/ROUVRIR/ACTUALISER/RIEN, `blocageParLeBC`, `reserveBC`, `chantierBCClos`) ; aiguillage `lib/bons-de-commande/aiguillage.ts` (`aiguillerBC` — ne lève jamais, `porteDuBC`, `portesDesBC`, `retirerPortesEnAttente`) appelé par toute création/modification/annulation/suppression d'un BC (Legal, renouvellement, secrétariat, fabrique, rattachement Ad & Pro) ; `adresserBCAuCentre` + op `legal_operation/submit_purchase_order` ; fiche `app/(app)/legal/[id]/bc-gate.tsx` ; lentille du centre Ad & Pro (`BC_POSTE` / `BC_LEGAL` / `BC_PROMO`) ; migrations `20261127090000_bc_par_les_centres`, `20261127091000_rallonge_caisse_ecriture`. Bancs : `regle.test.ts` (27), `aiguillage-flow.test.ts` (13, vrais points d'entrée). |
+diff --git a/e2e/centre-paiement-entites.spec.ts b/e2e/centre-paiement-entites.spec.ts
+new file mode 100644
+index 0000000..aff3c36
+--- /dev/null
++++ b/e2e/centre-paiement-entites.spec.ts
+@@ -0,0 +1,221 @@
++import { test, expect, type Page } from "@playwright/test";
++import { PrismaClient } from "@prisma/client";
++import bcrypt from "bcryptjs";
++import { E2E } from "./global-setup";
++import { cliquerDecisif } from "./decisif";
++
++/**
++ * ═══════════════════════════════════════════════════════════════════════════════════════════
++ * LE CENTRE DE PAIEMENT : LES ENTITÉS EN HAUT, TROIS SECTIONS DESSOUS (§118.211) — écrans réels,
++ * base réelle, aucun appel de modèle de leur fait.
++ *
++ * « Dans l'interface du centre de paiement, on aura les entités en haut, on pourra changer d'entité
++ * en haut, et ensuite chaque entité aura trois types de demandes de paiement : Regulatory /
++ * Sales & Marketing / Autres. »
++ *
++ * Les bancs de flux prouvent le chargeur et la règle de classement ; celui-ci prouve que l'ÉCRAN
++ * existe, se lit, change d'entité sans recharger la page, tient à 375 px et ne montre jamais la
++ * société qu'un siège n'a pas le droit de voir (§118.50). Deux personnes : le Super Admin (voit les
++ * deux sociétés — le témoin sans lequel « B est cachée » ne prouverait rien) et un siège du centre
++ * rattaché à UNE société, sans vue globale (§118.104).
++ *
++ * Décor propre à la spec (préfixe `__e2e9__`), retiré au début et à la fin.
++ * ═══════════════════════════════════════════════════════════════════════════════════════════
++ */
++
++const prisma = new PrismaClient({
++  datasources: { db: { url: process.env.DATABASE_URL ?? "postgresql://postgres:postgres@localhost:5432/amd_internal_os?schema=public" } },
++});
++
++const P = "__e2e9__";
++const SA_EMAIL = `${P}sa@test.dz`;
++const SIEGE_EMAIL = `${P}siege@test.dz`;
++const ALPHA = `${P}Alpha`;
++const BETA = `${P}Beta`;
++const L = {
++  aReg: `${P} Taxe ANPP Alpha`,
++  aSm: `${P} Sponsoring congrès Alpha`,
++  aAu: `${P} Loyer Alpha`,
++  bReg: `${P} Taxe ANPP Beta`,
++  bSm: `${P} Sponsoring congrès Beta`,
++};
++
++let alphaId = "";
++let betaId = "";
++let siegeId = "";
++let saId = "";
++
++async function login(page: Page, email: string) {
++  await page.goto("/login");
++  await page.getByLabel(/e-?mail/i).fill(email);
++  await page.getByLabel(/mot de passe/i).fill(E2E.password);
++  await page.getByRole("button", { name: /connexion|se connecter/i }).click();
++  await page.waitForURL((url) => !url.pathname.startsWith("/login"), { timeout: 60_000 });
++}
++
++/** Naviguer PUIS attendre l'hydratation : un clic posé avant ne fait rien (§118.168). */
++async function aller(page: Page, url: string) {
++  await page.goto(url);
++  await page.waitForLoadState("networkidle");
++}
++
++async function sansDebordement(page: Page) {
++  const { scroll, largeur } = await page.evaluate(() => ({ scroll: document.documentElement.scrollWidth, largeur: window.innerWidth }));
++  expect(scroll, `la page déborde de ${scroll - largeur} px à ${largeur} px de large`).toBeLessThanOrEqual(largeur + 1);
++}
++
++async function nettoyer() {
++  const users = await prisma.user.findMany({ where: { email: { startsWith: P } }, select: { id: true } });
++  const ids = users.map((u) => u.id);
++  const entites = await prisma.company.findMany({ where: { name: { startsWith: P } }, select: { id: true } });
++  const entiteIds = entites.map((c) => c.id);
++  const ordres = await prisma.expenseOrder.findMany({ where: { OR: [{ label: { startsWith: P } }, { companyId: { in: entiteIds } }] }, select: { id: true } });
++  const ordreIds = ordres.map((o) => o.id);
++  await prisma.paymentCentreMessage.deleteMany({ where: { orderId: { in: ordreIds } } }).catch(() => {});
++  await prisma.paymentRequest.deleteMany({ where: { OR: [{ expenseOrderId: { in: ordreIds } }, { title: { startsWith: P } }] } }).catch(() => {});
++  await prisma.expenseOrder.deleteMany({ where: { id: { in: ordreIds } } });
++  await prisma.paymentCentreSeat.deleteMany({ where: { userId: { in: ids } } }).catch(() => {});
++  await prisma.notification.deleteMany({ where: { userId: { in: ids } } }).catch(() => {});
++  await prisma.auditLog.deleteMany({ where: { actorId: { in: ids } } }).catch(() => {});
++  await prisma.userCompanyAccess.deleteMany({ where: { userId: { in: ids } } }).catch(() => {});
++  await prisma.user.deleteMany({ where: { id: { in: ids } } });
++  await prisma.company.deleteMany({ where: { id: { in: entiteIds } } });
++}
++
++let seq = 0;
++async function ordre(label: string, o: { companyId: string; sourceType: string | null; sourceId?: string; amount: number }) {
++  await prisma.expenseOrder.create({
++    data: {
++      reference: `${P}OD-${++seq}`, label, amount: o.amount, category: "AUTRE", companyId: o.companyId,
++      sourceType: o.sourceType as never, sourceId: o.sourceId ?? null, centralStatus: "AWAITING", requestedById: saId,
++    },
++  });
++}
++
++test.describe.configure({ mode: "serial" });
++
++test.beforeAll(async () => {
++  await nettoyer();
++  const hash = await bcrypt.hash(E2E.password, 10);
++  const sa = await prisma.user.create({ data: { email: SA_EMAIL, name: `${P} Super Admin`, passwordHash: hash, role: "SUPER_ADMIN" } });
++  const siege = await prisma.user.create({ data: { email: SIEGE_EMAIL, name: `${P} Siège`, passwordHash: hash, role: "DIRECTION_ASSISTANT" } });
++  saId = sa.id; siegeId = siege.id;
++  alphaId = (await prisma.company.create({ data: { name: `${P} Alpha SARL`, shortName: ALPHA, sortOrder: 9001 } })).id;
++  betaId = (await prisma.company.create({ data: { name: `${P} Beta SARL`, shortName: BETA, sortOrder: 9002 } })).id;
++  // LE SIÈGE : nommé au centre, rattaché à la SEULE société Alpha, sans vue globale.
++  await prisma.userCompanyAccess.create({ data: { userId: siegeId, companyId: alphaId } });
++  await prisma.paymentCentreSeat.create({ data: { userId: siegeId, note: `${P} siège` } });
++
++  await ordre(L.aReg, { companyId: alphaId, sourceType: "REGULATORY_PRODUCT", sourceId: "x-reg", amount: 120_000 });
++  await ordre(L.aSm, { companyId: alphaId, sourceType: "SPONSORING", sourceId: "x-sp", amount: 340_000 });
++  await ordre(L.aAu, { companyId: alphaId, sourceType: "PAYROLL", sourceId: "x-paie", amount: 90_000 });
++  await ordre(L.bReg, { companyId: betaId, sourceType: "REGULATORY_PRODUCT", sourceId: "x-reg", amount: 55_000 });
++  await ordre(L.bSm, { companyId: betaId, sourceType: "SPONSORING", sourceId: "x-sp", amount: 77_000 });
++});
++
++test.afterAll(async () => {
++  await nettoyer();
++  await prisma.$disconnect();
++});
++
++test("LES ENTITÉS EN HAUT : une pastille par société avec ses décisions en attente, et trois sections dessous", async ({ page }) => {
++  await login(page, SA_EMAIL);
++  await aller(page, `/centre-de-paiement?entite=${alphaId}&section=regulatory`);
++  const entites = page.getByRole("navigation", { name: "Entités" });
++  await expect(entites.getByRole("link", { name: new RegExp(ALPHA) })).toBeVisible();
++  await expect(entites.getByRole("link", { name: new RegExp(BETA) })).toBeVisible();
++  // Alpha attend 3 décisions ; la pastille le dit, et celle d'Alpha est l'entité courante.
++  await expect(entites.getByRole("link", { name: new RegExp(ALPHA) })).toHaveAttribute("aria-current", "page");
++  await expect(entites.getByRole("link", { name: new RegExp(`${ALPHA}\\s*3`) })).toBeVisible();
++  await expect(entites.getByRole("link", { name: new RegExp(`${BETA}\\s*2`) })).toBeVisible();
++
++  const sections = page.getByRole("navigation", { name: "Types de demandes de paiement" });
++  for (const nom of ["Regulatory", "Sales & Marketing", "Autres"]) {
++    await expect(sections.getByRole("link", { name: new RegExp(nom.replace("&", "\\&")) })).toBeVisible();
++  }
++  await expect(sections.getByRole("link", { name: /Regulatory/ })).toHaveAttribute("aria-current", "page");
++  // Regulatory d'Alpha : sa taxe, et rien d'autre — ni le sponsoring, ni la paie, ni rien de Beta.
++  await expect(page.getByText(L.aReg).first()).toBeVisible();
++  await expect(page.getByText(L.aSm)).toHaveCount(0);
++  await expect(page.getByText(L.aAu)).toHaveCount(0);
++  await expect(page.getByText(L.bReg)).toHaveCount(0);
++});
++
++test("CHANGER D'ENTITÉ ET DE SECTION se fait EN HAUT, sans recharger la page — chaque section ne montre que ses lignes", async ({ page }) => {
++  await login(page, SA_EMAIL);
++  await aller(page, `/centre-de-paiement?entite=${alphaId}&section=regulatory`);
++  // Un marqueur posé dans la page : s'il survit, la navigation n'a PAS rechargé le document.
++  await page.evaluate(() => { (window as unknown as { __marqueur: string }).__marqueur = "vivant"; });
++
++  await page.getByRole("navigation", { name: "Types de demandes de paiement" }).getByRole("link", { name: /Sales & Marketing/ }).click();
++  await expect(page.getByText(L.aSm).first()).toBeVisible();
++  await expect(page.getByText(L.aReg)).toHaveCount(0);
++
++  await page.getByRole("navigation", { name: "Types de demandes de paiement" }).getByRole("link", { name: /Autres/ }).click();
++  await expect(page.getByText(L.aAu).first()).toBeVisible();
++  await expect(page.getByText(L.aSm)).toHaveCount(0);
++
++  // On passe à Beta : la section regardée est CONSERVÉE (on compare « Autres » d'une société à l'autre).
++  await page.getByRole("navigation", { name: "Entités" }).getByRole("link", { name: new RegExp(BETA) }).click();
++  await expect(page).toHaveURL(new RegExp(`entite=${betaId}`));
++  await expect(page).toHaveURL(/section=autres/);
++  await expect(page.getByRole("navigation", { name: "Entités" }).getByRole("link", { name: new RegExp(BETA) })).toHaveAttribute("aria-current", "page");
++  await expect(page.getByText(L.aAu)).toHaveCount(0);
++  await page.getByRole("navigation", { name: "Types de demandes de paiement" }).getByRole("link", { name: /Sales & Marketing/ }).click();
++  await expect(page.getByText(L.bSm).first()).toBeVisible();
++  await expect(page.getByText(L.aSm)).toHaveCount(0);
++
++  expect(await page.evaluate(() => (window as unknown as { __marqueur?: string }).__marqueur), "le document n'a pas été rechargé").toBe("vivant");
++});
++
++test("une entité forgée dans l'adresse ne désigne rien : la page s'ouvre sur une entité réelle, sans erreur", async ({ page }) => {
++  await login(page, SA_EMAIL);
++  await aller(page, "/centre-de-paiement?entite=n-importe-quoi&section=bidon");
++  await expect(page.getByRole("heading", { name: "Centre de paiement" }).first()).toBeVisible();
++  await expect(page.getByRole("navigation", { name: "Entités" }).locator('a[aria-current="page"]')).toHaveCount(1);
++  await expect(page.getByRole("navigation", { name: "Types de demandes de paiement" }).locator('a[aria-current="page"]')).toHaveCount(1);
++});
++
++test("SIÈGE RATTACHÉ À UNE SOCIÉTÉ : sa pastille, jamais celle de l'autre — même en la demandant dans l'adresse", async ({ page }) => {
++  await login(page, SIEGE_EMAIL);
++  await aller(page, `/centre-de-paiement?entite=${betaId}&section=regulatory`);
++  const entites = page.getByRole("navigation", { name: "Entités" });
++  await expect(entites.getByRole("link", { name: new RegExp(ALPHA) })).toBeVisible();
++  await expect(entites.getByRole("link", { name: new RegExp(BETA) }), "la société Beta ne lui est pas ouverte").toHaveCount(0);
++  await expect(page.getByText(L.bReg)).toHaveCount(0);
++  await expect(page.getByText(L.bSm)).toHaveCount(0);
++  // Elle tombe sur la sienne.
++  await expect(page.getByText(L.aReg).first()).toBeVisible();
++});
++
++test("LA DÉCISION RESTE LA MÊME : le siège autorise un paiement de sa société, et la base le dit", async ({ page }) => {
++  await login(page, SIEGE_EMAIL);
++  await aller(page, `/centre-de-paiement?entite=${alphaId}&section=sales-marketing`);
++  const ligne = page.locator("li").filter({ hasText: L.aSm }).filter({ has: page.getByRole("button", { name: "Autoriser" }) }).first();
++  await expect(ligne).toBeVisible();
++  await ligne.getByRole("button", { name: "Autoriser" }).click();
++  await cliquerDecisif(page.getByRole("dialog").getByRole("button", { name: "Autoriser le paiement" }));
++  await expect(page.getByRole("dialog")).toHaveCount(0, { timeout: 15_000 });
++  const apres = await prisma.expenseOrder.findFirstOrThrow({ where: { label: L.aSm }, select: { centralStatus: true } });
++  expect(apres.centralStatus).toBe("APPROVED");
++  // Le compte en attente de la pastille et de la section suit la décision.
++  await aller(page, `/centre-de-paiement?entite=${alphaId}&section=sales-marketing`);
++  await expect(page.getByRole("navigation", { name: "Entités" }).getByRole("link", { name: new RegExp(`${ALPHA}\\s*2`) })).toBeVisible();
++});
++
++test("AU TÉLÉPHONE (375 px) : la barre des entités défile dans son cadre, les trois sections tiennent, la page ne déborde pas", async ({ page }) => {
++  await page.setViewportSize({ width: 375, height: 800 });
++  await login(page, SA_EMAIL);
++  await aller(page, `/centre-de-paiement?entite=${alphaId}&section=autres`);
++  await sansDebordement(page);
++  const sections = page.getByRole("navigation", { name: "Types de demandes de paiement" });
++  for (const lien of await sections.getByRole("link").all()) {
++    const boite = await lien.boundingBox();
++    expect(boite && boite.x >= 0 && boite.x + boite.width <= 376, "chaque section est entièrement visible à 375 px").toBe(true);
++    expect(boite && boite.height >= 40, "cible tactile de 40 px au moins").toBe(true);
++  }
++  await expect(page.getByText(L.aAu).first()).toBeVisible();
++  await page.getByRole("navigation", { name: "Entités" }).getByRole("link", { name: new RegExp(BETA) }).click();
++  await expect(page).toHaveURL(new RegExp(`entite=${betaId}`));
++  await sansDebordement(page);
++});
+diff --git a/e2e/correction-c4c.spec.ts b/e2e/correction-c4c.spec.ts
+index 3f67ff3..6e38810 100644
+--- a/e2e/correction-c4c.spec.ts
++++ b/e2e/correction-c4c.spec.ts
+@@ -158,7 +158,7 @@ test("CORRIGER — le délégué relève le montant d'une demande renvoyée : la
+ 
+ test("LE CENTRE DÉCIDE SUR CE QU'IL A LU — un montant corrigé pendant la lecture se dit, avec les deux chiffres, et rien n'est autorisé", async ({ page }) => {
+   await login(page, EMAIL.sa);
+-  await aller(page, "/centre-de-paiement");
++  await aller(page, "/centre-de-paiement?entite=sans-entite&section=autres");
+   const ligne = page.locator("li").filter({ hasText: LIBELLE }).filter({ has: page.getByRole("button", { name: "Autoriser" }) }).first();
+   await expect(ligne).toBeVisible();
+   await ligne.getByRole("button", { name: "Autoriser" }).click();
+@@ -171,7 +171,7 @@ test("LE CENTRE DÉCIDE SUR CE QU'IL A LU — un montant corrigé pendant la lec
+   expect(apres.centralStatus, "un montant qu'on n'a pas vu ne s'autorise pas").toBe("AWAITING");
+ 
+   // TÉMOIN : relu, le même geste passe — la garde ne refuse pas tout.
+-  await aller(page, "/centre-de-paiement");
++  await aller(page, "/centre-de-paiement?entite=sans-entite&section=autres");
+   await page.locator("li").filter({ hasText: LIBELLE }).getByRole("button", { name: "Autoriser" }).first().click();
+   await cliquerDecisif(page.getByRole("dialog").getByRole("button", { name: "Autoriser le paiement" }));
+   await expect(page.getByRole("dialog")).toHaveCount(0, { timeout: 15_000 });
+diff --git a/e2e/finances-centre.spec.ts b/e2e/finances-centre.spec.ts
+index 8ec2464..adc49ca 100644
+--- a/e2e/finances-centre.spec.ts
++++ b/e2e/finances-centre.spec.ts
+@@ -332,7 +332,8 @@ test("CENTRE : la paie s'autorise comme tout paiement — et le solde de trésor
+   await aller(page, "/finances/paiements-a-faire");
+   const avant = await autorisesARegler(page);
+ 
+-  await aller(page, "/centre-de-paiement");
++  // L'entité se choisit EN HAUT (§118.211) : la paie de l'entité du décor se range dans « Autres ».
++  await aller(page, `/centre-de-paiement?entite=${companyId}&section=autres`);
+   const ligne = page.locator("li").filter({ hasText: LIBELLE_PAIE }).filter({ has: page.getByRole("button", { name: "Autoriser" }) }).first();
+   await expect(ligne).toBeVisible();
+   // L'origine s'ouvre : la paie de l'entité, là où se lit ce qui est saisi, envoyé, viré.
+diff --git a/src/app/(app)/centre-de-paiement/centre-board.tsx b/src/app/(app)/centre-de-paiement/centre-board.tsx
+index 72dd7d5..9477592 100644
+--- a/src/app/(app)/centre-de-paiement/centre-board.tsx
++++ b/src/app/(app)/centre-de-paiement/centre-board.tsx
+@@ -2,7 +2,7 @@
+ 
+ import * as React from "react";
+ import Link from "next/link";
+-import { useRouter } from "next/navigation";
++import { useRafraichir } from "@/components/shared/use-rafraichir";
+ import { ShieldCheck, ShieldX, MessageSquare, Coins, Loader2, Send, ChevronDown, ExternalLink } from "lucide-react";
+ import { decidePayment, respondToPaymentCentre } from "@/lib/actions/payment-centre-actions";
+ import {
+@@ -76,38 +76,35 @@ const TONE: Record<CentralStatus, BadgeTone> = {
+ /**
+  * LE CENTRE DE PAIEMENT — ce que le PDG voit avant que l'argent sorte.
+  *
+- * Une file par entité : « autoriser un paiement d'Adventum » et « autoriser un paiement de
+- * Pharmagène » sont deux gestes comptablement distincts, et les mélanger dans une seule liste fait
+- * perdre de vue combien chaque société engage.
++ * Une file par entité ET par section (§118.211) : « autoriser un paiement d'Adventum » et
++ * « autoriser un paiement de Pharmagène » sont deux gestes comptablement distincts, et la page
++ * choisit l'entité en haut puis l'une des trois sections — ce composant ne montre que CETTE file.
+  *
+- * Quatre issues, pas deux. Un refus sec oblige à tout refaire et fait perdre la discussion ; le
+- * centre peut aussi demander une RÉVISION DU MONTANT ou une ARGUMENTATION, et le demandeur répond
+- * dans le même fil — autant d'allers-retours qu'il en faut.
++ * Deux issues, pas quatre (décision de la Direction, 02/09/2026) : le centre AUTORISE ou REFUSE, et
++ * le montant se corrige dans la demande, avant d'arriver ici. Le demandeur répond dans le même fil.
++ *
++ * `useRafraichir` (§118.172) : après une décision, les gestes restent fermés tant que les nouvelles
++ * données ne sont pas à l'écran — un second clic sur l'état d'avant autoriserait deux fois.
+  */
+-export function CentreBoard({ orders, canDecide }: { orders: CentreOrder[]; canDecide: boolean }) {
+-  const router = useRouter();
++export function CentreBoard({
++  orders, canDecide, titre, total, nonAffiches,
++}: { orders: CentreOrder[]; canDecide: boolean; titre: string; total: number; nonAffiches: number }) {
++  const { enCours, rafraichir } = useRafraichir();
+   const [acting, setActing] = React.useState<{ order: CentreOrder; decision: CentralDecision } | null>(null);
+   const [replying, setReplying] = React.useState<CentreOrder | null>(null);
+   const [open, setOpen] = React.useState<string | null>(null);
+   const [busy, setBusy] = React.useState(false);
+   const [err, setErr] = React.useState<string | null>(null);
+ 
+-  // Par ENTITÉ — un centre par société, comme demandé.
+-  const groups = React.useMemo(() => {
+-    const map = new Map<string, CentreOrder[]>();
+-    for (const o of orders) {
+-      const key = o.companyLabel ?? "Sans entité";
+-      map.set(key, [...(map.get(key) ?? []), o]);
+-    }
+-    return [...map.entries()].sort((a, b) => a[0].localeCompare(b[0], "fr"));
+-  }, [orders]);
++  // UNE seule file : l'entité et la section sont déjà choisies par la page.
++  const groups: [string, CentreOrder[]][] = [[titre, orders]];
+ 
+   if (orders.length === 0) {
+     return (
+       <EmptyState
+         icon="ShieldCheck"
+-        title="Aucun paiement en attente d'autorisation"
+-        description="Tout paiement de la société arrive ici avant d'atteindre les Finances, quel que soit son montant."
++        title="Aucun paiement dans cette section"
++        description="Tout paiement de la société arrive ici avant d'atteindre les Finances, quel que soit son montant. Changez d'entité en haut, ou de section, pour voir les autres."
+       />
+     );
+   }
+@@ -122,7 +119,7 @@ export function CentreBoard({ orders, canDecide }: { orders: CentreOrder[]; canD
+             <div className="flex flex-wrap items-baseline justify-between gap-2">
+               <h2 className="flex items-center gap-2 text-sm font-semibold">
+                 <Coins className="h-4 w-4 text-primary" /> {company}
+-                <span className="text-xs font-normal text-muted-foreground">({list.length})</span>
++                <span className="text-xs font-normal text-muted-foreground">({total > list.length ? `${list.length} sur ${total}` : list.length})</span>
+               </h2>
+               {waiting.length > 0 && (
+                 <p className="text-xs text-muted-foreground">
+@@ -211,10 +208,10 @@ export function CentreBoard({ orders, canDecide }: { orders: CentreOrder[]; canD
+                             moduleLibelle={null}
+                             canAskValidation={false}
+                           />
+-                          <Button size="sm" onClick={() => { setErr(null); setActing({ order: o, decision: "APPROVE" }); }}>
++                          <Button size="sm" disabled={enCours} onClick={() => { setErr(null); setActing({ order: o, decision: "APPROVE" }); }}>
+                             <ShieldCheck className="h-4 w-4" /> Autoriser
+                           </Button>
+-                          <Button size="sm" variant="outline" className="text-destructive hover:bg-destructive/10" onClick={() => { setErr(null); setActing({ order: o, decision: "REFUSE" }); }}>
++                          <Button size="sm" variant="outline" disabled={enCours} className="text-destructive hover:bg-destructive/10" onClick={() => { setErr(null); setActing({ order: o, decision: "REFUSE" }); }}>
+                             <ShieldX className="h-4 w-4" /> Refuser
+                           </Button>
+                         </>
+@@ -222,7 +219,7 @@ export function CentreBoard({ orders, canDecide }: { orders: CentreOrder[]; canD
+ 
+                       {/* LE DEMANDEUR RÉPOND — c'est ce qui rend les allers-retours possibles. */}
+                       {o.isMine && awaitsRequester(o.centralStatus) && (
+-                        <Button size="sm" onClick={() => { setErr(null); setReplying(o); }}>
++                        <Button size="sm" disabled={enCours} onClick={() => { setErr(null); setReplying(o); }}>
+                           <Send className="h-4 w-4" /> Répondre et resoumettre
+                         </Button>
+                       )}
+@@ -246,6 +243,12 @@ export function CentreBoard({ orders, canDecide }: { orders: CentreOrder[]; canD
+                 );
+               })}
+             </ul>
++            {/* UNE COUPE SE DIT : le compte du titre est exact, la liste s'arrête aux plus récentes. */}
++            {nonAffiches > 0 && (
++              <p className="text-xs text-muted-foreground">
++                {nonAffiches} paiement{nonAffiches > 1 ? "s" : ""} plus ancien{nonAffiches > 1 ? "s" : ""} non affiché{nonAffiches > 1 ? "s" : ""} dans cette section.
++              </p>
++            )}
+           </section>
+         );
+       })}
+@@ -267,7 +270,7 @@ export function CentreBoard({ orders, canDecide }: { orders: CentreOrder[]; canD
+               fd.set("beneficiaireVu", acting.order.beneficiary ?? "");
+               const r = await decidePayment(fd);
+               setBusy(false);
+-              if (r.ok) { setActing(null); router.refresh(); } else setErr(r.error ?? "Échec.");
++              if (r.ok) { setActing(null); rafraichir(); } else setErr(r.error ?? "Échec.");
+             }}
+             className="space-y-4"
+           >
+@@ -324,7 +327,7 @@ export function CentreBoard({ orders, canDecide }: { orders: CentreOrder[]; canD
+               fd.set("id", replying.id);
+               const r = await respondToPaymentCentre(fd);
+               setBusy(false);
+-              if (r.ok) { setReplying(null); router.refresh(); } else setErr(r.error ?? "Échec.");
++              if (r.ok) { setReplying(null); rafraichir(); } else setErr(r.error ?? "Échec.");
+             }}
+             className="space-y-4"
+           >
+diff --git a/src/app/(app)/centre-de-paiement/centre-navigation.tsx b/src/app/(app)/centre-de-paiement/centre-navigation.tsx
+new file mode 100644
+index 0000000..49a5afa
+--- /dev/null
++++ b/src/app/(app)/centre-de-paiement/centre-navigation.tsx
+@@ -0,0 +1,90 @@
++import Link from "next/link";
++import { Building2 } from "lucide-react";
++import { cn, formatCurrency } from "@/lib/utils";
++import {
++  SECTION_CENTRE_LABEL, SECTION_CENTRE_SLUG, SECTIONS_CENTRE, type SectionCentre,
++} from "@/lib/payments/sections-centre";
++import type { EntiteDuCentre, SectionDuCentre } from "@/lib/queries/centre-paiement";
++
++const CHEMIN = "/centre-de-paiement";
++
++/** L'adresse d'une vue — l'entité ET la section, lisibles, partageables, et sans rechargement bloquant. */
++export function hrefCentre(entite: string | null, section: SectionCentre): string {
++  const p = new URLSearchParams();
++  if (entite) p.set("entite", entite);
++  p.set("section", SECTION_CENTRE_SLUG[section]);
++  return `${CHEMIN}?${p.toString()}`;
++}
++
++/**
++ * LES ENTITÉS EN HAUT (§118.211) — une pastille par société que la personne voit, avec ce qui y
++ * attend une décision. Changer d'entité est un lien : la page se remplace sans rechargement
++ * complet, et la section regardée est conservée (on compare « Regulatory » d'une société à l'autre).
++ * Sur téléphone, la rangée défile DANS son cadre — jamais la page.
++ */
++export function BarreEntites({ entites, choisie, section }: { entites: EntiteDuCentre[]; choisie: string | null; section: SectionCentre }) {
++  return (
++    <nav aria-label="Entités" className="-mx-1 overflow-x-auto px-1 pb-1">
++      <ul className="flex min-w-max gap-2">
++        {entites.map((e) => {
++          const active = e.cle === choisie;
++          return (
++            <li key={e.cle}>
++              <Link
++                href={hrefCentre(e.cle, section)} scroll={false}
++                aria-current={active ? "page" : undefined}
++                className={cn(
++                  "flex min-h-11 items-center gap-2 rounded-xl border px-3 py-2 text-sm font-medium transition-colors",
++                  active ? "border-primary bg-primary/10 text-foreground" : "border-border bg-background text-muted-foreground hover:bg-secondary hover:text-foreground",
++                )}
++              >
++                <Building2 className="h-4 w-4 shrink-0" aria-hidden />
++                <span className="whitespace-nowrap">{e.label}</span>
++                <span
++                  className={cn(
++                    "rounded-full px-2 py-0.5 text-xs tabular-nums",
++                    e.enAttente > 0 ? "bg-warning/15 font-semibold text-warning" : "bg-secondary text-muted-foreground",
++                  )}
++                  title={e.enAttente > 0 ? `${e.enAttente} en attente — ${formatCurrency(e.montantEnAttente)}` : "Rien en attente"}
++                >
++                  {e.enAttente}
++                </span>
++              </Link>
++            </li>
++          );
++        })}
++      </ul>
++    </nav>
++  );
++}
++
++/** LES TROIS SECTIONS d'une entité — Regulatory, Sales & Marketing, Autres, chacune avec son compte. */
++export function OngletsSections({ sections, choisie, entite }: { sections: SectionDuCentre[]; choisie: SectionCentre; entite: string | null }) {
++  return (
++    <nav aria-label="Types de demandes de paiement" className="grid grid-cols-3 gap-1.5 border-b border-border sm:flex sm:gap-1">
++      {SECTIONS_CENTRE.map((s) => {
++        const info = sections.find((x) => x.section === s)!;
++        const active = s === choisie;
++        return (
++          <Link
++            key={s}
++            href={hrefCentre(entite, s)} scroll={false}
++            aria-current={active ? "page" : undefined}
++            className={cn(
++              "flex min-h-11 flex-col items-center justify-center gap-0.5 border-b-2 px-2 py-1.5 text-center text-sm font-medium transition-colors sm:flex-row sm:gap-2 sm:px-3.5",
++              active ? "border-primary text-foreground" : "border-transparent text-muted-foreground hover:text-foreground",
++            )}
++          >
++            <span>{SECTION_CENTRE_LABEL[s]}</span>
++            <span className="flex items-center gap-1 text-xs tabular-nums">
++              <span className={cn("rounded-full px-1.5 py-0.5", info.enAttente > 0 ? "bg-warning/15 font-semibold text-warning" : "bg-secondary text-muted-foreground")} title="En attente d'une décision">
++                {info.enAttente}
++              </span>
++              <span className="text-muted-foreground" title="Tous les paiements de cette section">/ {info.total}</span>
++            </span>
++          </Link>
++        );
++      })}
++    </nav>
++  );
++}
+diff --git a/src/app/(app)/centre-de-paiement/page.tsx b/src/app/(app)/centre-de-paiement/page.tsx
+index ae57cbc..4e3e9ee 100644
+--- a/src/app/(app)/centre-de-paiement/page.tsx
++++ b/src/app/(app)/centre-de-paiement/page.tsx
+@@ -1,19 +1,18 @@
+ import { requireUser } from "@/lib/session";
+ import { prisma } from "@/lib/prisma";
+-import { companyScopedWhere } from "@/lib/company";
+ import { toNumber, formatCurrency } from "@/lib/utils";
+ import { PageHeader } from "@/components/shared/page-header";
+ import { KpiCard } from "@/components/shared/kpi-card";
+ import { EmptyState } from "@/components/shared/empty-state";
+-import {
+-  sitsOnPaymentCentre, awaitsCentre, CENTRAL_AUTH_THRESHOLD_DZD, PAYMENT_CENTRE_REFUSAL,
+-  type CentralStatus,
+-} from "@/lib/payments/authorization";
++import { CENTRAL_AUTH_THRESHOLD_DZD, PAYMENT_CENTRE_REFUSAL, type CentralStatus } from "@/lib/payments/authorization";
++import { SECTION_CENTRE_LABEL } from "@/lib/payments/sections-centre";
++import { chargerCentre } from "@/lib/queries/centre-paiement";
+ import { entityHref } from "@/lib/entity-href";
+ import { dossierHrefByOrder } from "@/lib/expense-orders";
+ import { existingSources } from "@/lib/entity-exists";
+ import { ENTITY_TYPE_LABELS } from "@/lib/labels";
+ import { CentreBoard, type CentreOrder } from "./centre-board";
++import { BarreEntites, OngletsSections } from "./centre-navigation";
+ 
+ export const dynamic = "force-dynamic";
+ export const metadata = { title: "Centre de paiement — AMD Internal OS" };
+@@ -38,36 +37,23 @@ export const metadata = { title: "Centre de paiement — AMD Internal OS" };
+  * Le CENTRE, ce sont les deux rôles du sommet **et les personnes nommément désignées** (siège
+  * nommé, `PaymentCentreSeat`). Qui n'y siège pas ne reçoit plus une page blanche : il lit ce qui
+  * lui manque et par quel geste on l'y fait entrer.
++ *
++ * LA DISPOSITION (§118.211) : les ENTITÉS en haut (une pastille par société que la personne voit,
++ * avec ce qui y attend), puis, sous l'entité choisie, trois sections — Regulatory, Sales &
++ * Marketing, Autres — rangées d'après l'ORIGINE de la dépense (`payments/sections-centre.ts`).
+  */
+-export default async function CentreDePaiementPage() {
++export default async function CentreDePaiementPage({ searchParams }: { searchParams?: { entite?: string; section?: string } }) {
+   const user = await requireUser();
+-  const canDecide = sitsOnPaymentCentre(user);
+ 
+-  // Les paiements que CETTE personne a le droit de voir ici : tout, si elle siège au centre ;
+-  // seulement les siens, si elle est demandeuse.
+-  // `companyScopedWhere` ET NON LE FILTRE D'ENTITÉ BRUT — c'est toute la différence.
+-  //
+-  // Le filtre brut vaut `companyId = X`, et **`NULL` n'est pas `X`** : un ordre qui n'a pas pu
+-  // être rattaché disparaissait de cet écran pour quiconque est cloisonné sur une société. Le
+-  // Super Admin (vue groupe, aucun filtre) voyait la file entière ; le Directeur Général ouvrait
+-  // un centre de paiement VIDE, et rien ne le lui disait. `companyScopedWhere` compose un `OR`
+-  // (mon entité, OU aucune) à l'intérieur d'un `AND` : les ordres à rattacher restent visibles,
+-  // sans jamais ouvrir ceux d'une autre société.
+-  const orders = await prisma.expenseOrder.findMany({
+-    where: await companyScopedWhere(user.id, {
+-      AND: [
+-        { centralStatus: { not: "NOT_REQUIRED" } },
+-        ...(canDecide ? [] : [{ requestedById: user.id }]),
+-      ],
+-    }),
+-    orderBy: [{ createdAt: "desc" }],
+-    take: 300,
+-    include: {
+-      requestedBy: { select: { name: true } },
+-      company: { select: { name: true, shortName: true } },
+-      centralMessages: { orderBy: { createdAt: "asc" }, include: { author: { select: { name: true } } } },
+-    },
+-  });
++  // Le chargeur lit les ordres que cet écran lisait déjà — tout le centre pour qui y siège, ses
++  // propres demandes sinon — dans les sociétés auxquelles la personne a droit, les ordres SANS
++  // société compris (`ficheScopedWhere` : une ligne sans entité reste visible pour qu'on la
++  // rattache, §118.154). L'entité et la section viennent de l'adresse, VALIDÉES contre les
++  // pastilles réellement présentes : une valeur forgée ne désigne rien. Les anciens liens
++  // (`/centre-de-paiement` sans paramètre) ouvrent l'entité qui attend le plus de décisions.
++  const centre = await chargerCentre(user, { entite: searchParams?.entite ?? null, section: searchParams?.section ?? null });
++  const { canDecide } = centre;
++
+   // ── ON NE REND PLUS UN ÉCRAN MUET ────────────────────────────────────────────────────────
+   //
+   // Ici vivait un `notFound()` : quiconque n'était ni membre du centre ni demandeur tombait sur
+@@ -78,8 +64,8 @@ export default async function CentreDePaiementPage() {
+   //
+   // On DIT donc la règle : qui siège, pourquoi vous n'y siégez pas, et le geste exact qui vous y
+   // fait entrer. Rien n'est divulgué au passage — aucun paiement n'est chargé pour qui n'a pas le
+-  // droit de les voir, la requête ci-dessus s'en est chargée.
+-  if (!canDecide && orders.length === 0) {
++  // droit de les voir, la requête du chargeur s'en est chargée.
++  if (!canDecide && centre.aucunOrdre) {
+     return (
+       <div className="space-y-5">
+         <PageHeader
+@@ -100,6 +86,21 @@ export default async function CentreDePaiementPage() {
+     );
+   }
+ 
++  // LES LIGNES DE LA SECTION CHOISIE — les identifiants viennent du chargeur (portée, entité,
++  // section déjà jugées) ; on les relit avec leurs liens, dans le même ordre.
++  const lus = centre.idsAffiches.length
++    ? await prisma.expenseOrder.findMany({
++        where: { id: { in: centre.idsAffiches } },
++        include: {
++          requestedBy: { select: { name: true } },
++          company: { select: { name: true, shortName: true } },
++          centralMessages: { orderBy: { createdAt: "asc" }, include: { author: { select: { name: true } } } },
++        },
++      })
++    : [];
++  const rang = new Map(centre.idsAffiches.map((id, i) => [id, i]));
++  const orders = lus.sort((a, b) => (rang.get(a.id) ?? 0) - (rang.get(b.id) ?? 0));
++
+   const decidedByIds = [...new Set(orders.map((o) => o.centralDecidedById).filter((v): v is string => Boolean(v)))];
+   const deciders = decidedByIds.length
+     ? await prisma.user.findMany({ where: { id: { in: decidedByIds } }, select: { id: true, name: true } })
+@@ -151,26 +152,40 @@ export default async function CentreDePaiementPage() {
+     })),
+   }));
+ 
+-  const waiting = rows.filter((r) => awaitsCentre(r.centralStatus));
+-  const waitingTotal = waiting.reduce((a, r) => a + r.amount, 0);
+-  const approved = rows.filter((r) => r.centralStatus === "APPROVED").length;
+-  const refused = rows.filter((r) => r.centralStatus === "REFUSED").length;
++  const entite = centre.entites.find((e) => e.cle === centre.entiteChoisie) ?? null;
++  const section = centre.sections.find((s) => s.section === centre.sectionChoisie)!;
++  const { bilan } = centre;
+ 
+   return (
+     <div className="space-y-5">
+       <PageHeader
+         title="Centre de paiement"
+-        description={`Tout paiement de la société est autorisé ici avant d'atteindre les Finances, quel que soit son montant — ceux à partir de ${CENTRAL_AUTH_THRESHOLD_DZD.toLocaleString("fr-FR")} DZD en tête de file. Le centre autorise, la comptabilité exécute : c'est la séparation des deux gestes qui rend le contrôle réel. Le centre AUTORISE ou REFUSE — le montant et sa justification appartiennent à la demande et se corrigent avant d'arriver ici (décision de la Direction, 02/09/2026). Un refus dit toujours pourquoi : son motif reste dans le fil, que le demandeur lit sur sa propre ligne.`}
++        description={`Tout paiement de la société est autorisé ici avant d'atteindre les Finances, quel que soit son montant — ceux à partir de ${CENTRAL_AUTH_THRESHOLD_DZD.toLocaleString("fr-FR")} DZD en tête de file. Le centre autorise, la comptabilité exécute : c'est la séparation des deux gestes qui rend le contrôle réel. Le centre AUTORISE ou REFUSE — le montant et sa justification appartiennent à la demande et se corrigent avant d'arriver ici (décision de la Direction, 02/09/2026). Un refus dit toujours pourquoi : son motif reste dans le fil, que le demandeur lit sur sa propre ligne. On change d'entité en haut ; chaque entité range ses paiements en trois sections — Regulatory, Sales & Marketing, Autres — d'après l'origine de la dépense.`}
+       />
+ 
++      <BarreEntites entites={centre.entites} choisie={centre.entiteChoisie} section={centre.sectionChoisie} />
++
+       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+-        <KpiCard label="En attente" value={waiting.length} icon="Hourglass" tone={waiting.length > 0 ? "warning" : "default"} />
+-        <KpiCard label="Montant en attente" value={formatCurrency(waitingTotal)} icon="Coins" tone={waiting.length > 0 ? "warning" : "default"} />
+-        <KpiCard label="Autorisés" value={approved} icon="ShieldCheck" tone="success" />
+-        <KpiCard label="Refusés" value={refused} icon="ShieldX" tone={refused > 0 ? "danger" : "default"} />
++        <KpiCard label="En attente" value={bilan.enAttente} icon="Hourglass" tone={bilan.enAttente > 0 ? "warning" : "default"} hint={entite?.label} />
++        <KpiCard label="Montant en attente" value={formatCurrency(bilan.montantEnAttente)} icon="Coins" tone={bilan.enAttente > 0 ? "warning" : "default"} />
++        <KpiCard label="Autorisés" value={bilan.autorises} icon="ShieldCheck" tone="success" />
++        <KpiCard label="Refusés" value={bilan.refuses} icon="ShieldX" tone={bilan.refuses > 0 ? "danger" : "default"} />
+       </div>
+ 
+-      <CentreBoard orders={rows} canDecide={canDecide} />
++      <OngletsSections sections={centre.sections} choisie={centre.sectionChoisie} entite={centre.entiteChoisie} />
++
++      {section.repli > 0 && (
++        <p className="text-xs text-muted-foreground">
++          {section.repli} paiement{section.repli > 1 ? "s" : ""} de cette section n&apos;{section.repli > 1 ? "ont" : "a"} pas d&apos;origine lisible
++          (aucune demande rattachée) : {section.repli > 1 ? "ils sont rangés" : "il est rangé"} ici faute de mieux, non parce que l&apos;origine le décide.
++        </p>
++      )}
++
++      <CentreBoard
++        orders={rows} canDecide={canDecide}
++        titre={`${entite?.label ?? "Entité"} — ${SECTION_CENTRE_LABEL[centre.sectionChoisie]}`}
++        total={section.total} nonAffiches={centre.nonAffiches}
++      />
+     </div>
+   );
+ }
+diff --git a/src/components/shared/rafraichir.test.ts b/src/components/shared/rafraichir.test.ts
+index 24c2eef..1e4ad3e 100644
+--- a/src/components/shared/rafraichir.test.ts
++++ b/src/components/shared/rafraichir.test.ts
+@@ -59,8 +59,9 @@ const APPEL_NU = /\brouter\.refresh\(\)/g;
+  * qu'il montre) et l'emploi du temps de « Ma journée » (« N'a pas eu lieu » sur une visite que l'état
+  * d'avant montrerait encore à faire) suivent leur rafraîchissement.
+  * Ramené à 340 au §118.197 — les boutons d'une approbation d'achat suivent leur rafraîchissement.
++ * Ramené à 332 au §118.211 — le tableau du centre de paiement (autoriser, refuser, répondre) suit le sien : 334 appels mesurés avant, 332 après (le plafond de 340 laissait six crans de marge — un écran neuf en aurait ajouté six sans rien dire, §118.79c).
+  */
+-const PLAFOND_APPELS_NUS = 340;
++const PLAFOND_APPELS_NUS = 332;
+ 
+ describe("le rafraîchissement suivi", () => {
+   const parc = fichiers(SRC).map((f) => ({ f, src: sansCommentaires(readFileSync(f, "utf8")) }));
+@@ -99,6 +100,9 @@ describe("le rafraîchissement suivi", () => {
+       // §118.197 : les boutons d'une approbation d'achat — trancher puis retrancher sur l'état d'avant
+       // reposerait une décision qu'une autre personne vient de prendre.
+       "src/app/(app)/demandes/approval-buttons.tsx",
++      // §118.211 : le centre de paiement — autoriser puis ré-autoriser sur l'état d'avant, ou répondre
++      // deux fois, ferait partir deux décisions sur le même paiement.
++      "src/app/(app)/centre-de-paiement/centre-board.tsx",
+     ];
+     for (const e of ecrans) {
+       const src = sansCommentaires(readFileSync(join(process.cwd(), e), "utf8"));
+diff --git a/src/lib/payments/sections-centre.test.ts b/src/lib/payments/sections-centre.test.ts
+new file mode 100644
+index 0000000..1c92103
+--- /dev/null
++++ b/src/lib/payments/sections-centre.test.ts
+@@ -0,0 +1,165 @@
++import { describe, expect, it } from "vitest";
++import { readdirSync, readFileSync, statSync } from "node:fs";
++import { join } from "node:path";
++import { EntityType } from "@prisma/client";
++import {
++  ENTITE_SANS, PORTEURS_D_ORIGINE, SECTIONS_CENTRE, SECTION_CENTRE_LABEL, SECTION_CENTRE_SLUG, SECTION_DU_TYPE,
++  choisirEntite, choisirSection, classerOrdre, origineEffective, sectionDepuisSlug, sectionDuType,
++  type SectionCentre,
++} from "./sections-centre";
++
++/**
++ * ═══════════════════════════════════════════════════════════════════════════════════════════
++ * LES TROIS SECTIONS DU CENTRE DE PAIEMENT (§118.211) — la règle pure, sur chaque type d'origine.
++ *
++ * « Chaque entité aura trois types de demandes de paiement : Regulatory / Sales & Marketing /
++ * Autres. » La section se lit sur l'ORIGINE de l'ordre (jamais sur son libellé) ; la table est
++ * exhaustive sur l'énumération du schéma, et « Autres » est le seul repli — qui se compte.
++ * ═══════════════════════════════════════════════════════════════════════════════════════════
++ */
++
++const R: SectionCentre = "REGULATORY";
++const S: SectionCentre = "SALES_MARKETING";
++const A: SectionCentre = "AUTRES";
++
++/**
++ * Chaque type d'origine RÉELLEMENT écrit sur un ordre de dépense, avec la section que la Direction
++ * en attend — écrit ICI, indépendamment de la table du module : si les deux divergent, le banc tombe.
++ */
++const ATTENDU: Partial<Record<EntityType, SectionCentre>> = {
++  REGULATORY_PRODUCT: R,           // taxes ANPP, dépôts de dossiers
++  MEDICAL_INFO_DECLARATION: R,     // pôle Regulatory depuis §118.118
++  SPONSORING: S, CONGRESS_INTERNATIONAL: S, CONGRESS_NATIONAL: S, EVENT: S, PROMO_MATERIAL: S,
++  AD_PRO_ITEM: S, AD_PRO_OTHER: S, CONSULTING_CONTRACT: S,
++  PAYROLL: A, SALARY_ADVANCE: A, ADMIN_REQUEST: A, PAYMENT_REQUEST: A, LEGAL_DOCUMENT: A,
++};
++
++describe("la table des sections — exhaustive, et lue sur l'origine", () => {
++  const types = Object.values(EntityType) as EntityType[];
++
++  it("chaque valeur de l'énumération du schéma a une section, et une seule des trois", () => {
++    expect(types.length).toBeGreaterThan(40);
++    for (const t of types) {
++      expect(SECTIONS_CENTRE, `« ${t} » doit être classé`).toContain(SECTION_DU_TYPE[t]);
++    }
++    // Et la table ne parle pas d'un type qui n'existe plus.
++    expect(Object.keys(SECTION_DU_TYPE).sort()).toEqual([...types].sort());
++  });
++
++  it("chaque type d'origine réel tombe dans la section que la Direction attend", () => {
++    for (const [type, attendu] of Object.entries(ATTENDU) as [EntityType, SectionCentre][]) {
++      expect(sectionDuType(type), type).toBe(attendu);
++      expect(classerOrdre({ sourceType: type }).section, `ordre direct ${type}`).toBe(
++        PORTEURS_D_ORIGINE.has(type) ? A : attendu,
++      );
++    }
++  });
++
++  it("chaque `sourceType` littéral que le code écrit sur un ordre est décidé ICI (un circuit neuf force une décision)", () => {
++    const racine = join(process.cwd(), "src/lib");
++    const fichiers: string[] = [];
++    const parcourir = (dir: string) => {
++      for (const nom of readdirSync(dir)) {
++        const chemin = join(dir, nom);
++        if (statSync(chemin).isDirectory()) parcourir(chemin);
++        else if (/\.tsx?$/.test(nom) && !/\.test\.tsx?$/.test(nom)) fichiers.push(chemin);
++      }
++    };
++    parcourir(racine);
++    const trouves = new Set<string>();
++    let lus = 0;
++    for (const f of fichiers) {
++      const src = readFileSync(f, "utf8");
++      if (!/createExpenseOrder\(/.test(src)) continue;
++      lus += 1;
++      for (const m of src.matchAll(/createExpenseOrder\(\{[\s\S]{0,900}?sourceType:\s*"([A-Z_]+)"/g)) trouves.add(m[1]!);
++    }
++    expect(lus, "la garde lit bien les circuits qui émettent des ordres").toBeGreaterThanOrEqual(10);
++    expect(trouves.size, "la lecture trouve les sources littérales (plancher mesuré)").toBeGreaterThanOrEqual(6);
++    for (const t of trouves) {
++      expect(ATTENDU[t as EntityType], `« ${t} » émet des ordres : sa section doit être écrite dans ce banc`).toBeDefined();
++    }
++  });
++});
++
++describe("le classement d'un ordre", () => {
++  it("un ordre sans type d'origine (remise de caisse) est un REPLI dans « Autres » — et se compte comme tel", () => {
++    expect(classerOrdre({ sourceType: null })).toEqual({ section: A, repli: true });
++    expect(classerOrdre({ sourceType: undefined })).toEqual({ section: A, repli: true });
++  });
++
++  it("une origine DÉCIDÉE n'est pas un repli, même dans « Autres » (la paie est décidée Autres)", () => {
++    expect(classerOrdre({ sourceType: "PAYROLL" })).toEqual({ section: A, repli: false });
++    expect(classerOrdre({ sourceType: "SPONSORING" })).toEqual({ section: S, repli: false });
++    expect(classerOrdre({ sourceType: "REGULATORY_PRODUCT" })).toEqual({ section: R, repli: false });
++  });
++
++  it("un PORTEUR se classe sur l'origine qu'il déclare — demande de paiement, secrétariat, pièce Legal", () => {
++    for (const porteur of ["PAYMENT_REQUEST", "ADMIN_REQUEST", "LEGAL_DOCUMENT"] as const) {
++      expect(classerOrdre({ sourceType: porteur, origineDuPorteur: "SPONSORING" }), porteur).toEqual({ section: S, repli: false });
++      expect(classerOrdre({ sourceType: porteur, origineDuPorteur: "REGULATORY_PRODUCT" }), porteur).toEqual({ section: R, repli: false });
++      expect(classerOrdre({ sourceType: porteur, origineDuPorteur: "PAYROLL" }), porteur).toEqual({ section: A, repli: false });
++    }
++  });
++
++  it("un porteur MUET, ou dont l'origine est un autre porteur, retombe sur « Autres » comme REPLI (un seul niveau)", () => {
++    expect(classerOrdre({ sourceType: "PAYMENT_REQUEST", origineDuPorteur: null })).toEqual({ section: A, repli: true });
++    expect(classerOrdre({ sourceType: "PAYMENT_REQUEST" })).toEqual({ section: A, repli: true });
++    expect(classerOrdre({ sourceType: "PAYMENT_REQUEST", origineDuPorteur: "LEGAL_DOCUMENT" }), "on ne suit pas la chaîne plus loin").toEqual({ section: A, repli: true });
++  });
++
++  it("l'origine d'un porteur n'est lue que pour un porteur : un ordre direct ignore ce qu'on lui prête", () => {
++    expect(classerOrdre({ sourceType: "SPONSORING", origineDuPorteur: "REGULATORY_PRODUCT" }).section).toBe(S);
++    expect(origineEffective("PAYROLL", "SPONSORING")).toBe("PAYROLL");
++  });
++
++  it("un contrat de consulting passé aux RH se paie dans « Autres » ; jamais d'effet sur un autre type", () => {
++    expect(classerOrdre({ sourceType: "CONSULTING_CONTRACT", contratRH: false }).section).toBe(S);
++    expect(classerOrdre({ sourceType: "CONSULTING_CONTRACT", contratRH: true }).section).toBe(A);
++    expect(classerOrdre({ sourceType: "SPONSORING", contratRH: true }).section, "contratRH n'a de sens que pour un contrat").toBe(S);
++    expect(classerOrdre({ sourceType: "PAYMENT_REQUEST", origineDuPorteur: "CONSULTING_CONTRACT", contratRH: true }).section).toBe(A);
++    expect(sectionDuType("CONSULTING_CONTRACT", { contratRH: true })).toBe(A);
++  });
++
++});
++
++describe("les libellés et les adresses", () => {
++  it("trois sections, nommées comme la Direction les a nommées, et des adresses qui reviennent au même", () => {
++    expect(SECTIONS_CENTRE.map((s) => SECTION_CENTRE_LABEL[s])).toEqual(["Regulatory", "Sales & Marketing", "Autres"]);
++    for (const s of SECTIONS_CENTRE) expect(sectionDepuisSlug(SECTION_CENTRE_SLUG[s])).toBe(s);
++    expect(sectionDepuisSlug("nimporte")).toBeNull();
++    expect(sectionDepuisSlug(null)).toBeNull();
++    expect(new Set(SECTIONS_CENTRE.map((s) => SECTION_CENTRE_SLUG[s])).size).toBe(3);
++  });
++});
++
++describe("l'entité et la section affichées", () => {
++  const entites = [
++    { cle: "a", enAttente: 1 },
++    { cle: "b", enAttente: 5 },
++    { cle: ENTITE_SANS, enAttente: 0 },
++  ];
++
++  it("la demande de l'adresse l'emporte quand elle désigne une pastille PRÉSENTE", () => {
++    expect(choisirEntite(entites, "a", "b")).toBe("a");
++    expect(choisirEntite(entites, ENTITE_SANS, "b")).toBe(ENTITE_SANS);
++  });
++
++  it("une valeur forgée ou périmée ne désigne rien : retombée sur la préférence, puis sur l'entité qui attend le plus", () => {
++    expect(choisirEntite(entites, "societe-d-un-autre", "a")).toBe("a");
++    expect(choisirEntite(entites, "societe-d-un-autre", "autre-aussi")).toBe("b");
++    expect(choisirEntite(entites, null, null)).toBe("b");
++    expect(choisirEntite([{ cle: "x", enAttente: 0 }, { cle: "y", enAttente: 0 }], null, null), "à égalité, la première").toBe("x");
++    expect(choisirEntite([], "a", "b")).toBeNull();
++  });
++
++  it("la section : la demandée, sinon la première qui attend, sinon la première qui porte quelque chose, sinon Regulatory", () => {
++    const c = (r: [number, number], s: [number, number], a: [number, number]) => ({
++      REGULATORY: { enAttente: r[0], total: r[1] }, SALES_MARKETING: { enAttente: s[0], total: s[1] }, AUTRES: { enAttente: a[0], total: a[1] },
++    });
++    expect(choisirSection("autres", c([2, 2], [0, 0], [0, 1]))).toBe("AUTRES");
++    expect(choisirSection(null, c([0, 3], [2, 2], [1, 1]))).toBe("SALES_MARKETING");
++    expect(choisirSection(undefined, c([0, 0], [0, 4], [0, 9]))).toBe("SALES_MARKETING");
++    expect(choisirSection("bidon", c([0, 0], [0, 0], [0, 0]))).toBe("REGULATORY");
++  });
++});
+diff --git a/src/lib/payments/sections-centre.ts b/src/lib/payments/sections-centre.ts
+new file mode 100644
+index 0000000..b1b6e3d
+--- /dev/null
++++ b/src/lib/payments/sections-centre.ts
+@@ -0,0 +1,229 @@
++import type { EntityType } from "@prisma/client";
++
++/**
++ * LES TROIS SECTIONS DU CENTRE DE PAIEMENT — Regulatory, Sales & Marketing, Autres (§118.211).
++ *
++ * « On aura les entités en haut, et ensuite chaque entité aura trois types de demandes de paiement :
++ * Regulatory / Sales & Marketing / Autres. » (Direction, 05/10/2026.)
++ *
++ * ── CE QUI DÉCIDE, ET CE QUI NE DÉCIDE JAMAIS ───────────────────────────────────────────────
++ *
++ * Le classement lit un FAIT déjà en base : d'où l'ordre de dépense vient (`ExpenseOrder.sourceType`)
++ * — jamais son libellé, jamais son bénéficiaire. Le pôle d'un type d'origine est celui que le MENU
++ * lui donne (`labels.ts`, `pole:`) : le dossier réglementaire, l'information médicale (rangée au
++ * pôle Regulatory depuis §118.118 : une déclaration est un acte réglementaire) → Regulatory ;
++ * Ad & Pro, matériel promotionnel, congrès, événements, promotion médicale, force de vente,
++ * ventes → Sales & Marketing ; tout le reste → Autres.
++ *
++ * `Record<EntityType, …>` : un type d'origine ajouté demain NE COMPILE PAS tant que personne n'a
++ * dit dans quelle section son argent se décide (§118.130). La table est ÉCRITE, pas dérivée : le
++ * pôle d'un menu et la section d'un paiement sont deux décisions qui peuvent diverger un jour, et
++ * c'est ici qu'on le dira.
++ *
++ * ── DEUX NIVEAUX D'ORIGINE, JAMAIS PLUS ─────────────────────────────────────────────────────
++ *
++ * Trois types ne sont pas une origine mais un PORTEUR : une demande de paiement déposée à la main,
++ * une demande au secrétariat, une pièce du registre Legal (la facture d'un bon de commande). Un
++ * ordre né d'eux se classe sur ce que le porteur dit lui-même de son origine (`entityType` de la
++ * demande de paiement, `linkedEntityType` de la demande au secrétariat, `sourceType` de la pièce).
++ * Un seul niveau : suivre la chaîne plus loin, c'est deviner. Un porteur dont l'origine ne se lit
++ * pas à coup sûr retombe sur AUTRES — le seul repli — et il se COMPTE (`repli`) : la section
++ * « Autres » dit combien de ses lignes y sont faute d'origine lisible, pas parce qu'on a décidé
++ * qu'elles y étaient.
++ *
++ * Un CONTRAT DE CONSULTING n'a pas de section fixe : son PÔLE le dit (§118.150). Passé aux RH, il
++ * se paie dans « Autres » ; sinon c'est une dépense Ad & Pro.
++ *
++ * Module PUR — zéro import (`import type` s'efface) : l'écran, le chargeur et les bancs le lisent
++ * sans rien exécuter.
++ */
++
++export type SectionCentre = "REGULATORY" | "SALES_MARKETING" | "AUTRES";
++
++/** L'ordre d'affichage des onglets. */
++export const SECTIONS_CENTRE: readonly SectionCentre[] = ["REGULATORY", "SALES_MARKETING", "AUTRES"];
++
++export const SECTION_CENTRE_LABEL: Record<SectionCentre, string> = {
++  REGULATORY: "Regulatory",
++  SALES_MARKETING: "Sales & Marketing",
++  AUTRES: "Autres",
++};
++
++/** Ce que l'adresse porte (`?section=`) — sans accent, sans espace, stable. */
++export const SECTION_CENTRE_SLUG: Record<SectionCentre, string> = {
++  REGULATORY: "regulatory",
++  SALES_MARKETING: "sales-marketing",
++  AUTRES: "autres",
++};
++
++export function sectionDepuisSlug(slug: string | null | undefined): SectionCentre | null {
++  return SECTIONS_CENTRE.find((s) => SECTION_CENTRE_SLUG[s] === slug) ?? null;
++}
++
++const R: SectionCentre = "REGULATORY";
++const S: SectionCentre = "SALES_MARKETING";
++const A: SectionCentre = "AUTRES";
++
++/**
++ * LA SECTION DE CHAQUE TYPE D'ORIGINE — une ligne par valeur de l'énumération, exhaustive.
++ * Les porteurs (PAYMENT_REQUEST, ADMIN_REQUEST, LEGAL_DOCUMENT) valent AUTRES ICI : c'est ce qu'ils
++ * valent quand leur origine ne se lit pas ; `sectionDuType` ne les consulte qu'en dernier recours.
++ */
++export const SECTION_DU_TYPE: Record<EntityType, SectionCentre> = {
++  // ── Regulatory : le dossier d'enregistrement, ses taxes, ses fournisseurs, l'information médicale.
++  REGULATORY_PRODUCT: R,
++  REGULATORY_STEP: R,
++  PRODUCT: R,
++  SUPPLIER: R,
++  MEDICAL_INFO_DECLARATION: R,
++
++  // ── Sales & Marketing : Ad & Pro, matériel promotionnel, congrès, événements, force de vente.
++  SPONSORING: S,
++  AD_PRO_ITEM: S,
++  AD_PRO_OTHER: S,
++  CONGRESS_INTERNATIONAL: S,
++  CONGRESS_NATIONAL: S,
++  EVENT: S,
++  PROMO_MATERIAL: S,
++  CONSULTING_CONTRACT: S, // sauf contrat passé aux RH : voir `sectionDuType`
++  SALE: S,
++  DOCTOR: S,
++  VISIT: S,
++  DELEGATE_PLAN: S,
++  TOUR_PLAN: S,
++  BUSINESS_UNIT: S,
++  SALES_SECTOR: S,
++  INSTITUTION: S,
++  SPECIALTY: S,
++
++  // ── Autres : tout ce qui relève de l'administration, de la paie, du Legal, de la chaîne
++  //    d'approvisionnement, du business development — et les PORTEURS sans origine lisible.
++  BUDGET: A,
++  LOGISTICS: A,
++  BD_OPPORTUNITY: A,
++  BD_PROJECT: A,
++  FINANCE_TRANSACTION: A,
++  EMPLOYEE: A,
++  PAYROLL: A,
++  LEAVE_REQUEST: A,
++  TASK: A,
++  SALARY_ADVANCE: A,
++  EXPENSE_ORDER: A,
++  DRIVE_NODE: A,
++  ADMIN_REQUEST: A,
++  DRIVER_MISSION: A,
++  FEEDBACK: A,
++  VALIDATION_REQUEST: A,
++  DIRECTIVE: A,
++  SUPPORT_REQUEST: A,
++  DOSSIER: A,
++  HR_REQUEST: A,
++  MISSION_ASSIGNMENT: A,
++  OFFICE_SUPPLY_ARTICLE: A,
++  PCH_TENDER: A,
++  PCH_ORDER: A,
++  DEPARTMENT_EXPENSE: A,
++  DOCUMENT_REQUEST: A,
++  PAYMENT_REQUEST: A,
++  MAIL_ENTRY: A,
++  LEGAL_DOCUMENT: A,
++  COMPANY: A,
++  RECRUITMENT_REQUEST: A,
++  RECRUITMENT_CANDIDATE: A,
++  INVOICE: A,
++  TRAINING: A,
++};
++
++/**
++ * LES PORTEURS D'ORIGINE — ils n'ont pas de section à eux, ils renvoient à celle de leur origine.
++ * Liste FERMÉE : en ajouter un est une décision (il faut aussi dire où le chargeur lit son origine).
++ */
++export const PORTEURS_D_ORIGINE: ReadonlySet<EntityType> = new Set<EntityType>([
++  "PAYMENT_REQUEST", "ADMIN_REQUEST", "LEGAL_DOCUMENT",
++]);
++
++/**
++ * L'ORIGINE QU'ON CLASSE — le type de l'ordre, ou, pour un PORTEUR, l'origine qu'il déclare.
++ * Un seul niveau : l'origine d'un porteur qui serait lui-même un porteur ne se suit pas.
++ * Rend `null` quand rien ne se lit à coup sûr (aucun type, ou porteur muet).
++ */
++export function origineEffective(sourceType: EntityType | null | undefined, origineDuPorteur?: EntityType | null): EntityType | null {
++  if (!sourceType) return null;
++  if (!PORTEURS_D_ORIGINE.has(sourceType)) return sourceType;
++  if (origineDuPorteur && !PORTEURS_D_ORIGINE.has(origineDuPorteur)) return origineDuPorteur;
++  return null;
++}
++
++export interface FaitsDeClassement {
++  /** `ExpenseOrder.sourceType`. */
++  sourceType: EntityType | null | undefined;
++  /** L'origine déclarée par le porteur (`PaymentRequest.entityType`, `linkedEntityType`, `sourceType` du registre). */
++  origineDuPorteur?: EntityType | null;
++  /** L'origine effective est un contrat de consulting dont le pôle est RH. */
++  contratRH?: boolean;
++}
++
++/** La section d'un TYPE d'origine déjà établi — `contratRH` n'a de sens que pour un contrat de consulting. */
++export function sectionDuType(type: EntityType, opts: { contratRH?: boolean } = {}): SectionCentre {
++  if (type === "CONSULTING_CONTRACT" && opts.contratRH) return "AUTRES";
++  return SECTION_DU_TYPE[type];
++}
++
++/**
++ * LA SECTION D'UN ORDRE DE DÉPENSE — et si elle tient à un REPLI.
++ * `repli` : l'ordre est dans « Autres » faute d'origine lisible (aucun type, ou porteur muet),
++ * non parce qu'une décision l'y range.
++ */
++export function classerOrdre(faits: FaitsDeClassement): { section: SectionCentre; repli: boolean } {
++  const origine = origineEffective(faits.sourceType, faits.origineDuPorteur);
++  if (!origine) return { section: "AUTRES", repli: true };
++  return { section: sectionDuType(origine, { contratRH: faits.contratRH === true }), repli: false };
++}
++
++// ───────────────────────────── L'ENTITÉ ET LA SECTION CHOISIES ─────────────────────────────
++
++/** La clé d'adresse de la pastille « Sans entité ». */
++export const ENTITE_SANS = "sans-entite";
++
++export interface EntiteChoisissable {
++  /** Identifiant de la société, ou `ENTITE_SANS`. */
++  cle: string;
++  enAttente: number;
++}
++
++/**
++ * L'ENTITÉ AFFICHÉE — jamais une valeur lue telle quelle.
++ *
++ * Ordre : la demande de l'adresse, si elle désigne une pastille PRÉSENTE (une valeur forgée ou
++ * périmée ne désigne rien) ; sinon l'entité sélectionnée dans la barre supérieure, VALIDÉE contre
++ * les droits par l'appelant (`preferee`) ; sinon celle qui attend le plus de décisions ; sinon la
++ * première. `null` seulement quand il n'y a aucune pastille.
++ */
++export function choisirEntite(
++  entites: readonly EntiteChoisissable[], demandee: string | null | undefined, preferee: string | null | undefined,
++): string | null {
++  if (entites.length === 0) return null;
++  const presente = (cle: string | null | undefined) => (cle && entites.some((e) => e.cle === cle) ? cle : null);
++  const demande = presente(demandee);
++  if (demande) return demande;
++  const pref = presente(preferee);
++  if (pref) return pref;
++  let meilleure = entites[0]!;
++  for (const e of entites) if (e.enAttente > meilleure.enAttente) meilleure = e;
++  return meilleure.cle;
++}
++
++/**
++ * LA SECTION AFFICHÉE — la demandée si elle se lit ; sinon la première qui attend une décision ;
++ * sinon la première qui porte des paiements ; sinon Regulatory.
++ */
++export function choisirSection(
++  demandee: string | null | undefined,
++  comptes: Record<SectionCentre, { enAttente: number; total: number }>,
++): SectionCentre {
++  const demande = sectionDepuisSlug(demandee);
++  if (demande) return demande;
++  return SECTIONS_CENTRE.find((s) => comptes[s].enAttente > 0)
++    ?? SECTIONS_CENTRE.find((s) => comptes[s].total > 0)
++    ?? "REGULATORY";
++}
+diff --git a/src/lib/queries/centre-paiement.test.ts b/src/lib/queries/centre-paiement.test.ts
+new file mode 100644
+index 0000000..0dee605
+--- /dev/null
++++ b/src/lib/queries/centre-paiement.test.ts
+@@ -0,0 +1,304 @@
++import { afterAll, beforeAll, describe, expect, it } from "vitest";
++import { readFileSync } from "node:fs";
++import { join } from "node:path";
++import { prisma } from "@/lib/prisma";
++import { getAccess, type SessionUser } from "@/lib/rbac";
++import { chargerCentre, LIMITE_LIGNES_CENTRE } from "@/lib/queries/centre-paiement";
++import { ENTITE_SANS } from "@/lib/payments/sections-centre";
++
++/**
++ * ═══════════════════════════════════════════════════════════════════════════════════════════
++ * LE CHARGEUR DU CENTRE DE PAIEMENT PAR SON VRAI POINT D'ENTRÉE (§118.211) — les entités en haut,
++ * trois sections dessous, et rien qui s'élargisse.
++ *
++ * Les acteurs n'ont PAS la vue globale (§118.104) : un siège du centre rattaché à UNE société, un
++ * demandeur ordinaire. Le Super Admin n'est là que comme TÉMOIN (il voit les deux sociétés) — sans
++ * lui, une garde qui refuserait tout passerait pour armée (§118.17). Les sociétés du décor sont à
++ * ce banc : les comptes par entité sont exacts parce qu'aucun voisin n'y écrit (§118.92).
++ * ═══════════════════════════════════════════════════════════════════════════════════════════
++ */
++
++let dbOk = false;
++try { await prisma.$queryRaw`SELECT 1`; dbOk = true; } catch { dbOk = false; }
++const suite = dbOk ? describe : describe.skip;
++
++const TAG = "__cp211__";
++const session = async (id: string, role: string): Promise<SessionUser> =>
++  ({ id, name: `${TAG}${role}`, email: `${TAG}${id}@t.dz`, role, secondaryRole: null, access: await getAccess(id, role as never), mustChangePassword: false }) as unknown as SessionUser;
++
++suite("le centre de paiement : entités puis sections, par le chargeur", () => {
++  let aId = "", bId = "", siegeId = "", demandeurId = "", saId = "", videId = "";
++  let siege: SessionUser, demandeur: SessionUser, sa: SessionUser, vide: SessionUser;
++  const ids: Record<string, string> = {};
++  let seq = 0;
++
++  async function nettoyer() {
++    const societes = await prisma.company.findMany({ where: { name: { startsWith: TAG } }, select: { id: true } });
++    const socIds = societes.map((s) => s.id);
++    await prisma.expenseOrder.deleteMany({ where: { OR: [{ reference: { startsWith: TAG } }, { label: { startsWith: TAG } }] } }).catch(() => {});
++    await prisma.paymentRequest.deleteMany({ where: { reference: { startsWith: TAG } } }).catch(() => {});
++    await prisma.administrativeRequest.deleteMany({ where: { reference: { startsWith: TAG } } }).catch(() => {});
++    await prisma.legalDocument.deleteMany({ where: { title: { startsWith: TAG } } }).catch(() => {});
++    await prisma.consultingContract.deleteMany({ where: { reference: { startsWith: TAG } } }).catch(() => {});
++    await prisma.paymentCentreSeat.deleteMany({ where: { user: { email: { startsWith: TAG } } } }).catch(() => {});
++    await prisma.userCompanyAccess.deleteMany({ where: { companyId: { in: socIds } } }).catch(() => {});
++    await prisma.user.deleteMany({ where: { email: { startsWith: TAG } } }).catch(() => {});
++    await prisma.company.deleteMany({ where: { id: { in: socIds } } }).catch(() => {});
++  }
++
++  /** Un ordre du décor — par la même table que le vrai écrivain, avec une référence à soi. */
++  async function ordre(cle: string, o: {
++    companyId: string | null; sourceType?: string | null; sourceId?: string | null;
++    centralStatus?: string; amount?: number; requestedById?: string | null;
++  }) {
++    const r = await prisma.expenseOrder.create({
++      data: {
++        reference: `${TAG}OD-${String(++seq).padStart(4, "0")}`,
++        label: `${TAG}${cle}`,
++        amount: o.amount ?? 1000,
++        category: "AUTRE",
++        companyId: o.companyId,
++        sourceType: (o.sourceType ?? null) as never,
++        sourceId: o.sourceId ?? null,
++        centralStatus: o.centralStatus ?? "AWAITING",
++        requestedById: o.requestedById ?? saId,
++      },
++      select: { id: true },
++    });
++    ids[cle] = r.id;
++    return r.id;
++  }
++
++  beforeAll(async () => {
++    await nettoyer();
++    const [a, b] = await Promise.all([
++      prisma.company.create({ data: { name: `${TAG}A`, shortName: `${TAG}Alpha`, sortOrder: 9001 }, select: { id: true } }),
++      prisma.company.create({ data: { name: `${TAG}B`, shortName: `${TAG}Beta`, sortOrder: 9002 }, select: { id: true } }),
++    ]);
++    aId = a.id; bId = b.id;
++    const mk = (s: string, role: string) =>
++      prisma.user.create({ data: { name: `${TAG}${s}`, email: `${TAG}${s}@t.dz`, passwordHash: "x", role: role as never }, select: { id: true } });
++    const [u1, u2, u3, u4] = await Promise.all([mk("siege", "DIRECTION_ASSISTANT"), mk("demandeur", "DIRECTION_ASSISTANT"), mk("sa", "SUPER_ADMIN"), mk("vide", "DIRECTION_ASSISTANT")]);
++    siegeId = u1.id; demandeurId = u2.id; saId = u3.id; videId = u4.id;
++    // Le siège ET le demandeur sont rattachés à UNE société (A) : la société B ne leur est pas ouverte.
++    await prisma.userCompanyAccess.createMany({ data: [
++      { userId: siegeId, companyId: aId }, { userId: demandeurId, companyId: aId }, { userId: videId, companyId: aId },
++    ] });
++    await prisma.paymentCentreSeat.create({ data: { userId: siegeId, note: `${TAG}siège` } });
++    siege = await session(siegeId, "DIRECTION_ASSISTANT");
++    demandeur = await session(demandeurId, "DIRECTION_ASSISTANT");
++    vide = await session(videId, "DIRECTION_ASSISTANT");
++    sa = await session(saId, "SUPER_ADMIN");
++
++    // ── Les PORTEURS, avec une vraie origine.
++    const pr = await prisma.paymentRequest.create({
++      data: { reference: `${TAG}PAY-1`, title: `${TAG}dem paiement`, amount: 1000, payee: "x", requesterId: saId, entityType: "SPONSORING", entityId: "x-sponsoring" }, select: { id: true },
++    });
++    const prMuette = await prisma.paymentRequest.create({
++      data: { reference: `${TAG}PAY-2`, title: `${TAG}dem muette`, amount: 1000, payee: "x", requesterId: saId }, select: { id: true },
++    });
++    const ar = await prisma.administrativeRequest.create({
++      data: { reference: `${TAG}REQ-1`, title: `${TAG}sec`, type: "PAYMENT" as never, linkedEntityType: "REGULATORY_PRODUCT", linkedEntityId: "x-reg", requesterId: saId } as never, select: { id: true },
++    });
++    const ld = await prisma.legalDocument.create({
++      data: { title: `${TAG}facture promo`, kind: "INVOICE", sourceType: "PROMO_MATERIAL", sourceId: "x-promo", createdById: saId } as never, select: { id: true },
++    });
++    const cAdPro = await prisma.consultingContract.create({
++      data: { reference: `${TAG}CONS-1`, title: `${TAG}c1`, counterparty: "x", pole: "AD_PRO" } as never, select: { id: true },
++    });
++    const cRh = await prisma.consultingContract.create({
++      data: { reference: `${TAG}CONS-2`, title: `${TAG}c2`, counterparty: "x", pole: "RH" } as never, select: { id: true },
++    });
++
++    // ── Société A : REGULATORY 2 (1 en attente), SALES_MARKETING 4 (3 en attente), AUTRES 4 (4 en attente, 2 de repli).
++    await ordre("A-reg-direct", { companyId: aId, sourceType: "REGULATORY_PRODUCT", sourceId: "x-reg", amount: 100 });
++    await ordre("A-reg-secretariat", { companyId: aId, sourceType: "ADMIN_REQUEST", sourceId: ar.id, centralStatus: "APPROVED", amount: 200 });
++    await ordre("A-sm-direct", { companyId: aId, sourceType: "SPONSORING", sourceId: "x-sponsoring", amount: 300 });
++    await ordre("A-sm-demande", { companyId: aId, sourceType: "PAYMENT_REQUEST", sourceId: pr.id, amount: 400 });
++    await ordre("A-sm-legal", { companyId: aId, sourceType: "LEGAL_DOCUMENT", sourceId: ld.id, centralStatus: "REFUSED", amount: 500 });
++    await ordre("A-sm-consulting", { companyId: aId, sourceType: "CONSULTING_CONTRACT", sourceId: cAdPro.id, amount: 600 });
++    await ordre("A-au-paie", { companyId: aId, sourceType: "PAYROLL", sourceId: "x-paie", amount: 700 });
++    await ordre("A-au-consulting-rh", { companyId: aId, sourceType: "CONSULTING_CONTRACT", sourceId: cRh.id, amount: 800 });
++    await ordre("A-au-sans-source", { companyId: aId, sourceType: null, amount: 900 });
++    await ordre("A-au-demande-muette", { companyId: aId, sourceType: "PAYMENT_REQUEST", sourceId: prMuette.id, amount: 1000 });
++    // ── Société B : jamais ouverte au siège ni au demandeur.
++    await ordre("B-reg", { companyId: bId, sourceType: "REGULATORY_PRODUCT", sourceId: "x-reg", amount: 5000 });
++    await ordre("B-sm", { companyId: bId, sourceType: "SPONSORING", sourceId: "x-sp", amount: 6000, centralStatus: "APPROVED" });
++    // ── Sans entité : reste visible (§118.154).
++    await ordre("sans-entite", { companyId: null, sourceType: null, amount: 1 });
++    // ── Une demande propre au demandeur (société A).
++    await ordre("A-du-demandeur", { companyId: aId, sourceType: "SPONSORING", sourceId: "x-sp2", requestedById: demandeurId, amount: 50 });
++  }, 120_000);
++
++  afterAll(async () => { await nettoyer(); }, 60_000);
++
++  const pastille = (c: Awaited<ReturnType<typeof chargerCentre>>, cle: string) => c.entites.find((e) => e.cle === cle);
++  const sec = (c: Awaited<ReturnType<typeof chargerCentre>>, s: string) => c.sections.find((x) => x.section === s)!;
++
++  it("PRÉMISSES : le siège siège, n'a pas la vue globale, et ne voit pas la société B — sans quoi le reste ne prouve rien", async () => {
++    expect(siege.access?.paymentCentreSeat).toBe(true);
++    expect(siege.role).not.toBe("SUPER_ADMIN");
++    const ouvertes = await prisma.userCompanyAccess.findMany({ where: { userId: siegeId }, select: { companyId: true } });
++    expect(ouvertes.map((o) => o.companyId)).toEqual([aId]);
++    expect(await prisma.expenseOrder.count({ where: { companyId: bId, label: { startsWith: TAG } } }), "la société B porte bien des ordres").toBe(2);
++  });
++
++  it("le siège rattaché à A voit la pastille A — avec ses comptes EXACTS — et jamais la société B", async () => {
++    const c = await chargerCentre(siege, { entite: aId });
++    expect(c.canDecide).toBe(true);
++    expect(c.entites.map((e) => e.cle)).toContain(aId);
++    expect(c.entites.map((e) => e.cle), "la société B n'est pas ouverte à ce siège").not.toContain(bId);
++    const a = pastille(c, aId)!;
++    expect(a.label).toBe(`${TAG}Alpha`);
++    // 11 ordres en A (dont celui du demandeur), 9 en attente : un autorisé et un refusé.
++    expect([a.total, a.enAttente]).toEqual([11, 9]);
++    expect(a.montantEnAttente).toBe(100 + 300 + 400 + 600 + 700 + 800 + 900 + 1000 + 50);
++    expect(c.entiteChoisie).toBe(aId);
++  });
++
++  it("les trois sections de A : chaque ordre est rangé d'après son ORIGINE (porteurs, consulting RH, repli compris)", async () => {
++    const c = await chargerCentre(siege, { entite: aId, section: "regulatory" });
++    expect(c.sectionChoisie).toBe("REGULATORY");
++    expect([sec(c, "REGULATORY").total, sec(c, "REGULATORY").enAttente]).toEqual([2, 1]);
++    // Sales & Marketing : sponsoring, demande de paiement liée à un sponsoring, facture d'un matériel promo, consulting Ad & Pro, + celui du demandeur.
++    expect([sec(c, "SALES_MARKETING").total, sec(c, "SALES_MARKETING").enAttente]).toEqual([5, 4]);
++    // Autres : paie, consulting passé aux RH, sans source, demande de paiement muette.
++    expect([sec(c, "AUTRES").total, sec(c, "AUTRES").enAttente]).toEqual([4, 4]);
++    expect(sec(c, "AUTRES").repli, "deux lignes y sont faute d'origine lisible : sans source, et demande muette").toBe(2);
++    expect(sec(c, "REGULATORY").repli).toBe(0);
++    expect(sec(c, "SALES_MARKETING").repli).toBe(0);
++    expect(c.bilan).toMatchObject({ enAttente: 9, autorises: 1, refuses: 1 });
++    expect(c.idsAffiches.sort()).toEqual([ids["A-reg-direct"], ids["A-reg-secretariat"]].sort());
++  });
++
++  it("chaque section ne liste QUE ses lignes", async () => {
++    const sm = await chargerCentre(siege, { entite: aId, section: "sales-marketing" });
++    expect(sm.sectionChoisie).toBe("SALES_MARKETING");
++    expect([...sm.idsAffiches].sort()).toEqual(
++      ["A-sm-direct", "A-sm-demande", "A-sm-legal", "A-sm-consulting", "A-du-demandeur"].map((k) => ids[k]!).sort(),
++    );
++    const au = await chargerCentre(siege, { entite: aId, section: "autres" });
++    expect([...au.idsAffiches].sort()).toEqual(
++      ["A-au-paie", "A-au-consulting-rh", "A-au-sans-source", "A-au-demande-muette"].map((k) => ids[k]!).sort(),
++    );
++  });
++
++  it("une entité FORGÉE ou d'une autre société ne s'ouvre pas : le siège retombe sur la sienne, et rien de B ne sort", async () => {
++    for (const forge of [bId, "n-importe-quoi", "", null]) {
++      const c = await chargerCentre(siege, { entite: forge, section: "regulatory" });
++      expect(c.entiteChoisie, `entité demandée : ${String(forge)}`).not.toBe(bId);
++      const lus = await prisma.expenseOrder.findMany({ where: { id: { in: c.idsAffiches } }, select: { companyId: true } });
++      expect(lus.every((l) => l.companyId !== bId), "aucune ligne de la société B").toBe(true);
++    }
++    // Même en demandant B pour chaque section, aucun ordre de B n'est jamais rendu.
++    for (const section of ["regulatory", "sales-marketing", "autres"]) {
++      const c = await chargerCentre(siege, { entite: bId, section });
++      expect(c.idsAffiches).not.toContain(ids["B-reg"]);
++      expect(c.idsAffiches).not.toContain(ids["B-sm"]);
++    }
++  });
++
++  it("TÉMOIN : le Super Admin voit les DEUX sociétés, avec leurs comptes — la garde ne refuse pas tout", async () => {
++    const c = await chargerCentre(sa, { entite: bId });
++    expect(c.entites.map((e) => e.cle)).toEqual(expect.arrayContaining([aId, bId]));
++    expect(c.entiteChoisie).toBe(bId);
++    expect([pastille(c, bId)!.total, pastille(c, bId)!.enAttente]).toEqual([2, 1]);
++    expect(pastille(c, bId)!.montantEnAttente).toBe(5000);
++    expect([...c.idsAffiches]).toEqual([ids["B-reg"]]);
++    const sm = await chargerCentre(sa, { entite: bId, section: "sales-marketing" });
++    expect(sm.idsAffiches).toEqual([ids["B-sm"]]);
++    expect(sm.bilan.autorises).toBe(1);
++  });
++
++  it("une ligne SANS entité reste visible dans sa pastille « Sans entité » — et se range comme les autres", async () => {
++    const c = await chargerCentre(siege, { entite: ENTITE_SANS, section: "autres" });
++    expect(pastille(c, ENTITE_SANS)?.label).toBe("Sans entité");
++    expect(c.entiteChoisie).toBe(ENTITE_SANS);
++    expect(c.idsAffiches).toContain(ids["sans-entite"]);
++    expect(sec(c, "AUTRES").repli, "sans source : un repli, et il se compte").toBeGreaterThanOrEqual(1);
++    const sa2 = await chargerCentre(sa, { entite: ENTITE_SANS, section: "autres" });
++    expect(sa2.idsAffiches).toContain(ids["sans-entite"]);
++  });
++
++  it("le demandeur non siège ne lit QUE ses demandes : pas de décision, pas de ligne des autres", async () => {
++    const c = await chargerCentre(demandeur, { entite: aId, section: "sales-marketing" });
++    expect(c.canDecide).toBe(false);
++    expect(c.aucunOrdre).toBe(false);
++    expect(c.idsAffiches).toEqual([ids["A-du-demandeur"]]);
++    expect(pastille(c, aId)!.total).toBe(1);
++    for (const s of ["regulatory", "autres"]) {
++      const autre = await chargerCentre(demandeur, { entite: aId, section: s });
++      expect(autre.idsAffiches).toEqual([]);
++    }
++  });
++
++  it("qui ne siège pas et n'a rien demandé reçoit « aucun ordre » — l'écran dit la règle au lieu d'un tableau vide", async () => {
++    const c = await chargerCentre(vide, {});
++    expect([c.canDecide, c.aucunOrdre]).toEqual([false, true]);
++    expect(c.idsAffiches).toEqual([]);
++  });
++
++  it("sans paramètre (ancien lien) : l'entité de la personne s'ouvre si elle n'en a qu'une ; sinon celle qui attend le plus", async () => {
++    // Une seule société ouverte : c'est elle (la portée validée, jamais un identifiant lu tel quel).
++    const c = await chargerCentre(siege, {});
++    expect(c.entiteChoisie).toBe(aId);
++    // La section ouverte est la première qui attend une décision.
++    expect(c.sectionChoisie).toBe("REGULATORY");
++    // Plusieurs sociétés ouvertes et aucune préférence : l'entité qui attend le plus de décisions.
++    const toutes = await chargerCentre(sa, {});
++    const choisie = pastille(toutes, toutes.entiteChoisie!)!;
++    expect(toutes.entites.length).toBeGreaterThan(1);
++    expect(toutes.entites.every((e) => e.enAttente <= choisie.enAttente), "aucune pastille n'attend plus que celle qui s'ouvre").toBe(true);
++  });
++
++  it("la liste est coupée à la limite ET le dit : le compte reste exact, les plus anciens sont comptés non affichés", async () => {
++    const trop = LIMITE_LIGNES_CENTRE + 5;
++    await prisma.expenseOrder.createMany({
++      data: Array.from({ length: trop }, (_, i) => ({
++        reference: `${TAG}OD-gros-${String(i).padStart(4, "0")}`, label: `${TAG}gros-${i}`, amount: 1, category: "AUTRE" as const,
++        companyId: bId, sourceType: null, centralStatus: "AWAITING", requestedById: saId,
++        createdAt: new Date(Date.now() - (i + 1) * 1000),
++      })),
++    });
++    const c = await chargerCentre(sa, { entite: bId, section: "autres" });
++    expect(sec(c, "AUTRES").total).toBe(trop);
++    expect(c.idsAffiches).toHaveLength(LIMITE_LIGNES_CENTRE);
++    expect(c.nonAffiches).toBe(5);
++    expect(pastille(c, bId)!.total, "le compte de la pastille est exact, pas celui de la liste").toBe(2 + trop);
++  }, 60_000);
++});
++
++describe("l'écran lit la règle — points d'appel (§118.49)", () => {
++  const lire = (f: string) => readFileSync(join(process.cwd(), f), "utf8")
++    .replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:"'`])\/\/.*$/gm, "$1");
++
++  it("la page passe par le chargeur, et le chargeur par la règle de classement ET par la portée de fiche", () => {
++    const page = lire("src/app/(app)/centre-de-paiement/page.tsx");
++    expect(page).toMatch(/chargerCentre\(\s*user\s*,/);
++    expect(page, "l'adresse n'est jamais lue telle quelle : tout passe par le chargeur").not.toMatch(/searchParams\??\.entite[^,)}\n]*companyId/);
++    expect(page, "la page ne recompose plus sa propre portée").not.toMatch(/companyScopedWhere/);
++    const chargeur = lire("src/lib/queries/centre-paiement.ts");
++    expect(chargeur).toMatch(/classerOrdre\(\{/);
++    expect(chargeur).toMatch(/ficheScopedWhere\(\s*user\.id/);
++    expect(chargeur, "le cookie n'est lu que validé").toMatch(/myCompanyScope\(\s*user\.id\s*\)/);
++    expect(chargeur, "jamais le cookie brut").not.toMatch(/getCompanyScope\(/);
++    expect(chargeur).toMatch(/choisirEntite\(/);
++    expect(chargeur).toMatch(/choisirSection\(/);
++  });
++
++  it("l'écran montre les entités PUIS les trois sections, et le tableau ne se recharge que par liens", () => {
++    const page = lire("src/app/(app)/centre-de-paiement/page.tsx");
++    expect(page).toMatch(/<BarreEntites\s+entites=\{centre\.entites\}/);
++    expect(page).toMatch(/<OngletsSections\s+sections=\{centre\.sections\}/);
++    expect(page.indexOf("<BarreEntites"), "les entités sont EN HAUT").toBeLessThan(page.indexOf("<OngletsSections"));
++    const nav = lire("src/app/(app)/centre-de-paiement/centre-navigation.tsx");
++    expect(nav).toMatch(/<Link[\s\S]{0,80}href=\{hrefCentre\(e\.cle, section\)\}/);
++    expect(nav).toMatch(/aria-current/);
++    const board = lire("src/app/(app)/centre-de-paiement/centre-board.tsx");
++    expect(board, "après une décision, les gestes restent fermés jusqu'à l'arrivée des nouvelles données").toMatch(/useRafraichir\(\)/);
++    expect(board).not.toMatch(/router\.refresh\(\)/);
++    expect((board.match(/disabled=\{enCours\}/g) ?? []).length, "Autoriser, Refuser et Répondre se ferment pendant le rafraîchissement").toBeGreaterThanOrEqual(3);
++    expect(board, "la double lecture montant/bénéficiaire reste envoyée").toMatch(/montantVu/);
++    expect(board).toMatch(/beneficiaireVu/);
++  });
++});
+diff --git a/src/lib/queries/centre-paiement.ts b/src/lib/queries/centre-paiement.ts
+new file mode 100644
+index 0000000..f4d5e47
+--- /dev/null
++++ b/src/lib/queries/centre-paiement.ts
+@@ -0,0 +1,217 @@
++import type { EntityType, Prisma } from "@prisma/client";
++import { prisma } from "@/lib/prisma";
++import { ficheScopedWhere, getMyCompanies, myCompanyScope, companyLabel } from "@/lib/company";
++import { toNumber } from "@/lib/utils";
++import type { SessionUser } from "@/lib/rbac";
++import { poleDe } from "@/lib/lecteurs/consulting";
++import { awaitsCentre, sitsOnPaymentCentre, type CentralStatus } from "@/lib/payments/authorization";
++import {
++  ENTITE_SANS, SECTIONS_CENTRE, choisirEntite, choisirSection, classerOrdre, origineEffective,
++  type SectionCentre,
++} from "@/lib/payments/sections-centre";
++
++/**
++ * LE CHARGEUR DU CENTRE DE PAIEMENT — les entités en haut, trois sections dessous (§118.211).
++ *
++ * ── CE QUE CE MODULE DÉCIDE, ET CE QU'IL NE DÉCIDE PAS ──────────────────────────────────────
++ *
++ * Il ne décide RIEN du droit : les ordres lus sont ceux que l'écran lisait déjà — tout le centre
++ * pour qui y siège, ses propres demandes sinon — dans les sociétés auxquelles la personne a droit
++ * (`ficheScopedWhere`), les ordres sans société compris (§118.154 : une ligne sans entité n'est le
++ * secret de personne, et la cacher la rendrait impossible à rattacher). Ce que le changement
++ * apporte est un REGROUPEMENT : l'entité choisie dans la page, puis la section.
++ *
++ * `ficheScopedWhere` et non `companyScopedWhere` : la liste suivait avant le sélecteur de la barre
++ * supérieure ; l'entité se choisit maintenant DANS la page, parmi toutes celles que la personne a
++ * le droit de voir. Le cookie n'est lu que comme une PRÉFÉRENCE de départ, et VALIDÉE
++ * (`myCompanyScope`) — jamais l'identifiant brut d'un cookie qui se modifie à la main (§118.177).
++ * Une valeur d'adresse qui ne désigne aucune pastille n'ouvre rien : elle retombe sur le défaut.
++ *
++ * Les comptes (par entité, par section) sont EXACTS : ils se calculent sur toutes les lignes
++ * (cinq colonnes légères), pas sur les trois cents que l'écran affiche. Une coupe qui se lit comme
++ * un compte est un mensonge (§118.60) — l'écran dit combien de lignes plus anciennes il ne montre pas.
++ */
++
++export const LIMITE_LIGNES_CENTRE = 300;
++
++export interface EntiteDuCentre {
++  /** Identifiant de la société, ou `ENTITE_SANS`. */
++  cle: string;
++  label: string;
++  /** Ordres qui attendent une décision du centre. */
++  enAttente: number;
++  montantEnAttente: number;
++  total: number;
++}
++
++export interface SectionDuCentre {
++  section: SectionCentre;
++  enAttente: number;
++  total: number;
++  /** Lignes rangées ici faute d'origine lisible — seul « Autres » en porte. */
++  repli: number;
++}
++
++export interface CentreCharge {
++  canDecide: boolean;
++  /** Rien à montrer ET aucun droit de siège : l'écran dit la règle. */
++  aucunOrdre: boolean;
++  entites: EntiteDuCentre[];
++  entiteChoisie: string | null;
++  sections: SectionDuCentre[];
++  sectionChoisie: SectionCentre;
++  /** Les compteurs de l'entité choisie, sections confondues. */
++  bilan: { enAttente: number; montantEnAttente: number; autorises: number; refuses: number };
++  /** Les identifiants à afficher, du plus récent au plus ancien — au plus `LIMITE_LIGNES_CENTRE`. */
++  idsAffiches: string[];
++  /** Combien de lignes de cette section l'écran ne montre PAS (les plus anciennes). */
++  nonAffiches: number;
++}
++
++const LOT = 2000;
++const parLots = <T,>(xs: readonly T[]): T[][] => {
++  const out: T[][] = [];
++  for (let i = 0; i < xs.length; i += LOT) out.push(xs.slice(i, i + LOT));
++  return out;
++};
++
++interface Ligne {
++  id: string;
++  companyId: string | null;
++  sourceType: EntityType | null;
++  sourceId: string | null;
++  centralStatus: CentralStatus;
++  amount: number;
++  createdAt: Date;
++}
++
++/**
++ * L'ORIGINE QUE DÉCLARE CHAQUE PORTEUR, en trois lectures par lot — jamais une par ordre.
++ * Clé `TYPE:id` → l'origine (`type`, `id`) que le porteur désigne.
++ */
++async function origineDesPorteurs(lignes: readonly Ligne[]): Promise<Map<string, { type: EntityType | null; id: string | null }>> {
++  const out = new Map<string, { type: EntityType | null; id: string | null }>();
++  const ids = (t: EntityType) => [...new Set(lignes.filter((l) => l.sourceType === t && l.sourceId).map((l) => l.sourceId as string))];
++  for (const lot of parLots(ids("PAYMENT_REQUEST"))) {
++    const rows = await prisma.paymentRequest.findMany({ where: { id: { in: lot } }, select: { id: true, entityType: true, entityId: true } });
++    for (const r of rows) out.set(`PAYMENT_REQUEST:${r.id}`, { type: r.entityType, id: r.entityId });
++  }
++  for (const lot of parLots(ids("ADMIN_REQUEST"))) {
++    const rows = await prisma.administrativeRequest.findMany({ where: { id: { in: lot } }, select: { id: true, linkedEntityType: true, linkedEntityId: true } });
++    for (const r of rows) out.set(`ADMIN_REQUEST:${r.id}`, { type: r.linkedEntityType, id: r.linkedEntityId });
++  }
++  for (const lot of parLots(ids("LEGAL_DOCUMENT"))) {
++    const rows = await prisma.legalDocument.findMany({ where: { id: { in: lot } }, select: { id: true, sourceType: true, sourceId: true } });
++    for (const r of rows) out.set(`LEGAL_DOCUMENT:${r.id}`, { type: r.sourceType, id: r.sourceId });
++  }
++  return out;
++}
++
++/** La section de chaque ordre, et si c'est un repli — UNE fonction pour les comptes ET pour la liste. */
++export async function classerLesLignes(
++  lignes: readonly { id: string; sourceType: EntityType | null; sourceId: string | null }[],
++): Promise<Map<string, { section: SectionCentre; repli: boolean }>> {
++  const base = lignes.map((l) => ({ ...l, centralStatus: "AWAITING" as CentralStatus, companyId: null, amount: 0, createdAt: new Date(0) }));
++  const porteurs = await origineDesPorteurs(base);
++  const effectives = new Map<string, { type: EntityType | null; id: string | null }>();
++  for (const l of base) {
++    const decl = l.sourceType && l.sourceId ? porteurs.get(`${l.sourceType}:${l.sourceId}`) : undefined;
++    const type = origineEffective(l.sourceType, decl?.type ?? null);
++    // L'identifiant de l'origine : celui du porteur quand le type vient de lui, sinon celui de l'ordre.
++    effectives.set(l.id, { type, id: type && type === l.sourceType ? l.sourceId : decl?.id ?? null });
++  }
++  const contrats = [...new Set([...effectives.values()].filter((e) => e.type === "CONSULTING_CONTRACT" && e.id).map((e) => e.id as string))];
++  const contratRH = new Set<string>();
++  for (const lot of parLots(contrats)) {
++    const rows = await prisma.consultingContract.findMany({ where: { id: { in: lot } }, select: { id: true, pole: true } });
++    for (const r of rows) if (poleDe(r.pole) === "RH") contratRH.add(r.id);
++  }
++  const out = new Map<string, { section: SectionCentre; repli: boolean }>();
++  for (const l of base) {
++    const e = effectives.get(l.id)!;
++    out.set(l.id, classerOrdre({
++      sourceType: e.type,
++      contratRH: e.type === "CONSULTING_CONTRACT" && e.id ? contratRH.has(e.id) : false,
++    }));
++  }
++  return out;
++}
++
++const cleDeLEntite = (companyId: string | null): string => companyId ?? ENTITE_SANS;
++
++export async function chargerCentre(
++  user: SessionUser, demande: { entite?: string | null; section?: string | null },
++): Promise<CentreCharge> {
++  const canDecide = sitsOnPaymentCentre(user);
++
++  const base: Prisma.ExpenseOrderWhereInput = {
++    AND: [
++      { centralStatus: { not: "NOT_REQUIRED" } },
++      ...(canDecide ? [] : [{ requestedById: user.id }]),
++    ],
++  };
++  const where = await ficheScopedWhere(user.id, base);
++  const rows = await prisma.expenseOrder.findMany({
++    where,
++    orderBy: [{ createdAt: "desc" }],
++    select: { id: true, companyId: true, sourceType: true, sourceId: true, centralStatus: true, amount: true, createdAt: true },
++  });
++  const lignes: Ligne[] = rows.map((r) => ({ ...r, centralStatus: r.centralStatus as CentralStatus, amount: toNumber(r.amount) }));
++  const classes = await classerLesLignes(lignes);
++
++  // ── Les pastilles : chaque société que la personne voit, même vide (changer d'entité se fait
++  //    d'un clic, un compte à zéro est une information) ; « Sans entité » seulement s'il y a des lignes.
++  const mesSocietes = await getMyCompanies(user.id);
++  const connues = new Set(mesSocietes.map((c) => c.id));
++  const inconnues = [...new Set(lignes.map((l) => l.companyId).filter((c): c is string => Boolean(c) && !connues.has(c as string)))];
++  const horsListe = inconnues.length
++    ? await prisma.company.findMany({ where: { id: { in: inconnues } }, select: { id: true, name: true, shortName: true } })
++    : [];
++
++  const entites = new Map<string, EntiteDuCentre>();
++  for (const c of mesSocietes) entites.set(c.id, { cle: c.id, label: companyLabel(c), enAttente: 0, montantEnAttente: 0, total: 0 });
++  // Une société désactivée porte encore des ordres : elle garde sa pastille, dite « (désactivée) ».
++  for (const c of horsListe) entites.set(c.id, { cle: c.id, label: `${c.shortName || c.name} (désactivée)`, enAttente: 0, montantEnAttente: 0, total: 0 });
++  if (lignes.some((l) => !l.companyId)) entites.set(ENTITE_SANS, { cle: ENTITE_SANS, label: "Sans entité", enAttente: 0, montantEnAttente: 0, total: 0 });
++  for (const l of lignes) {
++    const e = entites.get(cleDeLEntite(l.companyId));
++    if (!e) continue;
++    e.total += 1;
++    if (awaitsCentre(l.centralStatus)) { e.enAttente += 1; e.montantEnAttente += l.amount; }
++  }
++  const liste = [...entites.values()];
++
++  const preferee = await myCompanyScope(user.id);
++  const entiteChoisie = choisirEntite(liste, demande.entite, preferee);
++
++  // ── L'entité choisie : ses sections, son bilan, ses lignes.
++  const deLEntite = lignes.filter((l) => cleDeLEntite(l.companyId) === entiteChoisie);
++  const sections: SectionDuCentre[] = SECTIONS_CENTRE.map((section) => ({ section, enAttente: 0, total: 0, repli: 0 }));
++  const parSection = new Map(sections.map((s) => [s.section, s]));
++  const bilan = { enAttente: 0, montantEnAttente: 0, autorises: 0, refuses: 0 };
++  for (const l of deLEntite) {
++    const c = classes.get(l.id)!;
++    const s = parSection.get(c.section)!;
++    s.total += 1;
++    if (c.repli) s.repli += 1;
++    if (awaitsCentre(l.centralStatus)) { s.enAttente += 1; bilan.enAttente += 1; bilan.montantEnAttente += l.amount; }
++    if (l.centralStatus === "APPROVED") bilan.autorises += 1;
++    if (l.centralStatus === "REFUSED") bilan.refuses += 1;
++  }
++  const sectionChoisie = choisirSection(demande.section, {
++    REGULATORY: parSection.get("REGULATORY")!, SALES_MARKETING: parSection.get("SALES_MARKETING")!, AUTRES: parSection.get("AUTRES")!,
++  });
++  const dansLaSection = deLEntite.filter((l) => classes.get(l.id)!.section === sectionChoisie);
++
++  return {
++    canDecide,
++    aucunOrdre: lignes.length === 0,
++    entites: liste,
++    entiteChoisie,
++    sections,
++    sectionChoisie,
++    bilan,
++    idsAffiches: dansLaSection.slice(0, LIMITE_LIGNES_CENTRE).map((l) => l.id),
++    nonAffiches: Math.max(0, dansLaSection.length - LIMITE_LIGNES_CENTRE),
++  };
++}

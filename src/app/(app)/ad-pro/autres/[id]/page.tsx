@@ -120,7 +120,7 @@ export default async function AdProOtherDetailPage({ params }: { params: { id: s
               facture et des engagements ; les pièces de la demande gardent leur place nommée. */}
           <LinkedRecords
             entityType="AD_PRO_OTHER" entityId={req.id} reference={req.reference} canCreate={canUpload}
-            acces={ctxPieces.acces} candidatsLegal={ctxPieces.candidatsLegal}
+            acces={ctxPieces.acces} candidatsLegal={ctxPieces.candidatsLegal} suppression
             piecesDeLaDemande={{
               titre: "Pièces de la demande (demande, justificatifs, photos…)",
               documents: docItems,

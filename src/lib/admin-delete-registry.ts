@@ -2,6 +2,8 @@ import { CHEMIN_CATALOGUE_PROMO, CHEMIN_STOCK_PROMO } from "@/lib/chemins/stock-
 import type { EntityType } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { refusSuppressionRapport } from "@/lib/promo/remises-visite";
+import { refusSuppressionDeLaPiece } from "@/lib/queries/suppression-piece";
+import { retirerEnAttente } from "@/lib/bons-de-commande/aiguillage";
 import { inventorier } from "@/lib/suppression/lot";
 import { resumeDesLiens } from "@/lib/suppression/branches";
 
@@ -333,15 +335,22 @@ export const DELETE_REGISTRY: Record<DeletableKind, KindSpec> = {
     model: "fieldReport",
     searchFields: ["doctorName", "institution"],
     async describe(id) {
-      const r = await prisma.fieldReport.findUnique({ where: { id }, select: { doctorName: true, institution: true, visitDate: true } });
-      return r ? `${r.doctorName || r.institution || "Rapport"} — ${r.visitDate.toLocaleDateString("fr-FR")}` : null;
+      const r = await prisma.fieldReport.findUnique({ where: { id }, select: { doctorName: true, institution: true, visitDate: true, delegate: { select: { name: true } } } });
+      // L'auteur est dans le nom : la corbeille liste des rapports de tout le monde, et « Médecin non
+      // précisé — 05/10/2026 » ne dit pas lequel restaurer (§118.212).
+      return r ? `${r.doctorName || r.institution || "Rapport"} — ${r.visitDate.toLocaleDateString("fr-FR")}${r.delegate?.name ? ` (${r.delegate.name})` : ""}` : null;
     },
     // Le MÊME refus que l'action de suppression (§118.204) : un compte rendu qui porte du matériel
-    // remis justifie des sorties du stock, il ne passe pas à la corbeille.
+    // remis justifie des sorties du stock, il ne passe pas à la corbeille. Et, depuis §118.212, un
+    // compte rendu qui est le seul rapport d'une visite de l'emploi du temps.
     refuse: (id) => refusSuppressionRapport(id),
+    // UN LOT (§118.212) : le rapport ET ses pièces jointes (`FieldReportAttachment`, supprimées en
+    // cascade par la base) partent ensemble et reviennent ensemble. Avant, la restauration rendait
+    // le rapport SANS ses pièces — alors que la phrase de la corbeille disait « restaurable ». Les
+    // fichiers (pièces, audio) restent au stockage tant que l'entrée existe : seule la destruction
+    // réelle depuis la corbeille les libère.
+    lot: true,
     async remove(id) {
-      // L'audio (blob chiffré) est conservé pour la restauration ; il n'est
-      // libéré qu'à la destruction réelle depuis la corbeille.
       await prisma.fieldReport.delete({ where: { id } });
     },
   },
@@ -755,6 +764,11 @@ export const DELETE_REGISTRY: Record<DeletableKind, KindSpec> = {
     model: "legalDocument",
     entityType: "LEGAL_DOCUMENT",
     searchFields: ["reference", "title"],
+    // CE QUI NE SE SUPPRIME PAS (§118.209) : une pièce signée, réglée, partie au règlement, validée par un
+    // centre, ou dont une autre pièce découle. Le refus vit chez l'ÉCRIVAIN : la fiche Legal, la demande
+    // Ad & Pro et la corbeille du Super Admin passent par ici, et deux règles finiraient par ne pas refuser
+    // la même chose (§118.106). Il NOMME le geste qui reste (annuler, supprimer l'aval d'abord…).
+    refuse: (id) => refusSuppressionDeLaPiece(id),
     async describe(id) {
       const r = await prisma.legalDocument.findUnique({ where: { id }, select: { reference: true, title: true } });
       return r ? (r.reference ? `${r.reference} — ${r.title}` : r.title) : null;
@@ -764,7 +778,12 @@ export const DELETE_REGISTRY: Record<DeletableKind, KindSpec> = {
       return r?.createdById ?? null;
     },
     async remove(id) {
+      // Une validation qui attend au centre sur une pièce qui n'existe plus serait un arbitrage à rendre sur
+      // rien : la porte part avec le bon de commande (la fiche Legal ne la retirait pas, l'action d'Adam si).
+      // APRÈS la suppression de la ligne : la porte est désignée par un couple (type, identifiant) que rien ne
+      // lie par clé étrangère — si la suppression refuse (lien bloquant), la porte reste, la pièce aussi.
       await prisma.legalDocument.delete({ where: { id } });
+      await retirerEnAttente(id);
     },
   },
 

@@ -22,6 +22,8 @@ import { DocumentUpload } from "@/components/documents/document-upload";
 import { cn } from "@/lib/utils";
 import { BvRequestSheet } from "./bv-requests";
 import { DossierTimeline, type TimelineStepView } from "./dossier-timeline";
+import { CtdInitiale } from "./ctd-initiale";
+import { CTD_INITIALE_ETAPE, CTD_INITIALE_CATEGORIE } from "@/lib/regulatory/ctd-initiale";
 
 const STATE_OPTS: RegStepState[] = ["TODO", "DOING", "DONE", "BLOCKED"];
 
@@ -72,7 +74,7 @@ function Dot({ state, n }: { state: RegStepState; n: number }) {
  */
 export function RegulatoryProcess({
   productId, workflow, checklist, canUpdate, canUpload, canDelete, stepDocs, path,
-  dossierSteps, reference,
+  dossierSteps, reference, ctd,
 }: {
   productId: string;
   workflow: RegWorkflowState | null;
@@ -84,6 +86,14 @@ export function RegulatoryProcess({
   path: string;
   dossierSteps: TimelineStepView[];
   reference: string;
+  /** La « CTD initiale » (§118.213) : ses documents, ce que la personne peut en faire, et ce qui s'est passé. */
+  ctd: {
+    docs: DocItem[];
+    canUpload: boolean;
+    canManage: boolean;
+    depotEnCours: boolean;
+    retiree: { quand: string; fichiers: number; remplacee: boolean } | null;
+  };
 }) {
   const router = useRouter();
   const [state, setState] = React.useState<RegWorkflowState>(workflow ?? {});
@@ -201,13 +211,8 @@ export function RegulatoryProcess({
               <StepNote productId={productId} stepKey={s.key} initial={note} canUpdate={canUpdate} path={path} />
               <div>
                 <p className="mb-1.5 text-xs font-medium text-muted-foreground">
-                  {s.key === "ctd" ? "Le CTD initial se dépose ici" : "Pièces de l'étape"}
+                  {s.key === CTD_INITIALE_ETAPE ? "Autres pièces de l'étape (la CTD initiale a son bloc, juste en dessous)" : "Pièces de l'étape"}
                 </p>
-                {s.key === "ctd" && (
-                  <p className="mb-1.5 text-xs text-muted-foreground">
-                    Tous les formats sont acceptés : des fichiers, un dossier entier (arborescence conservée) ou un .zip — jusqu&apos;à 10 Go chacun. Un .zip se parcourt sans le télécharger.
-                  </p>
-                )}
                 {docs.length > 0 ? (
                   <DocumentList documents={docs} canDelete={canDelete || canUpload} canRename={canUpload} path={path} />
                 ) : (
@@ -219,8 +224,10 @@ export function RegulatoryProcess({
                       entityType="REGULATORY_PRODUCT"
                       entityId={productId}
                       stepKey={s.key}
-                      categories={s.key === "ctd"
-                        ? ["CTD_FULL", "MODULE_1", "MODULE_2", "MODULE_3", "MODULE_4", "MODULE_5", "SUPPORTING_DOC", "OTHER"]
+                      categories={s.key === CTD_INITIALE_ETAPE
+                        // « CTD complet » n'est plus proposé ici : la CTD initiale se dépose depuis son bloc, qui sait
+                        // l'ajouter, la remplacer, et la poser dans un dossier (§118.213).
+                        ? ["MODULE_1", "MODULE_2", "MODULE_3", "MODULE_4", "MODULE_5", "SUPPORTING_DOC", "OTHER"].filter((c) => c !== CTD_INITIALE_CATEGORIE)
                         : ["SUPPORTING_DOC", "OTHER"]}
                       compact
                     />
@@ -230,6 +237,24 @@ export function RegulatoryProcess({
             </div>
           )}
         </div>
+
+        {/* LA CTD INITIALE, sur l'étape 1 : bien visible, avec la même importance que le bloc des réserves ANPP.
+            Elle n'attend pas qu'on déplie « Pièces & note » : c'est LE livrable de cette étape. */}
+        {s.key === CTD_INITIALE_ETAPE && (
+          <div className="mt-2">
+            <CtdInitiale
+              productId={productId}
+              reference={reference}
+              docs={ctd.docs}
+              canUpload={ctd.canUpload}
+              canManage={ctd.canManage}
+              canDelete={canDelete}
+              path={path}
+              depotEnCours={ctd.depotEnCours}
+              retiree={ctd.retiree}
+            />
+          </div>
+        )}
 
         {/* LA CHECK-LIST DE PRÉSOUMISSION, juste après la réception du CTD — pliée par défaut :
             trente cases ouvertes en permanence noieraient le parcours qu'on vient lire. */}

@@ -4,6 +4,8 @@ export interface ActionResult {
   error?: string;
   id?: string;
   message?: string;
+  /** Où aller après l'action quand l'objet n'existe plus (une demande retirée = supprimée). */
+  redirect?: string;
 }
 
 /** Helpers for parsing FormData values inside server actions. */

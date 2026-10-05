@@ -6,7 +6,7 @@ import { scopeMedicalDoctors } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { getFieldReportDetail, managesReports } from "@/lib/queries/field-reports";
 import { PageHeader } from "@/components/shared/page-header";
-import { SuperAdminDeleteButton } from "@/components/shared/super-admin-delete";
+import { SupprimerRapport } from "../supprimer-rapport";
 import { ReportEditor } from "./report-editor";
 import { SimpleReportEditor } from "./simple-report-editor";
 import { BackLink } from "@/components/shared/back-link";
@@ -56,7 +56,14 @@ export default async function FieldReportPage({ params }: { params: { id: string
             : "Parlez (ou écrivez) votre compte rendu, puis envoyez."
         }
       >
-        <SuperAdminDeleteButton kind="FIELD_REPORT" id={detail.id} name={detail.delegateName ? `Rapport — ${detail.delegateName}` : "Rapport de visite"} enabled={user.role === "SUPER_ADMIN"} />
+        <SupprimerRapport
+          id={detail.id}
+          name={detail.delegateName ? `Rapport — ${detail.delegateName}` : "Rapport de visite"}
+          enabled={detail.canDelete}
+          versLaListe
+          compact={false}
+          libelle="Supprimer"
+        />
       </PageHeader>
       {isManager
         ? <ReportEditor detail={detail} doctors={doctors} materiel={materiel} rattacheAUneVisite={Boolean(lien?.visitId)} />

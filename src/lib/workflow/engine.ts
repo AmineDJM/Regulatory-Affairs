@@ -1567,13 +1567,27 @@ function evenementDeCloture(instanceId: string, etape: LoadedStep | null, viewer
  * un poste qui engage déjà la dépense (bon de commande demandé, ordre émis) l'interdit, avec le
  * geste qui débloque. Le motif est obligatoire (règle commune des gestes définitifs, R17) ; la
  * permission est vérifiée par l'APPELANT, qui seul connaît la session.
+ *
+ * RETIRER, C'EST SUPPRIMER (Direction, 05/10) : « quand je retire une demande Ad&Pro, elle doit être
+ * TOTALEMENT supprimée — évidemment toujours récupérable depuis la corbeille par le Super Admin ».
+ * Le moteur ne fait plus que JUGER si la demande se retire (état du circuit, postes engagés) et tient
+ * la prise du circuit pendant que l'APPELANT supprime : la suppression est le cœur réversible de la
+ * corbeille (`supprimerReversible`, un lot, une transaction), qui emporte avec la demande son circuit,
+ * ses validations, ses ordres non réglés, ses postes et ses pièces — et refuse ce qui a quitté l'ERP.
+ * Fermer le circuit AVANT de supprimer aurait laissé, sur un refus du lot, une demande « annulée »
+ * qu'on n'a pas supprimée : l'ordre inverse (juger, supprimer, rien d'autre) ne laisse jamais un
+ * état à moitié. Le cœur de la suppression n'est pas importé ici — le domaine du circuit ne lit pas
+ * celui de la corbeille —, il arrive en argument, et il est appelé APRÈS tous les refus.
  */
-export async function retirerDemande(input: { viewer: Viewer; entityType: EntityType; entityId: string; motif: string }): Promise<ResultatRevision> {
+export async function retirerDemande(input: {
+  viewer: Viewer; entityType: EntityType; entityId: string; motif: string;
+  supprimer: (nom: string) => Promise<{ ok: boolean; error?: string; redirect?: string }>;
+}): Promise<ResultatRevision & { redirect?: string }> {
   const { viewer, entityType, entityId } = input;
   const category = entityToCategory(entityType);
   if (!category) return { ok: false, error: "Catégorie de workflow inconnue." };
   const motif = input.motif.trim();
-  if (!motif) return { ok: false, error: "Dites pourquoi vous retirez la demande : le motif reste à l'historique." };
+  if (!motif) return { ok: false, error: "Dites pourquoi vous retirez la demande : le motif reste au journal." };
   const instance = await ensureInstance(entityType, entityId);
   if (!instance) return { ok: false, error: "Circuit introuvable." };
   if (instance.status !== "IN_PROGRESS" && instance.status !== "RETURNED") {
@@ -1594,15 +1608,12 @@ export async function retirerDemande(input: { viewer: Viewer; entityType: Entity
     }
     const summary = await loadEntity(entityType, entityId);
     if (!summary) return { ok: false, error: "Demande introuvable." };
-    // La clôture s'écrit ICI et non par `fermerInstance` : voir `clotureDuCircuit`.
-    const def = await chargerDefinition(instance);
-    const etape = def ? stepBySlug(def, instance.currentSlug) : null;
-    const pris = await prisma.workflowInstance.updateMany(clotureDuCircuit(instance.id));
-    if (pris.count === 0) return { ok: false, error: "La demande vient d'être tranchée ou close." };
-    await prisma.workflowStepEvent.create(evenementDeCloture(instance.id, etape, viewer, `Retirée — ${motif}`));
-    await projeterStatut(entityType, entityId, "CANCELLED", viewer);
-    await recordAudit({ actorId: viewer.id, action: "UPDATE", module: auditModule(entityType), entityType, entityId, summary: `Demande retirée — ${summary.name} : ${motif}` });
-    return { ok: true, category, etape: "" };
+    // LA SUPPRESSION, sous la prise : plus personne ne décide, approuve ou renvoie cette demande pendant
+    // qu'elle part. Un refus du lot (de l'argent est parti, une pièce est signée) rend la demande telle
+    // qu'elle était — la prise est rendue plus bas, rien n'a été écrit.
+    const supprime = await input.supprimer(summary.name);
+    if (!supprime.ok) return { ok: false, error: supprime.error ?? "La demande n'a pas pu être supprimée." };
+    return { ok: true, category, etape: "", redirect: supprime.redirect };
   } finally {
     await prisma.workflowInstance.updateMany(argsRendre(instance.id, prise)).catch(() => undefined);
   }

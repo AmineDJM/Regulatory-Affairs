@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRafraichir } from "@/components/shared/use-rafraichir";
 import { ShieldCheck, ShieldX, MessageSquare, Coins, Loader2, Send, ChevronDown, ExternalLink } from "lucide-react";
 import { decidePayment, respondToPaymentCentre } from "@/lib/actions/payment-centre-actions";
 import {
@@ -76,38 +76,35 @@ const TONE: Record<CentralStatus, BadgeTone> = {
 /**
  * LE CENTRE DE PAIEMENT — ce que le PDG voit avant que l'argent sorte.
  *
- * Une file par entité : « autoriser un paiement d'Adventum » et « autoriser un paiement de
- * Pharmagène » sont deux gestes comptablement distincts, et les mélanger dans une seule liste fait
- * perdre de vue combien chaque société engage.
+ * Une file par entité ET par section (§118.211) : « autoriser un paiement d'Adventum » et
+ * « autoriser un paiement de Pharmagène » sont deux gestes comptablement distincts, et la page
+ * choisit l'entité en haut puis l'une des trois sections — ce composant ne montre que CETTE file.
  *
- * Quatre issues, pas deux. Un refus sec oblige à tout refaire et fait perdre la discussion ; le
- * centre peut aussi demander une RÉVISION DU MONTANT ou une ARGUMENTATION, et le demandeur répond
- * dans le même fil — autant d'allers-retours qu'il en faut.
+ * Deux issues, pas quatre (décision de la Direction, 02/09/2026) : le centre AUTORISE ou REFUSE, et
+ * le montant se corrige dans la demande, avant d'arriver ici. Le demandeur répond dans le même fil.
+ *
+ * `useRafraichir` (§118.172) : après une décision, les gestes restent fermés tant que les nouvelles
+ * données ne sont pas à l'écran — un second clic sur l'état d'avant autoriserait deux fois.
  */
-export function CentreBoard({ orders, canDecide }: { orders: CentreOrder[]; canDecide: boolean }) {
-  const router = useRouter();
+export function CentreBoard({
+  orders, canDecide, titre, total, nonAffiches,
+}: { orders: CentreOrder[]; canDecide: boolean; titre: string; total: number; nonAffiches: number }) {
+  const { enCours, rafraichir } = useRafraichir();
   const [acting, setActing] = React.useState<{ order: CentreOrder; decision: CentralDecision } | null>(null);
   const [replying, setReplying] = React.useState<CentreOrder | null>(null);
   const [open, setOpen] = React.useState<string | null>(null);
   const [busy, setBusy] = React.useState(false);
   const [err, setErr] = React.useState<string | null>(null);
 
-  // Par ENTITÉ — un centre par société, comme demandé.
-  const groups = React.useMemo(() => {
-    const map = new Map<string, CentreOrder[]>();
-    for (const o of orders) {
-      const key = o.companyLabel ?? "Sans entité";
-      map.set(key, [...(map.get(key) ?? []), o]);
-    }
-    return [...map.entries()].sort((a, b) => a[0].localeCompare(b[0], "fr"));
-  }, [orders]);
+  // UNE seule file : l'entité et la section sont déjà choisies par la page.
+  const groups: [string, CentreOrder[]][] = [[titre, orders]];
 
   if (orders.length === 0) {
     return (
       <EmptyState
         icon="ShieldCheck"
-        title="Aucun paiement en attente d'autorisation"
-        description="Tout paiement de la société arrive ici avant d'atteindre les Finances, quel que soit son montant."
+        title="Aucun paiement dans cette section"
+        description="Tout paiement de la société arrive ici avant d'atteindre les Finances, quel que soit son montant. Changez d'entité en haut, ou de section, pour voir les autres."
       />
     );
   }
@@ -122,7 +119,7 @@ export function CentreBoard({ orders, canDecide }: { orders: CentreOrder[]; canD
             <div className="flex flex-wrap items-baseline justify-between gap-2">
               <h2 className="flex items-center gap-2 text-sm font-semibold">
                 <Coins className="h-4 w-4 text-primary" /> {company}
-                <span className="text-xs font-normal text-muted-foreground">({list.length})</span>
+                <span className="text-xs font-normal text-muted-foreground">({total > list.length ? `${list.length} sur ${total}` : list.length})</span>
               </h2>
               {waiting.length > 0 && (
                 <p className="text-xs text-muted-foreground">
@@ -211,10 +208,10 @@ export function CentreBoard({ orders, canDecide }: { orders: CentreOrder[]; canD
                             moduleLibelle={null}
                             canAskValidation={false}
                           />
-                          <Button size="sm" onClick={() => { setErr(null); setActing({ order: o, decision: "APPROVE" }); }}>
+                          <Button size="sm" disabled={enCours} onClick={() => { setErr(null); setActing({ order: o, decision: "APPROVE" }); }}>
                             <ShieldCheck className="h-4 w-4" /> Autoriser
                           </Button>
-                          <Button size="sm" variant="outline" className="text-destructive hover:bg-destructive/10" onClick={() => { setErr(null); setActing({ order: o, decision: "REFUSE" }); }}>
+                          <Button size="sm" variant="outline" disabled={enCours} className="text-destructive hover:bg-destructive/10" onClick={() => { setErr(null); setActing({ order: o, decision: "REFUSE" }); }}>
                             <ShieldX className="h-4 w-4" /> Refuser
                           </Button>
                         </>
@@ -222,7 +219,7 @@ export function CentreBoard({ orders, canDecide }: { orders: CentreOrder[]; canD
 
                       {/* LE DEMANDEUR RÉPOND — c'est ce qui rend les allers-retours possibles. */}
                       {o.isMine && awaitsRequester(o.centralStatus) && (
-                        <Button size="sm" onClick={() => { setErr(null); setReplying(o); }}>
+                        <Button size="sm" disabled={enCours} onClick={() => { setErr(null); setReplying(o); }}>
                           <Send className="h-4 w-4" /> Répondre et resoumettre
                         </Button>
                       )}
@@ -246,6 +243,12 @@ export function CentreBoard({ orders, canDecide }: { orders: CentreOrder[]; canD
                 );
               })}
             </ul>
+            {/* UNE COUPE SE DIT : le compte du titre est exact, la liste s'arrête aux plus récentes. */}
+            {nonAffiches > 0 && (
+              <p className="text-xs text-muted-foreground">
+                {nonAffiches} paiement{nonAffiches > 1 ? "s" : ""} plus ancien{nonAffiches > 1 ? "s" : ""} non affiché{nonAffiches > 1 ? "s" : ""} dans cette section.
+              </p>
+            )}
           </section>
         );
       })}
@@ -267,7 +270,7 @@ export function CentreBoard({ orders, canDecide }: { orders: CentreOrder[]; canD
               fd.set("beneficiaireVu", acting.order.beneficiary ?? "");
               const r = await decidePayment(fd);
               setBusy(false);
-              if (r.ok) { setActing(null); router.refresh(); } else setErr(r.error ?? "Échec.");
+              if (r.ok) { setActing(null); rafraichir(); } else setErr(r.error ?? "Échec.");
             }}
             className="space-y-4"
           >
@@ -324,7 +327,7 @@ export function CentreBoard({ orders, canDecide }: { orders: CentreOrder[]; canD
               fd.set("id", replying.id);
               const r = await respondToPaymentCentre(fd);
               setBusy(false);
-              if (r.ok) { setReplying(null); router.refresh(); } else setErr(r.error ?? "Échec.");
+              if (r.ok) { setReplying(null); rafraichir(); } else setErr(r.error ?? "Échec.");
             }}
             className="space-y-4"
           >

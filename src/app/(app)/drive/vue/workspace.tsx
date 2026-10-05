@@ -4,6 +4,7 @@ import * as React from "react";
 import Link from "next/link";
 import { X, Download, Pencil, Eye, Maximize2, Minus, Copy, LayoutGrid, ArrowLeft, ExternalLink } from "lucide-react";
 import { FileGlyph } from "@/components/drive/file-glyph";
+import { BoutonTelecharger } from "@/components/telechargement/bouton-telecharger";
 import {
   cascade, clampToBounds, focus, toggleMaximize, tileRects, moveBy, resizeTo, topZ,
   type WinState, type Bounds, type Rect,
@@ -167,12 +168,13 @@ export function DocumentWorkspace({ docs, officeEnabled }: { docs: OpenDoc[]; of
             {editing.has(doc.id) ? <><Eye className="h-3.5 w-3.5" /> Lecture</> : <><Pencil className="h-3.5 w-3.5" /> Modifier</>}
           </button>
         )}
-        <a
+        <BoutonTelecharger
           href={`/api/drive/${doc.id}/raw?dl=1`}
+          nom={doc.name}
           className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium text-muted-foreground hover:bg-secondary"
         >
           <Download className="h-3.5 w-3.5" /> Télécharger
-        </a>
+        </BoutonTelecharger>
         <Link
           href={`/drive/${doc.id}`}
           className="ml-auto inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium text-muted-foreground hover:bg-secondary"

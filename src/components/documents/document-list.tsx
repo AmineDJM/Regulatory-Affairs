@@ -43,12 +43,15 @@ export function DocumentList({
   canEdit,
   canRename,
   path,
+  supprimer,
 }: {
   documents: DocItem[];
   canDelete?: boolean;
   canEdit?: boolean;
   canRename?: boolean;
   path?: string;
+  /** L'action qui supprime, quand ce n'est pas `deleteDocument` (§118.209). */
+  supprimer?: (id: string, path?: string) => Promise<{ ok: boolean; error?: string }>;
 }) {
   if (documents.length === 0) {
     return <EmptyState icon="FolderOpen" title="Aucun document" description="Téléversez le premier document." />;
@@ -66,7 +69,7 @@ export function DocumentList({
               <FileText className="h-4 w-4" />
             </div>
             <div className="min-w-0 flex-1">
-              <DocumentPreview id={doc.id} name={doc.name} hasFile={doc.hasFile} canEdit={canEdit} canDelete={canDelete} canRename={canRename} path={path} />
+              <DocumentPreview id={doc.id} name={doc.name} hasFile={doc.hasFile} canEdit={canEdit} canDelete={canDelete} canRename={canRename} path={path} supprimer={supprimer} />
               {doc.folder && <p className="flex items-center gap-1 truncate text-[0.6875rem] text-muted-foreground" title={doc.folder}><Folder className="h-3 w-3 shrink-0" /> {doc.folder}</p>}
               <p className="truncate text-[0.6875rem] text-muted-foreground" title={meta}>{meta}</p>
             </div>

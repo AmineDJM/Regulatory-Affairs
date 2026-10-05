@@ -26,6 +26,7 @@ import {
 } from "@/lib/actions/payment-request-actions";
 import { requestDocument, askablePeople } from "@/lib/actions/document-request-actions";
 import { BoutonDecisif } from "@/components/ui/bouton-decisif";
+import { BoutonTelecharger } from "@/components/telechargement/bouton-telecharger";
 
 export interface PieceView {
   id: string;
@@ -660,9 +661,9 @@ function PieceCard({
         <Badge tone="neutral" dot={false}>{PAYMENT_PIECE_KIND[piece.kind] ?? piece.kind}</Badge>
         <StatusBadge map={PAYMENT_PIECE_STATUS} value={piece.status} dot={false} />
         {superseded && <Badge tone="neutral" dot={false}>remplacée</Badge>}
-        <a href={`/api/documents/${piece.documentId}?dl=1`} className="rounded p-1 text-muted-foreground hover:bg-secondary" aria-label="Télécharger">
+        <BoutonTelecharger href={`/api/documents/${piece.documentId}?dl=1`} nom={piece.name} className="rounded p-1 text-muted-foreground hover:bg-secondary" ariaLabel="Télécharger">
           <Download className="h-3.5 w-3.5" />
-        </a>
+        </BoutonTelecharger>
       </div>
 
       {/* CE QUI EST PARTI AU CENTRE DE VALIDATIONS, sur CETTE pièce. */}

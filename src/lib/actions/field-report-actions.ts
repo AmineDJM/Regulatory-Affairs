@@ -3,6 +3,9 @@
 import { revalidatePath } from "next/cache";
 import { requireUser } from "@/lib/session";
 import { userCan, hasGlobalView } from "@/lib/rbac";
+import { notifyUser } from "@/lib/notify";
+import { supprimerReversible, type DeleteResult } from "@/lib/suppression/coeur";
+import { peutSupprimerUnRapportTerrain } from "@/lib/queries/field-reports";
 import { prisma } from "@/lib/prisma";
 import { companyIdForNew } from "@/lib/company";
 import { releaseBlob } from "@/lib/drive-storage";
@@ -14,7 +17,7 @@ import { fdStr, fdDate, type ActionResult } from "@/lib/actions/types";
 import { sousVerrous } from "@/lib/promo/stock-ecriture";
 import {
   dejaDansLeRapport, ecrireRemises, formulairePorteDuMateriel, lireMaterielRemis, motifDeRemise, phraseMateriel, RefusRemise,
-  refusSuppressionRapport, toucheLeStock, verrousDuRapport,
+  toucheLeStock, verrousDuRapport,
 } from "@/lib/promo/remises-visite";
 import { remisesDuRapport } from "@/lib/queries/promo-remises";
 import { fenetreRapport } from "@/lib/sfe/tournee";
@@ -285,20 +288,47 @@ export async function reopenFieldReport(formData: FormData): Promise<ActionResul
   return { ok: true };
 }
 
-export async function deleteFieldReport(formData: FormData): Promise<ActionResult> {
+/**
+ * SUPPRIMER UN RAPPORT TERRAIN — RÉVERSIBLE (§118.212). Le geste passe par le cœur partagé de la
+ * corbeille (§118.162) : le rapport ET ses pièces jointes partent en UN lot, et reviennent
+ * ensemble quand le Super Admin restaure (Administration › Corbeille).
+ *
+ * L'ANCIEN GESTE ÉTAIT DÉFINITIF. Il supprimait la ligne puis libérait chaque fichier — pièces
+ * jointes et audio — du stockage : une suppression par erreur ne se rattrapait pas, alors que la
+ * même fiche, supprimée par le Super Admin, passait par la corbeille. Deux chemins pour le même
+ * geste, dont un irréversible (§118.5, §118.71). Les fichiers ne sont donc PLUS libérés ici : ils
+ * restent tant que l'entrée de corbeille existe, et c'est la destruction réelle depuis la corbeille
+ * qui les libère (`destroyDeletedRecord`).
+ *
+ * LE DROIT est `peutSupprimerLeRapport` (l'auteur, la hiérarchie qui gère déjà les rapports dans
+ * son périmètre d'entité, le Super Admin) ; LE REFUS est celui du registre (`spec.refuse`, lu par
+ * le cœur AVANT tout instantané) : du matériel remis au stock, une visite dont ce compte rendu est
+ * le seul rapport. L'aperçu de la fenêtre de confirmation et la carte d'Adam lisent les mêmes.
+ */
+export async function deleteFieldReport(formData: FormData): Promise<DeleteResult> {
   const user = await requireUser();
   const id = fdStr(formData, "id");
   if (!id) return { ok: false, error: "Rapport introuvable." };
-  if (!(await canEdit(user, id))) return { ok: false, error: "Non autorisé." };
-  const refus = await refusSuppressionRapport(id);
-  if (refus) return { ok: false, error: refus };
-  const atts = await prisma.fieldReportAttachment.findMany({ where: { reportId: id }, select: { blobId: true } });
-  const report = await prisma.fieldReport.findUnique({ where: { id }, select: { audioBlobId: true } });
-  await prisma.fieldReport.delete({ where: { id } });
-  for (const a of atts) await releaseBlob(a.blobId);
-  if (report?.audioBlobId) await releaseBlob(report.audioBlobId);
+  if (!(await peutSupprimerUnRapportTerrain(user, id))) return { ok: false, error: "Non autorisé." };
+  const rapport = await prisma.fieldReport.findUnique({
+    where: { id },
+    select: { delegateId: true, doctorName: true, visitDate: true, delegate: { select: { name: true } } },
+  });
+  if (!rapport) return { ok: false, error: "Rapport introuvable (déjà supprimé ?)." };
+  const nom = `${rapport.doctorName || "Rapport"} du ${rapport.visitDate.toLocaleDateString("fr-FR")}${rapport.delegate?.name ? ` (${rapport.delegate.name})` : ""}`;
+  const r = await supprimerReversible("FIELD_REPORT", id, user.id, `Suppression d'un rapport terrain — ${nom} (restaurable depuis la corbeille)`);
+  if (!r.ok) return r;
+  // On ne retire pas le compte rendu de quelqu'un sans le lui dire.
+  if (rapport.delegateId && rapport.delegateId !== user.id) {
+    await notifyUser({
+      userId: rapport.delegateId, type: "GENERIC",
+      title: "Votre rapport terrain a été supprimé",
+      body: `${nom} a été supprimé par ${user.name}. Le Super Admin peut le restaurer depuis la corbeille.`,
+      link: "/field-reports",
+    });
+  }
   revalidatePath("/field-reports");
-  return { ok: true };
+  return r;
 }
 
 export async function deleteFieldReportAttachment(formData: FormData): Promise<ActionResult> {

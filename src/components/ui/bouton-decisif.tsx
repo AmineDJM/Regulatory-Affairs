@@ -119,7 +119,10 @@ export const BoutonDecisif = React.forwardRef<HTMLButtonElement, BoutonDecisifPr
   return (
     <span
       className={cn(
-        "inline-flex max-w-full flex-wrap items-center gap-1 align-middle",
+        // `relative` : la zone vivante `sr-only` ci-dessous est `absolute`. Sans bloc conteneur ici, il lui
+        // restait la FENÊTRE : posée au bas d'une longue fiche, elle étendait le document et le rendait
+        // défilable — l'écran blanc de bas de page (§118.209). Le bouton, lui, ne bouge pas.
+        "relative inline-flex max-w-full flex-wrap items-center gap-1 align-middle",
         pleine && "flex w-full",
         etire && "flex-1",
       )}
