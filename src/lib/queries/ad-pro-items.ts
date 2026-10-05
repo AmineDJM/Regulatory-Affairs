@@ -17,6 +17,7 @@ import { splitMulti } from "@/lib/ad-pro/pickers";
 import { bcVivantsDesPostes, refusAnnulationBcDuPoste } from "@/lib/ad-pro/bc-etablis";
 import type { VoyageurVue } from "@/components/ad-pro/voyageurs-bloc";
 import { piecesDesPostes, demandesBCDesPostes, assistantesDeDirection } from "@/lib/ad-pro/pieces-poste";
+import { devisDesPostes } from "@/lib/queries/ad-pro-devis-poste";
 import { droitsValidation, estDirectionMarketingPoste, type DroitsValidation } from "@/lib/ad-pro/validation-poste";
 
 /**
@@ -156,7 +157,7 @@ export async function loadAdProItems(parent: AdProParent, parentId: string): Pro
   ]);
   // LA CHAÎNE D'ACHAT DE CHAQUE POSTE (§118.204) — devis, BC, factures — et la demande de BC chez
   // l'assistante. En lot, comme le reste.
-  const [piecesParPoste, demandeBcParPoste] = await Promise.all([piecesDesPostes(itemIds), demandesBCDesPostes(itemIds)]);
+  const [piecesParPoste, demandeBcParPoste, devisParPoste] = await Promise.all([piecesDesPostes(itemIds), demandesBCDesPostes(itemIds), devisDesPostes(itemIds)]);
   const natureDuType = new Map<string, NaturePieceSecretariat>(
     NATURES_PIECE_SECRETARIAT.map((n) => [String(PIECE_SECRETARIAT[n].type), n]),
   );
@@ -219,7 +220,8 @@ export async function loadAdProItems(parent: AdProParent, parentId: string): Pro
     orderStage: i.orderStage,
     opsDecidedAt: i.opsDecidedAt?.toISOString() ?? null,
     opsDecisionNote: i.opsDecisionNote,
-    pieces: piecesParPoste.get(i.id) ?? { devis: [], bc: null, factures: [] },
+    pieces: piecesParPoste.get(i.id) ?? { devis: [], bc: null, bcs: [], factures: [] },
+    devisLignes: devisParPoste.get(i.id) ?? [],
     demandeBC: demandeBcParPoste.get(i.id) ?? null,
     // SOUS LE SEUIL (§118.149) : le BC est passé aux Finances sans qu'aucun centre le vise — seul
     // le visa du centre pose `orderDirectionAt`. La fiche ne doit pas dire « validé par le centre ».

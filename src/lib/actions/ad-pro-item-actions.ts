@@ -17,9 +17,9 @@ import {
   PIECE_SECRETARIAT, NATURES_PIECE_SECRETARIAT, peutDemanderPiece, titrePiece, TITRE_BC_A_ETABLIR,
   type NaturePieceSecretariat,
 } from "@/lib/ad-pro/pieces-secretariat";
-import { buildRef, createWithRetry } from "@/lib/refs";
+import { buildRef, createWithRetry, enSerie } from "@/lib/refs";
 import { montantDeLaDemande } from "@/lib/ad-pro/montant-demande";
-import { fdStr, fdNum, type ActionResult } from "@/lib/actions/types";
+import { fdStr, fdNum, fdCase, type ActionResult } from "@/lib/actions/types";
 import { siegeAuCentreAdPro, REFUS_BC_CENTRE_AD_PRO } from "@/lib/ad-pro/centre";
 import { getAppSettings } from "@/lib/settings";
 import { validationRequiseBC, motifSousLeSeuil } from "@/lib/bons-de-commande/regle";
@@ -40,7 +40,16 @@ import { STATUTS_EDITABLES, VERSEMENT_SANS_BC, LIBELLE_JUSTIFICATIF_DIRECT, fact
 import {
   assistantesDeDirection, demanderBcAAssistante, demandesBCDesPostes, annulerDemandesPiecesDuPoste, rattacherPieceAuPoste, piecesDesPostes,
 } from "@/lib/ad-pro/pieces-poste";
+import { Prisma } from "@prisma/client";
 import { validateAttachments } from "@/lib/attach-files";
+import { readFileByKey } from "@/lib/storage";
+import { resolveParties } from "@/lib/queries/company-contacts";
+import { devisDesPostes } from "@/lib/queries/ad-pro-devis-poste";
+import { ingererDevisDuPoste, phraseDeLecture } from "@/lib/pieces-lues/devis-poste-lecture";
+import {
+  refusChangementDeValidation, refusEditionDesLignes, refusGenerationBC, type LigneDevisPoste,
+} from "@/lib/ad-pro/devis-poste";
+import { genererLesBCsDuPoste, phraseBilanGeneration, refusMontantDuPoste, tiersDuDevis } from "@/lib/ad-pro-bc-devis";
 import { attachFormFiles } from "@/lib/documents";
 import {
   lireVoyageur, lireEtapes, nomComplet, ligneVoyageur, changementsVoyageur, porteDesVoyageurs, depassementDevisRetenus, refusRetraitReservation,
@@ -1061,10 +1070,19 @@ export async function ajouterDevisPoste(_prev: ActionResult | undefined, formDat
   for (const { item } of charges) {
     await rattacherPieceAuPoste({ itemId: item.id, legalDocumentId: doc.id, nature: "DEVIS", acteurId: user.id });
   }
+  // LA LECTURE À L'UPLOAD (§118.206) : « Luna doit directement, lors de l'ingestion des devis, les rendre
+  // mangeables et consommables par la plateforme ». Le devis est déjà au poste : une lecture qui échoue ne fait
+  // JAMAIS échouer le dépôt, mais elle se DIT (une absence de lignes sans cause se lirait comme un devis vide).
+  const premier = fichiers[0];
+  let lecture = "";
+  if (premier && joints.failed.length < fichiers.length) {
+    const ing = await ingererDevisDuPoste({ userId: user.id, legalDocumentId: doc.id, octets: Buffer.from(await premier.arrayBuffer()), nomFichier: premier.name });
+    lecture = ing.ok ? ` ${phraseDeLecture(ing)}` : ` Lecture du devis impossible (${ing.raison}) — saisissez ses lignes depuis la carte du poste.`;
+  }
   await audit(user, owner.parent, owner.id, "UPDATE", `${nature} déposé sur ${libelles.map((l) => `« ${l} »`).join(", ")}${montant ? ` — ${montant.toLocaleString("fr-FR")} DZD` : ""}.`);
   revalidate(owner.parent, owner.id);
   const echec = joints.failed.length ? ` Échec sur : ${joints.failed.map((x) => x.name).join(", ")}.` : "";
-  return { ok: true, id: doc.id, message: `${nature} déposé${proforma ? "e" : ""}${charges.length > 1 ? ` — commun à ${charges.length} postes` : ""}.${echec}` };
+  return { ok: true, id: doc.id, message: `${nature} déposé${proforma ? "e" : ""}${charges.length > 1 ? ` — commun à ${charges.length} postes` : ""}.${echec}${lecture}` };
 }
 
 /**
@@ -1086,6 +1104,12 @@ export async function retirerDevisDuPoste(_prev: ActionResult | undefined, formD
   const aval = await prisma.legalDocument.count({ where: { chainFromId: pieceId, status: { not: "CANCELLED" } } });
   if (aval > 0) return { ok: false, error: "Un bon de commande ou une facture découle de ce devis : il ne se retire plus du poste." };
   await prisma.adProItemPiece.delete({ where: { id: lien.id } });
+  // LES LIGNES VALIDÉES POUR CE POSTE (§118.206) ne le restent pas : un devis qui ne couvre plus le poste ne fait
+  // plus rien commander pour lui — la validation d'une ligne tient au lien du devis avec le poste.
+  await prisma.adProDevisLigne.updateMany({
+    where: { devis: { legalDocumentId: pieceId }, validatedItemId: id },
+    data: { validatedItemId: null, validatedAt: null, validatedById: null },
+  });
   const restants = await prisma.adProItemPiece.count({ where: { legalDocumentId: pieceId } });
   if (restants === 0) {
     await prisma.legalDocument.updateMany({ where: { id: pieceId, status: { not: "CANCELLED" } }, data: { status: "CANCELLED", updatedById: user.id } });
@@ -1797,6 +1821,44 @@ async function envoyerDemandeBC(i: {
   return d.id;
 }
 
+/**
+ * PRENDRE LA MARCHE DU BC D'UN POSTE (§118.149, §118.206) — la demande part au centre Ad & Pro au-dessus du
+ * seuil, directement aux Finances en deçà. Une SEULE écriture, lue par les deux chemins qui ouvrent un BC : la
+ * demande à l'assistante (`requestAdProItemOrder`) et la génération d'après les lignes validées d'un devis
+ * (`genererBonDeCommandePoste`) — deux copies de « le poste passe à REQUESTED ou DIRECTION_OK » finiraient
+ * par ne plus s'accorder sur le seuil (§118.5).
+ *
+ * `orderDirectionAt` reste NUL sous le seuil : c'est ce qui distingue, sur la fiche, « validé par le centre »
+ * de « sous le seuil ». L'écriture est CONDITIONNELLE (§118.187) : deux clics ne font pas deux demandes.
+ * `assistantId` : celle qui établira le BC quand on le lui demande ; nul quand la plateforme le génère.
+ */
+async function prendreLaMarcheDuBC(i: {
+  item: { id: string; label: string };
+  owner: { parent: AdProParent; id: string };
+  ref: string; montantAccorde: number; user: SessionUser; note: string | null; assistantId: string | null;
+}): Promise<{ ok: true; sousLeSeuil: boolean; seuilBC: number } | { ok: false; error: string }> {
+  const { item, owner, user } = i;
+  const seuilBC = (await getAppSettings()).bcValidationThreshold;
+  const sousLeSeuil = !validationRequiseBC(i.montantAccorde, seuilBC);
+  const posee = await prisma.adProItem.updateMany({
+    where: { id: item.id, status: "APPROVED", orderStage: { in: ["NONE", "REFUSED"] } },
+    data: {
+      orderStage: sousLeSeuil ? "DIRECTION_OK" : "REQUESTED", orderRequestedAt: new Date(), orderRequestedById: user.id, orderNote: i.note,
+      orderDecisionNote: sousLeSeuil ? motifSousLeSeuil(seuilBC) : null, orderDirectionAt: null, orderDirectionById: null,
+      orderVisaAmount: null, orderVisaSupplier: null, ...(i.assistantId ? { bcAssistantId: i.assistantId } : {}), updatedById: user.id,
+    },
+  });
+  if (posee.count === 0) return { ok: false, error: "Une demande de bon de commande vient d'être envoyée pour ce poste, ou sa décision a changé : rouvrez la fiche." };
+  if (!sousLeSeuil) {
+    // TOUT BC NÉ D'AD & PRO AU-DESSUS DU SEUIL PASSE PAR LE CENTRE DE VALIDATION AD & PRO (§118.148).
+    await notifyRoles(["GENERAL_MANAGER", "SUPER_ADMIN"], {
+      type: "VALIDATION_REQUIRED", title: "Bon de commande à valider",
+      body: `${i.ref} — « ${item.label} » (${i.montantAccorde.toLocaleString("fr-FR")} DZD)`, link: "/centre-ad-pro",
+    }).catch(() => undefined);
+  }
+  return { ok: true, sousLeSeuil, seuilBC };
+}
+
 // ───────────────────────── Bon de commande : demande → assistante → centre → signature ─────────────────────────
 
 /**
@@ -1863,29 +1925,9 @@ export async function requestAdProItemOrder(_prev: ActionResult | undefined, for
   const assistante = await assistanteDuBC(formData);
   if ("error" in assistante) return { ok: false, error: assistante.error };
 
-  // LE SEUIL DES BONS DE COMMANDE (§118.149) : au-dessus, le centre Ad & Pro vise ; en deçà, aucun
-  // centre n'a à le viser. `orderDirectionAt` reste NUL sous le seuil — c'est ce qui distingue, sur la
-  // fiche, « validé par le centre » de « sous le seuil ».
-  const seuilBC = (await getAppSettings()).bcValidationThreshold;
-  const sousLeSeuil = !validationRequiseBC(montantAccorde as number, seuilBC);
-  // CONDITIONNELLE (§118.187) : deux clics ne font pas deux demandes. L'EMPREINTE n'est posée QUE par
-  // le visa du centre (§118.45). La note d'un refus précédent s'efface.
-  const posee = await prisma.adProItem.updateMany({
-    where: { id, status: "APPROVED", orderStage: { in: ["NONE", "REFUSED"] } },
-    data: {
-      orderStage: sousLeSeuil ? "DIRECTION_OK" : "REQUESTED", orderRequestedAt: new Date(), orderRequestedById: user.id, orderNote: note,
-      orderDecisionNote: sousLeSeuil ? motifSousLeSeuil(seuilBC) : null, orderDirectionAt: null, orderDirectionById: null,
-      orderVisaAmount: null, orderVisaSupplier: null, bcAssistantId: assistante.id, updatedById: user.id,
-    },
-  });
-  if (posee.count === 0) return { ok: false, error: "Une demande de bon de commande vient d'être envoyée pour ce poste, ou sa décision a changé : rouvrez la fiche." };
-  const cible = `${demande.ref} — « ${item.label} » (${(montantAccorde as number).toLocaleString("fr-FR")} DZD)`;
-  if (!sousLeSeuil) {
-    // TOUT BC NÉ D'AD & PRO AU-DESSUS DU SEUIL PASSE PAR LE CENTRE DE VALIDATION AD & PRO (§118.148).
-    await notifyRoles(["GENERAL_MANAGER", "SUPER_ADMIN"], {
-      type: "VALIDATION_REQUIRED", title: "Bon de commande à valider", body: cible, link: "/centre-ad-pro",
-    }).catch(() => undefined);
-  }
+  const prise = await prendreLaMarcheDuBC({ item, owner, ref: demande.ref, montantAccorde: montantAccorde as number, user, note, assistantId: assistante.id });
+  if (!prise.ok) return { ok: false, error: prise.error };
+  const { sousLeSeuil, seuilBC } = prise;
   await envoyerDemandeBC({ item, owner, ref: demande.ref, montant: montantAccorde, assistante, demandeurId: user.id, note });
   await audit(user, owner.parent, owner.id, "UPDATE", sousLeSeuil
     ? `Bon de commande demandé à ${assistante.name} pour le poste « ${item.label} » — ${motifSousLeSeuil(seuilBC)}`
@@ -2953,4 +2995,394 @@ export async function demanderBCBilletterie(formData: FormData): Promise<ActionR
   const depasse = await depassementDuPoste(id, item.amountGranted);
   const reste = sansDevis > 0 ? ` ${sansDevis} voyageur(s) sans devis retenu ne sont pas dans cette demande.` : "";
   return { ...r, message: `${r.message ?? "Bon de commande demandé."}${reste}${depasse ? ` ${depasse}` : ""}` };
+}
+
+// ═══════════════ §118.206 — Les lignes des devis d'un poste, et le bon de commande généré d'après elles ═══════════════
+
+/**
+ * « Quand un devis est validé entièrement, dans la case Bon de commande, on peut soit GÉNÉRER avec un petit CTA,
+ * soit UPLOADER. Il se peut qu'il y ait eu plusieurs devis, et différentes références dans chaque devis qui soient
+ * validées : alors ça peut demander de générer UN BC PAR DEVIS (incluant UNIQUEMENT les références validées).
+ * S'il oublie une référence, il peut juste la cocher dans le devis et RÉGÉNÉRER le BC. » (Direction, 05/10.)
+ *
+ * Quatre gestes, et chacun a sa porte :
+ *   • LIRE un devis (`lireLesLignesDuDevis`) ou le saisir (`enregistrerLignesDuDevis`) : le demandeur, ou qui arbitre ;
+ *   • VALIDER les lignes qu'on commande (`validerLignesDuDevis`) : même porte — c'est l'attestation d'avoir comparé
+ *     la ligne au papier, et rien ne se commande sans elle ;
+ *   • GÉNÉRER le BC de chaque devis (`genererBonDeCommandePoste`) : le demandeur, comme « demander le BC ».
+ *
+ * Ces quatre gestes sont des gestes D'ÉCRAN, classés EXCLUDED à la parité : une ligne validée est un prix que la
+ * société commande, et la validation atteste qu'une personne l'a lue sur le papier (§118.15, §118.152 i).
+ *
+ * UN GESTE À LA FOIS : le poste d'abord, puis chaque devis (`chez`) — valider une ligne pendant qu'un BC se
+ * compose ferait un BC qui porte une ligne qu'on vient de décocher. Les écritures restent conditionnelles :
+ * entre deux processus, la file ne vaut plus, la condition si (§118.187).
+ */
+const filePoste = (itemId: string) => `ad-pro-bc:${itemId}`;
+const fileDevis = (pieceId: string) => `ad-pro-devis:${pieceId}`;
+/** Passe le poste, puis le devis, une personne à la fois — toujours dans cet ordre (jamais d'interblocage). */
+const chez = <T,>(itemId: string, pieceId: string, fn: () => Promise<T>): Promise<T> =>
+  enSerie(filePoste(itemId), () => enSerie(fileDevis(pieceId), fn));
+
+class RefusLignes extends Error {}
+
+const peutTraiterLesDevis = (user: SessionUser, parent: AdProParent): boolean => canEditItems(user, parent) || canAllocate(user, parent);
+
+/** Le devis d'un poste, tel que la carte le voit — `null` s'il n'est plus rattaché au poste ou s'il est annulé. */
+async function devisDuPoste(itemId: string, pieceId: string | null) {
+  if (!pieceId) return null;
+  return ((await devisDesPostes([itemId])).get(itemId) ?? []).find((d) => d.pieceId === pieceId && !d.annule) ?? null;
+}
+
+/** Ce que tout geste sur les lignes d'un devis vérifie d'abord — le poste, la porte, l'argent, la demande. */
+async function cadreDesLignes(user: SessionUser, formData: FormData) {
+  const id = fdStr(formData, "id");
+  const pieceId = fdStr(formData, "pieceId");
+  if (!id || !pieceId) return { error: "Poste ou devis non précisé." } as const;
+  const found = await loadItem(id, user);
+  if (!found) return { error: "Poste introuvable." } as const;
+  const { item, owner } = found;
+  if (!peutTraiterLesDevis(user, owner.parent)) return { error: "Non autorisé." } as const;
+  const refusStock = refusArgentSurPosteStock(item.kind, "des lignes de devis");
+  if (refusStock) return { error: refusStock } as const;
+  if (item.status === "REJECTED") return { error: `Le poste « ${item.label} » est refusé : ses devis ne se traitent plus.` } as const;
+  if (VERSEMENT_SANS_BC.includes(item.kind)) {
+    return { error: "Un sponsoring direct n'a pas de bon de commande : la facture suffit — ses devis ne se valident pas ligne à ligne." } as const;
+  }
+  const info = await PARENTS[owner.parent].load(owner.id);
+  if (!info) return { error: "Opération introuvable." } as const;
+  const fermee = refusDemandeFermee(info);
+  if (fermee) return { error: fermee } as const;
+  return { id, pieceId, item, owner, info } as const;
+}
+
+/**
+ * VALIDER LES LIGNES D'UN DEVIS POUR CE POSTE — l'ensemble REMPLACE le précédent : les lignes envoyées sont validées,
+ * les autres ne le sont plus (décocher une ligne la retire). Une ligne se valide COMPLÈTE (quantité, prix lisibles) et
+ * pour UN seul poste ; une ligne lue par la machine demande l'attestation « j'ai comparé au devis ».
+ */
+export async function validerLignesDuDevis(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  const cadre = await cadreDesLignes(user, formData);
+  if ("error" in cadre) return { ok: false, error: cadre.error };
+  const { id, pieceId, item, owner } = cadre;
+  const demandees = new Set(formData.getAll("ligneId").map((x) => String(x).trim()).filter(Boolean));
+  const compare = fdCase(formData, "compare") === true;
+  return chez(id, pieceId, async () => {
+    const devis = await devisDuPoste(id, pieceId);
+    if (!devis) return { ok: false, error: "Ce devis n'est plus rattaché à ce poste : rechargez la fiche." };
+    if (!devis.structure) return { ok: false, error: "Ce devis n'a pas encore de lignes : faites-le lire, ou saisissez ses lignes, avant d'en valider." };
+    // L'ÉTAT D'ABORD (§118.18) : un BC signé ou facturé fige les lignes validées de ce devis.
+    const gel = refusChangementDeValidation(devis.bc);
+    if (gel) return { ok: false, error: gel };
+    const parId = new Map(devis.lignes.map((l) => [l.id, l]));
+    if ([...demandees].some((l) => !parId.has(l))) return { ok: false, error: "Une des lignes n'appartient pas à ce devis : rechargez la fiche." };
+    const aValider = [...demandees].filter((l) => !parId.get(l)!.validee);
+    const aRetirer = devis.lignes.filter((l) => l.validee && !demandees.has(l.id)).map((l) => l.id);
+    for (const lid of aValider) {
+      const l = parId.get(lid)!;
+      if (l.valideeAilleurs) return { ok: false, error: `« ${l.reference.slice(0, 60)} » est déjà validée pour le poste « ${l.valideeAilleurs} » : une ligne ne se commande qu'une fois — décochez-la là-bas d'abord.` };
+      if (l.refusValidation) return { ok: false, error: l.refusValidation };
+    }
+    if (aValider.some((l) => parId.get(l)!.lue !== null) && !compare) {
+      return { ok: false, error: "Cochez « J'ai comparé ces lignes au devis » : elles viennent de la lecture du fichier, et seule une personne qui les a vérifiées sur le papier peut les valider pour un bon de commande." };
+    }
+    if (aValider.length === 0 && aRetirer.length === 0) return { ok: true, id, message: "Rien n'a changé : les lignes validées sont celles que vous aviez déjà." };
+    try {
+      await prisma.$transaction(async (tx) => {
+        if (aValider.length > 0) {
+          const r = await tx.adProDevisLigne.updateMany({
+            where: { id: { in: aValider }, devis: { legalDocumentId: pieceId }, OR: [{ validatedItemId: null }, { validatedItemId: id }] },
+            data: { validatedItemId: id, validatedAt: new Date(), validatedById: user.id },
+          });
+          if (r.count !== aValider.length) throw new RefusLignes("Une ligne vient d'être validée pour un autre poste, ou retirée du devis : rechargez la fiche.");
+        }
+        if (aRetirer.length > 0) {
+          await tx.adProDevisLigne.updateMany({
+            where: { id: { in: aRetirer }, validatedItemId: id },
+            data: { validatedItemId: null, validatedAt: null, validatedById: null },
+          });
+        }
+      });
+    } catch (e) {
+      if (e instanceof RefusLignes) return { ok: false, error: e.message };
+      throw e;
+    }
+    const apres = await devisDuPoste(id, pieceId);
+    await audit(user, owner.parent, owner.id, "UPDATE",
+      `Devis « ${devis.reference ?? devis.titre} » du poste « ${item.label} » : ${aValider.length} ligne${aValider.length > 1 ? "s" : ""} validée${aValider.length > 1 ? "s" : ""}, ${aRetirer.length} retirée${aRetirer.length > 1 ? "s" : ""}.`);
+    revalidate(owner.parent, owner.id);
+    const suite = apres?.etat === "A_REGENERER" ? " Le bon de commande de ce devis n'est plus à jour : régénérez-le."
+      : apres?.etat === "A_GENERER" ? " Le bon de commande de ce devis est à générer." : "";
+    return {
+      ok: true, id,
+      message: `${apres?.nbValidees ?? 0} ligne${(apres?.nbValidees ?? 0) > 1 ? "s" : ""} validée${(apres?.nbValidees ?? 0) > 1 ? "s" : ""} pour ce poste (${(apres?.totalValideTtc ?? 0).toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} DZD TTC).${suite}`,
+    };
+  });
+}
+
+/** Un nombre saisi : « 4 800 », « 4 800,5 » ; vide → `null` ; illisible → `NaN`. */
+function nombreSaisi(brut: string): number | null {
+  const t = brut.replace(/\s/g, "").replace(",", ".");
+  return t === "" ? null : Number(t);
+}
+
+/**
+ * SAISIR OU CORRIGER LES LIGNES D'UN DEVIS — la retranscription à la main, ou la correction de ce que la lecture
+ * a proposé. Une ligne qui garde son identifiant est modifiée en place ; une ligne dont le CONTENU change perd sa
+ * validation (l'attestation portait sur l'ancien prix) ; une ligne absente est retirée. Refusé tant qu'un BC actif
+ * porte une ligne de ce devis (§118.206 : régénérer, ou annuler le BC d'abord).
+ */
+export async function enregistrerLignesDuDevis(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  const cadre = await cadreDesLignes(user, formData);
+  if ("error" in cadre) return { ok: false, error: cadre.error };
+  const { id, pieceId, item, owner } = cadre;
+
+  const ids = formData.getAll("ligneId").map((x) => String(x ?? "").trim());
+  const refs = formData.getAll("ligneReference").map((x) => String(x ?? "").trim());
+  const unites = formData.getAll("ligneUnite").map((x) => String(x ?? "").trim());
+  const quantites = formData.getAll("ligneQuantite").map((x) => String(x ?? "").trim());
+  const prix = formData.getAll("lignePrix").map((x) => String(x ?? "").trim());
+  const n = Math.max(refs.length, quantites.length, prix.length);
+  const lignes: { ligneId: string | null; reference: string; unit: string | null; quantity: number | null; unitPrice: number | null }[] = [];
+  for (let i = 0; i < n; i += 1) {
+    const r = refs[i] ?? "";
+    const q = quantites[i] ?? "";
+    const p = prix[i] ?? "";
+    if (!r && !q && !p) continue; // une rangée de saisie inutilisée
+    if (!r) return { ok: false, error: `Ligne ${i + 1} : la référence (ou désignation) est obligatoire.` };
+    const quantity = nombreSaisi(q);
+    const unitPrice = nombreSaisi(p);
+    if (quantity !== null && !(quantity > 0)) return { ok: false, error: `Ligne ${i + 1} (« ${r} ») : la quantité doit être un nombre supérieur à zéro (vide si elle est illisible).` };
+    if (unitPrice !== null && !(unitPrice >= 0)) return { ok: false, error: `Ligne ${i + 1} (« ${r} ») : le prix unitaire doit être un nombre positif (vide s'il est illisible).` };
+    lignes.push({ ligneId: ids[i] || null, reference: r, unit: (unites[i] ?? "") || null, quantity, unitPrice });
+  }
+  const tvaSaisie = nombreSaisi(fdStr(formData, "tvaRate") ?? "");
+  if (tvaSaisie !== null && !(tvaSaisie >= 0 && tvaSaisie <= 100)) return { ok: false, error: "Le taux de TVA s'exprime en pour cent, entre 0 et 100." };
+  const taxeSaisie = nombreSaisi(fdStr(formData, "extraTaxRate") ?? "");
+  if (taxeSaisie !== null && !(taxeSaisie > 0 && taxeSaisie <= 100)) return { ok: false, error: "La taxe additionnelle s'exprime en pour cent, entre 0 et 100 (laissez vide s'il n'y en a pas)." };
+  const totalSaisi = nombreSaisi(fdStr(formData, "announcedTotal") ?? "");
+  if (totalSaisi !== null && !(totalSaisi >= 0)) return { ok: false, error: "Le total annoncé sur le devis doit être un montant positif." };
+  const supplierId = fdStr(formData, "supplierId");
+  let fournisseur: string | null = null;
+  if (supplierId) {
+    const parties = await resolveParties(user.id, [supplierId]);
+    if (!parties.ok) return { ok: false, error: parties.error };
+    fournisseur = parties.text;
+  }
+
+  return chez(id, pieceId, async () => {
+    const devis = await devisDuPoste(id, pieceId);
+    if (!devis) return { ok: false, error: "Ce devis n'est plus rattaché à ce poste : rechargez la fiche." };
+    // Les BC ACTIFS qui portent une ligne : lus en base, jamais sur la parole de la vue (le `bcId` d'un BC annulé ne gèle rien).
+    const portees = await prisma.adProDevisLigne.findMany({
+      where: { devis: { legalDocumentId: pieceId }, bcId: { not: null }, bc: { status: { not: "CANCELLED" }, cancelledAt: null } },
+      select: { id: true, bcId: true, bc: { select: { id: true, reference: true } } },
+    });
+    const gel = refusEditionDesLignes(
+      portees.map((l): LigneDevisPoste => ({ id: l.id, position: 0, reference: "-", unit: null, quantity: 1, unitPrice: 0, lue: null, aVerifier: null, validatedItemId: null, bcId: l.bcId })),
+      [...new Map(portees.filter((l) => l.bc).map((l) => [l.bc!.id, { id: l.bc!.id, reference: l.bc!.reference }])).values()],
+    );
+    if (gel) return { ok: false, error: gel };
+    const existantes = await prisma.adProDevisLigne.findMany({
+      where: { devis: { legalDocumentId: pieceId } },
+      select: { id: true, reference: true, unit: true, quantity: true, unitPrice: true, validatedItemId: true },
+    });
+    const parId = new Map(existantes.map((l) => [l.id, l]));
+    const inconnues = lignes.filter((l) => l.ligneId && !parId.has(l.ligneId));
+    if (inconnues.length > 0) return { ok: false, error: "Une ligne n'appartient plus à ce devis : rechargez la fiche avant de l'enregistrer." };
+    const gardees = new Set(lignes.map((l) => l.ligneId).filter((x): x is string => Boolean(x)));
+    const doc = await prisma.legalDocument.findUnique({ where: { id: pieceId }, select: { reference: true } });
+    const donnees = {
+      ...(tvaSaisie !== null ? { tvaRate: new Prisma.Decimal(tvaSaisie) } : {}),
+      ...(formData.has("extraTaxRate") ? { extraTaxRate: taxeSaisie !== null ? new Prisma.Decimal(taxeSaisie) : null, extraTaxLabel: taxeSaisie !== null ? (fdStr(formData, "extraTaxLabel") ?? "Taxe additionnelle") : null } : {}),
+      ...(formData.has("announcedTotal") ? { announcedTotal: totalSaisi !== null ? new Prisma.Decimal(totalSaisi) : null } : {}),
+      ...(supplierId ? { supplierId } : {}),
+    };
+    const quand = fdStr(formData, "quoteDate");
+    const date = quand && !Number.isNaN(Date.parse(quand)) ? new Date(`${quand.slice(0, 10)}T00:00:00.000Z`) : null;
+    let perdues = 0;
+    await prisma.$transaction(async (tx) => {
+      const entete = await tx.adProDevis.upsert({
+        where: { legalDocumentId: pieceId },
+        create: { legalDocumentId: pieceId, createdById: user.id, ...donnees, ...(date ? { quoteDate: date } : {}) },
+        update: { ...donnees, ...(date ? { quoteDate: date } : {}) },
+        select: { id: true },
+      });
+      const aRetirer = existantes.filter((l) => !gardees.has(l.id));
+      if (aRetirer.length > 0) await tx.adProDevisLigne.deleteMany({ where: { id: { in: aRetirer.map((l) => l.id) } } });
+      for (const [i, l] of lignes.entries()) {
+        const avant = l.ligneId ? parId.get(l.ligneId) : undefined;
+        const valeurs = {
+          position: i, reference: l.reference, unit: l.unit,
+          quantity: l.quantity !== null ? new Prisma.Decimal(l.quantity) : null,
+          unitPrice: l.unitPrice !== null ? new Prisma.Decimal(l.unitPrice) : null,
+        };
+        if (!avant) {
+          await tx.adProDevisLigne.create({ data: { ...valeurs, devisId: entete.id } });
+          continue;
+        }
+        const change = avant.reference !== l.reference || (avant.unit ?? null) !== l.unit
+          || (avant.quantity != null ? Number(avant.quantity) : null) !== l.quantity
+          || (avant.unitPrice != null ? Number(avant.unitPrice) : null) !== l.unitPrice;
+        // L'ATTESTATION PORTAIT SUR L'ANCIEN CONTENU : une ligne corrigée n'est plus celle qu'on avait validée.
+        if (change && avant.validatedItemId) perdues += 1;
+        await tx.adProDevisLigne.update({
+          where: { id: avant.id },
+          data: { ...valeurs, ...(change ? { validatedItemId: null, validatedAt: null, validatedById: null, aVerifier: null } : {}) },
+        });
+      }
+      const nouvelleRef = fdStr(formData, "reference");
+      if (nouvelleRef !== null || fournisseur) {
+        await tx.legalDocument.update({
+          where: { id: pieceId },
+          data: { ...(nouvelleRef !== null && nouvelleRef !== doc?.reference ? { reference: nouvelleRef } : {}), ...(fournisseur ? { counterparty: fournisseur } : {}), updatedById: user.id },
+        });
+      }
+    });
+    await audit(user, owner.parent, owner.id, "UPDATE", `Devis « ${devis.reference ?? devis.titre} » du poste « ${item.label} » : ${lignes.length} ligne${lignes.length > 1 ? "s" : ""} enregistrée${lignes.length > 1 ? "s" : ""}.`);
+    revalidate(owner.parent, owner.id);
+    return {
+      ok: true, id,
+      message: `${lignes.length} ligne${lignes.length > 1 ? "s" : ""} enregistrée${lignes.length > 1 ? "s" : ""}.`
+        + (perdues > 0 ? ` ${perdues} ligne${perdues > 1 ? "s" : ""} corrigée${perdues > 1 ? "s" : ""} n'est plus validée : revalidez-la devant le papier.` : ""),
+    };
+  });
+}
+
+/**
+ * RELIRE UN DEVIS DÉJÀ DÉPOSÉ — pour un devis d'avant la lecture, ou dont la première lecture a échoué. Le fichier est
+ * relu en base, jamais renvoyé par le formulaire. Les lignes proposées REMPLACENT les précédentes : refusé dès qu'une
+ * ligne est validée ou qu'un BC en porte une (on ne remplace pas ce qu'une personne a attesté sans le lui dire).
+ */
+export async function lireLesLignesDuDevis(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  const cadre = await cadreDesLignes(user, formData);
+  if ("error" in cadre) return { ok: false, error: cadre.error };
+  const { id, pieceId, item, owner } = cadre;
+  return chez(id, pieceId, async () => {
+    const devis = await devisDuPoste(id, pieceId);
+    if (!devis) return { ok: false, error: "Ce devis n'est plus rattaché à ce poste : rechargez la fiche." };
+    if (devis.bc) return { ok: false, error: `Ce devis porte déjà un bon de commande (${devis.bc.reference}) : il ne se relit plus d'ici — annulez le bon de commande d'abord.` };
+    if (devis.lignes.some((l) => l.validee || l.valideeAilleurs)) {
+      return { ok: false, error: "Des lignes de ce devis sont déjà validées : une relecture les remplacerait. Décochez-les d'abord (ou corrigez les lignes à la main)." };
+    }
+    const fichier = await prisma.document.findFirst({
+      where: { entityType: "LEGAL_DOCUMENT", entityId: pieceId }, orderBy: { createdAt: "asc" },
+      select: { name: true, fileKey: true, confidentiality: true },
+    });
+    if (!fichier?.fileKey) return { ok: false, error: "Ce devis n'a pas de fichier à lire : joignez-le d'abord." };
+    const octets = await readFileByKey(fichier.fileKey).catch(() => null);
+    if (!octets) return { ok: false, error: "Le fichier de ce devis est introuvable dans le stockage." };
+    const ing = await ingererDevisDuPoste({
+      userId: user.id, legalDocumentId: pieceId, octets, nomFichier: fichier.name, remplacer: true,
+      sortieCloudPermise: fichier.confidentiality === "INTERNAL",
+    });
+    if (!ing.ok) return { ok: false, error: ing.raison };
+    await audit(user, owner.parent, owner.id, "UPDATE", `Devis « ${devis.reference ?? devis.titre} » du poste « ${item.label} » relu : ${ing.nbLignes} ligne${ing.nbLignes > 1 ? "s" : ""} proposée${ing.nbLignes > 1 ? "s" : ""}.`);
+    revalidate(owner.parent, owner.id);
+    return { ok: true, id, message: phraseDeLecture(ing) };
+  });
+}
+
+/**
+ * GÉNÉRER LE OU LES BONS DE COMMANDE D'UN POSTE d'après les lignes VALIDÉES de ses devis — UN BC PAR DEVIS, avec
+ * uniquement ses lignes validées. `pieceId` : un seul devis ; absent : tous ceux qui ont quelque chose à générer. Un
+ * devis dont le BC existe et n'est ni signé ni facturé est RÉVISÉ (même numéro, version suivante) quand on a coché ou
+ * décoché des lignes depuis ; signé ou facturé, le refus nomme le geste qui reste.
+ *
+ * Mêmes portes que « demander le BC » : le poste est accordé, son budget choisi, la demande n'est pas close, et
+ * aucune demande de BC n'est ouverte chez l'assistante (deux chemins pour le même BC feraient deux commandes).
+ * Le poste prend la marche du BC comme pour une demande — au-dessus du seuil le centre Ad & Pro le vise, une fois,
+ * en deçà il passe à la signature des Finances. Les BC générés lisent CETTE porte (`portesDesBC`, source « POSTE »).
+ */
+export async function genererBonDeCommandePoste(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  const id = fdStr(formData, "id");
+  const pieceVoulue = fdStr(formData, "pieceId");
+  if (!id) return { ok: false, error: "Poste non précisé." };
+  const found = await loadItem(id, user);
+  if (!found) return { ok: false, error: "Poste introuvable." };
+  const { item, owner } = found;
+  if (!canEditItems(user, owner.parent)) return { ok: false, error: "Non autorisé." };
+  const refusStock = refusArgentSurPosteStock(item.kind, "un bon de commande");
+  if (refusStock) return { ok: false, error: refusStock };
+  if (VERSEMENT_SANS_BC.includes(item.kind)) {
+    return { ok: false, error: "Un sponsoring direct n'a pas de bon de commande : déposez la facture (et, si vous l'avez, la pro forma) puis demandez le paiement." };
+  }
+  const info = await PARENTS[owner.parent].load(owner.id);
+  if (!info) return { ok: false, error: "Opération introuvable." };
+  const fermee = refusDemandeFermee(info);
+  if (fermee) return { ok: false, error: fermee };
+
+  return enSerie(filePoste(id), async () => {
+    // L'ÉTAT D'ABORD (§118.18) : tout ce qui interdit de générer se lit AVANT de demander quoi que ce soit.
+    const poste = await prisma.adProItem.findUnique({
+      where: { id },
+      select: { status: true, orderStage: true, expenseOrderId: true, amountGranted: true, budgetCategoryId: true, supplier: true },
+    });
+    if (!poste) return { ok: false, error: "Poste introuvable." };
+    const montantAccorde = poste.amountGranted != null ? toNumber(poste.amountGranted) : null;
+    const ouverte = (await demandesBCDesPostes([id])).get(id);
+    const refus = refusGenerationBC({
+      status: poste.status, amountGranted: montantAccorde, budgetCategoryId: poste.budgetCategoryId, orderStage: poste.orderStage,
+      expenseOrderId: poste.expenseOrderId, demandeChez: ouverte?.assistante, demandeOuverte: Boolean(ouverte),
+    });
+    if (refus) return { ok: false, error: refus };
+
+    const tous = ((await devisDesPostes([id])).get(id) ?? []).filter((d) => !d.annule);
+    const visees = pieceVoulue ? tous.filter((d) => d.pieceId === pieceVoulue) : tous;
+    if (pieceVoulue && visees.length === 0) return { ok: false, error: "Ce devis n'est pas rattaché à ce poste." };
+    const aFaire = visees.filter((d) => d.etat === "A_GENERER" || d.etat === "A_REGENERER");
+    if (aFaire.length === 0) {
+      const bloque = visees.find((d) => d.etat === "FIGE" || d.etat === "A_ANNULER");
+      if (bloque?.refus) return { ok: false, error: bloque.refus };
+      if (visees.some((d) => d.etat === "A_JOUR")) return { ok: true, id, message: "Chaque devis validé a déjà son bon de commande, à jour : rien de nouveau à générer." };
+      return { ok: false, error: "Aucune ligne n'est validée : cochez, dans un devis, les lignes à commander, puis générez le bon de commande." };
+    }
+    const depasse = refusMontantDuPoste(tous, montantAccorde);
+    if (depasse) return { ok: false, error: depasse };
+    for (const d of aFaire) {
+      if (d.etat !== "A_GENERER") continue;
+      const t = await tiersDuDevis(d, poste.supplier);
+      if (!t.ok) return { ok: false, error: `${d.reference ?? d.titre} : ${t.error}` };
+    }
+    const societe = info.companyId ?? (await moneyEntityOf(info.requesterId ?? user.id));
+    if (!societe) {
+      return { ok: false, error: "La société qui commande est introuvable : la demande n'en nomme aucune, et la fiche salarié de son demandeur non plus. Renseignez la société du demandeur (RH › fiche salarié), puis relancez." };
+    }
+
+    // LA MARCHE DU POSTE, comme une demande de BC — puis la composition. Prise avant : les BC lisent cette porte en naissant.
+    let marche: { sousLeSeuil: boolean; seuilBC: number } | null = null;
+    const etapeAvant = poste.orderStage;
+    if (poste.orderStage === "NONE" || poste.orderStage === "REFUSED") {
+      const prise = await prendreLaMarcheDuBC({
+        item, owner, ref: info.ref, montantAccorde: montantAccorde as number, user, assistantId: null,
+        note: "Bon de commande généré d'après les lignes validées des devis du poste.",
+      });
+      if (!prise.ok) return { ok: false, error: prise.error };
+      marche = { sousLeSeuil: prise.sousLeSeuil, seuilBC: prise.seuilBC };
+    }
+    const bilan = await genererLesBCsDuPoste(
+      user, { item: { id, label: item.label, kind: item.kind, supplier: item.supplier, amountGranted: montantAccorde }, ref: info.ref, societe },
+      aFaire.map((d) => d.pieceId),
+    );
+    // RIEN N'A PU ÊTRE COMPOSÉ : la marche prise pour rien est rendue — le poste ne reste pas « demandé » sans BC.
+    if (bilan.bcs.length === 0 && marche) {
+      await prisma.adProItem.updateMany({
+        where: { id, orderStage: marche.sousLeSeuil ? "DIRECTION_OK" : "REQUESTED", orderRequestedById: user.id },
+        data: { orderStage: etapeAvant, orderRequestedAt: null, orderRequestedById: null, orderNote: null, orderDecisionNote: null },
+      });
+    }
+    if (bilan.bcs.length === 0) return { ok: false, error: `Aucun bon de commande n'a pu être généré — ${bilan.echecs.join(" ; ")}.` };
+    await audit(user, owner.parent, owner.id, "UPDATE", `Bons de commande générés pour le poste « ${item.label} » d'après les lignes validées : ${bilan.bcs.map((b) => `${b.reference}${b.regenere ? ` (révisé v${b.version})` : ""}`).join(", ")}.`);
+    revalidate(owner.parent, owner.id);
+    revalidatePath(CHEMIN_BC_A_SIGNER);
+    if (marche && !marche.sousLeSeuil) revalidatePath("/centre-ad-pro");
+    const suite = marche
+      ? (marche.sousLeSeuil ? ` ${motifSousLeSeuil(marche.seuilBC)}` : " Le centre de validation Ad & Pro les vise avec le poste.")
+      : "";
+    return { ok: true, id, message: `${phraseBilanGeneration(bilan)}${suite}` };
+  });
 }

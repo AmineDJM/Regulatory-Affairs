@@ -73,6 +73,12 @@ export interface FaitsPoste {
   factures?: number;
   /** Combien de devis / pro forma / lettres de demande (non annulés) le poste porte. */
   devis?: number;
+  /**
+   * Combien de devis du poste ont des lignes VALIDÉES et pas encore de bon de commande (§118.206) : le BC se GÉNÈRE
+   * alors d'après elles, au lieu de se demander à l'assistante. Absent ou nul : aucune ligne validée — le geste
+   * reste celui d'avant.
+   */
+  devisAGenerer?: number;
 }
 
 /** Ce que la personne qui regarde peut faire — calculé au serveur, jamais deviné ici. */
@@ -102,7 +108,7 @@ export interface RegardPoste {
 
 export type CleGeste =
   | "REPARTIR" | "CHIFFRER" | "SOUMETTRE" | "VALIDER_OPS" | "DECIDER" | "MONTANT" | "BUDGET"
-  | "DEMANDER_BC" | "VISER_BC" | "VERIFIER_BC" | "DEMANDER_PAIEMENT";
+  | "DEMANDER_BC" | "GENERER_BC" | "VISER_BC" | "VERIFIER_BC" | "DEMANDER_PAIEMENT";
 
 export interface Geste {
   cle: CleGeste;
@@ -137,6 +143,8 @@ export function faitsDuPoste(r: {
   demandeBC?: { etat: EtatDemandeBC } | null;
   /** La chaîne d'achat du poste (`PiecesDuPoste`). */
   pieces?: { bc: { etape: EtapeBC | null } | null; factures: readonly unknown[]; devis?: readonly { annulee?: boolean }[] };
+  /** Les devis du poste, lus avec leurs lignes (`DevisDePosteVue`) — seul l'état de leur BC compte ici. */
+  devisLignes?: readonly { etat: string }[];
 }): FaitsPoste {
   return {
     kind: r.kind, status: r.status, amountEstimated: r.amountEstimated, amountGranted: r.amountGranted,
@@ -145,6 +153,7 @@ export function faitsDuPoste(r: {
     opsDecidedAt: r.opsDecidedAt ?? null, demandeBC: r.demandeBC?.etat ?? "AUCUNE",
     bc: r.pieces?.bc ? (r.pieces.bc.etape ?? "HORS_CIRCUIT") : null, factures: r.pieces?.factures.length ?? 0,
     devis: (r.pieces?.devis ?? []).filter((d) => !d.annulee).length,
+    devisAGenerer: (r.devisLignes ?? []).filter((d) => d.etat === "A_GENERER").length,
   };
 }
 
@@ -348,8 +357,10 @@ export function prochainPas(p: FaitsPoste, r: RegardPoste): ProchainPas {
         : { geste: null, attente: "Bon de commande déposé par l'assistante — le demandeur le vérifie." };
     }
     // UNE DEMANDE D'AVANT LA RÈGLE (§118.204) : demandée au secrétariat, elle ne reviendrait jamais sur
-    // le poste. L'action accepte de l'envoyer à l'assistante ; la carte doit le proposer.
+    // le poste. L'action accepte de l'envoyer à l'assistante ; la carte doit le proposer. Des lignes de devis
+    // validées passent avant : le BC se GÉNÈRE d'après elles (§118.206).
     if (p.demandeBC === "AUCUNE") {
+      if (r.canEdit && (p.devisAGenerer ?? 0) > 0) return { geste: gesteGenerer(p.devisAGenerer as number), attente: null };
       return r.canEdit
         ? { geste: { cle: "DEMANDER_BC", libelle: "Envoyer la demande de BC à l'assistante" }, attente: null }
         : { geste: null, attente: "Le demandeur envoie la demande de bon de commande à l'assistante de direction." };
@@ -362,13 +373,18 @@ export function prochainPas(p: FaitsPoste, r: RegardPoste): ProchainPas {
     };
   }
   // Bon de commande à demander (ou à redemander après un refus du centre). Cette demande reste un
-  // geste d'EXÉCUTION : elle s'offre encore sur une demande clôturée (§118.151).
+  // geste d'EXÉCUTION : elle s'offre encore sur une demande clôturée (§118.151). Quand des lignes de devis sont
+  // VALIDÉES, c'est la génération qui est proposée : un BC par devis, avec ses seules lignes validées (§118.206).
+  if (r.canEdit && (p.devisAGenerer ?? 0) > 0) return { geste: gesteGenerer(p.devisAGenerer as number), attente: null };
   return r.canEdit
     ? { geste: { cle: "DEMANDER_BC", libelle: p.orderStage === "REFUSED" ? "Redemander l'émission du BC" : "Demander l'émission du BC" }, attente: null }
     : { geste: null, attente: "Le demandeur demande l'émission du bon de commande." };
 }
 
 const capitale = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+
+/** Le geste de génération : « Générer le BC » pour un devis, « Générer les BC (N) » pour plusieurs. */
+const gesteGenerer = (n: number): Geste => ({ cle: "GENERER_BC", libelle: n > 1 ? `Générer les BC (${n})` : "Générer le BC" });
 
 /**
  * LES POSTES REGROUPÉS PAR RÉPARTITION — dans l'ordre où ils apparaissent. Un poste né d'une

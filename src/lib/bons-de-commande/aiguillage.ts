@@ -204,7 +204,24 @@ export async function portesDesBC(docIds: readonly string[]): Promise<Map<string
   if (docs.length === 0) return res;
   const bcIds = docs.map((d) => d.id);
 
-  // 1. Le visa du poste, par la demande de pièce qui a fait naître le BC.
+  // 1a. Le BC GÉNÉRÉ d'après les lignes validées d'un devis de poste (§118.206) naît AVEC le poste pour source :
+  // c'est le visa de ce poste qu'il lit, comme celui qu'une assistante dépose. Une seconde porte sur la pièce
+  // ferait valider deux fois le même engagement (§118.5).
+  const parPoste = docs.filter((d) => d.sourceType === "AD_PRO_ITEM" && d.sourceId);
+  if (parPoste.length > 0) {
+    const postes = await prisma.adProItem.findMany({
+      where: { id: { in: [...new Set(parPoste.map((d) => d.sourceId!))] } },
+      select: { id: true, orderStage: true, orderDecisionNote: true },
+    }).catch(() => []);
+    const posteParId = new Map(postes.map((p) => [p.id, p]));
+    for (const d of parPoste) {
+      const poste = posteParId.get(d.sourceId!);
+      const etat = poste ? etatDepuisPoste(poste.orderStage) : null;
+      if (poste && etat) res.set(d.id, { centre: "AD_PRO", etat, source: "POSTE", note: poste.orderDecisionNote });
+    }
+  }
+
+  // 1b. Le visa du poste, par la demande de pièce qui a fait naître le BC.
   const parDemande = docs.filter((d) => d.sourceType === "DOCUMENT_REQUEST" && d.sourceId);
   if (parDemande.length > 0) {
     const demandes = await prisma.documentRequest.findMany({
