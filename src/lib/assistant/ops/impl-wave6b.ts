@@ -14,6 +14,7 @@ import {
 import { normalizeArticle, needsRewrite, describeRewrite } from "@/lib/general-means/catalog-normalize";
 import { ROLE_LABELS, SUPPLY_CATEGORY, SUPPLY_UNIT } from "@/lib/labels";
 import type { CurrentUser } from "@/lib/session";
+import { apercuSuppression, peutSupprimerUnRapportTerrain } from "@/platform/in-process/capacites";
 import type { OpImpl, OpProposalDraft } from "./types";
 import { opStr } from "./types";
 import { runFd, runFd2, fieldsOf, resolveOne, isoDate, dzd } from "./helpers";
@@ -426,10 +427,15 @@ export const VALIDATION_OPS_IMPL: Record<string, OpImpl> = {
 
 interface FieldReportHit { id: string; label: string }
 
-async function resolveFieldReport(user: CurrentUser, raw: string): Promise<FieldReportHit | { error: string }> {
+async function resolveFieldReport(
+  user: CurrentUser,
+  raw: string,
+  /** Ne retient que les rapports sur lesquels la personne a le droit d'agir (§118.212) : un candidat qu'on ne peut pas toucher ne se NOMME pas. */
+  garde?: (id: string) => Promise<boolean>,
+): Promise<FieldReportHit | { error: string }> {
   const q = raw.trim();
   const mine = /^(mon |mes |dernier)/i.test(q) || !q;
-  const rows = await prisma.fieldReport.findMany({
+  let rows = await prisma.fieldReport.findMany({
     where: mine
       ? { delegateId: user.id }
       : {
@@ -442,6 +448,10 @@ async function resolveFieldReport(user: CurrentUser, raw: string): Promise<Field
     select: { id: true, visitDate: true, doctorName: true, status: true, delegate: { select: { name: true } } },
     orderBy: { visitDate: "desc" }, take: 6,
   });
+  if (garde) {
+    const ouverts = await Promise.all(rows.map((r) => garde(r.id)));
+    rows = rows.filter((_, i) => ouverts[i]);
+  }
   const label = (r: (typeof rows)[number]) =>
     `${r.visitDate.toISOString().slice(0, 10)} · ${r.doctorName ?? "—"} (${r.delegate?.name ?? "?"}${r.status === "DRAFT" ? ", brouillon" : ""})`;
   if (rows.length === 0) return { error: q ? `Aucun rapport terrain « ${q} ».` : "Vous n'avez aucun rapport terrain." };
@@ -611,15 +621,23 @@ export const FIELD_REPORT_OPS_IMPL: Record<string, OpImpl> = {
 
   delete_field_report: {
     async propose(input, user): Promise<OpProposalDraft | { error: string }> {
-      const hit = await resolveFieldReport(user, opStr(input, "target"));
+      const hit = await resolveFieldReport(user, opStr(input, "target"), (id) => peutSupprimerUnRapportTerrain(user, id));
       if ("error" in hit) return hit;
-      const atts = await prisma.fieldReportAttachment.count({ where: { reportId: hit.id } });
+      // CE QUI PART, ET CE QUI L'INTERDIT, lus par le MÊME inventaire que l'action et la fenêtre de
+      // l'écran (§118.212) : du matériel remis au stock, une visite dont ce compte rendu est le seul
+      // rapport — la carte ne propose pas une suppression que l'action refusera (§118.83). Une
+      // suppression est RÉVERSIBLE (corbeille) : la carte ne dit plus « définitive ».
+      const apercu = await apercuSuppression("FIELD_REPORT", hit.id);
+      if (apercu.refus) return { error: apercu.refus };
       return {
         title: `SUPPRIMER le rapport terrain (${hit.label})`,
-        fields: [{ label: "Rapport", value: hit.label }, { label: "Pièces jointes emportées", value: String(atts) }],
-        warnings: ["Suppression DÉFINITIVE du rapport, de son audio et de ses pièces (stockage libéré)."],
+        fields: [
+          { label: "Rapport", value: hit.label },
+          { label: "Part aussi", value: apercu.emporte.length ? apercu.emporte.join(", ") : "rien d'autre" },
+        ],
+        warnings: ["Le rapport et ses pièces jointes disparaissent de tous les écrans. Réversible : le Super Admin peut tout restaurer depuis la corbeille."],
         args: { id: hit.id },
-        successMessage: "Rapport terrain supprimé.",
+        successMessage: "Rapport terrain supprimé (restaurable depuis la corbeille).",
         revalidate: ["/field-reports"],
       };
     },

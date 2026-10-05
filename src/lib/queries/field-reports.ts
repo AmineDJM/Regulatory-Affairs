@@ -1,6 +1,6 @@
-import { hasGlobalView, hasRole, type SessionUser } from "@/lib/rbac";
+import { hasGlobalView, hasRole, userCan, type SessionUser } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
-import { platformScope } from "@/lib/company";
+import { entitePermisePourFiche, platformScope, predicatEntitePermise } from "@/lib/company";
 
 /** Lecture des rapports terrain (vocaux). Un délégué voit les siens ; un manager
  *  / la Direction / la Direction Marketing **gèrent** tout (édition + validation + synthèse).
@@ -9,6 +9,32 @@ import { platformScope } from "@/lib/company";
 
 export function managesReports(user: SessionUser): boolean {
   return hasGlobalView(user) || user.role === "MEDICAL_PROMOTION_MANAGER" || user.role === "PRODUCT_MANAGER";
+}
+
+/**
+ * QUI PEUT SUPPRIMER UN RAPPORT (§118.212) — la règle, une fois, lue par l'action, l'aperçu de la
+ * fenêtre de confirmation, la liste et la fiche. Pure : l'entité est un FAIT que l'appelant lit.
+ *
+ *   • l'AUTEUR du rapport, brouillon ou validé — c'est son compte rendu ;
+ *   • qui le GÈRE déjà (`managesReports` : la hiérarchie et la Direction — la règle de `canEdit`)…
+ *     …pour un rapport de SON périmètre d'entité : la fiche ne s'ouvre pas plus large que la liste ;
+ *   • jamais le superviseur national, qui voit sans éditer.
+ *
+ * Le nom est un prédicat (`peut…`) : la carte de confirmation le lit comme une garde, et non comme
+ * « gardé par rien » (§118.150g).
+ */
+export function peutSupprimerLeRapport(user: SessionUser, rapport: { delegateId: string | null }, entitePermise: boolean): boolean {
+  if (user.role === "SUPER_ADMIN") return true;
+  if (!userCan(user, "FIELD_REPORTS", "VIEW")) return false;
+  if (rapport.delegateId !== null && rapport.delegateId === user.id) return true;
+  return managesReports(user) && entitePermise;
+}
+
+/** La même règle pour UN rapport lu en base — l'action et l'aperçu passent par ici. */
+export async function peutSupprimerUnRapportTerrain(user: SessionUser, id: string): Promise<boolean> {
+  const rapport = await prisma.fieldReport.findUnique({ where: { id }, select: { delegateId: true, companyId: true } });
+  if (!rapport) return false;
+  return peutSupprimerLeRapport(user, rapport, await entitePermisePourFiche(user.id, rapport.companyId));
 }
 
 /** Voit TOUS les rapports (managers + superviseur national). */
@@ -33,6 +59,8 @@ export interface FieldReportListItem {
   delegateName: string | null;
   attachments: number;
   validatedAt: string | null;
+  /** Le bouton « Supprimer » de la ligne — la même règle que l'action (`peutSupprimerLeRapport`). */
+  canDelete: boolean;
 }
 
 export interface FieldReportAttachmentDTO { id: string; name: string; mime: string; size: number; isImage: boolean }
@@ -65,6 +93,7 @@ export interface FieldReportDetail {
   validatedAt: string | null;
   attachments: FieldReportAttachmentDTO[];
   canEdit: boolean;
+  canDelete: boolean;
 }
 
 export async function getMyFieldReports(user: SessionUser): Promise<FieldReportListItem[]> {
@@ -74,11 +103,14 @@ export async function getMyFieldReports(user: SessionUser): Promise<FieldReportL
     take: 100,
     include: { delegate: { select: { name: true } }, doctor: { select: { name: true } }, _count: { select: { attachments: true } } },
   });
+  // La règle d'entité se calcule UNE fois pour la personne, pas une fois par ligne (§118.102b).
+  const entitePermise = await predicatEntitePermise(user.id);
   return reports.map((r) => ({
     id: r.id, status: r.status, visitDate: r.visitDate.toISOString(),
     doctorName: r.doctor?.name ?? r.doctorName, specialty: r.specialty, products: r.products, summary: r.summary,
     delegateName: r.delegate?.name ?? null, attachments: r._count.attachments,
     validatedAt: r.validatedAt?.toISOString() ?? null,
+    canDelete: peutSupprimerLeRapport(user, r, entitePermise(r.companyId)),
   }));
 }
 
@@ -104,6 +136,7 @@ export async function getFieldReportDetail(user: SessionUser, id: string): Promi
     delegateName: r.delegate?.name ?? null, validatedAt: r.validatedAt?.toISOString() ?? null,
     attachments: r.attachments.map((a) => ({ id: a.id, name: a.name, mime: a.mime, size: a.size, isImage: a.mime.startsWith("image/") })),
     canEdit,
+    canDelete: peutSupprimerLeRapport(user, r, await entitePermisePourFiche(user.id, r.companyId)),
   };
 }
 

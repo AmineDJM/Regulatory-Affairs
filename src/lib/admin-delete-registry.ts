@@ -333,15 +333,22 @@ export const DELETE_REGISTRY: Record<DeletableKind, KindSpec> = {
     model: "fieldReport",
     searchFields: ["doctorName", "institution"],
     async describe(id) {
-      const r = await prisma.fieldReport.findUnique({ where: { id }, select: { doctorName: true, institution: true, visitDate: true } });
-      return r ? `${r.doctorName || r.institution || "Rapport"} — ${r.visitDate.toLocaleDateString("fr-FR")}` : null;
+      const r = await prisma.fieldReport.findUnique({ where: { id }, select: { doctorName: true, institution: true, visitDate: true, delegate: { select: { name: true } } } });
+      // L'auteur est dans le nom : la corbeille liste des rapports de tout le monde, et « Médecin non
+      // précisé — 05/10/2026 » ne dit pas lequel restaurer (§118.212).
+      return r ? `${r.doctorName || r.institution || "Rapport"} — ${r.visitDate.toLocaleDateString("fr-FR")}${r.delegate?.name ? ` (${r.delegate.name})` : ""}` : null;
     },
     // Le MÊME refus que l'action de suppression (§118.204) : un compte rendu qui porte du matériel
-    // remis justifie des sorties du stock, il ne passe pas à la corbeille.
+    // remis justifie des sorties du stock, il ne passe pas à la corbeille. Et, depuis §118.212, un
+    // compte rendu qui est le seul rapport d'une visite de l'emploi du temps.
     refuse: (id) => refusSuppressionRapport(id),
+    // UN LOT (§118.212) : le rapport ET ses pièces jointes (`FieldReportAttachment`, supprimées en
+    // cascade par la base) partent ensemble et reviennent ensemble. Avant, la restauration rendait
+    // le rapport SANS ses pièces — alors que la phrase de la corbeille disait « restaurable ». Les
+    // fichiers (pièces, audio) restent au stockage tant que l'entrée existe : seule la destruction
+    // réelle depuis la corbeille les libère.
+    lot: true,
     async remove(id) {
-      // L'audio (blob chiffré) est conservé pour la restauration ; il n'est
-      // libéré qu'à la destruction réelle depuis la corbeille.
       await prisma.fieldReport.delete({ where: { id } });
     },
   },

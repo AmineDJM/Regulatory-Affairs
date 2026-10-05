@@ -324,6 +324,8 @@ export const LIBELLE_DU_MODELE: Readonly<Record<string, [string, string]>> = {
   SalaryAdvance: ["avance sur salaire", "avances sur salaire"],
   PayrollEntry: ["bulletin de paie", "bulletins de paie"],
   PayrollWire: ["virement de paie", "virements de paie"],
+  // Les pièces jointes d'un rapport terrain (§118.212) : elles partent avec lui, et reviennent avec lui.
+  FieldReportAttachment: ["pièce jointe", "pièces jointes"],
   // Un appel d'offres PCH (§118.185, I17) : ce qui part avec lui…
   PchTenderLine: ["lot du marché", "lots du marché"],
   PchTenderLineBusinessUnit: ["affectation d'un lot à une BU", "affectations de lots à des BU"],

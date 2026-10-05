@@ -19,6 +19,7 @@ import {
 import { restaurerLotDeLaCorbeille, supprimerReversible, type DeleteResult } from "@/lib/suppression/coeur";
 import { peutSupprimerUneDemandeAdPro } from "@/lib/queries/ad-pro-suppression";
 import { estDemandeAdProSupprimable, REFUS_SUPPRESSION_AD_PRO } from "@/lib/ad-pro/suppression";
+import { peutSupprimerUnRapportTerrain } from "@/lib/queries/field-reports";
 
 export type { DeleteResult } from "@/lib/suppression/coeur";
 
@@ -196,6 +197,15 @@ export async function destroyDeletedRecord(formData: FormData): Promise<DeleteRe
     // Cas particulier : audio d'un rapport terrain (blob chiffré du Drive).
     const audioBlobId = (rec.payload as { audioBlobId?: string | null } | null)?.audioBlobId;
     if (rec.kind === "FIELD_REPORT" && audioBlobId) await releaseBlob(audioBlobId).catch(() => {});
+    // Les PIÈCES JOINTES d'un rapport terrain (§118.212) voyagent dans le lot, et leurs fichiers
+    // restent au stockage tant que l'entrée existe : la destruction réelle les libère — comme
+    // l'ancien geste « supprimer » le faisait d'emblée, sans corbeille.
+    if (rec.kind === "FIELD_REPORT") {
+      const lot = rec.lot as { lignes?: { modele: string; donnees: { blobId?: string | null } }[] } | null;
+      for (const l of lot?.lignes ?? []) {
+        if (l.modele === "FieldReportAttachment" && l.donnees.blobId) await releaseBlob(l.donnees.blobId).catch(() => {});
+      }
+    }
   }
 
   await prisma.deletedRecord.update({ where: { id: recId }, data: { purgedAt: new Date() } });
@@ -239,6 +249,10 @@ async function peutSupprimerDepuisSonModule(user: Awaited<ReturnType<typeof requ
   // suppriment aussi — la MÊME règle que `supprimerDemandeAdPro`, sans quoi l'aperçu ne s'ouvrirait
   // pas devant une suppression que l'action accepte.
   if (estDemandeAdProSupprimable(kind) && (await peutSupprimerUneDemandeAdPro(user, kind, id))) return true;
+  // UN RAPPORT TERRAIN (§118.212) : l'auteur, la hiérarchie qui le gère dans son périmètre d'entité —
+  // la MÊME règle que `deleteFieldReport`, sans quoi l'aperçu ne s'ouvrirait pas devant une
+  // suppression que l'action accepte (ni ne s'ouvrirait à qui l'action refuse).
+  if (kind === "FIELD_REPORT") return peutSupprimerUnRapportTerrain(user, id);
   const droit = SUPPRIME_PAR_SON_MODULE[kind];
   if (!droit || !userCan(user, droit.module, droit.action)) return false;
   const entite = DELETE_REGISTRY[kind].entityType;

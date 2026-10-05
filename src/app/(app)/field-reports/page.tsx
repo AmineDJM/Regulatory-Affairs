@@ -9,6 +9,7 @@ import { StatusBadge } from "@/components/shared/status-badge";
 import { FIELD_REPORT_STATUS } from "@/lib/labels";
 import { formatDate } from "@/lib/utils";
 import { NewReportButton } from "./new-report-button";
+import { SupprimerRapport } from "./supprimer-rapport";
 
 export const dynamic = "force-dynamic";
 
@@ -38,16 +39,25 @@ export default async function FieldReportsPage() {
         ) : (
           <div className="surface divide-y divide-border">
             {reports.map((r) => (
-              <Link key={r.id} href={`/field-reports/${r.id}`} className="flex flex-wrap items-center gap-3 px-4 py-3 hover:bg-secondary/40">
-                <StatusBadge map={FIELD_REPORT_STATUS} value={r.status} />
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-medium">{r.doctorName || "Médecin non précisé"}{r.specialty ? ` · ${r.specialty}` : ""}</p>
-                  <p className="truncate text-xs text-muted-foreground">{r.summary || r.products || "Brouillon en cours…"}</p>
-                </div>
-                {isManager && r.delegateName && <span className="text-xs text-muted-foreground">{r.delegateName}</span>}
-                {r.attachments > 0 && <span className="text-xs text-muted-foreground">📎 {r.attachments}</span>}
-                <span className="text-xs text-muted-foreground">{formatDate(r.visitDate)}</span>
-              </Link>
+              // La ligne n'est plus UN lien : une icône dans un lien est un bouton dans un lien (deux
+              // gestes pour un clic). Le lien porte le contenu, la corbeille est sa SŒUR (§118.212).
+              <div key={r.id} className="flex items-center gap-1 pr-2 hover:bg-secondary/40">
+                <Link href={`/field-reports/${r.id}`} className="flex min-w-0 flex-1 flex-wrap items-center gap-3 px-4 py-3">
+                  <StatusBadge map={FIELD_REPORT_STATUS} value={r.status} />
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-medium">{r.doctorName || "Médecin non précisé"}{r.specialty ? ` · ${r.specialty}` : ""}</p>
+                    <p className="truncate text-xs text-muted-foreground">{r.summary || r.products || "Brouillon en cours…"}</p>
+                  </div>
+                  {isManager && r.delegateName && <span className="text-xs text-muted-foreground">{r.delegateName}</span>}
+                  {r.attachments > 0 && <span className="text-xs text-muted-foreground">📎 {r.attachments}</span>}
+                  <span className="text-xs text-muted-foreground">{formatDate(r.visitDate)}</span>
+                </Link>
+                <SupprimerRapport
+                  id={r.id}
+                  enabled={r.canDelete}
+                  name={`${r.doctorName || "Rapport"}${r.delegateName ? ` — ${r.delegateName}` : ""} · ${formatDate(r.visitDate)}`}
+                />
+              </div>
             ))}
           </div>
         )}

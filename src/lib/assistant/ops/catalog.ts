@@ -4303,9 +4303,9 @@ export const OPS_CATALOG: OpMeta[] = [
     uiLabel: "Supprimer un rapport",
     aliases: ["supprime mon rapport terrain"],
     risk: "SENSITIVE",
-    summary: "Suppression DÉFINITIVE du rapport, de son audio et de ses pièces jointes (comptées, stockage libéré).",
+    summary: "Supprime le rapport ET ses pièces jointes — RÉVERSIBLE : le Super Admin le restaure depuis la corbeille. Refusé quand le compte rendu porte du matériel remis au stock, ou quand il est le seul rapport d'une visite de l'emploi du temps.",
     gate: () => true,
-    gateNote: "auteur ou manager des rapports (revérifié par l'action)",
+    gateNote: "auteur, ou hiérarchie qui gère les rapports dans son périmètre d'entité (revérifié par l'action)",
     covers: ["field-report-actions:deleteFieldReport"],
   },
   {
