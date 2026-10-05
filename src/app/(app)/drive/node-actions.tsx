@@ -14,6 +14,7 @@ import { SharePanel, type ShareItem } from "./[id]/share-panel";
 import { SendToLegalSheet } from "./send-to-legal";
 import { SendToMailSheet } from "./send-to-mail";
 import { PartagerSheet } from "@/components/shared/partager-button";
+import { BoutonTelecharger } from "@/components/telechargement/bouton-telecharger";
 
 interface MoveTarget { id: string; name: string }
 interface UserLite { id: string; name: string }
@@ -60,11 +61,13 @@ function AccessSheet({ nodeId, name, users, open, onClose }: { nodeId: string; n
 
 /** Une entrée du menu — même hauteur, même gabarit d'icône, quel que soit ce qu'elle déclenche. */
 export function MenuItem({
-  icon, label, onClick, href, download, danger, disabled,
+  icon, label, onClick, href, download, danger, disabled, telechargement,
 }: {
   icon: React.ReactNode; label: string;
   onClick?: () => void; href?: string; download?: boolean;
   danger?: boolean; disabled?: boolean;
+  /** Un TÉLÉCHARGEMENT : l'entrée devient le bouton partagé (original en un clic, choix de la taille à côté). */
+  telechargement?: { nom: string; archive?: boolean };
 }) {
   const cls = [
     "flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-left text-[0.8125rem] transition-colors",
@@ -72,6 +75,9 @@ export function MenuItem({
     disabled ? "pointer-events-none opacity-50" : "",
   ].join(" ");
   const body = <><span className="shrink-0 text-muted-foreground">{icon}</span><span className="truncate">{label}</span></>;
+  if (href && telechargement) {
+    return <BoutonTelecharger href={href} nom={telechargement.nom} archive={telechargement.archive} className={`${cls} flex-1`} classeRacine="w-full">{body}</BoutonTelecharger>;
+  }
   if (href) {
     return <a href={href} className={cls} {...(download ? { download: "" } : {})}>{body}</a>;
   }
@@ -209,6 +215,7 @@ export function NodeActions({ id, name, isFile, canEdit, owner, trash, moveTarge
                 icon={<Download className="h-3.5 w-3.5" />}
                 label={isFile ? "Télécharger" : "Télécharger (ZIP)"}
                 href={`/api/drive/${id}/raw?dl=1`}
+                telechargement={{ nom: name, archive: !isFile }}
               />
               {/* PARTAGER PAR LA MESSAGERIE — ouvert à QUI VOIT, pas seulement à qui modifie :
                   « envoie-moi ce dossier » est une lecture qu'on relaie, et « Gérer l'accès »

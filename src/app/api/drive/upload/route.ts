@@ -75,11 +75,11 @@ export async function POST(req: NextRequest) {
     // Une écriture refusée se DIT, avec sa cause — jamais une erreur 500 opaque.
     return NextResponse.json({ error: e instanceof Error ? e.message : "Écriture impossible." }, { status: 503 });
   }
-  const { blobId, size, deduplicated } = ecrit;
+  const { blobId, size, deduplicated, storedSize } = ecrit;
   timer.mark(deduplicated ? "contenu déjà présent" : "chiffrement + stockage");
   // Un contenu dédupliqué n'occupe pas de place NEUVE : le compter gonflerait l'occupation jusqu'à
   // refuser des envois qui tiennent parfaitement.
-  if (!deduplicated) addPhysicalUsage(size);
+  if (!deduplicated) addPhysicalUsage(storedSize ?? size); // le COMPRIMÉ quand le stockage l'a compressé
   const mimeType = file.type || "application/octet-stream";
 
   const res = await enregistrerFichierDrive(user, cible, { blobId, size, mimeType, name: file.name });

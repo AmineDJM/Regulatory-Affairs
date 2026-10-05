@@ -2,7 +2,11 @@ import { BLOB_MAX_BYTES } from "@/lib/storage/limites-blob";
 import crypto from "crypto";
 import { createReadStream } from "fs";
 import { readFile, stat } from "fs/promises";
+import { tmpdir } from "os";
+import { join as joindre } from "path";
 import { Prisma } from "@prisma/client";
+import { decider, compresserFichierSiUtile, decompresser } from "./compression/flux";
+import { codecConnu } from "./compression/politique";
 import { prisma } from "./prisma";
 import { sqlAucuneColonneNeLeTient, sqlBlobsCitesEnJson } from "./storage/blob-refs";
 import {
@@ -138,7 +142,14 @@ function storageFailure(err: unknown): Error {
 }
 
 /** Ce qu'a produit une écriture. `deduplicated` = le contenu existait déjà, aucune place NEUVE prise. */
-export interface PutBlobResult { blobId: string; sha256: string; size: number; deduplicated: boolean }
+export interface PutBlobResult {
+  blobId: string; sha256: string; size: number; deduplicated: boolean;
+  /** Octets RÉELLEMENT pris par une écriture neuve (le clair compressé quand il l'est) ; absent si dédupliqué. */
+  storedSize?: number;
+}
+
+/** Ce qu'une écriture ajoute à la ligne `FileBlob` quand son contenu est stocké compressé (rien sinon : brut). */
+type MetaCompression = { codec?: string; storedSize?: number };
 
 /**
  * LA COURSE DE DÉDUPLICATION — deux écritures du MÊME contenu au même instant.
@@ -164,7 +175,8 @@ async function createOrAdoptBlob(
 ): Promise<PutBlobResult> {
   try {
     const blob = await prisma.fileBlob.create({ data, select: { id: true } });
-    return { blobId: blob.id, sha256: hash, size, deduplicated: false };
+    const stocke = (data as { storedSize?: number | null }).storedSize;
+    return { blobId: blob.id, sha256: hash, size, deduplicated: false, storedSize: stocke ?? size };
   } catch (err) {
     if (!isUniqueSha256Violation(err)) throw err;
     const winner = await reemployer(hash);
@@ -183,11 +195,19 @@ export async function putBlob(plain: Buffer): Promise<PutBlobResult> {
   if (existing) return existing;
   const iv = crypto.randomBytes(12);
 
+  // COMPRESSION SANS PERTE AU REPOS (§118.214) : compresser AVANT de chiffrer (un contenu chiffré
+  // ne se compresse plus). La décision se lit sur les OCTETS — ce point d'entrée ne reçoit pas de
+  // nom de fichier — et le résultat est relu avant d'être rendu ; un doute, un gain mince ou un
+  // format déjà compressé laissent les octets bruts, comme avant. `sha256` et `size` restent ceux du clair.
+  const d = await decider(plain);
+  const contenu = d.compresse ? d.octets : plain;
+  const meta: MetaCompression = d.compresse ? { codec: d.codec, storedSize: d.octets.length } : {};
+
   // Stockage OBJET (S3/R2) si configuré → la base ne garde que les métadonnées + l'IV.
   if (objectStorageConfigured()) {
     const key = blobKey(hash);
     // contenu CHIFFRÉ dans le bucket — il ne voit jamais le clair
-    const encrypted = encryptWhole(plain, iv);
+    const encrypted = encryptWhole(contenu, iv);
     try {
       // Gros contenu → envoi EN PARTIES PARALLÈLES. Un PUT unique de 300 Mo attend un seul flux du
       // début à la fin ; quatre parties en vol saturent la liaison. Le découpage ne recopie rien
@@ -198,19 +218,20 @@ export async function putBlob(plain: Buffer): Promise<PutBlobResult> {
         await putObject(key, encrypted);
       }
     } catch (err) { throw storageFailure(err); }
-    return createOrAdoptBlob({ sha256: hash, size: plain.length, iv, data: null, storageKey: key, refCount: 1 }, hash, plain.length);
+    return createOrAdoptBlob({ sha256: hash, size: plain.length, iv, data: null, storageKey: key, refCount: 1, ...meta }, hash, plain.length);
   }
 
   // Base, gros fichier → écriture EN TRANCHES (mémoire bornée à une tranche, pas d'hex géant).
-  if (plain.length > blobChunkBytes()) return putBlobChunked(plain, hash, iv);
+  if (contenu.length > blobChunkBytes()) return putBlobChunked(contenu, plain.length, hash, iv, meta);
 
   // Base, petit fichier → une seule valeur bytea (chemin historique, rétrocompatible).
-  return createOrAdoptBlob({ sha256: hash, size: plain.length, iv, data: encryptWhole(plain, iv), refCount: 1 }, hash, plain.length);
+  return createOrAdoptBlob({ sha256: hash, size: plain.length, iv, data: encryptWhole(contenu, iv), refCount: 1, ...meta }, hash, plain.length);
 }
 
 /** Écrit le contenu chiffré en tranches ordonnées (streaming du chiffrement → mémoire bornée). */
-async function putBlobChunked(plain: Buffer, hash: string, iv: Buffer): Promise<PutBlobResult> {
-  const created = await createOrAdoptBlob({ sha256: hash, size: plain.length, iv, data: null, refCount: 1 }, hash, plain.length);
+async function putBlobChunked(plain: Buffer, tailleClair: number, hash: string, iv: Buffer, meta: MetaCompression = {}): Promise<PutBlobResult> {
+  // `plain` = le contenu À STOCKER (le clair, ou le clair compressé) ; `tailleClair` = ce que dit `size`.
+  const created = await createOrAdoptBlob({ sha256: hash, size: tailleClair, iv, data: null, refCount: 1, ...meta }, hash, tailleClair);
   // Le contenu venait d'être écrit par un autre appel : ses tranches sont (ou seront) les siennes.
   if (created.deduplicated) return created;
   const blob = { id: created.blobId };
@@ -224,7 +245,7 @@ async function putBlobChunked(plain: Buffer, hash: string, iv: Buffer): Promise<
     }
     // Dernière tranche : reliquat éventuel + tag d'authentification (16 o). Concat des tranches = ciphertext || tag.
     await prisma.fileBlobChunk.create({ data: { blobId: blob.id, idx: idx++, data: Buffer.concat([cipher.final(), cipher.getAuthTag()]) } });
-    return { blobId: blob.id, sha256: hash, size: plain.length, deduplicated: false };
+    return { blobId: blob.id, sha256: hash, size: tailleClair, deduplicated: false, storedSize: meta.storedSize ?? tailleClair };
   } catch (err) {
     await prisma.fileBlob.delete({ where: { id: blob.id } }).catch(() => undefined); // cascade → supprime les tranches partielles
     throw err;
@@ -250,60 +271,70 @@ export async function putBlobFromFile(path: string, opts: { sha256?: string } = 
   const hash = opts.sha256 || (await sha256File(path));
   const existing = await reemployer(hash);
   if (existing) return existing;
-  refuserSiTropGros((await stat(path)).size);
-
-  // Stockage OBJET — EN FLUX. Le fichier est lu par morceaux, chiffré au fil de l'eau et poussé
-  // vers le bucket en plusieurs parties : le pic mémoire vaut une partie (16 Mio), qu'il s'agisse
-  // d'un PDF de 2 Mo ou d'une archive CTD d'un gigaoctet. Charger le fichier entier ici ferait
-  // tomber le processus sur un hébergeur à mémoire bornée — panne d'autant plus difficile à
-  // diagnostiquer qu'elle ne se déclenche qu'au-delà d'une certaine taille de dossier.
-  if (objectStorageConfigured()) {
-    const { size } = await stat(path);
-    const key = blobKey(hash);
-    const iv = crypto.randomBytes(12);
-    try {
-      if (size <= MULTIPART_THRESHOLD_BYTES) {
-        // Petit fichier : un PUT simple reste plus rapide qu'un téléversement en parties.
-        await putObject(key, encryptWhole(await readFile(path), iv));
-      } else {
-        await putObjectStream(key, encryptFileStream(path, iv));
-      }
-    } catch (err) {
-      throw storageFailure(err);
-    }
-    return createOrAdoptBlob({ sha256: hash, size, iv, data: null, storageKey: key, refCount: 1 }, hash, size);
-  }
-
   const { size } = await stat(path);
-  const iv = crypto.randomBytes(12);
-  const created = await createOrAdoptBlob({ sha256: hash, size, iv, data: null, refCount: 1 }, hash, size);
-  // Le contenu venait d'être écrit par un autre appel : ses tranches sont (ou seront) les siennes.
-  if (created.deduplicated) return created;
-  const blob = { id: created.blobId };
+  refuserSiTropGros(size);
+
+  // COMPRESSION SANS PERTE AU REPOS (§118.214), EN FLUX : le fichier est compressé vers un fichier
+  // temporaire, relu en flux (décompression + SHA-256 comparé à celui du clair) et seulement alors
+  // stocké à sa place. La mémoire ne dépend pas de la taille ; un doute laisse les octets bruts.
+  const compresse = await compresserFichierSiUtile(path, size, hash, joindre(tmpdir(), `amd-cmp-${crypto.randomBytes(8).toString("hex")}.br`));
+  const source = compresse.resultat?.chemin ?? path;
+  const aStocker = compresse.resultat?.taille ?? size;
+  const meta: MetaCompression = compresse.resultat ? { codec: compresse.resultat.codec, storedSize: compresse.resultat.taille } : {};
   try {
-    const cipher = crypto.createCipheriv("aes-256-gcm", masterKey(), iv);
-    let idx = 0;
-    let read = 0;
-    // Les tranches sont recollées à la lecture dans l'ordre `idx` : leurs tailles respectives
-    // n'ont aucune importance, seul l'ordre compte.
-    for await (const chunk of createReadStream(path, { highWaterMark: blobChunkBytes() })) {
-      const plain = chunk as Buffer;
-      read += plain.length;
-      const enc = cipher.update(plain);
-      if (enc.length > 0) await prisma.fileBlobChunk.create({ data: { blobId: blob.id, idx: idx++, data: enc } });
+    // Stockage OBJET — EN FLUX. Le fichier est lu par morceaux, chiffré au fil de l'eau et poussé
+    // vers le bucket en plusieurs parties : le pic mémoire vaut une partie (16 Mio), qu'il s'agisse
+    // d'un PDF de 2 Mo ou d'une archive CTD d'un gigaoctet. Charger le fichier entier ici ferait
+    // tomber le processus sur un hébergeur à mémoire bornée — panne d'autant plus difficile à
+    // diagnostiquer qu'elle ne se déclenche qu'au-delà d'une certaine taille de dossier.
+    if (objectStorageConfigured()) {
+      const key = blobKey(hash);
+      const iv = crypto.randomBytes(12);
+      try {
+        if (aStocker <= MULTIPART_THRESHOLD_BYTES) {
+          // Petit fichier : un PUT simple reste plus rapide qu'un téléversement en parties.
+          await putObject(key, encryptWhole(await readFile(source), iv));
+        } else {
+          await putObjectStream(key, encryptFileStream(source, iv));
+        }
+      } catch (err) {
+        throw storageFailure(err);
+      }
+      return await createOrAdoptBlob({ sha256: hash, size, iv, data: null, storageKey: key, refCount: 1, ...meta }, hash, size);
     }
-    if (read !== size) throw new Error(`Fichier modifié pendant la lecture (${read} ≠ ${size}).`);
-    await prisma.fileBlobChunk.create({ data: { blobId: blob.id, idx: idx++, data: Buffer.concat([cipher.final(), cipher.getAuthTag()]) } });
-    return { blobId: blob.id, sha256: hash, size, deduplicated: false };
-  } catch (err) {
-    await prisma.fileBlob.delete({ where: { id: blob.id } }).catch(() => undefined); // cascade → tranches partielles
-    throw err;
+
+    const iv = crypto.randomBytes(12);
+    const created = await createOrAdoptBlob({ sha256: hash, size, iv, data: null, refCount: 1, ...meta }, hash, size);
+    // Le contenu venait d'être écrit par un autre appel : ses tranches sont (ou seront) les siennes.
+    if (created.deduplicated) return created;
+    const blob = { id: created.blobId };
+    try {
+      const cipher = crypto.createCipheriv("aes-256-gcm", masterKey(), iv);
+      let idx = 0;
+      let read = 0;
+      // Les tranches sont recollées à la lecture dans l'ordre `idx` : leurs tailles respectives
+      // n'ont aucune importance, seul l'ordre compte.
+      for await (const chunk of createReadStream(source, { highWaterMark: blobChunkBytes() })) {
+        const plain = chunk as Buffer;
+        read += plain.length;
+        const enc = cipher.update(plain);
+        if (enc.length > 0) await prisma.fileBlobChunk.create({ data: { blobId: blob.id, idx: idx++, data: enc } });
+      }
+      if (read !== aStocker) throw new Error(`Fichier modifié pendant la lecture (${read} ≠ ${aStocker}).`);
+      await prisma.fileBlobChunk.create({ data: { blobId: blob.id, idx: idx++, data: Buffer.concat([cipher.final(), cipher.getAuthTag()]) } });
+      return { blobId: blob.id, sha256: hash, size, deduplicated: false, storedSize: aStocker };
+    } catch (err) {
+      await prisma.fileBlob.delete({ where: { id: blob.id } }).catch(() => undefined); // cascade → tranches partielles
+      throw err;
+    }
+  } finally {
+    await compresse.resultat?.nettoyer();
   }
 }
 
 /** Retrieve and decrypt bytes by blob id (objet S3/R2, bytea unique, ou tranches — selon le stockage). */
 export async function getBlob(blobId: string): Promise<Buffer | null> {
-  const blob = await prisma.fileBlob.findUnique({ where: { id: blobId }, select: { iv: true, data: true, storageKey: true, size: true } });
+  const blob = await prisma.fileBlob.findUnique({ where: { id: blobId }, select: { iv: true, data: true, storageKey: true, size: true, codec: true, storedSize: true, sha256: true } });
   if (!blob) return null;
   // Déposé EN DIRECT par le navigateur (gros fichier) : l'objet est en clair dans le bucket,
   // protégé par le chiffrement au repos du fournisseur — un IV vide le signale.
@@ -314,8 +345,11 @@ export async function getBlob(blobId: string): Promise<Buffer | null> {
   else {
     const chunks = await prisma.fileBlobChunk.findMany({ where: { blobId }, orderBy: { idx: "asc" }, select: { data: true } });
     cipherBytes = chunks.length > 0 ? Buffer.concat(chunks.map((c) => Buffer.from(c.data))) : null;
-    // Intégrité : le chiffré GCM fait taille_claire + 16 (tag). Un blob chunké incomplet est écarté.
-    if (cipherBytes && cipherBytes.length !== blob.size + 16) return null;
+    // Intégrité : le chiffré GCM fait taille_stockée + 16 (tag) — la taille du clair quand rien
+    // n'est compressé. Un blob chunké incomplet est écarté (`storedSize` nul pendant l'écriture
+    // d'une ligne compressée : le test échoue alors, et c'est voulu).
+    const attendu = (blob.codec ? blob.storedSize : blob.size);
+    if (cipherBytes && (attendu == null || cipherBytes.length !== attendu + 16)) return null;
   }
   if (!cipherBytes) return null;
   const iv = Buffer.from(blob.iv);
@@ -323,7 +357,25 @@ export async function getBlob(blobId: string): Promise<Buffer | null> {
   const enc = cipherBytes.subarray(0, cipherBytes.length - 16);
   const decipher = crypto.createDecipheriv("aes-256-gcm", masterKey(), iv);
   decipher.setAuthTag(tag);
-  return Buffer.concat([decipher.update(enc), decipher.final()]);
+  const stocke = Buffer.concat([decipher.update(enc), decipher.final()]);
+  if (!blob.codec) return stocke; // brut : tout fichier d'avant, et tout ce que la mesure juge déjà compressé
+  // COMPRIMÉ AU REPOS : on rend EXACTEMENT les octets déposés. Taille ET empreinte sont relues —
+  // le chiffrement authentifie ce qui est stocké, pas ce que la décompression en fait.
+  if (!codecConnu(blob.codec)) throw new Error(`Codec de stockage inconnu « ${blob.codec} » — ce fichier ne peut pas être relu par cette version.`);
+  const clair = await decompresser(blob.codec, stocke, blob.size);
+  if (sha256(clair) !== blob.sha256) throw new Error("Empreinte du fichier décompressé inattendue — fichier corrompu.");
+  return clair;
+}
+
+/**
+ * Ce qu'on peut dire d'un blob SANS le lire : l'empreinte du clair (vérifiable par qui reçoit les
+ * octets), sa taille, et si le stockage le garde compressé. `null` : blob absent. Un blob déposé
+ * en direct n'a pas de vraie empreinte (`direct:<clé>`) : elle est rendue absente, pas inventée.
+ */
+export async function infoBlob(blobId: string): Promise<{ sha256: string | null; size: number; codec: string | null; storedSize: number | null } | null> {
+  const b = await prisma.fileBlob.findUnique({ where: { id: blobId }, select: { sha256: true, size: true, codec: true, storedSize: true } });
+  if (!b) return null;
+  return { sha256: /^[0-9a-f]{64}$/.test(b.sha256) ? b.sha256 : null, size: b.size, codec: b.codec, storedSize: b.storedSize };
 }
 
 /**

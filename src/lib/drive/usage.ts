@@ -12,8 +12,11 @@ import { makeTtlCache } from "./quota";
 const CAPACITY_TTL_MS = 30_000;
 
 const physicalCache = makeTtlCache(async () => {
-  const agg = await prisma.fileBlob.aggregate({ _sum: { size: true } });
-  return agg._sum.size ?? 0;
+  // Ce qui est RÉELLEMENT stocké : la taille compressée quand le contenu l'est (`storedSize`), celle
+  // du clair sinon. Additionner `size` compterait l'espace que la compression vient de rendre.
+  const rows = await prisma.$queryRaw<{ total: number | null }[]>`
+    SELECT COALESCE(SUM(COALESCE("storedSize", "size")), 0)::float8 AS total FROM "FileBlob"`;
+  return Number(rows[0]?.total ?? 0);
 }, CAPACITY_TTL_MS);
 
 /** Octets physiques occupés (contenu chiffré dédupliqué), à 30 secondes près. */

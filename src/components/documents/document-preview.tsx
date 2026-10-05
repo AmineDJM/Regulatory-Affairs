@@ -8,6 +8,7 @@ import { ZipViewer } from "./zip-viewer";
 import { printDocument } from "@/lib/print-document";
 import { deleteDocument, renameDocument } from "@/lib/actions/document-actions";
 import { useScrollLock } from "@/lib/use-scroll-lock";
+import { BoutonTelecharger } from "@/components/telechargement/bouton-telecharger";
 
 const IMAGE = ["png", "jpg", "jpeg", "gif", "webp", "svg", "bmp", "avif"];
 const TEXTLIKE = ["txt", "md", "log", "json", "xml"];
@@ -135,7 +136,7 @@ export function DocumentPreview({
                   {hasFile && kind !== "zip" && <button onClick={() => printDocument(id)} className={iconBtn} title="Imprimer"><Printer className="h-4 w-4" /></button>}
                   {canEditFile && <a href={`/documents/${id}/edit`} className={iconBtn} title="Modifier dans l'éditeur Office"><ExternalLink className="h-4 w-4" /></a>}
                   {canRename && <button onClick={() => { setDraft(name); setRenaming(true); }} className={iconBtn} title="Renommer"><Pencil className="h-4 w-4" /></button>}
-                  {hasFile && <a href={`${src}?dl=1`} className={iconBtn} title="Enregistrer (télécharger)"><Download className="h-4 w-4" /></a>}
+                  {hasFile && <BoutonTelecharger href={`${src}?dl=1`} nom={name} sansChoix={Boolean(srcOverride)} className={iconBtn} title="Enregistrer (télécharger)"><Download className="h-4 w-4" /></BoutonTelecharger>}
                   {canDelete && (
                     <button onClick={onDelete} disabled={deleting} className="rounded-lg p-2 text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive" title="Supprimer">
                       {deleting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
@@ -164,7 +165,7 @@ export function DocumentPreview({
               ) : (
                 <div className="flex h-full min-h-[40vh] flex-col items-center justify-center gap-3 text-center">
                   <p className="text-sm text-muted-foreground">{hasFile ? "Aperçu non disponible pour ce type de fichier." : "Aucun fichier — métadonnées uniquement."}</p>
-                  {hasFile && <a href={`${src}?dl=1`} className="inline-flex items-center gap-2 rounded-lg bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:opacity-90"><Download className="h-4 w-4" /> Télécharger</a>}
+                  {hasFile && <BoutonTelecharger href={`${src}?dl=1`} nom={name} sansChoix={Boolean(srcOverride)} className="inline-flex items-center gap-2 rounded-lg bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:opacity-90"><Download className="h-4 w-4" /> Télécharger</BoutonTelecharger>}
                 </div>
               )}
             </div>

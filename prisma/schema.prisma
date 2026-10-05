@@ -5576,6 +5576,12 @@ model FileBlob {
   id         String          @id @default(cuid())
   sha256     String          @unique
   size       Float // taille du CLAIR en octets (Float : exact jusqu'à 9 Po ; un objet envoyé directement au bucket peut dépasser 2 Go)
+  /// COMPRESSION SANS PERTE AU REPOS (§118.214). Nul = octets bruts (tout fichier d'avant, et tout
+  /// ce que la mesure juge déjà compressé) ; « br » = le clair est compressé en brotli AVANT d'être
+  /// chiffré. `sha256` et `size` disent TOUJOURS le clair d'origine : l'empreinte reste vérifiable.
+  codec      String?
+  /// Taille du contenu STOCKÉ avant chiffrement (le clair compressé) ; nul quand `codec` l'est.
+  storedSize Float?
   iv         Bytes // nonce AES-GCM
   data       Bytes? // contenu chiffré EN BASE, en UNE valeur (petits fichiers) ; null si chunké ou en objet
   storageKey String? // clé objet S3/R2 du contenu chiffré (null = stocké en base) — dé-gonfle le disque BDD

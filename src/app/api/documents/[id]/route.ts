@@ -3,13 +3,19 @@ import { getCurrentUser } from "@/lib/session";
 import { canAccessEntity } from "@/lib/entity-access";
 import { peutLirePasseportDuSujet } from "@/lib/ad-pro/passeport-acces";
 import { readFileByKey } from "@/lib/storage";
-import { cleObjetDirect } from "@/lib/drive-storage";
+import { cleObjetDirect, infoBlob } from "@/lib/drive-storage";
 import { presignGetUrl } from "@/lib/storage/object-storage";
 import { recordAudit } from "@/lib/audit";
 import { prisma } from "@/lib/prisma";
 import { contentDisposition } from "@/lib/http/content-disposition";
+import { qualiteDeLaRequete, repondreFichier } from "@/lib/http/telechargement";
 
-/** Secure document download: authenticates, enforces row-level access, streams. */
+/**
+ * Secure document download: authenticates, enforces row-level access, streams.
+ *
+ * `?qualite=max|reduite|estimer` — voir `@/lib/http/telechargement` (la porte unique). Les DROITS
+ * sont ceux d'avant et ne dépendent pas de la qualité : la version réduite n'ouvre rien de plus.
+ */
 export async function GET(
   req: NextRequest,
   { params }: { params: { id: string } },
@@ -37,37 +43,34 @@ export async function GET(
     // Aperçu in-app : on sert le fichier « inline » par défaut (l'iframe/img peut
     // l'afficher) ; `?dl=1` force le téléchargement. On ne journalise que le téléchargement.
     const download = req.nextUrl.searchParams.get("dl") === "1";
-    const journaliser = () => download
-      ? recordAudit({
-        actorId: user.id, action: "EXPORT", module: "Documents",
-        entityType: doc.entityType, entityId: doc.entityId,
-        summary: `Téléchargement de « ${doc.name} »`,
-      })
-      : Promise.resolve();
-
+    const fileKey = doc.fileKey;
+    const stocke = await prisma.storedFile.findUnique({ where: { key: fileKey }, select: { blobId: true } });
+    const info = stocke ? await infoBlob(stocke.blobId) : null;
     // GROS FICHIER DÉPOSÉ EN DIRECT : le navigateur le lit dans le bucket, sur une adresse signée
     // pour quinze minutes — le servir d'ici le ferait passer ENTIER par la mémoire de l'instance
     // (plusieurs gigaoctets sur 512 Mo). Les droits viennent d'être vérifiés, ce sont eux qui signent.
-    const stocke = await prisma.storedFile.findUnique({ where: { key: doc.fileKey }, select: { blobId: true } });
     const direct = stocke ? await cleObjetDirect(stocke.blobId) : null;
-    if (direct) {
-      const url = presignGetUrl(direct, 900, {
-        "response-content-disposition": contentDisposition(doc.name, download ? "attachment" : "inline"),
-        "response-content-type": doc.mimeType ?? "application/octet-stream",
-      });
-      if (url) {
-        await journaliser();
-        return NextResponse.redirect(url, { status: 302, headers: { "Cache-Control": "private, no-store" } });
-      }
-    }
-    const buffer = await readFileByKey(doc.fileKey);
-    await journaliser();
-    return new NextResponse(buffer as unknown as BodyInit, {
-      headers: {
-        "Content-Type": doc.mimeType ?? "application/octet-stream",
-        "Content-Disposition": contentDisposition(doc.name, download ? "attachment" : "inline"),
+    const mime = doc.mimeType ?? "application/octet-stream";
+    return await repondreFichier(
+      { nom: doc.name, mime, charger: () => readFileByKey(fileKey), empreinte: info?.sha256 ?? null, taille: info?.size ?? doc.sizeBytes },
+      {
+        qualite: qualiteDeLaRequete(req),
+        telecharger: download,
+        journaliser: (q) => download
+          ? recordAudit({
+            actorId: user.id, action: "EXPORT", module: "Documents",
+            entityType: doc.entityType, entityId: doc.entityId,
+            summary: `Téléchargement de « ${doc.name} »${q === "reduite" ? " (taille réduite)" : ""}`,
+          })
+          : undefined,
+        redirection: () => direct
+          ? presignGetUrl(direct, 900, {
+            "response-content-disposition": contentDisposition(doc.name, download ? "attachment" : "inline"),
+            "response-content-type": mime,
+          })
+          : null,
       },
-    });
+    );
   } catch {
     return NextResponse.json({ error: "Fichier indisponible" }, { status: 404 });
   }
