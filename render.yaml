@@ -68,6 +68,22 @@ services:
         value: "200"
       - key: MAX_DRIVE_UPLOAD_MB
         value: "1024"
+      # STOCKAGE OBJET (Cloudflare R2 / AWS S3) — indispensable pour les gros fichiers : le
+      # navigateur envoie alors les dossiers CTD de plusieurs Go DIRECTEMENT au bucket. Sans lui,
+      # tout fichier de plus de MAX_DB_UPLOAD_MB est refusé (Postgres gratuit ≈ 1 Go).
+      # Guide (bucket, règle CORS, test) : docs/stockage-gros-fichiers.md
+      - key: S3_ENDPOINT
+        sync: false
+      - key: S3_BUCKET
+        sync: false
+      - key: S3_ACCESS_KEY_ID
+        sync: false
+      - key: S3_SECRET_ACCESS_KEY
+        sync: false
+      - key: S3_REGION # « auto » pour R2, la région pour AWS (ex. eu-west-3)
+        sync: false
+      - key: MAX_DB_UPLOAD_MB
+        value: "100"
       # Your first login — set these in the Render dashboard when prompted.
       - key: ADMIN_EMAIL
         sync: false

@@ -6,6 +6,7 @@ import { Loader2, CheckCircle2, AlertCircle, X, UploadCloud, ChevronDown, Chevro
 import { cn } from "@/lib/utils";
 import { isRetryableHttpStatus, backoffMs } from "@/lib/regulatory/intelligence/upload/retry";
 import { rememberUpload, forgetUpload, listPendingUploads } from "@/lib/regulatory/intelligence/upload/pending-store";
+import { envoyerParties, EnvoiAnnule, debitLisible, resteLisible, type PlanClient } from "@/lib/storage/envoi-direct-client";
 
 /**
  * GESTIONNAIRE D'ENVOIS GLOBAL — l'upload d'un dossier CTD tourne EN ARRIÈRE-PLAN : monté dans la
@@ -16,7 +17,13 @@ import { rememberUpload, forgetUpload, listPendingUploads } from "@/lib/regulato
 
 export interface UploadSummary { total: number; stored: number; blocked: number; suspicious: number; totalBytes: number }
 export type UploadPhase = "uploading" | "processing" | "done" | "error" | "cancelled";
-export interface UploadJob { dossierId: string; fileName: string; phase: UploadPhase; progress: number; error: string | null; summary: UploadSummary | null }
+export interface UploadJob {
+  dossierId: string; fileName: string; phase: UploadPhase; progress: number; error: string | null; summary: UploadSummary | null;
+  /** Débit réel (octets/s) et temps restant — mesurés sur l'envoi direct au bucket. */
+  debit?: number; resteS?: number | null;
+  /** Envoi REPRIS après coupure : combien de parties étaient déjà dans le bucket. */
+  reprise?: { recues: number; total: number } | null;
+}
 
 interface UploadContextValue {
   jobs: Record<string, UploadJob>;
@@ -139,6 +146,8 @@ export function UploadProvider({ children }: { children: React.ReactNode }) {
   const cancelled = React.useRef(new Set<string>());
   const inflight = React.useRef(new Map<string, Set<XMLHttpRequest>>());
   const sessionOf = React.useRef(new Map<string, string>());
+  /** Coupe-circuit des envois DIRECTS au bucket : avorte toutes les parties en vol d'un coup. */
+  const aborts = React.useRef(new Map<string, AbortController>());
 
   /** Suit une requête le temps de son vol, pour pouvoir l'avorter. */
   const track = React.useCallback((dossierId: string, xhr: XMLHttpRequest) => {
@@ -193,7 +202,7 @@ export function UploadProvider({ children }: { children: React.ReactNode }) {
       }
       bailIfCancelled();
       if (!open) throw new Error(`Ouverture de session impossible : ${openErr} (${OPEN_ATTEMPTS} tentatives). Relancez le même fichier pour reprendre.`);
-      const meta = await readJsonSafe<{ ok?: boolean; error?: string; mode?: string; uploadUrl?: string; sessionId?: string; partSize?: number; expectedParts?: number; receivedIndices?: number[]; concurrency?: number; partUrls?: string[] }>(open);
+      const meta = await readJsonSafe<{ ok?: boolean; error?: string; mode?: string; uploadUrl?: string; sessionId?: string; partSize?: number; expectedParts?: number; receivedIndices?: number[]; concurrency?: number; plan?: PlanClient; resumed?: boolean }>(open);
       if (!open.ok || meta.error) throw new Error(meta.error ?? "Ouverture de session refusée.");
       // Dès qu'on la connaît : c'est elle que l'annulation ira faire effacer côté serveur.
       if (meta.sessionId) sessionOf.current.set(dossierId, meta.sessionId);
@@ -206,60 +215,65 @@ export function UploadProvider({ children }: { children: React.ReactNode }) {
       // congestion met des dizaines de secondes à s'ouvrir et le moindre paquet perdu la divise.
       // Corollaire honnête : au-delà, c'est la bande passante MONTANTE du poste qui décide, et
       // aucune technologie ne la dépasse.
-      if (meta.mode === "direct-multipart" && meta.partUrls?.length && meta.sessionId && meta.partSize) {
-        const urls = meta.partUrls;
-        const partSize = meta.partSize;
-        const etags = new Array<string>(urls.length);
-        const loaded = new Array<number>(urls.length).fill(0);
-        let shown = 0;
-        const refresh = () => {
-          const pct = Math.min(99, Math.round((loaded.reduce((a, b) => a + b, 0) / file.size) * 100));
-          // Barre MONOTONE : une partie renvoyée remet son compteur à zéro ; reculer donnerait
-          // l'impression que le travail est perdu, alors qu'il est simplement rejoué.
-          if (pct > shown) shown = pct;
-          setProgress(shown);
-        };
+      if (meta.mode === "direct-multipart" && meta.plan && meta.sessionId) {
+        const sessionId = meta.sessionId;
+        const ctrl = new AbortController();
+        aborts.current.set(dossierId, ctrl);
+        // REPRISE : le serveur a reconnu le même fichier, et le bucket a déjà une partie des
+        // octets. On le DIT — sinon une barre qui démarre à 60 % ressemble à un défaut.
+        if (meta.resumed && meta.plan.recues.length > 0) patch(dossierId, { reprise: { recues: meta.plan.recues.length, total: meta.plan.nbParties } });
 
-        const sendPart = async (i: number): Promise<void> => {
-          const blob = file.slice(i * partSize, Math.min((i + 1) * partSize, file.size));
-          const ATTEMPTS = 5;
-          let lastErr = "";
-          for (let attempt = 0; attempt < ATTEMPTS; attempt++) {
-            bailIfCancelled();
-            try {
-              await putPartXhr(urls[i], blob, (l) => { loaded[i] = l; refresh(); }, 30 * 60_000, "",
-                (x) => track(dossierId, x), (etag) => { etags[i] = etag; });
-              loaded[i] = blob.size; refresh(); return;
-            } catch (e) {
-              if (e instanceof UploadCancelled) throw e;
-              loaded[i] = 0; refresh();
-              lastErr = e instanceof Error ? e.message : "échec";
-              if (attempt < ATTEMPTS - 1) await new Promise((r) => setTimeout(r, backoffMs(attempt)));
-            }
-          }
-          throw new Error(`Partie ${i + 1}/${urls.length} : ${lastErr}.`);
+        /** Rouvrir la session = la REPRENDRE : le plan rendu ne porte que les parties manquantes. */
+        const rouvrir = async (): Promise<PlanClient> => {
+          const res = await fetch("/api/regulatory/intelligence/upload/session", {
+            method: "POST", headers: { "content-type": "application/json" },
+            body: JSON.stringify({ dossierId, filename: file.name, totalBytes: file.size, contentType: file.type }),
+          });
+          const m = await readJsonSafe<{ ok?: boolean; error?: string; sessionId?: string; plan?: PlanClient }>(res);
+          if (!res.ok || !m.plan || m.sessionId !== sessionId) throw new Error(m.error ?? "Reprise de l'envoi impossible.");
+          return m.plan;
         };
+        let dernier = 0;
+        const envoyer = (plan: PlanClient) => envoyerParties({
+          fichier: file, plan, signal: ctrl.signal, renouveler: rouvrir,
+          onProgres: (p) => {
+            const t = Date.now();
+            if (t - dernier < 250 && p.envoyes < p.total) return; // quatre rafraîchissements par seconde suffisent
+            dernier = t;
+            patch(dossierId, { progress: Math.min(99, Math.floor((p.envoyes / Math.max(1, p.total)) * 100)), debit: p.debit, resteS: p.resteS });
+          },
+        });
 
-        const pool = Math.max(1, Math.min(meta.concurrency ?? 6, urls.length));
-        let cursor = 0;
-        const worker = async (): Promise<void> => { while (cursor < urls.length) { const i = cursor++; await sendPart(i); } };
         const startedAt = Date.now();
-        await Promise.all(Array.from({ length: pool }, () => worker()));
-        bailIfCancelled();
-        setProgress(100);
-        const seconds = (Date.now() - startedAt) / 1000;
-        console.info(`[upload] ${(file.size / 1048576).toFixed(0)} Mo en ${seconds.toFixed(1)} s — ${(file.size / 1048576 / Math.max(seconds, 0.001)).toFixed(1)} Mo/s (${urls.length} parties × ${pool} en parallèle)`);
-
-        patch(dossierId, { phase: "processing" });
-        const data = await postJsonWithRetry<{ ok?: boolean; error?: string; summary?: UploadSummary }>(
-          `/api/regulatory/intelligence/upload/direct/${meta.sessionId}/finalize`, 45, { etags },
-        );
-        if (!data.ok) throw new Error(data.error ?? "Finalisation refusée.");
-        patch(dossierId, { phase: "done", summary: data.summary ?? null });
-        void forgetUpload(dossierId);
-        fetch("/api/regulatory/intelligence/process", { method: "POST" }).catch(() => undefined).finally(() => router.refresh());
-        router.refresh();
-        return;
+        try {
+          await envoyer(meta.plan);
+          // FINALISATION. Si le bucket signale une partie manquante, on rouvre (reprise) et l'on
+          // ne renvoie QU'ELLE — jamais le dossier entier.
+          for (let essai = 0; ; essai++) {
+            bailIfCancelled();
+            patch(dossierId, { phase: "processing", progress: 100, debit: undefined, resteS: undefined });
+            const data = await postJsonWithRetry<{ ok?: boolean; error?: string; summary?: UploadSummary; manquantes?: number[] }>(
+              `/api/regulatory/intelligence/upload/direct/${sessionId}/finalize`, 45,
+            );
+            if (data.ok) {
+              const seconds = (Date.now() - startedAt) / 1000;
+              console.info(`[upload] ${(file.size / 1048576).toFixed(0)} Mo en ${seconds.toFixed(1)} s — ${(file.size / 1048576 / Math.max(seconds, 0.001)).toFixed(1)} Mo/s`);
+              patch(dossierId, { phase: "done", summary: data.summary ?? null });
+              void forgetUpload(dossierId);
+              fetch("/api/regulatory/intelligence/process", { method: "POST" }).catch(() => undefined).finally(() => router.refresh());
+              router.refresh();
+              return;
+            }
+            if (!data.manquantes?.length || essai >= 2) throw new Error(data.error ?? "Finalisation refusée.");
+            patch(dossierId, { phase: "uploading" });
+            await envoyer(await rouvrir());
+          }
+        } catch (e) {
+          if (e instanceof EnvoiAnnule) throw new UploadCancelled();
+          throw e;
+        } finally {
+          aborts.current.delete(dossierId);
+        }
       }
 
       // Envoi DIRECT vers le bucket (si configuré).
@@ -369,6 +383,8 @@ export function UploadProvider({ children }: { children: React.ReactNode }) {
     cancelled.current.add(dossierId);
     for (const xhr of inflight.current.get(dossierId) ?? []) { try { xhr.abort(); } catch { /* déjà terminée */ } }
     inflight.current.delete(dossierId);
+    aborts.current.get(dossierId)?.abort();
+    aborts.current.delete(dossierId);
     void forgetUpload(dossierId);
     patch(dossierId, { phase: "cancelled", progress: 0, error: null });
 
@@ -495,6 +511,17 @@ function UploadWidget() {
                     <div className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-secondary">
                       <div className="h-full rounded-full bg-primary transition-all" style={{ width: j.phase === "processing" ? "100%" : `${j.progress}%` }} />
                     </div>
+                    {/* Le débit réel et le temps restant : sur un dossier de plusieurs Go, c'est ce
+                        qui permet de décider d'attendre ou de fermer l'ordinateur (l'envoi reprendra). */}
+                    {j.phase === "uploading" && j.debit !== undefined && (
+                      <p className="mt-1 flex justify-between text-[0.6875rem] text-muted-foreground" aria-live="polite">
+                        <span>{debitLisible(j.debit ?? 0)}</span>
+                        <span>{resteLisible(j.resteS ?? null)}</span>
+                      </p>
+                    )}
+                    {j.reprise && (
+                      <p className="mt-1 text-[0.6875rem] text-muted-foreground">Envoi repris : {j.reprise.recues} partie·s sur {j.reprise.total} étaient déjà arrivées — elles ne repartent pas.</p>
+                    )}
                   </div>
                 )}
                 {j.phase === "done" && j.summary && (

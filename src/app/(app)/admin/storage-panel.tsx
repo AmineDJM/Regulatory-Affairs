@@ -21,6 +21,31 @@ export function StoragePanel({ initial }: { initial: SelfTestReport["config"] })
   const [report, setReport] = React.useState<SelfTestReport | null>(null);
   const cfg = report?.config ?? initial;
 
+  // ENVOI DIRECT DEPUIS CE NAVIGATEUR — vérifie la règle CORS du bucket (PUT autorisé, ETag
+  // exposé), sans laquelle les gros fichiers échouent alors que tout « semble » configuré.
+  const [cors, setCors] = React.useState<{ ok: boolean; texte: string } | null>(null);
+  const [corsBusy, setCorsBusy] = React.useState(false);
+  const testerCors = async () => {
+    setCorsBusy(true); setCors(null);
+    try {
+      const r = await fetch("/api/admin/storage/cors-test", { method: "POST" });
+      const b = (await r.json()) as { url?: string; key?: string; error?: string };
+      if (!r.ok || !b.url || !b.key) { setCors({ ok: false, texte: b.error ?? "Signature refusée." }); return; }
+      let res: Response;
+      try {
+        res = await fetch(b.url, { method: "PUT", body: new Blob(["test d'envoi direct"]) });
+      } catch {
+        setCors({ ok: false, texte: "Le navigateur n'a pas pu écrire dans le bucket : la règle CORS manque (AllowedOrigins = l'adresse de l'application, AllowedMethods = PUT, ExposeHeaders = ETag). Voir docs/stockage-gros-fichiers.md." });
+        return;
+      }
+      const etag = res.headers.get("ETag");
+      void fetch(`/api/admin/storage/cors-test?key=${encodeURIComponent(b.key)}`, { method: "DELETE" });
+      if (!res.ok) setCors({ ok: false, texte: `Le bucket a refusé l'envoi (code ${res.status}).` });
+      else if (!etag) setCors({ ok: false, texte: "Envoi accepté, mais l'en-tête ETag n'est pas exposé : ajoutez « ExposeHeaders: ETag » à la règle CORS, sinon les gros fichiers ne peuvent pas être recollés." });
+      else setCors({ ok: true, texte: "Envoi direct depuis ce navigateur : OK (PUT autorisé, ETag lisible). Les gros fichiers partiront directement au bucket." });
+    } finally { setCorsBusy(false); }
+  };
+
   const run = () => {
     setBusy(true);
     void fetch("/api/admin/storage/self-test", { method: "POST" })
@@ -72,6 +97,24 @@ export function StoragePanel({ initial }: { initial: SelfTestReport["config"] })
         contenu et le supprime. Les fichiers déjà stockés en base restent lisibles quoi qu&apos;il
         arrive — le stockage objet ne concerne que les nouveaux enregistrements.
       </p>
+
+      {cfg.configured ? (
+        <div className="flex flex-wrap items-center gap-2">
+          <Button size="sm" variant="outline" onClick={() => void testerCors()} disabled={corsBusy}>
+            {corsBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <PlugZap className="h-4 w-4" />} Tester l&apos;envoi direct (navigateur)
+          </Button>
+          {cors && (
+            <span className={cors.ok ? "text-xs text-success" : "text-xs text-destructive"} aria-live="polite">{cors.texte}</span>
+          )}
+        </div>
+      ) : (
+        <p className="text-xs text-muted-foreground">
+          Sans stockage objet, les gros fichiers (dossiers CTD de plusieurs Go) sont <strong>refusés</strong> — ils
+          rempliraient la base. Pour les accepter : créer un bucket (Cloudflare R2 ou AWS S3), puis poser
+          <code> S3_ENDPOINT</code>, <code>S3_BUCKET</code>, <code>S3_ACCESS_KEY_ID</code>, <code>S3_SECRET_ACCESS_KEY</code> et
+          <code> S3_REGION</code> dans Render → Environment. Guide pas à pas : <code>docs/stockage-gros-fichiers.md</code>.
+        </p>
+      )}
 
       {report && (
         <ul className="surface divide-y divide-border text-sm">

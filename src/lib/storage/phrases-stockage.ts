@@ -17,3 +17,10 @@ export function refusSansStockageObjet(taille: number, maxSansObjetMo: number): 
     + `(et S3_REGION, « auto » pour Cloudflare R2), puis redéployez — voir docs/stockage-gros-fichiers.md. `
     + `Administration → Stockage → « Tester la connexion » confirme le réglage.`;
 }
+
+/**
+ * Au-delà, sans stockage objet, un fichier est REFUSÉ au lieu d'être écrit en base (Postgres
+ * ≈ 1 Go sur l'offre gratuite). Réglable par `MAX_DB_UPLOAD_MB` (lu côté serveur seulement ; le
+ * navigateur reçoit la valeur par `/api/uploads/limites`).
+ */
+export const MAX_SANS_STOCKAGE_OBJET_MO = Math.max(1, Number(typeof process !== "undefined" ? process.env.MAX_DB_UPLOAD_MB ?? 100 : 100));

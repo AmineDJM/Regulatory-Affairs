@@ -8,7 +8,7 @@ import { userUsageBytes, physicalUsageBytes, addPhysicalUsage } from "@/lib/driv
 import { objectStorageConfigured } from "@/lib/storage/object-storage";
 import { startTimer, formatTiming } from "@/lib/drive/timing";
 import { refusDepotDrive, enregistrerFichierDrive } from "@/lib/drive/depot";
-import { MAX_SANS_STOCKAGE_OBJET_MO } from "@/lib/drive/depot-direct";
+import { MAX_SANS_STOCKAGE_OBJET_MO } from "@/lib/storage/phrases-stockage";
 import { refusSansStockageObjet } from "@/lib/storage/televersement-direct";
 
 /** Upload a new file (under `parentId`) or a new version (of `nodeId`). */

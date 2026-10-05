@@ -7,6 +7,7 @@ import { objectStorageConfigured, deleteObject } from "@/lib/storage/object-stor
 import { quotaVerdict } from "@/lib/drive/quota";
 import { userUsageBytes, physicalUsageBytes, addPhysicalUsage } from "@/lib/drive/usage";
 import { BLOB_MAX_BYTES } from "@/lib/drive-storage";
+import { MAX_SANS_STOCKAGE_OBJET_MO } from "@/lib/storage/phrases-stockage";
 import { refusDepotDrive, enregistrerFichierDrive, type CibleDepot } from "@/lib/drive/depot";
 import {
   CLIENT_S3, ouvrirEnvoi, planDeReprise, finaliserEnvoi, refusSansStockageObjet,
@@ -29,8 +30,7 @@ import {
  * `FileBlob` dont l'IV est VIDE les désigne ; `getBlob` et le téléchargement le savent.
  */
 
-/** Au-delà, sans stockage objet, on REFUSE au lieu d'écrire en base (Postgres ≈ 1 Go en gratuit). */
-export const MAX_SANS_STOCKAGE_OBJET_MO = Math.max(1, Number(process.env.MAX_DB_UPLOAD_MB ?? 100));
+export { MAX_SANS_STOCKAGE_OBJET_MO } from "@/lib/storage/phrases-stockage";
 
 /** Une session non terminée depuis ce délai est abandonnée (ses parties sont libérées). */
 const SESSION_PERIMEE_MS = 7 * 24 * 3600_000;
@@ -80,7 +80,8 @@ export async function ouvrirDepotDirect(
     where: { userId: user.id, purpose: "DRIVE", fingerprint, status: "UPLOADING", updatedAt: { gt: new Date(Date.now() - SESSION_PERIMEE_MS) } },
     orderBy: { createdAt: "desc" },
   });
-  if (enCours && enCours.uploadId && JSON.stringify(enCours.target) === JSON.stringify(JSON.parse(target))) {
+  // jsonb réordonne les clés : on compare deux formes CANONIQUES, jamais deux textes bruts.
+  if (enCours && enCours.uploadId && cibleCanonique(enCours.target as unknown as CibleDepot) === target) {
     try {
       const plan = await planDeReprise(enCours.objectKey, enCours.uploadId, Number(enCours.totalBytes), enCours.partSize, client);
       await prisma.directUpload.update({ where: { id: enCours.id }, data: { error: null } });

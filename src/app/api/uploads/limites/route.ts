@@ -3,7 +3,7 @@ import { getCurrentUser } from "@/lib/session";
 import { getAppSettings } from "@/lib/settings";
 import { objectStorageConfigured } from "@/lib/storage/object-storage";
 import { SEUIL_DIRECT_OCTETS } from "@/lib/storage/televersement-direct";
-import { MAX_SANS_STOCKAGE_OBJET_MO } from "@/lib/drive/depot-direct";
+import { MAX_SANS_STOCKAGE_OBJET_MO } from "@/lib/storage/phrases-stockage";
 
 export const dynamic = "force-dynamic";
 

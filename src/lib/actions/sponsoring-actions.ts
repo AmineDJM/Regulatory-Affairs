@@ -164,7 +164,6 @@ export async function createSponsoring(
   // LES PIÈCES SE JUGENT AVANT LA DEMANDE (audit du 04/10, constat 7). Refusées après, elles
   // laissaient la demande créée : la personne corrigeait son fichier, renvoyait, et le sponsoring
   // existait deux fois.
-  const pieces = formData.getAll("files").filter((f): f is File => f instanceof File);
   const piecesRefusees = await validateAttachments(pieces);
   if (piecesRefusees) return { ok: false, error: `${piecesRefusees} Aucune demande n'a été créée.` };
 

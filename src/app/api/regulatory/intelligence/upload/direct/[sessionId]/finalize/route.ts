@@ -28,7 +28,9 @@ export async function POST(req: NextRequest, { params }: { params: { sessionId: 
     } catch { /* pas de corps : envoi simple */ }
 
     const r = await finalizeDirectUploadSession(params.sessionId, companyId, user.id, etags);
-    if (!r.ok) return NextResponse.json({ error: r.error }, { status: 422 });
+    // Un envoi INCOMPLET n'est pas un échec : la réponse nomme les parties manquantes, et le
+    // navigateur rouvre la session (reprise) pour ne renvoyer qu'elles.
+    if (!r.ok) return NextResponse.json({ error: r.error, manquantes: r.manquantes ?? [], reprendre: (r.manquantes?.length ?? 0) > 0, retryable: (r.manquantes?.length ?? 0) === 0 && (r.retryable ?? false) }, { status: (r.manquantes?.length ?? 0) > 0 ? 409 : 422 });
     return NextResponse.json({ ok: true, summary: r.ingest?.summary ?? null });
   } catch (err) {
     console.error("[reg-upload/direct/finalize] erreur non gérée", err);

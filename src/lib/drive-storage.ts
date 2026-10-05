@@ -362,8 +362,8 @@ export const PURGE_DELAI_MINUTES = 60;
  *
  * Elle ne se déclenche plus d'elle-même à chaque suppression : c'est un geste d'administration.
  */
-export async function purgeOrphanBlobs(): Promise<{ count: number; bytes: number }> {
-  const candidats = await orphelins();
+export async function purgeOrphanBlobs(opts: { parmi?: string[] } = {}): Promise<{ count: number; bytes: number }> {
+  const candidats = await orphelins(opts.parmi);
   if (candidats.length === 0) return { count: 0, bytes: 0 };
   const ids = candidats.map((c) => c.id);
   // La condition est REJOUÉE au moment d'effacer : un réemploi passé entre les deux lectures a
@@ -381,12 +381,13 @@ export async function purgeOrphanBlobs(): Promise<{ count: number; bytes: number
   return { count: orphans.length, bytes };
 }
 
-/** Les blobs qu'aucune colonne ni aucun JSON ne tient, pris depuis plus d'une heure. */
-async function orphelins(): Promise<{ id: string; size: number }[]> {
+/** Les blobs qu'aucune colonne ni aucun JSON ne tient, pris depuis plus d'une heure (`parmi` : bornés à ces identifiants). */
+async function orphelins(parmi?: string[]): Promise<{ id: string; size: number }[]> {
+  const borne = parmi ? Prisma.sql`AND b.id = ANY(${parmi})` : Prisma.empty;
   const rows = await prisma.$queryRaw<{ id: string; size: number }[]>(Prisma.sql`
     SELECT b.id, b.size FROM "FileBlob" b
     WHERE b."touchedAt" < now() - make_interval(mins => ${PURGE_DELAI_MINUTES})
-      AND ${sqlAucuneColonneNeLeTient("b")}`);
+      AND ${sqlAucuneColonneNeLeTient("b")} ${borne}`);
   if (rows.length === 0) return rows;
   const json = sqlBlobsCitesEnJson();
   if (!json) return rows;
