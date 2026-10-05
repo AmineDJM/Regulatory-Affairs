@@ -73,7 +73,7 @@ export async function setAdProDgThreshold(formData: FormData): Promise<ActionRes
     return { ok: false, error: "Indiquez un montant en DZD (0 = aucune validation du Directeur Général)." };
   }
   if (brut < 0) return { ok: false, error: "Un seuil ne peut pas être négatif (0 = aucune validation du Directeur Général)." };
-  const seuil = Math.round(brut);
+  const seuil = Math.round(brut * 100) / 100;
 
   await prisma.appSetting.upsert({
     where: { id: "global" },
@@ -116,7 +116,7 @@ export async function setBcValidationThreshold(formData: FormData): Promise<Acti
     return { ok: false, error: "Indiquez un montant en DZD (0 = tout bon de commande passe par un centre de validation)." };
   }
   if (brut < 0) return { ok: false, error: "Un seuil ne peut pas être négatif (0 = tout bon de commande passe par un centre de validation)." };
-  const seuil = Math.round(brut);
+  const seuil = Math.round(brut * 100) / 100;
 
   const avant = await prisma.appSetting.findUnique({ where: { id: "global" }, select: { bcValidationThreshold: true } });
   const ancien = avant ? Number(avant.bcValidationThreshold) : DEFAULT_APP_SETTINGS.bcValidationThreshold;

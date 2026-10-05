@@ -15,7 +15,7 @@
  */
 
 import { prisma } from "@/lib/prisma";
-import { toNumber } from "@/lib/utils";
+import { toNumber, formatMontant } from "@/lib/utils";
 import { netDeLaFacture } from "@/lib/lecteurs/avoir";
 import { totauxAvoirsActifs } from "@/lib/lecteurs/avoirs-actifs";
 import {
@@ -73,7 +73,7 @@ const HREF = {
   compte: () => "/admin/access",
 };
 
-const dzd = (n: number): string => `${Math.round(n).toLocaleString("fr-FR")} DZD`;
+const dzd = (n: number): string => `${formatMontant(n)} DZD`;
 const fr = (d: Date | null | undefined): string => (d ? d.toISOString().slice(0, 10).split("-").reverse().join("/") : "—");
 
 function constat(
@@ -208,7 +208,7 @@ const DETECTEURS: Record<string, Detecteur> = {
       }
     }
     // 2. Même contrepartie, même montant, à moins de 45 jours — probable.
-    for (const g of grouper(rows.filter((x) => x.counterparty && x.amount != null), (x) => `${cleSociete(x.counterparty)}|${Math.round(toNumber(x.amount))}`)) {
+    for (const g of grouper(rows.filter((x) => x.counterparty && x.amount != null), (x) => `${cleSociete(x.counterparty)}|${Math.round(toNumber(x.amount) * 100)}`)) {
       for (let i = 1; i < g.length; i += 1) {
         const a = g[i - 1]; const b = g[i];
         const ecart = Math.abs(joursEntre(a.createdAt, b.createdAt));

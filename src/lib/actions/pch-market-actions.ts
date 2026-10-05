@@ -317,7 +317,7 @@ export async function createContractFromAward(formData: FormData): Promise<Actio
     const prix = l.awardedUnitPriceDzd ?? l.unitPriceDzd;
     return total + (prix === null ? 0 : qte * toNumber(prix));
   }, 0);
-  const montant = fdNum(formData, "amount") ?? (montantCalcule > 0 ? Math.round(montantCalcule) : null);
+  const montant = fdNum(formData, "amount") ?? (montantCalcule > 0 ? Math.round(montantCalcule * 100) / 100 : null);
 
   const doc = await prisma.$transaction(async (tx) => {
     const created = await tx.legalDocument.create({

@@ -20,6 +20,7 @@ import {
   noteVirementPaie, moisDeLaPaie, deMois, ETAT_VIREMENT_LABEL, SOMME_A_VIRER_MANQUANTE, saisiAvantLeCentre, type VirementDuMois,
 } from "@/lib/hr/virement-paie";
 import { instantDuCentreDePaie } from "@/lib/hr/paie-centre";
+import { chargerSalairesPartis } from "@/lib/hr/salaires-partis";
 import { decisionRattachement, phraseRattachement, type SalaireParti } from "@/lib/hr/rattachement-paie";
 import { validateAmounts, resolvedGross, amendImpact, canAmend } from "@/lib/hr/payroll-amend";
 import { docxToPdf, isConvertibleWord, pdfFileName } from "@/lib/payslip/to-pdf";
@@ -403,41 +404,7 @@ export async function rattacherSalariesAEntite(formData: FormData): Promise<Acti
   }
 
   // CE QUI EST DÉJÀ PARTI — lu sur chaque salaire payé, par la MÊME règle que l'écran et l'envoi.
-  const depuisLeCentre = await instantDuCentreDePaie();
-  const lignes = await prisma.payrollEntry.findMany({
-    where: { employeeId: { in: aRattacher.map((f) => f.id) }, status: "PAID" },
-    select: {
-      employeeId: true, year: true, month: true, status: true, transactionId: true, budgetTransferredAt: true,
-      paidDate: true, createdAt: true,
-      payrollWire: { select: { companyId: true, paidAt: true, expenseOrder: { select: { reference: true, status: true, centralStatus: true } } } },
-    },
-  });
-  const idsEcritures = lignes.map((l) => l.transactionId).filter((v): v is string => Boolean(v));
-  const ecritures = idsEcritures.length
-    ? await prisma.financeTransaction.findMany({ where: { id: { in: idsEcritures } }, select: { id: true, companyId: true, reference: true } })
-    : [];
-  const ecritureParId = new Map(ecritures.map((e) => [e.id, e]));
-  const partisParSalarie = new Map<string, SalaireParti[]>();
-  const saisisParSalarie = new Map<string, number>();
-  for (const l of lignes) {
-    const virement = l.payrollWire ? etatVirement({ paidAt: l.payrollWire.paidAt, ordre: l.payrollWire.expenseOrder }) : null;
-    const etat = etatSalaire({
-      status: l.status, transactionId: l.transactionId, budgetTransferredAt: l.budgetTransferredAt,
-      virement, avantLeCentre: saisiAvantLeCentre(l, depuisLeCentre),
-    });
-    if (etat === "SAISI") { saisisParSalarie.set(l.employeeId, (saisisParSalarie.get(l.employeeId) ?? 0) + 1); continue; }
-    if (etat !== "ENVOYE" && etat !== "VIRE") continue;
-    let parti: SalaireParti;
-    if (l.payrollWire && virement && virementCouvre(virement)) {
-      parti = { year: l.year, month: l.month, companyId: l.payrollWire.companyId, reference: l.payrollWire.expenseOrder?.reference ?? null };
-    } else if (l.transactionId) {
-      const e = ecritureParId.get(l.transactionId);
-      parti = { year: l.year, month: l.month, companyId: e?.companyId ?? null, reference: e?.reference ?? null };
-    } else {
-      parti = { year: l.year, month: l.month, companyId: null, reference: null };
-    }
-    partisParSalarie.set(l.employeeId, [...(partisParSalarie.get(l.employeeId) ?? []), parti]);
-  }
+  const { partisParSalarie, saisisParSalarie } = await chargerSalairesPartis(aRattacher.map((f) => f.id));
   const societes = await prisma.company.findMany({ select: { id: true, name: true, shortName: true } });
   const nomDe = new Map(societes.map((c) => [c.id, c.shortName || c.name]));
   const decision = decisionRattachement(

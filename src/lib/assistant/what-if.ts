@@ -3,7 +3,7 @@ import type { CurrentUser } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
 import { userCan } from "@/lib/rbac";
 import { platformScope } from "@/lib/company";
-import { toNumber } from "@/lib/utils";
+import { toNumber, formatMontant } from "@/lib/utils";
 import { getComptaData } from "@/lib/queries/compta";
 import { getActionCenter } from "@/lib/queries/action-center";
 import { alertesExecutivesChaudes, fraicheurDeLecture } from "@/lib/assistant/hot-alerts";
@@ -34,8 +34,8 @@ const num = (input: Record<string, unknown>, key: string): number | null => {
   return Number.isFinite(n) ? n : null;
 };
 
-const dzd = (n: number): number => Math.round(n);
-const kdzd = (n: number): string => `${Math.round(n).toLocaleString("fr-FR")} DZD`;
+const dzd = (n: number): number => Math.round(n * 100) / 100;
+const kdzd = (n: number): string => `${formatMontant(n)} DZD`;
 
 /** Masse salariale MENSUELLE estimée : somme des coûts employeur actifs (repli : brut, puis base). */
 async function monthlyPayroll(): Promise<{ totalDzd: number; headcount: number; sansCout: number }> {

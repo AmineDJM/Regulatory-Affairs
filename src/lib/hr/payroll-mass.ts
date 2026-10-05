@@ -65,13 +65,6 @@ export function massByDepartment(lines: readonly PayrollCostLine[]): {
   return { byDepartment, unassigned, total };
 }
 
-/** La masse par ENTITÉ — le chiffre que chaque société doit reconnaître comme le sien. */
-export function massByEntity(lines: readonly PayrollCostLine[]): Map<string | null, number> {
-  const out = new Map<string | null, number>();
-  for (const l of lines) out.set(l.companyId, (out.get(l.companyId) ?? 0) + l.cost);
-  return out;
-}
-
 export interface BudgetRefresh {
   departmentId: string;
   /** Le montant à ÉCRIRE — un remplacement, jamais une addition. */

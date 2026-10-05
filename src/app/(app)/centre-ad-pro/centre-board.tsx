@@ -206,7 +206,7 @@ function SeuilForm({ seuil }: { seuil: number }) {
         >
           <div className="space-y-1">
             <Label htmlFor="adProDgThreshold">Seuil (DZD)</Label>
-            <Input id="adProDgThreshold" name="adProDgThreshold" type="number" min="0" step="1000" defaultValue={seuil} />
+            <Input id="adProDgThreshold" name="adProDgThreshold" type="number" min="0" step="any" defaultValue={seuil} />
             <p className="text-xs text-muted-foreground">
               <strong>0</strong> = aucune demande ne passe par le centre. Une demande <em>sans montant
               renseigné</em> y passe quand même : on ne franchit pas un contrôle sur une absence de donnée.
@@ -259,7 +259,7 @@ function SeuilBCForm({ seuil }: { seuil: number }) {
         >
           <div className="space-y-1">
             <Label htmlFor="bcValidationThreshold">Seuil des bons de commande (DZD)</Label>
-            <Input id="bcValidationThreshold" name="bcValidationThreshold" type="number" min="0" step="1000" defaultValue={seuil} />
+            <Input id="bcValidationThreshold" name="bcValidationThreshold" type="number" min="0" step="any" defaultValue={seuil} />
             <p className="text-xs text-muted-foreground">
               <strong>0</strong> = tout bon de commande passe par un centre. Un BC <em>sans montant
               renseigné</em> y passe quand même. Les BC en cours qui changent de côté du seuil sont

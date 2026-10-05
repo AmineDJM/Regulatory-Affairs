@@ -397,11 +397,11 @@ export function CorrigerDemandePanel({ id, besoin }: { id: string; besoin: Besoi
         </div>
         <div className="space-y-1">
           <Label className="text-xs">Rémunération minimale (DZD)</Label>
-          <Input name="salaryMin" type="number" min={0} defaultValue={besoin.salaryMin ?? ""} className="h-9 text-sm" />
+          <Input name="salaryMin" type="number" step="any" min={0} defaultValue={besoin.salaryMin ?? ""} className="h-9 text-sm" />
         </div>
         <div className="space-y-1">
           <Label className="text-xs">Rémunération maximale (DZD)</Label>
-          <Input name="salaryMax" type="number" min={0} defaultValue={besoin.salaryMax ?? ""} className="h-9 text-sm" />
+          <Input name="salaryMax" type="number" step="any" min={0} defaultValue={besoin.salaryMax ?? ""} className="h-9 text-sm" />
         </div>
         <div className="space-y-1">
           <Label className="text-xs">Prise de poste</Label>

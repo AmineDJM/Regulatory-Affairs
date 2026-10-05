@@ -169,7 +169,7 @@ export function CatalogueArticles({ articles, peutModifier = true }: { articles:
           <SelectField label="Catégorie" name="category" options={optionsFromMap(SUPPLY_CATEGORY)} placeholder="—" defaultValue={editing?.category ?? ""} />
           <SelectField label="Unité" name="unit" options={optionsFromMap(SUPPLY_UNIT)} placeholder="—" defaultValue={editing?.unit ?? ""} />
           <TextField label="Référence / code" name="reference" placeholder="Ex. PAP-A4-80" defaultValue={editing?.reference ?? undefined} />
-          <TextField label="Prix indicatif (DZD)" name="estimatedPrice" type="number" defaultValue={editing?.estimatedPrice ?? undefined} />
+          <TextField label="Prix indicatif (DZD)" name="estimatedPrice" type="number" step="any" defaultValue={editing?.estimatedPrice ?? undefined} />
           <TextField label="Fournisseur habituel" name="supplierHint" placeholder="Ex. Papeterie Centrale" defaultValue={editing?.supplierHint ?? undefined} className="sm:col-span-2" />
           <TextAreaField label="Notes" name="notes" placeholder="Précisions éventuelles…" defaultValue={editing?.notes ?? undefined} className="sm:col-span-2" />
         </div>

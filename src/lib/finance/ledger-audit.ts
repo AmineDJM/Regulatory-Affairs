@@ -1,4 +1,5 @@
 /**
+import { formatMontant } from "@/lib/utils";
  * LE CONTRÔLE DU LIVRE — ce qui manque, et ce qui est sorti deux fois.
  *
  * ── LES DEUX QUESTIONS, ET ELLES NE SE CONFONDENT PAS ───────────────────────────────────────
@@ -78,7 +79,7 @@ const jour = (d: Date | string | null | undefined): string => {
   return Number.isNaN(v.getTime()) ? "" : v.toISOString().slice(0, 10);
 };
 
-const money = (n: number): string => `${Math.round(n).toLocaleString("fr-FR")} DZD`;
+const money = (n: number): string => `${formatMontant(n)} DZD`;
 
 /**
  * UN PAIEMENT SANS ÉCRITURE — le premier contrôle, et le plus grave.

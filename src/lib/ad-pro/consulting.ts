@@ -109,5 +109,5 @@ export function totalCommitment(c: { amount: number | null; billing: string; sta
   if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end < start) return null;
   const months = Math.max(1, Math.round((end.getTime() - start.getTime()) / (30.44 * 24 * 3600 * 1000)));
   const periods = c.billing === "MONTHLY" ? months : c.billing === "QUARTERLY" ? months / 3 : months / 12;
-  return Math.round(c.amount * Math.max(1, periods));
+  return Math.round(c.amount * Math.max(1, periods) * 100) / 100;
 }

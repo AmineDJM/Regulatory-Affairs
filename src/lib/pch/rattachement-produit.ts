@@ -1,4 +1,5 @@
 /**
+import { formatMontant } from "@/lib/utils";
  * ═══════════════════════════════════════════════════════════════════════════════════════════
  * LE RATTACHEMENT MARCHÉ D'UN PRODUIT — un AO, donc un marché PCH, ou un marché plus la ville.
  *
@@ -248,7 +249,7 @@ export function rattachementProduit(input: {
     anomalies.push({
       genre: "VILLE_HORS_CANAL",
       message: `Le produit est déclaré hospitalier, et porte ${ventesDeVille.nombre} vente(s) de ville `
-        + `(${Math.round(ventesDeVille.montantDzd).toLocaleString("fr-FR")} DZD). Corrigez le canal, ou le rattachement de ces ventes.`,
+        + `(${formatMontant(ventesDeVille.montantDzd)} DZD). Corrigez le canal, ou le rattachement de ces ventes.`,
       cibles: [],
     });
   }

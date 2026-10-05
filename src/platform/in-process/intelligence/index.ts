@@ -32,7 +32,7 @@ import { getBudgetOverview, getEnvelopes } from "@/lib/queries/budget";
 import { regulatoryVisibleWhere } from "@/lib/queries/regulatory-rows";
 import { submissionReadiness } from "@/lib/regulatory/intelligence/lifecycle";
 import { enabledRegCompanyIds, regCan } from "@/lib/regulatory/intelligence/access";
-import { toNumber } from "@/lib/utils";
+import { toNumber, formatMontant } from "@/lib/utils";
 import type { PaymentRequestStatus, RegDossierStatus } from "@prisma/client";
 import { graviteParJours, isoJour, joursEntre, resumerSignaux, trierSignaux, type DomaineSignal, type Gravite, type Signal } from "@/lib/utils/signaux";
 
@@ -66,7 +66,7 @@ const vide = (domaine: DomaineSignal, note: string, t0: number): LectureIntellig
   domaine, signaux: [], resume: resumerSignaux([]), portee: {}, notes: [note], calculeLe: new Date().toISOString(), ms: Date.now() - t0,
 });
 
-const fr = (n: number): string => Math.round(n).toLocaleString("fr-FR");
+const fr = (n: number): string => formatMontant(n);
 /** Jours SIGNÉS entre aujourd'hui et une date : −15 pour « il y a 15 jours et quelques heures », jamais −16 (troncature, pas plancher). */
 const joursSignes = (now: Date, d: Date): number => { const ms = d.getTime() - now.getTime(); return ms >= 0 ? Math.floor(ms / 86_400_000) : -Math.floor(-ms / 86_400_000); };
 const tronquer = (s: string, n: number): string => (s.length > n ? `${s.slice(0, n - 1)}…` : s);

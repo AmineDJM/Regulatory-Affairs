@@ -1,5 +1,6 @@
 import type { AdProItemKind } from "@prisma/client";
 import { ITEM_KIND_LABELS } from "@/lib/ad-pro-items";
+import { formatMontant } from "@/lib/utils";
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
@@ -185,7 +186,7 @@ export function composerContexte(ctx: ContexteConseil): string {
   const postes = ctx.postes.length === 0
     ? "(aucun poste)"
     : ctx.postes.map((p) => {
-        const montant = p.montant === null ? "montant non renseigné" : `${Math.round(p.montant).toLocaleString("fr-FR")} DZD`;
+        const montant = p.montant === null ? "montant non renseigné" : `${formatMontant(p.montant)} DZD`;
         const fournisseur = ligne(p.fournisseur, 80);
         const cases = CASES_POSTE.filter((c) => caseExiste(p.nature, c)).join(", ");
         return `- posteId=${p.id} | nature=${p.nature} (${ITEM_KIND_LABELS[p.nature]}) | libellé=${ligne(p.libelle, 80) || "—"} | ${montant}${fournisseur ? ` | fournisseur=${fournisseur}` : ""} | cases=${cases}`;

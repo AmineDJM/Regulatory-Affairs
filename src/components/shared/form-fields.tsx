@@ -33,6 +33,7 @@ export function TextField(props: {
   placeholder?: string;
   hint?: string;
   className?: string;
+  step?: string;
 }) {
   return (
     <Field label={props.label} name={props.name} required={props.required} hint={props.hint} className={props.className}>
@@ -43,6 +44,7 @@ export function TextField(props: {
         required={props.required}
         defaultValue={props.defaultValue}
         placeholder={props.placeholder}
+        step={props.step}
       />
     </Field>
   );

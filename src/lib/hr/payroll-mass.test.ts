@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
-  massByDepartment, massByEntity, budgetRefreshes, refreshSummary, type PayrollCostLine,
+  massByDepartment, budgetRefreshes, refreshSummary, type PayrollCostLine,
 } from "./payroll-mass";
 
 const l = (departmentId: string | null, companyId: string | null, cost: number): PayrollCostLine =>
@@ -30,20 +30,6 @@ describe("la masse salariale par département", () => {
     const r = massByDepartment([]);
     expect(r.byDepartment.size).toBe(0);
     expect(r.total).toBe(0);
-  });
-});
-
-describe("la masse salariale par entité", () => {
-  it("CHAQUE SOCIÉTÉ SON CHIFFRE — une masse consolidée n'est celle d'aucune d'elles", () => {
-    const m = massByEntity([l("d1", "adv", 100), l("d2", "pha", 80), l("d3", "adv", 20)]);
-    expect(m.get("adv")).toBe(120);
-    expect(m.get("pha")).toBe(80);
-  });
-
-  it("les salariés sans entité forment leur propre ligne, ils ne se noient pas dans une société", () => {
-    const m = massByEntity([l("d1", null, 60), l("d1", "adv", 10)]);
-    expect(m.get(null)).toBe(60);
-    expect(m.get("adv")).toBe(10);
   });
 });
 

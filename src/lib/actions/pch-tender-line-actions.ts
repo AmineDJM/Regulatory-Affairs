@@ -473,7 +473,7 @@ async function enrichLineById(id: string): Promise<boolean> {
       registeredOurs: ours ? true : line.registeredOurs,
       suppliersInfo: line.suppliersInfo || (best ? `${best.manufacturers} fabricant(s) / ${best.importers} importateur(s)${nom.origins ? ` · nomenclature : ${nom.origins}` : ""}` : nom.origins ? `Nomenclature : ${nom.origins}` : null),
       // Paysage concurrentiel — l'analyse par molécule prime sur l'agrégat DCI historique.
-      marketEstimateDzd: market?.total.valueDzd ? Math.round(market.total.valueDzd) : (best?.valueDzd ? Math.round(best.valueDzd) : line.marketEstimateDzd),
+      marketEstimateDzd: market?.total.valueDzd ? Math.round(market.total.valueDzd * 100) / 100 : (best?.valueDzd ? Math.round(best.valueDzd * 100) / 100 : line.marketEstimateDzd),
       competitorCount: market ? market.total.players : (best ? best.manufacturers + best.importers : line.competitorCount),
       marketOrigin: market ? dominantOrigin(market) : line.marketOrigin,
       marketVillePct: market ? Math.round(market.ville.pct * 100) / 100 : line.marketVillePct,

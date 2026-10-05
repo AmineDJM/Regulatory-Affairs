@@ -81,7 +81,7 @@ export function AdProDgThresholdForm({ settings }: { settings: AppSettings }) {
       <div className="space-y-1">
         <Label htmlFor="adProDgThreshold">Seuil de validation du Directeur Général (DZD)</Label>
         <Input
-          id="adProDgThreshold" name="adProDgThreshold" type="number" min="0" step="1000"
+          id="adProDgThreshold" name="adProDgThreshold" type="number" min="0" step="any"
           defaultValue={settings.adProDgThreshold}
         />
         <p className="text-xs text-muted-foreground">

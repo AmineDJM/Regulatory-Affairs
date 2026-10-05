@@ -269,7 +269,7 @@ export async function analyzeEmployeeContract(
     const v = s(k); if (ISO_DATE.test(v)) values[k] = v;
   }
   const ct = s("contractType").toUpperCase(); if (CONTRACT_TYPES_UP.includes(ct)) values.contractType = ct;
-  const sal = s("baseSalary").replace(/[^\d.]/g, ""); if (sal && Number(sal) > 0) values.baseSalary = String(Math.round(Number(sal)));
+  const sal = s("baseSalary").replace(/[^\d.]/g, ""); if (sal && Number(sal) > 0) values.baseSalary = String(Math.round(Number(sal) * 100) / 100);
 
   if (!Object.keys(values).length) return { ok: false, error: "Aucune information exploitable détectée dans le contrat." };
   await recordAudit({ actorId: user.id, action: "UPDATE", module: "Ressources humaines", summary: `Analyse IA d'un contrat de travail — ${Object.keys(values).length} champ(s) préremplis` });
