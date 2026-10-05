@@ -738,6 +738,7 @@ suite("Ad & Pro — lignes de devis validées → un BC par devis, régénérabl
     expect(carte, "la carte lit la règle partagée").toMatch(/refusGenerationBC\(/);
     expect(carte, "le geste principal appelle l'action").toMatch(/GENERER_BC[\s\S]{0,200}genererBonDeCommandePoste\(/);
     expect(carte, "la case BC passe par le bloc des devis").toMatch(/<BlocBonDeCommande/);
+    expect(carte, "la règle lue par la carte est PASSÉE au bloc (sinon le bouton s'offrirait sans règle)").toMatch(/refusGeneration=\{refusGeneration\}/);
     const bloc = lire("src/components/ad-pro/devis-bc-poste.tsx");
     expect(bloc, "le CTA de la case appelle l'action").toMatch(/genererBonDeCommandePoste\(/);
     expect(bloc, "le panneau appelle les actions de validation et de saisie").toMatch(/validerLignesDuDevis\([\s\S]*enregistrerLignesDuDevis\(/);
