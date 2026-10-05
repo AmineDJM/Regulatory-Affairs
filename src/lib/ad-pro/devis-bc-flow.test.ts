@@ -600,6 +600,29 @@ suite("Ad & Pro — lignes de devis validées → un BC par devis, régénérabl
     expect((await poste(pe)).orderStage).toBe("NONE");
   });
 
+  it("UN DEVIS QUE LE BC NE PEUT PAS PORTER : un taux hors Algérie se refuse à la saisie et AVANT la marche ; un refus de la fabrique APRÈS la marche la rend", async () => {
+    const ph = await posteAccorde("Poste TVA", 300_000);
+    const x = await deposerDevis(ph, "DV-T", "Imprimerie Alpha");
+    const lx = await saisir(ph, x, [{ ref: "Cartes", qte: "10", prix: "100" }]);
+    await comme("kam");
+    expect(refus(await enregistrerLignesDuDevis(formLignes(ph, x, [{ id: lx[0], ref: "Cartes", qte: "10", prix: "100" }], { tvaRate: "13" })))).toMatch(/n'existe pas en Algérie/);
+    expect(refus(await enregistrerLignesDuDevis(formLignes(ph, x, [{ id: lx[0], ref: "Cartes", qte: "10", prix: "100" }], { tvaRate: "19", extraTaxRate: "100" })))).toMatch(/sous 100/);
+    ok(await validerLignesDuDevis(formValider(ph, x, lx)));
+    // Une LECTURE de travers a pu écrire un taux ou une taxe que la saisie refuse : le décor le simule en base (nommé).
+    await prisma.adProDevis.update({ where: { legalDocumentId: x }, data: { tvaRate: 13 } });
+    expect(refus(await genererBonDeCommandePoste(fd({ id: ph })))).toMatch(/taux de TVA du devis \(13 %\) n'existe pas en Algérie/);
+    expect((await poste(ph)).orderStage, "refusé AVANT la marche").toBe("NONE");
+    // Une taxe de 100 % passe le pré-contrôle (rien ne la voit) : c'est la fabrique qui refuse, APRÈS la prise de la marche.
+    await prisma.adProDevis.update({ where: { legalDocumentId: x }, data: { tvaRate: 19, extraTaxRate: 100, extraTaxLabel: "Taxe lue de travers" } });
+    const e = refus(await genererBonDeCommandePoste(fd({ id: ph })));
+    expect(e).toMatch(/Aucun bon de commande n'a pu être généré/);
+    expect(e).toMatch(/Taxe additionnelle/);
+    const apres = await poste(ph);
+    expect(apres.orderStage, "la marche prise pour rien est rendue : le poste n'est pas laissé « demandé » sans BC").toBe("NONE");
+    expect(apres.orderRequestedById).toBeNull();
+    expect(await bcsDe(x)).toHaveLength(0);
+  });
+
   it("DEUX CHEMINS POUR LE MÊME BC feraient deux commandes : une demande ouverte chez l'assistante ferme la génération — la carte dit la même phrase", async () => {
     const pf = await posteAccorde("Poste demande ouverte", 300_000);
     const x = await deposerDevis(pf, "DV-O", "Imprimerie Alpha");

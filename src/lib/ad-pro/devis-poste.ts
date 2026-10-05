@@ -249,6 +249,20 @@ export function refusDepassement(totalTtc: number, accorde: number | null): stri
     + "Décochez une ligne, ou demandez une révision du poste pour relever le montant accordé — le bon de commande ne dépasse pas ce que la Direction a accordé.";
 }
 
+// ───────────────────────── Ce que le BC peut porter ─────────────────────────
+
+/**
+ * LES TAUX DE TVA QU'UN BON DE COMMANDE PEUT PORTER, en POUR CENT — ceux de l'Algérie (0, 9, 19), les mêmes que la
+ * fabrique (`TAUX_TVA_ADMIS`, en fraction : un test les compare). Un devis qui en porte un autre (une lecture de
+ * travers, une saisie) ne se commande pas tel quel : la fabrique refuserait APRÈS qu'on a pris la marche du BC.
+ */
+export const TAUX_TVA_PCT_ADMIS: readonly number[] = [0, 9, 19];
+
+export function refusTauxDuDevis(tvaRate: number): string | null {
+  if (TAUX_TVA_PCT_ADMIS.some((t) => Math.abs(t - tvaRate) < 1e-9)) return null;
+  return `Le taux de TVA du devis (${tvaRate} %) n'existe pas en Algérie : un bon de commande porte 0, 9 ou 19 %. Corrigez-le dans les lignes du devis (« Corriger les lignes »).`;
+}
+
 // ───────────────────────── Peut-on générer ? ─────────────────────────
 
 /**

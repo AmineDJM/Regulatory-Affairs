@@ -48,7 +48,7 @@ import { resolveParties } from "@/lib/queries/company-contacts";
 import { devisDesPostes } from "@/lib/queries/ad-pro-devis-poste";
 import { ingererDevisDuPoste, phraseDeLecture } from "@/lib/pieces-lues/devis-poste-lecture";
 import {
-  refusChangementDeValidation, refusEditionDesLignes, refusGenerationBC, type LigneDevisPoste,
+  refusChangementDeValidation, refusEditionDesLignes, refusGenerationBC, refusTauxDuDevis, type LigneDevisPoste,
 } from "@/lib/ad-pro/devis-poste";
 import { genererLesBCsDuPoste, phraseBilanGeneration, refusMontantDuPoste, tiersDuDevis } from "@/lib/ad-pro-bc-devis";
 import { attachFormFiles } from "@/lib/documents";
@@ -3127,8 +3127,12 @@ export async function enregistrerLignesDuDevis(formData: FormData): Promise<Acti
   }
   const tvaSaisie = nombreSaisi(fdStr(formData, "tvaRate") ?? "");
   if (tvaSaisie !== null && !(tvaSaisie >= 0 && tvaSaisie <= 100)) return { ok: false, error: "Le taux de TVA s'exprime en pour cent, entre 0 et 100." };
+  if (tvaSaisie !== null) {
+    const tauxRefuse = refusTauxDuDevis(tvaSaisie);
+    if (tauxRefuse) return { ok: false, error: tauxRefuse };
+  }
   const taxeSaisie = nombreSaisi(fdStr(formData, "extraTaxRate") ?? "");
-  if (taxeSaisie !== null && !(taxeSaisie > 0 && taxeSaisie <= 100)) return { ok: false, error: "La taxe additionnelle s'exprime en pour cent, entre 0 et 100 (laissez vide s'il n'y en a pas)." };
+  if (taxeSaisie !== null && !(taxeSaisie > 0 && taxeSaisie < 100)) return { ok: false, error: "La taxe additionnelle s'exprime en pour cent, au-dessus de 0 et sous 100 (laissez vide s'il n'y en a pas)." };
   const totalSaisi = nombreSaisi(fdStr(formData, "announcedTotal") ?? "");
   if (totalSaisi !== null && !(totalSaisi >= 0)) return { ok: false, error: "Le total annoncé sur le devis doit être un montant positif." };
   const supplierId = fdStr(formData, "supplierId");
@@ -3312,6 +3316,9 @@ export async function genererBonDeCommandePoste(formData: FormData): Promise<Act
     if (depasse) return { ok: false, error: depasse };
     for (const d of aFaire) {
       if (d.etat !== "A_GENERER") continue;
+      // Un taux de TVA que le BC ne peut pas porter se dit AVANT la marche : la fabrique le refuserait après.
+      const tauxRefuse = refusTauxDuDevis(d.entete.tvaRate);
+      if (tauxRefuse) return { ok: false, error: `${d.reference ?? d.titre} : ${tauxRefuse}` };
       const t = await tiersDuDevis(d, poste.supplier);
       if (!t.ok) return { ok: false, error: `${d.reference ?? d.titre} : ${t.error}` };
     }

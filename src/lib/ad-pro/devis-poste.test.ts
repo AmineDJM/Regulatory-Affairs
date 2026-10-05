@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
+import { TAUX_TVA_ADMIS } from "@/lib/artifact/factory/commercial";
 import {
   refusValidationLigne, lignesValidees, lignesDuBon, totauxValides, decisionBcDuDevis, refusBcFige, refusChangementDeValidation,
   refusEditionDesLignes, etapeDEnsemble, refusDepassement, refusGenerationBC, lignesDepuisLaLecture, ecartAvecLeTotalImprime,
+  refusTauxDuDevis, TAUX_TVA_PCT_ADMIS,
   type LigneDevisPoste, type EnteteDevisPoste, type BcActifDuDevis,
 } from "./devis-poste";
 
@@ -152,6 +154,15 @@ describe("la génération est-elle ouverte ? — la MÊME règle pour la carte e
   });
   it("le montant et le budget ne sont exigés qu'à la PRISE de la marche : un poste dont le BC est déjà demandé ne les redemande pas", () => {
     expect(refusGenerationBC({ ...ok, orderStage: "DIRECTION_OK", amountGranted: null, budgetCategoryId: null })).toBeNull();
+  });
+});
+
+describe("ce que le BC peut porter : les taux de TVA de l'Algérie, les mêmes que la fabrique", () => {
+  it("les taux admis sont EXACTEMENT ceux de la fabrique (en pour cent), et tout autre est refusé avant la marche", () => {
+    expect([...TAUX_TVA_PCT_ADMIS].sort((a, b) => a - b)).toEqual([...TAUX_TVA_ADMIS].map((t) => Math.round(t * 100)).sort((a, b) => a - b));
+    for (const t of [0, 9, 19]) expect(refusTauxDuDevis(t)).toBeNull();
+    expect(refusTauxDuDevis(13)).toMatch(/13 %.*n'existe pas en Algérie.*0, 9 ou 19 %/);
+    expect(refusTauxDuDevis(19.5)).not.toBeNull();
   });
 });
 
