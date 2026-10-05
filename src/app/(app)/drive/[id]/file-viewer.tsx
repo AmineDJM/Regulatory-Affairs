@@ -2,7 +2,7 @@
 
 import { Download } from "lucide-react";
 import { DocxView, XlsxView, PptxView } from "@/components/documents/office-viewers";
-import { ZipViewer } from "./zip-viewer";
+import { ZipViewer } from "@/components/documents/zip-viewer";
 
 export function FileViewer({ id, name, kind }: { id: string; name: string; kind: string }) {
   const src = `/api/drive/${id}/raw`;

@@ -4,6 +4,7 @@ import * as React from "react";
 import { useRouter } from "next/navigation";
 import { X, Download, Printer, Pencil, Trash2, Check, Loader2, ExternalLink } from "lucide-react";
 import { DocxView, XlsxView, PptxView } from "./office-viewers";
+import { ZipViewer } from "./zip-viewer";
 import { printDocument } from "@/lib/print-document";
 import { deleteDocument, renameDocument } from "@/lib/actions/document-actions";
 import { useScrollLock } from "@/lib/use-scroll-lock";
@@ -25,6 +26,7 @@ function kindFromName(name: string): string {
   if (ext === "docx") return "docx";
   if (ext === "xlsx" || ext === "xls" || ext === "csv") return "xlsx";
   if (ext === "pptx") return "pptx";
+  if (ext === "zip") return "zip";
   return "other";
 }
 
@@ -71,7 +73,9 @@ export function DocumentPreview({
 
   const src = srcOverride ?? `/api/documents/${id}`;
   const kind = kindFromName(name);
-  const canPreview = hasFile && ["image", "pdf", "text", "docx", "xlsx", "pptx"].includes(kind);
+  // Un ZIP se PARCOURT dans la fenêtre (liste des entrées, aperçu d'une entrée) — sans le télécharger.
+  // Seulement pour un document ordinaire : `srcOverride` désigne une autre source, qui n'a pas cette route.
+  const canPreview = hasFile && (["image", "pdf", "text", "docx", "xlsx", "pptx"].includes(kind) || (kind === "zip" && !srcOverride));
   const canEditFile = Boolean(canEdit) && hasFile && OFFICE_EDIT.includes(extOf(name));
 
   async function saveRename() {
@@ -128,7 +132,7 @@ export function DocumentPreview({
               )}
               {!renaming && (
                 <div className="flex shrink-0 items-center gap-0.5">
-                  {hasFile && <button onClick={() => printDocument(id)} className={iconBtn} title="Imprimer"><Printer className="h-4 w-4" /></button>}
+                  {hasFile && kind !== "zip" && <button onClick={() => printDocument(id)} className={iconBtn} title="Imprimer"><Printer className="h-4 w-4" /></button>}
                   {canEditFile && <a href={`/documents/${id}/edit`} className={iconBtn} title="Modifier dans l'éditeur Office"><ExternalLink className="h-4 w-4" /></a>}
                   {canRename && <button onClick={() => { setDraft(name); setRenaming(true); }} className={iconBtn} title="Renommer"><Pencil className="h-4 w-4" /></button>}
                   {hasFile && <a href={`${src}?dl=1`} className={iconBtn} title="Enregistrer (télécharger)"><Download className="h-4 w-4" /></a>}
@@ -154,6 +158,8 @@ export function DocumentPreview({
                   <XlsxView src={src} name={name} />
                 ) : kind === "pptx" ? (
                   <PptxView src={src} name={name} />
+                ) : kind === "zip" ? (
+                  <ZipViewer id={id} name={name} zipUrl={`${src}/zip`} downloadUrl={`${src}?dl=1`} />
                 ) : null
               ) : (
                 <div className="flex h-full min-h-[40vh] flex-col items-center justify-center gap-3 text-center">

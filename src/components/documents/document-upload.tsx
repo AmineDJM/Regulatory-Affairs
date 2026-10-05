@@ -1,14 +1,14 @@
 "use client";
 
 import * as React from "react";
-import { UploadCloud, CheckCircle2, FileUp, X } from "lucide-react";
+import { UploadCloud, CheckCircle2, FileUp, FolderUp, X } from "lucide-react";
 import type { EntityType } from "@prisma/client";
 import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/input";
 import { DOCUMENT_CATEGORY, CONFIDENTIALITY } from "@/lib/labels";
 import { useBackgroundUpload } from "@/components/layout/background-upload";
 import { useLimitesEnvoi } from "@/components/layout/use-limites-envoi";
-import { refusTeleversement } from "@/lib/files/politique-televersement";
+import { envoiDocument, lireDepot, dossierDuChemin, FICHIER_PARASITE, type EntreeDepot } from "./envoi-document";
 import { cn } from "@/lib/utils";
 
 interface DocumentUploadProps {
@@ -23,13 +23,17 @@ interface DocumentUploadProps {
 
 interface Item { id: string; file: File; path: string }
 
+// Un dossier choisi par le sélecteur porte son chemin relatif dans `webkitRelativePath`.
+type FichierAvecChemin = File & { webkitRelativePath?: string };
+
 const humanSize = (n: number) => (n >= 1048576 ? `${(n / 1048576).toFixed(1)} Mo` : `${Math.max(1, Math.ceil(n / 1024))} Ko`);
 
 let uid = 0;
 
 /**
- * Téléversement de documents : un ou plusieurs **fichiers de tout type**, **ou une archive ZIP**
- * (pour envoyer un dossier entier, on le compresse en .zip), **sans limite de nombre**. L'envoi est
+ * Téléversement de documents : un ou plusieurs **fichiers de tout type**, **un dossier entier** (avec
+ * son arborescence — plus besoin de le compresser) ou **une archive ZIP**, **sans limite de nombre**,
+ * jusqu'à 10 Go par fichier (envoi direct au bucket au-delà du seuil). L'envoi est
  * confié au **gestionnaire d'envois global** (arrière-plan) : dès qu'on clique « Téléverser », on
  * peut **changer de module et continuer à travailler** — les fichiers montent en parallèle et la
  * pastille flottante suit la progression partout. En contexte Regulatory, tout est en plus répliqué
@@ -39,6 +43,7 @@ let uid = 0;
 export function DocumentUpload({ entityType, entityId, categories, stepKey, compact, onUploaded }: DocumentUploadProps) {
   const { enqueue } = useBackgroundUpload();
   const filesRef = React.useRef<HTMLInputElement>(null);
+  const dossierRef = React.useRef<HTMLInputElement>(null);
   const [items, setItems] = React.useState<Item[]>([]);
   const [dragOver, setDragOver] = React.useState(false);
   const [queued, setQueued] = React.useState(0); // dernier lot confié à l'arrière-plan
@@ -56,19 +61,26 @@ export function DocumentUpload({ entityType, entityId, categories, stepKey, comp
   const limites = useLimitesEnvoi();
   const [refuses, setRefuses] = React.useState<{ id: string; path: string; raison: string }[]>([]);
 
-  function addFiles(list: FileList | null) {
-    if (!list || list.length === 0) return;
+  const refusDe = limites ? envoiDocument({ entityType, entityId, category, confidentiality, stepKey }, limites, () => null).refus : undefined;
+
+  function addEntries(list: EntreeDepot[]) {
+    if (list.length === 0) return;
     const next: Item[] = [];
     const ko: { id: string; path: string; raison: string }[] = [];
-    for (const file of Array.from(list)) {
-      const path = (file as File & { webkitRelativePath?: string }).webkitRelativePath || file.name;
-      const raison = file.size === 0 ? "Fichier vide (0 octet)." : limites ? refusTeleversement(file.name, file.size, limites.maxUploadMb) : null;
+    for (const { file, path } of list) {
+      if (FICHIER_PARASITE.test(file.name)) continue; // .DS_Store, Thumbs.db… posés par le système, jamais par la personne
+      const raison = file.size === 0 ? "Fichier vide (0 octet)." : refusDe ? refusDe(file) : null;
       if (raison) ko.push({ id: `r${uid++}`, path, raison });
       else next.push({ id: `u${uid++}`, file, path });
     }
     setItems((cur) => [...cur, ...next]);
     setRefuses(ko);
     setQueued(0);
+  }
+
+  function addFiles(list: FileList | null) {
+    if (!list || list.length === 0) return;
+    addEntries(Array.from(list).map((file) => ({ file, path: (file as FichierAvecChemin).webkitRelativePath || file.name })));
   }
 
   // UNE SÉLECTION NON ENVOYÉE NE SE PERD PAS EN SILENCE (constat 10). L'envoi se fait en deux
@@ -87,7 +99,10 @@ export function DocumentUpload({ entityType, entityId, categories, stepKey, comp
   function uploadAll() {
     if (items.length === 0) return;
     const files = items.map((it) => it.file);
+    // Le dossier d'origine de chaque fichier (« CTD/Module 1 ») : l'arborescence se garde sur la fiche.
+    const dossiers = new Map<File, string | null>(items.map((it) => [it.file, dossierDuChemin(it.path)]));
     const cat = category, conf = confidentiality;
+    const envoi = envoiDocument({ entityType, entityId, category: cat, confidentiality: conf, stepKey }, limites, (f) => dossiers.get(f) ?? null);
     enqueue({
       label: `${files.length} document${files.length > 1 ? "s" : ""}`,
       files,
@@ -99,9 +114,13 @@ export function DocumentUpload({ entityType, entityId, categories, stepKey, comp
         fd.set("category", cat);
         fd.set("confidentiality", conf);
         if (stepKey) fd.set("stepKey", stepKey);
+        const dossier = dossiers.get(file);
+        if (dossier) fd.set("folder", dossier);
         fd.append("files", file, file.name);
         return { url: "/api/documents/upload", formData: fd };
       },
+      refus: envoi.refus,
+      direct: envoi.direct,
       onFileDone: onUploaded
         ? (_file, body) => {
             const ids = Array.isArray(body.ids) ? body.ids.filter((x): x is string => typeof x === "string") : [];
@@ -118,7 +137,7 @@ export function DocumentUpload({ entityType, entityId, categories, stepKey, comp
       <div
         onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
         onDragLeave={() => setDragOver(false)}
-        onDrop={(e) => { e.preventDefault(); setDragOver(false); addFiles(e.dataTransfer.files); }}
+        onDrop={(e) => { e.preventDefault(); setDragOver(false); void lireDepot(e.dataTransfer).then(addEntries); }}
         className={cn(
           "rounded-xl border-2 border-dashed text-center transition-colors",
           compact ? "px-3 py-2.5" : "px-4 py-5",
@@ -127,15 +146,27 @@ export function DocumentUpload({ entityType, entityId, categories, stepKey, comp
       >
         <div className={cn("flex items-center justify-center gap-2", compact ? "" : "flex-col")}>
           <UploadCloud className={cn("text-muted-foreground", compact ? "h-4 w-4" : "h-6 w-6")} />
-          {!compact && <span className="text-sm font-medium text-foreground">Glissez un fichier ou un ZIP ici, ou :</span>}
+          {!compact && <span className="text-sm font-medium text-foreground">Glissez des fichiers, un dossier ou un ZIP ici, ou :</span>}
           <div className="flex flex-wrap items-center justify-center gap-2">
             <Button type="button" size="sm" variant="outline" onClick={() => filesRef.current?.click()}>
-              <FileUp className="h-4 w-4" /> Choisir un fichier ou un ZIP
+              <FileUp className="h-4 w-4" /> Choisir des fichiers ou un ZIP
+            </Button>
+            <Button type="button" size="sm" variant="outline" onClick={() => dossierRef.current?.click()}>
+              <FolderUp className="h-4 w-4" /> Choisir un dossier
             </Button>
           </div>
         </div>
-        {!compact && <p className="mt-1.5 text-xs text-muted-foreground">Un ou plusieurs <strong>fichiers de tout type</strong>, ou une archive <strong>.ZIP</strong> · sans limite de nombre · envoi en arrière-plan</p>}
+        {!compact && <p className="mt-1.5 text-xs text-muted-foreground">Des <strong>fichiers de tout type</strong>, un <strong>dossier entier</strong> (arborescence conservée) ou une archive <strong>.ZIP</strong> · jusqu&apos;à 10 Go par fichier · envoi en arrière-plan</p>}
         <input ref={filesRef} type="file" multiple hidden onChange={(e) => { addFiles(e.target.files); e.target.value = ""; }} />
+        {/* Sélecteur de DOSSIER : `webkitdirectory` (non standard mais pris en charge par tous les navigateurs courants). */}
+        <input
+          ref={dossierRef}
+          type="file"
+          multiple
+          hidden
+          {...({ webkitdirectory: "", directory: "" } as Record<string, string>)}
+          onChange={(e) => { addFiles(e.target.files); e.target.value = ""; }}
+        />
       </div>
 
       {!compact && (
