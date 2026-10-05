@@ -40,7 +40,7 @@ const iconBtn = "rounded-lg p-2 text-muted-foreground transition-colors hover:bg
  * — selon les droits reçus. Plus d'icônes entassées dans la liste : le nom seul suffit à tout ouvrir.
  */
 export function DocumentPreview({
-  id, name, hasFile, canEdit, canDelete, canRename, path, srcOverride,
+  id, name, hasFile, canEdit, canDelete, canRename, path, srcOverride, supprimer,
 }: {
   id: string;
   name: string;
@@ -63,6 +63,12 @@ export function DocumentPreview({
    * impression, téléchargement — est le MÊME code.
    */
   srcOverride?: string;
+  /**
+   * L'ACTION QUI SUPPRIME, quand ce n'est pas `deleteDocument` — le bloc des pièces d'une demande Ad & Pro
+   * passe la sienne (§118.209), qui juge la demande ET ce qui engage la pièce. Même signature : le
+   * bouton, la confirmation et le rafraîchissement sont ceux de tous les documents.
+   */
+  supprimer?: (id: string, path?: string) => Promise<{ ok: boolean; error?: string }>;
 }) {
   const router = useRouter();
   const [open, setOpen] = React.useState(false);
@@ -91,7 +97,9 @@ export function DocumentPreview({
   async function onDelete() {
     if (!confirm("Supprimer définitivement ce document ?")) return;
     setDeleting(true);
-    await deleteDocument(id, path);
+    const r = await (supprimer ?? deleteDocument)(id, path);
+    // Un refus se DIT (§118.83) : sans cela, la fenêtre restait ouverte sur un fichier qui n'était pas parti.
+    if (!r.ok) { setDeleting(false); window.alert(r.error ?? "Suppression impossible."); return; }
     setOpen(false);
     router.refresh();
   }

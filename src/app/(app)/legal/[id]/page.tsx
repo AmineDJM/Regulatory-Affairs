@@ -10,6 +10,7 @@ import { canEditCompanyId, companyScopedWhere } from "@/lib/company";
 import { legalKindVisible, legalViewScope, legalWriteAllowed } from "@/lib/legal/invoices";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { ApercuPieceEmise } from "@/components/legal/apercu-piece-emise";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { BackLink } from "@/components/shared/back-link";
 import { AskChief } from "@/components/shared/ask-chief";
@@ -37,7 +38,7 @@ import { LegalChainCard } from "./chain-card";
 import { EntityLinks } from "@/components/shared/entity-links";
 import { linksOf, linkedViews } from "@/lib/links/store";
 import { porteDuBC, origineDuBC, centreVouluDuBC } from "@/lib/bons-de-commande/aiguillage";
-import { blocageParLeBC } from "@/lib/bons-de-commande/regle";
+import { blocageParLeBC, reserveEtapeBC } from "@/lib/bons-de-commande/regle";
 import { REFUS_FACTURE_EMISE_AU_REGLEMENT } from "@/lib/finances/settlement";
 import { siegeAuCentreAdPro } from "@/lib/ad-pro/centre";
 import { sitsOnValidationCentre } from "@/lib/validations/centre";
@@ -45,7 +46,12 @@ import { BonDeCommandeGate } from "./bc-gate";
 import { etatDuBC } from "@/lib/bons-de-commande/etat";
 import { peutSignerBC } from "@/lib/queries/bons-de-commande";
 import { fichiersEmis, lienFichierEmis } from "@/lib/legal/fichiers-emis";
-import { pieceDefinitive, pieceEmise, refusRevisionAval, remedePieceEmise, specRevisable } from "@/lib/legal/piece-emise";
+import { pieceDefinitive, pieceEmise, refusRevisionAval, remedePieceEmise, specRevisable, type TypePieceEmise } from "@/lib/legal/piece-emise";
+
+/** Le nom d'une pièce émise dans la phrase de succès. */
+const LIBELLE_PIECE_EMISE: Record<TypePieceEmise, string> = {
+  DEVIS: "Devis", BON_DE_COMMANDE: "Bon de commande", FACTURE: "Facture", AVOIR: "Avoir",
+};
 import { netDeLaFacture } from "@/lib/lecteurs/avoir";
 import { avalActif, avoirsDeLaFacture } from "@/lib/legal/aval";
 
@@ -68,7 +74,7 @@ const LEGAL_DOC_CATEGORIES = [
  * Le FICHIER de référence, lui, reste dans le Drive : Legal pointe dessus, ne le duplique pas.
  * Les pièces jointes ici sont les pièces PROPRES à l'engagement, par la table `Document` commune.
  */
-export default async function LegalDocumentPage({ params }: { params: { id: string } }) {
+export default async function LegalDocumentPage({ params, searchParams }: { params: { id: string }; searchParams?: { emis?: string } }) {
   // DEUX PORTES, ET LA SECONDE EST ÉTROITE. Legal ouvre tout le registre ; la COMPTABILITÉ n'y
   // ouvre que les FACTURES — elle venait les lire dans un écran à part, et centraliser ne devait
   // rien lui retirer. La restriction est vérifiée sur la pièce elle-même, plus bas : une porte
@@ -251,6 +257,15 @@ export default async function LegalDocumentPage({ params }: { params: { id: stri
   const centreDeLaPorte = porte?.centre ?? centreAttendu;
   const siegeAuCentre = centreDeLaPorte === "AD_PRO" ? siegeAuCentreAdPro(user) : sitsOnValidationCentre(user);
 
+  // « VIENT D'ÊTRE ÉMISE » (§118.209) : l'adresse du composeur porte `?emis=1`, et on n'y croit que si la pièce a
+  // bien été émise il y a moins d'un quart d'heure — un favori ou un lien partagé ne doit pas annoncer « émis » d'une
+  // pièce vieille d'un mois. Les réserves viennent de la pièce (papier en-tête, étape du BC), jamais de l'adresse.
+  const faitsFabrique = (doc.custom as { fabrique?: { emisLe?: unknown; surPapierEnTete?: unknown } } | null)?.fabrique ?? null;
+  const emisLe = typeof faitsFabrique?.emisLe === "string" ? Date.parse(faitsFabrique.emisLe) : Number.NaN;
+  const emisJustement = searchParams?.emis === "1" && emise !== null && Number.isFinite(emisLe) && Date.now() - emisLe < 15 * 60 * 1000;
+  const sansPapierEnTete = faitsFabrique?.surPapierEnTete === false;
+  const reserveBC = etatBC ? reserveEtapeBC(etatBC.etape, etatBC.porte, etatBC.seuil) : null;
+
   // UNE FACTURE QUI DÉCOULE D'UN BC : pourquoi elle ne peut pas encore partir, dit AVANT le clic.
   // La phrase vient de `blocageParLeBC`, la même que le refus de l'action — elles ne peuvent pas
   // se contredire.
@@ -335,6 +350,31 @@ export default async function LegalDocumentPage({ params }: { params: { id: stri
           />
         </div>
       </div>
+
+      {/* UNE PIÈCE QU'ON VIENT D'ÉMETTRE SE MONTRE (§118.209) — « il doit s'afficher, pas juste se sauvegarder dans
+          Legal et qu'on aille le rechercher ». Le composeur mène ici (`?emis=1`) : la phrase de succès, puis le PDF
+          ouvert. Sur toute pièce émise, l'aperçu reste disponible, replié. */}
+      {emise && emisJustement && (
+        <section role="status" aria-live="polite" className="rounded-lg border border-success/50 bg-success/5 p-3 text-sm" data-piece-emise-bandeau>
+          <p className="font-medium">
+            {LIBELLE_PIECE_EMISE[emise.type]} {emise.numero} émis{emise.type === "FACTURE" ? "e" : ""} — le voici ci-dessous, inscrit{emise.type === "FACTURE" ? "e" : ""} au registre Legal.
+          </p>
+          <ul className="mt-1 list-disc space-y-0.5 pl-5 text-xs text-muted-foreground">
+            {sansPapierEnTete && <li>Sans papier en-tête (mise en page neutre) : réglez le papier de la société dans Administration › Marque pour les prochaines pièces.</li>}
+            {!emis.pdf && <li>Aucun PDF n&apos;a pu être produit : le Word fait foi.</li>}
+            {estBC && reserveBC && <li>{reserveBC}</li>}
+          </ul>
+        </section>
+      )}
+      {emise && (emis.pdf || emis.docx) && (
+        <ApercuPieceEmise
+          titre={doc.title}
+          pdf={emis.pdf ? lienFichierEmis(doc.id, "pdf") : null}
+          word={emis.docx ? lienFichierEmis(doc.id, "docx", true) : null}
+          excel={lienFichierEmis(doc.id, "xlsx", true)}
+          ouvertParDefaut={searchParams?.emis === "1"}
+        />
+      )}
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
         <div className="space-y-4 lg:col-span-2">

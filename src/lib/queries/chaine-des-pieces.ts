@@ -17,6 +17,7 @@ import {
 export { categorieDuPdf, sectionDeLaNature, type SectionPieces };
 import type { DocItem } from "@/components/documents/document-list";
 import type { MaillonAmont, NaturePieceLiee } from "@/components/shared/attach-to-source";
+import { demandeDeLaPiece, droitsSuppressionDesPieces, type DroitsPieceDemande } from "@/lib/queries/pieces-demande-droits";
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
@@ -75,6 +76,11 @@ export interface LignePiece {
   editable: boolean;
   /** La catégorie du PDF qu'on peut y joindre — `null` : la porte du serveur ne l'acceptera pas. */
   joindre: string | null;
+  /**
+   * SUPPRIMER la pièce ou l'un de ses fichiers depuis la demande (§118.209) — offert ou non, et pourquoi quand
+   * ce qui ENGAGE la pièce le refuse. `null` : l'écran n'a pas demandé ce geste (`EntreePiecesLiees.suppression`).
+   */
+  suppression: DroitsPieceDemande | null;
 }
 
 export interface LigneCourrier {
@@ -113,6 +119,11 @@ export interface EntreePiecesLiees {
   creer?: { devis: boolean; bonDeCommande: boolean; facture: boolean; engagement: boolean; courrier: boolean } | null;
   /** Les fichiers déposés sur la fiche elle-même (emplacement nommé). */
   documentsDeLaFiche?: DocItem[];
+  /**
+   * Faut-il calculer le droit de SUPPRIMER pièces et fichiers (§118.209) ? Opt-in : seules les fiches Ad & Pro
+   * l'offrent — la fiche d'une demande au secrétariat, qui monte aussi ce bloc, n'a pas demandé ce geste.
+   */
+  suppression?: boolean;
 }
 
 const docItem = (d: {
@@ -133,7 +144,7 @@ export async function chargerPiecesLiees(e: EntreePiecesLiees): Promise<PiecesLi
       where, orderBy: { createdAt: "desc" }, take: 200,
       select: {
         id: true, title: true, reference: true, kind: true, status: true, endDate: true, counterparty: true,
-        amount: true, startDate: true, paidDate: true, expenseOrderId: true, custom: true,
+        amount: true, startDate: true, paidDate: true, expenseOrderId: true, custom: true, createdById: true,
         chainFrom: { select: { reference: true, title: true } },
       },
     }),
@@ -185,6 +196,11 @@ export async function chargerPiecesLiees(e: EntreePiecesLiees): Promise<PiecesLi
     // OÙ EN EST CHAQUE BC — la même lecture que la file des Finances et la fiche Legal.
     etatsDesBC(brutes.PURCHASE_ORDER.map((d) => d.id)),
   ]);
+  // Les droits de SUPPRESSION, en lot : la demande se juge une fois (§118.209).
+  const demandeDuBloc = e.suppression && e.spectateur ? demandeDeLaPiece({ sourceType: e.entityType, sourceId: e.entityId }) : null;
+  const droitsSuppression = demandeDuBloc && e.spectateur
+    ? await droitsSuppressionDesPieces(e.spectateur, demandeDuBloc, affichees.filter((d) => peut("VIEW", d.id)).map((d) => ({ id: d.id, createdById: d.createdById })))
+    : null;
   const parPiece = new Map<string, DocItem[]>();
   for (const d of [...fichiersLegal, ...fichiersCourrier]) {
     const liste = parPiece.get(d.entityId) ?? [];
@@ -205,6 +221,7 @@ export async function chargerPiecesLiees(e: EntreePiecesLiees): Promise<PiecesLi
       documents: lisible ? parPiece.get(d.id) ?? [] : null,
       gerable, editable: edition && gerable,
       joindre: peut("UPLOAD", d.id) ? categorieDuPdf(d.kind) : null,
+      suppression: droitsSuppression?.get(d.id) ?? null,
     };
   };
 

@@ -442,7 +442,7 @@ export default async function PromoMaterialDetailPage({ params }: { params: { id
               sa nature, avec « Créer sa fiche ». */}
           <LinkedRecords
             entityType="PROMO_MATERIAL" entityId={pm.id} reference={pm.reference} canCreate={canUpload && !v2}
-            acces={ctxPieces.acces} candidatsLegal={ctxPieces.candidatsLegal}
+            acces={ctxPieces.acces} candidatsLegal={ctxPieces.candidatsLegal} suppression
             piecesDeLaDemande={{
               titre: v2 ? "Pièces du dossier (maquettes, BAT, matériel, visa…)" : "Pièces du dossier (matériel, visa, bordereau, quittance…)",
               documents: piecesLiees,

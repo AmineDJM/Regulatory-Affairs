@@ -284,7 +284,7 @@ const intitule = (d: DocBC): string => {
 const montantLisible = (m: number | null) => (m != null && m > 0 ? `${m.toLocaleString("fr-FR")} DZD` : "montant non renseigné");
 
 /** Retire ce qui ATTEND encore — une décision prise, elle, ne s'efface jamais. */
-async function retirerEnAttente(docId: string): Promise<number> {
+export async function retirerEnAttente(docId: string): Promise<number> {
   const [visas, validations] = await Promise.all([
     prisma.adProGateVisa.deleteMany({ where: { entityType: "LEGAL_DOCUMENT", entityId: docId, status: "PENDING" } }).catch(() => ({ count: 0 })),
     prisma.validationRequest.updateMany({

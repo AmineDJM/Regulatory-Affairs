@@ -1246,6 +1246,15 @@ X("SUPPRIMER UNE DEMANDE AD & PRO depuis sa fiche — la porte ouverte au direct
   + "demande ».", [
   "admin-delete-actions:supprimerDemandeAdPro",
 ]);
+X("SUPPRIMER UNE PIÈCE LEGAL, OU L'UN DE SES FICHIERS, depuis la fiche de la demande Ad & Pro (§118.209) — « on doit pouvoir "
+  + "supprimer les documents dans les demandes ». Adam n'est visible que du Super Admin (§118.153), qui supprime déjà une pièce "
+  + "par `delete_record` (même cœur réversible, même refus de ce qui engage la pièce) ; offrir une seconde porte à Adam ne "
+  + "servirait personne. Et le geste se fait devant l'APERÇU de ce qui part (fichiers, commentaires, lecteurs) et sous un "
+  + "double geste — retirer un devis, un bon de commande ou une facture du registre n'est pas un rangement qu'un modèle décide "
+  + "d'après un document lu (§118.7). Un clic sur la fiche de la demande, bloc « Pièces Legal de la demande » ou « Pièces liées ».", [
+  "ad-pro-pieces-actions:supprimerPieceDeLaDemande", "ad-pro-pieces-actions:apercuSuppressionPieceDeLaDemande",
+  "ad-pro-pieces-actions:supprimerFichierDePieceDeLaDemande",
+]);
 X("LES COMPTAGES, ALERTES ET REFONTES DU STOCK PROMOTIONNEL (§118.168). SAISIR un comptage est une ATTESTATION — « j'en ai "
   + "40 en main » — que seul celui qui détient le matériel donne : chaque écart devient une correction au registre portée à "
   + "son nom. Un modèle ne voit ni le carton ni la voiture ; un compte rendu lu par une étape peut écrire « tout y est », et le "

@@ -191,7 +191,11 @@ function ComposerPieceSheet(props: ComposerPieceProps & { onClose: () => void })
     startEmission(async () => {
       const r = await emettrePieceCommerciale(undefined, fd);
       setResultat(r);
-      if (r.ok) router.refresh();
+      // LA PIÈCE S'AFFICHE (§118.209) : « il doit s'afficher, pas juste se sauvegarder dans Legal et qu'on aille le
+      // rechercher ». L'émission mène à la fiche, où le PDF est ouvert sous la phrase de succès. Quand la fiche
+      // est fermée à la personne (`lien` nul), le panneau reste ouvert sur ses liens — le PDF s'ouvre sous la porte de la pièce.
+      if (r.ok && r.lien) router.push(r.lien);
+      else if (r.ok) router.refresh();
     });
   };
 
@@ -515,10 +519,11 @@ function ComposerPieceSheet(props: ComposerPieceProps & { onClose: () => void })
               <>
                 <div className="mt-2 flex flex-wrap gap-2">
                   {resultat.docxNodeId && <a className="rounded-md border border-border bg-card px-3 py-1.5 hover:bg-secondary" href={`/api/drive/${resultat.docxNodeId}/raw?dl=1`}>Télécharger le Word</a>}
-                  {resultat.pdfNodeId && <a className="rounded-md border border-border bg-card px-3 py-1.5 hover:bg-secondary" href={`/api/drive/${resultat.pdfNodeId}/raw`} target="_blank" rel="noreferrer">Ouvrir le PDF</a>}
-                  {resultat.pdfNodeId && <a className="rounded-md border border-border bg-card px-3 py-1.5 hover:bg-secondary" href={`/api/drive/${resultat.pdfNodeId}/raw?dl=1`}>Télécharger le PDF</a>}
+                  {/* Le PDF s'ouvre sous la porte de la PIÈCE : le Drive personnel de l'émetteur répondait 403 aux autres lecteurs. */}
+                  {resultat.pdfNodeId && <a className="rounded-md border border-border bg-card px-3 py-1.5 hover:bg-secondary" href={resultat.lienPdf ?? `/api/drive/${resultat.pdfNodeId}/raw`} target="_blank" rel="noreferrer">Ouvrir le PDF</a>}
+                  {resultat.pdfNodeId && <a className="rounded-md border border-border bg-card px-3 py-1.5 hover:bg-secondary" href={resultat.lienPdf ? `${resultat.lienPdf}&dl=1` : `/api/drive/${resultat.pdfNodeId}/raw?dl=1`}>Télécharger le PDF</a>}
                   {resultat.legalDocumentId && <a className="rounded-md border border-border bg-card px-3 py-1.5 hover:bg-secondary" href={`/api/legal/${encodeURIComponent(resultat.legalDocumentId)}/fichier?format=xlsx&dl=1`}>Générer sur Excel</a>}
-                  {resultat.legalDocumentId && <a className="rounded-md border border-border bg-card px-3 py-1.5 hover:bg-secondary" href={`/legal/${resultat.legalDocumentId}`}>Fiche au registre</a>}
+                  {resultat.legalDocumentId && resultat.lien !== null && <a className="rounded-md border border-border bg-card px-3 py-1.5 hover:bg-secondary" href={`/legal/${resultat.legalDocumentId}`}>Fiche au registre</a>}
                 </div>
                 <p className="mt-2 text-xs text-muted-foreground">
                   {resultat.pdfNodeId

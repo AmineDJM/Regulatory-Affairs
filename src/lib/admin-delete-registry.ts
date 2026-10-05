@@ -2,6 +2,8 @@ import { CHEMIN_CATALOGUE_PROMO, CHEMIN_STOCK_PROMO } from "@/lib/chemins/stock-
 import type { EntityType } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { refusSuppressionRapport } from "@/lib/promo/remises-visite";
+import { refusSuppressionDeLaPiece } from "@/lib/queries/suppression-piece";
+import { retirerEnAttente } from "@/lib/bons-de-commande/aiguillage";
 import { inventorier } from "@/lib/suppression/lot";
 import { resumeDesLiens } from "@/lib/suppression/branches";
 
@@ -762,6 +764,11 @@ export const DELETE_REGISTRY: Record<DeletableKind, KindSpec> = {
     model: "legalDocument",
     entityType: "LEGAL_DOCUMENT",
     searchFields: ["reference", "title"],
+    // CE QUI NE SE SUPPRIME PAS (§118.209) : une pièce signée, réglée, partie au règlement, validée par un
+    // centre, ou dont une autre pièce découle. Le refus vit chez l'ÉCRIVAIN : la fiche Legal, la demande
+    // Ad & Pro et la corbeille du Super Admin passent par ici, et deux règles finiraient par ne pas refuser
+    // la même chose (§118.106). Il NOMME le geste qui reste (annuler, supprimer l'aval d'abord…).
+    refuse: (id) => refusSuppressionDeLaPiece(id),
     async describe(id) {
       const r = await prisma.legalDocument.findUnique({ where: { id }, select: { reference: true, title: true } });
       return r ? (r.reference ? `${r.reference} — ${r.title}` : r.title) : null;
@@ -771,7 +778,12 @@ export const DELETE_REGISTRY: Record<DeletableKind, KindSpec> = {
       return r?.createdById ?? null;
     },
     async remove(id) {
+      // Une validation qui attend au centre sur une pièce qui n'existe plus serait un arbitrage à rendre sur
+      // rien : la porte part avec le bon de commande (la fiche Legal ne la retirait pas, l'action d'Adam si).
+      // APRÈS la suppression de la ligne : la porte est désignée par un couple (type, identifiant) que rien ne
+      // lie par clé étrangère — si la suppression refuse (lien bloquant), la porte reste, la pièce aussi.
       await prisma.legalDocument.delete({ where: { id } });
+      await retirerEnAttente(id);
     },
   },
 
