@@ -6816,6 +6816,16 @@ src/                                  # ~434 fichiers TS/TSX (hors tests) · 40 
 
 ## 🧾 Journal des évolutions récentes
 
+### INTÉGRATION DU 05/10 — MOYENS GÉNÉRAUX RESTAURÉS, STOCKAGE DES GROS FICHIERS, COUCHE DE CONNAISSANCE, DOUBLE CONFIRMATION (2026-10-05)
+
+- **Moyens généraux** : la page redevient exactement ce qu'elle était (caisse, dépenses, rallonges, service) ; seul le **catalogue d'articles** reste dans l'en-tête, il n'y a plus de vue par département.
+- **Pièces Legal** rattachées à une demande Ad & Pro : de nouveau affichées sur sa fiche. Luna conseille le rangement depuis « + Pièce jointe ». La création des spécialités revient à la Direction des opérations et au Directeur des Opérations.
+- **Annulations** : retrait d'une demande de devis du matériel promotionnel, « Annuler la demande de BC » (annule le BC non signé puis la demande), retrait d'une demande de réservation.
+- **Double confirmation** sur les boutons décisifs (composant partagé `bouton-decisif`).
+- **Stockage** : plus de fiche sans fichier ; purge des orphelins gardée par le schéma ; envoi **direct au bucket** (parties de 32 Mo, reprise) pour les gros fichiers ; CTD lu en flux ; une seule politique de types (blocage des programmes et scripts). Mode d'emploi : `docs/stockage-gros-fichiers.md`.
+- **Couche de connaissance** : une panne temporaire n'est plus un échec ; la boîte morte se lit par cause et se relance ; rattrapage de la vectorisation.
+- Détails et leçons : `CLAUDE.md` §118.205.
+
 ### POSTES AD & PRO EN DEUX TEMPS, CHAÎNE DEVIS → BC → FACTURE SUR LE POSTE, TERRITOIRES DES KAM, PAIE PAR ENTITÉ, ANNULER SA DEMANDE (2026-10-04)
 
 - **Validation d'un poste en deux temps** (`lib/ad-pro/validation-poste.ts`) : Direction des opérations (`DIRECTION`) puis Direction Marketing (`PRODUCT_MANAGER`), qui fixe le montant ET choisit le budget (exigé). Demande déposée par la Direction Marketing → la Direction des opérations tient aussi le second temps ; déposée par la Direction des opérations → premier temps franchi à la soumission. Un brouillon ne s'accorde pas ; un refus au premier temps se revoit par la Direction des opérations. Mon espace ne montre à chacun que le temps qu'il tient (lu par lots, sans coupe silencieuse).
