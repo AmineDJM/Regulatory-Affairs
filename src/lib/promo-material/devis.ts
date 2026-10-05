@@ -25,7 +25,6 @@
  */
 
 import { designationAvecAction, type PromoAction } from "@/lib/promo-material/actions-fournisseur";
-import { formatMontant } from "@/lib/utils";
 
 export interface LigneDevisLue {
   id: string;
@@ -175,7 +174,10 @@ export function lignesDuBonDeCommande(d: DevisLu): { designation: string; quanti
     .map((l) => ({ designation: designationAvecAction(l.reference, l.action), quantite: Number(l.quantity), unite: l.unit?.trim() || null, prixUnitaire: Number(l.unitPrice) }));
 }
 
-/** 1 234 567,5 → « 1 234 567,50 DZD » ; 1 234 567 → « 1 234 567 DZD » — pour les phrases de refus, lues par une personne. */
+/**
+ * 1 234 567,5 → « 1 234 567,50 DZD » — pour les phrases de refus, lues par une personne. TOUJOURS deux
+ * décimales : c'est la forme d'un devis ou d'une facture, et elle n'arrondit rien.
+ */
 export function formatDzd(n: number): string {
-  return `${formatMontant(n)} DZD`;
+  return `${n.toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} DZD`;
 }

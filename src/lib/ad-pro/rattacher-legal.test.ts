@@ -343,7 +343,9 @@ describe("les fiches Ad & Pro n'ont plus de dépôt générique — et gardent l
     for (const f of AVEC_POSTES()) {
       const src = code(f);
       expect(src, `${f} monte encore le bloc des pièces liées`).not.toContain("<LinkedRecords");
-      expect(src, `${f} : les pièces générales de la demande n'ont plus d'emplacement`).toContain("<CarteDetailsDemande");
+      // Sur les prises en charge (audit n° 18), la carte des détails est montée par la VUE DÉTAILLÉE : la page
+      // lui passe les pièces par `piecesJointes={{ … }}`.
+      expect(src, `${f} : les pièces générales de la demande n'ont plus d'emplacement`).toMatch(/<CarteDetailsDemande|piecesJointes=\{\{/);
     }
   });
 
