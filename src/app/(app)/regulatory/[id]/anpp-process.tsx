@@ -205,7 +205,7 @@ export function RegulatoryProcess({
                 </p>
                 {s.key === "ctd" && (
                   <p className="mb-1.5 text-xs text-muted-foreground">
-                    Tous les formats sont acceptés — un .zip dépose une arborescence entière d&apos;un geste.
+                    Tous les formats sont acceptés : des fichiers, un dossier entier (arborescence conservée) ou un .zip — jusqu&apos;à 10 Go chacun. Un .zip se parcourt sans le télécharger.
                   </p>
                 )}
                 {docs.length > 0 ? (

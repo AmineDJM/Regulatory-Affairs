@@ -1,6 +1,6 @@
 "use client";
 
-import { FileText } from "lucide-react";
+import { FileText, Folder } from "lucide-react";
 import { DocumentPreview } from "./document-preview";
 import { EmptyState } from "@/components/shared/empty-state";
 import { DOCUMENT_CATEGORY } from "@/lib/labels";
@@ -16,6 +16,8 @@ export interface DocItem {
   uploadedBy: string | null;
   createdAt: string;
   hasFile: boolean;
+  /** Dossier d'origine quand on a déposé un dossier (« Module 3/3.2.P »). */
+  folder?: string | null;
 }
 
 function formatBytes(bytes: number | null) {
@@ -65,6 +67,7 @@ export function DocumentList({
             </div>
             <div className="min-w-0 flex-1">
               <DocumentPreview id={doc.id} name={doc.name} hasFile={doc.hasFile} canEdit={canEdit} canDelete={canDelete} canRename={canRename} path={path} />
+              {doc.folder && <p className="flex items-center gap-1 truncate text-[0.6875rem] text-muted-foreground" title={doc.folder}><Folder className="h-3 w-3 shrink-0" /> {doc.folder}</p>}
               <p className="truncate text-[0.6875rem] text-muted-foreground" title={meta}>{meta}</p>
             </div>
           </li>

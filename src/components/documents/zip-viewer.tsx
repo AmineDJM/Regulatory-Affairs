@@ -48,7 +48,14 @@ function childrenOf(entries: ZipEntry[], prefix: string): { folders: { name: str
   return { folders, files };
 }
 
-export function ZipViewer({ id, name }: { id: string; name: string }) {
+/**
+ * `id` = nœud Drive par défaut ; pour un DOCUMENT (checklist, dossiers…), on passe `zipUrl` (la route
+ * qui liste et sert les entrées) et `downloadUrl` (l'archive entière). Un seul composant : deux
+ * visionneuses finiraient par ne plus se comporter pareil.
+ */
+export function ZipViewer({ id, name, zipUrl, downloadUrl }: { id: string; name: string; zipUrl?: string; downloadUrl?: string }) {
+  const base = zipUrl ?? `/api/drive/${id}/zip`;
+  const archive = downloadUrl ?? `/api/drive/${id}/raw?dl=1`;
   const [list, setList] = React.useState<ZipList | null>(null);
   const [q, setQ] = React.useState("");
   const [path, setPath] = React.useState<string[]>([]); // dossier courant DANS l'archive
@@ -56,12 +63,12 @@ export function ZipViewer({ id, name }: { id: string; name: string }) {
 
   React.useEffect(() => {
     let alive = true;
-    fetch(`/api/drive/${id}/zip`, { cache: "no-store" })
+    fetch(base, { cache: "no-store" })
       .then((r) => r.json())
       .then((d: ZipList) => { if (alive) setList(d); })
       .catch(() => { if (alive) setList({ ok: false, error: "Lecture de l'archive impossible." }); });
     return () => { alive = false; };
-  }, [id]);
+  }, [base]);
 
   if (!list) {
     return <div className="flex items-center justify-center gap-2 rounded-lg border border-border bg-muted/30 p-10 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" /> Lecture de l'archive…</div>;
@@ -71,7 +78,7 @@ export function ZipViewer({ id, name }: { id: string; name: string }) {
       <div className="flex flex-col items-center gap-3 rounded-lg border border-dashed border-border bg-muted/30 p-10 text-center">
         <AlertCircle className="h-5 w-5 text-muted-foreground" />
         <p className="text-sm text-muted-foreground">{list.error ?? "Archive illisible."}</p>
-        <a href={`/api/drive/${id}/raw?dl=1`} className="inline-flex items-center gap-2 rounded-lg bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:opacity-90"><Download className="h-4 w-4" /> Télécharger l'archive</a>
+        <a href={archive} className="inline-flex items-center gap-2 rounded-lg bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:opacity-90"><Download className="h-4 w-4" /> Télécharger l'archive</a>
       </div>
     );
   }
@@ -82,7 +89,7 @@ export function ZipViewer({ id, name }: { id: string; name: string }) {
   const { folders, files } = childrenOf(entries, prefix);
   // Recherche : liste plate de toutes les entrées correspondantes (on quitte la navigation).
   const searchResults = term ? entries.filter((e) => e.path.toLowerCase().includes(term) && !e.path.endsWith("/")) : [];
-  const selUrl = sel ? `/api/drive/${id}/zip?path=${encodeURIComponent(sel)}` : null;
+  const selUrl = sel ? `${base}?path=${encodeURIComponent(sel)}` : null;
   const kind = sel ? previewKind(sel) : "none";
   const openFile = (p: string) => setSel(p);
   const enterFolder = (folderName: string) => { setPath((p) => [...p, folderName]); setSel(null); };
@@ -114,7 +121,7 @@ export function ZipViewer({ id, name }: { id: string; name: string }) {
                   <FileIcon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                   <button type="button" onClick={() => openFile(e.path)} className="min-w-0 flex-1 truncate text-left hover:text-primary" title={e.path}>{e.path}</button>
                   <span className="shrink-0 text-xs text-muted-foreground">{humanSize(e.size)}</span>
-                  <a href={`/api/drive/${id}/zip?path=${encodeURIComponent(e.path)}&dl=1`} className="shrink-0 rounded p-1 text-muted-foreground hover:text-primary" title="Télécharger"><Download className="h-3.5 w-3.5" /></a>
+                  <a href={`${base}?path=${encodeURIComponent(e.path)}&dl=1`} className="shrink-0 rounded p-1 text-muted-foreground hover:text-primary" title="Télécharger"><Download className="h-3.5 w-3.5" /></a>
                 </li>
               ))}
             </ul>
@@ -149,7 +156,7 @@ export function ZipViewer({ id, name }: { id: string; name: string }) {
                           <FileIcon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                           <button type="button" onClick={() => openFile(e.path)} className="min-w-0 flex-1 truncate text-left hover:text-primary" title={base}>{base}</button>
                           <span className="shrink-0 text-xs text-muted-foreground">{humanSize(e.size)}</span>
-                          <a href={`/api/drive/${id}/zip?path=${encodeURIComponent(e.path)}&dl=1`} className="shrink-0 rounded p-1 text-muted-foreground hover:text-primary" title="Télécharger"><Download className="h-3.5 w-3.5" /></a>
+                          <a href={`${base}?path=${encodeURIComponent(e.path)}&dl=1`} className="shrink-0 rounded p-1 text-muted-foreground hover:text-primary" title="Télécharger"><Download className="h-3.5 w-3.5" /></a>
                         </li>
                       );
                     })}

@@ -181,6 +181,7 @@ async function signedRequestQ(
   query: Record<string, string>,
   body?: Buffer,
   contentType?: string,
+  enTetesNonSignes?: Record<string, string>,
 ): Promise<Response> {
   const cfg = config();
   if (!cfg) throw new Error("Stockage objet non configuré.");
@@ -192,6 +193,8 @@ async function signedRequestQ(
   const payloadHash = body ? sha256hex(body) : EMPTY_SHA256;
   const headers = signAuthHeaders(cfg, method, host, resourcePath, canonicalQuery, payloadHash);
   if (contentType) headers["content-type"] = contentType;
+  // Non signés (comme `content-type`) : `Range` ne change pas l'identité de la requête, et S3/R2 l'acceptent.
+  if (enTetesNonSignes) Object.assign(headers, enTetesNonSignes);
   const url = `${protocol}//${host}${resourcePath}${canonicalQuery ? `?${canonicalQuery}` : ""}`;
   return fetch(url, { method, headers, body });
 }
@@ -405,6 +408,17 @@ export async function putObject(key: string, body: Buffer, contentType = "applic
 export async function getObject(key: string): Promise<Buffer> {
   const res = await signedRequest("GET", key);
   if (!res.ok) throw s3Failure("Lecture de l'objet", res, key, await res.text().catch(() => ""));
+  return Buffer.from(await res.arrayBuffer());
+}
+
+/**
+ * Lit une PLAGE d'un objet (`Range: bytes=debut-fin`) — c'est ce qui permet de parcourir une archive
+ * de plusieurs gigaoctets en ne lisant que son répertoire et l'entrée demandée.
+ */
+export async function getObjectRange(key: string, debut: number, longueur: number): Promise<Buffer> {
+  if (longueur <= 0) return Buffer.alloc(0);
+  const res = await signedRequestQ("GET", key, {}, undefined, undefined, { range: `bytes=${debut}-${debut + longueur - 1}` });
+  if (!res.ok) throw s3Failure("Lecture d'une plage de l'objet", res, key, await res.text().catch(() => ""));
   return Buffer.from(await res.arrayBuffer());
 }
 

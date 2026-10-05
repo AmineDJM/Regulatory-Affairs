@@ -1,3 +1,35 @@
+import { execFileSync } from "node:child_process";
+import { createRequire } from "node:module";
+
+/**
+ * LE TYPECHECK DU DÉPLOIEMENT VIT DANS SON PROPRE PROCESSUS — quelle que soit la commande de build.
+ *
+ * Intégré à `next build`, il consomme ~4,7 Go (Prisma + 730 K lignes) dans un tas de ~4 Go : le
+ * déploiement Render mourait en « heap out of memory » à « Checking validity of types ». Le tableau
+ * de bord Render lance un `npx next build` NU — pas `npm run build:render`, où le correctif aurait
+ * pu vivre : un correctif qui dépend d'une commande qu'on ne contrôle pas ne corrige rien. Il vit
+ * donc ICI, là où `next build` passe forcément.
+ *
+ * PAS un contournement : tsc tourne sur la PRODUCTION (`tsconfig.build.json`, sans les fichiers de
+ * test — `npm run typecheck` les vérifie tous) avec un tas de 5 Go, AVANT la compilation ; la moindre
+ * erreur de type ARRÊTE le build. Seul `next build` sur Render (variable `RENDER`) le fait : un build
+ * local garde le typecheck intégré, et `next start` ne le déclenche jamais (autre phase).
+ * `TYPECHECK_SEPARE` évite de le refaire dans les processus fils de la compilation.
+ */
+function typecheckSepare(phase) {
+  if (process.env.TYPECHECK_SEPARE === "1") return true;
+  if (phase !== "phase-production-build" || !process.env.RENDER) return false;
+  const tsc = createRequire(import.meta.url).resolve("typescript/bin/tsc");
+  console.log("[build] Typecheck de la production dans son propre processus (tas : 5 Go)…");
+  try {
+    execFileSync(process.execPath, ["--max-old-space-size=5120", tsc, "--noEmit", "-p", "tsconfig.build.json"], { stdio: "inherit" });
+  } catch {
+    throw new Error("Typecheck en échec : le build est arrêté (les erreurs de type sont affichées ci-dessus).");
+  }
+  process.env.TYPECHECK_SEPARE = "1";
+  return true;
+}
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
@@ -10,14 +42,6 @@ const nextConfig = {
     // par défaut de 2 Go sur Render (« Ineffective mark-compacts near heap limit »). Le
     // typecheck, lui, reste DANS le build (`typescript.ignoreBuildErrors` n'est PAS touché).
     ignoreDuringBuilds: true,
-  },
-  typescript: {
-    // PAS un contournement : `build:render` lance le typecheck de la PRODUCTION (tsconfig.build.json,
-    // sans les fichiers de test) dans son PROPRE processus, avant `next build`, et le `&&` arrête
-    // le déploiement sur la moindre erreur. Dans `next build`, il s'additionnait au reste dans un
-    // tas plafonné à 3 Go : tsc consomme ~3,7 Go (Prisma + 530 K lignes) → OOM sur Render. Le
-    // drapeau n'est posé QUE par ce script ; un `next build` nu garde son typecheck intégré.
-    ignoreBuildErrors: process.env.TYPECHECK_SEPARE === "1",
   },
   experimental: {
     // ── MÉMOIRE DE BUILD : borner le PARALLÉLISME, pas la fonctionnalité ──────────────
@@ -129,4 +153,7 @@ const nextConfig = {
   },
 };
 
-export default nextConfig;
+export default (phase) => ({
+  ...nextConfig,
+  typescript: { ignoreBuildErrors: typecheckSepare(phase) },
+});

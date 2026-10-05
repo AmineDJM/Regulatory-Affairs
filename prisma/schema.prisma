@@ -4470,9 +4470,10 @@ model Document {
   stepKey         String? // étape ANPP rattachée (Regulatory) : clé d'étape du workflow
   fileKey         String? // storage object key (S3/R2/Supabase)
   mimeType        String?
-  sizeBytes       Int?
+  sizeBytes       Float? // Float : un fichier va jusqu'à 10 Go, ce qu'un entier 32 bits ne tient pas
   version         Int              @default(1)
   confidentiality Confidentiality  @default(INTERNAL)
+  folder          String? // chemin du dossier d'origine quand on a déposé un DOSSIER (« Module 3/3.2.P »), sinon null
   uploadedById    String?
   uploadedBy      User?            @relation(fields: [uploadedById], references: [id])
 
@@ -8060,7 +8061,7 @@ model AdoptionSnapshot {
 model StoredFile {
   key       String   @id
   blobId    String
-  size      Int
+  size      Float // Float : un document va jusqu'à 10 Go (un entier 32 bits plafonne à 2 Go)
   createdAt DateTime @default(now())
 
   @@index([blobId])

@@ -9,12 +9,24 @@ import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
 import { mirrorDocumentsToDrive } from "@/lib/drive/document-mirror";
 
+/**
+ * Chemin de dossier SÛR : jamais de « .. », jamais de chemin absolu, séparateur « / », borné.
+ * `null` quand il ne reste rien. Une pièce déposée seule n'a pas de dossier.
+ */
+export function dossierSur(brut: string | null | undefined): string | null {
+  if (!brut) return null;
+  const propre = brut.replace(/\\/g, "/").split("/").map((x) => x.trim()).filter((x) => x && x !== "." && x !== "..").join("/");
+  return propre ? propre.slice(0, 500) : null;
+}
+
 export interface PersistDocInput {
   entityType: EntityType;
   entityId: string;
   category: DocumentCategory;
   confidentiality: Confidentiality;
   stepKey: string | null;
+  /** Dossier d'origine quand on a déposé un DOSSIER (« Module 3/3.2.P ») : l'arborescence se garde. */
+  folder?: string | null;
   file: File;
   /** Limite de taille (Mo) déjà résolue — évite de relire les réglages pour chaque fichier d'un lot. */
   maxUploadMb?: number;
@@ -41,6 +53,7 @@ export async function persistUploadedDocument(
   input: PersistDocInput,
 ): Promise<{ ok: boolean; error?: string; documentId?: string }> {
   const { entityType, entityId, category, confidentiality, stepKey, file } = input;
+  const folder = dossierSur(input.folder);
   if (!file || file.size === 0) return { ok: false, error: "Fichier vide." };
 
   const maxMb = input.maxUploadMb ?? (await getAppSettings()).maxUploadMb;
@@ -54,7 +67,7 @@ export async function persistUploadedDocument(
   // s'est perdue en route est renvoyée par le navigateur ; le serveur, lui, avait bien enregistré
   // la première. Même pièce (même nom, mêmes octets), même personne, même fiche, il y a moins de
   // dix minutes : c'est le même dépôt, on rend la fiche existante.
-  const deja = await depotIdentiqueRecent(userId, entityType, entityId, file.name, content);
+  const deja = await depotIdentiqueRecent(userId, entityType, entityId, file.name, content, folder);
   if (deja) return { ok: true, documentId: deja };
 
   // PAS DE FICHE SANS FICHIER (audit du 04/10, constat 1). La version d'avant avalait l'échec
@@ -75,7 +88,8 @@ export async function persistUploadedDocument(
   // le lot entier.
   let documentId: string;
   try {
-    const previous = await prisma.document.count({ where: { entityType, entityId, name: file.name } });
+    // Deux « index.xml » de deux dossiers différents ne sont PAS deux versions du même fichier.
+    const previous = await prisma.document.count({ where: { entityType, entityId, name: file.name, folder } });
     // L'identifiant est RENDU : un appelant qui rattache la pièce à un objet métier (une pièce de
     // dossier de paiement, par exemple) ne doit pas avoir à la retrouver « la plus récente », ce
     // qui se trompe dès que deux fichiers partent en même temps.
@@ -86,6 +100,7 @@ export async function persistUploadedDocument(
         entityType,
         entityId,
         stepKey,
+        folder,
         fileKey: key,
         mimeType: file.type || null,
         sizeBytes: file.size,
@@ -110,7 +125,7 @@ export async function persistUploadedDocument(
     module: ENTITY_TYPE_LABELS[entityType] ?? ENTITY_MODULE[entityType],
     entityType,
     entityId,
-    summary: `Document « ${file.name} » téléversé`,
+    summary: `Document « ${folder ? `${folder}/` : ""}${file.name} » téléversé`,
   }).catch((e) => console.error("[upload] audit failed (non-bloquant)", e));
 
   // MIROIR DRIVE, en arrière-plan : le document est déjà enregistré, c'est ce que la personne
@@ -123,6 +138,45 @@ export async function persistUploadedDocument(
   return { ok: true, documentId };
 }
 
+/**
+ * INSCRIT un document dont les octets sont DÉJÀ dans le bucket (envoi direct du navigateur, gros
+ * fichiers). Le blob existe ; il reste la correspondance clé → blob et la fiche, avec le même
+ * versionnage, le même audit et la même clé de fichier que le chemin ordinaire — un document ne
+ * se distingue pas, à l'usage, selon la façon dont il est arrivé.
+ */
+export async function inscrireDocumentDirect(
+  userId: string,
+  input: {
+    entityType: EntityType; entityId: string; category: DocumentCategory; confidentiality: Confidentiality;
+    stepKey: string | null; folder?: string | null; blobId: string; size: number; mimeType: string | null; name: string;
+  },
+): Promise<{ documentId: string }> {
+  const { entityType, entityId, name } = input;
+  const folder = dossierSur(input.folder);
+  const key = `${entityType}/${entityId}/${randomUUID()}__${name}`;
+  await prisma.storedFile.create({ data: { key, blobId: input.blobId, size: input.size } });
+  try {
+    const previous = await prisma.document.count({ where: { entityType, entityId, name, folder } });
+    const created = await prisma.document.create({
+      data: {
+        name, category: input.category, entityType, entityId, stepKey: input.stepKey, folder, fileKey: key,
+        mimeType: input.mimeType, sizeBytes: input.size, version: previous + 1, confidentiality: input.confidentiality,
+        uploadedById: userId,
+      },
+      select: { id: true },
+    });
+    await recordAudit({
+      actorId: userId, action: "UPLOAD", module: ENTITY_TYPE_LABELS[entityType] ?? ENTITY_MODULE[entityType], entityType, entityId,
+      summary: `Document « ${folder ? `${folder}/` : ""}${name} » téléversé (envoi direct)`,
+    }).catch((e) => console.error("[upload direct] audit failed (non-bloquant)", e));
+    return { documentId: created.id };
+  } catch (e) {
+    // Pas de correspondance sans fiche : la ligne `StoredFile` part, le blob reste à l'appelant.
+    await prisma.storedFile.delete({ where: { key } }).catch(() => undefined);
+    throw e;
+  }
+}
+
 /** Fenêtre dans laquelle un renvoi identique est lu comme une relance, pas comme une version. */
 export const RELANCE_FENETRE_MS = 10 * 60_000;
 
@@ -132,10 +186,10 @@ export const RELANCE_FENETRE_MS = 10 * 60_000;
  * une nouvelle version, et c'est voulu.
  */
 async function depotIdentiqueRecent(
-  userId: string, entityType: EntityType, entityId: string, name: string, content: Buffer,
+  userId: string, entityType: EntityType, entityId: string, name: string, content: Buffer, folder: string | null,
 ): Promise<string | null> {
   const recents = await prisma.document.findMany({
-    where: { entityType, entityId, name, uploadedById: userId, fileKey: { not: null }, createdAt: { gte: new Date(Date.now() - RELANCE_FENETRE_MS) } },
+    where: { entityType, entityId, name, folder, uploadedById: userId, fileKey: { not: null }, createdAt: { gte: new Date(Date.now() - RELANCE_FENETRE_MS) } },
     orderBy: { createdAt: "desc" }, take: 5, select: { id: true, fileKey: true },
   });
   if (recents.length === 0) return null;

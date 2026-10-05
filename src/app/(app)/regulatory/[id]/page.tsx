@@ -156,6 +156,7 @@ export default async function RegulatoryDetailPage({ params, searchParams }: { p
     uploadedBy: d.uploadedBy?.name ?? null,
     createdAt: d.createdAt.toISOString(),
     hasFile: Boolean(d.fileKey),
+    folder: d.folder,
   });
   // Les pièces rattachées à une étape (ANPP ou frise du dossier) vivent SOUS leur étape, pas
   // dans la liste générale : c'est tout l'intérêt de les y avoir rattachées.
