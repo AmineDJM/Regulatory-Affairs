@@ -72,7 +72,7 @@ test.afterAll(async () => {
     await prisma.document.deleteMany({ where: { entityId: produit } });
     await prisma.deletedRecord.deleteMany({ where: { kind: "REGULATORY_CTD", sourceId: produit } });
     await prisma.storedFile.deleteMany({ where: { key: { in: cles } } });
-    await prisma.fileBlob.deleteMany({ where: { id: { in: stored.map((s) => s.blobId) } } });
+    await prisma.fileBlob.deleteMany({ where: { id: { in: stored.map((s) => s.blobId) } } }).catch(() => {}); // un blob dédupliqué peut servir une autre pièce : il reste
     await prisma.auditLog.deleteMany({ where: { entityType: "REGULATORY_PRODUCT", entityId: produit } }).catch(() => {});
     await prisma.regulatoryProduct.deleteMany({ where: { id: produit } }).catch(() => {});
   }
@@ -85,7 +85,7 @@ test("à la création, un .zip choisi dans le formulaire monte vers l'étape 1 e
   await aller(page, "/regulatory");
   await page.getByRole("button", { name: /^Nouveau dossier$/ }).click();
   await page.getByLabel(/DCI \(molécule ou association\)/).fill(DCI);
-  await page.getByLabel(/Entité/).selectOption({ label: "CTD" });
+  await page.locator("select#companyId").selectOption({ label: "CTD" });
 
   // La CTD se choisit DANS le formulaire : un .zip. (Le champ n'a pas de nom : il ne part pas avec le formulaire.)
   await page.getByTestId("ctd-creation-fichiers").setInputFiles({ name: `${DCI}.zip`, mimeType: "application/zip", buffer: await petitZip() });

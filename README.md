@@ -1272,6 +1272,17 @@ la **liste du centre elle-même**, jamais par une seconde requête (§118.5).
 `20261117090000_centre_validation_ad_pro`. **Bancs** : 6 + 14 + 12 tests, dont un de bout en bout
 par les **vrais points d'entrée**, et **15 sabotages** dont le bilan est au journal.
 
+### Centre de paiement — entités en haut, trois sections (05/10/2026)
+
+Barre d'entités en haut (une pastille par société, `?entite=` validé), puis **Regulatory / Sales & Marketing / Autres** (`lib/payments/sections-centre.ts` : la section se lit sur l'origine de la dépense ; les « porteurs » — demande de paiement, secrétariat, pièce Legal — se classent sur l'origine qu'ils déclarent). « Autres » est le seul repli et se compte. Le siège, les deux issues et le cloisonnement ne changent pas.
+
+### Autres lots du 05/10/2026
+
+- **Rapports terrain** : corbeille avec double confirmation, récupérable par le Super Admin ; refus si le compte rendu porte des remises de matériel ou est le seul rapport d'une visite.
+- **CTD initiale** (Regulatory) : ZIP ou dossier entier à la 1ʳᵉ étape, catégorie « CTD complet » ; supprimable, remplaçable, avec ajout de fichiers dans un sous-dossier. Gros fichiers en dépôt direct au bucket, ZIP parcouru sans téléchargement.
+- **Compression** : stockage compressé sans perte (brotli, si le gain est mesuré) ; au téléchargement, choix entre l'original (qualité maximale) et une version réduite.
+- **Pièces Legal d'une demande** : suppression depuis la demande par la porte de Legal. **Devis → BC** : les lignes de devis validées engendrent un BC par devis.
+
 ### Centre de paiement — rien ne sort, quel que soit le montant, sans son autorisation
 
 **Un module À PART, hors Finances** (`/centre-de-paiement`, RBAC `PAYMENT_CENTRE` pour
@@ -1382,6 +1393,10 @@ qui consulte le verrou) ou le montant.
   **non réglés** qui étaient en `NOT_REQUIRED` entrent au centre. Les ordres **payés ou annulés**
   ne sont pas touchés : les rouvrir gèlerait des dossiers clos et réécrirait un passé autorisé par
   le circuit d'alors.
+
+### Finances › Banque & paiements — « Solde bancaire » daté, cases d'entités (05/10/2026)
+
+Le « Solde de trésorerie » devient **Solde bancaire** : somme des comptes (ancrage + écritures réglées postérieures), avec la **date du relevé** le plus récent. Les paiements autorisés ne s'en soustraient plus : le **Montant à régler** a sa propre ligne. Le comptable pose le solde et sa date depuis la page (« Comptes de trésorerie »). Des **cases d'entités** en haut (`?entite=`, ignoré s'il n'est pas une société de la personne) filtrent comptes, total et montant à régler (`chargerTresorerie(userId, entiteId)`).
 
 ### Finances — deux sous-modules, deux métiers
 
