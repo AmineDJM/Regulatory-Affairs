@@ -1,0 +1,22 @@
+## 📜 Scripts
+
+| Commande | Description |
+|---|---|
+| `npm run dev` | Serveur de développement |
+| `npm run build` | `prisma generate` + build de production |
+| `npm run start` | Serveur de production |
+| `npm run typecheck` | Vérification TypeScript (`tsc --noEmit`) |
+| `npm run lint` | ESLint (next lint) |
+| `npm run test` | Tests Vitest |
+| `npm run db:deploy` | Applique les migrations (prod) |
+| `npm run db:migrate` | Migration de développement |
+| `npm run db:bootstrap` | Crée le Super Admin initial |
+| `npm run db:reset` | Réinitialise la base |
+| `npx tsx scripts/gen-selection-pf-migration.ts` | Régénère la migration d'import du portefeuille « Sélection PF Produits » depuis `data/selection-pf-produits.xlsx` (le SQL est committé ; ne pas l'éditer à la main). |
+| `npm run adam:doctor` | **Diagnostic de mise en service d'Adam** — base, migrations, chiffrement des jetons, config Google, connexion, droits accordés, veille Gmail, ingestion, politique d'envoi, coupe-circuits, planificateur, parité. Sans effet de bord, n'affiche AUCUN secret, sort en erreur s'il reste un ÉCHEC. |
+| `npm run build:measure` | **Pic mémoire du build** — build propre, **avec le plafond de tas de `build:render`** (`BUILD_HEAP_MB`, 3072 Mo), échantillonnage du RSS de l'arbre node, échec au-delà du plafond (`BUILD_MEM_LIMIT_MB`, 4200 Mo par défaut). La garde contre le retour de l'OOM Render — elle ne vaut que parce qu'elle mesure la MÊME configuration que le déploiement. |
+| `npm run autotest` | **Auto-testeur** — audit de cohérence pages ↔ gardes ↔ menu ↔ matrice RBAC (déterministe, aucun serveur). Voir `scripts/auto-test/README.md`. |
+| `npm run autotest:live -- --base-url=…` | Crawl **en direct** (Playwright) : passe anonyme (fuites d'accès) + passes par rôle (accès réel vs RBAC, uploads jetables). |
+
+---
+
