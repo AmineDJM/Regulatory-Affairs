@@ -1102,6 +1102,15 @@ X("LES PIÈCES D'ACHAT D'UN POSTE (§118.204) — déposer un devis ou une factu
   // proposition et la demande de BC qui en découle se font devant la carte du poste.
   "ad-pro-item-actions:ajouterDevisVoyageur", "ad-pro-item-actions:validerDevisVoyageur", "ad-pro-item-actions:demanderBCBilletterie",
 ]);
+X("LES LIGNES DES DEVIS D'UN POSTE ET LES BC QU'ELLES FONT GÉNÉRER (§118.206) — lire un devis, saisir ou corriger ses "
+  + "lignes, VALIDER celles qu'on commande, GÉNÉRER (ou régénérer) le bon de commande de chaque devis. Une ligne "
+  + "validée est un PRIX que la société commande, et la validation atteste qu'une personne l'a comparée au papier "
+  + "(§118.15, §118.152 i) : un document lu par Adam est une DONNÉE, jamais la main qui écrit ce qui sera commandé "
+  + "(§118.7). Adam est en pause de développement : aucun geste neuf ne lui est ouvert. Un clic sur la carte du poste, "
+  + "case « Bon de commande » et panneau « Lignes » du devis.", [
+  "ad-pro-item-actions:validerLignesDuDevis", "ad-pro-item-actions:enregistrerLignesDuDevis",
+  "ad-pro-item-actions:lireLesLignesDuDevis", "ad-pro-item-actions:genererBonDeCommandePoste",
+]);
 X("PRISES EN CHARGE — PROFESSIONNELS PROPOSÉS ET LEURS PIÈCES (§118.205) : créer le profil d'un professionnel, "
   + "demander ses pièces (passeport, visa, informations de voyage) et les déposer. Chacun touche à une identité ou "
   + "dépose un FICHIER devant la fiche de la demande. Adam est en pause de développement : aucun geste neuf ne lui est ouvert.", [

@@ -23,6 +23,7 @@ import { fdStr, fdNum, fdCase, type ActionResult } from "@/lib/actions/types";
 import { siegeAuCentreAdPro, REFUS_BC_CENTRE_AD_PRO } from "@/lib/ad-pro/centre";
 import { getAppSettings } from "@/lib/settings";
 import { validationRequiseBC, motifSousLeSeuil } from "@/lib/bons-de-commande/regle";
+import { lireLaMarcheDuBC, notificationDuCentreBC, REFUS_MARCHE_PRISE } from "@/lib/ad-pro/marche-bc";
 import { signalerSiASigner } from "@/lib/bons-de-commande/etat";
 import { CHEMIN_BC_A_SIGNER } from "@/lib/bons-de-commande/aiguillage";
 import { etatPostesSponsoring } from "@/lib/ad-pro/cloture-sponsoring";
@@ -1821,44 +1822,6 @@ async function envoyerDemandeBC(i: {
   return d.id;
 }
 
-/**
- * PRENDRE LA MARCHE DU BC D'UN POSTE (§118.149, §118.206) — la demande part au centre Ad & Pro au-dessus du
- * seuil, directement aux Finances en deçà. Une SEULE écriture, lue par les deux chemins qui ouvrent un BC : la
- * demande à l'assistante (`requestAdProItemOrder`) et la génération d'après les lignes validées d'un devis
- * (`genererBonDeCommandePoste`) — deux copies de « le poste passe à REQUESTED ou DIRECTION_OK » finiraient
- * par ne plus s'accorder sur le seuil (§118.5).
- *
- * `orderDirectionAt` reste NUL sous le seuil : c'est ce qui distingue, sur la fiche, « validé par le centre »
- * de « sous le seuil ». L'écriture est CONDITIONNELLE (§118.187) : deux clics ne font pas deux demandes.
- * `assistantId` : celle qui établira le BC quand on le lui demande ; nul quand la plateforme le génère.
- */
-async function prendreLaMarcheDuBC(i: {
-  item: { id: string; label: string };
-  owner: { parent: AdProParent; id: string };
-  ref: string; montantAccorde: number; user: SessionUser; note: string | null; assistantId: string | null;
-}): Promise<{ ok: true; sousLeSeuil: boolean; seuilBC: number } | { ok: false; error: string }> {
-  const { item, owner, user } = i;
-  const seuilBC = (await getAppSettings()).bcValidationThreshold;
-  const sousLeSeuil = !validationRequiseBC(i.montantAccorde, seuilBC);
-  const posee = await prisma.adProItem.updateMany({
-    where: { id: item.id, status: "APPROVED", orderStage: { in: ["NONE", "REFUSED"] } },
-    data: {
-      orderStage: sousLeSeuil ? "DIRECTION_OK" : "REQUESTED", orderRequestedAt: new Date(), orderRequestedById: user.id, orderNote: i.note,
-      orderDecisionNote: sousLeSeuil ? motifSousLeSeuil(seuilBC) : null, orderDirectionAt: null, orderDirectionById: null,
-      orderVisaAmount: null, orderVisaSupplier: null, ...(i.assistantId ? { bcAssistantId: i.assistantId } : {}), updatedById: user.id,
-    },
-  });
-  if (posee.count === 0) return { ok: false, error: "Une demande de bon de commande vient d'être envoyée pour ce poste, ou sa décision a changé : rouvrez la fiche." };
-  if (!sousLeSeuil) {
-    // TOUT BC NÉ D'AD & PRO AU-DESSUS DU SEUIL PASSE PAR LE CENTRE DE VALIDATION AD & PRO (§118.148).
-    await notifyRoles(["GENERAL_MANAGER", "SUPER_ADMIN"], {
-      type: "VALIDATION_REQUIRED", title: "Bon de commande à valider",
-      body: `${i.ref} — « ${item.label} » (${i.montantAccorde.toLocaleString("fr-FR")} DZD)`, link: "/centre-ad-pro",
-    }).catch(() => undefined);
-  }
-  return { ok: true, sousLeSeuil, seuilBC };
-}
-
 // ───────────────────────── Bon de commande : demande → assistante → centre → signature ─────────────────────────
 
 /**
@@ -1925,9 +1888,13 @@ export async function requestAdProItemOrder(_prev: ActionResult | undefined, for
   const assistante = await assistanteDuBC(formData);
   if ("error" in assistante) return { ok: false, error: assistante.error };
 
-  const prise = await prendreLaMarcheDuBC({ item, owner, ref: demande.ref, montantAccorde: montantAccorde as number, user, note, assistantId: assistante.id });
-  if (!prise.ok) return { ok: false, error: prise.error };
-  const { sousLeSeuil, seuilBC } = prise;
+  // LA MARCHE (`lireLaMarcheDuBC`, la règle partagée avec la génération) : l'écriture et la notification restent ICI, dans le corps.
+  const { sousLeSeuil, seuilBC, where, data } = await lireLaMarcheDuBC({ itemId: item.id, montantAccorde: montantAccorde as number, userId: user.id, note, assistantId: assistante.id });
+  const posee = await prisma.adProItem.updateMany({ where, data });
+  if (posee.count === 0) return { ok: false, error: REFUS_MARCHE_PRISE };
+  if (!sousLeSeuil) {
+    await notifyRoles(["GENERAL_MANAGER", "SUPER_ADMIN"], notificationDuCentreBC({ ref: demande.ref, label: item.label, montantAccorde: montantAccorde as number })).catch(() => undefined);
+  }
   await envoyerDemandeBC({ item, owner, ref: demande.ref, montant: montantAccorde, assistante, demandeurId: user.id, note });
   await audit(user, owner.parent, owner.id, "UPDATE", sousLeSeuil
     ? `Bon de commande demandé à ${assistante.name} pour le poste « ${item.label} » — ${motifSousLeSeuil(seuilBC)}`
@@ -3084,7 +3051,7 @@ export async function validerLignesDuDevis(formData: FormData): Promise<ActionRe
       if (l.valideeAilleurs) return { ok: false, error: `« ${l.reference.slice(0, 60)} » est déjà validée pour le poste « ${l.valideeAilleurs} » : une ligne ne se commande qu'une fois — décochez-la là-bas d'abord.` };
       if (l.refusValidation) return { ok: false, error: l.refusValidation };
     }
-    if (aValider.some((l) => parId.get(l)!.lue !== null) && !compare) {
+    if (aValider.some((l) => parId.get(l)!.lue !== null) && compare !== true) {
       return { ok: false, error: "Cochez « J'ai comparé ces lignes au devis » : elles viennent de la lecture du fichier, et seule une personne qui les a vérifiées sur le papier peut les valider pour un bon de commande." };
     }
     if (aValider.length === 0 && aRetirer.length === 0) return { ok: true, id, message: "Rien n'a changé : les lignes validées sont celles que vous aviez déjà." };
@@ -3357,11 +3324,15 @@ export async function genererBonDeCommandePoste(formData: FormData): Promise<Act
     let marche: { sousLeSeuil: boolean; seuilBC: number } | null = null;
     const etapeAvant = poste.orderStage;
     if (poste.orderStage === "NONE" || poste.orderStage === "REFUSED") {
-      const prise = await prendreLaMarcheDuBC({
-        item, owner, ref: info.ref, montantAccorde: montantAccorde as number, user, assistantId: null,
+      const prise = await lireLaMarcheDuBC({
+        itemId: id, montantAccorde: montantAccorde as number, userId: user.id, assistantId: null,
         note: "Bon de commande généré d'après les lignes validées des devis du poste.",
       });
-      if (!prise.ok) return { ok: false, error: prise.error };
+      const posee = await prisma.adProItem.updateMany({ where: prise.where, data: prise.data });
+      if (posee.count === 0) return { ok: false, error: REFUS_MARCHE_PRISE };
+      if (!prise.sousLeSeuil) {
+        await notifyRoles(["GENERAL_MANAGER", "SUPER_ADMIN"], notificationDuCentreBC({ ref: info.ref, label: item.label, montantAccorde: montantAccorde as number })).catch(() => undefined);
+      }
       marche = { sousLeSeuil: prise.sousLeSeuil, seuilBC: prise.seuilBC };
     }
     const bilan = await genererLesBCsDuPoste(

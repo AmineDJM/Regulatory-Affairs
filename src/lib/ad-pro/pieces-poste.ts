@@ -6,7 +6,7 @@ import { moneyEntityOf } from "@/lib/company";
 import { etatsDesBC } from "@/lib/bons-de-commande/etat";
 import type { EtapeBC } from "@/lib/bons-de-commande/regle";
 import { etapeDEnsemble } from "@/lib/ad-pro/devis-poste";
-import { fichiersEmis } from "@/lib/legal/fichiers-emis";
+import { fichiersEmis } from "@/lib/lecteurs/fichiers-emis";
 import type { EtatDemandeBC } from "@/lib/ad-pro/poste-etapes";
 
 /**
