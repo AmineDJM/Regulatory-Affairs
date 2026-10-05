@@ -5,6 +5,7 @@ import { errors } from "@/lib/api/errors";
 import { readFileByKey } from "@/lib/storage";
 import { ENTITIES, canReadEntity } from "@/lib/api/registry/entities";
 import { porteeEntite } from "@/lib/api/registry/portee";
+import { contentDisposition } from "@/lib/http/content-disposition";
 
 /**
  * TÉLÉCHARGEMENT CONTRÔLÉ D'UNE PIÈCE.
@@ -40,7 +41,7 @@ export const GET = handle<{ id: string }>(
     return new NextResponse(buffer as unknown as BodyInit, {
       headers: {
         "Content-Type": doc.mimeType || "application/octet-stream",
-        "Content-Disposition": `attachment; filename="${doc.name.replace(/"/g, "")}"`,
+        "Content-Disposition": contentDisposition(doc.name),
         "Cache-Control": "no-store",
       },
     }) as unknown as Record<string, unknown>;

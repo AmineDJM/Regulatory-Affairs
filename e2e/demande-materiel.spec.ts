@@ -151,7 +151,7 @@ test("Matériel promotionnel : la demande se compose de LIGNES dès sa création
   await login(page, CP_EMAIL);
   await aller(page, "/promo-material?new=1");
   const panneau = page.getByRole("dialog");
-  await expect(panneau.getByText("Lignes demandées")).toBeVisible();
+  await expect(panneau.getByText("Articles demandés")).toBeVisible();
   // CE QUE LE FORMULAIRE NE DEMANDE PLUS (décision du 01/10).
   // Le « type de matériel » aussi (§118.173) : le catalogue EST la liste des supports, chaque ligne en désigne un.
   for (const retire of [/Budget estimé/, /Assistante de direction \(retranscrit/, /Business Unit/, /^Entité$/, /Type de matériel/]) {

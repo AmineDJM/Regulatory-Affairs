@@ -4,7 +4,8 @@ import { prisma } from "@/lib/prisma";
 import { companyScopedWhere } from "@/lib/company";
 import { toNumber } from "@/lib/utils";
 import { getFinanceData, chargerTresorerie } from "@/lib/queries/finance";
-import { getComptaData } from "@/lib/queries/compta";
+import { getComptaData, getResultatMensuel } from "@/lib/queries/compta";
+import { lirePeriode, moisAlger } from "@/lib/finance/resultat-mensuel";
 import { ComptaCockpit } from "../compta-cockpit";
 import { auditLedger, auditSummary } from "@/lib/finance/ledger-audit";
 import { PageHeader } from "@/components/shared/page-header";
@@ -34,15 +35,23 @@ export const dynamic = "force-dynamic";
  * du travail de comptable, il est donc ICI, au-dessus du livre qu'il conduit à corriger. Le
  * reloger était le seul moyen de ne pas perdre une capacité qu'aucun autre écran ne portait.
  */
-export default async function ComptabilitePage() {
+export default async function ComptabilitePage({
+  searchParams,
+}: {
+  searchParams?: { periode?: string; du?: string; au?: string };
+}) {
   const user = await requireModule("FINANCES");
+  // LA PÉRIODE DU RÉSULTAT MENSUEL — lue dans l'adresse, côté serveur : un lien la partage, un
+  // rechargement la garde. Illisible, elle retombe sur 6 mois en le disant (`lirePeriode`).
+  const periode = lirePeriode(searchParams ?? {}, moisAlger(new Date()));
   const canCreate = userCan(user, "FINANCES", "CREATE");
   const canUpdate = userCan(user, "FINANCES", "UPDATE");
   const canDelete = userCan(user, "FINANCES", "DELETE");
-  const [data, compta, companies, settled, remises, tresorerie] = await Promise.all([
+  const [data, compta, resultat, companies, settled, remises, tresorerie] = await Promise.all([
     getFinanceData(user.id),
     // CE QUE LE DAF DOIT ENCORE ARBITRER — arrivé du tableau de bord supprimé.
     getComptaData(user.id),
+    getResultatMensuel(user.id, periode),
     getMyCompanies(user.id),
     // ── LE CONTRÔLE DU LIVRE ────────────────────────────────────────────────────────────────
     //
@@ -150,7 +159,7 @@ export default async function ComptabilitePage() {
           faut aller chercher sous trois mille lignes est un contrôle que personne ne lit. */}
       {/* CE QU'IL RESTE À ARBITRER, avant le livre : ce sont ces lignes-là qui deviendront des
           écritures, et les voir après le livre reviendrait à les lire trop tard. */}
-      <ComptaCockpit d={compta} />
+      <ComptaCockpit d={compta} resultat={resultat} periode={periode} />
 
       <section className="surface space-y-3 p-4">
         <div className="flex flex-wrap items-baseline justify-between gap-2">

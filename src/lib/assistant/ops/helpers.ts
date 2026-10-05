@@ -1,4 +1,5 @@
 import type { OpExecuteResult } from "./types";
+import { formatMontant } from "@/lib/utils";
 
 /**
  * HELPERS D'ÉCHELLE des ops de domaine — la mécanique répétitive (FormData, appel de l'action
@@ -59,7 +60,7 @@ export async function runFd2(action: Fd2, args: Record<string, string | null>, r
 }
 
 /** Montant DZD affichable (« 1 500 000 DZD »). */
-export const dzd = (n: number): string => `${Math.round(n).toLocaleString("fr-FR")} DZD`;
+export const dzd = (n: number): string => `${formatMontant(n)} DZD`;
 
 /** Champs de carte compacts : les paires vides sont omises. */
 export function fieldsOf(pairs: [string, string | null | undefined][]): { label: string; value: string }[] {

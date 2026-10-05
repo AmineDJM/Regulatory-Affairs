@@ -6,7 +6,7 @@ export function ImpersonationBanner({ adminName, viewedName }: { adminName: stri
     <div className="flex items-center justify-between gap-3 bg-amber-500 px-4 py-2 text-sm font-medium text-amber-950">
       <span className="flex items-center gap-2">
         <Eye className="h-4 w-4 shrink-0" />
-        Vue exacte : vous voyez l'OS exactement comme <strong>{viewedName}</strong>. Vos actions seront enregistrées au nom de {adminName}.
+        Vue exacte : vous voyez l&apos;OS exactement comme <strong>{viewedName}</strong>. Ce que vous faites — un bouton, un envoi, un dépôt — part en votre nom ({adminName}), avec vos droits, jamais au sien.
       </span>
       <form action={stopImpersonation}>
         <button type="submit" className="inline-flex shrink-0 items-center gap-1 rounded-md bg-amber-950/10 px-2.5 py-1 text-xs font-semibold hover:bg-amber-950/20">

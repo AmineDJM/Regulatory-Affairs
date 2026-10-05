@@ -38,19 +38,31 @@ async function actorFor(id: string, role: SessionUser["role"]): Promise<CurrentU
  * réel — mesuré, `MEDICAL_DELEGATE` et `MEDICAL_PROMOTION_MANAGER` sont les DEUX seuls rôles
  * qui portent `EVENTS` et `CONGRESS_NATIONAL` sans porter `SPONSORING`, donc les auteurs
  * typiques d'un événement étaient ceux à qui leur propre poste se fermait.
+ *
+ * Depuis §118.185 (I4), le délégué porte SPONSORING — il dépose son propre sponsoring. La garde
+ * d'accès est donc jouée par le Manager Promotion Médicale, qui porte EVENTS sans SPONSORING ; la
+ * prémisse le vérifie à chaque passage, et c'est elle qui a signalé le changement.
  * ═══════════════════════════════════════════════════════════════════════════════════════════
  */
 suite("Ad & Pro — un poste, ses droits et ses deux paroles", () => {
-  let kamId = "", dirId = "", dgId = "", eventId = "", posteId = "", catId = "";
+  let kamId = "", mpmId = "", dirId = "", dgId = "", asstId = "", eventId = "", posteId = "", catId = "";
 
   beforeAll(async () => {
     const mk = (n: string, role: SessionUser["role"]) =>
       prisma.user.create({ data: { name: `${TAG}${n}`, email: `${TAG}${n}@t.dz`, role, passwordHash: "x" } });
     kamId = (await mk("kam", "MEDICAL_DELEGATE")).id;
+    // L'acteur de la garde d'accès : un rôle qui porte EVENTS SANS porter SPONSORING. C'était le
+    // délégué ; il a reçu SPONSORING pour déposer son propre sponsoring (§118.185, I4), et la
+    // prémisse ci-dessous l'a dit au premier passage — exactement ce pour quoi elle existe.
+    mpmId = (await mk("mpm", "MEDICAL_PROMOTION_MANAGER")).id;
     dirId = (await mk("dir", "DIRECTION")).id;
     // LE CENTRE DE VALIDATION AD & PRO (§118.148) : le BC d'un poste s'y valide. Le Directeur
     // Général y siège ; la Direction des opérations, qui visait jusqu'ici, n'y siège pas.
     dgId = (await mk("dg", "GENERAL_MANAGER")).id;
+    // L'ASSISTANTE qui établit le BC (§118.204). Nommée dans chaque demande : la base est partagée,
+    // et le nombre d'assistantes actives change avec les bancs voisins — le choix automatique « la
+    // seule » ne se joue qu'isolé (`postes-chaine-flow.test.ts`).
+    asstId = (await mk("assist", "DIRECTION_ASSISTANT")).id;
     eventId = (await prisma.event.create({
       data: { name: `${TAG}Journée oncologie`, requesterId: kamId, startDate: new Date("2026-11-02") },
       select: { id: true },
@@ -79,6 +91,8 @@ suite("Ad & Pro — un poste, ses droits et ses deux paroles", () => {
     const comptes = await prisma.user.findMany({ where: { email: { startsWith: TAG } }, select: { id: true } });
     await prisma.notification.deleteMany({ where: { userId: { in: comptes.map((c) => c.id) } } }).catch(() => {});
     await prisma.administrativeRequest.deleteMany({ where: { linkedEntityType: "AD_PRO_ITEM", linkedEntityId: posteId } }).catch(() => {});
+    const postes = (await prisma.adProItem.findMany({ where: { label: { startsWith: TAG } }, select: { id: true } })).map((p) => p.id);
+    await prisma.documentRequest.deleteMany({ where: { entityType: "AD_PRO_ITEM", entityId: { in: postes } } }).catch(() => {});
     await prisma.adProItem.deleteMany({ where: { label: { startsWith: TAG } } }).catch(() => {});
     await prisma.event.deleteMany({ where: { name: { startsWith: TAG } } }).catch(() => {});
     await prisma.budgetCategoryLine.deleteMany({ where: { name: { startsWith: TAG } } }).catch(() => {});
@@ -87,16 +101,17 @@ suite("Ad & Pro — un poste, ses droits et ses deux paroles", () => {
     await prisma.$disconnect().catch(() => {});
   });
 
-  it("LA PRÉMISSE : le délégué a EVENTS et n'a PAS SPONSORING", async () => {
-    // Sans cette vérification, le jour où ce rôle gagnerait `SPONSORING`, les deux cas suivants
-    // passeraient au vert sans plus rien garder (§118.104).
-    const u = await actorFor(kamId, "MEDICAL_DELEGATE");
-    expect(userCan(u, "EVENTS", "UPLOAD"), "l'auteur d'un événement peut y joindre une pièce").toBe(true);
+  it("LA PRÉMISSE : l'acteur a EVENTS et n'a PAS SPONSORING", async () => {
+    // Sans cette vérification, le jour où ce rôle gagnerait `SPONSORING`, le cas suivant
+    // passerait au vert sans plus rien garder (§118.104). C'est arrivé au délégué médical
+    // (§118.185, I4) : la garde a changé d'acteur, pas de propriété.
+    const u = await actorFor(mpmId, "MEDICAL_PROMOTION_MANAGER");
+    expect(userCan(u, "EVENTS", "UPLOAD"), "il peut joindre une pièce à un événement").toBe(true);
     expect(userCan(u, "SPONSORING", "UPLOAD"), "et il n'a AUCUN droit sur le sponsoring").toBe(false);
   });
 
   it("le poste d'un ÉVÉNEMENT s'ouvre à qui l'événement s'ouvre — pas au module SPONSORING", async () => {
-    const u = await actorFor(kamId, "MEDICAL_DELEGATE");
+    const u = await actorFor(mpmId, "MEDICAL_PROMOTION_MANAGER");
     expect(await canAccessEntity(u, "EVENT", eventId, "UPLOAD"), "prémisse : l'opération lui est ouverte").toBe(true);
     // Le défaut mesuré : `ENTITY_MODULE.AD_PRO_ITEM = "SPONSORING"` fermait ceci. Le demandeur
     // ne pouvait ni joindre une pièce ni commenter le poste de SA propre demande.
@@ -156,6 +171,7 @@ suite("Ad & Pro — un poste, ses droits et ses deux paroles", () => {
     const fdBc = new FormData();
     fdBc.set("id", posteId);
     fdBc.set("note", `${TAG}BC au nom des Oliviers, 80 couverts, réf. devis DV-77.`);
+    fdBc.set("assistantId", asstId);
     const bc = await requestAdProItemOrder(undefined, fdBc);
     expect(bc.ok, bc.ok === false ? bc.error : "").toBe(true);
 
@@ -196,10 +212,6 @@ suite("Ad & Pro — un poste, ses droits et ses deux paroles", () => {
      * ressemblance de libellés : la base est partagée, et un compte étranger portant le même
      * rôle ferait compter les notifications d'un autre banc (§118.36, §118.119d).
      */
-    const assistante = await prisma.user.create({
-      data: { name: `${TAG}assist`, email: `${TAG}assist@t.dz`, role: "DIRECTION_ASSISTANT", passwordHash: "x" },
-      select: { id: true },
-    });
     // Un SECOND poste, pour que la demande d'émission soit neuve (le premier est déjà visé).
     const autre = await prisma.adProItem.create({
       data: {
@@ -212,15 +224,28 @@ suite("Ad & Pro — un poste, ses droits et ses deux paroles", () => {
     const fd = new FormData();
     fd.set("id", autre.id);
     fd.set("note", `${TAG}Salle plénière, 2 jours.`);
+    fd.set("assistantId", asstId);
     const r = await requestAdProItemOrder(undefined, fd);
     expect(r.ok, r.ok === false ? r.error : "").toBe(true);
 
-    const pourElle = await prisma.notification.findMany({
-      where: { userId: assistante.id },
-      select: { title: true, type: true },
+    // LE TRAVAIL ARRIVE CHEZ ELLE COMME UNE DEMANDE DE PIÈCE (§118.204) — la pièce qu'elle déposera
+    // REVIENT au poste à l'acceptation. Il portait d'abord une demande GÉNÉRIQUE au secrétariat, où le
+    // BC déposé restait. Le message du demandeur l'accompagne (§118.146).
+    const travail = await prisma.documentRequest.findMany({
+      where: { entityType: "AD_PRO_ITEM", entityId: autre.id, kind: "PURCHASE_ORDER" },
+      select: { id: true, note: true, status: true, askedToId: true, askedById: true },
     });
-    expect(pourElle.length, "l'assistante reçoit la demande d'établissement").toBeGreaterThanOrEqual(1);
-    expect(pourElle.map((n) => n.title).join(" | ")).toContain("à établir");
+    expect(travail).toHaveLength(1);
+    expect(travail[0].note).toContain("Salle plénière, 2 jours.");
+    expect(travail[0].status).toBe("PENDING");
+    expect(travail[0].askedToId, "elle seule peut déposer").toBe(asstId);
+    expect(travail[0].askedById, "et c'est le demandeur qui vérifiera").toBe(kamId);
+    expect(await prisma.administrativeRequest.count({ where: { linkedEntityType: "AD_PRO_ITEM", linkedEntityId: autre.id } }),
+      "plus de demande générique au secrétariat pour le BC").toBe(0);
+    // PRÉVENUE — par le lien CAUSAL (la demande de pièce de CE poste), jamais un compte de libellés
+    // dans une base partagée (§118.36, §118.119d).
+    const pourElle = await prisma.notification.findMany({ where: { userId: asstId, link: `/pieces/${travail[0].id}` }, select: { title: true } });
+    expect(pourElle.map((n) => n.title)).toEqual(["Bon de commande à établir"]);
     // Et le VISA reste un geste DISTINCT, rendu au CENTRE DE VALIDATION AD & PRO (§118.148) : ses
     // sièges sont prévenus, avec le lien vers le centre — pas la Direction des opérations.
     const pourLeCentre = await prisma.notification.findMany({

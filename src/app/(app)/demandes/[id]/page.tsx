@@ -2,7 +2,8 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import { requireModule } from "@/lib/session";
-import { userCan, hasGlobalView, scopeAdminRequests } from "@/lib/rbac";
+import { userCan, hasGlobalView, isTopManagement } from "@/lib/rbac";
+import { clauseDemandeLisible } from "@/lib/queries/admin-requests";
 import { prisma } from "@/lib/prisma";
 import { fieldLabels, REQUEST_TYPE_FIELDS } from "@/lib/admin-requests";
 import { addRequestComment } from "@/lib/actions/admin-request-actions";
@@ -30,6 +31,11 @@ import { PromoActionPanel } from "../../promo-material/[id]/promo-panels";
 import { BackLink } from "@/components/shared/back-link";
 import { siegeAuCentreAdPro } from "@/lib/ad-pro/centre";
 import { statutDuDossier } from "@/lib/promo-material/statut";
+import { lireLignesDAchat } from "@/lib/general-means/purchase-request";
+import { auNomDeQui } from "@/lib/hr/stand-in-resolve";
+import { PurchaseLines } from "@/components/purchase/purchase-lines";
+import { porteDuDemandeur, refusDeModification, suitLaDemandeDeBcDuPoste, refusDemandeDeBcDuPoste } from "@/lib/secretariat/porte-demandeur";
+import { decideurAffiche, libelleMotif, interditSurSaPropreDemande } from "@/lib/secretariat/decision-approbation";
 
 const REQ_DOC_CATEGORIES = ["QUOTE", "INVOICE", "REQUEST_LETTER", "CONVENTION", "SUPPORTING_DOC", "PHOTO", "OTHER"];
 
@@ -37,18 +43,16 @@ export default async function RequestDetailPage({ params }: { params: { id: stri
   const user = await requireModule("ADMIN_REQUESTS");
   // VALIDATEUR D'UNE PIÈCE = ACCÈS À TOUTE LA DEMANDE. On ne valide pas une facture hors de son
   // contexte : le validateur choisi voit la demande entière, même hors de son périmètre habituel.
-  const isPieceValidator = (await prisma.validationRequest.count({
-    where: { entityType: "ADMIN_REQUEST", entityId: params.id, documentId: { not: null }, steps: { some: { validatorId: user.id } } },
-  })) > 0;
+  // La règle vit dans `clauseDemandeLisible`, lue aussi par le geste de commentaire (§118.184).
   const req = await prisma.administrativeRequest.findFirst({
-    where: { id: params.id, ...(isPieceValidator ? { deletedAt: null } : scopeAdminRequests(user)) },
+    where: await clauseDemandeLisible(user, params.id),
     include: {
       requester: { select: { name: true, employee: { select: { departmentId: true } } } },
       concerned: { select: { name: true } },
       assignedTo: { select: { name: true } },
       validator: { select: { name: true } },
       department: { select: { name: true } },
-      approvals: { include: { validator: { select: { name: true } } }, orderBy: { createdAt: "desc" } },
+      approvals: { include: { validator: { select: { name: true } }, decidedBy: { select: { name: true } } }, orderBy: { createdAt: "desc" } },
       missions: { include: { assignedTo: { select: { name: true } } }, orderBy: { createdAt: "desc" } },
     },
   });
@@ -75,7 +79,16 @@ export default async function RequestDetailPage({ params }: { params: { id: stri
   const isSecretary = user.role === "DIRECTION_ASSISTANT";
   const canManage = hasGlobalView(user.role) || userCan(user, "ADMIN_REQUESTS", "UPDATE") || req.assignedToId === user.id || isSecretary;
   const canValidate = userCan(user, "ADMIN_REQUESTS", "VALIDATE") || hasGlobalView(user.role);
+  // L'INTÉRIMAIRE tranche l'approbation adressée à l'absent — la même règle que l'action (I18).
+  const auNomInterim = await auNomDeQui(user.id);
   const canUpload = userCan(user, "ADMIN_REQUESTS", "UPLOAD") || isSecretary;
+  // CE QUE LE DEMANDEUR PEUT ENCORE FAIRE (§118.187 — audit 360°, R08) : la règle de l'action, lue ici
+  // pour ne montrer que des gestes qu'elle acceptera.
+  // Une demande « BC à établir » se corrige et se retire depuis son poste : l'encart n'offrirait que des refus.
+  const porteDemandeur = req.deletedAt || suitLaDemandeDeBcDuPoste(req) ? null : porteDuDemandeur(req, user.id, Date.now());
+  const ordresEmis = porteDemandeur?.ok
+    ? await prisma.expenseOrder.count({ where: { sourceType: "ADMIN_REQUEST", sourceId: req.id, status: { not: "CANCELLED" } } })
+    : 0;
 
   const [documents, comments, history, users, financeUsers, linkedValidations, siblings] = await Promise.all([
     prisma.document.findMany({ where: { entityType: "ADMIN_REQUEST", entityId: req.id }, include: { uploadedBy: { select: { name: true } } }, orderBy: { createdAt: "desc" } }),
@@ -102,9 +115,19 @@ export default async function RequestDetailPage({ params }: { params: { id: stri
   const promoStatut = promo ? statutDuDossier(promo) : null;
   const promoACircuit = Boolean(promo?.circuitState);
 
+  const modificationFermee = porteDemandeur?.ok
+    ? refusDeModification({
+        validationEnCours: linkedValidations.some((v) => v.status === "PENDING" && !v.documentId) || req.approvals.some((a) => a.status === "PENDING"),
+        paiementEmis: ordresEmis > 0,
+      })
+    : null;
+
   const labels = fieldLabels(req.type);
   const fields = (req.fields as Record<string, unknown> | null) ?? {};
   const fieldEntries = Object.entries(labels).filter(([k]) => fields[k] !== undefined && fields[k] !== "");
+  // LES ARTICLES D'UNE DEMANDE D'ACHAT vivent dans `fields.purchaseLines`, hors des champs déclarés
+  // du type : sans ce bloc, ni le N+1 qui valide ni l'assistante qui achète ne les voyaient (I14).
+  const lignesAchat = req.type === "PURCHASE" ? lireLignesDAchat(fields) : [];
   const docItems: DocItem[] = documents.map((d) => ({ id: d.id, name: d.name, category: d.category, version: d.version, sizeBytes: d.sizeBytes, confidentiality: d.confidentiality, uploadedBy: d.uploadedBy?.name ?? null, createdAt: d.createdAt.toISOString(), hasFile: Boolean(d.fileKey) }));
   const commentItems: CommentItem[] = comments.map((c) => ({ id: c.id, author: c.author?.name ?? "Utilisateur", authorId: c.authorId, body: c.body, createdAt: c.createdAt.toISOString(), editedAt: c.editedAt?.toISOString() ?? null }));
 
@@ -153,10 +176,19 @@ export default async function RequestDetailPage({ params }: { params: { id: stri
             </CardContent>
           </Card>
 
-          {user.id === req.requesterId && req.status === "NEW" && !req.processingStartedAt && (
+          {lignesAchat.length > 0 && (
+            <Card>
+              <CardHeader><CardTitle>Articles demandés ({lignesAchat.length})</CardTitle></CardHeader>
+              <CardContent><PurchaseLines lines={lignesAchat} /></CardContent>
+            </Card>
+          )}
+
+          {porteDemandeur?.ok && (
             <RequesterWindow
               requestId={req.id}
               createdAt={req.createdAt.toISOString()}
+              discret={porteDemandeur.discret}
+              modificationFermee={modificationFermee}
               values={{
                 title: req.title,
                 description: req.description,
@@ -195,6 +227,7 @@ export default async function RequestDetailPage({ params }: { params: { id: stri
                   defaultDepartmentId={req.departmentId ?? req.requester?.employee?.departmentId ?? null}
                   fromAdPro={fromAdPro}
                   alreadyImputed={alreadyImputed}
+                  refusAnnulation={suitLaDemandeDeBcDuPoste(req) ? refusDemandeDeBcDuPoste("annuler") : null}
                 />
               </CardContent>
             </Card>
@@ -279,17 +312,28 @@ export default async function RequestDetailPage({ params }: { params: { id: stri
             <CardContent className="space-y-3 text-sm">
               {req.approvals.length === 0 ? (
                 <p className="text-muted-foreground">Aucune validation demandée.</p>
-              ) : req.approvals.map((a) => (
-                <div key={a.id} className="space-y-1 border-b border-border pb-2 last:border-0 last:pb-0">
-                  <div className="flex items-center justify-between">
-                    <StatusBadge map={ADMIN_APPROVAL_STATUS} value={a.status} dot={false} />
-                    {a.amount && <span className="font-medium">{formatCurrency(toNumber(a.amount))}</span>}
+              ) : req.approvals.map((a) => {
+                // QUI A TRANCHÉ, ET CE QU'IL A DIT (lot E5 — M14, M15) : « Validateur : X » se lisait comme la
+                // signature de X, alors que son intérimaire, l'assistante ou la Direction tranchent aussi.
+                const decideur = decideurAffiche({ status: a.status, decidedAt: a.decidedAt, decidedByName: a.decidedBy?.name ?? null });
+                return (
+                  <div key={a.id} className="space-y-1 border-b border-border pb-2 last:border-0 last:pb-0">
+                    <div className="flex items-center justify-between">
+                      <StatusBadge map={ADMIN_APPROVAL_STATUS} value={a.status} dot={false} />
+                      {a.amount && <span className="font-medium">{formatCurrency(toNumber(a.amount))}</span>}
+                    </div>
+                    <p className="text-xs text-muted-foreground">Validateur : {a.validator?.name ?? "—"}</p>
+                    {a.comment && <p className="text-xs">{a.comment}</p>}
+                    {decideur && <p className="text-xs text-muted-foreground">{decideur}{a.decidedAt ? ` le ${formatDateTime(a.decidedAt)}` : ""}</p>}
+                    {a.decisionNote && <p className="text-xs"><span className="text-muted-foreground">{libelleMotif(a.status)} :</span> {a.decisionNote}</p>}
+                    {/* Un bouton que l'action refuserait n'est pas un geste (§118.83) : on ne tranche pas sa propre demande. */}
+                    {a.status === "PENDING" && (canValidate || a.validatorId === user.id
+                      || (req.requesterId !== user.id && auNomInterim.nomDe(a.validatorId) !== null))
+                      && !interditSurSaPropreDemande({ estDemandeur: req.requesterId === user.id, sommet: isTopManagement(user) })
+                      && <ApprovalButtons approvalId={a.id} />}
                   </div>
-                  <p className="text-xs text-muted-foreground">Validateur : {a.validator?.name ?? "—"}</p>
-                  {a.comment && <p className="text-xs">{a.comment}</p>}
-                  {a.status === "PENDING" && (canValidate || a.validatorId === user.id) && <ApprovalButtons approvalId={a.id} />}
-                </div>
-              ))}
+                );
+              })}
             </CardContent>
           </Card>
 

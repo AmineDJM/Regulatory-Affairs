@@ -193,7 +193,9 @@ export const FILE_FINANCE_OPS_IMPL: Record<string, OpImpl> = {
       fd.set("csv", csv);
       const r = await importTransactions(undefined, fd);
       if (!r.ok) return { ok: false, error: r.error ?? "Import refusé." };
-      return { ok: true, message: "Mouvements importés." };
+      // Le bilan de l'action dit ce qui est entré et ce qui a été écarté, ligne par ligne :
+      // « Mouvements importés. » sur un relevé à moitié refusé serait un faux succès.
+      return { ok: true, message: r.message ?? "Mouvements importés." };
     },
   },
 
@@ -404,7 +406,7 @@ export const FILE_PCH_OPS_IMPL: Record<string, OpImpl> = {
           ["Document", `${f.name} (${kb(f.size)})`],
         ]),
         warnings: [
-          "OCR (40 pages max) puis EXTRACTION IA des lignes du marché — les lignes extraites s'AJOUTENT au tableau du marché ; opération facturée (IA).",
+          "Texte du document lu tel quel (OCR seulement pour un scan), puis EXTRACTION IA des lignes du marché — une nouvelle lecture REMPLACE les lignes des lectures précédentes que personne n'a touchées (les lignes modifiées, chiffrées, soumises, annotées ou rattachées restent) ; opération facturée (IA).",
         ],
         args: { tenderId: tender.id, fileNodeId: f.id },
         successMessage: `Appel d'offres ${tender.reference} lu — lignes extraites.`,

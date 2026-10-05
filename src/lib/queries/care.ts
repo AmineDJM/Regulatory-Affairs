@@ -26,7 +26,7 @@ export async function getCareDossier(scope: "NATIONAL" | "INTERNATIONAL", reques
         requesterOpinion: true, requesterNote: true, status: true, decisionNote: true,
         cells: {
           orderBy: [{ position: "asc" }, { createdAt: "asc" }],
-          select: { id: true, kind: true, serviceKind: true, label: true, notes: true, status: true, amountDzd: true, expenseOrderId: true, promoMaterialId: true },
+          select: { id: true, kind: true, serviceKind: true, label: true, notes: true, status: true, amountDzd: true, expenseOrderId: true, promoMaterialId: true, documentId: true },
         },
       },
     }),
@@ -43,7 +43,7 @@ export async function getCareDossier(scope: "NATIONAL" | "INTERNATIONAL", reques
   // Le matériel promotionnel rattaché à des cases, en UNE requête.
   const promoIds = rows.flatMap((r) => r.cells.map((c) => c.promoMaterialId)).filter((x): x is string => Boolean(x));
   const promos = promoIds.length
-    ? await prisma.promoMaterial.findMany({ where: { id: { in: [...new Set(promoIds)] } }, select: { id: true, reference: true, title: true, status: true, circuitState: true, circuitVersion: true } })
+    ? await prisma.promoMaterial.findMany({ where: { id: { in: [...new Set(promoIds)] } }, select: { id: true, reference: true, title: true, status: true, circuitState: true, circuitVersion: true, returnedAt: true } })
     : [];
   const promoById = new Map(promos.map((p) => [p.id, { reference: p.reference, title: p.title, status: statutDuDossier(p).libelle }]));
 
@@ -72,6 +72,7 @@ export async function getCareDossier(scope: "NATIONAL" | "INTERNATIONAL", reques
           amountDzd: c.amountDzd != null ? toNumber(c.amountDzd) : null,
           expenseOrderId: c.expenseOrderId,
           promoMaterialId: c.promoMaterialId,
+          documentId: c.documentId,
           promoMaterial: c.promoMaterialId ? promoById.get(c.promoMaterialId) ?? null : null,
         })),
       };

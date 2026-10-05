@@ -611,6 +611,8 @@ export const ORG7D_OPS_IMPL: Record<string, OpImpl> = {
         ["fieldReportAiEnabled", "Analyse des rapports terrain"],
         ["voiceTranscriptEnabled", "Transcription vocale (Whisper)"],
         ["siteWebAiEnabled", "Rédaction du site (articles et offres)"],
+        ["lecturePiecesEnabled", "Lecture des pièces commerciales (lignes par l'IA)"],
+        ["conseilPiecesEnabled", "Luna — conseil de rangement des pièces Ad & Pro"],
       ];
       const key = matchLabel(opStr(input, "feature") || opStr(input, "target"), AI_PAIRS);
       if (typeof key !== "string") return key;
@@ -627,10 +629,13 @@ export const ORG7D_OPS_IMPL: Record<string, OpImpl> = {
         processIntelEnabled: s?.processIntelEnabled ?? true, fieldReportAiEnabled: s?.fieldReportAiEnabled ?? true,
         voiceTranscriptEnabled: s?.voiceTranscriptEnabled ?? true,
         siteWebAiEnabled: s?.siteWebAiEnabled ?? true,
+        // Le défaut de la COLONNE, coupée (`ai-settings.ts`) : sans ligne, la lecture des pièces ne part pas.
+        lecturePiecesEnabled: s?.lecturePiecesEnabled ?? false,
+        conseilPiecesEnabled: s?.conseilPiecesEnabled ?? true,
       };
       if (cur[key as keyof typeof cur] === on) return { error: `« ${label} » est déjà ${on ? "activé" : "coupé"}.` };
       const next = { ...cur, [key]: on };
-      const warnings = ["Les bascules non citées sont rejouées à l'identique (FUSION) — l'action réécrit les huit."];
+      const warnings = ["Les bascules non citées sont rejouées à l'identique (FUSION) — l'action les réécrit toutes."];
       if (key === "masterEnabled" && !on) warnings.push("INTERRUPTEUR GÉNÉRAL : couper ici coupe TOUTE l'IA — y compris cet assistant (il ne pourra plus rallumer lui-même).");
       return {
         title: `Centre de contrôle IA — ${on ? "activer" : "couper"} « ${label} »`,
@@ -645,6 +650,8 @@ export const ORG7D_OPS_IMPL: Record<string, OpImpl> = {
           processIntelEnabled: onOff(next.processIntelEnabled), fieldReportAiEnabled: onOff(next.fieldReportAiEnabled),
           voiceTranscriptEnabled: onOff(next.voiceTranscriptEnabled),
           siteWebAiEnabled: onOff(next.siteWebAiEnabled),
+          lecturePiecesEnabled: onOff(next.lecturePiecesEnabled),
+          conseilPiecesEnabled: onOff(next.conseilPiecesEnabled),
         },
         successMessage: `« ${label} » ${on ? "activé" : "coupé"}.`,
       };

@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getCurrentUser } from "@/lib/session";
-import { getCompanyScope } from "@/lib/company";
+import { getCurrentUserPourEcrire } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
-import { regCan, resolveRegCompanyId } from "@/lib/regulatory/intelligence/access";
+import { regCan, resolveRegCompanyIdFor } from "@/lib/regulatory/intelligence/access";
 import { ingestDossierZip } from "@/lib/regulatory/intelligence/ingest/ingest-dossier";
 import { DEFAULT_ZIP_LIMITS } from "@/lib/regulatory/intelligence/ingest/zip-inspector";
 
@@ -18,13 +17,13 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
 export async function POST(req: NextRequest) {
-  const user = await getCurrentUser();
+  const user = await getCurrentUserPourEcrire();
   if (!user) return NextResponse.json({ error: "Non authentifié." }, { status: 401 });
   if (!regCan(user, "regulatory.dossier.upload")) {
     return NextResponse.json({ error: "Téléversement non autorisé." }, { status: 403 });
   }
 
-  const companyId = await resolveRegCompanyId(getCompanyScope());
+  const companyId = await resolveRegCompanyIdFor(user.id);
   if (!companyId) {
     return NextResponse.json({ error: "Module non activé pour cette entité — sélectionnez l'entité concernée." }, { status: 403 });
   }

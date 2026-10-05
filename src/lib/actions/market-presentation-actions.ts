@@ -9,6 +9,8 @@ import { recordAudit } from "@/lib/audit";
 import { fdStr, type ActionResult } from "@/lib/actions/types";
 import { getMarketResearch } from "@/lib/queries/market-research";
 import { analyzeMarketResearch } from "@/lib/market-presentation";
+import { cleModeleRequise } from "@/lib/ai";
+import { phraseIaNonConfiguree } from "@/lib/ia/cle-manquante";
 
 const MODULE = "BUSINESS_DEVELOPMENT" as const;
 const BASE = "/business-development/etudes";
@@ -28,7 +30,7 @@ export async function generatePresentation(_prev: ActionResult | undefined, form
   const instruction = fdStr(formData, "instruction") ?? undefined;
   const result = await analyzeMarketResearch(research, instruction);
   if (!result.ok || !result.data) {
-    return { ok: false, error: result.configured ? result.error ?? "Analyse IA impossible." : "IA non configurée : ajoutez la clé ANTHROPIC_API_KEY (Render)." };
+    return { ok: false, error: result.configured ? result.error ?? "Analyse IA impossible." : phraseIaNonConfiguree(cleModeleRequise(), "la génération de présentation") };
   }
 
   const title = fdStr(formData, "title") || `${research.title} — Présentation`;
@@ -67,7 +69,7 @@ export async function regeneratePresentation(_prev: ActionResult | undefined, fo
   const instruction = fdStr(formData, "instruction") ?? undefined;
   const result = await analyzeMarketResearch(research, instruction);
   if (!result.ok || !result.data) {
-    return { ok: false, error: result.configured ? result.error ?? "Analyse IA impossible." : "IA non configurée : ajoutez la clé ANTHROPIC_API_KEY (Render)." };
+    return { ok: false, error: result.configured ? result.error ?? "Analyse IA impossible." : phraseIaNonConfiguree(cleModeleRequise(), "la génération de présentation") };
   }
 
   const last = await prisma.marketResearchPresentationVersion.aggregate({ where: { presentationId }, _max: { version: true } });

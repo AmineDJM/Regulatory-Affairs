@@ -374,10 +374,14 @@ export type TourPromo = "VALIDATION" | "GESTE";
 export function tourDe(
   u: Acteur,
   state: PromoState,
-  pm: { requesterId: string | null; assistantId: string | null },
+  pm: { requesterId: string | null; assistantId: string | null; returnedAt: Date | string | null },
   validateurs: ValidateursDuDossier,
   version: VersionCircuit,
 ): TourPromo | null {
+  // RENVOYÉE POUR CORRECTION à la validation de la demande (§118.190) : l'étape n'a pas changé, la
+  // balle si — elle est chez le demandeur, qui corrige puis resoumet ; le validateur n'a rien à
+  // trancher tant que la correction n'est pas revenue (son geste serait refusé).
+  if (state === "REVIEW_REQUEST" && pm.returnedAt) return u.id === pm.requesterId ? "GESTE" : null;
   switch (state) {
     case "QUOTE_TO_REQUEST":
       return u.id === pm.requesterId ? "GESTE" : null;
@@ -466,7 +470,7 @@ export function progress(state: PromoState, done: readonly PromoTrack[], ctx?: C
 export function waitingOn(state: PromoState, done: readonly PromoTrack[], version: VersionCircuit = 1): string {
   if (state === "REFUSED") return "Dossier refusé";
   if (state === "COMPLETED") return "Rien — dossier terminé";
-  if (state === "QUOTE_TO_REQUEST") return "Le demandeur — il doit demander les devis au secrétariat";
+  if (state === "QUOTE_TO_REQUEST") return "Le demandeur — la demande de devis n'est pas partie : il l'envoie depuis « Articles demandés »";
   if (state === "QUOTE_REQUESTED") return version === 2 ? "L'assistante de direction — retranscription des devis" : "Le devis de l'agence";
   if (state === "IN_EXECUTION") {
     const rest = pendingTracks(done);

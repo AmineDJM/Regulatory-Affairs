@@ -90,6 +90,19 @@ export function hostAndPath(cfg: S3Config, key: string): { protocol: string; hos
  * `UNSIGNED-PAYLOAD`, seul l'en-tête `host` signé → le navigateur envoie juste le corps. Null si non configuré.
  */
 export function presignPutUrl(key: string, expiresSec = 3600, extraQuery: Record<string, string> = {}): string | null {
+  return presign("PUT", key, expiresSec, extraQuery);
+}
+
+/**
+ * URL PRÉSIGNÉE pour un GET — le navigateur TÉLÉCHARGE directement depuis le bucket. Utilisée pour
+ * les gros fichiers déposés en direct : les servir par l'application les ferait passer entiers en
+ * mémoire. `response-content-disposition` donne au fichier son nom (accents compris).
+ */
+export function presignGetUrl(key: string, expiresSec = 900, extraQuery: Record<string, string> = {}): string | null {
+  return presign("GET", key, expiresSec, extraQuery);
+}
+
+function presign(method: "PUT" | "GET", key: string, expiresSec: number, extraQuery: Record<string, string>): string | null {
   const cfg = config();
   if (!cfg) return null;
   const { protocol, host, resourcePath } = hostAndPath(cfg, key);
@@ -109,7 +122,7 @@ export function presignPutUrl(key: string, expiresSec = 3600, extraQuery: Record
     .sort()
     .map((k) => `${uriEncode(k)}=${uriEncode(params[k])}`)
     .join("&");
-  const canonicalRequest = ["PUT", resourcePath, canonicalQuery, `host:${host}\n`, "host", "UNSIGNED-PAYLOAD"].join("\n");
+  const canonicalRequest = [method, resourcePath, canonicalQuery, `host:${host}\n`, "host", "UNSIGNED-PAYLOAD"].join("\n");
   const stringToSign = [ALGO, amz, scope, sha256hex(canonicalRequest)].join("\n");
   const signature = createHmac("sha256", signingKey(cfg, date)).update(stringToSign).digest("hex");
   return `${protocol}//${host}${resourcePath}?${canonicalQuery}&X-Amz-Signature=${signature}`;
@@ -163,7 +176,7 @@ function s3ErrorCode(body: string): string {
  * Le chemin PUT/GET/DELETE simple garde sa propre fonction, éprouvée : on n'y touche pas.
  */
 async function signedRequestQ(
-  method: "GET" | "PUT" | "POST" | "DELETE",
+  method: "GET" | "HEAD" | "PUT" | "POST" | "DELETE",
   key: string,
   query: Record<string, string>,
   body?: Buffer,
@@ -504,4 +517,69 @@ export async function probeJurisdiction(): Promise<JurisdictionProbe | null> {
     euHost ? probeBucketExists(cfg, euHost).catch(() => null) : Promise.resolve(null),
   ]);
   return { bucket: cfg.bucket, configuredHost, configuredStatus, euHost, euStatus };
+}
+
+// ─────────────────────── REPRISE, VÉRIFICATION ET LECTURE EN FLUX ───────────────────────
+
+/** Une partie déjà reçue par le bucket. */
+export interface PartieRecue { numero: number; etag: string; taille: number }
+
+/** Lit la réponse XML d'un `ListParts` S3. Fonction PURE — testée. */
+export function parseListParts(xml: string): { parties: PartieRecue[]; suite: string | null } {
+  const parties: PartieRecue[] = [];
+  const re = /<Part>([\s\S]*?)<\/Part>/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(xml)) !== null) {
+    const bloc = m[1];
+    const numero = Number(tagOf(bloc, "PartNumber"));
+    const etag = tagOf(bloc, "ETag").replace(/&quot;/g, '"');
+    const taille = Number(tagOf(bloc, "Size"));
+    if (Number.isInteger(numero) && numero > 0 && etag) parties.push({ numero, etag, taille: Number.isFinite(taille) ? taille : 0 });
+  }
+  const tronque = /<IsTruncated>true<\/IsTruncated>/i.test(xml);
+  const suite = tronque ? tagOf(xml, "NextPartNumberMarker") || null : null;
+  return { parties, suite };
+}
+
+/**
+ * LES PARTIES QUE LE BUCKET A DÉJÀ — c'est ce qui rend un envoi REPRENABLE.
+ *
+ * Le navigateur peut perdre ses empreintes (onglet fermé, coupure), le bucket non : on lui
+ * demande ce qu'il a reçu, et seules les parties manquantes repartent. C'est aussi la source des
+ * ETags de la finalisation — le serveur ne dépend plus de ce que le navigateur a gardé.
+ */
+export async function listParts(key: string, uploadId: string): Promise<PartieRecue[]> {
+  const toutes: PartieRecue[] = [];
+  let marqueur: string | null = null;
+  for (let tour = 0; tour < 20; tour++) {
+    const query: Record<string, string> = { uploadId, "max-parts": "1000" };
+    if (marqueur) query["part-number-marker"] = marqueur;
+    const res = await signedRequestQ("GET", key, query);
+    const xml = await res.text();
+    if (!res.ok) throw new Error(`Lecture des parties reçues échouée (${res.status}${s3ErrorCode(xml) ? ` ${s3ErrorCode(xml)}` : ""}).`);
+    const { parties, suite } = parseListParts(xml);
+    toutes.push(...parties);
+    if (!suite) break;
+    marqueur = suite;
+  }
+  return toutes.sort((a, b) => a.numero - b.numero);
+}
+
+/** Taille d'un objet (HEAD), ou `null` s'il n'existe pas. Lève sur toute autre erreur. */
+export async function headObjectSize(key: string): Promise<number | null> {
+  const res = await signedRequestQ("HEAD", key, {});
+  if (res.status === 404) return null;
+  if (!res.ok) throw new Error(`Vérification de l'objet échouée (${res.status}).`);
+  const n = Number(res.headers.get("content-length"));
+  return Number.isFinite(n) ? n : null;
+}
+
+/**
+ * Lit un objet EN FLUX — jamais entier en mémoire. C'est ce qui permet de traiter une archive de
+ * plusieurs gigaoctets sur une instance à 512 Mo (audit du 04/10, constat 6).
+ */
+export async function getObjectStream(key: string): Promise<ReadableStream<Uint8Array>> {
+  const res = await signedRequestQ("GET", key, {});
+  if (!res.ok || !res.body) throw s3Failure("Lecture de l'objet", res, key, await res.text().catch(() => ""));
+  return res.body;
 }

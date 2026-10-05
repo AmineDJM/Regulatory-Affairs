@@ -27,7 +27,22 @@ describe("Registre des suppressions — le refus et la réserve", () => {
     // pôle qui n'avaient AUCUNE suppression (§118.162).
     // 30 → 32 : l'article du catalogue promotionnel et l'article de stock (§118.164) — deux types
     // qui REFUSENT quand ils ont servi : on les archive, on n'efface pas une histoire.
-    expect(DELETABLE_KINDS).toHaveLength(32);
+    // 32 → 33 : l'appel d'offres PCH (§118.185, I17) — supprimé d'un seul `delete`, sans
+    // corbeille, il emportait ses lots, ses bons et ses livraisons sans retour possible.
+    // 33 → 34 : le poste d'une demande Ad & Pro (§118.187, R11) — « Retirer le poste » l'effaçait
+    // définitivement, avec l'historique de ses décisions en cascade.
+    // 34 → 35 : le lot d'un appel d'offres PCH (vague « restes ») — un seul `delete`, sans corbeille ni
+    // journal ; il part en lot avec ses affectations à des BU, et REFUSE quand quelque chose en découle.
+    expect(DELETABLE_KINDS).toHaveLength(35);
+  });
+
+  it("le poste Ad & Pro part EN LOT et ne refuse rien lui-même — c'est le lot qui refuse ce qui a quitté l'ERP", () => {
+    // Un ordre réglé, du matériel du stock dehors, une pièce signée : `faitIrreversible`, une seule
+    // copie de la règle. La recopier ici ferait deux refus qui finiraient par diverger (§118.5).
+    expect(DELETE_REGISTRY.AD_PRO_ITEM.lot, "il part avec ses décisions, ses pièces et ses demandes").toBe(true);
+    expect(DELETE_REGISTRY.AD_PRO_ITEM.refuse).toBeUndefined();
+    // Tout ce qui part revient : une réserve y serait une promesse de perte qui n'a pas lieu (§118.141c).
+    expect(DELETE_REGISTRY.AD_PRO_ITEM.reserve).toBeUndefined();
   });
 
   it("le catalogue et le stock promotionnels refusent AVANT le clic, sans réserve", () => {
@@ -49,9 +64,15 @@ describe("Registre des suppressions — le refus et la réserve", () => {
   });
 
   it("les autres types ne refusent rien et ne réservent rien — l'ajout n'a rien changé chez eux", () => {
-    const AVEC_REFUS: readonly string[] = ["CONVERSATION", "NOTIFICATION", "PROMO_CATALOGUE", "PROMO_STOCK_ITEM"];
+    // FIELD_REPORT (§118.204) : un compte rendu qui porte du matériel remis justifie des sorties du stock —
+    // la corbeille lit le MÊME refus que l'action (`refusSuppressionRapport`), éprouvé dans
+    // `rapport-terrain-remises-flow.test.ts`, avec son témoin (un compte rendu sans remise part toujours).
+    const AVEC_REFUS: readonly string[] = ["CONVERSATION", "NOTIFICATION", "PROMO_CATALOGUE", "PROMO_STOCK_ITEM", "PCH_TENDER_LINE", "FIELD_REPORT"];
     const anciens = DELETABLE_KINDS.filter((k) => !AVEC_REFUS.includes(k));
-    expect(anciens).toHaveLength(28);
+    // 28 → 29 : l'appel d'offres PCH ne refuse ni ne réserve rien lui-même — c'est le LOT qui
+    // refuse une facture réglée ou une pièce signée parmi ses branches (`faitIrreversible`).
+    // 29 → 30 : le poste d'une demande Ad & Pro (§118.187), pour la même raison.
+    expect(anciens).toHaveLength(29);
     for (const k of anciens) {
       expect(DELETE_REGISTRY[k].refuse, `${k} ne refusait rien avant ce lot`).toBeUndefined();
       expect(DELETE_REGISTRY[k].reserve, `${k} n'annonçait aucune réserve avant ce lot`).toBeUndefined();

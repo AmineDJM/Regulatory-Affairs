@@ -1,5 +1,5 @@
 import type { EntityType, FinanceCategory, PaymentDeadlineNature, PaymentRequestStatus } from "@prisma/client";
-import { buildRef, createWithRetry } from "@/lib/refs";
+import { buildRef, createWithRetry, enSerie } from "@/lib/refs";
 import { ENTITY_MODULE } from "@/lib/entity-access";
 import { initialCentralStatus, isHighValue, CENTRAL_AUTH_THRESHOLD_DZD } from "@/lib/payments/authorization";
 import { deadlineNatureOf } from "@/lib/finance/deadline-nature";
@@ -20,6 +20,19 @@ async function nextPaymentRef(): Promise<string> {
   const refs = await prisma.paymentRequest.findMany({ where: { reference: { startsWith: `PAY-${year}-` } }, select: { reference: true } });
   return buildRef("PAY", year, refs.map((r) => r.reference));
 }
+
+/**
+ * LES DEUX SÉRIES QUE NUMÉROTE CE MODULE — une file par série dans ce processus (`enSerie`), et un
+ * nouvel essai sous collision entre processus (`createWithRetry`). Mesuré par la suite complète
+ * (§118.182) : la création de l'ORDRE n'avait ni l'une ni l'autre — deux décaissements demandés à la
+ * même seconde lisaient le même maximum, et le second échouait sur la contrainte d'unicité, c'est-à-dire
+ * une demande de paiement qui ne part pas, après le clic. Le cliquet des filets ne pouvait pas le voir :
+ * il juge par FICHIER, et ce fichier en portait un — sur le dossier compagnon. La série PAY est partagée
+ * avec la création d'une demande de paiement (`payment-request-actions.ts`) : deux files pour une série
+ * n'en protégeraient que la moitié.
+ */
+export const SERIE_ORDRES = "OD";
+export const SERIE_DEMANDES_PAIEMENT = "PAY";
 
 interface CreateExpenseOrderInput {
   label: string;
@@ -196,7 +209,14 @@ async function openCompanionDossier(
   // HONNÊTE vaut mieux qu'une attribution fausse.
   if (!needsCompanionDossier(input.sourceType) || !requesterId) return;
   try {
-    const dossier = await createWithRetry(async () =>
+    // LA FILE, ET CE QUI LA PROUVE — mesuré (§118.182). Retirée seule, la rafale de douze décaissements
+    // simultanés tombe une fois sur deux (3 sur 6) : les ordres passent déjà un par un (`SERIE_ORDRES`),
+    // donc leurs dossiers naissent décalés — mais pas toujours assez pour que six essais suffisent, et un
+    // dossier perdu l'est EN SILENCE (best-effort). Une rafale qui ne voit la garde qu'une fois sur deux
+    // n'est pas son témoin (§118.65) : le témoin déterministe est la règle qui exige cette file à ce point
+    // d'appel (`refs-filet.test.ts`). La série se partage avec les demandes de paiement déposées à la main ;
+    // leur banc de dépôts simultanés exerce la même file par l'AUTRE créateur.
+    const dossier = await enSerie(SERIE_DEMANDES_PAIEMENT, () => createWithRetry(async () =>
       prisma.paymentRequest.create({
         data: {
           reference: await nextPaymentRef(),
@@ -222,7 +242,7 @@ async function openCompanionDossier(
         },
         select: { id: true },
       }),
-    );
+    ));
     // Le fil ne s'ouvre pas vide : un historique blanc laisse croire qu'il ne s'est rien passé.
     await prisma.paymentRequestEvent.create({
       data: {
@@ -245,10 +265,12 @@ export async function createExpenseOrder(input: CreateExpenseOrderInput) {
   const sourceModule = input.sourceType ? ENTITY_MODULE[input.sourceType] : null;
   const centralStatus = initialCentralStatus({ amount: input.amount, module: sourceModule });
 
-  const order = await prisma.expenseOrder.create({
+  // L'ENTITÉ se lit UNE fois, hors de l'essai : seule la RÉFÉRENCE se recalcule sous collision.
+  const companyId = await companyOfExpense(input);
+  const order = await enSerie(SERIE_ORDRES, () => createWithRetry(async () => prisma.expenseOrder.create({
     data: {
       reference: await nextExpenseRef(),
-      companyId: await companyOfExpense(input),
+      companyId,
       label: input.label,
       amount: input.amount,
       category: input.category,
@@ -263,7 +285,7 @@ export async function createExpenseOrder(input: CreateExpenseOrderInput) {
       requiresInvoice,
       centralStatus,
     },
-  });
+  })));
 
   // UN ORDRE, UN DOSSIER — quelle que soit sa provenance. Voir `openCompanionDossier`.
   await openCompanionDossier(order, input);

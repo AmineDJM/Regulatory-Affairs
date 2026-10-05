@@ -77,12 +77,16 @@ export function restrictingRangeIds(bearer: RangeBearer): string[] {
  */
 export function productRangeWhere(
   bearer: RangeBearer,
-): { OR: ({ rangeId: { in: string[] } } | { companyId: { in: string[] } })[] } | null {
+): { OR: ({ rangeId: { in: string[] } } | { companyId: { in: string[] } } | { companyId: null })[] } | null {
   const rangeIds = restrictingRangeIds(bearer);
   if (rangeIds.length === 0) return null;
 
-  const clauses: ({ rangeId: { in: string[] } } | { companyId: { in: string[] } })[] = [
+  const clauses: ({ rangeId: { in: string[] } } | { companyId: { in: string[] } } | { companyId: null })[] = [
     { rangeId: { in: rangeIds } },
+    // UN OBJET SANS ENTITÉ n'est le secret d'aucune société — la règle de `companyScopedWhere`, qui le
+    // garde pour qu'on le rattache. La gamme l'écartait : donner à quelqu'un une gamme EN PLUS lui
+    // retirait les dossiers non rattachés qu'il voyait la veille (trouvé par le banc des fiches, §118.184).
+    { companyId: null },
   ];
   // Les sociétés ouvertes en entier ne passent pas par la gamme : elles restent entières.
   if (bearer.fullCompanyIds.length > 0) clauses.push({ companyId: { in: bearer.fullCompanyIds } });
@@ -98,7 +102,8 @@ export function canSeeProduct(
   const rangeIds = new Set(restrictingRangeIds(bearer));
   if (rangeIds.size === 0) return true; // pas de restriction par gamme : l'entité décide seule
   if (p.rangeId && rangeIds.has(p.rangeId)) return true;
-  return !!p.companyId && bearer.fullCompanyIds.includes(p.companyId);
+  if (!p.companyId) return true; // sans entité : le secret d'aucune société (même règle que le filtre)
+  return bearer.fullCompanyIds.includes(p.companyId);
 }
 
 /** Une gamme telle qu'on l'affiche dans l'arbre Entité → Gammes → Produits. */

@@ -6,7 +6,7 @@ import { userCan } from "@/lib/rbac";
 import { listPartyOptions } from "@/lib/queries/company-contacts";
 import { aiConfigured } from "@/lib/ai";
 import { prisma } from "@/lib/prisma";
-import { getPchTenderDetail } from "@/lib/queries/pch";
+import { getPchTenderDetail, lecturesDuMarche } from "@/lib/queries/pch";
 import { loadMarket360 } from "@/lib/queries/market-360";
 import { loadEngagementsAilleurs, reserveEngagement } from "@/lib/queries/pch-engagements";
 import { storyMarche } from "@/lib/queries/story";
@@ -31,6 +31,7 @@ import { CreateRecordButton } from "@/components/shared/create-record-button";
 import { createMailEntry } from "@/lib/actions/mail-register-actions";
 import { mailFields } from "../../courriers/mail-fields";
 import { getMyCompanies, companyLabel } from "@/lib/company";
+import { canAccessEntity } from "@/lib/entity-access";
 import { mailRoutingOptions } from "@/lib/queries/mail-routing";
 
 /**
@@ -41,6 +42,10 @@ import { mailRoutingOptions } from "@/lib/queries/mail-routing";
  */
 export default async function PchTenderPage({ params }: { params: { id: string } }) {
   const user = await requireModule("PCH");
+  // LA PORTE AVANT LE CHARGEMENT (§118.184 — audit 360°, S11) : la fiche chargeait le marché par son seul
+  // identifiant, et un gestionnaire PCH d'une société lisait le marché d'une autre — montants, contrat,
+  // bons de commande, pièces. Hors de portée, la même page qu'un marché qui n'existe pas.
+  if (!(await canAccessEntity(user, "PCH_TENDER", params.id, "VIEW"))) notFound();
   const [t, market, story, businessUnits, affectations] = await Promise.all([
     getPchTenderDetail(params.id),
     loadMarket360(params.id),
@@ -71,6 +76,8 @@ export default async function PchTenderPage({ params }: { params: { id: string }
     if (phrase) reserves[pid] = phrase;
   }
   const canEdit = userCan(user, "PCH", "UPDATE");
+  // LES LECTURES DU DOCUMENT (lot D1c — F2) : ce que chaque lecture a fait, montré à qui peut en relancer une.
+  const lectures = canEdit ? await lecturesDuMarche(t.id) : { liste: [], total: 0 };
   const canDelete = userCan(user, "PCH", "DELETE");
   const canUpload = userCan(user, "PCH", "UPLOAD");
   const canLegal = userCan(user, "LEGAL", "CREATE") && userCan(user, "LEGAL", "UPDATE");
@@ -211,7 +218,7 @@ export default async function PchTenderPage({ params }: { params: { id: string }
 
       <Card>
         <CardContent className="p-4">
-          <TenderLines tenderId={t.id} lines={t.lines} canEdit={canEdit} aiConfigured={aiConfigured()} reserves={reserves} />
+          <TenderLines tenderId={t.id} lines={t.lines} canEdit={canEdit} aiConfigured={aiConfigured()} reserves={reserves} lectures={lectures} />
         </CardContent>
       </Card>
 

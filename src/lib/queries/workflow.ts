@@ -2,10 +2,11 @@ import type { EntityType } from "@prisma/client";
 import type { UserRole } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { toNumber } from "@/lib/utils";
-import { anyRoleFilter, hasGlobalView, hasRole, type SessionUser } from "@/lib/rbac";
+import { anyRoleFilter, hasGlobalView, hasRole, userCan, type Module, type SessionUser } from "@/lib/rbac";
 import { getBudgetCategoryOptions, type BudgetCategoryOption } from "@/lib/queries/budget";
-import { ensureInstance, getDefinition, orderedSteps, canActOnStep, stepBySlug } from "@/lib/workflow/engine";
+import { ensureInstance, getDefinition, orderedSteps, canActOnStep, stepBySlug, lectureDeLApprobation } from "@/lib/workflow/engine";
 import { estDecisionnaire, etapesNonAtteintes, ROLE_DIRECTION_MARKETING } from "@/lib/workflow/parcours";
+import { motifVisible, peutResoumettre, type MotifVisible } from "@/lib/workflow/renvoi";
 import {
   entityToCategory, WORKFLOW_CATEGORIES, CATEGORY_LABELS,
   type ActorScope, type WorkflowCategory, type WorkflowPower,
@@ -70,7 +71,7 @@ export interface WorkflowOutcome {
 export interface WorkflowView {
   category: WorkflowCategory;
   definitionName: string;
-  status: string; // IN_PROGRESS | APPROVED | REJECTED | CANCELLED
+  status: string; // IN_PROGRESS | RETURNED | APPROVED | REJECTED | CANCELLED
   currentSlug: string | null;
   steps: WorkflowStepView[];
   events: WorkflowEventView[];
@@ -86,6 +87,16 @@ export interface WorkflowView {
    *  Directeur des opérations (vue globale), National Sales et la Direction Marketing
    *  désigné. Pour les autres (ex. délégué demandeur) il reste masqué. */
   canViewHistory: boolean;
+  /**
+   * LE MOTIF QUE LE DEMANDEUR DOIT LIRE (audit 360°, R03 — §118.186) : le renvoi pour correction qui
+   * l'attend, ou le refus qui a clos sa demande. Montré à tout spectateur du panneau — la fiche a
+   * déjà vérifié qu'il peut la lire —, demandeur en premier, même hors de l'historique privilégié.
+   */
+  motif: MotifVisible | null;
+  /** Le spectateur peut-il resoumettre la demande renvoyée ? (le demandeur, la vue globale) */
+  peutResoumettre: boolean;
+  /** Le spectateur peut-il retirer la demande non tranchée ? (le demandeur, qui tranche, la vue globale) */
+  peutRetirer: boolean;
 }
 
 /** Une dépense Ad & Pro accordée peut être imputée à n'importe quelle enveloppe
@@ -146,11 +157,15 @@ async function synthesizeCreationEvent(
  * l'étape courante et le rôle du spectateur). Crée l'instance à la volée si besoin
  * (couvre aussi les demandes créées avant l'activation du moteur).
  */
-export async function getWorkflowForEntity(viewer: SessionUser, entityType: EntityType, entityId: string, requesterId: string | null): Promise<WorkflowView | null> {
+export async function getWorkflowForEntity(viewer: SessionUser, entityType: EntityType, entityId: string, requesterIdDonne: string | null): Promise<WorkflowView | null> {
   const category = entityToCategory(entityType);
   if (!category) return null;
   const instance = await ensureInstance(entityType, entityId);
   if (!instance) return null;
+  // LE DEMANDEUR SE RELIT QUAND L'APPELANT NE L'A PAS (la fiche d'un événement passait `null`) :
+  // sans lui, une étape « N+1 du demandeur » ne trouvait personne, et le demandeur lui-même ne se
+  // voyait proposer ni la resoumission ni le retrait de SA demande.
+  const requesterId = requesterIdDonne ?? (await demandeurDeLaDemande(entityType, entityId));
   const def = await getDefinition(category);
   const toutesLesEtapes = orderedSteps(def);
 
@@ -207,7 +222,8 @@ export async function getWorkflowForEntity(viewer: SessionUser, entityType: Enti
     let state: WorkflowStepView["state"];
     if (instance.status === "REJECTED" && s.slug === rejectedSlug) state = "rejected";
     else if (instance.status === "APPROVED") state = "done";
-    else if (instance.status === "IN_PROGRESS" && s.slug === instance.currentSlug) state = "current";
+    // Une demande À CORRIGER garde son étape « en cours » : c'est là qu'elle reviendra.
+    else if ((instance.status === "IN_PROGRESS" || instance.status === "RETURNED") && s.slug === instance.currentSlug) state = "current";
     else if (approved.has(s.slug) || s.position < currentPos) state = "done";
     else state = "todo";
     return {
@@ -224,6 +240,11 @@ export async function getWorkflowForEntity(viewer: SessionUser, entityType: Enti
   let action: WorkflowActionView | null = null;
   const current = stepBySlug(def, instance.currentSlug);
   if (instance.status === "IN_PROGRESS" && current && (await canActOnStep(viewer, current, instance, { requesterId }))) {
+    // L'ÉTAPE TELLE QUE LE MOTEUR LA JUGERA, pas seulement telle que la définition la décrit : sur
+    // la route d'un rang 2, la Direction des opérations CONCLUT et hérite le montant et la
+    // catégorie de Direction Marketing (`workflow/pouvoirs-argent.ts`). Lire `current` seul
+    // offrirait une approbation que le moteur refuse — un bouton offert puis refusé (§118.83).
+    const decide = lectureDeLApprobation(def, current, borne, ignorees).etape;
     const candidates = current.assignRole
       ? await prisma.user.findMany({ where: { ...anyRoleFilter([current.assignRole as UserRole]), isActive: true }, select: { id: true, name: true }, orderBy: { name: "asc" } })
       : [];
@@ -231,13 +252,17 @@ export async function getWorkflowForEntity(viewer: SessionUser, entityType: Enti
     const lastAmount = [...events].reverse().find((e) => e.amount != null)?.amount ?? instance.amount ?? null;
     action = {
       slug: current.slug, title: current.title, description: current.description,
-      powers: current.powers as WorkflowPower[], requireAmount: current.requireAmount, requireCategory: current.requireCategory,
+      powers: decide.powers as WorkflowPower[], requireAmount: decide.requireAmount, requireCategory: decide.requireCategory,
       requireNote: current.requireNote, assignRole: current.assignRole, assigneeCandidates: candidates,
       suggestedAmount: lastAmount != null ? toNumber(lastAmount) : null,
     };
   }
 
-  const needsCategory = stepViews.some((s) => s.requireCategory || s.powers.includes("SET_CATEGORY"));
+  // L'ACTION PROPOSÉE COMPTE AUSSI : l'étape qui conclut une route coupée hérite la catégorie sans
+  // qu'aucune étape de la route ne la porte dans la définition — sans cette ligne, le champ serait
+  // exigé et la liste des catégories, vide.
+  const needsCategory = stepViews.some((s) => s.requireCategory || s.powers.includes("SET_CATEGORY"))
+    || (action !== null && (action.requireCategory || action.powers.includes("SET_CATEGORY")));
   // Catégories restreintes aux enveloppes ACCESSIBLES au décideur (Direction) — décidées par le Super Admin.
   const budgetCategories = needsCategory && action ? await getBudgetCategoryOptions(AD_PRO_BUDGET_MODULES, viewer) : [];
   const outcome = instance.status !== "IN_PROGRESS" || instance.assigneeId ? await loadOutcome(entityType, entityId) : null;
@@ -257,7 +282,25 @@ export async function getWorkflowForEntity(viewer: SessionUser, entityType: Enti
       };
     }),
     action, budgetCategories, outcome,
+    // Lu sur l'historique BRUT : un renvoi est adressé au demandeur, et un refus définitif est une
+    // décision — ni l'un ni l'autre n'est un avis confidentiel (`motifVisible`).
+    motif: motifVisible(instance.status, events),
+    peutResoumettre: instance.status === "RETURNED"
+      && peutResoumettre({ id: viewer.id, vueGlobale: hasGlobalView(viewer) || viewer.role === "SUPER_ADMIN" }, requesterId),
+    peutRetirer: (instance.status === "IN_PROGRESS" || instance.status === "RETURNED")
+      && (requesterId === viewer.id || hasGlobalView(viewer) || viewer.role === "SUPER_ADMIN" || userCan(viewer, category as Module, "VALIDATE")),
   };
+}
+
+async function demandeurDeLaDemande(entityType: EntityType, entityId: string): Promise<string | null> {
+  const sel = { select: { requesterId: true } } as const;
+  const ligne =
+    entityType === "SPONSORING" ? await prisma.sponsoringRequest.findUnique({ where: { id: entityId }, ...sel })
+      : entityType === "CONGRESS_INTERNATIONAL" ? await prisma.congressInternational.findUnique({ where: { id: entityId }, ...sel })
+        : entityType === "CONGRESS_NATIONAL" ? await prisma.congressNational.findUnique({ where: { id: entityId }, ...sel })
+          : entityType === "EVENT" ? await prisma.event.findUnique({ where: { id: entityId }, ...sel })
+            : null;
+  return ligne?.requesterId ?? null;
 }
 
 // ───────────────────────────── Builder (Administration) ─────────────────────────────

@@ -62,20 +62,22 @@ export function registerBuiltinWorkflows(): void {
   registerWorkflow({
     kind: "knowledge_catchup",
     label: "Rattrapage d'indexation",
-    description: "Met en file les documents jamais vus, repasse ceux restés muets, puis traite un lot élargi.",
+    description: "Met en file les documents jamais vus, repasse ceux restés muets, rattrape les vecteurs et les lectures visuelles jamais faits (sans modèle disponible, rien ne part), puis traite un lot élargi.",
     mutates: false,
     run: async () => {
       const { enqueueBacklogs, enqueueStalled, runKnowledgeSweep } = await import("@/lib/knowledge/worker");
       const backlog = await enqueueBacklogs(60);
       const stalled = await enqueueStalled(30);
       const sweep = await runKnowledgeSweep(40);
-      const queued = backlog.drive + backlog.email + stalled;
+      const queued = backlog.drive + backlog.email + stalled + backlog.vecteurs + backlog.visions;
       return {
         // « Rien à faire » est un résultat, pas un échec : tout est à jour, et l'historique le dira.
-        didWork: queued > 0 || sweep.processed > 0,
+        didWork: queued > 0 || sweep.processed > 0 || sweep.repaired > 0,
         summary:
-          `${queued} documents mis en file (${backlog.drive} Drive, ${backlog.email} messages, ${stalled} repassés). ` +
-          `Traités : ${sweep.processed}, sans effet : ${sweep.skipped}, en échec : ${sweep.failed}.`,
+          `${queued} travaux mis en file (${backlog.drive} Drive, ${backlog.email} messages, ${stalled} repassés, ` +
+          `${backlog.vecteurs} vectorisations et ${backlog.visions} lectures visuelles rattrapées). ` +
+          `Traités : ${sweep.processed}, sans effet : ${sweep.skipped}, en attente (panne temporaire) : ${sweep.postponed}, ` +
+          `en échec : ${sweep.failed}, étapes réparées : ${sweep.repaired}.`,
       };
     },
   });

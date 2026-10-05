@@ -3,8 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { requireUser } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
-import { getCompanyScope } from "@/lib/company";
-import { regCan, resolveRegCompanyId } from "../access";
+import { regCan, resolveRegCompanyIdFor } from "../access";
 import { regAudit } from "../audit";
 
 /** Actions des réserves ANPP (G9). regulatory.reserve.manage. Org-scopé. */
@@ -15,7 +14,7 @@ const str = (fd: FormData, k: string) => { const v = fd.get(k); return v ? Strin
 async function guardPoint(pointId: string): Promise<{ ok: true; userId: string; dossierId: string } | { ok: false; error: string }> {
   const user = await requireUser();
   if (!regCan(user, "regulatory.reserve.manage") && user.role !== "SUPER_ADMIN") return { ok: false, error: "Non autorisé." };
-  const companyId = await resolveRegCompanyId(getCompanyScope());
+  const companyId = await resolveRegCompanyIdFor(user.id);
   if (!companyId) return { ok: false, error: "Module non activé." };
   const point = await prisma.regulatoryReservePoint.findFirst({
     where: { id: pointId, cycle: { dossier: { companyId } } }, select: { cycle: { select: { dossierId: true } } },
@@ -70,7 +69,7 @@ export async function deleteReserveCycle(formData: FormData): Promise<Result> {
   const user = await requireUser();
   const cycleId = str(formData, "cycleId");
   if (!cycleId) return { ok: false, error: "Cycle manquant." };
-  const companyId = await resolveRegCompanyId(getCompanyScope());
+  const companyId = await resolveRegCompanyIdFor(user.id);
   if (!companyId) return { ok: false, error: "Module non activé." };
   const cycle = await prisma.regulatoryReserveCycle.findFirst({ where: { id: cycleId, dossier: { companyId } }, select: { id: true, dossierId: true, createdById: true } });
   if (!cycle) return { ok: false, error: "Cycle introuvable." };

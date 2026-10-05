@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getCurrentUser } from "@/lib/session";
-import { getCompanyScope } from "@/lib/company";
-import { regCan, resolveRegCompanyId } from "@/lib/regulatory/intelligence/access";
+import { getCurrentUserPourEcrire } from "@/lib/session";
+import { regCan, resolveRegCompanyIdFor } from "@/lib/regulatory/intelligence/access";
 import { startUploadSession, startDirectUploadSession, objectStorageConfigured, DEFAULT_PART_SIZE, SMALL_FILE_THRESHOLD, MAX_TOTAL_BYTES, UPLOAD_CONCURRENCY } from "@/lib/regulatory/intelligence/upload/session";
+import { refusSansStockageObjet } from "@/lib/storage/phrases-stockage";
+import { MAX_SANS_STOCKAGE_OBJET_MO } from "@/lib/storage/phrases-stockage";
 
 /**
  * Ouverture d'une SESSION d'upload résumable (G14) — pour les gros dossiers CTD.
@@ -12,10 +13,10 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function POST(req: NextRequest) {
-  const user = await getCurrentUser();
+  const user = await getCurrentUserPourEcrire();
   if (!user) return NextResponse.json({ error: "Non authentifié." }, { status: 401 });
   if (!regCan(user, "regulatory.dossier.upload")) return NextResponse.json({ error: "Téléversement non autorisé." }, { status: 403 });
-  const companyId = await resolveRegCompanyId(getCompanyScope());
+  const companyId = await resolveRegCompanyIdFor(user.id);
   if (!companyId) return NextResponse.json({ error: "Module non activé pour cette entité." }, { status: 403 });
 
   let body: { dossierId?: string; filename?: string; totalBytes?: number; partSize?: number; sha256?: string; contentType?: string };
@@ -34,16 +35,21 @@ export async function POST(req: NextRequest) {
       contentType: body.contentType ?? null, totalBytes: Number(body.totalBytes), expectedSha256: body.sha256 ?? null,
     });
     if (!d.ok) return NextResponse.json({ error: d.error }, { status: 422 });
-    // MULTIPART : le navigateur reçoit une URL présignée PAR PARTIE et les envoie EN PARALLÈLE.
-    // C'est ce qui fait la différence de débit sur un gros dossier — un flux unique n'utilise
-    // qu'une fraction du lien disponible.
-    if (d.partUrls?.length) {
+    // MULTIPART : le navigateur reçoit le PLAN — une adresse signée par partie MANQUANTE, et la
+    // liste de celles que le bucket a déjà (reprise) — et envoie les parties EN PARALLÈLE.
+    if (d.plan) {
       return NextResponse.json({
-        ok: true, mode: "direct-multipart", sessionId: d.sessionId,
-        partUrls: d.partUrls, partSize: d.partSize, concurrency: d.concurrency, maxTotalBytes: MAX_TOTAL_BYTES,
+        ok: true, mode: "direct-multipart", sessionId: d.sessionId, plan: d.plan, resumed: d.resumed ?? false,
+        partSize: d.partSize, concurrency: d.concurrency, maxTotalBytes: MAX_TOTAL_BYTES,
       });
     }
     return NextResponse.json({ ok: true, mode: "direct", sessionId: d.sessionId, uploadUrl: d.uploadUrl, maxTotalBytes: MAX_TOTAL_BYTES });
+  }
+
+  // SANS STOCKAGE OBJET, un très gros dossier ne s'écrit PAS en base : il remplirait Postgres
+  // (≈ 1 Go sur l'offre gratuite) et ferait tomber l'application. Le refus nomme les variables.
+  if (Number(body.totalBytes) > MAX_SANS_STOCKAGE_OBJET_MO * 1024 * 1024) {
+    return NextResponse.json({ error: refusSansStockageObjet(Number(body.totalBytes), MAX_SANS_STOCKAGE_OBJET_MO) }, { status: 413 });
   }
 
   const r = await startUploadSession({

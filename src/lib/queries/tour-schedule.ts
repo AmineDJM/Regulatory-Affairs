@@ -1,12 +1,13 @@
 import { prisma } from "@/lib/prisma";
-import { branchesDesPraticiensCouverts, lienCouvre, type LienCouverture } from "@/lib/annuaires/services";
-import type { SessionUser } from "@/lib/rbac";
+import { lienCouvre, type LienCouverture } from "@/lib/annuaires/services";
+import { clausePanelDuKam, type SessionUser } from "@/lib/rbac";
 import {
   avancementTournee, echeanceDeSoumission, etatVisite, fenetreDeVue, fenetreRapport, periodeDe,
-  retardDeSoumission,
+  retardDeSoumission, retraitInterditApresRevision,
   type AvancementTournee, type EtatVisite, type RetardDeSoumission, type StatutPlan, type VueTournee,
 } from "@/lib/sfe/tournee";
 import { lireReglageTournee } from "@/lib/sfe/tournee-reglage";
+import { diagnosticPanelVide, type CausePanelVide } from "@/lib/sfe/panel-diagnostic";
 import { remisesDesVisites, type RemisesDeVisite } from "@/lib/queries/promo-remises";
 
 /**
@@ -53,6 +54,8 @@ export interface LigneEmploiDuTemps {
   heuresRestantes: number;
   /** Un rapport VOCAL est rattaché. */
   vocal: boolean;
+  /** Pourquoi elle n'a pas eu lieu, quand elle est dite reportée ou annulée (§118.193). */
+  motifNonTenue: string | null;
 }
 
 export interface ProduitDeLaGamme {
@@ -113,7 +116,7 @@ export async function loadEmploiDuTemps(
       orderBy: [{ date: "asc" }],
       select: {
         id: true, date: true, status: true, origin: true, objective: true, report: true, doctorId: true,
-        tourPlanId: true, followUpActions: true,
+        tourPlanId: true, followUpActions: true, notHeldReason: true,
         doctor: { select: { name: true, institution: true, wilaya: true, specialty: true } },
         productLinks: { select: { productId: true, product: { select: { canonicalName: true } } } },
         messageLinks: { select: { messageId: true, message: { select: { title: true } } } },
@@ -176,6 +179,7 @@ export async function loadEmploiDuTemps(
       remises: remises.get(v.id) ?? RIEN,
       heuresRestantes: f.heuresRestantes,
       vocal: v.fieldReports.length > 0,
+      motifNonTenue: v.notHeldReason,
     };
   });
 
@@ -219,6 +223,9 @@ export interface PlanTourneeVue {
   submittedAt: Date | null;
   reviewerName: string | null;
   escalatedToName: string | null;
+  /** Les IDENTIFIANTS du validateur et du N+2 : la règle d'accès (`accesAuPlan`) compare des personnes, pas des noms. */
+  reviewerId: string | null;
+  escalatedToId: string | null;
   rejectionComment: string | null;
   resubmitDueAt: Date | null;
   /** Le retard de soumission, calculé UNE fois ici — l'écran l'affiche, il ne le recalcule pas. */
@@ -227,6 +234,17 @@ export interface PlanTourneeVue {
   paires: string[];
   /** Les visites du plan DÉJÀ rapportées : elles ne se déplanifient pas. */
   pairesAcquises: string[];
+  /**
+   * Les visites PASSÉES d'un plan déjà validé, non rapportées (§118.193) : une révision rouvre l'avenir du plan,
+   * pas son passé — elles restent au plan (`retraitInterditApresRevision`, la même règle que l'action).
+   */
+  pairesPassees: string[];
+  /** Parmi les acquises, celles DITES non tenues (reportées, annulées) : l'écran ne les dit pas « rapportées ». */
+  pairesNonTenues: string[];
+  /** La révision en cours d'un plan validé — son motif, qui l'a demandée, quand. */
+  revisionNote: string | null;
+  revisionPar: string | null;
+  revisionLe: Date | null;
   avancement: AvancementTournee;
 }
 
@@ -243,6 +261,10 @@ export interface PlanTourneeVue {
  * L'union est VOULUE : borner au seul secteur ferait disparaître les libéraux, borner au seul
  * rattachement ferait disparaître l'hôpital que la Direction vient de lui confier. Les deux
  * sources répondent à la même question, et c'est leur réunion qui est le panel.
+ *
+ * L'APPARTENANCE se lit dans LA clause du panel (`clausePanelDuKam`, §118.179) — la même que Ma
+ * journée, la saisie d'une visite, le cockpit et la porte de la fiche. Ce chargeur ne lit les
+ * secteurs que pour NOMMER celui qui amène chaque praticien.
  */
 export async function loadPanelPlanifiable(repId: string): Promise<PraticienPlanifiable[]> {
   const secteurs = await prisma.salesSector.findMany({
@@ -260,25 +282,81 @@ export async function loadPanelPlanifiable(repId: string): Promise<PraticienPlan
   })));
 
   const praticiens = await prisma.medicalDoctor.findMany({
-    where: {
-      OR: [
-        { delegateId: repId },
-        ...branchesDesPraticiensCouverts(liens),
-      ],
-    },
+    where: clausePanelDuKam(repId),
     orderBy: [{ name: "asc" }],
     select: {
       id: true, name: true, specialty: true, institution: true, wilaya: true, potential: true,
       institutionId: true, serviceId: true,
+      institutionRef: { select: { wilaya: true } },
     },
   });
   return praticiens.map((d) => ({
     id: d.id, name: d.name, specialty: d.specialty, institution: d.institution,
-    wilaya: d.wilaya, potential: d.potential ? String(d.potential) : null,
+    // LA WILAYA DE LA FICHE, sinon celle de son ÉTABLISSEMENT (04/10/2026) : le panel d'un KAM vient de
+    // ses établissements, et une fiche sans wilaya saisie restait hors du menu « Wilaya où je serai »
+    // alors que l'hôpital qui l'amène en a une.
+    wilaya: d.wilaya ?? d.institutionRef?.wilaya ?? null, potential: d.potential ? String(d.potential) : null,
     // LE SECTEUR qui l'amène — la MÊME règle que la clause (`lienCouvre`), pour qu'un praticien
     // venu par un service ne soit pas étiqueté du secteur qui ne couvre pas ce service.
     secteur: liens.find((l) => lienCouvre(l, d))?.secteur ?? null,
   }));
+}
+
+/**
+ * POURQUOI CE PANEL EST VIDE — les faits que lit `diagnosticPanelVide` (04/10/2026).
+ *
+ * Lus par la MÊME règle que le panel : la BU du KAM (`SalesRepProfile`), ses secteurs (actifs ou non,
+ * dans sa BU ou non — `clausePanelDuKam` ne compte que les actifs de SA BU, §118.184), les praticiens
+ * rattachés par identifiant aux établissements couverts, et les fiches d'avant le lien dont seul le
+ * TEXTE d'établissement porte le nom d'un établissement couvert. Appelé seulement quand le panel est
+ * vide : un écran normal ne paie pas ces lectures.
+ */
+export async function diagnostiquerPanelVide(repId: string): Promise<{ cause: CausePanelVide; phrase: string }> {
+  const [profil, affectations] = await Promise.all([
+    prisma.salesRepProfile.findUnique({ where: { repId }, select: { businessUnitId: true, region: true, businessUnit: { select: { name: true } } } }),
+    prisma.salesSectorRep.findMany({
+      where: { repId },
+      select: {
+        sector: {
+          select: {
+            name: true, isActive: true, businessUnitId: true, businessUnit: { select: { name: true } },
+            institutions: {
+              select: { institutionId: true, tousLesServices: true, services: { select: { serviceId: true } }, institution: { select: { name: true } } },
+            },
+          },
+        },
+      },
+    }),
+  ]);
+  const buId = profil?.businessUnitId ?? null;
+  const secteurs = affectations.map((a) => a.sector);
+  const vivants = secteurs.filter((s) => s.isActive && s.businessUnitId === buId);
+  const liens = vivants.flatMap((s) => s.institutions);
+  const etabIds = [...new Set(liens.map((l) => l.institutionId))];
+  const [rattaches, enTexte] = etabIds.length
+    ? await Promise.all([
+      prisma.medicalDoctor.findMany({ where: { institutionId: { in: etabIds } }, select: { institutionId: true, serviceId: true } }),
+      prisma.medicalDoctor.count({
+        where: {
+          institutionId: null,
+          OR: [...new Set(liens.map((l) => l.institution.name))].map((nom) => ({ institution: { equals: nom, mode: "insensitive" as const } })),
+        },
+      }),
+    ])
+    : [[] as { institutionId: string | null; serviceId: string | null }[], 0];
+  const couvre = (d: { institutionId: string | null; serviceId: string | null }) => liens.some((l) => lienCouvre(
+    { institutionId: l.institutionId, tousLesServices: l.tousLesServices, serviceIds: l.services.map((x) => x.serviceId) }, d,
+  ));
+  return diagnosticPanelVide({
+    bu: profil?.businessUnit?.name ?? null,
+    secteurTexte: profil?.region ?? null,
+    secteurs: secteurs.map((s) => ({
+      nom: s.name, bu: s.businessUnit.name, dansSaBu: s.businessUnitId === buId, actif: s.isActive, etablissements: s.institutions.length,
+    })),
+    praticiensRattaches: rattaches.length,
+    horsServicesChoisis: rattaches.filter((d) => !couvre(d)).length,
+    praticiensEnTexte: enTexte,
+  });
 }
 
 /** La clé d'une paire jour × praticien, telle que l'écran l'envoie et que l'action la relit. */
@@ -292,6 +370,8 @@ export async function loadPlanTournee(planId: string, maintenant: Date = new Dat
     select: {
       id: true, repId: true, periodStart: true, periodEnd: true, granularity: true, status: true,
       submissionDueAt: true, submittedAt: true, rejectionComment: true, resubmitDueAt: true,
+      reviewerId: true, escalatedToId: true,
+      revisionNote: true, revisionRequestedAt: true, revisionRequestedById: true, revisionCount: true,
       rep: { select: { name: true } },
       reviewer: { select: { name: true } },
       escalatedTo: { select: { name: true } },
@@ -300,6 +380,12 @@ export async function loadPlanTournee(planId: string, maintenant: Date = new Dat
   });
   if (!p) return null;
   const acquises = p.visits.filter((v) => v.status !== "PLANNED");
+  const passees = p.visits.filter((v) => retraitInterditApresRevision(v, p.revisionCount > 0, maintenant));
+  // `revisionRequestedById` est un identifiant sans relation (la convention des marques de renvoi, §118.192) :
+  // le nom se lit à part, et seulement quand une révision est en cours.
+  const revisionPar = p.revisionRequestedById
+    ? (await prisma.user.findUnique({ where: { id: p.revisionRequestedById }, select: { name: true } }))?.name ?? null
+    : null;
   return {
     id: p.id, repId: p.repId, repName: p.rep.name,
     periodStart: p.periodStart, periodEnd: p.periodEnd,
@@ -307,6 +393,7 @@ export async function loadPlanTournee(planId: string, maintenant: Date = new Dat
     submissionDueAt: p.submissionDueAt, submittedAt: p.submittedAt,
     reviewerName: p.reviewer?.name ?? null,
     escalatedToName: p.escalatedTo?.name ?? null,
+    reviewerId: p.reviewerId, escalatedToId: p.escalatedToId,
     rejectionComment: p.rejectionComment,
     resubmitDueAt: p.resubmitDueAt,
     retard: retardDeSoumission({
@@ -314,6 +401,11 @@ export async function loadPlanTournee(planId: string, maintenant: Date = new Dat
     }),
     paires: p.visits.filter((v) => v.doctorId).map((v) => clePaire(v.date, v.doctorId!)),
     pairesAcquises: acquises.filter((v) => v.doctorId).map((v) => clePaire(v.date, v.doctorId!)),
+    pairesPassees: passees.filter((v) => v.doctorId).map((v) => clePaire(v.date, v.doctorId!)),
+    pairesNonTenues: acquises.filter((v) => v.doctorId && (v.status === "CANCELLED" || v.status === "POSTPONED")).map((v) => clePaire(v.date, v.doctorId!)),
+    revisionNote: p.revisionNote,
+    revisionPar,
+    revisionLe: p.revisionRequestedAt,
     avancement: avancementTournee(p.visits.map((v) => ({
       etat: etatVisite({ statut: v.status, date: v.date, rapportFait: Boolean(v.report), maintenant }),
       imprevue: v.tourPlanId === null,

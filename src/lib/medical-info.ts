@@ -77,3 +77,17 @@ export async function createMedicalInfoDeclaration(input: CreateDeclarationInput
   });
   return decl;
 }
+
+/**
+ * LE MONTANT D'UNE DÉCLARATION SUIT LE BUDGET ACCORDÉ de sa demande, tant qu'elle n'est pas validée
+ * (le pharmacien n'a pas encore déposé). Rend l'ordre de dépense de la déclaration, s'il en a un : c'est
+ * lui que la révision fait suivre ensuite (§118.191).
+ */
+export async function repercuterMontantSurDeclaration(sourceType: EntityType, sourceId: string, amount: number): Promise<{ expenseOrderId: string | null }> {
+  const decl = await prisma.medicalInfoDeclaration.findUnique({
+    where: { sourceType_sourceId: { sourceType, sourceId } }, select: { id: true, status: true, expenseOrderId: true },
+  });
+  if (!decl) return { expenseOrderId: null };
+  if (decl.status !== "VALIDATED") await prisma.medicalInfoDeclaration.update({ where: { id: decl.id }, data: { amount } });
+  return { expenseOrderId: decl.expenseOrderId };
+}

@@ -13,6 +13,7 @@ import { readDirectoryWorkbook } from "@/lib/medical/directory-workbook";
 import { parseDirectorySheet, champsAEcrire, type DirectoryImportRow, type DirectoryField } from "@/lib/medical/directory-sheet";
 import { cleDEtablissement, indexerEtablissements, serviceParNom } from "@/lib/annuaires/rattachement";
 import { cleDeService } from "@/lib/annuaires/services";
+import { ecritureDeSpecialite, indexerSpecialites, lienDeSpecialiteValide } from "@/lib/annuaires/specialites";
 import { unresolvedHint } from "@/lib/medical/wilaya";
 import { inferWilayas } from "@/lib/medical/wilaya-ai";
 import {
@@ -227,6 +228,13 @@ export async function importDirectorySheet(formData: FormData): Promise<ActionRe
       })
     : [];
   const resoudreEtab = indexerEtablissements(etablissements);
+  // LE RÉFÉRENTIEL DES SPÉCIALITÉS (§118.180) — même règle : un texte relie à UNE spécialité à coup
+  // sûr ; sinon il reste écrit, sans lien, et le bilan le nomme. Lu une fois, seulement si le
+  // fichier porte une spécialité (la colonne, ou le service qui en tient lieu).
+  const resoudreSpecialite = presents.has("specialty") || presents.has("service")
+    ? indexerSpecialites(await prisma.medicalSpecialty.findMany({ select: { id: true, name: true } }))
+    : indexerSpecialites([]);
+  const specialitesHorsReferentiel = new Set<string>();
   const servicesDe = new Map(etablissements.map((e) => [e.id, e.services]));
   const nomDeEtab = new Map(etablissements.map((e) => [e.id, e.name]));
   let rattachees = 0;
@@ -293,7 +301,13 @@ export async function importDirectorySheet(formData: FormData): Promise<ActionRe
       lien.serviceId = null;
     }
 
-    const champs = champsAEcrire(row, presents, existant);
+    const champs = champsAEcrire(row, presents, existant) as Record<string, unknown>;
+    if ("specialty" in champs) {
+      const ecr = ecritureDeSpecialite(champs.specialty as string | null, resoudreSpecialite);
+      champs.specialty = ecr.specialty;
+      champs.specialtyId = ecr.specialtyId;
+      if (ecr.specialty && !ecr.specialtyId) specialitesHorsReferentiel.add(ecr.specialty);
+    }
     const delegueLu = delegueDuFichier(row);
 
     if (existant) {
@@ -364,6 +378,10 @@ export async function importDirectorySheet(formData: FormData): Promise<ActionRe
     const raison = (r: "inconnu" | "ambigu" | "inactif") => (r === "ambigu" ? "plusieurs établissements de ce nom" : r === "inactif" ? "établissement désactivé" : "absent de l'annuaire");
     parts.push(`établissement(s) à rattacher à la main : ${liste.slice(0, 5).map(([n, r]) => `« ${n} » (${raison(r)})`).join(", ")}${liste.length > 5 ? ` et ${liste.length - 5} autre(s)` : ""}`);
   }
+  if (specialitesHorsReferentiel.size > 0) {
+    const liste = [...specialitesHorsReferentiel];
+    parts.push(`spécialité(s) hors référentiel, gardée(s) écrite(s) sans lien : ${liste.slice(0, 5).map((n) => `« ${n} »`).join(", ")}${liste.length > 5 ? ` et ${liste.length - 5} autre(s)` : ""} (à rattacher dans Annuaires › Spécialités)`);
+  }
   if (servicesInconnus.size > 0) {
     const liste = [...servicesInconnus];
     parts.push(`service(s) non rattaché(s) — absent(s) de leur établissement : ${liste.slice(0, 5).join(", ")}${liste.length > 5 ? ` et ${liste.length - 5} autre(s)` : ""} (à ajouter dans Annuaires › Établissements)`);
@@ -371,6 +389,13 @@ export async function importDirectorySheet(formData: FormData): Promise<ActionRe
   if (delegueInconnu.size > 0 && voitTout) parts.push(`délégué(s) introuvable(s) — les fiches existantes gardent leur délégué, les nouvelles n'en ont pas : ${[...delegueInconnu].slice(0, 5).join(", ")}`);
   if (presents.has("delegate") && !voitTout) parts.push("colonne « Délégué » non appliquée : les fiches que vous créez vous sont attribuées");
   if (unknownCols.length) parts.push(`colonne(s) non reconnue(s) : ${unknownCols.join(", ")}`);
+  // UN NIVEAU ILLISIBLE N'EST NI ÉCRIT NI TU : la fiche garde le sien (ou le défaut, si elle est
+  // neuve), et la cellule est nommée — sinon « Très bon » mal orthographié deviendrait un silence.
+  const illisibles = parsed.rows.flatMap((r) => r.niveauxIllisibles);
+  if (illisibles.length > 0) {
+    const nom = { influence: "Influence", potential: "Potentiel", affinity: "Affinité" } as const;
+    parts.push(`${illisibles.length} niveau(x) illisible(s) non écrit(s) : ${illisibles.slice(0, 5).map((i) => `« ${i.valeur} » (${nom[i.champ]})`).join(", ")}${illisibles.length > 5 ? ` et ${illisibles.length - 5} autre(s)` : ""}`);
+  }
   return { ok: true, message: parts.join(" · ") };
 }
 
@@ -504,11 +529,17 @@ export async function saveDirectoryCell(input: { id: string; field: string; valu
       if (name) data.name = name; // un nom vide n'écrase pas le libellé existant
       break;
     }
-    case "specialty":
-      // La saisie libre prend le pas sur le référentiel : ce qu'on tape doit s'afficher.
-      data.specialty = v;
-      data.specialtyId = null;
+    case "specialty": {
+      // UN LIEN QUAND C'EST SÛR, LE TEXTE SINON (§118.180). Cette cellule écrivait le texte et
+      // EFFAÇAIT le lien : taper « Cardiologie » rendait la fiche « sans spécialité » pour tout ce
+      // qui lit le référentiel. Le texte se résout maintenant : une spécialité à coup sûr → le lien
+      // et SON nom ; sinon le texte tel quel, sans lien — et la feuille le signale « à rattacher ».
+      const referentiel = await prisma.medicalSpecialty.findMany({ select: { id: true, name: true } });
+      const ecr = ecritureDeSpecialite(v, indexerSpecialites(referentiel));
+      data.specialty = ecr.specialty;
+      data.specialtyId = ecr.specialtyId;
       break;
+    }
     case "potential":
       data.potential = v;
       data.prescriptionPotential = segToPriority[v as SegmentLevel];
@@ -582,6 +613,72 @@ export async function rattacherEtablissementsParNom(input: { ids: string[] }): P
   if (restent.size > 0) {
     const liste = [...restent.entries()];
     const raison = (r: "inconnu" | "ambigu" | "inactif") => (r === "ambigu" ? "plusieurs établissements de ce nom" : r === "inactif" ? "établissement désactivé" : "absent de l'annuaire");
+    parts.push(`à rattacher à la main : ${liste.slice(0, 6).map(([n, r]) => `« ${n} » (${raison(r)})`).join(", ")}${liste.length > 6 ? ` et ${liste.length - 6} autre(s)` : ""}`);
+  }
+  return { ok: true, rattachees, message: parts.join(" · ") };
+}
+
+/**
+ * RATTACHER LES SPÉCIALITÉS ÉCRITES EN TEXTE — en lot, par le NOM, et seulement à coup sûr (§118.180).
+ *
+ * La même règle que pour les établissements (§118.172) : une fiche dont le texte désigne UNE SEULE
+ * spécialité du référentiel, casse, accents et espaces mis à part, reçoit le lien ; les autres —
+ * inconnues du référentiel, ou désignant deux entrées qui ne diffèrent que par un accent — sont
+ * DITES, pour qu'on les crée ou qu'on fusionne le doublon. On ne touche que ce que la personne peut
+ * modifier, et que la vue qu'elle regarde contient (`ids`).
+ *
+ * « Sans lien » veut dire ce que la feuille montre : pas de lien, OU un lien que le texte contredit
+ * (`lienDeSpecialiteValide` — l'ancien import remplaçait le texte sans toucher au lien). C'est alors
+ * le TEXTE qui se résout, puisque c'est la saisie la plus récente.
+ */
+export async function rattacherSpecialitesParNom(input: { ids: string[] }): Promise<ActionResult & { rattachees?: number }> {
+  const user = await requireUser();
+  const ids = [...new Set((input.ids ?? []).map((i) => String(i).trim()).filter(Boolean))];
+  if (ids.length === 0) return { ok: false, error: "Aucune fiche à rattacher dans cette vue." };
+  if (ids.length > RATTACHEMENT_MAX) {
+    return { ok: false, error: `${ids.length} fiches d'un coup : c'est plus que les ${RATTACHEMENT_MAX} qu'un rattachement traite — filtrez la feuille et recommencez.` };
+  }
+  const [fiches, referentiel] = await Promise.all([
+    prisma.medicalDoctor.findMany({
+      where: { id: { in: ids }, specialty: { not: null } },
+      select: { id: true, specialty: true, specialtyId: true, specialtyRef: { select: { name: true } } },
+    }),
+    prisma.medicalSpecialty.findMany({ select: { id: true, name: true } }),
+  ]);
+  const resoudre = indexerSpecialites(referentiel);
+  let rattachees = 0;
+  let horsPortee = 0;
+  const restent = new Map<string, "inconnu" | "ambigu">();
+  for (const f of fiches) {
+    // Déjà rattachée à bon droit : rien à faire.
+    if (f.specialtyRef && lienDeSpecialiteValide(f.specialty, f.specialtyRef.name)) continue;
+    const r = resoudre(f.specialty);
+    if (r.statut !== "trouve") {
+      if (f.specialty && (r.statut === "inconnu" || r.statut === "ambigu") && !restent.has(f.specialty)) restent.set(f.specialty, r.statut);
+      continue;
+    }
+    if (!(await canAccessEntity(user, "DOCTOR", f.id, "UPDATE"))) { horsPortee += 1; continue; }
+    // CONDITIONNEL — sur ce qu'on a LU, lien et texte : une fiche touchée entre la lecture et ce clic
+    // garde le choix qu'on y a fait.
+    const { count } = await prisma.medicalDoctor.updateMany({
+      where: { id: f.id, specialtyId: f.specialtyId, specialty: f.specialty },
+      data: { specialtyId: r.specialite.id, specialty: r.specialite.name, updatedById: user.id },
+    });
+    rattachees += count;
+  }
+  if (rattachees > 0) {
+    await recordAudit({
+      actorId: user.id, action: "UPDATE", module: "Annuaires",
+      summary: `Annuaire des praticiens — ${rattachees} fiche(s) rattachée(s) au référentiel des spécialités par leur nom`,
+    });
+    revalidatePath("/medical/annuaire");
+    revalidatePath("/annuaires");
+  }
+  const parts = [rattachees > 0 ? `${rattachees} fiche(s) rattachée(s) au référentiel des spécialités` : "Aucune fiche rattachée"];
+  if (horsPortee > 0) parts.push(`${horsPortee} hors de votre portée, laissée(s) telle(s) quelle(s)`);
+  if (restent.size > 0) {
+    const liste = [...restent.entries()];
+    const raison = (r: "inconnu" | "ambigu") => (r === "ambigu" ? "deux spécialités du référentiel s'écrivent ainsi — fusionnez-les" : "absente du référentiel");
     parts.push(`à rattacher à la main : ${liste.slice(0, 6).map(([n, r]) => `« ${n} » (${raison(r)})`).join(", ")}${liste.length > 6 ? ` et ${liste.length - 6} autre(s)` : ""}`);
   }
   return { ok: true, rattachees, message: parts.join(" · ") };
@@ -698,7 +795,12 @@ export async function addDirectoryDoctor(input: {
 
   const wilaya = validateAnnuaireValue("wilaya", input.wilaya);
   if (!wilaya.ok) return { ok: false, error: wilaya.error };
-  const specialty = input.specialty.replace(/\s+/g, " ").trim() || null;
+  // La spécialité saisie se RÉSOUT (§118.180) : un lien quand elle désigne une spécialité du
+  // référentiel à coup sûr, le texte tel quel sinon.
+  const specialite = ecritureDeSpecialite(
+    input.specialty,
+    indexerSpecialites(await prisma.medicalSpecialty.findMany({ select: { id: true, name: true } })),
+  );
 
   // L'ÉTABLISSEMENT ET LE SERVICE — les mêmes règles que la cellule de la feuille : un
   // établissement ACTIF de l'annuaire, et un service qui lui appartient.
@@ -724,7 +826,7 @@ export async function addDirectoryDoctor(input: {
   const created = await prisma.medicalDoctor.create({
     data: {
       name, lastName: lastName || null, firstName: firstName || null,
-      specialty, wilaya: wilaya.value, delegateId, companyId, directoryId,
+      specialty: specialite.specialty, specialtyId: specialite.specialtyId, wilaya: wilaya.value, delegateId, companyId, directoryId,
       institutionId, institution, serviceId,
       ...(title && title.ok && title.value ? { title: title.value as never } : {}),
       createdById: user.id, updatedById: user.id,

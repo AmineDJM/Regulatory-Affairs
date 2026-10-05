@@ -46,5 +46,10 @@ export async function teamMemberKpis(employeeId: string): Promise<
     ? await prisma.user.findUnique({ where: { id: cible.userId }, select: { role: true } })
     : null;
 
-  return { ok: true, kpis: await getTeamMemberKpis(cible.employeeId, cible.fullName, cible.userId, compte?.role ?? null) };
+  // QUI REGARDE (§118.196, lot E3) : le cadenas Regulatory et les liens des chiffres dépendent du lecteur, et
+  // l'organigramme déjà chargé sert à rejouer la garde du plan de tournée sans le relire.
+  return {
+    ok: true,
+    kpis: await getTeamMemberKpis(cible.employeeId, cible.fullName, cible.userId, compte?.role ?? null, { user, employees, departments }),
+  };
 }

@@ -1,12 +1,19 @@
 import type { SessionUser } from "@/lib/rbac";
 import { Prisma } from "@prisma/client";
-import {
-  userCan, scopeRegulatory, scopeSales, scopeMedicalDoctors, scopeBusinessDevelopment,
-  scopeAdminRequests, scopeCongressIntl, scopeCongressNational,
-} from "@/lib/rbac";
+import { userCan, hasGlobalView, scopeBusinessDevelopment } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
-import { hasGlobalView } from "@/lib/rbac";
-import { legalReaderWhere } from "@/lib/lecteurs/legal";
+import { regulatoryVisibleWhere } from "@/lib/queries/regulatory-rows";
+import { regCan, resolveRegCompanyIdFor } from "@/lib/regulatory/intelligence/access";
+import { accessibleDocumentWhere } from "@/lib/queries/documents";
+import { clausePraticiensVisibles } from "@/lib/queries/annuaires";
+import { clauseDirectivesVisibles } from "@/lib/queries/directives";
+import { clauseTachesVisibles } from "@/lib/tasks/request-flow";
+import {
+  clauseBonsDeCommandePchVisibles, clauseCommandesLogistiqueVisibles, clauseCongresInternationauxVisibles,
+  clauseCongresNationauxVisibles, clauseConversationsVisibles, clauseCourriersVisibles, clauseDemandesSecretariatVisibles,
+  clauseEcrituresVisibles, clauseEvenementsVisibles, clauseMarchesPchVisibles, clauseMessagesVisibles,
+  clauseSalariesVisibles, clauseSponsoringsVisibles, clauseVentesVisibles, perimetreLegal,
+} from "@/lib/queries/visibilite-listes";
 
 export interface SearchResult {
   id: string;
@@ -19,11 +26,20 @@ export interface SearchResult {
 
 /**
  * RECHERCHE GLOBALE multi-modules, RBAC-aware et MULTI-TERMES : ne requête que les modules que
- * l'utilisateur peut voir, applique le scope par ligne, et exige que CHAQUE mot de la requête
- * apparaisse dans au moins un champ (ET des mots, OU des champs) → « module 2 amox » retrouve un
- * dossier même si les mots sont dans des champs différents. Couvre dossiers CTD, demandes du
- * secrétariat, discussions, congrès, événements, directives, en plus des objets métier.
- * Alimente la palette ⌘K et la page /search.
+ * l'utilisateur peut voir, et exige que CHAQUE mot de la requête apparaisse dans au moins un champ
+ * (ET des mots, OU des champs) → « module 2 amox » retrouve un dossier même si les mots sont dans
+ * des champs différents. Couvre dossiers CTD, demandes du secrétariat, discussions, congrès,
+ * événements, directives, en plus des objets métier. Alimente la palette ⌘K et la page /search.
+ *
+ * ── ELLE CHERCHE DANS CE QUE L'ÉCRAN MONTRE, ET NULLE PART AILLEURS (§118.177) ──────────────
+ *
+ * Chaque famille lit la CLAUSE DE SA LISTE — `regulatoryVisibleWhere`, `visibilite-listes.ts`,
+ * `accessibleDocumentWhere`… —, jamais une portée recomposée ici. Elle en composait sa propre
+ * version, et quinze familles sur vingt-trois montraient les lignes des autres sociétés du
+ * groupe ; les dossiers CTD sortaient sans la permission du module ni l'entité où il est activé,
+ * les directives sans leur publication, les messages des groupes qu'on avait quittés. Aucune
+ * construction de portée ne doit réapparaître dans ce fichier : `visibilite-listes.test.ts` le
+ * vérifie, et rejoue chaque famille avec un lecteur sans vue globale.
  */
 export async function globalSearch(user: SessionUser, q: string, perGroup = 6): Promise<SearchResult[]> {
   const raw = q.trim();
@@ -39,6 +55,12 @@ export async function globalSearch(user: SessionUser, q: string, perGroup = 6): 
 
   const driveAll = user.role === "SUPER_ADMIN" || user.access.modules.get("DRIVE")?.scope === "ALL";
   const canMessaging = userCan(user, "MESSAGING", "VIEW");
+  // Les dossiers CTD : la porte de l'écran est TRIPLE — le module Regulatory, la permission du
+  // module CTD, et l'organisation où il est activé, résolue pour CETTE personne.
+  const ctdCompanyId = userCan(user, "REGULATORY", "VIEW") && regCan(user, "regulatory.workspace.view")
+    ? await resolveRegCompanyIdFor(user.id)
+    : null;
+  const legal = await perimetreLegal(user);
 
   const [
     regulatory, dossiers, sponsoring, finances, employees, sales, logistics, doctors, bd, drive, documents, tasks,
@@ -46,28 +68,28 @@ export async function globalSearch(user: SessionUser, q: string, perGroup = 6): 
     tenders, pchOrders, legalDocs, mailEntries,
   ] = await Promise.all([
     userCan(user, "REGULATORY", "VIEW")
-      ? prisma.regulatoryProduct.findMany({ where: { AND: [scopeRegulatory(user), ...(match(["dci", "reference", "brandName", "partnerLab", "manufacturer"]) as Prisma.RegulatoryProductWhereInput[])] }, take, select: { id: true, dci: true, reference: true, brandName: true } })
+      ? prisma.regulatoryProduct.findMany({ where: { AND: [await regulatoryVisibleWhere(user) as Prisma.RegulatoryProductWhereInput, ...(match(["dci", "reference", "brandName", "partnerLab", "manufacturer"]) as Prisma.RegulatoryProductWhereInput[])] }, take, select: { id: true, dci: true, reference: true, brandName: true } })
       : [],
-    userCan(user, "REGULATORY", "VIEW")
-      ? prisma.regulatoryDossier.findMany({ where: { AND: match(["reference", "title"]) as Prisma.RegulatoryDossierWhereInput[] }, take, select: { id: true, reference: true, title: true } })
+    ctdCompanyId
+      ? prisma.regulatoryDossier.findMany({ where: { AND: [{ companyId: ctdCompanyId }, ...(match(["reference", "title"]) as Prisma.RegulatoryDossierWhereInput[])] }, take, select: { id: true, reference: true, title: true } })
       : [],
     userCan(user, "SPONSORING", "VIEW")
-      ? prisma.sponsoringRequest.findMany({ where: { AND: match(["institution", "reference", "doctor"]) as Prisma.SponsoringRequestWhereInput[] }, take, select: { id: true, institution: true, reference: true } })
+      ? prisma.sponsoringRequest.findMany({ where: { AND: [await clauseSponsoringsVisibles(user), ...(match(["institution", "reference", "doctor"]) as Prisma.SponsoringRequestWhereInput[])] }, take, select: { id: true, institution: true, reference: true } })
       : [],
     userCan(user, "FINANCES", "VIEW")
-      ? prisma.financeTransaction.findMany({ where: { AND: match(["label", "reference", "counterparty"]) as Prisma.FinanceTransactionWhereInput[] }, take, select: { id: true, label: true, reference: true } })
+      ? prisma.financeTransaction.findMany({ where: { AND: [await clauseEcrituresVisibles(user.id), ...(match(["label", "reference", "counterparty"]) as Prisma.FinanceTransactionWhereInput[])] }, take, select: { id: true, label: true, reference: true } })
       : [],
     userCan(user, "RH", "VIEW")
-      ? prisma.employee.findMany({ where: { AND: match(["fullName", "position", "department"]) as Prisma.EmployeeWhereInput[] }, take, select: { id: true, fullName: true, position: true } })
+      ? prisma.employee.findMany({ where: { AND: [await clauseSalariesVisibles(user.id), ...(match(["fullName", "position", "department"]) as Prisma.EmployeeWhereInput[])] }, take, select: { id: true, fullName: true, position: true } })
       : [],
     userCan(user, "SALES", "VIEW")
-      ? prisma.sale.findMany({ where: { AND: [scopeSales(user), ...(match(["product", "client"]) as Prisma.SaleWhereInput[])] }, take, select: { id: true, product: true, client: true } })
+      ? prisma.sale.findMany({ where: { AND: [await clauseVentesVisibles(user), ...(match(["product", "client"]) as Prisma.SaleWhereInput[])] }, take, select: { id: true, product: true, client: true } })
       : [],
     userCan(user, "LOGISTICS", "VIEW")
-      ? prisma.logisticsOrder.findMany({ where: { AND: match(["product", "reference", "supplier"]) as Prisma.LogisticsOrderWhereInput[] }, take, select: { id: true, product: true, reference: true } })
+      ? prisma.logisticsOrder.findMany({ where: { AND: [await clauseCommandesLogistiqueVisibles(user.id), ...(match(["product", "reference", "supplier"]) as Prisma.LogisticsOrderWhereInput[])] }, take, select: { id: true, product: true, reference: true } })
       : [],
     userCan(user, "MEDICAL", "VIEW")
-      ? prisma.medicalDoctor.findMany({ where: { AND: [scopeMedicalDoctors(user), ...(match(["name", "institution", "city"]) as Prisma.MedicalDoctorWhereInput[])] }, take, select: { id: true, name: true, specialty: true } })
+      ? prisma.medicalDoctor.findMany({ where: { AND: [await clausePraticiensVisibles(user, { entier: false }), ...(match(["name", "institution", "city"]) as Prisma.MedicalDoctorWhereInput[])] }, take, select: { id: true, name: true, specialty: true } })
       : [],
     userCan(user, "BUSINESS_DEVELOPMENT", "VIEW")
       ? prisma.businessDevelopmentOpportunity.findMany({ where: { AND: [scopeBusinessDevelopment(user), ...(match(["name", "dci"]) as Prisma.BusinessDevelopmentOpportunityWhereInput[])] }, take, select: { id: true, name: true, dci: true } })
@@ -76,61 +98,51 @@ export async function globalSearch(user: SessionUser, q: string, perGroup = 6): 
       ? prisma.driveNode.findMany({ where: { AND: [{ isTrashed: false, type: "FILE" }, driveAll ? {} : { OR: [{ ownerId: user.id }, { shares: { some: { userId: user.id } } }] }, ...(match(["name"]) as Prisma.DriveNodeWhereInput[])] }, take, select: { id: true, name: true, mimeType: true } })
       : [],
     userCan(user, "DOCUMENTS", "VIEW")
-      ? prisma.document.findMany({ where: { AND: match(["name"]) as Prisma.DocumentWhereInput[] }, take, select: { id: true, name: true, category: true } })
+      ? prisma.document.findMany({ where: { AND: [await accessibleDocumentWhere(user), ...(match(["name"]) as Prisma.DocumentWhereInput[])] }, take, select: { id: true, name: true, category: true } })
       : [],
     userCan(user, "WORKSPACE", "VIEW")
-      ? prisma.task.findMany({ where: { AND: [hasGlobalView(user) ? {} : { OR: [{ assignedToId: user.id }, { createdById: user.id }] }, ...(match(["title", "description"]) as Prisma.TaskWhereInput[])] }, take, select: { id: true, title: true, status: true } })
+      ? prisma.task.findMany({ where: { AND: [clauseTachesVisibles(user.id, hasGlobalView(user.role)), ...(match(["title", "description"]) as Prisma.TaskWhereInput[])] }, take, select: { id: true, title: true, status: true } })
       : [],
     userCan(user, "ADMIN_REQUESTS", "VIEW")
-      ? prisma.administrativeRequest.findMany({ where: { AND: [scopeAdminRequests(user), { deletedAt: null }, ...(match(["reference", "title", "description"]) as Prisma.AdministrativeRequestWhereInput[])] }, take, select: { id: true, reference: true, title: true } })
+      ? prisma.administrativeRequest.findMany({ where: { AND: [await clauseDemandesSecretariatVisibles(user), ...(match(["reference", "title", "description"]) as Prisma.AdministrativeRequestWhereInput[])] }, take, select: { id: true, reference: true, title: true } })
       : [],
     userCan(user, "CONGRESS_INTERNATIONAL", "VIEW")
-      ? prisma.congressInternational.findMany({ where: { AND: [scopeCongressIntl(user), ...(match(["name", "city", "specialty"]) as Prisma.CongressInternationalWhereInput[])] }, take, select: { id: true, name: true, city: true } })
+      ? prisma.congressInternational.findMany({ where: { AND: [await clauseCongresInternationauxVisibles(user), ...(match(["name", "city", "specialty"]) as Prisma.CongressInternationalWhereInput[])] }, take, select: { id: true, name: true, city: true } })
       : [],
     userCan(user, "CONGRESS_NATIONAL", "VIEW")
-      ? prisma.congressNational.findMany({ where: { AND: [scopeCongressNational(user), ...(match(["name", "city", "specialty"]) as Prisma.CongressNationalWhereInput[])] }, take, select: { id: true, name: true, city: true } })
+      ? prisma.congressNational.findMany({ where: { AND: [await clauseCongresNationauxVisibles(user), ...(match(["name", "city", "specialty"]) as Prisma.CongressNationalWhereInput[])] }, take, select: { id: true, name: true, city: true } })
       : [],
     userCan(user, "EVENTS", "VIEW")
-      ? prisma.event.findMany({ where: { AND: match(["name", "location", "city", "specialty"]) as Prisma.EventWhereInput[] }, take, select: { id: true, name: true, city: true } })
+      ? prisma.event.findMany({ where: { AND: [await clauseEvenementsVisibles(user.id), ...(match(["name", "location", "city", "specialty"]) as Prisma.EventWhereInput[])] }, take, select: { id: true, name: true, city: true } })
       : [],
     userCan(user, "DIRECTIVES", "VIEW")
-      ? prisma.directive.findMany({ where: { AND: [{ OR: [{ fromId: user.id }, { targetUserId: user.id }, { targetUserId: null }] }, ...(match(["reference", "title", "body"]) as Prisma.DirectiveWhereInput[])] }, take, select: { id: true, reference: true, title: true } })
+      ? prisma.directive.findMany({ where: { AND: [await clauseDirectivesVisibles(user), ...(match(["reference", "title", "body"]) as Prisma.DirectiveWhereInput[])] }, take, select: { id: true, reference: true, title: true } })
       : [],
-    // Discussions : canaux/groupes nommés dont l'utilisateur est membre.
+    // Discussions : canaux/groupes nommés dont l'utilisateur est membre ACTIF.
     canMessaging
-      ? prisma.conversation.findMany({ where: { AND: [{ members: { some: { userId: user.id } } }, ...(match(["title", "description"]) as Prisma.ConversationWhereInput[])] }, take, select: { id: true, title: true } })
+      ? prisma.conversation.findMany({ where: { AND: [clauseConversationsVisibles(user.id), ...(match(["title", "description"]) as Prisma.ConversationWhereInput[])] }, take, select: { id: true, title: true } })
       : [],
-    // Discussions : messages (contenu) dans les conversations de l'utilisateur.
+    // Discussions : messages (contenu) dans les conversations dont l'utilisateur est membre ACTIF.
     canMessaging
-      ? prisma.message.findMany({ where: { AND: [{ deletedAt: null }, { conversation: { members: { some: { userId: user.id } } } }, ...(match(["body"]) as Prisma.MessageWhereInput[])] }, take, orderBy: { createdAt: "desc" }, select: { id: true, body: true, conversationId: true, conversation: { select: { title: true } } } })
+      ? prisma.message.findMany({ where: { AND: [clauseMessagesVisibles(user.id), ...(match(["body"]) as Prisma.MessageWhereInput[])] }, take, orderBy: { createdAt: "desc" }, select: { id: true, body: true, conversationId: true, conversation: { select: { title: true } } } })
       : [],
     // MARCHÉS PCH (§44) : un AO se retrouve par sa référence (externe OU interne), son intitulé,
     // ses produits ou son organisme — le point d'entrée de toute la chaîne marché.
     userCan(user, "PCH", "VIEW")
-      ? prisma.pchTender.findMany({ where: { AND: match(["reference", "internalReference", "title", "products", "client"]) as Prisma.PchTenderWhereInput[] }, take, select: { id: true, reference: true, title: true, client: true } })
+      ? prisma.pchTender.findMany({ where: { AND: [await clauseMarchesPchVisibles(user.id), ...(match(["reference", "internalReference", "title", "products", "client"]) as Prisma.PchTenderWhereInput[])] }, take, select: { id: true, reference: true, title: true, client: true } })
       : [],
     // Les BONS DE COMMANDE mènent à la fiche de LEUR marché — pas d'écran BC isolé.
     userCan(user, "PCH", "VIEW")
-      ? prisma.pchOrder.findMany({ where: { AND: match(["reference", "products"]) as Prisma.PchOrderWhereInput[] }, take, select: { id: true, reference: true, products: true, tenderId: true, tender: { select: { reference: true } } } })
+      ? prisma.pchOrder.findMany({ where: { AND: [await clauseBonsDeCommandePchVisibles(user.id), ...(match(["reference", "products"]) as Prisma.PchOrderWhereInput[])] }, take, select: { id: true, reference: true, products: true, tenderId: true, tender: { select: { reference: true } } } })
       : [],
-    // LEGAL : la garde des LECTEURS s'applique ici aussi — un document restreint ne se
-    // découvre pas par la palette de recherche.
-    userCan(user, "LEGAL", "VIEW")
-      ? prisma.legalDocument.findMany({
-          where: {
-            AND: [
-              ...((): Prisma.LegalDocumentWhereInput[] => {
-                const w = legalReaderWhere({ viewerId: user.id, isSuperAdmin: user.role === "SUPER_ADMIN" });
-                return w ? [w as Prisma.LegalDocumentWhereInput] : [];
-              })(),
-              ...(match(["title", "reference", "counterparty"]) as Prisma.LegalDocumentWhereInput[]),
-            ],
-          },
-          take, select: { id: true, title: true, reference: true, kind: true },
-        })
+    // LEGAL : la portée de la personne (tout le registre, ou la chaîne d'achat seule pour les
+    // Finances), les LECTEURS désignés et l'entité — un document restreint ne se découvre pas par
+    // la palette de recherche.
+    legal.where
+      ? prisma.legalDocument.findMany({ where: { AND: [legal.where, ...(match(["title", "reference", "counterparty"]) as Prisma.LegalDocumentWhereInput[])] }, take, select: { id: true, title: true, reference: true, kind: true } })
       : [],
     userCan(user, "MAIL_REGISTER", "VIEW")
-      ? prisma.mailEntry.findMany({ where: { AND: match(["title", "reference", "sender", "recipient"]) as Prisma.MailEntryWhereInput[] }, take, select: { id: true, title: true, reference: true } })
+      ? prisma.mailEntry.findMany({ where: { AND: [await clauseCourriersVisibles(user.id), ...(match(["title", "reference", "sender", "recipient"]) as Prisma.MailEntryWhereInput[])] }, take, select: { id: true, title: true, reference: true } })
       : [],
   ]);
 
@@ -146,7 +158,7 @@ export async function globalSearch(user: SessionUser, q: string, perGroup = 6): 
   for (const r of bd) out.push({ id: r.id, group: "Business Development", title: r.name, subtitle: r.dci ?? "", href: `/business-development`, icon: "Lightbulb" });
   for (const r of drive) out.push({ id: r.id, group: "Drive", title: r.name, subtitle: r.mimeType ?? "", href: `/drive/${r.id}`, icon: "HardDrive" });
   for (const r of documents) out.push({ id: r.id, group: "Documents", title: r.name, subtitle: "Télécharger", href: `/api/documents/${r.id}`, icon: "FolderOpen" });
-  for (const r of tasks) out.push({ id: r.id, group: "Mes tâches", title: r.title, subtitle: r.status, href: `/mon-espace`, icon: "ListTodo" });
+  for (const r of tasks) out.push({ id: r.id, group: "Mes tâches", title: r.title, subtitle: r.status, href: `/mon-espace/taches/${r.id}`, icon: "ListTodo" });
   for (const r of adminReqs) out.push({ id: r.id, group: "Bureau du secrétariat", title: r.title, subtitle: r.reference, href: `/demandes/${r.id}`, icon: "ClipboardList" });
   for (const r of congressIntl) out.push({ id: r.id, group: "Prise en charge Internationale", title: r.name, subtitle: r.city ?? "", href: `/congress-international/${r.id}`, icon: "Globe" });
   for (const r of congressNat) out.push({ id: r.id, group: "Prise en charge Nationale", title: r.name, subtitle: r.city ?? "", href: `/congress-national/${r.id}`, icon: "MapPin" });

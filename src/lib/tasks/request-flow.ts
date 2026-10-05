@@ -143,6 +143,28 @@ export function canSee(t: TaskLike, userId: string, globalView = false): boolean
   );
 }
 
+/**
+ * LE MÊME CERCLE, EN CLAUSE DE REQUÊTE — pour les lectures qui cherchent des tâches au lieu d'en
+ * ouvrir une (la recherche globale). Deux écritures de « qui voit cette tâche » finiraient par
+ * diverger : la palette montrait le titre d'une tâche que la fiche refusait ensuite d'ouvrir
+ * (elle comptait la vue globale prêtée par un rôle SECONDAIRE, la fiche lit le rôle principal),
+ * et ne trouvait pas celles où l'on est participant ou lecteur (§118.177). Un test rejoue `canSee`
+ * et cette clause sur le même décor : elles doivent répondre pareil, tâche par tâche.
+ */
+export function clauseTachesVisibles(userId: string, globalView: boolean): {
+  OR?: ({ assignedToId: string } | { createdById: string } | { participantIds: { has: string } } | { readerIds: { has: string } })[];
+} {
+  if (globalView) return {};
+  return {
+    OR: [
+      { assignedToId: userId },
+      { createdById: userId },
+      { participantIds: { has: userId } },
+      { readerIds: { has: userId } },
+    ],
+  };
+}
+
 /** Qui peut joindre une pièce : ceux qui font le travail, et le demandeur (il complète sa demande). */
 export function canAttach(t: TaskLike, userId: string): boolean {
   return canDoWork(t, userId) || t.createdById === userId;
@@ -313,4 +335,36 @@ export function declineSummary(reason: string | null | undefined): string {
 /** L'intitulé du bouton de validation : on ne valide qu'une fois, ensuite on met à jour. */
 export function submitLabel(t: TaskLike): string {
   return t.status === "DONE" ? "Mettre à jour mon travail" : "Valider mon travail";
+}
+
+/**
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ * ANNULER CE QU'ON A DEMANDÉ À QUELQU'UN (décision de la Direction, 04/10).
+ *
+ * « On annule sa demande tant que l'autre ne l'a pas exécutée. » Une tâche demandée — par le
+ * formulaire, une demande d'action, une demande d'état de stock — n'avait qu'une issue chez son
+ * demandeur : la SUPPRIMER, pièces et fil compris. La personne qui avait commencé voyait la demande
+ * disparaître sans un mot, et personne ne pouvait plus dire qu'elle avait existé. Annuler la CLÔT
+ * (`CANCELLED`), garde le fil, et prévient l'assigné.
+ *
+ * Une règle, deux lecteurs : l'action et le bouton de la liste (§118.83).
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ */
+
+/** Une tâche que CETTE personne a demandée à quelqu'un d'autre. */
+export function estDemandeAAutrui(t: TaskLike, userId: string): boolean {
+  return Boolean(t.createdById) && t.createdById === userId && Boolean(t.assignedToId) && t.assignedToId !== userId;
+}
+
+/** Les états d'une demande qui n'a pas encore été exécutée — on peut l'annuler. */
+export const STATUTS_ANNULABLES = ["REQUESTED", "TODO", "IN_PROGRESS"] as const;
+
+/** Pourquoi cette personne ne peut PAS annuler la demande — `null` si elle le peut. */
+export function refusAnnulationDemande(t: TaskLike, userId: string): string | null {
+  if (!estDemandeAAutrui(t, userId)) return "Seule la personne qui a fait la demande l'annule — et seulement quand elle l'a adressée à quelqu'un d'autre.";
+  if (t.status === "DONE") return "Cette demande a déjà été exécutée : elle ne s'annule plus.";
+  if (t.status === "CANCELLED") return "Cette demande est déjà annulée.";
+  if (t.status === "DECLINED") return "Cette demande a été refusée par son destinataire : il n'y a plus rien à annuler.";
+  if (!(STATUTS_ANNULABLES as readonly string[]).includes(t.status)) return "Cette demande ne s'annule pas dans cet état.";
+  return null;
 }

@@ -4,7 +4,7 @@ import { randomUUID } from "crypto";
 import { revalidatePath } from "next/cache";
 import type { HrRequestType, HrRequestStatus } from "@prisma/client";
 import { requireUser } from "@/lib/session";
-import { userCan, hasGlobalView } from "@/lib/rbac";
+import { userCan, hasGlobalView, rolesWithModule } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { releaseBlob } from "@/lib/drive-storage";
 import { saveFile, validateUpload } from "@/lib/storage";
@@ -23,6 +23,7 @@ import {
   hrTypeIsLeave, HR_TYPE_TO_LEAVE,
 } from "@/lib/hr/leave-core";
 import { fdStr, fdNum, fdDate, type ActionResult } from "@/lib/actions/types";
+import { refusAnnulationDemandeRh, STATUTS_RH_ANNULABLES } from "@/lib/annulations/regles";
 import { visibilityLabel } from "@/lib/hr/document-visibility";
 import {
   canEditExpenseClaim, expenseAmountError, expenseEditDeadline, expenseEditLabel,
@@ -740,7 +741,51 @@ export async function confirmHrMeeting(formData: FormData): Promise<ActionResult
   return { ok: true };
 }
 
-/** Annulation/suppression d'une demande (employé sur sa demande en attente, ou RH). */
+/**
+ * ANNULER SA DEMANDE RH (décision de la Direction, 04/10) — le salarié la retire tant que les RH ne
+ * l'ont pas traitée (soumise ou en préparation). Elle se CLÔT (`CANCELLED`) au lieu de s'effacer, et
+ * les RH sont prévenues. Écriture conditionnelle : deux clics, ou un traitement passé entre-temps,
+ * ne produisent qu'un seul effet.
+ */
+export async function annulerDemandeRh(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  const id = fdStr(formData, "id");
+  if (!id) return { ok: false, error: "Demande introuvable." };
+  const motif = fdStr(formData, "motif");
+  const req = await prisma.hrDocumentRequest.findUnique({
+    where: { id },
+    select: { id: true, type: true, status: true, employeeId: true, handledById: true, employee: { select: { userId: true, fullName: true } } },
+  });
+  if (!req) return { ok: false, error: "Demande introuvable." };
+  if (req.employee.userId !== user.id) return { ok: false, error: "Seul le salarié qui a fait la demande l'annule." };
+  const refus = refusAnnulationDemandeRh(req.status);
+  if (refus) return { ok: false, error: refus };
+
+  const pris = await prisma.hrDocumentRequest.updateMany({
+    where: { id, status: { in: [...STATUTS_RH_ANNULABLES] } },
+    data: { status: "CANCELLED", ...(motif ? { hrNote: `Annulée par le salarié — ${motif}` } : {}) },
+  });
+  if (pris.count === 0) {
+    const apres = await prisma.hrDocumentRequest.findUnique({ where: { id }, select: { status: true } });
+    return { ok: false, error: (apres && refusAnnulationDemandeRh(apres.status)) ?? "Cette demande vient de changer — rechargez la page." };
+  }
+  const libelle = HR_REQUEST_TYPE[req.type] ?? req.type;
+  const corps = `${req.employee.fullName} a annulé sa demande « ${libelle} »${motif ? ` — ${motif}` : ""}. Il n'y a plus rien à préparer.`;
+  if (req.handledById && req.handledById !== user.id) {
+    await notifyUser({ userId: req.handledById, type: "GENERIC", title: "Demande RH annulée", body: corps, link: `/rh/${req.employeeId}` }).catch(() => undefined);
+  }
+  await notifyRoles(rolesWithModule("RH", "UPDATE"), { type: "GENERIC", title: "Demande RH annulée", body: corps, link: `/rh/${req.employeeId}` }).catch(() => undefined);
+  await recordAudit({
+    actorId: user.id, action: "UPDATE", module: "RH", entityType: "HR_REQUEST", entityId: id,
+    field: "status", oldValue: req.status, newValue: "CANCELLED",
+    summary: `Demande RH « ${libelle} » annulée par ${req.employee.fullName}${motif ? ` — ${motif}` : ""}`,
+  });
+  revalidatePath("/mon-dossier");
+  revalidatePath(`/rh/${req.employeeId}`);
+  return { ok: true, id, message: "Demande annulée — les RH sont prévenues." };
+}
+
+/** Suppression d'une demande (RH seulement — le salarié, lui, l'annule). */
 export async function deleteHrRequest(formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
   const id = fdStr(formData, "id");
@@ -752,7 +797,11 @@ export async function deleteHrRequest(formData: FormData): Promise<ActionResult>
   if (!req) return { ok: false, error: "Demande introuvable." };
   const isOwner = req.employee.userId === user.id;
   const isHr = userCan(user, "RH", "UPDATE");
-  if (!((isOwner && req.status === "PENDING") || isHr)) return { ok: false, error: "Non autorisé." };
+  // LE SALARIÉ ANNULE, IL N'EFFACE PAS (décision du 04/10) : sa demande se CLÔT par
+  // `annulerDemandeRh`, qui prévient les RH — la supprimer ferait disparaître ce qu'elles préparent.
+  if (!isHr) {
+    return { ok: false, error: isOwner ? "Annulez plutôt votre demande : elle reste visible, close, et les RH en sont prévenues." : "Non autorisé." };
+  }
   // Un congé annuel APPROUVÉ a débité le solde (verrou balanceAppliedAt) : le supprimer sans
   // rendre les jours amputerait le solde d'un congé qui n'existe plus.
   const joursARendre = req.balanceAppliedAt && Number(req.periodDays ?? 0) > 0 ? Number(req.periodDays) : 0;

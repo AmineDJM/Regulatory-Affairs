@@ -20,6 +20,7 @@
  */
 
 import { prisma } from "@/lib/prisma";
+import { ordresAvecFacture } from "@/lib/finance/facture-ordre";
 import { userCan, type SessionUser } from "@/lib/rbac";
 import { companyScopedWhere } from "@/lib/company";
 import { legalReaderWhere } from "@/lib/lecteurs/legal";
@@ -31,7 +32,7 @@ import { getBudgetOverview, getEnvelopes } from "@/lib/queries/budget";
 import { regulatoryVisibleWhere } from "@/lib/queries/regulatory-rows";
 import { submissionReadiness } from "@/lib/regulatory/intelligence/lifecycle";
 import { enabledRegCompanyIds, regCan } from "@/lib/regulatory/intelligence/access";
-import { toNumber } from "@/lib/utils";
+import { toNumber, formatMontant } from "@/lib/utils";
 import type { PaymentRequestStatus, RegDossierStatus } from "@prisma/client";
 import { graviteParJours, isoJour, joursEntre, resumerSignaux, trierSignaux, type DomaineSignal, type Gravite, type Signal } from "@/lib/utils/signaux";
 
@@ -65,7 +66,7 @@ const vide = (domaine: DomaineSignal, note: string, t0: number): LectureIntellig
   domaine, signaux: [], resume: resumerSignaux([]), portee: {}, notes: [note], calculeLe: new Date().toISOString(), ms: Date.now() - t0,
 });
 
-const fr = (n: number): string => Math.round(n).toLocaleString("fr-FR");
+const fr = (n: number): string => formatMontant(n);
 /** Jours SIGNÉS entre aujourd'hui et une date : −15 pour « il y a 15 jours et quelques heures », jamais −16 (troncature, pas plancher). */
 const joursSignes = (now: Date, d: Date): number => { const ms = d.getTime() - now.getTime(); return ms >= 0 ? Math.floor(ms / 86_400_000) : -Math.floor(-ms / 86_400_000); };
 const tronquer = (s: string, n: number): string => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
@@ -255,7 +256,7 @@ export async function signauxFinance(user: SessionUser, opts: { horizonJours?: n
       const [ordres, demandes, facturesSansBc, bcSansFacture, facturesChainees] = await Promise.all([
         prisma.expenseOrder.findMany({
           where: await companyScopedWhere(user.id, { status: { not: "CANCELLED" as const }, OR: [{ requiresInvoice: true }, { dueDate: { lte: new Date(now.getTime() + horizon * 86_400_000) } }] }),
-          select: { id: true, reference: true, label: true, amount: true, status: true, requiresInvoice: true, paidDate: true, dueDate: true, deadlineNature: true },
+          select: { id: true, reference: true, label: true, amount: true, status: true, requiresInvoice: true, paidDate: true, dueDate: true, deadlineNature: true, sourceType: true, sourceId: true },
           orderBy: [{ dueDate: "asc" }], take: 300,
         }),
         prisma.paymentRequest.findMany({
@@ -277,8 +278,9 @@ export async function signauxFinance(user: SessionUser, opts: { horizonJours?: n
         }),
       ]);
       portee.ordresDeDepense = ordres.length; portee.demandesDePaiement = demandes.length; portee.facturesChainees = facturesChainees.length;
-      const ids = ordres.filter((o) => o.requiresInvoice).map((o) => o.id);
-      const liees = ids.length ? new Set((await prisma.legalDocument.findMany({ where: { kind: "INVOICE", expenseOrderId: { in: ids } }, select: { expenseOrderId: true } })).map((l) => l.expenseOrderId)) : new Set<string | null>();
+      // La MÊME règle que le règlement (`finance/facture-ordre.ts`, §118.185) : ce signal ne lisait que
+      // le registre Legal et criait « justificatif manquant » sur un ordre dont la facture était jointe.
+      const liees = await ordresAvecFacture(ordres.filter((o) => o.requiresInvoice));
       signaux.push(...justificatifsManquants(ordres.filter((o) => o.requiresInvoice).map((o) => ({
         id: o.id, reference: o.reference, libelle: o.label, montant: toNumber(o.amount), statut: o.status, factureExigee: true, factureLiee: liees.has(o.id), regleLe: o.paidDate,
       }))));
@@ -448,6 +450,42 @@ export async function intelligenceComplete(user: SessionUser, opts: { maintenant
 const HEURE_MS = 3_600_000;
 let dernierCache = 0;
 
+/**
+ * ÉCRIRE LA RÉSERVE, ET ELLE SEULE.
+ *
+ * La réserve vit dans `custom`, à côté de ce que d'autres y écrivent — d'abord `custom.fabrique`,
+ * la pièce émise par la fabrique : sa version, son historique, et la condition de version qui
+ * empêche deux révisions de s'écraser (§118.194). On l'écrivait en RECOPIANT le `custom` lu au
+ * début du passage (`{ ...custom, intelligence }`), jusqu'à soixante pièces plus tôt et sans
+ * condition : une révision validée entre la lecture et l'écriture était DÉFAITE. `fabrique`
+ * revenait à la version N pendant que le montant, le titre et le fichier Drive restaient à N+1,
+ * et la révision suivante reprenait un numéro de version déjà émis — deux pièces différentes sous
+ * le même numéro, l'entrée d'historique de la première effacée, aucune erreur : le registre et la
+ * pièce se contredisaient en silence.
+ *
+ * `jsonb_set` ne touche que la clé `intelligence`, sur la valeur PRÉSENTE en base au moment de
+ * l'écriture — une ligne qu'une révision tient verrouillée est relue après elle : ce que d'autres
+ * ont écrit dans `custom` reste. Un `custom` qui n'est pas un objet (absent, `null`, tableau)
+ * repart d'un objet vide, comme l'écriture d'avant.
+ *
+ * Et le SQL brut ne pose PAS `updatedAt` (`@updatedAt` est posé par le client Prisma, pas par la
+ * base) — c'est voulu, et c'est la moitié qui protège. Une réserve de clauses n'est pas une
+ * modification de la pièce : la dater ferait remonter chaque nuit les engagements en tête des
+ * « modifiés récemment », et ferait croire au verrou de signature d'un BC
+ * (`bc-signature-actions.ts`, `updatedAt: etat.majLe`) que la pièce a changé sous les yeux du
+ * signataire — un refus « relisez-le » pour une pièce que personne n'a touchée.
+ *
+ * Rend le nombre de lignes écrites (0 si la pièce a disparu entre-temps).
+ */
+export async function ecrireCacheIntelligence(id: string, intelligence: unknown): Promise<number> {
+  const valeur = JSON.stringify(intelligence);
+  // `jsonb_set` est STRICT : un NULL en troisième argument rend NULL, et c'est la colonne ENTIÈRE
+  // qui passerait à NULL — `fabrique` comprise, c'est-à-dire pire que le défaut qu'on ferme.
+  // `JSON.stringify` rend `undefined` pour `undefined` ou une fonction : on n'écrit rien, et on le dit.
+  if (valeur === undefined) throw new Error("Réserve des clauses : valeur non sérialisable — rien n'est écrit.");
+  return prisma.$executeRaw`UPDATE "LegalDocument" SET custom = jsonb_set(CASE WHEN jsonb_typeof(custom) = 'object' THEN custom ELSE '{}'::jsonb END, '{intelligence}', ${valeur}::jsonb, true) WHERE id = ${id}`;
+}
+
 /** Lit les clauses des engagements ACTIFS dont le texte indexé a changé et les met en réserve dans `custom.intelligence`. */
 export async function mettreEnCacheClauses(limite = 60): Promise<{ examines: number; misAJour: number; sansTexte: number }> {
   const docs = await prisma.legalDocument.findMany({
@@ -464,9 +502,9 @@ export async function mettreEnCacheClauses(limite = 60): Promise<{ examines: num
     if (!i) { sansTexte += 1; continue; }
     if (cacheDe(d.custom)?.versionId === i.versionId) continue;
     const clauses = extraireClauses(i.text).map((c) => ({ ...c, extrait: tronquer(c.extrait, 400) }));
-    const custom = d.custom && typeof d.custom === "object" && !Array.isArray(d.custom) ? (d.custom as Record<string, unknown>) : {};
-    await prisma.legalDocument.update({ where: { id: d.id }, data: { custom: { ...custom, intelligence: { versionId: i.versionId, clauses, calculeLe: new Date().toISOString() } } as object } });
-    misAJour += 1;
+    // `d.custom` n'a servi qu'à savoir si la réserve est à jour : il date du début du passage, et
+    // le réécrire défaisait ce qui s'était écrit depuis (voir `ecrireCacheIntelligence`).
+    misAJour += await ecrireCacheIntelligence(d.id, { versionId: i.versionId, clauses, calculeLe: new Date().toISOString() });
   }
   return { examines: docs.length, misAJour, sansTexte };
 }

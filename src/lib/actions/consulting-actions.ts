@@ -1,6 +1,6 @@
 "use server";
 
-import type { ConsultingBilling, ConsultingStatus } from "@prisma/client";
+import type { ConsultingBilling, ConsultingStatus, Prisma } from "@prisma/client";
 import { revalidatePath } from "next/cache";
 import { requireUser } from "@/lib/session";
 import { userCan, hasGlobalView, getAccess, type SessionUser, type Action } from "@/lib/rbac";
@@ -13,8 +13,9 @@ import { attachFiles } from "@/lib/attach-files";
 import { readMultiField, lireMedecinsDemande } from "@/lib/ad-pro/pickers";
 import { fdStr, fdNum, type ActionResult } from "@/lib/actions/types";
 import { nextConsultingStatus, isContractEditable } from "@/lib/ad-pro/consulting";
-import { poserVisaAdPro, blocageCentreAdPro, retirerVisaEnAttente } from "@/lib/ad-pro/visa";
-import { toNumber } from "@/lib/utils";
+import { ajusterVisaAuMontant, phraseGesteVisa, poserVisaAdPro, blocageCentreAdPro, retirerVisaEnAttente } from "@/lib/ad-pro/visa";
+import { ecrireAuFil } from "@/lib/ad-pro/fil";
+import { toNumber, formatDate } from "@/lib/utils";
 import { recordEvent } from "@/lib/events/ledger";
 import { reaiguillerLesBCDe, LOT_ORIGINE } from "@/lib/bons-de-commande/aiguillage";
 import {
@@ -28,8 +29,8 @@ const PATH = "/consulting";
  * LE CONTRAT DE CONSULTING — un engagement entre DEUX PARTIES.
  *
  * Ce n'est pas une demande qu'on approuve puis qu'on oublie : c'est une relation qui court dans
- * le temps. D'où les gestes offerts ici — soumettre à validation, activer, prolonger ou clore,
- * annuler — et les tâches attendues du prestataire, qui vivent à part parce que « ce qui reste à
+ * le temps. D'où les gestes offerts ici — soumettre à validation, renvoyer pour correction, activer,
+ * prolonger ou clore, annuler — et les tâches attendues du prestataire, qui vivent à part parce que « ce qui reste à
  * livrer » est une question qu'on pose au contrat, et qu'un paragraphe ne sait pas y répondre.
  *
  * QUI PEUT QUOI : le porteur mène son contrat jusqu'à la demande de validation ; seul un
@@ -230,10 +231,23 @@ export async function requestConsultingValidation(formData: FormData): Promise<A
     const next = nextConsultingStatus(c.status, "SUBMIT");
     if (!next) return { ok: false, error: "Ce contrat n'est plus au stade de la soumission." };
 
-    const validatorId = fdStr(formData, "validatorId");
-    await prisma.consultingContract.update({
-      where: { id }, data: { status: next as ConsultingStatus, validatorId, updatedById: user.id },
+    // Ce que le formulaire ne porte pas ne s'écrit pas (§118.152c) : une resoumission venue d'ailleurs que
+    // l'écran garde le validateur qui a demandé la correction — c'est à lui de la juger.
+    const validatorId = formData.has("validatorId") ? fdStr(formData, "validatorId") : c.validatorId;
+    // CONDITIONNELLE (audit 360°, lot C4a) : deux envois simultanés ne font qu'une soumission. Le renvoi
+    // pour correction, s'il y en avait un, s'efface ici — il vient d'être traité — et va au fil juste après.
+    const ecrite = await prisma.consultingContract.updateMany({
+      where: { id, status: "DRAFT" },
+      data: { status: next as ConsultingStatus, validatorId, updatedById: user.id, returnedAt: null, returnedById: null, returnNote: null },
     });
+    if (ecrite.count === 0) return { ok: false, error: "Ce contrat vient d'être soumis : rouvrez sa fiche." };
+    if (c.returnedAt) {
+      const renvoyeur = c.returnedById ? (await prisma.user.findUnique({ where: { id: c.returnedById }, select: { name: true } }))?.name : null;
+      await ecrireAuFil({
+        entityType: "CONSULTING_CONTRACT", entityId: id, authorId: user.id,
+        body: `Resoumis après correction. Le renvoi du ${formatDate(c.returnedAt)}${renvoyeur ? ` (${renvoyeur})` : ""} demandait : « ${c.returnNote ?? "—"} ».`,
+      });
+    }
 
     // ── LA PORTE DU CENTRE DE VALIDATION AD & PRO ────────────────────────────────────────────
     // Un contrat de consulting n'avait AUCUNE porte au-dessus du seuil : mesuré sur sa machine à
@@ -247,16 +261,27 @@ export async function requestConsultingValidation(formData: FormData): Promise<A
     // Seulement côté Ad & Pro : un contrat RH ne passe pas par le centre de la PROMOTION (§118.150)
     // — le lui faire arbitrer confierait la rémunération d'un consultant de l'équipe à un centre
     // qui ne voit que les dépenses de promotion, et la bloquerait pour toujours côté RH.
+    //
+    // À une RESOUMISSION après correction (audit 360°, lot C4a), la porte suit le montant corrigé : elle
+    // s'ouvre s'il l'exige désormais, et une autorisation déjà donnée se ROUVRE si le montant la dépasse —
+    // un accord ne couvre pas plus que ce qu'il a vu (§118.187).
     const visa = poleDe(c.pole) === "AD_PRO"
-      ? await poserVisaAdPro("CONSULTING_CONTRACT", id, c.amount == null ? null : toNumber(c.amount))
+      ? await ajusterVisaAuMontant("CONSULTING_CONTRACT", id, c.amount == null ? null : toNumber(c.amount))
       : null;
 
     const body = `${c.reference} — ${c.title} (${c.counterparty})`;
-    if (visa === "PENDING") {
+    if (visa?.etat === "PENDING") {
       // On prévient le CENTRE, pas le validateur : c'est lui qui a la main, et prévenir les deux
       // ferait croire au validateur qu'il peut trancher — il se heurterait au blocage (§118.30).
       await notifyRoles(["GENERAL_MANAGER", "SUPER_ADMIN"], {
         type: "VALIDATION_REQUIRED", title: "Centre Ad & Pro — contrat de consulting au-dessus du seuil",
+        body, link: "/centre-ad-pro",
+      });
+    } else if (visa?.etat === "REFUSED") {
+      // Resoumis sous un REFUS du centre : seul un siège peut le réexaminer. Prévenir le validateur, que
+      // ce refus bloque, lui demanderait une décision qu'il ne peut pas prendre (§118.30).
+      await notifyRoles(["GENERAL_MANAGER", "SUPER_ADMIN"], {
+        type: "VALIDATION_REQUIRED", title: "Centre Ad & Pro — contrat resoumis : votre refus est à réexaminer",
         body, link: "/centre-ad-pro",
       });
     } else if (validatorId) {
@@ -264,21 +289,34 @@ export async function requestConsultingValidation(formData: FormData): Promise<A
     } else {
       await notifyRoles(["DIRECTION", "SUPER_ADMIN"], { type: "VALIDATION_REQUIRED", title: "Contrat de consulting à valider", body, link: `${PATH}/${id}` });
     }
-    await audit(user, id, "UPDATE", `Contrat soumis à validation — ${c.reference}`);
+    await audit(user, id, "UPDATE", `${c.returnedAt ? "Contrat resoumis après correction" : "Contrat soumis à validation"} — ${c.reference}`);
     revalidate(id);
-    return { ok: true, id };
+    // Ce que la soumission a fait AILLEURS — à la porte du centre — se DIT (§118.168), comme à la
+    // resoumission d'une « autre demande ».
+    const phrase = visa ? phraseGesteVisa(visa.geste, visa.etat) : null;
+    return phrase ? { ok: true, id, message: `${c.returnedAt ? "Contrat resoumis" : "Contrat soumis"} — ${phrase}` } : { ok: true, id };
   } catch (err) {
     console.error("[consulting] requestConsultingValidation failed", err);
     return { ok: false, error: "La soumission a échoué." };
   }
 }
 
-/** Valider (le contrat devient ACTIF) ou refuser (il est annulé, avec son motif). */
+/**
+ * TRANCHER UN CONTRAT — trois issues (audit 360°, R11 et rapport 17 R13) : VALIDER (il devient actif),
+ * RENVOYER pour correction (il revient en brouillon chez son porteur, qui le corrige et le resoumet) ou
+ * REFUSER (il est annulé). Le motif est EXIGÉ pour renvoyer et pour refuser (R17) : sans lui, le porteur
+ * ne sait ni quoi corriger ni pourquoi c'est non. L'ancien champ `approve` reste lu — une carte d'Adam
+ * préparée avant ce lot doit encore aboutir.
+ */
 export async function decideConsultingContract(formData: FormData): Promise<ActionResult> {
   try {
     const user = await requireUser();
     const id = fdStr(formData, "id");
-    const approve = fdStr(formData, "approve") === "1";
+    const choix = fdStr(formData, "decision");
+    const decision: "VALIDER" | "RENVOYER" | "REFUSER" =
+      choix === "VALIDER" || choix === "RENVOYER" || choix === "REFUSER" ? choix
+        : fdStr(formData, "approve") === "1" ? "VALIDER" : "REFUSER";
+    const note = fdStr(formData, "note");
     if (!id) return { ok: false, error: "Contrat introuvable." };
     const c = await prisma.consultingContract.findUnique({ where: { id } });
     if (!c) return { ok: false, error: "Contrat introuvable." };
@@ -288,40 +326,126 @@ export async function decideConsultingContract(formData: FormData): Promise<Acti
     const mayDecide = peutSurLeContrat(user, c, "VALIDATE") && (c.validatorId === null || c.validatorId === user.id || isDirection(user));
     if (!mayDecide) return { ok: false, error: "La décision revient au validateur désigné." };
 
-    // LA PORTE DU CENTRE PASSE AVANT LA DÉCISION. Sans cette ligne, le validateur désigné
-    // trancherait un engagement que le centre n'a pas encore arbitré — la porte existerait en
-    // base et ne garderait rien (§118.14).
-    const blocage = poleDe(c.pole) === "AD_PRO" ? await blocageCentreAdPro("CONSULTING_CONTRACT", id) : null;
-    if (blocage) return { ok: false, error: blocage };
-
-    const next = nextConsultingStatus(c.status, approve ? "APPROVE" : "REFUSE");
+    // L'ÉTAT D'ABORD, LE MOTIF ENSUITE : demander un motif pour un contrat qui n'attend plus de décision
+    // ferait payer un aller-retour à la personne — elle l'écrirait, puis apprendrait que rien ne pouvait
+    // se décider (§118.18).
+    const next = nextConsultingStatus(c.status, decision === "VALIDER" ? "APPROVE" : decision === "RENVOYER" ? "RETURN" : "REFUSE");
     if (!next) return { ok: false, error: "Ce contrat n'attend pas de décision." };
 
-    await prisma.consultingContract.update({
-      where: { id },
-      data: {
-        status: next as ConsultingStatus,
-        validatedById: user.id,
-        validatedAt: new Date(),
-        decisionNote: fdStr(formData, "note"),
-        cancelledAt: approve ? null : new Date(),
-        updatedById: user.id,
-      },
-    });
+    // `=== null` et non `!note` : la dérivation des contrats lirait sinon un motif obligatoire pour
+    // VALIDER aussi, et la carte refuserait une validation sans commentaire (§118.138).
+    if (decision !== "VALIDER" && note === null) {
+      return {
+        ok: false,
+        error: decision === "RENVOYER"
+          ? "Dites ce qu'il faut corriger : sans cela, le porteur ne sait pas quoi changer avant de resoumettre."
+          : "Indiquez le motif du refus : un refus sans motif ne laisse au porteur rien à quoi se tenir.",
+      };
+    }
+
+    // LA PORTE DU CENTRE GARDE L'ACCORD — pas les gestes qui RÉDUISENT (§118.15). Sans cette ligne, le
+    // validateur désigné trancherait un engagement que le centre n'a pas encore arbitré (§118.14) ;
+    // renvoyer ou refuser n'engagent rien, et attendre le centre pour dire « corrigez » ou « non » ne
+    // protégerait personne — la porte en attente est retirée juste après.
+    if (decision === "VALIDER") {
+      const blocage = poleDe(c.pole) === "AD_PRO" ? await blocageCentreAdPro("CONSULTING_CONTRACT", id) : null;
+      if (blocage) return { ok: false, error: blocage };
+    }
+
+    const maintenant = new Date();
+    const data: Prisma.ConsultingContractUpdateManyMutationInput = decision === "RENVOYER"
+      ? { status: next as ConsultingStatus, returnedAt: maintenant, returnedById: user.id, returnNote: note, updatedById: user.id }
+      : {
+          status: next as ConsultingStatus,
+          validatedById: user.id,
+          validatedAt: maintenant,
+          decisionNote: note,
+          cancelledAt: decision === "VALIDER" ? null : maintenant,
+          updatedById: user.id,
+        };
+    // CONDITIONNELLE : deux validateurs qui tranchent à la même seconde — la seconde décision trouve le
+    // contrat déjà tranché au lieu d'écraser la première (un refus devenu accord sans que personne l'ait vu).
+    const ecrite = await prisma.consultingContract.updateMany({ where: { id, status: "AWAITING_VALIDATION" }, data });
+    if (ecrite.count === 0) return { ok: false, error: "Ce contrat vient d'être tranché : rouvrez sa fiche pour voir la décision." };
+
+    // RENVOYÉ OU REFUSÉ, IL N'ATTEND PLUS LE CENTRE : la porte en attente est retirée — refusé, le contrat
+    // est clos ; renvoyé, elle se reposera à la resoumission, sur le montant CORRIGÉ. Une décision déjà
+    // rendue par le centre reste : c'est de l'histoire.
+    const portes = decision === "VALIDER" ? 0 : await retirerVisaEnAttente("CONSULTING_CONTRACT", id);
 
     if (c.requesterId) {
       await notifyUser({
         userId: c.requesterId, type: "GENERIC",
-        title: approve ? "Contrat de consulting validé" : "Contrat de consulting refusé",
-        body: `${c.reference} — ${c.title}`, link: `${PATH}/${id}`,
+        title: decision === "VALIDER" ? "Contrat de consulting validé"
+          : decision === "RENVOYER" ? "Contrat de consulting à corriger" : "Contrat de consulting refusé",
+        body: decision === "RENVOYER"
+          ? `${c.reference} — à corriger : ${note}. Modifiez-le sur sa fiche, puis renvoyez-le pour validation.`
+          : `${c.reference} — ${c.title}${note ? ` · ${decision === "REFUSER" ? "Motif" : "Note"} : ${note}` : ""}`,
+        link: `${PATH}/${id}`,
       });
     }
-    await audit(user, id, "VALIDATE", `${approve ? "Contrat validé (actif)" : "Contrat refusé"} — ${c.reference}`);
+    await audit(user, id, "VALIDATE", `${decision === "VALIDER" ? "Contrat validé (actif)" : decision === "RENVOYER" ? "Contrat renvoyé pour correction" : "Contrat refusé"} — ${c.reference}${note ? ` — ${note}` : ""}${portes ? " (sa demande au centre Ad & Pro est retirée)" : ""}`);
     revalidate(id);
     return { ok: true, id };
   } catch (err) {
     console.error("[consulting] decideConsultingContract failed", err);
     return { ok: false, error: "La décision n'a pas pu être enregistrée." };
+  }
+}
+
+/**
+ * PROLONGER UN CONTRAT EN COURS (audit 360°, rapport 17 R13) — l'en-tête de ce fichier annonçait ce
+ * geste depuis le début, et il n'existait pas : un contrat au terme dépassé ne pouvait que s'achever.
+ *
+ * Réservé à qui peut ACTIVER le contrat : prolonger, c'est accepter un engagement plus long — le droit
+ * de la validation, jamais le porteur seul. Ce qui fonde la prolongation (l'avenant, l'accord du
+ * consultant) est exigé et va au fil. On PROLONGE, on ne raccourcit pas : une fin anticipée est une
+ * annulation ou un terme atteint, deux gestes qui existent et ne disent pas la même chose.
+ */
+export async function prolongerConsultingContract(formData: FormData): Promise<ActionResult> {
+  try {
+    const user = await requireUser();
+    const id = fdStr(formData, "id");
+    if (!id) return { ok: false, error: "Contrat introuvable." };
+    const c = await prisma.consultingContract.findUnique({ where: { id } });
+    if (!c) return { ok: false, error: "Contrat introuvable." };
+    const mayDecide = peutSurLeContrat(user, c, "VALIDATE") && (c.validatorId === null || c.validatorId === user.id || isDirection(user));
+    if (!mayDecide) return { ok: false, error: "Prolonger un contrat revient à qui peut le valider." };
+    if (c.status !== "ACTIVE") return { ok: false, error: "Seul un contrat en cours se prolonge." };
+
+    const fin = dateOf(fdStr(formData, "endDate"));
+    if (!fin) return { ok: false, error: "Indiquez la nouvelle date de fin." };
+    if (c.endDate && fin <= c.endDate) {
+      return { ok: false, error: `La nouvelle fin doit suivre l'actuelle (${formatDate(c.endDate)}) : on prolonge, on ne raccourcit pas.` };
+    }
+    if (c.startDate && fin < c.startDate) return { ok: false, error: "La date de fin ne peut pas précéder la date de début." };
+    const note = fdStr(formData, "note");
+    if (!note) return { ok: false, error: "Dites ce qui fonde la prolongation — l'avenant, l'accord du consultant : c'est ce qu'on cherchera plus tard." };
+
+    // CONDITIONNELLE sur la fin LUE : deux prolongations croisées ne s'écrasent pas en silence.
+    const ecrite = await prisma.consultingContract.updateMany({
+      where: { id, status: "ACTIVE", endDate: c.endDate },
+      data: { endDate: fin, updatedById: user.id },
+    });
+    if (ecrite.count === 0) return { ok: false, error: "Ce contrat vient de changer : rouvrez sa fiche." };
+
+    const avant = c.endDate ? `du ${formatDate(c.endDate)} ` : "";
+    await ecrireAuFil({
+      entityType: "CONSULTING_CONTRACT", entityId: id, authorId: user.id,
+      body: `Contrat prolongé ${avant}au ${formatDate(fin)} — ${note}`,
+    });
+    if (c.requesterId && c.requesterId !== user.id) {
+      await notifyUser({
+        userId: c.requesterId, type: "GENERIC", title: "Contrat de consulting prolongé",
+        body: `${c.reference} — jusqu'au ${formatDate(fin)} · ${note}`, link: `${PATH}/${id}`,
+      });
+    }
+    await audit(user, id, "UPDATE", `Contrat prolongé ${avant}au ${formatDate(fin)} — ${c.reference} — ${note}`);
+    revalidate(id);
+    return { ok: true, id, message: `Contrat prolongé jusqu'au ${formatDate(fin)}.` };
+  } catch (err) {
+    console.error("[consulting] prolongerConsultingContract failed", err);
+    return { ok: false, error: "La prolongation n'a pas pu être enregistrée." };
   }
 }
 
@@ -340,17 +464,30 @@ export async function closeConsultingContract(formData: FormData): Promise<Actio
 
     const next = nextConsultingStatus(c.status, cancel ? "CANCEL" : "EXPIRE");
     if (!next) return { ok: false, error: "Ce contrat est déjà clos." };
+    // ROMPRE UN CONTRAT EST DÉFINITIF : on dit pourquoi (audit 360°, R17). `=== null` : un terme atteint
+    // n'a rien à expliquer, et la dérivation ne doit pas rendre le motif obligatoire pour lui (§118.138).
+    const note = fdStr(formData, "note");
+    if (cancel && note === null) return { ok: false, error: "Dites pourquoi le contrat est annulé : l'annulation est définitive." };
 
-    await prisma.consultingContract.update({
-      where: { id },
+    // CONDITIONNELLE : deux clôtures à la même seconde — la seconde trouve le contrat changé au lieu
+    // d'écrire une seconde annulation, un second motif au fil et un second audit.
+    const ecrite = await prisma.consultingContract.updateMany({
+      where: { id, status: c.status },
       data: {
         status: next as ConsultingStatus,
         cancelledAt: cancel ? new Date() : null,
-        decisionNote: fdStr(formData, "note") ?? c.decisionNote,
+        decisionNote: note ?? c.decisionNote,
         updatedById: user.id,
       },
     });
-    await audit(user, id, "UPDATE", `${cancel ? "Contrat annulé" : "Contrat arrivé à expiration"} — ${c.reference}`);
+    if (ecrite.count === 0) return { ok: false, error: "Ce contrat vient de changer d'état : rouvrez sa fiche." };
+    // La note de décision d'hier n'est pas perdue sous le motif d'annulation : il va aussi au fil.
+    if (cancel && note) await ecrireAuFil({ entityType: "CONSULTING_CONTRACT", entityId: id, authorId: user.id, body: `Contrat annulé — ${note}` });
+    // ANNULÉ, IL N'A PLUS RIEN À FAIRE ARBITRER (audit 360°, lot C3) : la porte qui attendait le centre
+    // Ad & Pro est retirée — sans quoi le centre trancherait une demande morte. Une décision déjà
+    // RENDUE reste : c'est de l'histoire.
+    const portes = cancel ? await retirerVisaEnAttente("CONSULTING_CONTRACT", id) : 0;
+    await audit(user, id, "UPDATE", `${cancel ? "Contrat annulé" : "Contrat arrivé à expiration"} — ${c.reference}${portes ? " (sa demande au centre Ad & Pro est retirée)" : ""}`);
     revalidate(id);
     return { ok: true, id };
   } catch (err) {

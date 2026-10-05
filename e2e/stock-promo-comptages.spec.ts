@@ -114,6 +114,11 @@ test.afterAll(async () => {
 });
 
 test("le décor par les vrais écrans : le magasin reçoit, la directrice dote, le délégué confirme", async ({ page }) => {
+  // Plafond LOCAL, mesure à côté (§118.124b) : premier parcours après un build propre, lancé en même
+  // temps qu'une autre spec, ce décor a dépassé les 45 s globales (trois connexions, quatre gestes, sur
+  // un serveur froid) ; la spec entière passe ensuite en 1,3 min seule. Un plafond répond à « est-il
+  // bloqué ? », jamais à « est-il lent ? ».
+  test.setTimeout(120_000);
   await login(page, SA_EMAIL);
   await aller(page, "/stock-promotionnel?vue=magasin");
   for (const [nom, quantite] of [[FICHE, "30"], [KAKEMONO, "2"]] as const) {
@@ -237,4 +242,22 @@ test("le directeur des opérations lit le résultat du comptage : ce que le regi
   // Le signe moins du français est U+2212 : on lit le NOMBRE, pas le glyphe.
   await expect(ligne).toContainText(/[-−]2\b/);
   await capture(page, "c4-resultat");
+});
+
+test("le délégué CORRIGE son comptage (§118.190) — « 10 » était « 11 » : l'écart s'applique au solde, et la fiche dit qui a corrigé et pourquoi", async ({ page }) => {
+  await login(page, KAM_EMAIL);
+  await aller(page, "/stock-promotionnel?vue=comptages");
+  const resultat = page.locator("li").filter({ hasText: "Compté le" }).filter({ hasText: "1 écart(s)" });
+  await resultat.getByRole("button").first().click();
+  await resultat.getByRole("button", { name: "Corriger ce comptage" }).click();
+  const champ = resultat.getByLabel(FICHE, { exact: true });
+  await expect(champ, "pré-rempli : c'est une correction de ce qui a été compté, pas une saisie à l'aveugle").toHaveValue("10");
+  await champ.fill("11");
+  const enregistrer = resultat.getByRole("button", { name: "Enregistrer la correction" });
+  await expect(enregistrer, "le motif est exigé").toBeDisabled();
+  await resultat.getByLabel("Pourquoi vous corrigez").fill("Une fiche oubliée dans la sacoche.");
+  await enregistrer.click();
+  await expect(page.getByRole("status").filter({ hasText: `Comptage corrigé — ${FICHE} : 10 → 11.` })).toBeVisible({ timeout: 15_000 });
+  expect(await solde(kamId, FICHE), "l'écart corrigé (+1) s'applique au solde du jour").toBe(11);
+  await expect(resultat.getByText(/Corrigé le .* : « Une fiche oubliée dans la sacoche\. »/)).toBeVisible();
 });

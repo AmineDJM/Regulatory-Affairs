@@ -19,7 +19,7 @@ import { validatePromoStep } from "./promo-circuit-actions";
 import { demanderDevisPromo, enregistrerDevisPromo, terminerRetranscriptionPromo, choisirLignesPromo } from "./promo-devis-actions";
 import { enregistrerArticleDemandePromo, retirerArticleDemandePromo } from "./promo-demande-actions";
 import {
-  genererBonsDeCommandePromo, deposerFacturePromo, receptionnerLigneFacturePromo, annulerReceptionLigneFacturePromo,
+  genererBonsDeCommandePromo, deposerFacturePromo, lireFacturePromo, receptionnerLigneFacturePromo, annulerReceptionLigneFacturePromo,
   annulerFacturePromo, demanderPaiementFacturePromo,
 } from "./promo-execution-actions";
 import { deciderVisaCentreAdPro } from "./ad-pro-centre-actions";
@@ -325,7 +325,7 @@ suite("Matériel promotionnel — achats piochés dans le catalogue, facture lig
     ]);
   }, 60_000);
 
-  it("UNE FOIS LES DEVIS DEMANDÉS, la liste ne bouge plus — l'assistante fait chiffrer ce qui a été demandé", async () => {
+  it("UNE FOIS LES DEVIS DEMANDÉS, la liste bouge encore — et l'assistante est prévenue de chaque changement (§118.190)", async () => {
     await comme("dir");
     const v = await validatePromoStep(form({ id: pmId }));
     expect(v.ok, v.ok ? "" : v.error).toBe(true);
@@ -345,17 +345,32 @@ suite("Matériel promotionnel — achats piochés dans le catalogue, facture lig
     const refVide = (await prisma.promoMaterial.findUniqueOrThrow({ where: { id: vide.id! }, select: { reference: true } })).reference;
     const sansArticle = await DOMAIN_TOOLS.promo_operation.ops.request_promo_quotes.impl.propose({ reference: refVide }, cp);
     expect("error" in sansArticle && sansArticle.error).toMatch(/aucun article demandé.*catalogue/);
-    const carte = await DOMAIN_TOOLS.promo_operation.ops.request_promo_quotes.impl.propose({ reference }, cp);
-    if ("error" in carte) throw new Error(carte.error);
-    expect(carte.fields.find((f) => f.label === "Articles à faire chiffrer")?.value).toMatch(new RegExp(`${TAG}-FICHE.*${TAG}-STYLO.*${TAG}-EADV`));
+    // SANS ARTICLE, LA DEMANDE DE DEVIS AUTOMATIQUE N'EST PAS PARTIE (§118.204) : le dossier reste sur « devis à
+    // demander », et c'est le seul cas où la carte (et le geste de repli) servent encore.
+    expect((await prisma.promoMaterial.findUniqueOrThrow({ where: { id: vide.id! }, select: { circuitState: true } })).circuitState).toBe("QUOTE_TO_REQUEST");
 
+    // LA DEMANDE DE DEVIS EST PARTIE D'ELLE-MÊME À LA VALIDATION (§118.204) — sans geste du demandeur, avec
+    // les articles de la liste, dans la rédaction que l'aperçu montrait.
+    const envoye = await prisma.promoMaterial.findUniqueOrThrow({ where: { id: pmId }, select: { circuitState: true, adminRequestId: true } });
+    expect(envoye.circuitState).toBe("QUOTE_REQUESTED");
+    const demandeAuto = await prisma.administrativeRequest.findUniqueOrThrow({ where: { id: envoye.adminRequestId! }, select: { type: true, description: true, linkedEntityId: true } });
+    expect(demandeAuto.type).toBe("QUOTE");
+    expect(demandeAuto.linkedEntityId).toBe(pmId);
+    expect(demandeAuto.description).toMatch(new RegExp(`${TAG}-FICHE[\\s\\S]*${TAG}-STYLO[\\s\\S]*${TAG}-EADV`));
+    // Le geste de repli refuse alors, en le DISANT : la demande ne repart pas une seconde fois.
     await comme("cp");
     const r = await demanderDevisPromo(form({ promoMaterialId: pmId }));
-    expect(r.ok, r.ok ? "" : r.error).toBe(true);
+    expect(r.ok ? "" : r.error).toMatch(/déjà partie/);
+    // La règle d'avant figeait la liste dès les devis demandés : l'article oublié n'était jamais chiffré,
+    // ou l'était hors de la liste. Elle bouge maintenant tant que le choix n'est pas en validation, et
+    // l'assistante, qui cherche les devis, est prévenue de CHAQUE changement — ajouté puis retiré ici,
+    // la liste revient à ce qui a été demandé pour la suite du banc.
     const ajout = await enregistrerArticleDemandePromo(form({ promoMaterialId: pmId, catalogueId: catBloc, quantite: "20", actions: ["IMPRESSION"] }));
-    expect(ajout.ok ? "" : ajout.error).toMatch(/devis sont déjà demandés/);
-    const retrait = await retirerArticleDemandePromo(form({ promoMaterialId: pmId, requestItemId: art.stylo }));
-    expect(retrait.ok ? "" : retrait.error).toMatch(/devis sont déjà demandés/);
+    expect(ajout.ok, ajout.ok ? "" : ajout.error).toBe(true);
+    expect(ajout.message).toMatch(/L'assistante en est prévenue\.$/);
+    const retrait = await retirerArticleDemandePromo(form({ promoMaterialId: pmId, requestItemId: ajout.id! }));
+    expect(retrait.ok, retrait.ok ? "" : retrait.error).toBe(true);
+    expect(await prisma.notification.count({ where: { userId: u.asst!, link: `/promo-material/${pmId}`, title: { startsWith: "Matériel promotionnel — un article demandé" } } })).toBe(2);
     expect(await prisma.promoRequestItem.count({ where: { promoMaterialId: pmId } })).toBe(3);
   });
 
@@ -369,7 +384,7 @@ suite("Matériel promotionnel — achats piochés dans le catalogue, facture lig
     expect(refus.ok ? "" : refus.error).toMatch(/pas demandé sur ce dossier/);
 
     const fdA = form({
-      promoMaterialId: pmId, supplierId: agence, reference: "AC-2026-09", tvaRate: "19",
+      promoMaterialId: pmId, supplierId: agence, reference: "AC-2026-09", tvaRate: "19", announcedTotal: "350000",
       ligneReference: ["Conception fiche posologique Nivolex", "Conception e-ADV Nivolex"], ligneUnite: ["forfait", "forfait"],
       ligneQuantite: ["1", "1"], lignePrix: ["150000", "200000"], ligneAction: ["CONCEPTION", "CONCEPTION"], ligneArticle: [art.fiche, art.eadv],
     });
@@ -378,7 +393,7 @@ suite("Matériel promotionnel — achats piochés dans le catalogue, facture lig
     expect(a.ok, a.ok ? "" : a.error).toBe(true);
     quoteA = a.id!;
     const fdB = form({
-      promoMaterialId: pmId, supplierId: imprimerie, reference: "IA-114", tvaRate: "19",
+      promoMaterialId: pmId, supplierId: imprimerie, reference: "IA-114", tvaRate: "19", announcedTotal: "170000",
       ligneReference: ["Fiche posologique Nivolex", "Stylo logo", "Bloc-notes logo"], ligneUnite: ["pièce", "pièce", "pièce"],
       ligneQuantite: ["5000", "1000", "200"], lignePrix: ["20", "50", "100"], ligneAction: ["IMPRESSION", "ACHAT", "IMPRESSION"],
       ligneArticle: [art.fiche, art.stylo, ""],
@@ -606,6 +621,10 @@ suite("Matériel promotionnel — achats piochés dans le catalogue, facture lig
     await comme("asst");
     expect((await annulerReceptionLigneFacturePromo(form({ promoMaterialId: pmId, ligneId: stylo.id }))).ok, "l'assistante ne défait pas l'attestation du demandeur").toBe(false);
     await comme("cp");
+    // SANS MOTIF, rien ne se défait (audit 360°, R17) — et la ligne reste reçue, son entrée au magasin intacte.
+    const muet = await annulerReceptionLigneFacturePromo(form({ promoMaterialId: pmId, ligneId: stylo.id }));
+    expect(muet.ok ? "" : muet.error).toMatch(/Dites pourquoi cette réception est annulée/);
+    expect(await prisma.promoStockMovement.count({ where: { lotId: stylo.stockLotId!, kind: "REVERSAL" } })).toBe(0);
     const ok = await annulerReceptionLigneFacturePromo(form({ promoMaterialId: pmId, ligneId: stylo.id, motif: "carton compté deux fois" }));
     expect(ok.ok, ok.ok ? "" : ok.error).toBe(true);
     expect(await magasin(catStylo)).toBe(0);
@@ -624,6 +643,13 @@ suite("Matériel promotionnel — achats piochés dans le catalogue, facture lig
     const attente = await demanderPaiementFacturePromo(form({ promoMaterialId: pmId, invoiceId: factureB1, formalite: "AD_VISA" }));
     expect(attente.ok).toBe(false);
     expect(attente.ok ? "" : attente.error).toMatch(/« Fiche posologique Nivolex » \(3\s900 reçues sur 4\s000\).*ne pourra pas être fait ultérieurement/s);
+    expect(await prisma.expenseOrder.count({ where: { sourceType: "LEGAL_DOCUMENT", sourceId: factureB1 } })).toBe(0);
+
+    // RENONCER SANS DIRE POURQUOI ne part pas — et rien n'est écrit : ni ligne renoncée, ni ordre (§118.18 :
+    // le motif est demandé APRÈS les refus structurels, AVANT tout effet).
+    const sansMotif = await demanderPaiementFacturePromo(form({ promoMaterialId: pmId, invoiceId: factureB1, formalite: "AD_VISA", confirmeRenoncement: "1" }));
+    expect(sansMotif.ok ? "" : sansMotif.error).toMatch(/Dites pourquoi vous renoncez aux lignes non reçues/);
+    expect(await prisma.promoFactureLigne.count({ where: { facture: { legalDocumentId: factureB1 }, renonce: true } })).toBe(0);
     expect(await prisma.expenseOrder.count({ where: { sourceType: "LEGAL_DOCUMENT", sourceId: factureB1 } })).toBe(0);
 
     const r = await demanderPaiementFacturePromo(form({ promoMaterialId: pmId, invoiceId: factureB1, formalite: "AD_VISA", confirmeRenoncement: "1", motifRenoncement: "Carton abîmé à la livraison" }));
@@ -650,6 +676,38 @@ suite("Matériel promotionnel — achats piochés dans le catalogue, facture lig
     expect(Number((await prisma.expenseOrder.findFirstOrThrow({ where: { sourceType: "LEGAL_DOCUMENT", sourceId: factureA } })).amount)).toBe(416_500);
   }, 60_000);
 
+  it("LIRE LA FACTURE (lot D2-F) : la lecture ne s'écrit nulle part, et un dépôt qui la désigne exige qu'elle existe pour CE fichier", async () => {
+    await comme("cp");
+    // Le juge compte les factures des devis de CE dossier : un compte sur toute la base partagée mesure le voisinage — un autre
+    // fichier de la suite qui nettoie ses factures pendant la lecture suffisait à le faire tomber (3 → 2), sans rien défaire ici.
+    const avant = await prisma.promoFacture.count({ where: { quote: { promoMaterialId: pmId } } });
+    expect((await lireFacturePromo(form({ promoMaterialId: pmId, quoteId: quoteB }))).error).toMatch(/Choisissez le fichier/);
+    const lu = form({ promoMaterialId: pmId, quoteId: quoteB });
+    lu.set("file", pdf("f3.pdf"));
+    const r = await lireFacturePromo(lu);
+    expect(r.ok, r.ok ? "" : r.error).toBe(true);
+    expect(r.lecture?.lectureId).toBeTruthy();
+    expect(await prisma.promoFacture.count({ where: { quote: { promoMaterialId: pmId } } }), "lire n'écrit aucune facture").toBe(avant);
+    const forge = form({ promoMaterialId: pmId, quoteId: quoteB, reference: "IA-F3", amount: "1", lectureId: "inexistante", totalVerifie: "on" });
+    forge.set("file", pdf("f3.pdf"));
+    expect((await deposerFacturePromo(forge)).error).toMatch(/lecture désignée n'existe pas/);
+    const sansTotal = form({ promoMaterialId: pmId, quoteId: quoteB, reference: "IA-F3", amount: "1", lectureId: r.lecture!.lectureId });
+    sansTotal.set("file", pdf("f3.pdf"));
+    expect((await deposerFacturePromo(sansTotal)).error).toMatch(/total vérifié/);
+    expect(await prisma.promoFacture.count({ where: { quote: { promoMaterialId: pmId } } }), "un refus n'écrit rien").toBe(avant);
+    // CONFIRMÉE : la ligne saisie à la main, le total coché — la facture s'inscrit ET porte sa confirmation.
+    const fiche = (await devisB()).lignesBC.find((l) => l.designation.startsWith("Fiche"))!;
+    const conf = form({ promoMaterialId: pmId, quoteId: quoteB, reference: "IA-F3", amount: "2380", lectureId: r.lecture!.lectureId, totalVerifie: "on",
+      ligneQuoteLineId: [fiche.quoteLineId], ligneQuantite: ["100"], lignePrix: ["20"] });
+    conf.set("file", pdf("f3.pdf"));
+    const d = await deposerFacturePromo(conf);
+    expect(d.ok, d.ok ? "" : d.error).toBe(true);
+    const c = await prisma.lecturePieceConfirmation.findFirst({ where: { cibleType: "PROMO_FACTURE", cibleId: d.id! } });
+    expect(c?.lectureId, "la confirmation est consignée sur la facture déposée").toBe(r.lecture!.lectureId);
+    // Défaite : le scénario qui suit compte sur les 1 000 restantes.
+    expect((await annulerFacturePromo(form({ promoMaterialId: pmId, invoiceId: d.id!, motif: "banc D2-F" }))).ok).toBe(true);
+  });
+
   it("LE RENONCEMENT NE REVIENT PAS : la quantité renoncée reste facturée, elle ne se refacture pas", async () => {
     const e = await devisB();
     const fiche = e.lignesBC.find((l) => l.designation.startsWith("Fiche"))!;
@@ -671,8 +729,9 @@ suite("Matériel promotionnel — achats piochés dans le catalogue, facture lig
     expect((await annulerFacturePromo(form({ promoMaterialId: pmId, invoiceId: factureB2 }))).error).toMatch(/Dites pourquoi/);
     const l = (await lignesDe(factureB2))[0]!;
     expect((await receptionnerLigneFacturePromo(form({ promoMaterialId: pmId, ligneId: l.id }))).ok).toBe(true);
-    expect((await annulerFacturePromo(form({ promoMaterialId: pmId, invoiceId: factureB2, motif: "facture refaite" }))).error).toMatch(/réceptionnées : annulez d'abord leur réception/);
-    expect((await annulerReceptionLigneFacturePromo(form({ promoMaterialId: pmId, ligneId: l.id }))).ok).toBe(true);
+    // SANS motif ici, exprès : l'état d'abord (§118.18) — une facture qui ne s'annule pas d'ici ne demande pas pourquoi.
+    expect((await annulerFacturePromo(form({ promoMaterialId: pmId, invoiceId: factureB2 }))).error).toMatch(/réceptionnées : annulez d'abord leur réception/);
+    expect((await annulerReceptionLigneFacturePromo(form({ promoMaterialId: pmId, ligneId: l.id, motif: "coche erronée" }))).ok).toBe(true);
     const r = await annulerFacturePromo(form({ promoMaterialId: pmId, invoiceId: factureB2, motif: "facture refaite" }));
     expect(r.ok, r.ok ? "" : r.error).toBe(true);
     const doc = await prisma.legalDocument.findUniqueOrThrow({ where: { id: factureB2 }, select: { status: true, cancelReason: true } });
@@ -699,4 +758,24 @@ suite("Matériel promotionnel — achats piochés dans le catalogue, facture lig
     expect(r.ok, r.ok ? "" : r.error).toBe(true);
     expect(Number((await prisma.expenseOrder.findFirstOrThrow({ where: { sourceType: "LEGAL_DOCUMENT", sourceId: ancienne.id } })).amount)).toBe(20_000);
   });
+  it("UNE FACTURE REFUSÉE AU CENTRE se renvoie et s'annule depuis le dossier ; celle dont l'ordre attend, non (§118.185, I8)", async () => {
+    await comme("cp");
+    const ancienne = await prisma.legalDocument.findFirstOrThrow({ where: { reference: "IA-ANCIENNE", sourceId: pmId }, select: { id: true, expenseOrderId: true } });
+    // Le témoin : l'ordre ATTEND le centre — la facture ne repart pas, et ne s'annule pas d'ici.
+    const doublon = await demanderPaiementFacturePromo(form({ promoMaterialId: pmId, invoiceId: ancienne.id, formalite: "AD_VISA" }));
+    expect(doublon.ok ? "" : doublon.error).toMatch(/déjà partie au règlement/);
+    expect((await annulerFacturePromo(form({ promoMaterialId: pmId, invoiceId: ancienne.id, motif: "x" }))).error).toMatch(/paiement de cette facture est déjà demandé/);
+    // Le centre REFUSE : l'ordre ne paiera jamais — la facture repart, et l'ancien ordre est fermé.
+    await prisma.expenseOrder.update({ where: { id: ancienne.expenseOrderId! }, data: { centralStatus: "REFUSED" } });
+    const r = await demanderPaiementFacturePromo(form({ promoMaterialId: pmId, invoiceId: ancienne.id, formalite: "AD_VISA" }));
+    expect(r.ok, r.ok ? "" : r.error).toBe(true);
+    expect((await prisma.expenseOrder.findUniqueOrThrow({ where: { id: ancienne.expenseOrderId! } })).status).toBe("CANCELLED");
+    const nouvelOrdre = (await prisma.legalDocument.findUniqueOrThrow({ where: { id: ancienne.id }, select: { expenseOrderId: true } })).expenseOrderId!;
+    expect(nouvelOrdre).not.toBe(ancienne.expenseOrderId);
+    // Refusé à son tour : la facture s'annule d'ici, et emporte l'ordre refusé.
+    await prisma.expenseOrder.update({ where: { id: nouvelOrdre }, data: { centralStatus: "REFUSED" } });
+    const a = await annulerFacturePromo(form({ promoMaterialId: pmId, invoiceId: ancienne.id, motif: "fournisseur changé" }));
+    expect(a.ok, a.ok ? "" : a.error).toBe(true);
+    expect((await prisma.expenseOrder.findUniqueOrThrow({ where: { id: nouvelOrdre } })).status).toBe("CANCELLED");
+  }, 60_000);
 });

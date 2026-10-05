@@ -1,4 +1,5 @@
 import type { Prisma } from "@prisma/client";
+import { formatMontant } from "@/lib/utils";
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
@@ -179,7 +180,7 @@ export function libelleVirementPaie(entite: string, year: number, month: number,
   return `${complement ? "Complément de paie" : "Paie"} ${moisDeLaPaie(year, month)} — ${entite}`;
 }
 
-const dzd = (n: number): string => `${Math.round(n).toLocaleString("fr-FR")} DZD`;
+const dzd = (n: number): string => `${formatMontant(n)} DZD`;
 
 /**
  * LA NOTE QUE LE CENTRE LIT — la somme déclarée, et ce que les salaires saisis en disent.

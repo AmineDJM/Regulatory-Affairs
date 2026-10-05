@@ -1121,7 +1121,7 @@ export const DOMAIN_TOOLS: Record<string, DomainToolSpec> = {
           date: { type: "string", description: "Visites / plans : la date (AAAA-MM-JJ)." },
           newDate: { type: "string", description: "duplicate_plan : début de la nouvelle période (défaut : mois suivant)." },
           objective: { type: "string", description: "order_visit : la raison de la visite commandée (« point sur le Nivolex »)." },
-          status: { type: "string", description: "update_visit : planifiée / réalisée / annulée / reportée." },
+          status: { type: "string", description: "update_visit : planifiée seulement — réalisée passe par log_visit, reportée ou annulée se dit depuis « Ma journée »." },
           report: { type: "string", description: "update_visit : compte rendu." },
           feedback: { type: "string", description: "update_visit : retour du médecin." },
           followUp: { type: "string", description: "Actions de suivi : update_visit (compte rendu) ou log_visit (ce qu'il reste à faire après la visite)." },

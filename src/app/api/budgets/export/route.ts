@@ -4,6 +4,7 @@ import { userCan } from "@/lib/rbac";
 import { getBudgetOverview, getEnvelopesGrandTotal } from "@/lib/queries/budget";
 import { buildBudgetWorkbook, budgetExportFilename } from "@/lib/budget-export";
 import { recordAudit } from "@/lib/audit";
+import { contentDisposition } from "@/lib/http/content-disposition";
 
 /** Export Excel (.xlsx) du budget affiché + total des enveloppes, avec taux de consommation. */
 export async function GET(req: NextRequest) {
@@ -27,7 +28,7 @@ export async function GET(req: NextRequest) {
   return new NextResponse(buffer as unknown as BodyInit, {
     headers: {
       "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-      "Content-Disposition": `attachment; filename="${budgetExportFilename(overview.envelope.name)}"`,
+      "Content-Disposition": contentDisposition(budgetExportFilename(overview.envelope.name)),
       "Cache-Control": "no-store",
     },
   });

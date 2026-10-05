@@ -8,12 +8,15 @@ import { ROLE_DIRECTION_MARKETING } from "@/lib/personnes/roles-vente";
 import { notifyUser, notifyRoles } from "@/lib/notify";
 import {
   initialStep, nextStep, canValidate, tracksOpen, allTracksDone, pendingTracks, type PromoStep,
-  libelleEtape, libelleChantier, PROMO_TRACKS, piloteLExecution,
+  libelleEtape, libelleChantier, PROMO_TRACKS, piloteLExecution, demandeLesDevis,
   type PromoState, type PromoTrack, type VersionCircuit,
 } from "@/lib/promo-material/circuit";
 import { promoManagerOf } from "@/lib/queries/promo-material";
+import { etatApresRenvoi, attendSaCorrection, refusParLeDemandeur, REFUS_EN_CORRECTION } from "@/lib/promo-material/renvoi";
+import { ecrireAuFil } from "@/lib/ad-pro/fil";
+import { envoyerDemandeDeDevis, genererLesBonsDeCommande } from "@/lib/promo-automatismes";
 import {
-  contexteDuDossier, validateursDeLaDemande, validateursMarketing, devisDuDossier, devisLu,
+  contexteDuDossier, validateursDeLaDemande, validateursMarketing, devisLu, SELECT_DEVIS,
 } from "@/lib/queries/promo-circuit";
 import { totauxDeLaSelection, formatDzd } from "@/lib/promo-material/devis";
 import { verdictDuChantierPromo } from "@/lib/queries/promo-execution";
@@ -39,6 +42,15 @@ import { chantierPaiementClos, etatDeLOrdre, type PieceDeReglement } from "@/lib
 
 const PATH = "/promo-material";
 const path = (id: string) => `${PATH}/${id}`;
+/** La phrase de toute écriture qui trouve le dossier passé à une autre étape entre sa lecture et son écriture. */
+const ETAPE_CHANGEE = "Ce dossier vient de changer d'étape — rechargez la fiche.";
+/**
+ * Ce que l'écran a envoyé n'est plus la sélection : un autre choix s'est enregistré entre l'envoi et la
+ * validation. Valider la sélection du moment ferait valider ce que la personne n'a pas vu (§118.187).
+ */
+const CHOIX_CHANGE = "La sélection a changé pendant votre validation (un autre onglet, ou un déblocage du Super Admin) : rien n'a été validé — rechargez la fiche, vérifiez les lignes retenues, puis validez.";
+/** Le refus d'une écriture qui a perdu la course — levé dans la transaction pour l'annuler entière, rattrapé à sa sortie. */
+class RefusEtape extends Error {}
 
 /**
  * LES RÈGLEMENTS RATTACHÉS À UN DOSSIER — tout ce qui peut porter son paiement (§118.148).
@@ -204,7 +216,14 @@ export async function markQuoteReceived(formData: FormData): Promise<ActionResul
     return { ok: false, error: "Déposez d'abord le devis dans les documents du dossier — confirmer sans pièce n'avance à rien." };
   }
 
-  await prisma.promoMaterial.update({ where: { id }, data: { circuitState: "REVIEW_REQUESTER", updatedById: user.id } });
+  // CONDITIONNELLE sur l'étape et la version LUES (vague « restes ») : deux confirmations croisées
+  // n'écrivent pas deux fois « devis reçu » ni ne préviennent deux fois le demandeur, et un dossier
+  // refusé, annulé ou basculé entre-temps ne repasse pas « au tour du demandeur ».
+  const ecrite = await prisma.promoMaterial.updateMany({
+    where: { id, circuitState: "QUOTE_REQUESTED", circuitVersion: item.circuitVersion },
+    data: { circuitState: "REVIEW_REQUESTER", updatedById: user.id },
+  });
+  if (ecrite.count === 0) return { ok: false, error: ETAPE_CHANGEE };
   await recordAudit({
     actorId: user.id, action: "UPDATE", module: "Matériel promotionnel",
     entityType: "PROMO_MATERIAL", entityId: id,
@@ -222,7 +241,7 @@ export async function markQuoteReceived(formData: FormData): Promise<ActionResul
 const SELECT_ETAPE = {
   id: true, title: true, reference: true, circuitState: true, circuitVersion: true,
   requesterId: true, managerId: true, requestValidatorId: true, requestValidation: true, marketingValidatorId: true,
-  chosenAmount: true, amount: true,
+  chosenAmount: true, amount: true, returnedAt: true, returnNote: true,
 } as const;
 
 /**
@@ -253,6 +272,15 @@ async function validateursDeLEtape(
  *
  * La transition est CONDITIONNELLE (`updateMany` sur l'état lu) : deux validateurs qui cliquent
  * ensemble ne font pas avancer le dossier deux fois, ni ne préviennent deux fois l'étape suivante.
+ *
+ * LE CHOIX DU DEMANDEUR SE LIT SOUS LE VERROU DU DOSSIER (lot D1b). La sélection, le montant qu'on fige et la
+ * porte du DG qu'il ouvre se lisaient AVANT l'écriture conditionnelle — qui ne regardait que l'étape : un choix
+ * enregistré entre les deux (un autre onglet, un déblocage du Super Admin) faisait partir le dossier avec un
+ * montant figé sur une sélection qui n'était plus celle des lignes cochées, donc des bons de commande. La
+ * transaction prend le verrou, relit l'étape, puis la sélection ; toute écriture de la sélection prend le même
+ * verrou en premier (`choisirLignesPromo`, la correction). `lignesVues` — ce que `choisirLignesPromo` vient
+ * d'enregistrer — n'est validé que s'il est encore la sélection : un accord ne couvre pas plus que ce qu'il a
+ * vu (§118.187).
  */
 export async function validatePromoStep(formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
@@ -264,40 +292,106 @@ export async function validatePromoStep(formData: FormData): Promise<ActionResul
 
   const state = item.circuitState as PromoState;
   const version: VersionCircuit = item.circuitVersion === 2 ? 2 : 1;
+  // RENVOYÉE pour correction à la validation de la demande : la balle est chez le demandeur (§118.190).
+  if (state === "REVIEW_REQUEST" && attendSaCorrection(item)) return { ok: false, error: REFUS_EN_CORRECTION };
   if (!canValidate(user, state, await validateursDeLEtape(item, user.secondaryRole))) {
     return { ok: false, error: `Cette étape ne vous revient pas — elle attend : ${libelleEtape(state, version)}.` };
   }
 
-  // LE CHOIX DU DEMANDEUR (circuit 2) : sans ligne retenue, il n'y a rien à valider — et le montant
-  // retenu devient celui du dossier, avec les fournisseurs dont une ligne est retenue.
-  let fige: { chosenAmount: number; chosenAgency: string } | null = null;
-  if (version === 2 && state === "REVIEW_REQUESTER") {
-    const devis = (await devisDuDossier(id)).map(devisLu);
-    const totaux = totauxDeLaSelection(devis);
-    if (totaux.lignes === 0) return { ok: false, error: "Retenez au moins une ligne de devis avant de valider votre choix." };
-    const fournisseurs = devis.filter((d) => d.lines.some((l) => l.selected)).map((d) => d.supplierName);
-    fige = { chosenAmount: totaux.ttc, chosenAgency: fournisseurs.join(", ") };
+  const choixDuDemandeur = version === 2 && state === "REVIEW_REQUESTER";
+  const vues = formData.getAll("lignesVues").map((x) => String(x)).filter(Boolean);
+  const lignesVues = vues.length > 0 ? new Set(vues) : null;
+  const ctxLu = await contexteDuDossier(item);
+
+  let resultat: { fige: { chosenAmount: number; chosenAgency: string } | null; next: PromoStep };
+  try {
+    resultat = await prisma.$transaction(async (tx) => {
+      let fige: { chosenAmount: number; chosenAgency: string } | null = null;
+      let ctx = ctxLu;
+      // LE CHOIX DU DEMANDEUR (circuit 2) : sans ligne retenue, il n'y a rien à valider — et le montant
+      // retenu devient celui du dossier, avec les fournisseurs dont une ligne est retenue.
+      if (choixDuDemandeur) {
+        const [etat] = await tx.$queryRaw<{ circuitState: string | null; circuitVersion: number }[]>`
+          SELECT "circuitState", "circuitVersion" FROM "PromoMaterial" WHERE id = ${id} FOR UPDATE`;
+        // L'ÉTAPE D'ABORD (§118.18) : un dossier reparti chez l'assistante pendant qu'on attendait ne se fait pas
+        // répondre « retenez au moins une ligne » parce que la correction a effacé la sélection.
+        if (!etat || etat.circuitVersion !== 2 || etat.circuitState !== "REVIEW_REQUESTER") throw new RefusEtape(ETAPE_CHANGEE);
+        const devis = (await tx.promoQuote.findMany({
+          where: { promoMaterialId: id }, orderBy: [{ position: "asc" }, { createdAt: "asc" }], select: SELECT_DEVIS,
+        })).map(devisLu);
+        if (lignesVues) {
+          const retenues = devis.flatMap((d) => d.lines.filter((l) => l.selected).map((l) => l.id));
+          if (retenues.length !== lignesVues.size || retenues.some((x) => !lignesVues.has(x))) throw new RefusEtape(CHOIX_CHANGE);
+        }
+        const totaux = totauxDeLaSelection(devis);
+        if (totaux.lignes === 0) throw new RefusEtape("Retenez au moins une ligne de devis avant de valider votre choix.");
+        const fournisseurs = devis.filter((d) => d.lines.some((l) => l.selected)).map((d) => d.supplierName);
+        fige = { chosenAmount: totaux.ttc, chosenAgency: fournisseurs.join(", ") };
+        // Le montant du contexte EST celui qu'on fige — la règle de `contexteDuDossier` (le TTC des lignes
+        // retenues), appliquée à la sélection lue sous le verrou : lue avant, elle pouvait ouvrir ou fermer la
+        // porte du DG sur un autre choix que celui qu'on fige.
+        ctx = { ...ctxLu, montant: totaux.ttc };
+      }
+      const next = nextStep(state as PromoStep, ctx);
+      if (!next) throw new RefusEtape("Ce dossier est au bout de son circuit.");
+      // AVANCER RÉPOND AU RENVOI (§118.190) : le choix revalidé, la marque et son motif s'effacent — ils
+      // restent au fil et au journal. Une avance qui les laisserait ferait relire « À corriger » à
+      // chaque étape suivante, sur un dossier que plus personne n'a à corriger.
+      const avance = await tx.promoMaterial.updateMany({
+        where: { id, circuitState: state },
+        data: {
+          circuitState: next, updatedById: user.id, ...(fige ?? {}),
+          returnedAt: null, returnedById: null, returnNote: null, returnedFrom: null,
+        },
+      });
+      if (avance.count === 0) throw new RefusEtape(ETAPE_CHANGEE);
+      return { fige, next };
+    }, { timeout: 15_000, maxWait: 15_000 });
+  } catch (e) {
+    if (e instanceof RefusEtape) return { ok: false, error: e.message };
+    throw e;
   }
-
-  const ctx = await contexteDuDossier(item);
-  const next = nextStep(state as PromoStep, ctx);
-  if (!next) return { ok: false, error: "Ce dossier est au bout de son circuit." };
-
-  const avance = await prisma.promoMaterial.updateMany({
-    where: { id, circuitState: state },
-    data: { circuitState: next, updatedById: user.id, ...(fige ?? {}) },
-  });
-  if (avance.count === 0) return { ok: false, error: "Ce dossier vient de changer d'étape — rechargez la fiche." };
+  const { fige, next } = resultat;
   await recordAudit({
     actorId: user.id, action: "UPDATE", module: "Matériel promotionnel",
     entityType: "PROMO_MATERIAL", entityId: id,
     summary: `${libelleEtape(state, version)} — validé${fige ? ` (montant retenu ${formatDzd(fige.chosenAmount)} TTC — ${fige.chosenAgency})` : ""}. Étape suivante : ${libelleEtape(next, version)}`,
   });
 
+  // LES AUTOMATISMES (§118.204) — la demande de devis part quand la demande est validée, et les bons de
+  // commande sont générés quand la DERNIÈRE validation du choix tombe. Après l'avance, jamais avant : un
+  // automatisme qui échoue ne retire pas la validation qu'on vient de donner, il le DIT, et le repli (la
+  // rubrique « Articles demandés », la carte « Exécution ») reste là pour le rattraper.
+  let suiteAuto: string | null = null;
+  let devisPartis = false;
+  if (version === 2 && next === "QUOTE_TO_REQUEST") {
+    const envoi = await envoyerDemandeDeDevis(user.id, id);
+    if (envoi.ok) {
+      devisPartis = true;
+      if (envoi.assistantId) await notifyUser({ userId: envoi.assistantId, ...envoi.avis });
+      else await notifyRoles(["DIRECTION_ASSISTANT"], envoi.avis);
+      suiteAuto = `La demande de devis est partie au secrétariat (${envoi.demande.reference}).`;
+    } else {
+      suiteAuto = `La demande de devis n'est pas partie d'elle-même : ${envoi.error} Le demandeur l'envoie depuis « Articles demandés ».`;
+    }
+  }
+  let bilanBC: Awaited<ReturnType<typeof genererLesBonsDeCommande>> | null = null;
+  if (version === 2 && next === "IN_EXECUTION") {
+    bilanBC = await genererLesBonsDeCommande(user, id, { livraison: { adresse: null, delai: null }, notes: null, taxe: undefined, automatique: true });
+    suiteAuto = bilanBC.ok
+      ? bilanBC.message
+      : `Les bons de commande n'ont pas pu être générés automatiquement : ${bilanBC.error} Ils se génèrent depuis la carte « Exécution ».`;
+  }
+
   // On prévient CELUI QUI DOIT AGIR ENSUITE, pas tout le monde.
   const avis = { type: "VALIDATION_REQUIRED" as const, body: `${item.reference} — ${item.title}`, link: path(id) };
   if (next === "QUOTE_TO_REQUEST" && item.requesterId) {
-    await notifyUser({ userId: item.requesterId, ...avis, type: "GENERIC", title: "Demande validée — demandez les devis au secrétariat" });
+    await notifyUser({
+      userId: item.requesterId, ...avis, type: "GENERIC",
+      title: devisPartis
+        ? "Demande validée — la demande de devis est partie au secrétariat"
+        : "Demande validée — envoyez la demande de devis depuis « Articles demandés »",
+    });
   } else if (next === "REVIEW_MANAGER") {
     // UNE PERSONNE quand on la sait (la directrice du demandeur, ou les cheffes) ; sinon le RÔLE.
     const nommees = version === 2 ? await validateursMarketing(item) : null;
@@ -316,9 +410,9 @@ export async function validatePromoStep(formData: FormData): Promise<ActionResul
     // Les TROIS chantiers s'ouvrent d'un coup : c'est le moment où le circuit cesse d'être une file.
     await notifyUser({
       userId: item.requesterId, type: "GENERIC",
-      title: "Validations obtenues — vous pouvez lancer",
+      title: version === 2 && bilanBC?.ok ? "Validations obtenues — bons de commande générés" : "Validations obtenues — vous pouvez lancer",
       body: version === 2
-        ? `${item.reference} — générez les bons de commande : la plateforme les compose d'après les lignes validées.`
+        ? `${item.reference} — ${suiteAuto ?? "les bons de commande se génèrent depuis la carte « Exécution »."}`
         : `${item.reference} — bon de commande, demande de paiement et demande de visa peuvent partir en parallèle.`,
       link: path(id),
     });
@@ -328,8 +422,8 @@ export async function validatePromoStep(formData: FormData): Promise<ActionResul
   return {
     ok: true,
     message: `Validé. ${next === "IN_EXECUTION"
-      ? (version === 2 ? "Les validations sont obtenues : générez les bons de commande." : "Les trois chantiers sont ouverts.")
-      : `Au tour de : ${libelleEtape(next, version)}.`}`,
+      ? (version === 2 ? `Les validations sont obtenues. ${suiteAuto ?? ""}`.trim() : "Les trois chantiers sont ouverts.")
+      : suiteAuto ?? `Au tour de : ${libelleEtape(next, version)}.`}`,
   };
 }
 
@@ -337,17 +431,23 @@ export async function validatePromoStep(formData: FormData): Promise<ActionResul
 export async function refusePromoStep(formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
   const id = fdStr(formData, "id");
-  const reason = (fdStr(formData, "reason") ?? "").trim();
   if (!id) return { ok: false, error: "Dossier introuvable." };
-  if (!reason) return { ok: false, error: "Dites pourquoi : un refus sans motif fait recommencer à l'identique." };
 
+  // L'ÉTAT D'ABORD, LE MOTIF ENSUITE (§118.18, §118.189) : on ne demande pas pourquoi refuser ce
+  // qui ne se refuse pas d'ici — la personne écrirait son motif pour apprendre ensuite que rien ne
+  // pouvait partir.
   const item = await prisma.promoMaterial.findUnique({ where: { id }, select: SELECT_ETAPE });
   if (!item || !item.circuitState) return { ok: false, error: "Le circuit n'est pas lancé sur ce dossier." };
   const state = item.circuitState as PromoState;
   const version: VersionCircuit = item.circuitVersion === 2 ? 2 : 1;
+  const propre = refusParLeDemandeur(user, item);
+  if (propre) return { ok: false, error: propre };
+  if (state === "REVIEW_REQUEST" && attendSaCorrection(item)) return { ok: false, error: REFUS_EN_CORRECTION };
   if (!canValidate(user, state, await validateursDeLEtape(item, user.secondaryRole))) {
     return { ok: false, error: "Cette étape ne vous revient pas." };
   }
+  const reason = (fdStr(formData, "reason") ?? "").trim();
+  if (!reason) return { ok: false, error: "Dites pourquoi : un refus sans motif fait recommencer à l'identique." };
 
   const refus = await prisma.promoMaterial.updateMany({ where: { id, circuitState: state }, data: { circuitState: "REFUSED", updatedById: user.id } });
   if (refus.count === 0) return { ok: false, error: "Ce dossier vient de changer d'étape — rechargez la fiche." };
@@ -361,6 +461,111 @@ export async function refusePromoStep(formData: FormData): Promise<ActionResult>
   }
   revalidatePath(path(id));
   return { ok: true, message: "Refus enregistré." };
+}
+
+/**
+ * RENVOYER LE DOSSIER POUR CORRECTION (audit 360°, lot C4b, R05) — la troisième issue, entre valider
+ * et refuser. Ouverte là où le refus l'est (`canValidate`), à une étape qu'un AUTRE que le demandeur
+ * tranche (`renvoiPossible`) ; le motif est exigé, APRÈS les refus d'état (§118.18).
+ *
+ * La validation de la DEMANDE se corrige sur place (la marque dit que la balle a changé de camp) ; une
+ * validation du CHOIX renvoie au choix des lignes, et revalider repasse par toutes les validations —
+ * un accord ne couvre pas plus que ce qu'il a vu (§118.187).
+ *
+ * L'écriture est CONDITIONNELLE sur l'étape lue (et, à l'étape 0, sur l'absence de marque) : deux
+ * validateurs qui renvoient ensemble n'écrivent qu'un motif, et un renvoi croisé avec une validation
+ * n'en garde qu'un — c'est la condition, pas l'ordre des clics, qui tranche.
+ */
+export async function renvoyerPromoStep(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  const id = fdStr(formData, "id");
+  if (!id) return { ok: false, error: "Dossier introuvable." };
+  const item = await prisma.promoMaterial.findUnique({ where: { id }, select: SELECT_ETAPE });
+  if (!item || !item.circuitState) return { ok: false, error: "Le circuit n'est pas lancé sur ce dossier." };
+  const state = item.circuitState as PromoState;
+  const version: VersionCircuit = item.circuitVersion === 2 ? 2 : 1;
+  if (state === "REVIEW_REQUEST" && attendSaCorrection(item)) return { ok: false, error: REFUS_EN_CORRECTION };
+  const cible = etatApresRenvoi(state);
+  if (!cible) {
+    return { ok: false, error: `L'étape « ${libelleEtape(state, version)} » ne se renvoie pas : seule une validation tranchée par quelqu'un d'autre que le demandeur se renvoie pour correction.` };
+  }
+  if (!canValidate(user, state, await validateursDeLEtape(item, user.secondaryRole))) {
+    return { ok: false, error: "Cette étape ne vous revient pas." };
+  }
+  const motif = fdStr(formData, "motif");
+  if (motif === null) return { ok: false, error: "Dites ce qu'il faut corriger : un renvoi sans motif fait deviner le demandeur." };
+
+  const renvoi = await prisma.promoMaterial.updateMany({
+    where: { id, circuitState: state, ...(state === "REVIEW_REQUEST" ? { returnedAt: null } : {}) },
+    data: { circuitState: cible, returnedAt: new Date(), returnedById: user.id, returnNote: motif, returnedFrom: state, updatedById: user.id },
+  });
+  if (renvoi.count === 0) return { ok: false, error: "Ce dossier vient de changer d'étape — rechargez la fiche." };
+  await ecrireAuFil({
+    entityType: "PROMO_MATERIAL", entityId: id, authorId: user.id,
+    body: `Renvoyé pour correction à l'étape « ${libelleEtape(state, version)} » : ${motif}`,
+  });
+  await recordAudit({
+    actorId: user.id, action: "UPDATE", module: "Matériel promotionnel",
+    entityType: "PROMO_MATERIAL", entityId: id,
+    summary: `Renvoyé pour correction à l'étape « ${libelleEtape(state, version)} » — ${motif.slice(0, 200)}`,
+  });
+  if (item.requesterId && item.requesterId !== user.id) {
+    await notifyUser({
+      userId: item.requesterId, type: "GENERIC", title: "Matériel promotionnel — à corriger",
+      body: `${item.reference} — ${motif.slice(0, 200)}`, link: path(id),
+    });
+  }
+  revalidatePath(path(id));
+  return {
+    ok: true,
+    message: cible === "REVIEW_REQUEST"
+      ? "Renvoyé au demandeur : il corrige sa demande, puis vous la resoumet."
+      : "Renvoyé au demandeur : il refait son choix de lignes, qui repassera par les validations.",
+  };
+}
+
+/**
+ * RESOUMETTRE LA DEMANDE CORRIGÉE (étape 0 du circuit 2, §118.190) — au validateur qui l'a renvoyée.
+ *
+ * Son demandeur seul (ou la Direction en suppléance, `demandeLesDevis`), en disant ce qui a changé :
+ * sans cela, le validateur relirait tout pour trouver la différence. La marque s'efface ; le renvoi et
+ * la correction vont au fil, où ils restent. L'écriture est conditionnelle : deux resoumissions
+ * simultanées n'en font qu'une.
+ */
+export async function resoumettrePromoDemande(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  const id = fdStr(formData, "id");
+  if (!id) return { ok: false, error: "Dossier introuvable." };
+  const item = await prisma.promoMaterial.findUnique({ where: { id }, select: { ...SELECT_ETAPE, returnedFrom: true } });
+  if (!item || !item.circuitState) return { ok: false, error: "Le circuit n'est pas lancé sur ce dossier." };
+  if (!demandeLesDevis({ id: user.id, role: user.role, secondaryRole: user.secondaryRole, vueGlobale: hasGlobalView(user.role) }, item)) {
+    return { ok: false, error: "Seul le demandeur (ou la Direction) resoumet ce dossier." };
+  }
+  if (item.circuitState !== "REVIEW_REQUEST" || !attendSaCorrection(item)) {
+    return { ok: false, error: "Ce dossier n'est pas à corriger : il n'y a rien à resoumettre." };
+  }
+  const correction = fdStr(formData, "note");
+  if (correction === null) return { ok: false, error: "Dites ce qui a changé : le validateur relirait sinon toute la demande pour le trouver." };
+
+  const reprise = await prisma.promoMaterial.updateMany({
+    where: { id, circuitState: "REVIEW_REQUEST", returnedAt: { not: null } },
+    data: { returnedAt: null, returnedById: null, returnNote: null, returnedFrom: null, updatedById: user.id },
+  });
+  if (reprise.count === 0) return { ok: false, error: "Ce dossier vient de changer : rouvrez sa fiche." };
+  const quand = item.returnedAt ? new Date(item.returnedAt).toLocaleDateString("fr-FR") : null;
+  await ecrireAuFil({
+    entityType: "PROMO_MATERIAL", entityId: id, authorId: user.id,
+    body: `Resoumis après correction.${quand ? ` Le renvoi du ${quand} demandait : « ${item.returnNote ?? ""} ».` : ""} Ce qui a changé : ${correction}`,
+  });
+  await recordAudit({
+    actorId: user.id, action: "UPDATE", module: "Matériel promotionnel",
+    entityType: "PROMO_MATERIAL", entityId: id, summary: `Resoumis après correction — ${correction.slice(0, 200)}`,
+  });
+  const avis = { type: "VALIDATION_REQUIRED" as const, title: "Matériel promotionnel — demande corrigée, à valider", body: `${item.reference} — ${correction.slice(0, 200)}`, link: path(id) };
+  if (item.requestValidatorId) await notifyUser({ userId: item.requestValidatorId, ...avis });
+  else await notifyRoles(["DIRECTION"], avis);
+  revalidatePath(path(id));
+  return { ok: true, message: "Demande resoumise : elle revient à la personne qui l'a renvoyée." };
 }
 
 /**
@@ -430,14 +635,20 @@ export async function completePromoTrack(formData: FormData): Promise<ActionResu
   const nextDone = [...done, track as PromoTrack];
   const finished = allTracksDone(nextDone);
 
-  await prisma.promoMaterial.update({
-    where: { id },
+  // CONDITIONNELLE SUR CE QUI A ÉTÉ LU (lot D1b) : l'étape ET les chantiers déjà clos. Deux chantiers clos à
+  // la même seconde lisaient la même liste et le second effaçait le premier — un chantier clos redevenait
+  // ouvert sans que personne l'ait rouvert ; un dossier annulé pendant qu'on clôturait son dernier chantier
+  // repassait « terminé ». Les verdicts lus plus haut (BC signés, paiements réglés) portent sur d'autres
+  // pièces : leur course est d'une autre nature, et n'est pas fermée ici.
+  const ecrit = await prisma.promoMaterial.updateMany({
+    where: { id, circuitState: item.circuitState, tracksDone: item.tracksDone },
     data: {
       tracksDone: nextDone.join(","),
       ...(finished ? { circuitState: "COMPLETED" } : {}),
       updatedById: user.id,
     },
   });
+  if (ecrit.count === 0) return { ok: false, error: "Ce dossier vient de changer — un autre chantier vient d'être clos, ou son étape a changé : rechargez la fiche." };
   await recordAudit({
     actorId: user.id, action: "UPDATE", module: "Matériel promotionnel",
     entityType: "PROMO_MATERIAL", entityId: id,

@@ -6,7 +6,7 @@ import { listPartyOptions } from "@/lib/queries/company-contacts";
 import { PartyLink } from "@/components/directory/party-link";
 import { userCan, peutVoirAdam } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
-import { companyScopedWhere } from "@/lib/company";
+import { canEditCompanyId, companyScopedWhere } from "@/lib/company";
 import { legalKindVisible, legalViewScope, legalWriteAllowed } from "@/lib/legal/invoices";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -23,11 +23,14 @@ import { sourceHref, sourceCaption } from "@/lib/links/source-link";
 import { legalFields, dateInput } from "../legal-fields";
 import { buildFolderTree, flattenFolders, indentedLabel } from "@/lib/legal/folders";
 import { EditLegalButton } from "./edit-legal";
+import { ReviserPieceButton } from "./reviser-piece";
+import { EmettreAvoirButton } from "./emettre-avoir";
 import { RecordDeleteButton } from "@/components/shared/record-delete-button";
 import { PartagerButton } from "@/components/shared/partager-button";
 import { legalReaderWhere, canManageLegalReaders } from "@/lib/lecteurs/legal";
 import { LegalAccessPanel } from "./access-panel";
 import { loadLegalChain, piecesAmontProposees } from "@/lib/queries/legal-chain";
+import { perimetreLegal } from "@/lib/queries/visibilite-listes";
 import { valeurContractuelleCourante } from "@/lib/pch/market-math";
 import { MarketContext } from "./market-context";
 import { LegalChainCard } from "./chain-card";
@@ -35,12 +38,16 @@ import { EntityLinks } from "@/components/shared/entity-links";
 import { linksOf, linkedViews } from "@/lib/links/store";
 import { porteDuBC, origineDuBC, centreVouluDuBC } from "@/lib/bons-de-commande/aiguillage";
 import { blocageParLeBC } from "@/lib/bons-de-commande/regle";
+import { REFUS_FACTURE_EMISE_AU_REGLEMENT } from "@/lib/finances/settlement";
 import { siegeAuCentreAdPro } from "@/lib/ad-pro/centre";
 import { sitsOnValidationCentre } from "@/lib/validations/centre";
 import { BonDeCommandeGate } from "./bc-gate";
 import { etatDuBC } from "@/lib/bons-de-commande/etat";
 import { peutSignerBC } from "@/lib/queries/bons-de-commande";
 import { fichiersEmis, lienFichierEmis } from "@/lib/legal/fichiers-emis";
+import { pieceDefinitive, pieceEmise, refusRevisionAval, remedePieceEmise, specRevisable } from "@/lib/legal/piece-emise";
+import { netDeLaFacture } from "@/lib/lecteurs/avoir";
+import { avalActif, avoirsDeLaFacture } from "@/lib/legal/aval";
 
 export const dynamic = "force-dynamic";
 
@@ -174,9 +181,14 @@ export default async function LegalDocumentPage({ params }: { params: { id: stri
     prisma.legalFolder.findMany({ select: { id: true, name: true, parentId: true } }),
     // Les pièces amont possibles pour rattacher CE document à sa chaîne d'achat — et la pièce
     // ACTUELLE toujours, sans quoi « Enregistrer » détachait une facture d'un BC ancien (§118.168).
-    piecesAmontProposees({ userId: user.id, readerScope, docId: doc.id, actuelId: doc.chainFromId }),
+    // Par LA porte de la liste (`perimetreLegal`, lot D1c) : les Finances ne lisent pas les devis, le menu ne leur en
+    // montre pas les titres — et la pièce actuelle qu'elles ne lisent pas garde son libellé NEUTRE (§118.168). Sans
+    // porte de liste (aucune nature lisible), le menu ne propose rien.
+    perimetreLegal(user).then((perimetre) => piecesAmontProposees({
+      userId: user.id, readerScope: perimetre.where ?? { id: { in: [] } }, docId: doc.id, actuelId: doc.chainFromId,
+    })),
     // La chaîne complète : maillons, validateurs de chacun, règlement au bout.
-    loadLegalChain(doc.id),
+    loadLegalChain(doc.id, user),
   ]);
   const folderOptions = flattenFolders(buildFolderTree(folderRows)).map((n) => ({ value: n.id, label: indentedLabel(n) }));
   const chainCandidates = chainDocs;
@@ -209,6 +221,23 @@ export default async function LegalDocumentPage({ params }: { params: { id: stri
   const estBC = doc.kind === "PURCHASE_ORDER";
   // Les fichiers que la FABRIQUE a produits pour cette pièce (`custom.fabrique`) — voir `fichiers-emis`.
   const emis = fichiersEmis(doc.custom);
+  // UNE PIÈCE ÉMISE SE RÉVISE, ELLE NE SE RÉÉCRIT PAS (§118.194) — devis et bon de commande : même numéro,
+  // nouvelle version. Le geste n'est offert qu'à qui la fabrique l'accordera — le droit d'écrire la pièce ET
+  // celui d'engager sa société —, et ce qui en découle se dit AVANT le clic (§118.83).
+  const emise = pieceEmise(doc.custom);
+  const revisable = emise && !pieceDefinitive(emise.type) && doc.status === "ACTIVE" ? specRevisable(doc.custom) : null;
+  const peutReviser = Boolean(revisable) && canEdit && (await canEditCompanyId(user.id, doc.companyId));
+  const avalDeLaPiece = peutReviser && emise ? await avalActif(doc.id, emise.type) : null;
+  // UNE FACTURE ÉMISE SE CORRIGE PAR UN AVOIR (§118.195) : ses avoirs, son NET et ce qui reste à créditer se lisent
+  // ici par les mêmes lecteurs que la fabrique (qui plafonne) et que le règlement (qui encaisse le net). Le geste n'est
+  // offert qu'à qui la fabrique l'accordera — le droit de créer un avoir ET celui d'engager la société.
+  const factureEmise = emise?.type === "FACTURE";
+  const avoirs = factureEmise ? await avoirsDeLaFacture(doc.id) : [];
+  const netFacture = netDeLaFacture(doc.amount !== null ? toNumber(doc.amount) : 0, avoirs.filter((a) => a.actif).map((a) => a.montant));
+  const peutEmettreAvoir = factureEmise && doc.status === "ACTIVE" && netFacture > 0
+    && legalWriteAllowed({ onLegal: userCan(user, "LEGAL", "CREATE"), onFinances: userCan(user, "FINANCES", "CREATE"), kind: "CREDIT_NOTE" })
+    && (await canEditCompanyId(user.id, doc.companyId));
+  const lignesFacture = peutEmettreAvoir ? specRevisable(doc.custom)?.lignes ?? [] : [];
   // L'ÉTAT DE BOUT EN BOUT (§118.149) — porte, seuil, signature — par le MÊME lecteur que la file
   // des Finances et que l'action de signature : la fiche ne peut pas dire « à signer » d'un BC que
   // l'action refuserait.
@@ -228,9 +257,13 @@ export default async function LegalDocumentPage({ params }: { params: { id: stri
   const bcAmont = doc.kind === "INVOICE" && doc.chainFromId
     ? await prisma.legalDocument.findUnique({ where: { id: doc.chainFromId }, select: { id: true, kind: true, reference: true } })
     : null;
-  const settleBlocked = bcAmont?.kind === "PURCHASE_ORDER"
-    ? blocageParLeBC(await porteDuBC(bcAmont.id), bcAmont.reference)
-    : null;
+  // Une facture ÉMISE par la société se règle par son client : la fiche dit pourquoi le bouton n'est pas là, avec la
+  // phrase même du refus de l'action (§118.195).
+  const settleBlocked = doc.kind === "INVOICE" && doc.direction === "IN"
+    ? REFUS_FACTURE_EMISE_AU_REGLEMENT
+    : bcAmont?.kind === "PURCHASE_ORDER"
+      ? blocageParLeBC(await porteDuBC(bcAmont.id), bcAmont.reference)
+      : null;
 
   // L'ANNUAIRE — avec les parties DÉJÀ retenues, même retirées de l'annuaire depuis : une partie
   // à un contrat signé ne disparaît pas du contrat parce qu'on ne travaille plus avec elle.
@@ -254,7 +287,7 @@ export default async function LegalDocumentPage({ params }: { params: { id: stri
     folderId: doc.folderId ?? undefined,
     chainFromId: doc.chainFromId ?? undefined,
   }, "edit", [], folderOptions, chainCandidates, false,
-     { options: partyOptions, canCreate: canCreateContact, selected: doc.counterpartyIds });
+     { options: partyOptions, canCreate: canCreateContact, selected: doc.counterpartyIds }, Boolean(emise));
 
   return (
     <div className="space-y-5">
@@ -284,7 +317,12 @@ export default async function LegalDocumentPage({ params }: { params: { id: stri
             refLabel={doc.reference ? `${doc.reference} — ${doc.title}` : doc.title}
             href={`/legal/${doc.id}`}
           />
-          {canEdit && <EditLegalButton id={doc.id} fields={fields} />}
+          {canEdit && (
+            <EditLegalButton
+              id={doc.id} fields={fields}
+              note={emise ? `Pièce émise par la plateforme (${emise.numero}) : son montant, sa partie, son numéro, sa nature et ses dates viennent de son fichier et ne se corrigent pas ici — ${remedePieceEmise(emise)}` : undefined}
+            />
+          )}
           {/* Le déposant peut retirer son document — suppression réversible (corbeille admin).
               Un contrat effacé par erreur reste récupérable par un administrateur. */}
           <RecordDeleteButton
@@ -369,7 +407,59 @@ export default async function LegalDocumentPage({ params }: { params: { id: stri
                         <Paperclip className="h-3.5 w-3.5" /> Word
                       </a>
                     )}
+                    {/* « Générer le BC sur Excel » : la pièce RENDUE en classeur à formules, à la demande, sous la même porte. */}
+                    {emise && (
+                      <a href={lienFichierEmis(doc.id, "xlsx", true)} className="inline-flex items-center gap-1 font-medium text-primary hover:underline" aria-label={`Générer ${emise.numero} sur Excel`}>
+                        <Paperclip className="h-3.5 w-3.5" /> Excel
+                      </a>
+                    )}
+                    {emise && <span className="text-xs text-muted-foreground">Version {emise.version}</span>}
                   </div>
+                  {/* CE QUI CORRIGE UNE PIÈCE ÉMISE, À L'ENDROIT OÙ ON LA REGARDE (§118.194) : la révision pour un
+                      devis ou un bon de commande ; pour une facture, la phrase qui dit pourquoi elle ne se révise pas. */}
+                  {factureEmise && avoirs.length > 0 && (
+                    <div className="mt-2 space-y-1 text-sm">
+                      <p className="text-xs text-muted-foreground">Avoirs sur cette facture</p>
+                      <ul className="space-y-0.5">
+                        {avoirs.map((a) => (
+                          <li key={a.id} className={a.actif ? "" : "text-muted-foreground line-through"}>
+                            <Link href={`/legal/${a.id}`} className="font-medium text-primary hover:underline">{a.reference ?? "Avoir"}</Link>
+                            {" "}— {formatCurrency(a.montant)}{a.actif ? "" : " (annulé)"}
+                          </li>
+                        ))}
+                      </ul>
+                      <p className="font-medium">Net de la facture : {formatCurrency(netFacture)}</p>
+                    </div>
+                  )}
+                  {emise && pieceDefinitive(emise.type) && doc.status === "ACTIVE" && !peutEmettreAvoir && (
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {emise.type === "AVOIR"
+                        ? "Un avoir émis ne se révise pas : il s'annule (motif à l'appui), puis un autre s'émet depuis la fiche de la facture."
+                        : netFacture <= 0
+                          ? "Facture entièrement créditée par ses avoirs."
+                          // Le geste n'est pas offert ICI : on ne nomme pas un bouton que la personne n'a pas (§118.128).
+                          : "Une facture émise ne se révise pas : un avoir la corrige, émis par une personne qui tient les pièces de cette société."}
+                    </p>
+                  )}
+                  {peutEmettreAvoir && emise && (
+                    <div className="mt-2">
+                      <p className="mb-1 text-xs text-muted-foreground">Une facture émise ne se réécrit pas : un avoir la corrige, en totalité ou en partie, sous son propre numéro.</p>
+                      <EmettreAvoirButton factureId={doc.id} numero={emise.numero} reste={formatCurrency(netFacture)} lignes={lignesFacture} />
+                    </div>
+                  )}
+                  {peutReviser && revisable && emise && !pieceDefinitive(emise.type) && (
+                    avalDeLaPiece
+                      ? <p className="mt-2 text-xs text-muted-foreground">{refusRevisionAval(emise.type, avalDeLaPiece)}</p>
+                      : (
+                        <div className="mt-2">
+                          <ReviserPieceButton
+                            legalDocumentId={doc.id} type={emise.type} numero={emise.numero} version={emise.version}
+                            lignes={revisable.lignes} objet={revisable.objet} notes={revisable.notes}
+                            validiteJours={revisable.validiteJours} livraison={revisable.livraison} contact={revisable.contact}
+                          />
+                        </div>
+                      )
+                  )}
                 </div>
               ) : doc.driveNode && (
                 <div className="col-span-2 sm:col-span-3">
@@ -393,6 +483,7 @@ export default async function LegalDocumentPage({ params }: { params: { id: stri
               etape={etatBC?.etape ?? "HORS_CIRCUIT"} seuil={etatBC?.seuil ?? 0}
               validationRequise={etatBC?.validationRequise ?? true}
               signeLe={etatBC?.signeLe?.toISOString() ?? null} signePar={etatBC?.signePar?.name ?? null}
+              renvoi={etatBC?.renvoi ? { le: etatBC.renvoi.le.toISOString(), par: etatBC.renvoi.par, note: etatBC.renvoi.note } : null}
               peutSigner={peutSignerBC(user)}
             />
           )}

@@ -13,14 +13,20 @@ import { validateDocumentUpload } from "@/lib/storage";
 import { createExpenseOrder } from "@/lib/expense-orders";
 import { createMedicalInfoDeclaration } from "@/lib/medical-info";
 import { aiguillerBC, porteDuBC } from "@/lib/bons-de-commande/aiguillage";
-import { etatDuBC, etatsDesBC } from "@/lib/bons-de-commande/etat";
+import { etatDuBC } from "@/lib/bons-de-commande/etat";
 import { canCancel } from "@/lib/legal/lifecycle";
-import { canSendToSettlement } from "@/lib/finances/settlement";
+import { canSendToSettlement, cleEnvoiAuReglement, ordreClos } from "@/lib/finances/settlement";
+import { annulerOrdreNonRegle } from "@/lib/payments/annulation";
 import { getAppSettings } from "@/lib/settings";
 import { enSerie } from "@/lib/refs";
-import { emettreDocumentDrive, reviserDocumentDrive } from "@/platform/in-process/artifact/factory";
+import { annuaireDeLecture, consignerConfirmation, exigerLectureConfirmee, proposerLecture, RefusLecture, type ConfirmationPrete } from "@/lib/pieces-lues/service";
+import { empreinteDe } from "@/lib/pieces-lues/lecture-fichier";
+import { lignesProposeesFacturePromo, preremplirFacturePromo, type PrerempliFacturePromo } from "@/lib/pieces-lues/prerempli-facture-promo";
+import { fdCase } from "@/lib/actions/types";
+import { reviserDocumentDrive } from "@/platform/in-process/artifact/factory";
+import { genererLesBonsDeCommande } from "@/lib/promo-automatismes";
 import { devisDuDossier, devisLu } from "@/lib/queries/promo-circuit";
-import { lignesDuBonDeCommande, formatDzd } from "@/lib/promo-material/devis";
+import { formatDzd } from "@/lib/promo-material/devis";
 import { piloteLExecution } from "@/lib/promo-material/circuit";
 import { fdStr, fdNum, fdDate, type ActionResult } from "@/lib/actions/types";
 import {
@@ -65,7 +71,7 @@ const PATH = "/promo-material";
 const chemin = (id: string) => `${PATH}/${id}`;
 
 type Dossier = {
-  id: string; reference: string; title: string; circuitVersion: number; circuitState: string | null;
+  id: string; reference: string; title: string; status: string; circuitVersion: number; circuitState: string | null;
   requesterId: string | null; companyId: string | null;
 };
 
@@ -73,7 +79,7 @@ async function chargerDossier(id: string | null): Promise<Dossier | null> {
   if (!id) return null;
   return prisma.promoMaterial.findUnique({
     where: { id },
-    select: { id: true, reference: true, title: true, circuitVersion: true, circuitState: true, requesterId: true, companyId: true },
+    select: { id: true, reference: true, title: true, status: true, circuitVersion: true, circuitState: true, requesterId: true, companyId: true },
   });
 }
 
@@ -88,6 +94,10 @@ function refusExecution(user: SessionUser, pm: Dossier | null): string | null {
   if (pm.circuitVersion !== 2) return "Ce dossier suit l'ancien circuit : ses bons de commande se créent depuis « Pièces liées ».";
   if (!pilote(user, pm)) return "Seuls le demandeur, l'assistante de direction et la Direction pilotent l'exécution de ce dossier.";
   if (pm.circuitState !== "IN_EXECUTION") {
+    // UN DOSSIER CLOS SE DIT CLOS : annulé ou refusé, « une fois les validations obtenues » promettait
+    // une suite qui n'existe plus.
+    if (pm.status === "CANCELLED") return "Ce dossier a été annulé : plus rien ne s'y génère ni ne s'y facture.";
+    if (pm.circuitState === "REFUSED") return "Ce dossier a été refusé : plus rien ne s'y génère ni ne s'y facture.";
     return pm.circuitState === "COMPLETED"
       ? "Ce dossier est terminé."
       : "Les bons de commande se génèrent une fois TOUTES les validations obtenues (demandeur, Direction Marketing, et Directeur Général au-dessus du seuil).";
@@ -97,23 +107,6 @@ function refusExecution(user: SessionUser, pm: Dossier | null): string | null {
 
 async function audit(user: SessionUser, id: string, summary: string) {
   await recordAudit({ actorId: user.id, action: "UPDATE", module: "Matériel promotionnel", entityType: "PROMO_MATERIAL", entityId: id, summary });
-}
-
-/**
- * LA SOCIÉTÉ QUI COMMANDE — celle du dossier ; à défaut, celle où travaille son DEMANDEUR (sa
- * fiche salarié, puis son département). Jamais celle de la personne qui clique, ni celle d'un
- * sélecteur d'affichage : l'assistante qui génère les BC d'un demandeur de Pharmagène ne les
- * émet pas au nom de sa propre société, et deux pilotes du même dossier doivent produire le même
- * BC. `null` quand rien ne se lit à coup sûr — on ne devine pas une société qui s'engage.
- */
-async function societeDuDossier(pm: Dossier): Promise<string | null> {
-  if (pm.companyId) return pm.companyId;
-  if (!pm.requesterId) return null;
-  const e = await prisma.employee.findFirst({
-    where: { userId: pm.requesterId },
-    select: { companyId: true, departmentRef: { select: { companyId: true } } },
-  });
-  return e?.companyId ?? e?.departmentRef?.companyId ?? null;
 }
 
 /** Le devis de ce dossier, et son BC s'il en a un d'actif. */
@@ -128,15 +121,31 @@ async function devisEtBC(pm: Dossier, quoteId: string | null) {
   return { devis, bc: etat && !etat.annule ? etat : null };
 }
 
+/**
+ * LA TAXE SUPPLÉMENTAIRE saisie sur le formulaire — « Taxe Pub 2 % », calculée sur le HT et hors base de TVA.
+ * Trois issues, et la différence compte : `undefined` = le formulaire n'en dit RIEN (la valeur d'origine reste, §118.152c) ;
+ * `null` = « 0 » : aucune taxe, explicitement ; sinon la taxe. Un taux hors de 0–100 est refusé en le nommant.
+ */
+function lireTaxeSupplementaire(formData: FormData): { ok: true; taxe: { libelle: string; taux: number } | null | undefined; libelleSaisi: string | undefined } | { ok: false; error: string } {
+  const libelleSaisi = fdStr(formData, "extraTaxLabel") ?? undefined;
+  const brut = (fdStr(formData, "extraTaxRate") ?? "").replace(",", ".").trim();
+  if (brut === "") return { ok: true, taxe: undefined, libelleSaisi };
+  const pourcent = Number(brut);
+  if (!Number.isFinite(pourcent) || pourcent < 0 || pourcent > 100) {
+    return { ok: false, error: `La taxe supplémentaire s'exprime en pour cent, entre 0 et 100 (« ${brut} » ne se lit pas) — 0 pour n'en mettre aucune, vide pour garder celle du devis.` };
+  }
+  if (pourcent === 0) return { ok: true, taxe: null, libelleSaisi };
+  return { ok: true, taxe: { libelle: libelleSaisi ?? "Taxe additionnelle", taux: pourcent / 100 }, libelleSaisi };
+}
+
 // ───────────────────────── 1. Générer les bons de commande ─────────────────────────
 
 /**
- * GÉNÉRER LES BONS DE COMMANDE — un par devis dont une ligne est retenue, et qui n'en a pas.
- *
- * Idempotent : un devis qui a déjà son BC actif n'en reçoit pas un second, et la fabrique rend
- * une pièce identique au lieu d'en émettre une autre. Sérialisé par dossier (`enSerie`) : deux
- * clics simultanés ne font pas deux BC pour le même devis. Chaque devis est isolé : l'échec de
- * l'un (fournisseur sans identité, société que le pilote ne peut pas voir) est DIT sans empêcher les autres.
+ * GÉNÉRER LES BONS DE COMMANDE — le REPLI (§118.204). La génération part d'elle-même quand la dernière
+ * validation du choix tombe (`validatePromoStep` → `genererLesBonsDeCommande`) ; ce geste reste pour
+ * ce qu'elle n'a pas pu émettre (un fournisseur sans identité, une société que le validateur ne voit pas),
+ * et pour régler la livraison ou la taxe avant d'émettre. Le cœur est UN (`lib/promo-automatismes.ts`) : deux
+ * générations finiraient par composer deux BC différents du même devis (§118.5).
  */
 export async function genererBonsDeCommandePromo(formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
@@ -145,77 +154,17 @@ export async function genererBonsDeCommandePromo(formData: FormData): Promise<Ac
   if (refus || !pm) return { ok: false, error: refus ?? "Dossier introuvable." };
   const livraison = { adresse: fdStr(formData, "livraisonAdresse"), delai: fdStr(formData, "livraisonDelai") };
   const notes = fdStr(formData, "notes");
-
-  const societe = await societeDuDossier(pm);
-  if (!societe) {
-    return { ok: false, error: "La société qui commande est introuvable : le dossier n'en nomme aucune, et la fiche salarié de son demandeur non plus. Renseignez la société du demandeur (RH › fiche salarié), puis relancez." };
-  }
-
-  return enSerie(`promo-bc:${pm.id}`, async () => {
-    const devis = await devisDuDossier(pm.id);
-    const etats = await etatsDesBC(devis.map((d) => d.purchaseOrderId).filter((x): x is string => Boolean(x)));
-    const actifs = new Set(devis.filter((d) => {
-      const e = d.purchaseOrderId ? etats.get(d.purchaseOrderId) : undefined;
-      return e && !e.annule;
-    }).map((d) => d.id));
-    const aGenerer = devis.filter((d) => d.lines.some((l) => l.selected) && !actifs.has(d.id));
-    if (aGenerer.length === 0) {
-      return { ok: true, message: "Chaque devis retenu a déjà son bon de commande — rien de nouveau à générer." };
-    }
-    const fournisseurs = await prisma.companyContact.findMany({
-      where: { id: { in: aGenerer.map((d) => d.supplierId).filter((x): x is string => Boolean(x)) } },
-      select: { id: true, name: true, address: true, city: true, wilaya: true, rc: true, nif: true, rib: true, phone: true, email: true },
-    });
-    const parId = new Map(fournisseurs.map((f) => [f.id, f]));
-
-    const emis: string[] = [];
-    const echecs: string[] = [];
-    const reserves: string[] = [];
-    for (const brut of aGenerer) {
-      const d = devisLu(brut);
-      const f = brut.supplierId ? parId.get(brut.supplierId) : undefined;
-      if (!f) { echecs.push(`${d.supplierName} : fournisseur absent de l'annuaire — faites corriger le devis`); continue; }
-      const adresse = [f.address, [f.city, f.wilaya].filter(Boolean).join(", ")].filter((x) => x && x.trim()).join("\n") || null;
-      const r = await emettreDocumentDrive(user, {
-        type: "BON_DE_COMMANDE",
-        societe,
-        tiers: { nom: f.name, adresse, rc: f.rc, nif: f.nif, rib: f.rib, telephone: f.phone, email: f.email },
-        lignes: lignesDuBonDeCommande(d),
-        tvaDefaut: d.tvaRate / 100,
-        taxes: d.extraTaxRate ? [{ libelle: d.extraTaxLabel ?? "Taxe additionnelle", taux: d.extraTaxRate / 100 }] : null,
-        referenceAmont: d.reference,
-        referenceAmontDate: brut.quoteDate ? brut.quoteDate.toISOString().slice(0, 10) : null,
-        objet: `Matériel promotionnel ${pm.reference} — ${pm.title}`,
-        livraison: livraison.adresse || livraison.delai ? livraison : null,
-        notes,
-        dossier: `Matériel promotionnel/${pm.reference}`,
-      }, {
-        source: { type: "PROMO_MATERIAL", id: pm.id },
-        delegation: `${pm.reference} — dossier de matériel promotionnel validé (demande, Direction Marketing, seuil du DG), bon de commande composé d'après les lignes retenues`,
-      });
-      if (!r.ok) { echecs.push(`${d.supplierName} : ${r.motif}`); continue; }
-      await prisma.promoQuote.update({ where: { id: d.id }, data: { purchaseOrderId: r.legalDocumentId, purchaseOrderSentAt: null, purchaseOrderSentById: null } });
-      emis.push(`${r.reference} (${d.supplierName}, ${formatDzd(r.totaux.totalTtc)} TTC)`);
-      if (r.reserveBonDeCommande) reserves.push(r.reserveBonDeCommande);
-    }
-    if (emis.length) await audit(user, pm.id, `Bons de commande générés : ${emis.join(" ; ")}`);
-    revalidatePath(chemin(pm.id));
-    revalidatePath(CHEMIN_BONS_DE_COMMANDE);
-    if (emis.length === 0) return { ok: false, error: `Aucun bon de commande n'a pu être généré — ${echecs.join(" ; ")}.` };
-    const suite = [...new Set(reserves)].join(" ");
-    return {
-      ok: true,
-      message: `${emis.length} bon${emis.length > 1 ? "s" : ""} de commande généré${emis.length > 1 ? "s" : ""} : ${emis.join(" ; ")}.`
-        + (echecs.length ? ` Non générés : ${echecs.join(" ; ")}.` : "")
-        + (suite ? ` ${suite}` : ""),
-    };
-  });
+  // LA CASE « TAXE SUPPLÉMENTAIRE » (Direction, 10/2026) : vide = celle de chaque devis ; « 0 » = aucune ; sinon pour tous les BC générés.
+  const taxeSaisie = lireTaxeSupplementaire(formData);
+  if (!taxeSaisie.ok) return { ok: false, error: taxeSaisie.error };
+  const r = await genererLesBonsDeCommande(user, pm.id, { livraison, notes, taxe: taxeSaisie.taxe, automatique: false });
+  return r.ok ? { ok: true, message: r.message } : { ok: false, error: r.error };
 }
 
 // ───────────────────────── 2. Modifier, supprimer, envoyer un BC ─────────────────────────
 
 /**
- * MODIFIER UN BON DE COMMANDE GÉNÉRÉ — livraison, délai, interlocuteur, notes.
+ * MODIFIER UN BON DE COMMANDE GÉNÉRÉ — livraison, délai, interlocuteur, notes, taxe supplémentaire.
  *
  * Même numéro, nouvelle version du même fichier (la fabrique). Les LIGNES ne se modifient pas ici :
  * elles sont ce qui a été validé, et un BC qui s'en écarterait engagerait la société sur ce que
@@ -231,8 +180,8 @@ export async function modifierBonDeCommandePromo(formData: FormData): Promise<Ac
   const lu = await devisEtBC(pm, fdStr(formData, "quoteId"));
   if (!lu) return { ok: false, error: "Ce devis n'appartient pas à ce dossier." };
   if (!lu.bc) return { ok: false, error: "Ce devis n'a pas de bon de commande actif à modifier." };
-  const factures = await prisma.legalDocument.count({ where: { kind: "INVOICE", chainFromId: lu.bc.id, status: { not: "CANCELLED" } } });
-  if (factures > 0) return { ok: false, error: "Une facture découle déjà de ce bon de commande : il ne se modifie plus." };
+  // « Une facture découle déjà de ce bon de commande » : la règle vit chez l'écrivain, la fabrique, pour
+  // tous ses appelants (§118.194) — une seconde copie ici aurait fini par en dire une autre.
 
   // UN CHAMP LAISSÉ VIDE GARDE SA VALEUR. Le formulaire n'est pas pré-rempli, et Adam ne nomme
   // que ce qui change : écrire `null` pour chaque champ absent effaçait l'adresse de livraison de
@@ -243,6 +192,21 @@ export async function modifierBonDeCommandePromo(formData: FormData): Promise<Ac
   const contactNom = saisi("contactNom");
   const contactTelephone = saisi("contactTelephone");
   const notes = saisi("notes");
+  // LA TAXE SUPPLÉMENTAIRE se corrige aussi : un taux la change, « 0 » la retire, vide la garde — et sans libellé
+  // nouveau, le libellé de la pièce reste (« Taxe Pub » ne devient pas « Taxe additionnelle » parce qu'on change le taux).
+  const taxeSaisie = lireTaxeSupplementaire(formData);
+  if (!taxeSaisie.ok) return { ok: false, error: taxeSaisie.error };
+  let taxes: { libelle: string; taux: number }[] | undefined;
+  if (taxeSaisie.taxe === null) taxes = [];
+  else if (taxeSaisie.taxe) {
+    let libelle = taxeSaisie.taxe.libelle;
+    if (taxeSaisie.libelleSaisi === undefined) {
+      const piece = await prisma.legalDocument.findUnique({ where: { id: lu.bc.id }, select: { custom: true } });
+      const anciennes = (piece?.custom as { fabrique?: { spec?: { taxes?: { libelle?: string }[] | null } } } | null)?.fabrique?.spec?.taxes;
+      if (anciennes?.[0]?.libelle) libelle = anciennes[0].libelle;
+    }
+    taxes = [{ libelle, taux: taxeSaisie.taxe.taux }];
+  }
   const modifications = {
     ...(adresse !== undefined || delai !== undefined
       ? { livraison: { ...(adresse !== undefined ? { adresse } : {}), ...(delai !== undefined ? { delai } : {}) } }
@@ -251,6 +215,7 @@ export async function modifierBonDeCommandePromo(formData: FormData): Promise<Ac
       ? { contact: { ...(contactNom !== undefined ? { nom: contactNom } : {}), ...(contactTelephone !== undefined ? { telephone: contactTelephone } : {}) } }
       : {}),
     ...(notes !== undefined ? { notes } : {}),
+    ...(taxes !== undefined ? { taxes } : {}),
   };
   if (Object.keys(modifications).length === 0) {
     return { ok: false, error: "Rien à modifier : renseignez au moins un champ — ceux laissés vides gardent leur valeur." };
@@ -260,7 +225,7 @@ export async function modifierBonDeCommandePromo(formData: FormData): Promise<Ac
     legalDocumentId: lu.bc.id,
     modifications,
     motif: fdStr(formData, "motif") ?? "modification par le demandeur",
-  }, { delegation: `${pm.reference} — bon de commande du dossier, modifié par ses pilotes (livraison, contact, notes)` });
+  }, { delegation: `${pm.reference} — bon de commande du dossier, modifié par ses pilotes (livraison, contact, notes, taxe supplémentaire)` });
   if (!r.ok) return { ok: false, error: r.motif };
   await prisma.promoQuote.update({ where: { id: lu.devis.id }, data: { purchaseOrderSentAt: null, purchaseOrderSentById: null } });
   await audit(user, pm.id, `Bon de commande ${r.reference} modifié (v${r.version})`);
@@ -348,6 +313,49 @@ function lireNombreSaisi(brut: unknown): number | null {
  * ne dépassent pas son montant : payer plus que la commande validée, c'est engager la société sur ce
  * que personne n'a validé.
  */
+/**
+ * LIRE UNE FACTURE AVANT DE LA DÉPOSER (lot D2-F, §118.200) — par Luna quand la pièce peut sortir,
+ * jamais un OCR externe. Les MÊMES portes que le dépôt (pilote de l'exécution, BC signé) : lire la
+ * facture d'un BC qu'on ne pourra pas facturer serait un geste offert puis retiré. Rien n'est écrit
+ * ici : la lecture PROPOSE, la personne compare au papier, et le dépôt exige la confirmation.
+ */
+export async function lireFacturePromo(formData: FormData): Promise<ActionResult & { lecture?: { lectureId: string; noteMethode: string; sansLignes: string | null; prerempli: PrerempliFacturePromo } }> {
+  const user = await requireUser();
+  const pm = await chargerDossier(fdStr(formData, "promoMaterialId"));
+  const refus = refusExecution(user, pm);
+  if (refus || !pm) return { ok: false, error: refus ?? "Dossier introuvable." };
+  const lu = await devisEtBC(pm, fdStr(formData, "quoteId"));
+  if (!lu) return { ok: false, error: "Ce devis n'appartient pas à ce dossier." };
+  if (!lu.bc) return { ok: false, error: "Ce devis n'a pas de bon de commande : la facture se rattache à un BC." };
+  if (lu.bc.etape !== "SIGNE") return { ok: false, error: `Le bon de commande ${lu.bc.reference ?? ""} n'est pas signé par les Finances : aucune facture ne peut encore en découler.` };
+  const fichier = formData.get("file");
+  if (!(fichier instanceof File) || fichier.size === 0) return { ok: false, error: "Choisissez le fichier de la facture à lire." };
+  const invalide = validateDocumentUpload(fichier.name, fichier.size, (await getAppSettings()).maxUploadMb);
+  if (invalide) return { ok: false, error: `Fichier « ${fichier.name} » : ${invalide}` };
+
+  const { annuaireVisible, groupe } = await annuaireDeLecture(user.id);
+  const r = await proposerLecture({
+    user, octets: Buffer.from(await fichier.arrayBuffer()), nomFichier: fichier.name,
+    contexte: { cible: "PROMO_FACTURE", sortieCloudPermise: true, annuaireVisible, groupe },
+  });
+  if (!r.ok) return { ok: false, error: r.error };
+  const brut = (await devisDuDossier(pm.id)).find((d) => d.id === lu.devis.id);
+  const facturees = await prisma.promoFactureLigne.findMany({
+    where: { facture: { legalDocument: { kind: "INVOICE", chainFromId: lu.bc.id, status: { not: "CANCELLED" } } } },
+    select: { quoteLineId: true, quantite: true },
+  });
+  const lignesBC = brut ? lignesDuBC(devisLu(brut), facturees.map((f) => ({ quoteLineId: f.quoteLineId, quantite: Number(f.quantite) }))) : [];
+  const prerempli = preremplirFacturePromo(r.proposition.piece, r.proposition.entetes, r.proposition.controle, lignesBC);
+  const n = prerempli.lignes.filter((l) => l.quoteLineId).length;
+  return {
+    ok: true,
+    lecture: { lectureId: r.proposition.lectureId, noteMethode: r.proposition.noteMethode, sansLignes: r.proposition.sansLignes, prerempli },
+    message: n > 0
+      ? `Facture lue : ${n} ligne${n > 1 ? "s" : ""} appariée${n > 1 ? "s" : ""} au BC — comparez chacune au papier, puis cochez-la.`
+      : `Facture lue : ${r.proposition.sansLignes ?? "aucune ligne appariée au BC ; saisissez-les depuis le papier."}`,
+  };
+}
+
 export async function deposerFacturePromo(formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
   const pm = await chargerDossier(fdStr(formData, "promoMaterialId"));
@@ -370,6 +378,30 @@ export async function deposerFacturePromo(formData: FormData): Promise<ActionRes
   const file = fichier as File;
   const invalide = validateDocumentUpload(file.name, file.size, (await getAppSettings()).maxUploadMb);
   if (invalide) return { ok: false, error: `Fichier « ${file.name} » : ${invalide}` };
+
+  // LA LECTURE CONFIRMÉE (lot D2-F) : préremplie depuis la facture, elle exige chaque ligne lue cochée
+  // « vérifiée » et le total coché, contre CE fichier — AVANT toute écriture (P7).
+  const lectureId = fdStr(formData, "lectureId");
+  let confirmation: ConfirmationPrete | null = null;
+  if (lectureId !== null) {
+    const rangs = formData.getAll("ligneLue").map((x) => String(x));
+    const verifiees = formData.getAll("ligneVerifiee").map((x) => String(x));
+    const ids = formData.getAll("ligneQuoteLineId").map((x) => String(x));
+    const qtes = formData.getAll("ligneQuantite"); const prixs = formData.getAll("lignePrix");
+    const designations = formData.getAll("ligneDesignation").map((x) => String(x));
+    const exigee = await exigerLectureConfirmee({
+      lectureId,
+      empreinte: empreinteDe(Buffer.from(await file.arrayBuffer())),
+      totalVerifie: fdCase(formData, "totalVerifie") === true,
+      soumises: ids.map((id, i) => ({
+        lue: rangs[i] ? Number(rangs[i]) : null, verifiee: verifiees[i] === "1", designation: designations[i] ?? id,
+        quantite: lireNombreSaisi(qtes[i]) ?? 0, prixUnitaire: lireNombreSaisi(prixs[i]) ?? 0,
+      })).filter((x) => x.quantite > 0 || x.lue !== null),
+      proposees: lignesProposeesFacturePromo,
+    });
+    if (!exigee.ok) return { ok: false, error: exigee.error };
+    confirmation = exigee.confirmation;
+  }
 
   // LES TAXES : celles du BC (son devis), sauf saisie explicite — une facture à 9 % pour un BC à
   // 19 % se paie au montant facturé ; le plafond du BC tient de toute façon.
@@ -455,8 +487,10 @@ export async function deposerFacturePromo(formData: FormData): Promise<ActionRes
           },
         },
       });
+      if (confirmation) await consignerConfirmation(tx, { confirmation, cibleType: "PROMO_FACTURE", cibleId: doc.id, confirmeeParId: user.id });
       return doc;
-    });
+    }).catch((e) => { if (e instanceof RefusLecture) return { refus: e.message } as const; throw e; });
+    if ("refus" in facture) return { ok: false, error: facture.refus };
     const piece = await persistUploadedDocument(user.id, {
       entityType: "LEGAL_DOCUMENT", entityId: facture.id, category: "INVOICE", confidentiality: "INTERNAL", stepKey: "facture", file,
     });
@@ -525,7 +559,7 @@ export async function receptionnerLigneFacturePromo(formData: FormData): Promise
   const brut = await ligneDuDossier(pm, fdStr(formData, "ligneId"));
   if (!brut) return { ok: false, error: "Cette ligne n'appartient pas à une facture de ce dossier." };
   const facture = brut.facture.legalDocument;
-  if (facture.expenseOrderId || facture.paidDate) return { ok: false, error: "Le paiement de cette facture est déjà demandé : sa réception est close." };
+  if (await paiementEnCours(facture)) return { ok: false, error: "Le paiement de cette facture est déjà demandé : sa réception est close." };
   const ligne = ligneFactureLue(brut);
   const brutQ = fdStr(formData, "quantiteRecue");
   const q = brutQ ? parseQuantity(brutQ) : null;
@@ -663,9 +697,12 @@ export async function annulerReceptionLigneFacturePromo(formData: FormData): Pro
   const brut = await ligneDuDossier(pm, fdStr(formData, "ligneId"));
   if (!brut) return { ok: false, error: "Cette ligne n'appartient pas à une facture de ce dossier." };
   const facture = brut.facture.legalDocument;
-  if (facture.expenseOrderId || facture.paidDate) return { ok: false, error: "Le paiement de cette facture est déjà demandé : sa réception ne se défait plus." };
+  if (await paiementEnCours(facture)) return { ok: false, error: "Le paiement de cette facture est déjà demandé : sa réception ne se défait plus." };
   if (brut.quantiteRecue == null) return { ok: false, error: `« ${brut.designation} » n'est pas réceptionnée.` };
+  // DÉFAIRE UNE RÉCEPTION DIT POURQUOI (audit 360°, R17) : son entrée au magasin est contre-passée, et le
+  // journal doit dire si c'était une erreur de saisie ou une marchandise renvoyée.
   const motif = fdStr(formData, "motif");
+  if (!motif) return { ok: false, error: "Dites pourquoi cette réception est annulée : erreur de saisie, marchandise renvoyée…" };
   const remise = { quantiteRecue: null, recueLe: null, recueParId: null, stockItemId: null, stockLotId: null };
 
   if (brut.stockLotId && brut.stockItemId) {
@@ -673,7 +710,7 @@ export async function annulerReceptionLigneFacturePromo(formData: FormData): Pro
     if (!entree) return { ok: false, error: "L'entrée au stock de cette ligne est introuvable." };
     const lotId = brut.stockLotId;
     const r = await sousVerrou(brut.stockItemId, async (tx) => {
-      const a = await annulerMouvementEcrit(tx, entree.id, user.id, motif ?? `Réception annulée (${pm.reference})`);
+      const a = await annulerMouvementEcrit(tx, entree.id, user.id, motif);
       if (!a.ok) return { refus: a.refus };
       const maj = await tx.promoFactureLigne.updateMany({ where: { id: brut.id, stockLotId: lotId }, data: remise });
       if (maj.count === 0) throw new Error("La ligne a changé pendant l'annulation.");
@@ -683,7 +720,7 @@ export async function annulerReceptionLigneFacturePromo(formData: FormData): Pro
   } else {
     await prisma.promoFactureLigne.update({ where: { id: brut.id }, data: remise });
   }
-  await audit(user, pm.id, `Réception annulée — « ${brut.designation} » (facture ${facture.reference ?? ""})${motif ? ` — ${motif.slice(0, 200)}` : ""}`);
+  await audit(user, pm.id, `Réception annulée — « ${brut.designation} » (facture ${facture.reference ?? ""}) — ${motif.slice(0, 200)}`);
   revalidatePath(chemin(pm.id));
   revalidatePath(CHEMIN_STOCK_PROMO);
   return { ok: true, message: `Réception de « ${brut.designation} » annulée${brut.stockLotId ? " — son entrée au magasin est contre-passée" : ""}.` };
@@ -701,15 +738,22 @@ export async function annulerFacturePromo(formData: FormData): Promise<ActionRes
   const pm = await chargerDossier(fdStr(formData, "promoMaterialId"));
   const refus = refusExecution(user, pm);
   if (refus || !pm) return { ok: false, error: refus ?? "Dossier introuvable." };
-  const motif = fdStr(formData, "motif");
-  if (!motif) return { ok: false, error: "Dites pourquoi cette facture est annulée : elle reste au registre, avec ce motif." };
   const facture = await factureDuDossier(pm, fdStr(formData, "invoiceId"));
   if (!facture) return { ok: false, error: "Cette facture n'appartient pas à ce dossier." };
-  if (facture.expenseOrderId || facture.paidDate) return { ok: false, error: "Le paiement de cette facture est déjà demandé : elle ne s'annule plus d'ici." };
+  if (await paiementEnCours(facture)) return { ok: false, error: "Le paiement de cette facture est déjà demandé : elle ne s'annule plus d'ici." };
   const recues = await prisma.promoFactureLigne.count({ where: { facture: { legalDocumentId: facture.id }, quantiteRecue: { not: null } } });
   if (recues > 0) return { ok: false, error: `${recues} ligne(s) de cette facture sont réceptionnées : annulez d'abord leur réception (ce qui est entré au stock y est physiquement).` };
   const doc = await prisma.legalDocument.findUnique({ where: { id: facture.id }, select: { status: true } });
   if (!doc || !canCancel(doc.status)) return { ok: false, error: "Cette facture ne peut plus être annulée." };
+  // Le motif APRÈS les refus ci-dessus : on ne demande pas pourquoi annuler une facture qui ne
+  // s'annule pas d'ici (§118.18).
+  const motif = fdStr(formData, "motif");
+  if (!motif) return { ok: false, error: "Dites pourquoi cette facture est annulée : elle reste au registre, avec ce motif." };
+  // Un ordre REFUSÉ par le centre reste « en attente » côté statut : il se ferme avec sa facture.
+  if (facture.expenseOrderId) {
+    const fermeture = await annulerOrdreNonRegle(facture.expenseOrderId, { acteurId: user.id, motif: `facture ${facture.reference ?? ""} annulée — ${motif.slice(0, 120)}` });
+    if (!fermeture.ok) return { ok: false, error: fermeture.error };
+  }
   await prisma.legalDocument.update({
     where: { id: facture.id },
     data: { status: "CANCELLED", cancelledAt: new Date(), cancelReason: motif, updatedById: user.id },
@@ -722,6 +766,18 @@ export async function annulerFacturePromo(formData: FormData): Promise<ActionRes
 const FORMALITES = ["AD_VISA", "MIP"] as const;
 type Formalite = (typeof FORMALITES)[number];
 const LIBELLE_FORMALITE: Record<Formalite, string> = { AD_VISA: "demande de visa publicitaire", MIP: "déclaration au ministère" };
+
+/**
+ * LE PAIEMENT DE CETTE FACTURE EST-IL EN COURS ? Réglée en direct, ou partie au circuit sur un ordre
+ * qui peut encore payer. Un ordre REFUSÉ par le centre ou ANNULÉ ne paiera jamais (§118.185, audit
+ * 360° I8) : la facture redevient corrigeable, annulable et renvoyable — sinon elle restait figée.
+ */
+async function paiementEnCours(facture: { expenseOrderId: string | null; paidDate: Date | null }): Promise<boolean> {
+  if (facture.paidDate) return true;
+  if (!facture.expenseOrderId) return false;
+  const ordre = await prisma.expenseOrder.findUnique({ where: { id: facture.expenseOrderId }, select: { status: true, centralStatus: true } });
+  return !ordreClos(ordre);
+}
 
 /** La facture de CE dossier, et le BC dont elle découle. */
 async function factureDuDossier(pm: Dossier, invoiceId: string | null) {
@@ -758,7 +814,8 @@ export async function demanderPaiementFacturePromo(formData: FormData): Promise<
   const invoiceId = fdStr(formData, "invoiceId");
   // SÉRIALISÉ PAR FACTURE : deux clics simultanés liraient tous deux « aucun ordre » et feraient
   // naître deux ordres de dépense pour la même facture — le même dinar demandé deux fois.
-  return enSerie(`promo-paiement:${invoiceId ?? ""}`, async (): Promise<ActionResult> => {
+  // La clé est celle de la fiche Legal, qui envoie la MÊME pièce par l'autre porte (§118.185).
+  return enSerie(cleEnvoiAuReglement(invoiceId), async (): Promise<ActionResult> => {
     const facture = await factureDuDossier(pm, invoiceId);
     if (!facture) return { ok: false, error: "Cette facture n'appartient pas à ce dossier." };
     const bc = facture.chainFrom ? await etatDuBC(facture.chainFrom.id) : null;
@@ -787,17 +844,35 @@ export async function demanderPaiementFacturePromo(formData: FormData): Promise<
       renoncer = v.renoncer;
       partiel = !v.complet;
     }
+    // L'ORDRE DÉJÀ LIÉ (§118.185, audit 360° I8) : refusé par le centre ou annulé, il ne paiera
+    // jamais — la facture repart, et l'ancien ordre est fermé pour qu'aucune décision tardive du
+    // centre ne rende payables deux ordres pour la même facture.
+    const ordreLie = facture.expenseOrderId
+      ? await prisma.expenseOrder.findUnique({ where: { id: facture.expenseOrderId }, select: { status: true, centralStatus: true } })
+      : null;
     const envoi = canSendToSettlement({
       kind: facture.kind, amount: montant || null, paidDate: facture.paidDate, expenseOrderId: facture.expenseOrderId,
-      bc: { porte: await porteDuBC(bc.id), reference: bc.reference },
+      bc: { porte: await porteDuBC(bc.id), reference: bc.reference }, ordreLie,
     });
     if (!envoi.ok) return { ok: false, error: envoi.error };
+    // RENONCER EST DÉFINITIF (« un paiement pour cette ligne ne pourra pas être fait ultérieurement ») :
+    // il dit pourquoi (audit 360°, R17) — APRÈS les refus ci-dessus (on ne demande pas pourquoi renoncer
+    // pour une facture qui ne partira pas, §118.18) et AVANT tout effet. `=== null` : un paiement complet
+    // n'a rien à expliquer, et la dérivation ne doit pas rendre le motif obligatoire pour lui (§118.138).
+    const motifRenoncement = fdStr(formData, "motifRenoncement");
+    if (renoncer.length > 0 && motifRenoncement === null) {
+      return { ok: false, error: "Dites pourquoi vous renoncez aux lignes non reçues : ce renoncement est définitif." };
+    }
+    if (ordreLie) {
+      const fermeture = await annulerOrdreNonRegle(facture.expenseOrderId, { acteurId: user.id, motif: `remplacé par un nouvel envoi de la facture ${facture.reference ?? ""}` });
+      if (!fermeture.ok) return { ok: false, error: fermeture.error };
+    }
     if (renoncer.length) {
       // Écrit AVANT l'ordre : un renoncement confirmé ne dépend pas de la suite. Conditionnel : une
       // ligne déjà renoncée ne l'est pas deux fois (la date et l'auteur restent ceux du premier geste).
       await prisma.promoFactureLigne.updateMany({
         where: { id: { in: renoncer }, renonce: false },
-        data: { renonce: true, renonceMotif: fdStr(formData, "motifRenoncement"), renonceLe: new Date(), renonceParId: user.id },
+        data: { renonce: true, renonceMotif: motifRenoncement, renonceLe: new Date(), renonceParId: user.id },
       });
     }
 

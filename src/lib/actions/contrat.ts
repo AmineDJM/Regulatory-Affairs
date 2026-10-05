@@ -921,8 +921,10 @@ export function decrireAction(
     };
   }
 
+  const testesSeulement = new Set<string>();
   const propres = lireChamps(
     corps, enums, tousLecteurs, base.modelesEcrits, relations, Object.keys(locaux.lecteurs), formulaires, locaux.presences,
+    testesSeulement,
   );
 
   // CE QUE LES FONCTIONS DU FICHIER LISENT DANS LE MÊME FORMULAIRE (voir `deleguesDuCorps`).
@@ -948,8 +950,15 @@ export function decrireAction(
       fdD, locD.presences,
     ));
   }
+  // UN TEST DE PRÉSENCE CÈDE À UNE LECTURE TYPÉE, et pas seulement dans le même corps. Une
+  // écriture partielle teste `formData.has("startDate")` puis passe la main à `readFields`, qui lit
+  // la DATE : le corps de l'action était lu en premier et « startDate : texte » gagnait l'union —
+  // une date, une liste de parties, redevenues du texte dans le contrat (mesuré sur
+  // `updateLegalDocument`, §118.194). La règle est celle du corps unique : un champ seulement
+  // testé ne se déclare que si personne d'autre ne le lit.
+  const typesParDelegation = new Set(parDelegation.map((ch) => ch.nom));
   const vus = new Set<string>();
-  const duFormulaire = [...propres, ...parDelegation]
+  const duFormulaire = [...propres.filter((ch) => !(testesSeulement.has(ch.nom) && typesParDelegation.has(ch.nom))), ...parDelegation]
     .filter((ch) => (vus.has(ch.nom) ? false : (vus.add(ch.nom), true)))
     .sort((a, b) => a.nom.localeCompare(b.nom));
   // UN ARGUMENT ET UN CHAMP DE MÊME NOM ne peuvent pas coexister : l'entrée n'aurait qu'une
@@ -988,6 +997,8 @@ function lireChamps(
   formulaires: readonly string[] = [],
   /** Les lecteurs locaux qui ne font que TESTER la présence (`(k) => formData.has(k)`). */
   presences: ReadonlySet<string> = new Set(),
+  /** REMPLI par la fonction : les champs que ce corps n'a fait que TESTER (voir l'union des délégués). */
+  seulementTestes?: Set<string>,
 ): ChampAction[] {
   const parNom = new Map<string, ChampAction>();
   /** Le nom de variable sous lequel un champ a été rangé — pour retrouver sa garde et son cast. */
@@ -1049,7 +1060,7 @@ function lireChamps(
   // précède `num(formData, "capDaysPerMonth")` dans une écriture partielle, et la dernière passe
   // gagnait — un nombre redevenait du texte. Il ne pose qu'un champ que rien d'autre n'a lu.
   for (const m of corps.matchAll(new RegExp(`${recepteur}\\.has\\s*\\(\\s*"([^"]+)"`, "g"))) faibles.add(m[1]!);
-  for (const nom of faibles) if (!parNom.has(nom)) poser(nom, "texte");
+  for (const nom of faibles) if (!parNom.has(nom)) { poser(nom, "texte"); seulementTestes?.add(nom); }
 
   for (const champ of parNom.values()) {
     const v = variableDe.get(champ.nom);

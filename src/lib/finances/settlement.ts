@@ -121,11 +121,10 @@ export const PAYMENT_PATHS: PaymentPath[] = [
     centreWhy: "« La caisse donnée mensuellement aux moyens généraux doit passer par le centre de paiement et attendre la validation » (la Direction, 01/10/2026) : la remise naît avec son ordre, en attente du centre, et la détentrice ne confirme sa réception qu'une fois l'ordre réglé.",
   },
   {
-    key: "petty-cash-top-up", label: "Rallonge de caisse d'avance accordée", module: "Moyens généraux",
-    settles: true, why: "La rallonge quitte la banque comme la remise : même écriture, au moment où elle est accordée.",
-    centre: "HORS_CENTRE",
-    centreWhy: "Accordée par les RH sans ordre de dépense. La Direction a fait passer la paie et la remise mensuelle par le centre sans nommer la rallonge : elle reste l'exception, en attendant qu'on la tranche.",
-    decision: "Assumée par la Direction le 28/09/2026 (« garder les trois exceptions ») ; le 01/10/2026 elle a fait passer la paie et la remise mensuelle par le centre, sans nommer la rallonge — qui reste donc hors centre.",
+    key: "petty-cash-top-up", label: "Rallonge de caisse d'avance accordée", module: "Moyens généraux → centre de paiement → Finances",
+    settles: true, why: "Accordée, la rallonge devient une remise : son écriture se pose au VERSEMENT, au règlement de son ordre — comme la remise mensuelle, par le même écrivain (`general-means/remettre.ts` pour la rédaction de l'ordre).",
+    centre: "AUTORISE",
+    centreWhy: "« La rallonge de caisse doit passer dans le centre de paiement » (la Direction, 04/10/2026) : l'accord crée un ordre en attente du centre, et la détentrice ne confirme sa réception qu'une fois l'ordre réglé.",
   },
   {
     key: "petty-cash-expense", label: "Achat payé sur la caisse d'avance", module: "Moyens généraux",
@@ -150,8 +149,8 @@ export function nonSettlingPaths(): PaymentPath[] {
  * LES EXCEPTIONS À « TOUS LES PAIEMENTS PAR LE CENTRE » — ASSUMÉES par la Direction.
  *
  * Le 28/09/2026 elle avait gardé trois exceptions (paie, remise et rallonge de caisse d'avance) ;
- * le 01/10/2026 elle a fait passer la paie et la remise mensuelle par le centre. Reste la rallonge,
- * qu'elle n'a pas nommée. Les lister n'était pas les autoriser ; c'est la DÉCISION écrite sur
+ * le 01/10/2026 elle a fait passer la paie et la remise mensuelle par le centre, et le 04/10/2026 la
+ * rallonge. Il n'en reste aucune. Les lister n'était pas les autoriser ; c'est la DÉCISION écrite sur
  * chacune qui les autorise, et un chemin qui changerait de camp sans décision ferait tomber le banc.
  */
 export function horsCentre(): PaymentPath[] {
@@ -210,6 +209,14 @@ export function settlementAction(input: {
 export type SettlementCheck = { ok: true } | { ok: false; error: string };
 
 /**
+ * UNE FACTURE QUE LA SOCIÉTÉ A ÉMISE se règle par son CLIENT (§118.195) : le centre de paiement n'autorise que des
+ * DÉPENSES, et lui envoyer une facture de vente ouvrirait un ordre de décaissement pour de l'argent qui doit entrer.
+ * La phrase est lue par l'action ET par la fiche, qui ne propose donc pas le bouton (§118.83).
+ */
+export const REFUS_FACTURE_EMISE_AU_REGLEMENT =
+  "Cette facture a été émise par la société : c'est son client qui la règle. Renseignez sa date de règlement quand le paiement arrive — le centre de paiement n'autorise que des dépenses.";
+
+/**
  * PEUT-ON ENVOYER CETTE FACTURE AU RÈGLEMENT ?
  *
  * Le refus NOMME ce qui bloque : « envoi impossible » fait rouvrir la fiche trois fois avant de
@@ -229,11 +236,22 @@ export function canSendToSettlement(input: {
    * la porte existe pour fermer. `null` (pas de BC amont, ou BC d'avant la règle) ne bloque rien.
    */
   bc?: { porte: PorteBC | null; reference: string | null } | null;
+  /**
+   * L'ORDRE DÉJÀ LIÉ, quand il y en a un (§118.185, audit 360° I8). Une facture que le centre de
+   * paiement a REFUSÉE, ou dont l'ordre a été ANNULÉ, restait « déjà partie au règlement » pour
+   * toujours : ni payable, ni renvoyable. Un ordre refusé ou annulé ne paiera jamais — la facture
+   * peut repartir, et le nouvel envoi remplace l'ancien lien. Sans ce fait (`undefined`), la règle
+   * reste celle d'avant : un lien bloque.
+   */
+  ordreLie?: { status: string; centralStatus: string } | null;
+  /** LE SENS DE LA FACTURE (`direction`) : « IN » = émise par la société. Absent : facture reçue, comme avant. */
+  direction?: string | null;
 }): SettlementCheck {
   if (input.kind !== "INVOICE") {
     return { ok: false, error: "Seul un document de nature « facture » s'envoie au règlement." };
   }
-  if (input.expenseOrderId) return { ok: false, error: "Cette facture est déjà partie au règlement." };
+  if (input.direction === "IN") return { ok: false, error: REFUS_FACTURE_EMISE_AU_REGLEMENT };
+  if (input.expenseOrderId && !ordreClos(input.ordreLie)) return { ok: false, error: "Cette facture est déjà partie au règlement." };
   if (input.paidDate) {
     return {
       ok: false,
@@ -244,6 +262,21 @@ export function canSendToSettlement(input: {
   const bloque = input.bc ? blocageParLeBC(input.bc.porte, input.bc.reference) : null;
   if (bloque) return { ok: false, error: bloque };
   return { ok: true };
+}
+
+/**
+ * LA CLÉ D'ENVOI D'UNE FACTURE — une seule, lue par les deux portes qui l'envoient au règlement (la
+ * fiche Legal et le dossier du matériel promotionnel) : deux clés pour la même pièce laisseraient
+ * deux clics simultanés, un sur chaque écran, ouvrir deux ordres (§118.185).
+ */
+export function cleEnvoiAuReglement(invoiceId: string | null): string {
+  return `reglement-facture:${invoiceId ?? ""}`;
+}
+
+/** Un ordre qui ne paiera jamais : annulé, ou refusé par le centre de paiement. */
+export function ordreClos(ordre: { status: string; centralStatus: string } | null | undefined): boolean {
+  if (!ordre) return false;
+  return ordre.status === "CANCELLED" || ordre.centralStatus === "REFUSED";
 }
 
 /**

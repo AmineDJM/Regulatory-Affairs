@@ -1,3 +1,4 @@
+import * as React from "react"; // le banc rend ce composant hors de Next (JSX classique) : React doit être en portée
 import Link from "next/link";
 import { ArrowRight, BadgeCheck, CircleDollarSign, Clock, Hourglass, ShieldCheck, XCircle } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -7,13 +8,15 @@ import { natureLegale } from "@/lib/labels";
 import { delayDays, delayLabel, missingKinds, amountDrift, CHAIN_KIND_LABEL } from "@/lib/legal/chain";
 import type { ChainLink, ChainSettlement } from "@/lib/queries/legal-chain";
 import { SendToSettlementButton } from "./send-to-settlement";
+import { ordreClos } from "@/lib/finances/settlement";
 
 /**
  * LA CHAÎNE DU DOSSIER D'ACHAT — devis → bon de commande → facture → règlement, d'un seul écran.
  *
  * Chaque maillon montre SA date, SON montant et SES validateurs ; entre deux maillons, le DÉLAI en
  * jours — la question que pose la Direction et que personne ne calcule de tête. Au bout, le
- * règlement : son état, et s'il attend encore le centre de paiement.
+ * règlement : son état, et s'il attend encore le centre de paiement. Un maillon que la personne ne
+ * lit pas (`lisible: false`, décidé par le chargeur) garde sa place et sa nature, rien d'autre.
  *
  * L'écart devis / facture s'affiche dès qu'il existe : une facture au-dessus du devis n'est pas
  * forcément une erreur, mais elle doit se VOIR avant que l'argent parte.
@@ -68,8 +71,10 @@ export function LegalChainCard({
                       <Badge tone={l.kind === "INVOICE" ? "warning" : l.kind === "QUOTE" ? "info" : "purple"} dot={false}>
                         {natureLegale(l.kind)}
                       </Badge>
-                      {l.isCurrent ? (
-                        <span className="font-medium">{l.reference ? `${l.reference} · ` : ""}{l.title}</span>
+                      {/* Un maillon que la personne ne lit pas garde sa place, sous un libellé neutre et SANS lien ;
+                          celui que seule une exception de lecture ouvre se lit sans lien vers une fiche refusée. */}
+                      {l.isCurrent || !l.ouvrable ? (
+                        <span className={l.lisible ? "font-medium" : "italic text-muted-foreground"}>{l.reference ? `${l.reference} · ` : ""}{l.title}</span>
                       ) : (
                         <Link href={`/legal/${l.id}`} className="font-medium hover:underline">
                           {l.reference ? `${l.reference} · ` : ""}{l.title}
@@ -141,10 +146,11 @@ export function LegalChainCard({
         )}
 
         {/* La facture part au règlement D'ICI — et passe par le centre de paiement. */}
-        {canSettle && current?.kind === "INVOICE" && !settlement && (
+        {/* Un ordre REFUSÉ par le centre, ou annulé, ne paiera jamais : la facture repart (§118.185). */}
+        {canSettle && current?.kind === "INVOICE" && (!settlement || ordreClos(settlement)) && (
           settleBlocked
             ? <p className="rounded-lg bg-warning/10 px-3 py-2 text-xs text-foreground">{settleBlocked}</p>
-            : <SendToSettlementButton id={current.id} amount={current.amount} />
+            : <SendToSettlementButton id={current.id} amount={current.amount} renvoi={Boolean(settlement)} />
         )}
       </CardContent>
     </Card>

@@ -1,13 +1,13 @@
 import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/session";
-import { userCan, scopeMedicalDoctors, peutAnnuaire, annuaireOuvertParConsole } from "@/lib/rbac";
-import { clauseAnnuairesFermes } from "@/lib/queries/annuaires";
+import { userCan, peutAnnuaire, annuaireOuvertParConsole } from "@/lib/rbac";
+import { clausePraticiensVisibles } from "@/lib/queries/annuaires";
 import { prisma } from "@/lib/prisma";
-import { companyScopedWhere } from "@/lib/company";
 import { recordAudit } from "@/lib/audit";
 import { buildAnnuaireWorkbook } from "@/lib/medical/directory-workbook";
 import { directoryExportFilename } from "@/lib/medical/directory-sheet";
 import { ligneAnnuaire } from "@/lib/medical/directory-grid";
+import { contentDisposition } from "@/lib/http/content-disposition";
 
 /**
  * EXPORT DE L'ANNUAIRE EN CLASSEUR — exactement les colonnes de l'écran.
@@ -36,13 +36,7 @@ export async function GET(req: Request) {
   const doctors = await prisma.medicalDoctor.findMany({
     // LES CLAUSES SE COMPOSENT EN `AND` : la portée d'un délégué et l'exclusion des annuaires
     // fermés sont deux `OR`, et les étaler dans le même objet ferait écraser l'une par l'autre.
-    where: {
-      AND: [
-        await companyScopedWhere(user.id, entier ? {} : scopeMedicalDoctors(user)),
-        gradeWhere,
-        await clauseAnnuairesFermes(user),
-      ],
-    },
+    where: { AND: [await clausePraticiensVisibles(user, { entier }), gradeWhere] },
     orderBy: [{ name: "asc" }],
     include: {
       specialtyRef: { select: { name: true } },
@@ -64,7 +58,7 @@ export async function GET(req: Request) {
   return new NextResponse(buffer as unknown as BodyInit, {
     headers: {
       "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-      "Content-Disposition": `attachment; filename="${directoryExportFilename()}"`,
+      "Content-Disposition": contentDisposition(directoryExportFilename()),
       "Cache-Control": "no-store",
     },
   });

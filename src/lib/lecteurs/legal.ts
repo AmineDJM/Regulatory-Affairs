@@ -93,6 +93,17 @@ export function normalizeReaderIds(raw: string[], createdById: string | null): s
 }
 
 /**
+ * LES LECTEURS DE LA SUITE d'un document renouvelé (audit 360°, S7). Un document OUVERT (aucun lecteur)
+ * le reste ; un document RESTREINT garde ses lecteurs, et son auteur d'origine en devient un — sur la
+ * suite, l'auteur est la personne qui renouvelle, et l'auteur d'origine perdrait sinon le contrat qu'il
+ * a lui-même enregistré. La personne qui renouvelle n'y figure pas : elle est l'auteur de la suite.
+ */
+export function lecteursDeLaSuite(lecteurs: readonly string[], auteurOrigine: string | null, auteurSuite: string): string[] {
+  if (lecteurs.length === 0) return [];
+  return normalizeReaderIds([...lecteurs, ...(auteurOrigine ? [auteurOrigine] : [])], auteurSuite);
+}
+
+/**
  * QUI GÈRE LES ACCÈS D'UN DOCUMENT — le déposant, et le Super Admin.
  *
  * Pas celui qui a le droit d'ÉCRITURE sur le module : pouvoir corriger une date d'échéance n'est
@@ -147,9 +158,10 @@ export type LegalViewScope = "ALL" | "PURCHASE_CHAIN" | "BONS_DE_COMMANDE" | "NO
  * ET les bons de commande de la société — le bon de commande de référence remis avec la facture
  * est le leur, et l'on ne peut pas émettre une pièce qu'on n'aurait pas le droit de retrouver au
  * registre. Contrats, baux, conventions, assurances restent fermés : une liste FERMÉE, en un
- * endroit, lue par la liste, la fiche, l'action serveur et Adam.
+ * endroit, lue par la liste, la fiche, l'action serveur et Adam. L'AVOIR (§118.195) en fait partie : il corrige une
+ * facture que les Finances émettent, et l'on ne peut pas émettre une correction qu'on n'aurait pas le droit de lire.
  */
-export const PURCHASE_CHAIN_KINDS: readonly string[] = ["INVOICE", "PURCHASE_ORDER"];
+export const PURCHASE_CHAIN_KINDS: readonly string[] = ["INVOICE", "PURCHASE_ORDER", "CREDIT_NOTE"];
 
 /**
  * LA TROISIÈME PORTE, ET LA PLUS ÉTROITE : le module « Bons de commande » (§118.176). Le Super

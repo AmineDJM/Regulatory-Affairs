@@ -1,11 +1,10 @@
 import { ArrowLeft, Coins, History } from "lucide-react";
 import { requireModule } from "@/lib/session";
-import { getCompanyScope } from "@/lib/company";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { BackLink } from "@/components/shared/back-link";
 import { regulatoryAiSpend } from "@/lib/regulatory/intelligence/cost/ledger";
 import { listRegulatoryAudit } from "@/lib/regulatory/intelligence/queries";
-import { resolveRegCompanyId } from "@/lib/regulatory/intelligence/access";
+import { resolveRegCompanyIdFor } from "@/lib/regulatory/intelligence/access";
 import { DossierBudgetRow } from "./budget-row";
 
 /**
@@ -37,7 +36,7 @@ const STEP_LABELS: Record<string, string> = {
 
 export default async function RegulatoryIaAdminPage() {
   const admin = await requireModule("ADMIN", "VIEW");
-  const companyId = await resolveRegCompanyId(getCompanyScope());
+  const companyId = await resolveRegCompanyIdFor(admin.id);
   const canManage = admin.role === "SUPER_ADMIN";
 
   const [spend, audit] = await Promise.all([

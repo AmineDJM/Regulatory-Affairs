@@ -16,7 +16,7 @@ import { PROMO_MATERIAL_STATUS } from "@/lib/labels";
 
 const A = (id: string, role: string, secondaryRole: string | null = null) =>
   ({ id, role, secondaryRole, vueGlobale: role === "SUPER_ADMIN" || role === "DIRECTION" });
-const PM = { requesterId: "kam", assistantId: null as string | null };
+const PM = { requesterId: "kam", assistantId: null as string | null, returnedAt: null as Date | null };
 const CTX = { requesterId: "kam", requestValidatorId: "ns", validateursMarketing: ["assia"] };
 
 describe("tourDe — le tour d'une personne, pas son pouvoir", () => {
@@ -63,14 +63,14 @@ describe("tourDe — le tour d'une personne, pas son pouvoir", () => {
 
 describe("statutDuDossier — l'étape du circuit, jamais le statut figé", () => {
   it("un dossier du circuit affiche SON étape, pas « Prospection demandée »", () => {
-    const s = statutDuDossier({ status: "PROSPECTION_REQUESTED", circuitState: "REVIEW_DG", circuitVersion: 2 });
+    const s = statutDuDossier({ status: "PROSPECTION_REQUESTED", circuitState: "REVIEW_DG", circuitVersion: 2, returnedAt: null });
     expect(s.libelle).toBe(libelleEtape("REVIEW_DG", 2));
     expect(s.libelle).not.toBe(PROMO_MATERIAL_STATUS.PROSPECTION_REQUESTED.label);
     expect(s.ton).toBe("warning");
   });
 
   it("terminé, en exécution, refusé : trois tons, trois états unifiés", () => {
-    const fin = { status: "PROSPECTION_REQUESTED", circuitVersion: 2 };
+    const fin = { status: "PROSPECTION_REQUESTED", circuitVersion: 2, returnedAt: null };
     expect(statutDuDossier({ ...fin, circuitState: "COMPLETED" }).ton).toBe("success");
     expect(etatAdProDuDossier({ ...fin, circuitState: "COMPLETED" })).toBe("DONE");
     expect(statutDuDossier({ ...fin, circuitState: "IN_EXECUTION" }).ton).toBe("info");
@@ -81,8 +81,32 @@ describe("statutDuDossier — l'étape du circuit, jamais le statut figé", () =
   });
 
   it("l'ancien circuit garde son statut ; un état illisible retombe sur lui au lieu d'inventer", () => {
-    const ancien = { status: "PROSPECTION_REQUESTED", circuitState: null, circuitVersion: null };
+    const ancien = { status: "PROSPECTION_REQUESTED", circuitState: null, circuitVersion: null, returnedAt: null };
     expect(statutDuDossier(ancien).libelle).toBe(PROMO_MATERIAL_STATUS.PROSPECTION_REQUESTED.label);
     expect(statutDuDossier({ ...ancien, circuitState: "ETAT_INCONNU" }).libelle).toBe(PROMO_MATERIAL_STATUS.PROSPECTION_REQUESTED.label);
+  });
+});
+
+describe("RENVOYÉ POUR CORRECTION — chez son demandeur, ni en validation ni refusé (§118.190)", () => {
+  const quand = new Date("2026-10-03T09:00:00Z");
+  it("à la validation de la demande, la marque fait passer le tour du validateur au DEMANDEUR", () => {
+    const pm = { ...PM, returnedAt: quand };
+    expect(tourDe(A("kam", "MEDICAL_DELEGATE"), "REVIEW_REQUEST", pm, CTX, 2)).toBe("GESTE");
+    expect(tourDe(A("ns", "NATIONAL_SALES"), "REVIEW_REQUEST", pm, CTX, 2), "le validateur n'a rien à trancher").toBeNull();
+    // Le TÉMOIN : sans la marque, la même étape revient au validateur — sinon une règle qui
+    // donnerait toujours la main au demandeur passerait.
+    expect(tourDe(A("ns", "NATIONAL_SALES"), "REVIEW_REQUEST", PM, CTX, 2)).toBe("VALIDATION");
+    expect(tourDe(A("kam", "MEDICAL_DELEGATE"), "REVIEW_REQUEST", PM, CTX, 2)).toBeNull();
+  });
+  it("« À corriger » partout où le dossier se lit, et l'état unifié RETURNED — jamais pour un dossier annulé", () => {
+    const base = { status: "PROSPECTION_REQUESTED", circuitVersion: 2, returnedAt: quand };
+    for (const circuitState of ["REVIEW_REQUEST", "REVIEW_REQUESTER"]) {
+      expect(statutDuDossier({ ...base, circuitState }).libelle, circuitState).toBe("À corriger");
+      expect(etatAdProDuDossier({ ...base, circuitState }), circuitState).toBe("RETURNED");
+    }
+    // Une marque restée posée pendant que l'assistante retranscrit : l'étape fait foi.
+    expect(statutDuDossier({ ...base, circuitState: "QUOTE_REQUESTED" }).libelle).toBe(libelleEtape("QUOTE_REQUESTED", 2));
+    expect(statutDuDossier({ ...base, status: "CANCELLED", circuitState: "REFUSED" }).libelle).toBe("Annulé");
+    expect(etatAdProDuDossier({ ...base, status: "CANCELLED", circuitState: "REVIEW_REQUEST" })).not.toBe("RETURNED");
   });
 });

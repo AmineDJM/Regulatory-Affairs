@@ -5,7 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { aiConfigured, sttConfigured, aiModel, cleModeleRequise, fournisseurDeRaisonnement } from "@/lib/ai";
 import { realtimeVoiceConfigured, REALTIME_VOICE_MODEL } from "@/lib/assistant/voice-realtime";
 import { getLatestAiHealth } from "@/lib/ai-health";
-import { getAiSettings } from "@/lib/ai-settings";
+import { getAiSettings, type AiFeature } from "@/lib/ai-settings";
 import { parityStats } from "@/lib/assistant/action-registry";
 import { ModuleTabs } from "@/components/shared/module-tabs";
 import { ADMIN_TABS } from "@/lib/labels";
@@ -21,7 +21,11 @@ import { allBindings } from "@/lib/models/registry";
 export const metadata = { title: "Centre de contrôle IA — AMD Internal OS" };
 export const dynamic = "force-dynamic";
 
-const FEATURE_LABEL: Record<string, string> = {
+// Une fonction par bascule, et chacune son libellé : `Record<AiFeature, …>` fait qu'une fonction ajoutée demain
+// ne compile pas sans le sien (vague « restes » — « Rédiger avec l'IA » et la lecture des pièces s'affichaient
+// sous leur identifiant brut). Les journaux portent aussi des fonctions hors de cette liste : elles gardent
+// leur nom tel quel.
+const FEATURE_LABEL: Record<AiFeature, string> = {
   assistant: "Assistant IA",
   nudge: "Suggestions proactives",
   brain: "Adventum Brain",
@@ -29,7 +33,12 @@ const FEATURE_LABEL: Record<string, string> = {
   process_intel: "Process Intelligence",
   field_report: "Rapports terrain",
   voice: "Transcription vocale",
+  voice_realtime: "Voix temps réel",
+  site_web: "Rédaction du site web",
+  lecture_pieces: "Lecture des pièces déposées",
+  conseil_pieces: "Luna — rangement des pièces Ad & Pro",
 };
+const libelleFonction = (f: string): string => (FEATURE_LABEL as Record<string, string>)[f] ?? f;
 
 export default async function AiControlCenterPage() {
   const user = await requireModule("ADMIN", "UPDATE");
@@ -75,7 +84,7 @@ export default async function AiControlCenterPage() {
   const features = byFeature
     .map((r) => ({
       feature: r.feature,
-      label: FEATURE_LABEL[r.feature] ?? r.feature,
+      label: libelleFonction(r.feature),
       total: r._count._all,
       ok: okMap.get(r.feature) ?? 0,
       avgMs: r._avg.latencyMs ? Math.round(r._avg.latencyMs) : null,
@@ -395,7 +404,7 @@ export default async function AiControlCenterPage() {
                 <li key={f.id} className="flex items-center justify-between gap-3 py-2">
                   <span className="flex items-center gap-2">
                     <XCircle className="h-4 w-4 shrink-0 text-destructive" />
-                    <span className="font-medium">{FEATURE_LABEL[f.feature] ?? f.feature}</span>
+                    <span className="font-medium">{libelleFonction(f.feature)}</span>
                     <span className="text-muted-foreground">{f.errorCode ?? "erreur"}</span>
                     {f.userId && <span className="text-xs text-muted-foreground">· {nameOf.get(f.userId) ?? "—"}</span>}
                   </span>

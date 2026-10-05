@@ -49,8 +49,11 @@ export function AdProEditButton({
     void (async () => {
       try {
         const r = await updateAdProRequest(fd);
-        setMsg({ ok: r.ok, text: r.ok ? "Demande mise à jour." : (r.error ?? "Échec.") });
-        if (r.ok) { setOpen(false); router.refresh(); }
+        setMsg({ ok: r.ok, text: r.ok ? (r.message ?? "Demande mise à jour.") : (r.error ?? "Échec.") });
+        // Une correction qui a CHANGÉ quelque chose ailleurs (la porte du centre s'ouvre, se rouvre, se
+        // retire) le DIT, et la fenêtre reste ouverte le temps de le lire : se refermer sur cette phrase
+        // la jetterait — l'écran qui se ferme sans rien dire (§118.168).
+        if (r.ok) { if (!r.message) setOpen(false); router.refresh(); }
       } finally {
         setBusy(false);
         lock.current = false;
@@ -89,12 +92,12 @@ export function AdProEditButton({
                 <div key={f.key} className={f.type === "textarea" ? "space-y-1 sm:col-span-2" : "space-y-1"}>
                   <Label htmlFor={`edit-${f.key}`}>{f.label}</Label>
                   {f.type === "textarea" ? (
-                    <Textarea id={`edit-${f.key}`} name={f.key} defaultValue={defaultValue} className="min-h-[64px]" />
+                    <Textarea id={`edit-${f.key}`} name={f.key} defaultValue={defaultValue} required={Boolean(f.requis)} className="min-h-[64px]" />
                   ) : f.type === "select" && f.options ? (
                     // Le MÊME menu qu'à la création : corriger un type ne doit pas rouvrir la
                     // porte aux variantes orthographiques que le formulaire d'origine interdit.
-                    <Select id={`edit-${f.key}`} name={f.key} defaultValue={defaultValue}>
-                      <option value="">— Non renseigné —</option>
+                    <Select id={`edit-${f.key}`} name={f.key} defaultValue={defaultValue} required={Boolean(f.requis)}>
+                      {!f.requis && <option value="">— Non renseigné —</option>}
                       {f.options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
                     </Select>
                   ) : (
@@ -103,6 +106,7 @@ export function AdProEditButton({
                       name={f.key}
                       defaultValue={defaultValue}
                       type={f.type === "number" ? "number" : f.type === "date" ? "date" : "text"}
+                      required={Boolean(f.requis)}
                       {...(f.type === "number" ? { step: "any", min: "0" } : {})}
                     />
                   )}

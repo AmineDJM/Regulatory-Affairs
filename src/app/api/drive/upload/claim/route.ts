@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getCurrentUser } from "@/lib/session";
+import { getCurrentUserPourEcrire } from "@/lib/session";
 import { userCan } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { getAppSettings } from "@/lib/settings";
@@ -32,7 +32,7 @@ import { recordAudit } from "@/lib/audit";
 const MAX_CANDIDATES = 25;
 
 export async function POST(req: NextRequest) {
-  const user = await getCurrentUser();
+  const user = await getCurrentUserPourEcrire();
   if (!user) return NextResponse.json({ error: "Non authentifié." }, { status: 401 });
   if (user.mustChangePassword) return NextResponse.json({ error: "Mot de passe à changer." }, { status: 403 });
 

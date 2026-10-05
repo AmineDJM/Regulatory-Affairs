@@ -5,6 +5,8 @@ import { SLUG_DG } from "@/lib/workflow/parcours";
 import { AD_PRO_KINDS, AD_PRO_ENTITY_TYPE, type AdProKind } from "@/lib/ad-pro/unified";
 import { FORME_PORTE, type LigneCentre } from "@/lib/ad-pro/centre";
 import { ITEM_KIND_LABELS } from "@/lib/ad-pro-items";
+import type { SessionUser } from "@/lib/rbac";
+import { canAccessEntity } from "@/lib/entity-access";
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
@@ -181,12 +183,18 @@ export async function demandesAuCentreAdPro(): Promise<LigneCentre[]> {
     // Le pôle Ad & Pro seulement : le transfert aux RH retire la porte en attente, et un visa
     // qui aurait survécu ne doit pas faire arbitrer par le centre de la PROMOTION un contrat qui
     // n'en relève plus — sans fiche, la ligne est écartée plus bas (§118.150).
+    // Et seulement une demande qui ATTEND encore sa décision (audit 360°, lot C3) : un contrat annulé
+    // pendant qu'il attendait le centre n'a plus rien à faire arbitrer, et sa ligne ferait trancher
+    // une demande morte. L'annulation retire désormais la porte en attente ; ce filtre écarte aussi
+    // celles qu'une annulation d'AVANT a laissées.
+    // Le pôle se NOMME ici, en plus de la règle commune : c'est ce que le cliquet de §118.150 lit
+    // à chaque liste de contrats — une règle qui changerait ailleurs ne doit pas le retirer d'ici.
     prisma.consultingContract.findMany({
-      where: { id: { in: idsVisaTous }, pole: "AD_PRO" },
+      where: { id: { in: idsVisaTous }, ...ATTEND_ENCORE.CONSULTING_CONTRACT, pole: "AD_PRO" },
       select: { id: true, reference: true, title: true, requesterId: true },
     }).catch(() => []),
     prisma.adProOtherRequest.findMany({
-      where: { id: { in: idsVisaTous } },
+      where: { id: { in: idsVisaTous }, ...ATTEND_ENCORE.AD_PRO_OTHER },
       select: { id: true, reference: true, title: true, requesterId: true },
     }).catch(() => []),
   ]);
@@ -307,6 +315,7 @@ export async function demandesAuCentreAdPro(): Promise<LigneCentre[]> {
       depuis: (p.orderRequestedAt ?? p.updatedAt).toISOString(),
       href: kind ? lien(kind, opId) : "/ad-pro",
       detail: p.orderNote,
+      prestataire: p.supplier,
     });
   }
 
@@ -349,4 +358,133 @@ export async function demandesAuCentreAdPro(): Promise<LigneCentre[]> {
   }
 
   return lignes;
+}
+
+/** Une décision du centre qui n'est pas un accord : un refus (réexaminable) ou un renvoi (chez le demandeur). */
+export interface VisaTranche {
+  entityType: EntityType;
+  entityId: string;
+  reference: string | null;
+  intitule: string;
+  etat: "REFUSED" | "CHANGES_REQUESTED";
+  note: string | null;
+  decidedAt: string | null;
+  decideur: string | null;
+  href: string;
+}
+
+/**
+ * LES REFUS ET LES RENVOIS RÉCENTS DU CENTRE (audit 360°, R07) — là où un siège RÉEXAMINE un refus, et
+ * voit ce qui attend chez un demandeur. Bornée aux 30 plus récentes ; le total voyage avec la liste,
+ * sans quoi une liste coupée se lirait comme complète (§118.60).
+ */
+export async function visasTranchesCentreAdPro(): Promise<{ lignes: VisaTranche[]; total: number }> {
+  // ON FILTRE AVANT DE BORNER (§118.149d) : une demande close entre-temps n'a plus rien à réexaminer,
+  // et la compter ferait annoncer un total que la liste ne montre pas (§118.51). Les candidats ne
+  // portent que deux identifiants chacun ; c'est le DÉTAIL qui se borne aux trente plus récents.
+  const candidats = await prisma.adProGateVisa.findMany({
+    where: { status: { in: ["REFUSED", "CHANGES_REQUESTED"] } },
+    select: { entityType: true, entityId: true, decidedAt: true },
+  }).catch(() => []);
+  const vivantes = await demandesQuiAttendent(candidats);
+  const retenus = candidats
+    .filter((v) => vivantes.has(`${v.entityType}:${v.entityId}`))
+    .sort((a, b) => (b.decidedAt?.getTime() ?? 0) - (a.decidedAt?.getTime() ?? 0));
+  const total = retenus.length;
+  const page = retenus.slice(0, 30);
+  if (page.length === 0) return { lignes: [], total };
+  const visas = await prisma.adProGateVisa.findMany({
+    where: { OR: page.map((v) => ({ entityType: v.entityType, entityId: v.entityId })) },
+    orderBy: { decidedAt: "desc" },
+    select: { entityType: true, entityId: true, status: true, note: true, decidedAt: true, decidedBy: { select: { name: true } } },
+  }).catch(() => []);
+  const lignes: VisaTranche[] = [];
+  for (const v of visas) {
+    const f = vivantes.get(`${v.entityType}:${v.entityId}`);
+    if (!f) continue;
+    lignes.push({
+      entityType: v.entityType, entityId: v.entityId, reference: f.reference, intitule: f.intitule,
+      etat: v.status === "REFUSED" ? "REFUSED" : "CHANGES_REQUESTED",
+      note: v.note, decidedAt: v.decidedAt?.toISOString() ?? null, decideur: v.decidedBy?.name ?? null, href: f.href,
+    });
+  }
+  return { lignes, total };
+}
+
+/**
+ * CE QUI ATTEND ENCORE SA DÉCISION — la seule population que le centre a encore à arbitrer
+ * (audit 360°, lot C3). Une clause par nature, lue par la lentille, par les décisions tranchées et
+ * par « Réexaminer » : un refus réexaminé sur une demande annulée la ferait revenir dans la file,
+ * et une ligne du centre montrerait une demande que plus personne ne porte.
+ *
+ * Un contrat passé aux RH n'en relève plus (§118.150) ; un BC annulé non plus — l'annulation retire
+ * déjà sa porte en attente, et un refus qu'on réexaminerait le remettrait au centre pour rien.
+ */
+const ATTEND_ENCORE = {
+  CONSULTING_CONTRACT: { status: "AWAITING_VALIDATION" as const, pole: "AD_PRO" as const },
+  AD_PRO_OTHER: { status: "AWAITING_DECISION" as const },
+  LEGAL_DOCUMENT: { kind: "PURCHASE_ORDER" as const, status: { not: "CANCELLED" as const } },
+};
+
+async function demandesQuiAttendent(
+  visas: readonly { entityType: EntityType; entityId: string }[],
+): Promise<Map<string, { reference: string | null; intitule: string; href: string }>> {
+  const ids = (t: string) => [...new Set(visas.filter((v) => v.entityType === t).map((v) => v.entityId))];
+  const [contrats, autres, bcs] = await Promise.all([
+    ids("CONSULTING_CONTRACT").length
+      ? prisma.consultingContract.findMany({ where: { id: { in: ids("CONSULTING_CONTRACT") }, ...ATTEND_ENCORE.CONSULTING_CONTRACT, pole: "AD_PRO" }, select: { id: true, reference: true, title: true } }).catch(() => [])
+      : [],
+    ids("AD_PRO_OTHER").length
+      ? prisma.adProOtherRequest.findMany({ where: { id: { in: ids("AD_PRO_OTHER") }, ...ATTEND_ENCORE.AD_PRO_OTHER }, select: { id: true, reference: true, title: true } }).catch(() => [])
+      : [],
+    ids("LEGAL_DOCUMENT").length
+      ? prisma.legalDocument.findMany({ where: { id: { in: ids("LEGAL_DOCUMENT") }, ...ATTEND_ENCORE.LEGAL_DOCUMENT }, select: { id: true, reference: true, title: true } }).catch(() => [])
+      : [],
+  ]);
+  const fiche = new Map<string, { reference: string | null; intitule: string; href: string }>();
+  for (const c of contrats) fiche.set(`CONSULTING_CONTRACT:${c.id}`, { reference: c.reference, intitule: c.title, href: lien("CONSULTING", c.id) });
+  for (const o of autres) fiche.set(`AD_PRO_OTHER:${o.id}`, { reference: o.reference, intitule: o.title, href: lien("OTHER", o.id) });
+  for (const d of bcs) fiche.set(`LEGAL_DOCUMENT:${d.id}`, { reference: d.reference, intitule: `Bon de commande — ${d.title}`, href: `/legal/${d.id}` });
+  return fiche;
+}
+
+/** UNE demande attend-elle encore la décision du centre ? — la même règle que la lentille. */
+export async function demandeAttendLeCentre(entityType: EntityType, entityId: string): Promise<boolean> {
+  return (await demandesQuiAttendent([{ entityType, entityId }])).has(`${entityType}:${entityId}`);
+}
+
+/**
+ * QUI ATTEND LA DÉCISION DU CENTRE — le demandeur, relu sur la nature : le visa ne le porte pas, et
+ * l'y recopier ferait une seconde vérité sur qui a demandé (§118.5). Le BC : celui qui l'a enregistré
+ * ou composé. Une nature sans visa n'a rien à faire ici : on ne devine pas son porteur.
+ */
+export async function demandeurDuVisa(entityType: EntityType, entityId: string): Promise<string | null> {
+  if (entityType === "CONSULTING_CONTRACT") {
+    const c = await prisma.consultingContract
+      .findUnique({ where: { id: entityId }, select: { requesterId: true } }).catch(() => null);
+    return c?.requesterId ?? null;
+  }
+  if (entityType === "AD_PRO_OTHER") {
+    const o = await prisma.adProOtherRequest
+      .findUnique({ where: { id: entityId }, select: { requesterId: true } }).catch(() => null);
+    return o?.requesterId ?? null;
+  }
+  if (entityType === "LEGAL_DOCUMENT") {
+    const d = await prisma.legalDocument
+      .findUnique({ where: { id: entityId }, select: { createdById: true } }).catch(() => null);
+    return d?.createdById ?? null;
+  }
+  return null;
+}
+
+/**
+ * QUI RESOUMET AU CENTRE une demande qu'il a renvoyée (audit 360°, R07/R10) — LA règle que la fiche
+ * et l'action lisent : deux copies de « qui peut » finissent par diverger, et la fiche offrirait un
+ * bouton que l'action refuse (§118.5, §118.83). Le demandeur, ou qui peut MODIFIER la fiche ; et
+ * seulement pour les deux natures dont le visa est la porte — un BC renvoyé se corrige dans Legal.
+ */
+export async function peutResoumettreAuCentre(user: SessionUser, entityType: EntityType, entityId: string): Promise<boolean> {
+  if (entityType !== "CONSULTING_CONTRACT" && entityType !== "AD_PRO_OTHER") return false;
+  if ((await demandeurDuVisa(entityType, entityId)) === user.id) return true;
+  return canAccessEntity(user, entityType, entityId, "UPDATE");
 }

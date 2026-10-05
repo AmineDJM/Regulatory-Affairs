@@ -1,6 +1,6 @@
 import type { RegistrationStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { platformScope } from "@/lib/company";
+import { clauseEvenementsVisibles } from "@/lib/queries/visibilite-listes";
 import { toNumber } from "@/lib/utils";
 
 export interface EventListItem {
@@ -76,6 +76,8 @@ export interface EventDetail {
   requestStatus: string | null;
   /** Qui a demandé la prise en charge : c'est LUI qui peut corriger sa demande. */
   requesterId: string | null;
+  /** Qui a créé l'événement — son demandeur tant qu'aucune demande de prise en charge n'est partie. */
+  createdById: string | null;
   requesterName: string | null;
   productManagerId: string | null;
   productManagerName: string | null;
@@ -98,7 +100,7 @@ const ACTIVE: RegistrationStatus[] = ["REGISTERED", "CONFIRMED", "PRESENT", "PEN
 
 export async function getEvents(userId: string): Promise<EventListItem[]> {
   const events = await prisma.event.findMany({
-    where: await platformScope(userId),
+    where: await clauseEvenementsVisibles(userId),
     orderBy: [{ startDate: "desc" }, { createdAt: "desc" }],
     include: { registrations: { select: { status: true } } },
   });
@@ -169,7 +171,7 @@ export async function getEventDetail(id: string): Promise<EventDetail | null> {
     doctor: e.doctor, businessUnitId: e.businessUnitId,
     description: e.description, capacity: e.capacity, estimatedBudget: e.estimatedBudget ? toNumber(e.estimatedBudget) : null,
     meetingLink: e.meetingLink, responsibleId: e.responsibleId, responsibleName: e.responsible?.name ?? null,
-    requestStatus: e.requestStatus, requesterId: e.requesterId, requesterName: nameOf(e.requesterId),
+    requestStatus: e.requestStatus, requesterId: e.requesterId, createdById: e.createdById ?? null, requesterName: nameOf(e.requesterId),
     productManagerId: e.productManagerId, productManagerName: nameOf(e.productManagerId),
     productManagerBudget: e.productManagerBudget ? toNumber(e.productManagerBudget) : null,
     productManagerNotes: e.productManagerNotes,

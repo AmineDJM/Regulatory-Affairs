@@ -9,6 +9,8 @@ import { ADMIN_REQUEST_TYPE } from "@/lib/labels";
 import { formatCurrency, formatDate, toNumber } from "@/lib/utils";
 import { ApprovalButtons } from "../approval-buttons";
 import { BackLink } from "@/components/shared/back-link";
+import { lireLignesDAchat } from "@/lib/general-means/purchase-request";
+import { PurchaseLines } from "@/components/purchase/purchase-lines";
 
 export default async function ApprovalsPage() {
   const user = await requireModule("ADMIN_REQUESTS");
@@ -32,8 +34,11 @@ export default async function ApprovalsPage() {
                   <span className="font-mono text-xs text-muted-foreground">{a.request.reference}</span>
                   <Badge tone="neutral" dot={false}>{ADMIN_REQUEST_TYPE[a.request.type] ?? a.request.type}</Badge>
                   {a.amount && <span className="text-sm font-semibold">{formatCurrency(toNumber(a.amount))}</span>}
+                  {a.pourLeCompteDe && <Badge tone="info" dot={false}>Intérim pour {a.pourLeCompteDe}</Badge>}
                 </div>
                 <Link href={`/demandes/${a.request.id}`} className="block font-medium hover:underline">{a.request.title}</Link>
+                {/* Ce que l'on valide, en entier : le titre d'un achat coupe après trois articles. */}
+                {a.request.type === "PURCHASE" && <PurchaseLines lines={lireLignesDAchat(a.request.fields)} compact />}
                 {a.comment && <p className="text-sm text-muted-foreground">{a.comment}</p>}
                 <p className="text-xs text-muted-foreground">Demandé le {formatDate(a.createdAt)}</p>
               </div>

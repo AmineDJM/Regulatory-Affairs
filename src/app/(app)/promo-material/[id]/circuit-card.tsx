@@ -1,18 +1,19 @@
 "use client";
 
 import * as React from "react";
-import { useRouter } from "next/navigation";
-import { Loader2, AlertCircle, BadgeCheck, CheckCircle2, Circle, FileCheck2, Rocket, Send, XCircle } from "lucide-react";
+import { Loader2, AlertCircle, BadgeCheck, CheckCircle2, Circle, FileCheck2, Rocket, XCircle, Undo2, RotateCcw } from "lucide-react";
 import {
   startPromoCircuit, markQuoteReceived, validatePromoStep, refusePromoStep, completePromoTrack,
+  renvoyerPromoStep, resoumettrePromoDemande,
 } from "@/lib/actions/promo-circuit-actions";
-import { demanderDevisPromo } from "@/lib/actions/promo-devis-actions";
 import type { PromoTrack } from "@/lib/promo-material/circuit";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Textarea, Label } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
 import type { ActionResult } from "@/lib/actions/types";
+import { useRafraichir } from "@/components/shared/use-rafraichir";
+import { BoutonDecisif } from "@/components/ui/bouton-decisif";
 
 /**
  * LE SUIVI DU CIRCUIT — ce que chacun voit dépend de qui il est.
@@ -56,9 +57,16 @@ interface Props {
   /** Peut basculer un dossier d'avant la réforme sur le circuit actuel. */
   canStart: boolean;
   /** (circuit 2) Peut demander les devis au secrétariat — le demandeur, à l'étape « devis à demander ». */
-  canRequestQuotes: boolean;
   /** Peut clore un chantier (pilote de l'exécution). */
   canDrive: boolean;
+  /** Le renvoi pour correction en cours (§118.190) — affiché à tous, pour que personne ne cherche
+   *  pourquoi le dossier est revenu en arrière. */
+  renvoi: { depuis: string; quand: string; motif: string } | null;
+  /** Les trois issues d'une validation, tranchées CÔTÉ SERVEUR par les mêmes règles que les actions. */
+  canRenvoyer: boolean;
+  canRefuser: boolean;
+  /** Le demandeur peut resoumettre la demande corrigée (validation de la demande renvoyée). */
+  canResoumettre: boolean;
   chantiers: ChantierAffiche[];
   waitingLabel: string;
   progressStep: number;
@@ -66,17 +74,22 @@ interface Props {
 }
 
 function useRun() {
-  const router = useRouter();
+  // LE RAFRAÎCHISSEMENT SUIVI (§118.172) : tant que les nouvelles données ne sont pas là, l'écran montre
+  // l'état d'avant — renvoyer, valider ou resoumettre dessus agirait deux fois. Les gestes restent
+  // fermés jusqu'à la fin du rafraîchissement.
+  const { enCours, rafraichir } = useRafraichir();
   const [saving, setSaving] = React.useState(false);
   const [err, setErr] = React.useState<string | null>(null);
   const [msg, setMsg] = React.useState<string | null>(null);
-  const run = async (fn: () => Promise<ActionResult>) => {
+  /** `apres` referme le formulaire du geste qui vient d'aboutir : resté ouvert, il offrirait un second
+   *  envoi que l'action refuserait — un bouton offert puis refusé n'est pas un geste (§118.83). */
+  const run = async (fn: () => Promise<ActionResult>, apres?: () => void) => {
     setSaving(true); setErr(null); setMsg(null);
     const r = await fn();
     setSaving(false);
-    if (r.ok) { setMsg(r.message ?? null); router.refresh(); } else setErr(r.error ?? "Action impossible.");
+    if (r.ok) { setMsg(r.message ?? null); apres?.(); rafraichir(); } else setErr(r.error ?? "Action impossible.");
   };
-  return { saving, err, msg, run };
+  return { saving: saving || enCours, err, msg, run };
 }
 
 const Err = ({ msg }: { msg: string | null }) =>
@@ -86,7 +99,9 @@ const Ok = ({ msg }: { msg: string | null }) =>
 
 export function PromoCircuitCard(p: Props) {
   const { saving, err, msg, run } = useRun();
-  const [refusing, setRefusing] = React.useState(false);
+  const [mode, setMode] = React.useState<null | "renvoi" | "refus">(null);
+  const [motif, setMotif] = React.useState("");
+  const [correction, setCorrection] = React.useState("");
   const fd = (extra?: Record<string, string>) => {
     const f = new FormData(); f.set("id", p.id);
     if (extra) for (const [k, v] of Object.entries(extra)) f.set(k, v);
@@ -105,9 +120,9 @@ export function PromoCircuitCard(p: Props) {
           générés, factures et paiements, et demande de visa à chaque paiement.
         </p>
         <Err msg={err} />
-        <Button size="sm" onClick={() => run(() => startPromoCircuit(fd()))} disabled={saving}>
+        <BoutonDecisif size="sm" onClick={() => run(() => startPromoCircuit(fd()))} disabled={saving}>
           {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Rocket className="h-4 w-4" />} Basculer sur le circuit actuel
-        </Button>
+        </BoutonDecisif>
       </div>
     );
   }
@@ -181,20 +196,9 @@ export function PromoCircuitCard(p: Props) {
       <Err msg={err} />
       <Ok msg={msg} />
 
-      {/* CIRCUIT 2 — le demandeur demande les devis au secrétariat, une fois la demande validée. */}
-      {p.state === "QUOTE_TO_REQUEST" && p.canRequestQuotes && (
-        <form
-          action={(f: FormData) => { f.set("promoMaterialId", p.id); run(() => demanderDevisPromo(f)); }}
-          className="space-y-2 rounded-lg border border-primary/30 bg-primary/5 p-3"
-        >
-          <Label htmlFor="promo-quote-note">Précisions pour le secrétariat (facultatif)</Label>
-          <Textarea id="promo-quote-note" name="note" className="min-h-[60px]" placeholder="Agences à consulter, quantités, délai souhaité…" />
-          <Button type="submit" size="sm" disabled={saving}>
-            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />} Demander les devis à l&apos;assistante de direction
-          </Button>
-        </form>
-      )}
-
+      {/* CIRCUIT 2 — LA DEMANDE DE DEVIS PART D'ELLE-MÊME (§118.204) : à la création, ou à la validation de
+          la demande. Son aperçu, ses précisions et, au besoin, son envoi vivent dans « Articles demandés » —
+          plus de bouton « Demander les devis » ni de champ de précisions séparé ici. */}
       {/* CIRCUIT 1 — le devis est déposé comme pièce, puis confirmé. */}
       {p.version === 1 && p.state === "QUOTE_REQUESTED" && p.canConfirmQuote && (
         <div className="flex flex-wrap items-center gap-2">
@@ -205,30 +209,72 @@ export function PromoCircuitCard(p: Props) {
         </div>
       )}
 
-      {p.canAct && !refusing && (
-        <div className="flex flex-wrap gap-2">
-          {p.validerIci && (
-            <Button size="sm" variant="success" onClick={() => run(() => validatePromoStep(fd()))} disabled={saving}>
-              {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <BadgeCheck className="h-4 w-4" />} Valider cette étape
-            </Button>
-          )}
-          <Button size="sm" variant="outline" onClick={() => setRefusing(true)} disabled={saving}>
-            <XCircle className="h-4 w-4" /> Refuser
-          </Button>
+      {/* LE RENVOI POUR CORRECTION (§118.190) — dit à tous, avec son motif. */}
+      {p.renvoi && (
+        <div role="status" className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm">
+          <span className="font-medium">À corriger</span> — renvoyé à l&apos;étape « {p.renvoi.depuis} » le {p.renvoi.quand} : « {p.renvoi.motif} »
         </div>
       )}
-      {p.canAct && refusing && (
+      {p.canResoumettre && (
         <form
-          action={(f: FormData) => { f.set("id", p.id); run(() => refusePromoStep(f)); }}
+          action={(f: FormData) => { f.set("id", p.id); run(() => resoumettrePromoDemande(f), () => setCorrection("")); }}
+          className="space-y-2 rounded-lg border border-primary/30 bg-primary/5 p-3"
+        >
+          <Label htmlFor="promo-resoumission">Ce qui a changé</Label>
+          <Textarea id="promo-resoumission" name="note" value={correction} onChange={(e) => setCorrection(e.target.value)} className="min-h-[60px]" placeholder="Ex. quantités revues, article ajouté, précision du brief." />
+          <Button type="submit" size="sm" disabled={saving || !correction.trim()}>
+            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <RotateCcw className="h-4 w-4" />} Resoumettre la demande
+          </Button>
+        </form>
+      )}
+
+      {/* LES TROIS ISSUES — valider, renvoyer pour correction, refuser (audit 360°, R05). */}
+      {mode === null && ((p.canAct && p.validerIci) || p.canRenvoyer || p.canRefuser) && (
+        <div className="flex flex-wrap gap-2">
+          {p.canAct && p.validerIci && (
+            <BoutonDecisif size="sm" variant="success" onClick={() => run(() => validatePromoStep(fd()))} disabled={saving}>
+              {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <BadgeCheck className="h-4 w-4" />} Valider cette étape
+            </BoutonDecisif>
+          )}
+          {p.canRenvoyer && (
+            <Button size="sm" variant="outline" onClick={() => setMode("renvoi")} disabled={saving}>
+              <Undo2 className="h-4 w-4" /> Renvoyer pour correction
+            </Button>
+          )}
+          {p.canRefuser && (
+            <Button size="sm" variant="outline" onClick={() => setMode("refus")} disabled={saving}>
+              <XCircle className="h-4 w-4" /> Refuser
+            </Button>
+          )}
+        </div>
+      )}
+      {mode === "renvoi" && p.canRenvoyer && (
+        <form
+          action={(f: FormData) => { f.set("id", p.id); run(() => renvoyerPromoStep(f), () => { setMode(null); setMotif(""); }); }}
+          className="space-y-2 rounded-lg border border-amber-500/40 p-3"
+        >
+          <Label htmlFor="promo-renvoi-motif">Ce qu&apos;il faut corriger</Label>
+          <Textarea id="promo-renvoi-motif" name="motif" value={motif} onChange={(e) => setMotif(e.target.value)} className="min-h-[60px]" placeholder="Ex. retenez plutôt le devis de l'imprimeur B, moins cher à qualité égale." />
+          <div className="flex gap-2">
+            <BoutonDecisif type="submit" size="sm" disabled={saving || !motif.trim()}>
+              {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Undo2 className="h-4 w-4" />} Renvoyer au demandeur
+            </BoutonDecisif>
+            <Button type="button" size="sm" variant="ghost" onClick={() => setMode(null)} disabled={saving}>Annuler</Button>
+          </div>
+        </form>
+      )}
+      {mode === "refus" && p.canRefuser && (
+        <form
+          action={(f: FormData) => { f.set("id", p.id); run(() => refusePromoStep(f), () => { setMode(null); setMotif(""); }); }}
           className="space-y-2 rounded-lg border border-destructive/30 p-3"
         >
           <Label htmlFor="promo-refuse-reason">Motif du refus</Label>
-          <Textarea id="promo-refuse-reason" name="reason" required className="min-h-[60px]" placeholder="Un refus sans motif fait recommencer à l'identique." />
+          <Textarea id="promo-refuse-reason" name="reason" value={motif} onChange={(e) => setMotif(e.target.value)} className="min-h-[60px]" placeholder="Un refus est définitif : pour une correction, renvoyez plutôt le dossier." />
           <div className="flex gap-2">
-            <Button type="submit" size="sm" variant="destructive" disabled={saving}>
+            <BoutonDecisif type="submit" size="sm" variant="destructive" disabled={saving || !motif.trim()}>
               {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <XCircle className="h-4 w-4" />} Confirmer le refus
-            </Button>
-            <Button type="button" size="sm" variant="ghost" onClick={() => setRefusing(false)} disabled={saving}>Annuler</Button>
+            </BoutonDecisif>
+            <Button type="button" size="sm" variant="ghost" onClick={() => setMode(null)} disabled={saving}>Annuler</Button>
           </div>
         </form>
       )}

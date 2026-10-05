@@ -37,7 +37,12 @@ describe("le MOTEUR — ce qu'une étape qui conclut décide, et ce qu'elle déc
     // Deux lectures, une seule règle : la décision (émettre ou non) et la projection (le statut
     // écrit) doivent lire la même fonction, sinon une étape pourrait projeter PRE_VALIDATED tout
     // en émettant l'ordre global d'un accord à montant.
-    expect(moteur).toMatch(/argentDecideApres\s*=\s*entityType\s*===\s*"SPONSORING"\s*&&\s*conclut\s*&&\s*issueTerminaleSponsoring\(\s*step\s*\)\s*===\s*"PRE_VALIDATED"/);
+    // §118.197g : la décision juge l'étape EFFECTIVE (`lectureDeLApprobation` — celle qui conclut une route
+    // coupée hérite des pouvoirs d'argent des étapes non atteintes), et la projection reçoit LA MÊME : lire
+    // l'issue sur l'étape brute ici et sur l'étape effective là ferait diverger la décision et ce qu'elle projette.
+    expect(moteur).toMatch(/etape\s*\}\s*=\s*lectureDeLApprobation\(/);
+    expect(moteur).toMatch(/argentDecideApres\s*=\s*entityType\s*===\s*"SPONSORING"\s*&&\s*conclut\s*&&\s*issueTerminaleSponsoring\(\s*etape\s*\)\s*===\s*"PRE_VALIDATED"/);
+    expect(moteur).toMatch(/await\s+projectApprove\(\s*entityType\s*,\s*entityId\s*,\s*etape\s*,/);
     expect(corps(moteur, "projectApprove")).toMatch(/issueTerminaleSponsoring\(\s*step\s*\)/);
   });
 
@@ -93,8 +98,10 @@ describe("les SIX gestes de poste lisent la clôture — une porte gardée à c�
     ["addAdProItem", /refusPostesClos\(\s*info\s*\)/],
     ["updateAdProItem", /refusSiClos\(\s*owner\.parent\s*,\s*owner\.id\s*\)/],
     ["deleteAdProItem", /refusSiClos\(\s*owner\.parent\s*,\s*owner\.id\s*\)/],
-    ["submitAdProItem", /refusSiClos\(\s*owner\.parent\s*,\s*owner\.id\s*\)/],
-    ["decideAdProItem", /refusSiClos\(\s*owner\.parent\s*,\s*owner\.id\s*\)/],
+    // §118.187 : ces deux gestes FONT PARTIR un poste — la garde reçoit `{ partir }`, qui ajoute le refus
+    // d'une demande refusée ou annulée. C'est la même garde, avec une option : la forme l'admet.
+    ["submitAdProItem", /refusSiClos\(\s*owner\.parent\s*,\s*owner\.id\s*,\s*\{\s*partir:\s*true\s*\}\s*\)/],
+    ["decideAdProItem", /refusSiClos\(\s*owner\.parent\s*,\s*owner\.id\s*,\s*\{\s*partir:\s*decision\s*===\s*"APPROVED"\s*\}\s*\)/],
     ["setAdProItemBudget", /refusSiClos\(\s*owner\.parent\s*,\s*owner\.id\s*\)/],
   ];
   for (const [nom, garde] of gestes) {
@@ -107,11 +114,11 @@ describe("les SIX gestes de poste lisent la clôture — une porte gardée à c�
     });
   }
 
-  it("L'ÉMISSION d'un BC n'est PAS gardée par la clôture — l'exécution continue après la validation finale", () => {
+  it("La DEMANDE DE PAIEMENT d'un poste n'est PAS gardée par la clôture — l'exécution continue après la validation finale", () => {
     // L'autre moitié : arrêter les MONTANTS n'est pas arrêter les PAIEMENTS. Un poste accordé
     // dont l'ordre n'était pas parti doit pouvoir partir ; le garder ici laisserait le
     // fournisseur impayé derrière une demande « clôturée ».
-    expect(corps(actions, "emitItemExpenseOrder")).not.toMatch(/refusSiClos|refusPostesClos/);
+    expect(corps(actions, "demanderPaiementPoste")).not.toMatch(/refusSiClos|refusPostesClos/);
   });
 });
 

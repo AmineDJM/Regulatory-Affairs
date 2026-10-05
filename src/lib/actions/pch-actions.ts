@@ -5,11 +5,14 @@ import type { PchTenderStatus, PchOrderStatus } from "@prisma/client";
 import { requireUser } from "@/lib/session";
 import { userCan } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
+import { supprimerReversible } from "@/lib/suppression/coeur";
 import { buildRef } from "@/lib/refs";
 import { recordAudit } from "@/lib/audit";
 import { refreshLinkLabels } from "@/lib/links/store";
 import { persistUploadedDocument } from "@/lib/documents";
-import { fdStr, fdNum, fdDate, fdBool, type ActionResult } from "@/lib/actions/types";
+import { fdStr, fdNum, fdDate, fdCase, type ActionResult } from "@/lib/actions/types";
+import { entitePermisePourFiche } from "@/lib/company";
+import { peutAgirSurLeMarche } from "@/lib/pch/porte-marche";
 
 const TENDER_STATUSES: PchTenderStatus[] = ["NOT_STARTED", "IN_PROGRESS", "COMPLETED", "CANCELLED", "SUSPENDED", "LOST"];
 const ORDER_STATUSES: PchOrderStatus[] = ["PENDING", "VALIDATED", "DELIVERED", "PAID", "CANCELLED"];
@@ -31,6 +34,11 @@ export async function createTender(
   }
   const exists = await prisma.pchTender.findUnique({ where: { reference }, select: { id: true } });
   if (exists) return { ok: false, error: "Cette référence existe déjà." };
+  // L'ENTITÉ DU MARCHÉ est l'une de celles que le formulaire propose (`getMyCompanies`) — un identifiant
+  // forgé rangeait un marché chez une société que la personne ne voit pas, et qu'elle ne retrouvait
+  // donc plus (§118.184 — audit 360°, S11).
+  const companyId = fdStr(formData, "companyId") || null;
+  if (!(await entitePermisePourFiche(user.id, companyId))) return { ok: false, error: "Cette entité ne vous est pas ouverte." };
   const statusRaw = fdStr(formData, "status");
 
   const created = await prisma.pchTender.create({
@@ -51,11 +59,11 @@ export async function createTender(
       businessUnitId: fdStr(formData, "businessUnitId"),
       awardDate: fdDate(formData, "awardDate"),
       cautionAmount: fdNum(formData, "cautionAmount"),
-      cautionDeposited: fdBool(formData, "cautionDeposited"),
+      cautionDeposited: fdCase(formData, "cautionDeposited") ?? false,
       cautionStart: fdDate(formData, "cautionStart"),
       cautionEnd: fdDate(formData, "cautionEnd"),
       notes: fdStr(formData, "notes"),
-      companyId: fdStr(formData, "companyId") || null,
+      companyId,
       createdById: user.id,
     },
   });
@@ -81,6 +89,7 @@ export async function updateTender(formData: FormData): Promise<ActionResult> {
   const id = fdStr(formData, "id");
   if (!id) return { ok: false, error: "Identifiant manquant." };
   const statusRaw = fdStr(formData, "status");
+  if (!(await peutAgirSurLeMarche(user, id, "UPDATE"))) return { ok: false, error: "Appel d'offres introuvable." };
 
   const avant = await prisma.pchTender.findUnique({ where: { id }, select: { reference: true, title: true } });
   if (!avant) return { ok: false, error: "Appel d'offres introuvable." };
@@ -114,25 +123,31 @@ export async function updateTender(formData: FormData): Promise<ActionResult> {
       // `undefined` laisse le champ intact : un formulaire qui ne propose pas la référence
       // (ou qui la renvoie inchangée) ne doit pas pouvoir l'effacer.
       reference: nouvelleRef,
-      title: fdStr(formData, "title"),
-      products: fdStr(formData, "products"),
-      supplier: fdStr(formData, "supplier"),
-      supplierCountry: fdStr(formData, "supplierCountry"),
-      quantity: int(formData, "quantity"),
-      value: fdNum(formData, "value"),
-      client: fdStr(formData, "client") ?? "PCH",
+      // CE QUE LE FORMULAIRE NE PORTE PAS NE S'ÉCRIT PAS (§118.152c, trouvé en écrivant le banc S11) :
+      // chaque champ absent était remis à vide — corriger l'intitulé par un appel partiel effaçait la date
+      // limite de dépôt, et le rappel d'échéance cessait de sonner sans un mot. L'écran porte les vingt
+      // champs ; seul un appelant partiel (une op, un script) voit la différence. Chaque clé est écrite en
+      // LITTÉRAL : passée par une variable, elle rendrait l'action illisible à la dérivation (§118.79b).
+      title: formData.has("title") ? fdStr(formData, "title") : undefined,
+      products: formData.has("products") ? fdStr(formData, "products") : undefined,
+      supplier: formData.has("supplier") ? fdStr(formData, "supplier") : undefined,
+      supplierCountry: formData.has("supplierCountry") ? fdStr(formData, "supplierCountry") : undefined,
+      quantity: formData.has("quantity") ? int(formData, "quantity") : undefined,
+      value: formData.has("value") ? fdNum(formData, "value") : undefined,
+      client: formData.has("client") ? (fdStr(formData, "client") ?? "PCH") : undefined,
       status: (statusRaw && TENDER_STATUSES.includes(statusRaw as PchTenderStatus) ? (statusRaw as PchTenderStatus) : undefined),
-      internalReference: fdStr(formData, "internalReference"),
-      publishedAt: fdDate(formData, "publishedAt"),
-      submissionDeadline: fdDate(formData, "submissionDeadline"),
-      responsibleId: fdStr(formData, "responsibleId"),
-      businessUnitId: fdStr(formData, "businessUnitId"),
-      awardDate: fdDate(formData, "awardDate"),
-      cautionAmount: fdNum(formData, "cautionAmount"),
-      cautionDeposited: fdBool(formData, "cautionDeposited"),
-      cautionStart: fdDate(formData, "cautionStart"),
-      cautionEnd: fdDate(formData, "cautionEnd"),
-      notes: fdStr(formData, "notes"),
+      internalReference: formData.has("internalReference") ? fdStr(formData, "internalReference") : undefined,
+      publishedAt: formData.has("publishedAt") ? fdDate(formData, "publishedAt") : undefined,
+      submissionDeadline: formData.has("submissionDeadline") ? fdDate(formData, "submissionDeadline") : undefined,
+      responsibleId: formData.has("responsibleId") ? fdStr(formData, "responsibleId") : undefined,
+      businessUnitId: formData.has("businessUnitId") ? fdStr(formData, "businessUnitId") : undefined,
+      awardDate: formData.has("awardDate") ? fdDate(formData, "awardDate") : undefined,
+      cautionAmount: formData.has("cautionAmount") ? fdNum(formData, "cautionAmount") : undefined,
+      // Une case décochée n'envoie rien : le témoin caché de l'écran dit « non » (§118.172).
+      cautionDeposited: fdCase(formData, "cautionDeposited"),
+      cautionStart: formData.has("cautionStart") ? fdDate(formData, "cautionStart") : undefined,
+      cautionEnd: formData.has("cautionEnd") ? fdDate(formData, "cautionEnd") : undefined,
+      notes: formData.has("notes") ? fdStr(formData, "notes") : undefined,
       updatedById: user.id,
     },
   });
@@ -162,8 +177,12 @@ export async function deleteTender(formData: FormData): Promise<ActionResult> {
   if (!userCan(user, "PCH", "DELETE")) return { ok: false, error: "Non autorisé." };
   const id = fdStr(formData, "id");
   if (!id) return { ok: false, error: "Identifiant manquant." };
-  await prisma.pchTender.delete({ where: { id } }); // cascade → bons de commande
-  await recordAudit({ actorId: user.id, action: "DELETE", module: "PCH", summary: "Appel d'offres supprimé" });
+  if (!(await peutAgirSurLeMarche(user, id, "DELETE"))) return { ok: false, error: "Appel d'offres introuvable." };
+  // À LA CORBEILLE, AVEC SES BRANCHES (audit 360°, I17) : la suppression partait en cascade — lots,
+  // bons, livraisons — sans instantané ni retour. Le cœur réversible (§118.162) instantane tout le
+  // lot, l'audite, refuse ce qui a quitté l'ERP, et le Super Admin peut tout restaurer d'un geste.
+  const r = await supprimerReversible("PCH_TENDER", id, user.id, "Appel d'offres supprimé (corbeille)");
+  if (!r.ok) return { ok: false, error: r.error ?? "Suppression impossible." };
   revalidatePath("/pch");
   return { ok: true };
 }
@@ -175,8 +194,7 @@ export async function createOrder(formData: FormData): Promise<ActionResult> {
   if (!userCan(user, "PCH", "CREATE")) return { ok: false, error: "Non autorisé." };
   const tenderId = fdStr(formData, "tenderId");
   if (!tenderId) return { ok: false, error: "Appel d'offres manquant." };
-  const tender = await prisma.pchTender.findUnique({ where: { id: tenderId }, select: { id: true } });
-  if (!tender) return { ok: false, error: "Appel d'offres introuvable." };
+  if (!(await peutAgirSurLeMarche(user, tenderId, "CREATE"))) return { ok: false, error: "Appel d'offres introuvable." };
   const statusRaw = fdStr(formData, "status");
 
   // Le CONTRAT du bon, quand il est connu : c'est lui qui ouvre le contrôle du restant
@@ -215,7 +233,7 @@ export async function updateOrder(formData: FormData): Promise<ActionResult> {
   const id = fdStr(formData, "id");
   if (!id) return { ok: false, error: "Identifiant manquant." };
   const order = await prisma.pchOrder.findUnique({ where: { id }, select: { tenderId: true } });
-  if (!order) return { ok: false, error: "Bon de commande introuvable." };
+  if (!order || !(await peutAgirSurLeMarche(user, order.tenderId, "UPDATE"))) return { ok: false, error: "Bon de commande introuvable." };
   const statusRaw = fdStr(formData, "status");
 
   await prisma.pchOrder.update({
@@ -241,7 +259,7 @@ export async function deleteOrder(formData: FormData): Promise<ActionResult> {
   const id = fdStr(formData, "id");
   if (!id) return { ok: false, error: "Identifiant manquant." };
   const order = await prisma.pchOrder.findUnique({ where: { id }, select: { tenderId: true } });
-  if (!order) return { ok: false, error: "Introuvable." };
+  if (!order || !(await peutAgirSurLeMarche(user, order.tenderId, "DELETE"))) return { ok: false, error: "Bon de commande introuvable." };
   await prisma.pchOrder.delete({ where: { id } });
   revalidatePath(`/pch/${order.tenderId}`);
   return { ok: true };

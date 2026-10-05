@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getCurrentUser } from "@/lib/session";
-import { getCompanyScope } from "@/lib/company";
-import { regCan, resolveRegCompanyId } from "@/lib/regulatory/intelligence/access";
+import { getCurrentUserPourEcrire } from "@/lib/session";
+import { regCan, resolveRegCompanyIdFor } from "@/lib/regulatory/intelligence/access";
 import { ingestReserveLetter } from "@/lib/regulatory/intelligence/reserves/ingest";
 
 /**
@@ -13,10 +12,10 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
 export async function POST(req: NextRequest) {
-  const user = await getCurrentUser();
+  const user = await getCurrentUserPourEcrire();
   if (!user) return NextResponse.json({ error: "Non authentifié." }, { status: 401 });
   if (!regCan(user, "regulatory.reserve.manage")) return NextResponse.json({ error: "Non autorisé." }, { status: 403 });
-  const companyId = await resolveRegCompanyId(getCompanyScope());
+  const companyId = await resolveRegCompanyIdFor(user.id);
   if (!companyId) return NextResponse.json({ error: "Module non activé." }, { status: 403 });
 
   let form: FormData;

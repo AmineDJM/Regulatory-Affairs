@@ -1,7 +1,7 @@
 import type { EntityType } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import type { SessionUser } from "@/lib/rbac";
-import { accesAuxPiecesLegal } from "@/lib/entity-access";
+import { accesAuxPiecesLegalDetaille } from "@/lib/entity-access";
 import { LEGAL_DOC_STATUS, MAIL_DIRECTION, invoiceSettlementState, INVOICE_SETTLEMENT, natureLegale } from "@/lib/labels";
 import { formatCurrency, formatDate, toNumber } from "@/lib/utils";
 import { onlyofficeConfigured } from "@/lib/onlyoffice";
@@ -47,7 +47,7 @@ export type Ton = "neutral" | "info" | "success" | "warning" | "danger" | "purpl
 
 const TON_ETAPE_BC: Record<EtapeBC, Ton> = {
   HORS_CIRCUIT: "neutral", SANS_PORTE: "warning", A_VALIDER: "info", A_REVOIR: "warning",
-  REFUSE: "danger", A_SIGNER: "purple", SIGNE: "success",
+  REFUSE: "danger", A_SIGNER: "purple", A_CORRIGER: "warning", SIGNE: "success",
 };
 
 /** Une pièce Legal liée, prête à rendre — et ce que la personne peut en faire. */
@@ -60,6 +60,13 @@ export interface LignePiece {
   badge: { label: string; tone: Ton } | null;
   /** La version plateforme (Word / PDF de la fabrique) — `null` si illisible ou absente. */
   plateforme: FichiersEmis | null;
+  /**
+   * La fiche `/legal/[id]` s'ouvre-t-elle à la personne ? Faux quand seule une exception de
+   * lecture lui ouvre les fichiers (matériel promotionnel, arbitre d'une demande — §118.185) ou
+   * quand la pièce lui est fermée : le titre se rend alors SANS lien, au lieu de mener à une page
+   * refusée (§118.83).
+   */
+  fiche: boolean;
   /** Ses documents — `null` : la personne ne peut pas ouvrir la pièce, rien n'est chargé. */
   documents: DocItem[] | null;
   /** Renommer / supprimer ses documents (la règle du document : modifier ou supprimer la pièce). */
@@ -148,9 +155,10 @@ export async function chargerPiecesLiees(e: EntreePiecesLiees): Promise<PiecesLi
 
   // ─── CE QUE LA PERSONNE PEUT FAIRE DE CHAQUE PIÈCE — la porte du serveur, en lot ───────────
   const affichees = [...brutes.QUOTE, ...brutes.PURCHASE_ORDER, ...brutes.INVOICE, ...brutes.ENGAGEMENT];
-  const droits = e.spectateur
-    ? await accesAuxPiecesLegal(e.spectateur, affichees.map((d) => d.id), ["VIEW", "UPLOAD", "UPDATE", "DELETE"])
+  const detail = e.spectateur
+    ? await accesAuxPiecesLegalDetaille(e.spectateur, affichees.map((d) => d.id), ["VIEW", "UPLOAD", "UPDATE", "DELETE"])
     : null;
+  const droits = detail?.droits ?? null;
   const peut = (action: "VIEW" | "UPLOAD" | "UPDATE" | "DELETE", id: string) => droits?.get(action)?.has(id) ?? false;
 
   // ─── LES PIÈCES DES PIÈCES — deux requêtes au plus, jamais une par ligne ───────────────────
@@ -193,6 +201,7 @@ export async function chargerPiecesLiees(e: EntreePiecesLiees): Promise<PiecesLi
       id: d.id, kind: d.kind, titre: d.title, reference: d.reference,
       meta: meta.filter(Boolean).join(" · "), badge,
       plateforme: lisible ? fichiersEmis(d.custom) : null,
+      fiche: lisible && !(detail?.horsFiche.has(d.id) ?? false),
       documents: lisible ? parPiece.get(d.id) ?? [] : null,
       gerable, editable: edition && gerable,
       joindre: peut("UPLOAD", d.id) ? categorieDuPdf(d.kind) : null,

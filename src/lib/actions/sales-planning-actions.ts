@@ -1,6 +1,6 @@
 "use server";
 
-import type { UserRole } from "@prisma/client";
+import { Prisma, type UserRole } from "@prisma/client";
 import { revalidatePath } from "next/cache";
 import { requireUser } from "@/lib/session";
 import { userCan, anyRoleFilter } from "@/lib/rbac";
@@ -12,6 +12,11 @@ import { lireCouverture } from "@/lib/annuaires/services";
 import { canAttachBuDepartment, buDepartmentName, buDepartmentCode } from "@/lib/sfe/bu-department";
 import { GRANULARITES, GRANULARITE_LABELS, JOURS_AVANT_ECHEANCE_MAX, estGranularite } from "@/lib/sfe/tournee";
 import { ROLES_QUI_TRANCHENT } from "@/lib/personnes/referents-gamme";
+import { DOSSIERS_PROPOSABLES_BU } from "@/lib/sfe/produits-bu";
+import { rattacherDossier } from "@/lib/products/canonique";
+import { enSerie } from "@/lib/refs";
+import { specialitesDemandees, ecrireSpecialitesBu, resumeSpecialitesBu } from "@/lib/sfe/specialites-bu";
+import { estBuHospitaliere, nomDuTerritoire } from "@/lib/sfe/territoire-kam";
 
 const MODULE = "SALES_PLANNING" as const;
 const PATH = "/planning";
@@ -44,7 +49,12 @@ export async function createBusinessUnit(formData: FormData): Promise<ActionResu
   if (!userCan(user, MODULE, "CREATE")) return { ok: false, error: "Non autorisé." };
   const name = fdStr(formData, "name");
   if (!name) return { ok: false, error: "Le nom de la BU est obligatoire." };
-  const created = await prisma.businessUnit.create({
+  // LES SPÉCIALITÉS se vérifient AVANT d'écrire quoi que ce soit (§118.183) : une BU créée puis refusée
+  // sur ses spécialités resterait en base, à moitié montée, sans que personne l'ait voulue.
+  const voulues = await specialitesDemandees(formData.getAll("specialtyIds").map(String), fdStr(formData, "principaleId"));
+  if (!voulues.ok) return { ok: false, error: voulues.error };
+  const created = await prisma.$transaction(async (tx) => {
+    const bu = await tx.businessUnit.create({
     data: {
       name,
       code: fdStr(formData, "code") ?? undefined,
@@ -57,9 +67,17 @@ export async function createBusinessUnit(formData: FormData): Promise<ActionResu
       channel: parseChannel(fdStr(formData, "channel")),
     },
     select: { id: true },
+    });
+    const ecrit = await ecrireSpecialitesBu(tx, user.id, bu.id, voulues.ids, voulues.principaleId);
+    return { id: bu.id, ecrit };
   });
-  await recordAudit({ actorId: user.id, action: "CREATE", module: "Force de vente", summary: `BU « ${name} »` });
+  const specialites = await resumeSpecialitesBu(created.ecrit, voulues.principaleId);
+  await recordAudit({
+    actorId: user.id, action: "CREATE", module: "Force de vente", entityType: "BUSINESS_UNIT", entityId: created.id,
+    summary: `BU « ${name} »${specialites ? ` — spécialités : ${specialites}` : ""}`,
+  });
   revalidatePath(BU_PATH);
+  if (voulues.ids.length) revalidatePath("/annuaires/specialites");
   return { ok: true, id: created.id };
 }
 
@@ -68,23 +86,64 @@ export async function updateBusinessUnit(formData: FormData): Promise<ActionResu
   if (!userCan(user, MODULE, "UPDATE")) return { ok: false, error: "Non autorisé." };
   const id = fdStr(formData, "id");
   if (!id) return { ok: false, error: "BU introuvable." };
+  // CE QUE LE FORMULAIRE NE PORTE PAS NE S'ÉCRIT PAS (§118.152c, §118.183) : l'écran envoie tout, mais
+  // une op ou un formulaire partiel n'envoie que ce qui change — et l'ancienne écriture EFFAÇAIT le code,
+  // la couleur, l'entité, le chef et le superviseur à chaque fois. Les clés se lisent EN LITTÉRAL, pour
+  // que la fiche de l'action les dise. Un nom porté VIDE ne s'écrit pas : une BU garde toujours un nom.
+  const nom = fdStr(formData, "name");
   await prisma.businessUnit.update({
     where: { id },
     data: {
-      name: fdStr(formData, "name") ?? undefined,
-      code: fdStr(formData, "code"),
-      color: fdStr(formData, "color"),
-      companyId: fdStr(formData, "companyId") || null,
-      headId: fdStr(formData, "headId") || null,
-      supervisorId: fdStr(formData, "supervisorId") || null,
+      ...(nom ? { name: nom } : {}),
+      ...(formData.has("code") ? { code: fdStr(formData, "code") } : {}),
+      ...(formData.has("color") ? { color: fdStr(formData, "color") } : {}),
+      ...(formData.has("companyId") ? { companyId: fdStr(formData, "companyId") || null } : {}),
+      ...(formData.has("headId") ? { headId: fdStr(formData, "headId") || null } : {}),
+      ...(formData.has("supervisorId") ? { supervisorId: fdStr(formData, "supervisorId") || null } : {}),
       ...(formData.has("channel") ? { channel: parseChannel(fdStr(formData, "channel")) } : {}),
       // ABSENT = inchangé ; « on » / « off » tranchent (§118.172). L'écran n'envoyait QUE « on » :
       // décocher « Active » ne faisait rien, et une gamme ne se désactivait jamais.
       isActive: fdCase(formData, "isActive"),
     },
   });
+  // L'HISTOIRE D'UNE BU (§118.181) : sa modification n'était pas auditée — un superviseur changé,
+  // un canal réglé, une gamme désactivée ne laissaient aucune trace.
+  await recordAudit({ actorId: user.id, action: "UPDATE", module: "Force de vente", entityType: "BUSINESS_UNIT", entityId: id, summary: "BU modifiée" });
   revalidatePath(BU_PATH);
   return { ok: true };
+}
+
+/**
+ * LES SPÉCIALITÉS QU'UNE BU VISE — l'ensemble complet, remplacé d'un geste (§118.183).
+ *
+ * La garde est celle de l'identité de la BU : changer ce qu'elle vise, c'est la modifier. Le directeur
+ * des opérations la règle dès que la console lui ouvre la Force de vente en écriture — c'est une
+ * CONFIGURATION de rôle, pas une règle de ce code.
+ *
+ * En série par BU : deux enregistrements simultanés de la même BU se succèdent au lieu de se croiser —
+ * croisés, l'index partiel « une principale par BU » refuserait le second en erreur brute.
+ */
+export async function enregistrerSpecialitesBu(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  if (!userCan(user, MODULE, "UPDATE")) return { ok: false, error: "Non autorisé." };
+  const businessUnitId = fdStr(formData, "businessUnitId");
+  if (!businessUnitId) return { ok: false, error: "BU introuvable." };
+  const bu = await prisma.businessUnit.findUnique({ where: { id: businessUnitId }, select: { id: true, name: true } });
+  if (!bu) return { ok: false, error: "Cette BU n'existe plus — rechargez l'écran." };
+  const voulues = await specialitesDemandees(formData.getAll("specialtyIds").map(String), fdStr(formData, "principaleId"));
+  if (!voulues.ok) return { ok: false, error: voulues.error };
+  const ecrit = await enSerie(`bu-specialites:${bu.id}`, () =>
+    prisma.$transaction((tx) => ecrireSpecialitesBu(tx, user.id, bu.id, voulues.ids, voulues.principaleId)));
+  const resume = await resumeSpecialitesBu(ecrit, voulues.principaleId);
+  if (resume) {
+    await recordAudit({
+      actorId: user.id, action: "UPDATE", module: "Force de vente", entityType: "BUSINESS_UNIT", entityId: bu.id,
+      summary: `Spécialités de la BU « ${bu.name} » — ${resume}`,
+    });
+  }
+  revalidatePath(BU_PATH);
+  revalidatePath("/annuaires/specialites");
+  return { ok: true, message: resume ? undefined : "Rien n'a changé." };
 }
 
 /**
@@ -155,7 +214,7 @@ export async function openBusinessUnitBudget(formData: FormData): Promise<Action
   await prisma.businessUnit.update({ where: { id }, data: { departmentId: dep.id } });
 
   await recordAudit({
-    actorId: user.id, action: "CREATE", module: "Force de vente",
+    actorId: user.id, action: "CREATE", module: "Force de vente", entityType: "BUSINESS_UNIT", entityId: bu.id,
     summary: `Budget ouvert pour la BU « ${bu.name} » — sous-département ${buDepartmentName(bu.name)}`,
   });
   revalidatePath(BU_PATH);
@@ -184,7 +243,7 @@ export async function deleteBusinessUnit(formData: FormData): Promise<ActionResu
     return { ok: false, error: `La BU « ${bu.name} » porte encore ${quoi}. Déplacez-les d'abord, ou désactivez la BU.` };
   }
   await prisma.businessUnit.delete({ where: { id } });
-  await recordAudit({ actorId: user.id, action: "DELETE", module: "Force de vente", summary: `BU « ${bu.name} » supprimée` });
+  await recordAudit({ actorId: user.id, action: "DELETE", module: "Force de vente", entityType: "BUSINESS_UNIT", entityId: id, summary: `BU « ${bu.name} » supprimée` });
   revalidatePath(BU_PATH);
   return { ok: true };
 }
@@ -202,14 +261,23 @@ export async function createPromoProduct(formData: FormData): Promise<ActionResu
   const regulatoryProductId = fdStr(formData, "regulatoryProductId");
   let name = fdStr(formData, "name");
   let code = fdStr(formData, "code");
+  // LE PRODUIT CANONIQUE DU DOSSIER (§118.178) : c'est lui qu'une visite rapporte. Sans lui, le
+  // produit ajouté à la BU ne pouvait figurer dans AUCUN rapport — refusé à chaque visite.
+  let productId: string | null = null;
   if (regulatoryProductId) {
-    const dossier = await prisma.regulatoryProduct.findUnique({
-      where: { id: regulatoryProductId },
-      select: { reference: true, dci: true, brandName: true },
+    // La clause de la LISTE de l'écran : un dossier du pipeline, deviné, n'entre pas au catalogue.
+    const dossier = await prisma.regulatoryProduct.findFirst({
+      where: { AND: [{ id: regulatoryProductId }, DOSSIERS_PROPOSABLES_BU] },
+      select: { reference: true, dci: true, brandName: true, productId: true },
     });
-    if (!dossier) return { ok: false, error: "Ce dossier Regulatory n'existe pas." };
+    if (!dossier) return { ok: false, error: "Ce dossier Regulatory n'existe pas, ou n'est pas encore ouvert au catalogue promotionnel." };
     name = name || dossier.brandName || dossier.dci;
     code = code || dossier.reference;
+    productId = dossier.productId;
+    if (!productId) {
+      const lien = await rattacherDossier(regulatoryProductId, { acteurId: user.id }).catch(() => null);
+      productId = lien && "produitId" in lien && lien.etat !== "INCOMPLET" ? lien.produitId : null;
+    }
   }
   if (!name) return { ok: false, error: "Choisissez un dossier Regulatory, ou donnez un nom de produit." };
 
@@ -227,6 +295,7 @@ export async function createPromoProduct(formData: FormData): Promise<ActionResu
       name, code: code ?? undefined, channel, businessUnitId,
       managerId: fdStr(formData, "managerId") || null,
       regulatoryProductId: regulatoryProductId || null,
+      productId,
     },
   });
   await recordAudit({ actorId: user.id, action: "CREATE", module: "Force de vente", summary: `Produit « ${name} »${regulatoryProductId ? " (depuis son dossier Regulatory)" : ""}` });
@@ -239,14 +308,19 @@ export async function updatePromoProduct(formData: FormData): Promise<ActionResu
   if (!userCan(user, MODULE, "UPDATE")) return { ok: false, error: "Non autorisé." };
   const id = fdStr(formData, "id");
   if (!id) return { ok: false, error: "Produit introuvable." };
+  // CE QUE LE FORMULAIRE NE PORTE PAS NE S'ÉCRIT PAS (§118.152c, §118.178). « Rattacher un produit
+  // existant » n'envoie que l'identifiant et la BU : l'ancienne écriture effaçait au passage le
+  // code, le référent Direction Marketing, et remettait le canal à « Ville + Hôpital ». Chaque clé
+  // se lit en littéral — passée par une variable, l'action deviendrait illisible à la dérivation
+  // des contrats.
   await prisma.promoProduct.update({
     where: { id },
     data: {
       name: fdStr(formData, "name") ?? undefined,
-      code: fdStr(formData, "code"),
-      channel: parseChannel(fdStr(formData, "channel")),
-      businessUnitId: fdStr(formData, "businessUnitId") || null,
-      managerId: fdStr(formData, "managerId") || null,
+      ...(formData.has("code") ? { code: fdStr(formData, "code") } : {}),
+      ...(formData.has("channel") ? { channel: parseChannel(fdStr(formData, "channel")) } : {}),
+      ...(formData.has("businessUnitId") ? { businessUnitId: fdStr(formData, "businessUnitId") || null } : {}),
+      ...(formData.has("managerId") ? { managerId: fdStr(formData, "managerId") || null } : {}),
       // ABSENT = inchangé ; « on » / « off » tranchent (§118.172). L'écran n'envoyait QUE « on » :
       // décocher « Actif » ne faisait rien, et un produit ne se désactivait jamais.
       isActive: fdCase(formData, "isActive"),
@@ -400,13 +474,40 @@ export async function saveRepProfile(formData: FormData): Promise<ActionResult> 
     ...(actif !== undefined ? { isActive: actif } : {}),
     ...(formData.has("note") ? { note: fdStr(formData, "note") } : {}),
   };
-  await prisma.salesRepProfile.upsert({
-    where: { repId },
-    create: { repId, ...data },
-    update: data,
+  // UN KAM QUI CHANGE DE BU QUITTE LES SECTEURS DE L'ANCIENNE (§118.184 — audit 360°, S15) : ses
+  // affectations restaient en base, et leurs praticiens dans son panel. Retirées dans la MÊME transaction
+  // que le rattachement — un KAM ne passe pas par un état où il couvre deux BU.
+  const nouvelleBu = "businessUnitId" in data ? data.businessUnitId : undefined;
+  const { retires, rendu } = await prisma.$transaction(async (tx) => {
+    await tx.salesRepProfile.upsert({ where: { repId }, create: { repId, ...data }, update: data });
+    if (nouvelleBu === undefined) return { retires: 0, rendu: false };
+    const r = await tx.salesSectorRep.deleteMany({
+      where: { repId, ...(nouvelleBu ? { sector: { businessUnitId: { not: nouvelleBu } } } : {}) },
+    });
+    // SON TERRITOIRE PROPRE LUI EST RENDU quand il revient dans une BU où il en avait un (04/10/2026).
+    // Quitter la BU lui retire l'affectation (ci-dessus) mais garde le territoire en sommeil : retiré
+    // par erreur puis rattaché, il ne doit pas perdre le choix d'établissements qu'on avait fait pour
+    // lui. Le lien se recrée dans la MÊME transaction — un KAM ne passe pas par un état où son
+    // territoire existe sans le couvrir.
+    let rendu = false;
+    if (nouvelleBu) {
+      const territoire = await tx.salesSector.findUnique({
+        where: { businessUnitId_repId: { businessUnitId: nouvelleBu, repId } },
+        select: { id: true, isActive: true },
+      });
+      if (territoire?.isActive) {
+        const c = await tx.salesSectorRep.createMany({ data: [{ sectorId: territoire.id, repId }], skipDuplicates: true });
+        rendu = c.count > 0;
+      }
+    }
+    return { retires: r.count, rendu };
   });
   revalidatePath(BU_PATH);
-  return { ok: true };
+  const phrases = [
+    retires > 0 ? `${retires} affectation(s) à un secteur de son ancienne BU lui sont retirées : son panel suit sa nouvelle BU.` : null,
+    rendu ? "Son territoire dans cette BU lui est rendu, tel qu'il était." : null,
+  ].filter(Boolean);
+  return phrases.length > 0 ? { ok: true, message: phrases.join(" ") } : { ok: true };
 }
 
 export async function deleteRepProfile(formData: FormData): Promise<ActionResult> {
@@ -414,7 +515,11 @@ export async function deleteRepProfile(formData: FormData): Promise<ActionResult
   if (!userCan(user, MODULE, "UPDATE")) return { ok: false, error: "Non autorisé." };
   const repId = fdStr(formData, "repId");
   if (!repId) return { ok: false, error: "KAM introuvable." };
-  await prisma.salesRepProfile.deleteMany({ where: { repId } });
+  // Retiré de la force de vente, il quitte aussi ses secteurs (§118.184 — S15), dans la même transaction.
+  await prisma.$transaction([
+    prisma.salesSectorRep.deleteMany({ where: { repId } }),
+    prisma.salesRepProfile.deleteMany({ where: { repId } }),
+  ]);
   revalidatePath(BU_PATH);
   return { ok: true };
 }
@@ -464,10 +569,18 @@ export async function updateSector(formData: FormData): Promise<ActionResult> {
   const name = fdStr(formData, "name");
   if (!id) return { ok: false, error: "Identifiant du secteur manquant." };
   if (!name) return { ok: false, error: "Le nom du secteur est obligatoire (« Est », « Oranais »…)." };
-  const cible = await prisma.salesSector.findUnique({ where: { id }, select: { id: true, businessUnitId: true } });
+  const cible = await prisma.salesSector.findUnique({ where: { id }, select: { id: true, businessUnitId: true, repId: true } });
   if (!cible) return { ok: false, error: "Secteur introuvable." };
+  // LE TERRITOIRE D'UN KAM N'EST PAS UN SECTEUR PARTAGÉ : il se règle sur la ligne de SON KAM, qui
+  // y est le seul affecté. Le modifier d'ici permettrait d'y affecter un autre KAM, ou de le renommer
+  // en secteur « Est » — deux vérités pour un même territoire (§118.5).
+  if (cible.repId) return { ok: false, error: REFUS_TERRITOIRE_PAR_SECTEUR };
   return ecrireSecteur(user.id, cible.id, cible.businessUnitId, name, formData);
 }
+
+/** Le remède, nommé : le territoire d'un KAM se règle sur sa ligne (§118.30). */
+const REFUS_TERRITOIRE_PAR_SECTEUR =
+  "Ce secteur est le territoire propre d'un KAM : il se règle sur sa ligne, dans « KAM de la BU » (bouton « Territoire »).";
 
 /**
  * LE CORPS COMMUN. Non exporté : un fichier `"use server"` n'exporte que des fonctions
@@ -476,32 +589,54 @@ export async function updateSector(formData: FormData): Promise<ActionResult> {
  */
 async function ecrireSecteur(
   actorId: string, sectorId: string | null, businessUnitId: string, name: string, formData: FormData,
+  /**
+   * LE TERRITOIRE PROPRE D'UN KAM (04/10/2026) : son KAM est le seul affecté (`repIds` imposé, le
+   * formulaire n'en dit rien) et la ligne porte `repId`. Le reste — établissements, couverture des
+   * services, vérifications, transaction — est le MÊME corps que pour un secteur partagé : une règle
+   * de couverture écrite deux fois divergerait au premier réglage (§118.5).
+   */
+  territoireDe?: string,
 ): Promise<ActionResult> {
   // Les identifiants sont VÉRIFIÉS en base avant d'être écrits : un lien vers un établissement
   // supprimé entre l'ouverture de l'écran et l'enregistrement partirait en violation de clé
   // étrangère — une erreur technique là où la vérité est « cet hôpital n'existe plus ».
   const institutionIds = [...new Set(formData.getAll("institutionIds").map(String).filter(Boolean))];
-  const repIds = [...new Set(formData.getAll("repIds").map(String).filter(Boolean))];
+  const repIds = territoireDe ? [territoireDe] : [...new Set(formData.getAll("repIds").map(String).filter(Boolean))];
 
-  const [institutions, reps, homonyme] = await Promise.all([
+  const [institutions, reps, homonyme, dejaCouverts] = await Promise.all([
     institutionIds.length
-      ? prisma.medicalInstitution.findMany({ where: { id: { in: institutionIds } }, select: { id: true } })
-      : Promise.resolve([] as { id: string }[]),
+      ? prisma.medicalInstitution.findMany({ where: { id: { in: institutionIds } }, select: { id: true, name: true, isActive: true } })
+      : Promise.resolve([] as { id: string; name: string; isActive: boolean }[]),
+    // UN KAM DE CETTE BU (§118.184 — S15) : l'écran ne propose que les KAM rattachés à la BU ; une requête
+    // forgée y affectait n'importe quel compte, qui recevait alors un territoire d'une autre équipe.
     repIds.length
-      ? prisma.user.findMany({ where: { id: { in: repIds } }, select: { id: true } })
-      : Promise.resolve([] as { id: string }[]),
+      ? prisma.salesRepProfile.findMany({ where: { repId: { in: repIds }, businessUnitId }, select: { repId: true } })
+      : Promise.resolve([] as { repId: string }[]),
     // UN SEUL SECTEUR « Est » PAR BU. La contrainte d'unicité le tient déjà ; on la lit d'abord
     // pour rendre une phrase plutôt qu'un code Prisma.
     prisma.salesSector.findFirst({
       where: { businessUnitId, name: { equals: name, mode: "insensitive" }, ...(sectorId ? { id: { not: sectorId } } : {}) },
       select: { id: true },
     }),
+    // CE QUE LE SECTEUR COUVRE DÉJÀ : un établissement désactivé depuis y reste (le retirer en silence
+    // à l'enregistrement retirerait des médecins du panel sans que personne l'ait décidé).
+    sectorId
+      ? prisma.salesSectorInstitution.findMany({ where: { sectorId }, select: { institutionId: true } })
+      : Promise.resolve([] as { institutionId: string }[]),
   ]);
   if (institutions.length !== institutionIds.length) {
     return { ok: false, error: `${institutionIds.length - institutions.length} établissement(s) sélectionné(s) n'existent plus dans l'annuaire — rechargez l'écran.` };
   }
+  // UN ÉTABLISSEMENT DÉSACTIVÉ NE S'AJOUTE PLUS — l'écran ne le propose pas ; une requête forgée,
+  // si. Il RESTE quand le secteur le couvrait déjà (§118.172).
+  const couvertsAvant = new Set(dejaCouverts.map((d) => d.institutionId));
+  const inactifsAjoutes = institutions.filter((i) => !i.isActive && !couvertsAvant.has(i.id));
+  if (inactifsAjoutes.length > 0) {
+    const noms = inactifsAjoutes.map((i) => `« ${i.name} »`).join(", ");
+    return { ok: false, error: `${noms} : désactivé dans l'annuaire, on ne l'ajoute pas à un territoire. Réactivez-le d'abord dans Annuaires › Établissements.` };
+  }
   if (reps.length !== repIds.length) {
-    return { ok: false, error: `${repIds.length - reps.length} KAM sélectionné(s) n'ont plus de compte — rechargez l'écran.` };
+    return { ok: false, error: `${repIds.length - reps.length} KAM sélectionné(s) ne sont pas (ou plus) rattachés à cette BU — rattachez-les d'abord à la BU, ou rechargez l'écran.` };
   }
   if (homonyme) return { ok: false, error: `Un secteur « ${name} » existe déjà dans cette BU.` };
 
@@ -549,7 +684,10 @@ async function ecrireSecteur(
   const ecrit = await prisma.$transaction(async (tx) => {
     const secteur = sectorId
       ? await tx.salesSector.update({ where: { id: sectorId }, data, select: { id: true } })
-      : await tx.salesSector.create({ data: { ...data, businessUnitId, createdById: actorId }, select: { id: true } });
+      : await tx.salesSector.create({
+        data: { ...data, businessUnitId, createdById: actorId, ...(territoireDe ? { repId: territoireDe } : {}) },
+        select: { id: true },
+      });
     // RETIRER CE QUI N'EST PLUS COCHÉ. Une sélection VIDE retire tout, et c'est bien ce que
     // Prisma fait : `notIn: []` a été MESURÉ — il supprime la ligne (un `NOT IN` vide est vrai
     // pour tout le monde). Une première version portait une sentinelle `["__aucun__"]` en
@@ -601,8 +739,8 @@ async function ecrireSecteur(
   });
 
   await recordAudit({
-    actorId, action: sectorId ? "UPDATE" : "CREATE", module: "Force de vente",
-    summary: `Secteur « ${name} » — ${institutionIds.length} établissement(s)${restreints && restreints.size > 0 ? ` dont ${restreints.size} limité(s) à certains services` : ""}, ${repIds.length} KAM`,
+    actorId, action: sectorId ? "UPDATE" : "CREATE", module: "Force de vente", entityType: "SALES_SECTOR", entityId: ecrit,
+    summary: `${territoireDe ? "Territoire" : "Secteur"} « ${name} » — ${institutionIds.length} établissement(s)${restreints && restreints.size > 0 ? ` dont ${restreints.size} limité(s) à certains services` : ""}, ${repIds.length} KAM`,
   });
   revalidatePath(BU_PATH);
   return { ok: true, id: ecrit };
@@ -619,12 +757,15 @@ export async function deleteSector(formData: FormData): Promise<ActionResult> {
   if (!id) return { ok: false, error: "Identifiant manquant." };
   const secteur = await prisma.salesSector.findUnique({
     where: { id },
-    select: { name: true, _count: { select: { reps: true } } },
+    select: { name: true, repId: true, _count: { select: { reps: true } } },
   });
   if (!secteur) return { ok: false, error: "Secteur introuvable." };
+  // Le territoire d'un KAM se VIDE depuis sa ligne (on décoche ses établissements) ; il ne se
+  // supprime pas d'ici, où rien ne dit à qui il appartient.
+  if (secteur.repId) return { ok: false, error: REFUS_TERRITOIRE_PAR_SECTEUR };
   await prisma.salesSector.delete({ where: { id } });
   await recordAudit({
-    actorId: user.id, action: "DELETE", module: "Force de vente",
+    actorId: user.id, action: "DELETE", module: "Force de vente", entityType: "SALES_SECTOR", entityId: id,
     // Le nombre de KAM qui PERDENT leur territoire est ce qu'on veut relire dans l'audit : c'est
     // la conséquence, pas la ligne supprimée.
     summary: `Secteur « ${secteur.name} » supprimé — ${secteur._count.reps} KAM sans territoire`,
@@ -632,6 +773,83 @@ export async function deleteSector(formData: FormData): Promise<ActionResult> {
   revalidatePath(BU_PATH);
   return { ok: true };
 }
+
+// ─────────────────────────── Territoire d'un KAM (BU hospitalière) ───────────────────────────
+
+/**
+ * LE TERRITOIRE D'UN KAM — choisi SUR SA LIGNE, dans « KAM de la BU » (04/10/2026).
+ *
+ * « Dans le secteur de chaque KAM, on doit pouvoir sélectionner un ou des services d'un ou de
+ * plusieurs établissements hospitaliers de l'annuaire, dans le cas où la BU est hospitalière. »
+ *
+ * Le territoire est un `SalesSector` propre au KAM (`repId`), qui porte sa ligne `SalesSectorRep` :
+ * le panel (`clausePanelDuKam`) et la portée des stocks le lisent sans changer. Le corps d'écriture
+ * est celui des secteurs (`ecrireSecteur`) : mêmes vérifications, même transaction, même règle de
+ * couverture (§118.172) — tous les services d'un établissement, ou certains ; « aucun service » est
+ * refusé en nommant l'établissement ; un service d'un autre établissement est refusé ; un
+ * établissement désactivé ne s'ajoute pas (il reste s'il y était) ; un formulaire qui ne porte pas
+ * la couverture ne la touche pas (§118.152c). La liste des établissements, elle, est toujours
+ * COMPLÈTE : décocher retire, et une sélection vide vide le territoire.
+ *
+ * Refusé : une BU de VILLE (pas d'hôpital à cocher — le secteur y reste un texte sur la ligne), un
+ * KAM qui n'est pas rattaché à cette BU (une requête forgée lui donnerait un territoire d'une autre
+ * équipe, §118.184).
+ *
+ * UN SEUL TERRITOIRE PAR KAM ET PAR BU (`@@unique([businessUnitId, repId])`). Deux premiers
+ * enregistrements simultanés en créeraient deux : ils passent un par un (`enSerie`), et le second
+ * MET À JOUR celui que le premier a créé ; entre deux processus, la contrainte d'unicité refuse le
+ * second, qui le DIT au lieu d'une erreur de base.
+ */
+export async function enregistrerTerritoireKam(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  if (!userCan(user, MODULE, "UPDATE")) return { ok: false, error: "Non autorisé." };
+  const businessUnitId = fdStr(formData, "businessUnitId");
+  const repId = fdStr(formData, "repId");
+  if (!businessUnitId) return { ok: false, error: "Le territoire doit appartenir à une Business Unit." };
+  if (!repId) return { ok: false, error: "KAM introuvable." };
+  const [bu, profil, kam] = await Promise.all([
+    prisma.businessUnit.findUnique({ where: { id: businessUnitId }, select: { id: true, channel: true } }),
+    prisma.salesRepProfile.findFirst({ where: { repId, businessUnitId }, select: { repId: true } }),
+    prisma.user.findUnique({ where: { id: repId }, select: { name: true } }),
+  ]);
+  if (!bu) return { ok: false, error: "Business Unit introuvable." };
+  if (!estBuHospitaliere(String(bu.channel))) {
+    return { ok: false, error: REFUS_BU_DE_VILLE };
+  }
+  if (!profil || !kam) {
+    return { ok: false, error: "Ce KAM n'est pas (ou plus) rattaché à cette BU — rattachez-le d'abord, ou rechargez l'écran." };
+  }
+  try {
+    return await enSerie(`territoire-kam:${businessUnitId}:${repId}`, async () => {
+      const existant = await prisma.salesSector.findUnique({
+        where: { businessUnitId_repId: { businessUnitId, repId } },
+        select: { id: true, name: true },
+      });
+      // LE NOM : celui du territoire s'il existe déjà ; sinon « Territoire — <KAM> », suffixé quand
+      // ce nom est pris dans la BU (un ancien secteur, un homonyme) — la règle de la migration.
+      let nom = existant?.name;
+      if (!nom) {
+        const base = nomDuTerritoire(kam.name, repId, false);
+        const pris = await prisma.salesSector.findFirst({
+          where: { businessUnitId, name: { equals: base, mode: "insensitive" } },
+          select: { id: true },
+        });
+        nom = nomDuTerritoire(kam.name, repId, Boolean(pris));
+      }
+      return ecrireSecteur(user.id, existant?.id ?? null, businessUnitId, nom, formData, repId);
+    });
+  } catch (e) {
+    if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") {
+      return { ok: false, error: "Le territoire de ce KAM vient d'être enregistré par ailleurs — rechargez l'écran, puis recommencez." };
+    }
+    throw e;
+  }
+}
+
+/** Le refus d'une BU de ville nomme les DEUX remèdes : rien à cocher ici, ou changer son terrain. */
+const REFUS_BU_DE_VILLE =
+  "Cette BU est une gamme de ville : il n'y a pas d'établissement à choisir — le secteur du KAM se saisit en texte sur sa ligne. "
+  + "Passez la BU en terrain « Hospitalière » ou « les deux » pour choisir des établissements.";
 
 // ─────────────────────────── Affectations (matrice KAM × produit) ───────────────────────────
 export async function saveAssignment(formData: FormData): Promise<ActionResult> {
@@ -746,7 +964,7 @@ export async function addBuMarketingReferent(formData: FormData): Promise<Action
   });
   if (count === 0) return { ok: true }; // déjà référente — le geste est idempotent, pas en échec
   await recordAudit({
-    actorId: user.id, action: "UPDATE", module: "Force de vente",
+    actorId: user.id, action: "UPDATE", module: "Force de vente", entityType: "BUSINESS_UNIT", entityId: businessUnitId,
     summary: `Référent Direction Marketing ajouté — ${cible.name} sur la gamme ${bu.name}`,
   });
   revalidatePath("/planning/business-units");
@@ -765,7 +983,7 @@ export async function removeBuMarketingReferent(formData: FormData): Promise<Act
   if (!ligne) return { ok: true }; // déjà retirée : le geste est idempotent
   await prisma.businessUnitMarketingReferent.delete({ where: { id } });
   await recordAudit({
-    actorId: user.id, action: "UPDATE", module: "Force de vente",
+    actorId: user.id, action: "UPDATE", module: "Force de vente", entityType: "BUSINESS_UNIT", entityId: ligne.businessUnitId,
     summary: `Référent Direction Marketing retiré — ${ligne.user.name} de la gamme ${ligne.businessUnit.name}`,
   });
   revalidatePath("/planning/business-units");

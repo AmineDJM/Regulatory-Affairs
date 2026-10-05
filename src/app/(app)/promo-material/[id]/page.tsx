@@ -12,6 +12,10 @@ import {
 import { executionDuDossier, verdictDuChantierPromo } from "@/lib/queries/promo-execution";
 import { listPartyOptions } from "@/lib/queries/company-contacts";
 import { manquesDeRetranscription } from "@/lib/promo-material/devis";
+import { refusDeRangement } from "@/lib/promo-material/rangement";
+import { texteDemandeDeDevis } from "@/lib/promo-material/texte-demande-devis";
+import { ACTION_LABEL } from "@/lib/promo-material/actions-fournisseur";
+import { libellesPromusDeLArticle } from "@/lib/promo-material/achats";
 import { toNumber, formatCurrency, formatDate, formatDateTime } from "@/lib/utils";
 import { PageHeader } from "@/components/shared/page-header";
 import { AdProEditButton } from "@/components/ad-pro/edit-request-button";
@@ -21,7 +25,7 @@ import { StatusBadge } from "@/components/shared/status-badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import type { DocItem } from "@/components/documents/document-list";
 import { DocumentUpload } from "@/components/documents/document-upload";
-import { PROMO_MATERIAL_DOC_CATEGORIES, categoriesDuDepotDeLaDemande } from "@/lib/ad-pro/doc-categories";
+import { PROMO_MATERIAL_DOC_CATEGORIES, categoriesDuDepotDeLaDemande, natureDeLaCategorie } from "@/lib/ad-pro/doc-categories";
 import { contextePiecesLiees } from "@/lib/ad-pro/pieces-liees";
 import { LinkedRecords } from "@/components/shared/linked-records";
 import { canAttachToAdPro, attachHint } from "@/lib/ad-pro/attachments";
@@ -35,9 +39,12 @@ import {
   libelleChantier, demandeLesDevis, retranscritLesDevis, choisitLesLignes, piloteLExecution,
   type PromoState, type PromoStep, type PromoTrack, type VersionCircuit,
 } from "@/lib/promo-material/circuit";
+import { attendSaCorrection, etatApresRenvoi, refusParLeDemandeur } from "@/lib/promo-material/renvoi";
 import { PromoActionPanel } from "./promo-panels";
 import { PromoCircuitCard, type ChantierAffiche } from "./circuit-card";
 import { PromoQuotesCard, type DevisAffiche } from "./quotes-card";
+import { RetirerDemandeDevis } from "./retirer-demande-devis";
+import { etatRetraitDemandeDevis } from "@/lib/promo-material/retrait-devis";
 import { PromoExecutionCard, type ExecutionAffichee, type NatureAffichee } from "./execution-card";
 import { PromoArticlesCard } from "./articles-card";
 import { articlesDemandesDuDossier, optionsDesArticlesDemandes } from "@/lib/queries/promo-achats";
@@ -73,9 +80,9 @@ export default async function PromoMaterialDetailPage({ params }: { params: { id
   // CORRIGER LA DEMANDE : le demandeur tant que l'agence n'est pas choisie, la Direction
   // toujours. Au-delà du choix d'agence, le bon de commande et le visa s'appuient sur ce qui a
   // été arrêté — corriger après coup ferait diverger la pièce et le dossier.
-  const promoDecided = isAdProDecided("PROMO_MATERIAL", pm.status);
+  const promoDecided = isAdProDecided("PROMO_MATERIAL", pm.status, pm.circuitState);
   const canEditPromoRequest = canEditAdProRequest(
-    { id: user.id, hasGlobalView: hasGlobalView(user.role), canUpdate: userCan(user, "PROMO_MATERIAL", "UPDATE") },
+    { id: user.id, hasGlobalView: hasGlobalView(user.role), canManage: userCan(user, "PROMO_MATERIAL", "VALIDATE") },
     { requesterId: pm.requesterId, decided: promoDecided },
   );
   const promoEditValues = canEditPromoRequest ? await adProEditValues("PROMO_MATERIAL", pm.id) : null;
@@ -170,6 +177,19 @@ export default async function PromoMaterialDetailPage({ params }: { params: { id
     if (circuitState === "REVIEW_MANAGER") return marketing ? await nomsDe(marketing) : "la Direction Marketing";
     return null;
   })();
+  // LE RENVOI POUR CORRECTION (§118.190) — lu par les MÊMES règles que les actions : un bouton offert
+  // à qui l'action refuserait ferait chercher une panne qui n'existe pas (§118.83).
+  const marque = { circuitState, returnedAt: pm.returnedAt };
+  const enCorrectionALaDemande = circuitState === "REVIEW_REQUEST" && attendSaCorrection(marque);
+  const peutTrancher = circuitState ? canValidate(user, circuitState, {
+    requesterId: pm.requesterId, managerId: pm.managerId, requestValidatorId: pm.requestValidatorId,
+    validateursMarketing: marketing, secondaryRole: user.secondaryRole,
+  }) && !enCorrectionALaDemande : false;
+  const renvoi = attendSaCorrection(marque) && pm.returnedAt ? {
+    depuis: pm.returnedFrom ? libelleEtape(pm.returnedFrom as PromoState, version) : (circuitState ? libelleEtape(circuitState, version) : "—"),
+    quand: new Date(pm.returnedAt).toLocaleDateString("fr-FR"),
+    motif: pm.returnNote ?? "",
+  } : null;
   const attente = circuitState ? waitingOn(circuitState, tracksDone, version) : "—";
   const circuitProgress = circuitState ? progress(circuitState, tracksDone, ctx ?? undefined) : { step: 0, total: 1 };
   const circuitProps = {
@@ -179,15 +199,15 @@ export default async function PromoMaterialDetailPage({ params }: { params: { id
     showFull: seesFullCircuit(user),
     etapes: ctx ? etapesDuDossier(ctx).map((st: PromoStep) => ({ key: st, label: libelleCourt(st, version) })) : [],
     stateLabel: circuitState ? libelleEtape(circuitState, version) : "—",
-    canAct: circuitState ? canValidate(user, circuitState, {
-      requesterId: pm.requesterId, managerId: pm.managerId, requestValidatorId: pm.requestValidatorId,
-      validateursMarketing: marketing, secondaryRole: user.secondaryRole,
-    }) : false,
+    canAct: peutTrancher,
     validerIci: !(version === 2 && circuitState === "REVIEW_REQUESTER"),
     canConfirmQuote: flags.isMarketing || flags.isAssistant || isDirection || user.role === "SUPER_ADMIN",
     canStart: !circuitState && (user.id === pm.requesterId || isDirection),
-    canRequestQuotes: v2 && circuitState === "QUOTE_TO_REQUEST" && demandeLesDevis(acteur, pm),
     canDrive: piloteLExecution(acteur, pm),
+    renvoi,
+    canRenvoyer: peutTrancher && circuitState !== null && etatApresRenvoi(circuitState) !== null,
+    canRefuser: peutTrancher && refusParLeDemandeur(user, pm) === null,
+    canResoumettre: v2 && enCorrectionALaDemande && demandeLesDevis(acteur, pm),
     chantiers,
     waitingLabel: nomsAttendus ? `${attente} — ${nomsAttendus}` : attente,
     progressStep: circuitProgress.step,
@@ -197,8 +217,26 @@ export default async function PromoMaterialDetailPage({ params }: { params: { id
   // LES ARTICLES DEMANDÉS (circuit 2, §118.165) — la demande piochée dans le catalogue. Le demandeur
   // (ou la Direction) la compose tant que les devis ne sont pas demandés — la règle de l'action.
   const articles = v2 ? await articlesDemandesDuDossier(pm.id) : [];
-  const canEditArticles = v2 && (circuitState === "REVIEW_REQUEST" || circuitState === "QUOTE_TO_REQUEST") && demandeLesDevis(acteur, pm);
+  // Jusqu'au départ du choix en validation (§118.190) — la règle de `refusComposition`, lue telle quelle.
+  // L'APERÇU DE LA DEMANDE DE DEVIS (§118.204) — ce que l'assistante recevra, tant qu'elle n'est pas partie ;
+  // et, sur « devis à demander » (l'envoi automatique n'a pas pu partir, ou dossier d'avant), le geste qui l'envoie.
+  const avantEnvoi = v2 && (circuitState === "REVIEW_REQUEST" || circuitState === "QUOTE_TO_REQUEST");
+  const apercuDevis = avantEnvoi
+    ? texteDemandeDeDevis({
+        reference: pm.reference, titre: pm.title, brief: pm.description, precisions: pm.precisionsDevis, relance: false,
+        articles: articles.map((a) => ({ reference: a.reference, nom: a.nom, quantite: a.quantite, unite: a.unite, actions: a.actions.map((x) => ACTION_LABEL[x]), promus: libellesPromusDeLArticle(a), commentaire: a.commentaire })),
+      })
+    : null;
+  const envoiDevis = apercuDevis
+    ? { apercu: apercuDevis, precisions: pm.precisionsDevis, peutEnvoyer: circuitState === "QUOTE_TO_REQUEST" && demandeLesDevis(acteur, pm), attendValidation: circuitState === "REVIEW_REQUEST" }
+    : null;
+  const canEditArticles = v2 && (circuitState === "REVIEW_REQUEST" || circuitState === "QUOTE_TO_REQUEST" || circuitState === "QUOTE_REQUESTED" || circuitState === "REVIEW_REQUESTER") && demandeLesDevis(acteur, pm);
   const canReceive = v2 && circuitState === "IN_EXECUTION" && peutReceptionner({ id: user.id, role: user.role }, pm);
+  // RETIRER LA DEMANDE DE DEVIS (constat 35) — le demandeur (ou la Direction), tant que l'assistante n'a
+  // rien retranscrit : la règle de l'action, lue ici pour n'offrir que ce qu'elle accepte (§118.83).
+  const retraitDevis = v2 && circuitState === "QUOTE_REQUESTED" && demandeLesDevis(acteur, pm)
+    ? await etatRetraitDemandeDevis(pm.id)
+    : null;
 
   // LES DEVIS (circuit 2) — le tableau interne, dès que les devis sont demandés.
   const montrerDevis = v2 && circuitState !== "REVIEW_REQUEST" && circuitState !== "QUOTE_TO_REQUEST";
@@ -214,8 +252,22 @@ export default async function PromoMaterialDetailPage({ params }: { params: { id
     documentName: d.documentId ? nomsScans.get(d.documentId) ?? null : null,
   }));
   const canTranscribe = v2 && circuitState === "QUOTE_REQUESTED" && retranscritLesDevis(acteur, pm);
+  // LES FICHIERS « DEVIS » DÉPOSÉS SANS FICHE (§118.204) — ceux qu'aucun devis du circuit ne désigne. Ils se
+  // RANGENT comme devis d'une agence (« Ranger comme devis de… »), dans la carte « Devis » : plus de « Créer sa
+  // fiche » sur un dossier de matériel promotionnel. Les scans déjà rangés ne se montrent qu'une fois — sur la
+  // ligne de leur devis.
+  const scansRanges = new Set(v2
+    ? (await prisma.promoQuote.findMany({ where: { promoMaterialId: pm.id }, select: { documentId: true } })).map((q) => q.documentId).filter((x): x is string => Boolean(x))
+    : []);
+  const devisARanger = v2 ? docItems.filter((d) => natureDeLaCategorie(d.category) === "QUOTE" && !scansRanges.has(d.id)) : [];
+  const rangementRefuse = refusDeRangement(circuitState);
+  const peutRanger = v2 && rangementRefuse === null && retranscritLesDevis(acteur, pm);
+  // Ce que montre « Pièces liées » : sans les scans rangés, et sans les devis à ranger quand la carte « Devis » les porte.
+  const piecesLiees = v2
+    ? docItems.filter((d) => !scansRanges.has(d.id) && !(montrerDevis && devisARanger.some((x) => x.id === d.id)))
+    : docItems;
   const canSelect = v2 && circuitState === "REVIEW_REQUESTER" && choisitLesLignes(acteur, pm);
-  const parties = canTranscribe ? await listPartyOptions(user.id, { includeIds: devis.map((d) => d.supplierId).filter((x): x is string => Boolean(x)) }) : undefined;
+  const parties = canTranscribe || peutRanger ? await listPartyOptions(user.id, { includeIds: devis.map((d) => d.supplierId).filter((x): x is string => Boolean(x)) }) : undefined;
 
   // L'EXÉCUTION — une ligne par devis RETENU, avec son BC, ses factures et leur fichier.
   const facturesIds = execution.flatMap((e) => e.factures.map((f) => f.id));
@@ -306,7 +358,12 @@ export default async function PromoMaterialDetailPage({ params }: { params: { id
         <Card>
           <CardHeader><CardTitle className="flex items-center gap-2 text-base"><ListChecks className="h-4 w-4" /> Articles demandés</CardTitle></CardHeader>
           <CardContent>
-            <PromoArticlesCard id={pm.id} articles={articles} canEdit={canEditArticles} options={canEditArticles ? optionsCatalogue : null} />
+            <PromoArticlesCard
+              id={pm.id} articles={articles} canEdit={canEditArticles} options={canEditArticles ? optionsCatalogue : null} envoiDevis={envoiDevis}
+              avertissement={circuitState === "REVIEW_REQUESTER"
+                ? "Ajouter ou corriger un article renvoie le dossier à l'assistante, pour le faire chiffrer."
+                : circuitState === "QUOTE_REQUESTED" ? "L'assistante cherche les devis : elle est prévenue de chaque changement." : null}
+            />
           </CardContent>
         </Card>
       )}
@@ -315,13 +372,16 @@ export default async function PromoMaterialDetailPage({ params }: { params: { id
           les autres lisent. Il apparaît dès que les devis sont demandés. */}
       {montrerDevis && (
         <Card>
-          <CardHeader><CardTitle className="flex items-center gap-2 text-base"><ClipboardList className="h-4 w-4" /> Devis retranscrits</CardTitle></CardHeader>
-          <CardContent>
+          <CardHeader><CardTitle className="flex items-center gap-2 text-base"><ClipboardList className="h-4 w-4" /> Devis</CardTitle></CardHeader>
+          <CardContent className="space-y-3">
+            {retraitDevis && <RetirerDemandeDevis promoMaterialId={pm.id} references={retraitDevis.demandes.map((d) => d.reference)} refus={retraitDevis.refus} />}
             <PromoQuotesCard
               id={pm.id} quotes={devis} articles={articles} canTranscribe={canTranscribe} canSelect={canSelect}
               manques={canTranscribe ? manquesDeRetranscription(devis) : []}
               parties={parties} canCreateContact={userCan(user, "GENERAL_MEANS", "CREATE")}
               seuilDg={ctx?.seuilDg ?? null}
+              aRanger={devisARanger.map((d) => ({ id: d.id, nom: d.name, deposePar: d.uploadedBy, le: d.createdAt }))}
+              peutRanger={peutRanger} refusRangement={rangementRefuse}
             />
           </CardContent>
         </Card>
@@ -385,7 +445,7 @@ export default async function PromoMaterialDetailPage({ params }: { params: { id
             acces={ctxPieces.acces} candidatsLegal={ctxPieces.candidatsLegal}
             piecesDeLaDemande={{
               titre: v2 ? "Pièces du dossier (maquettes, BAT, matériel, visa…)" : "Pièces du dossier (matériel, visa, bordereau, quittance…)",
-              documents: docItems,
+              documents: piecesLiees,
               televerseur: canUpload
                 ? <DocumentUpload entityType="PROMO_MATERIAL" entityId={pm.id} categories={categoriesDuDepotDeLaDemande(PROMO_MATERIAL_DOC_CATEGORIES)} />
                 : undefined,
@@ -393,7 +453,12 @@ export default async function PromoMaterialDetailPage({ params }: { params: { id
               // AU CIRCUIT 2, un fichier « devis » du dossier est le SCAN d'un devis retranscrit :
               // sa version plateforme est la ligne du tableau « Devis retranscrits », pas une fiche
               // à créer — le dire, au lieu de le présenter comme une pièce orpheline.
-              noteLibres: v2 ? "Scans joints aux devis retranscrits — leur version plateforme est le tableau « Devis retranscrits »." : undefined,
+              // PLUS DE « CRÉER SA FICHE » SUR UN DOSSIER DE MATÉRIEL PROMOTIONNEL (§118.204) — la note est
+              // TOUJOURS posée, ancien circuit compris : c'est elle qui retire le bouton. Au circuit 2, un devis
+              // déposé ici se range comme devis d'une agence dès que les devis sont demandés (carte « Devis »).
+              noteLibres: v2
+                ? (rangementRefuse ? `Devis déposés sur la demande, à ranger comme devis d'une agence. ${rangementRefuse}` : "Pièces déposées sur la demande.")
+                : "Pièces de l'ancien circuit, déposées sur le dossier.",
               canDelete, canRename: canUpload, canEdit: onlyofficeConfigured() && canUpload,
               path: `/promo-material/${pm.id}`,
             }}

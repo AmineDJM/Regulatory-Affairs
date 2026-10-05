@@ -1,7 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import type { CurrentUser } from "@/lib/session";
 import { platformScope } from "@/lib/company";
-import { toNumber } from "@/lib/utils";
+import { toNumber, formatMontant } from "@/lib/utils";
 import { FINISHED_REG_STATUSES } from "@/lib/regulatory/stage";
 
 /**
@@ -297,7 +297,7 @@ export async function detectExecutiveAlerts(user: CurrentUser, now: Date = new D
           code: "payment_amount_outlier",
           criticite: "IMPORTANT",
           titre: "Montant INHABITUEL pour ce bénéficiaire (à vérifier avant paiement)",
-          detail: `${o.reference} — ${o.label} : ${Math.round(amount).toLocaleString("fr-FR")} DZD pour ${o.beneficiary}, contre une médiane payée de ${Math.round(med).toLocaleString("fr-FR")} DZD sur ${prior.length} paiement(s). Règle : ≥ 4× la médiane.`,
+          detail: `${o.reference} — ${o.label} : ${formatMontant(amount)} DZD pour ${o.beneficiary}, contre une médiane payée de ${formatMontant(med)} DZD sur ${prior.length} paiement(s). Règle : ≥ 4× la médiane.`,
           reference: o.reference,
           lien: "/centre-de-paiement",
         });

@@ -42,6 +42,7 @@
  * le droit de se parler (§118.16, §118.72).
  * ═══════════════════════════════════════════════════════════════════════════════════════════
  */
+import { formatMontant } from "@/lib/utils";
 
 /**
  * LES STATUTS D'APPEL D'OFFRES QUI FERMENT LE DOSSIER. Vocabulaire FERMÉ (`PchTenderStatus`).
@@ -248,7 +249,7 @@ export function rattachementProduit(input: {
     anomalies.push({
       genre: "VILLE_HORS_CANAL",
       message: `Le produit est déclaré hospitalier, et porte ${ventesDeVille.nombre} vente(s) de ville `
-        + `(${Math.round(ventesDeVille.montantDzd).toLocaleString("fr-FR")} DZD). Corrigez le canal, ou le rattachement de ces ventes.`,
+        + `(${formatMontant(ventesDeVille.montantDzd)} DZD). Corrigez le canal, ou le rattachement de ces ventes.`,
       cibles: [],
     });
   }

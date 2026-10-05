@@ -10,6 +10,7 @@ import { Sheet } from "@/components/ui/sheet";
 import { Input, Label } from "@/components/ui/input";
 import { formatBytes, formatCurrency, formatMonth } from "@/lib/utils";
 import { DocumentPreview } from "@/components/documents/document-preview";
+import { BoutonDecisif } from "@/components/ui/bouton-decisif";
 
 export interface PayrollCell {
   /**
@@ -63,7 +64,6 @@ export function PayrollMatrix({ year, rows }: { year: number; rows: PayrollRow[]
   const [err, setErr] = React.useState<string | null>(null);
 
   async function undo(entryId: string, name: string, month: number) {
-    if (!window.confirm(`Annuler la saisie de ${name} pour ${formatMonth(ym(year, month))} ? (possible tant que la paie n'est pas envoyée au centre)`)) return;
     const fd = new FormData(); fd.set("id", entryId);
     const r = await unmarkSalaryPaid(fd);
     if (!r.ok) window.alert(r.error ?? "Échec.");
@@ -157,12 +157,13 @@ export function PayrollMatrix({ year, rows }: { year: number; rows: PayrollRow[]
                               <Pencil className="h-3 w-3" /> modifier
                             </button>
                             {cell.state === "SAISI" && (
-                              <button
+                              <BoutonDecisif brut
+                                confirmation={`annuler la saisie de ${r.name} pour ${formatMonth(ym(year, i + 1))}`}
                                 onClick={() => undo(cell.entryId!, r.name, i + 1)}
                                 className="inline-flex items-center gap-0.5 text-[0.625rem] text-muted-foreground hover:text-destructive"
                               >
                                 <Undo2 className="h-3 w-3" /> annuler
-                              </button>
+                              </BoutonDecisif>
                             )}
                           </span>
                         )}

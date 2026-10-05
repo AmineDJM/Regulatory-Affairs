@@ -4,7 +4,9 @@ import { getMyCompanies, companyLabel, companyIdForNew } from "@/lib/company";
 import { legalWriteAllowed } from "@/lib/legal/invoices";
 import { letterheadContextFor } from "@/lib/queries/letterheads";
 import { canManageLetterheads } from "@/lib/office/letterhead";
-import type { TypePieceComposable } from "@/components/pieces/composer-piece";
+import type { AmontComposable, TypePieceComposable } from "@/components/pieces/composer-piece";
+import { NATURES_AMONT } from "@/lib/legal/piece-emise";
+import { piecesAmontComposables } from "@/lib/queries/legal-chain";
 
 /**
  * CE QU'IL FAUT POUR COMPOSER UNE PIÈCE — les natures qu'on a le droit d'émettre, les sociétés
@@ -25,6 +27,8 @@ export interface CompositionPieces {
   societeParDefaut: string | null;
   letterheads: { id: string; name: string; companyId: string | null; companyLabel: string | null }[];
   peutReglerNumerotation: boolean;
+  /** Les pièces amont que le menu « Fait suite à » propose (lot D1c — F1) — par la porte de la liste Legal. */
+  amont: AmontComposable;
 }
 
 const NATURES: readonly (readonly ["INVOICE" | "PURCHASE_ORDER" | "QUOTE", TypePieceComposable])[] = [
@@ -35,8 +39,11 @@ export async function compositionDesPieces(user: CurrentUser): Promise<Compositi
   const droits = { onLegal: userCan(user, "LEGAL", "CREATE"), onFinances: userCan(user, "FINANCES", "CREATE") };
   const types = NATURES.filter(([kind]) => legalWriteAllowed({ ...droits, kind })).map(([, type]) => type);
   if (types.length === 0) return null;
-  const [societes, ctx, societeParDefaut] = await Promise.all([
-    getMyCompanies(user.id), letterheadContextFor(user.id), companyIdForNew(user.id),
+  // Les natures que l'on peut SUIVRE avec ce qu'on a le droit d'émettre : un devis ne suit rien, un BC suit un
+  // devis, une facture suit un devis ou un BC — la table de la fabrique (`NATURES_AMONT`), pas une recopie.
+  const naturesAmont = [...new Set(types.flatMap((t) => NATURES_AMONT[t]))];
+  const [societes, ctx, societeParDefaut, amont] = await Promise.all([
+    getMyCompanies(user.id), letterheadContextFor(user.id), companyIdForNew(user.id), piecesAmontComposables(user, naturesAmont),
   ]);
   return {
     types,
@@ -44,5 +51,6 @@ export async function compositionDesPieces(user: CurrentUser): Promise<Compositi
     societeParDefaut,
     letterheads: ctx.letterheads.filter((l) => l.kind === "word").map((l) => ({ id: l.id, name: l.name, companyId: l.companyId, companyLabel: l.companyLabel })),
     peutReglerNumerotation: canManageLetterheads(user),
+    amont,
   };
 }

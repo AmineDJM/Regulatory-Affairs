@@ -1,6 +1,7 @@
 import { CHEMIN_CATALOGUE_PROMO, CHEMIN_STOCK_PROMO } from "@/lib/chemins/stock-promo";
 import type { EntityType } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { refusSuppressionRapport } from "@/lib/promo/remises-visite";
 import { inventorier } from "@/lib/suppression/lot";
 import { resumeDesLiens } from "@/lib/suppression/branches";
 
@@ -49,7 +50,10 @@ export type DeletableKind =
   | "CONSULTING_CONTRACT"
   | "AD_PRO_OTHER"
   | "PROMO_CATALOGUE"
-  | "PROMO_STOCK_ITEM";
+  | "PROMO_STOCK_ITEM"
+  | "AD_PRO_ITEM"
+  | "PCH_TENDER"
+  | "PCH_TENDER_LINE";
 
 export interface KindSpec {
   label: string; // libellé du type (« dossier réglementaire »)
@@ -332,6 +336,9 @@ export const DELETE_REGISTRY: Record<DeletableKind, KindSpec> = {
       const r = await prisma.fieldReport.findUnique({ where: { id }, select: { doctorName: true, institution: true, visitDate: true } });
       return r ? `${r.doctorName || r.institution || "Rapport"} — ${r.visitDate.toLocaleDateString("fr-FR")}` : null;
     },
+    // Le MÊME refus que l'action de suppression (§118.204) : un compte rendu qui porte du matériel
+    // remis justifie des sorties du stock, il ne passe pas à la corbeille.
+    refuse: (id) => refusSuppressionRapport(id),
     async remove(id) {
       // L'audio (blob chiffré) est conservé pour la restauration ; il n'est
       // libéré qu'à la destruction réelle depuis la corbeille.
@@ -582,6 +589,29 @@ export const DELETE_REGISTRY: Record<DeletableKind, KindSpec> = {
       await prisma.promoStockItem.delete({ where: { id } });
     },
   },
+  // UN POSTE D'UNE DEMANDE AD & PRO (§118.187, audit 360° R11) — « Retirer le poste » l'effaçait
+  // définitivement, hors corbeille, avec l'historique de ses décisions en cascade. Il part désormais
+  // en LOT : ses décisions, ses voyageurs, ses pièces, ses demandes au secrétariat, le BC non signé
+  // qu'elles ont fait naître, et son ordre de dépense non réglé (`LIENS_DIRECTS`) — et il revient avec
+  // eux. Il ne refuse rien LUI-MÊME : un ordre réglé, du matériel du stock dehors ou une pièce signée
+  // parmi ses branches bloquent par le LOT (`faitIrreversible`), comme pour l'appel d'offres PCH. Une
+  // seconde copie de ces règles ici finirait par ne pas refuser la même chose (§118.5).
+  AD_PRO_ITEM: {
+    label: "poste d'une demande Ad & Pro",
+    module: "Ad & Pro",
+    redirect: "/ad-pro",
+    model: "adProItem",
+    entityType: "AD_PRO_ITEM",
+    lot: true,
+    searchFields: ["label"],
+    async describe(id) {
+      const r = await prisma.adProItem.findUnique({ where: { id }, select: { label: true } });
+      return r ? r.label : null;
+    },
+    async remove(id) {
+      await prisma.adProItem.delete({ where: { id } });
+    },
+  },
   CONGRESS_INTERNATIONAL: {
     label: "demande de congrès international",
     module: "Prises en charge Internationales",
@@ -612,6 +642,76 @@ export const DELETE_REGISTRY: Record<DeletableKind, KindSpec> = {
     },
     async remove(id) {
       await prisma.congressNational.delete({ where: { id } });
+    },
+  },
+  PCH_TENDER: {
+    label: "appel d'offres",
+    module: "PCH",
+    redirect: "/pch",
+    model: "pchTender",
+    entityType: "PCH_TENDER",
+    // Ses lots, ses bons de commande, leurs lignes et leurs livraisons partaient en CASCADE, sans
+    // corbeille (audit 360°, I17) : un clic effaçait des mois de suivi de marché. Le lot les instantane
+    // tous, et tout revient ensemble à la restauration (§118.162) ; ce qui a quitté l'ERP refuse.
+    lot: true,
+    searchFields: ["reference", "title"],
+    async describe(id) {
+      const r = await prisma.pchTender.findUnique({ where: { id }, select: { title: true, reference: true } });
+      return r ? `${r.reference}${r.title ? ` — ${r.title}` : ""}` : null;
+    },
+    async remove(id) {
+      await prisma.pchTender.delete({ where: { id } });
+    },
+  },
+  PCH_TENDER_LINE: {
+    label: "lot d'appel d'offres",
+    module: "PCH",
+    redirect: "/pch",
+    model: "pchTenderLine",
+    // SANS type d'entité : un lot n'a ni pièces jointes ni commentaires à lui — ils vivent sur son marché.
+    // Il partait d'un seul `delete`, sans corbeille ni journal (vague « restes ») ; le lot instantane la
+    // ligne et ses affectations à des BU, et tout revient ensemble à la restauration (§118.162).
+    lot: true,
+    searchFields: ["designation"],
+    async describe(id) {
+      const r = await prisma.pchTenderLine.findUnique({ where: { id }, select: { designation: true, tender: { select: { reference: true } } } });
+      return r ? `${r.designation} — ${r.tender.reference}` : null;
+    },
+    /**
+     * CE QUI DÉCOULE DU LOT NE SE DÉTACHE PAS EN SILENCE. Un bon de commande né de la ligne (`PchOrder.lineId`,
+     * un lien TEXTE que Postgres ne vide pas : il désignerait un lot disparu) ou qui la porte en ligne, une
+     * ligne de contrat de marché, une vente sous marché, la répartition d'un poste Ad & Pro : les quatre la
+     * désignent, et la clé étrangère les viderait sans un mot — une vente sous marché passerait pour une vente
+     * de VILLE (§118.118), un contrat ne dirait plus de quel lot il découle. On COMPTE sans nommer ce qui n'est
+     * pas du marché : le titre d'un contrat passe par la porte de Legal, le libellé d'un poste par celle
+     * d'Ad & Pro, et ce refus ne sait pas qui le lit (§118.118). Le remède est un geste qui EXISTE sur la ligne.
+     */
+    async refuse(id) {
+      const [bons, lignesDeBon, lignesDeContrat, ventes, repartitions] = await Promise.all([
+        prisma.pchOrder.findMany({ where: { lineId: id }, select: { id: true, reference: true } }),
+        prisma.pchOrderLine.findMany({ where: { tenderLineId: id }, select: { order: { select: { id: true, reference: true } } } }),
+        prisma.pchContractLine.count({ where: { tenderLineId: id } }),
+        prisma.sale.count({ where: { tenderLineId: id } }),
+        prisma.adProProductAllocation.count({ where: { tenderLineId: id } }),
+      ]);
+      const bc = new Map<string, string>();
+      for (const b of [...bons, ...lignesDeBon.map((l) => l.order)]) bc.set(b.id, b.reference ?? "sans numéro");
+      const refs = [...bc.values()];
+      const pl = (n: number, un: string, des: string) => `${n} ${n > 1 ? des : un}`;
+      const parts: string[] = [];
+      if (refs.length) {
+        const noms = refs.length <= 3 ? refs.join(", ") : `${refs.slice(0, 3).join(", ")} et ${pl(refs.length - 3, "autre", "autres")}`;
+        parts.push(`${pl(refs.length, "bon de commande", "bons de commande")} (${noms})`);
+      }
+      if (lignesDeContrat) parts.push(pl(lignesDeContrat, "ligne de contrat de marché", "lignes de contrat de marché"));
+      if (ventes) parts.push(pl(ventes, "vente sous marché", "ventes sous marché"));
+      if (repartitions) parts.push(pl(repartitions, "répartition d'un poste Ad & Pro", "répartitions de postes Ad & Pro"));
+      if (parts.length === 0) return null;
+      const liste = parts.length === 1 ? parts[0]! : `${parts.slice(0, -1).join(", ")} et ${parts[parts.length - 1]}`;
+      return `Ce lot ne se supprime pas : il porte ${liste}. Le supprimer les détacherait de leur lot — une vente sous marché passerait pour une vente de ville, un contrat ne dirait plus de quel lot il découle. Pour le sortir du marché, passez son statut à « Lot annulé » : il reste à l'historique, avec ce qui en découle.`;
+    },
+    async remove(id) {
+      await prisma.pchTenderLine.delete({ where: { id } });
     },
   },
   VALIDATION_REQUEST: {

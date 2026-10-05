@@ -8,6 +8,7 @@ import { PageHeader } from "@/components/shared/page-header";
 import { PlanningTabs } from "../tabs";
 import { ROLES_QUI_TRANCHENT, porteLeRoleQuiTranche } from "@/lib/personnes/referents-gamme";
 import { BusinessUnitsManager } from "./bu-manager";
+import { DOSSIERS_PROPOSABLES_BU } from "@/lib/sfe/produits-bu";
 
 export const dynamic = "force-dynamic";
 
@@ -28,7 +29,7 @@ export default async function BusinessUnitsPage() {
   const canConfigure = userCan(user, "SALES_PLANNING", "UPDATE") || hasGlobalView(user);
   if (!canConfigure) redirect("/planning/pilotage");
 
-  const [bus, companies, supervisors, allUsers, kamUsers, profiles, products, dossiers, config, secteurs, etablissements, referents, marketing] = await Promise.all([
+  const [bus, companies, supervisors, allUsers, kamUsers, profiles, products, dossiers, config, secteurs, etablissements, referents, marketing, specialites] = await Promise.all([
     prisma.businessUnit.findMany({
       orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
       select: {
@@ -36,6 +37,8 @@ export default async function BusinessUnitsPage() {
         supervisorId: true, channel: true, isActive: true,
         // LE SOUS-DÉPARTEMENT de la gamme : c'est lui qui dit si son budget est ouvert.
         departmentId: true,
+        // LES SPÉCIALITÉS QU'ELLE VISE (§118.183), avec leur nom lu dans le référentiel.
+        specialites: { select: { specialtyId: true, principale: true, specialty: { select: { name: true } } } },
       },
     }),
     prisma.company.findMany({ where: { isActive: true }, select: { id: true, name: true, shortName: true }, orderBy: { sortOrder: "asc" } }),
@@ -55,21 +58,23 @@ export default async function BusinessUnitsPage() {
     // LES DOSSIERS RÉGLEMENTAIRES, source des produits promus. Bornés aux dossiers vivants :
     // un dossier verrouillé n'a pas à entrer au catalogue promotionnel.
     prisma.regulatoryProduct.findMany({
-      where: { isLocked: false },
+      where: DOSSIERS_PROPOSABLES_BU,
       select: { id: true, reference: true, dci: true, brandName: true },
       orderBy: [{ dci: "asc" }],
       take: 400,
     }),
     getSfeConfig(),
-    // LES SECTEURS de toutes les BU, avec leurs deux sélections. Chargés en une requête et
-    // groupés à l'affichage, comme les KAM et les produits : une requête par BU dépliée ferait
-    // N allers-retours pour un écran qu'on ouvre pour tout voir.
+    // LES TERRITOIRES PROPRES DES KAM de toutes les BU (04/10/2026), avec ce qu'ils couvrent de
+    // chaque établissement. Chargés en une requête et groupés à l'affichage, comme les KAM et les
+    // produits : une requête par BU dépliée ferait N allers-retours pour un écran qu'on ouvre pour
+    // tout voir. Les secteurs PARTAGÉS d'avant (repId nul) ne s'affichent plus : la migration
+    // `20270106093000_territoire_kam` en a repris la couverture dans les territoires.
     prisma.salesSector.findMany({
+      where: { repId: { not: null }, isActive: true },
       orderBy: [{ name: "asc" }],
       select: {
-        id: true, name: true, city: true, color: true, isActive: true, businessUnitId: true,
+        id: true, name: true, businessUnitId: true, repId: true,
         institutions: { select: { institutionId: true, tousLesServices: true, services: { select: { serviceId: true } } } },
-        reps: { select: { repId: true } },
       },
     }),
     // LE RÉFÉRENTIEL DES ÉTABLISSEMENTS, à cocher, avec leurs SERVICES (§118.172). Les ACTIFS, ET
@@ -107,6 +112,8 @@ export default async function BusinessUnitsPage() {
       select: { id: true, name: true },
       orderBy: { name: "asc" },
     }),
+    // LE RÉFÉRENTIEL DES SPÉCIALITÉS, à cocher (§118.183) — une liste de noms, pas une donnée cloisonnée.
+    prisma.medicalSpecialty.findMany({ select: { id: true, name: true }, orderBy: { name: "asc" } }),
   ]);
   const profileByRep = new Map(profiles.map((p) => [p.repId, p]));
 
@@ -118,7 +125,14 @@ export default async function BusinessUnitsPage() {
       />
       <PlanningTabs active="business-units" canConfigure isSupervisor />
       <BusinessUnitsManager
-        businessUnits={bus.map((b) => ({ ...b, channel: String(b.channel) }))}
+        businessUnits={bus.map(({ specialites: liens, ...b }) => ({
+          ...b, channel: String(b.channel),
+          // La principale d'abord, puis l'ordre alphabétique : c'est l'ordre de la carte et de son en-tête.
+          specialites: liens
+            .map((l) => ({ id: l.specialtyId, name: l.specialty.name, principale: l.principale }))
+            .sort((x, y) => Number(y.principale) - Number(x.principale) || x.name.localeCompare(y.name, "fr")),
+        }))}
+        specialitesReferentiel={specialites}
         companies={companies.map((c) => ({ id: c.id, name: c.shortName || c.name }))}
         supervisors={supervisors}
         referents={referents
@@ -159,15 +173,12 @@ export default async function BusinessUnitsPage() {
           id: d.id,
           label: `${d.reference} — ${d.brandName ? `${d.brandName} (${d.dci})` : d.dci}`,
         }))}
-        sectors={secteurs.map((x) => ({
-          id: x.id, name: x.name, city: x.city, color: x.color, isActive: x.isActive,
-          businessUnitId: x.businessUnitId,
-          institutionIds: x.institutions.map((i) => i.institutionId),
+        territoires={secteurs.flatMap((x) => (x.repId ? [{
+          id: x.id, name: x.name, businessUnitId: x.businessUnitId, repId: x.repId,
           liens: x.institutions.map((i) => ({
             institutionId: i.institutionId, tousLesServices: i.tousLesServices, serviceIds: i.services.map((sv) => sv.serviceId),
           })),
-          repIds: x.reps.map((r) => r.repId),
-        }))}
+        }] : []))}
         etablissements={etablissements.map((e) => ({
           id: e.id, name: e.name, wilaya: e.wilaya, type: String(e.type), isActive: e.isActive, services: e.services,
         }))}

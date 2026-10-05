@@ -1,6 +1,5 @@
-import Link from "next/link";
 import { notFound } from "next/navigation";
-import { Wallet, ExternalLink, BookUser } from "lucide-react";
+import { Wallet } from "lucide-react";
 import { requireUser } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
 import { userCan } from "@/lib/rbac";
@@ -168,32 +167,28 @@ export default async function MoyensGenerauxPage({
     <div className="space-y-5">
       {/* Le département ne figure au titre que pour le Super Admin : c'est lui qui désigne le
           service, il doit voir lequel est en vigueur. Pour les autres, il n'y en a qu'un. */}
+      {/* EN-TÊTE : LE CATALOGUE D'ARTICLES, ET LUI SEUL (décision de la Direction, 04/10 : « ne laisser
+          dans le header que le catalogue d'articles »). Le reste — la caisse, les dépenses, le choix du
+          service — n'a pas été retiré : il vit dans la page, sous l'en-tête. */}
       <PageHeader
         title={pilote ? `Moyens généraux — ${view.department.path}` : "Moyens généraux"}
         description="La caisse à deux horizons — l'exercice (l'année) et le mois — et le détail des dépenses avec leurs justificatifs. Tout achat porte sa facture ou son bon de paiement."
       >
-        {/* QUEL DÉPARTEMENT TIENT LES MOYENS GÉNÉRAUX DE LA SOCIÉTÉ — le réglage qui décide où
-            tout le monde atterrit. Il n'appartient qu'au Super Admin. */}
-        {pilote && (
+        {canManageCatalog && <SuppliesManager articles={catalogRows} />}
+      </PageHeader>
+
+      {/* QUEL DÉPARTEMENT TIENT LES MOYENS GÉNÉRAUX DE LA SOCIÉTÉ — le réglage qui décide où tout le
+          monde atterrit. Il n'appartient qu'au Super Admin, et il n'ouvre la caisse d'aucun autre
+          département : une seule caisse à l'écran, celle du service désigné (§118.170). */}
+      {pilote && (
+        <div className="flex flex-wrap items-center gap-2">
           <ServiceSwitch
             departmentId={view.department.id} departmentName={view.department.path}
             current={serviceCourant}
           />
-        )}
-        {pilote && <ChangerDeService departements={departements} actuel={serviceCourant} />}
-        {canManageCatalog && <SuppliesManager articles={catalogRows} />}
-        {/* L'ANNUAIRE DE L'ENTREPRISE — l'imprimeur, le transitaire, l'agence de voyage. C'est ce
-            service qui traite avec eux : sa porte est ici. */}
-        <Link href="/mon-espace/annuaire" className="inline-flex items-center gap-1.5 rounded-lg border border-input px-3 py-1.5 text-sm font-medium hover:bg-secondary">
-          <BookUser className="h-4 w-4" /> Annuaire de l&apos;entreprise
-        </Link>
-        {/* Un lien vers un écran qu'on ne peut pas ouvrir est pire qu'une absence de lien. */}
-        {pilote && userCan(user, "BUDGETS", "VIEW") && (
-          <Link href="/budgets/departements" className="inline-flex items-center gap-1.5 rounded-lg border border-input px-3 py-1.5 text-sm font-medium hover:bg-secondary">
-            <ExternalLink className="h-4 w-4" /> Budgets par département
-          </Link>
-        )}
-      </PageHeader>
+          <ChangerDeService departements={departements} actuel={serviceCourant} />
+        </div>
+      )}
 
       {/* TROIS INDICATEURS, PAS QUATRE. « Restant sur l'année » affichait allocation − consommé :
           sans caisse annuelle réglée, cela donnait un « restant » NÉGATIF du montant déjà dépensé

@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { AlertCircle, CheckCircle2, FileText, Loader2, PackageCheck, Pencil, Send, Stethoscope, Trash2, Undo2, Upload, Wand2, X } from "lucide-react";
 import {
   genererBonsDeCommandePromo, modifierBonDeCommandePromo, annulerBonDeCommandePromo, marquerBonDeCommandeEnvoye,
-  deposerFacturePromo, demanderPaiementFacturePromo, adresserInfoMedicaleFacturePromo,
+  deposerFacturePromo, lireFacturePromo, demanderPaiementFacturePromo, adresserInfoMedicaleFacturePromo,
   receptionnerLigneFacturePromo, annulerReceptionLigneFacturePromo, annulerFacturePromo,
 } from "@/lib/actions/promo-execution-actions";
 import { formatDzd } from "@/lib/promo-material/devis";
@@ -18,6 +18,7 @@ import { Badge } from "@/components/ui/badge";
 import { Input, Label, Textarea } from "@/components/ui/input";
 import type { ActionResult } from "@/lib/actions/types";
 import type { OptionCatalogue } from "@/lib/queries/promo-achats";
+import { BoutonDecisif } from "@/components/ui/bouton-decisif";
 
 /**
  * L'EXÉCUTION D'UN DOSSIER DU CIRCUIT 2 — du devis retenu au stock (§118.152, §118.165).
@@ -153,10 +154,36 @@ function ChoixFormalite({ name }: { name: string }) {
 function DepotFacture({ id, e, onDone, onCancel }: { id: string; e: ExecutionAffichee; onDone: () => void; onCancel: () => void }) {
   const { saving, err, run } = useRun();
   const aFacturer = e.lignesBC.filter((l) => l.reste > 0);
-  const [saisies, setSaisies] = React.useState(() => aFacturer.map((l) => ({ quoteLineId: l.quoteLineId, quantite: String(l.reste), prix: String(l.prixUnitaire) })));
+  const [saisies, setSaisies] = React.useState(() => aFacturer.map((l) => ({ quoteLineId: l.quoteLineId, quantite: String(l.reste), prix: String(l.prixUnitaire), lue: null as number | null, verifiee: false })));
+  // LA LECTURE PAR LUNA (lot D2-F) : elle PROPOSE ; chaque ligne reportée se coche « vérifiée » après
+  // comparaison au papier, et le dépôt refuse tant que ce n'est pas fait.
+  const fichierRef = React.useRef<HTMLInputElement>(null);
+  const [lecture, setLecture] = React.useState<Awaited<ReturnType<typeof lireFacturePromo>>["lecture"] | null>(null);
+  const [lectureMsg, setLectureMsg] = React.useState<string | null>(null);
+  const [lit, setLit] = React.useState(false);
+  const [reference, setReference] = React.useState("");
+  const [montant, setMontant] = React.useState("");
+  const lireAvecLuna = async () => {
+    const f = fichierRef.current?.files?.[0];
+    if (!f) { setLectureMsg("Choisissez d'abord le fichier de la facture."); return; }
+    setLit(true); setLectureMsg(null);
+    const fd = new FormData(); fd.set("promoMaterialId", id); fd.set("quoteId", e.quoteId); fd.set("file", f);
+    const r = await lireFacturePromo(fd).catch(() => ({ ok: false as const, error: "La lecture n'a pas abouti — saisissez depuis le papier." }));
+    setLit(false);
+    if (!r.ok || !r.lecture) { setLectureMsg(r.ok ? "Aucune lecture rendue." : (r.error ?? "La lecture n'a pas abouti.")); return; }
+    const lu = r.lecture;
+    setLecture(lu); setLectureMsg(r.message ?? null);
+    if (lu.prerempli.reference) setReference(lu.prerempli.reference);
+    if (lu.prerempli.totalImprime != null) setMontant(String(lu.prerempli.totalImprime));
+    setSaisies((ss) => ss.map((s) => {
+      const l = lu.prerempli.lignes.find((x) => x.quoteLineId === s.quoteLineId);
+      return l ? { ...s, quantite: l.quantite != null ? String(l.quantite) : s.quantite, prix: l.prixUnitaire != null ? String(l.prixUnitaire) : s.prix, lue: l.rang, verifiee: false }
+        : { ...s, quantite: "0", lue: null, verifiee: false };
+    }));
+  };
   const [tva, setTva] = React.useState(String(e.taxes.tvaRate));
   const [taxe, setTaxe] = React.useState(e.taxes.extraTaxRate != null ? String(e.taxes.extraTaxRate) : "");
-  const maj = (i: number, k: "quantite" | "prix", v: string) => setSaisies((ss) => ss.map((s, j) => (j === i ? { ...s, [k]: v } : s)));
+  const maj = (i: number, k: "quantite" | "prix" | "verifiee", v: string | boolean) => setSaisies((ss) => ss.map((s, j) => (j === i ? { ...s, [k]: v } : s)));
   const totaux = totauxFacture(
     { tvaRate: lire(tva) || 0, extraTaxRate: taxe.trim() ? lire(taxe) : null },
     saisies.map((s) => ({ quantite: lire(s.quantite) || 0, prixUnitaire: lire(s.prix) || 0 })).filter((s) => s.quantite > 0),
@@ -179,10 +206,24 @@ function DepotFacture({ id, e, onDone, onCancel }: { id: string; e: ExecutionAff
         (une ligne absente de cette facture : mettez 0). Les écarts avec le BC sont signalés ; on ne facture pas plus que commandé.
       </p>
       <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
-        <div><Label htmlFor={`fa-ref-${e.quoteId}`}>N° de facture *</Label><Input id={`fa-ref-${e.quoteId}`} name="reference" required /></div>
+        <div><Label htmlFor={`fa-ref-${e.quoteId}`}>N° de facture *</Label><Input id={`fa-ref-${e.quoteId}`} name="reference" required value={reference} onChange={(ev) => setReference(ev.target.value)} /></div>
         <div><Label htmlFor={`fa-date-${e.quoteId}`}>Date</Label><Input id={`fa-date-${e.quoteId}`} name="invoiceDate" type="date" /></div>
-        <div><Label htmlFor={`fa-file-${e.quoteId}`}>Fichier de la facture *</Label><Input id={`fa-file-${e.quoteId}`} name="file" type="file" required accept=".pdf,.png,.jpg,.jpeg,.doc,.docx" /></div>
+        <div><Label htmlFor={`fa-file-${e.quoteId}`}>Fichier de la facture *</Label><Input ref={fichierRef} id={`fa-file-${e.quoteId}`} name="file" type="file" required accept=".pdf,.png,.jpg,.jpeg,.doc,.docx" onChange={() => { setLecture(null); setSaisies((ss) => ss.map((x) => ({ ...x, lue: null, verifiee: false }))); }} /></div>
       </div>
+      <div className="flex flex-wrap items-center gap-2 text-xs">
+        <Button type="button" size="sm" variant="outline" onClick={lireAvecLuna} disabled={lit || saving}>{lit ? <Loader2 className="h-4 w-4 animate-spin" /> : null} Lire avec Luna</Button>
+        <span className="text-muted-foreground">Luna lit la facture et préremplit les lignes du BC ; vous vérifiez chacune contre le papier.</span>
+      </div>
+      {lectureMsg && <p className="text-xs">{lectureMsg}</p>}
+      {lecture && (
+        <div className="space-y-1 rounded-md border border-border bg-muted/40 p-2 text-xs">
+          <input type="hidden" name="lectureId" value={lecture.lectureId} />
+          <p className="text-muted-foreground">{lecture.noteMethode}</p>
+          {lecture.prerempli.desaccordTotal && <p className="text-amber-700 dark:text-amber-400">{lecture.prerempli.desaccordTotal}</p>}
+          {lecture.prerempli.lignes.filter((l) => !l.quoteLineId).map((l) => <p key={l.rang} className="text-amber-700 dark:text-amber-400">{l.phrase ?? `« ${l.designation} » : non reportée.`}</p>)}
+          <label className="flex items-center gap-2"><input type="checkbox" name="totalVerifie" value="on" /> Total vérifié contre le papier</label>
+        </div>
+      )}
       <div className="overflow-x-auto">
         <table className="w-full min-w-[620px] text-sm">
           <thead>
@@ -205,7 +246,15 @@ function DepotFacture({ id, e, onDone, onCancel }: { id: string; e: ExecutionAff
                 <tr key={l.quoteLineId} className="border-t border-border align-top">
                   <td className="py-1 pr-2">
                     <input type="hidden" name="ligneQuoteLineId" value={l.quoteLineId} />
+                    <input type="hidden" name="ligneDesignation" value={l.designation} />
+                    <input type="hidden" name="ligneLue" value={s.lue ?? ""} />
+                    <input type="hidden" name="ligneVerifiee" value={s.verifiee ? "1" : "0"} />
                     {designationAvecAction(l.designation, l.action)}
+                    {s.lue !== null && (
+                      <label className="mt-1 flex items-center gap-1 text-xs text-muted-foreground">
+                        <input type="checkbox" checked={s.verifiee} onChange={(ev) => maj(i, "verifiee", ev.target.checked)} /> lue par Luna — vérifiée
+                      </label>
+                    )}
                   </td>
                   <td className="py-1 pr-2 text-right tabular-nums text-muted-foreground">{nombre(l.reste)}{l.unite ? ` ${l.unite}` : ""}</td>
                   <td className="py-1 pr-2">
@@ -232,7 +281,7 @@ function DepotFacture({ id, e, onDone, onCancel }: { id: string; e: ExecutionAff
         {e.taxes.extraTaxLabel && <input type="hidden" name="extraTaxLabel" value={e.taxes.extraTaxLabel} />}
         <div className="sm:col-span-2">
           <Label htmlFor={`fa-mt-${e.quoteId}`}>Total TTC imprimé sur la facture *</Label>
-          <Input id={`fa-mt-${e.quoteId}`} name="amount" inputMode="decimal" required placeholder={formatDzd(totaux.ttc)} />
+          <Input id={`fa-mt-${e.quoteId}`} name="amount" inputMode="decimal" required placeholder={formatDzd(totaux.ttc)} value={montant} onChange={(ev) => setMontant(ev.target.value)} />
         </div>
       </div>
       <p className="text-sm">
@@ -341,12 +390,8 @@ function Facture({ id, f, agir, canReceive, options }: {
   const demanderPaiement = (fd: FormData) => {
     fd.set("promoMaterialId", id); fd.set("invoiceId", f.id);
     if (enAttente.length > 0) {
-      // LA CONFIRMATION QUE LA DIRECTION A DEMANDÉE (§118.165) : renoncer est définitif.
-      const ok = confirm(
-        `${enAttente.length} ligne(s) ne sont pas reçues en entier : ${enAttente.map((l) => `« ${l.designation} »`).join(", ")}.\n\n`
-        + "Êtes-vous sûr de demander le paiement quand même ? On ne paiera que ce qui a été reçu, et un paiement pour ces lignes ne pourra pas être fait ultérieurement.",
-      );
-      if (!ok) return;
+      // LA CONFIRMATION QUE LA DIRECTION A DEMANDÉE (§118.165) : renoncer est définitif. Elle est
+      // portée par le bouton décisif (le second clic, qui nomme les lignes), plus par une fenêtre.
       fd.set("confirmeRenoncement", "1");
     }
     run(() => demanderPaiementFacturePromo(fd));
@@ -397,7 +442,14 @@ function Facture({ id, f, agir, canReceive, options }: {
                     {receptionOuverte && l.etat === "EN_ATTENTE" && <div className="mt-1"><ReceptionLigne id={id} l={l} options={options} run={run} saving={saving} /></div>}
                     {receptionOuverte && l.quantiteRecue != null && (
                       <Button size="sm" variant="ghost" className="mt-1" disabled={saving}
-                        onClick={() => { if (confirm(`Annuler la réception de « ${l.designation} » ?${l.entree ? " Son entrée au magasin sera contre-passée." : ""}`)) { const fd = new FormData(); fd.set("promoMaterialId", id); fd.set("ligneId", l.id); run(() => annulerReceptionLigneFacturePromo(fd)); } }}>
+                        onClick={() => {
+                          // UN MOTIF, pas une simple confirmation (audit 360°, R17) : le journal doit dire si
+                          // c'était une erreur de saisie ou une marchandise renvoyée. Abandonner la boîte ne fait rien.
+                          const motif = window.prompt(`Pourquoi annuler la réception de « ${l.designation} » ?${l.entree ? " Son entrée au magasin sera contre-passée." : ""} (obligatoire)`);
+                          if (motif === null || !motif.trim()) return;
+                          const fd = new FormData(); fd.set("promoMaterialId", id); fd.set("ligneId", l.id); fd.set("motif", motif.trim());
+                          run(() => annulerReceptionLigneFacturePromo(fd));
+                        }}>
                         <Undo2 className="h-3.5 w-3.5" /> Annuler la réception
                       </Button>
                     )}
@@ -418,7 +470,7 @@ function Facture({ id, f, agir, canReceive, options }: {
           <Label htmlFor={`fa-ann-${f.id}`}>Pourquoi annuler cette facture ?</Label>
           <Textarea id={`fa-ann-${f.id}`} name="motif" required className="min-h-[50px]" placeholder="Doublon, facture erronée, rien n'a été livré… Elle reste au registre (annulée), avec ce motif." />
           <div className="flex gap-2">
-            <Button type="submit" size="sm" variant="destructive" disabled={saving}>Annuler la facture</Button>
+            <BoutonDecisif type="submit" size="sm" variant="destructive" disabled={saving}>Annuler la facture</BoutonDecisif>
             <Button type="button" size="sm" variant="ghost" onClick={() => setAnnulation(false)} disabled={saving}>Garder</Button>
           </div>
         </form>
@@ -427,11 +479,12 @@ function Facture({ id, f, agir, canReceive, options }: {
       {agir && !f.paiementDemande && (
         <form className="flex flex-wrap items-center gap-2" action={demanderPaiement}>
           <ChoixFormalite name="formalite" />
-          {enAttente.length > 0 && <Input name="motifRenoncement" placeholder="Motif (facultatif) — ligne non livrée" className="w-64" />}
-          <Button type="submit" size="sm" variant={enAttente.length > 0 ? "outline" : "primary"} disabled={saving}>
+          {enAttente.length > 0 && <Input name="motifRenoncement" required aria-label="Motif du renoncement" placeholder="Motif (obligatoire) — ligne non livrée" className="w-64" />}
+          <BoutonDecisif type="submit" size="sm" variant={enAttente.length > 0 ? "outline" : "primary"} disabled={saving}
+            confirmation={enAttente.length > 0 ? `renoncer à ${enAttente.map((l) => `« ${l.designation} »`).join(", ")} et demander le paiement` : undefined}>
             {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
             {enAttente.length > 0 ? " Demander le paiement malgré tout" : " Demander le paiement"}
-          </Button>
+          </BoutonDecisif>
           {enAttente.length > 0 && (
             <span className="w-full text-xs text-amber-700 dark:text-amber-400">
               Le paiement attend que tout soit reçu. Le demander maintenant, c&apos;est renoncer à payer ce qui manque — définitivement.
@@ -483,6 +536,7 @@ function LigneExecution({ id, e, canPilot, canReceive, ouvert, options }: {
         <div className="flex flex-wrap items-center gap-2">
           {bc.pdf && <a className={lien} href={lienFichierEmis(bc.id, "pdf")} target="_blank" rel="noreferrer"><FileText className="h-3.5 w-3.5" /> PDF</a>}
           {bc.docx && <a className={lien} href={lienFichierEmis(bc.id, "docx", true)}><FileText className="h-3.5 w-3.5" /> Word</a>}
+          <a className={lien} href={lienFichierEmis(bc.id, "xlsx", true)} aria-label="Générer ce bon de commande sur Excel"><FileText className="h-3.5 w-3.5" /> Excel</a>
           {bc.montant != null && <span className="text-xs text-muted-foreground">{formatDzd(bc.montant)} TTC</span>}
           {e.envoyeLe
             ? <Badge tone="success">Envoyé le {new Date(e.envoyeLe).toLocaleDateString("fr-FR")}</Badge>
@@ -507,6 +561,10 @@ function LigneExecution({ id, e, canPilot, canReceive, ouvert, options }: {
             <div><Label htmlFor={`bc-cn-${e.quoteId}`}>Interlocuteur</Label><Input id={`bc-cn-${e.quoteId}`} name="contactNom" /></div>
             <div><Label htmlFor={`bc-ct-${e.quoteId}`}>Téléphone</Label><Input id={`bc-ct-${e.quoteId}`} name="contactTelephone" /></div>
           </div>
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+            <div><Label htmlFor={`bc-taxe-${e.quoteId}`}>Taxe supplémentaire (libellé)</Label><Input id={`bc-taxe-${e.quoteId}`} name="extraTaxLabel" placeholder="Taxe Pub" /></div>
+            <div><Label htmlFor={`bc-taux-${e.quoteId}`}>Taux (%) — 0 la retire</Label><Input id={`bc-taux-${e.quoteId}`} name="extraTaxRate" inputMode="decimal" placeholder="2" /></div>
+          </div>
           <div><Label htmlFor={`bc-notes-${e.quoteId}`}>Notes</Label><Textarea id={`bc-notes-${e.quoteId}`} name="notes" className="min-h-[50px]" /></div>
           <div><Label htmlFor={`bc-motif-${e.quoteId}`}>Motif de la modification</Label><Input id={`bc-motif-${e.quoteId}`} name="motif" /></div>
           <div className="flex gap-2">
@@ -521,7 +579,7 @@ function LigneExecution({ id, e, canPilot, canReceive, ouvert, options }: {
           <Label htmlFor={`bc-sup-${e.quoteId}`}>Pourquoi supprimer ce bon de commande ?</Label>
           <Textarea id={`bc-sup-${e.quoteId}`} name="motif" required className="min-h-[50px]" placeholder="Son numéro reste au registre (annulé), avec ce motif." />
           <div className="flex gap-2">
-            <Button type="submit" size="sm" variant="destructive" disabled={saving}>{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />} Supprimer le BC</Button>
+            <BoutonDecisif type="submit" size="sm" variant="destructive" disabled={saving}>{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />} Supprimer le BC</BoutonDecisif>
             <Button type="button" size="sm" variant="ghost" onClick={() => setMode(null)} disabled={saving}>Annuler</Button>
           </div>
         </form>
@@ -556,9 +614,17 @@ export function PromoExecutionCard({ id, executions, canPilot, canReceive, ouver
       {canPilot && ouvert && aGenerer > 0 && (
         <div className="space-y-2 rounded-lg border border-primary/30 bg-primary/5 p-3">
           <p className="text-sm">
-            <strong>{aGenerer}</strong> bon{aGenerer > 1 ? "s" : ""} de commande à générer — un par fournisseur, composé{aGenerer > 1 ? "s" : ""} par la plateforme d&apos;après les lignes validées (chacune avec son action : conception, impression…), sur le papier en-tête de la société.
+            {/* LES BC SE GÉNÈRENT D'EUX-MÊMES à la dernière validation (§118.204) : ce cadre n'apparaît que pour
+                ce que la génération automatique n'a pas pu émettre — le geste de repli, avec livraison et taxe. */}
+            <strong>{aGenerer}</strong> bon{aGenerer > 1 ? "s" : ""} de commande n&apos;{aGenerer > 1 ? "ont" : "a"} pas pu être généré{aGenerer > 1 ? "s" : ""} automatiquement à la dernière validation — un par fournisseur, composé{aGenerer > 1 ? "s" : ""} par la plateforme d&apos;après les lignes validées. Relancez la génération (le message dira ce qui bloque).
           </p>
           <form className="space-y-2" action={(f: FormData) => { f.set("promoMaterialId", id); run(() => genererBonsDeCommandePromo(f)); }}>
+            {/* LA CASE DES TAXES SUPPLÉMENTAIRES, toujours visible : « Taxe Pub 2 % » sur le HT, hors base de TVA. Vide = celle de chaque devis ; 0 = aucune. */}
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_9rem]">
+              <div><Label htmlFor="gen-taxe">Taxe supplémentaire (libellé)</Label><Input id="gen-taxe" name="extraTaxLabel" placeholder="Taxe Pub" /></div>
+              <div><Label htmlFor="gen-taux">Taux (%)</Label><Input id="gen-taux" name="extraTaxRate" inputMode="decimal" placeholder="2" /></div>
+              <p className="text-xs text-muted-foreground sm:col-span-2">Calculée sur le HT, hors base de TVA. Vide : on garde celle de chaque devis ; 0 : aucune.</p>
+            </div>
             {options && (
               <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                 <div><Label htmlFor="gen-adr">Adresse de livraison</Label><Input id="gen-adr" name="livraisonAdresse" /></div>
@@ -567,7 +633,7 @@ export function PromoExecutionCard({ id, executions, canPilot, canReceive, ouver
               </div>
             )}
             <div className="flex flex-wrap gap-2">
-              <Button type="submit" size="sm" disabled={saving}>{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Wand2 className="h-4 w-4" />} Générer les bons de commande</Button>
+              <BoutonDecisif type="submit" size="sm" disabled={saving}>{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Wand2 className="h-4 w-4" />} Générer les bons de commande manquants</BoutonDecisif>
               {!options && <Button type="button" size="sm" variant="ghost" onClick={() => setOptions(true)}>Livraison et notes…</Button>}
             </div>
           </form>

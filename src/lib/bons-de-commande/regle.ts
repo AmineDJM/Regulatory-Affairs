@@ -127,10 +127,15 @@ export function etatDepuisValidation(status: string): EtatPorteBC | null {
   }
 }
 
-/** L'état d'un visa du centre Ad & Pro. Un état inconnu ATTEND — le sens sûr. */
+/**
+ * L'état d'un visa du centre Ad & Pro. Un état inconnu ATTEND — le sens sûr. Un visa RENVOYÉ pour
+ * correction (audit 360°, R07) est « à revoir », exactement comme au centre de validations : la
+ * modification du BC le renvoie au centre (`gesteAiguillage`, cas A_REVOIR).
+ */
 export function etatDepuisVisa(status: string): EtatPorteBC {
   if (status === "APPROVED") return "VALIDE";
   if (status === "REFUSED") return "REFUSE";
+  if (status === "CHANGES_REQUESTED") return "A_REVOIR";
   return "EN_ATTENTE";
 }
 
@@ -321,6 +326,11 @@ export type EtapeBC =
   | "REFUSE"
   /** Validé par son centre, ou sous le seuil : c'est aux Finances de le signer. */
   | "A_SIGNER"
+  /**
+   * RENVOYÉ À SON ÉMETTEUR par un signataire, avec ce qu'il faut corriger (audit 360°, R09) : il
+   * quitte la file des signataires, et y revient dès que la pièce est modifiée.
+   */
+  | "A_CORRIGER"
   | "SIGNE";
 
 export const LIBELLE_ETAPE_BC: Record<EtapeBC, string> = {
@@ -330,6 +340,7 @@ export const LIBELLE_ETAPE_BC: Record<EtapeBC, string> = {
   A_REVOIR: "À revoir",
   REFUSE: "Refusé",
   A_SIGNER: "À signer par les Finances",
+  A_CORRIGER: "Renvoyé à l'émetteur",
   SIGNE: "Signé",
 };
 
@@ -348,18 +359,27 @@ export function etapeBC(a: {
   validationRequise: boolean;
   signe: boolean;
   dansLeCircuit: boolean;
+  /**
+   * Un signataire l'a RENVOYÉ à son émetteur (audit 360°, R09). Champ OBLIGATOIRE : un défaut à faux
+   * ferait réapparaître dans la file des signataires, en silence, chez le prochain appelant qui
+   * l'oublierait, un BC qu'ils viennent de renvoyer (§118.127b).
+   */
+  renvoye: boolean;
 }): EtapeBC {
   if (a.signe) return "SIGNE";
+  // Ce qui serait « à signer » mais a été renvoyé attend son émetteur, pas les signataires. Le renvoi
+  // ne masque jamais une porte qui attend : c'est le centre, alors, qui a la main.
+  const aSigner: EtapeBC = a.renvoye ? "A_CORRIGER" : "A_SIGNER";
   if (a.porte) {
     switch (a.porte.etat) {
       case "EN_ATTENTE": return "A_VALIDER";
       case "A_REVOIR": return "A_REVOIR";
       case "REFUSE": return "REFUSE";
-      case "VALIDE": return a.dansLeCircuit ? "A_SIGNER" : "HORS_CIRCUIT";
+      case "VALIDE": return a.dansLeCircuit ? aSigner : "HORS_CIRCUIT";
     }
   }
   if (!a.dansLeCircuit) return "HORS_CIRCUIT";
-  return a.validationRequise ? "SANS_PORTE" : "A_SIGNER";
+  return a.validationRequise ? "SANS_PORTE" : aSigner;
 }
 
 /**
@@ -387,6 +407,8 @@ export function reserveEtapeBC(etape: EtapeBC, porte: PorteBC | null, seuil?: nu
         ? `Validé par le ${LIBELLE_CENTRE_BC[porte.centre]}. ${signature}`
         : `Ce bon de commande attend la signature des Finances (${MENU_BONS_DE_COMMANDE}) : ne l'envoyez pas au fournisseur avant.`;
     }
+    case "A_CORRIGER":
+      return "Un signataire a renvoyé ce bon de commande pour correction (le motif est sur sa fiche) : modifiez-le — sa modification le rend à la signature. Ne l'envoyez pas au fournisseur avant.";
     case "SIGNE":
     case "HORS_CIRCUIT":
       return null;
@@ -433,6 +455,7 @@ export function motifNonSignable(etape: EtapeBC, porte: PorteBC | null): string 
     case "A_VALIDER": return `Ce bon de commande attend encore la validation du ${centre} : il se signe une fois validé.`;
     case "A_REVOIR": return `Le ${centre} a demandé de revoir ce bon de commande : il se signe une fois corrigé et validé.`;
     case "REFUSE": return `Ce bon de commande a été refusé par le ${centre} : il ne se signe pas.`;
+    case "A_CORRIGER": return "Ce bon de commande a été renvoyé à son émetteur pour correction : il se signe une fois modifié.";
     case "SANS_PORTE":
       return "Ce bon de commande dépasse le seuil de validation et n'est passé par aucun centre : « Adresser au centre », sur sa fiche Legal, puis il se signe une fois validé.";
     case "HORS_CIRCUIT":
@@ -489,11 +512,13 @@ export function chantierBCClos(bcs: readonly {
     const detail = enAttente.map((b) => `${nom(b.reference)} (${b.porte ? LIBELLE_ETAT_BC[b.porte.etat].toLowerCase() : LIBELLE_ETAPE_BC[b.etape!].toLowerCase()})`).join(", ");
     return { ok: false, raison: `Bon(s) de commande pas encore validé(s) par leur centre : ${detail}. Le chantier se clôt une fois tous validés.` };
   }
-  const nonSignes = bcs.filter((b) => b.etape === "A_SIGNER");
+  const nonSignes = bcs.filter((b) => b.etape === "A_SIGNER" || b.etape === "A_CORRIGER");
   if (nonSignes.length > 0) {
+    // Un BC RENVOYÉ à son émetteur n'est pas signé non plus — et le dire, c'est nommer qui a la main.
+    const detail = nonSignes.map((b) => `${nom(b.reference)}${b.etape === "A_CORRIGER" ? " (renvoyé à l'émetteur pour correction)" : ""}`).join(", ");
     return {
       ok: false,
-      raison: `Bon(s) de commande pas encore signé(s) par les Finances : ${nonSignes.map((b) => nom(b.reference)).join(", ")}. `
+      raison: `Bon(s) de commande pas encore signé(s) par les Finances : ${detail}. `
         + `Le chantier se clôt une fois tous signés (${MENU_BONS_DE_COMMANDE}).`,
     };
   }

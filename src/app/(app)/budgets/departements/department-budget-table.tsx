@@ -4,7 +4,7 @@ import * as React from "react";
 import { useRouter } from "next/navigation";
 import { Check, Loader2, Lock, AlertCircle, ShieldCheck, Plus, ThumbsUp, ThumbsDown, Receipt } from "lucide-react";
 import {
-  setDepartmentBudget, requestDepartmentBudget, decideDepartmentBudgetRequest, addDepartmentExpense,
+  setDepartmentBudget, requestDepartmentBudget, decideDepartmentBudgetRequest, annulerDemandeBudgetDepartement, addDepartmentExpense,
 } from "@/lib/actions/department-budget-actions";
 import {
   DEPT_BUDGET_LABEL, DEPT_BUDGET_HINT, DEPT_BUDGET_KINDS, budgetHealth, consumedPercent,
@@ -468,6 +468,18 @@ function RequestList({ requests, canDecide, onError }: {
     });
   };
 
+  // RETIRER SA DEMANDE (décision du 04/10) — tant que l'administration ne l'a pas tranchée.
+  const retirer = (id: string) => {
+    if (!window.confirm("Retirer cette demande de dotation ? L'administration en sera prévenue.")) return;
+    setBusy(id); onError(null);
+    const fd = new FormData();
+    fd.set("id", id);
+    void annulerDemandeBudgetDepartement(fd).then((r) => {
+      setBusy(null);
+      if (r.ok) router.refresh(); else onError(r.error ?? "Échec.");
+    });
+  };
+
   return (
     <ul className="divide-y divide-border rounded-xl border border-border">
       {requests.map((q) => (
@@ -491,10 +503,20 @@ function RequestList({ requests, canDecide, onError }: {
                   <ThumbsDown className="h-3.5 w-3.5" /> Refuser
                 </button>
               </span>
-            ) : <Badge tone="warning" dot={false}>En attente de l&apos;administration</Badge>
+            ) : (
+              <span className="flex items-center gap-1.5">
+                <Badge tone="warning" dot={false}>En attente de l&apos;administration</Badge>
+                {q.canCancel && (
+                  <button type="button" disabled={busy === q.id} onClick={() => retirer(q.id)}
+                    className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-xs text-muted-foreground hover:bg-destructive/10 hover:text-destructive disabled:opacity-50">
+                    Retirer
+                  </button>
+                )}
+              </span>
+            )
           ) : (
-            <Badge tone={q.status === "APPROVED" ? "success" : "danger"} dot={false}>
-              {q.status === "APPROVED" ? "Accordée" : "Refusée"}
+            <Badge tone={q.status === "APPROVED" ? "success" : q.status === "CANCELLED" ? "neutral" : "danger"} dot={false}>
+              {q.status === "APPROVED" ? "Accordée" : q.status === "CANCELLED" ? "Retirée" : "Refusée"}
             </Badge>
           )}
         </li>

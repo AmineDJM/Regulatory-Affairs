@@ -84,9 +84,21 @@ function buildTree(rows: RawDept[], parentId: string | null, depth: number): Dep
  * `companyId` restreint à une ENTITÉ ; `undefined` = toutes les entités (vue groupe).
  * Les départements transverses (sans entité) sont toujours inclus.
  */
-export async function getDepartmentTree(companyId?: string | null): Promise<DepartmentNode[]> {
+export async function getDepartmentTree(
+  companyId?: string | null,
+  /**
+   * Les sociétés auxquelles la personne a droit, quand aucune n'est sélectionnée : « toutes les
+   * entités » veut dire « toutes les MIENNES », jamais toutes celles qui existent (§118.177).
+   * Absent = aucune restriction (vue groupe, ou appelant qui ne lit pas pour une personne).
+   */
+  parmi?: string[] | null,
+): Promise<DepartmentNode[]> {
   const rows = (await prisma.department.findMany({
-    where: companyId ? { OR: [{ companyId }, { companyId: null }] } : {},
+    where: companyId
+      ? { OR: [{ companyId }, { companyId: null }] }
+      : parmi
+        ? { OR: [{ companyId: { in: parmi } }, { companyId: null }] }
+        : {},
     include: {
       company: { select: { name: true, shortName: true } },
       head: { select: { fullName: true } },

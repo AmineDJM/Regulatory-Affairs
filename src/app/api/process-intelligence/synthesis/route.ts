@@ -21,8 +21,8 @@ export async function GET(req: NextRequest) {
   }
   if (!aiConfigured()) {
     // LE NOM DE LA CLÉ VOYAGE AVEC LE REFUS (§118.128) : l'écran est un composant client, il ne
-    // peut pas lire le registre des modèles — et sans ce champ il redirait « ANTHROPIC_API_KEY »
-    // en dur, sur un déploiement qui tourne peut-être chez OpenAI.
+    // peut pas lire le registre des modèles — et sans ce champ il redirait en dur le nom de la clé
+    // d'un AUTRE fournisseur, sur un déploiement qui tourne peut-être chez OpenAI.
     return NextResponse.json({ configured: false, cleIa: cleModeleRequise() });
   }
   if (!(await aiFeatureEnabled("process_intel"))) {

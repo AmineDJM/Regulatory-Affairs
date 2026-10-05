@@ -7,14 +7,15 @@ import { userCan, hasGlobalView } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
 import { notifyUser, notifyRoles } from "@/lib/notify";
-import { getAppSettings } from "@/lib/settings";
-import { saveFile, validateUpload, deleteFileByKey } from "@/lib/storage";
+import { saveFile, deleteFileByKey } from "@/lib/storage";
+import { validateAttachments } from "@/lib/attach-files";
 import {
   canSetDepartmentBudget, canEditDepartmentBudget, canManageDepartmentBudgetAccess,
   canRequestDepartmentBudget, canDecideDepartmentBudgetRequest, canViewDepartmentBudget,
   mergeGrants, normalizeAmount, normalizeYear, DEPT_BUDGET_LABEL, DEPT_BUDGET_KINDS, EMPTY_GRANT,
   type DeptBudgetKind, type BudgetSetter, type DeptBudgetGrant, type GrantSubject,
 } from "@/lib/department-budget";
+import { refusAnnulationRallonge } from "@/lib/annulations/regles";
 import { fdStr, type ActionResult } from "@/lib/actions/types";
 import { readReceipt, saveReceiptLines } from "@/lib/general-means/expense-lines";
 import { allowedGeneralMeansCategoryIds, keepAllowedCategory } from "@/lib/general-means/budget-targets";
@@ -260,6 +261,39 @@ export async function requestDepartmentBudget(formData: FormData): Promise<Actio
 }
 
 /**
+ * RETIRER SA DEMANDE DE DOTATION / RALLONGE (décision de la Direction, 04/10) — tant que
+ * l'administration ne l'a pas tranchée. Elle se clôt (`CANCELLED`) par une écriture conditionnelle,
+ * et l'administration est prévenue.
+ */
+export async function annulerDemandeBudgetDepartement(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  const id = fdStr(formData, "id");
+  if (!id) return { ok: false, error: "Demande introuvable." };
+  const req = await prisma.departmentBudgetRequest.findUnique({
+    where: { id },
+    select: { id: true, status: true, requestedById: true, amount: true, year: true, kind: true, departmentId: true, department: { select: { name: true } } },
+  });
+  if (!req) return { ok: false, error: "Demande introuvable." };
+  if (req.requestedById !== user.id) return { ok: false, error: "Seule la personne qui a demandé ce budget retire sa demande." };
+  const refus = refusAnnulationRallonge(req.status);
+  if (refus) return { ok: false, error: refus };
+  const pris = await prisma.departmentBudgetRequest.updateMany({ where: { id, status: "PENDING" }, data: { status: "CANCELLED" } });
+  if (pris.count === 0) return { ok: false, error: "Cette demande vient d'être tranchée — rechargez la page." };
+  const libelle = `${req.department.name} · ${DEPT_BUDGET_LABEL[req.kind as DeptBudgetKind]} ${req.year} : +${Number(req.amount)} DZD`;
+  await notifyRoles(["SUPER_ADMIN", "DIRECTION"], {
+    type: "GENERIC", title: "Demande de budget retirée",
+    body: `${libelle} — retirée par ${user.name}, il n'y a plus rien à trancher.`, link: PATH,
+  }).catch(() => undefined);
+  await recordAudit({
+    actorId: user.id, action: "UPDATE", module: "Budgets", entityType: "BUDGET", entityId: req.departmentId,
+    field: "status", oldValue: "PENDING", newValue: "CANCELLED",
+    summary: `Demande de budget retirée par son demandeur — ${libelle}`,
+  });
+  revalidatePath(PATH);
+  return { ok: true, message: "Demande retirée — l'administration est prévenue." };
+}
+
+/**
  * ACCORDER OU REFUSER une dotation / rallonge — l'administration, et elle seule.
  *
  * Accorder AJOUTE au budget courant plutôt que de le remplacer : une rallonge s'ajoute par
@@ -282,10 +316,13 @@ export async function decideDepartmentBudgetRequest(formData: FormData): Promise
   if (req.status !== "PENDING") return { ok: false, error: "Cette demande a déjà été tranchée." };
 
   const note = fdStr(formData, "note");
-  await prisma.departmentBudgetRequest.update({
-    where: { id },
+  // UN GESTE À LA FOIS : la décision ne s'écrit que sur une demande ENCORE en attente — un retrait
+  // par son demandeur (décision du 04/10) ou une décision croisée l'emportent, sans double dotation.
+  const pris = await prisma.departmentBudgetRequest.updateMany({
+    where: { id, status: "PENDING" },
     data: { status: decision, decidedById: user.id, decidedAt: new Date(), decisionNote: note },
   });
+  if (pris.count === 0) return { ok: false, error: "Cette demande vient d'être tranchée ou retirée — rechargez la page." };
 
   const amount = Number(req.amount);
   if (decision === "APPROVED") {
@@ -365,6 +402,13 @@ export async function addDepartmentExpense(formData: FormData): Promise<ActionRe
   if (files.length === 0) {
     return { ok: false, error: "Joignez la facture ou le bon de paiement : une dépense sans pièce n'est qu'une affirmation." };
   }
+  // LA PIÈCE SE JUGE AVANT LA DÉPENSE. Le contrôle (type admis, taille) se faisait APRÈS la
+  // création : un fichier refusé laissait la dépense et ses lignes en base SANS pièce et sans trace
+  // d'audit — le budget et la caisse consommés par une ligne que rien ne justifie, et la seconde
+  // tentative en créait une deuxième. Mêmes fichiers, même liste blanche, même taille maximale
+  // (`validateAttachments`, la règle de toutes les pièces jointes) : seul le MOMENT change.
+  const pieceRefusee = await validateAttachments(files);
+  if (pieceRefusee !== null) return { ok: false, error: pieceRefusee };
 
   // CLASSEMENT BUDGÉTAIRE — l'acheteur range sa dépense sans jamais ouvrir le module Budget.
   // La valeur est revérifiée contre les enveloppes réellement ouvertes aux moyens généraux.
@@ -397,10 +441,7 @@ export async function addDepartmentExpense(formData: FormData): Promise<ActionRe
   });
   if (ticket) await saveReceiptLines(created.id, ticket.lines);
 
-  const maxMb = (await getAppSettings()).maxUploadMb;
   for (const file of files) {
-    const invalid = validateUpload(file.name, file.size, maxMb);
-    if (invalid) return { ok: false, error: invalid };
     const key = `DEPARTMENT_EXPENSE/${created.id}/${randomUUID()}__${file.name}`;
     try {
       await saveFile(key, Buffer.from(await file.arrayBuffer()));

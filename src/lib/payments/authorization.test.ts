@@ -3,7 +3,7 @@ import {
   CENTRAL_AUTH_THRESHOLD_DZD, needsCentralAuthorization, initialCentralStatus, canDisburse,
   visibleToFinance, awaitsCentre, awaitsRequester, sitsOnPaymentCentre, applyDecision,
   canResubmit, applyResubmission, blockedReason, type CentralStatus,
-  isHighValue, PAYMENT_CENTRE_REFUSAL, statutApresNouveauMontant,
+  isHighValue, PAYMENT_CENTRE_REFUSAL, statutApresNouveauMontant, statutApresRevision, memeBeneficiaire,
 } from "./authorization";
 
 describe("LE GUICHET UNIQUE — plus rien ne contourne le centre", () => {
@@ -169,5 +169,33 @@ describe("statutApresNouveauMontant — le centre autorise un MONTANT, pas un do
   it("un montant ILLISIBLE compte comme une hausse — le sens sûr", () => {
     expect(statutApresNouveauMontant({ courant: "APPROVED", avant: 500_000, apres: Number.NaN })).toBe("AWAITING");
     expect(statutApresNouveauMontant({ courant: "APPROVED", avant: Number.NaN, apres: 500_000 })).toBe("AWAITING");
+  });
+});
+
+describe("statutApresRevision — le centre autorise une somme, À QUELQU'UN (§118.191)", () => {
+  const r = (courant: CentralStatus, avant: number, apres: number, ba: string | null, bb: string | null) =>
+    statutApresRevision({ courant, avant, apres, beneficiaireAvant: ba, beneficiaireApres: bb });
+  it("un AUTRE bénéficiaire rouvre une autorisation donnée, même sans toucher au montant", () => {
+    expect(r("APPROVED", 500_000, 500_000, "SARL Atlas", "EURL Ziryab")).toBe("AWAITING");
+    expect(r("NOT_REQUIRED", 500_000, 500_000, "SARL Atlas", "EURL Ziryab")).toBe("AWAITING");
+  });
+  it("…et même en BAISSANT le montant : on ne paie pas moins à quelqu'un d'autre sans que le centre l'ait vu", () => {
+    expect(r("APPROVED", 500_000, 100_000, "SARL Atlas", "EURL Ziryab")).toBe("AWAITING");
+  });
+  it("la casse, les accents et les espaces ne font pas un autre bénéficiaire", () => {
+    expect(r("APPROVED", 500_000, 500_000, "Hôtel  Ziryab ", "hotel ziryab")).toBe("APPROVED");
+    expect(memeBeneficiaire("SARL Atlas", "sarl   atlas")).toBe(true);
+  });
+  it("…mais on ne rapproche RIEN d'autre : « Atlas » n'est pas « SARL Atlas »", () => {
+    expect(memeBeneficiaire("Atlas", "SARL Atlas")).toBe(false);
+    expect(r("APPROVED", 500_000, 500_000, "Atlas", "SARL Atlas")).toBe("AWAITING");
+  });
+  it("la hausse garde sa règle ; la baisse au même bénéficiaire ne rouvre rien", () => {
+    expect(r("APPROVED", 500_000, 900_000, "A", "A")).toBe("AWAITING");
+    expect(r("APPROVED", 900_000, 500_000, "A", "A")).toBe("APPROVED");
+  });
+  it("en attente la balle est déjà au centre ; refusé reste refusé, quel que soit le bénéficiaire", () => {
+    expect(r("AWAITING", 1, 2, "A", "B")).toBe("AWAITING");
+    expect(r("REFUSED", 1, 2, "A", "B")).toBe("REFUSED");
   });
 });

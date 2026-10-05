@@ -10,9 +10,11 @@ import { Badge } from "@/components/ui/badge";
 import { EmptyState } from "@/components/shared/empty-state";
 import { MENU_BONS_DE_COMMANDE } from "@/lib/chemins/bons-de-commande";
 import { setAdProDgThreshold, setBcValidationThreshold } from "@/lib/actions/settings-actions";
-import { deciderVisaCentreAdPro } from "@/lib/actions/ad-pro-centre-actions";
+import { deciderVisaCentreAdPro, reexaminerVisaCentreAdPro } from "@/lib/actions/ad-pro-centre-actions";
 import { approveAdProItemOrder } from "@/lib/actions/ad-pro-item-actions";
 import type { LigneCentre, FormePorte, FormeBC } from "@/lib/ad-pro/centre";
+import type { VisaTranche } from "@/lib/queries/ad-pro-centre";
+import { BoutonDecisif } from "@/components/ui/bouton-decisif";
 
 /**
  * LE PLAN DE TRAVAIL DU CENTRE.
@@ -47,7 +49,9 @@ const estBC = (r: LigneCentre) => r.forme === "BC_POSTE" || r.forme === "BC_LEGA
  * distincts, réglés chacun sur cet écran. Les mêler ferait lire « au-dessus du seuil » sur un BC
  * jugé contre l'autre chiffre — une raison fausse, affichée à celui qui décide.
  */
-export function CentreAdProBoard({ rows, seuil, seuilBC }: { rows: LigneCentre[]; seuil: number; seuilBC: number }) {
+export function CentreAdProBoard({ rows, seuil, seuilBC, tranches }: {
+  rows: LigneCentre[]; seuil: number; seuilBC: number; tranches: { lignes: VisaTranche[]; total: number };
+}) {
   const demandes = rows.filter((r) => !estBC(r));
   const bcs = rows.filter(estBC);
   const regleBC = seuilBC > 0
@@ -109,7 +113,68 @@ export function CentreAdProBoard({ rows, seuil, seuilBC }: { rows: LigneCentre[]
           )}
         </CardContent>
       </Card>
+
+      {/* LES REFUS ET LES RENVOIS RÉCENTS (audit 360°, R07) : un refus se RÉEXAMINE par un siège,
+          motif à l'appui ; un renvoi attend son demandeur, qui la resoumet depuis la fiche. */}
+      {tranches.lignes.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Refusées ou renvoyées récemment</CardTitle>
+            <CardDescription>
+              {tranches.total > tranches.lignes.length
+                ? `Les ${tranches.lignes.length} plus récentes sur ${tranches.total}.`
+                : `${tranches.lignes.length} décision(s).`} Un refus se réexamine ici ; une demande renvoyée revient quand son demandeur la resoumet.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <ul className="space-y-3">
+              {tranches.lignes.map((t) => <LigneTranchee key={`${t.entityType}:${t.entityId}`} t={t} />)}
+            </ul>
+          </CardContent>
+        </Card>
+      )}
     </div>
+  );
+}
+
+function LigneTranchee({ t }: { t: VisaTranche }) {
+  const [busy, setBusy] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
+  const [note, setNote] = React.useState("");
+  return (
+    <li className="space-y-2 rounded-xl border border-border p-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <Link href={t.href} className="inline-flex min-w-0 items-center gap-1 text-sm font-medium text-primary hover:underline">
+          {t.reference ? `${t.reference} — ` : ""}{t.intitule} <ExternalLink className="h-3.5 w-3.5 shrink-0" />
+        </Link>
+        <Badge tone={t.etat === "REFUSED" ? "danger" : "warning"} dot={false}>{t.etat === "REFUSED" ? "Refusée" : "À corriger"}</Badge>
+      </div>
+      <p className="text-xs text-muted-foreground">
+        {t.decideur ?? "Le centre"}{t.decidedAt ? ` · ${new Date(t.decidedAt).toLocaleDateString("fr-FR")}` : ""}{t.note ? ` — « ${t.note} »` : ""}
+      </p>
+      {t.etat === "REFUSED" && (
+        <div className="flex flex-wrap items-center gap-2">
+          <Input
+            value={note} onChange={(e) => setNote(e.target.value)} aria-label={`Motif du réexamen — ${t.intitule}`}
+            placeholder="Pourquoi le centre réexamine (obligatoire)" className="min-w-0 flex-1"
+          />
+          <BoutonDecisif
+            size="sm" variant="outline" disabled={busy || !note.trim()}
+            onClick={async () => {
+              setBusy(true); setError(null);
+              const fd = new FormData();
+              fd.set("entityType", t.entityType); fd.set("entityId", t.entityId); fd.set("note", note);
+              const r = await reexaminerVisaCentreAdPro(fd);
+              setBusy(false);
+              if (!r.ok) setError(r.error ?? "Échec.");
+            }}
+          >
+            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : null} Réexaminer
+          </BoutonDecisif>
+        </div>
+      )}
+      {error && <p className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</p>}
+    </li>
   );
 }
 
@@ -141,7 +206,7 @@ function SeuilForm({ seuil }: { seuil: number }) {
         >
           <div className="space-y-1">
             <Label htmlFor="adProDgThreshold">Seuil (DZD)</Label>
-            <Input id="adProDgThreshold" name="adProDgThreshold" type="number" min="0" step="1000" defaultValue={seuil} />
+            <Input id="adProDgThreshold" name="adProDgThreshold" type="number" min="0" step="any" defaultValue={seuil} />
             <p className="text-xs text-muted-foreground">
               <strong>0</strong> = aucune demande ne passe par le centre. Une demande <em>sans montant
               renseigné</em> y passe quand même : on ne franchit pas un contrôle sur une absence de donnée.
@@ -194,7 +259,7 @@ function SeuilBCForm({ seuil }: { seuil: number }) {
         >
           <div className="space-y-1">
             <Label htmlFor="bcValidationThreshold">Seuil des bons de commande (DZD)</Label>
-            <Input id="bcValidationThreshold" name="bcValidationThreshold" type="number" min="0" step="1000" defaultValue={seuil} />
+            <Input id="bcValidationThreshold" name="bcValidationThreshold" type="number" min="0" step="any" defaultValue={seuil} />
             <p className="text-xs text-muted-foreground">
               <strong>0</strong> = tout bon de commande passe par un centre. Un BC <em>sans montant
               renseigné</em> y passe quand même. Les BC en cours qui changent de côté du seuil sont
@@ -271,7 +336,11 @@ function DecisionVisa({ row }: { row: LigneCentre }) {
   const [error, setError] = React.useState<string | null>(null);
   const [note, setNote] = React.useState("");
 
-  const decider = async (approuve: boolean) => {
+  // TROIS ISSUES là où le centre est la porte (audit 360°, R07/R10) : valider, RENVOYER pour
+  // correction, refuser. Le BC d'un poste garde les deux siennes — un refus s'y redemande depuis le poste.
+  const troisIssues = row.forme === "VISA_CENTRE" || row.forme === "BC_LEGAL";
+  const decider = async (choix: "VALIDER" | "RENVOYER" | "REFUSER") => {
+    const approuve = choix === "VALIDER";
     setBusy(true); setError(null);
     const fd = new FormData();
     let r: { ok: boolean; error?: string };
@@ -281,11 +350,15 @@ function DecisionVisa({ row }: { row: LigneCentre }) {
       fd.set("id", row.entityId);
       fd.set("decision", approuve ? "APPROVE" : "REFUSE");
       fd.set("note", note);
+      // CE QUE LE CENTRE A LU (§118.187) : un montant ou un prestataire changé pendant la lecture
+      // ne se vise pas sans avoir été vu — l'action compare et refuse en le disant.
+      if (row.montant != null) fd.set("montantVu", String(row.montant));
+      fd.set("prestataireVu", row.prestataire ?? "");
       r = await approveAdProItemOrder(undefined, fd);
     } else {
       fd.set("entityType", row.entityType);
       fd.set("entityId", row.entityId);
-      fd.set("approve", approuve ? "1" : "0");
+      fd.set("decision", choix);
       fd.set("note", note);
       r = await deciderVisaCentreAdPro(fd);
     }
@@ -297,17 +370,20 @@ function DecisionVisa({ row }: { row: LigneCentre }) {
   return (
     <div className="space-y-2">
       <div className="space-y-1">
-        <Label htmlFor={`note-${row.entityId}`}>Motif <span className="text-muted-foreground">(obligatoire pour refuser)</span></Label>
+        <Label htmlFor={`note-${row.entityId}`}>Motif <span className="text-muted-foreground">({troisIssues ? "obligatoire pour renvoyer ou refuser" : "obligatoire pour refuser"})</span></Label>
         <Input
           id={`note-${row.entityId}`} value={note} onChange={(e) => setNote(e.target.value)}
           placeholder="Ce que le demandeur doit savoir"
         />
       </div>
       <div className="flex flex-wrap items-center gap-2">
-        <Button size="sm" disabled={busy} onClick={() => decider(true)}>
+        <BoutonDecisif size="sm" disabled={busy} onClick={() => decider("VALIDER")}>
           {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : null} {libelleAccord}
-        </Button>
-        <Button size="sm" variant="destructive" disabled={busy} onClick={() => decider(false)}>Refuser</Button>
+        </BoutonDecisif>
+        {troisIssues && (
+          <BoutonDecisif size="sm" variant="outline" disabled={busy || !note.trim()} onClick={() => decider("RENVOYER")}>Renvoyer pour correction</BoutonDecisif>
+        )}
+        <BoutonDecisif size="sm" variant="destructive" disabled={busy} onClick={() => decider("REFUSER")}>Refuser</BoutonDecisif>
         <Link
           href={row.href}
           className="inline-flex items-center gap-1 text-xs text-primary hover:underline"

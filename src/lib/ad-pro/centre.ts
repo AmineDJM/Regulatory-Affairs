@@ -172,7 +172,11 @@ export const NATURES_A_VISA: AdProKind[] = AD_PRO_KINDS
   .filter((k) => FORME_PORTE[k] === "VISA_CENTRE");
 
 /** L'état d'un visa. `null` en base = la porte n'a jamais été évaluée pour cette demande. */
-export type EtatVisa = "PENDING" | "APPROVED" | "REFUSED";
+/**
+ * `CHANGES_REQUESTED` (audit 360°, R07/R10) : le centre RENVOIE pour correction au lieu de refuser
+ * définitivement. La demande ne passe pas — elle revient au centre quand son demandeur la resoumet.
+ */
+export type EtatVisa = "PENDING" | "APPROVED" | "REFUSED" | "CHANGES_REQUESTED";
 
 /**
  * LA DEMANDE PEUT-ELLE AVANCER ? — la garde que les deux natures à visa appellent AVANT de
@@ -185,7 +189,9 @@ export type EtatVisa = "PENDING" | "APPROVED" | "REFUSED";
  * quels chemins peut-on ARRIVER sur une étape conditionnelle ? »).
  */
 export function visaAutoriseAAvancer(visa: EtatVisa | null | undefined): boolean {
-  return visa !== "PENDING" && visa !== "REFUSED";
+  // Écrite comme ce qui PASSE, pas comme ce qui bloque : un état ajouté demain arrête la demande
+  // par défaut, au lieu de la laisser filer parce que personne n'a pensé à l'exclure.
+  return visa == null || visa === "APPROVED";
 }
 
 /**
@@ -200,9 +206,13 @@ export function motifBlocageVisa(visa: EtatVisa | null | undefined): string | nu
     return "Cette demande dépasse le seuil Ad & Pro : elle attend l'arbitrage du centre de "
       + "validation (Direction Générale ou Super Admin). Rien à faire de votre côté.";
   }
+  if (visa === "CHANGES_REQUESTED") {
+    return "Le centre de validation Ad & Pro demande une correction (le motif est sur la fiche) : son demandeur "
+      + "la corrige puis la resoumet au centre depuis la fiche — elle ne peut pas avancer d'ici là.";
+  }
   if (visa === "REFUSED") {
-    return "Le centre de validation Ad & Pro a refusé cette demande : elle ne peut plus avancer. "
-      + "Le motif est consigné sur la fiche.";
+    return "Le centre de validation Ad & Pro a refusé cette demande : elle ne peut plus avancer, sauf si un siège "
+      + "du centre la réexamine. Le motif est consigné sur la fiche.";
   }
   return null;
 }
@@ -231,6 +241,11 @@ export interface LigneCentre {
   forme: FormePorte | FormeBC;
   /** Ce que la ligne dit en plus, quand il y a quelque chose à dire (le message d'une demande de BC). */
   detail?: string | null;
+  /**
+   * Le PRESTATAIRE d'un BC de poste, tel que le centre le lit — renvoyé avec le visa pour que l'action
+   * refuse un visa donné sur un prestataire qui a changé pendant la lecture (§118.187).
+   */
+  prestataire?: string | null;
   /** Depuis quand elle attend — c'est ce qui trie. */
   depuis: string;
   href: string;

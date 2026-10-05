@@ -44,8 +44,18 @@ describe("(re)soumettre sa lecture", () => {
     expect(canRequestDecision(input({ validationId: "v1", validationStatus: "REJECTED" }))).toBe(true);
   });
 
-  it("mais « à revoir » NE SE REDEMANDE PAS : cela laisserait deux demandes vivantes", () => {
-    expect(canRequestDecision(input({ validationId: "v1", validationStatus: "CHANGES_REQUESTED" }))).toBe(false);
+  it("« à revoir » SE RESOUMET ici — la demande de validation n'a aucun geste de reprise (audit 360°, I9)", () => {
+    // La règle d'avant (« ne se redemande pas ») laissait le dossier mort au premier « Modification » :
+    // le retrait est refusé dès qu'un validateur s'est prononcé. L'unicité tient autrement : la
+    // resoumission CLÔT la précédente (`clorePrecedente`, écriture conditionnelle).
+    expect(canRequestDecision(input({ validationId: "v1", validationStatus: "CHANGES_REQUESTED" }))).toBe(true);
+  });
+
+  it("une demande ANNULÉE ou SUPPRIMÉE n'est plus une demande : le dossier n'est pas « en validation » à vie", () => {
+    expect(declareStage(input({ validationId: "v1", validationStatus: "CANCELLED" }))).toBe("A_DEMANDER");
+    expect(canRequestDecision(input({ validationId: "v1", validationStatus: "CANCELLED" }))).toBe(true);
+    // Le témoin : un statut inconnu reste « en validation » — on ne rouvre pas sur ce qu'on ne lit pas.
+    expect(declareStage(input({ validationId: "v1", validationStatus: "PENDING" }))).toBe("EN_VALIDATION");
   });
 
   it("ni en cours, ni une fois accordée", () => {
@@ -97,7 +107,9 @@ describe("ce que l'écran dit", () => {
   it("nomme le geste attendu à chaque étape", () => {
     expect(declareMessage(input(), RIEN)).toMatch(/ministère de l'Industrie pharmaceutique/i);
     expect(declareMessage(input({ validationId: "v1", validationStatus: "PENDING" }), RIEN)).toMatch(/rien à faire/i);
-    expect(declareMessage(input({ validationId: "v1", validationStatus: "CHANGES_REQUESTED" }), RIEN)).toMatch(/n'en ouvrez pas une seconde/i);
+    // Le message disait « reprenez-la là-bas » : un geste qui n'existait pas (audit 360°, I9).
+    expect(declareMessage(input({ validationId: "v1", validationStatus: "CHANGES_REQUESTED" }), RIEN)).toMatch(/soumettez-la de nouveau ici/i);
+    expect(declareMessage(input({ validationId: "v1", validationStatus: "CHANGES_REQUESTED" }), RIEN)).not.toMatch(/là-bas/i);
     expect(declareMessage(input({ validationId: "v1", validationStatus: "REJECTED" }), RIEN)).toMatch(/refusée/i);
   });
 

@@ -4,7 +4,9 @@ import type { AdProOtherStatus } from "@prisma/client";
 import { revalidatePath } from "next/cache";
 import { requireUser } from "@/lib/session";
 import { userCan, hasGlobalView, type SessionUser } from "@/lib/rbac";
-import { poserVisaAdPro, blocageCentreAdPro } from "@/lib/ad-pro/visa";
+import { poserVisaAdPro, blocageCentreAdPro, retirerVisaEnAttente, ajusterVisaAuMontant, phraseGesteVisa } from "@/lib/ad-pro/visa";
+import { ecrireAuFil } from "@/lib/ad-pro/fil";
+import { toNumber, formatDate } from "@/lib/utils";
 import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
 import { notifyRoles, notifyUser } from "@/lib/notify";
@@ -116,45 +118,142 @@ export async function createAdProOtherRequest(_prev: ActionResult | undefined, f
   }
 }
 
-/** Trancher : valider ou refuser, avec un motif. */
+/**
+ * TRANCHER : valider ou refuser. Le motif est EXIGÉ pour refuser (audit 360°, rapport 17 R14) — un refus
+ * sans motif ne laisse au demandeur rien à corriger avant de resoumettre. Valider n'a rien à expliquer.
+ */
 export async function decideAdProOtherRequest(formData: FormData): Promise<ActionResult> {
   try {
     const user = await requireUser();
     const id = fdStr(formData, "id");
     const approve = fdStr(formData, "approve") === "1";
+    const note = fdStr(formData, "note");
     if (!id) return { ok: false, error: "Demande introuvable." };
     if (!userCan(user, "AD_PRO_OTHER", "VALIDATE")) return { ok: false, error: "La décision revient à la Direction." };
 
     const req = await prisma.adProOtherRequest.findUnique({ where: { id } });
     if (!req) return { ok: false, error: "Demande introuvable." };
     if (req.status !== "AWAITING_DECISION") return { ok: false, error: "Cette demande a déjà été tranchée." };
+    // `=== null` / `=== false` et non `!note` / `!approve` : la dérivation des contrats lit un `if (!x`
+    // comme un champ OBLIGATOIRE — le motif le deviendrait pour VALIDER aussi, et `approve` pour tout
+    // appel (§118.138 ; mesuré sur l'artefact régénéré).
+    if (note === null && approve === false) {
+      return { ok: false, error: "Indiquez le motif du refus : c'est sur lui que le demandeur corrigera, puis resoumettra." };
+    }
 
-    // LA PORTE DU CENTRE PASSE AVANT LA DÉCISION — sinon elle existe en base et ne garde rien.
-    const blocage = await blocageCentreAdPro("AD_PRO_OTHER", id);
-    if (blocage) return { ok: false, error: blocage };
+    // LA PORTE DU CENTRE GARDE L'ACCORD — pas le refus, qui n'engage rien (§118.15). Sans elle, la porte
+    // existerait en base et ne garderait rien ; attendre le centre pour dire non ne protégerait personne.
+    if (approve) {
+      const blocage = await blocageCentreAdPro("AD_PRO_OTHER", id);
+      if (blocage) return { ok: false, error: blocage };
+    }
 
-    await prisma.adProOtherRequest.update({
-      where: { id },
+    // CONDITIONNELLE : deux décisions à la même seconde — la seconde trouve la demande déjà tranchée.
+    const ecrite = await prisma.adProOtherRequest.updateMany({
+      where: { id, status: "AWAITING_DECISION" },
       data: {
         status: (approve ? "APPROVED" : "REFUSED") as AdProOtherStatus,
         decidedById: user.id, decidedAt: new Date(),
-        decisionNote: fdStr(formData, "note"), updatedById: user.id,
+        decisionNote: note, updatedById: user.id,
       },
     });
+    if (ecrite.count === 0) return { ok: false, error: "Cette demande vient d'être tranchée : rouvrez sa fiche pour voir la décision." };
+    // REFUSÉE, ELLE N'ATTEND PLUS LE CENTRE : la porte en attente est retirée ; resoumise, la demande la
+    // retrouvera sur son montant corrigé (`ajusterVisaAuMontant`).
+    const portes = approve ? 0 : await retirerVisaEnAttente("AD_PRO_OTHER", id);
 
     if (req.requesterId) {
       await notifyUser({
         userId: req.requesterId, type: "GENERIC",
         title: approve ? "Demande validée" : "Demande refusée",
-        body: `${req.reference} — ${req.title}`, link: `${PATH}/${id}`,
+        body: approve
+          ? `${req.reference} — ${req.title}${note ? ` · ${note}` : ""}`
+          : `${req.reference} — motif : ${note}. Corrigez-la puis « Resoumettre la demande » sur sa fiche.`,
+        link: `${PATH}/${id}`,
       });
     }
-    await audit(user, id, "VALIDATE", `${approve ? "Demande validée" : "Demande refusée"} — ${req.reference}`);
+    await audit(user, id, "VALIDATE", `${approve ? "Demande validée" : "Demande refusée"} — ${req.reference}${note ? ` — ${note}` : ""}${portes ? " (sa demande au centre Ad & Pro est retirée)" : ""}`);
     revalidate(id);
     return { ok: true, id };
   } catch (err) {
     console.error("[ad-pro-other] decideAdProOtherRequest failed", err);
     return { ok: false, error: "La décision n'a pas pu être enregistrée." };
+  }
+}
+
+/**
+ * RESOUMETTRE UNE DEMANDE REFUSÉE (audit 360°, rapport 17 R14) — son refus était définitif : une demande
+ * mal présentée ne pouvait que mourir, et son auteur la redéposait sous une autre référence, en perdant
+ * l'historique et les pièces. Elle revient à la décision, avec CE QUI A CHANGÉ (exigé : c'est la première
+ * chose que la Direction lira) et, s'il le faut, sa description et son montant corrigés — cette nature
+ * n'a pas d'autre geste pour corriger une demande refusée. Le refus d'hier va au fil, il ne s'efface pas.
+ */
+export async function resoumettreAdProOtherRequest(formData: FormData): Promise<ActionResult> {
+  try {
+    const user = await requireUser();
+    const id = fdStr(formData, "id");
+    if (!id) return { ok: false, error: "Demande introuvable." };
+    const req = await prisma.adProOtherRequest.findUnique({ where: { id } });
+    if (!req) return { ok: false, error: "Demande introuvable." };
+    if (!userCan(user, "AD_PRO_OTHER", "VIEW") || !(req.requesterId === user.id || hasGlobalView(user.role))) {
+      return { ok: false, error: "Seul son demandeur resoumet une demande refusée." };
+    }
+    if (req.status !== "REFUSED") return { ok: false, error: "Seule une demande refusée se resoumet." };
+    // L'état d'abord, le motif ensuite : on ne demande pas ce qui a changé pour une demande qui ne se
+    // resoumet pas (§118.18).
+    const note = fdStr(formData, "note");
+    if (!note) return { ok: false, error: "Dites ce qui a changé depuis le refus : c'est ce que la Direction lira d'abord." };
+
+    // Ce que le formulaire PORTE s'écrit ; ce qu'il ne porte pas reste ce qu'il était (§118.152c).
+    const description = formData.has("description") ? fdStr(formData, "description") : undefined;
+    if (description === null) return { ok: false, error: "Décrivez la demande — c'est sur cette description que la décision se prendra." };
+    const montant = formData.has("amount") ? fdNum(formData, "amount") : undefined;
+    if (montant !== undefined && montant !== null && !(montant >= 0)) return { ok: false, error: "Le montant doit être un nombre positif." };
+
+    const ecrite = await prisma.adProOtherRequest.updateMany({
+      where: { id, status: "REFUSED" },
+      data: {
+        status: "AWAITING_DECISION", decidedById: null, decidedAt: null, decisionNote: null, updatedById: user.id,
+        ...(description !== undefined ? { description } : {}),
+        ...(montant !== undefined ? { amount: montant } : {}),
+      },
+    });
+    if (ecrite.count === 0) return { ok: false, error: "Cette demande vient de changer : rouvrez sa fiche." };
+
+    const decideur = req.decidedById ? (await prisma.user.findUnique({ where: { id: req.decidedById }, select: { name: true } }))?.name : null;
+    await ecrireAuFil({
+      entityType: "AD_PRO_OTHER", entityId: id, authorId: user.id,
+      body: `Resoumise après refus. Le refus${req.decidedAt ? ` du ${formatDate(req.decidedAt)}` : ""}${decideur ? ` (${decideur})` : ""} disait : « ${req.decisionNote ?? "—"} ». Ce qui a changé : ${note}`,
+    });
+
+    // LA PORTE DU CENTRE SUIT LE MONTANT de la demande resoumise (audit 360°, lot C4a).
+    const montantFinal = montant !== undefined ? montant : (req.amount == null ? null : toNumber(req.amount));
+    const visa = await ajusterVisaAuMontant("AD_PRO_OTHER", id, montantFinal);
+    if (visa.etat === "PENDING") {
+      await notifyRoles(["GENERAL_MANAGER", "SUPER_ADMIN"], {
+        type: "VALIDATION_REQUIRED", title: "Centre Ad & Pro — demande resoumise au-dessus du seuil",
+        body: `${req.reference} — ${req.title}`, link: "/centre-ad-pro",
+      });
+    } else if (visa.etat === "REFUSED") {
+      // Sous un REFUS du centre, seul un siège peut la réexaminer : prévenir la Direction, que ce refus
+      // bloque, lui demanderait une décision qu'elle ne peut pas prendre (§118.30).
+      await notifyRoles(["GENERAL_MANAGER", "SUPER_ADMIN"], {
+        type: "VALIDATION_REQUIRED", title: "Centre Ad & Pro — demande resoumise : votre refus est à réexaminer",
+        body: `${req.reference} — ${req.title} · ${note}`, link: "/centre-ad-pro",
+      });
+    } else {
+      await notifyRoles(["DIRECTION", "SUPER_ADMIN"], {
+        type: "VALIDATION_REQUIRED", title: "Demande Ad & Pro resoumise après refus",
+        body: `${req.reference} — ${req.title} · ${note}`, link: `${PATH}/${id}`,
+      });
+    }
+    await audit(user, id, "UPDATE", `Demande resoumise après refus — ${req.reference} — ${note}`);
+    revalidate(id);
+    const phrase = phraseGesteVisa(visa.geste, visa.etat);
+    return { ok: true, id, message: phrase ? `Demande resoumise — ${phrase}` : "Demande resoumise : elle revient à la décision de la Direction." };
+  } catch (err) {
+    console.error("[ad-pro-other] resoumettreAdProOtherRequest failed", err);
+    return { ok: false, error: "La resoumission a échoué." };
   }
 }
 
@@ -173,12 +272,22 @@ export async function closeAdProOtherRequest(formData: FormData): Promise<Action
     if (req.status === "DONE" || req.status === "CANCELLED") return { ok: false, error: "Cette demande est déjà close." };
     // Clore ce qui n'a jamais été validé n'aurait pas de sens : c'est une annulation.
     if (!cancel && req.status !== "APPROVED") return { ok: false, error: "Seule une demande validée peut être marquée terminée." };
+    // UNE ANNULATION EST DÉFINITIVE : elle dit pourquoi (audit 360°, R17). `=== null` : « terminée » n'a
+    // rien à expliquer, et la dérivation ne doit pas rendre le motif obligatoire pour elle (§118.138).
+    const note = fdStr(formData, "note");
+    if (cancel && note === null) return { ok: false, error: "Dites pourquoi la demande est annulée : l'annulation est définitive." };
 
-    await prisma.adProOtherRequest.update({
-      where: { id },
+    // CONDITIONNELLE : deux clôtures à la même seconde — la seconde trouve la demande changée au lieu
+    // d'écrire une seconde annulation, un second motif au fil et un second audit.
+    const ecrite = await prisma.adProOtherRequest.updateMany({
+      where: { id, status: req.status },
       data: { status: (cancel ? "CANCELLED" : "DONE") as AdProOtherStatus, updatedById: user.id },
     });
-    await audit(user, id, "UPDATE", `${cancel ? "Demande annulée" : "Demande terminée"} — ${req.reference}`);
+    if (ecrite.count === 0) return { ok: false, error: "Cette demande vient de changer d'état : rouvrez sa fiche." };
+    // ANNULÉE, ELLE N'A PLUS RIEN À FAIRE ARBITRER (audit 360°, lot C3) — la même règle qu'au consulting.
+    const portes = cancel ? await retirerVisaEnAttente("AD_PRO_OTHER", id) : 0;
+    if (cancel && note) await ecrireAuFil({ entityType: "AD_PRO_OTHER", entityId: id, authorId: user.id, body: `Demande annulée — ${note}` });
+    await audit(user, id, "UPDATE", `${cancel ? "Demande annulée" : "Demande terminée"} — ${req.reference}${cancel && note ? ` — ${note}` : ""}${portes ? " (sa demande au centre Ad & Pro est retirée)" : ""}`);
     revalidate(id);
     return { ok: true, id };
   } catch (err) {

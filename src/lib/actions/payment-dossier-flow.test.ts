@@ -142,6 +142,19 @@ suite("Demande de paiement — le dossier porte sa justification, et le règleme
     expect(envoi.error).toMatch(/bon de commande, une facture ou un devis/i);
   });
 
+  it("DOUZE BROUILLONS DÉPOSÉS À LA MÊME SECONDE : douze références, aucun dépôt perdu — la série PAY a sa file (§118.182)", async () => {
+    // Le nouvel essai seul est un verrou OPTIMISTE : douze dépôts lisent le même maximum, un seul gagne
+    // chaque tour, et le k-ième a besoin de k essais — au-delà de six, le dépôt échouait APRÈS le clic.
+    ACTOR = await actorFor(requesterId, "DIRECTION");
+    const N = 12;
+    const rs = await Promise.all(Array.from({ length: N }, (_, i) =>
+      createPaymentRequest(undefined, form({ title: `${TAG} Rafale ${i}`, payee: "R", amount: String(1000 + i), submit: "0" }))));
+    for (const r of rs) if (r.ok && r.id) created.push(r.id);
+    expect(rs.filter((r) => !r.ok).map((r) => r.error), "aucun dépôt ne doit échouer").toEqual([]);
+    const refs = await prisma.paymentRequest.findMany({ where: { id: { in: created } , title: { startsWith: `${TAG} Rafale` } }, select: { reference: true } });
+    expect(new Set(refs.map((r) => r.reference)).size).toBe(N);
+  });
+
   it("le demandeur peut cocher le moyen de paiement APRÈS COUP — sinon le brouillon est un cul-de-sac", async () => {
     ACTOR = await actorFor(requesterId, "DIRECTION");
     const r = await createPaymentRequest(undefined, form(

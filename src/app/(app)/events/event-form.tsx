@@ -251,11 +251,17 @@ export function CreateEventButton({ responsibles, referentiels }: {
   );
 }
 
-export function EditEventButton({ event, responsibles, referentiels, canDelete }: {
+export function EditEventButton({ event, responsibles, referentiels, canDelete, organisationSeule = false }: {
   event: EventDetail;
   responsibles: { id: string; name: string }[];
   referentiels?: EventReferentiels;
   canDelete: boolean;
+  /**
+   * La prise en charge est DÉCIDÉE et la personne ne voit pas tout le groupe : seule l'organisation se
+   * modifie encore (`events/modification.ts`). On le dit AVANT l'enregistrement — le serveur refuserait
+   * de toute façon, en nommant les champs, mais découvrir la règle après avoir tout ressaisi coûte un tour.
+   */
+  organisationSeule?: boolean;
 }) {
   const router = useRouter();
   const [open, setOpen] = React.useState(false);
@@ -272,6 +278,12 @@ export function EditEventButton({ event, responsibles, referentiels, canDelete }
       <Button variant="outline" size="sm" onClick={() => { setErr(null); setOpen(true); }}><Pencil className="h-4 w-4" /> Modifier</Button>
       <Sheet open={open} onClose={() => setOpen(false)} title="Modifier l'événement" width="lg">
         <form action={async (fd) => { fd.set("id", event.id); setSaving(true); setErr(null); const r: Result = await updateEvent(fd); setSaving(false); if (r.ok) { setOpen(false); router.refresh(); } else setErr(r.error ?? "Erreur."); }} className="space-y-4">
+          {organisationSeule && (
+            <p role="note" className="rounded-lg border border-warning/40 bg-warning/10 p-3 text-sm">
+              La prise en charge est décidée : le nom, les dates, le lieu, les médecins, les produits et le budget ne se modifient plus
+              qu&apos;avec la Direction. L&apos;organisation — lien de connexion, capacité, responsable, description, état — reste modifiable.
+            </p>
+          )}
           <EventFields e={event} responsibles={responsibles} referentiels={referentiels} />
           {err && <p className="text-sm text-destructive">{err}</p>}
           <div className="flex items-center justify-between">

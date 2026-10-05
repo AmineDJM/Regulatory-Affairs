@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getCurrentUser } from "@/lib/session";
+import { getCurrentUserPourEcrire } from "@/lib/session";
 import { userCan } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { putBlob } from "@/lib/drive-storage";
@@ -12,7 +12,7 @@ export const dynamic = "force-dynamic";
 
 /** Reçoit l'audio d'un rapport, le stocke (chiffré) et le transcrit (Whisper). */
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
-  const user = await getCurrentUser();
+  const user = await getCurrentUserPourEcrire();
   // Garde sur le module RAPPORTS TERRAIN (et non « Promotion médicale ») : c'est le module
   // qui régit ce flux depuis leur séparation ; sinon un profil ayant les rapports mais pas la
   // promotion médicale (ex. Direction des opérations) se voyait refuser la dictée.

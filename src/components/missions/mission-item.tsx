@@ -4,7 +4,8 @@ import * as React from "react";
 import { useRouter } from "next/navigation";
 import { ChevronDown, ChevronUp, Send, CheckCircle2, Trash2, Loader2 } from "lucide-react";
 import type { MissionAssignmentDTO } from "@/lib/queries/missions";
-import { requestMissionOrder, issueMissionOrder, removeMission, addMissionComment } from "@/lib/actions/mission-actions";
+import { requestMissionOrder, issueMissionOrder, removeMission, addMissionComment, retirerDemandeOrdreMission } from "@/lib/actions/mission-actions";
+import { refusRetraitOrdreMission } from "@/lib/annulations/regles";
 import { updateComment, deleteComment } from "@/lib/actions/comment-actions";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { Avatar } from "@/components/ui/avatar";
@@ -32,11 +33,15 @@ export function MissionItem({
   const isAssignee = m.userId === currentUserId;
   const canUpload = canManage || isAssignee;
 
-  async function run(action: "request" | "issue" | "remove") {
+  async function run(action: "request" | "issue" | "remove" | "retract") {
     if (action === "remove" && !window.confirm("Retirer cette assignation ? Les pièces et discussions liées seront supprimées.")) return;
     setBusy(action);
     const fd = new FormData(); fd.set("id", m.id);
     if (action === "request") await requestMissionOrder(fd);
+    else if (action === "retract") {
+      const r = await retirerDemandeOrdreMission(fd);
+      if (!r.ok) window.alert(r.error ?? "Retrait impossible.");
+    }
     else if (action === "issue") await issueMissionOrder(fd);
     else await removeMission(fd);
     setBusy(null);
@@ -79,6 +84,12 @@ export function MissionItem({
               {isAssignee && m.orderStatus === "NONE" && (
                 <Button size="sm" variant="outline" onClick={() => run("request")} disabled={busy !== null}>
                   {busy === "request" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />} Demander un ordre de mission
+                </Button>
+              )}
+              {/* RETIRER SA DEMANDE (décision du 04/10) — tant que l'ordre n'est pas émis. */}
+              {isAssignee && refusRetraitOrdreMission(m.orderStatus) === null && (
+                <Button size="sm" variant="outline" onClick={() => run("retract")} disabled={busy !== null}>
+                  {busy === "retract" ? <Loader2 className="h-4 w-4 animate-spin" /> : null} Retirer ma demande
                 </Button>
               )}
               {canManage && m.orderStatus !== "ISSUED" && (

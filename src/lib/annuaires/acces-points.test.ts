@@ -337,7 +337,13 @@ describe("les écrans et la conversation interrogent la règle de l'annuaire", (
   it("l'export applique la même porte ET l'exclusion des annuaires nommés fermés", () => {
     const src = lire("src/app/api/medical/annuaire/export/route.ts");
     expect(src).toMatch(/peutAnnuaire\(user, cle, "VIEW"\)/);
-    expect(src).toMatch(/await clauseAnnuairesFermes\(user\)/);
+    // L'exclusion passe par la clause PARTAGÉE avec la recherche globale (§118.177) : l'export
+    // l'appelle avec l'ouverture « entière » qu'il a lue, et la clause porte l'exclusion — les deux
+    // moitiés, sinon une clause vidée de son exclusion passerait par un point d'appel intact.
+    expect(src).toMatch(/await clausePraticiensVisibles\(user, \{ entier \}\)/);
+    const clause = lire("src/lib/queries/annuaires.ts");
+    const corps = clause.slice(clause.indexOf("export async function clausePraticiensVisibles"));
+    expect(corps.slice(0, corps.indexOf("\n}\n"))).toMatch(/await clauseAnnuairesFermes\(user\)/);
   });
 
   it("la conversation sur les établissements pose la même question que l'écran", () => {

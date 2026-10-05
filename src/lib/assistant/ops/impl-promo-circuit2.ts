@@ -144,7 +144,7 @@ export const PROMO2_OPS_IMPL: Record<string, OpImpl> = {
           dossierField(d),
           ["Devis retranscrits", devis.map((q) => `${q.supplierName} (${q.lines.length} ligne${q.lines.length > 1 ? "s" : ""})`).join(" ; ")],
         ]),
-        warnings: ["Refusé tant qu'un devis manque de fournisseur, de scan ou de lignes, ou que ses lignes ne retombent pas sur le total imprimé. Le demandeur choisit ensuite ses lignes."],
+        warnings: ["Refusé tant qu'un devis manque de fournisseur, de scan, de lignes ou de total imprimé, ou que ses lignes ne retombent pas sur ce total. Le demandeur choisit ensuite ses lignes."],
         args: { promoMaterialId: d.id },
         successMessage: `Retranscription terminée sur ${d.reference} — au demandeur de choisir.`,
         revalidate: PATH,

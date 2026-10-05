@@ -128,6 +128,8 @@ export const REFERENTS: readonly Referent[] = [
     raison: "un lien de l'index de connaissance : un index, pas une branche." },
   { modele: "AssistantReminder", champType: "watchType", champId: "watchId", conduite: "HISTOIRE",
     raison: "un rappel interne d'Adam : comme ses surveillances, il constate lui-même que sa cible a disparu." },
+  { modele: "LecturePieceConfirmation", champType: "cibleType", champId: "cibleId", conduite: "HISTOIRE",
+    raison: "une ATTESTATION (lot D2) : une personne a relu, ligne à ligne, ce qu'une lecture proposait — l'audit porte son nom. On ne réécrit pas le passé : elle reste quand la pièce part, et une pièce restaurée la retrouve par son identifiant." },
 ];
 
 /**
@@ -158,6 +160,13 @@ export const ENTITE_DU_MODELE: Readonly<Record<string, EntityType>> = {
   BdProject: "BD_PROJECT",
   // L'écriture de trésorerie (§118.176) : ses pièces jointes et commentaires partent avec elle.
   FinanceTransaction: "FINANCE_TRANSACTION",
+  // Une formation (§118.184) : ses pièces s'écrivaient sous DOSSIER, donc ne la suivaient pas.
+  Training: "TRAINING",
+  // Un appel d'offres PCH (§118.185, I17) et ses bons de commande : leurs pièces jointes, leurs
+  // factures (`sourceType = PCH_ORDER`), leurs courriers et leurs liens partent avec eux — une
+  // facture RÉGLÉE bloque la suppression (`faitIrreversible`), elle ne la suit pas en silence.
+  PchTender: "PCH_TENDER",
+  PchOrder: "PCH_ORDER",
 };
 
 /**
@@ -171,6 +180,11 @@ export const LIENS_DIRECTS: readonly { modele: string; champ: string; cible: str
   { modele: "MedicalInfoDeclaration", champ: "bvRequestId", cible: "PaymentRequest" },
   { modele: "PaymentRequest", champ: "expenseOrderId", cible: "ExpenseOrder" },
   { modele: "LegalDocument", champ: "expenseOrderId", cible: "ExpenseOrder" },
+  // L'ORDRE DE DÉPENSE D'UN POSTE Ad & Pro (§118.187) : le poste le désigne par un champ texte, et
+  // l'ordre ne porte que l'OPÉRATION en source. Sans ce lien, la corbeille emportait le poste et
+  // laissait son ordre non réglé payable au centre de paiement, pour un poste disparu ; un ordre
+  // RÉGLÉ, lui, bloque la suppression (`faitIrreversible`).
+  { modele: "AdProItem", champ: "expenseOrderId", cible: "ExpenseOrder" },
 ];
 
 /**
@@ -256,6 +270,8 @@ export const LIBELLE_DU_MODELE: Readonly<Record<string, [string, string]>> = {
   AdProStockLine: ["article du stock demandé", "articles du stock demandés"],
   // Les voyageurs d'un poste de billetterie (§118.175) : ils partent avec leur poste, et reviennent avec lui.
   AdProVoyageur: ["voyageur", "voyageurs"],
+  AdProItemPiece: ["pièce de poste", "pièces de poste"],
+  AdProVoyageurDevis: ["devis de voyageur", "devis de voyageurs"],
   // Les achats du matériel promotionnel (§118.165) : ce qu'une demande pioche dans le catalogue,
   // et les factures reçues ligne à ligne.
   PromoRequestItem: ["article demandé", "articles demandés"],
@@ -308,6 +324,19 @@ export const LIBELLE_DU_MODELE: Readonly<Record<string, [string, string]>> = {
   SalaryAdvance: ["avance sur salaire", "avances sur salaire"],
   PayrollEntry: ["bulletin de paie", "bulletins de paie"],
   PayrollWire: ["virement de paie", "virements de paie"],
+  // Un appel d'offres PCH (§118.185, I17) : ce qui part avec lui…
+  PchTenderLine: ["lot du marché", "lots du marché"],
+  PchTenderLineBusinessUnit: ["affectation d'un lot à une BU", "affectations de lots à des BU"],
+  PchTenderExtraction: ["lecture du document du marché", "lectures du document du marché"],
+  PchSubmission: ["version de soumission", "versions de soumission"],
+  PchOrder: ["bon de commande du marché", "bons de commande du marché"],
+  PchOrderLine: ["ligne de bon de commande", "lignes de bon de commande"],
+  PchDelivery: ["livraison", "livraisons"],
+  PchDeliveryLine: ["ligne de livraison", "lignes de livraison"],
+  // …et ce qui RESTE en perdant son lien avec lui : une vente déjà faite, un mouvement de stock
+  // déjà passé — le stock ne bouge pas quand on supprime un marché.
+  Sale: ["vente", "ventes"],
+  StockMovement: ["mouvement de stock", "mouvements de stock"],
 };
 
 export function libelleDe(modele: string, n: number): string {

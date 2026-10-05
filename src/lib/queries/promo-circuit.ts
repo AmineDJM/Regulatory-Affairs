@@ -1,5 +1,6 @@
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { entitePermisePourFiche } from "@/lib/company";
 import { loadReportingLine } from "@/lib/departments";
 import { managementChainOf } from "@/lib/hr/reporting-line";
 import { anyRoleFilter, hasGlobalView, userCan, type SessionUser } from "@/lib/rbac";
@@ -156,7 +157,7 @@ export async function dossiersPromoAMonTour(user: SessionUser): Promise<DossierP
   const rows = await prisma.promoMaterial.findMany({
     where: { circuitState: { in: [...ETATS_EN_ATTENTE] } },
     select: {
-      id: true, reference: true, title: true, circuitState: true, circuitVersion: true,
+      id: true, reference: true, title: true, circuitState: true, circuitVersion: true, returnedAt: true,
       requesterId: true, assistantId: true, managerId: true, requestValidatorId: true, marketingValidatorId: true,
     },
     // Le plus ancien d'abord : c'est lui qui bloque quelqu'un depuis le plus longtemps.
@@ -189,7 +190,7 @@ export async function dossiersPromoAMonTour(user: SessionUser): Promise<DossierP
       : null;
     const tour = tourDe(
       acteur, etat,
-      { requesterId: r.requesterId, assistantId: r.assistantId },
+      { requesterId: r.requesterId, assistantId: r.assistantId, returnedAt: r.returnedAt },
       { requesterId: r.requesterId, managerId: r.managerId, requestValidatorId: r.requestValidatorId, validateursMarketing: marketing },
       version,
     );
@@ -279,11 +280,16 @@ export async function contexteDuDossier(pm: {
 export async function peutOuvrirLeDossierPromo(user: SessionUser, pm: {
   id: string; requesterId: string | null; assistantId: string | null;
   requestValidatorId?: string | null; marketingValidatorId?: string | null;
+  /** OBLIGATOIRE : la portée « toutes les lignes » s'arrête aux sociétés qu'on a le droit de voir. */
+  companyId: string | null;
 }): Promise<boolean> {
   if (hasGlobalView(user.role)) return true;
   if (userCan(user, "PROMO_MATERIAL", "VIEW")) {
     const m = user.access.modules.get("PROMO_MATERIAL");
-    if (m?.scope === "ALL") return true;
+    // « Toutes les lignes » veut dire toutes les lignes DES SOCIÉTÉS qu'on voit (§118.184) — la liste
+    // le dit déjà. Qui TRANCHE le module (VALIDATE) n'y est pas tenu : une notification de rôle lui
+    // amène les dossiers de toutes les sociétés, et il doit pouvoir ouvrir ce qu'il tranche.
+    if (m?.scope === "ALL" && (userCan(user, "PROMO_MATERIAL", "VALIDATE") || (await entitePermisePourFiche(user.id, pm.companyId)))) return true;
   }
   if ([pm.requesterId, pm.assistantId, pm.requestValidatorId, pm.marketingValidatorId].includes(user.id)) return true;
   // L'assistante de direction tient le secrétariat : elle retranscrit les devis de TOUS les

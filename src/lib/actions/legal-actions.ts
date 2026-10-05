@@ -10,7 +10,9 @@ import { prisma } from "@/lib/prisma";
 import { resolveParties, findPartyByName } from "@/lib/queries/company-contacts";
 import { recordAudit } from "@/lib/audit";
 import { companyIdForNew } from "@/lib/company";
-import { canRenew, canCancel, validateDates, proposeRenewalDates } from "@/lib/legal/lifecycle";
+import { canRenew, canCancel, canRestore, statutRetabli, validateDates, proposeRenewalDates } from "@/lib/legal/lifecycle";
+import { canAccessEntity } from "@/lib/entity-access";
+import { lecteursDeLaSuite } from "@/lib/lecteurs/legal";
 import { fdStr, fdDate, type ActionResult } from "@/lib/actions/types";
 import { attachFormFiles } from "@/lib/documents";
 import { createExpenseOrder } from "@/lib/expense-orders";
@@ -18,7 +20,10 @@ import { normalizeReaderIds, canManageLegalReaders } from "@/lib/lecteurs/legal"
 import { resolveDriveAccess, canViewDrive } from "@/lib/drive";
 import { legalWriteAllowed } from "@/lib/legal/invoices";
 import { syncInvoiceSettlement } from "@/lib/finance/settle-invoice";
-import { invoiceDirection, canSendToSettlement, canMarkPaidDirectly } from "@/lib/finances/settlement";
+import { invoiceDirection, canSendToSettlement, canMarkPaidDirectly, cleEnvoiAuReglement } from "@/lib/finances/settlement";
+import { enSerie } from "@/lib/refs";
+import { champsDuFichierChanges, pieceEmise, refusChampsDuFichier } from "@/lib/legal/piece-emise";
+import { annulerOrdreNonRegle } from "@/lib/payments/annulation";
 import type { CurrentUser } from "@/lib/session";
 import { aiguillerBC, retirerPortesEnAttente, porteDuBC, CHEMIN_BC_A_SIGNER, type ResultatAiguillage } from "@/lib/bons-de-commande/aiguillage";
 import { MENU_BONS_DE_COMMANDE } from "@/lib/chemins/bons-de-commande";
@@ -42,6 +47,9 @@ import {
 
 // AMENDMENT n'y figure pas, et c'est délibéré : un avenant naît de SON contrat (`amendsId`), pas
 // d'un formulaire libre — un avenant orphelin ne modifierait rien et fausserait la valeur du marché.
+// CREDIT_NOTE non plus, pour la même raison : un avoir naît de SA facture, par la fabrique (§118.195), qui reprend son
+// calcul et vérifie ce qui reste à créditer. Saisi ici et chaîné par « Fait suite à », il serait retiré du règlement de
+// la facture sans être passé par ce plafond — un crédit que personne n'a borné.
 const KINDS: LegalDocKind[] = ["CONTRACT", "QUOTE", "PURCHASE_ORDER", "INVOICE", "AGREEMENT", "NDA", "INSURANCE", "LICENSE", "LEASE", "OTHER"];
 const parseKind = (v: string | null): LegalDocKind =>
   v && KINDS.includes(v as LegalDocKind) ? (v as LegalDocKind) : "CONTRACT";
@@ -62,8 +70,11 @@ function peutEcrire(user: CurrentUser, verb: "CREATE" | "UPDATE" | "DELETE", kin
 }
 
 /** Champs communs à la création et à la modification. */
-function readFields(formData: FormData) {
-  const kind = parseKind(fdStr(formData, "kind"));
+function readFields(formData: FormData, natureImposee?: LegalDocKind) {
+  // LA NATURE D'UNE PIÈCE ÉMISE est celle de son fichier (§118.194) : son formulaire ne la porte plus, et la
+  // déduire d'un champ absent lisait « contrat » — la date de règlement d'une facture émise était alors
+  // ignorée, et l'enregistrement l'effaçait, sans un mot.
+  const kind = natureImposee ?? parseKind(fdStr(formData, "kind"));
   const estFacture = kind === "INVOICE";
   return {
     title: fdStr(formData, "title"),
@@ -275,20 +286,51 @@ export async function updateLegalDocument(formData: FormData): Promise<ActionRes
   const id = fdStr(formData, "id");
   if (!id) return { ok: false, error: "Document introuvable." };
 
-  const { title, ...f } = readFields(formData);
   // LA NATURE ACTUELLE COMPTE AUTANT QUE LA DEMANDÉE : sans elle, la comptabilité pourrait
   // rebaptiser un bail en « facture » pour s'ouvrir le droit de le modifier.
   const avant = await prisma.legalDocument.findUnique({
     where: { id },
-    select: { kind: true, expenseOrderId: true, counterparty: true, counterpartyIds: true, amount: true, chainFromId: true, promoFacture: { select: { id: true } } },
+    select: {
+      kind: true, expenseOrderId: true, counterparty: true, counterpartyIds: true, amount: true, chainFromId: true, promoFacture: { select: { id: true } },
+      custom: true, reference: true, startDate: true, endDate: true, direction: true,
+    },
   });
   if (!avant) return { ok: false, error: "Document introuvable." };
-  if (!peutEcrire(user, "UPDATE", avant.kind) || !peutEcrire(user, "UPDATE", f.kind)) {
+  const emise = pieceEmise(avant.custom);
+  const { title, ...f } = readFields(formData, emise ? avant.kind : undefined);
+  // UNE PIÈCE ÉMISE PAR LA PLATEFORME (§118.194 — audit 360°, R15) : son montant, sa partie, son numéro, sa
+  // nature, ses dates et son sens viennent de son FICHIER. Ce formulaire les réécrivait sans régénérer le
+  // fichier : la fiche disait un montant, la pièce envoyée en disait un autre — et c'est la fiche qui part au
+  // règlement. Ce que le formulaire ne porte pas garde sa valeur ; ce qu'il porte doit être identique ; une
+  // vraie correction passe par la révision, qui réécrit les deux ensemble.
+  if (emise) {
+    const fichier = {
+      amount: avant.amount !== null ? Number(avant.amount) : null, reference: avant.reference, kind: String(avant.kind),
+      startDate: avant.startDate, endDate: avant.endDate, direction: avant.direction, counterpartyIds: avant.counterpartyIds,
+    };
+    // LA NATURE DEMANDÉE se lit telle qu'envoyée : la lecture qui ÉCRIT impose celle du fichier, et comparer avec
+    // elle laisserait passer en silence une nature qu'on n'écrira pas. Le reste se compare à cette lecture-là —
+    // le sens de l'argent ne se lit que sur une facture, et c'est la nature du FICHIER qui dit si c'en est une.
+    const demandees = { ...f, kind: String(readFields(formData).kind) };
+    // Des clés LITTÉRALES : une lecture par variable rendrait l'action illisible à la dérivation (§118.79b).
+    const porte = {
+      amount: formData.has("amount"), reference: formData.has("reference"), kind: formData.has("kind"),
+      startDate: formData.has("startDate"), endDate: formData.has("endDate"), direction: formData.has("direction"),
+      counterpartyIds: formData.has("counterpartyIds"),
+    };
+    const changes = champsDuFichierChanges(fichier, demandees, (champ) => porte[champ]);
+    if (changes.length > 0) return { ok: false, error: refusChampsDuFichier(emise, changes) };
+  }
+  // Sur une pièce émise, la nature et les dates sont celles du fichier — même absentes du formulaire.
+  const kind = emise ? avant.kind : f.kind;
+  const startDate = emise ? avant.startDate : f.startDate;
+  const endDate = emise ? avant.endDate : f.endDate;
+  if (!peutEcrire(user, "UPDATE", avant.kind) || !peutEcrire(user, "UPDATE", kind)) {
     return { ok: false, error: "Non autorisé." };
   }
 
   if (!title) return { ok: false, error: "Le titre exact du document est obligatoire." };
-  const dates = validateDates(f.startDate, f.endDate);
+  const dates = validateDates(startDate, endDate);
   if (!dates.ok) return { ok: false, error: dates.error };
   const chainErr = await checkChainFrom(f.chainFromId, id);
   if (chainErr) return { ok: false, error: chainErr };
@@ -312,14 +354,15 @@ export async function updateLegalDocument(formData: FormData): Promise<ActionRes
   // prestataire de 2023. Une pièce qui portait déjà un nom en texte garde donc le droit d'être
   // enregistrée telle quelle — et le formulaire, lui, invite à la rattacher.
   const { counterpartyIds, ...reste } = f;
-  const demandees = await avecPartieNommee(user.id, formData, counterpartyIds);
+  // La partie d'une pièce émise est le tiers de son fichier : elle ne se choisit pas ici (voir plus haut).
+  const demandees = emise ? { ok: true as const, ids: avant.counterpartyIds } : await avecPartieNommee(user.id, formData, counterpartyIds);
   if (!demandees.ok) return { ok: false, error: demandees.error };
-  const parties = await resolveParties(user.id, demandees.ids);
+  const parties = emise ? { ok: true as const, ids: avant.counterpartyIds, text: avant.counterparty ?? "" } : await resolveParties(user.id, demandees.ids);
   if (!parties.ok) return { ok: false, error: parties.error };
   const heritage = avant.counterpartyIds.length === 0 && Boolean(avant.counterparty?.trim());
   // Un DEVIS s'enregistre sans partie (§118.175) : le corriger ensuite ne doit pas en exiger une —
   // sinon on ne pourrait plus rectifier sa date sans inventer un fournisseur.
-  if (parties.ids.length === 0 && !heritage && f.kind !== "QUOTE") {
+  if (parties.ids.length === 0 && !heritage && kind !== "QUOTE") {
     return { ok: false, error: "Choisissez au moins une partie dans l'annuaire de l'entreprise (« Créer un contact » l'y ajoute si elle en est absente)." };
   }
 
@@ -327,6 +370,8 @@ export async function updateLegalDocument(formData: FormData): Promise<ActionRes
     where: { id },
     data: {
       ...reste, title,
+      // Ce que le fichier d'une pièce émise porte garde sa valeur (voir plus haut).
+      ...(emise ? { amount: avant.amount, reference: avant.reference, kind: avant.kind, startDate, endDate, direction: avant.direction } : {}),
       counterpartyIds: parties.ids,
       // Sans sélection ET avec un nom hérité, on ne l'EFFACE pas : perdre le seul renseignement
       // qu'on avait sur la partie serait plus grave que de le garder imparfait.
@@ -348,7 +393,7 @@ export async function updateLegalDocument(formData: FormData): Promise<ActionRes
   // UN BC MODIFIÉ SE RÉAIGUILLE : devenu BC, il reçoit sa porte ; ayant cessé de l'être, il la
   // perd ; montant RELEVÉ après validation ou correction demandée par le centre, il y retourne.
   // `montantAvant` est lu AVANT l'écriture — c'est ce qui permet de savoir qu'il a été relevé.
-  const aiguillage = avant.kind === "PURCHASE_ORDER" || f.kind === "PURCHASE_ORDER"
+  const aiguillage = avant.kind === "PURCHASE_ORDER" || kind === "PURCHASE_ORDER"
     ? phraseAiguillage(await aiguillerBC(id, {
         acteurId: user.id, modifie: true,
         montantAvant: avant.amount == null ? null : Number(avant.amount),
@@ -470,12 +515,19 @@ export async function attachDriveNodeToLegal(input: {
  */
 export async function renewLegalDocument(formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
-  if (!userCan(user, "LEGAL", "CREATE")) return { ok: false, error: "Non autorisé." };
   const id = fdStr(formData, "id");
   if (!id) return { ok: false, error: "Document introuvable." };
 
-  const previous = await prisma.legalDocument.findUnique({ where: { id } });
+  // LA PORTE DU DOCUMENT (audit 360°, S7) : le droit de créer dans le module ne suffisait pas — un
+  // identifiant permettait de renouveler, donc de LIRE en le recopiant, un document restreint ou d'une
+  // autre société. Hors de cette porte, il est introuvable.
+  if (!(await canAccessEntity(user, "LEGAL_DOCUMENT", id, "UPDATE"))) return { ok: false, error: "Document introuvable." };
+  const previous = await prisma.legalDocument.findUnique({ where: { id }, include: { readers: { select: { userId: true } } } });
   if (!previous) return { ok: false, error: "Document introuvable." };
+  // LA MÊME PORTE QUE LA CRÉATION (audit 360°, R16) : renouveler, c'est créer la suite. Le droit de
+  // créer dans Legal seul refusait aux Finances le renouvellement d'un bon de commande qu'elles
+  // écrivent par ailleurs — le bouton s'affichait, l'action refusait.
+  if (!peutEcrire(user, "CREATE", previous.kind)) return { ok: false, error: "Non autorisé." };
   if (!canRenew(previous.status)) {
     return { ok: false, error: "Ce document ne peut plus être renouvelé (déjà renouvelé ou annulé)." };
   }
@@ -502,6 +554,10 @@ export async function renewLegalDocument(formData: FormData): Promise<ActionResu
         companyId: previous.companyId,
         renewedFromId: previous.id,
         createdById: user.id, updatedById: user.id,
+        // UN DOCUMENT RESTREINT LE RESTE (audit 360°, S7) : la suite naissait SANS lecteurs désignés,
+        // donc visible de tout le module. Elle hérite des lecteurs de l'original, et son auteur
+        // d'origine en devient un — il perdrait sinon le contrat qu'il a lui-même enregistré.
+        readers: { create: lecteursDeLaSuite(previous.readers.map((r) => r.userId), previous.createdById, user.id).map((userId) => ({ userId })) },
       },
       select: { id: true },
     });
@@ -538,20 +594,58 @@ export async function renewLegalDocument(formData: FormData): Promise<ActionResu
 /** ANNULER avant terme — le document reste, avec son motif ; il ne rappelle plus. */
 export async function cancelLegalDocument(formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
-  if (!userCan(user, "LEGAL", "UPDATE")) return { ok: false, error: "Non autorisé." };
   const id = fdStr(formData, "id");
   if (!id) return { ok: false, error: "Document introuvable." };
+  if (!(await canAccessEntity(user, "LEGAL_DOCUMENT", id, "UPDATE"))) return { ok: false, error: "Document introuvable." };
 
-  const doc = await prisma.legalDocument.findUnique({ where: { id }, select: { title: true, status: true, kind: true } });
+  const doc = await prisma.legalDocument.findUnique({ where: { id }, select: { title: true, status: true, kind: true, expenseOrderId: true } });
   if (!doc) return { ok: false, error: "Document introuvable." };
+  // ANNULER UNE PIÈCE, C'EST LA MODIFIER (audit 360°, R16) — et la porte de la fiche, juste au-dessus, EST
+  // cette règle : `accesAuxPiecesLegal` juge UPDATE par `legalWriteAllowed`, donc les Finances qui écrivent
+  // factures et bons de commande passent, et un contrat leur reste fermé. Le droit Legal seul, qu'on lisait
+  // ici, les refusait sous un bouton offert ; un second contrôle redirait la porte (§118.5).
   if (!canCancel(doc.status)) return { ok: false, error: "Ce document ne peut plus être annulé." };
+
+  // UNE FACTURE DONT DU MATÉRIEL EST ENTRÉ AU STOCK NE S'ANNULE PAS D'ICI : le dossier du matériel
+  // promotionnel le refuse déjà (« annulez d'abord leur réception ») ; l'annuler depuis Legal laissait
+  // au magasin des unités entrées sur une facture qui n'existe plus (§118.71 — une porte gardée à côté
+  // d'une porte ouverte).
+  if (doc.kind === "INVOICE") {
+    const recues = await prisma.promoFactureLigne.count({ where: { facture: { legalDocumentId: id }, quantiteRecue: { not: null } } });
+    if (recues > 0) {
+      return { ok: false, error: `${recues} ligne(s) de cette facture sont réceptionnées au stock promotionnel : annulez d'abord leur réception depuis le dossier du matériel (ce qui est entré au magasin y est physiquement).` };
+    }
+    // UNE FACTURE CRÉDITÉE PAR DES AVOIRS NE S'ANNULE PAS SOUS EUX (§118.195) : le client garderait des avoirs sur
+    // une facture qui n'existe plus. Les avoirs d'abord — ils s'annulent un par un, motif à l'appui.
+    const avoirs = await prisma.legalDocument.findMany({
+      where: { chainFromId: id, kind: "CREDIT_NOTE", status: { not: "CANCELLED" } }, select: { reference: true }, orderBy: { createdAt: "asc" },
+    });
+    if (avoirs.length > 0) {
+      return { ok: false, error: `Cette facture est créditée par ${avoirs.length > 1 ? `${avoirs.length} avoirs` : "un avoir"} (${avoirs.map((a) => a.reference ?? "sans numéro").join(", ")}) : annulez-${avoirs.length > 1 ? "les" : "le"} d'abord — une facture ne s'annule pas sous ses avoirs.` };
+    }
+  }
+  // UN MOTIF, toujours (audit 360°, L04) : l'annulation partait sans, et même sur le bouton « Annuler »
+  // de la boîte qui le demandait. Un contrat annulé ne rappelle plus son échéance — on doit savoir pourquoi.
+  // Demandé APRÈS les refus ci-dessus et AVANT tout effet : on ne demande pas pourquoi annuler une pièce
+  // qui ne s'annule pas d'ici (§118.18).
+  const reason = fdStr(formData, "reason");
+  if (!reason) return { ok: false, error: "Le motif de l'annulation est obligatoire." };
+  // UNE FACTURE PARTIE AU RÈGLEMENT EMPORTE SON ORDRE (§118.185, audit 360° I7) : l'annuler en
+  // laissant l'ordre ouvert, c'était une facture « annulée » au-dessus d'un paiement qui part quand
+  // même. L'ordre non réglé est annulé d'abord ; réglé, la facture ne s'annule pas — rien n'est touché.
+  let ordreAnnule: string | null = null;
+  if (doc.kind === "INVOICE" && doc.expenseOrderId) {
+    const annulation = await annulerOrdreNonRegle(doc.expenseOrderId, { acteurId: user.id, motif: `facture « ${doc.title} » annulée — ${reason}` });
+    if (!annulation.ok) return { ok: false, error: annulation.error };
+    if (annulation.annule) ordreAnnule = annulation.reference;
+  }
 
   await prisma.legalDocument.update({
     where: { id },
     data: {
       status: "CANCELLED" satisfies LegalDocStatus,
       cancelledAt: new Date(),
-      cancelReason: fdStr(formData, "reason"),
+      cancelReason: reason,
       updatedById: user.id,
     },
   });
@@ -559,9 +653,46 @@ export async function cancelLegalDocument(formData: FormData): Promise<ActionRes
     actorId: user.id, action: "UPDATE", module: "Legal",
     entityType: "LEGAL_DOCUMENT", entityId: id,
     field: "status", oldValue: doc.status, newValue: "CANCELLED",
-    summary: `Annulation de « ${doc.title} »`,
+    summary: `Annulation de « ${doc.title} » — motif : ${reason}`,
   });
   // Un BC annulé n'a plus rien à faire valider : sa porte en attente quitte le centre.
+  if (doc.kind === "PURCHASE_ORDER") await aiguillerBC(id, { acteurId: user.id });
+  revalidatePath("/legal");
+  revalidatePath(`/legal/${id}`);
+  return ordreAnnule
+    ? { ok: true, message: `Facture annulée — l'ordre de dépense ${ordreAnnule} est annulé avec elle : il ne sera pas payé.` }
+    : { ok: true };
+}
+
+/**
+ * RÉTABLIR un document annulé (audit 360°, L04) — l'annulation n'avait aucun retour. Le document reprend
+ * l'état que sa date de fin lui donne, ses rappels reprennent, et le motif de l'annulation reste au
+ * journal (on ne réécrit pas l'histoire, on la complète).
+ */
+export async function restoreLegalDocument(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  const id = fdStr(formData, "id");
+  if (!id) return { ok: false, error: "Document introuvable." };
+  if (!(await canAccessEntity(user, "LEGAL_DOCUMENT", id, "UPDATE"))) return { ok: false, error: "Document introuvable." };
+  const doc = await prisma.legalDocument.findUnique({ where: { id }, select: { title: true, status: true, kind: true, endDate: true, cancelReason: true } });
+  if (!doc) return { ok: false, error: "Document introuvable." };
+  // La porte de l'annulation, à l'envers (audit 360°, R16) : qui peut annuler cette pièce la rétablit — la
+  // porte de la fiche ci-dessus est la règle d'écriture, Finances comprises.
+  if (!canRestore(doc.status)) return { ok: false, error: "Seul un document annulé se rétablit." };
+  const statut = statutRetabli(doc.endDate);
+  // Écriture CONDITIONNELLE : deux clics simultanés ne rétablissent pas deux fois.
+  const fait = await prisma.legalDocument.updateMany({
+    where: { id, status: "CANCELLED" },
+    data: { status: statut, cancelledAt: null, cancelReason: null, lastRemindedAt: null, updatedById: user.id },
+  });
+  if (fait.count === 0) return { ok: false, error: "Ce document a déjà été rétabli." };
+  await recordAudit({
+    actorId: user.id, action: "UPDATE", module: "Legal",
+    entityType: "LEGAL_DOCUMENT", entityId: id,
+    field: "status", oldValue: "CANCELLED", newValue: statut,
+    summary: `Rétablissement de « ${doc.title} »${doc.cancelReason ? ` — il avait été annulé pour : ${doc.cancelReason}` : ""}`,
+  });
+  // Un BC rétabli redevient un engagement : il repasse par la règle des centres.
   if (doc.kind === "PURCHASE_ORDER") await aiguillerBC(id, { acteurId: user.id });
   revalidatePath("/legal");
   revalidatePath(`/legal/${id}`);
@@ -667,47 +798,72 @@ export async function sendLegalInvoiceToSettlement(formData: FormData): Promise<
   }
   const id = fdStr(formData, "id");
   if (!id) return { ok: false, error: "Document introuvable." };
+  // LA PORTE DE LA PIÈCE (§118.185, trouvé en réparant I8) : le droit de module suffisait — un
+  // identifiant envoyait au paiement la facture d'une autre société, ou une pièce restreinte à
+  // ses lecteurs désignés. Hors de la porte, elle est introuvable, comme si elle n'existait pas.
+  if (!(await canAccessEntity(user, "LEGAL_DOCUMENT", id, "VIEW"))) return { ok: false, error: "Document introuvable." };
 
-  const doc = await prisma.legalDocument.findUnique({
-    where: { id },
-    select: {
-      id: true, title: true, reference: true, kind: true, amount: true, counterparty: true,
-      endDate: true, expenseOrderId: true, paidDate: true,
-      chainFrom: { select: { id: true, kind: true, reference: true } },
-    },
-  });
-  if (!doc) return { ok: false, error: "Document introuvable." };
-  const amount = doc.amount ? Number(doc.amount) : 0;
-  // LE BC AMONT, s'il y en a un : sa porte est lue par le même lecteur que la fiche et le centre.
-  const bcAmont = doc.chainFrom?.kind === "PURCHASE_ORDER"
-    ? { porte: await porteDuBC(doc.chainFrom.id), reference: doc.chainFrom.reference }
-    : null;
-  // LE MÊME DINAR NE SORT PAS DEUX FOIS : une facture déjà soldée en direct n'a plus rien à
-  // envoyer au centre de paiement. La règle est un module pur, partagé avec l'écriture directe.
-  const envoi = canSendToSettlement({
-    kind: doc.kind, amount: amount || null, paidDate: doc.paidDate, expenseOrderId: doc.expenseOrderId,
-    bc: bcAmont,
-  });
-  if (!envoi.ok) return { ok: false, error: envoi.error };
+  // UN ENVOI À LA FOIS PAR FACTURE — la même clé que le dossier du matériel promotionnel, qui envoie
+  // la même pièce par l'autre porte : deux clics, ou deux écrans, ne font pas deux ordres.
+  return enSerie(cleEnvoiAuReglement(id), async (): Promise<ActionResult> => {
+    const doc = await prisma.legalDocument.findUnique({
+      where: { id },
+      select: {
+        id: true, title: true, reference: true, kind: true, amount: true, counterparty: true,
+        endDate: true, expenseOrderId: true, paidDate: true, direction: true,
+        chainFrom: { select: { id: true, kind: true, reference: true } },
+      },
+    });
+    if (!doc) return { ok: false, error: "Document introuvable." };
+    const amount = doc.amount ? Number(doc.amount) : 0;
+    // LE BC AMONT, s'il y en a un : sa porte est lue par le même lecteur que la fiche et le centre.
+    const bcAmont = doc.chainFrom?.kind === "PURCHASE_ORDER"
+      ? { porte: await porteDuBC(doc.chainFrom.id), reference: doc.chainFrom.reference }
+      : null;
+    // L'ORDRE DÉJÀ LIÉ : refusé par le centre ou annulé, il ne paiera jamais — la facture repart (I8).
+    const ordreLie = doc.expenseOrderId
+      ? await prisma.expenseOrder.findUnique({ where: { id: doc.expenseOrderId }, select: { status: true, centralStatus: true, reference: true } })
+      : null;
+    // LE MÊME DINAR NE SORT PAS DEUX FOIS : une facture déjà soldée en direct n'a plus rien à
+    // envoyer au centre de paiement. La règle est un module pur, partagé avec l'écriture directe.
+    const envoi = canSendToSettlement({
+      kind: doc.kind, amount: amount || null, paidDate: doc.paidDate, expenseOrderId: doc.expenseOrderId,
+      bc: bcAmont, ordreLie, direction: doc.direction,
+    });
+    if (!envoi.ok) return { ok: false, error: envoi.error };
+    // Un ordre REFUSÉ reste « en attente » côté statut : on le ferme avant d'en ouvrir un second, pour
+    // qu'aucune décision tardive du centre ne puisse rendre payables deux ordres pour une facture.
+    if (ordreLie) {
+      const fermeture = await annulerOrdreNonRegle(doc.expenseOrderId, { acteurId: user.id, motif: `remplacé par un nouvel envoi de la facture « ${doc.title} »` });
+      if (!fermeture.ok) return { ok: false, error: fermeture.error };
+    }
 
-  const order = await createExpenseOrder({
-    label: `${doc.reference ? `${doc.reference} — ` : ""}${doc.title}`,
-    amount,
-    category: "FOURNISSEUR",
-    beneficiary: doc.counterparty,
-    sourceType: "LEGAL_DOCUMENT",
-    sourceId: doc.id,
-    requestedById: user.id,
-    dueDate: doc.endDate,
+    const order = await createExpenseOrder({
+      label: `${doc.reference ? `${doc.reference} — ` : ""}${doc.title}`,
+      amount,
+      category: "FOURNISSEUR",
+      beneficiary: doc.counterparty,
+      sourceType: "LEGAL_DOCUMENT",
+      sourceId: doc.id,
+      requestedById: user.id,
+      dueDate: doc.endDate,
+    });
+    await prisma.legalDocument.update({ where: { id }, data: { expenseOrderId: order.id, updatedById: user.id } });
+    await recordAudit({
+      actorId: user.id, action: "UPDATE", module: "Legal",
+      entityType: "LEGAL_DOCUMENT", entityId: id,
+      summary: ordreLie
+        ? `Facture « ${doc.title} » renvoyée au règlement (${amount.toLocaleString("fr-FR")} DZD) — l'ordre ${ordreLie.reference} ne paiera pas`
+        : `Facture « ${doc.title} » envoyée au règlement (${amount.toLocaleString("fr-FR")} DZD)`,
+    });
+    revalidatePath(`/legal/${id}`);
+    return {
+      ok: true,
+      message: ordreLie
+        ? `Facture renvoyée au règlement — l'ordre ${ordreLie.reference} ne paiera pas ; le nouveau suit le circuit du centre de paiement.`
+        : "Facture envoyée au règlement — elle suit désormais le circuit du centre de paiement.",
+    };
   });
-  await prisma.legalDocument.update({ where: { id }, data: { expenseOrderId: order.id, updatedById: user.id } });
-  await recordAudit({
-    actorId: user.id, action: "UPDATE", module: "Legal",
-    entityType: "LEGAL_DOCUMENT", entityId: id,
-    summary: `Facture « ${doc.title} » envoyée au règlement (${amount.toLocaleString("fr-FR")} DZD)`,
-  });
-  revalidatePath(`/legal/${id}`);
-  return { ok: true, message: "Facture envoyée au règlement — elle suit désormais le circuit du centre de paiement." };
 }
 
 /**
@@ -749,6 +905,10 @@ export async function adresserBCAuCentre(formData: FormData): Promise<ActionResu
   revalidatePath(CHEMIN_BC_A_SIGNER);
   // SOUS LE SEUIL (§118.149) : aucun centre n'a à le voir — c'est un SUCCÈS, et la phrase dit où
   // il est parti. Le refuser ferait croire que la règle bloque un BC qu'elle laisse passer.
+  // RENVOYÉ À SON ÉMETTEUR (audit 360°, R09) : ce n'est pas un centre qui l'attend, c'est sa correction.
+  if (r.etape === "A_CORRIGER") {
+    return { ok: false, error: reserveEtapeBC("A_CORRIGER", r.porte, r.seuil) ?? "Ce bon de commande a été renvoyé à son émetteur : modifiez-le." };
+  }
   if (!r.porte) {
     if (r.etape === "A_SIGNER" || r.etape === "SIGNE") {
       return {

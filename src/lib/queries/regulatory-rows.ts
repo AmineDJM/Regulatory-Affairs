@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
-import { scopeRegulatory, isRegulatorySupervisor, type SessionUser } from "@/lib/rbac";
-import { companyScopedWhere, productRangeScope, getMyCompanies } from "@/lib/company";
+import { isRegulatorySupervisor, type SessionUser } from "@/lib/rbac";
+import { getMyCompanies } from "@/lib/company";
+import { clauseRegulatoryVisible } from "@/lib/queries/regulatory-visibilite";
 import { getAppSettings } from "@/lib/settings";
 import { regProgress, type RegWorkflowState } from "@/lib/regulatory-workflow";
 import { regStage } from "@/lib/regulatory/stage";
@@ -17,33 +18,14 @@ import type { RegulatoryRow } from "@/app/(app)/regulatory/regulatory-table";
  * chargements parallèles finiraient par diverger sur une colonne — celle qu'on aurait corrigée
  * d'un côté seulement.
  */
-/** « Je suis nommé sur ce dossier » — responsable, assistante, ou participant rattaché. */
-const NAMED_ON_DOSSIER = (userId: string) => ({
-  OR: [
-    { responsibleId: userId },
-    { assistantId: userId },
-    { assignedUsers: { some: { id: userId } } },
-  ],
-});
-
 /**
- * LE PÉRIMÈTRE VISIBLE D'UNE PERSONNE SUR REGULATORY — la clause UNIQUE, partagée par l'écran
- * ET par les outils du Chief of Staff : LE CHIEF NE DOIT JAMAIS CONTREDIRE L'ÉCRAN parce que
- * son outil poserait un filtre plus faible.
- *
- * LA GAMME AFFINE L'ENTITÉ, elle ne la remplace pas ; et ÊTRE NOMMÉ SUR UN DOSSIER PASSE AVANT
- * LE FILTRE DE GAMME : la gamme dit « voici votre périmètre habituel », désigner quelqu'un sur
- * un dossier dit « celui-ci aussi, délibérément ». Le cloisonnement par ENTITÉ, lui, n'est
- * jamais contourné par une assignation.
+ * LE PÉRIMÈTRE VISIBLE D'UNE PERSONNE SUR REGULATORY — la clause UNIQUE de l'écran, du pipeline et des outils
+ * du Chief of Staff (LE CHIEF NE DOIT JAMAIS CONTREDIRE L'ÉCRAN). Elle vit dans `regulatory-visibilite.ts`,
+ * que la fiche lit aussi (`canAccessEntity`) — deux écritures de la même règle finiraient par diverger
+ * (§118.5), et c'est exactement ce que l'audit a trouvé : la fiche ne composait ni l'entité ni la gamme.
  */
 export async function regulatoryVisibleWhere(user: SessionUser) {
-  const rangeScope = await productRangeScope(user.id);
-  return companyScopedWhere(user.id, {
-    ...scopeRegulatory(user),
-    ...(rangeScope
-      ? { AND: [{ OR: [rangeScope, NAMED_ON_DOSSIER(user.id)] }] }
-      : {}),
-  });
+  return clauseRegulatoryVisible(user, "liste");
 }
 
 export async function getRegulatoryRows(user: SessionUser) {

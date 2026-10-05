@@ -4,10 +4,10 @@ import * as React from "react";
 import { useRouter } from "next/navigation";
 import { Plus, Trash2, Loader2, Sparkles, Wand2, Package, Upload, TrendingUp, ShoppingCart, BadgeCheck, Download, Factory, Ship } from "lucide-react";
 import { addTenderLine, updateTenderLine, deleteTenderLine, analyzeTenderText, analyzeTenderDocument, enrichTenderLine, enrichAllTenderLines, createOrderFromLine } from "@/lib/actions/pch-tender-line-actions";
-import type { PchTenderLineDTO } from "@/lib/queries/pch";
+import type { LectureAoDTO, PchTenderLineDTO } from "@/lib/queries/pch";
 import { lineEconomics, awardResult } from "@/lib/pch/box-economics";
 
-type Res = { ok: boolean; error?: string };
+type Res = { ok: boolean; error?: string; message?: string };
 /**
  * LE CHAMP SANS SA LARGEUR — et le cas ordinaire par-dessus.
  *
@@ -30,7 +30,7 @@ const LINE_STATUS: { value: string; label: string }[] = [
 ];
 const fmt = (n: number | null) => (n == null ? "—" : new Intl.NumberFormat("fr-FR").format(n));
 
-export function TenderLines({ tenderId, lines, canEdit, aiConfigured, reserves = {} }: {
+export function TenderLines({ tenderId, lines, canEdit, aiConfigured, reserves = {}, lectures }: {
   tenderId: string; lines: PchTenderLineDTO[]; canEdit: boolean; aiConfigured: boolean;
   /**
    * « CE PRODUIT EST DÉJÀ ENGAGÉ AILLEURS » — par `productId`, la phrase à afficher.
@@ -41,12 +41,19 @@ export function TenderLines({ tenderId, lines, canEdit, aiConfigured, reserves =
    * Legal — la recalculer ici demanderait de charger les contrats dans le navigateur.
    */
   reserves?: Record<string, string>;
+  /** Les lectures précédentes du document (lot D1c — F2) : ce que chacune a fait, et le compte des autres. */
+  lectures?: { liste: LectureAoDTO[]; total: number };
 }) {
   const router = useRouter();
   const [busy, setBusy] = React.useState(false);
   const [analyzing, setAnalyzing] = React.useState(false);
   const [text, setText] = React.useState("");
   const [showAnalyze, setShowAnalyze] = React.useState(false);
+  // LA LECTURE DIT CE QU'ELLE A FAIT (lot D1c — F2) : ajoutés, remplacés, conservés, ce qui n'a pas été lu,
+  // le fichier gardé ou non. La lecture d'avant se refermait sur un « ok » muet.
+  const [complementaire, setComplementaire] = React.useState(false);
+  const [forcerOcr, setForcerOcr] = React.useState(false);
+  const [bilan, setBilan] = React.useState<{ ok: boolean; texte: string } | null>(null);
   const fileRef = React.useRef<HTMLInputElement>(null);
 
   async function run(fn: () => Promise<Res>) {
@@ -57,23 +64,28 @@ export function TenderLines({ tenderId, lines, canEdit, aiConfigured, reserves =
   }
   async function analyzeText() {
     if (!text.trim()) return;
-    setAnalyzing(true);
+    setAnalyzing(true); setBilan(null);
     const fd = new FormData(); fd.set("tenderId", tenderId); fd.set("text", text.trim());
+    if (complementaire) fd.set("complementaire", "on");
     const r: Res = await analyzeTenderText(fd);
     setAnalyzing(false);
-    if (!r.ok) { window.alert(r.error ?? "Analyse impossible."); return; }
-    setText(""); setShowAnalyze(false); router.refresh();
+    if (!r.ok) { setBilan({ ok: false, texte: r.error ?? "Analyse impossible : rien n'a été écrit au tableau du marché." }); return; }
+    setBilan({ ok: true, texte: r.message ?? "Lecture terminée." });
+    setText(""); setComplementaire(false); setShowAnalyze(false); router.refresh();
   }
   async function analyzeFile() {
     const f = fileRef.current?.files?.[0];
-    if (!f) { window.alert("Choisissez d'abord le document de l'appel d'offres."); return; }
-    setAnalyzing(true);
+    if (!f) { setBilan({ ok: false, texte: "Choisissez d'abord le document de l'appel d'offres." }); return; }
+    setAnalyzing(true); setBilan(null);
     const fd = new FormData(); fd.set("tenderId", tenderId); fd.set("file", f);
+    if (complementaire) fd.set("complementaire", "on");
+    if (forcerOcr) fd.set("forcerOcr", "on");
     const r: Res = await analyzeTenderDocument(fd);
     setAnalyzing(false);
-    if (!r.ok) { window.alert(r.error ?? "Analyse impossible."); return; }
+    if (!r.ok) { setBilan({ ok: false, texte: r.error ?? "Analyse impossible : rien n'a été écrit au tableau du marché." }); return; }
+    setBilan({ ok: true, texte: r.message ?? "Lecture terminée." });
     if (fileRef.current) fileRef.current.value = "";
-    setShowAnalyze(false); router.refresh();
+    setComplementaire(false); setForcerOcr(false); setShowAnalyze(false); router.refresh();
   }
 
   return (
@@ -83,7 +95,7 @@ export function TenderLines({ tenderId, lines, canEdit, aiConfigured, reserves =
         {canEdit && (
           <div className="flex flex-wrap items-center gap-2">
             <button type="button" onClick={() => setShowAnalyze((s) => !s)} disabled={!aiConfigured}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-input px-3 py-1.5 text-sm font-medium hover:bg-secondary disabled:opacity-50" title={aiConfigured ? "Extraire les produits du document (OCR Mistral → IA)" : "IA non configurée"}>
+              className="inline-flex items-center gap-1.5 rounded-lg border border-input px-3 py-1.5 text-sm font-medium hover:bg-secondary disabled:opacity-50" title={aiConfigured ? "Lire le document et en extraire les produits (son texte ; l'OCR seulement pour un scan)" : "IA non configurée"}>
               <Wand2 className="h-4 w-4" /> Analyser le document (IA)
             </button>
             <button type="button" disabled={busy || lines.length === 0} onClick={() => { const fd = new FormData(); fd.set("tenderId", tenderId); run(() => enrichAllTenderLines(fd)); }}
@@ -104,11 +116,29 @@ export function TenderLines({ tenderId, lines, canEdit, aiConfigured, reserves =
         )}
       </div>
 
+      {bilan && (
+        <div role={bilan.ok ? "status" : "alert"}
+          className={`flex items-start justify-between gap-3 rounded-lg border px-3 py-2 text-sm ${bilan.ok ? "border-success/40 bg-success/5" : "border-destructive/40 bg-destructive/5"}`}>
+          <p className="whitespace-pre-line">{bilan.texte}</p>
+          <button type="button" onClick={() => setBilan(null)} className="shrink-0 rounded px-2 py-0.5 text-xs hover:bg-secondary">Fermer</button>
+        </div>
+      )}
+
       {showAnalyze && (
         <div className="space-y-3 rounded-lg border border-border bg-card p-3">
-          {/* 1) Téléversement direct du document → OCR Mistral → extraction IA */}
+          {/* CE QU'UNE LECTURE REMPLACE, dit AVANT qu'on la lance (lot D1c — F2). */}
+          <p className="text-xs text-muted-foreground">
+            Une nouvelle lecture remplace les lignes des lectures précédentes que personne n&apos;a touchées ; les lignes
+            modifiées, chiffrées, soumises, annotées ou rattachées restent, et les lignes saisies à la main ne sont jamais remplacées.
+          </p>
+          <label className="flex items-start gap-2 text-xs">
+            <input type="checkbox" checked={complementaire} onChange={(e) => setComplementaire(e.target.checked)} disabled={analyzing}
+              className="mt-0.5 h-4 w-4 rounded border-input" />
+            Ce document complète les lectures précédentes (annexe, lot ajouté) : ne rien remplacer
+          </label>
+          {/* 1) Le document téléversé : son texte est lu tel quel ; l'OCR ne sert qu'aux pages scannées. */}
           <div className="space-y-2">
-            <p className="text-xs font-medium">Téléverser le document (PDF ou image) — OCR Mistral automatique</p>
+            <p className="text-xs font-medium">Téléverser le document (PDF ou image) — son texte est lu tel quel ; l&apos;OCR ne sert qu&apos;aux pages scannées</p>
             <div className="flex flex-wrap items-center gap-2">
               <input ref={fileRef} type="file" accept=".pdf,.png,.jpg,.jpeg,.webp,.tif,.tiff" disabled={analyzing}
                 className="text-xs file:mr-2 file:rounded-md file:border-0 file:bg-secondary file:px-3 file:py-1.5 file:text-xs file:font-medium" />
@@ -116,11 +146,16 @@ export function TenderLines({ tenderId, lines, canEdit, aiConfigured, reserves =
                 {analyzing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />} Analyser le fichier
               </button>
             </div>
+            <label className="flex items-start gap-2 text-xs">
+              <input type="checkbox" checked={forcerOcr} onChange={(e) => setForcerOcr(e.target.checked)} disabled={analyzing}
+                className="mt-0.5 h-4 w-4 rounded border-input" />
+              Océriser même si le PDF porte du texte (PDF en partie scanné)
+            </label>
           </div>
           <div className="flex items-center gap-2 text-[0.6875rem] uppercase tracking-wide text-muted-foreground"><span className="h-px flex-1 bg-border" /> ou coller le texte <span className="h-px flex-1 bg-border" /></div>
-          {/* 2) Texte déjà extrait (OCR externe) */}
+          {/* 2) Le texte de l'appel d'offres, collé (une annexe, une suite au-delà de ce qu'une lecture analyse). */}
           <div className="space-y-2">
-            <textarea value={text} onChange={(e) => setText(e.target.value)} rows={4} placeholder="Texte de l'appel d'offres (issu d'un OCR)…"
+            <textarea value={text} onChange={(e) => setText(e.target.value)} rows={4} placeholder="Texte de l'appel d'offres…"
               className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:border-primary focus:outline-none" />
             <div className="flex gap-2">
               <button type="button" onClick={analyzeText} disabled={analyzing || !text.trim()} className="inline-flex items-center gap-1.5 rounded-lg border border-input px-3 py-2 text-sm font-medium hover:bg-secondary disabled:opacity-60">
@@ -129,6 +164,19 @@ export function TenderLines({ tenderId, lines, canEdit, aiConfigured, reserves =
               <button type="button" onClick={() => setShowAnalyze(false)} disabled={analyzing} className="rounded-lg border border-input px-3 py-2 text-sm hover:bg-secondary">Fermer</button>
             </div>
           </div>
+          {lectures && lectures.total > 0 && (
+            <div className="space-y-1 border-t border-border pt-2">
+              <p className="text-xs font-medium">Lectures précédentes</p>
+              <ul className="space-y-0.5 text-[0.6875rem] text-muted-foreground">
+                {lectures.liste.map((l) => <li key={l.id}>{l.resume}</li>)}
+              </ul>
+              {lectures.total > lectures.liste.length && (
+                <p className="text-[0.6875rem] text-muted-foreground">
+                  {lectures.total - lectures.liste.length} plus ancienne{lectures.total - lectures.liste.length > 1 ? "s" : ""} non affichée{lectures.total - lectures.liste.length > 1 ? "s" : ""}.
+                </p>
+              )}
+            </div>
+          )}
         </div>
       )}
 
@@ -184,7 +232,7 @@ function LineCard({ tenderId, line, canEdit, busy, run, reserve }: { tenderId: s
     fd.set("id", line.id); fd.set("tenderId", tenderId);
     fd.set("designation", s.designation); fd.set("dci", s.dci); fd.set("dosage", s.dosage); fd.set("form", s.form);
     fd.set("quantityUnits", s.quantityUnits); fd.set("unitsPerBox", s.unitsPerBox); fd.set("unitLabel", s.unitLabel);
-    if (s.haveProduct) fd.set("haveProduct", "on");
+    fd.set("haveProduct", s.haveProduct ? "on" : "off");
     fd.set("unitPriceDzd", s.unitPriceDzd); fd.set("status", s.status); fd.set("awardedUnitPriceDzd", s.awardedUnitPriceDzd);
     fd.set("boxPriceDzd", s.boxPriceDzd); fd.set("boxCostDzd", s.boxCostDzd);
     fd.set("awardedQuantityUnits", s.awardedQuantityUnits); fd.set("submittedQuantityUnits", s.submittedQuantityUnits);

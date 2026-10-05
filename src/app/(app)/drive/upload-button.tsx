@@ -8,6 +8,8 @@ import { Input, Label } from "@/components/ui/input";
 import { useBackgroundUpload } from "@/components/layout/background-upload";
 import { ensureDriveFolders } from "@/lib/actions/drive-actions";
 import { fingerprintFile } from "@/lib/drive/fingerprint";
+import { useLimitesEnvoi } from "@/components/layout/use-limites-envoi";
+import { envoiDrive } from "@/components/drive/envoi-drive";
 import { cn } from "@/lib/utils";
 
 /**
@@ -52,6 +54,7 @@ export function UploadButton({
 }) {
   const { enqueue } = useBackgroundUpload();
   const inputRef = React.useRef<HTMLInputElement>(null);
+  const limites = useLimitesEnvoi();
 
   // Mode simple (nouvelle version, ou pas de liste d'utilisateurs) : envoi en arrière-plan.
   const rich = Boolean(users) && !nodeId;
@@ -60,12 +63,13 @@ export function UploadButton({
   function onChangeSimple(e: React.ChangeEvent<HTMLInputElement>) {
     const list = e.target.files;
     if (!list?.length) return;
-    const files = Array.from(list).filter((f) => f.size > 0);
-    if (files.length === 0) return;
+    // Un fichier vide n'est plus écarté en silence : le gestionnaire d'envois le DIT (constat 13).
+    const files = Array.from(list);
     if (nodeId) {
       enqueue({
         label: "Nouvelle version",
         files: [files[0]],
+        ...envoiDrive({ nodeId }, limites),
         makeRequest: (file) => { const fd = new FormData(); fd.append("file", file); fd.append("nodeId", nodeId); return { url: "/api/drive/upload", formData: fd }; },
       });
     } else {
@@ -73,6 +77,7 @@ export function UploadButton({
         label: `${files.length} fichier${files.length > 1 ? "s" : ""} (Drive)`,
         files,
         concurrency: 6,
+        ...envoiDrive({ parentId, spaceId }, limites),
         preflight: makePreflight({ parentId, spaceId }),
         makeRequest: (file) => { const fd = new FormData(); fd.append("file", file); if (parentId) fd.append("parentId", parentId); if (spaceId) fd.append("spaceId", spaceId); return { url: "/api/drive/upload", formData: fd }; },
       });
@@ -96,6 +101,7 @@ export function UploadButton({
 
 function RichUpload({ parentId, users, label, spaceId }: { parentId: string | null; users: UserLite[]; label?: string; spaceId: string | null }) {
   const { enqueue } = useBackgroundUpload();
+  const limites = useLimitesEnvoi();
   const [open, setOpen] = React.useState(false);
   const [menu, setMenu] = React.useState(false);
   const [files, setFiles] = React.useState<File[]>([]);
@@ -118,7 +124,7 @@ function RichUpload({ parentId, users, label, spaceId }: { parentId: string | nu
 
   async function onImportFolder(e: React.ChangeEvent<HTMLInputElement>) {
     const list = e.target.files;
-    const picked = Array.from(list ?? []).filter((f) => f.size > 0);
+    const picked = Array.from(list ?? []); // un fichier vide est dit par le gestionnaire, pas écarté
     if (folderInputRef.current) folderInputRef.current.value = "";
     if (picked.length === 0) return;
     setFolderBusy(true);
@@ -133,6 +139,13 @@ function RichUpload({ parentId, users, label, spaceId }: { parentId: string | nu
       label: `Dossier « ${rootName} » (${picked.length} fichier${picked.length > 1 ? "s" : ""})`,
       files: picked,
       concurrency: 6,
+      refus: envoiDrive({}, limites).refus,
+      // Le dossier de destination dépend du fichier : l'envoi direct le reçoit fichier par fichier.
+      direct: (file) => {
+        const dir = dirOf(rel(file));
+        const pid = dir ? map[dir] : (parentId ?? null);
+        return envoiDrive({ parentId: pid, spaceId: pid ? null : spaceId }, limites).direct?.(file) ?? null;
+      },
       // Réimporter un dossier déjà déposé : la quasi-totalité des fichiers est reconnue et
       // n'est pas retransférée. C'est le cas où le gain se compte en minutes.
       preflight: async (file) => {
@@ -171,6 +184,7 @@ function RichUpload({ parentId, users, label, spaceId }: { parentId: string | nu
       label: `${files.length} fichier${files.length > 1 ? "s" : ""} (Drive)`,
       files,
       concurrency: 6,
+      ...envoiDrive({ parentId, spaceId, category: cat || null, viewers, editors }, limites),
       preflight: makePreflight({ parentId, spaceId, category: cat, viewers, editors }),
       makeRequest: (file) => {
         const fd = new FormData();

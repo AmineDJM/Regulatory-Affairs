@@ -261,9 +261,13 @@ export const SPONSORING_STATUS: Record<string, Display> = {
   // factures), puis la validation finale les range dans un budget et clôture la demande.
   PRE_VALIDATED: { label: "Tenue pré-validée — postes en cours", tone: "info" },
   APPROVED: { label: "Accordé", tone: "success" },
-  APPEAL_PENDING: { label: "Appel — réexamen Direction Marketing", tone: "purple" },
+  // L'APPEL REVIENT À L'ÉTAPE QUI A TRANCHÉ (§118.186) — la Direction Marketing pour la plupart des
+  // demandes, la Direction pour celles de la Direction Marketing : le libellé ne nomme plus personne.
+  APPEAL_PENDING: { label: "Appel — en réexamen", tone: "purple" },
   AWAITING_FINAL_APPEAL: { label: "Appel — décision Direction", tone: "warning" },
   CANCELLED: { label: "Annulé", tone: "neutral" },
+  // RENVOYÉE POUR CORRECTION (§118.186) : chez le demandeur — ni en attente d'un validateur, ni refusée.
+  RETURNED: { label: "À corriger — chez le demandeur", tone: "warning" },
 };
 
 /**
@@ -317,12 +321,18 @@ export const CONGRESS_STATUS: Record<string, Display> = {
 
 export const CONGRESS_REQUEST_STATUS: Record<string, Display> = {
   AWAITING_PRELIMINARY: { label: "Attente National Sales", tone: "warning" },
-  PRELIMINARY_APPROVED: { label: "Analyse Direction Marketing", tone: "info" },
-  AWAITING_FINAL: { label: "Attente validation définitive", tone: "warning" },
+  // LES DEUX LIBELLÉS DU MILIEU SUIVENT LE CIRCUIT D'AUJOURD'HUI, comme ceux du sponsoring (§118.151,
+  // §118.186) : `PRELIMINARY_APPROVED` est projeté aux portes du DG et de la Direction des opérations,
+  // `AWAITING_FINAL` à l'étape de la Direction Marketing, qui TRANCHE. « Analyse Direction
+  // Marketing » décrivait le circuit d'avant l'inversion et faisait chercher la demande chez
+  // quelqu'un qui ne l'avait pas.
+  PRELIMINARY_APPROVED: { label: "En validation (DG / Direction des opérations)", tone: "info" },
+  AWAITING_FINAL: { label: "Attente décision Direction Marketing", tone: "warning" },
   APPROVED: { label: "Validé — pris en charge", tone: "success" },
   REJECTED: { label: "Refusé", tone: "danger" },
   CANCELLED: { label: "Annulé", tone: "neutral" },
   COMPLETED: { label: "Réalisé", tone: "success" },
+  RETURNED: { label: "À corriger — chez le demandeur", tone: "warning" },
 };
 
 export const NATIONAL_EVENT_TYPE: Record<string, string> = {
@@ -518,6 +528,18 @@ export const PRODUCT_CHANNEL: Record<string, Display> = {
   RETAIL: { label: "Gamme de ville", tone: "purple" },
   HOSPITAL: { label: "Hospitalière", tone: "info" },
   BOTH: { label: "Ville + Hôpital", tone: "neutral" },
+};
+
+/**
+ * LE CYCLE DE VIE D'UN PRODUIT CANONIQUE (§118.178) — distinct du statut réglementaire d'un
+ * dossier : « enregistré » se DÉDUIT des dossiers (une décision obtenue), « commercialisé » et
+ * « arrêté » sont des décisions humaines qu'aucun statut de dossier ne contredit.
+ */
+export const PRODUCT_LIFECYCLE: Record<string, Display> = {
+  STUDY: { label: "À l'étude", tone: "neutral" },
+  REGISTERED: { label: "Enregistré", tone: "success" },
+  MARKETED: { label: "Commercialisé", tone: "info" },
+  DISCONTINUED: { label: "Arrêté", tone: "warning" },
 };
 
 // Demandes de l'information médicale (PRIM) → Regulatory.
@@ -780,6 +802,7 @@ export const HR_REQUEST_STATUS: Record<string, Display> = {
   DELIVERED: { label: "Remise", tone: "neutral" },
   APPROVED: { label: "Accordée", tone: "success" },
   REJECTED: { label: "Refusée", tone: "danger" },
+  CANCELLED: { label: "Annulée", tone: "neutral" },
 };
 
 export const LEAVE_TYPE: Record<string, string> = {
@@ -1052,7 +1075,9 @@ export const LEGAL_DOC_KIND: Record<string, string> = {
  * personne qui lit « Avenant » partout ailleurs. Le libellé d'affichage couvre CHAQUE nature du
  * schéma (un test l'exige) ; la liste des natures créables ne bouge pas.
  */
-const LIBELLE_NATURE_LEGALE: Record<string, string> = { ...LEGAL_DOC_KIND, AMENDMENT: "Avenant" };
+// L'AVOIR suit la même règle que l'avenant : il naît de SA facture (§118.195), jamais d'un formulaire générique —
+// donc il se LIT partout, et ne se CRÉE pas depuis la liste des natures.
+const LIBELLE_NATURE_LEGALE: Record<string, string> = { ...LEGAL_DOC_KIND, AMENDMENT: "Avenant", CREDIT_NOTE: "Avoir" };
 
 export function natureLegale(kind: string): string {
   return LIBELLE_NATURE_LEGALE[kind] ?? kind;
@@ -1326,7 +1351,9 @@ export const VALIDATION_STATUS: Record<string, Display> = {
   PENDING: { label: "En attente", tone: "warning" },
   APPROVED: { label: "Validé", tone: "success" },
   REJECTED: { label: "Refusé", tone: "danger" },
-  CHANGES_REQUESTED: { label: "Modif. demandée", tone: "info" },
+  // « À corriger », comme une demande Ad & Pro renvoyée (§118.186) : depuis l'audit 360° (R08), une
+  // demande renvoyée n'est plus close — son demandeur la corrige et la resoumet.
+  CHANGES_REQUESTED: { label: "À corriger", tone: "warning" },
   CANCELLED: { label: "Annulé", tone: "neutral" },
 };
 
@@ -1334,7 +1361,7 @@ export const VALIDATION_STEP_STATE: Record<string, Display> = {
   PENDING: { label: "En attente", tone: "warning" },
   APPROVED: { label: "Validé", tone: "success" },
   REJECTED: { label: "Refusé", tone: "danger" },
-  CHANGES_REQUESTED: { label: "Modif. demandée", tone: "info" },
+  CHANGES_REQUESTED: { label: "Correction demandée", tone: "warning" },
   SKIPPED: { label: "Ignoré", tone: "neutral" },
 };
 
@@ -1408,6 +1435,12 @@ export interface NavTab {
    * monde). Absent = onglet visible dès que le module est autorisé.
    */
   feature?: string;
+  /**
+   * Une RÈGLE nommée qui décide de l'affichage à la place du seul `module` — la même que la page et
+   * les actions lisent (`nav-tabs.ts` la traduit). `"specialites"` : `peutGererSpecialites`, qui ouvre
+   * le référentiel aux deux directeurs des opérations même sans la Promotion médicale en écriture.
+   */
+  regle?: "specialites";
 }
 
 /** Navigation metadata: maps a sidebar entry to a module + route + icon name. */
@@ -1744,6 +1777,9 @@ export const ANNUAIRES_TABS: NavTab[] = [
   { module: "MEDICAL", label: "Médecins", href: "/annuaires/medecins", annuaire: "MEDECINS" },
   { module: "MEDICAL", label: "Pharmaciens", href: "/annuaires/pharmaciens", annuaire: "PHARMACIENS" },
   { module: "MEDICAL", label: "Établissements", href: "/annuaires/etablissements", annuaire: "ETABLISSEMENTS" },
+  // LE RÉFÉRENTIEL DES SPÉCIALITÉS (§118.180) — une STRUCTURE de l'annuaire : il s'ouvre par la
+  // Promotion médicale, pas par une case « Médecins » de la console (§118.147).
+  { module: "MEDICAL", label: "Spécialités", href: "/annuaires/specialites", regle: "specialites" },
   { module: "WORKSPACE", label: "Partenaires", href: "/annuaires/partenaires", annuaire: "PARTENAIRES" },
   { module: "WORKSPACE", label: "Personnes", href: "/annuaires/personnes", annuaire: "PERSONNES" },
   { module: "DIRECTORIES", label: "Autres annuaires", href: "/annuaires/autres" },

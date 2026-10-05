@@ -2,12 +2,11 @@ import { Fragment } from "react";
 import Link from "next/link";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { requireModule } from "@/lib/session";
-import { prisma } from "@/lib/prisma";
 import { ensureCycle } from "@/lib/actions/sales-planning-actions";
 import { monthLabel, resolveRepScope, TIERS, TIER_LABELS } from "@/lib/sfe";
 import { loadCockpit } from "@/lib/queries/sfe-cockpit";
-import { effortVsSales, effortSummary } from "@/lib/sfe-performance";
-import { toNumber } from "@/lib/utils";
+import { effortSummary } from "@/lib/sfe-performance";
+import { chargerEffortVentes } from "@/lib/queries/sfe-effort";
 import { PageHeader } from "@/components/shared/page-header";
 import { loadTourneeDirection } from "@/lib/queries/tour-schedule";
 import { STATUT_PLAN_LABELS, type StatutPlan } from "@/lib/sfe/tournee";
@@ -45,32 +44,10 @@ export default async function PilotagePage({ searchParams }: { searchParams: { y
   const tFte = rows.reduce((s, r) => s + r.plannedFte, 0);
 
   // ── EFFORT × EFFET : les visites par produit, en regard des ventes du même mois. ──────────
+  // Le chiffre d'affaires se lit à la maille d'une BU ou de la Direction, dans les sociétés qu'on voit
+  // (§118.184 — S14) : la règle vit dans `chargerEffortVentes`, pas dans la page.
   const repIds = rows.map((r) => r.repId);
-  const [visitLinks, sales] = repIds.length
-    ? await Promise.all([
-        prisma.medicalVisitProduct.findMany({
-          where: { visit: { delegateId: { in: repIds }, status: "COMPLETED", date: { gte: monthStart, lt: monthEnd } } },
-          select: { productId: true, product: { select: { canonicalName: true } } },
-        }),
-        prisma.sale.findMany({
-          where: { productId: { not: null }, date: { gte: monthStart, lt: monthEnd } },
-          select: { productId: true, revenue: true, canonicalProduct: { select: { canonicalName: true } } },
-        }),
-      ])
-    : [[], []];
-  const effortMap = new Map<string, { name: string; visits: number; revenue: number }>();
-  for (const l of visitLinks) {
-    const cur = effortMap.get(l.productId) ?? { name: l.product.canonicalName, visits: 0, revenue: 0 };
-    cur.visits += 1;
-    effortMap.set(l.productId, cur);
-  }
-  for (const v of sales) {
-    if (!v.productId) continue;
-    const cur = effortMap.get(v.productId) ?? { name: v.canonicalProduct?.canonicalName ?? "Produit", visits: 0, revenue: 0 };
-    cur.revenue += toNumber(v.revenue);
-    effortMap.set(v.productId, cur);
-  }
-  const effort = effortVsSales([...effortMap.entries()].map(([productId, v]) => ({ productId, ...v })));
+  const { lisible: ventesLisibles, lignes: effort } = await chargerEffortVentes(user.id, scope, repIds, monthStart, monthEnd);
 
   // ── LES TOURNÉES : « visitées / planifiées » ET « le nombre de visites » ─────────────────
   //
@@ -297,7 +274,7 @@ export default async function PilotagePage({ searchParams }: { searchParams: { y
           Ce tableau ne note personne : il révèle les deux anomalies qu'aucun des deux chiffres
           ne montre seul — un produit détaillé qui ne se vend nulle part, un produit qui se vend
           sans qu'on le détaille. Les deux sont des conversations à avoir, pas des verdicts. */}
-      {effort.length > 0 && (
+      {ventesLisibles && effort.length > 0 && (
         <Card>
           <CardContent className="space-y-3 p-4">
             <div className="flex flex-wrap items-baseline justify-between gap-2">

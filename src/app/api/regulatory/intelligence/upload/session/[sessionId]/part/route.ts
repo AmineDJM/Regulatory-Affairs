@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getCurrentUser } from "@/lib/session";
-import { getCompanyScope } from "@/lib/company";
-import { regCan, resolveRegCompanyId } from "@/lib/regulatory/intelligence/access";
+import { getCurrentUserPourEcrire } from "@/lib/session";
+import { regCan, resolveRegCompanyIdFor } from "@/lib/regulatory/intelligence/access";
 import { putUploadPart } from "@/lib/regulatory/intelligence/upload/session";
 
 /**
@@ -15,10 +14,10 @@ export const maxDuration = 120;
 
 export async function PUT(req: NextRequest, { params }: { params: { sessionId: string } }) {
   try {
-    const user = await getCurrentUser();
+    const user = await getCurrentUserPourEcrire();
     if (!user) return NextResponse.json({ error: "Non authentifié." }, { status: 401 });
     if (!regCan(user, "regulatory.dossier.upload")) return NextResponse.json({ error: "Non autorisé." }, { status: 403 });
-    const companyId = await resolveRegCompanyId(getCompanyScope());
+    const companyId = await resolveRegCompanyIdFor(user.id);
     if (!companyId) return NextResponse.json({ error: "Module non activé." }, { status: 403 });
 
     const index = Number(req.nextUrl.searchParams.get("index"));

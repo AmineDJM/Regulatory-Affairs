@@ -10,7 +10,9 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { LEAVE_TYPE } from "@/lib/labels";
 import { type LeaveStage } from "@/lib/leave-workflow";
 import { formatDate, cn } from "@/lib/utils";
+import { depuisLisible } from "@/lib/calendar-tz";
 import { LeaveEditButton } from "./leave-edit";
+import { BoutonDecisif } from "@/components/ui/bouton-decisif";
 
 export interface PendingLeave {
   id: string;
@@ -26,6 +28,10 @@ export interface PendingLeave {
   previousStageLabel?: string | null;
   /** La fiche complète (nom, fonction, recrutement, direction, téléphone, intérim, reprise). */
   sheet?: { label: string; value: string }[];
+  /** En intérim : le N+1 absent au nom de qui l'on signe (I18). */
+  pourLeCompteDe?: string | null;
+  /** Depuis quand la demande attend à sa marche (ISO — lot E2, 07-05). */
+  depuis?: string | null;
 }
 
 const STAGE_SHORT: Record<LeaveStage, string> = {
@@ -42,14 +48,16 @@ const STAGE_SHORT: Record<LeaveStage, string> = {
  * deviner ce que la précédente pensait. Le champ « note » est donc dans la ligne, pas derrière
  * un écran de plus.
  */
-function DecisionRow({ leave, canManage }: { leave: PendingLeave; canManage: boolean }) {
+function DecisionRow({ leave, canManage, maintenant }: { leave: PendingLeave; canManage: boolean; maintenant?: string }) {
   const router = useRouter();
+  // DEPUIS QUAND ÇA ATTEND (07-05) — la période dit quand la personne part, pas depuis quand elle attend
+  // une réponse. L'instant vient du serveur quand il le donne : le rendu et l'hydratation disent la même chose.
+  const attente = depuisLisible(leave.depuis, maintenant ? new Date(maintenant) : undefined);
   const [note, setNote] = React.useState("");
   const [busy, setBusy] = React.useState<"APPROVED" | "REJECTED" | null>(null);
   const [error, setError] = React.useState<string | null>(null);
 
   const decide = async (decision: "APPROVED" | "REJECTED") => {
-    if (decision === "REJECTED" && !window.confirm("Refuser cette demande de congé ? Le circuit s'arrête ici.")) return;
     setBusy(decision); setError(null);
     const fd = new FormData();
     fd.set("id", leave.id);
@@ -98,6 +106,8 @@ function DecisionRow({ leave, canManage }: { leave: PendingLeave; canManage: boo
       </TableCell>
       <TableCell label="Étape">
         <Badge tone="warning" dot={false}>{STAGE_SHORT[leave.stage]}</Badge>
+        {leave.pourLeCompteDe && <Badge tone="info" dot={false} className="mt-1">Intérim pour {leave.pourLeCompteDe}</Badge>}
+        {attente && <p className="mt-1 text-[0.6875rem] text-muted-foreground">En attente {attente}</p>}
       </TableCell>
       <TableCell label="Décision">
         <div className="flex flex-col items-stretch gap-1.5 md:items-end">
@@ -108,18 +118,18 @@ function DecisionRow({ leave, canManage }: { leave: PendingLeave; canManage: boo
             className="w-full rounded-md border border-border bg-background px-2 py-1 text-xs md:w-56"
           />
           <div className="flex items-center gap-1.5 md:justify-end">
-            <button
+            <BoutonDecisif brut
               type="button" disabled={busy !== null} onClick={() => decide("APPROVED")}
               className={cn("inline-flex items-center gap-1 rounded-md border border-success/30 px-2 py-1 text-xs font-medium text-success hover:bg-success/10 disabled:opacity-50")}
             >
               {busy === "APPROVED" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />} Approuver
-            </button>
-            <button
+            </BoutonDecisif>
+            <BoutonDecisif brut
               type="button" disabled={busy !== null} onClick={() => decide("REJECTED")}
               className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-xs font-medium text-muted-foreground hover:bg-destructive/10 hover:text-destructive disabled:opacity-50"
             >
               {busy === "REJECTED" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <X className="h-3.5 w-3.5" />} Refuser
-            </button>
+            </BoutonDecisif>
             {canManage && (
               <LeaveEditButton leave={{
                 id: leave.id, employee: leave.employee, type: leave.type,
@@ -143,8 +153,8 @@ function DecisionRow({ leave, canManage }: { leave: PendingLeave; canManage: boo
  * déjà filtrée pour eux.
  */
 export function LeaveApprovals({
-  leaves, emptyHint, canManage = false,
-}: { leaves: PendingLeave[]; emptyHint?: string; canManage?: boolean }) {
+  leaves, emptyHint, canManage = false, maintenant,
+}: { leaves: PendingLeave[]; emptyHint?: string; canManage?: boolean; maintenant?: string }) {
   if (leaves.length === 0) {
     return (
       <EmptyState
@@ -169,7 +179,7 @@ export function LeaveApprovals({
           </TableRow>
         </TableHeader>
         <TableBody>
-          {leaves.map((l) => <DecisionRow key={l.id} leave={l} canManage={canManage} />)}
+          {leaves.map((l) => <DecisionRow key={l.id} leave={l} canManage={canManage} maintenant={maintenant} />)}
         </TableBody>
       </Table>
     </div>

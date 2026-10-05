@@ -3,11 +3,12 @@
 import { revalidatePath } from "next/cache";
 import type { ContractType, LeaveType, LeaveStatus, UserRole } from "@prisma/client";
 import { requireUser } from "@/lib/session";
-import { userCan } from "@/lib/rbac";
+import { userCan, rolesWithModule } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { recordAudit, recordFieldChanges } from "@/lib/audit";
 import { createExpenseOrder } from "@/lib/expense-orders";
-import { askClaude, aiConfigured } from "@/lib/ai";
+import { askClaude, aiConfigured, cleModeleRequise } from "@/lib/ai";
+import { phraseIaNonConfiguree } from "@/lib/ia/cle-manquante";
 import { ocrDocument, canOcr } from "@/lib/regulatory/intelligence/ocr/ocr-engine";
 import { notifyUser, notifyRoles } from "@/lib/notify";
 import {
@@ -17,6 +18,10 @@ import {
   canDecideLeave, applyLeaveDecision, stageNotifyRoles, LEAVE_STAGE_LABELS, type LeaveStage,
 } from "@/lib/leave-workflow";
 import { fdStr, fdNum, fdDate, fdBool, type ActionResult } from "@/lib/actions/types";
+import { entitePermisePourFiche } from "@/lib/company";
+import { compteSuitLaFiche } from "@/lib/hr/depart";
+import { chargerSalairesPartis } from "@/lib/hr/salaires-partis";
+import { decisionRattachement } from "@/lib/hr/rattachement-paie";
 // LA FRONTIÈRE — l'ERP annonce ses faits ; il ne sait pas qui les écoute, et c'est le principe.
 import { emit } from "@/platform/events";
 
@@ -43,6 +48,10 @@ export async function createEmployee(
   const fullName = fdStr(formData, "fullName");
   if (!fullName) return { ok: false, error: "Le nom complet est obligatoire." };
 
+  // L'ENTITÉ est l'une de celles que le formulaire propose (`getMyCompanies`) : un identifiant forgé rangeait
+  // un salarié chez une société que la RH ne voit pas (§118.184 — audit 360°, S13).
+  const companyIdSaisi = fdStr(formData, "companyId") || null;
+  if (!(await entitePermisePourFiche(user.id, companyIdSaisi))) return { ok: false, error: "Cette entité ne vous est pas ouverte." };
   const dept = await resolveDepartmentFields(formData);
   let created;
   try {
@@ -66,7 +75,7 @@ export async function createEmployee(
         address: fdStr(formData, "address"),
         userId: fdStr(formData, "userId"),
         managerId: fdStr(formData, "managerId"),
-        companyId: fdStr(formData, "companyId") || null,
+        companyId: companyIdSaisi,
       },
     });
   } catch {
@@ -126,7 +135,25 @@ export async function updateEmployee(formData: FormData): Promise<ActionResult> 
   if (!id) return { ok: false, error: "Employé introuvable." };
 
   const before = await prisma.employee.findUnique({ where: { id } });
-  if (!before) return { ok: false, error: "Employé introuvable." };
+  // LA PORTE DE LA FICHE (`/rh/[id]` lit `entitePermisePourFiche`) : la RH d'une société modifiait, par
+  // l'identifiant, la fiche d'un salarié d'une autre (§118.184 — audit 360°, S13).
+  if (!before || !(await entitePermisePourFiche(user.id, before.companyId))) return { ok: false, error: "Employé introuvable." };
+  const companyIdSaisi = fdStr(formData, "companyId") || null;
+  if (!(await entitePermisePourFiche(user.id, companyIdSaisi))) return { ok: false, error: "Cette entité ne vous est pas ouverte." };
+  // CHANGER L'ENTITÉ D'UNE FICHE DÉPLACE L'ATTRIBUTION DE SES SALAIRES (les lignes de paie suivent la fiche) :
+  // un salaire déjà parti au nom d'une autre société ne change pas d'entité en silence — la même règle que
+  // « rattacher » depuis l'écran de la paie (`decisionRattachement`, une seule lecture des salaires partis).
+  if (companyIdSaisi !== before.companyId) {
+    const { partisParSalarie } = await chargerSalairesPartis([id]);
+    const societes = await prisma.company.findMany({ select: { id: true, name: true, shortName: true } });
+    const nomDe = new Map(societes.map((c) => [c.id, c.shortName || c.name]));
+    const decision = decisionRattachement(
+      [{ id, nom: before.fullName, salairesPartis: partisParSalarie.get(id) ?? [] }],
+      { id: companyIdSaisi ?? "", nom: companyIdSaisi ? nomDe.get(companyIdSaisi) ?? "cette entité" : "aucune entité" },
+      (cid) => nomDe.get(cid) ?? "une entité supprimée",
+    );
+    if (!decision.ok) return { ok: false, error: decision.refus };
+  }
 
   const deptFields = await resolveDepartmentFields(formData);
   const data = {
@@ -164,7 +191,7 @@ export async function updateEmployee(formData: FormData): Promise<ActionResult> 
     address: fdStr(formData, "address"),
     userId: fdStr(formData, "userId"),
     managerId: fdStr(formData, "managerId"),
-    companyId: fdStr(formData, "companyId") || null, // entité de rattachement (modifiable)
+    companyId: companyIdSaisi, // entité de rattachement (modifiable)
     isActive: fdBool(formData, "isActive"),
   };
 
@@ -184,10 +211,12 @@ export async function updateEmployee(formData: FormData): Promise<ActionResult> 
     after as unknown as Record<string, unknown>,
     ["fullName", "position", "department", "baseSalary", "contractType", "contractEnd", "leaveBalanceDays", "isActive", "userId", "managerId"],
   );
+  // LE COMPTE SUIT LA FICHE quand elle change d'état (§118.184 — S13).
+  const compte = before.isActive !== after.isActive ? await compteSuitLaFiche(user, after, after.isActive) : null;
   revalidatePath("/rh");
   revalidatePath(`/rh/${id}`);
   revalidatePath("/rh/departements");
-  return { ok: true, id };
+  return compte ? { ok: true, id, message: compte } : { ok: true, id };
 }
 
 /**
@@ -219,7 +248,8 @@ export async function analyzeEmployeeContract(
 ): Promise<{ ok: boolean; error?: string; values?: Record<string, string> }> {
   const user = await requireUser();
   if (!userCan(user, "RH", "CREATE")) return { ok: false, error: "Non autorisé." };
-  if (!aiConfigured()) return { ok: false, error: "IA non configurée : ajoutez la clé ANTHROPIC_API_KEY (Render)." };
+  // Le nom de la clé se lit dans le registre (§118.128), jamais de mémoire.
+  if (!aiConfigured()) return { ok: false, error: phraseIaNonConfiguree(cleModeleRequise(), "l'analyse automatique d'un contrat de travail") };
   const file = formData.get("file");
   if (!(file instanceof File) || file.size === 0) return { ok: false, error: "Choisissez le contrat de travail (PDF ou image)." };
   const ext = (file.name.split(".").pop() ?? "").toLowerCase();
@@ -255,7 +285,7 @@ export async function analyzeEmployeeContract(
     const v = s(k); if (ISO_DATE.test(v)) values[k] = v;
   }
   const ct = s("contractType").toUpperCase(); if (CONTRACT_TYPES_UP.includes(ct)) values.contractType = ct;
-  const sal = s("baseSalary").replace(/[^\d.]/g, ""); if (sal && Number(sal) > 0) values.baseSalary = String(Math.round(Number(sal)));
+  const sal = s("baseSalary").replace(/[^\d.]/g, ""); if (sal && Number(sal) > 0) values.baseSalary = String(Math.round(Number(sal) * 100) / 100);
 
   if (!Object.keys(values).length) return { ok: false, error: "Aucune information exploitable détectée dans le contrat." };
   await recordAudit({ actorId: user.id, action: "UPDATE", module: "Ressources humaines", summary: `Analyse IA d'un contrat de travail — ${Object.keys(values).length} champ(s) préremplis` });
@@ -268,14 +298,18 @@ export async function setEmployeeActive(formData: FormData): Promise<ActionResul
   const id = fdStr(formData, "id");
   if (!id) return { ok: false, error: "Employé introuvable." };
   const isActive = fdBool(formData, "isActive");
+  const fiche = await prisma.employee.findUnique({ where: { id }, select: { isActive: true, companyId: true, userId: true, fullName: true } });
+  if (!fiche || !(await entitePermisePourFiche(user.id, fiche.companyId))) return { ok: false, error: "Employé introuvable." };
   await prisma.employee.update({ where: { id }, data: { isActive } });
+  // LE COMPTE SUIT LA FICHE (§118.184 — S13) : une personne partie ne garde pas l'ERP.
+  const compte = fiche.isActive !== isActive ? await compteSuitLaFiche(user, fiche, isActive) : null;
   await recordAudit({
     actorId: user.id, action: "UPDATE", module: "Ressources humaines", entityType: "EMPLOYEE",
     entityId: id, field: "isActive", newValue: String(isActive), summary: isActive ? "Employé réactivé" : "Employé désactivé",
   });
   revalidatePath("/rh");
   revalidatePath(`/rh/${id}`);
-  return { ok: true };
+  return compte ? { ok: true, message: compte } : { ok: true };
 }
 
 // ─────────────────────────────── Leave ───────────────────────────────
@@ -364,25 +398,33 @@ export async function decideLeave(formData: FormData): Promise<ActionResult> {
     DG: { dgDecidedById: user.id, dgDecidedAt: now, dgNote: note },
   };
 
-  await prisma.leaveRequest.update({
-    where: { id },
-    data: {
-      status: next.status,
-      stage: next.stage,
-      ...(stampByStage[leave.stage] ?? {}),
-      // `decidedBy/At/Note` = la DERNIÈRE main posée sur la demande (compat historique + listes).
-      decidedById: user.id, decidedAt: now, decisionNote: note,
-    },
-  });
-
-  // Le solde ne bouge qu'au bout du circuit — et une seule fois (une seule transition
-  // porte `granted`).
-  if (next.granted && leave.type === "ANNUAL") {
-    await prisma.employee.update({
-      where: { id: leave.employeeId },
-      data: { leaveBalanceDays: { decrement: Number(leave.days) } },
+  // UN GESTE À LA FOIS (§118.196, E1) : la décision n'est écrite que sur la marche LUE, et le solde
+  // se débite dans la MÊME transaction. « Une seule transition porte `granted` » était vrai d'un
+  // circuit et faux de deux clics : deux accords finaux simultanés passaient tous les deux, et le
+  // solde du salarié se débitait DEUX fois — un congé de cinq jours en coûtait dix, sans un mot.
+  const ecrit = await prisma.$transaction(async (tx) => {
+    const r = await tx.leaveRequest.updateMany({
+      where: { id, status: "PENDING", stage: leave.stage },
+      data: {
+        status: next.status,
+        stage: next.stage,
+        ...(stampByStage[leave.stage] ?? {}),
+        // `decidedBy/At/Note` = la DERNIÈRE main posée sur la demande (compat historique + listes).
+        decidedById: user.id, decidedAt: now, decisionNote: note,
+      },
     });
-  }
+    if (r.count === 0) return false;
+    // Le solde ne bouge qu'au bout du circuit — et une seule fois : la transition qui porte
+    // `granted` n'est écrite qu'une fois, par la condition ci-dessus.
+    if (next.granted && leave.type === "ANNUAL") {
+      await tx.employee.update({
+        where: { id: leave.employeeId },
+        data: { leaveBalanceDays: { decrement: Number(leave.days) } },
+      });
+    }
+    return true;
+  });
+  if (!ecrit) return { ok: false, error: "Cette demande vient d'être tranchée par quelqu'un d'autre — rechargez la page." };
 
   const period = `${leave.startDate.toLocaleDateString("fr-FR")} → ${leave.endDate.toLocaleDateString("fr-FR")}`;
   if (next.status === "PENDING") {
@@ -446,14 +488,37 @@ export async function cancelLeave(formData: FormData): Promise<ActionResult> {
   // congé qu'il n'a pas pris.
   const refund = leave.status === "APPROVED" && leave.type === "ANNUAL" ? Number(leave.days) : 0;
 
-  await prisma.leaveRequest.update({
-    where: { id },
-    // Le circuit s'arrête là : une demande retirée ne doit plus apparaître dans la file
-    // d'aucune des trois marches.
-    data: { status: "CANCELLED", stage: "DONE", decidedById: user.id, decidedAt: new Date() },
+  // UN GESTE À LA FOIS : l'annulation s'écrit sur l'état ET la marche lus — une décision croisée
+  // l'emporte, et deux clics ne recréditent pas deux fois. Le recrédit suit dans la même transaction.
+  const annule = await prisma.$transaction(async (tx) => {
+    const r = await tx.leaveRequest.updateMany({
+      where: { id, status: leave.status, stage: leave.stage },
+      // Le circuit s'arrête là : une demande retirée ne doit plus apparaître dans la file
+      // d'aucune des trois marches.
+      data: { status: "CANCELLED", stage: "DONE", decidedById: user.id, decidedAt: new Date() },
+    });
+    if (r.count === 1 && refund > 0) {
+      await tx.employee.update({ where: { id: leave.employeeId }, data: { leaveBalanceDays: { increment: refund } } });
+    }
+    return r.count === 1;
   });
-  if (refund > 0) {
-    await prisma.employee.update({ where: { id: leave.employeeId }, data: { leaveBalanceDays: { increment: refund } } });
+  if (!annule) return { ok: false, error: "Cette demande vient d'être tranchée — rechargez la page." };
+
+  // CEUX QUI DEVAIENT LA TRAITER SONT PRÉVENUS (décision du 04/10) : la marche où elle attendait quand le
+  // salarié la retire ; le salarié quand ce sont les RH qui l'annulent.
+  const periodeAnnulee = `${leave.employee.fullName} — congé de ${Number(leave.days)} j : demande annulée${isOwner ? " par le salarié" : " par les RH"}.`;
+  if (isOwner && leave.status === "PENDING") {
+    if (leave.stage === "MANAGER" && leave.managerId) {
+      const chef = await prisma.employee.findUnique({ where: { id: leave.managerId }, select: { userId: true } });
+      if (chef?.userId && chef.userId !== user.id) {
+        await notifyUser({ userId: chef.userId, type: "GENERIC", title: "Demande de congé annulée", body: periodeAnnulee, link: "/mon-espace" }).catch(() => undefined);
+      }
+    } else {
+      const roles = stageNotifyRoles(leave.stage as LeaveStage) as UserRole[];
+      if (roles.length) await notifyRoles(roles, { type: "GENERIC", title: "Demande de congé annulée", body: periodeAnnulee, link: "/rh" }).catch(() => undefined);
+    }
+  } else if (!isOwner && leave.employee.userId) {
+    await notifyUser({ userId: leave.employee.userId, type: "GENERIC", title: "Demande de congé annulée", body: periodeAnnulee, link: "/mon-espace" }).catch(() => undefined);
   }
   await recordAudit({
     actorId: user.id, action: "UPDATE", module: "Ressources humaines", entityType: "LEAVE_REQUEST",
@@ -572,10 +637,13 @@ export async function decideAdvance(formData: FormData): Promise<ActionResult> {
   if (!adv) return { ok: false, error: "Demande introuvable." };
   if (adv.status !== "PENDING") return { ok: false, error: "Cette demande a déjà été traitée." };
 
-  await prisma.salaryAdvance.update({
-    where: { id },
+  // UN GESTE À LA FOIS : la décision ne s'écrit que sur une avance ENCORE en attente — un retrait par
+  // le salarié (décision du 04/10) ou une décision croisée l'emportent, sans ordre de dépense en double.
+  const pris = await prisma.salaryAdvance.updateMany({
+    where: { id, status: "PENDING" },
     data: { status: decision, decidedById: user.id, decidedAt: new Date(), decisionNote: fdStr(formData, "note") },
   });
+  if (pris.count === 0) return { ok: false, error: "Cette demande vient d'être traitée ou retirée — rechargez la page." };
   if (adv.employee.userId) {
     await prisma.notification.create({
       data: {
@@ -622,10 +690,20 @@ export async function cancelAdvance(formData: FormData): Promise<ActionResult> {
   if (!isOwner && !isRh) return { ok: false, error: "Non autorisé." };
   if (adv.status !== "PENDING") return { ok: false, error: "Seule une demande en attente peut être annulée." };
 
-  await prisma.salaryAdvance.update({ where: { id }, data: { status: "CANCELLED" } });
+  // Conditionnelle : une décision des RH passée entre-temps l'emporte, et deux clics n'annulent qu'une fois.
+  const pris = await prisma.salaryAdvance.updateMany({ where: { id, status: "PENDING" }, data: { status: "CANCELLED" } });
+  if (pris.count === 0) return { ok: false, error: "Cette demande vient d'être traitée — rechargez la page." };
+  // CEUX QUI DEVAIENT LA TRAITER SONT PRÉVENUS (décision du 04/10) : les RH quand le salarié la retire,
+  // le salarié quand ce sont les RH.
+  const corpsAvance = `${adv.employee.fullName} — avance de ${Number(adv.amount)} DZD : demande annulée${isOwner ? " par le salarié" : " par les RH"}.`;
+  if (isOwner) {
+    await notifyRoles(rolesWithModule("RH", "VALIDATE"), { type: "GENERIC", title: "Avance sur salaire annulée", body: corpsAvance, link: "/rh" }).catch(() => undefined);
+  } else if (adv.employee.userId) {
+    await notifyUser({ userId: adv.employee.userId, type: "GENERIC", title: "Avance sur salaire annulée", body: corpsAvance, link: "/mon-espace" }).catch(() => undefined);
+  }
   await recordAudit({
     actorId: user.id, action: "UPDATE", module: "Ressources humaines", entityType: "SALARY_ADVANCE",
-    entityId: id, field: "status", newValue: "CANCELLED", summary: "Avance annulée",
+    entityId: id, field: "status", oldValue: "PENDING", newValue: "CANCELLED", summary: `Avance annulée — ${adv.employee.fullName}`,
   });
   revalidatePath("/rh");
   revalidatePath("/mon-espace");

@@ -80,7 +80,7 @@ export function EditTenderButton({ tender, canDelete, users = [], businessUnits 
             <W label="Date d'attribution"><Input name="awardDate" type="date" defaultValue={t.awardDate?.slice(0, 10) ?? ""} /></W>
             <W full label="— Caution —"><div /></W>
             <W label="Montant caution (DZD)"><Input name="cautionAmount" type="number" step="any" defaultValue={t.cautionAmount ?? ""} /></W>
-            <W label="Déposée ?"><label className="flex h-9 items-center gap-2 text-sm"><input type="checkbox" name="cautionDeposited" defaultChecked={t.cautionDeposited} className="h-4 w-4 rounded border-input" /> Caution déposée</label></W>
+            <W label="Déposée ?"><label className="flex h-9 items-center gap-2 text-sm"><input type="hidden" name="cautionDeposited" value="off" /><input type="checkbox" name="cautionDeposited" defaultChecked={t.cautionDeposited} className="h-4 w-4 rounded border-input" /> Caution déposée</label></W>
             <W label="Caution — début"><Input name="cautionStart" type="date" defaultValue={t.cautionStart?.slice(0, 10) ?? ""} /></W>
             <W label="Caution — fin"><Input name="cautionEnd" type="date" defaultValue={t.cautionEnd?.slice(0, 10) ?? ""} /></W>
             <W full label="Notes"><Textarea name="notes" defaultValue={t.notes} /></W>
@@ -88,7 +88,7 @@ export function EditTenderButton({ tender, canDelete, users = [], businessUnits 
           {err && <div className="flex items-center gap-2 rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive"><AlertCircle className="h-4 w-4" /> {err}</div>}
           <div className="flex items-center justify-between pt-1">
             {canDelete ? (
-              <Button type="button" variant="ghost" className="text-destructive" onClick={() => { if (window.confirm("Supprimer cet appel d'offres et ses bons de commande ?")) { const fd = new FormData(); fd.set("id", t.id); deleteTender(fd).then((r) => { if (r.ok) router.push("/pch"); else window.alert(r.error); }); } }}>
+              <Button type="button" variant="ghost" className="text-destructive" onClick={() => { if (window.confirm("Supprimer cet appel d'offres ? Il part à la corbeille avec ses lots, ses bons de commande et leurs livraisons — le Super Admin peut tout restaurer.")) { const fd = new FormData(); fd.set("id", t.id); deleteTender(fd).then((r) => { if (r.ok) router.push("/pch"); else window.alert(r.error); }); } }}>
                 <Trash2 className="h-4 w-4" /> Supprimer
               </Button>
             ) : <span />}

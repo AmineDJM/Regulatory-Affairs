@@ -115,7 +115,15 @@ suite("LA BRANCHE CONDITIONNELLE — « sinon » sur délai, « si » sur répon
   }, 120_000);
 
   it("le TEMPS règle l'attente → « relancer » part, « remercier » est ignorée et le journal dit pourquoi ; la mission conclut", async () => {
-    const { missionId, cerveau } = await lancer(new Date(Date.now() - 60_000).toISOString());
+    // L'ÉCHÉANCE EST DANS UN FUTUR LOINTAIN, et c'est l'horloge INJECTÉE qui la dépasse (vague « restes »).
+    // Elle était déjà passée au lancement : le balayage temporel GLOBAL d'un autre fichier de la suite
+    // (`crash-matrix`, le battement d'un banc voisin, `router.test.ts` qui pousse son horloge à deux jours)
+    // réglait l'attente entre deux lignes d'ici — mesuré : « attente:reponse » DONE au lieu de WAITING, une
+    // série sur plusieurs. `router.test.ts` avait appris la même leçon (« l'échéance est dans le futur réel »).
+    const echeance = new Date(Date.now() + 30 * 86_400_000);
+    const { missionId, cerveau } = await lancer(echeance.toISOString());
+    // TÉMOIN : un balayage à l'horloge RÉELLE, comme celui d'un fichier voisin, ne règle pas l'attente.
+    await reveillerAttentesTemporelles(new Date());
     let s = await statuts(missionId);
     expect(s.etapes["liste:salaries"]).toBe("DONE");
     // Les gardes de sortie se sont décidées dès la liste lue.
@@ -125,7 +133,7 @@ suite("LA BRANCHE CONDITIONNELLE — « sinon » sur délai, « si » sur répon
     expect(s.mission).toBe("WAITING_EVENT");
 
     // LE VRAI BALAYAGE TEMPOREL, horloge injectée : l'échéance est passée.
-    const reveils = await reveillerAttentesTemporelles(new Date());
+    const reveils = await reveillerAttentesTemporelles(new Date(echeance.getTime() + 1_000));
     expect(reveils.some((r) => r.missionId === missionId)).toBe(true);
     await avancerMission(pdg, missionId, { reasoner: cerveau });
 
@@ -144,7 +152,8 @@ suite("LA BRANCHE CONDITIONNELLE — « sinon » sur délai, « si » sur répon
   }, 120_000);
 
   it("la RÉPONSE arrive par le registre d'événements → « remercier » part, « relancer » est ignorée", async () => {
-    const { missionId, cerveau } = await lancer(new Date(Date.now() + 2 * 86_400_000).toISOString());
+    // Trente jours et non deux : `router.test.ts` balaie à « deux jours + 5 min » sur la même base.
+    const { missionId, cerveau } = await lancer(new Date(Date.now() + 30 * 86_400_000).toISOString());
     let s = await statuts(missionId);
     expect(s.mission).toBe("WAITING_EVENT");
 

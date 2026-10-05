@@ -40,7 +40,7 @@ export function AdminLimitsForm({ settings }: { settings: AppSettings }) {
         </div>
         <div className="space-y-1">
           <Label htmlFor="maxDriveUploadMb">Drive — taille max (Mo)</Label>
-          <Input id="maxDriveUploadMb" name="maxDriveUploadMb" type="number" min="1" max="2048" defaultValue={settings.maxDriveUploadMb} />
+          <Input id="maxDriveUploadMb" name="maxDriveUploadMb" type="number" min="1" max="10240" defaultValue={settings.maxDriveUploadMb} />
           <p className="text-xs text-muted-foreground">Fichiers du Drive (gros transferts en flux), jusqu'à 2 048 Mo.</p>
         </div>
       </div>
@@ -81,7 +81,7 @@ export function AdProDgThresholdForm({ settings }: { settings: AppSettings }) {
       <div className="space-y-1">
         <Label htmlFor="adProDgThreshold">Seuil de validation du Directeur Général (DZD)</Label>
         <Input
-          id="adProDgThreshold" name="adProDgThreshold" type="number" min="0" step="1000"
+          id="adProDgThreshold" name="adProDgThreshold" type="number" min="0" step="any"
           defaultValue={settings.adProDgThreshold}
         />
         <p className="text-xs text-muted-foreground">

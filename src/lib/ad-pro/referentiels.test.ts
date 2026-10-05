@@ -3,7 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { AD_PRO_KINDS, type AdProKind } from "./unified";
 import {
-  REFERENTIELS_PAR_NATURE, natureDesigneMedecinsEtProduits, medecinsEtProduitsFields,
+  REFERENTIELS_PAR_NATURE, natureDesigneMedecinsEtProduits, natureDesigneMedecins, medecinsEtProduitsFields,
   champMedecins, champProduits,
   sponsoringCreateFields, consultingCreateFields, adProOtherCreateFields,
 } from "./create-fields";
@@ -160,16 +160,27 @@ describe("le couple médecins + produits sur les natures Ad & Pro", () => {
     expect(Object.keys(PORTE_DE_CREATION).sort()).toEqual(AD_PRO_KINDS.map((k) => k.kind).sort());
   });
 
-  it("LES SIX natures hors matériel promotionnel offrent LES DEUX champs", () => {
+  it("QUATRE natures offrent LES DEUX champs, les DEUX prises en charge les seuls médecins", () => {
     // LE DÉFAUT EXACT : mesuré à l'ouverture du lot, quatre natures sur six n'offraient pas le
     // produit — et deux n'offraient RIEN. Ce qui le ferait tomber : retirer le couple d'un des
-    // six formulaires, ou casser le nom d'un champ (le nom est ce que l'action lit).
+    // quatre formulaires, ou casser le nom d'un champ (le nom est ce que l'action lit).
     const concernees = AD_PRO_KINDS.map((k) => k.kind).filter((k) => natureDesigneMedecinsEtProduits(k));
-    expect(concernees.length, "six natures sont concernées, une seule est exclue").toBe(6);
+    expect(concernees.sort()).toEqual(["CONSULTING", "EVENT", "OTHER", "SPONSORING"]);
     for (const kind of concernees) {
       const porte = PORTE_DE_CREATION[kind];
       expect(porteOffre(porte, CHAMPS_MEDECINS, porte.medecinsSous), `${kind} : aucun champ médecin`).toBe(true);
       expect(porteOffre(porte, CHAMPS_PRODUITS), `${kind} : aucun champ produit`).toBe(true);
+    }
+    // DÉCISION DE LA DIRECTION (04/10/2026) : une prise en charge ne porte plus ni spécialité ni
+    // produits promus. Les DEUX moitiés : les médecins restent offerts (les professionnels proposés),
+    // le produit ne l'est PLUS — sans la seconde, un formulaire qui le remettrait passerait.
+    for (const kind of ["CONGRESS_NATIONAL", "CONGRESS_INTERNATIONAL"] as const) {
+      const e = REFERENTIELS_PAR_NATURE[kind];
+      expect(typeof e === "object" && "medecinsSeuls" in e && e.medecinsSeuls.length > 40, `${kind} : l'exception dit POURQUOI`).toBe(true);
+      expect(natureDesigneMedecins(kind), kind).toBe(true);
+      const porte = PORTE_DE_CREATION[kind];
+      expect(porteOffre(porte, CHAMPS_MEDECINS, porte.medecinsSous), `${kind} : aucun champ médecin`).toBe(true);
+      expect(porteOffre(porte, CHAMPS_PRODUITS), `${kind} : le produit est revenu`).toBe(false);
     }
   });
 
@@ -177,20 +188,20 @@ describe("le couple médecins + produits sur les natures Ad & Pro", () => {
     // L'autre moitié de la garde : sans elle, un banc qui n'exige que la présence passerait au
     // vert sur une liste élargie « pour ne rien exclure » (§118.17).
     const exemption = REFERENTIELS_PAR_NATURE.PROMO_MATERIAL;
-    expect(typeof exemption === "object" && exemption.sans.length > 40, "l'exemption doit dire POURQUOI").toBe(true);
+    expect(typeof exemption === "object" && "sans" in exemption && exemption.sans.length > 40, "l'exemption doit dire POURQUOI").toBe(true);
     expect(natureDesigneMedecinsEtProduits("PROMO_MATERIAL")).toBe(false);
     const porte = PORTE_DE_CREATION.PROMO_MATERIAL;
     expect(porteOffre(porte, CHAMPS_MEDECINS)).toBe(false);
     expect(porteOffre(porte, CHAMPS_PRODUITS)).toBe(false);
   });
 
-  it("OBLIGATOIRE sur le sponsoring et l'événement, FACULTATIF sur les quatre autres", () => {
+  it("OBLIGATOIRE sur le sponsoring et l'événement, FACULTATIF sur le consulting et « autre »", () => {
     // « On doit POUVOIR sélectionner » n'est pas « on doit sélectionner » : exiger un praticien
     // sur un contrat de consulting réglementaire — qui n'en a aucun — serait un refus à tort,
     // plus coûteux que le défaut qu'on corrige (§118.27).
     expect(REFERENTIELS_PAR_NATURE.SPONSORING).toBe("OBLIGATOIRE");
     expect(REFERENTIELS_PAR_NATURE.EVENT).toBe("OBLIGATOIRE");
-    for (const k of ["CONGRESS_INTERNATIONAL", "CONGRESS_NATIONAL", "CONSULTING", "OTHER"] as const) {
+    for (const k of ["CONSULTING", "OTHER"] as const) {
       expect(REFERENTIELS_PAR_NATURE[k], k).toBe("FACULTATIF");
     }
     // Et l'exigence ARRIVE jusqu'au champ : c'est elle qui décide de `required`.
@@ -269,7 +280,9 @@ describe("le couple médecins + produits sur les natures Ad & Pro", () => {
     }
     // LA PRÉMISSE : sans elle, zéro lecteur trouvé rendrait la boucle vide, donc le cas vrai
     // pour la mauvaise raison (§118.117).
-    expect(lecteurs, "les cinq fichiers d'action du pôle qui lisent le couple").toBe(5);
+    // QUATRE et non cinq : le fichier des prises en charge ne lit plus le produit (04/10/2026), et
+    // ses médecins ont leur propre champ (`invitedDoctorIds`).
+    expect(lecteurs, "les quatre fichiers d'action du pôle qui lisent le couple").toBe(4);
   });
 
   it("LE MÉDECIN HORS ANNUAIRE : chaque lecture des médecins cochés lit AUSSI la saisie « non présent »", () => {

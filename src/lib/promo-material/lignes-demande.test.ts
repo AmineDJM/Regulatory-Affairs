@@ -15,7 +15,7 @@ import { CONTRAT_PAR_ID } from "@/lib/actions/contrat.genere";
  * ═══════════════════════════════════════════════════════════════════════════════════════════
  */
 
-const vide: LigneDemandeSaisie = { catalogueId: "", quantite: "", actions: [], produitIds: [], commentaire: "" };
+const vide: LigneDemandeSaisie = { catalogueId: "", quantite: "", actions: [], produitIds: [], autre: "", commentaire: "" };
 
 describe("lireLignesDemande — lire, jamais deviner", () => {
   it("un champ absent ou blanc ne porte aucune ligne (c'est l'action qui dira qu'il en faut une)", () => {
@@ -50,10 +50,10 @@ describe("lireLignesDemande — lire, jamais deviner", () => {
       ok: true,
       lignes: [
         // Le commentaire n'est PAS rogné : c'est une phrase de la personne, telle qu'elle l'a écrite.
-        { catalogueId: "cat-1", quantite: "500", actions: ["IMPRESSION", "CONCEPTION"], produitIds: ["p1", "p2"], commentaire: "  A5, recto-verso  " },
+        { catalogueId: "cat-1", quantite: "500", actions: ["IMPRESSION", "CONCEPTION"], produitIds: ["p1", "p2"], autre: "", commentaire: "  A5, recto-verso  " },
         // Une liste qui n'en est pas une ne devient pas une liste d'un élément : elle est VIDE, et la
         // règle de la ligne dira qu'il manque une action — au lieu de la deviner.
-        { catalogueId: "cat-2", quantite: "1 000", actions: [], produitIds: [], commentaire: "" },
+        { catalogueId: "cat-2", quantite: "1 000", actions: [], produitIds: [], autre: "", commentaire: "" },
       ],
     });
   });
@@ -93,7 +93,9 @@ describe("ligneVide — un reste de formulaire s'écarte, une ligne incomplète 
 const sansCommentaires = (src: string) => src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:"'`])\/\/.*$/gm, "$1");
 // Le « type de matériel » s'ajoute à la liste au §118.173 : le catalogue EST la liste des supports,
 // et chaque ligne en désigne un — un type choisi à côté redisait la même chose, et pouvait la contredire.
-const RETIRES = ["businessUnitId", "amount", "assistantId", "companyId", "materialType"] as const;
+// Les « précisions pour le secrétariat » quittent la demande (§118.204, Direction 04/10) : la demande de
+// devis part d'elle-même, et ce qu'on attend se dit ligne par ligne (« Précision » de chaque article).
+const RETIRES = ["businessUnitId", "amount", "assistantId", "companyId", "materialType", "precisionsDevis"] as const;
 
 describe("ce que la demande ne porte PLUS (décision du 01/10) — lu sur les faits, pas sur une liste", () => {
   it("l'ACTION ne lit ni gamme, ni budget, ni assistante, ni entité — et lit `lignes` (contrat dérivé de sa source)", () => {

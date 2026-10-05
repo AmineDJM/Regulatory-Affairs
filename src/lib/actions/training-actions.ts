@@ -4,8 +4,9 @@ import { randomUUID } from "crypto";
 import { revalidatePath } from "next/cache";
 import type { UserRole } from "@prisma/client";
 import { requireUser } from "@/lib/session";
-import { userCan, hasGlobalView, type SessionUser } from "@/lib/rbac";
+import { userCan, hasGlobalView, isTopManagement, rolesWithModule, type SessionUser } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
+import { auNomDeQui } from "@/lib/hr/stand-in-resolve";
 import { recordAudit } from "@/lib/audit";
 import { notifyUser, notifyRoles } from "@/lib/notify";
 import { getAppSettings } from "@/lib/settings";
@@ -21,6 +22,7 @@ import {
   type TrainingAttendance,
 } from "@/lib/training";
 import { fdStr, fdNum, fdDate, type ActionResult } from "@/lib/actions/types";
+import { refusAnnulationFormation } from "@/lib/annulations/regles";
 
 const PATH = "/formations";
 
@@ -71,7 +73,7 @@ async function attachFiles(trainingId: string, files: File[], uploaderId: string
     }
     await prisma.document.create({
       data: {
-        name: file.name, category: "OTHER", entityType: "DOSSIER", entityId: trainingId,
+        name: file.name, category: "OTHER", entityType: "TRAINING", entityId: trainingId,
         fileKey: key, mimeType: file.type || null, sizeBytes: file.size,
         confidentiality: "INTERNAL", uploadedById: uploaderId,
       },
@@ -141,7 +143,7 @@ export async function requestTraining(_prev: ActionResult | undefined, formData:
     });
   }
   await recordAudit({
-    actorId: user.id, action: "CREATE", module: "Ressources humaines", entityType: "DOSSIER", entityId: created.id,
+    actorId: user.id, action: "CREATE", module: "Ressources humaines", entityType: "TRAINING", entityId: created.id,
     summary: `Demande de formation ${created.reference} — ${title}`,
   });
   await revalidateTraining(created.id);
@@ -194,7 +196,7 @@ export async function createHrTraining(_prev: ActionResult | undefined, formData
     body: `${title} — ${amount} DZD`, link: PATH,
   });
   await recordAudit({
-    actorId: user.id, action: "CREATE", module: "Ressources humaines", entityType: "DOSSIER", entityId: created.id,
+    actorId: user.id, action: "CREATE", module: "Ressources humaines", entityType: "TRAINING", entityId: created.id,
     summary: `Formation organisée ${created.reference} — ${title}`,
   });
   await revalidateTraining(created.id);
@@ -203,12 +205,19 @@ export async function createHrTraining(_prev: ActionResult | undefined, formData
 
 /** Le pouvoir de trancher de cette personne sur CETTE formation. */
 async function deciderFor(user: SessionUser, training: { managerId: string | null; requesterId: string | null }) {
-  const isDg = hasGlobalView(user);
+  // LA MARCHE « DG » EST CELLE DE LA DIRECTION GÉNÉRALE — et le Directeur Général en fait partie
+  // (audit 360°, I12). `hasGlobalView` l'exclut délibérément : le rôle qui porte le nom de l'étape
+  // ne pouvait pas la signer. Le congé a payé ce défaut avant la formation et l'a fermé par
+  // `isTopManagement` (`hr/leave-core.ts`) : les deux circuits lisent désormais le même sommet.
+  const isDg = isTopManagement(user);
   const isHr = isHrOf(user);
+  // LE N+1, OU SON INTÉRIMAIRE (§118.185 — audit 360°, I18) — la même lecture que le congé. La
+  // règle « on ne tranche pas sa propre demande » reste celle de `canDecideChain`.
+  const { ids } = await auNomDeQui(user.id);
   let isManager = false;
   if (training.managerId) {
     const mgr = await prisma.employee.findUnique({ where: { id: training.managerId }, select: { userId: true } });
-    isManager = mgr?.userId === user.id;
+    isManager = Boolean(mgr?.userId && ids.has(mgr.userId));
   }
   if (!isManager && training.requesterId) {
     // Le N+1 enregistré peut avoir changé : on accepte toute personne au-dessus dans la chaîne
@@ -216,7 +225,7 @@ async function deciderFor(user: SessionUser, training: { managerId: string | nul
     const emp = await prisma.employee.findUnique({ where: { userId: training.requesterId }, select: { id: true } });
     if (emp) {
       const chain = await getManagementChain(emp.id).catch(() => []);
-      isManager = chain.some((m) => m.userId === user.id);
+      isManager = chain.some((m) => Boolean(m.userId && ids.has(m.userId)));
     }
   }
   return { id: user.id, isManager, isHr, isDg };
@@ -257,8 +266,11 @@ export async function decideTraining(formData: FormData): Promise<ActionResult> 
   // La direction peut accorder un montant différent de celui demandé.
   const granted = next.granted ? fdNum(formData, "amountGranted") : null;
 
-  await prisma.training.update({
-    where: { id },
+  // UN GESTE À LA FOIS (§118.196, E1) : la décision n'est écrite que sur la marche LUE. Deux accords
+  // croisés — ou un accord et un refus — s'appliquaient l'un après l'autre : le second réécrivait le
+  // premier en silence, et chacun prévenait le demandeur. Le perdant ne prévient personne.
+  const ecrit = await prisma.training.updateMany({
+    where: { id, status: "PENDING", stage: training.stage },
     data: {
       status: next.status === "PENDING" ? "PENDING" : next.status === "APPROVED" ? "APPROVED" : "REJECTED",
       stage: next.stage,
@@ -266,6 +278,7 @@ export async function decideTraining(formData: FormData): Promise<ActionResult> 
       ...(next.granted ? { amountGranted: granted ?? Number(training.amount) } : {}),
     },
   });
+  if (ecrit.count === 0) return { ok: false, error: "Cette demande vient d'être tranchée par quelqu'un d'autre — rechargez la page." };
 
   if (next.status === "PENDING") {
     const roles = chainNotifyRoles(next.stage) as UserRole[];
@@ -287,7 +300,7 @@ export async function decideTraining(formData: FormData): Promise<ActionResult> 
   }
   await recordAudit({
     actorId: user.id, action: decision === "APPROVED" ? "VALIDATE" : "REFUSE",
-    module: "Ressources humaines", entityType: "DOSSIER", entityId: id,
+    module: "Ressources humaines", entityType: "TRAINING", entityId: id,
     summary: `Formation ${training.reference} — ${decision === "APPROVED" ? (next.granted ? "accordée" : `validée (${CHAIN_STAGE_LABELS[training.stage as ChainStage]})`) : "refusée"}`,
   });
   await revalidateTraining(id);
@@ -363,7 +376,7 @@ export async function inviteTrainingParticipants(formData: FormData): Promise<Ac
     });
   }
   await recordAudit({
-    actorId: user.id, action: "UPDATE", module: "Ressources humaines", entityType: "DOSSIER", entityId: trainingId,
+    actorId: user.id, action: "UPDATE", module: "Ressources humaines", entityType: "TRAINING", entityId: trainingId,
     summary: `${userIds.length} participant(s) ${attendance === "MANDATORY" ? "convoqué(s)" : "invité(s)"} — ${training.title}`,
   });
   await revalidateTraining(trainingId);
@@ -403,4 +416,51 @@ export async function respondToTrainingInvitation(formData: FormData): Promise<A
   }
   await revalidateTraining(participant.training.id);
   return { ok: true };
+}
+
+/**
+ * ANNULER SA FORMATION (décision de la Direction, 04/10) — le demandeur la retire tant qu'elle n'a
+ * pas eu lieu : en circuit, ou accordée mais pas encore suivie. Elle se CLÔT (`CANCELLED`) ; celui
+ * chez qui elle attend (N+1, RH, direction) ou ceux qui l'organisent (accordée) sont prévenus.
+ * Écriture conditionnelle sur l'état ET la marche lus : une décision croisée l'emporte, sans double effet.
+ */
+export async function annulerFormation(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  const id = fdStr(formData, "id");
+  if (!id) return { ok: false, error: "Formation introuvable." };
+  const motif = fdStr(formData, "motif");
+  const training = await prisma.training.findUnique({
+    where: { id },
+    select: { id: true, reference: true, title: true, status: true, stage: true, requesterId: true, managerId: true },
+  });
+  if (!training) return { ok: false, error: "Formation introuvable." };
+  if (training.requesterId !== user.id) return { ok: false, error: "Seul le salarié qui a demandé cette formation l'annule." };
+  const refus = refusAnnulationFormation(training.status);
+  if (refus) return { ok: false, error: refus };
+
+  const pris = await prisma.training.updateMany({
+    where: { id, status: training.status, stage: training.stage },
+    data: { status: "CANCELLED" },
+  });
+  if (pris.count === 0) {
+    const apres = await prisma.training.findUnique({ where: { id }, select: { status: true } });
+    return { ok: false, error: (apres && refusAnnulationFormation(apres.status)) ?? "Cette formation vient d'être tranchée — rechargez la page." };
+  }
+  const corps = `${training.reference} — ${training.title} : annulée par son demandeur${motif ? ` (${motif})` : ""}.`;
+  if (training.status === "PENDING" && training.stage === "MANAGER" && training.managerId) {
+    const chef = await prisma.employee.findUnique({ where: { id: training.managerId }, select: { userId: true } });
+    if (chef?.userId && chef.userId !== user.id) {
+      await notifyUser({ userId: chef.userId, type: "GENERIC", title: "Formation annulée", body: corps, link: PATH }).catch(() => undefined);
+    }
+  } else {
+    const roles = (training.status === "APPROVED" ? ["DIRECTION", "SUPER_ADMIN", ...rolesWithModule("RH", "UPDATE")] : chainNotifyRoles(training.stage as ChainStage)) as UserRole[];
+    if (roles.length) await notifyRoles([...new Set(roles)], { type: "GENERIC", title: "Formation annulée", body: corps, link: PATH }).catch(() => undefined);
+  }
+  await recordAudit({
+    actorId: user.id, action: "UPDATE", module: "Ressources humaines", entityType: "TRAINING", entityId: id,
+    field: "status", oldValue: training.status, newValue: "CANCELLED",
+    summary: `Formation ${training.reference} annulée par son demandeur${motif ? ` — ${motif}` : ""}`,
+  });
+  await revalidateTraining(id);
+  return { ok: true, id, message: "Formation annulée — les personnes qui l'avaient en main sont prévenues." };
 }

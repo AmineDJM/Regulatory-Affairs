@@ -11,12 +11,15 @@ import { StatusBadge } from "@/components/shared/status-badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { PAYMENT_REQUEST_STATUS, PAYMENT_URGENCY, ENTITY_TYPE_LABELS } from "@/lib/labels";
-import { canApprove, canResubmit, isOverdue, deadlineLabel, isWithFinance } from "@/lib/finance/payment-request";
+import { canApprove, canResubmit, isOverdue, deadlineLabel, isWithFinance, piecesEnVigueur } from "@/lib/finance/payment-request";
 import { isCompanionDossier } from "@/lib/finance/dossier-auto";
+import { CENTRAL_STATUS_LABEL, CENTRAL_DECISION_LABEL, sitsOnPaymentCentre, type CentralStatus, type CentralDecision } from "@/lib/payments/authorization";
 import { entityHref } from "@/lib/entity-href";
 import { existingEntityIds } from "@/lib/entity-exists";
 import { deadlineNatureLabel, deadlineNatureOf } from "@/lib/finance/deadline-nature";
 import { PaymentDossier, type PieceView, type EventView } from "./dossier";
+import { refusDeCorrection, refusDeRetrait } from "@/lib/finance/correction-demande";
+import { getMyCompanies } from "@/lib/company";
 import { AskChief } from "@/components/shared/ask-chief";
 import { realtimeVoiceConfigured, canUseRealtimeVoice } from "@/lib/assistant/voice-realtime";
 
@@ -107,18 +110,54 @@ export default async function PaymentRequestPage({ params }: { params: { id: str
   // L'ORDRE DE DÉPENSE derrière ce dossier — sa référence se lit en tête d'un compagnon, pour
   // dire d'où il vient et où le paiement se décide.
   const companion = isCompanionDossier(req.origin);
+  // ET OÙ EN EST SON AUTORISATION (audit 360°, R20) : la fiche ne montrait que la référence de
+  // l'ordre — le demandeur devait aller au centre de paiement pour apprendre qu'il était refusé, et
+  // pourquoi. L'état, qui a tranché, quand, et le motif de la dernière décision se lisent ici.
   const order = req.expenseOrderId
-    ? await prisma.expenseOrder.findUnique({ where: { id: req.expenseOrderId }, select: { reference: true } })
+    ? await prisma.expenseOrder.findUnique({
+        where: { id: req.expenseOrderId },
+        select: {
+          reference: true, status: true, centralStatus: true, centralDecidedAt: true, centralDecidedById: true,
+          centralMessages: {
+            where: { decision: { not: null } }, orderBy: { createdAt: "desc" }, take: 1,
+            select: { decision: true, body: true, author: { select: { name: true } } },
+          },
+        },
+      })
     : null;
+  const derniereDecision = order?.centralMessages[0] ?? null;
+  const decideur = order?.centralDecidedById
+    ? (await prisma.user.findUnique({ where: { id: order.centralDecidedById }, select: { name: true } }))?.name ?? null
+    : null;
+  const etatCentre = order && order.centralStatus !== "NOT_REQUIRED" ? order.centralStatus as CentralStatus : null;
+  // Le motif ne se répète pas quand il n'est que le libellé par défaut d'une autorisation sèche.
+  const motifCentre = derniereDecision && derniereDecision.body !== CENTRAL_DECISION_LABEL[derniereDecision.decision as CentralDecision]
+    ? derniereDecision.body : null;
+  // Le centre ne montre une ligne qu'à ses sièges et à son demandeur : le lien n'est offert qu'à eux,
+  // sinon il mènerait les Finances à une page qui leur explique qu'elles n'y siègent pas.
+  const voitLeCentre = sitsOnPaymentCentre(user) || req.requesterId === user.id;
 
   const amount = toNumber(req.amount);
   // `entityType` et l'attestation entrent dans le calcul : c'est le rattachement qui exempte un
   // BON DE VERSEMENT du bon de commande et de la facture.
+  // Les pièces EN VIGUEUR — la même lecture que les actions (§118.191) : une pièce remplacée ne compte
+  // ni pour le bon à payer ni pour la transmission.
+  const enVigueur = piecesEnVigueur(req.pieces);
   const approve = canApprove(
     { status: req.status, amount, entityType: req.entityType, paymentMethodStated: req.paymentMethodStated },
-    req.pieces,
+    enVigueur,
   );
-  const resubmit = canResubmit(req, req.pieces);
+  const resubmit = canResubmit(req, enVigueur);
+
+  // CORRIGER LA DEMANDE (§118.191, audit R04) — la même règle que l'action, et ce que la demande porte.
+  // L'entité ne se propose qu'au brouillon : après transmission, c'est la société qui paie.
+  const refusCorrection = refusDeCorrection({
+    status: req.status, compagnon: companion,
+    ordre: order ? { status: order.status, centralStatus: order.centralStatus } : null,
+  });
+  const entitesCorrigeables = req.status === "DRAFT" && refusCorrection === null && isRequester
+    ? (await getMyCompanies(user.id)).map((c) => ({ id: c.id, name: c.shortName || c.name }))
+    : null;
 
   return (
     <div className="space-y-5">
@@ -188,6 +227,37 @@ export default async function PaymentRequestPage({ params }: { params: { id: str
           {/* L'ORDRE DE DÉPENSE — le vrai objet du décaissement. On le NOMME : sans lui, un
               dossier compagnon parle d'un paiement dont on ne retrouve pas la trace. */}
           <Info label="Ordre de dépense" value={order?.reference} />
+          {etatCentre && (
+            <Info
+              label="Centre de paiement"
+              value={
+                <span className="inline-flex flex-wrap items-center gap-2">
+                  <Badge tone={etatCentre === "APPROVED" ? "success" : etatCentre === "REFUSED" ? "danger" : "warning"} dot={false}>
+                    {CENTRAL_STATUS_LABEL[etatCentre]}
+                  </Badge>
+                  {order?.centralDecidedAt && etatCentre !== "AWAITING" && (
+                    <span className="text-xs text-muted-foreground">
+                      le {formatDate(order.centralDecidedAt.toISOString())}{decideur ? ` par ${decideur}` : ""}
+                    </span>
+                  )}
+                  {voitLeCentre && (
+                    <Link href="/centre-de-paiement" className="inline-flex items-center gap-1 text-xs text-primary hover:underline">
+                      Voir au centre <ExternalLink className="h-3 w-3" />
+                    </Link>
+                  )}
+                </span>
+              }
+            />
+          )}
+          {etatCentre && etatCentre !== "AWAITING" && motifCentre && (
+            <div className={`col-span-full rounded-lg px-3 py-2 ${etatCentre === "REFUSED" ? "bg-destructive/10" : "bg-secondary/40"}`}>
+              <p className="text-xs text-muted-foreground">
+                {etatCentre === "REFUSED" ? "Motif du refus du centre de paiement" : "Message du centre de paiement"}
+                {derniereDecision?.author?.name ? ` — ${derniereDecision.author.name}` : ""}
+              </p>
+              <p className="whitespace-pre-wrap">{motifCentre}</p>
+            </div>
+          )}
           {req.description && (
             <div className="col-span-full"><p className="text-xs text-muted-foreground">Contexte</p><p className="whitespace-pre-wrap">{req.description}</p></div>
           )}
@@ -221,6 +291,17 @@ export default async function PaymentRequestPage({ params }: { params: { id: str
         isCompanion={companion}
         orderReference={order?.reference ?? null}
         withFinance={isWithFinance(req.status)}
+        refusRetrait={refusDeRetrait({ status: req.status, compagnon: companion, ordre: order ? { status: order.status } : null })}
+        correction={{
+          refus: refusCorrection,
+          valeurs: {
+            title: req.title, payee: req.payee, amount, description: req.description,
+            dueDate: req.dueDate ? req.dueDate.toISOString().slice(0, 10) : null,
+            deadlineNature: deadlineNatureOf(req.deadlineNature), urgency: req.urgency, companyId: req.companyId,
+          },
+          entites: entitesCorrigeables,
+          centreAutorise: order?.centralStatus === "APPROVED",
+        }}
       />
     </div>
   );

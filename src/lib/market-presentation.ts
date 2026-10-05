@@ -10,7 +10,8 @@
  * l'utilisateur (relance) réorientent l'analyse sans introduire de données inventées.
  */
 
-import { askClaude, aiConfigured, aiModel } from "@/lib/ai";
+import { askClaude, aiConfigured, aiModel, cleModeleRequise } from "@/lib/ai";
+import { phraseIaNonConfiguree } from "@/lib/ia/cle-manquante";
 import type { ResearchDetail } from "@/lib/queries/market-research";
 
 const STATUS_FR: Record<string, string> = { IMPORT: "Importation", MANUFACTURING: "Fabrication locale" };
@@ -128,7 +129,7 @@ function extractJson(text: string): PresentationAnalysis | null {
  * Palier QUALITÉ (raisonnement stratégique) via askClaude ; surchargable par AI_MODEL.
  */
 export async function analyzeMarketResearch(d: ResearchDetail, instruction?: string): Promise<PresentationAnalysisResult> {
-  if (!aiConfigured()) return { ok: false, configured: false, error: "Clé ANTHROPIC_API_KEY non configurée." };
+  if (!aiConfigured()) return { ok: false, configured: false, error: phraseIaNonConfiguree(cleModeleRequise(), "la génération de présentation") };
   if (!d.rows.length) return { ok: false, configured: true, error: "L'étude ne contient aucune ligne à analyser." };
 
   const context = buildContext(d);

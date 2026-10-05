@@ -6,6 +6,7 @@ import { prisma } from "@/lib/prisma";
 import { toNumber, formatCurrency, formatDate } from "@/lib/utils";
 import { onlyofficeConfigured } from "@/lib/onlyoffice";
 import { PageHeader } from "@/components/shared/page-header";
+import { VisaCentreBanniere } from "@/components/ad-pro/visa-centre-banniere";
 import { SupprimerDemandeAdPro } from "@/components/ad-pro/supprimer-demande";
 import { peutSupprimerUneDemandeAdPro } from "@/lib/queries/ad-pro-suppression";
 import { BackLink } from "@/components/shared/back-link";
@@ -25,6 +26,9 @@ import {
   MODULE_DU_POLE, CHEMIN_LISTE_POLE, LIBELLE_POLE, poleDe, poleOppose, transfertAutorise,
 } from "@/lib/lecteurs/consulting";
 import { TransferPanel } from "./transfer-panel";
+import { AdProEditButton } from "@/components/ad-pro/edit-request-button";
+import { canEditAdProRequest, isAdProDecided } from "@/lib/ad-pro-edit";
+import { adProEditValues } from "@/lib/queries/ad-pro-edit";
 
 export const dynamic = "force-dynamic";
 
@@ -78,6 +82,17 @@ export default async function ConsultingContractPage({ params }: { params: { id:
   const mayValidate = userCan(user, moduleDuContrat, "VALIDATE")
     && (contract.validatorId === null || contract.validatorId === user.id || hasGlobalView(user.role));
   const editable = isContractEditable(contract.status);
+  // CORRIGER LE CONTRAT (audit 360°, R11) — la MÊME règle que les autres natures du pôle, lue sur le
+  // module de SON pôle : le porteur tant que le contrat n'est pas actif, qui peut le valider jusque-là,
+  // la vue globale toujours.
+  const contratDecide = isAdProDecided("CONSULTING_CONTRACT", contract.status);
+  const canEditContract = canEditAdProRequest(
+    { id: user.id, hasGlobalView: hasGlobalView(user.role), canManage: userCan(user, moduleDuContrat, "VALIDATE") },
+    { requesterId: contract.requesterId, decided: contratDecide },
+  );
+  const editValues = canEditContract ? await adProEditValues("CONSULTING_CONTRACT", contract.id) : null;
+  // Une décision se dit par son SENS : « Validé par » sur un contrat refusé affirmait le contraire.
+  const verbeDecision = contract.status === "ACTIVE" || contract.status === "EXPIRED" ? "Validé" : "Décision";
   const canUpload = (userCan(user, moduleDuContrat, "UPLOAD") || mine) && editable;
   // Ce que la personne peut ouvrir, déposer, créer parmi les pièces liées — la règle commune du
   // pôle, lue sur le module du CONTRAT (Consulting ou RH selon son pôle, §118.150).
@@ -118,8 +133,31 @@ export default async function ConsultingContractPage({ params }: { params: { id:
         {isOverdue(contract) && <Badge tone="danger" dot={false}>terme dépassé</Badge>}
         {/* Une nature du pôle qui n'avait AUCUNE suppression (§118.162) : elle passe par le même
             lot que les autres — ses branches partent et reviennent avec elle. */}
+        {editValues && <AdProEditButton kind="CONSULTING_CONTRACT" id={contract.id} decided={contratDecide} values={editValues} />}
         <SupprimerDemandeAdPro kind="CONSULTING_CONTRACT" id={contract.id} name={`${contract.reference} — ${contract.title}`} enabled={await peutSupprimerUneDemandeAdPro(user, "CONSULTING_CONTRACT", contract.id)} />
       </PageHeader>
+
+      {/* RENVOYÉ POUR CORRECTION (audit 360°, R11) : le motif se lit ICI, avec le geste qui fait repartir
+          le contrat — sans dérouler la discussion. */}
+      {contract.status === "DRAFT" && contract.returnedAt && (
+        <div className="space-y-1 rounded-xl border border-warning/40 bg-warning/5 px-4 py-3 text-sm">
+          <p className="font-medium">
+            Renvoyé pour correction le {formatDate(contract.returnedAt.toISOString())}
+            {contract.returnedById && names.get(contract.returnedById) ? ` par ${names.get(contract.returnedById)}` : ""}
+          </p>
+          <p>À corriger : « {contract.returnNote ?? "non renseigné"} ».</p>
+          <p className="text-muted-foreground">
+            {mine
+              ? "Corrigez le contrat (« Modifier »), puis renvoyez-le pour validation."
+              : "Son porteur le corrige, puis le renvoie pour validation."}
+          </p>
+        </div>
+      )}
+
+      {/* L'ÉTAT DU CENTRE AD & PRO (audit 360°, R07/R10) — un contrat suivi par les RH n'y passe pas. */}
+      {pole === "AD_PRO" && (
+        <VisaCentreBanniere entityType="CONSULTING_CONTRACT" entityId={contract.id} viewer={user} />
+      )}
 
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
         <div className="space-y-5 lg:col-span-2">
@@ -140,8 +178,8 @@ export default async function ConsultingContractPage({ params }: { params: { id:
                   chiffre inventé finirait dans un tableau de budget sans marque d'origine. */}
               {total != null && total !== amount && <Info label="Engagement total estimé" value={formatCurrency(total)} />}
               <Info label="Porteur interne" value={contract.requesterId ? names.get(contract.requesterId) : null} />
-              <Info label="Validé par" value={contract.validatedById ? names.get(contract.validatedById) : null} />
-              <Info label="Validé le" value={contract.validatedAt ? formatDate(contract.validatedAt.toISOString()) : null} />
+              <Info label={`${verbeDecision} par`} value={contract.validatedById ? names.get(contract.validatedById) : null} />
+              <Info label={`${verbeDecision} le`} value={contract.validatedAt ? formatDate(contract.validatedAt.toISOString()) : null} />
               {contract.scope && (
                 <div className="col-span-full">
                   <p className="text-xs text-muted-foreground">Objet de la mission</p>
@@ -195,6 +233,10 @@ export default async function ConsultingContractPage({ params }: { params: { id:
           status={contract.status}
           canSubmit={mine && contract.status === "DRAFT"}
           canDecide={mayValidate && isAwaitingDecision(contract.status)}
+          canProlong={mayValidate && contract.status === "ACTIVE"}
+          endDate={contract.endDate ? contract.endDate.toISOString().slice(0, 10) : null}
+          resubmission={contract.status === "DRAFT" && contract.returnedAt !== null}
+          validateurActuel={contract.validatorId}
           canClose={(mine || mayValidate) && (contract.status === "ACTIVE" || contract.status === "DRAFT" || contract.status === "AWAITING_VALIDATION")}
           canEditTasks={(mine || userCan(user, moduleDuContrat, "UPDATE")) && editable}
           validators={people.filter((p) => p.id !== user.id)}

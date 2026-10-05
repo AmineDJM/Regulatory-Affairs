@@ -109,3 +109,29 @@ export interface DirectoryPerson {
   /** Les adresses connues des fiches ERP, hors annuaire — affichées, jamais dupliquées. */
   erpEmails: string[];
 }
+
+/** Une spécialité du référentiel, telle que l'écran Annuaires › Spécialités la rend (§118.180). */
+export interface SpecialiteRow {
+  id: string;
+  name: string;
+  color: string | null;
+  notes: string | null;
+  /** Praticiens RATTACHÉS, dans la portée de la personne. */
+  praticiens: number;
+  /** Les Business Units qui la visent (§118.183) — et si elle y est la principale. */
+  bu: { nom: string; principale: boolean }[];
+}
+
+/**
+ * UN LIBELLÉ HÉRITÉ — une spécialité écrite en TEXTE sur des fiches, sans lien vers le
+ * référentiel, regroupée par son écriture (casse, accents, espaces mis à part).
+ */
+export interface LibelleHerite {
+  /** L'écriture la plus fréquente, telle qu'on la lit sur les fiches. */
+  libelle: string;
+  /** Les autres écritures du même libellé (« cardiologie », « Cardiologie  »). */
+  variantes: string[];
+  praticiens: number;
+  /** La spécialité du référentiel qu'il désigne déjà à coup sûr — nulle sinon. */
+  designe: { id: string; name: string } | null;
+}

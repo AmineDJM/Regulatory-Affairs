@@ -20,6 +20,8 @@
  * Module PUR — testé, sans base de données.
  */
 
+import { libelleMotif } from "@/lib/secretariat/decision-approbation";
+
 /** Une ligne de la demande : un article du catalogue, ou un besoin décrit en clair. */
 export interface PurchaseLine {
   /** Article du catalogue, `null` pour une ligne « autre ». */
@@ -28,6 +30,28 @@ export interface PurchaseLine {
   quantity: number;
   /** Prix indicatif unitaire, quand le catalogue en porte un. Jamais un engagement. */
   unitPrice: number | null;
+}
+
+/**
+ * LES LIGNES D'UNE DEMANDE, RELUES DEPUIS SES CHAMPS — une lecture, pour la fiche, la carte de
+ * validation et « Mes demandes » (§118.185 — audit 360°, I14).
+ *
+ * Les lignes voyagent dans `fields.purchaseLines` (du JSON) : la fiche n'affichait que les champs
+ * DÉCLARÉS du type, et la carte de validation un titre coupé « (+2) ». Le N+1 validait à l'aveugle
+ * et l'assistante ne savait pas quoi acheter. Ce qui ne se lit pas à coup sûr (un champ qui n'est
+ * pas une liste, une ligne sans libellé) est écarté, jamais deviné.
+ */
+export function lireLignesDAchat(fields: unknown): PurchaseLine[] {
+  const brut = fields && typeof fields === "object" ? (fields as Record<string, unknown>).purchaseLines : null;
+  if (!Array.isArray(brut)) return [];
+  return cleanLines(brut
+    .filter((l): l is Record<string, unknown> => Boolean(l) && typeof l === "object")
+    .map((l) => ({
+      articleId: typeof l.articleId === "string" ? l.articleId : null,
+      label: typeof l.label === "string" ? l.label : "",
+      quantity: typeof l.quantity === "number" ? l.quantity : Number(l.quantity),
+      unitPrice: typeof l.unitPrice === "number" ? l.unitPrice : null,
+    })));
 }
 
 /** Nettoie la saisie : on jette les lignes vides plutôt que d'enregistrer du bruit. */
@@ -79,7 +103,7 @@ export function seesBudget(canViewModule: boolean): boolean {
   return canViewModule;
 }
 
-export type PurchaseStage = "PENDING" | "APPROVED" | "REJECTED" | "DONE" | "CANCELLED";
+export type PurchaseStage = "PENDING" | "CHANGES_REQUESTED" | "APPROVED" | "REJECTED" | "DONE" | "CANCELLED";
 
 /**
  * Où en est une demande d'achat, dit comme on le dirait à l'oral.
@@ -87,17 +111,24 @@ export type PurchaseStage = "PENDING" | "APPROVED" | "REJECTED" | "DONE" | "CANC
  * On lit d'abord la DÉCISION du validateur, puis le statut de la demande : une demande refusée
  * dont le statut est resté « bloqué » doit se lire « refusée par votre directeur », pas
  * « bloquée » — le second n'explique rien à celui qui attend.
+ *
+ * UNE MODIFICATION DEMANDÉE N'EST PAS UNE ATTENTE (lot E5 — audit des managers, M15) : elle se lisait
+ * « En attente de votre directeur » — le demandeur attendait une décision que le directeur avait déjà prise,
+ * et la balle était à lui.
  */
 export function purchaseStage(status: string, approval: { status: string } | null): PurchaseStage {
   if (status === "CANCELLED") return "CANCELLED";
   if (approval?.status === "REJECTED") return "REJECTED";
   if (status === "DONE" || status === "COMPLETED") return "DONE";
   if (approval?.status === "APPROVED") return "APPROVED";
+  if (approval?.status === "CHANGES_REQUESTED") return "CHANGES_REQUESTED";
   return "PENDING";
 }
 
 export const STAGE_LABEL: Record<PurchaseStage, string> = {
   PENDING: "En attente de votre directeur",
+  // Pas « par votre directeur » : c'est peut-être son intérimaire ou la Direction qui l'a renvoyée — la ligne le nomme.
+  CHANGES_REQUESTED: "À modifier",
   APPROVED: "Validée — en cours d'achat",
   REJECTED: "Refusée",
   DONE: "Achat effectué",
@@ -106,6 +137,7 @@ export const STAGE_LABEL: Record<PurchaseStage, string> = {
 
 export const STAGE_TONE: Record<PurchaseStage, "neutral" | "info" | "success" | "warning" | "danger"> = {
   PENDING: "warning",
+  CHANGES_REQUESTED: "warning",
   APPROVED: "info",
   REJECTED: "danger",
   DONE: "success",
@@ -115,9 +147,33 @@ export const STAGE_TONE: Record<PurchaseStage, "neutral" | "info" | "success" | 
 /**
  * La demande est-elle encore retirable par son auteur ?
  *
- * Tant que le directeur n'a pas tranché. Après, elle appartient au circuit : la retirer
- * effacerait une décision, et l'on ne saurait plus pourquoi un achat a été lancé.
+ * Tant que personne n'a tranché DÉFINITIVEMENT. Après, elle appartient au circuit : la retirer
+ * effacerait une décision, et l'on ne saurait plus pourquoi un achat a été lancé. Une demande
+ * « à modifier » se retire aussi : c'est, aujourd'hui, le geste qui la fait repartir corrigée (la redéposer).
  */
 export function canWithdraw(stage: PurchaseStage): boolean {
-  return stage === "PENDING";
+  // DÉCISION DE LA DIRECTION (04/10) : on annule sa demande tant que l'autre ne l'a pas exécutée. Une
+  // demande VALIDÉE n'est pas encore un achat fait : elle se retire jusqu'à « Achat effectué », et ce qui
+  // en dépend (approbations, paiement non réglé) part avec elle par l'annulation commune.
+  return stage === "PENDING" || stage === "CHANGES_REQUESTED" || stage === "APPROVED";
+}
+
+/**
+ * CE QUE LE DEMANDEUR LIT SOUS SA DEMANDE, une fois tranchée (lot E5 — M14, M15) : la parole de celui qui a
+ * tranché (`decisionNote`), préfixée de ce qu'elle est ; le geste qui reste quand la balle revient au demandeur ;
+ * et le NOM de celui qui a tranché quand ce n'est pas le validateur nommé. Jamais `comment` : il porte
+ * l'estimation du catalogue, qui se lisait comme l'avis du directeur — la fonction ne le reçoit même pas.
+ */
+export function phraseDeDecision(
+  stage: PurchaseStage,
+  a: { status: string; note: string | null; decideurAutre: string | null } | null,
+): string | null {
+  if (!a || a.status === "PENDING") return null;
+  const morceaux: string[] = [];
+  if (a.note) morceaux.push(`${libelleMotif(a.status)} : ${a.note}`);
+  if (stage === "CHANGES_REQUESTED") morceaux.push("retirez la demande, puis redéposez-la corrigée");
+  if (a.decideurAutre) morceaux.push(`décision prise par ${a.decideurAutre}`);
+  if (morceaux.length === 0) return null;
+  const phrase = morceaux.join(" — ");
+  return phrase.charAt(0).toUpperCase() + phrase.slice(1);
 }

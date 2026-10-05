@@ -571,7 +571,8 @@ export const PCH_OPS_IMPL: Record<string, OpImpl> = {
       return {
         title: `Retirer la ligne « ${hit.designation} » de ${tender.reference}`,
         fields: [{ label: "Ligne", value: `${hit.designation} — ${tenderLabel(tender)}` }],
-        warnings: ["La ligne et son enrichissement marché disparaissent — le marché et ses bons de commande restent."],
+        // Ce que l'action FAIT depuis la vague « restes » : la corbeille, et un refus quand quelque chose découle du lot.
+        warnings: ["Le lot part à la corbeille, restaurable avec ses affectations aux BU. Refusé si un bon de commande, une ligne de contrat de marché, une vente sous marché ou une répartition Ad & Pro en découle : passez-le alors à « Lot annulé »."],
         args: { id: hit.id, tenderId: tender.id },
         successMessage: `Ligne « ${hit.designation} » retirée.`,
         revalidate: ["/pch"],
@@ -592,7 +593,7 @@ export const PCH_OPS_IMPL: Record<string, OpImpl> = {
           { label: "Marché", value: tenderLabel(tender) },
           { label: "Texte", value: `${text.slice(0, 160)}${text.length > 160 ? "…" : ""} (${text.length} caractères)` },
         ],
-        warnings: ["L'IA extrait les produits demandés puis chaque ligne est ENRICHIE automatiquement (prix de référence PCH, nomenclature, notre catalogue, analyse de marché)."],
+        warnings: ["L'IA extrait les produits demandés puis chaque ligne est ENRICHIE automatiquement (prix de référence PCH, nomenclature, notre catalogue, analyse de marché) — une nouvelle lecture REMPLACE les lignes des lectures précédentes que personne n'a touchées."],
         args: { tenderId: tender.id, text },
         successMessage: `Produits extraits du texte et enrichis sur ${tender.reference}.`,
         link: `/pch/${tender.id}`, revalidate: ["/pch"],

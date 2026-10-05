@@ -62,7 +62,7 @@ export async function journaliserDemandeAchat(input: {
         company: { select: { name: true, shortName: true } },
         approvals: {
           orderBy: { createdAt: "desc" }, take: 1,
-          select: { status: true, comment: true, decidedAt: true, amount: true },
+          select: { status: true, comment: true, decisionNote: true, decidedAt: true, amount: true, decidedBy: { select: { name: true } } },
         },
       },
     });
@@ -90,7 +90,10 @@ export async function journaliserDemandeAchat(input: {
         departmentId: req.department?.id ?? null,
         departmentName: req.department?.name ?? null,
         estimatedTotal: estime,
-        note: input.note ?? decision?.comment ?? null,
+        // LE MOT DU VALIDATEUR, et lui seul (lot E5) : la ligne retombait sur `comment` — l'estimation du
+        // catalogue, ou la note de l'assistante — dès que le geste n'avait pas de note, et la table l'affichait
+        // entre guillemets comme l'avis du directeur.
+        note: input.note ?? null,
         // LA COPIE COMPLÈTE — tout ce que la demande portait à cet instant.
         snapshot: {
           reference: req.reference,
@@ -111,6 +114,9 @@ export async function journaliserDemandeAchat(input: {
             ? {
                 status: decision.status,
                 comment: decision.comment,
+                // QUI A TRANCHÉ, et ce qu'il a dit (lot E5 — M14, M15) — le nom figé, comme les autres.
+                decisionNote: decision.decisionNote,
+                decidedBy: decision.decidedBy?.name ?? null,
                 decidedAt: decision.decidedAt ? decision.decidedAt.toISOString() : null,
                 amount: decision.amount != null ? Number(decision.amount) : null,
               }

@@ -65,17 +65,26 @@ describe("le montant d'une demande suit ses RALLONGES accordées", () => {
 });
 
 /**
- * LES TROIS PORTES — décider, corriger, retirer. §118.71 : une porte gardée à côté d'une porte
- * ouverte, et c'est la même chose qui passe.
+ * LES QUATRE PORTES — décider, corriger, retirer, rendre son accord (§118.187). §118.71 : une porte
+ * gardée à côté d'une porte ouverte, et c'est la même chose qui passe.
  */
 describe("la reprojection a ses appelants de production (§118.49)", () => {
   const src = lire("src/lib/actions/ad-pro-item-actions.ts").replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/[^\n]*/g, "");
 
-  it("elle est appelée par les TROIS actions qui changent une rallonge", () => {
+  it("elle est appelée par les QUATRE actions qui changent une rallonge — chacune dans son propre corps", () => {
     // decideAdProItem (accorder/refuser), updateAdProItem (corriger le montant ou la nature),
-    // deleteAdProItem (retirer le poste). En oublier une laisserait la fiche porter pour
-    // toujours un budget accordé à un poste qui n'existe plus.
-    expect([...src.matchAll(/reprojeterMontantDemande\(owner\.parent, owner\.id\)/g)].length).toBe(3);
+    // deleteAdProItem (retirer le poste), demanderRevisionPoste (le demandeur rend son accord, §118.187 :
+    // le montant accordé s'efface). En oublier une laisserait la fiche porter pour toujours un budget
+    // accordé à un poste qui n'existe plus — ou qui n'est plus accordé.
+    const portes = ["decideAdProItem", "updateAdProItem", "deleteAdProItem", "demanderRevisionPoste"];
+    expect([...src.matchAll(/reprojeterMontantDemande\(owner\.parent, owner\.id\)/g)].length).toBe(portes.length);
+    // Compter sans localiser laisserait une action appeler deux fois pendant qu'une autre oublie (§118.175).
+    for (const nom of portes) {
+      const debut = src.indexOf(`export async function ${nom}(`);
+      expect(debut, `${nom} existe`).toBeGreaterThan(-1);
+      const fin = src.indexOf("export async function ", debut + 10);
+      expect(src.slice(debut, fin === -1 ? undefined : fin), `${nom} reprojette le montant de la demande`).toMatch(/reprojeterMontantDemande\(owner\.parent, owner\.id\)/);
+    }
   });
 
   it("la BASE vient de l'instance de circuit, jamais du champ affiché", () => {

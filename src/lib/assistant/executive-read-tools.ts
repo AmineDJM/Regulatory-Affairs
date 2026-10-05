@@ -8,7 +8,7 @@ import { chargerPorteeStock, clauseRelevesDePortee, porteeVide, explicationPorte
 import { searchEverything } from "@/lib/queries/search-everything";
 import { expandQueryWithAliases } from "@/lib/assistant/memory-context";
 import { getCalendarEvents, getUpcomingEvents, algiersInputToUtc, algiersYmd, algiersTime } from "@/lib/calendar";
-import { toNumber } from "@/lib/utils";
+import { toNumber, formatMontant } from "@/lib/utils";
 import { ROLE_LABELS } from "@/lib/labels";
 
 /**
@@ -40,7 +40,7 @@ const num = (input: Record<string, unknown>, key: string): number | null => {
   return Number.isFinite(n) ? n : null;
 };
 
-const dzd = (n: number): string => `${Math.round(n).toLocaleString("fr-FR")} DZD`;
+const dzd = (n: number): string => `${formatMontant(n)} DZD`;
 
 const YMD_RE = /^\d{4}-\d{2}-\d{2}$/;
 const YM_RE = /^\d{4}-(0[1-9]|1[0-2])$/;

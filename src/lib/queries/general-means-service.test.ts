@@ -144,6 +144,40 @@ describe("Moyens généraux — plus aucune porte vers les autres départements 
     expect(page).toMatch(/const departements = pilote\s*\?/);
   });
 
+  it("EN-TÊTE : le catalogue d'articles, et lui seul — la caisse, les dépenses et le service restent dans la PAGE (décision du 04/10)", () => {
+    const page = sansCommentaires(readFileSync(path.join(RACINE, "src/app/(app)/moyens-generaux/page.tsx"), "utf8"));
+    // L'en-tête de la page de la CAISSE (celui qui porte le titre du service), pas ceux des écrans vides.
+    const debut = page.lastIndexOf("<PageHeader", page.indexOf("title={pilote ?"));
+    const fin = page.indexOf("</PageHeader>", debut);
+    // PRÉMISSE : on isole bien l'en-tête — sans quoi les absences ci-dessous ne prouveraient rien.
+    expect(debut).toBeGreaterThan(-1);
+    expect(fin).toBeGreaterThan(debut);
+    const entete = page.slice(debut, fin);
+    expect(entete, "le catalogue est dans l'en-tête").toMatch(/<SuppliesManager articles=\{catalogRows\} \/>/);
+    for (const interdit of [/ServiceSwitch/, /ChangerDeService/, /<Link/, /mon-espace\/annuaire/, /budgets\/departements/, /<CashPanel/, /<ExpensePanel/, /<ExpenseTable/]) {
+      expect(entete, `l'en-tête porte encore ${interdit}`).not.toMatch(interdit);
+    }
+  });
+
+  it("POINT D'APPEL : la page rend la caisse d'avance, les dépenses et leurs gestes — rien de ce qui est enregistré n'est masqué", () => {
+    const page = sansCommentaires(readFileSync(path.join(RACINE, "src/app/(app)/moyens-generaux/page.tsx"), "utf8"));
+    expect(page).toMatch(/<CashPanel view=\{view\} people=\{people\} \/>/);
+    expect(page).toMatch(/<ExpensePanel\b/);
+    expect(page).toMatch(/<ExpenseTable\b/);
+    expect(page, "une seule caisse : celle du service désigné").toMatch(/getGeneralMeans\(user, departmentId, year\)/);
+    // Les gestes de la caisse existent dans le composant que la page monte (rallonge, remise, confirmation).
+    const cash = readFileSync(path.join(RACINE, "src/app/(app)/moyens-generaux/cash-panel.tsx"), "utf8");
+    for (const geste of ["allotPettyCash", "confirmPettyCashReceipt", "requestPettyCashTopUp", "decidePettyCashTopUp", "annulerRallongeCaisse"]) {
+      expect(cash, `la caisse ne propose plus ${geste}`).toMatch(new RegExp(`${geste}\\(`));
+    }
+  });
+
+  it("les notifications de la caisse mènent à la page qui porte le geste (constats 14 et 15 de l'audit du 04/10)", () => {
+    for (const f of ["src/lib/actions/expense-actions.ts", "src/lib/actions/payment-centre-actions.ts"]) {
+      expect(sansCommentaires(readFileSync(path.join(RACINE, f), "utf8")), f).toMatch(/link: "\/moyens-generaux"/);
+    }
+  });
+
   it("le sélecteur n'existe plus, et personne ne l'importe (une porte cachée vers ce qu'on a retiré de l'écran)", () => {
     expect(existsSync(path.join(RACINE, "src/app/(app)/moyens-generaux/department-switcher.tsx"))).toBe(false);
     const importeurs: string[] = [];

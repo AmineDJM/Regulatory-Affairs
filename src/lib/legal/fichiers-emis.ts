@@ -18,7 +18,10 @@
  * lecture des deux côtés.
  */
 
-export type FormatFichierEmis = "pdf" | "docx";
+/** Un format qu'on peut demander : le Word et le PDF sont des FICHIERS du Drive ; le classeur Excel est RENDU à la demande. */
+export type FormatFichierEmis = "pdf" | "docx" | "xlsx";
+/** Les formats qui existent comme nœuds du Drive. */
+export type FormatNoeud = Exclude<FormatFichierEmis, "xlsx">;
 
 export interface FichiersEmis {
   docx: string | null;

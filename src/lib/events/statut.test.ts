@@ -97,9 +97,18 @@ describe("les deux moitiés ont leur appelant de production", () => {
 
   it("le moteur de circuit ÉCRIT l'état de l'événement — sans quoi il resterait « Brouillon » à jamais", () => {
     const src = lire("src/lib/workflow/engine.ts");
-    // DEUX projections : l'avance (`projectApprove`) et le refus définitif (`projectReject`).
-    // N'en brancher qu'une laisserait un événement refusé afficher « En attente de validation ».
-    expect([...src.matchAll(/statutDepuisCircuit\(/g)].length).toBe(2);
+    // TROIS projections : l'avance (`projectApprove`), le refus définitif (`projectReject`), et
+    // l'écriture commune au renvoi pour correction, à la pose d'une demande resoumise ou relancée
+    // et au retrait (`projeterStatut`, §118.186). En oublier une laisserait un événement refusé, à
+    // corriger ou retiré afficher « En attente de validation ».
+    expect([...src.matchAll(/statutDepuisCircuit\(/g)].length).toBe(3);
+    expect(src, "le renvoi, la pose et le retrait passent par la même écriture").toMatch(/async function projeterStatut[\s\S]{0,400}statutDepuisCircuit\(statut\)/);
+    for (const site of ["async function projectReturn", "async function projectPose"]) {
+      const corps = src.slice(src.indexOf(site), src.indexOf("\n}\n", src.indexOf(site)));
+      expect(corps, `${site} écrit par projeterStatut`).toContain("projeterStatut(");
+    }
+    const retrait = src.slice(src.indexOf("export async function retirerDemande"), src.indexOf("\n}\n", src.indexOf("export async function retirerDemande")));
+    expect(retrait, "le retrait écrit « annulée » par projeterStatut").toContain('projeterStatut(entityType, entityId, "CANCELLED", viewer)');
     expect(src, "la projection se fait dans `projectApprove`, une seule fois pour les deux branches")
       .toMatch(/entityType === "EVENT"[\s\S]{0,400}statutDepuisCircuit/);
   });

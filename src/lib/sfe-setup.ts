@@ -42,6 +42,16 @@ export function isChannel(v: string): v is Channel {
   return v === "RETAIL" || v === "HOSPITAL" || v === "BOTH";
 }
 
+/**
+ * UNE BU EST HOSPITALIÈRE quand son terrain est l'hôpital, ou les deux (04/10/2026). C'est ce qui
+ * décide si le territoire de chaque KAM se choisit dans l'annuaire des établissements (sur sa ligne)
+ * ou reste un texte libre. Une valeur inconnue n'est PAS hospitalière : ouvrir un territoire
+ * d'hôpitaux sur un terrain qu'on ne sait pas lire choisirait à la place de qui règle la BU.
+ */
+export function estBuHospitaliere(channel: string): boolean {
+  return channel === "HOSPITAL" || channel === "BOTH";
+}
+
 export function channelLabel(v: string): string {
   return isChannel(v) ? CHANNEL_LABELS[v] : v;
 }
@@ -56,7 +66,7 @@ export function channelCovers(bu: string, product: string): boolean {
   return bu === "BOTH" || bu === product;
 }
 
-export type BuStepKey = "SUPERVISEUR" | "CANAL" | "KAM" | "SECTEURS" | "PRODUITS" | "REFERENTS";
+export type BuStepKey = "SUPERVISEUR" | "CANAL" | "SPECIALITES" | "KAM" | "TERRITOIRES" | "PRODUITS" | "REFERENTS";
 
 export interface BuSetupInput {
   supervisorId: string | null;
@@ -64,29 +74,22 @@ export interface BuSetupInput {
   repCount: number;
   productCount: number;
   /**
-   * LES TERRITOIRES DE LA BU — combien de secteurs nommés elle porte, combien sont VIDES, et
-   * combien de ses KAM en ont au moins un.
-   *
-   * Trois nombres et non un seul, parce que trois pannes différentes se cachent derrière « la BU
-   * a des secteurs », et les trois sont SILENCIEUSES — elles ne produisent pas d'erreur, elles
-   * produisent un KAM dont le panel est VIDE, qui ne peut planifier aucune tournée, sans qu'une
-   * seule ligne le dise :
-   *   · aucun secteur : personne ne sait quels hôpitaux la BU couvre ;
-   *   · un secteur SANS établissement : un nom de territoire sans territoire — le KAM qu'on y
-   *     affecte a exactement le même panel vide qu'un KAM sans secteur ;
-   *   · des KAM SANS secteur : la BU est « configurée » et ces personnes-là ne voient rien.
-   *
-   * Le dernier point est celui qui trompe : une BU avec un secteur et cinq KAM dont quatre n'en
-   * ont aucun se lit comme montée. C'est la forme exacte du circuit sans étape rendu comme un
-   * circuit configuré (§118.113).
+   * LES TERRITOIRES DES KAM (04/10/2026) — dans une BU hospitalière, chaque KAM choisit SUR SA LIGNE
+   * les établissements qu'il couvre. Deux faits et non un seul, parce que deux pannes se cachent
+   * derrière « les KAM ont un territoire », toutes deux SILENCIEUSES — elles produisent un KAM dont
+   * le panel est VIDE, qui ne peut planifier aucune tournée, sans qu'une ligne le dise :
+   *   · aucun KAM ACTIF : il n'y a rien de couvert, et la jauge ne doit pas s'en féliciter ;
+   *   · des KAM actifs SANS territoire (ou dont le territoire n'a aucun établissement) : la BU a
+   *     l'air montée et ces personnes-là ne voient aucun médecin. On les NOMME : la raison dit sur
+   *     quelle ligne agir, pas « des territoires manquent ».
+   * Un KAM inactif ne bloque rien : il ne planifie pas.
    */
-  sectorCount: number;
-  sectorsWithoutInstitution: number;
-  repsWithSector: number;
+  kamsActifs: number;
+  kamsSansTerritoire: string[];
   /**
    * LES RÉFÉRENTS DIRECTION MARKETING de la gamme (22/09/2026).
    *
-   * Deux nombres et non un, pour la même raison que les secteurs : « la gamme a un référent »
+   * Deux nombres et non un, pour la même raison que les territoires : « la gamme a un référent »
    * cache DEUX pannes distinctes, toutes deux silencieuses. Aucun référent — les demandes Ad &
    * Pro de cette gamme ne préviennent personne nommément, elles repartent sur le rôle entier et
    * chacun suppose que quelqu'un d'autre s'en occupe. Un référent qui ne PORTE pas le rôle — il
@@ -94,6 +97,11 @@ export interface BuSetupInput {
    */
   referentCount: number;
   referentsSansRole: number;
+  /**
+   * LES SPÉCIALITÉS QUE LA BU VISE (§118.183) — « BU ≠ spécialité ». Un nombre suffit : la principale
+   * est facultative, et une BU qui vise trois spécialités sans en désigner une est MONTÉE.
+   */
+  specialtyCount: number;
 }
 
 export interface BuStep {
@@ -106,26 +114,26 @@ export interface BuStep {
 }
 
 /**
- * CE QU'ON PERD, DANS LE CAS QU'ON A. Un motif unique (« les secteurs sont incomplets ») ferait
- * chercher soi-même laquelle des trois pannes on tient ; c'est le défaut d'un refus qui nomme la
- * faute sans nommer le remède (§118.30).
+ * CE QU'ON PERD, DANS LE CAS QU'ON A. Un motif unique (« des territoires manquent ») ferait chercher
+ * soi-même quel KAM n'a rien ; c'est le défaut d'un refus qui nomme la faute sans nommer le remède
+ * (§118.30).
  */
-function secteursWhy(bu: BuSetupInput): string {
-  if (bu.sectorCount === 0) {
-    return "Sans secteur, aucun KAM ne sait quels établissements il couvre : son panel est vide et il ne peut soumettre aucun plan de tournée.";
+function territoiresWhy(bu: BuSetupInput): string {
+  if (!estBuHospitaliere(bu.channel)) {
+    return "BU de ville : pas d'établissement à choisir — le secteur de chaque KAM se saisit en texte sur sa ligne, et cette étape n'est pas exigée.";
   }
-  if (bu.sectorsWithoutInstitution > 0) {
-    const n = bu.sectorsWithoutInstitution;
-    return `${n} secteur${n > 1 ? "s" : ""} ne contient aucun établissement : un nom de territoire sans territoire donne exactement le même panel vide qu'un KAM sans secteur.`;
+  if (bu.kamsActifs === 0) {
+    return "Aucun KAM actif dans la BU : il n'y a encore aucun territoire à choisir, donc rien de couvert.";
   }
-  if (bu.repCount > 0 && bu.repsWithSector < bu.repCount) {
-    const n = bu.repCount - bu.repsWithSector;
-    return `${n} KAM sur ${bu.repCount} n'est affecté à aucun secteur : la BU a l'air montée et ces personnes-là ne voient aucun médecin.`;
+  const n = bu.kamsSansTerritoire.length;
+  if (n > 0) {
+    const noms = bu.kamsSansTerritoire.slice(0, 3).join(", ") + (n > 3 ? ` et ${n - 3} autre(s)` : "");
+    return `Sans territoire, ${noms} ${n > 1 ? "n'ont" : "n'a"} aucun médecin dans ${n > 1 ? "leur" : "son"} panel et ne ${n > 1 ? "peuvent" : "peut"} soumettre aucun plan de tournée : choisissez les établissements sur ${n > 1 ? "leur" : "sa"} ligne (« Territoire »).`;
   }
-  return "Un secteur est une sélection d'établissements qui porte un nom (« Est », « Oranais ») : c'est lui qui donne au KAM son panel de médecins et ouvre sa planification sur la bonne ville.";
+  return "Chaque KAM choisit sur sa ligne les établissements qu'il couvre — tous leurs services, ou certains : c'est ce qui lui donne son panel de médecins.";
 }
 
-/** Même principe que `secteursWhy` : la raison DANS LE CAS qu'on tient, jamais « incomplet ». */
+/** Même principe que `territoiresWhy` : la raison DANS LE CAS qu'on tient, jamais « incomplet ». */
 function referentsWhyBu(bu: BuSetupInput): string {
   if (bu.referentCount === 0) {
     return "Aucun référent Direction Marketing : les demandes Ad & Pro de cette gamme ne préviennent personne "
@@ -160,20 +168,26 @@ export function buSetupSteps(bu: BuSetupInput): BuStep[] {
       why: "Ville, hôpital ou les deux : le canal de la BU s'applique à ses produits, qui n'ont plus à le redire un par un.",
     },
     {
+      key: "SPECIALITES",
+      label: "Choisir les spécialités",
+      done: bu.specialtyCount > 0,
+      why: "Une BU vise une ou plusieurs spécialités (« neurologie, dermatologie, urologie ») : sans elles, rien ne dit à quels médecins s'adressent ses produits.",
+    },
+    {
       key: "KAM",
       label: "Rattacher les KAM",
       done: bu.repCount > 0,
       why: "Une BU sans KAM n'apparaît pas au pilotage : ni panel, ni visites, ni couverture.",
     },
     {
-      key: "SECTEURS",
-      label: "Découper les secteurs",
-      // `repCount > 0` est nécessaire : sans KAM, il n'y a pas de territoire COUVERT, et annoncer
-      // l'étape franchie sur une BU vide ferait mentir la jauge par son numérateur (§118.51).
-      // L'étape KAM vient avant et reste la « suivante » dans ce cas — celle-ci dit simplement la
-      // vérité : rien n'est couvert.
-      done: bu.repCount > 0 && bu.sectorsWithoutInstitution === 0 && bu.repsWithSector >= bu.repCount,
-      why: secteursWhy(bu),
+      key: "TERRITOIRES",
+      label: "Choisir les territoires des KAM",
+      // Une BU de VILLE n'a pas d'hôpital à cocher : l'étape n'est pas exigée, et sa raison le DIT.
+      // Dans une BU hospitalière, `kamsActifs > 0` est nécessaire : sans KAM actif il n'y a pas de
+      // territoire COUVERT, et annoncer l'étape franchie sur une BU vide ferait mentir la jauge par
+      // son numérateur (§118.51). L'étape KAM vient avant et reste la « suivante » dans ce cas.
+      done: !estBuHospitaliere(bu.channel) || (bu.kamsActifs > 0 && bu.kamsSansTerritoire.length === 0),
+      why: territoiresWhy(bu),
     },
     {
       key: "REFERENTS",

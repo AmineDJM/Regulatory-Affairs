@@ -1,21 +1,27 @@
 import { Lock, Building2 } from "lucide-react";
 import { prisma } from "@/lib/prisma";
+import { organisationsActiveesPour } from "@/lib/regulatory/intelligence/access";
 
 /**
  * CARTE-GARDE de portée du Regulatory Intelligence OS — remplace les `notFound()` muets.
  *
- * `resolveRegCompanyId` rend `null` dans deux situations très différentes, et l'écran doit
+ * `resolveRegCompanyIdFor` rend `null` dans des situations très différentes, et l'écran doit
  * dire LAQUELLE, sinon l'utilisateur voit une page morte sans savoir quoi faire :
- *   • le module est activé pour PLUSIEURS entités et la vue est « Toutes les entités » →
- *     il suffit d'en choisir une dans la barre supérieure (on les nomme) ;
- *   • aucune entité activée (ou pas celle sélectionnée) → c'est un réglage Super Admin.
+ *   • le module est activé pour PLUSIEURS entités qui lui sont ouvertes et la vue est « Toutes
+ *     les entités » → il suffit d'en choisir une dans la barre supérieure (on les nomme) ;
+ *   • aucune entité activée (ou pas celle sélectionnée) → c'est un réglage Super Admin ;
+ *   • le module est activé AILLEURS dans le groupe, pas dans les entités de la personne →
+ *     le geste n'est pas de « sélectionner » une entité que son sélecteur ne propose pas, mais
+ *     de demander l'accès à cette entité (§118.128 : un remède qui nomme un geste impossible
+ *     fait chercher une panne qui n'existe pas). Cette troisième situation est née avec la
+ *     validation de la portée (§118.177) : avant, le cookie n'était jamais vérifié.
  *
  * Un 404 ici n'est jamais le bon message : la page existe, c'est la portée qui manque.
  */
-export async function RegScopeCard() {
-  const flags = await prisma.regulatoryFeatureAccess.findMany({ where: { enabled: true }, select: { companyId: true } });
-  const companies = flags.length
-    ? await prisma.company.findMany({ where: { id: { in: flags.map((f) => f.companyId) }, isActive: true }, select: { name: true }, orderBy: { name: "asc" } })
+export async function RegScopeCard({ userId }: { userId: string }) {
+  const { ouvertes, ailleurs } = await organisationsActiveesPour(userId);
+  const companies = ouvertes.length
+    ? await prisma.company.findMany({ where: { id: { in: ouvertes }, isActive: true }, select: { name: true }, orderBy: { name: "asc" } })
     : [];
   const names = companies.map((c) => c.name);
 
@@ -39,6 +45,12 @@ export async function RegScopeCard() {
           <p>
             Le module est activé pour <strong>{names[0]}</strong> uniquement. Sélectionnez cette entité dans la barre
             supérieure, puis revenez sur cette page.
+          </p>
+        ) : ailleurs > 0 ? (
+          <p>
+            Le module est activé pour une autre entité du groupe, pas pour celles qui vous sont ouvertes. L&apos;accès à
+            une autre entité se donne sur votre fiche salarié, par les ressources humaines : Ressources humaines → votre
+            fiche → « Accès aux entités ».
           </p>
         ) : (
           <p>

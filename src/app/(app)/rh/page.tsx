@@ -2,6 +2,8 @@ import Link from "next/link";
 import { Banknote, Building2, Users, CalendarOff } from "lucide-react";
 import { requireModule } from "@/lib/session";
 import { userCan } from "@/lib/rbac";
+import { voitLesSalaires } from "@/lib/hr/confidentialite";
+import { clauseSalariesVisibles } from "@/lib/queries/visibilite-listes";
 import { prisma } from "@/lib/prisma";
 import { getRhData, getLeavesToDecide } from "@/lib/queries/hr";
 import { PageHeader } from "@/components/shared/page-header";
@@ -29,6 +31,8 @@ export default async function RhPage() {
   const canCreate = userCan(user, "RH", "CREATE");
   const canValidate = userCan(user, "RH", "VALIDATE");
   const canManage = userCan(user, "RH", "UPDATE"); // RH/DRH : modifier toute demande de congé (dont l'historique)
+  // LA PAIE N'EST PAS DANS LA LECTURE SEULE (audit 360°, S5) — une règle pour toutes les portes.
+  const salairesVisibles = voitLesSalaires(user);
   const data = await getRhData(user.id);
   const companies = await getMyCompanies(user.id);
   const departmentOptions = await getDepartmentOptions();
@@ -37,6 +41,8 @@ export default async function RhPage() {
   // Demandes « Mon Dossier RH » de TOUS les employés — traitées ICI, dans le module RH
   // (les statuts se règlent sur la fiche employé, section Dossier RH).
   const hrRequests = await prisma.hrDocumentRequest.findMany({
+    // Bornées à la société, comme la liste des salariés (audit 360°, S6).
+    where: { employee: await clauseSalariesVisibles(user.id) },
     orderBy: [{ status: "asc" }, { createdAt: "desc" }],
     take: 60,
     include: { employee: { select: { id: true, fullName: true } } },
@@ -97,7 +103,7 @@ export default async function RhPage() {
               hint: "Téléversez le contrat (PDF ou image) : l'OCR Mistral + l'IA extraient nom, poste, type de contrat, dates, salaire de base, NIN, CNAS… Tout reste modifiable avant l'enregistrement.",
               accept: ".pdf,.png,.jpg,.jpeg,.webp,.tif,.tiff",
               disabled: !aiConfigured(),
-              disabledHint: phraseIaNonConfiguree(cleModeleRequise(), "l'analyse automatique d'un CV"),
+              disabledHint: phraseIaNonConfiguree(cleModeleRequise(), "l'analyse automatique d'un contrat de travail"),
             }} />
         )}
       </PageHeader>
@@ -112,20 +118,20 @@ export default async function RhPage() {
         {/* LA COUVERTURE EST DANS LE TON, pas seulement dans la note : un mois de paie
             partiellement saisi affiche une masse salariale qui n'est celle de personne — et
             se lit comme un effondrement des charges si rien ne le signale. */}
-        <KpiCard
+        {salairesVisibles && <KpiCard
           label="Masse salariale" value={formatCurrency(data.stats.masseSalariale)} icon="Wallet"
           tone={data.stats.masseSalarialePartielle ? "warning" : "info"}
           hint={data.stats.masseSalarialePartielle
             ? `${data.stats.masseSalarialeSource} — mois incomplet`
             : data.stats.masseSalarialeSource}
-        />
+        />}
       </div>
 
       {/* LA MASSE SALARIALE, SOCIÉTÉ PAR SOCIÉTÉ — la somme des coûts employeur écrits dans la
           paie de chacun. Elle était calculée et n'était affichée nulle part : on lisait un total
           de groupe sous un effectif d'entité. Un agrégat sans sa portée est un piège — il est
           juste, il se dit avec aplomb, et il répond à une autre question que celle posée. */}
-      {data.byCompany.length > 1 && (
+      {salairesVisibles && data.byCompany.length > 1 && (
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm">Masse salariale par entité</CardTitle>

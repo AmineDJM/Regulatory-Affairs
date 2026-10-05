@@ -1,7 +1,8 @@
 import { randomUUID } from "crypto";
 import type { Confidentiality, DocumentCategory, EntityType } from "@prisma/client";
 import { ENTITY_MODULE } from "@/lib/entity-access";
-import { saveFile, validateDocumentUpload } from "@/lib/storage";
+import { saveFile, deleteFileByKey, validateDocumentUpload } from "@/lib/storage";
+import { sha256 } from "@/lib/drive-storage";
 import { getAppSettings } from "@/lib/settings";
 import { ENTITY_TYPE_LABELS } from "@/lib/labels";
 import { prisma } from "@/lib/prisma";
@@ -47,14 +48,25 @@ export async function persistUploadedDocument(
   if (invalid) return { ok: false, error: invalid };
 
   const key = `${entityType}/${entityId}/${randomUUID()}__${file.name}`;
-  let content: Buffer | null = null;
+  const content: Buffer = input.buffer ?? Buffer.from(await file.arrayBuffer());
+
+  // UNE RELANCE N'EST PAS UNE VERSION 2 (audit du 04/10, constat 13). Une requête dont la réponse
+  // s'est perdue en route est renvoyée par le navigateur ; le serveur, lui, avait bien enregistré
+  // la première. Même pièce (même nom, mêmes octets), même personne, même fiche, il y a moins de
+  // dix minutes : c'est le même dépôt, on rend la fiche existante.
+  const deja = await depotIdentiqueRecent(userId, entityType, entityId, file.name, content);
+  if (deja) return { ok: true, documentId: deja };
+
+  // PAS DE FICHE SANS FICHIER (audit du 04/10, constat 1). La version d'avant avalait l'échec
+  // d'écriture, créait la fiche quand même et l'écran disait « téléversé » : la personne
+  // découvrait des semaines plus tard un document « indisponible », l'original jeté entre-temps.
+  // Un échec d'écriture est DIT, et rien n'est créé — renvoyer le fichier suffit.
   try {
-    content = input.buffer ?? Buffer.from(await file.arrayBuffer());
     await saveFile(key, content);
   } catch (err) {
-    // Stockage indisponible : on garde la métadonnée pour ne pas casser la bibliothèque ;
-    // le binaire pourra être ré-attaché plus tard.
-    console.error("[upload] storage write failed, recording metadata only", err);
+    console.error("[upload] écriture du fichier impossible — aucune fiche créée", err);
+    const detail = err instanceof Error ? err.message : String(err);
+    return { ok: false, error: `« ${file.name} » n'a pas pu être enregistré (${detail}). Aucun document n'a été créé : renvoyez le fichier.` };
   }
 
   // Versionnage : incrémente selon les documents existants de même nom sur l'entité.
@@ -86,6 +98,8 @@ export async function persistUploadedDocument(
     documentId = created.id;
   } catch (err) {
     console.error("[upload] document.create failed", { name: file.name, entityType, entityId }, err);
+    // Le fichier écrit n'a pas de fiche : on le rend, sinon il reste payé et invisible.
+    await deleteFileByKey(key).catch(() => undefined);
     const msg = err instanceof Error ? err.message : String(err);
     return { ok: false, error: `Enregistrement impossible : ${msg}` };
   }
@@ -101,12 +115,38 @@ export async function persistUploadedDocument(
 
   // MIROIR DRIVE, en arrière-plan : le document est déjà enregistré, c'est ce que la personne
   // voit. La copie se termine côté serveur — on ne fait pas attendre un téléversement pour elle.
-  if (input.mirrorToDrive !== false && content) {
+  if (input.mirrorToDrive !== false) {
     const data = content;
     void mirrorDocumentsToDrive({ ownerId: userId, entityType, entityId, files: [{ name: file.name, data, mime: file.type || null }] })
       .catch((e) => console.error("[upload] miroir Drive échoué (non bloquant)", e));
   }
   return { ok: true, documentId };
+}
+
+/** Fenêtre dans laquelle un renvoi identique est lu comme une relance, pas comme une version. */
+export const RELANCE_FENETRE_MS = 10 * 60_000;
+
+/**
+ * Le même dépôt, déjà enregistré ? Même personne, même fiche, même nom, mêmes octets, il y a
+ * moins de dix minutes. Les octets comptent : renvoyer un fichier CORRIGÉ sous le même nom reste
+ * une nouvelle version, et c'est voulu.
+ */
+async function depotIdentiqueRecent(
+  userId: string, entityType: EntityType, entityId: string, name: string, content: Buffer,
+): Promise<string | null> {
+  const recents = await prisma.document.findMany({
+    where: { entityType, entityId, name, uploadedById: userId, fileKey: { not: null }, createdAt: { gte: new Date(Date.now() - RELANCE_FENETRE_MS) } },
+    orderBy: { createdAt: "desc" }, take: 5, select: { id: true, fileKey: true },
+  });
+  if (recents.length === 0) return null;
+  const empreinte = sha256(content);
+  for (const d of recents) {
+    const stored = await prisma.storedFile.findUnique({ where: { key: d.fileKey! }, select: { blobId: true } });
+    if (!stored) continue;
+    const blob = await prisma.fileBlob.findUnique({ where: { id: stored.blobId }, select: { sha256: true } });
+    if (blob?.sha256 === empreinte) return d.id;
+  }
+  return null;
 }
 
 /**
@@ -127,15 +167,18 @@ export async function attachFormFiles(
   formData: FormData,
   fieldName = "attachment",
 ): Promise<{ attached: number; failed: { name: string; error: string }[] }> {
-  const files = formData
-    .getAll(fieldName)
-    .filter((v): v is File => v instanceof File && v.size > 0);
-  if (files.length === 0) return { attached: 0, failed: [] };
+  // Un champ fichier laissé vide envoie un fichier SANS NOM de zéro octet : ce n'est pas une
+  // pièce. Un fichier NOMMÉ de zéro octet, si — et il est dit, plus écarté en silence (constat 13).
+  const all = formData.getAll(fieldName).filter((v): v is File => v instanceof File && (v.size > 0 || v.name !== ""));
+  const failed: { name: string; error: string }[] = all
+    .filter((f) => f.size === 0)
+    .map((f) => ({ name: f.name, error: "Fichier vide (0 octet) — rien à enregistrer." }));
+  const files = all.filter((f) => f.size > 0);
+  if (files.length === 0) return { attached: 0, failed };
 
   // La limite est lue UNE fois pour le lot : chaque fichier n'a pas à relire les réglages.
   const maxUploadMb = (await getAppSettings()).maxUploadMb;
   let attached = 0;
-  const failed: { name: string; error: string }[] = [];
   for (const file of files) {
     const r = await persistUploadedDocument(userId, {
       entityType, entityId, category: "OTHER", confidentiality: "INTERNAL", stepKey: null, file, maxUploadMb,

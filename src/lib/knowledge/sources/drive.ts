@@ -79,23 +79,43 @@ export interface DriveIngestDraft {
  * récente déposée entre-temps, qui ferait citer une page qui n'est pas celle qu'on a lue.
  */
 export async function driveBytes(nodeId: string): Promise<{ buffer: Buffer; mime: string; name: string } | null> {
+  const r = await lireOctetsDrive(nodeId);
+  return r.ok ? r : null;
+}
+
+/**
+ * LES MÊMES OCTETS, AVEC LA RAISON QUAND ILS MANQUENT. `driveBytes` répondait `null` à quatre
+ * questions différentes ; l'étage vision a besoin de les distinguer, parce qu'elles n'appellent
+ * pas le même geste :
+ *   • `absent`   — nœud supprimé, à la corbeille, ou n'est pas un fichier : rien à lire, et rien à
+ *                  corriger ;
+ *   • `trop_gros` — au-delà de la borne d'ingestion : le fichier existe, on ne le lit pas, et
+ *                  l'écran doit le dire « sans texte lisible » plutôt qu'« en échec » ;
+ *   • `stockage` — la fiche existe mais ses octets sont introuvables : c'est un VRAI défaut, et il
+ *                  doit se voir dans la boîte morte avec ce nom-là.
+ */
+export type OctetsDrive =
+  | { ok: true; buffer: Buffer; mime: string; name: string }
+  | { ok: false; raison: "absent" | "trop_gros" | "stockage"; name: string | null };
+
+export async function lireOctetsDrive(nodeId: string): Promise<OctetsDrive> {
   const node = await prisma.driveNode
     .findUnique({ where: { id: nodeId }, select: { id: true, name: true, type: true, isTrashed: true, size: true } })
     .catch(() => null);
-  if (!node || node.type !== "FILE" || node.isTrashed) return null;
-  if (node.size != null && node.size > MAX_INGEST_BYTES) return null;
+  if (!node || node.type !== "FILE" || node.isTrashed) return { ok: false, raison: "absent", name: node?.name ?? null };
+  if (node.size != null && node.size > MAX_INGEST_BYTES) return { ok: false, raison: "trop_gros", name: node.name };
 
   const version = await prisma.fileVersion
     .findFirst({ where: { nodeId }, orderBy: { version: "desc" }, select: { blobId: true } })
     .catch(() => null);
-  if (!version?.blobId) return null;
+  if (!version?.blobId) return { ok: false, raison: "stockage", name: node.name };
 
   const buffer = await getBlob(version.blobId).catch(() => null);
-  if (!buffer) return null;
+  if (!buffer) return { ok: false, raison: "stockage", name: node.name };
 
   const guessed = detectMime(buffer, (node.name.split(".").pop() ?? "").toLowerCase());
   const mime = guessed.family === "zip-office" ? (officeMimeOf(node.name) ?? guessed.mime) : guessed.mime;
-  return { buffer, mime, name: node.name };
+  return { ok: true, buffer, mime, name: node.name };
 }
 
 /**

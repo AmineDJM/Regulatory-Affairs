@@ -2,9 +2,8 @@
 
 import { requireUser } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
-import { getCompanyScope } from "@/lib/company";
 import { aiConfigured } from "@/lib/ai";
-import { regCan, resolveRegCompanyId } from "../access";
+import { regCan, resolveRegCompanyIdFor } from "../access";
 import { askDossier, type ChatTurn, type DossierChatResult } from "./dossier-chat";
 import { runDossierAgent, type AgentAttachment, type DossierAgentResult, type UnreadableAttachment } from "./dossier-agent";
 import { appendThreadMessage, clearThread, loadThread, loadThreadMemory, type AttachmentRecord, type ThreadMessageView } from "./dossier-thread";
@@ -40,7 +39,7 @@ export async function askDossierAction(formData: FormData): Promise<DossierChatR
   const question = String(formData.get("question") ?? "").trim();
   if (!dossierId || !question) return fail("Paramètres manquants.");
 
-  const companyId = await resolveRegCompanyId(getCompanyScope());
+  const companyId = await resolveRegCompanyIdFor(user.id);
   if (!companyId) return fail("Module non activé.");
 
   const version = await prisma.regulatoryDossierVersion.findFirst({
@@ -78,7 +77,7 @@ export async function askDossierAgentAction(formData: FormData): Promise<Dossier
   const question = String(formData.get("question") ?? "").trim();
   if (!dossierId || !question) return fail("Paramètres manquants.");
 
-  const companyId = await resolveRegCompanyId(getCompanyScope());
+  const companyId = await resolveRegCompanyIdFor(user.id);
   if (!companyId) return fail("Module non activé.");
 
   const version = await prisma.regulatoryDossierVersion.findFirst({
@@ -178,7 +177,7 @@ export async function loadDossierChatAction(formData: FormData): Promise<{ ok: b
   if (!regCan(user, "regulatory.document.view") && user.role !== "SUPER_ADMIN") return fail("Non autorisé.");
   const dossierId = String(formData.get("dossierId") ?? "").trim();
   if (!dossierId) return fail("Paramètres manquants.");
-  const companyId = await resolveRegCompanyId(getCompanyScope());
+  const companyId = await resolveRegCompanyIdFor(user.id);
   if (!companyId) return fail("Module non activé.");
   const dossier = await prisma.regulatoryDossier.findFirst({ where: { id: dossierId, companyId }, select: { id: true } });
   if (!dossier) return fail("Dossier introuvable.");
@@ -195,7 +194,7 @@ export async function resetDossierChatAction(formData: FormData): Promise<{ ok: 
   if (!regCan(user, "regulatory.document.view") && user.role !== "SUPER_ADMIN") return { ok: false, error: "Non autorisé." };
   const dossierId = String(formData.get("dossierId") ?? "").trim();
   if (!dossierId) return { ok: false, error: "Paramètres manquants." };
-  const companyId = await resolveRegCompanyId(getCompanyScope());
+  const companyId = await resolveRegCompanyIdFor(user.id);
   if (!companyId) return { ok: false, error: "Module non activé." };
   const dossier = await prisma.regulatoryDossier.findFirst({ where: { id: dossierId, companyId }, select: { id: true } });
   if (!dossier) return { ok: false, error: "Dossier introuvable." };
@@ -216,7 +215,7 @@ export async function askReservesAction(formData: FormData): Promise<DossierChat
   const question = String(formData.get("question") ?? "").trim();
   if (!dossierId || !question) return fail("Paramètres manquants.");
 
-  const companyId = await resolveRegCompanyId(getCompanyScope());
+  const companyId = await resolveRegCompanyIdFor(user.id);
   if (!companyId) return fail("Module non activé.");
   // Isolation : le dossier doit appartenir à l'organisation activée.
   const dossier = await prisma.regulatoryDossier.findFirst({ where: { id: dossierId, companyId }, select: { id: true } });

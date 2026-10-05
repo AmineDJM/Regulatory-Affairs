@@ -171,15 +171,32 @@ export function sectorFrom(raw: unknown): string {
   return "LIBERAL";
 }
 
-/** Un niveau de segmentation, écrit en toutes lettres, en note sur 5, ou en A/B/C. */
-export function levelFrom(raw: unknown): string {
+/** Les niveaux que l'annuaire connaît — le vocabulaire de `SegmentLevel`. */
+export type NiveauLu = "VERY_HIGH" | "HIGH" | "MEDIUM" | "LOW" | "VERY_LOW";
+
+/**
+ * UN NIVEAU DE SEGMENTATION, écrit en toutes lettres, en note sur 5, ou en lettres A+ / A / B / C / D.
+ *
+ * Rend `null` sur une cellule VIDE ou ILLISIBLE — jamais « Moyen » par défaut. Le défaut d'avant :
+ * tout ce qui n'était pas reconnu tombait sur « Moyen », y compris « D » — un praticien classé D
+ * remontait donc à la fréquence de visite d'un moyen, et une cellule vide ou mal écrite effaçait,
+ * sur une fiche existante, un niveau que quelqu'un avait posé. Une donnée qu'on ne lit pas à coup
+ * sûr n'est pas une donnée moyenne : c'est une donnée absente (spec §43, §80), et l'appelant décide
+ * quoi en faire — ici, ne rien écrire et le DIRE (§118.16, §118.52).
+ */
+export function levelFrom(raw: unknown): NiveauLu | null {
+  // « A+ » se lit AVANT la normalisation, qui retire le « + » : le test `n === "a+"` d'avant ne
+  // pouvait jamais réussir, et un A+ descendait au rang d'un A (§118.17 : une branche qui ne peut
+  // pas se déclencher n'est pas une branche).
+  if (/^a\s*\+{1,2}$/i.test(String(raw ?? "").trim())) return "VERY_HIGH";
   const n = normalizeHeader(raw);
-  if (!n) return "MEDIUM";
-  if (n.includes("tres haut") || n.includes("tres eleve") || n === "5" || n === "a+") return "VERY_HIGH";
-  if (n.includes("tres bas") || n.includes("tres faible") || n === "1") return "VERY_LOW";
+  if (!n) return null;
+  if (n.includes("tres haut") || n.includes("tres eleve") || n === "5") return "VERY_HIGH";
+  if (n.includes("tres bas") || n.includes("tres faible") || n === "1" || n === "d") return "VERY_LOW";
   if (n.includes("haut") || n.includes("eleve") || n.includes("fort") || n === "4" || n === "a") return "HIGH";
   if (n.includes("bas") || n.includes("faible") || n === "2" || n === "c") return "LOW";
-  return "MEDIUM";
+  if (n.includes("moyen") || n.includes("modere") || n === "medium" || n === "3" || n === "b") return "MEDIUM";
+  return null;
 }
 
 /**
@@ -226,9 +243,12 @@ export interface DirectoryImportRow {
   region: string | null;
   phone: string | null;
   email: string | null;
-  influence: string;
-  potential: string;
-  affinity: string;
+  /** `null` : cellule vide ou illisible — rien n'est écrit pour ce champ (voir `levelFrom`). */
+  influence: NiveauLu | null;
+  potential: NiveauLu | null;
+  affinity: NiveauLu | null;
+  /** Les cellules de niveau NON VIDES qu'on n'a pas su lire : comptées et nommées dans le bilan. */
+  niveauxIllisibles: { champ: "influence" | "potential" | "affinity"; valeur: string }[];
   targetProducts: string | null;
   delegate: string | null;
   comments: string | null;
@@ -311,6 +331,9 @@ export function parseDirectoryRow(
     influence: levelFrom(get("influence")),
     potential: levelFrom(get("potential")),
     affinity: levelFrom(get("affinity")),
+    niveauxIllisibles: (["influence", "potential", "affinity"] as const)
+      .filter((champ) => get(champ) !== "" && levelFrom(get(champ)) === null)
+      .map((champ) => ({ champ, valeur: get(champ) })),
     targetProducts: orNull(get("targetProducts")),
     delegate: orNull(get("delegate")),
     comments: orNull(get("comments")),
@@ -366,8 +389,13 @@ export function champsAEcrire(
     return {
       lastName: row.lastName, firstName: row.firstName, address: row.address, wilaya: row.wilaya,
       postalCode: row.postalCode, title: row.title, specialty: row.specialty, sector: row.sector,
-      region: row.region, phone: row.phone, email: row.email, influence: row.influence,
-      potential: row.potential, affinity: row.affinity, targetProducts: row.targetProducts, comments: row.comments,
+      region: row.region, phone: row.phone, email: row.email,
+      // Un niveau ILLISIBLE n'est pas écrit : la fiche neuve garde le défaut de la base, et le bilan
+      // dit quelle cellule n'a pas été lue — jamais un « Moyen » qu'on aurait inventé à sa place.
+      ...(row.influence !== null ? { influence: row.influence } : {}),
+      ...(row.potential !== null ? { potential: row.potential } : {}),
+      ...(row.affinity !== null ? { affinity: row.affinity } : {}),
+      targetProducts: row.targetProducts, comments: row.comments,
     };
   }
   const out: ChampsFiche = {};
@@ -389,9 +417,10 @@ export function champsAEcrire(
   if (a("region")) out.region = row.region;
   if (a("phone")) out.phone = row.phone;
   if (a("email")) out.email = row.email;
-  if (a("influence")) out.influence = row.influence;
-  if (a("potential")) out.potential = row.potential;
-  if (a("affinity")) out.affinity = row.affinity;
+  // Une cellule vide ou illisible n'efface pas un niveau connu — la règle de la wilaya, plus haut.
+  if (a("influence") && row.influence !== null) out.influence = row.influence;
+  if (a("potential") && row.potential !== null) out.potential = row.potential;
+  if (a("affinity") && row.affinity !== null) out.affinity = row.affinity;
   if (a("targetProducts")) out.targetProducts = row.targetProducts;
   if (a("comments")) out.comments = row.comments;
   return out;

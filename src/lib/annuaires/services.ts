@@ -122,25 +122,13 @@ export function lireCouverture(
 }
 
 /**
- * QUELS PRATICIENS UN ENSEMBLE DE LIENS COUVRE — en branches de clause Prisma, sans importer
- * Prisma : un établissement « tous les services » couvre tous ses praticiens ; un établissement
- * restreint ne couvre que ceux de ses services choisis. Un service n'appartient qu'à UN
- * établissement : son identifiant suffit à le situer.
+ * CE LIEN COUVRE-T-IL CE PRATICIEN ? — pour NOMMER le secteur qui amène un praticien du panel.
  *
- * Un praticien SANS service, dans un établissement restreint, n'est PAS couvert : on ne devine
- * pas son service (§118.34). L'écran du secteur dit combien sont dans ce cas, pour qu'on le
- * renseigne plutôt que de le découvrir sur un plan de tournée vide.
+ * L'APPARTENANCE au panel ne se décide pas ici : elle se lit dans `clausePanelDuKam` (`rbac.ts`,
+ * §118.179), la seule écriture de la règle. Ce prédicat ne sert qu'au libellé, et il est plus
+ * strict qu'elle sur un cas que les écritures empêchent (un service d'un AUTRE établissement que
+ * celui de la fiche) : au pire, un praticien du panel s'affiche sans nom de secteur.
  */
-export function branchesDesPraticiensCouverts(liens: readonly LienCouverture[]): Record<string, unknown>[] {
-  const tous = [...new Set(liens.filter((l) => l.tousLesServices).map((l) => l.institutionId))];
-  const services = [...new Set(liens.filter((l) => !l.tousLesServices).flatMap((l) => l.serviceIds))];
-  const branches: Record<string, unknown>[] = [];
-  if (tous.length > 0) branches.push({ institutionId: { in: tous } });
-  if (services.length > 0) branches.push({ serviceId: { in: services } });
-  return branches;
-}
-
-/** Ce lien couvre-t-il ce praticien ? La même règle que la clause, pour un praticien en mémoire. */
 export function lienCouvre(lien: LienCouverture, praticien: { institutionId: string | null; serviceId: string | null }): boolean {
   if (praticien.institutionId !== lien.institutionId) return false;
   if (lien.tousLesServices) return true;

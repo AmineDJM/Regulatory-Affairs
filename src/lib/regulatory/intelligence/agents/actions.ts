@@ -3,9 +3,9 @@
 import { revalidatePath } from "next/cache";
 import { requireUser } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
-import { getCompanyScope } from "@/lib/company";
-import { aiConfigured } from "@/lib/ai";
-import { regCan, resolveRegCompanyId } from "../access";
+import { aiConfigured, cleModeleRequise } from "@/lib/ai";
+import { courtIaNonConfiguree } from "@/lib/ia/cle-manquante";
+import { regCan, resolveRegCompanyIdFor } from "../access";
 import { runAgentOnVersion, applicableAgents, type AgentRunSummary } from "./orchestrator";
 
 /**
@@ -16,8 +16,8 @@ import { runAgentOnVersion, applicableAgents, type AgentRunSummary } from "./orc
 
 const str = (fd: FormData, k: string) => { const v = fd.get(k); return v ? String(v).trim() : null; };
 
-async function scopeCompanyId(): Promise<string | null> {
-  return resolveRegCompanyId(getCompanyScope());
+async function scopeCompanyId(userId: string): Promise<string | null> {
+  return resolveRegCompanyIdFor(userId);
 }
 
 export async function runAgentAction(formData: FormData): Promise<AgentRunSummary & { ok: boolean; error?: string }> {
@@ -29,7 +29,7 @@ export async function runAgentAction(formData: FormData): Promise<AgentRunSummar
   const agentKey = str(formData, "agentKey");
   if (!dossierId || !agentKey) return { ok: false, agentKey: agentKey ?? "", agentName: "", configured: false, abstained: false, findings: 0, error: "Paramètres manquants." };
 
-  const companyId = await scopeCompanyId();
+  const companyId = await scopeCompanyId(user.id);
   if (!companyId) return { ok: false, agentKey, agentName: "", configured: false, abstained: false, findings: 0, error: "Module non activé." };
 
   const version = await prisma.regulatoryDossierVersion.findFirst({
@@ -38,7 +38,7 @@ export async function runAgentAction(formData: FormData): Promise<AgentRunSummar
   if (!version) return { ok: false, agentKey, agentName: "", configured: false, abstained: false, findings: 0, error: "Aucune version." };
 
   if (!aiConfigured()) {
-    return { ok: true, agentKey, agentName: "", configured: false, abstained: true, findings: 0, message: "IA non configurée (ANTHROPIC_API_KEY absente) — agent non exécuté, aucune simulation." };
+    return { ok: true, agentKey, agentName: "", configured: false, abstained: true, findings: 0, message: `${courtIaNonConfiguree(cleModeleRequise())} — agent non exécuté, aucune simulation.` };
   }
 
   const summary = await runAgentOnVersion(version.id, agentKey);
@@ -50,7 +50,7 @@ export async function runAgentAction(formData: FormData): Promise<AgentRunSummar
 export async function listApplicableAgents(dossierId: string): Promise<{ configured: boolean; agents: { key: string; name: string; requiresSource: boolean }[] }> {
   const user = await requireUser();
   if (!regCan(user, "regulatory.workspace.view") && user.role !== "SUPER_ADMIN") return { configured: false, agents: [] };
-  const companyId = await scopeCompanyId();
+  const companyId = await scopeCompanyId(user.id);
   if (!companyId) return { configured: false, agents: [] };
   const version = await prisma.regulatoryDossierVersion.findFirst({
     where: { dossierId, dossier: { companyId } }, orderBy: { versionNo: "desc" }, select: { id: true },

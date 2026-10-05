@@ -5,11 +5,16 @@ import { requireUser } from "@/lib/session";
 import { userCan, hasGlobalView, type Module } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
+import { apresModificationDeLaDemande } from "@/lib/workflow/engine";
 import {
-  canEditAdProRequest, isAdProDecided, editableField, describeChanges,
+  canEditAdProRequest, isAdProDecided, editableField, describeChanges, PERIODE_DE_LA_DEMANDE,
   type AdProKind,
 } from "@/lib/ad-pro-edit";
 import { fdStr, type ActionResult } from "@/lib/actions/types";
+import { canAccessEntity } from "@/lib/entity-access";
+import { notifyRoles } from "@/lib/notify";
+import { ajusterVisaAuMontant, phraseGesteVisa } from "@/lib/ad-pro/visa";
+import { MODULE_DU_POLE, CHEMIN_LISTE_POLE, poleDe } from "@/lib/lecteurs/consulting";
 
 /**
  * MODIFICATION D'UNE DEMANDE AD & PRO (sponsoring, prise en charge nationale/internationale).
@@ -25,6 +30,20 @@ import { fdStr, type ActionResult } from "@/lib/actions/types";
 
 interface Target {
   module: Module;
+  /**
+   * Le module qui garde CETTE ligne, quand il dépend d'elle : un contrat de consulting se lit et se
+   * corrige par le module de son PÔLE (Consulting ou RH, §118.150) — le juger sur « Consulting » en dur
+   * refuserait aux RH la correction d'un contrat qu'elles suivent.
+   */
+  moduleDe?: (row: Record<string, unknown>) => Module;
+  /** La liste où la ligne se montre, quand elle dépend d'elle (même raison). */
+  listeDe?: (row: Record<string, unknown>) => string;
+  /**
+   * Le statut où la demande ATTEND encore sa décision et où sa porte au centre Ad & Pro suit le montant
+   * (audit 360°, lot C4a) — pour les deux natures dont le visa EST la porte. Les cinq autres portent une
+   * étape de circuit : `apresModificationDeLaDemande` s'en charge.
+   */
+  attendLeCentre?: (row: Record<string, unknown>) => boolean;
   path: string;
   /** Colonne portant le statut de la demande (pour décider si elle est tranchée). */
   statusField: "status" | "requestStatus";
@@ -68,12 +87,39 @@ const TARGETS: Record<AdProKind, Target> = {
     // nul, et c'est le demandeur/la Direction qui gouverne la correction.
     statusField: "requestStatus",
     load: (id) => prisma.event.findUnique({ where: { id } }) as Promise<Record<string, unknown> | null>,
-    save: (id, data) => prisma.event.update({ where: { id }, data }),
+    // L'ÉVÉNEMENT N'A PAS DE COLONNE « MODIFIÉ PAR » — les quatre autres tables, si. Écrire `updatedById`
+    // ici faisait échouer CHAQUE correction de demande d'événement sur une erreur Prisma : le demandeur
+    // ne pouvait jamais corriger la sienne (trouvé par le banc de §118.184). L'auteur est dans l'audit.
+    save: (id, data) => {
+      const sansAuteur = { ...data };
+      delete sansAuteur.updatedById;
+      return prisma.event.update({ where: { id }, data: sansAuteur });
+    },
+  },
+  CONSULTING_CONTRACT: {
+    module: "CONSULTING",
+    moduleDe: (row) => MODULE_DU_POLE[poleDe(row.pole)],
+    listeDe: (row) => CHEMIN_LISTE_POLE[poleDe(row.pole)],
+    path: "/consulting",
+    statusField: "status",
+    // Côté RH, un contrat ne passe pas par le centre de la PROMOTION (§118.150).
+    attendLeCentre: (row) => row.status === "AWAITING_VALIDATION" && poleDe(row.pole) === "AD_PRO",
+    load: (id) => prisma.consultingContract.findUnique({ where: { id } }) as Promise<Record<string, unknown> | null>,
+    save: (id, data) => prisma.consultingContract.update({ where: { id }, data }),
+  },
+  AD_PRO_OTHER: {
+    module: "AD_PRO_OTHER",
+    path: "/ad-pro/autres",
+    statusField: "status",
+    attendLeCentre: (row) => row.status === "AWAITING_DECISION",
+    load: (id) => prisma.adProOtherRequest.findUnique({ where: { id } }) as Promise<Record<string, unknown> | null>,
+    save: (id, data) => prisma.adProOtherRequest.update({ where: { id }, data }),
   },
 };
 
 function isKind(v: string | null): v is AdProKind {
-  return v === "SPONSORING" || v === "CONGRESS_NATIONAL" || v === "CONGRESS_INTERNATIONAL" || v === "PROMO_MATERIAL" || v === "EVENT";
+  return v === "SPONSORING" || v === "CONGRESS_NATIONAL" || v === "CONGRESS_INTERNATIONAL" || v === "PROMO_MATERIAL" || v === "EVENT"
+    || v === "CONSULTING_CONTRACT" || v === "AD_PRO_OTHER";
 }
 
 export async function updateAdProRequest(formData: FormData): Promise<ActionResult> {
@@ -83,14 +129,23 @@ export async function updateAdProRequest(formData: FormData): Promise<ActionResu
   if (!isKind(kind) || !id) return { ok: false, error: "Paramètres manquants." };
 
   const target = TARGETS[kind];
-  if (!userCan(user, target.module, "VIEW")) return { ok: false, error: "Non autorisé." };
+  // Un module qui dépend de la ligne ne se juge qu'une fois la ligne lue — la porte de la fiche, juste
+  // en dessous, est déjà celle de son pôle.
+  if (!target.moduleDe && !userCan(user, target.module, "VIEW")) return { ok: false, error: "Non autorisé." };
+
+  // LA PORTE DE LA FICHE, avant tout chargement (§118.184) : société, portée de ligne, parties
+  // prenantes. Un identifiant ne suffit plus à corriger la demande d'une autre société — et hors de
+  // cette porte, la demande est INTROUVABLE, la même phrase que son absence.
+  if (!(await canAccessEntity(user, kind, id, "VIEW"))) return { ok: false, error: "Demande introuvable." };
 
   const before = await target.load(id);
   if (!before) return { ok: false, error: "Demande introuvable." };
+  const moduleLigne = target.moduleDe ? target.moduleDe(before) : target.module;
+  if (!userCan(user, moduleLigne, "VIEW")) return { ok: false, error: "Non autorisé." };
 
-  const decided = isAdProDecided(kind, String(before[target.statusField] ?? ""));
+  const decided = isAdProDecided(kind, String(before[target.statusField] ?? ""), (before.circuitState as string | null | undefined) ?? null);
   const allowed = canEditAdProRequest(
-    { id: user.id, hasGlobalView: hasGlobalView(user), canUpdate: userCan(user, target.module, "UPDATE") },
+    { id: user.id, hasGlobalView: hasGlobalView(user), canManage: userCan(user, moduleLigne, "VALIDATE") },
     { requesterId: (before.requesterId as string | null) ?? null, decided },
   );
   if (!allowed) {
@@ -120,17 +175,30 @@ export async function updateAdProRequest(formData: FormData): Promise<ActionResu
       if (Number.isNaN(d.getTime())) return { ok: false, error: `« ${field.label} » n'est pas une date valide.` };
       data[key] = d;
     } else {
+      // UN MENU N'ACCEPTE QUE SES CHOIX — côté serveur aussi : une valeur forgée finissait en erreur de
+      // base de données sur une colonne énumérée, au lieu d'un refus qui dit quoi faire.
+      if (v && field.options && !field.options.some((o) => o.value === v)) {
+        return { ok: false, error: `« ${field.label} » : choisissez une valeur de la liste.` };
+      }
       data[key] = v || null;
     }
   }
   if (Object.keys(data).length === 0) return { ok: false, error: "Aucune modification." };
 
-  // Un champ obligatoire ne se vide pas par une modification : le premier champ de chaque
-  // liste blanche est l'intitulé de la demande, et une demande sans intitulé n'est plus
-  // consultable nulle part.
-  const titleKey = kind === "SPONSORING" ? "institution" : "name";
-  if (titleKey in data && !data[titleKey]) {
-    return { ok: false, error: kind === "SPONSORING" ? "L'institution est obligatoire." : "Le nom de l'événement est obligatoire." };
+  // UN CHAMP OBLIGATOIRE NE SE VIDE PAS par une correction — la liste les DÉCLARE (`requis`), avec leur
+  // refus : une demande sans intitulé n'est plus consultable nulle part, un contrat sans consultant
+  // n'a plus deux parties.
+  for (const [key, valeur] of Object.entries(data)) {
+    const requis = editableField(kind, key)?.requis;
+    if (requis && (valeur === null || valeur === "")) return { ok: false, error: requis };
+  }
+  // Les deux bouts d'une période se lisent ENSEMBLE : corriger la seule fin avant le début enregistrait
+  // un contrat qui se termine avant d'avoir commencé.
+  const periode = PERIODE_DE_LA_DEMANDE[kind];
+  if (periode && (periode.debut in data || periode.fin in data)) {
+    const debut = (periode.debut in data ? data[periode.debut] : before[periode.debut]) as Date | null;
+    const fin = (periode.fin in data ? data[periode.fin] : before[periode.fin]) as Date | null;
+    if (debut && fin && fin < debut) return { ok: false, error: "La date de fin ne peut pas précéder la date de début." };
   }
 
   const changes = describeChanges(kind, before, data);
@@ -146,7 +214,40 @@ export async function updateAdProRequest(formData: FormData): Promise<ActionResu
     summary: `Demande modifiée${decided ? " APRÈS DÉCISION" : ""} — ${changes.join(" · ")}`,
   });
 
-  revalidatePath(target.path);
+  // UNE CORRECTION EN COURS DE CIRCUIT N'EST PLUS MUETTE (audit 360°, R15 — §118.186). Ceux qui ont
+  // déjà donné un avis apprennent ce qui a changé, et une porte franchie sous le seuil que le
+  // nouveau montant dépasse se rouvre. Le matériel promotionnel a son propre circuit : il n'est pas
+  // concerné. Un échec ici ne défait pas la modification, déjà écrite et tracée.
+  let porteRouverte: string | null = null;
+  // LE VISA DU CENTRE SUIT LE MONTANT (audit 360°, lot C4a) — consulting et « autres demandes » : leur
+  // porte est un visa, pas une étape. Corrigé sous le seuil, la porte en attente se retire ; au-dessus
+  // de ce qu'une autorisation couvrait, elle se rouvre ; un refus du centre reste (réexamen).
+  let phraseCentre: string | null = null;
+  if (target.attendLeCentre && "amount" in data && target.attendLeCentre(before)) {
+    const montant = data.amount == null ? null : Number(data.amount);
+    const visa = await ajusterVisaAuMontant(kind, id, montant);
+    phraseCentre = phraseGesteVisa(visa.geste, visa.etat);
+    if (visa.geste === "OUVERTE" || visa.geste === "ROUVERTE") {
+      // Le CENTRE est prévenu, comme à la soumission : c'est lui qui a la main désormais.
+      await notifyRoles(["GENERAL_MANAGER", "SUPER_ADMIN"], {
+        type: "VALIDATION_REQUIRED", title: "Centre Ad & Pro — montant corrigé au-dessus du seuil",
+        body: `${String(before.reference ?? "")} — ${String(before.title ?? "")}`, link: "/centre-ad-pro",
+      });
+    }
+  }
+  if (kind !== "PROMO_MATERIAL" && kind !== "CONSULTING_CONTRACT" && kind !== "AD_PRO_OTHER") {
+    porteRouverte = (await apresModificationDeLaDemande({
+      viewer: { id: user.id, role: user.role, secondaryRole: user.secondaryRole ?? null, name: user.name },
+      entityType: kind, entityId: id, changes,
+    }).catch((e) => { console.error("[ad-pro-edit] suite de la modification non appliquée", e); return { porteRouverte: null }; })).porteRouverte;
+  }
+
+  revalidatePath(target.listeDe ? target.listeDe(before) : target.path);
   revalidatePath(`${target.path}/${id}`);
-  return { ok: true, id };
+  if (target.attendLeCentre) revalidatePath("/centre-ad-pro");
+  return porteRouverte
+    ? { ok: true, id, message: `Modification enregistrée — le montant dépasse désormais le seuil de « ${porteRouverte} » : la demande y retourne.` }
+    : phraseCentre
+      ? { ok: true, id, message: `Modification enregistrée — ${phraseCentre}` }
+      : { ok: true, id };
 }

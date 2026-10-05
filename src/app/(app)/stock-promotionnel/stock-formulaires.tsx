@@ -525,7 +525,8 @@ function definition(d: Dialogue, page: PageStock, f: FaitsStock): Definition {
         description: `${MOVEMENT_LABEL[m.kind]} de ${m.delta > 0 ? "+" : ""}${nombre(m.delta)} du ${date(m.occurredAt)} (lot ${m.lotNumero}) — ${d.article.libelle}. Rien ne disparaît : l'exact inverse s'écrit, et l'original reste lisible, marqué annulé.`,
         champs: [
           { type: "hidden", name: "mouvementId", value: m.id },
-          { type: "textarea", name: "motif", label: "Pourquoi", placeholder: "Saisie en double, mauvaise quantité…" },
+          // Une annulation est un geste DÉFINITIF : elle dit pourquoi (audit 360°, R17).
+          { type: "textarea", name: "motif", label: "Pourquoi", required: true, placeholder: "Saisie en double, mauvaise quantité…" },
         ],
         action: annulerMouvement,
         bouton: "Annuler le mouvement",

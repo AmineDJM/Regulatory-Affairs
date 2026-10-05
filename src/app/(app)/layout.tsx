@@ -13,6 +13,7 @@ import { ScreenGuard } from "@/components/layout/screen-guard";
 import { CommandPalette } from "@/components/layout/command-palette";
 import { ImpersonationBanner } from "@/components/layout/impersonation-banner";
 import { TestModeBanner } from "@/components/layout/test-mode-banner";
+import { InterimBanner } from "@/components/layout/interim-banner";
 import { ChromeMetrics } from "@/components/layout/chrome-metrics";
 import { PushRegister } from "@/components/layout/push-register";
 import { NotificationChime } from "@/components/layout/notification-chime";
@@ -107,6 +108,8 @@ export default async function AppLayout({
         <ChromeMetrics>
           {user.impersonatedBy && <ImpersonationBanner adminName={user.impersonatedBy.name} viewedName={user.name} />}
           {testMode && <TestModeBanner />}
+          {/* L'intérimaire voit qu'il agit au nom de quelqu'un — calculé par `getAccess`, aucune lecture de plus (§118.196). */}
+          {user.access.interims && user.access.interims.length > 0 && <InterimBanner interims={user.access.interims} />}
           <Topbar navItems={navItems} user={user} unreadCount={unreadCount} canMessage={canMessage} messagingUnread={messagingUnread} adoption={adoption} companies={companies} companyScope={companyScope} />
         </ChromeMetrics>
         {/* `page-shell` porte les règles « pleine largeur sur téléphone » (globals.css) :

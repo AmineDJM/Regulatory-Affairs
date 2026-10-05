@@ -1,103 +1,49 @@
 "use server";
 
-import { randomUUID } from "crypto";
-import { revalidatePath } from "next/cache";
-import { Prisma, type EntityType, type DoctorTitle, type MedicalSector } from "@prisma/client";
-import { requireUser } from "@/lib/session";
-import { canAccessEntity } from "@/lib/entity-access";
 import { prisma } from "@/lib/prisma";
-import { recordAudit } from "@/lib/audit";
-import { notifyUser } from "@/lib/notify";
+import { requireUser } from "@/lib/session";
 import { fdStr, type ActionResult } from "@/lib/actions/types";
+import { addCareBeneficiary, removeCareBeneficiary, demanderPiecesPriseEnCharge } from "@/lib/actions/care-actions";
 
 /**
- * Personnes prises en charge d'un congrès (national/international) + demande de
- * leurs pièces d'identité. La liste est stockée en JSON sur le congrès ; les
- * pièces d'identité sont des Documents (catégorie ID_DOCUMENT) du congrès.
+ * PERSONNES PRISES EN CHARGE D'UN CONGRÈS — trois gestes que des appelants nomment encore (les ops
+ * d'Adam), RAMENÉS sur la source unique.
+ *
+ * Jusqu'au 04/10/2026, ces actions écrivaient une liste JSON sur le congrès (`beneficiaries`) pendant
+ * que le dossier de prise en charge tenait SA liste (`CareBeneficiary`) : deux blocs « Personnes prises
+ * en charge » sur la même fiche, qui ne se voyaient pas (§118.5). La Direction en a fait UNE liste,
+ * « Professionnels proposés pour la prise en charge » : ces trois actions écrivent désormais là, par
+ * l'écrivain du dossier — mêmes portes, même audit. Le JSON reste en base, plus écrit ; la migration
+ * `20270107090000` a repris ce qu'il portait.
  */
 type Kind = "INTERNATIONAL" | "NATIONAL";
-interface Benef { id: string; name: string; role?: string; doctorId?: string; institution?: string }
-
-function entityTypeOf(kind: Kind): EntityType {
-  return kind === "INTERNATIONAL" ? "CONGRESS_INTERNATIONAL" : "CONGRESS_NATIONAL";
-}
-function pathOf(kind: Kind, id: string): string {
-  return `/${kind === "INTERNATIONAL" ? "congress-international" : "congress-national"}/${id}`;
-}
-async function loadCongress(kind: Kind, id: string) {
-  const select = { id: true, name: true, beneficiaries: true, requesterId: true } as const;
-  return kind === "INTERNATIONAL"
-    ? prisma.congressInternational.findUnique({ where: { id }, select })
-    : prisma.congressNational.findUnique({ where: { id }, select });
-}
-async function saveBeneficiaries(kind: Kind, id: string, list: Benef[]) {
-  const data = { beneficiaries: list as unknown as Prisma.InputJsonValue };
-  if (kind === "INTERNATIONAL") await prisma.congressInternational.update({ where: { id }, data });
-  else await prisma.congressNational.update({ where: { id }, data });
-}
-function asList(value: unknown): Benef[] {
-  return Array.isArray(value) ? (value as Benef[]) : [];
-}
+const estKind = (v: string | null): v is Kind => v === "INTERNATIONAL" || v === "NATIONAL";
 
 export async function addCongressBeneficiary(formData: FormData): Promise<ActionResult> {
-  const user = await requireUser();
-  const kind = fdStr(formData, "kind") as Kind;
+  await requireUser();
+  const kind = fdStr(formData, "kind");
   const id = fdStr(formData, "id");
-  const et = entityTypeOf(kind);
-  if (!id) return { ok: false, error: "Identifiant manquant." };
-  if (!(await canAccessEntity(user, et, id, "UPDATE"))) return { ok: false, error: "Modification non autorisée." };
-  const c = await loadCongress(kind, id);
-  if (!c) return { ok: false, error: "Congrès introuvable." };
-
-  const role = fdStr(formData, "role") ?? undefined;
-  let benef: Benef;
-
-  const existingDoctorId = fdStr(formData, "doctorId");
+  if (!estKind(kind) || !id) return { ok: false, error: "Identifiant manquant." };
+  const fd = new FormData();
+  fd.set("scope", kind);
+  fd.set("requestId", id);
+  const role = fdStr(formData, "role");
+  if (role) fd.set("jobTitle", role);
+  const doctorId = fdStr(formData, "doctorId");
+  const name = fdStr(formData, "name");
   if (fdStr(formData, "createDoctor") === "on") {
-    // Création inline d'un profil médecin dans l'annuaire, puis rattachement.
-    const name = fdStr(formData, "name");
-    if (!name) return { ok: false, error: "Le nom du médecin est obligatoire." };
-    const institutionId = fdStr(formData, "institutionId") || null;
-    const inst = institutionId ? await prisma.medicalInstitution.findUnique({ where: { id: institutionId }, select: { name: true } }) : null;
-    const spec = fdStr(formData, "specialtyId")
-      ? await prisma.medicalSpecialty.findUnique({ where: { id: fdStr(formData, "specialtyId")! }, select: { name: true } })
-      : null;
-    const SECTORS: MedicalSector[] = ["HOSPITAL", "LIBERAL", "BOTH"];
-    const sectorRaw = fdStr(formData, "sector");
-    const titleRaw = fdStr(formData, "title");
-    const doctor = await prisma.medicalDoctor.create({
-      data: {
-        name,
-        title: titleRaw ? (titleRaw as DoctorTitle) : undefined,
-        sector: sectorRaw && SECTORS.includes(sectorRaw as MedicalSector) ? (sectorRaw as MedicalSector) : undefined,
-        specialtyId: fdStr(formData, "specialtyId") || null,
-        specialty: spec?.name ?? null,
-        institutionId,
-        institution: inst?.name ?? null,
-        createdById: user.id,
-      },
-      select: { id: true, name: true, institution: true },
-    });
-    benef = { id: randomUUID(), name: doctor.name, role, doctorId: doctor.id, institution: doctor.institution ?? undefined };
-    await recordAudit({ actorId: user.id, action: "CREATE", module: "Promotion médicale", entityType: "DOCTOR", entityId: doctor.id, summary: `Médecin « ${doctor.name} » créé depuis un congrès` });
-  } else if (existingDoctorId) {
-    // Rattachement d'un praticien existant de l'annuaire.
-    const doctor = await prisma.medicalDoctor.findUnique({ where: { id: existingDoctorId }, select: { id: true, name: true, institution: true } });
-    if (!doctor) return { ok: false, error: "Praticien introuvable." };
-    benef = { id: randomUUID(), name: doctor.name, role, doctorId: doctor.id, institution: doctor.institution ?? undefined };
-  } else {
-    // Personne libre (pas de profil médecin).
-    const name = fdStr(formData, "name");
-    if (!name) return { ok: false, error: "Le nom de la personne est obligatoire." };
-    benef = { id: randomUUID(), name, role };
+    fd.set("createDoctor", "on");
+    if (name) fd.set("doctorName", name);
+    for (const k of ["specialtyId", "sector", "institutionId"] as const) {
+      const v = fdStr(formData, k);
+      if (v) fd.set(k, v);
+    }
+  } else if (doctorId) {
+    fd.set("doctorId", doctorId);
+  } else if (name) {
+    fd.set("lastName", name);
   }
-
-  const list = asList(c.beneficiaries);
-  list.push(benef);
-  await saveBeneficiaries(kind, id, list);
-  await recordAudit({ actorId: user.id, action: "UPDATE", module: "Congrès", entityType: et, entityId: id, summary: `Personne prise en charge ajoutée — ${benef.name}` });
-  revalidatePath(pathOf(kind, id));
-  return { ok: true };
+  return addCareBeneficiary(undefined, fd);
 }
 
 /** Référentiel pour le sélecteur de praticiens / la création inline (annuaire, spécialités, établissements). */
@@ -116,37 +62,29 @@ export async function listBeneficiaryRefs(): Promise<{
 }
 
 export async function removeCongressBeneficiary(formData: FormData): Promise<ActionResult> {
-  const user = await requireUser();
-  const kind = fdStr(formData, "kind") as Kind;
+  await requireUser();
+  const kind = fdStr(formData, "kind");
   const id = fdStr(formData, "id");
   const benefId = fdStr(formData, "benefId");
-  if (!id || !benefId) return { ok: false, error: "Identifiant manquant." };
-  const et = entityTypeOf(kind);
-  if (!(await canAccessEntity(user, et, id, "UPDATE"))) return { ok: false, error: "Modification non autorisée." };
-  const c = await loadCongress(kind, id);
-  if (!c) return { ok: false, error: "Congrès introuvable." };
-
-  const list = asList(c.beneficiaries).filter((b) => b.id !== benefId);
-  await saveBeneficiaries(kind, id, list);
-  await recordAudit({ actorId: user.id, action: "UPDATE", module: "Congrès", entityType: et, entityId: id, summary: "Personne prise en charge retirée" });
-  revalidatePath(pathOf(kind, id));
-  return { ok: true };
+  if (!estKind(kind) || !id || !benefId) return { ok: false, error: "Identifiant manquant." };
+  // La personne doit appartenir à CE congrès : un identifiant d'une autre demande ne se retire pas d'ici.
+  const appartient = await prisma.careBeneficiary.count({
+    where: { id: benefId, ...(kind === "NATIONAL" ? { congressNationalId: id } : { congressInternationalId: id }) },
+  });
+  if (!appartient) return { ok: false, error: "Personne introuvable sur cette demande." };
+  const fd = new FormData();
+  fd.set("id", benefId);
+  return removeCareBeneficiary(undefined, fd);
 }
 
-/** Demande au demandeur de joindre les pièces d'identité des personnes prises en charge. */
+/** Demande les pièces des professionnels proposés — par personne et suivies (`demanderPiecesPriseEnCharge`). */
 export async function requestBeneficiaryIds(formData: FormData): Promise<ActionResult> {
-  const user = await requireUser();
-  const kind = fdStr(formData, "kind") as Kind;
+  await requireUser();
+  const kind = fdStr(formData, "kind");
   const id = fdStr(formData, "id");
-  if (!id) return { ok: false, error: "Identifiant manquant." };
-  const et = entityTypeOf(kind);
-  if (!(await canAccessEntity(user, et, id, "UPDATE"))) return { ok: false, error: "Non autorisé." };
-  const c = await loadCongress(kind, id);
-  if (!c) return { ok: false, error: "Congrès introuvable." };
-  if (c.requesterId) {
-    await notifyUser({ userId: c.requesterId, type: "ASSIGNMENT", title: "Pièces d'identité demandées", body: `${c.name} — merci de joindre les pièces d'identité des personnes prises en charge.`, link: pathOf(kind, id) });
-  }
-  await recordAudit({ actorId: user.id, action: "UPDATE", module: "Congrès", entityType: et, entityId: id, summary: "Pièces d'identité demandées" });
-  revalidatePath(pathOf(kind, id));
-  return { ok: true };
+  if (!estKind(kind) || !id) return { ok: false, error: "Identifiant manquant." };
+  const fd = new FormData();
+  fd.set("scope", kind);
+  fd.set("requestId", id);
+  return demanderPiecesPriseEnCharge(undefined, fd);
 }

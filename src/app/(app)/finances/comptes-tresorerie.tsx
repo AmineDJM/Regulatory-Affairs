@@ -158,7 +158,7 @@ export function ComptesTresorerieButton({ comptes, entites, canUpdate }: {
                 <TextField label="Nom du compte" name="name" required placeholder="SGA Birkhadem — Adventum" className="sm:col-span-2" />
                 <TextField label="Banque / agence" name="bank" placeholder="SGA Birkhadem" />
                 <TextField label="RIB" name="rib" placeholder="20 chiffres" />
-                <TextField label="Solde du relevé (DZD)" name="openingBalance" type="number" required placeholder="2966153" />
+                <TextField label="Solde du relevé (DZD)" name="openingBalance" type="number" step="any" required placeholder="2966153" />
                 <TextField label="Date du relevé" name="openingDate" type="date" required hint="Le solde s'entend en fin de cette journée." />
                 <SelectField label="Entité titulaire" name="companyId" options={entites} placeholder="— Aucune —" className="sm:col-span-2" />
               </div>
@@ -197,7 +197,7 @@ export function ComptesTresorerieButton({ comptes, entites, canUpdate }: {
                 la correction est tracée, avec son motif.
               </p>
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                <TextField label="Solde du relevé (DZD)" name="openingBalance" type="number" required defaultValue={mode.compte.ancrage} />
+                <TextField label="Solde du relevé (DZD)" name="openingBalance" type="number" step="any" required defaultValue={mode.compte.ancrage} />
                 <TextField label="Date du relevé" name="openingDate" type="date" required defaultValue={mode.compte.jourAncrage} />
               </div>
               <TextAreaField label="Motif de la correction" name="motif" required placeholder="Ex. relevé du 28/09 reçu, l'ancien chiffre était provisoire" />

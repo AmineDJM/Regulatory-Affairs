@@ -2,6 +2,7 @@ import { readFile } from "fs/promises";
 import path from "path";
 import { prisma } from "./prisma";
 import { putBlob, getBlob, releaseBlob } from "./drive-storage";
+import { refusTeleversement } from "./files/politique-televersement";
 
 /**
  * Stockage des fichiers de **documents** (modèle Document, hors Drive).
@@ -48,75 +49,41 @@ export async function readFileByKey(key: string): Promise<Buffer> {
 export async function deleteFileByKey(key: string): Promise<void> {
   const stored = await prisma.storedFile.findUnique({ where: { key }, select: { blobId: true } });
   if (stored) {
-    await releaseBlob(stored.blobId);
+    // La référence part AVANT de rendre le blob : `releaseBlob` n'efface que ce qu'aucune
+    // colonne ne désigne plus, et cette ligne en est une.
     await prisma.storedFile.delete({ where: { key } }).catch(() => undefined);
+    await releaseBlob(stored.blobId);
   }
 }
 
-const ALLOWED_EXTENSIONS = [
-  "pdf", "doc", "docx", "xls", "xlsx", "csv", "ppt", "pptx",
-  "png", "jpg", "jpeg", "gif", "webp", "zip", "txt",
-];
-
+/**
+ * UNE SEULE POLITIQUE DE TYPES pour tous les dépôts (audit du 04/10, constat 9) — voir
+ * `@/lib/files/politique-televersement`. Les trois fonctions restent, parce que leurs appelants
+ * sont nombreux et que la TAILLE par défaut diffère (Drive plus large) ; le TYPE, lui, se juge
+ * partout de la même façon.
+ */
 export function validateUpload(
   filename: string,
   sizeBytes: number,
   maxMb = Number(process.env.MAX_UPLOAD_MB ?? "25"),
 ): string | null {
-  const ext = filename.split(".").pop()?.toLowerCase() ?? "";
-  if (!ALLOWED_EXTENSIONS.includes(ext)) {
-    return `Type de fichier non autorisé (.${ext}).`;
-  }
-  if (sizeBytes > maxMb * 1024 * 1024) {
-    return `Fichier trop volumineux (max ${maxMb} Mo).`;
-  }
-  return null;
+  return refusTeleversement(filename, sizeBytes, maxMb);
 }
 
-// Le **Drive** est un stockage général : on accepte la quasi-totalité des fichiers
-// (documents, médias, archives…) et on bloque seulement les **exécutables/scripts**.
-const BLOCKED_DRIVE_EXTENSIONS = new Set([
-  "exe", "msi", "bat", "cmd", "com", "scr", "pif", "cpl", "jar", "js", "mjs", "cjs",
-  "vbs", "vbe", "ws", "wsf", "wsh", "ps1", "psm1", "sh", "bash", "app", "dmg",
-  "deb", "rpm", "apk", "dll", "sys", "scf", "lnk", "reg", "hta", "jse", "msc", "gadget",
-]);
-
-/** Validation des imports **Drive** : refuse seulement les exécutables, et applique
- *  une limite de taille plus large (configurable). */
+/** Validation des imports **Drive** : même politique, limite de taille plus large (configurable). */
 export function validateDriveUpload(
   filename: string,
   sizeBytes: number,
   maxMb = Number(process.env.MAX_DRIVE_UPLOAD_MB ?? process.env.MAX_UPLOAD_MB ?? "100"),
 ): string | null {
-  const ext = filename.split(".").pop()?.toLowerCase() ?? "";
-  if (BLOCKED_DRIVE_EXTENSIONS.has(ext)) {
-    return `Pour des raisons de sécurité, les fichiers exécutables (.${ext}) ne sont pas autorisés.`;
-  }
-  if (sizeBytes <= 0) return "Fichier vide.";
-  if (sizeBytes > maxMb * 1024 * 1024) {
-    return `Fichier trop volumineux (max ${maxMb} Mo).`;
-  }
-  return null;
+  return refusTeleversement(filename, sizeBytes, maxMb);
 }
 
-/**
- * Validation des imports **Documents** (dossiers CTD, factures, pièces jointes des
- * objets métier…). Comme le Drive : on accepte **tout type** de fichier (PDF, Word,
- * Excel, images, archives, XML, DWG, e-CTD…) et on ne bloque que les **exécutables /
- * scripts**. Seule la taille par fichier est plafonnée (réglable en Administration).
- */
+/** Validation des imports **Documents** (dossiers CTD, factures, pièces des objets métier…). */
 export function validateDocumentUpload(
   filename: string,
   sizeBytes: number,
   maxMb = Number(process.env.MAX_UPLOAD_MB ?? "25"),
 ): string | null {
-  const ext = filename.split(".").pop()?.toLowerCase() ?? "";
-  if (BLOCKED_DRIVE_EXTENSIONS.has(ext)) {
-    return `Pour des raisons de sécurité, les fichiers exécutables (.${ext}) ne sont pas autorisés.`;
-  }
-  if (sizeBytes <= 0) return "Fichier vide.";
-  if (sizeBytes > maxMb * 1024 * 1024) {
-    return `Fichier trop volumineux (max ${maxMb} Mo).`;
-  }
-  return null;
+  return refusTeleversement(filename, sizeBytes, maxMb);
 }

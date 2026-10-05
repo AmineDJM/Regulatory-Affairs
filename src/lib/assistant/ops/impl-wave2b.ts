@@ -53,7 +53,7 @@ const resolveDeptLocal = (raw: string) =>
 // ─────────────── Recrutement ───────────────
 
 const REC_STAGE_FR: Record<string, string> = {
-  CHAIN: "Validation hiérarchique", HR_REVIEW: "Revue RH", INFO_REQUESTED: "Informations demandées",
+  CHAIN: "Validation hiérarchique", HR_REVIEW: "Revue RH", INFO_REQUESTED: "Informations demandées", RETURNED: "À corriger",
   SOURCING: "Sourcing (candidatures)", ONBOARDING: "Intégration", CLOSED: "Clôturée", REJECTED: "Refusée", CANCELLED: "Annulée",
 };
 
@@ -341,6 +341,8 @@ export const RECRUIT_TRAINING_OPS_IMPL: Record<string, OpImpl> = {
       const req = await resolveRecruitment(opStr(input, "reference") || opStr(input, "position"));
       if ("error" in req) return req;
       const reject = /refus|rejet|sans suite/i.test(opStr(input, "decision"));
+      // Le motif est exigé par l'action (§118.192) : la carte ne propose pas une clôture que l'exécution refuserait.
+      if (!opStr(input, "note")) return { error: "Une clôture se motive : dites pourquoi la demande se clôt (c'est ce que lira le demandeur)." };
       return {
         title: `${reject ? "Clore SANS SUITE" : "Clore"} la demande ${req.reference} (${req.position})`,
         fields: fieldsOf([

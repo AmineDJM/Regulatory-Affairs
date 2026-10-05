@@ -2,6 +2,7 @@ import type { UserRole } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { toNumber, formatCurrency } from "@/lib/utils";
 import { getRiskThresholds, type RiskThresholds } from "./risk-settings";
+import { kamsQuiCouvrent } from "@/lib/queries/panel-kam";
 
 /**
  * Adventum Brain — moteur Risk Radar. **Lecture seule, calculé à la volée** (aucune
@@ -206,37 +207,74 @@ async function sponsoringRisks(th: RiskThresholds): Promise<Risk[]> {
   return out;
 }
 
+/**
+ * QUI SUIT UN MÉDECIN STRATÉGIQUE — son délégué rattaché, ou les KAM dont le SECTEUR le couvre
+ * (§118.179). L'alerte disait « Aucun délégué assigné » et prévenait la Promotion médicale pour
+ * tout KOL sans `delegateId` — y compris celui d'un CHU qu'un secteur entier couvre : le panel du
+ * KAM a UNE définition, et l'alerte la lit au lieu d'en garder une seconde.
+ *
+ * Plusieurs KAM le couvrent → l'alerte nomme CHACUN (une relance par personne) : en choisir un
+ * déciderait à la place d'un humain qui doit y aller (§118.34).
+ */
+export function suiviDuKol(
+  d: { delegateId: string | null; delegate: { name: string } | null },
+  couvrants: readonly { id: string; name: string }[],
+): { owner: string; preuve: string; destinataires: { id: string; name: string }[] } {
+  if (d.delegateId) {
+    const nom = d.delegate?.name ?? "Délégué";
+    return { owner: nom, preuve: `Délégué : ${nom}`, destinataires: [{ id: d.delegateId, name: nom }] };
+  }
+  if (couvrants.length > 0) {
+    const noms = couvrants.map((k) => k.name).join(", ");
+    return { owner: noms, preuve: `Couvert par son secteur : ${noms}`, destinataires: [...couvrants] };
+  }
+  return { owner: "Délégué", preuve: "Aucun délégué rattaché, et aucun secteur ne couvre son établissement", destinataires: [] };
+}
+
 async function medicalKolRisks(th: RiskThresholds): Promise<Risk[]> {
   const doctors = await prisma.medicalDoctor.findMany({
     where: { influenceLevel: { in: ["KEY_OPINION_LEADER", "HIGH"] } },
     select: { id: true, name: true, title: true, specialty: true, targetProducts: true, lastVisit: true, delegateId: true, delegate: { select: { name: true } } },
+    // LES PLUS EN RETARD D'ABORD : la liste est bornée, et une borne sans ordre rendait « 200
+    // médecins quelconques » — un KOL jamais vu pouvait tomber hors de la fenêtre (§118.60).
+    orderBy: [{ lastVisit: { sort: "asc", nulls: "first" } }, { id: "asc" }],
     take: 200,
   });
-  const out: Risk[] = [];
-  for (const d of doctors) {
+  const enRetard = doctors.filter((d) => {
     const age = daysSince(d.lastVisit);
-    if (age !== null && age < th.kolVisitStaleDays) continue; // visité récemment → pas un risque
+    return !(age !== null && age < th.kolVisitStaleDays); // visité récemment → pas un risque
+  });
+  const couvrants = await kamsQuiCouvrent(enRetard.filter((d) => !d.delegateId).map((d) => d.id));
+  const out: Risk[] = [];
+  for (const d of enRetard) {
+    const age = daysSince(d.lastVisit);
     const level: RiskLevel = age === null || age >= 90 ? "high" : "medium";
     const since = age === null ? "jamais enregistrée" : `il y a ${age} j`;
+    const suivi = suiviDuKol(d, couvrants.get(d.id) ?? []);
+    const relances: RiskAction[] = suivi.destinataires.length > 0
+      ? suivi.destinataires.slice(0, 3).map((k) => ({
+          label: `Message à ${k.name}`, icon: "Bell",
+          payload: { kind: "notify", userId: k.id, title: "Médecin KOL à visiter", body: `${d.name} — non visité ${since}`, link: `/medical` },
+        }))
+      : [{ label: "Notifier Promotion médicale", icon: "Bell", payload: { kind: "notify", role: "MEDICAL_PROMOTION_MANAGER", title: "Médecin KOL sans délégué ni secteur", body: d.name, link: `/medical` } }];
     out.push({
       id: `kol-${d.id}`, level, category: "MEDICAL", module: "Promotion médicale",
       title: "Médecin stratégique non visité", object: `${d.title ? d.title + " " : ""}${d.name}`,
       impact: "Perte d'engagement et risque concurrentiel.",
-      owner: d.delegate?.name ?? "Délégué", deadline: null, ageDays: age,
+      owner: suivi.owner, deadline: null, ageDays: age,
       probableCause: "Aucune visite récente planifiée.",
       recommendation: "Planifier une visite cette semaine.",
       evidence: [
         d.specialty ? `Spécialité : ${d.specialty}` : "Spécialité non renseignée",
         `Dernière visite : ${since}`,
         d.targetProducts ? `Produits liés : ${d.targetProducts}` : "Produits non renseignés",
-        d.delegate?.name ? `Délégué : ${d.delegate.name}` : "Aucun délégué assigné",
+        suivi.preuve,
       ],
       href: `/medical`, at: (d.lastVisit ?? new Date(0)).toISOString(),
       actions: [
-        d.delegateId
-          ? { label: "Message délégué", icon: "Bell", payload: { kind: "notify", userId: d.delegateId, title: "Médecin KOL à visiter", body: `${d.name} — non visité ${since}`, link: `/medical` } }
-          : { label: "Notifier Promotion médicale", icon: "Bell", payload: { kind: "notify", role: "MEDICAL_PROMOTION_MANAGER", title: "Médecin KOL sans délégué", body: d.name, link: `/medical` } },
-        { label: "Créer tâche visite", icon: "ListChecks", payload: { kind: "task", title: `Planifier une visite : ${d.name} (KOL non visité ${since})`, assigneeId: d.delegateId, priority: "HIGH", module: "Promotion médicale" } },
+        ...relances,
+        // La tâche va à UNE personne quand une seule le suit ; sinon à personne (on ne choisit pas).
+        { label: "Créer tâche visite", icon: "ListChecks", payload: { kind: "task", title: `Planifier une visite : ${d.name} (KOL non visité ${since})`, assigneeId: suivi.destinataires.length === 1 ? suivi.destinataires[0].id : null, priority: "HIGH", module: "Promotion médicale" } },
         { label: "Voir médecin", icon: "ExternalLink", href: `/medical` },
       ],
     });

@@ -7,8 +7,10 @@ import { userCan, hasGlobalView } from "@/lib/rbac";
 import { canAccessEntity } from "@/lib/entity-access";
 import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
+import { notifyUser } from "@/lib/notify";
 import { fdStr, fdDate, type ActionResult } from "@/lib/actions/types";
-import { fenetreRapport } from "@/lib/sfe/tournee";
+import { fenetreRapport, refusVisiteHorsDelai } from "@/lib/sfe/tournee";
+import { produitsDeLaBu, refusProduitsHorsBu } from "@/lib/sfe/produits-bu";
 import { sousVerrous } from "@/lib/promo/stock-ecriture";
 import {
   dejaDansLaVisite, ecrireRemises, lireMaterielRemis, motifDeRemise, phraseMateriel, RefusRemise, toucheLeStock, verrousDuRapport,
@@ -48,31 +50,6 @@ async function peutRapporter(
 }
 
 /**
- * LES PRODUITS ADMIS pour ce KAM — ceux de SA Business Unit, résolus vers le produit canonique.
- *
- * `PromoProduct` porte la gamme (`businessUnitId`) et pointe sur le produit canonique
- * (`productId`) ; c'est ce dernier que `MedicalVisitProduct` lie. Un produit promu SANS produit
- * canonique ne peut pas être rattaché à une visite : on le DIT au lieu de le laisser disparaître
- * du rapport après que le KAM l'a coché (§118.71 — une valeur non résolue ne doit jamais
- * disparaître en silence).
- */
-async function produitsDeLaBu(repId: string): Promise<{ admis: Set<string>; sansCanonique: string[] }> {
-  const profil = await prisma.salesRepProfile.findUnique({
-    where: { repId },
-    select: { businessUnitId: true },
-  });
-  if (!profil?.businessUnitId) return { admis: new Set(), sansCanonique: [] };
-  const promus = await prisma.promoProduct.findMany({
-    where: { businessUnitId: profil.businessUnitId, isActive: true },
-    select: { name: true, productId: true },
-  });
-  return {
-    admis: new Set(promus.map((p) => p.productId).filter((x): x is string => Boolean(x))),
-    sansCanonique: promus.filter((p) => !p.productId).map((p) => p.name),
-  };
-}
-
-/**
  * RAPPORTER UNE VISITE PLANIFIÉE — vocal ou écrit, en un envoi.
  *
  * ── CE QUI EST OBLIGATOIRE, ET POURQUOI CE N'EST PAS UN CAPRICE ─────────────────────────────
@@ -109,7 +86,13 @@ export async function rapporterVisite(formData: FormData): Promise<ActionResult>
     return {
       ok: false,
       error: `Le rapport d'une visite se fait dans les 48 h : la fenêtre de celle du ${visite.date.toLocaleDateString("fr-FR")} s'est fermée le ${f.limite.toLocaleDateString("fr-FR")} à ${f.limite.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}. `
-        + "Elle reste visible comme non rapportée — signalez-la à votre superviseur, qui peut la régulariser.",
+        // LA PHRASE EST VRAIE (§118.193 — audit 360°, R13). Elle promettait « votre superviseur, qui peut la
+        // régulariser » : aucun geste de régularisation n'existe, et la borne est DURE par décision de la
+        // Direction (« un compte rendu écrit une semaine après est un souvenir, pas un fait »). Ouvrir une
+        // exception au superviseur serait changer cette règle — une décision, pas une ligne de code.
+        + (visite.status === "COMPLETED"
+          ? "Passé ce délai, le rapport fait foi : il ne se corrige plus."
+          : "Elle reste comptée comme non rapportée : passé ce délai, elle ne se rapporte plus, et ne se dit plus reportée ou annulée."),
     };
   }
 
@@ -135,16 +118,10 @@ export async function rapporterVisite(formData: FormData): Promise<ActionResult>
   if (productIds.length === 0 && exigeProduits) {
     return { ok: false, error: "Choisissez le ou les produits discutés avec le médecin — sans eux, l'effort par produit ne se mesure pas." };
   }
-  const { admis, sansCanonique } = await produitsDeLaBu(visite.delegateId ?? user.id);
-  const horsBu = productIds.filter((id) => !admis.has(id));
+  const gamme = await produitsDeLaBu(visite.delegateId ?? user.id);
+  const horsBu = productIds.filter((id) => !gamme.admis.has(id));
   if (horsBu.length > 0) {
-    return {
-      ok: false,
-      error: `${horsBu.length} produit(s) ne sont pas dans la gamme de ce KAM — un rapport ne porte que les produits de sa Business Unit.`
-        + (sansCanonique.length > 0
-          ? ` À noter : ${sansCanonique.length} produit(s) promu(s) de sa gamme (${sansCanonique.slice(0, 3).join(", ")}) n'ont pas de produit canonique rattaché et ne peuvent donc pas figurer dans un rapport — à corriger dans Force de vente › Business Units.`
-          : ""),
-    };
+    return { ok: false, error: refusProduitsHorsBu(horsBu.length, gamme, "ce KAM") };
   }
   const produits = await prisma.product.findMany({ where: { id: { in: productIds } }, select: { id: true, canonicalName: true } });
 
@@ -226,7 +203,7 @@ export async function rapporterVisite(formData: FormData): Promise<ActionResult>
         }
       }
       await ecrireRemises(tx, lu.materiel, verrouilles, {
-        visitId: visite.id, doctorId: visite.doctorId, detenteurId, auteurId: user.id, maintenant,
+        ancre: { visitId: visite.id }, doctorId: visite.doctorId, detenteurId, auteurId: user.id, maintenant,
         motif: motifDeRemise(visite.date, visite.doctor?.name ?? null),
       });
     });
@@ -274,23 +251,16 @@ export async function ajouterVisiteImprevue(formData: FormData): Promise<ActionR
   const maintenant = new Date();
   const saisie = fdDate(formData, "date");
   const date = saisie && saisie <= maintenant ? saisie : maintenant;
-  const f = fenetreRapport(date, maintenant);
-  if (!f.ouvert) {
-    return {
-      ok: false,
-      error: `Une visite s'enregistre dans les 48 h : celle du ${date.toLocaleDateString("fr-FR")} est hors délai. `
-        + "C'est la même borne que pour une visite planifiée — sans elle, l'ajout d'imprévu serait le moyen de la contourner.",
-    };
-  }
+  if (!fenetreRapport(date, maintenant).ouvert) return { ok: false, error: refusVisiteHorsDelai(date) };
 
   const contenu = fdStr(formData, "report") ?? fdStr(formData, "transcript");
   if (!contenu) return { ok: false, error: "Dictez ou écrivez le compte rendu de cette rencontre." };
   const transcription = fdStr(formData, "transcript");
 
   const productIds = [...new Set(formData.getAll("productId").map(String).filter(Boolean))];
-  const { admis } = await produitsDeLaBu(user.id);
-  const horsBu = productIds.filter((id) => !admis.has(id));
-  if (horsBu.length > 0) return { ok: false, error: `${horsBu.length} produit(s) hors de votre gamme.` };
+  const gamme = await produitsDeLaBu(user.id);
+  const horsBu = productIds.filter((id) => !gamme.admis.has(id));
+  if (horsBu.length > 0) return { ok: false, error: refusProduitsHorsBu(horsBu.length, gamme, "vous") };
   const produits = productIds.length
     ? await prisma.product.findMany({ where: { id: { in: productIds } }, select: { id: true, canonicalName: true } })
     : [];
@@ -336,7 +306,7 @@ export async function ajouterVisiteImprevue(formData: FormData): Promise<ActionR
         });
       }
       await ecrireRemises(tx, lu.materiel, verrouilles, {
-        visitId: v.id, doctorId, detenteurId: user.id, auteurId: user.id, maintenant, motif: motifDeRemise(date, doctor.name),
+        ancre: { visitId: v.id }, doctorId, detenteurId: user.id, auteurId: user.id, maintenant, motif: motifDeRemise(date, doctor.name),
       });
       return v.id;
     });
@@ -413,4 +383,77 @@ export async function commanderVisite(formData: FormData): Promise<ActionResult>
   revalidatePath(PATH_JOURNEE);
   revalidatePath(PATH_TOURNEE);
   return { ok: true, id: cree.id };
+}
+
+/**
+ * DIRE QU'UNE VISITE N'A PAS EU LIEU — reportée ou annulée, motif à l'appui (§118.193 — audit 360°, M5 du KAM).
+ *
+ * L'état existait (`ANNULEE` / `REPORTEE` : « la visite n'a pas eu lieu et quelqu'un l'a DIT ; elle ne compte
+ * donc pas comme perdue ») et AUCUN écran ne l'écrivait — `updateVisit` n'avait pas d'appelant d'écran. Un médecin
+ * absent faisait donc une visite PERDUE au dénominateur : le KAM payait dans son taux une absence qu'il n'avait
+ * pas causée, et le plan validé n'avait aucun moyen de le dire.
+ *
+ * LA MÊME FENÊTRE QUE LE RAPPORT : dans les 48 h qui suivent la visite, on dit ce qui s'est passé — le rapport, ou
+ * la non-tenue. Après, c'est un souvenir (la borne est une décision de la Direction), et la visite reste comptée
+ * comme non rapportée — sinon dire « annulée » une semaine après serait le moyen d'effacer ses visites perdues.
+ * Une visite À VENIR se dit reportée ou annulée à tout moment. Qui peut : celui qui peut la rapporter.
+ */
+export async function direVisiteNonTenue(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  if (!userCan(user, MODULE, "CREATE")) return { ok: false, error: "Non autorisé." };
+  const visitId = fdStr(formData, "visitId");
+  if (!visitId) return { ok: false, error: "Visite introuvable." };
+  const issue = fdStr(formData, "issue");
+  // Obligatoire, et dit comme tel au contrat de l'action (la dérivation lit une négation, §118.137).
+  if (!issue) return { ok: false, error: "Dites si la visite est reportée ou annulée." };
+  if (issue !== "POSTPONED" && issue !== "CANCELLED") return { ok: false, error: "Dites si la visite est reportée ou annulée." };
+  const visite = await prisma.medicalVisit.findUnique({
+    where: { id: visitId },
+    select: { id: true, date: true, status: true, delegateId: true, doctorId: true, doctor: { select: { name: true } } },
+  });
+  if (!visite) return { ok: false, error: "Visite introuvable." };
+  if (!(await peutRapporter(user, visite))) return { ok: false, error: "Cette visite n'est pas la vôtre." };
+  // L'ÉTAT D'ABORD, LE MOTIF ENSUITE (§118.18).
+  if (visite.status !== "PLANNED") {
+    return {
+      ok: false,
+      error: visite.status === "COMPLETED" ? "Cette visite est rapportée : elle a eu lieu." : "Cette visite est déjà dite reportée ou annulée.",
+    };
+  }
+  const maintenant = new Date();
+  const f = fenetreRapport(visite.date, maintenant);
+  if (!f.ouvert) {
+    return {
+      ok: false,
+      error: `La fenêtre de 48 h de la visite du ${visite.date.toLocaleDateString("fr-FR")} s'est fermée le ${f.limite.toLocaleDateString("fr-FR")} : elle reste comptée comme non rapportée.`,
+    };
+  }
+  const motif = fdStr(formData, "motif");
+  if (!motif) return { ok: false, error: "Dites pourquoi elle n'a pas eu lieu : c'est ce que lira votre superviseur." };
+
+  // UN GESTE À LA FOIS : un rapport saisi pendant ce temps (un autre onglet, la saisie rapide) l'emporte.
+  const fait = await prisma.medicalVisit.updateMany({
+    where: { id: visite.id, status: "PLANNED" },
+    data: { status: issue, notHeldReason: motif, notHeldAt: maintenant, notHeldById: user.id, updatedById: user.id },
+  });
+  if (fait.count === 0) return { ok: false, error: "Cette visite vient de changer — rouvrez « Ma journée » pour voir où elle en est." };
+
+  const libelle = issue === "POSTPONED" ? "reportée" : "annulée";
+  await recordAudit({
+    actorId: user.id, action: "UPDATE", module: "Promotion médicale",
+    entityType: "VISIT", entityId: visite.id,
+    summary: `Visite ${libelle} — ${visite.doctor?.name ?? "praticien"} le ${visite.date.toLocaleDateString("fr-FR")} : ${motif}`,
+  });
+  // On ne retire pas une visite de la tournée de quelqu'un sans le lui dire.
+  if (visite.delegateId && visite.delegateId !== user.id) {
+    await notifyUser({
+      userId: visite.delegateId, type: "MEDICAL_TOUR",
+      title: `Visite ${libelle} — ${visite.doctor?.name ?? "praticien"}`,
+      body: `La visite du ${visite.date.toLocaleDateString("fr-FR")} est ${libelle} : « ${motif} ».`,
+      link: PATH_JOURNEE,
+    });
+  }
+  revalidatePath(PATH_JOURNEE);
+  revalidatePath(PATH_TOURNEE);
+  return { ok: true, id: visite.id };
 }

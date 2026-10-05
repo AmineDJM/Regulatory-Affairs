@@ -128,7 +128,7 @@ import { persistActionIntents, recentActionIntentsContext, retirerCaduquesAvantL
 import { gesteDuTour, isoJour, LIBELLE_GRAVITE } from "@/platform/in-process/intelligence";
 import { lireSignauxDeSortie } from "@/lib/assistant/intelligence-tools";
 import { verdictEmpreinte } from "@/lib/mutations/empreinte";
-import { toNumber } from "@/lib/utils";
+import { toNumber, formatMontant } from "@/lib/utils";
 import {
   sitsOnPaymentCentre, applyDecision, CENTRAL_STATUS_LABEL, CENTRAL_DECISION_LABEL,
   PAYMENT_CENTRE_REFUSAL, type CentralStatus,
@@ -493,9 +493,10 @@ export type AssistantActionPayload =
     }
   | {
       /**
-       * TRANCHER UN PAIEMENT AU CENTRE — autoriser, refuser, demander une révision du montant ou
-       * une argumentation. Toujours confirmé par la carte ; l'exécution repasse par l'action du
-       * centre (`decidePayment`), qui revérifie QUI siège et si la décision a encore un sens.
+       * TRANCHER UN PAIEMENT AU CENTRE — autoriser ou refuser, les deux seules décisions du centre
+       * depuis le 02/09/2026 (le schéma de l'outil le dit ; le type garde les deux autres pour les
+       * cartes d'avant, que l'action refuse). Toujours confirmé par la carte ; l'exécution repasse par
+       * l'action du centre (`decidePayment`), qui revérifie QUI siège et si la décision a encore un sens.
        */
       kind: "decide_payment";
       orderId: string;
@@ -1632,12 +1633,12 @@ const WRITE_TOOLS: ClaudeToolDef[] = [
     name: "update_request",
     description:
       "PROPOSE la MODIFICATION d'une demande du secrétariat (REQ-…) : statut, responsable, commentaire. N'exécute rien : confirmation requise. " +
-      "Statuts : NEW, IN_PROGRESS, AWAITING_VALIDATION, AWAITING_EXTERNAL, AWAITING_PAYMENT, AWAITING_DOCUMENT, BLOCKED, DONE, CANCELLED.",
+      "Statuts posables : IN_PROGRESS (reprendre), AWAITING_EXTERNAL, AWAITING_DOCUMENT. Terminer, annuler, bloquer (avec motif) et rouvrir se font à l'écran de la demande — chacun a ses gardes.",
     input_schema: {
       type: "object",
       properties: {
         reference: { type: "string", description: "Référence de la demande (REQ-AAAA-NNN) ou fragment du titre." },
-        status: { type: "string", enum: ["NEW", "IN_PROGRESS", "AWAITING_VALIDATION", "AWAITING_EXTERNAL", "AWAITING_PAYMENT", "AWAITING_DOCUMENT", "BLOCKED", "DONE", "CANCELLED"] },
+        status: { type: "string", enum: ["IN_PROGRESS", "AWAITING_EXTERNAL", "AWAITING_DOCUMENT"] },
         assigneeName: { type: "string", description: "Nouveau responsable (résoudre via search_people)." },
         comment: { type: "string", description: "Commentaire à ajouter au fil de la demande." },
       },
@@ -3473,14 +3474,14 @@ export async function buildProposal(toolName: string, input: Record<string, unkn
     if (!applyDecision(order.centralStatus as CentralStatus, decision)) {
       return { error: `Ce paiement est « ${CENTRAL_STATUS_LABEL[order.centralStatus as CentralStatus]} » — cette décision n'a plus de sens à ce stade.` };
     }
-    const amountDzd = Math.round(toNumber(order.amount));
+    const amountDzd = Math.round(toNumber(order.amount) * 100) / 100;
     // PLUS DE MONTANT PROPOSÉ : il n'accompagnait que « réviser le montant », qui n'existe plus.
     // Le centre autorise ce qui lui est présenté, ou le refuse ; corriger un montant appartient à
     // la demande, en amont.
 
     const fields = [
       { label: "Paiement", value: `${order.reference} — ${order.label}` },
-      { label: "Montant", value: `${amountDzd.toLocaleString("fr-FR")} DZD` },
+      { label: "Montant", value: `${formatMontant(amountDzd)} DZD` },
       { label: "Décision", value: CENTRAL_DECISION_LABEL[decision] },
     ];
     if (order.beneficiary) fields.push({ label: "Bénéficiaire", value: order.beneficiary });
@@ -3663,8 +3664,10 @@ export async function buildProposal(toolName: string, input: Record<string, unkn
 
     const status = asStr(input, "status").toUpperCase();
     if (status) {
-      const valid = ["NEW", "IN_PROGRESS", "AWAITING_VALIDATION", "AWAITING_EXTERNAL", "AWAITING_PAYMENT", "AWAITING_DOCUMENT", "BLOCKED", "DONE", "CANCELLED"];
-      if (!valid.includes(status)) return { error: "Statut de demande inconnu." };
+      // Les seuls statuts qui se posent à la main sans motif (§118.191) : terminer, annuler, bloquer et
+      // rouvrir ont leur geste à l'écran, avec leurs gardes — la carte ne les propose plus.
+      const valid = ["IN_PROGRESS", "AWAITING_EXTERNAL", "AWAITING_DOCUMENT"];
+      if (!valid.includes(status)) return { error: "Ce statut ne se pose pas d'ici : terminer, annuler, bloquer (avec son motif) et rouvrir se font sur la fiche de la demande." };
       payload.status = status;
       fields.push({ label: "Statut", value: `${ADMIN_REQUEST_STATUS[req.status]?.label ?? req.status} → ${ADMIN_REQUEST_STATUS[status as keyof typeof ADMIN_REQUEST_STATUS]?.label ?? status}` });
     }
@@ -3778,7 +3781,7 @@ export async function buildProposal(toolName: string, input: Record<string, unkn
     if (asStr(input, "counterparty")) { updates.counterparty = asStr(input, "counterparty"); push("Partie", doc.counterparty ?? "", updates.counterparty); }
     if (typeof input.amount === "number" && Number.isFinite(input.amount)) {
       updates.amount = input.amount;
-      push("Montant", doc.amount != null ? `${Math.round(toNumber(doc.amount)).toLocaleString("fr-FR")} DZD` : "", `${input.amount.toLocaleString("fr-FR")} DZD`);
+      push("Montant", doc.amount != null ? `${formatMontant(toNumber(doc.amount))} DZD` : "", `${formatMontant(input.amount)} DZD`);
     }
     if (asStr(input, "startDate")) {
       const d = isoDate(asStr(input, "startDate"));
@@ -3971,12 +3974,12 @@ export async function buildProposal(toolName: string, input: Record<string, unkn
       const v = input[s.key];
       if (typeof v !== "number" || !Number.isFinite(v)) continue;
       if (v <= 0) return { error: `${s.label} : le montant doit être positif.` };
-      const after = Math.round(v);
+      const after = Math.round(v * 100) / 100;
       const pct = s.before != null && s.before > 0 ? Math.round(((after - s.before) / s.before) * 1000) / 10 : null;
-      changed.push({ field: s.field, label: s.label, before: s.before != null ? Math.round(s.before) : null, after });
+      changed.push({ field: s.field, label: s.label, before: s.before != null ? Math.round(s.before * 100) / 100 : null, after });
       fields.push({
         label: s.label,
-        value: `${s.before != null ? Math.round(s.before).toLocaleString("fr-FR") : "(non renseigné)"} → ${after.toLocaleString("fr-FR")} DZD`
+        value: `${s.before != null ? formatMontant(s.before) : "(non renseigné)"} → ${formatMontant(after)} DZD`
           + (pct != null ? ` (écart ${pct > 0 ? "+" : ""}${pct.toLocaleString("fr-FR")} %)` : ""),
       });
     }
@@ -6865,7 +6868,7 @@ export async function performAction(user: CurrentUser, payload: AssistantActionP
     if (!r.ok) return { ok: false, error: r.error ?? "La décision n'a pas pu être enregistrée." };
     return {
       ok: true,
-      message: `${CENTRAL_DECISION_LABEL[payload.decision]} — ${payload.reference} (${payload.amountDzd.toLocaleString("fr-FR")} DZD).`,
+      message: `${CENTRAL_DECISION_LABEL[payload.decision]} — ${payload.reference} (${formatMontant(payload.amountDzd)} DZD).`,
       link: "/centre-de-paiement",
       revalidate: ["/centre-de-paiement", "/finances/paiements-a-faire"],
     };
@@ -7161,13 +7164,13 @@ export async function performAction(user: CurrentUser, payload: AssistantActionP
     const summary: string[] = [];
     for (const f of payload.fields) {
       if (!(f.field in currentOf)) return { ok: false, error: "Champ de salaire inconnu." };
-      const now = currentOf[f.field] != null ? Math.round(currentOf[f.field] as number) : null;
+      const now = currentOf[f.field] != null ? Math.round((currentOf[f.field] as number) * 100) / 100 : null;
       if (now !== f.before) {
-        return { ok: false, error: `${f.label} a changé depuis la proposition (${now?.toLocaleString("fr-FR") ?? "vide"} DZD désormais). Relire read_payroll et reproposer.` };
+        return { ok: false, error: `${f.label} a changé depuis la proposition (${now != null ? formatMontant(now) : "vide"} DZD désormais). Relire read_payroll et reproposer.` };
       }
       if (typeof f.after !== "number" || !Number.isFinite(f.after) || f.after <= 0) return { ok: false, error: `${f.label} : montant invalide.` };
-      data[f.field] = Math.round(f.after);
-      summary.push(`${f.label} : ${f.before != null ? f.before.toLocaleString("fr-FR") : "(vide)"} → ${Math.round(f.after).toLocaleString("fr-FR")} DZD`);
+      data[f.field] = Math.round(f.after * 100) / 100;
+      summary.push(`${f.label} : ${f.before != null ? formatMontant(f.before) : "(vide)"} → ${formatMontant(f.after)} DZD`);
     }
     await prisma.employee.update({ where: { id: emp.id }, data });
     await recordAudit({

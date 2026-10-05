@@ -9,7 +9,7 @@ import { prisma } from "@/lib/prisma";
 import { getAccess, type SessionUser } from "@/lib/rbac";
 import { createSponsoring, cloturerSponsoring, rouvrirSponsoring } from "@/lib/actions/sponsoring-actions";
 import {
-  addAdProItem, decideAdProItem, setAdProItemBudget, updateAdProItem, emitItemExpenseOrder,
+  addAdProItem, decideAdProItem, setAdProItemBudget, updateAdProItem, demanderPaiementPoste,
   deleteAdProItem, submitAdProItem, repartirPoste,
 } from "@/lib/actions/ad-pro-item-actions";
 import { settleExpenseOrder } from "@/lib/actions/expense-actions";
@@ -75,7 +75,7 @@ function formulaire(institution: string, nature: "DIRECT" | "INDIRECT"): FormDat
 suite("Sponsoring — pré-validation de la tenue, postes, validation finale et clôture", () => {
   let demandeurId = "", dmId = "", dm2Id = "", dgId = "", dirId = "", saId = "";
   let catId = "";
-  let spoId = "", postAutoId = "", standId = "";
+  let spoId = "", postAutoId = "", standId = "", heritId = "";
 
   beforeAll(async () => {
     const mk = (n: string, role: SessionUser["role"]) =>
@@ -102,6 +102,11 @@ suite("Sponsoring — pré-validation de la tenue, postes, validation finale et 
     const demandes = await prisma.sponsoringRequest.findMany({ where: { institution: { startsWith: TAG } }, select: { id: true } }).catch(() => []);
     const ids = demandes.map((d) => d.id);
     await prisma.medicalInfoDeclaration.deleteMany({ where: { sourceId: { in: ids } } }).catch(() => {});
+    // Les factures déposées sur les postes (§118.204) désignent leur ordre : elles partent d'abord.
+    const factures = (await prisma.legalDocument.findMany({ where: { sourceId: { in: ids } }, select: { id: true } }).catch(() => [])).map((f) => f.id);
+    await prisma.adProItemPiece.deleteMany({ where: { legalDocumentId: { in: factures } } }).catch(() => {});
+    await prisma.document.deleteMany({ where: { entityId: { in: factures } } }).catch(() => {});
+    await prisma.legalDocument.deleteMany({ where: { id: { in: factures } } }).catch(() => {});
     await prisma.expenseOrder.deleteMany({ where: { sourceId: { in: ids } } }).catch(() => {});
     await prisma.financeTransaction.deleteMany({ where: { label: { contains: TAG } } }).catch(() => {});
     await prisma.workflowStepEvent.deleteMany({ where: { instance: { entityId: { in: ids } } } }).catch(() => {});
@@ -232,14 +237,35 @@ suite("Sponsoring — pré-validation de la tenue, postes, validation finale et 
     expect(e).toContain(`${TAG}Stand`);
   });
 
-  it("la Direction Marketing décide chaque poste ; un poste accordé SANS budget bloque encore la clôture", async () => {
+  it("chaque poste se valide en DEUX TEMPS — la Direction des opérations, puis la Direction Marketing qui choisit le budget", async () => {
+    // §118.204 : soumis par le demandeur, validé par la Direction des opérations, accordé par la
+    // Direction Marketing AVEC son budget. L'accord sans budget n'existe plus.
+    ACTOR = await actorFor(demandeurId, "DIRECTION_ASSISTANT");
+    for (const id of [postAutoId, standId]) expect((await submitAdProItem(undefined, fd({ id }))).ok).toBe(true);
     ACTOR = await actorFor(dmId, "PRODUCT_MANAGER");
-    expect((await decideAdProItem(undefined, fd({ id: postAutoId, decision: "APPROVED", amountGranted: "80000" }))).ok).toBe(true);
+    const tropTot = await decideAdProItem(undefined, fd({ id: postAutoId, decision: "APPROVED", amountGranted: "80000", budgetCategoryId: catId }));
+    expect(tropTot.ok === false ? tropTot.error : "accordé", "la Direction Marketing avant les opérations").toMatch(/attend d'abord la validation de la Direction des opérations/);
+    ACTOR = await actorFor(dirId, "DIRECTION");
+    expect((await decideAdProItem(undefined, fd({ id: postAutoId, decision: "APPROVED" }))).ok).toBe(true);
+    expect((await decideAdProItem(undefined, fd({ id: standId, decision: "APPROVED" }))).ok).toBe(true);
+    ACTOR = await actorFor(dmId, "PRODUCT_MANAGER");
+    const sansBudget = await decideAdProItem(undefined, fd({ id: postAutoId, decision: "APPROVED", amountGranted: "80000" }));
+    expect(sansBudget.ok === false ? sansBudget.error : "accordé").toMatch(/Choisissez le budget/);
+    expect((await decideAdProItem(undefined, fd({ id: postAutoId, decision: "APPROVED", amountGranted: "80000", budgetCategoryId: catId }))).ok).toBe(true);
     expect((await decideAdProItem(undefined, fd({ id: standId, decision: "REJECTED", note: "Pas de stand cette année" }))).ok).toBe(true);
     // L'ESTIMATION suit les décisions : le montant ACCORDÉ remplace l'estimé, et un poste REFUSÉ ne
     // pèse plus rien. 80 000 et non 90 000 (l'estimé d'origine) ni 130 000 (le stand refusé compté) —
     // sans ce cas, le filtre des refusés ne serait exercé nulle part.
     expect(await montantADeclarer("SPONSORING", spoId, 0)).toBe(80_000);
+  });
+
+  it("un poste accordé SANS budget (d'avant la validation en deux temps) bloque encore la clôture", async () => {
+    // DÉCOR, nommé : un poste accordé avant §118.204, sans budget — la migration ne touche pas aux
+    // postes accordés, et l'écran les garde à « Choisir le budget ». C'est cet état hérité qu'on éprouve.
+    heritId = (await prisma.adProItem.create({ data: {
+      sponsoringId: spoId, kind: "PRINTING", label: `${TAG}Affiches d'avant`, status: "APPROVED", amountEstimated: 20_000, amountGranted: 20_000, position: 9,
+    } })).id;
+    ACTOR = await actorFor(dmId, "PRODUCT_MANAGER");
     const r = await cloturerSponsoring(fd({ id: spoId }));
     expect(r.ok).toBe(false);
     expect(r.ok === false ? r.error : "").toMatch(/sans budget/);
@@ -247,7 +273,7 @@ suite("Sponsoring — pré-validation de la tenue, postes, validation finale et 
 
   it("l'AUTEUR de la demande ne clôture pas — même quand tout est prêt", async () => {
     ACTOR = await actorFor(dmId, "PRODUCT_MANAGER");
-    expect((await setAdProItemBudget(undefined, fd({ id: postAutoId, budgetCategoryId: catId }))).ok).toBe(true);
+    expect((await setAdProItemBudget(undefined, fd({ id: heritId, budgetCategoryId: catId }))).ok).toBe(true);
     ACTOR = await actorFor(demandeurId, "DIRECTION_ASSISTANT");
     const r = await cloturerSponsoring(fd({ id: spoId }));
     expect(r.ok).toBe(false);
@@ -261,7 +287,7 @@ suite("Sponsoring — pré-validation de la tenue, postes, validation finale et 
     expect(r.ok, r.ok === false ? r.error : "").toBe(true);
     const spo = await prisma.sponsoringRequest.findUniqueOrThrow({ where: { id: spoId } });
     expect(spo.status).toBe("CLOSED");
-    expect(Number(spo.amountGranted), "80 000 accordés, le stand refusé ne pèse rien").toBe(80_000);
+    expect(Number(spo.amountGranted), "80 000 + 20 000 accordés, le stand refusé ne pèse rien").toBe(100_000);
     expect(spo.closedAt).not.toBeNull();
     expect(spo.closedById).toBe(dmId);
     expect(spo.closingNote).toBe("Événement tenu, tout réglé");
@@ -272,7 +298,7 @@ suite("Sponsoring — pré-validation de la tenue, postes, validation finale et 
     expect((await cloturerSponsoring(fd({ id: spoId }))).ok).toBe(false);
     const vue = await getWorkflowForEntity(await actorFor(dmId, "PRODUCT_MANAGER"), "SPONSORING", spoId, demandeurId);
     expect(vue?.outcome?.tenue).toBe("CLOTUREE");
-    expect(vue?.outcome?.grantedAmount).toBe(80_000);
+    expect(vue?.outcome?.grantedAmount).toBe(100_000);
   });
 
   it("CLÔTURÉE : les postes sont ARRÊTÉS — et le refus nomme le geste qui rouvre", async () => {
@@ -296,17 +322,21 @@ suite("Sponsoring — pré-validation de la tenue, postes, validation finale et 
     // Ce qui DÉCRIT la dépense se corrige encore : le fournisseur sert au BC qui peut rester à émettre.
     const desc = await updateAdProItem(undefined, fd({ id: postAutoId, supplier: `${TAG}Association cardio` }));
     expect(desc.ok, desc.ok === false ? desc.error : "").toBe(true);
-    expect(await prisma.adProItem.count({ where: { sponsoringId: spoId } })).toBe(2);
+    expect(await prisma.adProItem.count({ where: { sponsoringId: spoId } })).toBe(3);
   });
 
   it("l'EXÉCUTION continue après la clôture — et régler un POSTE ne fait jamais « payer » la demande", async () => {
-    ACTOR = await actorFor(dmId, "PRODUCT_MANAGER");
-    // Un poste accordé dont l'ordre n'était pas parti : la clôture ne doit pas le laisser en plan.
-    const em = await emitItemExpenseOrder(undefined, fd({ id: postAutoId }));
+    // Un poste accordé dont le paiement n'était pas demandé : la clôture ne doit pas le laisser en plan.
+    // SPONSORING DIRECT (§118.204) : pas de BC — la facture du demandeur suffit à demander le paiement.
+    ACTOR = await actorFor(demandeurId, "DIRECTION_ASSISTANT");
+    const f = fd({ id: postAutoId, montant: "80000", reference: `${TAG}FA-1` });
+    f.append("attachment", new File([new Uint8Array([0x25, 0x50, 0x44, 0x46, 0x2d, 0x31])], "facture.pdf", { type: "application/pdf" }));
+    const em = await demanderPaiementPoste(undefined, f);
     expect(em.ok, em.ok === false ? em.error : "").toBe(true);
     const orderId = em.ok ? em.id! : "";
-    // DÉCOR : l'autorisation du centre de paiement n'est pas ce que ce banc mesure.
-    await prisma.expenseOrder.update({ where: { id: orderId }, data: { centralStatus: "APPROVED", requiresInvoice: false } });
+    // DÉCOR : l'autorisation du centre de paiement n'est pas ce que ce banc mesure. La facture, elle,
+    // n'est PAS dispensée : celle que le demandeur a déposée doit suffire à la règle du règlement.
+    await prisma.expenseOrder.update({ where: { id: orderId }, data: { centralStatus: "APPROVED" } });
     ACTOR = await actorFor(saId, "SUPER_ADMIN");
     const regle = await settleExpenseOrder(fd({ id: orderId, budgetCategoryId: catId }));
     expect(regle.ok, regle.ok === false ? regle.error : "").toBe(true);
@@ -353,9 +383,14 @@ suite("Sponsoring — pré-validation de la tenue, postes, validation finale et 
     // deux notifications et deux lignes d'audit. Correcte, la garde ne peut pas rendre ce cas
     // rouge quel que soit l'entrelacement ; sabotée, elle le rend rouge dès que les deux lectures
     // précèdent la première écriture, ce qui est le cas ordinaire.
-    ACTOR = await actorFor(dmId, "PRODUCT_MANAGER");
     const traiteur = await prisma.adProItem.findFirstOrThrow({ where: { sponsoringId: spoId, label: `${TAG}Traiteur` } });
+    // Le traiteur se SOUMET puis se refuse au premier temps (§118.204) — la vraie voie, pas un refus
+    // posé sur un brouillon.
+    ACTOR = await actorFor(demandeurId, "DIRECTION_ASSISTANT");
+    expect((await submitAdProItem(undefined, fd({ id: traiteur.id }))).ok).toBe(true);
+    ACTOR = await actorFor(dirId, "DIRECTION");
     expect((await decideAdProItem(undefined, fd({ id: traiteur.id, decision: "REJECTED", note: "Hors budget" }))).ok).toBe(true);
+    ACTOR = await actorFor(dmId, "PRODUCT_MANAGER");
     const avant = await prisma.auditLog.count({ where: { entityId: spoId, action: "VALIDATE" } });
     const [a, b] = await Promise.all([cloturerSponsoring(fd({ id: spoId })), cloturerSponsoring(fd({ id: spoId }))]);
     expect([a.ok, b.ok].filter(Boolean), "exactement UNE clôture").toHaveLength(1);
@@ -398,10 +433,16 @@ suite("Sponsoring — pré-validation de la tenue, postes, validation finale et 
     expect(rep.ok, rep.ok === false ? rep.error : "").toBe(true);
     const natures = await prisma.adProItem.findMany({ where: { sponsoringId: id }, orderBy: { position: "asc" } });
     expect(natures.map((n) => n.kind)).toEqual(["PRINTING", "ACCOMMODATION"]);
+    // DEUX TEMPS, ET C'EST LA DIRECTION DES OPÉRATIONS QUI TIENT LE SECOND (§118.204) : la demande vient
+    // de la Direction Marketing, qui n'arbitre pas sa propre demande.
+    for (const n of natures) expect((await submitAdProItem(undefined, fd({ id: n.id }))).ok).toBe(true);
+    ACTOR = await actorFor(dm2Id, "PRODUCT_MANAGER");
+    const collegueMkt = await decideAdProItem(undefined, fd({ id: natures[0].id, decision: "APPROVED" }));
+    expect(collegueMkt.ok, "la Direction Marketing ne valide aucun temps d'une demande de la Direction Marketing").toBe(false);
     ACTOR = await actorFor(dirId, "DIRECTION");
     for (const n of natures) {
       expect((await decideAdProItem(undefined, fd({ id: n.id, decision: "APPROVED" }))).ok).toBe(true);
-      expect((await setAdProItemBudget(undefined, fd({ id: n.id, budgetCategoryId: catId }))).ok).toBe(true);
+      expect((await decideAdProItem(undefined, fd({ id: n.id, decision: "APPROVED", budgetCategoryId: catId }))).ok).toBe(true);
     }
 
     ACTOR = await actorFor(dmId, "PRODUCT_MANAGER");

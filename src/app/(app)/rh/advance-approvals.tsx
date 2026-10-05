@@ -9,6 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { ADVANCE_STATUS } from "@/lib/labels";
 import { formatCurrency, formatDate, cn } from "@/lib/utils";
+import { BoutonDecisif } from "@/components/ui/bouton-decisif";
 
 export interface AdvanceRow {
   id: string;
@@ -25,11 +26,11 @@ function DecideButton({ id, decision, label, icon: IconCmp, danger }: { id: stri
     <form action={async (fd) => { setSaving(true); await decideAdvance(fd); setSaving(false); }} className="inline">
       <input type="hidden" name="id" value={id} />
       <input type="hidden" name="decision" value={decision} />
-      <button type="submit" disabled={saving}
+      <BoutonDecisif brut type="submit" disabled={saving}
         className={cn("inline-flex items-center gap-1 rounded-md border px-2 py-1 text-xs font-medium disabled:opacity-50",
           danger ? "border-border text-muted-foreground hover:bg-destructive/10 hover:text-destructive" : "border-success/30 text-success hover:bg-success/10")}>
         {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <IconCmp className="h-3.5 w-3.5" />} {label}
-      </button>
+      </BoutonDecisif>
     </form>
   );
 }

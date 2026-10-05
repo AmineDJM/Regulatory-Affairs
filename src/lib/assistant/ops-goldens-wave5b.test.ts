@@ -290,6 +290,23 @@ suite("ops vague 5b — prises en charge, matériel promotionnel, stock", () => 
         expect(p.fields.map((f) => f.value).join(" ")).toMatch(/défaut/);
       }
     });
+
+    it("cancel_promo : le MOTIF (« note ») est exigé AVANT la carte, et la carte dit ce que l'action fait (vague « restes »)", async () => {
+      // Depuis le lot C4a (§118.189), `cancelPromoMaterial` exige un motif ; la carte ne l'envoyait pas, et
+      // chaque annulation confirmée était refusée APRÈS le clic (§118.83). Les deux moitiés : sans motif, pas de
+      // carte ; avec, le motif part — et la phrase ne promet plus une annulation que l'action ne fait pas.
+      const sans = await buildProposal("promo_operation", { op: "cancel_promo", reference: `${TAG}-MP-1` }, sa());
+      expect("error" in sans).toBe(true);
+      if ("error" in sans) expect(sans.error).toMatch(/motif/i);
+      const p = await buildProposal("promo_operation", { op: "cancel_promo", reference: `${TAG}-MP-1`, note: "Salon reporté" }, sa());
+      expect("error" in p).toBe(false);
+      if (!("error" in p)) {
+        expect(domainArgs(p).id).toBe(promoId);
+        expect(domainArgs(p).motif).toBe("Salon reporté");
+        expect(p.warnings.join(" ")).toMatch(/paiement est déjà réglé, qui reste ouverte/);
+        expect(p.warnings.join(" ")).not.toMatch(/un dossier réglé ne s'annule plus/);
+      }
+    });
   });
 
   describe("le stock promotionnel n'est plus offert à Adam (§118.164)", () => {

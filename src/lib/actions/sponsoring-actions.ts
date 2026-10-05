@@ -11,7 +11,7 @@ import { businessUnitDuDemandeur } from "@/lib/ad-pro/business-unit-auto";
 import { normalizeCity } from "@/lib/geo/algeria";
 import { buildRef, createWithRetry } from "@/lib/refs";
 import { recordAudit } from "@/lib/audit";
-import { attachFiles } from "@/lib/attach-files";
+import { attachFiles, validateAttachments } from "@/lib/attach-files";
 import { notifyRoles, notifyUser } from "@/lib/notify";
 import { involveThirdParty } from "@/lib/third-party";
 import { reopenInstance } from "@/lib/workflow/engine";
@@ -161,6 +161,12 @@ export async function createSponsoring(
   const referentGamme = await referentAInscrire(gammeDeLaDemande);
   const now = new Date();
 
+  // LES PIÈCES SE JUGENT AVANT LA DEMANDE (audit du 04/10, constat 7). Refusées après, elles
+  // laissaient la demande créée : la personne corrigeait son fichier, renvoyait, et le sponsoring
+  // existait deux fois.
+  const piecesRefusees = await validateAttachments(pieces);
+  if (piecesRefusees) return { ok: false, error: `${piecesRefusees} Aucune demande n'a été créée.` };
+
   // LA RÉFÉRENCE SE RECALCULE À CHAQUE ESSAI (§118.175). Elle se dérive du MAXIMUM existant :
   // deux dépôts à la même seconde lisaient le même, calculaient la même, et le second tombait sur
   // la contrainte d'unicité — une erreur brute, après avoir rempli le formulaire et choisi sa pièce.
@@ -252,17 +258,18 @@ export async function createSponsoring(
 
   // Les demandes du médecin, jointes DÈS la création : c'est la pièce que tout le circuit va
   // lire, et la faire ajouter « à l'écran suivant » revient à la voir manquer une fois sur deux.
+  // Les pièces ont passé le contrôle plus haut : ce qui peut encore échouer ici, c'est l'écriture.
+  // La demande EXISTE — rendre un échec ferait recréer un sponsoring au second essai. Le manque
+  // est dit (dans la réponse et dans la cloche) et la pièce se rejoint depuis la fiche.
   const attached = await attachFiles({
-    files: formData.getAll("files").filter((f): f is File => f instanceof File),
-    entityType: "SPONSORING", entityId: created.id, uploadedById: user.id, category: "REQUEST_LETTER",
+    files: pieces, entityType: "SPONSORING", entityId: created.id, uploadedById: user.id, category: "REQUEST_LETTER",
   });
-  if (attached.error) return { ok: false, error: attached.error };
 
   await recordAudit({ actorId: user.id, action: "CREATE", module: "Sponsoring", entityType: "SPONSORING", entityId: created.id, summary: `Demande ${created.reference} — ${institution} — sponsoring ${nature === "DIRECT" ? "direct" : "indirect"}, poste créé avec la demande${attached.saved > 0 ? ` (${attached.saved} pièce(s) jointe(s))` : ""}` });
   await notifyAdProCreation(init, created.id, `${created.reference} — ${institution}`);
 
   revalidatePath(PATH);
-  return { ok: true, id: created.id };
+  return { ok: true, id: created.id, ...(attached.error ? { message: `Demande créée. ${attached.error}` } : {}) };
 }
 
 /** Notifie l'acteur de l'étape de DÉPART d'un sponsoring, selon le routage à la création. */
@@ -487,16 +494,28 @@ export async function sponsoringAppeal(formData: FormData): Promise<ActionResult
   const reason = fdStr(formData, "reason");
   if (!reason) return { ok: false, error: "Précisez le motif de votre appel." };
 
+  // L'APPEL REVIENT À L'ÉTAPE QUI A TRANCHÉ (audit 360°, R04 — §118.186). Le circuit rouvrait sur sa
+  // deuxième étape — la porte du DG depuis l'inversion du circuit —, sans notification, pendant que
+  // l'écran promettait un nouvel examen de la Direction Marketing. Le moteur rouvre sur l'étape qui
+  // a rendu la décision contestée, la prévient (rôle et référents de la gamme), et dit laquelle.
+  //
+  // Le circuit d'ABORD : s'il ne se rouvre pas (un autre appel vient de passer, ou la décision n'est
+  // pas celle qu'on a lue), la demande n'est pas marquée « en appel » pour un réexamen qui n'aura
+  // pas lieu.
+  const { etape, rolesPrevenus } = await reopenInstance("SPONSORING", id, { id: user.id, role: user.role, secondaryRole: user.secondaryRole ?? null, name: user.name }, reason);
+  if (!etape) return { ok: false, error: "Le circuit de cette demande n'a pas pu être rouvert (un appel vient peut-être d'être déposé) : rouvrez la fiche." };
   await prisma.sponsoringRequest.update({
     where: { id },
     data: { status: "APPEAL_PENDING", appealById: user.id, appealAt: new Date(), appealReason: reason, appealCount: { increment: 1 }, updatedById: user.id },
   });
-  // Ré-ouvre le circuit (moteur) à l'étape d'analyse pour rester cohérent avec le statut.
-  await reopenInstance("SPONSORING", id);
-  // Repart à la Direction Marketing pour un nouvel avis (sans budget) ; la Direction est informée.
-  if (req.productManagerId) await notifyUser({ userId: req.productManagerId, type: "ASSIGNMENT", title: "Sponsoring — appel à réexaminer", body: `${req.reference} — ${req.institution}`, link: `${PATH}/${id}` });
-  await notifyRoles(["DIRECTION", "SUPER_ADMIN"], { type: "SPONSORING_VALIDATION", title: "Sponsoring — appel du délégué", body: `${req.reference} — ${req.institution}`, link: `${PATH}/${id}` });
-  await recordAudit({ actorId: user.id, action: "UPDATE", module: "Sponsoring", entityType: "SPONSORING", entityId: id, summary: `Appel du délégué — ${req.reference}` });
+  // LA DIRECTION EST INFORMÉE de tout appel, comme avant ce lot — sauf les rôles que l'étape qui
+  // tranche vient déjà de prévenir (une demande déposée par la Direction Marketing est tranchée
+  // par la Direction : elle ne reçoit pas deux fois le même appel).
+  const informes = (["DIRECTION", "SUPER_ADMIN"] as const).filter((r) => !rolesPrevenus.includes(r));
+  if (informes.length > 0) {
+    await notifyRoles(informes, { type: "SPONSORING_VALIDATION", title: "Sponsoring — appel du demandeur", body: `${req.reference} — ${req.institution} (réexamen : ${etape})`, link: `${PATH}/${id}` });
+  }
+  await recordAudit({ actorId: user.id, action: "UPDATE", module: "Sponsoring", entityType: "SPONSORING", entityId: id, summary: `Appel du délégué — ${req.reference} (réexamen : ${etape})` });
   revalidate(id);
-  return { ok: true };
+  return { ok: true, message: `Appel envoyé — « ${etape} » réexamine la demande.` };
 }

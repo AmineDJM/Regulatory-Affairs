@@ -2,19 +2,24 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { AlertCircle, CheckCircle2, FileText, Loader2, Pencil, Plus, Send, Trash2, Undo2 } from "lucide-react";
+import { AlertCircle, CheckCircle2, FileText, Loader2, Pencil, Plus, RotateCcw, ScanText, Send, Trash2, Undo2 } from "lucide-react";
 import {
   enregistrerDevisPromo, supprimerDevisPromo, terminerRetranscriptionPromo, choisirLignesPromo, demanderCorrectionDevisPromo,
+  redemanderDevisPromo, lireScanDevisPromo, rangerDevisPromo,
 } from "@/lib/actions/promo-devis-actions";
+import type { LectureDevisPromo, LignePreremplie } from "@/lib/pieces-lues/prerempli-devis-promo";
+import { LigneLue } from "@/components/pieces/ligne-lue";
+import { NoteDeLecture } from "@/components/pieces/note-de-lecture";
 import { totauxDeLaSelection, totauxDuDevis, totalLigneHT, ecartDeRetranscription, formatDzd, type DevisLu } from "@/lib/promo-material/devis";
 import { ACTIONS, ACTION_LABEL, type PromoAction } from "@/lib/promo-material/actions-fournisseur";
-import { libelleArticleDemande, rapprocher, type ArticleDemandeLu } from "@/lib/promo-material/achats";
+import { libelleArticleDemande, libellesPromusDeLArticle, rapprocher, type ArticleDemandeLu } from "@/lib/promo-material/achats";
 import type { PartyOption } from "@/lib/contacts/parties";
 import { PartyPicker } from "@/components/directory/party-picker";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input, Label, Textarea } from "@/components/ui/input";
 import type { ActionResult } from "@/lib/actions/types";
+import { BoutonDecisif } from "@/components/ui/bouton-decisif";
 
 /**
  * LES DEVIS DU DOSSIER — le tableau interne de l'entreprise (§118.152).
@@ -28,6 +33,12 @@ import type { ActionResult } from "@/lib/actions/types";
  *
  * Les totaux affichés sont calculés par le MÊME module que le serveur (`promo-material/devis`) :
  * l'écran et l'action ne peuvent pas annoncer deux montants retenus différents pour le même choix.
+ *
+ * LE SCAN SE LIT (lot D2-E). Choisi dans l'éditeur, il est lu sur-le-champ — localement, et ses lignes
+ * par l'IA si la Direction l'a permis — et la lecture PRÉREMPLIT l'éditeur : chaque ligne venue du scan
+ * porte son badge et une case « vérifiée », le total la sienne, et l'enregistrement attend qu'elles
+ * soient toutes cochées. Le serveur refait la même exigence : la case n'est pas une politesse d'écran.
+ * Des lignes déjà saisies ne sont jamais remplacées sans un clic.
  */
 
 export interface DevisAffiche extends DevisLu {
@@ -51,6 +62,12 @@ interface Props {
   canCreateContact: boolean;
   /** Le seuil du DG, pour dire au demandeur si son choix passera par le Directeur Général. */
   seuilDg: number | null;
+  /** Les fichiers « devis » déposés sur la demande SANS devis du circuit (§118.204) — à ranger. */
+  aRanger?: { id: string; nom: string; deposePar: string | null; le: string }[];
+  /** Tranché au serveur (`refusDeRangement` + qui retranscrit) : la personne peut-elle les ranger ICI ? */
+  peutRanger?: boolean;
+  /** Pourquoi pas à cette étape — la phrase même de l'action. */
+  refusRangement?: string | null;
 }
 
 function useRun() {
@@ -74,9 +91,25 @@ const Info = ({ msg }: { msg: string | null }) =>
 
 // ───────────────────────── L'éditeur d'un devis (assistante) ─────────────────────────
 
-interface LigneSaisie { reference: string; unit: string; quantity: string; unitPrice: string; action: string; article: string }
-const LIGNE_VIDE: LigneSaisie = { reference: "", unit: "", quantity: "", unitPrice: "", action: "", article: "" };
+interface LigneSaisie {
+  reference: string; unit: string; quantity: string; unitPrice: string; action: string; article: string;
+  /** Le rang de la ligne lue sur le scan dont elle vient ; `null` : saisie à la main. */
+  lue: number | null;
+  /** « Vérifiée sur le papier » — exigée par le serveur pour toute ligne venue du scan. */
+  verifiee: boolean;
+}
+const LIGNE_VIDE: LigneSaisie = { reference: "", unit: "", quantity: "", unitPrice: "", action: "", article: "", lue: null, verifiee: false };
 const nombre = (s: string) => Number(s.replace(/\s/g, "").replace(",", "."));
+/** Une rangée inutilisée : le serveur l'ignore, et elle ne demande aucune case. */
+const ligneVide = (l: LigneSaisie) => !l.reference.trim() && !l.quantity.trim() && !l.unitPrice.trim();
+/** Une ligne lue, telle que l'éditeur la reçoit : sa case n'est PAS cochée — c'est le geste de la personne. */
+const depuisLecture = (l: LignePreremplie): LigneSaisie => ({
+  ...LIGNE_VIDE, reference: l.reference, unit: l.unit ?? "",
+  quantity: l.quantity != null ? String(l.quantity) : "", unitPrice: l.unitPrice != null ? String(l.unitPrice) : "",
+  lue: l.rang, verifiee: false,
+});
+
+interface EnteteSaisie { reference: string; quoteDate: string; tvaRate: string; announcedTotal: string; extraTaxLabel: string; extraTaxRate: string }
 
 function EditeurDevis({ id, devis, articles, parties, canCreateContact, onDone }: {
   id: string; devis: DevisAffiche | null; articles: ArticleDemandeLu[]; parties?: PartyOption[]; canCreateContact: boolean; onDone: () => void;
@@ -85,16 +118,80 @@ function EditeurDevis({ id, devis, articles, parties, canCreateContact, onDone }
   const [lignes, setLignes] = React.useState<LigneSaisie[]>(() =>
     devis && devis.lines.length
       ? devis.lines.map((l) => ({
-          reference: l.reference, unit: l.unit ?? "", quantity: String(l.quantity), unitPrice: String(l.unitPrice),
+          ...LIGNE_VIDE, reference: l.reference, unit: l.unit ?? "", quantity: String(l.quantity), unitPrice: String(l.unitPrice),
           action: l.action ?? "", article: l.requestItemId ?? "",
         }))
       : [{ ...LIGNE_VIDE }, { ...LIGNE_VIDE }, { ...LIGNE_VIDE }],
   );
-  const maj = (i: number, k: keyof LigneSaisie, v: string) => setLignes((ls) => ls.map((l, j) => (j === i ? { ...l, [k]: v } : l)));
+  const [entete, setEntete] = React.useState<EnteteSaisie>(() => ({
+    reference: devis?.reference ?? "", quoteDate: devis?.quoteDate?.slice(0, 10) ?? "", tvaRate: String(devis?.tvaRate ?? 19),
+    announcedTotal: devis?.announcedTotal != null ? String(devis.announcedTotal) : "",
+    extraTaxLabel: devis?.extraTaxLabel ?? "", extraTaxRate: devis?.extraTaxRate != null ? String(devis.extraTaxRate) : "",
+  }));
+  const majEntete = (k: keyof EnteteSaisie, v: string) => setEntete((e) => ({ ...e, [k]: v }));
+  // Le fournisseur : le sélecteur garde son propre état — préremplir, c'est le remonter avec une autre valeur.
+  const [fournisseur, setFournisseur] = React.useState<{ ids: string[]; cle: number }>(() => ({ ids: devis?.supplierId ? [devis.supplierId] : [], cle: 0 }));
+  // LA LECTURE DU SCAN : la proposition, et si elle a été APPLIQUÉE à l'éditeur (alors seulement elle se confirme).
+  const [lecture, setLecture] = React.useState<LectureDevisPromo | null>(null);
+  const [appliquee, setAppliquee] = React.useState(false);
+  const [enLecture, setEnLecture] = React.useState(false);
+  const [erreurLecture, setErreurLecture] = React.useState<string | null>(null);
+  const [totalVerifie, setTotalVerifie] = React.useState(false);
+  const [scanChoisi, setScanChoisi] = React.useState(false);
+  const scanRef = React.useRef<HTMLInputElement>(null);
+
+  const maj = (i: number, k: "reference" | "unit" | "quantity" | "unitPrice" | "action" | "article", v: string) =>
+    setLignes((ls) => ls.map((l, j) => (j === i ? { ...l, [k]: v } : l)));
+  const coche = (i: number, v: boolean) => setLignes((ls) => ls.map((l, j) => (j === i ? { ...l, verifiee: v } : l)));
   const totalHT = lignes.reduce((s, l) => {
     const q = nombre(l.quantity); const p = nombre(l.unitPrice);
     return Number.isFinite(q) && Number.isFinite(p) ? s + totalLigneHT({ quantity: q, unitPrice: p }) : s;
   }, 0);
+  const lueParRang = new Map((lecture?.prerempli.lignes ?? []).map((l) => [l.rang, l]));
+  const resteACocher = appliquee ? lignes.filter((l) => l.lue !== null && !l.verifiee && !ligneVide(l)).length : 0;
+  const confirmable = !appliquee || (resteACocher === 0 && totalVerifie);
+
+  /** Reporter la lecture dans l'éditeur : ses lignes (s'il y en a), son en-tête, son fournisseur reconnu. */
+  const appliquer = (l: LectureDevisPromo) => {
+    const p = l.prerempli;
+    if (p.lignes.length > 0) setLignes(p.lignes.map(depuisLecture));
+    else setLignes((ls) => ls.map((x) => ({ ...x, lue: null, verifiee: false })));
+    setEntete((e) => ({
+      reference: p.reference ?? e.reference,
+      quoteDate: p.quoteDate ?? e.quoteDate,
+      tvaRate: p.tvaRate != null ? String(p.tvaRate) : e.tvaRate,
+      announcedTotal: p.announcedTotal != null ? String(p.announcedTotal) : e.announcedTotal,
+      extraTaxLabel: p.extraTaxLabel ?? e.extraTaxLabel,
+      extraTaxRate: p.extraTaxRate != null ? String(p.extraTaxRate) : e.extraTaxRate,
+    }));
+    // Le fournisseur n'est prérempli que s'il est reconnu à coup sûr ET proposé ici.
+    if (p.fournisseurId && (parties ?? []).some((o) => o.id === p.fournisseurId)) {
+      setFournisseur((f) => ({ ids: [p.fournisseurId as string], cle: f.cle + 1 }));
+    }
+    setTotalVerifie(false);
+    setAppliquee(true);
+  };
+
+  /** LIRE LE SCAN choisi — la lecture n'écrit rien ; des lignes déjà saisies ne sont pas remplacées sans un clic. */
+  const lireLeScan = async (fichier: File) => {
+    setEnLecture(true); setErreurLecture(null);
+    const f = new FormData();
+    f.set("promoMaterialId", id);
+    f.set("scan", fichier);
+    const r = await lireScanDevisPromo(f);
+    setEnLecture(false);
+    if (!r.ok || !r.lecture) { setLecture(null); setAppliquee(false); setErreurLecture(r.error ?? "Lecture impossible."); return; }
+    const nouvelle = r.lecture;
+    setLecture(nouvelle);
+    if (lignes.every(ligneVide) || appliquee) {
+      // Rien de saisi, ou des lignes venues d'une lecture précédente : la nouvelle lecture les remplace.
+      appliquer(nouvelle);
+    } else {
+      // Des lignes saisies à la main : elles restent, et ne sont rattachées à aucune lecture.
+      setAppliquee(false);
+      setLignes((ls) => ls.map((x) => ({ ...x, lue: null, verifiee: false })));
+    }
+  };
 
   return (
     <form
@@ -108,19 +205,57 @@ function EditeurDevis({ id, devis, articles, parties, canCreateContact, onDone }
       <p className="text-sm font-medium">{devis ? `Corriger le devis de ${devis.supplierName}` : "Retranscrire un devis"}</p>
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <div className="sm:col-span-2">
-          <Label>Fournisseur (annuaire) *</Label>
-          <div className="mt-1"><PartyPicker name="supplierId" arity={1} options={parties} canCreate={canCreateContact} defaultValue={devis?.supplierId ? [devis.supplierId] : []} placeholder="Choisir l'agence ou le partenaire" /></div>
-        </div>
-        <div><Label htmlFor={`dv-ref-${devis?.id ?? "n"}`}>N° du devis</Label><Input id={`dv-ref-${devis?.id ?? "n"}`} name="reference" defaultValue={devis?.reference ?? ""} placeholder="26/0576" /></div>
-        <div><Label htmlFor={`dv-date-${devis?.id ?? "n"}`}>Date du devis</Label><Input id={`dv-date-${devis?.id ?? "n"}`} name="quoteDate" type="date" defaultValue={devis?.quoteDate?.slice(0, 10) ?? ""} /></div>
-        <div><Label htmlFor={`dv-tva-${devis?.id ?? "n"}`}>TVA (%)</Label><Input id={`dv-tva-${devis?.id ?? "n"}`} name="tvaRate" inputMode="decimal" defaultValue={String(devis?.tvaRate ?? 19)} /></div>
-        <div><Label htmlFor={`dv-annonce-${devis?.id ?? "n"}`}>Total HT imprimé sur le devis</Label><Input id={`dv-annonce-${devis?.id ?? "n"}`} name="announcedTotal" inputMode="decimal" defaultValue={devis?.announcedTotal != null ? String(devis.announcedTotal) : ""} placeholder="pour contrôler la retranscription" /></div>
-        <div><Label htmlFor={`dv-taxel-${devis?.id ?? "n"}`}>Taxe additionnelle (libellé)</Label><Input id={`dv-taxel-${devis?.id ?? "n"}`} name="extraTaxLabel" defaultValue={devis?.extraTaxLabel ?? ""} placeholder="Taxe Pub" /></div>
-        <div><Label htmlFor={`dv-taxer-${devis?.id ?? "n"}`}>Taxe additionnelle (%)</Label><Input id={`dv-taxer-${devis?.id ?? "n"}`} name="extraTaxRate" inputMode="decimal" defaultValue={devis?.extraTaxRate != null ? String(devis.extraTaxRate) : ""} placeholder="vide = aucune" /></div>
-        <div className="sm:col-span-2">
           <Label htmlFor={`dv-scan-${devis?.id ?? "n"}`}>Scan du devis {devis?.documentName ? <span className="font-normal text-muted-foreground">(actuel : {devis.documentName})</span> : "*"}</Label>
-          <Input id={`dv-scan-${devis?.id ?? "n"}`} name="scan" type="file" accept=".pdf,.png,.jpg,.jpeg,.doc,.docx,.xls,.xlsx" />
+          <div className="mt-1 flex flex-wrap items-center gap-2">
+            <Input
+              ref={scanRef} id={`dv-scan-${devis?.id ?? "n"}`} name="scan" type="file" accept=".pdf,.png,.jpg,.jpeg,.doc,.docx,.xls,.xlsx" className="max-w-md"
+              onChange={(e) => { const fichier = e.currentTarget.files?.[0] ?? null; setScanChoisi(Boolean(fichier)); if (fichier) void lireLeScan(fichier); }}
+            />
+            <Button type="button" size="sm" variant="outline" disabled={!scanChoisi || enLecture || saving}
+              onClick={() => { const fichier = scanRef.current?.files?.[0]; if (fichier) void lireLeScan(fichier); }}>
+              {enLecture ? <Loader2 className="h-4 w-4 animate-spin" /> : <ScanText className="h-4 w-4" />} Lire le scan
+            </Button>
+          </div>
+          <p className="mt-1 text-xs text-muted-foreground">Choisi, le scan est lu sur ce serveur : la lecture propose, vous comparez au papier et cochez chaque ligne.</p>
         </div>
+        {erreurLecture && <div className="sm:col-span-2"><Erreur msg={erreurLecture} /></div>}
+        {lecture && (
+          <div className="space-y-2 sm:col-span-2">
+            <NoteDeLecture
+              nomFichier={lecture.nomFichier} noteMethode={lecture.noteMethode} sansLignes={lecture.sansLignes} coupe={lecture.coupe}
+              controle={lecture.controle} fournisseur={lecture.fournisseur.phrase} reserves={lecture.prerempli.reserves} suspectes={lecture.suspectes}
+            />
+            {!appliquee && (
+              <Button type="button" size="sm" variant="outline" onClick={() => appliquer(lecture)}>
+                <ScanText className="h-4 w-4" /> Reprendre la lecture (remplace les lignes saisies)
+              </Button>
+            )}
+          </div>
+        )}
+        {appliquee && lecture && <input type="hidden" name="lectureId" value={lecture.lectureId} />}
+        <div className="sm:col-span-2">
+          <Label>Fournisseur (annuaire) *</Label>
+          <div className="mt-1"><PartyPicker key={`fournisseur-${fournisseur.cle}`} name="supplierId" arity={1} options={parties} canCreate={canCreateContact} defaultValue={fournisseur.ids} placeholder="Choisir l'agence ou le partenaire" /></div>
+        </div>
+        <div><Label htmlFor={`dv-ref-${devis?.id ?? "n"}`}>N° du devis</Label><Input id={`dv-ref-${devis?.id ?? "n"}`} name="reference" value={entete.reference} onChange={(e) => majEntete("reference", e.target.value)} placeholder="26/0576" /></div>
+        <div><Label htmlFor={`dv-date-${devis?.id ?? "n"}`}>Date du devis</Label><Input id={`dv-date-${devis?.id ?? "n"}`} name="quoteDate" type="date" value={entete.quoteDate} onChange={(e) => majEntete("quoteDate", e.target.value)} /></div>
+        <div><Label htmlFor={`dv-tva-${devis?.id ?? "n"}`}>TVA (%)</Label><Input id={`dv-tva-${devis?.id ?? "n"}`} name="tvaRate" inputMode="decimal" value={entete.tvaRate} onChange={(e) => majEntete("tvaRate", e.target.value)} /></div>
+        {/* EXIGÉ POUR TERMINER, pas pour enregistrer — comme le scan : on peut poser les lignes avant
+            d'avoir le papier sous les yeux, mais « Retranscription terminée » refuse un devis sans son
+            total imprimé, contre lequel les lignes se contrôlent à un dinar près. */}
+        <div>
+          <Label htmlFor={`dv-annonce-${devis?.id ?? "n"}`}>Total HT imprimé sur le devis *</Label>
+          <Input id={`dv-annonce-${devis?.id ?? "n"}`} name="announcedTotal" inputMode="decimal" value={entete.announcedTotal} onChange={(e) => majEntete("announcedTotal", e.target.value)} placeholder="contrôle la retranscription" />
+          {appliquee && (
+            <label className="mt-1 flex items-center gap-1.5 text-xs">
+              <input type="hidden" name="totalVerifie" value="0" />
+              <input type="checkbox" name="totalVerifie" value="1" checked={totalVerifie} onChange={(e) => setTotalVerifie(e.target.checked)} />
+              total vérifié sur le papier
+            </label>
+          )}
+        </div>
+        <div><Label htmlFor={`dv-taxel-${devis?.id ?? "n"}`}>Taxe additionnelle (libellé)</Label><Input id={`dv-taxel-${devis?.id ?? "n"}`} name="extraTaxLabel" value={entete.extraTaxLabel} onChange={(e) => majEntete("extraTaxLabel", e.target.value)} placeholder="Taxe Pub" /></div>
+        <div><Label htmlFor={`dv-taxer-${devis?.id ?? "n"}`}>Taxe additionnelle (%)</Label><Input id={`dv-taxer-${devis?.id ?? "n"}`} name="extraTaxRate" inputMode="decimal" value={entete.extraTaxRate} onChange={(e) => majEntete("extraTaxRate", e.target.value)} placeholder="vide = aucune" /></div>
       </div>
 
       <div className="overflow-x-auto">
@@ -141,31 +276,49 @@ function EditeurDevis({ id, devis, articles, parties, canCreateContact, onDone }
             {lignes.map((l, i) => {
               const q = nombre(l.quantity); const p = nombre(l.unitPrice);
               const t = Number.isFinite(q) && Number.isFinite(p) && l.quantity && l.unitPrice ? totalLigneHT({ quantity: q, unitPrice: p }) : null;
+              const lue = l.lue !== null ? lueParRang.get(l.lue) : undefined;
               return (
-                <tr key={i} className="align-top">
-                  <td className="py-1 pr-2"><Input name="ligneReference" value={l.reference} onChange={(e) => maj(i, "reference", e.target.value)} aria-label={`Référence ligne ${i + 1}`} /></td>
-                  <td className="py-1 pr-2">
-                    <select name="ligneAction" value={l.action} onChange={(e) => maj(i, "action", e.target.value)} aria-label={`Action ligne ${i + 1}`}
-                      className="h-9 w-36 rounded-md border border-input bg-background px-2 text-sm">
-                      <option value="">Action…</option>
-                      {ACTIONS.map((a) => <option key={a} value={a}>{ACTION_LABEL[a]}</option>)}
-                    </select>
-                  </td>
-                  <td className="py-1 pr-2">
-                    <select name="ligneArticle" value={l.article} onChange={(e) => maj(i, "article", e.target.value)} aria-label={`Article demandé ligne ${i + 1}`}
-                      className="h-9 w-48 rounded-md border border-input bg-background px-2 text-sm">
-                      <option value="">En plus (non demandé)</option>
-                      {articles.map((a) => <option key={a.id} value={a.id}>{libelleArticleDemande(a)}</option>)}
-                    </select>
-                  </td>
-                  <td className="py-1 pr-2"><Input name="ligneUnite" value={l.unit} onChange={(e) => maj(i, "unit", e.target.value)} aria-label={`Unité ligne ${i + 1}`} placeholder="pièce" className="w-24" /></td>
-                  <td className="py-1 pr-2"><Input name="ligneQuantite" value={l.quantity} onChange={(e) => maj(i, "quantity", e.target.value)} inputMode="decimal" aria-label={`Quantité ligne ${i + 1}`} className="w-24" /></td>
-                  <td className="py-1 pr-2"><Input name="lignePrix" value={l.unitPrice} onChange={(e) => maj(i, "unitPrice", e.target.value)} inputMode="decimal" aria-label={`Prix unitaire ligne ${i + 1}`} className="w-32" /></td>
-                  <td className="py-1 pr-2 text-right tabular-nums">{t != null ? formatDzd(t) : "—"}</td>
-                  <td className="py-1">
-                    <Button type="button" size="sm" variant="ghost" onClick={() => setLignes((ls) => ls.filter((_, j) => j !== i))} aria-label={`Retirer la ligne ${i + 1}`}><Trash2 className="h-4 w-4" /></Button>
-                  </td>
-                </tr>
+                <React.Fragment key={i}>
+                  <tr className="align-top">
+                    <td className="py-1 pr-2">
+                      <Input name="ligneReference" value={l.reference} onChange={(e) => maj(i, "reference", e.target.value)} aria-label={`Référence ligne ${i + 1}`} />
+                      {/* Deux champs cachés par rangée, ALIGNÉS sur les autres : la ligne lue dont elle vient, et sa case. */}
+                      <input type="hidden" name="ligneLue" value={l.lue ?? ""} />
+                      <input type="hidden" name="ligneVerifiee" value={l.verifiee ? "1" : "0"} />
+                    </td>
+                    <td className="py-1 pr-2">
+                      <select name="ligneAction" value={l.action} onChange={(e) => maj(i, "action", e.target.value)} aria-label={`Action ligne ${i + 1}`}
+                        className="h-9 w-36 rounded-md border border-input bg-background px-2 text-sm">
+                        <option value="">Action…</option>
+                        {ACTIONS.map((a) => <option key={a} value={a}>{ACTION_LABEL[a]}</option>)}
+                      </select>
+                    </td>
+                    <td className="py-1 pr-2">
+                      <select name="ligneArticle" value={l.article} onChange={(e) => maj(i, "article", e.target.value)} aria-label={`Article demandé ligne ${i + 1}`}
+                        className="h-9 w-48 rounded-md border border-input bg-background px-2 text-sm">
+                        <option value="">En plus (non demandé)</option>
+                        {articles.map((a) => <option key={a.id} value={a.id}>{libelleArticleDemande(a)}</option>)}
+                      </select>
+                    </td>
+                    <td className="py-1 pr-2"><Input name="ligneUnite" value={l.unit} onChange={(e) => maj(i, "unit", e.target.value)} aria-label={`Unité ligne ${i + 1}`} placeholder="pièce" className="w-24" /></td>
+                    <td className="py-1 pr-2"><Input name="ligneQuantite" value={l.quantity} onChange={(e) => maj(i, "quantity", e.target.value)} inputMode="decimal" aria-label={`Quantité ligne ${i + 1}`} className="w-24" /></td>
+                    <td className="py-1 pr-2"><Input name="lignePrix" value={l.unitPrice} onChange={(e) => maj(i, "unitPrice", e.target.value)} inputMode="decimal" aria-label={`Prix unitaire ligne ${i + 1}`} className="w-32" /></td>
+                    <td className="py-1 pr-2 text-right tabular-nums">{t != null ? formatDzd(t) : "—"}</td>
+                    <td className="py-1">
+                      <Button type="button" size="sm" variant="ghost" onClick={() => setLignes((ls) => ls.filter((_, j) => j !== i))} aria-label={`Retirer la ligne ${i + 1}`}><Trash2 className="h-4 w-4" /></Button>
+                    </td>
+                  </tr>
+                  {appliquee && lecture && l.lue !== null && (
+                    <tr>
+                      <td colSpan={8} className="pb-2 pr-2">
+                        <LigneLue
+                          id={`dv-lue-${devis?.id ?? "n"}-${i}`} methode={lecture.methode} confiance={lecture.confiance}
+                          verifiee={l.verifiee} onVerifiee={(v) => coche(i, v)} notes={lue?.notes ?? []} suspecte={lue?.suspecte ?? []}
+                        />
+                      </td>
+                    </tr>
+                  )}
+                </React.Fragment>
               );
             })}
           </tbody>
@@ -182,8 +335,13 @@ function EditeurDevis({ id, devis, articles, parties, canCreateContact, onDone }
       </div>
       <div><Label htmlFor={`dv-note-${devis?.id ?? "n"}`}>Note</Label><Textarea id={`dv-note-${devis?.id ?? "n"}`} name="note" defaultValue={devis?.note ?? ""} className="min-h-[50px]" /></div>
       <Erreur msg={err} />
+      {appliquee && !confirmable && (
+        <p className="text-xs text-amber-700 dark:text-amber-400">
+          Avant d&apos;enregistrer : comparez au papier et cochez {resteACocher > 0 ? `${resteACocher} ligne${resteACocher > 1 ? "s" : ""} lue${resteACocher > 1 ? "s" : ""}` : ""}{resteACocher > 0 && !totalVerifie ? " et " : ""}{!totalVerifie ? "le total" : ""}.
+        </p>
+      )}
       <div className="flex flex-wrap gap-2">
-        <Button type="submit" size="sm" disabled={saving}>{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />} Enregistrer le devis</Button>
+        <Button type="submit" size="sm" disabled={saving || enLecture || !confirmable}>{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />} Enregistrer le devis</Button>
         <Button type="button" size="sm" variant="ghost" onClick={onDone} disabled={saving}>Annuler</Button>
       </div>
     </form>
@@ -192,11 +350,13 @@ function EditeurDevis({ id, devis, articles, parties, canCreateContact, onDone }
 
 // ───────────────────────── La carte ─────────────────────────
 
-export function PromoQuotesCard({ id, quotes, articles, canTranscribe, canSelect, manques, parties, canCreateContact, seuilDg }: Props) {
+export function PromoQuotesCard({ id, quotes, articles, canTranscribe, canSelect, manques, parties, canCreateContact, seuilDg, aRanger = [], peutRanger = false, refusRangement = null }: Props) {
   const { saving, err, msg, run } = useRun();
   const [edition, setEdition] = React.useState<string | "nouveau" | null>(null);
   const [choisies, setChoisies] = React.useState<Set<string>>(() => new Set(quotes.flatMap((q) => q.lines.filter((l) => l.selected).map((l) => l.id))));
   const [correction, setCorrection] = React.useState(false);
+  const [redemande, setRedemande] = React.useState(false);
+  const [cherche, setCherche] = React.useState("");
 
   // Le montant RETENU, calculé à mesure — avec la sélection de l'écran, pas celle de la base.
   const affiches: DevisLu[] = quotes.map((q) => ({ ...q, lines: q.lines.map((l) => ({ ...l, selected: canSelect ? choisies.has(l.id) : l.selected })) }));
@@ -209,12 +369,48 @@ export function PromoQuotesCard({ id, quotes, articles, canTranscribe, canSelect
     run(() => choisirLignesPromo(f));
   };
   const auDg = seuilDg != null && seuilDg > 0 && selection.lignes > 0 && selection.ttc > seuilDg;
-  const nomArticle = new Map(articles.map((a) => [a.id, `${a.reference} ${a.nom}${a.produits.length ? ` — ${a.produits.map((p) => p.nom).join(", ")}` : ""}`]));
+  const nomArticle = new Map(articles.map((a) => { const promus = libellesPromusDeLArticle(a); return [a.id, `${a.reference} ${a.nom}${promus.length ? ` — ${promus.join(", ")}` : ""}`]; }));
   // LE RAPPROCHEMENT — calculé par le module pur, avec la sélection de l'écran (§118.165).
   const rapprochement = articles.length > 0 && quotes.length > 0 ? rapprocher(articles, affiches) : null;
 
   return (
     <div className="space-y-4">
+      {/* LES DEVIS DÉPOSÉS SANS FOURNISSEUR (§118.204) — « les fiches doivent être automatiques » : un fichier
+          « devis » de la demande devient un devis du circuit d'un geste, l'agence choisie dans l'annuaire. Le
+          fichier n'est pas retéléversé : le devis le DÉSIGNE. Plus de « Créer sa fiche » ici. */}
+      {aRanger.length > 0 && (
+        <div className="space-y-2 rounded-lg border border-amber-500/40 bg-amber-500/5 p-3">
+          <p className="text-sm font-medium">Devis déposés sans fournisseur ({aRanger.length})</p>
+          <p className="text-xs text-muted-foreground">
+            {peutRanger
+              ? "Choisissez l'agence à qui appartient chaque devis : il entre dans le tableau sans être téléversé une seconde fois, puis ses lignes se retranscrivent (« Corriger »)."
+              : refusRangement ?? "L'assistante de direction (ou la Direction) les range comme devis d'une agence."}
+          </p>
+          <ul className="space-y-2">
+            {aRanger.map((d) => (
+              <li key={d.id} className="space-y-1.5 rounded-md border border-border bg-background p-2">
+                <p className="flex flex-wrap items-center gap-2 text-sm">
+                  <FileText className="h-4 w-4 shrink-0 text-muted-foreground" />
+                  <a className="font-medium hover:underline" href={`/api/documents/${d.id}`} target="_blank" rel="noreferrer">{d.nom}</a>
+                  <span className="text-xs text-muted-foreground">{d.deposePar ? `déposé par ${d.deposePar}, ` : ""}le {new Date(d.le).toLocaleDateString("fr-FR")}</span>
+                </p>
+                {peutRanger && (
+                  <form
+                    className="flex flex-wrap items-end gap-2"
+                    action={(f: FormData) => { f.set("promoMaterialId", id); f.set("documentId", d.id); run(() => rangerDevisPromo(f)); }}
+                  >
+                    <div className="min-w-[14rem] flex-1">
+                      <PartyPicker name="supplierId" arity={1} options={parties} canCreate={canCreateContact} placeholder="L'agence ou le partenaire de ce devis" />
+                    </div>
+                    <Button type="submit" size="sm" disabled={saving}>{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />} Ranger comme devis de cette agence</Button>
+                  </form>
+                )}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
       {quotes.length === 0 && !canTranscribe && (
         <p className="text-sm text-muted-foreground">Aucun devis retranscrit pour l&apos;instant.</p>
       )}
@@ -234,6 +430,9 @@ export function PromoQuotesCard({ id, quotes, articles, canTranscribe, canSelect
                 <p className="text-xs text-muted-foreground">
                   {q.reference ? `Devis n° ${q.reference}` : "Devis sans numéro"}{q.quoteDate ? ` · ${new Date(q.quoteDate).toLocaleDateString("fr-FR")}` : ""} · TVA {q.tvaRate} %{q.extraTaxRate ? ` · ${q.extraTaxLabel ?? "Taxe"} ${q.extraTaxRate} %` : ""}
                   {q.documentName ? <> · <FileText className="inline h-3 w-3" /> {q.documentName}</> : <> · <span className="text-amber-600">scan manquant</span></>}
+                  {/* Dit à celle qui peut le saisir, à l'étape où il compte : sur un dossier déjà passé au
+                      choix, un « total manquant » d'avant la règle serait un bruit qu'on cesse de lire. */}
+                  {canTranscribe && q.announcedTotal == null && <> · <span className="text-amber-600">total imprimé manquant</span></>}
                 </p>
               </div>
               <div className="flex flex-wrap items-center gap-2">
@@ -245,10 +444,10 @@ export function PromoQuotesCard({ id, quotes, articles, canTranscribe, canSelect
                 {canTranscribe && (
                   <>
                     <Button size="sm" variant="outline" onClick={() => setEdition(q.id)} disabled={saving}><Pencil className="h-4 w-4" /> Corriger</Button>
-                    <Button size="sm" variant="ghost" disabled={saving} aria-label={`Retirer le devis de ${q.supplierName}`}
-                      onClick={() => { if (confirm(`Retirer le devis de ${q.supplierName} ?`)) { const f = new FormData(); f.set("promoMaterialId", id); f.set("quoteId", q.id); run(() => supprimerDevisPromo(f)); } }}>
+                    <BoutonDecisif size="sm" variant="ghost" disabled={saving} aria-label={`Retirer le devis de ${q.supplierName}`}
+                      onClick={() => { const f = new FormData(); f.set("promoMaterialId", id); f.set("quoteId", q.id); run(() => supprimerDevisPromo(f)); }}>
                       <Trash2 className="h-4 w-4" />
-                    </Button>
+                    </BoutonDecisif>
                   </>
                 )}
               </div>
@@ -356,7 +555,7 @@ export function PromoQuotesCard({ id, quotes, articles, canTranscribe, canSelect
       {canTranscribe && edition === null && (
         <div className="space-y-2">
           <div className="flex flex-wrap gap-2">
-            <Button size="sm" variant="outline" onClick={() => setEdition("nouveau")} disabled={saving}><Plus className="h-4 w-4" /> Retranscrire un devis</Button>
+            <Button size="sm" variant="outline" onClick={() => setEdition("nouveau")} disabled={saving}><Plus className="h-4 w-4" /> Déposer un devis</Button>
             <Button size="sm" onClick={() => { const f = new FormData(); f.set("promoMaterialId", id); run(() => terminerRetranscriptionPromo(f)); }} disabled={saving || manques.length > 0}>
               {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />} Retranscription terminée
             </Button>
@@ -379,14 +578,25 @@ export function PromoQuotesCard({ id, quotes, articles, canTranscribe, canSelect
           <p className="text-xs text-muted-foreground">
             Votre choix part ensuite à la Direction Marketing{auDg ? ", puis au Directeur Général (au-dessus du seuil)" : ""}. Les bons de commande seront générés d&apos;après ces lignes, un par fournisseur.
           </p>
-          {!correction ? (
+          {!correction && !redemande ? (
             <div className="flex flex-wrap gap-2">
-              <Button size="sm" variant="success" onClick={() => envoyerChoix(true)} disabled={saving || selection.lignes === 0}>
+              <BoutonDecisif size="sm" variant="success" onClick={() => envoyerChoix(true)} disabled={saving || selection.lignes === 0}>
                 {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />} Valider ma sélection
-              </Button>
+              </BoutonDecisif>
               <Button size="sm" variant="outline" onClick={() => envoyerChoix(false)} disabled={saving}>Enregistrer sans valider</Button>
               <Button size="sm" variant="ghost" onClick={() => setCorrection(true)} disabled={saving}><Undo2 className="h-4 w-4" /> Demander une correction</Button>
+              <Button size="sm" variant="ghost" onClick={() => setRedemande(true)} disabled={saving}><RotateCcw className="h-4 w-4" /> Redemander des devis</Button>
             </div>
+          ) : redemande ? (
+            <form action={(f: FormData) => { f.set("promoMaterialId", id); run(() => redemanderDevisPromo(f), () => { setRedemande(false); setCherche(""); }); }} className="space-y-2">
+              <Label htmlFor="promo-redemande">Ce que vous cherchez</Label>
+              <Textarea id="promo-redemande" name="note" value={cherche} onChange={(e) => setCherche(e.target.value)} className="min-h-[50px]" placeholder="Ex. d'autres imprimeurs, 2 000 exemplaires au lieu de 5 000, livraison avant le 15." />
+              <p className="text-xs text-muted-foreground">Une nouvelle demande part à l&apos;assistante ; les devis déjà reçus restent, pour comparer.</p>
+              <div className="flex gap-2">
+                <Button type="submit" size="sm" disabled={saving || !cherche.trim()}>Envoyer la demande</Button>
+                <Button type="button" size="sm" variant="ghost" onClick={() => setRedemande(false)} disabled={saving}>Annuler</Button>
+              </div>
+            </form>
           ) : (
             <form action={(f: FormData) => { f.set("promoMaterialId", id); run(() => demanderCorrectionDevisPromo(f), () => setCorrection(false)); }} className="space-y-2">
               <Label htmlFor="promo-correction">Ce qui est à corriger dans la retranscription</Label>

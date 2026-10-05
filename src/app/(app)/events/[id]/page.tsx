@@ -3,6 +3,8 @@ import { notFound } from "next/navigation";
 import { ArrowLeft, Video } from "lucide-react";
 import { requireModule } from "@/lib/session";
 import { userCan, hasGlobalView, hasRole, anyRoleFilter } from "@/lib/rbac";
+import { canAccessEntity } from "@/lib/entity-access";
+import { porteeModificationEvenement } from "@/lib/events/modification";
 import { prisma } from "@/lib/prisma";
 import { getEventDetail } from "@/lib/queries/events";
 import { PageHeader } from "@/components/shared/page-header";
@@ -26,13 +28,13 @@ import { AdProEditButton } from "@/components/ad-pro/edit-request-button";
 import { canEditAdProRequest, isAdProDecided } from "@/lib/ad-pro-edit";
 import { adProEditValues } from "@/lib/queries/ad-pro-edit";
 import { AdProItemsPanel } from "@/components/ad-pro/items-panel";
-import { loadAdProItems, adProBudgetOptions, contexteMaterielStock } from "@/lib/queries/ad-pro-items";
+import { PiecesLegalDeLaDemande } from "@/components/ad-pro/pieces-legal-demande";
+import { loadAdProItems, adProBudgetOptions, contexteMaterielStock, contextePostes } from "@/lib/queries/ad-pro-items";
+import { CarteDetailsDemande } from "@/components/ad-pro/pieces-jointes-demande";
+import { EspaceDiscussion } from "@/components/ad-pro/espace-discussion";
 import { promoMaterialOptions } from "@/lib/actions/ad-pro-item-actions";
 import { toNumber } from "@/lib/utils";
 import { onlyofficeConfigured } from "@/lib/onlyoffice";
-import { DocumentUpload } from "@/components/documents/document-upload";
-import { LinkedRecords } from "@/components/shared/linked-records";
-import { contextePiecesLiees } from "@/lib/ad-pro/pieces-liees";
 import { AD_PRO_DOC_CATEGORIES, categoriesDuDepotDeLaDemande } from "@/lib/ad-pro/doc-categories";
 import { getAdProCreateData } from "@/lib/queries/ad-pro";
 import { canAttachToAdPro, attachHint } from "@/lib/ad-pro/attachments";
@@ -46,43 +48,54 @@ export default async function EventDetailPage({ params }: { params: { id: string
   const user = await requireModule("EVENTS");
   const e = await getEventDetail(params.id);
   if (!e) notFound();
-  const canManage = userCan(user, "EVENTS", "UPDATE");
+  // LA PORTE DE LA FICHE (§118.184) : société, parties prenantes. Un identifiant ne suffit plus à ouvrir
+  // l'événement d'une autre société — hors de cette porte, il est introuvable, comme s'il n'existait pas.
+  if (!(await canAccessEntity(user, "EVENT", e.id, "VIEW"))) notFound();
+  // LE FORMULAIRE COMPLET : qui tranche les événements, ou la vue globale — et après la décision, la
+  // seule organisation (`events/modification.ts`, la même règle que l'action). Le droit UPDATE seul
+  // l'ouvrait à tous les délégués, sur les événements de leurs collègues.
+  const eventDecided = e.requestStatus ? isAdProDecided("EVENT", e.requestStatus) : false;
+  const porteeEdition = porteeModificationEvenement({
+    vueGlobale: hasGlobalView(user), tranche: userCan(user, "EVENTS", "VALIDATE"), decided: eventDecided,
+  });
+  const canManage = porteeEdition !== "AUCUNE" && (await canAccessEntity(user, "EVENT", e.id, "UPDATE"));
   const canDelete = userCan(user, "EVENTS", "DELETE");
   // Circuit de prise en charge (financement) — mêmes rôles que pour les congrès.
   const canMarketing = hasRole(user, "NATIONAL_SALES") || user.role === "SUPER_ADMIN";
   const canValidate = hasGlobalView(user);
-  const canSubmit = userCan(user, "EVENTS", "CREATE");
+  // SOUMETTRE — ET RELANCER APRÈS UN REFUS (§118.186) — : l'organisateur, ou qui modifie l'événement en
+  // entier. La même règle que l'action : un bouton offert à qui l'action refusera fait chercher une
+  // panne qui n'existe pas (§118.83).
+  const sonEvenement = e.requesterId === user.id || (!e.requesterId && e.createdById === user.id);
+  const canSubmit = userCan(user, "EVENTS", "CREATE") && (sonEvenement || hasGlobalView(user) || userCan(user, "EVENTS", "VALIDATE"));
   // LES MÊMES RÉFÉRENTIELS QU'À LA CRÉATION. Le formulaire de modification porte les mêmes champs
   // obligatoires (`champsManquants` est lu par les deux actions) : sans les menus, la personne
   // devrait ressaisir en texte libre ce qu'elle avait choisi dans l'annuaire — et l'action la
   // refuserait pour un champ qu'elle ne sait plus proposer.
-  const [items, promoOptions, budgetOptions, adPro] = await Promise.all([
+  const [items, promoOptions, budgetOptions, adPro, contexte] = await Promise.all([
     loadAdProItems("EVENT", e.id),
     promoMaterialOptions(),
     adProBudgetOptions(user),
     canManage ? getAdProCreateData(user.id, ["EVENT"]) : Promise.resolve(null),
+    contextePostes(user, "EVENT", e.id),
   ]);
   const canAllocateItems = hasGlobalView(user) || userCan(user, "EVENTS", "VALIDATE");
   // LE MAGASIN où un poste « Matériel du stock » pioche, et qui confirme après l'événement (§118.167).
   const materielStock = await contexteMaterielStock(user, "EVENT", e.id, canAllocateItems);
 
   // CORRIGER LA DEMANDE : le demandeur tant qu'elle n'est pas tranchée, la Direction toujours.
-  const eventDecided = e.requestStatus ? isAdProDecided("EVENT", e.requestStatus) : false;
   const canEditEventRequest = canEditAdProRequest(
-    { id: user.id, hasGlobalView: hasGlobalView(user), canUpdate: userCan(user, "EVENTS", "UPDATE") },
+    { id: user.id, hasGlobalView: hasGlobalView(user), canManage: userCan(user, "EVENTS", "VALIDATE") },
     { requesterId: e.requesterId ?? null, decided: eventDecided },
   );
   const eventEditValues = canEditEventRequest ? await adProEditValues("EVENT", e.id) : null;
   const [responsibles, missions, workflow, documents, involvementThreads] = await Promise.all([
     prisma.user.findMany({ where: { isActive: true }, select: { id: true, name: true }, orderBy: { name: "asc" } }),
     getEntityMissions("EVENT", e.id),
-    getWorkflowForEntity(user, "EVENT", e.id, null),
+    getWorkflowForEntity(user, "EVENT", e.id, e.requesterId ?? null),
     prisma.document.findMany({ where: { entityType: "EVENT", entityId: e.id }, include: { uploadedBy: { select: { name: true } } }, orderBy: { createdAt: "desc" } }),
     getInvolvementThreads("EVENT", e.id),
   ]);
-  // Les droits sur les pièces des engagements/factures/courriers liés + les documents Legal
-  // rattachables. Une seule règle pour les trois écrans Ad & Pro (`ad-pro/pieces-liees.ts`).
-  const ctxPieces = await contextePiecesLiees(user, "EVENTS");
   const docItems: DocItem[] = documents.map((d) => ({
     id: d.id, name: d.name, category: d.category, version: d.version, sizeBytes: d.sizeBytes,
     confidentiality: d.confidentiality, uploadedBy: d.uploadedBy?.name ?? null,
@@ -117,6 +130,7 @@ export default async function EventDetailPage({ params }: { params: { id: string
               businessUnits: adPro.businessUnits, businessUnitDeduite: adPro.businessUnitDeduite,
             } : undefined}
             canDelete={canDelete}
+            organisationSeule={porteeEdition === "ORGANISATION"}
           />
         )}
         {/* Le DEMANDEUR corrige sa demande tant qu'elle n'est pas tranchée (les gestionnaires
@@ -128,9 +142,20 @@ export default async function EventDetailPage({ params }: { params: { id: string
       </PageHeader>
 
       <div className="grid gap-5">
-        <Card>
-          <CardHeader><CardTitle>Informations</CardTitle></CardHeader>
-          <CardContent className="grid grid-cols-2 gap-x-6 gap-y-3 text-sm sm:grid-cols-3">
+        {/* LES INFORMATIONS ET LES PIÈCES JOINTES DE L'ÉVÉNEMENT — convention, programme, photos… :
+            « + Pièce jointe » en haut à droite. La chaîne d'achat vit sur chaque poste. */}
+        <CarteDetailsDemande
+          titre="Informations"
+          contentClassName="grid grid-cols-2 gap-x-6 gap-y-3 text-sm sm:grid-cols-3"
+          pieces={{
+            entityType: "EVENT", entityId: e.id, documents: docItems,
+            peutDeposer: canUploadDocs, motif: uploadHint,
+            categories: categoriesDuDepotDeLaDemande(AD_PRO_DOC_CATEGORIES),
+            canDelete: userCan(user, "EVENTS", "DELETE") || hasGlobalView(user),
+            canRename: canUploadDocs, canEdit: onlyofficeConfigured() && canUploadDocs,
+            path: `/events/${e.id}`,
+          }}
+        >
             <Info label="Dates" value={[e.startDate && formatDate(e.startDate), e.endDate && formatDate(e.endDate)].filter(Boolean).join(" → ") || "—"} />
             <Info label="Lieu" value={[e.location, e.city, e.country].filter(Boolean).join(", ")} />
             <Info label="Spécialité" value={e.specialty} />
@@ -140,34 +165,9 @@ export default async function EventDetailPage({ params }: { params: { id: string
             <Info label="Responsable" value={e.responsibleName} />
             {e.meetingLink && <div className="col-span-full"><a href={e.meetingLink} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 text-sm font-medium text-primary hover:underline"><Video className="h-4 w-4" /> Lien de connexion (webinar)</a></div>}
             {e.description && <div className="col-span-full"><p className="text-xs text-muted-foreground">Description</p><p className="whitespace-pre-wrap">{e.description}</p></div>}
-          </CardContent>
-        </Card>
+        </CarteDetailsDemande>
 
       </div>
-
-      {/* Le bloc « Documents » générique a disparu : les pièces vivent avec l'engagement, la
-          facture ou le courrier qu'elles justifient — le même fichier n'existe plus à deux
-          endroits qui s'ignorent — et la pièce de l'événement lui-même garde un emplacement
-          nommé dans « Engagements, factures et courriers liés ». */}
-      {/* CE QUI EN DÉCOULE : engagement, facture, courrier. Le mécanisme connaissait déjà ce type
-          de dossier ; il ne manquait que le bloc — et l'on ne pouvait donc RIEN rattacher à un
-          événement. Créés d'ici, ils gardent le lien : c'est le seul moment où l'on sait de quoi
-          ils viennent, et le seul où le rattachement ne coûte rien. */}
-      <LinkedRecords
-        entityType="EVENT" entityId={e.id} reference={e.name} canCreate={canUploadDocs}
-        acces={ctxPieces.acces} candidatsLegal={ctxPieces.candidatsLegal}
-        piecesDeLaDemande={{
-          titre: "Pièces de l'événement (convention, programme, photos…)",
-          documents: docItems,
-          televerseur: canUploadDocs ? <DocumentUpload entityType="EVENT" entityId={e.id} categories={categoriesDuDepotDeLaDemande(AD_PRO_DOC_CATEGORIES)} /> : undefined,
-          motif: uploadHint,
-          canDelete: userCan(user, "EVENTS", "DELETE") || hasGlobalView(user),
-          canRename: canUploadDocs,
-          canEdit: onlyofficeConfigured() && canUploadDocs,
-          path: `/events/${e.id}`,
-        }}
-      />
-
 
       {/* LE BLOC « SUIVI DE VALIDATION » A ÉTÉ RETIRÉ (demande de la Direction, 09/2026).
           Il montrait une frise « Brouillon → En attente → Validé » dérivée de `Event.status`,
@@ -218,9 +218,13 @@ export default async function EventDetailPage({ params }: { params: { id: string
             materiel={materielStock}
             canIssueOrder={userCan(user, "FINANCES", "UPDATE") || userCan(user, "FINANCES", "VALIDATE")}
             canViserBC={siegeAuCentreAdPro(user)}
+            contexte={contexte}
           />
         </CardContent>
       </Card>
+
+      {/* LES PIÈCES LEGAL RATTACHÉES À LA DEMANDE ELLE-MÊME, hors postes — d'avant les postes, ou qui ne sont pas des achats. */}
+      <PiecesLegalDeLaDemande spectateur={user} entityType="EVENT" entityId={e.id} />
 
       {e.stats.bySpecialty.length > 0 && (
         <Card>
@@ -230,8 +234,6 @@ export default async function EventDetailPage({ params }: { params: { id: string
           </CardContent>
         </Card>
       )}
-
-      <InvolvementConversations threads={involvementThreads} currentUserId={user.id} canManage={hasGlobalView(user)} />
 
       <MissionAssignmentsCard
         entityType="EVENT"
@@ -243,9 +245,13 @@ export default async function EventDetailPage({ params }: { params: { id: string
         path={`/events/${e.id}`}
       />
 
-          {/* LA SECTION DISCUSSION — le fil CANONIQUE, monté sur les sept natures du pôle. */}
-      <AdProDiscussionCard entityType="EVENT" entityId={e.id} user={user} />
-</div>
+      {/* LA SECTION DISCUSSION — le fil CANONIQUE de la demande et les échanges avec les personnes
+          impliquées : un seul espace. */}
+      <EspaceDiscussion>
+        <AdProDiscussionCard entityType="EVENT" entityId={e.id} user={user} />
+        <InvolvementConversations threads={involvementThreads} currentUserId={user.id} canManage={hasGlobalView(user)} />
+      </EspaceDiscussion>
+    </div>
   );
 }
 

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import PizZip from "pizzip";
 import { adaptateurDocx } from "@/lib/artifact/adapters/docx/adapter";
 import { construireDocumentCommercial } from "@/lib/artifact/factory/build";
 import { papierEnTeteDeDemonstration } from "@/lib/artifact/factory/word";
@@ -120,7 +121,9 @@ describe("le constructeur de pièces commerciales — la mise en page des pièce
     expect(r.totaux?.totalTva).toBe(150_955);
     expect(r.totaux?.totalTtc).toBe(961_345);
     const m = await modele(r.octets);
-    expect(m.paragraphs[0].text).toBe("B.C : N° 012/DG/2026");
+    // LE TITRE AU CENTRE, sous l'en-tête (Direction, 10/2026), puis la ligne de référence de la pièce d'origine.
+    expect(m.paragraphs[0].text).toBe("BON DE COMMANDE");
+    expect(m.paragraphs[1].text).toBe("B.C : N° 012/DG/2026");
     const texte = texteDe(m);
     expect(texte).toContain("A :");
     expect(texte).toContain("Société : INSIGNE CONSEIL");
@@ -161,7 +164,8 @@ describe("le constructeur de pièces commerciales — la mise en page des pièce
     }));
     expect(r.verification.ok).toBe(true);
     const m = await modele(r.octets);
-    expect(m.paragraphs[0].text).toBe("DEVIS : N° DEV-2026-0001");
+    expect(m.paragraphs[0].text).toBe("DEVIS");
+    expect(m.paragraphs[1].text).toBe("DEVIS : N° DEV-2026-0001");
     const lignes = m.tables.find((t) => t.header[0] === "Désignation")!;
     expect(lignes.header).toEqual(["Désignation", "Unité", "Qte", "Remise", "TVA", "PU HT", "Total HT"]);
     const texte = texteDe(m);
@@ -200,5 +204,54 @@ describe("le constructeur de pièces commerciales — la mise en page des pièce
     const r = await construireDocumentCommercial(facture({ lignes: [{ designation: "Prestation TODO préciser", quantite: 1, prixUnitaire: 100 }] }));
     expect(r.verification.ok).toBe(false);
     expect(r.verification.bloquants.some((b) => /TODO/.test(b))).toBe(true);
+  });
+});
+
+describe("le titre au centre et le bleu canard de la maison (Direction, 10/2026)", () => {
+  const xmlDe = (octets: Buffer): string => new PizZip(octets).file("word/document.xml")!.asText();
+  /** Le paragraphe `<w:p>` qui porte `texte` — le premier. */
+  const paragrapheDe = (xml: string, texte: string): string => {
+    const i = xml.indexOf(texte);
+    expect(i, `« ${texte} » doit se lire dans le document`).toBeGreaterThan(-1);
+    const debut = xml.lastIndexOf("<w:p>", i) >= 0 ? xml.lastIndexOf("<w:p>", i) : xml.lastIndexOf("<w:p ", i);
+    return xml.slice(debut, xml.indexOf("</w:p>", i) + 6);
+  };
+
+  it("« BON DE COMMANDE » est un titre CENTRÉ, gras, à l'accent de la pièce — avant la ligne « B.C : N° … »", async () => {
+    const r = await construireDocumentCommercial(bonDeCommande());
+    const xml = xmlDe(r.octets);
+    const titre = paragrapheDe(xml, "BON DE COMMANDE");
+    expect(titre).toContain('<w:jc w:val="center"/>');
+    expect(titre).toContain("<w:b/>");
+    expect(titre).toContain('w:val="1F5C99"');
+    expect(titre).toContain('<w:sz w:val="32"/>');
+    expect(xml.indexOf("BON DE COMMANDE")).toBeLessThan(xml.indexOf("B.C"));
+    // Le devis porte « DEVIS » — jamais « BON DE COMMANDE ».
+    const d = await construireDocumentCommercial(bonDeCommande({ type: "DEVIS", numero: "DEV-2026-0002", referenceAmont: null, referenceAmontDate: null, taxes: null }));
+    expect(xmlDe(d.octets)).not.toContain("BON DE COMMANDE");
+    expect(paragrapheDe(xmlDe(d.octets), "DEVIS")).toContain('<w:jc w:val="center"/>');
+  });
+
+  it("sans couleur de charte, l'accent est le BLEU CANARD (R 8, V 112, B 132) — la bande des références, les totaux, le titre", async () => {
+    const r = await construireDocumentCommercial(bonDeCommande({ couleur: null }));
+    const xml = xmlDe(r.octets);
+    expect(r.verification.ok).toBe(true);
+    expect(paragrapheDe(xml, "BON DE COMMANDE")).toContain('w:val="087084"');
+    // La bande d'en-tête des tableaux est remplie à l'accent.
+    expect(xml).toMatch(/w:fill="087084"/);
+    // Aucun rouge franc ne reste : ni le rouge Word, ni les rouges d'alerte courants.
+    expect(xml).not.toMatch(/w:(?:val|fill|color)="(?:FF0000|C00000|DC2626|E30613|B91C1C)"/i);
+    // Et la couleur d'une charte explicite l'emporte toujours (pièce déjà émise, marque réglée).
+    const marque = await construireDocumentCommercial(bonDeCommande({ couleur: "#0B6E4F" }));
+    expect(paragrapheDe(xmlDe(marque.octets), "BON DE COMMANDE")).toContain('w:val="0B6E4F"');
+  });
+
+  it("la facture garde sa mise en page de référence — « Facture » à droite de l'en-tête — mais prend le même accent", async () => {
+    const f = await construireDocumentCommercial(facture({ couleur: null }));
+    const xml = xmlDe(f.octets);
+    expect(f.verification.ok).toBe(true);
+    expect(xml).toMatch(/w:fill="087084"/);
+    expect(xml).toContain("Facture");
+    expect(xml).not.toContain("BON DE COMMANDE");
   });
 });

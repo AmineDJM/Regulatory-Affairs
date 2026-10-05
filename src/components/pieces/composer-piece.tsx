@@ -2,13 +2,15 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { FileText, Plus, Trash2, ArrowUp, ArrowDown } from "lucide-react";
+import { FileText, Plus, Trash2, ArrowUp, ArrowDown, Eye } from "lucide-react";
 import { Sheet } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { Input, Label, Select, Textarea } from "@/components/ui/input";
 import { formatCurrency } from "@/lib/utils";
+import { NATURES_AMONT } from "@/lib/legal/piece-emise";
+import { PLURIEL_TYPE } from "@/lib/artifact/factory/commercial";
 import {
-  emettrePieceCommerciale, previsualiserPieceCommerciale, reglerNumerotationPieces,
+  apercuAvantImpressionPiece, emettrePieceCommerciale, previsualiserPieceCommerciale, reglerNumerotationPieces,
   type ApercuPiece, type ResultatEmission,
 } from "@/lib/actions/fabrique-actions";
 
@@ -42,6 +44,19 @@ const LIBELLE: Record<TypePieceComposable, { nom: string; bouton: string; tiers:
 interface Ligne { id: number; designation: string; details: string; quantite: string; prix: string; remise: string; tva: string; section: boolean }
 interface Taxe { id: number; libelle: string; taux: string }
 
+/**
+ * LES PIÈCES AMONT QU'ON PEUT CHOISIR (audit 360°, lot D1c — F1) — chargées par la porte de la liste Legal
+ * (`piecesAmontComposables`) : la société de l'en-tête, les lecteurs désignés, les natures ouvertes. Une nature
+ * que la personne ne lit pas n'est pas chargée : elle est NOMMÉE (`fermees`), pour que l'écran dise pourquoi le
+ * menu est vide ; une nature coupée à `limite` pièces l'est aussi (`tronquees`).
+ */
+export interface AmontComposable {
+  options: { value: string; label: string; kind: string; companyId: string | null }[];
+  tronquees: string[];
+  fermees: string[];
+  limite: number;
+}
+
 export interface ComposerPieceProps {
   typeInitial: TypePieceComposable;
   typesAutorises: TypePieceComposable[];
@@ -49,6 +64,7 @@ export interface ComposerPieceProps {
   societeParDefaut: string | null;
   letterheads: { id: string; name: string; companyId: string | null; companyLabel: string | null }[];
   peutReglerNumerotation: boolean;
+  amont: AmontComposable;
 }
 
 const aujourdhui = (): string => new Date().toISOString().slice(0, 10);
@@ -74,6 +90,7 @@ function ComposerPieceSheet(props: ComposerPieceProps & { onClose: () => void })
   const [type, setType] = React.useState<TypePieceComposable>(props.typeInitial);
   const [societe, setSociete] = React.useState<string>(props.societeParDefaut ?? props.societes[0]?.id ?? "");
   const [letterheadId, setLetterheadId] = React.useState<string>("");
+  const [amont, setAmont] = React.useState<string>("");
   const [tiers, setTiers] = React.useState({ nom: "", adresse: "", telephone: "", email: "", rc: "", nif: "", ai: "", nis: "" });
   const [champs, setChamps] = React.useState({
     numeroClient: "", date: aujourdhui(), echeance: "", validiteJours: "30", objet: "", referenceAmont: "", referenceAmontDate: "",
@@ -81,11 +98,18 @@ function ComposerPieceSheet(props: ComposerPieceProps & { onClose: () => void })
     tvaDefaut: "19", remiseGlobale: "", notes: "",
   });
   const [lignes, setLignes] = React.useState<Ligne[]>([nouvelleLigne()]);
-  const [taxes, setTaxes] = React.useState<Taxe[]>([]);
+  // LA CASE DES TAXES SUPPLÉMENTAIRES est TOUJOURS là (Direction, 10/2026) : une ligne vide attend « Taxe Pub » et son taux —
+  // elle n'est envoyée que remplie (le serveur écarte une ligne sans libellé ni taux), et la dernière ligne retirée se vide au lieu de disparaître.
+  const [taxes, setTaxes] = React.useState<Taxe[]>([{ id: 0, libelle: "", taux: "" }]);
   const [apercu, setApercu] = React.useState<ApercuPiece | { ok: false; error: string } | null>(null);
   const [resultat, setResultat] = React.useState<ResultatEmission | null>(null);
   const [motif, setMotif] = React.useState<string>("");
   const [motifMessage, setMotifMessage] = React.useState<string | null>(null);
+  const [depart, setDepart] = React.useState<string>("");
+  // L'APERÇU AVANT IMPRESSION : le PDF de la pièce à blanc, en blob local — jamais un fichier du Drive.
+  const [impression, setImpression] = React.useState<{ url: string; pages: number; numero: string } | null>(null);
+  const [impressionErreur, setImpressionErreur] = React.useState<string | null>(null);
+  const [rendu, startRendu] = React.useTransition();
   const [emission, startEmission] = React.useTransition();
   const [chargement, startChargement] = React.useTransition();
   const lib = LIBELLE[type];
@@ -94,6 +118,20 @@ function ComposerPieceSheet(props: ComposerPieceProps & { onClose: () => void })
     () => props.letterheads.filter((l) => !l.companyId || l.companyId === societe),
     [props.letterheads, societe],
   );
+
+  // LE MENU « FAIT SUITE À » (lot D1c — F1) : les natures que la fabrique accepte pour CE type (`NATURES_AMONT`,
+  // la même table que la fabrique), et de la société émettrice — la fabrique refuse la pièce d'une autre
+  // société : le menu ne la propose pas (§118.83). La pièce n'est envoyée que si le menu la propose ENCORE :
+  // changer de nature ou de société n'envoie pas une pièce qu'on ne voit plus.
+  const naturesAmont: readonly string[] = NATURES_AMONT[type];
+  const optionsAmont = props.amont.options;
+  const amontsProposes = React.useMemo(
+    () => optionsAmont.filter((o) => naturesAmont.includes(o.kind) && (!o.companyId || o.companyId === societe)),
+    [optionsAmont, naturesAmont, societe],
+  );
+  const amontRetenu = amontsProposes.some((o) => o.value === amont) ? amont : "";
+  const amontFermees = props.amont.fermees.filter((k) => naturesAmont.includes(k));
+  const amontTronquees = props.amont.tronquees.filter((k) => naturesAmont.includes(k));
 
   // LE MÊME FORMULAIRE pour l'aperçu et l'émission : ce qu'on a vu est ce qui est émis.
   const construireFormData = React.useCallback((): FormData => {
@@ -113,13 +151,17 @@ function ComposerPieceSheet(props: ComposerPieceProps & { onClose: () => void })
       fd.append("ligneSection", l.section ? "1" : "0");
     }
     for (const t of taxes) { fd.append("taxeLibelle", t.libelle); fd.append("taxeTaux", t.taux); }
+    if (amontRetenu) fd.set("chainFromId", amontRetenu);
     return fd;
-  }, [type, societe, letterheadId, tiers, champs, lignes, taxes]);
+  }, [type, societe, letterheadId, tiers, champs, lignes, taxes, amontRetenu]);
 
   // L'APERÇU suit la saisie, avec un demi-seconde de retenue : assez pour ne pas appeler le
   // serveur à chaque touche, assez peu pour que les totaux paraissent vivants.
   const pret = tiers.nom.trim() !== "" && lignes.some((l) => !l.section && l.designation.trim() !== "");
-  const empreinte = JSON.stringify({ type, societe, letterheadId, tiers, champs, lignes, taxes });
+  const empreinte = JSON.stringify({ type, societe, letterheadId, tiers, champs, lignes, taxes, amontRetenu });
+  // Un aperçu d'avant la dernière frappe n'est plus l'aperçu : il se ferme (et libère son blob) plutôt que de montrer un document périmé.
+  React.useEffect(() => { setImpression(null); setImpressionErreur(null); }, [empreinte]);
+  React.useEffect(() => () => { if (impression) URL.revokeObjectURL(impression.url); }, [impression]);
   React.useEffect(() => {
     if (!pret || resultat) return;
     const fd = construireFormData();
@@ -153,9 +195,22 @@ function ComposerPieceSheet(props: ComposerPieceProps & { onClose: () => void })
     });
   };
 
+  const voirImpression = () => {
+    const fd = construireFormData();
+    setImpressionErreur(null);
+    startRendu(async () => {
+      const r = await apercuAvantImpressionPiece(undefined, fd);
+      if (!r.ok) { setImpression(null); setImpressionErreur(r.error); return; }
+      const octets = Uint8Array.from(atob(r.pdfBase64), (c) => c.charCodeAt(0));
+      setImpression({ url: URL.createObjectURL(new Blob([octets], { type: "application/pdf" })), pages: r.pages, numero: r.numeroProchain });
+    });
+  };
+
   const enregistrerMotif = () => {
     const fd = new FormData();
     fd.set("type", type); fd.set("societe", societe); fd.set("motif", motif);
+    // Le premier numéro n'est envoyé que s'il est saisi : une clé absente garde le départ réglé (§118.152c).
+    if (depart.trim() !== "") { fd.set("depart", depart.trim()); fd.set("annee", champs.date.slice(0, 4)); }
     startChargement(async () => {
       const r = await reglerNumerotationPieces(undefined, fd);
       setMotifMessage(r.ok ? r.message ?? "Enregistré." : r.error ?? "Refusé.");
@@ -179,7 +234,7 @@ function ComposerPieceSheet(props: ComposerPieceProps & { onClose: () => void })
           <div className="flex flex-wrap items-center justify-between gap-2">
             <span className="text-sm text-muted-foreground">Pièce émise.</span>
             <div className="flex gap-2">
-              <Button type="button" variant="outline" onClick={() => { setResultat(null); setLignes([nouvelleLigne()]); setTiers({ nom: "", adresse: "", telephone: "", email: "", rc: "", nif: "", ai: "", nis: "" }); setApercu(null); }}>
+              <Button type="button" variant="outline" onClick={() => { setResultat(null); setLignes([nouvelleLigne()]); setTiers({ nom: "", adresse: "", telephone: "", email: "", rc: "", nif: "", ai: "", nis: "" }); setAmont(""); setApercu(null); }}>
                 Composer une autre pièce
               </Button>
               <Button type="button" onClick={props.onClose}>Fermer</Button>
@@ -250,6 +305,22 @@ function ComposerPieceSheet(props: ComposerPieceProps & { onClose: () => void })
         <section className="space-y-2">
           <h3 className="font-semibold">Références</h3>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+            {naturesAmont.length > 0 && (
+              <div className="sm:col-span-3">
+                <Label htmlFor="cp-amont">Fait suite à (pièce du registre)</Label>
+                <Select id="cp-amont" value={amontRetenu} onChange={(e) => setAmont(e.target.value)}>
+                  <option value="">— Aucune : pièce isolée —</option>
+                  {amontsProposes.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                </Select>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {type === "BON_DE_COMMANDE"
+                    ? "Chaîné à son devis, le bon de commande suit la demande dont le devis est né (centre de validation Ad & Pro pour une demande Ad & Pro), et le devis ne se révise plus."
+                    : "Chaînée à sa pièce amont, la facture la fige : la pièce dont elle découle ne se révise plus."}
+                  {amontFermees.includes("QUOTE") && " Les devis ne vous sont pas ouverts : Legal peut rattacher cette pièce depuis sa fiche (« Modifier » › « Fait suite à »)."}
+                  {amontTronquees.length > 0 && ` Seules les ${props.amont.limite} pièces les plus récentes de chaque nature sont proposées.`}
+                </p>
+              </div>
+            )}
             <div><Label htmlFor="cp-date">Date d'émission</Label><Input id="cp-date" type="date" value={champs.date} onChange={(e) => setChamps({ ...champs, date: e.target.value })} /></div>
             {type === "FACTURE" && <div><Label htmlFor="cp-echeance">Échéance de règlement</Label><Input id="cp-echeance" type="date" value={champs.echeance} onChange={(e) => setChamps({ ...champs, echeance: e.target.value })} /></div>}
             {type === "DEVIS" && <div><Label htmlFor="cp-validite">Validité (jours)</Label><Input id="cp-validite" type="number" min={1} max={365} value={champs.validiteJours} onChange={(e) => setChamps({ ...champs, validiteJours: e.target.value })} /></div>}
@@ -339,17 +410,17 @@ function ComposerPieceSheet(props: ComposerPieceProps & { onClose: () => void })
         {/* ── Taxes additionnelles ── */}
         <section className="space-y-2">
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <h3 className="font-semibold">Taxes additionnelles <span className="font-normal text-muted-foreground">(sur le HT, hors base de TVA)</span></h3>
+            <h3 className="font-semibold">Taxes supplémentaires <span className="font-normal text-muted-foreground">(sur le HT, hors base de TVA)</span></h3>
             <div className="flex gap-2">
-              <Button type="button" size="sm" variant="outline" onClick={() => setTaxes([...taxes, { id: compteur++, libelle: "Taxe Pub", taux: "2" }])}>Taxe Pub 2 %</Button>
+              <Button type="button" size="sm" variant="outline" onClick={() => setTaxes([...taxes.filter((x) => x.libelle.trim() !== "" || x.taux.trim() !== ""), { id: compteur++, libelle: "Taxe Pub", taux: "2" }])}>Taxe Pub 2 %</Button>
               <Button type="button" size="sm" variant="outline" onClick={() => setTaxes([...taxes, { id: compteur++, libelle: "", taux: "" }])}><Plus className="h-4 w-4" aria-hidden />Taxe</Button>
             </div>
           </div>
           {taxes.map((t) => (
             <div key={t.id} className="grid grid-cols-12 gap-2">
-              <div className="col-span-7"><Input aria-label="Libellé de la taxe" value={t.libelle} onChange={(e) => setTaxes(taxes.map((x) => (x.id === t.id ? { ...x, libelle: e.target.value } : x)))} placeholder="Libellé" /></div>
+              <div className="col-span-7"><Input aria-label="Libellé de la taxe" value={t.libelle} onChange={(e) => setTaxes(taxes.map((x) => (x.id === t.id ? { ...x, libelle: e.target.value } : x)))} placeholder="Taxe Pub" /></div>
               <div className="col-span-3"><Input aria-label="Taux de la taxe en %" inputMode="decimal" value={t.taux} onChange={(e) => setTaxes(taxes.map((x) => (x.id === t.id ? { ...x, taux: e.target.value } : x)))} placeholder="%" /></div>
-              <div className="col-span-2 flex justify-end"><button type="button" className="rounded p-1 text-muted-foreground hover:bg-secondary" aria-label="Retirer la taxe" onClick={() => setTaxes(taxes.filter((x) => x.id !== t.id))}><Trash2 className="h-4 w-4" /></button></div>
+              <div className="col-span-2 flex justify-end"><button type="button" className="rounded p-1 text-muted-foreground hover:bg-secondary" aria-label="Retirer la taxe" onClick={() => setTaxes(taxes.length <= 1 ? [{ id: compteur++, libelle: "", taux: "" }] : taxes.filter((x) => x.id !== t.id))}><Trash2 className="h-4 w-4" /></button></div>
             </div>
           ))}
         </section>
@@ -392,6 +463,28 @@ function ComposerPieceSheet(props: ComposerPieceProps & { onClose: () => void })
           {bloquants.length > 0 && (
             <ul className="mt-2 list-disc space-y-0.5 pl-5 text-destructive">{bloquants.map((b) => <li key={b}>{b}</li>)}</ul>
           )}
+          {/* ── L'aperçu AVANT IMPRESSION : le PDF tel qu'il sera imprimé, numéro prévu compris — rien n'est émis ni numéroté ── */}
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <Button type="button" size="sm" variant="outline" onClick={voirImpression} disabled={!pret || rendu || bloquants.length > 0 || !!resultat}>
+              <Eye className="h-4 w-4" aria-hidden />{rendu ? "Rendu…" : "Aperçu avant impression"}
+            </Button>
+            <span className="text-xs text-muted-foreground">Le PDF tel qu&apos;il sera imprimé, avec le numéro prévu — rien n&apos;est émis ni numéroté.</span>
+          </div>
+          {impressionErreur && <p className="mt-2 text-sm text-destructive" role="alert">{impressionErreur}</p>}
+          {impression && (
+            <div className="mt-3 space-y-2">
+              <object data={impression.url} type="application/pdf" aria-label="Aperçu avant impression" className="h-[70vh] w-full rounded-md border border-border bg-card">
+                <a className="underline" href={impression.url} target="_blank" rel="noreferrer">Ouvrir l&apos;aperçu dans un onglet</a>
+              </object>
+              <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
+                <span>Aperçu : {impression.pages} page{impression.pages > 1 ? "s" : ""} · numéro prévu {impression.numero} · rendu du serveur, le Word fait foi pour l&apos;impression officielle.</span>
+                <span className="flex gap-3">
+                  <a className="underline" href={impression.url} target="_blank" rel="noreferrer">Ouvrir dans un onglet</a>
+                  <button type="button" className="underline" onClick={() => setImpression(null)}>Fermer l&apos;aperçu</button>
+                </span>
+              </div>
+            </div>
+          )}
           {apercu && apercu.ok && apercu.avertissements.length > 0 && (
             <ul className="mt-2 list-disc space-y-0.5 pl-5 text-xs text-muted-foreground">{apercu.avertissements.map((a) => <li key={a}>{a}</li>)}</ul>
           )}
@@ -400,14 +493,16 @@ function ComposerPieceSheet(props: ComposerPieceProps & { onClose: () => void })
         {/* ── La numérotation, pour ceux qui tiennent la papeterie ── */}
         {props.peutReglerNumerotation && (
           <details className="rounded-lg border border-border p-3">
-            <summary className="cursor-pointer font-semibold">Numérotation des {lib.nom.toLowerCase()}s de cette société</summary>
+            <summary className="cursor-pointer font-semibold">Numérotation des {PLURIEL_TYPE[type]} de cette société</summary>
             <p className="mt-1 text-xs text-muted-foreground">
               Jetons : <code>{"{n}"}</code> séquence, <code>{"{n:3}"}</code> sur 3 chiffres, <code>{"{aaaa}"}</code> / <code>{"{aa}"}</code> année, <code>{"{prefixe}"}</code>. Exemples : <code>{"{n:3}/FS/{aa}"}</code> → 001/FS/26 ; <code>{"{n:3}/DG/{aaaa}"}</code> → 012/DG/2026. Vide = <code>{"{prefixe}-{aaaa}-{n:4}"}</code>.
             </p>
-            <div className="mt-2 flex gap-2">
+            <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-[1fr_12rem_auto]">
               <Input aria-label="Motif de numérotation" value={motif} onChange={(e) => setMotif(e.target.value)} placeholder="{n:3}/FS/{aa}" />
+              <Input aria-label={`Premier numéro de ${champs.date.slice(0, 4)}`} inputMode="numeric" value={depart} onChange={(e) => setDepart(e.target.value)} placeholder={`Premier n° ${champs.date.slice(0, 4)} (ex. 32)`} />
               <Button type="button" variant="outline" onClick={enregistrerMotif} disabled={chargement}>Enregistrer</Button>
             </div>
+            <p className="mt-1 text-xs text-muted-foreground">Le premier numéro est un plancher : 32 avec le motif {"{n:3}/DG/{aaaa}"} donne 032/DG/{champs.date.slice(0, 4)} pour la prochaine pièce, sans jamais reculer un compteur déjà plus loin.</p>
             {motifMessage && <p className="mt-1 text-xs text-muted-foreground">{motifMessage}</p>}
           </details>
         )}
@@ -422,6 +517,7 @@ function ComposerPieceSheet(props: ComposerPieceProps & { onClose: () => void })
                   {resultat.docxNodeId && <a className="rounded-md border border-border bg-card px-3 py-1.5 hover:bg-secondary" href={`/api/drive/${resultat.docxNodeId}/raw?dl=1`}>Télécharger le Word</a>}
                   {resultat.pdfNodeId && <a className="rounded-md border border-border bg-card px-3 py-1.5 hover:bg-secondary" href={`/api/drive/${resultat.pdfNodeId}/raw`} target="_blank" rel="noreferrer">Ouvrir le PDF</a>}
                   {resultat.pdfNodeId && <a className="rounded-md border border-border bg-card px-3 py-1.5 hover:bg-secondary" href={`/api/drive/${resultat.pdfNodeId}/raw?dl=1`}>Télécharger le PDF</a>}
+                  {resultat.legalDocumentId && <a className="rounded-md border border-border bg-card px-3 py-1.5 hover:bg-secondary" href={`/api/legal/${encodeURIComponent(resultat.legalDocumentId)}/fichier?format=xlsx&dl=1`}>Générer sur Excel</a>}
                   {resultat.legalDocumentId && <a className="rounded-md border border-border bg-card px-3 py-1.5 hover:bg-secondary" href={`/legal/${resultat.legalDocumentId}`}>Fiche au registre</a>}
                 </div>
                 <p className="mt-2 text-xs text-muted-foreground">

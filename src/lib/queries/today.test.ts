@@ -13,7 +13,7 @@ const day = (n: number) => new Date(NOW.getTime() + n * 86_400_000).toISOString(
 function item(over: Partial<ActionItem> & { key: string }): ActionItem {
   return {
     title: over.key, subtitle: "", module: "Test", href: "/x",
-    kind: "task", priority: null, deadline: null, owner: "",
+    kind: "task", priority: null, deadline: null, owner: "", objet: `TEST:${over.key}`, depuis: null,
     statusLabel: null, statusTone: null,
     ...over,
   };

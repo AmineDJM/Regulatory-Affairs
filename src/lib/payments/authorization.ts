@@ -165,11 +165,13 @@ export const PAYMENT_CENTRE_REFUSAL =
   + "qui y ont été nommément désignées — un Super Admin peut vous y désigner depuis Administration → Accès.";
 
 /**
- * L'état qui suit une décision — et les allers-retours qu'il autorise.
+ * L'état qui suit une décision.
  *
- * Une demande de révision ou d'argumentation ne ferme rien : le demandeur corrige, resoumet, et le
- * dossier revient au centre. C'est ce va-et-vient qui manquait — un refus sec obligeait à refaire
- * une demande depuis zéro, et l'historique de la discussion était perdu.
+ * Le centre ne rend plus que DEUX décisions, autoriser ou refuser (décision de la Direction,
+ * 02/09/2026 : le montant et sa justification appartiennent à la demande, pas à l'autorisation —
+ * `isDecision` dans l'action). La règle garde les quatre transitions parce que des dossiers d'avant
+ * portent encore « révision » ou « argumentation » : leur demandeur répond et le dossier revient au
+ * centre (`applyResubmission`) — rien ne reste bloqué.
  *
  * Rend `null` si la transition n'a pas de sens (décision sur un dossier déjà clos) : l'appelant
  * doit alors refuser plutôt que d'écrire un état incohérent.
@@ -177,8 +179,9 @@ export const PAYMENT_CENTRE_REFUSAL =
 export function applyDecision(current: CentralStatus, decision: CentralDecision): CentralStatus | null {
   // On ne décide pas d'un paiement qui n'avait pas à passer par le centre.
   if (current === "NOT_REQUIRED") return null;
-  // Un dossier tranché se rouvre par une nouvelle soumission du demandeur, pas par une seconde
-  // décision : sans cette règle, deux administrateurs pourraient se contredire sans trace.
+  // Une décision rendue ne se rejoue pas — un refus se reprend par un nouvel envoi de la pièce
+  // (la facture repart, audit 360° I8) : sans cette règle, deux administrateurs pourraient se
+  // contredire sans trace.
   if (current === "APPROVED" || current === "REFUSED") return null;
 
   switch (decision) {
@@ -219,6 +222,40 @@ export function statutApresNouveauMontant(input: {
   if (!monte) return courant;
   if (courant === "APPROVED" || courant === "NOT_REQUIRED") return "AWAITING";
   return courant;
+}
+
+/**
+ * DEUX NOMS DÉSIGNENT-ILS LE MÊME BÉNÉFICIAIRE ? Casse, accents et espaces mis à part — rien de plus.
+ *
+ * « SARL Atlas » devenu « sarl  atlas » n'est pas un autre bénéficiaire : rouvrir l'autorisation pour
+ * une coquille ferait re-décider le centre pour rien, et une garde qui crie pour rien cesse d'être lue
+ * (§118.32). Mais on ne rapproche RIEN d'autre : « Atlas » et « SARL Atlas » peuvent être deux sociétés,
+ * et deviner l'identité de celui qui reçoit l'argent est exactement ce que le centre existe pour éviter.
+ */
+export function memeBeneficiaire(a: string | null | undefined, b: string | null | undefined): boolean {
+  const plie = (s: string | null | undefined) =>
+    (s ?? "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim().replace(/\s+/g, " ").toLocaleLowerCase("fr");
+  return plie(a) === plie(b);
+}
+
+/**
+ * L'AUTORISATION APRÈS UNE RÉVISION DE L'ORDRE — le montant ET le bénéficiaire (§118.191, audit 360° R04).
+ *
+ * Le centre autorise un paiement : une somme, à quelqu'un. `statutApresNouveauMontant` tenait la somme ;
+ * depuis que la demande de paiement se corrige, le BÉNÉFICIAIRE aussi, et l'argent partirait à un autre
+ * que celui que le centre a vu. Changer de bénéficiaire rouvre donc une autorisation DONNÉE, exactement
+ * comme une hausse — et ne rouvre rien d'autre : en attente, la balle est déjà au centre, qui verra le
+ * nouveau nom ; refusé reste refusé (un refus ne se contourne pas en retouchant le dossier).
+ */
+export function statutApresRevision(input: {
+  courant: CentralStatus; avant: number; apres: number;
+  beneficiaireAvant: string | null | undefined; beneficiaireApres: string | null | undefined;
+}): CentralStatus {
+  const parMontant = statutApresNouveauMontant(input);
+  if (parMontant !== input.courant) return parMontant;
+  const autreBeneficiaire = !memeBeneficiaire(input.beneficiaireAvant, input.beneficiaireApres);
+  if (autreBeneficiaire && (input.courant === "APPROVED" || input.courant === "NOT_REQUIRED")) return "AWAITING";
+  return input.courant;
 }
 
 /**

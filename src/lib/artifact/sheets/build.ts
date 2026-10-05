@@ -176,7 +176,19 @@ export async function construireClasseurVerifie(spec: SpecClasseur, opts: { main
     if (c.gras) cell.font = { bold: true };
   }
 
-  // ── RELIRE, RECALCULER, ÉCRIRE LES VALEURS ─────────────────────────────────────────────
+  return figerEtVerifierClasseur(wb, formulesPosees.length, { maintenant: opts.maintenant, debut });
+}
+
+/**
+ * RELIRE, RECALCULER, ÉCRIRE LES VALEURS, AUDITER — la seconde moitié du constructeur, partagée avec les pièces
+ * qui posent leur mise en page elles-mêmes (le bon de commande sur Excel, `artifact/factory/xlsx.ts`) : un classeur
+ * dont on a écrit les formules à la main passe par la MÊME relecture que celui qu'on a déclaré, sinon il partirait
+ * avec des formules sans valeur et sans audit (§118.5, §118.59).
+ */
+export async function figerEtVerifierClasseur(
+  wb: ExcelJS.Workbook, nbFormules: number, opts: { maintenant?: Date; debut?: number } = {},
+): Promise<ClasseurConstruit> {
+  const debut = opts.debut ?? Date.now();
   const premier = Buffer.from(await wb.xlsx.writeBuffer());
   const classeur = await lireClasseur(premier);
   const graphe = construireGraphe(classeur);
@@ -206,6 +218,6 @@ export async function construireClasseurVerifie(spec: SpecClasseur, opts: { main
   void idDe;
   return {
     octets, valeurs, ms: Date.now() - debut,
-    verification: { formules: formulesPosees.length, ecarts: recalculRelu.ecarts.length, erreurs, constats, ok: erreurs.length === 0 && constats.length === 0 && recalculRelu.ecarts.length === 0 },
+    verification: { formules: nbFormules, ecarts: recalculRelu.ecarts.length, erreurs, constats, ok: erreurs.length === 0 && constats.length === 0 && recalculRelu.ecarts.length === 0 },
   };
 }

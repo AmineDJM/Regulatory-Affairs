@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/session";
-import { userCan } from "@/lib/rbac";
+import { voitLesSalaires } from "@/lib/hr/confidentialite";
+import { entitePermisePourFiche } from "@/lib/company";
 import { prisma } from "@/lib/prisma";
 import { getBlob } from "@/lib/drive-storage";
 
@@ -16,12 +17,15 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
 
   const doc = await prisma.employeeDocument.findUnique({
     where: { id: params.id },
-    select: { blobId: true, name: true, mime: true, visibleToEmployee: true, employee: { select: { userId: true } } },
+    select: { blobId: true, name: true, mime: true, visibleToEmployee: true, employee: { select: { userId: true, companyId: true } } },
   });
   if (!doc) return new NextResponse(null, { status: 404 });
 
+  // Un bulletin, un contrat, une pièce d'identité : la LECTURE du module ne suffisait plus à les
+  // télécharger (audit 360°, S5) — il faut GÉRER les RH (`voitLesSalaires`), et dans une société
+  // permise (S6). L'employé garde ses propres pièces marquées visibles.
   const isOwner = doc.employee.userId === user.id && doc.visibleToEmployee;
-  const isHr = userCan(user, "RH", "VIEW");
+  const isHr = voitLesSalaires(user) && (await entitePermisePourFiche(user.id, doc.employee.companyId));
   if (!isOwner && !isHr) return new NextResponse(null, { status: 403 });
 
   const bytes = await getBlob(doc.blobId);

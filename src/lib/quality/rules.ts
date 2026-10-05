@@ -15,10 +15,12 @@
  */
 
 import { prisma } from "@/lib/prisma";
-import { toNumber } from "@/lib/utils";
+import { toNumber, formatMontant } from "@/lib/utils";
+import { netDeLaFacture } from "@/lib/lecteurs/avoir";
+import { totauxAvoirsActifs } from "@/lib/lecteurs/avoirs-actifs";
 import {
-  cleProduit, clePersonne, cleSociete, emailNormalise, estAberrant, joursEntre, mediane, resolutionEffective, signatureDe,
-  verdictEmail, type Constat, type Correction, type DefinitionRegle,
+  cleProduit, clePersonne, cleSociete, depassementDuCumul, emailNormalise, estAberrant, groupeReferenceFacture, joursEntre, jumellesDeReference,
+  mediane, resolutionEffective, signatureDe, verdictEmail, type Constat, type Correction, type DefinitionRegle,
 } from "@/lib/quality/model";
 
 export const LIMITE_PAR_REGLE = 200;
@@ -31,7 +33,7 @@ export const REGLES: readonly DefinitionRegle[] = [
   { id: "doublon_nom_salaries", famille: "DOUBLON", criticite: "NORMALE", resolution: "HUMAIN", module: "RH", description: "Deux salariés actifs portent le même nom complet (mots triés, accents ignorés)." },
   { id: "doublon_fournisseurs", famille: "DOUBLON", criticite: "HAUTE", resolution: "HUMAIN", module: "REGULATORY", description: "Deux fournisseurs actifs ont le même nom une fois les formes juridiques retirées." },
   { id: "doublon_produits_regulatory", famille: "DOUBLON", criticite: "HAUTE", resolution: "HUMAIN", module: "REGULATORY", description: "Deux dossiers réglementaires portent la même DCI (triée), le même dosage, la même forme et le même conditionnement." },
-  { id: "doublon_factures", famille: "DOUBLON", criticite: "CRITIQUE", resolution: "HUMAIN", module: "FINANCES", legere: true, description: "Deux factures de la même contrepartie, même montant, à moins de 45 jours — ou la même référence." },
+  { id: "doublon_factures", famille: "DOUBLON", criticite: "CRITIQUE", resolution: "HUMAIN", module: "FINANCES", legere: true, description: "Deux factures de la même contrepartie, même montant, à moins de 45 jours — ou la même référence chez le même émetteur." },
   { id: "email_normalisable", famille: "EMAIL", criticite: "BASSE", resolution: "AUTO", module: "RH", description: "Une adresse valide une fois pliée (majuscules, espaces, « mailto: ») — corrigée seule, avant/après journalisés." },
   { id: "email_invalide", famille: "EMAIL", criticite: "HAUTE", resolution: "HUMAIN", module: "RH", description: "Une adresse qui n'en est pas une : aucun courrier ne partira." },
   { id: "champ_manquant_salarie", famille: "CHAMP_MANQUANT", criticite: "NORMALE", resolution: "HUMAIN", module: "RH", description: "Un salarié actif sans e-mail, sans département ou sans date d'embauche." },
@@ -71,7 +73,7 @@ const HREF = {
   compte: () => "/admin/access",
 };
 
-const dzd = (n: number): string => `${Math.round(n).toLocaleString("fr-FR")} DZD`;
+const dzd = (n: number): string => `${formatMontant(n)} DZD`;
 const fr = (d: Date | null | undefined): string => (d ? d.toISOString().slice(0, 10).split("-").reverse().join("/") : "—");
 
 function constat(
@@ -184,25 +186,29 @@ const DETECTEURS: Record<string, Detecteur> = {
     const r = regleDe("doublon_factures")!;
     const rows = await prisma.legalDocument.findMany({
       where: { kind: "INVOICE", status: { not: "CANCELLED" }, createdAt: { gte: new Date(now.getTime() - 730 * JOUR) } },
-      select: { id: true, reference: true, title: true, counterparty: true, amount: true, createdAt: true, startDate: true },
+      select: { id: true, reference: true, title: true, counterparty: true, counterpartyIds: true, direction: true, companyId: true, amount: true, createdAt: true, startDate: true },
       orderBy: { createdAt: "asc" }, take: 6000,
     });
     const out: Constat[] = [];
     const vus = new Set<string>();
-    // 1. La même référence, deux fois — quasi certain.
-    for (const g of grouper(rows.filter((x) => x.reference), (x) => `${(x.reference ?? "").trim().toLowerCase()}`)) {
-      for (const x of g) {
+    // 1. La même référence chez le MÊME émetteur — quasi certain ; émetteur inconnu — à vérifier (§118.196). Deux
+    //    fournisseurs qui numérotent pareil, ou deux sociétés du groupe, ne font pas un doublon.
+    for (const g of grouper(rows, (x) => groupeReferenceFacture(x))) {
+      for (const { facture: x, certain, lot } of jumellesDeReference(g)) {
+        const ref = (x.reference ?? "").trim().toLowerCase();
         vus.add(x.id);
         out.push(constat(r, {
-          entite: "LegalDocument", entiteId: x.id, confiance: 0.95, href: HREF.legal(x.id), cle: ["ref", (x.reference ?? "").trim().toLowerCase()],
+          entite: "LegalDocument", entiteId: x.id, confiance: certain ? 0.95 : 0.6, href: HREF.legal(x.id), cle: [certain ? "ref" : "ref-emetteur-inconnu", ref],
           montant: x.amount != null ? toNumber(x.amount) : null,
-          titre: `Facture ${x.reference} enregistrée ${g.length} fois`,
-          detail: `${g.length} factures portent la référence ${x.reference} (${g.map((y) => y.counterparty ?? "—").join(", ")}). Risque : payer deux fois. À vérifier pièce en main.`,
+          titre: certain ? `Facture ${x.reference} enregistrée ${lot.length} fois` : `Facture ${x.reference} : même numéro qu'une autre, émetteur à vérifier`,
+          detail: certain
+            ? `${lot.length} factures portent la référence ${x.reference} chez le même émetteur (${lot.map((y) => y.counterparty ?? "—").join(", ")}). Risque : payer deux fois. À vérifier pièce en main.`
+            : `${lot.length} factures portent la référence ${x.reference}, et rien ne dit qui a émis l'une d'elles (${lot.map((y) => y.counterparty ?? "partie non renseignée").join(", ")}) : deux fournisseurs numérotent souvent pareil. Renseignez la partie, puis vérifiez pièce en main avant tout règlement.`,
         }));
       }
     }
     // 2. Même contrepartie, même montant, à moins de 45 jours — probable.
-    for (const g of grouper(rows.filter((x) => x.counterparty && x.amount != null), (x) => `${cleSociete(x.counterparty)}|${Math.round(toNumber(x.amount))}`)) {
+    for (const g of grouper(rows.filter((x) => x.counterparty && x.amount != null), (x) => `${cleSociete(x.counterparty)}|${Math.round(toNumber(x.amount) * 100)}`)) {
       for (let i = 1; i < g.length; i += 1) {
         const a = g[i - 1]; const b = g[i];
         const ecart = Math.abs(joursEntre(a.createdAt, b.createdAt));
@@ -416,22 +422,51 @@ const DETECTEURS: Record<string, Detecteur> = {
     const [factures, ordres] = await Promise.all([
       prisma.legalDocument.findMany({
         where: { kind: "INVOICE", status: { not: "CANCELLED" }, amount: { not: null }, OR: [{ chainFromId: { not: null } }, { settlementTxId: { not: null } }] },
-        select: { id: true, reference: true, title: true, amount: true, counterparty: true, chainFrom: { select: { id: true, reference: true, kind: true, amount: true, amendments: { select: { id: true }, take: 1 } } }, settlementTx: { select: { reference: true, amount: true } } },
+        select: { id: true, reference: true, title: true, amount: true, counterparty: true, startDate: true, createdAt: true, chainFrom: { select: { id: true, reference: true, kind: true, amount: true, amendments: { select: { id: true }, take: 1 } } }, settlementTx: { select: { reference: true, amount: true } } },
         take: 4000,
       }),
       prisma.expenseOrder.findMany({ where: { status: "PAID", transactionId: { not: null } }, select: { id: true, reference: true, label: true, amount: true, transactionId: true }, take: 4000 }),
     ]);
+    // CE QUE LA FACTURE DOIT VRAIMENT (§118.195) : son NET, avoirs actifs retirés — c'est ce que le règlement
+    // encaisse. Comparer l'écriture au TTC dénoncerait comme « contradictoire » chaque facture créditée réglée juste.
+    const avoirsParFacture = await totauxAvoirsActifs(factures.filter((f) => f.settlementTx?.amount != null || f.chainFrom?.amount != null).map((f) => f.id));
+    // LE CUMUL, PAS CHAQUE FACTURE (§118.196) : un bon de commande de 100 000 facturé en deux fois 50 000 n'est pas
+    // « contradictoire » deux fois — c'est pourtant ce que la règle dénonçait, à chaque facturation partielle. Ce qui
+    // l'est, c'est le DÉPASSEMENT : les factures d'une pièce amont, nettes de leurs avoirs, qui totalisent plus que ce
+    // qu'elle engage. Le constat se pose sur la facture qui franchit le seuil, une fois par pièce amont ; facturer MOINS
+    // n'est pas une contradiction, c'est une livraison qui n'est pas finie.
+    const parAmont = new Map<string, typeof factures>();
+    for (const f of factures) {
+      if (f.chainFrom?.amount == null || f.chainFrom.amendments.length > 0) continue;
+      parAmont.set(f.chainFrom.id, [...(parAmont.get(f.chainFrom.id) ?? []), f]);
+    }
+    for (const lot of parAmont.values()) {
+      const amont = lot[0].chainFrom!;
+      const base = toNumber(amont.amount);
+      const d = depassementDuCumul(lot.map((f) => ({
+        id: f.id, f, net: netDeLaFacture(toNumber(f.amount), [avoirsParFacture.get(f.id) ?? 0]), quand: (f.startDate ?? f.createdAt).getTime(),
+      })), base);
+      if (d) {
+        const { f } = d.facture;
+        const { rang: i, cumul, ecartPct: e } = d;
+        const piece = amont.kind === "PURCHASE_ORDER" ? "bon de commande" : "devis";
+        out.push(constat(r, {
+          entite: "LegalDocument", entiteId: f.id, href: HREF.legal(f.id), module: "FINANCES", montant: toNumber(f.amount), cle: ["chaine", amont.id],
+          titre: i === 0
+            ? `${f.reference ?? f.title} : ${dzd(cumul)} pour un ${piece} de ${dzd(base)} (${e.toFixed(1)} %)`
+            : `${f.reference ?? f.title} : les ${i + 1} factures du ${piece}${amont.reference ? ` ${amont.reference}` : ""} totalisent ${dzd(cumul)} pour ${dzd(base)} (${e.toFixed(1)} %)`,
+          detail: `Chaînée${i === 0 ? "" : "s"} à ${amont.reference ?? amont.id} sans avenant, avoirs déduits : le dépassement de ${dzd(cumul - base)} doit être expliqué avant règlement.`,
+        }));
+      }
+    }
     for (const f of factures) {
       const montant = toNumber(f.amount);
-      if (f.chainFrom?.amount != null && f.chainFrom.amendments.length === 0) {
-        const base = toNumber(f.chainFrom.amount);
-        const e = ecartPct(montant, base);
-        if (e > 1) out.push(constat(r, { entite: "LegalDocument", entiteId: f.id, href: HREF.legal(f.id), module: "FINANCES", montant, cle: ["chaine", f.chainFrom.id], titre: `${f.reference ?? f.title} : ${dzd(montant)} pour un ${f.chainFrom.kind === "PURCHASE_ORDER" ? "bon de commande" : "devis"} de ${dzd(base)} (${e.toFixed(1)} %)`, detail: `La facture est chaînée à ${f.chainFrom.reference ?? f.chainFrom.id} sans avenant : l'écart de ${dzd(Math.abs(montant - base))} doit être expliqué avant règlement.` }));
-      }
       if (f.settlementTx?.amount != null) {
         const regle = toNumber(f.settlementTx.amount);
-        const e = ecartPct(regle, montant);
-        if (e > 1) out.push(constat(r, { entite: "LegalDocument", entiteId: f.id, href: HREF.legal(f.id), module: "FINANCES", montant, cle: ["reglement"], titre: `${f.reference ?? f.title} : réglée ${dzd(regle)} pour ${dzd(montant)} facturés`, detail: `L'écriture ${f.settlementTx.reference} ne vaut pas la facture (écart ${e.toFixed(1)} %) : trop-perçu, reste dû ou mauvais rapprochement.` }));
+        const avoirs = avoirsParFacture.get(f.id) ?? 0;
+        const du = netDeLaFacture(montant, [avoirs]);
+        const e = ecartPct(regle, du);
+        if (e > 1) out.push(constat(r, { entite: "LegalDocument", entiteId: f.id, href: HREF.legal(f.id), module: "FINANCES", montant, cle: ["reglement"], titre: `${f.reference ?? f.title} : réglée ${dzd(regle)} pour ${dzd(du)} ${avoirs > 0 ? "dus (avoirs déduits)" : "facturés"}`, detail: `L'écriture ${f.settlementTx.reference} ne vaut pas la facture (écart ${e.toFixed(1)} %) : trop-perçu, reste dû ou mauvais rapprochement.` }));
       }
     }
     const txIds = ordres.map((o) => o.transactionId!).filter(Boolean);

@@ -65,13 +65,6 @@ export function massByDepartment(lines: readonly PayrollCostLine[]): {
   return { byDepartment, unassigned, total };
 }
 
-/** La masse par ENTITÉ — le chiffre que chaque société doit reconnaître comme le sien. */
-export function massByEntity(lines: readonly PayrollCostLine[]): Map<string | null, number> {
-  const out = new Map<string | null, number>();
-  for (const l of lines) out.set(l.companyId, (out.get(l.companyId) ?? 0) + l.cost);
-  return out;
-}
-
 export interface BudgetRefresh {
   departmentId: string;
   /** Le montant à ÉCRIRE — un remplacement, jamais une addition. */
@@ -110,4 +103,52 @@ export function refreshSummary(rows: readonly BudgetRefresh[], format: (n: numbe
   if (rows.length === 0) return "Masse salariale inchangée.";
   const total = rows.reduce((a, r) => a + r.amount, 0);
   return `Masse salariale actualisée sur ${rows.length} département(s) — ${format(total)} au total (remplacement, pas addition).`;
+}
+
+/** Une ligne de paie PAYÉE, réduite à ce qui fait la masse d'un MOIS. */
+export interface LigneMasseMensuelle {
+  companyId: string | null;
+  /** 1 = janvier. */
+  month: number;
+  /** Le coût employeur (`entryCost`). */
+  cost: number;
+  /** Le net — ce qui est viré au salarié. */
+  net: number;
+}
+
+export interface MasseMensuelle {
+  /** Index 0 = janvier. */
+  mois: { cost: number; net: number }[];
+  total: { cost: number; net: number };
+}
+
+/**
+ * LA MASSE PAR ENTITÉ ET PAR MOIS — « pour chaque entité, la masse salariale MENSUELLE et
+ * ANNUELLE » (Direction, 04/10/2026).
+ *
+ * Deux chiffres par case, et ils ne se remplacent pas : le COÛT EMPLOYEUR (ce que la société
+ * décaisse, charges comprises — la masse) et le NET (ce qui part au salarié — ce que la carte
+ * d'envoi au centre compare à la somme déclarée). Le total de l'année est la SOMME des mois, calculée
+ * ici et pas ailleurs : deux additions du même tableau finiraient par ne pas tomber juste.
+ * Les montants s'additionnent en centimes — une somme de flottants dérive au centime.
+ * Un mois hors 1–12 est ÉCARTÉ, jamais rangé dans un mois voisin.
+ */
+export function masseMensuelleParEntite(lignes: readonly LigneMasseMensuelle[]): Map<string | null, MasseMensuelle> {
+  const centimes = new Map<string | null, { cost: number; net: number }[]>();
+  for (const l of lignes) {
+    if (!Number.isInteger(l.month) || l.month < 1 || l.month > 12) continue;
+    let mois = centimes.get(l.companyId);
+    if (!mois) { mois = Array.from({ length: 12 }, () => ({ cost: 0, net: 0 })); centimes.set(l.companyId, mois); }
+    mois[l.month - 1]!.cost += Math.round(l.cost * 100);
+    mois[l.month - 1]!.net += Math.round(l.net * 100);
+  }
+  const out = new Map<string | null, MasseMensuelle>();
+  for (const [companyId, mois] of centimes) {
+    const total = mois.reduce((a, m) => ({ cost: a.cost + m.cost, net: a.net + m.net }), { cost: 0, net: 0 });
+    out.set(companyId, {
+      mois: mois.map((m) => ({ cost: m.cost / 100, net: m.net / 100 })),
+      total: { cost: total.cost / 100, net: total.net / 100 },
+    });
+  }
+  return out;
 }

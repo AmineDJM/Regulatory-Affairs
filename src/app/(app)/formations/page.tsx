@@ -1,8 +1,12 @@
 import { GraduationCap } from "lucide-react";
 import { requireUser } from "@/lib/session";
-import { userCan, hasGlobalView } from "@/lib/rbac";
+import { userCan, hasGlobalView, isTopManagement } from "@/lib/rbac";
+import { loadReportingLine } from "@/lib/departments";
+import { managementChainOf } from "@/lib/hr/reporting-line";
+import { canDecideChain, type ChainStage } from "@/lib/approval-chain";
+import { auNomDeQui } from "@/lib/hr/stand-in-resolve";
 import { prisma } from "@/lib/prisma";
-import { platformScope } from "@/lib/company";
+import { clauseFormationsVisibles } from "@/lib/queries/visibilite-listes";
 import { toNumber } from "@/lib/utils";
 import { PageHeader } from "@/components/shared/page-header";
 import { KpiCard } from "@/components/shared/kpi-card";
@@ -10,6 +14,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { formatCurrency } from "@/lib/utils";
 import { countParticipants, type TrainingAttendance, type TrainingParticipantState } from "@/lib/training";
 import { TrainingBoard, type TrainingRow } from "./training-board";
+import { refusAnnulationFormation } from "@/lib/annulations/regles";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Formations — AMD Internal OS" };
@@ -27,9 +32,10 @@ export default async function FormationsPage() {
   const isDg = hasGlobalView(user);
   const canOrganise = isHr || isDg;
 
-  const scope = await platformScope(user.id);
+  // UNE CLAUSE, lue aussi par la porte des pièces (`canAccessEntity` › TRAINING) : la page montrait
+  // toutes les formations de la société à tout salarié (audit 360°, S4).
   const trainings = await prisma.training.findMany({
-    where: scope,
+    where: await clauseFormationsVisibles(user),
     orderBy: [{ status: "asc" }, { createdAt: "desc" }],
     take: 200,
     include: {
@@ -42,17 +48,28 @@ export default async function FormationsPage() {
     },
   });
 
-  // Le N+1 : on résout une fois la liste des personnes dont l'utilisateur est le responsable,
-  // pour savoir sur quelles demandes il peut trancher sans interroger la base par ligne.
-  const myEmployee = await prisma.employee.findUnique({ where: { userId: user.id }, select: { id: true } });
-  const managedIds = myEmployee
-    ? new Set((await prisma.employee.findMany({ where: { managerId: myEmployee.id }, select: { userId: true } }))
-        .map((e) => e.userId).filter((v): v is string => Boolean(v)))
-    : new Set<string>();
+  // QUI TRANCHE — LA MÊME RÈGLE QUE L'ACTION (`decideTraining`), lue ici sans requête par ligne
+  // (audit 360°, I12). La page ne comptait comme N+1 que les personnes dont la fiche porte
+  // `managerId = moi` : un responsable de DÉPARTEMENT — le N+1 réel de ceux qui n'ont pas de
+  // responsable nommé — n'avait jamais le bouton que l'action lui aurait accordé. La chaîne se lit
+  // sur l'organigramme réel (`managementChainOf`), et le sommet par `isTopManagement`, DG compris.
+  const { employees, departments: organigramme } = await loadReportingLine();
+  const employeDuCompte = new Map(employees.filter((e) => e.userId).map((e) => [e.userId as string, e.id]));
+  const monEmploye = employeDuCompte.get(user.id) ?? null;
+  // LES FICHES AU NOM DESQUELLES JE TRANCHE : la mienne, et celle de chaque absent que je remplace
+  // (I18) — la même lecture que l'action (`deciderFor`), sans quoi le bouton manquerait à qui l'a.
+  const auNom = await auNomDeQui(user.id);
+  const mesFiches = new Set([...auNom.ids].map((id) => employeDuCompte.get(id)).filter((x): x is string => Boolean(x)));
+  const auDessusDe = (requesterId: string | null): boolean => {
+    if (!requesterId || mesFiches.size === 0) return false;
+    const sujet = employeDuCompte.get(requesterId);
+    return sujet ? managementChainOf(sujet, employees, organigramme).some((m) => mesFiches.has(m.employeeId)) : false;
+  };
+  const sommet = isTopManagement(user);
 
   const docs = trainings.length
     ? await prisma.document.findMany({
-        where: { entityType: "DOSSIER", entityId: { in: trainings.map((t) => t.id) } },
+        where: { entityType: "TRAINING", entityId: { in: trainings.map((t) => t.id) } },
         select: { id: true, name: true, entityId: true },
       })
     : [];
@@ -73,13 +90,11 @@ export default async function FormationsPage() {
     }));
     // « Peut trancher » est calculé ici, côté serveur : un bouton affiché par erreur est une
     // promesse que le serveur refusera.
-    const isMyManagedRequest = t.requesterId ? managedIds.has(t.requesterId) : false;
-    const canDecide =
-      t.status === "PENDING" && t.requesterId !== user.id
-        ? (t.stage === "MANAGER" && (isMyManagedRequest || isDg))
-          || (t.stage === "HR" && (isHr || isDg))
-          || (t.stage === "DG" && isDg)
-        : t.status === "PENDING" && isDg;
+    const isManager = (t.managerId != null && mesFiches.has(t.managerId)) || auDessusDe(t.requesterId);
+    const canDecide = canDecideChain(
+      { status: t.status === "PENDING" ? "PENDING" : "APPROVED", stage: t.stage as ChainStage, requesterUserId: t.requesterId },
+      { id: user.id, isManager, isHr, isDg: sommet },
+    ).ok;
     return {
       id: t.id,
       reference: t.reference,
@@ -100,6 +115,7 @@ export default async function FormationsPage() {
       participants,
       documents: docsByTraining.get(t.id) ?? [],
       canDecide,
+      canCancel: t.requesterId === user.id && refusAnnulationFormation(t.status) === null,
       myParticipation: participants.find((p) => p.userId === user.id) ?? null,
     };
   });

@@ -120,7 +120,7 @@ suite("demanderDevisPromo — la société d'une demande de devis", () => {
       data: { reference: `${TAG}-T`, type: "QUOTE", title: `${TAG} témoin sans société`, status: "NEW", assignedToId: u.asst, companyId: null },
       select: { id: true },
     });
-    const liste = await getRequestList(asst, {});
+    const liste = (await getRequestList(asst, {})).rows;
     expect(liste.map((r) => r.id), "une demande sans société est invisible — c'est la raison du correctif").not.toContain(temoin.id);
   });
 
@@ -133,7 +133,7 @@ suite("demanderDevisPromo — la société d'une demande de devis", () => {
     const demande = await prisma.administrativeRequest.findUniqueOrThrow({ where: { id: pm.adminRequestId! }, select: { id: true, companyId: true } });
     expect(demande.companyId, "la société du demandeur, jamais nulle").toBe(societeC);
     // Le point qui compte pour une personne : l'assistante la VOIT dans son bureau.
-    const liste = await getRequestList(await acteur(u.asst), {});
+    const liste = (await getRequestList(await acteur(u.asst), {})).rows;
     expect(liste.map((x) => x.id)).toContain(demande.id);
   });
 
@@ -159,6 +159,6 @@ suite("demanderDevisPromo — la société d'une demande de devis", () => {
     const demande = await prisma.administrativeRequest.findUniqueOrThrow({ where: { id: pm.adminRequestId! }, select: { id: true, companyId: true, requesterId: true } });
     expect(demande.requesterId, "le demandeur reste celui du dossier").toBe(u.kam);
     expect(demande.companyId).toBe(societeC);
-    expect((await getRequestList(await acteur(u.asst), {})).map((x) => x.id)).toContain(demande.id);
+    expect((await getRequestList(await acteur(u.asst), {})).rows.map((x) => x.id)).toContain(demande.id);
   });
 });

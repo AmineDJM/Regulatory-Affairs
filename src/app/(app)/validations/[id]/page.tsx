@@ -12,6 +12,10 @@ import { DocumentList, type DocItem } from "@/components/documents/document-list
 import { VALIDATION_STATUS, VALIDATION_STEP_STATE, VALIDATION_MODE, PRIORITY } from "@/lib/labels";
 import { formatCurrency, formatDate, formatDateTime, toNumber } from "@/lib/utils";
 import { WithdrawRequestButton } from "./withdraw";
+import { lecteurDeLaDemandeDeValidation } from "@/lib/entity-access";
+import { resoumissionSurPlace } from "@/lib/validations/decision";
+import { refusDuRetraitValidation, retraitEfface } from "@/lib/validations/retrait";
+import { ResubmitValidation } from "./resubmit";
 
 export const dynamic = "force-dynamic";
 
@@ -41,8 +45,9 @@ export default async function ValidationRequestPage({ params }: { params: { id: 
   if (!req) notFound();
 
   const estDemandeur = req.requesterId === user.id;
-  const estValidateur = req.steps.some((e) => e.validatorId === user.id);
-  if (!estDemandeur && !estValidateur && user.role !== "SUPER_ADMIN") notFound();
+  // LA RÈGLE DE LA FICHE est celle de ses pièces (`canAccessEntity`) — le demandeur, les validateurs,
+  // leur intérimaire de congé, le Super Admin : une fonction, deux lecteurs (§118.5).
+  if (!(await lecteurDeLaDemandeDeValidation(user, req))) notFound();
 
   // LES PIÈCES : celles attachées à la demande, et celle qu'elle VISE quand la validation porte
   // sur un document précis d'un autre dossier.
@@ -62,9 +67,24 @@ export default async function ValidationRequestPage({ params }: { params: { id: 
     createdAt: d.createdAt.toISOString(), hasFile: Boolean(d.fileKey),
   }));
 
+  // L'HISTORIQUE DES VERSIONS (audit 360°, R08) : chaque resoumission archive dans le fil de la
+  // demande qui l'avait renvoyée, pourquoi, et ce qui a été corrigé — les étapes, elles, repartent.
+  const historique = await prisma.comment.findMany({
+    where: { entityType: "VALIDATION_REQUEST", entityId: req.id },
+    include: { author: { select: { name: true } } },
+    orderBy: { createdAt: "asc" },
+  });
+  const renvois = req.steps.filter((e) => e.status === "CHANGES_REQUESTED");
+  const surPlace = resoumissionSurPlace(req);
+
   // Le retrait n'est possible que tant que PERSONNE ne s'est prononcé : l'accord d'un tiers est
   // un fait, il ne s'efface pas. L'action revérifie — ceci n'est que l'affichage.
-  const vierge = req.status === "PENDING" && req.steps.every((e) => e.status === "PENDING");
+  // Une demande RENVOYÉE s'abandonne aussi (elle reste visible, close) — quand elle se corrige sur
+  // elle-même : née d'un autre circuit, c'est ce circuit qui la clôt.
+  // RETIRER TANT QUE CE N'EST PAS TRANCHÉ (décision du 04/10) — la même règle que l'action
+  // (`validations/retrait.ts`) : une étape déjà validée ne bloque plus le retrait, elle reste au fil.
+  const vueRetrait = { status: req.status, version: req.version, surPlace, steps: req.steps };
+  const retirable = refusDuRetraitValidation(vueRetrait) === null;
 
   return (
     <div className="space-y-5">
@@ -74,9 +94,37 @@ export default async function ValidationRequestPage({ params }: { params: { id: 
 
       <PageHeader title={req.title} description={`${req.reference} · ${req.module}`}>
         {(estDemandeur || user.role === "SUPER_ADMIN") && (
-          <WithdrawRequestButton id={req.id} reference={req.reference} canWithdraw={vierge} />
+          <WithdrawRequestButton id={req.id} reference={req.reference} canWithdraw={retirable} abandon={!retraitEfface(vueRetrait)} />
         )}
       </PageHeader>
+
+      {/* UNE DEMANDE À CORRIGER n'est pas close : on dit qui a renvoyé, pourquoi, et où se fait la
+          correction (audit 360°, R08). Le motif se lit ICI, sans dérouler le circuit. */}
+      {req.status === "CHANGES_REQUESTED" && (
+        <Card className="border-warning/40">
+          <CardHeader><CardTitle>À corriger</CardTitle></CardHeader>
+          <CardContent className="space-y-3 text-sm">
+            {renvois.map((e) => (
+              <p key={e.id}>
+                <span className="font-medium">{e.validator?.name ?? "Le validateur"}</span> demande une correction :{" "}
+                <span className="rounded bg-secondary/40 px-1.5 py-0.5">« {e.reason ?? "sans motif"} »</span>
+              </p>
+            ))}
+            {estDemandeur && surPlace ? (
+              <ResubmitValidation id={req.id} description={req.description} montant={req.amount === null ? null : toNumber(req.amount)} />
+            ) : surPlace ? (
+              <p className="text-muted-foreground">Le demandeur la corrige et la resoumet ; elle reviendra à l&apos;étape qui l&apos;a renvoyée.</p>
+            ) : (
+              <p className="text-muted-foreground">
+                Cette demande se corrige depuis son objet d&apos;origine, et c&apos;est de là qu&apos;elle repart.
+                {req.link && (
+                  <> <Link href={req.link} className="inline-flex items-center gap-1 font-medium text-primary hover:underline">Ouvrir l&apos;objet d&apos;origine <ExternalLink className="h-3 w-3" /></Link></>
+                )}
+              </p>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
         <div className="space-y-4 lg:col-span-2">
@@ -84,6 +132,7 @@ export default async function ValidationRequestPage({ params }: { params: { id: 
             <CardHeader><CardTitle>La demande</CardTitle></CardHeader>
             <CardContent className="grid grid-cols-2 gap-4 text-sm sm:grid-cols-3">
               <Info label="Statut"><StatusBadge map={VALIDATION_STATUS} value={req.status} /></Info>
+              {req.version > 1 && <Info label="Version"><span className="font-medium">{req.version} — resoumise après correction</span></Info>}
               <Info label="Priorité"><StatusBadge map={PRIORITY} value={req.priority} dot={false} /></Info>
               <Info label="Circuit"><span className="font-medium">{VALIDATION_MODE[req.mode] ?? req.mode}</span></Info>
               <Info label="Demandeur"><span className="font-medium">{req.requester.name}</span></Info>
@@ -124,6 +173,20 @@ export default async function ValidationRequestPage({ params }: { params: { id: 
               )}
             </CardContent>
           </Card>
+
+          {historique.length > 0 && (
+            <Card>
+              <CardHeader><CardTitle>Historique des versions</CardTitle></CardHeader>
+              <CardContent className="space-y-3 text-sm">
+                {historique.map((c) => (
+                  <div key={c.id} className="space-y-1 border-b border-border pb-2.5 last:border-0 last:pb-0">
+                    <p className="text-xs text-muted-foreground">{c.author?.name ?? "—"} · {formatDateTime(c.createdAt)}</p>
+                    <p className="whitespace-pre-wrap">{c.body}</p>
+                  </div>
+                ))}
+              </CardContent>
+            </Card>
+          )}
         </div>
 
         <Card className="lg:col-span-1">

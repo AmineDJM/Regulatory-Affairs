@@ -17,6 +17,7 @@ import {
 import { chargerPageStock, faitsStock } from "@/lib/queries/promo-stock";
 import { relancerReceptionsStock, JOURS_AVANT_RAPPEL } from "@/lib/promo-stock-rappels";
 import { REFUS } from "@/lib/promo/stock-acces";
+import { MOTIF_ANNULATION_MOUVEMENT } from "@/lib/promo/stock-ecriture";
 import { DELETE_REGISTRY } from "@/lib/admin-delete-registry";
 
 let dbOk = false;
@@ -483,6 +484,10 @@ suite("Stock promotionnel — magasin, dotations confirmées, équipes, attestat
     const perte = await declarerPerte(form({ itemId: article, detenteurId: "", quantite: "1", motif: "Carton écrasé" }));
     expect(perte.ok, perte.error).toBe(true);
     const loss = await prisma.promoStockMovement.findFirstOrThrow({ where: { itemId: article, kind: "LOSS", reason: "Carton écrasé" } });
+    // SANS MOTIF, un mouvement qui S'ANNULE est refusé et rien n'est écrit. Le motif est demandé APRÈS les
+    // refus structurels (§118.18) : la seconde annulation, plus bas, dit « déjà annulé » sans en demander.
+    expect(await annulerMouvement(form({ mouvementId: loss.id }))).toEqual({ ok: false, error: MOTIF_ANNULATION_MOUVEMENT });
+    expect(await prisma.promoStockMovement.count({ where: { annuleId: loss.id } })).toBe(0);
     expect((await annulerMouvement(form({ mouvementId: loss.id, motif: "Retrouvé" }))).ok).toBe(true);
     expect(await annulerMouvement(form({ mouvementId: loss.id }))).toEqual({ ok: false, error: "Ce mouvement est déjà annulé." });
   });

@@ -5,8 +5,7 @@ import { requireModule } from "@/lib/session";
 import { canSeeRegEnrollment } from "@/lib/org-chart-access";
 import { getAppSettings } from "@/lib/settings";
 import { prisma } from "@/lib/prisma";
-import { regCan, resolveRegCompanyId } from "@/lib/regulatory/intelligence/access";
-import { getCompanyScope } from "@/lib/company";
+import { regCan, resolveRegCompanyIdFor } from "@/lib/regulatory/intelligence/access";
 import { reserveStats } from "@/lib/regulatory/intelligence/reserves/library";
 import { PageHeader } from "@/components/shared/page-header";
 import { Badge } from "@/components/ui/badge";
@@ -35,7 +34,7 @@ export default async function ReserveLibraryPage() {
   const settings = await getAppSettings();
   if (!canSeeRegEnrollment(user, settings)) notFound();
   if (!regCan(user, "regulatory.reserve.manage") && user.role !== "SUPER_ADMIN") notFound();
-  const companyId = await resolveRegCompanyId(getCompanyScope());
+  const companyId = await resolveRegCompanyIdFor(user.id);
   // Portée non résolue : dire quoi faire (choisir l'entité / activer le module) — pas de 404
   // muette sur une page qui existe.
   if (!companyId) {
@@ -48,7 +47,7 @@ export default async function ReserveLibraryPage() {
           title="Réserves ANPP — bibliothèque"
           description="Tout ce que l'agence nous a déjà reproché, avec sa preuve."
         />
-        <RegScopeCard />
+        <RegScopeCard userId={user.id} />
       </div>
     );
   }

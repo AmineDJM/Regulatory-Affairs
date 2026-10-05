@@ -1,4 +1,4 @@
-import type { AdProItemKind } from "@prisma/client";
+import type { AdProItemKind, AdProTrajet, AdProTransport } from "@prisma/client";
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
@@ -27,8 +27,32 @@ import type { AdProItemKind } from "@prisma/client";
  * personnes prises en charge) — c'est la « sélection » demandée. Mais un voyageur ne se
  * RATTACHE pas à une fiche de l'annuaire d'après son nom : deux « Dr Benali » existent, et
  * rapprocher par ressemblance écrirait le voyage de l'un sur la fiche de l'autre (§118.85).
+ *
+ * ── TRAJET, TRANSPORT, DEVIS PAR VOYAGEUR (§118.205, Direction 04/10) ──────────────────────
+ *
+ * « Voir si c'est aller-retour ou que aller, le mode de transport ; pour chaque voyageur, le devis
+ * ou la pro forma de l'agence ; si le demandeur en valide un, on demande le BC — tout en restant
+ * ULTRA SIMPLE. » En ALLER SIMPLE la date de retour n'est ni demandée ni gardée : une date de retour
+ * restée en base sur un aller simple se lirait comme un billet retour à réserver. Le devis d'un
+ * voyageur est un devis du POSTE (`ajouterDevisPoste`) marqué pour lui ; la proposition RETENUE est
+ * au plus une par voyageur, les autres sont écartées. Le geste visible d'un voyageur est UN SEUL —
+ * le prochain qui manque (`prochainGesteVoyageur`) ; le reste vit dans un menu.
  * ═══════════════════════════════════════════════════════════════════════════════════════════
  */
+
+export const TRAJETS = ["ALLER_RETOUR", "ALLER_SIMPLE"] as const satisfies readonly AdProTrajet[];
+export const TRANSPORTS = ["AVION", "TRAIN", "BUS", "TAXI"] as const satisfies readonly AdProTransport[];
+export const TRAJET_LIBELLE: Record<AdProTrajet, string> = { ALLER_RETOUR: "aller-retour", ALLER_SIMPLE: "aller simple" };
+export const TRANSPORT_LIBELLE: Record<AdProTransport, string> = { AVION: "avion", TRAIN: "train", BUS: "bus", TAXI: "taxi" };
+
+/** Un trajet lu dans une saisie — `null` si la valeur n'en est pas un (jamais deviné). */
+export function lireTrajet(v: string | null | undefined): AdProTrajet | null {
+  return (TRAJETS as readonly string[]).includes(v ?? "") ? (v as AdProTrajet) : null;
+}
+/** Un mode de transport lu — `null` si la valeur n'en est pas un. */
+export function lireTransport(v: string | null | undefined): AdProTransport | null {
+  return (TRANSPORTS as readonly string[]).includes(v ?? "") ? (v as AdProTransport) : null;
+}
 
 /**
  * Les natures dont le poste porte des voyageurs. FERMÉE : la Direction a parlé de la billetterie.
@@ -49,6 +73,10 @@ export interface SaisieVoyageur {
   dateDepart: string | null;
   dateRetour: string | null;
   notes: string | null;
+  /** « ALLER_SIMPLE » | « ALLER_RETOUR » ; vide = aller-retour (le cas d'avant). */
+  trajet?: string | null;
+  /** « AVION » | « TRAIN » | « BUS » | « TAXI » ; vide = pas encore dit. */
+  transport?: string | null;
 }
 
 export interface VoyageurLu {
@@ -58,6 +86,8 @@ export interface VoyageurLu {
   dateDepart: Date | null;
   dateRetour: Date | null;
   notes: string | null;
+  trajet: AdProTrajet;
+  transport: AdProTransport | null;
 }
 
 const JOUR = /^\d{4}-\d{2}-\d{2}$/;
@@ -81,8 +111,15 @@ export function lireVoyageur(s: SaisieVoyageur): { ok: true; voyageur: VoyageurL
   const fautes: string[] = [];
   const nom = texte(s.nom, 160);
   if (!nom) fautes.push("le nom de la personne");
+  const trajetBrut = (s.trajet ?? "").trim();
+  const trajet = trajetBrut ? lireTrajet(trajetBrut) : "ALLER_RETOUR";
+  if (!trajet) fautes.push("un trajet reconnu (aller simple ou aller-retour)");
+  const transportBrut = (s.transport ?? "").trim();
+  const transport = transportBrut ? lireTransport(transportBrut) : null;
+  if (transportBrut && !transport) fautes.push("un mode de transport reconnu (avion, train, bus, taxi)");
   const depart = lireJour(s.dateDepart);
-  const retour = lireJour(s.dateRetour);
+  // EN ALLER SIMPLE, la date de retour n'est ni lue ni gardée : elle est vidée.
+  const retour = trajet === "ALLER_SIMPLE" ? ({ ok: true, date: null } as const) : lireJour(s.dateRetour);
   if (!depart.ok) fautes.push("une date de départ lisible (AAAA-MM-JJ)");
   if (!retour.ok) fautes.push("une date de retour lisible (AAAA-MM-JJ)");
   if (fautes.length) return { ok: false, error: `Voyageur incomplet — il manque ${fautes.join(", ")}.` };
@@ -96,6 +133,7 @@ export function lireVoyageur(s: SaisieVoyageur): { ok: true; voyageur: VoyageurL
     voyageur: {
       nom: nom!, villeDepart: texte(s.villeDepart, 120), villeArrivee: texte(s.villeArrivee, 120),
       dateDepart: dDepart, dateRetour: dRetour, notes: texte(s.notes, 1000),
+      trajet: trajet!, transport,
     },
   };
 }
@@ -108,6 +146,8 @@ export interface VoyageurPourReservation {
   dateRetour: Date | null;
   passeport: boolean;
   notes: string | null;
+  trajet?: AdProTrajet;
+  transport?: AdProTransport | null;
 }
 
 /** CE QUI MANQUE POUR RÉSERVER — nommé voyageur par voyageur. Vide = tout est là. */
@@ -115,6 +155,7 @@ export function manquesPourReserver(v: VoyageurPourReservation): string[] {
   const m: string[] = [];
   if (!v.dateDepart) m.push("date de départ");
   if (!v.villeDepart || !v.villeArrivee) m.push("trajet");
+  if (v.transport === null) m.push("mode de transport");
   if (!v.passeport) m.push("passeport");
   return m;
 }
@@ -124,12 +165,20 @@ export function jourLisible(d: Date | null): string {
   return d ? d.toISOString().slice(0, 10).split("-").reverse().join("/") : "à confirmer";
 }
 
+/** Les dates d'un voyage : « aller simple 12/10/2026 », ou « aller …, retour … ». */
+export function datesLisibles(v: { dateDepart: Date | null; dateRetour: Date | null; trajet?: AdProTrajet }): string {
+  return v.trajet === "ALLER_SIMPLE"
+    ? `aller simple ${jourLisible(v.dateDepart)}`
+    : `aller ${jourLisible(v.dateDepart)}, retour ${jourLisible(v.dateRetour)}`;
+}
+
 /** LA LIGNE QUE L'ASSISTANTE LIT dans le sujet — un voyageur, ce qu'on sait, ce qui manque. */
 export function ligneVoyageur(v: VoyageurPourReservation): string {
   const trajet = v.villeDepart || v.villeArrivee ? `${v.villeDepart ?? "?"} → ${v.villeArrivee ?? "?"}` : "trajet à confirmer";
-  const dates = `aller ${jourLisible(v.dateDepart)}, retour ${jourLisible(v.dateRetour)}`;
+  const dates = datesLisibles(v);
+  const mode = v.transport ? ` — ${TRANSPORT_LIBELLE[v.transport]}` : "";
   const manque = manquesPourReserver(v);
-  return `• ${v.nom} — ${trajet} — ${dates}${v.passeport ? " — passeport joint" : ""}${manque.length ? ` (manque : ${manque.join(", ")})` : ""}${v.notes ? ` — ${v.notes}` : ""}`;
+  return `• ${v.nom} — ${trajet}${mode} — ${dates}${v.passeport ? " — passeport joint" : ""}${manque.length ? ` (manque : ${manque.join(", ")})` : ""}${v.notes ? ` — ${v.notes}` : ""}`;
 }
 
 /**
@@ -148,6 +197,67 @@ export function changementsVoyageur(avant: VoyageurLu, apres: VoyageurLu): strin
   const memeJour = (a: Date | null, b: Date | null) => (a?.getTime() ?? null) === (b?.getTime() ?? null);
   if (!memeJour(avant.dateDepart, apres.dateDepart)) out.push(`aller : ${jourLisible(avant.dateDepart)} → ${jourLisible(apres.dateDepart)}`);
   if (!memeJour(avant.dateRetour, apres.dateRetour)) out.push(`retour : ${jourLisible(avant.dateRetour)} → ${jourLisible(apres.dateRetour)}`);
+  if (avant.trajet !== apres.trajet) out.push(`trajet : ${TRAJET_LIBELLE[avant.trajet]} → ${TRAJET_LIBELLE[apres.trajet]}`);
+  if (avant.transport !== apres.transport) {
+    out.push(`transport : ${avant.transport ? TRANSPORT_LIBELLE[avant.transport] : "—"} → ${apres.transport ? TRANSPORT_LIBELLE[apres.transport] : "—"}`);
+  }
   if ((avant.notes ?? "") !== (apres.notes ?? "")) out.push(`précisions : ${apres.notes ?? "retirées"}`);
   return out;
+}
+
+/** Un devis d'un voyageur, vu par la règle : son montant, et s'il est la proposition retenue. */
+export interface DevisDeVoyageur {
+  montant: number | null;
+  retenu: boolean;
+  annule?: boolean;
+}
+
+export type GesteVoyageur = "PASSEPORT" | "DEVIS" | "VALIDER" | null;
+
+/**
+ * LE SEUL GESTE VISIBLE D'UN VOYAGEUR — le prochain qui manque, dans l'ordre : son passeport, puis le
+ * devis de l'agence, puis valider une proposition. `null` : rien ne manque (un devis est retenu), ou
+ * la personne ne peut rien faire ici. Un devis ANNULÉ au registre ne compte pas.
+ */
+export function prochainGesteVoyageur(v: { passeport: boolean; devis: readonly DevisDeVoyageur[] }, peutEditer: boolean): GesteVoyageur {
+  if (!peutEditer) return null;
+  if (!v.passeport) return "PASSEPORT";
+  const vivants = v.devis.filter((d) => !d.annule);
+  if (vivants.length === 0) return "DEVIS";
+  if (!vivants.some((d) => d.retenu)) return "VALIDER";
+  return null;
+}
+
+/**
+ * LA SOMME DES PROPOSITIONS RETENUES face au montant accordé du poste. Le montant accordé reste celui
+ * des deux temps de validation : un dépassement se DIT, il ne bloque rien et ne réécrit rien.
+ * Rend la phrase, ou `null` quand rien ne dépasse — ou que l'on ne sait pas (un montant accordé
+ * inconnu, ou un devis retenu sans montant : on ne compare pas à un trou).
+ */
+export function depassementDevisRetenus(montantsRetenus: readonly (number | null)[], accorde: number | null): string | null {
+  if (accorde == null || montantsRetenus.length === 0) return null;
+  if (montantsRetenus.some((m) => m == null)) return null;
+  const centimes = montantsRetenus.reduce<number>((s, m) => s + Math.round((m as number) * 100), 0);
+  const accordeC = Math.round(accorde * 100);
+  if (centimes <= accordeC) return null;
+  const f = (c: number) => (c / 100).toLocaleString("fr-FR");
+  return `Les devis retenus totalisent ${f(centimes)} DZD, au-delà des ${f(accordeC)} DZD accordés au poste (+${f(centimes - accordeC)} DZD). Le montant accordé ne change pas : demandez une révision du poste si l'écart doit être couvert.`;
+}
+
+/**
+ * RETIRER LA DEMANDE DE RÉSERVATION — `null` si elle se retire, sinon la raison (audit du 04/10,
+ * constat 37 : « on annule sa demande tant que l'autre ne l'a pas exécutée »). La réservation est
+ * EXÉCUTÉE quand son sujet est clos (abouti ou archivé), ou quand le bon de commande des billets est
+ * demandé : là, l'agence est engagée, et la demande de BC s'annule d'abord par son propre geste. Une
+ * lecture pour l'action et pour la carte (§118.83).
+ */
+export function refusRetraitReservation(r: { sujet: string | null; orderStage: string }): string | null {
+  if (!r.sujet) return "Aucune demande de réservation n'est en cours pour ce poste.";
+  if (r.sujet === "DONE" || r.sujet === "ARCHIVED") {
+    return "La réservation est traitée — son sujet est clos : elle ne se retire plus. Écrivez à l'assistante de direction dans le sujet si quelque chose change.";
+  }
+  if (r.orderStage !== "NONE" && r.orderStage !== "REFUSED") {
+    return "Le bon de commande des billets est déjà demandé : la réservation est engagée. Annulez d'abord la demande de BC (« Annuler la demande de BC »), puis la réservation.";
+  }
+  return null;
 }

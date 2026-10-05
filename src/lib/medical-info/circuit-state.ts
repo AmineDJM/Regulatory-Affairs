@@ -109,13 +109,15 @@ export async function circuitStateOf(decl: DeclarationLike): Promise<MedicalCirc
   return {
     circuit,
     declare: {
-      validationId: decl.declareValidationId,
+      // Une validation SUPPRIMÉE (retirée par son demandeur) n'est plus une demande : son
+      // identifiant resté sur le dossier le laissait « en validation » à vie (audit 360°, I9).
+      validationId: declareValidation ? decl.declareValidationId : null,
       validationStatus: declareValidation ? String(declareValidation.status) : null,
       intent: decl.declareIntent,
       grantedAt: decl.declareGrantedAt,
     },
     lot: slipsLotStage({
-      validationId: decl.bvValidationId,
+      validationId: lotValidation ? decl.bvValidationId : null,
       validationStatus: lotValidation ? String(lotValidation.status) : null,
     }),
     slips,

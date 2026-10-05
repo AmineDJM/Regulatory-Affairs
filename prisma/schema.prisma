@@ -159,6 +159,10 @@ enum SponsoringStatus {
   /// postes se préparent — devis, BC, factures. L'argent n'est pas encore validé : il le sera
   /// poste par poste, puis à la validation finale qui CLÔTURE la demande (`CLOSED`).
   PRE_VALIDATED
+  /// RENVOYÉE POUR CORRECTION (audit 360°, R02 — §118.186) : une étape du circuit a rendu la main au
+  /// demandeur, motif à l'appui. Rien n'est refusé : il corrige puis RESOUMET, et la demande revient
+  /// à l'étape qui l'a renvoyée. Ni « en attente de décision » (personne ne décide), ni « refusée ».
+  RETURNED
 }
 
 /// LA NATURE D'UN SPONSORING (§118.151) — et donc le poste créé avec la demande.
@@ -206,6 +210,9 @@ enum CongressRequestStatus {
   REJECTED // refusée (à l'une des étapes)
   CANCELLED
   COMPLETED // événement réalisé
+  /// RENVOYÉE POUR CORRECTION (audit 360°, R02 — §118.186) : chez son demandeur, qui corrige et
+  /// RESOUMET ; la demande revient alors à l'étape qui l'a renvoyée.
+  RETURNED
 }
 
 /// Type d'événement national (pharma).
@@ -419,6 +426,24 @@ enum EntityType {
   /// Une FACTURE (module Finances) — cible de liens « Relier à… » : le recouvrement écrit des
   /// courriers PAR facture, et un même courrier peut en porter plusieurs.
   INVOICE
+  /// LE PRODUIT CANONIQUE (§118.178) — sa création d'après un dossier, sa correction, ses alias
+  /// et son nom s'écrivent dans SON historique, pas seulement dans celui d'un de ses dossiers.
+  PRODUCT
+  /// Une BUSINESS UNIT (§118.181) — sa création, sa modification, sa suppression.
+  BUSINESS_UNIT
+  /// Un PLAN DE TOURNÉE (§118.181) — planifier, soumettre, escalader, décider. Ces gestes
+  /// s'auditaient sous VISIT avec l'identifiant du PLAN : rien ne les retrouvait.
+  TOUR_PLAN
+  /// Un SECTEUR commercial d'une BU (§118.181) — son découpage, ses KAM, sa suppression.
+  SALES_SECTOR
+  /// Un ÉTABLISSEMENT de l'annuaire (§118.181).
+  INSTITUTION
+  /// Une SPÉCIALITÉ du référentiel (§118.180) — ajout, renommage, fusion, retrait.
+  SPECIALTY
+  /// Une FORMATION (demande d'un salarié ou session des RH, §118.184). Ses pièces et son historique
+  /// s'écrivaient sous DOSSIER (un « sujet ») avec l'identifiant de la FORMATION : la porte des pièces
+  /// cherchait alors un sujet qui n'existe pas, et personne ne pouvait télécharger un devis de formation.
+  TRAINING
 }
 
 enum DocumentCategory {
@@ -1157,6 +1182,8 @@ model User {
   visits                  MedicalVisit[]
   /// LES SECTEURS qui lui sont affectés (KAM / délégué).
   salesSectors            SalesSectorRep[]                 @relation("SalesSectorRepUser")
+  /// SON TERRITOIRE PROPRE dans sa BU (un `SalesSector` dont il est le KAM — voir `SalesSector.repId`).
+  territoiresKam          SalesSector[]                    @relation("SalesSectorTerritoireKam")
   /// LES RÉCURRENCES de demande d'état de stock qui lui sont ADRESSÉES, et celles qu'il a POSÉES.
   stockRecurrences        StockRequestRecurrence[]         @relation("StockRecurrenceAssignee")
   stockRecurrencesCreated StockRequestRecurrence[]         @relation("StockRecurrenceAuthor")
@@ -1226,6 +1253,7 @@ model User {
   taskComments            TaskComment[]              @relation("TaskCommentAuthor")
   legalDocsCreated        LegalDocument[]            @relation("LegalDocCreator")
   legalDocsSigned         LegalDocument[]            @relation("LegalDocSigner")
+  legalDocsReturned       LegalDocument[]            @relation("LegalDocSignatureReturner")
   pchTendersResponsible   PchTender[]                @relation("PchTenderResponsible")
   mailEntriesCreated      MailEntry[]                @relation("MailEntryCreator")
   mailEntriesConcerned    MailEntry[]                @relation("MailEntryConcerned")
@@ -1250,6 +1278,7 @@ model User {
   adminRequestsAssigned   AdministrativeRequest[] @relation("ReqAssignee")
   adminRequestsValidating AdministrativeRequest[] @relation("ReqValidator")
   adminApprovals          AdminApproval[]         @relation("ApprovalValidator")
+  adminApprovalsDecided   AdminApproval[]         @relation("ApprovalDecider")
   driverMissions          DriverMission[]         @relation("MissionDriver")
 
   // Validations transversales + feedback
@@ -1793,6 +1822,7 @@ model RegulatoryProduct {
   canonicalProduct Product?       @relation("ProductRegulatoryProfile", fields: [productId], references: [id], onDelete: SetNull)
 
   @@index([status])
+  @@index([productId])
   @@index([bdProjectId])
   @@index([priority])
   @@index([responsibleId])
@@ -1837,6 +1867,9 @@ enum RecruitmentStage {
   CLOSED
   REJECTED
   CANCELLED
+  /// Renvoyée pour correction (audit 360°, lot C4d1, §118.192) : la balle est chez le demandeur, qui
+  /// corrige et renvoie ; voir `returnedFrom`.
+  RETURNED
 }
 
 enum RecruitmentApprovalState {
@@ -1887,6 +1920,13 @@ model RecruitmentRequest {
   /// Décision finale des RH / de la direction, en clair, quand la demande se clôt.
   closingNote String?
   closedAt    DateTime?
+  /// LE RENVOI POUR CORRECTION (audit 360°, lot C4d1, R14 — §118.192). Qui a renvoyé, quand, pourquoi, et
+  /// D'OÙ (`CHAIN` ou `HR_REVIEW`) : une correction qui ne touche rien de ce que les validateurs ont pesé
+  /// revient là ; une correction matérielle fait repartir la chaîne. L'histoire va au fil de la demande.
+  returnedFrom RecruitmentStage?
+  returnedAt   DateTime?
+  returnedById String?
+  returnNote   String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -2305,8 +2345,28 @@ model AdProItem {
   /// chaque visa EFFAÇAIT le message du demandeur — mesuré : trois écrivains, aucun lecteur,
   /// et la seule chose que le circuit devait transmettre disparaissait (§118.45).
   orderDecisionNote  String?
+  /// L'EMPREINTE DU VISA (§118.187) : le montant et le prestataire que le centre a VUS en visant la
+  /// demande de BC — ou ceux qui sont passés aux Finances sous le seuil. L'émission compare ce qui
+  /// part à ce qui a été validé (`ad-pro/bc-poste.ts`) ; nulle sur un visa d'avant cette règle, et
+  /// alors rien n'est comparé — on ne refuse pas ce qu'on ne sait pas lire.
+  orderVisaAmount    Decimal?            @db.Decimal(14, 2)
+  orderVisaSupplier  String?
+  /// L'ASSISTANTE DE DIRECTION qui établit le bon de commande (§118.204). Choisie à la demande
+  /// d'émission ; la demande de pièce lui part tout de suite sous le seuil, au visa du centre
+  /// au-dessus. Nulle = aucune demande d'émission en cours.
+  bcAssistantId      String?
+
+  /// LA VALIDATION EN DEUX TEMPS (§118.204) — « d'abord la Direction des opérations, puis la
+  /// Direction Marketing, qui sélectionne le budget ». Le premier temps se lit ICI, sur le poste
+  /// encore `PENDING` ; le second est la décision (`status`, `decidedAt`). Nul = la Direction des
+  /// opérations n'a pas encore validé.
+  opsDecidedAt       DateTime?
+  opsDecidedById     String?
+  opsDecisionNote    String?
 
   decisions  AdProItemDecision[]
+  /// LES PIÈCES DU POSTE au registre Legal — devis / pro forma, bon de commande, facture (§118.204).
+  pieces     AdProItemPiece[]
   /// Les articles du stock d'un poste « Matériel du stock » (§118.167).
   stockLines AdProStockLine[]
 
@@ -2359,18 +2419,83 @@ model AdProVoyageur {
   dateDepart   DateTime?
   dateRetour   DateTime?
   notes        String?
+  /// Aller simple ou aller-retour (§118.205). En aller simple, `dateRetour` est vidée.
+  trajet       AdProTrajet    @default(ALLER_RETOUR)
+  /// Le mode de transport — `null` : pas encore dit.
+  transport    AdProTransport?
   position     Int       @default(0)
   createdById  String?
   updatedById  String?
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
+  devis        AdProVoyageurDevis[]
 
   @@index([itemId])
+}
+
+enum AdProTrajet {
+  ALLER_SIMPLE
+  ALLER_RETOUR
+}
+
+enum AdProTransport {
+  AVION
+  TRAIN
+  BUS
+  TAXI
+}
+
+/// LE DEVIS OU LA PRO FORMA D'UN VOYAGEUR (§118.205). La pièce est un devis DU POSTE
+/// (`AdProItemPiece`, déposé par `ajouterDevisPoste`) : ce lien dit pour QUEL voyageur, sans second
+/// circuit de pièces. Retirer le devis du poste emporte le lien (cascade). `retenuLe` : la proposition
+/// validée par le demandeur — au plus une par voyageur (index partiel de la migration) ; les autres
+/// sont écartées par construction.
+model AdProVoyageurDevis {
+  id          String             @id @default(cuid())
+  voyageurId  String
+  voyageur    AdProVoyageur      @relation(fields: [voyageurId], references: [id], onDelete: Cascade)
+  pieceId     String             @unique
+  piece       AdProItemPiece     @relation(fields: [pieceId], references: [id], onDelete: Cascade)
+  retenuLe    DateTime?
+  retenuParId String?
+  createdById String?
+  createdAt   DateTime           @default(now())
+
+  @@index([voyageurId])
 }
 
 /// HISTORIQUE DES DÉCISIONS D'UN POSTE — « autant de fois qu'il le faut » : une demande de
 /// révision n'écrase pas la précédente, elle s'ajoute. Sans cette trace, un poste accordé au
 /// 3ᵉ tour ne dirait plus rien des deux refus qui l'ont précédé.
+/// LA NATURE D'UNE PIÈCE DE POSTE (§118.204) : la chaîne d'un achat, dans l'ordre où elle se lit.
+enum AdProPieceNature {
+  DEVIS // devis ou facture pro forma
+  BON_DE_COMMANDE
+  FACTURE
+}
+
+/// UNE PIÈCE DU REGISTRE LEGAL RATTACHÉE À UN POSTE (§118.204).
+///
+/// Un lien, jamais une copie : la pièce vit dans Legal (§17 — un seul registre), avec sa chaîne
+/// (`chainFromId`), sa signature et son règlement. Un DEVIS peut couvrir plusieurs postes (« deux,
+/// trois, quatre natures pour un seul et même devis ») : une ligne par poste couvert. Un bon de
+/// commande et une facture appartiennent à UN poste.
+model AdProItemPiece {
+  id              String           @id @default(cuid())
+  itemId          String
+  item            AdProItem        @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  legalDocumentId String
+  legalDocument   LegalDocument    @relation(fields: [legalDocumentId], references: [id], onDelete: Cascade)
+  nature          AdProPieceNature
+  createdById     String?
+  createdAt       DateTime         @default(now())
+  /// Le voyageur pour qui ce devis a été déposé (billetterie, §118.205) — `null` pour tout autre devis.
+  voyageur        AdProVoyageurDevis?
+
+  @@unique([itemId, legalDocumentId])
+  @@index([legalDocumentId])
+}
+
 model AdProItemDecision {
   id       String          @id @default(cuid())
   itemId   String
@@ -2728,6 +2853,7 @@ enum PettyCashTopUpStatus {
   PENDING
   APPROVED
   REJECTED
+  CANCELLED /// retirée par la détentrice avant la décision (décision du 04/10)
 }
 
 model PettyCashTopUpRequest {
@@ -2881,6 +3007,7 @@ enum DeptBudgetRequestStatus {
   PENDING
   APPROVED
   REJECTED
+  CANCELLED /// retirée par son demandeur avant la décision (décision du 04/10)
 }
 
 model BudgetExpenseLine {
@@ -2984,6 +3111,8 @@ model CongressNational {
   city             String?
   hostInstitution  String? // hôpital / association
   date             DateTime?
+  /// Fin de l'événement (décision du 04/10/2026) — `date` en est le début.
+  endDate          DateTime?
   specialty        String?
   presentDoctors   String?
   promotedProducts String?
@@ -3797,6 +3926,8 @@ model MedicalSpecialty {
   color       String? // accent visuel
   notes       String?
   doctors     MedicalDoctor[]
+  /// LES BUSINESS UNITS QUI LA VISENT (§118.183) — une spécialité visée ne se retire pas du référentiel.
+  businessUnits BusinessUnitSpecialty[]
   createdById String?
   createdAt   DateTime        @default(now())
   updatedAt   DateTime        @updatedAt
@@ -4140,6 +4271,12 @@ model MedicalVisit {
   /// LES SUPPORTS NUMÉRIQUES présentés pendant la visite — une utilisation, sans quantité.
   supportsNumeriques MedicalVisitSupportNumerique[]
 
+  /// POURQUOI LA VISITE N'A PAS EU LIEU (§118.193 — audit 360°, M5 du KAM) : posé avec `POSTPONED` / `CANCELLED`
+  /// par `direVisiteNonTenue`, dans la fenêtre de 48 h. Identifiant sans relation, comme les marques de renvoi.
+  notHeldReason String?
+  notHeldAt     DateTime?
+  notHeldById   String?
+
   @@index([delegateId])
   @@index([doctorId])
   @@index([status])
@@ -4319,6 +4456,7 @@ model BdProduct {
   canonicalProduct Product? @relation("ProductBdProfile", fields: [productId], references: [id], onDelete: SetNull)
 
   @@index([rangeId])
+  @@index([productId])
 }
 
 // ───────────────────────────── Cross-cutting ─────────────────────────────
@@ -4915,6 +5053,7 @@ enum HrRequestStatus {
   DELIVERED // remise à l'employé
   APPROVED // accordée (congé / absence / autorisation — décision, pas un document)
   REJECTED
+  CANCELLED // retirée par le salarié avant d'être traitée (décision du 04/10)
 }
 
 model Employee {
@@ -5375,7 +5514,7 @@ model DriveNode {
   spaceId          String?
   space            DriveSpace?         @relation(fields: [spaceId], references: [id], onDelete: Cascade)
   mimeType         String? // version courante (fichier)
-  size             Int                 @default(0) // octets de la version courante ; 0 pour un dossier
+  size             Float               @default(0) // octets de la version courante ; 0 pour un dossier (Float : exact jusqu'à 9 Po, tient les fichiers de plus de 2 Go sans passer en BigInt)
   category         String? // classement choisi à l'import (Contrat, Facture, Réglementaire…)
   isTrashed        Boolean             @default(false)
   versions         FileVersion[]
@@ -5428,12 +5567,15 @@ model DriveSpace {
 model FileBlob {
   id         String          @id @default(cuid())
   sha256     String          @unique
-  size       Int // taille du CLAIR en octets (≤ ~1,9 Go — borne de l'Int ; la limite d'ingestion est bien en deçà)
+  size       Float // taille du CLAIR en octets (Float : exact jusqu'à 9 Po ; un objet envoyé directement au bucket peut dépasser 2 Go)
   iv         Bytes // nonce AES-GCM
   data       Bytes? // contenu chiffré EN BASE, en UNE valeur (petits fichiers) ; null si chunké ou en objet
   storageKey String? // clé objet S3/R2 du contenu chiffré (null = stocké en base) — dé-gonfle le disque BDD
   refCount   Int             @default(0)
   createdAt  DateTime        @default(now())
+  /// Dernière prise par un détenteur (création OU réemploi) : la purge des orphelins n'efface
+  /// jamais un blob touché depuis moins d'une heure — sa fiche est peut-être en train de s'écrire.
+  touchedAt  DateTime        @default(now())
   versions   FileVersion[]
   chunks     FileBlobChunk[] // gros fichiers : contenu chiffré découpé en TRANCHES ordonnées (mémoire bornée)
 }
@@ -5458,7 +5600,7 @@ model FileVersion {
   blobId      String
   blob        FileBlob  @relation(fields: [blobId], references: [id])
   version     Int
-  size        Int
+  size        Float
   mimeType    String?
   note        String?
   createdById String?
@@ -5673,6 +5815,15 @@ model AdminApproval {
   amount        Decimal?              @db.Decimal(14, 2)
   currency      String                @default("DZD")
   decidedAt     DateTime?
+  /// QUI A TRANCHÉ (audit des managers, M14) — le validateur nommé, son intérimaire, un détenteur du droit
+  /// « Valider » du module ou la vue globale. `SetNull` : supprimer un compte ne fait pas disparaître la
+  /// décision ; elle se lit alors « auteur inconnu », comme celles d'avant cet enregistrement.
+  decidedById   String?
+  decidedBy     User?                 @relation("ApprovalDecider", fields: [decidedById], references: [id], onDelete: SetNull)
+  /// LA PAROLE DE CELUI QUI TRANCHE (M15) — exigée pour un refus ou une demande de modification. À part de
+  /// `comment`, qui porte celle de celui qui DEMANDE (l'estimation du catalogue, la note de l'assistante) :
+  /// une colonne pour deux voix efface l'une sous l'autre (§118.146).
+  decisionNote  String?
   createdAt     DateTime              @default(now())
 
   @@index([requestId])
@@ -5876,6 +6027,10 @@ model ValidationRequest {
   mode         ValidationMode   @default(SEQUENTIAL)
   status       ValidationStatus @default(PENDING)
   currentOrder Int              @default(1) // étape active en mode séquentiel
+  /// La VERSION de la demande : 1 au dépôt, +1 à chaque resoumission après un renvoi pour correction
+  /// (audit 360°, R08). Le validateur sait qu'il relit une demande corrigée ; l'historique des motifs
+  /// et des corrections vit dans le fil de la demande (`Comment`, écrit à la resoumission).
+  version      Int              @default(1)
   deadline     DateTime?
   decidedAt    DateTime?
   createdAt    DateTime         @default(now())
@@ -6007,6 +6162,8 @@ model PchTender {
   notes       String?
   orders      PchOrder[]
   lines       PchTenderLine[]
+  /// Les LECTURES de son document (texte natif ou OCR → lignes) — ce qui a été lu, et ce qui ne l'a pas été.
+  extractions PchTenderExtraction[]
   /// Les VERSIONS de préparation de la soumission — la déposée est verrouillée.
   submissions PchSubmission[]
   /// Les CONTRATS nés de ce marché — le lien FORT qui remplace la recherche par texte.
@@ -6110,9 +6267,52 @@ model PchTenderLine {
   orderLines             PchOrderLine[]              @relation("OrderLineTenderLine")
   /// LES BUSINESS UNITS QUI PORTENT CE PRODUIT — voir `PchTenderLineBusinessUnit`.
   businessUnits          PchTenderLineBusinessUnit[]
+  /// LA LECTURE dont cette ligne est née — `null` : saisie à la main, ou née avant que les lectures soient tracées.
+  /// Une lecture ne remplace QUE des lignes nées d'une lecture, que personne n'a touchées (`lib/pch/extraction.ts`).
+  extractionId           String?
+  extraction             PchTenderExtraction?        @relation(fields: [extractionId], references: [id], onDelete: SetNull)
+  /// CE QUE LA LECTURE AVAIT LU (désignation, dosage, forme, quantité), figé : c'est lui, et non la ligne corrigée,
+  /// qui reconnaît le même produit à la lecture suivante — une quantité mal lue puis corrigée n'est pas recréée.
+  empreinteExtraction    String?
+  /// La dernière fois qu'une PERSONNE a changé cette ligne. `updatedAt` bouge aussi quand l'enrichissement écrit ;
+  /// seul ce champ dit « touchée à la main ».
+  modifieeLe             DateTime?
 
   @@index([tenderId])
   @@index([productId])
+  @@index([extractionId])
+}
+
+/// UNE LECTURE DU DOCUMENT D'UN APPEL D'OFFRES — ce qu'on a lu, comment, et ce qu'on n'a PAS lu (audit 360°, lot D1c).
+///
+/// La lecture d'avant océrisait même un PDF qui porte son texte, coupait le texte à 24 000 caractères sans le dire,
+/// et AJOUTAIT ses lignes aux précédentes. Une lecture porte désormais sa méthode, ses pages, sa coupe (`caracteres`
+/// / `caracteresLus`) et le fichier gardé ; ses lignes la désignent (`PchTenderLine.extractionId`), ce qui permet
+/// à la lecture suivante de remplacer ce que personne n'a touché — et seulement cela.
+model PchTenderExtraction {
+  id             String          @id @default(cuid())
+  tenderId       String
+  tender         PchTender       @relation(fields: [tenderId], references: [id], onDelete: Cascade)
+  /// « document » (fichier lu) ou « texte » (texte collé).
+  source         String
+  nomFichier     String?
+  /// Le fichier gardé dans les documents du marché, quand il a pu l'être (`Document`, polymorphe : pas de clé étrangère).
+  documentId     String?
+  /// « texte » : texte natif ; « ocr » : reconnu sur des images.
+  methode        String
+  confiance      Int?
+  aRelire        Boolean         @default(false)
+  pagesLues      Int?
+  pagesTotal     Int?
+  caracteres     Int
+  caracteresLus  Int
+  produits       Int
+  complementaire Boolean         @default(false)
+  createdById    String?
+  createdAt      DateTime        @default(now())
+  lignes         PchTenderLine[]
+
+  @@index([tenderId, createdAt])
 }
 
 /// QUI PORTE CE PRODUIT DU MARCHÉ — l'affectation d'un lot d'AO à une ou plusieurs Business Units.
@@ -6498,6 +6698,16 @@ model PromoMaterial {
   /// Les chantiers parallèles déjà clos (`PURCHASE_ORDER`, `PAYMENT`, `AD_VISA`), séparés par des
   /// virgules. Le dossier n'est terminé que lorsque les trois y figurent.
   tracksDone   String?
+  /// LE RENVOI POUR CORRECTION (audit 360°, lot C4b, R05) — la troisième issue, entre valider et
+  /// refuser. À la validation de la demande, le dossier RESTE à son étape et cette marque dit que la
+  /// balle est chez le demandeur ; renvoyé depuis une validation du choix, il repart au choix des
+  /// lignes et la marque y porte le motif jusqu'à ce que le demandeur revalide. Voir
+  /// `src/lib/promo-material/renvoi.ts`.
+  returnedAt   DateTime?
+  returnedById String?
+  returnNote   String?
+  /// L'étape qui a renvoyé (`REVIEW_REQUEST`, `REVIEW_MANAGER`, `REVIEW_DG`…) — l'écran le dit.
+  returnedFrom String?
 
   /// LA VERSION DU CIRCUIT (§118.152). 1 = le circuit court d'origine — les dossiers déjà en vol
   /// gardent la chaîne qui leur avait été PROMISE (§118.142) ; 2 = la demande validée, les devis
@@ -6520,6 +6730,9 @@ model PromoMaterial {
   /// Quand, et par qui, les devis ont été demandés au secrétariat.
   quotesRequestedAt    DateTime?
   quotesRequestedById  String?
+  /// Les précisions du demandeur pour l'assistante de direction (§118.204) — saisies dans « Articles
+  /// demandés » à la création, envoyées avec la demande de devis quand elle part.
+  precisionsDevis      String?
   /// Les devis RETRANSCRITS par l'assistante de direction — un par agence ou partenaire.
   quotes               PromoQuote[]
   /// LES ARTICLES DEMANDÉS (§118.165) — ce que le demandeur veut faire faire, pioché dans le
@@ -6649,6 +6862,10 @@ model PromoRequestItem {
   /// Ce qu'on attend du fournisseur — au moins une action.
   actions         PromoAction[]             @default([])
   commentaire     String?
+  /// CE QUE LA LIGNE PROMEUT (§118.204), lisible tel quel : { societe, gammes:[{id,nom}], produits:[{id,nom}],
+  /// autre }. Les produits sont ceux des Business Units ; `produits` (ci-dessous) garde le lien CANONIQUE
+  /// quand il existe, pour le stock. Nul : ligne d'avant (ses produits canoniques font foi).
+  promus          Json?
   produits        PromoRequestItemProduct[]
   lignesDevis     PromoQuoteLine[]
   lignesFacture   PromoFactureLigne[]
@@ -6929,6 +7146,11 @@ model PromoStockMovement {
   /// mouvement ; la visite en est le contexte, et sa suppression ne recrée pas les fiches.
   visitId     String?
   visit       MedicalVisit?       @relation("PromoRemiseVisite", fields: [visitId], references: [id], onDelete: SetNull)
+  /// LE COMPTE RENDU DE VISITE (rapport terrain) où ce matériel a été déclaré remis, quand aucune
+  /// visite ne le porte (§118.204). SetNull, comme la visite : le stock dit la vérité du mouvement.
+  /// L'action refuse de supprimer un rapport qui porte des remises.
+  fieldReportId String?
+  fieldReport   FieldReport?      @relation("PromoRemiseRapport", fields: [fieldReportId], references: [id], onDelete: SetNull)
   /// LE MÉDECIN qui l'a reçu — l'historique de sa fiche.
   doctorId    String?
   doctor      MedicalDoctor?      @relation("PromoRemiseMedecin", fields: [doctorId], references: [id], onDelete: SetNull)
@@ -6948,6 +7170,7 @@ model PromoStockMovement {
   @@index([itemId, holderId])
   @@index([holderId])
   @@index([lotId])
+  @@index([fieldReportId])
   @@index([transferId])
   @@index([visitId])
   @@index([doctorId])
@@ -7096,6 +7319,11 @@ model PromoStockComptage {
   annuleLe     DateTime?
   annuleParId  String?
   annuleMotif  String?
+  /// LA DERNIÈRE CORRECTION D'UNE SAISIE (audit 360°, R19) : qui, quand, pourquoi. Les écarts
+  /// corrigés vivent au registre (mouvements portant ce comptage) ; ceci les dit à l'écran.
+  corrigeLe    DateTime?
+  corrigeParId String?
+  corrigeMotif String?
   createdAt    DateTime                      @default(now())
   updatedAt    DateTime                      @updatedAt
   lignes       PromoStockComptageLigne[]
@@ -7482,6 +7710,8 @@ model FieldReport {
   /// ajoute le lien, on ne fond pas les deux (§118.5).
   visitId String?
   visit   MedicalVisit? @relation("FieldReportVisit", fields: [visitId], references: [id], onDelete: SetNull)
+  /// Le matériel promotionnel déclaré remis dans ce compte rendu (§118.204).
+  remises PromoStockMovement[] @relation("PromoRemiseRapport")
 
   @@index([visitId])
   @@index([delegateId])
@@ -7719,6 +7949,11 @@ model AiSetting {
   fieldReportAiEnabled   Boolean  @default(true) // analyse IA des rapports terrain
   voiceTranscriptEnabled Boolean  @default(true) // transcription vocale (Whisper)
   siteWebAiEnabled       Boolean  @default(true) // « Rédiger avec l'IA » — articles et offres du site (§118.160)
+  /// Lecture des LIGNES d'une pièce commerciale par un modèle (lot D2). COUPÉE par défaut : elle a un coût, et la
+  /// lecture locale (texte natif, OCR sur ce serveur, en-têtes et totaux repérés) suffit à proposer sans rien envoyer.
+  lecturePiecesEnabled   Boolean  @default(false)
+  /// Luna CONSEILLE où ranger une pièce déposée sur une demande Ad & Pro — consultatif, aucune écriture : allumé par défaut.
+  conseilPiecesEnabled   Boolean  @default(true)
   updatedAt              DateTime @updatedAt
   updatedById            String?
 }
@@ -7876,7 +8111,7 @@ model AppSetting {
   missionsPausedAt              DateTime?
   missionsPausedById            String?
   maxUploadMb                   Int       @default(200) // pièces jointes des modules (Documents/messagerie/RH) — ZIP de dossier
-  maxDriveUploadMb              Int       @default(1024) // fichiers du Drive (~1 Go, stockage en tranches)
+  maxDriveUploadMb              Int       @default(10240) // fichiers du Drive (10 Go ; au-delà de 2 Go : envoi direct au bucket)
   driveCapacityGb               Int       @default(100) // capacité globale du Drive (modifiable Super Admin)
   driveUserQuotaGb              Int       @default(10) // quota par utilisateur (modifiable Super Admin)
   // Budget total au-dessus des enveloppes : FIXED (montant figé) ou FLEXIBLE
@@ -8449,8 +8684,8 @@ model WorkflowInstance {
   entityType       EntityType
   entityId         String
   category         String
-  status           String              @default("IN_PROGRESS") // IN_PROGRESS | APPROVED | REJECTED | CANCELLED
-  currentSlug      String? // étape en attente d'action ; null si terminal
+  status           String              @default("IN_PROGRESS") // IN_PROGRESS | RETURNED (à corriger, chez le demandeur) | APPROVED | REJECTED | CANCELLED
+  currentSlug      String? // étape en attente d'action ; null si terminal ; gardée pendant un renvoi (la demande y reviendra)
   /// L'ÉTAPE QUI TRANCHE POUR CETTE DEMANDE — null = la dernière étape de la définition.
   ///
   /// Le parcours Ad&Pro dépend de QUI demande. Ce champ disait « les deux chaînes sont des
@@ -8481,6 +8716,18 @@ model WorkflowInstance {
   amount           Decimal?            @db.Decimal(14, 2)
   budgetCategoryId String?
   assigneeId       String?
+  /// UN GESTE EST EN COURS SUR CE CIRCUIT depuis cet instant (§118.186) — null sinon.
+  ///
+  /// Approuver, refuser, renvoyer, resoumettre, retirer, relancer, faire appel : chaque geste
+  /// PREND le circuit avant son premier effet et le REND à la fin. Sans cette prise, deux clics à
+  /// une seconde d'intervalle sur « Approuver » à l'étape qui tranche lisaient le même état et
+  /// émettaient DEUX ordres de dépense ; un renvoi et un accord donnés ensemble s'appliquaient
+  /// tous les deux. Une condition sur l'état seul ne suffit pas : l'approbation ne déplace l'étape
+  /// qu'à sa FIN, et un second geste lu entre-temps la croyait toujours libre.
+  ///
+  /// Une prise plus vieille que deux minutes est réputée abandonnée (processus tombé en plein
+  /// geste) et se reprend : un circuit ne reste jamais bloqué par une panne.
+  claimedAt        DateTime?
   createdAt        DateTime            @default(now())
   updatedAt        DateTime            @updatedAt
   events           WorkflowStepEvent[]
@@ -9986,9 +10233,33 @@ model BusinessUnit {
   consultings            ConsultingContract[]            @relation("AdProConsulting")
   autresDemandes         AdProOtherRequest[]             @relation("AdProOther")
   marketingReferents     BusinessUnitMarketingReferent[] @relation("AdProMarketingReferents")
+  /// LES SPÉCIALITÉS QU'ELLE VISE (§118.183) — plusieurs, dont une principale facultative.
+  specialites            BusinessUnitSpecialty[]
 
   @@index([companyId])
   @@index([supervisorId])
+}
+
+/// UNE BUSINESS UNIT VISE PLUSIEURS SPÉCIALITÉS (§118.183) — « BU ≠ spécialité ».
+///
+/// La BU Specialty Care vise la neurologie, la dermatologie et l'urologie : une colonne `specialtyId`
+/// sur la BU aurait interdit ce cas. La PRINCIPALE est un drapeau facultatif, qui sert l'affichage et
+/// ne restreint rien ; « au plus une principale par BU » est tenu par un index PARTIEL de la migration
+/// (`BusinessUnitSpecialty_une_principale`), que ce schéma ne sait pas déclarer.
+model BusinessUnitSpecialty {
+  id             String           @id @default(cuid())
+  businessUnitId String
+  businessUnit   BusinessUnit     @relation(fields: [businessUnitId], references: [id], onDelete: Cascade)
+  specialtyId    String
+  /// RESTRICT : retirer du référentiel une spécialité qu'une BU vise changerait, en silence, ce que la
+  /// BU concerne — l'action refuse en nommant les BU, et la base refuse aussi.
+  specialty      MedicalSpecialty @relation(fields: [specialtyId], references: [id], onDelete: Restrict)
+  principale     Boolean          @default(false)
+  createdById    String?
+  createdAt      DateTime         @default(now())
+
+  @@unique([businessUnitId, specialtyId])
+  @@index([specialtyId])
 }
 
 // Produit promu (marque marketing) — catalogue structuré pour l'affectation et les prévisions.
@@ -10024,6 +10295,7 @@ model PromoProduct {
   canonicalProduct Product?              @relation("ProductPromoProfile", fields: [productId], references: [id], onDelete: SetNull)
 
   @@index([businessUnitId])
+  @@index([productId])
 }
 
 // Cycle promotionnel mensuel.
@@ -10143,12 +10415,24 @@ model SalesSector {
   createdById    String?
   createdAt      DateTime     @default(now())
   updatedAt      DateTime     @updatedAt
+  /// LE KAM DONT C'EST LE TERRITOIRE PROPRE (04/10/2026). Dans une BU hospitalière, le territoire
+  /// d'un KAM se choisit SUR SA LIGNE (établissements de l'annuaire, tous leurs services ou
+  /// certains) : c'est un secteur qui n'appartient qu'à lui, et qui porte aussi sa ligne
+  /// `SalesSectorRep` — la règle du panel (`clausePanelDuKam`) et la portée des stocks continuent
+  /// de lire le territoire par ce lien, sans rien changer. Nul = un secteur PARTAGÉ d'avant
+  /// (« Est », « Oranais »), repris dans les territoires propres par la migration
+  /// `20270106093000_territoire_kam` et désactivé, jamais supprimé.
+  repId          String?
+  rep            User?        @relation("SalesSectorTerritoireKam", fields: [repId], references: [id], onDelete: Cascade)
 
   institutions SalesSectorInstitution[]
   reps         SalesSectorRep[]
 
   /// Deux secteurs « Est » dans la même BU sont une erreur de saisie, pas deux territoires.
   @@unique([businessUnitId, name])
+  /// UN TERRITOIRE PROPRE PAR KAM ET PAR BU. Les secteurs partagés (repId nul) n'y entrent pas :
+  /// sous Postgres, deux NULL ne se heurtent jamais.
+  @@unique([businessUnitId, repId])
   @@index([businessUnitId])
 }
 
@@ -10229,6 +10513,9 @@ enum TourPlanStatus {
   ESCALATED
   APPROVED
   REJECTED
+  /// UN PLAN VALIDÉ ROUVERT POUR RÉVISION (§118.193 — audit 360°, R13) : il se modifie, puis se resoumet. Ni un
+  /// brouillon (son échéance d'origine est passée), ni un rejet (personne ne l'a refusé).
+  REVISION
 }
 
 /// D'OÙ VIENT UNE VISITE — et les trois cas sont dans la demande.
@@ -10290,8 +10577,18 @@ model TourPlan {
   decidedBy        User?     @relation("TourPlanDecidedBy", fields: [decidedById], references: [id], onDelete: SetNull)
   /// LES COMMENTAIRES DE RECTIFICATION. Un rejet sans motif ne se corrige pas — il se subit.
   rejectionComment String?
-  /// 48 H POUR RESOUMETTRE, à partir du rejet.
+  /// 48 H POUR RESOUMETTRE, à partir du rejet — ou de la demande de révision.
   resubmitDueAt    DateTime?
+
+  /// LA RÉVISION D'UN PLAN VALIDÉ (§118.193) : pourquoi, qui, quand — lue par le validateur quand le plan lui
+  /// revient, effacée par sa décision. `revisionById` est un identifiant sans relation, la convention des marques
+  /// de renvoi (§118.192).
+  revisionNote          String?
+  revisionRequestedAt   DateTime?
+  revisionRequestedById String?
+  /// Combien de fois le plan a été rouvert après validation. Au-dessus de zéro, il a été validé au moins une fois :
+  /// ses visites passées ne se retirent plus (`retraitInterditApresRevision`).
+  revisionCount         Int       @default(0)
 
   createdById String?
   createdAt   DateTime @default(now())
@@ -10986,6 +11283,13 @@ model ConsultingContract {
   validatedAt   DateTime?
   decisionNote  String?
   cancelledAt   DateTime?
+  /// RENVOYÉ POUR CORRECTION (audit 360°, lot C4a) : le validateur rend le contrat à son porteur, qui
+  /// le corrige et le resoumet. Effacé à la resoumission — l'historique reste au journal et dans la
+  /// discussion de la fiche. Sans lui, la seule issue d'un contrat mal saisi était le refus, donc
+  /// l'annulation définitive.
+  returnedAt    DateTime?
+  returnedById  String?
+  returnNote    String?
 
   notes String?
   tasks ConsultingTask[]
@@ -11419,6 +11723,9 @@ enum LegalDocKind {
   QUOTE // devis — le premier maillon de la chaîne d'achat
   PURCHASE_ORDER // bon de commande
   INVOICE // facture — le dernier maillon avant le règlement
+  /// AVOIR (§118.195) : la correction d'une FACTURE émise, qui ne se réécrit pas — un avoir naît de SA
+  /// facture (`chainFromId`), sous son propre numéro, et en réduit le net ; il ne se crée pas seul.
+  CREDIT_NOTE
   /// AVENANT à un contrat (`amendsId`) : une vraie pièce Legal — revue, lecteurs, Drive —
   /// qui porte EN PLUS son impact marché (`amountDelta`, lignes en delta). La valeur
   /// contractuelle courante = montant initial + deltas des avenants EFFECTIFS ; elle se
@@ -11506,6 +11813,14 @@ model LegalDocument {
   /// Nul pour une date de signature reprise d'un papier (contrats du PCH).
   signedById        String?
   signedBy          User?                 @relation("LegalDocSigner", fields: [signedById], references: [id], onDelete: SetNull)
+  /// LA SIGNATURE RENVOYÉE À L'ÉMETTEUR (audit 360°, R09) : un signataire qui ne peut pas signer le
+  /// BC tel quel le renvoie avec ce qu'il faut corriger — il quitte la file des signataires. TOUTE
+  /// modification de la pièce efface ces trois champs (`aiguillerBC`, `modifie`) : le BC revient à
+  /// la signature, ou à son centre si son montant l'y renvoie. Les trois vont ensemble.
+  signatureReturnedAt DateTime?
+  signatureReturnedById String?
+  signatureReturnedBy User? @relation("LegalDocSignatureReturner", fields: [signatureReturnedById], references: [id], onDelete: SetNull)
+  signatureReturnNote String?
   /// ENTRÉE D'UN BC DANS LE CIRCUIT « centre → signature des Finances » (§118.149). Posée par
   /// l'aiguillage la première fois qu'il lit la pièce sous cette règle. Nulle = BC d'avant la
   /// règle, jamais touché depuis : il n'est présumé ni à valider ni à signer — sans ce marqueur,
@@ -11559,6 +11874,8 @@ model LegalDocument {
   /// l'historique : le remplir de listes devinées aurait fermé des documents à ceux qui les
   /// utilisent, sans que personne sache lesquels.
   readers           LegalDocumentReader[]
+  /// Les postes Ad & Pro que cette pièce sert (§118.204).
+  postesAdPro       AdProItemPiece[]
   /// Dernier rappel d'échéance envoyé — évite de renotifier tous les jours.
   lastRemindedAt    DateTime?
   createdById       String?
@@ -13924,4 +14241,89 @@ enum AdProStockLineStatut {
   DEMANDEE
   RESERVEE
   CONFIRMEE
+}
+
+/// UNE LECTURE DE PIÈCE COMMERCIALE (devis, BC, facture) — une PROPOSITION, jamais un prix de la société (lot D2,
+/// §118.152 i). Une ligne par empreinte SHA-256 des octets et version du lecteur : la même pièce n'est lue — et payée —
+/// qu'une fois, sous n'importe quel nom. On RÉSERVE avant de lire (`EN_COURS`), le gagnant lit, les autres attendent.
+/// Le texte lu est SCELLÉ (`sealSecret`) : une pièce peut porter des coordonnées bancaires.
+model LecturePiece {
+  id               String                     @id @default(cuid())
+  empreinte        String
+  versionLecteur   Int
+  /// EN_COURS | LUE | ECHOUEE — vocabulaire fermé côté code.
+  etat             String                     @default("EN_COURS")
+  extension        String
+  taille           Int
+  methode          String?
+  moteur           String?
+  confiance        Int?
+  aRelire          Boolean                    @default(false)
+  ocrTente         Boolean                    @default(false)
+  ocrEchoue        Boolean                    @default(false)
+  pagesLues        Int?
+  pagesTotal       Int?
+  caracteres       Int                        @default(0)
+  tronque          Boolean                    @default(false)
+  texteScelle      String?
+  /// En-têtes et totaux repérés de façon DÉTERMINISTE (`pieces-lues/entetes.ts`), chacun avec son extrait.
+  entetes          Json?
+  /// Les lignes lues par le modèle, RELUES par `pieces-lues/structure.ts` — `null` tant qu'aucun modèle n'a lu.
+  structure        Json?
+  structureePar    String?
+  /// Pourquoi il n'y a pas de lignes : DESACTIVEE, IA_COUPEE, NON_CONFIGUREE, CONFIDENTIELLE, OCR_ECHOUE, TEXTE_ILLISIBLE.
+  raisonSansLignes String?
+  creeParId        String?
+  createdAt        DateTime                   @default(now())
+  updatedAt        DateTime                   @updatedAt
+  confirmations    LecturePieceConfirmation[]
+
+  @@unique([empreinte, versionLecteur])
+  @@index([etat, updatedAt])
+}
+
+/// QUI A CONFIRMÉ QUOI — l'attestation qu'une personne a relu, ligne à ligne, ce qu'une lecture proposait, écrite DANS
+/// la transaction de l'écriture métier (le devis, la facture, la pièce Legal). `cibleType` : PROMO_QUOTE,
+/// PROMO_FACTURE, LEGAL_DOCUMENT (vocabulaire fermé côté code). `RESTRICT` : une lecture qu'une confirmation désigne
+/// ne se purge pas.
+model LecturePieceConfirmation {
+  id             String       @id @default(cuid())
+  lectureId      String
+  lecture        LecturePiece @relation(fields: [lectureId], references: [id], onDelete: Restrict)
+  cibleType      String
+  cibleId        String
+  confirmeeParId String
+  confirmeeLe    DateTime     @default(now())
+  /// Verdict par ligne : CONFIRMEE, CORRIGEE, AJOUTEE, ECARTEE (prix comparés au centime).
+  lignes         Json
+  controle       Json?
+
+  @@index([cibleType, cibleId])
+  @@index([lectureId])
+}
+
+/// Envoi DIRECT navigateur → bucket (S3/R2) d'un gros fichier, en plusieurs parties. Le serveur ne
+/// voit jamais les octets : il ouvre, signe, puis finalise. La ligne survit à une coupure — c'est
+/// elle qui permet de REPRENDRE (empreinte `fingerprint` = nom, taille, date du fichier) sans
+/// renvoyer les parties que le bucket a déjà.
+model DirectUpload {
+  id          String   @id @default(cuid())
+  userId      String
+  purpose     String // "DRIVE"
+  objectKey   String
+  uploadId    String?
+  fileName    String
+  mimeType    String?
+  totalBytes  BigInt
+  partSize    Int
+  fingerprint String
+  target      Json // destination (dossier, catégorie, version d'un fichier…)
+  status      String   @default("UPLOADING") // UPLOADING | COMPLETED | ABORTED
+  resultId    String? // nœud Drive créé
+  error       String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([userId, status])
+  @@index([status, updatedAt])
 }

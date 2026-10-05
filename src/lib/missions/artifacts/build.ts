@@ -253,32 +253,18 @@ async function composerSpec(ctx: StepContext, deps: ArtifactDeps): Promise<SpecO
   // étapes deviennent prêtes au même battement, aucune ne voit la ligne de l'autre, et le test
   // passait une fois sur deux. Un test qui dépend de l'ordonnancement ne prouve rien.
   //
-  // On RÉSERVE donc d'abord — une ligne PENDING, sans fichier, portant l'empreinte — puis on
-  // DÉSIGNE l'auteur de la base : la ligne la plus ancienne, à égalité la clé la plus petite.
-  // Comme chacun réserve avant de lire, tous ceux qui lisent voient le même premier, et la
-  // désignation est la même pour tout le monde. Une ligne réservée sans octets n'est jamais
-  // comptée comme un livrable produit : `goal/qa.ts` exige VERIFIED et `byteSize > 0`.
+  // On RÉSERVE donc d'abord — une ligne PENDING, sans fichier, portant l'empreinte — et l'on
+  // DÉSIGNE l'auteur de la base dans le MÊME geste, sous un verrou : voir `reserverEtDesigner`.
+  // Une ligne réservée n'est jamais comptée comme un livrable produit : `goal/qa.ts` exige VERIFIED
+  // et `byteSize > 0`, et une ligne REPRISE sur d'autres données repart à PENDING — ses octets sont
+  // ceux de la version précédente.
   const empreinte = createHash("sha256").update(JSON.stringify(amont)).digest("hex");
-  await prisma.missionArtifact.upsert({
-    where: { missionId_key: { missionId: mission.id, key: identite.key } },
-    create: {
-      missionId: mission.id, stepId: step.id, key: identite.key, title: step.title,
-      format, fileName: identite.fileName ?? "", status: "PENDING", inputsHash: empreinte,
-    },
-    update: { inputsHash: empreinte, stepId: step.id },
-    select: { id: true },
+  const auteur = await reserverEtDesigner({
+    missionId: mission.id, stepId: step.id, cle: identite.key, titre: step.title,
+    format, fileName: identite.fileName ?? "", empreinte,
   });
-
-  const auteur = await prisma.missionArtifact.findFirst({
-    where: { missionId: mission.id, inputsHash: empreinte },
-    orderBy: [{ createdAt: "asc" }, { key: "asc" }],
-    select: { key: true, format: true, fileName: true },
-  });
-  // LE FORMAT DOIT DIFFÉRER. Deux livrables de MÊME format sur les mêmes données sont deux
-  // découpages voulus (« un classeur par produit »), pas une duplication (§118.36) : chacun
-  // compose alors le sien.
-  if (auteur && auteur.key !== identite.key && auteur.format !== format) {
-    const repris = await attendreLaBase({ mission, step, cleAuteur: auteur.key, empreinte, format, identite });
+  if (auteur) {
+    const repris = await attendreLaBase({ mission, step, cleAuteur: auteur, empreinte, format, identite });
     if (repris) return repris;
   }
 
@@ -328,6 +314,106 @@ async function composerSpec(ctx: StepContext, deps: ArtifactDeps): Promise<SpecO
   return s;
 }
 
+/** Une spec est une BASE pour des données si elle a été composée DEPUIS elles — et seulement alors. */
+function estBasePour(spec: unknown, empreinte: string): spec is Record<string, unknown> {
+  return !!spec && typeof spec === "object" && !Array.isArray(spec)
+    && (spec as Record<string, unknown>).inputsHash === empreinte;
+}
+
+/** Ce que la désignation lit d'une ligne qui porte déjà ces données. */
+export interface Porteur {
+  key: string;
+  format: string;
+  spec: unknown;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+/**
+ * QUI COMPOSE LA BASE — règle PURE, appliquée sous le verrou de `reserverEtDesigner`.
+ *
+ * `porteurs` : les lignes qui portaient DÉJÀ ces données (même empreinte) AVANT la réservation de
+ * `cle`. Rend `null` quand c'est à `cle` de composer, sinon la clé du livrable à reprendre.
+ *
+ *   1. LE FORMAT DOIT DIFFÉRER. Deux livrables de MÊME format sur les mêmes données sont deux
+ *      découpages voulus (« un classeur par produit »), pas une duplication (§118.36) : ils ne
+ *      se désignent jamais l'un l'autre, chacun compose le sien.
+ *   2. UNE BASE DÉJÀ PUBLIÉE pour ces données fait foi — y compris pour une reprise de l'auteur :
+ *      le suiveur l'a peut-être déjà rendue dans son format, et recomposer ferait deux contenus.
+ *   3. SINON, LE PREMIER RÉSERVATAIRE COMPOSE, et qui le trouve en place le suit. « Premier » se lit
+ *      sur `updatedAt` (la réservation le pose) et non sur `createdAt` : `createdAt` est posé par le
+ *      client Prisma quand il construit la requête (mesuré : un paramètre de l'INSERT), et une
+ *      ligne d'une version précédente, dont la clé est reprise, est « la plus ancienne » quel que
+ *      soit l'ordre des réservations — c'est ce qui faisait deux auteurs.
+ */
+export function designerAuteur(porteurs: readonly Porteur[], cle: string, format: string, empreinte: string): string | null {
+  const candidats = porteurs.filter((p) => p.key !== cle && p.format.toUpperCase() !== format.toUpperCase());
+  const parCreation = [...candidats].sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime() || a.key.localeCompare(b.key));
+  const base = parCreation.find((p) => estBasePour(p.spec, empreinte));
+  if (base) return base.key;
+  if (candidats.length === 0) return null;
+  const parReservation = [...candidats].sort((a, b) => a.updatedAt.getTime() - b.updatedAt.getTime() || a.key.localeCompare(b.key));
+  return parReservation[0].key;
+}
+
+/**
+ * RÉSERVE LA PLACE DU LIVRABLE ET DÉSIGNE L'AUTEUR DE LA BASE — d'un seul geste, sous un verrou.
+ *
+ * ── LE DÉFAUT, MESURÉ PAR UN ENTRELACEMENT FORCÉ ────────────────────────────────────────
+ *
+ * Réserver (un `upsert`) puis désigner (« la ligne la plus ancienne ») étaient deux instructions
+ * séparées. Deux frères pouvaient donc se désigner tous les deux : l'un lisait avant que la
+ * réservation de l'autre soit visible et se croyait seul ; l'autre trouvait SA ligne « plus
+ * ancienne » (une version précédente, ou un `createdAt` posé avant le commit) et se désignait
+ * aussi. Deux appels de mise en forme, deux contenus — le défaut même de #88 — et
+ * `canonique.test.ts` tombait sous la charge de la suite complète, trois fois en trois semaines.
+ *
+ * ── LE VERROU, ET POURQUOI CELUI-LÀ ─────────────────────────────────────────────────────
+ *
+ * Un verrou consultatif de TRANSACTION sur (mission, empreinte) : il ne sérialise que les
+ * livrables d'une même mission bâtis sur les mêmes données — précisément ceux qui se disputent la
+ * base — et rien d'autre. La lecture des porteurs et la réservation se font sous lui, et le commit
+ * qui le relâche rend la réservation visible au suivant : chacun voit tous ceux qui l'ont précédé.
+ * Une contrainte d'unicité (`INSERT … ON CONFLICT`) aurait demandé une colonne « auteur » au
+ * schéma ; verrouiller la ligne de la mission aurait bloqué tout ce qui l'écrit ou s'y rattache
+ * par clé étrangère (le journal, les transitions) le temps de la désignation. Une collision de
+ * `hashtext` entre deux missions ne fait que sérialiser deux désignations : jamais un faux auteur.
+ */
+async function reserverEtDesigner(r: {
+  missionId: string; stepId: string; cle: string; titre: string; format: string; fileName: string; empreinte: string;
+}): Promise<string | null> {
+  return prisma.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${r.missionId}), hashtext(${r.empreinte}))`;
+    const porteurs = await tx.missionArtifact.findMany({
+      where: { missionId: r.missionId, inputsHash: r.empreinte },
+      select: { key: true, format: true, spec: true, createdAt: true, updatedAt: true },
+    });
+    // UNE LIGNE QUI CHANGE DE DONNÉES N'EST PLUS LE LIVRABLE QU'ELLE PORTAIT (vague « restes 2 »). La clé
+    // d'un livrable se reprend d'une version à l'autre (`identiteDuLivrable`, #88) : la réservation ne changeait
+    // que l'empreinte et laissait le statut VERIFIED et les octets de la version précédente. Si la
+    // recomposition échouait ensuite pour de bon — le modèle en panne, un rendu impossible —, `goal/qa.ts`
+    // comptait pour PRODUIT un fichier bâti sur les données d'AVANT : le faux succès parfait, sans une étape
+    // verte de trop. Le statut repart donc à PENDING quand l'empreinte CHANGE — et seulement alors : sur les
+    // MÊMES données, le livrable déjà vérifié reste le bon, et le reprendre ne le défait pas. L'écriture est
+    // conditionnelle sur l'empreinte stockée (une empreinte absente compte pour une autre) : c'est la ligne
+    // en base qui décide, jamais une lecture faite avant.
+    await tx.missionArtifact.updateMany({
+      where: { missionId: r.missionId, key: r.cle, OR: [{ inputsHash: null }, { inputsHash: { not: r.empreinte } }] },
+      data: { status: "PENDING" },
+    });
+    await tx.missionArtifact.upsert({
+      where: { missionId_key: { missionId: r.missionId, key: r.cle } },
+      create: {
+        missionId: r.missionId, stepId: r.stepId, key: r.cle, title: r.titre,
+        format: r.format, fileName: r.fileName, status: "PENDING", inputsHash: r.empreinte,
+      },
+      update: { inputsHash: r.empreinte, stepId: r.stepId },
+      select: { id: true },
+    });
+    return designerAuteur(porteurs, r.cle, r.format, r.empreinte);
+  }, { maxWait: 15_000, timeout: 30_000 });
+}
+
 /**
  * ATTEND LA BASE CANONIQUE d'un livrable frère, puis la reprend dans CE format.
  *
@@ -351,7 +437,11 @@ async function attendreLaBase(args: {
       select: { spec: true, format: true, fileName: true },
     });
     const brut = auteur?.spec;
-    if (brut && typeof brut === "object" && Object.keys(brut).length > 0) {
+    // UNE SPEC NON VIDE N'EST PAS UNE BASE : il faut qu'elle ait été composée DEPUIS ces données.
+    // La ligne de l'auteur garde la spec de sa version précédente tant qu'il n'a pas publié la
+    // nouvelle (la réservation ne touche pas à la spec) — la reprendre mettrait les chiffres
+    // d'avant dans ce livrable, et `parserSpec` les re-tamponnerait de l'empreinte du jour.
+    if (estBasePour(brut, empreinte)) {
       const s = parserSpec({
         ...(brut as Record<string, unknown>),
         key: identite.key,

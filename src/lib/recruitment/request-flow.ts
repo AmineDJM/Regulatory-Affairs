@@ -88,7 +88,8 @@ export type RecruitmentStage =
   | "ONBOARDING"     // quelqu'un est retenu ; reste à l'intégrer
   | "CLOSED"         // terminé — pourvu, ou clos sans suite
   | "REJECTED"       // refusé, dans la chaîne ou par les RH
-  | "CANCELLED";     // retiré par son auteur
+  | "CANCELLED"      // retiré par son auteur
+  | "RETURNED";      // renvoyé pour correction : la balle est au demandeur (§118.192)
 
 export const STAGE_LABEL: Record<RecruitmentStage, string> = {
   CHAIN: "Validation hiérarchique",
@@ -99,6 +100,7 @@ export const STAGE_LABEL: Record<RecruitmentStage, string> = {
   CLOSED: "Clôturée",
   REJECTED: "Refusée",
   CANCELLED: "Annulée",
+  RETURNED: "À corriger",
 };
 
 export type Tone = "neutral" | "info" | "success" | "warning" | "danger";
@@ -112,6 +114,7 @@ export const STAGE_TONE: Record<RecruitmentStage, Tone> = {
   CLOSED: "success",
   REJECTED: "danger",
   CANCELLED: "neutral",
+  RETURNED: "warning",
 };
 
 /** Une demande close ne bouge plus — aucune action, quel qu'en soit l'auteur. */
@@ -159,6 +162,8 @@ export function canDecideStep(
   steps: readonly ChainStep[],
   decider: ChainDecider,
 ): { ok: boolean; reason?: string } {
+  // Renvoyée, la demande n'est pas « terminée » : elle est chez son demandeur, et elle reviendra.
+  if (stage === "RETURNED") return { ok: false, reason: "La demande est chez son demandeur, pour correction : elle vous reviendra corrigée." };
   if (stage !== "CHAIN") return { ok: false, reason: "La validation hiérarchique est terminée." };
   const step = currentStep(steps);
   if (!step) return { ok: false, reason: "Plus aucune marche en attente." };
@@ -209,6 +214,89 @@ export function chainProgress(steps: readonly ChainStep[]): { done: number; tota
   const done = steps.filter((s) => s.status !== "PENDING").length;
   const step = currentStep(steps);
   return { done, total, waitingOn: step ? (step.approverName || null) : null };
+}
+
+// ───────────────────────────── Corriger, rouvrir (audit 360°, R14 — §118.192) ─────────────────────────────
+
+/**
+ * LES MARCHES QUI CHANGENT — appariées par leur RANG, jamais par leur position dans un tableau.
+ *
+ * L'action comparait `apres[i]` (trié par rang) à `avant[i]` (dans l'ordre où la base les rendait) :
+ * sans `ORDER BY`, Postgres rend volontiers une ligne MISE À JOUR après les autres. La marche 1
+ * approuvée passe alors derrière la marche 2, et la décision sur la marche 2 se comparait à la
+ * marche 1 — la marche décidée n'était pas écrite (la demande partait aux RH avec une marche « en
+ * attente »), et la date d'une marche déjà approuvée était réécrite. Le rang est la seule clé.
+ */
+export function marchesChangees(avant: readonly ChainStep[], apres: readonly ChainStep[]): ChainStep[] {
+  const ancien = new Map(avant.map((s) => [s.order, s.status]));
+  return apres.filter((s) => ancien.get(s.order) !== s.status);
+}
+
+/** Ce qui, dans le besoin, a été PESÉ par les validateurs. */
+export interface BesoinPese {
+  position: string;
+  headcount: number;
+  contractType: string;
+  salaryMin: number | null;
+  salaryMax: number | null;
+  endDate: Date | string | null;
+}
+
+const plie = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/\s+/g, " ").trim().toLocaleLowerCase("fr");
+
+/**
+ * CE QUI FAIT REPARTIR LA CHAÎNE — un accord ne couvre pas plus que ce qu'il a vu (§118.187).
+ *
+ * Un autre poste, un autre contrat, plus de postes, une rémunération relevée (ou un plafond retiré),
+ * un contrat plus long : les validateurs n'ont pas accordé CELA, la chaîne repart de sa première
+ * marche. Ce qui RÉDUIT (moins de postes, une borne baissée, un terme avancé) ou ce qui PRÉCISE sans
+ * rien relever (une borne posée là où il n'y en avait aucune, une faute de frappe dans l'intitulé)
+ * ne redemande rien : refaire valider une baisse, c'est faire payer une prudence.
+ *
+ * Rend la liste des changements, dits en clair — c'est la phrase que lira la première marche.
+ */
+export function changementsMateriels(avant: BesoinPese, apres: BesoinPese): string[] {
+  const out: string[] = [];
+  if (plie(avant.position) !== plie(apres.position)) out.push(`poste « ${avant.position.trim()} » → « ${apres.position.trim()} »`);
+  if (avant.contractType !== apres.contractType) {
+    const lib = (c: string) => (isRecruitmentContract(c) ? CONTRACT_LABEL[c] : c);
+    out.push(`contrat ${lib(avant.contractType)} → ${lib(apres.contractType)}`);
+  }
+  if (apres.headcount > avant.headcount) out.push(`postes ${avant.headcount} → ${apres.headcount}`);
+  const avMin = avant.salaryMin, apMin = apres.salaryMin;
+  if (avMin != null && apMin != null && apMin > avMin) out.push(`rémunération minimale ${formatCurrency(avMin)} → ${formatCurrency(apMin)}`);
+  const avMax = avant.salaryMax, apMax = apres.salaryMax;
+  if (avMax != null && apMax == null) out.push(`plafond de rémunération ${formatCurrency(avMax)} retiré`);
+  else if (avMax != null && apMax != null && apMax > avMax) out.push(`rémunération maximale ${formatCurrency(avMax)} → ${formatCurrency(apMax)}`);
+  const finAv = toDate(avant.endDate), finAp = toDate(apres.endDate);
+  if (finAv && finAp && finAp > finAv) out.push(`fin de contrat repoussée au ${finAp.toLocaleDateString("fr-FR", { timeZone: "Africa/Algiers" })}`);
+  return out;
+}
+
+/**
+ * OÙ REPART UNE DEMANDE ROUVERTE — ou pourquoi elle ne repart pas.
+ *
+ * Refusée dans la CHAÎNE, elle repart à la marche qui a refusé, et à elle seule : les marches d'avant
+ * ont validé, et les leur redemander ferait payer à tout le monde l'erreur d'une seule. Refusée par
+ * les RH, elle leur revient. Close sans recrutement, le poste se rouvre. Une demande RETIRÉE par son
+ * auteur, ou close APRÈS un recrutement, ne se rouvre pas — et le refus dit le geste qui reste.
+ */
+export function reouverture(
+  stage: RecruitmentStage,
+  steps: readonly ChainStep[],
+  aRecrute: boolean,
+): { vers: "CHAIN" | "HR_REVIEW" | "SOURCING"; marche: number | null } | { refus: string } {
+  if (stage === "REJECTED") {
+    const refusee = steps.find((s) => s.status === "REJECTED");
+    return refusee ? { vers: "CHAIN", marche: refusee.order } : { vers: "HR_REVIEW", marche: null };
+  }
+  if (stage === "CLOSED") {
+    return aRecrute
+      ? { refus: "Un candidat a été recruté sur cette demande : elle ne se rouvre pas. Pour un nouveau poste, déposez une nouvelle demande." }
+      : { vers: "SOURCING", marche: null };
+  }
+  if (stage === "CANCELLED") return { refus: "Une demande retirée par son auteur ne se rouvre pas : il en dépose une nouvelle." };
+  return { refus: "Seule une demande refusée, ou close sans recrutement, se rouvre." };
 }
 
 // ───────────────────────────── Les candidats ─────────────────────────────
@@ -287,21 +375,71 @@ export interface RecruitmentAbilities {
   onboard: boolean;
   /** Retirer sa demande — tant que la hiérarchie n'a pas commencé à trancher. */
   cancel: boolean;
+  /** Renvoyer pour correction (§118.192) — qui peut trancher la marche, ou les RH quand la demande est chez eux. */
+  returnForCorrection: boolean;
+  /** Corriger la demande renvoyée et la renvoyer — son demandeur (ou le sommet, qui supplée). */
+  correct: boolean;
+  /** Rouvrir une demande refusée, ou close sans recrutement — les RH ou le sommet, motif à l'appui. */
+  reopen: boolean;
+  /** Annuler une embauche avant l'intégration — les RH ou le sommet, motif à l'appui. */
+  cancelHire: boolean;
+}
+
+/** Les étapes d'une demande pas encore exécutée — elle se retire (décision du 04/10). */
+export const ETAPES_RETIRABLES: ReadonlySet<RecruitmentStage> = new Set<RecruitmentStage>([
+  "CHAIN", "HR_REVIEW", "INFO_REQUESTED", "SOURCING", "RETURNED",
+]);
+
+/**
+ * QUI A DÉJÀ LA DEMANDE ENTRE LES MAINS — et doit apprendre qu'elle est retirée : les marches qui se
+ * sont prononcées et la marche active ; jamais celles que la demande n'a pas atteintes (du bruit sur
+ * une demande qu'elles n'ont jamais vue, §118.32), jamais l'auteur du retrait. Les RH, elles, sont
+ * prévenues dès que la demande les a atteintes.
+ */
+export function prevenusAuRetrait(
+  stage: RecruitmentStage,
+  marches: { order: number; approverId: string; status: string }[],
+  auteurId: string,
+): { approbateurs: string[]; rh: boolean } {
+  const triees = [...marches].sort((a, b) => a.order - b.order);
+  const active = stage === "CHAIN" ? triees.find((m) => m.status === "PENDING") : undefined;
+  const approbateurs = triees
+    .filter((m) => m.status !== "PENDING" || m === active)
+    .map((m) => m.approverId)
+    .filter((id) => id !== auteurId);
+  return { approbateurs: [...new Set(approbateurs)], rh: stage === "HR_REVIEW" || stage === "INFO_REQUESTED" || stage === "SOURCING" };
 }
 
 export function abilities(
   stage: RecruitmentStage,
   actor: RecruitmentActor,
-  opts: { chainUntouched?: boolean; hasHire?: boolean } = {},
+  opts: {
+    chainUntouched?: boolean;
+    hasHire?: boolean;
+    /** Cette personne peut-elle trancher la marche ACTIVE (`canDecideStep`) ? Faux quand l'appelant ne le dit pas. */
+    peutTrancherLaMarche?: boolean;
+    /** Un candidat a-t-il été recruté sur cette demande ? INCONNU se lit « oui » : on ne rouvre pas à l'aveugle. */
+    aRecrute?: boolean;
+    /** L'embauche prononcée n'a pas encore de fiche employé — seule cette embauche-là s'annule. */
+    embaucheSansFiche?: boolean;
+  } = {},
 ): RecruitmentAbilities {
   const none: RecruitmentAbilities = {
     askInfo: false, answerInfo: false, openSourcing: false, hrReject: false,
     addCandidate: false, shortlist: false, select: false, interview: false,
     hire: false, onboard: false, cancel: false,
+    returnForCorrection: false, correct: false, reopen: false, cancelHire: false,
   };
-  if (isFinal(stage)) return none;
-
   const hr = actor.isHr || actor.isTop;
+  // UNE DEMANDE CLOSE NE BOUGE PLUS — sauf pour être ROUVERTE, motif à l'appui (§118.192) : un refus
+  // terminal faisait recommencer toute la chaîne pour une erreur que la personne qui a refusé
+  // reconnaissait. Une demande RETIRÉE par son auteur ne se rouvre pas : il en redépose une. Une
+  // demande close APRÈS un recrutement non plus — rouvrir laisserait deux recrutés sur un poste, et
+  // l'intégration lirait le mauvais.
+  if (isFinal(stage)) {
+    return { ...none, reopen: hr && (stage === "REJECTED" || (stage === "CLOSED" && opts.aRecrute === false)) };
+  }
+
   const sourcing = stage === "SOURCING";
   return {
     askInfo: hr && stage === "HR_REVIEW",
@@ -316,9 +454,15 @@ export function abilities(
     interview: sourcing && (hr || actor.isRequester),
     hire: sourcing && actor.isTop,
     onboard: hr && stage === "ONBOARDING" && (opts.hasHire ?? true),
-    // On retire sa demande tant que personne n'a tranché ; après, elle appartient au circuit et
-    // l'effacer ferait disparaître une décision déjà prise.
-    cancel: stage === "CHAIN" && (opts.chainUntouched ?? false) && (actor.isRequester || actor.isTop),
+    // On retire sa demande TANT QU'ELLE N'EST PAS EXÉCUTÉE (décision de la Direction, 04/10) : jusqu'au
+    // recrutement prononcé (ONBOARDING) — même si la chaîne a commencé à dire oui, même en sourcing.
+    // Le retrait CLÔT (étape CANCELLED, ses accords restent au fil), il n'efface rien.
+    cancel: ETAPES_RETIRABLES.has(stage) && (actor.isRequester || actor.isTop),
+    // Renvoyer est un refus ADOUCI : ouvert à qui peut trancher, là où il le peut (§118.186).
+    returnForCorrection: (stage === "CHAIN" && opts.peutTrancherLaMarche === true) || (stage === "HR_REVIEW" && hr),
+    correct: stage === "RETURNED" && (actor.isRequester || actor.isTop),
+    reopen: false,
+    cancelHire: stage === "ONBOARDING" && hr && opts.embaucheSansFiche === true,
   };
 }
 

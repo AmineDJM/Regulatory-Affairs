@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { readFileByKey } from "@/lib/storage";
 import { recordAudit } from "@/lib/audit";
 import { peutTraiterCandidaturesSite, nomDeFichierSur } from "@/lib/site-web/candidatures";
+import { contentDisposition } from "@/lib/http/content-disposition";
 
 export const dynamic = "force-dynamic";
 
@@ -32,7 +33,7 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
     return new NextResponse(octets as unknown as BodyInit, {
       headers: {
         "Content-Type": c.cvType ?? "application/octet-stream",
-        "Content-Disposition": `${telecharger ? "attachment" : "inline"}; filename="${encodeURIComponent(nom)}"`,
+        "Content-Disposition": contentDisposition(nom, telecharger ? "attachment" : "inline"),
         "Cache-Control": "private, no-store",
         "X-Content-Type-Options": "nosniff",
       },

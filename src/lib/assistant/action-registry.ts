@@ -831,7 +831,7 @@ G("Legal avancé (édition, dossiers, rattachements Drive, règlement de facture
 // catalogue. Le mettre dans ce bloc l'écraserait en GAP le temps de la lecture, pour rien.
 G("Ad&Pro (postes, décisions, transferts, consulting)", [
   "ad-pro-edit-actions:updateAdProRequest", "ad-pro-item-actions:addAdProItem", "ad-pro-item-actions:updateAdProItem",
-  "ad-pro-item-actions:deleteAdProItem", "ad-pro-item-actions:emitItemExpenseOrder",
+  "ad-pro-item-actions:deleteAdProItem",
   "ad-pro-item-actions:linkPromoMaterial",
   "ad-pro-item-actions:submitAdProItem", "ad-pro-item-actions:decideAdProItem", "ad-pro-item-actions:setAdProItemBudget",
   "ad-pro-item-actions:demanderPieceSecretariat", "ad-pro-item-actions:requestAdProItemOrder",
@@ -1071,6 +1071,111 @@ classify("COVERED", "mission_status (l'écran d'une mission dit ce qu'elle atten
 
 // ── EXCLUDED : pas un travail d'assistant — raison donnée, pas un oubli. ──
 const X = (note: string, keys: string[]) => classify("EXCLUDED", note, keys);
+X("RESOUMETTRE ET RETIRER UNE DEMANDE AD & PRO (§118.186, audit R02/R24) : deux gestes du DEMANDEUR sur SA "
+  + "demande, ajoutés avec le renvoi pour correction. Resoumettre suppose qu'une personne a corrigé ce que le "
+  + "validateur demandait — la fiche est l'endroit où elle le fait ; retirer clôt un circuit, motif à l'appui. "
+  + "Adam est en pause de développement (Super Admin seul) : un clic sur la fiche de la demande, panneau du circuit.", [
+  "workflow-actions:resoumettreDemande", "workflow-actions:retirerDemandeAdPro",
+]);
+X("RÉVISER UN POSTE AD & PRO APRÈS COUP (§118.187, audit R05/R06/R12) — RETIRER ou MODIFIER la demande de bon de "
+  + "commande tant qu'aucun ordre n'est parti, ANNULER un ordre émis non réglé pour le réémettre, DEMANDER une révision "
+  + "d'un poste accordé. Chacun touche à de l'argent engagé (le visa du centre, l'ordre transmis aux Finances) et exige un "
+  + "motif qu'une personne écrit devant la carte du poste ; « Revoir la décision » passe, lui, par `decideAdProItem`, déjà "
+  + "couvert. Adam est en pause de développement : aucun geste neuf ne lui est ouvert. Un clic sur la fiche de la demande, "
+  + "menu « ⋯ » de la carte du poste.", [
+  "ad-pro-item-actions:retirerDemandeBC", "ad-pro-item-actions:modifierDemandeBC",
+  "ad-pro-item-actions:annulerOrdrePoste", "ad-pro-item-actions:demanderRevisionPoste",
+]);
+X("ANNULER SA DEMANDE TANT QU'ELLE N'EST PAS EXÉCUTÉE (audit du 04/10, constats 35 et 37) — retirer la demande de "
+  + "devis d'un dossier de matériel promotionnel (le dossier recule à l'étape d'avant), retirer la demande de réservation "
+  + "des billets d'un poste (son sujet se clôt). Deux gestes du DEMANDEUR, motif à l'appui, qu'une assistante lira. Adam est "
+  + "en pause de développement : aucun geste neuf ne lui est ouvert. Un clic sur la fiche du dossier, ou sur la carte du poste.", [
+  "promo-devis-actions:retirerDemandeDevisPromo", "ad-pro-item-actions:retirerReservation",
+]);
+X("LES PIÈCES D'ACHAT D'UN POSTE (§118.204) — déposer un devis ou une facture pro forma (commun à plusieurs postes), "
+  + "le retirer d'un poste où il a été mal placé, et déposer la FACTURE qui demande le paiement. Chacun dépose un "
+  + "FICHIER que la personne a sous la main (une carte de confirmation ne transporte pas un fichier), et le dernier "
+  + "ouvre un ordre de dépense au centre de paiement. Adam est en pause de développement : aucun geste neuf ne lui est "
+  + "ouvert. Un clic sur la carte du poste, fiche de la demande.", [
+  "ad-pro-item-actions:ajouterDevisPoste", "ad-pro-item-actions:retirerDevisDuPoste", "ad-pro-item-actions:demanderPaiementPoste",
+  // Les voyageurs d'une billetterie (§118.205) : le devis d'un voyageur est un FICHIER, le choix d'une
+  // proposition et la demande de BC qui en découle se font devant la carte du poste.
+  "ad-pro-item-actions:ajouterDevisVoyageur", "ad-pro-item-actions:validerDevisVoyageur", "ad-pro-item-actions:demanderBCBilletterie",
+]);
+X("PRISES EN CHARGE — PROFESSIONNELS PROPOSÉS ET LEURS PIÈCES (§118.205) : créer le profil d'un professionnel, "
+  + "demander ses pièces (passeport, visa, informations de voyage) et les déposer. Chacun touche à une identité ou "
+  + "dépose un FICHIER devant la fiche de la demande. Adam est en pause de développement : aucun geste neuf ne lui est ouvert.", [
+  "care-actions:creerProfilProfessionnel", "care-actions:demanderPiecesPriseEnCharge", "care-actions:deposerPiecePriseEnCharge",
+]);
+X("ANNULER SA DEMANDE TANT QU'ELLE N'EST PAS EXÉCUTÉE (décision du 04/10) — rallonges de budget et de caisse, "
+  + "document RH, ordre de mission, tâche demandée, formation. Des gestes qui RÉDUISENT, mais Adam est en pause de "
+  + "développement : aucun geste neuf ne lui est ouvert. Un clic du demandeur sur sa demande.", [
+  "department-budget-actions:annulerDemandeBudgetDepartement", "hr-document-actions:annulerDemandeRh",
+  "mission-actions:retirerDemandeOrdreMission", "petty-cash-actions:annulerRallongeCaisse",
+  "task-actions:annulerDemandeTache", "training-actions:annulerFormation",
+]);
+X("RENVOYER, RÉEXAMINER, RESOUMETTRE DANS LES CENTRES (§118.188, audit R07/R08/R10) — resoumettre une demande de "
+  + "validation renvoyée pour correction (sur elle-même, elle reprend à l'étape qui l'a renvoyée), resoumettre au centre "
+  + "Ad & Pro une demande qu'il a renvoyée, et réexaminer un refus du centre. Les deux premiers sont des gestes du "
+  + "DEMANDEUR qui dit ce qu'il a corrigé ; le troisième rouvre une décision d'arbitrage, motif à l'appui, par un siège "
+  + "du centre. Adam est en pause de développement : aucun geste neuf ne lui est ouvert. Un clic sur la fiche de la "
+  + "demande (validations, consulting, autre demande) ou sur le centre de validation Ad & Pro.", [
+  "validation-actions:resoumettreValidation",
+  "ad-pro-centre-actions:resoumettreAuCentreAdPro", "ad-pro-centre-actions:reexaminerVisaCentreAdPro",
+]);
+X("RESOUMETTRE UNE « AUTRE DEMANDE » REFUSÉE ET PROLONGER UN CONTRAT DE CONSULTING (audit 360°, lot C4a) — la "
+  + "resoumission est le geste du DEMANDEUR qui dit ce qui a changé depuis le refus (elle peut corriger la description "
+  + "et le montant, que le centre Ad & Pro relit) ; la prolongation engage la société sur un terme plus long et "
+  + "revient à qui peut valider le contrat, avec ce qui la fonde (l'avenant). Adam est en pause de développement : "
+  + "aucun geste neuf ne lui est ouvert. Un clic sur la fiche de la demande ou du contrat.", [
+  "ad-pro-other-actions:resoumettreAdProOtherRequest",
+  "consulting-actions:prolongerConsultingContract",
+]);
+X("RENVOYER, RESOUMETTRE, REDEMANDER — LE MATÉRIEL PROMOTIONNEL SE CORRIGE (audit 360°, lot C4b, §118.190). RENVOYER un "
+  + "dossier pour correction est une issue de VALIDATION, au même titre que valider et refuser : elle se tranche par la "
+  + "personne que l'étape désigne, devant le dossier ; RESOUMETTRE la demande corrigée et REDEMANDER des devis sont des "
+  + "gestes du DEMANDEUR qui disent ce qui a changé ou ce qu'il cherche ; CORRIGER UN COMPTAGE est l'attestation de celui "
+  + "qui a compté, comme sa saisie (§118.15). Adam est en pause de développement : aucun geste neuf ne lui est ouvert. "
+  + "Un clic sur /promo-material/<id> ou sur Sales & Marketing › Stock promotionnel, onglet « Comptages ».", [
+  "promo-circuit-actions:renvoyerPromoStep", "promo-circuit-actions:resoumettrePromoDemande",
+  "promo-devis-actions:redemanderDevisPromo", "promo-comptage-actions:corrigerComptage",
+]);
+X("RANGER UN DEVIS DÉPOSÉ COMME DEVIS D'UNE AGENCE (§118.204) — un fichier « devis » posé sur une demande de matériel "
+  + "promotionnel devient un devis du circuit, rattaché à l'agence que la personne choisit dans l'annuaire. C'est un geste "
+  + "de RETRANSCRIPTION (l'assistante de direction, ou la Direction), devant le fichier : dire à qui appartient un devis "
+  + "engage le bon de commande qui en sortira. Adam est en pause de développement : aucun geste neuf ne lui est ouvert. "
+  + "Un clic sur /promo-material/<id> › carte « Devis » › « Ranger comme devis de cette agence ».", [
+  "promo-devis-actions:rangerDevisPromo",
+]);
+X("CORRIGER SA DEMANDE DE PAIEMENT (audit 360°, lot C4c, §118.191) — l'objet, le bénéficiaire, le montant, le "
+  + "contexte et l'échéance, tant que le dossier est chez le demandeur (brouillon, ou renvoyé par les Finances). C'est le "
+  + "geste du DEMANDEUR, qui dit après transmission ce qui a changé ; il fait suivre l'ordre de dépense et peut rouvrir "
+  + "l'autorisation du centre de paiement. Adam est en pause de développement : aucun geste neuf ne lui est ouvert. Un "
+  + "clic sur /validations/paiements/<id> › « Corriger la demande ».", [
+  "payment-request-actions:corrigerDemandePaiement",
+]);
+X("ROUVRIR ET ANNULER UNE DEMANDE AU SECRÉTARIAT (audit 360°, lot C4c, §118.191) — les gestes nommés qui remplacent le "
+  + "menu de statut libre : rouvrir une demande TERMINÉE avec son motif, annuler une demande par l'annulation commune (qui "
+  + "retire aussi la validation, l'approbation et le paiement en attente). Ce sont des gestes du SECRÉTARIAT qui disent "
+  + "pourquoi au demandeur. Adam est en pause de développement : aucun geste neuf ne lui est ouvert. Un clic sur "
+  + "/demandes/<id> › « Rouvrir… » ou « Annuler la demande… ».", [
+  "admin-request-actions:rouvrirDemande", "admin-request-actions:annulerDemandeAuSecretariat",
+]);
+X("RENVOYER, CORRIGER, ROUVRIR UN RECRUTEMENT, ANNULER UNE EMBAUCHE (audit 360°, lot C4d1, §118.192) — renvoyer une "
+  + "demande pour correction (qui peut trancher la marche, ou les RH), la corriger et la renvoyer (son demandeur, qui dit "
+  + "ce qui a changé ; une correction matérielle fait repartir la chaîne), rouvrir une demande refusée ou close sans "
+  + "recrutement (les RH ou le sommet, motif à l'appui), annuler une embauche avant sa fiche employé. Ce sont des "
+  + "DÉCISIONS sur un engagement pluriannuel et des données personnelles, prises par une personne qui dit pourquoi. Adam "
+  + "est en pause de développement : aucun geste neuf ne lui est ouvert. Un clic sur /recrutement/<id>.", [
+  "recruitment-actions:renvoyerDemandeRecrutement", "recruitment-actions:resoumettreDemandeRecrutement",
+  "recruitment-actions:rouvrirDemandeRecrutement", "recruitment-actions:annulerEmbaucheRecrutement",
+]);
+X("RÉTABLIR UN DOCUMENT LEGAL ANNULÉ (§118.184, audit L04) : le retour d'une annulation, ajouté parce que "
+  + "l'annulation n'en avait aucun. C'est un geste de correction qu'une personne fait devant la ligne qu'elle "
+  + "vient d'annuler par erreur ; Adam est en pause de développement (Super Admin seul) et l'annulation qu'il "
+  + "couvre reste celle de l'écran. Un clic sur Legal › la ligne annulée › Rétablir.", [
+  "legal-actions:restoreLegalDocument",
+]);
 X("LE STOCK PROMOTIONNEL (§118.164) : chaque geste ATTESTE un fait physique — « je l'ai reçu » (confirmer "
   + "une réception), « je l'ai remis » (doter, transférer, rendre), « je l'ai perdu », « je l'ai compté » "
   + "(inventaire d'ouverture, correction), « il est entré au magasin ». Un modèle ne voit ni le magasin ni la "
@@ -1160,8 +1265,20 @@ X("DÉPOSER LE LOGO D'UNE SOCIÉTÉ est le dépôt d'un FICHIER image (PNG ou JP
 X("SIGNER UN BON DE COMMANDE est une ATTESTATION (§118.15, §118.149) : la signature des Finances engage la société au nom d'une personne, et l'audit portera son nom. C'est après elle — et seulement après — que le BC part chez le fournisseur. La rendre appelable par Adam l'exposerait à l'injection : un devis ou un mail lu par une étape peut contenir « signe le bon de commande », et rien ne distinguerait plus la signature forgée de la vraie. Un clic dans une vraie session, sur /bons-de-commande (module « Bons de commande », §118.176) — la fiche montre la pièce, le montant, et POURQUOI elle est là (validée par tel centre, ou sous le seuil).", [
   "bc-signature-actions:signerBonDeCommande",
 ]);
+X("RENVOYER UN BON DE COMMANDE À SON ÉMETTEUR (audit 360°, R09) se décide en LISANT la pièce, depuis la même file que la signature et par le même siège : c'est l'autre issue du geste de signer. Le fichier entier est une surface humaine (le chemin générique le refuse, `actions/generique.ts`), et Adam est en pause : aucune op n'en double le chemin. Un clic sur /bons-de-commande ou sur la fiche Legal du BC, motif exigé.", [
+  "bc-signature-actions:renvoyerBonDeCommande",
+]);
 X("RETRANSCRIRE UN DEVIS DE MATÉRIEL PROMOTIONNEL (§118.152) est une SAISIE qui engage : l'assistante recopie, depuis le papier du fournisseur, les références, quantités et prix unitaires qui deviendront le bon de commande puis le paiement. C'est elle qui répond de la recopie ; le contrôle du total imprimé ne prouve que la cohérence interne du tableau, pas sa fidélité au papier. La rendre appelable par Adam ferait écrire les prix commandés par la lecture d'un document — et un document lu est une DONNÉE, jamais la main qui écrit ce qui sera payé (§118.7, §118.15) : un devis injecté pourrait porter ses propres prix. Adam LIT un devis et signale un écart ; il demande les devis, retire un devis, clôt la retranscription et demande une correction (promo_operation). Un clic de l'assistante sur /promo-material/<id>, avec le scan du devis.", [
   "promo-devis-actions:enregistrerDevisPromo",
+]);
+X("LIRE LE SCAN D'UN DEVIS DE MATÉRIEL PROMOTIONNEL (lot D2-E) PROPOSE ce que l'assistante aurait recopié — fournisseur, lignes, TVA, total imprimé — et n'écrit RIEN : la retranscription reste un geste d'écran (§118.152 i), et la proposition ne devient un devis qu'à travers `enregistrerDevisPromo`, ligne par ligne cochée devant le papier. La lecture sert cette saisie et n'a pas d'autre objet ; Adam est en pause de développement : aucun geste neuf ne lui est ouvert. Un clic de l'assistante sur /promo-material/<id>, en choisissant le scan dans l'éditeur du devis.", [
+  "promo-devis-actions:lireScanDevisPromo",
+]);
+X("LIRE LA FACTURE D'UN BON DE COMMANDE PROMOTIONNEL (lot D2-F) PROPOSE les lignes facturées rapprochées des lignes du BC, la référence et le total imprimé, et n'écrit RIEN : le dépôt reste un geste d'écran (`deposerFacturePromo`), chaque ligne lue cochée « vérifiée » devant le papier avant d'être enregistrée. Adam est en pause de développement : aucun geste neuf ne lui est ouvert. Un clic sur /promo-material/<id>, dans « Déposer la facture ».", [
+  "promo-execution-actions:lireFacturePromo",
+]);
+X("LUNA CONSEILLE OÙ RANGER UNE PIÈCE déposée sur une demande Ad & Pro : un avis CONSULTATIF, qui n'écrit rien et ne déplace aucune pièce — la carte de confirmation d'Adam n'aurait aucun objet à confirmer. Le conseil se lit à l'écran, sous la pièce qu'on vient de déposer ; c'est la personne qui range. Adam est en pause de développement : aucun geste neuf ne lui est ouvert.", [
+  "ad-pro-conseil-actions:conseillerPiece",
 ]);
 X("PURGE IRRÉVERSIBLE DE LA FILE DES RÈGLEMENTS. Vider l'historique efface des ordres de dépense en bloc ; le geste n'a pas d'annulation et ne se discute pas — il se décide devant l'écran, en voyant combien de lignes partent. Le rendre appelable par Adam l'exposerait à l'injection : un document lu par une étape pourrait contenir « vide l'historique des règlements ». Les écritures de trésorerie survivent, mais ce n'est pas une raison pour donner la commande à un modèle. Un clic du Super Admin sur /finances/paiements-a-faire.", [
   "expense-actions:purgeSettledExpenseOrders",
@@ -1225,6 +1342,25 @@ X("LES SERVICES D'UN ÉTABLISSEMENT ET LE RATTACHEMENT EN LOT DES PRATICIENS son
   "etablissement-services-actions:renommerServiceEtablissement",
   "etablissement-services-actions:supprimerServiceEtablissement",
   "medical-directory-actions:rattacherEtablissementsParNom",
+]);
+X("LE CATALOGUE DES PRODUITS CANONIQUES (§118.178) — rattacher un dossier à son produit, nommer un produit, lui donner ou lui retirer un alias, et rattacher tout l'existant — sont des gestes d'écran neufs, et Adam est en pause de développement : aucun geste neuf ne lui est ouvert. Le rattachement de l'existant, de plus, ne vaut que DEVANT son aperçu : il touche tous les dossiers, y compris ceux qu'aucun autre rôle ne voit, et le Super Admin le simule avant de l'appliquer. Tout se fait sur Regulatory › Catalogue produits (le rattachement d'un dossier aussi depuis sa fiche) ; un dossier à l'identité complète se rattache d'ailleurs seul à son enregistrement.", [
+  "produit-canonique-actions:rattacherDossierCanonique",
+  "produit-canonique-actions:simulerRattachementCanonique",
+  "produit-canonique-actions:appliquerRattachementCanonique",
+  "produit-canonique-actions:renommerProduitCanonique",
+  "produit-canonique-actions:ajouterAliasProduitCanonique",
+  "produit-canonique-actions:retirerAliasProduitCanonique",
+]);
+X("LES SPÉCIALITÉS D'UNE BUSINESS UNIT (§118.183) — l'ensemble des spécialités qu'une BU vise, et sa principale — sont un geste d'écran neuf, et Adam est en pause de développement : aucun geste neuf ne lui est ouvert. L'ensemble se REMPLACE d'un geste (décocher retire), ce qui se décide devant la liste du référentiel. Tout se fait sur Force de vente › Business Units, dans la carte de la BU ou à sa création.", [
+  "sales-planning-actions:enregistrerSpecialitesBu",
+]);
+X("LE TERRITOIRE D'UN KAM (04/10/2026) — dans une BU hospitalière, les établissements de l'annuaire qu'un KAM couvre, et pour chacun tous ses services ou certains — est un geste d'écran neuf, et Adam est en pause de développement : aucun geste neuf ne lui est ouvert. Il se décide DEVANT l'annuaire et ses services, cases à cocher sous les yeux, et il REMPLACE la sélection (décocher retire) : c'est le panel de médecins d'une personne qu'on change. Tout se fait sur Force de vente › Business Units, ligne du KAM, bouton « Territoire ».", [
+  "sales-planning-actions:enregistrerTerritoireKam",
+]);
+X("LE RÉFÉRENTIEL DES SPÉCIALITÉS (§118.180) — fusionner deux spécialités, rattacher un libellé hérité à une spécialité, rattacher en lot les fiches dont la spécialité est écrite sans lien — sont des gestes d'écran neufs, et Adam est en pause de développement : aucun geste neuf ne lui est ouvert. La fusion change, de plus, la spécialité de fiches que la personne ne voit peut-être pas : c'est une décision de STRUCTURE, prise devant l'écran qui en montre l'effet. Tout se fait sur Annuaires › Spécialités et dans la feuille des praticiens (« Rattacher les spécialités »).", [
+  "medical-actions:fusionnerSpecialite",
+  "medical-actions:rattacherLibelleSpecialite",
+  "medical-directory-actions:rattacherSpecialitesParNom",
 ]);
 // NB : `admin-actions:createUser` a quitté cette liste — le besoin « créer un compte » est
 // couvert par `org_operation:create_account_invite` (lien d'invitation : la personne définit
@@ -1375,6 +1511,34 @@ X("LA GRILLE DU PLAN DE TOURNÉE : l'action REMPLACE la sélection complète jou
   + "(`open_tour_plan`), soumettre (`submit_tour_plan`), escalader (`escalate_tour_plan`).", [
   "tour-plan-actions:planifierVisites",
 ]);
+X("RÉVISER UN PLAN VALIDÉ, DIRE QU'UNE VISITE N'A PAS EU LIEU (audit 360°, lot C4d2a, §118.193) — rouvrir un plan "
+  + "de tournée validé retire un accord donné et rend au KAM une tournée à refaire valider ; dire qu'une visite est "
+  + "reportée ou annulée affirme ce qui s'est passé sur le terrain et la sort du dénominateur. Ce sont des faits qu'une "
+  + "personne signe de son nom, motif à l'appui (§118.15). Adam est en pause de développement : aucun geste neuf ne lui "
+  + "est ouvert. Un clic sur le plan de tournée, ou sur la ligne de « Ma journée ».", [
+  "tour-plan-actions:demanderRevisionPlanTournee",
+  "tour-visit-actions:direVisiteNonTenue",
+]);
+
+X("L'APERÇU AVANT IMPRESSION du composeur (Direction, 10/2026, §118.203) — le PDF de la pièce à blanc, avant de l'émettre : un "
+  + "rendu d'écran, qui n'écrit rien et ne consomme aucun numéro. La conversation a son propre aperçu (`document_build`, "
+  + "sans émettre) ; l'image d'une page n'est pas un geste qu'un modèle ait à demander. Un bouton du composeur.", [
+  "fabrique-actions:apercuAvantImpressionPiece",
+]);
+
+X("RÉVISER UNE PIÈCE ÉMISE depuis sa fiche (audit 360°, lot C4d2b1, §118.194) — une nouvelle version d'un devis ou "
+  + "d'un bon de commande réécrit un engagement et son fichier : un BC relevé retourne à son centre et perd la signature "
+  + "des Finances. Le geste se fait devant les lignes de la version affichée, motif à l'appui. Adam est en pause de "
+  + "développement : aucun geste neuf ne lui est ouvert. Un clic sur la fiche Legal de la pièce (« Réviser la pièce »).", [
+  "fabrique-actions:reviserPieceCommerciale",
+]);
+
+X("ÉMETTRE UN AVOIR depuis la fiche d'une facture émise (audit 360°, lot C4d2b2, §118.195) — une pièce FISCALE qui "
+  + "engage la société et réduit ce que le client doit : le geste se fait devant les lignes de la facture, motif à "
+  + "l'appui, plafonné par ce qui reste à créditer. Adam est en pause de développement : aucun geste neuf ne lui est "
+  + "ouvert, et son outil de pièces ne connaît pas l'avoir. Un clic sur la fiche Legal de la facture (« Émettre un avoir »).", [
+  "fabrique-actions:emettreAvoir",
+]);
 
 X("LA FICHE DE COACHING est une ATTESTATION (§118.15, §118.157) : le manager y écrit ce qu'il a OBSERVÉ pendant une "
   + "tournée en double — tel niveau de maîtrise sur tel axe, tels points forts, tels points à améliorer — et la fiche "
@@ -1417,6 +1581,13 @@ X("L'ENTRETIEN DE L'INTÉGRATION AU SITE (§118.158) — relancer un envoi, vér
   "site-web-actions:rapprocherSiteMaintenant",
   "site-web-actions:leverBlocageSite",
 ]);
+X("RELANCER LA BOÎTE MORTE DE LA COUCHE DE CONNAISSANCE remet en file des travaux qui APPELLENT DES MODÈLES "
+  + "facturés (vecteurs, lectures visuelles) et que la file avait abandonnés : c'est une décision d'exploitation, prise "
+  + "devant l'écran qui montre chaque cause, ses exemples et son caractère temporaire ou non. Offerte à Adam, une "
+  + "relance « de tout » pourrait partir sans que personne ait lu pourquoi ces travaux étaient morts. Adam est par "
+  + "ailleurs en pause. Un clic du Super Admin sur /admin/connaissance.", [
+  "knowledge-actions:relancerBoiteMorte",
+]);
 X("LA CLÉ DE LIAISON AU SITE PUBLIC (§118.159) est l'IDENTIFIANT qui donne le droit d'y publier. La générer ou "
   + "l'abandonner, c'est créer ou retirer un identifiant — exactement ce que §118.6 interdit structurellement à un "
   + "agent, quelle que soit la personne qui le demande. Et le bloc généré se colle ensuite dans l'hébergeur du site : "
@@ -1458,6 +1629,13 @@ X("ENVOYER LA PAIE AU CENTRE DE PAIEMENT (§118.176) — « un bouton pour toute
   + "confier à un modèle ferait écrire par lui le montant que la banque versera, sur la foi d'un calcul qu'aucune "
   + "personne n'a relu ; et Adam est de plus en pause de développement. Un clic sur RH › Paie.", [
   "payroll-hr-actions:envoyerPaieAuCentre",
+]);
+X("RATTACHER À UNE ENTITÉ LES SALARIÉS QUI N'EN ONT PAS, depuis l'écran de la paie (Direction, 04/10/2026). Le geste "
+  + "écrit la société de la FICHE SALARIÉ, que toute sa paie suit : il décide quelle société porte sa masse salariale "
+  + "et d'où sa paie partira au centre de paiement — une décision RH qui se prend devant la liste des salariés et de "
+  + "ce qu'ils pèsent, et qu'un document lu par une étape ne doit pas pouvoir prendre. Adam est de plus en pause de "
+  + "développement. Un clic sur RH › Paie.", [
+  "payroll-hr-actions:rattacherSalariesAEntite",
 ]);
 
 // ── RECLASSIFICATION AUTOMATIQUE PAR LE CATALOGUE D'OPS (après tous les blocs ci-dessus). ──

@@ -1,20 +1,24 @@
 import Link from "next/link";
+import { notFound } from "next/navigation";
 import { ArrowRight, CalendarRange } from "lucide-react";
 import { requireModule } from "@/lib/session";
 import { userCan, hasGlobalView } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
+import { standInForUserIds } from "@/lib/hr/stand-in-resolve";
 import { getAppSettings } from "@/lib/settings";
 import { PageHeader } from "@/components/shared/page-header";
 import { ModuleTabs } from "@/components/shared/module-tabs";
 import { visibleTabs } from "@/lib/nav-tabs";
 import { MEDICAL_TABS } from "@/lib/labels";
 import { Badge } from "@/components/ui/badge";
-import { loadPanelPlanifiable, loadPlanTournee } from "@/lib/queries/tour-schedule";
+import { diagnostiquerPanelVide, loadPanelPlanifiable, loadPlanTournee } from "@/lib/queries/tour-schedule";
 import {
-  GRANULARITE_LABELS, STATUT_PLAN_LABELS, estJourOuvrePourTournee, periodeSuivante, retardDeSoumission,
-  type StatutPlan,
+  GRANULARITE_LABELS, STATUT_PLAN_LABELS, aResoumettre, accesAuPlan, clausePlansADecider, estJourOuvrePourTournee, gestesPossibles, periodeSuivante,
+  retardDeSoumission, type StatutPlan,
 } from "@/lib/sfe/tournee";
 import { lireReglageTournee } from "@/lib/sfe/tournee-reglage";
+import { isManagerOfUser } from "@/lib/departments";
+import { canEditRep } from "@/lib/sfe";
 import { OuvrirPlan } from "./ouvrir-plan";
 import { Planificateur } from "./planificateur";
 
@@ -46,7 +50,8 @@ export default async function PlanDeTourneePage({ searchParams }: { searchParams
   const retardDe = (p: { status: string; submissionDueAt: Date; resubmitDueAt: Date | null }) =>
     retardDeSoumission({ statut: p.status as StatutPlan, echeance: p.submissionDueAt, resoumissionAvant: p.resubmitDueAt, maintenant });
 
-  // ── CE QUI M'ATTEND, MOI ────────────────────────────────────────────────────────────────
+  // ── CE QUI M'ATTEND, MOI — et l'absent que je remplace (I18) ──────────────────────────────
+  const agitPour = await standInForUserIds(user.id);
   const [mesPlans, aDecider] = await Promise.all([
     prisma.tourPlan.findMany({
       where: { repId: user.id },
@@ -60,8 +65,9 @@ export default async function PlanDeTourneePage({ searchParams }: { searchParams
     prisma.tourPlan.findMany({
       where: {
         OR: [
-          { reviewerId: user.id, status: "SUBMITTED" },
-          { escalatedToId: user.id, status: "ESCALATED" },
+          // CE QUI ATTEND MA DÉCISION, OU CELLE DE L'ABSENT QUE JE REMPLACE — jamais mon propre plan (`accesAuPlan`
+          // le refuse). La clause de « Mon espace » (lot E2) : deux copies de la même file finiraient par diverger.
+          clausePlansADecider(user.id, agitPour),
           // UNE VUE GLOBALE VOIT TOUT CE QUI ATTEND : sans cette branche, un plan dont le
           // validateur a quitté l'entreprise n'apparaîtrait sur aucun écran et resterait soumis
           // pour toujours — le KAM attendant une décision que personne ne sait devoir prendre.
@@ -79,7 +85,30 @@ export default async function PlanDeTourneePage({ searchParams }: { searchParams
 
   const planId = searchParams?.plan ?? null;
   const plan = planId ? await loadPlanTournee(planId) : null;
+  // QUI VOIT CE PLAN (§118.184) — la même règle que les actions. Un plan porte le panel du KAM et le
+  // motif d'un rejet : sans cette garde, quiconque avait le module et l'identifiant l'ouvrait.
+  // Hors de la règle, la page répond comme pour un plan qui n'existe pas.
+  const acces = plan
+    ? accesAuPlan({
+      userId: user.id, vueGlobale: hasGlobalView(user), repId: plan.repId,
+      reviewerId: plan.reviewerId, escalatedToId: plan.escalatedToId, statut: plan.status as StatutPlan,
+      // La chaîne n'est lue que si rien d'autre n'ouvre le plan : une lecture de l'organigramme en moins
+      // pour le KAM, son validateur et le N+2.
+      chaineDuKam: plan.repId === user.id || plan.reviewerId === user.id || plan.escalatedToId === user.id || hasGlobalView(user)
+        ? []
+        : (await isManagerOfUser(user.id, plan.repId)) ? [user.id] : [],
+      agitPour,
+    })
+    : null;
+  if (plan && !acces?.voir) notFound();
   const panel = plan ? await loadPanelPlanifiable(plan.repId) : [];
+  // UN PANEL VIDE DIT SA VRAIE CAUSE (04/10/2026) : « demandez un secteur » à une KAM qui en a un fait
+  // chercher au mauvais endroit — la panne était souvent des fiches jamais rattachées à l'établissement.
+  const panelVide = plan && panel.length === 0 ? (await diagnostiquerPanelVide(plan.repId)).phrase : null;
+  // QUI PEUT ÉCRIRE CE PLAN — donc le rouvrir pour révision (§118.193) : la même règle que l'action
+  // (`peutEcrirePourLeKam` : le KAM, le superviseur de sa BU, la Direction). Un bouton offert à qui l'action
+  // refuse fait chercher une panne qui n'existe pas (§118.83).
+  const jePeuxEcrire = plan ? plan.repId === user.id || (await canEditRep(user, plan.repId)) : false;
 
   // LES JOURS OUVRÉS DE LA PÉRIODE — la semaine ouvrée algérienne (dimanche → jeudi). Proposer
   // un vendredi ferait planifier un jour où personne ne sort, et la soumission le refuserait.
@@ -122,16 +151,22 @@ export default async function PlanDeTourneePage({ searchParams }: { searchParams
             rejectionComment={plan.rejectionComment}
             resubmitDueAt={plan.resubmitDueAt?.toISOString() ?? null}
             praticiens={panel}
+            panelVide={panelVide}
             pairesInitiales={plan.paires}
             pairesAcquises={plan.pairesAcquises}
+            pairesNonTenues={plan.pairesNonTenues}
+            pairesPassees={plan.pairesPassees}
+            revisionNote={plan.revisionNote}
+            revisionPar={plan.revisionPar}
+            revisionLe={plan.revisionLe?.toISOString() ?? null}
+            jePeuxDemanderRevision={jePeuxEcrire}
             jeSuisLeKam={plan.repId === user.id}
             // QUI TRANCHE : le validateur tant que le plan est chez lui, le N+2 dès qu'il est
             // escaladé. L'action le revérifie — l'écran ne fait que ne pas proposer l'impossible.
-            jePeuxDecider={
-              hasGlobalView(user)
-              || (plan.status === "SUBMITTED" && plan.reviewerName !== null && plan.repId !== user.id)
-            }
-            jePeuxEscalader={plan.status === "SUBMITTED" && plan.repId !== user.id}
+            // LA MÊME RÈGLE QUE L'ACTION (§118.184) : sur un plan ESCALADÉ, c'est le N+2 qui tranche — l'ancien
+            // test ne proposait la décision que sur un plan soumis, et le N+2 restait sans bouton.
+            jePeuxDecider={acces?.decider ?? false}
+            jePeuxEscalader={acces?.escalader ?? false}
           />
         </>
       ) : (
@@ -192,7 +227,7 @@ export default async function PlanDeTourneePage({ searchParams }: { searchParams
                     <span className="text-xs text-muted-foreground">{p._count.visits} visite(s)</span>
                     {/* L'ÉCHÉANCE SE LIT — avant comme après son passage. « À soumettre avant le »
                         affiché sur un plan en retard de vingt jours est une date décorative. */}
-                    {(p.status === "DRAFT" || p.status === "REJECTED") && (() => {
+                    {gestesPossibles(p.status as StatutPlan).soumettable && (() => {
                       const r = retardDe(p);
                       return r.enRetard ? (
                         <span className="text-xs font-medium text-destructive">
@@ -200,7 +235,7 @@ export default async function PlanDeTourneePage({ searchParams }: { searchParams
                         </span>
                       ) : (
                         <span className="text-xs text-muted-foreground">
-                          à {p.status === "REJECTED" ? "resoumettre" : "soumettre"} avant le {r.echeance.toLocaleDateString("fr-FR")}
+                          à {aResoumettre(p.status as StatutPlan) ? "resoumettre" : "soumettre"} avant le {r.echeance.toLocaleDateString("fr-FR")}
                         </span>
                       );
                     })()}

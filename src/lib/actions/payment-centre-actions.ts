@@ -6,7 +6,7 @@ import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
 import { notifyUser, notifyRoles } from "@/lib/notify";
 import {
-  sitsOnPaymentCentre, applyDecision, applyResubmission, canResubmit,
+  sitsOnPaymentCentre, applyDecision, applyResubmission, canResubmit, memeBeneficiaire,
   CENTRAL_DECISION_LABEL, CENTRAL_STATUS_LABEL,
   type CentralDecision, type CentralStatus,
   PAYMENT_CENTRE_REFUSAL,
@@ -16,10 +16,14 @@ import { fdStr, fdNum, type ActionResult } from "@/lib/actions/types";
 /**
  * LE CENTRE DE PAIEMENT — le PDG et le Super Admin autorisent, la comptabilité exécute.
  *
- * Quatre issues, pas deux. Un refus sec obligeait à refaire une demande depuis zéro et faisait
- * perdre la discussion ; ici le centre peut aussi demander une RÉVISION DU MONTANT ou une
- * ARGUMENTATION, le demandeur répond, et le dossier revient — autant de fois qu'il le faut. Le fil
- * reste attaché au paiement : six mois plus tard, on sait à quelles conditions il a été autorisé.
+ * DEUX ISSUES : autoriser ou refuser (décision de la Direction, 02/09/2026 — voir `isDecision`).
+ * Ce texte en annonçait quatre, et l'en-tête de l'écran promettait encore « une révision du
+ * montant ou une argumentation » qu'aucun bouton n'offrait plus : une prose qui promet un geste
+ * que le code n'a pas fait chercher ce qui n'existe pas (audit 360°, R03 ; §118.116). Un refus
+ * EXIGE son motif, qui reste dans le fil attaché au paiement : six mois plus tard, on sait à
+ * quelles conditions il a été autorisé, ou pourquoi il ne l'a pas été. Les dossiers d'avant qui
+ * portent encore « révision » ou « argumentation » se répondent et reviennent au centre
+ * (`respondToPaymentCentre`) : rien ne reste bloqué.
  *
  * Toutes les règles d'état viennent du module pur `payments/authorization` : cette action ne fait
  * que vérifier QUI agit, écrire, et prévenir.
@@ -83,16 +87,15 @@ async function suitesDuRefus(orderId: string, motif: string): Promise<void> {
  * resoumettre (`respondToPaymentCentre`) : l'ordre revient alors « en attente » et le centre
  * tranche. Rien ne reste bloqué.
  */
-function isDecision(v: string): v is CentralDecision {
+function isDecision(v: string): v is Extract<CentralDecision, "APPROVE" | "REFUSE"> {
   return v === "APPROVE" || v === "REFUSE";
 }
 
 /**
- * Le centre tranche : autoriser, refuser, demander une révision du montant, ou une argumentation.
+ * Le centre tranche : autoriser ou refuser.
  *
- * Le MOTIF est exigé partout sauf sur une autorisation sèche : refuser sans dire pourquoi, ou
- * demander « une révision » sans dire laquelle, renvoie le demandeur deviner — et le dossier
- * revient identique.
+ * Le MOTIF est exigé pour un refus : refuser sans dire pourquoi renvoie le demandeur deviner — et
+ * le dossier revient identique, par une nouvelle pièce, sans que rien ait changé.
  */
 export async function decidePayment(formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
@@ -112,7 +115,7 @@ export async function decidePayment(formData: FormData): Promise<ActionResult> {
 
   const order = await prisma.expenseOrder.findUnique({
     where: { id },
-    select: { id: true, reference: true, label: true, amount: true, centralStatus: true, requestedById: true, status: true, dueDate: true },
+    select: { id: true, reference: true, label: true, amount: true, beneficiary: true, centralStatus: true, requestedById: true, status: true, dueDate: true },
   });
   if (!order) return { ok: false, error: "Ordre de dépense introuvable." };
 
@@ -120,14 +123,9 @@ export async function decidePayment(formData: FormData): Promise<ActionResult> {
   if (!next) {
     return {
       ok: false,
-      error: `Impossible : ce paiement est « ${CENTRAL_STATUS_LABEL[order.centralStatus as CentralStatus]} ». Un dossier tranché se rouvre par une nouvelle soumission du demandeur.`,
+      error: `Impossible : ce paiement est « ${CENTRAL_STATUS_LABEL[order.centralStatus as CentralStatus]} ». Une décision rendue ne se rejoue pas : un refus se reprend par un nouvel envoi de la pièce, corrigée.`,
     };
   }
-
-  // Le montant révisé n'est qu'une PROPOSITION : le centre autorise, il ne réécrit pas la demande.
-  // C'est au demandeur de corriger et de resoumettre — sinon l'ordre partirait aux Finances avec
-  // un montant que personne n'a validé en bas de la chaîne.
-  const proposed = decision === "REQUEST_CHANGES" ? fdNum(formData, "proposedAmount") : null;
 
   // L'ÉCHÉANCE QUE LE CENTRE IMPOSE AUX FINANCES — distincte de celle qui a été DEMANDÉE.
   //
@@ -142,21 +140,48 @@ export async function decidePayment(formData: FormData): Promise<ActionResult> {
     return { ok: false, error: "Échéance illisible." };
   }
 
-  await prisma.$transaction([
-    prisma.expenseOrder.update({
-      where: { id },
+  // CE QUE LE CENTRE A LU (§118.191). Le centre autorise une somme, à quelqu'un — et depuis que le
+  // demandeur corrige sa demande, l'une et l'autre peuvent bouger pendant qu'un siège lit l'ordre.
+  // L'écran renvoie ce qu'il affichait ; un écart se dit avec les deux valeurs. Un appelant qui ne
+  // l'envoie pas n'est pas comparé ici : l'écriture, elle, porte toujours sur l'état LU.
+  const montantVu = fdNum(formData, "montantVu");
+  const montantActuel = Number(order.amount);
+  if (montantVu !== null && montantVu !== montantActuel) {
+    return {
+      ok: false,
+      error: `Le montant de ce paiement a changé pendant que vous lisiez (${montantVu.toLocaleString("fr-FR")} → ${montantActuel.toLocaleString("fr-FR")} DZD) : relisez l'ordre avant de décider.`,
+    };
+  }
+  if (formData.has("beneficiaireVu") && !memeBeneficiaire(fdStr(formData, "beneficiaireVu"), order.beneficiary)) {
+    return {
+      ok: false,
+      error: `Le bénéficiaire de ce paiement a changé pendant que vous lisiez (désormais : « ${order.beneficiary ?? "non précisé"} ») : relisez l'ordre avant de décider.`,
+    };
+  }
+
+  // UNE DÉCISION À LA FOIS, ET SUR CE QUI A ÉTÉ LU. L'écriture était faite par le seul identifiant :
+  // deux sièges qui tranchaient à la même seconde voyaient le second écraser le premier — un refus
+  // devenir une autorisation sans que personne l'ait vue —, et un montant relevé pendant la décision
+  // était autorisé sans avoir été lu. Elle est désormais conditionnelle sur l'autorisation, le montant
+  // et le bénéficiaire lus ; perdue, rien n'est écrit, pas même le message.
+  const changee = "Ce paiement vient de changer (décidé par un autre siège, corrigé ou annulé) : rouvrez le centre.";
+  const decide = await prisma.$transaction(async (tx) => {
+    const ecrit = await tx.expenseOrder.updateMany({
+      where: { id, centralStatus: order.centralStatus, amount: order.amount, beneficiary: order.beneficiary, status: order.status },
       data: {
         centralStatus: next,
         centralDecidedById: user.id,
         centralDecidedAt: new Date(),
-        ...(proposed != null ? { centralProposedAmount: proposed } : {}),
         ...(echeanceDate ? { dueDate: echeanceDate } : {}),
       },
-    }),
-    prisma.paymentCentreMessage.create({
+    });
+    if (ecrit.count === 0) return false;
+    await tx.paymentCentreMessage.create({
       data: { orderId: id, decision, body: body.trim() || CENTRAL_DECISION_LABEL[decision], authorId: user.id },
-    }),
-  ]);
+    });
+    return true;
+  });
+  if (!decide) return { ok: false, error: changee };
 
   const money = `${Number(order.amount).toLocaleString("fr-FR")} DZD`;
   await recordAudit({
@@ -192,10 +217,12 @@ export async function decidePayment(formData: FormData): Promise<ActionResult> {
 }
 
 /**
- * Le demandeur répond et resoumet : la balle repasse au centre.
+ * Le demandeur répond et resoumet : la balle repasse au centre — pour les dossiers D'AVANT la
+ * décision du 02/09/2026, qui portent encore « révision du montant » ou « argumentation demandée ».
+ * Le centre ne pose plus ces états ; ceux qui en portent un doivent pouvoir en sortir.
  *
- * On ne resoumet QUE si le centre a rendu la main (révision ou argumentation demandée) — sinon on
- * pourrait relancer indéfiniment un dossier qu'il n'a pas encore regardé.
+ * On ne resoumet QUE si le centre a rendu la main — sinon on pourrait relancer indéfiniment un
+ * dossier qu'il n'a pas encore regardé.
  */
 export async function respondToPaymentCentre(formData: FormData): Promise<ActionResult> {
   const user = await requireUser();

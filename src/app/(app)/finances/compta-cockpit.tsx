@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { ArrowRight } from "lucide-react";
 import type { getComptaData, ComptaItem } from "@/lib/queries/compta";
+import { CHOIX_PERIODE, type Periode, type ResultatPeriode } from "@/lib/finance/resultat-mensuel";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -18,7 +19,7 @@ type ComptaData = Awaited<ReturnType<typeof getComptaData>>;
  * les dépenses qu'aucun autre écran ne porte — celles hors ordres, la masse salariale à
  * provisionner — et le résultat mensuel.
  */
-export function ComptaCockpit({ d }: { d: ComptaData }) {
+export function ComptaCockpit({ d, resultat, periode }: { d: ComptaData; resultat: ResultatPeriode; periode: Periode }) {
   return (
     <div className="space-y-6">
       {d.enRetardCount > 0 && (
@@ -54,37 +55,7 @@ export function ComptaCockpit({ d }: { d: ComptaData }) {
         </section>
       )}
 
-      {/* Résultat mensuel */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Résultat mensuel</CardTitle>
-          <CardDescription>Recettes, dépenses et résultat réalisés sur les 6 derniers mois.</CardDescription>
-        </CardHeader>
-        <CardContent className="p-0">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Mois</TableHead>
-                <TableHead className="text-right">Recettes</TableHead>
-                <TableHead className="text-right">Dépenses</TableHead>
-                <TableHead className="text-right">Résultat</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {d.months.map((m) => (
-                <TableRow key={m.label}>
-                  <TableCell className="font-medium">{m.label}</TableCell>
-                  <TableCell className="text-right text-success">{formatCurrency(m.recettes)}</TableCell>
-                  <TableCell className="text-right text-destructive">{formatCurrency(m.depenses)}</TableCell>
-                  <TableCell className={`text-right font-semibold ${m.resultat >= 0 ? "text-foreground" : "text-destructive"}`}>
-                    {formatCurrency(m.resultat)}
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </CardContent>
-      </Card>
+      <ResultatMensuel resultat={resultat} periode={periode} />
     </div>
   );
 }
@@ -129,5 +100,90 @@ function ItemTable({ items, thirdLabel, href }: { items: ComptaItem[]; thirdLabe
         </TableBody>
       </Table>
     </div>
+  );
+}
+
+/**
+ * LE RÉSULTAT MENSUEL, SUR LA PÉRIODE CHOISIE — 1 mois, 3 mois, 6 mois (défaut), 1 an, ou du… au…
+ * (Direction, 04/10/2026). Le choix est un paramètre d'adresse lu par le serveur : des liens et un
+ * formulaire GET, sans état côté navigateur. La paie compte dans son MOIS DE PAIE (voir
+ * `finance/resultat-mensuel.ts`), et sa part est montrée à côté des dépenses.
+ */
+function ResultatMensuel({ resultat, periode }: { resultat: ResultatPeriode; periode: Periode }) {
+  const lien = (valeur: string) => `/finances/comptabilite?periode=${valeur}`;
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Résultat mensuel</CardTitle>
+        <CardDescription>
+          Recettes, dépenses et résultat réalisés — {periode.libelle}. La paie compte dans le mois qu&apos;elle paie, même virée le mois suivant.
+        </CardDescription>
+        <nav aria-label="Période du résultat" className="flex flex-wrap items-end gap-2 pt-2">
+          {CHOIX_PERIODE.filter((c) => c.valeur !== "perso").map((c) => (
+            <Link
+              key={c.valeur} href={lien(c.valeur)}
+              aria-current={periode.choix === c.valeur ? "page" : undefined}
+              className={`rounded-full border px-3 py-1 text-xs ${periode.choix === c.valeur ? "border-primary bg-primary/10 font-medium text-primary" : "border-border hover:bg-muted"}`}
+            >
+              {c.libelle}
+            </Link>
+          ))}
+          <form method="get" action="/finances/comptabilite" className="flex flex-wrap items-end gap-2">
+            <input type="hidden" name="periode" value="perso" />
+            <label className="flex flex-col gap-0.5 text-xs">
+              <span className="text-muted-foreground">Du</span>
+              <input type="month" name="du" defaultValue={periode.choix === "perso" ? periode.debut : ""} required className="h-8 rounded-md border border-border bg-background px-2 text-xs" />
+            </label>
+            <label className="flex flex-col gap-0.5 text-xs">
+              <span className="text-muted-foreground">Au</span>
+              <input type="month" name="au" defaultValue={periode.choix === "perso" ? periode.fin : ""} required className="h-8 rounded-md border border-border bg-background px-2 text-xs" />
+            </label>
+            <button
+              type="submit"
+              aria-current={periode.choix === "perso" ? "page" : undefined}
+              className={`h-8 rounded-md border px-3 text-xs ${periode.choix === "perso" ? "border-primary bg-primary/10 font-medium text-primary" : "border-border hover:bg-muted"}`}
+            >
+              Période donnée
+            </button>
+          </form>
+        </nav>
+        {periode.avertissement && <p role="status" className="text-xs text-warning">{periode.avertissement}</p>}
+      </CardHeader>
+      <CardContent className="p-0">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Mois</TableHead>
+              <TableHead className="text-right">Recettes</TableHead>
+              <TableHead className="text-right">Dépenses</TableHead>
+              <TableHead className="text-right">dont paie</TableHead>
+              <TableHead className="text-right">Résultat</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {resultat.lignes.map((m) => (
+              <TableRow key={m.mois}>
+                <TableCell className="font-medium">{m.libelle}</TableCell>
+                <TableCell className="text-right text-success">{formatCurrency(m.recettes)}</TableCell>
+                <TableCell className="text-right text-destructive">{formatCurrency(m.depenses)}</TableCell>
+                <TableCell className="text-right text-muted-foreground">{formatCurrency(m.dontPaie)}</TableCell>
+                <TableCell className={`text-right font-semibold ${m.resultat >= 0 ? "text-foreground" : "text-destructive"}`}>
+                  {formatCurrency(m.resultat)}
+                </TableCell>
+              </TableRow>
+            ))}
+            <TableRow className="border-t-2 border-border font-semibold" data-total-periode>
+              <TableCell>Total — {periode.libelle}</TableCell>
+              <TableCell className="text-right text-success">{formatCurrency(resultat.total.recettes)}</TableCell>
+              <TableCell className="text-right text-destructive">{formatCurrency(resultat.total.depenses)}</TableCell>
+              <TableCell className="text-right text-muted-foreground">{formatCurrency(resultat.total.dontPaie)}</TableCell>
+              <TableCell className={`text-right ${resultat.total.resultat >= 0 ? "text-foreground" : "text-destructive"}`}>
+                {formatCurrency(resultat.total.resultat)}
+              </TableCell>
+            </TableRow>
+          </TableBody>
+        </Table>
+      </CardContent>
+    </Card>
   );
 }

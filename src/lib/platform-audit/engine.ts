@@ -2,7 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { MODULES, PERMISSIONS, can, hasGlobalView, anyRoleFilter, type Module } from "@/lib/rbac";
 import { NAVIGATION, MODULE_LABELS, ROLE_LABELS } from "@/lib/labels";
 import { validateUpload, validateDriveUpload, validateDocumentUpload } from "@/lib/storage";
-import { aiConfigured, sttConfigured, aiModel } from "@/lib/ai";
+import { aiConfigured, sttConfigured, aiModel, cleModeleRequise } from "@/lib/ai";
 import type { UserRole } from "@prisma/client";
 
 /**
@@ -88,7 +88,7 @@ function probeUploads(): { uploads: UploadSurface[]; findings: Finding[] } {
   const maxDoc = Number(process.env.MAX_UPLOAD_MB ?? "25");
   const maxDrive = Number(process.env.MAX_DRIVE_UPLOAD_MB ?? process.env.MAX_UPLOAD_MB ?? "100");
   const surfaces: { key: string; label: string; strategy: "allowlist" | "blocklist"; maxMb: number; fn: (n: string, s: number) => string | null }[] = [
-    { key: "biz", label: "Pièces jointes métier (rapports terrain, sponsoring, congrès, RH…)", strategy: "allowlist", maxMb: maxDoc, fn: (n, s) => validateUpload(n, s, maxDoc) },
+    { key: "biz", label: "Pièces jointes métier (rapports terrain, sponsoring, congrès, RH…)", strategy: "blocklist", maxMb: maxDoc, fn: (n, s) => validateUpload(n, s, maxDoc) },
     { key: "documents", label: "Documents (dossiers, factures, CTD…)", strategy: "blocklist", maxMb: maxDoc, fn: (n, s) => validateDocumentUpload(n, s, maxDoc) },
     { key: "drive", label: "Drive (fichiers)", strategy: "blocklist", maxMb: maxDrive, fn: (n, s) => validateDriveUpload(n, s, maxDrive) },
   ];
@@ -107,7 +107,7 @@ function probeUploads(): { uploads: UploadSurface[]; findings: Finding[] } {
     findings.push({
       severity: "warning", area: "Formats",
       title: "Certains espaces refusent des formats de fichiers courants",
-      detail: `Les pièces jointes métier (allowlist stricte) refusent : ${missing.map((m) => "." + m).join(", ")}. Un utilisateur ne peut pas y déposer ces fichiers.`,
+      detail: `Les pièces jointes métier refusent : ${missing.map((m) => "." + m).join(", ")}. Un utilisateur ne peut pas y déposer ces fichiers.`,
       suggestion: "Élargir ALLOWED_EXTENSIONS dans src/lib/storage.ts (ou aligner sur la stratégie « blocklist » du Drive/Documents qui n'interdit que les exécutables).",
     });
   }
@@ -180,7 +180,12 @@ function probeAi(): { probes: HealthProbe[]; findings: Finding[] } {
     { key: "stt", label: "Transcription vocale", ok: stt, value: stt ? "Active" : "Désactivée" },
   ];
   const findings: Finding[] = [];
-  if (!ai) findings.push({ severity: "warning", area: "IA", title: "IA désactivée", detail: "ANTHROPIC_API_KEY absente : chatbot, analyses et ce diagnostic (partie idées) sont indisponibles.", suggestion: "Ajouter ANTHROPIC_API_KEY dans les variables d'environnement (Render)." });
+  if (!ai) {
+    // La clé à poser suit le fournisseur ACTIF du registre (§118.128) : nommer celle d'un autre
+    // fournisseur ferait ajouter une variable qui ne change rien.
+    const cle = cleModeleRequise();
+    findings.push({ severity: "warning", area: "IA", title: "IA désactivée", detail: `${cle} absente : chatbot, analyses et ce diagnostic (partie idées) sont indisponibles.`, suggestion: `Ajouter ${cle} dans les variables d'environnement (Render).` });
+  }
   return { probes, findings };
 }
 

@@ -14,7 +14,7 @@ import {
   addCongressBeneficiary, removeCongressBeneficiary, requestBeneficiaryIds,
 } from "@/lib/actions/congress-beneficiary-actions";
 import {
-  addAdProItem, updateAdProItem, deleteAdProItem, emitItemExpenseOrder, linkPromoMaterial,
+  addAdProItem, updateAdProItem, deleteAdProItem, linkPromoMaterial,
   submitAdProItem, setAdProItemBudget, demanderPieceSecretariat, requestAdProItemOrder, approveAdProItemOrder,
 } from "@/lib/actions/ad-pro-item-actions";
 import {
@@ -568,11 +568,15 @@ export const ADPRO5_OPS_IMPL: Record<string, OpImpl> = {
     async propose(input): Promise<OpProposalDraft | { error: string }> {
       const target = await resolveCongressTarget(opStr(input, "kind"), opStr(input, "target") || opStr(input, "reference"));
       if ("error" in target) return target;
+      // LE MOTIF EST OBLIGATOIRE depuis que l'annulation ferme le circuit (§118.186) : l'action le
+      // refuse sans lui, et une carte qui part sans motif promettrait un geste qui échoue au clic.
+      const motif = opStr(input, "motif") || opStr(input, "reason") || opStr(input, "note");
+      if (!motif) return { error: "Dites pourquoi annuler cette demande : le motif est obligatoire et reste à l'historique." };
       return {
         title: `Annuler la demande — ${target.label}`,
-        fields: [{ label: "Demande", value: target.label }],
+        fields: [{ label: "Demande", value: target.label }, { label: "Motif", value: motif }],
         warnings: ["Une demande déjà VALIDÉE ne s'annule plus par ce geste (l'action refuse)."],
-        args: { id: target.entityId, type: target.congressType },
+        args: { id: target.entityId, type: target.congressType, motif },
         successMessage: `Demande ${target.label} annulée.`,
         revalidate: ["/events"],
       };
@@ -617,10 +621,17 @@ export const ADPRO5_OPS_IMPL: Record<string, OpImpl> = {
       if (target.congressType === "EVENT") return { error: "Les personnes prises en charge se gèrent sur les CONGRÈS (national / international)." };
       const raw = fold(opStr(input, "person"));
       if (!raw) return { error: "Précisez la personne (champ « person »)." };
-      const c = target.congressType === "NATIONAL"
-        ? await prisma.congressNational.findUnique({ where: { id: target.entityId }, select: { beneficiaries: true } })
-        : await prisma.congressInternational.findUnique({ where: { id: target.entityId }, select: { beneficiaries: true } });
-      const list = Array.isArray(c?.beneficiaries) ? (c.beneficiaries as { id: string; name: string }[]) : [];
+      // LA LISTE UNIQUE des professionnels proposés (`CareBeneficiary`, décision du 04/10/2026) — plus le
+      // JSON du congrès, que l'écran n'écrit plus.
+      const lignes = await prisma.careBeneficiary.findMany({
+        where: target.congressType === "NATIONAL" ? { congressNationalId: target.entityId } : { congressInternationalId: target.entityId },
+        select: { id: true, doctorId: true, firstName: true, lastName: true },
+      });
+      const medecins = await prisma.medicalDoctor.findMany({
+        where: { id: { in: lignes.map((l) => l.doctorId).filter((x): x is string => Boolean(x)) } }, select: { id: true, name: true },
+      });
+      const nomDe = new Map(medecins.map((d) => [d.id, d.name]));
+      const list = lignes.map((l) => ({ id: l.id, name: (l.doctorId ? nomDe.get(l.doctorId) : null) ?? [l.firstName, l.lastName].filter(Boolean).join(" ") }));
       const hits = list.filter((b) => fold(b.name).includes(raw));
       if (hits.length === 0) return { error: `Aucune personne « ${opStr(input, "person")} » prise en charge sur ${target.label}${list.length ? ` — présentes : ${list.map((b) => b.name).join(", ")}` : ""}.` };
       if (hits.length > 1) return { error: `Plusieurs personnes correspondent : ${hits.map((b) => b.name).join(", ")} — préciser.` };
@@ -639,13 +650,13 @@ export const ADPRO5_OPS_IMPL: Record<string, OpImpl> = {
     async propose(input): Promise<OpProposalDraft | { error: string }> {
       const target = await resolveCongressTarget(opStr(input, "kind") || "congrès", opStr(input, "target") || opStr(input, "reference"));
       if ("error" in target) return target;
-      if (target.congressType === "EVENT") return { error: "Les pièces d'identité se demandent sur les CONGRÈS (national / international)." };
+      if (target.congressType === "EVENT") return { error: "Les pièces se demandent sur les CONGRÈS (national / international)." };
       return {
-        title: `Demander les pièces d'identité — ${target.label}`,
+        title: `Demander les pièces des professionnels — ${target.label}`,
         fields: [{ label: "Congrès", value: target.label }],
-        warnings: ["Le DEMANDEUR du congrès est notifié : il joint les pièces d'identité des personnes prises en charge."],
+        warnings: ["Chaque professionnel proposé reçoit ses pièces à fournir (national : passeport ; international : passeport, visa, informations de voyage), et le DEMANDEUR est prévenu."],
         args: { id: target.entityId, kind: target.congressType === "NATIONAL" ? "NATIONAL" : "INTERNATIONAL" },
-        successMessage: `Pièces d'identité demandées au demandeur (${target.label}).`,
+        successMessage: `Pièces demandées pour les professionnels proposés (${target.label}).`,
         revalidate: ["/events"],
       };
     },
@@ -821,9 +832,9 @@ export const ADPRO5_OPS_IMPL: Record<string, OpImpl> = {
       return {
         title: `Demander l'émission du bon de commande — « ${found.label} »`,
         fields: fieldsOf([["Poste", `${found.label} — ${found.parentLabel}`], ["Note", opStr(input, "note") || null]]),
-        warnings: ["Première marche du circuit : demande → VALIDATION au centre de validation Ad & Pro → émission par les Finances. Exige un poste accordé, un montant affecté et une imputation budgétaire."],
+        warnings: ["La demande part chez l'assistante de direction, qui dépose le bon de commande sur le poste ; au-dessus du seuil, le centre de validation Ad & Pro le vise en parallèle. Exige un poste accordé, un montant affecté et un budget. Plusieurs assistantes : le choix se fait à l'écran."],
         args: { id: found.id, note: opStr(input, "note") || null },
-        successMessage: `Émission du bon de commande demandée pour « ${found.label} » — au centre de validation Ad & Pro.`,
+        successMessage: `Bon de commande demandé à l'assistante de direction pour « ${found.label} ».`,
         revalidate: ["/sponsoring"],
       };
     },
@@ -840,29 +851,13 @@ export const ADPRO5_OPS_IMPL: Record<string, OpImpl> = {
         fields: fieldsOf([["Poste", `${found.label} — ${found.parentLabel}`], ["Note", opStr(input, "note") || null]]),
         warnings: refuse
           ? ["Un refus se MOTIVE : sans motif, l'action le refuse — le demandeur doit savoir quoi corriger."]
-          : ["Validation du CENTRE DE VALIDATION AD & PRO — les Finances émettent ensuite l'ordre de dépense, qui passera par le centre de paiement."],
+          : ["Validation du CENTRE DE VALIDATION AD & PRO — la signature des Finances suit le bon de commande déposé par l'assistante ; le paiement part de la facture, au centre de paiement."],
         args: { id: found.id, decision: refuse ? "REFUSE" : "APPROVE", note: opStr(input, "note") || null },
         successMessage: refuse ? `Bon de commande refusé pour « ${found.label} ».` : `Bon de commande validé — transmis aux Finances.`,
         revalidate: ["/sponsoring"],
       };
     },
     execute: (args) => runFd2(approveAdProItemOrder, args, "Le visa a été refusé.", { revalidate: ["/sponsoring"] }),
-  },
-
-  emit_item_order: {
-    async propose(input): Promise<OpProposalDraft | { error: string }> {
-      const found = await resolveItem(input);
-      if ("error" in found) return found;
-      return {
-        title: `ÉMETTRE l'ordre de dépense du poste « ${found.label} »`,
-        fields: [{ label: "Poste", value: `${found.label} — ${found.parentLabel}` }],
-        warnings: ["Geste des FINANCES — un BC demandé doit avoir été validé au centre Ad & Pro ; un ordre PAR poste (les bénéficiaires diffèrent réellement), qui passera par le centre de paiement."],
-        args: { id: found.id },
-        successMessage: `Ordre de dépense émis pour « ${found.label} ».`,
-        revalidate: ["/sponsoring", "/finances/paiements-a-faire"],
-      };
-    },
-    execute: (args) => runFd2(emitItemExpenseOrder, args, "L'émission a été refusée.", { revalidate: ["/sponsoring"] }),
   },
 
   link_item_promo_material: {

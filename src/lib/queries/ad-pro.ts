@@ -3,9 +3,9 @@ import { businessUnitDuDemandeur } from "@/lib/ad-pro/business-unit-auto";
 import { AVAILABLE_PRODUCT_STATUSES } from "@/lib/ad-pro/pickers";
 import { platformScope, getMyCompanies, companyOptions } from "@/lib/company";
 import { toNumber } from "@/lib/utils";
-import { userCan, scopeCongressIntl, scopeCongressNational, scopePromoMaterial, type SessionUser } from "@/lib/rbac";
+import { userCan, scopeCongressIntl, scopeCongressNational, scopePromoMaterial, scopeSponsoring, type SessionUser } from "@/lib/rbac";
 import { adProState, sortAdPro, type AdProKind, type AdProRequest } from "@/lib/ad-pro/unified";
-import { natureDesigneMedecinsEtProduits, type AdProCreateData } from "@/lib/ad-pro/create-fields";
+import { natureDesigneMedecins, natureDesigneMedecinsEtProduits, type AdProCreateData } from "@/lib/ad-pro/create-fields";
 import { optionsDesArticlesDemandes } from "@/lib/queries/promo-achats";
 import { etatAdProDuDossier } from "@/lib/promo-material/statut";
 
@@ -31,7 +31,7 @@ export async function getAdProRequests(user: SessionUser): Promise<AdProRequest[
   const [sponsorings, intl, national, events, promo, consulting, other] = await Promise.all([
     can("SPONSORING")
       ? prisma.sponsoringRequest.findMany({
-          where: scope, orderBy: { createdAt: "desc" }, take: LIMIT,
+          where: { AND: [scope, scopeSponsoring(user)] }, orderBy: { createdAt: "desc" }, take: LIMIT,
           select: {
             id: true, reference: true, institution: true, doctor: true, type: true,
             status: true, createdAt: true, amountRequested: true, requesterId: true,
@@ -62,7 +62,7 @@ export async function getAdProRequests(user: SessionUser): Promise<AdProRequest[
           // matériel promotionnel en « lignes assignées » ne voit que SES dossiers dans l'écran du
           // module — la liste unifiée ne doit pas lui montrer ceux des autres.
           where: { AND: [scope, scopePromoMaterial(user)] }, orderBy: { createdAt: "desc" }, take: LIMIT,
-          select: { id: true, reference: true, title: true, status: true, circuitState: true, circuitVersion: true, createdAt: true, chosenAmount: true, amount: true, chosenAgency: true, requesterId: true },
+          select: { id: true, reference: true, title: true, status: true, circuitState: true, circuitVersion: true, returnedAt: true, createdAt: true, chosenAmount: true, amount: true, chosenAgency: true, requesterId: true },
         }).catch(() => [])
       : [],
     can("CONSULTING")
@@ -70,7 +70,7 @@ export async function getAdProRequests(user: SessionUser): Promise<AdProRequest[
           // Le pôle Ad & Pro seulement : un contrat passé aux RH n'est plus une demande de
           // promotion, et cette liste ne doit pas le rendre à qui n'a que la promotion (§118.150).
           where: { AND: [scope, { pole: "AD_PRO" }] }, orderBy: { createdAt: "desc" }, take: LIMIT,
-          select: { id: true, reference: true, title: true, counterparty: true, status: true, createdAt: true, amount: true, requesterId: true },
+          select: { id: true, reference: true, title: true, counterparty: true, status: true, returnedAt: true, createdAt: true, amount: true, requesterId: true },
         }).catch(() => [])
       : [],
     can("AD_PRO_OTHER")
@@ -141,7 +141,10 @@ export async function getAdProRequests(user: SessionUser): Promise<AdProRequest[
       // quand on se demande avec qui l'on a déjà contracté.
       beneficiary: r.counterparty,
       amount: r.amount === null ? null : toNumber(r.amount),
-      status: r.status, state: adProState(r.status), requester: nameOf(r.requesterId),
+      // RENVOYÉ POUR CORRECTION (audit 360°, lot C4a) : un brouillon qui porte un renvoi n'est pas un
+      // brouillon qu'on n'a pas encore envoyé — c'est son porteur qui a la main, « À corriger » comme
+      // les autres natures (§118.186). Rangé « Brouillon », il disparaissait de ce qu'on attend de lui.
+      status: r.status, state: r.status === "DRAFT" && r.returnedAt ? "RETURNED" : adProState(r.status), requester: nameOf(r.requesterId),
       createdAt: r.createdAt.toISOString(), href: `/consulting/${r.id}`,
     })),
     ...other.map((r) => ({
@@ -189,7 +192,9 @@ export async function getAdProCreateData(userId: string, kinds: readonly AdProKi
    * le droit d'être promu — ce n'est pas une maladresse d'écran, c'est une faute réglementaire.
    */
   const needsReferentiels = kinds.some((k) => natureDesigneMedecinsEtProduits(k));
-  const needsDoctors = needsReferentiels;
+  // Les PRISES EN CHARGE proposent des praticiens sans produit (04/10/2026) : le médecin et le
+  // produit ne se chargent plus ensemble.
+  const needsDoctors = kinds.some((k) => natureDesigneMedecins(k));
   const needsProducts = needsReferentiels;
   const needsPeople = kinds.length > 0;
 

@@ -7,6 +7,8 @@ import { submitEventForApproval } from "@/lib/actions/event-actions";
 import { WorkflowPanel } from "@/components/workflow/workflow-panel";
 import type { WorkflowView } from "@/lib/queries/workflow";
 import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/input";
+import { useRafraichir } from "@/components/shared/use-rafraichir";
 
 interface Props {
   eventId: string;
@@ -26,7 +28,46 @@ export function EventFundingPanel({ eventId, requestSubmitted, canSubmit, workfl
     return <SubmitButton id={eventId} />;
   }
   if (!workflow) return <p className="text-sm text-muted-foreground">Circuit indisponible.</p>;
-  return <WorkflowPanel entityType="EVENT" entityId={eventId} view={workflow} />;
+  // UNE DEMANDE REFUSÉE OU RETIRÉE PEUT REPARTIR (audit 360°, R01 — §118.186) : on a refusé la PRISE
+  // EN CHARGE, pas l'événement. Le panneau garde l'historique et le motif du refus ; la relance
+  // demande ce qui a changé.
+  const relancable = canSubmit && (workflow.status === "REJECTED" || workflow.status === "CANCELLED");
+  return (
+    <div className="space-y-4">
+      <WorkflowPanel entityType="EVENT" entityId={eventId} view={workflow} />
+      {relancable && <RelaunchForm id={eventId} />}
+    </div>
+  );
+}
+
+/** RELANCER une prise en charge refusée ou retirée — un nouveau cycle, avec ce qui a changé. */
+function RelaunchForm({ id }: { id: string }) {
+  const { enCours, rafraichir } = useRafraichir();
+  const [pendingAction, start] = React.useTransition();
+  const pending = pendingAction || enCours;
+  const [note, setNote] = React.useState("");
+  const [err, setErr] = React.useState<string | null>(null);
+  const relancer = () =>
+    start(async () => {
+      setErr(null);
+      const fd = new FormData();
+      fd.set("id", id);
+      fd.set("note", note.trim());
+      const r = await submitEventForApproval(fd);
+      if (!r.ok) { setErr(r.error ?? "Relance impossible."); return; }
+      setNote("");
+      rafraichir();
+    });
+  return (
+    <div className="space-y-2 border-t border-border pt-3">
+      <p className="text-sm font-medium">Soumettre une nouvelle demande de prise en charge</p>
+      <Textarea value={note} onChange={(e) => setNote(e.target.value)} placeholder="Ce qui a changé depuis le refus (obligatoire) — budget revu, format, pièces…" className="min-h-[56px]" />
+      {err && <p className="text-xs text-destructive">{err}</p>}
+      <Button size="sm" onClick={relancer} disabled={pending || !note.trim()}>
+        {pending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />} Relancer la demande
+      </Button>
+    </div>
+  );
 }
 
 /**

@@ -21,9 +21,12 @@ import {
  *
  * ── LES PARCOURS, ET POURQUOI QUATRE ÉTAPES SUFFISENT ───────────────────────────────────
  *
- * Chaque chaîne est une tranche CONTIGUË de cette colonne vertébrale : `parcours.ts` porte les
- * deux bornes, la définition reste unique. Deux définitions auraient divergé au premier réglage
- * (§118.5).
+ * Chaque demande traverse CETTE colonne vertébrale, filtrée par son parcours (`parcours.ts`) :
+ * une BORNE — où la chaîne s'arrête — et un TAMIS — les étapes qu'elle ne traverse pas —, figés à
+ * la naissance de l'instance (`finalSlug`, `skippedSlugs`, §118.142). Ce n'est plus une tranche
+ * contiguë : un KAM traverse le préliminaire sans la Direction des opérations, un National Sales
+ * l'inverse. La définition, elle, reste UNIQUE : deux définitions auraient divergé au premier
+ * réglage (§118.5).
  */
 
 /** Les quatre étapes « colonne vertébrale » communes aux 4 catégories. */
@@ -63,12 +66,22 @@ function defaultSpine(): StepInput[] {
       notifyRoles: ["GENERAL_MANAGER", "SUPER_ADMIN"],
       legacyStatus: "PRELIMINARY_APPROVED",
     },
+    // SUR LA ROUTE DU RANG 2 (Direction Marketing, Manager Promotion médicale), cette étape CONCLUT :
+    // elle hérite alors, à l'EXÉCUTION, le montant et la sous-catégorie de l'étape qu'elle remplace
+    // (`pouvoirs-argent.ts`). La définition ne change pas ; la description, elle, dit les DEUX routes.
+    // Elle disait « le montant ne se décide PAS ici » — faux sur la route coupée depuis §118.197g, et
+    // c'est la phrase que lit le Super Admin qui règle le circuit. Le même texte est posé en base par
+    // `20270104091000_description_etape_final`, là où l'ancien est resté mot pour mot (un test exige
+    // que les deux restent identiques : deux sources de la même étape feraient deux circuits).
     {
       slug: SLUG_DIRECTION,
       title: "Validation (Direction des opérations)",
       description:
-        "La Direction donne son accord sur l'opération. Le montant et la sous-catégorie budgétaire ne se "
-        + "décident PAS ici : ils appartiennent à Direction Marketing, qui tranche ensuite.",
+        "La Direction des opérations donne son accord sur l'opération ; d'ordinaire, Direction Marketing tranche "
+        + "ensuite, et le montant comme la sous-catégorie budgétaire se décident chez elle. Sur la demande d'un "
+        + "membre de Direction Marketing ou du Manager Promotion médicale, qui ne tranchent pas leur propre demande, "
+        + "cette étape conclut : elle prend alors la décision de Direction Marketing — montant accordé et "
+        + "sous-catégorie budgétaire compris quand le circuit les exige — et lance ce qui en découle.",
       actorScope: "GLOBAL_VIEW",
       actorRoles: ["DIRECTION"],
       powers: ["APPROVE", "REJECT", "COMMENT"],

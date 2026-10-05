@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/session";
-import { getCompanyScope } from "@/lib/company";
 import { getBlob } from "@/lib/drive-storage";
-import { regCan, resolveRegCompanyId } from "@/lib/regulatory/intelligence/access";
+import { regCan, resolveRegCompanyIdFor } from "@/lib/regulatory/intelligence/access";
 import { getDocument } from "@/lib/regulatory/intelligence/queries";
+import { contentDisposition } from "@/lib/http/content-disposition";
 
 /**
  * Téléchargement / aperçu d'un document décortiqué du dossier. Org-scopé + permission.
@@ -24,7 +24,7 @@ export async function GET(req: NextRequest, { params }: { params: { documentId: 
   if (!user) return NextResponse.json({ error: "Non authentifié." }, { status: 401 });
   if (!regCan(user, "regulatory.document.view")) return NextResponse.json({ error: "Accès refusé." }, { status: 403 });
 
-  const companyId = await resolveRegCompanyId(getCompanyScope());
+  const companyId = await resolveRegCompanyIdFor(user.id);
   if (!companyId) return NextResponse.json({ error: "Module non activé." }, { status: 403 });
 
   const doc = await getDocument(companyId, params.documentId);
@@ -40,7 +40,7 @@ export async function GET(req: NextRequest, { params }: { params: { documentId: 
   return new NextResponse(new Uint8Array(bytes), {
     headers: {
       "Content-Type": inlineType ?? "application/octet-stream",
-      "Content-Disposition": `${wantsInline ? "inline" : "attachment"}; filename="${filename}"`,
+      "Content-Disposition": contentDisposition(filename, wantsInline ? "inline" : "attachment"),
       "Content-Length": String(bytes.length),
       "Cache-Control": "private, no-store",
     },

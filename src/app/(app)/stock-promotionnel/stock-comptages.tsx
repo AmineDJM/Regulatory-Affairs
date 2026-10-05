@@ -5,7 +5,8 @@ import { useRouter } from "next/navigation";
 import { AlertCircle, ChevronDown, ChevronRight, Plus, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Input, Select, Textarea } from "@/components/ui/input";
+import { Input, Label, Select, Textarea } from "@/components/ui/input";
+import { useRafraichir } from "@/components/shared/use-rafraichir";
 import { Sheet } from "@/components/ui/sheet";
 import { cn } from "@/lib/utils";
 import {
@@ -13,7 +14,7 @@ import {
   peutAnnulerComptage, peutDemanderDesComptages, peutGererRecurrence, peutSaisirComptage,
 } from "@/lib/promo/comptages";
 import {
-  reprendreRecurrenceComptage, saisirComptage, supprimerRecurrenceComptage, suspendreRecurrenceComptage,
+  reprendreRecurrenceComptage, saisirComptage, supprimerRecurrenceComptage, suspendreRecurrenceComptage, corrigerComptage,
 } from "@/lib/actions/promo-comptage-actions";
 import type { ComptageVue, PageStock, RecurrenceVue } from "@/lib/queries/promo-stock";
 import { Section, Vide, date, jour, nombre, nomDe, quantiteDe } from "./stock-commun";
@@ -118,7 +119,7 @@ export function VueComptages({ ctx }: { ctx: Ctx }) {
 
       <Section titre="Derniers comptages" aide={`Les comptages saisis ou annulés depuis 90 jours — ce que le registre attendait, ce qui a été compté, l'écart corrigé.`}>
         {termines.length === 0 ? <Vide>Aucun comptage récent.</Vide> : (
-          <ul className="space-y-2">{termines.map((c) => <LigneResultat key={c.id} c={c} page={page} />)}</ul>
+          <ul className="space-y-2">{termines.map((c) => <LigneResultat key={c.id} c={c} page={page} peutCorriger={c.statut === "SAISI" && peutSaisirComptage(f, c.holderId)} />)}</ul>
         )}
       </Section>
 
@@ -161,8 +162,9 @@ function LigneRecurrence({ r, ctx }: { r: RecurrenceVue; ctx: Ctx }) {
   );
 }
 
-function LigneResultat({ c, page }: { c: ComptageVue; page: PageStock }) {
+function LigneResultat({ c, page, peutCorriger }: { c: ComptageVue; page: PageStock; peutCorriger: boolean }) {
   const [ouvert, setOuvert] = React.useState(false);
+  const [correction, setCorrection] = React.useState(false);
   const ecarts = c.lignes.filter((l) => l.ecart !== 0);
   return (
     <li className="rounded-lg border border-border">
@@ -207,9 +209,80 @@ function LigneResultat({ c, page }: { c: ComptageVue; page: PageStock }) {
               ))}
             </tbody>
           </table>
+          {c.corrigeLe && (
+            <p className="mt-2 text-xs text-muted-foreground">
+              Corrigé le {date(c.corrigeLe)}{c.corrigeParId ? ` par ${nomDe(page, c.corrigeParId)}` : ""}{c.corrigeMotif ? ` : « ${c.corrigeMotif} »` : ""}.
+            </p>
+          )}
+          {peutCorriger && !correction && (
+            <Button size="sm" variant="outline" className="mt-2" onClick={() => setCorrection(true)}>Corriger ce comptage</Button>
+          )}
+          {peutCorriger && correction && <FormulaireCorrection c={c} onClose={() => setCorrection(false)} />}
         </div>
       )}
     </li>
+  );
+}
+
+/**
+ * CORRIGER UN COMPTAGE SAISI (audit 360°, R19) — « 40 » tapé pour « 14 ». Pré-rempli avec ce qui a été
+ * compté (ici, c'est une CORRECTION, pas une saisie à l'aveugle) ; seules les lignes changées partent,
+ * avec le motif, exigé. L'écart corrigé s'applique au solde du jour : des sorties ont pu avoir lieu.
+ */
+function FormulaireCorrection({ c, onClose }: { c: ComptageVue; onClose: () => void }) {
+  const { enCours, rafraichir } = useRafraichir();
+  const [valeurs, setValeurs] = React.useState<Record<string, string>>(() => Object.fromEntries(c.lignes.map((l) => [l.itemId, String(l.compte)])));
+  const [motif, setMotif] = React.useState("");
+  const [erreur, setErreur] = React.useState<string | null>(null);
+  const [annonce, setAnnonce] = React.useState<string | null>(null);
+  const [occupe, setOccupe] = React.useState(false);
+  const changees = c.lignes.filter((l) => (valeurs[l.itemId] ?? "").trim() !== "" && Number((valeurs[l.itemId] ?? "").replace(",", ".")) !== l.compte);
+
+  const envoyer = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    setOccupe(true); setErreur(null);
+    const fd = new FormData();
+    fd.set("comptageId", c.id);
+    for (const l of changees) { fd.append("itemId", l.itemId); fd.append("compte", valeurs[l.itemId] ?? ""); }
+    fd.set("motif", motif);
+    try {
+      const r = await corrigerComptage(fd);
+      if (r.ok) { setAnnonce(r.message ?? "Comptage corrigé."); rafraichir(); }
+      else setErreur(r.error ?? "La correction n'a pas été enregistrée.");
+    } catch {
+      setErreur("La correction n'a pas abouti (connexion ou serveur). Rechargez la page avant de recommencer : elle a pu s'enregistrer malgré tout.");
+    } finally {
+      setOccupe(false);
+    }
+  };
+
+  if (annonce) {
+    return (
+      <div className="mt-2 space-y-2">
+        <p role="status" className="rounded-lg bg-success/10 px-3 py-2 text-sm">{annonce}</p>
+        <Button size="sm" variant="ghost" onClick={onClose} disabled={enCours}>Fermer</Button>
+      </div>
+    );
+  }
+  return (
+    <form onSubmit={envoyer} className="mt-2 space-y-2 rounded-lg border border-border p-3">
+      <ul className="space-y-1.5">
+        {c.lignes.map((l) => (
+          <li key={l.itemId} className="flex items-center justify-between gap-2">
+            <label htmlFor={`corr-${c.id}-${l.itemId}`} className="min-w-0 break-words text-sm">{l.libelle}</label>
+            <Input id={`corr-${c.id}-${l.itemId}`} inputMode="decimal" className="w-24 text-right" value={valeurs[l.itemId] ?? ""}
+              onChange={(e) => setValeurs({ ...valeurs, [l.itemId]: e.target.value })} />
+          </li>
+        ))}
+      </ul>
+      <Label htmlFor={`corr-motif-${c.id}`}>Pourquoi vous corrigez</Label>
+      <Textarea id={`corr-motif-${c.id}`} value={motif} onChange={(e) => setMotif(e.target.value)} rows={2} placeholder="Ex. 40 saisi au lieu de 14 pour les fiches posologiques." />
+      {erreur && <p role="alert" className="text-sm text-destructive">{erreur}</p>}
+      <div className="flex gap-2">
+        <Button type="submit" size="sm" disabled={occupe || enCours || changees.length === 0 || !motif.trim()}>Enregistrer la correction</Button>
+        <Button type="button" size="sm" variant="ghost" onClick={onClose} disabled={occupe}>Annuler</Button>
+      </div>
+    </form>
   );
 }
 

@@ -15,11 +15,26 @@ export function formatCurrency(
   if (value === null || value === undefined || value === "") return "—";
   const num = typeof value === "string" ? Number(value) : value;
   if (Number.isNaN(num)) return "—";
+  // LE MONTANT EXACT, JAMAIS ARRONDI : « 12 500,50 DZD » reste « 12 500,50 DZD ». Un entier s'écrit
+  // sans décimales (« 12 500 DZD ») ; dès qu'il y a des centimes, on les montre tous les deux.
+  const entier = Number.isInteger(Math.round(num * 100) / 100);
   return new Intl.NumberFormat(locale, {
     style: "currency",
     currency,
-    maximumFractionDigits: 0,
+    minimumFractionDigits: entier ? 0 : 2,
+    maximumFractionDigits: 2,
   }).format(num);
+}
+
+/**
+ * Un MONTANT en texte (« 12 500,50 » / « 12 500 »), exact à deux décimales près, sans devise.
+ * La plateforme n'arrondit jamais un montant (décision du 05/10/2026) : toute phrase qui en cite
+ * un passe par ici ou par `formatCurrency`, jamais par `Math.round(n).toLocaleString(…)`.
+ */
+export function formatMontant(value: number | null | undefined, locale = "fr-FR"): string {
+  if (value === null || value === undefined || Number.isNaN(value)) return "—";
+  const entier = Number.isInteger(Math.round(value * 100) / 100);
+  return new Intl.NumberFormat(locale, { minimumFractionDigits: entier ? 0 : 2, maximumFractionDigits: 2 }).format(value);
 }
 
 /** Compact number formatting, e.g. 12 500 → 12,5 k. */

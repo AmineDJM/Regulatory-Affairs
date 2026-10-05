@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getCurrentUser } from "@/lib/session";
-import { getCompanyScope } from "@/lib/company";
-import { regCan, resolveRegCompanyId } from "@/lib/regulatory/intelligence/access";
+import { getCurrentUserPourEcrire } from "@/lib/session";
+import { regCan, resolveRegCompanyIdFor } from "@/lib/regulatory/intelligence/access";
 import { finalizeDirectUploadSession } from "@/lib/regulatory/intelligence/upload/session";
 
 /**
@@ -14,10 +13,10 @@ export const maxDuration = 300;
 
 export async function POST(req: NextRequest, { params }: { params: { sessionId: string } }) {
   try {
-    const user = await getCurrentUser();
+    const user = await getCurrentUserPourEcrire();
     if (!user) return NextResponse.json({ error: "Non authentifié." }, { status: 401 });
     if (!regCan(user, "regulatory.dossier.upload")) return NextResponse.json({ error: "Non autorisé." }, { status: 403 });
-    const companyId = await resolveRegCompanyId(getCompanyScope());
+    const companyId = await resolveRegCompanyIdFor(user.id);
     if (!companyId) return NextResponse.json({ error: "Module non activé." }, { status: 403 });
 
     // MULTIPART : le navigateur renvoie l'empreinte (ETag) de chaque partie, dans l'ordre. Sans
@@ -29,7 +28,9 @@ export async function POST(req: NextRequest, { params }: { params: { sessionId: 
     } catch { /* pas de corps : envoi simple */ }
 
     const r = await finalizeDirectUploadSession(params.sessionId, companyId, user.id, etags);
-    if (!r.ok) return NextResponse.json({ error: r.error }, { status: 422 });
+    // Un envoi INCOMPLET n'est pas un échec : la réponse nomme les parties manquantes, et le
+    // navigateur rouvre la session (reprise) pour ne renvoyer qu'elles.
+    if (!r.ok) return NextResponse.json({ error: r.error, manquantes: r.manquantes ?? [], reprendre: (r.manquantes?.length ?? 0) > 0, retryable: (r.manquantes?.length ?? 0) === 0 && (r.retryable ?? false) }, { status: (r.manquantes?.length ?? 0) > 0 ? 409 : 422 });
     return NextResponse.json({ ok: true, summary: r.ingest?.summary ?? null });
   } catch (err) {
     console.error("[reg-upload/direct/finalize] erreur non gérée", err);

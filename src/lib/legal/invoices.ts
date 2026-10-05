@@ -20,6 +20,7 @@
  */
 
 import { isInvoice } from "@/lib/labels";
+import { entierementCreditee, netDeLaFacture } from "@/lib/lecteurs/avoir";
 
 /**
  * LA NATURE « FACTURE » ET SON ÉTAT DE RÈGLEMENT vivent dans le VOCABULAIRE (`lib/labels`) :
@@ -41,6 +42,12 @@ export interface InvoiceTallyRow {
   expenseOrderId: string | null;
   /** Un document annulé ne se règle plus — il ne compte dans aucun total. */
   status: string;
+  /**
+   * LE TOTAL DE SES AVOIRS ACTIFS (§118.195) — ce que la facture ne doit plus. Le reste à payer est son NET, comme
+   * au règlement : une facture de 45 220 DZD créditée de 5 950 ne laisse que 39 270 à régler, et une facture
+   * entièrement créditée ne laisse rien. Absent : aucun avoir.
+   */
+  avoirs?: number;
 }
 
 export interface InvoiceTally {
@@ -66,12 +73,13 @@ export interface InvoiceTally {
  */
 export function invoiceTally(rows: readonly InvoiceTallyRow[], today: Date = new Date()): InvoiceTally {
   const factures = rows.filter((r) => isInvoice(r.kind) && r.status !== "CANCELLED");
-  const dues = factures.filter((r) => !r.paidDate);
+  // Une facture entièrement créditée par ses avoirs n'est plus à régler : la même lecture que le filtre de la liste.
+  const dues = factures.filter((r) => !r.paidDate && !entierementCreditee(r.amount, r.avoirs ?? 0));
   const jour = today.getTime();
   return {
     count: factures.length,
     unpaid: dues.length,
-    unpaidTotal: dues.reduce((a, r) => a + (r.amount ?? 0), 0),
+    unpaidTotal: dues.reduce((a, r) => a + netDeLaFacture(r.amount ?? 0, [r.avoirs ?? 0]), 0),
     overdue: dues.filter((r) => r.endDate !== null && new Date(r.endDate).getTime() < jour).length,
   };
 }

@@ -14,6 +14,7 @@ import {
   peutLireFinance, peutLireLegal, peutLireRegulatory, signauxFinance, signauxLegal, signauxRegulatory,
   LIBELLE_GRAVITE, type LectureIntelligence, type Signal,
 } from "@/platform/in-process/intelligence";
+import { formatMontant } from "@/lib/utils";
 
 type Acteur = Parameters<PowerTool["run"]>[1];
 
@@ -33,7 +34,7 @@ function blocSignaux(titre: string, signaux: readonly Signal[]): Record<string, 
     ],
     rows: signaux.slice(0, 40).map((s) => ({ cells: {
       gravite: LIBELLE_GRAVITE[s.gravite], signal: s.titre, echeance: s.echeance ?? "—",
-      montant: s.montant != null ? Math.round(s.montant).toLocaleString("fr-FR") : "—", calcul: s.calcul ?? "—",
+      montant: s.montant != null ? formatMontant(s.montant) : "—", calcul: s.calcul ?? "—",
     } })),
     total: signaux.length,
   };

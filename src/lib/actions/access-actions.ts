@@ -10,6 +10,7 @@ import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
 import { clearAttempts } from "@/lib/login-throttle";
 import { fdStr, type ActionResult } from "@/lib/actions/types";
+import { refusAdministration, type GesteAdministration } from "@/lib/admin/garde-comptes";
 import { ANNUAIRES_ACCORDABLES, lireSections } from "@/lib/annuaires/acces";
 
 /** Only a Super Admin (ADMIN/UPDATE) may manage accounts & access. */
@@ -17,6 +18,17 @@ async function requireAdmin() {
   const admin = await requireUser();
   if (!userCan(admin, "ADMIN", "UPDATE")) return null;
   return admin;
+}
+
+/**
+ * LA GARDE DES COMPTES (§118.184, audit 360° S9) sur une cible RELUE en base : on ne se fie pas au
+ * rôle qu'un formulaire annonce. Non exportée — un fichier « use server » expose tout ce qu'il exporte.
+ */
+async function refusSurLaCible(
+  admin: { id: string; role: string }, userId: string, geste: GesteAdministration, nouveauRole?: string | null,
+): Promise<string | null> {
+  const cible = await prisma.user.findUnique({ where: { id: userId }, select: { id: true, role: true } });
+  return refusAdministration(admin, cible, geste, nouveauRole);
 }
 
 
@@ -53,6 +65,8 @@ export async function saveAccessMatrix(formData: FormData): Promise<ActionResult
   if (!admin) return { ok: false, error: "Réservé au Super Admin." };
   const userId = fdStr(formData, "userId");
   if (!userId) return { ok: false, error: "Utilisateur manquant." };
+  const refus = await refusSurLaCible(admin, userId, "DROITS");
+  if (refus) return { ok: false, error: refus };
 
   for (const module of MODULES) {
     const mode = fdStr(formData, `mode_${module}`) ?? "DEFAULT";
@@ -104,6 +118,11 @@ export async function saveModuleAccess(formData: FormData): Promise<ActionResult
   if (!module || !MODULES.includes(module)) return { ok: false, error: "Module manquant." };
   const userIds = formData.getAll("userId").map(String).filter(Boolean);
   const supported = supportedActions(module);
+  // TOUT OU RIEN : une seule cible refusée fait tomber l'enregistrement, jamais seulement sa ligne.
+  for (const userId of userIds) {
+    const refus = await refusSurLaCible(admin, userId, "DROITS");
+    if (refus) return { ok: false, error: refus };
+  }
 
   for (const userId of userIds) {
     const mode = fdStr(formData, `mode_${userId}`) ?? "DEFAULT";
@@ -148,6 +167,8 @@ export async function setRowGrants(formData: FormData): Promise<ActionResult> {
   const userId = fdStr(formData, "userId");
   const entityType = fdStr(formData, "entityType") as EntityType | null;
   if (!userId || !entityType) return { ok: false, error: "Paramètres manquants." };
+  const refus = await refusSurLaCible(admin, userId, "DROITS");
+  if (refus) return { ok: false, error: refus };
 
   const ids = formData.getAll("rowId").map(String).filter(Boolean);
 
@@ -177,6 +198,9 @@ export async function adminResetPassword(formData: FormData): Promise<ActionResu
   }
   const target = await prisma.user.findUnique({ where: { id: userId }, select: { email: true } });
   if (!target) return { ok: false, error: "Utilisateur introuvable." };
+  // Réinitialiser le mot de passe d'un Super Admin, c'est pouvoir se connecter à sa place.
+  const refus = await refusSurLaCible(admin, userId, "COMPTE");
+  if (refus) return { ok: false, error: refus };
 
   const force = formData.get("mustChange") === "on";
   const passwordHash = await bcrypt.hash(password, 10);
@@ -222,8 +246,14 @@ export async function updateUserProfile(formData: FormData): Promise<ActionResul
   const userId = fdStr(formData, "userId");
   if (!userId) return { ok: false, error: "Utilisateur manquant." };
 
-  const current = await prisma.user.findUnique({ where: { id: userId }, select: { email: true } });
+  const current = await prisma.user.findUnique({ where: { id: userId }, select: { email: true, role: true } });
   if (!current) return { ok: false, error: "Utilisateur introuvable." };
+  const roleDemande = fdStr(formData, "role");
+  const refus = refusAdministration(
+    admin, { id: userId, role: current.role },
+    roleDemande && roleDemande !== current.role ? "ROLE" : "COMPTE", roleDemande,
+  );
+  if (refus) return { ok: false, error: refus };
 
   // E-mail (= identifiant de connexion) : normalisé en minuscules, format vérifié,
   // et **unicité** garantie avant l'écriture. Toute modification est tracée.
@@ -267,6 +297,8 @@ export async function setUserActive(formData: FormData): Promise<ActionResult> {
   if (!admin) return { ok: false, error: "Réservé au Super Admin." };
   const userId = fdStr(formData, "userId");
   if (!userId || userId === admin.id) return { ok: false, error: "Action invalide." };
+  const refus = await refusSurLaCible(admin, userId, "COMPTE");
+  if (refus) return { ok: false, error: refus };
   const active = formData.get("active") === "true";
   await prisma.user.update({ where: { id: userId }, data: { isActive: active } });
   if (!active) {
@@ -289,6 +321,11 @@ export async function revokeSession(formData: FormData): Promise<ActionResult> {
   const sessionId = fdStr(formData, "sessionId");
   const userId = fdStr(formData, "userId");
   if (!sessionId) return { ok: false, error: "Session manquante." };
+  // La cible est la personne À QUI APPARTIENT la session — relue, jamais prise au formulaire.
+  const proprietaire = (await prisma.userSession.findUnique({ where: { id: sessionId }, select: { userId: true } }))?.userId;
+  if (!proprietaire) return { ok: false, error: "Session introuvable." };
+  const refus = await refusSurLaCible(admin, proprietaire, "COMPTE");
+  if (refus) return { ok: false, error: refus };
   await prisma.userSession.update({ where: { id: sessionId }, data: { revokedAt: new Date() } });
   await recordAudit({
     actorId: admin.id, action: "UPDATE", module: "Administration", entityId: userId ?? undefined,
@@ -307,6 +344,8 @@ export async function requestOnboarding(formData: FormData): Promise<ActionResul
   if (!admin) return { ok: false, error: "Réservé au Super Admin." };
   const userId = fdStr(formData, "userId");
   if (!userId) return { ok: false, error: "Utilisateur manquant." };
+  const refus = await refusSurLaCible(admin, userId, "COMPTE");
+  if (refus) return { ok: false, error: refus };
   await prisma.user.update({ where: { id: userId }, data: { mustOnboard: true } });
   await recordAudit({
     actorId: admin.id, action: "UPDATE", module: "Administration", entityId: userId,
@@ -321,6 +360,8 @@ export async function revokeAllSessions(formData: FormData): Promise<ActionResul
   if (!admin) return { ok: false, error: "Réservé au Super Admin." };
   const userId = fdStr(formData, "userId");
   if (!userId) return { ok: false, error: "Utilisateur manquant." };
+  const refus = await refusSurLaCible(admin, userId, "COMPTE");
+  if (refus) return { ok: false, error: refus };
   await prisma.userSession.updateMany({
     where: { userId, revokedAt: null }, data: { revokedAt: new Date() },
   });

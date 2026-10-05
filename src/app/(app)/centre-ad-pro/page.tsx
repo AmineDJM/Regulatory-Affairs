@@ -2,7 +2,7 @@ import { notFound } from "next/navigation";
 import { requireModule } from "@/lib/session";
 import { getAppSettings } from "@/lib/settings";
 import { siegeAuCentreAdPro, trierCentre, compteursCentre } from "@/lib/ad-pro/centre";
-import { demandesAuCentreAdPro } from "@/lib/queries/ad-pro-centre";
+import { demandesAuCentreAdPro, visasTranchesCentreAdPro } from "@/lib/queries/ad-pro-centre";
 import { PageHeader } from "@/components/shared/page-header";
 import { KpiCard } from "@/components/shared/kpi-card";
 import { CentreAdProBoard } from "./centre-board";
@@ -32,7 +32,7 @@ export default async function CentreAdProPage() {
   const user = await requireModule("AD_PRO_CENTRE");
   if (!siegeAuCentreAdPro(user)) notFound();
 
-  const [lignes, settings] = await Promise.all([demandesAuCentreAdPro(), getAppSettings()]);
+  const [lignes, settings, tranches] = await Promise.all([demandesAuCentreAdPro(), getAppSettings(), visasTranchesCentreAdPro()]);
   const rows = trierCentre(lignes);
   const c = compteursCentre(rows, new Date());
 
@@ -81,7 +81,7 @@ export default async function CentreAdProPage() {
         />
       </div>
 
-      <CentreAdProBoard rows={rows} seuil={settings.adProDgThreshold} seuilBC={settings.bcValidationThreshold} />
+      <CentreAdProBoard rows={rows} seuil={settings.adProDgThreshold} seuilBC={settings.bcValidationThreshold} tranches={tranches} />
     </div>
   );
 }

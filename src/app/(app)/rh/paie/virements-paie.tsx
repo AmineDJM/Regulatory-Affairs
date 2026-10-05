@@ -9,6 +9,7 @@ import { formatCurrency, formatDate } from "@/lib/utils";
 import { envoyerPaieAuCentre } from "@/lib/actions/payroll-hr-actions";
 import { useRafraichir } from "@/components/shared/use-rafraichir";
 import { ETAT_VIREMENT_LABEL, moisDeLaPaie, type MoisDeLEntite, type VirementDuMois } from "@/lib/hr/virement-paie";
+import { BoutonDecisif } from "@/components/ui/bouton-decisif";
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
@@ -203,10 +204,10 @@ function CarteVirement({
               </Select>
             </div>
           </div>
-          <Button type="submit" size="sm" disabled={busy || enCours}>
+          <BoutonDecisif type="submit" size="sm" disabled={busy || enCours}>
             {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
             {etat.complement ? `Envoyer un complément — ${carte.label}` : `Envoyer la paie au centre — ${carte.label}`}
-          </Button>
+          </BoutonDecisif>
         </form>
       )}
 

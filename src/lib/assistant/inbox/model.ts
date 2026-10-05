@@ -45,7 +45,7 @@ const auMoins = (a: Urgence, plancher: Urgence): Urgence => (RANG_URGENCE[a] >= 
 /** Le GESTE qu'une option exécute — toujours une action canonique existante, jamais une écriture à elle. */
 export type Geste =
   | { kind: "validation.decide"; stepId: string; decision: "APPROVED" | "REJECTED" | "CHANGES_REQUESTED" }
-  | { kind: "paiement.decide"; orderId: string; decision: "APPROVE" | "REFUSE" | "REQUEST_INFO" }
+  | { kind: "paiement.decide"; orderId: string; decision: "APPROVE" | "REFUSE" }
   | { kind: "mission.accord"; approvalId: string; decision: "GRANTED" | "REFUSED" }
   | { kind: "mission.element"; missionId: string; stepKey: string }
   | { kind: "notification.lue"; notificationId: string }
@@ -188,7 +188,7 @@ export function estGesteValide(x: unknown): x is Geste {
   const g = x as Record<string, unknown>;
   switch (g.kind) {
     case "validation.decide": return ID(g.stepId) && ["APPROVED", "REJECTED", "CHANGES_REQUESTED"].includes(String(g.decision));
-    case "paiement.decide": return ID(g.orderId) && ["APPROVE", "REFUSE", "REQUEST_INFO"].includes(String(g.decision));
+    case "paiement.decide": return ID(g.orderId) && ["APPROVE", "REFUSE"].includes(String(g.decision));
     case "mission.accord": return ID(g.approvalId) && ["GRANTED", "REFUSED"].includes(String(g.decision));
     case "mission.element": return ID(g.missionId) && ID(g.stepKey);
     case "notification.lue": return ID(g.notificationId);

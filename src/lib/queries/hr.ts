@@ -1,8 +1,12 @@
 import { prisma } from "@/lib/prisma";
-import { platformScope } from "@/lib/company";
+import { clauseSalariesVisibles } from "@/lib/queries/visibilite-listes";
 import { userCan, hasGlobalView, isTopManagement, type SessionUser } from "@/lib/rbac";
 import { canDecideLeave, type LeaveStage } from "@/lib/leave-workflow";
+import { arriveeALaMarche } from "@/lib/approval-chain";
 import { buildLeaveSheet } from "@/lib/hr/leave-sheet";
+import { auNomDeQui } from "@/lib/hr/stand-in-resolve";
+import { clauseFileConges, fichesDesSignataires, salariesDontJeSuisLeN1 } from "@/lib/hr/file-conges";
+import { loadReportingLine } from "@/lib/departments";
 import { toNumber } from "@/lib/utils";
 import { basisLabel } from "@/lib/hr/payroll-cost";
 import { employeeCosts, workforceMass, massByCompany, massProvenance, massIsIncomplete } from "@/lib/hr/workforce-mass";
@@ -105,26 +109,30 @@ export async function getRhData(userId: string) {
   const in60 = new Date();
   in60.setDate(now.getDate() + 60);
 
+  // LA MÊME PORTÉE pour les salariés ET pour leurs congés, leurs avances (audit 360°, S6) : les listes
+  // de congés en attente, l'historique (« Maladie », « Maternité ») et les avances ignoraient la
+  // société, et le lien « Traiter » ouvrait ensuite la fiche d'une autre société.
+  const salaries = await clauseSalariesVisibles(userId);
   const [employees, pendingLeaves, recentLeaves, advances] = await Promise.all([
     prisma.employee.findMany({
       // Portée VALIDÉE contre les droits (le cookie est une demande, pas une autorisation).
-      where: await platformScope(userId),
+      where: salaries,
       orderBy: [{ isActive: "desc" }, { fullName: "asc" }],
       include: { user: { select: { id: true, email: true } }, company: { select: { id: true, name: true, shortName: true, color: true } }, _count: { select: { leaveRequests: true } } },
     }),
     prisma.leaveRequest.findMany({
-      where: { status: "PENDING" },
+      where: { status: "PENDING", employee: salaries },
       include: { employee: { select: { id: true, fullName: true } } },
       orderBy: { startDate: "asc" },
     }),
     prisma.leaveRequest.findMany({
-      where: { status: { not: "PENDING" } },
+      where: { status: { not: "PENDING" }, employee: salaries },
       include: { employee: { select: { fullName: true } } },
       orderBy: { decidedAt: "desc" },
       take: 15,
     }),
     prisma.salaryAdvance.findMany({
-      where: { status: { in: ["PENDING", "APPROVED"] } },
+      where: { status: { in: ["PENDING", "APPROVED"] }, employee: salaries },
       include: { employee: { select: { id: true, fullName: true } } },
       orderBy: { createdAt: "asc" },
     }),
@@ -362,6 +370,13 @@ export interface LeaveToDecide {
    * ce qui faisait décrocher le téléphone à chacune des trois marches.
    */
   sheet: { label: string; value: string }[];
+  /** En intérim : le N+1 absent au nom de qui l'on signe ; `null` quand la marche est à moi (I18). */
+  pourLeCompteDe: string | null;
+  /**
+   * DEPUIS QUAND LA DEMANDE ATTEND À SA MARCHE (ISO, lot E2 — audit 360°, 07-05) : son dépôt, l'accord du
+   * N+1, celui des RH (`arriveeALaMarche`). La file la trie, la ligne le dit.
+   */
+  depuis: string;
 }
 
 /**
@@ -376,8 +391,24 @@ export interface LeaveToDecide {
  * s'affiche sur « Mon espace » de tout le monde, elle ne peut pas coûter N requêtes.
  */
 export async function getLeavesToDecide(user: SessionUser): Promise<LeaveToDecide[]> {
+  const isHr = userCan(user, "RH", "VALIDATE");
+  // MÊME prédicat que `leaveDecider` : la file de décision et le droit de trancher doivent
+  // dire la même chose, sinon la demande apparaît à quelqu'un qui ne peut pas la signer
+  // (ou l'inverse, plus grave : elle disparaît de la file de celui qui le peut).
+  const isDg = isTopManagement(user);
+  // LE N+1, OU SON INTÉRIMAIRE — la même lecture que `leaveDecider` (I18).
+  const auNom = await auNomDeQui(user.id);
+  // LE N+1 ENREGISTRÉ ET LE N+1 ACTUEL (§118.196, E1) : un salarié muté d'équipe envoyait sa
+  // demande chez son ancien responsable, et le nouveau — que l'action accepte — ne la voyait nulle
+  // part. Le filtre part dans la requête : lire d'abord les 200 premiers congés de toute la base,
+  // puis filtrer, laissait tomber la demande d'un responsable hors de la fenêtre.
+  const { employees, departments } = await loadReportingLine();
+  const salariesRattaches = salariesDontJeSuisLeN1(auNom.ids, employees, departments);
+  const clause = clauseFileConges({ isDg, isHr, fichesSignataires: fichesDesSignataires(auNom.ids, employees), salariesRattaches });
+  if (!clause) return [];
+  const rattaches = new Set(salariesRattaches);
   const pending = await prisma.leaveRequest.findMany({
-    where: { status: "PENDING", stage: { not: "DONE" } },
+    where: clause,
     include: {
       employee: {
         select: {
@@ -389,7 +420,8 @@ export async function getLeavesToDecide(user: SessionUser): Promise<LeaveToDecid
       },
     },
     orderBy: { startDate: "asc" },
-    take: 200,
+    // Une borne de sécurité, plus un filtre : la requête ne rend que ce qui attend CETTE personne.
+    take: 500,
   });
   if (pending.length === 0) return [];
 
@@ -408,15 +440,10 @@ export async function getLeavesToDecide(user: SessionUser): Promise<LeaveToDecid
     : [];
   const managerUserById = new Map(managers.map((m) => [m.id, m.userId]));
 
-  const isHr = userCan(user, "RH", "VALIDATE");
-  // MÊME prédicat que `leaveDecider` : la file de décision et le droit de trancher doivent
-  // dire la même chose, sinon la demande apparaît à quelqu'un qui ne peut pas la signer
-  // (ou l'inverse, plus grave : elle disparaît de la file de celui qui le peut).
-  const isDg = isTopManagement(user);
-
   const out: LeaveToDecide[] = [];
   for (const l of pending) {
-    const isManager = l.managerId ? managerUserById.get(l.managerId) === user.id : false;
+    const managerUserId = l.managerId ? managerUserById.get(l.managerId) ?? null : null;
+    const isManager = Boolean(managerUserId && auNom.ids.has(managerUserId)) || rattaches.has(l.employee.id);
     const allowed = canDecideLeave(
       { status: l.status, stage: l.stage as LeaveStage, requesterUserId: l.employee.userId },
       { id: user.id, isManager, isHr, isDg },
@@ -458,6 +485,9 @@ export async function getLeavesToDecide(user: SessionUser): Promise<LeaveToDecid
           standInStatus: l.standInStatus,
         },
       ),
+      // La marche du N+1 tranchée par son intérimaire se signe AU NOM de l'absent — l'écran le dit.
+      pourLeCompteDe: l.stage === "MANAGER" && isManager && managerUserId !== user.id ? auNom.nomDe(managerUserId) : null,
+      depuis: arriveeALaMarche(l.stage, { creeLe: l.createdAt, n1DecideLe: l.managerDecidedAt, rhDecideLe: l.hrDecidedAt }).toISOString(),
     });
   }
   return out;

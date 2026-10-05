@@ -218,6 +218,17 @@ export function fenetreRapport(dateVisite: Date, maintenant: Date): {
   };
 }
 
+/**
+ * LE REFUS D'UNE VISITE « FAITE » HORS DÉLAI, à la CRÉATION — une seule rédaction pour les deux
+ * portes qui créent une visite déjà faite (la visite imprévue et la saisie rapide de « Ma
+ * journée »). La même borne de 48 h que le rapport d'une visite planifiée : sans elle, créer une
+ * visite datée d'il y a trois semaines serait le moyen de contourner le verrou (§118.71).
+ */
+export function refusVisiteHorsDelai(dateVisite: Date): string {
+  return `Une visite s'enregistre dans les ${HEURES_RAPPORT} h : celle du ${dateVisite.toLocaleDateString("fr-FR")} est hors délai. `
+    + "C'est la même borne que pour une visite planifiée — sans elle, enregistrer une visite après coup serait le moyen de la contourner.";
+}
+
 // ─────────────────────────── L'état d'une visite ───────────────────────────
 
 /**
@@ -355,7 +366,7 @@ export function fenetreDeVue(vue: VueTournee, maintenant: Date): { debut: Date; 
  * décide, et confondre les deux ferait attendre une décision de la personne qui vient de s'en
  * dessaisir.
  */
-export const STATUTS_PLAN = ["DRAFT", "SUBMITTED", "ESCALATED", "APPROVED", "REJECTED"] as const;
+export const STATUTS_PLAN = ["DRAFT", "SUBMITTED", "ESCALATED", "APPROVED", "REJECTED", "REVISION"] as const;
 export type StatutPlan = (typeof STATUTS_PLAN)[number];
 
 export const STATUT_PLAN_LABELS: Record<StatutPlan, string> = {
@@ -364,6 +375,10 @@ export const STATUT_PLAN_LABELS: Record<StatutPlan, string> = {
   ESCALATED: "Escaladé au N+2",
   APPROVED: "Validé",
   REJECTED: "Rejeté — à corriger",
+  // UN PLAN VALIDÉ ROUVERT POUR RÉVISION (§118.193 — audit 360°, R13). Ni « Brouillon » (il a été validé, et
+  // son échéance de soumission d'origine est passée : il serait « en retard » de trois semaines à la seconde
+  // où on le rouvre), ni « Rejeté » (personne ne l'a refusé).
+  REVISION: "En révision — à resoumettre",
 };
 
 /**
@@ -376,17 +391,110 @@ export function gestesPossibles(statut: StatutPlan): {
   soumettable: boolean;
   decidable: boolean;
   escaladable: boolean;
+  revisable: boolean;
 } {
+  const ouvert = statut === "DRAFT" || statut === "REJECTED" || statut === "REVISION";
   return {
-    // UN PLAN VALIDÉ NE SE MODIFIE PLUS : les visites sont parties chez le KAM, et changer sa
-    // tournée sous ses pieds est exactement ce qu'un plan doit empêcher.
-    modifiable: statut === "DRAFT" || statut === "REJECTED",
-    soumettable: statut === "DRAFT" || statut === "REJECTED",
+    // UN PLAN VALIDÉ NE SE MODIFIE PAS EN DIRECT : les visites sont parties chez le KAM, et changer sa
+    // tournée sous ses pieds est exactement ce qu'un plan doit empêcher. Il se RÉVISE (§118.193) : il repasse
+    // en validation, motif à l'appui, et ce qui a déjà eu lieu reste.
+    modifiable: ouvert,
+    soumettable: ouvert,
+    revisable: statut === "APPROVED",
     decidable: statut === "SUBMITTED" || statut === "ESCALATED",
     // ON N'ESCALADE QU'UNE FOIS : un plan déjà chez le N+2 ne remonte pas au N+3 — la demande
     // nomme deux étages, et une chaîne sans fin ferait un plan que personne ne tranche.
     escaladable: statut === "SUBMITTED",
   };
+}
+
+/**
+ * CE QU'UNE RÉVISION NE RETIRE PAS (§118.193). Une révision rouvre l'AVENIR d'un plan validé, pas son passé :
+ * une visite dont l'heure est passée a eu lieu (elle se rapporte) ou n'a pas eu lieu (elle se dit reportée ou
+ * annulée, et sort alors du dénominateur EN LE DISANT). La retirer d'un plan validé effacerait une visite
+ * perdue de « visitées / planifiées » — la révision deviendrait le moyen de corriger son taux après coup.
+ * Un plan jamais validé n'est pas concerné : rien de ce qu'il porte n'a encore été accordé.
+ */
+export function retraitInterditApresRevision(
+  visite: { date: Date; status: string },
+  dejaValide: boolean,
+  maintenant: Date,
+): boolean {
+  return dejaValide && visite.status === "PLANNED" && visite.date.getTime() <= maintenant.getTime();
+}
+
+/**
+ * UN PLAN À RESOUMETTRE (§118.193) : rejeté, ou validé puis rouvert pour révision. L'un et l'autre ont 48 h et se
+ * disent « à resoumettre » — jamais « à soumettre », qui se lirait comme un plan jamais envoyé. Une seule lecture
+ * pour l'échéance, l'en-tête du plan et la liste des plans du KAM : les deux écrans comparaient le statut à la main,
+ * et tous deux avaient oublié la révision (§118.61 — `Record<StatutPlan>` nomme les tables d'étiquettes, pas les
+ * comparaisons).
+ */
+export function aResoumettre(statut: StatutPlan): boolean {
+  return statut === "REJECTED" || statut === "REVISION";
+}
+
+/**
+ * QUI VOIT UN PLAN, QUI LE TRANCHE, QUI L'ESCALADE (§118.184) — une règle, lue par l'écran ET par les
+ * actions. Un plan porte le panel du KAM (potentiels compris) et le motif d'un rejet : il ne s'ouvre pas
+ * à quiconque a le module et connaît son identifiant. On le voit si l'on en est le KAM, le validateur,
+ * le N+2 à qui il est escaladé, un manager de la chaîne du KAM, ou une vue globale.
+ *
+ * Deux défauts que cette règle ferme, mesurés par l'audit : l'écran ne proposait la décision que sur un
+ * plan SOUMIS — le N+2 d'un plan escaladé le voyait « à décider » sans un bouton, et le plan restait
+ * bloqué pour toujours ; et il proposait Valider/Rejeter à tout non-KAM, que l'action refusait ensuite.
+ * Écran et action disent maintenant la même chose, parce qu'ils lisent la même fonction (§118.5).
+ */
+export interface FaitsAccesPlan {
+  userId: string;
+  vueGlobale: boolean;
+  repId: string;
+  reviewerId: string | null;
+  escalatedToId: string | null;
+  statut: StatutPlan;
+  /** Les managers du KAM à l'organigramme, du N+1 vers le haut. */
+  chaineDuKam: readonly string[];
+  /**
+   * Les absents que la personne REMPLACE aujourd'hui (§118.185 — audit 360°, I18) : le réviseur et
+   * le N+2 sont des personnes nommées, et c'est précisément ce que l'intérim remplace. Obligatoire,
+   * jamais un défaut : un appelant qui l'oublierait referait, sans le savoir, le plan bloqué trois
+   * semaines chez l'absent (§118.127b).
+   */
+  agitPour: readonly string[];
+}
+
+/**
+ * LA FILE « À DÉCIDER » DES PLANS — `accesAuPlan.decider` projeté en requête (lot E2 — audit 360°, M09) : le
+ * réviseur tant que le plan est soumis, le N+2 dès qu'il est escaladé, pour moi ET pour les absents que je
+ * remplace — jamais mon propre plan. « Mon espace » et la page du plan la lisent toutes deux : deux copies de la
+ * même file finiraient par ne plus lister la même chose (§118.5). La vue globale, qui tranche partout, ne fait
+ * pas une file (§118.153a) : la page l'ajoute à part.
+ */
+export function clausePlansADecider(moi: string, agitPour: readonly string[]) {
+  const signataires = [moi, ...agitPour];
+  return {
+    repId: { not: moi },
+    OR: [
+      { status: "SUBMITTED" as const, reviewerId: { in: signataires } },
+      { status: "ESCALATED" as const, escalatedToId: { in: signataires } },
+    ],
+  };
+}
+
+export function accesAuPlan(f: FaitsAccesPlan): { voir: boolean; decider: boolean; escalader: boolean } {
+  const gestes = gestesPossibles(f.statut);
+  const estLeKam = f.userId === f.repId;
+  const moi = (id: string | null): boolean => Boolean(id) && (id === f.userId || f.agitPour.includes(id as string));
+  // Qui tranche : le validateur tant que le plan est chez lui, le N+2 dès qu'il est escaladé — jamais
+  // les deux (la dernière écriture gagnerait en silence), et jamais le KAM sur son propre plan, même
+  // quand il remplace son propre réviseur.
+  const decideur = f.statut === "ESCALATED" ? f.escalatedToId : f.reviewerId;
+  const decider = gestes.decidable && !estLeKam && (moi(decideur) || f.vueGlobale);
+  const escalader = gestes.escaladable && !estLeKam && (moi(f.reviewerId) || f.vueGlobale);
+  const voir = estLeKam || f.vueGlobale
+    || moi(f.reviewerId) || moi(f.escalatedToId)
+    || f.chaineDuKam.includes(f.userId);
+  return { voir, decider, escalader };
 }
 
 const MS_JOUR = 86_400_000;
@@ -429,8 +537,12 @@ export function retardDeSoumission(input: {
   resoumissionAvant?: Date | null;
   maintenant: Date;
 }): RetardDeSoumission {
-  const echeance = input.statut === "REJECTED" && input.resoumissionAvant ? input.resoumissionAvant : input.echeance;
-  const ouvert = input.statut === "DRAFT" || input.statut === "REJECTED";
+  // Un plan REJETÉ ou EN RÉVISION se juge sur sa RESOUMISSION : l'échéance d'origine est passée depuis
+  // longtemps quand on rouvre un plan validé, et la retenir afficherait « en retard de 20 jours » à la
+  // seconde même de la réouverture (§118.193).
+  const resoumission = aResoumettre(input.statut);
+  const echeance = resoumission && input.resoumissionAvant ? input.resoumissionAvant : input.echeance;
+  const ouvert = input.statut === "DRAFT" || resoumission;
   const ecart = ouvert ? input.maintenant.getTime() - echeance.getTime() : 0;
   return { echeance, enRetard: ecart > 0, jours: ecart > 0 ? Math.ceil(ecart / MS_JOUR) : 0 };
 }

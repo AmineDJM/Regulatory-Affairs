@@ -45,8 +45,22 @@ const APPEL_NU = /\brouter\.refresh\(\)/g;
  * Ramené à 350 au §118.176 — l'ancien écran des soldes d'ouverture (deux appels) a cédé la place
  * aux comptes de trésorerie ancrés, et la feuille de paie a perdu son « transfert au budget » ; le
  * panneau qui envoie la paie au centre suit son rafraîchissement. Il ne peut que baisser.
+ * Ramené à 349 au §118.186 — le panneau des circuits Ad & Pro (approuver, renvoyer, resoumettre,
+ * retirer) suit son rafraîchissement : un second clic sur l'état d'avant renverrait deux fois.
+ * Ramené à 348 au §118.187 — l'encart du demandeur au secrétariat ouvre « Corriger » sur un instantané :
+ * ouvert avant la fin du rafraîchissement, il réécrirait la demande d'avant.
+ * Ramené à 347 au §118.190 — la carte du circuit d'un dossier promotionnel (valider, renvoyer, refuser,
+ * resoumettre) suit son rafraîchissement : renvoyer sur l'état d'avant partirait une seconde fois.
+ * Ramené à 343 au §118.191 — le dossier d'une demande de paiement (trois appels : ses gestes, la
+ * relance, la demande d'une pièce) et les gestes du secrétariat suivent leur rafraîchissement : la
+ * correction d'une demande s'ouvre sur un instantané, et l'ouvrir sur l'état d'avant réécrirait
+ * l'ancien montant par-dessus le nouveau.
+ * Ramené à 341 au §118.193 — le planificateur de tournée (demander une révision s'ouvre sur l'état
+ * qu'il montre) et l'emploi du temps de « Ma journée » (« N'a pas eu lieu » sur une visite que l'état
+ * d'avant montrerait encore à faire) suivent leur rafraîchissement.
+ * Ramené à 340 au §118.197 — les boutons d'une approbation d'achat suivent leur rafraîchissement.
  */
-const PLAFOND_APPELS_NUS = 350;
+const PLAFOND_APPELS_NUS = 340;
 
 describe("le rafraîchissement suivi", () => {
   const parc = fichiers(SRC).map((f) => ({ f, src: sansCommentaires(readFileSync(f, "utf8")) }));
@@ -70,6 +84,21 @@ describe("le rafraîchissement suivi", () => {
       // supprimer des écritures « à imputer » rouvrirait une sélection sur des lignes disparues.
       "src/app/(app)/rh/paie/virements-paie.tsx",
       "src/app/(app)/budgets/suppression-a-imputer.tsx",
+      // §118.186 : le panneau des circuits — renvoyer puis resoumettre sur l'état d'avant agirait deux fois.
+      "src/components/workflow/workflow-panel.tsx",
+      // §118.187 : « Corriger ma demande » s'ouvre sur l'état qu'il montre — corrigée puis rouverte trop tôt,
+      // elle réécrirait la version d'avant.
+      "src/app/(app)/demandes/[id]/requester-window.tsx",
+      // §118.190 : la carte du circuit d'un dossier promotionnel — un renvoi parti, l'état d'avant
+      // offrirait encore « Renvoyer », que l'action refuserait.
+      "src/app/(app)/promo-material/[id]/circuit-card.tsx",
+      // §118.193 : le planificateur — rouvrir un plan validé puis le rouvrir encore sur l'état d'avant ; l'emploi
+      // du temps — dire une visite non tenue, puis la rapporter sur l'état d'avant.
+      "src/app/(app)/medical/plan-de-tournee/planificateur.tsx",
+      "src/app/(app)/medical/ma-journee/emploi-du-temps.tsx",
+      // §118.197 : les boutons d'une approbation d'achat — trancher puis retrancher sur l'état d'avant
+      // reposerait une décision qu'une autre personne vient de prendre.
+      "src/app/(app)/demandes/approval-buttons.tsx",
     ];
     for (const e of ecrans) {
       const src = sansCommentaires(readFileSync(join(process.cwd(), e), "utf8"));

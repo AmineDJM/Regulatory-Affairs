@@ -42,10 +42,21 @@ function previousMonth(now: Date): { year: number; month: number } {
  * Écrit (ou réécrit) l'instantané d'un mois pour un périmètre. Un mois DÉJÀ CLOS n'est jamais
  * retouché : c'est ce qui rend le chiffre relisible un an plus tard.
  */
-async function snapshotMonth(year: number, month: number, close: boolean): Promise<{ written: number; closed: number }> {
-  const { rows } = await loadCockpit({ year, month, repIds: null });
+/**
+ * L'instantané d'un mois. Clore (`close`) se fait par une écriture CONDITIONNELLE (« encore ouvert ») :
+ * c'est elle qui dit QUELS mois ce passage a réellement clos — et la revue ne part que pour eux
+ * (audit 360°, I16 : le balayage tourne chaque minute, et la revue du 1er repartait à CHAQUE passage,
+ * toute la journée). Deux passages simultanés ne closent pas le même mois deux fois.
+ */
+export async function snapshotMonth(
+  year: number, month: number, close: boolean,
+  /** `null` = toute la force de vente (le balayage) ; une liste borne l'instantané (un banc). */
+  repIds: string[] | null = null,
+): Promise<{ written: number; closed: number; closedRepIds: string[] }> {
+  const { rows } = await loadCockpit({ year, month, repIds });
   let written = 0;
   let closed = 0;
+  const closedRepIds: string[] = [];
   for (const r of rows) {
     const existing = await prisma.salesRepMonthlyKpi.findUnique({
       where: { repId_year_month: { repId: r.repId, year, month } },
@@ -66,15 +77,34 @@ async function snapshotMonth(year: number, month: number, close: boolean): Promi
       computedAt: new Date(),
       ...(close ? { closedAt: new Date() } : {}),
     };
-    await prisma.salesRepMonthlyKpi.upsert({
-      where: { repId_year_month: { repId: r.repId, year, month } },
-      create: { repId: r.repId, year, month, ...data },
-      update: data,
-    });
+    if (!close) {
+      await prisma.salesRepMonthlyKpi.upsert({
+        where: { repId_year_month: { repId: r.repId, year, month } },
+        create: { repId: r.repId, year, month, ...data },
+        update: data,
+      });
+      written += 1;
+      continue;
+    }
+    // CLORE : seul le passage qui trouve le mois encore OUVERT le clôt.
+    let closParMoi = false;
+    if (existing) {
+      closParMoi = (await prisma.salesRepMonthlyKpi.updateMany({ where: { id: existing.id, closedAt: null }, data })).count === 1;
+    } else {
+      // `ON CONFLICT DO NOTHING` : un autre passage qui l'a créé entre-temps l'a clos, et ce
+      // passage ne compte rien. (Une création rattrapée sur l'erreur de clé unique marchait aussi,
+      // mais Prisma journalisait l'erreur à chaque course : un journal qui crie n'est plus lu.)
+      closParMoi = (await prisma.salesRepMonthlyKpi.createMany({
+        data: [{ repId: r.repId, year, month, ...data }],
+        skipDuplicates: true,
+      })).count === 1;
+    }
+    if (!closParMoi) continue;
     written += 1;
-    if (close) closed += 1;
+    closed += 1;
+    closedRepIds.push(r.repId);
   }
-  return { written, closed };
+  return { written, closed, closedRepIds };
 }
 
 /** Les destinataires d'une alerte : le superviseur de la BU du KAM, ou ceux qui configurent. */
@@ -165,7 +195,10 @@ export async function runSfeFieldSweep(now: Date = new Date()): Promise<SfeSweep
         parSuperviseur.set(b.supervisorId, cur);
       }
       const moisPrec = await loadCockpit({ year: prev.year, month: prev.month, repIds: null });
+      // LA REVUE NE PART QU'UNE FOIS : pour les superviseurs dont ce passage a clos au moins un mois.
+      const closIci = new Set(clos.closedRepIds);
       for (const [supervisorId, info] of parSuperviseur) {
+        if (![...info.repIds].some((id) => closIci.has(id))) continue;
         const siens = moisPrec.rows
           .filter((r) => info.repIds.has(r.repId))
           .map((r) => ({

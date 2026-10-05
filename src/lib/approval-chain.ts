@@ -123,3 +123,21 @@ export function chainNotifyRoles(stage: ChainStage): string[] {
     default: return [];
   }
 }
+
+/**
+ * DEPUIS QUAND LA DEMANDE ATTEND À SA MARCHE (lot E2 — audit 360°, 07-05) — l'instant où elle y est
+ * ARRIVÉE : son dépôt pour la marche du N+1, l'accord du N+1 pour celle des RH, celui des RH (à
+ * défaut du N+1) pour la dernière. Une demande qui entre directement aux RH (pas de N+1 résolu)
+ * attend depuis son dépôt. Fonction PURE — la file des congés la lit, un test aussi.
+ *
+ * On ne date pas une marche sur `updatedAt` : une note, une correction de dates par les RH
+ * réécrivent la ligne sans que la demande ait bougé, et l'ancienneté repartirait à zéro.
+ */
+export function arriveeALaMarche(
+  stage: ChainStage | string,
+  f: { creeLe: Date; n1DecideLe: Date | null; rhDecideLe: Date | null },
+): Date {
+  if (stage === "HR") return f.n1DecideLe ?? f.creeLe;
+  if (stage === "DG") return f.rhDecideLe ?? f.n1DecideLe ?? f.creeLe;
+  return f.creeLe;
+}

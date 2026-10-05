@@ -12,11 +12,12 @@ import { VirementsPaie, type CarteEntite, type MoisCarte } from "./virements-pai
 import { BackLink } from "@/components/shared/back-link";
 import { defaultEmployerCost } from "@/lib/hr/payroll-cost";
 import { entryCost } from "@/lib/hr/payroll-cost";
-import { massByEntity, type PayrollCostLine } from "@/lib/hr/payroll-mass";
+import { masseMensuelleParEntite, type LigneMasseMensuelle } from "@/lib/hr/payroll-mass";
+import { MasseMensuelleTable, type ColonneMasse } from "./masse-mensuelle";
+import { RattacherSansEntite, type SalarieSansEntite } from "./rattacher-sans-entite";
 import { etatVirement, etatSalaire, moisDeLEntite, saisiAvantLeCentre, type VirementDuMois, type EtatSalaire } from "@/lib/hr/virement-paie";
 import { instantDuCentreDePaie } from "@/lib/hr/paie-centre";
 import { getMyCompanies, myCompanyWhere } from "@/lib/company";
-import { formatCurrency } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
 
@@ -38,7 +39,7 @@ export default async function PaiePage({ searchParams }: { searchParams: { year?
     prisma.employee.findMany({
       where: { isActive: true, ...portee },
       select: {
-        id: true, fullName: true, netToPay: true, grossSalary: true, baseSalary: true,
+        id: true, fullName: true, position: true, netToPay: true, grossSalary: true, baseSalary: true,
         employerCost: true, companyId: true, departmentId: true,
       },
       orderBy: { fullName: "asc" },
@@ -129,32 +130,46 @@ export default async function PaiePage({ searchParams }: { searchParams: { year?
   const maintenant = new Date();
   const moisInitial = maintenant.getFullYear() === year ? maintenant.getMonth() + 1 : 12;
 
-  // LA MASSE SALARIALE, SOCIÉTÉ PAR SOCIÉTÉ. C'est le chiffre que chaque entité doit reconnaître
-  // comme le sien ; consolidé, il n'est celui d'aucune. Calculé sur les lignes PAYÉES de l'année
-  // et sur les seuls salariés de la portée — le même coût employeur que celui imputé au budget.
+  // LA MASSE SALARIALE, SOCIÉTÉ PAR SOCIÉTÉ ET MOIS PAR MOIS (Direction, 04/10/2026). C'est le
+  // chiffre que chaque entité doit reconnaître comme le sien ; consolidé, il n'est celui d'aucune.
+  // Calculé sur les lignes PAYÉES de l'année et sur les seuls salariés de la portée — le même coût
+  // employeur que celui imputé au budget. L'entité d'une ligne est celle de la FICHE SALARIÉ : une
+  // ligne de paie n'en porte aucune à elle.
   const empById = new Map(employees.map((e) => [e.id, e]));
-  const lignes: PayrollCostLine[] = entries
-    .filter((e) => e.status === "PAID" && empById.has(e.employeeId))
-    .map((e) => {
-      const emp = empById.get(e.employeeId)!;
-      return {
-        departmentId: emp.departmentId ?? null,
-        companyId: emp.companyId ?? null,
-        cost: entryCost({
-          employerCost: e.employerCost != null ? toNumber(e.employerCost) : null,
-          gross: toNumber(e.gross), bonuses: toNumber(e.bonuses), deductions: toNumber(e.deductions),
-        }),
-      };
-    });
-  const masse = massByEntity(lignes);
+  const payees = entries.filter((e) => e.status === "PAID" && empById.has(e.employeeId));
+  const lignes: (LigneMasseMensuelle & { employeeId: string })[] = payees.map((e) => ({
+    employeeId: e.employeeId,
+    companyId: empById.get(e.employeeId)!.companyId ?? null,
+    month: e.month,
+    cost: entryCost({
+      employerCost: e.employerCost != null ? toNumber(e.employerCost) : null,
+      gross: toNumber(e.gross), bonuses: toNumber(e.bonuses), deductions: toNumber(e.deductions),
+    }),
+    net: toNumber(e.net),
+  }));
+  const masse = masseMensuelleParEntite(lignes);
   const nomEntite = new Map(mesEntites.map((c) => [c.id, c.shortName || c.name]));
-  const masseParEntite = [...masse.entries()]
-    .map(([companyId, total]) => ({
+  const colonnesMasse: ColonneMasse[] = [...masse.entries()]
+    .map(([companyId, m]) => ({
       companyId,
-      label: companyId ? (nomEntite.get(companyId) ?? "Entité inconnue") : "Sans entité — à rattacher",
-      total,
+      label: companyId ? (nomEntite.get(companyId) ?? "Entité inconnue") : "Sans entité",
+      masse: m,
     }))
     .sort((a, b) => (a.companyId ? 0 : 1) - (b.companyId ? 0 : 1) || a.label.localeCompare(b.label, "fr"));
+
+  // LES SALARIÉS SANS ENTITÉ — QUI, avec ce qu'ils pèsent, et le geste qui les rattache.
+  const sansEntiteSalaries: SalarieSansEntite[] = employees
+    .filter((e) => !e.companyId)
+    .map((e) => {
+      const siens = lignes.filter((l) => l.employeeId === e.id);
+      return {
+        id: e.id, nom: e.fullName, poste: e.position ?? null,
+        cout: siens.reduce((a, l) => a + l.cost, 0),
+        net: siens.reduce((a, l) => a + l.net, 0),
+        salaires: siens.length,
+      };
+    })
+    .sort((a, b) => b.cout - a.cout || a.nom.localeCompare(b.nom, "fr"));
   const rows: PayrollRow[] = employees.map((emp) => ({
     employeeId: emp.id,
     name: emp.fullName,
@@ -195,19 +210,13 @@ export default async function PaiePage({ searchParams }: { searchParams: { year?
         title={`Paie ${year}`}
         description="Un clic sur un mois pour saisir le salaire (coût employeur, net, fiche de paie). Puis, entité par entité, « Envoyer la paie au centre » avec la somme des salaires à virer : le centre de paiement l'autorise, les Finances la virent, et chaque salarié est prévenu au virement."
       />
-      {/* LA MASSE SALARIALE, SOCIÉTÉ PAR SOCIÉTÉ — et non un total consolidé qui n'est le chiffre
-          d'aucune d'elles. La matrice ci-dessous ne montre que les salariés de la portée
-          sélectionnée : c'est le sélecteur d'entité de la barre supérieure qui sépare la paie. */}
-      {masseParEntite.length > 0 && (
-        <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-          {masseParEntite.map((m) => (
-            <div key={m.companyId ?? "sans"} className={`rounded-lg border px-3 py-2 ${m.companyId ? "border-border" : "border-warning/40 bg-warning/5"}`}>
-              <p className="text-xs text-muted-foreground">{m.label}</p>
-              <p className="text-lg font-semibold tabular-nums">{formatCurrency(m.total)}</p>
-              <p className="text-[0.6875rem] text-muted-foreground">masse salariale saisie {year} (coût employeur)</p>
-            </div>
-          ))}
-        </div>
+      {colonnesMasse.length > 0 && <MasseMensuelleTable year={year} colonnes={colonnesMasse} />}
+
+      {sansEntiteSalaries.length > 0 && (
+        <RattacherSansEntite
+          year={year} salaries={sansEntiteSalaries}
+          entites={mesEntites.map((c) => ({ id: c.id, label: c.shortName || c.name }))}
+        />
       )}
 
       <VirementsPaie

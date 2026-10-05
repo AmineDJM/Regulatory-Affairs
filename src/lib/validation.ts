@@ -1,5 +1,7 @@
-import type { EntityType, Priority, UserRole, ValidationRule } from "@prisma/client";
+import { randomUUID } from "crypto";
+import type { EntityType, Prisma, Priority, UserRole, ValidationRule } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { saveFile, validateUpload } from "@/lib/storage";
 import { notifyUser } from "@/lib/notify";
 import { buildRef, createWithRetry, enSerie } from "@/lib/refs";
 
@@ -227,4 +229,85 @@ export async function createDirectValidation(input: {
     if (first) await notifyValidator(first.validatorId, req);
   }
   return { ok: true, matched: true, requestId: req.id, reference: req.reference };
+}
+
+/**
+ * RETIRE une demande de validation qu'on vient de créer et qui n'a plus d'objet — tant que personne
+ * ne l'a tranchée (écriture CONDITIONNELLE : une décision déjà prise reste, c'est de l'histoire).
+ *
+ * Elle sert la compensation d'une écriture conditionnelle perdue (§118.187) : la demande du
+ * secrétariat a été annulée entre la lecture et l'écriture, l'annulation a retiré les validations
+ * qu'elle VOYAIT, et celle-ci, née après, resterait en file pour rien.
+ *
+ * Pourquoi un module et pas une ligne dans l'action : la dérivation des contrats lit les modèles que
+ * le CORPS d'une action écrit pour dire ce que désigne son `id` ; une action qui écrit deux tables
+ * en direct renonce à le dire (§118.150g), et le chemin générique ne saurait plus traduire « la
+ * demande DEM-2026-012 » en identifiant. Le corps de l'action n'écrit que sa demande.
+ */
+export async function retirerValidationSansObjet(requestId: string): Promise<number> {
+  // Pour Prisma, `id: undefined` ne filtre RIEN : l'écriture retirerait TOUTES les validations en
+  // attente de la base. Le type l'interdit à l'appel ; la garde tient si un `as` le contournait.
+  if (!requestId) return 0;
+  const r = await prisma.validationRequest.updateMany({
+    where: { id: requestId, status: "PENDING" },
+    data: { status: "CANCELLED", decidedAt: new Date() },
+  });
+  return r.count;
+}
+
+/**
+ * LES PIÈCES JOINTES D'UNE DEMANDE DE VALIDATION — un seul écrivain pour le dépôt et pour la
+ * resoumission (audit 360°, R08) : deux boucles recopiées finiraient par ne pas appliquer la même
+ * limite de taille, et c'est la seconde, la moins regardée, qui laisserait passer un fichier de trop.
+ *
+ * `verifierPiecesValidation` refuse AVANT toute écriture (rend le motif, `null` si tout passe) ;
+ * `joindrePiecesValidation` dépose. Une écriture de stockage qui échoue garde la ligne : la pièce
+ * reste nommée dans la demande, et le défaut se lit au journal du serveur.
+ */
+export function verifierPiecesValidation(files: readonly File[], maxMb: number): string | null {
+  for (const file of files) {
+    const invalide = validateUpload(file.name, file.size, maxMb);
+    if (invalide) return invalide;
+  }
+  return null;
+}
+
+export async function joindrePiecesValidation(requestId: string, files: readonly File[], auteurId: string): Promise<number> {
+  for (const file of files) {
+    const key = `VALIDATION_REQUEST/${requestId}/${randomUUID()}__${file.name}`;
+    try {
+      await saveFile(key, Buffer.from(await file.arrayBuffer()));
+    } catch (err) {
+      console.error("[validations] storage write failed, recording metadata only", err);
+    }
+    await prisma.document.create({
+      data: {
+        name: file.name, category: "OTHER", entityType: "VALIDATION_REQUEST", entityId: requestId,
+        fileKey: key, mimeType: file.type || null, sizeBytes: file.size, confidentiality: "INTERNAL", uploadedById: auteurId,
+      },
+    });
+  }
+  return files.length;
+}
+
+/**
+ * LA REPRISE D'UNE DEMANDE RENVOYÉE, côté étapes et historique (audit 360°, R08) — appelée DANS la
+ * transaction de la resoumission, sous le verrou de la demande.
+ *
+ * Les étapes qui repartent perdent leur motif ; il est donc ARCHIVÉ dans le fil de la demande au
+ * moment même où il s'efface de l'étape — pas avant (deux copies vivantes du même motif finiraient
+ * par se contredire), pas après (il n'existerait plus nulle part). Le fil garde ainsi, version par
+ * version, qui a renvoyé, pourquoi, et ce qui a été corrigé.
+ */
+export async function reprendreEtapesRenvoyees(
+  tx: Prisma.TransactionClient,
+  i: { requestId: string; etapes: readonly string[]; auteurId: string; histoire: string },
+): Promise<void> {
+  if (i.etapes.length > 0) {
+    await tx.validationStep.updateMany({
+      where: { id: { in: [...i.etapes] }, requestId: i.requestId },
+      data: { status: "PENDING", reason: null, decidedAt: null },
+    });
+  }
+  await tx.comment.create({ data: { entityType: "VALIDATION_REQUEST", entityId: i.requestId, authorId: i.auteurId, body: i.histoire } });
 }

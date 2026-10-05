@@ -816,6 +816,15 @@ export const OFFICE_TOOLS: PowerTool[] = [
             description: "Le MOTIF du numéro par nature — « nos factures s'écrivent 001/FS/26 » : { FACTURE: \"{n:3}/FS/{aa}\", BON_DE_COMMANDE: \"{n:3}/DG/{aaaa}\" }. Jetons : {n}, {n:3}, {aaaa}, {aa}, {prefixe}. null = revenir au défaut {prefixe}-{aaaa}-{n:4}.",
             properties: { FACTURE: { type: "string" }, BON_DE_COMMANDE: { type: "string" }, DEVIS: { type: "string" } },
           },
+          numerotationDepart: {
+            type: "object",
+            description: "Le PREMIER NUMÉRO de l'année par nature — « commence les BC à 032 » : { BON_DE_COMMANDE: { annee: 2026, numero: 32 } }. C'est un plancher du compteur : il ne recule jamais (un compteur déjà plus loin continue) ; numero: null retire le départ de cette année.",
+            properties: {
+              FACTURE: { type: "object", properties: { annee: { type: "integer" }, numero: { type: "integer" } } },
+              BON_DE_COMMANDE: { type: "object", properties: { annee: { type: "integer" }, numero: { type: "integer" } } },
+              DEVIS: { type: "object", properties: { annee: { type: "integer" }, numero: { type: "integer" } } },
+            },
+          },
           marque: {
             type: "object",
             description: "La charte à régler (champs optionnels, null efface) : { couleurAccent, couleurSecondaire, policeTitres, policeTexte, adresse, telephone, email, siteWeb, mentionsLegales: [..], signataire: {nom, qualite}, signatairesParType: { DEVIS: {nom, qualite}, FACTURE: … } }.",
@@ -838,7 +847,7 @@ export const OFFICE_TOOLS: PowerTool[] = [
         if (!m.ok) return JSON.stringify({ fait: false, echec: m.echec, message: m.motif, candidats: m.candidats });
         marqueRefus = m.refus; marqueChamps = m.champsModifies;
       }
-      const reglagesDemandes = ["quotePrefix", "orderPrefix", "invoicePrefix", "vatRate", "paymentTerms", "quoteValidityDays", "footerNote", "letterheadId", "signatoryName", "signatoryTitle", "numerotation"].some((k) => input[k] !== undefined);
+      const reglagesDemandes = ["quotePrefix", "orderPrefix", "invoicePrefix", "vatRate", "paymentTerms", "quoteValidityDays", "footerNote", "letterheadId", "signatoryName", "signatoryTitle", "numerotation", "numerotationDepart"].some((k) => input[k] !== undefined);
       const r = geste === "definir" && reglagesDemandes
         ? await definirProfilDocumentaire(user, input as never)
         : await profilDocumentaire(user, str(input, "societe") || null);

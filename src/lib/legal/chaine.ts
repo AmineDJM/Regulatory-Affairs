@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { PIECE_AMONT_INTROUVABLE } from "@/lib/legal/piece-emise";
 
 /**
  * LE MAILLON AMONT D'UNE PIÈCE — le bon de commande vers son devis, la facture vers son bon de
@@ -13,7 +14,8 @@ export async function refusMaillonAmont(chainFromId: string | null, selfId?: str
   if (!chainFromId) return null;
   if (selfId && chainFromId === selfId) return "Une pièce ne peut pas se suivre elle-même.";
   const prev = await prisma.legalDocument.findUnique({ where: { id: chainFromId }, select: { id: true } });
-  return prev ? null : "La pièce amont (devis / bon de commande) n'existe plus.";
+  // La même phrase que la fabrique (`piece-emise.ts`) : deux rédactions du même refus finiraient par diverger (§118.5).
+  return prev ? null : PIECE_AMONT_INTROUVABLE;
 }
 
 /**

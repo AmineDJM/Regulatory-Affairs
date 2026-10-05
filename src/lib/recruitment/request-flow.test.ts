@@ -6,6 +6,7 @@ import {
   currentStep, canDecideStep, applyChainDecision, chainProgress,
   CANDIDATE_LABEL, candidateRank, canSelectCandidate,
   abilities, validateDraft, summarize, salaryRange,
+  marchesChangees, changementsMateriels, reouverture,
   type ChainStep, type RecruitmentStage, type RecruitmentActor, type RequestDraft,
 } from "./request-flow";
 
@@ -163,18 +164,104 @@ describe("abilities — l'écran et le serveur posent la MÊME question", () => 
     expect(abilities("ONBOARDING", actor({ isRequester: true }), { hasHire: true }).onboard).toBe(false);
   });
 
-  it("on retire sa demande tant que PERSONNE n'a tranché", () => {
+  it("on retire sa demande tant que l'embauche n'est pas faite (décision du 04/10)", () => {
     expect(abilities("CHAIN", actor({ isRequester: true }), { chainUntouched: true }).cancel).toBe(true);
-    // Après une première décision, la retirer effacerait un avis déjà donné.
-    expect(abilities("CHAIN", actor({ isRequester: true }), { chainUntouched: false }).cancel).toBe(false);
-    expect(abilities("SOURCING", actor({ isRequester: true }), { chainUntouched: true }).cancel).toBe(false);
+    // Un avis déjà donné n'empêche plus le retrait : les personnes engagées dans la chaîne sont prévenues.
+    expect(abilities("CHAIN", actor({ isRequester: true }), { chainUntouched: false }).cancel).toBe(true);
+    expect(abilities("SOURCING", actor({ isRequester: true }), { chainUntouched: true }).cancel).toBe(true);
+    expect(abilities("ONBOARDING", actor({ isRequester: true }), { chainUntouched: true }).cancel).toBe(false);
   });
 
-  it("une demande close ne permet plus RIEN, pas même au PDG", () => {
+  it("une demande close ne permet plus RIEN, pas même au PDG — sauf d'être ROUVERTE, motif à l'appui (§118.192)", () => {
     for (const s of ["CLOSED", "REJECTED", "CANCELLED"] as RecruitmentStage[]) {
       const a = abilities(s, actor({ isTop: true, isHr: true, isRequester: true }), { hasHire: true, chainUntouched: true });
-      expect(Object.values(a).some(Boolean), s).toBe(false);
+      const { reopen, ...reste } = a;
+      expect(Object.values(reste).some(Boolean), s).toBe(false);
+      // Refusée : elle se rouvre. Close : SEULEMENT quand on sait qu'aucun candidat n'a été recruté —
+      // l'inconnu se lit « oui », on ne rouvre pas à l'aveugle. Retirée par son auteur : jamais.
+      expect(reopen, s).toBe(s === "REJECTED");
     }
+    expect(abilities("CLOSED", actor({ isHr: true }), { aRecrute: false }).reopen).toBe(true);
+    expect(abilities("CLOSED", actor({ isHr: true }), { aRecrute: true }).reopen).toBe(false);
+    expect(abilities("CANCELLED", actor({ isTop: true }), { aRecrute: false }).reopen).toBe(false);
+    // Rouvrir appartient aux RH et au sommet — pas au demandeur, pas à un validateur.
+    expect(abilities("REJECTED", actor({ isRequester: true })).reopen).toBe(false);
+  });
+});
+
+describe("renvoyer, corriger, rouvrir, annuler l'embauche — audit 360°, R14 (§118.192)", () => {
+  it("RENVOYER est ouvert à qui peut trancher, là où il le peut — et nulle part ailleurs", () => {
+    // Dans la chaîne : seulement qui peut trancher la marche active (l'appelant le dit).
+    expect(abilities("CHAIN", actor({}), { peutTrancherLaMarche: true }).returnForCorrection).toBe(true);
+    expect(abilities("CHAIN", actor({ isHr: true }), { peutTrancherLaMarche: false }).returnForCorrection).toBe(false);
+    expect(abilities("CHAIN", actor({ isTop: true }), {}).returnForCorrection, "non dit = non").toBe(false);
+    // Chez les RH : les RH et le sommet.
+    expect(abilities("HR_REVIEW", actor({ isHr: true })).returnForCorrection).toBe(true);
+    expect(abilities("HR_REVIEW", actor({ isRequester: true })).returnForCorrection).toBe(false);
+    // Poste ouvert, en précisions, déjà renvoyée : rien à renvoyer.
+    for (const s of ["SOURCING", "INFO_REQUESTED", "RETURNED", "ONBOARDING"] as RecruitmentStage[]) {
+      expect(abilities(s, actor({ isTop: true, isHr: true }), { peutTrancherLaMarche: true }).returnForCorrection, s).toBe(false);
+    }
+  });
+
+  it("RENVOYÉE, la balle est au demandeur : il corrige — ou retire ; personne ne tranche en attendant", () => {
+    const req = abilities("RETURNED", actor({ isRequester: true }));
+    expect(req.correct).toBe(true);
+    expect(req.cancel, "même après une validation, une demande renvoyée se retire").toBe(true);
+    const rh = abilities("RETURNED", actor({ isHr: true }));
+    expect(rh.correct).toBe(false);
+    expect(rh.askInfo || rh.openSourcing || rh.hrReject).toBe(false);
+    expect(canDecideStep("RETURNED", [step(1, "u1")], { userId: "u1", isTop: false }).reason).toMatch(/chez son demandeur/);
+  });
+
+  it("ANNULER L'EMBAUCHE : en intégration, sans fiche employé, par les RH ou le sommet", () => {
+    expect(abilities("ONBOARDING", actor({ isHr: true }), { embaucheSansFiche: true }).cancelHire).toBe(true);
+    expect(abilities("ONBOARDING", actor({ isHr: true }), { embaucheSansFiche: false }).cancelHire).toBe(false);
+    expect(abilities("ONBOARDING", actor({ isRequester: true }), { embaucheSansFiche: true }).cancelHire).toBe(false);
+    expect(abilities("SOURCING", actor({ isTop: true }), { embaucheSansFiche: true }).cancelHire).toBe(false);
+  });
+
+  it("LES MARCHES S'APPARIENT PAR LEUR RANG — même quand la base les rend dans le désordre", () => {
+    // Postgres rend volontiers une ligne mise à jour APRÈS les autres : la marche 1 approuvée passe
+    // derrière la marche 2. Apparier par position comparait la marche 2 décidée à la marche 1.
+    const avant: ChainStep[] = [{ ...step(2, "u2") }, { ...step(1, "u1"), status: "APPROVED" }];
+    const { steps: apres } = applyChainDecision(avant, 2, "APPROVED");
+    const changees = marchesChangees(avant, apres);
+    expect(changees.map((s) => [s.order, s.status])).toEqual([[2, "APPROVED"]]);
+    // Témoin : l'ancienne lecture par position aurait écrit la marche 1 et oublié la 2.
+    const parPosition = apres.filter((s, i) => s.status !== avant[i]!.status).map((s) => s.order);
+    expect(parPosition).not.toEqual([2]);
+  });
+
+  it("CE QUI FAIT REPARTIR LA CHAÎNE : ce que les validateurs ont pesé, relevé — jamais ce qui baisse ou précise", () => {
+    const base = { position: "Délégué médical Oran", headcount: 2, contractType: "CDI", salaryMin: 80_000, salaryMax: 100_000, endDate: null };
+    expect(changementsMateriels(base, { ...base })).toEqual([]);
+    // Une faute d'accent n'est pas un autre poste.
+    expect(changementsMateriels(base, { ...base, position: "  Délégué  Médical oran " })).toEqual([]);
+    expect(changementsMateriels(base, { ...base, position: "Responsable régional Oran" })[0]).toMatch(/poste/);
+    expect(changementsMateriels(base, { ...base, contractType: "CDD", endDate: "2027-06-30" })[0]).toMatch(/contrat CDI → CDD/);
+    expect(changementsMateriels(base, { ...base, headcount: 3 })).toEqual(["postes 2 → 3"]);
+    expect(changementsMateriels(base, { ...base, headcount: 1 }), "moins de postes ne redemande rien").toEqual([]);
+    expect(changementsMateriels(base, { ...base, salaryMax: 120_000 })[0]).toMatch(/maximale/);
+    expect(changementsMateriels(base, { ...base, salaryMax: null })[0], "un plafond retiré est une hausse").toMatch(/retiré/);
+    expect(changementsMateriels(base, { ...base, salaryMax: 90_000, salaryMin: 70_000 }), "une baisse ne redemande rien").toEqual([]);
+    expect(changementsMateriels(base, { ...base, salaryMin: 90_000 })[0]).toMatch(/minimale/);
+    const sansPlafond = { ...base, salaryMax: null };
+    expect(changementsMateriels(sansPlafond, { ...sansPlafond, salaryMax: 150_000 }), "poser un plafond là où il n'y en avait aucun ne relève rien").toEqual([]);
+    const cdd = { ...base, contractType: "CDD", endDate: "2027-03-31" };
+    expect(changementsMateriels(cdd, { ...cdd, endDate: "2027-09-30" })[0]).toMatch(/repoussée/);
+    expect(changementsMateriels(cdd, { ...cdd, endDate: "2027-01-31" }), "un terme avancé ne redemande rien").toEqual([]);
+  });
+
+  it("ROUVRIR : à la marche qui a refusé, chez les RH, ou le poste rouvert — et les refus qui disent le geste qui reste", () => {
+    const chaine: ChainStep[] = [{ ...step(1, "u1"), status: "APPROVED" }, { ...step(2, "u2"), status: "REJECTED" }, step(3, "u3")];
+    expect(reouverture("REJECTED", chaine, false)).toEqual({ vers: "CHAIN", marche: 2 });
+    const parLesRh: ChainStep[] = [{ ...step(1, "u1"), status: "APPROVED" }];
+    expect(reouverture("REJECTED", parLesRh, false)).toEqual({ vers: "HR_REVIEW", marche: null });
+    expect(reouverture("CLOSED", parLesRh, false)).toEqual({ vers: "SOURCING", marche: null });
+    expect(reouverture("CLOSED", parLesRh, true)).toMatchObject({ refus: expect.stringMatching(/nouvelle demande/) });
+    expect(reouverture("CANCELLED", parLesRh, false)).toMatchObject({ refus: expect.stringMatching(/retirée par son auteur/) });
+    expect(reouverture("SOURCING", parLesRh, false)).toMatchObject({ refus: expect.stringMatching(/refusée, ou close/) });
   });
 });
 

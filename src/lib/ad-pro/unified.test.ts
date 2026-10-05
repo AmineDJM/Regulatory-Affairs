@@ -107,8 +107,23 @@ describe("Ce qui attend une décision passe devant", () => {
 
   it("compte par état, sans en oublier un", () => {
     const c = countByState(rows);
-    expect(c).toEqual({ DRAFT: 0, AWAITING: 2, APPROVED: 0, DONE: 1, REFUSED: 1 });
+    expect(c).toEqual({ DRAFT: 0, AWAITING: 2, RETURNED: 0, APPROVED: 0, DONE: 1, REFUSED: 1 });
     expect(Object.values(c).reduce((a, b) => a + b, 0)).toBe(rows.length);
+  });
+
+  /**
+   * « À CORRIGER » (§118.186) A SA CASE, et elle n'est pas « en attente de décision ». Sans branche
+   * propre, `RETURNED` tombait dans le défaut — « en attente » — et passait en tête de la file des
+   * validateurs, alors que c'est le DEMANDEUR qui a la main. Un compteur à zéro ne prouverait rien :
+   * le cas porte une vraie demande renvoyée.
+   */
+  it("une demande renvoyée pour correction est « À corriger » — comptée à part, après ce qui attend une décision", () => {
+    expect(adProState("RETURNED")).toBe("RETURNED");
+    const avec = [...rows, req({ id: "a-corriger", status: "RETURNED", createdAt: "2026-08-13T10:00:00.000Z" })];
+    expect(countByState(avec).RETURNED).toBe(1);
+    expect(countByState(avec).AWAITING, "elle ne gonfle pas « en attente de décision »").toBe(2);
+    const ordre = sortAdPro(avec).map((r) => r.id);
+    expect(ordre.indexOf("a-corriger"), "la plus récente de toutes, et pourtant après ce qui attend une décision").toBe(2);
   });
 });
 

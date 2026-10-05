@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getCurrentUser } from "@/lib/session";
+import { getCurrentUserPourEcrire } from "@/lib/session";
 import { userCan, peutVoirAdam } from "@/lib/rbac";
 import { transcribeAudio } from "@/lib/ai";
 import { aiFeatureEnabled, logAiUsage } from "@/lib/ai-settings";
@@ -13,7 +13,7 @@ export const dynamic = "force-dynamic";
  * PAS conservé (saisie éphémère). Accessible à tout employé (assistant universel).
  */
 export async function POST(req: NextRequest) {
-  const user = await getCurrentUser();
+  const user = await getCurrentUserPourEcrire();
   // La dictée de l'assistant est Adam : Super Admin seul (§118.153).
   if (!user || !userCan(user, "WORKSPACE", "VIEW") || !peutVoirAdam(user)) return NextResponse.json({ error: "Non autorisé." }, { status: 403 });
   // Interrupteur « voix » du Centre de contrôle IA (Super Admin).

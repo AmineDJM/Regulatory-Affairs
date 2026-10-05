@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { requireUser } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
-import { purgeOrphanBlobs } from "@/lib/drive-storage";
+import { purgeOrphanBlobs, releaseBlob } from "@/lib/drive-storage";
 import { deleteFileByKey } from "@/lib/storage";
 import type { ActionResult } from "@/lib/actions/types";
 
@@ -16,6 +16,21 @@ import type { ActionResult } from "@/lib/actions/types";
  */
 
 const NOT_ALLOWED: ActionResult = { ok: false, error: "Réservé au Super Admin." };
+
+/** Le nœud et tout son sous-arbre — pour rendre les références de ses versions avant la cascade. */
+async function sousArbre(rootId: string): Promise<string[]> {
+  const ids: string[] = [];
+  const vus = new Set<string>();
+  let front = [rootId];
+  while (front.length) {
+    const lot = front.filter((id) => !vus.has(id));
+    if (lot.length === 0) break;
+    lot.forEach((id) => vus.add(id));
+    ids.push(...lot);
+    front = (await prisma.driveNode.findMany({ where: { parentId: { in: lot } }, select: { id: true } })).map((c) => c.id);
+  }
+  return ids;
+}
 
 /** Ramasse-miettes : détruit les blobs physiques non référencés → libère l'espace disque. */
 export async function purgeOrphanStorage(): Promise<ActionResult & { count?: number; bytes?: number }> {
@@ -38,11 +53,18 @@ export async function permanentlyDeleteDriveNode(formData: FormData): Promise<Ac
   if (!id) return { ok: false, error: "Identifiant manquant." };
   const node = await prisma.driveNode.findUnique({ where: { id }, select: { name: true, type: true } });
   if (!node) return { ok: false, error: "Élément introuvable (déjà supprimé ?)." };
+  // On rend les références de CE sous-arbre, et elles seules (audit du 04/10, constat 2). Lancer
+  // ici la purge globale effaçait, à chaque suppression, tout blob qu'elle ne savait pas
+  // rattacher — c'est-à-dire les pièces de onze autres tables. La purge reste un geste à part.
+  const versions = await prisma.fileVersion.findMany({ where: { nodeId: { in: await sousArbre(id) } }, select: { blobId: true, size: true } });
   await prisma.driveNode.delete({ where: { id } }); // cascade : enfants + versions
-  const freed = await purgeOrphanBlobs();
-  await recordAudit({ actorId: user.id, action: "DELETE", module: "Administration", summary: `Suppression définitive Drive (${node.type === "FOLDER" ? "dossier" : "fichier"}) « ${node.name} » — ${freed.count} blob·s libérés (${freed.bytes} octets)` });
+  const avant = await prisma.fileBlob.count({ where: { id: { in: versions.map((v) => v.blobId) } } });
+  for (const v of versions) await releaseBlob(v.blobId);
+  const apres = await prisma.fileBlob.count({ where: { id: { in: versions.map((v) => v.blobId) } } });
+  const freed = { count: avant - apres };
+  await recordAudit({ actorId: user.id, action: "DELETE", module: "Administration", summary: `Suppression définitive Drive (${node.type === "FOLDER" ? "dossier" : "fichier"}) « ${node.name} » — ${freed.count} blob·s libérés` });
   revalidatePath("/admin/bases");
-  return { ok: true, count: freed.count, bytes: freed.bytes };
+  return { ok: true, count: freed.count };
 }
 
 /**

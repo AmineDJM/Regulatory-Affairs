@@ -1,10 +1,12 @@
 import type { EntityType, Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { auNomDeQui } from "@/lib/hr/stand-in-resolve";
 import { toNumber } from "@/lib/utils";
 import { hasGlobalView, hasRole, userCan, type SessionUser } from "@/lib/rbac";
 import type { DocItem } from "@/components/documents/document-list";
 import { sortByUrgency, type SupervisedRow } from "@/lib/validation-supervision";
 import { entityHref } from "@/lib/entity-href";
+import { depuisEtapeValidation, instantDeReprise } from "@/lib/validations/decision";
 
 export interface PendingValidationItem {
   stepId: string;
@@ -29,6 +31,13 @@ export interface PendingValidationItem {
   /** Mes verdicts GRANULAIRES déjà posés (message + pièces), pour réafficher l'état.
    *  itemKey = "MESSAGE" ou l'id d'un document. */
   itemDecisions: { itemKey: string; decision: string; comment: string }[];
+  /** En intérim : le nom de l'absent à qui l'étape est adressée ; `null` quand elle est à moi (I18). */
+  pourLeCompteDe: string | null;
+  /**
+   * DEPUIS QUAND L'ÉTAPE EST À SON TOUR (ISO, lot E2 — 07-05) : le dépôt, la décision du rang précédent en
+   * séquentiel, ou la resoumission. `null` quand la reprise d'une demande resoumise ne se lit pas (§118.16).
+   */
+  depuis: string | null;
 }
 
 export interface MyValidationStep {
@@ -70,16 +79,43 @@ export interface MyValidationItem {
  * indique si la décision est déjà possible. Les « actionnables » sont renvoyées en tête.
  */
 export async function getPendingValidations(userId: string): Promise<PendingValidationItem[]> {
+  // LES ÉTAPES DES ABSENTS QUE JE REMPLACE (I18) : la porte de décision acceptait l'intérimaire,
+  // la liste ne lui montrait rien — il fallait connaître l'identifiant de l'étape. Jamais celles
+  // de mes propres demandes : l'intérim ne fait pas s'approuver soi-même.
+  const auNom = await auNomDeQui(userId);
+  const absents = auNom.absents.map((a) => a.userId);
   const steps = await prisma.validationStep.findMany({
-    where: { validatorId: userId, status: "PENDING", request: { status: "PENDING" } },
+    where: {
+      status: "PENDING", request: { status: "PENDING" },
+      OR: [
+        { validatorId: userId },
+        ...(absents.length ? [{ validatorId: { in: absents }, request: { status: "PENDING" as const, requesterId: { not: userId } } }] : []),
+      ],
+    },
     include: {
-      request: { include: { requester: { select: { name: true } } } },
+      // Les rangs voisins (leur décision date le tour de chacun) — dans la même lecture (lot E2).
+      request: { include: { requester: { select: { name: true } }, steps: { select: { order: true, decidedAt: true } } } },
       itemDecisions: { select: { itemKey: true, decision: true, comment: true } },
     },
     orderBy: { createdAt: "asc" },
     take: 200,
   });
   const isActionable = (s: (typeof steps)[number]) => s.request.mode === "PARALLEL" || s.order === s.request.currentOrder;
+
+  // LA REPRISE D'UNE DEMANDE RESOUMISE se lit au journal — `resoumettreValidation` est le seul écrivain du
+  // champ « version » et y trace la version atteinte. Une requête pour le lot (lot E2 — 07-05).
+  const resoumises = [...new Set(steps.filter((s) => s.request.version > 1).map((s) => s.request.id))];
+  const tracesDeVersion = resoumises.length
+    ? await prisma.auditLog.findMany({
+        where: { entityType: "VALIDATION_REQUEST", entityId: { in: resoumises }, field: "version" },
+        select: { entityId: true, newValue: true, createdAt: true },
+      })
+    : [];
+  const tracesDe = new Map<string, { newValue: string | null; createdAt: Date }[]>();
+  for (const t of tracesDeVersion) {
+    if (!t.entityId) continue;
+    (tracesDe.get(t.entityId) ?? tracesDe.set(t.entityId, []).get(t.entityId)!).push(t);
+  }
 
   // Pièces à valider rendues SUR PLACE : celles jointes à la demande (entité
   // VALIDATION_REQUEST) + celles de l'objet lié quand il est renseigné (ex. le bon
@@ -136,6 +172,12 @@ export async function getPendingValidations(userId: string): Promise<PendingVali
         documents: [...own, ...linked],
         actionable: isActionable(s),
         itemDecisions: s.itemDecisions.map((d) => ({ itemKey: d.itemKey, decision: d.decision, comment: d.comment ?? "" })),
+        pourLeCompteDe: auNom.nomDe(s.validatorId),
+        depuis: depuisEtapeValidation({
+          mode: s.request.mode, ordre: s.order, creeLe: s.createdAt, version: s.request.version,
+          etapes: s.request.steps.map((e) => ({ ordre: e.order, decideeLe: e.decidedAt })),
+          reprise: instantDeReprise(tracesDe.get(s.request.id) ?? [], s.request.version),
+        })?.toISOString() ?? null,
       };
     })
     // Les demandes à traiter maintenant d'abord, puis celles à venir.

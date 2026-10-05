@@ -8,9 +8,10 @@ vi.mock("@/lib/session", () => ({ requireUser: async () => ACTOR, getCurrentUser
 
 import { prisma } from "@/lib/prisma";
 import { getAccess, hasGlobalView, userCan, type SessionUser } from "@/lib/rbac";
+import { canAccessEntity } from "@/lib/entity-access";
 import {
   addAdProItem, ajouterArticleStockAuPoste, confirmerMaterielStock, decideAdProItem, deleteAdProItem, submitAdProItem,
-  updateAdProItem, setAdProItemBudget, requestAdProItemOrder, demanderPieceSecretariat, linkPromoMaterial, emitItemExpenseOrder,
+  updateAdProItem, setAdProItemBudget, requestAdProItemOrder, demanderPieceSecretariat, linkPromoMaterial, demanderPaiementPoste, ajouterDevisPoste,
 } from "./ad-pro-item-actions";
 import { cloturerSponsoring } from "./sponsoring-actions";
 import { transferAdProRequest } from "./ad-pro-transfer-actions";
@@ -51,7 +52,7 @@ const form = (fields: Record<string, string | string[]>): FormData => {
  *   dem   National Sales : il demande (sponsoring et congrès), il liste, il confirme après
  *   dir   Direction (vue globale) : elle décide des postes — l'accord RÉSERVE
  *   dm    directrice de la Direction Marketing : elle tient le magasin, le retour la prévient
- *   autre délégué médical : ni demandeur, ni magasin, ni décideur — et il ne VOIT pas le sponsoring
+ *   autre délégué médical : ni demandeur, ni magasin, ni décideur — et il ne VOIT pas CE sponsoring
  *   ns2   un autre National Sales : il voit la demande, sans être ni demandeur, ni magasin, ni décideur
  *   sa    Super Admin : clôture, transfert
  *
@@ -186,10 +187,14 @@ suite("Matériel du stock d'un événement — réserver à l'accord, confirmer 
     expect(hasGlobalView(autre) || userCan(autre, "SPONSORING", "VALIDATE")).toBe(false);
     expect(await gestionnairesDuMagasin()).not.toContain(ids.autre);
     // Les deux INTRUS ne se ressemblent pas, et c'est ce qui fait deux cas (§118.175) : le délégué
-    // n'a PAS le module Sponsoring (il ne voit pas la demande), le second National Sales l'a — il
-    // voit la demande, sans pouvoir confirmer. Sans cette prémisse, le refus de la règle de
-    // confirmation pourrait venir de la porte de ligne, et le cas ne la garderait plus.
-    expect(userCan(autre, "SPONSORING", "VIEW"), "le délégué ne voit pas le sponsoring").toBe(false);
+    // ne VOIT PAS la demande, le second National Sales la voit — sans pouvoir confirmer. Sans cette
+    // prémisse, le refus de la règle de confirmation pourrait venir de la porte de ligne, et le cas
+    // ne la garderait plus.
+    //
+    // Depuis le lot B de l'audit 360° (§118.185, I4), le délégué A le module Sponsoring — en portée
+    // « ses demandes ». La prémisse se lit donc sur CETTE demande, déposée par un autre, et non sur
+    // le module : la juger par le module la rendait fausse sans que le cas cesse d'avoir raison.
+    expect(await canAccessEntity(autre, "SPONSORING", spo, "VIEW"), "le délégué ne voit pas CE sponsoring").toBe(false);
     const ns2 = await actorFor(ids.ns2!);
     expect(userCan(ns2, "SPONSORING", "VIEW"), "le second National Sales voit le sponsoring").toBe(true);
     expect(hasGlobalView(ns2) || userCan(ns2, "SPONSORING", "VALIDATE")).toBe(false);
@@ -233,14 +238,26 @@ suite("Matériel du stock d'un événement — réserver à l'accord, confirmer 
   });
 
   it("LES GESTES D'ARGENT sont refusés sur un poste de stock — et sa nature ne se perd pas avec des lignes", async () => {
+    // LES PIÈCES ET LE PAIEMENT DE §118.204 sont des gestes d'argent comme les autres : un poste de
+    // stock n'a ni devis, ni facture. Joints AVEC un fichier, pour que le refus ne puisse venir que de
+    // la nature du poste — sans pièce, ils refuseraient pour une autre raison.
+    const avecFichier = (champs: Record<string, string>) => {
+      const f = form(champs);
+      f.append("attachment", new File([new Uint8Array([0x25, 0x50, 0x44, 0x46, 0x2d, 0x31])], "piece.pdf", { type: "application/pdf" }));
+      return f;
+    };
     await comme("dir");
     const refus = [
-      await setAdProItemBudget(undefined, form({ id: poste1, budgetCategoryId: "x" })),
       await requestAdProItemOrder(undefined, form({ id: poste1 })),
       await demanderPieceSecretariat(undefined, form({ id: poste1, nature: "DEVIS" })),
       await linkPromoMaterial(undefined, form({ id: poste1, promoMaterialId: "x" })),
-      await emitItemExpenseOrder(undefined, form({ id: poste1 })),
+      await demanderPaiementPoste(undefined, avecFichier({ id: poste1, montant: "1000" })),
+      await ajouterDevisPoste(undefined, avecFichier({ id: poste1, montant: "1000" })),
     ];
+    // Le budget se choisit par qui tient le SECOND temps (§118.204) — la Direction Marketing ici : c'est
+    // elle qu'on fait essayer, sans quoi le refus viendrait du droit et non de la nature du poste.
+    await comme("dm");
+    refus.push(await setAdProItemBudget(undefined, form({ id: poste1, budgetCategoryId: "x" })));
     for (const r of refus) {
       expect(r.ok).toBe(false);
       expect(r.ok ? "" : r.error).toMatch(/« Matériel du stock » n'engage pas d'argent/);

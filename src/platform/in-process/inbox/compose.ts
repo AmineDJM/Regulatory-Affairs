@@ -16,7 +16,7 @@
 import { prisma } from "@/lib/prisma";
 import { requireModule } from "@/lib/session";
 import { userCan, type SessionUser } from "@/lib/rbac";
-import { getActionCenter } from "@/lib/queries/action-center";
+import { getActionCenter, PREFIXE_CONGE, PREFIXE_DEMANDE_ADMIN } from "@/lib/queries/action-center";
 import { getPendingValidations } from "@/lib/queries/validations";
 import { approbationsEnAttente } from "@/lib/missions/approval/gate";
 import { sitsOnPaymentCentre } from "@/lib/payments/authorization";
@@ -107,7 +107,10 @@ export async function composerInbox(user: SessionUser): Promise<VueInbox> {
       orderBy: { dueAt: "asc" }, take: 15,
       select: { id: true, who: true, toWhom: true, what: true, dueAt: true, promisedAt: true, source: true, relatedRef: true, createdAt: true },
     })),
-    file("centre", async () => (await getActionCenter(user)).items.filter((i) => i.kind !== "validation" && i.kind !== "payment")),
+    // Les congés et les approbations d'achat n'ont pas d'autre file ici : avant le lot E2 le centre les rendait
+    // sous les genres « hr » et « request », que ce filtre laissait passer — la boîte les garde (§118.61).
+    file("centre", async () => (await getActionCenter(user)).items.filter((i) =>
+      (i.kind !== "validation" && i.kind !== "payment") || i.objet.startsWith(PREFIXE_CONGE) || i.objet.startsWith(PREFIXE_DEMANDE_ADMIN))),
     ]),
     // LA QUALITÉ DES DONNÉES (§23) : les constats critiques et hauts qui attendent une personne —
     // sous ses droits, cinq au plus, pour ne pas noyer les décisions du jour.
@@ -163,7 +166,9 @@ export async function composerInbox(user: SessionUser): Promise<VueInbox> {
       recommandation: null,
       options: [
         { id: "approuver", libelle: "Autoriser", ton: "primaire", effet: "Autorise le décaissement ; le comptable peut régler.", geste: { kind: "paiement.decide", orderId: o.id, decision: "APPROVE" } },
-        { id: "complement", libelle: "Demander un complément", ton: "neutre", effet: "Renvoie l'ordre au demandeur avec votre question.", geste: { kind: "paiement.decide", orderId: o.id, decision: "REQUEST_INFO" }, saisie: { libelle: "Ce qui manque", obligatoire: true } },
+        // « Demander un complément » (REQUEST_INFO) a quitté le centre avec la décision du 02/09/2026 :
+        // l'action le refuse (« Décision invalide »), et le proposer ici était un bouton qui échoue
+        // après le clic (audit 360°, R03 ; §118.83).
         { id: "refuser", libelle: "Refuser", ton: "danger", effet: "Refuse le décaissement ; le motif est transmis.", geste: { kind: "paiement.decide", orderId: o.id, decision: "REFUSE" }, saisie: { libelle: "Motif du refus", obligatoire: true } },
       ],
       source: { module: "Centre de paiement", libelle: o.reference, href: `/finances/centre-de-paiement?focus=${o.id}` },

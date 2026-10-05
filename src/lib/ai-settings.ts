@@ -2,8 +2,13 @@
  * Centre de contrôle IA — réglages globaux + journal d'usage (serveur uniquement).
  *
  * Le Super Admin peut couper l'IA globalement ou par fonction sans toucher au code
- * ni aux variables d'environnement. Chaque point d'entrée IA appelle
+ * ni aux variables d'environnement. Les points d'entrée qui déclarent une FONCTION appellent
  * `aiFeatureEnabled(feature)` avant d'appeler le modèle, et `logAiUsage(...)` après.
+ *
+ * Cette phrase disait « chaque point d'entrée » : c'était faux, et c'est ce qui laissait passer
+ * l'analyse des AO PCH et des contrats RH sous un interrupteur coupé (audit 360°, rapport 19).
+ * L'interrupteur GÉNÉRAL est désormais tenu aussi par le transport — voir `interrupteurIaCoupe`
+ * plus bas, et ce qu'il ne couvre pas encore, dit au même endroit.
  */
 import { prisma } from "./prisma";
 
@@ -18,7 +23,17 @@ export type AiFeature =
   /** Session vocale speech-to-speech temps réel (API Realtime) — journalisée par session. */
   | "voice_realtime"
   /** « Rédiger avec l'IA » — un article de blog ou une offre d'emploi du site public (§118.160). */
-  | "site_web";
+  | "site_web"
+  /**
+   * La lecture des LIGNES d'une pièce commerciale déposée (devis, BC, facture) par un modèle — lot D2,
+   * `lecture-pieces-ia.ts`. COUPÉE par défaut : elle a un coût, et la lecture locale suffit à proposer.
+   */
+  | "lecture_pieces"
+  /**
+   * LUNA CONSEILLE OÙ RANGER UNE PIÈCE déposée sur une demande Ad & Pro (`conseil-pieces-ia.ts`) :
+   * consultatif, sans aucune écriture — ALLUMÉ par défaut.
+   */
+  | "conseil_pieces";
 
 export interface AiSettingsView {
   masterEnabled: boolean;
@@ -29,6 +44,8 @@ export interface AiSettingsView {
   fieldReportAiEnabled: boolean;
   voiceTranscriptEnabled: boolean;
   siteWebAiEnabled: boolean;
+  lecturePiecesEnabled: boolean;
+  conseilPiecesEnabled: boolean;
 }
 
 const DEFAULTS: AiSettingsView = {
@@ -40,6 +57,13 @@ const DEFAULTS: AiSettingsView = {
   fieldReportAiEnabled: true,
   voiceTranscriptEnabled: true,
   siteWebAiEnabled: true,
+  // COUPÉE PAR DÉFAUT — le même défaut que sa colonne (`@default(false)`, migration
+  // `20270104090000_lecture_pieces`) : sans ligne, ou base injoignable, aucune pièce ne part chez un
+  // fournisseur. L'activer est une décision de la Direction, prise sur l'écran, pas un défaut du code.
+  lecturePiecesEnabled: false,
+  // Le conseil de rangement n'écrit rien et ne fait que conseiller : allumé, comme sa colonne
+  // (`@default(true)`, migration `20270106100000_conseil_pieces`).
+  conseilPiecesEnabled: true,
 };
 
 /** Quelle bascule gouverne quelle fonction. */
@@ -54,6 +78,8 @@ const FEATURE_KEY: Record<AiFeature, keyof AiSettingsView> = {
   // La session temps réel suit la MÊME bascule que l'assistant : couper l'assistant coupe la voix.
   voice_realtime: "assistantEnabled",
   site_web: "siteWebAiEnabled",
+  lecture_pieces: "lecturePiecesEnabled",
+  conseil_pieces: "conseilPiecesEnabled",
 };
 
 /**
@@ -75,6 +101,8 @@ export async function getAiSettings(): Promise<AiSettingsView> {
       fieldReportAiEnabled: row.fieldReportAiEnabled,
       voiceTranscriptEnabled: row.voiceTranscriptEnabled,
       siteWebAiEnabled: row.siteWebAiEnabled,
+      lecturePiecesEnabled: row.lecturePiecesEnabled,
+      conseilPiecesEnabled: row.conseilPiecesEnabled,
     };
   } catch {
     return DEFAULTS;
@@ -85,6 +113,90 @@ export async function getAiSettings(): Promise<AiSettingsView> {
 export async function aiFeatureEnabled(feature: AiFeature): Promise<boolean> {
   const s = await getAiSettings();
   return s.masterEnabled && s[FEATURE_KEY[feature]];
+}
+
+/**
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ * L'INTERRUPTEUR GÉNÉRAL, TENU PAR LE TRANSPORT — et plus seulement par ceux qui pensent à le lire.
+ *
+ * ── LE TROU, MESURÉ (audit 360°, rapport 19, F3) ────────────────────────────────────────
+ *
+ * Interrupteur coupé, l'écran « Contrôle de l'IA » affiche « Toute l'IA est coupée, quelles que
+ * soient les bascules ci-dessous ». `masterEnabled` n'était pourtant lu QUE dans
+ * `aiFeatureEnabled`, appelé par treize points d'entrée. `lib/ai.ts` — par lequel passent l'analyse
+ * d'un contrat RH, l'extraction des lignes d'un appel d'offres PCH, le compte rendu de réunion, le
+ * brief du matin, la mémoire d'Adam et dix modules de l'intelligence réglementaire — ne lisait
+ * rien ; et le moteur OCR envoyait les scans à Mistral, un service cloud, quoi qu'il arrive. Un
+ * Super Admin coupait l'IA, lançait l'analyse d'un AO, et l'appel partait quand même. Un
+ * interrupteur que l'écran promet et que le code ignore est pire que pas d'interrupteur : il
+ * rassure, et c'est sur cette assurance qu'on décide (§118.17).
+ *
+ * ── LE REMÈDE : LA RÈGLE VIT LÀ OÙ LES APPELS PASSENT (§118.58) ─────────────────────────
+ *
+ * Réparer vingt-sept appelants un par un ne protégerait pas le vingt-huitième. `lib/ai.ts`
+ * (questions, appels avec outils, transcription) et `ocrDocument` (Mistral, secours vision) lisent
+ * `interrupteurIaCoupe()` AVANT tout effet : coupé, aucun appel ne part, rien n'est journalisé, et
+ * l'appelant reçoit la forme d'échec qu'il sait déjà traiter, avec `REFUS_IA_COUPEE`.
+ *
+ * ── CE QUE ÇA CHANGE EN PRODUCTION, DIT D'AVANCE ────────────────────────────────────────
+ *
+ * Si la ligne `AiSetting` de la production porte déjà `masterEnabled = false`, ce déploiement
+ * ARRÊTE l'analyse des AO PCH, des contrats RH et l'IA réglementaire, qui passaient jusqu'ici par
+ * le trou. Ce n'est pas une régression : c'est l'interrupteur qui fait enfin ce que l'écran dit, et
+ * le remède est sur ce même écran — rallumer l'interrupteur.
+ *
+ * ── CE QUE L'INTERRUPTEUR NE COUPE PAS ENCORE — dit, plutôt que promis (§118.116) ─────────
+ *
+ * Les modules qui appellent la passerelle (`models/gateway`) sans passer par `lib/ai.ts` — la
+ * boucle d'Adam, la recherche web, le raisonneur des missions — ne sont tenus que par leur propre
+ * bascule quand ils en lisent une (Adam est réservé au Super Admin et a ses interrupteurs). La
+ * lecture des lignes d'une pièce commerciale (`lecture-pieces-ia.ts`) passe elle aussi par la
+ * passerelle, et lit `interrupteurIaCoupe()` explicitement, AVANT sa bascule et sa clé. Le client
+ * Luna de l'intelligence réglementaire (`callLuna`, `submitBatch`, `lunaEmbed`) et la transcription
+ * des médias du Drive (`media/stt.ts`) lisent l'interrupteur depuis le lot D1 (§118.196) ; lire l'état
+ * d'un lot déjà déposé reste ouvert, exprès. La sonde de santé (`aiSelfTest`) aussi : son commentaire
+ * dit pourquoi.
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ */
+
+/** LA PHRASE D'UN REFUS SOUS INTERRUPTEUR — une seule, pour le transport ET pour l'OCR. */
+export const REFUS_IA_COUPEE =
+  "L'IA est coupée par l'interrupteur général (Administration › Contrôle de l'IA) : aucun appel n'est parti.";
+
+/**
+ * LE VRAI LECTEUR. VRAI seulement quand la ligne enregistrée dit `masterEnabled === false`.
+ *
+ * Sans ligne, ou base injoignable, `getAiSettings` rend les défauts — IA active : la sémantique
+ * d'`aiFeatureEnabled` depuis toujours, et elle ne change pas ici. Les réglages restent un confort
+ * d'exploitation, pas une garde de sécurité : l'autorisation, elle, est au RBAC.
+ */
+export async function iaCoupeeGlobalement(): Promise<boolean> {
+  const s = await getAiSettings();
+  return s.masterEnabled === false;
+}
+
+/**
+ * LE LECTEUR S'INJECTE — et ce n'est pas une ligne de la base qu'un banc devrait poser.
+ *
+ * L'interrupteur est GLOBAL et la suite tourne en parallèle sur une seule base : un test qui
+ * couperait la vraie ligne pour s'éprouver couperait, pendant sa fenêtre, l'IA de tous les bancs
+ * voisins (§118.132, §118.115). Le transport et l'OCR lisent donc `interrupteurIaCoupe()`, dont le
+ * défaut est le vrai lecteur ; un banc pose le sien par `remplacerLecteurInterrupteurIaPourTests`,
+ * et un cliquet (`ai-interrupteur.test.ts`) refuse tout appel de PRODUCTION à ce remplaçant —
+ * sinon l'interrupteur serait désarmé en ayant l'air armé.
+ */
+export type LecteurInterrupteurIa = () => Promise<boolean>;
+
+let lecteurInterrupteurIa: LecteurInterrupteurIa = iaCoupeeGlobalement;
+
+/** Ce que lisent `lib/ai.ts` et `ocrDocument` avant tout appel à un fournisseur. */
+export function interrupteurIaCoupe(): Promise<boolean> {
+  return lecteurInterrupteurIa();
+}
+
+/** RÉSERVÉ AUX TESTS — jamais appelé en production (cliquet). `null` remet le vrai lecteur. */
+export function remplacerLecteurInterrupteurIaPourTests(lecteur: LecteurInterrupteurIa | null): void {
+  lecteurInterrupteurIa = lecteur ?? iaCoupeeGlobalement;
 }
 
 export interface AiUsageInput {

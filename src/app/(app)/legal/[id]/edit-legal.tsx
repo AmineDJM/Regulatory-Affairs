@@ -14,7 +14,7 @@ import { editLegalDocument } from "@/lib/actions/legal-actions";
  * se réécrit dans le navigateur. Corriger les dates rouvre la surveillance : le prochain balayage
  * annoncera la nouvelle échéance (c'est l'action serveur qui remet `lastRemindedAt` à zéro).
  */
-export function EditLegalButton({ id, fields }: { id: string; fields: FieldDef[] }) {
+export function EditLegalButton({ id, fields, note }: { id: string; fields: FieldDef[]; note?: string }) {
   const [open, setOpen] = React.useState(false);
   const action = React.useMemo(() => editLegalDocument.bind(null, id), [id]);
 
@@ -27,7 +27,7 @@ export function EditLegalButton({ id, fields }: { id: string; fields: FieldDef[]
       <Sheet
         open={open} onClose={() => setOpen(false)} width="lg"
         title="Modifier le document"
-        description="Laisser la date de fin vide = document sans échéance : il ne se périmera jamais et ne déclenchera aucun rappel."
+        description={note ?? "Laisser la date de fin vide = document sans échéance : il ne se périmera jamais et ne déclenchera aucun rappel."}
       >
         <RecordForm
           fields={fields}

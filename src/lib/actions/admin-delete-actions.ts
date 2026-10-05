@@ -217,6 +217,8 @@ const SUPPRIME_PAR_SON_MODULE: Partial<Record<DeletableKind, { module: Module; a
   EVENT: { module: "EVENTS", action: "DELETE", ligne: false },
   // `deleteBdProject` (§118.163) : le droit du module Projets ET la ligne dans sa portée.
   BD_PROJECT: { module: "BD_PROJECTS", action: "DELETE", ligne: true },
+  // `deleteTender` (§118.185) : le droit de supprimer au PCH ET le marché dans sa portée.
+  PCH_TENDER: { module: "PCH", action: "DELETE", ligne: true },
 };
 
 /**

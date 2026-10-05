@@ -3,16 +3,18 @@
 import * as React from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { AlertCircle, ExternalLink, FilePen, Loader2, ShieldCheck, Send } from "lucide-react";
+import { AlertCircle, ExternalLink, FilePen, Loader2, ShieldCheck, Send, Undo2 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { adresserBCAuCentre } from "@/lib/actions/legal-actions";
-import { signerBonDeCommande } from "@/lib/actions/bc-signature-actions";
+import { signerBonDeCommande, renvoyerBonDeCommande } from "@/lib/actions/bc-signature-actions";
 import {
   LIBELLE_CENTRE_BC, LIBELLE_ETAT_BC, CHEMIN_CENTRE_BC, reserveBC, reserveEtapeBC, LIBELLE_ETAPE_BC,
   type CentreBC, type EtatPorteBC, type PorteBC, type EtapeBC,
 } from "@/lib/bons-de-commande/regle";
+import { BoutonDecisif } from "@/components/ui/bouton-decisif";
 
 /**
  * LA PORTE D'UN BON DE COMMANDE, SUR SA FICHE (§118.148).
@@ -43,7 +45,7 @@ const TON: Record<EtatPorteBC, "warning" | "success" | "danger" | "info"> = {
 
 export function BonDeCommandeGate({
   documentId, porte, centreAttendu, canAddress, siegeAuCentre,
-  etape, seuil, validationRequise, signeLe, signePar, peutSigner,
+  etape, seuil, validationRequise, signeLe, signePar, renvoi, peutSigner,
 }: {
   documentId: string;
   porte: PorteBC | null;
@@ -59,22 +61,29 @@ export function BonDeCommandeGate({
   validationRequise: boolean;
   signeLe: string | null;
   signePar: string | null;
+  /** Renvoyé à son émetteur par un signataire (audit 360°, R09) : qui, quand, et ce qu'il faut corriger. */
+  renvoi: { le: string; par: string | null; note: string | null } | null;
   /** La personne peut-elle signer (« Modifier » sur le module « Bons de commande », §118.176) ? */
   peutSigner: boolean;
 }) {
   const router = useRouter();
-  const [busy, setBusy] = React.useState<"ADRESSER" | "SIGNER" | null>(null);
+  const [busy, setBusy] = React.useState<"ADRESSER" | "SIGNER" | "RENVOYER" | null>(null);
   const [err, setErr] = React.useState<string | null>(null);
   const [msg, setMsg] = React.useState<string | null>(null);
+  // RENVOYER AU LIEU DE SIGNER (audit 360°, R09) : le motif est exigé, à l'écran comme à l'action.
+  const [motifRenvoi, setMotifRenvoi] = React.useState<string | null>(null);
 
-  const agir = async (quoi: "ADRESSER" | "SIGNER") => {
+  const agir = async (quoi: "ADRESSER" | "SIGNER" | "RENVOYER") => {
     setBusy(quoi); setErr(null); setMsg(null);
     const f = new FormData();
     f.set("id", documentId);
+    if (quoi === "RENVOYER") f.set("note", motifRenvoi ?? "");
     try {
-      const r = quoi === "ADRESSER" ? await adresserBCAuCentre(f) : await signerBonDeCommande(f);
-      if (r.ok) { setMsg(r.message ?? null); router.refresh(); }
-      else setErr(r.error ?? (quoi === "ADRESSER" ? "L'envoi au centre a échoué." : "La signature a échoué."));
+      const r = quoi === "ADRESSER" ? await adresserBCAuCentre(f)
+        : quoi === "SIGNER" ? await signerBonDeCommande(f)
+          : await renvoyerBonDeCommande(f);
+      if (r.ok) { setMsg(r.message ?? null); setMotifRenvoi(null); router.refresh(); }
+      else setErr(r.error ?? (quoi === "ADRESSER" ? "L'envoi au centre a échoué." : quoi === "SIGNER" ? "La signature a échoué." : "Le renvoi a échoué."));
     } finally {
       setBusy(null);
     }
@@ -125,7 +134,7 @@ export function BonDeCommandeGate({
               </Link>
             )}
           </>
-        ) : etape === "A_SIGNER" || etape === "SIGNE" ? (
+        ) : etape === "A_SIGNER" || etape === "SIGNE" || etape === "A_CORRIGER" ? (
           // SOUS LE SEUIL : aucun centre n'avait à le voir — la fiche le dit, sinon elle
           // reprocherait à ce BC d'avoir sauté une validation qu'il n'avait pas à passer.
           <p className="text-muted-foreground">
@@ -154,11 +163,43 @@ export function BonDeCommandeGate({
           <div className="space-y-2 rounded-lg bg-secondary/40 px-3 py-2">
             <p className="text-xs">{reserveEtapeBC("A_SIGNER", porte, seuil)}</p>
             {peutSigner && (
-              <Button size="sm" onClick={() => void agir("SIGNER")} disabled={busy !== null}>
-                {busy === "SIGNER" ? <Loader2 className="h-4 w-4 animate-spin" /> : <FilePen className="h-4 w-4" />}
-                Signer (Finances)
-              </Button>
+              <div className="flex flex-wrap items-center gap-2">
+                <BoutonDecisif size="sm" onClick={() => void agir("SIGNER")} disabled={busy !== null}>
+                  {busy === "SIGNER" ? <Loader2 className="h-4 w-4 animate-spin" /> : <FilePen className="h-4 w-4" />}
+                  Signer (Finances)
+                </BoutonDecisif>
+                {motifRenvoi === null && (
+                  <Button size="sm" variant="secondary" onClick={() => setMotifRenvoi("")} disabled={busy !== null}>
+                    <Undo2 className="h-4 w-4" /> Renvoyer à l&apos;émetteur
+                  </Button>
+                )}
+              </div>
             )}
+            {peutSigner && motifRenvoi !== null && (
+              <div className="flex flex-wrap items-center gap-2">
+                <Input
+                  value={motifRenvoi} onChange={(e) => setMotifRenvoi(e.target.value)} aria-label="Ce qu'il faut corriger"
+                  placeholder="Ce qu'il faut corriger (obligatoire)" className="min-w-0 flex-1"
+                />
+                <BoutonDecisif size="sm" variant="secondary" onClick={() => void agir("RENVOYER")} disabled={busy !== null || !motifRenvoi.trim()}>
+                  {busy === "RENVOYER" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Undo2 className="h-4 w-4" />} Confirmer le renvoi
+                </BoutonDecisif>
+                <Button size="sm" variant="ghost" onClick={() => setMotifRenvoi(null)} disabled={busy !== null}>Annuler</Button>
+              </div>
+            )}
+          </div>
+        )}
+        {etape === "A_CORRIGER" && (
+          // RENVOYÉ À SON ÉMETTEUR (audit 360°, R09) : qui, quand, ce qu'il faut corriger — et le geste
+          // qui le rend à la signature (la modification de la pièce, depuis cette fiche).
+          <div className="space-y-1 rounded-lg bg-warning/10 px-3 py-2 text-xs">
+            {renvoi && (
+              <p>
+                Renvoyé le {new Date(renvoi.le).toLocaleDateString("fr-FR")}{renvoi.par ? ` par ${renvoi.par}` : ""}
+                {renvoi.note ? <> — à corriger : « {renvoi.note} »</> : null}
+              </p>
+            )}
+            <p>{reserveEtapeBC("A_CORRIGER", porte, seuil)}</p>
           </div>
         )}
         {msg && <p className="rounded-lg bg-success/10 px-3 py-2 text-xs text-foreground">{msg}</p>}

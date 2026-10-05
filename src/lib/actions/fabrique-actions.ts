@@ -27,9 +27,12 @@ import { requireUser } from "@/lib/session";
 import { fdStr, type ActionResult } from "@/lib/actions/types";
 import { MODES_PAIEMENT, TYPES_DOCUMENT, type ModePaiement, type TypeDocumentCommercial } from "@/lib/artifact/factory/commercial";
 import {
-  definirProfilDocumentaire, emettreDocumentDrive, previsualiserDocument,
-  type DemandeDocument, type MethodePdf,
+  definirProfilDocumentaire, emettreDocumentDrive, previsualiserDocument, reviserDocumentDrive,
+  type DemandeDocument, type MethodePdf, type ModificationsDocument,
 } from "@/platform/in-process/artifact/factory";
+import { factureACrediter } from "@/lib/legal/aval";
+import { montantsDesAvoirsActifs } from "@/lib/lecteurs/avoirs-actifs";
+import { netDeLaFacture } from "@/lib/lecteurs/avoir";
 
 /** « 2 500 000,00 » (espaces, insécables, virgule) → 2500000 ; vide ou illisible → null. */
 function nombre(v: string | null | undefined): number | null {
@@ -50,14 +53,12 @@ const texte = (formData: FormData, cle: string): string | null => {
   return v && v.trim() ? v.trim() : null;
 };
 
-/** La DEMANDE de fabrique, lue depuis le formulaire — une seule lecture, pour l'aperçu et l'émission. */
-function lireDemande(formData: FormData): { ok: true; demande: DemandeDocument } | { ok: false; error: string } {
-  const type = (fdStr(formData, "type") ?? "") as TypeDocumentCommercial;
-  if (!TYPES_DOCUMENT.includes(type)) return { ok: false, error: "Nature de pièce inconnue : facture, bon de commande ou devis." };
-  const mode = fdStr(formData, "modePaiement");
-  const modePaiement = mode && (MODES_PAIEMENT as readonly string[]).includes(mode) ? (mode as ModePaiement) : null;
-
-  // LES LIGNES : des listes parallèles, une entrée par ligne saisie, dans l'ordre de l'écran.
+/**
+ * LES LIGNES : des listes parallèles, une entrée par ligne saisie, dans l'ordre de l'écran — une seule
+ * lecture pour la composition et pour la révision d'une pièce émise (§118.194) : deux lecteurs de la même
+ * saisie finiraient par arrondir ou couper différemment.
+ */
+function lireLignes(formData: FormData): DemandeDocument["lignes"] {
   const designations = formData.getAll("ligneDesignation").map(String);
   const details = formData.getAll("ligneDetails").map(String);
   const quantites = formData.getAll("ligneQuantite").map(String);
@@ -79,6 +80,22 @@ function lireDemande(formData: FormData): { ok: true; demande: DemandeDocument }
       tva: fraction(tvas[i]),
     };
   });
+  return lignes;
+}
+
+/**
+ * La DEMANDE de fabrique, lue depuis le formulaire — une seule lecture, pour l'aperçu et l'émission.
+ * Les lignes arrivent DÉJÀ lues : l'appelant appelle `lireLignes` lui-même, parce que la dérivation des
+ * contrats ne suit qu'un niveau de délégation (§118.87c) — lues ici, à deux niveaux, elles disparaissaient
+ * de ce que l'action déclare recevoir. Et il les lit dans une instruction À PART : un appel imbriqué
+ * (`lireDemande(formData, lireLignes(formData))`) n'est pas reconnu comme une délégation — mesuré, ce
+ * sont alors TOUS les autres champs de la demande qui disparaissaient du contrat.
+ */
+function lireDemande(formData: FormData, lignes: DemandeDocument["lignes"]): { ok: true; demande: DemandeDocument } | { ok: false; error: string } {
+  const type = (fdStr(formData, "type") ?? "") as TypeDocumentCommercial;
+  if (!TYPES_DOCUMENT.includes(type)) return { ok: false, error: "Nature de pièce inconnue : facture, bon de commande ou devis." };
+  const mode = fdStr(formData, "modePaiement");
+  const modePaiement = mode && (MODES_PAIEMENT as readonly string[]).includes(mode) ? (mode as ModePaiement) : null;
 
   const libellesTaxes = formData.getAll("taxeLibelle").map(String);
   const tauxTaxes = formData.getAll("taxeTaux").map(String);
@@ -152,7 +169,8 @@ export interface ApercuPiece {
  */
 export async function previsualiserPieceCommerciale(_prev: ApercuPiece | { ok: false; error: string } | undefined, formData: FormData): Promise<ApercuPiece | { ok: false; error: string }> {
   const user = await requireUser();
-  const lu = lireDemande(formData);
+  const lignes = lireLignes(formData);
+  const lu = lireDemande(formData, lignes);
   if (!lu.ok) return lu;
   const r = await previsualiserDocument(user, lu.demande);
   if (!r.ok) return { ok: false, error: r.motif };
@@ -168,6 +186,25 @@ export async function previsualiserPieceCommerciale(_prev: ApercuPiece | { ok: f
       : null,
     bloquants: r.bloquants, avertissements: r.avertissements, peutEmettre: r.peutEmettre, pdfParEditeur: r.pdfParEditeur,
   };
+}
+
+export type ApercuImpression = { ok: true; pdfBase64: string; pages: number; numeroProchain: string } | { ok: false; error: string };
+
+/**
+ * L'APERÇU AVANT IMPRESSION (Direction, 10/2026) — la pièce telle qu'elle sera imprimée, en PDF, AVANT de l'émettre :
+ * la même composition que l'émission, rendue par le serveur à blanc. Elle porte le numéro PRÉVU (celui que la prochaine
+ * émission recevra si personne n'émet entre-temps) ; rien n'est écrit, aucun numéro n'est consommé, aucun fichier ne
+ * va au Drive. Refusée tant que la pièce l'est (règles, identité de l'émetteur) : on ne montre pas ce qu'on ne livrerait pas.
+ */
+export async function apercuAvantImpressionPiece(_prev: ApercuImpression | undefined, formData: FormData): Promise<ApercuImpression> {
+  const user = await requireUser();
+  const lu = lireDemande(formData, lireLignes(formData));
+  if (!lu.ok) return lu;
+  const r = await previsualiserDocument(user, lu.demande, { avecPdf: true });
+  if (!r.ok) return { ok: false, error: r.motif };
+  if (r.bloquants.length > 0) return { ok: false, error: `L'aperçu n'est pas possible : ${r.bloquants.slice(0, 3).join(" ; ")}` };
+  if (!r.pdf) return { ok: false, error: r.pdfErreur ?? "Le rendu de l'aperçu n'a pas pu être produit." };
+  return { ok: true, pdfBase64: r.pdf.octets.toString("base64"), pages: r.pdf.pages, numeroProchain: r.numeroProchain };
 }
 
 export interface ResultatEmission extends ActionResult {
@@ -191,7 +228,8 @@ export interface ResultatEmission extends ActionResult {
  */
 export async function emettrePieceCommerciale(_prev: ResultatEmission | undefined, formData: FormData): Promise<ResultatEmission> {
   const user = await requireUser();
-  const lu = lireDemande(formData);
+  const lignes = lireLignes(formData);
+  const lu = lireDemande(formData, lignes);
   if (!lu.ok) return { ok: false, error: lu.error };
   const r = await emettreDocumentDrive(user, lu.demande);
   if (!r.ok) return { ok: false, error: r.motif + (r.bloquants?.length ? ` — ${r.bloquants.slice(0, 3).join(" ; ")}` : "") };
@@ -211,18 +249,147 @@ export async function emettrePieceCommerciale(_prev: ResultatEmission | undefine
   };
 }
 
+export interface ResultatRevision extends ActionResult {
+  reference?: string;
+  version?: number;
+}
+
 /**
- * RÈGLE le motif de numérotation d'une nature de pièce pour une société (« {n:3}/FS/{aa} ») —
- * ceux qui tiennent la papeterie seulement, comme le reste du profil documentaire.
+ * RÉVISER UNE PIÈCE ÉMISE depuis sa fiche (§118.194 — audit 360°, R15) — un devis ou un bon de commande :
+ * même numéro, nouvelle version du Word et du PDF, historique au registre, et la fiche suit le fichier
+ * (montant, partie, échéance). La fabrique savait réviser ; seul le dossier promotionnel l'appelait, et la
+ * fiche Legal n'offrait que le formulaire générique — qui changeait le montant sans toucher au fichier.
+ *
+ * Ce que le formulaire ne porte pas ne s'écrit pas (§118.152) ; la version que l'écran a montrée est exigée
+ * (`versionVue`), et le motif l'est après tout ce qui refuserait la révision — c'est la fabrique qui tient
+ * l'ordre, pour tous ses appelants. Une facture émise ne se révise pas : la fabrique le refuse et dit quoi faire.
+ */
+export async function reviserPieceCommerciale(_prev: ResultatRevision | undefined, formData: FormData): Promise<ResultatRevision> {
+  const user = await requireUser();
+  const legalDocumentId = fdStr(formData, "legalDocumentId");
+  if (!legalDocumentId) return { ok: false, error: "Pièce introuvable." };
+  const vue = nombre(fdStr(formData, "versionVue"));
+  const modifications: ModificationsDocument = {};
+  if (formData.has("ligneDesignation")) modifications.lignes = lireLignes(formData);
+  if (formData.has("objet")) modifications.objet = texte(formData, "objet");
+  if (formData.has("notes")) modifications.notes = texte(formData, "notes");
+  if (formData.has("validiteJours")) {
+    const v = nombre(fdStr(formData, "validiteJours"));
+    modifications.validiteJours = v !== null && Number.isInteger(v) ? v : null;
+  }
+  if (formData.has("livraisonAdresse") || formData.has("livraisonDelai")) {
+    modifications.livraison = {
+      ...(formData.has("livraisonAdresse") ? { adresse: texte(formData, "livraisonAdresse") } : {}),
+      ...(formData.has("livraisonDelai") ? { delai: texte(formData, "livraisonDelai") } : {}),
+    };
+  }
+  if (formData.has("contactNom") || formData.has("contactTelephone")) {
+    modifications.contact = {
+      ...(formData.has("contactNom") ? { nom: texte(formData, "contactNom") } : {}),
+      ...(formData.has("contactTelephone") ? { telephone: texte(formData, "contactTelephone") } : {}),
+    };
+  }
+  if (Object.keys(modifications).length === 0) return { ok: false, error: "Rien à réviser : la révision porte sur les lignes, l'objet, les notes, la validité, la livraison ou le contact." };
+  const r = await reviserDocumentDrive(user, {
+    legalDocumentId, modifications, motif: texte(formData, "motif"),
+    versionVue: vue !== null && Number.isInteger(vue) ? vue : null, exigerMotif: true,
+  });
+  if (!r.ok) return { ok: false, error: r.motif + (r.bloquants?.length ? ` — ${r.bloquants.slice(0, 3).join(" ; ")}` : "") };
+  revalidatePath("/legal");
+  revalidatePath(`/legal/${legalDocumentId}`);
+  const libelle = r.type === "DEVIS" ? "Devis" : "Bon de commande";
+  return {
+    ok: true, id: legalDocumentId, reference: r.reference, version: r.version,
+    message: `${libelle} ${r.reference} révisé : version ${r.version}, ${formaterTtc(r.totaux.totalTtc)} TTC — le Word, le PDF et la fiche disent la même chose.`
+      + (r.reserveBonDeCommande ? ` ${r.reserveBonDeCommande}` : ""),
+  };
+}
+
+export interface ResultatAvoir extends ActionResult {
+  reference?: string;
+}
+
+/**
+ * ÉMETTRE UN AVOIR sur une facture émise (§118.195 — audit 360°, R15) : la seule correction d'une facture, qui ne se
+ * réécrit pas. L'écran envoie les lignes à créditer et le motif ; le client, le numéro et la date d'origine, la TVA,
+ * la remise et les taxes viennent de la FACTURE, et c'est la fabrique qui les reprend — rien de cela n'est lu ici.
+ * La fabrique refuse ce qui dépasse le reste à créditer, revérifié sous verrou ; le motif est exigé après l'état.
+ */
+export async function emettreAvoir(_prev: ResultatAvoir | undefined, formData: FormData): Promise<ResultatAvoir> {
+  const user = await requireUser();
+  const factureId = fdStr(formData, "factureId");
+  if (!factureId) return { ok: false, error: "Facture introuvable." };
+  // La société de la facture, pour le profil documentaire ; une pièce qui n'est pas une facture émise est refusée
+  // par la FABRIQUE, avec sa phrase — une seconde rédaction ici finirait par dire autre chose (§118.5).
+  const facture = await factureACrediter(factureId);
+  const lignes = lireLignes(formData);
+  const r = await emettreDocumentDrive(user, {
+    type: "AVOIR", societe: facture?.companyId ?? null, chainFromId: factureId,
+    // Le client vient de la facture, sur le lien — la fabrique le remplace : rien n'est pris de l'écran.
+    tiers: { nom: "" },
+    lignes, objet: texte(formData, "motif"),
+  });
+  if (!r.ok) return { ok: false, error: r.motif + (r.bloquants?.length ? ` — ${r.bloquants.slice(0, 3).join(" ; ")}` : "") };
+  revalidatePath("/legal");
+  revalidatePath(`/legal/${factureId}`);
+  if (r.dejaEmis) {
+    return { ok: true, id: r.legalDocumentId, reference: r.reference, message: `Un avoir identique existait déjà (${r.reference}) : aucun nouvel avoir n'a été émis.` };
+  }
+  if (!facture) return { ok: true, id: r.legalDocumentId, reference: r.reference, message: `Avoir ${r.reference} émis : ${formaterTtc(r.totaux.totalTtc)} TTC crédités.` };
+  const net = netDeLaFacture(facture.ttc, await montantsDesAvoirsActifs(factureId));
+  return {
+    ok: true, id: r.legalDocumentId, reference: r.reference,
+    message: `Avoir ${r.reference} émis : ${formaterTtc(r.totaux.totalTtc)} TTC crédités sur la facture ${facture.numero} — net de la facture : ${formaterTtc(net)}.`
+      // UN AVOIR SUR UNE FACTURE RÉGLÉE est un remboursement : l'écriture du règlement a eu lieu, elle ne se réécrit
+      // pas — et la phrase dit où se demande ce qui est dû au client, au lieu de laisser croire que c'est fait.
+      + (facture.regleeLe ? " La facture est déjà réglée : ce montant est dû au client — son remboursement se demande depuis « Demandes de validations » (« Demande de paiement »)." : ""),
+  };
+}
+
+/** « 1 234 567,89 DZD » — la phrase du résultat ; les totaux viennent de la fabrique, jamais du navigateur. */
+function formaterTtc(n: number): string {
+  return `${n.toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} DZD`;
+}
+
+/**
+ * RÈGLE la numérotation d'une nature de pièce pour une société — le motif (« {n:3}/FS/{aa} ») et/ou le PREMIER
+ * NUMÉRO de l'année (« commencer à 032/DG/2026 »). Ceux qui tiennent la papeterie seulement, comme le reste du profil.
+ *
+ * Ce que le formulaire ne porte pas ne s'écrit pas (§118.152c) : sans clé `motif`, le motif reste ; sans clé `depart`,
+ * le départ reste. Le départ est un PLANCHER du compteur, jamais un recul : le message dit le prochain numéro réel.
  */
 export async function reglerNumerotationPieces(_prev: ActionResult | undefined, formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
   const type = (fdStr(formData, "type") ?? "") as TypeDocumentCommercial;
   if (!TYPES_DOCUMENT.includes(type)) return { ok: false, error: "Nature de pièce inconnue." };
-  const motif = texte(formData, "motif");
-  const r = await definirProfilDocumentaire(user, { societe: texte(formData, "societe"), numerotation: { [type]: motif } });
+  const motifSaisi = formData.has("motif");
+  const departSaisi = formData.has("depart");
+  if (!motifSaisi && !departSaisi) return { ok: false, error: "Rien à régler : renseignez le motif et/ou le premier numéro de l'année." };
+  let depart: { annee: number; numero: number | null } | undefined;
+  if (departSaisi) {
+    const brut = (fdStr(formData, "depart") ?? "").trim();
+    const annee = Number(fdStr(formData, "annee") ?? new Date().getUTCFullYear());
+    if (brut === "") depart = { annee, numero: null };
+    else {
+      const numero = Number(brut);
+      if (!/^\d+$/.test(brut)) return { ok: false, error: `Le premier numéro est un entier (« ${brut} » ne se lit pas) : 32 pour commencer à 032.` };
+      depart = { annee, numero };
+    }
+  }
+  const r = await definirProfilDocumentaire(user, {
+    societe: texte(formData, "societe"),
+    ...(motifSaisi ? { numerotation: { [type]: texte(formData, "motif") } } : {}),
+    ...(depart ? { numerotationDepart: { [type]: depart } } : {}),
+  });
   if (!r.ok) return { ok: false, error: r.motif };
   revalidatePath("/legal");
   const applique = r.profil.reglages.numerotation[type];
-  return { ok: true, message: applique ? `Motif enregistré : ${applique}.` : "Motif effacé : retour à la numérotation par défaut." };
+  const parts: string[] = [];
+  if (motifSaisi) parts.push(applique ? `Motif enregistré : ${applique}.` : "Motif effacé : retour à la numérotation par défaut.");
+  if (depart) {
+    parts.push(depart.numero === null
+      ? `Départ ${depart.annee} retiré : la série reprend son compteur.`
+      : `Premier numéro de ${depart.annee} : ${depart.numero}. Le compteur ne recule jamais — s'il est déjà plus loin, la série continue.`);
+  }
+  return { ok: true, message: parts.join(" ") };
 }

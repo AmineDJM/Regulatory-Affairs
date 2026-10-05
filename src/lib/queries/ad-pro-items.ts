@@ -10,11 +10,14 @@ import { familleQuantifiee, type PromoFamille } from "@/lib/promo/catalogue";
 import { peutConfirmerMateriel } from "@/lib/promo/reservations";
 import type { PostePourCloture } from "@/lib/ad-pro/cloture-sponsoring";
 import { gestionnairesDuMagasin } from "@/lib/queries/promo-stock";
-import { NATURES_PIECE_SECRETARIAT, PIECE_SECRETARIAT, type NaturePieceSecretariat } from "@/lib/ad-pro/pieces-secretariat";
+import { NATURES_PIECE_SECRETARIAT, PIECE_SECRETARIAT, estDemandeBcAEtablir, type NaturePieceSecretariat } from "@/lib/ad-pro/pieces-secretariat";
 import { statutDuDossier } from "@/lib/promo-material/statut";
-import { porteDesVoyageurs } from "@/lib/ad-pro/voyageurs";
+import { porteDesVoyageurs, refusRetraitReservation } from "@/lib/ad-pro/voyageurs";
 import { splitMulti } from "@/lib/ad-pro/pickers";
+import { bcVivantsDesPostes, refusAnnulationBcDuPoste } from "@/lib/ad-pro/bc-etablis";
 import type { VoyageurVue } from "@/components/ad-pro/voyageurs-bloc";
+import { piecesDesPostes, demandesBCDesPostes, assistantesDeDirection } from "@/lib/ad-pro/pieces-poste";
+import { droitsValidation, estDirectionMarketingPoste, type DroitsValidation } from "@/lib/ad-pro/validation-poste";
 
 /**
  * CHARGEMENT DES POSTES D'UNE OPÉRATION AD & PRO — un seul endroit pour les quatre modules.
@@ -40,6 +43,9 @@ export async function loadAdProItems(parent: AdProParent, parentId: string): Pro
         take: 12,
         select: { decision: true, note: true, amount: true, at: true, by: { select: { name: true } } },
       },
+      // L'historique est borné à douze lignes : son TOTAL voyage avec lui, sinon « Historique (12) » se
+      // lirait comme tout ce qui s'est passé (§118.60, audit 360° R24–R36).
+      _count: { select: { decisions: true } },
     },
   });
   if (rawItems.length === 0) return [];
@@ -62,7 +68,7 @@ export async function loadAdProItems(parent: AdProParent, parentId: string): Pro
         })
       : Promise.resolve([]),
     sujetsIds.length
-      ? prisma.dossier.findMany({ where: { id: { in: sujetsIds } }, select: { id: true, reference: true } })
+      ? prisma.dossier.findMany({ where: { id: { in: sujetsIds } }, select: { id: true, reference: true, status: true } })
       : Promise.resolve([]),
     billetterie.length ? nomsDeLaDemande(parent, parentId) : Promise.resolve([] as string[]),
   ]);
@@ -73,6 +79,35 @@ export async function loadAdProItems(parent: AdProParent, parentId: string): Pro
     l.push({ id: d.id, name: d.name, hasFile: Boolean(d.fileKey) });
     passeportsDe.set(d.stepKey, l);
   }
+  // LE DEVIS DE CHAQUE VOYAGEUR (§118.205) : un devis du poste marqué pour lui, et son premier fichier.
+  const liensDevis = voyageurRows.length
+    ? await prisma.adProVoyageurDevis.findMany({
+        where: { voyageurId: { in: voyageurRows.map((v) => v.id) } },
+        orderBy: { createdAt: "asc" },
+        select: {
+          voyageurId: true, retenuLe: true,
+          piece: { select: { legalDocument: { select: { id: true, title: true, reference: true, amount: true, status: true, cancelledAt: true } } } },
+        },
+      })
+    : [];
+  const fichiersDevis = liensDevis.length
+    ? await prisma.document.findMany({
+        where: { entityType: "LEGAL_DOCUMENT", entityId: { in: liensDevis.map((l) => l.piece.legalDocument.id) } },
+        select: { id: true, name: true, entityId: true, fileKey: true }, orderBy: { createdAt: "asc" },
+      })
+    : [];
+  const fichierDe = new Map<string, { id: string; name: string; hasFile: boolean }>();
+  for (const f of fichiersDevis) if (!fichierDe.has(f.entityId)) fichierDe.set(f.entityId, { id: f.id, name: f.name, hasFile: Boolean(f.fileKey) });
+  const devisDe = new Map<string, VoyageurVue["devis"]>();
+  for (const l of liensDevis) {
+    const d = l.piece.legalDocument;
+    const liste = devisDe.get(l.voyageurId) ?? [];
+    liste.push({
+      id: d.id, titre: d.title, reference: d.reference, montant: d.amount != null ? toNumber(d.amount) : null,
+      retenu: l.retenuLe != null, annule: d.status === "CANCELLED" || d.cancelledAt != null, fichier: fichierDe.get(d.id) ?? null,
+    });
+    devisDe.set(l.voyageurId, liste);
+  }
   const iso = (d: Date | null) => (d ? d.toISOString().slice(0, 10) : null);
   const voyageursDe = new Map<string, VoyageurVue[]>();
   for (const v of voyageurRows) {
@@ -80,14 +115,15 @@ export async function loadAdProItems(parent: AdProParent, parentId: string): Pro
     l.push({
       id: v.id, nom: v.nom, villeDepart: v.villeDepart, villeArrivee: v.villeArrivee,
       dateDepart: iso(v.dateDepart), dateRetour: iso(v.dateRetour), notes: v.notes, passeports: passeportsDe.get(v.id) ?? [],
+      trajet: v.trajet, transport: v.transport, devis: devisDe.get(v.id) ?? [],
     });
     voyageursDe.set(v.itemId, l);
   }
-  const sujetDe = new Map(sujetRows.map((d) => [d.id, { id: d.id, reference: d.reference }]));
+  const sujetDe = new Map(sujetRows.map((d) => [d.id, { id: d.id, reference: d.reference, statut: String(d.status) }]));
 
-  const [promoRows, orderRows, demandeRows, docRows, lignesParPoste] = await Promise.all([
+  const [promoRows, orderRows, demandeRows, docRows, lignesParPoste, bcLegalParPoste] = await Promise.all([
     promoIds.length
-      ? prisma.promoMaterial.findMany({ where: { id: { in: promoIds } }, select: { id: true, reference: true, title: true, status: true, circuitState: true, circuitVersion: true } })
+      ? prisma.promoMaterial.findMany({ where: { id: { in: promoIds } }, select: { id: true, reference: true, title: true, status: true, circuitState: true, circuitVersion: true, returnedAt: true } })
       : Promise.resolve([]),
     orderIds.length
       ? prisma.expenseOrder.findMany({ where: { id: { in: orderIds } }, select: { id: true, reference: true, status: true } })
@@ -96,7 +132,7 @@ export async function loadAdProItems(parent: AdProParent, parentId: string): Pro
     // ferait N allers-retours sur un écran qu'on ouvre pour tout voir (§118.102b).
     prisma.administrativeRequest.findMany({
       where: { linkedEntityType: "AD_PRO_ITEM", linkedEntityId: { in: itemIds }, deletedAt: null },
-      select: { id: true, reference: true, type: true, status: true, linkedEntityId: true },
+      select: { id: true, reference: true, type: true, title: true, status: true, linkedEntityId: true },
       orderBy: { createdAt: "asc" },
     }),
     // LES PIÈCES JOINTES d'un poste : on en rend le COMPTE, pas la liste — l'écran ne les
@@ -109,12 +145,26 @@ export async function loadAdProItems(parent: AdProParent, parentId: string): Pro
     }),
     // LE MATÉRIEL DU STOCK des postes qui en portent (§118.167) — en lot, comme le reste.
     lignesStockParPoste(itemIds),
+    // LES BC DÉJÀ ÉTABLIS DANS LEGAL (§118.187) : la même lecture que les actions qui les refusent.
+    bcVivantsDesPostes(itemIds),
   ]);
+  // LA CHAÎNE D'ACHAT DE CHAQUE POSTE (§118.204) — devis, BC, factures — et la demande de BC chez
+  // l'assistante. En lot, comme le reste.
+  const [piecesParPoste, demandeBcParPoste] = await Promise.all([piecesDesPostes(itemIds), demandesBCDesPostes(itemIds)]);
   const natureDuType = new Map<string, NaturePieceSecretariat>(
     NATURES_PIECE_SECRETARIAT.map((n) => [String(PIECE_SECRETARIAT[n].type), n]),
   );
   const demandesParPoste = new Map<string, ItemRow["demandes"]>();
+  const travauxBcParPoste = new Map<string, ItemRow["travauxBc"]>();
   for (const d of demandeRows) {
+    // LE « BC À ÉTABLIR » DE L'ASSISTANTE se montre sur la carte (audit 360°, R24–R36) : c'est le geste
+    // qui suit la demande de bon de commande, et le demandeur ne le trouvait nulle part.
+    if (d.linkedEntityId && estDemandeBcAEtablir({ type: String(d.type), title: d.title })) {
+      const l = travauxBcParPoste.get(d.linkedEntityId) ?? [];
+      l.push({ id: d.id, reference: d.reference, status: String(d.status) });
+      travauxBcParPoste.set(d.linkedEntityId, l);
+      continue;
+    }
     const nature = natureDuType.get(String(d.type));
     // Une demande d'une AUTRE nature rattachée au poste (un déplacement, une signature) n'est
     // pas une pièce commerciale : on ne la range pas de force dans une case qui n'est pas la
@@ -144,18 +194,33 @@ export async function loadAdProItems(parent: AdProParent, parentId: string): Pro
     budgetCategoryId: i.budgetCategoryId,
     budgetCategoryLabel: i.budgetCategory ? `${i.budgetCategory.envelope.name} › ${i.budgetCategory.name}` : null,
     demandes: demandesParPoste.get(i.id) ?? [],
+    travauxBc: travauxBcParPoste.get(i.id) ?? [],
+    bcEtablis: [...new Set((bcLegalParPoste.get(i.id) ?? []).map((b) => b.nom))],
+    // CE QUI EMPÊCHE « Annuler la demande de BC » (constat 36) — la règle de l'action, lue ici pour que la
+    // carte n'offre pas un geste que l'action refuserait (§118.83).
+    refusAnnulationBc: refusAnnulationBcDuPoste(bcLegalParPoste.get(i.id) ?? []),
     documentCount: docsParPoste.get(i.id) ?? 0,
     lignesStock: lignesParPoste.get(i.id) ?? [],
     repartitionId: i.repartitionId,
-    reservation: i.reservationDossierId ? sujetDe.get(i.reservationDossierId) ?? null : null,
+    reservation: (() => {
+      const sujet = i.reservationDossierId ? sujetDe.get(i.reservationDossierId) ?? null : null;
+      // CE QUI EMPÊCHE DE RETIRER LA DEMANDE (constat 37) — la règle de l'action, pour que la carte
+      // n'offre pas un geste qu'elle refuserait (§118.83).
+      return sujet ? { id: sujet.id, reference: sujet.reference, refusRetrait: refusRetraitReservation({ sujet: sujet.statut, orderStage: String(i.orderStage) }) } : null;
+    })(),
     voyageurs: voyageursDe.get(i.id) ?? [],
     nomsSuggeres: porteDesVoyageurs(i.kind) ? nomsSuggeres : [],
     orderStage: i.orderStage,
+    opsDecidedAt: i.opsDecidedAt?.toISOString() ?? null,
+    opsDecisionNote: i.opsDecisionNote,
+    pieces: piecesParPoste.get(i.id) ?? { devis: [], bc: null, factures: [] },
+    demandeBC: demandeBcParPoste.get(i.id) ?? null,
     // SOUS LE SEUIL (§118.149) : le BC est passé aux Finances sans qu'aucun centre le vise — seul
     // le visa du centre pose `orderDirectionAt`. La fiche ne doit pas dire « validé par le centre ».
     orderSansCentre: i.orderStage === "DIRECTION_OK" && i.orderDirectionAt === null,
     orderNote: i.orderNote,
     orderDecisionNote: i.orderDecisionNote,
+    decisionsTotal: i._count.decisions,
     decisions: i.decisions.map((d) => ({
       decision: d.decision,
       note: d.note,
@@ -344,5 +409,39 @@ export async function contexteMaterielStock(
       gereLeMagasin: gestionnaires.includes(user.id),
       decideLesPostes,
     }),
+  };
+}
+
+/**
+ * LE CONTEXTE DES POSTES POUR LA PERSONNE QUI REGARDE (§118.204) — ce qu'elle tranche (Direction des
+ * opérations, puis Direction Marketing : la même règle que l'action, `droitsValidation`), et les
+ * assistantes de direction à qui un bon de commande peut être demandé. Calculé au SERVEUR : l'écran ne
+ * recompose jamais une règle de droit (§118.164c).
+ */
+export interface ContextePostes {
+  validation: DroitsValidation;
+  assistantes: { id: string; name: string }[];
+  /** Pour savoir si c'est elle qui vérifie le BC déposé (`demandeBC.askedById`). */
+  userId: string;
+  /** La demande vient de la Direction Marketing : le second temps revient à la Direction des opérations. */
+  secondTempsParOperations: boolean;
+}
+
+const DEMANDEUR_DE: Record<AdProParent, (id: string) => Promise<string | null>> = {
+  SPONSORING: async (id) => (await prisma.sponsoringRequest.findUnique({ where: { id }, select: { requesterId: true } }))?.requesterId ?? null,
+  CONGRESS_NATIONAL: async (id) => (await prisma.congressNational.findUnique({ where: { id }, select: { requesterId: true } }))?.requesterId ?? null,
+  CONGRESS_INTERNATIONAL: async (id) => (await prisma.congressInternational.findUnique({ where: { id }, select: { requesterId: true } }))?.requesterId ?? null,
+  EVENT: async (id) => (await prisma.event.findUnique({ where: { id }, select: { requesterId: true } }))?.requesterId ?? null,
+};
+
+export async function contextePostes(user: SessionUser, parent: AdProParent, parentId: string): Promise<ContextePostes> {
+  const requesterId = await DEMANDEUR_DE[parent](parentId);
+  const demandeur = requesterId ? await prisma.user.findUnique({ where: { id: requesterId }, select: { role: true, secondaryRole: true } }) : null;
+  const moi = await prisma.user.findUnique({ where: { id: user.id }, select: { role: true, secondaryRole: true } });
+  return {
+    validation: droitsValidation(moi ?? { role: user.role }, demandeur),
+    assistantes: await assistantesDeDirection(),
+    userId: user.id,
+    secondTempsParOperations: estDirectionMarketingPoste(demandeur),
   };
 }

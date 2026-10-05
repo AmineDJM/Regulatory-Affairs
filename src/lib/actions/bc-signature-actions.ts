@@ -87,3 +87,75 @@ export async function signerBonDeCommande(formData: FormData): Promise<ActionRes
   revalidatePath(`/legal/${id}`);
   return { ok: true, id, message: `Bon de commande ${ref} signé. Il peut partir chez le fournisseur.` };
 }
+
+/**
+ * RENVOYER UN BON DE COMMANDE À SON ÉMETTEUR — au lieu de le signer (audit 360°, R09).
+ *
+ * Un seul geste existait, signer : un BC erroné (mauvais fournisseur, montant faux, pièce illisible)
+ * ne pouvait ni être refusé ni repartir chez son émetteur — le signataire n'avait que le silence. Il
+ * le RENVOIE maintenant avec ce qu'il faut corriger : le BC quitte la file des signataires, son
+ * émetteur est prévenu, et TOUTE modification de la pièce le rend à la signature (ou à son centre si
+ * son montant l'y renvoie — `aiguillerBC`). Ce n'est pas un refus : rien n'est fermé, et la décision
+ * du centre qui l'a validé reste acquise tant que le montant ne monte pas.
+ *
+ * Mêmes gardes que la signature, parce que c'est le même siège qui le fait : le droit, la lecture,
+ * l'étape (« à signer », et elle seule). Le motif est EXIGÉ : renvoyer sans dire pourquoi laisse
+ * l'émetteur deviner quoi corriger. L'écriture est conditionnelle à la DERNIÈRE écriture relue : ce
+ * qui a été relu est ce qui est renvoyé, et deux clics ne renvoient pas deux fois.
+ */
+export async function renvoyerBonDeCommande(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  const id = fdStr(formData, "id");
+  const note = fdStr(formData, "note");
+  if (!id) return { ok: false, error: "Bon de commande non précisé." };
+  if (!peutSignerBC(user)) return { ok: false, error: REFUS_SIGNATURE_BC };
+  if (!note) return { ok: false, error: "Dites ce qu'il faut corriger : sans cela, l'émetteur ne sait pas quoi changer avant de vous le rendre." };
+
+  const visibles = await bcVisiblesWhere(user);
+  const visible = visibles
+    ? await prisma.legalDocument.findFirst({ where: { AND: [visibles, { id }] }, select: { id: true } })
+    : null;
+  if (!visible) return { ok: false, error: "Bon de commande introuvable." };
+
+  const etat = await etatDuBC(id);
+  if (!etat) return { ok: false, error: "Bon de commande introuvable." };
+  if (etat.annule) return { ok: false, error: "Ce bon de commande est annulé : il n'y a rien à renvoyer." };
+  if (etat.etape === "A_CORRIGER") return { ok: false, error: "Ce bon de commande est déjà renvoyé à son émetteur." };
+  // Seul un BC « à signer » se renvoie : avant, c'est son centre qui a la main ; signé, il est parti.
+  const motif = motifNonSignable(etat.etape, etat.porte);
+  if (motif) return { ok: false, error: motif };
+
+  const renvoye = await prisma.legalDocument.updateMany({
+    where: { id, signedAt: null, signatureReturnedAt: null, updatedAt: etat.majLe },
+    data: { signatureReturnedAt: new Date(), signatureReturnedById: user.id, signatureReturnNote: note },
+  });
+  if (renvoye.count === 0) {
+    return { ok: false, error: "Ce bon de commande vient de changer (signé, renvoyé ou modifié) : relisez-le." };
+  }
+
+  const ref = etat.reference?.trim() ? etat.reference.trim() : `« ${etat.title} »`;
+  await recordAudit({
+    actorId: user.id, action: "UPDATE", module: "Bons de commande", entityType: "LEGAL_DOCUMENT", entityId: id,
+    summary: `Bon de commande ${ref} renvoyé à son émetteur pour correction — ${note}`,
+  });
+  // L'ÉMETTEUR EST PRÉVENU, et le geste qui le rend à la signature est NOMMÉ (§118.30). Sans émetteur
+  // connu (une pièce ancienne), la phrase le DIT plutôt que de laisser croire que quelqu'un sait.
+  const prevenu = Boolean(etat.createdById && etat.createdById !== user.id);
+  if (prevenu) {
+    await notifyUser({
+      userId: etat.createdById!, type: "GENERIC",
+      title: "Bon de commande renvoyé pour correction",
+      body: `${ref} : « ${note} ». Modifiez-le dans Legal — sa modification le rend à la signature.`,
+      link: `/legal/${id}`,
+    }).catch(() => undefined);
+  }
+  revalidatePath(CHEMIN_BC_A_SIGNER);
+  revalidatePath("/legal");
+  revalidatePath(`/legal/${id}`);
+  return {
+    ok: true, id,
+    message: prevenu
+      ? `Bon de commande ${ref} renvoyé à son émetteur : il revient dans votre file dès qu'il est corrigé.`
+      : `Bon de commande ${ref} renvoyé — aucun émetteur n'est enregistré sur la pièce : prévenez la personne qui l'a établie.`,
+  };
+}

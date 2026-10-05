@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { AlertCircle, Loader2, Plus, Trash2 } from "lucide-react";
+import { AlertCircle, Eye, Loader2, Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sheet } from "@/components/ui/sheet";
 import { useAutoOpen } from "@/components/shared/use-auto-open";
@@ -13,6 +13,7 @@ import { ACTIONS, ACTION_AIDE, ACTION_LABEL } from "@/lib/promo-material/actions
 import { FAMILLES, FAMILLE_LABEL, familleQuantifiee } from "@/lib/promo/catalogue";
 import { MENU_CATALOGUE_PROMO } from "@/lib/chemins/stock-promo";
 import type { LigneDemandeSaisie } from "@/lib/promo-material/lignes-demande";
+import { texteDemandeDeDevis } from "@/lib/promo-material/texte-demande-devis";
 import type { OptionCatalogue } from "@/lib/queries/promo-achats";
 
 /**
@@ -32,6 +33,11 @@ import type { OptionCatalogue } from "@/lib/queries/promo-achats";
  * (§118.173) : le catalogue EST la liste des supports, et chaque ligne en désigne un — un type
  * choisi à côté redisait la même chose, et pouvait la contredire (« Stylos » sur une demande de
  * fiches POSO).
+ *
+ * LA DEMANDE DE DEVIS SE VOIT AVANT DE PARTIR (§118.204). Elle n'a plus de geste à elle : elle part
+ * d'elle-même à l'assistante de direction (tout de suite, ou dès que la demande est validée). Le
+ * demandeur la voit donc ICI, dans « Articles demandés », avec ses précisions — l'aperçu est le texte
+ * EXACT que l'assistante recevra (`texteDemandeDeDevis`, la même rédaction que le serveur).
  */
 
 type Ligne = { uid: string; catalogueId: string; produitsOuverts: boolean };
@@ -57,6 +63,35 @@ export function DemandeMaterielForm({ catalogue, produits, onDone, onCancel, can
   // deux demandes identiques (la règle de `RecordForm`, que ce formulaire ne peut pas emprunter).
   const verrou = React.useRef(false);
   const parId = React.useMemo(() => new Map(catalogue.map((c) => [c.id, c])), [catalogue]);
+  const libellePromu = React.useMemo(() => new Map(produits.map((p) => [p.id, p.nom])), [produits]);
+  const formRef = React.useRef<HTMLFormElement>(null);
+  const [apercuOuvert, setApercuOuvert] = React.useState(false);
+  const [tick, setTick] = React.useState(0);
+  const [apercu, setApercu] = React.useState("");
+  // L'APERÇU SE LIT APRÈS LE RENDU : les sélecteurs écrivent leurs champs cachés au commit — lu pendant le
+  // rendu, le formulaire rendrait l'état d'un clic plus tôt.
+  React.useEffect(() => {
+    if (!apercuOuvert || !formRef.current) return;
+    const saisie = new FormData(formRef.current);
+    const texte = (k: string) => String(saisie.get(k) ?? "").trim();
+    setApercu(texteDemandeDeDevis({
+      reference: null, titre: texte("title") || "(sans titre)", brief: texte("description") || null,
+      precisions: null, relance: false,
+      articles: lignes.flatMap((l) => {
+        const c = parId.get(l.catalogueId);
+        if (!c) return [];
+        const q = Number(texte(`${l.uid}:quantite`).replace(/\s/g, "").replace(",", "."));
+        const autre = texte(`${l.uid}:autre`);
+        return [{
+          reference: c.reference, nom: c.nom, unite: c.unite,
+          quantite: texte(`${l.uid}:quantite`) && Number.isFinite(q) ? q : null,
+          actions: saisie.getAll(`${l.uid}:actions`).map((a) => ACTION_LABEL[String(a) as keyof typeof ACTION_LABEL] ?? String(a)),
+          promus: [...saisie.getAll(`${l.uid}:produitIds`).map((v) => libellePromu.get(String(v)) ?? String(v)), ...(autre ? [`Autre : ${autre}`] : [])],
+          commentaire: texte(`${l.uid}:commentaire`) || null,
+        }];
+      }),
+    }));
+  }, [apercuOuvert, tick, lignes, parId, libellePromu]);
 
   const maj = (uid: string, patch: Partial<Ligne>) => setLignes((ls) => ls.map((l) => (l.uid === uid ? { ...l, ...patch } : l)));
 
@@ -77,6 +112,7 @@ export function DemandeMaterielForm({ catalogue, produits, onDone, onCancel, can
       quantite: String(saisie.get(`${l.uid}:quantite`) ?? ""),
       actions: saisie.getAll(`${l.uid}:actions`).map(String),
       produitIds: saisie.getAll(`${l.uid}:produitIds`).map(String),
+      autre: String(saisie.get(`${l.uid}:autre`) ?? ""),
       commentaire: String(saisie.get(`${l.uid}:commentaire`) ?? ""),
     }));
     fd.set("lignes", JSON.stringify(envoi));
@@ -97,7 +133,7 @@ export function DemandeMaterielForm({ catalogue, produits, onDone, onCancel, can
   }
 
   return (
-    <form onSubmit={envoyer} className="space-y-4">
+    <form ref={formRef} onSubmit={envoyer} onChange={() => setTick((t) => t + 1)} onClick={() => setTick((t) => t + 1)} className="space-y-4">
       <div className="space-y-1.5">
         <Label htmlFor="mp-title">Campagne / matériel <span className="text-destructive">*</span></Label>
         <Input id="mp-title" name="title" required placeholder="Ex. Brochure Cardiomax 2026" />
@@ -108,10 +144,10 @@ export function DemandeMaterielForm({ catalogue, produits, onDone, onCancel, can
       </div>
 
       <fieldset className="space-y-3">
-        <legend className="text-sm font-semibold">Lignes demandées <span className="text-destructive">*</span></legend>
+        <legend className="text-sm font-semibold">Articles demandés <span className="text-destructive">*</span></legend>
         <p className="text-xs text-muted-foreground">
-          Une ligne par article du catalogue : sa quantité et ce qu&apos;on attend du fournisseur. C&apos;est ce que
-          l&apos;assistante de direction fera chiffrer.
+          Une ligne par article du catalogue : sa quantité et ce qu&apos;on attend du fournisseur. C&apos;est ce qui
+          sera fait chiffrer.
         </p>
         {catalogue.length === 0 && (
           <p className="rounded-lg bg-warning/10 px-3 py-2 text-xs text-muted-foreground">
@@ -188,13 +224,14 @@ export function DemandeMaterielForm({ catalogue, produits, onDone, onCancel, can
                         type: "multiselect", name: `${l.uid}:produitIds`, label: `Produit(s) de la ligne ${i + 1}`,
                         options: produits.map((p) => ({ value: p.id, label: p.nom })),
                         required: Boolean(article?.exigeProduit),
-                        searchPlaceholder: "Rechercher un produit…", emptyLabel: "Aucun produit actif dans le référentiel.",
+                        searchPlaceholder: "Rechercher un produit, une gamme…", emptyLabel: "Aucune gamme ni produit actif dans les Business Units.",
                       }}
                     />
+                    <Input name={`${l.uid}:autre`} aria-label={`Autre produit promu, ligne ${i + 1}`} placeholder="Autre (saisie libre) — un produit qui n'est dans aucune liste" />
                   </div>
                 ) : (
                   <button type="button" onClick={() => maj(l.uid, { produitsOuverts: true })} className="text-xs font-medium text-primary hover:underline">
-                    + Préciser le ou les produits promus
+                    + Préciser ce que la ligne promeut (société, gamme, produits…)
                   </button>
                 )}
                 <div className="space-y-1">
@@ -208,6 +245,21 @@ export function DemandeMaterielForm({ catalogue, produits, onDone, onCancel, can
         <Button type="button" size="sm" variant="outline" disabled={busy || catalogue.length === 0} onClick={() => setLignes((ls) => [...ls, nouvelleLigne()])}>
           <Plus className="h-4 w-4" /> Ajouter une ligne
         </Button>
+        {/* L'APERÇU AVANT ENVOI — la demande de devis part d'elle-même : à l'enregistrement si la demande n'a
+            pas de validation, sinon dès qu'elle est validée. */}
+        <div className="space-y-2 rounded-lg border border-primary/30 bg-primary/5 p-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="text-xs text-muted-foreground">
+              La demande de devis part d&apos;elle-même au secrétariat — à l&apos;enregistrement, ou dès que votre demande est validée.
+            </p>
+            <Button type="button" size="sm" variant="outline" onClick={() => setApercuOuvert((o) => !o)} aria-expanded={apercuOuvert}>
+              <Eye className="h-4 w-4" /> {apercuOuvert ? "Masquer l'aperçu" : "Aperçu de la demande de devis"}
+            </Button>
+          </div>
+          {apercuOuvert && (
+            <pre aria-label="Aperçu de la demande de devis" className="max-h-72 overflow-auto whitespace-pre-wrap rounded-md border border-border bg-background p-2 text-xs">{apercu}</pre>
+          )}
+        </div>
       </fieldset>
 
       {err && (
@@ -217,7 +269,7 @@ export function DemandeMaterielForm({ catalogue, produits, onDone, onCancel, can
       )}
       <div className="flex flex-wrap gap-2">
         <Button type="submit" disabled={busy}>
-          {busy && <Loader2 className="h-4 w-4 animate-spin" />} Enregistrer
+          {busy && <Loader2 className="h-4 w-4 animate-spin" />} Enregistrer la demande
         </Button>
         {onCancel && <Button type="button" variant="outline" disabled={busy} onClick={onCancel}>{cancelLabel}</Button>}
       </div>
@@ -242,7 +294,7 @@ export function NouvelleDemandeMaterielButton({ catalogue, produits }: {
       <Sheet
         open={open} onClose={() => setOpen(false)} width="lg"
         title="Demande de matériel promotionnel"
-        description="Les lignes que vous voulez faire produire, acheter ou louer, piochées dans le catalogue. La demande est d'abord validée (N+1, ou directrice marketing), puis vous demandez les devis au secrétariat."
+        description="Les articles que vous voulez faire produire, acheter ou louer, piochés dans le catalogue. La demande est d'abord validée (N+1, ou directrice marketing), puis la demande de devis part d'elle-même au secrétariat."
       >
         {open && <DemandeMaterielForm catalogue={catalogue} produits={produits} onDone={() => setOpen(false)} onCancel={() => setOpen(false)} />}
       </Sheet>

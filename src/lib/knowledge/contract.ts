@@ -71,15 +71,25 @@ export type IngestStage =
   | "INDEXED"     // recherchable (lexical)
   | "READY"       // recherchable ET relié — l'utilisateur peut compter dessus
   | "ENRICHED"    // enrichissement profond terminé (résumé, relations secondaires, vecteurs)
+  | "EMPTY"       // fichier lu jusqu'au bout, et il n'en sort AUCUN texte : un état, pas une panne
   | "FAILED";     // échec nommé — jamais un silence
 
 export const INGEST_STAGES: readonly IngestStage[] = [
-  "RECEIVED", "PARSED", "CLASSIFIED", "INDEXED", "READY", "ENRICHED", "FAILED",
+  "RECEIVED", "PARSED", "CLASSIFIED", "INDEXED", "READY", "ENRICHED", "EMPTY", "FAILED",
 ] as const;
 
-/** L'ordre de progression — un élément ne recule pas, sauf vers `FAILED`. */
+/**
+ * L'ordre de progression — un élément ne recule pas, sauf vers `FAILED`.
+ *
+ * `EMPTY` (« sans texte lisible ») se range juste au-dessus de `RECEIVED` : un fichier dont on n'a
+ * rien tiré peut encore devenir lisible (une lecture visuelle, un parseur amélioré), donc tout ce
+ * qui le rend RETROUVABLE l'emporte sur lui ; mais il ne remplace jamais un élément déjà
+ * retrouvable. Ce n'est PAS `FAILED` : un scan blanc ou une archive sans texte est un fait du
+ * fichier, pas un défaut du traitement — le ranger parmi les échecs remplissait l'écran de
+ * non-problèmes, et cachait les vrais.
+ */
 const STAGE_RANK: Record<IngestStage, number> = {
-  RECEIVED: 0, PARSED: 1, CLASSIFIED: 2, INDEXED: 3, READY: 4, ENRICHED: 5, FAILED: -1,
+  RECEIVED: 0, EMPTY: 0.5, PARSED: 1, CLASSIFIED: 2, INDEXED: 3, READY: 4, ENRICHED: 5, FAILED: -1,
 };
 
 /**
@@ -108,14 +118,62 @@ export type ExtractedBy =
   | "metadata"  // déjà structuré dans l'ERP — aucun texte à comprendre
   | "ocr"       // reconnaissance de caractères
   | "luna"      // vision / compréhension, modèle économique
+  | "hybrid"    // texte natif COMPLÉTÉ par une lecture visuelle des pages que le parseur n'a pas lues
   | "terra";    // escalade — cas réellement complexe
 
-export const EXTRACTED_BY: readonly ExtractedBy[] = ["native", "metadata", "ocr", "luna", "terra"] as const;
+export const EXTRACTED_BY: readonly ExtractedBy[] = ["native", "metadata", "ocr", "luna", "hybrid", "terra"] as const;
 
 /** Le coût relatif d'un moyen. Sert au routage ET au rapport : l'ordre est la doctrine. */
 export const EXTRACTION_RANK: Record<ExtractedBy, number> = {
-  metadata: 0, native: 1, ocr: 2, luna: 3, terra: 4,
+  metadata: 0, native: 1, ocr: 2, luna: 3, hybrid: 3.5, terra: 4,
 };
+
+/** Les moyens qui ont demandé un MODÈLE — la part « ambre » du tableau de bord. */
+export const MOYENS_MODELE: ReadonlySet<ExtractedBy> = new Set<ExtractedBy>(["luna", "hybrid", "terra"]);
+
+/**
+ * LES ANCIENNES ÉCRITURES DU MÊME MOYEN. L'étage vision écrivait `luna_vision` (aucun texte natif)
+ * et `hybride` (texte natif complété) pendant que l'ingestion écrivait `luna` : deux écritures de
+ * la même méthode, que l'écran affichait côte à côte — « Luna — vision » et « luna_vision », deux
+ * lignes pour une seule chose, la seconde sans libellé. L'écriture est désormais FERMÉE
+ * (`ExtractedBy`) ; les lignes déjà en base se regroupent ici, à la lecture, sous le bon moyen.
+ */
+const MOYENS_HERITES: Readonly<Record<string, ExtractedBy>> = {
+  luna_vision: "luna",
+  hybride: "hybrid",
+};
+
+/**
+ * LIT un moyen tel qu'il est en base. `null` pour une valeur vide ou inconnue — jamais une
+ * supposition : un moyen inconnu se montre sous son nom brut plutôt que rangé sous un autre.
+ */
+export function normaliserMoyen(raw: string | null | undefined): ExtractedBy | null {
+  const v = (raw ?? "").trim();
+  if (!v) return null;
+  if ((EXTRACTED_BY as readonly string[]).includes(v)) return v as ExtractedBy;
+  return MOYENS_HERITES[v] ?? null;
+}
+
+/**
+ * LA RÉPARTITION PAR MOYEN, regroupée à la lecture : les anciennes écritures rejoignent leur
+ * moyen, un moyen inconnu garde son nom brut (on ne le range pas sous un autre), un moyen absent
+ * se dit « inconnu ».
+ */
+export function compterParMoyen(rows: readonly { moyen: string | null; n: number }[]): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const r of rows) {
+    const cle = normaliserMoyen(r.moyen) ?? ((r.moyen ?? "").trim() || "inconnu");
+    out[cle] = (out[cle] ?? 0) + r.n;
+  }
+  return out;
+}
+
+/**
+ * LES TRAVAUX QUI APPELLENT UN MODÈLE. Sans clé, ou sous l'interrupteur général coupé, ils
+ * ATTENDENT en file — ils ne sont même pas réclamés. Les autres (parse, classify, entities) ne
+ * coûtent rien et avancent quoi qu'il arrive.
+ */
+export const JOB_KINDS_MODELE: ReadonlySet<JobKind> = new Set<JobKind>(["embed", "vision", "enrich"]);
 
 /**
  * POURQUOI on est monté d'un barreau. Un motif VIDE est interdit par construction (le type

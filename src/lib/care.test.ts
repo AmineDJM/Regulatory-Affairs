@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
-  beneficiaryName, beneficiarySubtitle, defaultCells, careProgress,
+  beneficiaryName, beneficiarySubtitle, defaultCells, careProgress, piecesDuProfessionnel, piecesADemander,
   quoteConflicts, quoteSummary, financeReadiness, type QuoteLike,
 } from "./care";
 
@@ -38,16 +38,43 @@ describe("beneficiaryName — l'annuaire ou le profil libre", () => {
   });
 });
 
-describe("defaultCells — le minimum, pas un formulaire à effacer", () => {
-  it("demande un passeport à l'international", () => {
+describe("defaultCells — les pièces attendues, décision du 04/10/2026", () => {
+  it("international : passeport, visa, informations de voyage", () => {
     const d = defaultCells("INTERNATIONAL");
-    expect(d).toHaveLength(1);
-    expect(d[0].label).toContain("passeport");
-    expect(d[0].kind).toBe("DOCUMENT");
+    expect(d.map((c) => c.label)).toEqual(["Passeport", "Visa", "Informations de voyage"]);
+    expect(d.every((c) => c.kind === "DOCUMENT" && c.serviceKind === null)).toBe(true);
   });
 
-  it("demande une pièce d'identité au national — un passeport pour Alger n'a pas de sens", () => {
-    expect(defaultCells("NATIONAL")[0].label).toContain("pièce d'identité");
+  it("national : le passeport, et lui seul", () => {
+    expect(defaultCells("NATIONAL").map((c) => c.label)).toEqual(["Passeport"]);
+  });
+});
+
+describe("piecesDuProfessionnel — demandée, reçue, manquante", () => {
+  const cell = (id: string, label: string, status: "REQUESTED" | "PROVIDED" | "SETTLED" | "WAIVED", kind: "DOCUMENT" | "SERVICE" = "DOCUMENT") =>
+    ({ id, kind, label, status, documentId: status === "PROVIDED" ? `doc-${id}` : null });
+
+  it("une pièce sans case est MANQUANTE ; une case d'avant (« Copie du passeport ») tient le passeport", () => {
+    const l = piecesDuProfessionnel("INTERNATIONAL", [cell("a", "Copie du passeport", "PROVIDED"), cell("b", "Visa", "REQUESTED")]);
+    expect(l.map((p) => [p.label, p.etat])).toEqual([["Passeport", "RECUE"], ["Visa", "DEMANDEE"], ["Informations de voyage", "MANQUANTE"]]);
+    expect(l[0].documentId).toBe("doc-a");
+    expect(l[2].cellId).toBeNull();
+  });
+
+  it("« Frais de visa » est un ACHAT : il ne tient pas le visa", () => {
+    const l = piecesDuProfessionnel("INTERNATIONAL", [cell("s", "Frais de visa", "REQUESTED", "SERVICE")]);
+    expect(l.find((p) => p.label === "Visa")?.etat).toBe("MANQUANTE");
+  });
+
+  it("une pièce demandée à la main hors liste reste visible, et SETTLED/WAIVED se lisent reçue/sans objet", () => {
+    const l = piecesDuProfessionnel("NATIONAL", [cell("p", "Passeport", "SETTLED"), cell("c", "CV", "WAIVED")]);
+    expect(l.map((p) => [p.label, p.etat])).toEqual([["Passeport", "RECUE"], ["CV", "SANS_OBJET"]]);
+  });
+
+  it("piecesADemander ne redemande ni une pièce reçue ni une pièce sans objet", () => {
+    expect(piecesADemander("INTERNATIONAL", [{ kind: "DOCUMENT", label: "Passeport" }, { kind: "DOCUMENT", label: "visa (copie)" }]).map((p) => p.label))
+      .toEqual(["Informations de voyage"]);
+    expect(piecesADemander("NATIONAL", [])).toHaveLength(1);
   });
 });
 

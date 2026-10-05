@@ -220,7 +220,7 @@ suite("Stock promotionnel, étape 5 — comptages, récurrences, alertes, tablea
     expect(await demanderComptage(form({ cible: "PERSONNE", holderId: ids.k3!, famille: "" }))).toEqual({ ok: false, error: REFUS_COMPTAGE.demander });
     const sansModule = await demanderComptage(form({ cible: "PERSONNE", holderId: ids.sm!, famille: "" }));
     expect(sansModule.ok).toBe(false);
-    expect(sansModule.error).toMatch(/n'a pas accès au stock promotionnel : il ne pourrait pas saisir son comptage/);
+    expect(sansModule.error).toMatch(/n'a pas accès au stock promotionnel, donc ne pourrait pas saisir son comptage/);
     const passe = await demanderComptage(form({ cible: "PERSONNE", holderId: ids.k1!, famille: "", echeance: ymd(new Date(Date.now() - 3 * JOUR)) }));
     expect(passe.ok, "une échéance passée n'est pas une échéance").toBe(false);
 
@@ -339,12 +339,22 @@ suite("Stock promotionnel, étape 5 — comptages, récurrences, alertes, tablea
     await comme("k1");
     expect(await saisirComptage(form({ comptageId: comptages.magasin, itemId: [art.stylo!], compte: ["1"] }))).toEqual({ ok: false, error: REFUS_COMPTAGE.saisir });
     await comme("dm");
-    const partiel = await saisirComptage(form({ comptageId: comptages.magasin, itemId: [art.stylo!], compte: ["78"] }));
-    expect(partiel.ok).toBe(false);
-    expect(partiel.error).toMatch(/__cpt__Fiche/);
     // LA PARTITION de l'action est celle du formulaire : nos articles du magasin y sont attendus.
     const { attendus } = await articlesDuComptage(ids.dm!, null, "CONSOMMABLE");
     for (const id of [art.fiche!, art.stylo!, art.bloc!, art.vieux!]) expect(attendus, id).toContain(id);
+    // LE JUGE NE LIT PAS LE MAGASIN DES AUTRES BANCS (§118.92) : la base est partagée, le refus ne nomme
+    // que TROIS oubliés, dans l'ordre de la base — attendre notre fiche parmi eux mesurait le voisinage
+    // (tombé le 02/10, six oubliés dont trois d'un autre banc). On envoie donc TOUTE la partition sauf
+    // notre fiche : le refus doit nommer la fiche, et jamais un article envoyé. Refusée, la saisie
+    // n'écrit RIEN — les articles des autres bancs n'y sont pas corrigés.
+    const envoyes = attendus.filter((id) => id !== art.fiche!);
+    const partiel = await saisirComptage(form({
+      comptageId: comptages.magasin, itemId: envoyes, compte: envoyes.map((id) => (id === art.stylo! ? "78" : "0")),
+    }));
+    expect(partiel.ok).toBe(false);
+    expect(partiel.error).toMatch(/__cpt__Fiche/);
+    expect(partiel.error, "un article ENVOYÉ n'est pas un oubli").not.toMatch(/__cpt__Stylo|__cpt__Bloc|__cpt__Vieux/);
+    expect(await solde(null, art.stylo!), "une saisie refusée ne corrige rien").toBe(80);
     expect(attendus, "un durable n'est pas dans un comptage de consommables").not.toContain(art.kakemono!);
     // L'ÉCRITURE au magasin, par l'écrivain (la saisie complète par l'action exigerait de compter aussi
     // le magasin des AUTRES bancs de cette base partagée — on ne corrige jamais leurs articles).

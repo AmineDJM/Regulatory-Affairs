@@ -10,10 +10,14 @@ import { recordAudit } from "@/lib/audit";
 import { notifyUser, notifyRoles } from "@/lib/notify";
 import { createExpenseOrder } from "@/lib/expense-orders";
 import {
-  beneficiaryName, careProgress, defaultCells, financeReadiness, quoteConflicts,
+  beneficiaryName, careProgress, defaultCells, financeReadiness, quoteConflicts, piecesADemander,
   OPINION_LABELS, SERVICE_KIND_LABELS,
 } from "@/lib/care";
 import { fdStr, fdNum, type ActionResult } from "@/lib/actions/types";
+import { canAccessEntity } from "@/lib/entity-access";
+import { creerProfilMedecin } from "@/lib/medical/profil-rapide";
+import { persistUploadedDocument } from "@/lib/documents";
+import { deleteFileByKey } from "@/lib/storage";
 
 /**
  * PRISE EN CHARGE — actions serveur (nationale et internationale).
@@ -105,11 +109,17 @@ async function nameOf(b: { doctorId: string | null; firstName: string | null; la
 // ───────────────────────────── Les personnes ─────────────────────────────
 
 /**
- * Ajoute une personne à prendre en charge — depuis l'annuaire OU en profil libre.
+ * Ajoute un PROFESSIONNEL PROPOSÉ pour la prise en charge — la source UNIQUE de « qui est pris en
+ * charge » (décision du 04/10/2026). Trois façons, un seul écrivain :
+ *   • depuis l'annuaire (`doctorId`) ;
+ *   • en CRÉANT son profil de médecin (`createDoctor` : `doctorName`, spécialité, établissement,
+ *     secteur) — la fiche entre dans l'annuaire et la ligne la désigne ;
+ *   • en profil libre (`lastName`…) — on ne crée pas une fiche médecin permanente pour un
+ *     intervenant vu une seule fois.
  *
- * Le profil libre existe parce qu'on ne crée pas une fiche médecin permanente pour un
- * intervenant vu une seule fois. Il exige au minimum un nom : une ligne sans nom serait
- * introuvable dans le tableau.
+ * Chaque personne ajoutée est une PROPOSITION (`PROPOSED`) : la Direction tranche, personne par
+ * personne. La porte est celle de la FICHE (`canAccessEntity`), pas le seul droit de module : un
+ * délégué n'ajoute pas une personne au congrès d'un collègue (§118.71).
  */
 export async function addCareBeneficiary(_prev: ActionResult | undefined, formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
@@ -119,18 +129,34 @@ export async function addCareBeneficiary(_prev: ActionResult | undefined, formDa
 
   const requestId = fdStr(formData, "requestId");
   if (!requestId) return { ok: false, error: "Demande non précisée." };
+  if (!(await canAccessEntity(user, SPEC[scopeRaw].module, requestId, "UPDATE"))) return { ok: false, error: "Demande introuvable." };
   const req = await loadRequest(scopeRaw, requestId);
   if (!req) return { ok: false, error: "Demande introuvable." };
 
-  const doctorId = fdStr(formData, "doctorId");
+  const creer = fdStr(formData, "createDoctor") === "on";
+  const doctorName = fdStr(formData, "doctorName");
+  let doctorId = creer ? null : fdStr(formData, "doctorId");
   const lastName = fdStr(formData, "lastName");
-  if (!doctorId && !lastName) return { ok: false, error: "Choisissez une personne dans l'annuaire, ou saisissez au moins son nom." };
+  if (creer && !doctorName) return { ok: false, error: "Le nom du médecin est obligatoire." };
+  if (!creer && !doctorId && !lastName) return { ok: false, error: "Choisissez une personne dans l'annuaire, créez son profil, ou saisissez au moins son nom." };
   if (doctorId) {
     const ok = await prisma.medicalDoctor.count({ where: { id: doctorId } });
     if (!ok) return { ok: false, error: "Personne introuvable dans l'annuaire." };
+    const deja = await prisma.careBeneficiary.count({ where: { ...parentWhere(scopeRaw, requestId), doctorId } });
+    if (deja) return { ok: false, error: "Ce praticien est déjà proposé sur cette demande." };
   }
 
   try {
+    if (creer) {
+      const profil = await creerProfilMedecin(user.id, {
+        name: doctorName ?? "",
+        specialtyId: fdStr(formData, "specialtyId"),
+        institutionId: fdStr(formData, "institutionId"),
+        sector: fdStr(formData, "sector"),
+      }, `la prise en charge « ${req.name} »`);
+      if (!profil.ok) return profil;
+      doctorId = profil.id;
+    }
     const last = await prisma.careBeneficiary.findFirst({
       where: parentWhere(scopeRaw, requestId), orderBy: { position: "desc" }, select: { position: true },
     });
@@ -149,13 +175,36 @@ export async function addCareBeneficiary(_prev: ActionResult | undefined, formDa
       select: { id: true, doctorId: true, firstName: true, lastName: true },
     });
 
-    await audit(user, scopeRaw, requestId, "CREATE", `Personne ajoutée à la prise en charge : ${await nameOf(created)}.`);
+    await audit(user, scopeRaw, requestId, "CREATE", `Professionnel proposé pour la prise en charge : ${await nameOf(created)}.`);
     revalidate(scopeRaw, requestId);
     return { ok: true, id: created.id };
   } catch (err) {
     console.error("[care] ajout de personne impossible", err);
     return { ok: false, error: "La personne n'a pas pu être ajoutée." };
   }
+}
+
+/**
+ * CRÉER LE PROFIL D'UN MÉDECIN AVANT QUE LA DEMANDE EXISTE — depuis le formulaire de création.
+ *
+ * La demande n'a pas encore d'identifiant : on ne peut pas y ajouter une ligne. Le profil entre dans
+ * l'annuaire tout de suite, et le formulaire le coche parmi les professionnels proposés ; c'est
+ * `createCongressRequest` qui en fait une ligne de la demande. Ouvert à qui peut CRÉER une prise en
+ * charge de ce périmètre — exactement ceux qui voient ce formulaire.
+ */
+export async function creerProfilProfessionnel(_prev: ActionResult | undefined, formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  const scopeRaw = fdStr(formData, "scope") ?? "";
+  if (!isScope(scopeRaw)) return { ok: false, error: "Périmètre inconnu." };
+  if (!userCan(user, SPEC[scopeRaw].module, "CREATE")) return { ok: false, error: "Non autorisé." };
+  const r = await creerProfilMedecin(user.id, {
+    name: fdStr(formData, "doctorName") ?? "",
+    specialtyId: fdStr(formData, "specialtyId"),
+    institutionId: fdStr(formData, "institutionId"),
+    sector: fdStr(formData, "sector"),
+  }, "une demande de prise en charge");
+  if (!r.ok) return r;
+  return { ok: true, id: r.id, message: r.name };
 }
 
 /** L'avis du demandeur SUR CETTE PERSONNE. « Pas d'avis » est une réponse valable. */
@@ -250,6 +299,111 @@ export async function removeCareBeneficiary(_prev: ActionResult | undefined, for
   await audit(user, found.scope, found.requestId, "DELETE", `${name} retirée de la prise en charge.`);
   revalidate(found.scope, found.requestId);
   return { ok: true };
+}
+
+// ───────────────────────────── Les pièces de chaque professionnel ─────────────────────────────
+
+/**
+ * DEMANDER LES PIÈCES — ce que le bloc « Personnes prises en charge » faisait d'un seul bouton, mais
+ * PAR PERSONNE et SUIVI : chaque professionnel proposé ou accordé reçoit une case par pièce attendue
+ * (national : passeport ; international : passeport, visa, informations de voyage — `piecesAttendues`),
+ * et le demandeur est prévenu. Une pièce déjà demandée, reçue ou déclarée sans objet n'est jamais
+ * redemandée ; un professionnel écarté ou retiré ne reçoit rien.
+ *
+ * Deux clics simultanés ne doublent rien : le calcul et l'écriture se font sous un verrou consultatif
+ * propre à la demande, et le second relit les cases que le premier vient d'écrire.
+ */
+export async function demanderPiecesPriseEnCharge(_prev: ActionResult | undefined, formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  const scopeRaw = fdStr(formData, "scope") ?? "";
+  if (!isScope(scopeRaw)) return { ok: false, error: "Périmètre inconnu." };
+  if (!canEdit(user, scopeRaw)) return { ok: false, error: "Non autorisé." };
+  const requestId = fdStr(formData, "requestId");
+  if (!requestId) return { ok: false, error: "Demande non précisée." };
+  if (!(await canAccessEntity(user, SPEC[scopeRaw].module, requestId, "UPDATE"))) return { ok: false, error: "Demande introuvable." };
+  const req = await loadRequest(scopeRaw, requestId);
+  if (!req) return { ok: false, error: "Demande introuvable." };
+
+  const bilan = await prisma.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('care-pieces'), hashtext(${requestId}))`;
+    const personnes = await tx.careBeneficiary.findMany({
+      where: { ...parentWhere(scopeRaw, requestId), status: { in: ["PROPOSED", "APPROVED"] } },
+      select: { id: true, cells: { select: { kind: true, label: true, position: true } } },
+    });
+    let cases = 0;
+    let concernees = 0;
+    for (const p of personnes) {
+      const manquent = piecesADemander(scopeRaw, p.cells);
+      if (manquent.length === 0) continue;
+      concernees += 1;
+      const pos = p.cells.reduce((m, c) => Math.max(m, c.position), 0);
+      await tx.careCell.createMany({
+        data: manquent.map((m, i) => ({
+          beneficiaryId: p.id, kind: "DOCUMENT" as const, serviceKind: null, label: m.label,
+          requestedById: user.id, position: pos + i + 1,
+        })),
+      });
+      cases += manquent.length;
+    }
+    return { cases, concernees, personnes: personnes.length };
+  });
+
+  if (bilan.personnes === 0) return { ok: false, error: "Aucun professionnel proposé : ajoutez d'abord les personnes à prendre en charge." };
+  if (bilan.cases === 0) return { ok: true, message: "Rien à demander : toutes les pièces attendues sont déjà demandées, reçues ou sans objet." };
+
+  if (req.requesterId && req.requesterId !== user.id) {
+    await notifyUser({
+      userId: req.requesterId, type: "ASSIGNMENT", title: "Pièces demandées — prise en charge",
+      body: `${req.name} — ${bilan.cases} pièce(s) à joindre pour ${bilan.concernees} professionnel(s).`,
+      link: `${SPEC[scopeRaw].path}/${requestId}`,
+    }).catch(() => undefined);
+  }
+  await audit(user, scopeRaw, requestId, "UPDATE", `Pièces demandées : ${bilan.cases} pour ${bilan.concernees} professionnel(s).`);
+  revalidate(scopeRaw, requestId);
+  return { ok: true, message: `${bilan.cases} pièce(s) demandée(s) pour ${bilan.concernees} professionnel(s).` };
+}
+
+/**
+ * DÉPOSER LA PIÈCE D'UN PROFESSIONNEL — le fichier rejoint les documents de la demande (catégorie
+ * « pièce d'identité », rattaché à SA case par `stepKey`), et la case passe « reçue ». Le téléverseur
+ * générique d'avant déposait les pièces en vrac : « Pièces d'identité reçues 2/5 » ne disait ni
+ * lesquelles ni de qui.
+ *
+ * Une pièce déjà VALIDÉE ou déclarée SANS OBJET ne se remplace pas d'ici : l'état se rouvre d'abord
+ * depuis la case. L'écriture de l'état est conditionnelle ; perdue, le fichier déposé est retiré.
+ */
+export async function deposerPiecePriseEnCharge(_prev: ActionResult | undefined, formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  const cellId = fdStr(formData, "cellId");
+  if (!cellId) return { ok: false, error: "Pièce non précisée." };
+  const cell = await prisma.careCell.findUnique({ where: { id: cellId }, select: { id: true, kind: true, label: true, status: true, beneficiaryId: true } });
+  if (!cell || cell.kind !== "DOCUMENT") return { ok: false, error: "Pièce introuvable." };
+  const found = await scopeOfBeneficiary(cell.beneficiaryId);
+  if (!found) return { ok: false, error: "Personne introuvable." };
+  const module = SPEC[found.scope].module;
+  if (!(await canAccessEntity(user, module, found.requestId, "UPLOAD"))) return { ok: false, error: "Vous n'êtes pas autorisé à déposer une pièce sur cette demande." };
+  if (cell.status === "SETTLED") return { ok: false, error: `« ${cell.label} » est déjà validée : rouvrez son état avant d'en déposer une autre.` };
+  if (cell.status === "WAIVED") return { ok: false, error: `« ${cell.label} » est déclarée sans objet : rouvrez son état avant de la déposer.` };
+  const file = formData.get("file");
+  if (!(file instanceof File) || file.size === 0) return { ok: false, error: "Aucun fichier sélectionné." };
+
+  const r = await persistUploadedDocument(user.id, {
+    entityType: module, entityId: found.requestId, category: "ID_DOCUMENT", confidentiality: "INTERNAL", stepKey: cell.id, file,
+  });
+  if (!r.ok || !r.documentId) return { ok: false, error: r.error ?? "Le fichier n'a pas pu être enregistré." };
+
+  const pose = await prisma.careCell.updateMany({
+    where: { id: cell.id, status: { in: ["REQUESTED", "PROVIDED"] } },
+    data: { status: "PROVIDED", documentId: r.documentId },
+  });
+  if (pose.count === 0) {
+    const doc = await prisma.document.delete({ where: { id: r.documentId } }).catch(() => null);
+    if (doc?.fileKey) await deleteFileByKey(doc.fileKey).catch(() => undefined);
+    return { ok: false, error: `L'état de « ${cell.label} » vient de changer : rechargez la fiche.` };
+  }
+  await audit(user, found.scope, found.requestId, "UPDATE", `${await nameOf(found.beneficiary)} — « ${cell.label} » reçue.`);
+  revalidate(found.scope, found.requestId);
+  return { ok: true, id: cell.id, message: `${cell.label} reçue.` };
 }
 
 // ───────────────────────────── Les cases ─────────────────────────────
@@ -589,7 +743,9 @@ export async function sendCareToFinance(_prev: ActionResult | undefined, formDat
 export async function careDirectoryOptions(): Promise<{ id: string; name: string; specialty: string | null; institution: string | null }[]> {
   await requireUser();
   const rows = await prisma.medicalDoctor.findMany({
-    orderBy: { name: "asc" }, take: 500,
+    // 2 000 comme le sélecteur d'avant (`listBeneficiaryRefs`) : à 500, la recherche taisait le
+    // cinq-cent-unième praticien, et « introuvable » se lisait « absent de l'annuaire » (§118.60).
+    orderBy: { name: "asc" }, take: 2000,
     select: { id: true, name: true, specialty: true, institution: true },
   });
   return rows;

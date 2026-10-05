@@ -29,7 +29,8 @@ vi.mock("next/cache", () => ({ revalidatePath: () => {} }));
 let ACTOR: CurrentUser;
 vi.mock("@/lib/session", () => ({ requireUser: async () => ACTOR }));
 
-import { emettrePieceCommerciale, previsualiserPieceCommerciale, reglerNumerotationPieces } from "./fabrique-actions";
+import { apercuAvantImpressionPiece, emettrePieceCommerciale, previsualiserPieceCommerciale, reglerNumerotationPieces } from "./fabrique-actions";
+import { lireTextePdf } from "@/lib/artifact/pdf/read";
 
 const TAG = "__fabact__";
 const ANNEE = new Date().getFullYear();
@@ -157,6 +158,53 @@ suite("fabrique-actions — le bouton « Composer une pièce » des Finances", (
     expect(ok.message).toContain("{n:3}/FS/{aa}");
   }, 60_000);
 
+  it("le PREMIER NUMÉRO de l'année se règle par la papeterie — 032/DG/<année> — sans toucher au motif ; une saisie illisible est refusée AVANT d'écrire (§118.203)", async () => {
+    const BC = { type: "BON_DE_COMMANDE", societe: companyId };
+    ACTOR = finance;
+    const refus = await reglerNumerotationPieces(undefined, form({ ...BC, depart: "32", annee: String(ANNEE) }));
+    expect(refus.ok).toBe(false);
+    expect(refus.error).toMatch(/papeterie/);
+
+    ACTOR = assistante;
+    // Ni motif ni départ : rien à régler, et le refus le dit — il n'efface pas un motif par défaut.
+    const vide = await reglerNumerotationPieces(undefined, form(BC));
+    expect(vide.ok).toBe(false);
+    expect(vide.error).toMatch(/Rien à régler/);
+    for (const mauvais of ["trente-deux", "32,5", "-3", "0", "100000"]) {
+      const r = await reglerNumerotationPieces(undefined, form({ ...BC, depart: mauvais, annee: String(ANNEE) }));
+      expect(r.ok, `« ${mauvais} » doit être refusé`).toBe(false);
+    }
+    const motif = await reglerNumerotationPieces(undefined, form({ ...BC, motif: "{n:3}/DG/{aaaa}" }));
+    expect(motif.ok, motif.ok ? "" : motif.error).toBe(true);
+    // LE DÉPART SEUL : la clé `motif` est absente, le motif reste (§118.152c) ; le message dit le plancher.
+    const depart = await reglerNumerotationPieces(undefined, form({ ...BC, depart: "32", annee: String(ANNEE) }));
+    expect(depart.ok, depart.ok ? "" : depart.error).toBe(true);
+    expect(depart.message).toContain(`Premier numéro de ${ANNEE} : 32`);
+    expect(depart.message).not.toContain("Motif");
+
+    ACTOR = finance;
+    const a = await previsualiserPieceCommerciale(undefined, BON_DE_COMMANDE());
+    expect(a.ok, a.ok ? "" : a.error).toBe(true);
+    if (a.ok) { expect(a.motif).toBe("{n:3}/DG/{aaaa}"); expect(a.numeroProchain).toBe(`032/DG/${ANNEE}`); }
+
+    // LES DEUX D'UN COUP — un seul envoi du panneau, deux réglages : le motif ne se perd pas derrière le départ.
+    ACTOR = assistante;
+    const ensemble = await reglerNumerotationPieces(undefined, form({ ...BC, motif: "{n:4}/DG/{aaaa}", depart: "7", annee: String(ANNEE) }));
+    expect(ensemble.ok, ensemble.ok ? "" : ensemble.error).toBe(true);
+    expect(ensemble.message).toContain("Motif enregistré : {n:4}/DG/{aaaa}");
+    expect(ensemble.message).toContain(`Premier numéro de ${ANNEE} : 7`);
+    ACTOR = finance;
+    const b = await previsualiserPieceCommerciale(undefined, BON_DE_COMMANDE());
+    expect(b.ok, b.ok ? "" : b.error).toBe(true);
+    if (b.ok) { expect(b.motif).toBe("{n:4}/DG/{aaaa}"); expect(b.numeroProchain).toBe(`0007/DG/${ANNEE}`); }
+
+    // On remet la série à son défaut : les cas suivants comptent leurs numéros depuis le compteur.
+    ACTOR = assistante;
+    const retire = await reglerNumerotationPieces(undefined, form({ ...BC, depart: "", annee: String(ANNEE), motif: "" }));
+    expect(retire.ok, retire.ok ? "" : retire.error).toBe(true);
+    expect(retire.message).toMatch(/retiré/);
+  }, 60_000);
+
   it("l'APERÇU calcule tout (numéro prévu au motif, totaux, somme en lettres) et n'écrit RIEN", async () => {
     ACTOR = finance;
     const avant = await compteurs("INVOICE");
@@ -173,6 +221,35 @@ suite("fabrique-actions — le bouton « Composer une pièce » des Finances", (
     expect(a.bloquants).toEqual([]);
     // Rien n'a bougé : ni pièce au registre, ni numéro consommé — le composeur prévisualise à chaque frappe.
     expect(await compteurs("INVOICE")).toEqual(avant);
+  }, 60_000);
+
+  it("l'APERÇU AVANT IMPRESSION : le PDF à blanc — titre « BON DE COMMANDE », numéro prévu, taxe — sans rien écrire ni numéroter ; refusé tant que la pièce l'est", async () => {
+    ACTOR = finance;
+    const avant = await compteurs("PURCHASE_ORDER");
+    const r = await apercuAvantImpressionPiece(undefined, BON_DE_COMMANDE());
+    expect(r.ok, r.ok ? "" : r.error).toBe(true);
+    if (!r.ok) return;
+    const octets = Buffer.from(r.pdfBase64, "base64");
+    expect(octets.subarray(0, 4).toString()).toBe("%PDF");
+    expect(r.pages).toBeGreaterThanOrEqual(1);
+    const texte = (await lireTextePdf(octets)).pages.map((p) => p.texte).join("\n");
+    expect(texte).toContain("BON DE COMMANDE");
+    expect(texte).toContain(r.numeroProchain);
+    expect(texte).toContain("Taxe Pub");
+    // RIEN n'a bougé : ni pièce au registre, ni numéro consommé — c'est un aperçu, pas une émission.
+    expect(await compteurs("PURCHASE_ORDER")).toEqual(avant);
+    // Une pièce refusée n'a pas d'aperçu : on ne montre pas ce qu'on ne livrerait pas.
+    const sansTiers = BON_DE_COMMANDE();
+    sansTiers.set("tiersNom", "");
+    const refus = await apercuAvantImpressionPiece(undefined, sansTiers);
+    expect(refus.ok).toBe(false);
+    // Le refus NOMME ce qui bloque (c'est la phrase qu'on lit) — pas seulement « le rendu n'est pas possible ».
+    if (!refus.ok) expect(refus.error).toMatch(/L'aperçu n'est pas possible : /);
+    // Et qui ne peut pas émettre n'obtient pas non plus de PDF : même porte que l'aperçu des totaux.
+    ACTOR = employe;
+    const sansDroit = await apercuAvantImpressionPiece(undefined, BON_DE_COMMANDE());
+    expect(sansDroit.ok).toBe(false);
+    expect(await compteurs("PURCHASE_ORDER")).toEqual(avant);
   }, 60_000);
 
   it("les Finances ÉMETTENT la facture : numéro au motif, Word au format maison, PDF, pièce au registre Legal", async () => {

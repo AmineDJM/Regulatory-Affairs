@@ -13,7 +13,7 @@ import { formatDate, formatDateTime } from "@/lib/utils";
 import { recruitmentViewer } from "@/lib/recruitment/access";
 import {
   abilities, chainProgress, currentStep, CONTRACT_LABEL, CANDIDATE_LABEL, CANDIDATE_TONE,
-  STAGE_LABEL, STAGE_TONE, salaryRange, needsOnboarding, candidateRank,
+  STAGE_LABEL, STAGE_TONE, salaryRange, needsOnboarding, candidateRank, canDecideStep, reouverture,
   type ChainStep, type RecruitmentStage, type RecruitmentContract, type CandidateStatus,
 } from "@/lib/recruitment/request-flow";
 import { etatAffiche, publicationsDe, suspensionEnVigueur } from "@/lib/site-web/etat";
@@ -23,6 +23,7 @@ import { EtatPublicationBadge } from "@/components/site-web/etat-badge";
 import {
   ChainDecisionPanel, CancelRequestButton, HrPanel, AnswerInfoForm,
   AddCandidateButton, CandidateActions, OnboardPanel, CloseRequestButton,
+  CorrigerDemandePanel, RouvrirPanel,
 } from "./panels";
 
 export const dynamic = "force-dynamic";
@@ -87,7 +88,30 @@ export default async function RecruitmentPage({ params }: { params: { id: string
   }));
   const untouched = steps.every((s) => s.status === "PENDING");
   const hired = req.candidates.find((c) => c.status === "HIRED");
-  const can = abilities(stage, viewer, { chainUntouched: untouched, hasHire: Boolean(hired) });
+  // Les MÊMES faits que les actions (§118.192) : qui peut trancher la marche, un recrutement prononcé, une
+  // embauche encore sans fiche — un bouton visible est un geste que l'action acceptera.
+  const can = abilities(stage, viewer, {
+    chainUntouched: untouched, hasHire: Boolean(hired),
+    peutTrancherLaMarche: canDecideStep(stage, steps, { userId: user.id, isTop: viewer.isTop }).ok,
+    aRecrute: Boolean(hired),
+    embaucheSansFiche: Boolean(hired) && hired?.employeeId == null,
+  });
+  const ouRouvrir = can.reopen ? reouverture(stage, steps, Boolean(hired)) : null;
+  const destinationReouverture = ouRouvrir && !("refus" in ouRouvrir)
+    ? ouRouvrir.vers === "CHAIN"
+      ? `Elle repartira à la marche qui l'a refusée (${steps.find((s) => s.order === ouRouvrir.marche)?.approverName ?? "—"}), et à elle seule.`
+      : ouRouvrir.vers === "HR_REVIEW" ? "Elle reviendra aux RH, qui l'avaient refusée." : "Le poste sera de nouveau ouvert."
+    : null;
+  const [renvoyePar, fil] = await Promise.all([
+    req.returnedById ? prisma.user.findUnique({ where: { id: req.returnedById }, select: { name: true } }) : Promise.resolve(null),
+    // L'HISTOIRE DE LA DEMANDE (§118.192) : refus, renvois, corrections, réouvertures — ce que les gestes
+    // suivants effacent des champs du moment (le motif du renvoi, la décision rouverte) reste lisible ici.
+    prisma.comment.findMany({
+      where: { entityType: "RECRUITMENT_REQUEST", entityId: req.id },
+      orderBy: { createdAt: "asc" },
+      select: { id: true, body: true, createdAt: true, author: { select: { name: true } } },
+    }),
+  ]);
   const active = currentStep(steps);
   const progress = chainProgress(steps);
   const myTurn = stage === "CHAIN" && (active?.approverId === user.id || viewer.isTop);
@@ -159,6 +183,33 @@ export default async function RecruitmentPage({ params }: { params: { id: string
         {can.cancel && <CancelRequestButton id={req.id} />}
       </div>
 
+      {/* RENVOYÉE POUR CORRECTION (§118.192) — dit à TOUS ceux qui ouvrent la fiche, pas seulement au
+          demandeur : un validateur qui l'ouvre doit savoir qu'elle n'attend pas sa décision. */}
+      {stage === "RETURNED" && (
+        <div className="space-y-1 rounded-xl border border-warning/40 bg-warning/5 p-4 text-sm">
+          <p className="font-semibold">
+            Renvoyée pour correction{renvoyePar ? ` par ${renvoyePar.name}` : ""}{req.returnedAt ? ` le ${formatDate(req.returnedAt)}` : ""}
+          </p>
+          {req.returnNote && <p className="whitespace-pre-wrap">« {req.returnNote} »</p>}
+          <p className="text-xs text-muted-foreground">
+            La demande est chez {req.requester?.name ?? "son demandeur"}, qui la corrige et la renvoie — ou la retire.
+          </p>
+        </div>
+      )}
+      {can.correct && (
+        <CorrigerDemandePanel
+          id={req.id}
+          besoin={{
+            position: req.position, headcount: req.headcount, contractType: req.contractType,
+            salaryMin: req.salaryMin != null ? Number(req.salaryMin) : null,
+            salaryMax: req.salaryMax != null ? Number(req.salaryMax) : null,
+            startDate: req.startDate ? req.startDate.toISOString().slice(0, 10) : null,
+            endDate: req.endDate ? req.endDate.toISOString().slice(0, 10) : null,
+            missions: req.missions, skills: req.skills, justification: req.justification,
+          }}
+        />
+      )}
+
       {myTurn && active && (
         <ChainDecisionPanel
           id={req.id}
@@ -170,12 +221,15 @@ export default async function RecruitmentPage({ params }: { params: { id: string
         />
       )}
 
-      {(can.askInfo || can.openSourcing || can.hrReject) && (
-        <HrPanel id={req.id} canAsk={can.askInfo} canOpen={can.openSourcing} canReject={can.hrReject} />
+      {(can.askInfo || can.openSourcing || can.hrReject || (can.returnForCorrection && stage === "HR_REVIEW")) && (
+        <HrPanel
+          id={req.id} canAsk={can.askInfo} canOpen={can.openSourcing} canReject={can.hrReject}
+          canReturn={can.returnForCorrection && stage === "HR_REVIEW"}
+        />
       )}
 
       {can.onboard && hired && (
-        <OnboardPanel id={req.id} hiredName={hired.fullName} external={!needsOnboarding(contract)} />
+        <OnboardPanel id={req.id} hiredName={hired.fullName} external={!needsOnboarding(contract)} canCancelHire={can.cancelHire} />
       )}
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
@@ -195,6 +249,20 @@ export default async function RecruitmentPage({ params }: { params: { id: string
               {req.closingNote && <Block label="Décision" value={req.closingNote} />}
             </CardContent>
           </Card>
+
+          {fil.length > 0 && (
+            <Card>
+              <CardHeader><CardTitle>Historique de la demande</CardTitle></CardHeader>
+              <CardContent className="space-y-2 text-sm">
+                {fil.map((c) => (
+                  <div key={c.id} className="rounded-lg border border-border p-2.5">
+                    <p className="text-xs text-muted-foreground">{c.author?.name ?? "—"} · {formatDateTime(c.createdAt)}</p>
+                    <p className="mt-0.5 whitespace-pre-wrap">{c.body}</p>
+                  </div>
+                ))}
+              </CardContent>
+            </Card>
+          )}
 
           {/* LES PRÉCISIONS — le va-et-vient RH ↔ demandeur, question par question. C'est le cœur
               du travail RH, pas une exception : il est donc historisé et relisible. */}
@@ -365,6 +433,7 @@ export default async function RecruitmentPage({ params }: { params: { id: string
           {(viewer.isHr || viewer.isTop) && (stage === "SOURCING" || stage === "ONBOARDING") && (
             <CloseRequestButton id={req.id} />
           )}
+          {can.reopen && destinationReouverture && <RouvrirPanel id={req.id} destination={destinationReouverture} />}
         </div>
       </div>
     </div>

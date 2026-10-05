@@ -3,7 +3,8 @@
 import * as React from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { AlertTriangle, Check, Clock, Loader2, Mic, Package, Pencil, Plus, Square } from "lucide-react";
-import { rapporterVisite, ajouterVisiteImprevue } from "@/lib/actions/tour-visit-actions";
+import { rapporterVisite, ajouterVisiteImprevue, direVisiteNonTenue } from "@/lib/actions/tour-visit-actions";
+import { useRafraichir } from "@/components/shared/use-rafraichir";
 import { ETAT_VISITE_LABELS, VUES, VUE_LABELS, type EtatVisite, type VueTournee } from "@/lib/sfe/tournee";
 import type { AvancementTournee } from "@/lib/sfe/tournee";
 import { Badge } from "@/components/ui/badge";
@@ -13,6 +14,7 @@ import { Input, Label, Select, Textarea } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import type { StockPourVisite } from "@/lib/queries/promo-remises";
 import { BlocMaterielRemis, type RemisesInitiales } from "./materiel-remis";
+import { BoutonDecisif } from "@/components/ui/bouton-decisif";
 
 export interface LigneVue {
   id: string;
@@ -33,6 +35,8 @@ export interface LigneVue {
   remises: RemisesInitiales;
   heuresRestantes: number;
   vocal: boolean;
+  /** Pourquoi elle n'a pas eu lieu, quand elle est dite reportée ou annulée (§118.193). */
+  motifNonTenue: string | null;
 }
 
 /** Ce qui pré-remplit le formulaire quand on CORRIGE un rapport fait (§118.166). */
@@ -85,7 +89,12 @@ export function EmploiDuTemps({
 }) {
   const router = useRouter();
   const params = useSearchParams();
+  // LE RAFRAÎCHISSEMENT SUIVI (§118.172) : une fiche rouverte avant la fin montrerait la visite d'avant.
+  const { enCours, rafraichir } = useRafraichir();
   const [ouverte, setOuverte] = React.useState<LigneVue | null>(null);
+  /** La visite qu'on dit NON TENUE (reportée, annulée) — §118.193. */
+  const [nonTenue, setNonTenue] = React.useState<LigneVue | null>(null);
+  const [motifNonTenue, setMotifNonTenue] = React.useState("");
   /** La visite ouverte l'est-elle pour une CORRECTION (rapport déjà fait, fenêtre encore ouverte) ? */
   const correction = ouverte?.etat === "FAITE";
   const [imprevue, setImprevue] = React.useState(false);
@@ -103,9 +112,10 @@ export function EmploiDuTemps({
     const r = await action(fd);
     setBusy(false);
     if (!r.ok) { setErr(r.error ?? "Action impossible."); return false; }
-    router.refresh();
+    rafraichir();
     return true;
   };
+  const occupe = busy || enCours;
 
   const tonDe = (e: EtatVisite): "neutral" | "success" | "warning" | "info" =>
     e === "FAITE" ? "success" : e === "PERDUE" ? "warning" : e === "ANNULEE" || e === "REPORTEE" ? "info" : "neutral";
@@ -209,18 +219,28 @@ export function EmploiDuTemps({
                     </span>
                   )}
                   {l.vocal && <span className="mt-0.5 flex items-center gap-1 text-xs text-muted-foreground"><Mic className="h-3 w-3" aria-hidden /> vocal</span>}
+                  {l.motifNonTenue && (l.etat === "ANNULEE" || l.etat === "REPORTEE") && (
+                    <span className="mt-0.5 block max-w-56 text-xs text-muted-foreground">« {l.motifNonTenue} »</span>
+                  )}
                 </td>
                 <td className="px-3 py-2 text-right">
                   {l.etat === "A_FAIRE" ? (
-                    <Button size="sm" onClick={() => { setErr(null); setOuverte(l); }} disabled={busy}>
-                      Rapport
-                    </Button>
+                    <span className="inline-flex flex-wrap justify-end gap-1">
+                      <Button size="sm" onClick={() => { setErr(null); setOuverte(l); }} disabled={occupe}>
+                        Rapport
+                      </Button>
+                      {/* DIRE QU'ELLE N'A PAS EU LIEU (§118.193) : un médecin absent n'est pas une visite perdue,
+                          à condition de le dire — dans la même fenêtre que le rapport. */}
+                      <Button size="sm" variant="ghost" onClick={() => { setErr(null); setMotifNonTenue(""); setNonTenue(l); }} disabled={occupe}>
+                        N&apos;a pas eu lieu
+                      </Button>
+                    </span>
                   ) : l.etat === "PERDUE" ? (
                     <span className="text-xs text-warning">Délai dépassé</span>
                   ) : l.etat === "FAITE" && l.heuresRestantes > 0 ? (
                     // CORRIGER DANS LA FENÊTRE : une quantité remise mal tapée se rattrape ici, et le
                     // stock suit — seuls les articles dont la quantité change sont repris (§118.166).
-                    <Button size="sm" variant="ghost" onClick={() => { setErr(null); setOuverte(l); }} disabled={busy}>
+                    <Button size="sm" variant="ghost" onClick={() => { setErr(null); setOuverte(l); }} disabled={occupe}>
                       <Pencil className="h-3.5 w-3.5" /> Corriger
                     </Button>
                   ) : l.etat === "FAITE" ? (
@@ -233,7 +253,7 @@ export function EmploiDuTemps({
         </table>
       </div>
 
-      <Button variant="outline" onClick={() => { setErr(null); setImprevue(true); }} disabled={busy}>
+      <Button variant="outline" onClick={() => { setErr(null); setImprevue(true); }} disabled={occupe}>
         <Plus className="h-4 w-4" /> Ajouter une visite imprévue
       </Button>
 
@@ -268,10 +288,53 @@ export function EmploiDuTemps({
               produitIds: ouverte.produitIds, messageIds: ouverte.messageIds, remises: ouverte.remises,
             } : undefined}
             libelleEnvoi={correction ? "Enregistrer la correction" : "Enregistrer le rapport"}
-            busy={busy}
+            busy={occupe}
             err={err}
             onCancel={() => setOuverte(null)}
           />
+        )}
+      </Sheet>
+
+      {/* ── LA VISITE QUI N'A PAS EU LIEU (§118.193) ───────────────────────────── */}
+      <Sheet
+        open={nonTenue !== null}
+        onClose={() => setNonTenue(null)}
+        title={nonTenue ? `La visite n'a pas eu lieu — ${nonTenue.doctorName}` : ""}
+        description={nonTenue
+          ? `Visite du ${new Date(nonTenue.date).toLocaleDateString("fr-FR")}. Reportée ou annulée, elle sort du dénominateur de votre plan — en le disant, motif à l'appui.`
+          : ""}
+        width="md"
+      >
+        {nonTenue && (
+          <form
+            className="space-y-3"
+            action={async (fd) => {
+              fd.set("visitId", nonTenue.id);
+              if (await run(direVisiteNonTenue, fd)) setNonTenue(null);
+            }}
+          >
+            <fieldset className="space-y-1.5">
+              <legend className="text-sm font-medium">Ce qui s&apos;est passé</legend>
+              <label className="flex items-center gap-2 text-sm">
+                <input type="radio" name="issue" value="POSTPONED" defaultChecked className="h-4 w-4" /> Reportée
+              </label>
+              <label className="flex items-center gap-2 text-sm">
+                <input type="radio" name="issue" value="CANCELLED" className="h-4 w-4" /> Annulée
+              </label>
+            </fieldset>
+            <div>
+              <Label htmlFor="non-tenue-motif">Pourquoi</Label>
+              <Textarea id="non-tenue-motif" name="motif" rows={3} value={motifNonTenue} onChange={(e) => setMotifNonTenue(e.target.value)}
+                placeholder="Le Dr Amrani était en congé ; je le revois mardi prochain." />
+            </div>
+            {err && <p className="text-sm text-destructive">{err}</p>}
+            <div className="flex justify-end gap-2">
+              <Button type="button" variant="ghost" onClick={() => setNonTenue(null)} disabled={occupe}>Annuler</Button>
+              <BoutonDecisif type="submit" disabled={occupe || motifNonTenue.trim().length === 0} confirmation="dire que la visite n’a pas eu lieu">
+                {occupe && <Loader2 className="h-4 w-4 animate-spin" />} Enregistrer
+              </BoutonDecisif>
+            </div>
+          </form>
         )}
       </Sheet>
 
@@ -294,7 +357,7 @@ export function EmploiDuTemps({
           messageObligatoire={false}
           produitObligatoire={false}
           stock={stock}
-          busy={busy}
+          busy={occupe}
           err={err}
           onCancel={() => setImprevue(false)}
           entete={

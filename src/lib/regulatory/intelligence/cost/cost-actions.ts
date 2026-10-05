@@ -3,8 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { requireUser } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
-import { getCompanyScope } from "@/lib/company";
-import { regCan, resolveRegCompanyId } from "../access";
+import { regCan, resolveRegCompanyIdFor } from "../access";
 import { regAudit } from "../audit";
 
 /**
@@ -27,7 +26,7 @@ const MAX_BUDGET_USD = 10_000;
 export async function setDossierBudget(formData: FormData): Promise<Result> {
   const user = await requireUser();
   if (!regCan(user, "regulatory.dossier.analyse") && user.role !== "SUPER_ADMIN") return { ok: false, error: "Non autorisé." };
-  const companyId = await resolveRegCompanyId(getCompanyScope());
+  const companyId = await resolveRegCompanyIdFor(user.id);
   if (!companyId) return { ok: false, error: "Module non activé pour cette entité." };
 
   const dossierId = String(formData.get("dossierId") ?? "").trim();
@@ -74,7 +73,7 @@ export async function setDossierBudget(formData: FormData): Promise<Result> {
 export async function submitDeferredReview(formData: FormData): Promise<Result & { estimatedUsd?: number; requests?: number }> {
   const user = await requireUser();
   if (!regCan(user, "regulatory.dossier.analyse") && user.role !== "SUPER_ADMIN") return { ok: false, error: "Non autorisé." };
-  const companyId = await resolveRegCompanyId(getCompanyScope());
+  const companyId = await resolveRegCompanyIdFor(user.id);
   if (!companyId) return { ok: false, error: "Module non activé pour cette entité." };
 
   const dossierId = String(formData.get("dossierId") ?? "").trim();
@@ -112,7 +111,7 @@ export async function submitDeferredReview(formData: FormData): Promise<Result &
 export async function submitImmediateReview(formData: FormData): Promise<Result> {
   const user = await requireUser();
   if (!regCan(user, "regulatory.dossier.analyse") && user.role !== "SUPER_ADMIN") return { ok: false, error: "Non autorisé." };
-  const companyId = await resolveRegCompanyId(getCompanyScope());
+  const companyId = await resolveRegCompanyIdFor(user.id);
   if (!companyId) return { ok: false, error: "Module non activé pour cette entité." };
 
   const dossierId = String(formData.get("dossierId") ?? "").trim();

@@ -6,6 +6,7 @@ import { Loader2, ShieldCheck, CheckCircle2, XCircle, Clock, Send, Undo2 } from 
 import { Button } from "@/components/ui/button";
 import { submitAttachmentValidation, cancelAttachmentValidation } from "@/lib/actions/admin-request-actions";
 import { FINANCE_CATEGORY } from "@/lib/labels";
+import { BoutonDecisif } from "@/components/ui/bouton-decisif";
 
 /**
  * VALIDATION PAR PIÈCE JOINTE — chaque pièce d'une demande peut partir en validation à n'importe
@@ -74,7 +75,6 @@ export function AttachmentValidationBlock({ requestId, documents, validations, u
 
   const withdraw = async (v: ValidationView) => {
     if (busy) return;
-    if (!window.confirm(`Retirer la validation ${v.reference} ? Les validateurs saisis seront prévenus et la pièce redeviendra soumissible.`)) return;
     setBusy(true); setError(null);
     const fd = new FormData();
     fd.set("validationId", v.id);
@@ -108,9 +108,9 @@ export function AttachmentValidationBlock({ requestId, documents, validations, u
                   <span className="text-muted-foreground">jamais soumise</span>
                 )}
                 {canSubmit && current?.status === "PENDING" && (
-                  <Button type="button" size="sm" variant="ghost" className="text-muted-foreground hover:text-destructive" disabled={busy} onClick={() => withdraw(current)}>
+                  <BoutonDecisif type="button" size="sm" variant="ghost" className="text-muted-foreground hover:text-destructive" disabled={busy} onClick={() => withdraw(current)}>
                     <Undo2 className="h-3.5 w-3.5" /> Retirer
-                  </Button>
+                  </BoutonDecisif>
                 )}
                 {canSubmit && !vals.some((v) => v.status === "PENDING") && (
                   <Button type="button" size="sm" variant="outline" onClick={() => { setOpenFor(isOpen ? null : d.id); resetForm(); }}>

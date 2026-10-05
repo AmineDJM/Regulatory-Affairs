@@ -67,9 +67,10 @@ describe("Qui a le droit de faire quoi", () => {
     expect(canCancel(req("PENDING"), "quelqu-un-d-autre")).toBe(false);
   });
 
-  it("seul celui qui a demandé annule, et seulement tant que c'est ouvert", () => {
+  it("seul celui qui a demandé annule, et seulement tant que la pièce n'est pas déposée (le dépôt vaut exécution, 04/10)", () => {
     expect(canCancel(req("PENDING"), ASKER)).toBe(true);
-    expect(canCancel(req("SUBMITTED"), ASKER)).toBe(true);
+    expect(canCancel(req("DECLINED"), ASKER)).toBe(true);
+    expect(canCancel(req("SUBMITTED"), ASKER)).toBe(false);
     expect(canCancel(req("ACCEPTED"), ASKER)).toBe(false);
     expect(canCancel(req("PENDING"), ASKED)).toBe(false);
   });

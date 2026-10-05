@@ -4,6 +4,7 @@ import { notifyUser } from "@/lib/notify";
 import { faitsStockDe, gestionnairesDuMagasin, peutRecevoirDuStock } from "@/lib/queries/promo-stock";
 import { chargerFaitsAlertes } from "@/lib/queries/promo-stock-alertes";
 import type { PromoFamille } from "@/lib/promo/catalogue";
+import type { FaitsStock } from "@/lib/promo/stock-acces";
 import {
   alertesDuStock, cleDansLePerimetre, comptagesSeRecouvrent, echeanceDuComptage, libelleFamilleComptage,
   messageDAlertes, peutDemanderAEquipe, peutDemanderComptage, prochaineEcheanceComptage, POUR_LE_MAGASIN,
@@ -58,6 +59,66 @@ async function nomDe(userId: string | null): Promise<string> {
 }
 
 /**
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ * UNE RÉCURRENCE PEUT-ELLE PARTIR ? — UNE SEULE ÉCRITURE, LUE PAR LE BATTEMENT ET PAR LA REPRISE
+ * (vague « restes 2 »).
+ *
+ * La règle était écrite deux fois : ici, où le battement met en PAUSE une récurrence dont l'auteur a perdu
+ * le droit, et dans `reprendreRecurrenceComptage`, qui refuse de reprendre une récurrence que le premier
+ * battement remettrait en pause. Deux copies ont déjà divergé une fois — la reprise ne relisait pas la
+ * personne visée, et faisait repartir une récurrence pour la remettre en pause au battement suivant (§118.198c).
+ * Et le battement nommait « le magasin central » comme personne sortie de l'équipe quand une récurrence
+ * PERSONNE avait perdu son détenteur — `nomDe(null)` : une phrase fausse, que la reprise ne disait pas.
+ *
+ * Une décision, deux lectures : `motif` dit POURQUOI (la pause l'écrit, la reprise le montre), `remede`
+ * dit QUOI FAIRE à qui gère la récurrence (la reprise l'ajoute). L'auteur se relit TOUJOURS en base
+ * (`faitsStockDe`) : relu depuis la session de qui reprend, il aurait pu dire autre chose que ce que le
+ * battement lira une minute plus tard. `cibles` : qui recevra le comptage — `null` est le magasin.
+ * ═══════════════════════════════════════════════════════════════════════════════════════════
+ */
+export type DeclenchementRecurrence =
+  | { ok: true; auteur: FaitsStock; cibles: (string | null)[] }
+  | { ok: false; auteur: FaitsStock | null; motif: string; remede: string };
+
+const REMEDE_DROIT = "Son auteur n'a plus le droit de demander ce comptage : la récurrence reste suspendue — planifiez-en une nouvelle.";
+
+export async function peutDeclencherRecurrence(r: { auteurId: string | null; cible: string; holderId: string | null }): Promise<DeclenchementRecurrence> {
+  const auteur = r.auteurId ? await faitsStockDe(r.auteurId) : null;
+  if (!auteur) {
+    return {
+      ok: false, auteur: null,
+      motif: "Son auteur n'existe plus ou n'est plus actif : plus personne n'a l'autorité de demander ce comptage.",
+      remede: "Planifiez-en une nouvelle à votre nom.",
+    };
+  }
+  if (r.cible === "MAGASIN") {
+    if (peutDemanderComptage(auteur, null)) return { ok: true, auteur, cibles: [null] };
+    return { ok: false, auteur, motif: "Son auteur ne peut plus faire compter le magasin (vue globale du stock, rôle ou accès changés).", remede: REMEDE_DROIT };
+  }
+  if (r.cible === "PERSONNE") {
+    if (!r.holderId) return { ok: false, auteur, motif: "La personne qui devait compter n'est plus désignée.", remede: "Planifiez une nouvelle récurrence." };
+    if (!peutDemanderComptage(auteur, r.holderId)) {
+      return { ok: false, auteur, motif: `${await nomDe(r.holderId)} n'est plus dans les équipes de son auteur (ou son auteur ne gère plus le matériel des équipes).`, remede: REMEDE_DROIT };
+    }
+    const peut = await peutRecevoirDuStock(r.holderId, "saisir son comptage");
+    if (!peut.ok) return { ok: false, auteur, motif: peut.error, remede: "La récurrence reste suspendue." };
+    return { ok: true, auteur, cibles: [r.holderId] };
+  }
+  if (!peutDemanderAEquipe(auteur)) {
+    return { ok: false, auteur, motif: "Son auteur ne gère plus le matériel d'une équipe : « toute son équipe » ne se fait plus compter en son nom.", remede: REMEDE_DROIT };
+  }
+  // « TOUTE L'ÉQUIPE » se relit à chaque fois ; un membre qui ne peut pas recevoir de stock ne reçoit rien —
+  // il ne pourrait pas saisir. Une équipe dont personne ne peut compter n'est pas une raison de suspendre :
+  // elle peut retrouver quelqu'un demain.
+  const cibles: string[] = [];
+  for (const id of auteur.equipe) {
+    if (!peutDemanderComptage(auteur, id)) continue;
+    if ((await peutRecevoirDuStock(id, "saisir son comptage")).ok) cibles.push(id);
+  }
+  return { ok: true, auteur, cibles };
+}
+
+/**
  * DÉCLENCHE LES COMPTAGES RÉCURRENTS DUS. `seulement` borne la passe à des récurrences nommées —
  * pour un banc : sans elle, un banc déclencherait les récurrences des AUTRES bancs de la même base,
  * et adresserait des demandes à des personnes qui ne sont pas les siennes (§118.119d).
@@ -79,44 +140,20 @@ export async function declencherComptagesRecurrents(maintenant: Date = new Date(
     });
     if (prise.count === 0) continue;
 
-    // L'AUTORITÉ DE L'AUTEUR, RELUE MAINTENANT.
-    const auteur = r.auteurId ? await faitsStockDe(r.auteurId) : null;
-    let cibles: (string | null)[] = [];
-    let motifPause: string | null = null;
-    if (!auteur) {
-      motifPause = "Son auteur n'existe plus ou n'est plus actif : plus personne n'a l'autorité de demander ce comptage.";
-    } else if (r.cible === "MAGASIN") {
-      if (peutDemanderComptage(auteur, null)) cibles = [null];
-      else motifPause = "Son auteur n'a plus la vue globale du stock : il ne peut plus faire compter le magasin.";
-    } else if (r.cible === "PERSONNE") {
-      if (!r.holderId || !peutDemanderComptage(auteur, r.holderId)) {
-        motifPause = `${await nomDe(r.holderId)} n'est plus dans les équipes de son auteur (ou son auteur ne gère plus le matériel des équipes).`;
-      } else {
-        const peut = await peutRecevoirDuStock(r.holderId, "saisir son comptage");
-        if (peut.ok) cibles = [r.holderId];
-        else motifPause = peut.error;
-      }
-    } else {
-      if (!peutDemanderAEquipe(auteur)) {
-        motifPause = "Son auteur ne gère plus le matériel d'une équipe : il ne peut plus faire compter « toute son équipe ».";
-      } else {
-        for (const id of auteur.equipe) {
-          if (!peutDemanderComptage(auteur, id)) continue;
-          if ((await peutRecevoirDuStock(id, "saisir son comptage")).ok) cibles.push(id);
-        }
-      }
-    }
-    if (motifPause) {
+    // L'AUTORITÉ DE L'AUTEUR, RELUE MAINTENANT — par la règle que la reprise lit aussi.
+    const depart = await peutDeclencherRecurrence(r);
+    if (!depart.ok) {
       await prisma.promoStockComptageRecurrence.update({
         where: { id: r.id },
-        data: { actif: false, pauseLe: maintenant, pauseMotif: motifPause },
+        data: { actif: false, pauseLe: maintenant, pauseMotif: depart.motif },
       });
       bilan.suspendues += 1;
-      if (r.auteurId && auteur) {
-        await notifyUser({ userId: r.auteurId, type: "GENERIC", title: "Comptage récurrent suspendu", body: `Votre comptage récurrent est suspendu : ${motifPause}`, link: LIEN });
+      if (r.auteurId && depart.auteur) {
+        await notifyUser({ userId: r.auteurId, type: "GENERIC", title: "Comptage récurrent suspendu", body: `Votre comptage récurrent est suspendu : ${depart.motif}`, link: LIEN });
       }
       continue;
     }
+    const cibles = depart.cibles;
 
     // ON N'EMPILE PAS : un comptage ouvert des mêmes articles chez cette personne suffit.
     const famille = (r.famille as PromoFamille | null) ?? null;

@@ -359,6 +359,8 @@ export const HR_OPS_IMPL: Record<string, OpImpl> = {
         return { error: `Plusieurs recrutements en cours : ${rows.map((r) => `${r.reference} — ${r.position}`).join(" ; ")} — préciser la référence ou le poste.` };
       }
       const req = rows[0];
+      // Un refus se motive — l'action l'exige (§118.192) : la carte ne propose pas un refus que l'exécution refuserait.
+      if (decision === "REJECTED" && !opStr(input, "note")) return { error: "Un refus se motive : dites pourquoi (c'est ce que lira le demandeur)." };
       return {
         title: `${decision === "APPROVED" ? "Approuver" : "Refuser"} l'étape du recrutement ${req.reference} — ${req.position}`,
         fields: [

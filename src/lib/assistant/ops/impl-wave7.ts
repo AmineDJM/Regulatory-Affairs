@@ -121,6 +121,9 @@ export const ADMIN_REQUEST_OPS_IMPL: Record<string, OpImpl> = {
         orderBy: { createdAt: "desc" }, take: 3,
       });
       if (approvals.length === 0) return { error: `${req.reference} n'a aucune validation en attente.` };
+      // L'action exige le motif d'un refus ou d'une demande de modification (lot E5, M15) : une carte sans lui
+      // serait refusée après le clic (§118.83).
+      if (m !== "APPROVED" && !opStr(input, "note")) return { error: "Un refus ou une demande de modification se motive (champ « note ») : c'est ce que lira le demandeur." };
       const pick = approvals[0];
       void user;
       return {
@@ -299,7 +302,7 @@ export const ADMIN_REQUEST_OPS_IMPL: Record<string, OpImpl> = {
         select: { title: true, description: true, priority: true, deadline: true, requesterId: true, createdAt: true },
       });
       if (!cur) return { error: "Demande introuvable." };
-      if (cur.requesterId !== user.id) return { error: `${req.reference} n'est pas votre demande — seule la vôtre se modifie (fenêtre de 30 minutes).` };
+      if (cur.requesterId !== user.id) return { error: `${req.reference} n'est pas votre demande — seule la vôtre se modifie.` };
       // FUSION : titre, description, priorité et échéance sont REMPLACÉS — rejoués si non donnés.
       return {
         title: `Modifier MA demande ${req.reference}`,
@@ -307,7 +310,7 @@ export const ADMIN_REQUEST_OPS_IMPL: Record<string, OpImpl> = {
           ["Demande", `${req.reference} — ${cur.title}`],
           ["Nouveau titre", opStr(input, "newName") || null],
           ["Description", opStr(input, "notes") || (cur.description ? "(rejouée)" : null)],
-          ["Fenêtre", "modifiable dans les 30 minutes suivant la création, avant traitement"],
+          ["Règle", "tant qu'elle n'est ni terminée ni annulée ; après 30 minutes, l'assistante est prévenue"],
         ]),
         args: {
           id: req.id,
@@ -320,7 +323,7 @@ export const ADMIN_REQUEST_OPS_IMPL: Record<string, OpImpl> = {
         revalidate: ["/demandes"],
       };
     },
-    execute: (args) => runFd(editOwnRequest, args, "La modification a été refusée (fenêtre de 30 min dépassée ?).", { revalidate: ["/demandes"] }),
+    execute: (args) => runFd(editOwnRequest, args, "La modification a été refusée.", { revalidate: ["/demandes"] }),
   },
 
   delete_own_request: {
@@ -332,13 +335,13 @@ export const ADMIN_REQUEST_OPS_IMPL: Record<string, OpImpl> = {
       return {
         title: `Retirer MA demande ${req.reference}`,
         fields: [{ label: "Demande", value: `${req.reference} — ${req.title}` }],
-        warnings: ["Suppression douce TRACÉE (annulée + motif « par le demandeur ») — possible dans les 30 minutes, avant traitement."],
-        args: { id: req.id },
+        warnings: ["Dans les 30 minutes et avant traitement : suppression douce TRACÉE. Au-delà : la demande est ANNULÉE avec son motif (à donner), l'assistante prévenue."],
+        args: { id: req.id, motif: opStr(input, "notes") || null },
         successMessage: `${req.reference} retirée.`,
         revalidate: ["/demandes"],
       };
     },
-    execute: (args) => runFd(deleteOwnRequest, args, "Le retrait a été refusé (fenêtre de 30 min dépassée ?).", { revalidate: ["/demandes"] }),
+    execute: (args) => runFd(deleteOwnRequest, args, "Le retrait a été refusé.", { revalidate: ["/demandes"] }),
   },
 
   delete_requests: {
@@ -489,7 +492,7 @@ export const ADMIN_REQUEST_OPS_IMPL: Record<string, OpImpl> = {
           ["Montant réel", amount ? dzd(Number(amount)) : null],
         ]),
         warnings: cur?.type === "PURCHASE"
-          ? ["Pour un ACHAT : la facture finale (catégorie « Facture ») doit être déposée, et l'IMPUTATION aux moyens généraux (département + montant réel) est exigée — sauf demande déjà imputée ou issue d'Ad & Pro (déjà portée par son budget)."]
+          ? ["Pour un ACHAT : la facture finale doit être jointe — fichier « Facture » sur la demande, facture au registre (Pièces liées → Facture, ou qui suit un bon de commande de la demande) avec son PDF, ou facture de l'un de ses ordres —, et l'IMPUTATION aux moyens généraux (département + montant réel) est exigée — sauf demande déjà imputée ou issue d'Ad & Pro (déjà portée par son budget)."]
           : ["Clôt la demande (statut Terminée, horodaté)."],
         args: { id: req.id, budgetDepartmentId: departmentId, budgetAmount: amount || null, budgetNote: opStr(input, "note") || null },
         successMessage: `${req.reference} terminée.`,

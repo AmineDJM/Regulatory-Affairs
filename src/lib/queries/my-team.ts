@@ -2,7 +2,16 @@ import { prisma } from "@/lib/prisma";
 import { loadReportingLine } from "@/lib/departments";
 import { subtreeOf, flattenTree, type TeamTreeNode } from "@/lib/hr/team-tree";
 import { toNumber } from "@/lib/utils";
-import type { SessionUser } from "@/lib/rbac";
+import { getAppSettings } from "@/lib/settings";
+import type { Module, SessionUser } from "@/lib/rbac";
+import { recruitmentScope } from "@/lib/recruitment/access";
+import { canDecideStep, CONTRACT_LABEL, type RecruitmentContract, type RecruitmentStage } from "@/lib/recruitment/request-flow";
+import { STATUT_PLAN_LABELS, clausePlansADecider, type StatutPlan } from "@/lib/sfe/tournee";
+import { lienDeLigne, type LienDeLigne } from "@/lib/queries/lien-ouvrable";
+import {
+  aujourdhuiAlger, chevauchementsDe, couvreLeJour, jourDuConge, minuitUtc, periodesCommunes,
+  type AbsenceDEquipe, type PeriodeCommune,
+} from "@/lib/hr/absences";
 
 /**
  * MON ÉQUIPE — ce qu'un encadrant a réellement besoin de voir sur ses N-1.
@@ -16,11 +25,13 @@ import type { SessionUser } from "@/lib/rbac";
  * C'est l'écran de trois questions, et de trois seulement :
  *
  *   1. **QUI est dans mon équipe** — la liste, telle que la hiérarchie la définit vraiment ;
- *   2. **QU'EST-CE QUI M'ATTEND** — congés, achats, formations : ce qui dort chez moi et bloque
+ *   2. **QU'EST-CE QUI M'ATTEND** — congés, achats, formations, plans de tournée, marches de
+ *      recrutement (§118.196, lot E3 — audit 360°, M10) : ce qui dort chez moi et bloque
  *      quelqu'un. C'était éparpillé dans autant d'écrans qu'il y a de circuits, et l'on
  *      découvrait une demande de congé vieille de six jours en cherchant autre chose ;
- *   3. **QUI EST LÀ CETTE SEMAINE** — les absences en cours et à venir, parce que c'est la seule
- *      donnée qui change un planning.
+ *   3. **QUI EST LÀ** — au JOUR d'Alger, le dernier jour d'un congé compris (M21), et les jours
+ *      où deux personnes d'une même équipe manquent ensemble (M19) : c'est la seule donnée qui
+ *      change un planning.
  *
  * ── L'ÉQUIPE SE DÉDUIT, ELLE NE SE DÉCLARE PAS ──────────────────────────────────────────────
  *
@@ -28,17 +39,27 @@ import type { SessionUser } from "@/lib/rbac";
  * la MÊME fonction qui route les demandes. Les deux ne peuvent donc pas diverger : personne
  * n'apparaît dans mon équipe sans que ses demandes m'arrivent, et réciproquement.
  *
- * ── L'ÉQUIPE DESCEND JUSQU'EN BAS, LA FILE S'ARRÊTE AU PREMIER RANG ─────────────────────────
+ * ── L'ÉQUIPE DESCEND JUSQU'EN BAS ; CE QUI M'ATTEND SUIT SON CIRCUIT ────────────────────────
  *
  * Deux portées, et les confondre serait une faute dans les deux sens :
  *
  *   • **QUI EST SOUS MOI** — tout l'arbre (`subtreeOf`), N-1, N-2, jusqu'en bas. Pour un
  *     directeur, s'arrêter au premier rang, c'était quatre cartes qui cachaient quarante
  *     personnes : celles qui font le travail sont toutes au deuxième rang.
- *   • **CE QUI ATTEND MA DÉCISION** — les DIRECTS, et eux seuls. Le congé d'un N-2 est routé
- *     vers SON N+1 ; le faire apparaître dans ma file me ferait attendre une décision que je
- *     n'ai pas à prendre, et qui n'attend pas après moi. `TeamMember.pending` suit la même
- *     règle : il vaut 0 plus bas parce que je ne décide rien là.
+ *   • **CE QUI ATTEND MA DÉCISION** — ce que SON circuit m'adresse, et rien d'autre. Un congé,
+ *     un achat, une formation s'arrêtent à la marche du N+1 : ils ne m'attendent que pour mes
+ *     DIRECTS — le congé d'un N-2 est routé vers SON N+1, et le faire apparaître ici me ferait
+ *     attendre une décision que je n'ai pas à prendre. Une chaîne de recrutement, elle, passe
+ *     par CHAQUE échelon, et un plan de tournée escaladé monte au N+2 : ceux-là peuvent
+ *     m'attendre plus bas. `TeamMember.pending` compte les lignes de la file, et rien d'autre.
+ *
+ * ── UNE LIGNE N'EST UN LIEN QUE SI SA PAGE S'OUVRE ──────────────────────────────────────────
+ *
+ * Chaque ligne mène à l'écran où l'on tranche ; la garde de cet écran est rejouée ici
+ * (`lienDeLigne`). Module hors service (masqué, retiré) : la ligne ne s'affiche pas — rien ne
+ * s'y tranche plus. Module non ouvert à ce compte : la ligne RESTE, sans lien, et dit qui peut
+ * l'ouvrir — une décision qui attend quelqu'un ne disparaît pas en silence, et un lien vers une
+ * page qui le refusera n'est pas un geste (§118.83).
  */
 
 export interface TeamMember {
@@ -58,25 +79,47 @@ export interface TeamMember {
   hiredAt: string | null;
   /** Fin de contrat proche — l'échéance qu'un encadrant doit anticiper, pas la RH seule. */
   contractEnd: string | null;
-  /** Absent AUJOURD'HUI (congé approuvé en cours) : ce qui change la journée. */
+  /** Absent AUJOURD'HUI — au jour d'Alger, le dernier jour d'un congé accordé compris (M21). */
   absentToday: boolean;
-  /** Prochaine absence approuvée à venir. */
-  nextLeave: { start: string; end: string; type: string } | null;
-  /** Ce que J'ai à décider le concernant, tous circuits confondus. */
+  /** Prochaine absence accordée à venir — les DATES ; le type (maladie…) ne part plus vers le navigateur (§118.184). */
+  nextLeave: { start: string; end: string } | null;
+  /** Les lignes de « À décider » qui le concernent — la carte et la liste disent le même nombre (§118.51). */
   pending: number;
+}
+
+/** Une absence de la même équipe qui partage au moins un jour avec un congé à signer (M19). */
+export interface ChevauchementDeConge {
+  nom: string;
+  /** « AAAA-MM-JJ », inclus. */
+  debut: string;
+  /** « AAAA-MM-JJ », inclus. */
+  fin: string;
+  enAttente: boolean;
 }
 
 export interface TeamPending {
   id: string;
-  kind: "LEAVE" | "PURCHASE" | "TRAINING";
+  kind: "LEAVE" | "PURCHASE" | "TRAINING" | "RECRUITMENT" | "TOUR_PLAN";
+  /** La fiche concernée — c'est elle qui porte le « N à décider » de sa carte. */
+  employeeId: string | null;
   who: string;
   title: string;
   detail: string | null;
   amount: number | null;
   createdAt: string;
-  /** Échéance quand le circuit en porte une (dates de congé, date de formation). */
+  /** Échéance quand le circuit en porte une (dates de congé, de formation, prise de poste). */
   deadline: string | null;
-  href: string;
+  /** L'écran où l'on tranche — PRÉSENT seulement si sa garde laisse entrer cette personne. */
+  href: string | null;
+  /** Pourquoi il n'y a pas de lien, et qui peut le lever. */
+  sansLien: string | null;
+  /** Pour un congé : les absences de la même équipe qui partagent un jour avec lui (M19). */
+  chevauchements: ChevauchementDeConge[];
+}
+
+/** Une période où deux personnes au moins d'une même équipe manquent ensemble, et le nom de cette équipe. */
+export interface ChevauchementDEquipe extends PeriodeCommune {
+  equipe: string;
 }
 
 export interface MyTeam {
@@ -89,36 +132,60 @@ export interface MyTeam {
   /** Jusqu'où descend la chaîne : 1 = personne n'encadre personne sous moi. */
   depth: number;
   pending: TeamPending[];
+  /** Les absences qui se chevauchent dans une même équipe, sur les 30 prochains jours (M19). */
+  chevauchements: ChevauchementDEquipe[];
+  /** Ce qui n'est pas montré au-delà de la coupe — COMPTÉ, jamais tu (§118.60). */
+  chevauchementsNonMontres: number;
 }
 
+/** Un mois devant soi : l'horizon d'un planning d'équipe. */
+const FENETRE_CHEVAUCHEMENTS_JOURS = 30;
+/** Au-delà, on compte. */
+const CHEVAUCHEMENTS_MONTRES = 12;
+
 const iso = (d: Date | null | undefined): string | null => (d ? d.toISOString() : null);
+
+/** Une équipe vide — une liste NEUVE à chaque appel, jamais un tableau partagé entre deux lecteurs. */
+const vide = (selfEmployeeId: string | null): MyTeam => ({
+  selfEmployeeId, members: [], directCount: 0, depth: 0, pending: [], chevauchements: [], chevauchementsNonMontres: 0,
+});
 
 /**
  * L'ÉQUIPE ET SA FILE, en une passe.
  *
- * Tout est borné aux N-1 : un encadrant ne voit ni les congés des autres services, ni les
+ * Tout est borné à mon arbre : un encadrant ne voit ni les congés des autres services, ni les
  * demandes qu'il n'a pas à trancher. Le cloisonnement ne vient pas d'un droit de module — il
- * vient de la hiérarchie elle-même, et c'est ce qui le rend juste sans réglage.
+ * vient de la hiérarchie elle-même, et c'est ce qui le rend juste sans réglage. Le recrutement
+ * garde en plus SA portée (`recruitmentScope`), composée en `AND` : la file ne montre rien que
+ * la liste du module ne montrerait pas.
+ *
+ * `maintenant` s'injecte (un banc juge un jour fixe, jamais « maintenant + n heures ») ; « aujourd'hui »
+ * se lit à Alger.
  */
-export async function getMyTeam(user: SessionUser): Promise<MyTeam> {
+export async function getMyTeam(user: SessionUser, opts: { maintenant?: Date } = {}): Promise<MyTeam> {
   const me = await prisma.employee.findUnique({ where: { userId: user.id }, select: { id: true } });
-  if (!me) return { selfEmployeeId: null, members: [], directCount: 0, depth: 0, pending: [] };
+  if (!me) return vide(null);
 
   const { employees, departments } = await loadReportingLine();
   const arbre = subtreeOf(me.id, employees, departments);
   const tous = flattenTree(arbre);
-  if (tous.length === 0) return { selfEmployeeId: me.id, members: [], directCount: 0, depth: 0, pending: [] };
+  if (tous.length === 0) return vide(me.id);
 
-  // L'ARBRE POUR MONTRER, LE PREMIER RANG POUR DÉCIDER — deux portées, jamais confondues.
+  // L'ARBRE POUR MONTRER, LE PREMIER RANG POUR LES CIRCUITS QUI S'Y ARRÊTENT — deux portées, jamais confondues.
   const directs = arbre.map((n) => n.employeeId);
   const directSet = new Set(directs);
 
   const employeeIds = tous.map((n) => n.employeeId);
-  // Les demandes ne se lisent QUE pour mes directs : elles ne sont routées vers moi que là.
+  // Les congés, achats et formations ne se lisent QUE pour mes directs : ils ne sont routés vers moi que là.
   const userIds = arbre.map((n) => n.userId).filter((v): v is string => Boolean(v));
-  const now = new Date();
+  // Une chaîne de recrutement et un plan escaladé peuvent m'attendre à toute profondeur.
+  const userIdsArbre = tous.map((n) => n.userId).filter((v): v is string => Boolean(v));
+  const maintenant = opts.maintenant ?? new Date();
+  // M21 — LE JOUR D'ALGER : un congé fini « le 12 » est écrit à minuit UTC ; le comparer à l'instant présent le
+  // faisait finir avant l'aube du 12, et la personne redevenait présente le matin de son dernier jour d'absence.
+  const aujourdhui = aujourdhuiAlger(maintenant);
 
-  const [fiches, conges, achats, formations] = await Promise.all([
+  const [fiches, conges, achats, formations, recrutements, plans, reglages] = await Promise.all([
     prisma.employee.findMany({
       where: { id: { in: employeeIds } },
       select: {
@@ -130,27 +197,30 @@ export async function getMyTeam(user: SessionUser): Promise<MyTeam> {
       },
       orderBy: { fullName: "asc" },
     }),
-    // Les congés APPROUVÉS de TOUT L'ARBRE (pour savoir qui est là) ET ceux qui attendent MA
-    // décision — ces derniers filtrés plus bas sur mes seuls directs.
     prisma.leaveRequest.findMany({
       where: {
         employeeId: { in: employeeIds },
         OR: [
-          { status: "APPROVED", endDate: { gte: now } },
+          // Accordés OU en instruction, pas encore finis À ALGER : qui est là, et ce qui se chevauche (M19).
+          { status: { in: ["APPROVED", "PENDING"] }, endDate: { gte: minuitUtc(aujourdhui) } },
+          // Ce qui attend MA signature, même daté du passé : une demande oubliée attend toujours.
           { status: "PENDING", stage: "MANAGER", employeeId: { in: directs } },
         ],
       },
+      // Pas le TYPE (maladie, maternité…) : un encadrant a besoin de savoir qui manque, pas pourquoi (§118.184).
       select: {
-        id: true, employeeId: true, type: true, startDate: true, endDate: true, days: true,
+        id: true, employeeId: true, startDate: true, endDate: true, days: true,
         reason: true, status: true, stage: true, createdAt: true,
       },
       orderBy: { startDate: "asc" },
     }),
-    // Les demandes d'achat de mon équipe qui attendent MA validation.
+    // Les demandes d'achat de mon équipe qui attendent MA validation — la MIENNE, pas une autre
+    // (audit 360°, I13) : une demande passée à l'étape suivante gardait une approbation en attente
+    // au nom de quelqu'un d'autre, restait listée ici, et « Traiter » menait à une page refusée.
     prisma.administrativeRequest.findMany({
       where: {
         type: "PURCHASE", deletedAt: null, requesterId: { in: userIds },
-        approvals: { some: { status: "PENDING" } },
+        approvals: { some: { status: "PENDING", validatorId: user.id } },
       },
       select: {
         id: true, reference: true, title: true, requesterId: true, createdAt: true, fields: true,
@@ -165,65 +235,171 @@ export async function getMyTeam(user: SessionUser): Promise<MyTeam> {
       orderBy: { createdAt: "asc" },
       take: 100,
     }),
+    // M10 — LA MARCHE DE RECRUTEMENT QUI M'ATTEND, pour quelqu'un de mon arbre. La portée EXISTANTE du
+    // recrutement est composée en `AND` (§118.133) : rien que la liste du module ne montrerait pas. Elle est
+    // REDONDANTE aujourd'hui — une marche en attente qui me nomme implique `approvals.some({ approverId: moi })`,
+    // et la portée vaut `{}` pour les RH et le sommet — : elle reste pour que la file ne puisse jamais montrer PLUS
+    // que la liste si la portée se resserre un jour (§118.140). Pas de `take` : « je suis une marche en attente »
+    // borne déjà la lecture, et une coupe suivie d'un filtre en mémoire tairait ses propres lignes (§118.60).
+    prisma.recruitmentRequest.findMany({
+      where: {
+        AND: [
+          recruitmentScope(user),
+          { stage: "CHAIN" as const, requesterId: { in: userIdsArbre } },
+          { approvals: { some: { approverId: user.id, status: "PENDING" as const } } },
+        ],
+      },
+      select: {
+        id: true, reference: true, position: true, headcount: true, contractType: true, requesterId: true,
+        startDate: true, createdAt: true, stage: true,
+        approvals: { select: { order: true, approverId: true, status: true } },
+      },
+      orderBy: { createdAt: "asc" },
+    }),
+    // LES PLANS DE TOURNÉE QUI M'ATTENDENT — la file « à décider » des plans (`clausePlansADecider`, lot E2), celle
+    // de « Mon espace » et de la page du plan, bornée à mon arbre. Deux copies de la même file finiraient par ne
+    // plus lister la même chose (§118.5). L'intérim n'est pas lu ici : Mon Équipe est MON arbre, et ce qui attend
+    // l'absent que je remplace se lit dans « Mon espace ».
+    prisma.tourPlan.findMany({
+      where: { AND: [clausePlansADecider(user.id, []), { repId: { in: userIdsArbre } }] },
+      select: { id: true, repId: true, status: true, periodStart: true, periodEnd: true, submittedAt: true, createdAt: true },
+      orderBy: { submittedAt: "asc" },
+    }),
+    getAppSettings(),
   ]);
 
   const nomParEmploye = new Map(fiches.map((f) => [f.id, f.fullName]));
   const nomParUser = new Map(fiches.filter((f) => f.userId).map((f) => [f.userId as string, f.fullName]));
-
-  const pending: TeamPending[] = [
-    ...conges.filter((c) => c.status === "PENDING").map((c) => ({
-      id: `leave-${c.id}`,
-      kind: "LEAVE" as const,
-      who: nomParEmploye.get(c.employeeId) ?? "—",
-      title: `Congé — ${toNumber(c.days)} jour(s)`,
-      detail: c.reason,
-      amount: null,
-      createdAt: c.createdAt.toISOString(),
-      deadline: c.startDate.toISOString(),
-      href: `/rh/conges`,
-    })),
-    ...achats.map((a) => {
-      const champs = (a.fields as Record<string, unknown> | null) ?? {};
-      return {
-        id: `purchase-${a.id}`,
-        kind: "PURCHASE" as const,
-        who: nomParUser.get(a.requesterId ?? "") ?? "—",
-        title: a.title,
-        detail: a.reference,
-        amount: typeof champs.estimatedTotal === "number" ? champs.estimatedTotal : null,
-        createdAt: a.createdAt.toISOString(),
-        deadline: null,
-        href: `/demandes/${a.id}`,
-      };
-    }),
-    ...formations.map((f) => ({
-      id: `training-${f.id}`,
-      kind: "TRAINING" as const,
-      who: nomParUser.get(f.requesterId ?? "") ?? "—",
-      title: f.title,
-      detail: f.reference,
-      amount: toNumber(f.amount) || null,
-      createdAt: f.createdAt.toISOString(),
-      deadline: iso(f.startDate),
-      href: `/formations`,
-    })),
-  // La plus ANCIENNE en tête : c'est elle qui fait attendre quelqu'un depuis le plus longtemps.
-  ].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
-
-  const enAttenteParEmploye = new Map<string, number>();
-  for (const c of conges) {
-    if (c.status !== "PENDING") continue;
-    enAttenteParEmploye.set(c.employeeId, (enAttenteParEmploye.get(c.employeeId) ?? 0) + 1);
-  }
   const employeParUser = new Map(fiches.filter((f) => f.userId).map((f) => [f.userId as string, f.id]));
-  for (const src of [achats, formations]) {
-    for (const r of src) {
-      const empId = employeParUser.get(r.requesterId ?? "");
-      if (empId) enAttenteParEmploye.set(empId, (enAttenteParEmploye.get(empId) ?? 0) + 1);
-    }
-  }
+  // L'ÉQUIPE d'une personne, au sens des chevauchements : son N+1 dans mon arbre (null = mes N-1).
+  const groupeDe = new Map(tous.map((n) => [n.employeeId, n.managerEmployeeId] as const));
+  const lien = (module: Module, href: string): LienDeLigne | null =>
+    lienDeLigne(user, module, href, reglages.hiddenModules);
 
-  const approuves = conges.filter((c) => c.status === "APPROVED");
+  const absences: AbsenceDEquipe[] = conges.map((c) => ({
+    leaveId: c.id,
+    employeeId: c.employeeId,
+    nom: nomParEmploye.get(c.employeeId) ?? "—",
+    debut: jourDuConge(c.startDate),
+    fin: jourDuConge(c.endDate),
+    enAttente: c.status === "PENDING",
+    groupe: groupeDe.get(c.employeeId) ?? null,
+  }));
+  const absenceDe = new Map(absences.map((a) => [a.leaveId, a]));
+
+  // Le congé se signe dans MON ESPACE, où chaque encadrant a le bloc « Congés qui attendent votre signature » —
+  // `/rh/conges` est l'écran des RH, refusé à un N+1 sans le module (I13).
+  const lienConge = lien("WORKSPACE", "/mon-espace#conges-a-signer");
+  const lignesConges: TeamPending[] = lienConge === null ? [] : conges
+    .filter((c) => c.status === "PENDING" && c.stage === "MANAGER" && directSet.has(c.employeeId))
+    .map((c) => {
+      const absence = absenceDe.get(c.id);
+      return {
+        id: `leave-${c.id}`,
+        kind: "LEAVE" as const,
+        employeeId: c.employeeId,
+        who: nomParEmploye.get(c.employeeId) ?? "—",
+        title: `Congé — ${toNumber(c.days)} jour(s)`,
+        detail: c.reason,
+        amount: null,
+        createdAt: c.createdAt.toISOString(),
+        deadline: c.startDate.toISOString(),
+        ...lienConge,
+        // M19 — CE QUI MANQUERA EN MÊME TEMPS dans la même équipe : la question qu'on se pose avant de signer.
+        chevauchements: absence
+          ? chevauchementsDe(absence, absences).map((a) => ({ nom: a.nom, debut: a.debut, fin: a.fin, enAttente: a.enAttente }))
+          : [],
+      };
+    });
+
+  const lignesAchats: TeamPending[] = achats.flatMap((a) => {
+    const l = lien("ADMIN_REQUESTS", `/demandes/${a.id}`);
+    if (!l) return [];
+    const champs = (a.fields as Record<string, unknown> | null) ?? {};
+    return [{
+      id: `purchase-${a.id}`,
+      kind: "PURCHASE" as const,
+      employeeId: employeParUser.get(a.requesterId ?? "") ?? null,
+      who: nomParUser.get(a.requesterId ?? "") ?? "—",
+      title: a.title,
+      detail: a.reference,
+      amount: typeof champs.estimatedTotal === "number" ? champs.estimatedTotal : null,
+      createdAt: a.createdAt.toISOString(),
+      deadline: null,
+      ...l,
+      chevauchements: [],
+    }];
+  });
+
+  // `/formations` n'a d'autre garde que la session : son lien s'ouvre pour qui a ouvert cet écran.
+  const lignesFormations: TeamPending[] = formations.map((f) => ({
+    id: `training-${f.id}`,
+    kind: "TRAINING" as const,
+    employeeId: employeParUser.get(f.requesterId ?? "") ?? null,
+    who: nomParUser.get(f.requesterId ?? "") ?? "—",
+    title: f.title,
+    detail: f.reference,
+    amount: toNumber(f.amount) || null,
+    createdAt: f.createdAt.toISOString(),
+    deadline: iso(f.startDate),
+    href: "/formations",
+    sansLien: null,
+    chevauchements: [],
+  }));
+
+  const lignesRecrutement: TeamPending[] = recrutements
+    // MON TOUR, et seulement le mien — la règle de la fiche (`canDecideStep`) SANS la dérogation du sommet : le
+    // PDG PEUT trancher à toute marche, mais une marche ne l'ATTEND que quand c'est la sienne.
+    .filter((r) => canDecideStep(r.stage as RecruitmentStage, r.approvals, { userId: user.id, isTop: false }).ok)
+    .flatMap((r) => {
+      const l = lien("RECRUITMENT", `/recrutement/${r.id}`);
+      if (!l) return [];
+      const marche = [...r.approvals].sort((a, b) => a.order - b.order).find((a) => a.status === "PENDING");
+      const contrat = CONTRACT_LABEL[r.contractType as RecruitmentContract] ?? r.contractType;
+      return [{
+        id: `recruitment-${r.id}`,
+        kind: "RECRUITMENT" as const,
+        employeeId: employeParUser.get(r.requesterId) ?? null,
+        who: nomParUser.get(r.requesterId) ?? "—",
+        title: `${r.position} — ${r.headcount} poste(s), ${contrat}`,
+        detail: `${r.reference}${marche ? ` · marche ${marche.order}/${r.approvals.length}` : ""}`,
+        amount: null,
+        createdAt: r.createdAt.toISOString(),
+        deadline: iso(r.startDate),
+        ...l,
+        chevauchements: [],
+      }];
+    });
+
+  const lignesPlans: TeamPending[] = plans.flatMap((p) => {
+    const l = lien("MEDICAL", `/medical/plan-de-tournee?plan=${p.id}`);
+    if (!l) return [];
+    return [{
+      id: `tourplan-${p.id}`,
+      kind: "TOUR_PLAN" as const,
+      employeeId: employeParUser.get(p.repId) ?? null,
+      who: nomParUser.get(p.repId) ?? "—",
+      // La MÊME lecture des dates que la page du plan (`toLocaleDateString("fr-FR")`) — une seule façon de les dire.
+      title: `Plan de tournée du ${p.periodStart.toLocaleDateString("fr-FR")} au ${p.periodEnd.toLocaleDateString("fr-FR")}`,
+      detail: STATUT_PLAN_LABELS[p.status as StatutPlan] ?? p.status,
+      amount: null,
+      createdAt: (p.submittedAt ?? p.createdAt).toISOString(),
+      deadline: null,
+      ...l,
+      chevauchements: [],
+    }];
+  });
+
+  // La plus ANCIENNE en tête : c'est elle qui fait attendre quelqu'un depuis le plus longtemps.
+  const pending = [...lignesConges, ...lignesAchats, ...lignesFormations, ...lignesRecrutement, ...lignesPlans]
+    .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+
+  // LA CARTE COMPTE LES LIGNES DE LA FILE, et rien d'autre (§118.51) : un congé, un achat, une formation ne
+  // m'attendent que pour mes directs (leur requête le borne) ; une marche de recrutement ou un plan escaladé
+  // peuvent m'attendre plus bas, et la carte de la personne concernée le dit.
+  const aDeciderPar = new Map<string, number>();
+  for (const p of pending) if (p.employeeId) aDeciderPar.set(p.employeeId, (aDeciderPar.get(p.employeeId) ?? 0) + 1);
+
   const parEmploye = new Map(fiches.map((f) => [f.id, f]));
 
   // L'ORDRE EST CELUI DE L'ARBRE, pas l'ordre alphabétique : un chef, puis ses gens, puis le
@@ -234,9 +410,10 @@ export async function getMyTeam(user: SessionUser): Promise<MyTeam> {
     const f = parEmploye.get(n.employeeId);
     // Une fiche désactivée entre deux lectures : on la saute plutôt que d'inventer une ligne.
     if (!f) return [];
-    const siens = approuves.filter((c) => c.employeeId === f.id);
-    const enCours = siens.find((c) => c.startDate <= now && c.endDate >= now);
-    const aVenir = siens.find((c) => c.startDate > now);
+    // Les absences ACCORDÉES, déjà triées par premier jour (la requête l'ordonne).
+    const siennes = absences.filter((a) => !a.enAttente && a.employeeId === f.id);
+    const enCours = siennes.find((a) => couvreLeJour(a, aujourdhui));
+    const aVenir = siennes.find((a) => a.debut > aujourdhui);
     return [{
       employeeId: f.id,
       userId: f.userId,
@@ -251,16 +428,26 @@ export async function getMyTeam(user: SessionUser): Promise<MyTeam> {
       hiredAt: iso(f.hireDate),
       contractEnd: iso(f.contractEnd),
       absentToday: Boolean(enCours),
-      nextLeave: aVenir
-        ? { start: aVenir.startDate.toISOString(), end: aVenir.endDate.toISOString(), type: aVenir.type }
-        : null,
-      // ZÉRO PLUS BAS QUE LE PREMIER RANG, et ce n'est pas un manque : la demande d'un N-2 est
-      // routée vers SON N+1. Afficher « 1 à décider » ici ferait chercher un bouton qui
-      // n'existe pas, sur une décision que quelqu'un d'autre a déjà.
-      pending: directSet.has(f.id) ? (enAttenteParEmploye.get(f.id) ?? 0) : 0,
+      nextLeave: aVenir ? { start: minuitUtc(aVenir.debut).toISOString(), end: minuitUtc(aVenir.fin).toISOString() } : null,
+      pending: aDeciderPar.get(f.id) ?? 0,
     }];
   });
 
+  // M19 — LES JOURS OÙ UNE ÉQUIPE MANQUE DE DEUX PERSONNES À LA FOIS, sur un mois devant soi. Une équipe est
+  // nommée par son chef dans mon arbre ; mes propres N-1 forment la mienne.
+  const nomDeLEquipe = (groupe: string | null) => (groupe === null ? "Vos N-1" : `Équipe de ${nomParEmploye.get(groupe) ?? "—"}`);
+  const toutes = periodesCommunes(absences, aujourdhui, FENETRE_CHEVAUCHEMENTS_JOURS)
+    .map((p) => ({ ...p, equipe: nomDeLEquipe(p.groupe) }));
+  const chevauchements = toutes.slice(0, CHEVAUCHEMENTS_MONTRES);
+
   const depth = members.reduce((max, m) => Math.max(max, m.depth), 0);
-  return { selfEmployeeId: me.id, members, directCount: arbre.length, depth, pending };
+  return {
+    selfEmployeeId: me.id,
+    members,
+    directCount: arbre.length,
+    depth,
+    pending,
+    chevauchements,
+    chevauchementsNonMontres: toutes.length - chevauchements.length,
+  };
 }

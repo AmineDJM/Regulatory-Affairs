@@ -1,5 +1,11 @@
 import { prisma } from "@/lib/prisma";
 import { platformScope } from "@/lib/company";
+import { clauseEcrituresVisibles, clauseSalariesVisibles } from "@/lib/queries/visibilite-listes";
+import { instantDuCentreDePaie } from "@/lib/hr/paie-centre";
+import { etatSalaire, saisiAvantLeCentre } from "@/lib/hr/virement-paie";
+import {
+  resultatParMois, debutDuMoisAlger, finDeLaPeriodeAlger, type Periode, type ResultatPeriode,
+} from "@/lib/finance/resultat-mensuel";
 import { toNumber } from "@/lib/utils";
 
 /**
@@ -14,8 +20,6 @@ import { toNumber } from "@/lib/utils";
  *   • un petit historique mensuel.
  */
 
-const MONTHS_FR = ["Jan", "Fév", "Mar", "Avr", "Mai", "Juin", "Juil", "Aoû", "Sep", "Oct", "Nov", "Déc"];
-
 export interface ComptaItem {
   id: string;
   reference: string;
@@ -26,13 +30,6 @@ export interface ComptaItem {
   counterparty: string;
   overdue: boolean;
   kind: "order" | "transaction";
-}
-
-export interface ComptaMonthRow {
-  label: string;
-  recettes: number;
-  depenses: number;
-  resultat: number;
 }
 
 export interface ComptaCategoryRow {
@@ -47,7 +44,7 @@ export async function getComptaData(userId: string) {
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
 
   const [txs, orders] = await Promise.all([
-    prisma.financeTransaction.findMany({ where: scope, orderBy: { date: "desc" }, take: 2000 }),
+    prisma.financeTransaction.findMany({ where: await clauseEcrituresVisibles(userId), orderBy: { date: "desc" }, take: 2000 }),
     prisma.expenseOrder.findMany({
       where: { AND: [{ status: "PENDING" }, scope] },
       include: { requestedBy: { select: { name: true } } },
@@ -60,18 +57,12 @@ export async function getComptaData(userId: string) {
   let aEncaisser = 0; // total recettes prévues (PENDING IN)
   const depByCat = new Map<string, number>();
   const recByCat = new Map<string, number>();
-  const monthlyIn = new Array(12).fill(0);
-  const monthlyOut = new Array(12).fill(0);
   const recettesAttendues: ComptaItem[] = [];
   const depensesPrevues: ComptaItem[] = [];
 
   for (const t of txs) {
     const amt = toNumber(t.amount);
     if (t.status === "SETTLED") {
-      if (t.date.getFullYear() === now.getFullYear()) {
-        if (t.direction === "IN") monthlyIn[t.date.getMonth()] += amt;
-        else monthlyOut[t.date.getMonth()] += amt;
-      }
       if (t.date >= monthStart) {
         if (t.direction === "IN") {
           recettesMois += amt;
@@ -138,16 +129,6 @@ export async function getComptaData(userId: string) {
     recettesAttendues.filter((r) => r.overdue).reduce((a, r) => a + r.amount, 0) +
     ordersPending.filter((o) => o.overdue).reduce((a, o) => a + o.amount, 0);
 
-  // Résultat mensuel sur les 6 derniers mois (flux réalisés de l'année en cours).
-  const cm = now.getMonth();
-  const months: ComptaMonthRow[] = [];
-  for (let i = 5; i >= 0; i--) {
-    const idx = (cm - i + 12) % 12;
-    const recettes = Math.round(monthlyIn[idx]);
-    const depenses = Math.round(monthlyOut[idx]);
-    months.push({ label: MONTHS_FR[idx], recettes, depenses, resultat: recettes - depenses });
-  }
-
   const sortCat = (m: Map<string, number>): ComptaCategoryRow[] =>
     [...m.entries()].sort((a, b) => b[1] - a[1]).map(([category, amount]) => ({ category, amount }));
 
@@ -169,6 +150,95 @@ export async function getComptaData(userId: string) {
     depensesAutres,
     depensesSalairesTotal,
     depensesAutresTotal,
-    months,
   };
+}
+
+const cleMois = (year: number, month: number) => `${year}-${String(month).padStart(2, "0")}`;
+
+/**
+ * LE RÉSULTAT MENSUEL D'UNE PÉRIODE — la règle vit dans `finance/resultat-mensuel.ts` ; ici, on
+ * lit ce qu'elle reçoit.
+ *
+ * Trois lectures, et aucune n'est bornée en silence : les écritures RÉGLÉES datées dans la
+ * période ; les écritures de PAIE dont le mois de paie est dans la période mais qui ont été
+ * réglées hors d'elle (la paie de septembre virée en octobre, quand on regarde septembre) ; la
+ * paie versée par l'ancien circuit SANS écriture, à son net. Les écritures se lisent dans la portée
+ * du livre (`clauseEcrituresVisibles`), la paie sans écriture dans celle des salariés
+ * (`clauseSalariesVisibles`) : la même entité, au sens strict.
+ */
+export async function getResultatMensuel(userId: string, periode: Periode): Promise<ResultatPeriode> {
+  const [visibles, salariesVisibles, depuisLeCentre] = await Promise.all([
+    clauseEcrituresVisibles(userId),
+    clauseSalariesVisibles(userId),
+    instantDuCentreDePaie(),
+  ]);
+  const dansPeriode = new Set(periode.mois);
+  const annees = [...new Set(periode.mois.map((m) => Number(m.slice(0, 4))))];
+
+  const datees = await prisma.financeTransaction.findMany({
+    where: { AND: [visibles, { status: "SETTLED", date: { gte: debutDuMoisAlger(periode.debut), lt: finDeLaPeriodeAlger(periode) } }] },
+    select: { id: true, date: true, direction: true, amount: true },
+  });
+  const ids = datees.map((e) => e.id);
+
+  const [virementsParEcriture, ordresParEcriture, lignesParEcriture, virementsDuMois, lignesDuMois, versesSansEcriture] = await Promise.all([
+    ids.length ? prisma.payrollWire.findMany({ where: { transactionId: { in: ids } }, select: { transactionId: true, year: true, month: true } }) : [],
+    ids.length
+      ? prisma.expenseOrder.findMany({ where: { sourceType: "PAYROLL", transactionId: { in: ids } }, select: { transactionId: true, sourceId: true } })
+      : [],
+    ids.length ? prisma.payrollEntry.findMany({ where: { transactionId: { in: ids } }, select: { transactionId: true, year: true, month: true } }) : [],
+    prisma.payrollWire.findMany({
+      where: { year: { in: annees } },
+      select: { year: true, month: true, transactionId: true, expenseOrder: { select: { transactionId: true } } },
+    }),
+    prisma.payrollEntry.findMany({ where: { year: { in: annees }, transactionId: { not: null } }, select: { transactionId: true, year: true, month: true } }),
+    prisma.payrollEntry.findMany({
+      where: { year: { in: annees }, status: "PAID", transactionId: null, payrollWireId: null, employee: salariesVisibles },
+      select: { year: true, month: true, net: true, status: true, budgetTransferredAt: true, paidDate: true, createdAt: true },
+    }),
+  ]);
+
+  // LE MOIS DE PAIE DE CHAQUE ÉCRITURE DE PAIE — le virement d'abord, puis l'ordre de ce virement,
+  // puis la ligne de l'ancien transfert. Une écriture n'a qu'un mois de paie.
+  const moisDePaie = new Map<string, string>();
+  const poser = (tx: string | null | undefined, year: number, month: number) => {
+    if (tx && !moisDePaie.has(tx)) moisDePaie.set(tx, cleMois(year, month));
+  };
+  for (const v of virementsParEcriture) poser(v.transactionId, v.year, v.month);
+  const virementsDesOrdres = ordresParEcriture.length
+    ? await prisma.payrollWire.findMany({
+        where: { id: { in: ordresParEcriture.map((o) => o.sourceId).filter((v): v is string => Boolean(v)) } },
+        select: { id: true, year: true, month: true },
+      })
+    : [];
+  const virementParId = new Map(virementsDesOrdres.map((v) => [v.id, v]));
+  for (const o of ordresParEcriture) {
+    const v = o.sourceId ? virementParId.get(o.sourceId) : undefined;
+    if (v) poser(o.transactionId, v.year, v.month);
+  }
+  for (const l of lignesParEcriture) poser(l.transactionId, l.year, l.month);
+  for (const v of virementsDuMois) poser(v.transactionId ?? v.expenseOrder?.transactionId, v.year, v.month);
+  for (const l of lignesDuMois) poser(l.transactionId, l.year, l.month);
+
+  // LA PAIE DU MOIS RÉGLÉE HORS DE LA PÉRIODE — lue, elle aussi, dans la portée du livre.
+  const dejaLues = new Set(ids);
+  const horsPeriode = [...moisDePaie.entries()].filter(([tx, m]) => dansPeriode.has(m) && !dejaLues.has(tx)).map(([tx]) => tx);
+  const reglesAilleurs = horsPeriode.length
+    ? await prisma.financeTransaction.findMany({
+        where: { AND: [visibles, { status: "SETTLED", id: { in: horsPeriode } }] },
+        select: { id: true, date: true, direction: true, amount: true },
+      })
+    : [];
+
+  return resultatParMois({
+    periode,
+    ecritures: [...datees, ...reglesAilleurs].map((e) => ({ id: e.id, date: e.date, direction: e.direction, amount: toNumber(e.amount) })),
+    moisDePaie,
+    paieSansEcriture: versesSansEcriture
+      .filter((l) => etatSalaire({
+        status: l.status, budgetTransferredAt: l.budgetTransferredAt, transactionId: null, virement: null,
+        avantLeCentre: saisiAvantLeCentre(l, depuisLeCentre),
+      }) === "VIRE")
+      .map((l) => ({ mois: cleMois(l.year, l.month), montant: toNumber(l.net) })),
+  });
 }

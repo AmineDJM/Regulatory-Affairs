@@ -464,7 +464,7 @@ export async function aiguillerBC(
       select: {
         id: true, kind: true, status: true, reference: true, title: true, counterparty: true,
         amount: true, createdById: true, sourceType: true, sourceId: true, chainFromId: true,
-        signedAt: true, signedById: true, bcCircuitAt: true,
+        signedAt: true, signedById: true, bcCircuitAt: true, signatureReturnedAt: true,
       },
     });
     if (!doc) return { porte: null, geste: null };
@@ -533,10 +533,28 @@ export async function aiguillerBC(
       signatureRetiree = true;
     }
 
+    // UN BC RENVOYÉ À SON ÉMETTEUR (audit 360°, R09) revient à la signature dès qu'il est MODIFIÉ :
+    // c'est la correction que le signataire a demandée. Le renvoi s'efface de la LIGNE ; le journal
+    // garde qui l'avait renvoyé et pourquoi. Toute modification compte — la juger « suffisante » à la
+    // place du signataire, c'est lui qui le fera en relisant.
+    const renvoyeAvant = doc.signatureReturnedAt !== null;
+    let renvoye = renvoyeAvant;
+    if (renvoye && opts.modifie) {
+      await prisma.legalDocument.update({
+        where: { id: doc.id },
+        data: { signatureReturnedAt: null, signatureReturnedById: null, signatureReturnNote: null },
+      });
+      await recordAudit({
+        actorId: opts.acteurId, action: "UPDATE", module: "Legal", entityType: "LEGAL_DOCUMENT", entityId: doc.id,
+        summary: "Bon de commande corrigé après son renvoi par un signataire — il revient à la signature.",
+      }).catch(() => undefined);
+      renvoye = false;
+    }
+
     const origine = await origineDuBC(doc);
     const centreVoulu = await centreVouluDuBC(origine);
     const actuelle = await porteDuBC(doc.id);
-    const etapeAvant = etapeBC({ porte: actuelle, validationRequise: requise, signe: signeALEntree !== null, dansLeCircuit: dejaDansLeCircuit });
+    const etapeAvant = etapeBC({ porte: actuelle, validationRequise: requise, signe: signeALEntree !== null, dansLeCircuit: dejaDansLeCircuit, renvoye: renvoyeAvant });
     const geste = gesteAiguillage({
       actuelle, centreVoulu,
       montantAvant,
@@ -550,7 +568,7 @@ export async function aiguillerBC(
     const conclure = async (
       porte: PorteBC | null, gesteRendu: ResultatAiguillage["geste"],
     ): Promise<ResultatAiguillage> => {
-      const etape = etapeBC({ porte, validationRequise: requise, signe, dansLeCircuit: true });
+      const etape = etapeBC({ porte, validationRequise: requise, signe, dansLeCircuit: true, renvoye });
       const versLesFinances = etape === "A_SIGNER" && etapeAvant !== "A_SIGNER";
       if (versLesFinances && !opts.silencieux) await notifierSignatairesBCASigner(doc);
       return {

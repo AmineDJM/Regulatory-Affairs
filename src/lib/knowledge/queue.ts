@@ -2,9 +2,11 @@ import { prisma } from "@/lib/prisma";
 import {
   type JobKind,
   JOB_PRIORITY,
+  JOB_KINDS_MODELE,
   MAX_ATTEMPTS,
   backoffMs,
 } from "./contract";
+import { REPORTS_MAX, delaiReportMs } from "./panne";
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
@@ -187,6 +189,57 @@ export async function failJob(id: string, error: string): Promise<"retry" | "dea
 }
 
 /**
+ * PANNE TEMPORAIRE — le travail ATTEND, il n'échoue pas (voir `panne.ts`).
+ *
+ * L'essai consommé par la réclamation est RENDU (le document n'est pas en cause), le travail
+ * repart en file après une attente croissante, et le nombre de reports voyage dans sa charge
+ * utile. Au-delà de `REPORTS_MAX`, la panne n'est plus passagère : boîte morte, avec un motif qui
+ * dit « persistante » — sans cette borne, un fournisseur qui refuse pour de bon ferait tourner
+ * le travail pour toujours.
+ *
+ * L'écriture est CONDITIONNELLE à `RUNNING` : un travail qu'un autre geste a déjà repris (un
+ * `requeueStale`, une relance) n'est pas réécrit par-dessus.
+ */
+export async function reporterJob(id: string, motif: string): Promise<"reporte" | "dead"> {
+  const job = await prisma.knowledgeJob
+    .findUnique({ where: { id }, select: { attempts: true, payload: true } })
+    .catch(() => null);
+  if (!job) return "dead";
+  const payload = (job.payload && typeof job.payload === "object" && !Array.isArray(job.payload)
+    ? (job.payload as Record<string, unknown>)
+    : {}) as Record<string, unknown>;
+  const reports = typeof payload._reports === "number" ? payload._reports : 0;
+
+  if (reports >= REPORTS_MAX) {
+    await prisma.knowledgeJob
+      .updateMany({
+        where: { id, status: "RUNNING" },
+        data: {
+          status: "DEAD",
+          finishedAt: new Date(),
+          lastError: `Panne persistante après ${reports} reports : ${motif}`.slice(0, 500),
+        },
+      })
+      .catch(() => undefined);
+    return "dead";
+  }
+
+  await prisma.knowledgeJob
+    .updateMany({
+      where: { id, status: "RUNNING" },
+      data: {
+        status: "QUEUED",
+        attempts: Math.max(0, job.attempts - 1),
+        runAfter: new Date(Date.now() + delaiReportMs(reports)),
+        lastError: `En attente — panne temporaire : ${motif}`.slice(0, 500),
+        payload: { ...payload, _reports: reports + 1 } as object,
+      },
+    })
+    .catch(() => undefined);
+  return "reporte";
+}
+
+/**
  * LES TRAVAUX ABANDONNÉS. Un processus tué en plein travail laisse un job en `RUNNING` que plus
  * personne ne réclamera — c'est la panne silencieuse classique d'une file. On les récupère au
  * bout d'un délai généreux : mieux vaut refaire un travail que d'en perdre un pour toujours.
@@ -210,11 +263,13 @@ export interface QueueHealth {
   dead: number;
   /** Le plus vieux travail en attente, en minutes — le signe le plus lisible d'un engorgement. */
   oldestQueuedMin: number | null;
+  /** Parmi les travaux en file, ceux qui attendent un MODÈLE (vecteurs, vision, résumé). */
+  queuedModele: number;
 }
 
 /** L'état de la file, pour l'écran d'observabilité (§26). */
 export async function queueHealth(): Promise<QueueHealth> {
-  const [queued, running, dead, oldest] = await Promise.all([
+  const [queued, running, dead, oldest, queuedModele] = await Promise.all([
     prisma.knowledgeJob.count({ where: { status: "QUEUED" } }),
     prisma.knowledgeJob.count({ where: { status: "RUNNING" } }),
     prisma.knowledgeJob.count({ where: { status: "DEAD" } }),
@@ -223,11 +278,13 @@ export async function queueHealth(): Promise<QueueHealth> {
       orderBy: { createdAt: "asc" },
       select: { createdAt: true },
     }),
+    prisma.knowledgeJob.count({ where: { status: "QUEUED", kind: { in: [...JOB_KINDS_MODELE] } } }),
   ]);
   return {
     queued,
     running,
     dead,
+    queuedModele,
     oldestQueuedMin: oldest ? Math.round((Date.now() - oldest.createdAt.getTime()) / 60_000) : null,
   };
 }

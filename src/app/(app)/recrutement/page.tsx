@@ -76,8 +76,9 @@ export default async function RecrutementPage() {
       }),
       // Ce qui rend la liste utile : « qui attend-on ? », lisible sans ouvrir la fiche.
       waitingOn: r.stage === "CHAIN" ? (waiting?.approver?.name ?? null) : null,
-      /** Est-ce MOI qu'on attend ? La seule question qui fasse revenir sur cet écran. */
-      mine: waiting?.approverId === user.id && r.stage === "CHAIN",
+      /** Est-ce MOI qu'on attend ? La seule question qui fasse revenir sur cet écran — la marche que je
+       *  dois trancher, ou MA demande qu'on m'a renvoyée pour correction (§118.192). */
+      mine: (waiting?.approverId === user.id && r.stage === "CHAIN") || (r.stage === "RETURNED" && r.requesterId === user.id),
     };
   });
 

@@ -1,10 +1,9 @@
 "use client";
 
 import * as React from "react";
-import { useRouter } from "next/navigation";
 import {
   Loader2, Check, X, AlertCircle, Send, MessageSquarePlus, DoorOpen,
-  Star, StarOff, CalendarCheck, UserCheck, UserX, IdCard, Undo2,
+  Star, StarOff, CalendarCheck, UserCheck, UserX, IdCard, Undo2, CornerUpLeft, RotateCcw,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sheet } from "@/components/ui/sheet";
@@ -14,9 +13,12 @@ import {
   decideRecruitmentStep, cancelRecruitmentRequest, askRecruitmentInfo, answerRecruitmentInfo,
   openRecruitmentSourcing, closeRecruitmentRequest, addRecruitmentCandidate,
   moveRecruitmentCandidate, onboardRecruitment,
+  renvoyerDemandeRecrutement, resoumettreDemandeRecrutement, rouvrirDemandeRecrutement, annulerEmbaucheRecrutement,
 } from "@/lib/actions/recruitment-actions";
+import { RECRUITMENT_CONTRACTS, CONTRACT_LABEL } from "@/lib/recruitment/request-flow";
 import type { ActionResult } from "@/lib/actions/types";
 import { useKeyedAction as useAction } from "@/components/shared/use-action";
+import { BoutonDecisif } from "@/components/ui/bouton-decisif";
 
 /**
  * LES GESTES DU CIRCUIT DE RECRUTEMENT.
@@ -56,23 +58,31 @@ export function ChainDecisionPanel({ id, stepLabel }: { id: string; stepLabel: s
         <p className="text-xs text-muted-foreground">{stepLabel}</p>
       </div>
       <div className="space-y-1">
-        <Label className="text-xs">Motif (obligatoire en cas de refus)</Label>
+        <Label className="text-xs">Motif (obligatoire pour refuser ou renvoyer)</Label>
         <Input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Ex. Budget non prévu cette année." className="h-9 text-sm" />
       </div>
       <div className="flex flex-wrap gap-2">
-        <Button
+        <BoutonDecisif
           size="sm" disabled={busy !== null}
           onClick={() => run("ok", () => decideRecruitmentStep(fd({ id, decision: "APPROVED", reason })))}
         >
           {busy === "ok" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />} Valider
-        </Button>
-        <Button
+        </BoutonDecisif>
+        {/* RENVOYER (§118.192) : un besoin mal posé se corrige — le refuser ferait recommencer toute la chaîne. */}
+        <BoutonDecisif
+          size="sm" variant="outline" disabled={busy !== null || !reason.trim()}
+          title={reason.trim() ? undefined : "Dites ce qu'il faut corriger — c'est ce que le demandeur lira."}
+          onClick={() => run("ret", () => renvoyerDemandeRecrutement(fd({ id, motif: reason })))}
+        >
+          {busy === "ret" ? <Loader2 className="h-4 w-4 animate-spin" /> : <CornerUpLeft className="h-4 w-4" />} Renvoyer pour correction
+        </BoutonDecisif>
+        <BoutonDecisif
           size="sm" variant="outline" disabled={busy !== null || !reason.trim()}
           title={reason.trim() ? undefined : "Un refus se motive — c'est ce que le demandeur lira."}
           onClick={() => run("no", () => decideRecruitmentStep(fd({ id, decision: "REJECTED", reason })))}
         >
           {busy === "no" ? <Loader2 className="h-4 w-4 animate-spin" /> : <X className="h-4 w-4" />} Refuser
-        </Button>
+        </BoutonDecisif>
       </div>
       <ErrorLine error={error} />
     </div>
@@ -83,15 +93,14 @@ export function CancelRequestButton({ id }: { id: string }) {
   const { busy, error, run } = useAction();
   return (
     <div className="flex flex-col items-end gap-1">
-      <Button
+      <BoutonDecisif
         variant="outline" size="sm" disabled={busy !== null}
         onClick={() => {
-          if (!window.confirm("Retirer cette demande de recrutement ?")) return;
           void run("cancel", () => cancelRecruitmentRequest(fd({ id })));
         }}
       >
         {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Undo2 className="h-4 w-4" />} Retirer la demande
-      </Button>
+      </BoutonDecisif>
       {error && <p className="text-xs text-destructive">{error}</p>}
     </div>
   );
@@ -99,8 +108,8 @@ export function CancelRequestButton({ id }: { id: string }) {
 
 // ───────────────────────────── Les RH ─────────────────────────────
 
-export function HrPanel({ id, canAsk, canOpen, canReject }: {
-  id: string; canAsk: boolean; canOpen: boolean; canReject: boolean;
+export function HrPanel({ id, canAsk, canOpen, canReject, canReturn }: {
+  id: string; canAsk: boolean; canOpen: boolean; canReject: boolean; canReturn: boolean;
 }) {
   const { busy, error, run } = useAction();
   const [question, setQuestion] = React.useState("");
@@ -135,25 +144,34 @@ export function HrPanel({ id, canAsk, canOpen, canReject }: {
         </div>
       )}
 
-      {(canOpen || canReject) && (
+      {(canOpen || canReject || canReturn) && (
         <div className="space-y-1 border-t border-border pt-3">
           <Label className="text-xs">Décision</Label>
-          <Input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Note (motif de refus, conditions…)" className="h-9 text-sm" />
+          <Input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Motif (ce qu'il faut corriger, raison d'un refus…)" className="h-9 text-sm" />
           <div className="flex flex-wrap gap-2 pt-1">
             {canOpen && (
-              <Button size="sm" disabled={busy !== null} onClick={() => run("open", () => openRecruitmentSourcing(fd({ id })))}>
+              <BoutonDecisif size="sm" disabled={busy !== null} onClick={() => run("open", () => openRecruitmentSourcing(fd({ id })))}>
                 {busy === "open" ? <Loader2 className="h-4 w-4 animate-spin" /> : <DoorOpen className="h-4 w-4" />}
                 Ouvrir le poste
-              </Button>
+              </BoutonDecisif>
+            )}
+            {canReturn && (
+              <BoutonDecisif
+                size="sm" variant="outline" disabled={busy !== null || !note.trim()}
+                title={note.trim() ? undefined : "Dites ce qu'il faut corriger."}
+                onClick={() => run("ret", () => renvoyerDemandeRecrutement(fd({ id, motif: note })))}
+              >
+                {busy === "ret" ? <Loader2 className="h-4 w-4 animate-spin" /> : <CornerUpLeft className="h-4 w-4" />} Renvoyer pour correction
+              </BoutonDecisif>
             )}
             {canReject && (
-              <Button
+              <BoutonDecisif
                 size="sm" variant="outline" disabled={busy !== null || !note.trim()}
                 title={note.trim() ? undefined : "Un refus se motive."}
                 onClick={() => run("rej", () => closeRecruitmentRequest(fd({ id, decision: "REJECTED", note })))}
               >
                 {busy === "rej" ? <Loader2 className="h-4 w-4 animate-spin" /> : <X className="h-4 w-4" />} Refuser
-              </Button>
+              </BoutonDecisif>
             )}
           </div>
         </div>
@@ -258,10 +276,10 @@ export function CandidateActions({ candidateId, status, can }: {
           </Button>
         )}
         {can.hire && !done && (
-          <Button size="sm" disabled={busy !== null} onClick={() => move("HIRE")}>
+          <BoutonDecisif size="sm" disabled={busy !== null} onClick={() => move("HIRE")}>
             {busy === "HIRE" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
             Recruter
-          </Button>
+          </BoutonDecisif>
         )}
         {(can.shortlist || can.select || can.interview) && !done && (
           <Button size="sm" variant="outline" disabled={busy !== null} onClick={() => move("DECLINE")}>
@@ -277,10 +295,11 @@ export function CandidateActions({ candidateId, status, can }: {
 
 // ───────────────────────────── L'intégration ─────────────────────────────
 
-export function OnboardPanel({ id, hiredName, external }: {
-  id: string; hiredName: string; external: boolean;
+export function OnboardPanel({ id, hiredName, external, canCancelHire }: {
+  id: string; hiredName: string; external: boolean; canCancelHire: boolean;
 }) {
   const { busy, error, run } = useAction();
+  const [motif, setMotif] = React.useState("");
   return (
     <div className="space-y-2 rounded-xl border border-success/40 bg-success/5 p-4">
       <p className="text-sm font-semibold">{hiredName} est recruté</p>
@@ -289,10 +308,25 @@ export function OnboardPanel({ id, hiredName, external }: {
           ? "Consulting : intervenant EXTERNE. Aucune fiche employé n'est créée — il n'entre ni dans l'effectif, ni dans la paie, ni dans l'organigramme."
           : "Créez la fiche employé : elle sera pré-remplie depuis la demande (poste, direction, contrat, dates) et depuis le candidat. Le salaire réel et le compte applicatif se complètent ensuite depuis les RH."}
       </p>
-      <Button size="sm" disabled={busy !== null} onClick={() => run("on", () => onboardRecruitment(fd({ id })))}>
+      <BoutonDecisif size="sm" disabled={busy !== null} onClick={() => run("on", () => onboardRecruitment(fd({ id })))}>
         {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <IdCard className="h-4 w-4" />}
         {external ? "Clôturer — consultant externe" : "Créer la fiche employé"}
-      </Button>
+      </BoutonDecisif>
+      {/* ANNULER L'EMBAUCHE (§118.192) : un candidat qui se désiste avant sa fiche ne laisse plus la demande
+          en intégration pour toujours. */}
+      {canCancelHire && (
+        <div className="space-y-1 border-t border-success/30 pt-2">
+          <Label className="text-xs">Annuler l&apos;embauche (désistement, erreur…)</Label>
+          <Input value={motif} onChange={(e) => setMotif(e.target.value)} placeholder="Motif" className="h-9 text-sm" />
+          <BoutonDecisif
+            size="sm" variant="outline" disabled={busy !== null || !motif.trim()}
+            title={motif.trim() ? undefined : "Dites pourquoi l'embauche s'annule."}
+            onClick={() => run("annul", () => annulerEmbaucheRecrutement(fd({ id, motif })))}
+          >
+            {busy === "annul" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Undo2 className="h-4 w-4" />} Annuler l&apos;embauche
+          </BoutonDecisif>
+        </div>
+      )}
       <ErrorLine error={error} />
     </div>
   );
@@ -305,11 +339,126 @@ export function CloseRequestButton({ id }: { id: string }) {
     <div className="space-y-1.5 rounded-xl border border-border p-3">
       <Label className="text-xs">Clôturer sans suite</Label>
       <Input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Motif (poste abandonné, gel des embauches…)" className="h-9 text-sm" />
-      <Button
+      <BoutonDecisif
         size="sm" variant="outline" disabled={busy !== null || !note.trim()}
         onClick={() => run("close", () => closeRecruitmentRequest(fd({ id, note })))}
       >
         {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <X className="h-4 w-4" />} Clôturer
+      </BoutonDecisif>
+      <ErrorLine error={error} />
+    </div>
+  );
+}
+
+// ───────────────────────────── Corriger, rouvrir (audit 360°, R14 — §118.192) ─────────────────────────────
+
+/** Le besoin tel qu'il est enregistré — le formulaire de correction part de LÀ, jamais d'un formulaire vide. */
+export interface BesoinAffiche {
+  position: string; headcount: number; contractType: string;
+  salaryMin: number | null; salaryMax: number | null;
+  startDate: string | null; endDate: string | null;
+  missions: string | null; skills: string | null; justification: string | null;
+}
+
+/**
+ * LE DEMANDEUR CORRIGE ET RENVOIE. Le formulaire est PRÉ-REMPLI : corriger ce qu'on vous demande ne doit
+ * pas obliger à tout ressaisir — et un champ ressaisi est un champ qu'on peut changer sans le vouloir.
+ */
+export function CorrigerDemandePanel({ id, besoin }: { id: string; besoin: BesoinAffiche }) {
+  const { busy, error, run } = useAction();
+  const formRef = React.useRef<HTMLFormElement>(null);
+  const [changements, setChangements] = React.useState("");
+  return (
+    <form
+      ref={formRef}
+      className="space-y-3 rounded-xl border border-warning/40 bg-warning/5 p-4"
+      onSubmit={(e) => {
+        e.preventDefault();
+        const f = new FormData(e.currentTarget);
+        f.set("id", id);
+        void run("corr", () => resoumettreDemandeRecrutement(f));
+      }}
+    >
+      <p className="text-sm font-semibold">Corriger et renvoyer</p>
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <div className="space-y-1 sm:col-span-2">
+          <Label className="text-xs">Intitulé du poste</Label>
+          <Input name="position" defaultValue={besoin.position} className="h-9 text-sm" />
+        </div>
+        <div className="space-y-1">
+          <Label className="text-xs">Type de contrat</Label>
+          <select name="contractType" defaultValue={besoin.contractType} className="h-9 w-full rounded-md border border-input bg-background px-2 text-sm">
+            {RECRUITMENT_CONTRACTS.map((c) => <option key={c} value={c}>{CONTRACT_LABEL[c]}</option>)}
+          </select>
+        </div>
+        <div className="space-y-1">
+          <Label className="text-xs">Nombre de postes</Label>
+          <Input name="headcount" type="number" min={1} defaultValue={besoin.headcount} className="h-9 text-sm" />
+        </div>
+        <div className="space-y-1">
+          <Label className="text-xs">Rémunération minimale (DZD)</Label>
+          <Input name="salaryMin" type="number" step="any" min={0} defaultValue={besoin.salaryMin ?? ""} className="h-9 text-sm" />
+        </div>
+        <div className="space-y-1">
+          <Label className="text-xs">Rémunération maximale (DZD)</Label>
+          <Input name="salaryMax" type="number" step="any" min={0} defaultValue={besoin.salaryMax ?? ""} className="h-9 text-sm" />
+        </div>
+        <div className="space-y-1">
+          <Label className="text-xs">Prise de poste</Label>
+          <Input name="startDate" type="date" defaultValue={besoin.startDate ?? ""} className="h-9 text-sm" />
+        </div>
+        <div className="space-y-1">
+          <Label className="text-xs">Fin de contrat</Label>
+          <Input name="endDate" type="date" defaultValue={besoin.endDate ?? ""} className="h-9 text-sm" />
+        </div>
+        <div className="space-y-1 sm:col-span-2">
+          <Label className="text-xs">Missions</Label>
+          <Textarea name="missions" rows={2} defaultValue={besoin.missions ?? ""} className="text-sm" />
+        </div>
+        <div className="space-y-1 sm:col-span-2">
+          <Label className="text-xs">Compétences attendues</Label>
+          <Textarea name="skills" rows={2} defaultValue={besoin.skills ?? ""} className="text-sm" />
+        </div>
+        <div className="space-y-1 sm:col-span-2">
+          <Label className="text-xs">Pourquoi ce recrutement</Label>
+          <Textarea name="justification" rows={2} defaultValue={besoin.justification ?? ""} className="text-sm" />
+        </div>
+        <div className="space-y-1 sm:col-span-2">
+          <Label className="text-xs">Ce qui a changé (obligatoire)</Label>
+          <Textarea
+            name="changements" rows={2} value={changements} onChange={(e) => setChangements(e.target.value)}
+            placeholder="Ex. Fourchette ramenée à 90 000 – 110 000 DZD, intitulé précisé."
+            className="text-sm"
+          />
+        </div>
+      </div>
+      <p className="text-xs text-muted-foreground">
+        Un autre poste, un autre contrat, plus de postes, une rémunération relevée ou un contrat plus long font
+        repartir la validation depuis la première marche ; le reste revient là d&apos;où la demande vous a été renvoyée.
+      </p>
+      <Button type="submit" size="sm" disabled={busy !== null || !changements.trim()}>
+        {busy === "corr" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />} Corriger et renvoyer
+      </Button>
+      <ErrorLine error={error} />
+    </form>
+  );
+}
+
+/** ROUVRIR — les RH ou le sommet, motif à l'appui ; la phrase dit où la demande repartira. */
+export function RouvrirPanel({ id, destination }: { id: string; destination: string }) {
+  const { busy, error, run } = useAction();
+  const [motif, setMotif] = React.useState("");
+  return (
+    <div className="space-y-1.5 rounded-xl border border-border p-3">
+      <Label className="text-xs">Rouvrir la demande</Label>
+      <p className="text-xs text-muted-foreground">{destination}</p>
+      <Input value={motif} onChange={(e) => setMotif(e.target.value)} placeholder="Motif (erreur reconnue, besoin confirmé…)" className="h-9 text-sm" />
+      <Button
+        size="sm" variant="outline" disabled={busy !== null || !motif.trim()}
+        title={motif.trim() ? undefined : "Dites pourquoi vous la rouvrez."}
+        onClick={() => run("rouv", () => rouvrirDemandeRecrutement(fd({ id, motif })))}
+      >
+        {busy === "rouv" ? <Loader2 className="h-4 w-4 animate-spin" /> : <RotateCcw className="h-4 w-4" />} Rouvrir
       </Button>
       <ErrorLine error={error} />
     </div>

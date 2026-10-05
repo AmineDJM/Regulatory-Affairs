@@ -3,8 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { requireUser } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
-import { getCompanyScope } from "@/lib/company";
-import { regCan, resolveRegCompanyId } from "../access";
+import { regCan, resolveRegCompanyIdFor } from "../access";
 import { regAudit } from "../audit";
 import { draftSupplierEmail } from "./draft";
 
@@ -19,7 +18,7 @@ const str = (fd: FormData, k: string) => { const v = fd.get(k); return v ? Strin
 async function guard(): Promise<{ ok: true; userId: string; companyId: string } | { ok: false; error: string }> {
   const user = await requireUser();
   if (!regCan(user, "regulatory.workspace.manage") && !regCan(user, "regulatory.dossier.upload") && user.role !== "SUPER_ADMIN") return { ok: false, error: "Non autorisé." };
-  const companyId = await resolveRegCompanyId(getCompanyScope());
+  const companyId = await resolveRegCompanyIdFor(user.id);
   if (!companyId) return { ok: false, error: "Module non activé." };
   return { ok: true, userId: user.id, companyId };
 }

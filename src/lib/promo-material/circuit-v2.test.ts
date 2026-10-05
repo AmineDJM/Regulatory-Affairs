@@ -129,7 +129,17 @@ describe("les devis retranscrits — « référence, unité, prix unitaire et pr
     expect(m.join(" | ")).toMatch(/quantité nulle/);
     expect(m.join(" | ")).toMatch(/annonce/);
     expect(manquesDeRetranscription([])).toEqual(["aucun devis n'est retranscrit"]);
-    expect(manquesDeRetranscription([devis("A", [["X", 1, 10]])])).toEqual([]);
+    expect(manquesDeRetranscription([devis("A", [["X", 1, 10]], { announcedTotal: 10 })])).toEqual([]);
+  });
+
+  it("le total HT IMPRIMÉ est exigé pour terminer — son absence est dite, devis par devis, au lieu de sauter le contrôle", () => {
+    // Le contrôle à un dinar près se sautait quand le champ restait vide : « Retranscription terminée »
+    // passait sans que rien ait été comparé au papier, alors que la règle se disait toujours appliquée.
+    const sans = manquesDeRetranscription([devis("A", [["X", 1, 10]]), devis("B", [["Y", 2, 5]], { announcedTotal: 10 })]);
+    expect(sans).toEqual([expect.stringMatching(/^« Agence A » : saisissez le total HT imprimé sur le devis/)]);
+    // Avec le total, plus rien ne manque — et un total à zéro (devis gracieux) est un total, pas une absence.
+    expect(manquesDeRetranscription([devis("A", [["X", 1, 10]], { announcedTotal: 10 }), devis("B", [["Y", 2, 5]], { announcedTotal: 10 })])).toEqual([]);
+    expect(manquesDeRetranscription([devis("C", [["Échantillon", 3, 0]], { announcedTotal: 0 })])).toEqual([]);
   });
 
   it("le BC ne porte QUE les lignes retenues, dans l'ordre du devis", () => {
@@ -235,7 +245,8 @@ describe("le circuit 2 — ses étapes, et qui fait quoi", () => {
     const c = ctx();
     expect(progress("REVIEW_MANAGER", [], c)).toEqual({ step: 5, total: 7 });
     expect(waitingOn("QUOTE_REQUESTED", [], 2)).toMatch(/assistante de direction/);
-    expect(waitingOn("QUOTE_TO_REQUEST", [], 2)).toMatch(/demander les devis/);
+    // La demande de devis part d'elle-même (§118.204) ; si elle est restée, c'est le demandeur qui l'envoie, d'« Articles demandés ».
+    expect(waitingOn("QUOTE_TO_REQUEST", [], 2)).toMatch(/demande de devis n'est pas partie.*Articles demandés/);
     expect(libelleEtape("REVIEW_REQUESTER", 2)).toMatch(/lignes/);
     expect(libelleEtape("REVIEW_REQUESTER", 1)).toBe("Validation du demandeur");
     expect(libelleCourt("QUOTE_REQUESTED", 2)).toBe("Retranscription des devis");

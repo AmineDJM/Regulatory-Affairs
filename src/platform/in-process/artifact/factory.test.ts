@@ -204,7 +204,8 @@ suite("la fabrique de documents — émission, registre, Drive, reprise, révisi
     expect(f.version).toBe(2);
     expect(f.historique.at(-1)).toMatchObject({ version: 2, resume: "v2 — quantités doublées" });
     // La version 1 reste ouvrable — le Drive est un historique.
-    expect((await modeleDrive(devis.docx.nodeId, 1)).paragraphs[0].text).toBe(`DEVIS : N° ${devis.reference}`);
+    // Le titre « DEVIS » est centré sous l'en-tête (Direction, 10/2026) : il précède la ligne « DEVIS : N° … ».
+    expect((await modeleDrive(devis.docx.nodeId, 1)).paragraphs.slice(0, 2).map((x) => x.text)).toEqual(["DEVIS", `DEVIS : N° ${devis.reference}`]);
 
     const facture = await prisma.legalDocument.findFirst({ where: { companyId, kind: "INVOICE" }, select: { id: true } });
     const refus = await reviserDocumentDrive(user, { legalDocumentId: facture!.id, modifications: { notes: "x" } });
@@ -439,7 +440,7 @@ describe("une pièce qui ne porte pas la charte de la société le DIT", () => {
     societe: { id: "s1", nom: "Adventum Pharma", couleur: "#0f766e" },
     identite: { nom: "Adventum Pharma" },
     identiteIncomplete: ["siège social", "RC", "NIF"],
-    reglages: { quotePrefix: "DEV", orderPrefix: "BC", invoicePrefix: "FA", vatRate: 0.19, paymentTerms: "", quoteValidityDays: 30, footerNote: null, letterheadId: null, signatoryName: null, signatoryTitle: null, numerotation: {}, existe: false },
+    reglages: { quotePrefix: "DEV", orderPrefix: "BC", invoicePrefix: "FA", vatRate: 0.19, paymentTerms: "", quoteValidityDays: 30, footerNote: null, letterheadId: null, signatoryName: null, signatoryTitle: null, numerotation: {}, numerotationDepart: {}, existe: false },
     papierEnTete: null,
     reglesAppliquees: [],
     marque: { logo: null } as ProfilDocumentaire["marque"],

@@ -23,7 +23,7 @@ import {
 } from "./promo-devis-actions";
 import {
   genererBonsDeCommandePromo, marquerBonDeCommandeEnvoye, deposerFacturePromo, demanderPaiementFacturePromo,
-  annulerBonDeCommandePromo, receptionnerLigneFacturePromo,
+  annulerBonDeCommandePromo, receptionnerLigneFacturePromo, modifierBonDeCommandePromo,
 } from "./promo-execution-actions";
 import { enregistrerArticleDemandePromo, retirerArticleDemandePromo } from "./promo-demande-actions";
 import { REFUS_SANS_LIGNE } from "@/lib/promo-material/lignes-demande";
@@ -36,7 +36,9 @@ import { executionDuDossier } from "@/lib/queries/promo-execution";
 import { emettreDocumentDrive } from "@/platform/in-process/artifact/factory";
 import { portsArtefact } from "@/platform/in-process/artifact/ports";
 import { designerDossierPromo } from "@/platform/in-process/promo";
-import { fichierEmisDeLaPiece } from "@/lib/queries/legal-fichier";
+import { fichierEmisDeLaPiece, specDeLaPieceEmise } from "@/lib/queries/legal-fichier";
+import { construireXlsxCommercial } from "@/lib/artifact/factory/xlsx";
+import { calculerTotaux, type SpecDocumentCommercial } from "@/lib/artifact/factory/commercial";
 import { fichiersEmis } from "@/lib/legal/fichiers-emis";
 import { etatDuBC } from "@/lib/bons-de-commande/etat";
 
@@ -347,27 +349,31 @@ suite("Matériel promotionnel — circuit 2 de bout en bout", () => {
     expect(await prisma.notification.count({ where: { userId: u.dir, link: `/promo-material/${pmId}` } })).toBe(1);
   });
 
-  it("VALIDER LA DEMANDE : ni le demandeur, ni un tiers — la directrice figée", async () => {
+  it("VALIDER LA DEMANDE : ni le demandeur, ni un tiers — la directrice figée ; un envoi automatique qui ne peut pas partir le DIT", async () => {
     ACTOR = await actorFor(u.cp);
     expect((await validatePromoStep(form({ id: pmId }))).ok).toBe(false);
     ACTOR = await actorFor(u.dehors);
     expect((await validatePromoStep(form({ id: pmId }))).ok).toBe(false);
-    ACTOR = await actorFor(u.dir);
-    const r = await validatePromoStep(form({ id: pmId }));
-    expect(r.ok, r.ok ? "" : r.error).toBe(true);
-    expect((await etatDe(pmId)).circuitState).toBe("QUOTE_TO_REQUEST");
-  });
-
-  it("DEMANDER LES DEVIS : le demandeur, une fois les articles posés ; la demande au secrétariat porte le lien canonique", async () => {
-    ACTOR = await actorFor(u.asst);
-    expect((await demanderDevisPromo(form({ promoMaterialId: pmId }))).ok, "l'assistante ne demande pas à la place du demandeur").toBe(false);
+    // §118.165 : sans article demandé, l'assistante ne saurait pas quels devis chercher. La demande NAÎT avec
+    // ses lignes (§118.171) ; ce garde-fou reste atteignable si le demandeur retire la dernière ligne avant la
+    // validation — la demande de devis, qui part d'elle-même à la validation (§118.204), ne part alors PAS.
     ACTOR = await actorFor(u.cp);
-    // §118.165 : sans article demandé, l'assistante ne saurait pas quels devis chercher. La demande
-    // NAÎT avec ses lignes (§118.171) ; ce garde-fou-ci reste atteignable si l'on retire la
-    // dernière ligne sur la fiche — on le joue ainsi, puis on la remet.
     const premiere = await prisma.promoRequestItem.findFirstOrThrow({ where: { promoMaterialId: pmId }, select: { id: true } });
     const retrait = await retirerArticleDemandePromo(form({ promoMaterialId: pmId, requestItemId: premiere.id }));
     expect(retrait.ok, retrait.ok ? "" : retrait.error).toBe(true);
+    ACTOR = await actorFor(u.dir);
+    const r = await validatePromoStep(form({ id: pmId }));
+    expect(r.ok, r.ok ? "" : r.error).toBe(true);
+    expect(r.message).toMatch(/n'est pas partie d'elle-même.*articles à faire chiffrer/s);
+    expect((await etatDe(pmId)).circuitState).toBe("QUOTE_TO_REQUEST");
+    expect(await prisma.administrativeRequest.count({ where: { linkedEntityType: "PROMO_MATERIAL", linkedEntityId: pmId } })).toBe(0);
+    expect(await prisma.notification.count({ where: { userId: u.cp, title: "Demande validée — envoyez la demande de devis depuis « Articles demandés »" } })).toBe(1);
+  });
+
+  it("ENVOYER LA DEMANDE DE DEVIS (le repli) : le demandeur, une fois les articles posés ; la demande au secrétariat porte le lien canonique", async () => {
+    ACTOR = await actorFor(u.asst);
+    expect((await demanderDevisPromo(form({ promoMaterialId: pmId }))).ok, "l'assistante n'envoie pas à la place du demandeur").toBe(false);
+    ACTOR = await actorFor(u.cp);
     const sansArticle = await demanderDevisPromo(form({ promoMaterialId: pmId }));
     expect(sansArticle.ok).toBe(false);
     expect(sansArticle.ok ? "" : sansArticle.error).toMatch(/articles à faire chiffrer/);
@@ -411,7 +417,7 @@ suite("Matériel promotionnel — circuit 2 de bout en bout", () => {
     const a = await enregistrerDevisPromo(fd);
     expect(a.ok, a.ok ? "" : a.error).toBe(true);
     const fdB = form({
-      promoMaterialId: pmId, supplierId: fourB, reference: "S-114", tvaRate: "19", extraTaxLabel: "Taxe Pub", extraTaxRate: "2",
+      promoMaterialId: pmId, supplierId: fourB, reference: "S-114", tvaRate: "19", extraTaxLabel: "Taxe Pub", extraTaxRate: "2", announcedTotal: "300000",
       ligneReference: ["Stand modulaire 3×3"], ligneQuantite: ["1"], lignePrix: ["300000"], ligneAction: ["FABRICATION"],
     });
     fdB.set("scan", pdf("devis-sahel.pdf"));
@@ -463,7 +469,10 @@ suite("Matériel promotionnel — circuit 2 de bout en bout", () => {
     expect(pm.chosenAgency).toContain("Atlas");
     expect(pm.chosenAgency).toContain("Sahel");
     expect(pm.circuitState).toBe("REVIEW_MANAGER");
-  });
+    // Plafond LOCAL, mesure à côté (§118.124b) : ce cas fait moins de 300 ms seul (le fichier entier
+    // 3,4 s) et a dépassé les 20 000 ms globales sous 893 fichiers — le fichier y a pris 65 s. Un plafond
+    // répond à « est-il bloqué ? », jamais à « est-il lent ? » ; le global ne bouge pas.
+  }, 120_000);
 
   it("DIRECTION MARKETING : la directrice du demandeur valide ; le DG ensuite, au-dessus du seuil", async () => {
     ACTOR = await actorFor(u.ns2);
@@ -523,8 +532,53 @@ suite("Matériel promotionnel — circuit 2 de bout en bout", () => {
     expect(await prisma.legalDocument.count({ where: { sourceType: "PROMO_MATERIAL", sourceId: pmId, kind: "PURCHASE_ORDER" } })).toBe(2);
 
     ACTOR = await actorFor(u.cp);
-    const annul = await cancelPromoMaterial(form({ id: pmId }));
+    // AVEC un motif : sans lui, le refus viendrait du motif manquant et ce cas passerait pour la mauvaise
+    // raison (§118.111) — c'est bien les BC générés qui doivent l'arrêter.
+    const annul = await cancelPromoMaterial(form({ id: pmId, motif: "Projet abandonné." }));
     expect(annul.ok, "un dossier avec des BC générés ne s'annule pas en laissant les commandes vivantes").toBe(false);
+    expect(annul.error).toMatch(/de commande ont été générés pour ce dossier/);
+  }, 120_000);
+
+  it("LA CASE « TAXE SUPPLÉMENTAIRE » (Direction, 10/2026) : un taux la pose, le libellé reste quand on ne change que le taux, 0 la retire, vide la garde — un taux illisible refuse sans rien écrire", async () => {
+    ACTOR = await actorFor(u.asst);
+    const devis = await prisma.promoQuote.findFirstOrThrow({ where: { promoMaterialId: pmId, purchaseOrderId: { not: null } }, orderBy: { createdAt: "asc" }, select: { id: true, purchaseOrderId: true } });
+    const piece = () => prisma.legalDocument.findUniqueOrThrow({ where: { id: devis.purchaseOrderId! }, select: { amount: true, custom: true } });
+    const specDe = async () => ((await piece()).custom as unknown as { fabrique: { spec: SpecDocumentCommercial } }).fabrique.spec;
+    const avant = Number((await piece()).amount);
+    expect((await specDe()).taxes ?? []).toEqual([]);
+    const base = { promoMaterialId: pmId, quoteId: devis.id };
+
+    // Un taux illisible ou hors de 0–100 est refusé EN LE NOMMANT, et rien n'est écrit.
+    for (const mauvais of ["abc", "101", "-2"]) {
+      const r = await modifierBonDeCommandePromo(form({ ...base, extraTaxRate: mauvais }));
+      expect(r.ok, `« ${mauvais} » doit être refusé`).toBe(false);
+      expect(r.error).toMatch(/pour cent/);
+    }
+    expect(Number((await piece()).amount)).toBe(avant);
+
+    // POSÉE : « Taxe Pub 2 % » — le total suit, calculé par la fabrique (sur le HT, hors base de TVA).
+    const pose = await modifierBonDeCommandePromo(form({ ...base, extraTaxLabel: "Taxe Pub", extraTaxRate: "2", motif: "Taxe Pub demandée" }));
+    expect(pose.ok, pose.ok ? "" : pose.error).toBe(true);
+    expect((await specDe()).taxes).toEqual([{ libelle: "Taxe Pub", taux: 0.02 }]);
+    const apresPose = Number((await piece()).amount);
+    expect(apresPose).toBe(calculerTotaux(await specDe()).totalTtc);
+    expect(apresPose).toBeGreaterThan(avant);
+
+    // LE TAUX SEUL, avec une virgule : le libellé de la pièce reste « Taxe Pub » (il ne devient pas « Taxe additionnelle »).
+    const taux = await modifierBonDeCommandePromo(form({ ...base, extraTaxRate: "3,5" }));
+    expect(taux.ok, taux.ok ? "" : taux.error).toBe(true);
+    expect((await specDe()).taxes).toEqual([{ libelle: "Taxe Pub", taux: 0.035 }]);
+
+    // VIDE : la taxe est gardée — une modification des notes seules ne la touche pas.
+    const notes = await modifierBonDeCommandePromo(form({ ...base, notes: "À livrer avant la fin du mois", extraTaxRate: "" }));
+    expect(notes.ok, notes.ok ? "" : notes.error).toBe(true);
+    expect((await specDe()).taxes).toEqual([{ libelle: "Taxe Pub", taux: 0.035 }]);
+
+    // 0 : aucune taxe — le total revient exactement à celui d'avant la taxe.
+    const retire = await modifierBonDeCommandePromo(form({ ...base, extraTaxRate: "0" }));
+    expect(retire.ok, retire.ok ? "" : retire.error).toBe(true);
+    expect((await specDe()).taxes ?? []).toEqual([]);
+    expect(Number((await piece()).amount)).toBe(avant);
   }, 120_000);
 
   it("LE FICHIER DU BC s'ouvre sous la porte de la PIÈCE : le demandeur et les Finances le lisent, pas un tiers", async () => {
@@ -537,6 +591,17 @@ suite("Matériel promotionnel — circuit 2 de bout en bout", () => {
     expect(await fichierEmisDeLaPiece(cp, bc.id, "docx")).toEqual({ nodeId: f.docx });
     expect(await fichierEmisDeLaPiece(await actorFor(u.fin), bc.id, "docx")).toEqual({ nodeId: f.docx });
     expect(await fichierEmisDeLaPiece(await actorFor(u.dehors), bc.id, "docx")).toBeNull();
+    // LE CLASSEUR EXCEL (« générer le BC sur Excel ») : même porte que le Word — la spécification se lit pour qui lit la pièce, pas pour un tiers —,
+    // et le classeur retombe, au centime, sur le montant de la pièce au registre.
+    const spec = await specDeLaPieceEmise(cp, bc.id);
+    expect(spec, "le demandeur lit la spécification de la pièce de son dossier").not.toBeNull();
+    expect(await specDeLaPieceEmise(await actorFor(u.fin), bc.id)).not.toBeNull();
+    expect(await specDeLaPieceEmise(await actorFor(u.dehors), bc.id)).toBeNull();
+    const classeur = await construireXlsxCommercial(spec!);
+    expect(classeur.verification.bloquants).toEqual([]);
+    expect(classeur.verification.ok).toBe(true);
+    const registre = await prisma.legalDocument.findUniqueOrThrow({ where: { id: bc.id }, select: { amount: true } });
+    expect(calculerTotaux(spec!).totalTtc).toBe(Number(registre.amount));
   });
 
   it("CENTRE puis SIGNATURE : pas d'envoi ni de facture avant la signature des Finances", async () => {
@@ -645,9 +710,9 @@ suite("Matériel promotionnel — circuit 2 de bout en bout", () => {
 
     // Le pharmacien OUVRE le dossier dont il instruit le visa — sans le module.
     const pharma = await actorFor(u.pharma);
-    expect(await peutOuvrirLeDossierPromo(pharma, { id: pmId, requesterId: u.cp, assistantId: u.asst })).toBe(true);
+    expect(await peutOuvrirLeDossierPromo(pharma, { id: pmId, requesterId: u.cp, assistantId: u.asst, companyId: null })).toBe(true);
     // … et les Finances, qui LISENT l'information médicale pour les bons de versement, n'y entrent pas par là.
-    expect(await peutOuvrirLeDossierPromo(await actorFor(u.dehors), { id: pmId, requesterId: u.cp, assistantId: u.asst })).toBe(false);
+    expect(await peutOuvrirLeDossierPromo(await actorFor(u.dehors), { id: pmId, requesterId: u.cp, assistantId: u.asst, companyId: null })).toBe(false);
 
     // Le chantier « paiements » ne se clôt pas sur un paiement DEMANDÉ : il faut un paiement RÉGLÉ.
     ACTOR = await actorFor(u.cp);
@@ -700,7 +765,7 @@ suite("Matériel promotionnel — circuit 2 de bout en bout", () => {
     const r0 = await demanderDevisPromo(form({ promoMaterialId: kamPmId }));
     expect(r0.ok, r0.ok ? "" : r0.error).toBe(true);
     ACTOR = await actorFor(u.asst);
-    const fd = form({ promoMaterialId: kamPmId, supplierId: fourA, ligneReference: ["Carnet A5"], ligneQuantite: ["500"], lignePrix: ["120"], ligneAction: ["IMPRESSION"] });
+    const fd = form({ promoMaterialId: kamPmId, supplierId: fourA, announcedTotal: "60000", ligneReference: ["Carnet A5"], ligneQuantite: ["500"], lignePrix: ["120"], ligneAction: ["IMPRESSION"] });
     fd.set("scan", pdf("devis.pdf"));
     expect((await enregistrerDevisPromo(fd)).ok).toBe(true);
     expect((await terminerRetranscriptionPromo(form({ promoMaterialId: kamPmId }))).ok).toBe(true);
@@ -726,13 +791,23 @@ suite("Matériel promotionnel — circuit 2 de bout en bout", () => {
     expect(await prisma.comment.count({ where: { entityType: "PROMO_MATERIAL", entityId: kamPmId, body: { contains: "12 DZD" } } })).toBe(1);
   });
 
-  it("REFUSER : motif obligatoire, et le refus arrête le circuit", async () => {
+  it("REFUSER : le demandeur n'arrête pas son propre dossier par un refus (il l'annule) ; la Direction Marketing refuse, motif obligatoire, et le refus arrête le circuit", async () => {
     ACTOR = await actorFor(u.asst);
     const ligne = await prisma.promoQuoteLine.findFirstOrThrow({ where: { quote: { promoMaterialId: kamPmId } }, include: { quote: true } });
-    const fix = form({ promoMaterialId: kamPmId, quoteId: ligne.quoteId, supplierId: fourA, ligneReference: ["Carnet A5"], ligneQuantite: ["500"], lignePrix: ["12"], ligneAction: ["IMPRESSION"] });
+    const fix = form({ promoMaterialId: kamPmId, quoteId: ligne.quoteId, supplierId: fourA, announcedTotal: "6000", ligneReference: ["Carnet A5"], ligneQuantite: ["500"], lignePrix: ["12"], ligneAction: ["IMPRESSION"] });
     expect((await enregistrerDevisPromo(fix)).ok).toBe(true);
     expect((await terminerRetranscriptionPromo(form({ promoMaterialId: kamPmId }))).ok).toBe(true);
     ACTOR = await actorFor(u.kam);
+    // §118.190 : à son propre choix des lignes, « refuser » tuait la demande au lieu de redemander des
+    // devis — le refus le DIT, sans même demander de motif (l'état d'abord, §118.18).
+    const propre = await refusePromoStep(form({ id: kamPmId, reason: "Budget réaffecté" }));
+    expect(propre.ok ? "" : propre.error).toMatch(/C'est votre propre demande .*Redemander des devis/);
+    expect((await etatDe(kamPmId)).circuitState).toBe("REVIEW_REQUESTER");
+    const retenue = await prisma.promoQuoteLine.findFirstOrThrow({ where: { quote: { promoMaterialId: kamPmId } }, select: { id: true } });
+    const choix = await choisirLignesPromo(form({ promoMaterialId: kamPmId, lineIds: [retenue.id], valider: "1" }));
+    expect(choix.ok, choix.ok ? "" : choix.error).toBe(true);
+    expect((await etatDe(kamPmId)).circuitState).toBe("REVIEW_MANAGER");
+    ACTOR = await actorFor(u.dir);
     expect((await refusePromoStep(form({ id: kamPmId }))).ok).toBe(false);
     const r = await refusePromoStep(form({ id: kamPmId, reason: "Budget réaffecté" }));
     expect(r.ok, r.ok ? "" : r.error).toBe(true);

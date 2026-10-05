@@ -1,7 +1,8 @@
 import Link from "next/link";
 import { CalendarOff, PlaneTakeoff, CheckCheck, AlarmClock } from "lucide-react";
 import { requireModule } from "@/lib/session";
-import { userCan } from "@/lib/rbac";
+import { userCan, estPrete } from "@/lib/rbac";
+import { clauseSalariesVisibles } from "@/lib/queries/visibilite-listes";
 import { getRhData } from "@/lib/queries/hr";
 import { getHrPulse } from "@/lib/queries/hr-pulse";
 import { PageHeader } from "@/components/shared/page-header";
@@ -17,7 +18,7 @@ import { SuperAdminDeleteButton } from "@/components/shared/super-admin-delete";
 import { prisma } from "@/lib/prisma";
 import { MODULE_LABELS } from "@/lib/labels";
 import { StandInBadge, StandInDecision } from "@/components/hr/stand-in-panel";
-import type { StandInStatus } from "@/lib/hr/stand-in";
+import { congeTermine, type StandInStatus } from "@/lib/hr/stand-in";
 
 export const dynamic = "force-dynamic";
 
@@ -32,15 +33,21 @@ export const dynamic = "force-dynamic";
 export default async function RhLeavePage() {
   const user = await requireModule("RH");
   const canManage = userCan(user, "RH", "UPDATE");
+  // Valider un intérim, c'est prêter des droits : un droit RH qui ne tient qu'à un intérim ne le fait pas
+  // (`estPrete`, §118.196 — lot E4). La section ne s'offre pas à qui l'action refuserait (§118.83).
+  const peutValiderInterims = canManage && !estPrete(user, "RH", "UPDATE");
 
   const [data, pulse, tabs] = await Promise.all([getRhData(user.id), getHrPulse(user.id), visibleTabs(user, HR_TABS)]);
   // Les intérims EN ATTENTE des RH : la marche qui manque pour que la délégation s'ouvre.
-  const standIns = canManage
-    ? await prisma.leaveRequest.findMany({
-        where: { standInStatus: "PENDING", status: { notIn: ["REJECTED", "CANCELLED"] } },
+  // Un congé TERMINÉ n'a plus de place à tenir : l'action refuse de le trancher, la liste ne le propose
+  // plus (la même horloge, celle du serveur).
+  const standIns = peutValiderInterims
+    ? (await prisma.leaveRequest.findMany({
+        // Bornés à la société, comme la liste des salariés (audit 360°, S6).
+        where: { standInStatus: "PENDING", status: { notIn: ["REJECTED", "CANCELLED"] }, employee: await clauseSalariesVisibles(user.id) },
         orderBy: { startDate: "asc" },
-        include: { employee: { select: { fullName: true } }, standIn: { select: { name: true } } },
-      })
+        include: { employee: { select: { fullName: true, userId: true } }, standIn: { select: { name: true } } },
+      })).filter((l) => !congeTermine(l.endDate))
     : [];
   const absentPct = pulse.activeCount > 0 ? Math.round((pulse.absentToday.length / pulse.activeCount) * 100) : 0;
 
@@ -150,7 +157,7 @@ export default async function RhLeavePage() {
           L'absent désigne (il sait qui peut le remplacer sur son métier), les RH vérifient que
           ce n'est pas un remplaçant de complaisance. Sans cette marche, la délégation
           deviendrait un moyen de contourner un circuit. */}
-      {canManage && standIns.length > 0 && (
+      {peutValiderInterims && standIns.length > 0 && (
         <section className="space-y-3">
           <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
             Intérimaires à valider ({standIns.length})
@@ -173,11 +180,21 @@ export default async function RhLeavePage() {
                     moduleLabels={MODULE_LABELS}
                   />
                   <p className="mt-1 text-xs text-muted-foreground">
-                    Une fois validé, l&apos;intérimaire pourra ouvrir ces modules et trancher les
-                    validations adressées à l&apos;absent — pendant le congé seulement.
+                    Une fois validé, l&apos;intérimaire pourra ouvrir ceux de ces modules que l&apos;absent
+                    détient lui-même et trancher les validations qui lui sont adressées — sauf, à ce jour,
+                    les étapes du recrutement, du matériel promotionnel et des circuits Ad &amp; Pro — pendant
+                    le congé seulement.
                   </p>
                 </div>
-                <StandInDecision leaveId={l.id} />
+                {/* DEUX PERSONNES, VRAIMENT : ni l'absent ni l'intérimaire ne valident l'intérim qui les lie —
+                    l'action le refuse, le bouton ne s'offre donc pas (§118.196). */}
+                {l.employee.userId === user.id || l.standInId === user.id ? (
+                  <p className="max-w-xs text-right text-xs text-muted-foreground">
+                    Vous êtes partie à cet intérim : un autre membre des RH le valide.
+                  </p>
+                ) : (
+                  <StandInDecision leaveId={l.id} />
+                )}
               </li>
             ))}
           </ul>

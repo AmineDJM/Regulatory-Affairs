@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { notifyUser } from "@/lib/notify";
 import { anyRoleFilter, rolesWithModule } from "@/lib/rbac";
 import { recordAudit } from "@/lib/audit";
+import { predicatEntitePermise } from "@/lib/company";
 import { expiryLevel, daysLeft, shouldRemind, expiryMessage, REMIND_SOON_DAYS } from "./lifecycle";
 
 /**
@@ -50,6 +51,7 @@ export async function runLegalExpirySweep(now: Date = new Date()): Promise<Legal
       select: {
         id: true, title: true, reference: true, status: true, endDate: true,
         lastRemindedAt: true, createdById: true, companyId: true,
+        readers: { select: { userId: true } },
       },
       orderBy: { endDate: "asc" },
       take: MAX_DOCS_PER_RUN,
@@ -59,8 +61,12 @@ export async function runLegalExpirySweep(now: Date = new Date()): Promise<Legal
     // Les destinataires « métier » sont les mêmes pour tout le passage : une seule requête.
     const managers = await prisma.user.findMany({
       where: { isActive: true, ...anyRoleFilter(rolesWithModule("LEGAL", "UPDATE")) },
-      select: { id: true },
+      select: { id: true, role: true },
     });
+    // LA SOCIÉTÉ DE CHAQUE GESTIONNAIRE, lue une fois pour tout le passage (audit 360°, S7) : le rappel
+    // donnait le titre et la référence d'un contrat à tous les gestionnaires Legal du groupe — ceux
+    // d'une autre société, et ceux qu'un document RESTREINT n'a pas désignés.
+    const societes = new Map(await Promise.all(managers.map(async (m) => [m.id, await predicatEntitePermise(m.id)] as const)));
 
     for (const doc of docs) {
       const level = expiryLevel(doc, now);
@@ -95,7 +101,12 @@ export async function runLegalExpirySweep(now: Date = new Date()): Promise<Legal
       if (claimed.count === 0) continue;
       out.reminded++;
 
-      const recipients = [...new Set([...managers.map((m) => m.id), doc.createdById].filter((id): id is string => Boolean(id)))];
+      const lecteurs = new Set(doc.readers.map((r) => r.userId));
+      const peutLire = (m: { id: string; role: string }) =>
+        // Restreint : ses lecteurs désignés (et le Super Admin, qui lit tout) ; ouvert : tout gestionnaire.
+        (lecteurs.size === 0 || lecteurs.has(m.id) || m.role === "SUPER_ADMIN")
+        && (societes.get(m.id)?.(doc.companyId) ?? false);
+      const recipients = [...new Set([...managers.filter(peutLire).map((m) => m.id), doc.createdById].filter((id): id is string => Boolean(id)))];
       for (const userId of recipients) {
         await notifyUser({
           userId,

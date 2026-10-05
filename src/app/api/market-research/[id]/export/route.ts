@@ -4,6 +4,7 @@ import { userCan } from "@/lib/rbac";
 import { getMarketResearch } from "@/lib/queries/market-research";
 import { buildResearchWorkbook, researchExportFilename } from "@/lib/market-research-export";
 import { recordAudit } from "@/lib/audit";
+import { contentDisposition } from "@/lib/http/content-disposition";
 
 /** Export Excel (.xlsx) d'une étude de marché au format exact du modèle. */
 export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
@@ -20,7 +21,7 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
   return new NextResponse(buffer as unknown as BodyInit, {
     headers: {
       "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-      "Content-Disposition": `attachment; filename="${researchExportFilename(d.title)}"`,
+      "Content-Disposition": contentDisposition(researchExportFilename(d.title)),
       "Cache-Control": "no-store",
     },
   });

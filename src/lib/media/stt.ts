@@ -25,6 +25,7 @@ export const DELAI_STT_MS = 120_000;
  */
 export { MIMES_MEDIA, EXTENSIONS_VIDEO, extensionDe, estMedia, estVideo } from "./formats";
 import { MIMES_MEDIA, extensionDe } from "./formats";
+import { interrupteurIaCoupe, REFUS_IA_COUPEE } from "../ai-settings";
 
 export interface OptionsStt {
   /** `fr` par défaut ; `auto` laisse le moteur détecter. */
@@ -44,6 +45,9 @@ export type ResultatStt =
 const SANS_SEGMENTS = /^gpt-4o/i;
 
 export async function transcrireAvecSegments(buffer: Buffer, nom: string, opts: OptionsStt = {}): Promise<ResultatStt> {
+  // Un enregistrement envoyé au moteur de transcription est un appel d'IA comme un autre : la lecture
+  // des médias du Drive ne passe pas par `lib/ai.ts`, donc l'interrupteur se lit ICI, avant la clé (§118.196).
+  if (await interrupteurIaCoupe()) return { ok: false, configured: true, erreur: REFUS_IA_COUPEE };
   const env = opts.env ?? process.env;
   const key = env.OPENAI_API_KEY;
   if (!key) return { ok: false, configured: false, erreur: "Clé OPENAI_API_KEY non configurée : la transcription est indisponible." };

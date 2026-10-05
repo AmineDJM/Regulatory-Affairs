@@ -1,7 +1,9 @@
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { moleculeStem } from "@/lib/market/galenic";
+import { buildRef, createWithRetry, enSerie } from "@/lib/refs";
 import {
-  aliasKey, certainMatch, identityKey, parseMention, resolveProduct,
+  aliasKey, certainMatch, cleDci, identityKey, nomCanonique, parseMention, resolveProduct,
   type ProductCandidate, type ProductMatch,
 } from "./identity";
 
@@ -77,15 +79,61 @@ export async function resolveProductId(mention: string): Promise<string | null> 
   return m ? m.product.id : null;
 }
 
+/** Une violation d'unicité sur CE champ — `meta.target` nomme la contrainte qui a sauté. */
+export function collisionSur(e: unknown, champ: string): boolean {
+  return e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002"
+    && String((e.meta as { target?: unknown } | undefined)?.target ?? "").includes(champ);
+}
+
+const SELECT_REF = { id: true, code: true } as const;
+
+/**
+ * RETROUVE LE PRODUIT D'UNE CLÉ — y compris quand sa clé a été écrite par une version précédente
+ * de `identityKey`.
+ *
+ * La clé est stockée ; la fonction qui la calcule, elle, s'améliore (§118.178 : elle fusionnait
+ * des produits distincts). Un produit créé avant une amélioration porte l'ANCIENNE clé, et la
+ * recherche à l'égalité ne le trouve plus : on en créerait un second pour le même médicament —
+ * exactement le doublon que la clé existe pour empêcher. On relit donc les produits de la même
+ * molécule, on RECALCULE leur clé depuis leur tuple stocké, et celui qui correspond reçoit la
+ * clé à jour. Le tuple stocké est la vérité ; la clé n'en est qu'un index.
+ */
+export async function retrouverParIdentite(key: string, dci: string): Promise<{ id: string; code: string } | null> {
+  const exact = await prisma.product.findUnique({ where: { identityKey: key }, select: SELECT_REF });
+  if (exact) return exact;
+  const amorce = (cleDci(dci).split(/[+ ]/)[0] ?? "").slice(0, 6);
+  if (amorce.length < 3) return null;
+  const voisins = await prisma.product.findMany({
+    where: { dci: { contains: amorce, mode: "insensitive" } },
+    select: { ...SELECT_REF, identityKey: true, dci: true, dosage: true, dosageUnit: true, form: true, packaging: true },
+    take: 200,
+  });
+  const perime = voisins.find((v) => v.identityKey !== key && identityKey(v) === key);
+  if (!perime) return null;
+  try {
+    await prisma.product.update({ where: { id: perime.id }, data: { identityKey: key } });
+  } catch (e) {
+    // Un autre écrivain a posé la clé à jour entre-temps : c'est SON produit qui la porte.
+    if (!collisionSur(e, "identityKey")) throw e;
+    return prisma.product.findUnique({ where: { identityKey: key }, select: SELECT_REF });
+  }
+  return { id: perime.id, code: perime.code };
+}
+
 /**
  * TROUVE OU CRÉE le produit canonique d'un tuple d'identité.
  *
- * L'unicité de `identityKey` est portée par la BASE : deux imports concurrents ne peuvent pas
- * créer deux fois le même produit, et on n'a pas à s'en remettre à un verrou applicatif.
- * `upsert` traduit exactement cette garantie.
+ * L'unicité de `identityKey` est portée par la BASE : deux écrivains concurrents ne peuvent pas
+ * créer deux fois le même produit. Le CODE, lui, se dérive du maximum existant — deux créations
+ * simultanées de produits DIFFÉRENTS lisaient le même maximum, et la seconde tombait sur
+ * l'unicité du code (mesuré : deux bancs de tests en parallèle, §118.178). Les créations passent
+ * donc une par une dans ce processus (`enSerie`), et se réessaient entre processus
+ * (`createWithRetry`) ; une collision sur la CLÉ, elle, veut dire que l'autre écrivain a créé le
+ * même produit — on rend le sien, on n'en crée pas un second.
  *
- * Rend `null` quand le tuple ne produit AUCUNE clé (DCI vide) — on n'indexe pas le vide, et
- * créer un produit sans identité serait créer le doublon qu'on cherche à éviter.
+ * Rend `null` quand le tuple ne produit AUCUNE clé (DCI vide) — on n'indexe pas le vide.
+ * N'exige pas une identité COMPLÈTE : c'est à l'appelant d'en décider (`manquesIdentite`). Le
+ * rattachement automatique d'un dossier l'exige ; une personne qui crée un produit à l'étude, non.
  */
 export async function ensureProduct(input: {
   dci: string;
@@ -102,43 +150,56 @@ export async function ensureProduct(input: {
   const key = identityKey(input);
   if (!key) return null;
 
-  const existant = await prisma.product.findUnique({ where: { identityKey: key }, select: { id: true, code: true } });
+  const existant = await retrouverParIdentite(key, input.dci);
   if (existant) return { ...existant, created: false };
 
-  const code = await nextProductCode();
-  const nom = (input.canonicalName ?? "").trim()
-    || [input.dci, input.dosage, input.dosageUnit].filter(Boolean).join(" ").trim();
+  const nom = (input.canonicalName ?? "").trim() || nomCanonique(input);
 
-  const cree = await prisma.product.upsert({
-    where: { identityKey: key },
-    // Course perdue : l'autre écrivain a créé le produit entre notre lecture et notre écriture.
-    // On ne remonte PAS ses champs — le premier arrivé fait foi, et écraser serait pire que ne
-    // rien faire.
-    update: {},
-    create: {
-      code, canonicalName: nom, identityKey: key,
-      dci: input.dci.trim(),
-      dosage: input.dosage ?? null, dosageUnit: input.dosageUnit ?? null,
-      form: input.form ?? null, packaging: input.packaging ?? null,
-      channel: input.channel ?? "BOTH",
-      companyId: input.companyId ?? null,
-      lifecycle: input.lifecycle ?? "STUDY",
-    },
-    select: { id: true, code: true },
-  });
-  return { ...cree, created: cree.code === code };
+  return enSerie("PRD", () => createWithRetry(async () => {
+    // Relu SOUS le tour de file : un écrivain de ce processus a pu le créer pendant l'attente.
+    const deja = await prisma.product.findUnique({ where: { identityKey: key }, select: SELECT_REF });
+    if (deja) return { ...deja, created: false };
+    const code = await nextProductCode();
+    try {
+      const cree = await prisma.product.create({
+        data: {
+          code, canonicalName: nom, identityKey: key,
+          dci: input.dci.trim(),
+          dosage: input.dosage ?? null, dosageUnit: input.dosageUnit ?? null,
+          form: input.form ?? null, packaging: input.packaging ?? null,
+          channel: input.channel ?? "BOTH",
+          companyId: input.companyId ?? null,
+          lifecycle: input.lifecycle ?? "STUDY",
+        },
+        select: SELECT_REF,
+      });
+      return { ...cree, created: true };
+    } catch (e) {
+      // Course perdue sur la CLÉ : un autre processus a créé ce produit. Le premier arrivé fait
+      // foi — on ne remonte pas nos champs par-dessus les siens.
+      if (collisionSur(e, "identityKey")) {
+        const autre = await prisma.product.findUnique({ where: { identityKey: key }, select: SELECT_REF });
+        if (autre) return { ...autre, created: false };
+      }
+      // Collision sur le CODE : `createWithRetry` relance avec le maximum relu.
+      throw e;
+    }
+  }));
 }
 
-/** `PRD-AAAA-NNN`, dans la même forme que les autres références de l'ERP. */
+/**
+ * `PRD-AAAA-NNN`, dans la même forme que les autres références de l'ERP — et par le même
+ * calcul (`buildRef`, le maximum NUMÉRIQUE). L'ancien prenait le dernier code par ordre
+ * ALPHABÉTIQUE : passé 999, « PRD-2026-999 » restait le plus grand, chaque création recalculait
+ * « PRD-2026-1000 » déjà pris, et plus aucun produit ne se créait de l'année.
+ */
 async function nextProductCode(): Promise<string> {
   const annee = new Date().getFullYear();
-  const dernier = await prisma.product.findFirst({
+  const codes = await prisma.product.findMany({
     where: { code: { startsWith: `PRD-${annee}-` } },
-    orderBy: { code: "desc" },
     select: { code: true },
   });
-  const n = dernier ? Number(dernier.code.split("-")[2] ?? 0) + 1 : 1;
-  return `PRD-${annee}-${String(n).padStart(3, "0")}`;
+  return buildRef("PRD", annee, codes.map((c) => c.code));
 }
 
 /**

@@ -7,6 +7,7 @@ import { restoreDeletedRecord, destroyDeletedRecord } from "@/lib/actions/admin-
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { formatDateTime } from "@/lib/utils";
+import { BoutonDecisif } from "@/components/ui/bouton-decisif";
 
 export interface TrashItem {
   id: string;
@@ -27,11 +28,6 @@ export function TrashList({ items }: { items: TrashItem[] }) {
   const [err, setErr] = React.useState<string | null>(null);
 
   async function run(item: TrashItem, action: "restore" | "destroy") {
-    const avec = item.emportes.length ? ` avec ${item.emportes.join(", ")}` : "";
-    const confirmMsg = action === "restore"
-      ? `Restaurer ${item.label} « ${item.name} »${avec} ?`
-      : `Détruire DÉFINITIVEMENT ${item.label} « ${item.name} »${avec} ? Les fichiers seront effacés — irréversible.`;
-    if (!window.confirm(confirmMsg)) return;
     setBusyId(item.id); setErr(null);
     const fd = new FormData(); fd.set("id", item.id);
     const r = action === "restore" ? await restoreDeletedRecord(fd) : await destroyDeletedRecord(fd);
@@ -61,12 +57,12 @@ export function TrashList({ items }: { items: TrashItem[] }) {
               <Badge tone="success" dot={false}>Restauré le {formatDateTime(it.restoredAt)}</Badge>
             ) : (
               <div className="flex gap-1.5">
-                <Button size="sm" variant="outline" disabled={busyId !== null} onClick={() => run(it, "restore")}>
+                <BoutonDecisif size="sm" variant="outline" disabled={busyId !== null} onClick={() => run(it, "restore")} confirmation={`restaurer ${it.label} « ${it.name} »${it.emportes.length ? ` avec ${it.emportes.join(", ")}` : ""}`}>
                   {busyId === it.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Undo2 className="h-4 w-4" />} Restaurer
-                </Button>
-                <Button size="sm" variant="outline" disabled={busyId !== null} onClick={() => run(it, "destroy")} className="text-destructive hover:bg-destructive/10">
+                </BoutonDecisif>
+                <BoutonDecisif size="sm" variant="outline" disabled={busyId !== null} onClick={() => run(it, "destroy")} className="text-destructive hover:bg-destructive/10" confirmation={`détruire DÉFINITIVEMENT ${it.label} « ${it.name} » (irréversible)`}>
                   <Flame className="h-4 w-4" /> Détruire
-                </Button>
+                </BoutonDecisif>
               </div>
             )}
           </div>

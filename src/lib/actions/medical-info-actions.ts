@@ -15,6 +15,7 @@ import { getDeclaration, canViewDeclaration } from "@/lib/queries/medical-info";
 import { archiveProcessedRequest } from "@/lib/archive";
 import { formatAlgiers } from "@/lib/calendar-tz";
 import { fdStr, type ActionResult } from "@/lib/actions/types";
+import { refusAnnulationPieceInfoMed } from "@/lib/annulations/regles";
 import { createPaymentRequest } from "@/lib/actions/payment-request-actions";
 import { circuitOfDeclaration, isOpenableDeclarationKind, DECLARATION_KIND_LABEL } from "@/lib/medical-info/circuits";
 import {
@@ -115,14 +116,26 @@ export async function requestDocument(formData: FormData): Promise<ActionResult>
 
 export async function cancelDocRequest(formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
-  if (!canManage(user)) return { ok: false, error: "Non autorisé." };
   const id = fdStr(formData, "id");
   if (!id) return { ok: false, error: "Identifiant manquant." };
-  const r = await prisma.medicalInfoDocRequest.findUnique({ where: { id } });
+  const r = await prisma.medicalInfoDocRequest.findUnique({ where: { id }, include: { declaration: { select: { reference: true } } } });
   if (!r) return { ok: false, error: "Demande introuvable." };
-  if (r.status === "FULFILLED") return { ok: false, error: "Pièce déjà déposée — suppression impossible." };
-  await prisma.medicalInfoDocRequest.delete({ where: { id } });
+  // LE DEMANDEUR ANNULE SA DEMANDE TANT QU'ELLE N'EST PAS EXÉCUTÉE (décision du 04/10) — la pièce n'est
+  // pas encore déposée. Pas seulement un gestionnaire du module : celui qui l'a demandée aussi.
+  const refus = refusAnnulationPieceInfoMed(r, { userId: user.id, gestionnaire: canManage(user) });
+  if (refus) return { ok: false, error: refus };
+  // UN GESTE À LA FOIS : un dépôt passé entre la lecture et le clic l'emporte.
+  const pris = await prisma.medicalInfoDocRequest.deleteMany({ where: { id, status: "PENDING" } });
+  if (pris.count === 0) return { ok: false, error: "La pièce vient d'être déposée — rechargez la page." };
   await refreshStatus(r.declarationId);
+  // La personne sollicitée est prévenue : sans un mot, elle chercherait encore une pièce que plus personne n'attend.
+  if (r.targetUserId && r.targetUserId !== user.id) {
+    await notifyUser({ userId: r.targetUserId, type: "GENERIC", title: "Information médicale — pièce plus demandée", body: `${r.declaration.reference} — ${r.label} : la demande est annulée.`, link: `${PATH}/${r.declarationId}` }).catch(() => undefined);
+  }
+  await recordAudit({
+    actorId: user.id, action: "DELETE", module: "Information médicale", entityType: "MEDICAL_INFO_DECLARATION", entityId: r.declarationId,
+    summary: `Demande de pièce annulée — ${r.declaration.reference} : ${r.label}`,
+  });
   revalidate(r.declarationId);
   return { ok: true };
 }
@@ -209,6 +222,33 @@ export async function recordAuthorityDeclaration(formData: FormData): Promise<Ac
 // ═══════════════════════════════════════════════════════════════════════════════════════════
 
 /**
+ * CLORE LA DEMANDE « À REVOIR » QU'UNE RESOUMISSION REMPLACE (audit 360°, I9).
+ *
+ * L'écriture est CONDITIONNELLE : seule une demande encore à revoir se clôt. Deux resoumissions
+ * simultanées lisent toutes deux « à revoir » ; la première clôt et poursuit, la seconde trouve la
+ * demande déjà close et s'arrête — sans quoi deux demandes vivraient pour une seule question, ce
+ * que la règle d'avant existait pour empêcher. Non exportée : une fonction qui reçoit un acteur
+ * en argument n'a pas sa place parmi les points d'entrée d'un fichier « use server » (§118.153).
+ */
+async function clorePrecedente(validationId: string | null, acteurId: string, reference: string): Promise<{ ok: true } | { ok: false; error: string }> {
+  if (!validationId) return { ok: true };
+  const r = await prisma.validationRequest.updateMany({
+    where: { id: validationId, status: "CHANGES_REQUESTED" },
+    data: { status: "CANCELLED" },
+  });
+  if (r.count !== 1) {
+    return { ok: false, error: "Une nouvelle demande vient déjà d'être soumise pour ce dossier — rechargez la page." };
+  }
+  await recordAudit({
+    actorId: acteurId, action: "UPDATE", module: "Validations",
+    entityType: "VALIDATION_REQUEST", entityId: validationId,
+    field: "status", newValue: "CANCELLED",
+    summary: `Demande à revoir close par sa resoumission (${reference})`,
+  });
+  return { ok: true };
+}
+
+/**
  * LE PHARMACIEN SOUMET SA LECTURE : ce dossier se déclare au ministère, ou il ne se déclare pas.
  *
  * Une prise en charge, un sponsoring, un événement n'appellent AUCUN versement — c'était le
@@ -250,6 +290,11 @@ export async function requestDeclareDecision(_prev: ActionResult | undefined, fo
   const validateurs = await declarationValidators(user.id, decl.sourceType, decl.sourceId);
   if (validateurs.validatorIds.length === 0) {
     return { ok: false, error: "Aucun signataire disponible (responsable, Direction Marketing, Directeur Général) : la demande n'aurait personne à qui aller." };
+  }
+  // UNE DEMANDE À REVOIR SE RESOUMET ICI, ET LA PRÉCÉDENTE SE CLÔT (audit 360°, I9).
+  if (declareStage(etat.declare) === "A_REVOIR") {
+    const close = await clorePrecedente(decl.declareValidationId, user.id, decl.reference);
+    if (!close.ok) return close;
   }
 
   const res = await createDirectValidation({
@@ -396,6 +441,11 @@ export async function requestSlipsValidation(_prev: ActionResult | undefined, fo
   if (validateurs.validatorIds.length === 0) {
     return { ok: false, error: "Aucun signataire disponible (responsable, Direction Marketing, Directeur Général) : la demande n'aurait personne à qui aller." };
   }
+  // Le dépôt À REVOIR se resoumet ici, et la demande précédente se clôt (audit 360°, I9).
+  if (etat.lot === "VALIDATION_A_REVOIR") {
+    const close = await clorePrecedente(decl.bvValidationId, user.id, decl.reference);
+    if (!close.ok) return close;
+  }
 
   const res = await createDirectValidation({
     requesterId: user.id,
@@ -447,15 +497,22 @@ async function declarationValidators(requesterId: string, sourceType: string, so
   const [manager, productManagerId, sieges] = await Promise.all([
     getManagerOfUser(requesterId).catch(() => null),
     productManagerOfSource(sourceType, sourceId),
+    // LE PLUS ANCIEN siège, et jamais le demandeur (vague « restes ») — la règle du centre (§118.148h), que
+    // l'aiguillage des bons de commande lit déjà. Sans ordre, Postgres rendait les sièges dans l'ordre PHYSIQUE
+    // de la table : un compte neuf logé avant le siège désigné devenait « le centre » ; s'il était le demandeur,
+    // `bvChain` l'écartait à raison et la demande partait en annonçant « aucun Directeur Général ni Super Admin
+    // actif » — alors qu'un autre siège existait. Le demandeur écarté AVANT de choisir, c'est un autre siège qui
+    // signe ; s'il est le SEUL siège, la marche manque et la demande le dit (`bvChainNote`), comme avant.
     prisma.user.findMany({
       where: { isActive: true, role: { in: ["GENERAL_MANAGER", "SUPER_ADMIN"] } },
       select: { id: true, role: true },
+      orderBy: { createdAt: "asc" },
     }),
   ]);
   return bvChain({
     managerUserId: manager?.userId ?? null,
     productManagerUserId: productManagerId,
-    centreUserId: centreValidatorFrom(sieges),
+    centreUserId: centreValidatorFrom(sieges.filter((s) => s.id !== requesterId)),
     requesterId,
   });
 }
@@ -467,10 +524,19 @@ async function declarationValidators(requesterId: string, sourceType: string, so
  * suppose de connaître le budget accordé et ce qu'il couvre — donc d'être celui qui a instruit
  * ce dossier-là. Désigner n'importe quel titulaire du rôle ferait signer quelqu'un qui n'a pas
  * la question, ce qui est pire qu'une marche sautée : la signature existe et ne vaut rien.
+ *
+ * LE SPONSORING MANQUAIT — mesuré par la vraie porte (`requestDeclareDecision`), pas supposé. Un
+ * sponsoring porte son référent comme les trois autres natures (`createSponsoring` l'écrit depuis
+ * la configuration de la gamme, §118.144), la chaîne le promet (« sponsoring, congrès,
+ * événement », `bv-approval.ts`), et le README annonce trois signatures. Sans cette branche, la
+ * déclaration d'un sponsoring partait au seul centre, avec « aucun référent Direction Marketing sur
+ * le dossier » écrit dans la demande — une marche sautée faute d'avoir été cherchée.
  */
 async function productManagerOfSource(sourceType: string, sourceId: string): Promise<string | null> {
   const sel = { select: { productManagerId: true } } as const;
   switch (sourceType) {
+    case "SPONSORING":
+      return (await prisma.sponsoringRequest.findUnique({ where: { id: sourceId }, ...sel }))?.productManagerId ?? null;
     case "CONGRESS_INTERNATIONAL":
       return (await prisma.congressInternational.findUnique({ where: { id: sourceId }, ...sel }))?.productManagerId ?? null;
     case "CONGRESS_NATIONAL":

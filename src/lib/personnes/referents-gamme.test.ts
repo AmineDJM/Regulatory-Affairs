@@ -162,8 +162,12 @@ describe("les référents Direction Marketing d'une gamme", () => {
     // …et il est bien DANS le point unique, pas ailleurs.
     const bloc = src.slice(src.indexOf("async function prevenirEtapeAtteinte"));
     expect(bloc.includes("notifyRoles("), "l'appel doit vivre dans `prevenirEtapeAtteinte`").toBe(true);
-    // Les trois sites appellent le point unique.
-    expect((src.match(/prevenirEtapeAtteinte\(/g) ?? []).length, "trois sites + la déclaration").toBe(4);
+    // Les sites appellent le point unique : l'approbation, le saut, l'avis défavorable — et depuis
+    // le renvoi pour correction (§118.186) la POSE d'une demande resoumise, relancée ou rouverte en
+    // appel (`prevenirLaPose`) et la modification faite après un avis. Cinq sites + la déclaration.
+    expect((src.match(/prevenirEtapeAtteinte\(/g) ?? []).length, "cinq sites + la déclaration").toBe(6);
+    const pose = src.slice(src.indexOf("async function prevenirLaPose"));
+    expect(pose.slice(0, pose.indexOf("\n}\n")).includes("prevenirEtapeAtteinte("), "la pose prévient par le point unique").toBe(true);
     // ET LA GARDE D'ÉTAPE Y EST APPELÉE : vérifier son corps sans son point d'appel ne
     // prouverait rien — elle était écrite avant d'être branchée (§118.49).
     expect(bloc.includes("laGammeEstConcernee("), "la garde d'étape doit être lue dans `prevenirEtapeAtteinte`").toBe(true);

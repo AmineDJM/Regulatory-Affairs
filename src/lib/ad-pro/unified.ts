@@ -148,11 +148,15 @@ export const AD_PRO_KINDS: KindSpec[] = [
  * quinze statuts distincts ne se comparent plus. On les ramène à la seule question que se pose
  * celui qui a demandé : **où en est ma demande ?**
  */
-export type AdProState = "DRAFT" | "AWAITING" | "APPROVED" | "DONE" | "REFUSED";
+export type AdProState = "DRAFT" | "AWAITING" | "RETURNED" | "APPROVED" | "DONE" | "REFUSED";
 
 export const AD_PRO_STATE: Record<AdProState, { label: string; tone: "neutral" | "warning" | "info" | "success" | "danger" }> = {
   DRAFT: { label: "Brouillon", tone: "neutral" },
   AWAITING: { label: "En attente de décision", tone: "warning" },
+  // RENVOYÉE POUR CORRECTION (§118.186) : ni « en attente de décision » — personne ne décide —, ni
+  // refusée. Rangée ainsi, elle tomberait dans le défaut « en attente », en tête de la file des
+  // validateurs, alors que c'est le DEMANDEUR qui a la main.
+  RETURNED: { label: "À corriger", tone: "warning" },
   APPROVED: { label: "Validée", tone: "info" },
   DONE: { label: "Terminée", tone: "success" },
   REFUSED: { label: "Refusée / annulée", tone: "danger" },
@@ -189,6 +193,7 @@ const DRAFT = ["DRAFT"];
  * quelque chose de quelqu'un, et il vaut mieux la montrer que la ranger dans une case rassurante.
  */
 export function adProState(status: string): AdProState {
+  if (status === "RETURNED") return "RETURNED";
   if (REFUSED.includes(status)) return "REFUSED";
   if (DONE.includes(status)) return "DONE";
   if (APPROVED.includes(status)) return "APPROVED";
@@ -240,7 +245,7 @@ export function creatableKinds(canCreate: (module: string) => boolean): KindSpec
  * Une liste triée uniquement par date enterre les demandes bloquées depuis trois semaines sous
  * celles de ce matin — or ce sont précisément celles-là qu'il faut voir.
  */
-const STATE_ORDER: Record<AdProState, number> = { AWAITING: 0, APPROVED: 1, DRAFT: 2, DONE: 3, REFUSED: 4 };
+const STATE_ORDER: Record<AdProState, number> = { AWAITING: 0, RETURNED: 1, APPROVED: 2, DRAFT: 3, DONE: 4, REFUSED: 5 };
 
 export function sortAdPro(rows: readonly AdProRequest[]): AdProRequest[] {
   return [...rows].sort((a, b) => {
@@ -251,7 +256,7 @@ export function sortAdPro(rows: readonly AdProRequest[]): AdProRequest[] {
 
 /** Le décompte par état — les compteurs de tête, qui servent aussi de filtres. */
 export function countByState(rows: readonly AdProRequest[]): Record<AdProState, number> {
-  const out: Record<AdProState, number> = { DRAFT: 0, AWAITING: 0, APPROVED: 0, DONE: 0, REFUSED: 0 };
+  const out: Record<AdProState, number> = { DRAFT: 0, AWAITING: 0, RETURNED: 0, APPROVED: 0, DONE: 0, REFUSED: 0 };
   for (const r of rows) out[r.state] += 1;
   return out;
 }

@@ -15,7 +15,8 @@ export interface DirectoryRow {
   department: string | null;
   contractType: string | null;
   contractEnd: string | null;
-  baseSalary: number;
+  /** `null` quand la personne ne voit pas les salaires : la valeur n'est même pas envoyée au navigateur. */
+  baseSalary: number | null;
   leaveBalanceDays: number;
   hasAccount: boolean;
   isActive: boolean;
@@ -118,7 +119,7 @@ export function TeamDirectory({ rows, canSeeSalary }: { rows: DirectoryRow[]; ca
                     {e.contractType ? CONTRACT_TYPE[e.contractType] ?? e.contractType : "—"}
                     {e.contractEnd && <span className="block text-xs text-muted-foreground">→ {formatDate(e.contractEnd)}</span>}
                   </TableCell>
-                  {canSeeSalary && <TableCell label="Salaire base" className="text-right">{formatCurrency(e.baseSalary)}</TableCell>}
+                  {canSeeSalary && <TableCell label="Salaire base" className="text-right">{e.baseSalary == null ? "—" : formatCurrency(e.baseSalary)}</TableCell>}
                   <TableCell label="Solde congés" className="text-right">{e.leaveBalanceDays} j</TableCell>
                   <TableCell label="Compte">{e.hasAccount ? <Badge tone="info" dot={false}>Lié</Badge> : <span className="text-muted-foreground">—</span>}</TableCell>
                   <TableCell label="Statut">{e.isActive ? <Badge tone="success" dot={false}>Actif</Badge> : <Badge tone="danger" dot={false}>Inactif</Badge>}</TableCell>

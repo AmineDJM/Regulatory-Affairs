@@ -163,3 +163,24 @@ export async function remisesDesVisites(visitIds: readonly string[]): Promise<Ma
   }
   return out;
 }
+
+/**
+ * CE QU'UN COMPTE RENDU DE VISITE (rapport terrain) A REMIS (§118.204) — le point de départ de sa
+ * correction. Le même calcul net que pour une visite : une remise contre-passée ne compte plus.
+ * Un compte rendu ne porte pas de supports numériques (ils se présentent lors d'une VISITE).
+ */
+export async function remisesDuRapport(fieldReportId: string): Promise<RemisesDeVisite> {
+  const ms = await prisma.promoStockMovement.findMany({
+    where: { fieldReportId, kind: { in: ["DISTRIBUTION", "REVERSAL"] } },
+    select: {
+      id: true, itemId: true, kind: true, delta: true, annuleId: true,
+      item: { select: { catalogue: { select: { nom: true } }, produits: { select: { product: { select: { canonicalName: true } } } } } },
+    },
+  });
+  const net = remisNetParArticle(ms.map((m) => ({ id: m.id, itemId: m.itemId, kind: m.kind, delta: num(m.delta), annuleId: m.annuleId })));
+  const libelles = new Map(ms.map((m) => [m.itemId, libelleArticleStock(m.item.catalogue.nom, m.item.produits.map((p) => p.product.canonicalName))]));
+  return {
+    materiel: [...net].map(([itemId, quantite]) => ({ itemId, libelle: libelles.get(itemId) ?? "Article", quantite })),
+    numeriques: [],
+  };
+}

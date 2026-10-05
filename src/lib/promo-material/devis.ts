@@ -11,7 +11,8 @@
  * 1. UN TOTAL NE SE SAISIT PAS, IL SE CALCULE (§118.59). Le prix total d'une ligne est quantité ×
  *    prix unitaire ; le total d'un devis est la somme de ses lignes. Le total IMPRIMÉ sur le
  *    papier se saisit à part, et seulement pour CONTRÔLER : l'écart entre les deux est ce qui
- *    attrape une ligne oubliée ou un zéro de trop dans la retranscription.
+ *    attrape une ligne oubliée ou un zéro de trop dans la retranscription. Il est EXIGÉ pour
+ *    terminer : un contrôle qu'on peut sauter en laissant un champ vide ne contrôle rien.
  * 2. ON COMPTE EN CENTIMES. Chaque ligne est arrondie au centime une fois, puis les centimes
  *    s'additionnent : additionner des flottants ferait apparaître 0,30000000000000004 DZD dans un
  *    total, et deux écrans qui arrondissent à des moments différents finiraient par annoncer deux
@@ -116,7 +117,9 @@ export function totauxDeLaSelection(devis: readonly DevisLu[]): Totaux & { devis
 /**
  * LA RETRANSCRIPTION TOMBE-T-ELLE JUSTE ? Le total imprimé sur le devis contre la somme des lignes
  * recopiées. `null` quand aucun total n'a été saisi : on ne déclare pas d'écart sur ce qu'on n'a
- * pas lu (§118.16). Tolérance d'un dinar : les devis arrondissent leurs lignes, pas toujours pareil.
+ * pas lu (§118.16) — c'est `manquesDeRetranscription` qui exige ce total, en le NOMMANT, au lieu
+ * que son absence passe pour un accord. Tolérance d'un dinar : les devis arrondissent leurs lignes,
+ * pas toujours pareil.
  */
 export function ecartDeRetranscription(d: DevisLu): { annonce: number; calcule: number; ecart: number } | null {
   if (d.announcedTotal == null) return null;
@@ -132,6 +135,9 @@ export function ecartDeRetranscription(d: DevisLu): { annonce: number; calcule: 
  * - au moins un devis, et chacun a au moins une ligne ;
  * - chaque devis a son FOURNISSEUR choisi dans l'annuaire (c'est lui qui donne son identité au BC) ;
  * - chaque devis a son SCAN : une retranscription sans sa source ne se vérifie pas ;
+ * - chaque devis a son TOTAL HT IMPRIMÉ : le contrôle à un dinar près se SAUTAIT quand le champ
+ *   restait vide, et « Retranscription terminée » passait sans que rien ait été comparé — alors
+ *   que la règle se disait toujours appliquée. Un zéro de trop ne s'attrape que contre le papier ;
  * - aucune ligne à quantité nulle ou à prix négatif ;
  * - aucun écart entre le total annoncé et la somme des lignes — l'écart est dit, avec son montant.
  */
@@ -143,6 +149,9 @@ export function manquesDeRetranscription(devis: readonly DevisLu[]): string[] {
     if (d.lines.length === 0) manques.push(`« ${nom} » n'a aucune ligne`);
     if (!d.supplierId) manques.push(`« ${nom} » : choisissez le fournisseur dans l'annuaire (il donne son adresse, son RC et son NIF au bon de commande)`);
     if (!d.documentId) manques.push(`« ${nom} » : joignez le scan du devis — une retranscription sans sa source ne se vérifie pas`);
+    if (d.announcedTotal == null) {
+      manques.push(`« ${nom} » : saisissez le total HT imprimé sur le devis — c'est contre lui que la retranscription se contrôle, à un dinar près`);
+    }
     const fausses = d.lines.filter((l) => !(Number(l.quantity) > 0) || Number(l.unitPrice) < 0 || !l.reference.trim());
     if (fausses.length > 0) manques.push(`« ${nom} » : ${fausses.length} ligne(s) sans référence, à quantité nulle ou à prix négatif`);
     const ecart = ecartDeRetranscription(d);
@@ -165,7 +174,10 @@ export function lignesDuBonDeCommande(d: DevisLu): { designation: string; quanti
     .map((l) => ({ designation: designationAvecAction(l.reference, l.action), quantite: Number(l.quantity), unite: l.unit?.trim() || null, prixUnitaire: Number(l.unitPrice) }));
 }
 
-/** 1 234 567,5 → « 1 234 567,50 DZD » — pour les phrases de refus, lues par une personne. */
+/**
+ * 1 234 567,5 → « 1 234 567,50 DZD » — pour les phrases de refus, lues par une personne. TOUJOURS deux
+ * décimales : c'est la forme d'un devis ou d'une facture, et elle n'arrondit rien.
+ */
 export function formatDzd(n: number): string {
   return `${n.toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} DZD`;
 }

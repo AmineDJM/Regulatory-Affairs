@@ -75,7 +75,9 @@ const LISTES_SECTEUR = ["institutionIds", "repIds"] as const;
 const resolveSector = (raw: string) =>
   resolveOne(raw, "le secteur (champ « name » — son nom, « Est », « Oranais »)",
     (q) => prisma.salesSector.findMany({
-      where: { name: { contains: q, mode: "insensitive" } },
+      // LES SECTEURS PARTAGÉS seulement (04/10/2026) : le territoire propre d'un KAM (`repId`) se règle sur
+      // sa ligne, à l'écran — l'action le refuse d'ici, la désignation ne le propose donc pas.
+      where: { name: { contains: q, mode: "insensitive" }, repId: null },
       select: { id: true, name: true, businessUnit: { select: { name: true } } }, take: 6,
     }),
     // DEUX BU peuvent porter un secteur « Est » : le libellé d'ambiguïté doit dire LAQUELLE,

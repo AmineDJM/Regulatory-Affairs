@@ -7,8 +7,7 @@ import { requireUser } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
 import { releaseBlob } from "@/lib/drive-storage";
-import { getCompanyScope } from "@/lib/company";
-import { regCan, resolveRegCompanyId } from "./access";
+import { regCan, resolveRegCompanyIdFor } from "./access";
 import { regAudit } from "./audit";
 import { submissionReadiness } from "./lifecycle";
 import { PROCEDURE_TYPE_LABELS } from "./labels";
@@ -38,15 +37,15 @@ const str = (fd: FormData, k: string): string | null => {
 const isProcedureType = (v: string): v is RegProcedureType => v in PROCEDURE_TYPE_LABELS;
 
 /** Résout l'organisation cible activée pour la portée courante (ou null → module verrouillé). */
-async function targetCompanyId(): Promise<string | null> {
-  return resolveRegCompanyId(getCompanyScope());
+async function targetCompanyId(userId: string): Promise<string | null> {
+  return resolveRegCompanyIdFor(userId);
 }
 
 export async function createDossier(formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
   if (!regCan(user, "regulatory.dossier.create")) return { ok: false, error: "Création non autorisée." };
 
-  const companyId = await targetCompanyId();
+  const companyId = await targetCompanyId(user.id);
   if (!companyId) return { ok: false, error: "Sélectionnez d'abord l'entité pour laquelle le module est activé." };
 
   const title = str(formData, "title");
@@ -91,7 +90,7 @@ export async function deleteDossier(formData: FormData): Promise<ActionResult> {
   const dossierId = str(formData, "dossierId");
   if (!dossierId) return { ok: false, error: "Dossier manquant." };
 
-  const companyId = await targetCompanyId();
+  const companyId = await targetCompanyId(user.id);
   if (!companyId) return { ok: false, error: "Module non activé pour cette entité." };
 
   const dossier = await prisma.regulatoryDossier.findFirst({
@@ -160,7 +159,7 @@ export async function updateFindingStatus(formData: FormData): Promise<ActionRes
   const note = str(formData, "note");
   if (!findingId || !status || !FINDING_STATUSES.includes(status)) return { ok: false, error: "Paramètres invalides." };
 
-  const companyId = await targetCompanyId();
+  const companyId = await targetCompanyId(user.id);
   if (!companyId) return { ok: false, error: "Module non activé." };
 
   const finding = await prisma.regulatoryFinding.findFirst({
@@ -204,7 +203,7 @@ export async function createTaskFromFinding(formData: FormData): Promise<ActionR
   const findingId = str(formData, "findingId");
   if (!findingId) return { ok: false, error: "Constat manquant." };
 
-  const companyId = await targetCompanyId();
+  const companyId = await targetCompanyId(user.id);
   if (!companyId) return { ok: false, error: "Module non activé." };
 
   const finding = await prisma.regulatoryFinding.findFirst({
@@ -270,7 +269,7 @@ export async function addHumanFinding(formData: FormData): Promise<ActionResult>
   const sevRaw = (str(formData, "severity") ?? "MAJOR") as RegFindingSeverity;
   if (!dossierId || !title) return { ok: false, error: "Le titre est obligatoire." };
 
-  const companyId = await targetCompanyId();
+  const companyId = await targetCompanyId(user.id);
   if (!companyId) return { ok: false, error: "Module non activé." };
   const version = await prisma.regulatoryDossierVersion.findFirst({
     where: { dossierId, dossier: { companyId } }, orderBy: { versionNo: "desc" }, select: { id: true },
@@ -296,7 +295,7 @@ export async function approveDocumentName(formData: FormData): Promise<ActionRes
   const documentId = str(formData, "documentId");
   if (!documentId) return { ok: false, error: "Document manquant." };
 
-  const companyId = await targetCompanyId();
+  const companyId = await targetCompanyId(user.id);
   if (!companyId) return { ok: false, error: "Module non activé." };
   const doc = await prisma.regulatoryDocument.findFirst({
     where: { id: documentId, dossierVersion: { dossier: { companyId } } },
@@ -317,7 +316,7 @@ export async function reanalyseDossier(formData: FormData): Promise<ActionResult
   const dossierId = str(formData, "dossierId");
   if (!dossierId) return { ok: false, error: "Dossier manquant." };
 
-  const companyId = await targetCompanyId();
+  const companyId = await targetCompanyId(user.id);
   if (!companyId) return { ok: false, error: "Module non activé." };
   const version = await prisma.regulatoryDossierVersion.findFirst({
     where: { dossierId, dossier: { companyId } }, orderBy: { versionNo: "desc" }, select: { id: true },
@@ -340,7 +339,7 @@ export async function submitDossier(formData: FormData): Promise<ActionResult> {
   const target = str(formData, "target"); // "READY_FOR_REVIEW" | "SUBMITTED"
   if (!dossierId || !target) return { ok: false, error: "Paramètres manquants." };
 
-  const companyId = await targetCompanyId();
+  const companyId = await targetCompanyId(user.id);
   if (!companyId) return { ok: false, error: "Module non activé." };
   const dossier = await prisma.regulatoryDossier.findFirst({ where: { id: dossierId, companyId }, select: { id: true, reference: true } });
   if (!dossier) return { ok: false, error: "Dossier introuvable." };
@@ -376,7 +375,7 @@ export async function reviewFact(formData: FormData): Promise<ActionResult> {
   const value = str(formData, "value");
   if (!factId || !decision) return { ok: false, error: "Paramètres manquants." };
 
-  const companyId = await targetCompanyId();
+  const companyId = await targetCompanyId(user.id);
   if (!companyId) return { ok: false, error: "Module non activé." };
   const fact = await prisma.regulatoryFact.findFirst({
     where: { id: factId, dossierVersion: { dossier: { companyId } } },
@@ -410,7 +409,7 @@ export async function resolveConflict(formData: FormData): Promise<ActionResult>
   const status = str(formData, "status") ?? "RESOLVED";
   if (!conflictId || !finalValue) return { ok: false, error: "Valeur finale requise." };
 
-  const companyId = await targetCompanyId();
+  const companyId = await targetCompanyId(user.id);
   if (!companyId) return { ok: false, error: "Module non activé." };
   const conflict = await prisma.regulatoryConflict.findFirst({
     where: { id: conflictId, dossierVersion: { dossier: { companyId } } },

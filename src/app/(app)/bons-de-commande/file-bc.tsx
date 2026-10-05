@@ -2,16 +2,18 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { FilePen, Loader2, ExternalLink } from "lucide-react";
+import { FilePen, Loader2, ExternalLink, Undo2 } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { EmptyState } from "@/components/shared/empty-state";
 import { useAction } from "@/components/shared/use-action";
-import { signerBonDeCommande } from "@/lib/actions/bc-signature-actions";
+import { signerBonDeCommande, renvoyerBonDeCommande } from "@/lib/actions/bc-signature-actions";
 import { LIBELLE_CENTRE_BC } from "@/lib/bons-de-commande/regle";
 import type { LigneBCFinances } from "@/lib/queries/bons-de-commande";
 import { lienFichierEmis } from "@/lib/legal/fichiers-emis";
+import { BoutonDecisif } from "@/components/ui/bouton-decisif";
 
 /**
  * LA FILE DES SIGNATAIRES — chaque BC avec ce qu'il faut pour le signer en connaissance de cause :
@@ -23,9 +25,10 @@ import { lienFichierEmis } from "@/lib/legal/fichiers-emis";
  * dépendance serveur (CLAUDE.md, frontière client / serveur).
  */
 export function FileBonsDeCommande({
-  aSigner, signes, peutSigner, refus, tronquee,
+  aSigner, renvoyes, signes, peutSigner, refus, tronquee,
 }: {
   aSigner: LigneBCFinances[];
+  renvoyes: LigneBCFinances[];
   signes: LigneBCFinances[];
   peutSigner: boolean;
   refus: string | null;
@@ -62,6 +65,35 @@ export function FileBonsDeCommande({
           )}
         </CardContent>
       </Card>
+
+      {/* CE QUI A ÉTÉ RENVOYÉ À SON ÉMETTEUR (audit 360°, R09) : sorti de la file, pas perdu de vue —
+          avec ce qui a été demandé. Il revient « à signer » dès que la pièce est modifiée. */}
+      {renvoyes.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Renvoyés à l&apos;émetteur</CardTitle>
+            <CardDescription>Ils reviennent dans la file « À signer » dès que leur émetteur les a modifiés.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <ul className="divide-y divide-border">
+              {renvoyes.map((l) => (
+                <li key={l.id} className="space-y-1 py-2 text-sm">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span className="min-w-0 truncate">
+                      <Link href={`/legal/${l.id}`} className="font-medium hover:underline">{l.reference ?? l.title}</Link>
+                      {l.counterparty ? <span className="text-muted-foreground"> — {l.counterparty}</span> : null}
+                    </span>
+                    <span className="text-xs text-muted-foreground">
+                      {montant(l.montant)}{l.renvoi ? ` · renvoyé le ${new Date(l.renvoi.le).toLocaleDateString("fr-FR")}${l.renvoi.par ? ` par ${l.renvoi.par}` : ""}` : ""}
+                    </span>
+                  </div>
+                  {l.renvoi?.note && <p className="text-xs">À corriger : « {l.renvoi.note} »</p>}
+                </li>
+              ))}
+            </ul>
+          </CardContent>
+        </Card>
+      )}
 
       <Card>
         <CardHeader>
@@ -108,6 +140,8 @@ function raison(l: LigneBCFinances): string {
 function LigneASigner({ ligne: l, peutSigner }: { ligne: LigneBCFinances; peutSigner: boolean }) {
   const { saving, err, run } = useAction();
   const [fait, setFait] = React.useState<string | null>(null);
+  // RENVOYER AU LIEU DE SIGNER (audit 360°, R09) : le motif est exigé, à l'écran comme à l'action.
+  const [renvoi, setRenvoi] = React.useState<string | null>(null);
   const jours = Math.floor((Date.now() - new Date(l.creeLe).getTime()) / 86_400_000);
   return (
     <li className="surface space-y-3 p-4">
@@ -147,7 +181,7 @@ function LigneASigner({ ligne: l, peutSigner }: { ligne: LigneBCFinances; peutSi
           </a>
         ) : null}
         {peutSigner && !fait && (
-          <Button
+          <BoutonDecisif
             size="sm" disabled={saving}
             onClick={() => {
               const fd = new FormData();
@@ -161,9 +195,38 @@ function LigneASigner({ ligne: l, peutSigner }: { ligne: LigneBCFinances; peutSi
           >
             {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <FilePen className="h-4 w-4" />}
             Signer
+          </BoutonDecisif>
+        )}
+        {peutSigner && !fait && renvoi === null && (
+          <Button size="sm" variant="secondary" disabled={saving} onClick={() => setRenvoi("")}>
+            <Undo2 className="h-4 w-4" /> Renvoyer à l&apos;émetteur
           </Button>
         )}
       </div>
+      {peutSigner && !fait && renvoi !== null && (
+        <div className="flex flex-wrap items-center gap-2">
+          <Input
+            value={renvoi} onChange={(e) => setRenvoi(e.target.value)} aria-label="Ce qu'il faut corriger"
+            placeholder="Ce qu'il faut corriger (obligatoire)" className="min-w-0 flex-1"
+          />
+          <BoutonDecisif
+            size="sm" variant="secondary" disabled={saving || !renvoi.trim()}
+            onClick={() => {
+              const fd = new FormData();
+              fd.set("id", l.id);
+              fd.set("note", renvoi);
+              void run(async () => {
+                const r = await renvoyerBonDeCommande(fd);
+                if (r.ok) setFait(r.message ?? "Renvoyé.");
+                return r;
+              });
+            }}
+          >
+            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Undo2 className="h-4 w-4" />} Confirmer le renvoi
+          </BoutonDecisif>
+          <Button size="sm" variant="ghost" disabled={saving} onClick={() => setRenvoi(null)}>Annuler</Button>
+        </div>
+      )}
       {fait && <p className="rounded-lg bg-success/10 px-3 py-2 text-sm text-foreground">{fait}</p>}
       {err && <p className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">{err}</p>}
     </li>

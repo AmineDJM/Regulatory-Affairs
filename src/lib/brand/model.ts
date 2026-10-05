@@ -207,25 +207,31 @@ export function lireMarque(settings: unknown): Marque {
 }
 
 export interface Charte {
-  /** L'accent effectif : celui de la marque, sinon la pastille de la société, sinon le bleu de la maison. */
+  /** L'accent effectif : celui de la marque, sinon le bleu canard de la maison — jamais la pastille de l'écran. */
   accent: string;
   secondaire: string | null;
   texteSurAccent: "FFFFFF" | "000000";
   policeTitres: string;
   policeTexte: string;
   /** D'où vient l'accent — pour que la pièce puisse le dire. */
-  origineAccent: "marque" | "societe" | "defaut";
+  origineAccent: "marque" | "defaut";
   alertes: string[];
 }
 
-export const ACCENT_DEFAUT = "0B2545";
+/**
+ * LE BLEU CANARD DE LA MAISON — R 8, V 112, B 132 (décision de la Direction, 10/2026 : « remplacer le rouge par
+ * l'une des couleurs de notre charte »). Il est l'accent des pièces émises tant que la marque de la société n'en
+ * règle pas un autre (Administration › Marque). La PASTILLE de l'entité, elle, colore les écrans (sélecteur,
+ * pastilles) : une couleur d'interface n'est pas une couleur de charte, et une pastille rouge ne doit pas peindre
+ * un bon de commande. Pour la rendre à la pièce : `accentMarque ?? accentSociete ?? ACCENT_DEFAUT`.
+ */
+export const ACCENT_DEFAUT = "087084";
 export const POLICE_DEFAUT = "Calibri";
 
-/** LA CHARTE EFFECTIVE d'une société : marque > pastille de la société > défauts de la maison, avec les alertes de contraste. */
-export function charteDe(marque: Marque, couleurSociete: string | null | undefined): Charte {
+/** LA CHARTE EFFECTIVE d'une société : marque > bleu canard de la maison, avec les alertes de contraste. */
+export function charteDe(marque: Marque): Charte {
   const accentMarque = marque.couleurs.accent;
-  const accentSociete = normaliserHex(couleurSociete ?? null);
-  const accent = accentMarque ?? accentSociete ?? ACCENT_DEFAUT;
+  const accent = accentMarque ?? ACCENT_DEFAUT;
   const alertes: string[] = [];
   const surBlanc = contraste(accent, "FFFFFF");
   if (surBlanc < 3) alertes.push(`accent ${accent} trop clair sur fond blanc (contraste ${surBlanc}:1, 3:1 au moins pour un titre) : les titres seront peu lisibles`);
@@ -236,7 +242,7 @@ export function charteDe(marque: Marque, couleurSociete: string | null | undefin
     accent, secondaire: marque.couleurs.secondaire, texteSurAccent,
     policeTitres: marque.polices.titres ?? marque.polices.texte ?? POLICE_DEFAUT,
     policeTexte: marque.polices.texte ?? POLICE_DEFAUT,
-    origineAccent: accentMarque ? "marque" : accentSociete ? "societe" : "defaut",
+    origineAccent: accentMarque ? "marque" : "defaut",
     alertes,
   };
 }
@@ -274,7 +280,7 @@ export function signatairePour(marque: Marque, type: TypePiece, repli: Signature
 /** Un résumé lisible — ce qu'Adam dit quand on lui demande « notre charte ? ». */
 export function resumerMarque(marque: Marque, charte: Charte): string {
   const parts: string[] = [];
-  parts.push(`accent ${charte.accent} (${charte.origineAccent === "marque" ? "registre de marque" : charte.origineAccent === "societe" ? "pastille de la société" : "défaut de la maison"})`);
+  parts.push(`accent ${charte.accent} (${charte.origineAccent === "marque" ? "registre de marque" : "bleu canard de la maison"})`);
   if (charte.secondaire) parts.push(`secondaire ${charte.secondaire}`);
   parts.push(`polices ${charte.policeTitres}${charte.policeTexte !== charte.policeTitres ? ` / ${charte.policeTexte}` : ""}`);
   parts.push(marque.logo ? `logo « ${marque.logo.nom} » (${marque.logo.largeurCm} cm)` : "aucun logo déposé");

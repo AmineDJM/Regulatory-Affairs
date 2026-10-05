@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Sheet } from "@/components/ui/sheet";
 import { Select, Textarea, Label, Input } from "@/components/ui/input";
 import { HR_REQUEST_TYPE } from "@/lib/labels";
-import { requestHrDocument, deleteHrRequest } from "@/lib/actions/hr-document-actions";
+import { requestHrDocument, annulerDemandeRh } from "@/lib/actions/hr-document-actions";
 import { ExpenseClaimFields } from "@/components/hr/expense-claim-form";
 
 /** Types « congé » à jours entiers (début + fin) ; l'absence ponctuelle n'a qu'une date. */
@@ -125,9 +125,14 @@ export function CancelRequestButton({ id }: { id: string }) {
     <button
       disabled={pending}
       onClick={() => {
-        if (!window.confirm("Annuler cette demande ?")) return;
-        const fd = new FormData(); fd.set("id", id);
-        start(async () => { await deleteHrRequest(fd); router.refresh(); });
+        const motif = window.prompt("Annuler cette demande ? Les RH en seront prévenues. Motif (facultatif) :", "");
+        if (motif === null) return;
+        const fd = new FormData(); fd.set("id", id); if (motif.trim()) fd.set("motif", motif.trim());
+        start(async () => {
+          const r = await annulerDemandeRh(fd);
+          if (!r.ok) window.alert(r.error ?? "Annulation impossible.");
+          router.refresh();
+        });
       }}
       className="inline-flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 text-xs text-muted-foreground hover:bg-secondary"
     >

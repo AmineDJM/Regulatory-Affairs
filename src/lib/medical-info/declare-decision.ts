@@ -69,6 +69,11 @@ export interface DeclareInput {
 export function declareStage(i: DeclareInput): DeclareStage {
   if (!i.validationId) return i.grantedAt ? "ACCORDEE" : "A_DEMANDER";
   switch (i.validationStatus) {
+    // ANNULÉE (une resoumission a clos la précédente, ou le demandeur l'a retirée) : il n'y a plus
+    // de demande — l'état par défaut la lisait « en validation », et le dossier y restait à vie
+    // (audit 360°, I9). Une demande SUPPRIMÉE arrive ici sans identifiant : le chargeur ne transmet
+    // que l'identifiant d'une validation qui existe encore (`circuitStateOf`).
+    case "CANCELLED": return i.grantedAt ? "ACCORDEE" : "A_DEMANDER";
     case "REJECTED": return "REFUSEE";
     case "CHANGES_REQUESTED": return "A_REVOIR";
     case "APPROVED": return "ACCORDEE";
@@ -80,13 +85,16 @@ export function declareStage(i: DeclareInput): DeclareStage {
  * Le pharmacien peut-il (re)soumettre sa lecture ?
  *
  * Un REFUS rouvre la porte : le validateur a dit ce qu'il attendait, et reformuler avec cela est
- * exactement ce qu'on veut. Une demande À REVOIR, elle, ne se REDEMANDE pas — elle se corrige
- * dans son propre circuit ; en ouvrir une seconde laisserait deux demandes vivantes pour une
- * seule question.
+ * exactement ce qu'on veut. Une demande À REVOIR aussi (audit 360°, I9) : la règle d'avant disait
+ * « elle se corrige dans son propre circuit » — or une demande de validation n'a AUCUN geste de
+ * reprise côté demandeur (le retrait est refusé dès qu'un validateur s'est prononcé), et le message
+ * promettait « reprenez-la là-bas ». Le dossier mourait au premier « Modification ». La resoumission
+ * se fait donc ICI, et elle CLÔT la demande précédente : jamais deux demandes vivantes pour une
+ * seule question — c'était la vraie raison de la règle, et elle reste tenue.
  */
 export function canRequestDecision(i: DeclareInput): boolean {
   const s = declareStage(i);
-  return s === "A_DEMANDER" || s === "REFUSEE";
+  return s === "A_DEMANDER" || s === "REFUSEE" || s === "A_REVOIR";
 }
 
 /**
@@ -138,7 +146,7 @@ export function declareMessage(i: DeclareInput, filed: { authorityRef: string | 
     case "EN_VALIDATION":
       return "Votre lecture est en validation. Rien à faire de votre côté tant que le validateur n'a pas signé.";
     case "A_REVOIR":
-      return "Le validateur demande une modification : lisez son commentaire dans la demande de validation et reprenez-la là-bas — n'en ouvrez pas une seconde.";
+      return "Le validateur demande une modification : lisez son commentaire dans la demande de validation, corrigez votre lecture et soumettez-la de nouveau ici — la demande précédente sera close.";
     case "REFUSEE":
       return "Votre lecture a été refusée. Lisez le motif, puis soumettez celle que le validateur attend.";
     case "ACCORDEE":

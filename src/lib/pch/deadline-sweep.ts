@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { notifyUser } from "@/lib/notify";
 import { anyRoleFilter, rolesWithModule } from "@/lib/rbac";
 import { doitRappelerDepot, type ZoneDepot } from "@/lib/pch/market-math";
+import { predicatEntitePermise } from "@/lib/company";
 
 /**
  * LE BALAYAGE DES ÉCHÉANCES DE DÉPÔT (§53) — même doctrine que le balayage Legal : la règle
@@ -53,7 +54,7 @@ export async function runPchDeadlineSweep(now: Date = new Date()): Promise<PchDe
       },
       select: {
         id: true, reference: true, title: true, submissionDeadline: true,
-        deadlineRemindedAt: true, responsibleId: true, createdById: true,
+        deadlineRemindedAt: true, responsibleId: true, createdById: true, companyId: true,
       },
       orderBy: { submissionDeadline: "asc" },
       take: MAX_TENDERS_PER_RUN,
@@ -64,6 +65,12 @@ export async function runPchDeadlineSweep(now: Date = new Date()): Promise<PchDe
       where: { isActive: true, ...anyRoleFilter(rolesWithModule("PCH", "UPDATE")) },
       select: { id: true },
     });
+    // LES GESTIONNAIRES DE LA SOCIÉTÉ DU MARCHÉ, pas tous (§118.184 — audit 360°, S11) : le rappel portait
+    // la référence et l'intitulé d'un marché à tous les gestionnaires PCH du groupe, y compris ceux d'une
+    // société dont ils ne peuvent pas ouvrir la fiche. Le responsable et l'auteur restent prévenus — la
+    // fiche leur est ouverte (`clauseMarchesPchVisibles`, « fiche »). La règle est calculée UNE fois par
+    // personne, pas une fois par marché.
+    const societes = new Map(await Promise.all(managers.map(async (m) => [m.id, await predicatEntitePermise(m.id)] as const)));
 
     for (const t of tenders) {
       const zone = doitRappelerDepot(t.submissionDeadline!, t.deadlineRemindedAt, now);
@@ -81,7 +88,8 @@ export async function runPchDeadlineSweep(now: Date = new Date()): Promise<PchDe
       const dateFr = t.submissionDeadline!.toLocaleDateString("fr-FR");
       const message = MESSAGES[zone](t.reference, dateFr);
       const recipients = [...new Set(
-        [t.responsibleId, t.createdById, ...managers.map((m) => m.id)].filter((id): id is string => Boolean(id)),
+        [t.responsibleId, t.createdById, ...managers.filter((m) => societes.get(m.id)?.(t.companyId)).map((m) => m.id)]
+          .filter((id): id is string => Boolean(id)),
       )];
       for (const userId of recipients) {
         await notifyUser({

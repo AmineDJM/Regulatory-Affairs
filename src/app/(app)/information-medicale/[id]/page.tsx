@@ -1,8 +1,9 @@
+import { refusAnnulationPieceInfoMed } from "@/lib/annulations/regles";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowLeft, ExternalLink, FileText, ShieldPlus, CheckCircle2, Clock, HandCoins } from "lucide-react";
 import { requireUser } from "@/lib/session";
-import { hasGlobalView, userCan, scopeCongressIntl, scopeCongressNational } from "@/lib/rbac";
+import { hasGlobalView, userCan, scopeCongressIntl, scopeCongressNational, scopeSponsoring } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { getDeclaration, canViewDeclaration, sourceLink } from "@/lib/queries/medical-info";
 import { peutOuvrirLeDossierPromo } from "@/lib/queries/promo-circuit";
@@ -44,6 +45,8 @@ export default async function DeclarationDetailPage({ params }: { params: { id: 
   const etat = await circuitStateOf(decl);
   const autoritesOuvertes = authoritiesOpen(etat);
   const canDeliverSlips = userCan(user, "FINANCES", "UPDATE") || hasGlobalView(user.role);
+  // La carte des bons, montrée aux Finances hors du bloc du pharmacien (audit 360°, I9).
+  const carteFinances = !canManage && canDeliverSlips && etat.circuit === "PROMO" && etat.slips.some((sl) => sl.requestId);
   const lotEditable = canEditSlips(etat.lot);
   const isValidated = decl.status === "VALIDATED";
   const isAwaitingDirection = decl.status === "AWAITING_DIRECTION";
@@ -59,7 +62,7 @@ export default async function DeclarationDetailPage({ params }: { params: { id: 
         if (piece?.sourceType !== "PROMO_MATERIAL" || !piece.sourceId) return null;
         const pm = await prisma.promoMaterial.findUnique({
           where: { id: piece.sourceId },
-          select: { id: true, reference: true, requesterId: true, assistantId: true, requestValidatorId: true, marketingValidatorId: true },
+          select: { id: true, reference: true, requesterId: true, assistantId: true, requestValidatorId: true, marketingValidatorId: true, companyId: true },
         });
         return pm ? { pm, facture: piece.reference } : null;
       })()
@@ -75,7 +78,9 @@ export default async function DeclarationDetailPage({ params }: { params: { id: 
     canOpenSource = await peutOuvrirLeDossierPromo(user, promoSource.pm);
   } else if (link) {
     if (hasGlobalView(user.role)) canOpenSource = true;
-    else if (decl.sourceType === "SPONSORING") canOpenSource = userCan(user, "SPONSORING", "VIEW");
+    else if (decl.sourceType === "SPONSORING")
+      canOpenSource = userCan(user, "SPONSORING", "VIEW") &&
+        (await prisma.sponsoringRequest.count({ where: { AND: [{ id: decl.sourceId }, scopeSponsoring(user)] } })) > 0;
     else if (decl.sourceType === "CONGRESS_INTERNATIONAL")
       canOpenSource = userCan(user, "CONGRESS_INTERNATIONAL", "VIEW") &&
         (await prisma.congressInternational.count({ where: { id: decl.sourceId, ...scopeCongressIntl(user) } })) > 0;
@@ -206,7 +211,7 @@ export default async function DeclarationDetailPage({ params }: { params: { id: 
                           </div>
                           <div className="flex shrink-0 items-center gap-2">
                             <StatusBadge map={DOC_REQUEST_STATUS} value={r.status} dot={false} />
-                            {canManage && r.status === "PENDING" && <CancelRequestButton id={r.id} />}
+                            {refusAnnulationPieceInfoMed(r, { userId: user.id, gestionnaire: canManage }) === null && <CancelRequestButton id={r.id} />}
                           </div>
                         </div>
                         {r.note && <p className="mt-1 text-xs text-muted-foreground">Note : {r.note}</p>}
@@ -368,7 +373,38 @@ export default async function DeclarationDetailPage({ params }: { params: { id: 
             </Card>
           )}
 
-          {!canManage && !isValidated && !isAwaitingDirection && (
+          {/* LES FINANCES REMETTENT LES QUITTANCES (audit 360°, I9) : la carte des bons leur est
+              montrée en lecture, avec le seul geste qui leur revient — « Quittance remise ». Elle
+              vivait dans le bloc du pharmacien, où elles n'entrent pas. */}
+          {carteFinances && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2 text-base"><HandCoins className="h-4 w-4" /> Bons de versement</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <p className="text-xs text-muted-foreground">Une quittance réglée se remet au bureau du pharmacien : c&apos;est la remise, et non le règlement, qui ouvre la déclaration aux autorités.</p>
+                <SlipsCard
+                  id={decl.id}
+                  lot={etat.lot}
+                  slips={etat.slips.map((sl) => ({
+                    id: sl.id, label: sl.label, amount: sl.amount, note: sl.note,
+                    requestId: sl.requestId, centralStatus: sl.centralStatus, orderStatus: sl.orderStatus,
+                    deliveredAt: sl.deliveredAt, deliveredAtIso: sl.deliveredAt?.toISOString() ?? null,
+                  }))}
+                  summary={etat.summary}
+                  canEdit={false}
+                  canValidate={false}
+                  canManage={false}
+                  canDeliver
+                  canSkip={false}
+                  skipReason={etat.skipped ? decl.bvSkipReason : null}
+                  validationHref={null}
+                />
+              </CardContent>
+            </Card>
+          )}
+
+          {!canManage && !carteFinances && !isValidated && !isAwaitingDirection && (
             <Card>
               <CardContent className="flex items-start gap-2 py-5 text-sm text-muted-foreground">
                 <Clock className="mt-0.5 h-4 w-4 shrink-0" />

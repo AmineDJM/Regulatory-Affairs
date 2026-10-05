@@ -458,69 +458,70 @@ test("« Rattacher les établissements » relie le nom qui désigne UN établiss
   await expect(await cellule(page, DR_INCONNU, "Établissement")).toContainText("à rattacher");
 });
 
-test("le découpage d'une BU : le CHU pour la seule Cardiologie, l'EPH en entier — et le filtre ne retire rien", async ({ page }) => {
+test("le territoire d'un KAM, sur SA ligne : le CHU pour la seule Cardiologie, l'EPH en entier — et le filtre ne retire rien", async ({ page }) => {
+  // 04/10/2026 : « Secteurs de la BU » a quitté l'écran ; le territoire se choisit sur la ligne du KAM
+  // (BU hospitalière — la BU du banc est « les deux », le défaut).
   await login(page, DIR_EMAIL);
   await aller(page, "/planning/business-units");
   await page.getByRole("button", { name: new RegExp(BU) }).first().click();
-  await page.getByRole("button", { name: "Découper un secteur" }).click();
-  const fiche = page.getByRole("dialog", { name: "Découper un secteur" });
-  await fiche.getByLabel("Nom du secteur").fill(`${P} Est`);
-  await fiche.getByRole("checkbox", { name: `${P} KAM Est` }).check();
+  await expect(page.getByText(/Secteurs de la BU/)).toHaveCount(0);
+  await page.getByRole("button", { name: `Territoire de ${P} KAM Est` }).click();
+  const fiche = page.getByRole("dialog", { name: `Territoire de ${P} KAM Est` });
   await fiche.getByRole("checkbox", { name: `Couvrir ${CHU}` }).check();
   await fiche.getByRole("checkbox", { name: `Tous les services de ${CHU}` }).uncheck();
   // « Aucun service » n'est pas un choix : le bouton refuse, et l'écran dit pourquoi.
   await expect(fiche.getByRole("alert")).toContainText(CHU);
-  await expect(fiche.getByRole("button", { name: "Créer le secteur" })).toBeDisabled();
+  await expect(fiche.getByRole("button", { name: "Enregistrer le territoire" })).toBeDisabled();
   await fiche.getByRole("checkbox", { name: `Cardiologie — ${CHU}` }).check();
   await fiche.getByRole("checkbox", { name: `Couvrir ${EPH}` }).check();
-  // LE DÉFAUT D'AVANT : filtrer puis enregistrer retirait du secteur tout ce qu'on ne voyait plus.
+  // LE DÉFAUT D'AVANT : filtrer puis enregistrer retirait du territoire tout ce qu'on ne voyait plus.
   await fiche.getByLabel("Filtrer les établissements").fill("zzz-rien");
   await expect(fiche.getByText("Aucun établissement ne correspond à ce filtre.")).toBeVisible();
-  await fiche.getByRole("button", { name: "Créer le secteur" }).click();
+  await fiche.getByRole("button", { name: "Enregistrer le territoire" }).click();
 
   const cardio = await prisma.medicalInstitutionService.findFirstOrThrow({ where: { institutionId: chuId, name: "Cardiologie" } });
   await enBase(async () => {
     const sec = await prisma.salesSector.findFirst({
-      where: { businessUnitId: buId },
+      where: { businessUnitId: buId, repId: kamId },
       select: { reps: { select: { repId: true } }, institutions: { select: { institutionId: true, tousLesServices: true, services: { select: { serviceId: true } } } } },
     });
     if (!sec) return null;
     const parEtab = Object.fromEntries(sec.institutions.map((l) => [l.institutionId, [l.tousLesServices, l.services.map((s) => s.serviceId)]]));
     return { reps: sec.reps.map((r) => r.repId), parEtab };
-  }, { reps: [kamId], parEtab: { [chuId]: [false, [cardio.id]], [ephId]: [true, []] } }, "secteur écrit avec sa couverture");
+  }, { reps: [kamId], parEtab: { [chuId]: [false, [cardio.id]], [ephId]: [true, []] } }, "territoire écrit avec sa couverture");
 
   // ROUVRIR montre ce qui est enregistré — la restriction n'est pas perdue à l'affichage.
-  await page.getByRole("button", { name: `Modifier le secteur ${P} Est` }).click();
-  const edition = page.getByRole("dialog", { name: `Secteur « ${P} Est »` });
+  await page.getByRole("button", { name: `Territoire de ${P} KAM Est` }).click();
+  const edition = page.getByRole("dialog", { name: `Territoire de ${P} KAM Est` });
   await expect(edition.getByRole("checkbox", { name: `Couvrir ${CHU}` })).toBeChecked();
   await expect(edition.getByRole("checkbox", { name: `Tous les services de ${CHU}` })).not.toBeChecked();
   await expect(edition.getByRole("checkbox", { name: `Cardiologie — ${CHU}` })).toBeChecked();
   await expect(edition.getByRole("checkbox", { name: `Tous les services de ${EPH}` })).toBeChecked();
-  // La ligne du secteur DIT ce qu'il couvre.
+  // La ligne du KAM DIT ce que son territoire couvre.
   await edition.getByRole("button", { name: "Annuler" }).click();
   await expect(page.getByText(`${CHU} (Cardiologie)`)).toBeVisible();
 });
 
-test("rouvrir un secteur JUSTE après l'avoir enregistré montre ce qu'on vient d'enregistrer — pas l'état d'avant", async ({ page }) => {
+test("rouvrir un territoire JUSTE après l'avoir enregistré montre ce qu'on vient d'enregistrer — pas l'état d'avant", async ({ page }) => {
   await login(page, DIR_EMAIL);
   await aller(page, "/planning/business-units");
   await ralentirRafraichissements(page);
   await page.getByRole("button", { name: new RegExp(BU) }).first().click();
   const lireTous = async () => (await prisma.salesSectorInstitution.findFirstOrThrow({
-    where: { institutionId: chuId, sector: { businessUnitId: buId } },
+    where: { institutionId: chuId, sector: { businessUnitId: buId, repId: kamId } },
   })).tousLesServices;
 
   // Rendre au CHU « tous ses services ».
-  await page.getByRole("button", { name: `Modifier le secteur ${P} Est` }).click();
-  const edition = page.getByRole("dialog", { name: `Secteur « ${P} Est »` });
+  await page.getByRole("button", { name: `Territoire de ${P} KAM Est` }).click();
+  const edition = page.getByRole("dialog", { name: `Territoire de ${P} KAM Est` });
   await edition.getByRole("checkbox", { name: `Tous les services de ${CHU}` }).check();
   await edition.getByRole("button", { name: /Enregistrer/ }).click();
   await enBase(lireTous, true, "couverture élargie en base");
 
   // LA COURSE : le panneau naît de la couverture qu'il lit à l'ouverture. Rouvert sur l'état
   // d'AVANT, il remontrait la restriction — et l'enregistrer la RÉÉCRIVAIT.
-  await page.getByRole("button", { name: `Modifier le secteur ${P} Est` }).click();
-  const encore = page.getByRole("dialog", { name: `Secteur « ${P} Est »` });
+  await page.getByRole("button", { name: `Territoire de ${P} KAM Est` }).click();
+  const encore = page.getByRole("dialog", { name: `Territoire de ${P} KAM Est` });
   await expect(encore.getByRole("checkbox", { name: `Tous les services de ${CHU}` })).toBeChecked();
   await encore.getByRole("button", { name: /Enregistrer/ }).click();
   await enBase(lireTous, true, "rien n'a été réécrit à l'état d'avant");

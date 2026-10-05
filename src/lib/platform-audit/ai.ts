@@ -1,4 +1,5 @@
-import { aiConfigured, askClaude } from "@/lib/ai";
+import { aiConfigured, askClaude, cleModeleRequise } from "@/lib/ai";
+import { courtIaNonConfiguree } from "@/lib/ia/cle-manquante";
 import type { PlatformDiagnostic, Finding } from "./engine";
 
 /**
@@ -85,7 +86,7 @@ function buildPrompt(d: PlatformDiagnostic): string {
 }
 
 export async function generateIdeas(d: PlatformDiagnostic): Promise<IdeasResult> {
-  if (!aiConfigured()) return { ok: false, configured: false, error: "IA non configurée (ANTHROPIC_API_KEY absente)." };
+  if (!aiConfigured()) return { ok: false, configured: false, error: `${courtIaNonConfiguree(cleModeleRequise())}.` };
   const r = await askClaude(buildPrompt(d), { maxTokens: 3200, temperature: 0.4 });
   if (!r.ok || !r.text) return { ok: false, configured: r.configured, error: r.error ?? "Réponse IA vide." };
   return { ok: true, configured: true, text: r.text.trim() };

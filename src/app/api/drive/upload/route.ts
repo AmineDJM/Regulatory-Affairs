@@ -1,20 +1,20 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getCurrentUser } from "@/lib/session";
-import { userCan } from "@/lib/rbac";
-import { prisma } from "@/lib/prisma";
+import { getCurrentUserPourEcrire } from "@/lib/session";
 import { putBlob } from "@/lib/drive-storage";
 import { validateDriveUpload } from "@/lib/storage";
 import { getAppSettings } from "@/lib/settings";
-import { resolveDriveAccess, effectiveSpaceId, canCreateInSpace } from "@/lib/drive";
 import { quotaVerdict } from "@/lib/drive/quota";
 import { userUsageBytes, physicalUsageBytes, addPhysicalUsage } from "@/lib/drive/usage";
-import { recordAudit } from "@/lib/audit";
 import { objectStorageConfigured } from "@/lib/storage/object-storage";
 import { startTimer, formatTiming } from "@/lib/drive/timing";
+import { refusDepotDrive, enregistrerFichierDrive } from "@/lib/drive/depot";
+import { BLOB_MAX_BYTES } from "@/lib/storage/limites-blob";
+import { MAX_SANS_STOCKAGE_OBJET_MO } from "@/lib/storage/phrases-stockage";
+import { refusSansStockageObjet } from "@/lib/storage/televersement-direct";
 
 /** Upload a new file (under `parentId`) or a new version (of `nodeId`). */
 export async function POST(req: NextRequest) {
-  const user = await getCurrentUser();
+  const user = await getCurrentUserPourEcrire();
   if (!user) return NextResponse.json({ error: "Non authentifié." }, { status: 401 });
   if (user.mustChangePassword) return NextResponse.json({ error: "Mot de passe à changer." }, { status: 403 });
 
@@ -25,29 +25,34 @@ export async function POST(req: NextRequest) {
   timer.mark("réception");
   const file = form.get("file");
   if (!(file instanceof File)) return NextResponse.json({ error: "Fichier manquant." }, { status: 400 });
-  const parentId = (form.get("parentId") as string) || null;
-  const nodeId = (form.get("nodeId") as string) || null;
-  const spaceId = (form.get("spaceId") as string) || null;
+  const cible = {
+    nodeId: (form.get("nodeId") as string) || null,
+    parentId: (form.get("parentId") as string) || null,
+    spaceId: (form.get("spaceId") as string) || null,
+    category: (form.get("category") as string) || null,
+    viewers: form.getAll("viewers").map(String).filter(Boolean),
+    editors: form.getAll("editors").map(String).filter(Boolean),
+  };
 
-  // Autorisation d'écriture. Un accès **ÉDITEUR** explicite (partage/catégorie) sur la cible
-  // SUFFIT, même si le rôle de la personne n'a pas le droit module « Téléverser » :
-  //  - nouvelle version d'un fichier → éditeur sur CE fichier ;
-  //  - nouveau fichier dans un dossier → éditeur sur CE dossier ;
-  //  - nouveau fichier à la racine d'une CATÉGORIE → gestionnaire de la catégorie ;
-  //  - nouveau fichier à la racine (espace perso) → droit module « Téléverser ».
-  if (nodeId) {
-    if ((await resolveDriveAccess(user, nodeId)) !== "EDIT") return NextResponse.json({ error: "Non autorisé." }, { status: 403 });
-  } else if (parentId) {
-    if ((await resolveDriveAccess(user, parentId)) !== "EDIT") return NextResponse.json({ error: "Dossier non autorisé." }, { status: 403 });
-  } else if (spaceId) {
-    if (!(await canCreateInSpace(user, spaceId))) return NextResponse.json({ error: "Catégorie non autorisée." }, { status: 403 });
-  } else if (!userCan(user, "DRIVE", "UPLOAD")) {
-    return NextResponse.json({ error: "Non autorisé." }, { status: 403 });
-  }
+  const refus = await refusDepotDrive(user, cible);
+  if (refus) return NextResponse.json({ error: refus.error }, { status: refus.status });
 
   const settings = await getAppSettings();
   const err = validateDriveUpload(file.name, file.size, settings.maxDriveUploadMb);
   if (err) return NextResponse.json({ error: err }, { status: 400 });
+  // UN TRÈS GROS FICHIER NE PASSE PAS PAR ICI. Ce chemin tient le fichier entier en mémoire puis
+  // l'écrit — en BASE quand aucun stockage objet n'est configuré, ce qui remplirait Postgres
+  // (≈ 1 Go sur l'offre gratuite) et ferait tomber l'application entière. Il se refuse, et le
+  // refus nomme les variables à poser pour l'accepter.
+  if (!objectStorageConfigured() && file.size > MAX_SANS_STOCKAGE_OBJET_MO * 1024 * 1024) {
+    return NextResponse.json({ error: refusSansStockageObjet(file.size, MAX_SANS_STOCKAGE_OBJET_MO) }, { status: 413 });
+  }
+
+  // Au-delà de 2 Go, le coffre chiffré ne peut pas tenir le fichier : seul l'envoi direct au bucket
+  // (parties de 32 Mo, depuis le navigateur) le reçoit. Ce chemin-ci le lirait en mémoire.
+  if (file.size > BLOB_MAX_BYTES) {
+    return NextResponse.json({ error: `Ce fichier (${Math.round(file.size / 1024 ** 2)} Mo) dépasse 2 Go : il doit être envoyé directement au stockage. Rechargez la page et renvoyez-le.` }, { status: 413 });
+  }
 
   // Quotas (réglés dans Administration → Stockage Drive) : par utilisateur (somme de SES fichiers
   // actifs, relue à chaque fois — c'est elle qui refuse) et capacité globale (mesure partagée,
@@ -63,59 +68,25 @@ export async function POST(req: NextRequest) {
   if (!verdict.ok) return NextResponse.json({ error: verdict.error }, { status: 400 });
 
   const buf = Buffer.from(await file.arrayBuffer());
-  const { blobId, size, deduplicated } = await putBlob(buf);
+  let ecrit: Awaited<ReturnType<typeof putBlob>>;
+  try {
+    ecrit = await putBlob(buf);
+  } catch (e) {
+    // Une écriture refusée se DIT, avec sa cause — jamais une erreur 500 opaque.
+    return NextResponse.json({ error: e instanceof Error ? e.message : "Écriture impossible." }, { status: 503 });
+  }
+  const { blobId, size, deduplicated } = ecrit;
   timer.mark(deduplicated ? "contenu déjà présent" : "chiffrement + stockage");
   // Un contenu dédupliqué n'occupe pas de place NEUVE : le compter gonflerait l'occupation jusqu'à
   // refuser des envois qui tiennent parfaitement.
   if (!deduplicated) addPhysicalUsage(size);
   const mimeType = file.type || "application/octet-stream";
 
-  if (nodeId) {
-    const last = await prisma.fileVersion.findFirst({ where: { nodeId }, orderBy: { version: "desc" }, select: { version: true } });
-    const version = (last?.version ?? 0) + 1;
-    await prisma.fileVersion.create({ data: { nodeId, blobId, version, size, mimeType, createdById: user.id } });
-    await prisma.driveNode.update({ where: { id: nodeId }, data: { size, mimeType } });
-    await recordAudit({ actorId: user.id, action: "UPLOAD", module: "Drive", entityType: "DRIVE_NODE", entityId: nodeId, summary: `Nouvelle version (v${version})` });
-    timer.mark("base");
-    const t = timer.done(objectStorageConfigured() ? "objet" : "base", size);
-    console.info("[drive upload]", file.name, formatTiming(t));
-    return NextResponse.json({ id: nodeId, version, timing: t });
-  }
-
-  // Classement + permissions choisis à l'import (qui voit / qui modifie).
-  const category = ((form.get("category") as string) || "").trim() || null;
-  const viewers = form.getAll("viewers").map(String).filter(Boolean);
-  const editors = form.getAll("editors").map(String).filter(Boolean);
-
-  const effSpaceId = await effectiveSpaceId(parentId, spaceId);
-  const node = await prisma.driveNode.create({
-    data: {
-      name: file.name, type: "FILE", parentId, spaceId: effSpaceId, ownerId: user.id, mimeType, size, category, createdById: user.id,
-      versions: { create: { blobId, version: 1, size, mimeType, createdById: user.id } },
-    },
-    select: { id: true },
-  });
-
-  // Crée les partages (EDIT prioritaire sur VIEW ; on ignore l'auteur et les IDs invalides).
-  const editorIds = new Set(editors.filter((id) => id !== user.id));
-  const viewerIds = new Set(viewers.filter((id) => id !== user.id && !editorIds.has(id)));
-  const ids = [...editorIds, ...viewerIds];
-  if (ids.length) {
-    const valid = new Set(
-      (await prisma.user.findMany({ where: { id: { in: ids }, isActive: true }, select: { id: true } })).map((u) => u.id),
-    );
-    const shareData = [
-      ...[...editorIds].filter((id) => valid.has(id)).map((userId) => ({ nodeId: node.id, userId, access: "EDIT" as const })),
-      ...[...viewerIds].filter((id) => valid.has(id)).map((userId) => ({ nodeId: node.id, userId, access: "VIEW" as const })),
-    ];
-    if (shareData.length) await prisma.driveShare.createMany({ data: shareData, skipDuplicates: true });
-  }
-
-  await recordAudit({ actorId: user.id, action: "UPLOAD", module: "Drive", entityType: "DRIVE_NODE", entityId: node.id, summary: `Fichier « ${file.name} »${category ? ` · ${category}` : ""}${ids.length ? ` · partagé (${ids.length})` : ""}` });
+  const res = await enregistrerFichierDrive(user, cible, { blobId, size, mimeType, name: file.name });
   timer.mark("base");
   // Le découpage part dans la réponse (l'écran le montre quand un envoi traîne) ET dans le
   // journal du serveur — on peut ainsi diagnostiquer sans demander à personne de rejouer le cas.
   const t = timer.done(objectStorageConfigured() ? "objet" : "base", size);
   console.info("[drive upload]", file.name, formatTiming(t));
-  return NextResponse.json({ id: node.id, timing: t });
+  return NextResponse.json({ id: res.id, ...(res.version ? { version: res.version } : {}), timing: t });
 }

@@ -38,7 +38,7 @@ async function actorFor(id: string, role: SessionUser["role"]): Promise<CurrentU
  * s'ouvrait pas dans « Paiements à faire ».
  */
 suite("Un ordre de dépense, un dossier — quelle que soit sa provenance", () => {
-  let requesterId = "", financeId = "";
+  let requesterId = "", financeId = "", categorieId = "";
   const orders: string[] = [];
 
   beforeAll(async () => {
@@ -46,9 +46,17 @@ suite("Un ordre de dépense, un dossier — quelle que soit sa provenance", () =
       prisma.user.create({ data: { name: `${TAG}${suffix}`, email: `${TAG}${suffix}@t.dz`, role, passwordHash: "x" } });
     const [req, fin] = await Promise.all([mk("req", "DIRECTION"), mk("fin", "FINANCE_BUDGET_MANAGER")]);
     requesterId = req.id; financeId = fin.id;
+    // LE BUDGET DU BANC (§118.182) : une enveloppe à lui, qui ne couvre aucun module — donc invisible de
+    // l'attribution automatique des autres bancs — et une catégorie où les Finances classent au règlement.
+    const env = await prisma.budgetEnvelope.create({
+      data: { name: `${TAG}enveloppe`, periodStart: new Date("2026-01-01"), periodEnd: new Date("2026-12-31") },
+    });
+    categorieId = (await prisma.budgetCategoryLine.create({ data: { envelopeId: env.id, name: `${TAG}catégorie` } })).id;
   });
 
   afterAll(async () => {
+    await prisma.financeTransaction.deleteMany({ where: { label: { startsWith: TAG } } }).catch(() => {});
+    await prisma.budgetEnvelope.deleteMany({ where: { name: { startsWith: TAG } } }).catch(() => {});
     await prisma.paymentRequest.deleteMany({ where: { expenseOrderId: { in: orders } } }).catch(() => {});
     await prisma.expenseOrder.deleteMany({ where: { id: { in: orders } } }).catch(() => {});
     await prisma.notification.deleteMany({ where: { user: { email: { startsWith: TAG } } } }).catch(() => {});
@@ -197,6 +205,11 @@ suite("Un ordre de dépense, un dossier — quelle que soit sa provenance", () =
     ACTOR = await actorFor(financeId, "FINANCE_BUDGET_MANAGER");
     const fd = new FormData();
     fd.set("id", order.id);
+    // LES FINANCES CLASSENT EN RÉGLANT, comme à l'écran — la première des trois chances. Sans ce choix,
+    // le règlement cherchait une enveloppe couvrant le module d'origine dans la base PARTAGÉE : le cas
+    // passait quand un banc voisin en avait laissé une, et tombait sinon (« rattachée à aucun budget »).
+    // Un juge qui mesurait le voisinage (§118.92), tombé le 02/10 sur un règlement parfaitement juste.
+    fd.set("budgetCategoryId", categorieId);
     const r = await settleExpenseOrder(fd);
     expect(r.ok, r.error).toBe(true);
     const apres = await prisma.paymentRequest.findUniqueOrThrow({ where: { id: dossier.id } });

@@ -1,5 +1,7 @@
 import type { UserRole } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { accessBearerOf, getCompanies, getCompanyScope } from "@/lib/company";
+import { allowedCompanyIds, resolveScope } from "@/lib/company-access";
 
 /**
  * Couche d'ACCÈS du Regulatory Intelligence OS.
@@ -126,21 +128,87 @@ export async function enabledRegCompanyIds(): Promise<string[]> {
 }
 
 /**
- * Résout l'organisation CIBLE du module pour une portée d'entité active :
- *  - portée précise **et** activée → cette organisation ;
- *  - « toutes les entités » → l'unique organisation activée s'il n'y en a qu'une (sinon null,
- *    on demandera de sélectionner l'entité).
- * Retourne `null` si aucune organisation activée ne correspond → module verrouillé côté serveur.
+ * LES ORGANISATIONS QUE CETTE PERSONNE PEUT OUVRIR — `null` quand elle n'est pas cloisonnée.
+ *
+ * Mêmes garde-fous que `platformScopeWhere` : un groupe mono-société n'est pas cloisonné, et ON
+ * N'ENFERME PERSONNE PAR OMISSION — quelqu'un qui ne relève d'aucune entité garde la lecture
+ * d'avant, plutôt que de voir le module se verrouiller parce qu'on a oublié sa fiche salarié.
  */
-export async function resolveRegCompanyId(scope: string | null): Promise<string | null> {
+async function perimetreOrganisations(userId: string): Promise<{
+  trouve: boolean;
+  /** Les sociétés ouvertes ; `null` = pas de cloisonnement. */
+  ouvertes: string[] | null;
+  /** La portée du sélecteur, VALIDÉE contre les droits quand la personne est cloisonnée. */
+  portee: string | null;
+}> {
+  const [all, bearer] = await Promise.all([getCompanies(), accessBearerOf(userId)]);
+  if (!bearer) return { trouve: false, ouvertes: [], portee: null };
+  const tous = all.map((c) => c.id);
+  const ouvertes = allowedCompanyIds(bearer, tous);
+  const demande = getCompanyScope();
+  if (tous.length < 2 || ouvertes.length === 0) return { trouve: true, ouvertes: null, portee: demande };
+  return { trouve: true, ouvertes, portee: resolveScope(bearer, demande, tous) };
+}
+
+/**
+ * L'ORGANISATION CIBLE DU MODULE POUR CETTE PERSONNE — la portée du sélecteur, VALIDÉE.
+ *
+ *  - portée précise, ouverte à la personne **et** activée → cette organisation ;
+ *  - « toutes les entités » → l'unique organisation activée PARMI CELLES QUI LUI SONT OUVERTES
+ *    (sinon `null`, l'écran demande de choisir une entité).
+ * `null` si rien ne correspond → module verrouillé côté serveur.
+ *
+ * ── LE DÉFAUT QU'ON FERME (§118.177) ────────────────────────────────────────────────────────
+ *
+ * Trente-trois appels du module lisaient `resolveRegCompanyId(getCompanyScope())` — douze routes,
+ * quatre pages et les actions serveur de dix fichiers : le cookie TEL QUEL. Le cookie se modifie à
+ * la main, et la seule vérification était l'ACTIVATION du module — jamais le droit de la personne
+ * sur cette société. Un salarié d'Adventum écrivait l'identifiant
+ * de Pharmagène dans son cookie et ouvrait l'analyse CTD de Pharmagène, téléversement compris.
+ * Et SANS cookie, « toutes les entités » désignait l'unique organisation activée — celle d'une
+ * autre société si c'était la seule. C'est le défaut que `myCompanyScope` ferme pour tous les
+ * autres écrans (« le cookie est une demande, jamais une autorisation »).
+ *
+ * L'identité est un PARAMÈTRE OBLIGATOIRE et la fonction a changé de nom : l'ancienne recevait
+ * une portée, et un appelant qui lui aurait passé le cookie aurait compilé sans rien dire.
+ */
+export async function resolveRegCompanyIdFor(userId: string): Promise<string | null> {
   try {
-    if (scope) {
-      const row = await prisma.regulatoryFeatureAccess.findUnique({ where: { companyId: scope }, select: { enabled: true } });
-      return row?.enabled ? scope : null;
+    const { trouve, ouvertes, portee } = await perimetreOrganisations(userId);
+    if (!trouve) return null;
+    if (portee) {
+      if (ouvertes && !ouvertes.includes(portee)) return null;
+      const row = await prisma.regulatoryFeatureAccess.findUnique({ where: { companyId: portee }, select: { enabled: true } });
+      return row?.enabled ? portee : null;
     }
-    const enabled = await prisma.regulatoryFeatureAccess.findMany({ where: { enabled: true }, select: { companyId: true }, take: 2 });
+    const enabled = await prisma.regulatoryFeatureAccess.findMany({
+      where: { enabled: true, ...(ouvertes ? { companyId: { in: ouvertes } } : {}) },
+      select: { companyId: true },
+      take: 2,
+    });
     return enabled.length === 1 ? enabled[0].companyId : null;
   } catch {
     return null;
+  }
+}
+
+/**
+ * Les organisations ACTIVÉES que cette personne peut ouvrir, et s'il en existe d'autres hors de son
+ * périmètre — la carte-garde en a besoin pour nommer un geste POSSIBLE : « sélectionnez Pharmagène
+ * dans la barre supérieure » ne se dit pas à quelqu'un dont le sélecteur ne propose pas Pharmagène
+ * (§118.128 : un remède qui nomme un geste impossible fait chercher une panne qui n'existe pas).
+ */
+export async function organisationsActiveesPour(userId: string): Promise<{ ouvertes: string[]; ailleurs: number }> {
+  try {
+    const [{ ouvertes }, flags] = await Promise.all([
+      perimetreOrganisations(userId),
+      prisma.regulatoryFeatureAccess.findMany({ where: { enabled: true }, select: { companyId: true } }),
+    ]);
+    const ids = flags.map((f) => f.companyId);
+    if (!ouvertes) return { ouvertes: ids, ailleurs: 0 };
+    const dedans = ids.filter((id) => ouvertes.includes(id));
+    return { ouvertes: dedans, ailleurs: ids.length - dedans.length };
+  } catch {
+    return { ouvertes: [], ailleurs: 0 };
   }
 }

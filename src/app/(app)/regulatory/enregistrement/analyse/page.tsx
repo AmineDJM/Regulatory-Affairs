@@ -2,12 +2,11 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { FileArchive, ShieldCheck, FolderOpen, Info } from "lucide-react";
 import { requireModule } from "@/lib/session";
-import { getCompanyScope } from "@/lib/company";
 import { PageHeader } from "@/components/shared/page-header";
 import { ModuleTabs } from "@/components/shared/module-tabs";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { regCan, resolveRegCompanyId } from "@/lib/regulatory/intelligence/access";
+import { regCan, resolveRegCompanyIdFor } from "@/lib/regulatory/intelligence/access";
 import { RegScopeCard } from "../scope-gate";
 import { LiveAnalysisBadge } from "./live-badge";
 import { listDossiers } from "@/lib/regulatory/intelligence/queries";
@@ -25,7 +24,7 @@ export default async function AnalyseWorkspacePage() {
   const user = await requireModule("REGULATORY");
   if (!regCan(user, "regulatory.workspace.view")) notFound();
 
-  const companyId = await resolveRegCompanyId(getCompanyScope());
+  const companyId = await resolveRegCompanyIdFor(user.id);
   const canCreate = regCan(user, "regulatory.dossier.create");
 
   // Les deux écrans qui portent la MÉMOIRE du module ne s'affichent que pour qui peut les
@@ -64,7 +63,7 @@ export default async function AnalyseWorkspacePage() {
       </div>
 
       {!companyId ? (
-        <RegScopeCard />
+        <RegScopeCard userId={user.id} />
       ) : (
         <>
           <div className="flex items-center justify-between gap-3">

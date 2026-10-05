@@ -35,6 +35,7 @@
  *
  * Module PUR : ni base, ni session. Testé.
  */
+import { formatMontant } from "@/lib/utils";
 
 export interface LedgerEntry {
   id: string;
@@ -78,7 +79,7 @@ const jour = (d: Date | string | null | undefined): string => {
   return Number.isNaN(v.getTime()) ? "" : v.toISOString().slice(0, 10);
 };
 
-const money = (n: number): string => `${Math.round(n).toLocaleString("fr-FR")} DZD`;
+const money = (n: number): string => `${formatMontant(n)} DZD`;
 
 /**
  * UN PAIEMENT SANS ÉCRITURE — le premier contrôle, et le plus grave.

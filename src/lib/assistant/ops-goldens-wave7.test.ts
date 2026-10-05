@@ -133,6 +133,22 @@ suite("ops vague 7 — demandes administratives et achats", () => {
     }
   });
 
+  it("decide_approval : un REFUS sans motif est refusé AVANT la carte — l'action l'exigerait après le clic (lot E5)", async () => {
+    const sansMotif = await buildProposal("request_operation", {
+      op: "decide_approval", target: `${TAG}-REQ-1`, decision: "refuser",
+    }, sa());
+    expect("error" in sansMotif && sansMotif.error).toMatch(/se motive/);
+    // Le témoin : avec son motif, la carte se construit et le motif part à l'action.
+    const avecMotif = await buildProposal("request_operation", {
+      op: "decide_approval", target: `${TAG}-REQ-1`, decision: "refuser", note: "Hors budget du trimestre.",
+    }, sa());
+    expect("error" in avecMotif).toBe(false);
+    if (!("error" in avecMotif)) {
+      expect(domainArgs(avecMotif).decision).toBe("REJECTED");
+      expect(domainArgs(avecMotif).comment).toBe("Hors budget du trimestre.");
+    }
+  });
+
   it("create_mission : les points « Lieu : consigne » partent en points de passage ordonnés", async () => {
     const p = await buildProposal("request_operation", {
       op: "create_mission", label: "Tournée administrative", person: "Kamel Directeur",

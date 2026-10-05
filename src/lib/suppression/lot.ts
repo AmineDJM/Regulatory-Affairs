@@ -154,6 +154,15 @@ export interface Inventaire {
    * pas, c'est le lot qui le vide, dans la même transaction.
    */
   liensExternes: { modele: string; cle: Record<string, unknown>; champ: string; valeur: string; doux?: boolean }[];
+  /**
+   * LES LIENS DE LA TÊTE VERS UNE DE SES BRANCHES (constat 20 de l'audit du 04/10). Un poste désigne la
+   * demande au secrétariat qui travaille pour lui (`adminRequestId`), et cette demande part AVEC lui (le
+   * couple `linkedEntityType` l'emporte) : la tête dépend d'une de ses branches. Recréée la première, elle
+   * violerait sa clé étrangère. Quand la colonne est FACULTATIVE, le lien se DIFFÈRE : la tête renaît sans
+   * lui, les branches renaissent, puis le lien est rétabli — dans la même transaction. Une colonne
+   * OBLIGATOIRE ne se diffère pas, et le lot reste refusé en le disant.
+   */
+  liensTete: { champ: string; valeur: string }[];
   /** Ce qui interdit la suppression — vide : rien. */
   bloquants: string[];
   /** « 2 postes », « 1 déclaration d'information médicale »… — hors la tête. */
@@ -228,7 +237,7 @@ export async function inventorier(modeleTete: string, idTete: string): Promise<I
   const bloquants: string[] = [];
   if (vus.size > MAX_LIGNES) {
     bloquants.push(`plus de ${MAX_LIGNES} éléments liés : une suppression de cette taille ne se fait pas d'un seul geste`);
-    return { lignes: ordre, documents: [], commentaires: [], liensExternes: [], bloquants, resume: [] };
+    return { lignes: ordre, documents: [], commentaires: [], liensExternes: [], liensTete: [], bloquants, resume: [] };
   }
 
   // ─── LES FAITS QUI ONT QUITTÉ L'ERP ─────────────────────────────────────────────────────
@@ -298,7 +307,19 @@ export async function inventorier(modeleTete: string, idTete: string): Promise<I
     }
   }
 
-  const lignes = trierParentsDabord(ordre);
+  // Les liens de la TÊTE vers une branche, sur une colonne FACULTATIVE : différés (voir `liensTete`).
+  const teteLigne = ordre[0]!;
+  const dansLeLot = new Set(ordre.map((l) => cle(l.modele, l.id)));
+  const liensTete: Inventaire["liensTete"] = [];
+  for (const r of RELATIONS) {
+    if (r.enfant !== teteLigne.modele) continue;
+    const v = teteLigne.donnees[r.champ];
+    if (typeof v !== "string" || !dansLeLot.has(cle(r.parent, v)) || cle(r.parent, v) === cle(teteLigne.modele, teteLigne.id)) continue;
+    const scalaire = PAR_NOM.get(teteLigne.modele)?.fields.find((f) => f.name === r.champ);
+    if (scalaire && !scalaire.isRequired) liensTete.push({ champ: r.champ, valeur: v });
+  }
+  const differes = new Set(liensTete.map((l) => l.champ));
+  const lignes = trierParentsDabord(ordre, differes);
   if (!lignes) bloquants.push("des éléments liés se désignent en boucle — le lot ne saurait pas dans quel ordre les recréer");
   // La tête se recrée la PREMIÈRE (elle vit dans `payload`, hors du lot) : si elle dépendait
   // d'une de ses branches, cet ordre ne tiendrait pas — on le dit au lieu de le découvrir à la
@@ -310,20 +331,22 @@ export async function inventorier(modeleTete: string, idTete: string): Promise<I
   const resume = [...compte].sort((a, b) => b[1] - a[1]).map(([m, n]) => libelleDe(m, n));
   if (documents.length) resume.push(`${documents.length} pièce${documents.length > 1 ? "s" : ""} jointe${documents.length > 1 ? "s" : ""}`);
 
-  return { lignes: lignes ?? ordre, documents, commentaires, liensExternes, bloquants: [...new Set(bloquants)], resume };
+  return { lignes: lignes ?? ordre, documents, commentaires, liensExternes, liensTete, bloquants: [...new Set(bloquants)], resume };
 }
 
 /**
  * L'ORDRE DE RECRÉATION : un parent avant ses enfants, pour toute clé étrangère ENTRE lignes du
  * lot. Rend `null` sur une boucle — on ne devine pas un ordre qu'on ne sait pas tenir.
  */
-function trierParentsDabord(lignes: Ligne[]): Ligne[] | null {
+function trierParentsDabord(lignes: Ligne[], differesTete: ReadonlySet<string> = new Set()): Ligne[] | null {
   const index = new Map(lignes.map((l) => [cle(l.modele, l.id), l]));
   const parents = new Map<string, Set<string>>();
-  for (const l of lignes) {
+  for (const [i, l] of lignes.entries()) {
     const ps = new Set<string>();
     for (const r of RELATIONS) {
       if (r.enfant !== l.modele) continue;
+      // Un lien DIFFÉRÉ de la tête n'impose aucun ordre : il se rétablit après les branches.
+      if (i === 0 && differesTete.has(r.champ)) continue;
       const v = l.donnees[r.champ];
       if (typeof v !== "string") continue;
       const k = cle(r.parent, v);
@@ -355,6 +378,8 @@ export interface InstantaneLot {
   /** Branches, parents d'abord — la tête n'y est PAS (elle vit dans `payload`, comme avant). */
   lignes: { modele: string; donnees: Record<string, unknown> }[];
   liensExternes: Inventaire["liensExternes"];
+  /** Les liens de la tête vers une branche, rétablis APRÈS les branches (absent d'un lot ancien : aucun). */
+  liensTete?: Inventaire["liensTete"];
   resume: string[];
 }
 
@@ -372,6 +397,7 @@ export async function supprimerLot(
     version: 1,
     lignes: inv.lignes.filter((l) => l !== tete).map((l) => ({ modele: l.modele, donnees: versJson(l.modele, l.donnees) })),
     liensExternes: inv.liensExternes,
+    liensTete: inv.liensTete,
     resume: inv.resume,
   };
   const enfantsDabord = [...inv.lignes].reverse();
@@ -404,9 +430,17 @@ export async function restaurerLot(
   documents: Record<string, unknown>[],
   commentaires: Record<string, unknown>[],
 ): Promise<void> {
+  const differes = lot.liensTete ?? [];
+  const donneesTete = depuisJson(modeleTete, tete);
+  for (const l of differes) donneesTete[l.champ] = null;
   await prisma.$transaction(async (tx) => {
-    await d(tx, modeleTete).create({ data: depuisJson(modeleTete, tete) });
+    await d(tx, modeleTete).create({ data: donneesTete });
     for (const l of lot.lignes) await d(tx, l.modele).create({ data: depuisJson(l.modele, l.donnees) });
+    // Les liens de la tête vers ses branches, maintenant qu'elles existent.
+    const idTete = String(tete.id ?? "");
+    for (const l of differes) {
+      await d(tx, modeleTete).updateMany({ where: { ...ouIdentite(modeleTete, { id: idTete }), [l.champ]: null }, data: { [l.champ]: l.valeur } });
+    }
     // Les pièces AVANT les liens extérieurs : un lien peut viser une pièce (la pièce d'un courrier).
     if (documents.length) await tx.document.createMany({ data: documents as never[], skipDuplicates: true });
     if (commentaires.length) await tx.comment.createMany({ data: commentaires as never[], skipDuplicates: true });

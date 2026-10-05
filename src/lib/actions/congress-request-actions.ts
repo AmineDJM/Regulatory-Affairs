@@ -9,15 +9,15 @@ import { moneyEntityOf } from "@/lib/company";
 import { normalizeCity } from "@/lib/geo/algeria";
 import { recordAudit } from "@/lib/audit";
 import { notifyUser, notifyRoles } from "@/lib/notify";
-import { createMedicalInfoDeclaration } from "@/lib/medical-info";
+import { createMedicalInfoDeclaration, repercuterMontantSurDeclaration } from "@/lib/medical-info";
 import { createExpenseOrder } from "@/lib/expense-orders";
-import { statutApresNouveauMontant, type CentralStatus } from "@/lib/payments/authorization";
+import { reviserOrdreNonRegle, apresRevisionOrdre } from "@/lib/payments/revision-ordre";
 import { involveThirdParty } from "@/lib/third-party";
 import { adProInit, PRODUCT_MANAGER_ROLES } from "@/lib/workflow/origin";
+import { retirerDemandeAdPro } from "@/lib/actions/workflow-actions";
 import { referentAInscrire } from "@/lib/ad-pro/referent-de-la-gamme";
 import { fdStr, fdNum, fdDate, type ActionResult } from "@/lib/actions/types";
-import { attachFiles } from "@/lib/attach-files";
-import { readMultiField } from "@/lib/ad-pro/pickers";
+import { attachFiles, validateAttachments } from "@/lib/attach-files";
 
 // Le **même** circuit de prise en charge sert les prises en charge internationales/nationaux
 // ET les événements (module Events) : on paramètre tout par `type`.
@@ -57,8 +57,35 @@ export async function createCongressRequest(
   const user = await requireUser();
   const t = typeOf(formData);
   if (!userCan(user, moduleFor(t), "CREATE")) return { ok: false, error: "Non autorisé." };
+  /*
+   * CE QUE LA DEMANDE EXIGE, NOMMÉ EN UNE FOIS (décision du 04/10/2026) : le nom, et l'événement par
+   * son DÉBUT et sa FIN — deux dates, des deux côtés. Un refus par champ ferait ressaisir le
+   * formulaire trois fois (§118.18). Le nom garde sa garde à part, plus bas : c'est elle que la
+   * dérivation des contrats lit (§118.142).
+   */
   const name = fdStr(formData, "name");
+  const debut = t === "INTL" ? fdDate(formData, "startDate") : fdDate(formData, "date");
+  const fin = fdDate(formData, "endDate");
+  const manque = [name ? null : "le nom de l'événement", debut ? null : "la date de début", fin ? null : "la date de fin"]
+    .filter((x): x is string => x !== null);
+  if (manque.length > 1) return { ok: false, error: `À renseigner : ${manque.join(", ")}.` };
   if (!name) return { ok: false, error: "Le nom de l'événement est obligatoire." };
+  if (manque.length > 0) return { ok: false, error: `À renseigner : ${manque.join(", ")}.` };
+  if (debut && fin && fin < debut) return { ok: false, error: "La date de fin ne peut pas précéder la date de début." };
+
+  // Les pièces se jugent AVANT la demande : refusées après, elles la laissaient créée, et le
+  // second essai en faisait une seconde (audit du 04/10, constat 7 — même défaut qu'au sponsoring).
+  const pieces = formData.getAll("files").filter((f): f is File => f instanceof File);
+  const piecesRefusees = await validateAttachments(pieces);
+  if (piecesRefusees) return { ok: false, error: `${piecesRefusees} Aucune demande n'a été créée.` };
+
+  // LES PROFESSIONNELS PROPOSÉS, vérifiés AVANT la création : un identifiant qui ne désigne aucun
+  // praticien de l'annuaire est refusé, au lieu de créer une demande amputée en silence.
+  const proposes = [...new Set(fdList(formData, "invitedDoctorIds"))];
+  if (proposes.length > 0) {
+    const connus = await prisma.medicalDoctor.count({ where: { id: { in: proposes } } });
+    if (connus !== proposes.length) return { ok: false, error: "Un professionnel proposé est introuvable dans l'annuaire — rechargez le formulaire." };
+  }
 
   const eventType: NationalEventType = EVENT_TYPES.includes(fdStr(formData, "eventType") as NationalEventType)
     ? (fdStr(formData, "eventType") as NationalEventType)
@@ -84,31 +111,19 @@ export async function createCongressRequest(
   const now = new Date();
 
   /*
-   * LES PRODUITS CONCERNÉS — le champ manquait, et la colonne existait des deux côtés.
+   * NI SPÉCIALITÉ NI PRODUITS NI PAYS (national) sur une prise en charge — décision de la Direction
+   * du 04/10/2026. Ce que le formulaire ne porte plus ne s'écrit plus (§118.152c) ; les colonnes
+   * restent en base pour les demandes d'avant.
    *
-   * Décision de la Direction (22/09/2026) : on doit pouvoir sélectionner un ou plusieurs
-   * produits sur toutes les natures Ad & Pro hors matériel promotionnel. Mesuré avant d'écrire :
-   * `CongressInternational.products` et `CongressNational.promotedProducts` existent depuis
-   * toujours, aucun formulaire ne les envoyait, et `products` n'avait AUCUN lecteur — le §118.14
-   * dans sa forme la plus nue.
-   *
-   * DEUX NOMS DE COLONNE POUR LE MÊME FAIT, sur deux modèles frères : on ne renomme pas (une
-   * colonne a des lecteurs, et l'empreinte dépasserait la demande, §118.16) — on écrit celle que
-   * chaque branche porte, à l'endroit où la création branche DÉJÀ par modèle.
-   *
-   * LES MÉDECINS, EUX, NE CHANGENT PAS DE MÉCANISME : `invitedDoctorIds` porte de vraies
-   * RÉFÉRENCES que la fiche résout en lignes d'annuaire (`queries/congress.ts`). Les remplacer
-   * par un libellé joint serait perdre une référence pour gagner une uniformité — exactement
-   * l'échange que ce dépôt refuse.
+   * LES MÉDECINS deviennent les « professionnels proposés pour la prise en charge » : une ligne
+   * `CareBeneficiary` par praticien choisi, la MÊME liste que celle de la fiche (une seule source de
+   * vérité). `invitedDoctorIds` n'est plus écrit ; la migration du 04/10 y a repris ce qu'il portait.
    */
-  const produits = readMultiField(formData.getAll("productIds").map(String), fdStr(formData, "product"));
 
   const common = {
     name,
     eventType,
-    specialty: fdStr(formData, "specialty"),
     estimatedBudget: fdNum(formData, "estimatedBudget"),
-    invitedDoctorIds: fdList(formData, "invitedDoctorIds"),
     participantIds: fdList(formData, "participantIds"),
     requesterId: user.id,
     requestStatus: init.status as CongressRequestStatus,
@@ -145,9 +160,8 @@ export async function createCongressRequest(
             // La ville vient du référentiel des wilayas ; une saisie ancienne reprend sa forme
             // officielle, et ce qu'on ne sait pas rattacher est conservé tel quel.
             city: normalizeCity(fdStr(formData, "city")),
-            products: produits,
-            startDate: fdDate(formData, "startDate"),
-            endDate: fdDate(formData, "endDate"),
+            startDate: debut,
+            endDate: fin,
           },
         })
       : await prisma.congressNational.create({
@@ -155,26 +169,30 @@ export async function createCongressRequest(
       // LA GAMME QUI PORTE LA DEMANDE — c'est SON budget Ad&Pro qui est engagé.
       businessUnitId: gammeDeLaDemande,
             ...common,
-            // Une prise en charge « nationale » peut se tenir hors d'Algérie : le pays reste
-            // demandé des deux côtés, simplement facultatif.
-            country: fdStr(formData, "country"),
             // La ville vient du référentiel des wilayas ; une saisie ancienne reprend sa forme
             // officielle, et ce qu'on ne sait pas rattacher est conservé tel quel.
             city: normalizeCity(fdStr(formData, "city")),
             hostInstitution: fdStr(formData, "hostInstitution"),
-            // Le modèle national nomme cette colonne `promotedProducts` — voir le commentaire
-            // ci-dessus : deux noms, un seul fait, aucun renommage.
-            promotedProducts: produits,
-            date: fdDate(formData, "date"),
+            date: debut,
+            endDate: fin,
           },
         });
 
+  if (proposes.length > 0) {
+    await prisma.careBeneficiary.createMany({
+      data: proposes.map((doctorId, i) => ({
+        ...(t === "INTL" ? { congressInternationalId: created.id } : { congressNationalId: created.id }),
+        doctorId, position: i + 1, createdById: user.id, updatedById: user.id,
+      })),
+    });
+  }
+
   // Les demandes du médecin, jointes DÈS la création — la pièce que tout le circuit va lire.
+  // Ce qui peut encore échouer ici est l'écriture : la demande existe, elle n'est pas refaite —
+  // le manque est dit dans la réponse et dans la cloche.
   const attached = await attachFiles({
-    files: formData.getAll("files").filter((f): f is File => f instanceof File),
-    entityType: entityFor(t), entityId: created.id, uploadedById: user.id, category: "REQUEST_LETTER",
+    files: pieces, entityType: entityFor(t), entityId: created.id, uploadedById: user.id, category: "REQUEST_LETTER",
   });
-  if (attached.error) return { ok: false, error: attached.error };
 
   await recordAudit({ actorId: user.id, action: "CREATE", module: ML(t), entityType: entityFor(t), entityId: created.id, summary: `Prise en charge « ${name} »${attached.saved > 0 ? ` (${attached.saved} pièce(s) jointe(s))` : ""}` });
   // Notifie l'acteur de l'étape de DÉPART selon le routage à la création :
@@ -190,7 +208,7 @@ export async function createCongressRequest(
     await notifyRoles(["NATIONAL_SALES", "SUPER_ADMIN"], { type: "VALIDATION_REQUIRED", title: "Demande de congrès — à attribuer (National Sales)", body: name, link });
   }
   revalidatePath(pathFor(t));
-  return { ok: true, id: created.id };
+  return { ok: true, id: created.id, ...(attached.error ? { message: `Demande créée. ${attached.error}` } : {}) };
 }
 
 // ─────────────────── Attribution de la Direction Marketing (Direction Marketing) ───────────────────
@@ -393,47 +411,32 @@ export async function updateGrantedBudget(formData: FormData): Promise<ActionRes
   await updateCongress(t, id, { finalAmount: amount, updatedById: user.id });
 
   // Répercussion sur la déclaration PRIM (tant qu'elle n'est pas validée).
-  const decl = await prisma.medicalInfoDeclaration.findUnique({ where: { sourceType_sourceId: { sourceType: entityFor(t), sourceId: id } }, select: { id: true, status: true, expenseOrderId: true } });
-  if (decl && decl.status !== "VALIDATED") {
-    await prisma.medicalInfoDeclaration.update({ where: { id: decl.id }, data: { amount } });
-  }
-  // Répercussion sur l'ordre de dépense (s'il existe et n'est pas réglé).
+  const decl = await repercuterMontantSurDeclaration(entityFor(t), id, amount);
+  // Répercussion sur l'ordre de dépense (s'il existe et n'est pas réglé) — par l'UNIQUE réviseur
+  // d'ordre (§118.191). Il écrivait ici en ligne, et sans condition : un règlement passé entre la
+  // lecture et l'écriture voyait son ordre PAYÉ changer de montant et son autorisation rouverte. Le
+  // réviseur relève le montant sous condition, rouvre le centre quand il monte (§118.148), et ne
+  // touche ni un ordre réglé ni un ordre refusé.
   const orderId = decl?.expenseOrderId ?? c.expenseOrderId;
+  let suiteOrdre: string | null = null;
   if (orderId) {
-    const order = await prisma.expenseOrder.findUnique({
-      where: { id: orderId }, select: { status: true, amount: true, centralStatus: true, reference: true },
-    });
-    if (order && order.status !== "PAID") {
-      // LE CENTRE AUTORISE UN MONTANT (§118.148) : relever celui d'un ordre déjà autorisé le lui
-      // renvoie. Sans cette ligne, l'ordre partait payé au nouveau montant sur la foi d'une
-      // autorisation donnée pour l'ancien — le centre n'avait jamais vu la différence.
-      const avant = Number(order.amount);
-      const suivant = statutApresNouveauMontant({ courant: order.centralStatus as CentralStatus, avant, apres: amount });
-      const rouvert = suivant !== order.centralStatus;
-      await prisma.expenseOrder.update({
-        where: { id: orderId },
-        data: { amount, ...(rouvert ? { centralStatus: suivant, centralDecidedById: null, centralDecidedAt: null } : {}) },
-      });
-      const montant = `${amount.toLocaleString("fr-FR")} DZD`;
-      if (rouvert) {
-        // La raison de la réouverture vit dans le FIL du centre — c'est là que le prochain
-        // arbitre la lira, à côté de l'autorisation précédente, qui reste dans l'historique.
-        await prisma.paymentCentreMessage.create({
-          data: {
-            orderId,
-            body: `Montant relevé de ${avant.toLocaleString("fr-FR")} à ${montant} après autorisation (budget accordé modifié) — l'autorisation est à redonner.`,
-            authorId: user.id,
-          },
-        });
-        await notifyRoles(["DIRECTION", "SUPER_ADMIN"], {
-          type: "VALIDATION_REQUIRED",
-          title: "Paiement à ré-autoriser — montant relevé",
-          body: `${order.reference} — ${c.name} : ${avant.toLocaleString("fr-FR")} → ${montant}`,
-          link: "/centre-de-paiement",
-        });
-      } else {
-        await notifyRoles(["FINANCE_BUDGET_MANAGER", "SUPER_ADMIN"], { type: "GENERIC", title: "Budget d'un événement modifié", body: `${c.name} — nouveau montant ${montant}`, link: "/finances/paiements-a-faire" });
+    const raison = "budget accordé modifié";
+    const revision = await reviserOrdreNonRegle(prisma, orderId, { montant: amount }, { acteurId: user.id, raison });
+    if (revision.ok && revision.revise) {
+      await apresRevisionOrdre(revision, { acteurId: user.id, objet: c.name, raison });
+      if (!revision.rouvert) {
+        await notifyRoles(["FINANCE_BUDGET_MANAGER", "SUPER_ADMIN"], { type: "GENERIC", title: "Budget d'un événement modifié", body: `${c.name} — nouveau montant ${amount.toLocaleString("fr-FR")} DZD`, link: "/finances/paiements-a-faire" });
       }
+    } else if (!revision.ok) {
+      // Le budget est modifié ; l'ordre, non — et on le DIT (§118.52) : un silence se lirait « le
+      // paiement suit ». Un ordre réglé a payé l'ancien montant ; un ordre refusé reste ce que le
+      // centre a refusé — réécrire son chiffre falsifierait ce qu'il a vu.
+      const ref = revision.reference ?? "";
+      suiteOrdre = revision.motif === "REGLE"
+        ? `Budget modifié — le paiement ${ref} est déjà réglé : il ne suit pas ce montant (l'argent est parti au montant d'avant).`
+        : revision.motif === "REFUSE"
+          ? `Budget modifié — le paiement ${ref} a été refusé par le centre de paiement : il ne suit pas ce montant.`
+          : `Budget modifié — l'ordre de dépense ${ref} n'a pas pu suivre (il changeait au même moment) : relancez la modification.`;
     }
   }
   await recordAudit({ actorId: user.id, action: "UPDATE", module: ML(t), entityType: entityFor(t), entityId: id, field: "finalAmount", newValue: String(amount), summary: `Budget accordé modifié — ${c.name}` });
@@ -441,7 +444,7 @@ export async function updateGrantedBudget(formData: FormData): Promise<ActionRes
   revalidatePath("/information-medicale");
   revalidatePath("/finances/paiements-a-faire");
   revalidatePath("/centre-de-paiement");
-  return { ok: true };
+  return suiteOrdre ? { ok: true, message: suiteOrdre } : { ok: true };
 }
 
 // ───────────────────────────── Impliquer une tierce personne ─────────────────────────────
@@ -477,19 +480,23 @@ export async function requestThirdPartyInput(formData: FormData): Promise<Action
   return { ok: true };
 }
 
+/**
+ * ANNULER UNE DEMANDE DE CONGRÈS — UN SEUL CHEMIN (audit du 04/10, constat 23). Cette action et
+ * `retirerDemandeAdPro` faisaient la même chose par deux portes : chacune vérifiait le droit à sa façon
+ * (celle-ci sans la porte de la FICHE — une demande hors portée s'annulait par son identifiant), et les
+ * deux finissaient dans `retirerDemande`. Elle ne garde que ce qui lui est propre — lire le type de
+ * congrès — et DÉLÈGUE : droit, motif, circuit et refus sont ceux du retrait commun. Son seul appelant
+ * est l'op d'Adam `cancel_congress_request` (aucun écran ne l'appelle) : elle reste pour lui.
+ */
 export async function cancelCongressRequest(formData: FormData): Promise<ActionResult> {
-  const user = await requireUser();
+  await requireUser();
   const t = typeOf(formData);
   const id = fdStr(formData, "id");
   if (!id) return { ok: false, error: "Identifiant manquant." };
-  const c = await loadCongress(t, id);
-  if (!c) return { ok: false, error: "Introuvable." };
-  const isOwner = c.requesterId === user.id;
-  if (!isOwner && !userCan(user, moduleFor(t), "VALIDATE") && !hasGlobalView(user)) return { ok: false, error: "Non autorisé." };
-  if (["APPROVED", "COMPLETED"].includes(c.requestStatus ?? "")) return { ok: false, error: "Demande déjà validée." };
-  await updateCongress(t, id, { requestStatus: "CANCELLED", updatedById: user.id });
-  await recordAudit({ actorId: user.id, action: "UPDATE", module: ML(t), entityType: entityFor(t), entityId: id, summary: `Demande annulée — ${c.name}` });
-  revalidatePath(`${pathFor(t)}/${id}`);
-  revalidatePath(pathFor(t));
-  return { ok: true };
+  const relais = new FormData();
+  relais.set("entityType", entityFor(t));
+  relais.set("entityId", id);
+  const motif = fdStr(formData, "motif");
+  if (motif !== null) relais.set("motif", motif);
+  return retirerDemandeAdPro(relais);
 }

@@ -24,7 +24,8 @@ import { submitVersionReviewBatch } from "../cost/batch-runner";
 import { splitTextIntoChunks, splitTextIntoChunksWithOffsets, chunkPageSpan } from "../agents/chunk-text";
 import { pageSpanOfSlice, anchorEvidence } from "../extract/pages";
 import { sectionByCode } from "../ctd/taxonomy";
-import { aiConfigured } from "@/lib/ai";
+import { aiConfigured, cleModeleRequise } from "@/lib/ai";
+import { courtIaNonConfiguree } from "@/lib/ia/cle-manquante";
 import { notifyRoles } from "@/lib/notify";
 import { getAppSettings } from "@/lib/settings";
 import { enrichVersionFindings, type EnrichmentContext } from "../findings/enrich";
@@ -874,7 +875,7 @@ async function handleAiReview(job: RegulatoryJob): Promise<void> {
   if (!versionId || !aiConfigured()) {
     await prisma.regulatoryJob.update({
       where: { id: job.id },
-      data: { status: "CANCELLED", finishedAt: new Date(), error: aiConfigured() ? "Version absente." : "IA non configurée (ANTHROPIC_API_KEY absente) — aucune revue simulée." },
+      data: { status: "CANCELLED", finishedAt: new Date(), error: aiConfigured() ? "Version absente." : `${courtIaNonConfiguree(cleModeleRequise())} — aucune revue simulée.` },
     });
     await closeAnalysis(job.dossierId); // ne jamais laisser un dossier bloqué « en analyse »
     return;
