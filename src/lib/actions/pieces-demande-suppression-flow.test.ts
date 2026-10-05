@@ -30,10 +30,12 @@ const form = (fields: Record<string, string>): FormData => {
   return fd;
 };
 
-async function actorFor(id: string, role: SessionUser["role"]): Promise<CurrentUser> {
-  const access = await getAccess(id, role);
+// Le rôle et le rôle secondaire se lisent EN BASE (la matrice fait foi, aucun accès forgé) : le second
+// argument n'est qu'un repère de lecture pour le test.
+async function actorFor(id: string, _repere?: string): Promise<CurrentUser> {
   const u = await prisma.user.findUniqueOrThrow({ where: { id } });
-  return { id, name: u.name, email: u.email, role, access, mustChangePassword: false };
+  const access = await getAccess(id, u.role);
+  return { id, name: u.name, email: u.email, role: u.role, secondaryRole: u.secondaryRole, access, mustChangePassword: false } as CurrentUser;
 }
 
 /**
@@ -95,23 +97,18 @@ suite("supprimer une pièce Legal d'une demande Ad & Pro (flux réel)", () => {
 
   beforeAll(async () => {
     await nettoyer();
-    const mk = (s: string, role: SessionUser["role"]) =>
-      prisma.user.create({ data: { name: `${TAG}${s}`, email: `${TAG}${s}@t.dz`, role, passwordHash: "x" } });
+    const mk = (s: string, role: SessionUser["role"], secondaryRole: SessionUser["role"] | null = null) =>
+      prisma.user.create({ data: { name: `${TAG}${s}`, email: `${TAG}${s}@t.dz`, role, secondaryRole, passwordHash: "x" } });
+    // Les droits viennent de la MATRICE des rôles (jamais d'un accès forgé), et aucun acteur n'a la vue globale :
+    //  • la gestionnaire : l'assistante de direction (Legal : gérer) + Direction Marketing en secondaire (Sponsoring : gérer) ;
+    //  • sans demande : l'assistante de direction seule — gère Legal, n'a aucun droit sur le Sponsoring ;
+    //  • sans « supprimer » : le Directeur des Opérations (Legal : contribuer, jamais supprimer) + Direction Marketing ;
+    //  • la créatrice : même profil, mais AUTEURE de sa convention (la règle de la fiche Legal).
     adminId = (await mk("admin", "SUPER_ADMIN")).id;
-    gestId = (await mk("gest", "VIEWER")).id;
-    sansDemandeId = (await mk("sans-demande", "VIEWER")).id;
-    sansDeleteId = (await mk("sans-delete", "VIEWER")).id;
-    createurId = (await mk("createur", "VIEWER")).id;
-    const acces = (userId: string, module: string, droits: { u?: boolean; d?: boolean }) =>
-      prisma.userAccess.create({ data: { userId, module, canView: true, canUpdate: droits.u ?? false, canDelete: droits.d ?? false, canUpload: true, scope: "ALL" } });
-    // La gestionnaire : modifie la demande ET supprime dans Legal.
-    await acces(gestId, "LEGAL", { u: true, d: true }); await acces(gestId, "SPONSORING", { u: true });
-    // Elle supprime dans Legal, mais ne modifie PAS cette demande (aucun accès au Sponsoring).
-    await acces(sansDemandeId, "LEGAL", { u: true, d: true });
-    // Elle modifie la demande et la pièce, sans le droit « supprimer » de Legal — et n'est pas l'auteure.
-    await acces(sansDeleteId, "LEGAL", { u: true }); await acces(sansDeleteId, "SPONSORING", { u: true });
-    // Elle ne supprime pas dans Legal non plus, mais est l'AUTEURE de sa convention : la règle de la fiche Legal.
-    await acces(createurId, "LEGAL", { u: true }); await acces(createurId, "SPONSORING", { u: true });
+    gestId = (await mk("gest", "DIRECTION_ASSISTANT", "PRODUCT_MANAGER")).id;
+    sansDemandeId = (await mk("sans-demande", "DIRECTION_ASSISTANT")).id;
+    sansDeleteId = (await mk("sans-delete", "OPERATIONS_DIRECTOR", "PRODUCT_MANAGER")).id;
+    createurId = (await mk("createur", "OPERATIONS_DIRECTOR", "PRODUCT_MANAGER")).id;
 
     spo = (await prisma.sponsoringRequest.create({ data: { reference: `${TAG}SPO-1`, institution: `${TAG}CHU`, type: "Congrès", createdById: adminId } })).id;
     autreSpo = (await prisma.sponsoringRequest.create({ data: { reference: `${TAG}SPO-2`, institution: `${TAG}EPH`, type: "Congrès", createdById: adminId } })).id;
