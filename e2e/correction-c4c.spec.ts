@@ -158,7 +158,7 @@ test("CORRIGER — le délégué relève le montant d'une demande renvoyée : la
 
 test("LE CENTRE DÉCIDE SUR CE QU'IL A LU — un montant corrigé pendant la lecture se dit, avec les deux chiffres, et rien n'est autorisé", async ({ page }) => {
   await login(page, EMAIL.sa);
-  await aller(page, "/centre-de-paiement");
+  await aller(page, "/centre-de-paiement?entite=sans-entite&section=autres");
   const ligne = page.locator("li").filter({ hasText: LIBELLE }).filter({ has: page.getByRole("button", { name: "Autoriser" }) }).first();
   await expect(ligne).toBeVisible();
   await ligne.getByRole("button", { name: "Autoriser" }).click();
@@ -171,7 +171,7 @@ test("LE CENTRE DÉCIDE SUR CE QU'IL A LU — un montant corrigé pendant la lec
   expect(apres.centralStatus, "un montant qu'on n'a pas vu ne s'autorise pas").toBe("AWAITING");
 
   // TÉMOIN : relu, le même geste passe — la garde ne refuse pas tout.
-  await aller(page, "/centre-de-paiement");
+  await aller(page, "/centre-de-paiement?entite=sans-entite&section=autres");
   await page.locator("li").filter({ hasText: LIBELLE }).getByRole("button", { name: "Autoriser" }).first().click();
   await cliquerDecisif(page.getByRole("dialog").getByRole("button", { name: "Autoriser le paiement" }));
   await expect(page.getByRole("dialog")).toHaveCount(0, { timeout: 15_000 });

@@ -59,8 +59,9 @@ const APPEL_NU = /\brouter\.refresh\(\)/g;
  * qu'il montre) et l'emploi du temps de « Ma journée » (« N'a pas eu lieu » sur une visite que l'état
  * d'avant montrerait encore à faire) suivent leur rafraîchissement.
  * Ramené à 340 au §118.197 — les boutons d'une approbation d'achat suivent leur rafraîchissement.
+ * Ramené à 332 au §118.211 — le tableau du centre de paiement (autoriser, refuser, répondre) suit le sien : 334 appels mesurés avant, 332 après (le plafond de 340 laissait six crans de marge — un écran neuf en aurait ajouté six sans rien dire, §118.79c).
  */
-const PLAFOND_APPELS_NUS = 340;
+const PLAFOND_APPELS_NUS = 332;
 
 describe("le rafraîchissement suivi", () => {
   const parc = fichiers(SRC).map((f) => ({ f, src: sansCommentaires(readFileSync(f, "utf8")) }));
@@ -99,6 +100,9 @@ describe("le rafraîchissement suivi", () => {
       // §118.197 : les boutons d'une approbation d'achat — trancher puis retrancher sur l'état d'avant
       // reposerait une décision qu'une autre personne vient de prendre.
       "src/app/(app)/demandes/approval-buttons.tsx",
+      // §118.211 : le centre de paiement — autoriser puis ré-autoriser sur l'état d'avant, ou répondre
+      // deux fois, ferait partir deux décisions sur le même paiement.
+      "src/app/(app)/centre-de-paiement/centre-board.tsx",
     ];
     for (const e of ecrans) {
       const src = sansCommentaires(readFileSync(join(process.cwd(), e), "utf8"));
