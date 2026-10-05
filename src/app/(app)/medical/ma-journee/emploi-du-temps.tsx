@@ -505,7 +505,7 @@ function FormulaireRapport({
         {messages.length === 0 ? (
           <p className="rounded-lg border border-dashed border-border p-2.5 text-xs text-muted-foreground">
             Aucun message pré-défini n&apos;est publié pour votre gamme.
-            {messageObligatoire && " Le rapport sera refusé : demandez à la Direction Marketing d'en publier (Force de vente › Messages)."}
+            {messageObligatoire && " Le rapport sera refusé : demandez à la Direction Marketing d'en publier (Marketing cockpit › Messages)."}
           </p>
         ) : (
           <div className="max-h-40 space-y-1 overflow-y-auto rounded-lg border border-border p-2">

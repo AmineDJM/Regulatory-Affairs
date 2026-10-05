@@ -16,7 +16,7 @@ export const metadata = { title: "Annuaires — Spécialités — AMD Internal O
  * La porte est `peutGererSpecialites` — la Promotion médicale, les deux directeurs des opérations
  * (décision du 04/10) ET la Direction Marketing (05/10) —, la même que l'onglet et les actions : un
  * référentiel est une STRUCTURE de l'annuaire (§118.147), il ne s'ouvre pas par la case « Médecins »
- * de la console. L'écran lui-même (`EcranSpecialites`) est partagé avec Force de vente › Spécialités.
+ * de la console. L'écran lui-même (`EcranSpecialites`) est partagé avec Marketing cockpit › Spécialités.
  */
 export default async function AnnuaireSpecialitesPage() {
   const user = await requireModule("DIRECTORIES");

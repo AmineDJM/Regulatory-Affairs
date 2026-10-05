@@ -20,6 +20,8 @@ export async function visibleTabs(user: SessionUser, tabs: NavTab[]): Promise<Mo
       // référentiel OU l'annuaire coché dans la console. Lire le seul `module` cacherait
       // l'onglet à la personne à qui on vient précisément de l'ouvrir.
       show: (t.regle === "specialites" ? peutGererSpecialites(user, "VIEW")
+        // Marketing cockpit › Spécialités : la page exige le module Force de vente PUIS la règle.
+        : t.regle === "specialites-fdv" ? userCan(user, t.module, "VIEW") && peutGererSpecialites(user, "VIEW")
         : t.annuaire ? peutAnnuaire(user, t.annuaire, "VIEW") : userCan(user, t.module, "VIEW"))
         && (t.feature ? await featureEnabled(t.feature, user.id) : true),
     })),

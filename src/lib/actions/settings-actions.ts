@@ -324,7 +324,7 @@ export async function setPromoMessageAuthorRoles(formData: FormData): Promise<Ac
     summary: `Auteurs des messages Direction Marketing — ${roles.length} rôle(s) configuré(s)`,
   });
   revalidatePath("/admin");
-  revalidatePath("/planning/messages");
+  revalidatePath("/marketing-cockpit/messages");
   return { ok: true };
 }
 

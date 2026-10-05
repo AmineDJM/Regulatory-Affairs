@@ -40,7 +40,7 @@ export function ChoixSpecialites({
     // UN MENU VIDE EST UN CUL-DE-SAC : on dit où le référentiel se remplit.
     return (
       <p className="text-xs text-muted-foreground">
-        Le référentiel des spécialités est vide : ajoutez-les dans Force de vente › Spécialités (le même écran qu'Annuaires › Spécialités), puis revenez les cocher.
+        Le référentiel des spécialités est vide : ajoutez-les dans Marketing cockpit › Spécialités (le même écran qu'Annuaires › Spécialités), puis revenez les cocher.
       </p>
     );
   }

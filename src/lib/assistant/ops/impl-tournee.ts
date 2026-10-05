@@ -313,10 +313,10 @@ export const PROMO_MESSAGE_OPS_IMPL: Record<string, OpImpl> = {
           ...(bu ? { businessUnitId: bu.id } : {}),
         },
         successMessage: `Message « ${title} » ajouté au référentiel.`,
-        revalidate: ["/planning/messages"],
+        revalidate: ["/marketing-cockpit/messages"],
       };
     },
-    execute: (args) => runFd(createPromoMessage, args, "La création du message a été refusée.", { revalidate: ["/planning/messages"] }),
+    execute: (args) => runFd(createPromoMessage, args, "La création du message a été refusée.", { revalidate: ["/marketing-cockpit/messages"] }),
   },
 
   update_promo_message: {
@@ -347,10 +347,10 @@ export const PROMO_MESSAGE_OPS_IMPL: Record<string, OpImpl> = {
           isActive: cur.isActive ? "on" : "off",
         },
         successMessage: `Message « ${nouveauTitre} » enregistré.`,
-        revalidate: ["/planning/messages"],
+        revalidate: ["/marketing-cockpit/messages"],
       };
     },
-    execute: (args) => runFd(updatePromoMessage, args, "L'enregistrement du message a été refusé.", { revalidate: ["/planning/messages"] }),
+    execute: (args) => runFd(updatePromoMessage, args, "L'enregistrement du message a été refusé.", { revalidate: ["/marketing-cockpit/messages"] }),
   },
 
   delete_promo_message: {
@@ -368,9 +368,9 @@ export const PROMO_MESSAGE_OPS_IMPL: Record<string, OpImpl> = {
         ],
         args: { id: hit.id },
         successMessage: `Message « ${cur.title} » retiré.`,
-        revalidate: ["/planning/messages"],
+        revalidate: ["/marketing-cockpit/messages"],
       };
     },
-    execute: (args) => runFd(deletePromoMessage, args, "Le retrait du message a été refusé.", { revalidate: ["/planning/messages"] }),
+    execute: (args) => runFd(deletePromoMessage, args, "Le retrait du message a été refusé.", { revalidate: ["/marketing-cockpit/messages"] }),
   },
 };
