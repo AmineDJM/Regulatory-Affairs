@@ -66,9 +66,9 @@ export function verifyJwt<T = Record<string, unknown>>(token: string | null | un
 // ───────────────────────── Types de documents éditables ─────────────────────────
 
 const EXT_TYPE: Record<string, "word" | "cell" | "slide"> = {
-  doc: "word", docx: "word", odt: "word", rtf: "word", txt: "word",
-  xls: "cell", xlsx: "cell", ods: "cell", csv: "cell",
-  ppt: "slide", pptx: "slide", odp: "slide",
+  doc: "word", docx: "word", odt: "word", rtf: "word", txt: "word", dotx: "word", docm: "word", ott: "word",
+  xls: "cell", xlsx: "cell", ods: "cell", csv: "cell", xlsm: "cell", xltx: "cell", ots: "cell",
+  ppt: "slide", pptx: "slide", odp: "slide", pptm: "slide", potx: "slide", ppsx: "slide", otp: "slide",
 };
 
 export function fileExt(name: string): string {

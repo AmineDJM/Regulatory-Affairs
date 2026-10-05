@@ -3,32 +3,19 @@
 import * as React from "react";
 import { useRouter } from "next/navigation";
 import { X, Download, Printer, Pencil, Trash2, Check, Loader2, ExternalLink } from "lucide-react";
-import { DocxView, XlsxView, PptxView } from "./office-viewers";
+import { ApercuUniversel } from "./apercu-universel";
+import { natureApercu } from "@/lib/formats/apercu";
 import { ZipViewer } from "./zip-viewer";
 import { printDocument } from "@/lib/print-document";
 import { deleteDocument, renameDocument } from "@/lib/actions/document-actions";
 import { useScrollLock } from "@/lib/use-scroll-lock";
 import { BoutonTelecharger } from "@/components/telechargement/bouton-telecharger";
 
-const IMAGE = ["png", "jpg", "jpeg", "gif", "webp", "svg", "bmp", "avif"];
-const TEXTLIKE = ["txt", "md", "log", "json", "xml"];
 // Extensions ouvrables/modifiables dans l'éditeur Office (alignées sur onlyofficeDocType côté serveur).
 const OFFICE_EDIT = ["doc", "docx", "odt", "rtf", "txt", "xls", "xlsx", "ods", "csv", "ppt", "pptx", "odp"];
 
 function extOf(name: string): string {
   return name.split(".").pop()?.toLowerCase() ?? "";
-}
-
-function kindFromName(name: string): string {
-  const ext = extOf(name);
-  if (IMAGE.includes(ext)) return "image";
-  if (ext === "pdf") return "pdf";
-  if (TEXTLIKE.includes(ext)) return "text";
-  if (ext === "docx") return "docx";
-  if (ext === "xlsx" || ext === "xls" || ext === "csv") return "xlsx";
-  if (ext === "pptx") return "pptx";
-  if (ext === "zip") return "zip";
-  return "other";
 }
 
 const iconBtn = "rounded-lg p-2 text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground";
@@ -79,10 +66,10 @@ export function DocumentPreview({
   const [deleting, setDeleting] = React.useState(false);
 
   const src = srcOverride ?? `/api/documents/${id}`;
-  const kind = kindFromName(name);
+  const kind = natureApercu(name);
   // Un ZIP se PARCOURT dans la fenêtre (liste des entrées, aperçu d'une entrée) — sans le télécharger.
   // Seulement pour un document ordinaire : `srcOverride` désigne une autre source, qui n'a pas cette route.
-  const canPreview = hasFile && (["image", "pdf", "text", "docx", "xlsx", "pptx"].includes(kind) || (kind === "zip" && !srcOverride));
+  const canPreview = hasFile && (kind !== "zip" || !srcOverride);
   const canEditFile = Boolean(canEdit) && hasFile && OFFICE_EDIT.includes(extOf(name));
 
   async function saveRename() {
@@ -156,20 +143,11 @@ export function DocumentPreview({
             </div>
             <div className="flex-1 overflow-auto bg-muted/20 p-3">
               {canPreview ? (
-                kind === "image" ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img src={src} alt={name} className="mx-auto max-h-[80vh] rounded-lg object-contain" />
-                ) : kind === "pdf" || kind === "text" ? (
-                  <iframe src={src} title={name} className="h-[80vh] w-full rounded-lg border border-border bg-white" />
-                ) : kind === "docx" ? (
-                  <DocxView src={src} name={name} />
-                ) : kind === "xlsx" ? (
-                  <XlsxView src={src} name={name} />
-                ) : kind === "pptx" ? (
-                  <PptxView src={src} name={name} />
-                ) : kind === "zip" ? (
+                kind === "zip" ? (
                   <ZipViewer id={id} name={name} zipUrl={`${src}/zip`} downloadUrl={`${src}?dl=1`} />
-                ) : null
+                ) : (
+                  <ApercuUniversel src={src} apercuSrc={`${src}/apercu`} name={name} telechargement={`${src}?dl=1`} />
+                )
               ) : (
                 <div className="flex h-full min-h-[40vh] flex-col items-center justify-center gap-3 text-center">
                   <p className="text-sm text-muted-foreground">{hasFile ? "Aperçu non disponible pour ce type de fichier." : "Aucun fichier — métadonnées uniquement."}</p>
