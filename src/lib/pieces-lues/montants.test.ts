@@ -47,6 +47,10 @@ describe("montantLu — un nombre imprimé se lit, il ne se devine pas (lot D2)"
   it("accepte un suffixe de dinar (DA, D.A., DZD), et aucune autre devise", () => {
     expect(montantLu("961 345,00 DA")).toBe(961_345);
     expect(montantLu("15 890 DZD")).toBe(15_890);
+    // Devis imprimés à l'anglo-saxonne : la devise en PRÉFIXE, virgule des milliers, point décimal.
+    expect(montantLu("DZD 300,000.00")).toBe(300_000);
+    expect(montantLu("DZD 100,000.00")).toBe(100_000);
+    expect(montantLu("DA 1 200,50")).toBe(1_200.5);
     expect(montantLu("1 500 D.A.")).toBe(1_500);
     expect(montantLu("1 200 EUR")).toBeNull();
     expect(analyserNombre("12 DA", { devise: false }).valeur).toBeNull();

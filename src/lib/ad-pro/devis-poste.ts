@@ -242,11 +242,17 @@ export function etapeDEnsemble(etapes: readonly (EtapeBC | null)[]): EtapeBC | n
  * commande que le poste ne pourra jamais payer en entier, et le visa du centre porte sur ce qui a été
  * accordé. Le refus dit les DEUX montants et les gestes qui lèvent l'écart (§118.30).
  */
-export function refusDepassement(totalTtc: number, accorde: number | null): string | null {
+export function refusDepassement(totalTtc: number, accorde: number | null, totalHt?: number): string | null {
   if (accorde == null || !(accorde > 0)) return null;
   if (cents(totalTtc) <= cents(accorde)) return null;
-  return `Les lignes validées pour ce poste totalisent ${formatDzd(totalTtc)} TTC, au-delà des ${formatDzd(accorde)} accordés (+${formatDzd(totalTtc - accorde)}). `
-    + "Décochez une ligne, ou demandez une révision du poste pour relever le montant accordé — le bon de commande ne dépasse pas ce que la Direction a accordé.";
+  // LE MONTANT ACCORDÉ S'ENTEND TTC — et le devis s'imprime HT : un devis de 400 000 HT pèse 476 000 TTC à 19 %.
+  // Quand l'écart ne vient que de la taxe, la phrase le DIT (Direction, 06/10 : « c'est 400 000 dans le devis,
+  // je ne comprends pas »), avec le montant à demander.
+  const taxe = totalHt != null && cents(totalHt) < cents(totalTtc)
+    ? `${formatDzd(totalHt)} HT, soit ${formatDzd(totalTtc)} TTC avec ${formatDzd(totalTtc - totalHt)} de taxes`
+    : `${formatDzd(totalTtc)} TTC`;
+  return `Les lignes validées pour ce poste totalisent ${taxe}, au-delà des ${formatDzd(accorde)} accordés (+${formatDzd(totalTtc - accorde)}). `
+    + "Le montant accordé s'entend TTC : demandez une révision du poste pour le relever (ou décochez une ligne) — le bon de commande ne dépasse pas ce que la Direction a accordé.";
 }
 
 // ───────────────────────── Ce que le BC peut porter ─────────────────────────

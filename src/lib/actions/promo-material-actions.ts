@@ -2,7 +2,7 @@
 
 import { Prisma, type PromoMaterialStatus } from "@prisma/client";
 import { revalidatePath } from "next/cache";
-import { requireUser } from "@/lib/session";
+import { requireUser, requireUserAuNomDeLaVue } from "@/lib/session";
 import { userCan, hasGlobalView, type SessionUser } from "@/lib/rbac";
 import { ecrireAuFil } from "@/lib/ad-pro/fil";
 import { prisma } from "@/lib/prisma";
@@ -33,7 +33,6 @@ import { annulerDemandeSecretariat } from "@/lib/secretariat/annulation";
 import { etatsDesBC } from "@/lib/bons-de-commande/etat";
 import { mirrorDocumentsToDrive } from "@/lib/drive/document-mirror";
 import { deleteFileByKey } from "@/lib/storage";
-import { refuseSousVueExacte } from "@/lib/vue-exacte";
 
 const PATH = "/promo-material";
 
@@ -203,13 +202,11 @@ async function ordreNonRegle(orderId: string | null): Promise<string | null> {
  */
 export async function createPromoMaterial(_prev: ActionResult | undefined, formData: FormData): Promise<ActionResult> {
   try {
-    const user = await requireUser();
+    const user = await requireUserAuNomDeLaVue();
     // UN REFUS DIT LA VRAIE RAISON. Il disait « réservée au Marketing » — faux : délégués, KAM et
     // National Sales créent aussi (droit du module) ; celui qui est refusé n'a pas le droit du module.
     if (!userCan(user, "PROMO_MATERIAL", "CREATE")) return { ok: false, error: "Votre profil n'a pas le droit de créer une demande de matériel promotionnel (module Matériel promotionnel) : l'accès se règle en Administration › Comptes." };
-    // Pas de création « comme » quelqu'un : voir `vue-exacte.ts`.
-    const sousVue = await refuseSousVueExacte(user);
-    if (sousVue) return sousVue;
+    // Sous « Vue exacte », la demande se crée AU NOM de la personne visualisée (test de son parcours) : voir `vue-exacte.ts`.
     const title = fdStr(formData, "title");
     const description = fdStr(formData, "description");
 

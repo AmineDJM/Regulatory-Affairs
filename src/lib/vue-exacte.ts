@@ -25,11 +25,11 @@ export const IMPERSONATE_COOKIE = "amd_impersonate";
  *     est une LECTURE, rendue pour le KAM visualisé, qui n'est pas le demandeur ;
  *   • et tout redevient normal « avec le compte admin », la vue quittée.
  *
- * Créer une demande est un geste qui n'a de sens qu'au nom de la personne qui la dépose : on ne
- * dépose pas « comme » un KAM, on dépose en son propre nom. Le geste est donc REFUSÉ pendant une Vue
- * exacte, avec la raison et le remède (quitter la vue, ou se connecter au compte). Refuser est plus
- * juste qu'accepter puis perdre la fiche : la demande ne naît pas, aucun fantôme n'entre dans les
- * listes, et rien ne ressemble à un cache.
+ * ⚠️ DÉCISION DE LA DIRECTION (06/10) — « même si je visualise au nom de Leila, je veux pouvoir tester
+ * son compte ». Le geste n'est donc PLUS refusé : sous une Vue exacte, les six actions de CRÉATION d'une
+ * demande Ad & Pro se font AU NOM de la personne visualisée (`requireUserAuNomDeLaVue`, session.ts) —
+ * son droit de créer, sa gamme, son circuit — et sa fiche s'ouvre dans la même vue. Toute AUTRE écriture
+ * reste au nom du Super Admin (§118.184). Seul le Super Admin réel peut le faire (`impersonatedBy`).
  *
  * Hors requête (banc, battement), `cookies()` lève : personne ne visualise rien — rendu `null`.
  * ═══════════════════════════════════════════════════════════════════════════════════════════
@@ -53,16 +53,3 @@ export async function personneVisualisee(user: { id: string; role: string }): Pr
   return t?.isActive ? t.name : null;
 }
 
-/** La phrase du refus — elle nomme la personne visualisée ET le remède. */
-export function refusCreationSousVue(nom: string): string {
-  return `Vous visualisez l'ERP comme ${nom} (Vue exacte) : une demande créée d'ici serait déposée au nom de l'administrateur, pas de ${nom}, et sa fiche ne s'ouvrirait pas dans cette vue (« Introuvable »). Quittez la Vue exacte depuis le bandeau en haut de l'écran pour créer la demande en votre nom — ou connectez-vous avec le compte de ${nom} pour tester son parcours.`;
-}
-
-/**
- * LE REFUS, d'un seul appel — pour les actions de CRÉATION d'une demande : `null` quand rien ne
- * s'oppose, sinon le résultat à rendre tel quel.
- */
-export async function refuseSousVueExacte(user: { id: string; role: string }): Promise<{ ok: false; error: string } | null> {
-  const nom = await personneVisualisee(user);
-  return nom ? { ok: false, error: refusCreationSousVue(nom) } : null;
-}

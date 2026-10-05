@@ -59,7 +59,7 @@ function actionServeurEnCours(): boolean {
   }
 }
 
-async function build(session: Session | null, opts: { ecriture?: boolean } = {}): Promise<CurrentUser | null> {
+async function build(session: Session | null, opts: { ecriture?: boolean; auNomDeLaVue?: boolean } = {}): Promise<CurrentUser | null> {
   if (!session?.user) return null;
 
   // Validate the revocable session: reject revoked/expired tokens so the admin
@@ -89,7 +89,13 @@ async function build(session: Session | null, opts: { ecriture?: boolean } = {})
   // personne visualisée : une décision, un envoi, un dépôt s'écrivaient sous son nom au journal et
   // dans les notifications. Une requête qui ÉCRIT ignore donc la vue : elle part au nom du Super
   // Admin, avec ses droits — ce que le bandeau dit.
-  if (session.user.role === "SUPER_ADMIN" && !(opts.ecriture || actionServeurEnCours())) {
+  //
+  // EXCEPTION VOULUE (Direction, 06/10) : la CRÉATION D'UNE DEMANDE sous « Vue exacte » se fait au nom de
+  // la personne visualisée (`opts.auNomDeLaVue`, via `requireUserAuNomDeLaVue`), pour que le Super Admin
+  // teste son parcours de bout en bout : la fiche se crée à son nom, avec ses droits et sa gamme, et
+  // s'ouvre dans cette même vue. Réservé au Super Admin RÉEL (la condition ci-dessous) ; la requête
+  // garde `impersonatedBy` pour que l'on sache qui a testé.
+  if (session.user.role === "SUPER_ADMIN" && (opts.auNomDeLaVue || !(opts.ecriture || actionServeurEnCours()))) {
     const targetId = cookies().get(IMPERSONATE_COOKIE)?.value;
     if (targetId && targetId !== session.user.id) {
       const target = await prisma.user.findUnique({
@@ -133,6 +139,17 @@ async function build(session: Session | null, opts: { ecriture?: boolean } = {})
 /** Returns the signed-in user (with resolved access) or redirects to /login. */
 export async function requireUser(): Promise<CurrentUser> {
   const user = await build(await auth());
+  if (!user) redirect("/login");
+  return user;
+}
+
+/**
+ * L'utilisateur AU NOM DE QUI se crée une demande : la personne que le Super Admin visualise en « Vue
+ * exacte », sinon l'utilisateur réel. Réservé aux actions de CRÉATION d'une demande (Ad & Pro) — toute
+ * autre écriture reste au nom du Super Admin (§118.184).
+ */
+export async function requireUserAuNomDeLaVue(): Promise<CurrentUser> {
+  const user = await build(await auth(), { auNomDeLaVue: true });
   if (!user) redirect("/login");
   return user;
 }

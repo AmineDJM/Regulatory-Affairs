@@ -74,7 +74,10 @@ export function BlocBonDeCommande({ itemId, bcs, devis, accorde, refusGeneration
 }) {
   const vivants = devis.filter((d) => !d.annule);
   const aFaire = vivants.filter((d) => d.etat === "A_GENERER" || d.etat === "A_REGENERER");
-  const depasse = refusDepassement(vivants.reduce((s, d) => s + Math.round(d.totalValideTtc * 100), 0) / 100, accorde);
+  const depasse = refusDepassement(
+    vivants.reduce((s, d) => s + Math.round(d.totalValideTtc * 100), 0) / 100, accorde,
+    vivants.reduce((s, d) => s + Math.round(d.totalValideHt * 100), 0) / 100,
+  );
   const enCours = busy !== null && busy.startsWith("gen:") && busy.endsWith(`:${itemId}`);
   const generer = (pieceId: string | null) => {
     const fd = new FormData();
@@ -118,7 +121,7 @@ export function BlocBonDeCommande({ itemId, bcs, devis, accorde, refusGeneration
                 <span className="min-w-0 flex-1 truncate" title={d.titre}>
                   {d.reference ?? d.titre} — {d.nbValidees} ligne{d.nbValidees > 1 ? "s" : ""} validée{d.nbValidees > 1 ? "s" : ""} · <span className="tabular-nums">{dzd(d.totalValideTtc)} TTC</span>
                 </span>
-                {e && <span className={e.ton === "ok" ? "text-success" : e.ton === "alerte" ? "text-destructive" : "text-warning"}>{e.texte}</span>}
+                {e && !(actionnable && aFaire.length === 1) && <span className={e.ton === "ok" ? "text-success" : e.ton === "alerte" ? "text-destructive" : "text-warning"}>{e.texte}</span>}
                 {actionnable && aFaire.length > 1 && (
                   <button type="button" onClick={() => generer(d.pieceId)} disabled={enCours} className="text-primary hover:underline disabled:opacity-50">
                     {d.etat === "A_REGENERER" ? "Régénérer" : "Générer"}
@@ -243,7 +246,10 @@ export function PanneauLignesDevis({ itemId, devis, peutEditer, busy, run, onClo
         <button type="button" onClick={onClose} className="text-muted-foreground hover:text-foreground">Fermer</button>
       </div>
       {devis.entete.lectureNote && (
-        <p className="text-muted-foreground">Lignes lues par la plateforme — {devis.entete.lectureNote} Ce sont des propositions : comparez-les au devis avant de les valider.</p>
+        <p className="text-muted-foreground">
+          Lignes lues par la plateforme — {devis.entete.lectureNote}
+          {devis.lignes.every((l) => l.validee) ? " Toutes validées automatiquement." : " Certaines sont à vérifier : comparez-les au devis avant de les valider."}
+        </p>
       )}
 
       {!devis.structure && !edition && (
@@ -340,7 +346,10 @@ export function PanneauLignesDevis({ itemId, devis, peutEditer, busy, run, onClo
 
       {peutEditer && (
         <div className="flex flex-wrap items-center gap-2">
-          {!edition && devis.structure && (
+          {/* UN SEUL BOUTON PRINCIPAL À LA FOIS (Direction, 06/10) : « Valider » n'existe que s'il reste quelque
+              chose à valider — un devis bien lu est déjà validé d'office, et la carte ne propose alors que
+              « Générer le BC ». */}
+          {!edition && devis.structure && changees && (
             <Button size="sm" onClick={valider} disabled={occupe || !changees || gele || (nouvellesLues && !compare)}>
               {busy === `val:${devis.pieceId}` ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5" />} Valider les lignes cochées
             </Button>

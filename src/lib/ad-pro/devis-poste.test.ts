@@ -131,7 +131,11 @@ describe("le montant : les BC ne dépassent jamais ce que la Direction a accord�
     const r = refusDepassement(150_000, 100_000)!;
     expect(r).toMatch(/150\s000,00 DZD TTC/);
     expect(r).toMatch(/100\s000,00 DZD accordés/);
-    expect(r).toMatch(/Décochez une ligne, ou demandez une révision/);
+    expect(r).toMatch(/demandez une révision du poste pour le relever \(ou décochez une ligne\)/);
+    // Le cas de la Direction (06/10) : 400 000 HT au devis, 476 000 TTC — la phrase dit d'où vient l'écart.
+    const tva = refusDepassement(476_000, 400_000, 400_000)!;
+    expect(tva).toMatch(/400\s000,00 DZD HT, soit 476\s000,00 DZD TTC avec 76\s000,00 DZD de taxes/);
+    expect(tva).toMatch(/s'entend TTC/);
     // Sans montant accordé, il n'y a rien à comparer : on ne refuse pas sur un trou.
     expect(refusDepassement(150_000, null)).toBeNull();
   });

@@ -103,7 +103,8 @@ export function totalValideDuPoste(devis: readonly DevisDePosteVue[]): number {
 
 /** Le refus de dépassement, lu par l'action ET par la carte. */
 export function refusMontantDuPoste(devis: readonly DevisDePosteVue[], accorde: number | null): string | null {
-  return refusDepassement(totalValideDuPoste(devis), accorde);
+  const ht = devis.filter((d) => !d.annule).reduce((s, d) => s + Math.round(d.totalValideHt * 100), 0) / 100;
+  return refusDepassement(totalValideDuPoste(devis), accorde, ht);
 }
 
 /**

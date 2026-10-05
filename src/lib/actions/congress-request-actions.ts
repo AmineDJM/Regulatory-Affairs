@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import type { CongressRequestStatus, EntityType, NationalEventType, Prisma } from "@prisma/client";
-import { requireUser } from "@/lib/session";
+import { requireUser, requireUserAuNomDeLaVue } from "@/lib/session";
 import { userCan, hasGlobalView, hasRole, anyRoleFilter, type Module } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { moneyEntityOf } from "@/lib/company";
@@ -17,7 +17,6 @@ import { adProInit, PRODUCT_MANAGER_ROLES } from "@/lib/workflow/origin";
 import { retirerDemandeAdPro } from "@/lib/actions/workflow-actions";
 import { referentAInscrire } from "@/lib/ad-pro/referent-de-la-gamme";
 import { gammeImposee } from "@/lib/ad-pro/business-unit-auto";
-import { refuseSousVueExacte } from "@/lib/vue-exacte";
 import { fdStr, fdNum, fdDate, type ActionResult } from "@/lib/actions/types";
 import { attachFiles, validateAttachments } from "@/lib/attach-files";
 
@@ -56,12 +55,10 @@ export async function createCongressRequest(
   _prev: ActionResult | undefined,
   formData: FormData,
 ): Promise<ActionResult> {
-  const user = await requireUser();
+  const user = await requireUserAuNomDeLaVue();
   const t = typeOf(formData);
   if (!userCan(user, moduleFor(t), "CREATE")) return { ok: false, error: "Non autorisé." };
-  // Pas de création « comme » quelqu'un : voir `vue-exacte.ts`.
-  const sousVue = await refuseSousVueExacte(user);
-  if (sousVue) return sousVue;
+  // Sous « Vue exacte », la demande se crée AU NOM de la personne visualisée (test de son parcours) : voir `vue-exacte.ts`.
   /*
    * CE QUE LA DEMANDE EXIGE, NOMMÉ EN UNE FOIS (décision du 04/10/2026) : le nom, et l'événement par
    * son DÉBUT et sa FIN — deux dates, des deux côtés. Un refus par champ ferait ressaisir le
