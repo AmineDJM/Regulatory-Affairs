@@ -9,6 +9,7 @@ vi.mock("@/lib/session", () => ({ requireUser: async () => ACTOR }));
 import { prisma } from "@/lib/prisma";
 import { getAccess, hasGlobalView, type SessionUser } from "@/lib/rbac";
 import { rattacherSalariesAEntite, envoyerPaieAuCentre } from "@/lib/actions/payroll-hr-actions";
+import { updateEmployee } from "@/lib/actions/hr-actions";
 import { getMyCompanies } from "@/lib/company";
 import { getResultatMensuel } from "@/lib/queries/compta";
 import { lirePeriode } from "@/lib/finance/resultat-mensuel";
@@ -190,6 +191,30 @@ suite("Rattacher à une entité depuis la paie ; la paie dans le résultat de so
       expect(r.message).toMatch(/1 salaire déjà versé par l'ancien circuit/);
       expect(await entiteDe(sans.ancien!)).toBe(aId);
       expect(await entiteDe(sans.lot!)).toBe(aId);
+    });
+
+    it("CHANGER L'ENTITÉ D'UNE FICHE passe par la MÊME règle : un salaire parti au nom de A ne change pas d'entité en silence (audit n° 32)", async () => {
+      const chg = (await prisma.employee.create({ data: { fullName: `${TAG} chg`, companyId: aId } })).id;
+      const acces = await prisma.userCompanyAccess.create({ data: { userId: rhId, companyId: cId, canEdit: true } });
+      try {
+        const wire = await prisma.payrollWire.create({ data: { companyId: aId, year: YEAR, month: 5, amount: 40_000 }, select: { id: true } });
+        wires.push(wire.id);
+        const o = await ordre(aId, wire.id);
+        await prisma.payrollWire.update({ where: { id: wire.id }, data: { expenseOrderId: o.id } });
+        await prisma.payrollEntry.create({ data: { employeeId: chg, year: YEAR, month: 5, status: "PAID", net: 40_000, paidDate: new Date(), payrollWireId: wire.id } });
+        ACTOR = await rh();
+        const refus = await updateEmployee(form({ id: chg, companyId: cId }));
+        expect(refus.ok).toBe(false);
+        expect(refus.error).toContain(`paie de mai ${YEAR} partie au nom de ${TAG}ADV`);
+        expect(await entiteDe(chg)).toBe(aId);
+        // TÉMOIN : sans salaire parti, le même changement passe — la garde ne refuse pas tout.
+        const libre = (await prisma.employee.create({ data: { fullName: `${TAG} chg libre`, companyId: aId } })).id;
+        const ok = await updateEmployee(form({ id: libre, companyId: cId }));
+        expect(ok.ok, ok.error).toBe(true);
+        expect(await entiteDe(libre)).toBe(cId);
+      } finally {
+        await prisma.userCompanyAccess.delete({ where: { id: acces.id } }).catch(() => {});
+      }
     });
 
     it("ÉCRITURE CONDITIONNELLE : rattaché ailleurs PENDANT le geste, le salarié garde SON entité", async () => {

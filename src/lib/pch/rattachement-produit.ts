@@ -1,5 +1,4 @@
 /**
-import { formatMontant } from "@/lib/utils";
  * ═══════════════════════════════════════════════════════════════════════════════════════════
  * LE RATTACHEMENT MARCHÉ D'UN PRODUIT — un AO, donc un marché PCH, ou un marché plus la ville.
  *
@@ -43,6 +42,7 @@ import { formatMontant } from "@/lib/utils";
  * le droit de se parler (§118.16, §118.72).
  * ═══════════════════════════════════════════════════════════════════════════════════════════
  */
+import { formatMontant } from "@/lib/utils";
 
 /**
  * LES STATUTS D'APPEL D'OFFRES QUI FERMENT LE DOSSIER. Vocabulaire FERMÉ (`PchTenderStatus`).

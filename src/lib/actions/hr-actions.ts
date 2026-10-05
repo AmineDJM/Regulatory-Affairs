@@ -20,6 +20,8 @@ import {
 import { fdStr, fdNum, fdDate, fdBool, type ActionResult } from "@/lib/actions/types";
 import { entitePermisePourFiche } from "@/lib/company";
 import { compteSuitLaFiche } from "@/lib/hr/depart";
+import { chargerSalairesPartis } from "@/lib/hr/salaires-partis";
+import { decisionRattachement } from "@/lib/hr/rattachement-paie";
 // LA FRONTIÈRE — l'ERP annonce ses faits ; il ne sait pas qui les écoute, et c'est le principe.
 import { emit } from "@/platform/events";
 
@@ -138,6 +140,20 @@ export async function updateEmployee(formData: FormData): Promise<ActionResult> 
   if (!before || !(await entitePermisePourFiche(user.id, before.companyId))) return { ok: false, error: "Employé introuvable." };
   const companyIdSaisi = fdStr(formData, "companyId") || null;
   if (!(await entitePermisePourFiche(user.id, companyIdSaisi))) return { ok: false, error: "Cette entité ne vous est pas ouverte." };
+  // CHANGER L'ENTITÉ D'UNE FICHE DÉPLACE L'ATTRIBUTION DE SES SALAIRES (les lignes de paie suivent la fiche) :
+  // un salaire déjà parti au nom d'une autre société ne change pas d'entité en silence — la même règle que
+  // « rattacher » depuis l'écran de la paie (`decisionRattachement`, une seule lecture des salaires partis).
+  if (companyIdSaisi !== before.companyId) {
+    const { partisParSalarie } = await chargerSalairesPartis([id]);
+    const societes = await prisma.company.findMany({ select: { id: true, name: true, shortName: true } });
+    const nomDe = new Map(societes.map((c) => [c.id, c.shortName || c.name]));
+    const decision = decisionRattachement(
+      [{ id, nom: before.fullName, salairesPartis: partisParSalarie.get(id) ?? [] }],
+      { id: companyIdSaisi ?? "", nom: companyIdSaisi ? nomDe.get(companyIdSaisi) ?? "cette entité" : "aucune entité" },
+      (cid) => nomDe.get(cid) ?? "une entité supprimée",
+    );
+    if (!decision.ok) return { ok: false, error: decision.refus };
+  }
 
   const deptFields = await resolveDepartmentFields(formData);
   const data = {

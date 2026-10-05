@@ -21,7 +21,6 @@ import { promoMaterialOptions } from "@/lib/actions/ad-pro-item-actions";
 import { AdProItemsPanel } from "@/components/ad-pro/items-panel";
 import { PiecesLegalDeLaDemande } from "@/components/ad-pro/pieces-legal-demande";
 import { loadAdProItems, adProBudgetOptions, contexteMaterielStock, contextePostes } from "@/lib/queries/ad-pro-items";
-import { CarteDetailsDemande } from "@/components/ad-pro/pieces-jointes-demande";
 import { EspaceDiscussion } from "@/components/ad-pro/espace-discussion";
 import { InvolvementConversations } from "@/components/ad-pro/involvement-conversations";
 import { CarePanel } from "@/components/care/care-panel";
@@ -120,17 +119,7 @@ export default async function CongressNatDetailPage({ params }: { params: { id: 
         {hasGlobalView(user) && <AdProTransferButton from="CONGRESS_NATIONAL" sourceId={detail.id} title={detail.name} />}
         <SupprimerDemandeAdPro kind="CONGRESS_NATIONAL" id={detail.id} name={detail.name} enabled={await peutSupprimerUneDemandeAdPro(user, "CONGRESS_NATIONAL", detail.id)} />
       </PageHeader>
-      {/* LES PIÈCES JOINTES DE LA DEMANDE — lettre de demande, programme, pièces d'identité… : « + Pièce
-          jointe » en haut à droite. La chaîne d'achat (devis → BC → facture) vit sur chaque poste. */}
-      <CarteDetailsDemande
-        titre="Pièces jointes de la demande"
-        pieces={{
-          entityType: "CONGRESS_NATIONAL", entityId: detail.id, documents: docItems,
-          peutDeposer: canUpload, categories: categoriesDuDepotDeLaDemande(AD_PRO_DOC_CATEGORIES),
-          canDelete, canRename: canUpload, canEdit: onlyofficeConfigured() && canUpload,
-          path: `/congress-national/${detail.id}`,
-        }}
-      />
+      {/* « + Pièce jointe » vit dans la carte « Informations » de la vue détaillée (audit n° 18). */}
       {/* LES PROFESSIONNELS PROPOSÉS POUR LA PRISE EN CHARGE — la seule liste de qui est pris en
           charge (décision du 04/10/2026), et leurs pièces juste dessous. Avant le reste : c'est la
           question qu'on se pose en ouvrant l'écran. */}
@@ -152,6 +141,12 @@ export default async function CongressNatDetailPage({ params }: { params: { id: 
       </Card>
 
       <CongressDetailView
+        piecesJointes={{
+          entityType: "CONGRESS_NATIONAL", entityId: detail.id, documents: docItems,
+          peutDeposer: canUpload, categories: categoriesDuDepotDeLaDemande(AD_PRO_DOC_CATEGORIES),
+          canDelete, canRename: canUpload, canEdit: onlyofficeConfigured() && canUpload,
+          path: `/congress-national/${detail.id}`,
+        }}
         detail={detail} workflow={workflow} canInvolveThirdParty={canInvolveThirdParty}
         entityType="CONGRESS_NATIONAL" entityId={detail.id} documents={docItems}
         canUpload={canUpload} canDelete={canDelete} path={`/congress-national/${detail.id}`}

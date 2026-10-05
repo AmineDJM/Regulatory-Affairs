@@ -12,13 +12,21 @@ import { formatBytes } from "../../messages/format";
 import { updateFieldReport, validateFieldReport, reopenFieldReport, deleteFieldReportAttachment } from "@/lib/actions/field-report-actions";
 import type { FieldReportDetail } from "@/lib/queries/field-reports";
 import { DoctorPicker } from "./doctor-picker";
+import { BlocMaterielRemis } from "../../medical/ma-journee/materiel-remis";
+import type { MaterielDuRapport } from "./simple-report-editor";
+
+const AUCUN_PRODUIT: ReadonlySet<string> = new Set();
 
 /**
  * Vue gestionnaire (Direction / Direction Marketing) : un seul **compte rendu (synthèse)**,
  * dictable à la voix, + médecin(s), établissement, spécialité, date, pièces jointes.
  * Plus de catégories structurées — le compte rendu se suffit à lui-même.
  */
-export function ReportEditor({ detail, doctors }: { detail: FieldReportDetail; doctors: { id: string; name: string }[] }) {
+export function ReportEditor({ detail, doctors, materiel, rattacheAUneVisite }: {
+  detail: FieldReportDetail; doctors: { id: string; name: string }[];
+  /** Le matériel du KAM qui a fait la visite (sa « voiture »), et ce que ce compte rendu a déjà remis. */
+  materiel: MaterielDuRapport | null; rattacheAUneVisite: boolean;
+}) {
   const router = useRouter();
   const ro = detail.status === "VALIDATED"; // lecture seule si validé
 
@@ -37,6 +45,7 @@ export function ReportEditor({ detail, doctors }: { detail: FieldReportDetail; d
   const mr = React.useRef<MediaRecorder | null>(null);
   const chunks = React.useRef<Blob[]>([]);
   const fileRef = React.useRef<HTMLInputElement>(null);
+  const materielRef = React.useRef<HTMLFormElement>(null);
 
   const fd = () => {
     const f = new FormData();
@@ -44,6 +53,8 @@ export function ReportEditor({ detail, doctors }: { detail: FieldReportDetail; d
     f.set("summary", summary); f.set("visitDate", visitDate);
     f.set("doctorIds", doctorIds.join(",")); f.set("doctorName", doctorName);
     f.set("institution", institution); f.set("specialty", specialty);
+    // Les champs du bloc « Matériel remis » (mêmes noms que dans « Ma journée »).
+    if (materielRef.current) for (const [k, v] of new FormData(materielRef.current)) f.append(k, v);
     return f;
   };
 
@@ -133,6 +144,16 @@ export function ReportEditor({ detail, doctors }: { detail: FieldReportDetail; d
         <div className="space-y-1.5"><Label>Médecin (nom libre)</Label><Input value={doctorName} onChange={(e) => setDoctorName(e.target.value)} disabled={ro} placeholder="Si absent de l'annuaire" /></div>
         <div className="space-y-1.5"><Label>Établissement</Label><Input value={institution} onChange={(e) => setInstitution(e.target.value)} disabled={ro} placeholder="Ex. CHU Mustapha" /></div>
       </div>
+
+      {materiel && !ro ? (
+        <form ref={materielRef} onSubmit={(e) => e.preventDefault()}>
+          <BlocMaterielRemis stock={materiel.stock} produitsCoches={AUCUN_PRODUIT} initial={materiel.initial} />
+        </form>
+      ) : rattacheAUneVisite ? (
+        <p className="rounded-lg border border-dashed border-border p-2.5 text-xs text-muted-foreground">
+          Ce compte rendu raconte une visite de l'emploi du temps : le matériel remis se déclare dans le rapport de cette visite.
+        </p>
+      ) : null}
 
       <div className="space-y-2">
         <div className="flex items-center justify-between">

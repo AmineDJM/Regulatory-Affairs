@@ -37,7 +37,7 @@ export default async function FieldReportPage({ params }: { params: { id: string
   // ouvre la fiche), et ce que ce compte rendu a déjà remis. Un compte rendu rattaché à une visite de
   // l'emploi du temps n'en porte pas : la visite les porte, et son rapport les corrige.
   const lien = await prisma.fieldReport.findUnique({ where: { id: detail.id }, select: { delegateId: true, visitId: true } });
-  const materiel = !isManager && lien && !lien.visitId
+  const materiel = lien && !lien.visitId
     ? await Promise.all([stockPourVisite(lien.delegateId ?? user.id), remisesDuRapport(detail.id)])
         // Un compte rendu ne présente pas de supports numériques : ils se rattachent à une VISITE.
         .then(([stock, initial]) => ({ stock: { articles: stock.articles, numeriques: [] }, initial }))
@@ -59,7 +59,7 @@ export default async function FieldReportPage({ params }: { params: { id: string
         <SuperAdminDeleteButton kind="FIELD_REPORT" id={detail.id} name={detail.delegateName ? `Rapport — ${detail.delegateName}` : "Rapport de visite"} enabled={user.role === "SUPER_ADMIN"} />
       </PageHeader>
       {isManager
-        ? <ReportEditor detail={detail} doctors={doctors} />
+        ? <ReportEditor detail={detail} doctors={doctors} materiel={materiel} rattacheAUneVisite={Boolean(lien?.visitId)} />
         : <SimpleReportEditor detail={detail} doctors={doctors} materiel={materiel} rattacheAUneVisite={Boolean(lien?.visitId)} />}
     </div>
   );

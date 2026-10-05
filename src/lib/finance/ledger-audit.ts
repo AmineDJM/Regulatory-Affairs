@@ -1,5 +1,4 @@
 /**
-import { formatMontant } from "@/lib/utils";
  * LE CONTRÔLE DU LIVRE — ce qui manque, et ce qui est sorti deux fois.
  *
  * ── LES DEUX QUESTIONS, ET ELLES NE SE CONFONDENT PAS ───────────────────────────────────────
@@ -36,6 +35,7 @@ import { formatMontant } from "@/lib/utils";
  *
  * Module PUR : ni base, ni session. Testé.
  */
+import { formatMontant } from "@/lib/utils";
 
 export interface LedgerEntry {
   id: string;

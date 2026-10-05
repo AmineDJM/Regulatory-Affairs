@@ -32,7 +32,6 @@ import { canAttachToAdPro } from "@/lib/ad-pro/attachments";
 import { AdProItemsPanel } from "@/components/ad-pro/items-panel";
 import { PiecesLegalDeLaDemande } from "@/components/ad-pro/pieces-legal-demande";
 import { loadAdProItems, adProBudgetOptions, contexteMaterielStock, contextePostes } from "@/lib/queries/ad-pro-items";
-import { CarteDetailsDemande } from "@/components/ad-pro/pieces-jointes-demande";
 import { EspaceDiscussion } from "@/components/ad-pro/espace-discussion";
 import { InvolvementConversations } from "@/components/ad-pro/involvement-conversations";
 import { promoMaterialOptions } from "@/lib/actions/ad-pro-item-actions";
@@ -124,17 +123,7 @@ export default async function CongressIntlDetailPage({ params }: { params: { id:
         {hasGlobalView(user) && <AdProTransferButton from="CONGRESS_INTERNATIONAL" sourceId={detail.id} title={detail.name} />}
         <SupprimerDemandeAdPro kind="CONGRESS_INTERNATIONAL" id={detail.id} name={detail.name} enabled={await peutSupprimerUneDemandeAdPro(user, "CONGRESS_INTERNATIONAL", detail.id)} />
       </PageHeader>
-      {/* LES PIÈCES JOINTES DE LA DEMANDE — lettre de demande, programme, pièces d'identité… : « + Pièce
-          jointe » en haut à droite. La chaîne d'achat (devis → BC → facture) vit sur chaque poste. */}
-      <CarteDetailsDemande
-        titre="Pièces jointes de la demande"
-        pieces={{
-          entityType: "CONGRESS_INTERNATIONAL", entityId: detail.id, documents: docItems,
-          peutDeposer: canUpload, categories: categoriesDuDepotDeLaDemande(AD_PRO_DOC_CATEGORIES),
-          canDelete, canRename: canUpload, canEdit: onlyofficeConfigured() && canUpload,
-          path: `/congress-international/${detail.id}`,
-        }}
-      />
+      {/* « + Pièce jointe » vit dans la carte « Informations » de la vue détaillée (audit n° 18). */}
       {/* LES PROFESSIONNELS PROPOSÉS POUR LA PRISE EN CHARGE — la seule liste de qui est pris en
           charge (décision du 04/10/2026), et leurs pièces juste dessous. Avant le reste : c'est la
           question qu'on se pose en ouvrant l'écran. */}
@@ -179,7 +168,7 @@ export default async function CongressIntlDetailPage({ params }: { params: { id:
       {/* LES PIÈCES LEGAL RATTACHÉES À LA DEMANDE ELLE-MÊME, hors postes — d'avant les postes, ou qui ne sont pas des achats. */}
       <PiecesLegalDeLaDemande spectateur={user} entityType="CONGRESS_INTERNATIONAL" entityId={detail.id} />
 
-      <CongressDetailView detail={detail} workflow={workflow} canInvolveThirdParty={canInvolveThirdParty} entityType="CONGRESS_INTERNATIONAL" entityId={detail.id} documents={docItems} canUpload={canUpload} canDelete={canDelete} path={`/congress-international/${detail.id}`} missions={missions} missionUsers={missionUsers} canManageMissions={canManageMissions} currentUserId={user.id} involvementThreads={[]} canModerate={hasGlobalView(user)} />
+      <CongressDetailView piecesJointes={{ entityType: "CONGRESS_INTERNATIONAL", entityId: detail.id, documents: docItems, peutDeposer: canUpload, categories: categoriesDuDepotDeLaDemande(AD_PRO_DOC_CATEGORIES), canDelete, canRename: canUpload, canEdit: onlyofficeConfigured() && canUpload, path: `/congress-international/${detail.id}`, }} detail={detail} workflow={workflow} canInvolveThirdParty={canInvolveThirdParty} entityType="CONGRESS_INTERNATIONAL" entityId={detail.id} documents={docItems} canUpload={canUpload} canDelete={canDelete} path={`/congress-international/${detail.id}`} missions={missions} missionUsers={missionUsers} canManageMissions={canManageMissions} currentUserId={user.id} involvementThreads={[]} canModerate={hasGlobalView(user)} />
 
       {/* LA SECTION DISCUSSION — le fil CANONIQUE de la demande et les échanges avec les personnes
           impliquées : un seul espace (la vue détaillée ne les rend plus à part). */}
