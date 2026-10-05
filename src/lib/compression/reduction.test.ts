@@ -154,7 +154,7 @@ describe("PNG — sans perte, prouvée pixel par pixel", () => {
   }, 60_000);
 
   it("un PNG à 16 bits est conservé tel quel (la réduction à 8 bits serait une perte)", async () => {
-    const png16 = await sharp(Buffer.alloc(800 * 800 * 2, 9), { raw: { width: 800, height: 800, channels: 1, depth: "ushort" } }).png().toBuffer();
+    const png16 = await sharp(Buffer.alloc(800 * 800 * 2, 9), { raw: { width: 800, height: 800, channels: 1, depth: "ushort" } as import("sharp").CreateRaw & { depth: string } }).png().toBuffer();
     const meta = await sharp(png16).metadata();
     if (meta.depth !== "ushort") return; // la plateforme de sharp ne produit pas de 16 bits : rien à prouver ici
     const r = await reduire(Buffer.concat([png16, Buffer.alloc(120_000)]), "profond.png", "image/png");
