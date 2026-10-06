@@ -112,8 +112,11 @@ La segmentation de la force de vente, native et reliée (Direction, 06/10/2026).
 - **Praticien** (`/praticiens/[id]`) : la carte simple du KAM (priorité, segments, visites requises et faites, objectif principal), le pourquoi, le potentiel historisé et les visites.
 - **Droits** : chaque section n'apparaît qu'à qui voit son module (`vues-360-acces.ts`).
 
+### Saisie terrain et recherche
+
+- **Rapport de visite** (« Ma journée ») : quand le praticien est dans le panel d'une stratégie de la BU du KAM, le rapport propose le potentiel en option, avec la dernière valeur et sa date. La valeur saisie s'historise (HcpObservation, source TERRAIN). Rien de ce que la visite connaît n'est redemandé : ni le praticien, ni l'établissement, ni la BU, ni le territoire.
+- **Recherche globale** (palette ⌘K, /search) : elle retrouve aussi les produits canoniques (vers leur vue 360°), les BU (vers leur cockpit) et les stratégies de segmentation. Un praticien ouvre sa vue 360°.
+
 ### Pas encore fait
 
-- Recherche transversale « Raltégravir » qui renvoie produit, AO, dossier, consommation, segmentation et dépenses.
-- Questions en langage naturel sur ces données (Adam est en pause).
-- Saisie du potentiel directement depuis le rapport de visite du KAM.
+- Questions en langage naturel sur ces données : Adam est en pause de développement.

@@ -12,6 +12,7 @@ import { fdStr, fdDate, type ActionResult } from "@/lib/actions/types";
 import { fenetreRapport, refusVisiteHorsDelai } from "@/lib/sfe/tournee";
 import { produitsDeLaBu, refusProduitsHorsBu } from "@/lib/sfe/produits-bu";
 import { sousVerrous } from "@/lib/promo/stock-ecriture";
+import { lirePotentielDuRapport } from "@/lib/segmentation/potentiel-rapport";
 import {
   dejaDansLaVisite, ecrireRemises, lireMaterielRemis, motifDeRemise, phraseMateriel, RefusRemise, toucheLeStock, verrousDuRapport,
 } from "@/lib/promo/remises-visite";
@@ -137,6 +138,10 @@ export async function rapporterVisite(formData: FormData): Promise<ActionResult>
     return { ok: false, error: `${messageIds.length - messages.length} message(s) sélectionné(s) ne sont plus actifs — rechargez l'écran.` };
   }
 
+  // ── LE POTENTIEL (Segmentation Studio) — facultatif, une seule saisie qui alimente tout ─────────
+  const pot = lirePotentielDuRapport(formData);
+  if (!pot.ok) return { ok: false, error: pot.error };
+
   // ── LE MATÉRIEL REMIS (§118.166) — déduit du stock du DÉLÉGUÉ de la visite ───────────────────
   const maintenant = new Date();
   const deja = await dejaDansLaVisite(visite.id);
@@ -177,6 +182,16 @@ export async function rapporterVisite(formData: FormData): Promise<ActionResult>
         // La fiche du praticien porte sa dernière visite : sans cette mise à jour, la tournée du
         // lendemain le reproposerait en tête.
         await tx.medicalDoctor.update({ where: { id: visite.doctorId }, data: { lastVisit: visite.date } });
+        // LE POTENTIEL RAPPORTÉ s'historise (jamais écrasé) : la segmentation, le cycle et le cockpit le lisent.
+        if (pot.valeur) {
+          await tx.hcpObservation.create({
+            data: {
+              doctorId: visite.doctorId, productId: pot.valeur.productId, potentiel: pot.valeur.potentiel, prescriptionsSur10: pot.valeur.sur10,
+              source: "TERRAIN", auteurId: user.id, observeLe: visite.date,
+              commentaire: `Rapport de la visite du ${visite.date.toLocaleDateString("fr-FR")}.`,
+            },
+          });
+        }
       }
       // UN RAPPORT VOCAL est un `FieldReport` — l'objet du module Rapports terrain, avec sa
       // transcription et sa propre validation. On le RATTACHE à la visite (`visitId`) : sans le

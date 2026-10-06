@@ -1,6 +1,7 @@
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { userCan, scopeMedicalDoctors, clausePanelDuKam, type SessionUser } from "@/lib/rbac";
+import { userCan, clausePanelDuKam, type SessionUser } from "@/lib/rbac";
+import { clausePraticiensVisibles } from "@/lib/queries/annuaires";
 import { chargerStrategie, chargerPanel } from "@/lib/segmentation/service";
 import { synthese } from "@/lib/segmentation/moteur";
 import type { EtatProduit } from "@/lib/segmentation/regles";
@@ -54,7 +55,8 @@ export async function consommationDuProduit(productId: string): Promise<{ parEta
 /** Un praticien est-il visible pour cette personne (annuaire de la Promotion médicale, ou panel de segmentation) ? */
 export async function praticienVisible(user: SessionUser, doctorId: string): Promise<boolean> {
   const ors: Prisma.MedicalDoctorWhereInput[] = [];
-  if (userCan(user, "MEDICAL", "VIEW")) ors.push(scopeMedicalDoctors(user));
+  // La MÊME clause que l'annuaire et la recherche : portée du module, entité, annuaires nommés fermés (§118.177).
+  if (userCan(user, "MEDICAL", "VIEW")) ors.push(await clausePraticiensVisibles(user, { entier: false }));
   if (userCan(user, "SEGMENTATION", "VIEW")) ors.push(user.access.modules.get("SEGMENTATION")?.scope === "ALL" ? {} : clausePanelDuKam(user.id));
   if (!ors.length) return false;
   return (await prisma.medicalDoctor.count({ where: { AND: [{ id: doctorId }, { OR: ors }] } })) > 0;
