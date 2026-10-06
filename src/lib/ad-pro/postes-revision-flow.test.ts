@@ -25,6 +25,7 @@ import {
 } from "@/lib/actions/ad-pro-item-actions";
 import { submitDocumentRequest, decideDocumentRequest } from "@/lib/actions/document-request-actions";
 import { signerBonDeCommande } from "@/lib/actions/bc-signature-actions";
+import { avecCopieSignee } from "@/lib/bons-de-commande/signature-test-outils";
 import { persistUploadedDocument } from "@/lib/documents";
 import { restoreDeletedRecord, superAdminDelete } from "@/lib/actions/admin-delete-actions";
 import type { Prisma } from "@prisma/client";
@@ -178,13 +179,13 @@ suite("Ad & Pro — réviser un poste : visa, demande de BC, ordre, décision, r
   async function bcSigne(id: string): Promise<string> {
     const doc = await bcEtabli(id);
     await comme("fin");
-    ok(await signerBonDeCommande(fd({ id: doc })));
+    ok(await signerBonDeCommande(avecCopieSignee(fd({ id: doc }))));
     return doc;
   }
   /** La facture déposée par le demandeur, qui demande le paiement (`demanderPaiementPoste`). */
   async function payer(id: string, montant = "600000") {
     await comme("kam");
-    const f = fd({ id, montant, reference: `${TAG}FA` });
+    const f = fd({ id, montant, reference: `${TAG}FA`, argumentation: "Écart connu et accepté (banc).", confirme: "1" });
     f.append("attachment", pdf(`${TAG}facture.pdf`));
     return demanderPaiementPoste(undefined, f);
   }
@@ -459,7 +460,7 @@ suite("Ad & Pro — réviser un poste : visa, demande de BC, ordre, décision, r
     await bcSigne(id);
     ACTOR = await acteur(kamId, "MEDICAL_DELEGATE");
     const unePaie = () => {
-      const f = fd({ id, montant: "600000" });
+      const f = fd({ id, montant: "600000", argumentation: "Écart connu et accepté (banc).", confirme: "1" });
       f.append("attachment", pdf(`${TAG}facture.pdf`));
       return demanderPaiementPoste(undefined, f);
     };

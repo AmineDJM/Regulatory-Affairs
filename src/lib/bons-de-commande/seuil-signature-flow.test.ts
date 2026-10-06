@@ -10,6 +10,7 @@ import { getAccess, userCan, type SessionUser } from "@/lib/rbac";
 import { createLegalDocument, updateLegalDocument, adresserBCAuCentre } from "@/lib/actions/legal-actions";
 import { decideValidation } from "@/lib/actions/validation-actions";
 import { signerBonDeCommande } from "@/lib/actions/bc-signature-actions";
+import { avecCopieSignee } from "@/lib/bons-de-commande/signature-test-outils";
 import { setBcValidationThreshold } from "@/lib/actions/settings-actions";
 import { fileBonsDeCommande, REFUS_SIGNATURE_BC } from "@/lib/queries/bons-de-commande";
 import { requestAdProItemOrder } from "@/lib/actions/ad-pro-item-actions";
@@ -78,7 +79,7 @@ suite("Seuil des bons de commande et signature des Finances — le flux réel", 
   });
   const signer = async (docId: string, qui: "FINANCE" | "LEGAL" = "FINANCE") => {
     ACTOR = qui === "FINANCE" ? await actorFor(financeId, "FINANCE_BUDGET_MANAGER") : await actorFor(legalId, "DIRECTION_ASSISTANT");
-    return signerBonDeCommande(form({ id: docId }));
+    return signerBonDeCommande(avecCopieSignee(form({ id: docId })));
   };
   const reglerSeuil = async (seuil: number) => {
     ACTOR = await actorFor(saId, "SUPER_ADMIN");

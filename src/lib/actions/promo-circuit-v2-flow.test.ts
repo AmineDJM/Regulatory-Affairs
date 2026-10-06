@@ -29,6 +29,7 @@ import { enregistrerArticleDemandePromo, retirerArticleDemandePromo } from "./pr
 import { REFUS_SANS_LIGNE } from "@/lib/promo-material/lignes-demande";
 import { deciderVisaCentreAdPro } from "./ad-pro-centre-actions";
 import { signerBonDeCommande } from "./bc-signature-actions";
+import { avecCopieSignee } from "@/lib/bons-de-commande/signature-test-outils";
 import { decidePayment } from "./payment-centre-actions";
 import { validateursDeLaDemande, peutOuvrirLeDossierPromo } from "@/lib/queries/promo-circuit";
 import { getAdProCreateData } from "@/lib/queries/ad-pro";
@@ -641,7 +642,7 @@ suite("Matériel promotionnel — circuit 2 de bout en bout", () => {
         expect(v.ok, v.ok ? "" : v.error).toBe(true);
       }
       ACTOR = await actorFor(u.fin);
-      const s = await signerBonDeCommande(form({ id: e.bc!.id }));
+      const s = await signerBonDeCommande(avecCopieSignee(form({ id: e.bc!.id })));
       expect(s.ok, s.ok ? "" : s.error).toBe(true);
       expect((await etatDuBC(e.bc!.id))?.etape).toBe("SIGNE");
     }

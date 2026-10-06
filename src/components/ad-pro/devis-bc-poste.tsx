@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { Loader2, FileText, FileDown, Wand2, Pencil, ScanText, CheckCircle2, AlertTriangle, Paperclip } from "lucide-react";
+import { Loader2, FileText, FileDown, FileCheck, Wand2, Pencil, ScanText, CheckCircle2, AlertTriangle, Paperclip } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { formatCurrency } from "@/lib/utils";
 import type { DevisDePosteVue } from "@/lib/queries/ad-pro-devis-poste";
@@ -10,8 +10,9 @@ import { LIBELLE_ETAPE_BC } from "@/lib/bons-de-commande/regle";
 import { lienFichierEmis } from "@/lib/legal/fichiers-emis";
 import { refusDepassement } from "@/lib/ad-pro/devis-poste";
 import {
-  validerLignesDuDevis, enregistrerLignesDuDevis, lireLesLignesDuDevis, genererBonDeCommandePoste,
+  validerLignesDuDevis, enregistrerLignesDuDevis, lireLesLignesDuDevis, genererBonDeCommandePoste, modifierBcDuPoste,
 } from "@/lib/actions/ad-pro-item-actions";
+import { ReviserPieceButton } from "@/components/legal/reviser-piece";
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
@@ -57,7 +58,44 @@ function phraseEtat(d: DevisDePosteVue): { texte: string; ton: "ok" | "attente" 
   }
 }
 
-export function BlocBonDeCommande({ itemId, bcs, devis, accorde, refusGeneration, peutGenerer, peutJoindre, busy, run, onJoindre, repli }: {
+/**
+ * LE BC SIGNÉ REMPLACE LE BC NON SIGNÉ (Direction, 06/10) : la copie que les Finances ont téléversée est LA pièce qu'on
+ * ouvre, avec son signataire et ce que Luna a repéré. Avant la signature : le Word et le PDF générés, et « Modifier le
+ * BC » — une nouvelle version à chaque fois, sans limite.
+ */
+function PieceDuBC({ bc, itemId, peutModifier }: { bc: BcDePoste; itemId: string; peutModifier: boolean }) {
+  const lien = "inline-flex items-center gap-0.5 text-primary hover:underline";
+  if (bc.copieSignee) {
+    return (
+      <>
+        <span className="inline-flex flex-wrap items-center gap-x-2">
+          <a className={lien} href={`/api/documents/${bc.copieSignee.documentId}`} target="_blank" rel="noreferrer" aria-label={`Ouvrir le bon de commande signé ${bc.reference ?? bc.titre}`}>
+            <FileCheck className="h-3 w-3" /> BC signé
+          </a>
+          {bc.copieSignee.signataire && <span className="text-muted-foreground">par {bc.copieSignee.signataire}</span>}
+        </span>
+        {bc.copieSignee.constat && <p className="text-muted-foreground">{bc.copieSignee.constat}</p>}
+      </>
+    );
+  }
+  return (
+    <>
+      <LiensBC bc={bc} />
+      {bc.etape === "A_SIGNER" && <p className="text-muted-foreground">Les Finances le signent et téléversent la copie signée (module « Bons de commande »).</p>}
+      {peutModifier && bc.revision && bc.etape !== "SIGNE" && (
+        <ReviserPieceButton
+          discret libelle="Modifier le BC" motifFacultatif
+          legalDocumentId={bc.id} type="BON_DE_COMMANDE" numero={bc.revision.numero} version={bc.revision.version}
+          lignes={bc.revision.spec.lignes} objet={bc.revision.spec.objet} notes={bc.revision.spec.notes} validiteJours={null}
+          livraison={bc.revision.spec.livraison} contact={bc.revision.spec.contact}
+          envoyer={(fd) => { fd.set("id", itemId); return modifierBcDuPoste(fd); }}
+        />
+      )}
+    </>
+  );
+}
+
+export function BlocBonDeCommande({ itemId, bcs, devis, accorde, refusGeneration, peutGenerer, peutJoindre, peutModifier, busy, run, onJoindre, repli }: {
   itemId: string;
   bcs: BcDePoste[];
   devis: DevisDePosteVue[];
@@ -66,6 +104,8 @@ export function BlocBonDeCommande({ itemId, bcs, devis, accorde, refusGeneration
   refusGeneration: string | null;
   peutGenerer: boolean;
   peutJoindre: boolean;
+  /** Le demandeur peut-il modifier le BC généré (« Modifier le BC », tant qu'il n'est pas signé) ? */
+  peutModifier: boolean;
   busy: string | null;
   run: Run;
   onJoindre: () => void;
@@ -105,7 +145,7 @@ export function BlocBonDeCommande({ itemId, bcs, devis, accorde, refusGeneration
                   {source && <> · devis {source.reference ?? source.titre}</>}
                 </p>
                 <p className={etape === "SIGNE" ? "text-success" : etape === "REFUSE" ? "text-destructive" : "text-muted-foreground"}>{LIBELLE_ETAPE_BC[etape]}</p>
-                <LiensBC bc={bc} />
+                <PieceDuBC bc={bc} itemId={itemId} peutModifier={peutModifier} />
               </div>
             </div>
           </div>

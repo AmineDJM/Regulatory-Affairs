@@ -329,7 +329,7 @@ suite("Sponsoring — pré-validation de la tenue, postes, validation finale et 
     // Un poste accordé dont le paiement n'était pas demandé : la clôture ne doit pas le laisser en plan.
     // SPONSORING DIRECT (§118.204) : pas de BC — la facture du demandeur suffit à demander le paiement.
     ACTOR = await actorFor(demandeurId, "DIRECTION_ASSISTANT");
-    const f = fd({ id: postAutoId, montant: "80000", reference: `${TAG}FA-1` });
+    const f = fd({ id: postAutoId, montant: "80000", reference: `${TAG}FA-1`, argumentation: "Écart connu et accepté (banc).", confirme: "1" });
     f.append("attachment", new File([new Uint8Array([0x25, 0x50, 0x44, 0x46, 0x2d, 0x31])], "facture.pdf", { type: "application/pdf" }));
     const em = await demanderPaiementPoste(undefined, f);
     expect(em.ok, em.ok === false ? em.error : "").toBe(true);

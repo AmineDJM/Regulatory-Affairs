@@ -11927,6 +11927,12 @@ model LegalDocument {
   /// Nul pour une date de signature reprise d'un papier (contrats du PCH).
   signedById             String?
   signedBy               User?                 @relation("LegalDocSigner", fields: [signedById], references: [id], onDelete: SetNull)
+  /// LE BC SIGNÉ SUR PAPIER (Direction, 06/10) : les Finances téléversent la copie signée (un `Document`
+  /// d'étape « BC_SIGNE ») en nommant le SIGNATAIRE — `signedById` est alors la personne des Finances qui l'a
+  /// enregistrée, `signedByName` celle qui a signé. `signatureCheck` garde ce que Luna a repéré (signature,
+  /// cachet, numéro lu). Effacés avec la signature quand la pièce est révisée.
+  signedByName           String?
+  signatureCheck         Json?
   /// LA SIGNATURE RENVOYÉE À L'ÉMETTEUR (audit 360°, R09) : un signataire qui ne peut pas signer le
   /// BC tel quel le renvoie avec ce qu'il faut corriger — il quitte la file des signataires. TOUTE
   /// modification de la pièce efface ces trois champs (`aiguillerBC`, `modifie`) : le BC revient à

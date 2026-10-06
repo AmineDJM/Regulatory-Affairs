@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Label, Textarea } from "@/components/ui/input";
 import { useRafraichir } from "@/components/shared/use-rafraichir";
 import { emettreAvoir } from "@/lib/actions/fabrique-actions";
-import { ajouterLignes, LignesEditables, versEcran, type LigneEcran, type LigneRevisable } from "./lignes-editables";
+import { ajouterLignes, LignesEditables, versEcran, type LigneEcran, type LigneRevisable } from "@/components/legal/lignes-editables";
 import { BoutonDecisif } from "@/components/ui/bouton-decisif";
 
 /**

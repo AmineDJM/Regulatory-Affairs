@@ -18,6 +18,7 @@ import { getAccess, userCan, PERMISSIONS, type SessionUser } from "@/lib/rbac";
 import { createLegalDocument } from "@/lib/actions/legal-actions";
 import { decideValidation } from "@/lib/actions/validation-actions";
 import { signerBonDeCommande } from "@/lib/actions/bc-signature-actions";
+import { avecCopieSignee } from "@/lib/bons-de-commande/signature-test-outils";
 import { bcVisiblesWhere, fileBonsDeCommande, peutSignerBC, REFUS_SIGNATURE_BC } from "@/lib/queries/bons-de-commande";
 import { peutLireLaPieceLegale } from "@/lib/queries/legal-fichier";
 import { canAccessEntity } from "@/lib/entity-access";
@@ -168,7 +169,7 @@ suite("Bons de commande — module à part, accès donnés par le Super Admin", 
     expect(peutSignerBC(ACTOR)).toBe(false);
     expect(await bcVisiblesWhere(ACTOR), "la file lui est fermée").toBeNull();
     expect(await fileBonsDeCommande(ACTOR)).toBeNull();
-    const s = await signerBonDeCommande(form({ id }));
+    const s = await signerBonDeCommande(avecCopieSignee(form({ id })));
     expect(s.ok ? "" : s.error).toBe(REFUS_SIGNATURE_BC);
     // Le refus nomme la CASE à cocher et l'écran : sans cela, le Super Admin ne sait pas quoi faire.
     expect(REFUS_SIGNATURE_BC).toMatch(/« Modifier »/);
@@ -202,7 +203,7 @@ suite("Bons de commande — module à part, accès donnés par le Super Admin", 
     expect(await canAccessEntity(ACTOR, "LEGAL_DOCUMENT", contrat.id, "VIEW")).toBe(false);
     // Il a été PRÉVENU par la décision du centre, et il signe.
     expect(await prevenu(signataireNommeId, "nomme")).toBe(true);
-    const s = await signerBonDeCommande(form({ id }));
+    const s = await signerBonDeCommande(avecCopieSignee(form({ id })));
     expect(s.ok, s.ok === false ? s.error : "").toBe(true);
     const apres = await prisma.legalDocument.findUniqueOrThrow({ where: { id } });
     expect(apres.signedById).toBe(signataireNommeId);
@@ -219,7 +220,7 @@ suite("Bons de commande — module à part, accès donnés par le Super Admin", 
     expect(peutSignerBC(ACTOR)).toBe(false);
     expect((await fileBonsDeCommande(ACTOR))?.aSigner.map((l) => l.id)).toContain(id);
     expect(await peutLireLaPieceLegale(ACTOR, { id, kind: "PURCHASE_ORDER" })).toBe(true);
-    const s = await signerBonDeCommande(form({ id }));
+    const s = await signerBonDeCommande(avecCopieSignee(form({ id })));
     expect(s.ok ? "" : s.error).toBe(REFUS_SIGNATURE_BC);
     expect(await prevenu(lecteurNommeId, "lecteur"), "on ne prévient pas quelqu'un qui ne peut pas agir").toBe(false);
   });
