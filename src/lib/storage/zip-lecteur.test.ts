@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import JSZip from "jszip";
-import { listerZip, lireEntreeZip, sourceTampon, cheminSur, ErreurZip } from "./zip-lecteur";
+import { listerZip, lireEntreeZip, fluxEntreeZip, sourceTampon, cheminSur, ErreurZip } from "./zip-lecteur";
 
 async function archive(fichiers: Record<string, string | Buffer>, compression: "DEFLATE" | "STORE" = "DEFLATE", commentaire?: string): Promise<Buffer> {
   const z = new JSZip();
@@ -86,5 +86,26 @@ describe("lecteur de ZIP par plages", () => {
     expect(entrees).toHaveLength(1);
     expect(entrees[0].chemin).toBe("Module 5/étude.txt");
     expect((await lireEntreeZip(src, entrees[0])).toString()).toBe("contenu zip64");
+  });
+});
+
+describe("une grosse entrée se lit EN FLUX (Direction, 06/10 : « trop volumineuse pour être ouverte ici »)", () => {
+  const lireTout = async (flux: NodeJS.ReadableStream): Promise<Buffer> => {
+    const morceaux: Buffer[] = [];
+    for await (const m of flux) morceaux.push(Buffer.from(m as Buffer));
+    return Buffer.concat(morceaux);
+  };
+  it("rend les mêmes octets que la lecture d'un bloc — compressée ou non, lue par petits morceaux", async () => {
+    const contenu = Buffer.from(Array.from({ length: 300_000 }, (_, i) => String.fromCharCode(65 + ((i * 7) % 26))).join(""));
+    for (const mode of ["DEFLATE", "STORE"] as const) {
+      const src = sourceTampon(await archive({ "Module 5/FILE 4 FINAL.pdf": contenu }, mode));
+      const e = (await listerZip(src)).entrees.find((x) => !x.dossier)!;
+      expect((await lireTout(await fluxEntreeZip(src, e, 4096))).equals(contenu)).toBe(true);
+    }
+  });
+  it("une entrée qui gonfle au-delà de sa taille annoncée est arrêtée", async () => {
+    const src = sourceTampon(await archive({ "a.txt": "a".repeat(100_000) }));
+    const e = { ...(await listerZip(src)).entrees[0], taille: 10 };
+    await expect(lireTout(await fluxEntreeZip(src, e, 1024))).rejects.toThrow(/taille décompressée/);
   });
 });

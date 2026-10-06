@@ -1,5 +1,6 @@
-import { inflateRaw } from "zlib";
+import { createInflateRaw, inflateRaw } from "zlib";
 import { promisify } from "util";
+import { pipeline, Readable, Transform } from "stream";
 
 const inflate = promisify(inflateRaw);
 
@@ -163,6 +164,41 @@ export async function lireEntreeZip(source: SourceZip, entree: EntreeZip, maxOct
     return sortie;
   }
   throw new ErreurZip(`Méthode de compression ${entree.methode} non prise en charge ici — téléchargez l'archive.`);
+}
+
+/**
+ * Lit UNE entrée EN FLUX — pour les grosses (un PDF de 488 Mo dans une archive CTD) : les octets compressés se lisent
+ * par morceaux (une plage à la fois) et se décompressent au fil de l'eau, sans jamais tenir l'entrée en mémoire. La
+ * garde contre la « bombe » tient toujours : le flux s'arrête dès qu'il dépasse la taille annoncée.
+ */
+export async function fluxEntreeZip(source: SourceZip, entree: EntreeZip, morceau = 8 * 1024 * 1024): Promise<Readable> {
+  if (entree.dossier) throw new ErreurZip("Un dossier n'a pas de contenu.");
+  if (entree.chiffree) throw new ErreurZip("Cette entrée est protégée par un mot de passe — téléchargez l'archive pour l'ouvrir.");
+  if (entree.methode !== 0 && entree.methode !== 8) throw new ErreurZip(`Méthode de compression ${entree.methode} non prise en charge ici — téléchargez l'archive.`);
+  const entete = await source.lire(entree.decalage, 30);
+  if (entete.length < 30 || entete.readUInt32LE(0) !== SIG_LOCAL) throw new ErreurZip("Entrée corrompue (en-tête local introuvable).");
+  const debutDonnees = entree.decalage + 30 + entete.readUInt16LE(26) + entete.readUInt16LE(28);
+  async function* morceaux(): AsyncGenerator<Buffer> {
+    for (let o = 0; o < entree.tailleCompressee; o += morceau) {
+      const n = Math.min(morceau, entree.tailleCompressee - o);
+      const b = await source.lire(debutDonnees + o, n);
+      if (b.length !== n) throw new ErreurZip("Entrée tronquée — archive incomplète.");
+      yield b;
+    }
+  }
+  const brut = Readable.from(morceaux());
+  if (entree.methode === 0) return brut;
+  let sortis = 0;
+  const garde = new Transform({
+    transform(chunk: Buffer, _enc, suite) {
+      sortis += chunk.length;
+      if (sortis > entree.taille) suite(new ErreurZip("Entrée corrompue (taille décompressée inattendue)."));
+      else suite(null, chunk);
+    },
+  });
+  // `pipeline` propage une erreur de n'importe quel maillon à la sortie (et ferme les autres).
+  pipeline(brut, createInflateRaw(), garde, () => undefined);
+  return garde;
 }
 
 /** Source en mémoire (petites archives, ou tests). */

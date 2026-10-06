@@ -88,7 +88,7 @@ suite("Partage par messagerie", () => {
   it("partage un dossier réglementaire : le message existe, porte la référence, et le fil est ouvert", async () => {
     ACTOR = await acteur(pdgId, "SUPER_ADMIN");
     const r = await partagerParMessagerie(fd({
-      destinataires: JSON.stringify([collegueId]),
+      collegueId: collegueId,
       refType: "REGULATORY_PRODUCT", refId: produitId, refLabel: "Nivolex",
       href: `/regulatory/${produitId}`, note: "Regarde les pièces manquantes.",
     }));
@@ -112,11 +112,11 @@ suite("Partage par messagerie", () => {
   it("RÉUTILISE la conversation directe — deux partages ne font pas deux fils avec la même personne", async () => {
     ACTOR = await acteur(pdgId, "SUPER_ADMIN");
     const a = await partagerParMessagerie(fd({
-      destinataires: JSON.stringify([collegueId]),
+      collegueId: collegueId,
       refType: "REGULATORY_PRODUCT", refId: produitId, refLabel: "Nivolex",
     }));
     const b = await partagerParMessagerie(fd({
-      destinataires: JSON.stringify([collegueId]),
+      collegueId: collegueId,
       refType: "REGULATORY_PRODUCT", refId: produitId, refLabel: "Nivolex (bis)",
     }));
     expect(a.ok && b.ok).toBe(true);
@@ -133,7 +133,7 @@ suite("Partage par messagerie", () => {
   it("REFUSE de partager un élément auquel l'expéditeur n'a pas accès", async () => {
     ACTOR = await acteur(tiersId, "SALES_USER");
     const r = await partagerParMessagerie(fd({
-      destinataires: JSON.stringify([collegueId]),
+      collegueId: collegueId,
       refType: "REGULATORY_PRODUCT", refId: produitId, refLabel: "Nivolex",
     }));
     expect(r.ok).toBe(false);
@@ -145,25 +145,25 @@ suite("Partage par messagerie", () => {
 
   it("refuse un partage sans destinataire, et un partage sans objet", async () => {
     ACTOR = await acteur(pdgId, "SUPER_ADMIN");
-    expect((await partagerParMessagerie(fd({ destinataires: "[]", refType: "REGULATORY_PRODUCT", refId: produitId }))).ok).toBe(false);
-    expect((await partagerParMessagerie(fd({ destinataires: JSON.stringify([collegueId]) }))).ok).toBe(false);
+    expect((await partagerParMessagerie(fd({ refType: "REGULATORY_PRODUCT", refId: produitId }))).ok).toBe(false);
+    expect((await partagerParMessagerie(fd({ collegueId: collegueId }))).ok).toBe(false);
   });
 
   it("ne s'envoie pas à soi-même : le demandeur est retiré des destinataires", async () => {
     // On ne s'écrit pas à soi-même (§118.21) — et un partage qui ne vise que soi n'a pas d'objet.
     ACTOR = await acteur(pdgId, "SUPER_ADMIN");
     const r = await partagerParMessagerie(fd({
-      destinataires: JSON.stringify([pdgId]),
+      collegueId: pdgId,
       refType: "REGULATORY_PRODUCT", refId: produitId, refLabel: "Nivolex",
     }));
     expect(r.ok).toBe(false);
-    expect(r.error).toContain("destinataire");
+    expect(r.error).toContain("vous-même");
   });
 
   it("un type d'objet inconnu est refusé — l'énumération fait foi, pas le formulaire", async () => {
     ACTOR = await acteur(pdgId, "SUPER_ADMIN");
     const r = await partagerParMessagerie(fd({
-      destinataires: JSON.stringify([collegueId]),
+      collegueId: collegueId,
       refType: "N_IMPORTE_QUOI", refId: produitId,
     }));
     expect(r.ok).toBe(false);
@@ -182,7 +182,7 @@ suite("Partage par messagerie", () => {
   it("REFUSE la référence d'un nœud du Drive que l'expéditeur ne voit pas", async () => {
     ACTOR = await acteur(collegueId, "HEAD_OF_REGULATORY");
     const r = await partagerParMessagerie(fd({
-      destinataires: JSON.stringify([tiersId]),
+      collegueId: tiersId,
       refType: "DRIVE_NODE", refId: nodePriveId, refLabel: "prive.pdf",
     }));
     expect(r.ok).toBe(false);
@@ -192,7 +192,7 @@ suite("Partage par messagerie", () => {
   it("partage un nœud du Drive qu'on possède : la pièce est attachée ET la lecture est accordée", async () => {
     ACTOR = await acteur(collegueId, "HEAD_OF_REGULATORY");
     const r = await partagerParMessagerie(fd({
-      destinataires: JSON.stringify([tiersId]),
+      collegueId: tiersId,
       refType: "DRIVE_NODE", refId: nodePartageId, refLabel: `${TAG}amoi.pdf`,
       driveRefs: JSON.stringify([nodePartageId]),
     }));

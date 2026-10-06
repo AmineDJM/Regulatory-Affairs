@@ -1,10 +1,10 @@
 "use client";
 
 import * as React from "react";
-import { Share2, Loader2, Check } from "lucide-react";
+import { Share2, Loader2, Check, User, Users } from "lucide-react";
 import { useRouter } from "next/navigation";
 import type { EntityType } from "@prisma/client";
-import { partagerParMessagerie, listerDestinatairesPartage } from "@/lib/actions/partage-actions";
+import { partagerParMessagerie, listerDestinatairesPartage, type GroupePartage } from "@/lib/actions/partage-actions";
 import { libelleDuType } from "@/lib/partage";
 import { Button } from "@/components/ui/button";
 import { Sheet } from "@/components/ui/sheet";
@@ -33,7 +33,7 @@ import { Textarea, Label, Input } from "@/components/ui/input";
  * depuis un menu.
  * ═══════════════════════════════════════════════════════════════════════════════════════════
  */
-export interface PersonnePartage { id: string; name: string; role?: string | null }
+export interface PersonnePartage { id: string; name: string; role?: string | null; recent?: boolean }
 
 export interface CiblePartage {
   refType?: EntityType;
@@ -74,49 +74,56 @@ export function PartagerSheet({ open, onClose, ...cible }: CiblePartage & { open
   const router = useRouter();
   const [busy, setBusy] = React.useState(false);
   const [err, setErr] = React.useState<string | null>(null);
-  const [choisis, setChoisis] = React.useState<string[]>([]);
+  // UN GROUPE OU UN COLLÈGUE (Direction, 06/10) : un seul destinataire, choisi dans l'un des deux onglets.
+  const [onglet, setOnglet] = React.useState<"GROUPE" | "COLLEGUE">("COLLEGUE");
+  const [choix, setChoix] = React.useState<{ type: "GROUPE" | "COLLEGUE"; id: string } | null>(null);
   const [filtre, setFiltre] = React.useState("");
   const [annuaire, setAnnuaire] = React.useState<readonly PersonnePartage[] | null>(people ?? null);
+  const [groupes, setGroupes] = React.useState<readonly GroupePartage[] | null>(null);
   const [chargement, setChargement] = React.useState(false);
 
-  // L'annuaire se charge à la PREMIÈRE ouverture, et une seule fois par panneau monté.
+  // Les groupes et les collègues se chargent à la PREMIÈRE ouverture, une seule fois par panneau monté.
   React.useEffect(() => {
-    if (!open || people || annuaire !== null || chargement) return;
+    if (!open || groupes !== null || chargement) return;
     let vivant = true;
     setChargement(true);
     void listerDestinatairesPartage().then((r) => {
       if (!vivant) return;
       setChargement(false);
-      if (r.ok) setAnnuaire(r.people);
-      else { setAnnuaire([]); setErr(r.error ?? "L'annuaire n'a pas pu être chargé."); }
+      if (r.ok) { setGroupes(r.groupes); if (!people) setAnnuaire(r.people); }
+      else { setGroupes([]); setAnnuaire(people ?? []); setErr(r.error ?? "La messagerie n'a pas pu être chargée."); }
     });
     return () => { vivant = false; };
-  }, [open, people, annuaire, chargement]);
+  }, [open, people, groupes, chargement]);
 
-  const gens: readonly PersonnePartage[] = people ?? annuaire ?? [];
   const quoi = nommer(cible);
+  const q = filtre.trim().toLowerCase();
+  // PAS TOUT L'ANNUAIRE : d'emblée, les collègues avec qui on échange déjà ; les autres apparaissent quand on cherche.
+  const collegues = React.useMemo(() => {
+    const tous = people ?? annuaire ?? [];
+    if (q.length >= 2) return tous.filter((p) => p.name.toLowerCase().includes(q) || (p.role ?? "").toLowerCase().includes(q)).slice(0, 30);
+    return people ? tous : tous.filter((p) => p.recent);
+  }, [people, annuaire, q]);
+  const groupesVisibles = React.useMemo(
+    () => (groupes ?? []).filter((g) => !q || g.title.toLowerCase().includes(q)),
+    [groupes, q],
+  );
 
-  const visibles = React.useMemo(() => {
-    const q = filtre.trim().toLowerCase();
-    if (!q) return gens;
-    return gens.filter((p) => p.name.toLowerCase().includes(q) || (p.role ?? "").toLowerCase().includes(q));
-  }, [gens, filtre]);
-
-  const bascule = (id: string) =>
-    setChoisis((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+  const ligne = (on: boolean) => `flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-sm transition-colors ${on ? "bg-primary/10 text-foreground" : "hover:bg-muted"}`;
 
   return (
     <Sheet
       open={open}
       onClose={onClose}
       title="Partager par messagerie"
-      description={`« ${quoi} » sera envoyé dans la messagerie interne. Les pièces du Drive deviennent lisibles pour les destinataires.`}
+      description={`« ${quoi} » sera envoyé dans la messagerie interne, à un groupe ou à un collègue. Les pièces du Drive deviennent lisibles pour les destinataires.`}
       width="md"
     >
       <form
         action={async (fd) => {
+          if (!choix) return;
           setBusy(true); setErr(null);
-          fd.set("destinataires", JSON.stringify(choisis));
+          fd.set(choix.type === "GROUPE" ? "groupeId" : "collegueId", choix.id);
           if (refType) fd.set("refType", refType);
           if (refId) fd.set("refId", refId);
           if (refLabel) fd.set("refLabel", refLabel);
@@ -125,7 +132,7 @@ export function PartagerSheet({ open, onClose, ...cible }: CiblePartage & { open
           const r = await partagerParMessagerie(fd);
           setBusy(false);
           if (r.ok) {
-            onClose(); setChoisis([]);
+            onClose(); setChoix(null);
             // On EMMÈNE la personne dans le fil : « c'est parti » sans pouvoir le vérifier
             // est une parole à croire, et aucun écran de ce produit n'a le droit de le demander.
             if (r.conversationId) router.push(`/messages?c=${r.conversationId}`);
@@ -135,38 +142,56 @@ export function PartagerSheet({ open, onClose, ...cible }: CiblePartage & { open
         className="space-y-4"
       >
         <div className="space-y-1.5">
-          <Label>Destinataires {choisis.length > 0 && <span className="text-muted-foreground">({choisis.length})</span>}</Label>
+          <div className="flex gap-1 rounded-md bg-muted p-1" role="tablist" aria-label="Destinataire">
+            {(["COLLEGUE", "GROUPE"] as const).map((o) => (
+              <button
+                key={o} type="button" role="tab" aria-selected={onglet === o} onClick={() => setOnglet(o)}
+                className={`flex flex-1 items-center justify-center gap-1.5 rounded px-2 py-1.5 text-sm ${onglet === o ? "bg-card font-medium shadow-sm" : "text-muted-foreground"}`}
+              >
+                {o === "COLLEGUE" ? <User className="h-3.5 w-3.5" /> : <Users className="h-3.5 w-3.5" />} {o === "COLLEGUE" ? "Un collègue" : "Un groupe"}
+              </button>
+            ))}
+          </div>
           <Input
             value={filtre}
             onChange={(e) => setFiltre(e.target.value)}
-            placeholder="Filtrer par nom ou fonction…"
+            placeholder={onglet === "COLLEGUE" ? "Chercher un collègue par son nom…" : "Filtrer les groupes…"}
           />
           <div className="max-h-56 overflow-y-auto rounded-md border border-input">
             {chargement && (
               <p className="flex items-center gap-2 px-3 py-4 text-sm text-muted-foreground">
-                <Loader2 className="h-4 w-4 animate-spin" /> Chargement de l&apos;annuaire…
+                <Loader2 className="h-4 w-4 animate-spin" /> Chargement…
               </p>
             )}
-            {!chargement && visibles.length === 0 && (
+            {!chargement && onglet === "COLLEGUE" && collegues.length === 0 && (
               <p className="px-3 py-4 text-sm text-muted-foreground">
-                {gens.length === 0 ? "Aucune personne à qui partager." : "Aucune personne ne correspond."}
+                {q.length >= 2 ? "Aucun collègue ne correspond." : "Tapez au moins deux lettres du nom d'un collègue."}
               </p>
             )}
-            {visibles.map((p) => {
-              const on = choisis.includes(p.id);
+            {!chargement && onglet === "GROUPE" && groupesVisibles.length === 0 && (
+              <p className="px-3 py-4 text-sm text-muted-foreground">
+                {(groupes ?? []).length === 0 ? "Vous n'êtes membre d'aucun groupe de la messagerie." : "Aucun groupe ne correspond."}
+              </p>
+            )}
+            {!chargement && onglet === "COLLEGUE" && collegues.map((p) => {
+              const on = choix?.type === "COLLEGUE" && choix.id === p.id;
               return (
-                <button
-                  type="button"
-                  key={p.id}
-                  onClick={() => bascule(p.id)}
-                  aria-pressed={on}
-                  className={`flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-sm transition-colors ${
-                    on ? "bg-primary/10 text-foreground" : "hover:bg-muted"
-                  }`}
-                >
+                <button type="button" key={p.id} onClick={() => setChoix(on ? null : { type: "COLLEGUE", id: p.id })} aria-pressed={on} className={ligne(on)}>
                   <span className="min-w-0">
                     <span className="block truncate font-medium">{p.name}</span>
                     {p.role && <span className="block truncate text-xs text-muted-foreground">{p.role}</span>}
+                  </span>
+                  {on && <Check className="h-4 w-4 shrink-0 text-primary" />}
+                </button>
+              );
+            })}
+            {!chargement && onglet === "GROUPE" && groupesVisibles.map((g) => {
+              const on = choix?.type === "GROUPE" && choix.id === g.id;
+              return (
+                <button type="button" key={g.id} onClick={() => setChoix(on ? null : { type: "GROUPE", id: g.id })} aria-pressed={on} className={ligne(on)}>
+                  <span className="min-w-0">
+                    <span className="block truncate font-medium">{g.title}</span>
+                    <span className="block truncate text-xs text-muted-foreground">{g.memberCount} membre{g.memberCount > 1 ? "s" : ""}</span>
                   </span>
                   {on && <Check className="h-4 w-4 shrink-0 text-primary" />}
                 </button>
@@ -183,15 +208,14 @@ export function PartagerSheet({ open, onClose, ...cible }: CiblePartage & { open
         {err && <p className="text-sm text-destructive">{err}</p>}
         <div className="flex justify-end gap-2">
           <Button type="button" variant="outline" onClick={onClose}>Annuler</Button>
-          <Button type="submit" disabled={busy || choisis.length === 0}>
-            {busy && <Loader2 className="h-4 w-4 animate-spin" />} Partager
+          <Button type="submit" disabled={busy || !choix}>
+            {busy && <Loader2 className="h-4 w-4 animate-spin" />} Envoyer
           </Button>
         </div>
       </form>
     </Sheet>
   );
 }
-
 export function PartagerButton({
   label, iconOnly = false, variant = "outline", size = "sm", ...cible
 }: CiblePartage & {
