@@ -22,6 +22,7 @@ import { restaurerLaCtdDeLaCorbeille } from "@/lib/regulatory/ctd-initiale-corbe
 import { peutSupprimerUneDemandeAdPro } from "@/lib/queries/ad-pro-suppression";
 import { estDemandeAdProSupprimable, REFUS_SUPPRESSION_AD_PRO } from "@/lib/ad-pro/suppression";
 import { peutSupprimerUnRapportTerrain } from "@/lib/queries/field-reports";
+import { corbeillePermise, estDirecteurDesOperations, suppressionPermise } from "@/lib/suppression/delegation";
 
 export type { DeleteResult } from "@/lib/suppression/coeur";
 
@@ -61,16 +62,24 @@ const CREATOR_DELETE_PERMISSION: Partial<Record<DeletableKind, [Module, Action]>
  */
 export async function superAdminDelete(formData: FormData): Promise<DeleteResult> {
   const user = await requireUser();
-  if (user.role !== "SUPER_ADMIN") {
-    return { ok: false, error: "Réservé au Super Admin." };
-  }
-
   const kind = String(formData.get("kind") ?? "");
   const id = String(formData.get("id") ?? "");
   if (!id || !isDeletableKind(kind)) return { ok: false, error: "Élément invalide." };
+  // Le Super Admin — ou le DIRECTEUR DES OPÉRATIONS dans ses modules (Direction, 06/10), sur une ligne qu'il voit.
+  const superAdmin = user.role === "SUPER_ADMIN";
+  if (!superAdmin && !(await peutSupprimerDansSesModules(user, kind, id))) {
+    return { ok: false, error: "Réservé au Super Admin (ou au directeur des opérations pour ses modules)." };
+  }
 
   const name = await DELETE_REGISTRY[kind].describe(id);
-  return supprimerReversible(kind, id, user.id, `Suppression définitive (Super Admin) — ${DELETE_REGISTRY[kind].label} « ${name ?? id} » (restaurable depuis la corbeille)`);
+  return supprimerReversible(kind, id, user.id, `Suppression définitive (${superAdmin ? "Super Admin" : "directeur des opérations"}) — ${DELETE_REGISTRY[kind].label} « ${name ?? id} » (restaurable depuis la corbeille)`);
+}
+
+/** Le directeur des opérations, sur un type de ses modules (droit « supprimer ») ET une ligne qu'il voit. */
+async function peutSupprimerDansSesModules(user: Awaited<ReturnType<typeof requireUser>>, kind: DeletableKind, id: string): Promise<boolean> {
+  if (!suppressionPermise(user, kind)) return false;
+  const entite = DELETE_REGISTRY[kind].entityType;
+  return !entite || canAccessEntity(user, entite, id, "DELETE");
 }
 
 /**
@@ -134,10 +143,13 @@ export async function supprimerDemandeAdPro(formData: FormData): Promise<DeleteR
  */
 export async function restoreDeletedRecord(formData: FormData): Promise<DeleteResult> {
   const user = await requireUser();
-  if (user.role !== "SUPER_ADMIN") return { ok: false, error: "Réservé au Super Admin." };
+  // Le Super Admin, ou le DIRECTEUR DES OPÉRATIONS pour ce qui relève de ses modules (Direction, 06/10) — la règle
+  // vit dans `suppression/delegation.ts`, lue aussi par l'écran de la corbeille.
+  if (user.role !== "SUPER_ADMIN" && !estDirecteurDesOperations(user)) return { ok: false, error: "Réservé au Super Admin." };
   const recId = String(formData.get("id") ?? "");
   const rec = await prisma.deletedRecord.findUnique({ where: { id: recId } });
   if (!rec || rec.restoredAt || rec.purgedAt) return { ok: false, error: "Entrée introuvable ou déjà traitée." };
+  if (!corbeillePermise(user, rec.kind)) return { ok: false, error: "Cet élément ne relève pas de vos modules : seul le Super Admin le restaure." };
   // LA CTD INITIALE d'un dossier Regulatory (§118.213) : un ensemble de documents, pas une ligne du registre.
   if (rec.kind === KIND_CORBEILLE_CTD) {
     const r = await restaurerLaCtdDeLaCorbeille(rec, user.id);
@@ -159,6 +171,7 @@ export async function restoreDeletedRecord(formData: FormData): Promise<DeleteRe
       summary: `Restauration depuis la corbeille — ${spec.label} « ${rec.name} », avec ses éléments liés`,
     });
     revalidatePath("/admin/corbeille");
+    revalidatePath("/corbeille");
     revalidatePath(spec.redirect);
     return { ok: true, redirect: spec.redirect };
   }
@@ -186,6 +199,7 @@ export async function restoreDeletedRecord(formData: FormData): Promise<DeleteRe
     summary: `Restauration depuis la corbeille — ${spec.label} « ${rec.name} »`,
   });
   revalidatePath("/admin/corbeille");
+  revalidatePath("/corbeille");
   revalidatePath(spec.redirect);
   return { ok: true, redirect: spec.redirect };
 }
@@ -263,6 +277,8 @@ async function peutSupprimerDepuisSonModule(user: Awaited<ReturnType<typeof requ
   // la MÊME règle que `deleteFieldReport`, sans quoi l'aperçu ne s'ouvrirait pas devant une
   // suppression que l'action accepte (ni ne s'ouvrirait à qui l'action refuse).
   if (kind === "FIELD_REPORT") return peutSupprimerUnRapportTerrain(user, id);
+  // LE DIRECTEUR DES OPÉRATIONS dans ses modules — la MÊME règle que `superAdminDelete` (§118.209).
+  if (await peutSupprimerDansSesModules(user, kind, id)) return true;
   const droit = SUPPRIME_PAR_SON_MODULE[kind];
   if (!droit || !userCan(user, droit.module, droit.action)) return false;
   const entite = DELETE_REGISTRY[kind].entityType;

@@ -255,7 +255,9 @@ export const PERMISSIONS: Record<UserRole, RoleMatrix> = {
     // LE STOCK PROMOTIONNEL (décision de la Direction, 01/10/2026) : « la vue globale du stock
     // promotionnel, mais aussi la gestion du matériel de ses équipes — les superviseurs en dessous
     // de lui et les KAM ». Le module ouvre l'écran ; la règle dit QUI sont ses équipes.
-    PROMO_STOCK: CONTRIBUTE,
+    // + SUPPRIMER (Direction, 06/10 : « suppression, récupération… des modules qu'il gère ») : un article supprimé
+    // part à la corbeille, d'où il le récupère lui-même (`suppression/delegation.ts`).
+    PROMO_STOCK: MANAGE,
     // Les BONS DE COMMANDE (§118.176) : il lisait les Finances, donc il voyait la file — il la voit
     // encore, sans signer.
     PURCHASE_ORDERS: BC_LECTEUR,

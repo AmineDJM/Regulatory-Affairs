@@ -1462,7 +1462,7 @@ export interface NavItem {
    * envoyé qu'au Super Admin (`peutPiloterMissionsAdam`, §118.136) — le module WORKSPACE est à
    * tout le monde, la règle n'est pas un module.
    */
-  gate?: "regEnrollment" | "pipeline" | "payroll" | "myTeam" | "adamMissions" | "adam";
+  gate?: "regEnrollment" | "pipeline" | "payroll" | "myTeam" | "adamMissions" | "adam" | "corbeilleOps";
   /**
    * Entrée fusionnée : plusieurs sous-modules présentés en onglets sur la page.
    * L'entrée est visible si l'utilisateur a accès à **au moins un** onglet, et son
@@ -2068,6 +2068,9 @@ export const NAVIGATION: NavItem[] = [
   // L'ENTREPRISE est un pôle métier (Moyens généraux / Finances / RH / Budgets). Les
   // confondre, c'est envoyer un directeur financier dans les réglages techniques.
   { module: "ADMIN", label: "Console d'Administration", href: "/admin", icon: "Settings", group: "Système", tabs: ADMIN_TABS },
+  // LA CORBEILLE DE SES MODULES — le directeur des opérations y récupère ce qui a été supprimé chez lui (06/10).
+  // Le module WORKSPACE est à tout le monde : c'est la garde `corbeilleOps` qui ouvre l'entrée.
+  { module: "WORKSPACE", label: "Corbeille", href: "/corbeille", icon: "Trash2", group: "Système", gate: "corbeilleOps" },
 ];
 
 /**

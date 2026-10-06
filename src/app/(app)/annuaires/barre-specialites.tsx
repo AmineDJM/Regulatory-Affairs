@@ -8,6 +8,7 @@ import { SANS_SPECIALITE, type AnnuaireSpecialite } from "@/lib/annuaires/par-sp
 import { createSpecialty, updateSpecialty, deleteSpecialty } from "@/lib/actions/medical-actions";
 import { BoutonDecisif } from "@/components/ui/bouton-decisif";
 import { cn } from "@/lib/utils";
+import { useRafraichir } from "@/components/shared/use-rafraichir";
 
 /**
  * UN ANNUAIRE PAR SPÉCIALITÉ + la vue « Archivés » — et, pour qui gère le référentiel, la GESTION des spécialités
@@ -33,6 +34,7 @@ export function BarreSpecialites({
   gerer?: { creer: boolean; modifier: boolean; supprimer: boolean };
 }) {
   const router = useRouter();
+  const { rafraichir } = useRafraichir();
   const [enCours, setEnCours] = React.useState<string | null>(null);
   const [erreur, setErreur] = React.useState<string | null>(null);
   const [ajout, setAjout] = React.useState<string | null>(null);
@@ -58,7 +60,7 @@ export function BarreSpecialites({
       const r = await faire();
       if (!r.ok) { setErreur(r.error ?? "Action refusée."); return; }
       apres?.();
-      router.refresh();
+      rafraichir();
     } finally {
       setEnCours(null);
     }

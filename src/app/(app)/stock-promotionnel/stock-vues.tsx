@@ -213,7 +213,7 @@ function ListeSupports({ supports, ctx }: { supports: SupportVue[]; ctx: Ctx }) 
             {peutGererArticles(f) && (
               <Button size="sm" variant="ghost" onClick={() => ctx.ouvrir({ type: "ficheSupport", support: s })}>Fiche</Button>
             )}
-            <SuperAdminDeleteButton kind="PROMO_STOCK_ITEM" id={s.id} name={s.libelle} enabled={f.superAdmin} compact stay />
+            <SuperAdminDeleteButton kind="PROMO_STOCK_ITEM" id={s.id} name={s.libelle} enabled={f.superAdmin || f.module.supprimer === true} compact stay />
           </div>
         </li>
       ))}
@@ -673,7 +673,7 @@ function DetailArticle({ a, ctx, detenteurId }: { a: ArticleVue; ctx: Ctx; deten
         </p>
         <JournalArticle a={a} mouvements={mouvements} ctx={ctx} />
       </div>
-      <SuperAdminDeleteButton kind="PROMO_STOCK_ITEM" id={a.id} name={a.libelle} enabled={f.superAdmin} label="Supprimer l'article" stay />
+      <SuperAdminDeleteButton kind="PROMO_STOCK_ITEM" id={a.id} name={a.libelle} enabled={f.superAdmin || f.module.supprimer === true} label="Supprimer l'article" stay />
     </div>
   );
 }
