@@ -94,7 +94,7 @@ export async function apercuRegles(strategieId: string, contenuJson: string): Pr
   if (!lu.ok) return { ok: false, error: lu.erreurs.join(" ") };
   const { faits, lignes } = await chargerFaits(strategieId);
   const avant = s.regle?.regles ?? lu.regles;
-  const { changements, praticiens } = impactDesRegles(faits, avant, lu.regles);
+  const { changements, praticiens } = impactDesRegles(faits, avant, lu.regles, new Date(), s.contexte);
   const nomDe = new Map(lignes.map((l) => [l.doctorId, l.nom]));
   const produitDe = new Map(s.produits.map((p) => [p.productId, p.nom]));
   return {
@@ -256,7 +256,7 @@ export async function poserDerogation(input: { strategieId: string; doctorId: st
     const { faits } = await chargerFaits(s.id, { id: input.doctorId });
     const f = faits[0];
     if (f) {
-      const r = segmenterPraticien({ ...f, derogations: [] }, s.regle.regles);
+      const r = segmenterPraticien({ ...f, derogations: [] }, s.regle.regles, new Date(), s.contexte);
       valeurCalculee = input.nature === "CIBLAGE" ? (r.cible ? "CIBLE" : "NON_CIBLE") : r.produits.find((p) => p.productId === input.productId)?.calcule ?? null;
     }
   }
@@ -278,6 +278,34 @@ export async function leverDerogation(id: string): Promise<R> {
   if (!(await dansLaPortee(user, d.doctorId))) return { ok: false, error: "Ce praticien n'est pas dans votre panel." };
   await prisma.segmentationDerogation.update({ where: { id }, data: { leveeLe: new Date(), leveeParId: user.id } });
   await recordAudit({ actorId: user.id, action: "UPDATE", module: MODULE, entityType: "DOCTOR", entityId: d.doctorId, summary: `Dérogation levée (${d.valeur}) : le calcul s'applique de nouveau.` });
+  revalidatePath(CHEMIN);
+  return { ok: true };
+}
+
+// ───────────────────────────── Spécialités visées par produit ─────────────────────────────
+
+/**
+ * LES SPÉCIALITÉS QU'UN PRODUIT VISE DANS LA BU (cahier des charges §6) — une partie de celles de la BU, jamais
+ * au-delà. Porté par `PromoProduct` (le produit × BU qui existe déjà) ; créé s'il manque. Vide = toutes.
+ */
+export async function ciblerSpecialitesProduit(strategieId: string, productId: string, specialtyIds: string[]): Promise<R> {
+  const { user, refus } = await exiger("VALIDATE");
+  if (refus) return { ok: false, error: refus };
+  const s = await chargerStrategie(strategieId);
+  if (!s) return { ok: false, error: "Stratégie introuvable." };
+  const produit = s.produits.find((p) => p.productId === productId);
+  if (!produit) return { ok: false, error: "Produit non classé dans la stratégie." };
+  const ids = [...new Set(specialtyIds.filter(Boolean))];
+  const deLaBu = new Set((await prisma.businessUnitSpecialty.findMany({ where: { businessUnitId: s.businessUnit.id }, select: { specialtyId: true } })).map((x) => x.specialtyId));
+  const hors = ids.filter((i) => !deLaBu.has(i));
+  if (hors.length) return { ok: false, error: "Un produit ne vise que des spécialités de sa BU : ajoutez-les d'abord à la BU (Force de vente › Business Units)." };
+  await prisma.$transaction(async (tx) => {
+    let promo = await tx.promoProduct.findFirst({ where: { businessUnitId: s.businessUnit.id, productId }, select: { id: true } });
+    promo ??= await tx.promoProduct.create({ data: { name: produit.nom, businessUnitId: s.businessUnit.id, productId }, select: { id: true } });
+    await tx.promoProductSpecialite.deleteMany({ where: { promoProductId: promo.id, specialtyId: { notIn: ids } } });
+    if (ids.length) await tx.promoProductSpecialite.createMany({ data: ids.map((specialtyId) => ({ promoProductId: promo!.id, specialtyId, createdById: user.id })), skipDuplicates: true });
+  });
+  await recordAudit({ actorId: user.id, action: "UPDATE", module: MODULE, field: "specialites-produit", newValue: ids.join(","), summary: `Spécialités visées par ${produit.nom} dans la BU ${s.businessUnit.name} : ${ids.length ? `${ids.length} spécialité(s)` : "toutes celles de la BU"}.` });
   revalidatePath(CHEMIN);
   return { ok: true };
 }

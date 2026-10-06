@@ -12,6 +12,7 @@ import { Panel, type LigneVue } from "./panel";
 import { EditeurRegles } from "./regles-editeur";
 import { ImportClasseur } from "./import-classeur";
 import { ClassementProduits } from "./classement-produits";
+import { SpecialitesProduits } from "./specialites-produits";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Segmentation Studio — AMD Internal OS" };
@@ -32,7 +33,7 @@ const VUES = [
  *
  * Portée : le KAM (portée « ses lignes ») ne voit que son panel ; les gestes suivent le module SEGMENTATION.
  */
-export default async function SegmentationPage({ searchParams }: { searchParams?: { s?: string; vue?: string } }) {
+export default async function SegmentationPage({ searchParams }: { searchParams?: { s?: string; vue?: string; spe?: string } }) {
   const user = await requireModule("SEGMENTATION");
   const peutValider = userCan(user, "SEGMENTATION", "VALIDATE");
   const peutModifier = userCan(user, "SEGMENTATION", "UPDATE");
@@ -67,7 +68,14 @@ export default async function SegmentationPage({ searchParams }: { searchParams?
   }
 
   const strategie = (await chargerStrategie(choisie.id))!;
-  const panel = await chargerPanel(strategie, portee);
+  const panelComplet = await chargerPanel(strategie, portee);
+  // COCKPIT MULTI-SPÉCIALITÉ (§57) : toutes, ou une spécialité de la BU — les mêmes indicateurs, filtrés.
+  const specialitesBu = await prisma.businessUnitSpecialty.findMany({
+    where: { businessUnitId: strategie.businessUnit.id }, orderBy: [{ principale: "desc" }, { specialty: { name: "asc" } }],
+    select: { specialtyId: true, principale: true, specialty: { select: { name: true } } },
+  });
+  const spe = specialitesBu.some((x) => x.specialtyId === searchParams?.spe) ? searchParams!.spe! : null;
+  const panel = spe ? panelComplet.filter((l) => l.specialiteId === spe) : panelComplet;
   const regles = strategie.regle?.regles ?? null;
   const s = synthese(panel.flatMap((l) => (l.resultat ? [l.resultat] : [])));
   const doctorIds = panel.map((l) => l.doctorId);
@@ -94,7 +102,7 @@ export default async function SegmentationPage({ searchParams }: { searchParams?
     })),
   }));
   const zones = [...new Set(panel.map((l) => l.zone).filter((z): z is string => !!z))].sort();
-  const href = (v: string) => `/segmentation?s=${strategie.id}&vue=${v}`;
+  const href = (v: string, sp: string | null = spe) => `/segmentation?s=${strategie.id}&vue=${v}${sp ? `&spe=${sp}` : ""}`;
 
   return (
     <div className="space-y-5">
@@ -115,6 +123,16 @@ export default async function SegmentationPage({ searchParams }: { searchParams?
 
       {strategie.regle && strategie.regle.erreurs.length > 0 && (
         <p className="rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">Règles v{strategie.regle.version} illisibles : {strategie.regle.erreurs.join(" ")}</p>
+      )}
+
+      {specialitesBu.length > 1 && (
+        <div className="flex flex-wrap items-center gap-1 text-xs">
+          <span className="text-muted-foreground">Spécialité :</span>
+          <Link href={href(vue, null)} className={`rounded-md border px-2 py-1 ${!spe ? "border-primary text-primary" : "border-border text-muted-foreground"}`}>Toutes</Link>
+          {specialitesBu.map((x) => (
+            <Link key={x.specialtyId} href={href(vue, x.specialtyId)} className={`rounded-md border px-2 py-1 ${spe === x.specialtyId ? "border-primary text-primary" : "border-border text-muted-foreground"}`}>{x.specialty.name}</Link>
+          ))}
+        </div>
       )}
 
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-6">
@@ -156,6 +174,14 @@ export default async function SegmentationPage({ searchParams }: { searchParams?
       )}
       {vue === "regles" && (
         <div className="space-y-5">
+          {peutValider && (
+            <SpecialitesProduits
+              strategieId={strategie.id}
+              produits={strategie.produits}
+              specialitesBu={specialitesBu.map((x) => ({ id: x.specialtyId, nom: x.specialty.name, principale: x.principale }))}
+              cibles={strategie.contexte.specialitesParProduit ?? {}}
+            />
+          )}
           {peutValider && (
             <ClassementProduits strategieId={strategie.id} actuels={strategie.produits.map((p) => p.productId)} produits={produits.map((p) => ({ id: p.id, nom: p.canonicalName, dci: p.dci }))} />
           )}

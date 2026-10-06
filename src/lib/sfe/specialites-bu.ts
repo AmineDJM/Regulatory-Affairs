@@ -50,6 +50,8 @@ export async function ecrireSpecialitesBu(
   const avant = await tx.businessUnitSpecialty.findMany({ where: { businessUnitId }, select: { specialtyId: true, principale: true } });
   const avantIds = avant.map((a) => a.specialtyId);
   await tx.businessUnitSpecialty.deleteMany({ where: { businessUnitId, specialtyId: { notIn: ids } } });
+  // UN PRODUIT NE VISE QU'UNE PARTIE DES SPÉCIALITÉS DE SA BU : une spécialité retirée de la BU sort aussi de ses produits.
+  await tx.promoProductSpecialite.deleteMany({ where: { promoProduct: { businessUnitId }, specialtyId: { notIn: ids } } });
   await tx.businessUnitSpecialty.updateMany({ where: { businessUnitId, principale: true }, data: { principale: false } });
   if (ids.length) {
     await tx.businessUnitSpecialty.createMany({

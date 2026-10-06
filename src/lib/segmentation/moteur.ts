@@ -41,6 +41,23 @@ export interface FaitsPraticien {
   zone: string | null;
   observations: Observation[];
   derogations: Derogation[];
+  /** Sa spécialité (annuaire) — pour le ciblage par produit. */
+  specialiteId?: string | null;
+  /** Son établissement (annuaire) — pour l'affinité « établissement » quand la règle l'autorise. */
+  institutionId?: string | null;
+}
+
+/**
+ * CE QUE LE MOTEUR LIT AUTOUR DES RÈGLES — relié, jamais recopié dans la règle :
+ *   • les spécialités que chaque produit vise dans la BU (`PromoProductSpecialite`, vide = toutes) ;
+ *   • l'affinité calculée par ÉTABLISSEMENT depuis la consommation (Consumption Intelligence).
+ * Un cycle le FIGE avec la version de règles.
+ */
+export interface ContexteSegmentation {
+  specialitesParProduit?: Record<string, string[]>;
+  nomsSpecialites?: Record<string, string>;
+  affiniteEtablissement?: Record<string, Record<string, { valeur: number; periode: string }>>;
+  nomsEtablissements?: Record<string, string>;
 }
 
 export interface ResultatProduit {
@@ -100,18 +117,30 @@ function depasse(v: number, seuil: number, comp: ">" | ">="): boolean {
 
 /** Le segment d'UN produit, avec sa raison. */
 export function segmenterProduit(
-  r: RegleProduit, rang: number, f: FaitsPraticien, regles: Regles, maintenant: Date,
+  r: RegleProduit, rang: number, f: FaitsPraticien, regles: Regles, maintenant: Date, ctx: ContexteSegmentation = {},
 ): ResultatProduit {
   const pourquoi: string[] = [];
   const pot = derniere(f.observations, "potentiel", r.productId);
   const s10 = derniere(f.observations, "prescriptionsSur10", r.productId);
   const potentiel = pot?.valeur ?? null;
-  const affinite = affiniteDe(r, potentiel, s10?.valeur ?? null);
+  const declaree = affiniteDe(r, potentiel, s10?.valeur ?? null);
+  const etab = f.institutionId ? ctx.affiniteEtablissement?.[f.institutionId]?.[r.productId] ?? null : null;
+  const source = r.sourceAffinite ?? "DECLAREE";
+  const parEtab = source === "ETABLISSEMENT" || (source === "DECLAREE_SINON_ETABLISSEMENT" && declaree === null);
+  const affinite = parEtab ? etab?.valeur ?? null : declaree;
+  const nomEtab = f.institutionId ? ctx.nomsEtablissements?.[f.institutionId] ?? "son établissement" : "son établissement";
+  const specialitesVisees = ctx.specialitesParProduit?.[r.productId] ?? [];
   const z = seuilsPourZone(r, f.zone);
   let calcule: EtatProduit;
   if (f.statut && regles.ciblage.statutsNonCibles.includes(f.statut)) {
     calcule = "NON_CIBLE";
     pourquoi.push(`Statut ${STATUT_LABELS[f.statut]} : non ciblé par les règles.`);
+  } else if (specialitesVisees.length > 0 && !f.specialiteId) {
+    calcule = "EN_ATTENTE";
+    pourquoi.push("Le produit vise certaines spécialités et celle du praticien n'est pas renseignée dans l'annuaire : en attente.");
+  } else if (specialitesVisees.length > 0 && f.specialiteId && !specialitesVisees.includes(f.specialiteId)) {
+    calcule = "NON_CIBLE";
+    pourquoi.push(`Spécialité ${ctx.nomsSpecialites?.[f.specialiteId] ?? "du praticien"} non visée par ce produit (${specialitesVisees.map((s) => ctx.nomsSpecialites?.[s] ?? s).join(", ")}).`);
   } else if (potentiel === null) {
     calcule = "EN_ATTENTE";
     pourquoi.push(`Potentiel (${r.metrique}) non renseigné : en attente — jamais classé D faute de donnée.`);
@@ -120,8 +149,11 @@ export function segmenterProduit(
     pourquoi.push(`Potentiel déclaré à 0 (${r.metrique}) : ne consulte pas, non ciblé.`);
   } else if (affinite === null) {
     calcule = "EN_ATTENTE";
-    pourquoi.push(`Potentiel ${potentiel} ; affinité non renseignée : en attente.`);
+    pourquoi.push(parEtab
+      ? `Potentiel ${potentiel} ; affinité de ${nomEtab} non calculée (aucune consommation importée) : en attente.`
+      : `Potentiel ${potentiel} ; affinité non renseignée : en attente.`);
   } else {
+    if (parEtab && etab) pourquoi.push(`Affinité : proxy établissement — ${nomEtab}, ${pct(etab.valeur)} (${etab.periode}), règle explicite de la BU.`);
     const haut = potentiel >= z.seuilPotentiel;
     const affin = depasse(affinite, z.seuilAffinite, z.comparaisonAffinite);
     calcule = haut ? (affin ? "A" : "B") : affin ? "C" : "D";
@@ -175,8 +207,8 @@ export function prioriteDe(segs: (Segment | null)[], regles: Regles): { priorite
 }
 
 /** Le résultat complet d'un praticien pour une stratégie. */
-export function segmenterPraticien(f: FaitsPraticien, regles: Regles, maintenant: Date = new Date()): ResultatPraticien {
-  const produits = regles.produits.map((r, i) => segmenterProduit(r, i + 1, f, regles, maintenant));
+export function segmenterPraticien(f: FaitsPraticien, regles: Regles, maintenant: Date = new Date(), ctx: ContexteSegmentation = {}): ResultatPraticien {
+  const produits = regles.produits.map((r, i) => segmenterProduit(r, i + 1, f, regles, maintenant, ctx));
   const h = !!f.statut && regles.h.statuts.includes(f.statut);
   const dc = f.derogations.find((x) => x.nature === "CIBLAGE" && actif(x, maintenant));
   const segs = produits.map((p) => ((SEGMENTS as readonly string[]).includes(p.etat) ? (p.etat as Segment) : null));
@@ -212,11 +244,11 @@ export interface ChangementImpact {
  * L'IMPACT d'une nouvelle version de règles AVANT de la publier : chaque segment, priorité ou nombre de
  * visites qui changerait, praticien par praticien. Rien n'est écrit — c'est l'aperçu que la publication montre.
  */
-export function impactDesRegles(faits: readonly FaitsPraticien[], avant: Regles, apres: Regles, maintenant: Date = new Date()): { changements: ChangementImpact[]; praticiens: number } {
+export function impactDesRegles(faits: readonly FaitsPraticien[], avant: Regles, apres: Regles, maintenant: Date = new Date(), ctx: ContexteSegmentation = {}): { changements: ChangementImpact[]; praticiens: number } {
   const changements: ChangementImpact[] = [];
   const touches = new Set<string>();
   for (const f of faits) {
-    const a = segmenterPraticien(f, avant, maintenant), b = segmenterPraticien(f, apres, maintenant);
+    const a = segmenterPraticien(f, avant, maintenant, ctx), b = segmenterPraticien(f, apres, maintenant, ctx);
     const ids = new Set([...a.produits.map((p) => p.productId), ...b.produits.map((p) => p.productId)]);
     for (const id of ids) {
       const x = a.produits.find((p) => p.productId === id)?.etat ?? "—";

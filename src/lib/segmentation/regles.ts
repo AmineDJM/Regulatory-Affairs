@@ -40,6 +40,18 @@ export const METHODE_LABELS: Record<MethodeAffinite, string> = {
   RATIO_FICHIER: "Méthode du classeur (sur 10 ÷ patients par semaine)",
 };
 
+/**
+ * D'OÙ VIENT L'AFFINITÉ (cahier des charges §34-35) : la déclaration du praticien (terrain), ou l'affinité de son
+ * ÉTABLISSEMENT calculée sur la consommation — un PROXY que la BU choisit explicitement et que le « pourquoi »
+ * affiche. Jamais une affinité d'hôpital attribuée en silence à un médecin.
+ */
+export type SourceAffinite = "DECLAREE" | "ETABLISSEMENT" | "DECLAREE_SINON_ETABLISSEMENT";
+export const SOURCE_AFFINITE_LABELS: Record<SourceAffinite, string> = {
+  DECLAREE: "Déclarée par le praticien (terrain)",
+  ETABLISSEMENT: "Proxy : affinité de son établissement (consommation)",
+  DECLAREE_SINON_ETABLISSEMENT: "Déclarée, sinon proxy établissement",
+};
+
 export interface ExceptionZone {
   zone: string;
   seuilPotentiel?: number;
@@ -57,6 +69,8 @@ export interface RegleProduit {
   seuilAffinite: number;
   comparaisonAffinite: Comparaison;
   methodeAffinite: MethodeAffinite;
+  /** Absent = DECLAREE (les versions publiées avant la consommation gardent leur sens). */
+  sourceAffinite?: SourceAffinite;
   exceptions: ExceptionZone[];
 }
 
@@ -134,6 +148,7 @@ export function lireRegles(brut: unknown): LectureRegles {
     produits.push({
       productId, metrique: typeof r.metrique === "string" && r.metrique.trim() ? r.metrique.trim() : "patients / semaine",
       seuilPotentiel: seuilPotentiel ?? 0, seuilAffinite: seuilAffinite ?? 0, comparaisonAffinite, methodeAffinite, exceptions,
+      ...(r.sourceAffinite === "ETABLISSEMENT" || r.sourceAffinite === "DECLAREE_SINON_ETABLISSEMENT" ? { sourceAffinite: r.sourceAffinite as SourceAffinite } : {}),
     });
   });
   const c = (o.ciblage ?? {}) as Record<string, unknown>;

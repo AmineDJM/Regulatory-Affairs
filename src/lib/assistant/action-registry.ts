@@ -1080,6 +1080,15 @@ X("SEGMENTATION STUDIO (Direction, 06/10) : stratégie, classement des produits,
   "segmentation-actions:publierRegles", "segmentation-actions:apercuImportSegmentation", "segmentation-actions:importerSegmentation",
   "segmentation-actions:enregistrerPotentiel", "segmentation-actions:changerStatut", "segmentation-actions:ajouterAuPanel",
   "segmentation-actions:retirerDuPanel", "segmentation-actions:poserDerogation", "segmentation-actions:leverDerogation",
+  "segmentation-actions:ciblerSpecialitesProduit",
+]);
+X("CONSUMPTION INTELLIGENCE : importer un fichier de consommation, trancher ce qui n'est pas sûr (une correspondance "
+  + "confirmée s'apprend), écarter une ligne, VALIDER pour que les lignes comptent, annuler, régler l'affinité d'un "
+  + "produit. Chaque geste se décide en REGARDANT la revue (colonnes lues, confiance, impact sur la segmentation) : "
+  + "c'est l'écran `/consommation`. Adam est en pause de développement (Super Admin seul).", [
+  "consommation-actions:importerFichierConsommation", "consommation-actions:confirmerCorrespondanceConso",
+  "consommation-actions:ignorerLigneConso", "consommation-actions:validerImportConso", "consommation-actions:annulerImportConso",
+  "consommation-actions:enregistrerAffiniteConfig",
 ]);
 X("RESOUMETTRE ET RETIRER UNE DEMANDE AD & PRO (§118.186, audit R02/R24) : deux gestes du DEMANDEUR sur SA "
   + "demande, ajoutés avec le renvoi pour correction. Resoumettre suppose qu'une personne a corrigé ce que le "

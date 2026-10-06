@@ -350,6 +350,8 @@ export async function deleteSpecialty(formData: FormData): Promise<ActionResult>
   const detaches = await prisma.$transaction(async (tx) => {
     await tx.medicalDoctor.updateMany({ where: { specialtyId: id, specialty: null }, data: { specialty: avant.name } });
     const { count } = await tx.medicalDoctor.updateMany({ where: { specialtyId: id }, data: { specialtyId: null } });
+    // Aucune BU ne la vise (refus plus haut), donc aucun de ses produits non plus — un lien orphelin partirait quand même.
+    await tx.promoProductSpecialite.deleteMany({ where: { specialtyId: id } });
     await tx.medicalSpecialty.delete({ where: { id } });
     return count;
   });
@@ -411,6 +413,13 @@ export async function fusionnerSpecialite(formData: FormData): Promise<ActionRes
       } else {
         await tx.businessUnitSpecialty.update({ where: { id: l.id }, data: { specialtyId: cibleId } });
       }
+    }
+    // LES PRODUITS SUIVENT AUSSI : un produit qui visait la source vise la cible, sans doublon.
+    const ciblesProduits = await tx.promoProductSpecialite.findMany({ where: { specialtyId: id }, select: { id: true, promoProductId: true } });
+    for (const c of ciblesProduits) {
+      const deja = await tx.promoProductSpecialite.findUnique({ where: { promoProductId_specialtyId: { promoProductId: c.promoProductId, specialtyId: cibleId } }, select: { id: true } });
+      if (deja) await tx.promoProductSpecialite.delete({ where: { id: c.id } });
+      else await tx.promoProductSpecialite.update({ where: { id: c.id }, data: { specialtyId: cibleId } });
     }
     await tx.medicalSpecialty.delete({ where: { id } });
     return { deplaces: passe.count, detaches: reste.count, bus: liens.length };

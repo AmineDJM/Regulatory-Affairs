@@ -106,6 +106,11 @@ export const MODULES = [
   // Créer = poser une dérogation motivée ; Valider = publier une version de règles, importer, gérer la stratégie.
   // La PORTÉE « ses lignes » borne le KAM à son panel (secteur ∪ rattachement, `clausePanelDuKam`).
   "SEGMENTATION",
+  // CONSUMPTION : « Consumption Intelligence » — les fichiers de consommation hospitalière, hétérogènes, rendus
+  // fiables (colonnes reconnues, établissements et produits résolus, doublons écartés, revue), et l'affinité par
+  // établissement qu'on en tire. Voir = lire ; Téléverser/Modifier = importer et revoir ; Valider = faire compter un
+  // import, régler l'affinité d'un produit.
+  "CONSUMPTION",
 ] as const;
 export type Module = (typeof MODULES)[number];
 
@@ -466,6 +471,21 @@ const SEGMENTATION_PAR_DEFAUT: Partial<Record<UserRole, Action[]>> = {
 };
 for (const [role, actions] of Object.entries(SEGMENTATION_PAR_DEFAUT) as [UserRole, Action[]][]) {
   if (!PERMISSIONS[role].SEGMENTATION) PERMISSIONS[role].SEGMENTATION = [...actions];
+}
+
+/** « CONSUMPTION INTELLIGENCE » PAR DÉFAUT — la Direction et les opérations font compter un import ; la Direction de
+ *  la promotion et le BD importent et revoient ; le commercial et le chef de produit lisent. Le KAM n'y est pas. */
+const CONSUMPTION_PAR_DEFAUT: Partial<Record<UserRole, Action[]>> = {
+  DIRECTION: MANAGE,
+  GENERAL_MANAGER: MANAGE,
+  OPERATIONS_DIRECTOR: MANAGE,
+  MEDICAL_PROMOTION_MANAGER: CONTRIBUTE,
+  BUSINESS_DEVELOPMENT_MANAGER: CONTRIBUTE,
+  HEAD_OF_SALES: READ,
+  PRODUCT_MANAGER: READ,
+};
+for (const [role, actions] of Object.entries(CONSUMPTION_PAR_DEFAUT) as [UserRole, Action[]][]) {
+  if (!PERMISSIONS[role].CONSUMPTION) PERMISSIONS[role].CONSUMPTION = [...actions];
 }
 
 const GLOBAL_VIEW_ROLES: UserRole[] = ["SUPER_ADMIN", "DIRECTION"];

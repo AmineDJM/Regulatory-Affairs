@@ -4,7 +4,7 @@ import * as React from "react";
 import { Button } from "@/components/ui/button";
 import { Input, Select, Label } from "@/components/ui/input";
 import { useRafraichir } from "@/components/shared/use-rafraichir";
-import { STATUTS, STATUT_LABELS, SEGMENTS, METHODE_LABELS, pct, type Regles, type RegleProduit, type ReglePriorite, type Segment, type Statut } from "@/lib/segmentation/regles";
+import { STATUTS, STATUT_LABELS, SEGMENTS, METHODE_LABELS, SOURCE_AFFINITE_LABELS, pct, type Regles, type RegleProduit, type ReglePriorite, type Segment, type Statut } from "@/lib/segmentation/regles";
 import { libelleRegle } from "@/lib/segmentation/moteur";
 import { apercuRegles, publierRegles, type ApercuRegles } from "@/lib/actions/segmentation-actions";
 
@@ -80,11 +80,12 @@ export function EditeurRegles({ strategieId, produits, version, contenu, peutPub
       {r.produits.map((p, i) => (
         <section key={p.productId} className="surface space-y-3 p-4">
           <h3 className="text-sm font-semibold">#{i + 1} {nomDe(p.productId)}</h3>
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-6">
             <div><Label>Potentiel mesuré</Label><Input value={p.metrique} onChange={(e) => majProduit(i, (x) => { x.metrique = e.target.value; })} /></div>
             <div><Label>Haut potentiel à partir de</Label><Input inputMode="decimal" value={champ(p.seuilPotentiel)} onChange={(e) => majProduit(i, (x) => { x.seuilPotentiel = n(e.target.value); })} /></div>
             <div><Label>Seuil d&apos;affinité (%)</Label><Input inputMode="decimal" value={champPct(p.seuilAffinite)} onChange={(e) => majProduit(i, (x) => { x.seuilAffinite = n(e.target.value) / 100; })} /></div>
             <div><Label>Comparaison</Label><Select value={p.comparaisonAffinite} onChange={(e) => majProduit(i, (x) => { x.comparaisonAffinite = e.target.value === ">=" ? ">=" : ">"; })}><option value=">">au-delà (&gt;)</option><option value=">=">à partir de (≥)</option></Select></div>
+            <div><Label>Source de l&apos;affinité</Label><Select value={p.sourceAffinite ?? "DECLAREE"} onChange={(e) => majProduit(i, (x) => { const v = e.target.value; if (v === "ETABLISSEMENT" || v === "DECLAREE_SINON_ETABLISSEMENT") x.sourceAffinite = v; else delete x.sourceAffinite; })}>{(["DECLAREE", "ETABLISSEMENT", "DECLAREE_SINON_ETABLISSEMENT"] as const).map((m) => <option key={m} value={m}>{SOURCE_AFFINITE_LABELS[m]}</option>)}</Select></div>
             <div><Label>Affinité calculée par</Label><Select value={p.methodeAffinite} onChange={(e) => majProduit(i, (x) => { x.methodeAffinite = e.target.value === "RATIO_FICHIER" ? "RATIO_FICHIER" : "SUR_10"; })}>{(["SUR_10", "RATIO_FICHIER"] as const).map((m) => <option key={m} value={m}>{METHODE_LABELS[m]}</option>)}</Select></div>
           </div>
           <div className="space-y-2">

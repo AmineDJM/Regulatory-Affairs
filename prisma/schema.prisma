@@ -3995,16 +3995,18 @@ model LogisticsOrder {
 // le manager Promotion médicale. Chaque médecin est rattaché à une spécialité et
 // exerce dans un secteur (hôpital / libéral / les deux).
 model MedicalSpecialty {
-  id            String                  @id @default(cuid())
-  name          String                  @unique
-  color         String? // accent visuel
-  notes         String?
-  doctors       MedicalDoctor[]
+  id             String                   @id @default(cuid())
+  name           String                   @unique
+  color          String? // accent visuel
+  notes          String?
+  doctors        MedicalDoctor[]
   /// LES BUSINESS UNITS QUI LA VISENT (§118.183) — une spécialité visée ne se retire pas du référentiel.
-  businessUnits BusinessUnitSpecialty[]
-  createdById   String?
-  createdAt     DateTime                @default(now())
-  updatedAt     DateTime                @updatedAt
+  businessUnits  BusinessUnitSpecialty[]
+  /// LES PRODUITS (dans une BU) QUI LA VISENT — un produit ne vise qu'une partie des spécialités de sa BU.
+  produitsCibles PromoProductSpecialite[]
+  createdById    String?
+  createdAt      DateTime                 @default(now())
+  updatedAt      DateTime                 @updatedAt
 
   @@index([name])
 }
@@ -4257,6 +4259,8 @@ model MedicalInstitution {
   cellStyles    DirectoryCellStyle[]
   /// SON LIEU DE STOCK, quand des relevés le visent (§118.134) — au plus un.
   stockLocation StockAnnex?
+  /// SA CONSOMMATION (Consumption Intelligence) — les lignes normalisées des fichiers importés.
+  consommations ConsommationLigne[]
 
   @@index([type])
   @@index([wilaya])
@@ -10384,12 +10388,14 @@ model PromoProduct {
   createdAt           DateTime           @default(now())
   updatedAt           DateTime           @updatedAt
 
-  forecasts        ProductForecast[]
-  assignments      PromotionAssignment[]
+  forecasts         ProductForecast[]
+  assignments       PromotionAssignment[]
   /// LE PRODUIT CANONIQUE. Coexiste avec `regulatoryProductId` : le premier dit QUEL produit,
   /// le second QUEL dossier — un produit promu peut ne pas encore en avoir.
-  productId        String?
-  canonicalProduct Product?              @relation("ProductPromoProfile", fields: [productId], references: [id], onDelete: SetNull)
+  productId         String?
+  canonicalProduct  Product?                 @relation("ProductPromoProfile", fields: [productId], references: [id], onDelete: SetNull)
+  /// LES SPÉCIALITÉS QUE CE PRODUIT VISE DANS SA BU — une partie de celles de la BU. Vide = toutes celles de la BU.
+  specialitesCibles PromoProductSpecialite[]
 
   @@index([businessUnitId])
   @@index([productId])
@@ -13649,6 +13655,9 @@ model Product {
   promoRequestItems    PromoRequestItemProduct[]      @relation("PromoDemandeProduit")
   /// LES STRATÉGIES DE SEGMENTATION où il est l'un des (au plus) trois produits classés.
   segmentationProduits SegmentationStrategieProduit[]
+  /// SA CONSOMMATION HOSPITALIÈRE (Consumption Intelligence) et la façon d'en tirer son affinité.
+  consommations        ConsommationLigne[]
+  affiniteConfig       AffiniteConfig?
 
   @@index([dci])
   @@index([companyId])
@@ -14597,4 +14606,117 @@ model SegmentationImport {
   createdAt   DateTime              @default(now())
 
   @@unique([strategieId, empreinte])
+}
+
+/// PRODUIT × BU → SPÉCIALITÉS VISÉES (cahier des charges §6). Une BU multi-spécialités ne veut pas dire que
+/// tous ses produits visent toutes ses spécialités : le produit A vise la neurologie, le C la neurologie et
+/// l'urologie. Porté par `PromoProduct` — la relation produit × BU qui existe déjà — et jamais déduit.
+model PromoProductSpecialite {
+  id             String           @id @default(cuid())
+  promoProductId String
+  promoProduct   PromoProduct     @relation(fields: [promoProductId], references: [id], onDelete: Cascade)
+  specialtyId    String
+  specialty      MedicalSpecialty @relation(fields: [specialtyId], references: [id], onDelete: Restrict)
+  createdById    String?
+  createdAt      DateTime         @default(now())
+
+  @@unique([promoProductId, specialtyId])
+  @@index([specialtyId])
+}
+
+/// ═════════════════════════════════════════════════════════════════════════════════════════════
+/// CONSUMPTION INTELLIGENCE — des fichiers de consommation hospitalière HÉTÉROGÈNES rendus fiables.
+///
+/// Un fichier importé (`ConsommationImport`) devient des lignes au FORMAT CANONIQUE (`ConsommationLigne`),
+/// chacune rattachée à sa feuille et à sa ligne d'origine, avec la valeur source ET la valeur normalisée,
+/// l'établissement et le produit RÉSOLUS (ou laissés « à revoir », jamais inventés), une confiance et un
+/// statut. Seules les lignes d'un import VALIDÉ comptent. Les correspondances confirmées par une personne
+/// s'apprennent (`ConsommationMemoire`). L'affinité se calcule à la demande (`AffiniteConfig`).
+/// ═════════════════════════════════════════════════════════════════════════════════════════════
+model ConsommationImport {
+  id          String              @id @default(cuid())
+  nomFichier  String
+  /// Le même fichier ne s'importe pas deux fois.
+  empreinte   String              @unique
+  taille      Int
+  /// EN_REVUE · VALIDE · ANNULE
+  statut      String              @default("EN_REVUE")
+  /// LE FICHIER ORIGINAL, gardé tel quel : chaque nombre reste traçable jusqu'à sa cellule (§27).
+  fichier     Bytes?
+  /// Feuilles lues : colonnes reconnues, confiance, format, période de feuille.
+  analyse     Json
+  rapport     Json?
+  auteurId    String?
+  valideLe    DateTime?
+  valideParId String?
+  createdAt   DateTime            @default(now())
+  lignes      ConsommationLigne[]
+
+  @@index([statut])
+}
+
+model ConsommationLigne {
+  id                String              @id @default(cuid())
+  importId          String
+  import            ConsommationImport  @relation(fields: [importId], references: [id], onDelete: Cascade)
+  feuille           String?
+  ligneSource       Int
+  periodeDebut      DateTime?
+  periodeFin        DateTime?
+  institutionId     String?
+  institution       MedicalInstitution? @relation(fields: [institutionId], references: [id], onDelete: SetNull)
+  etablissementBrut String?
+  productId         String?
+  product           Product?            @relation(fields: [productId], references: [id], onDelete: SetNull)
+  produitBrut       String?
+  molecule          String?
+  dosage            String?
+  presentation      String?
+  quantiteSource    Decimal?            @db.Decimal(16, 3)
+  uniteSource       String?
+  quantite          Decimal?            @db.Decimal(16, 3)
+  unite             String?
+  valeur            Decimal?            @db.Decimal(16, 2)
+  devise            String?
+  /// 0..100 — la confiance du rapprochement (établissement ET produit).
+  confiance         Int                 @default(0)
+  /// OK · A_REVOIR · DOUBLON · IGNOREE
+  statut            String              @default("A_REVOIR")
+  anomalies         Json?
+
+  @@index([importId, statut])
+  @@index([productId, periodeDebut])
+  @@index([institutionId])
+}
+
+/// CE QU'UNE PERSONNE A CONFIRMÉ — « ETAB » est un établissement, « RAL 400MG » est ce produit. Réutilisé au
+/// fichier suivant, toujours affiché comme tel, et jamais à la place d'une revue quand la valeur change.
+model ConsommationMemoire {
+  id            String   @id @default(cuid())
+  /// COLONNE · ETABLISSEMENT · PRODUIT
+  nature        String
+  cle           String
+  valeur        String
+  confirmeParId String?
+  utilisations  Int      @default(0)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@unique([nature, cle])
+}
+
+/// COMMENT L'AFFINITÉ D'UN PRODUIT SE CALCULE : sa consommation ÷ celle d'un marché pertinent (un panier de
+/// produits et/ou de molécules), sur une période (mois, glissante 3/6/12 mois, personnalisée). Rien par défaut.
+model AffiniteConfig {
+  id          String    @id @default(cuid())
+  productId   String    @unique
+  product     Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
+  /// { productIds: string[], molecules: string[] } — le dénominateur ; le produit étudié y est toujours inclus.
+  panier      Json
+  /// MOIS · ROLLING_3M · ROLLING_6M · ROLLING_12M · PERSONNALISEE
+  periode     String
+  debut       DateTime?
+  fin         DateTime?
+  updatedById String?
+  updatedAt   DateTime  @updatedAt
 }

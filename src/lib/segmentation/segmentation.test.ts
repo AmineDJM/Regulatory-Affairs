@@ -282,3 +282,47 @@ describe.skipIf(!REEL || !existsSync(REEL))("classeur réel « Segmentation Fina
     expect(p.concordance.identiques / p.concordance.total).toBeGreaterThan(0.98);
   });
 });
+
+describe("§73/§74 — BU multi-spécialités : un produit ne vise qu'une partie des spécialités", () => {
+  const NEURO = "neuro", DERMA = "derma", URO = "uro";
+  const A = "prod-a", B = "prod-b", C = "prod-c";
+  const ctx = { specialitesParProduit: { [A]: [NEURO], [B]: [DERMA], [C]: [NEURO, URO] }, nomsSpecialites: { neuro: "Neurologie", derma: "Dermatologie", uro: "Urologie" } };
+  const r3 = regles({}, [A, B, C]);
+  const dr = (specialiteId: string | null) => ({ ...faits({ obs: [[A, 30, 3], [B, 30, 3], [C, 30, 3]] }), specialiteId });
+  it("un neurologue est ciblé sur A et C, non ciblé sur B — et le pourquoi le dit", () => {
+    const r = segmenterPraticien(dr(NEURO), r3, T0, ctx);
+    expect(r.affichage).toBe("A / NC / A");
+    expect(r.produits[1].pourquoi.join(" ")).toMatch(/Neurologie non visée par ce produit \(Dermatologie\)/);
+  });
+  it("un urologue : C seulement ; un dermatologue : B seulement", () => {
+    expect(segmenterPraticien(dr(URO), r3, T0, ctx).affichage).toBe("NC / NC / A");
+    expect(segmenterPraticien(dr(DERMA), r3, T0, ctx).affichage).toBe("NC / A / NC");
+  });
+  it("spécialité non renseignée sur un produit restreint : en attente, jamais exclu ni classé", () => {
+    expect(segmenterPraticien(dr(null), r3, T0, ctx).produits[0].etat).toBe("EN_ATTENTE");
+  });
+  it("§74 — BU mono-spécialité : aucun réglage, rien ne change", () => {
+    expect(segmenterPraticien(dr(null), r3, T0, {}).affichage).toBe("A / A / A");
+  });
+});
+
+describe("§34-35 — affinité d'hôpital : un PROXY explicite, jamais par défaut", () => {
+  const ctx = { affiniteEtablissement: { oran: { [RAL]: { valeur: 0.14, periode: "12 mois jusqu'au 2026-09-30" } } }, nomsEtablissements: { oran: "CHU Oran" } };
+  const f = { ...faits({ obs: [[RAL, 30, null]] }), institutionId: "oran" };
+  it("règle « déclarée » : l'affinité d'hôpital n'est PAS attribuée au médecin", () => {
+    expect(segmenterPraticien(f, regles(), T0, ctx).produits[0].etat).toBe("EN_ATTENTE");
+  });
+  it("règle « proxy établissement » : appliquée, et le pourquoi le nomme", () => {
+    const r = regles();
+    const proxy = regles({ produits: [{ ...r.produits[0], sourceAffinite: "ETABLISSEMENT" }] });
+    const res = segmenterPraticien(f, proxy, T0, ctx).produits[0];
+    expect(res.etat).toBe("A");
+    expect(res.pourquoi.join(" ")).toMatch(/proxy établissement — CHU Oran, 14 %/);
+  });
+  it("« déclarée, sinon établissement » : la déclaration du praticien l'emporte quand elle existe", () => {
+    const r = regles();
+    const mixte = regles({ produits: [{ ...r.produits[0], sourceAffinite: "DECLAREE_SINON_ETABLISSEMENT" }] });
+    expect(segmenterPraticien({ ...faits({ obs: [[RAL, 30, 0]] }), institutionId: "oran" }, mixte, T0, ctx).produits[0].etat).toBe("B");
+    expect(segmenterPraticien(f, mixte, T0, ctx).produits[0].etat).toBe("A");
+  });
+});
