@@ -29,7 +29,7 @@ import {
   canEditExpenseClaim, expenseAmountError, expenseEditDeadline, expenseEditLabel,
 } from "@/lib/hr/expense-claim";
 import { requestDocument } from "@/lib/actions/document-request-actions";
-import { genererEtRemettreOrdreDeMission } from "@/lib/hr/ordre-mission/service";
+import { genererEtRemettreOrdreDeMission } from "@/lib/ordre-mission-depot";
 
 const REQUEST_TYPES: HrRequestType[] = ["WORK_CERTIFICATE", "CNAS_CERTIFICATE", "SALARY_STATEMENT", "DOMICILIATION", "LEAVE_CERTIFICATE", "LEAVE_TITLE", "MISSION_ORDER", "EXPENSE_REPORT", "EXCEPTIONAL_EXIT", "SICK_LEAVE", "ANNUAL_LEAVE", "UNPAID_LEAVE", "SPECIAL_LEAVE", "MATERNITY_LEAVE", "HR_INTERVIEW", "OTHER"];
 const REQUEST_STATUSES: HrRequestStatus[] = ["PENDING", "IN_PROGRESS", "READY", "DELIVERED", "REJECTED"];

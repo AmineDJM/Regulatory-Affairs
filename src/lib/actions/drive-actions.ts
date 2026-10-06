@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import type { DriveAccess } from "@prisma/client";
 import { requireUser } from "@/lib/session";
+import { enLecture } from "@/lib/vue-lecture";
 import { userCan } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { putBlob, releaseBlob, getBlob, retainBlob } from "@/lib/drive-storage";
@@ -102,7 +103,7 @@ export async function ensureDriveFolders(
 export async function getDriveNodeShares(
   nodeId: string,
 ): Promise<{ ok: boolean; error?: string; canEdit?: boolean; shares?: { userId: string; name: string; access: string }[] }> {
-  const user = await requireUser();
+  const user = await enLecture(requireUser);
   const level = await resolveDriveAccess(user, nodeId);
   if (level === "NONE") return { ok: false, error: "Non autorisé." };
   const node = await prisma.driveNode.findUnique({

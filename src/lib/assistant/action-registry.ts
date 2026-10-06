@@ -1169,6 +1169,13 @@ X("DEMANDER À SON N+1 UN AVIS SUR UN CONGÉ (Direction, 06/10) : le responsable
   "ad-pro-item-actions:ajouterHebergement", "ad-pro-item-actions:modifierHebergement", "ad-pro-item-actions:retirerHebergement",
   // RANGER LES DOSSIERS REGULATORY DANS LE DRIVE : le rattrapage du Super Admin, un bouton de la page Regulatory.
   "regulatory-drive-actions:synchroniserDriveRegulatory",
+  // LA PHARMACOVIGILANCE : le signalement du KAM, l'échange, le statut, l'enquête, les participants — des gestes de la
+  // fiche du cas, devant le cas, pas des appels d'Adam (un signalement de sécurité ne se fait pas par délégation).
+  "pharmacovigilance-actions:signalerCasPv", "pharmacovigilance-actions:commenterCasPv", "pharmacovigilance-actions:changerStatutCasPv",
+  "pharmacovigilance-actions:ouvrirEnquetePv", "pharmacovigilance-actions:ajouterParticipantsPv", "pharmacovigilance-actions:retirerParticipantPv",
+  // LES DEMANDES DE STOCKS DO → KAM : créer, saisir par hôpital, relancer, clore, supprimer — des gestes des écrans Stocks.
+  "demande-stocks-actions:creerDemandeStocks", "demande-stocks-actions:saisirStocksDemande", "demande-stocks-actions:relancerDemandeStocks",
+  "demande-stocks-actions:cloreDemandeStocks", "demande-stocks-actions:supprimerDemandeStocks",
 ]);
 X("PRISES EN CHARGE — PROFESSIONNELS PROPOSÉS ET LEURS PIÈCES (§118.205) : créer le profil d'un professionnel, "
   + "demander ses pièces (passeport, visa, informations de voyage) et les déposer. Chacun touche à une identité ou "

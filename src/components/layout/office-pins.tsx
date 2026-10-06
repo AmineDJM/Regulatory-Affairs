@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation";
 import { Icon } from "@/components/ui/icon";
 import { cn } from "@/lib/utils";
 import { OFFICE_PINS_KEY, parsePinned, pinnedApps, officeHref, type OfficeAppKey } from "@/lib/office/apps";
+import { lireStockagePersonnel, useIdentiteEcran } from "@/components/layout/identite-vue";
 
 /**
  * LES APPLICATIONS ÉPINGLÉES, dans le menu de gauche.
@@ -21,9 +22,11 @@ import { OFFICE_PINS_KEY, parsePinned, pinnedApps, officeHref, type OfficeAppKey
 export function OfficePins() {
   const pathname = usePathname();
   const [pins, setPins] = React.useState<OfficeAppKey[]>([]);
+  // Rangées par PERSONNE À L'ÉCRAN : en Vue exacte, les épingles de Leila, pas celles de l'administrateur.
+  const ident = useIdentiteEcran();
 
   React.useEffect(() => {
-    const read = () => setPins(parsePinned(window.localStorage.getItem(OFFICE_PINS_KEY)));
+    const read = () => setPins(parsePinned(lireStockagePersonnel(OFFICE_PINS_KEY, ident)));
     read();
     // L'écran Bureautique annonce le changement : l'entrée apparaît au clic, pas au rechargement
     // suivant. `storage` couvre les autres onglets ouverts.
@@ -34,7 +37,7 @@ export function OfficePins() {
     window.addEventListener("amd:office-pins", onPins);
     window.addEventListener("storage", read);
     return () => { window.removeEventListener("amd:office-pins", onPins); window.removeEventListener("storage", read); };
-  }, []);
+  }, [ident]);
 
   const apps = pinnedApps(pins);
   if (apps.length === 0) return null;

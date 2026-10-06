@@ -11,6 +11,7 @@ import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
 import { fdStr, fdNum, fdDate, type ActionResult } from "@/lib/actions/types";
 import { creerDemandeEtatStock } from "@/lib/stocks/demande";
+import { ecrireEtatDuJour } from "@/lib/stocks/etat-jour";
 
 // Trois périmètres : la PCH (centrale), les HÔPITAUX et les ANNEXES PCH (sites de stockage
 // secondaires). Hôpitaux et annexes sont des lieux nommés (StockAnnex, distingués par `kind`).
@@ -218,21 +219,14 @@ export async function recordStockSnapshot(formData: FormData): Promise<ActionRes
   const product = await prisma.regulatoryProduct.findUnique({ where: { id: productId }, select: { dci: true, brandName: true, companyId: true } });
   if (!product) return { ok: false, error: "Produit introuvable." };
 
-  // Un seul état par jour et par (produit, lieu) : on remplace s'il existe.
+  // Un seul état par jour et par (produit, lieu) : on remplace s'il existe — la règle vit dans
+  // `ecrireEtatDuJour`, partagée avec l'envoi d'une demande de stocks.
   // L'entité de l'état de stock suit celle du produit (référentiel Regulatory).
-  const dayStart = new Date(date); dayStart.setUTCHours(0, 0, 0, 0);
-  const dayEnd = new Date(dayStart.getTime() + 24 * 3600 * 1000);
-  const existing = await prisma.stockSnapshot.findFirst({
-    where: { scope, annexId: isLocationScope ? annexId : null, productId, date: { gte: dayStart, lt: dayEnd } },
+  const ecrit = await ecrireEtatDuJour({
+    scope: scope as StockScope, annexId: isLocationScope ? annexId : null, productId, date,
+    quantity, companyId: product.companyId, createdById: user.id,
   });
-  if (existing) {
-    await prisma.stockSnapshot.update({ where: { id: existing.id }, data: { quantity: Math.round(quantity), date, companyId: product.companyId } });
-  } else {
-    await prisma.stockSnapshot.create({
-      data: { scope, annexId: isLocationScope ? annexId : null, productId, date, quantity: Math.round(quantity), companyId: product.companyId, createdById: user.id },
-    });
-  }
-  await recordAudit({ actorId: user.id, action: existing ? "UPDATE" : "CREATE", module: "Stocks", summary: `État de stock ${scope} — ${product.brandName ?? product.dci} : ${Math.round(quantity)} u.` });
+  await recordAudit({ actorId: user.id, action: ecrit.cree ? "CREATE" : "UPDATE", module: "Stocks", summary: `État de stock ${scope} — ${product.brandName ?? product.dci} : ${Math.round(quantity)} u.` });
   revalidatePath(PATH);
   return { ok: true, id: annexId || undefined };
 }

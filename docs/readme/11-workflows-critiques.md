@@ -725,6 +725,21 @@ Le Super Admin visualise l'OS **exactement comme** un utilisateur. Cookie honor�
 réelle est Super Admin. Bandeau permanent + « Quitter », démarrage/arrêt journalisés. **Une vue, pas une
 usurpation** (§118.184) : une requête qui ÉCRIT — une action serveur, ou une route d'API qui le déclare par
 `getCurrentUserPourEcrire` — ignore la vue et part **au nom du Super Admin réel**, avec ses droits (`lib/session.ts`).
+Exception voulue : la **création d'une demande** Ad & Pro (`requireUserAuNomDeLaVue`) se fait au nom de la personne.
+
+**Étanchéité (Direction, 06/10 — « pas de chevauchement possible »)** :
+- **Qui est à l'écran** : règle unique `vueHonoree` (`lib/vue-exacte-ui.ts`). Tout ce qui s'AFFICHE voit la vue — page,
+  coque, **rendu qui suit une action** (Next 14.2 le rend dans le stockage `isAction` : détecté par `rendreEnCours`,
+  sonde `React.cache`), et les actions qui ne font que **charger un panneau**, déclarées par `enLecture(requireUser)`
+  (`lib/vue-lecture.ts`). Le corps d'une écriture garde `user.visualise` (Adam refuse alors ses gestes « à soi »).
+- **Coque** : bandeau « Vous voyez l'interface de X — Quitter », rien du profil de l'administrateur ; menu du compte =
+  celui de X, « Quitter la vue » remplace « Se déconnecter ».
+- **Onglets** : témoin non httpOnly `amd_vue` posé/effacé avec le cookie (`poserVueExacte`/`effacerVueExacte`) ;
+  `GardeIdentite` recharge l'onglet entier s'il a changé (autre onglet, expiration 4 h, retour arrière). Entrer/sortir =
+  `window.location.assign` (jamais de navigation douce). Connexion/déconnexion ferment la vue ; l'entité choisie
+  (`amd-company`) est remise à zéro à l'entrée et à la sortie.
+- **Navigateur** : brouillons de messages, presse-papiers du Drive, épingles Bureautique rangés par personne
+  (`cleParPersonne`, `useCleParPersonne`). Gardes : `lib/vue-exacte-etanche.test.ts`, `e2e/vue-exacte.spec.ts`.
 
 ---
 

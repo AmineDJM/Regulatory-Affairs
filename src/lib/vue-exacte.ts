@@ -1,8 +1,37 @@
 import { cookies } from "next/headers";
 import { prisma } from "./prisma";
+import { MARQUE_VUE_COOKIE } from "./vue-exacte-ui";
+import { COMPANY_COOKIE } from "./company";
 
 /** Nom du cookie de « Vue exacte » (impersonation), honoré uniquement pour un Super Admin. */
 export const IMPERSONATE_COOKIE = "amd_impersonate";
+export { MARQUE_VUE_COOKIE };
+
+/** Durée d'une vue : 4 h, puis retour automatique au profil réel (la garde d'identité recharge l'onglet). */
+const DUREE_VUE_S = 60 * 60 * 4;
+
+/**
+ * POSER / EFFACER LA VUE — toujours ENSEMBLE, le cookie qui donne la vue (httpOnly, lu par `session.ts`)
+ * et le témoin que l'écran lit (`vue-exacte-ui.ts`) : mêmes chemin et durée, pour que l'onglet sache
+ * quand la vue a changé sans jamais pouvoir la créer.
+ */
+export function poserVueExacte(targetId: string): void {
+  const secure = process.env.NODE_ENV === "production";
+  cookies().set(IMPERSONATE_COOKIE, targetId, { httpOnly: true, secure, sameSite: "lax", path: "/", maxAge: DUREE_VUE_S });
+  cookies().set(MARQUE_VUE_COOKIE, targetId, { httpOnly: false, secure, sameSite: "lax", path: "/", maxAge: DUREE_VUE_S });
+  // L'ENTITÉ AFFICHÉE est un choix de l'administrateur : elle ne filtre pas l'écran de la personne visualisée,
+  // qui s'ouvre sur SA portée par défaut.
+  cookies().set(COMPANY_COOKIE, "", { path: "/", maxAge: 0 });
+}
+
+/** Efface la vue (sortie, connexion, déconnexion) : une session neuve ne reprend jamais la vue d'une autre. */
+export function effacerVueExacte(): void {
+  const enVue = Boolean(cookies().get(IMPERSONATE_COOKIE)?.value);
+  cookies().set(IMPERSONATE_COOKIE, "", { httpOnly: true, path: "/", maxAge: 0 });
+  cookies().set(MARQUE_VUE_COOKIE, "", { httpOnly: false, path: "/", maxAge: 0 });
+  // Et l'entité choisie DANS la vue ne survit pas à la sortie (seulement si une vue était ouverte).
+  if (enVue) cookies().set(COMPANY_COOKIE, "", { path: "/", maxAge: 0 });
+}
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════

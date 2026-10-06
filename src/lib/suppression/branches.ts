@@ -167,6 +167,8 @@ export const ENTITE_DU_MODELE: Readonly<Record<string, EntityType>> = {
   // facture RÉGLÉE bloque la suppression (`faitIrreversible`), elle ne la suit pas en silence.
   PchTender: "PCH_TENDER",
   PchOrder: "PCH_ORDER",
+  // Un cas de pharmacovigilance (Direction, 06/10) : ses pièces et son échange le suivent.
+  PharmacovigilanceCase: "PHARMACOVIGILANCE_CASE",
 };
 
 /**
@@ -297,6 +299,8 @@ export const LIBELLE_DU_MODELE: Readonly<Record<string, [string, string]>> = {
   ValidationRequest: ["demande de validation", "demandes de validation"],
   ValidationStep: ["étape de validation", "étapes de validation"],
   ValidationParticipant: ["participant à la demande de validation", "participants à la demande de validation"],
+  PharmacovigilanceCase: ["cas de pharmacovigilance", "cas de pharmacovigilance"],
+  PharmacovigilanceParticipant: ["participant à un cas de pharmacovigilance", "participants à un cas de pharmacovigilance"],
   LeaveEscalation: ["avis demandé au N+1", "avis demandés au N+1"],
   ValidationItemDecision: ["décision de ligne validée", "décisions de lignes validées"],
   PaymentRequest: ["demande de paiement", "demandes de paiement"],

@@ -932,6 +932,7 @@ export const ENTITY_TYPE_LABELS: Record<string, string> = {
   MAIL_ENTRY: "Courrier",
   LEGAL_DOCUMENT: "Document légal",
   INVOICE: "Facture",
+  PHARMACOVIGILANCE_CASE: "Cas de pharmacovigilance",
 };
 
 /**
@@ -1462,7 +1463,7 @@ export interface NavItem {
    * envoyé qu'au Super Admin (`peutPiloterMissionsAdam`, §118.136) — le module WORKSPACE est à
    * tout le monde, la règle n'est pas un module.
    */
-  gate?: "regEnrollment" | "pipeline" | "payroll" | "myTeam" | "adamMissions" | "adam" | "corbeilleOps";
+  gate?: "regEnrollment" | "pipeline" | "payroll" | "myTeam" | "adamMissions" | "adam" | "corbeilleOps" | "pharmacovigilance";
   /**
    * Entrée fusionnée : plusieurs sous-modules présentés en onglets sur la page.
    * L'entrée est visible si l'utilisateur a accès à **au moins un** onglet, et son
@@ -1740,6 +1741,7 @@ export const MODULE_LABELS: Record<Module, string> = {
   EMPLOYEES: "Employés",
   HR_REQUESTS: "Demandes RH",
   TRAINING: "Formations",
+  PHARMACOVIGILANCE: "Pharmacovigilance",
 };
 
 /**
@@ -1878,6 +1880,10 @@ export const NAVIGATION: NavItem[] = [
   // avec exactement les mêmes titulaires qu'hier. Déplacer une entrée de menu ne doit jamais
   // ouvrir ni fermer un écran à quiconque, et c'est vérifié (`navigation.test.ts`).
   { module: "MEDICAL_INFO", label: "Information médicale", href: "/information-medicale", icon: "ShieldPlus", group: "Pôles", pole: "REGULATORY" },
+  // PHARMACOVIGILANCE (Direction, 06/10) — la boîte de réception des cas signalés par les KAM. GARDE
+  // `pharmacovigilance` : l'entrée ne s'affiche qu'à qui reçoit les cas (portée TOUT) ; le KAM, qui ne lit que ses
+  // signalements, les retrouve dans les Rapports terrain — il n'a rien à faire dans le pôle Regulatory.
+  { module: "PHARMACOVIGILANCE", label: "Pharmacovigilance", href: "/regulatory/pharmacovigilance", icon: "ShieldAlert", group: "Pôles", pole: "REGULATORY", gate: "pharmacovigilance" },
 
   // ADMINISTRATION — l'administration de L'ENTREPRISE (à ne pas confondre avec la Console
   // d'Administration, qui est celle du logiciel et vit dans « Système »).

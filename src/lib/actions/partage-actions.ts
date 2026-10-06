@@ -3,6 +3,7 @@
 import type { EntityType } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/session";
+import { enLecture } from "@/lib/vue-lecture";
 import { userCan } from "@/lib/rbac";
 import { canAccessEntity, ENTITY_MODULE } from "@/lib/entity-access";
 import { resolveDriveAccess } from "@/lib/drive";
@@ -178,7 +179,7 @@ export async function partagerParMessagerie(formData: FormData): Promise<Resulta
  * ═══════════════════════════════════════════════════════════════════════════════════════════
  */
 export async function listerDestinatairesPartage(): Promise<{ ok: boolean; groupes: GroupePartage[]; people: PersonneDestinataire[]; error?: string }> {
-  const user = await requireUser();
+  const user = await enLecture(requireUser);
   if (!userCan(user, "MESSAGING", "CREATE")) return { ok: false, groupes: [], people: [], error: "Vous n'avez pas accès à la messagerie." };
   // DEUX LECTURES LÉGÈRES (Direction, 06/10 : « le chargement ne s'arrête pas ») : les groupes dont on est membre — sans
   // leurs messages ni leurs membres —, et les collègues actifs avec, pour chacun, s'il existe déjà une conversation.

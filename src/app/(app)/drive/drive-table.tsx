@@ -19,6 +19,7 @@ import {
 import { sortRows, type SortKey, type SortDir } from "@/lib/drive/explorer";
 import { NodeActions } from "./node-actions";
 import { BoutonTelecharger } from "@/components/telechargement/bouton-telecharger";
+import { useCleParPersonne } from "@/components/layout/identite-vue";
 
 export interface DriveRow {
   id: string;
@@ -163,13 +164,16 @@ export function DriveTable({
    * Un glisser-déposer ne sait pas faire cela — il exige que la source et la destination soient
    * visibles en même temps. Le presse-papiers vit donc dans le navigateur, pas en mémoire.
    */
+  // Rangé par PERSONNE À L'ÉCRAN : en Vue exacte, ce que l'administrateur a coupé chez lui ne se colle pas
+  // dans le Drive de Leila (Direction, 06/10 — pas de chevauchement).
+  const cleClip = useCleParPersonne(CLIPBOARD_KEY);
   React.useEffect(() => {
-    const read = () => { try { setClip(parseClipboard(window.localStorage.getItem(CLIPBOARD_KEY))); } catch { setClip(null); } };
+    const read = () => { try { setClip(parseClipboard(window.localStorage.getItem(cleClip))); } catch { setClip(null); } };
     read();
     // Un autre onglet a copié : la barre du nôtre doit le savoir.
     window.addEventListener("storage", read);
     return () => window.removeEventListener("storage", read);
-  }, []);
+  }, [cleClip]);
 
   const putClip = React.useCallback((mode: "copy" | "cut") => {
     const picked = sorted.filter((r) => sel.ids.includes(r.id));
@@ -181,11 +185,11 @@ export function DriveTable({
       return;
     }
     const next: Clipboard = { mode, ids: picked.map((r) => r.id), names: picked.map((r) => r.name), fromFolderId: folderId };
-    try { window.localStorage.setItem(CLIPBOARD_KEY, serializeClipboard(next)); } catch { /* refusé : presse-papiers volatil */ }
+    try { window.localStorage.setItem(cleClip, serializeClipboard(next)); } catch { /* refusé : presse-papiers volatil */ }
     setClip(next);
     setMoveMsg({ ok: true, text: `${clipboardLabel(next)} — collez dans le dossier de votre choix.` });
     window.setTimeout(() => setMoveMsg(null), 3500);
-  }, [sorted, sel.ids, folderId]);
+  }, [sorted, sel.ids, folderId, cleClip]);
 
   const paste = React.useCallback(async () => {
     const check = canPasteInto(clip, { folderId, ancestorIds });
@@ -205,11 +209,11 @@ export function DriveTable({
     // Couper se consomme : garder le presse-papiers ferait « déplacer » une seconde fois des
     // éléments qui ne sont plus là. Copier reste disponible pour un second collage.
     if (r.ok && clip.mode === "cut") {
-      try { window.localStorage.removeItem(CLIPBOARD_KEY); } catch { /* rien à nettoyer */ }
+      try { window.localStorage.removeItem(cleClip); } catch { /* rien à nettoyer */ }
       setClip(null);
     }
     if (r.ok) router.refresh();
-  }, [clip, folderId, ancestorIds, spaceId, router]);
+  }, [clip, folderId, ancestorIds, spaceId, router, cleClip]);
 
   React.useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -261,7 +265,7 @@ export function DriveTable({
           </button>
           <button
             type="button"
-            onClick={() => { try { window.localStorage.removeItem(CLIPBOARD_KEY); } catch { /* rien */ } setClip(null); }}
+            onClick={() => { try { window.localStorage.removeItem(cleClip); } catch { /* rien */ } setClip(null); }}
             className="text-xs text-muted-foreground hover:text-foreground"
           >
             Vider

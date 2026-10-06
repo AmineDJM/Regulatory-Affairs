@@ -20,6 +20,7 @@ import { clauseBonsDeCommandePchVisibles, clauseFormationsVisibles, clauseMarche
 import { isManagerOfUser } from "@/lib/departments";
 import { actsForUser } from "@/lib/hr/stand-in-resolve";
 import { canViewDeclaration } from "@/lib/queries/medical-info";
+import { accesAuCasPv } from "@/lib/pharmacovigilance/acces";
 import {
   userCan, hasGlobalView, scopeMedicalDoctors, scopeMedicalVisits, scopeSales, scopeBusinessDevelopment, scopeSupport, scopeDossiers, type Action, type Module, type SessionUser,
   annuaireOuvertParConsole, scopeCongressIntl, scopeCongressNational, scopePromoMaterial, scopeSponsoring,
@@ -103,6 +104,9 @@ export const ENTITY_MODULE: Record<EntityType, Module> = {
   // Une formation relève des RH — mais la personne qui la DEMANDE n'a pas le module : sa porte est
   // la règle de la liste (`clauseFormationsVisibles`), lue plus bas AVANT le droit de module.
   TRAINING: "TRAINING",
+  // Un cas de pharmacovigilance : l'accès réel est nominatif (déclarant, participants, qui reçoit les cas), résolu
+  // plus bas par `accesAuCasPv`.
+  PHARMACOVIGILANCE_CASE: "PHARMACOVIGILANCE",
 };
 
 /**
@@ -536,6 +540,10 @@ export async function canAccessEntity(
     });
     return v ? lecteurDeLaDemandeDeValidation(user, v, action) : false;
   }
+
+  // UN CAS DE PHARMACOVIGILANCE (Direction, 06/10) : la règle de SA FICHE, avant le droit de module — une personne
+  // ajoutée à l'échange n'a pas forcément le module, et un KAM qui l'a ne lit que SES signalements.
+  if (entityType === "PHARMACOVIGILANCE_CASE") return accesAuCasPv(user, entityId, action);
 
   // POSTE DE DÉPENSE : l'accès ne vient PAS d'un module, il vient de SON OPÉRATION.
   //

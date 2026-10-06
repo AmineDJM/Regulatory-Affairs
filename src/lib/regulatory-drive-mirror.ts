@@ -1,7 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { putBlob } from "@/lib/drive-storage";
 import { mimeFromName } from "@/lib/drive/mime-nom";
-import { rangerDocumentsDansDrive } from "@/lib/regulatory/drive-dossier";
+import { rangerDocumentsDansDrive } from "@/lib/regulatory-drive-dossier";
 
 export { mimeFromName };
 

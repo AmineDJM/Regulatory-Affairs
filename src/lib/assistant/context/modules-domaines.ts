@@ -105,6 +105,7 @@ export const SERVICE_DU_MODULE: Record<CleModule, ServiceDuModule> = {
   EMPLOYEES: { domaines: ["HR"], mots: ["employes", "equipe", "consultants", "departements", "fiche salarie"] },
   HR_REQUESTS: { domaines: ["HR"], mots: ["demandes rh", "attestation", "ordre de mission", "conge", "absence", "arret maladie"] },
   TRAINING: { domaines: ["HR"], mots: ["formation", "formations", "seminaire"] },
+  PHARMACOVIGILANCE: { domaines: ["REGULATORY"], mots: ["pharmacovigilance", "effet indesirable", "cas pv", "signalement"] },
   DOCUMENTS: { domaines: ["DRIVE"] },
   DRIVE: { domaines: ["DRIVE"] },
   ADMIN: { domaines: ["ADMIN"] },

@@ -6,6 +6,7 @@ import { revalidatePath } from "next/cache";
 import type { Priority, ProductChannel, ProductType, RegulatoryCategory, RegulatoryStatus, StepStatus, ManufacturingStatus, VariationStatus, UserRole } from "@prisma/client";
 import { Prisma } from "@prisma/client";
 import { requireUser } from "@/lib/session";
+import { enLecture } from "@/lib/vue-lecture";
 import { userCan, isRegulatorySupervisor, holdsRegulatoryLock, type SessionUser } from "@/lib/rbac";
 import { pipelineAccessFor } from "@/lib/regulatory/pipeline-access";
 import { regulatoryVisibleWhere } from "@/lib/queries/regulatory-rows";
@@ -37,7 +38,7 @@ import {
   type RegWorkflowState, type RegChecklistState,
 } from "@/lib/regulatory-workflow";
 import { deriveStatus } from "@/lib/regulatory/process-status";
-import { creerDossierDriveProduit, synchroniserDossierDrive } from "@/lib/regulatory/drive-dossier";
+import { creerDossierDriveProduit, synchroniserDossierDrive } from "@/lib/regulatory-drive-dossier";
 import { emit } from "@/platform/events";
 
 export interface ActionResult {
@@ -131,7 +132,7 @@ export interface ExistantDeLaMolecule {
 }
 
 export async function checkDciDuplicate(dci: string): Promise<{ notice: string | null; canRequestAccess: boolean; existants: ExistantDeLaMolecule[] }> {
-  const user = await requireUser();
+  const user = await enLecture(requireUser);
   // Le même droit que la création : ce que cette réponse révèle (« cette DCI est déjà suivie »)
   // n'a pas à sortir pour qui n'ouvre pas de dossier.
   if (!userCan(user, "REGULATORY", "CREATE")) return { notice: null, canRequestAccess: false, existants: [] };

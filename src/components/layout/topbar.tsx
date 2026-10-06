@@ -16,7 +16,8 @@ import { groupIntoPoles, itemsOfGroup, poleOfPath, OPEN_POLES_KEY, FLAT_GROUPS }
 
 interface TopbarProps {
   navItems: NavItem[];
-  user: { name: string; email: string; role: string };
+  /** La personne À L'ÉCRAN (visualisée en Vue exacte) — jamais l'objet de session entier. */
+  user: { name: string; email: string; role: string; enVue?: boolean };
   unreadCount: number;
   canMessage: boolean;
   messagingUnread: number;
@@ -124,7 +125,7 @@ export function Topbar({ navItems, user, unreadCount, canMessage, messagingUnrea
               </span>
             )}
           </Link>
-          <UserMenu name={user.name} email={user.email} role={user.role} />
+          <UserMenu name={user.name} email={user.email} role={user.role} enVue={user.enVue} />
         </div>
       </header>
 

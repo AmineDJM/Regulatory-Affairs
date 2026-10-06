@@ -120,6 +120,10 @@ export const MODULES = [
   // HR_REQUESTS — « Demandes RH » (attestations, ordres de mission, notes de frais, congés et absences) ;
   // TRAINING — « Formations ». « RH » garde la paie, les avances et le tableau de bord des RH.
   "EMPLOYEES", "HR_REQUESTS", "TRAINING",
+  // PHARMACOVIGILANCE (Direction, 06/10) : la réception des cas signalés par les KAM depuis les Rapports terrain.
+  // Voir en portée TOUT = la boîte de Regulatory ; en portée « ses lignes » = ses propres signalements et les cas
+  // où l'on a été ajouté. Créer = signaler un cas ; Modifier/Valider = instruire (statut, enquête, participants).
+  "PHARMACOVIGILANCE",
 ] as const;
 export type Module = (typeof MODULES)[number];
 
@@ -523,6 +527,20 @@ for (const role of Object.keys(PERMISSIONS) as UserRole[]) {
   for (const m of SOUS_MODULES_RH) if (!matrice[m]) matrice[m] = [...rh];
 }
 
+/**
+ * LA PHARMACOVIGILANCE PAR DÉFAUT (Direction, 06/10) — qui tient Regulatory reçoit les cas, avec exactement ses gestes
+ * de Regulatory ; qui rédige des rapports terrain (Créer) peut SIGNALER un cas — Voir + Créer + Téléverser, en portée
+ * « ses lignes » (`defaultScope`) : il ne lit que ses signalements. Un défaut, réglable ensuite dans la console.
+ */
+const GESTES_DECLARANT_PV: Action[] = ["VIEW", "CREATE", "UPLOAD"];
+for (const role of Object.keys(PERMISSIONS) as UserRole[]) {
+  if (role === "SUPER_ADMIN") continue;
+  const matrice = PERMISSIONS[role];
+  if (matrice.PHARMACOVIGILANCE) continue;
+  if (matrice.REGULATORY?.includes("VIEW")) matrice.PHARMACOVIGILANCE = [...matrice.REGULATORY];
+  else if (matrice.FIELD_REPORTS?.includes("CREATE")) matrice.PHARMACOVIGILANCE = [...GESTES_DECLARANT_PV];
+}
+
 const GLOBAL_VIEW_ROLES: UserRole[] = ["SUPER_ADMIN", "DIRECTION"];
 
 /** Type minimal « porteur de rôles » : rôle principal + éventuel rôle secondaire. */
@@ -810,6 +828,9 @@ export function defaultScope(role: UserRole, module: Module): AccessScope {
   if (module === "SUPPORT") return "ASSIGNED";
   // Dossiers de suivi : chacun ne voit que les dossiers créés / dont il est responsable / où il participe.
   if (module === "DOSSIERS") return "ASSIGNED";
+  // Pharmacovigilance (Direction, 06/10) : la boîte entière à qui tient Regulatory ; les autres (le KAM qui signale)
+  // ne lisent que leurs signalements et les cas où on les a ajoutés.
+  if (module === "PHARMACOVIGILANCE") return PERMISSIONS[role]?.REGULATORY?.includes("VIEW") ? "ALL" : "ASSIGNED";
   const assigned: Partial<Record<Module, UserRole[]>> = {
     REGULATORY: ["REGULATORY_ASSISTANT"],
     SALES: ["SALES_USER"],

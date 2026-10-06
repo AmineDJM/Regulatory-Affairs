@@ -3,7 +3,7 @@ import { userCan } from "@/lib/rbac";
 import { clauseSalariesVisibles } from "@/lib/queries/visibilite-listes";
 import { getLeavesToDecide } from "@/lib/queries/hr";
 import { getHrRequestQueue } from "@/lib/queries/hr-documents";
-import { referenceOrdreMissionSuggeree } from "@/lib/hr/ordre-mission/service";
+import { referenceOrdreMissionSuggeree } from "@/lib/ordre-mission-depot";
 import { PageHeader } from "@/components/shared/page-header";
 import { ModuleTabs } from "@/components/shared/module-tabs";
 import { visibleTabs } from "@/lib/nav-tabs";

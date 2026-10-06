@@ -19,6 +19,7 @@ import type { VoyageurVue } from "@/components/ad-pro/voyageurs-bloc";
 import type { HebergementVue } from "@/components/ad-pro/hebergements-bloc";
 import { porteDesHebergements } from "@/lib/ad-pro/hebergements";
 import { piecesDesPostes, demandesBCDesPostes, assistantesDeDirection } from "@/lib/ad-pro/pieces-poste";
+import { pieceEmise, specRevisable } from "@/lib/legal/piece-emise";
 import { devisDesPostes } from "@/lib/queries/ad-pro-devis-poste";
 import { droitsValidation, estDirectionMarketingPoste, type DroitsValidation } from "@/lib/ad-pro/validation-poste";
 
@@ -179,6 +180,21 @@ export async function loadAdProItems(parent: AdProParent, parentId: string): Pro
   // LA CHAÎNE D'ACHAT DE CHAQUE POSTE (§118.204) — devis, BC, factures — et la demande de BC chez
   // l'assistante. En lot, comme le reste.
   const [piecesParPoste, demandeBcParPoste, devisParPoste] = await Promise.all([piecesDesPostes(itemIds), demandesBCDesPostes(itemIds), devisDesPostes(itemIds)]);
+  // « MODIFIER LE BC » (Direction, 06/10) : ce que l'éditeur natif reprend d'un BC de la fabrique, ni signé ni annulé. Lu
+  // ICI, dans la façade : la lecture d'une pièce émise est du domaine Legal, et le domaine Ad & Pro n'en importe pas.
+  const bcsRevisables = [...piecesParPoste.values()].flatMap((p) => p.bcs).filter((b) => !b.annulee && b.etape !== "SIGNE");
+  if (bcsRevisables.length > 0) {
+    const docs = await prisma.legalDocument.findMany({
+      where: { id: { in: bcsRevisables.map((b) => b.id) }, signedAt: null }, select: { id: true, custom: true },
+    });
+    const parId = new Map(docs.map((d) => [d.id, d.custom]));
+    for (const b of bcsRevisables) {
+      const custom = parId.get(b.id);
+      const emise = custom !== undefined ? pieceEmise(custom) : null;
+      const spec = emise ? specRevisable(custom) : null;
+      b.revision = emise && spec ? { version: emise.version, numero: emise.numero, spec } : null;
+    }
+  }
   const natureDuType = new Map<string, NaturePieceSecretariat>(
     NATURES_PIECE_SECRETARIAT.map((n) => [String(PIECE_SECRETARIAT[n].type), n]),
   );

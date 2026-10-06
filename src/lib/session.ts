@@ -1,3 +1,4 @@
+import { cache } from "react";
 import { cookies } from "next/headers";
 import { actionAsyncStorage } from "next/dist/client/components/action-async-storage.external";
 import { redirect } from "next/navigation";
@@ -11,6 +12,8 @@ import { shouldTouch } from "./touch-throttle";
 import { getAppSettings } from "./settings";
 import { canOpenModule } from "./modules-visibility";
 import { IMPERSONATE_COOKIE } from "./vue-exacte";
+import { vueHonoree } from "./vue-exacte-ui";
+import { lectureDeclaree } from "./vue-lecture";
 
 /**
  * Nom du cookie de « Vue exacte » (impersonation), honoré uniquement pour un Super Admin. Défini dans
@@ -31,6 +34,12 @@ export interface CurrentUser {
   mustChangePassword: boolean;
   /** Présent quand un Super Admin visualise l'OS « comme » cet utilisateur. */
   impersonatedBy?: { id: string; name: string };
+  /**
+   * Présent sur le Super Admin RÉEL (corps d'une écriture) quand une Vue exacte est ouverte : la personne
+   * visualisée. Un geste qui ne vaut que pour « soi » (Adam, sa mémoire) le refuse — `impersonatedBy`
+   * seul n'y suffit pas, il n'existe jamais dans le corps d'une action.
+   */
+  visualise?: { id: string; name: string };
 }
 
 /**
@@ -46,8 +55,9 @@ export interface CurrentUser {
  *   · L'en-tête dit « cette requête VIENT d'une action », pas « le code qui tourne est celui de
  *     l'action » : le rendu de la page qui suit l'action est un RENDU, il LIT.
  *
- * Next marque l'exécution du corps de l'action — et d'elle seule — dans un stockage asynchrone
- * (`actionAsyncStorage`, `isAction`) : c'est le fait que `cookies().set` et `redirect` lisent eux-mêmes.
+ * Next marque l'exécution de l'action dans un stockage asynchrone (`actionAsyncStorage`, `isAction`) :
+ * c'est le fait que `cookies().set` et `redirect` lisent eux-mêmes. ⚠️ Pas « d'elle seule » : le rendu
+ * qui suit une action qui revalide y tourne aussi — d'où `rendreEnCours` ci-dessous (Direction, 06/10).
  * Une route d'API qui écrit le DIT en appelant `getCurrentUserPourEcrire` (un cliquet l'exige de chaque
  * gestionnaire POST/PUT/PATCH/DELETE). Hors requête (banc, battement), personne n'usurpe rien.
  */
@@ -59,7 +69,47 @@ function actionServeurEnCours(): boolean {
   }
 }
 
-async function build(session: Session | null, opts: { ecriture?: boolean; auNomDeLaVue?: boolean } = {}): Promise<CurrentUser | null> {
+/**
+ * UN RENDU DE COMPOSANTS SERVEUR EST-IL EN COURS ? — la moitié manquante de la règle ci-dessus.
+ *
+ * « Le problème d'interface quand je vois à la place d'un user refait surface » (Direction, 06/10). LU dans
+ * Next 14.2 (`server/app-render/action-handler.js`) : `generateFlight` — le rendu de la page qui SUIT une
+ * action qui revalide — s'exécute DANS `actionAsyncStorage.run({ isAction: true })`. Tout ce rendu (la coque :
+ * nom en haut, menu, pastilles, bandeau ; et la page) se faisait donc au nom de l'ADMINISTRATEUR, au milieu
+ * de l'écran de la personne visualisée : le chevauchement, après chaque geste.
+ *
+ * React dit, lui, si l'on rend : `cache` ne mémorise QUE pendant un rendu de composants serveur (documenté ;
+ * hors rendu — corps d'une action, route d'API — chaque appel recalcule). Deux appels qui rendent le même
+ * objet = un rendu en cours. Hors de Next (bancs : React 18 sans `cache`), aucun rendu.
+ */
+const sondeDeRendu: (() => object) | null =
+  typeof cache === "function" ? (cache as <T extends () => object>(f: T) => T)(() => ({})) : null;
+function rendreEnCours(): boolean {
+  if (!sondeDeRendu) return false;
+  try {
+    return sondeDeRendu() === sondeDeRendu();
+  } catch {
+    return false;
+  }
+}
+
+/** Le cookie de la vue, ou `undefined` hors requête (banc, battement : personne ne visualise rien). */
+function cookieDeVue(): string | undefined {
+  try {
+    return cookies().get(IMPERSONATE_COOKIE)?.value;
+  } catch {
+    return undefined;
+  }
+}
+
+interface OptionsDeSession {
+  /** Route d'API qui écrit : au nom du Super Admin (§118.184). */
+  ecriture?: boolean;
+  /** Création d'une demande : au nom de la personne visualisée (Direction, 06/10). */
+  auNomDeLaVue?: boolean;
+}
+
+async function build(session: Session | null, opts: OptionsDeSession = {}): Promise<CurrentUser | null> {
   if (!session?.user) return null;
 
   // Validate the revocable session: reject revoked/expired tokens so the admin
@@ -95,14 +145,28 @@ async function build(session: Session | null, opts: { ecriture?: boolean; auNomD
   // teste son parcours de bout en bout : la fiche se crée à son nom, avec ses droits et sa gamme, et
   // s'ouvre dans cette même vue. Réservé au Super Admin RÉEL (la condition ci-dessous) ; la requête
   // garde `impersonatedBy` pour que l'on sache qui a testé.
-  if (session.user.role === "SUPER_ADMIN" && (opts.auNomDeLaVue || !(opts.ecriture || actionServeurEnCours()))) {
-    const targetId = cookies().get(IMPERSONATE_COOKIE)?.value;
-    if (targetId && targetId !== session.user.id) {
-      const target = await prisma.user.findUnique({
-        where: { id: targetId },
-        select: { id: true, name: true, email: true, role: true, isActive: true },
+  //
+  // QUI EST À L'ÉCRAN (Direction, 06/10 — « pas de chevauchement possible ») : la règle tient dans
+  // `vueHonoree` (vue-exacte-ui.ts). Tout ce qui s'AFFICHE voit la vue — y compris le rendu qui suit une
+  // action et les actions qui ne font que lire (`enLecture(requireUser)`) ; seul le CORPS d'une écriture part
+  // au nom du Super Admin, qui garde alors `visualise` : un geste réservé à « soi » (Adam) sait le refuser.
+  let visualise: CurrentUser["visualise"];
+  const targetId = session.user.role === "SUPER_ADMIN" ? cookieDeVue() : undefined;
+  if (targetId && targetId !== session.user.id) {
+    const target = await prisma.user.findUnique({
+      where: { id: targetId },
+      select: { id: true, name: true, email: true, role: true, isActive: true },
+    });
+    if (target && target.isActive) {
+      const honoree = vueHonoree({
+        ecriture: !!opts.ecriture,
+        auNomDeLaVue: !!opts.auNomDeLaVue,
+        lecture: lectureDeclaree(),
+        actionServeur: actionServeurEnCours(),
+        rendu: rendreEnCours(),
       });
-      if (target && target.isActive) {
+      if (!honoree) visualise = { id: target.id, name: target.name };
+      else {
         const targetAccess = await getAccess(target.id, target.role);
         return {
           id: target.id,
@@ -133,6 +197,7 @@ async function build(session: Session | null, opts: { ecriture?: boolean; auNomD
     access,
     sid,
     mustChangePassword: session.user.mustChangePassword ?? false,
+    ...(visualise ? { visualise } : {}),
   };
 }
 

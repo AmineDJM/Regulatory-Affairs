@@ -4,7 +4,7 @@ import { prisma } from "@/lib/prisma";
 import type { SessionUser } from "@/lib/rbac";
 import { getDriveListing } from "@/lib/queries/drive";
 import { REG_DRIVE_ROOT } from "@/lib/regulatory-drive-mirror";
-import { dossierDriveDuProduit } from "@/lib/regulatory/drive-dossier";
+import { dossierDriveDuProduit } from "@/lib/regulatory-drive-dossier";
 import { onlyofficeConfigured } from "@/lib/onlyoffice";
 import { formatDateTime } from "@/lib/utils";
 import { fileTypeLabel, explorerSize } from "@/lib/drive/explorer";

@@ -1,7 +1,7 @@
 // ⚠️  FICHIER GÉNÉRÉ — ne pas éditer à la main. Voir `npm run actions:contrat`.
 //
 // Chaque entrée est un spécificateur LITTÉRAL : l'empaqueteur les voit tous, et rien n'est
-// chargé avant l'appel. `executer.test.ts` résout les 945 actions et échoue en
+// chargé avant l'appel. `executer.test.ts` résout les 957 actions et échoue en
 // nommant celle qui a disparu — c'est le contrôle d'appelant que le compilateur ne fait pas ici.
 
 export const MODULES_ACTIONS: Readonly<Record<string, () => Promise<Record<string, unknown>>>> = {
@@ -48,6 +48,7 @@ export const MODULES_ACTIONS: Readonly<Record<string, () => Promise<Record<strin
   "custom-field-actions": () => import("./custom-field-actions") as unknown as Promise<Record<string, unknown>>,
   "database-admin-actions": () => import("./database-admin-actions") as unknown as Promise<Record<string, unknown>>,
   "delegate-plan-actions": () => import("./delegate-plan-actions") as unknown as Promise<Record<string, unknown>>,
+  "demande-stocks-actions": () => import("./demande-stocks-actions") as unknown as Promise<Record<string, unknown>>,
   "department-actions": () => import("./department-actions") as unknown as Promise<Record<string, unknown>>,
   "department-budget-actions": () => import("./department-budget-actions") as unknown as Promise<Record<string, unknown>>,
   "directive-actions": () => import("./directive-actions") as unknown as Promise<Record<string, unknown>>,
@@ -112,6 +113,7 @@ export const MODULES_ACTIONS: Readonly<Record<string, () => Promise<Record<strin
   "pch-market-actions": () => import("./pch-market-actions") as unknown as Promise<Record<string, unknown>>,
   "pch-tender-line-actions": () => import("./pch-tender-line-actions") as unknown as Promise<Record<string, unknown>>,
   "petty-cash-actions": () => import("./petty-cash-actions") as unknown as Promise<Record<string, unknown>>,
+  "pharmacovigilance-actions": () => import("./pharmacovigilance-actions") as unknown as Promise<Record<string, unknown>>,
   "platform-audit-actions": () => import("./platform-audit-actions") as unknown as Promise<Record<string, unknown>>,
   "product-catalog-actions": () => import("./product-catalog-actions") as unknown as Promise<Record<string, unknown>>,
   "product-range-actions": () => import("./product-range-actions") as unknown as Promise<Record<string, unknown>>,
@@ -129,6 +131,7 @@ export const MODULES_ACTIONS: Readonly<Record<string, () => Promise<Record<strin
   "recruitment-actions": () => import("./recruitment-actions") as unknown as Promise<Record<string, unknown>>,
   "regulatory-actions": () => import("./regulatory-actions") as unknown as Promise<Record<string, unknown>>,
   "regulatory-ctd-actions": () => import("./regulatory-ctd-actions") as unknown as Promise<Record<string, unknown>>,
+  "regulatory-drive-actions": () => import("./regulatory-drive-actions") as unknown as Promise<Record<string, unknown>>,
   "regulatory-reminder-actions": () => import("./regulatory-reminder-actions") as unknown as Promise<Record<string, unknown>>,
   "regulatory-timeline-actions": () => import("./regulatory-timeline-actions") as unknown as Promise<Record<string, unknown>>,
   "reminder-actions": () => import("./reminder-actions") as unknown as Promise<Record<string, unknown>>,

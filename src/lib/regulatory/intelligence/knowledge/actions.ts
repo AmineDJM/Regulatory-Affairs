@@ -1,6 +1,7 @@
 "use server";
 
 import { requireUser } from "@/lib/session";
+import { enLecture } from "@/lib/vue-lecture";
 import { prisma } from "@/lib/prisma";
 import { aiConfigured } from "@/lib/ai";
 import { regCan, resolveRegCompanyIdFor } from "../access";
@@ -173,7 +174,7 @@ export async function askDossierAgentAction(formData: FormData): Promise<Dossier
 /** Recharge le fil persistant du dossier (messagerie) — mêmes gardes d'accès que l'agent. */
 export async function loadDossierChatAction(formData: FormData): Promise<{ ok: boolean; messages: ThreadMessageView[]; error?: string }> {
   const fail = (error: string) => ({ ok: false, messages: [] as ThreadMessageView[], error });
-  const user = await requireUser();
+  const user = await enLecture(requireUser);
   if (!regCan(user, "regulatory.document.view") && user.role !== "SUPER_ADMIN") return fail("Non autorisé.");
   const dossierId = String(formData.get("dossierId") ?? "").trim();
   if (!dossierId) return fail("Paramètres manquants.");

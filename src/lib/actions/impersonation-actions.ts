@@ -1,10 +1,9 @@
 "use server";
 
-import { cookies } from "next/headers";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
-import { IMPERSONATE_COOKIE } from "@/lib/session";
+import { poserVueExacte, effacerVueExacte } from "@/lib/vue-exacte";
 import { fdStr, type ActionResult } from "@/lib/actions/types";
 
 /**
@@ -22,13 +21,9 @@ export async function startImpersonation(formData: FormData): Promise<ActionResu
   const target = await prisma.user.findUnique({ where: { id: targetId }, select: { name: true, isActive: true } });
   if (!target || !target.isActive) return { ok: false, error: "Utilisateur introuvable ou inactif." };
 
-  cookies().set(IMPERSONATE_COOKIE, targetId, {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "lax",
-    path: "/",
-    maxAge: 60 * 60 * 4, // 4 h
-  });
+  // Cookie de la vue + témoin lu par l'écran, posés ensemble (`vue-exacte.ts`) : un autre onglet ouvert
+  // se recharge en entier au lieu de mêler deux personnes (`GardeIdentite`).
+  poserVueExacte(targetId);
   await recordAudit({
     actorId: session.user.id, action: "LOGIN", module: "Administration",
     summary: `Vue exacte démarrée — ${target.name}`,
@@ -43,7 +38,7 @@ export async function startImpersonation(formData: FormData): Promise<ActionResu
 /** Quitte la « Vue exacte ». Même raison : le bouton recharge toute la page (la coque redevient celle de l'administrateur). */
 export async function stopImpersonation(): Promise<ActionResult> {
   const session = await auth();
-  cookies().set(IMPERSONATE_COOKIE, "", { httpOnly: true, path: "/", maxAge: 0 });
+  effacerVueExacte();
   if (session?.user?.id) {
     await recordAudit({ actorId: session.user.id, action: "LOGOUT", module: "Administration", summary: "Vue exacte terminée" });
   }

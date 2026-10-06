@@ -3,6 +3,7 @@
 import type { DocumentRequestStatus, EntityType, LegalDocKind } from "@prisma/client";
 import { revalidatePath } from "next/cache";
 import { requireUser } from "@/lib/session";
+import { enLecture } from "@/lib/vue-lecture";
 import { hasGlobalView } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
@@ -317,7 +318,7 @@ export async function cancelDocumentRequest(formData: FormData): Promise<ActionR
  * n'ouvriront pas.
  */
 export async function askablePeople(): Promise<{ id: string; name: string }[]> {
-  const user = await requireUser();
+  const user = await enLecture(requireUser);
   return prisma.user.findMany({
     where: { isActive: true, id: { not: user.id } },
     select: { id: true, name: true }, orderBy: { name: "asc" },

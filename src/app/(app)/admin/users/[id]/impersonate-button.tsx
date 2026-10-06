@@ -3,6 +3,7 @@
 import * as React from "react";
 import { Eye, Loader2 } from "lucide-react";
 import { startImpersonation } from "@/lib/actions/impersonation-actions";
+import { annoncerBasculeDeVue, annulerBasculeDeVue } from "@/components/layout/identite-vue";
 
 export function ImpersonateButton({ userId }: { userId: string }) {
   const [pending, start] = React.useTransition();
@@ -13,8 +14,10 @@ export function ImpersonateButton({ userId }: { userId: string }) {
         start(async () => {
           const fd = new FormData();
           fd.set("userId", userId);
-          const r = await startImpersonation(fd);
-          if (!r.ok) { window.alert(r.error ?? "Erreur."); return; }
+          // La garde d'identité se tait : c'est ce bouton qui recharge, vers l'espace de la personne.
+          annoncerBasculeDeVue();
+          const r = await startImpersonation(fd).catch(() => null);
+          if (!r || !r.ok) { annulerBasculeDeVue(); window.alert(r?.error ?? "Erreur."); return; }
           // RECHARGEMENT COMPLET : la coque (barre du haut, menu, bandeau) se rend pour la personne visualisée.
           window.location.assign(r.message ?? "/mon-espace");
         })

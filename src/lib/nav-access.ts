@@ -8,6 +8,7 @@ import { loadReportingLine } from "@/lib/departments";
 import { managesAnyone } from "@/lib/hr/reporting-line";
 import { prisma } from "@/lib/prisma";
 import { estDirecteurDesOperations } from "@/lib/suppression/delegation";
+import { voitTousLesCasPv } from "@/lib/pharmacovigilance/acces";
 
 /**
  * CE QU'UNE PERSONNE A LE DROIT D'OUVRIR — la réponse, une fois, pour tous les écrans.
@@ -107,6 +108,9 @@ export async function navigationFor(user: SessionUser): Promise<NavItem[]> {
     corbeilleOps: user.role !== "SUPER_ADMIN" && estDirecteurDesOperations(user),
     // ADAM (assistant + chief of staff) : le Super Admin seul (§118.153). La palette suit le menu.
     adam: peutVoirAdam(user),
+    // LA BOÎTE DE PHARMACOVIGILANCE (Direction, 06/10) : à qui REÇOIT les cas (portée TOUT). Le KAM qui signale lit
+    // ses cas depuis les Rapports terrain — une entrée de pôle Regulatory lui ouvrirait une boîte presque vide.
+    pharmacovigilance: voitTousLesCasPv(user),
   };
 
   // Les SOUS-MODULES suivent la même règle que leur parent : chacun a son module et sa garde, et

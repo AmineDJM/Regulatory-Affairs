@@ -5,7 +5,7 @@ import type { Prisma } from "@prisma/client";
 import { requireUser } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
-import { espaceRegulatory, synchroniserDossierDrive, NOM_ESPACE_REGULATORY } from "@/lib/regulatory/drive-dossier";
+import { espaceRegulatory, synchroniserDossierDrive, NOM_ESPACE_REGULATORY } from "@/lib/regulatory-drive-dossier";
 
 export interface ResultatRangementDrive {
   ok: boolean;

@@ -1,5 +1,7 @@
 import Link from "next/link";
+import { ShieldAlert } from "lucide-react";
 import { requireModule } from "@/lib/session";
+import { userCan } from "@/lib/rbac";
 import { getMyFieldReports, viewsAllReports, canViewFieldReportsOverview } from "@/lib/queries/field-reports";
 import { getAppSettings } from "@/lib/settings";
 import { PageHeader } from "@/components/shared/page-header";
@@ -29,6 +31,12 @@ export default async function FieldReportsPage() {
     <div className="space-y-6">
       <PageHeader title="Rapports terrain" description="Comptes rendus de visite — dictés à la voix ou saisis, avec médecin(s), établissement, spécialité et pièces jointes.">
         <NewReportButton />
+        {/* LE SECOND CHOIX DU KAM (Direction, 06/10) : un rapport de visite, OU un cas de pharmacovigilance pour Regulatory. */}
+        {userCan(user, "PHARMACOVIGILANCE", "CREATE") && (
+          <Link href="/field-reports/pharmacovigilance/nouveau" className="inline-flex items-center gap-2 rounded-md border border-warning/50 bg-warning/10 px-3 py-2 text-sm font-medium hover:bg-warning/20">
+            <ShieldAlert className="h-4 w-4" /> Signaler un cas de pharmacovigilance
+          </Link>
+        )}
       </PageHeader>
       <ModuleTabs tabs={tabs} />
 

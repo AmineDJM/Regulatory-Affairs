@@ -9,7 +9,7 @@ import { mimeFromName } from "@/lib/drive/mime-nom";
 import {
   ARBORESCENCE_DOSSIER, FICHIERS_MODELES, MODELE_COURRIER_RESERVES,
   cheminDrivePourDepot, cyclesDeLaFrise, nomDossierDrive,
-} from "./arborescence-dossier";
+} from "@/lib/regulatory/arborescence-dossier";
 
 /**
  * LE DOSSIER DRIVE D'UN PRODUIT, dans la catégorie « Regulatory » (Direction, 06/10).

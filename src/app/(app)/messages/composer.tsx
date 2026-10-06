@@ -15,6 +15,7 @@ import { envoiArborescenceDrive, dossierDuCheminDrive } from "@/components/drive
 import { lireDepot, FICHIER_PARASITE, type EntreeDepot } from "@/components/documents/envoi-document";
 import { preparerDepotMessagerie } from "@/lib/actions/messaging-actions";
 import { trashNode } from "@/lib/actions/drive-actions";
+import { cleParPersonne } from "@/lib/vue-exacte-ui";
 
 export interface UploadedAttachment {
   blobId: string;
@@ -108,7 +109,9 @@ export function Composer({ conversationId, members, selfId, replyTo, onCancelRep
   const fileRef = React.useRef<HTMLInputElement>(null);
   const folderRef = React.useRef<HTMLInputElement>(null);
   const lastPing = React.useRef(0);
-  const draftKey = `amd-msg-draft-${conversationId}`;
+  // Brouillon rangé par conversation ET par personne : une conversation entre l'administrateur et Leila a le
+  // même identifiant des deux côtés — en Vue exacte, Leila ne voit pas le brouillon de l'administrateur.
+  const draftKey = cleParPersonne(`amd-msg-draft-${conversationId}`, selfId);
   const { enqueue } = useBackgroundUpload();
   const limites = useLimitesEnvoi();
 

@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import type { Priority, DossierStatus } from "@prisma/client";
 import { requireUser } from "@/lib/session";
+import { enLecture } from "@/lib/vue-lecture";
 import { userCan, hasGlobalView, scopeDossiers, type SessionUser } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { getMyCompanies } from "@/lib/company";
@@ -160,7 +161,7 @@ export async function postDossierMessage(formData: FormData): Promise<ActionResu
 
 /** Liste des dossiers auxquels l'utilisateur peut rattacher quelque chose (non archivés). */
 export async function listLinkableDossiers(): Promise<{ id: string; reference: string; title: string }[]> {
-  const user = await requireUser();
+  const user = await enLecture(requireUser);
   if (!userCan(user, "DOSSIERS", "VIEW")) return [];
   return prisma.dossier.findMany({
     where: { AND: [scopeDossiers(user), { status: { not: "ARCHIVED" } }] },

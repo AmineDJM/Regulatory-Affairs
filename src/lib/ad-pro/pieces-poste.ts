@@ -9,7 +9,7 @@ import { etapeDEnsemble } from "@/lib/ad-pro/devis-poste";
 import { fichiersEmis } from "@/lib/lecteurs/fichiers-emis";
 import type { EtatDemandeBC } from "@/lib/ad-pro/poste-etapes";
 import { ETAPE_COPIE_SIGNEE, controleFactureDe, phraseVerdictSignature, verdictSignatureDe, type ControleFacture } from "@/lib/bons-de-commande/copie-signee";
-import { pieceEmise, specRevisable, type SpecRevisable } from "@/lib/legal/piece-emise";
+
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
@@ -71,6 +71,20 @@ export interface PieceDePoste {
   controle: ControleFacture | null;
 }
 
+/**
+ * CE QUE L'ÉDITEUR NATIF D'UN BC REPREND — la même forme que `SpecRevisable` (`legal/piece-emise.ts`), écrite ici parce
+ * qu'un domaine n'importe pas un autre, même pour un type (`platform/domains.ts`). La façade (`queries/ad-pro-items.ts`)
+ * la remplit avec `specRevisable` ; le compilateur vérifie que les deux formes coïncident.
+ */
+export interface RevisionBcSpec {
+  lignes: { designation: string; details: string[]; quantite: number; prixUnitaire: number; remise: number | null; tva: number | null; section: boolean }[];
+  objet: string | null;
+  notes: string | null;
+  validiteJours: number | null;
+  livraison: { adresse: string | null; delai: string | null } | null;
+  contact: { nom: string | null; telephone: string | null } | null;
+}
+
 /** Un bon de commande du poste : sa pièce, et OÙ IL EN EST (circuit des centres et des Finances). */
 export type BcDePoste = PieceDePoste & {
   etape: EtapeBC | null;
@@ -80,7 +94,7 @@ export type BcDePoste = PieceDePoste & {
    */
   copieSignee: { documentId: string; signataire: string | null; constat: string | null } | null;
   /** Ce que l'éditeur natif reprend (version, lignes, objet…) — `null` si la pièce n'est pas de la fabrique ou ne se modifie plus. */
-  revision: { version: number; numero: string; spec: SpecRevisable } | null;
+  revision: { version: number; numero: string; spec: RevisionBcSpec } | null;
 };
 
 /**
@@ -162,12 +176,10 @@ export async function piecesDesPostes(itemIds: readonly string[]): Promise<Map<s
     else {
       const copie = d.signedAt ? copieSignee.get(d.id) ?? null : null;
       const verdict = verdictSignatureDe(d.signatureCheck);
-      const emise = pieceEmise(d.custom);
-      const spec = !annulee && !d.signedAt ? specRevisable(d.custom) : null;
       const bc: BcDePoste = {
         ...piece, etape: annulee ? null : etats.get(d.id)?.etape ?? null,
         copieSignee: copie ? { documentId: copie, signataire: d.signedByName, constat: verdict ? phraseVerdictSignature(verdict) : null } : null,
-        revision: emise && spec ? { version: emise.version, numero: emise.numero, spec } : null,
+        revision: null,
       };
       if (!annulee) p.bcs.push(bc);
       // Sans BC vivant, le plus récent annulé : la case dit « annulé » au lieu de se taire.

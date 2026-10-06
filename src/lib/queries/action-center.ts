@@ -876,6 +876,23 @@ export async function getActionCenter(user: SessionUser) {
     }
   }
 
+  // 6h. Demandes de stocks à renseigner (KAM destinataire — Direction, 06/10). Le fait qui
+  //     l'ouvre est d'être DESTINATAIRE d'une demande ouverte, pas un module : une seule vue par
+  //     demande, qui sort d'ici à l'envoi ou à la clôture.
+  const demandesStocks = await prisma.stockCountRequestRecipient.findMany({
+    where: { kamId: user.id, submittedAt: null, request: { status: "OUVERTE" } },
+    select: { createdAt: true, request: { select: { id: true, title: true, dueDate: true, createdBy: { select: { name: true } } } } },
+    orderBy: { createdAt: "desc" }, take: 20,
+  });
+  for (const r of demandesStocks) {
+    items.push({
+      key: `stk-${r.request.id}`, objet: `STOCK_COUNT_REQUEST:${r.request.id}`, title: r.request.title, subtitle: "Demande de stocks",
+      module: "Stocks", href: `/stocks/demandes/${r.request.id}`, kind: "request", priority: "HIGH",
+      deadline: r.request.dueDate?.toISOString() ?? null, depuis: r.createdAt.toISOString(), owner: r.request.createdBy?.name ?? "",
+      statusLabel: "À renseigner", statusTone: "warning",
+    });
+  }
+
   // 7. Notifications non lues
   let notifications: ActionNotification[] = [];
   if (userCan(user, "NOTIFICATIONS", "VIEW")) {

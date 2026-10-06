@@ -5,9 +5,12 @@ import { putBlob } from "@/lib/drive-storage";
 import { notifyUser } from "@/lib/notify";
 import { recordAudit } from "@/lib/audit";
 import { docxToPdf } from "@/lib/payslip/to-pdf";
-import { nomOrdreMission, refusOrdreMission, remplirOrdreDeMission, type ChampsOrdreMission } from "./modele";
+import { nomOrdreMission, refusOrdreMission, remplirOrdreDeMission, type ChampsOrdreMission } from "@/lib/hr/ordre-mission/modele";
 
 /**
+ * HORS DU DOMAINE RH, À DESSEIN (comme hr-drive-mirror.ts) : c'est l'orchestration qui touche au stockage (drive-storage)
+ * — le domaine garde le modèle et ses règles (hr/ordre-mission/modele.ts), sans fournisseur.
+ *
  * L'ORDRE DE MISSION GÉNÉRÉ ET REMIS AU SALARIÉ (Direction, 06/10) — côté serveur : lire le modèle, le remplir, et le déposer comme la pièce qui RÉPOND à la demande (même chemin que « Joindre le document & marquer prêt ») :
  * le PDF, visible du salarié (le Word reste aux RH) ; la demande passe « prête », le salarié est
  * prévenu.
